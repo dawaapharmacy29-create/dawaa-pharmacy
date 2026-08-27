@@ -1,0 +1,107 @@
+name: Temp RolesPermissions Canonicalize
+
+on:
+  push:
+    branches: [arch/roles-permissions-staff-boundary-v3]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: arch/roles-permissions-staff-boundary-v3
+          fetch-depth: 0
+
+      - name: Apply canonical staff-directory patch
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          page = Path('src/pages/RolesPermissions.tsx')
+          s = page.read_text(encoding='utf-8')
+          s = s.replace("import { useSupabaseQuery } from '@/hooks/useSupabaseQuery';\n", "import { useStaffDirectory } from '@/hooks/useStaffDirectory';\n")
+          s = s.replace("import { isActiveStaffFilter } from '@/lib/staffActiveFilter';\n", "")
+
+          old = """  const { data: staffList } = useSupabaseQuery<StaffMember>({
+    table: TABLES.staff,
+    filters: isActiveStaffFilter(),
+    orderBy: { column: 'name', ascending: true },
+  });
+"""
+          new = """  const { data: staffDirectory = [] } = useStaffDirectory();
+  const staffList = useMemo<StaffMember[]>(() => {
+    const byId = new Map<string, StaffMember>();
+    for (const identity of staffDirectory) {
+      if (!identity.id || identity.source === 'alias' || identity.active === false) continue;
+      const item: StaffMember = {
+        id: identity.id,
+        name: identity.name || '',
+        role: identity.role || '',
+        branch: identity.branch || '',
+        status: identity.status || undefined,
+      };
+      const existing = byId.get(identity.id);
+      if (!existing || identity.source === 'staff') byId.set(identity.id, item);
+    }
+    return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+  }, [staffDirectory]);
+"""
+          if old not in s:
+              raise SystemExit('RolesPermissions staff read block not found')
+          s = s.replace(old, new, 1)
+          page.write_text(s, encoding='utf-8')
+
+          guard = Path('scripts/check-data-access-boundaries.cjs')
+          g = guard.read_text(encoding='utf-8')
+          needle = """function hasDirectAccess(content, table) {
+  return countDirectAccess(content, table) > 0;
+}
+"""
+          replacement = """function hasDirectAccess(content, table) {
+  return countDirectAccess(content, table) > 0;
+}
+
+function hasTableConstantQueryAccess(content, tableConstant) {
+  const pattern = new RegExp(`table\\\\s*:\\s*TABLES\\\\.${tableConstant}\\\\b`);
+  return pattern.test(content);
+}
+"""
+          if needle not in g:
+              raise SystemExit('architecture helper insertion point not found')
+          g = g.replace(needle, replacement, 1)
+          old_check = """  if (hasDirectAccess(content, 'staff')) {
+    if (LEGACY_DIRECT_STAFF_UI_READERS.has(relative)) presentStaffUiLegacy.push(relative);
+    else staffUiOffenders.push(relative);
+  }
+"""
+          new_check = """  if (hasDirectAccess(content, 'staff') || hasTableConstantQueryAccess(content, 'staff')) {
+    if (LEGACY_DIRECT_STAFF_UI_READERS.has(relative)) presentStaffUiLegacy.push(relative);
+    else staffUiOffenders.push(relative);
+  }
+"""
+          if old_check not in g:
+              raise SystemExit('staff architecture check block not found')
+          g = g.replace(old_check, new_check, 1)
+          guard.write_text(g, encoding='utf-8')
+          PY
+
+      - name: Verify targeted architecture
+        run: |
+          node scripts/check-data-access-boundaries.cjs
+          npm ci --legacy-peer-deps --no-audit --no-fund
+          npm run typecheck
+
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/pages/RolesPermissions.tsx scripts/check-data-access-boundaries.cjs
+          git commit -m "refactor: route roles permissions through staff directory"
+          git push origin HEAD:arch/roles-permissions-staff-boundary-v3
