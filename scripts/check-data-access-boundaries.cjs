@@ -19,7 +19,6 @@ const APPROVED_INVOICE_BOUNDARIES = new Set([
 // `table: TABLES.staff`. Keep the full baseline explicit so new debt fails CI, and
 // remove each entry in the same PR that migrates that page to useStaffDirectory/read models.
 const LEGACY_DIRECT_STAFF_UI_READERS = new Set([
-  'src/pages/DoctorPerformancePillars.tsx',
   'src/pages/PenaltyIncentiveManagement.tsx',
   'src/pages/RolesPermissions.tsx',
   'src/pages/StaffAccounts.tsx',
