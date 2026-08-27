@@ -70,13 +70,20 @@ export async function fetchWeeklyAutoMetricsFast(
   weekStart: string,
   weekEnd: string
 ): Promise<WeeklyAutoMetrics> {
+  // Monthly branch/customer-service evaluations aggregate a full 26→25 cycle across
+  // several large operational sources. Rebuilding that snapshot every five minutes
+  // can overlap current + previous cycle requests and exceed Postgres statement_timeout.
+  // Keep those cycle snapshots for one day; the weekly branches-manager path remains
+  // much fresher because it covers a shorter period and is cheaper to rebuild.
+  const maxAgeSeconds = evaluationType === 'branches_manager' ? 30 * 60 : 24 * 60 * 60;
+
   const { data, error } = await supabase.rpc('get_weekly_manager_metrics_fast_v1', {
     p_actor_id: actorId,
     p_evaluation_type: evaluationType,
     p_branch: branch,
     p_week_start: weekStart,
     p_week_end: weekEnd,
-    p_max_age_seconds: 300,
+    p_max_age_seconds: maxAgeSeconds,
   });
   if (error) throw new Error(error.message);
   return (data || {}) as WeeklyAutoMetrics;
