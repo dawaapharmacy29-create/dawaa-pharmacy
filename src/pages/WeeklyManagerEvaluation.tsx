@@ -39,9 +39,32 @@ function scoreTone(score: number) {
   return 'text-red-300';
 }
 
+function formatDate(d: Date) {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function incentiveCycleBounds(date: Date) {
+  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const start = d.getDate() >= 26
+    ? new Date(d.getFullYear(), d.getMonth(), 26)
+    : new Date(d.getFullYear(), d.getMonth() - 1, 26);
+  const end = new Date(start.getFullYear(), start.getMonth() + 1, 25);
+  return { start: formatDate(start), end: formatDate(end) };
+}
+
+function previousIncentiveCycle(periodStart: string) {
+  const start = new Date(`${periodStart}T12:00:00`);
+  const previousAnchor = new Date(start.getFullYear(), start.getMonth() - 1, 26);
+  return incentiveCycleBounds(previousAnchor);
+}
+
 export default function WeeklyManagerEvaluation() {
   const { type } = useParams<{ type: EvaluationType }>();
   const evaluationType = (type && EVALUATION_CRITERIA[type as EvaluationType] ? type : 'branch_manager') as EvaluationType;
+  const isMonthlyIncentiveEvaluation = evaluationType === 'branch_manager' || evaluationType === 'customer_service';
   const { user } = useAuth();
   const evaluatorRole = normalizeRole(user?.role);
   const canEvaluate = EVALUATOR_ROLES_BY_TYPE[evaluationType].includes(evaluatorRole);
@@ -55,9 +78,18 @@ export default function WeeklyManagerEvaluation() {
     [subjectChoices, subjectStaffId]
   );
 
-  const [weekStart, setWeekStart] = useState(() => weekBoundsOf(new Date()).start);
+  const [periodStart, setPeriodStart] = useState(() =>
+    isMonthlyIncentiveEvaluation ? incentiveCycleBounds(new Date()).start : weekBoundsOf(new Date()).start
+  );
   const [selectedBranch, setSelectedBranch] = useState<'فرع شكري' | 'فرع الشامي'>('فرع شكري');
-  const weekEnd = useMemo(() => weekBoundsOf(new Date(weekStart)).end, [weekStart]);
+  const periodEnd = useMemo(() => {
+    if (isMonthlyIncentiveEvaluation) return incentiveCycleBounds(new Date(`${periodStart}T12:00:00`)).end;
+    return weekBoundsOf(new Date(`${periodStart}T12:00:00`)).end;
+  }, [isMonthlyIncentiveEvaluation, periodStart]);
+
+  useEffect(() => {
+    setPeriodStart(isMonthlyIncentiveEvaluation ? incentiveCycleBounds(new Date()).start : weekBoundsOf(new Date()).start);
+  }, [isMonthlyIncentiveEvaluation, evaluationType]);
 
   const [currentMetrics, setCurrentMetrics] = useState<WeeklyAutoMetrics | null>(null);
   const [previousMetrics, setPreviousMetrics] = useState<WeeklyAutoMetrics | null>(null);
@@ -96,12 +128,14 @@ export default function WeeklyManagerEvaluation() {
     setError('');
     setCurrentMetrics(null);
     setPreviousMetrics(null);
-    const prev = previousWeekOf(weekStart);
+    const previous = isMonthlyIncentiveEvaluation
+      ? previousIncentiveCycle(periodStart)
+      : previousWeekOf(periodStart);
 
     Promise.all([
-      fetchWeeklyAutoMetricsFast(String(user.id), evaluationType, branchForMetrics, weekStart, weekEnd),
-      fetchWeeklyAutoMetricsFast(String(user.id), evaluationType, branchForMetrics, prev.start, prev.end),
-      fetchWeeklyChecklistCompletion(subjectStaffId, weekStart, weekEnd, branchForMetrics),
+      fetchWeeklyAutoMetricsFast(String(user.id), evaluationType, branchForMetrics, periodStart, periodEnd),
+      fetchWeeklyAutoMetricsFast(String(user.id), evaluationType, branchForMetrics, previous.start, previous.end),
+      fetchWeeklyChecklistCompletion(subjectStaffId, periodStart, periodEnd, branchForMetrics),
     ])
       .then(([cur, prevMetrics, checklist]) => {
         if (cancelled) return;
@@ -125,7 +159,7 @@ export default function WeeklyManagerEvaluation() {
       });
 
     return () => { cancelled = true; };
-  }, [subjectStaffId, weekStart, weekEnd, evaluationType, branchForMetrics, user?.id]);
+  }, [subjectStaffId, periodStart, periodEnd, evaluationType, branchForMetrics, user?.id, isMonthlyIncentiveEvaluation]);
 
   const criteria = EVALUATION_CRITERIA[evaluationType];
   const totalScore = useMemo(() => {
@@ -154,8 +188,8 @@ export default function WeeklyManagerEvaluation() {
         branch: branchForMetrics,
         evaluator_staff_id: evaluatorStaffId || null,
         evaluator_name: user?.name || null,
-        week_start: weekStart,
-        week_end: weekEnd,
+        week_start: periodStart,
+        week_end: periodEnd,
         auto_metrics: currentMetrics,
         manual_scores: {},
         manual_note: note || null,
@@ -165,7 +199,12 @@ export default function WeeklyManagerEvaluation() {
       await saveWeeklyEvaluation(payload);
       window.dispatchEvent(
         new CustomEvent('toast', {
-          detail: { type: 'success', message: status === 'submitted' ? 'تم اعتماد التقييم' : 'تم حفظ المسودة' },
+          detail: {
+            type: 'success',
+            message: status === 'submitted'
+              ? (isMonthlyIncentiveEvaluation ? 'تم اعتماد تقييم دورة الحافز الشهرية' : 'تم اعتماد التقييم')
+              : 'تم حفظ المسودة',
+          },
         })
       );
       const hist = await fetchEvaluationHistory(evaluationType, subjectStaffId, branchForMetrics);
@@ -190,8 +229,15 @@ export default function WeeklyManagerEvaluation() {
       <div className="flex items-center gap-3">
         <ClipboardList className="h-6 w-6 text-teal-300" />
         <div>
-          <h1 className="text-xl font-black text-white">{EVALUATION_TYPE_LABELS[evaluationType]}</h1>
-          <p className="text-sm text-slate-400">نموذج أسبوعي موضوعي: كل بند محسوب من بيانات التطبيق أو مهمة موثقة، بدون درجات رأي شخصي.</p>
+          <h1 className="text-xl font-black text-white">
+            {EVALUATION_TYPE_LABELS[evaluationType]}
+            {isMonthlyIncentiveEvaluation ? ' — تقييم شهري للحافز' : ''}
+          </h1>
+          <p className="text-sm text-slate-400">
+            {isMonthlyIncentiveEvaluation
+              ? 'تقييم واحد معتمد لكل دورة 26→25. الدرجة مبنية على بيانات التطبيق والمهام الموثقة خلال الدورة، وهي مصدر حافز الأداء الشهري.'
+              : 'نموذج أسبوعي موضوعي: كل بند محسوب من بيانات التطبيق أو مهمة موثقة، بدون درجات رأي شخصي.'}
+          </p>
         </div>
       </div>
 
@@ -199,7 +245,7 @@ export default function WeeklyManagerEvaluation() {
         <select className="input-dark" value={subjectStaffId} onChange={(e) => setSubjectStaffId(e.target.value)} disabled={subjectsLoading}>
           <option value="">{subjectsLoading ? 'جارٍ تحميل الأشخاص...' : 'اختر الشخص المُقيَّم'}</option>
           {subjectChoices.map((s) => (
-            <option key={s.id} value={s.id}>{s.name}</option>
+            <option key={s.id} value={s.id}>{s.name} {s.branch ? `— ${s.branch}` : ''}</option>
           ))}
         </select>
         {evaluationType === 'branches_manager' && (
@@ -208,12 +254,22 @@ export default function WeeklyManagerEvaluation() {
             <option value="فرع الشامي">تقييم فرع الشامي</option>
           </select>
         )}
-        <input type="date" className="input-dark" value={weekStart} onChange={(e) => setWeekStart(weekBoundsOf(new Date(e.target.value)).start)} />
-        <span className="flex items-center text-xs text-slate-400">الأسبوع: {weekStart} إلى {weekEnd}</span>
+        <input
+          type="date"
+          className="input-dark"
+          value={periodStart}
+          onChange={(e) => {
+            const chosen = new Date(`${e.target.value}T12:00:00`);
+            setPeriodStart(isMonthlyIncentiveEvaluation ? incentiveCycleBounds(chosen).start : weekBoundsOf(chosen).start);
+          }}
+        />
+        <span className="flex items-center text-xs text-slate-400">
+          {isMonthlyIncentiveEvaluation ? 'دورة الحافز' : 'الأسبوع'}: {periodStart} إلى {periodEnd}
+        </span>
       </div>
 
       {!subjectsLoading && subjectChoices.length === 0 && <p className="text-sm text-amber-300">لا يوجد مدير نشط وصالح للتقييم في هذا المسار.</p>}
-      {loading && <p className="text-sm text-slate-400">جارٍ تحميل التقييم السريع...</p>}
+      {loading && <p className="text-sm text-slate-400">جارٍ تحميل بيانات التقييم...</p>}
       {error && <p className="text-sm text-red-300">{error}</p>}
 
       {currentMetrics && !loading && (
@@ -222,11 +278,12 @@ export default function WeeklyManagerEvaluation() {
             <div>
               <div className="text-sm text-slate-400">الدرجة الكلية</div>
               <div className={`text-4xl font-black ${scoreTone(totalScore)}`}>
-                {totalScore}
-                <span className="text-lg text-slate-500"> / 100</span>
+                {totalScore}<span className="text-lg text-slate-500"> / 100</span>
               </div>
             </div>
-            <span className={availableCriteriaPercent >= 80 ? 'text-xs text-emerald-300' : 'text-xs text-amber-300'}>{availableCriteriaPercent}% من أوزان البنود لها بيانات موثقة</span>
+            <span className={availableCriteriaPercent >= 80 ? 'text-xs text-emerald-300' : 'text-xs text-amber-300'}>
+              {availableCriteriaPercent}% من أوزان البنود لها بيانات موثقة
+            </span>
           </div>
 
           <ManagerLiveIncentiveCard evaluationType={evaluationType} staffId={subjectStaffId} branch={branchForMetrics} />
@@ -247,7 +304,12 @@ export default function WeeklyManagerEvaluation() {
                 <div key={criterion.key} className="stat-card space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="font-black text-white">{criterion.label}</span>
-                    <span className="text-xs font-bold text-slate-400">وزن {Math.round(criterion.weight * 100)}%{hasData && weighted && Math.abs(weighted.effectiveWeight - criterion.weight) > 0.001 ? ` ← فعلي ${Math.round(weighted.effectiveWeight * 100)}%` : ''}</span>
+                    <span className="text-xs font-bold text-slate-400">
+                      وزن {Math.round(criterion.weight * 100)}%
+                      {hasData && weighted && Math.abs(weighted.effectiveWeight - criterion.weight) > 0.001
+                        ? ` ← فعلي ${Math.round(weighted.effectiveWeight * 100)}%`
+                        : ''}
+                    </span>
                   </div>
                   {criterion.hint && <p className="text-xs text-slate-500">{criterion.hint}</p>}
                   {criterion.sourceRoute && (
@@ -257,20 +319,28 @@ export default function WeeklyManagerEvaluation() {
                   )}
                   {criterion.mode === 'auto' && (
                     <div className="flex items-center gap-2">
-                      {!hasData ? <span className="rounded-full border border-amber-500/20 bg-amber-950/20 px-2 py-1 text-xs font-bold text-amber-300">مستبعد لعدم اكتمال المصدر — لا صفر ولا درجة افتراضية</span> : <>
-                        <span className={`text-2xl font-black ${scoreTone((autoScore || 0) * 10)}`}>{(autoScore || 0).toFixed(1)} / 10</span>
-                        {previousMetrics && (
-                          <span className="flex items-center gap-1 text-xs text-slate-400">
-                            {(autoScore || 0) >= 5 ? <TrendingUp className="h-3 w-3 text-emerald-400" /> : <TrendingDown className="h-3 w-3 text-red-400" />}
-                          </span>
-                        )}
-                      </>}
+                      {!hasData ? (
+                        <span className="rounded-full border border-amber-500/20 bg-amber-950/20 px-2 py-1 text-xs font-bold text-amber-300">
+                          مستبعد لعدم اكتمال المصدر — لا صفر ولا درجة افتراضية
+                        </span>
+                      ) : (
+                        <>
+                          <span className={`text-2xl font-black ${scoreTone((autoScore || 0) * 10)}`}>{(autoScore || 0).toFixed(1)} / 10</span>
+                          {previousMetrics && (
+                            <span className="flex items-center gap-1 text-xs text-slate-400">
+                              {(autoScore || 0) >= 5 ? <TrendingUp className="h-3 w-3 text-emerald-400" /> : <TrendingDown className="h-3 w-3 text-red-400" />}
+                            </span>
+                          )}
+                        </>
+                      )}
                     </div>
                   )}
                   {criterion.mode === 'checklist' && (
                     <div className="flex items-center gap-2">
                       <span className={`text-2xl font-black ${scoreTone((checklistScore || 0) * 10)}`}>{(checklistScore || 0).toFixed(1)} / 10</span>
-                      <span className="text-xs text-slate-500">({(checklistKeys.length ? checklistKeys.reduce((sum, k) => sum + (checklistRates[k] ?? 0), 0) / checklistKeys.length : 0).toFixed(0)}% من أيام الأسبوع مسجّلة كمكتملة في المهام اليومية)</span>
+                      <span className="text-xs text-slate-500">
+                        ({(checklistKeys.length ? checklistKeys.reduce((sum, k) => sum + (checklistRates[k] ?? 0), 0) / checklistKeys.length : 0).toFixed(0)}% من المهام المطلوبة خلال {isMonthlyIncentiveEvaluation ? 'الدورة' : 'الأسبوع'})
+                      </span>
                     </div>
                   )}
                 </div>
@@ -279,7 +349,7 @@ export default function WeeklyManagerEvaluation() {
           </div>
 
           <div className="stat-card space-y-2">
-            <div className="text-sm text-slate-400">أرقام مرجعية للأسبوع</div>
+            <div className="text-sm text-slate-400">أرقام مرجعية لـ{isMonthlyIncentiveEvaluation ? 'لدورة' : 'لأسبوع'}</div>
             <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
               <div><span className="text-slate-500">المبيعات: </span><span className="font-bold text-white">{currentMetrics.sales_total.toLocaleString('ar-EG')} ج.م</span></div>
               <div><span className="text-slate-500">متابعات: </span><span className="font-bold text-white">{currentMetrics.followups_total}</span></div>
@@ -295,7 +365,7 @@ export default function WeeklyManagerEvaluation() {
 
           <div className="stat-card space-y-2">
             <label className="text-sm font-bold text-white">ملاحظة إدارية (للتوثيق فقط — لا تغيّر الدرجة أو الحافز)</label>
-            <textarea className="input-dark w-full min-h-[100px]" placeholder="اكتب سياقًا أو إجراءً تصحيحيًا؛ الدرجة تظل محسوبة تلقائيًا..." value={note} onChange={(e) => setNote(e.target.value)} />
+            <textarea className="input-dark min-h-[100px] w-full" placeholder="اكتب سياقًا أو إجراءً تصحيحيًا؛ الدرجة تظل محسوبة تلقائيًا..." value={note} onChange={(e) => setNote(e.target.value)} />
           </div>
 
           <div className="flex gap-2">
@@ -303,7 +373,7 @@ export default function WeeklyManagerEvaluation() {
               <Save className="h-4 w-4" /> حفظ كمسودة
             </button>
             <button type="button" disabled={saving} onClick={() => handleSave('submitted')} className="flex items-center gap-2 rounded-xl bg-teal-500 px-5 py-2 font-black text-slate-950 disabled:opacity-50">
-              <Send className="h-4 w-4" /> اعتماد التقييم
+              <Send className="h-4 w-4" /> {isMonthlyIncentiveEvaluation ? 'اعتماد تقييم الدورة' : 'اعتماد التقييم'}
             </button>
           </div>
 
