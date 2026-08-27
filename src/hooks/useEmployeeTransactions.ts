@@ -8,10 +8,16 @@ type EmployeeTransactionQueryOptions = {
   startDate?: string;
   endDate?: string;
   realtimeEnabled?: boolean;
+  limit?: number;
 };
 
 function isoDate(date: Date) {
   return date.toISOString().slice(0, 10);
+}
+
+function normalizeLimit(limit?: number) {
+  if (!Number.isFinite(limit) || Number(limit) <= 0) return null;
+  return Math.min(2500, Math.max(1, Math.trunc(Number(limit))));
 }
 
 export function useEmployeeTransactions<T>(options: EmployeeTransactionQueryOptions = {}) {
@@ -20,6 +26,7 @@ export function useEmployeeTransactions<T>(options: EmployeeTransactionQueryOpti
   const startDate = options.startDate || isoDate(cycle.start);
   const endDate = options.endDate || isoDate(cycle.end);
   const realtimeEnabled = options.realtimeEnabled !== false;
+  const limit = normalizeLimit(options.limit);
   const queryKey = ['employee-transactions-cycle', startDate, endDate] as const;
 
   const query = useQuery<T[], Error>({
@@ -57,8 +64,10 @@ export function useEmployeeTransactions<T>(options: EmployeeTransactionQueryOpti
     };
   }, [endDate, queryClient, realtimeEnabled, startDate]);
 
+  const data = query.data || [];
+
   return {
-    data: query.data || [],
+    data: limit ? data.slice(0, limit) : data,
     loading: query.isLoading,
     error: query.error?.message || null,
     refetch: () => queryClient.invalidateQueries({ queryKey }),
