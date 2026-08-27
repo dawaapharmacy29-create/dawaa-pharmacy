@@ -13,11 +13,13 @@ import {
 } from '@/lib/incentives/compositeScoreService';
 
 const PILLAR_COLORS: Record<string, string> = {
-  sales: 'from-teal-400 to-teal-600',
-  conversations: 'from-sky-400 to-sky-600',
-  customer_service: 'from-amber-400 to-amber-600',
-  data_quality: 'from-purple-400 to-purple-600',
   discipline: 'from-rose-400 to-rose-600',
+  conversations: 'from-sky-400 to-sky-600',
+  dispensing: 'from-cyan-400 to-cyan-600',
+  followups_requests: 'from-amber-400 to-amber-600',
+  sales_quality: 'from-teal-400 to-teal-600',
+  inventory: 'from-violet-400 to-violet-600',
+  development: 'from-emerald-400 to-emerald-600',
 };
 
 function scoreTone(score: number) {
@@ -88,7 +90,7 @@ export default function DoctorPerformancePillars() {
         <Gauge className="h-6 w-6 text-teal-300" />
         <div>
           <h1 className="text-xl font-black text-white">الدرجة المركّبة للأداء</h1>
-          <p className="text-sm text-slate-400">توزيع أدائك على 5 محاور موزونة بدل رقم واحد مبهم.</p>
+          <p className="text-sm text-slate-400">توزيع الأداء حسب محاور التقييم الرسمية V3 الخاصة بدور الموظف.</p>
         </div>
       </div>
 
@@ -128,7 +130,7 @@ export default function DoctorPerformancePillars() {
               </div>
             </div>
             <div className="text-xs text-slate-500">
-              مبني على {result.transactionCount} معاملة نقاط خلال الدورة
+              مبني على {result.transactionCount} معاملة نقاط خلال الدورة · Profile {result.profileRole}
             </div>
           </div>
 
@@ -141,7 +143,7 @@ export default function DoctorPerformancePillars() {
                 </div>
                 <div className="h-2.5 w-full overflow-hidden rounded-full bg-white/10">
                   <div
-                    className={`h-full rounded-full bg-gradient-to-r ${PILLAR_COLORS[pillar.key]}`}
+                    className={`h-full rounded-full bg-gradient-to-r ${PILLAR_COLORS[pillar.key] || 'from-slate-400 to-slate-600'}`}
                     style={{ width: `${pillar.subScore}%` }}
                   />
                 </div>
@@ -164,7 +166,7 @@ export default function DoctorPerformancePillars() {
           {result.unmappedPointsDelta !== 0 && (
             <p className="text-xs text-slate-500">
               ملاحظة: {result.unmappedPointsDelta >= 0 ? '+' : ''}
-              {result.unmappedPointsDelta} نقطة من معاملات غير مربوطة بكود قاعدة معروف، مش داخلة في حساب المحاور.
+              {result.unmappedPointsDelta} نقطة من معاملات تاريخية غير مربوطة بمحور V3 واضح، لا تدخل في الدرجة المركّبة حتى يتم تصنيفها صراحة.
             </p>
           )}
         </>

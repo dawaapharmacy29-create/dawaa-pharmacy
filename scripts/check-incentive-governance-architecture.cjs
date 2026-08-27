@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const migrationPath = 'supabase/migrations/20260824010000_align_incentive_governance_permission_contract_v1.sql';
 const permissionPath = 'src/lib/core/permissionSystem.ts';
 const sidebarPath = 'src/components/layout/SidebarBase.tsx';
+const compositeScorePath = 'src/lib/incentives/compositeScoreService.ts';
 const failures = [];
 const warnings = [];
 
@@ -63,6 +64,21 @@ if (!sidebarIsCanonical && !sidebarIsKnownLegacy) {
   warnings.push(`${sidebarPath}: incentive governance item still uses manage_payroll; migrate to manage_incentives with a safe patch.`);
 }
 
+// V3 is the only active source of evaluation weights. Legacy ruleDefinitions may remain
+// for historical rule/category decoding, but runtime score services must not import the
+// old PERFORMANCE_PILLARS weight table again.
+if (!fs.existsSync(compositeScorePath)) {
+  failures.push(`Missing composite score service: ${compositeScorePath}`);
+} else {
+  const composite = fs.readFileSync(compositeScorePath, 'utf8');
+  if (/\bPERFORMANCE_PILLARS\b/.test(composite)) {
+    failures.push('Composite score service must derive weights from staffEvaluationProfilesV3, not legacy PERFORMANCE_PILLARS.');
+  }
+  if (!/evaluationProfileForRole/.test(composite) || !/staffEvaluationProfilesV3/.test(composite)) {
+    failures.push('Composite score service must use the canonical V3 role evaluation profile.');
+  }
+}
+
 if (warnings.length) {
   console.log('[incentive-governance] known UI alignment debt:');
   warnings.forEach((warning) => console.log(`- ${warning}`));
@@ -72,4 +88,4 @@ if (failures.length) {
   failures.forEach((failure) => console.error(`- ${failure}`));
   process.exit(1);
 }
-console.log('[incentive-governance] PASS: DB governance uses canonical incentive permissions and UI debt did not expand.');
+console.log('[incentive-governance] PASS: DB governance uses canonical incentive permissions and V3 is the only active performance-weight source.');
