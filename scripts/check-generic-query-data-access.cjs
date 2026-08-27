@@ -24,11 +24,9 @@ const LEGACY_LITERAL_STAFF_UI_READERS = new Set([
 // rebuilding financial truth in pages.
 const LEGACY_GENERIC_EMPLOYEE_TRANSACTION_UI_READERS = new Set([
   'src/pages/Delivery.tsx',
-  'src/pages/DoctorDashboardStable.tsx',
   'src/pages/PenaltyIncentiveManagement.tsx',
   'src/pages/PointAppeals.tsx',
   'src/pages/Points.tsx',
-  'src/pages/Reviews.tsx',
 ]);
 
 function walk(dir) {
