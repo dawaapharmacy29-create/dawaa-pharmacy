@@ -9,7 +9,6 @@ const LEGACY_LITERAL_STAFF_UI_READERS = new Set([
   'src/pages/Delivery.tsx',
   'src/pages/IncentiveMedicines.tsx',
   'src/pages/OperationalModule.tsx',
-  'src/pages/OperationsCenter2027.tsx',
   'src/pages/Points.tsx',
   'src/pages/Reviews.tsx',
   'src/pages/Schedule.tsx',
