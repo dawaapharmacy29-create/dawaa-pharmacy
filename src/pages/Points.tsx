@@ -180,8 +180,6 @@ export default function Points() {
     loading: recLoading,
     refetch: refetchRecords,
   } = useEmployeeTransactions<PointRecord>({
-    startDate: cycle.startDate,
-    endDate: cycle.endDate,
     realtimeEnabled: true,
   });
 
