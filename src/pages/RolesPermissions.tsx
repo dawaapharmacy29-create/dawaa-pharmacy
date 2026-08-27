@@ -2,10 +2,9 @@ import { useMemo, useState } from 'react';
 import { ShieldCheck, RefreshCw, UserRound, Save, ChevronDown, ChevronUp, ShieldAlert, Download, History, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
-import { useSupabaseQuery } from '@/hooks/useSupabaseQuery';
+import { useStaffDirectory } from '@/hooks/useStaffDirectory';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth, getSafeCurrentUserId } from '@/hooks/useAuth';
-import { isActiveStaffFilter } from '@/lib/staffActiveFilter';
 import { TABLES } from '@/lib/supabaseTables';
 import { listStaffAccountsSafe, type SafeStaffAccountRow } from '@/lib/staff/staffAccountsApi';
 import { upsertUserPermission } from '@/services/permissionService';
@@ -16,7 +15,6 @@ import {
   mergePermissions,
   normalizeRole,
   isAdminRole,
-  hasPermission,
   getRoleLabel,
   ALL_PERMISSION_KEYS,
   type RoleKey,
@@ -71,18 +69,27 @@ export default function RolesPermissions() {
     staleTime: 30_000,
   });
 
-  const { data: staffList } = useSupabaseQuery<StaffMember>({
-    table: TABLES.staff,
-    filters: isActiveStaffFilter(),
-    orderBy: { column: 'name', ascending: true },
-  });
+  const { data: staffDirectory = [] } = useStaffDirectory();
+  const staffList = useMemo<StaffMember[]>(
+    () =>
+      staffDirectory.flatMap((item) => {
+        if (item.source === 'alias' || !item.active || !item.id || !item.name) return [];
+        return [{
+          id: item.id,
+          name: item.name,
+          role: item.role || '',
+          branch: item.branch || '',
+          status: item.status || undefined,
+        }];
+      }),
+    [staffDirectory]
+  );
 
   const selectedAccount = useMemo(
     () => staffAccounts.find((a) => a.id === selectedAccountId) || null,
     [staffAccounts, selectedAccountId]
   );
 
-  // Effective permissions = role defaults + custom overrides + pending changes
   const effectivePermissions = useMemo(() => {
     if (!selectedAccount) return {};
     const roleDefaults = getDefaultPermissionsForRole(selectedAccount.role || 'assistant');
@@ -111,7 +118,7 @@ export default function RolesPermissions() {
   }, [selectedAccount, suggestedRolePermissions, effectivePermissions]);
 
   const permissionAudit = useMemo(() => {
-    const staffById = new Map((staffList || []).map((item) => [String(item.id), item]));
+    const staffById = new Map(staffList.map((item) => [String(item.id), item]));
     const usernameCounts = new Map<string, number>();
     const staffAccountCounts = new Map<string, number>();
     for (const account of staffAccounts) {
@@ -250,22 +257,18 @@ export default function RolesPermissions() {
     }
     setSaving(true);
     try {
-      // Merge all permissions
       const roleDefaults = getDefaultPermissionsForRole(selectedAccount.role);
       const merged = mergePermissions(
         roleDefaults,
         selectedAccount.permissions || {},
         pendingChanges
       );
-
-      // Save to staff_accounts
       const { error } = await supabase
         .from(TABLES.staffAccounts)
         .update({ permissions: merged })
         .eq('id', selectedAccount.id);
       if (error) throw error;
 
-      // Also update user_permissions table (per-permission rows)
       for (const [key, value] of Object.entries(pendingChanges)) {
         const adminId = getSafeCurrentUserId();
         await upsertUserPermission(selectedAccount.id, key, value, adminId);
@@ -311,7 +314,6 @@ export default function RolesPermissions() {
 
   return (
     <div dir="rtl" className="mx-auto max-w-7xl space-y-6 p-4">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="rounded-xl bg-violet-500/20 p-2">
@@ -334,7 +336,6 @@ export default function RolesPermissions() {
         )}
       </div>
 
-      {/* Role Preview Strip */}
       <div className="rounded-2xl border border-slate-700/60 bg-slate-900/60 p-4">
         <p className="mb-3 text-xs font-bold text-slate-400">معاينة صلاحيات الأدوار</p>
         <div className="flex flex-wrap gap-2">
@@ -399,7 +400,6 @@ export default function RolesPermissions() {
       )}
 
       <div className="grid gap-6 lg:grid-cols-3">
-        {/* Accounts List */}
         <div className="space-y-2">
           <h2 className="px-1 text-sm font-bold text-slate-400">حسابات الموظفين</h2>
           {staffAccounts.length === 0 && (
@@ -443,7 +443,6 @@ export default function RolesPermissions() {
           ))}
         </div>
 
-        {/* Permissions Editor */}
         <div className="lg:col-span-2 space-y-3">
           {!selectedAccount && !previewRole && (
             <div className="flex min-h-64 items-center justify-center rounded-2xl border border-slate-700/50 bg-slate-900/50 text-sm text-slate-500">
