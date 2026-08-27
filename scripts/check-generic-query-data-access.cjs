@@ -23,7 +23,6 @@ const LEGACY_LITERAL_STAFF_UI_READERS = new Set([
 const LEGACY_GENERIC_INVOICE_UI_READERS = new Set([
   'src/pages/Delivery.tsx',
   'src/pages/StagnantMedicines.tsx',
-  'src/pages/WhatsappAnalytics.tsx',
 ]);
 
 // These are pre-existing generic-query employee ledger readers. They must migrate

@@ -3,6 +3,7 @@ import { BarChart3, MessageCircle, Star, TrendingUp, Users } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth';
 import { useEmployeeTransactions } from '@/hooks/useEmployeeTransactions';
 import { useStaffDirectory } from '@/hooks/useStaffDirectory';
+import { useSalesInvoiceTruth } from '@/hooks/useSalesInvoiceTruth';
 import { useSupabaseQuery } from '@/hooks/useSupabaseQuery';
 import { normalizeBranchName } from '@/lib/branch';
 import { formatCycleDate, getCurrentCycle } from '@/lib/pharmacy-cycle';
@@ -90,10 +91,10 @@ export default function WhatsappAnalytics() {
     limit: 3000,
     realtimeEnabled: true,
   });
-  const { data: invoices, loading: invoicesLoading, error: invoicesError } = useSupabaseQuery<Row>({
-    table: 'sales_invoices',
-    limit: 5000,
-    realtimeEnabled: false,
+  const { data: invoices, loading: invoicesLoading, error: invoicesError } = useSalesInvoiceTruth<Row>({
+    startDate,
+    endDate,
+    branch,
   });
   const { data: transactions, loading: txLoading, error: txError } = useEmployeeTransactions<Row>({
     startDate,
