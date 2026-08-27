@@ -1,0 +1,33 @@
+name: Temporary Points employee read fix
+on:
+  push:
+    branches: [arch/points-canonical-employee-read-v1]
+permissions:
+  contents: write
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: arch/points-canonical-employee-read-v1
+      - name: Fix canonical current-cycle read
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('src/pages/Points.tsx')
+          s = p.read_text(encoding='utf-8')
+          old = """  } = useEmployeeTransactions<PointRecord>({\n    startDate: cycle.startDate,\n    endDate: cycle.endDate,\n    realtimeEnabled: true,\n  });"""
+          new = """  } = useEmployeeTransactions<PointRecord>({\n    realtimeEnabled: true,\n  });"""
+          if old not in s:
+              raise SystemExit('expected Points cycle block not found')
+          p.write_text(s.replace(old, new, 1), encoding='utf-8')
+      - name: Commit fix
+        run: |
+          rm .github/workflows/tmp-points-employee-read-fix.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/pages/Points.tsx .github/workflows/tmp-points-employee-read-fix.yml
+          git commit -m "fix: use current cycle defaults in Points ledger read"
+          git push origin HEAD:arch/points-canonical-employee-read-v1
