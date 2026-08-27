@@ -15,9 +15,16 @@ const APPROVED_INVOICE_BOUNDARIES = new Set([
   'src/lib/invoices/invoiceManagementService.ts',
 ]);
 
-// RolesPermissions still uses the legacy generic-query path with TABLES.staff.
-// Keep it explicit so the debt is measurable and no second page can copy the pattern.
-const LEGACY_DIRECT_STAFF_UI_READERS = new Set(['src/pages/RolesPermissions.tsx']);
+// Existing generic-query staff readers discovered when the gate learned to detect
+// `table: TABLES.staff`. Keep the full baseline explicit so new debt fails CI, and
+// remove each entry in the same PR that migrates that page to useStaffDirectory/read models.
+const LEGACY_DIRECT_STAFF_UI_READERS = new Set([
+  'src/pages/DoctorPerformancePillars.tsx',
+  'src/pages/PenaltyIncentiveManagement.tsx',
+  'src/pages/RolesPermissions.tsx',
+  'src/pages/StaffAccounts.tsx',
+  'src/pages/TimeOff.tsx',
+]);
 
 const LEGACY_DIRECT_EMPLOYEE_TRANSACTION_UI_READERS = new Set();
 
