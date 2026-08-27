@@ -19,6 +19,14 @@ const LEGACY_LITERAL_STAFF_UI_READERS = new Set([
   'src/pages/WhatsappAnalytics.tsx',
 ]);
 
+// Pre-existing generic-query invoice readers. These must move to an approved
+// invoice read model/service rather than scanning sales_invoices from UI pages.
+const LEGACY_GENERIC_INVOICE_UI_READERS = new Set([
+  'src/pages/Delivery.tsx',
+  'src/pages/StagnantMedicines.tsx',
+  'src/pages/WhatsappAnalytics.tsx',
+]);
+
 // These are pre-existing generic-query employee ledger readers. They must migrate
 // to useEmployeeTransactions / the employee transaction read model rather than
 // rebuilding financial truth in pages.
@@ -58,6 +66,8 @@ function hasConstantGenericTable(content, constantName) {
 
 const presentStaff = [];
 const newStaff = [];
+const presentInvoices = [];
+const newInvoices = [];
 const presentEmployeeTransactions = [];
 const newEmployeeTransactions = [];
 
@@ -69,6 +79,14 @@ for (const file of walk(ROOT)) {
   if (hasLiteralGenericTable(content, 'staff')) {
     if (LEGACY_LITERAL_STAFF_UI_READERS.has(relative)) presentStaff.push(relative);
     else newStaff.push(relative);
+  }
+
+  if (
+    hasLiteralGenericTable(content, 'sales_invoices') ||
+    hasConstantGenericTable(content, 'salesInvoices')
+  ) {
+    if (LEGACY_GENERIC_INVOICE_UI_READERS.has(relative)) presentInvoices.push(relative);
+    else newInvoices.push(relative);
   }
 
   if (
@@ -93,6 +111,7 @@ function failOnStaleDebt(register, present, label) {
 }
 
 failOnStaleDebt(LEGACY_LITERAL_STAFF_UI_READERS, presentStaff, 'Literal staff generic-query');
+failOnStaleDebt(LEGACY_GENERIC_INVOICE_UI_READERS, presentInvoices, 'Sales invoice generic-query');
 failOnStaleDebt(
   LEGACY_GENERIC_EMPLOYEE_TRANSACTION_UI_READERS,
   presentEmployeeTransactions,
@@ -106,6 +125,13 @@ if (newStaff.length) {
   process.exit(1);
 }
 
+if (newInvoices.length) {
+  console.error('\nInvoice architecture violation: new generic sales_invoices UI reader detected.');
+  newInvoices.forEach((file) => console.error(`  - ${file}`));
+  console.error('Use an approved invoice read model/service instead of scanning sales_invoices in UI.');
+  process.exit(1);
+}
+
 if (newEmployeeTransactions.length) {
   console.error('\nEmployee-domain architecture violation: new generic employee transaction reader detected.');
   newEmployeeTransactions.forEach((file) => console.error(`  - ${file}`));
@@ -114,5 +140,5 @@ if (newEmployeeTransactions.length) {
 }
 
 console.log(
-  `Generic-query data access OK. Legacy literal staff UI readers: ${presentStaff.length}. Legacy employee transaction generic readers: ${presentEmployeeTransactions.length}.`
+  `Generic-query data access OK. Legacy literal staff UI readers: ${presentStaff.length}. Legacy sales invoice generic readers: ${presentInvoices.length}. Legacy employee transaction generic readers: ${presentEmployeeTransactions.length}.`
 );
