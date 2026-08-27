@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Gauge, TrendingDown, TrendingUp } from 'lucide-react';
-import { useSupabaseQuery } from '@/hooks/useSupabaseQuery';
-import { TABLES } from '@/lib/supabaseTables';
-import { isActiveStaffFilter } from '@/lib/staffActiveFilter';
-import { mergeStaffChoices, type StaffChoice } from '@/lib/staffFallback';
+import { useStaffDirectory } from '@/hooks/useStaffDirectory';
+import { mergeStaffChoices } from '@/lib/staffFallback';
 import { useAuth } from '@/hooks/useAuth';
 import { isManagerRole, isDoctorRole } from '@/lib/security/userDataScope';
 import { monthCycleFromDate } from '@/lib/conversationReviews';
@@ -38,12 +36,16 @@ export default function DoctorPerformancePillars() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const { data: staff = [] } = useSupabaseQuery<StaffChoice & { role?: string }>({
-    table: TABLES.staff,
-    filters: isActiveStaffFilter(),
-    realtimeEnabled: false,
-  });
-  const staffChoices = useMemo(() => mergeStaffChoices(staff), [staff]);
+  const { data: staffDirectory = [] } = useStaffDirectory();
+  const staffChoices = useMemo(
+    () =>
+      mergeStaffChoices(
+        staffDirectory.filter(
+          (staff) => staff.source !== 'alias' && staff.active && Boolean(staff.id) && Boolean(staff.name)
+        )
+      ),
+    [staffDirectory]
+  );
   const doctorChoices = useMemo(
     () => (managerView ? staffChoices : staffChoices.filter((s) => s.id === (user?.staffId || user?.id))),
     [staffChoices, managerView, user?.staffId, user?.id]
