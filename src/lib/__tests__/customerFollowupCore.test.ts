@@ -10,6 +10,12 @@ import {
   normalizeEgyptianPhone,
   resolveRequestedBy,
 } from '@/lib/customerFollowupCore';
+import {
+  customerPhoneTail,
+  isCustomerIdentityUuid,
+  normalizeCustomerIdentityName,
+  normalizeEgyptianCustomerPhone,
+} from '@/lib/customers/customerIdentity';
 import { getFollowupDataIssues } from '@/lib/customerFollowupDataQuality';
 
 describe('customer followup core', () => {
@@ -32,6 +38,17 @@ describe('customer followup core', () => {
     expect(normalizeEgyptianPhone('+201007524265')).toBe('01007524265');
     expect(normalizeEgyptianPhone('00201007524265')).toBe('01007524265');
     expect(isValidEgyptianMobile('+201007524265')).toBe(true);
+  });
+
+  it('keeps invoice and followup identity normalization aligned for Arabic digits and phone tails', () => {
+    expect(normalizeEgyptianCustomerPhone('٠١٠٠٧٥٢٤٢٦٥')).toBe('01007524265');
+    expect(customerPhoneTail('+201007524265')).toBe('1007524265');
+    expect(normalizeCustomerIdentityName('إسلام  محمد')).toBe('اسلام محمد');
+  });
+
+  it('recognizes only real UUIDs as canonical customer ids for invoice matching', () => {
+    expect(isCustomerIdentityUuid('550e8400-e29b-41d4-a716-446655440000')).toBe(true);
+    expect(isCustomerIdentityUuid('customer-1')).toBe(false);
   });
 
   it('rejects incomplete mobile numbers', () => {
