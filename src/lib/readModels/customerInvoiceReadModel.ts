@@ -1,4 +1,12 @@
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
+import {
+  customerIdentityText,
+  customerPhoneTail,
+  isCustomerIdentityUuid,
+  normalizeCustomerIdentityName,
+  normalizeEgyptianCustomerPhone,
+  sanitizeCustomerIdentityNameForIlike,
+} from '@/lib/customers/customerIdentity';
 
 export type CustomerInvoiceLookup = {
   customerId?: string | number | null;
@@ -45,42 +53,10 @@ const SELECT = [
 
 const MAX_ROWS_PER_STRATEGY = 1200;
 
-function text(value: unknown) {
-  return String(value ?? '').trim();
-}
-
-function normalizePhone(value: unknown) {
-  let digits = text(value)
-    .replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)))
-    .replace(/\D/g, '');
-  if (digits.startsWith('0020')) digits = `0${digits.slice(4)}`;
-  else if (digits.startsWith('20') && digits.length === 12) digits = `0${digits.slice(2)}`;
-  else if (digits.length === 10 && /^1[0125]\d{8}$/.test(digits)) digits = `0${digits}`;
-  return digits;
-}
-
-function phoneTail(value: unknown) {
-  const digits = normalizePhone(value);
-  return digits.length >= 10 ? digits.slice(-10) : digits;
-}
-
-function normalizeName(value: unknown) {
-  return text(value)
-    .replace(/[أإآ]/g, 'ا')
-    .replace(/ة/g, 'ه')
-    .replace(/ى/g, 'ي')
-    .replace(/\s+/g, ' ')
-    .toLowerCase();
-}
-
-function isUuid(value: unknown) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(text(value));
-}
-
 function invoiceKey(row: CustomerInvoiceReadRow) {
   return (
-    text(row.id) ||
-    `${text(row.invoice_number || row.invoice_no)}|${text(row.branch_name || row.branch)}|${text(row.invoice_date || row.sale_date)}`
+    customerIdentityText(row.id) ||
+    `${customerIdentityText(row.invoice_number || row.invoice_no)}|${customerIdentityText(row.branch_name || row.branch)}|${customerIdentityText(row.invoice_date || row.sale_date)}`
   );
 }
 
@@ -126,7 +102,8 @@ function summarizeMatch(strategies: CustomerInvoiceMatch[]): CustomerInvoiceRead
  * 2) expensive wildcard phone-tail matching only runs when exact identity found nothing;
  * 3) name matching is the final compatibility fallback only.
  *
- * This preserves legacy recovery without making every normal customer profile pay for wildcard scans.
+ * Identity normalization is owned by customers/customerIdentity so this adapter cannot drift
+ * from follow-up/profile identity rules while it remains transitional.
  * Removal condition: replace `sales_invoices_adapter` with a canonical customer-invoice RPC/read view
  * after parity tests cover identity matching and full-history counts.
  */
@@ -135,11 +112,11 @@ export async function readCustomerInvoices(
 ): Promise<CustomerInvoiceReadResult> {
   if (!isSupabaseConfigured) throw new Error('Supabase is not configured');
 
-  const code = text(lookup.customerCode);
-  const customerId = text(lookup.customerId);
-  const phone = normalizePhone(lookup.customerPhone);
-  const tail = phoneTail(phone);
-  const name = text(lookup.customerName).replace(/[%_,]/g, ' ').replace(/\s+/g, ' ').trim();
+  const code = customerIdentityText(lookup.customerCode);
+  const customerId = customerIdentityText(lookup.customerId);
+  const phone = normalizeEgyptianCustomerPhone(lookup.customerPhone);
+  const tail = customerPhoneTail(phone);
+  const name = sanitizeCustomerIdentityNameForIlike(lookup.customerName);
   const warnings: string[] = [];
 
   const exactAttempts: Array<{
@@ -147,7 +124,7 @@ export async function readCustomerInvoices(
     run: () => Promise<CustomerInvoiceReadRow[]>;
   }> = [];
   if (code) exactAttempts.push({ label: 'code', run: () => queryEq('customer_code', code) });
-  if (customerId && isUuid(customerId)) {
+  if (customerId && isCustomerIdentityUuid(customerId)) {
     exactAttempts.push({ label: 'customer_id', run: () => queryEq('customer_id', customerId) });
   }
   if (phone) exactAttempts.push({ label: 'phone', run: () => queryEq('customer_phone', phone) });
@@ -177,7 +154,7 @@ export async function readCustomerInvoices(
     }
   }
 
-  if (!rowsByKey.size && normalizeName(name).length >= 3) {
+  if (!rowsByKey.size && normalizeCustomerIdentityName(name).length >= 3) {
     try {
       const rows = dedupe(await queryIlike('customer_name', `%${name}%`));
       if (rows.length) matchedStrategies.push('name');
@@ -188,7 +165,9 @@ export async function readCustomerInvoices(
   }
 
   const rows = [...rowsByKey.values()].sort((a, b) =>
-    text(b.invoice_date || b.sale_date).localeCompare(text(a.invoice_date || a.sale_date))
+    customerIdentityText(b.invoice_date || b.sale_date).localeCompare(
+      customerIdentityText(a.invoice_date || a.sale_date)
+    )
   );
   const uniqueStrategies = [...new Set(matchedStrategies)];
 

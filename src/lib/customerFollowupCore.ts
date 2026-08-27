@@ -1,9 +1,13 @@
-export type CustomerIdentityInput = {
-  customerId?: string | null;
-  customerCode?: string | null;
-  phone?: string | null;
-  name?: string | null;
-};
+import {
+  buildCustomerIdentity as buildCanonicalCustomerIdentity,
+  isMeaningfulCustomerIdentityText,
+  isValidEgyptianCustomerMobile,
+  normalizeCustomerDisplayIdentityName,
+  normalizeEgyptianCustomerPhone,
+  type CustomerIdentityInput,
+} from '@/lib/customers/customerIdentity';
+
+export type { CustomerIdentityInput } from '@/lib/customers/customerIdentity';
 
 export type CustomerActivityState = {
   key: 'active' | 'care' | 'at_risk' | 'stopped' | 'unknown';
@@ -13,17 +17,6 @@ export type CustomerActivityState = {
   isStopped: boolean;
   isCertain: boolean;
 };
-
-const INVALID_TEXT_VALUES = new Set([
-  '',
-  '0',
-  'null',
-  'undefined',
-  'غير محدد',
-  'غير معروف',
-  'عميل غير مسجل',
-  'عميل الصيدلية',
-]);
 
 export const FINAL_FOLLOWUP_RESULTS = new Set([
   'تم الرد والعميل راضي',
@@ -93,7 +86,7 @@ export function normalizeFollowupState(value: unknown) {
 }
 
 export function isMeaningfulText(value: unknown) {
-  return !INVALID_TEXT_VALUES.has(text(value).toLowerCase());
+  return isMeaningfulCustomerIdentityText(value);
 }
 
 export function isNoAnswerFollowupValue(value: unknown) {
@@ -107,31 +100,15 @@ export function isCompletedFollowupState(value: unknown) {
 }
 
 export function normalizeEgyptianPhone(value: unknown) {
-  let digits = text(value)
-    .replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)))
-    .replace(/\D/g, '');
-
-  if (digits.startsWith('0020')) digits = `0${digits.slice(4)}`;
-  else if (digits.startsWith('20') && digits.length === 12) digits = `0${digits.slice(2)}`;
-  else if (digits.length === 10 && /^1[0125]/.test(digits)) digits = `0${digits}`;
-
-  return digits;
+  return normalizeEgyptianCustomerPhone(value);
 }
 
 export function isValidEgyptianMobile(value: unknown) {
-  return /^01[0125]\d{8}$/.test(normalizeEgyptianPhone(value));
+  return isValidEgyptianCustomerMobile(value);
 }
 
 export function normalizeCustomerName(value: unknown) {
-  return text(value)
-    .replace(/\++/g, ' ')
-    .replace(/\(\s*p\s*\d+\s*\)/gi, ' ')
-    .replace(/\(\s*\d+\s*%\s*\)/g, ' ')
-    .replace(/\bش\s*\d+\b/gi, ' ')
-    .replace(/[|*_]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .toLowerCase();
+  return normalizeCustomerDisplayIdentityName(value);
 }
 
 export function cleanCustomerDisplayName(value: unknown) {
@@ -140,19 +117,7 @@ export function cleanCustomerDisplayName(value: unknown) {
 }
 
 export function buildCustomerIdentity(input: CustomerIdentityInput) {
-  const customerId = text(input.customerId);
-  if (customerId) return `id:${customerId}`;
-
-  const customerCode = text(input.customerCode).replace(/^code:/i, '').trim();
-  if (isMeaningfulText(customerCode)) return `code:${customerCode}`;
-
-  const phone = normalizeEgyptianPhone(input.phone);
-  if (isValidEgyptianMobile(phone)) return `phone:${phone}`;
-
-  const name = normalizeCustomerName(input.name);
-  if (isMeaningfulText(name)) return `name:${name}`;
-
-  return 'unknown';
+  return buildCanonicalCustomerIdentity(input);
 }
 
 export function isFinalFollowupResult(value: unknown) {
