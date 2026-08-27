@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   CheckCircle,
   Plus,
@@ -52,9 +52,9 @@ import {
   toNumber,
 } from '@/lib/utils';
 import { useAuth, getCurrentUserProfile } from '@/hooks/useAuth';
+import { useEmployeeTransactions } from '@/hooks/useEmployeeTransactions';
 import { logActivity, useSupabaseQuery } from '@/hooks/useSupabaseQuery';
 import { supabase } from '@/lib/supabase';
-import { TABLES } from '@/lib/supabaseTables';
 import { canViewAllBranches, isDoctorRole, rowMatchesCurrentDoctor, rowMatchesCurrentUserScope } from '@/lib/security/userDataScope';
 import { staffProfilePath } from '@/lib/staff/staffIdentityResolver';
 /* recharts will be dynamically imported inside the component to reduce initial bundle size */
@@ -179,9 +179,7 @@ export default function Points() {
     data: records,
     loading: recLoading,
     refetch: refetchRecords,
-  } = useSupabaseQuery<PointRecord>({
-    table: TABLES.employeeTransactions,
-    orderBy: { column: 'created_at', ascending: false },
+  } = useEmployeeTransactions<PointRecord>({
     realtimeEnabled: true,
   });
 
