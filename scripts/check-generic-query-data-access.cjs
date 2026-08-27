@@ -25,7 +25,6 @@ const LEGACY_LITERAL_STAFF_UI_READERS = new Set([
 const LEGACY_GENERIC_EMPLOYEE_TRANSACTION_UI_READERS = new Set([
   'src/pages/Delivery.tsx',
   'src/pages/PenaltyIncentiveManagement.tsx',
-  'src/pages/PointAppeals.tsx',
   'src/pages/Points.tsx',
   'src/pages/WhatsappAnalytics.tsx',
 ]);
