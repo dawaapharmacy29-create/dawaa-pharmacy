@@ -15,7 +15,6 @@ export type ManagerEvaluationSubject = {
 };
 
 export function weekBoundsOf(date: Date): { start: string; end: string } {
-  // الأسبوع من السبت للجمعة (مطابق لطبيعة أسبوع العمل في مصر)
   const day = date.getDay();
   const diffToSaturday = (day + 1) % 7;
   const start = new Date(date);
@@ -90,11 +89,6 @@ export type ManagerCycleSalesTargetSummary = {
   sales_target_achievement_rate: number | null;
 };
 
-/**
- * ملخص خفيف للمبيعات والتارجت داخل الدورة الحالية.
- * يفصل حساب حافز التارجت عن محرك التقييم الأسبوعي الثقيل حتى لا نعيد حساب
- * كل وحدات الأداء على فترة الدورة كاملة عند فتح لوحة القيادة.
- */
 export async function fetchManagerCycleSalesTargetSummary(
   evaluationType: EvaluationType,
   branch: string | null,
@@ -151,14 +145,21 @@ export type ManagerWeeklyEvaluation = {
   evaluator_name?: string | null;
   week_start: string;
   week_end: string;
-  auto_metrics: WeeklyAutoMetrics;
+  auto_metrics: WeeklyAutoMetrics & Record<string, unknown>;
   manual_scores: Record<string, number>;
   manual_note?: string | null;
   total_score: number;
   status: 'draft' | 'submitted';
+  submitted_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 };
 
-export async function saveWeeklyEvaluation(evaluation: ManagerWeeklyEvaluation) {
+export type ManagerEvaluationHistoryRecord = ManagerWeeklyEvaluation & {
+  id: string;
+};
+
+export async function saveWeeklyEvaluation(evaluation: ManagerWeeklyEvaluation): Promise<ManagerEvaluationHistoryRecord | null> {
   const { data, error } = await supabase
     .from(TABLES.managerWeeklyEvaluations)
     .upsert(
@@ -168,24 +169,24 @@ export async function saveWeeklyEvaluation(evaluation: ManagerWeeklyEvaluation) 
       },
       { onConflict: 'evaluation_type,subject_staff_id,week_start,branch' }
     )
-    .select()
+    .select('*')
     .maybeSingle();
   if (error) throw new Error(error.message);
-  return data;
+  return (data || null) as ManagerEvaluationHistoryRecord | null;
 }
 
 export async function fetchEvaluationHistory(
   evaluationType: EvaluationType,
   subjectStaffId: string,
   branch: string | null = null
-) {
+): Promise<ManagerEvaluationHistoryRecord[]> {
   let query = supabase
     .from(TABLES.managerWeeklyEvaluations)
-    .select('week_start,total_score,status')
+    .select('id,evaluation_type,subject_staff_id,subject_name,branch,evaluator_staff_id,evaluator_name,week_start,week_end,auto_metrics,manual_scores,manual_note,total_score,status,submitted_at,created_at,updated_at')
     .eq('evaluation_type', evaluationType)
     .eq('subject_staff_id', subjectStaffId);
   if (branch) query = query.eq('branch', branch);
-  const { data, error } = await query.order('week_start', { ascending: false }).limit(12);
+  const { data, error } = await query.order('week_start', { ascending: false }).limit(24);
   if (error) throw new Error(error.message);
-  return data || [];
+  return (data || []) as ManagerEvaluationHistoryRecord[];
 }

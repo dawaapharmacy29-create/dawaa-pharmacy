@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ClipboardList, TrendingUp, TrendingDown, Save, Send, ExternalLink, Star } from 'lucide-react';
+import {
+  ClipboardList, TrendingUp, TrendingDown, Save, Send, ExternalLink, Star,
+  FileDown, Share2, ChevronDown, ChevronUp,
+} from 'lucide-react';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
 import { useAuth } from '@/hooks/useAuth';
 import { normalizeRole } from '@/lib/core/permissionSystem';
 import {
@@ -22,6 +27,7 @@ import {
   fetchWeeklyChecklistCompletion,
   type ManagerWeeklyEvaluation,
   type ManagerEvaluationSubject,
+  type ManagerEvaluationHistoryRecord,
 } from '@/lib/evaluations/managerEvaluationService';
 import { ManagerLiveIncentiveCard } from '@/components/evaluations/ManagerLiveIncentiveCard';
 import { ManagerMonthlyPerformanceReport } from '@/components/evaluations/ManagerMonthlyPerformanceReport';
@@ -68,6 +74,115 @@ function clampManagerScore(value: number) {
   return Math.max(0, Math.min(10, value));
 }
 
+function escapeHtml(value: unknown) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+function numericRecord(value: unknown): Record<string, number> {
+  if (!value || typeof value !== 'object') return {};
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([, v]) => Number.isFinite(Number(v)))
+      .map(([k, v]) => [k, Number(v)])
+  );
+}
+
+async function buildEvaluationPdf(
+  record: ManagerEvaluationHistoryRecord,
+  criteria: typeof EVALUATION_CRITERIA[EvaluationType]
+) {
+  const metrics = (record.auto_metrics || {}) as WeeklyAutoMetrics & Record<string, unknown>;
+  const systemScores = numericRecord(metrics.__criterion_system_scores);
+  const combinedScores = numericRecord(metrics.__criterion_combined_scores);
+  const objectiveScore = Number(metrics.__objective_score ?? record.total_score ?? 0);
+  const managerScore = Number(metrics.__manager_judgment_score ?? 0);
+  const manualScores = numericRecord(record.manual_scores);
+  const typeLabel = EVALUATION_TYPE_LABELS[record.evaluation_type];
+  const rows = criteria.map((criterion) => {
+    const system = systemScores[criterion.key];
+    const manual = manualScores[criterion.key];
+    const combined = combinedScores[criterion.key];
+    return `
+      <tr>
+        <td>${escapeHtml(criterion.label)}</td>
+        <td>${Number.isFinite(system) ? `${system.toFixed(1)} / 10` : '—'}</td>
+        <td>${Number.isFinite(manual) ? `${manual.toFixed(1)} / 10` : '—'}</td>
+        <td>${Number.isFinite(combined) ? `${combined.toFixed(1)} / 10` : '—'}</td>
+        <td>${Math.round(criterion.weight * 100)}%</td>
+      </tr>`;
+  }).join('');
+
+  const host = document.createElement('div');
+  host.style.cssText = 'position:fixed;left:-10000px;top:0;width:794px;background:#fff;color:#111827;z-index:-1;';
+  host.innerHTML = `
+    <div dir="rtl" style="font-family:Arial,Tahoma,sans-serif;padding:38px;line-height:1.6;background:#fff;color:#111827">
+      <div style="border-bottom:3px solid #0f766e;padding-bottom:14px;margin-bottom:18px">
+        <div style="font-size:25px;font-weight:800;color:#0f766e">صيدليات دواء - تقرير تقييم الأداء</div>
+        <div style="font-size:18px;font-weight:700;margin-top:6px">${escapeHtml(typeLabel)}</div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:18px;font-size:13px">
+        <tr><td style="font-weight:700">الموظف</td><td>${escapeHtml(record.subject_name || '')}</td><td style="font-weight:700">الفرع</td><td>${escapeHtml(record.branch || '')}</td></tr>
+        <tr><td style="font-weight:700">الدورة</td><td>${escapeHtml(record.week_start)} إلى ${escapeHtml(record.week_end)}</td><td style="font-weight:700">المقيّم</td><td>${escapeHtml(record.evaluator_name || '')}</td></tr>
+        <tr><td style="font-weight:700">الحالة</td><td>${record.status === 'submitted' ? 'معتمد' : 'مسودة'}</td><td style="font-weight:700">تاريخ الاعتماد</td><td>${escapeHtml(record.submitted_at ? new Date(record.submitted_at).toLocaleString('ar-EG') : '—')}</td></tr>
+      </table>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:18px">
+        <div style="border:1px solid #d1d5db;border-radius:10px;padding:12px;text-align:center"><div style="font-size:12px;color:#6b7280">أداء النظام (80%)</div><div style="font-size:24px;font-weight:800">${objectiveScore.toFixed(1)} / 100</div></div>
+        <div style="border:1px solid #d1d5db;border-radius:10px;padding:12px;text-align:center"><div style="font-size:12px;color:#6b7280">تقييم مدير الفروع (20%)</div><div style="font-size:24px;font-weight:800">${managerScore.toFixed(1)} / 100</div></div>
+        <div style="border:2px solid #0f766e;border-radius:10px;padding:12px;text-align:center"><div style="font-size:12px;color:#0f766e">الدرجة النهائية</div><div style="font-size:26px;font-weight:900;color:#0f766e">${Number(record.total_score || 0).toFixed(1)} / 100</div></div>
+      </div>
+      <div style="font-size:16px;font-weight:800;margin:16px 0 8px">تفاصيل البنود</div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr style="background:#f0fdfa"><th>البند</th><th>النظام</th><th>مدير الفروع</th><th>المجمّع</th><th>الوزن</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div style="margin-top:20px;border:1px solid #d1d5db;border-radius:10px;padding:14px;min-height:70px">
+        <div style="font-weight:800;margin-bottom:5px">ملاحظات مدير الفروع</div>
+        <div style="white-space:pre-wrap">${escapeHtml(record.manual_note || 'لا توجد ملاحظات مسجلة.')}</div>
+      </div>
+      <div style="margin-top:22px;font-size:10px;color:#6b7280;text-align:center">تم إنشاء التقرير من نظام Dawaa Pharmacy - سجل تقييم معتمد داخل قاعدة البيانات</div>
+    </div>`;
+  host.querySelectorAll('td,th').forEach((el) => {
+    (el as HTMLElement).style.border = '1px solid #d1d5db';
+    (el as HTMLElement).style.padding = '8px';
+    (el as HTMLElement).style.textAlign = 'right';
+  });
+  document.body.appendChild(host);
+
+  try {
+    const canvas = await html2canvas(host.firstElementChild as HTMLElement, {
+      scale: 2,
+      backgroundColor: '#ffffff',
+      useCORS: true,
+      logging: false,
+    });
+    const pdf = new jsPDF('p', 'mm', 'a4');
+    const pageWidth = 190;
+    const pageHeight = 277;
+    const imgHeight = (canvas.height * pageWidth) / canvas.width;
+    const imgData = canvas.toDataURL('image/png', 1);
+    let heightLeft = imgHeight;
+    let position = 10;
+    pdf.addImage(imgData, 'PNG', 10, position, pageWidth, imgHeight);
+    heightLeft -= pageHeight;
+    while (heightLeft > 0) {
+      position = 10 - (imgHeight - heightLeft);
+      pdf.addPage();
+      pdf.addImage(imgData, 'PNG', 10, position, pageWidth, imgHeight);
+      heightLeft -= pageHeight;
+    }
+    const safeName = String(record.subject_name || 'employee').replace(/[\\/:*?"<>|]/g, '-');
+    const fileName = `تقييم-${safeName}-${record.week_start}-${record.week_end}.pdf`;
+    return { pdf, fileName };
+  } finally {
+    host.remove();
+  }
+}
+
 export default function WeeklyManagerEvaluation() {
   const { type } = useParams<{ type: EvaluationType }>();
   const evaluationType = (type && EVALUATION_CRITERIA[type as EvaluationType] ? type : 'branch_manager') as EvaluationType;
@@ -102,8 +217,10 @@ export default function WeeklyManagerEvaluation() {
   const [note, setNote] = useState('');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [exportingId, setExportingId] = useState<string | null>(null);
   const [error, setError] = useState('');
-  const [history, setHistory] = useState<Array<{ week_start: string; total_score: number; status: string }>>([]);
+  const [history, setHistory] = useState<ManagerEvaluationHistoryRecord[]>([]);
+  const [expandedRecordId, setExpandedRecordId] = useState<string | null>(null);
 
   const branchForMetrics = evaluationType === 'branches_manager' ? selectedBranch : subject?.branch || null;
   const criteria = EVALUATION_CRITERIA[evaluationType];
@@ -126,10 +243,7 @@ export default function WeeklyManagerEvaluation() {
       .then((rows) => {
         if (cancelled) return;
         setSubjectChoices(rows);
-        setSubjectStaffId((current) => {
-          if (current && rows.some((row) => row.id === current)) return current;
-          return rows[0]?.id || '';
-        });
+        setSubjectStaffId((current) => current && rows.some((row) => row.id === current) ? current : rows[0]?.id || '');
       })
       .catch((err) => !cancelled && setError(err instanceof Error ? err.message : 'تعذر تحميل قائمة التقييم'))
       .finally(() => !cancelled && setSubjectsLoading(false));
@@ -143,28 +257,26 @@ export default function WeeklyManagerEvaluation() {
     setError('');
     setCurrentMetrics(null);
     setPreviousMetrics(null);
-    const previous = isMonthlyIncentiveEvaluation
-      ? previousIncentiveCycle(periodStart)
-      : previousWeekOf(periodStart);
+    const previous = isMonthlyIncentiveEvaluation ? previousIncentiveCycle(periodStart) : previousWeekOf(periodStart);
 
     Promise.all([
       fetchWeeklyAutoMetricsFast(String(user.id), evaluationType, branchForMetrics, periodStart, periodEnd),
       fetchWeeklyAutoMetricsFast(String(user.id), evaluationType, branchForMetrics, previous.start, previous.end),
       fetchWeeklyChecklistCompletion(subjectStaffId, periodStart, periodEnd, branchForMetrics),
+      fetchEvaluationHistory(evaluationType, subjectStaffId, branchForMetrics),
     ])
-      .then(([cur, prevMetrics, checklist]) => {
+      .then(([cur, prevMetrics, checklist, hist]) => {
         if (cancelled) return;
         setCurrentMetrics(cur);
         setPreviousMetrics(prevMetrics);
         setChecklistRates(checklist);
+        setHistory(hist);
+        const currentSaved = hist.find((row) => row.week_start === periodStart && row.week_end === periodEnd);
+        if (currentSaved) {
+          setManualScores(numericRecord(currentSaved.manual_scores));
+          setNote(String(currentSaved.manual_note || ''));
+        }
         setLoading(false);
-        void fetchEvaluationHistory(evaluationType, subjectStaffId, branchForMetrics)
-          .then((hist) => {
-            if (!cancelled) setHistory(hist as Array<{ week_start: string; total_score: number; status: string }>);
-          })
-          .catch(() => {
-            if (!cancelled) setHistory([]);
-          });
       })
       .catch((err) => {
         if (!cancelled) {
@@ -231,6 +343,25 @@ export default function WeeklyManagerEvaluation() {
     setSaving(true);
     setError('');
     try {
+      const criterionSystemScores = Object.fromEntries(weightedCriteria.map((row) => [row.criterion.key, row.score10]));
+      const criterionCombinedScores = Object.fromEntries(criteria.map((criterion) => {
+        const system = criterionSystemScores[criterion.key] ?? 0;
+        const manual = manualScores[criterion.key];
+        return [criterion.key, Number.isFinite(manual)
+          ? Math.round((system * SYSTEM_PERFORMANCE_WEIGHT + clampManagerScore(manual) * MANAGER_JUDGMENT_WEIGHT) * 10) / 10
+          : system];
+      }));
+      const enrichedMetrics = {
+        ...currentMetrics,
+        __objective_score: objectiveScore,
+        __manager_judgment_score: managerJudgmentScore,
+        __system_performance_weight: SYSTEM_PERFORMANCE_WEIGHT,
+        __manager_judgment_weight: MANAGER_JUDGMENT_WEIGHT,
+        __checklist_rates: checklistRates,
+        __criterion_system_scores: criterionSystemScores,
+        __criterion_combined_scores: criterionCombinedScores,
+      } as WeeklyAutoMetrics & Record<string, unknown>;
+
       const payload: ManagerWeeklyEvaluation = {
         evaluation_type: evaluationType,
         subject_staff_id: subjectStaffId,
@@ -240,23 +371,24 @@ export default function WeeklyManagerEvaluation() {
         evaluator_name: user?.name || null,
         week_start: periodStart,
         week_end: periodEnd,
-        auto_metrics: currentMetrics,
+        auto_metrics: enrichedMetrics,
         manual_scores: manualScores,
-        manual_note: note || null,
+        manual_note: note.trim() || null,
         total_score: totalScore,
         status,
       };
-      await saveWeeklyEvaluation(payload);
+      const saved = await saveWeeklyEvaluation(payload);
+      const hist = await fetchEvaluationHistory(evaluationType, subjectStaffId, branchForMetrics);
+      setHistory(hist);
+      if (saved?.id) setExpandedRecordId(saved.id);
       window.dispatchEvent(new CustomEvent('toast', {
         detail: {
           type: 'success',
           message: status === 'submitted'
-            ? (isMonthlyIncentiveEvaluation ? 'تم اعتماد تقييم دورة الحافز الشهرية' : 'تم اعتماد التقييم')
-            : 'تم حفظ المسودة',
+            ? 'تم حفظ واعتماد تقييم الدورة وإضافته إلى سجل التقييمات'
+            : 'تم حفظ مسودة التقييم في السجل',
         },
       }));
-      const hist = await fetchEvaluationHistory(evaluationType, subjectStaffId, branchForMetrics);
-      setHistory(hist as Array<{ week_start: string; total_score: number; status: string }>);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'تعذر الحفظ');
     } finally {
@@ -264,12 +396,29 @@ export default function WeeklyManagerEvaluation() {
     }
   };
 
+  const handlePdf = async (record: ManagerEvaluationHistoryRecord, share: boolean) => {
+    setExportingId(record.id);
+    setError('');
+    try {
+      const { pdf, fileName } = await buildEvaluationPdf(record, EVALUATION_CRITERIA[record.evaluation_type]);
+      const blob = pdf.output('blob');
+      if (share && typeof navigator.share === 'function') {
+        const file = new File([blob], fileName, { type: 'application/pdf' });
+        if (!navigator.canShare || navigator.canShare({ files: [file] })) {
+          await navigator.share({ title: fileName, text: 'تقرير تقييم الأداء من صيدليات دواء', files: [file] });
+          return;
+        }
+      }
+      pdf.save(fileName);
+    } catch (err) {
+      if ((err as Error)?.name !== 'AbortError') setError(err instanceof Error ? err.message : 'تعذر إنشاء ملف PDF');
+    } finally {
+      setExportingId(null);
+    }
+  };
+
   if (!canEvaluate) {
-    return (
-      <div dir="rtl" className="p-6 text-sm text-slate-400">
-        ليس لديك مستوى الاعتماد المطلوب لهذا النوع من التقييم. تقييم مدير الفروع متاح للمدير العام فقط.
-      </div>
-    );
+    return <div dir="rtl" className="p-6 text-sm text-slate-400">ليس لديك مستوى الاعتماد المطلوب لهذا النوع من التقييم.</div>;
   }
 
   return (
@@ -277,16 +426,11 @@ export default function WeeklyManagerEvaluation() {
       <div className="flex items-center gap-3">
         <ClipboardList className="h-6 w-6 text-teal-300" />
         <div>
-          <h1 className="text-xl font-black text-white">
-            {EVALUATION_TYPE_LABELS[evaluationType]}
-            {isMonthlyIncentiveEvaluation ? ' — تقييم شهري للحافز' : ''}
-          </h1>
+          <h1 className="text-xl font-black text-white">{EVALUATION_TYPE_LABELS[evaluationType]}{isMonthlyIncentiveEvaluation ? ' — تقييم شهري للحافز' : ''}</h1>
           <p className="text-sm text-slate-400">
             {allowManagerJudgment
-              ? 'التقييم النهائي يجمع 80% من الأداء الموثق داخل التطبيق + 20% تقييم مدير الفروع لكل بند.'
-              : isMonthlyIncentiveEvaluation
-                ? 'تقييم واحد معتمد لكل دورة 26→25، مبني على بيانات التطبيق والمهام الموثقة خلال الدورة.'
-                : 'نموذج أسبوعي موضوعي مبني على بيانات التطبيق والمهام الموثقة.'}
+              ? 'التقييم النهائي يجمع 80% من الأداء الموثق داخل التطبيق + 20% تقييم مدير الفروع، ويحفظ كسجل كامل قابل للتصدير والمشاركة.'
+              : 'التقييم مبني على بيانات التطبيق والمهام الموثقة.'}
           </p>
         </div>
       </div>
@@ -294,55 +438,32 @@ export default function WeeklyManagerEvaluation() {
       <div className="flex flex-wrap gap-3">
         <select className="input-dark" value={subjectStaffId} onChange={(e) => setSubjectStaffId(e.target.value)} disabled={subjectsLoading}>
           <option value="">{subjectsLoading ? 'جارٍ تحميل الأشخاص...' : 'اختر الشخص المُقيَّم'}</option>
-          {subjectChoices.map((s) => (
-            <option key={s.id} value={s.id}>{s.name} {s.branch ? `— ${s.branch}` : ''}</option>
-          ))}
+          {subjectChoices.map((s) => <option key={s.id} value={s.id}>{s.name} {s.branch ? `— ${s.branch}` : ''}</option>)}
         </select>
         {evaluationType === 'branches_manager' && (
           <select className="input-dark" value={selectedBranch} onChange={(e) => setSelectedBranch(e.target.value as 'فرع شكري' | 'فرع الشامي')}>
-            <option value="فرع شكري">تقييم فرع شكري</option>
-            <option value="فرع الشامي">تقييم فرع الشامي</option>
+            <option value="فرع شكري">تقييم فرع شكري</option><option value="فرع الشامي">تقييم فرع الشامي</option>
           </select>
         )}
-        <input
-          type="date"
-          className="input-dark"
-          value={periodStart}
-          onChange={(e) => {
-            const chosen = new Date(`${e.target.value}T12:00:00`);
-            setPeriodStart(isMonthlyIncentiveEvaluation ? incentiveCycleBounds(chosen).start : weekBoundsOf(chosen).start);
-          }}
-        />
-        <span className="flex items-center text-xs text-slate-400">
-          {isMonthlyIncentiveEvaluation ? 'دورة الحافز' : 'الأسبوع'}: {periodStart} إلى {periodEnd}
-        </span>
+        <input type="date" className="input-dark" value={periodStart} onChange={(e) => {
+          const chosen = new Date(`${e.target.value}T12:00:00`);
+          setPeriodStart(isMonthlyIncentiveEvaluation ? incentiveCycleBounds(chosen).start : weekBoundsOf(chosen).start);
+        }} />
+        <span className="flex items-center text-xs text-slate-400">{isMonthlyIncentiveEvaluation ? 'دورة الحافز' : 'الأسبوع'}: {periodStart} إلى {periodEnd}</span>
       </div>
 
-      {!subjectsLoading && subjectChoices.length === 0 && <p className="text-sm text-amber-300">لا يوجد مدير نشط وصالح للتقييم في هذا المسار.</p>}
+      {!subjectsLoading && subjectChoices.length === 0 && <p className="text-sm text-amber-300">لا يوجد موظف نشط وصالح للتقييم في هذا المسار.</p>}
       {loading && <p className="text-sm text-slate-400">جارٍ تحميل بيانات التقييم...</p>}
       {error && <p className="rounded-xl border border-red-500/20 bg-red-950/20 p-3 text-sm text-red-300">{error}</p>}
 
       {currentMetrics && !loading && (
         <>
           <div className={`grid gap-3 ${allowManagerJudgment ? 'md:grid-cols-3' : ''}`}>
-            <div className="stat-card">
-              <div className="text-sm text-slate-400">أداء التطبيق والمهام {allowManagerJudgment ? '(80%)' : ''}</div>
-              <div className={`text-4xl font-black ${scoreTone(objectiveScore)}`}>{objectiveScore}<span className="text-lg text-slate-500"> / 100</span></div>
-            </div>
-            {allowManagerJudgment && (
-              <>
-                <div className="stat-card">
-                  <div className="flex items-center gap-2 text-sm text-slate-400"><Star className="h-4 w-4" /> تقييم مدير الفروع (20%)</div>
-                  <div className={`text-4xl font-black ${scoreTone(managerJudgmentScore)}`}>{managerJudgmentScore}<span className="text-lg text-slate-500"> / 100</span></div>
-                  <div className="mt-1 text-xs text-slate-500">تم تقييم {manualCompletedCount} من {criteria.length} بند</div>
-                </div>
-                <div className="stat-card">
-                  <div className="text-sm text-slate-400">الدرجة النهائية للحافز</div>
-                  <div className={`text-4xl font-black ${scoreTone(totalScore)}`}>{totalScore}<span className="text-lg text-slate-500"> / 100</span></div>
-                  {!managerJudgmentComplete && <div className="mt-1 text-xs text-amber-300">تكتمل الدرجة النهائية بعد تقييم كل البنود.</div>}
-                </div>
-              </>
-            )}
+            <div className="stat-card"><div className="text-sm text-slate-400">أداء التطبيق والمهام {allowManagerJudgment ? '(80%)' : ''}</div><div className={`text-4xl font-black ${scoreTone(objectiveScore)}`}>{objectiveScore}<span className="text-lg text-slate-500"> / 100</span></div></div>
+            {allowManagerJudgment && <>
+              <div className="stat-card"><div className="flex items-center gap-2 text-sm text-slate-400"><Star className="h-4 w-4" /> تقييم مدير الفروع (20%)</div><div className={`text-4xl font-black ${scoreTone(managerJudgmentScore)}`}>{managerJudgmentScore}<span className="text-lg text-slate-500"> / 100</span></div><div className="mt-1 text-xs text-slate-500">تم تقييم {manualCompletedCount} من {criteria.length} بند</div></div>
+              <div className="stat-card"><div className="text-sm text-slate-400">الدرجة النهائية للحافز</div><div className={`text-4xl font-black ${scoreTone(totalScore)}`}>{totalScore}<span className="text-lg text-slate-500"> / 100</span></div>{!managerJudgmentComplete && <div className="mt-1 text-xs text-amber-300">تكتمل الدرجة بعد تقييم كل البنود.</div>}</div>
+            </>}
           </div>
 
           <ManagerLiveIncentiveCard evaluationType={evaluationType} staffId={subjectStaffId} branch={branchForMetrics} />
@@ -352,117 +473,66 @@ export default function WeeklyManagerEvaluation() {
             {criteria.map((criterion) => {
               const weighted = weightedCriteria.find((row) => row.criterion.key === criterion.key);
               const systemScore10 = weighted?.score10 ?? 0;
-              const autoScore = criterion.mode === 'auto' && criterion.autoScore
-                ? criterion.autoScore(currentMetrics, previousMetrics)
-                : null;
+              const autoScore = criterion.mode === 'auto' && criterion.autoScore ? criterion.autoScore(currentMetrics, previousMetrics) : null;
               const checklistKeys = criterionChecklistKeys(criterion);
               const checklistScore = criterion.mode === 'checklist' && checklistKeys.length
-                ? checklistKeys.reduce((sum, k) => sum + (checklistRates[k] ?? 0), 0) / checklistKeys.length / 10
-                : null;
+                ? checklistKeys.reduce((sum, k) => sum + (checklistRates[k] ?? 0), 0) / checklistKeys.length / 10 : null;
               const manualScore = manualScores[criterion.key];
               const combinedCriterionScore = Number.isFinite(manualScore)
-                ? Math.round((systemScore10 * SYSTEM_PERFORMANCE_WEIGHT + clampManagerScore(manualScore) * MANAGER_JUDGMENT_WEIGHT) * 10) / 10
-                : null;
-
+                ? Math.round((systemScore10 * SYSTEM_PERFORMANCE_WEIGHT + clampManagerScore(manualScore) * MANAGER_JUDGMENT_WEIGHT) * 10) / 10 : null;
               return (
                 <div key={criterion.key} className="stat-card space-y-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <span className="font-black text-white">{criterion.label}</span>
-                    <span className="whitespace-nowrap text-xs font-bold text-slate-400">وزن {Math.round(criterion.weight * 100)}%</span>
-                  </div>
+                  <div className="flex items-start justify-between gap-3"><span className="font-black text-white">{criterion.label}</span><span className="whitespace-nowrap text-xs font-bold text-slate-400">وزن {Math.round(criterion.weight * 100)}%</span></div>
                   {criterion.hint && <p className="text-xs text-slate-500">{criterion.hint}</p>}
-                  {criterion.sourceRoute && (
-                    <Link to={criterion.sourceRoute} className="inline-flex items-center gap-1 text-xs font-bold text-teal-300 hover:text-teal-200">
-                      <ExternalLink className="h-3 w-3" /> فتح مصدر البيانات: {criterion.sourceLabel || 'التفاصيل'}
-                    </Link>
-                  )}
-
+                  {criterion.sourceRoute && <Link to={criterion.sourceRoute} className="inline-flex items-center gap-1 text-xs font-bold text-teal-300"><ExternalLink className="h-3 w-3" /> فتح مصدر البيانات: {criterion.sourceLabel || 'التفاصيل'}</Link>}
                   <div className="rounded-xl border border-white/5 bg-black/10 p-3">
                     <div className="text-[11px] font-bold text-slate-500">درجة الأداء الموثق</div>
-                    {criterion.mode === 'auto' ? (
-                      <div className="flex items-center gap-2">
-                        <span className={`text-2xl font-black ${scoreTone((autoScore || 0) * 10)}`}>{(autoScore || 0).toFixed(1)} / 10</span>
-                        {previousMetrics && ((autoScore || 0) >= 5 ? <TrendingUp className="h-4 w-4 text-emerald-400" /> : <TrendingDown className="h-4 w-4 text-red-400" />)}
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-2">
-                        <span className={`text-2xl font-black ${scoreTone((checklistScore || 0) * 10)}`}>{(checklistScore || 0).toFixed(1)} / 10</span>
-                        <span className="text-xs text-slate-500">من إنجاز المهام خلال {isMonthlyIncentiveEvaluation ? 'الدورة' : 'الأسبوع'}</span>
-                      </div>
-                    )}
+                    {criterion.mode === 'auto' ? <div className="flex items-center gap-2"><span className={`text-2xl font-black ${scoreTone((autoScore || 0) * 10)}`}>{(autoScore || 0).toFixed(1)} / 10</span>{previousMetrics && ((autoScore || 0) >= 5 ? <TrendingUp className="h-4 w-4 text-emerald-400" /> : <TrendingDown className="h-4 w-4 text-red-400" />)}</div>
+                      : <div className="flex items-center gap-2"><span className={`text-2xl font-black ${scoreTone((checklistScore || 0) * 10)}`}>{(checklistScore || 0).toFixed(1)} / 10</span><span className="text-xs text-slate-500">من إنجاز المهام خلال {isMonthlyIncentiveEvaluation ? 'الدورة' : 'الأسبوع'}</span></div>}
                   </div>
-
-                  {allowManagerJudgment && (
-                    <div className="rounded-xl border border-teal-500/15 bg-teal-950/10 p-3">
-                      <label className="mb-2 block text-xs font-black text-teal-200">تقييم مدير الفروع لهذا البند</label>
-                      <div className="flex items-center gap-3">
-                        <input
-                          type="number"
-                          min="0"
-                          max="10"
-                          step="0.5"
-                          value={Number.isFinite(manualScore) ? manualScore : ''}
-                          onChange={(e) => handleManualScore(criterion.key, e.target.value)}
-                          placeholder="0 - 10"
-                          className="input-dark w-28"
-                        />
-                        <span className="text-xs text-slate-400">من 10</span>
-                        {combinedCriterionScore !== null && (
-                          <span className="mr-auto text-xs font-bold text-white">المجمّع: {combinedCriterionScore.toFixed(1)} / 10</span>
-                        )}
-                      </div>
-                    </div>
-                  )}
+                  {allowManagerJudgment && <div className="rounded-xl border border-teal-500/15 bg-teal-950/10 p-3">
+                    <label className="mb-2 block text-xs font-black text-teal-200">تقييم مدير الفروع لهذا البند</label>
+                    <div className="flex items-center gap-3"><input type="number" min="0" max="10" step="0.5" value={Number.isFinite(manualScore) ? manualScore : ''} onChange={(e) => handleManualScore(criterion.key, e.target.value)} placeholder="0 - 10" className="input-dark w-28" /><span className="text-xs text-slate-400">من 10</span>{combinedCriterionScore !== null && <span className="mr-auto text-xs font-bold text-white">المجمّع: {combinedCriterionScore.toFixed(1)} / 10</span>}</div>
+                  </div>}
                 </div>
               );
             })}
           </div>
 
           <div className="stat-card space-y-2">
-            <div className="text-sm text-slate-400">أرقام مرجعية لـ{isMonthlyIncentiveEvaluation ? 'لدورة' : 'لأسبوع'}</div>
-            <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
-              <div><span className="text-slate-500">المبيعات: </span><span className="font-bold text-white">{currentMetrics.sales_total.toLocaleString('ar-EG')} ج.م</span></div>
-              <div><span className="text-slate-500">متابعات: </span><span className="font-bold text-white">{currentMetrics.followups_total}</span></div>
-              <div><span className="text-slate-500">منتهية بدون رد: </span><span className="font-bold text-red-300">{currentMetrics.followups_expired}</span></div>
-              <div><span className="text-slate-500">نسبة الاحتفاظ بـ VIP: </span><span className="font-bold text-white">{currentMetrics.vip_retention_rate ?? '—'}%</span></div>
-              <div><span className="text-slate-500">طلبات العملاء: </span><span className="font-bold text-white">{currentMetrics.customer_requests_total ?? 0}</span></div>
-              <div><span className="text-slate-500">طلبات متأخرة: </span><span className="font-bold text-red-300">{currentMetrics.customer_requests_overdue ?? 0}</span></div>
-              <div><span className="text-slate-500">قيمة شراء بعد المتابعة: </span><span className="font-bold text-emerald-300">{(currentMetrics.followups_purchase_amount ?? 0).toLocaleString('ar-EG')} ج.م</span></div>
-              <div><span className="text-slate-500">تكويد الفواتير: </span><span className="font-bold text-white">{currentMetrics.sales_coding_rate ?? '—'}%</span></div>
-            </div>
-          </div>
-
-          <div className="stat-card space-y-2">
             <label className="text-sm font-bold text-white">ملاحظة مدير الفروع على التقييم</label>
-            <textarea
-              className="input-dark min-h-[100px] w-full"
-              placeholder="اكتب نقاط القوة، الملاحظات، أو المطلوب تحسينه خلال الدورة القادمة..."
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-            />
+            <p className="text-xs text-slate-500">الملاحظة تحفظ داخل سجل الدورة وتظهر كاملة في ملف الـPDF المرسل للموظف.</p>
+            <textarea className="input-dark min-h-[120px] w-full" placeholder="اكتب نقاط القوة، الملاحظات، المطلوب تحسينه، أو خطة العمل للدورة القادمة..." value={note} onChange={(e) => setNote(e.target.value)} />
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <button type="button" disabled={saving} onClick={() => handleSave('draft')} className="flex items-center gap-2 rounded-xl border border-white/15 px-5 py-2 font-black text-white disabled:opacity-50">
-              <Save className="h-4 w-4" /> حفظ كمسودة
-            </button>
-            <button type="button" disabled={saving} onClick={() => handleSave('submitted')} className="flex items-center gap-2 rounded-xl bg-teal-500 px-5 py-2 font-black text-slate-950 disabled:opacity-50">
-              <Send className="h-4 w-4" /> {isMonthlyIncentiveEvaluation ? 'اعتماد تقييم الدورة' : 'اعتماد التقييم'}
-            </button>
+            <button type="button" disabled={saving} onClick={() => handleSave('draft')} className="flex items-center gap-2 rounded-xl border border-white/15 px-5 py-2 font-black text-white disabled:opacity-50"><Save className="h-4 w-4" /> حفظ كمسودة</button>
+            <button type="button" disabled={saving} onClick={() => handleSave('submitted')} className="flex items-center gap-2 rounded-xl bg-teal-500 px-5 py-2 font-black text-slate-950 disabled:opacity-50"><Send className="h-4 w-4" /> {saving ? 'جارٍ الحفظ...' : isMonthlyIncentiveEvaluation ? 'حفظ واعتماد تقييم الدورة' : 'حفظ واعتماد التقييم'}</button>
           </div>
 
-          {history.length > 0 && (
-            <div className="stat-card space-y-2">
-              <div className="text-sm font-black text-white">آخر التقييمات</div>
-              {history.map((h) => (
-                <div key={h.week_start} className="flex items-center justify-between border-b border-white/5 py-1.5 text-sm">
-                  <span className="text-slate-400">{h.week_start}</span>
-                  <span className={scoreTone(h.total_score)}>{h.total_score} / 100</span>
-                  <span className="text-xs text-slate-500">{h.status === 'submitted' ? 'معتمد' : 'مسودة'}</span>
-                </div>
-              ))}
-            </div>
-          )}
+          {history.length > 0 && <div className="stat-card space-y-3">
+            <div><div className="text-base font-black text-white">سجل التقييمات</div><div className="text-xs text-slate-500">كل دورة محفوظة ببياناتها ودرجاتها وملاحظاتها، ويمكن تصديرها أو مشاركتها كـ PDF.</div></div>
+            {history.map((record) => {
+              const expanded = expandedRecordId === record.id;
+              const recMetrics = (record.auto_metrics || {}) as Record<string, unknown>;
+              const objective = Number(recMetrics.__objective_score ?? record.total_score ?? 0);
+              const manager = Number(recMetrics.__manager_judgment_score ?? 0);
+              return <div key={record.id} className="rounded-xl border border-white/10 bg-black/10">
+                <button type="button" onClick={() => setExpandedRecordId(expanded ? null : record.id)} className="flex w-full items-center gap-3 p-3 text-right">
+                  <div className="min-w-0 flex-1"><div className="font-bold text-white">{record.week_start} إلى {record.week_end}</div><div className="text-xs text-slate-500">{record.status === 'submitted' ? 'معتمد' : 'مسودة'} • {record.evaluator_name || '—'}</div></div>
+                  <span className={`font-black ${scoreTone(Number(record.total_score || 0))}`}>{Number(record.total_score || 0).toFixed(1)} / 100</span>{expanded ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}
+                </button>
+                {expanded && <div className="space-y-3 border-t border-white/5 p-3">
+                  <div className="grid gap-2 text-sm md:grid-cols-3"><div>أداء النظام: <b>{objective.toFixed(1)}/100</b></div><div>تقييم مدير الفروع: <b>{manager.toFixed(1)}/100</b></div><div>النهائي: <b>{Number(record.total_score || 0).toFixed(1)}/100</b></div></div>
+                  <div className="rounded-lg border border-white/5 p-3"><div className="mb-1 text-xs font-bold text-slate-400">الملاحظة</div><div className="whitespace-pre-wrap text-sm text-white">{record.manual_note || 'لا توجد ملاحظات.'}</div></div>
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" disabled={exportingId === record.id} onClick={() => void handlePdf(record, false)} className="flex items-center gap-2 rounded-lg border border-white/15 px-3 py-2 text-xs font-bold text-white"><FileDown className="h-4 w-4" /> تصدير PDF</button>
+                    <button type="button" disabled={exportingId === record.id} onClick={() => void handlePdf(record, true)} className="flex items-center gap-2 rounded-lg bg-teal-500 px-3 py-2 text-xs font-bold text-slate-950"><Share2 className="h-4 w-4" /> مشاركة التقرير</button>
+                  </div>
+                </div>}
+              </div>;
+            })}
+          </div>}
         </>
       )}
     </div>
