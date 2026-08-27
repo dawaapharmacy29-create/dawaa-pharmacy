@@ -1,0 +1,57 @@
+name: Apply WhatsApp invoice truth migration
+on:
+  push:
+    branches:
+      - arch/whatsapp-invoice-truth-v1
+permissions:
+  contents: write
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: arch/whatsapp-invoice-truth-v1
+      - name: Apply migration
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          page = Path('src/pages/WhatsappAnalytics.tsx')
+          text = page.read_text(encoding='utf-8-sig')
+          old_import = "import { useStaffDirectory } from '@/hooks/useStaffDirectory';\nimport { useSupabaseQuery } from '@/hooks/useSupabaseQuery';"
+          new_import = "import { useStaffDirectory } from '@/hooks/useStaffDirectory';\nimport { useSalesInvoiceTruth } from '@/hooks/useSalesInvoiceTruth';\nimport { useSupabaseQuery } from '@/hooks/useSupabaseQuery';"
+          if old_import not in text:
+              raise SystemExit('WhatsappAnalytics import anchor not found')
+          text = text.replace(old_import, new_import, 1)
+          old_query = """  const { data: invoices, loading: invoicesLoading, error: invoicesError } = useSupabaseQuery<Row>({\n    table: 'sales_invoices',\n    limit: 5000,\n    realtimeEnabled: false,\n  });"""
+          new_query = """  const { data: invoices, loading: invoicesLoading, error: invoicesError } = useSalesInvoiceTruth<Row>({\n    startDate,\n    endDate,\n    branch,\n  });"""
+          if old_query not in text:
+              raise SystemExit('WhatsappAnalytics invoice query anchor not found')
+          text = text.replace(old_query, new_query, 1)
+          page.write_text(text, encoding='utf-8')
+
+          gate = Path('scripts/check-generic-query-data-access.cjs')
+          gate_text = gate.read_text(encoding='utf-8')
+          start = gate_text.index('const LEGACY_GENERIC_INVOICE_UI_READERS')
+          end = gate_text.index(']);', start)
+          block = gate_text[start:end]
+          line = "  'src/pages/WhatsappAnalytics.tsx',\n"
+          if line not in block:
+              raise SystemExit('WhatsApp invoice debt entry not found')
+          block = block.replace(line, '', 1)
+          gate.write_text(gate_text[:start] + block + gate_text[end:], encoding='utf-8')
+
+          for workflow in [
+              Path('.github/workflows/tmp-whatsapp-invoice-truth.yml'),
+              Path('.github/workflows/tmp-whatsapp-invoice-truth-fix.yml'),
+          ]:
+              if workflow.exists():
+                  workflow.unlink()
+          PY
+      - name: Commit migration
+        run: |
+          git config user.name "dawaa-architecture-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "refactor: route WhatsApp invoice reads through sales truth"
+          git push origin HEAD:arch/whatsapp-invoice-truth-v1
