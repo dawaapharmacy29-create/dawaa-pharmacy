@@ -118,6 +118,7 @@ type TargetRow = {
   cash_sales?: number | string | null;
   delivery_sales?: number | string | null;
   manager_advice?: string | null;
+  target_source?: 'saved' | 'default' | 'unavailable';
 };
 
 type DoctorSales = {
@@ -810,8 +811,13 @@ function createTargets(
   daysCount: number,
   startDate: string,
   endDate: string,
-  savedTargets: SavedBranchTargetRow[] = []
+  savedTargets: SavedBranchTargetRow[] = [],
+  savedTargetsUnavailable = false
 ): TargetRow[] {
+  // Documented fallback for branches with no row yet in branch_sales_targets.
+  // Never used to paper over a failed/timed-out read of branch_sales_targets:
+  // in that case target_source is marked 'unavailable' below instead, so the
+  // UI can show a real "couldn't load" state rather than a valid-looking number.
   const targetDefaults: Record<string, number> = {
     'فرع الشامي': 1200000,
     'فرع شكري': 1550000,
@@ -820,26 +826,39 @@ function createTargets(
   return branches.map((row) => {
     const branch = branchName(row.branch);
     const savedTarget = savedTargets.find((item) => branchName(item.branch_name || item.branch) === branch);
-    const target = n(savedTarget?.target_amount) || targetDefaults[branch] || Math.max(n(row.sales_total) * 1.25, 1);
+    const hasSavedTarget = n(savedTarget?.target_amount) > 0;
+    const targetSource: TargetRow['target_source'] = hasSavedTarget
+      ? 'saved'
+      : savedTargetsUnavailable
+        ? 'unavailable'
+        : 'default';
+    const target = hasSavedTarget
+      ? n(savedTarget?.target_amount)
+      : savedTargetsUnavailable
+        ? null
+        : targetDefaults[branch] || Math.max(n(row.sales_total) * 1.25, 1);
     const achieved = n(row.sales_total);
     const projected = daysCount > 0 ? (achieved / daysCount) * 31 : achieved;
-    const percent = target ? (achieved / target) * 100 : 0;
+    const percent = target ? (achieved / target) * 100 : null;
     return {
       branch,
       target_amount: target,
+      target_source: targetSource,
       sales_total: achieved,
       invoices_count: row.invoices_count,
       avg_invoice: row.avg_invoice,
       achievement_percent: percent,
       projected_sales: projected,
-      projected_achievement_percent: target ? (projected / target) * 100 : 0,
-      remaining_amount: Math.max(0, target - achieved),
+      projected_achievement_percent: target ? (projected / target) * 100 : null,
+      remaining_amount: target ? Math.max(0, target - achieved) : null,
       cash_sales: null,
       delivery_sales: null,
       manager_advice:
-        percent >= 90
-          ? 'حافظ على نفس معدل التشغيل اليومي.'
-          : 'راجع العملاء المتوقفين، متوسط الفاتورة، والعروض اليومية.',
+        target === null
+          ? 'تعذر تحميل تارجت الفرع، جاري إعادة المحاولة.'
+          : percent !== null && percent >= 90
+            ? 'حافظ على نفس معدل التشغيل اليومي.'
+            : 'راجع العملاء المتوقفين، متوسط الفاتورة، والعروض اليومية.',
     };
   });
 }
@@ -1574,6 +1593,7 @@ export default function ExecutiveDashboard2027() {
           (effectiveDailySales || []).map((row: any) => String(row.sale_date || '').slice(0, 10)).filter(Boolean)
         ).size || 1;
         let savedTargetRows: SavedBranchTargetRow[] = [];
+        let savedTargetsUnavailable = false;
         try {
           const targetResult = await withTimeout<SupabaseQueryResult<SavedBranchTargetRow[]>>(
             supabase.from('branch_sales_targets').select('*').limit(100) as PromiseLike<SupabaseQueryResult<SavedBranchTargetRow[]>>,
@@ -1581,11 +1601,15 @@ export default function ExecutiveDashboard2027() {
             'branch-sales-targets'
           );
           if (!targetResult.error) savedTargetRows = targetResult.data || [];
-          else errors.push('branch_sales_targets: ' + (targetResult.error.message || 'تعذر تحميل التارجت'));
+          else {
+            savedTargetsUnavailable = true;
+            errors.push('branch_sales_targets: ' + (targetResult.error.message || 'تعذر تحميل التارجت'));
+          }
         } catch (targetError) {
+          savedTargetsUnavailable = true;
           errors.push('branch_sales_targets: ' + (targetError instanceof Error ? targetError.message : String(targetError)));
         }
-        const targets = createTargets(effectiveBranchDistribution, daysCount, startDate, endDate, savedTargetRows);
+        const targets = createTargets(effectiveBranchDistribution, daysCount, startDate, endDate, savedTargetRows, savedTargetsUnavailable);
         setState((prev) => ({
           ...prev,
           summary,
@@ -2945,6 +2969,7 @@ export default function ExecutiveDashboard2027() {
             <div className="space-y-4">
               {state.targets.length ? (
                 state.targets.map((target) => {
+                  const achievementUnknown = target.target_amount === null;
                   const achievement = n(target.achievement_percent);
                   const branchLabel = branchName(target.branch);
                   const branchDoctors = (doctorsByBranch.get(branchLabel) || []).slice(0, 12);
@@ -2968,16 +2993,27 @@ export default function ExecutiveDashboard2027() {
                           {branchName(target.branch)}
                         </h3>
                         <span
-                          className={`rounded-full px-3 py-1 text-sm font-black ${achievement >= 90 ? 'bg-[var(--dawaa-status-success-bg)] text-[var(--dawaa-status-success-text)]' : achievement >= 65 ? 'bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)]' : 'bg-[var(--dawaa-status-danger-bg)] text-[var(--dawaa-status-danger-text)]'}`}
+                          className={`rounded-full px-3 py-1 text-sm font-black ${achievementUnknown ? 'bg-[var(--dawaa-status-danger-bg)] text-[var(--dawaa-status-danger-text)]' : achievement >= 90 ? 'bg-[var(--dawaa-status-success-bg)] text-[var(--dawaa-status-success-text)]' : achievement >= 65 ? 'bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)]' : 'bg-[var(--dawaa-status-danger-bg)] text-[var(--dawaa-status-danger-text)]'}`}
                         >
-                          {pct(achievement)}
+                          {achievementUnknown ? 'غير متاح' : pct(achievement)}
                         </span>
                       </div>
                       <div className="grid grid-cols-2 gap-3 text-xs font-bold text-[var(--dawaa-theme-text)] md:grid-cols-4">
                         <span>
                           التارجت
+                          {target.target_source === 'unavailable' ? (
+                            <span className="ms-1 rounded-full bg-[var(--dawaa-status-danger-bg)] px-2 py-0.5 text-[10px] font-black text-[var(--dawaa-status-danger-text)]">
+                              غير متاح الآن
+                            </span>
+                          ) : target.target_source === 'default' ? (
+                            <span className="ms-1 rounded-full bg-[var(--dawaa-status-warning-bg)] px-2 py-0.5 text-[10px] font-black text-[var(--dawaa-status-warning-text)]">
+                              افتراضي
+                            </span>
+                          ) : null}
                           <br />
-                          <b className="text-[var(--dawaa-theme-heading)]">{money(target.target_amount)}</b>
+                          <b className="text-[var(--dawaa-theme-heading)]">
+                            {target.target_amount === null ? '—' : money(target.target_amount)}
+                          </b>
                         </span>
                         <span>
                           المحقق
@@ -2992,14 +3028,20 @@ export default function ExecutiveDashboard2027() {
                         <span>
                           المتبقي
                           <br />
-                          <b className="text-[var(--dawaa-status-warning-text)]">{money(target.remaining_amount)}</b>
+                          <b className="text-[var(--dawaa-status-warning-text)]">
+                            {target.remaining_amount === null ? '—' : money(target.remaining_amount)}
+                          </b>
                         </span>
                       </div>
                       <div className="mt-4 h-3 overflow-hidden rounded-full bg-[var(--dawaa-theme-surface-2)]">
-                        <div
-                          className="h-full rounded-full bg-gradient-to-l "
-                          style={{ width: `${Math.min(100, Math.max(0, achievement))}%` }}
-                        />
+                        {achievementUnknown ? (
+                          <div className="h-full w-full animate-pulse rounded-full bg-[var(--dawaa-status-danger-bg)] opacity-40" />
+                        ) : (
+                          <div
+                            className="h-full rounded-full bg-gradient-to-l "
+                            style={{ width: `${Math.min(100, Math.max(0, achievement))}%` }}
+                          />
+                        )}
                       </div>
                       <div className="mt-3 grid grid-cols-2 gap-2 text-xs font-bold text-[var(--dawaa-theme-muted)]">
                         <span>
