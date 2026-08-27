@@ -6,14 +6,12 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
-import { useSupabaseQuery } from '@/hooks/useSupabaseQuery';
+import { useStaffDirectory } from '@/hooks/useStaffDirectory';
 import { useEscapeKey } from '@/hooks/useEscapeKey';
 import { supabase } from '@/lib/supabase';
 import { cleanEgyptianPhone, generateWhatsAppLink } from '@/lib/whatsapp';
-import { isActiveStaffFilter } from '@/lib/staffActiveFilter';
 import { selectableStaffChoices } from '@/lib/staffFallback';
 import { notifyBranchDoctors } from '@/lib/staffNotificationService';
-import type { Staff } from '@/types/database';
 
 type Row = Record<string, any>;
 type NoteStatus = 'new' | 'assigned_pending' | 'in_progress' | 'completed' | 'cancelled';
@@ -85,12 +83,13 @@ function noteBadge(row: Row) {
 
 export default function ShiftNotesV2() {
   const { user, checkPermission } = useAuth();
-  const { data: staffRows } = useSupabaseQuery<Staff>({
-    table: 'staff', filters: isActiveStaffFilter(), realtimeEnabled: false,
-  });
+  const { data: staffDirectory = [] } = useStaffDirectory();
   const staffChoices = useMemo(
-    () => selectableStaffChoices(staffRows as unknown as Record<string, unknown>[]),
-    [staffRows]
+    () =>
+      selectableStaffChoices(
+        staffDirectory.filter((item) => item.source !== 'alias' && item.active) as unknown as Record<string, unknown>[]
+      ),
+    [staffDirectory]
   );
   const [workspace, setWorkspace] = useState<Workspace>({
     rows: [], deleted_rows: [], total: 0, page_size: PAGE_SIZE, offset: 0,
