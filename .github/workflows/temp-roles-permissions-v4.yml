@@ -1,0 +1,90 @@
+name: Temp RolesPermissions V4
+
+on:
+  push:
+    branches:
+      - arch/roles-permissions-staff-boundary-v4
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: arch/roles-permissions-staff-boundary-v4
+          fetch-depth: 0
+
+      - name: Canonicalize staff read
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          page = Path('src/pages/RolesPermissions.tsx')
+          text = page.read_text(encoding='utf-8')
+          text = text.replace("import { useSupabaseQuery } from '@/hooks/useSupabaseQuery';\n", "import { useStaffDirectory } from '@/hooks/useStaffDirectory';\n")
+          text = text.replace("import { isActiveStaffFilter } from '@/lib/staffActiveFilter';\n", "")
+
+          old = """  const { data: staffList } = useSupabaseQuery<StaffMember>({
+    table: TABLES.staff,
+    filters: isActiveStaffFilter(),
+    orderBy: { column: 'name', ascending: true },
+  });
+"""
+          new = """  const { data: staffDirectory = [] } = useStaffDirectory();
+  const staffList = useMemo<StaffMember[]>(() => {
+    const byId = new Map<string, StaffMember>();
+    for (const identity of staffDirectory) {
+      if (!identity.id || identity.source === 'alias' || identity.active === false) continue;
+      const item: StaffMember = {
+        id: identity.id,
+        name: identity.name || '',
+        role: identity.role || '',
+        branch: identity.branch || '',
+        status: identity.status || undefined,
+      };
+      const existing = byId.get(identity.id);
+      if (!existing || identity.source === 'staff') byId.set(identity.id, item);
+    }
+    return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+  }, [staffDirectory]);
+"""
+          if old not in text:
+              raise SystemExit('RolesPermissions legacy staff block not found')
+          text = text.replace(old, new, 1)
+          page.write_text(text, encoding='utf-8')
+
+          guard = Path('scripts/check-data-access-boundaries.cjs')
+          g = guard.read_text(encoding='utf-8')
+          old_guard = """// RolesPermissions still uses the legacy generic-query path with TABLES.staff.
+// Keep it explicit so the debt is measurable and no second page can copy the pattern.
+const LEGACY_DIRECT_STAFF_UI_READERS = new Set(['src/pages/RolesPermissions.tsx']);
+"""
+          new_guard = """const LEGACY_DIRECT_STAFF_UI_READERS = new Set();
+"""
+          if old_guard not in g:
+              raise SystemExit('staff debt register block not found')
+          g = g.replace(old_guard, new_guard, 1)
+          guard.write_text(g, encoding='utf-8')
+          PY
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+
+      - name: Verify architecture and types
+        run: |
+          node scripts/check-data-access-boundaries.cjs
+          npm run typecheck
+
+      - name: Commit verified patch
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/pages/RolesPermissions.tsx scripts/check-data-access-boundaries.cjs
+          git commit -m "refactor: route roles permissions through staff directory"
+          git push origin HEAD:arch/roles-permissions-staff-boundary-v4
