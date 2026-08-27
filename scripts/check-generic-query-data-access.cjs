@@ -7,7 +7,6 @@ const ROOT = path.join(process.cwd(), 'src');
 // table name. Keep the baseline explicit and shrink it in the same PR as each migration.
 const LEGACY_LITERAL_STAFF_UI_READERS = new Set([
   'src/pages/Delivery.tsx',
-  'src/pages/IncentiveMedicines.tsx',
   'src/pages/OperationalModule.tsx',
   'src/pages/Points.tsx',
   'src/pages/Reviews.tsx',
@@ -15,7 +14,6 @@ const LEGACY_LITERAL_STAFF_UI_READERS = new Set([
   'src/pages/ShiftNotes.tsx',
   'src/pages/ShiftPerformance.tsx',
   'src/pages/StagnantMedicines.tsx',
-  'src/pages/Stories.tsx',
 ]);
 
 // Pre-existing generic-query invoice readers. These must move to an approved
