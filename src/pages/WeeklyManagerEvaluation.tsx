@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ClipboardList, TrendingUp, TrendingDown, Save, Send, ExternalLink } from 'lucide-react';
+import { ClipboardList, TrendingUp, TrendingDown, Save, Send, ExternalLink, Star } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { normalizeRole } from '@/lib/core/permissionSystem';
 import {
   EVALUATION_CRITERIA,
-  criterionHasData,
   computeWeightedCriterionScores,
   EVALUATION_TYPE_LABELS,
   computeTotalScore,
@@ -32,6 +31,9 @@ const EVALUATOR_ROLES_BY_TYPE: Record<EvaluationType, string[]> = {
   branches_manager: ['general_manager'],
   customer_service: ['general_manager', 'executive_manager', 'branches_manager'],
 };
+
+const SYSTEM_PERFORMANCE_WEIGHT = 0.8;
+const MANAGER_JUDGMENT_WEIGHT = 0.2;
 
 function scoreTone(score: number) {
   if (score >= 80) return 'text-emerald-300';
@@ -61,6 +63,11 @@ function previousIncentiveCycle(periodStart: string) {
   return incentiveCycleBounds(previousAnchor);
 }
 
+function clampManagerScore(value: number) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(10, value));
+}
+
 export default function WeeklyManagerEvaluation() {
   const { type } = useParams<{ type: EvaluationType }>();
   const evaluationType = (type && EVALUATION_CRITERIA[type as EvaluationType] ? type : 'branch_manager') as EvaluationType;
@@ -69,6 +76,7 @@ export default function WeeklyManagerEvaluation() {
   const evaluatorRole = normalizeRole(user?.role);
   const canEvaluate = EVALUATOR_ROLES_BY_TYPE[evaluationType].includes(evaluatorRole);
   const evaluatorStaffId = String(user?.staffId || user?.id || '');
+  const allowManagerJudgment = isMonthlyIncentiveEvaluation && ['branches_manager', 'general_manager', 'executive_manager'].includes(evaluatorRole);
 
   const [subjectChoices, setSubjectChoices] = useState<ManagerEvaluationSubject[]>([]);
   const [subjectStaffId, setSubjectStaffId] = useState('');
@@ -87,13 +95,10 @@ export default function WeeklyManagerEvaluation() {
     return weekBoundsOf(new Date(`${periodStart}T12:00:00`)).end;
   }, [isMonthlyIncentiveEvaluation, periodStart]);
 
-  useEffect(() => {
-    setPeriodStart(isMonthlyIncentiveEvaluation ? incentiveCycleBounds(new Date()).start : weekBoundsOf(new Date()).start);
-  }, [isMonthlyIncentiveEvaluation, evaluationType]);
-
   const [currentMetrics, setCurrentMetrics] = useState<WeeklyAutoMetrics | null>(null);
   const [previousMetrics, setPreviousMetrics] = useState<WeeklyAutoMetrics | null>(null);
   const [checklistRates, setChecklistRates] = useState<Record<string, number>>({});
+  const [manualScores, setManualScores] = useState<Record<string, number>>({});
   const [note, setNote] = useState('');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -101,6 +106,16 @@ export default function WeeklyManagerEvaluation() {
   const [history, setHistory] = useState<Array<{ week_start: string; total_score: number; status: string }>>([]);
 
   const branchForMetrics = evaluationType === 'branches_manager' ? selectedBranch : subject?.branch || null;
+  const criteria = EVALUATION_CRITERIA[evaluationType];
+
+  useEffect(() => {
+    setPeriodStart(isMonthlyIncentiveEvaluation ? incentiveCycleBounds(new Date()).start : weekBoundsOf(new Date()).start);
+  }, [isMonthlyIncentiveEvaluation, evaluationType]);
+
+  useEffect(() => {
+    setManualScores({});
+    setNote('');
+  }, [subjectStaffId, periodStart, evaluationType, branchForMetrics]);
 
   useEffect(() => {
     if (!canEvaluate || !user?.id) return;
@@ -161,21 +176,56 @@ export default function WeeklyManagerEvaluation() {
     return () => { cancelled = true; };
   }, [subjectStaffId, periodStart, periodEnd, evaluationType, branchForMetrics, user?.id, isMonthlyIncentiveEvaluation]);
 
-  const criteria = EVALUATION_CRITERIA[evaluationType];
-  const totalScore = useMemo(() => {
+  const objectiveScore = useMemo(() => {
     if (!currentMetrics) return 0;
     return computeTotalScore(evaluationType, currentMetrics, previousMetrics, {}, checklistRates);
   }, [evaluationType, currentMetrics, previousMetrics, checklistRates]);
+
   const weightedCriteria = useMemo(() => currentMetrics
     ? computeWeightedCriterionScores(evaluationType, currentMetrics, previousMetrics, {}, checklistRates)
     : [], [evaluationType, currentMetrics, previousMetrics, checklistRates]);
-  const availableCriteriaPercent = Math.round(weightedCriteria.filter((row) => row.included)
-    .reduce((sum, row) => sum + row.originalWeight, 0) * 100);
+
+  const manualCompletedCount = criteria.filter((criterion) => Number.isFinite(manualScores[criterion.key])).length;
+  const managerJudgmentComplete = !allowManagerJudgment || manualCompletedCount === criteria.length;
+  const managerJudgmentScore = useMemo(() => {
+    if (!allowManagerJudgment || !criteria.length) return 0;
+    const scored = criteria.filter((criterion) => Number.isFinite(manualScores[criterion.key]));
+    const scoredWeight = scored.reduce((sum, criterion) => sum + criterion.weight, 0);
+    if (!scoredWeight) return 0;
+    const weighted = scored.reduce(
+      (sum, criterion) => sum + clampManagerScore(manualScores[criterion.key]) * criterion.weight * 10,
+      0
+    );
+    return Math.round((weighted / scoredWeight) * 10) / 10;
+  }, [allowManagerJudgment, criteria, manualScores]);
+
+  const totalScore = useMemo(() => {
+    if (!allowManagerJudgment || !managerJudgmentComplete) return objectiveScore;
+    return Math.round((objectiveScore * SYSTEM_PERFORMANCE_WEIGHT + managerJudgmentScore * MANAGER_JUDGMENT_WEIGHT) * 10) / 10;
+  }, [allowManagerJudgment, managerJudgmentComplete, objectiveScore, managerJudgmentScore]);
+
+  const handleManualScore = (criterionKey: string, value: string) => {
+    if (value === '') {
+      setManualScores((current) => {
+        const next = { ...current };
+        delete next[criterionKey];
+        return next;
+      });
+      return;
+    }
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return;
+    setManualScores((current) => ({ ...current, [criterionKey]: clampManagerScore(parsed) }));
+  };
 
   const handleSave = async (status: 'draft' | 'submitted') => {
     if (!subjectStaffId || !currentMetrics) return;
     if (!canEvaluate || String(subjectStaffId) === evaluatorStaffId) {
       setError('لا يمكن اعتماد هذا التقييم: يجب أن يكون المُقيِّم مديرًا أعلى ومختلفًا عن الشخص المُقيَّم.');
+      return;
+    }
+    if (status === 'submitted' && allowManagerJudgment && !managerJudgmentComplete) {
+      setError(`أكمل تقييم مدير الفروع لكل البنود قبل الاعتماد النهائي (${manualCompletedCount}/${criteria.length}).`);
       return;
     }
     setSaving(true);
@@ -191,22 +241,20 @@ export default function WeeklyManagerEvaluation() {
         week_start: periodStart,
         week_end: periodEnd,
         auto_metrics: currentMetrics,
-        manual_scores: {},
+        manual_scores: manualScores,
         manual_note: note || null,
         total_score: totalScore,
         status,
       };
       await saveWeeklyEvaluation(payload);
-      window.dispatchEvent(
-        new CustomEvent('toast', {
-          detail: {
-            type: 'success',
-            message: status === 'submitted'
-              ? (isMonthlyIncentiveEvaluation ? 'تم اعتماد تقييم دورة الحافز الشهرية' : 'تم اعتماد التقييم')
-              : 'تم حفظ المسودة',
-          },
-        })
-      );
+      window.dispatchEvent(new CustomEvent('toast', {
+        detail: {
+          type: 'success',
+          message: status === 'submitted'
+            ? (isMonthlyIncentiveEvaluation ? 'تم اعتماد تقييم دورة الحافز الشهرية' : 'تم اعتماد التقييم')
+            : 'تم حفظ المسودة',
+        },
+      }));
       const hist = await fetchEvaluationHistory(evaluationType, subjectStaffId, branchForMetrics);
       setHistory(hist as Array<{ week_start: string; total_score: number; status: string }>);
     } catch (err) {
@@ -234,9 +282,11 @@ export default function WeeklyManagerEvaluation() {
             {isMonthlyIncentiveEvaluation ? ' — تقييم شهري للحافز' : ''}
           </h1>
           <p className="text-sm text-slate-400">
-            {isMonthlyIncentiveEvaluation
-              ? 'تقييم واحد معتمد لكل دورة 26→25. الدرجة مبنية على بيانات التطبيق والمهام الموثقة خلال الدورة، وهي مصدر حافز الأداء الشهري.'
-              : 'نموذج أسبوعي موضوعي: كل بند محسوب من بيانات التطبيق أو مهمة موثقة، بدون درجات رأي شخصي.'}
+            {allowManagerJudgment
+              ? 'التقييم النهائي يجمع 80% من الأداء الموثق داخل التطبيق + 20% تقييم مدير الفروع لكل بند.'
+              : isMonthlyIncentiveEvaluation
+                ? 'تقييم واحد معتمد لكل دورة 26→25، مبني على بيانات التطبيق والمهام الموثقة خلال الدورة.'
+                : 'نموذج أسبوعي موضوعي مبني على بيانات التطبيق والمهام الموثقة.'}
           </p>
         </div>
       </div>
@@ -270,20 +320,29 @@ export default function WeeklyManagerEvaluation() {
 
       {!subjectsLoading && subjectChoices.length === 0 && <p className="text-sm text-amber-300">لا يوجد مدير نشط وصالح للتقييم في هذا المسار.</p>}
       {loading && <p className="text-sm text-slate-400">جارٍ تحميل بيانات التقييم...</p>}
-      {error && <p className="text-sm text-red-300">{error}</p>}
+      {error && <p className="rounded-xl border border-red-500/20 bg-red-950/20 p-3 text-sm text-red-300">{error}</p>}
 
       {currentMetrics && !loading && (
         <>
-          <div className="stat-card flex items-center justify-between">
-            <div>
-              <div className="text-sm text-slate-400">الدرجة الكلية</div>
-              <div className={`text-4xl font-black ${scoreTone(totalScore)}`}>
-                {totalScore}<span className="text-lg text-slate-500"> / 100</span>
-              </div>
+          <div className={`grid gap-3 ${allowManagerJudgment ? 'md:grid-cols-3' : ''}`}>
+            <div className="stat-card">
+              <div className="text-sm text-slate-400">أداء التطبيق والمهام {allowManagerJudgment ? '(80%)' : ''}</div>
+              <div className={`text-4xl font-black ${scoreTone(objectiveScore)}`}>{objectiveScore}<span className="text-lg text-slate-500"> / 100</span></div>
             </div>
-            <span className={availableCriteriaPercent >= 80 ? 'text-xs text-emerald-300' : 'text-xs text-amber-300'}>
-              {availableCriteriaPercent}% من أوزان البنود لها بيانات موثقة
-            </span>
+            {allowManagerJudgment && (
+              <>
+                <div className="stat-card">
+                  <div className="flex items-center gap-2 text-sm text-slate-400"><Star className="h-4 w-4" /> تقييم مدير الفروع (20%)</div>
+                  <div className={`text-4xl font-black ${scoreTone(managerJudgmentScore)}`}>{managerJudgmentScore}<span className="text-lg text-slate-500"> / 100</span></div>
+                  <div className="mt-1 text-xs text-slate-500">تم تقييم {manualCompletedCount} من {criteria.length} بند</div>
+                </div>
+                <div className="stat-card">
+                  <div className="text-sm text-slate-400">الدرجة النهائية للحافز</div>
+                  <div className={`text-4xl font-black ${scoreTone(totalScore)}`}>{totalScore}<span className="text-lg text-slate-500"> / 100</span></div>
+                  {!managerJudgmentComplete && <div className="mt-1 text-xs text-amber-300">تكتمل الدرجة النهائية بعد تقييم كل البنود.</div>}
+                </div>
+              </>
+            )}
           </div>
 
           <ManagerLiveIncentiveCard evaluationType={evaluationType} staffId={subjectStaffId} branch={branchForMetrics} />
@@ -291,8 +350,8 @@ export default function WeeklyManagerEvaluation() {
 
           <div className="grid gap-3 md:grid-cols-2">
             {criteria.map((criterion) => {
-              const hasData = criterionHasData(criterion, currentMetrics, checklistRates);
               const weighted = weightedCriteria.find((row) => row.criterion.key === criterion.key);
+              const systemScore10 = weighted?.score10 ?? 0;
               const autoScore = criterion.mode === 'auto' && criterion.autoScore
                 ? criterion.autoScore(currentMetrics, previousMetrics)
                 : null;
@@ -300,16 +359,16 @@ export default function WeeklyManagerEvaluation() {
               const checklistScore = criterion.mode === 'checklist' && checklistKeys.length
                 ? checklistKeys.reduce((sum, k) => sum + (checklistRates[k] ?? 0), 0) / checklistKeys.length / 10
                 : null;
+              const manualScore = manualScores[criterion.key];
+              const combinedCriterionScore = Number.isFinite(manualScore)
+                ? Math.round((systemScore10 * SYSTEM_PERFORMANCE_WEIGHT + clampManagerScore(manualScore) * MANAGER_JUDGMENT_WEIGHT) * 10) / 10
+                : null;
+
               return (
-                <div key={criterion.key} className="stat-card space-y-2">
-                  <div className="flex items-center justify-between">
+                <div key={criterion.key} className="stat-card space-y-3">
+                  <div className="flex items-start justify-between gap-3">
                     <span className="font-black text-white">{criterion.label}</span>
-                    <span className="text-xs font-bold text-slate-400">
-                      وزن {Math.round(criterion.weight * 100)}%
-                      {hasData && weighted && Math.abs(weighted.effectiveWeight - criterion.weight) > 0.001
-                        ? ` ← فعلي ${Math.round(weighted.effectiveWeight * 100)}%`
-                        : ''}
-                    </span>
+                    <span className="whitespace-nowrap text-xs font-bold text-slate-400">وزن {Math.round(criterion.weight * 100)}%</span>
                   </div>
                   {criterion.hint && <p className="text-xs text-slate-500">{criterion.hint}</p>}
                   {criterion.sourceRoute && (
@@ -317,30 +376,41 @@ export default function WeeklyManagerEvaluation() {
                       <ExternalLink className="h-3 w-3" /> فتح مصدر البيانات: {criterion.sourceLabel || 'التفاصيل'}
                     </Link>
                   )}
-                  {criterion.mode === 'auto' && (
-                    <div className="flex items-center gap-2">
-                      {!hasData ? (
-                        <span className="rounded-full border border-amber-500/20 bg-amber-950/20 px-2 py-1 text-xs font-bold text-amber-300">
-                          مستبعد لعدم اكتمال المصدر — لا صفر ولا درجة افتراضية
-                        </span>
-                      ) : (
-                        <>
-                          <span className={`text-2xl font-black ${scoreTone((autoScore || 0) * 10)}`}>{(autoScore || 0).toFixed(1)} / 10</span>
-                          {previousMetrics && (
-                            <span className="flex items-center gap-1 text-xs text-slate-400">
-                              {(autoScore || 0) >= 5 ? <TrendingUp className="h-3 w-3 text-emerald-400" /> : <TrendingDown className="h-3 w-3 text-red-400" />}
-                            </span>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  )}
-                  {criterion.mode === 'checklist' && (
-                    <div className="flex items-center gap-2">
-                      <span className={`text-2xl font-black ${scoreTone((checklistScore || 0) * 10)}`}>{(checklistScore || 0).toFixed(1)} / 10</span>
-                      <span className="text-xs text-slate-500">
-                        ({(checklistKeys.length ? checklistKeys.reduce((sum, k) => sum + (checklistRates[k] ?? 0), 0) / checklistKeys.length : 0).toFixed(0)}% من المهام المطلوبة خلال {isMonthlyIncentiveEvaluation ? 'الدورة' : 'الأسبوع'})
-                      </span>
+
+                  <div className="rounded-xl border border-white/5 bg-black/10 p-3">
+                    <div className="text-[11px] font-bold text-slate-500">درجة الأداء الموثق</div>
+                    {criterion.mode === 'auto' ? (
+                      <div className="flex items-center gap-2">
+                        <span className={`text-2xl font-black ${scoreTone((autoScore || 0) * 10)}`}>{(autoScore || 0).toFixed(1)} / 10</span>
+                        {previousMetrics && ((autoScore || 0) >= 5 ? <TrendingUp className="h-4 w-4 text-emerald-400" /> : <TrendingDown className="h-4 w-4 text-red-400" />)}
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span className={`text-2xl font-black ${scoreTone((checklistScore || 0) * 10)}`}>{(checklistScore || 0).toFixed(1)} / 10</span>
+                        <span className="text-xs text-slate-500">من إنجاز المهام خلال {isMonthlyIncentiveEvaluation ? 'الدورة' : 'الأسبوع'}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {allowManagerJudgment && (
+                    <div className="rounded-xl border border-teal-500/15 bg-teal-950/10 p-3">
+                      <label className="mb-2 block text-xs font-black text-teal-200">تقييم مدير الفروع لهذا البند</label>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="number"
+                          min="0"
+                          max="10"
+                          step="0.5"
+                          value={Number.isFinite(manualScore) ? manualScore : ''}
+                          onChange={(e) => handleManualScore(criterion.key, e.target.value)}
+                          placeholder="0 - 10"
+                          className="input-dark w-28"
+                        />
+                        <span className="text-xs text-slate-400">من 10</span>
+                        {combinedCriterionScore !== null && (
+                          <span className="mr-auto text-xs font-bold text-white">المجمّع: {combinedCriterionScore.toFixed(1)} / 10</span>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -359,16 +429,20 @@ export default function WeeklyManagerEvaluation() {
               <div><span className="text-slate-500">طلبات متأخرة: </span><span className="font-bold text-red-300">{currentMetrics.customer_requests_overdue ?? 0}</span></div>
               <div><span className="text-slate-500">قيمة شراء بعد المتابعة: </span><span className="font-bold text-emerald-300">{(currentMetrics.followups_purchase_amount ?? 0).toLocaleString('ar-EG')} ج.م</span></div>
               <div><span className="text-slate-500">تكويد الفواتير: </span><span className="font-bold text-white">{currentMetrics.sales_coding_rate ?? '—'}%</span></div>
-              <div><span className="text-slate-500">إنجاز القوائم اليومية: </span><span className="font-bold text-white">{currentMetrics.daily_queues_completion_rate ?? '—'}%{currentMetrics.daily_queues_total ? ` (${currentMetrics.daily_queues_handled ?? 0}/${currentMetrics.daily_queues_total})` : ''}</span></div>
             </div>
           </div>
 
           <div className="stat-card space-y-2">
-            <label className="text-sm font-bold text-white">ملاحظة إدارية (للتوثيق فقط — لا تغيّر الدرجة أو الحافز)</label>
-            <textarea className="input-dark min-h-[100px] w-full" placeholder="اكتب سياقًا أو إجراءً تصحيحيًا؛ الدرجة تظل محسوبة تلقائيًا..." value={note} onChange={(e) => setNote(e.target.value)} />
+            <label className="text-sm font-bold text-white">ملاحظة مدير الفروع على التقييم</label>
+            <textarea
+              className="input-dark min-h-[100px] w-full"
+              placeholder="اكتب نقاط القوة، الملاحظات، أو المطلوب تحسينه خلال الدورة القادمة..."
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+            />
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <button type="button" disabled={saving} onClick={() => handleSave('draft')} className="flex items-center gap-2 rounded-xl border border-white/15 px-5 py-2 font-black text-white disabled:opacity-50">
               <Save className="h-4 w-4" /> حفظ كمسودة
             </button>
