@@ -266,21 +266,11 @@ export const MANAGER_TASK_CADENCE_BY_KEY: Record<string, ManagerTaskCadence> = {
   conversations_review: 'weekly',
   returns_to_suppliers_followup: 'weekly',
 
-  branch_appearance_cleanliness_audit: 'weekly',
+  // مدير الفروع: اليومي هو الأصل. نُبقي أسبوعيًا فقط البنود التي تحتاج تجميعًا
+  // أو فحصًا أوسع من المرور التشغيلي اليومي.
   infrastructure_check: 'weekly',
-  consumables_check: 'weekly',
-  doctor_classification_accuracy_review: 'weekly',
-  purchases_speed_availability_review: 'weekly',
   top20_customers_retention_review: 'weekly',
-  cs_oversight_conversations_review: 'weekly',
-  cs_oversight_followup_list_review: 'weekly',
-  cs_oversight_points_review: 'weekly',
-  cs_oversight_sales_quality_review: 'weekly',
-  inventory_shelf_review: 'weekly',
   warehouse_review: 'weekly',
-  shortages_conduct_review: 'weekly',
-  stock_movement_review: 'weekly',
-  stagnant_compliance_review: 'weekly',
 
   conversations_reviewed: 'weekly',
   classification_accuracy_review: 'weekly',
