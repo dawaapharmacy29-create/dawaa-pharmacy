@@ -13,13 +13,11 @@ import {
   Search,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { useSupabaseQuery } from '@/hooks/useSupabaseQuery';
+import { useEmployeeTransactions } from '@/hooks/useEmployeeTransactions';
 import { useStaffDirectory } from '@/hooks/useStaffDirectory';
 import { useAuth, getCurrentUserProfile } from '@/hooks/useAuth';
 import { logActivity } from '@/lib/activityLog';
 import { notifyEmployee } from '@/lib/notificationService';
-import { supabase } from '@/lib/supabase';
-import { TABLES } from '@/lib/supabaseTables';
 import { formatDateTime, toNumber } from '@/lib/utils';
 import { BRANCHES, POINT_REASONS } from '@/lib/constants';
 import { getCurrentCycle } from '@/lib/pharmacy-cycle';
@@ -212,9 +210,7 @@ export default function PenaltyIncentiveManagement() {
     data: records,
     loading: recLoading,
     refetch: refetchRecords,
-  } = useSupabaseQuery<PointRecord>({
-    table: TABLES.employeeTransactions,
-    orderBy: { column: 'created_at', ascending: false },
+  } = useEmployeeTransactions<PointRecord>({
     limit: 100,
     realtimeEnabled: true,
   });
