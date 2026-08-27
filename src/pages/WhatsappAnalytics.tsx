@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { BarChart3, MessageCircle, Star, TrendingUp, Users } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { useEmployeeTransactions } from '@/hooks/useEmployeeTransactions';
 import { useStaffDirectory } from '@/hooks/useStaffDirectory';
 import { useSupabaseQuery } from '@/hooks/useSupabaseQuery';
 import { normalizeBranchName } from '@/lib/branch';
@@ -94,8 +95,9 @@ export default function WhatsappAnalytics() {
     limit: 5000,
     realtimeEnabled: false,
   });
-  const { data: transactions, loading: txLoading, error: txError } = useSupabaseQuery<Row>({
-    table: 'employee_transactions',
+  const { data: transactions, loading: txLoading, error: txError } = useEmployeeTransactions<Row>({
+    startDate,
+    endDate,
     limit: 2000,
     realtimeEnabled: true,
   });

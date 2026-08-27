@@ -32,7 +32,6 @@ const LEGACY_GENERIC_INVOICE_UI_READERS = new Set([
 const LEGACY_GENERIC_EMPLOYEE_TRANSACTION_UI_READERS = new Set([
   'src/pages/Delivery.tsx',
   'src/pages/Points.tsx',
-  'src/pages/WhatsappAnalytics.tsx',
 ]);
 
 function walk(dir) {
