@@ -50,19 +50,25 @@ export function isValidEgyptianCustomerMobile(value: unknown) {
   return /^01[0125]\d{8}$/.test(normalizeEgyptianCustomerPhone(value));
 }
 
-export function normalizeCustomerIdentityName(value: unknown) {
+/** Preserves the existing follow-up display/identity cleanup semantics. */
+export function normalizeCustomerDisplayIdentityName(value: unknown) {
   return customerIdentityText(value)
     .replace(/\++/g, ' ')
     .replace(/\(\s*p\s*\d+\s*\)/gi, ' ')
     .replace(/\(\s*\d+\s*%\s*\)/g, ' ')
     .replace(/\bش\s*\d+\b/gi, ' ')
     .replace(/[|*_]+/g, ' ')
-    .replace(/[أإآ]/g, 'ا')
-    .replace(/ة/g, 'ه')
-    .replace(/ى/g, 'ي')
     .replace(/\s+/g, ' ')
     .trim()
     .toLowerCase();
+}
+
+/** Adds Arabic-letter folding only for fuzzy matching/search comparisons. */
+export function normalizeCustomerIdentityName(value: unknown) {
+  return normalizeCustomerDisplayIdentityName(value)
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/ى/g, 'ي');
 }
 
 export function sanitizeCustomerIdentityNameForIlike(value: unknown) {
@@ -88,7 +94,7 @@ export function buildCustomerIdentity(input: CustomerIdentityInput) {
   const phone = normalizeEgyptianCustomerPhone(input.phone);
   if (isValidEgyptianCustomerMobile(phone)) return `phone:${phone}`;
 
-  const name = normalizeCustomerIdentityName(input.name);
+  const name = normalizeCustomerDisplayIdentityName(input.name);
   if (isMeaningfulCustomerIdentityText(name)) return `name:${name}`;
 
   return 'unknown';
