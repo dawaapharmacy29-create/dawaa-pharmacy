@@ -22,7 +22,6 @@ const LEGACY_DIRECT_STAFF_UI_READERS = new Set([
   'src/pages/PenaltyIncentiveManagement.tsx',
   'src/pages/RolesPermissions.tsx',
   'src/pages/StaffAccounts.tsx',
-  'src/pages/TimeOff.tsx',
 ]);
 
 const LEGACY_DIRECT_EMPLOYEE_TRANSACTION_UI_READERS = new Set();
