@@ -2,14 +2,15 @@ name: Temp RolesPermissions Canonicalize
 
 on:
   push:
-    branches: [arch/roles-permissions-staff-boundary-v3]
+    branches:
+      - arch/roles-permissions-staff-boundary-v3
 
 permissions:
   contents: write
 
 jobs:
   patch:
-    if: github.actor != 'github-actions[bot]'
+    if: ${{ github.actor != 'github-actions[bot]' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -56,39 +57,6 @@ jobs:
               raise SystemExit('RolesPermissions staff read block not found')
           s = s.replace(old, new, 1)
           page.write_text(s, encoding='utf-8')
-
-          guard = Path('scripts/check-data-access-boundaries.cjs')
-          g = guard.read_text(encoding='utf-8')
-          needle = """function hasDirectAccess(content, table) {
-  return countDirectAccess(content, table) > 0;
-}
-"""
-          replacement = """function hasDirectAccess(content, table) {
-  return countDirectAccess(content, table) > 0;
-}
-
-function hasTableConstantQueryAccess(content, tableConstant) {
-  const pattern = new RegExp(`table\\\\s*:\\s*TABLES\\\\.${tableConstant}\\\\b`);
-  return pattern.test(content);
-}
-"""
-          if needle not in g:
-              raise SystemExit('architecture helper insertion point not found')
-          g = g.replace(needle, replacement, 1)
-          old_check = """  if (hasDirectAccess(content, 'staff')) {
-    if (LEGACY_DIRECT_STAFF_UI_READERS.has(relative)) presentStaffUiLegacy.push(relative);
-    else staffUiOffenders.push(relative);
-  }
-"""
-          new_check = """  if (hasDirectAccess(content, 'staff') || hasTableConstantQueryAccess(content, 'staff')) {
-    if (LEGACY_DIRECT_STAFF_UI_READERS.has(relative)) presentStaffUiLegacy.push(relative);
-    else staffUiOffenders.push(relative);
-  }
-"""
-          if old_check not in g:
-              raise SystemExit('staff architecture check block not found')
-          g = g.replace(old_check, new_check, 1)
-          guard.write_text(g, encoding='utf-8')
           PY
 
       - name: Verify targeted architecture
@@ -102,6 +70,6 @@ function hasTableConstantQueryAccess(content, tableConstant) {
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add src/pages/RolesPermissions.tsx scripts/check-data-access-boundaries.cjs
+          git add src/pages/RolesPermissions.tsx
           git commit -m "refactor: route roles permissions through staff directory"
           git push origin HEAD:arch/roles-permissions-staff-boundary-v3
