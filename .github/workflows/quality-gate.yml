@@ -52,6 +52,9 @@ jobs:
       - name: Architecture data-access boundary
         run: node scripts/check-data-access-boundaries.cjs
 
+      - name: Generic query data-access boundary
+        run: node scripts/check-generic-query-data-access.cjs
+
       - name: Notification architecture boundary
         run: node scripts/check-notification-architecture.cjs
 
