@@ -15,7 +15,9 @@ const APPROVED_INVOICE_BOUNDARIES = new Set([
   'src/lib/invoices/invoiceManagementService.ts',
 ]);
 
-const LEGACY_DIRECT_STAFF_UI_READERS = new Set();
+// RolesPermissions still uses the legacy generic-query path with TABLES.staff.
+// Keep it explicit so the debt is measurable and no second page can copy the pattern.
+const LEGACY_DIRECT_STAFF_UI_READERS = new Set(['src/pages/RolesPermissions.tsx']);
 
 const LEGACY_DIRECT_EMPLOYEE_TRANSACTION_UI_READERS = new Set();
 
@@ -58,6 +60,11 @@ function hasDirectAccess(content, table) {
   return countDirectAccess(content, table) > 0;
 }
 
+function hasTableConstantQueryAccess(content, tableConstant) {
+  const pattern = new RegExp(`table\\s*:\\s*TABLES\\.${tableConstant}\\b`);
+  return pattern.test(content);
+}
+
 function hasDirectSelectAccess(content, table) {
   return countDirectSelectAccess(content, table) > 0;
 }
@@ -95,7 +102,7 @@ for (const file of walk(ROOT)) {
   const isUi = relative.startsWith('src/pages/') || relative.startsWith('src/components/');
   if (!isUi) continue;
 
-  if (hasDirectAccess(content, 'staff')) {
+  if (hasDirectAccess(content, 'staff') || hasTableConstantQueryAccess(content, 'staff')) {
     if (LEGACY_DIRECT_STAFF_UI_READERS.has(relative)) presentStaffUiLegacy.push(relative);
     else staffUiOffenders.push(relative);
   }
