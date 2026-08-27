@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { BellRing, CheckCircle2, Clock, Plus, Search, ShieldAlert, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
+import { useStaffDirectory } from '@/hooks/useStaffDirectory';
 import { useSupabaseQuery, supabaseInsert, supabaseUpdate } from '@/hooks/useSupabaseQuery';
 import { supabase } from '@/lib/supabase';
 import { normalizeRole } from '@/lib/core/permissionSystem';
@@ -48,6 +49,7 @@ export default function OperationsCenter2027() {
   const role = normalizeRole(user?.role);
   const canCreateTasks = checkPermission('manage_operations') || MANAGER_ROLES.has(role);
   const canSeeAllBranches = ['general_manager', 'executive_manager', 'branches_manager'].includes(role);
+  const { data: staffDirectory = [] } = useStaffDirectory();
 
   const { data: tasks, refetch: refetchTasks } = useSupabaseQuery<TaskRow>({
     table: 'tasks',
@@ -57,7 +59,6 @@ export default function OperationsCenter2027() {
   });
 
   const [notificationsRaw, setNotificationsRaw] = useState<Record<string, unknown>[]>([]);
-  const [staffOptions, setStaffOptions] = useState<StaffOption[]>([]);
   const [search, setSearch] = useState('');
   const [form, setForm] = useState({
     title: '',
@@ -79,17 +80,23 @@ export default function OperationsCenter2027() {
     refetchNotifications();
   }, [refetchNotifications]);
 
-  useEffect(() => {
-    if (!canCreateTasks) return;
-    let query = supabase
-      .from('staff')
-      .select('id,name,role,branch')
-      .eq('is_active', true)
-      .order('name', { ascending: true })
-      .limit(300);
-    if (!canSeeAllBranches && user?.branch) query = query.eq('branch', user.branch);
-    void query.then(({ data }) => setStaffOptions((data as StaffOption[]) || []));
-  }, [canCreateTasks, canSeeAllBranches, user?.branch]);
+  const staffOptions = useMemo<StaffOption[]>(() => {
+    if (!canCreateTasks) return [];
+    const byId = new Map<string, StaffOption>();
+    for (const identity of staffDirectory) {
+      if (!identity.id || !identity.name || !identity.active || identity.source === 'alias') continue;
+      if (!canSeeAllBranches && user?.branch && identity.branch !== user.branch) continue;
+      if (!byId.has(identity.id)) {
+        byId.set(identity.id, {
+          id: identity.id,
+          name: identity.name,
+          role: identity.role,
+          branch: identity.branch,
+        });
+      }
+    }
+    return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+  }, [canCreateTasks, canSeeAllBranches, staffDirectory, user?.branch]);
 
   const notifications = useMemo(() => {
     const unique = new Map<string, AppNotification>();
