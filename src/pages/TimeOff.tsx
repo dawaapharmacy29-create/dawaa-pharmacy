@@ -2,21 +2,17 @@ import { useMemo, useState } from 'react';
 import { Loader2, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { useSupabaseQuery } from '@/hooks/useSupabaseQuery';
+import { useStaffDirectory } from '@/hooks/useStaffDirectory';
 import { supabase } from '@/lib/supabase';
 import { TABLES } from '@/lib/supabaseTables';
 import { getCurrentCycle } from '@/lib/pharmacy-cycle';
 import { persistPointsTransaction } from '@/lib/pointsPersistence';
-import { isActiveStaffFilter } from '@/lib/staffActiveFilter';
-import { mergeStaffChoices, type StaffChoice } from '@/lib/staffFallback';
+import { mergeStaffChoices } from '@/lib/staffFallback';
 import type { EvaluationRuleDef } from '@/lib/evaluationRulesCatalog';
 import { getSafeCurrentUserId, useAuth } from '@/hooks/useAuth';
 
 const TYPES = ['إذن تأخير', 'إذن ساعة', 'إذن ساعتين', 'إذن خروج وعودة', 'إذن انصراف مبكر', 'إجازة مرضية', 'إجازة عارضة', 'غياب', 'تبديل شيفت'];
 const STATUSES = ['pending', 'approved', 'rejected'];
-
-interface Staff extends StaffChoice {
-  phone?: string | null;
-}
 
 interface ShiftException {
   id: string;
@@ -113,17 +109,21 @@ export default function TimeOff() {
   const canCreateRequest = checkPermission('create_leave_request') || canManage;
   const canApproveRequest = checkPermission('approve_leave_request') || canManage;
   const canManageTimeOff = checkPermission('manage_time_off') || canManage;
-  const { data: staff = [] } = useSupabaseQuery<Staff>({
-    table: TABLES.staff,
-    filters: isActiveStaffFilter(),
-    realtimeEnabled: false,
-  });
+  const { data: staffDirectory = [] } = useStaffDirectory();
   const { data: exceptions = [], loading, refetch } = useSupabaseQuery<ShiftException>({
     table: TABLES.shiftExceptions,
     orderBy: { column: 'created_at', ascending: false },
     realtimeEnabled: true,
   });
-  const staffChoices = useMemo(() => mergeStaffChoices(staff), [staff]);
+  const staffChoices = useMemo(
+    () =>
+      mergeStaffChoices(
+        staffDirectory.filter(
+          (staff) => staff.source !== 'alias' && staff.active && Boolean(staff.id) && Boolean(staff.name)
+        )
+      ),
+    [staffDirectory]
+  );
   const availableStaffChoices = useMemo(() => {
     if (canManageTimeOff) return staffChoices;
     if (!user) return staffChoices;
