@@ -127,8 +127,6 @@ type DoctorSales = {
   sales_total?: number | string | null;
   invoices_count?: number | string | null;
   avg_invoice?: number | string | null;
-  estimated_points?: number | string | null;
-  incentive_value?: number | string | null;
 };
 
 type CustomerServiceSummary = {
@@ -740,8 +738,6 @@ function buildFallback(invoices: InvoiceRow[]) {
         sales_total: 0,
         invoices_count: 0,
         avg_invoice: 0,
-        estimated_points: 0,
-        incentive_value: 0,
       };
       doctorRow.sales_total = n(doctorRow.sales_total) + amount;
       if (!doctorInvoiceKeys.has(doctorKey)) doctorInvoiceKeys.set(doctorKey, new Set());
@@ -764,15 +760,10 @@ function buildFallback(invoices: InvoiceRow[]) {
     linked_customers: customersByBranch.get(String(row.branch))?.size || 0,
   }));
 
-  const doctorSales = [...doctorMap.values()].map((row) => {
-    const points = Math.round(n(row.sales_total) / 1000);
-    return {
-      ...row,
-      avg_invoice: n(row.invoices_count) ? n(row.sales_total) / n(row.invoices_count) : 0,
-      estimated_points: points,
-      incentive_value: points * 3,
-    };
-  });
+  const doctorSales = [...doctorMap.values()].map((row) => ({
+    ...row,
+    avg_invoice: n(row.invoices_count) ? n(row.sales_total) / n(row.invoices_count) : 0,
+  }));
 
   const monthlySales = [...monthMap.values()].map((row) => ({
     ...row,
@@ -1820,8 +1811,9 @@ export default function ExecutiveDashboard2027() {
     : `نطاق العرض: فرع ${branchName(user?.branch || '')}`;
 
   const summary = state.summary || {};
-  const service = state.customerService || {};
-  const staff = state.staffOps || {};
+  // customerService/staffOps summaries are never populated by any fetch path
+  // (see ROLE_DASHBOARD_TRUTH_REVIEW note) — removed along with the fake
+  // panels that used them, rather than kept as unused dead reads.
   const dashboardQuery = useMemo(() => {
     const query = new URLSearchParams({
       start: startDate,
@@ -1939,18 +1931,8 @@ export default function ExecutiveDashboard2027() {
     );
   }, [monthlyTrend]);
 
-  const branchPie = useMemo(
-    () =>
-      state.branchDistribution.map((row) => ({
-        name: branchName(row.branch),
-        value: n(row.sales_total),
-        invoices: n(row.invoices_count),
-      })),
-    [state.branchDistribution]
-  );
   const activeDaysCount = dailyChart.length || 1;
 
-  const topDoctors = useMemo(() => state.doctorSales.slice(0, 12), [state.doctorSales]);
   const lowDoctors = useMemo(() => [...state.doctorSales].slice(-6).reverse(), [state.doctorSales]);
   const doctorsByBranch = useMemo(() => {
     const map = new Map<string, DoctorSales[]>();
@@ -2009,16 +1991,6 @@ export default function ExecutiveDashboard2027() {
 
     return map;
   }, [state.recentInvoices]);
-  const funnelData = [
-    { name: 'المتابعات المفتوحة', value: Math.max(n(service.open_followups), 1), fill: 'var(--dawaa-chart-series-1)' },
-    {
-      name: 'قيد المعالجة',
-      value: Math.max(Math.round(n(service.open_followups) * 0.68), 1),
-      fill: 'var(--dawaa-chart-series-2)',
-    },
-    { name: 'تحتاج مدير', value: Math.max(n(service.needs_manager), 1), fill: 'var(--dawaa-chart-series-3)' },
-    { name: 'مكتملة اليوم', value: Math.max(n(service.completed_today), 1), fill: 'var(--dawaa-chart-series-4)' },
-  ];
 
   const serviceOwners = useMemo(() => {
     const preferred = ['ضحى', 'د ضحى', 'د/ ضحى', 'دنيا', 'د دنيا', 'د/ دنيا'];
@@ -2873,93 +2845,6 @@ export default function ExecutiveDashboard2027() {
         </Panel>
 
         <section className="grid gap-4 xl:grid-cols-12">
-          <Panel className="hidden">
-            <SectionTitle
-              title="توزيع المبيعات حسب الفروع"
-              icon={<BarChart3 className="h-5 w-5" />}
-            />
-            <div className="h-[300px]">
-              {branchPie.length ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={branchPie}
-                      dataKey="value"
-                      nameKey="name"
-                      innerRadius={70}
-                      outerRadius={110}
-                      paddingAngle={3}
-                    >
-                      {branchPie.map((_, index) => (
-                        <Cell key={index} fill={COLORS[index % COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      formatter={(value) => `${money(value)} جنيه`}
-                      contentStyle={{
-                        background: '#0f172a',
-                        border: '1px solid rgba(45,212,191,0.25)',
-                        borderRadius: 16,
-                        color: '#fff',
-                      }}
-                    />
-                    <Legend />
-                  </PieChart>
-                </ResponsiveContainer>
-              ) : (
-                <EmptyState label="لا توجد بيانات فروع" />
-              )}
-            </div>
-          </Panel>
-
-          <Panel className="hidden">
-            <SectionTitle
-              title="أعلى الدكاترة في المبيعات"
-              subtitle="اضغط على أي دكتور لفتح صفحة الفريق والبحث عنه"
-              icon={<Users className="h-5 w-5" />}
-            />
-            <div className="max-h-[340px] overflow-auto rounded-2xl border border-[var(--dawaa-theme-accent-border)]">
-              <table className="w-full text-right text-sm">
-                <thead className="sticky top-0 bg-[var(--dawaa-theme-surface)] text-xs text-[var(--dawaa-theme-muted)]">
-                  <tr>
-                    <th className="p-3">#</th>
-                    <th className="p-3">الموظف</th>
-                    <th className="p-3">الفرع</th>
-                    <th className="p-3">المبيعات</th>
-                    <th className="p-3">الفواتير</th>
-                    <th className="p-3">متوسط الفاتورة</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {topDoctors.length ? (
-                    topDoctors.map((row, index) => (
-                      <tr
-                        key={`${row.doctor_name}-${row.branch}-${index}`}
-                        onClick={() => void navigateToStaff(row.doctor_name, row.branch)}
-                        className="cursor-pointer border-t border-[var(--dawaa-theme-accent-border)] hover:bg-[var(--dawaa-theme-accent-soft)]"
-                      >
-                        <td className="p-3 font-black text-[var(--dawaa-theme-primary-strong)]">{index + 1}</td>
-                        <td className="p-3 font-black text-[var(--dawaa-theme-heading)]">
-                          {row.doctor_name || 'غير محدد'}
-                        </td>
-                        <td className="p-3 text-[var(--dawaa-theme-text)]">{branchName(row.branch)}</td>
-                        <td className="p-3 text-[var(--dawaa-status-success-text)]">{money(row.sales_total)}</td>
-                        <td className="p-3 text-[var(--dawaa-theme-text)]">{count(row.invoices_count)}</td>
-                        <td className="p-3 text-[var(--dawaa-theme-text)]">{money(row.avg_invoice, 2)}</td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={6} className="p-8 text-center text-[var(--dawaa-theme-muted)]">
-                        لا توجد بيانات دكاترة بعد
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </Panel>
-
           <Panel id="branch-performance" className="xl:col-span-12 p-5 scroll-mt-24">
             <SectionTitle
               title="تحليل أداء كل فرع"
@@ -3203,185 +3088,28 @@ export default function ExecutiveDashboard2027() {
           </Panel>
         </section>
 
-        <section className="grid gap-4 xl:grid-cols-12">
-          <Panel className="hidden">
-            <SectionTitle
-              title="أداء الموظفين التشغيلي"
-              subtitle="حضور، أذونات، وتنبيهات"
-              icon={<ShieldCheck className="h-5 w-5" />}
-            />
-            <div className="grid grid-cols-2 gap-3">
-              <MiniBox label="الحسابات النشطة" value={count(staff.active_accounts)} tone="green" />
-              <MiniBox
-                label="الحسابات المقفولة"
-                value={count(staff.disabled_accounts)}
-                tone="red"
-              />
-              <MiniBox label="أذونات معلقة" value={count(staff.pending_time_off)} tone="amber" />
-              <MiniBox label="غياب اليوم" value={count(staff.absences_today)} tone="blue" />
-            </div>
-            <div className="mt-5 rounded-2xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] p-4">
-              <h3 className="mb-3 text-sm font-black text-[var(--dawaa-theme-heading)]">الأداء الأقل يحتاج متابعة</h3>
-              <div className="space-y-2">
-                {lowDoctors.length ? (
-                  lowDoctors.slice(0, 5).map((row, index) => (
-                    <button
-                      key={`${row.doctor_name}-${index}`}
-                      onClick={() => void navigateToStaff(row.doctor_name, row.branch)}
-                      className="grid w-full grid-cols-[1fr_auto_auto] gap-2 rounded-xl bg-[var(--dawaa-theme-surface)] px-3 py-2 text-right text-xs hover:bg-[var(--dawaa-theme-accent-soft)]"
-                    >
-                      <span className="font-black text-[var(--dawaa-theme-heading)]">{row.doctor_name || 'غير محدد'}</span>
-                      <span className="text-[var(--dawaa-theme-text)]">{count(row.invoices_count)} فاتورة</span>
-                      <span className="text-[var(--dawaa-status-warning-text)]">{money(row.sales_total)}</span>
-                    </button>
-                  ))
-                ) : (
-                  <p className="text-center text-xs font-bold text-[var(--dawaa-theme-muted)]">لا توجد بيانات</p>
-                )}
-              </div>
-            </div>
-          </Panel>
-
-        </section>
-
-        <section className="hidden">
-          <Panel className="xl:col-span-4 p-5">
-            <SectionTitle
-              title="عمليات خدمة العملاء"
-              subtitle="المتابعات المفتوحة والنتائج اليومية"
-              icon={<Headphones className="h-5 w-5" />}
-            />
-            <div className="grid grid-cols-2 gap-3">
-              <MiniBox
-                label="المتابعات المفتوحة"
-                value={count(service.open_followups)}
-                tone="cyan"
-              />
-              <MiniBox label="المكتملة اليوم" value={count(service.completed_today)} tone="green" />
-              <MiniBox label="تحتاج مدير" value={count(service.needs_manager)} tone="amber" />
-              <MiniBox
-                label="متوسط الاستجابة"
-                value={
-                  service.avg_response_hours == null
-                    ? 'غير محدد'
-                    : `${n(service.avg_response_hours)} س`
-                }
-                tone="blue"
-              />
-            </div>
-            <div className="mt-5 h-56">
-              <ResponsiveContainer width="100%" height="100%">
-                <FunnelChart>
-                  <Tooltip
-                    contentStyle={{
-                      background: '#0f172a',
-                      border: '1px solid rgba(45,212,191,0.25)',
-                      borderRadius: 16,
-                      color: '#fff',
-                    }}
-                  />
-                  <Funnel dataKey="value" data={funnelData} isAnimationActive>
-                    <LabelList position="right" fill="#cbd5e1" stroke="none" dataKey="name" />
-                  </Funnel>
-                </FunnelChart>
-              </ResponsiveContainer>
-            </div>
-          </Panel>
-
-          <Panel className="xl:col-span-4 p-5">
-            <SectionTitle
-              title="أداء الموظفين التشغيلي"
-              subtitle="حضور، أذونات، وتنبيهات"
-              icon={<ShieldCheck className="h-5 w-5" />}
-            />
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-              <MiniBox label="الحسابات النشطة" value={count(staff.active_accounts)} tone="green" />
-              <MiniBox
-                label="الحسابات المقفولة"
-                value={count(staff.disabled_accounts)}
-                tone="red"
-              />
-              <MiniBox label="أذونات معلقة" value={count(staff.pending_time_off)} tone="amber" />
-              <MiniBox label="غياب اليوم" value={count(staff.absences_today)} tone="blue" />
-            </div>
-            <div className="mt-5 rounded-2xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] p-4">
-              <h3 className="mb-3 text-sm font-black text-[var(--dawaa-theme-heading)]">الأداء الأقل يحتاج متابعة</h3>
-              <div className="space-y-2">
-                {lowDoctors.length ? (
-                  lowDoctors.slice(0, 5).map((row, index) => (
-                    <button
-                      key={`${row.doctor_name}-${index}`}
-                      onClick={() => void navigateToStaff(row.doctor_name, row.branch)}
-                      className="grid w-full grid-cols-[1fr_auto_auto] gap-2 rounded-xl bg-[var(--dawaa-theme-surface)] px-3 py-2 text-right text-xs hover:bg-[var(--dawaa-theme-accent-soft)]"
-                    >
-                      <span className="font-black text-[var(--dawaa-theme-heading)]">{row.doctor_name || 'غير محدد'}</span>
-                      <span className="text-[var(--dawaa-theme-text)]">{count(row.invoices_count)} فاتورة</span>
-                      <span className="text-[var(--dawaa-status-warning-text)]">{money(row.sales_total)}</span>
-                    </button>
-                  ))
-                ) : (
-                  <p className="text-center text-xs font-bold text-[var(--dawaa-theme-muted)]">لا توجد بيانات</p>
-                )}
-              </div>
-            </div>
-          </Panel>
-
-          <Panel className="xl:col-span-4 p-5">
-            <SectionTitle
-              title="النقاط والحوافز"
-              subtitle="ترتيب تقديري لحين ربط Ledger الحوافز النهائي"
-              icon={<Sparkles className="h-5 w-5" />}
-            />
-            <div className="max-h-80 overflow-auto rounded-2xl border border-[var(--dawaa-theme-accent-border)]">
-              <table className="w-full text-right text-sm">
-                <thead className="sticky top-0 bg-[var(--dawaa-theme-surface)] text-xs text-[var(--dawaa-theme-muted)]">
-                  <tr>
-                    <th className="p-3">الموظف</th>
-                    <th className="p-3">النقاط</th>
-                    <th className="p-3">قيمة تقديرية</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {topDoctors.slice(0, 8).map((row, index) => {
-                    const points = n(row.estimated_points) || Math.round(n(row.sales_total) / 1000);
-                    return (
-                      <tr
-                        key={`${row.doctor_name}-points-${index}`}
-                        className="border-t border-[var(--dawaa-theme-accent-border)]"
-                      >
-                        <td className="p-3 font-black text-[var(--dawaa-theme-heading)]">
-                          {row.doctor_name || 'غير محدد'}
-                        </td>
-                        <td className="p-3 text-[var(--dawaa-theme-primary-strong)]">{count(points)}</td>
-                        <td className="p-3 text-[var(--dawaa-status-success-text)]">
-                          {money(n(row.incentive_value) || points * 3)} جنيه
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </Panel>
-        </section>
-
-        <Panel className="hidden">
+        <Panel className="p-5">
           <SectionTitle
-            title="المهام التشغيلية الحرجة"
-            subtitle="بنود تحتاج قرار سريع من الإدارة"
+            title="الأداء الأقل يحتاج متابعة"
+            subtitle="أقل 6 دكاترة مبيعات في الفترة المختارة"
             icon={<AlertTriangle className="h-5 w-5" />}
           />
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <CriticalItem
-              title="فواتير بدون ربط عميل"
-              value={`${count(summary.unregistered_customer_invoices)} فاتورة`}
-            />
-            <CriticalItem title="خطر عدم تحقيق التارجت" value="راجع الفروع يوميًا" danger />
-            <CriticalItem title="تنبيهات المخزون" value="راجع الأصناف الحرجة" />
-            <CriticalItem
-              title="متابعات تحتاج مدير"
-              value={`${count(service.needs_manager)} متابعة`}
-            />
+          <div className="space-y-2">
+            {lowDoctors.length ? (
+              lowDoctors.slice(0, 5).map((row, index) => (
+                <button
+                  key={`${row.doctor_name}-${index}`}
+                  onClick={() => void navigateToStaff(row.doctor_name, row.branch)}
+                  className="grid w-full grid-cols-[1fr_auto_auto] gap-2 rounded-xl bg-[var(--dawaa-theme-surface)] px-3 py-2 text-right text-xs hover:bg-[var(--dawaa-theme-accent-soft)]"
+                >
+                  <span className="font-black text-[var(--dawaa-theme-heading)]">{row.doctor_name || 'غير محدد'}</span>
+                  <span className="text-[var(--dawaa-theme-text)]">{count(row.invoices_count)} فاتورة</span>
+                  <span className="text-[var(--dawaa-status-warning-text)]">{money(row.sales_total)}</span>
+                </button>
+              ))
+            ) : (
+              <p className="text-center text-xs font-bold text-[var(--dawaa-theme-muted)]">لا توجد بيانات</p>
+            )}
           </div>
         </Panel>
       </main>
@@ -3694,29 +3422,5 @@ function DashboardDataHealthPanel({
         </>
       )}
     </Panel>
-  );
-}
-
-function CriticalItem({
-  title,
-  value,
-  danger = false,
-}: {
-  title: string;
-  value: string;
-  danger?: boolean;
-}) {
-  return (
-    <div
-      className={`flex items-center justify-between rounded-2xl border p-4 ${danger ? 'border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)]' : 'border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)]'}`}
-    >
-      <div>
-        <p className="font-black text-[var(--dawaa-theme-heading)]">{title}</p>
-        <p className="mt-1 text-sm font-bold text-[var(--dawaa-theme-text)]">{value}</p>
-      </div>
-      <button className="rounded-xl border border-[var(--dawaa-theme-border)] px-3 py-2 text-xs font-black text-[var(--dawaa-theme-heading)] hover:bg-[var(--dawaa-theme-soft)]">
-        معالجة الآن
-      </button>
-    </div>
   );
 }
