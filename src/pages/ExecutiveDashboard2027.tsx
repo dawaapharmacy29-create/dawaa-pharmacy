@@ -129,36 +129,6 @@ type DoctorSales = {
   avg_invoice?: number | string | null;
 };
 
-type CustomerServiceSummary = {
-  open_followups?: number | string | null;
-  overdue_followups?: number | string | null;
-  completed_today?: number | string | null;
-  needs_manager?: number | string | null;
-  avg_response_hours?: number | string | null;
-  unregistered_customer_invoices?: number | string | null;
-  no_code_customers?: number | string | null;
-  purchase_after_followup_amount?: number | string | null;
-};
-
-type CustomerServiceOwner = {
-  responsible_name?: string | null;
-  branch?: string | null;
-  assigned_followups?: number | string | null;
-  overdue_followups?: number | string | null;
-  completed_today?: number | string | null;
-  needs_manager?: number | string | null;
-  purchase_after_followup_amount?: number | string | null;
-  completion_percent?: number | string | null;
-};
-
-type StaffOps = {
-  active_accounts?: number | string | null;
-  disabled_accounts?: number | string | null;
-  pending_time_off?: number | string | null;
-  absences_today?: number | string | null;
-  late_today?: number | string | null;
-};
-
 type StaffDirectoryRow = {
   id?: string | null;
   staff_id?: string | null;
@@ -201,24 +171,6 @@ type InvoiceRow = {
   seller_name?: string | null;
 };
 
-type FollowupDashboardRow = {
-  customer_code?: string | number | null;
-  branch?: string | null;
-  responsible_name?: string | null;
-  assigned_to?: string | null;
-  assigned_doctor?: string | null;
-  followup_status?: string | null;
-  status?: string | null;
-  contact_status?: string | null;
-  needs_manager?: boolean | null;
-  completed_at?: string | null;
-  purchase_after_followup?: boolean | null;
-  purchase_amount?: number | string | null;
-  followup_date?: string | null;
-  date?: string | null;
-  created_at?: string | null;
-};
-
 type DashboardState = {
   summary: SalesSummary | null;
   dailySales: DailySales[];
@@ -226,9 +178,6 @@ type DashboardState = {
   branchDistribution: BranchDistribution[];
   targets: TargetRow[];
   doctorSales: DoctorSales[];
-  customerService: CustomerServiceSummary | null;
-  customerServiceOwners: CustomerServiceOwner[];
-  staffOps: StaffOps | null;
   staffDirectory: StaffDirectoryRow[];
   onShiftNow: ShiftNowRow[];
   incentiveSummary: StaffCycleIncentive[];
@@ -524,139 +473,6 @@ async function rpcRows<T>(
     }
   }
   return [];
-}
-
-async function fetchFollowupsForDashboard(
-  startDate: string,
-  endDate: string,
-  branch: string,
-  errors: string[]
-): Promise<FollowupDashboardRow[]> {
-  const allRows: FollowupDashboardRow[] = [];
-  const pageSize = 250;
-  const maxPages = 2;
-
-  for (let page = 0; page < maxPages; page += 1) {
-    const from = page * pageSize;
-    const to = from + pageSize - 1;
-    let query = supabase
-      .from('daily_followups')
-      .select(
-        'customer_code,branch,responsible_name,assigned_to,assigned_doctor,followup_status,status,contact_status,needs_manager,completed_at,purchase_after_followup,purchase_amount,followup_date,date,created_at'
-      )
-      .gte('followup_date', startDate)
-      .lte('followup_date', endDate)
-      .order('followup_date', { ascending: true })
-      .range(from, to);
-
-    if (branch !== ALL_BRANCHES) query = query.eq('branch', branch);
-
-    const { data, error } = await withTimeout<SupabaseQueryResult<FollowupDashboardRow[]>>(
-      query as PromiseLike<SupabaseQueryResult<FollowupDashboardRow[]>>,
-      7000,
-      'daily_followups'
-    );
-    if (error) {
-      errors.push(`daily_followups: ${error.message}`);
-      break;
-    }
-
-    const batch = (data || []) as FollowupDashboardRow[];
-    allRows.push(...batch);
-    if (batch.length < pageSize) break;
-  }
-
-  return allRows;
-}
-
-function followupResponsible(row: FollowupDashboardRow) {
-  return (
-    String(row.responsible_name || row.assigned_to || row.assigned_doctor || 'غير محدد').trim() ||
-    'غير محدد'
-  );
-}
-
-function followupIsDone(row: FollowupDashboardRow) {
-  const status = normalizeText(row.followup_status || row.status || row.contact_status);
-  return Boolean(
-    row.completed_at ||
-    status.includes('تم') ||
-    status.includes('مكتمل') ||
-    status.includes('closed') ||
-    status.includes('done') ||
-    status.includes('complete')
-  );
-}
-
-function followupNeedsManager(row: FollowupDashboardRow) {
-  const status = normalizeText(
-    `${row.followup_status || ''} ${row.status || ''} ${row.contact_status || ''}`
-  );
-  return Boolean(row.needs_manager || status.includes('مدير') || status.includes('manager'));
-}
-
-function followupIsOverdue(row: FollowupDashboardRow) {
-  if (followupIsDone(row)) return false;
-  const raw = row.followup_date || row.date || '';
-  const day = String(raw).slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return false;
-  const today = new Date();
-  const todayKey = [
-    today.getFullYear(),
-    String(today.getMonth() + 1).padStart(2, '0'),
-    String(today.getDate()).padStart(2, '0'),
-  ].join('-');
-  return day < todayKey;
-}
-
-function followupHasNoCode(row: FollowupDashboardRow) {
-  const code = String(row.customer_code ?? '').trim();
-  return !code || code === '0' || code === '-' || /^null$/i.test(code);
-}
-
-function buildCustomerServiceOwnersFallback(rows: FollowupDashboardRow[]): CustomerServiceOwner[] {
-  const map = new Map<string, CustomerServiceOwner>();
-  rows.forEach((row) => {
-    const branch = branchName(row.branch);
-    const responsible = followupResponsible(row);
-    const key = `${branch}__${responsible}`;
-    const current = map.get(key) || {
-      branch,
-      responsible_name: responsible,
-      assigned_followups: 0,
-      completed_today: 0,
-      needs_manager: 0,
-      completion_percent: 0,
-    };
-    current.assigned_followups = n(current.assigned_followups) + 1;
-    if (followupIsDone(row)) current.completed_today = n(current.completed_today) + 1;
-    if (followupNeedsManager(row)) current.needs_manager = n(current.needs_manager) + 1;
-    if (followupIsOverdue(row)) current.overdue_followups = n(current.overdue_followups) + 1;
-    if (row.purchase_after_followup) current.purchase_after_followup_amount = n(current.purchase_after_followup_amount) + n(row.purchase_amount);
-    current.completion_percent = n(current.assigned_followups)
-      ? (n(current.completed_today) / n(current.assigned_followups)) * 100
-      : 0;
-    map.set(key, current);
-  });
-
-  return [...map.values()].sort((a, b) => n(b.assigned_followups) - n(a.assigned_followups));
-}
-
-function buildCustomerServiceSummaryFallback(rows: FollowupDashboardRow[]): CustomerServiceSummary {
-  const completed = rows.filter(followupIsDone).length;
-  const needsManager = rows.filter(followupNeedsManager).length;
-  const overdue = rows.filter(followupIsOverdue).length;
-  const noCode = rows.filter(followupHasNoCode).length;
-  const purchaseAfterAmount = rows.reduce((sum, row) => sum + (row.purchase_after_followup ? n(row.purchase_amount) : 0), 0);
-  return {
-    open_followups: Math.max(0, rows.length - completed),
-    overdue_followups: overdue,
-    completed_today: completed,
-    needs_manager: needsManager,
-    no_code_customers: noCode,
-    purchase_after_followup_amount: purchaseAfterAmount,
-    avg_response_hours: null,
-  };
 }
 
 function buildFallback(invoices: InvoiceRow[]) {
@@ -1039,6 +855,55 @@ function MiniBox({
   );
 }
 
+function StaffAccountsHealthPanel() {
+  const [state, setState] = useState<{ status: 'loading' | 'ready' | 'error'; active: number | null; disabled: number | null }>({
+    status: 'loading',
+    active: null,
+    disabled: null,
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    setState((prev) => ({ ...prev, status: 'loading' }));
+    supabase
+      .rpc('get_dashboard_staff_ops_summary_v171')
+      .then((result: any) => {
+        if (cancelled) return;
+        if (result.error) throw result.error;
+        const row = Array.isArray(result.data) ? result.data[0] : result.data;
+        setState({
+          status: 'ready',
+          active: row?.active_accounts == null ? null : Number(row.active_accounts),
+          disabled: row?.disabled_accounts == null ? null : Number(row.disabled_accounts),
+        });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.error('[ExecutiveDashboard2027] staff accounts health failed', error);
+        setState({ status: 'error', active: null, disabled: null });
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  return (
+    <Panel className="p-5">
+      <SectionTitle
+        title="حالة حسابات الفريق"
+        subtitle="حسابات نشطة/مقفولة من السجل المعتمد لهوية الموظفين"
+        icon={<ShieldCheck className="h-5 w-5" />}
+      />
+      <div className="grid gap-3 sm:grid-cols-2">
+        <MiniBox label="حسابات نشطة" value={state.status === 'ready' && state.active != null ? count(state.active) : '—'} tone="green" />
+        <MiniBox label="حسابات مقفولة" value={state.status === 'ready' && state.disabled != null ? count(state.disabled) : '—'} tone="red" />
+      </div>
+      {state.status === 'error' ? (
+        <p className="mt-3 text-xs font-bold text-[var(--dawaa-status-warning-text)]">تعذر تحميل حالة الحسابات الآن — القيمة (—) وليست صفرًا.</p>
+      ) : null}
+    </Panel>
+  );
+}
+
+
 const PAYMENT_TYPE_ORDER = ['كاش', 'توصيل منزلى', 'آجل', 'غير محدد'];
 const PAYMENT_TYPE_TONE: Record<string, 'cyan' | 'green' | 'amber' | 'red' | 'blue'> = {
   'كاش': 'green',
@@ -1288,9 +1153,6 @@ export default function ExecutiveDashboard2027() {
     branchDistribution: [],
     targets: [],
     doctorSales: [],
-    customerService: null,
-    customerServiceOwners: [],
-    staffOps: null,
     staffDirectory: [],
     onShiftNow: [],
     incentiveSummary: [],
@@ -1547,7 +1409,6 @@ export default function ExecutiveDashboard2027() {
       // Customer-service analytics live in /customer-service. Avoid duplicate Supabase work here.
       setCustomerServiceLoading(false);
       setCustomerServiceLoadedAt(new Date().toISOString());
-      setState((prev) => ({ ...prev, customerService: null, customerServiceOwners: [], staffOps: null }));
 
       // ensure inventory section is marked as loaded for static operations cards
       setInventoryOperationsLoadedAt(new Date().toISOString());
@@ -1992,38 +1853,6 @@ export default function ExecutiveDashboard2027() {
     return map;
   }, [state.recentInvoices]);
 
-  const serviceOwners = useMemo(() => {
-    const preferred = ['ضحى', 'د ضحى', 'د/ ضحى', 'دنيا', 'د دنيا', 'د/ دنيا'];
-    return [...state.customerServiceOwners]
-      .sort((a, b) => {
-        const aName = String(a.responsible_name || '');
-        const bName = String(b.responsible_name || '');
-        const aPreferred = preferred.some((name) => aName.includes(name)) ? 0 : 1;
-        const bPreferred = preferred.some((name) => bName.includes(name)) ? 0 : 1;
-        return aPreferred - bPreferred || n(b.assigned_followups) - n(a.assigned_followups);
-      })
-      .slice(0, 6);
-  }, [state.customerServiceOwners]);
-  const serviceOwnerChart = useMemo(
-    () =>
-      serviceOwners.map((owner) => ({
-        name: String(owner.responsible_name || 'غير محدد'),
-        assigned: n(owner.assigned_followups),
-        completed: n(owner.completed_today),
-        manager: n(owner.needs_manager),
-      })),
-    [serviceOwners]
-  );
-
-  const serviceOwnersByBranch = useMemo(() => {
-    const map = new Map<string, CustomerServiceOwner[]>();
-    state.customerServiceOwners.forEach((owner) => {
-      const key = branchName(owner.branch);
-      map.set(key, [...(map.get(key) || []), owner]);
-    });
-    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0], 'ar'));
-  }, [state.customerServiceOwners]);
-
   const navigateToStaff = useCallback(
     async (name: unknown, branchValue?: unknown) => {
       const syncResult = resolveStaffLink(name, branchValue, state.staffDirectory);
@@ -2391,6 +2220,8 @@ export default function ExecutiveDashboard2027() {
             ))}
           </div>
         </Panel>
+
+        <StaffAccountsHealthPanel />
 
         {!!state.errors.length && (
           <div className="rounded-2xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-5 py-3 text-sm font-bold text-[var(--dawaa-status-warning-text)]">
