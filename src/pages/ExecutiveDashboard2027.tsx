@@ -3086,7 +3086,7 @@ function DashboardDoctorCompetitionPanel({
             </button>
           ) : null}
           {showFullRanking ? (
-            <div className="mt-3 overflow-hidden rounded-2xl border border-[var(--dawaa-theme-accent-border)]">
+            <div className="mt-3 overflow-x-auto rounded-2xl border border-[var(--dawaa-theme-accent-border)]">
               <table className="w-full min-w-[860px] text-right text-sm">
                 <thead className="bg-gradient-to-l from-slate-950 via-slate-900 text-[var(--dawaa-theme-text)] shadow-[inset_0_-1px_0_rgba(103,232,249,0.22)]">
                   <tr className="border-b border-[var(--dawaa-theme-accent-border)]">
