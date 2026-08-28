@@ -20,6 +20,8 @@ import {
   ClipboardList,
   Clock3,
   AlertTriangle,
+  SlidersHorizontal,
+  ChevronDown,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { loadDashboardCache, saveDashboardCache, clearDashboardCache } from '@/lib/dashboard/dashboardOptimizations';
@@ -1078,6 +1080,7 @@ export default function ExecutiveDashboard2027() {
     return normalizeBranchName(branchValue) || ALL_BRANCHES;
   });
   const [search, setSearch] = useState('');
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [dailyChartMetric, setDailyChartMetric] = useState<DailyChartMetric>('sales');
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -2004,7 +2007,16 @@ export default function ExecutiveDashboard2027() {
 
         <Panel className="p-5">
           <div className="grid gap-5 xl:grid-cols-[1.3fr_1fr] xl:items-center">
-            <div className="order-2 grid gap-3 md:grid-cols-2 xl:order-1 xl:grid-cols-6">
+            <div className="order-2 xl:order-1">
+              <button
+                type="button"
+                onClick={() => setFiltersOpen((value) => !value)}
+                className="mb-3 flex w-full items-center justify-between gap-2 rounded-2xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] px-4 py-3 text-sm font-black text-[var(--dawaa-theme-primary-strong)] xl:hidden"
+              >
+                <span className="flex items-center gap-2"><SlidersHorizontal className="h-4 w-4" /> الفلاتر والفترة والفرع</span>
+                <ChevronDown className={`h-4 w-4 transition-transform ${filtersOpen ? 'rotate-180' : ''}`} />
+              </button>
+              <div className={`${filtersOpen ? 'grid' : 'hidden'} gap-3 md:grid-cols-2 xl:grid xl:grid-cols-6`}>
               <button className="inline-flex items-center justify-center gap-2 rounded-2xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] px-4 py-3 text-sm font-black text-[var(--dawaa-theme-primary-strong)] hover:bg-[var(--dawaa-theme-accent-soft)]">
                 <Download className="h-4 w-4" />
                 تصدير
@@ -2091,6 +2103,7 @@ export default function ExecutiveDashboard2027() {
                   {branchScopeLabel}
                 </div>
               </div>
+            </div>
             </div>
 
             <div className="order-1 text-right xl:order-2">
