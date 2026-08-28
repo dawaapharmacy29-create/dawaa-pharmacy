@@ -8,8 +8,6 @@ import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { canViewAllBranches } from '@/lib/security/userDataScope';
 import { normalizeBranchName } from '@/lib/branch';
-import CustomerServicePersonalDashboard from '@/components/customerService/CustomerServicePersonalDashboard';
-import { ManagerScoreBreakdownTab } from '@/components/evaluations/ManagerScoreBreakdownTab';
 
 const surface = { background: 'var(--dawaa-theme-surface)', borderColor: 'var(--dawaa-theme-border)' };
 const soft = { background: 'var(--dawaa-theme-bg-soft)', borderColor: 'var(--dawaa-theme-border)' };
@@ -123,7 +121,7 @@ function Kpi({ icon: Icon, label, value, state, hint, live = false }: {
   </div>;
 }
 
-export default function CustomerServiceManagerDashboardV3() {
+export default function CustomerServiceManagerDashboardV3({ headerVariant = 'full' }: { headerVariant?: 'full' | 'compact' } = {}) {
   const { user } = useAuth();
   const allBranches = canViewAllBranches(user);
   const ownBranch = normalizeBranchName(user?.branch || '');
@@ -225,17 +223,14 @@ export default function CustomerServiceManagerDashboardV3() {
   const selectedResponsibleHint = responsible === ALL ? 'كل الموظفين' : responsible;
 
   return <div className="space-y-5 p-4 md:p-6" dir="rtl">
-    {user?.name && !allBranches ? <>
-      <CustomerServicePersonalDashboard branch={ownBranch} staffName={user.name} />
-      <ManagerScoreBreakdownTab evaluationType="customer_service" staffId={user.staffId || user.id} branch={ownBranch} />
-    </> : <div className="flex flex-col gap-3 rounded-3xl border p-5 md:flex-row md:items-center md:justify-between" style={surface}>
+    {headerVariant === 'full' ? <div className="flex flex-col gap-3 rounded-3xl border p-5 md:flex-row md:items-center md:justify-between" style={surface}>
       <div>
         <div className="flex items-center gap-2 text-teal-200"><Headphones size={18} /><span className="text-xs font-black">لوحة مدير خدمة العملاء</span></div>
         <h1 className="mt-1 text-2xl font-black text-white">أهلًا يا {user?.name || 'مدير خدمة العملاء'}</h1>
         <p className="mt-1 text-sm" style={muted}>أرقام تشغيلية دقيقة من Aggregates مباشرة بدون حدود صفوف مخفية.</p>
       </div>
       <button onClick={load} className="btn-secondary flex items-center gap-2"><RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> تحديث</button>
-    </div>}
+    </div> : null}
 
     <div className="flex items-center gap-3 rounded-2xl border-2 border-teal-400/30 bg-teal-500/10 p-4">
       <Users size={20} className="shrink-0 text-teal-300" />
