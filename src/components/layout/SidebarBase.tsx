@@ -32,14 +32,14 @@ const CUSTOMER_CODING_ITEM: NavItem = { path: '/customer-coding', icon: UserPlus
 
 const GROUPS: NavGroup[] = [
   { title: 'لوحة القيادة', icon: Crown, items: [
-    { path: '/', icon: LayoutDashboard, label: 'لوحة القيادة 2027', permission: 'view_dashboard' },
+    { path: '/', icon: LayoutDashboard, label: 'لوحة القيادة 2027', permission: 'view_dashboard', excludeRoles: ['customer_service_manager'] },
     { path: '/branch-inspection', icon: ClipboardList, label: 'مرور مدير الفروع', permission: 'view_branch_inspection' },
     { path: '/operations-center', icon: BellRing, label: 'المهام والتنبيهات', permission: 'view_operations' },
     { path: '/data-health', icon: ShieldCheck, label: 'صحة البيانات', permission: 'view_data_health' },
     { path: '/activity-log', icon: ActivitySquare, label: 'سجل الأنشطة', permission: 'view_activity_log', adminOnly: true },
   ]},
   { title: 'الموظفون والحضور', icon: UserCheck, items: [
-    { path: '/team', icon: UserCheck, label: 'الفريق / الموظفون', permission: 'view_team' },
+    { path: '/team', icon: UserCheck, label: 'الفريق / الموظفون', permission: 'view_team', excludeRoles: ['customer_service_manager'] },
     { path: '/staff-accounts', icon: ShieldCheck, label: 'الحسابات والصلاحيات', permission: 'view_staff_accounts', adminOnly: true },
     { path: '/roles-permissions', icon: ShieldCheck, label: 'إعدادات الصلاحيات', permission: 'view_roles_permissions', adminOnly: true },
     { path: '/staff-duplicate-audit', icon: AlertTriangle, label: 'تدقيق الحسابات والتكرار', permission: 'view_staff_accounts', adminOnly: true },
@@ -47,8 +47,8 @@ const GROUPS: NavGroup[] = [
     { path: '/schedule', icon: Calendar, label: 'الجداول والشيفتات', permission: 'view_schedule' },
     { path: '/attendance-report', icon: ClipboardCheck, label: 'تسجيل/تقرير الحضور', permission: ['view_attendance_leaves','record_attendance'] },
     { path: '/time-off', icon: Calendar, label: 'الأذونات والإجازات', permission: 'view_attendance_leaves' },
-    { path: '/shift-performance', icon: ClipboardList, label: 'تقييمات الشيفتات', permission: 'view_shift_performance' },
-    { path: '/employee-operating-system', icon: ClipboardList, label: 'مهام الفريق', permission: 'employee_operating_system_view' },
+    { path: '/shift-performance', icon: ClipboardList, label: 'تقييمات الشيفتات', permission: 'view_shift_performance', excludeRoles: ['customer_service_manager'] },
+    { path: '/employee-operating-system', icon: ClipboardList, label: 'مهام الفريق', permission: 'employee_operating_system_view', excludeRoles: ['customer_service_manager'] },
   ]},
   { title: 'العملاء وخدمة العملاء', icon: HeadphonesIcon, items: [
     { path: '/customer-service?quickFollowup=1', icon: HeadphonesIcon, label: 'متابعة العملاء', permission: 'view_customer_service' },
@@ -65,7 +65,7 @@ const GROUPS: NavGroup[] = [
     { path: '/welcome-messages', icon: MessageCircle, label: 'رسائل الترحيب', permission: 'customer_welcome_messages_view' },
   ]},
   { title: 'المبيعات والتحليل', icon: BarChart3, items: [
-    { path: '/analytics', icon: BarChart3, label: 'التحليلات والمبيعات', permission: 'view_analytics' },
+    { path: '/analytics', icon: BarChart3, label: 'التحليلات والمبيعات', permission: 'view_analytics', excludeRoles: ['customer_service_manager'] },
     { path: '/invoices', icon: FileSpreadsheet, label: 'استيراد الفواتير', permission: 'view_invoices' },
     { path: '/branch-comparison', icon: BarChart3, label: 'ترتيب ومقارنة الفرع', permission: 'view_branch_comparison' },
     { path: '/doctor-competition', icon: Star, label: 'مسابقة الدكاترة', permission: 'view_doctor_dashboard' },
@@ -94,7 +94,7 @@ const GROUPS: NavGroup[] = [
   ]},
   { title: 'تقييم الأداء الإداري', icon: ClipboardCheck, items: [
     { path: '/doctor-quality-summary', icon: Star, label: 'ملخص أداء الدكاترة الذكي', excludeRoles: ['pharmacist', 'customer_service_manager'] },
-    { path: '/daily-manager-checklist', icon: ClipboardList, label: 'المهام اليومية (مدراء ومساعدين)', excludeRoles: ['general_manager', 'executive_manager'] },
+    { path: '/daily-manager-checklist', icon: ClipboardList, label: 'المهام اليومية (مدراء ومساعدين)', excludeRoles: ['general_manager', 'executive_manager', 'customer_service_manager'] },
     { path: '/weekly-evaluation/branch_manager', icon: ClipboardCheck, label: 'تقييم مدير الفرع', excludeRoles: ['branch_manager', 'customer_service_manager'] },
     { path: '/weekly-evaluation/branches_manager', icon: ClipboardCheck, label: 'تقييم مدير الفروع', excludeRoles: ['branch_manager', 'customer_service_manager'] },
     { path: '/weekly-evaluation/customer_service', icon: ClipboardCheck, label: 'تقييم خدمة العملاء الأسبوعي', excludeRoles: ['branch_manager', 'customer_service_manager'] },
