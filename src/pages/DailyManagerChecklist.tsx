@@ -212,7 +212,7 @@ export default function DailyManagerChecklist() {
 
   if (!isEligible) {
     return (
-      <div dir="rtl" className="p-6 text-sm text-slate-400">
+      <div dir="rtl" className="p-6 text-sm text-[var(--dawaa-theme-muted)]">
         هذه الصفحة متاحة لمدير الفرع، مدير الفروع، مدير خدمة العملاء، ومساعد الصيدلي فقط.
       </div>
     );
@@ -221,17 +221,17 @@ export default function DailyManagerChecklist() {
   return (
     <div dir="rtl" className="space-y-6 p-4 md:p-6">
       <div className="flex items-center gap-3">
-        <ListChecks className="h-6 w-6 text-teal-300" />
+        <ListChecks className="h-6 w-6 text-[var(--dawaa-theme-primary-strong)]" />
         <div>
-          <h1 className="text-xl font-black text-white">{pageTitle}</h1>
-          <p className="text-sm text-slate-400">{pageSubtitle}</p>
+          <h1 className="text-xl font-black text-[var(--dawaa-theme-heading)]">{pageTitle}</h1>
+          <p className="text-sm text-[var(--dawaa-theme-muted)]">{pageSubtitle}</p>
         </div>
       </div>
 
       {role === 'branches_manager' && (
-        <div className="grid gap-2 rounded-2xl border border-teal-400/20 bg-teal-500/5 p-3 sm:grid-cols-2">
+        <div className="grid gap-2 rounded-2xl border border-[var(--dawaa-theme-primary)]/20 bg-[var(--dawaa-theme-accent-soft)] p-3 sm:grid-cols-2">
           {BRANCHES_MANAGER_BRANCHES.map((branch) => (
-            <button key={branch} type="button" onClick={() => setSelectedBranch(branch)} className={`rounded-xl border px-4 py-3 text-sm font-black transition ${selectedBranch === branch ? 'border-teal-400/50 bg-teal-500/15 text-teal-200' : 'border-white/10 bg-slate-950/30 text-slate-400 hover:text-white'}`}>
+            <button key={branch} type="button" onClick={() => setSelectedBranch(branch)} className={`rounded-xl border px-4 py-3 text-sm font-black transition ${selectedBranch === branch ? 'border-[var(--dawaa-theme-primary)]/50 bg-[var(--dawaa-theme-accent-soft)] text-[var(--dawaa-theme-primary-strong)]' : 'border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] text-[var(--dawaa-theme-muted)] hover:text-[var(--dawaa-theme-heading)]'}`}>
               {branch} {selectedBranch === branch ? '— الفرع النشط' : ''}
             </button>
           ))}
@@ -239,12 +239,12 @@ export default function DailyManagerChecklist() {
       )}
 
       {isEligible && !isAssistant && (
-        <div className="flex gap-2 border-b border-white/10">
+        <div className="flex gap-2 border-b border-[var(--dawaa-theme-border)]">
           <button
             type="button"
             onClick={() => setActiveTab('tasks')}
             className={`px-4 py-2 text-sm font-black transition ${
-              activeTab === 'tasks' ? 'border-b-2 border-teal-400 text-teal-300' : 'text-slate-400 hover:text-slate-200'
+              activeTab === 'tasks' ? 'border-b-2 border-[var(--dawaa-theme-primary)] text-[var(--dawaa-theme-primary-strong)]' : 'text-[var(--dawaa-theme-muted)] hover:text-[var(--dawaa-theme-text)]'
             }`}
           >
             المهام اليومية
@@ -253,7 +253,7 @@ export default function DailyManagerChecklist() {
             type="button"
             onClick={() => setActiveTab('score')}
             className={`px-4 py-2 text-sm font-black transition ${
-              activeTab === 'score' ? 'border-b-2 border-teal-400 text-teal-300' : 'text-slate-400 hover:text-slate-200'
+              activeTab === 'score' ? 'border-b-2 border-[var(--dawaa-theme-primary)] text-[var(--dawaa-theme-primary-strong)]' : 'text-[var(--dawaa-theme-muted)] hover:text-[var(--dawaa-theme-text)]'
             }`}
           >
             الحافز والتقييم بالتفصيل
@@ -274,28 +274,28 @@ export default function DailyManagerChecklist() {
         </>
       ) : (
         <>
-          {role === 'branches_manager' && <div className="rounded-xl border border-white/10 bg-slate-900/40 px-3 py-2 text-sm font-black text-teal-200">مهام {selectedBranch} — الإنجاز والتقييم لهذا الفرع فقط</div>}
+          {role === 'branches_manager' && <div className="rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] px-3 py-2 text-sm font-black text-[var(--dawaa-theme-primary-strong)]">مهام {selectedBranch} — الإنجاز والتقييم لهذا الفرع فقط</div>}
           <div className="flex flex-wrap items-center gap-3">
             <input type="date" className="input-dark" value={taskDate} max={todayInput()} onChange={(e) => setTaskDate(e.target.value)} />
             <div className="flex-1">
-              <div className="h-2.5 w-full overflow-hidden rounded-full bg-white/10">
+              <div className="h-2.5 w-full overflow-hidden rounded-full bg-[var(--dawaa-theme-soft)]">
                 <div
-                  className="h-full rounded-full bg-gradient-to-r from-teal-400 to-emerald-500 transition-all"
+                  className="h-full rounded-full bg-gradient-to-r from-[var(--dawaa-theme-primary)] to-[var(--dawaa-status-success-text)] transition-all"
                   style={{ width: `${completionPercent}%` }}
                 />
               </div>
             </div>
-            <span className="text-sm font-black text-white">{completedCount} / {progressTasks.length} يومي</span>
+            <span className="text-sm font-black text-[var(--dawaa-theme-heading)]">{completedCount} / {progressTasks.length} يومي</span>
           </div>
 
           {isAssistant && (
-            <p className="text-xs text-slate-400">
-              لو استمريت بنفس معدل النهاردة طول الدورة، الحافز الشهري التقديري ≈ <span className="font-black text-emerald-300">{estimatedMonthlyIncentive} جنيه</span> من أصل 1000 — الرقم النهائي بيتحسب من معدل كل الأيام مجمّعة، مش يوم واحد بس.
+            <p className="text-xs text-[var(--dawaa-theme-muted)]">
+              لو استمريت بنفس معدل النهاردة طول الدورة، الحافز الشهري التقديري ≈ <span className="font-black text-[var(--dawaa-status-success-text)]">{estimatedMonthlyIncentive} جنيه</span> من أصل 1000 — الرقم النهائي بيتحسب من معدل كل الأيام مجمّعة، مش يوم واحد بس.
             </p>
           )}
 
-          {error && <p className="text-sm text-red-300">{error}</p>}
-          {loading && <p className="text-sm text-slate-400">جارٍ التحميل...</p>}
+          {error && <p className="text-sm text-[var(--dawaa-status-danger-text)]">{error}</p>}
+          {loading && <p className="text-sm text-[var(--dawaa-theme-muted)]">جارٍ التحميل...</p>}
 
           {!loading && groups.length > 0 && (
             <div className="space-y-3">
@@ -308,7 +308,7 @@ export default function DailyManagerChecklist() {
                   <div
                     key={group.groupKey}
                     className={`overflow-hidden rounded-2xl border transition ${
-                      groupComplete ? 'border-emerald-400/30 bg-emerald-500/5' : 'border-white/10 bg-slate-900/30'
+                      groupComplete ? 'border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)]' : 'border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)]'
                     }`}
                   >
                     <button
@@ -317,20 +317,20 @@ export default function DailyManagerChecklist() {
                       className="flex w-full items-center gap-3 p-4 text-right"
                     >
                       {groupComplete ? (
-                        <CheckCircle2 className="h-6 w-6 shrink-0 text-emerald-400" />
+                        <CheckCircle2 className="h-6 w-6 shrink-0 text-[var(--dawaa-status-success-text)]" />
                       ) : (
-                        <Circle className="h-6 w-6 shrink-0 text-slate-500" />
+                        <Circle className="h-6 w-6 shrink-0 text-[var(--dawaa-theme-muted)]" />
                       )}
                       <div className="flex-1">
-                        <div className={`font-black ${groupComplete ? 'text-emerald-200' : 'text-white'}`}>{group.groupLabel}</div>
-                        {group.groupHint && <div className="text-xs text-slate-500">{group.groupHint}</div>}
+                        <div className={`font-black ${groupComplete ? 'text-[var(--dawaa-status-success-text)]' : 'text-[var(--dawaa-theme-heading)]'}`}>{group.groupLabel}</div>
+                        {group.groupHint && <div className="text-xs text-[var(--dawaa-theme-muted)]">{group.groupHint}</div>}
                       </div>
-                      <span className="shrink-0 text-xs font-black text-slate-400">{groupDone} / {groupTotal}</span>
-                      <ChevronDown className={`h-4 w-4 shrink-0 text-slate-500 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                      <span className="shrink-0 text-xs font-black text-[var(--dawaa-theme-muted)]">{groupDone} / {groupTotal}</span>
+                      <ChevronDown className={`h-4 w-4 shrink-0 text-[var(--dawaa-theme-muted)] transition-transform ${isOpen ? 'rotate-180' : ''}`} />
                     </button>
 
                     {isOpen && (
-                      <div className="space-y-2 border-t border-white/10 p-3 pt-3">
+                      <div className="space-y-2 border-t border-[var(--dawaa-theme-border)] p-3 pt-3">
                         {group.subtasks.map((task) => {
                           const row = rows[task.key];
                           const completed = row?.completed || false;
@@ -340,7 +340,7 @@ export default function DailyManagerChecklist() {
                             <div
                               key={task.key}
                               className={`space-y-2 rounded-xl border p-3 transition ${
-                                completed ? 'border-emerald-400/20 bg-emerald-500/5' : 'border-white/5 bg-black/10'
+                                completed ? 'border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)]' : 'border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)]'
                               }`}
                             >
                               <button
@@ -350,16 +350,16 @@ export default function DailyManagerChecklist() {
                                 className="flex w-full items-center gap-3 text-right"
                               >
                                 {completed ? (
-                                  <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-400" />
+                                  <CheckCircle2 className="h-5 w-5 shrink-0 text-[var(--dawaa-status-success-text)]" />
                                 ) : (
-                                  <Circle className="h-5 w-5 shrink-0 text-slate-500" />
+                                  <Circle className="h-5 w-5 shrink-0 text-[var(--dawaa-theme-muted)]" />
                                 )}
                                 <div className="flex-1">
                                   <div className="flex flex-wrap items-center gap-2">
-                                    <div className={`text-sm font-bold ${completed ? 'text-emerald-200' : 'text-slate-200'}`}>{task.label}</div>
-                                    <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] font-bold text-slate-400">{cadenceLabel}</span>
+                                    <div className={`text-sm font-bold ${completed ? 'text-[var(--dawaa-status-success-text)]' : 'text-[var(--dawaa-theme-text)]'}`}>{task.label}</div>
+                                    <span className="rounded-full border border-[var(--dawaa-theme-border)] px-2 py-0.5 text-[10px] font-bold text-[var(--dawaa-theme-muted)]">{cadenceLabel}</span>
                                   </div>
-                                  {task.hint && <div className="text-[11px] text-slate-500">{task.hint}</div>}
+                                  {task.hint && <div className="text-[11px] text-[var(--dawaa-theme-muted)]">{task.hint}</div>}
                                 </div>
                               </button>
                               <input
@@ -387,7 +387,7 @@ export default function DailyManagerChecklist() {
                 const row = rows[task.key];
                 const completed = row?.completed || false;
                 return (
-                  <div key={task.key} className={`stat-card space-y-2 transition ${completed ? 'border-emerald-400/30' : ''}`}>
+                  <div key={task.key} className={`stat-card space-y-2 transition ${completed ? 'border-[var(--dawaa-status-success-border)]' : ''}`}>
                     <button
                       type="button"
                       onClick={() => toggleTask(task.key)}
@@ -395,13 +395,13 @@ export default function DailyManagerChecklist() {
                       className="flex w-full items-center gap-3 text-right"
                     >
                       {completed ? (
-                        <CheckCircle2 className="h-6 w-6 shrink-0 text-emerald-400" />
+                        <CheckCircle2 className="h-6 w-6 shrink-0 text-[var(--dawaa-status-success-text)]" />
                       ) : (
-                        <Circle className="h-6 w-6 shrink-0 text-slate-500" />
+                        <Circle className="h-6 w-6 shrink-0 text-[var(--dawaa-theme-muted)]" />
                       )}
                       <div className="flex-1">
-                        <div className={`font-black ${completed ? 'text-emerald-200' : 'text-white'}`}>{task.label}</div>
-                        {task.hint && <div className="text-xs text-slate-500">{task.hint}</div>}
+                        <div className={`font-black ${completed ? 'text-[var(--dawaa-status-success-text)]' : 'text-[var(--dawaa-theme-heading)]'}`}>{task.label}</div>
+                        {task.hint && <div className="text-xs text-[var(--dawaa-theme-muted)]">{task.hint}</div>}
                       </div>
                     </button>
                     <input

@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { uploadImageToStorage } from '@/lib/storageUpload';
 import { canonicalStaffRole } from '@/lib/staff/staffRoleCapabilities';
 import { toast } from 'sonner';
+import { Panel, MiniBox } from '@/components/dashboard/DashboardPrimitives';
 
 type ChecklistItem = {
   id: string;
@@ -43,10 +44,10 @@ type CleaningCycleSummary = {
 
 const TIME_SLOT_ORDER: Record<string, number> = { 'فتح': 0, 'أثناء اليوم': 1, 'قفل': 2 };
 
-const STATUS_LABEL: Record<Submission['review_status'], { label: string; className: string }> = {
-  pending: { label: 'بانتظار مراجعة المدير', className: 'text-amber-300 border-amber-500/30 bg-amber-500/10' },
-  approved: { label: 'معتمد', className: 'text-emerald-300 border-emerald-500/30 bg-emerald-500/10' },
-  rejected: { label: 'مرفوض', className: 'text-rose-300 border-rose-500/30 bg-rose-500/10' },
+const STATUS_LABEL: Record<Submission['review_status'], { label: string; color: string; bg: string; borderColor: string }> = {
+  pending: { label: 'بانتظار مراجعة المدير', color: 'var(--dawaa-status-warning-text)', bg: 'var(--dawaa-status-warning-bg)', borderColor: 'var(--dawaa-status-warning-border)' },
+  approved: { label: 'معتمد', color: 'var(--dawaa-status-success-text)', bg: 'var(--dawaa-status-success-bg)', borderColor: 'var(--dawaa-status-success-border)' },
+  rejected: { label: 'مرفوض', color: 'var(--dawaa-status-danger-text)', bg: 'var(--dawaa-status-danger-bg)', borderColor: 'var(--dawaa-status-danger-border)' },
 };
 
 export default function StaffDailyChecklist() {
@@ -59,7 +60,9 @@ export default function StaffDailyChecklist() {
     ? 'مسؤولة النظافة'
     : canonicalRole === 'assistant'
       ? 'مساعد صيدلي'
-      : null;
+      : canonicalRole === 'customer_service'
+        ? 'مسؤول خدمة العملاء'
+        : null;
 
   const [items, setItems] = useState<ChecklistItem[]>([]);
   const [submissions, setSubmissions] = useState<Record<string, Submission>>({});
@@ -182,81 +185,81 @@ export default function StaffDailyChecklist() {
 
   if (!staffRole) {
     return (
-      <div className="p-6 text-center text-sm text-slate-400">
-        الصفحة دي مخصصة لعامل النظافة والمساعد فقط.
+      <div className="p-6 text-center text-sm font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
+        الصفحة دي مخصصة لعامل النظافة والمساعد ومسؤول خدمة العملاء فقط.
       </div>
     );
   }
 
   return (
-    <div className="mx-auto max-w-2xl space-y-5 p-4 pb-24">
+    <div className="mx-auto max-w-2xl space-y-5 p-4 pb-24" dir="rtl">
       <div>
-        <h1 className="text-xl font-black text-white">التشيك ليست اليومي — {new Date().toLocaleDateString('ar-EG')}</h1>
-        <p className="mt-1 text-sm text-slate-400">علّم كل بند وارفع صورة كدليل. مدير الفرع هيراجعها النهاردة.</p>
+        <h1 className="text-xl font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>التشيك ليست اليومي — {new Date().toLocaleDateString('ar-EG')}</h1>
+        <p className="mt-1 text-sm font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>علّم كل بند وارفع صورة كدليل. مدير الفرع هيراجعها النهاردة.</p>
       </div>
 
       {isCleaning && !loading ? (
-        <section className="rounded-2xl border border-amber-400/20 bg-amber-400/5 p-4">
+        <Panel className="p-4" style={{ borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-status-warning-bg)' }}>
           <div className="flex items-center gap-2">
-            <Award size={18} className="text-amber-300" />
-            <h2 className="font-black text-white">تقييم النظافة والتحفيز</h2>
+            <Award size={18} style={{ color: 'var(--dawaa-status-warning-text)' }} />
+            <h2 className="font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>تقييم النظافة والتحفيز</h2>
           </div>
           {dailyRating ? (
             <>
               <div className="mt-3 flex items-center gap-1">
                 {[1, 2, 3, 4, 5].map((value) => (
-                  <Star key={value} size={24} className={value <= dailyRating.stars ? 'fill-amber-400 text-amber-400' : 'text-slate-600'} />
+                  <Star key={value} size={24} className={value <= dailyRating.stars ? 'fill-current' : ''} style={{ color: value <= dailyRating.stars ? 'var(--dawaa-status-warning-text)' : 'var(--dawaa-theme-border)' }} />
                 ))}
-                <span className="mr-2 text-sm font-black text-white">{dailyRating.stars}/5 — {dailyRating.score_pct}%</span>
+                <span className="mr-2 text-sm font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>{dailyRating.stars}/5 — {dailyRating.score_pct}%</span>
               </div>
-              <p className="mt-2 text-xs font-bold text-slate-300">
+              <p className="mt-2 text-xs font-bold" style={{ color: 'var(--dawaa-theme-text)' }}>
                 أثر اليوم على النقاط: {dailyRating.points_delta > 0 ? '+' : ''}{dailyRating.points_delta}
               </p>
-              {dailyRating.manager_note ? <p className="mt-2 text-xs text-slate-400">ملاحظة المدير: {dailyRating.manager_note}</p> : null}
+              {dailyRating.manager_note ? <p className="mt-2 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>ملاحظة المدير: {dailyRating.manager_note}</p> : null}
             </>
           ) : (
-            <p className="mt-3 text-sm font-semibold text-slate-400">تقييم اليوم لم يُعتمد بعد.</p>
+            <p className="mt-3 text-sm font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>تقييم اليوم لم يُعتمد بعد.</p>
           )}
 
           {cycleSummary ? (
             <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-              <div className="rounded-xl bg-white/5 p-2 text-center"><div className="font-black text-white">{cycleSummary.avg_stars.toFixed(2)}★</div><div className="text-[10px] text-slate-400">متوسط الدورة</div></div>
-              <div className="rounded-xl bg-white/5 p-2 text-center"><div className="font-black text-white">{cycleSummary.avg_score_pct}%</div><div className="text-[10px] text-slate-400">متوسط الدرجة</div></div>
-              <div className="rounded-xl bg-white/5 p-2 text-center"><div className="font-black text-white">{cycleSummary.five_star_days}</div><div className="text-[10px] text-slate-400">أيام 5 نجوم</div></div>
-              <div className="rounded-xl bg-white/5 p-2 text-center"><div className="font-black text-white">{cycleSummary.total_star_points > 0 ? '+' : ''}{cycleSummary.total_star_points}</div><div className="text-[10px] text-slate-400">نقاط النجوم</div></div>
+              <MiniBox label="متوسط الدورة" value={`${cycleSummary.avg_stars.toFixed(2)}★`} tone="amber" />
+              <MiniBox label="متوسط الدرجة" value={`${cycleSummary.avg_score_pct}%`} tone="amber" />
+              <MiniBox label="أيام 5 نجوم" value={String(cycleSummary.five_star_days)} tone="amber" />
+              <MiniBox label="نقاط النجوم" value={`${cycleSummary.total_star_points > 0 ? '+' : ''}${cycleSummary.total_star_points}`} tone="amber" />
             </div>
           ) : null}
-          {cycleSummary ? <p className="mt-3 text-xs font-black text-amber-200">المستوى الحالي: {cycleSummary.performance_band} • {cycleSummary.rated_days} يوم مُقيّم</p> : null}
-        </section>
+          {cycleSummary ? <p className="mt-3 text-xs font-black" style={{ color: 'var(--dawaa-status-warning-text)' }}>المستوى الحالي: {cycleSummary.performance_band} • {cycleSummary.rated_days} يوم مُقيّم</p> : null}
+        </Panel>
       ) : null}
 
       {loading ? (
-        <div className="flex justify-center py-10"><Loader2 className="animate-spin text-slate-400" /></div>
+        <div className="flex justify-center py-10"><Loader2 className="animate-spin" style={{ color: 'var(--dawaa-theme-muted)' }} /></div>
       ) : (
         grouped.map(([slot, slotItems]) => (
           <div key={slot} className="space-y-3">
-            <h2 className="flex items-center gap-2 text-sm font-black text-teal-300">
+            <h2 className="flex items-center gap-2 text-sm font-black" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>
               <Clock size={14} /> {slot}
             </h2>
             {slotItems.map((item) => {
               const sub = submissions[item.id];
               const status = sub ? STATUS_LABEL[sub.review_status] : null;
               return (
-                <div key={item.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <Panel key={item.id} className="p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <p className="font-black text-white">{item.title}</p>
-                      {item.description ? <p className="mt-1 text-xs text-slate-400">{item.description}</p> : null}
+                      <p className="font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>{item.title}</p>
+                      {item.description ? <p className="mt-1 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>{item.description}</p> : null}
                     </div>
                     {sub?.completed ? (
-                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-300">
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full" style={{ background: 'var(--dawaa-status-success-bg)', color: 'var(--dawaa-status-success-text)' }}>
                         <Check size={16} />
                       </span>
                     ) : null}
                   </div>
 
                   {status ? (
-                    <div className={`mt-3 rounded-lg border px-3 py-1.5 text-xs font-black ${status.className}`}>
+                    <div className="mt-3 rounded-lg border px-3 py-1.5 text-xs font-black" style={{ borderColor: status.borderColor, background: status.bg, color: status.color }}>
                       {status.label}
                       {sub?.review_status === 'rejected' && sub.reviewer_note ? (
                         <span className="mt-1 block font-normal">{sub.reviewer_note}</span>
@@ -269,7 +272,7 @@ export default function StaffDailyChecklist() {
                   ) : null}
 
                   {!sub?.completed ? (
-                    <label className="mt-3 flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-white/20 py-3 text-sm font-black text-slate-300 hover:border-teal-400/40">
+                    <label className="mt-3 flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed py-3 text-sm font-black" style={{ borderColor: 'var(--dawaa-theme-border)', color: 'var(--dawaa-theme-text)' }}>
                       {uploadingKey === item.item_key ? (
                         <Loader2 size={16} className="animate-spin" />
                       ) : (
@@ -287,7 +290,7 @@ export default function StaffDailyChecklist() {
                       />
                     </label>
                   ) : null}
-                </div>
+                </Panel>
               );
             })}
           </div>
