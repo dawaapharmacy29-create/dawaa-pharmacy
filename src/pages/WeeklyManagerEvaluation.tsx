@@ -183,6 +183,8 @@ async function buildEvaluationPdf(
   }
 }
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export default function WeeklyManagerEvaluation() {
   const { type } = useParams<{ type: EvaluationType }>();
   const evaluationType = (type && EVALUATION_CRITERIA[type as EvaluationType] ? type : 'branch_manager') as EvaluationType;
@@ -190,7 +192,13 @@ export default function WeeklyManagerEvaluation() {
   const { user } = useAuth();
   const evaluatorRole = normalizeRole(user?.role);
   const canEvaluate = EVALUATOR_ROLES_BY_TYPE[evaluationType].includes(evaluatorRole);
-  const evaluatorStaffId = String(user?.staffId || user?.id || '');
+  // بعض حسابات الإدارة العليا (زي "admin") متسجلة بـstaff_id نصي مش UUID
+  // حقيقي، لأنها مش موظف له سجل في جدول staff. عمود evaluator_staff_id
+  // في القاعدة نوعه uuid فعليًا، فأي قيمة غير UUID صحيحة تكسر الحفظ بالكامل.
+  // نتأكد من صحة الصيغة هنا ونستخدم null بدلها بدل ما نمرر نص عشوائي —
+  // evaluator_name يفضل بيوضح مين المُقيِّم حتى لو evaluator_staff_id فاضي.
+  const rawEvaluatorStaffId = String(user?.staffId || user?.id || '');
+  const evaluatorStaffId = UUID_REGEX.test(rawEvaluatorStaffId) ? rawEvaluatorStaffId : '';
   const allowManagerJudgment = isMonthlyIncentiveEvaluation && ['branches_manager', 'general_manager', 'executive_manager'].includes(evaluatorRole);
 
   const [subjectChoices, setSubjectChoices] = useState<ManagerEvaluationSubject[]>([]);
