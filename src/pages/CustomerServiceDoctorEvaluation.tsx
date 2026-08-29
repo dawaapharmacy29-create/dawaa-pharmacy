@@ -4,6 +4,13 @@ import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { getStaffPointsDashboardV3, type StaffPointsDashboardV3 } from '@/lib/staff/staffPointsDashboardService';
+import {
+  currentEvaluationCycleLabel,
+  previousEvaluationCycleLabel,
+  evaluationCycleRangeFromLabel,
+  evaluationCycleQueryBounds,
+} from '@/lib/evaluations/monthlyEvaluationCycle';
+import { Panel, SectionTitle, KpiCard, MiniBox } from '@/components/dashboard/DashboardPrimitives';
 
 type DoctorRow = { id: string; name: string; role?: string | null; branch?: string | null; status?: string | null };
 type Section = { key: string; title: string; description: string; weight: number; score: number; notes: string };
@@ -19,11 +26,6 @@ const DEFAULT_SECTIONS: Section[] = [
 
 const EMPTY_METRICS: Metrics = { review_count: 0, review_average: 0, followup_count: 0, completed_followups: 0 };
 
-function monthStart(month: string) { return `${month}-01`; }
-function nextMonthStart(month: string) {
-  const [year, value] = month.split('-').map(Number);
-  return new Date(Date.UTC(year, value, 1)).toISOString().slice(0, 10);
-}
 function n(value: unknown) { const x = Number(value || 0); return Number.isFinite(x) ? x : 0; }
 function pointsForScore(score: number) {
   if (score >= 95) return 20;
@@ -52,7 +54,8 @@ function savedSections(value: unknown) {
 
 export default function CustomerServiceDoctorEvaluation() {
   const { user } = useAuth();
-  const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [cycleLabel, setCycleLabel] = useState(() => currentEvaluationCycleLabel());
+  const cycleRange = useMemo(() => evaluationCycleRangeFromLabel(cycleLabel), [cycleLabel]);
   const [doctors, setDoctors] = useState<DoctorRow[]>([]);
   const [selectedId, setSelectedId] = useState('');
   const [search, setSearch] = useState('');
@@ -87,13 +90,13 @@ export default function CustomerServiceDoctorEvaluation() {
     if (!user?.id || !selectedId) return;
     const load = async () => {
       setLoading(true);
-      const start = monthStart(month);
-      const end = nextMonthStart(month);
+      const { startDate, endDateExclusive } = evaluationCycleQueryBounds(cycleLabel);
+      const cycleKeyDate = `${cycleLabel}-01`;
       const [savedResult, pointsResult, reviewsResult, followupsResult] = await Promise.all([
-        supabase.rpc('get_doctor_customer_service_evaluation_safe', { p_actor_id: user.id, p_doctor_id: selectedId, p_month: start }),
-        getStaffPointsDashboardV3(selectedId, month).catch(() => null),
-        supabase.from('conversation_sales_reviews').select('total_score,final_score').eq('staff_id', selectedId).gte('created_at', start).lt('created_at', end).limit(500),
-        supabase.from('daily_followups').select('status,followup_status,completed_at').or(`assigned_staff_id.eq.${selectedId},requested_by_staff_id.eq.${selectedId}`).gte('created_at', start).lt('created_at', end).limit(1000),
+        supabase.rpc('get_doctor_customer_service_evaluation_safe', { p_actor_id: user.id, p_doctor_id: selectedId, p_month: cycleKeyDate }),
+        getStaffPointsDashboardV3(selectedId, cycleLabel).catch(() => null),
+        supabase.from('conversation_sales_reviews').select('total_score,final_score').eq('staff_id', selectedId).gte('created_at', startDate).lt('created_at', endDateExclusive).limit(500),
+        supabase.from('daily_followups').select('status,followup_status,completed_at').or(`assigned_staff_id.eq.${selectedId},requested_by_staff_id.eq.${selectedId}`).gte('created_at', startDate).lt('created_at', endDateExclusive).limit(1000),
       ]);
       if (savedResult.error) toast.error(savedResult.error.message);
       const saved = savedResult.data as Record<string, unknown> | null;
@@ -109,7 +112,7 @@ export default function CustomerServiceDoctorEvaluation() {
       setLoading(false);
     };
     void load();
-  }, [month, selectedId, user?.id]);
+  }, [cycleLabel, selectedId, user?.id]);
 
   function updateSection(key: string, patch: Partial<Section>) {
     setSections((current) => current.map((item) => item.key === key ? { ...item, ...patch } : item));
@@ -123,7 +126,7 @@ export default function CustomerServiceDoctorEvaluation() {
       p_actor_id: user.id,
       p_payload: {
         doctor_id: selected.id,
-        evaluation_month: monthStart(month),
+        evaluation_month: `${cycleLabel}-01`,
         sections,
         metrics_snapshot: metrics,
         overall_score: overallScore,
@@ -133,7 +136,7 @@ export default function CustomerServiceDoctorEvaluation() {
     });
     if (error) { toast.error(error.message); setSaving(false); return; }
     setStatus(nextStatus);
-    const refreshed = await getStaffPointsDashboardV3(selected.id, month).catch(() => null);
+    const refreshed = await getStaffPointsDashboardV3(selected.id, cycleLabel).catch(() => null);
     setPoints(refreshed);
     toast.success(nextStatus === 'sent' ? 'تم اعتماد تقييم خدمة العملاء وإرساله إلى محرك النقاط.' : 'تم حفظ التقييم كمسودة.');
     setSaving(false);
@@ -142,45 +145,121 @@ export default function CustomerServiceDoctorEvaluation() {
   const filtered = doctors.filter((item) => item.name.includes(search));
 
   return (
-    <div className="min-h-screen space-y-5 bg-slate-950 p-4 text-white" dir="rtl">
-      <section className="rounded-3xl border border-cyan-300/20 bg-gradient-to-l from-cyan-950/50 to-slate-900 p-5">
+    <div className="min-h-screen space-y-5 p-4" dir="rtl" style={{ background: 'var(--dawaa-theme-bg)' }}>
+      <Panel className="p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h1 className="flex items-center gap-2 text-2xl font-black"><Users className="text-cyan-300" /> تقييم خدمة العملاء للدكاترة</h1>
-            <p className="mt-2 max-w-3xl text-sm font-bold text-slate-300">تقييم مستقل من جانب خدمة العملاء لدكاترة الفرع فقط. عند الإرسال يتحول إلى نقاط داخل Points V3، ولا ينشئ مبلغ حافز منفصل.</p>
+            <h1 className="flex items-center gap-2 text-2xl font-black" style={{ color: 'var(--dawaa-theme-heading)' }}><Users style={{ color: 'var(--dawaa-theme-primary-strong)' }} /> تقييم خدمة العملاء للدكاترة</h1>
+            <p className="mt-2 max-w-3xl text-sm font-bold" style={{ color: 'var(--dawaa-theme-text)' }}>تقييم مستقل من جانب خدمة العملاء لدكاترة الفرع فقط. عند الإرسال يتحول إلى نقاط داخل Points V3، ولا ينشئ مبلغ حافز منفصل.</p>
           </div>
-          <input type="month" value={month} onChange={(event) => setMonth(event.target.value)} className="input-dark" />
+          <div className="flex overflow-hidden rounded-2xl border" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
+            <button
+              type="button"
+              onClick={() => setCycleLabel(previousEvaluationCycleLabel(currentEvaluationCycleLabel()))}
+              className="px-3 py-2 text-xs font-black"
+              style={cycleLabel === previousEvaluationCycleLabel(currentEvaluationCycleLabel())
+                ? { background: 'var(--dawaa-theme-primary)', color: 'var(--dawaa-theme-primary-text)' }
+                : { color: 'var(--dawaa-theme-muted)' }}
+            >
+              الدورة السابقة
+            </button>
+            <button
+              type="button"
+              onClick={() => setCycleLabel(currentEvaluationCycleLabel())}
+              className="px-3 py-2 text-xs font-black"
+              style={cycleLabel === currentEvaluationCycleLabel()
+                ? { background: 'var(--dawaa-theme-primary)', color: 'var(--dawaa-theme-primary-text)' }
+                : { color: 'var(--dawaa-theme-muted)' }}
+            >
+              الدورة الحالية
+            </button>
+          </div>
         </div>
-      </section>
+        <div className="mt-3 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-black" style={{ borderColor: 'var(--dawaa-theme-accent-border)', background: 'var(--dawaa-theme-accent-soft)', color: 'var(--dawaa-theme-primary-strong)' }}>
+          فترة الدورة: {cycleRange.displayLabel}
+        </div>
+      </Panel>
 
       <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
-        <aside className="rounded-3xl border border-white/10 bg-slate-900/70 p-4">
-          <div className="relative"><Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500" size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="بحث باسم الدكتور" className="input-dark w-full pr-10" /></div>
+        <aside className="rounded-3xl border p-4" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}>
+          <div className="relative"><Search className="absolute right-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--dawaa-theme-muted)' }} size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="بحث باسم الدكتور" className="input-dark w-full pr-10" /></div>
           <div className="mt-3 max-h-[70vh] space-y-2 overflow-y-auto">
-            {filtered.map((item) => <button key={item.id} onClick={() => setSelectedId(item.id)} className={`w-full rounded-2xl border p-3 text-right ${selectedId === item.id ? 'border-cyan-300/60 bg-cyan-400/15' : 'border-white/10 bg-white/[0.03]'}`}><div className="font-black">{item.name}</div><div className="mt-1 text-xs text-slate-400">{item.branch}</div></button>)}
+            {filtered.map((item) => (
+              <button
+                key={item.id}
+                onClick={() => setSelectedId(item.id)}
+                className="w-full rounded-2xl border p-3 text-right"
+                style={selectedId === item.id
+                  ? { borderColor: 'var(--dawaa-theme-accent-border)', background: 'var(--dawaa-theme-accent-soft)' }
+                  : { borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}
+              >
+                <div className="font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>{item.name}</div>
+                <div className="mt-1 text-xs" style={{ color: 'var(--dawaa-theme-muted)' }}>{item.branch}</div>
+              </button>
+            ))}
           </div>
         </aside>
 
         <main className="space-y-4">
-          {loading ? <div className="rounded-3xl border border-white/10 p-10 text-center"><Loader2 className="mx-auto animate-spin" /> جاري التحميل...</div> : selected ? <>
+          {loading ? (
+            <Panel className="p-10 text-center"><Loader2 className="mx-auto animate-spin" style={{ color: 'var(--dawaa-theme-muted)' }} /> جاري التحميل...</Panel>
+          ) : selected ? <>
             <section className="grid gap-3 md:grid-cols-5">
-              <div className="rounded-2xl border border-white/10 bg-slate-900 p-4"><div className="text-xs text-slate-400">نتيجة خدمة العملاء</div><div className="mt-1 text-2xl font-black text-cyan-300">{overallScore}/100</div></div>
-              <div className="rounded-2xl border border-white/10 bg-slate-900 p-4"><div className="text-xs text-slate-400">التقدير</div><div className="mt-1 text-xl font-black">{grade(overallScore)}</div></div>
-              <div className="rounded-2xl border border-white/10 bg-slate-900 p-4"><div className="text-xs text-slate-400">تأثير التقييم</div><div className={`mt-1 text-xl font-black ${pointsDelta >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>{pointsDelta > 0 ? '+' : ''}{pointsDelta} نقطة</div></div>
-              <div className="rounded-2xl border border-white/10 bg-slate-900 p-4"><div className="text-xs text-slate-400">قيمة النقاط التقريبية</div><div className="mt-1 text-xl font-black text-amber-300">{estimatedEgp == null ? '—' : `${estimatedEgp > 0 ? '+' : ''}${estimatedEgp.toLocaleString('ar-EG')} ج`}</div></div>
-              <div className="rounded-2xl border border-white/10 bg-slate-900 p-4"><div className="text-xs text-slate-400">الحافز المركزي الحالي</div><div className="mt-1 text-xl font-black text-emerald-300">{points?.final_incentive_egp == null ? '—' : `${points.final_incentive_egp.toLocaleString('ar-EG')} ج`}</div></div>
+              <KpiCard title="نتيجة خدمة العملاء" value={`${overallScore}/100`} subtitle="" icon={<Star size={20} />} tone={overallScore >= 80 ? 'green' : overallScore >= 60 ? 'amber' : 'red'} />
+              <MiniBox label="التقدير" value={grade(overallScore)} tone="cyan" />
+              <MiniBox label="تأثير التقييم على النقاط" value={`${pointsDelta > 0 ? '+' : ''}${pointsDelta} نقطة`} tone={pointsDelta >= 0 ? 'green' : 'red'} />
+              <MiniBox label="قيمة النقاط التقريبية" value={estimatedEgp == null ? '—' : `${estimatedEgp > 0 ? '+' : ''}${estimatedEgp.toLocaleString('ar-EG')} ج`} tone="amber" />
+              <MiniBox label="الحافز المركزي الحالي (نظام النقاط)" value={points?.final_incentive_egp == null ? '—' : `${points.final_incentive_egp.toLocaleString('ar-EG')} ج`} tone="green" />
             </section>
 
-            <section className="rounded-3xl border border-white/10 bg-slate-900/70 p-4"><h2 className="font-black">مؤشرات مساعدة من خدمة العملاء</h2><div className="mt-3 grid gap-2 sm:grid-cols-4"><Metric label="محادثات مقيمة" value={metrics.review_count} /><Metric label="متوسط المحادثات" value={`${metrics.review_average}%`} /><Metric label="متابعات" value={metrics.followup_count} /><Metric label="متابعات مكتملة" value={metrics.completed_followups} /></div></section>
+            <Panel className="p-4">
+              <SectionTitle title="مؤشرات مساعدة من خدمة العملاء" />
+              <div className="grid gap-2 sm:grid-cols-4">
+                <MiniBox label="محادثات مقيمة" value={String(metrics.review_count)} tone="cyan" />
+                <MiniBox label="متوسط المحادثات" value={`${metrics.review_average}%`} tone="cyan" />
+                <MiniBox label="متابعات" value={String(metrics.followup_count)} tone="cyan" />
+                <MiniBox label="متابعات مكتملة" value={String(metrics.completed_followups)} tone="cyan" />
+              </div>
+            </Panel>
 
-            <section className="rounded-2xl border border-cyan-300/20 bg-cyan-400/5 p-4 text-sm font-bold leading-7 text-slate-300">قاعدة التأثير: 95–100 = +20 نقطة، 90–94 = +10، 80–89 = +5، 70–79 = 0، 60–69 = -5، أقل من 60 = -10. القيمة بالجنيه تعتمد على Compensation Profile المركزي للدكتور.</section>
+            <Panel className="p-4" style={{ background: 'var(--dawaa-theme-accent-soft)', borderColor: 'var(--dawaa-theme-accent-border)' }}>
+              <p className="text-sm font-bold leading-7" style={{ color: 'var(--dawaa-theme-text)' }}>قاعدة التأثير: 95–100 = +20 نقطة، 90–94 = +10، 80–89 = +5، 70–79 = 0، 60–69 = -5، أقل من 60 = -10. القيمة بالجنيه تعتمد على Compensation Profile المركزي للدكتور.</p>
+            </Panel>
 
-            <section className="space-y-3">{sections.map((item) => <article key={item.key} className="rounded-3xl border border-white/10 bg-slate-900/70 p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div className="max-w-3xl"><h3 className="font-black">{item.title} <span className="text-xs text-cyan-300">الوزن {item.weight}%</span></h3><p className="mt-1 text-xs leading-6 text-slate-400">{item.description}</p></div><div className="flex gap-1">{[1,2,3,4,5].map((score) => <button key={score} type="button" onClick={() => updateSection(item.key,{ score })} className="rounded-lg p-1 hover:bg-amber-400/10"><Star size={27} className={score <= item.score ? 'fill-amber-400 text-amber-400' : 'text-slate-600'} /></button>)}</div></div><textarea value={item.notes} onChange={(event) => updateSection(item.key,{ notes:event.target.value })} rows={2} placeholder="ملاحظة على هذا المحور" className="input-dark mt-3 w-full" /></article>)}</section>
+            <section className="space-y-3">
+              {sections.map((item) => (
+                <Panel key={item.key} className="p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="max-w-3xl">
+                      <h3 className="font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>{item.title} <span className="text-xs" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>الوزن {item.weight}%</span></h3>
+                      <p className="mt-1 text-xs leading-6" style={{ color: 'var(--dawaa-theme-muted)' }}>{item.description}</p>
+                    </div>
+                    <div className="flex gap-1">
+                      {[1, 2, 3, 4, 5].map((score) => (
+                        <button key={score} type="button" onClick={() => updateSection(item.key, { score })} className="rounded-lg p-1">
+                          <Star size={27} className={score <= item.score ? 'fill-current' : ''} style={{ color: score <= item.score ? 'var(--dawaa-status-warning-text)' : 'var(--dawaa-theme-border)' }} />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <textarea value={item.notes} onChange={(event) => updateSection(item.key, { notes: event.target.value })} rows={2} placeholder="ملاحظة على هذا المحور" className="input-dark mt-3 w-full" />
+                </Panel>
+              ))}
+            </section>
 
-            <section className="rounded-3xl border border-white/10 bg-slate-900/70 p-4"><h3 className="font-black">ملاحظات عامة / خطة تحسين</h3><textarea rows={5} value={notes} onChange={(event) => setNotes(event.target.value)} className="input-dark mt-3 w-full" /></section>
+            <Panel className="p-4">
+              <h3 className="font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>ملاحظات عامة / خطة تحسين</h3>
+              <textarea rows={5} value={notes} onChange={(event) => setNotes(event.target.value)} className="input-dark mt-3 w-full" />
+            </Panel>
 
-            <section className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-white/10 bg-slate-900/70 p-4"><div className="flex items-center gap-2 text-sm font-bold text-slate-300"><CheckCircle2 className="text-cyan-300" size={18} /> الحالة: {status}</div><div className="flex gap-2"><button type="button" disabled={saving} onClick={() => void save('draft')} className="btn-secondary inline-flex items-center gap-2"><Save size={16}/> حفظ مسودة</button><button type="button" disabled={saving} onClick={() => void save('sent')} className="btn-primary inline-flex items-center gap-2">{saving ? <Loader2 size={16} className="animate-spin"/> : <Send size={16}/>} اعتماد وإرسال للنقاط</button></div></section>
-          </> : <div className="rounded-3xl border border-dashed border-white/10 p-10 text-center text-slate-500">لا يوجد دكاترة متاحون داخل نطاق الفرع.</div>}
+            <Panel className="flex flex-wrap items-center justify-between gap-3 p-4">
+              <div className="flex items-center gap-2 text-sm font-bold" style={{ color: 'var(--dawaa-theme-text)' }}><CheckCircle2 style={{ color: 'var(--dawaa-theme-primary-strong)' }} size={18} /> الحالة: {status}</div>
+              <div className="flex gap-2">
+                <button type="button" disabled={saving} onClick={() => void save('draft')} className="btn-secondary inline-flex items-center gap-2"><Save size={16} /> حفظ مسودة</button>
+                <button type="button" disabled={saving} onClick={() => void save('sent')} className="btn-primary inline-flex items-center gap-2">{saving ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />} اعتماد وإرسال للنقاط</button>
+              </div>
+            </Panel>
+          </> : <div className="rounded-3xl border border-dashed p-10 text-center" style={{ borderColor: 'var(--dawaa-theme-border)', color: 'var(--dawaa-theme-muted)' }}>لا يوجد دكاترة متاحون داخل نطاق الفرع.</div>}
         </main>
       </div>
     </div>
@@ -188,5 +267,5 @@ export default function CustomerServiceDoctorEvaluation() {
 }
 
 function Metric({ label, value }: { label: string; value: string | number }) {
-  return <div className="rounded-xl bg-white/[0.04] p-3"><div className="text-xs text-slate-400">{label}</div><div className="mt-1 text-lg font-black">{value}</div></div>;
+  return <MiniBox label={label} value={String(value)} tone="cyan" />;
 }
