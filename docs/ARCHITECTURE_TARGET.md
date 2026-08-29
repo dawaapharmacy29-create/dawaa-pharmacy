@@ -150,7 +150,26 @@ Existing dot-notation keys are migration-only legacy debt tracked by the archite
 
 Permission checks must use the central permission system rather than page-specific role conditions whenever possible.
 
-## 8. Routes
+## 8. Dashboard UI primitives
+
+Canonical source: `src/components/dashboard/DashboardPrimitives.tsx` — `Panel`, `SectionTitle`, `KpiCard`, `MiniBox`, `EmptyState`.
+
+Target flow:
+
+`Dashboard Page -> DashboardPrimitives (canonical) -> dawaa-* semantic classes -> var(--dawaa-*) tokens`
+
+Rules:
+
+- A dashboard page must import these primitives rather than define a local copy. A local `Panel`/`SectionTitle`/`KpiCard`/`MiniBox`/`EmptyState` is a parallel presentation source exactly like a parallel data source, and is prohibited under the same reasoning as section 1.
+- Primitives must render only `dawaa-*` semantic classes and `var(--dawaa-*)` tokens — no hardcoded hex/rgb colors, per the theme architecture rules already enforced by `check-theme-architecture.cjs` and tracked by `audit-theme-debt.cjs`.
+- Extending a primitive (a new tone, a new optional prop) happens in the canonical file so every consumer gets it, not by forking the component into a page-local variant.
+- A page-specific visual need that does not fit an existing primitive is a new primitive added to `DashboardPrimitives.tsx`, not a reason to stop importing the existing ones.
+
+Migration order for existing pages, highest presentation debt first (from `audit-theme-debt.cjs`): `Customers.tsx`, `StagnantMedicines.tsx`, `CRMPage.tsx`, `DoctorDashboardStable.tsx`, `StaffDetailLegacy.tsx`, `Reviews.tsx`, then the remaining tracked legacy files in `scripts/check-dashboard-primitives-architecture.cjs`. Migrate one page per PR — do not batch multiple pages' primitive migrations into one change, so a regression is trivially bisectable.
+
+`scripts/check-dashboard-primitives-architecture.cjs` enforces this: a fixed, shrink-only baseline of files still allowed to define a primitive locally. Any file outside that baseline that defines one of these names fails CI. Migrating a baseline file must remove it from the baseline in the same PR — leaving a stale baseline entry also fails CI, so the tracked-debt list cannot go quietly out of date in either direction.
+
+## 9. Routes
 
 Current `App.tsx` route definitions are transitional centralized routing debt.
 
@@ -166,7 +185,7 @@ Until migration is complete, CI rejects duplicate literal route paths.
 
 A route must not have an independent permission definition that can drift from its runtime guard.
 
-## 9. Data freshness and caching
+## 10. Data freshness and caching
 
 Every read is classified as:
 
@@ -178,13 +197,13 @@ Do not add page-specific cache/fallback behavior unless there is a measured reas
 
 A failed read must not silently become a valid-looking `0` or `[]` when the distinction between empty and unavailable matters.
 
-## 10. Database reproducibility
+## 11. Database reproducibility
 
 Production database behavior must be reproducible from repository migrations.
 
 Documentation-only migrations that describe functions/triggers applied manually to the live database are transitional debt. Live-only behavior must be captured in real idempotent migrations before those documentation markers are retired.
 
-## 11. Fallback policy
+## 12. Fallback policy
 
 A fallback is allowed only when all are true:
 
@@ -197,7 +216,7 @@ Never implement chains like:
 
 `new source -> old source -> direct table -> local cached workaround`.
 
-## 12. Migration rule
+## 13. Migration rule
 
 Every architectural migration must do at least one of:
 
@@ -209,7 +228,7 @@ Every architectural migration must do at least one of:
 
 A migration that only adds another wrapper while leaving all previous paths active is not complete.
 
-## 13. CI architecture gates
+## 14. CI architecture gates
 
 `check-data-access-boundaries.cjs` currently enforces:
 
@@ -223,5 +242,7 @@ A migration that only adds another wrapper while leaving all previous paths acti
 - no duplicate literal route paths;
 - no new dot-notation permission keys;
 - legacy permission-key register must shrink when keys are migrated.
+
+`scripts/check-dashboard-primitives-architecture.cjs` enforces section 8: no new local `Panel`/`SectionTitle`/`KpiCard`/`MiniBox`/`EmptyState` definitions outside the fixed, shrink-only legacy baseline.
 
 These gates should become stricter as migration debt is removed.

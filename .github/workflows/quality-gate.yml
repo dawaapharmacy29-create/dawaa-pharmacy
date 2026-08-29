@@ -115,6 +115,9 @@ jobs:
       - name: Theme debt audit
         run: node scripts/audit-theme-debt.cjs
 
+      - name: Dashboard primitives architecture boundary
+        run: node scripts/check-dashboard-primitives-architecture.cjs
+
       - name: TypeScript
         run: npm run typecheck
 
