@@ -10,6 +10,7 @@ const CLEAN_UI_FILES = new Set([
   'src/styles/customerServiceTheme.css',
   'src/styles/dashboard-theme-scopes.css',
   'src/pages/Customers.tsx',
+  'src/pages/StagnantMedicines.tsx',
   'src/components/customerService/ExceptionalFollowupCenter.tsx',
   'src/components/customerService/CustomerFollowupCockpitPanel.tsx',
   'src/components/customerService/CustomerDailyPriorityQueues.tsx',

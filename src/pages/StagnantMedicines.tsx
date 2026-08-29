@@ -1124,15 +1124,15 @@ export default function StagnantMedicines() {
     switch (priority) {
       case 'high':
       case 'عالية':
-        return 'bg-red-500/15 text-red-300 border-red-500/25';
+        return 'bg-[var(--dawaa-status-danger-bg)] text-[var(--dawaa-status-danger-text)] border-[var(--dawaa-status-danger-border)]';
       case 'medium':
       case 'متوسطة':
-        return 'bg-amber-500/15 text-amber-300 border-amber-500/25';
+        return 'bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)] border-[var(--dawaa-status-warning-border)]';
       case 'low':
       case 'منخفضة':
-        return 'bg-green-500/15 text-green-300 border-green-500/25';
+        return 'bg-[var(--dawaa-status-success-bg)] text-[var(--dawaa-status-success-text)] border-[var(--dawaa-status-success-border)]';
       default:
-        return 'bg-slate-500/15 text-slate-300 border-slate-500/20';
+        return 'bg-[var(--dawaa-theme-soft)] text-[var(--dawaa-theme-text)] border-[var(--dawaa-theme-border)]';
     }
   };
 
@@ -1155,15 +1155,15 @@ export default function StagnantMedicines() {
   const getStatusColor = (status?: string | null) => {
     switch (status) {
       case 'نشط':
-        return 'bg-teal-500/15 text-teal-300 border-teal-500/25';
+        return 'bg-[var(--dawaa-theme-primary)]/15 text-[var(--dawaa-theme-primary-strong)] border-[var(--dawaa-theme-accent-border)]';
       case 'محقق':
-        return 'bg-green-500/15 text-green-300 border-green-500/25';
+        return 'bg-[var(--dawaa-status-success-bg)] text-[var(--dawaa-status-success-text)] border-[var(--dawaa-status-success-border)]';
       case 'متوقف':
-        return 'bg-slate-500/15 text-slate-300 border-slate-500/25';
+        return 'bg-[var(--dawaa-theme-soft)] text-[var(--dawaa-theme-text)] border-[var(--dawaa-theme-border)]';
       case 'انتهى':
-        return 'bg-red-500/15 text-red-300 border-red-500/25';
+        return 'bg-[var(--dawaa-status-danger-bg)] text-[var(--dawaa-status-danger-text)] border-[var(--dawaa-status-danger-border)]';
       default:
-        return 'bg-slate-500/15 text-slate-300 border-slate-500/20';
+        return 'bg-[var(--dawaa-theme-soft)] text-[var(--dawaa-theme-text)] border-[var(--dawaa-theme-border)]';
     }
   };
 
@@ -1171,12 +1171,12 @@ export default function StagnantMedicines() {
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-xl bg-amber-500/15 flex items-center justify-center text-amber-400">
+          <div className="w-11 h-11 rounded-xl bg-[var(--dawaa-status-warning-bg)] flex items-center justify-center text-[var(--dawaa-status-warning-text)]">
             <Package size={22} />
           </div>
           <div>
-            <h2 className="text-xl font-bold text-white">الأدوية الرواكد</h2>
-            <p className="text-slate-400 text-sm mt-1">
+            <h2 className="text-xl font-bold text-[var(--dawaa-theme-heading)]">الأدوية الرواكد</h2>
+            <p className="text-[var(--dawaa-theme-muted)] text-sm mt-1">
               قائمة يومية للأصناف المطلوب تحريكها قبل انتهاء الصلاحية
             </p>
           </div>
@@ -1193,28 +1193,28 @@ export default function StagnantMedicines() {
 
       <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
         <div className="stat-card">
-          <div className="text-slate-400 text-xs mb-2">إجمالي الأصناف</div>
-          <div className="text-white font-bold text-2xl num">{filteredMedicines.length}</div>
+          <div className="text-[var(--dawaa-theme-muted)] text-xs mb-2">إجمالي الأصناف</div>
+          <div className="text-[var(--dawaa-theme-heading)] font-bold text-2xl num">{filteredMedicines.length}</div>
         </div>
         <div className="stat-card">
-          <div className="text-slate-400 text-xs mb-2">إجمالي الكمية</div>
-          <div className="text-white font-bold text-2xl num">{stats.totalQuantity}</div>
+          <div className="text-[var(--dawaa-theme-muted)] text-xs mb-2">إجمالي الكمية</div>
+          <div className="text-[var(--dawaa-theme-heading)] font-bold text-2xl num">{stats.totalQuantity}</div>
         </div>
         <div className="stat-card">
-          <div className="text-slate-400 text-xs mb-2">تم صرفه</div>
-          <div className="text-teal-300 font-bold text-2xl num">{stats.dispensed}</div>
+          <div className="text-[var(--dawaa-theme-muted)] text-xs mb-2">تم صرفه</div>
+          <div className="text-[var(--dawaa-theme-primary-strong)] font-bold text-2xl num">{stats.dispensed}</div>
         </div>
         <div className="stat-card">
-          <div className="text-slate-400 text-xs mb-2">باقي</div>
-          <div className="text-red-300 font-bold text-2xl num">{stats.remaining}</div>
+          <div className="text-[var(--dawaa-theme-muted)] text-xs mb-2">باقي</div>
+          <div className="text-[var(--dawaa-status-danger-text)] font-bold text-2xl num">{stats.remaining}</div>
         </div>
         <div className="stat-card">
-          <div className="text-slate-400 text-xs mb-2">أولوية عالية</div>
-          <div className="text-amber-300 font-bold text-2xl num">{stats.highPriority}</div>
+          <div className="text-[var(--dawaa-theme-muted)] text-xs mb-2">أولوية عالية</div>
+          <div className="text-[var(--dawaa-status-warning-text)] font-bold text-2xl num">{stats.highPriority}</div>
         </div>
         <div className="stat-card">
-          <div className="text-slate-400 text-xs mb-2">إجمالي الحوافز</div>
-          <div className="text-teal-300 font-bold text-2xl num">
+          <div className="text-[var(--dawaa-theme-muted)] text-xs mb-2">إجمالي الحوافز</div>
+          <div className="text-[var(--dawaa-theme-primary-strong)] font-bold text-2xl num">
             {stats.totalIncentive.toFixed(0)}
           </div>
         </div>
@@ -1227,21 +1227,21 @@ export default function StagnantMedicines() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           {doctorTotals.length ? (
             doctorTotals.map((item) => (
-              <div key={item.doctor} className="bg-white/5 rounded-xl p-3">
-                <div className="text-white font-bold text-sm">{item.doctor}</div>
-                <div className="text-slate-400 text-xs mt-1">{item.count} سجل صرف</div>
-                <div className="text-teal-300 font-bold num mt-2">{item.quantity} علبة</div>
+              <div key={item.doctor} className="bg-[var(--dawaa-theme-soft)] rounded-xl p-3">
+                <div className="text-[var(--dawaa-theme-heading)] font-bold text-sm">{item.doctor}</div>
+                <div className="text-[var(--dawaa-theme-muted)] text-xs mt-1">{item.count} سجل صرف</div>
+                <div className="text-[var(--dawaa-theme-primary-strong)] font-bold num mt-2">{item.quantity} علبة</div>
               </div>
             ))
           ) : (
-            <div className="text-slate-400 text-sm">لا توجد سجلات صرف في الدورة الحالية.</div>
+            <div className="text-[var(--dawaa-theme-muted)] text-sm">لا توجد سجلات صرف في الدورة الحالية.</div>
           )}
         </div>
       </div>
 
       <div className="stat-card">
         <div className="flex items-center gap-4 mb-4">
-          <div className="flex items-center gap-2 text-slate-300 text-sm">
+          <div className="flex items-center gap-2 text-[var(--dawaa-theme-text)] text-sm">
             <Filter size={16} /> الفلاتر
           </div>
           <div className="flex-1 flex gap-2">
@@ -1311,11 +1311,11 @@ export default function StagnantMedicines() {
         </div>
       </div>
 
-      <div className="bg-amber-500/10 border border-amber-500/25 rounded-xl p-4 text-sm text-slate-300">
+      <div className="bg-[var(--dawaa-status-warning-bg)] border border-[var(--dawaa-status-warning-border)] rounded-xl p-4 text-sm text-[var(--dawaa-theme-text)]">
         <div className="flex items-start gap-3">
-          <AlertTriangle className="text-amber-400 flex-shrink-0 mt-0.5" size={18} />
+          <AlertTriangle className="text-[var(--dawaa-status-warning-text)] flex-shrink-0 mt-0.5" size={18} />
           <div>
-            <div className="font-semibold text-amber-200 mb-1">تنبيه مهم</div>
+            <div className="font-semibold text-[var(--dawaa-status-warning-text)] mb-1">تنبيه مهم</div>
             <p>
               حدّث هذه القائمة يوميًا من ملف الرواكد. لو الصنف له أكثر من تاريخ انتهاء، سجّل كل دفعة
               بكمية منفصلة عشان الدكتور يعرف يركز على الأقرب انتهاءً.
@@ -1325,9 +1325,9 @@ export default function StagnantMedicines() {
       </div>
 
       {loading ? (
-        <div className="stat-card text-center py-10 text-slate-400">جاري التحميل...</div>
+        <div className="stat-card text-center py-10 text-[var(--dawaa-theme-muted)]">جاري التحميل...</div>
       ) : filteredMedicines.length === 0 ? (
-        <div className="stat-card text-center py-10 text-slate-400">لا توجد أدوية رواكد حاليًا</div>
+        <div className="stat-card text-center py-10 text-[var(--dawaa-theme-muted)]">لا توجد أدوية رواكد حاليًا</div>
       ) : (
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
           {filteredMedicines.map((medicine) => {
@@ -1346,22 +1346,22 @@ export default function StagnantMedicines() {
             return (
               <div
                 key={medicine.id}
-                className="stat-card hover:border-amber-500/30 transition-colors cursor-pointer"
+                className="stat-card hover:border-[var(--dawaa-status-warning-border)] transition-colors cursor-pointer"
                 onClick={() => openDetailsModal(medicine)}
               >
                 <div className="flex items-start justify-between gap-3 mb-4">
                   <div className="flex-1">
-                    <div className="text-white font-bold text-base">
+                    <div className="text-[var(--dawaa-theme-heading)] font-bold text-base">
                       {getMedicineName(medicine)}
                     </div>
-                    <div className="text-slate-400 text-xs mt-1">
+                    <div className="text-[var(--dawaa-theme-muted)] text-xs mt-1">
                       {medicine.usage ||
                         medicine.category ||
                         medicine.product_type ||
                         'استخدام غير محدد'}
                     </div>
                     {medicine.product_code && (
-                      <div className="text-slate-500 text-xs mt-1">
+                      <div className="text-[var(--dawaa-theme-muted)] text-xs mt-1">
                         كود: {medicine.product_code}
                       </div>
                     )}
@@ -1383,47 +1383,47 @@ export default function StagnantMedicines() {
                 </div>
 
                 <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div className="bg-white/5 rounded-xl p-3">
-                    <div className="text-slate-400 text-xs">إجمالي الكمية</div>
-                    <div className="text-white font-bold num mt-1">{total}</div>
+                  <div className="bg-[var(--dawaa-theme-soft)] rounded-xl p-3">
+                    <div className="text-[var(--dawaa-theme-muted)] text-xs">إجمالي الكمية</div>
+                    <div className="text-[var(--dawaa-theme-heading)] font-bold num mt-1">{total}</div>
                   </div>
-                  <div className="bg-white/5 rounded-xl p-3">
-                    <div className="text-slate-400 text-xs">المسؤول عن التحريك</div>
-                    <div className="text-white font-semibold mt-1">
+                  <div className="bg-[var(--dawaa-theme-soft)] rounded-xl p-3">
+                    <div className="text-[var(--dawaa-theme-muted)] text-xs">المسؤول عن التحريك</div>
+                    <div className="text-[var(--dawaa-theme-heading)] font-semibold mt-1">
                       {medicine.responsible_doctor_name ||
                         medicine.responsible_doctor ||
                         'غير محدد'}
                     </div>
                   </div>
-                  <div className="bg-white/5 rounded-xl p-3">
-                    <div className="text-slate-400 text-xs">تم صرفه</div>
-                    <div className="text-teal-300 font-bold num mt-1">
+                  <div className="bg-[var(--dawaa-theme-soft)] rounded-xl p-3">
+                    <div className="text-[var(--dawaa-theme-muted)] text-xs">تم صرفه</div>
+                    <div className="text-[var(--dawaa-theme-primary-strong)] font-bold num mt-1">
                       {medicine.dispensed_quantity ?? dispensedInCycle}
                     </div>
                   </div>
-                  <div className="bg-white/5 rounded-xl p-3">
-                    <div className="text-slate-400 text-xs">المتبقي</div>
+                  <div className="bg-[var(--dawaa-theme-soft)] rounded-xl p-3">
+                    <div className="text-[var(--dawaa-theme-muted)] text-xs">المتبقي</div>
                     <div
-                      className={`font-bold num mt-1 ${storedRemaining <= 0 ? 'text-green-300' : 'text-red-300'}`}
+                      className={`font-bold num mt-1 ${storedRemaining <= 0 ? 'text-[var(--dawaa-status-success-text)]' : 'text-[var(--dawaa-status-danger-text)]'}`}
                     >
                       {storedRemaining}
                     </div>
                   </div>
-                  <div className="bg-white/5 rounded-xl p-3">
-                    <div className="text-slate-400 text-xs">أقرب انتهاء</div>
-                    <div className="text-white mt-1">
+                  <div className="bg-[var(--dawaa-theme-soft)] rounded-xl p-3">
+                    <div className="text-[var(--dawaa-theme-muted)] text-xs">أقرب انتهاء</div>
+                    <div className="text-[var(--dawaa-theme-heading)] mt-1">
                       {medicine.nearest_expiry_date || medicine.expiry_date || 'غير محدد'}
                     </div>
                   </div>
-                  <div className="bg-white/5 rounded-xl p-3">
-                    <div className="text-slate-400 text-xs">حافز الوحدة</div>
-                    <div className="text-teal-300 font-bold num mt-1">
+                  <div className="bg-[var(--dawaa-theme-soft)] rounded-xl p-3">
+                    <div className="text-[var(--dawaa-theme-muted)] text-xs">حافز الوحدة</div>
+                    <div className="text-[var(--dawaa-theme-primary-strong)] font-bold num mt-1">
                       {medicine.incentive_per_unit || 0} ج
                     </div>
                   </div>
-                  <div className="bg-white/5 rounded-xl p-3">
-                    <div className="text-slate-400 text-xs">سعر الصنف</div>
-                    <div className="text-white font-bold num mt-1">
+                  <div className="bg-[var(--dawaa-theme-soft)] rounded-xl p-3">
+                    <div className="text-[var(--dawaa-theme-muted)] text-xs">سعر الصنف</div>
+                    <div className="text-[var(--dawaa-theme-heading)] font-bold num mt-1">
                       {Number(medicine.product_price || medicine.unit_price || 0).toLocaleString(
                         'ar-EG'
                       )}{' '}
@@ -1433,18 +1433,18 @@ export default function StagnantMedicines() {
                 </div>
 
                 <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
-                  <div className="bg-white/5 rounded-xl p-2">
-                    <div className="text-slate-400">إجمالي الحافز</div>
-                    <div className="text-teal-300 font-bold num">
+                  <div className="bg-[var(--dawaa-theme-soft)] rounded-xl p-2">
+                    <div className="text-[var(--dawaa-theme-muted)]">إجمالي الحافز</div>
+                    <div className="text-[var(--dawaa-theme-primary-strong)] font-bold num">
                       {(storedRemaining * (medicine.incentive_per_unit || 0)).toFixed(0)} ج
                     </div>
                   </div>
-                  <div className="bg-white/5 rounded-xl p-2">
-                    <div className="text-slate-400">تارجت الصنف</div>
-                    <div className="text-white font-bold num">{required || '—'}</div>
+                  <div className="bg-[var(--dawaa-theme-soft)] rounded-xl p-2">
+                    <div className="text-[var(--dawaa-theme-muted)]">تارجت الصنف</div>
+                    <div className="text-[var(--dawaa-theme-heading)] font-bold num">{required || '—'}</div>
                   </div>
                   <div
-                    className={`rounded-xl p-2 ${medicine.status === 'محقق' || achieved ? 'bg-teal-500/10 text-teal-300' : 'bg-amber-500/10 text-amber-200'}`}
+                    className={`rounded-xl p-2 ${medicine.status === 'محقق' || achieved ? 'bg-[var(--dawaa-theme-primary)]/10 text-[var(--dawaa-theme-primary-strong)]' : 'bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)]'}`}
                   >
                     <div className="text-xs opacity-80">الحالة</div>
                     <div className="font-bold">
@@ -1454,7 +1454,7 @@ export default function StagnantMedicines() {
                 </div>
 
                 <div className="mt-4">
-                  <div className="flex items-center gap-2 text-slate-300 text-sm mb-2">
+                  <div className="flex items-center gap-2 text-[var(--dawaa-theme-text)] text-sm mb-2">
                     <Calendar size={15} /> تواريخ الانتهاء والدفعات
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -1462,13 +1462,13 @@ export default function StagnantMedicines() {
                       batches.map((batch, index) => (
                         <span
                           key={`${batch.expiry_date}-${index}`}
-                          className="bg-amber-500/10 text-amber-200 border border-amber-500/20 rounded-lg px-3 py-1 text-xs"
+                          className="bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)] border border-[var(--dawaa-status-warning-border)] rounded-lg px-3 py-1 text-xs"
                         >
                           {batch.quantity} علبة - {batch.expiry_date}
                         </span>
                       ))
                     ) : (
-                      <span className="bg-white/5 text-slate-300 rounded-lg px-3 py-1 text-xs">
+                      <span className="bg-[var(--dawaa-theme-soft)] text-[var(--dawaa-theme-text)] rounded-lg px-3 py-1 text-xs">
                         {medicine.quantity_available || 0} علبة -{' '}
                         {medicine.expiry_date || 'بدون تاريخ'}
                       </span>
@@ -1476,7 +1476,7 @@ export default function StagnantMedicines() {
                   </div>
                 </div>
 
-                <div className="flex flex-wrap gap-3 mt-4 text-xs text-slate-400">
+                <div className="flex flex-wrap gap-3 mt-4 text-xs text-[var(--dawaa-theme-muted)]">
                   <span className="inline-flex items-center gap-1">
                     <Package size={13} /> {medicine.branch || 'كل الفروع'}
                   </span>
@@ -1487,13 +1487,13 @@ export default function StagnantMedicines() {
                 </div>
 
                 {medicine.notes && (
-                  <div className="mt-3 p-3 bg-white/5 rounded-xl text-xs text-slate-300 leading-6">
+                  <div className="mt-3 p-3 bg-[var(--dawaa-theme-soft)] rounded-xl text-xs text-[var(--dawaa-theme-text)] leading-6">
                     {medicine.notes}
                   </div>
                 )}
 
                 {(canDispenseStagnant || canEditStagnant || canDeleteStagnant) && (
-                  <div className="flex gap-2 mt-4 pt-4 border-t border-white/5">
+                  <div className="flex gap-2 mt-4 pt-4 border-t border-[var(--dawaa-theme-border)]">
                     {canDispenseStagnant && (
                       <button
                         onClick={(e) => {
@@ -1522,7 +1522,7 @@ export default function StagnantMedicines() {
                           e.stopPropagation();
                           handleDelete(medicine.id, getMedicineName(medicine));
                         }}
-                        className="flex-1 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg text-sm py-2 flex items-center justify-center gap-1 transition-colors"
+                        className="flex-1 bg-[var(--dawaa-status-danger-bg)] hover:bg-[var(--dawaa-status-danger-bg)] text-[var(--dawaa-status-danger-text)] rounded-lg text-sm py-2 flex items-center justify-center gap-1 transition-colors"
                       >
                         <Trash2 size={14} /> حذف
                       </button>
@@ -1536,15 +1536,15 @@ export default function StagnantMedicines() {
       )}
 
       {showModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-            <h3 className="text-xl font-bold text-white mb-4">
+        <div className="fixed inset-0 bg-[var(--dawaa-theme-overlay)] flex items-center justify-center z-50 p-4">
+          <div className="bg-[var(--dawaa-theme-surface)] border border-[var(--dawaa-theme-border)] rounded-2xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <h3 className="text-xl font-bold text-[var(--dawaa-theme-heading)] mb-4">
               {editingMedicine ? 'تعديل صنف راكد' : 'إضافة صنف راكد'}
             </h3>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="text-slate-300 text-sm block mb-1">اسم الصنف *</label>
+                  <label className="text-[var(--dawaa-theme-text)] text-sm block mb-1">اسم الصنف *</label>
                   <input
                     className="input-dark"
                     value={form.medicine_name}
@@ -1553,7 +1553,7 @@ export default function StagnantMedicines() {
                   />
                 </div>
                 <div>
-                  <label className="text-slate-300 text-sm block mb-1">كود الصنف</label>
+                  <label className="text-[var(--dawaa-theme-text)] text-sm block mb-1">كود الصنف</label>
                   <input
                     className="input-dark"
                     value={form.product_code}
@@ -1561,7 +1561,7 @@ export default function StagnantMedicines() {
                   />
                 </div>
                 <div>
-                  <label className="text-slate-300 text-sm block mb-1">الاستخدام / الفئة</label>
+                  <label className="text-[var(--dawaa-theme-text)] text-sm block mb-1">الاستخدام / الفئة</label>
                   <input
                     className="input-dark"
                     placeholder="معدة، تخسيس، مضاد حيوي..."
@@ -1576,7 +1576,7 @@ export default function StagnantMedicines() {
                   />
                 </div>
                 <div>
-                  <label className="text-slate-300 text-sm block mb-1">الدكتور المسؤول *</label>
+                  <label className="text-[var(--dawaa-theme-text)] text-sm block mb-1">الدكتور المسؤول *</label>
                   <input
                     className="input-dark mb-2"
                     value={customerSearch}
@@ -1607,7 +1607,7 @@ export default function StagnantMedicines() {
                   </select>
                 </div>
                 <div>
-                  <label className="text-slate-300 text-sm block mb-1">تاريخ ملف الرواكد</label>
+                  <label className="text-[var(--dawaa-theme-text)] text-sm block mb-1">تاريخ ملف الرواكد</label>
                   <input
                     className="input-dark"
                     type="date"
@@ -1616,7 +1616,7 @@ export default function StagnantMedicines() {
                   />
                 </div>
                 <div>
-                  <label className="text-slate-300 text-sm block mb-1">الكمية الإجمالية *</label>
+                  <label className="text-[var(--dawaa-theme-text)] text-sm block mb-1">الكمية الإجمالية *</label>
                   <input
                     className="input-dark"
                     type="number"
@@ -1632,7 +1632,7 @@ export default function StagnantMedicines() {
                   />
                 </div>
                 <div>
-                  <label className="text-slate-300 text-sm block mb-1">سعر الصنف</label>
+                  <label className="text-[var(--dawaa-theme-text)] text-sm block mb-1">سعر الصنف</label>
                   <input
                     className="input-dark"
                     type="number"
@@ -1648,7 +1648,7 @@ export default function StagnantMedicines() {
                   />
                 </div>
                 <div>
-                  <label className="text-slate-300 text-sm block mb-1">أقرب تاريخ انتهاء</label>
+                  <label className="text-[var(--dawaa-theme-text)] text-sm block mb-1">أقرب تاريخ انتهاء</label>
                   <input
                     className="input-dark"
                     type="date"
@@ -1657,7 +1657,7 @@ export default function StagnantMedicines() {
                   />
                 </div>
                 <div>
-                  <label className="text-slate-300 text-sm block mb-1">تم صرفه للعملاء</label>
+                  <label className="text-[var(--dawaa-theme-text)] text-sm block mb-1">تم صرفه للعملاء</label>
                   <input
                     className="input-dark"
                     type="number"
@@ -1672,7 +1672,7 @@ export default function StagnantMedicines() {
                   />
                 </div>
                 <div>
-                  <label className="text-slate-300 text-sm block mb-1">نسبة الحد الأدنى %</label>
+                  <label className="text-[var(--dawaa-theme-text)] text-sm block mb-1">نسبة الحد الأدنى %</label>
                   <input
                     className="input-dark"
                     type="number"
@@ -1688,7 +1688,7 @@ export default function StagnantMedicines() {
                   />
                 </div>
                 <div>
-                  <label className="text-slate-300 text-sm block mb-1">حافز الوحدة (ج)</label>
+                  <label className="text-[var(--dawaa-theme-text)] text-sm block mb-1">حافز الوحدة (ج)</label>
                   <input
                     className="input-dark"
                     type="number"
@@ -1704,7 +1704,7 @@ export default function StagnantMedicines() {
                   />
                 </div>
                 <div>
-                  <label className="text-slate-300 text-sm block mb-1">الحالة</label>
+                  <label className="text-[var(--dawaa-theme-text)] text-sm block mb-1">الحالة</label>
                   <select
                     className="input-dark"
                     value={form.status}
@@ -1719,7 +1719,7 @@ export default function StagnantMedicines() {
               </div>
 
               <div>
-                <label className="text-slate-300 text-sm block mb-1">دفعات الانتهاء</label>
+                <label className="text-[var(--dawaa-theme-text)] text-sm block mb-1">دفعات الانتهاء</label>
                 <textarea
                   className="input-dark resize-none"
                   rows={4}
@@ -1729,13 +1729,13 @@ export default function StagnantMedicines() {
                   value={form.batches_text}
                   onChange={(e) => setForm({ ...form, batches_text: e.target.value })}
                 />
-                <p className="text-slate-500 text-xs mt-1">
+                <p className="text-[var(--dawaa-theme-muted)] text-xs mt-1">
                   لو ملأت الدفعات، سيتم حساب إجمالي الكمية منها تلقائيًا.
                 </p>
               </div>
 
               <div>
-                <label className="text-slate-300 text-sm block mb-1">الأولوية</label>
+                <label className="text-[var(--dawaa-theme-text)] text-sm block mb-1">الأولوية</label>
                 <select
                   className="input-dark"
                   value={form.priority}
@@ -1748,7 +1748,7 @@ export default function StagnantMedicines() {
               </div>
 
               <div>
-                <label className="text-slate-300 text-sm block mb-1">
+                <label className="text-[var(--dawaa-theme-text)] text-sm block mb-1">
                   سجل الصرف أو ملاحظات المتابعة
                 </label>
                 <textarea
@@ -1773,42 +1773,42 @@ export default function StagnantMedicines() {
       )}
 
       {showDispenseModal && selectedMedicine && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-            <h3 className="text-xl font-bold text-white mb-4">تسجيل صرف صنف راكد</h3>
+        <div className="fixed inset-0 bg-[var(--dawaa-theme-overlay)] flex items-center justify-center z-50 p-4">
+          <div className="bg-[var(--dawaa-theme-surface)] border border-[var(--dawaa-theme-border)] rounded-2xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <h3 className="text-xl font-bold text-[var(--dawaa-theme-heading)] mb-4">تسجيل صرف صنف راكد</h3>
 
-            <div className="bg-white/5 rounded-xl p-4 mb-4 space-y-2">
+            <div className="bg-[var(--dawaa-theme-soft)] rounded-xl p-4 mb-4 space-y-2">
               <div className="flex justify-between text-sm">
-                <span className="text-slate-400">اسم الصنف:</span>
-                <span className="text-white font-semibold">
+                <span className="text-[var(--dawaa-theme-muted)]">اسم الصنف:</span>
+                <span className="text-[var(--dawaa-theme-heading)] font-semibold">
                   {getMedicineName(selectedMedicine)}
                 </span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-slate-400">الدكتور المسؤول:</span>
-                <span className="text-white">
+                <span className="text-[var(--dawaa-theme-muted)]">الدكتور المسؤول:</span>
+                <span className="text-[var(--dawaa-theme-heading)]">
                   {selectedMedicine.responsible_doctor_name ||
                     selectedMedicine.responsible_doctor ||
                     'غير محدد'}
                 </span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-slate-400">الكمية المتبقية:</span>
-                <span className="text-teal-300 font-bold num">
+                <span className="text-[var(--dawaa-theme-muted)]">الكمية المتبقية:</span>
+                <span className="text-[var(--dawaa-theme-primary-strong)] font-bold num">
                   {getStoredRemaining(selectedMedicine)}
                 </span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-slate-400">تاريخ انتهاء الصنف:</span>
-                <span className="text-white">
+                <span className="text-[var(--dawaa-theme-muted)]">تاريخ انتهاء الصنف:</span>
+                <span className="text-[var(--dawaa-theme-heading)]">
                   {selectedMedicine.nearest_expiry_date ||
                     selectedMedicine.expiry_date ||
                     'غير محدد'}
                 </span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-slate-400">حافز الوحدة:</span>
-                <span className="text-teal-300 font-bold num">
+                <span className="text-[var(--dawaa-theme-muted)]">حافز الوحدة:</span>
+                <span className="text-[var(--dawaa-theme-primary-strong)] font-bold num">
                   {selectedMedicine.incentive_per_unit || 0} ج
                 </span>
               </div>
@@ -1817,7 +1817,7 @@ export default function StagnantMedicines() {
             <form onSubmit={handleRecordDispense} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="text-slate-300 text-sm block mb-1">
+                  <label className="text-[var(--dawaa-theme-text)] text-sm block mb-1">
                     الدكتور الذي صرف الصنف *
                   </label>
                   <select
@@ -1843,7 +1843,7 @@ export default function StagnantMedicines() {
                   </select>
                 </div>
                 <div>
-                  <label className="text-slate-300 text-sm block mb-1">الكمية المصروفة *</label>
+                  <label className="text-[var(--dawaa-theme-text)] text-sm block mb-1">الكمية المصروفة *</label>
                   <input
                     className="input-dark"
                     type="number"
@@ -1859,7 +1859,7 @@ export default function StagnantMedicines() {
                   />
                 </div>
                 <div>
-                  <label className="text-slate-300 text-sm block mb-1">تاريخ الصرف</label>
+                  <label className="text-[var(--dawaa-theme-text)] text-sm block mb-1">تاريخ الصرف</label>
                   <input
                     className="input-dark"
                     type="date"
@@ -1873,7 +1873,7 @@ export default function StagnantMedicines() {
                   />
                 </div>
                 <div>
-                  <label className="text-slate-300 text-sm block mb-1">تاريخ انتهاء الصنف</label>
+                  <label className="text-[var(--dawaa-theme-text)] text-sm block mb-1">تاريخ انتهاء الصنف</label>
                   <input
                     className="input-dark"
                     type="date"
@@ -1887,7 +1887,7 @@ export default function StagnantMedicines() {
                   />
                 </div>
                 <div>
-                  <label className="text-slate-300 text-sm block mb-1">حافز الوحدة</label>
+                  <label className="text-[var(--dawaa-theme-text)] text-sm block mb-1">حافز الوحدة</label>
                   <input
                     className="input-dark"
                     type="number"
@@ -1903,7 +1903,7 @@ export default function StagnantMedicines() {
                   />
                 </div>
                 <div>
-                  <label className="text-slate-300 text-sm block mb-1">اسم العميل</label>
+                  <label className="text-[var(--dawaa-theme-text)] text-sm block mb-1">اسم العميل</label>
                   <div className="flex gap-2 mb-2">
                     <input
                       className="input-dark flex-1"
@@ -1927,17 +1927,17 @@ export default function StagnantMedicines() {
                     </button>
                   </div>
                   {customerSearchSubmitted && (
-                    <div className="rounded-xl border border-[#2d4063] bg-[#14233f] overflow-hidden">
+                    <div className="rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] overflow-hidden">
                       {customerSearchLoading ? (
-                        <div className="text-slate-400 text-xs px-3 py-3">
+                        <div className="text-[var(--dawaa-theme-muted)] text-xs px-3 py-3">
                           جاري البحث في كل العملاء...
                         </div>
                       ) : filteredCustomerOptions.length === 0 ? (
-                        <div className="text-slate-400 text-xs px-3 py-3">
+                        <div className="text-[var(--dawaa-theme-muted)] text-xs px-3 py-3">
                           لا توجد نتائج مطابقة من العملاء أو التحليل أو الفواتير.
                         </div>
                       ) : (
-                        <div className="max-h-44 overflow-y-auto divide-y divide-[#2d4063]/60">
+                        <div className="max-h-44 overflow-y-auto divide-y divide-[var(--dawaa-theme-border)]/60">
                           {filteredCustomerOptions.map((customer) => {
                             const name = customer.customer_name || customer.name || '';
                             const code = customer.customer_code || customer.code || '';
@@ -1950,15 +1950,15 @@ export default function StagnantMedicines() {
                               <button
                                 type="button"
                                 key={`${code || 'no-code'}-${phone || 'no-phone'}-${name || 'no-name'}`}
-                                className={`w-full text-right px-3 py-2 text-xs hover:bg-white/5 ${
-                                  selected ? 'bg-teal-500/10 text-teal-200' : 'text-slate-200'
+                                className={`w-full text-right px-3 py-2 text-xs hover:bg-[var(--dawaa-theme-soft)] ${
+                                  selected ? 'bg-[var(--dawaa-theme-primary)]/10 text-[var(--dawaa-theme-primary-strong)]' : 'text-[var(--dawaa-theme-text)]'
                                 }`}
                                 onClick={() => selectCustomerForDispense(customer)}
                               >
                                 <div className="font-semibold truncate">
                                   {name || 'عميل بدون اسم'}
                                 </div>
-                                <div className="text-slate-400 mt-1 truncate">
+                                <div className="text-[var(--dawaa-theme-muted)] mt-1 truncate">
                                   {(code || 'بدون كود') + ' - ' + (phone || 'بدون هاتف')}
                                 </div>
                               </button>
@@ -1970,7 +1970,7 @@ export default function StagnantMedicines() {
                   )}
                 </div>
                 <div>
-                  <label className="text-slate-300 text-sm block mb-1">كود العميل</label>
+                  <label className="text-[var(--dawaa-theme-text)] text-sm block mb-1">كود العميل</label>
                   <input
                     className="input-dark"
                     value={dispenseForm.customer_code}
@@ -1983,7 +1983,7 @@ export default function StagnantMedicines() {
                   />
                 </div>
                 <div>
-                  <label className="text-slate-300 text-sm block mb-1">رقم الهاتف</label>
+                  <label className="text-[var(--dawaa-theme-text)] text-sm block mb-1">رقم الهاتف</label>
                   <input
                     className="input-dark"
                     value={dispenseForm.customer_phone}
@@ -1996,7 +1996,7 @@ export default function StagnantMedicines() {
                   />
                 </div>
                 <div>
-                  <label className="text-slate-300 text-sm block mb-1">رقم الفاتورة</label>
+                  <label className="text-[var(--dawaa-theme-text)] text-sm block mb-1">رقم الفاتورة</label>
                   <input
                     className="input-dark"
                     value={dispenseForm.invoice_no}
@@ -2011,7 +2011,7 @@ export default function StagnantMedicines() {
               </div>
 
               <div>
-                <label className="text-slate-300 text-sm block mb-1">ملاحظات</label>
+                <label className="text-[var(--dawaa-theme-text)] text-sm block mb-1">ملاحظات</label>
                 <textarea
                   className="input-dark resize-none"
                   rows={3}
@@ -2034,33 +2034,33 @@ export default function StagnantMedicines() {
       )}
 
       {showDetailsModal && selectedMedicine && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-6 w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-[var(--dawaa-theme-overlay)] flex items-center justify-center z-50 p-4">
+          <div className="bg-[var(--dawaa-theme-surface)] border border-[var(--dawaa-theme-border)] rounded-2xl p-6 w-full max-w-3xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-xl font-bold text-white">تفاصيل الصنف الراكد</h3>
+              <h3 className="text-xl font-bold text-[var(--dawaa-theme-heading)]">تفاصيل الصنف الراكد</h3>
               <button
                 onClick={() => setShowDetailsModal(false)}
-                className="text-slate-400 hover:text-white"
+                className="text-[var(--dawaa-theme-muted)] hover:text-[var(--dawaa-theme-heading)]"
               >
                 <XCircle size={24} />
               </button>
             </div>
 
             <div className="space-y-4">
-              <div className="bg-white/5 rounded-xl p-4">
-                <h4 className="text-white font-semibold mb-3">بيانات الصنف</h4>
+              <div className="bg-[var(--dawaa-theme-soft)] rounded-xl p-4">
+                <h4 className="text-[var(--dawaa-theme-heading)] font-semibold mb-3">بيانات الصنف</h4>
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div className="flex justify-between">
-                    <span className="text-slate-400">اسم الصنف:</span>
-                    <span className="text-white">{getMedicineName(selectedMedicine)}</span>
+                    <span className="text-[var(--dawaa-theme-muted)]">اسم الصنف:</span>
+                    <span className="text-[var(--dawaa-theme-heading)]">{getMedicineName(selectedMedicine)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-400">كود الصنف:</span>
-                    <span className="text-white">{selectedMedicine.product_code || '—'}</span>
+                    <span className="text-[var(--dawaa-theme-muted)]">كود الصنف:</span>
+                    <span className="text-[var(--dawaa-theme-heading)]">{selectedMedicine.product_code || '—'}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-400">الاستخدام/الفئة:</span>
-                    <span className="text-white">
+                    <span className="text-[var(--dawaa-theme-muted)]">الاستخدام/الفئة:</span>
+                    <span className="text-[var(--dawaa-theme-heading)]">
                       {selectedMedicine.usage ||
                         selectedMedicine.category ||
                         selectedMedicine.product_type ||
@@ -2068,53 +2068,53 @@ export default function StagnantMedicines() {
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-400">الفرع:</span>
-                    <span className="text-white">
+                    <span className="text-[var(--dawaa-theme-muted)]">الفرع:</span>
+                    <span className="text-[var(--dawaa-theme-heading)]">
                       {selectedMedicine.branch_name || selectedMedicine.branch || '—'}
                     </span>
                   </div>
                 </div>
               </div>
 
-              <div className="bg-white/5 rounded-xl p-4">
-                <h4 className="text-white font-semibold mb-3">الدكتور المسؤول</h4>
+              <div className="bg-[var(--dawaa-theme-soft)] rounded-xl p-4">
+                <h4 className="text-[var(--dawaa-theme-heading)] font-semibold mb-3">الدكتور المسؤول</h4>
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div className="flex justify-between">
-                    <span className="text-slate-400">الاسم:</span>
-                    <span className="text-white">
+                    <span className="text-[var(--dawaa-theme-muted)]">الاسم:</span>
+                    <span className="text-[var(--dawaa-theme-heading)]">
                       {selectedMedicine.responsible_doctor_name ||
                         selectedMedicine.responsible_doctor ||
                         '—'}
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-400">المعرف:</span>
-                    <span className="text-slate-500 text-xs">
+                    <span className="text-[var(--dawaa-theme-muted)]">المعرف:</span>
+                    <span className="text-[var(--dawaa-theme-muted)] text-xs">
                       {selectedMedicine.responsible_doctor_id || '—'}
                     </span>
                   </div>
                 </div>
               </div>
 
-              <div className="bg-white/5 rounded-xl p-4">
-                <h4 className="text-white font-semibold mb-3">الكميات</h4>
+              <div className="bg-[var(--dawaa-theme-soft)] rounded-xl p-4">
+                <h4 className="text-[var(--dawaa-theme-heading)] font-semibold mb-3">الكميات</h4>
                 <div className="grid grid-cols-3 gap-3 text-sm">
                   <div className="flex justify-between">
-                    <span className="text-slate-400">إجمالي الكمية:</span>
-                    <span className="text-white font-bold num">
+                    <span className="text-[var(--dawaa-theme-muted)]">إجمالي الكمية:</span>
+                    <span className="text-[var(--dawaa-theme-heading)] font-bold num">
                       {getTotalQuantity(selectedMedicine)}
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-400">تم صرفه:</span>
-                    <span className="text-teal-300 font-bold num">
+                    <span className="text-[var(--dawaa-theme-muted)]">تم صرفه:</span>
+                    <span className="text-[var(--dawaa-theme-primary-strong)] font-bold num">
                       {selectedMedicine.dispensed_quantity ?? 0}
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-400">المتبقي:</span>
+                    <span className="text-[var(--dawaa-theme-muted)]">المتبقي:</span>
                     <span
-                      className={`font-bold num ${getStoredRemaining(selectedMedicine) <= 0 ? 'text-green-300' : 'text-red-300'}`}
+                      className={`font-bold num ${getStoredRemaining(selectedMedicine) <= 0 ? 'text-[var(--dawaa-status-success-text)]' : 'text-[var(--dawaa-status-danger-text)]'}`}
                     >
                       {getStoredRemaining(selectedMedicine)}
                     </span>
@@ -2122,18 +2122,18 @@ export default function StagnantMedicines() {
                 </div>
               </div>
 
-              <div className="bg-white/5 rounded-xl p-4">
-                <h4 className="text-white font-semibold mb-3">التواريخ</h4>
+              <div className="bg-[var(--dawaa-theme-soft)] rounded-xl p-4">
+                <h4 className="text-[var(--dawaa-theme-heading)] font-semibold mb-3">التواريخ</h4>
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div className="flex justify-between">
-                    <span className="text-slate-400">أقرب انتهاء:</span>
-                    <span className="text-white">
+                    <span className="text-[var(--dawaa-theme-muted)]">أقرب انتهاء:</span>
+                    <span className="text-[var(--dawaa-theme-heading)]">
                       {selectedMedicine.nearest_expiry_date || selectedMedicine.expiry_date || '—'}
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-400">آخر صرف:</span>
-                    <span className="text-white">
+                    <span className="text-[var(--dawaa-theme-muted)]">آخر صرف:</span>
+                    <span className="text-[var(--dawaa-theme-heading)]">
                       {selectedMedicine.last_dispense_date || selectedMedicine.last_dispensed_at
                         ? new Date(
                             selectedMedicine.last_dispense_date ||
@@ -2143,16 +2143,16 @@ export default function StagnantMedicines() {
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-400">تاريخ ملف الرواكد:</span>
-                    <span className="text-white">
+                    <span className="text-[var(--dawaa-theme-muted)]">تاريخ ملف الرواكد:</span>
+                    <span className="text-[var(--dawaa-theme-heading)]">
                       {selectedMedicine.stagnant_file_date ||
                         selectedMedicine.source_file_date ||
                         '—'}
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-400">آخر تحديث:</span>
-                    <span className="text-white">
+                    <span className="text-[var(--dawaa-theme-muted)]">آخر تحديث:</span>
+                    <span className="text-[var(--dawaa-theme-heading)]">
                       {selectedMedicine.updated_at
                         ? new Date(selectedMedicine.updated_at).toLocaleDateString('ar-EG')
                         : '—'}
@@ -2161,18 +2161,18 @@ export default function StagnantMedicines() {
                 </div>
               </div>
 
-              <div className="bg-white/5 rounded-xl p-4">
-                <h4 className="text-white font-semibold mb-3">الحوافز</h4>
+              <div className="bg-[var(--dawaa-theme-soft)] rounded-xl p-4">
+                <h4 className="text-[var(--dawaa-theme-heading)] font-semibold mb-3">الحوافز</h4>
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div className="flex justify-between">
-                    <span className="text-slate-400">حافز الوحدة:</span>
-                    <span className="text-teal-300 font-bold num">
+                    <span className="text-[var(--dawaa-theme-muted)]">حافز الوحدة:</span>
+                    <span className="text-[var(--dawaa-theme-primary-strong)] font-bold num">
                       {selectedMedicine.incentive_per_unit || 0} ج
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-400">إجمالي الحافز المتوقع:</span>
-                    <span className="text-teal-300 font-bold num">
+                    <span className="text-[var(--dawaa-theme-muted)]">إجمالي الحافز المتوقع:</span>
+                    <span className="text-[var(--dawaa-theme-primary-strong)] font-bold num">
                       {(
                         getStoredRemaining(selectedMedicine) *
                         (selectedMedicine.incentive_per_unit || 0)
@@ -2183,8 +2183,8 @@ export default function StagnantMedicines() {
                 </div>
               </div>
 
-              <div className="bg-white/5 rounded-xl p-4">
-                <h4 className="text-white font-semibold mb-3">الحالة والأولوية</h4>
+              <div className="bg-[var(--dawaa-theme-soft)] rounded-xl p-4">
+                <h4 className="text-[var(--dawaa-theme-heading)] font-semibold mb-3">الحالة والأولوية</h4>
                 <div className="flex gap-2">
                   <span
                     className={`text-xs px-3 py-1 rounded border ${getPriorityColor(selectedMedicine.priority)}`}
@@ -2202,14 +2202,14 @@ export default function StagnantMedicines() {
               </div>
 
               {selectedMedicine.notes && (
-                <div className="bg-white/5 rounded-xl p-4">
-                  <h4 className="text-white font-semibold mb-3">ملاحظات</h4>
-                  <p className="text-slate-300 text-sm">{selectedMedicine.notes}</p>
+                <div className="bg-[var(--dawaa-theme-soft)] rounded-xl p-4">
+                  <h4 className="text-[var(--dawaa-theme-heading)] font-semibold mb-3">ملاحظات</h4>
+                  <p className="text-[var(--dawaa-theme-text)] text-sm">{selectedMedicine.notes}</p>
                 </div>
               )}
 
-              <div className="bg-white/5 rounded-xl p-4">
-                <h4 className="text-white font-semibold mb-3">سجل الصرف</h4>
+              <div className="bg-[var(--dawaa-theme-soft)] rounded-xl p-4">
+                <h4 className="text-[var(--dawaa-theme-heading)] font-semibold mb-3">سجل الصرف</h4>
                 {(() => {
                   const medicineDispenses = (dispenseRecords || []).filter(
                     (d) =>
@@ -2218,16 +2218,16 @@ export default function StagnantMedicines() {
                   );
                   if (medicineDispenses.length === 0) {
                     return (
-                      <div className="text-slate-400 text-sm">لا توجد سجلات صرف لهذا الصنف</div>
+                      <div className="text-[var(--dawaa-theme-muted)] text-sm">لا توجد سجلات صرف لهذا الصنف</div>
                     );
                   }
                   return (
                     <div className="space-y-2 max-h-60 overflow-y-auto">
                       {medicineDispenses.map((record) => (
-                        <div key={record.id} className="bg-white/5 rounded-lg p-3 text-sm">
+                        <div key={record.id} className="bg-[var(--dawaa-theme-soft)] rounded-lg p-3 text-sm">
                           <div className="flex justify-between mb-2">
-                            <span className="text-white font-semibold">{record.doctor_name}</span>
-                            <span className="text-slate-400">
+                            <span className="text-[var(--dawaa-theme-heading)] font-semibold">{record.doctor_name}</span>
+                            <span className="text-[var(--dawaa-theme-muted)]">
                               {record.dispensed_at || record.transaction_date
                                 ? new Date(
                                     record.dispensed_at || record.transaction_date
@@ -2237,50 +2237,50 @@ export default function StagnantMedicines() {
                           </div>
                           <div className="grid grid-cols-2 gap-2 text-xs">
                             <div className="flex justify-between">
-                              <span className="text-slate-400">الصنف:</span>
-                              <span className="text-white">
+                              <span className="text-[var(--dawaa-theme-muted)]">الصنف:</span>
+                              <span className="text-[var(--dawaa-theme-heading)]">
                                 {record.product_name ||
                                   record.medicine_name ||
                                   getMedicineName(selectedMedicine)}
                               </span>
                             </div>
                             <div className="flex justify-between">
-                              <span className="text-slate-400">الكمية:</span>
-                              <span className="text-teal-300 font-bold num">{record.quantity}</span>
+                              <span className="text-[var(--dawaa-theme-muted)]">الكمية:</span>
+                              <span className="text-[var(--dawaa-theme-primary-strong)] font-bold num">{record.quantity}</span>
                             </div>
                             <div className="flex justify-between">
-                              <span className="text-slate-400">تاريخ الانتهاء:</span>
-                              <span className="text-white">
+                              <span className="text-[var(--dawaa-theme-muted)]">تاريخ الانتهاء:</span>
+                              <span className="text-[var(--dawaa-theme-heading)]">
                                 {record.product_expiry_date || record.expiry_date || '—'}
                               </span>
                             </div>
                             <div className="flex justify-between">
-                              <span className="text-slate-400">حافز الوحدة:</span>
-                              <span className="text-teal-300 font-bold num">
+                              <span className="text-[var(--dawaa-theme-muted)]">حافز الوحدة:</span>
+                              <span className="text-[var(--dawaa-theme-primary-strong)] font-bold num">
                                 {record.incentive_per_unit || 0} ج
                               </span>
                             </div>
                             <div className="flex justify-between">
-                              <span className="text-slate-400">الحافز:</span>
-                              <span className="text-teal-300 font-bold num">
+                              <span className="text-[var(--dawaa-theme-muted)]">الحافز:</span>
+                              <span className="text-[var(--dawaa-theme-primary-strong)] font-bold num">
                                 {record.total_incentive || 0} ج
                               </span>
                             </div>
                             {record.customer_name && (
                               <div className="flex justify-between">
-                                <span className="text-slate-400">العميل:</span>
-                                <span className="text-white">{record.customer_name}</span>
+                                <span className="text-[var(--dawaa-theme-muted)]">العميل:</span>
+                                <span className="text-[var(--dawaa-theme-heading)]">{record.customer_name}</span>
                               </div>
                             )}
                             {record.invoice_no && (
                               <div className="flex justify-between">
-                                <span className="text-slate-400">الفاتورة:</span>
-                                <span className="text-white">{record.invoice_no}</span>
+                                <span className="text-[var(--dawaa-theme-muted)]">الفاتورة:</span>
+                                <span className="text-[var(--dawaa-theme-heading)]">{record.invoice_no}</span>
                               </div>
                             )}
                           </div>
                           {record.notes && (
-                            <div className="mt-2 text-slate-400 text-xs">{record.notes}</div>
+                            <div className="mt-2 text-[var(--dawaa-theme-muted)] text-xs">{record.notes}</div>
                           )}
                         </div>
                       ))}
@@ -2289,12 +2289,12 @@ export default function StagnantMedicines() {
                 })()}
               </div>
 
-              <div className="bg-white/5 rounded-xl p-4">
+              <div className="bg-[var(--dawaa-theme-soft)] rounded-xl p-4">
                 <div className="flex items-center justify-between gap-3 mb-3">
-                  <h4 className="text-white font-semibold">سجل الأنشطة الخاصة بالصنف</h4>
+                  <h4 className="text-[var(--dawaa-theme-heading)] font-semibold">سجل الأنشطة الخاصة بالصنف</h4>
                   <Link
                     to={`/activity-log?entity=stagnant_medicine&id=${selectedMedicine.id}`}
-                    className="text-teal-300 hover:text-teal-200 text-xs"
+                    className="text-[var(--dawaa-theme-primary-strong)] hover:text-[var(--dawaa-theme-primary-strong)] text-xs"
                   >
                     فتح سجل الأنشطة المرتبط
                   </Link>
@@ -2310,25 +2310,25 @@ export default function StagnantMedicines() {
                     .slice(0, 8);
                   if (!relatedLogs.length)
                     return (
-                      <div className="text-slate-400 text-sm">
+                      <div className="text-[var(--dawaa-theme-muted)] text-sm">
                         لا توجد أنشطة مسجلة لهذا الصنف حتى الآن.
                       </div>
                     );
                   return (
                     <div className="space-y-2 max-h-56 overflow-y-auto">
                       {relatedLogs.map((log) => (
-                        <div key={log.id} className="bg-white/5 rounded-lg p-3 text-sm">
+                        <div key={log.id} className="bg-[var(--dawaa-theme-soft)] rounded-lg p-3 text-sm">
                           <div className="flex items-center justify-between gap-3">
-                            <span className="text-white font-semibold">
+                            <span className="text-[var(--dawaa-theme-heading)] font-semibold">
                               {log.operation || log.action || 'نشاط'}
                             </span>
-                            <span className="text-slate-400 text-xs">
+                            <span className="text-[var(--dawaa-theme-muted)] text-xs">
                               {log.created_at
                                 ? new Date(log.created_at).toLocaleString('ar-EG')
                                 : '—'}
                             </span>
                           </div>
-                          <div className="text-slate-400 text-xs mt-1">
+                          <div className="text-[var(--dawaa-theme-muted)] text-xs mt-1">
                             {log.user_name || 'النظام'} -{' '}
                             {log.branch_name ||
                               selectedMedicine.branch_name ||
@@ -2336,7 +2336,7 @@ export default function StagnantMedicines() {
                               'بدون فرع'}
                           </div>
                           {log.details && (
-                            <div className="text-slate-300 text-xs mt-2 leading-6">
+                            <div className="text-[var(--dawaa-theme-text)] text-xs mt-2 leading-6">
                               {log.details}
                             </div>
                           )}
