@@ -149,6 +149,7 @@ export default function StaffMonthlyEvaluation() {
   const [sections, setSections] = useState<StaffEvaluationSectionV3[]>([]);
   const [metrics, setMetrics] = useState<Metrics>(EMPTY_METRICS);
   const [pointsTruth, setPointsTruth] = useState<StaffPointsDashboardV3 | null>(null);
+  const [settledStatement, setSettledStatement] = useState<{ points_closing: number; incentive_amount: number } | null>(null);
   const [activeGates, setActiveGates] = useState<CriticalGateType[]>([]);
   const [savedActiveGates, setSavedActiveGates] = useState<CriticalGateType[]>([]);
   const [strengthsText, setStrengthsText] = useState('');
@@ -218,7 +219,7 @@ export default function StaffMonthlyEvaluation() {
       try {
         const { startDate, endDateExclusive } = evaluationCycleQueryBounds(cycleLabel);
         const cycleKeyDate = `${cycleLabel}-01`;
-        const [savedResult, reviewResult, followupResult, attendanceResult, pointsResult] = await Promise.all([
+        const [savedResult, reviewResult, followupResult, attendanceResult, pointsResult, statementResult] = await Promise.all([
           supabase.rpc('get_staff_monthly_evaluation_safe', {
             p_actor_id: user.id,
             p_staff_id: selectedId,
@@ -240,6 +241,17 @@ export default function StaffMonthlyEvaluation() {
             .limit(1000),
           readAttendanceRange({ staffId: selectedId, startDate, endDateExclusive, limit: 100 }),
           getStaffPointsDashboardV3(selectedId, cycleLabel).catch(() => null),
+          // Points Truth بيحسب أي دورة (حتى القديمة) بسعر وتارجت اليوم، مش
+          // سعر الدورة وقتها — لو الدورة دي اتقفلت رسميًا في كشف حوافز
+          // (employee_monthly_statements)، الكشف ده هو الرقم الصحيح المعتمد
+          // ولازم ياخد الأولوية على أي حساب حي ممكن يبقى غلط تاريخيًا.
+          supabase
+            .from('employee_monthly_statements')
+            .select('points_closing,incentive_amount')
+            .eq('staff_id', selectedId)
+            .eq('cycle_start', cycleRange.start.toISOString().slice(0, 10))
+            .eq('cycle_end', cycleRange.end.toISOString().slice(0, 10))
+            .maybeSingle(),
         ]);
 
         if (savedResult.error) throw savedResult.error;
@@ -271,6 +283,7 @@ export default function StaffMonthlyEvaluation() {
           engine_version: 3,
         });
         setPointsTruth(pointsResult);
+        setSettledStatement(statementResult.data || null);
 
         const saved = savedResult.data as EvaluationRow | null;
         const freshSections = evaluationProfileForRole(selected.job_title || selected.role).sections;
@@ -452,7 +465,7 @@ export default function StaffMonthlyEvaluation() {
   }
 
   const filteredStaff = staff.filter((item) => item.name.includes(search));
-  const canonicalIncentive = pointsTruth?.final_incentive_egp;
+  const canonicalIncentive = settledStatement ? Number(settledStatement.incentive_amount) : pointsTruth?.final_incentive_egp;
 
   return (
     <div className="min-h-screen space-y-4 p-4" dir="rtl" style={{ background: 'var(--dawaa-theme-bg)' }}>
@@ -553,9 +566,29 @@ export default function StaffMonthlyEvaluation() {
 
               <section className="grid gap-3 md:grid-cols-3">
                 <KpiCard title="نتيجة التقييم" value={evaluationNotStarted ? '—' : `${overallScore}/100`} subtitle={grade} icon={<Star size={20} />} tone={evaluationNotStarted ? 'cyan' : overallScore >= 80 ? 'green' : overallScore >= 60 ? 'amber' : 'red'} />
-                <KpiCard title="النقاط الحالية" value={pointsTruth ? `${pointsTruth.final_points} / ${pointsTruth.target_points}` : '—'} subtitle="دورة الحافز الحالية" icon={<Award size={20} />} tone="cyan" />
-                <KpiCard title="حافز الأداء المركزي" value={canonicalIncentive == null ? 'غير محدد' : `${canonicalIncentive.toLocaleString('ar-EG')} جنيه`} subtitle="القيمة الفعلية الوحيدة من نظام النقاط" icon={<CheckCircle2 size={20} />} tone="green" />
+                <KpiCard
+                  title="النقاط الحالية"
+                  value={settledStatement ? `${settledStatement.points_closing}` : pointsTruth ? `${pointsTruth.final_points} / ${pointsTruth.target_points}` : '—'}
+                  subtitle={settledStatement ? 'من كشف الحوافز المقفول لهذه الدورة' : 'دورة الحافز الحالية (تقدير حي)'}
+                  icon={<Award size={20} />}
+                  tone="cyan"
+                />
+                <KpiCard
+                  title="حافز الأداء المركزي"
+                  value={canonicalIncentive == null ? 'غير محدد' : `${canonicalIncentive.toLocaleString('ar-EG')} جنيه`}
+                  subtitle={settledStatement ? 'رقم رسمي من كشف مقفول — دورة سابقة' : 'تقدير حي من نظام النقاط، لسه مش مقفول'}
+                  icon={<CheckCircle2 size={20} />}
+                  tone="green"
+                />
               </section>
+
+              {!settledStatement && pointsTruth && cycleLabel !== currentEvaluationCycleLabel() ? (
+                <Panel className="p-3" style={{ background: 'var(--dawaa-status-warning-bg)', borderColor: 'var(--dawaa-status-warning-border)' }}>
+                  <p className="text-xs font-bold" style={{ color: 'var(--dawaa-status-warning-text)' }}>
+                    الدورة دي لسه من غير كشف حوافز مقفول — الرقم المعروض تقدير حي بمعدل النقطة الحالي، ومش بالضرورة نفس المعدل اللي كان فعليًا وقت الدورة دي لو اتغيّر بعدها.
+                  </p>
+                </Panel>
+              ) : null}
 
               {!pointsTruth?.profile_configured ? (
                 <Panel className="p-4" style={{ background: 'var(--dawaa-status-warning-bg)', borderColor: 'var(--dawaa-status-warning-border)' }}>
