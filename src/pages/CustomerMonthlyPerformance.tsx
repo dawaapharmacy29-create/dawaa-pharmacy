@@ -12,6 +12,7 @@ import {
 import { BRANCHES } from '@/lib/constants';
 import { normalizeWatchlistRows, replaceCustomerWatchlist } from '@/lib/customerService/customerCohortIntelligenceService';
 import CustomerQuickDetailsModal from '@/components/customers/CustomerQuickDetailsModal';
+import { Panel, SectionTitle, KpiCard, MiniBox, EmptyState } from '@/components/dashboard/DashboardPrimitives';
 
 type PeriodMode = 'cycle' | 'calendar';
 
@@ -38,15 +39,15 @@ function fmtMoney(n: number) {
   return Math.round(n).toLocaleString('ar-EG') + ' ج.م';
 }
 
-const STATE_COLORS: Record<string, string> = {
-  'جديد': 'text-emerald-300',
-  'مستعاد': 'text-teal-300',
-  'نمو قوي': 'text-emerald-400',
-  'نمو': 'text-emerald-300',
-  'مستقر': 'text-sky-300',
-  'تراجع': 'text-amber-300',
-  'تراجع قوي': 'text-red-400',
-  'مختفي هذا الشهر': 'text-red-500',
+const STATE_TOKEN: Record<string, string> = {
+  'جديد': 'var(--dawaa-status-success-text)',
+  'مستعاد': 'var(--dawaa-theme-primary-strong)',
+  'نمو قوي': 'var(--dawaa-status-success-text)',
+  'نمو': 'var(--dawaa-status-success-text)',
+  'مستقر': 'var(--dawaa-status-info-text)',
+  'تراجع': 'var(--dawaa-status-warning-text)',
+  'تراجع قوي': 'var(--dawaa-status-danger-text)',
+  'مختفي هذا الشهر': 'var(--dawaa-status-danger-text)',
 };
 
 function followupUrl(c: CustomerMonthlyRow) {
@@ -153,213 +154,217 @@ export default function CustomerMonthlyPerformance() {
   };
 
   return (
-    <div dir="rtl" className="space-y-6 p-4 md:p-6">
-      <div className="flex items-center gap-3">
-        <Users className="h-6 w-6 text-teal-300" />
-        <div>
-          <h1 className="text-xl font-black text-white">أداء العملاء الشهري</h1>
-          <p className="text-sm text-slate-400">كسبنا كام عميل، فقدنا كام، مين محتاج متابعة النهاردة — في أقل من دقيقة.</p>
+    <div dir="rtl" className="space-y-4 p-4 md:p-6">
+      <Panel className="p-5">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="dawaa-icon-tile p-3"><Users style={{ color: 'var(--dawaa-theme-primary-strong)' }} /></div>
+            <div>
+              <h1 className="text-xl font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>أداء العملاء الشهري</h1>
+              <p className="text-sm font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>كسبنا كام عميل، فقدنا كام، مين محتاج متابعة النهاردة — في أقل من دقيقة.</p>
+            </div>
+          </div>
+          <button type="button" onClick={() => void load()} className="btn-secondary flex items-center gap-2 text-xs" disabled={loading}>
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> تحديث
+          </button>
         </div>
-      </div>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="flex overflow-hidden rounded-xl border border-white/10">
-          <button
-            type="button"
-            onClick={() => setMode('cycle')}
-            className={`px-4 py-2 text-sm font-bold ${mode === 'cycle' ? 'bg-teal-500 text-slate-950' : 'text-slate-300'}`}
-          >
-            دورة دواء 26-25
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode('calendar')}
-            className={`px-4 py-2 text-sm font-bold ${mode === 'calendar' ? 'bg-teal-500 text-slate-950' : 'text-slate-300'}`}
-          >
-            الشهر الميلادي
-          </button>
-        </div>
-        {canSeeAllBranches ? (
-          <select className="input-dark" value={branch} onChange={(e) => setBranch(e.target.value)}>
-            <option value={ALL_BRANCHES_VALUE}>{ALL_BRANCHES_VALUE}</option>
-            {(BRANCHES || ['فرع شكري', 'فرع الشامي']).map((b) => (
-              <option key={b} value={b}>{b}</option>
-            ))}
-          </select>
-        ) : (
-          <span className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-bold text-white">
-            {branch}
-          </span>
-        )}
-        <div className="flex items-center gap-1">
-          <input
-            type="date"
-            className="input-dark"
-            value={refDate}
-            max={todayStr()}
-            onChange={(e) => setRefDate(e.target.value || todayStr())}
-          />
-          {!isCurrentPeriod && (
-            <button type="button" onClick={() => setRefDate(todayStr())} className="btn-secondary text-xs">
-              الفترة الحالية
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <div className="flex overflow-hidden rounded-xl border" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
+            <button
+              type="button"
+              onClick={() => setMode('cycle')}
+              className="px-4 py-2 text-sm font-bold"
+              style={mode === 'cycle' ? { background: 'var(--dawaa-theme-primary)', color: 'var(--dawaa-theme-primary-text)' } : { color: 'var(--dawaa-theme-muted)' }}
+            >
+              دورة دواء 26-25
             </button>
+            <button
+              type="button"
+              onClick={() => setMode('calendar')}
+              className="px-4 py-2 text-sm font-bold"
+              style={mode === 'calendar' ? { background: 'var(--dawaa-theme-primary)', color: 'var(--dawaa-theme-primary-text)' } : { color: 'var(--dawaa-theme-muted)' }}
+            >
+              الشهر الميلادي
+            </button>
+          </div>
+          {canSeeAllBranches ? (
+            <select className="input-dark w-auto" value={branch} onChange={(e) => setBranch(e.target.value)}>
+              <option value={ALL_BRANCHES_VALUE}>{ALL_BRANCHES_VALUE}</option>
+              {(BRANCHES || ['فرع شكري', 'فرع الشامي']).map((b) => (
+                <option key={b} value={b}>{b}</option>
+              ))}
+            </select>
+          ) : (
+            <span className="rounded-xl border px-4 py-2 text-sm font-bold" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-soft)', color: 'var(--dawaa-theme-heading)' }}>
+              {branch}
+            </span>
           )}
-        </div>
-        <span className="text-xs text-slate-400">
-          {period.start} إلى {period.end} — مقارنة بـ {prevPeriod.start} إلى {prevPeriod.end}
-        </span>
-        {summary?.computedAt && (
-          <span className="rounded-full bg-teal-500/10 px-3 py-1 text-xs font-bold text-teal-300">
-            آخر تحديث: {new Date(summary.computedAt).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+          <div className="flex items-center gap-1">
+            <input
+              type="date"
+              className="input-dark w-auto"
+              value={refDate}
+              max={todayStr()}
+              onChange={(e) => setRefDate(e.target.value || todayStr())}
+            />
+            {!isCurrentPeriod && (
+              <button type="button" onClick={() => setRefDate(todayStr())} className="btn-secondary text-xs">
+                الفترة الحالية
+              </button>
+            )}
+          </div>
+          <span className="text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
+            {period.start} إلى {period.end} — مقارنة بـ {prevPeriod.start} إلى {prevPeriod.end}
           </span>
-        )}
-        <button type="button" onClick={() => void load()} className="btn-secondary flex items-center gap-2 text-xs" disabled={loading}>
-          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> تحديث
-        </button>
-        <label className={`btn-secondary flex cursor-pointer items-center gap-2 text-xs ${branch === ALL_BRANCHES_VALUE || uploadingWatchlist ? 'pointer-events-none opacity-50' : ''}`}>
-          <FileUp size={14} /> {uploadingWatchlist ? 'جاري رفع القائمة...' : 'رفع أهم 20 عميل'}
-          <input
-            type="file"
-            className="sr-only"
-            accept=".xlsx,.xls,.csv"
-            disabled={branch === ALL_BRANCHES_VALUE || uploadingWatchlist}
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (file) void uploadWatchlist(file);
-              event.currentTarget.value = '';
-            }}
-          />
-        </label>
-      </div>
+          {summary?.computedAt && (
+            <span className="rounded-full px-3 py-1 text-xs font-black" style={{ background: 'var(--dawaa-theme-accent-soft)', color: 'var(--dawaa-theme-primary-strong)' }}>
+              آخر تحديث: {new Date(summary.computedAt).toLocaleString('ar-EG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+            </span>
+          )}
+          <label className={`btn-secondary flex cursor-pointer items-center gap-2 text-xs ${branch === ALL_BRANCHES_VALUE || uploadingWatchlist ? 'pointer-events-none opacity-50' : ''}`}>
+            <FileUp size={14} /> {uploadingWatchlist ? 'جاري رفع القائمة...' : 'رفع أهم 20 عميل'}
+            <input
+              type="file"
+              className="sr-only"
+              accept=".xlsx,.xls,.csv"
+              disabled={branch === ALL_BRANCHES_VALUE || uploadingWatchlist}
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) void uploadWatchlist(file);
+                event.currentTarget.value = '';
+              }}
+            />
+          </label>
+        </div>
 
-      {watchlistMessage ? <p className={`rounded-xl border p-3 text-xs ${watchlistMessage.startsWith('تم اعتماد') ? 'border-emerald-400/20 bg-emerald-500/10 text-emerald-200' : 'border-amber-400/20 bg-amber-500/10 text-amber-200'}`}>{watchlistMessage}</p> : null}
+        {watchlistMessage ? (
+          <p
+            className="mt-3 rounded-xl border p-3 text-xs font-bold"
+            style={watchlistMessage.startsWith('تم اعتماد')
+              ? { borderColor: 'var(--dawaa-status-success-border)', background: 'var(--dawaa-status-success-bg)', color: 'var(--dawaa-status-success-text)' }
+              : { borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-status-warning-bg)', color: 'var(--dawaa-status-warning-text)' }}
+          >
+            {watchlistMessage}
+          </p>
+        ) : null}
+        {error && <p className="mt-3 text-sm font-bold" style={{ color: 'var(--dawaa-status-danger-text)' }}>{error}</p>}
+      </Panel>
 
-      {error && <p className="text-sm text-red-300">{error}</p>}
-      {loading && (
-        <p className="text-sm text-slate-400">
+      {loading ? (
+        <Panel className="p-8 text-center text-sm font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
           جارٍ التحميل...{!isCurrentPeriod && ' (فترة تاريخية مش مخزّنة، ممكن تاخد لحد 10-15 ثانية)'}
-        </p>
-      )}
+        </Panel>
+      ) : null}
 
       {summary && !loading && (
         <>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="stat-card space-y-1">
-              <div className="flex items-center gap-2 text-emerald-300"><UserPlus size={18} /><span className="text-xs font-bold">عملاء جدد</span></div>
-              <div className="text-3xl font-black text-white">{summary.newCount}</div>
-            </div>
-            <div className="stat-card space-y-1">
-              <div className="flex items-center gap-2 text-teal-300"><UserCheck size={18} /><span className="text-xs font-bold">عملاء مستعادين</span></div>
-              <div className="text-3xl font-black text-white">{summary.reactivatedCount}</div>
-            </div>
-            <div className="stat-card space-y-1">
-              <div className="flex items-center gap-2 text-red-400"><UserX size={18} /><span className="text-xs font-bold">اختفوا تمامًا</span></div>
-              <div className="text-3xl font-black text-white">{summary.lostCount}</div>
-            </div>
-            <div className="stat-card space-y-1">
-              <div className="flex items-center gap-2 text-amber-300"><TrendingDown size={18} /><span className="text-xs font-bold">تراجعوا بقوة</span></div>
-              <div className="text-3xl font-black text-white">{summary.strongDeclineCount}</div>
-            </div>
-          </div>
+          <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <KpiCard title="عملاء جدد" value={String(summary.newCount)} subtitle="اشتروا لأول مرة في الفترة" icon={<UserPlus size={20} />} tone="green" />
+            <KpiCard title="عملاء مستعادين" value={String(summary.reactivatedCount)} subtitle="رجعوا بعد توقف" icon={<UserCheck size={20} />} tone="cyan" />
+            <KpiCard title="اختفوا تمامًا" value={String(summary.lostCount)} subtitle="مفيش شراء نهائي هذا الشهر" icon={<UserX size={20} />} tone="red" />
+            <KpiCard title="تراجعوا بقوة" value={String(summary.strongDeclineCount)} subtitle="انخفاض واضح في مشترياتهم" icon={<TrendingDown size={20} />} tone="amber" />
+          </section>
 
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <div className="stat-card space-y-1">
-              <div className="text-xs font-bold text-slate-400">صافي نمو العملاء (جدد + مستعادين - مختفين)</div>
-              <div className={`text-3xl font-black ${summary.netCustomerGrowth >= 0 ? 'text-emerald-300' : 'text-red-400'}`}>
-                {summary.netCustomerGrowth >= 0 ? '+' : ''}{summary.netCustomerGrowth}
-              </div>
-            </div>
-            <div className="stat-card space-y-1">
-              <div className="text-xs font-bold text-slate-400">إجمالي المبيعات (مقارنة بالفترة السابقة)</div>
-              <div className="flex items-center gap-2">
-                <span className="text-2xl font-black text-white">{fmtMoney(summary.totalSales)}</span>
+          <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <MiniBox
+              label="صافي نمو العملاء (جدد + مستعادين - مختفين)"
+              value={`${summary.netCustomerGrowth >= 0 ? '+' : ''}${summary.netCustomerGrowth}`}
+              tone={summary.netCustomerGrowth >= 0 ? 'green' : 'red'}
+            />
+            <div className="rounded-2xl border p-4" style={{ borderColor: 'var(--dawaa-theme-accent-border)', background: 'var(--dawaa-theme-accent-soft)' }}>
+              <p className="text-xs font-black" style={{ color: 'var(--dawaa-theme-text)' }}>إجمالي المبيعات (مقارنة بالفترة السابقة)</p>
+              <div className="mt-2 flex items-center gap-2">
+                <span className="text-2xl font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>{fmtMoney(summary.totalSales)}</span>
                 {salesChangePct !== null && (
-                  <span className={`flex items-center gap-1 text-xs font-bold ${salesChangePct >= 0 ? 'text-emerald-300' : 'text-red-400'}`}>
+                  <span className="flex items-center gap-1 text-xs font-black" style={{ color: salesChangePct >= 0 ? 'var(--dawaa-status-success-text)' : 'var(--dawaa-status-danger-text)' }}>
                     {salesChangePct >= 0 ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
                     {salesChangePct}%
                   </span>
                 )}
               </div>
             </div>
-            <div className="stat-card space-y-1">
-              <div className="flex items-center gap-2 text-red-300 text-xs font-bold"><AlertTriangle size={14} /> إيراد معرّض للخطر</div>
-              <div className="text-2xl font-black text-red-300">{fmtMoney(summary.revenueAtRisk)}</div>
-              <div className="text-[11px] text-slate-500">من عملاء اختفوا أو تراجعوا بقوة</div>
+            <div className="rounded-2xl border p-4" style={{ borderColor: 'var(--dawaa-status-danger-border)', background: 'var(--dawaa-status-danger-bg)' }}>
+              <p className="flex items-center gap-2 text-xs font-black" style={{ color: 'var(--dawaa-status-danger-text)' }}><AlertTriangle size={14} /> إيراد معرّض للخطر</p>
+              <p className="mt-2 text-2xl font-black" style={{ color: 'var(--dawaa-status-danger-text)' }}>{fmtMoney(summary.revenueAtRisk)}</p>
+              <p className="mt-1 text-[11px] font-bold" style={{ color: 'var(--dawaa-status-danger-text)' }}>من عملاء اختفوا أو تراجعوا بقوة</p>
             </div>
-          </div>
+          </section>
 
-          <div className="flex overflow-hidden rounded-xl border border-white/10 w-fit">
+          <div className="flex w-fit overflow-hidden rounded-xl border" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
             <button
               type="button"
               onClick={() => setListTab('declining')}
-              className={`flex items-center gap-2 px-5 py-2.5 text-sm font-bold ${listTab === 'declining' ? 'bg-red-500 text-slate-950' : 'text-slate-300'}`}
+              className="flex items-center gap-2 px-5 py-2.5 text-sm font-bold"
+              style={listTab === 'declining' ? { background: 'var(--dawaa-status-danger-bg)', color: 'var(--dawaa-status-danger-text)' } : { color: 'var(--dawaa-theme-muted)' }}
             >
               <TrendingDown size={16} /> العملاء المتراجعين ({summary.needsAttention.length})
             </button>
             <button
               type="button"
               onClick={() => setListTab('improving')}
-              className={`flex items-center gap-2 px-5 py-2.5 text-sm font-bold ${listTab === 'improving' ? 'bg-emerald-500 text-slate-950' : 'text-slate-300'}`}
+              className="flex items-center gap-2 px-5 py-2.5 text-sm font-bold"
+              style={listTab === 'improving' ? { background: 'var(--dawaa-status-success-bg)', color: 'var(--dawaa-status-success-text)' } : { color: 'var(--dawaa-theme-muted)' }}
             >
               <TrendingUp size={16} /> العملاء المتحسنين ({summary.improving.length})
             </button>
           </div>
 
           {listTab === 'declining' && (
-          <div className="stat-card space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-base font-black text-white">
-                عملاء يحتاجون متابعتك النهاردة ({summary.needsAttention.filter((c) => stateFilter === 'الكل' || c.customer_state === stateFilter).length})
-              </h2>
-              <div className="flex items-center gap-2">
-                <select className="input-dark text-xs" value={stateFilter} onChange={(e) => setStateFilter(e.target.value)}>
-                  {STATE_FILTER_OPTIONS.map((s) => (
-                    <option key={s} value={s}>{s === 'الكل' ? 'كل الحالات' : s}</option>
-                  ))}
-                </select>
-                <span className="text-xs text-slate-500">مرتبين حسب قيمة الخطر</span>
-              </div>
+          <Panel className="space-y-3 p-4">
+            <SectionTitle
+              title={`عملاء يحتاجون متابعتك النهاردة (${summary.needsAttention.filter((c) => stateFilter === 'الكل' || c.customer_state === stateFilter).length})`}
+              icon={<TrendingDown size={18} />}
+            />
+            <div className="-mt-2 mb-1 flex items-center gap-2">
+              <select className="input-dark w-auto text-xs" value={stateFilter} onChange={(e) => setStateFilter(e.target.value)}>
+                {STATE_FILTER_OPTIONS.map((s) => (
+                  <option key={s} value={s}>{s === 'الكل' ? 'كل الحالات' : s}</option>
+                ))}
+              </select>
+              <span className="text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>مرتبين حسب قيمة الخطر</span>
             </div>
             {(() => {
               const filtered = summary.needsAttention.filter((c) => stateFilter === 'الكل' || c.customer_state === stateFilter);
               return filtered.length === 0 ? (
-                <p className="text-sm text-slate-400">مفيش عملاء مطابقين للفلتر ده دلوقتي — 🎉</p>
+                <EmptyState label="مفيش عملاء مطابقين للفلتر ده دلوقتي 🎉" />
               ) : (
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto rounded-2xl border" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="text-right text-xs text-slate-500">
-                        <th className="pb-2 font-bold">العميل</th>
-                        <th className="pb-2 font-bold">قبل 3 شهور</th>
-                        <th className="pb-2 font-bold">قبل شهرين</th>
-                        <th className="pb-2 font-bold">الشهر السابق</th>
-                        <th className="pb-2 font-bold">الشهر الحالي</th>
-                        <th className="pb-2 font-bold">الحالة</th>
-                        <th className="pb-2 font-bold">إجراءات</th>
+                      <tr className="text-right text-xs" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                        <th className="p-2 font-bold">العميل</th>
+                        <th className="p-2 font-bold">قبل 3 شهور</th>
+                        <th className="p-2 font-bold">قبل شهرين</th>
+                        <th className="p-2 font-bold">الشهر السابق</th>
+                        <th className="p-2 font-bold">الشهر الحالي</th>
+                        <th className="p-2 font-bold">الحالة</th>
+                        <th className="p-2 font-bold">إجراءات</th>
                       </tr>
                     </thead>
                     <tbody>
                       {filtered.slice(0, 30).map((c, i) => (
-                        <tr key={`${c.customer_code}-${i}`} className="border-t border-white/5">
-                          <td className="py-2">
-                            <div className="font-bold text-white">{c.customer_name || 'غير معروف'}</div>
-                            <div className="text-[11px] text-slate-500">
+                        <tr key={`${c.customer_code}-${i}`} className="border-t" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
+                          <td className="p-2">
+                            <div className="font-bold" style={{ color: 'var(--dawaa-theme-heading)' }}>{c.customer_name || 'غير معروف'}</div>
+                            <div className="text-[11px]" style={{ color: 'var(--dawaa-theme-muted)' }}>
                               ({c.previous_segment}) · آخر شراء: {c.last_purchase_date || '—'}
-                              {branch === ALL_BRANCHES_VALUE && <span className="text-teal-400"> · {c.branch}</span>}
+                              {branch === ALL_BRANCHES_VALUE && <span style={{ color: 'var(--dawaa-theme-primary-strong)' }}> · {c.branch}</span>}
                               {c.customer_code && <span> · كود {c.customer_code}</span>}
                             </div>
                           </td>
-                          <td className="py-2 text-slate-300">{fmtMoney(c.month_3_ago_sales)}</td>
-                          <td className="py-2 text-slate-300">{fmtMoney(c.month_2_ago_sales)}</td>
-                          <td className="py-2 text-slate-300">{fmtMoney(c.previous_month_sales)}</td>
-                          <td className="py-2 text-slate-300">{fmtMoney(c.sales_amount)}</td>
-                          <td className="py-2"><span className={`text-xs font-black ${STATE_COLORS[c.customer_state] || 'text-slate-300'}`}>{c.customer_state}</span></td>
-                          <td className="py-2">
+                          <td className="p-2" style={{ color: 'var(--dawaa-theme-text)' }}>{fmtMoney(c.month_3_ago_sales)}</td>
+                          <td className="p-2" style={{ color: 'var(--dawaa-theme-text)' }}>{fmtMoney(c.month_2_ago_sales)}</td>
+                          <td className="p-2" style={{ color: 'var(--dawaa-theme-text)' }}>{fmtMoney(c.previous_month_sales)}</td>
+                          <td className="p-2" style={{ color: 'var(--dawaa-theme-text)' }}>{fmtMoney(c.sales_amount)}</td>
+                          <td className="p-2"><span className="text-xs font-black" style={{ color: STATE_TOKEN[c.customer_state] || 'var(--dawaa-theme-text)' }}>{c.customer_state}</span></td>
+                          <td className="p-2">
                             <div className="flex items-center gap-2">
                               <button
                                 type="button"
                                 onClick={() => setDetailsCustomer(c)}
-                                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-teal-400/30 bg-teal-500/10 text-teal-300 transition hover:bg-teal-500/20 hover:text-teal-200"
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border"
+                                style={{ borderColor: 'var(--dawaa-theme-accent-border)', background: 'var(--dawaa-theme-accent-soft)', color: 'var(--dawaa-theme-primary-strong)' }}
                                 aria-label={`عرض تفاصيل العميل ${c.customer_name || ''}`}
                                 title="عرض تفاصيل العميل"
                               >
@@ -368,7 +373,8 @@ export default function CustomerMonthlyPerformance() {
                               <button
                                 type="button"
                                 onClick={() => navigate(followupUrl(c))}
-                                className="rounded-lg bg-teal-500 px-3 py-1.5 text-xs font-black text-slate-950"
+                                className="rounded-lg px-3 py-1.5 text-xs font-black"
+                                style={{ background: 'var(--dawaa-theme-primary)', color: 'var(--dawaa-theme-primary-text)' }}
                               >
                                 متابعة الآن
                               </button>
@@ -381,37 +387,37 @@ export default function CustomerMonthlyPerformance() {
                 </div>
               );
             })()}
-          </div>
+          </Panel>
           )}
           {listTab === 'improving' && (
-          <div className="stat-card space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-base font-black text-white">
-                عملاء متحسنين محتاجين شكر واهتمام ({summary.improving.length})
-              </h2>
-              <span className="text-xs text-slate-500">مرتبين حسب أعلى زيادة في المبيعات</span>
-            </div>
+          <Panel className="space-y-3 p-4">
+            <SectionTitle
+              title={`عملاء متحسنين محتاجين شكر واهتمام (${summary.improving.length})`}
+              subtitle="مرتبين حسب أعلى زيادة في المبيعات"
+              icon={<TrendingUp size={18} />}
+            />
             {summary.improving.length === 0 ? (
-              <p className="text-sm text-slate-400">مفيش عملاء مهمين بيتحسنوا بشكل ملحوظ في الفترة دي دلوقتي.</p>
+              <EmptyState label="مفيش عملاء مهمين بيتحسنوا بشكل ملحوظ في الفترة دي دلوقتي." />
             ) : (
               <div className="space-y-2">
                 {summary.improving.slice(0, 30).map((c, i) => (
-                  <div key={`${c.customer_code}-${i}`} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-400/20 bg-emerald-500/5 p-3">
+                  <div key={`${c.customer_code}-${i}`} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-status-success-border)', background: 'var(--dawaa-status-success-bg)' }}>
                     <div>
-                      <div className="font-bold text-white">{c.customer_name || 'غير معروف'} <span className="text-xs text-slate-500">({c.current_segment})</span></div>
-                      <div className="text-xs text-slate-400">
+                      <div className="font-bold" style={{ color: 'var(--dawaa-theme-heading)' }}>{c.customer_name || 'غير معروف'} <span className="text-xs" style={{ color: 'var(--dawaa-theme-muted)' }}>({c.current_segment})</span></div>
+                      <div className="text-xs" style={{ color: 'var(--dawaa-theme-muted)' }}>
                         آخر شراء: {c.last_purchase_date || '—'} · دلوقتي بيصرف {fmtMoney(c.sales_amount)}
-                        {c.sales_change_amount > 0 && <span className="text-emerald-300"> (+{fmtMoney(c.sales_change_amount)})</span>}
-                        {branch === ALL_BRANCHES_VALUE && <span className="text-teal-400"> · {c.branch}</span>}
+                        {c.sales_change_amount > 0 && <span style={{ color: 'var(--dawaa-status-success-text)' }}> (+{fmtMoney(c.sales_change_amount)})</span>}
+                        {branch === ALL_BRANCHES_VALUE && <span style={{ color: 'var(--dawaa-theme-primary-strong)' }}> · {c.branch}</span>}
                         {c.customer_code && <span> · كود {c.customer_code}</span>}
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
-                      <span className={`text-sm font-black ${STATE_COLORS[c.customer_state] || 'text-slate-300'}`}>{c.customer_state}</span>
+                      <span className="text-sm font-black" style={{ color: STATE_TOKEN[c.customer_state] || 'var(--dawaa-theme-text)' }}>{c.customer_state}</span>
                       <button
                         type="button"
                         onClick={() => setDetailsCustomer(c)}
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-emerald-400/30 bg-emerald-500/10 text-emerald-300 transition hover:bg-emerald-500/20 hover:text-emerald-200"
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border"
+                        style={{ borderColor: 'var(--dawaa-status-success-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-status-success-text)' }}
                         aria-label={`عرض تفاصيل العميل ${c.customer_name || ''}`}
                         title="عرض تفاصيل العميل"
                       >
@@ -420,7 +426,8 @@ export default function CustomerMonthlyPerformance() {
                       <button
                         type="button"
                         onClick={() => navigate(followupUrl(c))}
-                        className="rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-black text-slate-950"
+                        className="rounded-lg px-3 py-1.5 text-xs font-black"
+                        style={{ background: 'var(--dawaa-status-success-text)', color: 'var(--dawaa-theme-primary-text)' }}
                       >
                         اتصال شكر
                       </button>
@@ -429,7 +436,7 @@ export default function CustomerMonthlyPerformance() {
                 ))}
               </div>
             )}
-          </div>
+          </Panel>
           )}
         </>
       )}

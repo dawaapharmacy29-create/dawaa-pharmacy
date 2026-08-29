@@ -12,6 +12,7 @@ const CLEAN_UI_FILES = new Set([
   'src/pages/Customers.tsx',
   'src/pages/StagnantMedicines.tsx',
   'src/pages/StaffMonthlyEvaluationGeneral.tsx',
+  'src/pages/CustomerMonthlyPerformance.tsx',
   'src/components/customerService/ExceptionalFollowupCenter.tsx',
   'src/components/customerService/CustomerFollowupCockpitPanel.tsx',
   'src/components/customerService/CustomerDailyPriorityQueues.tsx',
