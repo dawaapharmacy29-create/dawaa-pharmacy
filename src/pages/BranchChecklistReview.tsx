@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Check, Loader2, Save, Star, X } from 'lucide-react';
+import { Check, Clock3, Loader2, Save, Star, X } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
@@ -11,9 +11,10 @@ type Row = {
   completed: boolean;
   photo_url: string | null;
   staff_note: string | null;
+  submitted_at: string | null;
   review_status: 'pending' | 'approved' | 'rejected';
   reviewer_note: string | null;
-  staff_daily_checklist_items: { title: string; description: string | null; requires_photo: boolean } | null;
+  staff_daily_checklist_items: { title: string; description: string | null; requires_photo: boolean; time_slot: string } | null;
   staff: { name: string; role: string } | null;
 };
 
@@ -44,6 +45,27 @@ type CleaningDaySummary = {
   rating_ready: boolean;
 };
 
+type CleaningCycleManagerSummary = {
+  staff_id: string;
+  staff_name: string;
+  branch: string;
+  month_cycle: string;
+  cycle_start: string;
+  cycle_end: string;
+  rated_days: number;
+  avg_stars: number;
+  total_star_points: number;
+  checklist_days: number;
+  fully_reviewed_days: number;
+  submitted_items: number;
+  approved_items: number;
+  rejected_items: number;
+  pending_items: number;
+  timing_attention_count: number;
+  rating_coverage_pct: number;
+  on_time_pct: number;
+};
+
 function starPoints(stars: number) {
   if (stars === 5) return 5;
   if (stars === 4) return 2;
@@ -63,6 +85,47 @@ function isAllBranchesValue(value: string) {
   return ['كل_الفروع', 'all_branches', 'all'].includes(normalized);
 }
 
+function cairoDateKey() {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Africa/Cairo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+}
+
+function cairoMinutes(iso: string | null) {
+  if (!iso) return null;
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Africa/Cairo',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date(iso));
+  const hour = Number(parts.find((part) => part.type === 'hour')?.value || 0);
+  const minute = Number(parts.find((part) => part.type === 'minute')?.value || 0);
+  return hour * 60 + minute;
+}
+
+function cleaningTimingStatus(row: Row) {
+  const minutes = cairoMinutes(row.submitted_at);
+  const slot = row.staff_daily_checklist_items?.time_slot || '';
+  if (minutes == null) return 'unclassified' as const;
+  if (slot === 'فتح') return minutes >= 360 && minutes <= 660 ? 'on_time' as const : 'outside_window' as const;
+  if (slot === 'أثناء اليوم') return minutes >= 540 && minutes <= 1320 ? 'on_time' as const : 'outside_window' as const;
+  if (slot === 'قفل') return minutes >= 1200 || minutes <= 240 ? 'on_time' as const : 'outside_window' as const;
+  return 'unclassified' as const;
+}
+
+function formatCairoTime(iso: string | null) {
+  if (!iso) return '—';
+  return new Intl.DateTimeFormat('ar-EG', {
+    timeZone: 'Africa/Cairo',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(iso));
+}
+
 export default function BranchChecklistReview() {
   const { user } = useAuth();
   const branch = user?.branch || '';
@@ -70,19 +133,21 @@ export default function BranchChecklistReview() {
   const [rows, setRows] = useState<Row[]>([]);
   const [cleaningRatings, setCleaningRatings] = useState<CleaningRatingCard[]>([]);
   const [cleaningDaySummary, setCleaningDaySummary] = useState<Record<string, CleaningDaySummary>>({});
+  const [cycleSummary, setCycleSummary] = useState<Record<string, CleaningCycleManagerSummary>>({});
   const [loading, setLoading] = useState(true);
   const [noteDraft, setNoteDraft] = useState<Record<string, string>>({});
   const [starDraft, setStarDraft] = useState<Record<string, number>>({});
   const [ratingNoteDraft, setRatingNoteDraft] = useState<Record<string, string>>({});
   const [ratingSaving, setRatingSaving] = useState<string | null>(null);
   const [branchFilter, setBranchFilter] = useState<string>('all');
-  const today = new Date().toISOString().slice(0, 10);
+  const today = cairoDateKey();
 
   const load = useCallback(async () => {
     if (!branch) {
       setRows([]);
       setCleaningRatings([]);
       setCleaningDaySummary({});
+      setCycleSummary({});
       setLoading(false);
       return;
     }
@@ -92,7 +157,7 @@ export default function BranchChecklistReview() {
     let checklistQuery = supabase
       .from('staff_daily_checklist_submissions')
       .select(
-        'id, staff_id, branch, completed, photo_url, staff_note, review_status, reviewer_note, staff_daily_checklist_items(title, description, requires_photo), staff:staff!staff_daily_checklist_submissions_staff_id_fkey(name, role)'
+        'id, staff_id, branch, completed, photo_url, staff_note, submitted_at, review_status, reviewer_note, staff_daily_checklist_items(title, description, requires_photo, time_slot), staff:staff!staff_daily_checklist_submissions_staff_id_fkey(name, role)'
       )
       .eq('submission_date', today)
       .eq('completed', true)
@@ -101,10 +166,14 @@ export default function BranchChecklistReview() {
 
     if (!allBranches) checklistQuery = checklistQuery.eq('branch', branch);
 
-    const [checklistResult, ratingResult] = await Promise.all([
+    const [checklistResult, ratingResult, cycleResult] = await Promise.all([
       checklistQuery,
       supabase.rpc('get_cleaning_daily_rating_cards_v1', {
         p_rating_date: today,
+        p_branch: allBranches ? null : branch,
+      }),
+      supabase.rpc('get_cleaning_cycle_manager_summary_v1', {
+        p_month_cycle: null,
         p_branch: allBranches ? null : branch,
       }),
     ]);
@@ -115,6 +184,37 @@ export default function BranchChecklistReview() {
       setRows([]);
     } else {
       setRows((checklistResult.data || []) as unknown as Row[]);
+    }
+
+    if (cycleResult.error) {
+      console.error('[BranchChecklistReview] cycle summary load failed', cycleResult.error);
+      setCycleSummary({});
+    } else {
+      const map: Record<string, CleaningCycleManagerSummary> = {};
+      for (const raw of (cycleResult.data || []) as Record<string, unknown>[]) {
+        const summary: CleaningCycleManagerSummary = {
+          staff_id: String(raw.staff_id || ''),
+          staff_name: String(raw.staff_name || ''),
+          branch: String(raw.branch || ''),
+          month_cycle: String(raw.month_cycle || ''),
+          cycle_start: String(raw.cycle_start || ''),
+          cycle_end: String(raw.cycle_end || ''),
+          rated_days: Number(raw.rated_days || 0),
+          avg_stars: Number(raw.avg_stars || 0),
+          total_star_points: Number(raw.total_star_points || 0),
+          checklist_days: Number(raw.checklist_days || 0),
+          fully_reviewed_days: Number(raw.fully_reviewed_days || 0),
+          submitted_items: Number(raw.submitted_items || 0),
+          approved_items: Number(raw.approved_items || 0),
+          rejected_items: Number(raw.rejected_items || 0),
+          pending_items: Number(raw.pending_items || 0),
+          timing_attention_count: Number(raw.timing_attention_count || 0),
+          rating_coverage_pct: Number(raw.rating_coverage_pct || 0),
+          on_time_pct: Number(raw.on_time_pct || 0),
+        };
+        if (summary.staff_id) map[summary.staff_id] = summary;
+      }
+      setCycleSummary(map);
     }
 
     if (ratingResult.error) {
@@ -293,6 +393,7 @@ export default function BranchChecklistReview() {
 
             {visibleRatings.map((card) => {
               const daySummary = cleaningDaySummary[card.staff_id];
+              const cycle = cycleSummary[card.staff_id];
               const selected = starDraft[card.staff_id] || card.stars || 0;
               const projectedPoints = starPoints(selected || 1);
               const changed = selected !== (card.stars || 0) || (ratingNoteDraft[card.staff_id] || '') !== (card.manager_note || '');
@@ -318,6 +419,25 @@ export default function BranchChecklistReview() {
                       <div className="dawaa-card dawaa-card--soft p-2 text-center"><p className="text-[11px] font-semibold text-[var(--dawaa-theme-muted)]">تمت المراجعة</p><p className="font-black">{daySummary.reviewed_items}/{daySummary.required_items}</p></div>
                       <div className="dawaa-card dawaa-card--soft p-2 text-center"><p className="text-[11px] font-semibold text-[var(--dawaa-theme-muted)]">معتمد / مرفوض</p><p className="font-black">{daySummary.approved_items} / {daySummary.rejected_items}</p></div>
                       <div className="dawaa-card dawaa-card--soft p-2 text-center"><p className="text-[11px] font-semibold text-[var(--dawaa-theme-muted)]">أقصى تقييم</p><p className="font-black">{ratingReady ? `${maxStars}/5` : 'بعد المراجعة'}</p></div>
+                    </div>
+                  ) : null}
+
+                  {cycle ? (
+                    <div className="mt-3 rounded-xl border border-[var(--dawaa-theme-border)] p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-xs font-black text-[var(--dawaa-theme-heading)]">ملخص دورة {cycle.month_cycle}</p>
+                        <p className="text-[11px] font-semibold text-[var(--dawaa-theme-muted)]">{cycle.cycle_start} ← {cycle.cycle_end}</p>
+                      </div>
+                      <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        <div className="dawaa-card dawaa-card--soft p-2 text-center"><p className="text-[10px] font-semibold text-[var(--dawaa-theme-muted)]">متوسط النجوم</p><p className="text-sm font-black">{cycle.avg_stars.toFixed(2)}★</p></div>
+                        <div className="dawaa-card dawaa-card--soft p-2 text-center"><p className="text-[10px] font-semibold text-[var(--dawaa-theme-muted)]">تغطية التقييم</p><p className="text-sm font-black">{cycle.rating_coverage_pct}%</p></div>
+                        <div className="dawaa-card dawaa-card--soft p-2 text-center"><p className="text-[10px] font-semibold text-[var(--dawaa-theme-muted)]">الالتزام بالتوقيت</p><p className="text-sm font-black">{cycle.on_time_pct}%</p></div>
+                        <div className="dawaa-card dawaa-card--soft p-2 text-center"><p className="text-[10px] font-semibold text-[var(--dawaa-theme-muted)]">نقاط النجوم</p><p className="text-sm font-black">{cycle.total_star_points > 0 ? '+' : ''}{cycle.total_star_points}</p></div>
+                      </div>
+                      <p className="mt-2 text-[11px] font-semibold text-[var(--dawaa-theme-muted)]">
+                        {cycle.rated_days} يوم مُقيّم • {cycle.fully_reviewed_days} يوم مكتمل المراجعة • {cycle.approved_items} بند معتمد • {cycle.rejected_items} مرفوض
+                        {cycle.timing_attention_count > 0 ? ` • ${cycle.timing_attention_count} توقيت يحتاج مراجعة` : ''}
+                      </p>
                     </div>
                   ) : null}
 
@@ -355,34 +475,47 @@ export default function BranchChecklistReview() {
           <section className="space-y-3">
             <h2 className="text-sm font-black text-[var(--dawaa-status-warning-text)]">بانتظار المراجعة ({pending.length})</h2>
             {pending.length === 0 ? <div className="dawaa-card dawaa-card--soft p-4 text-sm font-semibold text-[var(--dawaa-theme-muted)]">لا توجد بنود تحتاج مراجعة الآن.</div> : null}
-            {pending.map((row) => (
-              <div key={row.id} className="dawaa-card p-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <p className="font-black text-[var(--dawaa-theme-heading)]">{row.staff_daily_checklist_items?.title || 'بند بدون عنوان'}</p>
-                  <div className="flex flex-wrap items-center gap-2 text-xs font-bold text-[var(--dawaa-theme-muted)]">
-                    <span>{row.staff?.name || 'موظف غير محدد'}</span>
-                    {allBranches ? <span className="dawaa-badge text-xs">{row.branch}</span> : null}
+            {pending.map((row) => {
+              const timing = cleaningTimingStatus(row);
+              return (
+                <div key={row.id} className="dawaa-card p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="font-black text-[var(--dawaa-theme-heading)]">{row.staff_daily_checklist_items?.title || 'بند بدون عنوان'}</p>
+                    <div className="flex flex-wrap items-center gap-2 text-xs font-bold text-[var(--dawaa-theme-muted)]">
+                      <span>{row.staff?.name || 'موظف غير محدد'}</span>
+                      {allBranches ? <span className="dawaa-badge text-xs">{row.branch}</span> : null}
+                    </div>
+                  </div>
+                  {row.staff_daily_checklist_items?.description ? <p className="mt-1 text-xs text-[var(--dawaa-theme-muted)]">{row.staff_daily_checklist_items.description}</p> : null}
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] font-semibold">
+                    <span className="dawaa-badge flex items-center gap-1"><Clock3 size={12} /> {row.staff_daily_checklist_items?.time_slot || 'وقت غير محدد'} • {formatCairoTime(row.submitted_at)}</span>
+                    {timing === 'outside_window' ? <span className="dawaa-badge dawaa-badge--warning">توقيت يحتاج مراجعة — بدون خصم تلقائي</span> : null}
+                  </div>
+                  {row.photo_url ? <img src={row.photo_url} alt="دليل تنفيذ البند" className="mt-3 h-40 w-full rounded-xl border border-[var(--dawaa-theme-border)] object-cover" /> : <div className="dawaa-alert dawaa-alert--warning mt-3 text-xs font-bold">لا توجد صورة مرفقة.</div>}
+                  <textarea placeholder="سبب الرفض — مطلوب عند الرفض" className="dawaa-input mt-3 w-full p-2 text-xs" rows={2} value={noteDraft[row.id] || ''} onChange={(e) => setNoteDraft((prev) => ({ ...prev, [row.id]: e.target.value }))} />
+                  <div className="mt-3 flex gap-2">
+                    <button onClick={() => void review(row, 'approved')} className="dawaa-button dawaa-button--primary flex flex-1 items-center justify-center gap-1.5"><Check size={16} /> اعتماد</button>
+                    <button onClick={() => void review(row, 'rejected')} className="dawaa-button dawaa-button--danger flex flex-1 items-center justify-center gap-1.5"><X size={16} /> رفض</button>
                   </div>
                 </div>
-                {row.staff_daily_checklist_items?.description ? <p className="mt-1 text-xs text-[var(--dawaa-theme-muted)]">{row.staff_daily_checklist_items.description}</p> : null}
-                {row.photo_url ? <img src={row.photo_url} alt="دليل تنفيذ البند" className="mt-3 h-40 w-full rounded-xl border border-[var(--dawaa-theme-border)] object-cover" /> : <div className="dawaa-alert dawaa-alert--warning mt-3 text-xs font-bold">لا توجد صورة مرفقة.</div>}
-                <textarea placeholder="سبب الرفض — مطلوب عند الرفض" className="dawaa-input mt-3 w-full p-2 text-xs" rows={2} value={noteDraft[row.id] || ''} onChange={(e) => setNoteDraft((prev) => ({ ...prev, [row.id]: e.target.value }))} />
-                <div className="mt-3 flex gap-2">
-                  <button onClick={() => void review(row, 'approved')} className="dawaa-button dawaa-button--primary flex flex-1 items-center justify-center gap-1.5"><Check size={16} /> اعتماد</button>
-                  <button onClick={() => void review(row, 'rejected')} className="dawaa-button dawaa-button--danger flex flex-1 items-center justify-center gap-1.5"><X size={16} /> رفض</button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </section>
 
           <section className="space-y-2">
             <h2 className="text-sm font-black text-[var(--dawaa-theme-muted)]">تمت مراجعتها اليوم ({reviewed.length})</h2>
-            {reviewed.map((row) => (
-              <div key={row.id} className="dawaa-card dawaa-card--soft flex flex-wrap items-center justify-between gap-3 px-3 py-2 text-xs">
-                <span className="font-semibold text-[var(--dawaa-theme-text)]">{row.staff_daily_checklist_items?.title || 'بند'} — {row.staff?.name || 'موظف غير محدد'}{allBranches ? ` — ${row.branch}` : ''}</span>
-                <span className={row.review_status === 'approved' ? 'font-black text-[var(--dawaa-status-success-text)]' : 'font-black text-[var(--dawaa-status-danger-text)]'}>{row.review_status === 'approved' ? 'معتمد' : 'مرفوض'}</span>
-              </div>
-            ))}
+            {reviewed.map((row) => {
+              const timing = cleaningTimingStatus(row);
+              return (
+                <div key={row.id} className="dawaa-card dawaa-card--soft flex flex-wrap items-center justify-between gap-3 px-3 py-2 text-xs">
+                  <span className="font-semibold text-[var(--dawaa-theme-text)]">{row.staff_daily_checklist_items?.title || 'بند'} — {row.staff?.name || 'موظف غير محدد'}{allBranches ? ` — ${row.branch}` : ''}</span>
+                  <div className="flex items-center gap-2">
+                    {timing === 'outside_window' ? <span className="dawaa-badge dawaa-badge--warning text-[10px]">وقت غير معتاد</span> : null}
+                    <span className={row.review_status === 'approved' ? 'font-black text-[var(--dawaa-status-success-text)]' : 'font-black text-[var(--dawaa-status-danger-text)]'}>{row.review_status === 'approved' ? 'معتمد' : 'مرفوض'}</span>
+                  </div>
+                </div>
+              );
+            })}
           </section>
         </>
       )}
