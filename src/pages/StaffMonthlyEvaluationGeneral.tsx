@@ -176,7 +176,8 @@ export default function StaffMonthlyEvaluation() {
     () => Math.round(sections.reduce((sum, item) => sum + (item.score / 5) * item.weight, 0) * 10) / 10,
     [sections]
   );
-  const grade = gradeFor(overallScore);
+  const evaluationNotStarted = sections.length > 0 && sections.every((item) => item.score === 0);
+  const grade = evaluationNotStarted ? 'لسه ما اتقيّمش' : gradeFor(overallScore);
 
   // ملحوظة مهمة: مفيش "فئة شرائح تقديرية" هنا عمدًا — نظام الشرائح
   // (resolveIncentiveTier) خاص بحافز المديرين الأسبوعي، مش بحافز الدكاترة.
@@ -551,7 +552,7 @@ export default function StaffMonthlyEvaluation() {
               </Panel>
 
               <section className="grid gap-3 md:grid-cols-3">
-                <KpiCard title="نتيجة التقييم" value={`${overallScore}/100`} subtitle={grade} icon={<Star size={20} />} tone={overallScore >= 80 ? 'green' : overallScore >= 60 ? 'amber' : 'red'} />
+                <KpiCard title="نتيجة التقييم" value={evaluationNotStarted ? '—' : `${overallScore}/100`} subtitle={grade} icon={<Star size={20} />} tone={evaluationNotStarted ? 'cyan' : overallScore >= 80 ? 'green' : overallScore >= 60 ? 'amber' : 'red'} />
                 <KpiCard title="النقاط الحالية" value={pointsTruth ? `${pointsTruth.final_points} / ${pointsTruth.target_points}` : '—'} subtitle="دورة الحافز الحالية" icon={<Award size={20} />} tone="cyan" />
                 <KpiCard title="حافز الأداء المركزي" value={canonicalIncentive == null ? 'غير محدد' : `${canonicalIncentive.toLocaleString('ar-EG')} جنيه`} subtitle="القيمة الفعلية الوحيدة من نظام النقاط" icon={<CheckCircle2 size={20} />} tone="green" />
               </section>
