@@ -47,6 +47,25 @@ export const CRITICAL_GATE_CAPS: Record<CriticalGateType, { capPercent: number; 
   repeated_negligence: { capPercent: 70, label: 'إهمال متكرر', blocksFully: false },
 };
 
+/**
+ * ترجمة سقف كل مخالفة حرجة لخصم نقاط فعلي في الـLedger (employee_transactions)،
+ * بدل ما تفضل مجرد علامة بصرية بلا أثر مالي. النظام المركزي للحوافز خطي
+ * (min(نقاط, target) × سعر النقطة) مش نظام شرائح، فمفيش طريقة نحسب بيها "سقف
+ * نسبة %" بدقة كاملة بدون معرفة رصيد نقاط الموظف الحالي فعليًا لحظة الاعتماد.
+ * البديل العملي: خصم نقاط ثابت متناسب مع نسبة الحرمان المستهدفة، بافتراض
+ * موظف عنده نقاط التارجت الموحّد كاملة (1500 نقطة). ده تقريب متعمد وليس
+ * سقف نسبة دقيق — لو الموظف أصلاً عنده نقاط أقل من التارجت، الأثر الفعلي على
+ * حافزه ممكن يكون أعلى أو أقل شوية من النسبة المعلنة بالظبط.
+ */
+const UNIFIED_TARGET_POINTS = 1500;
+export const CRITICAL_GATE_POINT_PENALTY: Record<CriticalGateType, number> = {
+  unexplained_cash_shortage: UNIFIED_TARGET_POINTS,
+  data_manipulation: UNIFIED_TARGET_POINTS,
+  ignored_serious_complaint: Math.round(UNIFIED_TARGET_POINTS * 0.6),
+  unescalated_critical_issue: Math.round(UNIFIED_TARGET_POINTS * 0.4),
+  repeated_negligence: Math.round(UNIFIED_TARGET_POINTS * 0.3),
+};
+
 export function applyIncentiveGates(basePayoutPercent: number, activeGates: CriticalGateType[]): number {
   if (!activeGates.length) return basePayoutPercent;
   const caps = activeGates.map((gate) => CRITICAL_GATE_CAPS[gate].capPercent);

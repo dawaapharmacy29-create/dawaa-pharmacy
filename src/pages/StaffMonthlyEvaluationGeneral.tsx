@@ -26,10 +26,12 @@ import {
 } from '@/lib/evaluations/monthlyEvaluationCycle';
 import {
   CRITICAL_GATE_CAPS,
+  CRITICAL_GATE_POINT_PENALTY,
   resolveIncentiveTier,
   applyIncentiveGates,
   type CriticalGateType,
 } from '@/lib/evaluations/incentiveTiers';
+import { createEmployeeTransaction } from '@/services/employeeTransactionService';
 import { Panel, SectionTitle, KpiCard, MiniBox, EmptyState } from '@/components/dashboard/DashboardPrimitives';
 
 type StaffRow = {
@@ -139,6 +141,7 @@ export default function StaffMonthlyEvaluation() {
   const [metrics, setMetrics] = useState<Metrics>(EMPTY_METRICS);
   const [pointsTruth, setPointsTruth] = useState<StaffPointsDashboardV3 | null>(null);
   const [activeGates, setActiveGates] = useState<CriticalGateType[]>([]);
+  const [savedActiveGates, setSavedActiveGates] = useState<CriticalGateType[]>([]);
   const [strengthsText, setStrengthsText] = useState('');
   const [developmentText, setDevelopmentText] = useState('');
   const [managerNotes, setManagerNotes] = useState('');
@@ -269,7 +272,9 @@ export default function StaffMonthlyEvaluation() {
           setStatus(String(saved.status || 'draft'));
           const snapshot = saved.metrics_snapshot as Record<string, unknown> | null;
           const savedGates = snapshot && Array.isArray(snapshot.active_critical_gates) ? (snapshot.active_critical_gates as string[]) : [];
-          setActiveGates(savedGates.filter((gate): gate is CriticalGateType => gate in CRITICAL_GATE_CAPS));
+          const validSavedGates = savedGates.filter((gate): gate is CriticalGateType => gate in CRITICAL_GATE_CAPS);
+          setActiveGates(validSavedGates);
+          setSavedActiveGates(validSavedGates);
         } else {
           setEvaluationId(null);
           setSections(freshSections);
@@ -278,6 +283,7 @@ export default function StaffMonthlyEvaluation() {
           setManagerNotes('');
           setStatus('draft');
           setActiveGates([]);
+          setSavedActiveGates([]);
         }
       } catch (cause) {
         toast.error(cause instanceof Error ? cause.message : 'تعذر تحميل التقييم');
@@ -357,6 +363,32 @@ export default function StaffMonthlyEvaluation() {
       if (error) throw error;
       setEvaluationId(String(data || evaluationId || ''));
       setStatus(nextStatus);
+
+      // مخالفات حرجة جديدة (لسه متسجلتش في المرة اللي فاتت) بتاخد خصم نقاط حقيقي
+      // في الـLedger المركزي، مش مجرد علامة بصرية. لا نكرر الخصم لمخالفة كانت
+      // مفعّلة أصلاً من قبل عند نفس التقييم.
+      const newlyActivatedGates = activeGates.filter((gate) => !savedActiveGates.includes(gate));
+      if (newlyActivatedGates.length) {
+        for (const gate of newlyActivatedGates) {
+          const gateInfo = CRITICAL_GATE_CAPS[gate];
+          const penaltyPoints = CRITICAL_GATE_POINT_PENALTY[gate];
+          await createEmployeeTransaction({
+            staff_id: selected.id,
+            type: 'penalty',
+            points_delta: -penaltyPoints,
+            reason: `مخالفة حرجة في التقييم الشهري: ${gateInfo.label}`,
+            description: `دورة ${cycleRange.displayLabel}. سقف الحافز المرتبط بهذه المخالفة: ${gateInfo.capPercent}%.`,
+            source: 'monthly_evaluation_critical_gate',
+            source_id: String(data || evaluationId || ''),
+            created_by: user.id,
+            month_cycle: cycleLabel,
+            branch: selected.branch || branch,
+            status: 'active',
+          });
+        }
+        setSavedActiveGates(activeGates);
+        toast.success(`تم تسجيل خصم نقاط فعلي لـ${newlyActivatedGates.length} مخالفة حرجة في حساب الموظف.`);
+      }
 
       if (nextStatus === 'sent') {
         await createStaffNotification({
@@ -480,8 +512,8 @@ export default function StaffMonthlyEvaluation() {
               <section className="grid gap-3 md:grid-cols-4">
                 <KpiCard title="نتيجة التقييم" value={`${overallScore}/100`} subtitle={grade} icon={<Star size={20} />} tone={overallScore >= 80 ? 'green' : overallScore >= 60 ? 'amber' : 'red'} />
                 <KpiCard title="النقاط الحالية" value={pointsTruth ? `${pointsTruth.final_points} / ${pointsTruth.target_points}` : '—'} subtitle="دورة الحافز الحالية" icon={<Award size={20} />} tone="cyan" />
-                <KpiCard title="فئة الحافز المتوقعة" value={`${tierPreview.payoutPercent}%`} subtitle={tierPreview.tier.label} icon={<ShieldAlert size={20} />} tone={tierPreview.gated ? 'red' : 'purple'} />
-                <KpiCard title="حافز الأداء المركزي" value={canonicalIncentive == null ? 'غير محدد' : `${canonicalIncentive.toLocaleString('ar-EG')} جنيه`} subtitle={tierPreview.previewEgp != null ? `معاينة عند الاعتماد: ${tierPreview.previewEgp.toLocaleString('ar-EG')} جنيه` : 'لا يوجد Compensation Profile'} icon={<CheckCircle2 size={20} />} tone="green" />
+                <KpiCard title="فئة الحافز المتوقعة" value={`${tierPreview.payoutPercent}%`} subtitle={`${tierPreview.tier.label} — تقديري وليس فورمولة الصرف الفعلية`} icon={<ShieldAlert size={20} />} tone={tierPreview.gated ? 'red' : 'purple'} />
+                <KpiCard title="حافز الأداء المركزي" value={canonicalIncentive == null ? 'غير محدد' : `${canonicalIncentive.toLocaleString('ar-EG')} جنيه`} subtitle="القيمة الفعلية من نظام النقاط — مش من درجة هذا التقييم" icon={<CheckCircle2 size={20} />} tone="green" />
               </section>
 
               {!pointsTruth?.profile_configured ? (
@@ -495,32 +527,33 @@ export default function StaffMonthlyEvaluation() {
               <Panel className="p-4">
                 <SectionTitle
                   title="مخالفات حرجة تحدّ من الحافز"
-                  subtitle="مستقلة عن درجة التقييم — أي مخالفة مفعّلة تحط سقف على نسبة الحافز مهما كانت الدرجة عالية"
+                  subtitle="تفعيل أي مخالفة هنا يسجّل خصم نقاط حقيقي في حساب الموظف عند الحفظ، مستقل عن درجة التقييم"
                   icon={<ShieldAlert size={18} />}
                 />
                 <div className="grid gap-2 sm:grid-cols-2">
                   {(Object.entries(CRITICAL_GATE_CAPS) as [CriticalGateType, typeof CRITICAL_GATE_CAPS[CriticalGateType]][]).map(([key, gate]) => {
                     const active = activeGates.includes(key);
+                    const alreadySaved = savedActiveGates.includes(key);
                     return (
                       <button
                         key={key}
                         type="button"
-                        disabled={!canEdit}
+                        disabled={!canEdit || alreadySaved}
                         onClick={() => toggleGate(key)}
                         className="flex items-center justify-between gap-2 rounded-xl border p-3 text-right text-xs font-black disabled:cursor-default"
                         style={active
                           ? { borderColor: 'var(--dawaa-status-danger-border)', background: 'var(--dawaa-status-danger-bg)', color: 'var(--dawaa-status-danger-text)' }
                           : { borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-theme-text)' }}
                       >
-                        <span>{gate.label}</span>
-                        <span>سقف {gate.capPercent}%</span>
+                        <span>{gate.label}{alreadySaved ? ' — مسجّلة بالفعل' : ''}</span>
+                        <span>خصم {CRITICAL_GATE_POINT_PENALTY[key]} نقطة</span>
                       </button>
                     );
                   })}
                 </div>
                 {tierPreview.gated ? (
                   <p className="mt-3 text-xs font-bold" style={{ color: 'var(--dawaa-status-danger-text)' }}>
-                    نسبة الحافز محدودة عند {tierPreview.payoutPercent}% بسبب مخالفة مفعّلة، بدل {tierPreview.tier.payoutPercent}% اللي كانت هتستحقها الدرجة لوحدها.
+                    تقدير نسبة الحافز محدود عند {tierPreview.payoutPercent}% بسبب مخالفة مفعّلة، بدل {tierPreview.tier.payoutPercent}% اللي كانت هتستحقها الدرجة لوحدها. الأثر الفعلي على المرتب يظهر في نظام النقاط بعد الحفظ.
                   </p>
                 ) : null}
               </Panel>

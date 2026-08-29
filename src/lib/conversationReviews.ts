@@ -458,11 +458,13 @@ export function clampScore(value: number) {
 }
 
 export function baseDoctorImpactFromScore(score: number) {
-  // السلم النهائي المعتمد: 100% = +5، 90-99% = +2، 80-89% = -3، أقل من 80% = -10.
-  // ده يمنع المنطقة الميتة عند 90% ويحافظ على فرق واضح بين الأداء المقبول والخطأ الحقيقي.
+  // السلم النهائي المعتمد: تدرّج أوضح بدل قفزة حادة بين 79% و80% أو بين 89% و90%.
   if (score >= 100) return 5;
+  if (score >= 95) return 3;
   if (score >= 90) return 2;
+  if (score >= 85) return -1;
   if (score >= 80) return -3;
+  if (score >= 70) return -6;
   return -10;
 }
 
@@ -530,8 +532,10 @@ export function evaluateConversationReview(
       if (choice.excellentCase) excellentCase = true;
       if (choice.severe) hasSevereError = true;
       if (choice.errorType && choice.pointsEarned === 0) {
-        const extra = extraPenaltyForError(choice.errorType);
-        if (extra) extraPenaltyMap.set(extra.key, extra);
+        const extra = extraPenaltyForError(choice.errorType, choice.severe);
+        // لو نفس نوع الخطأ اتسجل من معيار تاني بدرجة أخف، ناخد الأشد (الأقل نقاطًا) مش آخر واحد بالترتيب.
+        const existing = extraPenaltyMap.get(extra?.key as ReviewErrorType);
+        if (extra && (!existing || extra.points < existing.points)) extraPenaltyMap.set(extra.key, extra);
       }
     }
     reviewItems.push({
@@ -616,19 +620,21 @@ export function evaluateConversationReview(
   };
 }
 
-function extraPenaltyForError(type: ReviewErrorType) {
+function extraPenaltyForError(type: ReviewErrorType, severe?: boolean) {
   const map: Partial<Record<ReviewErrorType, { key: ReviewErrorType; label: string; points: number }>> = {
     medical_error: { key: 'medical_error', label: 'خطأ طبي مؤثر', points: -25 },
     invoice_error: { key: 'invoice_error', label: 'خطأ فاتورة', points: -15 },
     delivery_error: { key: 'delivery_error', label: 'خطأ عنوان أو دليفري بسبب الدكتور', points: -15 },
     forgotten_customer: { key: 'forgotten_customer', label: 'نسيان العميل بعد وعد بالمتابعة', points: -10 },
-    poor_tone: { key: 'poor_tone', label: 'سوء أسلوب مؤثر', points: -10 },
+    // أسلوب سيء عادي (جاف / غير لائق بدرجة بسيطة) يفرق عن إساءة صريحة موسومة severe —
+    // بدل ما الاتنين ياخدوا نفس الخصم رغم اختلاف الخطورة الواضح بينهم.
+    poor_tone: { key: 'poor_tone', label: severe ? 'إساءة صريحة للعميل' : 'سوء أسلوب مؤثر', points: severe ? -20 : -10 },
     missed_sale: { key: 'missed_sale', label: 'إضاعة فرصة بيع واضحة', points: -10 },
     missing_order_confirmation: { key: 'missing_order_confirmation', label: 'عدم تأكيد بيانات الطلب', points: -10 },
     wrong_price: { key: 'wrong_price', label: 'وعد بسعر أو خصم غير صحيح', points: -10 },
     promised_unavailable: { key: 'promised_unavailable', label: 'وعد بتوفر صنف وهو غير متوفر', points: -10 },
-    poor_order_delay_handling: { key: 'poor_order_delay_handling', label: 'سوء التعامل مع تأخير الأوردر', points: -10 },
-    unregistered_customer_request: { key: 'unregistered_customer_request', label: 'عدم تسجيل طلب العميل', points: -15 },
+    poor_order_delay_handling: { key: 'poor_order_delay_handling', label: 'سوء التعامل مع تأخير الأوردر', points: severe ? -20 : -10 },
+    unregistered_customer_request: { key: 'unregistered_customer_request', label: 'عدم تسجيل طلب العميل', points: severe ? -20 : -15 },
   };
   return map[type] || null;
 }
