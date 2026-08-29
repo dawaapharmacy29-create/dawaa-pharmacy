@@ -38,21 +38,21 @@ const PRIORITY_LABELS: Record<CRMRequestPriority, string> = {
 };
 
 const STATUS_CLASSES: Record<CRMRequestStatus, string> = {
-  new: 'bg-sky-100 text-sky-800 border-sky-200',
-  open: 'bg-blue-100 text-blue-800 border-blue-200',
-  in_progress: 'bg-amber-100 text-amber-800 border-amber-200',
-  waiting_customer: 'bg-purple-100 text-purple-800 border-purple-200',
-  waiting_internal: 'bg-orange-100 text-orange-800 border-orange-200',
-  resolved: 'bg-emerald-100 text-emerald-800 border-emerald-200',
-  closed: 'bg-slate-100 text-slate-700 border-slate-200',
-  cancelled: 'bg-rose-100 text-rose-800 border-rose-200',
+  new: 'bg-[var(--dawaa-status-info-bg)] text-[var(--dawaa-status-info-text)] border-[var(--dawaa-status-info-border)]',
+  open: 'bg-[var(--dawaa-status-info-bg)] text-[var(--dawaa-status-info-text)] border-[var(--dawaa-status-info-border)]',
+  in_progress: 'bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)] border-[var(--dawaa-status-warning-border)]',
+  waiting_customer: 'bg-[var(--dawaa-status-info-bg)] text-[var(--dawaa-status-info-text)] border-[var(--dawaa-status-info-border)]',
+  waiting_internal: 'bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)] border-[var(--dawaa-status-warning-border)]',
+  resolved: 'bg-[var(--dawaa-status-success-bg)] text-[var(--dawaa-status-success-text)] border-[var(--dawaa-status-success-border)]',
+  closed: 'bg-[var(--dawaa-theme-soft)] text-[var(--dawaa-theme-text)] border-[var(--dawaa-theme-border)]',
+  cancelled: 'bg-[var(--dawaa-status-danger-bg)] text-[var(--dawaa-status-danger-text)] border-[var(--dawaa-status-danger-border)]',
 };
 
 const PRIORITY_CLASSES: Record<CRMRequestPriority, string> = {
-  low: 'bg-slate-100 text-slate-700 border-slate-200',
-  normal: 'bg-emerald-100 text-emerald-800 border-emerald-200',
-  high: 'bg-amber-100 text-amber-800 border-amber-200',
-  urgent: 'bg-red-100 text-red-800 border-red-200',
+  low: 'bg-[var(--dawaa-theme-soft)] text-[var(--dawaa-theme-text)] border-[var(--dawaa-theme-border)]',
+  normal: 'bg-[var(--dawaa-status-success-bg)] text-[var(--dawaa-status-success-text)] border-[var(--dawaa-status-success-border)]',
+  high: 'bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)] border-[var(--dawaa-status-warning-border)]',
+  urgent: 'bg-[var(--dawaa-status-danger-bg)] text-[var(--dawaa-status-danger-text)] border-[var(--dawaa-status-danger-border)]',
 };
 
 const EVENT_LABELS: Record<string, string> = {
@@ -119,12 +119,12 @@ function Badge({ children, className }: { children: React.ReactNode; className: 
 
 function EmptyState({ title, description }: { title: string; description: string }) {
   return (
-    <div className="flex min-h-[220px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white/80 p-8 text-center shadow-sm dark:border-slate-700 dark:bg-slate-900/70">
-      <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-50 text-2xl text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+    <div className="flex min-h-[220px] flex-col items-center justify-center rounded-2xl border border-dashed border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)]/80 p-8 text-center shadow-sm">
+      <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--dawaa-status-success-bg)] text-2xl text-[var(--dawaa-status-success-text)]">
         🧾
       </div>
-      <h3 className="text-lg font-bold text-slate-900 dark:text-white">{title}</h3>
-      <p className="mt-2 max-w-md text-sm leading-6 text-slate-600 dark:text-slate-300">
+      <h3 className="text-lg font-bold text-[var(--dawaa-theme-heading)]">{title}</h3>
+      <p className="mt-2 max-w-md text-sm leading-6 text-[var(--dawaa-theme-text)]">
         {description}
       </p>
     </div>
@@ -144,14 +144,14 @@ function RequestCard({
     <button
       type="button"
       onClick={onClick}
-      className={`w-full rounded-2xl border p-4 text-right transition-all duration-200 ${active ? 'border-emerald-500 bg-emerald-50 shadow-md shadow-emerald-100 dark:border-emerald-400 dark:bg-emerald-950/40 dark:shadow-none' : 'border-slate-200 bg-white hover:border-emerald-300 hover:bg-emerald-50/60 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-emerald-700 dark:hover:bg-emerald-950/30'}`}
+      className={`w-full rounded-2xl border p-4 text-right transition-all duration-200 ${active ? 'border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] shadow-md shadow-emerald-100 ' : 'border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] hover:border-[var(--dawaa-status-success-border)] hover:bg-[var(--dawaa-status-success-bg)]/60'}`}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="truncate text-sm font-bold text-slate-900 dark:text-white">
+          <h3 className="truncate text-sm font-bold text-[var(--dawaa-theme-heading)]">
             {request.title || 'طلب بدون عنوان'}
           </h3>
-          <p className="mt-1 truncate text-xs text-slate-500 dark:text-slate-400">
+          <p className="mt-1 truncate text-xs text-[var(--dawaa-theme-muted)]">
             {request.customer_name || 'عميل غير محدد'}
           </p>
         </div>
@@ -164,18 +164,18 @@ function RequestCard({
           {STATUS_LABELS[request.status] ?? request.status}
         </Badge>
         {request.branch_name ? (
-          <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+          <span className="rounded-full bg-[var(--dawaa-theme-soft)] px-2.5 py-1 text-xs text-[var(--dawaa-theme-text)]">
             {request.branch_name}
           </span>
         ) : null}
       </div>
-      <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-slate-500 dark:text-slate-400">
+      <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-[var(--dawaa-theme-muted)]">
         <div>
-          <span className="block font-semibold text-slate-700 dark:text-slate-200">آخر تفاعل</span>
+          <span className="block font-semibold text-[var(--dawaa-theme-text)]">آخر تفاعل</span>
           <span>{formatDateTime(request.last_interaction_at ?? request.updated_at)}</span>
         </div>
         <div>
-          <span className="block font-semibold text-slate-700 dark:text-slate-200">المسؤول</span>
+          <span className="block font-semibold text-[var(--dawaa-theme-text)]">المسؤول</span>
           <span>{request.assigned_to_name || 'غير محدد'}</span>
         </div>
       </div>
@@ -187,28 +187,28 @@ function TimelineItem({ item }: { item: CRMTimeline }) {
   const label = EVENT_LABELS[item.event_type] ?? item.event_type;
   return (
     <div className="relative pr-8">
-      <span className="absolute right-0 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-emerald-600 ring-4 ring-emerald-100 dark:ring-emerald-950" />
-      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <span className="absolute right-0 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-[var(--dawaa-status-success-text)] ring-4 ring-[var(--dawaa-status-success-border)]" />
+      <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
+            <span className="rounded-full bg-[var(--dawaa-status-success-bg)] px-3 py-1 text-xs font-bold text-[var(--dawaa-status-success-text)]">
               {label}
             </span>
-            <span className="text-xs text-slate-500 dark:text-slate-400">
+            <span className="text-xs text-[var(--dawaa-theme-muted)]">
               {item.created_by_name || 'مستخدم النظام'}
             </span>
           </div>
-          <span className="text-xs text-slate-500 dark:text-slate-400">
+          <span className="text-xs text-[var(--dawaa-theme-muted)]">
             {formatDateTime(item.created_at)}
           </span>
         </div>
         {item.old_status && item.new_status ? (
-          <div className="mt-3 rounded-xl bg-slate-50 p-3 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+          <div className="mt-3 rounded-xl bg-[var(--dawaa-theme-soft)] p-3 text-xs text-[var(--dawaa-theme-text)]">
             تم تغيير الحالة من <strong>{STATUS_LABELS[item.old_status] ?? item.old_status}</strong>{' '}
             إلى <strong>{STATUS_LABELS[item.new_status] ?? item.new_status}</strong>
           </div>
         ) : null}
-        <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-7 text-slate-800 dark:text-slate-100">
+        <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-7 text-[var(--dawaa-theme-heading)]">
           {item.note}
         </p>
       </div>
@@ -420,26 +420,26 @@ export default function CRMPage() {
     <PermissionGate
       permission="page.crm.view"
       fallback={
-        <div className="stat-card py-12 text-center text-slate-300" dir="rtl">
+        <div className="stat-card py-12 text-center text-[var(--dawaa-theme-muted)]" dir="rtl">
           ليس لديك صلاحية للوصول إلى CRM.
         </div>
       }
     >
       <main
         dir="rtl"
-        className="min-h-screen bg-slate-50 px-4 py-6 text-slate-900 dark:bg-slate-950 dark:text-white sm:px-6 lg:px-8"
+        className="min-h-screen bg-[var(--dawaa-theme-soft)] px-4 py-6 text-[var(--dawaa-theme-heading)] sm:px-6 lg:px-8"
       >
         <div className="mx-auto flex max-w-7xl flex-col gap-6">
-          <header className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <header className="rounded-3xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-5 shadow-sm">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div>
-                <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">
+                <p className="text-sm font-semibold text-[var(--dawaa-status-success-text)]">
                   Dawaa Pharmacy 2027
                 </p>
-                <h1 className="mt-2 text-2xl font-black tracking-tight text-slate-950 dark:text-white">
+                <h1 className="mt-2 text-2xl font-black tracking-tight text-[var(--dawaa-theme-heading)]">
                   لوحة CRM ومتابعة العملاء
                 </h1>
-                <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">
+                <p className="mt-2 text-sm leading-6 text-[var(--dawaa-theme-text)]">
                   متابعة طلبات العملاء والتفاعلات مع فلترة صارمة حسب company_id ونطاق الصلاحيات.
                 </p>
               </div>
@@ -447,45 +447,45 @@ export default function CRMPage() {
                 type="button"
                 onClick={() => loadRequests()}
                 disabled={requestsState === 'loading'}
-                className="inline-flex items-center justify-center rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex items-center justify-center rounded-2xl bg-[var(--dawaa-status-success-text)] px-5 py-3 text-sm font-bold text-[var(--dawaa-theme-primary-text)] shadow-sm transition hover:bg-[var(--dawaa-status-success-text)] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {requestsState === 'loading' ? 'جاري التحديث...' : 'تحديث البيانات'}
               </button>
             </div>
             <PageSectionsPreview path="/crm" />
             {errorMessage ? (
-              <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+              <div className="mt-4 rounded-2xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-4 text-sm font-medium text-[var(--dawaa-status-danger-text)]">
                 {errorMessage}
               </div>
             ) : null}
           </header>
 
           <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+            <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-4 shadow-sm">
+              <p className="text-xs font-semibold text-[var(--dawaa-theme-muted)]">
                 إجمالي الطلبات
               </p>
               <p className="mt-2 text-2xl font-black">{stats.total}</p>
             </div>
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+            <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-4 shadow-sm">
+              <p className="text-xs font-semibold text-[var(--dawaa-theme-muted)]">
                 طلبات مفتوحة
               </p>
-              <p className="mt-2 text-2xl font-black text-blue-700 dark:text-blue-300">
+              <p className="mt-2 text-2xl font-black text-[var(--dawaa-status-info-text)]">
                 {stats.open}
               </p>
             </div>
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+            <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-4 shadow-sm">
+              <p className="text-xs font-semibold text-[var(--dawaa-theme-muted)]">
                 طلبات عاجلة
               </p>
-              <p className="mt-2 text-2xl font-black text-red-700 dark:text-red-300">
+              <p className="mt-2 text-2xl font-black text-[var(--dawaa-status-danger-text)]">
                 {stats.urgent}
               </p>
             </div>
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">تم حلها</p>
-              <p className="mt-2 text-2xl font-black text-emerald-700 dark:text-emerald-300">
+            <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-4 shadow-sm">
+              <p className="text-xs font-semibold text-[var(--dawaa-theme-muted)]">تم حلها</p>
+              <p className="mt-2 text-2xl font-black text-[var(--dawaa-status-success-text)]">
                 {stats.resolved}
               </p>
             </div>
@@ -493,10 +493,10 @@ export default function CRMPage() {
 
           <section className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_390px]">
             <aside className="order-1 lg:order-2">
-              <div className="sticky top-4 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+              <div className="sticky top-4 rounded-3xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-4 shadow-sm">
                 <div className="mb-4">
                   <h2 className="text-lg font-black">طلبات CRM</h2>
-                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  <p className="mt-1 text-xs text-[var(--dawaa-theme-muted)]">
                     اختر طلبًا لعرض التايم لاين وإضافة متابعة.
                   </p>
                 </div>
@@ -508,7 +508,7 @@ export default function CRMPage() {
                       setFilters((current) => ({ ...current, search: event.target.value }))
                     }
                     placeholder="بحث باسم العميل، الهاتف، الكود أو العنوان..."
-                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100 dark:border-slate-700 dark:bg-slate-950 dark:focus:ring-emerald-950"
+                    className="w-full rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] px-4 py-3 text-sm outline-none transition focus:border-[var(--dawaa-status-success-border)] focus:ring-4 focus:ring-[var(--dawaa-status-success-border)]"
                   />
                   <div className="grid grid-cols-2 gap-2">
                     <select
@@ -519,7 +519,7 @@ export default function CRMPage() {
                           status: event.target.value as CRMFilters['status'],
                         }))
                       }
-                      className="rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:border-emerald-500 dark:border-slate-700 dark:bg-slate-950"
+                      className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] px-3 py-3 text-sm outline-none focus:border-[var(--dawaa-status-success-border)]"
                     >
                       <option value="all">كل الحالات</option>
                       <option value="new">جديد</option>
@@ -537,7 +537,7 @@ export default function CRMPage() {
                           priority: event.target.value as CRMFilters['priority'],
                         }))
                       }
-                      className="rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:border-emerald-500 dark:border-slate-700 dark:bg-slate-950"
+                      className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] px-3 py-3 text-sm outline-none focus:border-[var(--dawaa-status-success-border)]"
                     >
                       <option value="all">كل الأولويات</option>
                       <option value="low">منخفض</option>
@@ -549,11 +549,11 @@ export default function CRMPage() {
                 </div>
                 <div className="max-h-[calc(100vh-310px)] space-y-3 overflow-y-auto pl-1">
                   {requestsState === 'loading' ? (
-                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
+                    <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] p-6 text-center text-sm text-[var(--dawaa-theme-muted)]">
                       جاري تحميل الطلبات...
                     </div>
                   ) : filteredRequests.length === 0 ? (
-                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
+                    <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] p-6 text-center text-sm text-[var(--dawaa-theme-muted)]">
                       لا توجد طلبات مطابقة.
                     </div>
                   ) : (
@@ -578,7 +578,7 @@ export default function CRMPage() {
                 />
               ) : (
                 <div className="space-y-6">
-                  <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                  <div className="rounded-3xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-5 shadow-sm">
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                       <div className="min-w-0">
                         <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -589,21 +589,21 @@ export default function CRMPage() {
                             {PRIORITY_LABELS[selectedRequest.priority]}
                           </Badge>
                         </div>
-                        <h2 className="text-2xl font-black text-slate-950 dark:text-white">
+                        <h2 className="text-2xl font-black text-[var(--dawaa-theme-heading)]">
                           {selectedRequest.title}
                         </h2>
-                        <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-7 text-slate-600 dark:text-slate-300">
+                        <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-7 text-[var(--dawaa-theme-text)]">
                           {selectedRequest.description || 'لا يوجد وصف مسجل لهذا الطلب.'}
                         </p>
                       </div>
-                      <div className="rounded-2xl bg-slate-50 p-4 text-sm dark:bg-slate-950">
-                        <p className="font-bold text-slate-900 dark:text-white">
+                      <div className="rounded-2xl bg-[var(--dawaa-theme-soft)] p-4 text-sm">
+                        <p className="font-bold text-[var(--dawaa-theme-heading)]">
                           {selectedRequest.customer_name}
                         </p>
-                        <p className="mt-1 text-slate-500 dark:text-slate-400">
+                        <p className="mt-1 text-[var(--dawaa-theme-muted)]">
                           {selectedRequest.customer_phone || 'لا يوجد هاتف'}
                         </p>
-                        <p className="mt-1 text-slate-500 dark:text-slate-400">
+                        <p className="mt-1 text-[var(--dawaa-theme-muted)]">
                           {selectedRequest.customer_code || 'لا يوجد كود'}
                         </p>
                       </div>
@@ -612,11 +612,11 @@ export default function CRMPage() {
                   <PermissionGate permission="crm.action.add_note">
                     <form
                       onSubmit={handleSubmitNote}
-                      className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900"
+                      className="rounded-3xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-5 shadow-sm"
                     >
                       <div className="mb-4">
                         <h3 className="text-lg font-black">إضافة متابعة جديدة</h3>
-                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                        <p className="mt-1 text-xs text-[var(--dawaa-theme-muted)]">
                           الحفظ يتم مع company_id الحالي ولا يسمح بالكتابة خارج نطاق الشركة.
                         </p>
                       </div>
@@ -626,31 +626,31 @@ export default function CRMPage() {
                         maxLength={MAX_NOTE_LENGTH}
                         rows={5}
                         placeholder="اكتب ملخص المكالمة أو المتابعة أو رد العميل..."
-                        className="w-full resize-none rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm leading-7 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-100 dark:border-slate-700 dark:bg-slate-950 dark:focus:ring-emerald-950"
+                        className="w-full resize-none rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] px-4 py-3 text-sm leading-7 outline-none transition placeholder:text-[var(--dawaa-theme-muted)] focus:border-[var(--dawaa-status-success-border)] focus:ring-4 focus:ring-[var(--dawaa-status-success-border)]"
                       />
                       <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                        <span className="text-xs text-slate-500 dark:text-slate-400">
+                        <span className="text-xs text-[var(--dawaa-theme-muted)]">
                           {note.length} / {MAX_NOTE_LENGTH} حرف
                         </span>
                         <button
                           type="submit"
                           disabled={btnLoading || !selectedRequest}
-                          className="inline-flex items-center justify-center rounded-2xl bg-emerald-600 px-6 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                          className="inline-flex items-center justify-center rounded-2xl bg-[var(--dawaa-status-success-text)] px-6 py-3 text-sm font-bold text-[var(--dawaa-theme-primary-text)] shadow-sm transition hover:bg-[var(--dawaa-status-success-text)] disabled:cursor-not-allowed disabled:opacity-60"
                         >
                           {btnLoading ? 'جاري الحفظ...' : 'حفظ المتابعة'}
                         </button>
                       </div>
                     </form>
                   </PermissionGate>
-                  <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                  <div className="rounded-3xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-5 shadow-sm">
                     <div className="mb-5">
                       <h3 className="text-lg font-black">Timeline</h3>
-                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                      <p className="mt-1 text-xs text-[var(--dawaa-theme-muted)]">
                         سجل كامل للتفاعلات الخاصة بهذا الطلب.
                       </p>
                     </div>
                     {timelineState === 'loading' ? (
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
+                      <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] p-6 text-center text-sm text-[var(--dawaa-theme-muted)]">
                         جاري تحميل التايم لاين...
                       </div>
                     ) : timeline.length === 0 ? (
@@ -659,7 +659,7 @@ export default function CRMPage() {
                         description="أضف أول متابعة لهذا الطلب من النموذج بالأعلى."
                       />
                     ) : (
-                      <div className="relative space-y-5 before:absolute before:right-[7px] before:top-2 before:h-[calc(100%-16px)] before:w-0.5 before:bg-emerald-100 dark:before:bg-emerald-950">
+                      <div className="relative space-y-5 before:absolute before:right-[7px] before:top-2 before:h-[calc(100%-16px)] before:w-0.5 before:bg-[var(--dawaa-status-success-bg)]">
                         {timeline.map((item) => (
                           <TimelineItem key={item.id} item={item} />
                         ))}
