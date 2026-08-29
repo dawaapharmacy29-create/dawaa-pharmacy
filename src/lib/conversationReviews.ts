@@ -458,13 +458,12 @@ export function clampScore(value: number) {
 }
 
 export function baseDoctorImpactFromScore(score: number) {
-  // السلم النهائي المعتمد: تدرّج أوضح بدل قفزة حادة بين 79% و80% أو بين 89% و90%.
-  if (score >= 100) return 5;
-  if (score >= 95) return 3;
-  if (score >= 90) return 2;
-  if (score >= 85) return -1;
-  if (score >= 80) return -3;
-  if (score >= 70) return -6;
+  // السلم المعتمد رسميًا من صاحب الصيدلية (نظام النقاط الجديد):
+  // 96-100% = +6، 90-95% = +3، 85-89% = -3، 80-84% = -6، أقل من 80% = -10.
+  if (score >= 96) return 6;
+  if (score >= 90) return 3;
+  if (score >= 85) return -3;
+  if (score >= 80) return -6;
   return -10;
 }
 
