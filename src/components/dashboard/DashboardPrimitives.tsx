@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 
 /**
  * Shared visual primitives for dashboard pages, extracted verbatim from
@@ -17,13 +17,15 @@ export function Panel({
   children,
   className = '',
   id,
+  style,
 }: {
   children: ReactNode;
   className?: string;
   id?: string;
+  style?: CSSProperties;
 }) {
   return (
-    <section id={id} className={`dawaa-card dawaa-card--raised rounded-3xl ${className}`}>
+    <section id={id} className={`dawaa-card dawaa-card--raised rounded-3xl ${className}`} style={style}>
       {children}
     </section>
   );

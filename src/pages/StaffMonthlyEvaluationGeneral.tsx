@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Award, CheckCircle2, Loader2, Save, Search, Send, Star, UserCheck } from 'lucide-react';
+import {
+  Award, CheckCircle2, ChevronDown, Loader2, Save, Search, Send, ShieldAlert, Star, UserCheck,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
@@ -16,6 +18,19 @@ import {
   getStaffPointsDashboardV3,
   type StaffPointsDashboardV3,
 } from '@/lib/staff/staffPointsDashboardService';
+import {
+  currentEvaluationCycleLabel,
+  previousEvaluationCycleLabel,
+  evaluationCycleRangeFromLabel,
+  evaluationCycleQueryBounds,
+} from '@/lib/evaluations/monthlyEvaluationCycle';
+import {
+  CRITICAL_GATE_CAPS,
+  resolveIncentiveTier,
+  applyIncentiveGates,
+  type CriticalGateType,
+} from '@/lib/evaluations/incentiveTiers';
+import { Panel, SectionTitle, KpiCard, MiniBox, EmptyState } from '@/components/dashboard/DashboardPrimitives';
 
 type StaffRow = {
   id: string;
@@ -53,14 +68,16 @@ const EMPTY_METRICS: Metrics = {
   engine_version: 3,
 };
 
-function monthStart(value: string) {
-  return `${value}-01`;
-}
-
-function nextMonthStart(value: string) {
-  const [year, month] = value.split('-').map(Number);
-  return new Date(Date.UTC(year, month, 1)).toISOString().slice(0, 10);
-}
+const METRIC_LABELS: Record<keyof Omit<Metrics, 'engine_version'>, string> = {
+  review_count: 'عدد مراجعات المحادثات',
+  review_average: 'متوسط تقييم المحادثات',
+  completed_followups: 'متابعات مكتملة',
+  followup_count: 'إجمالي المتابعات',
+  conversation_positive_points: 'نقاط إيجابية من المحادثات',
+  conversation_negative_points: 'نقاط سلبية من المحادثات',
+  attendance_days: 'أيام مسجّلة في الحضور',
+  present_days: 'أيام حضور فعلي',
+};
 
 function safeNumber(value: unknown) {
   const number = Number(value || 0);
@@ -73,13 +90,6 @@ function gradeFor(score: number) {
   if (score >= 70) return 'جيد';
   if (score >= 60) return 'مقبول';
   return 'يحتاج خطة تحسين';
-}
-
-function scoreColor(score: number) {
-  if (score >= 90) return 'text-emerald-300';
-  if (score >= 75) return 'text-cyan-300';
-  if (score >= 60) return 'text-amber-300';
-  return 'text-rose-300';
 }
 
 function starMeaning(score: number) {
@@ -95,15 +105,18 @@ function normalizeSavedSections(
   fallback: StaffEvaluationSectionV3[]
 ): StaffEvaluationSectionV3[] {
   if (!Array.isArray(saved) || !saved.length) return fallback;
+  const byKey = new Map(fallback.map((item) => [item.key, item]));
   return saved.map((raw) => {
     const row = raw as Record<string, unknown>;
+    const key = String(row.key || '');
     return {
-      key: String(row.key || ''),
+      key,
       title: String(row.title || ''),
       description: String(row.description || ''),
       weight: safeNumber(row.weight),
       score: safeNumber(row.score),
       notes: String(row.notes || ''),
+      rubric: byKey.get(key)?.rubric,
     };
   });
 }
@@ -116,13 +129,16 @@ export default function StaffMonthlyEvaluation() {
   const globalScope = ['branches_manager', 'executive', 'admin'].includes(actorRole);
 
   const [branch, setBranch] = useState(globalScope ? 'فرع الشامي' : ownBranch);
-  const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [cycleLabel, setCycleLabel] = useState(() => currentEvaluationCycleLabel());
+  const cycleRange = useMemo(() => evaluationCycleRangeFromLabel(cycleLabel), [cycleLabel]);
   const [staff, setStaff] = useState<StaffRow[]>([]);
   const [selectedId, setSelectedId] = useState('');
   const [search, setSearch] = useState('');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sections, setSections] = useState<StaffEvaluationSectionV3[]>([]);
   const [metrics, setMetrics] = useState<Metrics>(EMPTY_METRICS);
   const [pointsTruth, setPointsTruth] = useState<StaffPointsDashboardV3 | null>(null);
+  const [activeGates, setActiveGates] = useState<CriticalGateType[]>([]);
   const [strengthsText, setStrengthsText] = useState('');
   const [developmentText, setDevelopmentText] = useState('');
   const [managerNotes, setManagerNotes] = useState('');
@@ -148,6 +164,14 @@ export default function StaffMonthlyEvaluation() {
     [sections]
   );
   const grade = gradeFor(overallScore);
+
+  const tierPreview = useMemo(() => {
+    const tier = resolveIncentiveTier(overallScore);
+    const payoutPercent = applyIncentiveGates(tier.payoutPercent, activeGates);
+    const maxEgp = pointsTruth?.max_incentive_egp ?? null;
+    const previewEgp = maxEgp == null ? null : Math.round((maxEgp * payoutPercent) / 100);
+    return { tier, payoutPercent, previewEgp, gated: payoutPercent < tier.payoutPercent };
+  }, [overallScore, activeGates, pointsTruth?.max_incentive_egp]);
 
   useEffect(() => {
     const loadStaff = async () => {
@@ -178,30 +202,30 @@ export default function StaffMonthlyEvaluation() {
     const loadEvaluation = async () => {
       setLoading(true);
       try {
-        const endDate = nextMonthStart(month);
-        const monthCycle = month;
+        const { startDate, endDateExclusive } = evaluationCycleQueryBounds(cycleLabel);
+        const cycleKeyDate = `${cycleLabel}-01`;
         const [savedResult, reviewResult, followupResult, attendanceResult, pointsResult] = await Promise.all([
           supabase.rpc('get_staff_monthly_evaluation_safe', {
             p_actor_id: user.id,
             p_staff_id: selectedId,
-            p_month: monthStart(month),
+            p_month: cycleKeyDate,
           }),
           supabase
             .from('conversation_sales_reviews')
             .select('total_score,final_score,doctor_points_impact,point_impact,created_at')
             .eq('staff_id', selectedId)
-            .gte('created_at', monthStart(month))
-            .lt('created_at', endDate)
+            .gte('created_at', startDate)
+            .lt('created_at', endDateExclusive)
             .limit(500),
           supabase
             .from('daily_followups')
             .select('status,followup_status,completed_at,created_at,assigned_staff_id,requested_by_staff_id')
             .or(`assigned_staff_id.eq.${selectedId},requested_by_staff_id.eq.${selectedId}`)
-            .gte('created_at', monthStart(month))
-            .lt('created_at', endDate)
+            .gte('created_at', startDate)
+            .lt('created_at', endDateExclusive)
             .limit(1000),
-          readAttendanceRange({ staffId: selectedId, startDate: monthStart(month), endDateExclusive: endDate, limit: 100 }),
-          getStaffPointsDashboardV3(selectedId, monthCycle).catch(() => null),
+          readAttendanceRange({ staffId: selectedId, startDate, endDateExclusive, limit: 100 }),
+          getStaffPointsDashboardV3(selectedId, cycleLabel).catch(() => null),
         ]);
 
         if (savedResult.error) throw savedResult.error;
@@ -243,6 +267,9 @@ export default function StaffMonthlyEvaluation() {
           setDevelopmentText(Array.isArray(saved.development_points) ? saved.development_points.map(String).join('\n') : '');
           setManagerNotes(String(saved.manager_notes || ''));
           setStatus(String(saved.status || 'draft'));
+          const snapshot = saved.metrics_snapshot as Record<string, unknown> | null;
+          const savedGates = snapshot && Array.isArray(snapshot.active_critical_gates) ? (snapshot.active_critical_gates as string[]) : [];
+          setActiveGates(savedGates.filter((gate): gate is CriticalGateType => gate in CRITICAL_GATE_CAPS));
         } else {
           setEvaluationId(null);
           setSections(freshSections);
@@ -250,6 +277,7 @@ export default function StaffMonthlyEvaluation() {
           setDevelopmentText('');
           setManagerNotes('');
           setStatus('draft');
+          setActiveGates([]);
         }
       } catch (cause) {
         toast.error(cause instanceof Error ? cause.message : 'تعذر تحميل التقييم');
@@ -258,10 +286,14 @@ export default function StaffMonthlyEvaluation() {
       }
     };
     void loadEvaluation();
-  }, [month, selected, selectedId, user?.id]);
+  }, [cycleLabel, selected, selectedId, user?.id]);
 
   function updateSection(key: string, patch: Partial<StaffEvaluationSectionV3>) {
     setSections((current) => current.map((item) => item.key === key ? { ...item, ...patch } : item));
+  }
+
+  function toggleGate(gate: CriticalGateType) {
+    setActiveGates((current) => current.includes(gate) ? current.filter((item) => item !== gate) : [...current, gate]);
   }
 
   async function save(nextStatus = status) {
@@ -284,7 +316,7 @@ export default function StaffMonthlyEvaluation() {
         staff_name: selected.name,
         staff_role: selected.job_title || selected.role,
         branch: selected.branch || branch,
-        evaluation_month: monthStart(month),
+        evaluation_month: `${cycleLabel}-01`,
         evaluator_id: user.id,
         evaluator_name: user.name || 'المدير',
         evaluator_role: user.role || null,
@@ -293,6 +325,8 @@ export default function StaffMonthlyEvaluation() {
           ...metrics,
           evaluation_engine_version: 3,
           canonical_role: profile.role,
+          evaluation_cycle_label: cycleLabel,
+          active_critical_gates: activeGates,
           points_truth: pointsTruth ? {
             month_cycle: pointsTruth.month_cycle,
             starting_points: pointsTruth.starting_points,
@@ -328,7 +362,7 @@ export default function StaffMonthlyEvaluation() {
         await createStaffNotification({
           recipientStaffId: selected.id,
           title: 'تم إرسال تقييمك الشهري',
-          message: `تقييم شهر ${month}: ${overallScore}/100 - ${grade}. الحافز المالي يُحسب من نظام النقاط المركزي.`,
+          message: `تقييم دورة ${cycleRange.displayLabel}: ${overallScore}/100 - ${grade}. الحافز المالي يُحسب من نظام النقاط المركزي.`,
           type: 'staff_monthly_evaluation',
           entityType: 'staff_monthly_evaluation',
           entityId: String(data || evaluationId || ''),
@@ -347,128 +381,246 @@ export default function StaffMonthlyEvaluation() {
   const canonicalIncentive = pointsTruth?.final_incentive_egp;
 
   return (
-    <div className="min-h-screen space-y-5 bg-slate-950 p-4 text-white" dir="rtl">
-      <section className="rounded-3xl border border-cyan-300/20 bg-gradient-to-l from-cyan-950/50 to-slate-900 p-5">
+    <div className="min-h-screen space-y-4 p-4" dir="rtl" style={{ background: 'var(--dawaa-theme-bg)' }}>
+      <Panel className="p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h1 className="flex items-center gap-2 text-2xl font-black"><UserCheck className="text-cyan-300" /> التقييم الشهري للموظفين</h1>
-            <p className="mt-2 max-w-3xl text-sm font-bold text-slate-300">
+            <h1 className="flex items-center gap-2 text-2xl font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>
+              <UserCheck style={{ color: 'var(--dawaa-theme-primary-strong)' }} /> التقييم الشهري للموظفين
+            </h1>
+            <p className="mt-2 max-w-3xl text-sm font-bold" style={{ color: 'var(--dawaa-theme-text)' }}>
               تقييم جودة وتطوير حسب مسار الوظيفة. الدرجة من 100 مستقلة عن مبلغ الحافز؛ المبلغ النهائي يأتي فقط من Points Truth + Compensation Profile.
             </p>
           </div>
-          <div className="flex gap-2">
-            <input type="month" value={month} onChange={(event) => setMonth(event.target.value)} className="input-dark" />
-            {managerMode && canViewAllBranches(user) ? (
-              <select value={branch} onChange={(event) => setBranch(event.target.value)} className="input-dark">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex overflow-hidden rounded-2xl border" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
+              <button
+                type="button"
+                onClick={() => setCycleLabel(previousEvaluationCycleLabel(currentEvaluationCycleLabel()))}
+                className="px-3 py-2 text-xs font-black"
+                style={cycleLabel === previousEvaluationCycleLabel(currentEvaluationCycleLabel())
+                  ? { background: 'var(--dawaa-theme-primary)', color: 'var(--dawaa-theme-primary-text)' }
+                  : { color: 'var(--dawaa-theme-muted)' }}
+              >
+                الدورة السابقة
+              </button>
+              <button
+                type="button"
+                onClick={() => setCycleLabel(currentEvaluationCycleLabel())}
+                className="px-3 py-2 text-xs font-black"
+                style={cycleLabel === currentEvaluationCycleLabel()
+                  ? { background: 'var(--dawaa-theme-primary)', color: 'var(--dawaa-theme-primary-text)' }
+                  : { color: 'var(--dawaa-theme-muted)' }}
+              >
+                الدورة الحالية
+              </button>
+            </div>
+            {globalScope ? (
+              <select value={branch} onChange={(event) => setBranch(event.target.value)} className="rounded-2xl border px-3 py-2 text-sm font-black" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-theme-text)' }}>
                 <option>فرع الشامي</option><option>فرع شكري</option>
               </select>
             ) : null}
           </div>
         </div>
-      </section>
+        <div className="mt-3 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-black" style={{ borderColor: 'var(--dawaa-theme-accent-border)', background: 'var(--dawaa-theme-accent-soft)', color: 'var(--dawaa-theme-primary-strong)' }}>
+          فترة الدورة: {cycleRange.displayLabel}
+        </div>
+      </Panel>
 
       <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
-        <aside className="rounded-3xl border border-white/10 bg-slate-900/70 p-4">
-          <div className="relative">
-            <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500" size={17} />
-            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="بحث باسم الموظف" className="input-dark w-full pr-10" />
-          </div>
-          <div className="mt-3 max-h-[70vh] space-y-2 overflow-y-auto">
-            {filteredStaff.map((item) => (
-              <button key={item.id} onClick={() => setSelectedId(item.id)} className={`w-full rounded-2xl border p-3 text-right ${selectedId === item.id ? 'border-cyan-300/60 bg-cyan-400/15' : 'border-white/10 bg-white/[0.03]'}`}>
-                <div className="font-black">{item.name}</div>
-                <div className="mt-1 text-xs text-slate-400">{item.job_title || item.role} · {item.branch}</div>
-              </button>
-            ))}
+        <aside className="rounded-3xl border p-4 xl:sticky xl:top-4 xl:h-fit" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}>
+          <button
+            type="button"
+            onClick={() => setSidebarOpen((value) => !value)}
+            className="flex w-full items-center justify-between gap-2 text-sm font-black xl:hidden"
+            style={{ color: 'var(--dawaa-theme-heading)' }}
+          >
+            <span>اختيار الموظف {selected ? `— ${selected.name}` : ''}</span>
+            <ChevronDown className={sidebarOpen ? 'rotate-180 transition-transform' : 'transition-transform'} size={16} />
+          </button>
+          <div className={`${sidebarOpen ? 'block' : 'hidden'} xl:block`}>
+            <div className="relative mt-3 xl:mt-0">
+              <Search className="absolute right-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--dawaa-theme-muted)' }} size={17} />
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="بحث باسم الموظف"
+                className="w-full rounded-2xl border py-2.5 pr-10 pl-3 text-sm font-bold"
+                style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-theme-text)' }}
+              />
+            </div>
+            <div className="mt-3 max-h-[70vh] space-y-2 overflow-y-auto">
+              {filteredStaff.map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => { setSelectedId(item.id); setSidebarOpen(false); }}
+                  className="w-full rounded-2xl border p-3 text-right"
+                  style={selectedId === item.id
+                    ? { borderColor: 'var(--dawaa-theme-accent-border)', background: 'var(--dawaa-theme-accent-soft)' }
+                    : { borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}
+                >
+                  <div className="font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>{item.name}</div>
+                  <div className="mt-1 text-xs" style={{ color: 'var(--dawaa-theme-muted)' }}>{item.job_title || item.role} · {item.branch}</div>
+                </button>
+              ))}
+            </div>
           </div>
         </aside>
 
         <main className="space-y-4">
           {loading ? (
-            <div className="rounded-3xl border border-white/10 p-10 text-center"><Loader2 className="mx-auto animate-spin" /> جاري التحميل...</div>
+            <Panel className="p-10 text-center"><Loader2 className="mx-auto animate-spin" style={{ color: 'var(--dawaa-theme-muted)' }} /> <span style={{ color: 'var(--dawaa-theme-muted)' }}>جاري التحميل...</span></Panel>
           ) : selected ? (
             <>
-              <section className="rounded-3xl border border-cyan-300/20 bg-cyan-400/5 p-4">
-                <div className="font-black text-cyan-100">{profile.label}: {profile.mission}</div>
-                <div className="mt-2 text-xs font-bold text-slate-400">المحاور التالية خاصة بالدور: {selected.job_title || selected.role || 'غير محدد'}.</div>
-              </section>
+              <Panel className="p-4" style={{ background: 'var(--dawaa-theme-accent-soft)', borderColor: 'var(--dawaa-theme-accent-border)' }}>
+                <div className="font-black" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>{profile.label}: {profile.mission}</div>
+                <div className="mt-2 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>المحاور التالية خاصة بالدور: {selected.job_title || selected.role || 'غير محدد'}.</div>
+              </Panel>
 
               <section className="grid gap-3 md:grid-cols-4">
-                <div className="rounded-2xl border border-white/10 bg-slate-900 p-4"><div className="text-xs text-slate-400">نتيجة التقييم</div><div className={`mt-1 text-3xl font-black ${scoreColor(overallScore)}`}>{overallScore}/100</div></div>
-                <div className="rounded-2xl border border-white/10 bg-slate-900 p-4"><div className="text-xs text-slate-400">التقدير</div><div className="mt-1 text-xl font-black">{grade}</div></div>
-                <div className="rounded-2xl border border-white/10 bg-slate-900 p-4"><div className="text-xs text-slate-400">النقاط الحالية</div><div className="mt-1 text-xl font-black text-cyan-300">{pointsTruth ? `${pointsTruth.final_points} / ${pointsTruth.target_points}` : '—'}</div></div>
-                <div className="rounded-2xl border border-white/10 bg-slate-900 p-4"><div className="text-xs text-slate-400">حافز الأداء المركزي</div><div className="mt-1 text-xl font-black text-emerald-300">{canonicalIncentive == null ? 'غير محدد' : `${canonicalIncentive.toLocaleString('ar-EG')} جنيه`}</div></div>
+                <KpiCard title="نتيجة التقييم" value={`${overallScore}/100`} subtitle={grade} icon={<Star size={20} />} tone={overallScore >= 80 ? 'green' : overallScore >= 60 ? 'amber' : 'red'} />
+                <KpiCard title="النقاط الحالية" value={pointsTruth ? `${pointsTruth.final_points} / ${pointsTruth.target_points}` : '—'} subtitle="دورة الحافز الحالية" icon={<Award size={20} />} tone="cyan" />
+                <KpiCard title="فئة الحافز المتوقعة" value={`${tierPreview.payoutPercent}%`} subtitle={tierPreview.tier.label} icon={<ShieldAlert size={20} />} tone={tierPreview.gated ? 'red' : 'purple'} />
+                <KpiCard title="حافز الأداء المركزي" value={canonicalIncentive == null ? 'غير محدد' : `${canonicalIncentive.toLocaleString('ar-EG')} جنيه`} subtitle={tierPreview.previewEgp != null ? `معاينة عند الاعتماد: ${tierPreview.previewEgp.toLocaleString('ar-EG')} جنيه` : 'لا يوجد Compensation Profile'} icon={<CheckCircle2 size={20} />} tone="green" />
               </section>
 
               {!pointsTruth?.profile_configured ? (
-                <section className="rounded-2xl border border-amber-300/25 bg-amber-500/10 p-4 text-sm font-bold text-amber-100">
-                  لا يوجد Compensation Profile مالي مكتمل لهذا الموظف؛ لذلك لا يتم توليد أو اقتراح مبلغ مالي من التقييم الشهري.
-                </section>
+                <Panel className="p-4" style={{ background: 'var(--dawaa-status-warning-bg)', borderColor: 'var(--dawaa-status-warning-border)' }}>
+                  <p className="text-sm font-bold" style={{ color: 'var(--dawaa-status-warning-text)' }}>
+                    لا يوجد Compensation Profile مالي مكتمل لهذا الموظف؛ لذلك لا يتم توليد أو اقتراح مبلغ مالي من التقييم الشهري.
+                  </p>
+                </Panel>
               ) : null}
 
-              <section className="rounded-3xl border border-white/10 bg-slate-900/70 p-4">
-                <h2 className="font-black">بيانات تشغيلية مساعدة للتقييم</h2>
-                <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                  {Object.entries(metrics).filter(([key]) => key !== 'engine_version').map(([key, value]) => (
-                    <div key={key} className="rounded-xl bg-white/[0.04] p-3 text-sm font-bold"><span className="text-slate-400">{key.replaceAll('_', ' ')}:</span> {value}</div>
+              <Panel className="p-4">
+                <SectionTitle
+                  title="مخالفات حرجة تحدّ من الحافز"
+                  subtitle="مستقلة عن درجة التقييم — أي مخالفة مفعّلة تحط سقف على نسبة الحافز مهما كانت الدرجة عالية"
+                  icon={<ShieldAlert size={18} />}
+                />
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {(Object.entries(CRITICAL_GATE_CAPS) as [CriticalGateType, typeof CRITICAL_GATE_CAPS[CriticalGateType]][]).map(([key, gate]) => {
+                    const active = activeGates.includes(key);
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        disabled={!canEdit}
+                        onClick={() => toggleGate(key)}
+                        className="flex items-center justify-between gap-2 rounded-xl border p-3 text-right text-xs font-black disabled:cursor-default"
+                        style={active
+                          ? { borderColor: 'var(--dawaa-status-danger-border)', background: 'var(--dawaa-status-danger-bg)', color: 'var(--dawaa-status-danger-text)' }
+                          : { borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-theme-text)' }}
+                      >
+                        <span>{gate.label}</span>
+                        <span>سقف {gate.capPercent}%</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {tierPreview.gated ? (
+                  <p className="mt-3 text-xs font-bold" style={{ color: 'var(--dawaa-status-danger-text)' }}>
+                    نسبة الحافز محدودة عند {tierPreview.payoutPercent}% بسبب مخالفة مفعّلة، بدل {tierPreview.tier.payoutPercent}% اللي كانت هتستحقها الدرجة لوحدها.
+                  </p>
+                ) : null}
+              </Panel>
+
+              <Panel className="p-4">
+                <SectionTitle title="بيانات تشغيلية مساعدة للتقييم" icon={<Search size={18} />} />
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                  {(Object.keys(METRIC_LABELS) as (keyof typeof METRIC_LABELS)[]).map((key) => (
+                    <MiniBox key={key} label={METRIC_LABELS[key]} value={String(metrics[key])} tone="cyan" />
                   ))}
                 </div>
-              </section>
+              </Panel>
 
-              <section className="rounded-3xl border border-amber-300/25 bg-amber-500/5 p-4">
-                <h2 className="font-black text-amber-200">قاعدة الفصل بين التقييم والحافز</h2>
-                <p className="mt-2 text-sm leading-7 text-slate-300">
+              <Panel className="p-4" style={{ background: 'var(--dawaa-status-warning-bg)', borderColor: 'var(--dawaa-status-warning-border)' }}>
+                <h2 className="font-black" style={{ color: 'var(--dawaa-status-warning-text)' }}>قاعدة الفصل بين التقييم والحافز</h2>
+                <p className="mt-2 text-sm leading-7" style={{ color: 'var(--dawaa-theme-text)' }}>
                   التقييم الشهري يقيس جودة العمل ويحدد نقاط القوة وخطة التحسين. لا يحسب مبلغًا مستقلًا ولا يستطيع تجاوز محرك النقاط. المكافآت والخصومات التشغيلية تدخل الـLedger من أحداثها الأصلية، والحافز بالجنيه يخرج من Compensation Profile والمصدر المركزي فقط.
                 </p>
-              </section>
+              </Panel>
 
               <section className="space-y-3">
                 {sections.map((item) => {
                   const earned = sectionPoints(item);
                   return (
-                    <article key={item.key} className="rounded-3xl border border-white/10 bg-slate-900/70 p-4">
+                    <Panel key={item.key} className="p-4">
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div className="max-w-3xl">
-                          <h3 className="font-black">{item.title} <span className="text-xs text-cyan-300">الوزن: {item.weight}</span></h3>
-                          <p className="mt-1 text-xs leading-6 text-slate-400">{item.description}</p>
+                          <h3 className="font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>
+                            {item.title} <span className="text-xs" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>الوزن: {item.weight}</span>
+                          </h3>
+                          <p className="mt-1 text-xs leading-6" style={{ color: 'var(--dawaa-theme-muted)' }}>{item.description}</p>
                         </div>
                         <div className="min-w-[230px]">
                           <div className="flex justify-end gap-1">
                             {[1, 2, 3, 4, 5].map((score) => (
-                              <button type="button" aria-label={`اختيار ${score} نجوم`} disabled={!canEdit} key={score} onClick={() => updateSection(item.key, { score })} className="rounded-lg p-1 transition hover:bg-amber-400/10 disabled:cursor-default">
-                                <Star className={score <= item.score ? 'fill-amber-400 text-amber-400' : 'text-slate-600'} size={27} />
+                              <button type="button" aria-label={`اختيار ${score} نجوم`} disabled={!canEdit} key={score} onClick={() => updateSection(item.key, { score })} className="rounded-lg p-1 transition disabled:cursor-default">
+                                <Star className={score <= item.score ? 'fill-current' : ''} style={{ color: score <= item.score ? 'var(--dawaa-status-warning-text)' : 'var(--dawaa-theme-border)' }} size={27} />
                               </button>
                             ))}
                           </div>
-                          <div className="mt-2 rounded-xl border border-cyan-300/20 bg-cyan-400/10 px-3 py-2 text-center text-sm font-black text-cyan-100">
+                          <div className="mt-2 rounded-xl border px-3 py-2 text-center text-sm font-black" style={{ borderColor: 'var(--dawaa-theme-accent-border)', background: 'var(--dawaa-theme-accent-soft)', color: 'var(--dawaa-theme-primary-strong)' }}>
                             {item.score ? `${item.score} نجوم — ${starMeaning(item.score)} — ${earned} من ${item.weight}` : `لم يتم التقييم — 0 من ${item.weight}`}
                           </div>
                         </div>
                       </div>
-                      <textarea disabled={!canEdit} value={item.notes} onChange={(event) => updateSection(item.key, { notes: event.target.value })} rows={2} placeholder="ملاحظة واضحة على هذا المحور" className="input-dark mt-3 w-full disabled:opacity-70" />
-                    </article>
+                      {item.rubric ? (
+                        <div className="mt-3 rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-soft)' }}>
+                          <p className="mb-2 text-[11px] font-black" style={{ color: 'var(--dawaa-theme-muted)' }}>معيار الدرجة على هذا المحور:</p>
+                          <ul className="space-y-1 text-xs" style={{ color: 'var(--dawaa-theme-text)' }}>
+                            {item.rubric.map((line, index) => (
+                              <li key={index} className={item.score === index + 1 ? 'font-black' : ''} style={item.score === index + 1 ? { color: 'var(--dawaa-theme-primary-strong)' } : undefined}>
+                                {index + 1} نجوم — {line}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+                      <textarea
+                        disabled={!canEdit}
+                        value={item.notes}
+                        onChange={(event) => updateSection(item.key, { notes: event.target.value })}
+                        rows={2}
+                        placeholder="ملاحظة واضحة على هذا المحور"
+                        className="mt-3 w-full rounded-xl border p-2.5 text-sm disabled:opacity-70"
+                        style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-theme-text)' }}
+                      />
+                    </Panel>
                   );
                 })}
               </section>
 
               <section className="grid gap-3 lg:grid-cols-3">
-                <div className="rounded-3xl border border-white/10 bg-slate-900/70 p-4"><h3 className="font-black text-emerald-200">نقاط القوة</h3><textarea disabled={!canEdit} rows={6} value={strengthsText} onChange={(event) => setStrengthsText(event.target.value)} placeholder="كل نقطة في سطر" className="input-dark mt-3 w-full disabled:opacity-70" /></div>
-                <div className="rounded-3xl border border-white/10 bg-slate-900/70 p-4"><h3 className="font-black text-amber-200">خطة التطوير</h3><textarea disabled={!canEdit} rows={6} value={developmentText} onChange={(event) => setDevelopmentText(event.target.value)} placeholder="كل خطوة تطوير في سطر" className="input-dark mt-3 w-full disabled:opacity-70" /></div>
-                <div className="rounded-3xl border border-white/10 bg-slate-900/70 p-4"><h3 className="font-black text-cyan-200">ملاحظات المدير</h3><textarea disabled={!canEdit} rows={6} value={managerNotes} onChange={(event) => setManagerNotes(event.target.value)} className="input-dark mt-3 w-full disabled:opacity-70" /></div>
+                <Panel className="p-4">
+                  <h3 className="font-black" style={{ color: 'var(--dawaa-status-success-text)' }}>نقاط القوة</h3>
+                  <textarea disabled={!canEdit} rows={6} value={strengthsText} onChange={(event) => setStrengthsText(event.target.value)} placeholder="كل نقطة في سطر" className="mt-3 w-full rounded-xl border p-2.5 text-sm disabled:opacity-70" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-theme-text)' }} />
+                </Panel>
+                <Panel className="p-4">
+                  <h3 className="font-black" style={{ color: 'var(--dawaa-status-warning-text)' }}>خطة التطوير</h3>
+                  <textarea disabled={!canEdit} rows={6} value={developmentText} onChange={(event) => setDevelopmentText(event.target.value)} placeholder="كل خطوة تطوير في سطر" className="mt-3 w-full rounded-xl border p-2.5 text-sm disabled:opacity-70" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-theme-text)' }} />
+                </Panel>
+                <Panel className="p-4">
+                  <h3 className="font-black" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>ملاحظات المدير</h3>
+                  <textarea disabled={!canEdit} rows={6} value={managerNotes} onChange={(event) => setManagerNotes(event.target.value)} className="mt-3 w-full rounded-xl border p-2.5 text-sm disabled:opacity-70" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-theme-text)' }} />
+                </Panel>
               </section>
 
-              <section className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-white/10 bg-slate-900/70 p-4">
-                <div className="flex items-center gap-2 text-sm font-bold text-slate-300"><CheckCircle2 className="text-cyan-300" size={18} /> الحالة: {status} · المحرك: V3</div>
+              <Panel className="flex flex-wrap items-center justify-between gap-3 p-4">
+                <div className="flex items-center gap-2 text-sm font-bold" style={{ color: 'var(--dawaa-theme-text)' }}>
+                  <CheckCircle2 style={{ color: 'var(--dawaa-theme-primary-strong)' }} size={18} /> الحالة: {status} · المحرك: V3
+                </div>
                 {canEdit ? (
                   <div className="flex gap-2">
                     <button type="button" disabled={saving} onClick={() => void save('draft')} className="btn-secondary inline-flex items-center gap-2"><Save size={16} /> حفظ</button>
                     <button type="button" disabled={saving} onClick={() => void save('sent')} className="btn-primary inline-flex items-center gap-2">{saving ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />} إرسال للموظف</button>
                   </div>
                 ) : null}
-              </section>
+              </Panel>
             </>
           ) : (
-            <div className="rounded-3xl border border-dashed border-white/10 p-10 text-center text-slate-500">اختر موظفًا لعرض تقييمه.</div>
+            <EmptyState label="اختر موظفًا لعرض تقييمه." />
           )}
         </main>
       </div>
