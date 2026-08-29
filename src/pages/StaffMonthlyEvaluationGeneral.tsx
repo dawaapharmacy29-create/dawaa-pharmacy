@@ -27,8 +27,6 @@ import {
 import {
   CRITICAL_GATE_CAPS,
   CRITICAL_GATE_POINT_PENALTY,
-  resolveIncentiveTier,
-  applyIncentiveGates,
   type CriticalGateType,
 } from '@/lib/evaluations/incentiveTiers';
 import { createEmployeeTransaction } from '@/services/employeeTransactionService';
@@ -180,13 +178,13 @@ export default function StaffMonthlyEvaluation() {
   );
   const grade = gradeFor(overallScore);
 
-  const tierPreview = useMemo(() => {
-    const tier = resolveIncentiveTier(overallScore);
-    const payoutPercent = applyIncentiveGates(tier.payoutPercent, activeGates);
-    const maxEgp = pointsTruth?.max_incentive_egp ?? null;
-    const previewEgp = maxEgp == null ? null : Math.round((maxEgp * payoutPercent) / 100);
-    return { tier, payoutPercent, previewEgp, gated: payoutPercent < tier.payoutPercent };
-  }, [overallScore, activeGates, pointsTruth?.max_incentive_egp]);
+  // ملحوظة مهمة: مفيش "فئة شرائح تقديرية" هنا عمدًا — نظام الشرائح
+  // (resolveIncentiveTier) خاص بحافز المديرين الأسبوعي، مش بحافز الدكاترة.
+  // حافز الدكاترة الحقيقي الوحيد هو نظام النقاط (Points Truth) المعروض في
+  // كارت "حافز الأداء المركزي" تحت. عرض رقم تقديري من فورمولة تانية جنب
+  // الرقم الحقيقي بيدّي انطباع غلط بوجود تضارب/عدم اتساق، فاتشال بالكامل
+  // بدل ما نحاول نوضحه بالتسمية بس.
+  const isGatedByCriticalViolation = activeGates.length > 0;
 
   useEffect(() => {
     const loadStaff = async () => {
@@ -552,11 +550,10 @@ export default function StaffMonthlyEvaluation() {
                 <div className="mt-2 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>المحاور التالية خاصة بالدور: {selected.job_title || selected.role || 'غير محدد'}.</div>
               </Panel>
 
-              <section className="grid gap-3 md:grid-cols-4">
+              <section className="grid gap-3 md:grid-cols-3">
                 <KpiCard title="نتيجة التقييم" value={`${overallScore}/100`} subtitle={grade} icon={<Star size={20} />} tone={overallScore >= 80 ? 'green' : overallScore >= 60 ? 'amber' : 'red'} />
                 <KpiCard title="النقاط الحالية" value={pointsTruth ? `${pointsTruth.final_points} / ${pointsTruth.target_points}` : '—'} subtitle="دورة الحافز الحالية" icon={<Award size={20} />} tone="cyan" />
-                <KpiCard title="فئة الحافز المتوقعة" value={`${tierPreview.payoutPercent}%`} subtitle={`${tierPreview.tier.label} — تقديري وليس فورمولة الصرف الفعلية`} icon={<ShieldAlert size={20} />} tone={tierPreview.gated ? 'red' : 'purple'} />
-                <KpiCard title="حافز الأداء المركزي" value={canonicalIncentive == null ? 'غير محدد' : `${canonicalIncentive.toLocaleString('ar-EG')} جنيه`} subtitle="القيمة الفعلية من نظام النقاط — مش من درجة هذا التقييم" icon={<CheckCircle2 size={20} />} tone="green" />
+                <KpiCard title="حافز الأداء المركزي" value={canonicalIncentive == null ? 'غير محدد' : `${canonicalIncentive.toLocaleString('ar-EG')} جنيه`} subtitle="القيمة الفعلية الوحيدة من نظام النقاط" icon={<CheckCircle2 size={20} />} tone="green" />
               </section>
 
               {!pointsTruth?.profile_configured ? (
@@ -594,9 +591,9 @@ export default function StaffMonthlyEvaluation() {
                     );
                   })}
                 </div>
-                {tierPreview.gated ? (
+                {isGatedByCriticalViolation ? (
                   <p className="mt-3 text-xs font-bold" style={{ color: 'var(--dawaa-status-danger-text)' }}>
-                    تقدير نسبة الحافز محدود عند {tierPreview.payoutPercent}% بسبب مخالفة مفعّلة، بدل {tierPreview.tier.payoutPercent}% اللي كانت هتستحقها الدرجة لوحدها. الأثر الفعلي على المرتب يظهر في نظام النقاط بعد الحفظ.
+                    فيه مخالفة حرجة مفعّلة — عند الحفظ هيتسجل خصم النقاط الموضح فوق فعليًا في حساب الموظف، بغض النظر عن نتيجة التقييم بالأعلى.
                   </p>
                 ) : null}
               </Panel>
