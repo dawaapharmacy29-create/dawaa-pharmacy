@@ -47,8 +47,19 @@ const TIME_SLOT_ORDER: Record<string, number> = { 'فتح': 0, 'أثناء ال�
 const STATUS_LABEL: Record<Submission['review_status'], { label: string; color: string; bg: string; borderColor: string }> = {
   pending: { label: 'بانتظار مراجعة المدير', color: 'var(--dawaa-status-warning-text)', bg: 'var(--dawaa-status-warning-bg)', borderColor: 'var(--dawaa-status-warning-border)' },
   approved: { label: 'معتمد', color: 'var(--dawaa-status-success-text)', bg: 'var(--dawaa-status-success-bg)', borderColor: 'var(--dawaa-status-success-border)' },
-  rejected: { label: 'مرفوض', color: 'var(--dawaa-status-danger-text)', bg: 'var(--dawaa-status-danger-bg)', borderColor: 'var(--dawaa-status-danger-border)' },
+  rejected: { label: 'مرفوض — صحّح البند وأعد الإرسال', color: 'var(--dawaa-status-danger-text)', bg: 'var(--dawaa-status-danger-bg)', borderColor: 'var(--dawaa-status-danger-border)' },
 };
+
+function cairoDateKey() {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Africa/Cairo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${value.year}-${value.month}-${value.day}`;
+}
 
 export default function StaffDailyChecklist() {
   const { user } = useAuth();
@@ -70,7 +81,7 @@ export default function StaffDailyChecklist() {
   const [cycleSummary, setCycleSummary] = useState<CleaningCycleSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [uploadingKey, setUploadingKey] = useState<string | null>(null);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = cairoDateKey();
 
   const load = useCallback(async () => {
     if (!staffRole) {
@@ -149,6 +160,16 @@ export default function StaffDailyChecklist() {
     return Object.entries(groups).sort((a, b) => (TIME_SLOT_ORDER[a[0]] ?? 9) - (TIME_SLOT_ORDER[b[0]] ?? 9));
   }, [items]);
 
+  const dailyProgress = useMemo(() => {
+    const values = Object.values(submissions);
+    return {
+      submitted: values.filter((item) => item.completed).length,
+      pending: values.filter((item) => item.review_status === 'pending').length,
+      approved: values.filter((item) => item.review_status === 'approved').length,
+      rejected: values.filter((item) => item.review_status === 'rejected').length,
+    };
+  }, [submissions]);
+
   const handleUploadAndComplete = useCallback(
     async (item: ChecklistItem, file: File | null) => {
       if (!staffId) return;
@@ -195,8 +216,23 @@ export default function StaffDailyChecklist() {
     <div className="mx-auto max-w-2xl space-y-5 p-4 pb-24" dir="rtl">
       <div>
         <h1 className="text-xl font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>التشيك ليست اليومي — {new Date().toLocaleDateString('ar-EG')}</h1>
-        <p className="mt-1 text-sm font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>علّم كل بند وارفع صورة كدليل. مدير الفرع هيراجعها النهاردة.</p>
+        <p className="mt-1 text-sm font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>نفّذ كل بند وارفع صورة واضحة. لو المدير رفض بند، صححه وأعد إرساله من نفس المكان.</p>
       </div>
+
+      {isCleaning && !loading ? (
+        <Panel className="p-4">
+          <h2 className="font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>إنجاز مهام النظافة اليوم</h2>
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <MiniBox label="تم الإرسال" value={`${dailyProgress.submitted}/${items.length}`} />
+            <MiniBox label="بانتظار المراجعة" value={String(dailyProgress.pending)} />
+            <MiniBox label="معتمد" value={String(dailyProgress.approved)} />
+            <MiniBox label="يحتاج تصحيح" value={String(dailyProgress.rejected)} />
+          </div>
+          <p className="mt-3 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
+            تقييم النجوم يفتح للمدير بعد إرسال ومراجعة كل مهام اليوم.
+          </p>
+        </Panel>
+      ) : null}
 
       {isCleaning && !loading ? (
         <Panel className="p-4" style={{ borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-status-warning-bg)' }}>
@@ -244,6 +280,7 @@ export default function StaffDailyChecklist() {
             {slotItems.map((item) => {
               const sub = submissions[item.id];
               const status = sub ? STATUS_LABEL[sub.review_status] : null;
+              const canSubmit = !sub?.completed || sub.review_status === 'rejected';
               return (
                 <Panel key={item.id} className="p-4">
                   <div className="flex items-start justify-between gap-3">
@@ -251,7 +288,7 @@ export default function StaffDailyChecklist() {
                       <p className="font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>{item.title}</p>
                       {item.description ? <p className="mt-1 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>{item.description}</p> : null}
                     </div>
-                    {sub?.completed ? (
+                    {sub?.completed && sub.review_status !== 'rejected' ? (
                       <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full" style={{ background: 'var(--dawaa-status-success-bg)', color: 'var(--dawaa-status-success-text)' }}>
                         <Check size={16} />
                       </span>
@@ -262,7 +299,7 @@ export default function StaffDailyChecklist() {
                     <div className="mt-3 rounded-lg border px-3 py-1.5 text-xs font-black" style={{ borderColor: status.borderColor, background: status.bg, color: status.color }}>
                       {status.label}
                       {sub?.review_status === 'rejected' && sub.reviewer_note ? (
-                        <span className="mt-1 block font-normal">{sub.reviewer_note}</span>
+                        <span className="mt-1 block font-normal">سبب الرفض: {sub.reviewer_note}</span>
                       ) : null}
                     </div>
                   ) : null}
@@ -271,13 +308,13 @@ export default function StaffDailyChecklist() {
                     <img src={sub.photo_url} alt={item.title} className="mt-3 h-32 w-full rounded-xl object-cover" />
                   ) : null}
 
-                  {!sub?.completed ? (
+                  {canSubmit ? (
                     <label className="mt-3 flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed py-3 text-sm font-black" style={{ borderColor: 'var(--dawaa-theme-border)', color: 'var(--dawaa-theme-text)' }}>
                       {uploadingKey === item.item_key ? (
                         <Loader2 size={16} className="animate-spin" />
                       ) : (
                         <>
-                          <Camera size={16} /> {item.requires_photo ? 'صوّر وسجّل' : 'سجّل الإنجاز'}
+                          <Camera size={16} /> {sub?.review_status === 'rejected' ? 'أعد التصوير والتسجيل' : item.requires_photo ? 'صوّر وسجّل' : 'سجّل الإنجاز'}
                         </>
                       )}
                       <input
