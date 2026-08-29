@@ -11,6 +11,7 @@ import CustomerServiceHealthPanel from '@/components/customerService/CustomerSer
 import CustomerServicePersonalDashboard from '@/components/customerService/CustomerServicePersonalDashboard';
 import CustomerServiceManagerDashboardV3 from '@/pages/CustomerServiceManagerDashboardV3';
 import { ManagerScoreBreakdownTab } from '@/components/evaluations/ManagerScoreBreakdownTab';
+import { Panel } from '@/components/dashboard/DashboardPrimitives';
 import '@/styles/dashboard-theme-scopes.css';
 
 type PulseState = 'loading' | 'ready' | 'error';
@@ -153,10 +154,7 @@ export default function CustomerServiceManagerDashboard() {
 
   return (
     <div className="customer-service-dashboard-theme space-y-4" dir="rtl">
-      <section
-        className="flex flex-col gap-5 rounded-3xl border p-5 md:flex-row md:items-center md:p-6"
-        style={{ borderColor: 'var(--dawaa-theme-accent-border)', background: 'var(--dawaa-theme-surface)' }}
-      >
+      <Panel className="flex flex-col gap-5 p-5 md:flex-row md:items-center md:p-6">
         <PulseRing score={pulse.data.completionRate} state={pulse.state} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2" style={{ color: 'var(--dawaa-theme-primary)' }}>
@@ -170,7 +168,7 @@ export default function CustomerServiceManagerDashboard() {
             <span className="flex items-center gap-1"><AlertTriangle size={13} /> متأخرة: {pulse.state === 'ready' && pulse.data.overdue != null ? pulse.data.overdue : '—'}</span>
           </div>
         </div>
-      </section>
+      </Panel>
 
       <div className="rounded-2xl border" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-bg-soft)' }}>
         <button
@@ -208,9 +206,9 @@ export default function CustomerServiceManagerDashboard() {
       {tab === 'team' ? <CustomerServiceManagerDashboardV3 headerVariant="compact" /> : null}
 
       {tab === 'incentive' ? (
-        <div className="rounded-3xl border p-5" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}>
+        <Panel className="p-5">
           <ManagerScoreBreakdownTab evaluationType="customer_service" staffId={user?.staffId || user?.id} branch={allBranches ? null : ownBranch} />
-        </div>
+        </Panel>
       ) : null}
     </div>
   );
