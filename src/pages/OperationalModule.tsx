@@ -63,19 +63,19 @@ interface ModuleConfig {
 }
 
 const STATUS_TONES: Record<string, string> = {
-  pending: 'bg-amber-500/15 text-amber-300 border-amber-500/25',
-  planned: 'bg-sky-500/15 text-sky-300 border-sky-500/25',
-  in_progress: 'bg-blue-500/15 text-blue-300 border-blue-500/25',
-  completed: 'bg-teal-500/15 text-teal-300 border-teal-500/25',
-  resolved: 'bg-teal-500/15 text-teal-300 border-teal-500/25',
-  needs_review: 'bg-purple-500/15 text-purple-300 border-purple-500/25',
-  delayed: 'bg-red-500/15 text-red-300 border-red-500/25',
-  critical: 'bg-red-500/15 text-red-300 border-red-500/25',
-  low: 'bg-amber-500/15 text-amber-300 border-amber-500/25',
-  shortage: 'bg-red-500/15 text-red-300 border-red-500/25',
-  active: 'bg-teal-500/15 text-teal-300 border-teal-500/25',
-  scheduled: 'bg-sky-500/15 text-sky-300 border-sky-500/25',
-  assigned: 'bg-blue-500/15 text-blue-300 border-blue-500/25',
+  pending: 'bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)] border-[var(--dawaa-status-warning-border)]',
+  planned: 'bg-[var(--dawaa-status-info-bg)] text-[var(--dawaa-status-info-text)] border-[var(--dawaa-status-info-border)]',
+  in_progress: 'bg-[var(--dawaa-status-info-bg)] text-[var(--dawaa-status-info-text)] border-[var(--dawaa-status-info-border)]',
+  completed: 'bg-[var(--dawaa-theme-accent-soft)] text-[var(--dawaa-theme-primary-strong)] border-[var(--dawaa-theme-accent-border)]',
+  resolved: 'bg-[var(--dawaa-theme-accent-soft)] text-[var(--dawaa-theme-primary-strong)] border-[var(--dawaa-theme-accent-border)]',
+  needs_review: 'bg-[var(--dawaa-status-info-bg)] text-[var(--dawaa-status-info-text)] border-[var(--dawaa-status-info-border)]',
+  delayed: 'bg-[var(--dawaa-status-danger-bg)] text-[var(--dawaa-status-danger-text)] border-[var(--dawaa-status-danger-border)]',
+  critical: 'bg-[var(--dawaa-status-danger-bg)] text-[var(--dawaa-status-danger-text)] border-[var(--dawaa-status-danger-border)]',
+  low: 'bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)] border-[var(--dawaa-status-warning-border)]',
+  shortage: 'bg-[var(--dawaa-status-danger-bg)] text-[var(--dawaa-status-danger-text)] border-[var(--dawaa-status-danger-border)]',
+  active: 'bg-[var(--dawaa-theme-accent-soft)] text-[var(--dawaa-theme-primary-strong)] border-[var(--dawaa-theme-accent-border)]',
+  scheduled: 'bg-[var(--dawaa-status-info-bg)] text-[var(--dawaa-status-info-text)] border-[var(--dawaa-status-info-border)]',
+  assigned: 'bg-[var(--dawaa-status-info-bg)] text-[var(--dawaa-status-info-text)] border-[var(--dawaa-status-info-border)]',
 };
 
 const COMMON_STATUSES = [
@@ -911,16 +911,16 @@ export function OperationalModulePage({ module }: { module: keyof typeof configs
 
   return (
     <div className="space-y-5" dir="rtl">
-      <div className="rounded-2xl border border-teal-400/20 bg-[#10213a] p-5">
+      <div className="rounded-2xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] p-5">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="flex items-start gap-3">
-            <div className="rounded-2xl bg-teal-500/15 p-3 text-teal-300">
+            <div className="rounded-2xl bg-[var(--dawaa-theme-accent-soft)] p-3 text-[var(--dawaa-theme-primary-strong)]">
               <Icon size={22} />
             </div>
             <div>
-              <h1 className="text-2xl font-black text-white">{config.title}</h1>
-              <p className="mt-1 text-sm text-slate-400">{config.description}</p>
-              <p className="mt-2 text-xs text-teal-300">{config.dashboardHint}</p>
+              <h1 className="text-2xl font-black text-[var(--dawaa-theme-heading)]">{config.title}</h1>
+              <p className="mt-1 text-sm text-[var(--dawaa-theme-muted)]">{config.description}</p>
+              <p className="mt-2 text-xs text-[var(--dawaa-theme-primary-strong)]">{config.dashboardHint}</p>
             </div>
           </div>
           <button
@@ -944,9 +944,9 @@ export function OperationalModulePage({ module }: { module: keyof typeof configs
       {module === 'stories' && <StoriesOffersAnalytics offers={rows} stories={storyRows} />}
 
       {canManageModule && (
-      <div className="rounded-2xl border border-[#2d4063] bg-[#1B2B4B] p-5">
-        <div className="mb-4 flex items-center gap-2 text-white font-bold">
-          <Plus size={18} className="text-teal-300" />
+      <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-5">
+        <div className="mb-4 flex items-center gap-2 text-[var(--dawaa-theme-heading)] font-bold">
+          <Plus size={18} className="text-[var(--dawaa-theme-primary-strong)]" />
           إضافة سجل جديد
         </div>
         <div className="grid gap-3 md:grid-cols-3">
@@ -964,15 +964,15 @@ export function OperationalModulePage({ module }: { module: keyof typeof configs
           ))}
         </div>
         {module === 'inventory' && (
-          <label className="mt-3 block rounded-xl border border-dashed border-teal-400/30 bg-teal-500/5 p-4 text-sm text-slate-300">
-            <span className="mb-2 block font-bold text-teal-300">استيراد ملف الجرد Excel</span>
+          <label className="mt-3 block rounded-xl border border-dashed border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] p-4 text-sm text-[var(--dawaa-theme-text)]">
+            <span className="mb-2 block font-bold text-[var(--dawaa-theme-primary-strong)]">استيراد ملف الجرد Excel</span>
             <input
               type="file"
               accept=".xlsx,.xls,.csv"
               onChange={(event) => setInventoryFile(event.target.files?.[0] || null)}
-              className="block w-full text-xs text-slate-300 file:ml-3 file:rounded-lg file:border-0 file:bg-teal-500 file:px-3 file:py-2 file:font-bold file:text-[#07111f]"
+              className="block w-full text-xs text-[var(--dawaa-theme-text)] file:ml-3 file:rounded-lg file:border-0 file:bg-[var(--dawaa-theme-primary)] file:px-3 file:py-2 file:font-bold file:text-[var(--dawaa-theme-heading)]"
             />
-            <span className="mt-2 block text-xs text-slate-500">
+            <span className="mt-2 block text-xs text-[var(--dawaa-theme-muted)]">
               الأعمدة المقبولة: اسم الصنف، الكمية المتوقعة، الكمية الفعلية، تاريخ الصلاحية، السعر،
               سبب الفرق، الإجراء.
             </span>
@@ -990,11 +990,11 @@ export function OperationalModulePage({ module }: { module: keyof typeof configs
       </div>
       )}
 
-      <div className="rounded-2xl border border-[#2d4063] bg-[#1B2B4B] p-4">
+      <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-4">
         <div className="grid gap-3 md:grid-cols-[1fr_180px_180px]">
           <label className="relative">
             <Search
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--dawaa-theme-muted)]"
               size={16}
             />
             <input
@@ -1029,15 +1029,15 @@ export function OperationalModulePage({ module }: { module: keyof typeof configs
         </div>
       </div>
 
-      <div className="rounded-2xl border border-[#2d4063] bg-[#1B2B4B] overflow-hidden">
+      <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] overflow-hidden">
         {loading ? (
-          <div className="flex items-center justify-center gap-3 p-10 text-slate-300">
-            <Loader2 className="animate-spin text-teal-300" /> جاري التحميل...
+          <div className="flex items-center justify-center gap-3 p-10 text-[var(--dawaa-theme-text)]">
+            <Loader2 className="animate-spin text-[var(--dawaa-theme-primary-strong)]" /> جاري التحميل...
           </div>
         ) : error ? (
-          <div className="p-10 text-center text-red-200">{error}</div>
+          <div className="p-10 text-center text-[var(--dawaa-status-danger-text)]">{error}</div>
         ) : filteredRows.length === 0 ? (
-          <div className="p-10 text-center text-slate-400">لا توجد بيانات مطابقة حاليا.</div>
+          <div className="p-10 text-center text-[var(--dawaa-theme-muted)]">لا توجد بيانات مطابقة حاليا.</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="data-table">
@@ -1057,7 +1057,7 @@ export function OperationalModulePage({ module }: { module: keyof typeof configs
                   const statusMeta = config.statuses.find((item) => item.value === status);
                   return (
                     <tr key={String(row.id)}>
-                      <td className="font-bold text-white">
+                      <td className="font-bold text-[var(--dawaa-theme-heading)]">
                         {String(
                           row[config.primaryField] ||
                             row.title ||
@@ -1094,7 +1094,7 @@ export function OperationalModulePage({ module }: { module: keyof typeof configs
                             ))}
                           </select>
                         ) : (
-                          <span className="text-xs font-bold text-slate-400">مشاهدة فقط</span>
+                          <span className="text-xs font-bold text-[var(--dawaa-theme-muted)]">مشاهدة فقط</span>
                         )}
                         {canReturnCustomerRequest && module === 'shortages' && row.source_customer_request_id && (
                           <button
@@ -1143,10 +1143,10 @@ function StoriesOffersAnalytics({
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
-      <div className="rounded-2xl border border-teal-400/20 bg-[#10213a] p-5">
+      <div className="rounded-2xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] p-5">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-black text-white">تحليل العروض</h2>
-          <span className="rounded-full bg-teal-500/10 px-3 py-1 text-xs font-bold text-teal-200">
+          <h2 className="text-lg font-black text-[var(--dawaa-theme-heading)]">تحليل العروض</h2>
+          <span className="rounded-full bg-[var(--dawaa-theme-accent-soft)] px-3 py-1 text-xs font-bold text-[var(--dawaa-theme-primary-strong)]">
             {offers.length.toLocaleString('ar-EG')} عرض
           </span>
         </div>
@@ -1162,14 +1162,14 @@ function StoriesOffersAnalytics({
           {offers.slice(0, 4).map((offer) => (
             <div
               key={String(offer.id || offer.title)}
-              className="rounded-xl border border-[#2d4063] bg-white/[0.03] p-3"
+              className="rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] p-3"
             >
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <div className="font-bold text-white">
+                  <div className="font-bold text-[var(--dawaa-theme-heading)]">
                     {String(offer.title || 'عرض بدون عنوان')}
                   </div>
-                  <div className="mt-1 text-xs text-slate-400">
+                  <div className="mt-1 text-xs text-[var(--dawaa-theme-muted)]">
                     {String(offer.branch || 'كل الفروع')} · المتبقي{' '}
                     {asNumber(offer.remaining_qty).toLocaleString('ar-EG')} · دكتور{' '}
                     {String(offer.doctor_name || 'غير محدد')}
@@ -1186,17 +1186,17 @@ function StoriesOffersAnalytics({
             </div>
           ))}
           {offers.length === 0 && (
-            <div className="rounded-xl bg-white/[0.03] p-4 text-center text-sm text-slate-400">
+            <div className="rounded-xl bg-[var(--dawaa-theme-soft)] p-4 text-center text-sm text-[var(--dawaa-theme-muted)]">
               لا توجد عروض مسجلة للتحليل حاليًا.
             </div>
           )}
         </div>
       </div>
 
-      <div className="rounded-2xl border border-teal-400/20 bg-[#10213a] p-5">
+      <div className="rounded-2xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] p-5">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-black text-white">تحليل الاستوريز</h2>
-          <span className="rounded-full bg-cyan-500/10 px-3 py-1 text-xs font-bold text-cyan-200">
+          <h2 className="text-lg font-black text-[var(--dawaa-theme-heading)]">تحليل الاستوريز</h2>
+          <span className="rounded-full bg-[var(--dawaa-status-info-bg)] px-3 py-1 text-xs font-bold text-[var(--dawaa-status-info-text)]">
             {stories.length.toLocaleString('ar-EG')} ستوري
           </span>
         </div>
@@ -1212,18 +1212,18 @@ function StoriesOffersAnalytics({
           {topStories.map((story, index) => (
             <div
               key={String(story.id || story.title || index)}
-              className="rounded-xl border border-[#2d4063] bg-white/[0.03] p-3"
+              className="rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] p-3"
             >
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="font-bold text-white">
+                  <div className="font-bold text-[var(--dawaa-theme-heading)]">
                     #{index + 1} {String(story.title || 'ستوري بدون عنوان')}
                   </div>
-                  <div className="mt-1 text-xs text-slate-400">
+                  <div className="mt-1 text-xs text-[var(--dawaa-theme-muted)]">
                     ترتيب {String(story.story_order || '-')} · {formatArabicDate(story.story_date)}{' '}
                     · {String(story.story_time || '')}
                   </div>
-                  <div className="mt-1 text-xs text-teal-200">
+                  <div className="mt-1 text-xs text-[var(--dawaa-theme-primary-strong)]">
                     {asNumber(story.views_count).toLocaleString('ar-EG')} مشاهدة ·{' '}
                     {asNumber(story.boxes_dispensed || story.sales_count).toLocaleString('ar-EG')}{' '}
                     علبة · {String(story.branch || 'كل الفروع')} ·{' '}
@@ -1241,7 +1241,7 @@ function StoriesOffersAnalytics({
             </div>
           ))}
           {stories.length === 0 && (
-            <div className="rounded-xl bg-white/[0.03] p-4 text-center text-sm text-slate-400">
+            <div className="rounded-xl bg-[var(--dawaa-theme-soft)] p-4 text-center text-sm text-[var(--dawaa-theme-muted)]">
               لا توجد استوريز مسجلة للتحليل حاليًا.
             </div>
           )}
@@ -1276,7 +1276,7 @@ function Field({
   const [customChecklistItem, setCustomChecklistItem] = useState('');
   return (
     <label
-      className={`text-xs text-slate-300 space-y-1 ${kind === 'textarea' || kind === 'checklist' || kind === 'image' ? 'md:col-span-3' : ''}`}
+      className={`text-xs text-[var(--dawaa-theme-text)] space-y-1 ${kind === 'textarea' || kind === 'checklist' || kind === 'image' ? 'md:col-span-3' : ''}`}
     >
       <span>
         {field.label}
@@ -1322,7 +1322,7 @@ function Field({
           placeholder={field.placeholder}
         />
       ) : kind === 'checklist' ? (
-        <div className="rounded-xl border border-[#2d4063] bg-[#162847] p-3">
+        <div className="rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] p-3">
           <div className="mb-3 flex gap-2">
             <input
               className={common}
@@ -1355,7 +1355,7 @@ function Field({
               return (
                 <label
                   key={item}
-                  className="flex items-center gap-2 rounded-lg bg-white/[0.03] px-3 py-2 text-sm text-slate-200"
+                  className="flex items-center gap-2 rounded-lg bg-[var(--dawaa-theme-soft)] px-3 py-2 text-sm text-[var(--dawaa-theme-text)]"
                 >
                   <input
                     type="checkbox"
@@ -1410,10 +1410,10 @@ function Stat({
 }) {
   return (
     <div className="stat-card">
-      <div className={`text-2xl font-black ${danger ? 'text-red-300' : 'text-teal-300'}`}>
+      <div className={`text-2xl font-black ${danger ? 'text-[var(--dawaa-status-danger-text)]' : 'text-[var(--dawaa-theme-primary-strong)]'}`}>
         {value.toLocaleString('ar-EG')}
       </div>
-      <div className="mt-1 text-xs text-slate-400">{label}</div>
+      <div className="mt-1 text-xs text-[var(--dawaa-theme-muted)]">{label}</div>
     </div>
   );
 }
