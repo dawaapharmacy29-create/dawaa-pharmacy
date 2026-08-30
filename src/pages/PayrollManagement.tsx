@@ -50,7 +50,7 @@ export default function PayrollManagement() {
   const allBranches = canViewAllBranches(user);
   const ownBranch = normalizeBranchName(user?.branch || '');
   const cycle = useMemo(() => getCurrentCycle(), []);
-  const currentMonth = useMemo(() => formatCycleDate(cycle.start).slice(0, 8) + '01', [cycle]);
+  const currentMonth = useMemo(() => formatCycleDate(cycle.end).slice(0, 8) + '01', [cycle]);
 
   const [staff, setStaff] = useState<StaffRow[]>([]);
   const [search, setSearch] = useState('');
