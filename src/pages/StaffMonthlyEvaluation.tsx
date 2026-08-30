@@ -75,7 +75,9 @@ export default function StaffMonthlyEvaluation() {
   const [evaluationId, setEvaluationId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [salesIndicators, setSalesIndicators] = useState({ total_sales: 0, avg_invoice: 0, invoices_count: 0 });
   const printRef = useRef<HTMLDivElement>(null);
+  const lastSavedData = useRef({ sections: BASE_SECTIONS, managerNotes: '' });
 
   const selected = useMemo(() => staff.find((item) => item.id === selectedId) || null, [selectedId, staff]);
   const isEditingSelf = Boolean(selected && (selected.id === user?.staffId || selected.id === user?.id));
@@ -114,15 +116,23 @@ export default function StaffMonthlyEvaluation() {
       try {
         if (!user?.id) throw new Error('الحساب الحالي غير مرتبط بمعرف دخول');
         const endDate = nextMonthStart(month);
-        const [{ data: saved }, reviewResult, followupResult, attendanceResult] = await Promise.all([
+        const [{ data: saved }, reviewResult, followupResult, attendanceResult, salesResult] = await Promise.all([
           supabase.rpc('get_staff_monthly_evaluation_safe', { p_actor_id: user.id, p_staff_id: selectedId, p_month: monthStart(month) }),
           supabase.from('conversation_sales_reviews').select('total_score,final_score,doctor_points_impact,point_impact,created_at').eq('staff_id', selectedId).gte('created_at', monthStart(month)).lt('created_at', endDate).limit(500),
           supabase.from('daily_followups').select('status,followup_status,completed_at,created_at,assigned_staff_id,requested_by_staff_id').or(`assigned_staff_id.eq.${selectedId},requested_by_staff_id.eq.${selectedId}`).gte('created_at', monthStart(month)).lt('created_at', endDate).limit(1000),
           supabase.from('attendance').select('status,check_in,check_out,date,staff_id').eq('staff_id', selectedId).gte('date', monthStart(month)).lt('date', endDate).limit(100),
+          supabase.from('sales_invoices').select('net_amount,total_amount,net_total,amount').or(`seller_name.ilike.%${selected?.name}%,staff_name.ilike.%${selected?.name}%`).gte('invoice_date', monthStart(month)).lt('invoice_date', endDate).limit(5000),
         ]);
         const reviewRows = reviewResult.data || [];
         const followupRows = followupResult.data || [];
         const attendanceRows = attendanceResult.data || [];
+        const salesRows = salesResult.data || [];
+        
+        const total_sales = salesRows.reduce((sum, row) => sum + safeNumber(row.net_total || row.net_amount || row.total_amount || row.amount), 0);
+        const invoices_count = salesRows.length;
+        const avg_invoice = invoices_count > 0 ? total_sales / invoices_count : 0;
+        setSalesIndicators({ total_sales, avg_invoice, invoices_count });
+
         const reviewAverage = reviewRows.length ? reviewRows.reduce((s: number, r: any) => s + safeNumber(r.final_score || r.total_score), 0) / reviewRows.length : 0;
         const completedFollowups = followupRows.filter((r: any) => r.completed_at || /completed|مكتمل|تم/.test(String(r.status || r.followup_status || ''))).length;
         const reviewImpacts = reviewRows.map((r: any) => safeNumber(r.doctor_points_impact ?? r.point_impact));
@@ -133,30 +143,33 @@ export default function StaffMonthlyEvaluation() {
         if (saved) {
           const row = saved as EvaluationRow;
           setEvaluationId(row.id);
-          setSections(Array.isArray(row.sections) ? row.sections : BASE_SECTIONS.map((x) => ({ ...x })));
+          const loadedSections = Array.isArray(row.sections) ? row.sections : BASE_SECTIONS.map((x) => ({ ...x }));
+          setSections(loadedSections);
           setStrengths(row.strengths || []);
           setDevelopmentPoints(row.development_points || []);
           setManagerNotes(row.manager_notes || '');
           setApprovedIncentive(safeNumber(row.approved_incentive));
           setPointsDelta(safeNumber(row.points_delta));
           setStatus(row.status || 'draft');
+          lastSavedData.current = { sections: loadedSections, managerNotes: row.manager_notes || '' };
         } else {
           setEvaluationId(null); setSections(sectionsForRole(normalizeRole(selected?.role))); setStrengths([]); setDevelopmentPoints([]); setManagerNotes(''); setApprovedIncentive(0); setPointsDelta(0); setStatus('draft');
+          lastSavedData.current = { sections: sectionsForRole(normalizeRole(selected?.role)), managerNotes: '' };
         }
       } catch (error) { toast.error(error instanceof Error ? error.message : 'تعذر تحميل التقييم'); }
       finally { setLoading(false); }
     };
     void loadEvaluation();
-  }, [month, selectedId]);
+  }, [month, selectedId, selected]);
 
   const updateSection = (key: string, patch: Partial<Section>) => setSections((current) => current.map((item) => item.key === key ? { ...item, ...patch } : item));
   const toggleTag = (value: string, setter: Dispatch<SetStateAction<string[]>>) => setter((current) => current.includes(value) ? current.filter((x) => x !== value) : [...current, value]);
 
-  async function save(nextStatus = status) {
+  async function save(nextStatus = status, isAuto = false) {
     if (!selected) return;
-    if (isEditingSelf) { toast.error('لا يمكنك اعتماد أو تعديل تقييمك الشهري لنفسك.'); return; }
-    if (managerMode && sections.some((item) => item.score === 0)) { toast.error('يجب تقييم كل المحاور قبل الاعتماد'); return; }
-    setSaving(true);
+    if (isEditingSelf) { if (!isAuto) toast.error('لا يمكنك اعتماد أو تعديل تقييمك الشهري لنفسك.'); return; }
+    if (managerMode && sections.some((item) => item.score === 0) && nextStatus !== 'draft') { if (!isAuto) toast.error('يجب تقييم كل المحاور قبل الاعتماد'); return; }
+    if (!isAuto) setSaving(true);
     try {
       const payload = {
         staff_id: selected.id, staff_name: selected.name, staff_role: selected.job_title || selected.role, branch: selected.branch || branch,
@@ -168,13 +181,30 @@ export default function StaffMonthlyEvaluation() {
       const { data, error } = await supabase.rpc('save_staff_monthly_evaluation_safe', { p_actor_id: user?.id, p_payload: payload });
       if (error) throw error;
       setEvaluationId(String(data)); setStatus(nextStatus);
+      lastSavedData.current = { sections, managerNotes };
       if (nextStatus === 'sent') {
         await supabase.from('notifications').insert({ staff_id: selected.id, title: 'تم إرسال تقييمك الشهري', message: `تقييم شهر ${month}: ${overallScore}/100 - ${grade}`, type: 'staff_monthly_evaluation', is_read: false }).then(() => undefined);
       }
-      toast.success(nextStatus === 'sent' ? 'تم إرسال التقييم للموظف' : 'تم حفظ التقييم');
-    } catch (error) { toast.error(error instanceof Error ? error.message : 'فشل حفظ التقييم'); }
-    finally { setSaving(false); }
+      if (isAuto) {
+        toast.success('تم الحفظ التلقائي', { duration: 2000, id: 'autosave' });
+      } else {
+        toast.success(nextStatus === 'sent' ? 'تم إرسال التقييم للموظف' : 'تم حفظ التقييم');
+      }
+    } catch (error) { if (!isAuto) toast.error(error instanceof Error ? error.message : 'فشل حفظ التقييم'); }
+    finally { if (!isAuto) setSaving(false); }
   }
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (canEdit && status === 'draft') {
+        const changed = JSON.stringify(sections) !== JSON.stringify(lastSavedData.current.sections) || managerNotes !== lastSavedData.current.managerNotes;
+        if (changed) {
+          void save('draft', true);
+        }
+      }
+    }, 30000);
+    return () => clearInterval(timer);
+  }, [canEdit, status, sections, managerNotes, save]);
 
   async function downloadPdf() {
     if (!printRef.current || !selected) return;
@@ -210,6 +240,10 @@ export default function StaffMonthlyEvaluation() {
       <main className="space-y-4">
         {loading ? <div className="rounded-3xl border border-white/10 p-10 text-center"><Loader2 className="mx-auto animate-spin"/> جاري التحميل...</div> : selected ? <>
           <section className="grid gap-3 md:grid-cols-4"><div className="rounded-2xl border border-white/10 bg-slate-900 p-4"><div className="text-xs text-slate-400">النتيجة</div><div className={`mt-1 text-3xl font-black ${scoreColor(overallScore)}`}>{overallScore}/100</div></div><div className="rounded-2xl border border-white/10 bg-slate-900 p-4"><div className="text-xs text-slate-400">التقدير</div><div className="mt-1 text-xl font-black">{grade}</div></div><div className="rounded-2xl border border-white/10 bg-slate-900 p-4"><div className="text-xs text-slate-400">الحافز المقترح</div><div className="mt-1 text-xl font-black text-emerald-300">{suggestedIncentive.toLocaleString('ar-EG')} جنيه</div></div><div className="rounded-2xl border border-white/10 bg-slate-900 p-4"><div className="text-xs text-slate-400">الحالة</div><div className="mt-1 text-xl font-black">{status}</div></div></section>
+
+          <section className="flex flex-wrap gap-4">
+            <div className="flex-1 rounded-3xl border border-teal-500/30 bg-teal-500/5 p-4"><div className="text-xs text-teal-400 font-bold mb-2">أداء المبيعات ({month})</div><div className="grid gap-2 sm:grid-cols-3"><div className="rounded-xl bg-white/[0.04] p-3 text-sm font-bold"><span className="text-slate-400">مبيعات الدورة:</span> <span className="text-teal-200">{salesIndicators.total_sales.toLocaleString('ar-EG')} ج.م</span></div><div className="rounded-xl bg-white/[0.04] p-3 text-sm font-bold"><span className="text-slate-400">متوسط الفاتورة:</span> <span className="text-teal-200">{Math.round(salesIndicators.avg_invoice).toLocaleString('ar-EG')} ج.م</span></div><div className="rounded-xl bg-white/[0.04] p-3 text-sm font-bold"><span className="text-slate-400">عدد الفواتير:</span> <span className="text-teal-200">{salesIndicators.invoices_count.toLocaleString('ar-EG')}</span></div></div></div>
+          </section>
 
           <section className="rounded-3xl border border-white/10 bg-slate-900/70 p-4"><h2 className="font-black">ملخص البيانات الفعلية</h2><div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">{Object.entries(metrics).map(([key,value])=><div key={key} className="rounded-xl bg-white/[0.04] p-3 text-sm font-bold"><span className="text-slate-400">{key.replaceAll('_',' ')}:</span> {value}</div>)}</div></section>
 

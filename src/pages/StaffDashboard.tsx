@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import {
   TrendingUp,
   TrendingDown,
@@ -9,6 +9,8 @@ import {
   CheckSquare,
   HeadphonesIcon,
   ShieldAlert,
+  BarChart3,
+  FileText,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useSupabaseQuery } from '@/hooks/useSupabaseQuery';
@@ -27,6 +29,8 @@ import { formatDateTime, percent } from '@/lib/utils';
 import { TABLES } from '@/lib/supabaseTables';
 import { normalizeNotification } from '@/lib/notificationService';
 import StaffOperatingPolicy from '@/components/incentives/StaffOperatingPolicy';
+import { supabase } from '@/lib/supabase';
+import { useNavigate } from 'react-router-dom';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -92,12 +96,99 @@ function MiniMetric({
   );
 }
 
+// ─── مكون بطاقة المبيعات الشخصية (تحسين جديد) ─────────────────────────
+function SalesCard({
+  staffName,
+  salesData,
+  onViewReport,
+}: {
+  staffName: string;
+  salesData: { totalSales: number; invoicesCount: number; avgInvoice: number; uniqueCustomers: number } | null;
+  onViewReport: () => void;
+}) {
+  if (!salesData) return null;
+  return (
+    <div className="stat-card border border-teal-500/20">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="section-title flex items-center gap-2">
+          <BarChart3 className="text-teal-400" size={18} />
+          مبيعاتي في الدورة الحالية
+        </h2>
+        <button
+          onClick={onViewReport}
+          className="flex items-center gap-1.5 rounded-xl bg-teal-500/10 px-3 py-1.5 text-xs text-teal-400 hover:bg-teal-500/20 transition-colors"
+        >
+          <FileText size={14} />
+          شوف تقريرك الشهري
+        </button>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="text-center">
+          <div className="text-2xl font-bold num text-white">{salesData.totalSales.toLocaleString('ar-EG')}</div>
+          <div className="text-xs text-slate-400 mt-0.5">إجمالي المبيعات (ج.م)</div>
+        </div>
+        <div className="text-center">
+          <div className="text-2xl font-bold num text-blue-400">{salesData.invoicesCount}</div>
+          <div className="text-xs text-slate-400 mt-0.5">عدد الفواتير</div>
+        </div>
+        <div className="text-center">
+          <div className="text-2xl font-bold num text-amber-400">{salesData.avgInvoice.toLocaleString('ar-EG')}</div>
+          <div className="text-xs text-slate-400 mt-0.5">متوسط الفاتورة (ج.م)</div>
+        </div>
+        <div className="text-center">
+          <div className="text-2xl font-bold num text-purple-400">{salesData.uniqueCustomers}</div>
+          <div className="text-xs text-slate-400 mt-0.5">عملاء مختلفون</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Component ─────────────────────────────────────────────────────────────
 
 export default function StaffDashboard() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const cycle = getCurrentCycle();
   const effectiveStaffId = user?.staffId || user?.id || '';
+
+  // بيانات المبيعات الشخصية للموظف
+  const [salesData, setSalesData] = useState<{
+    totalSales: number; invoicesCount: number; avgInvoice: number; uniqueCustomers: number;
+  } | null>(null);
+
+  // جلب بيانات المبيعات الشخصية من الفواتير
+  useEffect(() => {
+    if (!effectiveStaffId) return;
+    const fetchSales = async () => {
+      try {
+        const staffRow = (await supabase.from('staff').select('name').eq('id', effectiveStaffId).single()).data;
+        const staffName = staffRow?.name || '';
+        if (!staffName) return;
+
+        const { data: invoices } = await supabase
+          .from('sales_invoices')
+          .select('net_amount, customer_code')
+          .or(`seller_name.ilike.%${staffName}%,staff_id.eq.${effectiveStaffId}`)
+          .gte('invoice_date', cycle.start.toISOString().slice(0, 10))
+          .lte('invoice_date', cycle.end.toISOString().slice(0, 10));
+
+        if (invoices && invoices.length > 0) {
+          const totalSales = invoices.reduce((sum, inv) => sum + (Number(inv.net_amount) || 0), 0);
+          const uniqueCustomers = new Set(invoices.map((inv) => inv.customer_code).filter(Boolean)).size;
+          setSalesData({
+            totalSales: Math.round(totalSales),
+            invoicesCount: invoices.length,
+            avgInvoice: Math.round(totalSales / invoices.length),
+            uniqueCustomers,
+          });
+        }
+      } catch {
+        // فشل جلب المبيعات - نتجاهل بهدوء
+      }
+    };
+    fetchSales();
+  }, [effectiveStaffId, cycle.start, cycle.end]);
 
   // Fetch current user's staff profile
   const { data: staffData, loading: staffLoading } = useSupabaseQuery<StaffInfo>({
@@ -323,6 +414,13 @@ export default function StaffDashboard() {
           </div>
         </div>
       </div>
+
+      {/* بطاقة المبيعات الشخصية - تحسين جديد */}
+      <SalesCard
+        staffName={displayName}
+        salesData={salesData}
+        onViewReport={() => navigate(`/monthly-report-360?staffId=${targetStaff.id}`)}
+      />
 
       <div>
         <h2 className="section-title mb-3">مطلوب منك الآن</h2>

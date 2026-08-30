@@ -631,6 +631,23 @@ export default function DoctorDashboardStable() {
               <p className="mt-1 text-xs" style={mutedText}>لا تظهر هنا إلا الأحداث الخاصة بك والإعلانات العامة.</p>
             </button>
           </section>
+           <div className="mt-4">
+            <button
+              onClick={async () => {
+                try {
+                  const { generateUnifiedMonthlyReport } = await import('@/lib/reports/unifiedMonthlyReportEngine');
+                  const { generateMonthlyReportPDF } = await import('@/lib/reports/monthlyReportPDFGenerator');
+                  const report = await generateUnifiedMonthlyReport(staffId);
+                  await generateMonthlyReportPDF(report);
+                } catch (err) {
+                  console.error('فشل تحميل التقرير:', err);
+                }
+              }}
+              className="flex items-center gap-2 rounded-xl bg-teal-500/10 px-4 py-2 text-sm text-teal-400 hover:bg-teal-500/20 transition-colors"
+            >
+              📄 حمّل تقريرك الشهري PDF
+            </button>
+          </div>
         </>
       ) : null}
 

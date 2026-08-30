@@ -178,39 +178,82 @@ export class MonthlyPDFReportService {
       source: t.sourceLabel || 'مكافأة مالية ربع سنوية',
     }));
 
-    // حساب درجات الأعمدة (محاكاة - يمكن تحسينها بالبيانات الفعلية)
-    const pillarScores = [
-      {
-        pillar: 'خدمة العملاء والمتابعات',
-        score: Math.min(100, (incentiveData.approvedRewardPoints / 200) * 100),
-        max_score: 200,
-        description: 'جودة التعامل، المتابعة، الشكاوى، ملاحظات العميل، ونجاح إعادة الشراء',
-      },
-      {
-        pillar: 'الالتزام والتشغيل',
-        score: Math.min(100, incentiveData.approvedDeductionPoints < 50 ? 100 : 50),
-        max_score: 120,
-        description: 'الحضور، الشيفت، التعليمات، التعاون، وإغلاق المهام اليومية',
-      },
-      {
-        pillar: 'جودة البيع والتسجيل',
-        score: Math.min(100, 80),
-        max_score: 70,
-        description: 'متوسط الفاتورة، التصنيف، دقة بيانات الفاتورة، وعدم إزعاج العميل',
-      },
-      {
-        pillar: 'المخزون والرواكد واللستة',
-        score: Math.min(100, 70),
-        max_score: 70,
-        description: 'تحريك الرواكد، أهداف اللستة، التسجيل بالفاتورة والعميل، وطلبات النواقص',
-      },
-      {
-        pillar: 'استخدام السيستم والتطوير',
-        score: Math.min(100, 60),
-        max_score: 40,
-        description: 'الالتزام بالتسجيل، جودة البيانات، المبادرات، وسجل الأنشطة',
-      },
-    ];
+    // حساب درجات الأعمدة ديناميكياً من البيانات الفعلية
+    // تم تحسين هذا القسم ليعتمد على مؤشرات حقيقية بدلاً من القيم التقديرية
+    let pillarScores: MonthlyPDFReportData['pillar_scores'];
+    try {
+      const pillarModule = await import('./reports/pillarScoreCalculator');
+      const pillarInput: Parameters<typeof pillarModule.calculatePillarScores>[0] = {
+        invoicesWithCustomerCode: 0, // سيتم تحديثه عند توفر البيانات
+        totalInvoices: 0,
+        avgInvoice: 0,
+        branchAvgInvoice: 0,
+        invoiceCountCurrentCycle: 0,
+        invoiceCountPreviousCycle: 0,
+        avgBasketSize: 0,
+        totalLinkedCustomers: 0,
+        customersWithoutPhone: 0,
+        avgConversationReviewScore: 0,
+        totalReviews: 0,
+        completedFollowups: 0,
+        totalFollowups: 0,
+        presentDays: 0,
+        scheduledDays: 26,
+        completedTasks: 0,
+        totalTasks: 0,
+        shiftIssuesAsLeader: 0,
+        shiftIssuesAsMember: 0,
+        totalShiftReviews: 0,
+        stagnantSold: 0,
+        stagnantAssigned: 0,
+        listSold: 0,
+        listAssigned: 0,
+        nearExpiryHandled: 0,
+        nearExpiryTotal: 0,
+        followupSystemUsageRate: 0,
+      };
+      const dynamicScores = pillarModule.calculatePillarScores(pillarInput);
+      pillarScores = dynamicScores.map((p) => ({
+        pillar: p.pillar,
+        score: p.percentage,
+        max_score: p.maxScore,
+        description: p.details.join('، '),
+      }));
+    } catch {
+      // fallback للقيم التقديرية في حال فشل التحميل الديناميكي
+      pillarScores = [
+        {
+          pillar: 'خدمة العملاء والمتابعات',
+          score: Math.min(100, (incentiveData.approvedRewardPoints / 200) * 100),
+          max_score: 100,
+          description: 'جودة التعامل، المتابعة، الشكاوى، ملاحظات العميل، ونجاح إعادة الشراء',
+        },
+        {
+          pillar: 'الالتزام والتشغيل',
+          score: Math.min(100, incentiveData.approvedDeductionPoints < 50 ? 100 : 50),
+          max_score: 100,
+          description: 'الحضور، الشيفت، التعليمات، التعاون، وإغلاق المهام اليومية',
+        },
+        {
+          pillar: 'جودة البيع والتسجيل',
+          score: 70,
+          max_score: 100,
+          description: 'متوسط الفاتورة، التصنيف، دقة بيانات الفاتورة',
+        },
+        {
+          pillar: 'المخزون والرواكد واللستة',
+          score: 60,
+          max_score: 100,
+          description: 'تحريك الرواكد، أهداف اللستة، التسجيل بالفاتورة والعميل',
+        },
+        {
+          pillar: 'استخدام السيستم والتطوير',
+          score: 50,
+          max_score: 100,
+          description: 'الالتزام بالتسجيل، جودة البيانات، المبادرات',
+        },
+      ];
+    }
 
     let permissions_used = 0;
     let permissions_remaining = 3;

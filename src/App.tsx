@@ -78,7 +78,7 @@ const InventoryCounts = lazy(() => import('@/pages/InventoryCounts'));
 const Shortages = lazy(() => import('@/pages/Shortages'));
 const Supplies = lazy(() => import('@/pages/Supplies'));
 const Purchases = lazy(() => import('@/pages/Purchases'));
-const StaffPayroll = lazy(() => import('@/pages/StaffPayroll'));
+
 const Accessories = lazy(() => import('@/pages/Accessories'));
 const Offers = lazy(() => import('@/pages/Offers'));
 const Stories = lazy(() => import('@/pages/Stories'));
@@ -98,6 +98,7 @@ const EmployeeKpi = lazy(() => import('@/pages/EmployeeKpi'));
 const EmployeeOperatingSystem = lazy(() => import('@/pages/EmployeeOperatingSystem'));
 const SupplierPerformance = lazy(() => import('@/pages/SupplierPerformance'));
 const ReportsCenter = lazy(() => import('@/pages/ReportsCenter'));
+const MonthlyPerformanceReport360 = lazy(() => import('@/pages/MonthlyPerformanceReport360'));
 const StockAlerts = lazy(() => import('@/pages/StockAlerts'));
 const Returns = lazy(() => import('@/pages/Returns'));
 const Diagnostics = lazy(() => import('@/pages/Diagnostics'));
@@ -235,7 +236,7 @@ function AppRoutes() {
     <Route path="/shortages" element={<ProtectedRoute>{routeSuspense(<Shortages />, 'النواقص')}</ProtectedRoute>} />
     <Route path="/supplies" element={<ProtectedRoute>{routeSuspense(<Supplies />, 'المستلزمات')}</ProtectedRoute>} />
     <Route path="/purchases" element={<ProtectedRoute>{routeSuspense(<Purchases />, 'المشتريات')}</ProtectedRoute>} />
-    <Route path="/staff-payroll" element={<ProtectedRoute>{routeSuspense(<StaffPayroll />, 'الرواتب')}</ProtectedRoute>} />
+
     <Route path="/accessories" element={<ProtectedRoute>{routeSuspense(<Accessories />, 'الإكسسوارات')}</ProtectedRoute>} />
     <Route path="/offers" element={<ProtectedRoute>{routeSuspense(<Offers />, 'العروض')}</ProtectedRoute>} />
     <Route path="/stories" element={<ProtectedRoute>{routeSuspense(<Stories />, 'القصص')}</ProtectedRoute>} />
@@ -254,6 +255,7 @@ function AppRoutes() {
     <Route path="/employee-operating-system" element={<ProtectedRoute>{routeSuspense(<EmployeeOperatingSystem />, 'نظام تشغيل الموظف')}</ProtectedRoute>} />
     <Route path="/supplier-performance" element={<ProtectedRoute>{routeSuspense(<SupplierPerformance />, 'أداء الموردين')}</ProtectedRoute>} />
     <Route path="/reports" element={<ProtectedRoute>{routeSuspense(<ReportsCenter />, 'مركز التقارير')}</ProtectedRoute>} />
+    <Route path="/monthly-report-360" element={<ProtectedRoute>{routeSuspense(<MonthlyPerformanceReport360 />, 'تقرير الأداء الشهري 360°')}</ProtectedRoute>} />
     <Route path="/stock-alerts" element={<ProtectedRoute>{routeSuspense(<StockAlerts />, 'تنبيهات المخزون')}</ProtectedRoute>} />
     <Route path="/returns" element={<ProtectedRoute>{routeSuspense(<Returns />, 'المرتجعات')}</ProtectedRoute>} />
     <Route path="/diagnostics" element={<ProtectedRoute>{routeSuspense(<Diagnostics />, 'التشخيص')}</ProtectedRoute>} />

@@ -1,15 +1,18 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { toast } from 'sonner';
 import {
   Banknote, CalendarClock, CheckCircle2, ClipboardList, RefreshCw, Save,
-  Search, TrendingDown, Trophy, User, WalletCards,
+  Search, TrendingDown, Trophy, User, WalletCards, DownloadCloud, Printer
 } from 'lucide-react';
+import html2canvas from 'html2canvas';
+import jsPDF from 'jspdf';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { canViewAllBranches } from '@/lib/security/userDataScope';
 import { normalizeBranchName } from '@/lib/branch';
 import { formatCurrency } from '@/lib/utils';
 import { getCurrentCycle, formatCycleDate } from '@/lib/pharmacy-cycle';
+import { calculateStaffCycleIncentiveFromRows } from '@/lib/staffIncentiveService';
 
 const surface = { background: 'var(--dawaa-theme-surface)', borderColor: 'var(--dawaa-theme-border)' };
 const surfaceSoft = { background: 'var(--dawaa-theme-bg-soft)', borderColor: 'var(--dawaa-theme-border)' };
@@ -139,6 +142,47 @@ export default function PayrollManagement() {
 
   const filteredStaff = staff.filter((s) => !search.trim() || s.name.includes(search.trim()) || s.username.includes(search.trim()));
 
+  const printRef = useRef<HTMLDivElement>(null);
+
+  const pullIncentives = async () => {
+    if (!selected) return;
+    setLoading(true);
+    try {
+      const start = formatCycleDate(cycle.start);
+      const end = formatCycleDate(cycle.end);
+      const { data, error } = await supabase
+        .from('employee_transactions')
+        .select('*')
+        .gte('created_at', start)
+        .lt('created_at', end)
+        .or(`staff_id.eq.${selected.id},employee_name.ilike.%${selected.name}%`);
+        
+      if (error) throw error;
+      
+      const incentiveData = calculateStaffCycleIncentiveFromRows(data || []);
+      setMonthly((m) => m && { ...m, incentives_total: incentiveData.incentiveValue || 0 });
+      toast.success('تم سحب بيانات الحوافز بنجاح');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'فشل سحب الحوافز');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const printPayslip = async () => {
+    if (!printRef.current || !selected || !monthly || !profile) return;
+    try {
+      const canvas = await html2canvas(printRef.current, { scale: 2, backgroundColor: '#ffffff', useCORS: true });
+      const img = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      pdf.addImage(img, 'PNG', 0, 0, 210, 297);
+      pdf.save(`قسيمة_راتب_${selected.name}_${monthly.payroll_month.slice(0, 7)}.pdf`);
+      toast.success('تم إصدار قسيمة الراتب');
+    } catch (e) {
+      toast.error('فشل إصدار قسيمة الراتب');
+    }
+  };
+
   return (
     <div className="space-y-5 p-4 md:p-6" dir="rtl">
       <div className="rounded-3xl border p-5" style={surface}>
@@ -234,7 +278,11 @@ export default function PayrollManagement() {
                 <span className="font-black text-white">صافي الراتب المتوقع</span>
                 <span className="text-xl font-black text-teal-200">{formatCurrency(netSalaryPreview)}</span>
               </div>
-              <button className="btn-primary mt-4 flex items-center gap-2" disabled={saving} onClick={() => void saveMonthly()}><CheckCircle2 size={16} /> حفظ كشف الدورة</button>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button className="btn-primary flex items-center gap-2" disabled={saving} onClick={() => void saveMonthly()}><CheckCircle2 size={16} /> حفظ كشف الدورة</button>
+                <button className="btn-secondary flex items-center gap-2" disabled={saving || loading} onClick={() => void pullIncentives()}><DownloadCloud size={16} /> سحب بيانات الحوافز تلقائياً</button>
+                <button className="rounded-xl bg-amber-500 px-4 py-2 font-black text-slate-950 flex items-center gap-2" onClick={() => void printPayslip()}><Printer size={16} /> طباعة قسيمة الراتب</button>
+              </div>
             </div>
 
             {history.length ? (
@@ -255,6 +303,51 @@ export default function PayrollManagement() {
           </div>
         )}
       </div>
+
+      {selected && profile && monthly && (
+        <div ref={printRef} className="fixed -left-[10000px] top-0 w-[794px] bg-white text-slate-900" dir="rtl">
+          <section className="h-[1123px] w-[794px] overflow-hidden bg-white px-12 py-10">
+            <header className="border-b-[3px] border-teal-600 pb-5 text-center">
+              <h1 className="text-[28px] font-black text-slate-900">صيدليات دواء</h1>
+              <p className="mt-2 text-[21px] font-black text-slate-800">قسيمة راتب</p>
+              <p className="mt-3 text-[16px] font-bold text-slate-600">دورة الراتب: {monthly.payroll_month.slice(0, 7)}</p>
+            </header>
+
+            <div className="mt-8 rounded-xl border border-slate-300 p-6">
+              <h2 className="text-[18px] font-black text-slate-900 mb-4">بيانات الموظف</h2>
+              <div className="grid grid-cols-2 gap-4 text-[14px]">
+                <div><span className="font-bold text-slate-500">الاسم:</span> {selected.name}</div>
+                <div><span className="font-bold text-slate-500">الفرع:</span> {selected.branch}</div>
+                <div><span className="font-bold text-slate-500">الوظيفة:</span> {selected.role}</div>
+              </div>
+            </div>
+
+            <div className="mt-8 rounded-xl border border-slate-300 p-6">
+              <h2 className="text-[18px] font-black text-slate-900 mb-4">تفاصيل الراتب</h2>
+              <table className="w-full text-[14px]">
+                <tbody className="divide-y divide-slate-200">
+                  <tr><td className="py-3">الراتب الأساسي</td><td className="py-3 text-left font-bold">{formatCurrency(profile.base_salary)}</td></tr>
+                  <tr><td className="py-3">حافز التارجت</td><td className="py-3 text-left font-bold">{formatCurrency(monthly.target_bonus)}</td></tr>
+                  <tr><td className="py-3">حوافز أخرى</td><td className="py-3 text-left font-bold">{formatCurrency(monthly.incentives_total)}</td></tr>
+                  <tr><td className="py-3">بدل إضافي/تعديل</td><td className="py-3 text-left font-bold">{formatCurrency(monthly.manual_adjustment)}</td></tr>
+                  <tr><td className="py-3 text-rose-600">الخصومات</td><td className="py-3 text-left font-bold text-rose-600">-{formatCurrency(monthly.deductions_total)}</td></tr>
+                </tbody>
+                <tfoot>
+                  <tr className="bg-slate-50">
+                    <td className="py-4 font-black text-[16px]">صافي الراتب</td>
+                    <td className="py-4 text-left font-black text-[16px] text-teal-600">{formatCurrency(netSalaryPreview)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+
+            <div className="mt-20 flex justify-between text-[14px] font-bold text-slate-700 px-10">
+              <div>توقيع الموظف: __________________</div>
+              <div>توقيع المدير: __________________</div>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }

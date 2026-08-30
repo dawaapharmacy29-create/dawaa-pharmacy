@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Award, ClipboardCheck, RefreshCw, Star, Users } from 'lucide-react';
+import { Award, ClipboardCheck, RefreshCw, Star, Users, Download } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { CommandHeader, MetricCard, SectionState } from '@/components/command/CommandUI';
 import { calculateMonthlyIncentive, FREE_PERMISSIONS_PER_CYCLE, MONTHLY_STARTING_POINTS } from '@/lib/incentives/incentiveRulesEngine';
 import { safeNumber, safeRows, safeText } from '@/lib/safeSupabase';
@@ -19,6 +20,7 @@ type KpiRow = {
   tasks_open: number;
   total_score: number;
   approved_permissions?: number;
+  sales_amount?: number;
 };
 
 function monthlyBreakdown(row: KpiRow) {
@@ -83,7 +85,13 @@ export default function EmployeeKpi() {
         (query) => query.order('total_score', { ascending: false }),
         500
       );
-      setRows(result.rows.map(normalizeKpiRow));
+      const salesResult = await safeRows<Record<string, unknown>>(
+        'staff_sales_summary',
+        (query) => query,
+        500
+      );
+      const salesMap = new Map(salesResult.rows.map(r => [safeText(r.staff_id ?? r.staff_name), safeNumber(r.net_sales)]));
+      setRows(result.rows.map(r => ({ ...normalizeKpiRow(r), sales_amount: salesMap.get(safeText(r.staff_id ?? r.id ?? r.staff_name)) || 0 })));
       if (result.error) {
         // Check if it's a permission issue or missing table
         const errorLower = result.error.toLowerCase();
@@ -141,6 +149,26 @@ export default function EmployeeKpi() {
     return score >= 80 ? '🏆 ممتاز' : score >= 60 ? '✅ جيد' : '⚠️ يحتاج متابعة';
   }
 
+  const exportExcel = useCallback(() => {
+    const data = filtered.map(r => ({
+      'الاسم': r.staff_name,
+      'الفرع': r.branch,
+      'الدور': r.role,
+      'النقاط': r.reward_points - r.penalty_points,
+      'الحافز': monthlyBreakdown(r).monthlyIncentiveValue,
+      'درجة الأداء': r.total_score,
+      'التقدير': getRecommendation(r.total_score),
+      'تقييم المحادثات': r.avg_review_score,
+      'الحضور': r.days_present,
+      'المهام': r.tasks_done,
+      'مبيعات الدورة': r.sales_amount || 0,
+    }));
+    const worksheet = XLSX.utils.json_to_sheet(data);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Employee KPI');
+    XLSX.writeFile(workbook, `تقرير_أداء_الموظفين_${new Date().toISOString().slice(0,7)}.xlsx`);
+  }, [filtered]);
+
   return (
     <div className="space-y-5 p-4" dir="rtl">
       <div className="flex items-center justify-between">
@@ -148,13 +176,21 @@ export default function EmployeeKpi() {
           title="مؤشرات أداء الموظفين"
           description="آخر 30 يوم • بيانات محسوبة من Supabase"
         />
-        <button
-          onClick={() => void load()}
-          className="rounded-xl p-2 hover:bg-slate-700/50 transition"
-          title="تحديث البيانات"
-        >
-          <RefreshCw size={18} />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={exportExcel}
+            className="flex items-center gap-2 rounded-xl bg-teal-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-teal-500"
+          >
+            <Download size={16} /> تصدير Excel
+          </button>
+          <button
+            onClick={() => void load()}
+            className="rounded-xl p-2 hover:bg-slate-700/50 transition"
+            title="تحديث البيانات"
+          >
+            <RefreshCw size={18} />
+          </button>
+        </div>
       </div>
 
       {/* الملخص السريع */}
@@ -214,7 +250,7 @@ export default function EmployeeKpi() {
           <table className="w-full text-sm">
             <thead className="border-b border-slate-700 bg-slate-900/50">
               <tr>
-                {['#', 'الموظف', 'الفرع', 'التقييم', 'الحضور', 'المهام', 'النقاط', 'الحافز المتوقع', 'الدرجة'].map((h) => (
+                {['#', 'الموظف', 'الفرع', 'مبيعات الدورة', 'التقييم', 'الحضور', 'المهام', 'النقاط', 'الحافز المتوقع', 'الدرجة'].map((h) => (
                   <th key={h} className="p-3 text-right text-xs font-black text-slate-400">
                     {h}
                   </th>
@@ -230,6 +266,7 @@ export default function EmployeeKpi() {
                     <p className="text-xs text-slate-400">{row.role}</p>
                   </td>
                   <td className="p-3 text-slate-300">{row.branch}</td>
+                  <td className="p-3 font-bold text-teal-300">{(row.sales_amount || 0).toLocaleString('ar-EG')} ج</td>
                   <td className="p-3 font-bold text-white">{row.avg_review_score}/100</td>
                   <td className="p-3">
                     <span className="text-emerald-400">{row.days_present} ✓</span>

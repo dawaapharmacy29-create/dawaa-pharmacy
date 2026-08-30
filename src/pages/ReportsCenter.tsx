@@ -23,7 +23,8 @@ type ReportType =
   | 'doctor_performance'
   | 'stagnant_list'
   | 'points_incentives'
-  | 'monthly_comprehensive';
+  | 'monthly_comprehensive'
+  | 'staff_360_report';
 
 type ReviewRow = Record<string, unknown>;
 
@@ -41,6 +42,7 @@ const REPORTS: { type: ReportType; label: string; icon: string; desc: string }[]
   { type: 'stagnant_list', label: 'الرواكد واللستة', icon: '🧪', desc: 'ملخص الرواكد واللستة' },
   { type: 'points_incentives', label: 'الحوافز والنقاط', icon: '🏆', desc: 'حركة النقاط والحوافز' },
   { type: 'monthly_comprehensive', label: 'تقرير شهري شامل', icon: '📋', desc: 'ملخص شامل للدورة الحالية' },
+  { type: 'staff_360_report', label: 'تقرير أداء الموظف 360°', icon: '🎯', desc: 'تقييم شامل 360 درجة لجميع الموظفين' },
 ];
 
 function safeFilePart(value: string) {
@@ -60,6 +62,7 @@ function formatReportFileName(type: ReportType, branch: string, start: string, e
     stagnant_list: 'تقرير_الرواكد_واللستة',
     points_incentives: 'تقرير_الحوافز_والنقاط',
     monthly_comprehensive: 'تقرير_شهري_شامل',
+    staff_360_report: 'تقرير_أداء_الموظف_360',
   };
   const branchPart =
     branch === ALL_BRANCHES ? 'كل_الفروع' : safeFilePart(normalizeBranchName(branch) || branch);
@@ -660,6 +663,17 @@ export default function ReportsCenter() {
         }
         buildAdvancedConversationWorkbook(rows, type, filename, { branch, startDate, endDate, staffFilter });
         toast.success(`تم تنزيل التقرير المتطور بنجاح (${rows.length} محادثة)`);
+        return;
+      }
+
+      if (type === 'staff_360_report') {
+        try {
+          const { batchExportExcel } = await import('@/lib/reports/batchReportExporter');
+          await batchExportExcel(branch, 'all', new Date(startDate));
+          toast.success('تم إنشاء تقارير 360 بنجاح');
+        } catch (e) {
+          toast.error('لم يتم العثور على أداة تصدير 360، يرجى مراجعة صفحة /monthly-report-360 بشكل فردي.');
+        }
         return;
       }
 
