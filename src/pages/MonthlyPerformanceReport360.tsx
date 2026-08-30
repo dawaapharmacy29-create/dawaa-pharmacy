@@ -9,10 +9,10 @@ import {
   previousEvaluationCycleLabel,
 } from '@/lib/evaluations/monthlyEvaluationCycle';
 import {
-  loadMonthlyPerformance360,
   type MonthlyPerformance360Report,
   type ReportSourceStatus,
 } from '@/lib/reports/monthlyPerformance360Service';
+import { loadScopedMonthlyPerformance360 } from '@/lib/reports/monthlyPerformance360ScopedService';
 
 function money(value: number) {
   return `${Math.round(value).toLocaleString('ar-EG')} ج`;
@@ -121,15 +121,14 @@ export default function MonthlyPerformanceReport360() {
     if (!user?.id) return;
     let cancelled = false;
     const loadStaff = async () => {
-      const { data, error } = await supabase.rpc('list_staff_for_monthly_evaluation_safe', {
+      const { data, error } = await supabase.rpc('list_staff_for_monthly_performance_360_safe', {
         p_actor_id: user.id,
-        p_branch: null,
       });
       if (cancelled) return;
       if (error) {
-        const ownId = user.staffId || user.id;
-        setStaff([{ id: ownId, name: user.name || 'حسابي', branch: user.branch || null, role: user.role || null }]);
-        if (!staffId) setStaffId(ownId);
+        setStaff([]);
+        setStaffId('');
+        toast.error(`تعذر تحميل نطاق تقرير 360°: ${error.message}`);
         return;
       }
       const rows = ((data || []) as Record<string, unknown>[]).map((row) => ({
@@ -139,11 +138,11 @@ export default function MonthlyPerformanceReport360() {
         role: row.role == null ? null : String(row.role),
       })).filter((row) => row.id);
       setStaff(rows);
-      if (!staffId && rows[0]) setStaffId(rows[0].id);
+      setStaffId((current) => rows.some((row) => row.id === current) ? current : (rows[0]?.id || ''));
     };
     void loadStaff();
     return () => { cancelled = true; };
-  }, [staffId, user]);
+  }, [user?.id]);
 
   useEffect(() => {
     const next = new URLSearchParams();
@@ -156,7 +155,7 @@ export default function MonthlyPerformanceReport360() {
     if (!user?.id || !staffId || !cycleLabel) return;
     setLoading(true);
     try {
-      const result = await loadMonthlyPerformance360({ actorId: user.id, staffId, cycleLabel });
+      const result = await loadScopedMonthlyPerformance360({ actorId: user.id, staffId, cycleLabel });
       setReport(result);
     } catch (error) {
       setReport(null);
