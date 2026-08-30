@@ -980,6 +980,7 @@ export const ROUTE_PERMISSION_MAP: Record<string, string | string[]> = {
   '/analytics': 'view_analytics',
   '/analytics-sales': 'view_analytics',
   '/reports': 'view_sales_reports',
+  '/monthly-report-360': ['view_sales_reports', 'view_doctor_dashboard'],
   '/supplier-performance': 'view_purchases',
   '/purchases': 'view_purchases',
   '/staff-payroll': 'manage_payroll',

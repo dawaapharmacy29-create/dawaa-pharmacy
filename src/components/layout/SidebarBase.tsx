@@ -71,6 +71,7 @@ const GROUPS: NavGroup[] = [
     { path: '/doctor-competition', icon: Star, label: 'مسابقة الدكاترة', permission: 'view_doctor_dashboard' },
     { path: '/whatsapp-analytics', icon: BarChart3, label: 'تحليلات واتساب', permission: 'view_reviews' },
     { path: '/reports', icon: FileSpreadsheet, label: 'مركز التقارير', permission: 'view_sales_reports' },
+    { path: '/monthly-report-360', icon: BarChart3, label: 'تقرير الأداء الشهري 360°', permission: 'view_sales_reports' },
   ]},
   { title: 'التشغيل والمخزون', icon: Store, items: [
     { path: '/stagnant-medicines', icon: Package, label: 'الرواكد واللستة', permission: 'view_stagnant_medicines' },
@@ -106,6 +107,7 @@ const GROUPS: NavGroup[] = [
 const PHARMACIST_GROUPS: NavGroup[] = [{
   title: 'مساحة الدكتور', icon: UserCheck, items: [
     { path: '/doctor-dashboard', icon: LayoutDashboard, label: 'لوحة الدكتور', permission: 'view_doctor_dashboard' },
+    { path: '/monthly-report-360', icon: BarChart3, label: 'تقريري الشهري 360°', permission: 'view_doctor_dashboard' },
     { path: '/doctor-dashboard?tab=followups', icon: HeadphonesIcon, label: 'متابعاتي المطلوبة', permission: 'view_doctor_dashboard' },
     { path: '/customers', icon: Users, label: 'بحث العملاء', permission: 'view_customers' },
     { path: '/customer-points-ledger', icon: Star, label: 'نقاط العملاء', permission: 'view_customers' },
