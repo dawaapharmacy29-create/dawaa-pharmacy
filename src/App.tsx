@@ -63,6 +63,7 @@ const ShiftPerformance = lazy(() => import('@/pages/ShiftPerformance'));
 const ShiftNotes = lazy(() => import('@/pages/ShiftNotes'));
 const StaffDetail = lazy(() => import('@/pages/StaffDetail'));
 const StaffMonthlyEvaluation = lazy(() => import('@/pages/StaffMonthlyEvaluation'));
+const MonthlyIncentiveReport = lazy(() => import('@/pages/MonthlyIncentiveReport'));
 const TimeOff = lazy(() => import('@/pages/TimeOff'));
 const DoctorDashboard = lazy(() => import('@/pages/DoctorDashboardEnhanced'));
 const StagnantMedicines = lazy(() => import('@/pages/StagnantMedicines'));
@@ -252,6 +253,7 @@ function AppRoutes() {
     <Route path="/reviews" element={<ProtectedRoute>{routeSuspense(<Reviews />, 'التقييمات')}</ProtectedRoute>} />
     <Route path="/shift-performance" element={<ProtectedRoute>{routeSuspense(<ShiftPerformance />, 'تقييم الشيفت')}</ProtectedRoute>} />
     <Route path="/staff-monthly-evaluation" element={<ProtectedRoute>{routeSuspense(<StaffMonthlyEvaluation />, 'التقييم الشهري')}</ProtectedRoute>} />
+    <Route path="/monthly-incentive-report" element={<ProtectedRoute>{routeSuspense(<MonthlyIncentiveReport />, 'التقرير الشهري للحوافز')}</ProtectedRoute>} />
     <Route path="/shift-notes" element={<ProtectedRoute>{routeSuspense(<ShiftNotes />, 'ملاحظات الشيفت')}</ProtectedRoute>} />
     <Route path="/staff/:id" element={<ProtectedRoute>{routeSuspense(<StaffDetail />, 'تفاصيل الموظف')}</ProtectedRoute>} />
     <Route path="/time-off" element={<ProtectedRoute>{routeSuspense(<TimeOff />, 'الأذونات')}</ProtectedRoute>} />

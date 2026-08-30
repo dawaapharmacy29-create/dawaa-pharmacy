@@ -86,6 +86,7 @@ const GROUPS: NavGroup[] = [
   ]},
   { title: 'الدليفري', icon: Truck, items: [{ path: '/delivery', icon: Truck, label: 'لوحة الدليفري', permission: 'view_delivery' }] },
   { title: 'الحوافز والرواتب', icon: Star, items: [
+    { path: '/monthly-incentive-report', icon: Wallet, label: 'التقرير الشهري للحوافز والنقاط', allowedRoles: ['general_manager', 'admin', 'executive_manager', 'branches_manager'] },
     { path: '/incentive-governance', icon: ShieldCheck, label: 'اعتماد الحوافز', permission: 'manage_incentives' },
     { path: '/points', icon: Star, label: 'النقاط', permission: 'view_points' },
     { path: '/performance-pillars', icon: BarChart3, label: 'الدرجة المركّبة للأداء', excludeRoles: ['customer_service_manager'] },
