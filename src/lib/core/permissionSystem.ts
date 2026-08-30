@@ -55,6 +55,7 @@ export const ROLES: RoleDefinition[] = [
 ];
 
 export const ROLE_MAP: Record<string, RoleKey> = {
+  // English keys
   general_manager: 'general_manager',
   executive_manager: 'executive_manager',
   branches_manager: 'branches_manager',
@@ -69,6 +70,7 @@ export const ROLE_MAP: Record<string, RoleKey> = {
   assistant: 'assistant',
   cleaning_supervisor: 'cleaning_supervisor',
   delivery: 'delivery',
+  // Arabic names → role key
   'مدير عام': 'general_manager',
   'أدمن': 'general_manager',
   admin: 'general_manager',
@@ -145,12 +147,12 @@ export function isAdminRole(role?: string | null): boolean {
 }
 
 export function isPrivilegedRole(role?: string | null): boolean {
-  return getRoleLevel(role) <= 4;
+  return getRoleLevel(role) <= 4; // general_manager, executive_manager, branches_manager, procurement_manager
 }
 
 export function isBranchManagerRole(role?: string | null): boolean {
   const level = getRoleLevel(role);
-  return level >= 3 && level <= 7;
+  return level >= 3 && level <= 7; // branches_manager down to shift_supervisors
 }
 
 export function getUserDataScope(role?: string | null): DataScope {
@@ -161,6 +163,9 @@ export function canSeeAllBranches(role?: string | null): boolean {
   return getUserDataScope(role) === 'all_branches';
 }
 
+// ─────────────────────────────────────────────────────────────
+// PERMISSION KEYS — المفاتيح الرسمية (snake_case فقط)
+// ─────────────────────────────────────────────────────────────
 export interface PermissionCategory {
   key: string;
   label: string;
@@ -171,7 +176,7 @@ export interface PermissionDef {
   key: string;
   label: string;
   description?: string;
-  sensitive?: boolean;
+  sensitive?: boolean;  // يحتاج تأكيد إضافي عند المنح
 }
 
 export const PERMISSION_CATEGORIES: PermissionCategory[] = [
@@ -269,7 +274,7 @@ export const PERMISSION_CATEGORIES: PermissionCategory[] = [
     key: 'schedule',
     label: 'الجداول والحضور',
     permissions: [
-      { key: 'view_schedule',             label: 'الجدول الأسبوعي' },
+        { key: 'view_schedule',             label: 'الجدول الأسبوعي' },
       { key: 'manage_schedule',           label: 'إدارة الجدول', sensitive: true },
       { key: 'view_attendance_leaves',    label: 'الحضور والإجازات' },
       { key: 'create_leave_request',      label: 'طلب إجازة / إذن' },
@@ -404,14 +409,20 @@ export const PERMISSION_CATEGORIES: PermissionCategory[] = [
   },
 ];
 
+// All permission keys as a flat list (for iteration / validation)
 export const ALL_PERMISSION_KEYS: string[] = PERMISSION_CATEGORIES.flatMap(
   (cat) => cat.permissions.map((p) => p.key)
 );
 
+// All permission definitions as a flat map
 export const PERMISSION_MAP: Record<string, PermissionDef> = Object.fromEntries(
   PERMISSION_CATEGORIES.flatMap((cat) => cat.permissions.map((p) => [p.key, p]))
 );
 
+// ─────────────────────────────────────────────────────────────
+// ROLE PERMISSION PRESETS — ما يحق لكل دور
+// ─────────────────────────────────────────────────────────────
+// "*" = كل الصلاحيات
 const ALL: string[] = ['*'];
 
 const MANAGER_BASE = [
@@ -742,8 +753,12 @@ const CUSTOMER_SERVICE_BASE = [
 ];
 
 const DELIVERY_BASE = ['view_dashboard', 'view_delivery', 'create_leave_request', 'record_attendance'];
+
 const ASSISTANT_BASE = ['view_dashboard', 'create_leave_request', 'record_attendance'];
 
+// مدير المشتريات: نطاق تشغيلي بحت (مخزون/موردين/مشتريات/نواقص/مستلزمات وتقاريرها)،
+// وليس نسخة من صلاحيات مدير الفروع الشاملة. لا يشمل بيانات العملاء أو التقييمات
+// أو النقاط أو الرواتب أو إدارة الفريق — دي خارج نطاق دوره.
 const PROCUREMENT_MANAGER_BASE = [
   'view_dashboard',
   'view_dashboard_stats',
@@ -808,11 +823,16 @@ export function mergePermissions(
   const merged: Record<string, boolean> = {};
   for (const map of maps) {
     if (!map) continue;
-    for (const [key, value] of Object.entries(map)) merged[key] = value === true;
+    for (const [key, value] of Object.entries(map)) {
+      merged[key] = value === true;
+    }
   }
   return merged;
 }
 
+/**
+ * التحقق من صلاحية محددة لمستخدم (يأخذ دوره + صلاحياته المخصصة)
+ */
 export function hasPermission(
   roleOrUser:
     | string
@@ -822,20 +842,34 @@ export function hasPermission(
   permission: string
 ): boolean {
   if (!permission) return true;
+
   let role: string | null | undefined;
   let customPermissions: Record<string, boolean> | null | undefined;
-  if (typeof roleOrUser === 'string') role = roleOrUser;
-  else {
+
+  if (typeof roleOrUser === 'string') {
+    role = roleOrUser;
+  } else {
     role = roleOrUser?.role;
     customPermissions = roleOrUser?.permissions;
   }
+
+  // مدير عام لديه كل الصلاحيات
   if (normalizeRole(role) === 'general_manager') return true;
+
+  // الصلاحيات الافتراضية للدور
   const roleDefaults = getDefaultPermissionsForRole(role);
+  // الصلاحيات المدمجة (الافتراضية + المخصصة)
   const merged = mergePermissions(roleDefaults, customPermissions);
+
   if (merged['*'] === true || merged[permission] === true) return true;
+
+  // Backward-compat: check legacy aliases
   return LEGACY_ALIASES[permission]?.some((alias) => merged[alias] === true) ?? false;
 }
 
+/**
+ * يُعيد true إذا كان المستخدم يملك أي صلاحية من القائمة
+ */
 export function hasAnyPermission(
   user: { role?: string | null; permissions?: Record<string, boolean> | null } | null | undefined,
   permissions: string[]
@@ -843,6 +877,9 @@ export function hasAnyPermission(
   return permissions.some((p) => hasPermission(user, p));
 }
 
+/**
+ * يُعيد true إذا كان المستخدم يملك كل الصلاحيات في القائمة
+ */
 export function hasAllPermissions(
   user: { role?: string | null; permissions?: Record<string, boolean> | null } | null | undefined,
   permissions: string[]
@@ -850,7 +887,11 @@ export function hasAllPermissions(
   return permissions.every((p) => hasPermission(user, p));
 }
 
+// ─────────────────────────────────────────────────────────────
+// LEGACY ALIASES — للتوافق مع الكود القديم فقط
+// ─────────────────────────────────────────────────────────────
 const LEGACY_ALIASES: Record<string, string[]> = {
+  // Current page permissions → canonical snake_case permissions
   'page.dashboard.view': ['view_dashboard'],
   'page.customers.view': ['view_customers', 'view_customer_service'],
   'page.customer_service.view': ['view_customer_service', 'create_followup', 'edit_followup'],
@@ -881,6 +922,8 @@ const LEGACY_ALIASES: Record<string, string[]> = {
   'customers.action.import': ['import_customers'],
   'customer_service.section.daily_followups': ['view_customer_service', 'create_followup'],
   'customer_service.section.whatsapp_templates': ['view_customer_service', 'whatsapp_customer'],
+
+  // Old view_ names that may still exist
   view_customer_service: ['view_customer_service'],
   manage_followups: ['create_followup', 'edit_followup', 'close_followup'],
   manage_user_permissions: ['manage_permissions'],
@@ -893,7 +936,6 @@ const LEGACY_ALIASES: Record<string, string[]> = {
   add_conversation_review: ['add_reviews'],
   manage_permissions: ['manage_permissions'],
 };
-
 export const ROUTE_PERMISSION_MAP: Record<string, string | string[]> = {
   '/': 'view_dashboard',
   '/executive-2027': ['view_executive_dashboard', 'view_branch_dashboard'],
@@ -977,6 +1019,9 @@ export const ROUTE_PERMISSION_MAP: Record<string, string | string[]> = {
   '/welcome-messages': 'customer_welcome_messages_view',
   '/diagnostics': 'view_diagnostics',
   '/evaluation-rules': 'manage_evaluation_rules',
+  // صفحات كانت من غير أي فحص صلاحية لأنها مش موجودة في الخريطة أصلًا —
+  // ده كان بيخلي أي حساب مسجّل دخول (بما فيهم الدكاترة) يقدر يفتحها لو عرف الرابط،
+  // مع إنها صفحات إدارية بحتة أو مراجعة مجمّعة لأداء كل الدكاترة.
   '/branch-checklist-review': 'view_team',
   '/customer-monthly-performance': 'view_analytics',
   '/daily-manager-checklist': 'view_team',
@@ -984,6 +1029,8 @@ export const ROUTE_PERMISSION_MAP: Record<string, string | string[]> = {
   '/performance-pillars': 'view_team',
   '/staff-monthly-evaluation': 'view_team',
   '/weekly-evaluation': 'view_team',
+  // صفحات ذاتية (أي حد يقدر يستخدمها لنفسه) — بس لازم تفضل مربوطة بتسجيل دخول
+  // وصلاحية أساسية موجودة عند كل الأدوار عشان الفحص يفضل واحد ومتسق في كل مكان.
   '/my-daily-checklist': 'view_dashboard',
   '/point-appeals': 'view_points',
 };
@@ -992,6 +1039,9 @@ export function getRoutePermissions(pathname: string): string[] | undefined {
   const exact = ROUTE_PERMISSION_MAP[pathname];
   if (exact) return Array.isArray(exact) ? exact : [exact];
   if (pathname.startsWith('/staff/')) return ['view_staff_details'];
+  // كانت /customers/:id و /customer-health/:id بدون أي فحص صلاحية (مطابقة الاستثناء
+  // فقط، ولا يوجد مسار ثابت /customer-health أصلًا) — أي حساب مسجّل دخول كان يقدر
+  // يفتح ملف أي عميل كامل مباشرة لو عرف الرابط، بغض النظر عن دوره.
   if (pathname.startsWith('/customers/')) return ['view_customer_360'];
   if (pathname.startsWith('/customer-health/')) return ['view_customer_details'];
   if (pathname.startsWith('/weekly-evaluation/')) return ['view_team'];
