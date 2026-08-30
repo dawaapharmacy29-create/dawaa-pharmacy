@@ -100,17 +100,6 @@ function sectionPoints(item: StaffEvaluationSectionV3) {
   return Math.round(((item.score / 5) * item.weight) * 10) / 10;
 }
 
-/**
- * تحويل تقدير كل محور (1-5 نجوم) لتأثير نقاط حقيقي في الـLedger، متناسب مع
- * وزن المحور نفسه. 3 نجوم = مقبول/محايد بدون أي تأثير. الجدول: 5★=+75،
- * 4★=+25، 3★=0، 2★=-50، 1★=-150 من أصل وزن 100، مقيّس بنسبة وزن المحور.
- */
-const SECTION_INCENTIVE_BAND: Record<number, number> = { 5: 75, 4: 25, 3: 0, 2: -50, 1: -150 };
-function sectionIncentiveDelta(item: StaffEvaluationSectionV3) {
-  const band = SECTION_INCENTIVE_BAND[item.score] ?? 0;
-  return Math.round((band * item.weight) / 100);
-}
-
 function normalizeSavedSections(
   saved: unknown,
   fallback: StaffEvaluationSectionV3[]
@@ -416,40 +405,31 @@ export default function StaffMonthlyEvaluation() {
         toast.success(`تم تسجيل خصم نقاط فعلي لـ${newlyActivatedGates.length} مخالفة حرجة في حساب الموظف.`);
       }
 
-      // أثر نقاط المحاور السبعة يتسجل مرة واحدة بس، أول لحظة يتحول فيها
-      // التقييم من مسودة/جديد لحالة "مُرسَل". تعديل تقييم مُرسَل بالفعل
-      // مايكررش التأثير تلقائيًا، عشان منكررش خصم أو مكافأة نفس الشهر.
+      // نسبة التقييم النهائية تُضرب في حافز النقاط الكامل (مش تضيف/تخصم نقاط
+      // صغيرة زي قبل كده) — مرة واحدة بس، أول لحظة يتحول فيها التقييم من
+      // مسودة/جديد لحالة "مُرسَل". تعديل تقييم مُرسَل بالفعل مايكررش أو
+      // يحدّث النسبة تلقائيًا، عشان منغيرش حافز دورة اتقفلت فعلًا.
       const isFirstFinalization = nextStatus === 'sent' && !previouslySent;
       if (isFirstFinalization) {
-        const sectionDeltas = sections
-          .map((item) => ({ item, delta: sectionIncentiveDelta(item) }))
-          .filter(({ delta }) => delta !== 0);
-        for (const { item, delta } of sectionDeltas) {
-          await createEmployeeTransaction({
+        const { error: multiplierError } = await supabase
+          .from('staff_evaluation_incentive_multipliers')
+          .upsert({
             staff_id: selected.id,
-            type: delta > 0 ? 'reward' : 'penalty',
-            points_delta: delta,
-            reason: `تقييم شهري - ${item.title} - ${item.score} نجوم`,
-            description: `دورة ${cycleRange.displayLabel}. وزن المحور: ${item.weight}٪.`,
-            source: 'monthly_evaluation_section',
-            source_id: String(data || evaluationId || ''),
-            created_by: user.id,
             month_cycle: cycleLabel,
-            branch: selected.branch || branch,
-            status: 'active',
-          });
-        }
+            multiplier_pct: overallScore,
+            source_evaluation_id: String(data || evaluationId || ''),
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'staff_id,month_cycle' });
+        if (multiplierError) throw multiplierError;
         setPreviouslySent(true);
-        if (sectionDeltas.length) {
-          toast.success('تم تسجيل أثر محاور التقييم على النقاط في حساب الموظف.');
-        }
+        toast.success(`تم ضرب نسبة التقييم (${overallScore}%) في حافز النقاط لهذه الدورة.`);
       }
 
       if (nextStatus === 'sent') {
         await createStaffNotification({
           recipientStaffId: selected.id,
           title: 'تم إرسال تقييمك الشهري',
-          message: `تقييم دورة ${cycleRange.displayLabel}: ${overallScore}/100 - ${grade}. الحافز المالي يُحسب من نظام النقاط المركزي.`,
+          message: `تقييم دورة ${cycleRange.displayLabel}: ${overallScore}/100 - ${grade}. الحافز المالي = حافز النقاط × نسبة التقييم.`,
           type: 'staff_monthly_evaluation',
           entityType: 'staff_monthly_evaluation',
           entityId: String(data || evaluationId || ''),
@@ -642,16 +622,23 @@ export default function StaffMonthlyEvaluation() {
               </Panel>
 
               <Panel className="p-4" style={{ background: 'var(--dawaa-status-warning-bg)', borderColor: 'var(--dawaa-status-warning-border)' }}>
-                <h2 className="font-black" style={{ color: 'var(--dawaa-status-warning-text)' }}>قاعدة الفصل بين التقييم والحافز</h2>
+                <h2 className="font-black" style={{ color: 'var(--dawaa-status-warning-text)' }}>معادلة الحافز النهائي</h2>
                 <p className="mt-2 text-sm leading-7" style={{ color: 'var(--dawaa-theme-text)' }}>
-                  التقييم الشهري يقيس جودة العمل ويحدد نقاط القوة وخطة التحسين. لا يحسب مبلغًا مستقلًا ولا يستطيع تجاوز محرك النقاط. المكافآت والخصومات التشغيلية تدخل الـLedger من أحداثها الأصلية، والحافز بالجنيه يخرج من Compensation Profile والمصدر المركزي فقط.
+                  الحافز النهائي = حافز النقاط الكامل (من Points Truth) × نسبة التقييم الشهري. يعني لو نتيجة التقييم أقل من 100%، الحافز الفعلي بيقل بنفس النسبة حتى لو النقاط وصلت للسقف. النسبة تُطبَّق مرة واحدة فقط لحظة الاعتماد النهائي (إرسال)، ومش بتتكرر لو اتعدّل تقييم مُرسَل بالفعل.
                 </p>
               </Panel>
+
+              {!evaluationNotStarted && !previouslySent ? (
+                <Panel className="p-4" style={{ borderColor: 'var(--dawaa-status-success-border)', background: 'var(--dawaa-status-success-bg)' }}>
+                  <p className="text-sm font-black" style={{ color: 'var(--dawaa-status-success-text)' }}>
+                    معاينة عند الاعتماد: {canonicalIncentive == null ? 'غير محدد' : `${canonicalIncentive.toLocaleString('ar-EG')} جنيه`} × {overallScore}% = {canonicalIncentive == null ? 'غير محدد' : `${Math.round((canonicalIncentive * overallScore) / 100).toLocaleString('ar-EG')} جنيه تقريبًا`}
+                  </p>
+                </Panel>
+              ) : null}
 
               <section className="space-y-3">
                 {sections.map((item) => {
                   const earned = sectionPoints(item);
-                  const incentiveDelta = sectionIncentiveDelta(item);
                   return (
                     <Panel key={item.key} className="p-4">
                       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -672,20 +659,6 @@ export default function StaffMonthlyEvaluation() {
                           <div className="mt-2 rounded-xl border px-3 py-2 text-center text-sm font-black" style={{ borderColor: 'var(--dawaa-theme-accent-border)', background: 'var(--dawaa-theme-accent-soft)', color: 'var(--dawaa-theme-primary-strong)' }}>
                             {item.score ? `${item.score} نجوم — ${starMeaning(item.score)} — ${earned} من ${item.weight}` : `لم يتم التقييم — 0 من ${item.weight}`}
                           </div>
-                          {item.score ? (
-                            <div
-                              className="mt-1.5 rounded-lg px-2 py-1 text-center text-[11px] font-black"
-                              style={incentiveDelta > 0
-                                ? { color: 'var(--dawaa-status-success-text)' }
-                                : incentiveDelta < 0
-                                  ? { color: 'var(--dawaa-status-danger-text)' }
-                                  : { color: 'var(--dawaa-theme-muted)' }}
-                            >
-                              {incentiveDelta === 0
-                                ? 'بدون تأثير على النقاط (مقبول/محايد)'
-                                : `أثر على النقاط عند الاعتماد: ${incentiveDelta > 0 ? '+' : ''}${incentiveDelta}`}
-                            </div>
-                          ) : null}
                         </div>
                       </div>
                       {item.rubric ? (
