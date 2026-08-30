@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import {
-  Banknote, CalendarClock, CheckCircle2, ClipboardList, RefreshCw, Save,
+  Banknote, CalendarClock, CheckCircle2, ClipboardList, LockKeyhole, RefreshCw, Save,
   Search, TrendingDown, Trophy, User, WalletCards,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
@@ -27,7 +27,10 @@ type MonthlyRow = {
   id?: string; staff_username: string; payroll_month: string;
   worked_hours: number; overtime_hours: number; target_bonus: number; quarterly_bonus: number;
   incentives_total: number; deductions_total: number; manual_adjustment: number;
-  status: string; notes: string;
+  net_salary?: number | null; status: string; notes: string;
+  freeze_version?: number | null; approval_snapshot?: Record<string, unknown> | null;
+  approved_at?: string | null; approved_by_name?: string | null;
+  paid_at?: string | null; paid_by_name?: string | null;
 };
 
 const STATUS_OPTIONS = [
@@ -109,17 +112,21 @@ export default function PayrollManagement() {
 
   useEffect(() => { if (selected) void loadPerson(selected, month); }, [selected, month, loadPerson]);
 
+  const monthlyFrozen = monthly?.status === 'approved' || monthly?.status === 'paid';
+  const monthlyPaid = monthly?.status === 'paid';
+
   const netSalaryPreview = useMemo(() => {
     if (!profile || !monthly) return 0;
-    const targetBonus = automatedTruth?.targetRecords ? automatedTruth.targetBonus : num(monthly.target_bonus);
-    const automatedWithoutTarget = automatedTruth ? automatedTruth.automatedTotal - automatedTruth.targetBonus : 0;
+    if ((monthly.status === 'approved' || monthly.status === 'paid') && monthly.net_salary != null) {
+      return num(monthly.net_salary);
+    }
     return (
       num(profile.base_salary) +
       num(monthly.worked_hours) * num(profile.hourly_rate) +
       num(monthly.overtime_hours) * num(profile.hourly_rate) +
-      targetBonus +
       num(monthly.quarterly_bonus) +
-      num(monthly.incentives_total) + automatedWithoutTarget +
+      num(monthly.incentives_total) +
+      num(automatedTruth?.automatedTotal) +
       num(monthly.manual_adjustment) -
       num(monthly.deductions_total)
     );
@@ -142,25 +149,38 @@ export default function PayrollManagement() {
 
   const saveMonthly = async () => {
     if (!monthly) return;
-    if (monthly.status === 'paid') {
-      const already = history.find((h) => h.payroll_month === monthly.payroll_month && h.status === 'paid');
-      if (already) { toast.error('الكشف ده متعلّم مدفوع بالفعل — راجع السجل قبل التعديل.'); return; }
+    if (monthlyPaid) {
+      toast.error('الكشف مدفوع ومقفول نهائيًا. أي تصحيح لاحق يتم كتسوية مستقلة موثقة.');
+      return;
     }
     setSaving(true);
     try {
-      const { error } = await supabase.from('staff_payroll_monthly_v13').upsert(
-        { ...monthly, target_bonus: automatedTruth?.targetRecords ? automatedTruth.targetBonus : monthly.target_bonus, net_salary: netSalaryPreview, updated_at: new Date().toISOString() },
-        { onConflict: 'staff_username,payroll_month' }
-      );
+      const { error } = await supabase.rpc('save_staff_payroll_monthly_v14', {
+        p_staff_username: monthly.staff_username,
+        p_payroll_month: monthly.payroll_month,
+        p_worked_hours: num(monthly.worked_hours),
+        p_overtime_hours: num(monthly.overtime_hours),
+        p_quarterly_bonus: num(monthly.quarterly_bonus),
+        p_incentives_total: num(monthly.incentives_total),
+        p_deductions_total: num(monthly.deductions_total),
+        p_manual_adjustment: num(monthly.manual_adjustment),
+        p_notes: monthly.notes || null,
+        p_status: monthly.status,
+      });
       if (error) throw error;
-      toast.success('تم حفظ كشف الدورة');
-      if (selected) void loadPerson(selected, month);
+      toast.success(monthly.status === 'approved' ? 'تم اعتماد الكشف وتجميد Snapshot نهائي للأرقام' : monthly.status === 'paid' ? 'تم تعليم الكشف كمدفوع وإقفاله نهائيًا' : 'تم حفظ كشف الدورة');
+      if (selected) await loadPerson(selected, month);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'تعذر الحفظ');
+      toast.error(error instanceof Error ? error.message : 'تعذر حفظ كشف الدورة');
     } finally { setSaving(false); }
   };
 
   const filteredStaff = staff.filter((s) => !search.trim() || s.name.includes(search.trim()) || s.username.includes(search.trim()));
+  const statusOptions = monthlyPaid
+    ? STATUS_OPTIONS.filter((s) => s.key === 'paid')
+    : monthly?.status === 'approved'
+      ? STATUS_OPTIONS.filter((s) => s.key === 'approved' || s.key === 'paid')
+      : STATUS_OPTIONS.filter((s) => s.key !== 'paid');
 
   return (
     <div className="space-y-5 p-4 md:p-6" dir="rtl">
@@ -178,16 +198,9 @@ export default function PayrollManagement() {
           </div>
           <div className="mt-3 max-h-[60vh] space-y-1.5 overflow-y-auto">
             {filteredStaff.map((s) => (
-              <button
-                key={s.id} onClick={() => setSelected(s)}
-                className={`flex w-full items-center gap-2 rounded-xl border p-2.5 text-right text-sm transition ${selected?.id === s.id ? 'border-teal-400/50 bg-teal-400/10' : ''}`}
-                style={selected?.id === s.id ? undefined : surfaceSoft}
-              >
+              <button key={s.id} onClick={() => setSelected(s)} className={`flex w-full items-center gap-2 rounded-xl border p-2.5 text-right text-sm transition ${selected?.id === s.id ? 'border-teal-400/50 bg-teal-400/10' : ''}`} style={selected?.id === s.id ? undefined : surfaceSoft}>
                 <User size={15} className="text-teal-300" />
-                <div>
-                  <div className="font-black text-white">{s.name}</div>
-                  <div className="text-[11px]" style={mutedText}>{s.branch}</div>
-                </div>
+                <div><div className="font-black text-white">{s.name}</div><div className="text-[11px]" style={mutedText}>{s.branch}</div></div>
               </button>
             ))}
             {!filteredStaff.length ? <p className="p-3 text-center text-xs" style={mutedText}>لا يوجد موظفين مطابقين.</p> : null}
@@ -203,18 +216,10 @@ export default function PayrollManagement() {
             <div className="rounded-3xl border p-5" style={surface}>
               <div className="flex items-center gap-2 font-black text-teal-200"><WalletCards size={18} /> الملف الأساسي — {selected.name}</div>
               <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <label className="text-xs font-bold" style={mutedText}>الراتب الأساسي
-                  <input type="number" className="input mt-1 w-full" value={profile?.base_salary ?? 0} onChange={(e) => setProfile((p) => p && { ...p, base_salary: num(e.target.value) })} />
-                </label>
-                <label className="text-xs font-bold" style={mutedText}>سعر الساعة
-                  <input type="number" className="input mt-1 w-full" value={profile?.hourly_rate ?? 0} onChange={(e) => setProfile((p) => p && { ...p, hourly_rate: num(e.target.value) })} />
-                </label>
-                <label className="text-xs font-bold" style={mutedText}>حافز التارجت الافتراضي
-                  <input type="number" className="input mt-1 w-full" value={profile?.target_bonus_amount ?? 0} onChange={(e) => setProfile((p) => p && { ...p, target_bonus_amount: num(e.target.value) })} />
-                </label>
-                <label className="text-xs font-bold" style={mutedText}>الحافز الربع سنوي الافتراضي
-                  <input type="number" className="input mt-1 w-full" value={profile?.quarterly_bonus_amount ?? 0} onChange={(e) => setProfile((p) => p && { ...p, quarterly_bonus_amount: num(e.target.value) })} />
-                </label>
+                <label className="text-xs font-bold" style={mutedText}>الراتب الأساسي<input type="number" className="input mt-1 w-full" value={profile?.base_salary ?? 0} onChange={(e) => setProfile((p) => p && { ...p, base_salary: num(e.target.value) })} /></label>
+                <label className="text-xs font-bold" style={mutedText}>سعر الساعة<input type="number" className="input mt-1 w-full" value={profile?.hourly_rate ?? 0} onChange={(e) => setProfile((p) => p && { ...p, hourly_rate: num(e.target.value) })} /></label>
+                <label className="text-xs font-bold" style={mutedText}>حافز التارجت الافتراضي<input type="number" className="input mt-1 w-full" value={profile?.target_bonus_amount ?? 0} onChange={(e) => setProfile((p) => p && { ...p, target_bonus_amount: num(e.target.value) })} /></label>
+                <label className="text-xs font-bold" style={mutedText}>الحافز الربع سنوي الافتراضي<input type="number" className="input mt-1 w-full" value={profile?.quarterly_bonus_amount ?? 0} onChange={(e) => setProfile((p) => p && { ...p, quarterly_bonus_amount: num(e.target.value) })} /></label>
               </div>
               <button className="btn-primary mt-4 flex items-center gap-2" disabled={saving} onClick={() => void saveProfile()}><Save size={16} /> حفظ الملف الأساسي</button>
             </div>
@@ -225,15 +230,21 @@ export default function PayrollManagement() {
                 <input type="month" className="input" value={month.slice(0, 7)} onChange={(e) => setMonth(`${e.target.value}-01`)} />
               </div>
 
+              {monthlyFrozen ? (
+                <div className="mt-4 flex items-start gap-2 rounded-2xl border border-amber-400/30 bg-amber-400/5 p-3 text-xs text-amber-200">
+                  <LockKeyhole size={16} className="mt-0.5 shrink-0" />
+                  <div className="font-bold">
+                    {monthlyPaid ? 'الكشف مدفوع ومقفول نهائيًا.' : 'الكشف معتمد والأرقام مجمدة من لحظة الاعتماد.'}
+                    {monthly?.freeze_version ? ` Snapshot v${monthly.freeze_version}.` : ''}
+                    {monthly?.approved_by_name ? ` اعتمد بواسطة ${monthly.approved_by_name}.` : ''}
+                  </div>
+                </div>
+              ) : null}
+
               {automatedTruth ? (
                 <div className="mt-4 rounded-2xl border p-4" style={surfaceSoft}>
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <div className="text-xs font-black text-teal-200">الحوافز الآلية — مصدر حقيقة واحد</div>
-                      <div className="mt-1 text-[11px]" style={mutedText}>
-                        مصدر حافز الأداء: {automatedTruth.performanceSource === 'points' ? 'نظام النقاط' : automatedTruth.performanceSource === 'manager_evaluation' ? 'تقييم المدير' : 'غير متاح'}
-                      </div>
-                    </div>
+                    <div><div className="text-xs font-black text-teal-200">الحوافز الآلية — مصدر حقيقة واحد</div><div className="mt-1 text-[11px]" style={mutedText}>مصدر حافز الأداء: {automatedTruth.performanceSource === 'points' ? 'نظام النقاط' : automatedTruth.performanceSource === 'manager_evaluation' ? 'تقييم المدير' : 'غير متاح'}</div></div>
                     <div className="text-lg font-black text-emerald-300">{formatCurrency(automatedTruth.automatedTotal)}</div>
                   </div>
                   <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
@@ -246,67 +257,31 @@ export default function PayrollManagement() {
                     <div>نجم الفرع: <b>{formatCurrency(automatedTruth.branchStarBonus)}</b></div>
                     <div>حافز الأداء المحتسب: <b>{formatCurrency(automatedTruth.performanceIncentive)}</b></div>
                   </div>
-                  {automatedTruth.excludedManagerEvaluationDueToPointsProfile ? (
-                    <p className="mt-2 text-[10px] font-bold text-amber-300">تم استبعاد حافز تقييم المدير من الجمع لأن ملف النقاط هو مصدر حافز الأداء لهذا الموظف — منعًا للاحتساب المزدوج.</p>
-                  ) : null}
+                  {monthlyFrozen ? <p className="mt-2 text-[10px] font-bold text-amber-300">الأرقام بالأعلى هي القراءة الحالية للمراجعة فقط؛ صافي الكشف المعتمد يعتمد على Snapshot المحفوظ وقت الاعتماد.</p> : null}
+                  {automatedTruth.excludedManagerEvaluationDueToPointsProfile ? <p className="mt-2 text-[10px] font-bold text-amber-300">تم استبعاد حافز تقييم المدير من الجمع لأن ملف النقاط هو مصدر حافز الأداء لهذا الموظف — منعًا للاحتساب المزدوج.</p> : null}
                 </div>
               ) : null}
 
               <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                <label className="text-xs font-bold" style={mutedText}>ساعات العمل
-                  <input type="number" className="input mt-1 w-full" value={monthly?.worked_hours ?? 0} onChange={(e) => setMonthly((m) => m && { ...m, worked_hours: num(e.target.value) })} />
-                </label>
-                <label className="text-xs font-bold" style={mutedText}>ساعات إضافية
-                  <input type="number" className="input mt-1 w-full" value={monthly?.overtime_hours ?? 0} onChange={(e) => setMonthly((m) => m && { ...m, overtime_hours: num(e.target.value) })} />
-                </label>
-                <label className="text-xs font-bold" style={mutedText}>حافز التارجت
-                  <input type="number" className="input mt-1 w-full" readOnly={Boolean(automatedTruth?.targetRecords)} value={automatedTruth?.targetRecords ? automatedTruth.targetBonus : monthly?.target_bonus ?? 0} onChange={(e) => setMonthly((m) => m && { ...m, target_bonus: num(e.target.value) })} />
-                  {automatedTruth?.targetRecords ? <span className="mt-1 block text-[10px] text-emerald-300">محسوب آليًا ومقفول ضد التعديل اليدوي</span> : null}
-                </label>
-                <label className="text-xs font-bold" style={mutedText}>حافز الأداء الآلي
-                  <input type="number" className="input mt-1 w-full" readOnly value={automatedTruth?.performanceIncentive ?? 0} />
-                  <span className="mt-1 block text-[10px] text-slate-500">من نظام النقاط أو تقييم المدير — مصدر واحد فقط</span>
-                </label>
-                <label className="text-xs font-bold" style={mutedText}>الحافز الربع سنوي
-                  <input type="number" className="input mt-1 w-full" value={monthly?.quarterly_bonus ?? 0} onChange={(e) => setMonthly((m) => m && { ...m, quarterly_bonus: num(e.target.value) })} />
-                </label>
-                <label className="text-xs font-bold" style={mutedText}>حوافز يدوية أخرى فقط
-                  <input type="number" className="input mt-1 w-full" value={monthly?.incentives_total ?? 0} onChange={(e) => setMonthly((m) => m && { ...m, incentives_total: num(e.target.value) })} />
-                  <span className="mt-1 block text-[10px] text-amber-300">لا تُدخل هنا النقاط أو التارجت أو المتابعة أو طلبات العملاء أو نجم الفرع؛ البنود دي تُجمع آليًا.</span>
-                </label>
-                <label className="text-xs font-bold" style={mutedText}>الخصومات
-                  <input type="number" className="input mt-1 w-full" value={monthly?.deductions_total ?? 0} onChange={(e) => setMonthly((m) => m && { ...m, deductions_total: num(e.target.value) })} />
-                </label>
-                <label className="text-xs font-bold" style={mutedText}>تعديل يدوي (+/-)
-                  <input type="number" className="input mt-1 w-full" value={monthly?.manual_adjustment ?? 0} onChange={(e) => setMonthly((m) => m && { ...m, manual_adjustment: num(e.target.value) })} />
-                </label>
-                <label className="text-xs font-bold" style={mutedText}>الحالة
-                  <select className="input mt-1 w-full" value={monthly?.status ?? 'draft'} onChange={(e) => setMonthly((m) => m && { ...m, status: e.target.value })}>
-                    {STATUS_OPTIONS.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
-                  </select>
-                </label>
+                <label className="text-xs font-bold" style={mutedText}>ساعات العمل<input disabled={monthlyFrozen} type="number" className="input mt-1 w-full" value={monthly?.worked_hours ?? 0} onChange={(e) => setMonthly((m) => m && { ...m, worked_hours: num(e.target.value) })} /></label>
+                <label className="text-xs font-bold" style={mutedText}>ساعات إضافية<input disabled={monthlyFrozen} type="number" className="input mt-1 w-full" value={monthly?.overtime_hours ?? 0} onChange={(e) => setMonthly((m) => m && { ...m, overtime_hours: num(e.target.value) })} /></label>
+                <label className="text-xs font-bold" style={mutedText}>حافز التارجت<input type="number" className="input mt-1 w-full" readOnly value={monthlyFrozen ? monthly?.target_bonus ?? 0 : automatedTruth?.targetBonus ?? 0} /><span className="mt-1 block text-[10px] text-emerald-300">محسوب على السيرفر وممنوع التعديل اليدوي</span></label>
+                <label className="text-xs font-bold" style={mutedText}>حافز الأداء الآلي<input type="number" className="input mt-1 w-full" readOnly value={automatedTruth?.performanceIncentive ?? 0} /><span className="mt-1 block text-[10px] text-slate-500">من نظام النقاط أو تقييم المدير — مصدر واحد فقط</span></label>
+                <label className="text-xs font-bold" style={mutedText}>الحافز الربع سنوي<input disabled={monthlyFrozen} type="number" className="input mt-1 w-full" value={monthly?.quarterly_bonus ?? 0} onChange={(e) => setMonthly((m) => m && { ...m, quarterly_bonus: num(e.target.value) })} /></label>
+                <label className="text-xs font-bold" style={mutedText}>حوافز يدوية أخرى فقط<input disabled={monthlyFrozen} type="number" className="input mt-1 w-full" value={monthly?.incentives_total ?? 0} onChange={(e) => setMonthly((m) => m && { ...m, incentives_total: num(e.target.value) })} /><span className="mt-1 block text-[10px] text-amber-300">لا تُدخل هنا النقاط أو التارجت أو المتابعة أو طلبات العملاء أو نجم الفرع؛ البنود دي تُجمع آليًا.</span></label>
+                <label className="text-xs font-bold" style={mutedText}>الخصومات<input disabled={monthlyFrozen} type="number" className="input mt-1 w-full" value={monthly?.deductions_total ?? 0} onChange={(e) => setMonthly((m) => m && { ...m, deductions_total: num(e.target.value) })} /></label>
+                <label className="text-xs font-bold" style={mutedText}>تعديل يدوي (+/-)<input disabled={monthlyFrozen} type="number" className="input mt-1 w-full" value={monthly?.manual_adjustment ?? 0} onChange={(e) => setMonthly((m) => m && { ...m, manual_adjustment: num(e.target.value) })} /></label>
+                <label className="text-xs font-bold" style={mutedText}>الحالة<select disabled={monthlyPaid} className="input mt-1 w-full" value={monthly?.status ?? 'draft'} onChange={(e) => setMonthly((m) => m && { ...m, status: e.target.value })}>{statusOptions.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}</select></label>
               </div>
 
-              <div className="mt-4 flex items-center justify-between rounded-2xl border p-4" style={surfaceSoft}>
-                <span className="font-black text-white">صافي الراتب المتوقع</span>
-                <span className="text-xl font-black text-teal-200">{formatCurrency(netSalaryPreview)}</span>
-              </div>
-              <button className="btn-primary mt-4 flex items-center gap-2" disabled={saving} onClick={() => void saveMonthly()}><CheckCircle2 size={16} /> حفظ كشف الدورة</button>
+              <div className="mt-4 flex items-center justify-between rounded-2xl border p-4" style={surfaceSoft}><span className="font-black text-white">{monthlyFrozen ? 'صافي الراتب المجمد' : 'صافي الراتب المتوقع'}</span><span className="text-xl font-black text-teal-200">{formatCurrency(netSalaryPreview)}</span></div>
+              <button className="btn-primary mt-4 flex items-center gap-2" disabled={saving || monthlyPaid} onClick={() => void saveMonthly()}><CheckCircle2 size={16} /> {monthly?.status === 'approved' ? 'اعتماد وتجميد الكشف' : monthly?.status === 'paid' ? 'الكشف مدفوع' : 'حفظ كشف الدورة'}</button>
             </div>
 
             {history.length ? (
               <div className="rounded-3xl border p-5" style={surface}>
                 <div className="flex items-center gap-2 font-black text-teal-200"><ClipboardList size={18} /> آخر الدورات</div>
-                <div className="mt-3 space-y-2">
-                  {history.map((h) => (
-                    <div key={h.payroll_month} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3 text-sm" style={surfaceSoft}>
-                      <span className="font-black text-white">{h.payroll_month?.slice(0, 7)}</span>
-                      <span className="flex items-center gap-1 text-emerald-300"><Trophy size={13} /> {formatCurrency(num(h.target_bonus) + num(h.quarterly_bonus))}</span>
-                      <span className="flex items-center gap-1 text-rose-300"><TrendingDown size={13} /> {formatCurrency(num(h.deductions_total))}</span>
-                      <span className="rounded-full px-3 py-1 text-xs font-black text-teal-200" style={surface}>{STATUS_OPTIONS.find((s) => s.key === h.status)?.label || h.status}</span>
-                    </div>
-                  ))}
-                </div>
+                <div className="mt-3 space-y-2">{history.map((h) => <div key={h.payroll_month} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3 text-sm" style={surfaceSoft}><span className="font-black text-white">{h.payroll_month?.slice(0, 7)}</span><span className="flex items-center gap-1 text-emerald-300"><Trophy size={13} /> {formatCurrency(num(h.net_salary))}</span><span className="flex items-center gap-1 text-rose-300"><TrendingDown size={13} /> {formatCurrency(num(h.deductions_total))}</span><span className="rounded-full px-3 py-1 text-xs font-black text-teal-200" style={surface}>{STATUS_OPTIONS.find((s) => s.key === h.status)?.label || h.status}</span></div>)}</div>
               </div>
             ) : null}
           </div>
