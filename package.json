@@ -6,7 +6,7 @@
   "packageManager": "npm@10.9.2",
   "scripts": {
     "dev": "vite --configLoader runner",
-    "prebuild": "node scripts/enforce-invoice-branch-guard.cjs && node scripts/check-sales-truth-separation.cjs && node scripts/check-customer-cashback-safe-advanced.cjs && node scripts/check-points-v3-migration-order.cjs && node scripts/check-cleaning-governance-architecture.cjs && node scripts/check-attendance-payroll-readiness.cjs",
+    "prebuild": "node scripts/enforce-invoice-branch-guard.cjs && node scripts/check-sales-truth-separation.cjs && node scripts/check-customer-cashback-safe-advanced.cjs && node scripts/check-points-v3-migration-order.cjs && node scripts/check-cleaning-governance-architecture.cjs && node scripts/check-attendance-payroll-readiness.cjs && node scripts/check-attendance-resolution-architecture.cjs",
     "build": "vite build --configLoader runner",
     "perf:budget": "node scripts/check-runtime-performance-budget.cjs",
     "analyze": "ANALYZE=true vite build --configLoader runner",
