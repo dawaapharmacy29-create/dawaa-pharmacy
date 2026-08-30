@@ -50,7 +50,7 @@ export default function PayrollManagement() {
   const allBranches = canViewAllBranches(user);
   const ownBranch = normalizeBranchName(user?.branch || '');
   const cycle = useMemo(() => getCurrentCycle(), []);
-  const currentMonth = useMemo(() => formatCycleDate(cycle.start).slice(0, 8) + '01', [cycle]);
+  const currentMonth = useMemo(() => formatCycleDate(cycle.end).slice(0, 8) + '01', [cycle]);
 
   const [staff, setStaff] = useState<StaffRow[]>([]);
   const [search, setSearch] = useState('');
@@ -111,13 +111,15 @@ export default function PayrollManagement() {
 
   const netSalaryPreview = useMemo(() => {
     if (!profile || !monthly) return 0;
+    const targetBonus = automatedTruth?.targetRecords ? automatedTruth.targetBonus : num(monthly.target_bonus);
+    const automatedWithoutTarget = automatedTruth ? automatedTruth.automatedTotal - automatedTruth.targetBonus : 0;
     return (
       num(profile.base_salary) +
       num(monthly.worked_hours) * num(profile.hourly_rate) +
       num(monthly.overtime_hours) * num(profile.hourly_rate) +
-      (automatedTruth?.targetRecords ? automatedTruth.targetBonus : num(monthly.target_bonus)) +
+      targetBonus +
       num(monthly.quarterly_bonus) +
-      num(monthly.incentives_total) + num(automatedTruth?.performanceIncentive) +
+      num(monthly.incentives_total) + automatedWithoutTarget +
       num(monthly.manual_adjustment) -
       num(monthly.deductions_total)
     );
@@ -222,6 +224,34 @@ export default function PayrollManagement() {
                 <div className="flex items-center gap-2 font-black text-teal-200"><CalendarClock size={18} /> كشف الدورة</div>
                 <input type="month" className="input" value={month.slice(0, 7)} onChange={(e) => setMonth(`${e.target.value}-01`)} />
               </div>
+
+              {automatedTruth ? (
+                <div className="mt-4 rounded-2xl border p-4" style={surfaceSoft}>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <div className="text-xs font-black text-teal-200">الحوافز الآلية — مصدر حقيقة واحد</div>
+                      <div className="mt-1 text-[11px]" style={mutedText}>
+                        مصدر حافز الأداء: {automatedTruth.performanceSource === 'points' ? 'نظام النقاط' : automatedTruth.performanceSource === 'manager_evaluation' ? 'تقييم المدير' : 'غير متاح'}
+                      </div>
+                    </div>
+                    <div className="text-lg font-black text-emerald-300">{formatCurrency(automatedTruth.automatedTotal)}</div>
+                  </div>
+                  <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
+                    <div>حافز النقاط: <b>{formatCurrency(automatedTruth.pointsIncentive)}</b></div>
+                    <div>منافسة المحاور: <b>{formatCurrency(automatedTruth.competitionBonus)}</b></div>
+                    <div>تقييم المدير: <b>{formatCurrency(automatedTruth.managerEvaluationIncentive)}</b></div>
+                    <div>التارجت: <b>{formatCurrency(automatedTruth.targetBonus)}</b></div>
+                    <div>متابعة العملاء: <b>{formatCurrency(automatedTruth.followupThresholdBonus)}</b></div>
+                    <div>طلبات العملاء: <b>{formatCurrency(automatedTruth.customerRequestThresholdBonus)}</b></div>
+                    <div>نجم الفرع: <b>{formatCurrency(automatedTruth.branchStarBonus)}</b></div>
+                    <div>حافز الأداء المحتسب: <b>{formatCurrency(automatedTruth.performanceIncentive)}</b></div>
+                  </div>
+                  {automatedTruth.excludedManagerEvaluationDueToPointsProfile ? (
+                    <p className="mt-2 text-[10px] font-bold text-amber-300">تم استبعاد حافز تقييم المدير من الجمع لأن ملف النقاط هو مصدر حافز الأداء لهذا الموظف — منعًا للاحتساب المزدوج.</p>
+                  ) : null}
+                </div>
+              ) : null}
+
               <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 <label className="text-xs font-bold" style={mutedText}>ساعات العمل
                   <input type="number" className="input mt-1 w-full" value={monthly?.worked_hours ?? 0} onChange={(e) => setMonthly((m) => m && { ...m, worked_hours: num(e.target.value) })} />
@@ -235,13 +265,14 @@ export default function PayrollManagement() {
                 </label>
                 <label className="text-xs font-bold" style={mutedText}>حافز الأداء الآلي
                   <input type="number" className="input mt-1 w-full" readOnly value={automatedTruth?.performanceIncentive ?? 0} />
-                  <span className="mt-1 block text-[10px] text-slate-500">من التقييمات المعتمدة وشروط التغطية</span>
+                  <span className="mt-1 block text-[10px] text-slate-500">من نظام النقاط أو تقييم المدير — مصدر واحد فقط</span>
                 </label>
                 <label className="text-xs font-bold" style={mutedText}>الحافز الربع سنوي
                   <input type="number" className="input mt-1 w-full" value={monthly?.quarterly_bonus ?? 0} onChange={(e) => setMonthly((m) => m && { ...m, quarterly_bonus: num(e.target.value) })} />
                 </label>
-                <label className="text-xs font-bold" style={mutedText}>إجمالي حوافز أخرى (نقاط/لستة/راكد)
+                <label className="text-xs font-bold" style={mutedText}>حوافز يدوية أخرى فقط
                   <input type="number" className="input mt-1 w-full" value={monthly?.incentives_total ?? 0} onChange={(e) => setMonthly((m) => m && { ...m, incentives_total: num(e.target.value) })} />
+                  <span className="mt-1 block text-[10px] text-amber-300">لا تُدخل هنا النقاط أو التارجت أو المتابعة أو طلبات العملاء أو نجم الفرع؛ البنود دي تُجمع آليًا.</span>
                 </label>
                 <label className="text-xs font-bold" style={mutedText}>الخصومات
                   <input type="number" className="input mt-1 w-full" value={monthly?.deductions_total ?? 0} onChange={(e) => setMonthly((m) => m && { ...m, deductions_total: num(e.target.value) })} />
