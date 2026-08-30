@@ -6,7 +6,7 @@
   "packageManager": "npm@10.9.2",
   "scripts": {
     "dev": "vite --configLoader runner",
-    "prebuild": "node scripts/enforce-invoice-branch-guard.cjs && node scripts/check-sales-truth-separation.cjs && node scripts/check-customer-cashback-safe-advanced.cjs && node scripts/check-points-v3-migration-order.cjs && node scripts/check-cleaning-governance-architecture.cjs && node scripts/check-attendance-payroll-readiness.cjs && node scripts/check-attendance-resolution-architecture.cjs && node scripts/check-payroll-attendance-eligibility.cjs && node scripts/check-payroll-adjustment-ledger.cjs",
+    "prebuild": "node scripts/enforce-invoice-branch-guard.cjs && node scripts/check-sales-truth-separation.cjs && node scripts/check-customer-cashback-safe-advanced.cjs && node scripts/check-points-v3-migration-order.cjs && node scripts/check-cleaning-governance-architecture.cjs && node scripts/check-attendance-payroll-readiness.cjs && node scripts/check-attendance-resolution-architecture.cjs && node scripts/check-payroll-attendance-eligibility.cjs && node scripts/check-payroll-adjustment-ledger.cjs && node scripts/check-payroll-atomic-settlement.cjs",
     "build": "vite build --configLoader runner",
     "perf:budget": "node scripts/check-runtime-performance-budget.cjs",
     "analyze": "ANALYZE=true vite build --configLoader runner",
@@ -73,7 +73,7 @@
     "embla-carousel-react": "^8.6.0",
     "eslint": "^8.57.0",
     "eslint-config-prettier": "^9.0.0",
-    "eslint-plugin-prettier": "^5.0.0",
+    "eslint-plugin-prettier": "^5.9.0",
     "eslint-plugin-react": "^7.35.0",
     "eslint-plugin-react-hooks": "^4.6.0",
     "framer-motion": "^12.23.24",
