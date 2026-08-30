@@ -1026,6 +1026,7 @@ export const ROUTE_PERMISSION_MAP: Record<string, string | string[]> = {
   '/customer-monthly-performance': 'view_analytics',
   '/daily-manager-checklist': 'view_team',
   '/doctor-quality-summary': 'view_team',
+  '/monthly-incentive-report': 'view_team',
   '/performance-pillars': 'view_team',
   '/staff-monthly-evaluation': 'view_team',
   '/weekly-evaluation': 'view_team',

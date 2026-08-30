@@ -422,7 +422,7 @@ export default function StaffMonthlyEvaluation() {
             type: 'penalty',
             points_delta: -penaltyPoints,
             reason: `مخالفة حرجة في التقييم الشهري: ${gateInfo.label}`,
-            description: `دورة ${cycleRange.displayLabel}. سقف الحافز المرتبط بهذه المخالفة: ${gateInfo.capPercent}%.`,
+            description: `دورة ${cycleRange.displayLabel}. خصم ثابت مرتبط بدرجة خطورة هذه المخالفة: ${penaltyPoints} نقطة.`,
             source: 'monthly_evaluation_critical_gate',
             source_id: String(data || evaluationId || ''),
             created_by: user.id,
@@ -671,7 +671,7 @@ export default function StaffMonthlyEvaluation() {
               <Panel className="p-4" style={{ background: 'var(--dawaa-status-warning-bg)', borderColor: 'var(--dawaa-status-warning-border)' }}>
                 <h2 className="font-black" style={{ color: 'var(--dawaa-status-warning-text)' }}>معادلة الحافز النهائي</h2>
                 <p className="mt-2 text-sm leading-7" style={{ color: 'var(--dawaa-theme-text)' }}>
-                  الحافز النهائي = حافز النقاط الكامل (من Points Truth) × نسبة التقييم الشهري. يعني لو نتيجة التقييم أقل من 100%، الحافز الفعلي بيقل بنفس النسبة حتى لو النقاط وصلت للسقف. كارت &quot;حافز الأداء المركزي&quot; فوق بيوري المعاينة الحية بنفس المعادلة أول بأول وأنت بتقيّم؛ النسبة بتتثبّت رسميًا في حساب الموظف لحظة الاعتماد النهائي (إرسال) بس، ومش بتتكرر لو اتعدّل تقييم مُرسَل بالفعل.
+                  الحافز النهائي = حافز النقاط الكامل (من Points Truth — مفيش سقف عليه، بيتراكم من الأداء اليومي الحقيقي) × نسبة التقييم الشهري. يعني لو نتيجة التقييم أقل من 100%، الحافز الفعلي بيقل بنفس النسبة حتى لو النقاط عالية جدًا. كارت &quot;حافز الأداء المركزي&quot; فوق بيوري المعاينة الحية بنفس المعادلة أول بأول وأنت بتقيّم؛ النسبة بتتثبّت رسميًا في حساب الموظف لحظة الاعتماد النهائي (إرسال) بس، ومش بتتكرر لو اتعدّل تقييم مُرسَل بالفعل.
                 </p>
               </Panel>
 
