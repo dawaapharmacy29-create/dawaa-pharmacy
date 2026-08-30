@@ -176,7 +176,7 @@ export default function DoctorIncentiveSummaryCard({
       {noRealActivityYet ? (
         <div className="dawaa-alert dawaa-alert--info mt-3 p-2.5 text-xs font-bold">
           <AlertTriangle size={15} />
-          <span>لسه بداية الدورة ومفيش نشاط مسجّل عليك حتى الآن — الرقم ده رصيدك الافتراضي الكامل، مش تقدير حقيقي مبني على أداء الشهر. هيتحدث تلقائيًا أول ما تبدأ تسجّل محادثات وطلبات ومتابعات.</span>
+          <span>لسه بداية الدورة ومفيش نشاط مسجّل عليك حتى الآن، فالحافز يبدأ من صفر. هيزيد تلقائيًا أول ما تبدأ تسجّل محادثات وطلبات ومتابعات حقيقية.</span>
         </div>
       ) : null}
 
