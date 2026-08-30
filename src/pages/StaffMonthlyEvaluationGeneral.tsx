@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Award, CheckCircle2, ChevronDown, Loader2, Save, Search, Send, ShieldAlert, Star, UserCheck,
+  Award, CheckCircle2, ChevronDown, FileDown, Loader2, Save, Search, Send, ShieldAlert, Star, UserCheck,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
@@ -30,6 +30,7 @@ import {
   type CriticalGateType,
 } from '@/lib/evaluations/incentiveTiers';
 import { createEmployeeTransaction } from '@/services/employeeTransactionService';
+import { buildStaffMonthlyEvaluationPdf } from '@/lib/evaluations/staffMonthlyEvaluationPdf';
 import { Panel, SectionTitle, KpiCard, MiniBox, EmptyState } from '@/components/dashboard/DashboardPrimitives';
 
 type StaffRow = {
@@ -149,6 +150,7 @@ export default function StaffMonthlyEvaluation() {
   const [evaluationId, setEvaluationId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
 
   const selected = useMemo(
     () => staff.find((item) => item.id === selectedId) || null,
@@ -315,6 +317,34 @@ export default function StaffMonthlyEvaluation() {
 
   function toggleGate(gate: CriticalGateType) {
     setActiveGates((current) => current.includes(gate) ? current.filter((item) => item !== gate) : [...current, gate]);
+  }
+
+  async function handleExportPdf() {
+    if (!selected) return;
+    setExportingPdf(true);
+    try {
+      const { pdf, fileName } = await buildStaffMonthlyEvaluationPdf({
+        staffName: selected.name,
+        staffRole: selected.job_title || selected.role || profile.label,
+        branch: selected.branch || branch,
+        cycleDisplayLabel: cycleRange.displayLabel,
+        evaluatorName: user?.name || 'المدير',
+        overallScore,
+        grade,
+        sections,
+        strengths: strengthsText.split('\n').map((item) => item.trim()).filter(Boolean),
+        developmentPoints: developmentText.split('\n').map((item) => item.trim()).filter(Boolean),
+        managerNotes,
+        pointsFinal: pointsTruth?.final_points ?? null,
+        pointsTarget: pointsTruth?.target_points ?? null,
+        incentiveEgp: canonicalIncentive ?? null,
+      });
+      pdf.save(fileName);
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : 'تعذر إنشاء ملف PDF');
+    } finally {
+      setExportingPdf(false);
+    }
   }
 
   async function save(nextStatus = status) {
@@ -707,7 +737,8 @@ export default function StaffMonthlyEvaluation() {
                   <CheckCircle2 style={{ color: 'var(--dawaa-theme-primary-strong)' }} size={18} /> الحالة: {status} · المحرك: V3
                 </div>
                 {canEdit ? (
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" disabled={exportingPdf} onClick={() => void handleExportPdf()} className="btn-secondary inline-flex items-center gap-2">{exportingPdf ? <Loader2 size={16} className="animate-spin" /> : <FileDown size={16} />} تصدير PDF</button>
                     <button type="button" disabled={saving} onClick={() => void save('draft')} className="btn-secondary inline-flex items-center gap-2"><Save size={16} /> حفظ</button>
                     <button type="button" disabled={saving} onClick={() => void save('sent')} className="btn-primary inline-flex items-center gap-2">{saving ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />} إرسال للموظف</button>
                   </div>
