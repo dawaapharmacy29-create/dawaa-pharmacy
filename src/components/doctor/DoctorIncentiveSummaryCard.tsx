@@ -12,6 +12,8 @@ type DoctorIncentiveDashboard = {
   target_points: number;
   point_rate_egp: number | null;
   points_incentive_egp: number | null;
+  reward_points: number;
+  deduction_points: number;
   competition_bonus_egp: number;
   target_bonus_egp: number;
   followup_bonus_egp: number;
@@ -83,6 +85,8 @@ export default function DoctorIncentiveSummaryCard({
         target_points: Number(payload.target_points || 0),
         point_rate_egp: payload.point_rate_egp == null ? null : Number(payload.point_rate_egp),
         points_incentive_egp: payload.points_incentive_egp == null ? null : Number(payload.points_incentive_egp),
+        reward_points: Number(payload.reward_points || 0),
+        deduction_points: Number(payload.deduction_points || 0),
         competition_bonus_egp: Number(payload.competition_bonus_egp || 0),
         target_bonus_egp: Number(payload.target_bonus_egp || 0),
         followup_bonus_egp: Number(payload.followup_bonus_egp || 0),
@@ -134,6 +138,11 @@ export default function DoctorIncentiveSummaryCard({
   const progressPct = Math.min(100, Math.round(data.progress_pct));
   const totalExpected = data.total_expected_egp;
   const pillars = data.pillars || [];
+  // لو مفيش أي نشاط حقيقي مسجّل لسه هذه الدورة (لا مكافآت ولا خصومات)،
+  // النظام بيدّي الرصيد الافتراضي الكامل (100%) لأن كل دكتور بيبدأ الدورة
+  // برصيد كامل ويخسر منه بس مع الأخطاء — مش لأن أداء حقيقي اتسجّل. عرض
+  // الرقم ده كـ"متوقع" في اللحظة دي بيدي انطباع غلط، فبنوضح الحالة الحقيقية.
+  const noRealActivityYet = data.reward_points === 0 && data.deduction_points === 0;
 
   return (
     <button
@@ -161,6 +170,13 @@ export default function DoctorIncentiveSummaryCard({
         <div className="dawaa-alert dawaa-alert--warning mt-3 p-2.5 text-xs font-bold">
           <AlertTriangle size={15} />
           <span>النقاط محسوبة، لكن بروفايل التعويض غير مكتمل لذلك لا يتم عرض مبلغ مالي افتراضي.</span>
+        </div>
+      ) : null}
+
+      {noRealActivityYet ? (
+        <div className="dawaa-alert dawaa-alert--info mt-3 p-2.5 text-xs font-bold">
+          <AlertTriangle size={15} />
+          <span>لسه بداية الدورة ومفيش نشاط مسجّل عليك حتى الآن — الرقم ده رصيدك الافتراضي الكامل، مش تقدير حقيقي مبني على أداء الشهر. هيتحدث تلقائيًا أول ما تبدأ تسجّل محادثات وطلبات ومتابعات.</span>
         </div>
       ) : null}
 
