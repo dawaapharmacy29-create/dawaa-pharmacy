@@ -475,7 +475,16 @@ export default function StaffMonthlyEvaluation() {
   }
 
   const filteredStaff = staff.filter((item) => item.name.includes(search));
-  const canonicalIncentive = settledStatement ? Number(settledStatement.incentive_amount) : pointsTruth?.final_incentive_egp;
+  // لو التقييم لسه مسودة (مبعتش)، الكارت الرئيسي لازم يوري المعاينة الحية
+  // المتوقعة (حافز النقاط × نسبة التقييم الحالية) مباشرة، مش الرقم الخام
+  // قبل الضرب — عشان المدير يشوف الرقم الحقيقي المتوقع من أول ما يقيّم،
+  // مش بعد الإرسال بس. بعد الإرسال فعليًا، القيمة الراجعة من الخادم بالفعل
+  // شايلة الضرب الصحيح المحفوظ، فبنعرضها زي ما هي.
+  const rawIncentive = settledStatement ? Number(settledStatement.incentive_amount) : pointsTruth?.final_incentive_egp;
+  const canonicalIncentive =
+    !settledStatement && !previouslySent && !evaluationNotStarted && rawIncentive != null
+      ? Math.round((rawIncentive * overallScore) / 100)
+      : rawIncentive;
 
   return (
     <div className="min-h-screen space-y-4 p-4" dir="rtl" style={{ background: 'var(--dawaa-theme-bg)' }}>
@@ -586,7 +595,15 @@ export default function StaffMonthlyEvaluation() {
                 <KpiCard
                   title="حافز الأداء المركزي"
                   value={canonicalIncentive == null ? 'غير محدد' : `${canonicalIncentive.toLocaleString('ar-EG')} جنيه`}
-                  subtitle={settledStatement ? 'رقم رسمي من كشف مقفول — دورة سابقة' : 'تقدير حي من نظام النقاط، لسه مش مقفول'}
+                  subtitle={
+                    settledStatement
+                      ? 'رقم رسمي من كشف مقفول — دورة سابقة'
+                      : previouslySent
+                        ? 'الرقم المعتمد فعليًا بعد ضرب نسبة التقييم'
+                        : evaluationNotStarted
+                          ? 'تقدير حي من نظام النقاط قبل ضرب نسبة التقييم (لسه ما اتقيّمش)'
+                          : `تقدير حي = حافز النقاط × ${overallScore}% (نسبة التقييم الحالية) — لسه مسودة`
+                  }
                   icon={<CheckCircle2 size={20} />}
                   tone="green"
                 />
@@ -654,17 +671,9 @@ export default function StaffMonthlyEvaluation() {
               <Panel className="p-4" style={{ background: 'var(--dawaa-status-warning-bg)', borderColor: 'var(--dawaa-status-warning-border)' }}>
                 <h2 className="font-black" style={{ color: 'var(--dawaa-status-warning-text)' }}>معادلة الحافز النهائي</h2>
                 <p className="mt-2 text-sm leading-7" style={{ color: 'var(--dawaa-theme-text)' }}>
-                  الحافز النهائي = حافز النقاط الكامل (من Points Truth) × نسبة التقييم الشهري. يعني لو نتيجة التقييم أقل من 100%، الحافز الفعلي بيقل بنفس النسبة حتى لو النقاط وصلت للسقف. النسبة تُطبَّق مرة واحدة فقط لحظة الاعتماد النهائي (إرسال)، ومش بتتكرر لو اتعدّل تقييم مُرسَل بالفعل.
+                  الحافز النهائي = حافز النقاط الكامل (من Points Truth) × نسبة التقييم الشهري. يعني لو نتيجة التقييم أقل من 100%، الحافز الفعلي بيقل بنفس النسبة حتى لو النقاط وصلت للسقف. كارت &quot;حافز الأداء المركزي&quot; فوق بيوري المعاينة الحية بنفس المعادلة أول بأول وأنت بتقيّم؛ النسبة بتتثبّت رسميًا في حساب الموظف لحظة الاعتماد النهائي (إرسال) بس، ومش بتتكرر لو اتعدّل تقييم مُرسَل بالفعل.
                 </p>
               </Panel>
-
-              {!evaluationNotStarted && !previouslySent ? (
-                <Panel className="p-4" style={{ borderColor: 'var(--dawaa-status-success-border)', background: 'var(--dawaa-status-success-bg)' }}>
-                  <p className="text-sm font-black" style={{ color: 'var(--dawaa-status-success-text)' }}>
-                    معاينة عند الاعتماد: {canonicalIncentive == null ? 'غير محدد' : `${canonicalIncentive.toLocaleString('ar-EG')} جنيه`} × {overallScore}% = {canonicalIncentive == null ? 'غير محدد' : `${Math.round((canonicalIncentive * overallScore) / 100).toLocaleString('ar-EG')} جنيه تقريبًا`}
-                  </p>
-                </Panel>
-              ) : null}
 
               <section className="space-y-3">
                 {sections.map((item) => {
