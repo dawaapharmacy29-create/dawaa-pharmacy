@@ -3,6 +3,7 @@ const fs = require('node:fs');
 
 const migrationPath = 'supabase/migrations/20260824004500_harden_payroll_permission_contract_v1.sql';
 const alignmentPath = 'supabase/migrations/20260824004600_align_payroll_permission_contract_v2.sql';
+const freezePath = 'supabase/migrations/20260830210000_payroll_freeze_command_v14.sql';
 const permissionPath = 'src/lib/core/permissionSystem.ts';
 const payrollPagePath = 'src/pages/PayrollManagement.tsx';
 const failures = [];
@@ -53,6 +54,27 @@ if (!fs.existsSync(alignmentPath)) {
   }
 }
 
+if (!fs.existsSync(freezePath)) {
+  failures.push(`Missing payroll freeze migration: ${freezePath}`);
+} else {
+  const freezeSql = fs.readFileSync(freezePath, 'utf8').toLowerCase();
+  for (const token of [
+    'save_staff_payroll_monthly_v14',
+    'approval_snapshot',
+    'freeze_version',
+    'approved_at',
+    'paid_at',
+    'approved_payroll_is_frozen',
+    'paid_payroll_is_immutable',
+    'payroll_must_be_approved_before_paid',
+    'revoke insert,update,delete on table public.staff_payroll_monthly_v13 from anon,authenticated',
+  ]) {
+    if (!freezeSql.includes(token)) failures.push(`Payroll freeze migration missing ${token}`);
+  }
+  if (!freezeSql.includes("v_status='paid'")) failures.push('Payroll freeze command must explicitly gate the paid transition.');
+  if (!freezeSql.includes("v_status='approved'")) failures.push('Payroll freeze command must explicitly freeze approval.');
+}
+
 const permissionSource = fs.readFileSync(permissionPath, 'utf8');
 for (const key of ['view_salary_calculator', 'manage_payroll']) {
   if (!permissionSource.includes(key)) failures.push(`Canonical permission system missing ${key}`);
@@ -68,10 +90,19 @@ const payrollPage = fs.readFileSync(payrollPagePath, 'utf8');
 for (const table of ['staff_payroll_profiles_v13', 'staff_payroll_monthly_v13']) {
   if (!payrollPage.includes(table)) failures.push(`Payroll page no longer references expected table ${table}`);
 }
+if (!payrollPage.includes("supabase.rpc('save_staff_payroll_monthly_v14'")) {
+  failures.push('Payroll page must save monthly rows through save_staff_payroll_monthly_v14.');
+}
+if (/from\(['"]staff_payroll_monthly_v13['"]\)\.upsert/.test(payrollPage)) {
+  failures.push('Payroll page must not reintroduce direct monthly payroll upserts.');
+}
+if (!payrollPage.includes('monthlyFrozen') || !payrollPage.includes('monthlyPaid')) {
+  failures.push('Payroll page must visibly lock approved/paid rows.');
+}
 
 if (failures.length) {
   console.error('Payroll architecture check failed:');
   failures.forEach((failure) => console.error(`- ${failure}`));
   process.exit(1);
 }
-console.log('[payroll-architecture] PASS: canonical payroll permissions, branch scope, and RLS boundary are present.');
+console.log('[payroll-architecture] PASS: canonical payroll permissions, branch scope, command-only monthly writes, approval snapshots, and paid-row immutability are enforced.');
