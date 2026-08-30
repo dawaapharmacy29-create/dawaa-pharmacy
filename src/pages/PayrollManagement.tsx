@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import {
-  Banknote, CalendarClock, CheckCircle2, ClipboardList, LockKeyhole, RefreshCw, Save,
-  Search, TrendingDown, Trophy, User, WalletCards,
+  Activity, AlertTriangle, Banknote, CalendarClock, CheckCircle2, ClipboardList,
+  LockKeyhole, RefreshCw, Save, Search, ShieldCheck, TrendingDown, Trophy, User, WalletCards,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
@@ -11,6 +11,10 @@ import { normalizeBranchName } from '@/lib/branch';
 import { formatCurrency } from '@/lib/utils';
 import { getCurrentCycle, formatCycleDate } from '@/lib/pharmacy-cycle';
 import { fetchPayrollIncentiveTruth, type PayrollIncentiveTruth } from '@/lib/incentives/payrollIncentiveTruthService';
+import {
+  fetchAttendancePayrollReadiness,
+  type AttendancePayrollReadiness,
+} from '@/lib/payroll/attendancePayrollReadinessService';
 
 const surface = { background: 'var(--dawaa-theme-surface)', borderColor: 'var(--dawaa-theme-border)' };
 const surfaceSoft = { background: 'var(--dawaa-theme-bg-soft)', borderColor: 'var(--dawaa-theme-border)' };
@@ -61,6 +65,7 @@ export default function PayrollManagement() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [monthly, setMonthly] = useState<MonthlyRow | null>(null);
   const [automatedTruth, setAutomatedTruth] = useState<PayrollIncentiveTruth | null>(null);
+  const [attendanceReadiness, setAttendanceReadiness] = useState<AttendancePayrollReadiness | null>(null);
   const [history, setHistory] = useState<MonthlyRow[]>([]);
   const [month, setMonth] = useState(currentMonth);
   const [loading, setLoading] = useState(false);
@@ -95,16 +100,19 @@ export default function PayrollManagement() {
   const loadPerson = useCallback(async (person: StaffRow, m: string) => {
     setLoading(true);
     try {
-      const [{ data: p }, { data: cur }, { data: hist }, truth] = await Promise.all([
+      const cycleLabel = m.slice(0, 7);
+      const [{ data: p }, { data: cur }, { data: hist }, truth, readiness] = await Promise.all([
         supabase.from('staff_payroll_profiles_v13').select('*').eq('staff_username', person.username).maybeSingle(),
         supabase.from('staff_payroll_monthly_v13').select('*').eq('staff_username', person.username).eq('payroll_month', m).maybeSingle(),
         supabase.from('staff_payroll_monthly_v13').select('*').eq('staff_username', person.username).order('payroll_month', { ascending: false }).limit(6),
-        person.staffId ? fetchPayrollIncentiveTruth(person.staffId, m.slice(0, 7)).catch(() => []) : Promise.resolve([]),
+        person.staffId ? fetchPayrollIncentiveTruth(person.staffId, cycleLabel).catch(() => []) : Promise.resolve([]),
+        person.staffId ? fetchAttendancePayrollReadiness(person.staffId, cycleLabel).catch(() => null) : Promise.resolve(null),
       ]);
       setProfile((p as Profile) || emptyProfile(person.username));
       setMonthly((cur as MonthlyRow) || emptyMonthly(person.username, m));
       setHistory(((hist || []) as MonthlyRow[]).filter(Boolean));
       setAutomatedTruth((truth || []).filter(Boolean)[0] || null);
+      setAttendanceReadiness(readiness);
     } finally {
       setLoading(false);
     }
@@ -117,9 +125,7 @@ export default function PayrollManagement() {
 
   const netSalaryPreview = useMemo(() => {
     if (!profile || !monthly) return 0;
-    if ((monthly.status === 'approved' || monthly.status === 'paid') && monthly.net_salary != null) {
-      return num(monthly.net_salary);
-    }
+    if (monthlyFrozen && monthly.net_salary != null) return num(monthly.net_salary);
     return (
       num(profile.base_salary) +
       num(monthly.worked_hours) * num(profile.hourly_rate) +
@@ -130,7 +136,7 @@ export default function PayrollManagement() {
       num(monthly.manual_adjustment) -
       num(monthly.deductions_total)
     );
-  }, [profile, monthly, automatedTruth]);
+  }, [profile, monthly, automatedTruth, monthlyFrozen]);
 
   const saveProfile = async () => {
     if (!profile) return;
@@ -240,6 +246,37 @@ export default function PayrollManagement() {
                   </div>
                 </div>
               ) : null}
+
+              <div className="mt-4 rounded-2xl border p-4" style={surfaceSoft}>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="flex items-start gap-2">
+                    {attendanceReadiness?.status === 'ready' ? <ShieldCheck size={18} className="text-emerald-300" /> : attendanceReadiness?.status === 'needs_review' ? <AlertTriangle size={18} className="text-amber-300" /> : <Activity size={18} className="text-slate-400" />}
+                    <div>
+                      <div className="text-xs font-black text-teal-200">جاهزية البصمة للرواتب</div>
+                      <div className="mt-1 text-[11px]" style={mutedText}>
+                        {attendanceReadiness?.status === 'ready'
+                          ? 'بيانات البصمة مكتملة حسابيًا للمراجعة — ما زالت قراءة فقط ولا تعدّل ساعات الراتب تلقائيًا.'
+                          : attendanceReadiness?.status === 'needs_review'
+                            ? 'وصلت بيانات بصمة لكن توجد أحداث تحتاج مراجعة قبل الاعتماد المالي.'
+                            : 'لم تصل بيانات بصمة فعلية مكتملة لهذه الدورة؛ ساعات العمل تظل يدوية.'}
+                      </div>
+                    </div>
+                  </div>
+                  <div className={`rounded-full px-3 py-1 text-[11px] font-black ${attendanceReadiness?.status === 'ready' ? 'text-emerald-300' : attendanceReadiness?.status === 'needs_review' ? 'text-amber-300' : 'text-slate-400'}`}>
+                    {attendanceReadiness?.status === 'ready' ? 'جاهز للمراجعة' : attendanceReadiness?.status === 'needs_review' ? 'يحتاج مراجعة' : 'لا توجد بيانات'}
+                  </div>
+                </div>
+                <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
+                  <div>أحداث البصمة: <b>{attendanceReadiness?.rawBiometricEvents ?? 0}</b></div>
+                  <div>بصمات مقبولة: <b>{attendanceReadiness?.acceptedPunches ?? 0}</b></div>
+                  <div>مراجعة يدوية: <b>{attendanceReadiness?.manualReviewPunches ?? 0}</b></div>
+                  <div>مرفوضة: <b>{attendanceReadiness?.rejectedPunches ?? 0}</b></div>
+                  <div>شيفتات مكتملة: <b>{attendanceReadiness?.pairedShifts ?? 0}</b></div>
+                  <div>بصمات غير مزدوجة: <b>{attendanceReadiness?.unpairedAcceptedPunches ?? 0}</b></div>
+                  <div className="lg:col-span-2">ساعات مرشحة من البصمة: <b className="text-teal-200">{attendanceReadiness?.candidateWorkedHours ?? 0} ساعة</b></div>
+                </div>
+                <p className="mt-2 text-[10px] text-amber-300">لا يتم نسخ الساعات إلى كشف الراتب تلقائيًا حتى يتم اعتماد مصدر البصمة بعد أول دورة فعلية مكتملة.</p>
+              </div>
 
               {automatedTruth ? (
                 <div className="mt-4 rounded-2xl border p-4" style={surfaceSoft}>
