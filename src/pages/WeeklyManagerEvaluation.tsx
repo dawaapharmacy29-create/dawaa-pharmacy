@@ -42,9 +42,9 @@ const SYSTEM_PERFORMANCE_WEIGHT = 0.8;
 const MANAGER_JUDGMENT_WEIGHT = 0.2;
 
 function scoreTone(score: number) {
-  if (score >= 80) return 'text-emerald-300';
-  if (score >= 60) return 'text-amber-300';
-  return 'text-red-300';
+  if (score >= 80) return 'text-[var(--dawaa-status-success-text)]';
+  if (score >= 60) return 'text-[var(--dawaa-status-warning-text)]';
+  return 'text-[var(--dawaa-status-danger-text)]';
 }
 
 function formatDate(d: Date) {
@@ -470,16 +470,16 @@ export default function WeeklyManagerEvaluation() {
   };
 
   if (!canEvaluate) {
-    return <div dir="rtl" className="p-6 text-sm text-slate-400">ليس لديك مستوى الاعتماد المطلوب لهذا النوع من التقييم.</div>;
+    return <div dir="rtl" className="p-6 text-sm text-[var(--dawaa-theme-muted)]">ليس لديك مستوى الاعتماد المطلوب لهذا النوع من التقييم.</div>;
   }
 
   return (
     <div dir="rtl" className="space-y-6 p-4 md:p-6">
       <div className="flex items-center gap-3">
-        <ClipboardList className="h-6 w-6 text-teal-300" />
+        <ClipboardList className="h-6 w-6 text-[var(--dawaa-theme-primary-strong)]" />
         <div>
-          <h1 className="text-xl font-black text-white">{EVALUATION_TYPE_LABELS[evaluationType]}{isMonthlyIncentiveEvaluation ? ' — تقييم شهري للحافز' : ''}</h1>
-          <p className="text-sm text-slate-400">
+          <h1 className="text-xl font-black text-[var(--dawaa-theme-heading)]">{EVALUATION_TYPE_LABELS[evaluationType]}{isMonthlyIncentiveEvaluation ? ' — تقييم شهري للحافز' : ''}</h1>
+          <p className="text-sm text-[var(--dawaa-theme-muted)]">
             {allowManagerJudgment
               ? 'التقييم النهائي يجمع 80% من الأداء الموثق داخل التطبيق + 20% تقييم مدير الفروع، ويحفظ كسجل كامل قابل للتصدير والمشاركة.'
               : 'التقييم مبني على بيانات التطبيق والمهام الموثقة.'}
@@ -501,27 +501,27 @@ export default function WeeklyManagerEvaluation() {
           const chosen = new Date(`${e.target.value}T12:00:00`);
           setPeriodStart(isMonthlyIncentiveEvaluation ? incentiveCycleBounds(chosen).start : weekBoundsOf(chosen).start);
         }} />
-        <span className="flex items-center text-xs text-slate-400">{isMonthlyIncentiveEvaluation ? 'دورة الحافز' : 'الأسبوع'}: {periodStart} إلى {periodEnd}</span>
+        <span className="flex items-center text-xs text-[var(--dawaa-theme-muted)]">{isMonthlyIncentiveEvaluation ? 'دورة الحافز' : 'الأسبوع'}: {periodStart} إلى {periodEnd}</span>
       </div>
 
-      {!subjectsLoading && subjectChoices.length === 0 && <p className="text-sm text-amber-300">لا يوجد موظف نشط وصالح للتقييم في هذا المسار.</p>}
-      {loading && <p className="text-sm text-slate-400">جارٍ تحميل بيانات التقييم...</p>}
-      {error && <p className="rounded-xl border border-red-500/20 bg-red-950/20 p-3 text-sm text-red-300">{error}</p>}
-      {validationIssues.length > 0 && <div className="rounded-xl border border-amber-500/25 bg-amber-950/20 p-4">
-        <div className="mb-2 text-sm font-black text-amber-200">معلومات ناقصة أو تحتاج مراجعة قبل الاعتماد النهائي</div>
-        <ul className="list-disc space-y-1 pr-5 text-sm text-amber-100">
+      {!subjectsLoading && subjectChoices.length === 0 && <p className="text-sm text-[var(--dawaa-status-warning-text)]">لا يوجد موظف نشط وصالح للتقييم في هذا المسار.</p>}
+      {loading && <p className="text-sm text-[var(--dawaa-theme-muted)]">جارٍ تحميل بيانات التقييم...</p>}
+      {error && <p className="rounded-xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-3 text-sm text-[var(--dawaa-status-danger-text)]">{error}</p>}
+      {validationIssues.length > 0 && <div className="rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-4">
+        <div className="mb-2 text-sm font-black text-[var(--dawaa-status-warning-text)]">معلومات ناقصة أو تحتاج مراجعة قبل الاعتماد النهائي</div>
+        <ul className="list-disc space-y-1 pr-5 text-sm text-[var(--dawaa-status-warning-text)]">
           {validationIssues.map((issue, index) => <li key={`${issue}-${index}`}>{issue}</li>)}
         </ul>
-        <div className="mt-2 text-xs text-amber-300">لو ضغطت اعتماد مع نقص في تقييم مدير الفروع، يتم حفظ الشغل تلقائيًا كمسودة في سجل التقييمات بدل فقدانه.</div>
+        <div className="mt-2 text-xs text-[var(--dawaa-status-warning-text)]">لو ضغطت اعتماد مع نقص في تقييم مدير الفروع، يتم حفظ الشغل تلقائيًا كمسودة في سجل التقييمات بدل فقدانه.</div>
       </div>}
 
       {currentMetrics && !loading && (
         <>
           <div className={`grid gap-3 ${allowManagerJudgment ? 'md:grid-cols-3' : ''}`}>
-            <div className="stat-card"><div className="text-sm text-slate-400">أداء التطبيق والمهام {allowManagerJudgment ? '(80%)' : ''}</div><div className={`text-4xl font-black ${scoreTone(objectiveScore)}`}>{objectiveScore}<span className="text-lg text-slate-500"> / 100</span></div></div>
+            <div className="stat-card"><div className="text-sm text-[var(--dawaa-theme-muted)]">أداء التطبيق والمهام {allowManagerJudgment ? '(80%)' : ''}</div><div className={`text-4xl font-black ${scoreTone(objectiveScore)}`}>{objectiveScore}<span className="text-lg text-[var(--dawaa-theme-muted)]"> / 100</span></div></div>
             {allowManagerJudgment && <>
-              <div className="stat-card"><div className="flex items-center gap-2 text-sm text-slate-400"><Star className="h-4 w-4" /> تقييم مدير الفروع (20%)</div><div className={`text-4xl font-black ${scoreTone(managerJudgmentScore)}`}>{managerJudgmentScore}<span className="text-lg text-slate-500"> / 100</span></div><div className="mt-1 text-xs text-slate-500">تم تقييم {manualCompletedCount} من {criteria.length} بند</div></div>
-              <div className="stat-card"><div className="text-sm text-slate-400">الدرجة النهائية للحافز</div><div className={`text-4xl font-black ${scoreTone(totalScore)}`}>{totalScore}<span className="text-lg text-slate-500"> / 100</span></div>{!managerJudgmentComplete && <div className="mt-1 text-xs text-amber-300">تكتمل الدرجة بعد تقييم كل البنود.</div>}</div>
+              <div className="stat-card"><div className="flex items-center gap-2 text-sm text-[var(--dawaa-theme-muted)]"><Star className="h-4 w-4" /> تقييم مدير الفروع (20%)</div><div className={`text-4xl font-black ${scoreTone(managerJudgmentScore)}`}>{managerJudgmentScore}<span className="text-lg text-[var(--dawaa-theme-muted)]"> / 100</span></div><div className="mt-1 text-xs text-[var(--dawaa-theme-muted)]">تم تقييم {manualCompletedCount} من {criteria.length} بند</div></div>
+              <div className="stat-card"><div className="text-sm text-[var(--dawaa-theme-muted)]">الدرجة النهائية للحافز</div><div className={`text-4xl font-black ${scoreTone(totalScore)}`}>{totalScore}<span className="text-lg text-[var(--dawaa-theme-muted)]"> / 100</span></div>{!managerJudgmentComplete && <div className="mt-1 text-xs text-[var(--dawaa-status-warning-text)]">تكتمل الدرجة بعد تقييم كل البنود.</div>}</div>
             </>}
           </div>
 
@@ -541,17 +541,17 @@ export default function WeeklyManagerEvaluation() {
                 ? Math.round((systemScore10 * SYSTEM_PERFORMANCE_WEIGHT + clampManagerScore(manualScore) * MANAGER_JUDGMENT_WEIGHT) * 10) / 10 : null;
               return (
                 <div key={criterion.key} className="stat-card space-y-3">
-                  <div className="flex items-start justify-between gap-3"><span className="font-black text-white">{criterion.label}</span><span className="whitespace-nowrap text-xs font-bold text-slate-400">وزن {Math.round(criterion.weight * 100)}%</span></div>
-                  {criterion.hint && <p className="text-xs text-slate-500">{criterion.hint}</p>}
-                  {criterion.sourceRoute && <Link to={criterion.sourceRoute} className="inline-flex items-center gap-1 text-xs font-bold text-teal-300"><ExternalLink className="h-3 w-3" /> فتح مصدر البيانات: {criterion.sourceLabel || 'التفاصيل'}</Link>}
-                  <div className="rounded-xl border border-white/5 bg-black/10 p-3">
-                    <div className="text-[11px] font-bold text-slate-500">درجة الأداء الموثق</div>
-                    {criterion.mode === 'auto' ? <div className="flex items-center gap-2"><span className={`text-2xl font-black ${scoreTone((autoScore || 0) * 10)}`}>{(autoScore || 0).toFixed(1)} / 10</span>{previousMetrics && ((autoScore || 0) >= 5 ? <TrendingUp className="h-4 w-4 text-emerald-400" /> : <TrendingDown className="h-4 w-4 text-red-400" />)}</div>
-                      : <div className="flex items-center gap-2"><span className={`text-2xl font-black ${scoreTone((checklistScore || 0) * 10)}`}>{(checklistScore || 0).toFixed(1)} / 10</span><span className="text-xs text-slate-500">من إنجاز المهام خلال {isMonthlyIncentiveEvaluation ? 'الدورة' : 'الأسبوع'}</span></div>}
+                  <div className="flex items-start justify-between gap-3"><span className="font-black text-[var(--dawaa-theme-heading)]">{criterion.label}</span><span className="whitespace-nowrap text-xs font-bold text-[var(--dawaa-theme-muted)]">وزن {Math.round(criterion.weight * 100)}%</span></div>
+                  {criterion.hint && <p className="text-xs text-[var(--dawaa-theme-muted)]">{criterion.hint}</p>}
+                  {criterion.sourceRoute && <Link to={criterion.sourceRoute} className="inline-flex items-center gap-1 text-xs font-bold text-[var(--dawaa-theme-primary-strong)]"><ExternalLink className="h-3 w-3" /> فتح مصدر البيانات: {criterion.sourceLabel || 'التفاصيل'}</Link>}
+                  <div className="rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] p-3">
+                    <div className="text-[11px] font-bold text-[var(--dawaa-theme-muted)]">درجة الأداء الموثق</div>
+                    {criterion.mode === 'auto' ? <div className="flex items-center gap-2"><span className={`text-2xl font-black ${scoreTone((autoScore || 0) * 10)}`}>{(autoScore || 0).toFixed(1)} / 10</span>{previousMetrics && ((autoScore || 0) >= 5 ? <TrendingUp className="h-4 w-4 text-[var(--dawaa-status-success-text)]" /> : <TrendingDown className="h-4 w-4 text-[var(--dawaa-status-danger-text)]" />)}</div>
+                      : <div className="flex items-center gap-2"><span className={`text-2xl font-black ${scoreTone((checklistScore || 0) * 10)}`}>{(checklistScore || 0).toFixed(1)} / 10</span><span className="text-xs text-[var(--dawaa-theme-muted)]">من إنجاز المهام خلال {isMonthlyIncentiveEvaluation ? 'الدورة' : 'الأسبوع'}</span></div>}
                   </div>
-                  {allowManagerJudgment && <div className="rounded-xl border border-teal-500/15 bg-teal-950/10 p-3">
-                    <label className="mb-2 block text-xs font-black text-teal-200">تقييم مدير الفروع لهذا البند</label>
-                    <div className="flex items-center gap-3"><input type="number" min="0" max="10" step="0.5" value={Number.isFinite(manualScore) ? manualScore : ''} onChange={(e) => handleManualScore(criterion.key, e.target.value)} placeholder="0 - 10" className="input-dark w-28" /><span className="text-xs text-slate-400">من 10</span>{combinedCriterionScore !== null && <span className="mr-auto text-xs font-bold text-white">المجمّع: {combinedCriterionScore.toFixed(1)} / 10</span>}</div>
+                  {allowManagerJudgment && <div className="rounded-xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] p-3">
+                    <label className="mb-2 block text-xs font-black text-[var(--dawaa-theme-primary-strong)]">تقييم مدير الفروع لهذا البند</label>
+                    <div className="flex items-center gap-3"><input type="number" min="0" max="10" step="0.5" value={Number.isFinite(manualScore) ? manualScore : ''} onChange={(e) => handleManualScore(criterion.key, e.target.value)} placeholder="0 - 10" className="input-dark w-28" /><span className="text-xs text-[var(--dawaa-theme-muted)]">من 10</span>{combinedCriterionScore !== null && <span className="mr-auto text-xs font-bold text-[var(--dawaa-theme-heading)]">المجمّع: {combinedCriterionScore.toFixed(1)} / 10</span>}</div>
                   </div>}
                 </div>
               );
@@ -559,37 +559,37 @@ export default function WeeklyManagerEvaluation() {
           </div>
 
           <div className="stat-card space-y-2">
-            <label className="text-sm font-bold text-white">ملاحظة مدير الفروع على التقييم</label>
-            <p className="text-xs text-slate-500">الملاحظة تحفظ داخل سجل الدورة وتظهر كاملة في ملف الـPDF المرسل للموظف.</p>
+            <label className="text-sm font-bold text-[var(--dawaa-theme-heading)]">ملاحظة مدير الفروع على التقييم</label>
+            <p className="text-xs text-[var(--dawaa-theme-muted)]">الملاحظة تحفظ داخل سجل الدورة وتظهر كاملة في ملف الـPDF المرسل للموظف.</p>
             <textarea className="input-dark min-h-[120px] w-full" placeholder="اكتب نقاط القوة، الملاحظات، المطلوب تحسينه، أو خطة العمل للدورة القادمة..." value={note} onChange={(e) => setNote(e.target.value)} />
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <button type="button" disabled={saving} onClick={() => handleSave('draft')} className="flex items-center gap-2 rounded-xl border border-white/15 px-5 py-2 font-black text-white disabled:opacity-50"><Save className="h-4 w-4" /> حفظ كمسودة</button>
-            <button type="button" disabled={saving} onClick={() => handleSave('submitted')} className="flex items-center gap-2 rounded-xl bg-teal-500 px-5 py-2 font-black text-slate-950 disabled:opacity-50"><Send className="h-4 w-4" /> {saving ? 'جارٍ الحفظ...' : isMonthlyIncentiveEvaluation ? 'حفظ واعتماد تقييم الدورة' : 'حفظ واعتماد التقييم'}</button>
+            <button type="button" disabled={saving} onClick={() => handleSave('draft')} className="flex items-center gap-2 rounded-xl border border-[var(--dawaa-theme-border)] px-5 py-2 font-black text-[var(--dawaa-theme-heading)] disabled:opacity-50"><Save className="h-4 w-4" /> حفظ كمسودة</button>
+            <button type="button" disabled={saving} onClick={() => handleSave('submitted')} className="flex items-center gap-2 rounded-xl bg-[var(--dawaa-theme-primary)] px-5 py-2 font-black text-[var(--dawaa-theme-primary-text)] disabled:opacity-50"><Send className="h-4 w-4" /> {saving ? 'جارٍ الحفظ...' : isMonthlyIncentiveEvaluation ? 'حفظ واعتماد تقييم الدورة' : 'حفظ واعتماد التقييم'}</button>
           </div>
 
           <div className="stat-card space-y-3">
-            <div><div className="text-base font-black text-white">سجل التقييمات</div><div className="text-xs text-slate-500">كل دورة محفوظة ببياناتها ودرجاتها وملاحظاتها، ويمكن تصديرها أو مشاركتها كـ PDF.</div></div>
-            {history.length === 0 && <div className="rounded-xl border border-dashed border-white/10 p-4 text-sm text-slate-400">لا توجد تقييمات محفوظة لهذا الموظف حتى الآن. أول حفظ كمسودة أو اعتماد سيظهر هنا مباشرة.</div>}
+            <div><div className="text-base font-black text-[var(--dawaa-theme-heading)]">سجل التقييمات</div><div className="text-xs text-[var(--dawaa-theme-muted)]">كل دورة محفوظة ببياناتها ودرجاتها وملاحظاتها، ويمكن تصديرها أو مشاركتها كـ PDF.</div></div>
+            {history.length === 0 && <div className="rounded-xl border border-dashed border-[var(--dawaa-theme-border)] p-4 text-sm text-[var(--dawaa-theme-muted)]">لا توجد تقييمات محفوظة لهذا الموظف حتى الآن. أول حفظ كمسودة أو اعتماد سيظهر هنا مباشرة.</div>}
             {history.map((record) => {
               const expanded = expandedRecordId === record.id;
               const recMetrics = (record.auto_metrics || {}) as Record<string, unknown>;
               const objective = Number(recMetrics.__objective_score ?? record.total_score ?? 0);
               const manager = Number(recMetrics.__manager_judgment_score ?? 0);
               const savedIssues = Array.isArray(recMetrics.__validation_issues) ? recMetrics.__validation_issues.map(String) : [];
-              return <div key={record.id} className="rounded-xl border border-white/10 bg-black/10">
+              return <div key={record.id} className="rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)]">
                 <button type="button" onClick={() => setExpandedRecordId(expanded ? null : record.id)} className="flex w-full items-center gap-3 p-3 text-right">
-                  <div className="min-w-0 flex-1"><div className="font-bold text-white">{record.week_start} إلى {record.week_end}</div><div className="text-xs text-slate-500">{record.status === 'submitted' ? 'معتمد' : 'مسودة'} • {record.evaluator_name || '—'}</div></div>
-                  <span className={`font-black ${scoreTone(Number(record.total_score || 0))}`}>{Number(record.total_score || 0).toFixed(1)} / 100</span>{expanded ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}
+                  <div className="min-w-0 flex-1"><div className="font-bold text-[var(--dawaa-theme-heading)]">{record.week_start} إلى {record.week_end}</div><div className="text-xs text-[var(--dawaa-theme-muted)]">{record.status === 'submitted' ? 'معتمد' : 'مسودة'} • {record.evaluator_name || '—'}</div></div>
+                  <span className={`font-black ${scoreTone(Number(record.total_score || 0))}`}>{Number(record.total_score || 0).toFixed(1)} / 100</span>{expanded ? <ChevronUp className="h-4 w-4 text-[var(--dawaa-theme-muted)]" /> : <ChevronDown className="h-4 w-4 text-[var(--dawaa-theme-muted)]" />}
                 </button>
-                {expanded && <div className="space-y-3 border-t border-white/5 p-3">
+                {expanded && <div className="space-y-3 border-t border-[var(--dawaa-theme-border)] p-3">
                   <div className="grid gap-2 text-sm md:grid-cols-3"><div>أداء النظام: <b>{objective.toFixed(1)}/100</b></div><div>تقييم مدير الفروع: <b>{manager.toFixed(1)}/100</b></div><div>النهائي: <b>{Number(record.total_score || 0).toFixed(1)}/100</b></div></div>
-                  {savedIssues.length > 0 && <div className="rounded-lg border border-amber-500/20 bg-amber-950/20 p-3"><div className="mb-1 text-xs font-bold text-amber-300">نواقص مسجلة وقت الحفظ</div><ul className="list-disc pr-5 text-xs text-amber-100">{savedIssues.map((issue, index) => <li key={`${record.id}-issue-${index}`}>{issue}</li>)}</ul></div>}
-                  <div className="rounded-lg border border-white/5 p-3"><div className="mb-1 text-xs font-bold text-slate-400">الملاحظة</div><div className="whitespace-pre-wrap text-sm text-white">{record.manual_note || 'لا توجد ملاحظات.'}</div></div>
+                  {savedIssues.length > 0 && <div className="rounded-lg border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-3"><div className="mb-1 text-xs font-bold text-[var(--dawaa-status-warning-text)]">نواقص مسجلة وقت الحفظ</div><ul className="list-disc pr-5 text-xs text-[var(--dawaa-status-warning-text)]">{savedIssues.map((issue, index) => <li key={`${record.id}-issue-${index}`}>{issue}</li>)}</ul></div>}
+                  <div className="rounded-lg border border-[var(--dawaa-theme-border)] p-3"><div className="mb-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">الملاحظة</div><div className="whitespace-pre-wrap text-sm text-[var(--dawaa-theme-heading)]">{record.manual_note || 'لا توجد ملاحظات.'}</div></div>
                   <div className="flex flex-wrap gap-2">
-                    <button type="button" disabled={exportingId === record.id} onClick={() => void handlePdf(record, false)} className="flex items-center gap-2 rounded-lg border border-white/15 px-3 py-2 text-xs font-bold text-white"><FileDown className="h-4 w-4" /> تصدير PDF</button>
-                    <button type="button" disabled={exportingId === record.id} onClick={() => void handlePdf(record, true)} className="flex items-center gap-2 rounded-lg bg-teal-500 px-3 py-2 text-xs font-bold text-slate-950"><Share2 className="h-4 w-4" /> مشاركة التقرير</button>
+                    <button type="button" disabled={exportingId === record.id} onClick={() => void handlePdf(record, false)} className="flex items-center gap-2 rounded-lg border border-[var(--dawaa-theme-border)] px-3 py-2 text-xs font-bold text-[var(--dawaa-theme-heading)]"><FileDown className="h-4 w-4" /> تصدير PDF</button>
+                    <button type="button" disabled={exportingId === record.id} onClick={() => void handlePdf(record, true)} className="flex items-center gap-2 rounded-lg bg-[var(--dawaa-theme-primary)] px-3 py-2 text-xs font-bold text-[var(--dawaa-theme-primary-text)]"><Share2 className="h-4 w-4" /> مشاركة التقرير</button>
                   </div>
                 </div>}
               </div>;
