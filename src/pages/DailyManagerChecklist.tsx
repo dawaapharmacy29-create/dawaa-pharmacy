@@ -9,6 +9,7 @@ import { ASSISTANT_DAILY_TASKS, ASSISTANT_TASKS_TOTAL_WEIGHT } from '@/lib/evalu
 import { ManagerScoreBreakdownTab } from '@/components/evaluations/ManagerScoreBreakdownTab';
 import BranchStockDeficitCard from '@/components/evaluations/BranchStockDeficitCard';
 import AssistantOperationalReviewPanel from '@/components/evaluations/AssistantOperationalReviewPanel';
+import PharmacyZoneReviewPanel from '@/components/evaluations/PharmacyZoneReviewPanel';
 import type { EvaluationType } from '@/lib/evaluations/managerEvaluationCriteria';
 import { weekBoundsOf } from '@/lib/evaluations/managerEvaluationService';
 import { getPharmacyCycleRange } from '@/lib/pharmacy-cycle';
@@ -61,7 +62,7 @@ export default function DailyManagerChecklist() {
     : 'سجّل إنك راجعت كل جانب من عملك اليوم — الالتزام هنا بيغذّي تقييمك الأسبوعي.';
 
   const [taskDate, setTaskDate] = useState(todayInput());
-  const [activeTab, setActiveTab] = useState<'tasks' | 'score' | 'assistant_review'>('tasks');
+  const [activeTab, setActiveTab] = useState<'tasks' | 'score' | 'assistant_review' | 'zone_review'>('tasks');
   const [selectedBranch, setSelectedBranch] = useState<(typeof BRANCHES_MANAGER_BRANCHES)[number]>('فرع شكري');
   const [rows, setRows] = useState<Record<string, ChecklistRow>>({});
   const [loading, setLoading] = useState(false);
@@ -73,6 +74,7 @@ export default function DailyManagerChecklist() {
 
   const staffId = user?.staffId || user?.id || '';
   const effectiveBranch = role === 'branches_manager' ? selectedBranch : (user?.branch || null);
+  const canReviewPharmacyZoneTasks = role === 'branches_manager' || (role === 'branch_manager' && effectiveBranch === 'فرع الشامي');
 
   useEffect(() => {
     if (!staffId || !isEligible) return;
@@ -270,11 +272,26 @@ export default function DailyManagerChecklist() {
               اعتماد عمليات المسؤولات
             </button>
           )}
+          {canReviewPharmacyZoneTasks && (
+            <button
+              type="button"
+              onClick={() => setActiveTab('zone_review')}
+              className={`px-4 py-2 text-sm font-black transition ${
+                activeTab === 'zone_review' ? 'border-b-2 border-[var(--dawaa-theme-primary)] text-[var(--dawaa-theme-primary-strong)]' : 'text-[var(--dawaa-theme-muted)] hover:text-[var(--dawaa-theme-text)]'
+              }`}
+            >
+              اعتماد الرص والجرد
+            </button>
+          )}
         </div>
       )}
 
       {isEligible && !isAssistant && activeTab === 'assistant_review' && role === 'branches_manager' ? (
         <AssistantOperationalReviewPanel />
+      ) : null}
+
+      {isEligible && !isAssistant && activeTab === 'zone_review' && canReviewPharmacyZoneTasks ? (
+        <PharmacyZoneReviewPanel />
       ) : null}
 
       {isEligible && !isAssistant && activeTab === 'score' ? (
@@ -288,7 +305,7 @@ export default function DailyManagerChecklist() {
             branch={effectiveBranch}
           />
         </>
-      ) : activeTab === 'assistant_review' ? null : (
+      ) : activeTab === 'assistant_review' || activeTab === 'zone_review' ? null : (
         <>
           {role === 'branches_manager' && <div className="rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] px-3 py-2 text-sm font-black text-[var(--dawaa-theme-primary-strong)]">مهام {selectedBranch} — الإنجاز والتقييم لهذا الفرع فقط</div>}
           <div className="flex flex-wrap items-center gap-3">

@@ -54,6 +54,7 @@ const GROUPS: NavGroup[] = [
     { path: '/customer-service?quickFollowup=1', icon: HeadphonesIcon, label: 'متابعة العملاء', permission: 'view_customer_service' },
     { path: '/my-daily-checklist', icon: ClipboardCheck, label: 'التشيك ليست اليومي', allowedRoles: ['assistant', 'cleaning_supervisor'] },
     { path: '/assistant-operational-log', icon: PackageSearch, label: 'تسجيل المشتريات وخدمة العملاء', allowedRoles: ['assistant'] },
+    { path: '/pharmacy-zone-tasks', icon: ClipboardList, label: 'الرص والجرد اليومي', allowedRoles: ['assistant', 'delivery'] },
     { path: '/customer-coding', icon: UserPlus, label: 'تكويد العملاء', permission: 'view_customer_service' },
     { path: '/customers', icon: Users, label: 'قاعدة العملاء', permission: 'view_customers' },
     { path: '/customer-monthly-performance', icon: TrendingDown, label: 'أداء العملاء الشهري', permission: 'view_customers' },
