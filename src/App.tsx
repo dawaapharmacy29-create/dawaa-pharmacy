@@ -50,6 +50,7 @@ const CustomerCoding = lazy(() => import('@/pages/CustomerCoding'));
 const QuickReplies = lazy(() => import('@/pages/QuickReplies'));
 const StaffDailyChecklist = lazy(() => import('@/pages/StaffDailyChecklist'));
 const AssistantOperationalLog = lazy(() => import('@/pages/AssistantOperationalLog'));
+const AssistantOperationalBonus = lazy(() => import('@/pages/AssistantOperationalBonus'));
 const BranchChecklistReview = lazy(() => import('@/pages/BranchChecklistReview'));
 const DoctorCompetition = lazy(() => import('@/pages/DoctorCompetition'));
 const Team = lazy(() => import('@/pages/Team'));
@@ -243,6 +244,7 @@ function AppRoutes() {
     <Route path="/quick-replies" element={<ProtectedRoute>{routeSuspense(<QuickReplies />, 'الردود السريعة')}</ProtectedRoute>} />
     <Route path="/my-daily-checklist" element={<ProtectedRoute>{routeSuspense(<StaffDailyChecklist />, 'التشيك ليست اليومي')}</ProtectedRoute>} />
     <Route path="/assistant-operational-log" element={<ProtectedRoute>{routeSuspense(<AssistantOperationalLog />, 'تسجيل عمليات المشتريات وخدمة العملاء')}</ProtectedRoute>} />
+    <Route path="/assistant-operational-bonus" element={<ProtectedRoute>{routeSuspense(<AssistantOperationalBonus />, 'مكافأة تميز مفاجئة')}</ProtectedRoute>} />
     <Route path="/branch-checklist-review" element={<ProtectedRoute>{routeSuspense(<BranchChecklistReview />, 'مراجعة التشيك ليست')}</ProtectedRoute>} />
     <Route path="/doctor-competition" element={<ProtectedRoute>{routeSuspense(<DoctorCompetition />, 'مسابقة الدكاترة')}</ProtectedRoute>} />
     <Route path="/team" element={<ProtectedRoute>{routeSuspense(<Team />, 'الفريق')}</ProtectedRoute>} />

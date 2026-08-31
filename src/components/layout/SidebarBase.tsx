@@ -89,6 +89,7 @@ const GROUPS: NavGroup[] = [
   { title: 'الحوافز والرواتب', icon: Star, items: [
     { path: '/monthly-incentive-report', icon: Wallet, label: 'التقرير الشهري للحوافز والنقاط', allowedRoles: ['general_manager', 'admin', 'executive_manager', 'branches_manager'] },
     { path: '/incentive-governance', icon: ShieldCheck, label: 'اعتماد الحوافز', permission: 'manage_incentives' },
+    { path: '/assistant-operational-bonus', icon: Sparkles, label: 'مكافأة تميز مفاجئة', permission: 'manage_incentives' },
     { path: '/points', icon: Star, label: 'النقاط', permission: 'view_points' },
     { path: '/performance-pillars', icon: BarChart3, label: 'الدرجة المركّبة للأداء', excludeRoles: ['customer_service_manager'] },
     { path: '/penalty-incentive', icon: AlertTriangle, label: 'جزاءات ومكافآت الفرع', permission: 'view_penalty_management' },

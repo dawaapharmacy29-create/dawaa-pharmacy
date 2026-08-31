@@ -1034,6 +1034,7 @@ export const ROUTE_PERMISSION_MAP: Record<string, string | string[]> = {
   // وصلاحية أساسية موجودة عند كل الأدوار عشان الفحص يفضل واحد ومتسق في كل مكان.
   '/my-daily-checklist': 'view_dashboard',
   '/assistant-operational-log': 'view_dashboard',
+  '/assistant-operational-bonus': 'manage_incentives',
   '/point-appeals': 'view_points',
 };
 
