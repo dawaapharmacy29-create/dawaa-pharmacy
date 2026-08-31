@@ -26,6 +26,7 @@ const TASK_TYPE_LABEL: Record<string, string> = {
   followup_execution: 'متابعة عميل',
   request_fulfillment: 'تنفيذ طلب عميل',
   exceptional_followup: 'متابعة استثنائية',
+  welcome_message: 'رسالة ترحيب',
 };
 
 const STAGE_LABEL: Record<string, string> = {

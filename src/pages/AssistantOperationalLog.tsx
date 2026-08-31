@@ -17,7 +17,7 @@ const ELIGIBLE_STAFF_IDS = new Set([
 const BRANCHES = ['فرع شكري', 'فرع الشامي'] as const;
 type Branch = (typeof BRANCHES)[number];
 
-type TaskType = 'supplier_order' | 'branch_transfer' | 'followup_execution' | 'request_fulfillment' | 'exceptional_followup';
+type TaskType = 'supplier_order' | 'branch_transfer' | 'followup_execution' | 'request_fulfillment' | 'exceptional_followup' | 'welcome_message';
 
 type StageOption = { stage: string; label: string; points: number; requiresInvoice?: boolean; deadlineDays?: number };
 
@@ -77,9 +77,16 @@ const TASK_CONFIG: Record<TaskType, TaskTypeConfig> = {
       { stage: 'exceptional_purchased', label: 'العميل اشترى (خلال يومين بالظبط)', points: 7, requiresInvoice: true, deadlineDays: 2 },
     ],
   },
+  welcome_message: {
+    label: 'رسالة ترحيب لعميل جديد',
+    hint: 'حدث واحد — بمجرد إرسال الرسالة',
+    icon: Users,
+    requiresCase: false,
+    stages: [{ stage: 'sent', label: 'تم إرسال الرسالة', points: 2 }],
+  },
 };
 
-const TASK_ORDER: TaskType[] = ['supplier_order', 'branch_transfer', 'followup_execution', 'request_fulfillment', 'exceptional_followup'];
+const TASK_ORDER: TaskType[] = ['supplier_order', 'branch_transfer', 'followup_execution', 'request_fulfillment', 'exceptional_followup', 'welcome_message'];
 
 type LogRow = {
   id: string;
@@ -127,6 +134,7 @@ const MAX_CASE_POINTS: Record<TaskType, number> = {
   followup_execution: 15,
   request_fulfillment: 6,
   exceptional_followup: 7,
+  welcome_message: 2,
 };
 
 function friendlyError(message: string): string {
