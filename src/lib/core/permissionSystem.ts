@@ -1033,6 +1033,7 @@ export const ROUTE_PERMISSION_MAP: Record<string, string | string[]> = {
   // صفحات ذاتية (أي حد يقدر يستخدمها لنفسه) — بس لازم تفضل مربوطة بتسجيل دخول
   // وصلاحية أساسية موجودة عند كل الأدوار عشان الفحص يفضل واحد ومتسق في كل مكان.
   '/my-daily-checklist': 'view_dashboard',
+  '/assistant-operational-log': 'view_dashboard',
   '/point-appeals': 'view_points',
 };
 
