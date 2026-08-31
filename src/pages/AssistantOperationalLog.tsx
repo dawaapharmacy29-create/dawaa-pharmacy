@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Clock, Loader2, PackageCheck, PlusCircle, Repeat, Send, Users } from 'lucide-react';
+import { CheckCircle2, Clock, Loader2, PackageCheck, PlusCircle, Repeat, Send, Trophy, Users } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
@@ -97,6 +97,13 @@ type LogRow = {
   logged_at: string;
 };
 
+type LeaderboardRow = {
+  staff_id: string;
+  staff_name: string;
+  branch: string | null;
+  total_points: number;
+};
+
 type CaseRow = {
   case_key: string;
   task_type: TaskType;
@@ -148,6 +155,7 @@ export default function AssistantOperationalLog() {
 
   const [logs, setLogs] = useState<LogRow[]>([]);
   const [cases, setCases] = useState<CaseRow[]>([]);
+  const [leaderboard, setLeaderboard] = useState<LeaderboardRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
 
@@ -161,9 +169,10 @@ export default function AssistantOperationalLog() {
     }
     setLoading(true);
     setLoadError(false);
-    const [logsRes, casesRes] = await Promise.all([
+    const [logsRes, casesRes, leaderboardRes] = await Promise.all([
       supabase.rpc('list_my_assistant_operational_logs_v1', { p_limit: 30 }),
       supabase.rpc('list_my_assistant_open_cases_v1'),
+      supabase.rpc('get_assistant_operational_leaderboard_v1'),
     ]);
     if (logsRes.error || casesRes.error) {
       setLoadError(true);
@@ -172,6 +181,9 @@ export default function AssistantOperationalLog() {
     }
     setLogs((logsRes.data || []) as LogRow[]);
     setCases((casesRes.data || []) as CaseRow[]);
+    if (!leaderboardRes.error) {
+      setLeaderboard((leaderboardRes.data || []) as LeaderboardRow[]);
+    }
     setLoading(false);
   }, [isEligible]);
 
@@ -266,6 +278,32 @@ export default function AssistantOperationalLog() {
         <MiniBox label="بانتظار المراجعة" value={String(pendingCount)} tone="amber" />
         <MiniBox label="نقاط معتمدة (آخر 30 عملية)" value={String(approvedPoints)} tone="green" />
       </div>
+
+      {leaderboard.length > 0 ? (
+        <Panel className="p-4">
+          <SectionTitle title="ترتيب الشهر" subtitle="نقاط معتمدة من عمليات المشتريات وخدمة العملاء فقط" icon={<Trophy size={18} />} />
+          <div className="space-y-2">
+            {leaderboard.map((row, index) => (
+              <div
+                key={row.staff_id}
+                className="flex items-center justify-between gap-3 rounded-xl border p-3"
+                style={{
+                  borderColor: row.staff_id === staffId ? 'var(--dawaa-theme-primary)' : 'var(--dawaa-theme-border)',
+                  background: row.staff_id === staffId ? 'var(--dawaa-theme-soft)' : 'transparent',
+                }}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full text-xs font-black" style={{ background: 'var(--dawaa-theme-soft)', color: 'var(--dawaa-theme-primary-strong)' }}>
+                    {index + 1}
+                  </span>
+                  <span className="font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>{row.staff_name}</span>
+                </div>
+                <span className="text-sm font-black" style={{ color: 'var(--dawaa-status-success-text)' }}>{row.total_points} نقطة</span>
+              </div>
+            ))}
+          </div>
+        </Panel>
+      ) : null}
 
       <Panel className="p-4 space-y-4">
         <SectionTitle title="تسجيل عملية جديدة" icon={<Send size={18} />} />
