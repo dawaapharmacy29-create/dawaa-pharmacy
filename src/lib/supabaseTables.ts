@@ -60,7 +60,6 @@ export const TABLES = {
   suppliesItems: 'supplies_items',
   accessoryItems: 'accessory_items',
   shelfTasks: 'shelf_tasks',
-  branchCleaningTasks: 'branch_cleaning_tasks',
   inventoryCountSessions: 'inventory_count_sessions',
   inventoryCountItems: 'inventory_count_items',
 

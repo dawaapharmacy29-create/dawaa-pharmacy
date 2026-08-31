@@ -855,7 +855,7 @@ function roleHomePath(user: { role?: unknown } | null | undefined): string {
   if (isDoctorRole(user as any)) return '/doctor-dashboard';
   const role = normalizeRole(user?.role);
   if (role === 'delivery') return '/delivery';
-  if (role === 'cleaning_supervisor') return '/branch-cleaning';
+  if (role === 'cleaning_supervisor') return '/my-daily-checklist';
   if (role === 'inventory_assistant') return '/inventory-counts';
   if (role === 'customer_service' || role === 'customer_service_manager') return '/customer-service-dashboard';
   if (['general_manager','executive_manager','branches_manager','branch_manager'].includes(role)) return '/';
@@ -885,7 +885,7 @@ export default function ExecutiveDashboard2027() {
     if (isDoctorRole(user)) { navigate('/doctor-dashboard', { replace: true }); return; }
     const role = normalizeRole(user?.role);
     if (role === 'delivery') { navigate('/delivery', { replace: true }); return; }
-    if (role === 'cleaning_supervisor') { navigate('/branch-cleaning', { replace: true }); return; }
+    if (role === 'cleaning_supervisor') { navigate('/my-daily-checklist', { replace: true }); return; }
     if (role === 'inventory_assistant') { navigate('/inventory-counts', { replace: true }); return; }
     navigate('/time-off', { replace: true });
   }, [canViewExecutive, navigate, user]);
@@ -1763,7 +1763,7 @@ export default function ExecutiveDashboard2027() {
               if (isDoctorRole(user)) return navigate('/doctor-dashboard');
               if (role === 'customer_service_manager') return navigate('/customer-service-dashboard');
               if (role === 'delivery') return navigate('/delivery');
-              if (role === 'cleaning_supervisor') return navigate('/branch-cleaning');
+              if (role === 'cleaning_supervisor') return navigate('/my-daily-checklist');
               if (role === 'inventory_assistant') return navigate('/inventory-counts');
               return navigate('/time-off');
             }}

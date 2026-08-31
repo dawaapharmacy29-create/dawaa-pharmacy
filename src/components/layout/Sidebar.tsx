@@ -15,7 +15,6 @@ ROUTE_PERMISSION_MAP['/accessories'] = ['view_inventory', 'manage_operations'];
 ROUTE_PERMISSION_MAP['/offers'] = 'manage_operations';
 ROUTE_PERMISSION_MAP['/stories'] = 'manage_operations';
 ROUTE_PERMISSION_MAP['/training'] = 'manage_operations';
-ROUTE_PERMISSION_MAP['/branch-cleaning'] = ['view_branch_inspection', 'manage_operations'];
 
 interface SidebarProps {
   collapsed: boolean;

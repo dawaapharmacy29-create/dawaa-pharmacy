@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ElementType } from 'react';
 import {
   AlertTriangle,
-  CheckCircle2,
   ClipboardList,
   Filter,
   Loader2,
@@ -165,18 +164,6 @@ const ACCESSORY_SUPPLIERS = [
   'مورد آخر',
 ];
 
-const CLEANING_CHECKLIST = [
-  'تنظيف الأرضيات',
-  'ترتيب الرفوف',
-  'تنظيف منطقة الكاشير',
-  'التخلص من الكراتين',
-  'تنظيف الواجهة',
-  'تنظيف منطقة المعمل',
-  'مراجعة الثلاجة',
-  'ترتيب المخزن',
-  'رفع ملاحظات للإدارة إن وجدت',
-];
-
 const configs: Record<string, ModuleConfig> = {
   shelf: {
     title: 'تنظيم الأدوية والرفوف',
@@ -258,70 +245,6 @@ const configs: Record<string, ModuleConfig> = {
       { key: 'notes', label: 'ملاحظات', kind: 'textarea' },
     ],
     searchKeys: ['title', 'branch', 'zone', 'section', 'responsible_staff_name'],
-  },
-  cleaning: {
-    title: 'نظافة الفروع',
-    route: '/branch-cleaning',
-    table: 'branch_cleaning_tasks',
-    icon: CheckCircle2,
-    description: 'متابعة نظافة الفروع حسب الشيفت والمسؤول ومراجعة المدير.',
-    primaryField: 'branch',
-    statusField: 'status',
-    branchField: 'branch',
-    dueDateField: 'task_date',
-    staffNameField: 'responsible_staff_name',
-    defaultStatus: 'pending',
-    statuses: COMMON_STATUSES,
-    dashboardHint: 'أي فرع لم يغلق مهمة النظافة يظهر كتنبيه يومي.',
-    defaultValues: {
-      branch: BRANCHES[0],
-      task_date: new Date().toISOString().slice(0, 10),
-      date: new Date().toISOString().slice(0, 10),
-      shift: 'morning',
-      responsible_staff_name: '',
-      cleaner_name: '',
-      responsible_staff_id: '',
-      reviewer_staff_name: '',
-      reviewer_staff_id: '',
-      cleanliness_rating: 0,
-      review_photo_url: '',
-      review_photo_path: '',
-      checklist: '{}',
-      status: 'pending',
-      notes: '',
-    },
-    fields: [
-      { key: 'branch', label: 'الفرع', kind: 'select', options: BRANCH_OPTIONS, required: true },
-      { key: 'task_date', label: 'التاريخ', kind: 'date' },
-      { key: 'shift', label: 'الشيفت', kind: 'select', options: ['morning', 'evening', 'closing'] },
-      {
-        key: 'responsible_staff_name',
-        label: 'مسؤول النظافة',
-        kind: 'select',
-        options: ['', 'حبيبه', 'هبه'],
-      },
-      {
-        key: 'reviewer_staff_name',
-        label: 'الدكتور المراجع اليومي',
-        kind: 'staff',
-        staffIdKey: 'reviewer_staff_id',
-      },
-      {
-        key: 'cleanliness_rating',
-        label: 'تقييم مستوى النظافة',
-        kind: 'select',
-        options: ['0', '1', '2', '3', '4', '5'],
-      },
-      { key: 'review_photo_url', label: 'صورة مراجعة النظافة', kind: 'image' },
-      {
-        key: 'checklist',
-        label: 'جدول النظافة اليومي',
-        kind: 'checklist',
-        checklistItems: CLEANING_CHECKLIST,
-      },
-      { key: 'notes', label: 'ملاحظات', kind: 'textarea' },
-    ],
-    searchKeys: ['branch', 'responsible_staff_name', 'shift', 'notes'],
   },
   inventory: {
     title: 'الجرد',
@@ -682,7 +605,6 @@ function managePermissionForModule(module: keyof typeof configs) {
     shortages: 'manage_shortages',
     inventory: 'manage_inventory',
     shelf: 'manage_inventory',
-    cleaning: 'manage_operations',
     supplies: 'manage_supplies',
     purchases: 'manage_purchases',
     branchInspection: 'manage_branch_inspection',

@@ -85,7 +85,6 @@ const StaffDashboard = lazy(() => import('@/pages/StaffDashboard'));
 const CustomerServiceManagerDashboard = lazy(() => import('@/pages/CustomerServiceManagerDashboard'));
 const RolesPermissions = lazy(() => import('@/pages/RolesPermissions'));
 const ShelfOrganization = lazy(() => import('@/pages/ShelfOrganization'));
-const BranchCleaning = lazy(() => import('@/pages/BranchCleaning'));
 const InventoryCounts = lazy(() => import('@/pages/InventoryCounts'));
 const Shortages = lazy(() => import('@/pages/Shortages'));
 const Supplies = lazy(() => import('@/pages/Supplies'));
@@ -271,7 +270,6 @@ function AppRoutes() {
     <Route path="/staff-dashboard" element={<ProtectedRoute>{routeSuspense(<StaffDashboard />, 'لوحة الموظف')}</ProtectedRoute>} />
     <Route path="/roles-permissions" element={<ProtectedRoute>{routeSuspense(<RolesPermissions />, 'الأدوار والصلاحيات')}</ProtectedRoute>} />
     <Route path="/shelf-organization" element={<ProtectedRoute>{routeSuspense(<ShelfOrganization />, 'تنظيم الأرفف')}</ProtectedRoute>} />
-    <Route path="/branch-cleaning" element={<ProtectedRoute>{routeSuspense(<BranchCleaning />, 'نظافة الفرع')}</ProtectedRoute>} />
     <Route path="/inventory-counts" element={<ProtectedRoute>{routeSuspense(<InventoryCounts />, 'الجرد')}</ProtectedRoute>} />
     <Route path="/shortages" element={<ProtectedRoute>{routeSuspense(<Shortages />, 'النواقص')}</ProtectedRoute>} />
     <Route path="/supplies" element={<ProtectedRoute>{routeSuspense(<Supplies />, 'المستلزمات')}</ProtectedRoute>} />
