@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Loader2, Search, ThumbsDown, Users } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Link2, Loader2, Search, ThumbsDown, Users } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { Panel, SectionTitle, EmptyState } from '@/components/dashboard/DashboardPrimitives';
@@ -31,6 +31,25 @@ type ReviewRow = {
   reviewed_by_name: string | null;
 };
 
+type QueueRow = {
+  id: string;
+  base44_id: string;
+  system_invoice_number: string | null;
+  branch: string | null;
+  transaction_type: string | null;
+  entered_by_raw: string | null;
+  entered_by_staff_id: string | null;
+  entered_by_staff_name: string | null;
+  match_status: 'matched' | 'ambiguous' | 'unmatched' | 'empty';
+  invoice_date: string | null;
+  total_value: number | null;
+};
+
+const TRANSACTION_TYPE_LABEL: Record<string, string> = {
+  external_purchase: 'شراء خارجي',
+  internal_transfer: 'تحويل بين فرعين',
+};
+
 export default function PurchaseInvoiceAccuracy() {
   const [search, setSearch] = useState('');
   const [staffOptions, setStaffOptions] = useState<StaffOption[]>([]);
@@ -42,6 +61,84 @@ export default function PurchaseInvoiceAccuracy() {
   const [history, setHistory] = useState<ReviewRow[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [historyError, setHistoryError] = useState(false);
+
+  const [queue, setQueue] = useState<QueueRow[]>([]);
+  const [loadingQueue, setLoadingQueue] = useState(true);
+  const [queueError, setQueueError] = useState(false);
+  const [resolvingId, setResolvingId] = useState<string | null>(null);
+  const [resolveSearch, setResolveSearch] = useState('');
+  const [resolveOptions, setResolveOptions] = useState<StaffOption[]>([]);
+  const [pickedStaffByRow, setPickedStaffByRow] = useState<Record<string, StaffOption>>({});
+  const [actingRowId, setActingRowId] = useState<string | null>(null);
+
+  const loadQueue = useCallback(async () => {
+    setLoadingQueue(true);
+    setQueueError(false);
+    const { data, error } = await supabase.rpc('list_base44_pending_invoice_reviews_v1', { p_limit: 100 });
+    if (error) {
+      setQueueError(true);
+      setLoadingQueue(false);
+      return;
+    }
+    setQueue((data || []) as QueueRow[]);
+    setLoadingQueue(false);
+  }, []);
+
+  useEffect(() => {
+    void loadQueue();
+  }, [loadQueue]);
+
+  useEffect(() => {
+    const term = resolveSearch.trim();
+    if (term.length < 2) {
+      setResolveOptions([]);
+      return;
+    }
+    let cancelled = false;
+    const handle = setTimeout(async () => {
+      const options = await searchActiveStaffByName(term);
+      if (!cancelled) setResolveOptions(options);
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+    };
+  }, [resolveSearch]);
+
+  const classifyQueueRow = useCallback(
+    async (row: QueueRow, staffId: string, rowOutcome: Outcome) => {
+      setActingRowId(row.id);
+      try {
+        const { error } = await supabase.rpc('log_base44_invoice_review_v1', {
+          p_sync_id: row.id,
+          p_staff_id: staffId,
+          p_outcome: rowOutcome,
+        });
+        if (error) throw error;
+        toast.success('اتسجل');
+        setQueue((prev) => prev.filter((q) => q.id !== row.id));
+        await loadHistory();
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'حصل خطأ في الحفظ');
+      } finally {
+        setActingRowId(null);
+      }
+    },
+    []
+  );
+
+  const resolveAndSaveAlias = useCallback(async (row: QueueRow, staff: StaffOption) => {
+    if (!row.entered_by_raw) return;
+    try {
+      await supabase.rpc('resolve_base44_entered_by_alias_v1', {
+        p_raw_name: row.entered_by_raw,
+        p_staff_id: staff.id,
+      });
+      toast.success(`اتربط "${row.entered_by_raw}" بـ ${staff.name} — هيتطبق تلقائي المرة الجاية`);
+    } catch {
+      // اختيار الموظف لسه هيتم حتى لو فشل حفظ الربط الدائم
+    }
+  }, []);
 
   const loadHistory = useCallback(async () => {
     setLoadingHistory(true);
@@ -115,8 +212,110 @@ export default function PurchaseInvoiceAccuracy() {
         </p>
       </div>
 
+      <Panel className="p-4">
+        <SectionTitle title="فواتير Base44 محتاجة تصنيف" subtitle="متسحبة تلقائي من الدورة الحالية" icon={<Link2 size={18} />} />
+        {loadingQueue ? (
+          <div className="flex justify-center py-6"><Loader2 className="animate-spin" style={{ color: 'var(--dawaa-theme-muted)' }} /></div>
+        ) : queueError ? (
+          <EmptyState label="تعذّر تحميل قائمة Base44" error onRetry={() => void loadQueue()} />
+        ) : queue.length === 0 ? (
+          <EmptyState label="مفيش فواتير محتاجة تصنيف دلوقتي" />
+        ) : (
+          <div className="space-y-3">
+            {queue.map((row) => {
+              const resolvedStaff = row.entered_by_staff_id
+                ? { id: row.entered_by_staff_id, name: row.entered_by_staff_name || '', branch: row.branch }
+                : pickedStaffByRow[row.id] || null;
+              return (
+                <div key={row.id} className="rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>
+                      {row.system_invoice_number ? `فاتورة ${row.system_invoice_number}` : row.base44_id}
+                    </p>
+                    <span className="text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                      {row.branch} — {row.invoice_date} — {TRANSACTION_TYPE_LABEL[row.transaction_type || ''] || row.transaction_type}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                    {row.total_value != null ? `${row.total_value} جنيه` : ''}
+                  </p>
+
+                  {resolvedStaff ? (
+                    <div className="mt-3 space-y-2">
+                      <p className="text-sm font-black" style={{ color: 'var(--dawaa-theme-text)' }}>
+                        دخلها: {resolvedStaff.name}
+                        {!row.entered_by_staff_id ? ' (اخترتها يدويًا)' : ''}
+                      </p>
+                      <div className="grid grid-cols-2 gap-2">
+                        {OUTCOME_ORDER.map((key) => {
+                          const cfg = OUTCOME_CONFIG[key];
+                          return (
+                            <button
+                              key={key}
+                              type="button"
+                              disabled={actingRowId === row.id}
+                              onClick={() => void classifyQueueRow(row, resolvedStaff.id, key)}
+                              className="rounded-lg border py-2 text-xs font-black"
+                              style={{ borderColor: cfg.borderColor, background: cfg.bg, color: cfg.color }}
+                            >
+                              {cfg.label} ({cfg.points > 0 ? '+' : ''}{cfg.points})
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : resolvingId === row.id ? (
+                    <div className="mt-3 space-y-1">
+                      <input
+                        type="text"
+                        className="input-dark w-full text-sm"
+                        placeholder="اكتب اسم الموظف اللي دخلها فعلاً..."
+                        value={resolveSearch}
+                        onChange={(e) => setResolveSearch(e.target.value)}
+                        autoFocus
+                      />
+                      {resolveOptions.length > 0 ? (
+                        <div className="space-y-1 rounded-lg border p-1" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
+                          {resolveOptions.map((s) => (
+                            <button
+                              key={s.id}
+                              type="button"
+                              onClick={() => {
+                                setPickedStaffByRow((prev) => ({ ...prev, [row.id]: s }));
+                                setResolvingId(null);
+                                setResolveSearch('');
+                                setResolveOptions([]);
+                                if (row.match_status === 'unmatched') void resolveAndSaveAlias(row, s);
+                              }}
+                              className="flex w-full items-center justify-between rounded-md p-2 text-right text-sm hover:bg-[var(--dawaa-theme-soft)]"
+                            >
+                              <span className="font-bold" style={{ color: 'var(--dawaa-theme-text)' }}>{s.name}</span>
+                              <span className="text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>{s.branch}</span>
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setResolvingId(row.id)}
+                      className="mt-3 flex items-center gap-2 text-sm font-black"
+                      style={{ color: 'var(--dawaa-status-warning-text)' }}
+                    >
+                      <AlertTriangle size={14} />
+                      {row.entered_by_raw ? `"${row.entered_by_raw}" مش معروف — اختار مين ده` : 'مسجّلش اسم — اختار مين دخلها'}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Panel>
+
       <Panel className="p-4 space-y-4">
-        <SectionTitle title="تسجيل مراجعة جديدة" icon={<Users size={18} />} />
+        <SectionTitle title="تسجيل مراجعة يدوية" icon={<Users size={18} />} />
 
         <div>
           <p className="mb-2 text-xs font-black" style={{ color: 'var(--dawaa-theme-muted)' }}>مين اللي دخل الفاتورة؟</p>
