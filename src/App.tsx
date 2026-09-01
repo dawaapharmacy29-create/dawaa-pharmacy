@@ -53,6 +53,8 @@ const AssistantOperationalLog = lazy(() => import('@/pages/AssistantOperationalL
 const AssistantOperationalBonus = lazy(() => import('@/pages/AssistantOperationalBonus'));
 const PharmacyZoneTasks = lazy(() => import('@/pages/PharmacyZoneTasks'));
 const PurchaseInvoiceAccuracy = lazy(() => import('@/pages/PurchaseInvoiceAccuracy'));
+const PurchaseInvoiceEntry = lazy(() => import('@/pages/PurchaseInvoiceEntry'));
+const PurchaseInvoiceReview = lazy(() => import('@/pages/PurchaseInvoiceReview'));
 const BranchChecklistReview = lazy(() => import('@/pages/BranchChecklistReview'));
 const DoctorCompetition = lazy(() => import('@/pages/DoctorCompetition'));
 const Team = lazy(() => import('@/pages/Team'));
@@ -248,6 +250,8 @@ function AppRoutes() {
     <Route path="/assistant-operational-bonus" element={<ProtectedRoute>{routeSuspense(<AssistantOperationalBonus />, 'مكافأة تميز مفاجئة')}</ProtectedRoute>} />
     <Route path="/pharmacy-zone-tasks" element={<ProtectedRoute>{routeSuspense(<PharmacyZoneTasks />, 'الرص والجرد اليومي')}</ProtectedRoute>} />
     <Route path="/purchase-invoice-accuracy" element={<ProtectedRoute>{routeSuspense(<PurchaseInvoiceAccuracy />, 'دقة إدخال فواتير المشتريات')}</ProtectedRoute>} />
+    <Route path="/purchase-invoice-entry" element={<ProtectedRoute>{routeSuspense(<PurchaseInvoiceEntry />, 'تسجيل فاتورة مشتريات')}</ProtectedRoute>} />
+    <Route path="/purchase-invoice-review" element={<ProtectedRoute>{routeSuspense(<PurchaseInvoiceReview />, 'مراجعة فواتير المشتريات')}</ProtectedRoute>} />
     <Route path="/branch-checklist-review" element={<ProtectedRoute>{routeSuspense(<BranchChecklistReview />, 'مراجعة التشيك ليست')}</ProtectedRoute>} />
     <Route path="/doctor-competition" element={<ProtectedRoute>{routeSuspense(<DoctorCompetition />, 'مسابقة الدكاترة')}</ProtectedRoute>} />
     <Route path="/team" element={<ProtectedRoute>{routeSuspense(<Team />, 'الفريق')}</ProtectedRoute>} />

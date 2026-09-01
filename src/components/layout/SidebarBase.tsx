@@ -85,7 +85,9 @@ const GROUPS: NavGroup[] = [
     { path: '/supplies', icon: PackageSearch, label: 'Checkpoint المستلزمات', permission: ['view_supplies','view_inventory'] },
     { path: '/accessories', icon: Package, label: 'Checkpoint الإكسسوارات', permission: ['view_operations','view_inventory'] },
     { path: '/branch-checklist-review', icon: ClipboardCheck, label: 'مراجعة تشيك ليست النظافة والمساعدين', excludeRoles: ['pharmacist', 'assistant', 'customer_service_manager'] },
-    { path: '/purchases', icon: FileSpreadsheet, label: 'المشتريات', permission: 'view_purchases' },
+    { path: '/purchases', icon: FileSpreadsheet, label: 'المشتريات (دليل الأصناف)', permission: 'view_purchases' },
+    { path: '/purchase-invoice-entry', icon: FileSpreadsheet, label: 'تسجيل فاتورة مشتريات', allowedRoles: ['assistant'] },
+    { path: '/purchase-invoice-review', icon: ClipboardCheck, label: 'مراجعة فواتير المشتريات', excludeRoles: ['pharmacist', 'assistant', 'customer_service_manager'] },
   ]},
   { title: 'الدليفري', icon: Truck, items: [{ path: '/delivery', icon: Truck, label: 'لوحة الدليفري', permission: 'view_delivery' }] },
   { title: 'الحوافز والرواتب', icon: Star, items: [

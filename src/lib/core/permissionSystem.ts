@@ -1036,6 +1036,8 @@ export const ROUTE_PERMISSION_MAP: Record<string, string | string[]> = {
   '/assistant-operational-bonus': 'manage_incentives',
   '/pharmacy-zone-tasks': 'view_dashboard',
   '/purchase-invoice-accuracy': 'view_team',
+  '/purchase-invoice-entry': 'view_dashboard',
+  '/purchase-invoice-review': 'view_team',
   '/point-appeals': 'view_points',
 };
 
