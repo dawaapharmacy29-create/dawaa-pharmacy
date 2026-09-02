@@ -146,7 +146,7 @@ export async function loadMonthlyPerformance360(args: {
 
   const staffResult = await supabase
     .from('staff')
-    .select('id,name,role,job_title,branch,status,is_active')
+    .select('id,name,role,branch,status,is_active')
     .eq('id', staffId)
     .single();
   if (staffResult.error || !staffResult.data) {
@@ -154,7 +154,7 @@ export async function loadMonthlyPerformance360(args: {
   }
   const staff = staffResult.data as Record<string, unknown>;
   const employeeName = String(staff.name || 'موظف');
-  const employeeRole = String(staff.job_title || staff.role || 'غير محدد');
+  const employeeRole = String(staff.role || 'غير محدد');
   const employeeBranch = String(staff.branch || 'غير محدد');
 
   const salesErrors: string[] = [];
@@ -356,7 +356,7 @@ export async function loadMonthlyPerformance360(args: {
       id: staffId,
       name: employeeName,
       role: employeeRole,
-      canonicalRole: canonicalStaffRole(staff.role || staff.job_title),
+      canonicalRole: canonicalStaffRole(staff.role),
       branch: employeeBranch,
     },
     cycle: {
