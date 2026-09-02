@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Clock, Download, Filter, Fingerprint, LocateFixed, LogIn, LogOut, Printer, RefreshCw, ShieldAlert, Users, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Clock, Download, Filter, Fingerprint, LocateFixed, LogIn, LogOut, Printer, RefreshCw, Search, ShieldAlert, UserCheck, Users, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
@@ -31,7 +31,7 @@ type DailyCommandRow = {
   role: string | null;
   branch: string | null;
   work_date: string;
-  schedule_status: 'scheduled' | 'off' | 'missing' | 'missing_time' | 'conflict' | string;
+  schedule_status: string;
   shift_start: string | null;
   shift_end: string | null;
   first_check_in: string | null;
@@ -54,6 +54,24 @@ type SyncHealth = {
   events_last_24h?: number;
   unmapped_last_24h?: number;
   provider_count?: number;
+};
+
+type UnmappedBiometric = {
+  provider: string;
+  biometric_user_id: string;
+  source_name: string | null;
+  raw_rows: number;
+  semantic_events: number;
+  first_event: string | null;
+  last_event: string | null;
+};
+
+type StaffCandidate = {
+  staff_account_id: string;
+  staff_id: string;
+  staff_name: string;
+  branch: string | null;
+  role: string | null;
 };
 
 interface StaffSummary {
@@ -133,20 +151,7 @@ function TableSkeleton() {
 
 function attendanceLabel(status: string) {
   const map: Record<string, string> = {
-    on_time: 'في الموعد',
-    late: 'متأخر',
-    very_late: 'متأخر جدًا',
-    absent: 'غياب',
-    not_arrived: 'لم يحضر بعد',
-    scheduled: 'لم يبدأ موعده',
-    working_now: 'موجود الآن',
-    missing_checkout: 'بصمة خروج ناقصة',
-    off: 'إجازة',
-    worked_on_off: 'حضور في إجازة',
-    approved_exception: 'استثناء معتمد',
-    schedule_conflict: 'تعارض في الجدول',
-    schedule_missing: 'الجدول غير مكتمل',
-    punch_without_valid_schedule: 'بصمة بدون جدول صالح',
+    on_time: 'في الموعد', late: 'متأخر', very_late: 'متأخر جدًا', absent: 'غياب', not_arrived: 'لم يحضر بعد', scheduled: 'لم يبدأ موعده', working_now: 'موجود الآن', missing_checkout: 'بصمة خروج ناقصة', off: 'إجازة', worked_on_off: 'حضور في إجازة', approved_exception: 'استثناء معتمد', schedule_conflict: 'تعارض في الجدول', schedule_missing: 'الجدول غير مكتمل', punch_without_valid_schedule: 'بصمة بدون جدول صالح',
   };
   return map[status] || status;
 }
@@ -173,6 +178,12 @@ export default function AttendanceReport() {
   const [rows, setRows] = useState<AttendanceRow[]>([]);
   const [dailyRows, setDailyRows] = useState<DailyCommandRow[]>([]);
   const [syncHealth, setSyncHealth] = useState<SyncHealth | null>(null);
+  const [unmappedRows, setUnmappedRows] = useState<UnmappedBiometric[]>([]);
+  const [mappingTarget, setMappingTarget] = useState<UnmappedBiometric | null>(null);
+  const [candidateSearch, setCandidateSearch] = useState('');
+  const [candidates, setCandidates] = useState<StaffCandidate[]>([]);
+  const [selectedCandidate, setSelectedCandidate] = useState<StaffCandidate | null>(null);
+  const [mappingBusy, setMappingBusy] = useState(false);
   const [logs, setLogs] = useState<any[]>([]);
   const [locations, setLocations] = useState<AttendanceLocation[]>([]);
   const [position, setPosition] = useState<DevicePosition | null>(null);
@@ -186,85 +197,82 @@ export default function AttendanceReport() {
   const userName = user?.name || 'غير محدد';
   const userBranch = user?.branch || null;
 
-  useEffect(() => {
-    if (!canAllBranches) setBranchFilter(normalizedUserBranch || 'الكل');
-  }, [canAllBranches, normalizedUserBranch]);
+  useEffect(() => { if (!canAllBranches) setBranchFilter(normalizedUserBranch || 'الكل'); }, [canAllBranches, normalizedUserBranch]);
 
   const [year, monthNum] = month.split('-').map(Number);
   const startDate = `${month}-01`;
   const endDate = `${month}-${String(getMonthDays(year, monthNum)).padStart(2, '0')}`;
-
   const nearest = useMemo(() => (position && locations.length ? validateAttendancePosition(position, locations) : null), [position, locations]);
   const lastCheckIn = logs.find((log) => log.attendance_type === 'check_in' && ['accepted', 'manual_review'].includes(log.status));
   const lastCheckOut = logs.find((log) => log.attendance_type === 'check_out' && ['accepted', 'manual_review'].includes(log.status));
 
   const loadClock = useCallback(async () => {
     if (!isSupabaseConfigured) return;
-    setLoading(true);
-    setError(null);
+    setLoading(true); setError(null);
     try {
-      const [locs, pos, lastLogs] = await Promise.all([
-        fetchAttendanceLocations(),
-        getDevicePosition().catch(() => null),
-        getRecentAttendanceLogs(userId, 30),
-      ]);
-      setLocations(locs);
-      setPosition(pos);
-      setLogs(lastLogs || []);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'تعذر تحميل بيانات البصمة');
-    } finally {
-      setLoading(false);
-    }
+      const [locs, pos, lastLogs] = await Promise.all([fetchAttendanceLocations(), getDevicePosition().catch(() => null), getRecentAttendanceLogs(userId, 30)]);
+      setLocations(locs); setPosition(pos); setLogs(lastLogs || []);
+    } catch (e) { setError(e instanceof Error ? e.message : 'تعذر تحميل بيانات البصمة'); } finally { setLoading(false); }
   }, [userId]);
 
   const effectiveBranch = !canAllBranches && normalizedUserBranch ? normalizedUserBranch : branchFilter;
 
   const loadDaily = useCallback(async () => {
     if (!isSupabaseConfigured) return;
-    setLoadingDaily(true);
-    setError(null);
+    setLoadingDaily(true); setError(null);
     try {
-      const { data, error: dailyError } = await supabase.rpc('attendance_daily_command_v1', {
-        p_date: dailyDate,
-        p_branch: effectiveBranch === 'الكل' ? null : effectiveBranch,
-      });
+      const { data, error: dailyError } = await supabase.rpc('attendance_daily_command_v1', { p_date: dailyDate, p_branch: effectiveBranch === 'الكل' ? null : effectiveBranch });
       if (dailyError) throw dailyError;
       setDailyRows((data || []) as DailyCommandRow[]);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'تعذر تحميل مركز الحضور اليومي');
-    } finally {
-      setLoadingDaily(false);
-    }
+    } catch (e) { setError(e instanceof Error ? e.message : 'تعذر تحميل مركز الحضور اليومي'); } finally { setLoadingDaily(false); }
   }, [dailyDate, effectiveBranch]);
 
   const loadSyncHealth = useCallback(async () => {
     if (!isSupabaseConfigured || !canViewSyncHealth) return;
-    setLoadingSync(true);
+    setLoadingSync(true); setError(null);
     try {
-      const { data, error: syncError } = await supabase.rpc('attendance_sync_health_v1');
-      if (syncError) throw syncError;
-      setSyncHealth((data || {}) as SyncHealth);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'تعذر تحميل حالة مزامنة البصمة');
-    } finally {
-      setLoadingSync(false);
-    }
+      const [healthResult, unmappedResult] = await Promise.all([supabase.rpc('attendance_sync_health_v1'), supabase.rpc('list_unmapped_biometric_staff_v1', { p_limit: 100 })]);
+      if (healthResult.error) throw healthResult.error;
+      if (unmappedResult.error) throw unmappedResult.error;
+      setSyncHealth((healthResult.data || {}) as SyncHealth);
+      setUnmappedRows((unmappedResult.data || []) as UnmappedBiometric[]);
+    } catch (e) { setError(e instanceof Error ? e.message : 'تعذر تحميل حالة مزامنة البصمة'); } finally { setLoadingSync(false); }
   }, [canViewSyncHealth]);
 
   const loadReport = useCallback(async () => {
     if (!isSupabaseConfigured) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await fetchAttendanceReportRows({ startDate, endDate, branchFilter: effectiveBranch });
-      setRows(data);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'تعذر تحميل بيانات الحضور الشهرية');
-    } finally {
-      setLoading(false);
-    }
+    setLoading(true); setError(null);
+    try { setRows(await fetchAttendanceReportRows({ startDate, endDate, branchFilter: effectiveBranch })); }
+    catch (e) { setError(e instanceof Error ? e.message : 'تعذر تحميل بيانات الحضور الشهرية'); }
+    finally { setLoading(false); }
   }, [effectiveBranch, endDate, startDate]);
+
+  const searchMappingCandidates = useCallback(async () => {
+    if (!mappingTarget) return;
+    const q = candidateSearch.trim();
+    if (q.length < 2) { toast.warning('اكتب حرفين على الأقل من اسم الموظف'); return; }
+    setMappingBusy(true);
+    try {
+      const { data, error: candidateError } = await supabase.rpc('list_biometric_mapping_staff_candidates_v1', { p_search: q, p_limit: 30 });
+      if (candidateError) throw candidateError;
+      setCandidates((data || []) as StaffCandidate[]);
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'تعذر البحث عن الموظف'); }
+    finally { setMappingBusy(false); }
+  }, [candidateSearch, mappingTarget]);
+
+  const assignMapping = useCallback(async () => {
+    if (!mappingTarget || !selectedCandidate) return;
+    setMappingBusy(true);
+    try {
+      const { data, error: mappingError } = await supabase.rpc('assign_biometric_staff_mapping_v1', { p_provider: mappingTarget.provider, p_biometric_user_id: mappingTarget.biometric_user_id, p_staff_account_id: selectedCandidate.staff_account_id });
+      if (mappingError) throw mappingError;
+      const result = (data || {}) as Record<string, unknown>;
+      toast.success(`تم ربط كود ${mappingTarget.biometric_user_id} بـ ${selectedCandidate.staff_name} وإضافة ${Number(result.attendance_events_added || 0)} بصمة قديمة`);
+      setMappingTarget(null); setCandidateSearch(''); setCandidates([]); setSelectedCandidate(null);
+      await Promise.all([loadSyncHealth(), loadDaily()]);
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'تعذر اعتماد ربط البصمة'); }
+    finally { setMappingBusy(false); }
+  }, [loadDaily, loadSyncHealth, mappingTarget, selectedCandidate]);
 
   useEffect(() => { void loadClock(); }, [loadClock]);
   useEffect(() => { if (tab === 'today') void loadDaily(); }, [tab, loadDaily]);
@@ -282,37 +290,21 @@ export default function AttendanceReport() {
 
   const dailyTotals = useMemo(() => {
     const statuses = dailyRows.map((r) => r.attendance_status);
-    return {
-      staff: dailyRows.length,
-      onTime: statuses.filter((s) => ['on_time', 'working_now'].includes(s)).length,
-      late: statuses.filter((s) => ['late', 'very_late'].includes(s)).length,
-      missing: statuses.filter((s) => ['absent', 'not_arrived', 'missing_checkout'].includes(s)).length,
-      issues: statuses.filter((s) => ['schedule_conflict', 'schedule_missing', 'punch_without_valid_schedule'].includes(s)).length,
-    };
+    return { staff: dailyRows.length, onTime: statuses.filter((s) => ['on_time', 'working_now'].includes(s)).length, late: statuses.filter((s) => ['late', 'very_late'].includes(s)).length, missing: statuses.filter((s) => ['absent', 'not_arrived', 'missing_checkout'].includes(s)).length, issues: statuses.filter((s) => ['schedule_conflict', 'schedule_missing', 'punch_without_valid_schedule'].includes(s)).length };
   }, [dailyRows]);
 
   const summaries = useMemo((): StaffSummary[] => {
     const map = new Map<string, { rows: AttendanceRow[]; branch: string }>();
     rows.filter((r) => effectiveBranch === 'الكل' || normalizeBranchName(r.branch || '') === normalizeBranchName(effectiveBranch)).forEach((r) => {
-      const name = r.staff_name || r.staff_id || 'غير محدد';
-      const key = `${name}__${r.branch || ''}`;
-      if (!map.has(key)) map.set(key, { rows: [], branch: r.branch || '-' });
-      map.get(key)!.rows.push(r);
+      const name = r.staff_name || r.staff_id || 'غير محدد'; const key = `${name}__${r.branch || ''}`;
+      if (!map.has(key)) map.set(key, { rows: [], branch: r.branch || '-' }); map.get(key)!.rows.push(r);
     });
     return Array.from(map.entries()).map(([, { rows: staffRows, branch }]) => {
       const name = staffRows[0]?.staff_name || staffRows[0]?.staff_id || 'غير محدد';
-      const present = staffRows.filter((r) => r.check_in).length;
-      const late = staffRows.filter((r) => isLate(r.check_in, r.shift_start)).length;
-      const absent = staffRows.filter((r) => String(r.status || '').toLowerCase() === 'absent').length;
-      const totalDays = Math.max(staffRows.length, present + absent);
+      const present = staffRows.filter((r) => r.check_in).length; const late = staffRows.filter((r) => isLate(r.check_in, r.shift_start)).length;
+      const absent = staffRows.filter((r) => String(r.status || '').toLowerCase() === 'absent').length; const totalDays = Math.max(staffRows.length, present + absent);
       const checkins = staffRows.filter((r) => r.check_in).map((r) => r.check_in!);
-      const avgCheckin = checkins.length ? (() => {
-        const totalMins = checkins.reduce((sum, ci) => {
-          const [h, m] = ci.slice(0, 5).split(':').map(Number);
-          return sum + h * 60 + m;
-        }, 0) / checkins.length;
-        return `${String(Math.floor(totalMins / 60)).padStart(2, '0')}:${String(Math.round(totalMins % 60)).padStart(2, '0')}`;
-      })() : null;
+      const avgCheckin = checkins.length ? (() => { const totalMins = checkins.reduce((sum, ci) => { const [h, m] = ci.slice(0, 5).split(':').map(Number); return sum + h * 60 + m; }, 0) / checkins.length; return `${String(Math.floor(totalMins / 60)).padStart(2, '0')}:${String(Math.round(totalMins % 60)).padStart(2, '0')}`; })() : null;
       return { staff_name: name, branch, present, absent, late, total_days: totalDays, attendance_rate: totalDays > 0 ? Math.round((present / totalDays) * 100) : 0, avg_checkin: avgCheckin };
     }).sort((a, b) => b.attendance_rate - a.attendance_rate || a.staff_name.localeCompare(b.staff_name, 'ar'));
   }, [rows, effectiveBranch]);
@@ -320,108 +312,33 @@ export default function AttendanceReport() {
   const totals = useMemo(() => ({ staff: summaries.length, present: summaries.reduce((s, r) => s + r.present, 0), absent: summaries.reduce((s, r) => s + r.absent, 0), late: summaries.reduce((s, r) => s + r.late, 0) }), [summaries]);
 
   async function notifyManager(type: AttendanceType, finalValidation: { status: string; rejectionReason?: string | null; nearestLocation?: AttendanceLocation | null; distanceMeters?: number | null }, biometric: { verified: boolean; method: string }, pos: DevicePosition) {
-    const eventName = type === 'check_in' ? 'حضور' : 'انصراف';
-    const nowText = new Date().toLocaleString('ar-EG', { dateStyle: 'short', timeStyle: 'short' });
-    const statusText = finalValidation.status === 'accepted' ? 'مقبول' : finalValidation.status === 'manual_review' ? 'مراجعة يدوية' : 'مرفوض';
-    const locationName = finalValidation.nearestLocation?.name || userBranch || 'غير محدد';
+    const eventName = type === 'check_in' ? 'حضور' : 'انصراف'; const nowText = new Date().toLocaleString('ar-EG', { dateStyle: 'short', timeStyle: 'short' });
+    const statusText = finalValidation.status === 'accepted' ? 'مقبول' : finalValidation.status === 'manual_review' ? 'مراجعة يدوية' : 'مرفوض'; const locationName = finalValidation.nearestLocation?.name || userBranch || 'غير محدد';
     const message = `${userName} سجل ${eventName} الساعة ${nowText} - ${locationName} - الحالة: ${statusText} - المسافة: ${round(finalValidation.distanceMeters)} - GPS: ${round(pos.accuracy)} - التحقق: ${biometric.verified ? 'تم' : 'لم يتم'}`;
-    await createNotification({
-      title: `تنبيه ${eventName}: ${userName}`,
-      message,
-      type: 'attendance',
-      priority: finalValidation.status === 'rejected' ? 'urgent' : 'high',
-      branch: userBranch || finalValidation.nearestLocation?.branch_name || null,
-      target_type: 'attendance',
-      target_id: userId,
-      target_route: '/attendance-report?tab=logs',
-      recipient_role: 'general_manager',
-      created_by: user?.id || null,
-      created_by_name: userName,
-      metadata: { attendance_type: type, status: finalValidation.status, rejection_reason: finalValidation.rejectionReason || null },
-    }).catch((notificationError) => console.warn('[attendance] manager notification skipped', notificationError));
+    await createNotification({ title: `تنبيه ${eventName}: ${userName}`, message, type: 'attendance', priority: finalValidation.status === 'rejected' ? 'urgent' : 'high', branch: userBranch || finalValidation.nearestLocation?.branch_name || null, target_type: 'attendance', target_id: userId, target_route: '/attendance-report?tab=logs', recipient_role: 'general_manager', created_by: user?.id || null, created_by_name: userName, metadata: { attendance_type: type, status: finalValidation.status, rejection_reason: finalValidation.rejectionReason || null } }).catch((notificationError) => console.warn('[attendance] manager notification skipped', notificationError));
   }
 
   async function handleClock(type: AttendanceType) {
-    setClocking(true);
-    setError(null);
+    setClocking(true); setError(null);
     try {
-      const [locs, pos] = await Promise.all([fetchAttendanceLocations(), getDevicePosition()]);
-      const validation = validateAttendancePosition(pos, locs);
+      const [locs, pos] = await Promise.all([fetchAttendanceLocations(), getDevicePosition()]); const validation = validateAttendancePosition(pos, locs);
       const biometric = validation.status === 'accepted' ? await verifyWithAvailableBiometric() : { verified: false, method: 'not_checked', message: validation.rejectionReason || '' };
       const finalValidation = validation.status === 'accepted' && !biometric.verified ? { ...validation, status: 'manual_review' as const, rejectionReason: biometric.message } : validation;
       await saveAttendanceAttempt({ user: { id: userId, name: userName, role: user?.role, branch: userBranch }, attendanceType: type, position: pos, validation: finalValidation, biometric: { verified: biometric.verified, method: biometric.method }, deviceId: getDeviceId() });
       await notifyManager(type, finalValidation, biometric, pos);
       toast[finalValidation.status === 'accepted' ? 'success' : finalValidation.status === 'manual_review' ? 'warning' : 'error'](finalValidation.status === 'accepted' ? (type === 'check_in' ? 'تم تسجيل الحضور وإرسال إشعار فوري للإدارة' : 'تم تسجيل الانصراف وإرسال إشعار فوري للإدارة') : finalValidation.rejectionReason || 'تم تسجيل المحاولة للمراجعة وإرسال إشعار للإدارة');
-      await loadClock();
-      if (tab === 'report') await loadReport();
-      if (tab === 'today') await loadDaily();
-    } catch (e) {
-      const message = e instanceof Error ? e.message : 'تعذر تسجيل الحضور';
-      setError(message);
-      toast.error(message);
-    } finally {
-      setClocking(false);
-    }
+      await loadClock(); if (tab === 'report') await loadReport(); if (tab === 'today') await loadDaily();
+    } catch (e) { const message = e instanceof Error ? e.message : 'تعذر تسجيل الحضور'; setError(message); toast.error(message); } finally { setClocking(false); }
   }
 
   return (
     <div className="dawaa-text dawaa-print-surface space-y-6 print:space-y-4" dir="rtl">
-      <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-5 shadow-sm print:hidden">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h1 className="text-2xl font-black text-[var(--dawaa-theme-heading)]">مركز الحضور والانصراف</h1>
-            <p className="mt-1 text-sm font-bold text-[var(--dawaa-theme-muted)]">الجدول المعتمد + بصمة الجهاز + الاستثناءات في مسار واحد، مع إيقاف الحكم تلقائيًا عند تعارض الجدول.</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {isOperationalManager && <button onClick={() => setTab('today')} className={tab === 'today' ? 'btn-primary' : 'btn-secondary'}><Users size={16} /> اليوم</button>}
-            {canViewSyncHealth && <button onClick={() => setTab('sync')} className={tab === 'sync' ? 'btn-primary' : 'btn-secondary'}><ShieldAlert size={16} /> البصمات</button>}
-            <button onClick={() => setTab('report')} className={tab === 'report' ? 'btn-primary' : 'btn-secondary'}><Filter size={16} /> التقرير الشهري</button>
-            <button onClick={() => setTab('clock')} className={tab === 'clock' ? 'btn-primary' : 'btn-secondary'}><Fingerprint size={16} /> تسجيل حضور</button>
-            <button onClick={() => setTab('logs')} className={tab === 'logs' ? 'btn-primary' : 'btn-secondary'}><Clock size={16} /> محاولاتي</button>
-          </div>
-        </div>
-      </div>
-
+      <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-5 shadow-sm print:hidden"><div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"><div><h1 className="text-2xl font-black text-[var(--dawaa-theme-heading)]">مركز الحضور والانصراف</h1><p className="mt-1 text-sm font-bold text-[var(--dawaa-theme-muted)]">الجدول المعتمد + بصمة الجهاز + الاستثناءات في مسار واحد، مع إيقاف الحكم تلقائيًا عند تعارض الجدول.</p></div><div className="flex flex-wrap gap-2">{isOperationalManager && <button onClick={() => setTab('today')} className={tab === 'today' ? 'btn-primary' : 'btn-secondary'}><Users size={16} /> اليوم</button>}{canViewSyncHealth && <button onClick={() => setTab('sync')} className={tab === 'sync' ? 'btn-primary' : 'btn-secondary'}><ShieldAlert size={16} /> البصمات</button>}<button onClick={() => setTab('report')} className={tab === 'report' ? 'btn-primary' : 'btn-secondary'}><Filter size={16} /> التقرير الشهري</button><button onClick={() => setTab('clock')} className={tab === 'clock' ? 'btn-primary' : 'btn-secondary'}><Fingerprint size={16} /> تسجيل حضور</button><button onClick={() => setTab('logs')} className={tab === 'logs' ? 'btn-primary' : 'btn-secondary'}><Clock size={16} /> محاولاتي</button></div></div></div>
       {error && <div className="rounded-xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-4 text-sm font-bold text-[var(--dawaa-status-danger-text)]">⚠️ {error}</div>}
-
-      {tab === 'today' && (
-        <>
-          <div className="flex flex-col gap-3 rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm sm:flex-row sm:items-end">
-            <label className="flex-1 space-y-1 text-xs font-black text-[var(--dawaa-theme-muted)]"><span>اليوم</span><input type="date" value={dailyDate} onChange={(e) => setDailyDate(e.target.value)} className="input-dark w-full" /></label>
-            <label className="flex-1 space-y-1 text-xs font-black text-[var(--dawaa-theme-muted)]"><span>الفرع</span><select value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)} className="input-dark w-full">{branches.map((b) => <option key={b}>{b}</option>)}</select></label>
-            <button onClick={() => void loadDaily()} className="btn-primary"><RefreshCw size={16} className={loadingDaily ? 'animate-spin' : ''} /> تحديث</button>
-          </div>
-          <div className="grid gap-3 md:grid-cols-5">
-            <Metric label="موظفين في المتابعة" value={dailyTotals.staff} icon={Users} color="text-[var(--dawaa-status-info-text)] bg-[var(--dawaa-status-info-bg)] border-[var(--dawaa-status-info-border)]" />
-            <Metric label="في الموعد/موجود" value={dailyTotals.onTime} icon={CheckCircle2} color="text-[var(--dawaa-status-success-text)] bg-[var(--dawaa-status-success-bg)] border-[var(--dawaa-status-success-border)]" />
-            <Metric label="متأخر" value={dailyTotals.late} icon={Clock} color="text-[var(--dawaa-status-warning-text)] bg-[var(--dawaa-status-warning-bg)] border-[var(--dawaa-status-warning-border)]" />
-            <Metric label="غياب/بصمة ناقصة" value={dailyTotals.missing} icon={XCircle} color="text-[var(--dawaa-status-danger-text)] bg-[var(--dawaa-status-danger-bg)] border-[var(--dawaa-status-danger-border)]" />
-            <Metric label="مشاكل جدول" value={dailyTotals.issues} icon={AlertTriangle} color="text-[var(--dawaa-status-warning-text)] bg-[var(--dawaa-status-warning-bg)] border-[var(--dawaa-status-warning-border)]" />
-          </div>
-          {loadingDaily ? <TableSkeleton /> : dailyRows.length ? <DailyCommandTable rows={dailyRows} /> : <Empty text="لا توجد بيانات جدول أو بصمة لهذا اليوم في النطاق الحالي." />}
-        </>
-      )}
-
-      {tab === 'sync' && (
-        <>
-          <div className="flex items-center justify-between gap-3 rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm">
-            <div><h2 className="font-black text-[var(--dawaa-theme-heading)]">صحة مزامنة جهاز البصمة</h2><p className="text-xs font-bold text-[var(--dawaa-theme-muted)]">Raw events للرقابة فقط؛ الواجهة لا تملك تعديل سجل البصمات الخام.</p></div>
-            <button onClick={() => void loadSyncHealth()} className="btn-primary"><RefreshCw size={16} className={loadingSync ? 'animate-spin' : ''} /> تحديث</button>
-          </div>
-          {loadingSync ? <TableSkeleton /> : syncHealth ? <SyncHealthPanel health={syncHealth} /> : <Empty text="لا توجد بيانات مزامنة متاحة." />}
-        </>
-      )}
-
-      {tab === 'clock' && (
-        <div className="grid gap-4 lg:grid-cols-3">
-          <Panel title="بيانات الموظف" icon={Fingerprint}><Info label="الاسم" value={userName} /><Info label="الدور" value={user?.role || 'غير محدد'} /><Info label="الفرع" value={userBranch || 'غير محدد'} /></Panel>
-          <Panel title="حالة الموقع" icon={LocateFixed}>{loading ? <Skeleton className="h-24 w-full" /> : nearest ? <><Info label="أقرب موقع" value={nearest.nearestLocation?.name || 'غير محدد'} /><Info label="المسافة" value={round(nearest.distanceMeters)} /><Info label="دقة GPS" value={round(position?.accuracy)} /><div className={cn('mt-3 rounded-xl border p-3 text-sm font-black', nearest.status === 'accepted' ? 'border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] text-[var(--dawaa-status-success-text)]' : 'border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] text-[var(--dawaa-status-danger-text)]')}>{nearest.status === 'accepted' ? 'داخل النطاق ومتاح التسجيل' : nearest.rejectionReason}</div></> : <div className="text-sm font-bold text-[var(--dawaa-theme-muted)]">اضغط تحديث للحصول على الموقع قبل التسجيل.</div>}</Panel>
-          <Panel title="تسجيل سريع" icon={Clock}><Info label="آخر حضور" value={formatDateTime(lastCheckIn?.recorded_at)} /><Info label="آخر انصراف" value={formatDateTime(lastCheckOut?.recorded_at)} /><div className="mt-4 grid grid-cols-2 gap-2"><button disabled={clocking} onClick={() => void handleClock('check_in')} className="btn-primary"><LogIn size={16} /> حضور</button><button disabled={clocking} onClick={() => void handleClock('check_out')} className="btn-secondary"><LogOut size={16} /> انصراف</button></div><button onClick={() => void loadClock()} className="btn-secondary mt-2 w-full"><RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> تحديث الموقع</button><div className="mt-3 rounded-xl border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] p-3 text-xs font-black text-[var(--dawaa-status-info-text)]">أي حضور أو انصراف مقبول أو مرفوض يرسل إشعارًا فوريًا للإدارة لأن الوقت مرتبط بالمرتب.</div></Panel>
-        </div>
-      )}
-
+      {tab === 'today' && <><div className="flex flex-col gap-3 rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm sm:flex-row sm:items-end"><label className="flex-1 space-y-1 text-xs font-black text-[var(--dawaa-theme-muted)]"><span>اليوم</span><input type="date" value={dailyDate} onChange={(e) => setDailyDate(e.target.value)} className="input-dark w-full" /></label><label className="flex-1 space-y-1 text-xs font-black text-[var(--dawaa-theme-muted)]"><span>الفرع</span><select value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)} className="input-dark w-full">{branches.map((b) => <option key={b}>{b}</option>)}</select></label><button onClick={() => void loadDaily()} className="btn-primary"><RefreshCw size={16} className={loadingDaily ? 'animate-spin' : ''} /> تحديث</button></div><div className="grid gap-3 md:grid-cols-5"><Metric label="موظفين في المتابعة" value={dailyTotals.staff} icon={Users} color="text-[var(--dawaa-status-info-text)] bg-[var(--dawaa-status-info-bg)] border-[var(--dawaa-status-info-border)]" /><Metric label="في الموعد/موجود" value={dailyTotals.onTime} icon={CheckCircle2} color="text-[var(--dawaa-status-success-text)] bg-[var(--dawaa-status-success-bg)] border-[var(--dawaa-status-success-border)]" /><Metric label="متأخر" value={dailyTotals.late} icon={Clock} color="text-[var(--dawaa-status-warning-text)] bg-[var(--dawaa-status-warning-bg)] border-[var(--dawaa-status-warning-border)]" /><Metric label="غياب/بصمة ناقصة" value={dailyTotals.missing} icon={XCircle} color="text-[var(--dawaa-status-danger-text)] bg-[var(--dawaa-status-danger-bg)] border-[var(--dawaa-status-danger-border)]" /><Metric label="مشاكل جدول" value={dailyTotals.issues} icon={AlertTriangle} color="text-[var(--dawaa-status-warning-text)] bg-[var(--dawaa-status-warning-bg)] border-[var(--dawaa-status-warning-border)]" /></div>{loadingDaily ? <TableSkeleton /> : dailyRows.length ? <DailyCommandTable rows={dailyRows} /> : <Empty text="لا توجد بيانات جدول أو بصمة لهذا اليوم في النطاق الحالي." />}</>}
+      {tab === 'sync' && <><div className="flex items-center justify-between gap-3 rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm"><div><h2 className="font-black text-[var(--dawaa-theme-heading)]">صحة مزامنة جهاز البصمة</h2><p className="text-xs font-bold text-[var(--dawaa-theme-muted)]">الـRaw evidence للرقابة فقط؛ اعتماد الربط يتم بأمر آمن ويربط القديم والجديد.</p></div><button onClick={() => void loadSyncHealth()} className="btn-primary"><RefreshCw size={16} className={loadingSync ? 'animate-spin' : ''} /> تحديث</button></div>{loadingSync ? <TableSkeleton /> : syncHealth ? <SyncHealthPanel health={syncHealth} /> : <Empty text="لا توجد بيانات مزامنة متاحة." />}{!loadingSync && <BiometricMappingQueue rows={unmappedRows} target={mappingTarget} search={candidateSearch} candidates={candidates} selected={selectedCandidate} busy={mappingBusy} onOpen={(row) => { setMappingTarget(row); setCandidateSearch(row.source_name || ''); setCandidates([]); setSelectedCandidate(null); }} onClose={() => { setMappingTarget(null); setCandidateSearch(''); setCandidates([]); setSelectedCandidate(null); }} onSearchChange={setCandidateSearch} onSearch={() => void searchMappingCandidates()} onSelect={setSelectedCandidate} onAssign={() => void assignMapping()} />}</>}
+      {tab === 'clock' && <div className="grid gap-4 lg:grid-cols-3"><Panel title="بيانات الموظف" icon={Fingerprint}><Info label="الاسم" value={userName} /><Info label="الدور" value={user?.role || 'غير محدد'} /><Info label="الفرع" value={userBranch || 'غير محدد'} /></Panel><Panel title="حالة الموقع" icon={LocateFixed}>{loading ? <Skeleton className="h-24 w-full" /> : nearest ? <><Info label="أقرب موقع" value={nearest.nearestLocation?.name || 'غير محدد'} /><Info label="المسافة" value={round(nearest.distanceMeters)} /><Info label="دقة GPS" value={round(position?.accuracy)} /><div className={cn('mt-3 rounded-xl border p-3 text-sm font-black', nearest.status === 'accepted' ? 'border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] text-[var(--dawaa-status-success-text)]' : 'border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] text-[var(--dawaa-status-danger-text)]')}>{nearest.status === 'accepted' ? 'داخل النطاق ومتاح التسجيل' : nearest.rejectionReason}</div></> : <div className="text-sm font-bold text-[var(--dawaa-theme-muted)]">اضغط تحديث للحصول على الموقع قبل التسجيل.</div>}</Panel><Panel title="تسجيل سريع" icon={Clock}><Info label="آخر حضور" value={formatDateTime(lastCheckIn?.recorded_at)} /><Info label="آخر انصراف" value={formatDateTime(lastCheckOut?.recorded_at)} /><div className="mt-4 grid grid-cols-2 gap-2"><button disabled={clocking} onClick={() => void handleClock('check_in')} className="btn-primary"><LogIn size={16} /> حضور</button><button disabled={clocking} onClick={() => void handleClock('check_out')} className="btn-secondary"><LogOut size={16} /> انصراف</button></div><button onClick={() => void loadClock()} className="btn-secondary mt-2 w-full"><RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> تحديث الموقع</button></Panel></div>}
       {tab === 'logs' && <AttendanceLogs logs={logs} loading={loading} />}
-
       {tab === 'report' && <><div className="flex flex-col gap-3 rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm sm:flex-row sm:items-center print:hidden"><div className="flex items-center gap-2 flex-1"><Filter size={16} className="text-[var(--dawaa-theme-muted)] shrink-0" /><input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="dawaa-focus-ring bg-[var(--dawaa-theme-input)] text-[var(--dawaa-theme-heading)] rounded-xl border border-[var(--dawaa-theme-border)] px-3 py-2 text-sm font-bold" /><span className="text-sm font-bold text-[var(--dawaa-theme-muted)]">{monthLabel(month)}</span></div><select value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)} className="dawaa-focus-ring bg-[var(--dawaa-theme-input)] text-[var(--dawaa-theme-heading)] rounded-xl border border-[var(--dawaa-theme-border)] px-3 py-2 text-sm font-bold">{branches.map((b) => <option key={b}>{b}</option>)}</select><button onClick={() => void loadReport()} className="btn-primary"><RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> تحديث</button><button onClick={() => void exportAttendanceToExcel(summaries, month)} disabled={!summaries.length} className="btn-secondary"><Download size={16} /> Excel</button><button onClick={() => window.print()} className="btn-secondary"><Printer size={16} /> طباعة</button></div><div className="rounded-xl border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] p-3 text-xs font-black text-[var(--dawaa-status-info-text)] print:hidden">التقرير الشهري الحالي مرحلة انتقالية. لم نعد نفترض أن كل يوم في الشهر يوم عمل؛ الغياب المالي النهائي سيأتي من جدول اليوم المعتمد + البصمة + الاستثناءات.</div><div className="grid gap-3 md:grid-cols-4"><Metric label="عدد الموظفين" value={totals.staff} icon={Users} color="text-[var(--dawaa-status-info-text)] bg-[var(--dawaa-status-info-bg)] border-[var(--dawaa-status-info-border)]" /><Metric label="أيام بها حضور" value={totals.present} icon={CheckCircle2} color="text-[var(--dawaa-status-success-text)] bg-[var(--dawaa-status-success-bg)] border-[var(--dawaa-status-success-border)]" /><Metric label="غياب مسجل صراحة" value={totals.absent} icon={XCircle} color="text-[var(--dawaa-status-danger-text)] bg-[var(--dawaa-status-danger-bg)] border-[var(--dawaa-status-danger-border)]" /><Metric label="أيام تأخير قابلة للحساب" value={totals.late} icon={Clock} color="text-[var(--dawaa-status-warning-text)] bg-[var(--dawaa-status-warning-bg)] border-[var(--dawaa-status-warning-border)]" /></div>{loading && <TableSkeleton />}{!loading && summaries.length === 0 && <Empty text="لا توجد بيانات حضور لهذا الشهر." />}{!loading && summaries.length > 0 && <SummaryTable summaries={summaries} />}</>}
     </div>
   );
@@ -431,18 +348,8 @@ function Panel({ title, icon: Icon, children }: { title: string; icon: any; chil
 function Info({ label, value }: { label: string; value: React.ReactNode }) { return <div className="mb-2 flex items-center justify-between gap-3 rounded-xl dawaa-surface-soft px-3 py-2 text-sm"><span className="font-bold text-[var(--dawaa-theme-muted)]">{label}</span><b className="text-[var(--dawaa-theme-heading)]">{value}</b></div>; }
 function Metric({ label, value, icon: Icon, color }: { label: string; value: number; icon: any; color: string }) { return <div className="dawaa-surface flex items-center gap-3 rounded-2xl border p-4 shadow-sm"><span className={cn('rounded-xl border p-2', color)}><Icon size={28} /></span><div><div className="text-xs font-bold">{label}</div><div className="text-3xl font-black">{value.toLocaleString('ar-EG')}</div></div></div>; }
 function Empty({ text }: { text: string }) { return <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface-soft p-8 text-center text-sm font-bold text-[var(--dawaa-theme-muted)]">{text}</div>; }
-
-function DailyCommandTable({ rows }: { rows: DailyCommandRow[] }) {
-  return <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface shadow-sm overflow-hidden"><div className="overflow-x-auto"><table className="dawaa-table-semantic min-w-full text-sm"><thead><tr className="text-right"><th className="p-3">الموظف</th><th className="p-3">الفرع</th><th className="p-3">الشيفت</th><th className="p-3">الدخول</th><th className="p-3">التأخير</th><th className="p-3">الخروج</th><th className="p-3">خروج مبكر</th><th className="p-3">الحالة</th><th className="p-3">ملاحظة</th></tr></thead><tbody>{rows.map((row) => <tr key={`${row.staff_id}-${row.work_date}`} className="border-t border-[var(--dawaa-theme-divider)]"><td className="p-3 font-black text-[var(--dawaa-theme-heading)]">{row.staff_name}<div className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">{row.role || '-'}</div></td><td className="p-3">{row.branch || '-'}</td><td className="p-3 font-bold">{row.schedule_status === 'off' ? 'إجازة' : row.shift_start && row.shift_end ? `${formatTime(row.shift_start)} ← ${formatTime(row.shift_end)}` : row.schedule_status === 'conflict' ? 'تعارض' : 'غير مكتمل'}</td><td className="p-3 font-bold">{formatTime(row.first_check_in)}</td><td className="p-3 font-black text-[var(--dawaa-status-warning-text)]">{row.late_minutes > 0 ? `${row.late_minutes} د` : '-'}</td><td className="p-3 font-bold">{formatTime(row.last_check_out)}</td><td className="p-3 font-black text-[var(--dawaa-status-danger-text)]">{row.early_leave_minutes > 0 ? `${row.early_leave_minutes} د` : '-'}</td><td className="p-3"><span className={cn('inline-flex rounded-full border px-2 py-1 text-[11px] font-black', statusClass(row.attendance_status))}>{attendanceLabel(row.attendance_status)}</span></td><td className="p-3 text-xs font-bold text-[var(--dawaa-theme-muted)]">{row.approved_exception_type ? `${row.approved_exception_type}${row.approved_exception_reason ? ` — ${row.approved_exception_reason}` : ''}` : row.schedule_status === 'conflict' ? 'لا يتم احتساب جزاء حتى تصحيح الجدول' : row.biometric_events ? `${row.biometric_events} بصمة` : '-'}</td></tr>)}</tbody></table></div></div>;
-}
-
-function SyncHealthPanel({ health }: { health: SyncHealth }) {
-  const mapped = Number(health.mapped_events || 0);
-  const raw = Number(health.raw_events || 0);
-  const unmapped = Number(health.unmapped_events || 0);
-  const rate = raw > 0 ? Math.round((mapped / raw) * 100) : 0;
-  return <><div className="grid gap-3 md:grid-cols-4"><Metric label="إجمالي البصمات الخام" value={raw} icon={Fingerprint} color="text-[var(--dawaa-status-info-text)] bg-[var(--dawaa-status-info-bg)] border-[var(--dawaa-status-info-border)]" /><Metric label="مربوطة بموظفين" value={mapped} icon={CheckCircle2} color="text-[var(--dawaa-status-success-text)] bg-[var(--dawaa-status-success-bg)] border-[var(--dawaa-status-success-border)]" /><Metric label="غير مربوطة" value={unmapped} icon={AlertTriangle} color="text-[var(--dawaa-status-warning-text)] bg-[var(--dawaa-status-warning-bg)] border-[var(--dawaa-status-warning-border)]" /><Metric label="وصلت آخر 24 ساعة" value={Number(health.events_last_24h || 0)} icon={Clock} color="text-[var(--dawaa-status-info-text)] bg-[var(--dawaa-status-info-bg)] border-[var(--dawaa-status-info-border)]" /></div><div className="grid gap-3 lg:grid-cols-3"><Panel title="آخر مزامنة" icon={RefreshCw}><Info label="آخر حدث وصل" value={formatDateTime(health.last_ingested_at)} /><Info label="آخر وقت بصمة" value={formatDateTime(health.last_punch_time)} /></Panel><Panel title="جودة الربط" icon={CheckCircle2}><Info label="نسبة الربط" value={`${rate}%`} /><Info label="غير مربوط آخر 24 ساعة" value={Number(health.unmapped_last_24h || 0).toLocaleString('ar-EG')} /></Panel><Panel title="حماية السجل" icon={ShieldAlert}><div className="rounded-xl border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] p-3 text-sm font-black text-[var(--dawaa-status-success-text)]">رفع البصمات يتم من الـIntegration فقط، والواجهة لا تملك تعديل Raw evidence.</div></Panel></div></>;
-}
-
+function DailyCommandTable({ rows }: { rows: DailyCommandRow[] }) { return <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface shadow-sm overflow-hidden"><div className="overflow-x-auto"><table className="dawaa-table-semantic min-w-full text-sm"><thead><tr className="text-right"><th className="p-3">الموظف</th><th className="p-3">الفرع</th><th className="p-3">الشيفت</th><th className="p-3">الدخول</th><th className="p-3">التأخير</th><th className="p-3">الخروج</th><th className="p-3">خروج مبكر</th><th className="p-3">الحالة</th><th className="p-3">ملاحظة</th></tr></thead><tbody>{rows.map((row) => <tr key={`${row.staff_id}-${row.work_date}`} className="border-t border-[var(--dawaa-theme-divider)]"><td className="p-3 font-black text-[var(--dawaa-theme-heading)]">{row.staff_name}<div className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">{row.role || '-'}</div></td><td className="p-3">{row.branch || '-'}</td><td className="p-3 font-bold">{row.schedule_status === 'off' ? 'إجازة' : row.shift_start && row.shift_end ? `${formatTime(row.shift_start)} ← ${formatTime(row.shift_end)}` : row.schedule_status === 'conflict' ? 'تعارض' : 'غير مكتمل'}</td><td className="p-3 font-bold">{formatTime(row.first_check_in)}</td><td className="p-3 font-black text-[var(--dawaa-status-warning-text)]">{row.late_minutes > 0 ? `${row.late_minutes} د` : '-'}</td><td className="p-3 font-bold">{formatTime(row.last_check_out)}</td><td className="p-3 font-black text-[var(--dawaa-status-danger-text)]">{row.early_leave_minutes > 0 ? `${row.early_leave_minutes} د` : '-'}</td><td className="p-3"><span className={cn('inline-flex rounded-full border px-2 py-1 text-[11px] font-black', statusClass(row.attendance_status))}>{attendanceLabel(row.attendance_status)}</span></td><td className="p-3 text-xs font-bold text-[var(--dawaa-theme-muted)]">{row.approved_exception_type ? `${row.approved_exception_type}${row.approved_exception_reason ? ` — ${row.approved_exception_reason}` : ''}` : row.schedule_status === 'conflict' ? 'لا يتم احتساب جزاء حتى تصحيح الجدول' : row.biometric_events ? `${row.biometric_events} بصمة` : '-'}</td></tr>)}</tbody></table></div></div>; }
+function SyncHealthPanel({ health }: { health: SyncHealth }) { const mapped = Number(health.mapped_events || 0); const raw = Number(health.raw_events || 0); const unmapped = Number(health.unmapped_events || 0); const rate = raw > 0 ? Math.round((mapped / raw) * 100) : 0; return <><div className="grid gap-3 md:grid-cols-4"><Metric label="إجمالي البصمات الخام" value={raw} icon={Fingerprint} color="text-[var(--dawaa-status-info-text)] bg-[var(--dawaa-status-info-bg)] border-[var(--dawaa-status-info-border)]" /><Metric label="مربوطة بموظفين" value={mapped} icon={CheckCircle2} color="text-[var(--dawaa-status-success-text)] bg-[var(--dawaa-status-success-bg)] border-[var(--dawaa-status-success-border)]" /><Metric label="غير مربوطة" value={unmapped} icon={AlertTriangle} color="text-[var(--dawaa-status-warning-text)] bg-[var(--dawaa-status-warning-bg)] border-[var(--dawaa-status-warning-border)]" /><Metric label="وصلت آخر 24 ساعة" value={Number(health.events_last_24h || 0)} icon={Clock} color="text-[var(--dawaa-status-info-text)] bg-[var(--dawaa-status-info-bg)] border-[var(--dawaa-status-info-border)]" /></div><div className="grid gap-3 lg:grid-cols-3"><Panel title="آخر مزامنة" icon={RefreshCw}><Info label="آخر حدث وصل" value={formatDateTime(health.last_ingested_at)} /><Info label="آخر وقت بصمة" value={formatDateTime(health.last_punch_time)} /></Panel><Panel title="جودة الربط" icon={CheckCircle2}><Info label="نسبة الربط" value={`${rate}%`} /><Info label="غير مربوط آخر 24 ساعة" value={Number(health.unmapped_last_24h || 0).toLocaleString('ar-EG')} /></Panel><Panel title="حماية السجل" icon={ShieldAlert}><div className="rounded-xl border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] p-3 text-sm font-black text-[var(--dawaa-status-success-text)]">رفع البصمات يتم من الـIntegration فقط، والواجهة لا تعدّل Raw evidence مباشرة.</div></Panel></div></>; }
+function BiometricMappingQueue({ rows, target, search, candidates, selected, busy, onOpen, onClose, onSearchChange, onSearch, onSelect, onAssign }: { rows: UnmappedBiometric[]; target: UnmappedBiometric | null; search: string; candidates: StaffCandidate[]; selected: StaffCandidate | null; busy: boolean; onOpen: (row: UnmappedBiometric) => void; onClose: () => void; onSearchChange: (value: string) => void; onSearch: () => void; onSelect: (candidate: StaffCandidate) => void; onAssign: () => void; }) { return <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm"><div className="mb-4 flex items-center justify-between gap-3"><div><h2 className="font-black text-[var(--dawaa-theme-heading)]">أكواد بصمة تحتاج ربط</h2><p className="text-xs font-bold text-[var(--dawaa-theme-muted)]">لا يتم الربط بالاسم تلقائيًا. اختر الموظف canonical بنفسك ثم اعتمد.</p></div><span className="rounded-full border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-3 py-1 text-xs font-black text-[var(--dawaa-status-warning-text)]">{rows.length.toLocaleString('ar-EG')} كود</span></div>{!rows.length ? <div className="rounded-xl border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] p-4 text-sm font-black text-[var(--dawaa-status-success-text)]">كل الأكواد الحالية مربوطة بموظفين.</div> : <div className="overflow-x-auto"><table className="dawaa-table-semantic min-w-full text-sm"><thead><tr className="text-right"><th className="p-3">الكود</th><th className="p-3">الاسم من الجهاز</th><th className="p-3">Raw</th><th className="p-3">بصمات فعلية</th><th className="p-3">آخر بصمة</th><th className="p-3">الربط</th></tr></thead><tbody>{rows.map((row) => <tr key={`${row.provider}-${row.biometric_user_id}`} className="border-t border-[var(--dawaa-theme-divider)]"><td className="p-3 font-black text-[var(--dawaa-theme-heading)]">{row.biometric_user_id}</td><td className="p-3 font-bold">{row.source_name || 'غير مسجل'}</td><td className="p-3">{Number(row.raw_rows || 0).toLocaleString('ar-EG')}</td><td className="p-3 font-black">{Number(row.semantic_events || 0).toLocaleString('ar-EG')}</td><td className="p-3 text-xs font-bold">{formatDateTime(row.last_event)}</td><td className="p-3"><button onClick={() => onOpen(row)} className="btn-secondary"><UserCheck size={15} /> اختيار الموظف</button></td></tr>)}</tbody></table></div>}{target && <div className="mt-5 rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface-soft p-4"><div className="mb-3 flex items-start justify-between gap-3"><div><div className="text-xs font-bold text-[var(--dawaa-theme-muted)]">ربط كود {target.biometric_user_id}</div><div className="text-lg font-black text-[var(--dawaa-theme-heading)]">{target.source_name || 'اسم غير معروف من الجهاز'}</div></div><button onClick={onClose} className="btn-secondary">إلغاء</button></div><div className="flex flex-col gap-2 sm:flex-row"><input value={search} onChange={(e) => onSearchChange(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') onSearch(); }} placeholder="اكتب اسم الموظف الحقيقي..." className="input-dark flex-1" /><button disabled={busy} onClick={onSearch} className="btn-primary"><Search size={16} /> بحث</button></div>{!!candidates.length && <div className="mt-3 grid gap-2">{candidates.map((candidate) => <button key={candidate.staff_account_id} onClick={() => onSelect(candidate)} className={cn('rounded-xl border p-3 text-right transition', selected?.staff_account_id === candidate.staff_account_id ? 'border-[var(--dawaa-theme-primary)] bg-[var(--dawaa-status-success-bg)]' : 'border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] hover:bg-[var(--dawaa-theme-surface-2)]')}><div className="font-black text-[var(--dawaa-theme-heading)]">{candidate.staff_name}</div><div className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">{candidate.branch || '-'} · {candidate.role || '-'}</div></button>)}</div>}{selected && <div className="mt-4 rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-3"><div className="text-sm font-black text-[var(--dawaa-status-warning-text)]">تأكيد: كود البصمة {target.biometric_user_id} سيتم ربطه بـ {selected.staff_name} ({selected.branch || '-'})، وكل البصمات القديمة لهذا الكود ستُنسب إليه بعد إزالة التكرار الدلالي.</div><button disabled={busy} onClick={onAssign} className="btn-primary mt-3 w-full">{busy ? 'جارٍ الاعتماد...' : 'اعتماد الربط وربط البصمات القديمة'}</button></div>}</div>}</div>; }
 function AttendanceLogs({ logs, loading }: { logs: any[]; loading: boolean }) { if (loading) return <TableSkeleton />; if (!logs.length) return <Empty text="لا توجد محاولات حضور بعد." />; return <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface shadow-sm overflow-hidden"><div className="overflow-x-auto"><table className="dawaa-table-semantic min-w-full text-sm"><thead><tr className="text-right"><th className="p-3">الوقت</th><th className="p-3">النوع</th><th className="p-3">الحالة</th><th className="p-3">الفرع</th><th className="p-3">المسافة</th><th className="p-3">GPS</th><th className="p-3">التحقق</th><th className="p-3">السبب</th></tr></thead><tbody>{logs.map((log) => <tr key={log.id} className="border-t border-[var(--dawaa-theme-divider)]"><td className="p-3 font-bold text-[var(--dawaa-theme-heading)]">{formatDateTime(log.recorded_at)}</td><td className="p-3">{log.attendance_type === 'check_in' ? 'حضور' : 'انصراف'}</td><td className="p-3">{log.status}</td><td className="p-3">{log.branch_name || '-'}</td><td className="p-3">{round(log.distance_from_location_meters)}</td><td className="p-3">{round(log.gps_accuracy_meters)}</td><td className="p-3">{log.biometric_verified ? 'تم' : 'مراجعة'}</td><td className="p-3 text-[var(--dawaa-theme-muted)]">{log.rejection_reason || '-'}</td></tr>)}</tbody></table></div></div>; }
-function SummaryTable({ summaries }: { summaries: StaffSummary[] }) { return <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface shadow-sm overflow-hidden"><div className="overflow-x-auto"><table className="dawaa-table-semantic min-w-full text-sm"><thead><tr className="text-right"><th className="p-3">الموظف</th><th className="p-3">الفرع</th><th className="p-3">أيام بها حضور</th><th className="p-3">غياب مسجل</th><th className="p-3">أيام التأخير</th><th className="p-3">متوسط الدخول</th><th className="p-3">معدل السجلات</th></tr></thead><tbody>{summaries.map((s) => <tr key={`${s.staff_name}-${s.branch}`} className="border-t hover:bg-[var(--dawaa-theme-surface-2)] transition"><td className="p-3 font-black text-[var(--dawaa-theme-heading)]">{s.staff_name}</td><td className="p-3 text-[var(--dawaa-theme-text)]">{s.branch}</td><td className="p-3 font-bold text-[var(--dawaa-status-success-text)]">{s.present}</td><td className="p-3 font-bold text-[var(--dawaa-status-danger-text)]">{s.absent}</td><td className="p-3 font-bold text-[var(--dawaa-status-warning-text)]">{s.late}</td><td className="p-3 font-bold text-[var(--dawaa-theme-text)]">{s.avg_checkin || '-'}</td><td className="p-3 font-black text-[var(--dawaa-theme-heading)]">{s.attendance_rate}%</td></tr>)}</tbody></table></div></div>; }
+function SummaryTable({ summaries }: { summaries: StaffSummary[] }) { return <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface shadow-sm overflow-hidden"><div className="overflow-x-auto"><table className="dawaa-table-semantic min-w-full text-sm"><thead><tr className="text-right"><th className="p-3">الموظف</th><th className="p-3">الفرع</th><th className="p-3">أيام الحضور</th><th className="p-3">أيام الغياب</th><th className="p-3">أيام التأخير</th><th className="p-3">متوسط الدخول</th><th className="p-3">معدل الانتظام</th></tr></thead><tbody>{summaries.map((s) => <tr key={`${s.staff_name}-${s.branch}`} className="border-t hover:bg-[var(--dawaa-theme-surface-2)] transition"><td className="p-3 font-black text-[var(--dawaa-theme-heading)]">{s.staff_name}</td><td className="p-3 text-[var(--dawaa-theme-text)]">{s.branch}</td><td className="p-3 font-bold text-[var(--dawaa-status-success-text)]">{s.present}</td><td className="p-3 font-bold text-[var(--dawaa-status-danger-text)]">{s.absent}</td><td className="p-3 font-bold text-[var(--dawaa-status-warning-text)]">{s.late}</td><td className="p-3 font-bold text-[var(--dawaa-theme-text)]">{s.avg_checkin || '-'}</td><td className="p-3 font-black text-[var(--dawaa-theme-heading)]">{s.attendance_rate}%</td></tr>)}</tbody></table></div></div>; }
