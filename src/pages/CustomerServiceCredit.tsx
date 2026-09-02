@@ -189,12 +189,12 @@ export default function CustomerServiceCredit() {
   );
 
   return (
-    <div className="space-y-5" dir="rtl">
+    <div className="dawaa-text space-y-5" dir="rtl">
       <section className="dawaa-hero">
         <div>
           <span className="dawaa-brand-chip">Customer Service Credit</span>
-          <h1 className="mt-3 text-2xl font-black text-slate-950">كريديت خدمة العملاء</h1>
-          <p className="mt-1 text-sm font-semibold text-slate-600">
+          <h1 className="mt-3 text-2xl font-black text-[var(--dawaa-theme-heading)]">كريديت خدمة العملاء</h1>
+          <p className="mt-1 text-sm font-semibold text-[var(--dawaa-theme-muted)]">
             رصيد شهري 10,000 جنيه لكل مسؤول لخدمة العملاء والعروض الخاصة.
           </p>
         </div>
@@ -218,9 +218,9 @@ export default function CustomerServiceCredit() {
           onChange={(e) => setMonth(e.target.value)}
         />
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--dawaa-theme-muted)]" />
           <input
-            className="dawaa-input w-full pl-10"
+            className="dawaa-input dawaa-input--icon-end w-full"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="بحث بالمسؤول أو الفرع"
@@ -233,29 +233,29 @@ export default function CustomerServiceCredit() {
 
       <section className="grid gap-4 xl:grid-cols-[.85fr_1.15fr]">
         <div className="dawaa-panel space-y-3">
-          <h2 className="font-black text-slate-950">أرصدة المسؤولين</h2>
+          <h2 className="font-black text-[var(--dawaa-theme-heading)]">أرصدة المسؤولين</h2>
           {filteredBudgets.map((b) => (
             <button
               key={b.id}
-              className={`w-full rounded-2xl border p-4 text-right ${selectedBudget?.id === b.id ? 'border-teal-300 bg-teal-50' : 'border-slate-200 bg-white'}`}
+              className={`w-full rounded-2xl border p-4 text-right ${selectedBudget?.id === b.id ? 'border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)]' : 'border-[var(--dawaa-theme-border)] dawaa-surface'}`}
               onClick={() => setSelectedBudget(b)}
             >
               <div className="font-black">{b.responsible_name || 'مسؤول غير محدد'}</div>
-              <div className="mt-1 text-xs font-bold text-slate-500">
+              <div className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">
                 {b.branch || '-'} · المستخدم {formatCurrency(b.used_amount || 0)} · المتبقي{' '}
                 {formatCurrency(Number(b.opening_balance || 0) - Number(b.used_amount || 0))}
               </div>
             </button>
           ))}
           {!filteredBudgets.length ? (
-            <div className="rounded-2xl bg-slate-50 p-6 text-center font-bold text-slate-500">
+            <div className="rounded-2xl dawaa-surface-soft p-6 text-center font-bold text-[var(--dawaa-theme-muted)]">
               لا توجد أرصدة لهذا الشهر
             </div>
           ) : null}
         </div>
 
         <div className="dawaa-panel space-y-4">
-          <h2 className="font-black text-slate-950">إضافة خصم إضافي</h2>
+          <h2 className="font-black text-[var(--dawaa-theme-heading)]">إضافة خصم إضافي</h2>
           <div className="grid gap-3 md:grid-cols-2">
             <input
               className="dawaa-input"
@@ -294,9 +294,9 @@ export default function CustomerServiceCredit() {
             <CheckCircle2 className="h-4 w-4" /> اعتماد الخصم
           </button>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-sm">
+            <table className="dawaa-table-semantic w-full min-w-[760px] text-sm">
               <thead>
-                <tr className="border-b text-right text-xs text-slate-500">
+                <tr className="border-b text-right text-xs text-[var(--dawaa-theme-muted)]">
                   <th className="p-3">العميل</th>
                   <th className="p-3">القيمة</th>
                   <th className="p-3">السبب</th>
@@ -306,17 +306,17 @@ export default function CustomerServiceCredit() {
               </thead>
               <tbody>
                 {movements.map((m) => (
-                  <tr key={m.id} className="border-b">
+                  <tr key={m.id} className="border-b border-[var(--dawaa-theme-divider)]">
                     <td className="p-3">
                       <div className="font-bold">{m.customer_name || '-'}</div>
-                      <div className="text-xs text-slate-500">
+                      <div className="text-xs text-[var(--dawaa-theme-muted)]">
                         {m.customer_code || '-'} · فاتورة {m.invoice_number || '-'}
                       </div>
                     </td>
                     <td className="p-3 font-black">{formatCurrency(m.amount || 0)}</td>
                     <td className="p-3">{m.reason || '-'}</td>
                     <td className="p-3">
-                      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black">
+                      <span className="rounded-full dawaa-surface-soft px-3 py-1 text-xs font-black">
                         {m.status}
                       </span>
                     </td>
@@ -337,14 +337,14 @@ export default function CustomerServiceCredit() {
                           </button>
                         </div>
                       ) : (
-                        <span className="text-xs text-slate-400">—</span>
+                        <span className="text-xs text-[var(--dawaa-theme-muted)]">—</span>
                       )}
                     </td>
                   </tr>
                 ))}
                 {!movements.length ? (
                   <tr>
-                    <td colSpan={5} className="p-6 text-center font-bold text-slate-500">
+                    <td colSpan={5} className="p-6 text-center font-bold text-[var(--dawaa-theme-muted)]">
                       لا توجد حركات
                     </td>
                   </tr>
@@ -360,10 +360,10 @@ export default function CustomerServiceCredit() {
 
 function Kpi({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="rounded-2xl border border-sky-100 bg-white p-4 shadow-sm">
-      <div className="text-xs font-bold text-slate-500">{label}</div>
-      <div className="mt-2 flex items-center gap-2 text-xl font-black text-slate-950">
-        <Wallet className="h-5 w-5 text-sky-600" />
+    <div className="rounded-2xl border border-[var(--dawaa-status-info-border)] dawaa-surface p-4 shadow-sm">
+      <div className="text-xs font-bold text-[var(--dawaa-theme-muted)]">{label}</div>
+      <div className="mt-2 flex items-center gap-2 text-xl font-black text-[var(--dawaa-theme-heading)]">
+        <Wallet className="h-5 w-5 text-[var(--dawaa-status-info-text)]" />
         {value}
       </div>
     </div>

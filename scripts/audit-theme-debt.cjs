@@ -7,6 +7,13 @@ const SRC = path.join(ROOT, 'src');
 const rows = [];
 const CANONICAL_PALETTE = 'src/styles/dawaa-theme-palettes.css';
 const CLEAN_UI_FILES = new Set([
+  'src/pages/MedicineExpiryTracker.tsx',
+  'src/pages/AttendanceReport.tsx',
+  'src/pages/CustomerDataReview.tsx',
+  'src/pages/CustomerServiceCredit.tsx',
+  'src/pages/CustomerImport.tsx',
+  'src/pages/StaffDuplicateAudit.tsx',
+
   'src/styles/customerServiceTheme.css',
   'src/styles/dashboard-theme-scopes.css',
   'src/pages/Customers.tsx',

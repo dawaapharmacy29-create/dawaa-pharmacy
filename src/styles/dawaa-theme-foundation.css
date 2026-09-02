@@ -47,11 +47,20 @@
 }
 
 .dawaa-text { color: var(--dawaa-theme-text); }
+.dawaa-surface-interactive[aria-pressed='true'] {
+  background: var(--dawaa-theme-accent-soft);
+  border-color: var(--dawaa-theme-primary);
+}
+
 .dawaa-heading { color: var(--dawaa-theme-heading); }
 .dawaa-muted { color: var(--dawaa-theme-muted); }
 .dawaa-border { border-color: var(--dawaa-theme-border); }
 .dawaa-divider { border-color: var(--dawaa-theme-divider); }
-.dawaa-focus-ring:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--dawaa-theme-focus); }
+.dawaa-focus-ring:focus-visible {
+  outline: 2px solid var(--dawaa-theme-primary);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px var(--dawaa-theme-focus);
+}
 
 .dawaa-status-success { background: var(--dawaa-status-success-bg); color: var(--dawaa-status-success-text); border-color: var(--dawaa-status-success-border); }
 .dawaa-status-warning { background: var(--dawaa-status-warning-bg); color: var(--dawaa-status-warning-text); border-color: var(--dawaa-status-warning-border); }
@@ -81,3 +90,45 @@
 html[data-theme='dark'] { color-scheme: dark; }
 html[data-theme='light'],
 html[data-theme='pharmacy-green'] { color-scheme: light; }
+
+/* Reports opt into a paper palette without changing the saved screen theme. */
+@media print {
+  .dawaa-print-surface {
+    color-scheme: light;
+    background: var(--dawaa-print-paper);
+    color: var(--dawaa-print-ink);
+    --dawaa-theme-bg: var(--dawaa-print-paper);
+    --dawaa-theme-bg-soft: var(--dawaa-print-paper);
+    --dawaa-theme-surface: var(--dawaa-print-paper);
+    --dawaa-theme-surface-2: var(--dawaa-print-paper);
+    --dawaa-theme-surface-raised: var(--dawaa-print-paper);
+    --dawaa-theme-soft: var(--dawaa-print-paper);
+    --dawaa-theme-accent-soft: var(--dawaa-print-paper);
+    --dawaa-theme-table-head: var(--dawaa-print-paper);
+    --dawaa-theme-table-row: var(--dawaa-print-paper);
+    --dawaa-theme-table-hover: var(--dawaa-print-paper);
+    --dawaa-theme-text: var(--dawaa-print-ink);
+    --dawaa-theme-heading: var(--dawaa-print-ink);
+    --dawaa-theme-primary: var(--dawaa-print-ink);
+    --dawaa-theme-primary-strong: var(--dawaa-print-ink);
+    --dawaa-theme-muted: var(--dawaa-print-muted);
+    --dawaa-theme-border: var(--dawaa-print-border);
+    --dawaa-theme-border-strong: var(--dawaa-print-border);
+    --dawaa-theme-divider: var(--dawaa-print-border);
+    --dawaa-status-success-bg: var(--dawaa-print-paper);
+    --dawaa-status-success-text: var(--dawaa-print-ink);
+    --dawaa-status-success-border: var(--dawaa-print-border);
+    --dawaa-status-warning-bg: var(--dawaa-print-paper);
+    --dawaa-status-warning-text: var(--dawaa-print-ink);
+    --dawaa-status-warning-border: var(--dawaa-print-border);
+    --dawaa-status-danger-bg: var(--dawaa-print-paper);
+    --dawaa-status-danger-text: var(--dawaa-print-ink);
+    --dawaa-status-danger-border: var(--dawaa-print-border);
+    --dawaa-status-info-bg: var(--dawaa-print-paper);
+    --dawaa-status-info-text: var(--dawaa-print-ink);
+    --dawaa-status-info-border: var(--dawaa-print-border);
+    --dawaa-theme-shadow: none;
+    --dawaa-theme-shadow-soft: none;
+    --dawaa-theme-highlight: transparent;
+  }
+}
