@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Filter, Link2, Loader2, Search, ThumbsDown, Users, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Eye, Filter, Link2, Loader2, Search, ThumbsDown, Users, X } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { Panel, SectionTitle, EmptyState } from '@/components/dashboard/DashboardPrimitives';
@@ -45,6 +45,13 @@ type QueueRow = {
   total_value: number | null;
 };
 
+const MATCH_STATUS_LABEL: Record<QueueRow['match_status'], string> = {
+  matched: 'تمت مطابقة الموظف',
+  ambiguous: 'الاسم محتاج تأكيد',
+  unmatched: 'الاسم غير معروف',
+  empty: 'لم يتم تسجيل اسم في Base44',
+};
+
 const TRANSACTION_TYPE_LABEL: Record<string, string> = {
   external_purchase: 'شراء خارجي',
   internal_transfer: 'تحويل بين فرعين',
@@ -77,6 +84,7 @@ export default function PurchaseInvoiceAccuracy() {
   const [resolveOptions, setResolveOptions] = useState<StaffOption[]>([]);
   const [pickedStaffByRow, setPickedStaffByRow] = useState<Record<string, StaffOption>>({});
   const [actingRowId, setActingRowId] = useState<string | null>(null);
+  const [detailsRow, setDetailsRow] = useState<QueueRow | null>(null);
 
   const loadQueue = useCallback(async () => {
     setLoadingQueue(true);
@@ -158,11 +166,51 @@ export default function PurchaseInvoiceAccuracy() {
         p_raw_name: row.entered_by_raw,
         p_staff_id: staff.id,
       });
-      toast.success(`اتربط "${row.entered_by_raw}" بـ ${staff.name} — هيتطبق تلقائي المرة الجاية`);
     } catch {
-      // اختيار الموظف لسه هيتم حتى لو فشل حفظ الربط الدائم
+      // حفظ اختيار الفاتورة نفسها لا يعتمد على نجاح alias العام.
     }
   }, []);
+
+  const persistManualStaffAssignment = useCallback(async (row: QueueRow, staff: StaffOption) => {
+    setActingRowId(row.id);
+    try {
+      const { error } = await supabase.rpc('assign_base44_invoice_entered_by_v1', {
+        p_sync_id: row.id,
+        p_staff_id: staff.id,
+      });
+      if (error) throw error;
+
+      setQueue((prev) => prev.map((q) => q.id === row.id ? {
+        ...q,
+        entered_by_staff_id: staff.id,
+        entered_by_staff_name: staff.name,
+        match_status: 'matched',
+      } : q));
+      setPickedStaffByRow((prev) => {
+        const next = { ...prev };
+        delete next[row.id];
+        return next;
+      });
+      setDetailsRow((prev) => prev?.id === row.id ? {
+        ...prev,
+        entered_by_staff_id: staff.id,
+        entered_by_staff_name: staff.name,
+        match_status: 'matched',
+      } : prev);
+      setResolvingId(null);
+      setResolveSearch('');
+      setResolveOptions([]);
+
+      if (row.entered_by_raw && row.match_status === 'unmatched') {
+        void resolveAndSaveAlias(row, staff);
+      }
+      toast.success(`اتحفظ إن ${staff.name} هو مدخل الفاتورة`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'تعذّر حفظ مدخل الفاتورة');
+    } finally {
+      setActingRowId(null);
+    }
+  }, [resolveAndSaveAlias]);
 
   useEffect(() => {
     const term = search.trim();
@@ -368,9 +416,21 @@ export default function PurchaseInvoiceAccuracy() {
                 return (
                   <div key={row.id} className="rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>
-                        {row.system_invoice_number ? `فاتورة ${row.system_invoice_number}` : row.base44_id}
-                      </p>
+                      <div className="flex items-center gap-2">
+                        <p className="font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>
+                          {row.system_invoice_number ? `فاتورة ${row.system_invoice_number}` : row.base44_id}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => setDetailsRow(row)}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border transition hover:bg-[var(--dawaa-theme-soft)]"
+                          style={{ borderColor: 'var(--dawaa-theme-border)', color: 'var(--dawaa-theme-primary)' }}
+                          title="عرض تفاصيل الفاتورة"
+                          aria-label="عرض تفاصيل الفاتورة"
+                        >
+                          <Eye size={16} />
+                        </button>
+                      </div>
                       <span className="text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
                         {row.branch} — {row.invoice_date} — {TRANSACTION_TYPE_LABEL[row.transaction_type || ''] || row.transaction_type}
                       </span>
@@ -383,7 +443,6 @@ export default function PurchaseInvoiceAccuracy() {
                       <div className="mt-3 space-y-2">
                         <p className="text-sm font-black" style={{ color: 'var(--dawaa-theme-text)' }}>
                           دخلها: {resolvedStaff.name}
-                          {!row.entered_by_staff_id ? ' (اخترتها يدويًا)' : ''}
                         </p>
                         <div className="grid grid-cols-2 gap-2">
                           {OUTCOME_ORDER.map((key) => {
@@ -419,14 +478,9 @@ export default function PurchaseInvoiceAccuracy() {
                               <button
                                 key={s.id}
                                 type="button"
-                                onClick={() => {
-                                  setPickedStaffByRow((prev) => ({ ...prev, [row.id]: s }));
-                                  setResolvingId(null);
-                                  setResolveSearch('');
-                                  setResolveOptions([]);
-                                  if (row.match_status === 'unmatched') void resolveAndSaveAlias(row, s);
-                                }}
-                                className="flex w-full items-center justify-between rounded-md p-2 text-right text-sm hover:bg-[var(--dawaa-theme-soft)]"
+                                disabled={actingRowId === row.id}
+                                onClick={() => void persistManualStaffAssignment(row, s)}
+                                className="flex w-full items-center justify-between rounded-md p-2 text-right text-sm hover:bg-[var(--dawaa-theme-soft)] disabled:opacity-60"
                               >
                                 <span className="font-bold" style={{ color: 'var(--dawaa-theme-text)' }}>{s.name}</span>
                                 <span className="text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>{s.branch}</span>
@@ -584,6 +638,59 @@ export default function PurchaseInvoiceAccuracy() {
             </div>
           )}
         </Panel>
+      ) : null}
+
+      {detailsRow ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          role="presentation"
+          onClick={() => setDetailsRow(null)}
+        >
+          <div
+            className="w-full max-w-lg rounded-2xl border p-5 shadow-2xl"
+            style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}
+            role="dialog"
+            aria-modal="true"
+            aria-label="تفاصيل الفاتورة"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>تفاصيل الفاتورة</p>
+                <h2 className="text-lg font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>
+                  {detailsRow.system_invoice_number ? `فاتورة ${detailsRow.system_invoice_number}` : detailsRow.base44_id}
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDetailsRow(null)}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border"
+                style={{ borderColor: 'var(--dawaa-theme-border)', color: 'var(--dawaa-theme-muted)' }}
+                aria-label="إغلاق التفاصيل"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {[
+                ['الفرع', detailsRow.branch || 'غير محدد'],
+                ['التاريخ', detailsRow.invoice_date || 'غير مسجل'],
+                ['نوع العملية', TRANSACTION_TYPE_LABEL[detailsRow.transaction_type || ''] || detailsRow.transaction_type || 'غير محدد'],
+                ['قيمة الفاتورة', detailsRow.total_value != null ? `${detailsRow.total_value} جنيه` : 'غير مسجلة'],
+                ['الموظف المطابق', detailsRow.entered_by_staff_name || 'غير محدد'],
+                ['الاسم المسجل في Base44', detailsRow.entered_by_raw || 'غير مسجل'],
+                ['حالة المطابقة', MATCH_STATUS_LABEL[detailsRow.match_status]],
+                ['Base44 ID', detailsRow.base44_id],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-soft)' }}>
+                  <p className="text-[11px] font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>{label}</p>
+                  <p className="mt-1 break-words text-sm font-black" style={{ color: 'var(--dawaa-theme-text)' }}>{value}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       ) : null}
     </div>
   );
