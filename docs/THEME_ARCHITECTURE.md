@@ -118,6 +118,18 @@ This rule applies to dashboards, KPI cards, data-health checks, notification cen
 - status meaning never relies on color alone
 - reduced-motion preference disables non-essential motion
 
+`check-theme-contrast.cjs`, invoked by the theme architecture gate, measures
+113 canonical text/background pairs across the three themes and the print
+palette, including alpha-composited status backgrounds and primary buttons.
+Disabled controls are excluded. This palette check does not replace browser
+inspection of component layout, inherited styles, focus, or overlays.
+
+Search fields with overlaid icons use `dawaa-input--icon-start` or
+`dawaa-input--icon-end`; these opt-in logical padding modifiers preserve icon
+clearance in RTL and LTR despite the shared input's `padding-inline` rule.
+Reports can opt into `dawaa-print-surface` for a paper/ink palette while printing,
+without changing `ThemeContext` or the user's saved screen preference.
+
 ## Migration rule
 A theme cleanup is complete only when it **removes or isolates old palette ownership**. Adding another page override is not accepted architecture.
 

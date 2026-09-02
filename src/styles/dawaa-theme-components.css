@@ -401,3 +401,10 @@
   .dawaa-page-shell { padding: var(--dawaa-space-3); }
   .dawaa-card { --dawaa-card-padding: var(--dawaa-space-4); }
 }
+/* Opt-in logical spacing keeps search icons clear in RTL and LTR forms. */
+.dawaa-input.dawaa-input--icon-start {
+  padding-inline-start: calc(var(--dawaa-space-3) * 4);
+}
+.dawaa-input.dawaa-input--icon-end {
+  padding-inline-end: calc(var(--dawaa-space-3) * 4);
+}

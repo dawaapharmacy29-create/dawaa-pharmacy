@@ -238,7 +238,7 @@ export default function AttendanceReport() {
   }
 
   return (
-    <div className="dawaa-text space-y-6 print:space-y-4" dir="rtl">
+    <div className="dawaa-text dawaa-print-surface space-y-6 print:space-y-4" dir="rtl">
       <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-5 shadow-sm print:hidden">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>

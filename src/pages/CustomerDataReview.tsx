@@ -406,7 +406,7 @@ export default function CustomerDataReview() {
 
         <section className="rounded-3xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm">
           <div className="flex flex-col gap-3 lg:flex-row">
-            <label className="relative flex-1"><Search size={18} className="absolute right-4 top-1/2 -translate-y-1/2 text-[var(--dawaa-theme-muted)]" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="بحث بالكود أو الاسم أو الهاتف أو الفرع" className="dawaa-input w-full rounded-2xl border border-[var(--dawaa-theme-border)] py-3 pr-11 pl-4 text-sm outline-none focus:border-[var(--dawaa-theme-primary)]" /></label>
+            <label className="relative flex-1"><Search size={18} className="absolute right-4 top-1/2 -translate-y-1/2 text-[var(--dawaa-theme-muted)]" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="بحث بالكود أو الاسم أو الهاتف أو الفرع" className="dawaa-input dawaa-input--icon-start w-full rounded-2xl border border-[var(--dawaa-theme-border)] py-3 text-sm outline-none focus:border-[var(--dawaa-theme-primary)]" /></label>
             <select value={filter} onChange={(event) => setFilter(event.target.value as Filter)} className="dawaa-focus-ring bg-[var(--dawaa-theme-input)] text-[var(--dawaa-theme-heading)] rounded-2xl border border-[var(--dawaa-theme-border)] px-4 py-3 text-sm font-bold outline-none focus:border-[var(--dawaa-theme-primary)]"><option value="all">كل الحالات</option><option value="followup_data_issue">بيانات متابعة ناقصة</option><option value="registered_branch_conflict">تعارضات الفرع</option><option value="cross_branch_single_purchase">تعامل عابر</option></select>
           </div>
         </section>

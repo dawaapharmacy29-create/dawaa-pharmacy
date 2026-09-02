@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 const fs = require('node:fs');
 const path = require('node:path');
+const { auditThemeContrast } = require('./check-theme-contrast.cjs');
 
 const ROOT = process.cwd();
 const SRC = path.join(ROOT, 'src');
@@ -158,6 +159,11 @@ for (const [rel, baseline] of LEGACY_SHARED_CHROME_HEX_BASELINE) {
   const text = fs.readFileSync(file, 'utf8');
   const count = (text.match(/#[0-9a-fA-F]{3,8}\b/g) || []).length;
   if (count > baseline) violations.push(`${rel}: hard-coded hex debt increased (${count} > ${baseline})`);
+}
+
+if (fs.existsSync(palettesPath)) {
+  const { errors } = auditThemeContrast(fs.readFileSync(palettesPath, 'utf8'));
+  violations.push(...errors.map((error) => `semantic contrast: ${error}`));
 }
 
 if (violations.length) {

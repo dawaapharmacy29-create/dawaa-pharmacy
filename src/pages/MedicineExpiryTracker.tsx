@@ -262,7 +262,7 @@ export default function MedicineExpiryTracker() {
             عرض الأدوية مرتبة حسب تاريخ الانتهاء مع تنبيهات للفئات الحرجة.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="hidden rounded-xl border border-[var(--dawaa-theme-border)] px-3 py-2 text-xs font-bold text-[var(--dawaa-theme-muted)] sm:inline">
             تحديث تلقائي: {Math.floor(countdown / 60)}:{String(countdown % 60).padStart(2, '0')}
           </span>
@@ -326,7 +326,7 @@ export default function MedicineExpiryTracker() {
           aria-label="الفرع"
           value={branchFilter}
           onChange={(e) => setBranchFilter(e.target.value)}
-          className="dawaa-focus-ring bg-[var(--dawaa-theme-input)] text-[var(--dawaa-theme-heading)] rounded-xl px-3 py-2 text-sm font-bold"
+          className="dawaa-focus-ring bg-[var(--dawaa-theme-input)] text-[var(--dawaa-theme-heading)] rounded-xl border border-[var(--dawaa-theme-border)] px-3 py-2 text-sm font-bold"
         >
           {branches.map((b) => (
             <option key={b}>{b}</option>
@@ -336,7 +336,7 @@ export default function MedicineExpiryTracker() {
           aria-label="فئة الصلاحية"
           value={activeBucket}
           onChange={(e) => setActiveBucket(e.target.value)}
-          className="dawaa-focus-ring bg-[var(--dawaa-theme-input)] text-[var(--dawaa-theme-heading)] rounded-xl px-3 py-2 text-sm font-bold"
+          className="dawaa-focus-ring bg-[var(--dawaa-theme-input)] text-[var(--dawaa-theme-heading)] rounded-xl border border-[var(--dawaa-theme-border)] px-3 py-2 text-sm font-bold"
         >
           <option value="all">كل الفئات</option>
           {Object.entries(BUCKET_CONFIG).map(([k, v]) => (
@@ -355,12 +355,29 @@ export default function MedicineExpiryTracker() {
 
       {loading && <TableSkeleton />}
 
-      {!loading && medicines.length === 0 && (
+      {!loading && !error && medicines.length === 0 && (
         <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-8 text-center">
           <Package size={40} className="mx-auto mb-3 text-[var(--dawaa-theme-muted)]" />
           <div className="text-sm font-bold text-[var(--dawaa-theme-muted)]">
             لا توجد أدوية في جدول stagnant_medicines بعد. أضف بيانات الرواكد أولاً.
           </div>
+        </div>
+      )}
+
+      {!loading && !error && medicines.length > 0 && filtered.length === 0 && (
+        <div className="dawaa-empty-state p-8" role="status">
+          <p className="text-sm font-bold">لا توجد أدوية مطابقة للبحث أو الفلاتر الحالية.</p>
+          <button
+            type="button"
+            className="dawaa-button dawaa-button--secondary mt-3"
+            onClick={() => {
+              setSearch('');
+              setBranchFilter('الكل');
+              setActiveBucket('all');
+            }}
+          >
+            مسح البحث والفلاتر
+          </button>
         </div>
       )}
 

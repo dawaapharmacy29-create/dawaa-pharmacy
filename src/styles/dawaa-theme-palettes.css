@@ -10,6 +10,13 @@
  * - Pharmacy Green: branded healthcare green with the same surface hierarchy.
  */
 
+:root {
+  --dawaa-print-paper: #ffffff;
+  --dawaa-print-ink: #152128;
+  --dawaa-print-muted: #4b5860;
+  --dawaa-print-border: #a7b2b8;
+}
+
 :root,
 html[data-theme='dark'] {
   --dawaa-theme-bg: #10161a;
@@ -26,7 +33,7 @@ html[data-theme='dark'] {
   --dawaa-theme-heading: #f7f9fa;
   --dawaa-theme-muted: #9aa7ad;
   --dawaa-theme-primary: #39beaf;
-  --dawaa-theme-primary-strong: #2aa091;
+  --dawaa-theme-primary-strong: #31ae9f;
   --dawaa-theme-primary-text: #071817;
   --dawaa-theme-input: #141d22;
   --dawaa-theme-table-head: #162026;
@@ -115,7 +122,7 @@ html[data-theme='light'] {
   --dawaa-theme-text: #2f3b41;
   --dawaa-theme-heading: #152128;
   --dawaa-theme-muted: #5d6970;
-  --dawaa-theme-primary: #0a9185;
+  --dawaa-theme-primary: #087e74;
   --dawaa-theme-primary-strong: #07796f;
   --dawaa-theme-primary-text: #ffffff;
   --dawaa-theme-input: #ffffff;
@@ -168,7 +175,7 @@ html[data-theme='light'] {
   --card-foreground: 199 16% 22%;
   --popover: 0 0% 100%;
   --popover-foreground: 199 16% 22%;
-  --primary: 175 87% 30%;
+  --primary: 174.92 88.06% 26.27%;
   --primary-foreground: 0 0% 100%;
   --secondary: 195 11% 96%;
   --secondary-foreground: 199 16% 22%;
@@ -204,7 +211,7 @@ html[data-theme='pharmacy-green'] {
   --dawaa-theme-border-strong: #c0ccc3;
   --dawaa-theme-text: #304038;
   --dawaa-theme-heading: #172b21;
-  --dawaa-theme-muted: #68766e;
+  --dawaa-theme-muted: #5c6b62;
   --dawaa-theme-primary: #167657;
   --dawaa-theme-primary-strong: #105f46;
   --dawaa-theme-primary-text: #ffffff;
