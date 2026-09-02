@@ -18,13 +18,6 @@ const OUTCOME_CONFIG: Record<Outcome, { label: string; points: number; color: st
 
 const OUTCOME_ORDER: Outcome[] = ['correct', 'mixup_unregistered', 'negligence', 'customer_problem'];
 
-const MATCH_STATUS_LABEL: Record<QueueRow['match_status'], string> = {
-  matched: 'تمت مطابقة الموظف تلقائيًا',
-  ambiguous: 'الاسم محتاج تأكيد',
-  unmatched: 'الاسم غير معروف',
-  empty: 'لم يتم تسجيل اسم في Base44',
-};
-
 type ReviewRow = {
   id: string;
   staff_id: string;
@@ -50,6 +43,13 @@ type QueueRow = {
   match_status: 'matched' | 'ambiguous' | 'unmatched' | 'empty';
   invoice_date: string | null;
   total_value: number | null;
+};
+
+const MATCH_STATUS_LABEL: Record<QueueRow['match_status'], string> = {
+  matched: 'تمت مطابقة الموظف',
+  ambiguous: 'الاسم محتاج تأكيد',
+  unmatched: 'الاسم غير معروف',
+  empty: 'لم يتم تسجيل اسم في Base44',
 };
 
 const TRANSACTION_TYPE_LABEL: Record<string, string> = {
@@ -166,11 +166,51 @@ export default function PurchaseInvoiceAccuracy() {
         p_raw_name: row.entered_by_raw,
         p_staff_id: staff.id,
       });
-      toast.success(`اتربط "${row.entered_by_raw}" بـ ${staff.name} — هيتطبق تلقائي المرة الجاية`);
     } catch {
-      // اختيار الموظف لسه هيتم حتى لو فشل حفظ الربط الدائم
+      // حفظ اختيار الفاتورة نفسها لا يعتمد على نجاح alias العام.
     }
   }, []);
+
+  const persistManualStaffAssignment = useCallback(async (row: QueueRow, staff: StaffOption) => {
+    setActingRowId(row.id);
+    try {
+      const { error } = await supabase.rpc('assign_base44_invoice_entered_by_v1', {
+        p_sync_id: row.id,
+        p_staff_id: staff.id,
+      });
+      if (error) throw error;
+
+      setQueue((prev) => prev.map((q) => q.id === row.id ? {
+        ...q,
+        entered_by_staff_id: staff.id,
+        entered_by_staff_name: staff.name,
+        match_status: 'matched',
+      } : q));
+      setPickedStaffByRow((prev) => {
+        const next = { ...prev };
+        delete next[row.id];
+        return next;
+      });
+      setDetailsRow((prev) => prev?.id === row.id ? {
+        ...prev,
+        entered_by_staff_id: staff.id,
+        entered_by_staff_name: staff.name,
+        match_status: 'matched',
+      } : prev);
+      setResolvingId(null);
+      setResolveSearch('');
+      setResolveOptions([]);
+
+      if (row.entered_by_raw && row.match_status === 'unmatched') {
+        void resolveAndSaveAlias(row, staff);
+      }
+      toast.success(`اتحفظ إن ${staff.name} هو مدخل الفاتورة`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'تعذّر حفظ مدخل الفاتورة');
+    } finally {
+      setActingRowId(null);
+    }
+  }, [resolveAndSaveAlias]);
 
   useEffect(() => {
     const term = search.trim();
@@ -403,7 +443,6 @@ export default function PurchaseInvoiceAccuracy() {
                       <div className="mt-3 space-y-2">
                         <p className="text-sm font-black" style={{ color: 'var(--dawaa-theme-text)' }}>
                           دخلها: {resolvedStaff.name}
-                          {!row.entered_by_staff_id ? ' (اخترتها يدويًا)' : ''}
                         </p>
                         <div className="grid grid-cols-2 gap-2">
                           {OUTCOME_ORDER.map((key) => {
@@ -439,14 +478,9 @@ export default function PurchaseInvoiceAccuracy() {
                               <button
                                 key={s.id}
                                 type="button"
-                                onClick={() => {
-                                  setPickedStaffByRow((prev) => ({ ...prev, [row.id]: s }));
-                                  setResolvingId(null);
-                                  setResolveSearch('');
-                                  setResolveOptions([]);
-                                  if (row.match_status === 'unmatched') void resolveAndSaveAlias(row, s);
-                                }}
-                                className="flex w-full items-center justify-between rounded-md p-2 text-right text-sm hover:bg-[var(--dawaa-theme-soft)]"
+                                disabled={actingRowId === row.id}
+                                onClick={() => void persistManualStaffAssignment(row, s)}
+                                className="flex w-full items-center justify-between rounded-md p-2 text-right text-sm hover:bg-[var(--dawaa-theme-soft)] disabled:opacity-60"
                               >
                                 <span className="font-bold" style={{ color: 'var(--dawaa-theme-text)' }}>{s.name}</span>
                                 <span className="text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>{s.branch}</span>
@@ -644,7 +678,7 @@ export default function PurchaseInvoiceAccuracy() {
                 ['التاريخ', detailsRow.invoice_date || 'غير مسجل'],
                 ['نوع العملية', TRANSACTION_TYPE_LABEL[detailsRow.transaction_type || ''] || detailsRow.transaction_type || 'غير محدد'],
                 ['قيمة الفاتورة', detailsRow.total_value != null ? `${detailsRow.total_value} جنيه` : 'غير مسجلة'],
-                ['الموظف المطابق', detailsRow.entered_by_staff_name || pickedStaffByRow[detailsRow.id]?.name || 'غير محدد'],
+                ['الموظف المطابق', detailsRow.entered_by_staff_name || 'غير محدد'],
                 ['الاسم المسجل في Base44', detailsRow.entered_by_raw || 'غير مسجل'],
                 ['حالة المطابقة', MATCH_STATUS_LABEL[detailsRow.match_status]],
                 ['Base44 ID', detailsRow.base44_id],
