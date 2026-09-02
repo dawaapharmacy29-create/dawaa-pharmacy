@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Award, ClipboardCheck, RefreshCw, Star, Users } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Award, RefreshCw, Star, Users } from 'lucide-react';
 import { CommandHeader, MetricCard, SectionState } from '@/components/command/CommandUI';
-import { calculateMonthlyIncentive, FREE_PERMISSIONS_PER_CYCLE, MONTHLY_STARTING_POINTS } from '@/lib/incentives/incentiveRulesEngine';
+import { useAuth } from '@/hooks/useAuth';
 import { safeNumber, safeRows, safeText } from '@/lib/safeSupabase';
 
 type KpiRow = {
@@ -11,39 +11,11 @@ type KpiRow = {
   role: string;
   reward_points: number;
   penalty_points: number;
+  has_points_data: boolean;
   avg_review_score: number;
   review_count: number;
-  days_present: number;
-  days_absent: number;
-  tasks_done: number;
-  tasks_open: number;
-  total_score: number;
-  approved_permissions?: number;
+  has_review_data: boolean;
 };
-
-function monthlyBreakdown(row: KpiRow) {
-  try {
-    return calculateMonthlyIncentive({
-      startingPoints: MONTHLY_STARTING_POINTS,
-      approvedDeductionPoints: row.penalty_points,
-      approvedExceptionalRewardPoints: row.reward_points,
-    });
-  } catch (error) {
-    console.error('[EmployeeKpi] Error calculating monthly incentive for row:', row, error);
-    // Return a safe default breakdown
-    return {
-      startingPoints: MONTHLY_STARTING_POINTS,
-      approvedDeductionPoints: row.penalty_points,
-      approvedExceptionalRewardPoints: row.reward_points,
-      pendingDeductionPoints: 0,
-      pendingRewardPoints: 0,
-      finalPoints: MONTHLY_STARTING_POINTS,
-      monthlyIncentiveValue: 0,
-      distinctionPointsAbove500: 0,
-      progressPercent: 0,
-    };
-  }
-}
 
 let kpiFallbackCounter = 0;
 
@@ -56,49 +28,53 @@ function normalizeKpiRow(row: Record<string, unknown>): KpiRow {
     role: safeText(row.role, 'غير محدد'),
     reward_points: safeNumber(row.reward_points),
     penalty_points: safeNumber(row.penalty_points),
+    has_points_data: row.has_points_data === true,
     avg_review_score: safeNumber(row.avg_review_score),
     review_count: safeNumber(row.review_count),
-    days_present: safeNumber(row.days_present),
-    days_absent: safeNumber(row.days_absent),
-    tasks_done: safeNumber(row.tasks_done),
-    tasks_open: safeNumber(row.tasks_open),
-    total_score: safeNumber(row.total_score),
-    approved_permissions: safeNumber(row.approved_permissions),
+    has_review_data: row.has_review_data === true,
   };
 }
 
 export default function EmployeeKpi() {
+  const { checkPermission } = useAuth();
+  const canView =
+    checkPermission('view_team') &&
+    checkPermission('view_points') &&
+    checkPermission('view_reviews');
+
   const [rows, setRows] = useState<KpiRow[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(canView);
   const [sourceIssue, setSourceIssue] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [branch, setBranch] = useState('الكل');
 
   const load = useCallback(async () => {
+    if (!canView) {
+      setLoading(false);
+      setRows([]);
+      return;
+    }
+
     setLoading(true);
     setSourceIssue(null);
     try {
       const result = await safeRows<Record<string, unknown>>(
-        'employee_kpi_cycle_summary',
-        (query) => query.order('total_score', { ascending: false }),
+        'employee_kpi_30d_summary',
+        (query) => query.order('staff_name', { ascending: true }),
         500
       );
+
       setRows(result.rows.map(normalizeKpiRow));
       if (result.error) {
-        // Check if it's a permission issue or missing table
         const errorLower = result.error.toLowerCase();
         if (errorLower.includes('permission') || errorLower.includes('row-level security')) {
-          setSourceIssue(
-            'لا توجد صلاحية قراءة مؤشرات أداء الموظفين. يرجى التحقق من إعدادات RLS في Supabase.'
-          );
+          setSourceIssue('لا توجد صلاحية قراءة مؤشرات الموظفين لهذا الحساب.');
         } else if (
           errorLower.includes('does not exist') ||
           errorLower.includes('not found') ||
           errorLower.includes('could not find')
         ) {
-          setSourceIssue(
-            'جدول مؤشرات أداء الموظفين (employee_kpi_cycle_summary) غير موجود في قاعدة البيانات.'
-          );
+          setSourceIssue('مصدر مؤشرات الموظفين لآخر 30 يوم غير متاح حاليًا.');
         } else {
           setSourceIssue(`خطأ في تحميل البيانات: ${result.error}. لم يتم تغيير أي بيانات.`);
         }
@@ -111,98 +87,108 @@ export default function EmployeeKpi() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [canView]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  const branches = [...new Set(rows.map((r) => r.branch).filter(Boolean))];
-  const filtered = rows.filter((r) => {
-    const branchMatch = branch === 'الكل' || r.branch === branch;
+  const branches = useMemo(
+    () => [...new Set(rows.map((row) => row.branch).filter(Boolean))],
+    [rows]
+  );
+
+  const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
-    const searchMatch =
-      !query ||
-      safeText(r.staff_name).toLowerCase().includes(query) ||
-      safeText(r.role).toLowerCase().includes(query);
-    return branchMatch && searchMatch;
-  });
+    return rows.filter((row) => {
+      const branchMatch = branch === 'الكل' || row.branch === branch;
+      const searchMatch =
+        !query ||
+        row.staff_name.toLowerCase().includes(query) ||
+        row.role.toLowerCase().includes(query);
+      return branchMatch && searchMatch;
+    });
+  }, [branch, rows, search]);
 
-  const stats = {
-    total: filtered.length,
-    excellent: filtered.filter((r) => r.total_score >= 80).length,
-    needsFollow: filtered.filter((r) => r.total_score < 60).length,
-    avgScore: filtered.length
-      ? Math.round(filtered.reduce((s, r) => s + r.total_score, 0) / filtered.length)
-      : 0,
-  };
+  const stats = useMemo(() => {
+    const reviewRows = filtered.filter((row) => row.has_review_data);
+    const avgReview = reviewRows.length
+      ? reviewRows.reduce((sum, row) => sum + row.avg_review_score, 0) / reviewRows.length
+      : 0;
 
-  function getRecommendation(score: number): string {
-    return score >= 80 ? '🏆 ممتاز' : score >= 60 ? '✅ جيد' : '⚠️ يحتاج متابعة';
+    return {
+      total: filtered.length,
+      withPoints: filtered.filter((row) => row.has_points_data).length,
+      withReviews: reviewRows.length,
+      avgReview,
+    };
+  }, [filtered]);
+
+  if (!canView) {
+    return (
+      <div className="p-4" dir="rtl">
+        <div className="dawaa-card dawaa-card--soft dawaa-body py-16 text-center">
+          ليس لديك صلاحيات الفريق والنقاط والتقييمات المطلوبة لعرض مؤشرات الموظفين.
+        </div>
+      </div>
+    );
   }
 
   return (
     <div className="space-y-5 p-4" dir="rtl">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <CommandHeader
           title="مؤشرات أداء الموظفين"
-          description="آخر 30 يوم • بيانات محسوبة من Supabase"
+          description="آخر 30 يوم • بيانات تشغيلية خام من Supabase"
         />
         <button
           onClick={() => void load()}
-          className="rounded-xl p-2 hover:bg-slate-700/50 transition"
+          className="rounded-xl p-2 transition hover:bg-slate-700/50"
           title="تحديث البيانات"
         >
           <RefreshCw size={18} />
         </button>
       </div>
 
-      {/* الملخص السريع */}
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <MetricCard label="إجمالي الموظفين" value={stats.total} icon={Users} tone="teal" />
-        <MetricCard label="متوسط الأداء" value={`${stats.avgScore}%`} icon={Star} tone="green" />
-        <MetricCard label="ممتاز" value={stats.excellent} icon={Award} tone="amber" />
+        <MetricCard label="لديهم حركة نقاط" value={stats.withPoints} icon={Award} tone="amber" />
+        <MetricCard label="لديهم تقييمات" value={stats.withReviews} icon={Star} tone="green" />
         <MetricCard
-          label="يحتاج متابعة"
-          value={stats.needsFollow}
-          icon={ClipboardCheck}
-          tone="red"
+          label="متوسط التقييم"
+          value={stats.withReviews ? `${stats.avgReview.toFixed(1)}/100` : '—'}
+          icon={Star}
+          tone="green"
         />
       </section>
 
       <section className="rounded-3xl border border-cyan-500/25 bg-[#102640] p-5 text-slate-100 shadow-xl">
-        <h2 className="text-lg font-black text-white">شرح الحافز الشهري</h2>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <Explanation label="رصيد البداية" value={`${MONTHLY_STARTING_POINTS} نقطة`} />
-          <Explanation label="قيمة النقطة" value="3 جنيه" />
-          <Explanation label="السقف الشهري" value="1,500 جنيه" />
-          <Explanation label="السماحات الشهرية" value={`${FREE_PERMISSIONS_PER_CYCLE} سماحات`} />
-        </div>
-        <p className="mt-4 rounded-2xl border border-cyan-400/20 bg-cyan-500/10 p-3 text-sm font-semibold leading-7 text-cyan-50">الحافز الشهري يحسب من نقاط الدورة حتى سقف 500 نقطة، وأي نقاط أعلى من 500 تظهر كنقاط تميز ولا تُصرف شهريًا.</p>
-        <div className="mt-4 border-t border-slate-700 pt-4"><h3 className="font-black text-white">مؤشر الأداء الإداري</h3><p className="mt-2 text-sm text-slate-300">الدرجة الإجمالية مؤشر إداري للمقارنة والمتابعة، ولا تساوي الحافز المالي مباشرة. الأوزان الإرشادية: نقاط الدورة 40%، تقييم المحادثات 30%، الحضور والانضباط 20%، وإنجاز المهام 10%.</p></div>
+        <h2 className="text-lg font-black text-white">ما الذي تعرضه الصفحة؟</h2>
+        <p className="mt-2 text-sm leading-7 text-slate-300">
+          هذه الصفحة تعرض مؤشرات تشغيلية خام لآخر 30 يوم: حركة نقاط الموظف وتقييمات المحادثات فقط.
+          لا يتم إنشاء درجة أداء عامة هنا، ولا يتم احتساب الحضور أو المهام أو حافز مالي من هذه الصفحة.
+        </p>
       </section>
 
-      {/* الفلاتر */}
       <section className="flex flex-wrap gap-3">
         <input
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(event) => setSearch(event.target.value)}
           placeholder="بحث باسم الموظف..."
           className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500"
         />
         <select
           value={branch}
-          onChange={(e) => setBranch(e.target.value)}
+          onChange={(event) => setBranch(event.target.value)}
           className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
         >
           <option>الكل</option>
-          {branches.map((b) => (
-            <option key={b}>{b}</option>
+          {branches.map((item) => (
+            <option key={item}>{item}</option>
           ))}
         </select>
       </section>
 
-      {/* الجدول */}
       {sourceIssue && (
         <div className="rounded-2xl border border-amber-500/25 bg-amber-500/10 p-3 text-sm font-bold leading-7 text-amber-100">
           {sourceIssue}
@@ -210,55 +196,37 @@ export default function EmployeeKpi() {
       )}
 
       <SectionState loading={loading} empty={!rows.length}>
-        <section className="overflow-hidden rounded-2xl border border-slate-700 bg-slate-800/50">
-          <table className="w-full text-sm">
+        <section className="overflow-x-auto rounded-2xl border border-slate-700 bg-slate-800/50">
+          <table className="w-full min-w-[820px] text-sm">
             <thead className="border-b border-slate-700 bg-slate-900/50">
               <tr>
-                {['#', 'الموظف', 'الفرع', 'التقييم', 'الحضور', 'المهام', 'النقاط', 'الحافز المتوقع', 'الدرجة'].map((h) => (
-                  <th key={h} className="p-3 text-right text-xs font-black text-slate-400">
-                    {h}
+                {['#', 'الموظف', 'الفرع', 'التقييم', 'عدد التقييمات', 'نقاط إيجابية', 'نقاط مخصومة'].map((heading) => (
+                  <th key={heading} className="p-3 text-right text-xs font-black text-slate-400">
+                    {heading}
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-700/50">
-              {filtered.map((row, i) => (
-                <tr key={row.staff_id} className="hover:bg-slate-700/30 transition">
-                  <td className="p-3 text-slate-500">{i + 1}</td>
+              {filtered.map((row, index) => (
+                <tr key={row.staff_id} className="transition hover:bg-slate-700/30">
+                  <td className="p-3 text-slate-500">{index + 1}</td>
                   <td className="p-3">
                     <p className="font-bold text-white">{row.staff_name}</p>
                     <p className="text-xs text-slate-400">{row.role}</p>
                   </td>
                   <td className="p-3 text-slate-300">{row.branch}</td>
-                  <td className="p-3 font-bold text-white">{row.avg_review_score}/100</td>
-                  <td className="p-3">
-                    <span className="text-emerald-400">{row.days_present} ✓</span>
-                    {row.days_absent > 0 && <span className="ml-2 text-rose-400">{row.days_absent} ✗</span>}
-                    <div className="mt-1 text-[11px] text-slate-400">السماحات المتبقية: {Math.max(0, FREE_PERMISSIONS_PER_CYCLE - Number(row.approved_permissions || 0))} / {FREE_PERMISSIONS_PER_CYCLE}</div>
+                  <td className="p-3 font-bold text-white">
+                    {row.has_review_data ? `${row.avg_review_score.toFixed(1)}/100` : 'لا توجد بيانات'}
                   </td>
-                  <td className="p-3 text-white">
-                    {row.tasks_done}/{row.tasks_done + row.tasks_open}
+                  <td className="p-3 text-slate-300">
+                    {row.has_review_data ? row.review_count : '—'}
                   </td>
-                  <td className="p-3">
-                    <span className="text-teal-400">+{row.reward_points}</span>
-                    {row.penalty_points > 0 && (
-                      <span className="ml-1 text-rose-400">-{row.penalty_points}</span>
-                    )}
-                    <div className="mt-1 text-[11px] text-slate-400">النهائي: {monthlyBreakdown(row).finalPoints} · تميز: {monthlyBreakdown(row).distinctionPointsAbove500}</div>
+                  <td className="p-3 font-black text-teal-300">
+                    {row.has_points_data ? `+${row.reward_points}` : 'لا توجد بيانات'}
                   </td>
-                  <td className="p-3 font-black text-emerald-300">{monthlyBreakdown(row).monthlyIncentiveValue.toLocaleString('ar-EG')} ج</td>
-                  <td className="p-3">
-                    <span
-                      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-black ${
-                        row.total_score >= 80
-                          ? 'bg-emerald-500/20 text-emerald-300'
-                          : row.total_score >= 60
-                            ? 'bg-amber-500/20 text-amber-300'
-                            : 'bg-rose-500/20 text-rose-300'
-                      }`}
-                    >
-                      {getRecommendation(row.total_score)} · {row.total_score}%
-                    </span>
+                  <td className="p-3 font-black text-rose-300">
+                    {row.has_points_data ? `-${row.penalty_points}` : 'لا توجد بيانات'}
                   </td>
                 </tr>
               ))}
@@ -267,14 +235,9 @@ export default function EmployeeKpi() {
         </section>
       </SectionState>
 
-      {/* ملاحظة */}
-      <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm font-bold text-amber-700">
-        📊 هذه النتائج توصيات فقط؛ الاعتماد النهائي والمكافآت المالية بقرار المدير.
+      <div className="rounded-2xl border border-slate-700 bg-slate-800/40 p-4 text-sm font-semibold leading-7 text-slate-300">
+        المؤشرات هنا للمراجعة التشغيلية فقط. الحوافز والرواتب والتسويات لها مصادر اعتماد منفصلة.
       </div>
     </div>
   );
-}
-
-function Explanation({ label, value }: { label: string; value: string }) {
-  return <div className="rounded-2xl border border-slate-700 bg-slate-900/70 p-3"><div className="text-xs font-bold text-slate-400">{label}</div><div className="mt-1 text-lg font-black text-cyan-100">{value}</div></div>;
 }
