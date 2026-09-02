@@ -69,7 +69,9 @@ export default function PointAppeals() {
     table: TABLES.pointAppeals,
     filters: staffId ? [{ column: 'subject_staff_id', operator: 'eq', value: staffId }] : [],
     orderBy: { column: 'created_at', ascending: false },
-    realtimeEnabled: true,
+    // Managers already subscribe to the all-appeals query below. Keep exactly
+    // one realtime channel per table on this page to avoid duplicate callbacks.
+    realtimeEnabled: !managerView,
   });
 
   const { data: allAppeals = [], refetch: refetchAll } = useSupabaseQuery<PointAppeal>({
