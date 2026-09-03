@@ -1,5 +1,8 @@
 import { Component, useEffect, useState, type ComponentType, type ReactNode } from 'react';
+import { Navigate } from 'react-router-dom';
 import ExecutiveDashboardSafe from '@/pages/ExecutiveDashboardSafe';
+import { useAuth } from '@/hooks/useAuth';
+import { normalizeRole } from '@/lib/core/permissionSystem';
 import {
   clearStaleChunkRecoveryMarker,
   isStaleChunkImportError,
@@ -86,6 +89,8 @@ class DashboardRuntimeErrorBoundary extends Component<{ children: ReactNode }, {
 }
 
 export default function ExecutiveDashboardRoute() {
+  const { user } = useAuth();
+  const role = normalizeRole(user?.role);
   const [state, setState] = useState<DashboardState>(() => {
     const mode = dashboardMode();
     if (mode === 'safe') {
@@ -96,6 +101,12 @@ export default function ExecutiveDashboardRoute() {
     }
     return { status: 'loading-advanced' };
   });
+
+  // Assistants have their own operational workspace. Redirect before loading the
+  // executive dashboard so they never fall through legacy doctor/time-off routes.
+  if (role === 'assistant') {
+    return <Navigate to="/assistant-operational-log" replace />;
+  }
 
   useEffect(() => {
     if (state.status !== 'loading-advanced') return;
