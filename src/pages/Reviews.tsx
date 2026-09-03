@@ -592,7 +592,7 @@ export default function Reviews() {
     try {
       const { data, error } = await supabase
         .from('conversation_sales_reviews')
-        .select('*')
+        .select('id,created_at,updated_at,reviewer_id,reviewer_name,reviewer_role,staff_id,doctor_id,staff_name,staff_role,doctor_name,branch,customer_id,customer_name,customer_code,customer_phone,invoice_number,evaluation_kind,conversation_type,evaluation_reason,conversation_date,total_score,final_score,level,point_impact,doctor_points_impact,main_positive_reason,main_negative_reason,reviewer_notes,training_recommendation,month_cycle,raw_scores,review_items,manager_review_score,manager_review_notes,manager_reviewed_by,manager_reviewed_at')
         .order('created_at', { ascending: false })
         .limit(3000);
       if (error) throw error;
