@@ -51,7 +51,10 @@ const GROUPS: NavGroup[] = [
     { path: '/employee-operating-system', icon: ClipboardList, label: 'مهام الفريق', permission: 'employee_operating_system_view', excludeRoles: ['customer_service_manager'] },
   ]},
   { title: 'العملاء وخدمة العملاء', icon: HeadphonesIcon, items: [
-    { path: '/customer-service?quickFollowup=1', icon: HeadphonesIcon, label: 'متابعة العملاء', permission: 'view_customer_service' },
+    { path: '/customer-service', icon: HeadphonesIcon, label: 'خدمة العملاء', permission: 'view_customer_service' },
+    { path: '/customer-service?quickFollowup=1', icon: ClipboardCheck, label: 'المتابعات', permission: 'view_customer_service' },
+    { path: '/customer-requests', icon: PackageSearch, label: 'طلبات العملاء', permission: 'view_customer_requests' },
+    { path: '/reviews', icon: ClipboardCheck, label: 'تقييم المحادثات', permission: 'view_reviews' },
     { path: '/my-daily-checklist', icon: ClipboardCheck, label: 'التشيك ليست اليومي', allowedRoles: ['assistant', 'cleaning_supervisor'] },
     { path: '/assistant-operational-log', icon: PackageSearch, label: 'تسجيل المشتريات وخدمة العملاء', allowedRoles: ['assistant'] },
     { path: '/pharmacy-zone-tasks', icon: ClipboardList, label: 'الرص والجرد اليومي', allowedRoles: ['assistant', 'delivery'] },
@@ -62,8 +65,6 @@ const GROUPS: NavGroup[] = [
     { path: '/customer-data-review', icon: ClipboardCheck, label: 'مراجعة بيانات العملاء', permission: 'view_customer_details' },
     { path: '/customer-cashback', icon: WalletCards, label: 'نقاط العملاء من الفواتير', permission: ['view_customers','view_customer_service'] },
     { path: '/customer-points-ledger', icon: Star, label: 'سجل حركات نقاط العملاء', permission: ['view_customers','view_customer_service'] },
-    { path: '/customer-requests', icon: PackageSearch, label: 'طلبات العملاء', permission: 'view_customer_requests' },
-    { path: '/reviews', icon: ClipboardCheck, label: 'تقييم المحادثات', permission: 'view_reviews' },
     { path: '/quick-replies', icon: HeadphonesIcon, label: 'الردود السريعة', permission: 'whatsapp_customer' },
     { path: '/welcome-messages', icon: MessageCircle, label: 'رسائل الترحيب', permission: 'customer_welcome_messages_view' },
   ]},
@@ -85,7 +86,7 @@ const GROUPS: NavGroup[] = [
     { path: '/supplies', icon: PackageSearch, label: 'Checkpoint المستلزمات', permission: ['view_supplies','view_inventory'] },
     { path: '/accessories', icon: Package, label: 'Checkpoint الإكسسوارات', permission: ['view_operations','view_inventory'] },
     { path: '/branch-checklist-review', icon: ClipboardCheck, label: 'مراجعة تشيك ليست النظافة والمساعدين', excludeRoles: ['pharmacist', 'assistant', 'customer_service_manager'] },
-    { path: '/purchases', icon: FileSpreadsheet, label: 'المشتريات (دليل الأصناف)', permission: 'view_purchases' },
+    { path: '/purchases', icon: FileSpreadsheet, label: 'المشتريات', permission: 'view_purchases' },
     { path: '/purchase-invoice-entry', icon: FileSpreadsheet, label: 'تسجيل فاتورة مشتريات', allowedRoles: ['assistant'] },
     { path: '/purchase-invoice-review', icon: ClipboardCheck, label: 'مراجعة فواتير المشتريات', excludeRoles: ['pharmacist', 'assistant', 'customer_service_manager'] },
   ]},
@@ -169,8 +170,6 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
       if (!allowedByItem) return false;
     }
 
-    // Route guard and sidebar must agree. Never show a link that the route itself
-    // will reject immediately with a permission error.
     const routePermissions = getRoutePermissions(basePath(item.path));
     if (routePermissions?.length && !routePermissions.some(checkPermission)) return false;
 
