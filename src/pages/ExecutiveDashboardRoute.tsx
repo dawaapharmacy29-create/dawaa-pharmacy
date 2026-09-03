@@ -91,6 +91,7 @@ class DashboardRuntimeErrorBoundary extends Component<{ children: ReactNode }, {
 export default function ExecutiveDashboardRoute() {
   const { user } = useAuth();
   const role = normalizeRole(user?.role);
+  const isAssistant = role === 'assistant';
   const [state, setState] = useState<DashboardState>(() => {
     const mode = dashboardMode();
     if (mode === 'safe') {
@@ -102,14 +103,8 @@ export default function ExecutiveDashboardRoute() {
     return { status: 'loading-advanced' };
   });
 
-  // Assistants have their own operational workspace. Redirect before loading the
-  // executive dashboard so they never fall through legacy doctor/time-off routes.
-  if (role === 'assistant') {
-    return <Navigate to="/assistant-operational-log" replace />;
-  }
-
   useEffect(() => {
-    if (state.status !== 'loading-advanced') return;
+    if (isAssistant || state.status !== 'loading-advanced') return;
     let cancelled = false;
 
     async function loadAdvancedDashboard() {
@@ -143,7 +138,11 @@ export default function ExecutiveDashboardRoute() {
     return () => {
       cancelled = true;
     };
-  }, [state.status]);
+  }, [isAssistant, state.status]);
+
+  if (isAssistant) {
+    return <Navigate to="/assistant-operational-log" replace />;
+  }
 
   if (state.status === 'ready-advanced') {
     const Component = state.Component;
