@@ -58,6 +58,9 @@ const GROUPS: AssistantNavGroup[] = [
       { path: '/reviews', label: 'تقييم المحادثات', icon: ClipboardCheck, permission: 'view_reviews' },
       { path: '/customers', label: 'قاعدة العملاء', icon: Users, permission: 'view_customers' },
       { path: '/customer-coding', label: 'تكويد عميل', icon: UserPlus, permission: 'view_customer_service' },
+      { path: '/customer-monthly-performance', label: 'أداء العملاء الشهري', icon: Users, permission: 'view_analytics' },
+      { path: '/customer-cashback', label: 'نقاط العملاء من الفواتير', icon: Star, permission: 'view_cashback' },
+      { path: '/customer-points-ledger', label: 'سجل حركات نقاط العملاء', icon: Star, permission: 'view_points' },
       { path: '/quick-replies', label: 'الردود السريعة', icon: HeadphonesIcon, permission: 'whatsapp_customer' },
       { path: '/welcome-messages', label: 'رسائل الترحيب', icon: MessageCircle, permission: 'customer_welcome_messages_view' },
     ],
@@ -67,6 +70,7 @@ const GROUPS: AssistantNavGroup[] = [
     items: [
       { path: '/purchases', label: 'المشتريات', icon: FileSpreadsheet, permission: 'view_purchases' },
       { path: '/purchase-invoice-entry', label: 'تسجيل فاتورة مشتريات', icon: FileSpreadsheet, permission: 'view_dashboard' },
+      { path: '/purchase-invoice-accuracy', label: 'دقة إدخال فواتير المشتريات', icon: FileSpreadsheet, permission: 'view_dashboard' },
     ],
   },
   {

@@ -67,6 +67,10 @@ const TEAM_DAWAA_ASSISTANT_ALLOWED_PATHS = new Set([
   '/welcome-messages',
   '/purchases',
   '/purchase-invoice-entry',
+  '/purchase-invoice-accuracy',
+  '/customer-monthly-performance',
+  '/customer-cashback',
+  '/customer-points-ledger',
   '/points',
 ]);
 
