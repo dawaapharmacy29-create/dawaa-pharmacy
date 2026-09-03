@@ -1,11 +1,13 @@
 import { Children, useEffect, useRef, useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, Navigate, useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Header from './Header';
 import { PageSectionsPreview } from '@/components/security/PermissionGate';
 import { NavigationGuardProvider } from '@/contexts/NavigationGuardContext';
 import BranchTargetEditor from '@/components/dashboard/BranchTargetEditor';
 import ReviewsInsightsHub from '@/components/reviews/ReviewsInsightsHub';
+import { useAuth } from '@/hooks/useAuth';
+import { normalizeRole } from '@/lib/core/permissionSystem';
 
 const PAGE_TITLES: Record<string, string> = {
   '/': 'لوحة القيادة 2027',
@@ -43,9 +45,42 @@ const PAGE_TITLES: Record<string, string> = {
   '/medicine-expiry': 'متابعة صلاحية الأدوية',
   '/attendance-report': 'تقرير الحضور الشهري',
   '/loyalty-tiers': 'مستويات ولاء العملاء',
+  '/assistant-operational-log': 'تسجيل المشتريات وخدمة العملاء',
+  '/my-daily-checklist': 'التشيك ليست اليومي',
+  '/pharmacy-zone-tasks': 'الرص والجرد اليومي',
+  '/purchases': 'المشتريات',
+  '/purchase-invoice-entry': 'تسجيل فاتورة مشتريات',
 };
 
+const TEAM_DAWAA_ASSISTANT_NAMES = new Set(['هاجر', 'نور', 'هبه حماده', 'هبة حماده']);
+const TEAM_DAWAA_ASSISTANT_ALLOWED_PATHS = new Set([
+  '/assistant-operational-log',
+  '/my-daily-checklist',
+  '/pharmacy-zone-tasks',
+  '/schedule',
+  '/customer-service',
+  '/customer-requests',
+  '/reviews',
+  '/customers',
+  '/customer-coding',
+  '/quick-replies',
+  '/welcome-messages',
+  '/purchases',
+  '/purchase-invoice-entry',
+  '/points',
+]);
+
+function normalizeAssistantName(value: unknown) {
+  return String(value ?? '')
+    .replace(/[ًٌٍَُِّْـ]/g, '')
+    .replace(/[إأآا]/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export default function Layout({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
@@ -62,6 +97,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     reviewsPageMode !== 'new' &&
     reviewsPageSection !== 'history' &&
     !reviewsPageId;
+
+  const isScopedAssistant =
+    normalizeRole(user?.role) === 'assistant' &&
+    TEAM_DAWAA_ASSISTANT_NAMES.has(normalizeAssistantName(user?.name));
+  const assistantPathAllowed = TEAM_DAWAA_ASSISTANT_ALLOWED_PATHS.has(location.pathname);
 
   useEffect(() => {
     const onStorage = (event: StorageEvent) => {
@@ -93,6 +133,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       main.removeEventListener('scroll', saveScroll);
     };
   }, [location.pathname, location.search]);
+
+  if (isScopedAssistant && !assistantPathAllowed) {
+    return <Navigate to="/assistant-operational-log" replace />;
+  }
 
   return (
     <NavigationGuardProvider>
