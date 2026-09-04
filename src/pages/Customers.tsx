@@ -18,7 +18,9 @@ import {
 /* xlsx will be dynamically imported when needed for export */
 import { lazy, Suspense } from 'react';
 
-const MonthlyRegistrationsChart = lazy(() => import('@/components/charts/MonthlyRegistrationsChart'));
+const MonthlyRegistrationsChart = lazy(
+  () => import('@/components/charts/MonthlyRegistrationsChart')
+);
 const CustomerSegmentBars = lazy(() => import('@/components/charts/CustomerSegmentBars'));
 import { toast } from 'sonner';
 import {
@@ -56,7 +58,12 @@ import { CustomerFlagsBadges } from '@/components/CustomerFlagsBadges';
 import { logActivity } from '@/lib/activityLog';
 import { useAuth } from '@/hooks/useAuth';
 import { getBestCustomerPhone } from '@/lib/customerAnalyticsService';
-import { CustomerFlagChips, getCustomerCodeSafe, resolveCustomerBranch } from '@/lib/customerDisplay';
+import {
+  CustomerFlagChips,
+  getCustomerCodeSafe,
+  resolveCustomerBranch,
+} from '@/lib/customerDisplay';
+import { CustomerNoteHistoryPanel } from '@/components/CustomerNoteHistoryPanel';
 
 const PAGE_SIZE = 30;
 
@@ -531,7 +538,9 @@ export default function Customers() {
 
       <section className="grid gap-3 md:grid-cols-2">
         <div className="rounded-2xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] p-4 shadow-sm">
-          <div className="text-sm font-black text-[var(--dawaa-theme-text)]">إجمالي العملاء المسجلين</div>
+          <div className="text-sm font-black text-[var(--dawaa-theme-text)]">
+            إجمالي العملاء المسجلين
+          </div>
           <div className="num mt-2 text-3xl font-black text-[var(--dawaa-theme-heading)]">
             {statsLoading ? '...' : stats.total.toLocaleString('ar-EG')}
           </div>
@@ -540,7 +549,9 @@ export default function Customers() {
           </div>
         </div>
         <div className="rounded-2xl border-2 border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] p-4 shadow-sm shadow-sm">
-          <div className="text-sm font-black text-[var(--dawaa-theme-primary-strong)]">عملاء لهم مشتريات في الملخص</div>
+          <div className="text-sm font-black text-[var(--dawaa-theme-primary-strong)]">
+            عملاء لهم مشتريات في الملخص
+          </div>
           <div className="num mt-2 text-3xl font-black text-[var(--dawaa-theme-primary-strong)]">
             {statsLoading ? '...' : stats.summaryTotal.toLocaleString('ar-EG')}
           </div>
@@ -689,7 +700,11 @@ export default function Customers() {
                 </thead>
                 <tbody>
                   {customers.map((customer) => (
-                    <tr key={customer.id} className="cursor-pointer" onClick={() => setSelected(customer)}>
+                    <tr
+                      key={customer.id}
+                      className="cursor-pointer"
+                      onClick={() => setSelected(customer)}
+                    >
                       <td className="font-bold text-[var(--dawaa-theme-muted)]">
                         {getCustomerCodeSafe(customer) || 'بدون كود'}
                       </td>
@@ -699,7 +714,10 @@ export default function Customers() {
                             {(customer.customer_name || 'ع')[0]}
                           </div>
                           <div className="min-w-0">
-                            <span className="line-clamp-2 font-black text-[var(--dawaa-theme-heading)]" title={customer.customer_name || 'عميل بدون اسم'}>
+                            <span
+                              className="line-clamp-2 font-black text-[var(--dawaa-theme-heading)]"
+                              title={customer.customer_name || 'عميل بدون اسم'}
+                            >
                               {customer.customer_name || 'عميل بدون اسم'}
                             </span>
                             <CustomerFlagChips row={customer} className="mt-1" />
@@ -883,12 +901,16 @@ function CustomerStatCard({
   onClick: () => void;
 }) {
   const tones = {
-    slate: 'text-[var(--dawaa-theme-heading)] bg-[var(--dawaa-theme-surface)] border-[var(--dawaa-theme-border)]',
-    violet: 'text-[var(--dawaa-status-info-text)] bg-[var(--dawaa-status-info-bg)] border-[var(--dawaa-status-info-border)]',
-    amber: 'text-[var(--dawaa-status-warning-text)] bg-[var(--dawaa-status-warning-bg)] border-[var(--dawaa-status-warning-border)]',
+    slate:
+      'text-[var(--dawaa-theme-heading)] bg-[var(--dawaa-theme-surface)] border-[var(--dawaa-theme-border)]',
+    violet:
+      'text-[var(--dawaa-status-info-text)] bg-[var(--dawaa-status-info-bg)] border-[var(--dawaa-status-info-border)]',
+    amber:
+      'text-[var(--dawaa-status-warning-text)] bg-[var(--dawaa-status-warning-bg)] border-[var(--dawaa-status-warning-border)]',
     blue: 'text-[var(--dawaa-status-info-text)] bg-[var(--dawaa-status-info-bg)] border-[var(--dawaa-status-info-border)]',
     teal: 'text-[var(--dawaa-theme-primary-strong)] bg-[var(--dawaa-theme-accent-soft)] border-[var(--dawaa-theme-accent-border)]',
-    emerald: 'text-[var(--dawaa-status-success-text)] bg-[var(--dawaa-status-success-bg)] border-[var(--dawaa-status-success-border)]',
+    emerald:
+      'text-[var(--dawaa-status-success-text)] bg-[var(--dawaa-status-success-bg)] border-[var(--dawaa-status-success-border)]',
     red: 'text-[var(--dawaa-status-danger-text)] bg-[var(--dawaa-status-danger-bg)] border-[var(--dawaa-status-danger-border)]',
   };
   return (
@@ -931,7 +953,9 @@ function CustomerMonthlyAnalyticsPanel({
     <section className="dawaa-panel space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-lg font-black text-[var(--dawaa-theme-heading)]">تطور العملاء شهريًا</h2>
+          <h2 className="text-lg font-black text-[var(--dawaa-theme-heading)]">
+            تطور العملاء شهريًا
+          </h2>
           <p className="mt-1 text-sm font-semibold text-[var(--dawaa-theme-text)]">
             العملاء المتسجلين كل شهر وتطور التصنيفات، باستعلامات عد فقط بدون تحميل كل العملاء أو
             الفواتير.
@@ -958,12 +982,18 @@ function CustomerMonthlyAnalyticsPanel({
 
       <div className="grid gap-4 xl:grid-cols-2">
         <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-4">
-          <div className="mb-3 font-black text-[var(--dawaa-theme-heading)]">العملاء المتسجلين كل شهر</div>
+          <div className="mb-3 font-black text-[var(--dawaa-theme-heading)]">
+            العملاء المتسجلين كل شهر
+          </div>
           <div className="h-[260px]">
             {loading ? (
               <div className="h-full animate-pulse rounded-2xl bg-[var(--dawaa-theme-soft)]" />
             ) : (
-              <Suspense fallback={<div className="h-full flex items-center justify-center">جاري تحميل الرسم...</div>}>
+              <Suspense
+                fallback={
+                  <div className="h-full flex items-center justify-center">جاري تحميل الرسم...</div>
+                }
+              >
                 <MonthlyRegistrationsChart rows={rows} />
               </Suspense>
             )}
@@ -971,12 +1001,18 @@ function CustomerMonthlyAnalyticsPanel({
         </div>
 
         <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-4">
-          <div className="mb-3 font-black text-[var(--dawaa-theme-heading)]">تطور تصنيفات العملاء</div>
+          <div className="mb-3 font-black text-[var(--dawaa-theme-heading)]">
+            تطور تصنيفات العملاء
+          </div>
           <div className="h-[260px]">
             {loading ? (
               <div className="h-full animate-pulse rounded-2xl bg-[var(--dawaa-theme-soft)]" />
             ) : (
-              <Suspense fallback={<div className="h-full flex items-center justify-center">جاري تحميل الرسم...</div>}>
+              <Suspense
+                fallback={
+                  <div className="h-full flex items-center justify-center">جاري تحميل الرسم...</div>
+                }
+              >
                 <CustomerSegmentBars rows={rows} />
               </Suspense>
             )}
@@ -1006,7 +1042,9 @@ function CustomerMonthlyAnalyticsPanel({
 function MiniCustomerTrendCard({ label, value }: { label: string; value: number }) {
   return (
     <div className="rounded-2xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)]/70 p-4">
-      <div className="num text-2xl font-black text-[var(--dawaa-theme-primary-strong)]">{value.toLocaleString('ar-EG')}</div>
+      <div className="num text-2xl font-black text-[var(--dawaa-theme-primary-strong)]">
+        {value.toLocaleString('ar-EG')}
+      </div>
       <div className="mt-1 text-sm font-black text-[var(--dawaa-theme-text)]">{label}</div>
     </div>
   );
@@ -1015,11 +1053,14 @@ function MiniCustomerTrendCard({ label, value }: { label: string; value: number 
 function SegmentBadge({ segment }: { segment: string }) {
   const className =
     {
-      'مهم جدًا': 'border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] text-[var(--dawaa-status-info-text)]',
+      'مهم جدًا':
+        'border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] text-[var(--dawaa-status-info-text)]',
       مهم: 'border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)]',
-      متوسط: 'border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] text-[var(--dawaa-theme-primary-strong)]',
+      متوسط:
+        'border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] text-[var(--dawaa-theme-primary-strong)]',
       عادي: 'border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] text-[var(--dawaa-theme-muted)]',
-    }[segment] || 'border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] text-[var(--dawaa-theme-muted)]';
+    }[segment] ||
+    'border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] text-[var(--dawaa-theme-muted)]';
   return (
     <span className={`rounded-full border px-2.5 py-1 text-xs font-black ${className}`}>
       {segment || 'عادي'}
@@ -1032,10 +1073,14 @@ function StatusBadge({ status }: { status: string }) {
     {
       جديد: 'border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] text-[var(--dawaa-theme-primary-strong)]',
       نشط: 'border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] text-[var(--dawaa-status-success-text)]',
-      'مهدد بالتوقف': 'border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)]',
-      متوقف: 'border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] text-[var(--dawaa-status-danger-text)]',
-      'بدون شراء': 'border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] text-[var(--dawaa-theme-muted)]',
-    }[status] || 'border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] text-[var(--dawaa-theme-muted)]';
+      'مهدد بالتوقف':
+        'border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)]',
+      متوقف:
+        'border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] text-[var(--dawaa-status-danger-text)]',
+      'بدون شراء':
+        'border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] text-[var(--dawaa-theme-muted)]',
+    }[status] ||
+    'border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] text-[var(--dawaa-theme-muted)]';
   return (
     <span className={`rounded-full border px-2.5 py-1 text-xs font-black ${className}`}>
       {status || 'غير محدد'}
@@ -1451,7 +1496,9 @@ function CustomerDetailsModal({
           >
             <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
               <div>
-                <div className="text-base font-black text-[var(--dawaa-theme-heading)]">طلب متابعة خدمة عملاء</div>
+                <div className="text-base font-black text-[var(--dawaa-theme-heading)]">
+                  طلب متابعة خدمة عملاء
+                </div>
                 <div className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">
                   نفس تفاصيل صفحة خدمة العملاء والمتابعات، لكن جاهزة لهذا العميل مباشرة.
                 </div>
@@ -1505,7 +1552,9 @@ function CustomerDetailsModal({
 
             <div className="grid gap-3 lg:grid-cols-2">
               <div>
-                <label className="text-xs font-black text-[var(--dawaa-theme-text)]">عنوان الطلب</label>
+                <label className="text-xs font-black text-[var(--dawaa-theme-text)]">
+                  عنوان الطلب
+                </label>
                 <input
                   className="dawaa-input mt-2 w-full"
                   value={reminderForm.title}
@@ -1516,7 +1565,9 @@ function CustomerDetailsModal({
                 />
               </div>
               <div>
-                <label className="text-xs font-black text-[var(--dawaa-theme-text)]">الطبيب/الموظف الطالب</label>
+                <label className="text-xs font-black text-[var(--dawaa-theme-text)]">
+                  الطبيب/الموظف الطالب
+                </label>
                 <input
                   className="dawaa-input mt-2 w-full"
                   value={reminderForm.requestedBy}
@@ -1527,7 +1578,9 @@ function CustomerDetailsModal({
                 />
               </div>
               <div>
-                <label className="text-xs font-black text-[var(--dawaa-theme-text)]">الأولوية</label>
+                <label className="text-xs font-black text-[var(--dawaa-theme-text)]">
+                  الأولوية
+                </label>
                 <select
                   className="dawaa-input mt-2 w-full"
                   value={reminderForm.priority}
@@ -1542,7 +1595,9 @@ function CustomerDetailsModal({
                 </select>
               </div>
               <div>
-                <label className="text-xs font-black text-[var(--dawaa-theme-text)]">سبب المتابعة</label>
+                <label className="text-xs font-black text-[var(--dawaa-theme-text)]">
+                  سبب المتابعة
+                </label>
                 <select
                   className="dawaa-input mt-2 w-full"
                   value={reminderForm.reason}
@@ -1565,7 +1620,9 @@ function CustomerDetailsModal({
                 </select>
               </div>
               <div>
-                <label className="text-xs font-black text-[var(--dawaa-theme-text)]">طريقة التواصل المفضلة</label>
+                <label className="text-xs font-black text-[var(--dawaa-theme-text)]">
+                  طريقة التواصل المفضلة
+                </label>
                 <select
                   className="dawaa-input mt-2 w-full"
                   value={reminderForm.preferredContactMethod}
@@ -1579,7 +1636,9 @@ function CustomerDetailsModal({
                 </select>
               </div>
               <div>
-                <label className="text-xs font-black text-[var(--dawaa-theme-text)]">موعد المتابعة</label>
+                <label className="text-xs font-black text-[var(--dawaa-theme-text)]">
+                  موعد المتابعة
+                </label>
                 <input
                   type="datetime-local"
                   className="dawaa-input mt-2 w-full"
@@ -1594,7 +1653,9 @@ function CustomerDetailsModal({
                 />
               </div>
               <div>
-                <label className="text-xs font-black text-[var(--dawaa-theme-text)]">ملاحظة شخصية</label>
+                <label className="text-xs font-black text-[var(--dawaa-theme-text)]">
+                  ملاحظة شخصية
+                </label>
                 <input
                   className="dawaa-input mt-2 w-full"
                   value={reminderForm.personalityNote}
@@ -1605,7 +1666,9 @@ function CustomerDetailsModal({
                 />
               </div>
               <div>
-                <label className="text-xs font-black text-[var(--dawaa-theme-text)]">رقم فاتورة إن وجد</label>
+                <label className="text-xs font-black text-[var(--dawaa-theme-text)]">
+                  رقم فاتورة إن وجد
+                </label>
                 <input
                   className="dawaa-input mt-2 w-full"
                   value={reminderForm.invoiceNumber}
@@ -1671,7 +1734,9 @@ function CustomerDetailsModal({
 
         {details?.purchaseAnalysis && (
           <div className="mx-5 rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] p-4">
-            <div className="mb-3 text-sm font-black text-[var(--dawaa-theme-heading)]">تحليل تكرار الشراء</div>
+            <div className="mb-3 text-sm font-black text-[var(--dawaa-theme-heading)]">
+              تحليل تكرار الشراء
+            </div>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <Metric
                 label="عدد مرات الشراء الشهر الحالي"
@@ -1700,7 +1765,9 @@ function CustomerDetailsModal({
           <div className="mx-5 rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] p-4 text-sm leading-relaxed text-[var(--dawaa-theme-text)]">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <div className="mb-2 font-black text-[var(--dawaa-theme-heading)]">علامات وملاحظات العميل</div>
+                <div className="mb-2 font-black text-[var(--dawaa-theme-heading)]">
+                  علامات وملاحظات العميل
+                </div>
                 <div className="text-xs text-[var(--dawaa-theme-muted)]">
                   علامات مهمة وملاحظات يدوية للتعامل مع العميل.
                 </div>
@@ -1716,7 +1783,9 @@ function CustomerDetailsModal({
 
             {/* Subsection A: علامات مهمة */}
             <div className="mt-4 rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-3">
-              <div className="mb-3 text-xs font-bold text-[var(--dawaa-theme-muted)]">علامات مهمة</div>
+              <div className="mb-3 text-xs font-bold text-[var(--dawaa-theme-muted)]">
+                علامات مهمة
+              </div>
               {editing ? (
                 <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                   {CUSTOMER_FLAGS.map((flag) => (
@@ -1745,7 +1814,9 @@ function CustomerDetailsModal({
                     </span>
                   ))}
                   {Object.values(customerFlags).filter((v) => v).length === 0 && (
-                    <span className="text-xs text-[var(--dawaa-theme-muted)]">لا توجد علامات مفعلة</span>
+                    <span className="text-xs text-[var(--dawaa-theme-muted)]">
+                      لا توجد علامات مفعلة
+                    </span>
                   )}
                 </div>
               )}
@@ -1754,14 +1825,18 @@ function CustomerDetailsModal({
             {/* Subsection B: الملاحظات اليدوية */}
             <div className="mt-3 rounded-2xl border-2 border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] p-4 shadow-sm ring-1 ring-[var(--dawaa-theme-focus)]">
               <div className="mb-3 flex items-center justify-between gap-2">
-                <div className="text-xs font-black text-[var(--dawaa-theme-primary-strong)]">الملاحظات اليدوية الثابتة</div>
+                <div className="text-xs font-black text-[var(--dawaa-theme-primary-strong)]">
+                  الملاحظات اليدوية الثابتة
+                </div>
                 <span className="rounded-full border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] px-2 py-1 text-[11px] font-black text-[var(--dawaa-theme-primary-strong)]">
                   محفوظة على ملف العميل
                 </span>
               </div>
               <div className="grid gap-3 lg:grid-cols-2">
                 <div>
-                  <div className="text-xs font-bold text-[var(--dawaa-theme-muted)]">ملاحظات عامة</div>
+                  <div className="text-xs font-bold text-[var(--dawaa-theme-muted)]">
+                    ملاحظات عامة
+                  </div>
                   {editing ? (
                     <textarea
                       rows={3}
@@ -1776,7 +1851,9 @@ function CustomerDetailsModal({
                   )}
                 </div>
                 <div>
-                  <div className="text-xs font-bold text-[var(--dawaa-theme-muted)]">ملاحظات واتساب</div>
+                  <div className="text-xs font-bold text-[var(--dawaa-theme-muted)]">
+                    ملاحظات واتساب
+                  </div>
                   {editing ? (
                     <textarea
                       rows={3}
@@ -1791,7 +1868,9 @@ function CustomerDetailsModal({
                   )}
                 </div>
                 <div>
-                  <div className="text-xs font-bold text-[var(--dawaa-theme-muted)]">ملاحظات خدمة العملاء</div>
+                  <div className="text-xs font-bold text-[var(--dawaa-theme-muted)]">
+                    ملاحظات خدمة العملاء
+                  </div>
                   {editing ? (
                     <textarea
                       rows={2}
@@ -1806,7 +1885,9 @@ function CustomerDetailsModal({
                   )}
                 </div>
                 <div>
-                  <div className="text-xs font-bold text-[var(--dawaa-theme-muted)]">ملاحظات الفريق</div>
+                  <div className="text-xs font-bold text-[var(--dawaa-theme-muted)]">
+                    ملاحظات الفريق
+                  </div>
                   {editing ? (
                     <textarea
                       rows={2}
@@ -1821,7 +1902,9 @@ function CustomerDetailsModal({
                   )}
                 </div>
                 <div>
-                  <div className="text-xs font-bold text-[var(--dawaa-theme-muted)]">تعليمات التعامل</div>
+                  <div className="text-xs font-bold text-[var(--dawaa-theme-muted)]">
+                    تعليمات التعامل
+                  </div>
                   {editing ? (
                     <textarea
                       rows={2}
@@ -1837,6 +1920,11 @@ function CustomerDetailsModal({
                 </div>
               </div>
 
+              <CustomerNoteHistoryPanel
+                customerId={customer.customer_id}
+                customerCode={customer.customer_code}
+              />
+
               {/* Additional contact info */}
               <div className="mt-3 grid gap-3 lg:grid-cols-3">
                 <div>
@@ -1849,11 +1937,15 @@ function CustomerDetailsModal({
                       className="dawaa-input mt-2 w-full"
                     />
                   ) : (
-                    <div className="mt-2 text-[var(--dawaa-theme-text)]">{details.address || 'غير محدد'}</div>
+                    <div className="mt-2 text-[var(--dawaa-theme-text)]">
+                      {details.address || 'غير محدد'}
+                    </div>
                   )}
                 </div>
                 <div>
-                  <div className="text-xs font-bold text-[var(--dawaa-theme-muted)]">هاتف إضافي</div>
+                  <div className="text-xs font-bold text-[var(--dawaa-theme-muted)]">
+                    هاتف إضافي
+                  </div>
                   {editing ? (
                     <input
                       type="text"
@@ -1862,11 +1954,15 @@ function CustomerDetailsModal({
                       className="dawaa-input mt-2 w-full"
                     />
                   ) : (
-                    <div className="mt-2 text-[var(--dawaa-theme-text)]">{details.phoneAlt || 'غير محدد'}</div>
+                    <div className="mt-2 text-[var(--dawaa-theme-text)]">
+                      {details.phoneAlt || 'غير محدد'}
+                    </div>
                   )}
                 </div>
                 <div>
-                  <div className="text-xs font-bold text-[var(--dawaa-theme-muted)]">واتساب إضافي</div>
+                  <div className="text-xs font-bold text-[var(--dawaa-theme-muted)]">
+                    واتساب إضافي
+                  </div>
                   {editing ? (
                     <input
                       type="text"
@@ -1875,7 +1971,9 @@ function CustomerDetailsModal({
                       className="dawaa-input mt-2 w-full"
                     />
                   ) : (
-                    <div className="mt-2 text-[var(--dawaa-theme-text)]">{details.whatsappPhone || 'غير محدد'}</div>
+                    <div className="mt-2 text-[var(--dawaa-theme-text)]">
+                      {details.whatsappPhone || 'غير محدد'}
+                    </div>
                   )}
                 </div>
               </div>
@@ -1920,7 +2018,9 @@ function CustomerDetailsModal({
                 )}
               </div>
               <div className="rounded-2xl border-2 border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-theme-surface)] p-4 shadow-sm">
-                <div className="mb-2 font-black text-[var(--dawaa-status-info-text)]">الرسالة الترحيبية وتكويد العميل</div>
+                <div className="mb-2 font-black text-[var(--dawaa-status-info-text)]">
+                  الرسالة الترحيبية وتكويد العميل
+                </div>
                 {details.welcomeStatus ? (
                   <div className="grid gap-2 text-xs font-bold text-[var(--dawaa-theme-text)] sm:grid-cols-2">
                     <div className="rounded-xl bg-[var(--dawaa-theme-surface)] p-2">
@@ -1954,7 +2054,9 @@ function CustomerDetailsModal({
 
             {details.invoiceClassifications?.length ? (
               <div className="mt-4 rounded-2xl border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] p-4">
-                <div className="mb-3 font-black text-[var(--dawaa-status-info-text)]">سجل تصنيف الفواتير والعميل</div>
+                <div className="mb-3 font-black text-[var(--dawaa-status-info-text)]">
+                  سجل تصنيف الفواتير والعميل
+                </div>
                 <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
                   {details.invoiceClassifications.map((item, index) => (
                     <div
@@ -1975,10 +2077,14 @@ function CustomerDetailsModal({
             ) : null}
 
             <div className="mt-4 rounded-2xl border-2 border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] p-4 shadow-sm">
-              <div className="mb-3 font-black text-[var(--dawaa-theme-primary-strong)]">تنبيهات علاجية وعروض خاصة للعميل</div>
+              <div className="mb-3 font-black text-[var(--dawaa-theme-primary-strong)]">
+                تنبيهات علاجية وعروض خاصة للعميل
+              </div>
               <div className="grid gap-3 lg:grid-cols-2">
                 <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)]/80 p-3">
-                  <div className="text-sm font-black text-[var(--dawaa-theme-heading)]">تنبيه متابعة يدوي</div>
+                  <div className="text-sm font-black text-[var(--dawaa-theme-heading)]">
+                    تنبيه متابعة يدوي
+                  </div>
                   <div className="mt-2 grid gap-2">
                     <input
                       className="dawaa-input"
@@ -2020,7 +2126,9 @@ function CustomerDetailsModal({
                   </div>
                 </div>
                 <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)]/80 p-3">
-                  <div className="text-sm font-black text-[var(--dawaa-theme-heading)]">عرض خاص يظهر للفريق</div>
+                  <div className="text-sm font-black text-[var(--dawaa-theme-heading)]">
+                    عرض خاص يظهر للفريق
+                  </div>
                   <div className="mt-2 grid gap-2">
                     <input
                       className="dawaa-input"
@@ -2067,7 +2175,9 @@ function CustomerDetailsModal({
                     <div className="font-black text-[var(--dawaa-theme-primary-strong)]">
                       {alert.alert_type === 'offer' ? 'عرض خاص' : 'تنبيه متابعة'}: {alert.title}
                     </div>
-                    <div className="text-[var(--dawaa-theme-text)]">{alert.description || 'بدون تفاصيل'}</div>
+                    <div className="text-[var(--dawaa-theme-text)]">
+                      {alert.description || 'بدون تفاصيل'}
+                    </div>
                     <div className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">
                       الاستحقاق: {alert.due_date || '-'}{' '}
                       {alert.end_date ? `حتى ${alert.end_date}` : ''}
@@ -2126,7 +2236,9 @@ function CustomerDetailsModal({
 
         <div className="grid gap-4 p-5 lg:grid-cols-2">
           <div className="crm-card">
-            <h3 className="mb-3 text-base font-black text-[var(--dawaa-theme-heading)]">آخر المتابعات</h3>
+            <h3 className="mb-3 text-base font-black text-[var(--dawaa-theme-heading)]">
+              آخر المتابعات
+            </h3>
             {loading ? (
               <LoaderLine />
             ) : details?.followups.length ? (
@@ -2157,7 +2269,9 @@ function CustomerDetailsModal({
           </div>
 
           <div className="crm-card">
-            <h3 className="mb-3 text-base font-black text-[var(--dawaa-theme-heading)]">آخر الفواتير</h3>
+            <h3 className="mb-3 text-base font-black text-[var(--dawaa-theme-heading)]">
+              آخر الفواتير
+            </h3>
             {loading ? (
               <LoaderLine />
             ) : details?.invoices.length ? (
@@ -2201,7 +2315,9 @@ function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-3 shadow-sm">
       <div className="text-xs font-bold text-[var(--dawaa-theme-muted)]">{label}</div>
-      <div className="mt-1 break-words text-sm font-black text-[var(--dawaa-theme-heading)]">{value}</div>
+      <div className="mt-1 break-words text-sm font-black text-[var(--dawaa-theme-heading)]">
+        {value}
+      </div>
     </div>
   );
 }
@@ -2209,7 +2325,8 @@ function Metric({ label, value }: { label: string; value: string }) {
 function LoaderLine() {
   return (
     <div className="flex items-center gap-2 text-sm font-semibold text-[var(--dawaa-theme-muted)]">
-      <Loader2 className="h-4 w-4 animate-spin text-[var(--dawaa-theme-primary-strong)]" /> جاري التحميل...
+      <Loader2 className="h-4 w-4 animate-spin text-[var(--dawaa-theme-primary-strong)]" /> جاري
+      التحميل...
     </div>
   );
 }
