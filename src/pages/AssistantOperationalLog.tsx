@@ -1,9 +1,25 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Clock, Loader2, PackageCheck, PlusCircle, Repeat, Send, Trophy, Users } from 'lucide-react';
+import {
+  CheckCircle2,
+  Clock,
+  Loader2,
+  PackageCheck,
+  PlusCircle,
+  Repeat,
+  Send,
+  Sparkles,
+  Trophy,
+  Users,
+} from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
-import { Panel, SectionTitle, MiniBox, EmptyState } from '@/components/dashboard/DashboardPrimitives';
+import {
+  Panel,
+  SectionTitle,
+  MiniBox,
+  EmptyState,
+} from '@/components/dashboard/DashboardPrimitives';
 
 // المسؤولات الثلاث المخوّل لهم استخدام الصفحة دي فقط — مطابق لجدول
 // assistant_operational_eligible_staff في قاعدة البيانات (هي المصدر الحقيقي
@@ -17,9 +33,21 @@ const ELIGIBLE_STAFF_IDS = new Set([
 const BRANCHES = ['فرع شكري', 'فرع الشامي'] as const;
 type Branch = (typeof BRANCHES)[number];
 
-type TaskType = 'supplier_order' | 'branch_transfer' | 'followup_execution' | 'request_fulfillment' | 'exceptional_followup' | 'welcome_message';
+type TaskType =
+  | 'supplier_order'
+  | 'branch_transfer'
+  | 'followup_execution'
+  | 'request_fulfillment'
+  | 'exceptional_followup'
+  | 'welcome_message';
 
-type StageOption = { stage: string; label: string; points: number; requiresInvoice?: boolean; deadlineDays?: number };
+type StageOption = {
+  stage: string;
+  label: string;
+  points: number;
+  requiresInvoice?: boolean;
+  deadlineDays?: number;
+};
 
 type TaskTypeConfig = {
   label: string;
@@ -51,7 +79,13 @@ const TASK_CONFIG: Record<TaskType, TaskTypeConfig> = {
     requiresCase: true,
     stages: [
       { stage: 'executed', label: 'تم تنفيذ المتابعة', points: 5 },
-      { stage: 'purchased', label: 'العميل اشترى (خلال 3 أيام من أول إجراء)', points: 15, requiresInvoice: true, deadlineDays: 3 },
+      {
+        stage: 'purchased',
+        label: 'العميل اشترى (خلال 3 أيام من أول إجراء)',
+        points: 15,
+        requiresInvoice: true,
+        deadlineDays: 3,
+      },
     ],
   },
   request_fulfillment: {
@@ -63,7 +97,13 @@ const TASK_CONFIG: Record<TaskType, TaskTypeConfig> = {
       { stage: 'logged', label: 'تسجيل الطلب', points: 1 },
       { stage: 'sourced', label: 'تم التوفير من المخازن', points: 2 },
       { stage: 'branch_notified', label: 'تم إبلاغ الفرع بالوصول', points: 3 },
-      { stage: 'purchased', label: 'العميل اشترى (برقم فاتورة)', points: 6, requiresInvoice: true, deadlineDays: 3 },
+      {
+        stage: 'purchased',
+        label: 'العميل اشترى (برقم فاتورة)',
+        points: 6,
+        requiresInvoice: true,
+        deadlineDays: 3,
+      },
     ],
   },
   exceptional_followup: {
@@ -74,7 +114,13 @@ const TASK_CONFIG: Record<TaskType, TaskTypeConfig> = {
     stages: [
       { stage: 'executed', label: 'تم تنفيذ المتابعة', points: 2 },
       { stage: 'customer_replied', label: 'العميل رد', points: 4 },
-      { stage: 'exceptional_purchased', label: 'العميل اشترى (خلال يومين بالظبط)', points: 7, requiresInvoice: true, deadlineDays: 2 },
+      {
+        stage: 'exceptional_purchased',
+        label: 'العميل اشترى (خلال يومين بالظبط)',
+        points: 7,
+        requiresInvoice: true,
+        deadlineDays: 2,
+      },
     ],
   },
   welcome_message: {
@@ -86,7 +132,14 @@ const TASK_CONFIG: Record<TaskType, TaskTypeConfig> = {
   },
 };
 
-const TASK_ORDER: TaskType[] = ['supplier_order', 'branch_transfer', 'followup_execution', 'request_fulfillment', 'exceptional_followup', 'welcome_message'];
+const TASK_ORDER: TaskType[] = [
+  'supplier_order',
+  'branch_transfer',
+  'followup_execution',
+  'request_fulfillment',
+  'exceptional_followup',
+  'welcome_message',
+];
 
 type LogRow = {
   id: string;
@@ -111,6 +164,32 @@ type LeaderboardRow = {
   total_points: number;
 };
 
+type SourceBreakdown = { source: string; points: number; events: number };
+
+type PerformanceSummary = {
+  final_points: number;
+  target_points: number;
+  progress_pct: number | null;
+  final_incentive_egp: number | null;
+  profile_configured: boolean;
+  source_breakdown: SourceBreakdown[];
+  month_cycle: string;
+};
+
+const SOURCE_LABELS: Record<string, string> = {
+  purchase_invoice_entry_review: 'دقة إدخال فواتير المشتريات',
+  assistant_operational_log: 'عمليات المشتريات وخدمة العملاء',
+  customer_request_incentive: 'طلبات العملاء',
+  assistant_operational_streak_bonus: 'بونص الالتزام',
+  daily_checklist_weekly_excellence: 'تميز أسبوعي',
+  doctor_customer_service_evaluation: 'تقييم خدمة العملاء',
+  unknown: 'أخرى',
+};
+
+function sourceLabel(source: string): string {
+  return SOURCE_LABELS[source] || source;
+}
+
 type CaseRow = {
   case_key: string;
   task_type: TaskType;
@@ -122,10 +201,28 @@ type CaseRow = {
   last_action_at: string;
 };
 
-const STATUS_LABEL: Record<LogRow['review_status'], { label: string; color: string; bg: string; borderColor: string }> = {
-  pending: { label: 'بانتظار اعتماد مدير الفروع', color: 'var(--dawaa-status-warning-text)', bg: 'var(--dawaa-status-warning-bg)', borderColor: 'var(--dawaa-status-warning-border)' },
-  approved: { label: 'معتمد', color: 'var(--dawaa-status-success-text)', bg: 'var(--dawaa-status-success-bg)', borderColor: 'var(--dawaa-status-success-border)' },
-  rejected: { label: 'مرفوض', color: 'var(--dawaa-status-danger-text)', bg: 'var(--dawaa-status-danger-bg)', borderColor: 'var(--dawaa-status-danger-border)' },
+const STATUS_LABEL: Record<
+  LogRow['review_status'],
+  { label: string; color: string; bg: string; borderColor: string }
+> = {
+  pending: {
+    label: 'بانتظار اعتماد مدير الفروع',
+    color: 'var(--dawaa-status-warning-text)',
+    bg: 'var(--dawaa-status-warning-bg)',
+    borderColor: 'var(--dawaa-status-warning-border)',
+  },
+  approved: {
+    label: 'معتمد',
+    color: 'var(--dawaa-status-success-text)',
+    bg: 'var(--dawaa-status-success-bg)',
+    borderColor: 'var(--dawaa-status-success-border)',
+  },
+  rejected: {
+    label: 'مرفوض',
+    color: 'var(--dawaa-status-danger-text)',
+    bg: 'var(--dawaa-status-danger-bg)',
+    borderColor: 'var(--dawaa-status-danger-border)',
+  },
 };
 
 const MAX_CASE_POINTS: Record<TaskType, number> = {
@@ -138,10 +235,14 @@ const MAX_CASE_POINTS: Record<TaskType, number> = {
 };
 
 function friendlyError(message: string): string {
-  if (message.includes('purchase_invoice_required')) return 'لازم تكتب رقم الفاتورة قبل ما تسجّل خطوة الشراء.';
-  if (message.includes('purchase_window_expired')) return 'المهلة الزمنية للشراء خلصت — الحالة دي معدّاها الميعاد.';
-  if (message.includes('case_key required')) return 'محتاج تختار حالة مفتوحة أو تبدأ حالة جديدة الأول.';
-  if (message.includes('not enabled for this staff member')) return 'الصفحة دي مقصورة على نور وهاجر وهبة حماده فقط.';
+  if (message.includes('purchase_invoice_required'))
+    return 'لازم تكتب رقم الفاتورة قبل ما تسجّل خطوة الشراء.';
+  if (message.includes('purchase_window_expired'))
+    return 'المهلة الزمنية للشراء خلصت — الحالة دي معدّاها الميعاد.';
+  if (message.includes('case_key required'))
+    return 'محتاج تختار حالة مفتوحة أو تبدأ حالة جديدة الأول.';
+  if (message.includes('not enabled for this staff member'))
+    return 'الصفحة دي مقصورة على نور وهاجر وهبة حماده فقط.';
   return message;
 }
 
@@ -164,6 +265,7 @@ export default function AssistantOperationalLog() {
   const [logs, setLogs] = useState<LogRow[]>([]);
   const [cases, setCases] = useState<CaseRow[]>([]);
   const [leaderboard, setLeaderboard] = useState<LeaderboardRow[]>([]);
+  const [summary, setSummary] = useState<PerformanceSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
 
@@ -177,10 +279,11 @@ export default function AssistantOperationalLog() {
     }
     setLoading(true);
     setLoadError(false);
-    const [logsRes, casesRes, leaderboardRes] = await Promise.all([
+    const [logsRes, casesRes, leaderboardRes, summaryRes] = await Promise.all([
       supabase.rpc('list_my_assistant_operational_logs_v1', { p_limit: 30 }),
       supabase.rpc('list_my_assistant_open_cases_v1'),
       supabase.rpc('get_assistant_operational_leaderboard_v1'),
+      supabase.rpc('get_staff_points_dashboard_v3', { p_staff_id: staffId }),
     ]);
     if (logsRes.error || casesRes.error) {
       setLoadError(true);
@@ -192,15 +295,21 @@ export default function AssistantOperationalLog() {
     if (!leaderboardRes.error) {
       setLeaderboard((leaderboardRes.data || []) as LeaderboardRow[]);
     }
+    if (!summaryRes.error && summaryRes.data && !(summaryRes.data as { error?: string }).error) {
+      setSummary(summaryRes.data as PerformanceSummary);
+    }
     setLoading(false);
-  }, [isEligible]);
+  }, [isEligible, staffId]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   const openCasesForType = useMemo(
-    () => cases.filter((c) => c.task_type === taskType && c.current_cumulative_points < MAX_CASE_POINTS[taskType]),
+    () =>
+      cases.filter(
+        (c) => c.task_type === taskType && c.current_cumulative_points < MAX_CASE_POINTS[taskType]
+      ),
     [cases, taskType]
   );
 
@@ -260,23 +369,45 @@ export default function AssistantOperationalLog() {
     } finally {
       setSubmitting(false);
     }
-  }, [isEligible, config.requiresCase, startingNewCase, customerName, customerPhone, selectedCaseKey, stageConfig.requiresInvoice, invoiceNo, taskType, stage, branch, referenceNote, staffId, load]);
+  }, [
+    isEligible,
+    config.requiresCase,
+    startingNewCase,
+    customerName,
+    customerPhone,
+    selectedCaseKey,
+    stageConfig.requiresInvoice,
+    invoiceNo,
+    taskType,
+    stage,
+    branch,
+    referenceNote,
+    staffId,
+    load,
+  ]);
 
   if (!isEligible) {
     return (
-      <div className="p-6 text-center text-sm font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
+      <div
+        className="p-6 text-center text-sm font-bold"
+        style={{ color: 'var(--dawaa-theme-muted)' }}
+      >
         الصفحة دي مقصورة على نور وهاجر وهبة حماده فقط.
       </div>
     );
   }
 
   const pendingCount = logs.filter((l) => l.review_status === 'pending').length;
-  const approvedPoints = logs.filter((l) => l.review_status === 'approved').reduce((sum, l) => sum + (l.points_awarded || 0), 0);
+  const approvedPoints = logs
+    .filter((l) => l.review_status === 'approved')
+    .reduce((sum, l) => sum + (l.points_awarded || 0), 0);
 
   return (
     <div className="mx-auto max-w-2xl space-y-5 p-4 pb-24" dir="rtl">
       <div>
-        <h1 className="text-xl font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>تسجيل عمليات المشتريات وخدمة العملاء</h1>
+        <h1 className="text-xl font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>
+          تسجيل عمليات المشتريات وخدمة العملاء
+        </h1>
         <p className="mt-1 text-sm font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
           سجّل كل عملية بمجرد تنفيذها — هتتراجع من مدير الفروع قبل ما تتحول لنقاط حقيقية.
         </p>
@@ -287,26 +418,119 @@ export default function AssistantOperationalLog() {
         <MiniBox label="نقاط معتمدة (آخر 30 عملية)" value={String(approvedPoints)} tone="green" />
       </div>
 
+      {summary ? (
+        <Panel className="p-4 space-y-3">
+          <SectionTitle
+            title="ملخص أدائي"
+            subtitle={`دورة ${summary.month_cycle} — كل مصادر النقاط مجمّعة`}
+            icon={<Sparkles size={18} />}
+          />
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            <MiniBox label="صافي النقاط" value={String(summary.final_points)} tone="green" />
+            <MiniBox label="المستهدف" value={String(summary.target_points)} tone="amber" />
+            <MiniBox
+              label="نسبة الإنجاز"
+              value={summary.progress_pct != null ? `${Math.round(summary.progress_pct)}%` : '—'}
+              tone="green"
+            />
+          </div>
+          {summary.profile_configured && summary.final_incentive_egp != null ? (
+            <div
+              className="flex items-center justify-between rounded-xl border p-3"
+              style={{
+                borderColor: 'var(--dawaa-theme-border)',
+                background: 'var(--dawaa-theme-soft)',
+              }}
+            >
+              <span className="text-sm font-black" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                الحافز المتوقع الشهر ده
+              </span>
+              <span
+                className="text-sm font-black"
+                style={{ color: 'var(--dawaa-status-success-text)' }}
+              >
+                {summary.final_incentive_egp.toLocaleString('ar-EG')} جنيه
+              </span>
+            </div>
+          ) : null}
+          {summary.source_breakdown.length > 0 ? (
+            <div className="space-y-2">
+              <p className="text-xs font-black" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                توزيع النقاط حسب النشاط
+              </p>
+              {summary.source_breakdown.map((row) => (
+                <div
+                  key={row.source}
+                  className="flex items-center justify-between gap-3 rounded-xl border p-3"
+                  style={{ borderColor: 'var(--dawaa-theme-border)' }}
+                >
+                  <div>
+                    <p className="font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>
+                      {sourceLabel(row.source)}
+                    </p>
+                    <p className="text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                      {row.events} عملية
+                    </p>
+                  </div>
+                  <span
+                    className="text-sm font-black"
+                    style={{
+                      color:
+                        row.points >= 0
+                          ? 'var(--dawaa-status-success-text)'
+                          : 'var(--dawaa-status-danger-text)',
+                    }}
+                  >
+                    {row.points >= 0 ? '+' : ''}
+                    {row.points} نقطة
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </Panel>
+      ) : null}
+
       {leaderboard.length > 0 ? (
         <Panel className="p-4">
-          <SectionTitle title="ترتيب الشهر" subtitle="نقاط معتمدة من عمليات المشتريات وخدمة العملاء فقط" icon={<Trophy size={18} />} />
+          <SectionTitle
+            title="ترتيب الشهر"
+            subtitle="نقاط معتمدة من عمليات المشتريات وخدمة العملاء فقط"
+            icon={<Trophy size={18} />}
+          />
           <div className="space-y-2">
             {leaderboard.map((row, index) => (
               <div
                 key={row.staff_id}
                 className="flex items-center justify-between gap-3 rounded-xl border p-3"
                 style={{
-                  borderColor: row.staff_id === staffId ? 'var(--dawaa-theme-primary)' : 'var(--dawaa-theme-border)',
+                  borderColor:
+                    row.staff_id === staffId
+                      ? 'var(--dawaa-theme-primary)'
+                      : 'var(--dawaa-theme-border)',
                   background: row.staff_id === staffId ? 'var(--dawaa-theme-soft)' : 'transparent',
                 }}
               >
                 <div className="flex items-center gap-2">
-                  <span className="flex h-6 w-6 items-center justify-center rounded-full text-xs font-black" style={{ background: 'var(--dawaa-theme-soft)', color: 'var(--dawaa-theme-primary-strong)' }}>
+                  <span
+                    className="flex h-6 w-6 items-center justify-center rounded-full text-xs font-black"
+                    style={{
+                      background: 'var(--dawaa-theme-soft)',
+                      color: 'var(--dawaa-theme-primary-strong)',
+                    }}
+                  >
                     {index + 1}
                   </span>
-                  <span className="font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>{row.staff_name}</span>
+                  <span className="font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>
+                    {row.staff_name}
+                  </span>
                 </div>
-                <span className="text-sm font-black" style={{ color: 'var(--dawaa-status-success-text)' }}>{row.total_points} نقطة</span>
+                <span
+                  className="text-sm font-black"
+                  style={{ color: 'var(--dawaa-status-success-text)' }}
+                >
+                  {row.total_points} نقطة
+                </span>
               </div>
             ))}
           </div>
@@ -317,7 +541,9 @@ export default function AssistantOperationalLog() {
         <SectionTitle title="تسجيل عملية جديدة" icon={<Send size={18} />} />
 
         <div>
-          <p className="mb-2 text-xs font-black" style={{ color: 'var(--dawaa-theme-muted)' }}>نوع العملية</p>
+          <p className="mb-2 text-xs font-black" style={{ color: 'var(--dawaa-theme-muted)' }}>
+            نوع العملية
+          </p>
           <div className="grid grid-cols-1 gap-2">
             {TASK_ORDER.map((t) => {
               const c = TASK_CONFIG[t];
@@ -330,14 +556,20 @@ export default function AssistantOperationalLog() {
                   onClick={() => handleTaskTypeChange(t)}
                   className="flex items-center gap-3 rounded-xl border p-3 text-right transition"
                   style={{
-                    borderColor: active ? 'var(--dawaa-theme-primary)' : 'var(--dawaa-theme-border)',
+                    borderColor: active
+                      ? 'var(--dawaa-theme-primary)'
+                      : 'var(--dawaa-theme-border)',
                     background: active ? 'var(--dawaa-theme-soft)' : 'transparent',
                   }}
                 >
                   <Icon size={18} style={{ color: 'var(--dawaa-theme-primary-strong)' }} />
                   <div className="flex-1">
-                    <p className="font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>{c.label}</p>
-                    <p className="text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>{c.hint}</p>
+                    <p className="font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>
+                      {c.label}
+                    </p>
+                    <p className="text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                      {c.hint}
+                    </p>
                   </div>
                 </button>
               );
@@ -346,7 +578,9 @@ export default function AssistantOperationalLog() {
         </div>
 
         <div>
-          <p className="mb-2 text-xs font-black" style={{ color: 'var(--dawaa-theme-muted)' }}>الفرع</p>
+          <p className="mb-2 text-xs font-black" style={{ color: 'var(--dawaa-theme-muted)' }}>
+            الفرع
+          </p>
           <div className="flex gap-2">
             {BRANCHES.map((b) => (
               <button
@@ -355,7 +589,8 @@ export default function AssistantOperationalLog() {
                 onClick={() => setBranch(b)}
                 className="flex-1 rounded-xl border py-2 text-sm font-black transition"
                 style={{
-                  borderColor: branch === b ? 'var(--dawaa-theme-primary)' : 'var(--dawaa-theme-border)',
+                  borderColor:
+                    branch === b ? 'var(--dawaa-theme-primary)' : 'var(--dawaa-theme-border)',
                   background: branch === b ? 'var(--dawaa-theme-soft)' : 'transparent',
                   color: 'var(--dawaa-theme-heading)',
                 }}
@@ -367,7 +602,9 @@ export default function AssistantOperationalLog() {
         </div>
 
         <div>
-          <p className="mb-2 text-xs font-black" style={{ color: 'var(--dawaa-theme-muted)' }}>المرحلة</p>
+          <p className="mb-2 text-xs font-black" style={{ color: 'var(--dawaa-theme-muted)' }}>
+            المرحلة
+          </p>
           <div className="space-y-2">
             {config.stages.map((s) => (
               <button
@@ -376,20 +613,33 @@ export default function AssistantOperationalLog() {
                 onClick={() => setStage(s.stage)}
                 className="flex w-full items-center justify-between gap-3 rounded-xl border p-3 text-right transition"
                 style={{
-                  borderColor: stage === s.stage ? 'var(--dawaa-theme-primary)' : 'var(--dawaa-theme-border)',
+                  borderColor:
+                    stage === s.stage ? 'var(--dawaa-theme-primary)' : 'var(--dawaa-theme-border)',
                   background: stage === s.stage ? 'var(--dawaa-theme-soft)' : 'transparent',
                 }}
               >
-                <span className="font-bold" style={{ color: 'var(--dawaa-theme-text)' }}>{s.label}</span>
-                <span className="shrink-0 text-xs font-black" style={{ color: 'var(--dawaa-status-success-text)' }}>+{s.points} إجمالي</span>
+                <span className="font-bold" style={{ color: 'var(--dawaa-theme-text)' }}>
+                  {s.label}
+                </span>
+                <span
+                  className="shrink-0 text-xs font-black"
+                  style={{ color: 'var(--dawaa-status-success-text)' }}
+                >
+                  +{s.points} إجمالي
+                </span>
               </button>
             ))}
           </div>
         </div>
 
         {config.requiresCase ? (
-          <div className="space-y-2 rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
-            <p className="text-xs font-black" style={{ color: 'var(--dawaa-theme-muted)' }}>الحالة</p>
+          <div
+            className="space-y-2 rounded-xl border p-3"
+            style={{ borderColor: 'var(--dawaa-theme-border)' }}
+          >
+            <p className="text-xs font-black" style={{ color: 'var(--dawaa-theme-muted)' }}>
+              الحالة
+            </p>
             {openCasesForType.length > 0 && !startingNewCase ? (
               <div className="space-y-2">
                 {openCasesForType.map((c) => (
@@ -399,12 +649,23 @@ export default function AssistantOperationalLog() {
                     onClick={() => setSelectedCaseKey(c.case_key)}
                     className="flex w-full items-center justify-between gap-2 rounded-lg border p-2 text-right text-sm"
                     style={{
-                      borderColor: selectedCaseKey === c.case_key ? 'var(--dawaa-theme-primary)' : 'var(--dawaa-theme-border)',
-                      background: selectedCaseKey === c.case_key ? 'var(--dawaa-theme-soft)' : 'transparent',
+                      borderColor:
+                        selectedCaseKey === c.case_key
+                          ? 'var(--dawaa-theme-primary)'
+                          : 'var(--dawaa-theme-border)',
+                      background:
+                        selectedCaseKey === c.case_key ? 'var(--dawaa-theme-soft)' : 'transparent',
                     }}
                   >
-                    <span className="font-bold">{c.customer_name || c.customer_phone || 'حالة بدون اسم'}</span>
-                    <span className="text-xs font-black" style={{ color: 'var(--dawaa-theme-muted)' }}>{c.current_cumulative_points}/{MAX_CASE_POINTS[taskType]} نقطة</span>
+                    <span className="font-bold">
+                      {c.customer_name || c.customer_phone || 'حالة بدون اسم'}
+                    </span>
+                    <span
+                      className="text-xs font-black"
+                      style={{ color: 'var(--dawaa-theme-muted)' }}
+                    >
+                      {c.current_cumulative_points}/{MAX_CASE_POINTS[taskType]} نقطة
+                    </span>
                   </button>
                 ))}
               </div>
@@ -444,7 +705,11 @@ export default function AssistantOperationalLog() {
         {stageConfig.requiresInvoice ? (
           <div>
             <p className="mb-2 text-xs font-black" style={{ color: 'var(--dawaa-theme-muted)' }}>
-              رقم الفاتورة (إجباري{stageConfig.deadlineDays ? ` — خلال ${stageConfig.deadlineDays} ${stageConfig.deadlineDays === 2 ? 'يومين بالظبط' : 'أيام من أول إجراء'}` : ''})
+              رقم الفاتورة (إجباري
+              {stageConfig.deadlineDays
+                ? ` — خلال ${stageConfig.deadlineDays} ${stageConfig.deadlineDays === 2 ? 'يومين بالظبط' : 'أيام من أول إجراء'}`
+                : ''}
+              )
             </p>
             <input
               type="text"
@@ -457,7 +722,9 @@ export default function AssistantOperationalLog() {
         ) : null}
 
         <div>
-          <p className="mb-2 text-xs font-black" style={{ color: 'var(--dawaa-theme-muted)' }}>ملاحظة (اختياري)</p>
+          <p className="mb-2 text-xs font-black" style={{ color: 'var(--dawaa-theme-muted)' }}>
+            ملاحظة (اختياري)
+          </p>
           <input
             type="text"
             className="input-dark w-full text-sm"
@@ -482,7 +749,9 @@ export default function AssistantOperationalLog() {
       <Panel className="p-4">
         <SectionTitle title="آخر العمليات" icon={<CheckCircle2 size={18} />} />
         {loading ? (
-          <div className="flex justify-center py-6"><Loader2 className="animate-spin" style={{ color: 'var(--dawaa-theme-muted)' }} /></div>
+          <div className="flex justify-center py-6">
+            <Loader2 className="animate-spin" style={{ color: 'var(--dawaa-theme-muted)' }} />
+          </div>
         ) : loadError ? (
           <EmptyState label="تعذّر تحميل العمليات" error onRetry={() => void load()} />
         ) : logs.length === 0 ? (
@@ -492,23 +761,54 @@ export default function AssistantOperationalLog() {
             {logs.map((l) => {
               const status = STATUS_LABEL[l.review_status];
               return (
-                <div key={l.id} className="rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
+                <div
+                  key={l.id}
+                  className="rounded-xl border p-3"
+                  style={{ borderColor: 'var(--dawaa-theme-border)' }}
+                >
                   <div className="flex items-center justify-between gap-2">
-                    <p className="text-sm font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>
-                      {TASK_CONFIG[l.task_type]?.label || l.task_type} — {TASK_CONFIG[l.task_type]?.stages.find((s) => s.stage === l.stage)?.label || l.stage}
+                    <p
+                      className="text-sm font-black"
+                      style={{ color: 'var(--dawaa-theme-heading)' }}
+                    >
+                      {TASK_CONFIG[l.task_type]?.label || l.task_type} —{' '}
+                      {TASK_CONFIG[l.task_type]?.stages.find((s) => s.stage === l.stage)?.label ||
+                        l.stage}
                     </p>
-                    <span className="shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-black" style={{ borderColor: status.borderColor, background: status.bg, color: status.color }}>
+                    <span
+                      className="shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-black"
+                      style={{
+                        borderColor: status.borderColor,
+                        background: status.bg,
+                        color: status.color,
+                      }}
+                    >
                       {status.label}
                     </span>
                   </div>
                   {l.customer_name || l.customer_phone ? (
-                    <p className="mt-1 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>{l.customer_name} {l.customer_phone}</p>
+                    <p
+                      className="mt-1 text-xs font-bold"
+                      style={{ color: 'var(--dawaa-theme-muted)' }}
+                    >
+                      {l.customer_name} {l.customer_phone}
+                    </p>
                   ) : null}
                   {l.review_status === 'rejected' && l.reviewer_note ? (
-                    <p className="mt-1 text-xs font-bold" style={{ color: 'var(--dawaa-status-danger-text)' }}>سبب الرفض: {l.reviewer_note}</p>
+                    <p
+                      className="mt-1 text-xs font-bold"
+                      style={{ color: 'var(--dawaa-status-danger-text)' }}
+                    >
+                      سبب الرفض: {l.reviewer_note}
+                    </p>
                   ) : null}
                   {l.review_status === 'approved' ? (
-                    <p className="mt-1 text-xs font-black" style={{ color: 'var(--dawaa-status-success-text)' }}>+{l.points_awarded} نقطة</p>
+                    <p
+                      className="mt-1 text-xs font-black"
+                      style={{ color: 'var(--dawaa-status-success-text)' }}
+                    >
+                      +{l.points_awarded} نقطة
+                    </p>
                   ) : null}
                 </div>
               );

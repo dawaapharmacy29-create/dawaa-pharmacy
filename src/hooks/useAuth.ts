@@ -116,6 +116,7 @@ const EXPLICIT_OVERRIDABLE_PERMISSIONS = new Set([
   'view_customer_requests',
   'manage_customer_requests',
   'view_reviews',
+  'add_reviews',
   'whatsapp_customer',
   'view_purchases',
   'manage_purchases',
