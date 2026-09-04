@@ -13,7 +13,8 @@ export type CustomerFlagCategory =
   | 'communication'
   | 'importance'
   | 'behavior'
-  | 'followup';
+  | 'followup'
+  | 'profile';
 
 export interface CustomerFlag {
   key: string;
@@ -66,6 +67,46 @@ export function buildCustomerFlagsForDb(
 // ============================================================================
 
 export const CUSTOMER_FLAGS: CustomerFlag[] = [
+  // ==========================================================================
+  // تصنيف احتياج العميل (profile) — عشان خدمة العملاء تعرف تتكلم مع العميل صح
+  // من أول ما تفتح ملفه، قبل ما تدخل تكلمه أو تعمل متابعة.
+  // ==========================================================================
+  {
+    key: 'monthly_treatment',
+    label: 'علاج شهري / احتياج دوري',
+    category: 'profile',
+    severity: 'success',
+  },
+  {
+    key: 'cosmetics_interest',
+    label: 'مهتم بالكوزمو والعناية',
+    category: 'profile',
+    severity: 'info',
+  },
+  {
+    key: 'supplements_interest',
+    label: 'مهتم بالمكملات الغذائية',
+    category: 'profile',
+    severity: 'info',
+  },
+  {
+    key: 'has_children',
+    label: 'عنده أطفال',
+    category: 'profile',
+    severity: 'info',
+  },
+  {
+    key: 'mother_customer',
+    label: 'أم مسؤولة عن مشتريات البيت',
+    category: 'profile',
+    severity: 'info',
+  },
+  {
+    key: 'elderly_in_house',
+    label: 'بيشتري لكبار سن في البيت',
+    category: 'profile',
+    severity: 'info',
+  },
   {
     key: 'price_sensitive',
     label: 'حساس للسعر',
@@ -193,6 +234,12 @@ export const CUSTOMER_FLAGS: CustomerFlag[] = [
 // ============================================================================
 
 export const FLAG_PRIORITY: string[] = [
+  'monthly_treatment',
+  'cosmetics_interest',
+  'supplements_interest',
+  'has_children',
+  'mother_customer',
+  'elderly_in_house',
   'no_delivery',
   'needs_manager',
   'needs_special_handling',
