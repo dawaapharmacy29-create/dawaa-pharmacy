@@ -105,6 +105,38 @@ const EXPLICIT_OVERRIDABLE_PERMISSIONS = new Set([
   'customer_welcome_messages_view',
   'customer_welcome_messages_create',
   'customer_welcome_messages_update',
+  // فريق دواء (هاجر/نور/هبة حماده) — صلاحيات خدمة العملاء/طلبات العملاء/
+  // المشتريات المتفق عليها صراحة مع صاحب الصيدلية. من غير الإدراج هنا،
+  // capPermissionsToRole كانت بتشيل أي صلاحية مخصصة مش جزء من الحد الأدنى
+  // الافتراضي لدور "assistant"، حتى لو staff_accounts.permissions فيها
+  // true فعليًا — وده اللي كان بيمنعهم يشوفوا أي حاجة غير رسائل الترحيب.
+  'view_customer_service',
+  'view_customers',
+  'view_customer_details',
+  'view_customer_requests',
+  'manage_customer_requests',
+  'view_reviews',
+  'whatsapp_customer',
+  'view_purchases',
+  'manage_purchases',
+  'create_followup',
+  'edit_followup',
+  'close_followup',
+  'assign_followup',
+  'view_customer_incubation',
+  'manage_customer_incubation',
+  'create_customer',
+  'edit_customer',
+  'delete_customer',
+  'export_customers',
+  'import_customers',
+  'view_customer_360',
+  'view_invoices',
+  'view_invoice_import',
+  'import_sales_invoices',
+  'view_analytics',
+  'view_cashback',
+  'view_points',
 ]);
 
 function capPermissionsToRole(role: unknown, extra?: unknown): Record<string, boolean> {
