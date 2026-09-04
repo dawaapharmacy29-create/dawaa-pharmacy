@@ -6,6 +6,9 @@ export type CustomerIdentity = {
   customer_name?: string | null;
   customer_phone?: string | null;
   branch?: string | null;
+  customer_flags?: unknown;
+  customer_status?: string | null;
+  segment?: string | null;
 };
 
 export type WelcomeMessageFilters = {
@@ -100,8 +103,12 @@ export async function fetchBestWelcomeTemplate(
 
   const safeTemplates = data.filter(Boolean);
   if (!safeTemplates.length) return DEFAULT_WELCOME_MESSAGE;
-  const branchTemplate = safeTemplates.find((row) => String(row.title || '').includes('باسم الفرع'));
-  const generalTemplate = safeTemplates.find((row) => String(row.title || '').includes('القالب العام'));
+  const branchTemplate = safeTemplates.find((row) =>
+    String(row.title || '').includes('باسم الفرع')
+  );
+  const generalTemplate = safeTemplates.find((row) =>
+    String(row.title || '').includes('القالب العام')
+  );
   const chosen = branchTemplate || generalTemplate || safeTemplates[0];
 
   return String(chosen.message_body || DEFAULT_WELCOME_MESSAGE)
@@ -130,7 +137,9 @@ export async function searchCustomerIdentity(query: string): Promise<CustomerIde
   // دايمًا، أيًا كان عدد التطابقات الجزئية التانية.
   const exactResult = await supabase
     .from('customer_metrics_summary')
-    .select('customer_id,customer_code,customer_name,customer_phone,branch')
+    .select(
+      'customer_id,customer_code,customer_name,customer_phone,branch,customer_flags,customer_status,segment'
+    )
     .or(`customer_code.eq.${q},customer_phone.eq.${q},customer_name.eq.${q}`)
     .limit(20);
   if (exactResult.error) throw new Error(exactResult.error.message);
@@ -139,7 +148,9 @@ export async function searchCustomerIdentity(query: string): Promise<CustomerIde
 
   const { data, error } = await supabase
     .from('customer_metrics_summary')
-    .select('customer_id,customer_code,customer_name,customer_phone,branch')
+    .select(
+      'customer_id,customer_code,customer_name,customer_phone,branch,customer_flags,customer_status,segment'
+    )
     .or(`customer_code.ilike.%${q}%,customer_phone.ilike.%${q}%,customer_name.ilike.%${q}%`)
     .order('customer_code', { ascending: true })
     .limit(20);
@@ -170,9 +181,12 @@ export function totalCustomerPoints(rows: CustomerPointsLedgerRow[]) {
 }
 
 export async function addCustomerPoints(payload: Partial<CustomerPointsLedgerRow>) {
-  if (!payload.customer_name && !payload.customer_phone) throw new Error('اكتب اسم العميل أو رقم الهاتف على الأقل قبل احتساب النقاط.');
+  if (!payload.customer_name && !payload.customer_phone)
+    throw new Error('اكتب اسم العميل أو رقم الهاتف على الأقل قبل احتساب النقاط.');
   if (!Number(payload.points_amount)) throw new Error('اكتب عدد النقاط.');
-  const { data, error } = await supabase.rpc('insert_customer_points_ledger', { p_payload: payload });
+  const { data, error } = await supabase.rpc('insert_customer_points_ledger', {
+    p_payload: payload,
+  });
   if (error) throw new Error(error.message || 'تعذر احتساب نقاط العميل.');
   return data as CustomerPointsLedgerRow;
 }
@@ -191,13 +205,24 @@ export async function fetchCustomerLoyaltySetting(identity: CustomerIdentity) {
   return data as CustomerLoyaltySetting | null;
 }
 
-export async function saveCustomerLoyaltySetting(payload: Partial<CustomerLoyaltySetting> & { created_by?: string | null; created_by_name?: string | null }) {
-  const { data, error } = await supabase.rpc('upsert_customer_loyalty_setting', { p_payload: payload });
+export async function saveCustomerLoyaltySetting(
+  payload: Partial<CustomerLoyaltySetting> & {
+    created_by?: string | null;
+    created_by_name?: string | null;
+  }
+) {
+  const { data, error } = await supabase.rpc('upsert_customer_loyalty_setting', {
+    p_payload: payload,
+  });
   if (error) throw new Error(error.message || 'تعذر حفظ إعداد نقاط العميل.');
   return data as CustomerLoyaltySetting;
 }
 
-export async function previewCustomerInvoicePeriod(identity: CustomerIdentity, periodStart: string, periodEnd: string) {
+export async function previewCustomerInvoicePeriod(
+  identity: CustomerIdentity,
+  periodStart: string,
+  periodEnd: string
+) {
   const { data, error } = await supabase.rpc('customer_invoice_period_summary', {
     p_customer_code: identity.customer_code || null,
     p_customer_phone: identity.customer_phone || null,
@@ -230,7 +255,10 @@ export async function calculateCustomerLoyaltyCycle(input: {
   return data as CustomerPointsLedgerRow;
 }
 
-export async function runDueCustomerLoyaltyCycles(actorId?: string | null, actorName?: string | null) {
+export async function runDueCustomerLoyaltyCycles(
+  actorId?: string | null,
+  actorName?: string | null
+) {
   const { data, error } = await supabase.rpc('run_due_customer_loyalty_cycles', {
     p_actor_id: actorId || null,
     p_actor_name: actorName || 'النظام',
@@ -239,7 +267,11 @@ export async function runDueCustomerLoyaltyCycles(actorId?: string | null, actor
   return data as { calculated: number; errors: number };
 }
 
-export type CashbackQuarterBounds = { period_start: string; period_end: string; quarter_label: string };
+export type CashbackQuarterBounds = {
+  period_start: string;
+  period_end: string;
+  quarter_label: string;
+};
 export async function fetchCashbackQuarterBounds(): Promise<CashbackQuarterBounds | null> {
   const { data, error } = await supabase.rpc('get_cashback_quarter_bounds');
   if (error) return null;
@@ -255,19 +287,32 @@ export type CustomerWithPendingPoints = {
   fully_contacted: boolean;
   uncontacted_count: number;
 };
-export async function fetchCustomersWithPendingPoints(branch: string): Promise<CustomerWithPendingPoints[]> {
-  const { data, error } = await supabase.rpc('get_customers_with_points_for_followup', { p_branch: branch });
+export async function fetchCustomersWithPendingPoints(
+  branch: string
+): Promise<CustomerWithPendingPoints[]> {
+  const { data, error } = await supabase.rpc('get_customers_with_points_for_followup', {
+    p_branch: branch,
+  });
   if (error) throw new Error(error.message || 'تعذر تحميل قائمة العملاء.');
   // الدالة بترجع {total_customers, rows} من بعد migration raise_points_followup_limit_add_total_count
   // (مش مصفوفة مباشرة زي ما كانت قبل كده) — لازم نفك التغليف هنا.
-  const payload = data as { total_customers?: number; rows?: CustomerWithPendingPoints[] } | CustomerWithPendingPoints[] | null;
+  const payload = data as
+    | { total_customers?: number; rows?: CustomerWithPendingPoints[] }
+    | CustomerWithPendingPoints[]
+    | null;
   if (Array.isArray(payload)) return payload.filter(Boolean); // توافق رجعي لو الدالة رجعت لشكلها القديم يومًا
   return (payload?.rows || []).filter(Boolean);
 }
 
-export async function markCustomerPointsContacted(customerCode: string, branch: string, actorName?: string | null) {
+export async function markCustomerPointsContacted(
+  customerCode: string,
+  branch: string,
+  actorName?: string | null
+) {
   const { error } = await supabase.rpc('mark_customer_points_contacted', {
-    p_customer_code: customerCode, p_branch: branch, p_actor_name: actorName || 'غير محدد',
+    p_customer_code: customerCode,
+    p_branch: branch,
+    p_actor_name: actorName || 'غير محدد',
   });
   if (error) throw new Error(error.message || 'تعذر تسجيل التواصل.');
 }
@@ -278,15 +323,28 @@ export async function runQuarterlyCashbackBatch(
   periodStart?: string | null,
   periodEnd?: string | null
 ) {
-  if (!branch || !periodStart || !periodEnd) throw new Error('لازم تحدد الفرع وفترة الدورة قبل الاحتساب.');
+  if (!branch || !periodStart || !periodEnd)
+    throw new Error('لازم تحدد الفرع وفترة الدورة قبل الاحتساب.');
   const { data, error } = await supabase.rpc('run_quarterly_cashback_batch_for_branch_v1', {
-    p_branch: branch, p_period_start: periodStart, p_period_end: periodEnd, p_reward_rate: 0.05, p_actor_name: actorName || 'يدوي من الصفحة',
+    p_branch: branch,
+    p_period_start: periodStart,
+    p_period_end: periodEnd,
+    p_reward_rate: 0.05,
+    p_actor_name: actorName || 'يدوي من الصفحة',
   });
   if (error) throw new Error(error.message || 'تعذر تشغيل الاحتساب الربع سنوي.');
-  return data as { period_start: string; period_end: string; customers_credited: number; total_points: number };
+  return data as {
+    period_start: string;
+    period_end: string;
+    customers_credited: number;
+    total_points: number;
+  };
 }
 
-export async function fetchWelcomeMessageLogs(identity: CustomerIdentity, filters: WelcomeMessageFilters = {}) {
+export async function fetchWelcomeMessageLogs(
+  identity: CustomerIdentity,
+  filters: WelcomeMessageFilters = {}
+) {
   const { data, error } = await supabase.rpc('fetch_customer_welcome_message_logs', {
     p_actor_id: filters.actor_id || null,
     p_customer_code: identity.customer_code || null,
@@ -305,12 +363,19 @@ export async function fetchWelcomeMessageLogs(identity: CustomerIdentity, filter
 
 export async function addWelcomeMessageLog(payload: Partial<WelcomeMessageLogRow>) {
   if (!payload.message_body?.trim()) throw new Error('اكتب نص الرسالة الترحيبية.');
-  const { data, error } = await supabase.rpc('insert_customer_welcome_message_log', { p_payload: payload });
+  const { data, error } = await supabase.rpc('insert_customer_welcome_message_log', {
+    p_payload: payload,
+  });
   if (error) throw new Error(error.message || 'تعذر تسجيل الرسالة الترحيبية.');
   return data as WelcomeMessageLogRow;
 }
 
-export async function updateWelcomeMessageStatus(id: string, status: string, actorId?: string | null, actorName?: string | null) {
+export async function updateWelcomeMessageStatus(
+  id: string,
+  status: string,
+  actorId?: string | null,
+  actorName?: string | null
+) {
   const { data, error } = await supabase.rpc('update_customer_welcome_message_status', {
     p_id: id,
     p_status: status,

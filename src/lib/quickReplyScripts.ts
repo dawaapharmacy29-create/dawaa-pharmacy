@@ -38,6 +38,11 @@ export const QUICK_REPLY_SCRIPT_TYPES = [
   'no_answer',
   'price_objection',
   'delivery_delay',
+  'cosmetics_interest',
+  'supplements_interest',
+  'family_kids',
+  'elderly_care',
+  'retention',
 ] as const;
 
 export const DEFAULT_QUICK_REPLY_SCRIPTS: Array<
@@ -143,7 +148,83 @@ export const DEFAULT_QUICK_REPLY_SCRIPTS: Array<
       'أهلًا بحضرتك {{customer_name}}، حضرتك من عملائنا المميزين ويهمنا نخدمك بشكل يليق بثقتك. لو عندك علاج شهري أو أصناف متكررة أو أي ملاحظة تحب نسجلها، فريق صيدليات دواء تحت أمرك وهنرتبها بالطريقة والموعد المناسبين.',
     tags: ['vip', 'مميز'],
   },
+  {
+    shortcut: '/كوزمو',
+    title: 'اهتمام العميل بالكوزمو والعناية',
+    category: 'كوزمو وعناية',
+    script_type: 'cosmetics_interest',
+    message_body:
+      'أهلًا بحضرتك {{customer_name}}، وصلنا تشكيلة جديدة من منتجات العناية والكوزمو حسينا إنها تناسب اهتمام حضرتك بيها. تحب أبعتلك التفاصيل والأسعار، ونساعدك تختار الأنسب لبشرتك؟',
+    tags: ['كوزمو', 'عناية', 'cross-sell'],
+  },
+  {
+    shortcut: '/مكملات',
+    title: 'متابعة مكمل غذائي',
+    category: 'مكملات غذائية',
+    script_type: 'supplements_interest',
+    message_body:
+      'أهلًا بحضرتك {{customer_name}}، حبيت أطمن على المكمل اللي بتاخده: لسه مستمر عليه بانتظام؟ وهل حابب نجهزلك كمية جديدة قبل ما يخلص عندك عشان الاستمرارية متتقطعش؟',
+    tags: ['مكملات', 'استمرارية', 'cross-sell'],
+  },
+  {
+    shortcut: '/أطفال',
+    title: 'احتياجات الأطفال والبيت',
+    category: 'أسرة وأطفال',
+    script_type: 'family_kids',
+    message_body:
+      'أهلًا بحضرتك {{customer_name}}، حابين نطمن هل احتياجات الأطفال (فيتامينات، لقاحات، منتجات عناية) بتوصل بانتظام؟ ولو حابة نظبطلك طلب شهري ثابت لاحتياجات البيت يوصلك تلقائي من غير ما تتعبي تفتكري، إحنا جاهزين.',
+    tags: ['أطفال', 'أم', 'طلب شهري'],
+  },
+  {
+    shortcut: '/كبار_سن',
+    title: 'رعاية كبار السن في البيت',
+    category: 'رعاية كبار السن',
+    script_type: 'elderly_care',
+    message_body:
+      'أهلًا بحضرتك {{customer_name}}، حابين نطمن هل احتياجات كبار السن في البيت بتوصل بانتظام وهل التوصيل بيتم في وقت وطريقة مريحة ليهم؟ نقدر نظبط ميعاد توصيل ثابت أو نجهز الأصناف المتكررة مسبقًا عشان تبقى التجربة أسهل عليكم.',
+    tags: ['كبار السن', 'رعاية', 'توصيل'],
+  },
+  {
+    shortcut: '/استرجاع',
+    title: 'استرجاع عميل مهدد أو متوقف',
+    category: 'استرجاع عملاء',
+    script_type: 'retention',
+    message_body:
+      'أهلًا بحضرتك {{customer_name}}، حسينا إن فترة طويلة عدت من غير ما نخدم حضرتك، وحبينا نطمن عليك ونعرف هل في أي سبب أو مشكلة خلت تجربتك معانا أقل من المتوقع. رأي حضرتك يهمنا جدًا ونحب نصلح أي حاجة تستاهل التحسين.',
+    tags: ['استرجاع', 'مهدد', 'متوقف', 'win-back'],
+  },
 ];
+
+// ============================================================================
+// اقتراح السكريبت الأنسب تلقائيًا حسب تصنيف العميل (customer_flags) وحالته —
+// عشان الموظف مايفكرش "أدور على أي سكريبت"، النظام يرشحله الأنسب مباشرة.
+// ============================================================================
+const PROFILE_TAG_TO_SCRIPT_TYPE: Record<string, string> = {
+  monthly_treatment: 'monthly_refill',
+  cosmetics_interest: 'cosmetics_interest',
+  supplements_interest: 'supplements_interest',
+  has_children: 'family_kids',
+  mother_customer: 'family_kids',
+  elderly_in_house: 'elderly_care',
+};
+
+export function suggestScriptTypesForCustomer(input: {
+  profileTags?: string[] | null;
+  customerStatus?: string | null;
+  segment?: string | null;
+}): string[] {
+  const suggestions: string[] = [];
+  for (const tag of input.profileTags || []) {
+    const scriptType = PROFILE_TAG_TO_SCRIPT_TYPE[tag];
+    if (scriptType && !suggestions.includes(scriptType)) suggestions.push(scriptType);
+  }
+  const status = String(input.customerStatus || '');
+  if (/مهدد|متوقف/.test(status) && !suggestions.includes('retention'))
+    suggestions.push('retention');
+  if (input.segment === 'مهم جدًا' && !suggestions.includes('vip')) suggestions.push('vip');
+  if (!suggestions.length) suggestions.push('followup');
+  return suggestions;
+}
 
 function fallbackScripts(): QuickReplyScript[] {
   return DEFAULT_QUICK_REPLY_SCRIPTS.map((script, index) => ({
@@ -180,15 +261,20 @@ export async function fetchQuickReplyScripts() {
     console.warn('[quickReplyScripts] using fallback scripts', error);
     return fallbackScripts();
   }
-  return ((data || []) as QuickReplyScript[]).length ? ((data || []) as QuickReplyScript[]) : fallbackScripts();
+  return ((data || []) as QuickReplyScript[]).length
+    ? ((data || []) as QuickReplyScript[])
+    : fallbackScripts();
 }
 
 export async function saveQuickReplyScript(
-  script: Partial<QuickReplyScript> & Pick<QuickReplyScript, 'shortcut' | 'title' | 'category' | 'script_type' | 'message_body'>
+  script: Partial<QuickReplyScript> &
+    Pick<QuickReplyScript, 'shortcut' | 'title' | 'category' | 'script_type' | 'message_body'>
 ) {
   if (!isSupabaseConfigured) throw new Error('Supabase غير متصل');
   const payload = {
-    shortcut: script.shortcut.trim().startsWith('/') ? script.shortcut.trim() : `/${script.shortcut.trim()}`,
+    shortcut: script.shortcut.trim().startsWith('/')
+      ? script.shortcut.trim()
+      : `/${script.shortcut.trim()}`,
     title: script.title.trim(),
     category: script.category.trim() || 'عام',
     script_type: script.script_type || 'quick_reply',
@@ -221,7 +307,11 @@ export async function saveQuickReplyScript(
   });
   if (error) {
     const message = String(error.message || '');
-    if (/questions.*text\[\].*jsonb|suggested_products.*text\[\].*jsonb|tags.*text\[\].*jsonb|expression is of type jsonb/i.test(message)) {
+    if (
+      /questions.*text\[\].*jsonb|suggested_products.*text\[\].*jsonb|tags.*text\[\].*jsonb|expression is of type jsonb/i.test(
+        message
+      )
+    ) {
       throw new Error(QUICK_REPLY_ARRAY_FORMAT_MESSAGE);
     }
     if (/row-level security|permission|صلاحية|quick_reply/i.test(message)) {
@@ -248,7 +338,9 @@ export function renderQuickReplyTemplate(
   }
 ) {
   const safeCustomerName =
-    values.use_customer_name && values.customer_name && !/^\d+$|عميل|غير محدد|بدون/i.test(values.customer_name)
+    values.use_customer_name &&
+    values.customer_name &&
+    !/^\d+$|عميل|غير محدد|بدون/i.test(values.customer_name)
       ? values.customer_name
       : '';
   return message

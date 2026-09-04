@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Clipboard, MessageSquare, Plus, RefreshCw, Search, Send, X } from 'lucide-react';
+import {
+  CheckCircle2,
+  Clipboard,
+  MessageSquare,
+  Plus,
+  RefreshCw,
+  Search,
+  Send,
+  X,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { useSearchParams } from 'react-router-dom';
 import { BRANCHES } from '@/lib/constants';
@@ -20,8 +29,11 @@ import {
   fetchQuickReplyScripts,
   renderQuickReplyTemplate,
   saveQuickReplyScript,
+  suggestScriptTypesForCustomer,
   type QuickReplyScript,
 } from '@/lib/quickReplyScripts';
+import { flagsToImportantTags } from '@/lib/customerFlags';
+import { getCustomerFlagLabel } from '@/lib/customerFlagLabels';
 
 const STATUS_LABELS: Record<string, string> = {
   drafted: 'مسودة',
@@ -59,11 +71,15 @@ export default function WelcomeMessages() {
   );
 
   const [query, setQuery] = useState(
-    initialCustomer.customer_code || initialCustomer.customer_phone || initialCustomer.customer_name || ''
+    initialCustomer.customer_code ||
+      initialCustomer.customer_phone ||
+      initialCustomer.customer_name ||
+      ''
   );
   const [rows, setRows] = useState<WelcomeMessageLogRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [quickReplies, setQuickReplies] = useState<QuickReplyScript[]>([]);
+  const [matchedIdentity, setMatchedIdentity] = useState<CustomerIdentity | null>(null);
   const [selectedScriptId, setSelectedScriptId] = useState('');
   const [showForm, setShowForm] = useState(params.get('action') === 'create');
   const [filters, setFilters] = useState({
@@ -94,7 +110,11 @@ export default function WelcomeMessages() {
     let cancelled = false;
     void fetchBestWelcomeTemplate(form.customer_name, form.branch).then((resolved) => {
       if (cancelled) return;
-      setForm((current) => (current.message_body === DEFAULT_WELCOME_MESSAGE ? { ...current, message_body: resolved } : current));
+      setForm((current) =>
+        current.message_body === DEFAULT_WELCOME_MESSAGE
+          ? { ...current, message_body: resolved }
+          : current
+      );
     });
     return () => {
       cancelled = true;
@@ -110,20 +130,49 @@ export default function WelcomeMessages() {
       customer_name: form.customer_name || null,
       branch: form.branch || null,
     }),
-    [form.branch, form.customer_code, form.customer_name, form.customer_phone, initialCustomer.customer_id]
+    [
+      form.branch,
+      form.customer_code,
+      form.customer_name,
+      form.customer_phone,
+      initialCustomer.customer_id,
+    ]
+  );
+
+  const suggestedScriptTypes = useMemo(
+    () =>
+      suggestScriptTypesForCustomer({
+        profileTags: flagsToImportantTags(matchedIdentity?.customer_flags),
+        customerStatus: matchedIdentity?.customer_status,
+        segment: matchedIdentity?.segment,
+      }),
+    [matchedIdentity]
   );
 
   const welcomeScripts = useMemo(
     () =>
-      quickReplies.filter((script) => {
-        const text = `${script.script_type} ${script.category} ${script.title}`.toLowerCase();
-        return (
-          ['welcome', 'quick_reply', 'followup', 'vip'].includes(script.script_type) ||
-          text.includes('welcome') ||
-          text.includes('ترحيب')
-        );
-      }),
-    [quickReplies]
+      quickReplies
+        .filter((script) => {
+          const text = `${script.script_type} ${script.category} ${script.title}`.toLowerCase();
+          return (
+            ['welcome', 'quick_reply', 'followup', 'vip'].includes(script.script_type) ||
+            suggestedScriptTypes.includes(script.script_type) ||
+            text.includes('welcome') ||
+            text.includes('ترحيب')
+          );
+        })
+        .sort((a, b) => {
+          const aSuggested = suggestedScriptTypes.includes(a.script_type) ? 0 : 1;
+          const bSuggested = suggestedScriptTypes.includes(b.script_type) ? 0 : 1;
+          return aSuggested - bSuggested;
+        }),
+    [quickReplies, suggestedScriptTypes]
+  );
+
+  const suggestedScriptLabels = useMemo(
+    () =>
+      flagsToImportantTags(matchedIdentity?.customer_flags).map((tag) => getCustomerFlagLabel(tag)),
+    [matchedIdentity]
   );
 
   const load = useCallback(
@@ -146,7 +195,16 @@ export default function WelcomeMessages() {
         setLoading(false);
       }
     },
-    [actorId, currentIdentity, filters.branch, filters.doctor, filters.from, filters.search, filters.status, filters.to]
+    [
+      actorId,
+      currentIdentity,
+      filters.branch,
+      filters.doctor,
+      filters.from,
+      filters.search,
+      filters.status,
+      filters.to,
+    ]
   );
 
   useEffect(() => {
@@ -190,11 +248,15 @@ export default function WelcomeMessages() {
     try {
       const found = await searchCustomerIdentity(value);
       if (found[0]) {
+        setMatchedIdentity(found[0]);
         applyCustomer(found[0]);
         await load(found[0]);
         setShowForm(true);
       } else {
-        const manualIdentity = /^\d/.test(value) ? { customer_phone: value } : { customer_name: value };
+        setMatchedIdentity(null);
+        const manualIdentity = /^\d/.test(value)
+          ? { customer_phone: value }
+          : { customer_name: value };
         applyCustomer(manualIdentity);
         setRows([]);
         setShowForm(true);
@@ -275,7 +337,12 @@ export default function WelcomeMessages() {
 
   const markReplied = async (row: WelcomeMessageLogRow) => {
     try {
-      const updated = await updateWelcomeMessageStatus(row.id, 'customer_replied', actorId, actorName);
+      const updated = await updateWelcomeMessageStatus(
+        row.id,
+        'customer_replied',
+        actorId,
+        actorName
+      );
       setRows((current) => current.map((item) => (item.id === updated.id ? updated : item)));
       toast.success('تم تحديث حالة الرسالة');
     } catch (error) {
@@ -297,7 +364,9 @@ export default function WelcomeMessages() {
             <h1 className="flex items-center gap-2 text-2xl font-black text-white">
               <MessageSquare className="text-cyan-300" /> سجل الرسائل الترحيبية
             </h1>
-            <p className="mt-2 text-sm text-slate-300">تسجيل ومتابعة رسائل الترحيب المرتبطة بالعملاء وخدمة العملاء.</p>
+            <p className="mt-2 text-sm text-slate-300">
+              تسجيل ومتابعة رسائل الترحيب المرتبطة بالعملاء وخدمة العملاء.
+            </p>
           </div>
           <button className="btn-primary" onClick={() => setShowForm(true)}>
             <Plus className="ml-1 inline h-4 w-4" /> تسجيل رسالة ترحيبية
@@ -313,28 +382,80 @@ export default function WelcomeMessages() {
       </section>
 
       <section className="dawaa-panel grid gap-3 lg:grid-cols-[1fr_auto]">
-        <input className="input-dark" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="بحث بالعميل أو الهاتف أو الكود" />
+        <input
+          className="input-dark"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="بحث بالعميل أو الهاتف أو الكود"
+        />
         <button className="btn-primary" onClick={() => void runSearch()} disabled={loading}>
-          {loading ? <RefreshCw className="ml-1 inline h-4 w-4 animate-spin" /> : <Search className="ml-1 inline h-4 w-4" />} بحث
+          {loading ? (
+            <RefreshCw className="ml-1 inline h-4 w-4 animate-spin" />
+          ) : (
+            <Search className="ml-1 inline h-4 w-4" />
+          )}{' '}
+          بحث
         </button>
       </section>
 
       <section className="dawaa-panel grid gap-3 lg:grid-cols-6">
-        <input className="input-dark lg:col-span-2" placeholder="بحث داخل السجل: عميل / كود / هاتف / دكتور" value={filters.search} onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))} />
-        <select className="input-dark" value={filters.branch} onChange={(event) => setFilters((current) => ({ ...current, branch: event.target.value }))}>
+        <input
+          className="input-dark lg:col-span-2"
+          placeholder="بحث داخل السجل: عميل / كود / هاتف / دكتور"
+          value={filters.search}
+          onChange={(event) =>
+            setFilters((current) => ({ ...current, search: event.target.value }))
+          }
+        />
+        <select
+          className="input-dark"
+          value={filters.branch}
+          onChange={(event) =>
+            setFilters((current) => ({ ...current, branch: event.target.value }))
+          }
+        >
           <option value="">كل الفروع</option>
-          {BRANCHES.map((branch) => <option key={branch}>{branch}</option>)}
+          {BRANCHES.map((branch) => (
+            <option key={branch}>{branch}</option>
+          ))}
         </select>
-        <input className="input-dark" placeholder="الدكتور" value={filters.doctor} onChange={(event) => setFilters((current) => ({ ...current, doctor: event.target.value }))} />
-        <select className="input-dark" value={filters.status} onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}>
+        <input
+          className="input-dark"
+          placeholder="الدكتور"
+          value={filters.doctor}
+          onChange={(event) =>
+            setFilters((current) => ({ ...current, doctor: event.target.value }))
+          }
+        />
+        <select
+          className="input-dark"
+          value={filters.status}
+          onChange={(event) =>
+            setFilters((current) => ({ ...current, status: event.target.value }))
+          }
+        >
           <option value="">كل الحالات</option>
-          {Object.entries(STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          {Object.entries(STATUS_LABELS).map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
         </select>
         <button className="btn-secondary" onClick={() => void load()} disabled={loading}>
           <RefreshCw className="ml-1 inline h-4 w-4" /> تحديث
         </button>
-        <input className="input-dark" type="date" value={filters.from} onChange={(event) => setFilters((current) => ({ ...current, from: event.target.value }))} />
-        <input className="input-dark" type="date" value={filters.to} onChange={(event) => setFilters((current) => ({ ...current, to: event.target.value }))} />
+        <input
+          className="input-dark"
+          type="date"
+          value={filters.from}
+          onChange={(event) => setFilters((current) => ({ ...current, from: event.target.value }))}
+        />
+        <input
+          className="input-dark"
+          type="date"
+          value={filters.to}
+          onChange={(event) => setFilters((current) => ({ ...current, to: event.target.value }))}
+        />
       </section>
 
       <section className="overflow-hidden rounded-2xl border border-slate-700 bg-slate-950/40">
@@ -357,7 +478,9 @@ export default function WelcomeMessages() {
             <tbody>
               {rows.map((row) => (
                 <tr key={row.id} className="border-t border-slate-800 align-top">
-                  <td className="px-3 py-3 whitespace-nowrap">{row.sent_at ? new Date(row.sent_at).toLocaleString('ar-EG') : '-'}</td>
+                  <td className="px-3 py-3 whitespace-nowrap">
+                    {row.sent_at ? new Date(row.sent_at).toLocaleString('ar-EG') : '-'}
+                  </td>
                   <td className="px-3 py-3">{row.doctor_name || '-'}</td>
                   <td className="px-3 py-3">{row.customer_name || '-'}</td>
                   <td className="px-3 py-3">{row.customer_code || '-'}</td>
@@ -370,13 +493,25 @@ export default function WelcomeMessages() {
                   <td className="px-3 py-3">{row.notes || '-'}</td>
                   <td className="px-3 py-3">
                     <div className="flex flex-wrap gap-2">
-                      <button className="btn-secondary px-3 py-2" onClick={() => openRowWhatsapp(row)} title="فتح واتساب">
+                      <button
+                        className="btn-secondary px-3 py-2"
+                        onClick={() => openRowWhatsapp(row)}
+                        title="فتح واتساب"
+                      >
                         <Send className="h-4 w-4" />
                       </button>
-                      <button className="btn-secondary px-3 py-2" onClick={() => void navigator.clipboard.writeText(row.message_body)} title="نسخ الرسالة">
+                      <button
+                        className="btn-secondary px-3 py-2"
+                        onClick={() => void navigator.clipboard.writeText(row.message_body)}
+                        title="نسخ الرسالة"
+                      >
                         <Clipboard className="h-4 w-4" />
                       </button>
-                      <button className="btn-secondary px-3 py-2" onClick={() => void markReplied(row)} title="العميل رد">
+                      <button
+                        className="btn-secondary px-3 py-2"
+                        onClick={() => void markReplied(row)}
+                        title="العميل رد"
+                      >
                         <CheckCircle2 className="h-4 w-4" />
                       </button>
                     </div>
@@ -396,8 +531,14 @@ export default function WelcomeMessages() {
       </section>
 
       {showForm ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => setShowForm(false)}>
-          <div className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-2xl border border-slate-700 bg-slate-950 p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+          onClick={() => setShowForm(false)}
+        >
+          <div
+            className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-2xl border border-slate-700 bg-slate-950 p-5 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
             <div className="mb-4 flex items-center justify-between gap-3">
               <h2 className="text-xl font-black text-white">تسجيل رسالة ترحيبية</h2>
               <button className="btn-secondary px-3 py-2" onClick={() => setShowForm(false)}>
@@ -405,28 +546,101 @@ export default function WelcomeMessages() {
               </button>
             </div>
             <div className="grid gap-3 lg:grid-cols-4">
-              <input className="input-dark" placeholder="اسم العميل" value={form.customer_name} onChange={(event) => setForm((current) => ({ ...current, customer_name: event.target.value }))} />
-              <input className="input-dark" placeholder="كود العميل" value={form.customer_code} onChange={(event) => setForm((current) => ({ ...current, customer_code: event.target.value }))} />
-              <input className="input-dark" placeholder="الهاتف" value={form.customer_phone} onChange={(event) => setForm((current) => ({ ...current, customer_phone: event.target.value }))} />
-              <select className="input-dark" value={form.branch} onChange={(event) => setForm((current) => ({ ...current, branch: event.target.value }))}>
+              <input
+                className="input-dark"
+                placeholder="اسم العميل"
+                value={form.customer_name}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, customer_name: event.target.value }))
+                }
+              />
+              <input
+                className="input-dark"
+                placeholder="كود العميل"
+                value={form.customer_code}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, customer_code: event.target.value }))
+                }
+              />
+              <input
+                className="input-dark"
+                placeholder="الهاتف"
+                value={form.customer_phone}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, customer_phone: event.target.value }))
+                }
+              />
+              <select
+                className="input-dark"
+                value={form.branch}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, branch: event.target.value }))
+                }
+              >
                 <option value="">كل الفروع</option>
-                {BRANCHES.map((branch) => <option key={branch}>{branch}</option>)}
-              </select>
-              <input className="input-dark" placeholder="الدكتور" value={form.doctor_name} onChange={(event) => setForm((current) => ({ ...current, doctor_name: event.target.value }))} />
-              <select className="input-dark" value={selectedScriptId} onChange={(event) => applyScript(event.target.value)}>
-                <option value="">اختيار رد سريع للترحيب</option>
-                {welcomeScripts.map((script) => (
-                  <option key={script.id} value={script.id}>{script.shortcut} - {script.title}</option>
+                {BRANCHES.map((branch) => (
+                  <option key={branch}>{branch}</option>
                 ))}
               </select>
-              <select className="input-dark" value={form.status} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value }))}>
-                {Object.entries(STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              <input
+                className="input-dark"
+                placeholder="الدكتور"
+                value={form.doctor_name}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, doctor_name: event.target.value }))
+                }
+              />
+              {suggestedScriptLabels.length ? (
+                <div className="lg:col-span-4 rounded-xl border border-teal-500/30 bg-teal-500/10 px-3 py-2 text-xs font-bold text-teal-100">
+                  العميل ده مصنّف: {suggestedScriptLabels.join(' · ')} — رشحنالك السكريبتات المناسبة
+                  في أول القايمة تحت.
+                </div>
+              ) : null}
+              <select
+                className="input-dark"
+                value={selectedScriptId}
+                onChange={(event) => applyScript(event.target.value)}
+              >
+                <option value="">اختيار رد سريع للترحيب</option>
+                {welcomeScripts.map((script) => (
+                  <option key={script.id} value={script.id}>
+                    {suggestedScriptTypes.includes(script.script_type) ? '⭐ ' : ''}
+                    {script.shortcut} - {script.title}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="input-dark"
+                value={form.status}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, status: event.target.value }))
+                }
+              >
+                {Object.entries(STATUS_LABELS).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
               </select>
               <button className="btn-secondary" onClick={() => void seedWelcomeQuickReply()}>
                 إضافة اختصار /ترحيب
               </button>
-              <input className="input-dark lg:col-span-4" placeholder="ملاحظات" value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} />
-              <textarea className="input-dark lg:col-span-4" rows={6} value={form.message_body} onChange={(event) => setForm((current) => ({ ...current, message_body: event.target.value }))} />
+              <input
+                className="input-dark lg:col-span-4"
+                placeholder="ملاحظات"
+                value={form.notes}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, notes: event.target.value }))
+                }
+              />
+              <textarea
+                className="input-dark lg:col-span-4"
+                rows={6}
+                value={form.message_body}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, message_body: event.target.value }))
+                }
+              />
               <button className="btn-secondary lg:col-span-2" onClick={() => void save(false)}>
                 <Plus className="ml-1 inline h-4 w-4" /> حفظ كسجل داخلي
               </button>
