@@ -386,6 +386,9 @@ export default function WelcomeMessages() {
           className="input-dark"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') void runSearch();
+          }}
           placeholder="بحث بالعميل أو الهاتف أو الكود"
         />
         <button className="btn-primary" onClick={() => void runSearch()} disabled={loading}>

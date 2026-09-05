@@ -602,6 +602,10 @@ export default function Customers() {
               type="text"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
+              onKeyDown={(event) => {
+                // بدل ما يستنى الـ 450ms بتاعة الديباونس، Enter يطبّق البحث فورًا.
+                if (event.key === 'Enter') setDebouncedSearch(search.replace(/\s+/g, ' ').trim());
+              }}
               placeholder="بحث بالكود، الاسم، الهاتف... مثال: احمد* أو *ا*س*لا*م أو 010*"
               dir="rtl"
               className="dawaa-input w-full pl-12 pr-4"
