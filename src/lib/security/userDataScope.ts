@@ -1,8 +1,18 @@
 import { normalizeBranchName } from '@/lib/branch';
-import { normalizeRole, getUserDataScope, type DataScope, type RoleKey } from '@/lib/core/permissionSystem';
+import {
+  normalizeRole,
+  getUserDataScope,
+  type DataScope,
+  type RoleKey,
+} from '@/lib/core/permissionSystem';
 import type { User } from '@/types';
 
-type ScopeUser = (Partial<Pick<User, 'id' | 'staffId' | 'name' | 'username' | 'branch' | 'role'>> & { id?: string | null }) | null | undefined;
+type ScopeUser =
+  | (Partial<Pick<User, 'id' | 'staffId' | 'name' | 'username' | 'branch' | 'role' | 'rawRole'>> & {
+      id?: string | null;
+    })
+  | null
+  | undefined;
 type RowLike = Record<string, unknown> | null | undefined;
 
 export interface CurrentUserScope {
@@ -56,8 +66,12 @@ export function isManagerRole(user: ScopeUser): boolean {
 }
 
 function getDashboardBranchOverrideForUser(user: ScopeUser): string | null {
-  const username = String(user?.username || '').trim().toLowerCase();
-  const name = String(user?.name || '').trim().toLowerCase();
+  const username = String(user?.username || '')
+    .trim()
+    .toLowerCase();
+  const name = String(user?.name || '')
+    .trim()
+    .toLowerCase();
   if (username === 'cs.doha' || name.includes('ضحي')) {
     return 'فرع الشامي';
   }
@@ -69,16 +83,27 @@ function getReviewBranchOverride(user: ScopeUser): string[] | null {
   if (normalizeRole(user?.role) === 'customer_service_manager') {
     return ['فرع الشامي', 'فرع شكري'];
   }
+  // فريق دواء ألفا (هاجر/نور/هبه) مسؤوليتهم غير مقسومة بين الفرعين — لازم
+  // يقدروا يختاروا يقيّموا أي فرع في أي يوم. rawRole هو الدور الحقيقي من
+  // staff_accounts قبل أي تطبيع، لأن normalizeRole بترجعه 'assistant' دايمًا
+  // لعدم التعرف على 'team_dawaa_alpha' كدور مستقل.
+  if (String(user?.rawRole || '').trim() === 'team_dawaa_alpha') {
+    return ['فرع الشامي', 'فرع شكري'];
+  }
   return null;
 }
 
 export function canViewAllBranches(user: ScopeUser): boolean {
-  return ['general_manager', 'executive_manager', 'branches_manager'].includes(normalizeRole(user?.role));
+  return ['general_manager', 'executive_manager', 'branches_manager'].includes(
+    normalizeRole(user?.role)
+  );
 }
 
 export function canViewAllBranchesForServiceAnalytics(user: ScopeUser): boolean {
   const role = normalizeRole(user?.role);
-  return canViewAllBranches(user) || role === 'customer_service_manager';
+  if (canViewAllBranches(user) || role === 'customer_service_manager') return true;
+  // فريق دواء ألفا مسؤوليتهم غير مقسومة بين الفرعين — نفس منطق getReviewBranchOverride.
+  return String(user?.rawRole || '').trim() === 'team_dawaa_alpha';
 }
 
 export function canViewOwnOnly(user: ScopeUser): boolean {
@@ -162,7 +187,11 @@ export function getCurrentUserScope(user: ScopeUser): CurrentUserScope {
   };
 }
 
-export function getScopedBranch(user: ScopeUser, requestedBranch?: string | null, allValue = ALL_BRANCHES): string {
+export function getScopedBranch(
+  user: ScopeUser,
+  requestedBranch?: string | null,
+  allValue = ALL_BRANCHES
+): string {
   if (canViewAllBranches(user)) return requestedBranch || allValue;
   return normalizeBranchName(user?.branch || requestedBranch || '');
 }
@@ -186,7 +215,9 @@ function rowNameValues(row: RowLike): string[] {
     row.assigned_to,
     row.created_by_name,
     row.delivery_name,
-  ].map(normalizeArabicName).filter(Boolean);
+  ]
+    .map(normalizeArabicName)
+    .filter(Boolean);
 }
 
 function rowIdValues(row: RowLike): string[] {
@@ -200,16 +231,24 @@ function rowIdValues(row: RowLike): string[] {
     row.delivery_id,
     row.created_by,
     row.created_by_id,
-  ].map((value) => String(value ?? '').trim()).filter(Boolean);
+  ]
+    .map((value) => String(value ?? '').trim())
+    .filter(Boolean);
 }
 
 export function rowMatchesCurrentDoctor(user: ScopeUser, row: RowLike): boolean {
   if (!user || !row) return false;
   const scope = getCurrentUserScope(user);
   const ids = rowIdValues(row);
-  if ((scope.staffId && ids.includes(scope.staffId)) || (scope.userId && ids.includes(scope.userId))) return true;
+  if (
+    (scope.staffId && ids.includes(scope.staffId)) ||
+    (scope.userId && ids.includes(scope.userId))
+  )
+    return true;
   const names = rowNameValues(row);
-  return scope.names.some((name) => names.some((rowName) => rowName === name || rowName.includes(name) || name.includes(rowName)));
+  return scope.names.some((name) =>
+    names.some((rowName) => rowName === name || rowName.includes(name) || name.includes(rowName))
+  );
 }
 
 export function rowMatchesCurrentUserScope(user: ScopeUser, row: RowLike): boolean {
@@ -217,7 +256,12 @@ export function rowMatchesCurrentUserScope(user: ScopeUser, row: RowLike): boole
   if (canViewAllBranches(user)) return true;
   if (!canViewBranchData(user, rowBranch(row))) return false;
   const role = normalizeRole(user.role);
-  if (role === 'pharmacist' || role === 'delivery' || getUserDataScope(role) === 'assigned_only' || getUserDataScope(role) === 'own_only') {
+  if (
+    role === 'pharmacist' ||
+    role === 'delivery' ||
+    getUserDataScope(role) === 'assigned_only' ||
+    getUserDataScope(role) === 'own_only'
+  ) {
     return rowMatchesCurrentDoctor(user, row);
   }
   return true;

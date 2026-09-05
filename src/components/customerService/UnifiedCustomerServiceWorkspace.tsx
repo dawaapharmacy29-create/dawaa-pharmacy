@@ -32,7 +32,7 @@ import {
   updateFollowupResult,
   type FollowupRow,
 } from '@/lib/api/customerServiceCommandCenter';
-import { canViewAllBranches } from '@/lib/security/userDataScope';
+import { canViewAllBranchesForServiceAnalytics } from '@/lib/security/userDataScope';
 import { normalizeBranchName } from '@/lib/branch';
 import { formatCurrency } from '@/lib/utils';
 import { generateWhatsAppLink } from '@/lib/whatsapp';
@@ -476,7 +476,7 @@ function scriptFor(item: QueueItem) {
 
 export default function UnifiedCustomerServiceWorkspace() {
   const { user } = useAuth();
-  const managerView = canViewAllBranches(user);
+  const managerView = canViewAllBranchesForServiceAnalytics(user);
   const lockedBranch = normalizeBranchName(user?.branch || '');
   const [branch, setBranch] = useState(managerView ? 'فرع الشامي' : lockedBranch || 'فرع الشامي');
   const [tab, setTab] = useState<WorkspaceTab>('today');

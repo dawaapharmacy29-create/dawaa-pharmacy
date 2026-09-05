@@ -70,7 +70,8 @@ function safeText(value: unknown, fallback = ''): string {
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
   if (typeof value === 'object') {
     const record = value as Record<string, unknown>;
-    const preferred = record.key ?? record.role ?? record.name ?? record.label ?? record.labelAr ?? record.value;
+    const preferred =
+      record.key ?? record.role ?? record.name ?? record.label ?? record.labelAr ?? record.value;
     if (preferred != null) return safeText(preferred, fallback);
   }
   return fallback;
@@ -78,7 +79,10 @@ function safeText(value: unknown, fallback = ''): string {
 
 function isPlaceholderName(value: unknown) {
   const normalized = safeText(value).toLowerCase();
-  return !normalized || ['غير محدد', 'غير معروف', 'user', 'unknown', 'undefined', 'null'].includes(normalized);
+  return (
+    !normalized ||
+    ['غير محدد', 'غير معروف', 'user', 'unknown', 'undefined', 'null'].includes(normalized)
+  );
 }
 
 function normalizePermissionInput(extra: unknown): Record<string, boolean> {
@@ -86,7 +90,11 @@ function normalizePermissionInput(extra: unknown): Record<string, boolean> {
   if (Array.isArray(extra)) return Object.fromEntries(extra.map((key) => [String(key), true]));
   if (typeof extra === 'string') {
     return Object.fromEntries(
-      extra.split(',').map((key) => key.trim()).filter(Boolean).map((key) => [key, true])
+      extra
+        .split(',')
+        .map((key) => key.trim())
+        .filter(Boolean)
+        .map((key) => [key, true])
     );
   }
   if (typeof extra === 'object') {
@@ -142,7 +150,8 @@ const EXPLICIT_OVERRIDABLE_PERMISSIONS = new Set([
 
 function capPermissionsToRole(role: unknown, extra?: unknown): Record<string, boolean> {
   const roleKey = normalizeRole(safeText(role, 'assistant'));
-  if (roleKey === 'general_manager') return Object.fromEntries(ALL_PERMISSION_KEYS.map((key) => [key, true]));
+  if (roleKey === 'general_manager')
+    return Object.fromEntries(ALL_PERMISSION_KEYS.map((key) => [key, true]));
   const roleDefaults = getDefaultPermissionsForRole(roleKey);
   const explicit = normalizePermissionInput(extra);
   const capped: Record<string, boolean> = { ...roleDefaults };
@@ -197,24 +206,43 @@ function setCurrentUser(user: User | null) {
     try {
       if (currentUser) localStorage.setItem(STORAGE_KEY, JSON.stringify(currentUser));
       else localStorage.removeItem(STORAGE_KEY);
-    } catch (e) { console.debug('Failed to update localStorage:', e); }
+    } catch (e) {
+      console.debug('Failed to update localStorage:', e);
+    }
   }
   listeners.forEach((listener) => listener());
 }
 
 function logAuthActivity(user: User, action: string, details: string) {
   if (!isSupabaseConfigured) return;
-  supabase.from('activity_log').insert({ user_id: user.id, user_name: user.name, action, module: 'system', details, branch: user.branch }).then(() => {});
+  supabase
+    .from('activity_log')
+    .insert({
+      user_id: user.id,
+      user_name: user.name,
+      action,
+      module: 'system',
+      details,
+      branch: user.branch,
+    })
+    .then(() => {});
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timeoutId = window.setTimeout(() => reject(new Error(`${label} timed out`)), timeoutMs);
-    promise.then(resolve).catch(reject).finally(() => window.clearTimeout(timeoutId));
+    promise
+      .then(resolve)
+      .catch(reject)
+      .finally(() => window.clearTimeout(timeoutId));
   });
 }
 
-async function loadEffectivePermissions(accountId: string, role: unknown, fallback?: unknown): Promise<Record<string, boolean>> {
+async function loadEffectivePermissions(
+  accountId: string,
+  role: unknown,
+  fallback?: unknown
+): Promise<Record<string, boolean>> {
   const roleKey = normalizeRole(safeText(role, 'assistant'));
   let effectivePermissions = capPermissionsToRole(roleKey, fallback || {});
   try {
@@ -235,9 +263,9 @@ async function loadEffectivePermissions(accountId: string, role: unknown, fallba
 async function resolveCurrentStaffAccount(user: User): Promise<User | null> {
   if (!isSupabaseConfigured) return sanitizeUser(user);
 
-  const identifiers = Array.from(new Set(
-    [user.id, user.staffId, user.username].map((value) => safeText(value)).filter(Boolean)
-  ));
+  const identifiers = Array.from(
+    new Set([user.id, user.staffId, user.username].map((value) => safeText(value)).filter(Boolean))
+  );
 
   for (const identifier of identifiers.slice(0, 2)) {
     try {
@@ -248,7 +276,9 @@ async function resolveCurrentStaffAccount(user: User): Promise<User | null> {
       );
       if (error) continue;
       const rows = Array.isArray(data) ? data : data ? [data] : [];
-      const row = rows.find((item: StaffAccountLoginRow) => safeText(item.id) === safeText(user.id)) || rows[0];
+      const row =
+        rows.find((item: StaffAccountLoginRow) => safeText(item.id) === safeText(user.id)) ||
+        rows[0];
       if (!row) continue;
       if (row.active === false || row.can_login === false) return null;
       const role = normalizeRole(safeText(row.role, user.role));
@@ -256,7 +286,11 @@ async function resolveCurrentStaffAccount(user: User): Promise<User | null> {
         ? safeText(row.staff_name, safeText(row.username, user.name))
         : safeText(row.name);
       const accountId = safeText(row.id, user.id);
-      const effectivePermissions = await loadEffectivePermissions(accountId, role, row.permissions || user.permissions || {});
+      const effectivePermissions = await loadEffectivePermissions(
+        accountId,
+        role,
+        row.permissions || user.permissions || {}
+      );
       return sanitizeUser({
         ...user,
         id: accountId,
@@ -264,6 +298,7 @@ async function resolveCurrentStaffAccount(user: User): Promise<User | null> {
         username: safeText(row.username, user.username),
         name: resolvedName,
         role,
+        rawRole: safeText(row.role) || user.rawRole,
         branch: safeText(row.branch, user.branch),
         active: row.active !== false,
         permissions: effectivePermissions,
@@ -279,7 +314,8 @@ async function resolveCurrentStaffAccount(user: User): Promise<User | null> {
 
 function refreshCurrentStaffAccount(user: User): Promise<User | null> {
   const now = Date.now();
-  if (now - lastAccountRefreshAt < ACCOUNT_REFRESH_TTL_MS) return Promise.resolve(sanitizeUser(user));
+  if (now - lastAccountRefreshAt < ACCOUNT_REFRESH_TTL_MS)
+    return Promise.resolve(sanitizeUser(user));
   if (accountRefreshPromise) return accountRefreshPromise;
 
   accountRefreshPromise = resolveCurrentStaffAccount(user)
@@ -322,11 +358,16 @@ async function loginWithStaffAccount(username: string, password: string): Promis
   }
 
   if (outcome.networkFailure && !outcome.data) {
-    logRuntimeError('auth login rpc failed', new Error('staff_account_login timed out after retry'));
+    logRuntimeError(
+      'auth login rpc failed',
+      new Error('staff_account_login timed out after retry')
+    );
   }
 
   const data = outcome.data;
-  const row = Array.isArray(data) ? (data[0] as StaffAccountLoginRow | undefined) : (data as StaffAccountLoginRow | null);
+  const row = Array.isArray(data)
+    ? (data[0] as StaffAccountLoginRow | undefined)
+    : (data as StaffAccountLoginRow | null);
   if (!row?.id || row.active === false || row.can_login === false) return null;
 
   void withTimeout(
@@ -336,7 +377,11 @@ async function loginWithStaffAccount(username: string, password: string): Promis
   ).catch(() => {});
 
   const roleKey = normalizeRole(safeText(row.role, 'assistant'));
-  const effectivePermissions = await loadEffectivePermissions(safeText(row.id), roleKey, row.permissions || {});
+  const effectivePermissions = await loadEffectivePermissions(
+    safeText(row.id),
+    roleKey,
+    row.permissions || {}
+  );
 
   const resolvedName = isPlaceholderName(row.name)
     ? safeText(row.staff_name, safeText(row.username, 'حساب موظف'))
@@ -347,6 +392,7 @@ async function loginWithStaffAccount(username: string, password: string): Promis
     name: resolvedName,
     username: safeText(row.username, resolvedName),
     role: roleKey,
+    rawRole: safeText(row.role) || undefined,
     branch: safeText(row.branch, 'all'),
     phone: row.phone || undefined,
     active: row.active,
@@ -362,11 +408,16 @@ export function useAuth() {
     const listener = () => setUser(currentUser);
     listeners.add(listener);
     setUser(currentUser);
-    return () => { listeners.delete(listener); };
+    return () => {
+      listeners.delete(listener);
+    };
   }, []);
 
   useEffect(() => {
-    if (!currentUser) { setLoading(false); return; }
+    if (!currentUser) {
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
 
     const shouldBlockForRefresh = Date.now() - lastAccountRefreshAt >= ACCOUNT_REFRESH_TTL_MS;
@@ -381,24 +432,41 @@ export function useAuth() {
           freshUser.role !== currentUser?.role ||
           freshUser.branch !== currentUser?.branch ||
           freshUser.name !== currentUser?.name ||
-          JSON.stringify(freshUser.permissions || {}) !== JSON.stringify(currentUser?.permissions || {})
+          JSON.stringify(freshUser.permissions || {}) !==
+            JSON.stringify(currentUser?.permissions || {})
         ) {
           setCurrentUser(freshUser);
         }
       })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
     if (!user) return;
     const TIMEOUT = 12 * 60 * 60 * 1000;
     let timerId: number | undefined;
-    const reset = () => { if (timerId) window.clearTimeout(timerId); timerId = window.setTimeout(() => setCurrentUser(null), TIMEOUT); };
-    const events: Array<keyof WindowEventMap> = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'];
+    const reset = () => {
+      if (timerId) window.clearTimeout(timerId);
+      timerId = window.setTimeout(() => setCurrentUser(null), TIMEOUT);
+    };
+    const events: Array<keyof WindowEventMap> = [
+      'mousemove',
+      'keydown',
+      'click',
+      'scroll',
+      'touchstart',
+    ];
     events.forEach((eventName) => window.addEventListener(eventName, reset, { passive: true }));
     reset();
-    return () => { if (timerId) window.clearTimeout(timerId); events.forEach((eventName) => window.removeEventListener(eventName, reset)); };
+    return () => {
+      if (timerId) window.clearTimeout(timerId);
+      events.forEach((eventName) => window.removeEventListener(eventName, reset));
+    };
   }, [user?.id]);
 
   const login = useCallback(async (username: string, password: string): Promise<boolean> => {
@@ -425,20 +493,57 @@ export function useAuth() {
     } catch {}
   }, []);
 
-  const safeUser = useMemo(() => sanitizeUser(user), [user?.id, user?.role, user?.branch, user?.name, user?.username, user?.active, user?.phone, user?.staffId, JSON.stringify(user?.permissions || {})]);
+  const safeUser = useMemo(
+    () => sanitizeUser(user),
+    [
+      user?.id,
+      user?.role,
+      user?.branch,
+      user?.name,
+      user?.username,
+      user?.active,
+      user?.phone,
+      user?.staffId,
+      JSON.stringify(user?.permissions || {}),
+    ]
+  );
   const roleKey = normalizeRole(safeText(safeUser?.role, 'assistant'));
   const isAdmin = isAdminRole(roleKey);
   const isBranchManager = isBranchManagerRole(roleKey);
   const canManage = isPrivilegedRole(roleKey) || isBranchManager;
-  const checkPermission = useCallback((permission?: string): boolean => {
-    try { return coreHasPermission(safeUser, permission || ''); }
-    catch (error) { logRuntimeError('auth checkPermission failed', error); return false; }
-  }, [safeUser]);
-  const hasPermission = useCallback(async (permission?: string): Promise<boolean> => {
-    try { return !permission || coreHasPermission(safeUser, permission); }
-    catch (error) { logRuntimeError('auth hasPermission failed', error); return false; }
-  }, [safeUser]);
-  return { user: safeUser, loading, login, logout, isAdmin, isBranchManager, canManage, checkPermission, hasPermission };
+  const checkPermission = useCallback(
+    (permission?: string): boolean => {
+      try {
+        return coreHasPermission(safeUser, permission || '');
+      } catch (error) {
+        logRuntimeError('auth checkPermission failed', error);
+        return false;
+      }
+    },
+    [safeUser]
+  );
+  const hasPermission = useCallback(
+    async (permission?: string): Promise<boolean> => {
+      try {
+        return !permission || coreHasPermission(safeUser, permission);
+      } catch (error) {
+        logRuntimeError('auth hasPermission failed', error);
+        return false;
+      }
+    },
+    [safeUser]
+  );
+  return {
+    user: safeUser,
+    loading,
+    login,
+    logout,
+    isAdmin,
+    isBranchManager,
+    canManage,
+    checkPermission,
+    hasPermission,
+  };
 }
 
 export function getSafeCurrentUserId(): string | null {
@@ -450,6 +555,7 @@ export function getSafeCurrentUserId(): string | null {
 export function getCurrentUserProfile() {
   if (!currentUser) throw new Error('Login required');
   const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  if (!uuidRegex.test(currentUser.id)) return { ...currentUser, id: '00000000-0000-0000-0000-000000000000' };
+  if (!uuidRegex.test(currentUser.id))
+    return { ...currentUser, id: '00000000-0000-0000-0000-000000000000' };
   return sanitizeUser(currentUser) || currentUser;
 }

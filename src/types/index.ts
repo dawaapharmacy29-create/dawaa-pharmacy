@@ -4,6 +4,7 @@ export interface User {
   name: string;
   username: string;
   role: string;
+  rawRole?: string;
   branch: string;
   avatar?: string;
   phone?: string;
