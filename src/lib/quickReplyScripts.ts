@@ -54,6 +54,14 @@ export const QUICK_REPLY_SCRIPT_TYPES = [
   'post_treatment_checkin',
   'points_reminder',
   'loyalty_thanks',
+  'angry_customer',
+  'order_status_followup',
+  'vip_active_checkin',
+  'vip_winback',
+  'substitute_unavailable',
+  'missing_info_request',
+  'partial_order_apology',
+  'review_request',
 ] as const;
 
 export const DEFAULT_QUICK_REPLY_SCRIPTS: Array<
@@ -303,6 +311,78 @@ export const DEFAULT_QUICK_REPLY_SCRIPTS: Array<
       'أهلًا بحضرتك {{customer_name}}، بقالك معانا فترة طويلة وده بيشرفنا جدًا. حبينا نشكرك على ثقتك المستمرة، ولو في أي حاجة نقدر نميزك بيها كعميل قديم، قولّنا.',
     tags: ['ولاء', 'عميل قديم', 'شكر'],
   },
+  {
+    shortcut: '/غضب',
+    title: 'احتواء عميل غضبان بشدة',
+    category: 'شكاوى',
+    script_type: 'angry_customer',
+    message_body:
+      'بحس بغضب حضرتك وحقك تمامًا يا فندم، وأنا آسف جدًا على اللي حصل. مش هرد عليك بجمل جاهزة — عايز أفهم بالظبط اللي حصل من حضرتك بنفسك، وهقعد معاك لحد ما نوصل لحل يريحك فعلًا، مش بس نقفل الموضوع.',
+    tags: ['شكوى', 'غضب', 'احتواء', 'تصعيد'],
+  },
+  {
+    shortcut: '/حالة_الطلب',
+    title: 'متابعة حالة طلب العميل',
+    category: 'متابعة',
+    script_type: 'order_status_followup',
+    message_body:
+      'أهلًا بحضرتك {{customer_name}}، حابين نطمّنك على طلبك: هو دلوقتي في مرحلة {{order_status}}. لو عايز أي تفاصيل إضافية أو موعد وصول متوقع أدق، إحنا جاهزين نجيبهولك فورًا.',
+    tags: ['متابعة طلب', 'حالة الطلب'],
+  },
+  {
+    shortcut: '/vip_نشط',
+    title: 'متابعة دورية لعميل VIP نشط',
+    category: 'VIP',
+    script_type: 'vip_active_checkin',
+    message_body:
+      'أهلًا بحضرتك {{customer_name}}، حبينا نمر عليك ونطمن إن كل حاجة ماشية تمام معانا زي ما تعودت. مفيش أي مشكلة نتكلم فيها، بس حضرتك من أهم عملائنا وحبينا نسمع رأيك باستمرار: في حاجة تحب نضيفها أو نحسّنها في تعاملك معانا؟',
+    tags: ['vip', 'رعاية استباقية', 'متابعة دورية'],
+  },
+  {
+    shortcut: '/استرجاع_vip',
+    title: 'استرجاع عميل VIP قلل تعامله',
+    category: 'VIP',
+    script_type: 'vip_winback',
+    message_body:
+      'أهلًا بحضرتك {{customer_name}}، معاك {{doctor_name}} من صيدليات دواء شخصيًا. لاحظنا إن تعاملك معانا قلّ عن المعتاد، وحضرتك من أهم عملائنا فحبيت أتواصل بنفسي مش عن طريق رسالة عامة. ممكن تصارحني: في حاجة حصلت خلتك تقلل، عشان أصلحها بنفسي فورًا؟',
+    tags: ['vip', 'استرجاع', 'تعامل شخصي'],
+  },
+  {
+    shortcut: '/بديل_دواء',
+    title: 'اقتراح بديل لدواء غير متوفر',
+    category: 'روشتة',
+    script_type: 'substitute_unavailable',
+    message_body:
+      'حضرتك، الصنف اللي طلبته مش متوفر عندنا دلوقتي، وعشان محضرتكش تستنى، فيه بديل بنفس المادة الفعالة وبنفس الفاعلية اسمه {{product_name}}. حابب صيدلي يراجعلك التبديل ده قبل ما نجهزه؟',
+    tags: ['بديل', 'نواقص', 'روشتة'],
+  },
+  {
+    shortcut: '/بيانات_ناقصة',
+    title: 'طلب معلومات إضافية لإتمام الطلب',
+    category: 'متابعة',
+    script_type: 'missing_info_request',
+    message_body:
+      'حضرتك، عشان نقدر نكمل طلبك بسرعة، محتاجين منك {{missing_info}}. تقدر تبعتها لينا هنا وهنكمل الطلب على طول.',
+    tags: ['بيانات ناقصة', 'إتمام طلب'],
+  },
+  {
+    shortcut: '/نقص_طلب',
+    title: 'اعتذار عن نقص في الطلب',
+    category: 'متابعة',
+    script_type: 'partial_order_apology',
+    message_body:
+      'بنعتذر جدًا يا فندم، طلب حضرتك وصل ناقص صنف ({{product_name}}) بسبب نقص مؤقت عندنا. هنجهزلك الصنف الناقص ونوصله لحضرتك فورًا أول ما يتوفر، من غير أي تكلفة إضافية.',
+    tags: ['نقص طلب', 'اعتذار', 'توصيل'],
+  },
+  {
+    shortcut: '/طلب_تقييم',
+    title: 'طلب تقييم من عميل راضٍ',
+    category: 'ولاء ونقاط',
+    script_type: 'review_request',
+    message_body:
+      'أهلًا بحضرتك {{customer_name}}، سعدنا جدًا إن تجربتك معانا كانت كويسة. لو عندك دقيقة، رأيك يفرق معانا جدًا ويساعد عملاء تانيين — تحب تشاركنا تقييمك؟',
+    tags: ['تقييم', 'رضا العميل'],
+  },
 ];
 
 // ============================================================================
@@ -354,7 +434,12 @@ export function suggestScriptTypesForCustomer(input: {
     if (!suggestions.includes(churnType)) suggestions.push(churnType);
   }
 
-  if (input.segment === 'مهم جدًا' && !suggestions.includes('vip')) suggestions.push('vip');
+  if (input.segment === 'مهم جدًا' && !suggestions.includes('vip')) {
+    // عميل VIP: نفرّق بين نشاطه الطبيعي (رعاية استباقية) وتراجع تعامله
+    // (استرجاع شخصي بلهجة مختلفة تمامًا عن أي عميل عادي بيقل تعامله).
+    if (/مهدد|متوقف/.test(status)) suggestions.unshift('vip_winback');
+    else suggestions.push('vip_active_checkin');
+  }
   if (!suggestions.length) suggestions.push('followup');
   return suggestions;
 }
@@ -471,6 +556,8 @@ export function renderQuickReplyTemplate(
     last_product_category?: string | null;
     product_name?: string | null;
     points_balance?: string | number | null;
+    order_status?: string | null;
+    missing_info?: string | null;
     use_customer_name?: boolean;
   }
 ) {
@@ -503,6 +590,10 @@ export function renderQuickReplyTemplate(
       '{points_balance}',
       values.points_balance != null ? String(values.points_balance) : 'المتاح'
     )
+    .replaceAll('{{order_status}}', values.order_status || 'قيد التجهيز')
+    .replaceAll('{order_status}', values.order_status || 'قيد التجهيز')
+    .replaceAll('{{missing_info}}', values.missing_info || 'العنوان بالتفصيل ورقم تواصل بديل')
+    .replaceAll('{missing_info}', values.missing_info || 'العنوان بالتفصيل ورقم تواصل بديل')
     .replace(/\s{2,}/g, ' ')
     .replace(/\s+([،,.!?])/g, '$1')
     .trim();
