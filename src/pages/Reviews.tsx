@@ -131,6 +131,8 @@ const EVAL_REASONS = [
   'مراجعة أداء شهرية',
 ];
 const REVIEW_DRAFT_KEY = 'dawaa_conversation_review_draft_v3';
+const REVIEW_HISTORY_CACHE_KEY = 'dawaa_conversation_review_history_v1';
+const REVIEW_HISTORY_SELECT = 'id,created_at,updated_at,reviewer_id,reviewer_name,reviewer_role,staff_id,doctor_id,staff_name,staff_role,doctor_name,branch,customer_id,customer_name,customer_code,customer_phone,invoice_number,evaluation_kind,conversation_type,evaluation_reason,conversation_date,total_score,final_score,level,point_impact,doctor_points_impact,main_positive_reason,main_negative_reason,reviewer_notes,training_recommendation,month_cycle,manager_review_score,manager_review_notes,manager_reviewed_by,manager_reviewed_at';
 
 const emptyReviewForm = {
   reviewerId: '',
@@ -586,20 +588,55 @@ export default function Reviews() {
       .sort((a, b) => b.count - a.count);
   }, [reviewHistory]);
 
+  const historyLoadSeq = useRef(0);
   const loadReviewHistory = useCallback(async () => {
+    const requestId = ++historyLoadSeq.current;
+    const cacheKey = `${REVIEW_HISTORY_CACHE_KEY}:${user?.id || 'anonymous'}`;
+    let cachedRows: ConversationReviewHistoryRow[] = [];
+
     setHistoryLoading(true);
     setHistoryError(null);
+
     try {
-      const { data, error } = await supabase
-        .from('conversation_sales_reviews')
-        .select('id,created_at,updated_at,reviewer_id,reviewer_name,reviewer_role,staff_id,doctor_id,staff_name,staff_role,doctor_name,branch,customer_id,customer_name,customer_code,customer_phone,invoice_number,evaluation_kind,conversation_type,evaluation_reason,conversation_date,total_score,final_score,level,point_impact,doctor_points_impact,main_positive_reason,main_negative_reason,reviewer_notes,training_recommendation,month_cycle,raw_scores,review_items,manager_review_score,manager_review_notes,manager_reviewed_by,manager_reviewed_at')
-        .order('created_at', { ascending: false })
-        .limit(3000);
-      if (error) throw error;
-      const rows = ((data || []) as ConversationReviewHistoryRow[]).filter((row) =>
-        canUserSeeConversationReviewBranch(user, row.branch)
-      );
+      const cachedRaw = window.sessionStorage.getItem(cacheKey);
+      if (cachedRaw) {
+        const cached = JSON.parse(cachedRaw) as { savedAt?: number; rows?: ConversationReviewHistoryRow[] };
+        const freshEnough = cached.savedAt && Date.now() - cached.savedAt < 10 * 60 * 1000;
+        if (freshEnough && Array.isArray(cached.rows)) {
+          cachedRows = cached.rows.filter((row) => canUserSeeConversationReviewBranch(user, row.branch));
+          if (cachedRows.length) setReviewHistory(cachedRows);
+        }
+      }
+    } catch {
+      // Cache is best-effort only; never block the live request.
+    }
+
+    try {
+      const queryHistory = () =>
+        supabase
+          .from('conversation_sales_reviews')
+          .select(REVIEW_HISTORY_SELECT)
+          .order('created_at', { ascending: false })
+          .limit(3000);
+
+      let response = await queryHistory();
+      if (response.error && /schema cache|retrying|PGRST002/i.test(response.error.message || '')) {
+        await new Promise((resolve) => window.setTimeout(resolve, 450));
+        response = await queryHistory();
+      }
+      if (response.error) throw response.error;
+      if (requestId !== historyLoadSeq.current) return;
+
+      const sourceRows = (response.data || []) as ConversationReviewHistoryRow[];
+      const rows = sourceRows.filter((row) => canUserSeeConversationReviewBranch(user, row.branch));
       setReviewHistory(rows);
+
+      try {
+        window.sessionStorage.setItem(cacheKey, JSON.stringify({ savedAt: Date.now(), rows: sourceRows }));
+      } catch {
+        // Storage quota/privacy mode must not break history rendering.
+      }
+
       const params = new URLSearchParams(window.location.search);
       const id = params.get('id');
       if (id) {
@@ -613,16 +650,41 @@ export default function Reviews() {
         }
       }
     } catch (error) {
+      if (requestId !== historyLoadSeq.current) return;
       setHistoryError((error as Error).message);
-      setReviewHistory([]);
+      if (!cachedRows.length) setReviewHistory([]);
     } finally {
-      setHistoryLoading(false);
+      if (requestId === historyLoadSeq.current) setHistoryLoading(false);
     }
   }, [user]);
 
   useEffect(() => {
     loadReviewHistory();
   }, [loadReviewHistory]);
+
+  useEffect(() => {
+    const id = selectedReviewId;
+    if (!id || !selectedReview || selectedReview.id !== id) return;
+    if (selectedReview.raw_scores != null || selectedReview.review_items != null) return;
+
+    let cancelled = false;
+    supabase
+      .from('conversation_sales_reviews')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (cancelled || error || !data) return;
+        setSelectedReview(data as ConversationReviewHistoryRow);
+      })
+      .catch(() => {
+        // The lightweight row still keeps the history usable if detail hydration fails.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedReviewId, selectedReview]);
 
   useEffect(() => {
     if (draftRestored) return;
