@@ -62,7 +62,111 @@ export const QUICK_REPLY_SCRIPT_TYPES = [
   'missing_info_request',
   'partial_order_apology',
   'review_request',
+  'order_confirmation',
+  'wrong_item_delivered',
+  'return_refund_request',
+  'drug_interaction_concern',
+  'side_effect_report',
+  'dosage_clarification',
+  'storage_instructions',
+  'escalation_notice',
+  'goodwill_gesture',
+  'promotion_notice',
+  'referral_ask',
+  'branch_unavailable_notice',
 ] as const;
+
+// ============================================================================
+// هيكل معماري للسكريبتات — كل الأنواع مبوّبة في 7 مجموعات منطقية تغطي كل
+// أنواع التواصل اللي خدمة العملاء ممكن تحتاجها مع أي عميل في أي مرحلة.
+// ده مش تصنيف زخرفي — بيتحكم في شكل قائمة الاختيار في شاشة إدارة السكريبتات
+// عشان الموظف يلاقي السكريبت المناسب بسرعة بدل ما يدور في قائمة أبجدية طويلة.
+// ============================================================================
+export const SCRIPT_TYPE_GROUPS: Array<{ label: string; types: string[] }> = [
+  {
+    label: '1) دورة حياة العميل',
+    types: [
+      'welcome',
+      'no_purchase_welcome',
+      'referral_welcome',
+      'first_purchase_thanks',
+      'followup',
+      'reorder_reminder',
+      'retention',
+      'churn_long_term',
+      'vip_active_checkin',
+      'vip_winback',
+      'vip',
+    ],
+  },
+  {
+    label: '2) الطلب والتوصيل',
+    types: [
+      'order_confirmation',
+      'order_status_followup',
+      'delivery_delay',
+      'missing_info_request',
+      'partial_order_apology',
+      'wrong_item_delivered',
+      'return_refund_request',
+      'substitute_unavailable',
+      'restock_notice',
+      'branch_unavailable_notice',
+    ],
+  },
+  {
+    label: '3) الصحة والسلامة الدوائية',
+    types: [
+      'cold_flu',
+      'monthly_refill',
+      'post_treatment_checkin',
+      'drug_interaction_concern',
+      'side_effect_report',
+      'dosage_clarification',
+      'storage_instructions',
+    ],
+  },
+  {
+    label: '4) الشكاوى واستعادة الرضا',
+    types: [
+      'complaint',
+      'angry_customer',
+      'complaint_followup',
+      'escalation_notice',
+      'goodwill_gesture',
+      'price_objection',
+      'no_answer',
+    ],
+  },
+  {
+    label: '5) المبيعات والتسويق',
+    types: [
+      'cross_sell',
+      'up_sell',
+      'cosmetics_interest',
+      'supplements_interest',
+      'promotion_notice',
+    ],
+  },
+  {
+    label: '6) تصنيف العميل الشخصي',
+    types: ['family_kids', 'mother_dedicated', 'elderly_care'],
+  },
+  {
+    label: '7) الولاء والنقاط',
+    types: ['points_reminder', 'loyalty_thanks', 'review_request', 'referral_ask'],
+  },
+  {
+    label: '8) ردود عامة',
+    types: ['quick_reply'],
+  },
+];
+
+export function scriptTypeGroupLabel(scriptType: string): string {
+  return (
+    SCRIPT_TYPE_GROUPS.find((group) => group.types.includes(scriptType))?.label || '8) ردود عامة'
+  );
+}
 
 export const DEFAULT_QUICK_REPLY_SCRIPTS: Array<
   Pick<QuickReplyScript, 'shortcut' | 'title' | 'category' | 'script_type' | 'message_body'> &
@@ -383,6 +487,114 @@ export const DEFAULT_QUICK_REPLY_SCRIPTS: Array<
       'أهلًا بحضرتك {{customer_name}}، سعدنا جدًا إن تجربتك معانا كانت كويسة. لو عندك دقيقة، رأيك يفرق معانا جدًا ويساعد عملاء تانيين — تحب تشاركنا تقييمك؟',
     tags: ['تقييم', 'رضا العميل'],
   },
+  {
+    shortcut: '/تأكيد_طلب',
+    title: 'تأكيد استلام الطلب قبل التنفيذ',
+    category: 'متابعة',
+    script_type: 'order_confirmation',
+    message_body:
+      'أهلًا بحضرتك {{customer_name}}، استلمنا طلبك وبنجهزه دلوقتي. تحب نأكد معاك العنوان ووسيلة الدفع قبل ما نبدأ التجهيز، عشان نضمن كل حاجة توصل صح من أول مرة؟',
+    tags: ['تأكيد طلب', 'قبل التنفيذ'],
+  },
+  {
+    shortcut: '/صنف_غلط',
+    title: 'اعتذار عن وصول صنف غلط',
+    category: 'شكاوى',
+    script_type: 'wrong_item_delivered',
+    message_body:
+      'بنعتذر جدًا يا فندم عن الخطأ ده — مش المفروض يحصل خالص. هرتب فورًا استبدال الصنف الغلط بالصنف الصح، ونستلم منك الصنف اللي وصل غلط في نفس وقت التوصيل من غير أي تكلفة أو تعقيد على حضرتك.',
+    tags: ['خطأ توصيل', 'استبدال', 'اعتذار'],
+  },
+  {
+    shortcut: '/استرجاع_منتج',
+    title: 'طلب استرجاع أو استرداد',
+    category: 'متابعة',
+    script_type: 'return_refund_request',
+    message_body:
+      'حضرتك، تمام نقدر نساعدك في استرجاع الصنف. ممكن بس أعرف سبب الاسترجاع (مش مناسب، وصل تالف، غيرت رأيك) عشان أرشدك لأسرع طريقة، وهل تفضل استبدال ولا استرداد المبلغ؟',
+    tags: ['استرجاع', 'استرداد', 'سياسة الإرجاع'],
+  },
+  {
+    shortcut: '/تعارض_دواء',
+    title: 'استفسار عن تعارض بين دوائين',
+    category: 'متابعة',
+    script_type: 'drug_interaction_concern',
+    message_body:
+      'سؤال حضرتك مهم جدًا ومش هرد عليه بنفسي عشان ده قرار طبي بحت. هحوّل استفسارك فورًا للدكتور الصيدلي المسؤول عشان يراجع الدوائين مع بعض ويرد عليك برد دقيق وآمن في أسرع وقت.',
+    tags: ['تعارض دوائي', 'تصعيد للصيدلي', 'سلامة'],
+  },
+  {
+    shortcut: '/عرض_جانبي',
+    title: 'إبلاغ عميل عن عرض جانبي',
+    category: 'متابعة',
+    script_type: 'side_effect_report',
+    message_body:
+      'بشكرك إنك بلغتنا بده فورًا، وده مهم جدًا لسلامتك. هوصّل الموضوع حالًا للدكتور الصيدلي المسؤول عشان يقيّم الحالة معاك مباشرة. لو الأعراض شديدة أو حاسس بضيق تنفس أو تورم، الأفضل تتوجه لأقرب طوارئ فورًا من غير انتظار.',
+    tags: ['عرض جانبي', 'سلامة', 'تصعيد عاجل'],
+  },
+  {
+    shortcut: '/طريقة_الاستخدام',
+    title: 'توضيح طريقة استخدام أو جرعة',
+    category: 'متابعة',
+    script_type: 'dosage_clarification',
+    message_body:
+      'تمام يا فندم، عشان نديك إجابة دقيقة 100% عن الجرعة أو طريقة الاستخدام، هحوّل سؤالك للدكتور الصيدلي المختص يرد عليك مباشرة، عشان ده بيختلف حسب حالة كل شخص.',
+    tags: ['جرعة', 'طريقة استخدام', 'تصعيد للصيدلي'],
+  },
+  {
+    shortcut: '/تخزين_دواء',
+    title: 'تعليمات تخزين دواء معين',
+    category: 'متابعة',
+    script_type: 'storage_instructions',
+    message_body:
+      'بخصوص طريقة حفظ الصنف، ({{product_name}}) محتاج {{storage_condition}}. لو حضرتك مش متأكد من الطريقة الصح، ابعتلي اسم الصنف وهأكدلك بالظبط من الصيدلي.',
+    tags: ['تخزين', 'حفظ الدواء'],
+  },
+  {
+    shortcut: '/تصعيد',
+    title: 'إشعار العميل بتصعيد الموضوع للمدير',
+    category: 'شكاوى',
+    script_type: 'escalation_notice',
+    message_body:
+      'حضرتك، الموضوع ده يستاهل يوصل لمسؤول أعلى مني عشان ياخد حقه كامل. هصعّد الموضوع دلوقتي لمدير الفرع/خدمة العملاء وهرجعلك برد خلال {{followup_window}} بالحل النهائي.',
+    tags: ['تصعيد', 'شكوى', 'متابعة إدارية'],
+  },
+  {
+    shortcut: '/تعويض',
+    title: 'عرض تعويض أو لفتة كريمة',
+    category: 'شكاوى',
+    script_type: 'goodwill_gesture',
+    message_body:
+      'يا فندم، عشان نعوّض حضرتك عن الإزعاج اللي حصل، حابين نقدملك {{goodwill_offer}}. ده أقل حاجة نقدر نعملها عشان تجربتك الجاية معانا تبقى أحسن بكتير.',
+    tags: ['تعويض', 'لفتة كريمة', 'استعادة رضا'],
+  },
+  {
+    shortcut: '/عرض_مناسب',
+    title: 'إشعار بعرض أو خصم مناسب للعميل',
+    category: 'ولاء ونقاط',
+    script_type: 'promotion_notice',
+    message_body:
+      'أهلًا بحضرتك {{customer_name}}، عندنا عرض دلوقتي على {{product_name}} حسينا إنه يناسب احتياجك المعتاد. تحب أبعتلك التفاصيل والسعر؟',
+    tags: ['عرض', 'خصم', 'cross-sell'],
+  },
+  {
+    shortcut: '/طلب_ترشيح',
+    title: 'طلب ترشيح من عميل راضٍ',
+    category: 'ولاء ونقاط',
+    script_type: 'referral_ask',
+    message_body:
+      'أهلًا بحضرتك {{customer_name}}، سعيدين إن تجربتك معانا كانت كويسة. لو عندك حد من الأهل أو الأصحاب محتاج صيدلية موثوقة، هيسعدنا جدًا لو رشحتنا له — وهيكون ليك ولّيه مزايا خاصة كعملاء جدد بترشيح حضرتك.',
+    tags: ['ترشيح', 'إحالة', 'ولاء'],
+  },
+  {
+    shortcut: '/فرع_مش_متاح',
+    title: 'إشعار بعدم توفر الفرع مؤقتًا',
+    category: 'متابعة',
+    script_type: 'branch_unavailable_notice',
+    message_body:
+      'حضرتك، فرع {{branch}} حاليًا {{unavailability_reason}}. تقدر تتواصل مع فرعنا التاني ({{alternative_branch}}) أو تخلينا نجهزلك طلبك ونوصله لحضرتك من غير ما تتعب في التنقل.',
+    tags: ['فرع', 'إشعار مؤقت', 'بديل'],
+  },
 ];
 
 // ============================================================================
@@ -558,6 +770,11 @@ export function renderQuickReplyTemplate(
     points_balance?: string | number | null;
     order_status?: string | null;
     missing_info?: string | null;
+    storage_condition?: string | null;
+    followup_window?: string | null;
+    goodwill_offer?: string | null;
+    unavailability_reason?: string | null;
+    alternative_branch?: string | null;
     use_customer_name?: boolean;
   }
 ) {
@@ -594,6 +811,22 @@ export function renderQuickReplyTemplate(
     .replaceAll('{order_status}', values.order_status || 'قيد التجهيز')
     .replaceAll('{{missing_info}}', values.missing_info || 'العنوان بالتفصيل ورقم تواصل بديل')
     .replaceAll('{missing_info}', values.missing_info || 'العنوان بالتفصيل ورقم تواصل بديل')
+    .replaceAll(
+      '{{storage_condition}}',
+      values.storage_condition || 'حفظ في مكان بارد وجاف بعيدًا عن الشمس'
+    )
+    .replaceAll(
+      '{storage_condition}',
+      values.storage_condition || 'حفظ في مكان بارد وجاف بعيدًا عن الشمس'
+    )
+    .replaceAll('{{followup_window}}', values.followup_window || '24 ساعة')
+    .replaceAll('{followup_window}', values.followup_window || '24 ساعة')
+    .replaceAll('{{goodwill_offer}}', values.goodwill_offer || 'خصم على طلبك الجاي')
+    .replaceAll('{goodwill_offer}', values.goodwill_offer || 'خصم على طلبك الجاي')
+    .replaceAll('{{unavailability_reason}}', values.unavailability_reason || 'مغلق مؤقتًا')
+    .replaceAll('{unavailability_reason}', values.unavailability_reason || 'مغلق مؤقتًا')
+    .replaceAll('{{alternative_branch}}', values.alternative_branch || 'الفرع التاني')
+    .replaceAll('{alternative_branch}', values.alternative_branch || 'الفرع التاني')
     .replace(/\s{2,}/g, ' ')
     .replace(/\s+([،,.!?])/g, '$1')
     .trim();

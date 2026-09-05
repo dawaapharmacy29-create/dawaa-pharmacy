@@ -12,7 +12,7 @@ import {
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import {
-  QUICK_REPLY_SCRIPT_TYPES,
+  SCRIPT_TYPE_GROUPS,
   fetchQuickReplyScripts,
   renderQuickReplyTemplate,
   saveQuickReplyScript,
@@ -253,8 +253,14 @@ export default function CustomerServiceScriptEditor() {
                 setDraft((current) => ({ ...current, script_type: event.target.value }))
               }
             >
-              {QUICK_REPLY_SCRIPT_TYPES.map((type) => (
-                <option key={type}>{type}</option>
+              {SCRIPT_TYPE_GROUPS.map((group) => (
+                <optgroup key={group.label} label={group.label}>
+                  {group.types.map((type) => (
+                    <option key={type} value={type}>
+                      {type}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
             <select
@@ -328,10 +334,14 @@ export default function CustomerServiceScriptEditor() {
               onChange={(event) => setTypeFilter(event.target.value)}
             >
               <option value="">كل الأنواع ({scripts.length})</option>
-              {QUICK_REPLY_SCRIPT_TYPES.map((type) => (
-                <option key={type} value={type}>
-                  {type} ({scripts.filter((s) => s.script_type === type).length})
-                </option>
+              {SCRIPT_TYPE_GROUPS.map((group) => (
+                <optgroup key={group.label} label={group.label}>
+                  {group.types.map((type) => (
+                    <option key={type} value={type}>
+                      {type} ({scripts.filter((s) => s.script_type === type).length})
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
             <button type="button" className="btn-secondary" onClick={() => void load()}>
