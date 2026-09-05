@@ -12,6 +12,7 @@ import AppRecoveryScreen from '@/components/system/AppRecoveryScreen';
 import { diagnosticsUrl, logRuntimeError, loginRecoveryUrl } from '@/lib/appRecovery';
 import PageSafetyBoundary from '@/components/system/PageSafetyBoundary';
 import AppHealthBanner from '@/components/system/AppHealthBanner';
+import DeploymentWatcher from '@/components/system/DeploymentWatcher';
 import ExecutiveDashboardRoute from '@/pages/ExecutiveDashboardRoute';
 
 const queryClient = new QueryClient({
@@ -86,7 +87,9 @@ const WeeklyManagerEvaluation = lazy(() => import('@/pages/WeeklyManagerEvaluati
 const DailyManagerChecklist = lazy(() => import('@/pages/DailyManagerChecklist'));
 const CustomerMonthlyPerformance = lazy(() => import('@/pages/CustomerMonthlyPerformance'));
 const StaffDashboard = lazy(() => import('@/pages/StaffDashboard'));
-const CustomerServiceManagerDashboard = lazy(() => import('@/pages/CustomerServiceManagerDashboard'));
+const CustomerServiceManagerDashboard = lazy(
+  () => import('@/pages/CustomerServiceManagerDashboard')
+);
 const RolesPermissions = lazy(() => import('@/pages/RolesPermissions'));
 const ShelfOrganization = lazy(() => import('@/pages/ShelfOrganization'));
 const InventoryCounts = lazy(() => import('@/pages/InventoryCounts'));
@@ -126,33 +129,60 @@ function PageLoadingFallback({ pageName }: { pageName: string }) {
   }, []);
 
   if (isSlow) {
-    return <div className="dawaa-card dawaa-card--raised p-6 text-center" dir="rtl">
-      <div className="dawaa-icon-tile mx-auto text-2xl">⚠️</div>
-      <h2 className="dawaa-title mt-3 text-xl">تعذر تحميل {pageName}</h2>
-      <p className="dawaa-body mx-auto mt-2 max-w-2xl text-sm leading-7">استغرق تحميل هذه الصفحة أكثر من المعتاد. التطبيق ما زال يعمل، ويمكنك فتح التشخيص أو تسجيل الدخول من جديد.</p>
-      <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:justify-center">
-        <button onClick={() => window.location.reload()} className="dawaa-button dawaa-button--primary px-5 py-3 text-sm font-black">إعادة المحاولة</button>
-        <a href={diagnosticsUrl('route_slow_loading')} className="dawaa-button dawaa-button--secondary px-5 py-3 text-sm font-black">فتح التشخيص</a>
-        <a href={loginRecoveryUrl('route_slow_loading')} className="dawaa-button dawaa-button--ghost px-5 py-3 text-sm font-black">تسجيل الدخول</a>
+    return (
+      <div className="dawaa-card dawaa-card--raised p-6 text-center" dir="rtl">
+        <div className="dawaa-icon-tile mx-auto text-2xl">⚠️</div>
+        <h2 className="dawaa-title mt-3 text-xl">تعذر تحميل {pageName}</h2>
+        <p className="dawaa-body mx-auto mt-2 max-w-2xl text-sm leading-7">
+          استغرق تحميل هذه الصفحة أكثر من المعتاد. التطبيق ما زال يعمل، ويمكنك فتح التشخيص أو تسجيل
+          الدخول من جديد.
+        </p>
+        <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:justify-center">
+          <button
+            onClick={() => window.location.reload()}
+            className="dawaa-button dawaa-button--primary px-5 py-3 text-sm font-black"
+          >
+            إعادة المحاولة
+          </button>
+          <a
+            href={diagnosticsUrl('route_slow_loading')}
+            className="dawaa-button dawaa-button--secondary px-5 py-3 text-sm font-black"
+          >
+            فتح التشخيص
+          </a>
+          <a
+            href={loginRecoveryUrl('route_slow_loading')}
+            className="dawaa-button dawaa-button--ghost px-5 py-3 text-sm font-black"
+          >
+            تسجيل الدخول
+          </a>
+        </div>
       </div>
-    </div>;
+    );
   }
 
-  return <div className="dawaa-card dawaa-card--soft p-6" dir="rtl">
-    <div className="flex items-center gap-3">
-      <div className="h-6 w-6 animate-spin rounded-full border-4 border-[var(--dawaa-theme-border)] border-t-[var(--dawaa-theme-primary)]" />
-      <div className="dawaa-body text-sm font-black">جاري تحميل {pageName}...</div>
+  return (
+    <div className="dawaa-card dawaa-card--soft p-6" dir="rtl">
+      <div className="flex items-center gap-3">
+        <div className="h-6 w-6 animate-spin rounded-full border-4 border-[var(--dawaa-theme-border)] border-t-[var(--dawaa-theme-primary)]" />
+        <div className="dawaa-body text-sm font-black">جاري تحميل {pageName}...</div>
+      </div>
+      <div className="mt-5 grid gap-3 md:grid-cols-3">
+        {Array.from({ length: 3 }).map((_, index) => (
+          <div
+            key={index}
+            className="h-24 animate-pulse rounded-2xl bg-[var(--dawaa-theme-soft)]"
+          />
+        ))}
+      </div>
     </div>
-    <div className="mt-5 grid gap-3 md:grid-cols-3">{Array.from({ length: 3 }).map((_, index) => <div key={index} className="h-24 animate-pulse rounded-2xl bg-[var(--dawaa-theme-soft)]" />)}</div>
-  </div>;
+  );
 }
 
 function routeSuspense(component: ReactNode, pageName: string) {
   return (
     <PageSafetyBoundary pageName={pageName}>
-      <Suspense fallback={<PageLoadingFallback pageName={pageName} />}>
-        {component}
-      </Suspense>
+      <Suspense fallback={<PageLoadingFallback pageName={pageName} />}>{component}</Suspense>
     </PageSafetyBoundary>
   );
 }
@@ -163,151 +193,665 @@ function ProtectedRoute({ children, permission }: { children: ReactNode; permiss
   const effectivePermissions = permission || getRoutePermissions(location.pathname);
   if (loading) return <PageLoadingFallback pageName="بيانات الدخول" />;
   if (!user) return <Navigate to="/login" replace />;
-  if (location.pathname === '/' && isDoctorRole(user) && !checkPermission('view_executive_dashboard')) return <Navigate to="/doctor-dashboard" replace />;
-  if (effectivePermissions && (Array.isArray(effectivePermissions) ? !effectivePermissions.some((item) => checkPermission(item)) : !checkPermission(effectivePermissions))) {
-    return <Layout><div className="dawaa-card dawaa-card--soft dawaa-body py-16 text-center" dir="rtl">ليس لديك صلاحية للوصول إلى هذه الصفحة.</div></Layout>;
+  if (
+    location.pathname === '/' &&
+    isDoctorRole(user) &&
+    !checkPermission('view_executive_dashboard')
+  )
+    return <Navigate to="/doctor-dashboard" replace />;
+  if (
+    effectivePermissions &&
+    (Array.isArray(effectivePermissions)
+      ? !effectivePermissions.some((item) => checkPermission(item))
+      : !checkPermission(effectivePermissions))
+  ) {
+    return (
+      <Layout>
+        <div className="dawaa-card dawaa-card--soft dawaa-body py-16 text-center" dir="rtl">
+          ليس لديك صلاحية للوصول إلى هذه الصفحة.
+        </div>
+      </Layout>
+    );
   }
   return <Layout>{children}</Layout>;
 }
 
 function AdminRoute({ children, permission }: { children: ReactNode; permission?: string }) {
   const { isAdmin, checkPermission } = useAuth();
-  if (!isAdmin && (!permission || !checkPermission(permission))) return <div className="dawaa-card dawaa-card--soft dawaa-body py-16 text-center" dir="rtl">ليس لديك صلاحية للوصول إلى هذه الصفحة.</div>;
+  if (!isAdmin && (!permission || !checkPermission(permission)))
+    return (
+      <div className="dawaa-card dawaa-card--soft dawaa-body py-16 text-center" dir="rtl">
+        ليس لديك صلاحية للوصول إلى هذه الصفحة.
+      </div>
+    );
   return <>{children}</>;
 }
 
 function isStaleChunkError(error: Error | undefined) {
   const message = String(error?.message || '');
-  return /Failed to fetch dynamically imported module|Loading chunk|dynamically imported module|error loading dynamically imported module/i.test(message);
+  return /Failed to fetch dynamically imported module|Loading chunk|dynamically imported module|error loading dynamically imported module/i.test(
+    message
+  );
 }
 
-type ErrorBoundaryState = { hasError: boolean; message?: string; isIOS?: boolean };
+type ErrorBoundaryState = {
+  hasError: boolean;
+  message?: string;
+  isIOS?: boolean;
+  recovering?: boolean;
+};
 class AppErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryState> {
-  state: ErrorBoundaryState = { hasError: false, isIOS: false };
-  static getDerivedStateFromError(error: Error) { return { hasError: true, message: error?.message || 'unknown error', isIOS: isIOSWebKit() }; }
+  state: ErrorBoundaryState = { hasError: false, isIOS: false, recovering: false };
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, message: error?.message || 'unknown error', isIOS: isIOSWebKit() };
+  }
   componentDidCatch(error: Error, info: unknown) {
     console.error('App error boundary caught error:', error, info);
     logRuntimeError('App error boundary caught error', error);
     // بعد نشر جديد على Vercel، أي تاب قديم فاتح ممكن يحاول يحمّل ملف JS بمسار
-    // قديم اتشال فعليًا. الحل هو تحديث الصفحة مرة واحدة (مش شاشة خطأ مخيفة)
-    // عشان يجيب index.html الجديد اللي بيشاور على الملفات الصح.
+    // قديم اتشال فعليًا. الحل هو تحديث الصفحة مرة واحدة تلقائيًا وصامت (مش
+    // شاشة خطأ مخيفة) عشان يجيب index.html الجديد اللي بيشاور على الملفات الصح.
     if (isStaleChunkError(error)) {
+      this.setState({ recovering: true });
       const key = 'dawaa_stale_chunk_reload_at';
       const last = Number(sessionStorage.getItem(key) || 0);
       if (Date.now() - last > 15000) {
         sessionStorage.setItem(key, String(Date.now()));
-        // إعادة تحميل عادية أحيانًا بترجع نفس الصفحة القديمة من كاش HTTP —
-        // معامل فريد في الرابط بيجبر المتصفح يجيب index.html طازة 100%.
-        window.location.href = window.location.pathname + window.location.search
-          + (window.location.search ? '&' : '?') + '_r=' + Date.now() + window.location.hash;
+        window.location.href =
+          window.location.pathname +
+          window.location.search +
+          (window.location.search ? '&' : '?') +
+          '_r=' +
+          Date.now() +
+          window.location.hash;
       }
     }
   }
   render() {
+    if (this.state.recovering) {
+      return (
+        <main className="grid min-h-screen place-items-center dawaa-app-bg p-5" dir="rtl">
+          <div className="text-center">
+            <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-teal-400 border-t-transparent" />
+            <p className="dawaa-muted text-sm font-bold">جاري تحديث التطبيق لأحدث نسخة…</p>
+          </div>
+        </main>
+      );
+    }
     if (this.state.hasError) return <AppRecoveryScreen reason="app_error_boundary" />;
     return this.props.children;
   }
 }
 
 function AppRoutes() {
-  return <Routes>
-    <Route path="/login" element={routeSuspense(<Login />, 'تسجيل الدخول')} />
-    <Route path="/" element={<ProtectedRoute><ExecutiveDashboardRoute /></ProtectedRoute>} />
-    <Route path="/executive-2027" element={<ProtectedRoute>{routeSuspense(<ExecutiveDashboardRoute />, 'لوحة القيادة')}</ProtectedRoute>} />
-    <Route path="/customer-service-dashboard" element={<ProtectedRoute>{routeSuspense(<CustomerServiceManagerDashboard />, 'لوحة مديرة خدمة العملاء')}</ProtectedRoute>} />
-    <Route path="/doctor-dashboard" element={<ProtectedRoute>{routeSuspense(<DoctorDashboard />, 'لوحة الدكتور')}</ProtectedRoute>} />
-    <Route path="/branch-comparison" element={<ProtectedRoute>{routeSuspense(<BranchComparison />, 'مقارنة الفروع')}</ProtectedRoute>} />
-    <Route path="/branch-inspection" element={<ProtectedRoute>{routeSuspense(<BranchInspection />, 'مرور مدير الفروع')}</ProtectedRoute>} />
-    <Route path="/evaluation-rules" element={<ProtectedRoute>{routeSuspense(<EvaluationRules2027 />, 'قواعد التقييم')}</ProtectedRoute>} />
-    <Route path="/point-appeals" element={<ProtectedRoute>{routeSuspense(<PointAppeals />, 'اعتراضات النقاط')}</ProtectedRoute>} />
-    <Route path="/performance-pillars" element={<ProtectedRoute>{routeSuspense(<DoctorPerformancePillars />, 'الدرجة المركّبة للأداء')}</ProtectedRoute>} />
-    <Route path="/doctor-quality-summary" element={<ProtectedRoute>{routeSuspense(<DoctorQualitySummary />, 'ملخص أداء الدكاترة')}</ProtectedRoute>} />
-    <Route path="/weekly-evaluation/:type" element={<ProtectedRoute>{routeSuspense(<WeeklyManagerEvaluation />, 'التقييم الأسبوعي')}</ProtectedRoute>} />
-    <Route path="/daily-manager-checklist" element={<ProtectedRoute>{routeSuspense(<DailyManagerChecklist />, 'المهام اليومية')}</ProtectedRoute>} />
-    <Route path="/customer-monthly-performance" element={<ProtectedRoute>{routeSuspense(<CustomerMonthlyPerformance />, 'أداء العملاء الشهري')}</ProtectedRoute>} />
-    <Route path="/quarterly-incentives" element={<ProtectedRoute>{routeSuspense(<QuarterlyIncentives2027 />, 'الحافز الشهري')}</ProtectedRoute>} />
-    <Route path="/operations-center" element={<ProtectedRoute>{routeSuspense(<OperationsCenter2027 />, 'مركز العمليات')}</ProtectedRoute>} />
-    <Route path="/data-health" element={<ProtectedRoute>{routeSuspense(<DataHealthCenter />, 'صحة البيانات')}</ProtectedRoute>} />
-    <Route path="/customers" element={<ProtectedRoute>{routeSuspense(<Customers />, 'العملاء')}</ProtectedRoute>} />
-    <Route path="/customers/:id" element={<ProtectedRoute>{routeSuspense(<Customer360 />, 'ملف العميل')}</ProtectedRoute>} />
-    <Route path="/customer-360" element={<ProtectedRoute>{routeSuspense(<Customer360 />, 'ملف العميل')}</ProtectedRoute>} />
-    <Route path="/customer-import" element={<ProtectedRoute>{routeSuspense(<CustomerImport />, 'استيراد العملاء')}</ProtectedRoute>} />
-    <Route path="/customer-service" element={<ProtectedRoute>{routeSuspense(<CustomerService />, 'خدمة العملاء')}</ProtectedRoute>} />
-    <Route path="/customer-service-classic" element={<ProtectedRoute>{routeSuspense(<CustomerServiceClassic />, 'خدمة العملاء الكلاسيكية')}</ProtectedRoute>} />
-    <Route path="/customer-requests" element={<ProtectedRoute>{routeSuspense(<CustomerRequests />, 'طلبات العملاء')}</ProtectedRoute>} />
-    <Route path="/customer-incubation" element={<ProtectedRoute>{routeSuspense(<CustomerIncubation />, 'احتضان العملاء')}</ProtectedRoute>} />
-    <Route path="/customer-data-review" element={<ProtectedRoute>{routeSuspense(<CustomerDataReview />, 'مراجعة بيانات العملاء')}</ProtectedRoute>} />
-    <Route path="/crm" element={<ProtectedRoute>{routeSuspense(<CRMPage />, 'CRM')}</ProtectedRoute>} />
-    <Route path="/customer-cashback" element={<ProtectedRoute>{routeSuspense(<CustomerCashback />, 'كاش باك العملاء')}</ProtectedRoute>} />
-    <Route path="/customer-service-credit" element={<ProtectedRoute>{routeSuspense(<CustomerServiceCredit />, 'رصيد خدمة العملاء')}</ProtectedRoute>} />
-    <Route path="/customer-points-ledger" element={<ProtectedRoute>{routeSuspense(<CustomerPointsLedger />, 'سجل نقاط العملاء')}</ProtectedRoute>} />
-    <Route path="/welcome-messages" element={<ProtectedRoute>{routeSuspense(<WelcomeMessages />, 'رسائل الترحيب')}</ProtectedRoute>} />
-    <Route path="/customer-welcome" element={<ProtectedRoute>{routeSuspense(<CustomerWelcome />, 'ترحيب العملاء')}</ProtectedRoute>} />
-    <Route path="/customer-coding" element={<ProtectedRoute>{routeSuspense(<CustomerCoding />, 'تكويد العملاء')}</ProtectedRoute>} />
-    <Route path="/quick-replies" element={<ProtectedRoute>{routeSuspense(<QuickReplies />, 'الردود السريعة')}</ProtectedRoute>} />
-    <Route path="/my-daily-checklist" element={<ProtectedRoute>{routeSuspense(<StaffDailyChecklist />, 'التشيك ليست اليومي')}</ProtectedRoute>} />
-    <Route path="/assistant-operational-log" element={<ProtectedRoute>{routeSuspense(<AssistantOperationalLog />, 'تسجيل عمليات المشتريات وخدمة العملاء')}</ProtectedRoute>} />
-    <Route path="/assistant-operational-bonus" element={<ProtectedRoute>{routeSuspense(<AssistantOperationalBonus />, 'مكافأة تميز مفاجئة')}</ProtectedRoute>} />
-    <Route path="/pharmacy-zone-tasks" element={<ProtectedRoute>{routeSuspense(<PharmacyZoneTasks />, 'الرص والجرد اليومي')}</ProtectedRoute>} />
-    <Route path="/purchase-invoice-accuracy" element={<ProtectedRoute>{routeSuspense(<PurchaseInvoiceAccuracy />, 'دقة إدخال فواتير المشتريات')}</ProtectedRoute>} />
-    <Route path="/purchase-invoice-entry" element={<ProtectedRoute>{routeSuspense(<PurchaseInvoiceEntry />, 'تسجيل فاتورة مشتريات')}</ProtectedRoute>} />
-    <Route path="/purchase-invoice-review" element={<ProtectedRoute>{routeSuspense(<PurchaseInvoiceReview />, 'مراجعة فواتير المشتريات')}</ProtectedRoute>} />
-    <Route path="/branch-checklist-review" element={<ProtectedRoute>{routeSuspense(<BranchChecklistReview />, 'مراجعة التشيك ليست')}</ProtectedRoute>} />
-    <Route path="/doctor-competition" element={<ProtectedRoute>{routeSuspense(<DoctorCompetition />, 'مسابقة الدكاترة')}</ProtectedRoute>} />
-    <Route path="/team" element={<ProtectedRoute>{routeSuspense(<Team />, 'الفريق')}</ProtectedRoute>} />
-    <Route path="/schedule" element={<ProtectedRoute>{routeSuspense(<Schedule />, 'الجدول')}</ProtectedRoute>} />
-    <Route path="/points" element={<ProtectedRoute>{routeSuspense(<Points />, 'النقاط')}</ProtectedRoute>} />
-    <Route path="/delivery" element={<ProtectedRoute>{routeSuspense(<Delivery />, 'الدليفري')}</ProtectedRoute>} />
-    <Route path="/analytics" element={<ProtectedRoute>{routeSuspense(<Analytics />, 'التحليلات')}</ProtectedRoute>} />
-    <Route path="/invoices" element={<ProtectedRoute>{routeSuspense(<Invoices />, 'الفواتير')}</ProtectedRoute>} />
-    <Route path="/activity-log" element={<ProtectedRoute>{routeSuspense(<ActivityLog />, 'سجل الأنشطة')}</ProtectedRoute>} />
-    <Route path="/reviews" element={<ProtectedRoute>{routeSuspense(<Reviews />, 'التقييمات')}</ProtectedRoute>} />
-    <Route path="/shift-performance" element={<ProtectedRoute>{routeSuspense(<ShiftPerformance />, 'تقييم الشيفت')}</ProtectedRoute>} />
-    <Route path="/staff-monthly-evaluation" element={<ProtectedRoute>{routeSuspense(<StaffMonthlyEvaluation />, 'التقييم الشهري')}</ProtectedRoute>} />
-    <Route path="/monthly-incentive-report" element={<ProtectedRoute>{routeSuspense(<MonthlyIncentiveReport />, 'التقرير الشهري للحوافز')}</ProtectedRoute>} />
-    <Route path="/shift-notes" element={<ProtectedRoute>{routeSuspense(<ShiftNotes />, 'ملاحظات الشيفت')}</ProtectedRoute>} />
-    <Route path="/staff/:id" element={<ProtectedRoute>{routeSuspense(<StaffDetail />, 'تفاصيل الموظف')}</ProtectedRoute>} />
-    <Route path="/time-off" element={<ProtectedRoute>{routeSuspense(<TimeOff />, 'الأذونات')}</ProtectedRoute>} />
-    <Route path="/stagnant-medicines" element={<ProtectedRoute>{routeSuspense(<StagnantMedicines />, 'الرواكد')}</ProtectedRoute>} />
-    <Route path="/incentive-medicines" element={<ProtectedRoute>{routeSuspense(<IncentiveMedicines />, 'اللستة')}</ProtectedRoute>} />
-    <Route path="/staff-accounts" element={<ProtectedRoute>{routeSuspense(<StaffAccounts />, 'حسابات الموظفين')}</ProtectedRoute>} />
-    <Route path="/staff-duplicate-audit" element={<ProtectedRoute>{routeSuspense(<StaffDuplicateAudit />, 'مراجعة التكرار')}</ProtectedRoute>} />
-    <Route path="/staff-payroll" element={<ProtectedRoute>{routeSuspense(<PayrollManagement />, 'إدارة الرواتب')}</ProtectedRoute>} />
-    <Route path="/incentive-governance" element={<ProtectedRoute permission="manage_payroll">{routeSuspense(<IncentiveGovernance />, 'اعتماد الحوافز')}</ProtectedRoute>} />
-    <Route path="/penalty-incentive" element={<ProtectedRoute>{routeSuspense(<PenaltyIncentiveManagement />, 'الجزاءات والمكافآت')}</ProtectedRoute>} />
-    <Route path="/staff-dashboard" element={<ProtectedRoute>{routeSuspense(<StaffDashboard />, 'لوحة الموظف')}</ProtectedRoute>} />
-    <Route path="/roles-permissions" element={<ProtectedRoute>{routeSuspense(<RolesPermissions />, 'الأدوار والصلاحيات')}</ProtectedRoute>} />
-    <Route path="/shelf-organization" element={<ProtectedRoute>{routeSuspense(<ShelfOrganization />, 'تنظيم الأرفف')}</ProtectedRoute>} />
-    <Route path="/inventory-counts" element={<ProtectedRoute>{routeSuspense(<InventoryCounts />, 'الجرد')}</ProtectedRoute>} />
-    <Route path="/shortages" element={<ProtectedRoute>{routeSuspense(<Shortages />, 'النواقص')}</ProtectedRoute>} />
-    <Route path="/supplies" element={<ProtectedRoute>{routeSuspense(<Supplies />, 'المستلزمات')}</ProtectedRoute>} />
-    <Route path="/purchases" element={<ProtectedRoute>{routeSuspense(<Purchases />, 'المشتريات')}</ProtectedRoute>} />
-    <Route path="/accessories" element={<ProtectedRoute>{routeSuspense(<Accessories />, 'الإكسسوارات')}</ProtectedRoute>} />
-    <Route path="/offers" element={<ProtectedRoute>{routeSuspense(<Offers />, 'العروض')}</ProtectedRoute>} />
-    <Route path="/stories" element={<ProtectedRoute>{routeSuspense(<Stories />, 'القصص')}</ProtectedRoute>} />
-    <Route path="/training" element={<ProtectedRoute>{routeSuspense(<Training />, 'التدريب')}</ProtectedRoute>} />
-    <Route path="/whatsapp-analytics" element={<ProtectedRoute>{routeSuspense(<WhatsappAnalytics />, 'تحليلات واتساب')}</ProtectedRoute>} />
-    <Route path="/medicine-expiry" element={<ProtectedRoute>{routeSuspense(<MedicineExpiryTracker />, 'الصلاحية')}</ProtectedRoute>} />
-    <Route path="/attendance-report" element={<ProtectedRoute>{routeSuspense(<AttendanceReport />, 'الحضور')}</ProtectedRoute>} />
-    <Route path="/loyalty-tiers" element={<ProtectedRoute>{routeSuspense(<LoyaltyTiers />, 'درجات الولاء')}</ProtectedRoute>} />
-    <Route path="/daily-command" element={<ProtectedRoute>{routeSuspense(<DailyCommand />, 'الأمر اليومي')}</ProtectedRoute>} />
-    <Route path="/daily-target" element={<ProtectedRoute>{routeSuspense(<DailyTarget />, 'الهدف اليومي')}</ProtectedRoute>} />
-    <Route path="/today-brief" element={<ProtectedRoute>{routeSuspense(<TodayBrief />, 'ملخص اليوم')}</ProtectedRoute>} />
-    <Route path="/refill-reminders" element={<ProtectedRoute>{routeSuspense(<RefillReminders />, 'تذكير إعادة الشراء')}</ProtectedRoute>} />
-    <Route path="/customer-health/:id" element={<ProtectedRoute>{routeSuspense(<CustomerHealthProfile />, 'الملف الصحي')}</ProtectedRoute>} />
-    <Route path="/expiry-discounts" element={<ProtectedRoute>{routeSuspense(<ExpiryDiscounts />, 'خصومات الصلاحية')}</ProtectedRoute>} />
-    <Route path="/employee-kpi" element={<ProtectedRoute>{routeSuspense(<EmployeeKpi />, 'مؤشرات الموظف')}</ProtectedRoute>} />
-    <Route path="/employee-operating-system" element={<ProtectedRoute>{routeSuspense(<EmployeeOperatingSystem />, 'نظام تشغيل الموظف')}</ProtectedRoute>} />
-    <Route path="/supplier-performance" element={<ProtectedRoute>{routeSuspense(<SupplierPerformance />, 'أداء الموردين')}</ProtectedRoute>} />
-    <Route path="/reports" element={<ProtectedRoute>{routeSuspense(<ReportsCenter />, 'مركز التقارير')}</ProtectedRoute>} />
-    <Route path="/monthly-report-360" element={<ProtectedRoute>{routeSuspense(<MonthlyPerformanceReport360 />, 'تقرير الأداء الشهري 360°')}</ProtectedRoute>} />
-    <Route path="/stock-alerts" element={<ProtectedRoute>{routeSuspense(<StockAlerts />, 'تنبيهات المخزون')}</ProtectedRoute>} />
-    <Route path="/returns" element={<ProtectedRoute>{routeSuspense(<Returns />, 'المرتجعات')}</ProtectedRoute>} />
-    <Route path="/diagnostics" element={<ProtectedRoute>{routeSuspense(<Diagnostics />, 'التشخيص')}</ProtectedRoute>} />
-    <Route path="*" element={routeSuspense(<NotFound />, 'الصفحة')} />
-  </Routes>;
+  return (
+    <Routes>
+      <Route path="/login" element={routeSuspense(<Login />, 'تسجيل الدخول')} />
+      <Route
+        path="/"
+        element={
+          <ProtectedRoute>
+            <ExecutiveDashboardRoute />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/executive-2027"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<ExecutiveDashboardRoute />, 'لوحة القيادة')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/customer-service-dashboard"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<CustomerServiceManagerDashboard />, 'لوحة مديرة خدمة العملاء')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/doctor-dashboard"
+        element={
+          <ProtectedRoute>{routeSuspense(<DoctorDashboard />, 'لوحة الدكتور')}</ProtectedRoute>
+        }
+      />
+      <Route
+        path="/branch-comparison"
+        element={
+          <ProtectedRoute>{routeSuspense(<BranchComparison />, 'مقارنة الفروع')}</ProtectedRoute>
+        }
+      />
+      <Route
+        path="/branch-inspection"
+        element={
+          <ProtectedRoute>{routeSuspense(<BranchInspection />, 'مرور مدير الفروع')}</ProtectedRoute>
+        }
+      />
+      <Route
+        path="/evaluation-rules"
+        element={
+          <ProtectedRoute>{routeSuspense(<EvaluationRules2027 />, 'قواعد التقييم')}</ProtectedRoute>
+        }
+      />
+      <Route
+        path="/point-appeals"
+        element={
+          <ProtectedRoute>{routeSuspense(<PointAppeals />, 'اعتراضات النقاط')}</ProtectedRoute>
+        }
+      />
+      <Route
+        path="/performance-pillars"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<DoctorPerformancePillars />, 'الدرجة المركّبة للأداء')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/doctor-quality-summary"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<DoctorQualitySummary />, 'ملخص أداء الدكاترة')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/weekly-evaluation/:type"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<WeeklyManagerEvaluation />, 'التقييم الأسبوعي')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/daily-manager-checklist"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<DailyManagerChecklist />, 'المهام اليومية')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/customer-monthly-performance"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<CustomerMonthlyPerformance />, 'أداء العملاء الشهري')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/quarterly-incentives"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<QuarterlyIncentives2027 />, 'الحافز الشهري')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/operations-center"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<OperationsCenter2027 />, 'مركز العمليات')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/data-health"
+        element={
+          <ProtectedRoute>{routeSuspense(<DataHealthCenter />, 'صحة البيانات')}</ProtectedRoute>
+        }
+      />
+      <Route
+        path="/customers"
+        element={<ProtectedRoute>{routeSuspense(<Customers />, 'العملاء')}</ProtectedRoute>}
+      />
+      <Route
+        path="/customers/:id"
+        element={<ProtectedRoute>{routeSuspense(<Customer360 />, 'ملف العميل')}</ProtectedRoute>}
+      />
+      <Route
+        path="/customer-360"
+        element={<ProtectedRoute>{routeSuspense(<Customer360 />, 'ملف العميل')}</ProtectedRoute>}
+      />
+      <Route
+        path="/customer-import"
+        element={
+          <ProtectedRoute>{routeSuspense(<CustomerImport />, 'استيراد العملاء')}</ProtectedRoute>
+        }
+      />
+      <Route
+        path="/customer-service"
+        element={
+          <ProtectedRoute>{routeSuspense(<CustomerService />, 'خدمة العملاء')}</ProtectedRoute>
+        }
+      />
+      <Route
+        path="/customer-service-classic"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<CustomerServiceClassic />, 'خدمة العملاء الكلاسيكية')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/customer-requests"
+        element={
+          <ProtectedRoute>{routeSuspense(<CustomerRequests />, 'طلبات العملاء')}</ProtectedRoute>
+        }
+      />
+      <Route
+        path="/customer-incubation"
+        element={
+          <ProtectedRoute>{routeSuspense(<CustomerIncubation />, 'احتضان العملاء')}</ProtectedRoute>
+        }
+      />
+      <Route
+        path="/customer-data-review"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<CustomerDataReview />, 'مراجعة بيانات العملاء')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/crm"
+        element={<ProtectedRoute>{routeSuspense(<CRMPage />, 'CRM')}</ProtectedRoute>}
+      />
+      <Route
+        path="/customer-cashback"
+        element={
+          <ProtectedRoute>{routeSuspense(<CustomerCashback />, 'كاش باك العملاء')}</ProtectedRoute>
+        }
+      />
+      <Route
+        path="/customer-service-credit"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<CustomerServiceCredit />, 'رصيد خدمة العملاء')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/customer-points-ledger"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<CustomerPointsLedger />, 'سجل نقاط العملاء')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/welcome-messages"
+        element={
+          <ProtectedRoute>{routeSuspense(<WelcomeMessages />, 'رسائل الترحيب')}</ProtectedRoute>
+        }
+      />
+      <Route
+        path="/customer-welcome"
+        element={
+          <ProtectedRoute>{routeSuspense(<CustomerWelcome />, 'ترحيب العملاء')}</ProtectedRoute>
+        }
+      />
+      <Route
+        path="/customer-coding"
+        element={
+          <ProtectedRoute>{routeSuspense(<CustomerCoding />, 'تكويد العملاء')}</ProtectedRoute>
+        }
+      />
+      <Route
+        path="/quick-replies"
+        element={
+          <ProtectedRoute>{routeSuspense(<QuickReplies />, 'الردود السريعة')}</ProtectedRoute>
+        }
+      />
+      <Route
+        path="/my-daily-checklist"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<StaffDailyChecklist />, 'التشيك ليست اليومي')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/assistant-operational-log"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<AssistantOperationalLog />, 'تسجيل عمليات المشتريات وخدمة العملاء')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/assistant-operational-bonus"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<AssistantOperationalBonus />, 'مكافأة تميز مفاجئة')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/pharmacy-zone-tasks"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<PharmacyZoneTasks />, 'الرص والجرد اليومي')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/purchase-invoice-accuracy"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<PurchaseInvoiceAccuracy />, 'دقة إدخال فواتير المشتريات')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/purchase-invoice-entry"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<PurchaseInvoiceEntry />, 'تسجيل فاتورة مشتريات')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/purchase-invoice-review"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<PurchaseInvoiceReview />, 'مراجعة فواتير المشتريات')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/branch-checklist-review"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<BranchChecklistReview />, 'مراجعة التشيك ليست')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/doctor-competition"
+        element={
+          <ProtectedRoute>{routeSuspense(<DoctorCompetition />, 'مسابقة الدكاترة')}</ProtectedRoute>
+        }
+      />
+      <Route
+        path="/team"
+        element={<ProtectedRoute>{routeSuspense(<Team />, 'الفريق')}</ProtectedRoute>}
+      />
+      <Route
+        path="/schedule"
+        element={<ProtectedRoute>{routeSuspense(<Schedule />, 'الجدول')}</ProtectedRoute>}
+      />
+      <Route
+        path="/points"
+        element={<ProtectedRoute>{routeSuspense(<Points />, 'النقاط')}</ProtectedRoute>}
+      />
+      <Route
+        path="/delivery"
+        element={<ProtectedRoute>{routeSuspense(<Delivery />, 'الدليفري')}</ProtectedRoute>}
+      />
+      <Route
+        path="/analytics"
+        element={<ProtectedRoute>{routeSuspense(<Analytics />, 'التحليلات')}</ProtectedRoute>}
+      />
+      <Route
+        path="/invoices"
+        element={<ProtectedRoute>{routeSuspense(<Invoices />, 'الفواتير')}</ProtectedRoute>}
+      />
+      <Route
+        path="/activity-log"
+        element={<ProtectedRoute>{routeSuspense(<ActivityLog />, 'سجل الأنشطة')}</ProtectedRoute>}
+      />
+      <Route
+        path="/reviews"
+        element={<ProtectedRoute>{routeSuspense(<Reviews />, 'التقييمات')}</ProtectedRoute>}
+      />
+      <Route
+        path="/shift-performance"
+        element={
+          <ProtectedRoute>{routeSuspense(<ShiftPerformance />, 'تقييم الشيفت')}</ProtectedRoute>
+        }
+      />
+      <Route
+        path="/staff-monthly-evaluation"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<StaffMonthlyEvaluation />, 'التقييم الشهري')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/monthly-incentive-report"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<MonthlyIncentiveReport />, 'التقرير الشهري للحوافز')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/shift-notes"
+        element={<ProtectedRoute>{routeSuspense(<ShiftNotes />, 'ملاحظات الشيفت')}</ProtectedRoute>}
+      />
+      <Route
+        path="/staff/:id"
+        element={<ProtectedRoute>{routeSuspense(<StaffDetail />, 'تفاصيل الموظف')}</ProtectedRoute>}
+      />
+      <Route
+        path="/time-off"
+        element={<ProtectedRoute>{routeSuspense(<TimeOff />, 'الأذونات')}</ProtectedRoute>}
+      />
+      <Route
+        path="/stagnant-medicines"
+        element={<ProtectedRoute>{routeSuspense(<StagnantMedicines />, 'الرواكد')}</ProtectedRoute>}
+      />
+      <Route
+        path="/incentive-medicines"
+        element={<ProtectedRoute>{routeSuspense(<IncentiveMedicines />, 'اللستة')}</ProtectedRoute>}
+      />
+      <Route
+        path="/staff-accounts"
+        element={
+          <ProtectedRoute>{routeSuspense(<StaffAccounts />, 'حسابات الموظفين')}</ProtectedRoute>
+        }
+      />
+      <Route
+        path="/staff-duplicate-audit"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<StaffDuplicateAudit />, 'مراجعة التكرار')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/staff-payroll"
+        element={
+          <ProtectedRoute>{routeSuspense(<PayrollManagement />, 'إدارة الرواتب')}</ProtectedRoute>
+        }
+      />
+      <Route
+        path="/incentive-governance"
+        element={
+          <ProtectedRoute permission="manage_payroll">
+            {routeSuspense(<IncentiveGovernance />, 'اعتماد الحوافز')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/penalty-incentive"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<PenaltyIncentiveManagement />, 'الجزاءات والمكافآت')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/staff-dashboard"
+        element={
+          <ProtectedRoute>{routeSuspense(<StaffDashboard />, 'لوحة الموظف')}</ProtectedRoute>
+        }
+      />
+      <Route
+        path="/roles-permissions"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<RolesPermissions />, 'الأدوار والصلاحيات')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/shelf-organization"
+        element={
+          <ProtectedRoute>{routeSuspense(<ShelfOrganization />, 'تنظيم الأرفف')}</ProtectedRoute>
+        }
+      />
+      <Route
+        path="/inventory-counts"
+        element={<ProtectedRoute>{routeSuspense(<InventoryCounts />, 'الجرد')}</ProtectedRoute>}
+      />
+      <Route
+        path="/shortages"
+        element={<ProtectedRoute>{routeSuspense(<Shortages />, 'النواقص')}</ProtectedRoute>}
+      />
+      <Route
+        path="/supplies"
+        element={<ProtectedRoute>{routeSuspense(<Supplies />, 'المستلزمات')}</ProtectedRoute>}
+      />
+      <Route
+        path="/purchases"
+        element={<ProtectedRoute>{routeSuspense(<Purchases />, 'المشتريات')}</ProtectedRoute>}
+      />
+      <Route
+        path="/accessories"
+        element={<ProtectedRoute>{routeSuspense(<Accessories />, 'الإكسسوارات')}</ProtectedRoute>}
+      />
+      <Route
+        path="/offers"
+        element={<ProtectedRoute>{routeSuspense(<Offers />, 'العروض')}</ProtectedRoute>}
+      />
+      <Route
+        path="/stories"
+        element={<ProtectedRoute>{routeSuspense(<Stories />, 'القصص')}</ProtectedRoute>}
+      />
+      <Route
+        path="/training"
+        element={<ProtectedRoute>{routeSuspense(<Training />, 'التدريب')}</ProtectedRoute>}
+      />
+      <Route
+        path="/whatsapp-analytics"
+        element={
+          <ProtectedRoute>{routeSuspense(<WhatsappAnalytics />, 'تحليلات واتساب')}</ProtectedRoute>
+        }
+      />
+      <Route
+        path="/medicine-expiry"
+        element={
+          <ProtectedRoute>{routeSuspense(<MedicineExpiryTracker />, 'الصلاحية')}</ProtectedRoute>
+        }
+      />
+      <Route
+        path="/attendance-report"
+        element={<ProtectedRoute>{routeSuspense(<AttendanceReport />, 'الحضور')}</ProtectedRoute>}
+      />
+      <Route
+        path="/loyalty-tiers"
+        element={<ProtectedRoute>{routeSuspense(<LoyaltyTiers />, 'درجات الولاء')}</ProtectedRoute>}
+      />
+      <Route
+        path="/daily-command"
+        element={<ProtectedRoute>{routeSuspense(<DailyCommand />, 'الأمر اليومي')}</ProtectedRoute>}
+      />
+      <Route
+        path="/daily-target"
+        element={<ProtectedRoute>{routeSuspense(<DailyTarget />, 'الهدف اليومي')}</ProtectedRoute>}
+      />
+      <Route
+        path="/today-brief"
+        element={<ProtectedRoute>{routeSuspense(<TodayBrief />, 'ملخص اليوم')}</ProtectedRoute>}
+      />
+      <Route
+        path="/refill-reminders"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<RefillReminders />, 'تذكير إعادة الشراء')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/customer-health/:id"
+        element={
+          <ProtectedRoute>{routeSuspense(<CustomerHealthProfile />, 'الملف الصحي')}</ProtectedRoute>
+        }
+      />
+      <Route
+        path="/expiry-discounts"
+        element={
+          <ProtectedRoute>{routeSuspense(<ExpiryDiscounts />, 'خصومات الصلاحية')}</ProtectedRoute>
+        }
+      />
+      <Route
+        path="/employee-kpi"
+        element={<ProtectedRoute>{routeSuspense(<EmployeeKpi />, 'مؤشرات الموظف')}</ProtectedRoute>}
+      />
+      <Route
+        path="/employee-operating-system"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<EmployeeOperatingSystem />, 'نظام تشغيل الموظف')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/supplier-performance"
+        element={
+          <ProtectedRoute>{routeSuspense(<SupplierPerformance />, 'أداء الموردين')}</ProtectedRoute>
+        }
+      />
+      <Route
+        path="/reports"
+        element={
+          <ProtectedRoute>{routeSuspense(<ReportsCenter />, 'مركز التقارير')}</ProtectedRoute>
+        }
+      />
+      <Route
+        path="/monthly-report-360"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<MonthlyPerformanceReport360 />, 'تقرير الأداء الشهري 360°')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/stock-alerts"
+        element={
+          <ProtectedRoute>{routeSuspense(<StockAlerts />, 'تنبيهات المخزون')}</ProtectedRoute>
+        }
+      />
+      <Route
+        path="/returns"
+        element={<ProtectedRoute>{routeSuspense(<Returns />, 'المرتجعات')}</ProtectedRoute>}
+      />
+      <Route
+        path="/diagnostics"
+        element={<ProtectedRoute>{routeSuspense(<Diagnostics />, 'التشخيص')}</ProtectedRoute>}
+      />
+      <Route path="*" element={routeSuspense(<NotFound />, 'الصفحة')} />
+    </Routes>
+  );
 }
 
 export default function App() {
-  return <AppErrorBoundary><QueryClientProvider client={queryClient}><BrowserRouter><PWABanner/><AppHealthBanner/><AppRoutes/><Toaster richColors position="top-center"/></BrowserRouter></QueryClientProvider></AppErrorBoundary>;
+  return (
+    <AppErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <PWABanner />
+          <AppHealthBanner />
+          <DeploymentWatcher />
+          <AppRoutes />
+          <Toaster richColors position="top-center" />
+        </BrowserRouter>
+      </QueryClientProvider>
+    </AppErrorBoundary>
+  );
 }

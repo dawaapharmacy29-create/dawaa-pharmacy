@@ -1,6 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { logRuntimeError } from '@/lib/appRecovery';
+import { logRuntimeError, recoverFromStaleChunkOnce } from '@/lib/appRecovery';
 
 type PageSafetyBoundaryProps = {
   pageName: string;
@@ -10,6 +10,7 @@ type PageSafetyBoundaryProps = {
 type PageSafetyBoundaryState = {
   hasError: boolean;
   message: string;
+  recovering: boolean;
 };
 
 function shortErrorMessage(error: unknown) {
@@ -18,14 +19,16 @@ function shortErrorMessage(error: unknown) {
 }
 
 function isStaleChunkMessage(message: string) {
-  return /Failed to fetch dynamically imported module|Loading chunk|dynamically imported module|error loading dynamically imported module/i.test(message);
+  return /Failed to fetch dynamically imported module|Loading chunk|dynamically imported module|error loading dynamically imported module/i.test(
+    message
+  );
 }
 
 export default class PageSafetyBoundary extends Component<
   PageSafetyBoundaryProps,
   PageSafetyBoundaryState
 > {
-  state: PageSafetyBoundaryState = { hasError: false, message: '' };
+  state: PageSafetyBoundaryState = { hasError: false, message: '', recovering: false };
 
   static getDerivedStateFromError(error: Error) {
     return { hasError: true, message: shortErrorMessage(error) };
@@ -34,14 +37,30 @@ export default class PageSafetyBoundary extends Component<
   componentDidCatch(error: Error, info: ErrorInfo) {
     logRuntimeError(`page failed: ${this.props.pageName}`, error);
     console.error('[Dawaa page safety] render failed', this.props.pageName, error, info);
+
+    // بعد أي نشرة جديدة، أي تاب فاتح من قبل ممكن يحاول يجيب ملف صفحة قديم
+    // اتشال فعليًا. بدل ما نوري شاشة خطأ مخيفة فورًا، نحاول تحديث تلقائي
+    // صامت مرة واحدة (فيه سقف زمني يمنع أي حلقة تحديث لا نهائية) — العميل
+    // أو الموظف مايحسش أصلًا إن حاجة اتعطلت.
+    if (isStaleChunkMessage(this.state.message)) {
+      this.setState({ recovering: true });
+      void recoverFromStaleChunkOnce(this.props.pageName).then((attempted) => {
+        if (!attempted) this.setState({ recovering: false });
+      });
+    }
   }
 
   retry = () => {
     // لو السبب ملف قديم اتشال بعد نشرة جديدة، مسح حالة الخطأ بس مش هيحل
     // حاجة — لازم تحميل كامل يجيب index.html وملفات JS طازة فعليًا.
     if (isStaleChunkMessage(this.state.message)) {
-      window.location.href = window.location.pathname + window.location.search
-        + (window.location.search ? '&' : '?') + '_r=' + Date.now() + window.location.hash;
+      window.location.href =
+        window.location.pathname +
+        window.location.search +
+        (window.location.search ? '&' : '?') +
+        '_r=' +
+        Date.now() +
+        window.location.hash;
       return;
     }
     this.setState({ hasError: false, message: '' });
@@ -49,6 +68,20 @@ export default class PageSafetyBoundary extends Component<
 
   render() {
     if (!this.state.hasError) return this.props.children;
+
+    if (this.state.recovering) {
+      return (
+        <main
+          className="grid min-h-[60vh] place-items-center bg-slate-950 p-5 text-slate-100"
+          dir="rtl"
+        >
+          <div className="text-center">
+            <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-teal-400 border-t-transparent" />
+            <p className="text-sm font-bold text-slate-300">جاري تحديث التطبيق لأحدث نسخة…</p>
+          </div>
+        </main>
+      );
+    }
 
     const message = this.state.message.slice(0, 220) || 'unknown error';
 
