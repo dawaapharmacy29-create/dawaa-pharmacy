@@ -1208,6 +1208,7 @@ export default function Reviews() {
     setSevereErrors(defaultSevereErrors());
     setCustSearch('');
     setCustHits([]);
+    setCustSearched(false);
     setRepeatInfo(null);
     setDraftSavedAt(null);
     window.localStorage.removeItem(REVIEW_DRAFT_KEY);
@@ -1982,6 +1983,7 @@ export default function Reviews() {
                       }));
                       setCustSearch(customer.name || customer.customer_code || '');
                       setCustHits([]);
+                      setCustSearched(false);
                     }}
                   >
                     <div className="text-white font-semibold text-sm">
