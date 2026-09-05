@@ -1,5 +1,4 @@
 import type { CustomerType } from '@/lib/constants';
-import { applyCustomerWeight, customerWeightMultiplier } from '@/lib/incentives/incentiveRulesEngine';
 
 export type ReviewErrorType =
   | 'forgotten_customer'
@@ -127,10 +126,30 @@ export const REVIEW_CRITERIA: ReviewCriterion[] = [
     defaultChoice: 'within_5',
     choices: [
       { value: 'within_5', label: 'من 0 إلى 5 دقائق', pointsEarned: 10 },
-      { value: 'five_to_10', label: 'أكثر من 5 إلى 10 دقائق', pointsEarned: 5, training: 'تقليل زمن أول رد للعميل.' },
-      { value: 'ten_to_20', label: 'أكثر من 10 إلى 20 دقيقة', pointsEarned: 0, training: 'تدريب على سرعة الاستجابة ومتابعة الرسائل.' },
-      { value: 'over_20', label: 'أكثر من 20 دقيقة', pointsEarned: 0, training: 'مراجعة توزيع مسؤولية الرد أثناء الشيفت.' },
-      { value: 'over_30', label: 'أكثر من 30 دقيقة', pointsEarned: 0, training: 'تدخل إداري لتحسين سرعة الرد.' },
+      {
+        value: 'five_to_10',
+        label: 'أكثر من 5 إلى 10 دقائق',
+        pointsEarned: 5,
+        training: 'تقليل زمن أول رد للعميل.',
+      },
+      {
+        value: 'ten_to_20',
+        label: 'أكثر من 10 إلى 20 دقيقة',
+        pointsEarned: 0,
+        training: 'تدريب على سرعة الاستجابة ومتابعة الرسائل.',
+      },
+      {
+        value: 'over_20',
+        label: 'أكثر من 20 دقيقة',
+        pointsEarned: 0,
+        training: 'مراجعة توزيع مسؤولية الرد أثناء الشيفت.',
+      },
+      {
+        value: 'over_30',
+        label: 'أكثر من 30 دقيقة',
+        pointsEarned: 0,
+        training: 'تدخل إداري لتحسين سرعة الرد.',
+      },
     ],
   },
   {
@@ -143,9 +162,26 @@ export const REVIEW_CRITERIA: ReviewCriterion[] = [
     choices: [
       { value: 'official_full', label: 'استخدم الرسالة الرسمية كاملة', pointsEarned: 10 },
       { value: 'close_with_name', label: 'رسالة قريبة وبها اسم الدكتور', pointsEarned: 8 },
-      { value: 'greeting_no_name', label: 'رحب بدون اسم الدكتور', pointsEarned: 5, errorType: 'missing_doctor_name' },
-      { value: 'direct_reply', label: 'رد مباشرة بدون ترحيب مناسب', pointsEarned: 2, errorType: 'missing_greeting', training: 'تدريب على استخدام رسالة الترحيب الرسمية وذكر اسم الدكتور.' },
-      { value: 'none', label: 'لم يستخدم ترحيب أو بداية غير مهنية', pointsEarned: 0, errorType: 'missing_greeting', training: 'تدريب على رسالة الترحيب الرسمية لصيدليات دواء.' },
+      {
+        value: 'greeting_no_name',
+        label: 'رحب بدون اسم الدكتور',
+        pointsEarned: 5,
+        errorType: 'missing_doctor_name',
+      },
+      {
+        value: 'direct_reply',
+        label: 'رد مباشرة بدون ترحيب مناسب',
+        pointsEarned: 2,
+        errorType: 'missing_greeting',
+        training: 'تدريب على استخدام رسالة الترحيب الرسمية وذكر اسم الدكتور.',
+      },
+      {
+        value: 'none',
+        label: 'لم يستخدم ترحيب أو بداية غير مهنية',
+        pointsEarned: 0,
+        errorType: 'missing_greeting',
+        training: 'تدريب على رسالة الترحيب الرسمية لصيدليات دواء.',
+      },
     ],
   },
   {
@@ -158,7 +194,13 @@ export const REVIEW_CRITERIA: ReviewCriterion[] = [
     choices: [
       { value: 'start', label: 'ذكر اسمه في بداية المحادثة', pointsEarned: 10 },
       { value: 'later', label: 'ذكره لاحقًا', pointsEarned: 5 },
-      { value: 'none', label: 'لم يذكر اسمه', pointsEarned: 0, errorType: 'missing_doctor_name', training: 'تدريب على تقديم النفس في بداية المحادثة لزيادة ثقة العميل.' },
+      {
+        value: 'none',
+        label: 'لم يذكر اسمه',
+        pointsEarned: 0,
+        errorType: 'missing_doctor_name',
+        training: 'تدريب على تقديم النفس في بداية المحادثة لزيادة ثقة العميل.',
+      },
     ],
   },
   {
@@ -171,7 +213,13 @@ export const REVIEW_CRITERIA: ReviewCriterion[] = [
     choices: [
       { value: 'used', label: 'استخدم اسم العميل بشكل محترم ومناسب', pointsEarned: 10 },
       { value: 'not_used_good', label: 'لم يستخدم الاسم لكن الأسلوب كان مهتمًا', pointsEarned: 5 },
-      { value: 'ignored_dry', label: 'تجاهل الاسم وكان الرد جافًا', pointsEarned: 0, errorType: 'poor_tone', training: 'تدريب على تخصيص الرد باسم العميل عند توفره.' },
+      {
+        value: 'ignored_dry',
+        label: 'تجاهل الاسم وكان الرد جافًا',
+        pointsEarned: 0,
+        errorType: 'poor_tone',
+        training: 'تدريب على تخصيص الرد باسم العميل عند توفره.',
+      },
     ],
   },
   {
@@ -184,10 +232,35 @@ export const REVIEW_CRITERIA: ReviewCriterion[] = [
     choices: [
       { value: 'professional', label: 'أسلوب محترم ومهني وواضح', pointsEarned: 10 },
       { value: 'acceptable', label: 'أسلوب مقبول', pointsEarned: 7 },
-      { value: 'dry', label: 'أسلوب جاف أو مختصر بطريقة سيئة', pointsEarned: 4, errorType: 'poor_tone', training: 'تحسين صياغة الردود لتكون أهدأ وأوضح.' },
-      { value: 'bad', label: 'أسلوب سيئ أو فيه تجاهل', pointsEarned: 0, errorType: 'poor_tone', training: 'مراجعة قواعد التعامل مع العملاء.' },
-      { value: 'very_bad', label: 'أسلوب سيئ جدًا أو تسبب في غضب العميل', pointsEarned: 0, errorType: 'poor_tone', training: 'تدريب عاجل على إدارة غضب العميل.' },
-      { value: 'insult', label: 'إساءة واضحة للعميل', pointsEarned: 0, errorType: 'poor_tone', severe: true, training: 'تصعيد إداري بسبب إساءة للعميل.' },
+      {
+        value: 'dry',
+        label: 'أسلوب جاف أو مختصر بطريقة سيئة',
+        pointsEarned: 4,
+        errorType: 'poor_tone',
+        training: 'تحسين صياغة الردود لتكون أهدأ وأوضح.',
+      },
+      {
+        value: 'bad',
+        label: 'أسلوب سيئ أو فيه تجاهل',
+        pointsEarned: 0,
+        errorType: 'poor_tone',
+        training: 'مراجعة قواعد التعامل مع العملاء.',
+      },
+      {
+        value: 'very_bad',
+        label: 'أسلوب سيئ جدًا أو تسبب في غضب العميل',
+        pointsEarned: 0,
+        errorType: 'poor_tone',
+        training: 'تدريب عاجل على إدارة غضب العميل.',
+      },
+      {
+        value: 'insult',
+        label: 'إساءة واضحة للعميل',
+        pointsEarned: 0,
+        errorType: 'poor_tone',
+        severe: true,
+        training: 'تصعيد إداري بسبب إساءة للعميل.',
+      },
     ],
   },
   {
@@ -201,9 +274,25 @@ export const REVIEW_CRITERIA: ReviewCriterion[] = [
       { value: 'strong', label: 'فهم الطلب بدقة وسأل أسئلة مناسبة', pointsEarned: 10 },
       { value: 'acceptable', label: 'فهم مقبول', pointsEarned: 7 },
       { value: 'medium', label: 'فهم متوسط', pointsEarned: 5 },
-      { value: 'rushed', label: 'استعجل قبل فهم الطلب', pointsEarned: 2, training: 'تدريب على طرح أسئلة قبل الترشيح أو البيع.' },
-      { value: 'wrong', label: 'فهم الطلب غلط', pointsEarned: 0, training: 'مراجعة طريقة قراءة طلب العميل.' },
-      { value: 'caused_error', label: 'تسبب في خطأ بسبب سوء الفهم', pointsEarned: 0, errorType: 'medical_error', training: 'تدريب على تأكيد الطلب قبل التصرف.' },
+      {
+        value: 'rushed',
+        label: 'استعجل قبل فهم الطلب',
+        pointsEarned: 2,
+        training: 'تدريب على طرح أسئلة قبل الترشيح أو البيع.',
+      },
+      {
+        value: 'wrong',
+        label: 'فهم الطلب غلط',
+        pointsEarned: 0,
+        training: 'مراجعة طريقة قراءة طلب العميل.',
+      },
+      {
+        value: 'caused_error',
+        label: 'تسبب في خطأ بسبب سوء الفهم',
+        pointsEarned: 0,
+        errorType: 'medical_error',
+        training: 'تدريب على تأكيد الطلب قبل التصرف.',
+      },
     ],
   },
   {
@@ -216,9 +305,28 @@ export const REVIEW_CRITERIA: ReviewCriterion[] = [
     choices: [
       { value: 'within_5', label: 'رجع خلال 5 دقائق', pointsEarned: 10 },
       { value: 'five_to_10', label: 'رجع خلال 5 إلى 10 دقائق', pointsEarned: 5 },
-      { value: 'over_10', label: 'رجع بعد أكثر من 10 دقائق', pointsEarned: 2, errorType: 'forgotten_customer', training: 'تدريب على متابعة العملاء بعد كلمة لحظات.' },
-      { value: 'over_20', label: 'رجع بعد أكثر من 20 دقيقة', pointsEarned: 0, errorType: 'forgotten_customer', training: 'تدريب على عدم ترك العميل بعد وعد بالرجوع.' },
-      { value: 'never', label: 'لم يرجع نهائيًا', pointsEarned: 0, errorType: 'forgotten_customer', forgottenCustomer: true, training: 'تصعيد ومراجعة بسبب نسيان العميل.' },
+      {
+        value: 'over_10',
+        label: 'رجع بعد أكثر من 10 دقائق',
+        pointsEarned: 2,
+        errorType: 'forgotten_customer',
+        training: 'تدريب على متابعة العملاء بعد كلمة لحظات.',
+      },
+      {
+        value: 'over_20',
+        label: 'رجع بعد أكثر من 20 دقيقة',
+        pointsEarned: 0,
+        errorType: 'forgotten_customer',
+        training: 'تدريب على عدم ترك العميل بعد وعد بالرجوع.',
+      },
+      {
+        value: 'never',
+        label: 'لم يرجع نهائيًا',
+        pointsEarned: 0,
+        errorType: 'forgotten_customer',
+        forgottenCustomer: true,
+        training: 'تصعيد ومراجعة بسبب نسيان العميل.',
+      },
     ],
   },
   {
@@ -232,9 +340,26 @@ export const REVIEW_CRITERIA: ReviewCriterion[] = [
       { value: 'strong_safe', label: 'استشارة قوية وآمنة ومفيدة', pointsEarned: 15 },
       { value: 'good', label: 'استشارة جيدة', pointsEarned: 12 },
       { value: 'medium', label: 'استشارة متوسطة', pointsEarned: 8 },
-      { value: 'weak', label: 'رد عام وضعيف', pointsEarned: 4, training: 'تدريب على الاستشارة الآمنة وحدود الرد الصيدلي.' },
-      { value: 'rushed', label: 'استعجل بدون أسئلة مهمة', pointsEarned: 2, training: 'مراجعة خطوات الاستشارة قبل الترشيح.' },
-      { value: 'dangerous', label: 'معلومة خطأ أو خطر', pointsEarned: 0, errorType: 'medical_error', severe: true, training: 'تصعيد إداري وتدريب دوائي عاجل.' },
+      {
+        value: 'weak',
+        label: 'رد عام وضعيف',
+        pointsEarned: 4,
+        training: 'تدريب على الاستشارة الآمنة وحدود الرد الصيدلي.',
+      },
+      {
+        value: 'rushed',
+        label: 'استعجل بدون أسئلة مهمة',
+        pointsEarned: 2,
+        training: 'مراجعة خطوات الاستشارة قبل الترشيح.',
+      },
+      {
+        value: 'dangerous',
+        label: 'معلومة خطأ أو خطر',
+        pointsEarned: 0,
+        errorType: 'medical_error',
+        severe: true,
+        training: 'تصعيد إداري وتدريب دوائي عاجل.',
+      },
     ],
   },
   {
@@ -248,9 +373,26 @@ export const REVIEW_CRITERIA: ReviewCriterion[] = [
       { value: 'full', label: 'شرح كامل للجرعة والاستخدام والتحذيرات', pointsEarned: 10 },
       { value: 'good', label: 'شرح جيد لكن ناقص تفصيلة بسيطة', pointsEarned: 8 },
       { value: 'medium', label: 'شرح متوسط', pointsEarned: 5 },
-      { value: 'incomplete', label: 'شرح ناقص', pointsEarned: 2, training: 'تدريب على شرح الجرعات وطريقة الاستخدام والتحذيرات.' },
-      { value: 'none', label: 'لم يشرح رغم الحاجة', pointsEarned: 0, training: 'إلزام شرح الاستخدام عند الحاجة.' },
-      { value: 'wrong', label: 'شرح خاطئ', pointsEarned: 0, errorType: 'medical_error', severe: true, training: 'تصعيد بسبب شرح جرعة خاطئ.' },
+      {
+        value: 'incomplete',
+        label: 'شرح ناقص',
+        pointsEarned: 2,
+        training: 'تدريب على شرح الجرعات وطريقة الاستخدام والتحذيرات.',
+      },
+      {
+        value: 'none',
+        label: 'لم يشرح رغم الحاجة',
+        pointsEarned: 0,
+        training: 'إلزام شرح الاستخدام عند الحاجة.',
+      },
+      {
+        value: 'wrong',
+        label: 'شرح خاطئ',
+        pointsEarned: 0,
+        errorType: 'medical_error',
+        severe: true,
+        training: 'تصعيد بسبب شرح جرعة خاطئ.',
+      },
     ],
   },
   {
@@ -261,11 +403,32 @@ export const REVIEW_CRITERIA: ReviewCriterion[] = [
     defaultApplies: false,
     defaultChoice: 'alternative_explained',
     choices: [
-      { value: 'alternative_explained', label: 'اعتذر ورشح بديل مناسب وشرح الفرق', pointsEarned: 10 },
+      {
+        value: 'alternative_explained',
+        label: 'اعتذر ورشح بديل مناسب وشرح الفرق',
+        pointsEarned: 10,
+      },
       { value: 'alternative_no_explain', label: 'رشح بديل مناسب بدون شرح كافي', pointsEarned: 7 },
-      { value: 'unavailable_only', label: 'قال مش موجود فقط بدون محاولة مساعدة', pointsEarned: 3, training: 'تدريب على ترشيح البدائل بدل إنهاء المحادثة.' },
-      { value: 'ignored', label: 'تجاهل طلب العميل', pointsEarned: 0, training: 'مراجعة متابعة طلبات النواقص.' },
-      { value: 'bad_alternative', label: 'رشح بديل غير مناسب', pointsEarned: 0, errorType: 'medical_error', severe: true, training: 'تدريب دوائي على البدائل المناسبة.' },
+      {
+        value: 'unavailable_only',
+        label: 'قال مش موجود فقط بدون محاولة مساعدة',
+        pointsEarned: 3,
+        training: 'تدريب على ترشيح البدائل بدل إنهاء المحادثة.',
+      },
+      {
+        value: 'ignored',
+        label: 'تجاهل طلب العميل',
+        pointsEarned: 0,
+        training: 'مراجعة متابعة طلبات النواقص.',
+      },
+      {
+        value: 'bad_alternative',
+        label: 'رشح بديل غير مناسب',
+        pointsEarned: 0,
+        errorType: 'medical_error',
+        severe: true,
+        training: 'تدريب دوائي على البدائل المناسبة.',
+      },
     ],
   },
   {
@@ -278,9 +441,27 @@ export const REVIEW_CRITERIA: ReviewCriterion[] = [
     choices: [
       { value: 'clear_order', label: 'قاد المحادثة لطلب واضح باحتراف', pointsEarned: 10 },
       { value: 'helped', label: 'ساعد العميل على القرار بدون ضغط', pointsEarned: 8 },
-      { value: 'passive', label: 'رد فقط بدون محاولة إغلاق رغم وجود فرصة', pointsEarned: 4, training: 'تدريب على إغلاق الطلب بطريقة محترمة.' },
-      { value: 'missed', label: 'أضاع فرصة بيع واضحة', pointsEarned: 0, errorType: 'missed_sale', missedSale: true, training: 'تدريب على تحويل الاهتمام إلى طلب واضح.' },
-      { value: 'pressure', label: 'ضغط على العميل بطريقة سيئة', pointsEarned: 0, errorType: 'poor_tone', training: 'تدريب على البيع المسؤول بدون ضغط.' },
+      {
+        value: 'passive',
+        label: 'رد فقط بدون محاولة إغلاق رغم وجود فرصة',
+        pointsEarned: 4,
+        training: 'تدريب على إغلاق الطلب بطريقة محترمة.',
+      },
+      {
+        value: 'missed',
+        label: 'أضاع فرصة بيع واضحة',
+        pointsEarned: 0,
+        errorType: 'missed_sale',
+        missedSale: true,
+        training: 'تدريب على تحويل الاهتمام إلى طلب واضح.',
+      },
+      {
+        value: 'pressure',
+        label: 'ضغط على العميل بطريقة سيئة',
+        pointsEarned: 0,
+        errorType: 'poor_tone',
+        training: 'تدريب على البيع المسؤول بدون ضغط.',
+      },
     ],
   },
   {
@@ -291,11 +472,34 @@ export const REVIEW_CRITERIA: ReviewCriterion[] = [
     defaultApplies: false,
     defaultChoice: 'useful',
     choices: [
-      { value: 'useful', label: 'اقترح منتج مكمل أو اختيار أفضل بشكل مفيد ومحترم', pointsEarned: 10, successfulCrossSell: true },
+      {
+        value: 'useful',
+        label: 'اقترح منتج مكمل أو اختيار أفضل بشكل مفيد ومحترم',
+        pointsEarned: 10,
+        successfulCrossSell: true,
+      },
       { value: 'partial', label: 'محاولة جيدة لكن ناقصة', pointsEarned: 7 },
-      { value: 'missed', label: 'كانت هناك فرصة واضحة ولم يحاول', pointsEarned: 2, errorType: 'missed_sale', missedSale: true, training: 'تدريب على اقتراح المنتجات المكملة بدون ضغط.' },
-      { value: 'unsuitable', label: 'اقترح شيء غير مناسب', pointsEarned: 0, training: 'مراجعة مناسبة الاقتراح لاحتياج العميل.' },
-      { value: 'pressure', label: 'ضغط على العميل', pointsEarned: 0, errorType: 'poor_tone', training: 'تدريب على البيع المسؤول.' },
+      {
+        value: 'missed',
+        label: 'كانت هناك فرصة واضحة ولم يحاول',
+        pointsEarned: 2,
+        errorType: 'missed_sale',
+        missedSale: true,
+        training: 'تدريب على اقتراح المنتجات المكملة بدون ضغط.',
+      },
+      {
+        value: 'unsuitable',
+        label: 'اقترح شيء غير مناسب',
+        pointsEarned: 0,
+        training: 'مراجعة مناسبة الاقتراح لاحتياج العميل.',
+      },
+      {
+        value: 'pressure',
+        label: 'ضغط على العميل',
+        pointsEarned: 0,
+        errorType: 'poor_tone',
+        training: 'تدريب على البيع المسؤول.',
+      },
     ],
   },
   {
@@ -306,11 +510,35 @@ export const REVIEW_CRITERIA: ReviewCriterion[] = [
     defaultApplies: false,
     defaultChoice: 'solved',
     choices: [
-      { value: 'solved', label: 'امتص غضب العميل واعتذر وقدم حل واضح', pointsEarned: 10, handledAngryCustomerWell: true, excellentCase: true },
-      { value: 'good', label: 'تعامل جيد وحافظ على العميل', pointsEarned: 8, handledAngryCustomerWell: true },
+      {
+        value: 'solved',
+        label: 'امتص غضب العميل واعتذر وقدم حل واضح',
+        pointsEarned: 10,
+        handledAngryCustomerWell: true,
+        excellentCase: true,
+      },
+      {
+        value: 'good',
+        label: 'تعامل جيد وحافظ على العميل',
+        pointsEarned: 8,
+        handledAngryCustomerWell: true,
+      },
       { value: 'medium', label: 'تعامل متوسط', pointsEarned: 5 },
-      { value: 'argued', label: 'جادل العميل أو زاد غضبه', pointsEarned: 0, errorType: 'poor_tone', training: 'تدريب على امتصاص غضب العميل وحل الشكاوى.' },
-      { value: 'inappropriate', label: 'رد غير لائق', pointsEarned: 0, errorType: 'poor_tone', severe: true, training: 'تصعيد إداري بسبب رد غير لائق.' },
+      {
+        value: 'argued',
+        label: 'جادل العميل أو زاد غضبه',
+        pointsEarned: 0,
+        errorType: 'poor_tone',
+        training: 'تدريب على امتصاص غضب العميل وحل الشكاوى.',
+      },
+      {
+        value: 'inappropriate',
+        label: 'رد غير لائق',
+        pointsEarned: 0,
+        errorType: 'poor_tone',
+        severe: true,
+        training: 'تصعيد إداري بسبب رد غير لائق.',
+      },
     ],
   },
   {
@@ -323,9 +551,26 @@ export const REVIEW_CRITERIA: ReviewCriterion[] = [
     choices: [
       { value: 'full', label: 'أكد كل البيانات المطلوبة', pointsEarned: 10 },
       { value: 'minor_missing', label: 'ناقص بند بسيط', pointsEarned: 7 },
-      { value: 'many_missing', label: 'ناقص أكثر من بند', pointsEarned: 4, training: 'تدريب على قائمة تأكيد بيانات الطلب.' },
-      { value: 'important_missing', label: 'لم يؤكد بيانات مهمة', pointsEarned: 0, errorType: 'missing_order_confirmation', training: 'إلزام تأكيد بيانات الطلب قبل التنفيذ.' },
-      { value: 'caused_error', label: 'تسبب في خطأ فاتورة أو دليفري', pointsEarned: 0, errorType: 'missing_order_confirmation', training: 'مراجعة أخطاء تأكيد الطلب.' },
+      {
+        value: 'many_missing',
+        label: 'ناقص أكثر من بند',
+        pointsEarned: 4,
+        training: 'تدريب على قائمة تأكيد بيانات الطلب.',
+      },
+      {
+        value: 'important_missing',
+        label: 'لم يؤكد بيانات مهمة',
+        pointsEarned: 0,
+        errorType: 'missing_order_confirmation',
+        training: 'إلزام تأكيد بيانات الطلب قبل التنفيذ.',
+      },
+      {
+        value: 'caused_error',
+        label: 'تسبب في خطأ فاتورة أو دليفري',
+        pointsEarned: 0,
+        errorType: 'missing_order_confirmation',
+        training: 'مراجعة أخطاء تأكيد الطلب.',
+      },
     ],
   },
   {
@@ -336,12 +581,49 @@ export const REVIEW_CRITERIA: ReviewCriterion[] = [
     defaultApplies: false,
     defaultChoice: 'handled_full',
     choices: [
-      { value: 'handled_full', label: 'أبلغ العميل واعتذر وحدد وقتًا واقعيًا وتابع حتى التنفيذ', pointsEarned: 15, handledAngryCustomerWell: true, excellentCase: true },
-      { value: 'outside_reason_handled', label: 'التأخير خارج إرادته وتعامل معه باهتمام واضح', pointsEarned: 15, handledAngryCustomerWell: true },
-      { value: 'informed_only', label: 'أبلغ العميل بالتأخير لكن المتابعة أو الوقت الجديد كان ناقصًا', pointsEarned: 9, training: 'تدريب على متابعة الأوردر المتأخر حتى التنفيذ.' },
-      { value: 'late_apology', label: 'اعتذر بعد تأخير واضح أو بعد سؤال العميل', pointsEarned: 5, errorType: 'poor_order_delay_handling', training: 'تدريب على إبلاغ العميل مبكرًا قبل أن يطلب هو التوضيح.' },
-      { value: 'not_informed', label: 'لم يبلغ العميل بالتأخير ولم يحدد وقتًا جديدًا', pointsEarned: 0, errorType: 'poor_order_delay_handling', forgottenCustomer: true, training: 'تدريب عاجل على بروتوكول تأخير الأوردر.' },
-      { value: 'lost_customer', label: 'التأخير أدى لضياع العميل أو إلغاء الطلب بسبب ضعف المتابعة', pointsEarned: 0, errorType: 'poor_order_delay_handling', forgottenCustomer: true, severe: true, training: 'مراجعة إدارية وبروتوكول إنقاذ العميل عند تأخير الأوردر.' },
+      {
+        value: 'handled_full',
+        label: 'أبلغ العميل واعتذر وحدد وقتًا واقعيًا وتابع حتى التنفيذ',
+        pointsEarned: 15,
+        handledAngryCustomerWell: true,
+        excellentCase: true,
+      },
+      {
+        value: 'outside_reason_handled',
+        label: 'التأخير خارج إرادته وتعامل معه باهتمام واضح',
+        pointsEarned: 15,
+        handledAngryCustomerWell: true,
+      },
+      {
+        value: 'informed_only',
+        label: 'أبلغ العميل بالتأخير لكن المتابعة أو الوقت الجديد كان ناقصًا',
+        pointsEarned: 9,
+        training: 'تدريب على متابعة الأوردر المتأخر حتى التنفيذ.',
+      },
+      {
+        value: 'late_apology',
+        label: 'اعتذر بعد تأخير واضح أو بعد سؤال العميل',
+        pointsEarned: 5,
+        errorType: 'poor_order_delay_handling',
+        training: 'تدريب على إبلاغ العميل مبكرًا قبل أن يطلب هو التوضيح.',
+      },
+      {
+        value: 'not_informed',
+        label: 'لم يبلغ العميل بالتأخير ولم يحدد وقتًا جديدًا',
+        pointsEarned: 0,
+        errorType: 'poor_order_delay_handling',
+        forgottenCustomer: true,
+        training: 'تدريب عاجل على بروتوكول تأخير الأوردر.',
+      },
+      {
+        value: 'lost_customer',
+        label: 'التأخير أدى لضياع العميل أو إلغاء الطلب بسبب ضعف المتابعة',
+        pointsEarned: 0,
+        errorType: 'poor_order_delay_handling',
+        forgottenCustomer: true,
+        severe: true,
+        training: 'مراجعة إدارية وبروتوكول إنقاذ العميل عند تأخير الأوردر.',
+      },
     ],
   },
   {
@@ -352,13 +634,57 @@ export const REVIEW_CRITERIA: ReviewCriterion[] = [
     defaultApplies: false,
     defaultChoice: 'registered_complete',
     choices: [
-      { value: 'registered_complete', label: 'سجل الطلب كاملًا: العميل، الكود، الهاتف، الصنف، التركيز، الكمية، الفرع، موعد المتابعة', pointsEarned: 15, excellentCase: true },
-      { value: 'registered_minor_missing', label: 'سجل الطلب مع نقص بسيط لا يمنع المتابعة', pointsEarned: 10, training: 'مراجعة بيانات طلب العميل قبل الحفظ.' },
-      { value: 'registered_late', label: 'سجل الطلب متأخرًا بعد المحادثة', pointsEarned: 7, errorType: 'unregistered_customer_request', training: 'تسجيل طلب العميل فور الوعد بالتوفير.' },
-      { value: 'promised_not_registered', label: 'وعد بتوفير الصنف بدون تسجيل الطلب', pointsEarned: 0, errorType: 'unregistered_customer_request', forgottenCustomer: true, training: 'مخالفة عدم تسجيل طلب العميل: يجب تسجيل أي وعد أو احتياج فورًا.' },
-      { value: 'wrong_or_incomplete', label: 'سجل اسم/تركيز/كمية خطأ أو بيانات ناقصة مؤثرة', pointsEarned: 0, errorType: 'unregistered_customer_request', training: 'تدريب على نموذج تسجيل طلبات العملاء.' },
-      { value: 'arrived_no_contact', label: 'وصل الصنف ولم يتم التواصل مع العميل', pointsEarned: 0, errorType: 'unregistered_customer_request', forgottenCustomer: true, severe: true, training: 'تدريب على متابعة طلبات العملاء بعد وصول الصنف.' },
-      { value: 'verbal_handoff', label: 'حوّل الطلب شفهيًا بدون تسجيل خطوة تالية', pointsEarned: 0, errorType: 'unregistered_customer_request', training: 'منع التحويل الشفهي بدون تسجيل داخل النظام.' },
+      {
+        value: 'registered_complete',
+        label:
+          'سجل الطلب كاملًا: العميل، الكود، الهاتف، الصنف، التركيز، الكمية، الفرع، موعد المتابعة',
+        pointsEarned: 15,
+        excellentCase: true,
+      },
+      {
+        value: 'registered_minor_missing',
+        label: 'سجل الطلب مع نقص بسيط لا يمنع المتابعة',
+        pointsEarned: 10,
+        training: 'مراجعة بيانات طلب العميل قبل الحفظ.',
+      },
+      {
+        value: 'registered_late',
+        label: 'سجل الطلب متأخرًا بعد المحادثة',
+        pointsEarned: 7,
+        errorType: 'unregistered_customer_request',
+        training: 'تسجيل طلب العميل فور الوعد بالتوفير.',
+      },
+      {
+        value: 'promised_not_registered',
+        label: 'وعد بتوفير الصنف بدون تسجيل الطلب',
+        pointsEarned: 0,
+        errorType: 'unregistered_customer_request',
+        forgottenCustomer: true,
+        training: 'مخالفة عدم تسجيل طلب العميل: يجب تسجيل أي وعد أو احتياج فورًا.',
+      },
+      {
+        value: 'wrong_or_incomplete',
+        label: 'سجل اسم/تركيز/كمية خطأ أو بيانات ناقصة مؤثرة',
+        pointsEarned: 0,
+        errorType: 'unregistered_customer_request',
+        training: 'تدريب على نموذج تسجيل طلبات العملاء.',
+      },
+      {
+        value: 'arrived_no_contact',
+        label: 'وصل الصنف ولم يتم التواصل مع العميل',
+        pointsEarned: 0,
+        errorType: 'unregistered_customer_request',
+        forgottenCustomer: true,
+        severe: true,
+        training: 'تدريب على متابعة طلبات العملاء بعد وصول الصنف.',
+      },
+      {
+        value: 'verbal_handoff',
+        label: 'حوّل الطلب شفهيًا بدون تسجيل خطوة تالية',
+        pointsEarned: 0,
+        errorType: 'unregistered_customer_request',
+        training: 'منع التحويل الشفهي بدون تسجيل داخل النظام.',
+      },
     ],
   },
   {
@@ -369,9 +695,26 @@ export const REVIEW_CRITERIA: ReviewCriterion[] = [
     defaultApplies: false,
     defaultChoice: 'registered_correctly',
     choices: [
-      { value: 'registered_correctly', label: 'لاحظ الحالة وسجّلها كمتابعة استثنائية بسبب واضح ومفصّل', pointsEarned: 10, excellentCase: true },
-      { value: 'registered_generic', label: 'سجّلها لكن بسبب عام غير مفصّل', pointsEarned: 6, training: 'تدريب على توثيق سبب واضح ومفيد عند تسجيل متابعة استثنائية.' },
-      { value: 'missed_opportunity', label: 'الحالة كانت واضحة ولم يسجّلها', pointsEarned: 0, errorType: 'missed_exceptional_followup', training: 'تدريب على التعرف على الحالات المستحقة متابعة استثنائية (مريض مزمن / روشتة جديدة / عميل مهم) وتسجيلها فورًا.' },
+      {
+        value: 'registered_correctly',
+        label: 'لاحظ الحالة وسجّلها كمتابعة استثنائية بسبب واضح ومفصّل',
+        pointsEarned: 10,
+        excellentCase: true,
+      },
+      {
+        value: 'registered_generic',
+        label: 'سجّلها لكن بسبب عام غير مفصّل',
+        pointsEarned: 6,
+        training: 'تدريب على توثيق سبب واضح ومفيد عند تسجيل متابعة استثنائية.',
+      },
+      {
+        value: 'missed_opportunity',
+        label: 'الحالة كانت واضحة ولم يسجّلها',
+        pointsEarned: 0,
+        errorType: 'missed_exceptional_followup',
+        training:
+          'تدريب على التعرف على الحالات المستحقة متابعة استثنائية (مريض مزمن / روشتة جديدة / عميل مهم) وتسجيلها فورًا.',
+      },
     ],
   },
   {
@@ -382,9 +725,23 @@ export const REVIEW_CRITERIA: ReviewCriterion[] = [
     defaultApplies: false,
     defaultChoice: 'used_well',
     choices: [
-      { value: 'used_well', label: 'استخدم تاريخ الشراء لترشيح مناسب أو تذكير بموعد الدواء', pointsEarned: 10 },
-      { value: 'used_partial', label: 'أشار لتاريخ الشراء لكن بدون استفادة كاملة منه', pointsEarned: 6 },
-      { value: 'ignored', label: 'تجاهل تاريخ الشراء رغم توفره ووضوح فائدته', pointsEarned: 0, errorType: 'ignored_purchase_history', training: 'تدريب على مراجعة تاريخ شراء العميل قبل الترشيح أو الرد.' },
+      {
+        value: 'used_well',
+        label: 'استخدم تاريخ الشراء لترشيح مناسب أو تذكير بموعد الدواء',
+        pointsEarned: 10,
+      },
+      {
+        value: 'used_partial',
+        label: 'أشار لتاريخ الشراء لكن بدون استفادة كاملة منه',
+        pointsEarned: 6,
+      },
+      {
+        value: 'ignored',
+        label: 'تجاهل تاريخ الشراء رغم توفره ووضوح فائدته',
+        pointsEarned: 0,
+        errorType: 'ignored_purchase_history',
+        training: 'تدريب على مراجعة تاريخ شراء العميل قبل الترشيح أو الرد.',
+      },
     ],
   },
   {
@@ -397,8 +754,18 @@ export const REVIEW_CRITERIA: ReviewCriterion[] = [
     choices: [
       { value: 'official', label: 'استخدم رسالة الختام الرسمية', pointsEarned: 5 },
       { value: 'respectful', label: 'ختام محترم قريب من الرسمي', pointsEarned: 3 },
-      { value: 'none_completed', label: 'لا يوجد ختام رغم اكتمال المحادثة', pointsEarned: 0, training: 'تدريب على إنهاء المحادثة برسالة الختام الرسمية.' },
-      { value: 'left_open', label: 'ترك العميل بدون إغلاق', pointsEarned: 0, training: 'تحسين متابعة نهاية المحادثة.' },
+      {
+        value: 'none_completed',
+        label: 'لا يوجد ختام رغم اكتمال المحادثة',
+        pointsEarned: 0,
+        training: 'تدريب على إنهاء المحادثة برسالة الختام الرسمية.',
+      },
+      {
+        value: 'left_open',
+        label: 'ترك العميل بدون إغلاق',
+        pointsEarned: 0,
+        training: 'تحسين متابعة نهاية المحادثة.',
+      },
     ],
   },
 ];
@@ -407,13 +774,48 @@ export const SEVERE_ERRORS: Record<
   SevereErrorKey,
   { label: string; points: number; errorType: ReviewErrorType; training: string }
 > = {
-  medical_error: { label: 'خطأ طبي مؤثر', points: -25, errorType: 'medical_error', training: 'تدريب دوائي عاجل ومراجعة مدير.' },
-  invoice_error: { label: 'خطأ فاتورة', points: -15, errorType: 'invoice_error', training: 'مراجعة دقة الفاتورة قبل الإغلاق.' },
-  delivery_error: { label: 'خطأ عنوان أو دليفري بسبب الدكتور', points: -15, errorType: 'delivery_error', training: 'تأكيد بيانات التوصيل قبل التنفيذ.' },
-  wrong_price: { label: 'وعد بسعر أو خصم غير صحيح', points: -10, errorType: 'wrong_price', training: 'مراجعة سياسة الأسعار والعروض.' },
-  promised_unavailable: { label: 'وعد بتوفر صنف وهو غير متوفر', points: -10, errorType: 'promised_unavailable', training: 'تأكيد التوفر قبل وعد العميل.' },
-  request_not_registered: { label: 'عدم تسجيل طلب العميل', points: -15, errorType: 'unregistered_customer_request', training: 'تسجيل طلب العميل كاملًا فور الوعد بالتوفير أو المتابعة.' },
-  insult: { label: 'إساءة واضحة للعميل', points: -25, errorType: 'poor_tone', training: 'تصعيد إداري بسبب إساءة للعميل.' },
+  medical_error: {
+    label: 'خطأ طبي مؤثر',
+    points: -25,
+    errorType: 'medical_error',
+    training: 'تدريب دوائي عاجل ومراجعة مدير.',
+  },
+  invoice_error: {
+    label: 'خطأ فاتورة',
+    points: -15,
+    errorType: 'invoice_error',
+    training: 'مراجعة دقة الفاتورة قبل الإغلاق.',
+  },
+  delivery_error: {
+    label: 'خطأ عنوان أو دليفري بسبب الدكتور',
+    points: -15,
+    errorType: 'delivery_error',
+    training: 'تأكيد بيانات التوصيل قبل التنفيذ.',
+  },
+  wrong_price: {
+    label: 'وعد بسعر أو خصم غير صحيح',
+    points: -10,
+    errorType: 'wrong_price',
+    training: 'مراجعة سياسة الأسعار والعروض.',
+  },
+  promised_unavailable: {
+    label: 'وعد بتوفر صنف وهو غير متوفر',
+    points: -10,
+    errorType: 'promised_unavailable',
+    training: 'تأكيد التوفر قبل وعد العميل.',
+  },
+  request_not_registered: {
+    label: 'عدم تسجيل طلب العميل',
+    points: -15,
+    errorType: 'unregistered_customer_request',
+    training: 'تسجيل طلب العميل كاملًا فور الوعد بالتوفير أو المتابعة.',
+  },
+  insult: {
+    label: 'إساءة واضحة للعميل',
+    points: -25,
+    errorType: 'poor_tone',
+    training: 'تصعيد إداري بسبب إساءة للعميل.',
+  },
 };
 
 const repeatPriority: ReviewErrorType[] = [
@@ -436,7 +838,11 @@ const repeatPriority: ReviewErrorType[] = [
 
 export function defaultReviewState(): ConversationReviewState {
   return REVIEW_CRITERIA.reduce((acc, criterion) => {
-    acc[criterion.key] = { applies: criterion.defaultApplies, choice: criterion.defaultChoice, notes: '' };
+    acc[criterion.key] = {
+      applies: criterion.defaultApplies,
+      choice: criterion.defaultChoice,
+      notes: '',
+    };
     return acc;
   }, {} as ConversationReviewState);
 }
@@ -502,7 +908,7 @@ function scoreReason(score: number) {
 export function evaluateConversationReview(
   state: ConversationReviewState,
   severeErrors: SevereErrorsState,
-  customerType?: CustomerType | string | null
+  _customerType?: CustomerType | string | null
 ): ConversationReviewResult {
   const reviewItems: ReviewItemSummary[] = [];
   let earnedPoints = 0;
@@ -514,11 +920,15 @@ export function evaluateConversationReview(
   let handledAngryCustomerWell = false;
   let excellentCase = false;
   let hasSevereError = false;
-  const extraPenaltyMap = new Map<ReviewErrorType, { key: ReviewErrorType; label: string; points: number }>();
+  const extraPenaltyMap = new Map<
+    ReviewErrorType,
+    { key: ReviewErrorType; label: string; points: number }
+  >();
 
   for (const criterion of REVIEW_CRITERIA) {
     const item = state[criterion.key];
-    const choice = criterion.choices.find((row) => row.value === item?.choice) || criterion.choices[0];
+    const choice =
+      criterion.choices.find((row) => row.value === item?.choice) || criterion.choices[0];
     const applies = Boolean(item?.applies);
     if (applies) {
       totalApplicableItems += 1;
@@ -534,7 +944,8 @@ export function evaluateConversationReview(
         const extra = extraPenaltyForError(choice.errorType, choice.severe);
         // لو نفس نوع الخطأ اتسجل من معيار تاني بدرجة أخف، ناخد الأشد (الأقل نقاطًا) مش آخر واحد بالترتيب.
         const existing = extraPenaltyMap.get(extra?.key as ReviewErrorType);
-        if (extra && (!existing || extra.points < existing.points)) extraPenaltyMap.set(extra.key, extra);
+        if (extra && (!existing || extra.points < existing.points))
+          extraPenaltyMap.set(extra.key, extra);
       }
     }
     reviewItems.push({
@@ -553,33 +964,55 @@ export function evaluateConversationReview(
     if (!active) continue;
     const severe = SEVERE_ERRORS[key];
     hasSevereError = true;
-    extraPenaltyMap.set(severe.errorType, { key: severe.errorType, label: severe.label, points: severe.points });
+    extraPenaltyMap.set(severe.errorType, {
+      key: severe.errorType,
+      label: severe.label,
+      points: severe.points,
+    });
   }
 
-  const finalScore = totalApplicablePoints > 0 ? clampScore((earnedPoints / totalApplicablePoints) * 100) : 100;
+  const finalScore =
+    totalApplicablePoints > 0 ? clampScore((earnedPoints / totalApplicablePoints) * 100) : 100;
   const baseDoctorImpact = baseDoctorImpactFromScore(finalScore);
   const extraPenalties = Array.from(extraPenaltyMap.values());
   const extraPenaltyPoints = extraPenalties.reduce((sum, penalty) => sum + penalty.points, 0);
   // سقف الخصم: أي محادثة واحدة ميتخصمش منها أكتر من -20 حتى لو فيها أكتر من خطأ مجمّع
-  const rawDoctorPointsImpact = Math.max(MAX_CONVERSATION_PENALTY, baseDoctorImpact + extraPenaltyPoints);
-  // مضاعف أهمية العميل (عادي ×1 / متوسط ×1.25 / مهم ×1.5 / مهم جدًا ×2) يُطبَّق على
-  // التأثير النهائي (مكافأة أو خصم) عشان محادثة ممتازة أو مهملة مع عميل VIP توزن
-  // فعليًا أكتر من نفس المحادثة مع عميل عادي — بدل ما الاتنين ياخدوا نفس القيمة بالظبط.
-  const appliedCustomerWeightMultiplier = customerWeightMultiplier(customerType);
-  const doctorPointsImpact = Math.round(applyCustomerWeight(rawDoctorPointsImpact, customerType));
-  const impactStatus: 'approved' | 'pending' = doctorPointsImpact < 0 || hasSevereError ? 'pending' : 'approved';
-  const impactLabel = doctorPointsImpact > 0 ? `+${doctorPointsImpact} نقاط حافز` : doctorPointsImpact < 0 ? `${doctorPointsImpact} نقاط خصم` : '0 — لا يوجد تأثير على النقاط';
+  const rawDoctorPointsImpact = Math.max(
+    MAX_CONVERSATION_PENALTY,
+    baseDoctorImpact + extraPenaltyPoints
+  );
+  // مضاعف أهمية العميل اتلغى بطلب صاحب الصيدلية — نقاط تقييم المحادثة بقت
+  // ثابتة لكل العملاء بغض النظر عن تصنيفهم (عادي/مهم/مهم جدًا). الدالة
+  // المشتركة (customerWeightMultiplier) لسه مستخدمة في مكان مختلف تمامًا
+  // (نقاط تسجيل طلب متابعة استثنائية للدكتور)، فمتعمدين مانلغيهاش هي نفسها،
+  // بس وقفنا استخدامها هنا في تقييم المحادثات تحديدًا.
+  const appliedCustomerWeightMultiplier = 1;
+  const doctorPointsImpact = rawDoctorPointsImpact;
+  const impactStatus: 'approved' | 'pending' =
+    doctorPointsImpact < 0 || hasSevereError ? 'pending' : 'approved';
+  const impactLabel =
+    doctorPointsImpact > 0
+      ? `+${doctorPointsImpact} نقاط حافز`
+      : doctorPointsImpact < 0
+        ? `${doctorPointsImpact} نقاط خصم`
+        : '0 — لا يوجد تأثير على النقاط';
 
   const appliedSorted = reviewItems
     .filter((item) => item.applies)
     .sort((a, b) => a.pointsEarned / a.maxPoints - b.pointsEarned / b.maxPoints);
-  const positives = reviewItems.filter((item) => item.applies && item.pointsEarned === item.maxPoints);
+  const positives = reviewItems.filter(
+    (item) => item.applies && item.pointsEarned === item.maxPoints
+  );
   const negative = appliedSorted.find((item) => item.pointsEarned < item.maxPoints);
   const errorTypes = reviewItems.map((item) => item.errorType).filter(Boolean) as ReviewErrorType[];
   extraPenalties.forEach((penalty) => errorTypes.push(penalty.key));
   const repeatErrorType = repeatPriority.find((type) => errorTypes.includes(type)) || null;
-  const mainNegativeReason = extraPenalties[0]?.label || (negative ? `${negative.label}: ${negative.selectedOption}` : scoreReason(finalScore));
-  const mainPositiveReason = positives[0] ? `${positives[0].label}: ${positives[0].selectedOption}` : 'لا توجد نقطة إيجابية كاملة بارزة';
+  const mainNegativeReason =
+    extraPenalties[0]?.label ||
+    (negative ? `${negative.label}: ${negative.selectedOption}` : scoreReason(finalScore));
+  const mainPositiveReason = positives[0]
+    ? `${positives[0].label}: ${positives[0].selectedOption}`
+    : 'لا توجد نقطة إيجابية كاملة بارزة';
   const weakestTraining =
     appliedSorted
       .map((item) => {
@@ -588,7 +1021,9 @@ export function evaluateConversationReview(
         return choice?.training || (item.errorType ? trainingByErrorType(item.errorType) : '');
       })
       .find(Boolean) ||
-    (repeatErrorType ? trainingByErrorType(repeatErrorType) : 'لا توجد توصية تدريب واضحة، استمر في متابعة جودة المحادثات.');
+    (repeatErrorType
+      ? trainingByErrorType(repeatErrorType)
+      : 'لا توجد توصية تدريب واضحة، استمر في متابعة جودة المحادثات.');
 
   return {
     finalScore,
@@ -620,20 +1055,50 @@ export function evaluateConversationReview(
 }
 
 function extraPenaltyForError(type: ReviewErrorType, severe?: boolean) {
-  const map: Partial<Record<ReviewErrorType, { key: ReviewErrorType; label: string; points: number }>> = {
+  const map: Partial<
+    Record<ReviewErrorType, { key: ReviewErrorType; label: string; points: number }>
+  > = {
     medical_error: { key: 'medical_error', label: 'خطأ طبي مؤثر', points: -25 },
     invoice_error: { key: 'invoice_error', label: 'خطأ فاتورة', points: -15 },
-    delivery_error: { key: 'delivery_error', label: 'خطأ عنوان أو دليفري بسبب الدكتور', points: -15 },
-    forgotten_customer: { key: 'forgotten_customer', label: 'نسيان العميل بعد وعد بالمتابعة', points: -10 },
+    delivery_error: {
+      key: 'delivery_error',
+      label: 'خطأ عنوان أو دليفري بسبب الدكتور',
+      points: -15,
+    },
+    forgotten_customer: {
+      key: 'forgotten_customer',
+      label: 'نسيان العميل بعد وعد بالمتابعة',
+      points: -10,
+    },
     // أسلوب سيء عادي (جاف / غير لائق بدرجة بسيطة) يفرق عن إساءة صريحة موسومة severe —
     // بدل ما الاتنين ياخدوا نفس الخصم رغم اختلاف الخطورة الواضح بينهم.
-    poor_tone: { key: 'poor_tone', label: severe ? 'إساءة صريحة للعميل' : 'سوء أسلوب مؤثر', points: severe ? -20 : -10 },
+    poor_tone: {
+      key: 'poor_tone',
+      label: severe ? 'إساءة صريحة للعميل' : 'سوء أسلوب مؤثر',
+      points: severe ? -20 : -10,
+    },
     missed_sale: { key: 'missed_sale', label: 'إضاعة فرصة بيع واضحة', points: -10 },
-    missing_order_confirmation: { key: 'missing_order_confirmation', label: 'عدم تأكيد بيانات الطلب', points: -10 },
+    missing_order_confirmation: {
+      key: 'missing_order_confirmation',
+      label: 'عدم تأكيد بيانات الطلب',
+      points: -10,
+    },
     wrong_price: { key: 'wrong_price', label: 'وعد بسعر أو خصم غير صحيح', points: -10 },
-    promised_unavailable: { key: 'promised_unavailable', label: 'وعد بتوفر صنف وهو غير متوفر', points: -10 },
-    poor_order_delay_handling: { key: 'poor_order_delay_handling', label: 'سوء التعامل مع تأخير الأوردر', points: severe ? -20 : -10 },
-    unregistered_customer_request: { key: 'unregistered_customer_request', label: 'عدم تسجيل طلب العميل', points: severe ? -20 : -15 },
+    promised_unavailable: {
+      key: 'promised_unavailable',
+      label: 'وعد بتوفر صنف وهو غير متوفر',
+      points: -10,
+    },
+    poor_order_delay_handling: {
+      key: 'poor_order_delay_handling',
+      label: 'سوء التعامل مع تأخير الأوردر',
+      points: severe ? -20 : -10,
+    },
+    unregistered_customer_request: {
+      key: 'unregistered_customer_request',
+      label: 'عدم تسجيل طلب العميل',
+      points: severe ? -20 : -15,
+    },
   };
   return map[type] || null;
 }
@@ -651,9 +1116,12 @@ export function trainingByErrorType(type: ReviewErrorType) {
     missing_order_confirmation: 'تدريب على قائمة تأكيد بيانات الطلب.',
     wrong_price: 'مراجعة سياسة الأسعار والعروض قبل الوعد للعميل.',
     promised_unavailable: 'تأكيد التوفر من السيستم أو الفرع قبل إبلاغ العميل.',
-    poor_order_delay_handling: 'تدريب على بروتوكول تأخير الأوردر: إبلاغ، اعتذار، وقت واقعي، متابعة حتى التنفيذ.',
-    unregistered_customer_request: 'تدريب على تسجيل طلب العميل كاملًا وعدم الوعد بتوفير صنف بدون تسجيله.',
-    missed_exceptional_followup: 'تدريب على التعرف على الحالات المستحقة متابعة استثنائية (مريض مزمن / روشتة جديدة / عميل مهم) وتسجيلها فورًا.',
+    poor_order_delay_handling:
+      'تدريب على بروتوكول تأخير الأوردر: إبلاغ، اعتذار، وقت واقعي، متابعة حتى التنفيذ.',
+    unregistered_customer_request:
+      'تدريب على تسجيل طلب العميل كاملًا وعدم الوعد بتوفير صنف بدون تسجيله.',
+    missed_exceptional_followup:
+      'تدريب على التعرف على الحالات المستحقة متابعة استثنائية (مريض مزمن / روشتة جديدة / عميل مهم) وتسجيلها فورًا.',
     ignored_purchase_history: 'تدريب على مراجعة تاريخ شراء العميل قبل الترشيح أو الرد.',
   };
   return map[type];
