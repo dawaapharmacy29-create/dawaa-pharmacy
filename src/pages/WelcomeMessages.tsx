@@ -145,6 +145,8 @@ export default function WelcomeMessages() {
         profileTags: flagsToImportantTags(matchedIdentity?.customer_flags),
         customerStatus: matchedIdentity?.customer_status,
         segment: matchedIdentity?.segment,
+        invoicesCount: matchedIdentity?.invoices_count,
+        lastPurchase: matchedIdentity?.last_purchase,
       }),
     [matchedIdentity]
   );

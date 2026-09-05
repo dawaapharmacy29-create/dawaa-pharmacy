@@ -9,6 +9,8 @@ export type CustomerIdentity = {
   customer_flags?: unknown;
   customer_status?: string | null;
   segment?: string | null;
+  invoices_count?: number | null;
+  last_purchase?: string | null;
 };
 
 export type WelcomeMessageFilters = {
@@ -138,7 +140,7 @@ export async function searchCustomerIdentity(query: string): Promise<CustomerIde
   const exactResult = await supabase
     .from('customer_metrics_summary')
     .select(
-      'customer_id,customer_code,customer_name,customer_phone,branch,customer_flags,customer_status,segment'
+      'customer_id,customer_code,customer_name,customer_phone,branch,customer_flags,customer_status,segment,invoices_count,last_purchase'
     )
     .or(`customer_code.eq.${q},customer_phone.eq.${q},customer_name.eq.${q}`)
     .limit(20);
@@ -149,7 +151,7 @@ export async function searchCustomerIdentity(query: string): Promise<CustomerIde
   const { data, error } = await supabase
     .from('customer_metrics_summary')
     .select(
-      'customer_id,customer_code,customer_name,customer_phone,branch,customer_flags,customer_status,segment'
+      'customer_id,customer_code,customer_name,customer_phone,branch,customer_flags,customer_status,segment,invoices_count,last_purchase'
     )
     .or(`customer_code.ilike.%${q}%,customer_phone.ilike.%${q}%,customer_name.ilike.%${q}%`)
     .order('customer_code', { ascending: true })

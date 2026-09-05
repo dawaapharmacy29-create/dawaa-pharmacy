@@ -43,6 +43,17 @@ export const QUICK_REPLY_SCRIPT_TYPES = [
   'family_kids',
   'elderly_care',
   'retention',
+  'no_purchase_welcome',
+  'referral_welcome',
+  'first_purchase_thanks',
+  'mother_dedicated',
+  'churn_long_term',
+  'reorder_reminder',
+  'complaint_followup',
+  'restock_notice',
+  'post_treatment_checkin',
+  'points_reminder',
+  'loyalty_thanks',
 ] as const;
 
 export const DEFAULT_QUICK_REPLY_SCRIPTS: Array<
@@ -193,6 +204,105 @@ export const DEFAULT_QUICK_REPLY_SCRIPTS: Array<
       'أهلًا بحضرتك {{customer_name}}، حسينا إن فترة طويلة عدت من غير ما نخدم حضرتك، وحبينا نطمن عليك ونعرف هل في أي سبب أو مشكلة خلت تجربتك معانا أقل من المتوقع. رأي حضرتك يهمنا جدًا ونحب نصلح أي حاجة تستاهل التحسين.',
     tags: ['استرجاع', 'مهدد', 'متوقف', 'win-back'],
   },
+  {
+    shortcut: '/عميل_جديد',
+    title: 'ترحيب بعميل مسجل بدون شراء',
+    category: 'ترحيب',
+    script_type: 'no_purchase_welcome',
+    message_body:
+      'أهلًا بحضرتك {{customer_name}}، معاك فريق صيدليات دواء. لاحظنا إن بيانات حضرتك متسجلة عندنا بس لسه ما جربتش تتعامل معانا، وحبينا نتواصل ونعرّفك إن عندنا خدمة توصيل سريع وتشكيلة كاملة من الأدوية والمكملات والعناية. لو محتاج أي حاجة في أي وقت، إحنا على بعد رسالة واحدة 🌿',
+    tags: ['ترحيب', 'بدون شراء', 'إعادة تنشيط'],
+  },
+  {
+    shortcut: '/توصية',
+    title: 'ترحيب بعميل جاء بتوصية',
+    category: 'ترحيب',
+    script_type: 'referral_welcome',
+    message_body:
+      'أهلًا بحضرتك {{customer_name}}، معاك فريق صيدليات دواء. حبيت أشكرك إنك جيت لينا بتوصية من {{referrer_name}}، وده شرف كبير لينا. هنبذل قصارى جهدنا نكون عند حسن ظنك، وأي استفسار حضرتك تحت أمرك في أي وقت.',
+    tags: ['ترحيب', 'توصية', 'إحالة'],
+  },
+  {
+    shortcut: '/أول_شراء',
+    title: 'شكر بعد أول عملية شراء كبيرة',
+    category: 'ترحيب',
+    script_type: 'first_purchase_thanks',
+    message_body:
+      'أهلًا بحضرتك {{customer_name}}، حبينا نشكرك على ثقتك في أول تعامل ليك معانا. حسينا إن تجربتك الأولى تستاهل نتابعها بنفسنا: هل كل حاجة وصلت زي ما توقعت؟ وأي ملاحظة، إحنا جاهزين نسمعها ونحسّن بيها.',
+    tags: ['أول شراء', 'اطمئنان', 'عميل جديد'],
+  },
+  {
+    shortcut: '/أم',
+    title: 'أم مسؤولة عن مشتريات البيت',
+    category: 'أسرة وأطفال',
+    script_type: 'mother_dedicated',
+    message_body:
+      'أهلًا بحضرتك {{customer_name}}، حبينا نسهّل عليك حاجة: تحبي نظبطلك "قايمة ثابتة" لاحتياجات البيت الشهرية (فيتامينات، عناية، مستلزمات) تتجهز وتوصلك تلقائي من غير ما تتعبي تفتكري كل مرة؟ إحنا هنتابع نيابةً عنك.',
+    tags: ['أم', 'طلب شهري', 'بيت'],
+  },
+  {
+    shortcut: '/غياب_طويل',
+    title: 'عميل متوقف تمامًا من فترة طويلة',
+    category: 'استرجاع عملاء',
+    script_type: 'churn_long_term',
+    message_body:
+      'أهلًا بحضرتك {{customer_name}}، معاك فريق صيدليات دواء. لاحظنا إن فترة طويلة عدت من غير ما نخدمك، وحابين نكون صرحاء: يهمنا نعرف هل في سبب حقيقي خلاك تبعد، عشان نصلحه فعليًا مش بس نعتذر. رأي حضرتك هيتاخد بجدية وهيوصل للمسؤول مباشرة.',
+    tags: ['استرجاع', 'غياب طويل', 'churn'],
+  },
+  {
+    shortcut: '/إعادة_طلب',
+    title: 'تذكير بموعد إعادة الطلب المتوقع',
+    category: 'متابعة شهرية',
+    script_type: 'reorder_reminder',
+    message_body:
+      'أهلًا بحضرتك {{customer_name}}، بناءً على معدل تعاملك المعتاد معانا، حسينا إنه ممكن يكون قرّب ميعاد احتياجك لـ{{last_product_category}} تاني. حابين نجهزهولك من دلوقتي قبل ما يخلص عندك تمامًا؟',
+    tags: ['إعادة طلب', 'استباقي', 'معدل شراء'],
+  },
+  {
+    shortcut: '/بعد_الشكوى',
+    title: 'متابعة بعد حل الشكوى',
+    category: 'شكاوى',
+    script_type: 'complaint_followup',
+    message_body:
+      'أهلًا بحضرتك {{customer_name}}، بعد ما اتحل الموضوع اللي كان ضايقك، حبينا نطمن بصدق: هل فعلاً الحل كان مُرضي لحضرتك؟ ولو لسه فيه أي حاجة ناقصة، قولّنا بصراحة، مش هنعتبر الموضوع مقفول إلا لما حضرتك تقولنا إنك مرتاح.',
+    tags: ['شكوى', 'تأكيد رضا', 'متابعة'],
+  },
+  {
+    shortcut: '/توفر_صنف',
+    title: 'إشعار توفر صنف كان ناقص',
+    category: 'متابعة',
+    script_type: 'restock_notice',
+    message_body:
+      'أهلًا بحضرتك {{customer_name}}، الصنف اللي كان طلبه اتأجل قبل كده بسبب عدم التوافر ({{product_name}}) وصلنا دلوقتي. تحب نجهزهولك ونوصله لحضرتك؟',
+    tags: ['توفر', 'نواقص', 'متابعة'],
+  },
+  {
+    shortcut: '/بعد_العلاج',
+    title: 'متابعة بعد كورس علاج قصير',
+    category: 'متابعة',
+    script_type: 'post_treatment_checkin',
+    message_body:
+      'أهلًا بحضرتك {{customer_name}}، حبينا نطمن على حالتك بعد الكورس اللي أخده: هل حسيت بتحسن؟ وهل احتجت تكمل جرعة إضافية أو تراجع الدكتور تاني؟ رأيك مهم لينا وممكن يفيد حد تاني كمان.',
+    tags: ['متابعة طبية', 'بعد العلاج'],
+  },
+  {
+    shortcut: '/نقاط',
+    title: 'تذكير برصيد نقاط أو كاش باك',
+    category: 'ولاء ونقاط',
+    script_type: 'points_reminder',
+    message_body:
+      'أهلًا بحضرتك {{customer_name}}، عندك رصيد {{points_balance}} نقطة/كاش باك متاح للاستخدام. حابين نفكرك بيه قبل ما تنساه، وتقدر تستخدمه في أي طلب جاي.',
+    tags: ['نقاط', 'كاش باك', 'ولاء'],
+  },
+  {
+    shortcut: '/عميل_قديم',
+    title: 'شكر لعميل ولاء طويل',
+    category: 'ولاء ونقاط',
+    script_type: 'loyalty_thanks',
+    message_body:
+      'أهلًا بحضرتك {{customer_name}}، بقالك معانا فترة طويلة وده بيشرفنا جدًا. حبينا نشكرك على ثقتك المستمرة، ولو في أي حاجة نقدر نميزك بيها كعميل قديم، قولّنا.',
+    tags: ['ولاء', 'عميل قديم', 'شكر'],
+  },
 ];
 
 // ============================================================================
@@ -204,23 +314,46 @@ const PROFILE_TAG_TO_SCRIPT_TYPE: Record<string, string> = {
   cosmetics_interest: 'cosmetics_interest',
   supplements_interest: 'supplements_interest',
   has_children: 'family_kids',
-  mother_customer: 'family_kids',
+  mother_customer: 'mother_dedicated',
   elderly_in_house: 'elderly_care',
 };
+
+const LONG_CHURN_DAYS = 180;
 
 export function suggestScriptTypesForCustomer(input: {
   profileTags?: string[] | null;
   customerStatus?: string | null;
   segment?: string | null;
+  invoicesCount?: number | null;
+  lastPurchase?: string | null;
 }): string[] {
   const suggestions: string[] = [];
+  const status = String(input.customerStatus || '');
+
+  // عميل مسجل بس لسه ما اشتراش خالص — أولوية أعلى من أي حاجة تانية، لأنه
+  // محتاج ترحيب أول أصلًا مش متابعة عادية.
+  if ((input.invoicesCount ?? null) === 0 || /بدون شراء/.test(status)) {
+    suggestions.push('no_purchase_welcome');
+  }
+
   for (const tag of input.profileTags || []) {
     const scriptType = PROFILE_TAG_TO_SCRIPT_TYPE[tag];
     if (scriptType && !suggestions.includes(scriptType)) suggestions.push(scriptType);
   }
-  const status = String(input.customerStatus || '');
-  if (/مهدد|متوقف/.test(status) && !suggestions.includes('retention'))
+
+  const daysSincePurchase = input.lastPurchase
+    ? Math.floor((Date.now() - new Date(input.lastPurchase).getTime()) / 86400000)
+    : null;
+  if (/مهدد/.test(status) && !suggestions.includes('retention')) {
     suggestions.push('retention');
+  } else if (/متوقف/.test(status)) {
+    // "متوقف من فترة طويلة جدًا" محتاج نبرة اعتراف صريح بالغياب، مختلفة عن
+    // "مهدد بالتوقف" العادي — نفرّق بينهم بعدد الأيام لو متاح.
+    const isLongChurn = daysSincePurchase == null || daysSincePurchase >= LONG_CHURN_DAYS;
+    const churnType = isLongChurn ? 'churn_long_term' : 'retention';
+    if (!suggestions.includes(churnType)) suggestions.push(churnType);
+  }
+
   if (input.segment === 'مهم جدًا' && !suggestions.includes('vip')) suggestions.push('vip');
   if (!suggestions.length) suggestions.push('followup');
   return suggestions;
@@ -334,6 +467,10 @@ export function renderQuickReplyTemplate(
     doctor_name?: string | null;
     branch?: string | null;
     last_purchase?: string | null;
+    referrer_name?: string | null;
+    last_product_category?: string | null;
+    product_name?: string | null;
+    points_balance?: string | number | null;
     use_customer_name?: boolean;
   }
 ) {
@@ -352,6 +489,20 @@ export function renderQuickReplyTemplate(
     .replaceAll('{branch}', values.branch || 'صيدليات دواء')
     .replaceAll('{{last_purchase}}', values.last_purchase || 'آخر تعامل')
     .replaceAll('{last_purchase}', values.last_purchase || 'آخر تعامل')
+    .replaceAll('{{referrer_name}}', values.referrer_name || 'أحد عملائنا')
+    .replaceAll('{referrer_name}', values.referrer_name || 'أحد عملائنا')
+    .replaceAll('{{last_product_category}}', values.last_product_category || 'احتياجاتك المعتادة')
+    .replaceAll('{last_product_category}', values.last_product_category || 'احتياجاتك المعتادة')
+    .replaceAll('{{product_name}}', values.product_name || 'الصنف المطلوب')
+    .replaceAll('{product_name}', values.product_name || 'الصنف المطلوب')
+    .replaceAll(
+      '{{points_balance}}',
+      values.points_balance != null ? String(values.points_balance) : 'المتاح'
+    )
+    .replaceAll(
+      '{points_balance}',
+      values.points_balance != null ? String(values.points_balance) : 'المتاح'
+    )
     .replace(/\s{2,}/g, ' ')
     .replace(/\s+([،,.!?])/g, '$1')
     .trim();
