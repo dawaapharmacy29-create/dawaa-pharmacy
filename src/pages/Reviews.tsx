@@ -833,17 +833,23 @@ export default function Reviews() {
     toast.success('تم تطبيق توقيت الرد والمتابعة على بنود التقييم');
   };
 
+  const [custSearched, setCustSearched] = useState(false);
   const loadCustomersHits = async () => {
     const q = custSearch.trim();
     if (q.length < 2) {
       setCustHits([]);
+      setCustSearched(false);
+      toast.error('اكتب حرفين على الأقل للبحث');
       return;
     }
     try {
       const res = await getCustomers({ search: q, limit: 15, offset: 0 });
       setCustHits(res.customers);
-    } catch {
+      setCustSearched(true);
+    } catch (error) {
       setCustHits([]);
+      setCustSearched(true);
+      toast.error(error instanceof Error ? `تعذر البحث: ${error.message}` : 'تعذر البحث عن العميل');
     }
   };
 
@@ -1953,6 +1959,11 @@ export default function Reviews() {
                 بحث
               </button>
             </div>
+            {custSearched && custHits.length === 0 ? (
+              <p className="text-xs font-bold text-amber-400">
+                مفيش عميل مطابق. لو الكود ده متأكد منه، سجّل خروج ودخول تاني وجرب.
+              </p>
+            ) : null}
             {custHits.length > 0 && (
               <div className="grid md:grid-cols-2 gap-2">
                 {custHits.map((customer) => (
