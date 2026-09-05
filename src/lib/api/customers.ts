@@ -286,6 +286,7 @@ export function normalizeCustomerMetric(row: Row): CustomerMetric {
     customer_status: status,
     status,
     retention_status: status,
+    customer_flags: readFirst(row, ['customer_flags'], null),
   };
 }
 
@@ -339,7 +340,10 @@ async function patchCustomerMetricsFromInvoices(customers: CustomerMetric[]) {
       return normalizeMetricAfterInvoicePatch(patched);
     });
   } catch (error) {
-    console.warn('[customers] invoice metrics aggregate unavailable; keeping summary metrics', error);
+    console.warn(
+      '[customers] invoice metrics aggregate unavailable; keeping summary metrics',
+      error
+    );
     return customers;
   }
 }
@@ -378,8 +382,10 @@ function applyStatusFilter<T>(query: T, status?: string): T {
   const riskCutoff = isoDateDaysAgo(90);
   const newCutoff = isoDateDaysAgo(30);
 
-  if (normalized === 'بدون شراء') return (query as any).or('invoices_count.lte.0,last_purchase.is.null');
-  if (normalized === 'جديد') return (query as any).gte('first_purchase', newCutoff).gt('invoices_count', 0);
+  if (normalized === 'بدون شراء')
+    return (query as any).or('invoices_count.lte.0,last_purchase.is.null');
+  if (normalized === 'جديد')
+    return (query as any).gte('first_purchase', newCutoff).gt('invoices_count', 0);
   if (normalized === 'نشط')
     return (query as any)
       .gte('last_purchase', activeCutoff)
@@ -390,7 +396,8 @@ function applyStatusFilter<T>(query: T, status?: string): T {
       .lt('last_purchase', activeCutoff)
       .gte('last_purchase', riskCutoff)
       .gt('invoices_count', 0);
-  if (normalized === 'متوقف') return (query as any).lt('last_purchase', riskCutoff).gt('invoices_count', 0);
+  if (normalized === 'متوقف')
+    return (query as any).lt('last_purchase', riskCutoff).gt('invoices_count', 0);
   return query;
 }
 
@@ -437,7 +444,7 @@ export async function getCustomers(options: GetCustomersOptions = {}) {
   let query = supabase
     .from(SUMMARY_TABLE)
     .select(
-      'final_customer_key,customer_id,customer_code,customer_name,customer_phone,branch,invoices_count,total_spent,avg_invoice,first_purchase,last_purchase,active_months,avg_monthly,segment,customer_status',
+      'final_customer_key,customer_id,customer_code,customer_name,customer_phone,branch,invoices_count,total_spent,avg_invoice,first_purchase,last_purchase,active_months,avg_monthly,segment,customer_status,customer_flags',
       { count: 'exact' }
     );
   query = applyListFilters(query, options);
@@ -456,7 +463,9 @@ export async function getCustomers(options: GetCustomersOptions = {}) {
 }
 
 async function countRows(options: GetCustomersOptions = {}) {
-  let query = supabase.from(SUMMARY_TABLE).select('final_customer_key', { count: 'exact', head: true });
+  let query = supabase
+    .from(SUMMARY_TABLE)
+    .select('final_customer_key', { count: 'exact', head: true });
   query = applyListFilters(query, options);
   const { count, error } = await query;
   if (error) throw new Error(`customer_metrics_summary: ${error.message}`);
@@ -464,7 +473,9 @@ async function countRows(options: GetCustomersOptions = {}) {
 }
 
 async function countRegisteredCustomers() {
-  const { count, error } = await supabase.from('customers').select('id', { count: 'exact', head: true });
+  const { count, error } = await supabase
+    .from('customers')
+    .select('id', { count: 'exact', head: true });
   if (error) throw new Error(`customers: ${error.message}`);
   return count ?? 0;
 }
@@ -539,21 +550,33 @@ export async function getCustomerStats(): Promise<CustomerStats> {
     console.warn('[getCustomerStats] fast cards unavailable', error);
   }
 
-  const [registeredTotal, summaryTotal, veryImportant, important, medium, normal, newC, active, atRisk, stopped, noPurchase, loyal] =
-    await Promise.all([
-      countRegisteredCustomers(),
-      countRows(),
-      countRows({ type: 'مهم جدًا' }),
-      countRows({ type: 'مهم' }),
-      countRows({ type: 'متوسط' }),
-      countRows({ type: 'عادي' }),
-      countRows({ status: 'جديد' }),
-      countRows({ status: 'نشط' }),
-      countRows({ status: 'مهدد بالتوقف' }),
-      countRows({ status: 'متوقف' }),
-      countRows({ status: 'بدون شراء' }),
-      countLoyalCustomers(),
-    ]);
+  const [
+    registeredTotal,
+    summaryTotal,
+    veryImportant,
+    important,
+    medium,
+    normal,
+    newC,
+    active,
+    atRisk,
+    stopped,
+    noPurchase,
+    loyal,
+  ] = await Promise.all([
+    countRegisteredCustomers(),
+    countRows(),
+    countRows({ type: 'مهم جدًا' }),
+    countRows({ type: 'مهم' }),
+    countRows({ type: 'متوسط' }),
+    countRows({ type: 'عادي' }),
+    countRows({ status: 'جديد' }),
+    countRows({ status: 'نشط' }),
+    countRows({ status: 'مهدد بالتوقف' }),
+    countRows({ status: 'متوقف' }),
+    countRows({ status: 'بدون شراء' }),
+    countLoyalCustomers(),
+  ]);
   return {
     total: registeredTotal,
     summaryTotal,
@@ -572,7 +595,8 @@ export async function getCustomerStats(): Promise<CustomerStats> {
 }
 
 async function getCustomerProfile(customer: CustomerMetric): Promise<CustomerProfile | null> {
-  const customerId = customer.customer_id && isUuidLike(customer.customer_id) ? customer.customer_id : null;
+  const customerId =
+    customer.customer_id && isUuidLike(customer.customer_id) ? customer.customer_id : null;
   const customerCode = String(customer.customer_code || '').trim() || null;
   const customerPhone = String(customer.customer_phone || customer.phone || '').trim() || null;
   if (!customerId && !customerCode && !customerPhone) return null;
@@ -598,9 +622,16 @@ async function saveDurableCustomerFlags(
   existingProfile?: CustomerProfile | null
 ) {
   if (!flags) return null;
-  const customerCode = String(customer.customer_code || existingProfile?.customer_code || '').trim() || null;
+  const customerCode =
+    String(customer.customer_code || existingProfile?.customer_code || '').trim() || null;
   const customerPhone =
-    String(customer.customer_phone || customer.phone || existingProfile?.customer_phone || existingProfile?.phone || '').trim() || null;
+    String(
+      customer.customer_phone ||
+        customer.phone ||
+        existingProfile?.customer_phone ||
+        existingProfile?.phone ||
+        ''
+    ).trim() || null;
   const customerName = String(customer.customer_name || customer.name || '').trim() || null;
   const customerId =
     customer.customer_id && isUuidLike(customer.customer_id)
@@ -654,27 +685,46 @@ export async function saveCustomerProfileNotes(
   assign('phone_alt', payload.phone_alt ?? null);
   assign('whatsapp_phone', payload.whatsapp_phone ?? null);
   if (payload.flags) {
-    updatePayload.customer_flags = buildCustomerFlagsForDb(profile?.customer_flags || {}, payload.flags);
+    updatePayload.customer_flags = buildCustomerFlagsForDb(
+      profile?.customer_flags || {},
+      payload.flags
+    );
   }
 
   const customerCode = String(customer.customer_code || '').trim() || null;
   const customerPhone = String(customer.customer_phone || customer.phone || '').trim() || null;
-  const customerName = String(customer.customer_name || customer.name || '').trim() || 'عميل بدون اسم';
+  const customerName =
+    String(customer.customer_name || customer.name || '').trim() || 'عميل بدون اسم';
   if (!profile && !customer.customer_id && !customerCode && !customerPhone) {
     throw new Error('لا يوجد عميل صالح لتحديثه.');
   }
 
   let saved: CustomerProfile | null = null;
   if (profile?.id) {
-    const result = await supabase.from('customers').update(updatePayload).eq('id', profile.id).select('*').maybeSingle();
+    const result = await supabase
+      .from('customers')
+      .update(updatePayload)
+      .eq('id', profile.id)
+      .select('*')
+      .maybeSingle();
     if (result.error) throw new Error(result.error.message);
     saved = result.data as CustomerProfile | null;
   } else if (customer.customer_id && isUuidLike(customer.customer_id)) {
-    const result = await supabase.from('customers').update(updatePayload).eq('id', customer.customer_id).select('*').maybeSingle();
+    const result = await supabase
+      .from('customers')
+      .update(updatePayload)
+      .eq('id', customer.customer_id)
+      .select('*')
+      .maybeSingle();
     if (result.error) throw new Error(result.error.message);
     saved = result.data as CustomerProfile | null;
   } else if (customerCode) {
-    const result = await supabase.from('customers').update(updatePayload).eq('customer_code', customerCode).select('*').maybeSingle();
+    const result = await supabase
+      .from('customers')
+      .update(updatePayload)
+      .eq('customer_code', customerCode)
+      .select('*')
+      .maybeSingle();
     if (result.error) throw new Error(result.error.message);
     saved = result.data as CustomerProfile | null;
   } else if (customerPhone) {
@@ -746,7 +796,9 @@ function purchaseFrequencyRecommendation(status: string) {
   return 'استمر في دعم العميل وقدم خدمات واضحة للحفاظ على العلاقة.';
 }
 
-async function getCustomerPurchaseFrequencyPatch(customer: CustomerMetric): Promise<PurchaseAnalysis | null> {
+async function getCustomerPurchaseFrequencyPatch(
+  customer: CustomerMetric
+): Promise<PurchaseAnalysis | null> {
   const clauses = customerIdentityClauses(customer);
   if (!clauses) return null;
   try {
@@ -763,8 +815,11 @@ async function getCustomerPurchaseFrequencyPatch(customer: CustomerMetric): Prom
     const previous = toNumber(readFirst(data as Row, ['purchase_count_previous_month'], 0));
     const average = toNumber(readFirst(data as Row, ['average_monthly_purchase_count'], 0));
     const status = String(
-      readFirst(data as Row, ['purchase_frequency_status'], purchaseFrequencyStatus(current, previous)) ||
+      readFirst(
+        data as Row,
+        ['purchase_frequency_status'],
         purchaseFrequencyStatus(current, previous)
+      ) || purchaseFrequencyStatus(current, previous)
     );
     return {
       purchaseCountCurrentMonth: current,
@@ -783,7 +838,9 @@ async function getCustomerActiveAlerts(customer: CustomerMetric): Promise<Custom
     customer.customer_code ? `customer_code.eq.${customer.customer_code}` : '',
     customer.customer_phone ? `customer_phone.eq.${customer.customer_phone}` : '',
     customer.phone ? `customer_phone.eq.${customer.phone}` : '',
-    customer.customer_id && isUuidLike(customer.customer_id) ? `customer_id.eq.${customer.customer_id}` : '',
+    customer.customer_id && isUuidLike(customer.customer_id)
+      ? `customer_id.eq.${customer.customer_id}`
+      : '',
   ]
     .filter(Boolean)
     .join(',');
@@ -851,7 +908,8 @@ export async function createCustomerManualFollowup(
   if (!rpcError) return;
 
   const { error } = await supabase.from('customer_manual_followups').insert({
-    customer_id: customer.customer_id && isUuidLike(customer.customer_id) ? customer.customer_id : null,
+    customer_id:
+      customer.customer_id && isUuidLike(customer.customer_id) ? customer.customer_id : null,
     customer_code: customer.customer_code,
     customer_name: customer.customer_name || customer.name,
     customer_phone: customer.customer_phone || customer.phone,
@@ -880,7 +938,8 @@ export async function createCustomerPersonalOffer(
   }
 ) {
   const { error } = await supabase.from('customer_personal_offers').insert({
-    customer_id: customer.customer_id && isUuidLike(customer.customer_id) ? customer.customer_id : null,
+    customer_id:
+      customer.customer_id && isUuidLike(customer.customer_id) ? customer.customer_id : null,
     customer_code: customer.customer_code,
     customer_name: customer.customer_name || customer.name,
     customer_phone: customer.customer_phone || customer.phone,
@@ -913,11 +972,16 @@ async function getCustomerDetailsFastRpc(
     const invoices = Array.isArray(payload.invoices) ? payload.invoices : [];
     const followups = Array.isArray(payload.followups) ? payload.followups : [];
     const flags = payload.customerFlags || payload.customer_flags || {};
-    const currentMonthVisits = Number(payload.currentMonthVisits ?? payload.current_month_visits ?? 0);
-    const previousMonthVisits = Number(payload.previousMonthVisits ?? payload.previous_month_visits ?? 0);
+    const currentMonthVisits = Number(
+      payload.currentMonthVisits ?? payload.current_month_visits ?? 0
+    );
+    const previousMonthVisits = Number(
+      payload.previousMonthVisits ?? payload.previous_month_visits ?? 0
+    );
     const avgMonthlyVisits = Number(payload.avgMonthlyVisits ?? payload.avg_monthly_visits ?? 0);
     const frequencyStatus =
-      payload.purchaseFrequencyStatus || purchaseFrequencyStatus(currentMonthVisits, previousMonthVisits);
+      payload.purchaseFrequencyStatus ||
+      purchaseFrequencyStatus(currentMonthVisits, previousMonthVisits);
     const frequencyRecommendation =
       payload.purchaseFrequencyRecommendation || purchaseFrequencyRecommendation(frequencyStatus);
 
@@ -1044,7 +1108,8 @@ export async function getCustomerDetails(
     followups: limitedFollowups,
     lastFollowup: limitedFollowups[0] || null,
     topDoctor,
-    lastServiceDoctor: limitedFollowups[0]?.responsible_name || limitedFollowups[0]?.assigned_to || null,
+    lastServiceDoctor:
+      limitedFollowups[0]?.responsible_name || limitedFollowups[0]?.assigned_to || null,
     lastFollowupReport: limitedFollowups[0]?.followup_result || limitedFollowups[0]?.notes || null,
     avgMonthlyVisits: analysis.averageMonthlyPurchaseCount || null,
     currentMonthVisits: analysis.purchaseCountCurrentMonth,

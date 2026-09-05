@@ -22,6 +22,7 @@ export type CustomerMetric = {
   status: string;
   retention_status: string;
   displayPhone?: string;
+  customer_flags?: unknown;
 };
 
 export type CustomerLike = Record<string, unknown>;

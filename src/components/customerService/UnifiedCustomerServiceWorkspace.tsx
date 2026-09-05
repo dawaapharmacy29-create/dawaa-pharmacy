@@ -54,7 +54,12 @@ import {
   notifyIncompleteDailyQueue,
   updateDailyQueueItem,
 } from '@/lib/customerServiceDailyExecution';
-import { buildFollowupScript, followupPriorityScore } from '@/lib/customerServiceScriptEngine';
+import {
+  buildFollowupScript,
+  buildVipCareScript,
+  followupPriorityScore,
+} from '@/lib/customerServiceScriptEngine';
+import { flagsToImportantTags } from '@/lib/customerFlags';
 import { createStaffNotification } from '@/lib/staffNotificationService';
 import FollowupExcelImportModal from '@/components/customerService/FollowupExcelImportModal';
 import { getCustomerFullProfile, normalizePhone } from '@/lib/customerProfileService';
@@ -220,9 +225,12 @@ function daysSince(value?: string | null) {
 function activityStatus(lastPurchase?: string | null) {
   const days = daysSince(lastPurchase);
   if (days == null) return { label: 'النشاط غير مؤكد', atRisk: false, stopped: false };
-  if (days <= 30) return { label: `نشط · اشترى منذ ${days || 'أقل من'} يوم`, atRisk: false, stopped: false };
-  if (days <= 45) return { label: `يحتاج اهتمام · آخر شراء منذ ${days} يومًا`, atRisk: false, stopped: false };
-  if (days <= 90) return { label: `مهدد بالتوقف · آخر شراء منذ ${days} يومًا`, atRisk: true, stopped: false };
+  if (days <= 30)
+    return { label: `نشط · اشترى منذ ${days || 'أقل من'} يوم`, atRisk: false, stopped: false };
+  if (days <= 45)
+    return { label: `يحتاج اهتمام · آخر شراء منذ ${days} يومًا`, atRisk: false, stopped: false };
+  if (days <= 90)
+    return { label: `مهدد بالتوقف · آخر شراء منذ ${days} يومًا`, atRisk: true, stopped: false };
   return { label: `متوقف · آخر شراء منذ ${days} يومًا`, atRisk: true, stopped: true };
 }
 
@@ -337,7 +345,9 @@ function followupToItem(row: FollowupRow, source = sourceFromRow(row)): QueueIte
     customer: metric,
     name: cleanCustomerName(row.customer_name || row.name || metric?.customer_name),
     code: row.customer_code || metric?.customer_code || '',
-    phone: normalizePhone(row.customer_phone || row.phone || metric?.customer_phone || metric?.phone),
+    phone: normalizePhone(
+      row.customer_phone || row.phone || metric?.customer_phone || metric?.phone
+    ),
     branch,
     segment: row.segment || row.classification || metric?.segment || 'غير مصنف',
     status: displayStatus(row.customer_status || row.status || metric?.customer_status),
@@ -441,22 +451,8 @@ function queueLabel(item: QueueItem) {
   return sourceLabel(item.source);
 }
 
-function scriptFor(item: QueueItem) {
-  const owner = BRANCH_OWNER[item.branch] || 'فريق خدمة العملاء';
-  return buildFollowupScript({
-    customerName: item.name,
-    agentName: owner,
-    doctorName: item.requestedBy,
-    reason: item.reason,
-    source: item.source,
-    result: item.status,
-    branch: item.branch,
-    lastPurchase: item.lastPurchase,
-  }).whatsapp;
-}
-
 function scriptPackFor(item: QueueItem) {
-  return buildFollowupScript({
+  const context = {
     customerName: item.name,
     agentName: BRANCH_OWNER[item.branch] || 'فريق خدمة العملاء',
     doctorName: item.requestedBy,
@@ -465,7 +461,17 @@ function scriptPackFor(item: QueueItem) {
     result: item.status,
     branch: item.branch,
     lastPurchase: item.lastPurchase,
-  });
+    profileTags: flagsToImportantTags(item.customer?.customer_flags),
+    segment: item.segment,
+    customerStatus: item.status,
+  };
+  // عميل "مهم جدًا" بياخد سيناريو رعاية خاصة، مش نفس سيناريو المتابعة العادي —
+  // فرق الرد هنا بيكلف الصيدلية أكتر بكتير من عميل عادي.
+  return item.segment === 'مهم جدًا' ? buildVipCareScript(context) : buildFollowupScript(context);
+}
+
+function scriptFor(item: QueueItem) {
+  return scriptPackFor(item).whatsapp;
 }
 
 export default function UnifiedCustomerServiceWorkspace() {
@@ -498,7 +504,9 @@ export default function UnifiedCustomerServiceWorkspace() {
   const [excelImportOpen, setExcelImportOpen] = useState(false);
   const [resultRow, setResultRow] = useState<FollowupRow | null>(null);
   const [detailsRow, setDetailsRow] = useState<FollowupRow | null>(null);
-  const [selectedHydration, setSelectedHydration] = useState<Record<string, Partial<QueueItem>>>({});
+  const [selectedHydration, setSelectedHydration] = useState<Record<string, Partial<QueueItem>>>(
+    {}
+  );
   const loadSequence = useRef(0);
   const selectedProfileSequence = useRef(0);
   const queueRef = useRef<QueueItem[]>([]);
@@ -524,9 +532,12 @@ export default function UnifiedCustomerServiceWorkspace() {
       if (followupsResult.status === 'rejected') throw followupsResult.reason;
       const followups = followupsResult.value;
       const emptyCustomers = { customers: [] as CustomerMetric[] };
-      const importantResult = importantSettled.status === 'fulfilled' ? importantSettled.value : emptyCustomers;
-      const atRiskResult = atRiskSettled.status === 'fulfilled' ? atRiskSettled.value : emptyCustomers;
-      const recentResult = recentSettled.status === 'fulfilled' ? recentSettled.value : emptyCustomers;
+      const importantResult =
+        importantSettled.status === 'fulfilled' ? importantSettled.value : emptyCustomers;
+      const atRiskResult =
+        atRiskSettled.status === 'fulfilled' ? atRiskSettled.value : emptyCustomers;
+      const recentResult =
+        recentSettled.status === 'fulfilled' ? recentSettled.value : emptyCustomers;
       setAllFollowups(followups);
       const doctorRequests = followups
         .filter((row) => !isCompleted(row) && sourceFromRow(row) === 'doctor_request')
@@ -600,56 +611,66 @@ export default function UnifiedCustomerServiceWorkspace() {
         { id: user?.id || null, name: user?.name || null }
       );
       const proposedByKey = new Map(proposedQueue.map((item) => [item.key, item]));
-      const staleCodes = new Set(staleAtRiskCustomers.map((customer) => String(customer.customer_code || '').trim()).filter(Boolean));
-      const stalePhones = new Set(staleAtRiskCustomers.map((customer) => normalizePhone(customer.customer_phone || customer.phone)).filter(Boolean));
-      const finalQueue = snapshot.items.filter(
-        (saved) =>
-          saved.status === 'completed' ||
-          saved.source !== 'at_risk' ||
-          (!staleCodes.has(String(saved.code || '').trim()) &&
-            !stalePhones.has(normalizePhone(saved.phone)))
-      ).map((saved) => {
-        const original = proposedByKey.get(saved.key);
-        if (original)
+      const staleCodes = new Set(
+        staleAtRiskCustomers
+          .map((customer) => String(customer.customer_code || '').trim())
+          .filter(Boolean)
+      );
+      const stalePhones = new Set(
+        staleAtRiskCustomers
+          .map((customer) => normalizePhone(customer.customer_phone || customer.phone))
+          .filter(Boolean)
+      );
+      const finalQueue = snapshot.items
+        .filter(
+          (saved) =>
+            saved.status === 'completed' ||
+            saved.source !== 'at_risk' ||
+            (!staleCodes.has(String(saved.code || '').trim()) &&
+              !stalePhones.has(normalizePhone(saved.phone)))
+        )
+        .map((saved) => {
+          const original = proposedByKey.get(saved.key);
+          if (original)
+            return {
+              ...original,
+              queueItemId: saved.id,
+              completed: saved.status === 'completed' || original.completed,
+            };
           return {
-            ...original,
+            key: saved.key,
+            source: saved.source as QueueSource,
+            row: followups.find((row) => row.id === saved.linkedFollowupId) || null,
+            customer: null,
+            name: saved.name,
+            code: saved.code || '',
+            phone: saved.phone || '',
+            branch: saved.branch,
+            segment: 'غير مصنف',
+            status: saved.status,
+            priority: saved.priority || 'مهم',
+            reason: saved.reason || 'متابعة اليوم',
+            avgMonthly: 0,
+            totalSpent: 0,
+            avgInvoice: 0,
+            lastPurchase: '',
+            completed: saved.status === 'completed',
             queueItemId: saved.id,
-            completed: saved.status === 'completed' || original.completed,
+            requestedBy: 'غير محدد',
+            branchEvidence: saved.branch ? 'فرع القائمة اليومية' : 'الفرع غير مؤكد',
+            branchNeedsReview: !saved.branch,
+            priorityScore: followupPriorityScore({
+              source: saved.source,
+              priority: saved.priority,
+              reason: saved.reason,
+            }).score,
+            priorityReason: followupPriorityScore({
+              source: saved.source,
+              priority: saved.priority,
+              reason: saved.reason,
+            }).label,
           };
-        return {
-          key: saved.key,
-          source: saved.source as QueueSource,
-          row: followups.find((row) => row.id === saved.linkedFollowupId) || null,
-          customer: null,
-          name: saved.name,
-          code: saved.code || '',
-          phone: saved.phone || '',
-          branch: saved.branch,
-          segment: 'غير مصنف',
-          status: saved.status,
-          priority: saved.priority || 'مهم',
-          reason: saved.reason || 'متابعة اليوم',
-          avgMonthly: 0,
-          totalSpent: 0,
-          avgInvoice: 0,
-          lastPurchase: '',
-          completed: saved.status === 'completed',
-          queueItemId: saved.id,
-          requestedBy: 'غير محدد',
-          branchEvidence: saved.branch ? 'فرع القائمة اليومية' : 'الفرع غير مؤكد',
-          branchNeedsReview: !saved.branch,
-          priorityScore: followupPriorityScore({
-            source: saved.source,
-            priority: saved.priority,
-            reason: saved.reason,
-          }).score,
-          priorityReason: followupPriorityScore({
-            source: saved.source,
-            priority: saved.priority,
-            reason: saved.reason,
-          }).label,
-        };
-      });
+        });
       const verifiedQueue = await verifyAtRiskQueue(finalQueue);
       if (sequence !== loadSequence.current) return;
       setQueue(verifiedQueue);
@@ -767,41 +788,44 @@ export default function UnifiedCustomerServiceWorkspace() {
     if (!selected || (!selected.code && !selected.phone && !selected.name)) return;
     const sequence = ++selectedProfileSequence.current;
     void getCustomerFullProfile({
-      customer_id: selected.customer?.customer_id || selected.customer?.id || selected.row?.customer_id,
+      customer_id:
+        selected.customer?.customer_id || selected.customer?.id || selected.row?.customer_id,
       customer_code: selected.code,
       customer_phone: selected.phone,
       customer_name: selected.name,
-    }).then((profile) => {
-      if (sequence !== selectedProfileSequence.current) return;
-      const metrics = profile.metrics;
-      const raw = profile.profile as Record<string, unknown> | null;
-      const branch = normalizeBranchName(
-        metrics?.branch || String(raw?.branch || '') || selected.branch
-      );
-      setSelectedHydration((current) => ({
-        ...current,
-        [selected.key]: {
-          customer: metrics || selected.customer,
-          name: metrics?.customer_name || String(raw?.name || '') || selected.name,
-          code: metrics?.customer_code || String(raw?.customer_code || '') || selected.code,
-          phone: normalizePhone(
-            profile.displayPhone ||
-              metrics?.customer_phone ||
-              metrics?.phone ||
-              String(raw?.phone || '') ||
-              selected.phone
-          ),
-          branch,
-          segment: metrics?.segment || selected.segment,
-          avgMonthly: Number(metrics?.avg_monthly || selected.avgMonthly || 0),
-          totalSpent: Number(metrics?.total_spent || selected.totalSpent || 0),
-          avgInvoice: Number(metrics?.avg_invoice || selected.avgInvoice || 0),
-          lastPurchase: metrics?.last_purchase || selected.lastPurchase,
-          branchNeedsReview: !branch,
-          branchEvidence: branch ? 'مؤكد من ملف العميل الكامل' : selected.branchEvidence,
-        },
-      }));
-    }).catch((error) => console.warn('Customer profile hydration failed', error));
+    })
+      .then((profile) => {
+        if (sequence !== selectedProfileSequence.current) return;
+        const metrics = profile.metrics;
+        const raw = profile.profile as Record<string, unknown> | null;
+        const branch = normalizeBranchName(
+          metrics?.branch || String(raw?.branch || '') || selected.branch
+        );
+        setSelectedHydration((current) => ({
+          ...current,
+          [selected.key]: {
+            customer: metrics || selected.customer,
+            name: metrics?.customer_name || String(raw?.name || '') || selected.name,
+            code: metrics?.customer_code || String(raw?.customer_code || '') || selected.code,
+            phone: normalizePhone(
+              profile.displayPhone ||
+                metrics?.customer_phone ||
+                metrics?.phone ||
+                String(raw?.phone || '') ||
+                selected.phone
+            ),
+            branch,
+            segment: metrics?.segment || selected.segment,
+            avgMonthly: Number(metrics?.avg_monthly || selected.avgMonthly || 0),
+            totalSpent: Number(metrics?.total_spent || selected.totalSpent || 0),
+            avgInvoice: Number(metrics?.avg_invoice || selected.avgInvoice || 0),
+            lastPurchase: metrics?.last_purchase || selected.lastPurchase,
+            branchNeedsReview: !branch,
+            branchEvidence: branch ? 'مؤكد من ملف العميل الكامل' : selected.branchEvidence,
+          },
+        }));
+      })
+      .catch((error) => console.warn('Customer profile hydration failed', error));
   }, [selected?.key, selected?.code, selected?.phone, selected?.name]);
   const selectedDataIssues = selected
     ? [
@@ -1714,10 +1738,7 @@ export default function UnifiedCustomerServiceWorkspace() {
                     </p>
                   </div>
                   <div className="flex gap-2">
-                    <a
-                      className="btn-secondary"
-                      href={customerProfileUrl(selected)}
-                    >
+                    <a className="btn-secondary" href={customerProfileUrl(selected)}>
                       ملف العميل
                     </a>
                     <button className="btn-primary" onClick={() => void openResult(selected)}>
@@ -1978,9 +1999,19 @@ export default function UnifiedCustomerServiceWorkspace() {
         <section className="space-y-4">
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
             <Stat compact icon={History} label="إجمالي النتائج" value={historySummary.total} />
-            <Stat compact icon={ShoppingBag} label="اشتروا بعد المتابعة" value={historySummary.purchases} />
+            <Stat
+              compact
+              icon={ShoppingBag}
+              label="اشتروا بعد المتابعة"
+              value={historySummary.purchases}
+            />
             <MoneyStat compact label="مبيعات المتابعات" value={historySummary.sales} />
-            <Stat compact icon={AlertTriangle} label="احتاجت مدير" value={historySummary.needsManager} />
+            <Stat
+              compact
+              icon={AlertTriangle}
+              label="احتاجت مدير"
+              value={historySummary.needsManager}
+            />
             <Stat compact icon={Clock3} label="متابعة قادمة" value={historySummary.nextFollowup} />
           </div>
           <div className="stat-card">
@@ -2080,7 +2111,11 @@ export default function UnifiedCustomerServiceWorkspace() {
                         />
                         <Info
                           label="الشراء بعد المتابعة"
-                          value={purchaseAmount > 0 ? formatCurrency(purchaseAmount) : 'لا يوجد شراء مسجل'}
+                          value={
+                            purchaseAmount > 0
+                              ? formatCurrency(purchaseAmount)
+                              : 'لا يوجد شراء مسجل'
+                          }
                         />
                         <Info
                           label="المتابعة القادمة"
@@ -2322,7 +2357,15 @@ function Stat({
     </div>
   );
 }
-function MoneyStat({ label, value, compact = false }: { label: string; value: number; compact?: boolean }) {
+function MoneyStat({
+  label,
+  value,
+  compact = false,
+}: {
+  label: string;
+  value: number;
+  compact?: boolean;
+}) {
   return (
     <div className={compact ? 'rounded-2xl border border-white/10 bg-[#10243d] p-3' : 'stat-card'}>
       <div className="flex items-center gap-3">
