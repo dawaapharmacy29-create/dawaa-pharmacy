@@ -138,7 +138,8 @@ const EVAL_REASONS = [
 ];
 const REVIEW_DRAFT_KEY = 'dawaa_conversation_review_draft_v3';
 const REVIEW_HISTORY_CACHE_KEY = 'dawaa_conversation_review_history_v1';
-const REVIEW_HISTORY_SELECT = 'id,created_at,updated_at,reviewer_id,reviewer_name,reviewer_role,staff_id,doctor_id,staff_name,staff_role,doctor_name,branch,customer_id,customer_name,customer_code,customer_phone,invoice_number,evaluation_kind,conversation_type,evaluation_reason,conversation_date,total_score,final_score,level,point_impact,doctor_points_impact,main_positive_reason,main_negative_reason,reviewer_notes,training_recommendation,month_cycle,manager_review_score,manager_review_notes,manager_reviewed_by,manager_reviewed_at';
+const REVIEW_HISTORY_SELECT =
+  'id,created_at,updated_at,reviewer_id,reviewer_name,reviewer_role,staff_id,doctor_id,staff_name,staff_role,doctor_name,branch,customer_id,customer_name,customer_code,customer_phone,invoice_number,evaluation_kind,conversation_type,evaluation_reason,conversation_date,total_score,final_score,level,point_impact,doctor_points_impact,main_positive_reason,main_negative_reason,reviewer_notes,training_recommendation,month_cycle,manager_review_score,manager_review_notes,manager_reviewed_by,manager_reviewed_at';
 
 const emptyReviewForm = {
   reviewerId: '',
@@ -151,6 +152,7 @@ const emptyReviewForm = {
   evaluationKind: 'واتساب',
   evaluationReason: 'مراجعة عشوائية',
   invoiceNo: '',
+  convertedToSale: '' as '' | 'yes' | 'no',
   conversationDate: '',
   firstCustomerMessageAt: '',
   firstStaffReplyAt: '',
@@ -652,10 +654,15 @@ export default function Reviews() {
     try {
       const cachedRaw = window.sessionStorage.getItem(cacheKey);
       if (cachedRaw) {
-        const cached = JSON.parse(cachedRaw) as { savedAt?: number; rows?: ConversationReviewHistoryRow[] };
+        const cached = JSON.parse(cachedRaw) as {
+          savedAt?: number;
+          rows?: ConversationReviewHistoryRow[];
+        };
         const freshEnough = cached.savedAt && Date.now() - cached.savedAt < 10 * 60 * 1000;
         if (freshEnough && Array.isArray(cached.rows)) {
-          cachedRows = cached.rows.filter((row) => canUserSeeConversationReviewBranch(user, row.branch));
+          cachedRows = cached.rows.filter((row) =>
+            canUserSeeConversationReviewBranch(user, row.branch)
+          );
           if (cachedRows.length) setReviewHistory(cachedRows);
         }
       }
@@ -684,7 +691,10 @@ export default function Reviews() {
       setReviewHistory(rows);
 
       try {
-        window.sessionStorage.setItem(cacheKey, JSON.stringify({ savedAt: Date.now(), rows: sourceRows }));
+        window.sessionStorage.setItem(
+          cacheKey,
+          JSON.stringify({ savedAt: Date.now(), rows: sourceRows })
+        );
       } catch {
         // Storage quota/privacy mode must not break history rendering.
       }
@@ -874,6 +884,14 @@ export default function Reviews() {
       toast.error('فعّل بند واحد على الأقل قبل حفظ التقييم');
       return false;
     }
+    if (form.convertedToSale === '') {
+      toast.error('حدد هل المحادثة دي اتحولت لعملية بيع ولا لأ');
+      return false;
+    }
+    if (form.convertedToSale === 'yes' && !form.invoiceNo.trim()) {
+      toast.error('اكتب رقم الفاتورة عشان اتحولت لعملية بيع');
+      return false;
+    }
 
     setSaving(true);
     try {
@@ -912,7 +930,8 @@ export default function Reviews() {
         evaluation_kind: form.evaluationKind,
         conversation_type: form.evaluationKind,
         conversation_date: new Date(conversationDate).toISOString(),
-        invoice_number: form.invoiceNo || null,
+        invoice_number: form.convertedToSale === 'yes' ? form.invoiceNo || null : null,
+        converted_to_sale: form.convertedToSale === 'yes',
         invoice_time: form.conversationDate ? new Date(form.conversationDate).toISOString() : null,
         evaluation_reason: form.evaluationReason,
         base_score: 100,
@@ -1886,14 +1905,34 @@ export default function Reviews() {
                   onChange={(e) => setForm((f) => ({ ...f, conversationDate: e.target.value }))}
                 />
               </Field>
-              <Field label="رقم الفاتورة">
-                <input
-                  className="input-dark"
-                  value={form.invoiceNo}
-                  onChange={(e) => setForm((f) => ({ ...f, invoiceNo: e.target.value }))}
-                  placeholder="اختياري"
-                />
+              <Field label="هل تحولت المحادثة لعملية بيع؟">
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setForm((f) => ({ ...f, convertedToSale: 'yes' }))}
+                    className={`input-dark flex-1 text-sm font-black ${form.convertedToSale === 'yes' ? 'ring-2 ring-emerald-400' : ''}`}
+                  >
+                    نعم، اتحولت لبيع
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setForm((f) => ({ ...f, convertedToSale: 'no', invoiceNo: '' }))}
+                    className={`input-dark flex-1 text-sm font-black ${form.convertedToSale === 'no' ? 'ring-2 ring-rose-400' : ''}`}
+                  >
+                    لا، مش دلوقتي
+                  </button>
+                </div>
               </Field>
+              {form.convertedToSale === 'yes' ? (
+                <Field label="رقم الفاتورة">
+                  <input
+                    className="input-dark"
+                    value={form.invoiceNo}
+                    onChange={(e) => setForm((f) => ({ ...f, invoiceNo: e.target.value }))}
+                    placeholder="رقم فاتورة البيع الناتجة عن المحادثة"
+                  />
+                </Field>
+              ) : null}
             </div>
           </section>
 
@@ -2149,6 +2188,16 @@ export default function Reviews() {
               />
               <Info label="العميل" value={form.customerName || 'غير محدد'} />
               <Info label="المراجع" value={selectedReviewer ? selectedReviewer.name : 'غير محدد'} />
+              <Info
+                label="تحولت لعملية بيع؟"
+                value={
+                  form.convertedToSale === 'yes'
+                    ? 'نعم'
+                    : form.convertedToSale === 'no'
+                      ? 'لا'
+                      : 'لم يتحدد'
+                }
+              />
               <Info label="رقم الفاتورة" value={form.invoiceNo || 'غير مسجل'} />
               <Info label="نوع المحادثة" value={form.evaluationKind} />
               <Info label="دورة النقاط" value={monthCycle} />
