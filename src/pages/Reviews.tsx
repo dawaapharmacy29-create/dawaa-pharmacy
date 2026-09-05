@@ -34,7 +34,13 @@ import { supabase } from '@/lib/supabase';
 import { useAuth, getCurrentUserProfile } from '@/hooks/useAuth';
 import { normalizeBranchName } from '@/lib/branch';
 import { normalizeRole } from '@/lib/core/permissionSystem';
-import { canViewAllBranches, getReviewAllowedBranches, isDoctorRole, normalizeArabicName, rowMatchesCurrentUserScope } from '@/lib/security/userDataScope';
+import {
+  canViewAllBranches,
+  getReviewAllowedBranches,
+  isDoctorRole,
+  normalizeArabicName,
+  rowMatchesCurrentUserScope,
+} from '@/lib/security/userDataScope';
 import { toast } from 'sonner';
 import { useSupabaseQuery, logActivity } from '@/hooks/useSupabaseQuery';
 import { persistPointsTransaction } from '@/lib/pointsPersistence';
@@ -44,7 +50,7 @@ import type { CustomerMetric } from '@/lib/api/customers';
 import { getCustomers } from '@/lib/api/customers';
 import { toNumber } from '@/lib/utils';
 import { isActiveStaffFilter } from '@/lib/staffActiveFilter';
-import { mergeStaffChoices, reviewerChoices } from '@/lib/staffFallback';
+import { mergeStaffChoices } from '@/lib/staffFallback';
 import { TABLES } from '@/lib/supabaseTables';
 import { notifyEmployee } from '@/lib/notificationService';
 import { usePendingFormNavigationGuard } from '@/hooks/useUnsavedChangesGuard';
@@ -157,7 +163,15 @@ const emptyReviewForm = {
 };
 
 function canUserSeeConversationReviewBranch(
-  user: { role?: string | null; name?: string | null; username?: string | null; branch?: string | null } | null | undefined,
+  user:
+    | {
+        role?: string | null;
+        name?: string | null;
+        username?: string | null;
+        branch?: string | null;
+      }
+    | null
+    | undefined,
   branch?: string | null
 ) {
   if (!user) return false;
@@ -354,7 +368,11 @@ export default function Reviews() {
     if (params.has('id')) {
       params.delete('id');
       const search = params.toString();
-      window.history.replaceState(null, '', `${window.location.pathname}${search ? `?${search}` : ''}`);
+      window.history.replaceState(
+        null,
+        '',
+        `${window.location.pathname}${search ? `?${search}` : ''}`
+      );
     }
   }, []);
 
@@ -396,19 +414,31 @@ export default function Reviews() {
   const [coverageDoctors, setCoverageDoctors] = useState<StaffOpt[]>([]);
   useEffect(() => {
     const ownBranch = normalizeBranchName(user?.branch || '');
-    if (!ownBranch || canViewAllBranches(user)) { setCoverageDoctors([]); return; }
+    if (!ownBranch || canViewAllBranches(user)) {
+      setCoverageDoctors([]);
+      return;
+    }
     let cancelled = false;
-    supabase.rpc('get_active_coverage_doctors', { p_branch: ownBranch }).then(({ data: rows, error: err }) => {
-      if (cancelled || err) return;
-      setCoverageDoctors((rows as StaffOpt[]) || []);
-    }).catch(() => { if (!cancelled) setCoverageDoctors([]); });
-    return () => { cancelled = true; };
+    supabase
+      .rpc('get_active_coverage_doctors', { p_branch: ownBranch })
+      .then(({ data: rows, error: err }) => {
+        if (cancelled || err) return;
+        setCoverageDoctors((rows as StaffOpt[]) || []);
+      })
+      .catch(() => {
+        if (!cancelled) setCoverageDoctors([]);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [user?.branch, user]);
   const [reviewTargetType, setReviewTargetType] = useState<'staff' | 'delivery'>('staff');
   const isDeliveryRole = (role: string) => /توصيل|دليفري|delivery|rider|مندوب/i.test(role || '');
   const reviewAllowedBranches = useMemo(() => getReviewAllowedBranches(user), [user]);
   const canPickTargetBranch = reviewAllowedBranches.length > 1;
-  const [targetBranch, setTargetBranch] = useState<string>(() => normalizeBranchName(user?.branch || '') || reviewAllowedBranches[0] || '');
+  const [targetBranch, setTargetBranch] = useState<string>(
+    () => normalizeBranchName(user?.branch || '') || reviewAllowedBranches[0] || ''
+  );
   const canManageCoverage = checkPermission('approve_reviews');
   const [showCoveragePanel, setShowCoveragePanel] = useState(false);
   const [coverageList, setCoverageList] = useState<any[]>([]);
@@ -416,35 +446,55 @@ export default function Reviews() {
   const refreshCoverageList = () => {
     const ownBranch = normalizeBranchName(user?.branch || '');
     if (!ownBranch) return;
-    supabase.rpc('list_branch_coverage', { p_branch: ownBranch }).then(({ data: rows }) => setCoverageList((rows as any[]) || []));
+    supabase
+      .rpc('list_branch_coverage', { p_branch: ownBranch })
+      .then(({ data: rows }) => setCoverageList((rows as any[]) || []));
   };
-  useEffect(() => { if (showCoveragePanel) refreshCoverageList(); }, [showCoveragePanel]);
+  useEffect(() => {
+    if (showCoveragePanel) refreshCoverageList();
+  }, [showCoveragePanel]);
   const otherBranchDoctors = useMemo(() => {
     const ownBranch = normalizeBranchName(user?.branch || '');
-    return mergeStaffChoices(staff).filter((row) => normalizeBranchName(row.branch) !== ownBranch && !isDeliveryRole(row.role));
+    return mergeStaffChoices(staff).filter(
+      (row) => normalizeBranchName(row.branch) !== ownBranch && !isDeliveryRole(row.role)
+    );
   }, [staff, user?.branch]);
   const submitCoverage = async () => {
     const doctor = otherBranchDoctors.find((row) => row.id === coverageForm.staffId);
     const ownBranch = normalizeBranchName(user?.branch || '');
-    if (!doctor || !ownBranch) { toast.error('اختر الدكتور اللي هيغطي'); return; }
+    if (!doctor || !ownBranch) {
+      toast.error('اختر الدكتور اللي هيغطي');
+      return;
+    }
     const { error: err } = await supabase.rpc('add_branch_coverage', {
-      p_staff_id: doctor.id, p_staff_name: doctor.name, p_role: doctor.role,
-      p_home_branch: doctor.branch, p_covering_branch: ownBranch,
+      p_staff_id: doctor.id,
+      p_staff_name: doctor.name,
+      p_role: doctor.role,
+      p_home_branch: doctor.branch,
+      p_covering_branch: ownBranch,
       p_start_date: new Date().toISOString().slice(0, 10),
       p_end_date: coverageForm.endDate || null,
-      p_notes: null, p_created_by_name: user?.name || '',
+      p_notes: null,
+      p_created_by_name: user?.name || '',
     });
-    if (err) { toast.error('تعذر تسجيل التغطية'); return; }
+    if (err) {
+      toast.error('تعذر تسجيل التغطية');
+      return;
+    }
     toast.success('اتسجلت التغطية، الدكتور هيظهر في قايمة التقييم دلوقتي');
     setCoverageForm({ staffId: '', endDate: '' });
     refreshCoverageList();
-    supabase.rpc('get_active_coverage_doctors', { p_branch: ownBranch }).then(({ data: rows }) => setCoverageDoctors((rows as StaffOpt[]) || []));
+    supabase
+      .rpc('get_active_coverage_doctors', { p_branch: ownBranch })
+      .then(({ data: rows }) => setCoverageDoctors((rows as StaffOpt[]) || []));
   };
   const endCoverage = async (id: string) => {
     await supabase.rpc('end_branch_coverage', { p_id: id, p_ended_by_name: user?.name || '' });
     refreshCoverageList();
     const ownBranch = normalizeBranchName(user?.branch || '');
-    supabase.rpc('get_active_coverage_doctors', { p_branch: ownBranch }).then(({ data: rows }) => setCoverageDoctors((rows as StaffOpt[]) || []));
+    supabase
+      .rpc('get_active_coverage_doctors', { p_branch: ownBranch })
+      .then(({ data: rows }) => setCoverageDoctors((rows as StaffOpt[]) || []));
   };
   const staffOptions = useMemo(() => {
     const choices = mergeStaffChoices(staff);
@@ -453,52 +503,57 @@ export default function Reviews() {
     const withoutSelf = (rows: StaffOpt[]) =>
       rows.filter((row) => row.id !== (user?.staffId || user?.id) && row.name !== user?.name);
     const byTargetType = (rows: StaffOpt[]) =>
-      rows.filter((row) => (reviewTargetType === 'delivery' ? isDeliveryRole(row.role) : !isDeliveryRole(row.role)));
+      rows.filter((row) =>
+        reviewTargetType === 'delivery' ? isDeliveryRole(row.role) : !isDeliveryRole(row.role)
+      );
     if (canViewAllBranches(user)) return byTargetType(withoutSelf(choices));
     if (isDoctorRole(user)) {
       return byTargetType(
-        withoutSelf(
-          [
-            ...choices.filter(
-              (row) =>
-                row.id === (user?.staffId || user?.id) ||
-                row.name === user?.name ||
-                rowMatchesCurrentUserScope(user, row as unknown as Record<string, unknown>)
-            ),
-            ...coverageDoctors,
-          ]
-        )
+        withoutSelf([
+          ...choices.filter(
+            (row) =>
+              row.id === (user?.staffId || user?.id) ||
+              row.name === user?.name ||
+              rowMatchesCurrentUserScope(user, row as unknown as Record<string, unknown>)
+          ),
+          ...coverageDoctors,
+        ])
       );
     }
-    return byTargetType(withoutSelf([
-      ...choices.filter((row) => reviewAllowedBranches.includes(normalizeBranchName(row.branch)) && (!canPickTargetBranch || normalizeBranchName(row.branch) === targetBranch)),
-      ...coverageDoctors,
-    ]));
-  }, [staff, user, reviewTargetType, coverageDoctors, canPickTargetBranch, targetBranch, reviewAllowedBranches]);
-  const reviewers = useMemo(() => {
-    const choices = reviewerChoices(staff);
-    const REVIEW_CREATOR_ROLES = ['branch_manager', 'branches_manager', 'customer_service', 'customer_service_manager', 'general_manager', 'executive_manager'];
-    const currentUserCanReview = REVIEW_CREATOR_ROLES.includes(normalizeRole(user?.role));
-    if (user && currentUserCanReview && !choices.some((row) => row.id === user.id)) {
-      return [
-        {
-          id: user.id,
-          name: user.name,
-          role: user.role,
-          branch: user.branch || '',
-          points: null,
-          max_points: null,
-        },
-        ...choices,
-      ];
-    }
-    return choices;
-  }, [staff, user]);
-
+    return byTargetType(
+      withoutSelf([
+        ...choices.filter(
+          (row) =>
+            reviewAllowedBranches.includes(normalizeBranchName(row.branch)) &&
+            (!canPickTargetBranch || normalizeBranchName(row.branch) === targetBranch)
+        ),
+        ...coverageDoctors,
+      ])
+    );
+  }, [
+    staff,
+    user,
+    reviewTargetType,
+    coverageDoctors,
+    canPickTargetBranch,
+    targetBranch,
+    reviewAllowedBranches,
+  ]);
   const canEditReviews = checkPermission('edit_reviews');
   const canApproveReviews = checkPermission('approve_reviews');
   const selectedStaff = staffOptions.find((s) => s.id === form.staffId) || null;
-  const selectedReviewer = reviewers.find((s) => s.id === form.reviewerId) || reviewers[0] || null;
+  // المراجع دايمًا هو صاحب الجلسة الحالية — مش أي قيمة جاية من الفورم أو مسودة
+  // محفوظة، عشان نضمن إن كل تقييم يتسجل باسم اللي فعليًا بيعمله.
+  const selectedReviewer = user
+    ? {
+        id: user.id,
+        name: user.name,
+        role: user.role,
+        branch: user.branch || '',
+        points: null,
+        max_points: null,
+      }
+    : null;
   const responseMinutes = useMemo(
     () => minutesBetween(form.firstCustomerMessageAt, form.firstStaffReplyAt),
     [form.firstCustomerMessageAt, form.firstStaffReplyAt]
@@ -507,43 +562,40 @@ export default function Reviews() {
     () => minutesBetween(form.followUpPromisedAt, form.followUpReturnedAt),
     [form.followUpPromisedAt, form.followUpReturnedAt]
   );
-  const result = useMemo(
-    () => {
-      try {
-        return evaluateConversationReview(reviewState, severeErrors, form.customerType);
-      } catch (err) {
-        console.warn('[reviews] evaluateConversationReview failed', err);
-        return {
-          finalScore: 0,
-          earnedPoints: 0,
-          totalApplicablePoints: 0,
-          totalApplicableItems: 0,
-          totalNotApplicableItems: 0,
-          baseDoctorImpact: 0,
-          extraPenaltyPoints: 0,
-          doctorPointsImpact: 0,
-          appliedCustomerWeightMultiplier: 1,
-          impactStatus: 'pending',
-          impactLabel: '',
-          impactReason: '',
-          level: 'غير محدد',
-          mainPositiveReason: '',
-          mainNegativeReason: '',
-          trainingRecommendation: '',
-          hasSevereError: false,
-          forgottenCustomer: false,
-          missedSalesOpportunity: false,
-          successfulCrossSell: false,
-          handledAngryCustomerWell: false,
-          excellentCase: false,
-          repeatErrorType: null,
-          reviewItems: [],
-          extraPenalties: [],
-        } as any;
-      }
-    },
-    [reviewState, severeErrors, form.customerType]
-  );
+  const result = useMemo(() => {
+    try {
+      return evaluateConversationReview(reviewState, severeErrors, form.customerType);
+    } catch (err) {
+      console.warn('[reviews] evaluateConversationReview failed', err);
+      return {
+        finalScore: 0,
+        earnedPoints: 0,
+        totalApplicablePoints: 0,
+        totalApplicableItems: 0,
+        totalNotApplicableItems: 0,
+        baseDoctorImpact: 0,
+        extraPenaltyPoints: 0,
+        doctorPointsImpact: 0,
+        appliedCustomerWeightMultiplier: 1,
+        impactStatus: 'pending',
+        impactLabel: '',
+        impactReason: '',
+        level: 'غير محدد',
+        mainPositiveReason: '',
+        mainNegativeReason: '',
+        trainingRecommendation: '',
+        hasSevereError: false,
+        forgottenCustomer: false,
+        missedSalesOpportunity: false,
+        successfulCrossSell: false,
+        handledAngryCustomerWell: false,
+        excellentCase: false,
+        repeatErrorType: null,
+        reviewItems: [],
+        extraPenalties: [],
+      } as any;
+    }
+  }, [reviewState, severeErrors, form.customerType]);
   const finalTraining = form.trainingRecommendationManual || result.trainingRecommendation;
   const conversationDate = form.conversationDate || isoInputNow();
   const reviewCycle = useMemo(
@@ -699,7 +751,11 @@ export default function Reviews() {
         setForm((current) => ({
           ...current,
           ...draft.form,
-          reviewerId: draft.form?.reviewerId || current.reviewerId || user?.id || '',
+          // الحساب اللي بيسجل التقييم لازم يبقى هو نفسه صاحب الجلسة الحالية
+          // دايمًا — مستقل تمامًا عن أي مسودة محفوظة قبل كده على نفس الجهاز
+          // (ممكن يكون جهاز مشترك بين أكتر من موظف)، عشان محدش يظهر تقييم
+          // متسجل باسم حد تاني غير اللي فاتح الحساب فعليًا وقت الحفظ.
+          reviewerId: user?.id || '',
         }));
       if (draft.reviewState) setReviewState(draft.reviewState);
       if (draft.severeErrors) setSevereErrors(draft.severeErrors);
@@ -831,7 +887,10 @@ export default function Reviews() {
       const multiplier = Math.min(rawMultiplier, MAX_REPEAT_MULTIPLIER);
       const repeatedDoctorImpact =
         result.doctorPointsImpact < 0
-          ? -Math.min(Math.abs(result.doctorPointsImpact) * multiplier, Math.abs(MAX_CONVERSATION_PENALTY))
+          ? -Math.min(
+              Math.abs(result.doctorPointsImpact) * multiplier,
+              Math.abs(MAX_CONVERSATION_PENALTY)
+            )
           : result.doctorPointsImpact;
       setRepeatInfo({ count: previousCount, multiplier });
 
@@ -1048,7 +1107,9 @@ export default function Reviews() {
           branch: selectedStaff.branch,
           target_type: 'conversation_review',
           target_id: reviewRowId || '',
-          target_route: reviewRowId ? `/doctor-dashboard?tab=reviews&reviewId=${reviewRowId}` : '/doctor-dashboard?tab=reviews',
+          target_route: reviewRowId
+            ? `/doctor-dashboard?tab=reviews&reviewId=${reviewRowId}`
+            : '/doctor-dashboard?tab=reviews',
           requires_action: result.finalScore < 70,
           created_by: currentUserProfile.id,
           created_by_name: currentUserProfile.name,
@@ -1065,7 +1126,10 @@ export default function Reviews() {
         toast.warning('تم حفظ التقييم، لكن إشعار الموظف فشل. راجع سجلات الخادم.');
       }
 
-      if (result.finalScore < 70 && (form.customerName || form.customerPhone || form.customerCode)) {
+      if (
+        result.finalScore < 70 &&
+        (form.customerName || form.customerPhone || form.customerCode)
+      ) {
         try {
           await insertSafe('followups', {
             customer_id: form.customerId || null,
@@ -1209,7 +1273,8 @@ export default function Reviews() {
         reviewer_name: managerReviewTarget.reviewer_name || null,
         reviewer_role: managerReviewTarget.reviewer_role || null,
         reviewed_staff_id: asUuid(managerReviewTarget.staff_id || managerReviewTarget.doctor_id),
-        reviewed_staff_name: managerReviewTarget.staff_name || managerReviewTarget.doctor_name || null,
+        reviewed_staff_name:
+          managerReviewTarget.staff_name || managerReviewTarget.doctor_name || null,
         manager_id: asUuid(user?.id),
         manager_name: user?.name || 'مدير عام',
         score,
@@ -1238,7 +1303,9 @@ export default function Reviews() {
     } catch (error) {
       const message = (error as Error).message || '';
       if (/could not find the table|does not exist|schema cache/i.test(message)) {
-        toast.error('جدول تقييم المراجع غير موجود بعد. شغّل migration: 20260625_create_customer_service_manager_reviews.sql');
+        toast.error(
+          'جدول تقييم المراجع غير موجود بعد. شغّل migration: 20260625_create_customer_service_manager_reviews.sql'
+        );
       } else {
         toast.error(`تعذر حفظ تقييم المراجع: ${message}`);
       }
@@ -1252,9 +1319,9 @@ export default function Reviews() {
     if (managerReviewTarget) {
       return Boolean(
         managerForm.notes.trim() ||
-          managerForm.strengths.trim() ||
-          managerForm.improvements.trim() ||
-          managerForm.score !== '100'
+        managerForm.strengths.trim() ||
+        managerForm.improvements.trim() ||
+        managerForm.score !== '100'
       );
     }
     if (editingReview) return true;
@@ -1264,12 +1331,12 @@ export default function Reviews() {
     const severeChanged = JSON.stringify(severeErrors) !== JSON.stringify(defaultSevere);
     const formTouched = Boolean(
       form.staffId ||
-        form.customerName.trim() ||
-        form.customerCode.trim() ||
-        form.customerPhone.trim() ||
-        form.reviewerNotes.trim() ||
-        form.evaluationReason.trim() ||
-        form.invoiceNo.trim()
+      form.customerName.trim() ||
+      form.customerCode.trim() ||
+      form.customerPhone.trim() ||
+      form.reviewerNotes.trim() ||
+      form.evaluationReason.trim() ||
+      form.invoiceNo.trim()
     );
     return criteriaChanged || severeChanged || formTouched;
   }, [editingReview, form, managerForm, managerReviewTarget, reviewState, severeErrors]);
@@ -1341,7 +1408,9 @@ export default function Reviews() {
         </div>
       </div>
 
-      <section className={`${newOnlyMode || !historyOnlyMode ? 'hidden' : ''} stat-card border border-teal-500/20 bg-teal-500/5 space-y-4`}> 
+      <section
+        className={`${newOnlyMode || !historyOnlyMode ? 'hidden' : ''} stat-card border border-teal-500/20 bg-teal-500/5 space-y-4`}
+      >
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <ListChecks className="text-teal-400" size={20} />
@@ -1422,15 +1491,29 @@ export default function Reviews() {
             const score = scoreOf(row);
             const impact = impactOf(row);
             return (
-              <article key={row.id || index} className="rounded-2xl border border-slate-700 bg-[#0b1728] p-4 text-slate-100">
+              <article
+                key={row.id || index}
+                className="rounded-2xl border border-slate-700 bg-[#0b1728] p-4 text-slate-100"
+              >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <h3 className="line-clamp-2 text-base font-black text-white" title={row.customer_name || 'غير محدد'}>
+                    <h3
+                      className="line-clamp-2 text-base font-black text-white"
+                      title={row.customer_name || 'غير محدد'}
+                    >
                       {row.customer_name || 'غير محدد'}
                     </h3>
                     <p className="mt-1 text-xs text-slate-400">{formatDateTime(row.created_at)}</p>
                   </div>
-                  <span className={score >= 90 ? 'badge-success text-xs' : score >= 70 ? 'badge-warning text-xs' : 'badge-danger text-xs'}>
+                  <span
+                    className={
+                      score >= 90
+                        ? 'badge-success text-xs'
+                        : score >= 70
+                          ? 'badge-warning text-xs'
+                          : 'badge-danger text-xs'
+                    }
+                  >
                     {score}/100
                   </span>
                 </div>
@@ -1439,10 +1522,20 @@ export default function Reviews() {
                   <Info label="الدكتور" value={row.staff_name || row.doctor_name || '-'} />
                   <Info label="الفرع" value={row.branch || '-'} />
                   <Info label="النقاط" value={impact > 0 ? `+${impact}` : String(impact)} />
-                  <Info label="حالة المراجع" value={row.manager_review_score ? `${row.manager_review_score}/100` : 'لم يقيم'} />
+                  <Info
+                    label="حالة المراجع"
+                    value={row.manager_review_score ? `${row.manager_review_score}/100` : 'لم يقيم'}
+                  />
                   <Info label="الفاتورة" value={row.invoice_number || '-'} />
                 </div>
-                <ReviewActions row={row} canEdit={canEditReviews} canApprove={canApproveReviews} onDetails={setSelectedReview} onEdit={openEdit} onManagerReview={openManagerReview} />
+                <ReviewActions
+                  row={row}
+                  canEdit={canEditReviews}
+                  canApprove={canApproveReviews}
+                  onDetails={setSelectedReview}
+                  onEdit={openEdit}
+                  onManagerReview={openManagerReview}
+                />
               </article>
             );
           })}
@@ -1454,14 +1547,22 @@ export default function Reviews() {
               <tr>
                 <th className="w-[130px] p-2 text-right font-black min-[1500px]:p-3">التاريخ</th>
                 <th className="w-[130px] p-2 text-right font-black min-[1500px]:p-3">المراجع</th>
-                <th className="w-[145px] p-2 text-right font-black min-[1500px]:p-3">الدكتور المقيم</th>
+                <th className="w-[145px] p-2 text-right font-black min-[1500px]:p-3">
+                  الدكتور المقيم
+                </th>
                 <th className="w-[105px] p-2 text-right font-black min-[1500px]:p-3">الفرع</th>
                 <th className="w-[190px] p-2 text-right font-black min-[1500px]:p-3">العميل</th>
-                <th className="hidden w-[135px] p-2 text-right font-black xl:table-cell min-[1500px]:p-3">التفاصيل</th>
+                <th className="hidden w-[135px] p-2 text-right font-black xl:table-cell min-[1500px]:p-3">
+                  التفاصيل
+                </th>
                 <th className="w-[90px] p-2 text-right font-black min-[1500px]:p-3">التقييم</th>
                 <th className="w-[80px] p-2 text-right font-black min-[1500px]:p-3">النقاط</th>
-                <th className="hidden w-[110px] p-2 text-right font-black xl:table-cell min-[1500px]:p-3">تقييم المراجع</th>
-                <th className="sticky left-0 z-30 w-[140px] border-r border-slate-700 bg-[#102640] p-2 text-right font-black shadow-[8px_0_18px_rgba(2,6,23,0.45)] min-[1500px]:p-3">الإجراءات</th>
+                <th className="hidden w-[110px] p-2 text-right font-black xl:table-cell min-[1500px]:p-3">
+                  تقييم المراجع
+                </th>
+                <th className="sticky left-0 z-30 w-[140px] border-r border-slate-700 bg-[#102640] p-2 text-right font-black shadow-[8px_0_18px_rgba(2,6,23,0.45)] min-[1500px]:p-3">
+                  الإجراءات
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -1477,15 +1578,28 @@ export default function Reviews() {
                     <td className="whitespace-normal p-2 text-slate-300 min-[1500px]:p-3">
                       {formatDateTime(row.created_at)}
                     </td>
-                    <td className="p-2 font-bold text-slate-100 min-[1500px]:p-3"><span className="line-clamp-2" title={row.reviewer_name || 'غير محدد'}>{row.reviewer_name || 'غير محدد'}</span></td>
                     <td className="p-2 font-bold text-slate-100 min-[1500px]:p-3">
-                      <span className="line-clamp-2" title={row.staff_name || row.doctor_name || 'غير محدد'}>
-                      {row.staff_name || row.doctor_name || 'غير محدد'}
+                      <span className="line-clamp-2" title={row.reviewer_name || 'غير محدد'}>
+                        {row.reviewer_name || 'غير محدد'}
                       </span>
                     </td>
-                    <td className="p-2 text-slate-300 min-[1500px]:p-3"><span className="line-clamp-2" title={row.branch || '-'}>{row.branch || '-'}</span></td>
+                    <td className="p-2 font-bold text-slate-100 min-[1500px]:p-3">
+                      <span
+                        className="line-clamp-2"
+                        title={row.staff_name || row.doctor_name || 'غير محدد'}
+                      >
+                        {row.staff_name || row.doctor_name || 'غير محدد'}
+                      </span>
+                    </td>
+                    <td className="p-2 text-slate-300 min-[1500px]:p-3">
+                      <span className="line-clamp-2" title={row.branch || '-'}>
+                        {row.branch || '-'}
+                      </span>
+                    </td>
                     <td className="p-2 text-slate-100 min-[1500px]:p-3">
-                      <div className="line-clamp-2" title={row.customer_name || 'غير محدد'}>{row.customer_name || 'غير محدد'}</div>
+                      <div className="line-clamp-2" title={row.customer_name || 'غير محدد'}>
+                        {row.customer_name || 'غير محدد'}
+                      </div>
                       {(row.customer_code || row.customer_phone) && (
                         <div className="text-xs text-slate-400">
                           {row.customer_code || row.customer_phone}
@@ -1493,8 +1607,12 @@ export default function Reviews() {
                       )}
                     </td>
                     <td className="hidden p-2 text-slate-300 xl:table-cell min-[1500px]:p-3">
-                      <div className="line-clamp-2" title={`${row.invoice_number || '-'} · ${row.evaluation_kind || row.conversation_type || '-'}`}>
-                        {row.invoice_number || '-'} · {row.evaluation_kind || row.conversation_type || '-'}
+                      <div
+                        className="line-clamp-2"
+                        title={`${row.invoice_number || '-'} · ${row.evaluation_kind || row.conversation_type || '-'}`}
+                      >
+                        {row.invoice_number || '-'} ·{' '}
+                        {row.evaluation_kind || row.conversation_type || '-'}
                       </div>
                     </td>
                     <td className="p-2 min-[1500px]:p-3">
@@ -1510,18 +1628,29 @@ export default function Reviews() {
                         {score}/100
                       </span>
                     </td>
-                    <td className={`p-2 num font-black min-[1500px]:p-3 ${impact >= 0 ? 'text-teal-300' : 'text-red-300'}`}>
+                    <td
+                      className={`p-2 num font-black min-[1500px]:p-3 ${impact >= 0 ? 'text-teal-300' : 'text-red-300'}`}
+                    >
                       {impact > 0 ? `+${impact}` : impact}
                     </td>
                     <td className="hidden p-2 xl:table-cell min-[1500px]:p-3">
                       {row.manager_review_score ? (
                         <span className="badge-info text-xs">{row.manager_review_score}/100</span>
                       ) : (
-                        <span className="inline-flex rounded-full border border-amber-400/40 bg-amber-500/15 px-2.5 py-1 text-xs font-black text-amber-200">لم يقيم</span>
+                        <span className="inline-flex rounded-full border border-amber-400/40 bg-amber-500/15 px-2.5 py-1 text-xs font-black text-amber-200">
+                          لم يقيم
+                        </span>
                       )}
                     </td>
                     <td className="sticky left-0 z-10 w-[140px] border-r border-slate-700 bg-[#0b1728] p-2 shadow-[8px_0_18px_rgba(2,6,23,0.4)] transition-colors group-hover:bg-[#0d2630] min-[1500px]:p-3">
-                      <ReviewActions row={row} canEdit={canEditReviews} canApprove={canApproveReviews} onDetails={setSelectedReview} onEdit={openEdit} onManagerReview={openManagerReview} />
+                      <ReviewActions
+                        row={row}
+                        canEdit={canEditReviews}
+                        canApprove={canApproveReviews}
+                        onDetails={setSelectedReview}
+                        onEdit={openEdit}
+                        onManagerReview={openManagerReview}
+                      />
                     </td>
                   </tr>
                 );
@@ -1546,529 +1675,582 @@ export default function Reviews() {
       </section>
 
       {newOnlyMode ? (
-      <>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Metric
-          label="تقييم المحادثة"
-          value={`${result.finalScore}/100`}
-          tone={result.finalScore >= 90 ? 'teal' : result.finalScore >= 70 ? 'amber' : 'red'}
-        />
-        <Metric
-          label="تأثير النقاط"
-          value={result.impactLabel}
-          tone={result.doctorPointsImpact >= 0 ? 'teal' : 'red'}
-        />
-        <Metric
-          label="البنود المطبقة"
-          value={`${result.totalApplicableItems}/${REVIEW_CRITERIA.length}`}
-          tone="blue"
-        />
-        <Metric
-          label="توصية التدريب"
-          value={finalTraining.split(' ').slice(0, 3).join(' ')}
-          tone="slate"
-        />
-      </div>
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <Metric
+              label="تقييم المحادثة"
+              value={`${result.finalScore}/100`}
+              tone={result.finalScore >= 90 ? 'teal' : result.finalScore >= 70 ? 'amber' : 'red'}
+            />
+            <Metric
+              label="تأثير النقاط"
+              value={result.impactLabel}
+              tone={result.doctorPointsImpact >= 0 ? 'teal' : 'red'}
+            />
+            <Metric
+              label="البنود المطبقة"
+              value={`${result.totalApplicableItems}/${REVIEW_CRITERIA.length}`}
+              tone="blue"
+            />
+            <Metric
+              label="توصية التدريب"
+              value={finalTraining.split(' ').slice(0, 3).join(' ')}
+              tone="slate"
+            />
+          </div>
 
-      {canManageCoverage ? (
-        <section className="stat-card space-y-3 border border-violet-500/20 bg-violet-500/5">
-          <button
-            type="button"
-            onClick={() => setShowCoveragePanel((v) => !v)}
-            className="flex w-full items-center justify-between text-sm font-black text-violet-200"
-          >
-            <span>تغطية الفروع (دكتور من فرع تاني بيغطي هنا مؤقتًا)</span>
-            <span className="text-xs">{showCoveragePanel ? 'إخفاء' : 'إدارة'}</span>
-          </button>
-          {showCoveragePanel ? (
-            <div className="space-y-3">
-              <div className="grid gap-3 md:grid-cols-3">
-                <Field label="الدكتور القادم من فرع تاني">
-                  <select
-                    className="input-dark"
-                    value={coverageForm.staffId}
-                    onChange={(e) => setCoverageForm((f) => ({ ...f, staffId: e.target.value }))}
-                  >
-                    <option value="">اختر الدكتور</option>
-                    {otherBranchDoctors.map((row) => (
-                      <option key={row.id} value={row.id}>{row.name} - {row.branch}</option>
-                    ))}
-                  </select>
-                </Field>
-                <Field label="لحد تاريخ (اختياري)">
-                  <input
-                    type="date"
-                    className="input-dark"
-                    value={coverageForm.endDate}
-                    onChange={(e) => setCoverageForm((f) => ({ ...f, endDate: e.target.value }))}
-                  />
-                </Field>
-                <div className="flex items-end">
-                  <button type="button" onClick={() => void submitCoverage()} className="btn-primary w-full">تسجيل التغطية</button>
-                </div>
-              </div>
-              {coverageList.length ? (
-                <div className="space-y-1.5 text-xs">
-                  {coverageList.map((row) => (
-                    <div key={row.id} className="flex items-center justify-between rounded-lg border border-white/10 bg-white/5 px-3 py-2">
-                      <span className="font-bold text-white">{row.staff_name} — من {row.home_branch} إلى {row.covering_branch}</span>
-                      <span className="flex items-center gap-2" style={{ color: 'var(--dawaa-theme-muted)' }}>
-                        {row.start_date} → {row.end_date || 'بدون تاريخ نهاية'}
-                        {row.active ? (
-                          <button type="button" onClick={() => void endCoverage(row.id)} className="rounded-lg border border-rose-400/30 bg-rose-500/10 px-2 py-1 text-rose-200">إنهاء</button>
-                        ) : <span className="text-slate-500">منتهية</span>}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              ) : <p className="text-xs" style={{ color: 'var(--dawaa-theme-muted)' }}>مفيش تغطيات مسجلة لحد دلوقتي.</p>}
-            </div>
-          ) : null}
-        </section>
-      ) : null}
-
-      <section className="stat-card space-y-4">
-        <div className="section-title text-sm">بيانات المحادثة</div>
-        <div className="grid md:grid-cols-3 gap-3">
-          <Field label="من يقيم؟">
-            {canEditReviews ? (
-              <select
-                className="input-dark"
-                value={form.reviewerId}
-                onChange={(e) => setForm((f) => ({ ...f, reviewerId: e.target.value }))}
+          {canManageCoverage ? (
+            <section className="stat-card space-y-3 border border-violet-500/20 bg-violet-500/5">
+              <button
+                type="button"
+                onClick={() => setShowCoveragePanel((v) => !v)}
+                className="flex w-full items-center justify-between text-sm font-black text-violet-200"
               >
-                <option value="">اختر المراجع</option>
-                {reviewers.map((row) => (
-                  <option key={row.id} value={row.id}>
-                    {row.name} - {row.role}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <div className="input-dark flex items-center text-slate-200">{user?.name || 'أنا'}</div>
-            )}
-          </Field>
-          <Field label="الدكتور / الموظف المقيم">
-            {canPickTargetBranch ? (
-              <div className="mb-2 flex gap-2 text-xs font-bold">
-                {reviewAllowedBranches.map((b) => (
+                <span>تغطية الفروع (دكتور من فرع تاني بيغطي هنا مؤقتًا)</span>
+                <span className="text-xs">{showCoveragePanel ? 'إخفاء' : 'إدارة'}</span>
+              </button>
+              {showCoveragePanel ? (
+                <div className="space-y-3">
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <Field label="الدكتور القادم من فرع تاني">
+                      <select
+                        className="input-dark"
+                        value={coverageForm.staffId}
+                        onChange={(e) =>
+                          setCoverageForm((f) => ({ ...f, staffId: e.target.value }))
+                        }
+                      >
+                        <option value="">اختر الدكتور</option>
+                        {otherBranchDoctors.map((row) => (
+                          <option key={row.id} value={row.id}>
+                            {row.name} - {row.branch}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                    <Field label="لحد تاريخ (اختياري)">
+                      <input
+                        type="date"
+                        className="input-dark"
+                        value={coverageForm.endDate}
+                        onChange={(e) =>
+                          setCoverageForm((f) => ({ ...f, endDate: e.target.value }))
+                        }
+                      />
+                    </Field>
+                    <div className="flex items-end">
+                      <button
+                        type="button"
+                        onClick={() => void submitCoverage()}
+                        className="btn-primary w-full"
+                      >
+                        تسجيل التغطية
+                      </button>
+                    </div>
+                  </div>
+                  {coverageList.length ? (
+                    <div className="space-y-1.5 text-xs">
+                      {coverageList.map((row) => (
+                        <div
+                          key={row.id}
+                          className="flex items-center justify-between rounded-lg border border-white/10 bg-white/5 px-3 py-2"
+                        >
+                          <span className="font-bold text-white">
+                            {row.staff_name} — من {row.home_branch} إلى {row.covering_branch}
+                          </span>
+                          <span
+                            className="flex items-center gap-2"
+                            style={{ color: 'var(--dawaa-theme-muted)' }}
+                          >
+                            {row.start_date} → {row.end_date || 'بدون تاريخ نهاية'}
+                            {row.active ? (
+                              <button
+                                type="button"
+                                onClick={() => void endCoverage(row.id)}
+                                className="rounded-lg border border-rose-400/30 bg-rose-500/10 px-2 py-1 text-rose-200"
+                              >
+                                إنهاء
+                              </button>
+                            ) : (
+                              <span className="text-slate-500">منتهية</span>
+                            )}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                      مفيش تغطيات مسجلة لحد دلوقتي.
+                    </p>
+                  )}
+                </div>
+              ) : null}
+            </section>
+          ) : null}
+
+          <section className="stat-card space-y-4">
+            <div className="section-title text-sm">بيانات المحادثة</div>
+            <div className="grid md:grid-cols-3 gap-3">
+              <Field label="من يقيم؟">
+                {/* مقفول دايمًا على صاحب الجلسة الحالية — التقييم لازم يتسجل باسم
+                اللي فاتح الحساب فعليًا وبيعمل الحركة، مش أي حد تاني، حتى لو
+                عنده صلاحية تعديل. */}
+                <div className="input-dark flex items-center text-slate-200">
+                  {user?.name || 'أنا'}
+                </div>
+              </Field>
+              <Field label="الدكتور / الموظف المقيم">
+                {canPickTargetBranch ? (
+                  <div className="mb-2 flex gap-2 text-xs font-bold">
+                    {reviewAllowedBranches.map((b) => (
+                      <button
+                        key={b}
+                        type="button"
+                        onClick={() => {
+                          setTargetBranch(b);
+                          setForm((f) => ({ ...f, staffId: '' }));
+                        }}
+                        className={`rounded-lg px-3 py-1.5 transition ${targetBranch === b ? 'bg-cyan-500/20 text-cyan-200 border border-cyan-400/40' : 'bg-white/5 text-slate-400 border border-white/10'}`}
+                      >
+                        {b}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+                <div className="mb-2 flex gap-2 text-xs font-bold">
                   <button
-                    key={b}
                     type="button"
-                    onClick={() => { setTargetBranch(b); setForm((f) => ({ ...f, staffId: '' })); }}
-                    className={`rounded-lg px-3 py-1.5 transition ${targetBranch === b ? 'bg-cyan-500/20 text-cyan-200 border border-cyan-400/40' : 'bg-white/5 text-slate-400 border border-white/10'}`}
+                    onClick={() => {
+                      setReviewTargetType('staff');
+                      setForm((f) => ({ ...f, staffId: '' }));
+                    }}
+                    className={`rounded-lg px-3 py-1.5 transition ${reviewTargetType === 'staff' ? 'bg-teal-500/20 text-teal-200 border border-teal-400/40' : 'bg-white/5 text-slate-400 border border-white/10'}`}
                   >
-                    {b}
+                    دكتور / موظف صيدلية
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setReviewTargetType('delivery');
+                      setForm((f) => ({ ...f, staffId: '' }));
+                    }}
+                    className={`rounded-lg px-3 py-1.5 transition ${reviewTargetType === 'delivery' ? 'bg-teal-500/20 text-teal-200 border border-teal-400/40' : 'bg-white/5 text-slate-400 border border-white/10'}`}
+                  >
+                    مندوب توصيل
+                  </button>
+                </div>
+                <select
+                  className="input-dark"
+                  value={form.staffId}
+                  onChange={(e) => setForm((f) => ({ ...f, staffId: e.target.value }))}
+                >
+                  <option value="">
+                    {reviewTargetType === 'delivery'
+                      ? 'اختر مندوب التوصيل'
+                      : 'اختر الدكتور أو الموظف'}
+                  </option>
+                  {staffOptions.map((row) => (
+                    <option key={row.id} value={row.id}>
+                      {row.name} - {row.role} - {row.branch}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="نوع المحادثة">
+                <select
+                  className="input-dark"
+                  value={form.evaluationKind}
+                  onChange={(e) => setForm((f) => ({ ...f, evaluationKind: e.target.value }))}
+                >
+                  {EVAL_KINDS.map((kind) => (
+                    <option key={kind}>{kind}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="سبب التقييم">
+                <select
+                  className="input-dark"
+                  value={form.evaluationReason}
+                  onChange={(e) => setForm((f) => ({ ...f, evaluationReason: e.target.value }))}
+                >
+                  {EVAL_REASONS.map((reason) => (
+                    <option key={reason}>{reason}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="تاريخ المحادثة">
+                <input
+                  className="input-dark"
+                  type="datetime-local"
+                  value={form.conversationDate}
+                  onChange={(e) => setForm((f) => ({ ...f, conversationDate: e.target.value }))}
+                />
+              </Field>
+              <Field label="رقم الفاتورة">
+                <input
+                  className="input-dark"
+                  value={form.invoiceNo}
+                  onChange={(e) => setForm((f) => ({ ...f, invoiceNo: e.target.value }))}
+                  placeholder="اختياري"
+                />
+              </Field>
+            </div>
+          </section>
+
+          <section className="stat-card space-y-3">
+            <div className="section-title text-sm">العميل</div>
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+                <input
+                  className="input-dark pr-10"
+                  value={custSearch}
+                  onChange={(e) => setCustSearch(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && loadCustomersHits()}
+                  placeholder="ابحث بكود العميل أو الاسم أو الهاتف"
+                />
+              </div>
+              <button type="button" onClick={loadCustomersHits} className="btn-secondary">
+                بحث
+              </button>
+            </div>
+            {custHits.length > 0 && (
+              <div className="grid md:grid-cols-2 gap-2">
+                {custHits.map((customer) => (
+                  <button
+                    key={customer.id}
+                    type="button"
+                    className="rounded-xl border border-[#2d4063] bg-[#16253f] p-3 text-right hover:border-teal-500/40"
+                    onClick={() => {
+                      setForm((f) => ({
+                        ...f,
+                        customerId: customer.id,
+                        customerCode: customer.customer_code || '',
+                        customerName: customer.name || '',
+                        customerPhone: customer.phone || '',
+                        customerType: customer.segment || '',
+                      }));
+                      setCustSearch(customer.name || customer.customer_code || '');
+                      setCustHits([]);
+                    }}
+                  >
+                    <div className="text-white font-semibold text-sm">
+                      {customer.name || 'عميل بدون اسم'}
+                    </div>
+                    <div className="text-slate-300 text-xs mt-1">
+                      {customer.customer_code || 'بدون كود'} - {customer.phone || 'بدون هاتف'}
+                    </div>
                   </button>
                 ))}
               </div>
-            ) : null}
-            <div className="mb-2 flex gap-2 text-xs font-bold">
-              <button
-                type="button"
-                onClick={() => { setReviewTargetType('staff'); setForm((f) => ({ ...f, staffId: '' })); }}
-                className={`rounded-lg px-3 py-1.5 transition ${reviewTargetType === 'staff' ? 'bg-teal-500/20 text-teal-200 border border-teal-400/40' : 'bg-white/5 text-slate-400 border border-white/10'}`}
-              >
-                دكتور / موظف صيدلية
-              </button>
-              <button
-                type="button"
-                onClick={() => { setReviewTargetType('delivery'); setForm((f) => ({ ...f, staffId: '' })); }}
-                className={`rounded-lg px-3 py-1.5 transition ${reviewTargetType === 'delivery' ? 'bg-teal-500/20 text-teal-200 border border-teal-400/40' : 'bg-white/5 text-slate-400 border border-white/10'}`}
-              >
-                مندوب توصيل
-              </button>
-            </div>
-            <select
-              className="input-dark"
-              value={form.staffId}
-              onChange={(e) => setForm((f) => ({ ...f, staffId: e.target.value }))}
-            >
-              <option value="">{reviewTargetType === 'delivery' ? 'اختر مندوب التوصيل' : 'اختر الدكتور أو الموظف'}</option>
-              {staffOptions.map((row) => (
-                <option key={row.id} value={row.id}>
-                  {row.name} - {row.role} - {row.branch}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="نوع المحادثة">
-            <select
-              className="input-dark"
-              value={form.evaluationKind}
-              onChange={(e) => setForm((f) => ({ ...f, evaluationKind: e.target.value }))}
-            >
-              {EVAL_KINDS.map((kind) => (
-                <option key={kind}>{kind}</option>
-              ))}
-            </select>
-          </Field>
-          <Field label="سبب التقييم">
-            <select
-              className="input-dark"
-              value={form.evaluationReason}
-              onChange={(e) => setForm((f) => ({ ...f, evaluationReason: e.target.value }))}
-            >
-              {EVAL_REASONS.map((reason) => (
-                <option key={reason}>{reason}</option>
-              ))}
-            </select>
-          </Field>
-          <Field label="تاريخ المحادثة">
-            <input
-              className="input-dark"
-              type="datetime-local"
-              value={form.conversationDate}
-              onChange={(e) => setForm((f) => ({ ...f, conversationDate: e.target.value }))}
-            />
-          </Field>
-          <Field label="رقم الفاتورة">
-            <input
-              className="input-dark"
-              value={form.invoiceNo}
-              onChange={(e) => setForm((f) => ({ ...f, invoiceNo: e.target.value }))}
-              placeholder="اختياري"
-            />
-          </Field>
-        </div>
-      </section>
-
-      <section className="stat-card space-y-3">
-        <div className="section-title text-sm">العميل</div>
-        <div className="flex gap-2">
-          <div className="relative flex-1">
-            <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
-            <input
-              className="input-dark pr-10"
-              value={custSearch}
-              onChange={(e) => setCustSearch(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && loadCustomersHits()}
-              placeholder="ابحث بكود العميل أو الاسم أو الهاتف"
-            />
-          </div>
-          <button type="button" onClick={loadCustomersHits} className="btn-secondary">
-            بحث
-          </button>
-        </div>
-        {custHits.length > 0 && (
-          <div className="grid md:grid-cols-2 gap-2">
-            {custHits.map((customer) => (
-              <button
-                key={customer.id}
-                type="button"
-                className="rounded-xl border border-[#2d4063] bg-[#16253f] p-3 text-right hover:border-teal-500/40"
-                onClick={() => {
-                  setForm((f) => ({
-                    ...f,
-                    customerId: customer.id,
-                    customerCode: customer.customer_code || '',
-                    customerName: customer.name || '',
-                    customerPhone: customer.phone || '',
-                    customerType: customer.segment || '',
-                  }));
-                  setCustSearch(customer.name || customer.customer_code || '');
-                  setCustHits([]);
-                }}
-              >
-                <div className="text-white font-semibold text-sm">
-                  {customer.name || 'عميل بدون اسم'}
-                </div>
-                <div className="text-slate-300 text-xs mt-1">
-                  {customer.customer_code || 'بدون كود'} - {customer.phone || 'بدون هاتف'}
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
-        <div className="grid md:grid-cols-3 gap-3">
-          <Field label="اسم العميل">
-            <input
-              className="input-dark"
-              value={form.customerName}
-              onChange={(e) => setForm((f) => ({ ...f, customerName: e.target.value }))}
-            />
-          </Field>
-          <Field label="كود العميل">
-            <input
-              className="input-dark"
-              value={form.customerCode}
-              onChange={(e) => setForm((f) => ({ ...f, customerCode: e.target.value }))}
-            />
-          </Field>
-          <Field label="هاتف العميل">
-            <input
-              className="input-dark"
-              value={form.customerPhone}
-              onChange={(e) => setForm((f) => ({ ...f, customerPhone: e.target.value }))}
-            />
-          </Field>
-        </div>
-      </section>
-
-      <section className="stat-card space-y-3">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-          <div className="section-title text-sm">توقيت الرد والمتابعة</div>
-          <button
-            type="button"
-            onClick={applyTiming}
-            className="btn-secondary flex items-center gap-2"
-          >
-            <CheckCircle2 size={16} />
-            تطبيق التوقيت على البنود
-          </button>
-        </div>
-        <div className="grid md:grid-cols-4 gap-3">
-          <Field label="أول رسالة من العميل">
-            <input
-              className="input-dark"
-              type="datetime-local"
-              value={form.firstCustomerMessageAt}
-              onChange={(e) => setForm((f) => ({ ...f, firstCustomerMessageAt: e.target.value }))}
-            />
-          </Field>
-          <Field label="أول رد من الموظف">
-            <input
-              className="input-dark"
-              type="datetime-local"
-              value={form.firstStaffReplyAt}
-              onChange={(e) => setForm((f) => ({ ...f, firstStaffReplyAt: e.target.value }))}
-            />
-          </Field>
-          <Field label="وعد بالمتابعة؟">
-            <select
-              className="input-dark"
-              value={form.followUpPromised ? 'yes' : 'no'}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, followUpPromised: e.target.value === 'yes' }))
-              }
-            >
-              <option value="no">لا</option>
-              <option value="yes">نعم</option>
-            </select>
-          </Field>
-          <Info
-            label="مدة أول رد"
-            value={responseMinutes == null ? 'غير محسوبة' : `${responseMinutes} دقيقة`}
-          />
-          {form.followUpPromised && (
-            <>
-              <Field label="وقت الوعد بالمتابعة">
+            )}
+            <div className="grid md:grid-cols-3 gap-3">
+              <Field label="اسم العميل">
                 <input
                   className="input-dark"
-                  type="datetime-local"
-                  value={form.followUpPromisedAt}
-                  onChange={(e) => setForm((f) => ({ ...f, followUpPromisedAt: e.target.value }))}
+                  value={form.customerName}
+                  onChange={(e) => setForm((f) => ({ ...f, customerName: e.target.value }))}
                 />
               </Field>
-              <Field label="وقت الرجوع للعميل">
+              <Field label="كود العميل">
+                <input
+                  className="input-dark"
+                  value={form.customerCode}
+                  onChange={(e) => setForm((f) => ({ ...f, customerCode: e.target.value }))}
+                />
+              </Field>
+              <Field label="هاتف العميل">
+                <input
+                  className="input-dark"
+                  value={form.customerPhone}
+                  onChange={(e) => setForm((f) => ({ ...f, customerPhone: e.target.value }))}
+                />
+              </Field>
+            </div>
+          </section>
+
+          <section className="stat-card space-y-3">
+            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+              <div className="section-title text-sm">توقيت الرد والمتابعة</div>
+              <button
+                type="button"
+                onClick={applyTiming}
+                className="btn-secondary flex items-center gap-2"
+              >
+                <CheckCircle2 size={16} />
+                تطبيق التوقيت على البنود
+              </button>
+            </div>
+            <div className="grid md:grid-cols-4 gap-3">
+              <Field label="أول رسالة من العميل">
                 <input
                   className="input-dark"
                   type="datetime-local"
-                  value={form.followUpReturnedAt}
-                  onChange={(e) => setForm((f) => ({ ...f, followUpReturnedAt: e.target.value }))}
+                  value={form.firstCustomerMessageAt}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, firstCustomerMessageAt: e.target.value }))
+                  }
                 />
+              </Field>
+              <Field label="أول رد من الموظف">
+                <input
+                  className="input-dark"
+                  type="datetime-local"
+                  value={form.firstStaffReplyAt}
+                  onChange={(e) => setForm((f) => ({ ...f, firstStaffReplyAt: e.target.value }))}
+                />
+              </Field>
+              <Field label="وعد بالمتابعة؟">
+                <select
+                  className="input-dark"
+                  value={form.followUpPromised ? 'yes' : 'no'}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, followUpPromised: e.target.value === 'yes' }))
+                  }
+                >
+                  <option value="no">لا</option>
+                  <option value="yes">نعم</option>
+                </select>
               </Field>
               <Info
-                label="مدة الرجوع"
-                value={followupDelayMinutes == null ? 'لم يرجع' : `${followupDelayMinutes} دقيقة`}
+                label="مدة أول رد"
+                value={responseMinutes == null ? 'غير محسوبة' : `${responseMinutes} دقيقة`}
               />
-            </>
-          )}
-        </div>
-      </section>
-
-      <section className="space-y-3">
-        {REVIEW_CRITERIA.map((criterion) => {
-          const itemState = reviewState[criterion.key];
-          return (
-            <div
-              key={criterion.key}
-              className={`stat-card border ${itemState.applies ? 'border-teal-500/20' : 'border-[#2d4063]'}`}
-            >
-              <div className="flex flex-col md:flex-row md:items-start gap-3">
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <div className="text-white font-bold text-sm">{criterion.label}</div>
-                    <span className="badge-info text-xs">{criterion.maxPoints} نقطة</span>
-                    {!itemState.applies && <span className="badge-muted text-xs">لا ينطبق</span>}
-                  </div>
-                  <p className="text-slate-300 text-xs mt-1 leading-relaxed">{criterion.hint}</p>
-                </div>
-                <label className="flex items-center gap-2 text-sm text-slate-200">
-                  <input
-                    type="checkbox"
-                    checked={itemState.applies}
-                    onChange={(e) => setCriterionApplies(criterion.key, e.target.checked)}
+              {form.followUpPromised && (
+                <>
+                  <Field label="وقت الوعد بالمتابعة">
+                    <input
+                      className="input-dark"
+                      type="datetime-local"
+                      value={form.followUpPromisedAt}
+                      onChange={(e) =>
+                        setForm((f) => ({ ...f, followUpPromisedAt: e.target.value }))
+                      }
+                    />
+                  </Field>
+                  <Field label="وقت الرجوع للعميل">
+                    <input
+                      className="input-dark"
+                      type="datetime-local"
+                      value={form.followUpReturnedAt}
+                      onChange={(e) =>
+                        setForm((f) => ({ ...f, followUpReturnedAt: e.target.value }))
+                      }
+                    />
+                  </Field>
+                  <Info
+                    label="مدة الرجوع"
+                    value={
+                      followupDelayMinutes == null ? 'لم يرجع' : `${followupDelayMinutes} دقيقة`
+                    }
                   />
-                  ينطبق
-                </label>
-              </div>
-              {itemState.applies && (
-                <div className="grid md:grid-cols-2 gap-3 mt-4">
-                  <select
-                    className="input-dark"
-                    value={itemState.choice}
-                    onChange={(e) => setCriterionChoice(criterion.key, e.target.value)}
-                  >
-                    {criterion.choices.map((choice) => (
-                      <option key={choice.value} value={choice.value}>
-                        {choice.label} - {choice.pointsEarned}/{criterion.maxPoints}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    className="input-dark"
-                    value={itemState.notes || ''}
-                    onChange={(e) => setCriterionNotes(criterion.key, e.target.value)}
-                    placeholder="ملاحظة على البند (اختياري)"
-                  />
-                </div>
+                </>
               )}
             </div>
-          );
-        })}
-      </section>
+          </section>
 
-      <section className="stat-card border border-red-500/20 space-y-3">
-        <div className="flex items-center gap-2 text-red-300 font-bold">
-          <AlertTriangle size={18} />
-          الأخطاء الجسيمة والخصومات الإضافية
-        </div>
-        <div className="grid md:grid-cols-2 gap-2">
-          {(
-            Object.entries(SEVERE_ERRORS) as Array<
-              [SevereErrorKey, (typeof SEVERE_ERRORS)[SevereErrorKey]]
-            >
-          ).map(([key, error]) => (
-            <label
-              key={key}
-              className="flex items-center gap-2 rounded-xl border border-[#2d4063] bg-[#16253f] p-3 text-sm text-slate-200"
-            >
-              <input
-                type="checkbox"
-                checked={severeErrors[key]}
-                onChange={(e) => setSevere(key, e.target.checked)}
+          <section className="space-y-3">
+            {REVIEW_CRITERIA.map((criterion) => {
+              const itemState = reviewState[criterion.key];
+              return (
+                <div
+                  key={criterion.key}
+                  className={`stat-card border ${itemState.applies ? 'border-teal-500/20' : 'border-[#2d4063]'}`}
+                >
+                  <div className="flex flex-col md:flex-row md:items-start gap-3">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <div className="text-white font-bold text-sm">{criterion.label}</div>
+                        <span className="badge-info text-xs">{criterion.maxPoints} نقطة</span>
+                        {!itemState.applies && (
+                          <span className="badge-muted text-xs">لا ينطبق</span>
+                        )}
+                      </div>
+                      <p className="text-slate-300 text-xs mt-1 leading-relaxed">
+                        {criterion.hint}
+                      </p>
+                    </div>
+                    <label className="flex items-center gap-2 text-sm text-slate-200">
+                      <input
+                        type="checkbox"
+                        checked={itemState.applies}
+                        onChange={(e) => setCriterionApplies(criterion.key, e.target.checked)}
+                      />
+                      ينطبق
+                    </label>
+                  </div>
+                  {itemState.applies && (
+                    <div className="grid md:grid-cols-2 gap-3 mt-4">
+                      <select
+                        className="input-dark"
+                        value={itemState.choice}
+                        onChange={(e) => setCriterionChoice(criterion.key, e.target.value)}
+                      >
+                        {criterion.choices.map((choice) => (
+                          <option key={choice.value} value={choice.value}>
+                            {choice.label} - {choice.pointsEarned}/{criterion.maxPoints}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        className="input-dark"
+                        value={itemState.notes || ''}
+                        onChange={(e) => setCriterionNotes(criterion.key, e.target.value)}
+                        placeholder="ملاحظة على البند (اختياري)"
+                      />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </section>
+
+          <section className="stat-card border border-red-500/20 space-y-3">
+            <div className="flex items-center gap-2 text-red-300 font-bold">
+              <AlertTriangle size={18} />
+              الأخطاء الجسيمة والخصومات الإضافية
+            </div>
+            <div className="grid md:grid-cols-2 gap-2">
+              {(
+                Object.entries(SEVERE_ERRORS) as Array<
+                  [SevereErrorKey, (typeof SEVERE_ERRORS)[SevereErrorKey]]
+                >
+              ).map(([key, error]) => (
+                <label
+                  key={key}
+                  className="flex items-center gap-2 rounded-xl border border-[#2d4063] bg-[#16253f] p-3 text-sm text-slate-200"
+                >
+                  <input
+                    type="checkbox"
+                    checked={severeErrors[key]}
+                    onChange={(e) => setSevere(key, e.target.checked)}
+                  />
+                  <span className="flex-1">{error.label}</span>
+                  <span className="text-red-300 font-bold num">{error.points}</span>
+                </label>
+              ))}
+            </div>
+          </section>
+
+          <section className="stat-card border border-teal-500/30 bg-teal-500/5 space-y-4">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="text-teal-400" size={20} />
+              <h2 className="text-white font-bold text-lg">ملخص تقييم المحادثة</h2>
+            </div>
+
+            <div className="grid md:grid-cols-3 gap-3">
+              <Info
+                label="الدكتور"
+                value={
+                  selectedStaff
+                    ? `${selectedStaff.name} - ${selectedStaff.branch}`
+                    : 'لم يتم الاختيار'
+                }
               />
-              <span className="flex-1">{error.label}</span>
-              <span className="text-red-300 font-bold num">{error.points}</span>
-            </label>
-          ))}
-        </div>
-      </section>
-
-      <section className="stat-card border border-teal-500/30 bg-teal-500/5 space-y-4">
-        <div className="flex items-center gap-2">
-          <CheckCircle2 className="text-teal-400" size={20} />
-          <h2 className="text-white font-bold text-lg">ملخص تقييم المحادثة</h2>
-        </div>
-
-        <div className="grid md:grid-cols-3 gap-3">
-          <Info
-            label="الدكتور"
-            value={
-              selectedStaff ? `${selectedStaff.name} - ${selectedStaff.branch}` : 'لم يتم الاختيار'
-            }
-          />
-          <Info label="العميل" value={form.customerName || 'غير محدد'} />
-          <Info label="المراجع" value={selectedReviewer ? selectedReviewer.name : 'غير محدد'} />
-          <Info label="رقم الفاتورة" value={form.invoiceNo || 'غير مسجل'} />
-          <Info label="نوع المحادثة" value={form.evaluationKind} />
-          <Info label="دورة النقاط" value={monthCycle} />
-        </div>
-
-        <ReviewItemsTable items={result.reviewItems} />
-
-        <div className="grid md:grid-cols-5 gap-3">
-          <Metric label="المطبقة" value={`${result.totalApplicableItems}`} tone="teal" />
-          <Metric label="غير المطبقة" value={`${result.totalNotApplicableItems}`} tone="slate" />
-          <Metric label="المكتسبة" value={`${result.earnedPoints}`} tone="teal" />
-          <Metric label="الممكنة" value={`${result.totalApplicablePoints}`} tone="blue" />
-          <Metric
-            label="النتيجة"
-            value={`${result.finalScore}/100`}
-            tone={result.finalScore >= 90 ? 'teal' : result.finalScore >= 70 ? 'amber' : 'red'}
-          />
-        </div>
-
-        <div className="grid md:grid-cols-2 gap-3">
-          <div className="rounded-2xl bg-[#16253f] border border-[#2d4063] p-5 text-center">
-            <div className="text-slate-300 text-sm">تقييم المحادثة</div>
-            <div
-              className={`num text-5xl font-black mt-2 ${result.finalScore >= 90 ? 'text-teal-400' : result.finalScore >= 70 ? 'text-amber-400' : 'text-red-400'}`}
-            >
-              {result.finalScore}
+              <Info label="العميل" value={form.customerName || 'غير محدد'} />
+              <Info label="المراجع" value={selectedReviewer ? selectedReviewer.name : 'غير محدد'} />
+              <Info label="رقم الفاتورة" value={form.invoiceNo || 'غير مسجل'} />
+              <Info label="نوع المحادثة" value={form.evaluationKind} />
+              <Info label="دورة النقاط" value={monthCycle} />
             </div>
-            <div className="text-slate-300 text-xs mt-1">من 100 - {result.level}</div>
-          </div>
-          <div className="rounded-2xl bg-[#16253f] border border-[#2d4063] p-5 text-center">
-            <div className="text-slate-300 text-sm">تأثيرها على نقاط الدكتور</div>
-            <div
-              className={`num text-5xl font-black mt-2 ${result.doctorPointsImpact >= 0 ? 'text-teal-400' : 'text-red-400'}`}
-            >
-              {result.impactLabel}
+
+            <ReviewItemsTable items={result.reviewItems} />
+
+            <div className="grid md:grid-cols-5 gap-3">
+              <Metric label="المطبقة" value={`${result.totalApplicableItems}`} tone="teal" />
+              <Metric
+                label="غير المطبقة"
+                value={`${result.totalNotApplicableItems}`}
+                tone="slate"
+              />
+              <Metric label="المكتسبة" value={`${result.earnedPoints}`} tone="teal" />
+              <Metric label="الممكنة" value={`${result.totalApplicablePoints}`} tone="blue" />
+              <Metric
+                label="النتيجة"
+                value={`${result.finalScore}/100`}
+                tone={result.finalScore >= 90 ? 'teal' : result.finalScore >= 70 ? 'amber' : 'red'}
+              />
             </div>
-            <div className="text-slate-300 text-xs mt-1">قبل تكرار نفس الخطأ داخل الدورة</div>
-          </div>
-        </div>
 
-        <div className="rounded-xl bg-[#16253f] border border-[#2d4063] p-4 text-sm text-slate-200 leading-relaxed space-y-2">
-          <div>
-            <span className="text-slate-400">سبب التأثير:</span> {result.impactReason}
-          </div>
-          <div>
-            <span className="text-slate-400">أهم سبب للخصم:</span>{' '}
-            {result.mainNegativeReason || 'لا يوجد'}
-          </div>
-          <div>
-            <span className="text-slate-400">أهم نقطة إيجابية:</span>{' '}
-            {result.mainPositiveReason || 'لا يوجد'}
-          </div>
-          <div>
-            <span className="text-slate-400">خصومات إضافية:</span>{' '}
-            {result.extraPenalties.length
-              ? result.extraPenalties.map((p) => `${p.label} (${p.points})`).join('، ')
-              : 'لا توجد'}
-          </div>
-        </div>
+            <div className="grid md:grid-cols-2 gap-3">
+              <div className="rounded-2xl bg-[#16253f] border border-[#2d4063] p-5 text-center">
+                <div className="text-slate-300 text-sm">تقييم المحادثة</div>
+                <div
+                  className={`num text-5xl font-black mt-2 ${result.finalScore >= 90 ? 'text-teal-400' : result.finalScore >= 70 ? 'text-amber-400' : 'text-red-400'}`}
+                >
+                  {result.finalScore}
+                </div>
+                <div className="text-slate-300 text-xs mt-1">من 100 - {result.level}</div>
+              </div>
+              <div className="rounded-2xl bg-[#16253f] border border-[#2d4063] p-5 text-center">
+                <div className="text-slate-300 text-sm">تأثيرها على نقاط الدكتور</div>
+                <div
+                  className={`num text-5xl font-black mt-2 ${result.doctorPointsImpact >= 0 ? 'text-teal-400' : 'text-red-400'}`}
+                >
+                  {result.impactLabel}
+                </div>
+                <div className="text-slate-300 text-xs mt-1">قبل تكرار نفس الخطأ داخل الدورة</div>
+              </div>
+            </div>
 
-        <div className="rounded-xl bg-amber-500/10 border border-amber-500/25 p-4">
-          <div className="text-amber-300 font-bold text-sm mb-2">التوصية التدريبية</div>
-          <p className="text-slate-100 text-sm leading-relaxed">{finalTraining}</p>
-          <textarea
-            className="input-dark mt-3 min-h-20"
-            value={form.trainingRecommendationManual}
-            onChange={(e) =>
-              setForm((f) => ({ ...f, trainingRecommendationManual: e.target.value }))
-            }
-            placeholder="تعديل التوصية يدويًا عند الحاجة"
-          />
-        </div>
+            <div className="rounded-xl bg-[#16253f] border border-[#2d4063] p-4 text-sm text-slate-200 leading-relaxed space-y-2">
+              <div>
+                <span className="text-slate-400">سبب التأثير:</span> {result.impactReason}
+              </div>
+              <div>
+                <span className="text-slate-400">أهم سبب للخصم:</span>{' '}
+                {result.mainNegativeReason || 'لا يوجد'}
+              </div>
+              <div>
+                <span className="text-slate-400">أهم نقطة إيجابية:</span>{' '}
+                {result.mainPositiveReason || 'لا يوجد'}
+              </div>
+              <div>
+                <span className="text-slate-400">خصومات إضافية:</span>{' '}
+                {result.extraPenalties.length
+                  ? result.extraPenalties.map((p) => `${p.label} (${p.points})`).join('، ')
+                  : 'لا توجد'}
+              </div>
+            </div>
 
-        <textarea
-          className="input-dark min-h-24"
-          value={form.reviewerNotes}
-          onChange={(e) => setForm((f) => ({ ...f, reviewerNotes: e.target.value }))}
-          placeholder="ملاحظات المراجع النهائية"
-        />
+            <div className="rounded-xl bg-amber-500/10 border border-amber-500/25 p-4">
+              <div className="text-amber-300 font-bold text-sm mb-2">التوصية التدريبية</div>
+              <p className="text-slate-100 text-sm leading-relaxed">{finalTraining}</p>
+              <textarea
+                className="input-dark mt-3 min-h-20"
+                value={form.trainingRecommendationManual}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, trainingRecommendationManual: e.target.value }))
+                }
+                placeholder="تعديل التوصية يدويًا عند الحاجة"
+              />
+            </div>
 
-        {repeatInfo && result.repeatErrorType && (
-          <div className="rounded-xl bg-red-500/10 border border-red-500/25 p-3 text-red-200 text-sm">
-            تم اكتشاف تكرار داخل الدورة: السابق {repeatInfo.count} مرة، المضاعف المطبق x
-            {repeatInfo.multiplier}.
-          </div>
-        )}
+            <textarea
+              className="input-dark min-h-24"
+              value={form.reviewerNotes}
+              onChange={(e) => setForm((f) => ({ ...f, reviewerNotes: e.target.value }))}
+              placeholder="ملاحظات المراجع النهائية"
+            />
 
-        <button
-          type="button"
-          onClick={save}
-          disabled={saving}
-          className="btn-primary w-full justify-center text-base py-4 flex items-center gap-2"
-        >
-          <Save size={18} />
-          {saving ? 'جاري حفظ التقييم...' : 'حفظ التقييم'}
-        </button>
-      </section>
-      </>
+            {repeatInfo && result.repeatErrorType && (
+              <div className="rounded-xl bg-red-500/10 border border-red-500/25 p-3 text-red-200 text-sm">
+                تم اكتشاف تكرار داخل الدورة: السابق {repeatInfo.count} مرة، المضاعف المطبق x
+                {repeatInfo.multiplier}.
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={save}
+              disabled={saving}
+              className="btn-primary w-full justify-center text-base py-4 flex items-center gap-2"
+            >
+              <Save size={18} />
+              {saving ? 'جاري حفظ التقييم...' : 'حفظ التقييم'}
+            </button>
+          </section>
+        </>
       ) : null}
 
       {selectedReview && (
@@ -2097,24 +2279,48 @@ export default function Reviews() {
                 value={editForm.staff_id}
                 onChange={(e) => {
                   const selected = staffOptions.find((item) => item.id === e.target.value);
-                  setEditForm((f) => ({ ...f, staff_id: e.target.value, staff_name: selected?.name || f.staff_name }));
+                  setEditForm((f) => ({
+                    ...f,
+                    staff_id: e.target.value,
+                    staff_name: selected?.name || f.staff_name,
+                  }));
                 }}
               >
                 <option value="">اختيار بالاسم يدويًا</option>
-                {staffOptions.map((item) => <option key={item.id} value={item.id}>{item.name} — {item.branch}</option>)}
+                {staffOptions.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name} — {item.branch}
+                  </option>
+                ))}
               </select>
             </Field>
             <Field label="اسم الدكتور الظاهر">
-              <input className="input-dark" value={editForm.staff_name} onChange={(e) => setEditForm((f) => ({ ...f, staff_name: e.target.value }))} />
+              <input
+                className="input-dark"
+                value={editForm.staff_name}
+                onChange={(e) => setEditForm((f) => ({ ...f, staff_name: e.target.value }))}
+              />
             </Field>
             <Field label="اسم العميل الصحيح">
-              <input className="input-dark" value={editForm.customer_name} onChange={(e) => setEditForm((f) => ({ ...f, customer_name: e.target.value }))} />
+              <input
+                className="input-dark"
+                value={editForm.customer_name}
+                onChange={(e) => setEditForm((f) => ({ ...f, customer_name: e.target.value }))}
+              />
             </Field>
             <Field label="كود العميل">
-              <input className="input-dark" value={editForm.customer_code} onChange={(e) => setEditForm((f) => ({ ...f, customer_code: e.target.value }))} />
+              <input
+                className="input-dark"
+                value={editForm.customer_code}
+                onChange={(e) => setEditForm((f) => ({ ...f, customer_code: e.target.value }))}
+              />
             </Field>
             <Field label="هاتف العميل">
-              <input className="input-dark" value={editForm.customer_phone} onChange={(e) => setEditForm((f) => ({ ...f, customer_phone: e.target.value }))} />
+              <input
+                className="input-dark"
+                value={editForm.customer_phone}
+                onChange={(e) => setEditForm((f) => ({ ...f, customer_phone: e.target.value }))}
+              />
             </Field>
           </div>
           <div className="grid md:grid-cols-2 gap-3">
@@ -2291,24 +2497,24 @@ function ReviewDetailsModal({
       {canEdit || canApprove ? (
         <div className="grid md:grid-cols-2 gap-2">
           {canEdit ? (
-          <button
-            type="button"
-            onClick={onEdit}
-            className="btn-secondary justify-center flex items-center gap-2"
-          >
-            <Pencil size={16} />
-            تعديل تقييم المحادثة
-          </button>
+            <button
+              type="button"
+              onClick={onEdit}
+              className="btn-secondary justify-center flex items-center gap-2"
+            >
+              <Pencil size={16} />
+              تعديل تقييم المحادثة
+            </button>
           ) : null}
           {canApprove ? (
-          <button
-            type="button"
-            onClick={onManagerReview}
-            className="btn-secondary justify-center flex items-center gap-2"
-          >
-            <UserCheck size={16} />
-            تقييم المراجع
-          </button>
+            <button
+              type="button"
+              onClick={onManagerReview}
+              className="btn-secondary justify-center flex items-center gap-2"
+            >
+              <UserCheck size={16} />
+              تقييم المراجع
+            </button>
           ) : null}
         </div>
       ) : null}
@@ -2439,21 +2645,38 @@ function ReviewActions({
   onManagerReview: (row: ConversationReviewHistoryRow) => void;
 }) {
   return (
-    <div className="flex min-w-[132px] flex-col gap-1.5" onClick={(event) => event.stopPropagation()}>
-      <button type="button" className="inline-flex w-full items-center justify-center gap-1 rounded-lg border border-cyan-400/25 bg-cyan-500/10 px-2 py-1.5 text-[11px] font-black text-cyan-100 hover:bg-cyan-500/20" onClick={() => onDetails(row)}>
+    <div
+      className="flex min-w-[132px] flex-col gap-1.5"
+      onClick={(event) => event.stopPropagation()}
+    >
+      <button
+        type="button"
+        className="inline-flex w-full items-center justify-center gap-1 rounded-lg border border-cyan-400/25 bg-cyan-500/10 px-2 py-1.5 text-[11px] font-black text-cyan-100 hover:bg-cyan-500/20"
+        onClick={() => onDetails(row)}
+      >
         <Eye size={13} /> التفاصيل
       </button>
       {canEdit || canApprove ? (
         <div className="grid grid-cols-2 gap-1">
           {canEdit ? (
-          <button type="button" title="تعديل التقييم" className="inline-flex items-center justify-center gap-1 rounded-lg border border-violet-400/25 bg-violet-500/10 px-1.5 py-1.5 text-[10px] font-black text-violet-100 hover:bg-violet-500/20" onClick={() => onEdit(row)}>
-            <Pencil size={12} /> تعديل
-          </button>
+            <button
+              type="button"
+              title="تعديل التقييم"
+              className="inline-flex items-center justify-center gap-1 rounded-lg border border-violet-400/25 bg-violet-500/10 px-1.5 py-1.5 text-[10px] font-black text-violet-100 hover:bg-violet-500/20"
+              onClick={() => onEdit(row)}
+            >
+              <Pencil size={12} /> تعديل
+            </button>
           ) : null}
           {canApprove ? (
-          <button type="button" title="تقييم المراجع" className="inline-flex items-center justify-center gap-1 rounded-lg border border-amber-400/25 bg-amber-500/10 px-1.5 py-1.5 text-[10px] font-black text-amber-100 hover:bg-amber-500/20" onClick={() => onManagerReview(row)}>
-            <UserCheck size={12} /> المراجع
-          </button>
+            <button
+              type="button"
+              title="تقييم المراجع"
+              className="inline-flex items-center justify-center gap-1 rounded-lg border border-amber-400/25 bg-amber-500/10 px-1.5 py-1.5 text-[10px] font-black text-amber-100 hover:bg-amber-500/20"
+              onClick={() => onManagerReview(row)}
+            >
+              <UserCheck size={12} /> المراجع
+            </button>
           ) : null}
         </div>
       ) : null}
