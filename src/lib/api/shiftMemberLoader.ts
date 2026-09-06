@@ -117,8 +117,12 @@ export async function loadShiftMembers(params: {
     if (id) scheduleById.set(id, row);
   });
 
-  const timeOffById = new Map<string, StaffTimeOffRequest>();
-  activeTimeOff.forEach((row) => timeOffById.set(row.staff_id, row));
+  const timeOffByStaff = new Map<string, StaffTimeOffRequest[]>();
+  activeTimeOff.forEach((row) => {
+    const rows = timeOffByStaff.get(row.staff_id) || [];
+    rows.push(row);
+    timeOffByStaff.set(row.staff_id, rows);
+  });
 
   const attendanceByName = new Map<string, Row>();
   const attendanceById = new Map<string, Row>();
@@ -140,16 +144,14 @@ export async function loadShiftMembers(params: {
         return null;
       }
 
-      const timeOff = timeOffById.get(staff.id);
-      if (
-        timeOff &&
-        ['annual_leave', 'sick_leave', 'exceptional_leave', 'approved_absence'].includes(timeOff.request_kind)
-      ) {
-        return null;
-      }
+      const staffTimeOff = timeOffByStaff.get(staff.id) || [];
+      const hasFullDayLeave = staffTimeOff.some((row) =>
+        ['annual_leave', 'sick_leave', 'exceptional_leave', 'approved_absence'].includes(row.request_kind)
+      );
+      if (hasFullDayLeave) return null;
 
       const attendance = attendanceById.get(staff.id) || attendanceByName.get(staff.name);
-      const hasPermission = Boolean(timeOff) && ['permission', 'shift_swap'].includes(timeOff!.request_kind);
+      const hasPermission = staffTimeOff.some((row) => ['permission', 'shift_swap'].includes(row.request_kind));
 
       return {
         staff_id: staff.id,
