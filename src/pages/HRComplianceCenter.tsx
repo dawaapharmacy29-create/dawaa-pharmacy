@@ -230,7 +230,7 @@ export default function HRComplianceCenter() {
       </section>
 
       <section className="grid gap-3 md:grid-cols-4 xl:grid-cols-7">
-        {[
+        {([
           ['الموظفون', totals.employees, Users], ['متوسط الالتزام', `${fmt(totals.avgScore)}%`, ShieldCheck],
           ['حالات حرجة', totals.critical, AlertTriangle], ['تحتاج تدخل', totals.attention, UserCheck],
           ['أيام غياب', totals.absences, CalendarDays], ['دقائق التأخير', totals.lateMinutes, BarChart3], ['الأذونات', totals.permissions, CalendarDays],
