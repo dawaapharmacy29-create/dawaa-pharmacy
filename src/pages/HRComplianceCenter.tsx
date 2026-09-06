@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ElementType } from 'react';
 import { AlertTriangle, BarChart3, CalendarDays, Download, RefreshCw, Search, ShieldCheck, UserCheck, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
@@ -234,7 +234,7 @@ export default function HRComplianceCenter() {
           ['الموظفون', totals.employees, Users], ['متوسط الالتزام', `${fmt(totals.avgScore)}%`, ShieldCheck],
           ['حالات حرجة', totals.critical, AlertTriangle], ['تحتاج تدخل', totals.attention, UserCheck],
           ['أيام غياب', totals.absences, CalendarDays], ['دقائق التأخير', totals.lateMinutes, BarChart3], ['الأذونات', totals.permissions, CalendarDays],
-        ].map(([label, value, Icon]) => <div key={String(label)} className="dawaa-card p-4"><div className="flex items-center gap-2"><Icon size={17} className="dawaa-muted" /><span className="dawaa-muted text-xs font-bold">{String(label)}</span></div><div className="dawaa-title mt-2 text-2xl">{String(value)}</div></div>)}
+        ] as Array<[string, string | number, ElementType]>).map(([label, value, Icon]) => <div key={String(label)} className="dawaa-card p-4"><div className="flex items-center gap-2"><Icon size={17} className="dawaa-muted" /><span className="dawaa-muted text-xs font-bold">{String(label)}</span></div><div className="dawaa-title mt-2 text-2xl">{String(value)}</div></div>)}
       </section>
 
       <div className="flex flex-wrap gap-2">
