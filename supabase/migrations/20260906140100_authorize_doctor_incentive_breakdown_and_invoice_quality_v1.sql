@@ -1,0 +1,21 @@
+-- get_doctor_incentive_breakdown(p_doctor_id): returned a detailed personal breakdown
+-- (pillar scores, conversation-quality stats, top deduction reasons, up to 30 recent
+-- employee_transactions rows, target-bonus settlement amount, follow-up/request
+-- counts, branch-star status) for ANY doctor id, with no caller check. Called from
+-- DoctorDashboardStable.tsx with the logged-in user's own staffId, so the UI never
+-- exposed this, but the RPC itself was directly callable with any other doctor's id.
+--
+-- get_doctor_invoice_quality_metrics(p_branch, p_doctor_name, ...): took a doctor's
+-- *name* and a branch and returned "my_metrics" (avg invoice, items/invoice, unique
+-- customers, and branch rank) for whichever name was passed, with no caller check --
+-- anyone could pass a colleague's name to pull their individual invoice-quality
+-- ranking.
+--
+-- Both fixed by reusing the existing dawaa_can_read_employee_transaction(staff_id,
+-- branch) guard.
+--
+-- APPLIED DIRECTLY TO PRODUCTION on 2026-09-06 via Supabase MCP. This file mirrors
+-- that change into version control -- it does not need to be re-applied. Full function
+-- bodies are unchanged except for the authorization check added at the top of each;
+-- see the live database for the current definition, or the project's Supabase
+-- migration history.
