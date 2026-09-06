@@ -7,6 +7,7 @@ import { getCurrentCycle } from '@/lib/pharmacy-cycle';
 import { normalizeBranchName } from '@/lib/branch';
 import { canSeeAllBranches } from '@/lib/security/permissionScopes';
 import { cn } from '@/lib/utils';
+import HRComplianceGovernancePanel from '@/components/hr/HRComplianceGovernancePanel';
 
 type RiskLevel = 'critical' | 'attention' | 'watch' | 'good' | string;
 
@@ -247,6 +248,14 @@ export default function HRComplianceCenter() {
       {tab === 'staff' && <section className="dawaa-card overflow-hidden"><div className="border-b p-4"><div className="relative max-w-md"><Search size={16} className="absolute right-3 top-3 dawaa-muted" /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="بحث باسم الموظف أو الفرع أو الوظيفة" className="dawaa-input w-full pr-10" /></div></div><div className="overflow-x-auto"><table className="min-w-[1200px] w-full text-sm"><thead><tr className="text-right dawaa-muted"><Th>الموظف</Th><Th>الفرع</Th><Th>الحضور</Th><Th>الغياب</Th><Th>التأخير</Th><Th>إجمالي دقائق التأخير</Th><Th>أذونات</Th><Th>إجازات</Th><Th>انصراف مبكر</Th><Th>مشاكل بصمة/جدول</Th><Th>الالتزام</Th><Th>الحالة</Th></tr></thead><tbody>{filteredStaff.map((r) => <tr key={r.staff_id} className="border-t"><Td><div className="font-black">{r.staff_name}</div><div className="dawaa-muted text-xs">{r.role || 'غير محدد'}</div></Td><Td>{r.branch || '-'}</Td><Td>{r.present_days}/{r.scheduled_days} <div className="dawaa-muted text-xs">{fmt(r.attendance_rate)}%</div></Td><Td>{r.absent_days}</Td><Td>{r.late_days} <div className="dawaa-muted text-xs">شديد: {r.very_late_days}</div></Td><Td>{r.total_late_minutes}</Td><Td>{r.approved_permission_days}</Td><Td>{r.approved_leave_days}</Td><Td>{r.early_leave_days}</Td><Td>{r.missing_checkout_days + r.schedule_issue_days}</Td><Td className="font-black">{fmt(r.compliance_score)}%</Td><Td><span className={cn('dawaa-badge', riskClass[r.risk_level] || 'dawaa-badge--info')}>{riskLabel[r.risk_level] || r.risk_level}</span>{(r.attention_reasons || []).length > 0 && <div className="dawaa-muted mt-1 max-w-xs text-xs">{r.attention_reasons?.join(' • ')}</div>}</Td></tr>)}</tbody></table></div></section>}
 
       {tab === 'attention' && <section className="space-y-3">{attention.length === 0 ? <div className="dawaa-card p-8 text-center dawaa-muted">لا توجد حالات حضور تحتاج مراجعة في هذا اليوم.</div> : attention.map((r, index) => <article key={`${r.staff_id}-${index}`} className="dawaa-card p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="font-black">{r.staff_name} <span className="dawaa-muted text-xs">— {r.branch || 'غير محدد'}</span></div><div className="mt-1 text-sm">{statusLabel(r.attendance_status)}</div></div><span className={cn('dawaa-badge', r.severity === 'critical' ? 'dawaa-badge--danger' : r.severity === 'high' ? 'dawaa-badge--warning' : 'dawaa-badge--info')}>{r.severity === 'critical' ? 'حرج' : r.severity === 'high' ? 'مرتفع' : 'مراجعة'}</span></div><div className="mt-3 grid gap-2 text-sm md:grid-cols-4"><Metric label="التأخير" value={`${r.late_minutes || 0} دقيقة`} /><Metric label="انصراف مبكر" value={`${r.early_leave_minutes || 0} دقيقة`} /><Metric label="بصمات" value={String(r.biometric_events || 0)} /><Metric label="استثناء معتمد" value={r.approved_exception_type || 'لا يوجد'} /></div><div className="mt-3 rounded-xl bg-[var(--dawaa-theme-soft)] p-3 text-sm"><b>الإجراء الإداري:</b> {r.manager_action}</div>{r.approved_exception_reason && <div className="dawaa-muted mt-2 text-xs">السبب المسجل: {r.approved_exception_reason}</div>}</article>)}</section>}
+
+      <HRComplianceGovernancePanel
+        startDate={startDate}
+        endDate={endDate}
+        dailyDate={dailyDate}
+        branch={effectiveBranch}
+        onChanged={load}
+      />
     </div>
   );
 }
