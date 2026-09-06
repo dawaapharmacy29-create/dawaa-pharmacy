@@ -4,6 +4,7 @@ import { staffRowIsActive } from '@/lib/staffActiveFilter';
 import { getStaffCycleIncentive, type StaffCycleIncentive } from '@/lib/staffIncentiveService';
 import { getStaffPointsDashboardV3 } from '@/lib/staff/staffPointsDashboardService';
 import type { PharmacyCycle } from '@/lib/pharmacy-cycle';
+import { listStaffTimeOffRequests } from '@/lib/timeOffService';
 import {
   getStaffSalesSummaryForPeriod,
   type StaffSalesSummary,
@@ -306,15 +307,15 @@ export async function loadStaffDetailSections(args: {
         .select('*')
         .eq('staff_id', args.staffId)
         .limit(80);
-      const timeOffRes = await supabase
-        .from('shift_exceptions')
-        .select('*')
-        .eq('staff_id', args.staffId)
-        .order('date', { ascending: false })
-        .limit(80);
+      const timeOff = await listStaffTimeOffRequests({
+        staffId: args.staffId,
+        from: cycleStart,
+        to: args.cycle.end.toISOString().slice(0, 10),
+        limit: 80,
+      });
       return {
         schedule: (scheduleRes.data || []) as Record<string, unknown>[],
-        timeOff: (timeOffRes.data || []) as Record<string, unknown>[],
+        timeOff: timeOff as unknown as Record<string, unknown>[],
       };
     }),
     runStaffDetailSection('followups', async () => {

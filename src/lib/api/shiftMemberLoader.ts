@@ -2,6 +2,7 @@ import { fetchAttendanceReportRows } from '@/lib/attendance/attendanceReportRows
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { filterActiveStaffRows } from '@/lib/staffActiveFilter';
 import { mergeStaffChoices } from '@/lib/staffFallback';
+import { listStaffTimeOffRequests, type StaffTimeOffRequest } from '@/lib/timeOffService';
 import {
   normalizeBranchName,
   timeRangesOverlap,
@@ -53,7 +54,7 @@ export async function loadShiftMembers(params: {
   const branch = normalizeBranchName(params.branch);
   const day = arabicDayName(params.date);
 
-  const [staffRows, scheduleRows, exceptionRows, attendanceRows] = await Promise.all([
+  const [staffRows, scheduleRows, timeOffRows, attendanceRows] = await Promise.all([
     readRows(
       supabase
         .from('staff')
@@ -69,15 +70,7 @@ export async function loadShiftMembers(params: {
         .eq('day_name', day)
         .limit(200)
     ),
-    readRows(
-      supabase
-        .from('shift_exceptions')
-        .select('*')
-        .eq('branch', branch)
-        .eq('status', 'approved')
-        .eq('date', params.date)
-        .limit(200)
-    ),
+    listStaffTimeOffRequests({ from: params.date, to: params.date, status: 'approved', limit: 200 }),
     fetchAttendanceReportRows({
       startDate: params.date,
       endDate: params.date,
@@ -104,15 +97,16 @@ export async function loadShiftMembers(params: {
   const scheduledNames = new Set(branchSchedules.map(rowName).filter(Boolean));
   const scheduledIds = new Set(branchSchedules.map(rowStaffId).filter(Boolean));
   const candidates = branchSchedules.length
-    ? staffChoices.filter((staff) => scheduledNames.has(staff.name) || scheduledIds.has(staff.id))
+    ? staffChoices.filter((staff) => scheduledIds.has(staff.id) || scheduledNames.has(staff.name))
     : staffChoices;
 
-  const candidateNames = new Set(candidates.map((staff) => staff.name));
   const candidateIds = new Set(candidates.map((staff) => staff.id));
-  const activeExceptions = exceptionRows.filter((row) => {
-    const status = String(row.status || '').toLowerCase();
-    return status === 'approved' && (candidateNames.has(rowName(row)) || candidateIds.has(rowStaffId(row)));
-  });
+  const activeTimeOff = timeOffRows.filter(
+    (row) =>
+      candidateIds.has(row.staff_id) &&
+      normalizeBranchName(row.branch_snapshot) === branch &&
+      row.status === 'approved'
+  );
 
   const scheduleByName = new Map<string, Row>();
   const scheduleById = new Map<string, Row>();
@@ -123,13 +117,11 @@ export async function loadShiftMembers(params: {
     if (id) scheduleById.set(id, row);
   });
 
-  const exceptionByName = new Map<string, Row>();
-  const exceptionById = new Map<string, Row>();
-  activeExceptions.forEach((row) => {
-    const name = rowName(row);
-    const id = rowStaffId(row);
-    if (name) exceptionByName.set(name, row);
-    if (id) exceptionById.set(id, row);
+  const timeOffByStaff = new Map<string, StaffTimeOffRequest[]>();
+  activeTimeOff.forEach((row) => {
+    const rows = timeOffByStaff.get(row.staff_id) || [];
+    rows.push(row);
+    timeOffByStaff.set(row.staff_id, rows);
   });
 
   const attendanceByName = new Map<string, Row>();
@@ -145,19 +137,21 @@ export async function loadShiftMembers(params: {
 
   const members = candidates
     .map((staff) => {
-      const schedule = scheduleByName.get(staff.name) || scheduleById.get(staff.id);
+      const schedule = scheduleById.get(staff.id) || scheduleByName.get(staff.name);
       const scheduleStart = String(schedule?.shift_start || schedule?.start_time || '');
       const scheduleEnd = String(schedule?.shift_end || schedule?.end_time || '');
       if (schedule && !timeRangesOverlap(scheduleStart, scheduleEnd, params.shiftStart, params.shiftEnd)) {
         return null;
       }
 
-      const exception = exceptionByName.get(staff.name) || exceptionById.get(staff.id);
-      const exceptionType = String(exception?.type || '');
-      if (exceptionType.includes('إجازة') || exceptionType.includes('غياب')) return null;
+      const staffTimeOff = timeOffByStaff.get(staff.id) || [];
+      const hasFullDayLeave = staffTimeOff.some((row) =>
+        ['annual_leave', 'sick_leave', 'exceptional_leave', 'approved_absence'].includes(row.request_kind)
+      );
+      if (hasFullDayLeave) return null;
 
-      const attendance = attendanceByName.get(staff.name) || attendanceById.get(staff.id);
-      const hasPermission = Boolean(exception) && (exceptionType.includes('إذن') || exceptionType.includes('تبديل'));
+      const attendance = attendanceById.get(staff.id) || attendanceByName.get(staff.name);
+      const hasPermission = staffTimeOff.some((row) => ['permission', 'shift_swap'].includes(row.request_kind));
 
       return {
         staff_id: staff.id,
@@ -182,7 +176,7 @@ export async function loadShiftMembers(params: {
     members,
     hasEnoughData: branchSchedules.length > 0,
     message: branchSchedules.length
-      ? 'تم تحديد أعضاء الشيفت من جدول الفرع واليوم فقط مع مراعاة الإجازات والحضور الموحد.'
+      ? 'تم تحديد أعضاء الشيفت من جدول الفرع واليوم فقط مع مراعاة الإجازات والأذونات المعتمدة والحضور الموحد.'
       : 'لا توجد بيانات جدول كافية لهذا الفرع واليوم، يمكنك اختيار الأعضاء يدويًا.',
   };
 }

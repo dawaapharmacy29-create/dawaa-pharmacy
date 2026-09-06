@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Stethoscope, Truck } from 'lucide-react';
 import { useSupabaseQuery } from '@/hooks/useSupabaseQuery';
 import { DAYS_AR, BRANCHES } from '@/lib/constants';
@@ -14,6 +14,7 @@ import { isCurrentlyOnShift } from '@/lib/utils';
 import { parseScheduleImport, type ParsedScheduleImport } from '@/lib/shiftParser';
 import { saveScheduleImport, type StaffingSaveReport } from '@/lib/api/staffing';
 import { toast } from 'sonner';
+import { listStaffTimeOffRequests, type StaffTimeOffRequest } from '@/lib/timeOffService';
 
 interface Employee {
   id: string;
@@ -36,18 +37,6 @@ interface ShiftSchedule {
   shift_end: string | null;
   is_off: boolean | null;
   is_day_off?: boolean | null;
-}
-
-interface ShiftException {
-  id: string;
-  staff_name: string;
-  type: string;
-  status: string;
-  branch: string | null;
-  day_name: string | null;
-  date: string | null;
-  date_end: string | null;
-  reason: string | null;
 }
 
 const ROLE_COLORS: Record<string, string> = {
@@ -92,11 +81,14 @@ export default function Schedule() {
     table: 'shift_schedules',
     realtimeEnabled: true,
   });
-  const { data: exceptions } = useSupabaseQuery<ShiftException>({
-    table: 'shift_exceptions',
-    filters: [{ column: 'status', operator: 'eq', value: 'approved' }],
-    realtimeEnabled: true,
-  });
+  const [exceptions, setExceptions] = useState<StaffTimeOffRequest[]>([]);
+  useEffect(() => {
+    let alive = true;
+    void listStaffTimeOffRequests({ status: 'approved', limit: 300 })
+      .then((rows) => { if (alive) setExceptions(rows); })
+      .catch((error) => console.warn('[Schedule] canonical time-off unavailable', error));
+    return () => { alive = false; };
+  }, []);
 
   const filtered = employees.filter(
     (e) =>
@@ -116,16 +108,14 @@ export default function Schedule() {
     targetDate.setDate(today.getDate() + diff);
     const targetDateStr = targetDate.toISOString().split('T')[0];
 
-    const exception = exceptions?.find(
+    const exception = exceptions.find(
       (item) =>
-        item.staff_name === emp.name &&
-        normalizeBranch(item.branch) === normalizeBranch(emp.branch) &&
+        item.staff_id === emp.id &&
+        normalizeBranch(item.branch_snapshot) === normalizeBranch(emp.branch) &&
         item.status === 'approved' &&
-        (item.type.includes('إجازة') || item.type === 'غياب') &&
-        ((item.date &&
-          item.date <= targetDateStr &&
-          (!item.date_end || item.date_end >= targetDateStr)) ||
-          item.day_name === day)
+        ['annual_leave', 'sick_leave', 'exceptional_leave', 'approved_absence'].includes(item.request_kind) &&
+        item.start_date <= targetDateStr &&
+        item.end_date >= targetDateStr
     );
 
     if (exception) {
