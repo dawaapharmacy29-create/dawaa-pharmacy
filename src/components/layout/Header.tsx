@@ -79,6 +79,40 @@ const notificationTone: Record<string, string> = {
   system: 'dawaa-badge--info',
 };
 
+const notificationPriorityLabel: Record<string, string> = {
+  urgent: 'عاجل',
+  critical: 'حرج',
+  high: 'أهمية مرتفعة',
+  warning: 'تحذير',
+  normal: 'عادي',
+  medium: 'متوسط',
+  low: 'منخفض',
+};
+
+const notificationTypeLabel: Record<string, string> = {
+  system: 'تنبيه نظام',
+  sync_health: 'مراقبة المزامنة',
+  sync_health_alert: 'مراقبة المزامنة',
+  reward: 'مكافأة',
+  deduction: 'خصم',
+  task: 'مهمة',
+  followup: 'متابعة عميل',
+  conversation_review: 'تقييم محادثة',
+  customer_alert: 'تنبيه عميل',
+  delivery: 'توصيل',
+  attendance: 'حضور وانصراف',
+};
+
+function getNotificationPriorityLabel(item: AppNotification) {
+  const value = String(item.priority || item.type || 'تنبيه').trim();
+  return notificationPriorityLabel[value.toLowerCase()] || notificationTypeLabel[value.toLowerCase()] || value;
+}
+
+function getNotificationTypeLabel(item: AppNotification) {
+  const value = String(item.notification_type || item.type || 'تنبيه').trim();
+  return notificationTypeLabel[value.toLowerCase()] || value;
+}
+
 function playNotificationBeep() {
   const mode = localStorage.getItem(SOUND_KEY) || 'soft';
   if (mode === 'off') return;
@@ -309,7 +343,7 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
                   >
                     <div className="flex items-start gap-2.5">
                       <span className={cn('dawaa-badge mt-0.5 shrink-0 px-2 py-0.5 text-xs font-black', isUrgent(n) ? 'dawaa-badge--danger' : notificationTone[String(n.type)] || notificationTone.system)}>
-                        {String(n.priority || n.type || 'تنبيه')}
+                        {getNotificationPriorityLabel(n)}
                       </span>
                       <div className="min-w-0 flex-1">
                         <div className="dawaa-header-title flex items-center gap-1 text-xs font-black">
@@ -317,7 +351,7 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
                           <ExternalLink size={12} className="dawaa-header-muted shrink-0" />
                         </div>
                         <div className="dawaa-header-muted mt-1 flex items-center justify-between gap-2 text-[10px]">
-                          <span>{String(n.type || 'نوع غير محدد')}</span>
+                          <span>{getNotificationTypeLabel(n)}</span>
                           <span>{formatNotificationDate(n.created_at)}</span>
                         </div>
                         <div className="dawaa-header-muted mt-1 line-clamp-2 text-xs leading-relaxed">{n.body || n.message}</div>
