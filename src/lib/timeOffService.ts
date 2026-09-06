@@ -55,7 +55,8 @@ export interface PermissionPolicyStatusV2 {
 export interface AnnualLeaveBalanceV1 {
   staff_id: string;
   year: number;
-  balance: number;
+  configured: boolean;
+  balance: number | null;
   used: number;
   reserved: number;
   policy_version: string;
