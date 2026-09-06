@@ -10,7 +10,8 @@ with approved_profiles(staff_name, branch, monthly_incentive_base, point_value) 
     ('حبيبه'::text, 'فرع الشامي'::text, 500::numeric, 1::numeric),
     ('د/ محمد العزب'::text, 'فرع الشامي'::text, 500::numeric, 1::numeric),
     ('يوسف عصام'::text, 'فرع شكري'::text, 700::numeric, 1.4::numeric),
-    ('د هدي'::text, 'فرع الشامي'::text, 700::numeric, 1.4::numeric)
+    ('د هدي'::text, 'فرع الشامي'::text, 700::numeric, 1.4::numeric),
+    ('د/ شيماء'::text, 'فرع شكري'::text, 1000::numeric, 2::numeric)
 ), resolved as (
   select
     s.id::text as staff_id,
