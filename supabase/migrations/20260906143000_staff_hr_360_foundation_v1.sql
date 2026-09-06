@@ -141,7 +141,7 @@ begin
   if v_actor is null then raise exception 'identified_actor_required'; end if;
   select branch into v_branch from public.staff where id=p_staff_id;
   if v_branch is null then raise exception 'staff_not_found'; end if;
-  if not public.employee_operating_actor_can_access_branch(v_branch) then raise exception 'branch_scope_denied'; end if;
+  if not public.current_user_branch_access_v1(v_branch,true) then raise exception 'branch_scope_denied'; end if;
   select name into v_actor_name from public.staff_accounts where id::text=v_actor limit 1;
   if p_event_type not in ('hire','promotion','role_change','branch_transfer','status_change','warning','commendation','training','responsibility_change','contract_update','note') then raise exception 'invalid_event_type'; end if;
   if length(trim(coalesce(p_title,'')))<3 then raise exception 'title_required'; end if;
@@ -163,7 +163,7 @@ begin
   if not found then raise exception 'staff_not_found'; end if;
   v_can_view:=public.dawaa_current_actor_can(array['view_staff_details','view_hr_compliance','view_team']);
   if not v_can_view then raise exception 'not_authorized'; end if;
-  v_branch_ok:=public.employee_operating_actor_can_access_branch(v_staff.branch);
+  v_branch_ok:=public.current_user_branch_access_v1(v_staff.branch,true);
   if not v_branch_ok then raise exception 'branch_scope_denied'; end if;
   v_can_salary:=public.dawaa_current_actor_can(array['manage_payroll']);
 
