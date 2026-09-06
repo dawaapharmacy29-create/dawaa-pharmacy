@@ -283,7 +283,28 @@ async function insertSafe(table: string, payload: Record<string, unknown>) {
   const removedColumns: string[] = [];
   for (let attempt = 0; attempt < 35; attempt += 1) {
     const ins = await supabase.from(table).insert(currentPayload).select('id').single();
-    if (!ins.error) return { id: ins.data?.id as string | undefined, removedColumns };
+    if (!ins.error) return { id: ins.data?.id as string | undefined, removedColumns, reusedExisting: false };
+
+    // لو حصل retry بعد إن السيرفر حفظ التقييم لكن المتصفح ما استلمش الرد،
+    // رجّع نفس الصف بدل ما نعتبره خطأ أو نكرر التقييم/النقاط.
+    if (table === 'conversation_sales_reviews' && ins.error.code === '23505') {
+      const staffName = String(currentPayload.staff_name || '');
+      const reviewerName = String(currentPayload.reviewer_name || '');
+      const conversationDate = currentPayload.conversation_date as string | null | undefined;
+      const customerName = currentPayload.customer_name as string | null | undefined;
+      let query = supabase
+        .from(table)
+        .select('id')
+        .eq('staff_name', staffName)
+        .eq('reviewer_name', reviewerName)
+        .eq('conversation_date', conversationDate || '');
+      query = customerName == null ? query.is('customer_name', null) : query.eq('customer_name', customerName);
+      const existing = await query.order('created_at', { ascending: false }).limit(1).maybeSingle();
+      if (!existing.error && existing.data?.id) {
+        return { id: String(existing.data.id), removedColumns, reusedExisting: true };
+      }
+    }
+
     const missing = missingColumnName(ins.error.message);
     if (missing && Object.prototype.hasOwnProperty.call(currentPayload, missing)) {
       delete currentPayload[missing];
@@ -345,6 +366,7 @@ export default function Reviews() {
   const newOnlyMode = searchParams.get('mode') === 'new';
   const historyOnlyMode = searchParams.get('section') === 'history';
   const [saving, setSaving] = useState(false);
+  const saveInFlightRef = useRef(false);
   const [reviewState, setReviewState] = useState<ConversationReviewState>(defaultReviewState());
   const [severeErrors, setSevereErrors] = useState<SevereErrorsState>(defaultSevereErrors());
   const [custSearch, setCustSearch] = useState('');
@@ -899,6 +921,11 @@ export default function Reviews() {
       return false;
     }
 
+    if (saveInFlightRef.current) {
+      toast.info('جاري حفظ التقييم بالفعل...');
+      return false;
+    }
+    saveInFlightRef.current = true;
     setSaving(true);
     try {
       const previousCount = await countPreviousReviewErrors();
@@ -1028,35 +1055,14 @@ export default function Reviews() {
 
       const ins = await insertSafe('conversation_sales_reviews', payload);
       const reviewRowId = ins.id;
+      const reusedExistingReview = Boolean(ins.reusedExisting);
+      if (reusedExistingReview) {
+        console.info('[reviews] recovered existing review after duplicate/retry', reviewRowId);
+      }
       if (ins.removedColumns.length) {
         toast.warning(
           `تم حفظ التقييم، لكن قاعدة البيانات ينقصها أعمدة اختيارية: ${ins.removedColumns.slice(0, 4).join(', ')}`
         );
-      }
-
-      // نمط متكرر: لو نفس نوع الخطأ اتكرر لنفس الدكتور في نفس الدورة (مش أول مرة)،
-      // بدل ما يفضل التكرار مجرد مضاعف نقاط صامت، نسجّل ملاحظة تدريب واضحة تظهر
-      // للدكتور وتُبنى تلقائيًا عشان محدش يحتاج يتابع الأنماط يدويًا كل شهر.
-      if (previousCount >= 1 && result.repeatErrorType) {
-        try {
-          await supabase.from('staff_coaching_notes').insert({
-            from_staff_id: asUuid(selectedReviewer.id || user?.id) || null,
-            from_staff_name: selectedReviewer.name || user?.name || 'النظام',
-            from_role: selectedReviewer.role || user?.role || 'system',
-            to_staff_id: asUuid(selectedStaff.id),
-            to_staff_name: selectedStaff.name,
-            to_role: selectedStaff.role,
-            branch: selectedStaff.branch,
-            category: 'تكرار خطأ في تقييم محادثة',
-            tone: 'تنبيه',
-            note: `تكرار المرة ${previousCount + 1} لنفس نوع الخطأ (${trainingByErrorType(result.repeatErrorType) || result.repeatErrorType}) خلال دورة ${reviewCycle.shortLabel}. تم مضاعفة الخصم x${multiplier}.`,
-            linked_table: 'conversation_sales_reviews',
-            linked_record_id: reviewRowId || null,
-          });
-        } catch (coachingError) {
-          // ملاحظة التدريب تحسين إضافي — فشلها ميوقفش حفظ التقييم نفسه
-          console.warn('[reviews] auto coaching note failed', coachingError);
-        }
       }
 
       if (repeatedDoctorImpact !== 0) {
@@ -1099,10 +1105,39 @@ export default function Reviews() {
         }
       }
 
+      // نمط متكرر: لو نفس نوع الخطأ اتكرر لنفس الدكتور في نفس الدورة (مش أول مرة)،
+      // بدل ما يفضل التكرار مجرد مضاعف نقاط صامت، نسجّل ملاحظة تدريب واضحة تظهر
+      // للدكتور وتُبنى تلقائيًا عشان محدش يحتاج يتابع الأنماط يدويًا كل شهر.
+      if (previousCount >= 1 && result.repeatErrorType) {
+        try {
+          await supabase.from('staff_coaching_notes').insert({
+            from_staff_id: asUuid(selectedReviewer.id || user?.id) || null,
+            from_staff_name: selectedReviewer.name || user?.name || 'النظام',
+            from_role: selectedReviewer.role || user?.role || 'system',
+            to_staff_id: asUuid(selectedStaff.id),
+            to_staff_name: selectedStaff.name,
+            to_role: selectedStaff.role,
+            branch: selectedStaff.branch,
+            category: 'تكرار خطأ في تقييم محادثة',
+            tone: 'تنبيه',
+            note: `تكرار المرة ${previousCount + 1} لنفس نوع الخطأ (${trainingByErrorType(result.repeatErrorType) || result.repeatErrorType}) خلال دورة ${reviewCycle.shortLabel}. تم مضاعفة الخصم x${multiplier}.`,
+            linked_table: 'conversation_sales_reviews',
+            linked_record_id: reviewRowId || null,
+          });
+        } catch (coachingError) {
+          // ملاحظة التدريب تحسين إضافي — فشلها ميوقفش حفظ التقييم نفسه
+          console.warn('[reviews] auto coaching note failed', coachingError);
+        }
+      }
+
+
       const currentUserProfile = getCurrentUserProfile();
-      // Non-critical post-save actions: log activity, notify employee, create followup.
-      try {
-        await logActivity(
+
+      // الحفظ الأساسي + أثر النقاط خلصوا هنا. باقي الأعمال تحسينات لاحقة لا ينبغي
+      // أن تجمّد زر الحفظ أو تعطل الموظف عن بدء تقييم جديد.
+      const postSaveTasks: Promise<unknown>[] = [];
+      postSaveTasks.push(
+        logActivity(
           currentUserProfile.id,
           currentUserProfile.name,
           'تقييم محادثة',
@@ -1114,13 +1149,10 @@ export default function Reviews() {
             target_type: 'conversation_review',
             target_id: reviewRowId || '',
           }
-        );
-      } catch (err) {
-        console.warn('[reviews] logActivity failed', err);
-      }
-
-      try {
-        await notifyEmployee({
+        )
+      );
+      postSaveTasks.push(
+        notifyEmployee({
           title: result.finalScore < 70 ? 'تقييم محادثة يحتاج مراجعة' : 'تم حفظ تقييم محادثة',
           message:
             result.finalScore < 70
@@ -1145,18 +1177,12 @@ export default function Reviews() {
             positive_note: result.mainPositiveReason,
             improvement_note: result.mainNegativeReason,
           },
-        });
-      } catch (err) {
-        console.warn('[reviews] notifyEmployee failed', err);
-        toast.warning('تم حفظ التقييم، لكن إشعار الموظف فشل. راجع سجلات الخادم.');
-      }
+        })
+      );
 
-      if (
-        result.finalScore < 70 &&
-        (form.customerName || form.customerPhone || form.customerCode)
-      ) {
-        try {
-          await insertSafe('followups', {
+      if (result.finalScore < 70 && (form.customerName || form.customerPhone || form.customerCode)) {
+        postSaveTasks.push(
+          insertSafe('followups', {
             customer_id: form.customerId || null,
             customer_name: form.customerName || 'عميل يحتاج متابعة جودة',
             customer_phone: form.customerPhone || null,
@@ -1174,30 +1200,33 @@ export default function Reviews() {
             created_by: currentUserProfile.id,
             created_by_name: currentUserProfile.name,
             created_at: new Date().toISOString(),
-          });
-        } catch (err) {
-          console.warn('[reviews] insert followup failed', err);
-          toast.warning('تم حفظ التقييم، لكن لم تتم إضافة متابعة الجودة تلقائيًا.');
-        }
+          })
+        );
       }
 
-      try {
-        await loadReviewHistory();
-      } catch (err) {
-        console.warn('[reviews] loadReviewHistory failed', err);
-      }
+      if (!newOnlyMode) postSaveTasks.push(loadReviewHistory());
+
+      void Promise.allSettled(postSaveTasks).then((results) => {
+        const failed = results.filter((item) => item.status === 'rejected');
+        if (failed.length) console.warn('[reviews] non-critical post-save tasks failed', failed);
+      });
 
       try {
         window.localStorage.removeItem(REVIEW_DRAFT_KEY);
         setDraftSavedAt(null);
       } catch {}
 
-      toast.success('تم حفظ تقييم المحادثة وتحديث سجل التقييمات بنجاح');
+      toast.success(
+        reusedExistingReview
+          ? 'التقييم كان محفوظًا بالفعل وتم استكمال الربط بدون تكرار'
+          : 'تم حفظ تقييم المحادثة وتأثير النقاط بنجاح'
+      );
       return true;
     } catch (error) {
       toast.error(`تعذر الحفظ الكامل: ${(error as Error).message}`);
       return false;
     } finally {
+      saveInFlightRef.current = false;
       setSaving(false);
     }
   };
