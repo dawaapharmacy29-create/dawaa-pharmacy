@@ -12,6 +12,7 @@ import {
   Award,
   AlertCircle,
   BarChart3,
+  BriefcaseBusiness,
 } from 'lucide-react';
 import {
   loadStaffPerformanceProfile,
@@ -20,6 +21,7 @@ import {
 import { formatCurrency, formatNumber } from '@/lib/utils';
 import { formatMoney } from '@/lib/dawaa2027';
 import StaffPerformanceCharts from '@/components/staff/StaffPerformanceCharts';
+import StaffHR360Panel from '@/components/staff/StaffHR360Panel';
 import { resolveCanonicalStaffIdentifier } from '@/lib/staff/staffIdentityResolver';
 
 type TabKey =
@@ -30,6 +32,7 @@ type TabKey =
   | 'incentives'
   | 'quarterly'
   | 'attendance'
+  | 'hr360'
   | 'service'
   | 'recommendations'
   | 'charts';
@@ -42,6 +45,7 @@ const TABS: Array<{ key: TabKey; label: string; icon: any }> = [
   { key: 'incentives', label: 'الحوافز الشهرية', icon: Award },
   { key: 'quarterly', label: 'الأداء الربع سنوي', icon: Calendar },
   { key: 'attendance', label: 'الحضور', icon: Calendar },
+  { key: 'hr360', label: 'ملف HR 360°', icon: BriefcaseBusiness },
   { key: 'service', label: 'خدمة العملاء', icon: Users },
   { key: 'recommendations', label: 'التوصيات', icon: AlertCircle },
   { key: 'charts', label: 'الرسوم البيانية', icon: BarChart3 },
@@ -214,6 +218,7 @@ export default function StaffProfile2027() {
         {activeTab === 'incentives' && <IncentivesTab profile={profile} />}
         {activeTab === 'quarterly' && <QuarterlyTab profile={profile} />}
         {activeTab === 'attendance' && <AttendanceTab profile={profile} />}
+        {activeTab === 'hr360' && <StaffHR360Panel staffId={profile.staff.id} />}
         {activeTab === 'service' && <ServiceTab profile={profile} />}
         {activeTab === 'recommendations' && <RecommendationsTab profile={profile} />}
         {activeTab === 'charts' && <ChartsTab profile={profile} />}
