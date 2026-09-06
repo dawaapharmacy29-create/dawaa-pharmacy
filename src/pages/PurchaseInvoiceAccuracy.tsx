@@ -110,6 +110,11 @@ type AccuracyReport = {
   daily: DailyReportRow[];
 };
 
+type HistoricalSearchResult = {
+  pending: QueueRow[];
+  reviews: ReviewRow[];
+};
+
 const EMPTY_REPORT: AccuracyReport = {
   summary: {
     reviewed_count: 0,
@@ -167,8 +172,10 @@ export default function PurchaseInvoiceAccuracy() {
   const [invoiceReference, setInvoiceReference] = useState('');
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
   const [history, setHistory] = useState<ReviewRow[]>([]);
-  const [loadingHistory, setLoadingHistory] = useState(true);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(false);
   const [historyError, setHistoryError] = useState(false);
 
   const [queue, setQueue] = useState<QueueRow[]>([]);
@@ -184,6 +191,10 @@ export default function PurchaseInvoiceAccuracy() {
   const [report, setReport] = useState<AccuracyReport>(EMPTY_REPORT);
   const [loadingReport, setLoadingReport] = useState(false);
   const [reportError, setReportError] = useState(false);
+
+  const [historicalSearch, setHistoricalSearch] = useState<HistoricalSearchResult | null>(null);
+  const [loadingSearch, setLoadingSearch] = useState(false);
+  const [searchError, setSearchError] = useState(false);
 
   const loadQueue = useCallback(async () => {
     setLoadingQueue(true);
@@ -212,12 +223,15 @@ export default function PurchaseInvoiceAccuracy() {
       return;
     }
     setHistory((data || []) as ReviewRow[]);
+    setHistoryLoaded(true);
     setLoadingHistory(false);
   }, []);
 
   useEffect(() => {
-    void loadHistory();
-  }, [loadHistory]);
+    if ((activeTab === 'history' || activeTab === 'reports') && !historyLoaded && !loadingHistory) {
+      void loadHistory();
+    }
+  }, [activeTab, historyLoaded, loadHistory, loadingHistory]);
 
   const loadReport = useCallback(async () => {
     setLoadingReport(true);
@@ -240,9 +254,49 @@ export default function PurchaseInvoiceAccuracy() {
 
   useEffect(() => {
     if (activeTab !== 'reports') return;
-    const handle = setTimeout(() => void loadReport(), 180);
-    return () => clearTimeout(handle);
+    const handle = window.setTimeout(() => void loadReport(), 220);
+    return () => window.clearTimeout(handle);
   }, [activeTab, loadReport]);
+
+  useEffect(() => {
+    const term = normalizeSearch(recordSearch);
+    if ((activeTab !== 'invoices' && activeTab !== 'history') || term.length < 2) {
+      setHistoricalSearch(null);
+      setLoadingSearch(false);
+      setSearchError(false);
+      return;
+    }
+
+    let cancelled = false;
+    setHistoricalSearch(null);
+    setSearchError(false);
+    setLoadingSearch(true);
+    const handle = window.setTimeout(async () => {
+      const { data, error } = await supabase.rpc('search_purchase_invoice_accuracy_v1', {
+        p_query: recordSearch.trim(),
+        p_from_date: fromDate || null,
+        p_to_date: toDate || null,
+        p_staff_name: employeeFilter || null,
+        p_reviewer_name: activeTab === 'history' ? reviewerFilter || null : null,
+        p_branch: branchFilter || null,
+        p_limit: 100,
+      });
+      if (cancelled) return;
+      if (error) {
+        setSearchError(true);
+        setLoadingSearch(false);
+        return;
+      }
+      const result = (data || { pending: [], reviews: [] }) as HistoricalSearchResult;
+      setHistoricalSearch({ pending: result.pending || [], reviews: result.reviews || [] });
+      setLoadingSearch(false);
+    }, 350);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(handle);
+    };
+  }, [activeTab, branchFilter, employeeFilter, fromDate, recordSearch, reviewerFilter, toDate]);
 
   useEffect(() => {
     const term = resolveSearch.trim();
@@ -251,13 +305,13 @@ export default function PurchaseInvoiceAccuracy() {
       return;
     }
     let cancelled = false;
-    const handle = setTimeout(async () => {
+    const handle = window.setTimeout(async () => {
       const options = await searchActiveStaffByName(term);
       if (!cancelled) setResolveOptions(options);
     }, 250);
     return () => {
       cancelled = true;
-      clearTimeout(handle);
+      window.clearTimeout(handle);
     };
   }, [resolveSearch]);
 
@@ -268,15 +322,20 @@ export default function PurchaseInvoiceAccuracy() {
       return;
     }
     let cancelled = false;
-    const handle = setTimeout(async () => {
+    const handle = window.setTimeout(async () => {
       const options = await searchActiveStaffByName(term);
       if (!cancelled) setStaffOptions(options);
     }, 250);
     return () => {
       cancelled = true;
-      clearTimeout(handle);
+      window.clearTimeout(handle);
     };
   }, [search]);
+
+  const markDerivedDataStale = useCallback(() => {
+    setHistoryLoaded(false);
+    setHistoricalSearch(null);
+  }, []);
 
   const classifyQueueRow = useCallback(async (row: QueueRow, staffId: string, rowOutcome: Outcome) => {
     setActingRowId(row.id);
@@ -289,13 +348,13 @@ export default function PurchaseInvoiceAccuracy() {
       if (error) throw error;
       toast.success('اتسجل');
       setQueue((prev) => prev.filter((q) => q.id !== row.id));
-      await loadHistory();
+      markDerivedDataStale();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'حصل خطأ في الحفظ');
     } finally {
       setActingRowId(null);
     }
-  }, [loadHistory]);
+  }, [markDerivedDataStale]);
 
   const resolveAndSaveAlias = useCallback(async (row: QueueRow, staff: StaffOption) => {
     if (!row.entered_by_raw) return;
@@ -367,13 +426,13 @@ export default function PurchaseInvoiceAccuracy() {
       setInvoiceReference('');
       setNotes('');
       setOutcome('correct');
-      await loadHistory();
+      markDerivedDataStale();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'حصل خطأ في الحفظ');
     } finally {
       setSubmitting(false);
     }
-  }, [selectedStaff, outcome, invoiceReference, notes, loadHistory]);
+  }, [selectedStaff, outcome, invoiceReference, notes, markDerivedDataStale]);
 
   const employeeOptions = useMemo(() => {
     const values = new Set<string>();
@@ -401,7 +460,7 @@ export default function PurchaseInvoiceAccuracy() {
 
   const recordQuery = normalizeSearch(recordSearch);
 
-  const filteredQueue = useMemo(() => queue.filter((row) => {
+  const localFilteredQueue = useMemo(() => queue.filter((row) => {
     const rowEmployee = row.entered_by_staff_name || pickedStaffByRow[row.id]?.name || row.entered_by_raw || '';
     if (fromDate && (!row.invoice_date || row.invoice_date < fromDate)) return false;
     if (toDate && (!row.invoice_date || row.invoice_date > toDate)) return false;
@@ -416,7 +475,7 @@ export default function PurchaseInvoiceAccuracy() {
     return true;
   }), [branchFilter, employeeFilter, fromDate, pickedStaffByRow, queue, recordQuery, toDate]);
 
-  const filteredHistory = useMemo(() => history.filter((row) => {
+  const localFilteredHistory = useMemo(() => history.filter((row) => {
     if (fromDate && row.review_date < fromDate) return false;
     if (toDate && row.review_date > toDate) return false;
     if (employeeFilter && row.staff_name !== employeeFilter) return false;
@@ -430,6 +489,9 @@ export default function PurchaseInvoiceAccuracy() {
     }
     return true;
   }), [branchFilter, employeeFilter, fromDate, history, recordQuery, reviewerFilter, toDate]);
+
+  const filteredQueue = recordQuery.length >= 2 && historicalSearch ? historicalSearch.pending : localFilteredQueue;
+  const filteredHistory = recordQuery.length >= 2 && historicalSearch ? historicalSearch.reviews : localFilteredHistory;
 
   const clearFilters = () => {
     setFromDate('');
@@ -466,7 +528,7 @@ export default function PurchaseInvoiceAccuracy() {
         {([
           ['invoices', `الفواتير (${queue.length})`],
           ['manual', 'تسجيل مراجعة يدوية'],
-          ['history', `آخر المراجعات (${history.length})`],
+          ['history', historyLoaded ? `آخر المراجعات (${history.length})` : 'آخر المراجعات'],
           ['reports', 'التقارير الذكية'],
         ] as Array<[PageTab, string]>).map(([key, label]) => {
           const active = activeTab === key;
@@ -530,17 +592,18 @@ export default function PurchaseInvoiceAccuracy() {
                 value={recordSearch}
                 onChange={(e) => setRecordSearch(e.target.value)}
               />
-              {recordSearch ? (
-                <button type="button" onClick={() => setRecordSearch('')} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--dawaa-theme-muted)' }} aria-label="مسح البحث"><X size={15} /></button>
-              ) : null}
+              {loadingSearch ? <Loader2 size={15} className="absolute left-3 top-1/2 -translate-y-1/2 animate-spin" style={{ color: 'var(--dawaa-theme-primary)' }} />
+              : recordSearch ? <button type="button" onClick={() => setRecordSearch('')} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--dawaa-theme-muted)' }} aria-label="مسح البحث"><X size={15} /></button>
+              : null}
             </div>
           ) : null}
+          {searchError ? <p className="mt-2 text-xs font-bold" style={{ color: 'var(--dawaa-status-warning-text)' }}>تعذّر البحث التاريخي مؤقتًا؛ المعروض حاليًا من البيانات المحملة فقط.</p> : null}
         </Panel>
       ) : null}
 
       {activeTab === 'invoices' ? (
         <Panel className="p-4">
-          <SectionTitle title={`فواتير Base44 محتاجة تصنيف (${filteredQueue.length})`} subtitle="متسحبة تلقائي من الدورة الحالية" icon={<Link2 size={18} />} />
+          <SectionTitle title={`فواتير Base44 محتاجة تصنيف (${filteredQueue.length})`} subtitle={recordQuery.length >= 2 ? 'البحث يشمل السجلات التاريخية المطابقة' : 'متسحبة تلقائي من الدورة الحالية'} icon={<Link2 size={18} />} />
           {loadingQueue ? <div className="flex justify-center py-6"><Loader2 className="animate-spin" style={{ color: 'var(--dawaa-theme-muted)' }} /></div>
           : queueError ? <EmptyState label="تعذّر تحميل قائمة Base44" error onRetry={() => void loadQueue()} />
           : filteredQueue.length === 0 ? <EmptyState label={queue.length === 0 ? 'مفيش فواتير محتاجة تصنيف دلوقتي' : 'مفيش فواتير مطابقة للبحث والفلاتر الحالية'} />
@@ -622,10 +685,10 @@ export default function PurchaseInvoiceAccuracy() {
 
       {activeTab === 'history' ? (
         <Panel className="p-4">
-          <SectionTitle title={`آخر المراجعات (${filteredHistory.length})`} />
-          {loadingHistory ? <div className="flex justify-center py-6"><Loader2 className="animate-spin" style={{ color: 'var(--dawaa-theme-muted)' }} /></div>
-          : historyError ? <EmptyState label="تعذّر تحميل السجل" error onRetry={() => void loadHistory()} />
-          : filteredHistory.length === 0 ? <EmptyState label={history.length === 0 ? 'لسه مفيش مراجعات مسجّلة' : 'مفيش مراجعات مطابقة للبحث والفلاتر الحالية'} />
+          <SectionTitle title={`آخر المراجعات (${filteredHistory.length})`} subtitle={recordQuery.length >= 2 ? 'نتائج البحث تشمل السجل التاريخي المطابق' : undefined} />
+          {loadingHistory && !historicalSearch ? <div className="flex justify-center py-6"><Loader2 className="animate-spin" style={{ color: 'var(--dawaa-theme-muted)' }} /></div>
+          : historyError && !historicalSearch ? <EmptyState label="تعذّر تحميل السجل" error onRetry={() => void loadHistory()} />
+          : filteredHistory.length === 0 ? <EmptyState label={historyLoaded && history.length === 0 ? 'لسه مفيش مراجعات مسجّلة' : 'مفيش مراجعات مطابقة للبحث والفلاتر الحالية'} />
           : (
             <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
               {filteredHistory.map((h) => {
