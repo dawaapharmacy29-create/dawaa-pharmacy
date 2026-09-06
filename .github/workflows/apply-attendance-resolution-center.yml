@@ -1,0 +1,28 @@
+name: Apply attendance resolution center
+on:
+  push:
+    branches: [feat/attendance-resolution-v2-materialization]
+    paths:
+      - scripts/apply-attendance-resolution-center.cjs
+      - .github/workflows/apply-attendance-resolution-center.yml
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/attendance-resolution-v2-materialization
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node scripts/apply-attendance-resolution-center.cjs
+      - run: |
+          if git diff --quiet -- src/pages/AttendanceReport.tsx; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/pages/AttendanceReport.tsx
+          git commit -m "feat: expose attendance resolution center"
+          git push origin HEAD:feat/attendance-resolution-v2-materialization
