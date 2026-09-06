@@ -44,6 +44,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/staff-dashboard': 'لوحة تحكم الموظف',
   '/medicine-expiry': 'متابعة صلاحية الأدوية',
   '/attendance-report': 'تقرير الحضور الشهري',
+  '/hr-compliance': 'مركز الموارد البشرية والالتزام',
   '/loyalty-tiers': 'مستويات ولاء العملاء',
   '/assistant-operational-log': 'تسجيل المشتريات وخدمة العملاء',
   '/my-daily-checklist': 'التشيك ليست اليومي',

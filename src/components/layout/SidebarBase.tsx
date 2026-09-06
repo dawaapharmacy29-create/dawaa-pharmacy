@@ -51,6 +51,7 @@ const GROUPS: NavGroup[] = [
     { path: '/staff-payroll', icon: WalletCards, label: 'إدارة الرواتب', permission: 'manage_payroll' },
     { path: '/schedule', icon: Calendar, label: 'الجداول والشيفتات', permission: 'view_schedule' },
     { path: '/attendance-report', icon: ClipboardCheck, label: 'تسجيل/تقرير الحضور', permission: ['view_attendance_leaves','record_attendance'] },
+    { path: '/hr-compliance', icon: ShieldCheck, label: 'مركز الموارد البشرية والالتزام', allowedRoles: ['general_manager', 'executive_manager', 'branches_manager', 'branch_manager'] },
     { path: '/time-off', icon: Calendar, label: 'الأذونات والإجازات', permission: 'view_attendance_leaves' },
     { path: '/shift-performance', icon: ClipboardList, label: 'تقييمات الشيفتات', permission: 'view_shift_performance', excludeRoles: ['customer_service_manager'] },
     { path: '/employee-operating-system', icon: ClipboardList, label: 'مهام الفريق', permission: 'employee_operating_system_view', excludeRoles: ['customer_service_manager'] },

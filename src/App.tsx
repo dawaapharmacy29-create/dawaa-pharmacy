@@ -105,6 +105,7 @@ const WhatsappAnalytics = lazy(() => import('@/pages/WhatsappAnalytics'));
 const NotFound = lazy(() => import('@/pages/NotFound'));
 const MedicineExpiryTracker = lazy(() => import('@/pages/MedicineExpiryTracker'));
 const AttendanceReport = lazy(() => import('@/pages/AttendanceReport'));
+const HRComplianceCenter = lazy(() => import('@/pages/HRComplianceCenter'));
 const LoyaltyTiers = lazy(() => import('@/pages/LoyaltyTiers'));
 const DailyCommand = lazy(() => import('@/pages/DailyCommand'));
 const DailyTarget = lazy(() => import('@/pages/DailyTarget'));
@@ -770,6 +771,10 @@ function AppRoutes() {
       <Route
         path="/attendance-report"
         element={<ProtectedRoute>{routeSuspense(<AttendanceReport />, 'الحضور')}</ProtectedRoute>}
+      />
+      <Route
+        path="/hr-compliance"
+        element={<ProtectedRoute>{routeSuspense(<HRComplianceCenter />, 'مركز الموارد البشرية والالتزام')}</ProtectedRoute>}
       />
       <Route
         path="/loyalty-tiers"
