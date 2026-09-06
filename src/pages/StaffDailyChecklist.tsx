@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Award, Camera, Check, Clock, Loader2, Star } from 'lucide-react';
+import { Award, Camera, Clock, Loader2, Star } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { uploadImageToStorage } from '@/lib/storageUpload';
@@ -26,7 +26,7 @@ type Submission = {
   reviewer_note: string | null;
 };
 
-type CleaningDailyRating = {
+type DailyRating = {
   stars: number;
   score_pct: number;
   points_delta: number;
@@ -42,13 +42,20 @@ type CleaningCycleSummary = {
   performance_band: string;
 };
 
-const TIME_SLOT_ORDER: Record<string, number> = { 'فتح': 0, 'أثناء اليوم': 1, 'قفل': 2 };
+const TIME_SLOT_ORDER: Record<string, number> = { فتح: 0, 'أثناء اليوم': 1, قفل: 2 };
 
 const STATUS_LABEL: Record<Submission['review_status'], { label: string; color: string; bg: string; borderColor: string }> = {
   pending: { label: 'بانتظار مراجعة المدير', color: 'var(--dawaa-status-warning-text)', bg: 'var(--dawaa-status-warning-bg)', borderColor: 'var(--dawaa-status-warning-border)' },
   approved: { label: 'معتمد', color: 'var(--dawaa-status-success-text)', bg: 'var(--dawaa-status-success-bg)', borderColor: 'var(--dawaa-status-success-border)' },
   rejected: { label: 'مرفوض — صحّح البند وأعد الإرسال', color: 'var(--dawaa-status-danger-text)', bg: 'var(--dawaa-status-danger-bg)', borderColor: 'var(--dawaa-status-danger-border)' },
 };
+
+function timeSlotLabel(slot: string) {
+  if (slot === 'فتح') return 'الفترة الصباحية';
+  if (slot === 'قفل') return 'الفترة الليلية';
+  if (slot === 'أثناء اليوم') return 'أثناء يوم العمل';
+  return slot || 'خلال يوم العمل';
+}
 
 function cairoDateKey() {
   const parts = new Intl.DateTimeFormat('en-US', {
@@ -61,15 +68,60 @@ function cairoDateKey() {
   return `${value.year}-${value.month}-${value.day}`;
 }
 
+function RatingPanel({ title, rating, cycleSummary }: { title: string; rating: DailyRating | null; cycleSummary?: CleaningCycleSummary | null }) {
+  return (
+    <Panel className="p-4" style={{ borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-status-warning-bg)' }}>
+      <div className="flex items-center gap-2">
+        <Award size={18} style={{ color: 'var(--dawaa-status-warning-text)' }} />
+        <h2 className="font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>{title}</h2>
+      </div>
+      {rating ? (
+        <>
+          <div className="mt-3 flex items-center gap-1">
+            {[1, 2, 3, 4, 5].map((value) => (
+              <Star key={value} size={24} className={value <= rating.stars ? 'fill-current' : ''} style={{ color: value <= rating.stars ? 'var(--dawaa-status-warning-text)' : 'var(--dawaa-theme-border)' }} />
+            ))}
+            <span className="mr-2 text-sm font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>{rating.stars}/5 — {rating.score_pct}%</span>
+          </div>
+          <p className="mt-2 text-xs font-bold" style={{ color: 'var(--dawaa-theme-text)' }}>
+            مكافأة جودة اليوم: {rating.points_delta > 0 ? `+${rating.points_delta}` : 'لا توجد نقاط إضافية'}
+          </p>
+          <p className="mt-1 text-[11px] font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
+            أي خصم مرتبط ببند مرفوض يُسجل من البند نفسه فقط، ولا يتكرر بسبب تقييم النجوم.
+          </p>
+          {rating.manager_note ? <p className="mt-2 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>ملاحظة المدير: {rating.manager_note}</p> : null}
+        </>
+      ) : (
+        <p className="mt-3 text-sm font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>تقييم اليوم لم يُعتمد بعد.</p>
+      )}
+
+      {cycleSummary ? (
+        <>
+          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <MiniBox label="متوسط الدورة" value={`${cycleSummary.avg_stars.toFixed(2)}★`} tone="amber" />
+            <MiniBox label="متوسط الدرجة" value={`${cycleSummary.avg_score_pct}%`} tone="amber" />
+            <MiniBox label="أيام 5 نجوم" value={String(cycleSummary.five_star_days)} tone="amber" />
+            <MiniBox label="مكافآت الجودة" value={`${cycleSummary.total_star_points > 0 ? '+' : ''}${cycleSummary.total_star_points}`} tone="amber" />
+          </div>
+          <p className="mt-3 text-xs font-black" style={{ color: 'var(--dawaa-status-warning-text)' }}>
+            المستوى الحالي: {cycleSummary.performance_band} • {cycleSummary.rated_days} يوم مُقيّم
+          </p>
+        </>
+      ) : null}
+    </Panel>
+  );
+}
+
 export default function StaffDailyChecklist() {
   const { user } = useAuth();
   const staffId = user?.staffId || user?.id || '';
   const branch = user?.branch || '';
   const canonicalRole = canonicalStaffRole(user?.role);
   const isCleaning = canonicalRole === 'cleaning';
+  const isAssistant = canonicalRole === 'assistant';
   const staffRole = isCleaning
     ? 'مسؤولة النظافة'
-    : canonicalRole === 'assistant'
+    : isAssistant
       ? 'مساعد صيدلي'
       : canonicalRole === 'customer_service'
         ? 'مسؤول خدمة العملاء'
@@ -77,7 +129,7 @@ export default function StaffDailyChecklist() {
 
   const [items, setItems] = useState<ChecklistItem[]>([]);
   const [submissions, setSubmissions] = useState<Record<string, Submission>>({});
-  const [dailyRating, setDailyRating] = useState<CleaningDailyRating | null>(null);
+  const [dailyRating, setDailyRating] = useState<DailyRating | null>(null);
   const [cycleSummary, setCycleSummary] = useState<CleaningCycleSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [uploadingKey, setUploadingKey] = useState<string | null>(null);
@@ -89,12 +141,14 @@ export default function StaffDailyChecklist() {
       return;
     }
     setLoading(true);
+
     const checklistItemsQuery = supabase
       .from('staff_daily_checklist_items')
       .select('id, item_key, title, description, time_slot, sort_order, requires_photo')
       .eq('role', staffRole)
       .eq('active', true)
       .order('sort_order', { ascending: true });
+
     const submissionsQuery = staffId
       ? supabase
           .from('staff_daily_checklist_submissions')
@@ -103,27 +157,41 @@ export default function StaffDailyChecklist() {
           .eq('submission_date', today)
       : Promise.resolve({ data: [] as Submission[] });
 
-    const [itemsRes, subsRes, ratingRes, summaryRes] = await Promise.all([
-      checklistItemsQuery,
-      submissionsQuery,
-      isCleaning && staffId
+    const ratingQuery = !staffId
+      ? Promise.resolve({ data: null })
+      : isCleaning
         ? supabase
             .from('cleaning_daily_ratings')
             .select('stars, score_pct, points_delta, manager_note')
             .eq('staff_id', staffId)
             .eq('rating_date', today)
             .maybeSingle()
-        : Promise.resolve({ data: null }),
+        : isAssistant
+          ? supabase
+              .from('branch_operations_daily_ratings')
+              .select('stars, score_pct, points_delta, manager_note')
+              .eq('staff_id', staffId)
+              .eq('rating_date', today)
+              .maybeSingle()
+          : Promise.resolve({ data: null });
+
+    const [itemsRes, subsRes, ratingRes, summaryRes] = await Promise.all([
+      checklistItemsQuery,
+      submissionsQuery,
+      ratingQuery,
       isCleaning && staffId
         ? supabase.rpc('get_cleaning_cycle_rating_summary_v1', { p_staff_id: staffId, p_month_cycle: null })
         : Promise.resolve({ data: [] }),
     ]);
 
+    if ('error' in itemsRes && itemsRes.error) throw itemsRes.error;
+    if ('error' in subsRes && subsRes.error) throw subsRes.error;
+    if ('error' in ratingRes && ratingRes.error) throw ratingRes.error;
+    if ('error' in summaryRes && summaryRes.error) throw summaryRes.error;
+
     setItems((itemsRes.data || []) as ChecklistItem[]);
     const map: Record<string, Submission> = {};
-    ((subsRes.data || []) as Submission[]).forEach((s) => {
-      map[s.item_id] = s;
-    });
+    ((subsRes.data || []) as Submission[]).forEach((submission) => { map[submission.item_id] = submission; });
     setSubmissions(map);
 
     const rating = ratingRes.data as Record<string, unknown> | null;
@@ -145,10 +213,14 @@ export default function StaffDailyChecklist() {
       performance_band: String(summary.performance_band || '—'),
     } : null);
     setLoading(false);
-  }, [isCleaning, staffId, staffRole, today]);
+  }, [isAssistant, isCleaning, staffId, staffRole, today]);
 
   useEffect(() => {
-    void load();
+    void load().catch((error) => {
+      console.error('[StaffDailyChecklist] load failed', error);
+      toast.error(error instanceof Error ? error.message : 'تعذر تحميل مهام اليوم');
+      setLoading(false);
+    });
   }, [load]);
 
   const grouped = useMemo(() => {
@@ -170,44 +242,40 @@ export default function StaffDailyChecklist() {
     };
   }, [submissions]);
 
-  const handleUploadAndComplete = useCallback(
-    async (item: ChecklistItem, file: File | null) => {
-      if (!staffId) return;
-      setUploadingKey(item.item_key);
-      try {
-        let photoUrl: string | null = null;
-        if (file) {
-          const { publicUrl } = await uploadImageToStorage('checklist-evidence', file, `${branch}/${staffId}`);
-          photoUrl = publicUrl;
-        }
-        if (item.requires_photo && !photoUrl) {
-          toast.error('البند ده محتاج صورة قبل ما تتم عليه.');
-          setUploadingKey(null);
-          return;
-        }
-        const { data, error } = await supabase.rpc('submit_my_staff_daily_checklist_v1', {
-          p_item_id: item.id,
-          p_photo_url: photoUrl,
-          p_staff_note: null,
-        });
-        if (error) throw error;
-        const saved = (Array.isArray(data) ? data[0] : data) as Submission | null;
-        if (!saved?.id) throw new Error('لم يرجع سجل التشيك ليست بعد الحفظ');
-        setSubmissions((prev) => ({ ...prev, [item.id]: saved }));
-        toast.success('اتسجل، وهيتراجع من مدير الفرع.');
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : 'حصل خطأ في الحفظ');
-      } finally {
-        setUploadingKey(null);
+  const handleUploadAndComplete = useCallback(async (item: ChecklistItem, file: File | null) => {
+    if (!staffId) return;
+    setUploadingKey(item.item_key);
+    try {
+      let photoUrl: string | null = null;
+      if (file) {
+        const { publicUrl } = await uploadImageToStorage('checklist-evidence', file, `${branch}/${staffId}/${today}/${item.item_key}`);
+        photoUrl = publicUrl;
       }
-    },
-    [branch, staffId]
-  );
+      if (item.requires_photo && !photoUrl) {
+        toast.error('المهمة دي لا تُسجل من غير صورة واضحة خاصة بالمكان نفسه.');
+        return;
+      }
+      const { data, error } = await supabase.rpc('submit_my_staff_daily_checklist_v1', {
+        p_item_id: item.id,
+        p_photo_url: photoUrl,
+        p_staff_note: null,
+      });
+      if (error) throw error;
+      const saved = (Array.isArray(data) ? data[0] : data) as Submission | null;
+      if (!saved?.id) throw new Error('لم يرجع سجل التشيك ليست بعد الحفظ');
+      setSubmissions((prev) => ({ ...prev, [item.id]: saved }));
+      toast.success('تم تسجيل المهمة، وهي الآن بانتظار مراجعة مدير الفرع.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'حصل خطأ في تسجيل المهمة');
+    } finally {
+      setUploadingKey(null);
+    }
+  }, [branch, staffId, today]);
 
   if (!staffRole) {
     return (
       <div className="p-6 text-center text-sm font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
-        الصفحة دي مخصصة لعامل النظافة والمساعد ومسؤول خدمة العملاء فقط.
+        الصفحة دي مخصصة لمسئول النظافة والمساعد ومسئول خدمة العملاء فقط.
       </div>
     );
   }
@@ -215,72 +283,49 @@ export default function StaffDailyChecklist() {
   return (
     <div className="mx-auto max-w-2xl space-y-5 p-4 pb-24" dir="rtl">
       <div>
-        <h1 className="text-xl font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>التشيك ليست اليومي — {new Date().toLocaleDateString('ar-EG')}</h1>
-        <p className="mt-1 text-sm font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>نفّذ كل بند وارفع صورة واضحة. لو المدير رفض بند، صححه وأعد إرساله من نفس المكان.</p>
+        <h1 className="text-xl font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>مهامي اليوم — {new Date().toLocaleDateString('ar-EG')}</h1>
+        <p className="mt-1 text-sm font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
+          نفّذ كل مهمة مسندة لك. في النظافة والرص لازم لكل مكان صورة واضحة ومستقلة، ولو المدير رفض بند صححه وارفع صورة جديدة.
+        </p>
       </div>
 
-      {isCleaning && !loading ? (
+      {!loading ? (
         <Panel className="p-4">
-          <h2 className="font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>إنجاز مهام النظافة اليوم</h2>
+          <h2 className="font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>إنجاز مهام اليوم</h2>
           <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
             <MiniBox label="تم الإرسال" value={`${dailyProgress.submitted}/${items.length}`} />
             <MiniBox label="بانتظار المراجعة" value={String(dailyProgress.pending)} />
             <MiniBox label="معتمد" value={String(dailyProgress.approved)} />
             <MiniBox label="يحتاج تصحيح" value={String(dailyProgress.rejected)} />
           </div>
-          <p className="mt-3 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
-            تقييم النجوم يفتح للمدير بعد إرسال ومراجعة كل مهام اليوم.
-          </p>
+          {isAssistant ? <p className="mt-3 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>مهام الرص والجزء اليومي من الجرد تظهر فقط في أيام عملك المجدولة.</p> : null}
         </Panel>
       ) : null}
 
-      {isCleaning && !loading ? (
-        <Panel className="p-4" style={{ borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-status-warning-bg)' }}>
-          <div className="flex items-center gap-2">
-            <Award size={18} style={{ color: 'var(--dawaa-status-warning-text)' }} />
-            <h2 className="font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>تقييم النظافة والتحفيز</h2>
-          </div>
-          {dailyRating ? (
-            <>
-              <div className="mt-3 flex items-center gap-1">
-                {[1, 2, 3, 4, 5].map((value) => (
-                  <Star key={value} size={24} className={value <= dailyRating.stars ? 'fill-current' : ''} style={{ color: value <= dailyRating.stars ? 'var(--dawaa-status-warning-text)' : 'var(--dawaa-theme-border)' }} />
-                ))}
-                <span className="mr-2 text-sm font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>{dailyRating.stars}/5 — {dailyRating.score_pct}%</span>
-              </div>
-              <p className="mt-2 text-xs font-bold" style={{ color: 'var(--dawaa-theme-text)' }}>
-                أثر اليوم على النقاط: {dailyRating.points_delta > 0 ? '+' : ''}{dailyRating.points_delta}
-              </p>
-              {dailyRating.manager_note ? <p className="mt-2 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>ملاحظة المدير: {dailyRating.manager_note}</p> : null}
-            </>
-          ) : (
-            <p className="mt-3 text-sm font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>تقييم اليوم لم يُعتمد بعد.</p>
-          )}
-
-          {cycleSummary ? (
-            <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-              <MiniBox label="متوسط الدورة" value={`${cycleSummary.avg_stars.toFixed(2)}★`} tone="amber" />
-              <MiniBox label="متوسط الدرجة" value={`${cycleSummary.avg_score_pct}%`} tone="amber" />
-              <MiniBox label="أيام 5 نجوم" value={String(cycleSummary.five_star_days)} tone="amber" />
-              <MiniBox label="نقاط النجوم" value={`${cycleSummary.total_star_points > 0 ? '+' : ''}${cycleSummary.total_star_points}`} tone="amber" />
-            </div>
-          ) : null}
-          {cycleSummary ? <p className="mt-3 text-xs font-black" style={{ color: 'var(--dawaa-status-warning-text)' }}>المستوى الحالي: {cycleSummary.performance_band} • {cycleSummary.rated_days} يوم مُقيّم</p> : null}
-        </Panel>
+      {(isCleaning || isAssistant) && !loading ? (
+        <RatingPanel
+          title={isCleaning ? 'تقييم النظافة والتحفيز' : 'تقييم الرص والجرد والتحفيز'}
+          rating={dailyRating}
+          cycleSummary={isCleaning ? cycleSummary : null}
+        />
       ) : null}
 
       {loading ? (
         <div className="flex justify-center py-10"><Loader2 className="animate-spin" style={{ color: 'var(--dawaa-theme-muted)' }} /></div>
+      ) : items.length === 0 ? (
+        <Panel className="p-5 text-center text-sm font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
+          لا توجد مهام مستحقة لك اليوم. يوم الإجازة أو المهمة غير المسندة لا يتحولان إلى تقصير.
+        </Panel>
       ) : (
         grouped.map(([slot, slotItems]) => (
           <div key={slot} className="space-y-3">
             <h2 className="flex items-center gap-2 text-sm font-black" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>
-              <Clock size={14} /> {slot}
+              <Clock size={14} /> {timeSlotLabel(slot)}
             </h2>
             {slotItems.map((item) => {
-              const sub = submissions[item.id];
-              const status = sub ? STATUS_LABEL[sub.review_status] : null;
-              const canSubmit = !sub?.completed || sub.review_status === 'rejected';
+              const submission = submissions[item.id];
+              const status = submission ? STATUS_LABEL[submission.review_status] : null;
+              const canSubmit = !submission?.completed || submission.review_status === 'rejected';
               return (
                 <Panel key={item.id} className="p-4">
                   <div className="flex items-start justify-between gap-3">
@@ -288,24 +333,20 @@ export default function StaffDailyChecklist() {
                       <p className="font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>{item.title}</p>
                       {item.description ? <p className="mt-1 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>{item.description}</p> : null}
                     </div>
-                    {sub?.completed && sub.review_status !== 'rejected' ? (
-                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full" style={{ background: 'var(--dawaa-status-success-bg)', color: 'var(--dawaa-status-success-text)' }}>
-                        <Check size={16} />
-                      </span>
-                    ) : null}
+                    {item.requires_photo ? <span className="dawaa-badge text-[10px]">صورة إلزامية</span> : null}
                   </div>
 
                   {status ? (
-                    <div className="mt-3 rounded-lg border px-3 py-1.5 text-xs font-black" style={{ borderColor: status.borderColor, background: status.bg, color: status.color }}>
+                    <div className="mt-3 rounded-xl border p-2 text-xs font-black" style={{ color: status.color, background: status.bg, borderColor: status.borderColor }}>
                       {status.label}
-                      {sub?.review_status === 'rejected' && sub.reviewer_note ? (
-                        <span className="mt-1 block font-normal">سبب الرفض: {sub.reviewer_note}</span>
+                      {submission?.review_status === 'rejected' && submission.reviewer_note ? (
+                        <span className="mt-1 block font-normal">سبب الرفض: {submission.reviewer_note}</span>
                       ) : null}
                     </div>
                   ) : null}
 
-                  {sub?.photo_url ? (
-                    <img src={sub.photo_url} alt={item.title} className="mt-3 h-32 w-full rounded-xl object-cover" />
+                  {submission?.photo_url ? (
+                    <img src={submission.photo_url} alt={item.title} loading="lazy" className="mt-3 h-32 w-full rounded-xl object-cover" />
                   ) : null}
 
                   {canSubmit ? (
@@ -314,7 +355,8 @@ export default function StaffDailyChecklist() {
                         <Loader2 size={16} className="animate-spin" />
                       ) : (
                         <>
-                          <Camera size={16} /> {sub?.review_status === 'rejected' ? 'أعد التصوير والتسجيل' : item.requires_photo ? 'صوّر وسجّل' : 'سجّل الإنجاز'}
+                          <Camera size={16} />
+                          {submission?.review_status === 'rejected' ? 'أعد التصوير والتسجيل' : item.requires_photo ? 'صوّر المكان وسجّل' : 'سجّل الإنجاز'}
                         </>
                       )}
                       <input
@@ -323,7 +365,7 @@ export default function StaffDailyChecklist() {
                         capture="environment"
                         className="hidden"
                         disabled={uploadingKey === item.item_key}
-                        onChange={(e) => void handleUploadAndComplete(item, e.target.files?.[0] || null)}
+                        onChange={(event) => void handleUploadAndComplete(item, event.target.files?.[0] || null)}
                       />
                     </label>
                   ) : null}
