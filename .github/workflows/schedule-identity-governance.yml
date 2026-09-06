@@ -1,0 +1,28 @@
+name: Schedule Identity Governance
+
+on:
+  pull_request:
+    paths:
+      - 'src/pages/Schedule.tsx'
+      - 'src/components/attendance/ScheduleIdentityGovernance.tsx'
+      - 'src/lib/scheduleIdentityService.ts'
+      - 'supabase/migrations/20260906173500_shift_schedule_identity_governance_v1.sql'
+      - 'scripts/check-schedule-identity-governance.cjs'
+  push:
+    branches: [main]
+    paths:
+      - 'src/pages/Schedule.tsx'
+      - 'src/components/attendance/ScheduleIdentityGovernance.tsx'
+      - 'src/lib/scheduleIdentityService.ts'
+      - 'supabase/migrations/20260906173500_shift_schedule_identity_governance_v1.sql'
+      - 'scripts/check-schedule-identity-governance.cjs'
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node scripts/check-schedule-identity-governance.cjs
