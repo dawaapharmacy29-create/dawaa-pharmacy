@@ -4,16 +4,22 @@ on:
   pull_request:
     paths:
       - 'src/pages/TimeOff.tsx'
+      - 'src/pages/Schedule.tsx'
       - 'src/lib/timeOffService.ts'
       - 'src/lib/permissionPolicyService.ts'
+      - 'src/lib/staffDetailLoader.ts'
+      - 'src/lib/api/shiftMemberLoader.ts'
       - 'supabase/migrations/**'
       - 'scripts/check-timeoff-canonical-architecture.cjs'
   push:
     branches: [main]
     paths:
       - 'src/pages/TimeOff.tsx'
+      - 'src/pages/Schedule.tsx'
       - 'src/lib/timeOffService.ts'
       - 'src/lib/permissionPolicyService.ts'
+      - 'src/lib/staffDetailLoader.ts'
+      - 'src/lib/api/shiftMemberLoader.ts'
       - 'supabase/migrations/**'
       - 'scripts/check-timeoff-canonical-architecture.cjs'
 
