@@ -32,7 +32,12 @@ const CUSTOMER_CODING_ITEM: NavItem = { path: '/customer-coding', icon: UserPlus
 
 const GROUPS: NavGroup[] = [
   { title: 'لوحة القيادة', icon: Crown, items: [
-    { path: '/', icon: LayoutDashboard, label: 'لوحة القيادة 2027', permission: 'view_dashboard', excludeRoles: ['customer_service_manager'] },
+    // كل الأدوار عندها صلاحية view_dashboard الأساسية (حتى المساعد والدليفري)، لكن
+    // /ExecutiveDashboard2027 نفسها بترفض أي دور مش مدير فعليًا وترجّعه لصفحة تانية
+    // (roleHomePath / التوجيه داخل الصفحة). كانت الصلاحية العامة دي بس هي اللي بتحكم
+    // ظهور الرابط في القائمة الجانبية، فكان بيظهر لأدوار هترتد فورًا لصفحة تانية —
+    // استبعدناهم هنا عشان الرابط الظاهر يطابق فعلًا مين يقدر يستخدم الصفحة.
+    { path: '/', icon: LayoutDashboard, label: 'لوحة القيادة 2027', permission: 'view_dashboard', excludeRoles: ['customer_service_manager', 'procurement_manager', 'inventory_assistant', 'customer_service', 'delivery', 'cleaning_supervisor'] },
     { path: '/branch-inspection', icon: ClipboardList, label: 'مرور مدير الفروع', permission: 'view_branch_inspection' },
     { path: '/operations-center', icon: BellRing, label: 'المهام والتنبيهات', permission: 'view_operations' },
     { path: '/data-health', icon: ShieldCheck, label: 'صحة البيانات', permission: 'view_data_health' },

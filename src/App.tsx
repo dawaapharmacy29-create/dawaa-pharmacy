@@ -4,10 +4,10 @@ import { Component, lazy, Suspense, useEffect, useState, type ReactNode } from '
 import { isIOSWebKit } from '@/lib/mobileSafariCompat';
 import { Toaster } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
-import { getRoutePermissions } from '@/lib/core/permissionSystem';
+import { getRoutePermissions, normalizeRole } from '@/lib/core/permissionSystem';
 import Layout from '@/components/layout/Layout';
 import PWABanner from '@/components/features/PWABanner';
-import { isDoctorRole } from '@/lib/security/userDataScope';
+import { isDoctorRole, isManagerRole } from '@/lib/security/userDataScope';
 import AppRecoveryScreen from '@/components/system/AppRecoveryScreen';
 import { diagnosticsUrl, logRuntimeError, loginRecoveryUrl } from '@/lib/appRecovery';
 import PageSafetyBoundary from '@/components/system/PageSafetyBoundary';
@@ -193,12 +193,30 @@ function ProtectedRoute({ children, permission }: { children: ReactNode; permiss
   const effectivePermissions = permission || getRoutePermissions(location.pathname);
   if (loading) return <PageLoadingFallback pageName="بيانات الدخول" />;
   if (!user) return <Navigate to="/login" replace />;
-  if (
-    location.pathname === '/' &&
-    isDoctorRole(user) &&
-    !checkPermission('view_executive_dashboard')
-  )
-    return <Navigate to="/doctor-dashboard" replace />;
+  // كل الأدوار بترجع لـ "/" تلقائيًا بعد تسجيل الدخول، ولوحة القيادة التنفيذية اللي
+  // بتتحمل هناك (ExecutiveDashboard2027) كانت بترفض الأدوار غير التنفيذية وترجّعهم
+  // لصفحتهم الصح، لكن ده كان بيحصل جوه الصفحة نفسها بعد ما تتحمّل (useEffect)، يعني
+  // الصفحة كانت بتفتح فعليًا وتبدأ تجيب بيانات المبيعات/الفروع الحساسة للحظة قبل
+  // ما ترجّع المستخدم. التوجيه هنا بيحصل قبل ما الصفحة تتحمل خالص، فمفيش أي بيانات
+  // تنفيذية بتتجاب أصلًا لدور مش مسموح له بيها.
+  if (location.pathname === '/') {
+    if (isDoctorRole(user) && !checkPermission('view_executive_dashboard')) {
+      return <Navigate to="/doctor-dashboard" replace />;
+    }
+    const role = normalizeRole(user?.role);
+    const canViewExecutive =
+      isManagerRole(user) ||
+      checkPermission('view_executive_dashboard') ||
+      checkPermission('view_branch_dashboard');
+    if (!isDoctorRole(user) && !canViewExecutive) {
+      if (role === 'delivery') return <Navigate to="/delivery" replace />;
+      if (role === 'cleaning_supervisor') return <Navigate to="/my-daily-checklist" replace />;
+      if (role === 'inventory_assistant') return <Navigate to="/inventory-counts" replace />;
+      if (role === 'customer_service' || role === 'customer_service_manager')
+        return <Navigate to="/customer-service-dashboard" replace />;
+      if (role === 'procurement_manager') return <Navigate to="/purchases" replace />;
+    }
+  }
   if (
     effectivePermissions &&
     (Array.isArray(effectivePermissions)
