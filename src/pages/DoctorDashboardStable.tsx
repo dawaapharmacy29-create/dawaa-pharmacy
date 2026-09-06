@@ -890,7 +890,15 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
             <Metric label="حافز التارجت الإضافي" value={doctorTargetBonus.amountEgp === null ? 'غير قابل للحساب' : formatCurrency(doctorTargetBonus.amountEgp)} hint={`${doctorTargetBonus.tierLabel} — منفصل عن حافز الأداء`} icon={Trophy} progress={achievement} />
           </div>
           <section className="rounded-3xl border p-5" style={surface}>
-            <h2 className="text-xl font-black text-white">ترتيب دكاترة الفرع</h2>
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <h2 className="text-xl font-black text-white">ترتيب دكاترة الفرع (لقطة سريعة)</h2>
+                <p className="mt-1 text-xs font-bold" style={mutedText}>مبيعات الدورة الحالية لحظيًا — للمتابعة اليومية بس، مش نتيجة المسابقة الرسمية. الأرقام هنا ممكن تختلف شوية عن صفحة المسابقة لأنها بتحسب بشروط تأهل مختلفة.</p>
+              </div>
+              <button className="btn-secondary shrink-0 whitespace-nowrap text-xs" onClick={() => navigate('/doctor-competition')}>
+                نتيجة المسابقة الرسمية <ExternalLink size={13} className="inline-block" />
+              </button>
+            </div>
             <div className="mt-4 space-y-2">
               {ranking.map((row, index) => {
                 const isMe = doctorRow && row.doctor === doctorRow.doctor;
