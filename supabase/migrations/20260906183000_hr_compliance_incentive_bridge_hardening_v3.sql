@@ -95,7 +95,7 @@ begin
   if v_status='approved' and (coalesce(p_proposed_points_delta,0)<>0 or coalesce(p_proposed_money_delta,0)<>0) then
     v_cycle_label:=public.dawaa_current_points_cycle_label_v1();
     -- لو الحالة تخص دورة تاريخية، نستخدم دورة incentive_cycles إن وجدت بدل الدورة الحالية.
-    if found and v_cycle.cycle_end is not null then v_cycle_label:=to_char(v_cycle.cycle_end,'YYYY-MM'); end if;
+    if v_cycle.cycle_end is not null then v_cycle_label:=to_char(v_cycle.cycle_end,'YYYY-MM'); end if;
 
     insert into public.employee_transactions(
       staff_id,employee_id,employee_name,branch,type,title,reason,description,points_delta,points,amount,source,source_id,
