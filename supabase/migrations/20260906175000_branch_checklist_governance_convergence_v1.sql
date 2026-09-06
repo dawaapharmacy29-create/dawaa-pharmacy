@@ -18,8 +18,7 @@ create index if not exists idx_staff_daily_checklist_submissions_assignment
 -- Best-effort historical backfill. If more than one historical assignment can match,
 -- prefer the most recent assignment that was active for the submission date.
 update public.staff_daily_checklist_submissions s
-set assignment_id = matched.id
-from lateral (
+set assignment_id=(
   select a.id
   from public.staff_daily_checklist_assignments a
   where a.staff_id=s.staff_id
@@ -29,8 +28,17 @@ from lateral (
     and (a.active_to is null or s.submission_date<=a.active_to)
   order by a.active_from desc,a.created_at desc,a.id desc
   limit 1
-) matched
-where s.assignment_id is null;
+)
+where s.assignment_id is null
+  and exists(
+    select 1
+    from public.staff_daily_checklist_assignments a
+    where a.staff_id=s.staff_id
+      and a.item_id=s.item_id
+      and public.dawaa_review_coverage_branch_key_v1(a.branch)=public.dawaa_review_coverage_branch_key_v1(s.branch)
+      and s.submission_date>=a.active_from
+      and (a.active_to is null or s.submission_date<=a.active_to)
+  );
 
 -- ---------------------------------------------------------------------------
 -- B. Canonical due helper used by employee UI, submission, snapshots and ratings.
@@ -303,9 +311,8 @@ begin
   where id=p_submission_id
   returning * into v_row;
 
-  -- Keep existing canonical task-level penalty settlement as the only negative projection.
-  perform public.settle_checklist_review(p_submission_id);
-
+  -- The existing checklist settlement trigger projects task-level rejection evidence.
+  -- Do not call settle_checklist_review here again.
   if public.dawaa_is_cleaning_role_v1(v_staff_role) then
     perform public.sync_cleaning_day_governance_snapshot_v3(v_target.staff_id,v_target.submission_date);
   end if;
