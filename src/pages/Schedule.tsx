@@ -15,6 +15,7 @@ import { parseScheduleImport, type ParsedScheduleImport } from '@/lib/shiftParse
 import { saveScheduleImport, type StaffingSaveReport } from '@/lib/api/staffing';
 import { toast } from 'sonner';
 import { listStaffTimeOffRequests, type StaffTimeOffRequest } from '@/lib/timeOffService';
+import ScheduleIdentityGovernance from '@/components/attendance/ScheduleIdentityGovernance';
 
 interface Employee {
   id: string;
@@ -417,8 +418,7 @@ export default function Schedule() {
                 {saving ? 'جاري الحفظ...' : 'حفظ البيانات المقروءة'}
               </button>
               <div className="text-amber-300 text-xs">
-                الحفظ يستخدم الجداول الموجودة فقط. لو shift_schedules أو shift_exceptions غير موجودة
-                سيظهر ذلك في التقرير.
+                الحفظ يكتب الجدول التشغيلي فقط. أي سجل قديم بلا staff_id يظهر في قسم جودة الهوية ولا يدخل قرار الحضور المالي حتى تتم مراجعته.
               </div>
             </div>
             {saveReport && (
@@ -452,6 +452,8 @@ export default function Schedule() {
           </div>
         )}
       </div>
+
+      {managerView && <ScheduleIdentityGovernance />}
 
       {/* Desktop Table */}
       <div className="hidden md:block bg-[#1B2B4B] border border-[#2d4063] rounded-2xl overflow-hidden">
