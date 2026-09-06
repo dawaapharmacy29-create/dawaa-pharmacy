@@ -8,7 +8,9 @@ with approved_profiles(staff_name, branch, monthly_incentive_base, point_value) 
   values
     ('أ/ هبه'::text, 'فرع شكري'::text, 500::numeric, 1::numeric),
     ('حبيبه'::text, 'فرع الشامي'::text, 500::numeric, 1::numeric),
-    ('د/ محمد العزب'::text, 'فرع الشامي'::text, 500::numeric, 1::numeric)
+    ('د/ محمد العزب'::text, 'فرع الشامي'::text, 500::numeric, 1::numeric),
+    ('يوسف عصام'::text, 'فرع شكري'::text, 700::numeric, 1.4::numeric),
+    ('د هدي'::text, 'فرع الشامي'::text, 700::numeric, 1.4::numeric)
 ), resolved as (
   select
     s.id::text as staff_id,
@@ -40,7 +42,7 @@ select
   r.point_value,
   date '2026-09-06',
   true,
-  'Approved monthly performance incentive: 500 EGP; 500-point reference => 1 EGP/point.'
+  'Approved monthly performance incentive: '||r.monthly_incentive_base||' EGP; 500-point reference => '||r.point_value||' EGP/point.'
 from resolved r
 on conflict (staff_id) do update set
   staff_name=excluded.staff_name,
