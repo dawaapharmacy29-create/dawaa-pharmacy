@@ -1,0 +1,32 @@
+name: Attendance Resolution V2 Architecture
+
+on:
+  pull_request:
+    paths:
+      - 'src/pages/AttendanceReport.tsx'
+      - 'src/components/attendance/AttendanceResolutionCenter.tsx'
+      - 'src/lib/attendance/attendanceResolutionService.ts'
+      - 'supabase/migrations/20260906171000_attendance_resolution_v2_schema.sql'
+      - 'supabase/migrations/20260906171200_attendance_resolution_v2_builder.sql'
+      - 'supabase/migrations/20260906171400_attendance_resolution_v2_materialization.sql'
+      - 'scripts/check-attendance-resolution-v2-architecture.cjs'
+  push:
+    branches: [main]
+    paths:
+      - 'src/pages/AttendanceReport.tsx'
+      - 'src/components/attendance/AttendanceResolutionCenter.tsx'
+      - 'src/lib/attendance/attendanceResolutionService.ts'
+      - 'supabase/migrations/20260906171000_attendance_resolution_v2_schema.sql'
+      - 'supabase/migrations/20260906171200_attendance_resolution_v2_builder.sql'
+      - 'supabase/migrations/20260906171400_attendance_resolution_v2_materialization.sql'
+      - 'scripts/check-attendance-resolution-v2-architecture.cjs'
+
+jobs:
+  canonical-attendance-v2:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node scripts/check-attendance-resolution-v2-architecture.cjs
