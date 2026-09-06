@@ -2,6 +2,7 @@
 -- Extends the existing cleaning governance pattern to shelf/inventory assistants
 -- without creating a second points ledger. All points evidence lands in
 -- employee_transactions and remains bound to the 26->25 points cycle.
+-- Star scale: 5=+5 points, 4=+2, 3=0, 2=-5, 1=-10 (same governed scale as cleaning).
 
 begin;
 
