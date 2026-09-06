@@ -111,7 +111,7 @@ export default function TimeOff() {
     const cycle = getCurrentCycle();
     const year = Number(form.startDate.slice(0, 4));
     void Promise.all([
-      getPermissionPolicyStatusV2(form.staffId, cycle.start, cycle.end),
+      getPermissionPolicyStatusV2(form.staffId, cycle.start.toISOString().slice(0, 10), cycle.end.toISOString().slice(0, 10)),
       getAnnualLeaveBalanceV1(form.staffId, year),
     ]).then(([policy, balance]) => {
       setSelectedPolicy(policy);
