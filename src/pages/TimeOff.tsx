@@ -1,345 +1,214 @@
-import { useMemo, useState } from 'react';
-import { Loader2, Plus } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Ban, CalendarDays, CheckCircle2, Clock3, Loader2, Plus, RefreshCw, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
-import { useSupabaseQuery } from '@/hooks/useSupabaseQuery';
 import { useStaffDirectory } from '@/hooks/useStaffDirectory';
-import { supabase } from '@/lib/supabase';
-import { TABLES } from '@/lib/supabaseTables';
-import { getCurrentCycle } from '@/lib/pharmacy-cycle';
-import { persistPointsTransaction } from '@/lib/pointsPersistence';
+import { useAuth } from '@/hooks/useAuth';
 import { mergeStaffChoices } from '@/lib/staffFallback';
-import type { EvaluationRuleDef } from '@/lib/evaluationRulesCatalog';
-import { getSafeCurrentUserId, useAuth } from '@/hooks/useAuth';
+import { getCurrentCycle } from '@/lib/pharmacy-cycle';
+import {
+  cancelStaffTimeOffRequest,
+  createStaffTimeOffRequest,
+  decideStaffTimeOffRequest,
+  getAnnualLeaveBalanceV1,
+  getPermissionPolicyStatusV2,
+  listStaffTimeOffRequests,
+  type AnnualLeaveBalanceV1,
+  type PermissionPolicyStatusV2,
+  type StaffTimeOffRequest,
+  type TimeOffKind,
+  type TimeOffStatus,
+} from '@/lib/timeOffService';
 
-const TYPES = ['إذن تأخير', 'إذن ساعة', 'إذن ساعتين', 'إذن خروج وعودة', 'إذن انصراف مبكر', 'إجازة مرضية', 'إجازة عارضة', 'غياب', 'تبديل شيفت'];
-const STATUSES = ['pending', 'approved', 'rejected'];
+const TYPE_OPTIONS: Array<{ label: string; kind: TimeOffKind; defaultMinutes?: number }> = [
+  { label: 'إذن تأخير', kind: 'permission' },
+  { label: 'إذن ساعة', kind: 'permission', defaultMinutes: 60 },
+  { label: 'إذن ساعتين', kind: 'permission', defaultMinutes: 120 },
+  { label: 'إذن خروج وعودة', kind: 'permission' },
+  { label: 'إذن انصراف مبكر', kind: 'permission' },
+  { label: 'إجازة سنوية', kind: 'annual_leave' },
+  { label: 'إجازة مرضية', kind: 'sick_leave' },
+  { label: 'إجازة عارضة', kind: 'exceptional_leave' },
+  { label: 'غياب بإذن', kind: 'approved_absence' },
+  { label: 'تبديل شيفت', kind: 'shift_swap' },
+];
 
-interface ShiftException {
-  id: string;
-  staff_id?: string | null;
-  staff_name: string;
-  type: string;
-  status: string;
-  branch: string | null;
-  day_name: string | null;
-  date: string | null;
-  date_end?: string | null;
-  reason: string | null;
-  deduct_points?: boolean | null;
-  deduction_points?: number | null;
-  start_time?: string | null;
-  end_time?: string | null;
-  duration_hours?: number | null;
-}
+const STATUS_LABELS: Record<TimeOffStatus, string> = {
+  pending: 'قيد المراجعة',
+  approved: 'معتمد',
+  rejected: 'مرفوض',
+  cancelled: 'ملغي',
+};
 
-function dayName(date: string) {
-  return new Date(`${date}T12:00:00`).toLocaleDateString('ar-EG', { weekday: 'long' });
-}
-
-function missingColumn(message: string) {
-  return message.match(/'([^']+)' column/)?.[1] || message.match(/column "([^"]+)"/)?.[1] || '';
-}
-
-async function insertShiftException(payload: Record<string, unknown>) {
-  const next = { ...payload };
-  const removed = new Set<string>();
-
-  for (let attempt = 0; attempt < 12; attempt++) {
-    const { error } = await supabase.from(TABLES.shiftExceptions).insert(next);
-    if (!error) return null;
-    const column = missingColumn(error.message);
-    if (!column || removed.has(column)) return error.message;
-    removed.add(column);
-    delete next[column];
-  }
-
-  return 'تعذر حفظ الإذن بسبب اختلاف أعمدة جدول shift_exceptions.';
-}
-
-async function updateShiftException(id: string, payload: Record<string, unknown>) {
-  const next = { ...payload };
-  const removed = new Set<string>();
-  for (let attempt = 0; attempt < 12; attempt++) {
-    const { error } = await supabase.from(TABLES.shiftExceptions).update(next).eq('id', id);
-    if (!error) return null;
-    const column = missingColumn(error.message);
-    if (!column || removed.has(column)) return error.message;
-    removed.add(column);
-    delete next[column];
-  }
-  return 'تعذر تحديث الإذن بسبب اختلاف أعمدة جدول shift_exceptions.';
-}
-
-function timeOffRule(type: string, points: number): EvaluationRuleDef {
-  return {
-    code: `TIME_OFF_${type.replace(/\s+/g, '_')}`,
-    category: 'الإذونات والإجازات',
-    title: `خصم ${type}`,
-    description: 'خصم يدوي يحدده المدير العام عند تسجيل إذن أو إجازة.',
-    default_points: points,
-    type: 'deduction',
-    severity: points >= 30 ? 'high' : points >= 10 ? 'medium' : 'low',
-    role_scope: 'all',
-    requires_approval: false,
-    evidence_required: false,
-    allowed_approver_roles: ['general_manager'],
-    repeat_policy: 'none',
-    active: true,
-  };
-}
-
-function hoursBetween(start: string, end: string) {
-  if (!start || !end) return 0;
+function minutesBetween(start: string, end: string) {
+  if (!start || !end) return null;
   const [sh, sm] = start.split(':').map(Number);
   const [eh, em] = end.split(':').map(Number);
-  if (![sh, sm, eh, em].every(Number.isFinite)) return 0;
-  let minutes = eh * 60 + em - (sh * 60 + sm);
-  if (minutes < 0) minutes += 24 * 60;
-  return Math.round((minutes / 60) * 100) / 100;
+  if (![sh, sm, eh, em].every(Number.isFinite)) return null;
+  let value = eh * 60 + em - (sh * 60 + sm);
+  if (value < 0) value += 24 * 60;
+  return value;
 }
 
-function defaultDurationForType(type: string) {
-  if (type.includes('ساعتين')) return '2';
-  if (type.includes('ساعة')) return '1';
-  return '';
+function statusClass(status: TimeOffStatus) {
+  if (status === 'approved') return 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300';
+  if (status === 'rejected' || status === 'cancelled') return 'border-red-500/40 bg-red-500/10 text-red-300';
+  return 'border-amber-500/40 bg-amber-500/10 text-amber-300';
 }
 
 export default function TimeOff() {
   const { user, checkPermission, canManage } = useAuth();
-  const canCreateRequest = checkPermission('create_leave_request') || canManage;
-  const canApproveRequest = checkPermission('approve_leave_request') || canManage;
+  const canCreate = checkPermission('create_leave_request') || canManage;
+  const canApprove = checkPermission('approve_leave_request') || checkPermission('manage_time_off') || canManage;
   const canManageTimeOff = checkPermission('manage_time_off') || canManage;
   const { data: staffDirectory = [] } = useStaffDirectory();
-  const { data: exceptions = [], loading, refetch } = useSupabaseQuery<ShiftException>({
-    table: TABLES.shiftExceptions,
-    orderBy: { column: 'created_at', ascending: false },
-    realtimeEnabled: true,
-  });
   const staffChoices = useMemo(
-    () =>
-      mergeStaffChoices(
-        staffDirectory.filter(
-          (staff) => staff.source !== 'alias' && staff.active && Boolean(staff.id) && Boolean(staff.name)
-        )
-      ),
+    () => mergeStaffChoices(staffDirectory.filter((item) => item.source !== 'alias' && item.active && Boolean(item.id) && Boolean(item.name))),
     [staffDirectory]
   );
-  const availableStaffChoices = useMemo(() => {
-    if (canManageTimeOff) return staffChoices;
-    if (!user) return staffChoices;
-    return staffChoices.filter((item) => item.id === user.staffId || item.name === user.name);
-  }, [staffChoices, canManageTimeOff, user?.staffId, user?.name]);
-  const visibleExceptions = useMemo(() => {
-    if (canManageTimeOff || canApproveRequest) return exceptions;
-    return exceptions.filter((item) => item.staff_id === user?.staffId || item.staff_name === user?.name);
-  }, [exceptions, canManageTimeOff, canApproveRequest, user?.staffId, user?.name]);
+  const availableStaff = useMemo(() => {
+    if (canManageTimeOff || canApprove) return staffChoices;
+    return staffChoices.filter((item) => item.id === user?.staffId || item.name === user?.name);
+  }, [canApprove, canManageTimeOff, staffChoices, user?.name, user?.staffId]);
+
+  const [rows, setRows] = useState<StaffTimeOffRequest[]>([]);
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<'all' | TimeOffStatus>('all');
+  const [selectedPolicy, setSelectedPolicy] = useState<PermissionPolicyStatusV2 | null>(null);
+  const [annualBalance, setAnnualBalance] = useState<AnnualLeaveBalanceV1 | null>(null);
   const [form, setForm] = useState({
-    staff_id: '',
-    type: 'إذن تأخير',
-    status: canApproveRequest ? 'approved' : 'pending',
-    date: new Date().toISOString().slice(0, 10),
-    date_end: new Date().toISOString().slice(0, 10),
-    start_time: '',
-    end_time: '',
-    duration_hours: '',
+    staffId: user?.staffId || '',
+    typeLabel: TYPE_OPTIONS[0].label,
+    startDate: new Date().toISOString().slice(0, 10),
+    endDate: new Date().toISOString().slice(0, 10),
+    startTime: '',
+    endTime: '',
+    durationMinutes: '',
     reason: '',
-    deduct_points: false,
-    deduction_points: '',
   });
 
-  const isLeaveType = form.type.includes('إجازة');
-  const isHourlyPermission = form.type.includes('إذن') && !isLeaveType;
-  const selectedStaff = staffChoices.find((item) => item.id === form.staff_id);
-  const deductionPoints = Math.max(0, Number(form.deduction_points) || 0);
-  const calculatedHours = form.start_time && form.end_time ? hoursBetween(form.start_time, form.end_time) : Number(form.duration_hours || defaultDurationForType(form.type) || 0);
+  const selectedType = TYPE_OPTIONS.find((item) => item.label === form.typeLabel) || TYPE_OPTIONS[0];
+  const selectedStaff = staffChoices.find((item) => item.id === form.staffId);
+  const isPermission = selectedType.kind === 'permission';
+  const isRangeLeave = ['annual_leave', 'sick_leave', 'exceptional_leave'].includes(selectedType.kind);
 
-  const handleSubmit = async (event: React.FormEvent) => {
+  const loadRows = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await listStaffTimeOffRequests({ status: statusFilter === 'all' ? null : statusFilter, limit: 300 });
+      setRows(data);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'تعذر تحميل سجل الإذونات والإجازات');
+    } finally {
+      setLoading(false);
+    }
+  }, [statusFilter]);
+
+  useEffect(() => { void loadRows(); }, [loadRows]);
+
+  useEffect(() => {
+    if (!form.staffId) { setSelectedPolicy(null); setAnnualBalance(null); return; }
+    const cycle = getCurrentCycle();
+    const year = Number(form.startDate.slice(0, 4));
+    void Promise.all([
+      getPermissionPolicyStatusV2(form.staffId, cycle.start, cycle.end),
+      getAnnualLeaveBalanceV1(form.staffId, year),
+    ]).then(([policy, balance]) => {
+      setSelectedPolicy(policy);
+      setAnnualBalance(balance);
+    }).catch(() => {
+      setSelectedPolicy(null);
+      setAnnualBalance(null);
+    });
+  }, [form.staffId, form.startDate]);
+
+  async function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (!canCreateRequest) return toast.error('ليس لديك صلاحية إنشاء طلب إذن أو إجازة.');
-    if (!selectedStaff) return toast.error('اختار الموظف الأول.');
-    if (form.deduct_points && deductionPoints <= 0) return toast.error('اكتب قيمة الخصم بالنقاط أو اقفل اختيار الخصم.');
-    if (isHourlyPermission && calculatedHours <= 0 && !form.reason.trim()) return toast.error('حدد مدة الإذن أو اكتب سبب واضح.');
+    if (!canCreate) return toast.error('ليس لديك صلاحية إنشاء طلب.');
+    if (!selectedStaff) return toast.error('اختار موظفًا صحيحًا من دليل الموظفين.');
+    const duration = isPermission
+      ? (minutesBetween(form.startTime, form.endTime) ?? Number(form.durationMinutes || selectedType.defaultMinutes || 0))
+      : null;
+    if (isPermission && (!duration || duration <= 0)) return toast.error('حدد مدة الإذن بدقة.');
+    if (!form.reason.trim()) return toast.error('اكتب سبب الطلب.');
 
     setSaving(true);
-    const finalStatus = canApproveRequest ? form.status : 'pending';
-    const rangeNote = isLeaveType && form.date_end && form.date_end !== form.date ? `[من ${form.date} إلى ${form.date_end}] ` : '';
-    const durationNote = isHourlyPermission ? `[مدة الإذن: ${calculatedHours || 'غير محدد'} ساعة${form.start_time ? ` - من ${form.start_time}` : ''}${form.end_time ? ` إلى ${form.end_time}` : ''}] ` : '';
-    const deductionNote = form.deduct_points ? `[خصم نقاط: ${deductionPoints}] ` : '[بدون خصم نقاط] ';
-    const finalReason = `${rangeNote}${durationNote}${deductionNote}${form.reason}`.trim();
-
-    const payload = {
-      staff_name: selectedStaff.name,
-      staff_id: selectedStaff.id.startsWith('fallback-') ? null : selectedStaff.id,
-      employee_name: selectedStaff.name,
-      type: form.type,
-      status: finalStatus,
-      branch: selectedStaff.branch || null,
-      date: form.date,
-      date_end: form.date_end || form.date,
-      day_name: dayName(form.date),
-      start_time: form.start_time || null,
-      end_time: form.end_time || null,
-      duration_hours: calculatedHours || null,
-      duration_minutes: calculatedHours ? Math.round(calculatedHours * 60) : null,
-      reason: finalReason,
-      deduct_points: form.deduct_points,
-      deduction_points: deductionPoints,
-      deduction_status: form.deduct_points ? finalStatus : 'none',
-      source: 'manual',
-      updated_at: new Date().toISOString(),
-    };
-
-    const error = editingId ? await updateShiftException(editingId, payload) : await insertShiftException(payload);
-    if (error) {
-      setSaving(false);
-      toast.error('تعذر حفظ الإذن: ' + error);
-      return;
-    }
-
-    if (form.deduct_points && deductionPoints > 0) {
-      const status = finalStatus === 'approved' ? 'approved' : 'pending';
-      const result = await persistPointsTransaction({
-        employeeId: selectedStaff.id,
-        employeeName: selectedStaff.name,
-        branch: selectedStaff.branch,
-        operation: 'deduction',
-        rule: timeOffRule(form.type, deductionPoints),
-        pointsToStore: deductionPoints,
-        basePoints: deductionPoints,
-        finalPoints: deductionPoints,
-        userNote: finalReason,
-        createdByName: 'المدير العام',
-        createdById: getSafeCurrentUserId() ?? null,
-        createdByRole: 'مدير عام',
-        status,
-        cycle: getCurrentCycle(),
-        sourceModule: 'time_off',
-        reasonLabel: `${form.type} - خصم محدد من المدير`,
+    try {
+      await createStaffTimeOffRequest({
+        staffId: selectedStaff.id,
+        kind: selectedType.kind,
+        label: selectedType.label,
+        startDate: form.startDate,
+        endDate: isRangeLeave ? form.endDate : form.startDate,
+        startTime: isPermission && form.startTime ? form.startTime : null,
+        endTime: isPermission && form.endTime ? form.endTime : null,
+        durationMinutes: duration,
+        reason: form.reason.trim(),
       });
-      if (result.error) toast.warning('تم حفظ الإذن، لكن لم يتم تسجيل الخصم في النقاط: ' + result.error);
+      toast.success('تم تسجيل الطلب للمراجعة مع Audit كامل. لا يوجد خصم نقاط مباشر من هذه الصفحة.');
+      setForm((current) => ({ ...current, reason: '', startTime: '', endTime: '', durationMinutes: String(selectedType.defaultMinutes || '') }));
+      await loadRows();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'تعذر حفظ الطلب');
+    } finally {
+      setSaving(false);
     }
+  }
 
-    setSaving(false);
-    toast.success(form.deduct_points ? 'تم حفظ الإذن وتسجيل خصم النقاط.' : 'تم حفظ الإذن/الإجازة بدون خصم نقاط.');
-    setEditingId(null);
-    setForm((current) => ({
-      ...current,
-      reason: '',
-      start_time: '',
-      end_time: '',
-      duration_hours: defaultDurationForType(current.type),
-      deduction_points: current.deduct_points ? current.deduction_points : '',
-    }));
-    refetch();
-  };
+  async function decide(row: StaffTimeOffRequest, decision: 'approved' | 'rejected') {
+    if (!canApprove) return toast.error('ليس لديك صلاحية اعتماد الطلبات.');
+    const note = window.prompt(decision === 'approved' ? 'ملاحظة الاعتماد (اختياري)' : 'سبب الرفض') || '';
+    if (decision === 'rejected' && !note.trim()) return toast.error('سبب الرفض مطلوب.');
+    try {
+      await decideStaffTimeOffRequest(row.id, decision, note);
+      toast.success(decision === 'approved' ? 'تم اعتماد الطلب.' : 'تم رفض الطلب.');
+      await loadRows();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'تعذر تحديث الطلب');
+    }
+  }
 
-  const editItem = (item: ShiftException, forceDeduction = false) => {
-    const staffItem = staffChoices.find((choice) => choice.id === item.staff_id || choice.name === item.staff_name);
-    setEditingId(item.id);
-    setForm({
-      staff_id: staffItem?.id || '',
-      type: item.type || TYPES[0],
-      status: item.status || 'pending',
-      date: item.date || new Date().toISOString().slice(0, 10),
-      date_end: item.date_end || item.date || new Date().toISOString().slice(0, 10),
-      start_time: item.start_time || '',
-      end_time: item.end_time || '',
-      duration_hours: String(item.duration_hours || defaultDurationForType(item.type || '') || ''),
-      reason: item.reason || '',
-      deduct_points: forceDeduction || Boolean(item.deduct_points),
-      deduction_points: String(item.deduction_points || (forceDeduction ? 10 : '')),
-    });
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
-  const deleteItem = async (item: ShiftException) => {
-    if (!canManageTimeOff) return toast.error('الحذف متاح للمديرين المصرح لهم فقط.');
-    if (!window.confirm(`هل تريد حذف سجل ${item.type} لـ ${item.staff_name}؟`)) return;
-    const { error } = await supabase.from(TABLES.shiftExceptions).delete().eq('id', item.id);
-    if (error) return toast.error(`تعذر حذف السجل: ${error.message}`);
-    toast.success('تم حذف سجل الإذن/الإجازة');
-    refetch();
-  };
+  async function cancel(row: StaffTimeOffRequest) {
+    const reason = window.prompt('اكتب سبب الإلغاء. السجل لن يُحذف وسيظل محفوظًا في الـAudit.') || '';
+    if (!reason.trim()) return;
+    try {
+      await cancelStaffTimeOffRequest(row.id, reason);
+      toast.success('تم إلغاء الطلب مع الاحتفاظ بالتاريخ الكامل.');
+      await loadRows();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'تعذر إلغاء الطلب');
+    }
+  }
 
   return (
-    <div className="space-y-5">
-      <div>
-        <div className="section-title">الإذونات والإجازات</div>
-        <div className="text-slate-400 text-sm mt-1">سجل إذن ساعة أو ساعتين أو إجازة، وحدد هل عليه خصم نقاط أم لا.</div>
+    <div className="space-y-5" dir="rtl">
+      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+        <div>
+          <div className="section-title">الإذونات والإجازات</div>
+          <div className="mt-1 text-sm text-slate-400">مصدر موحد للإذن والإجازة والغياب بإذن. الاعتماد منفصل عن أي أثر مالي أو نقاط.</div>
+        </div>
+        <button onClick={() => void loadRows()} className="btn-secondary"><RefreshCw size={16} /> تحديث</button>
       </div>
 
-      <form onSubmit={handleSubmit} className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-4 grid grid-cols-1 md:grid-cols-6 gap-3">
-        <select value={form.staff_id} onChange={(event) => setForm((f) => ({ ...f, staff_id: event.target.value }))} className="input-dark" required>
-          <option value="">اختار الموظف</option>
-          {availableStaffChoices.map((item) => <option key={item.id} value={item.id}>{item.name} - {item.role} - {item.branch}</option>)}
-        </select>
-        <select value={form.type} onChange={(event) => setForm((f) => ({ ...f, type: event.target.value, duration_hours: f.duration_hours || defaultDurationForType(event.target.value) }))} className="input-dark">
-          {TYPES.map((type) => <option key={type}>{type}</option>)}
-        </select>
-        <select value={form.status} onChange={(event) => setForm((f) => ({ ...f, status: event.target.value }))} className="input-dark" disabled={!canApproveRequest}>
-          {STATUSES.map((status) => <option key={status}>{status}</option>)}
-        </select>
-        <input type="date" value={form.date} onChange={(event) => setForm((f) => ({ ...f, date: event.target.value, date_end: f.date_end < event.target.value ? event.target.value : f.date_end }))} className="input-dark" />
-        {isLeaveType && <input type="date" value={form.date_end} min={form.date} onChange={(event) => setForm((f) => ({ ...f, date_end: event.target.value }))} className="input-dark" />}
-        {isHourlyPermission && (
-          <>
-            <input type="time" value={form.start_time} onChange={(event) => setForm((f) => ({ ...f, start_time: event.target.value }))} className="input-dark" title="بداية الإذن" />
-            <input type="time" value={form.end_time} onChange={(event) => setForm((f) => ({ ...f, end_time: event.target.value }))} className="input-dark" title="نهاية الإذن" />
-            <input type="number" min="0.25" step="0.25" value={form.duration_hours} onChange={(event) => setForm((f) => ({ ...f, duration_hours: event.target.value }))} placeholder="عدد الساعات" className="input-dark" />
-          </>
-        )}
-        <label className="input-dark flex items-center gap-2 cursor-pointer">
-          <input type="checkbox" checked={form.deduct_points} onChange={(event) => setForm((f) => ({ ...f, deduct_points: event.target.checked }))} />
-          عليه خصم نقاط؟
-        </label>
-        {form.deduct_points && <input type="number" min={1} value={form.deduction_points} onChange={(event) => setForm((f) => ({ ...f, deduction_points: event.target.value }))} placeholder="قيمة الخصم بالنقاط" className="input-dark md:col-span-2" required />}
-        <textarea value={form.reason} onChange={(event) => setForm((f) => ({ ...f, reason: event.target.value }))} placeholder="سبب الإذن أو ملاحظات" className="input-dark md:col-span-4 resize-none" rows={2} />
-        {isHourlyPermission && <div className="rounded-xl border border-teal-500/25 bg-teal-500/10 px-3 py-2 text-xs font-bold text-teal-100 md:col-span-2">المدة المحسوبة: {calculatedHours || 0} ساعة</div>}
-        <button type="submit" disabled={saving || !form.staff_id || !canCreateRequest} className="btn-primary flex items-center justify-center gap-2 md:col-span-6">
-          {saving ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
-          {editingId ? 'تحديث السجل' : 'حفظ'}
-        </button>
-        {editingId && <button type="button" onClick={() => setEditingId(null)} className="btn-secondary md:col-span-6">إلغاء التعديل</button>}
-      </form>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {TYPES.map((type) => (
-          <div key={type} className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-4">
-            <div className="text-white font-bold">{type}</div>
-            <div className="text-slate-400 text-sm mt-2">الحالات: {STATUSES.join(' / ')}</div>
-            <div className="text-slate-400 text-xs mt-3 leading-relaxed">يمكن تسجيله بدون خصم، أو بخصم نقاط يحدده المدير العام. الإذن يدعم ساعة/ساعتين/وقت بداية ونهاية.</div>
-          </div>
-        ))}
+      <div className="grid gap-3 md:grid-cols-3">
+        <div className="rounded-2xl border border-slate-700 bg-slate-900/40 p-4"><div className="text-xs text-slate-400">الأذونات المعتمدة في الدورة</div><div className="mt-1 text-2xl font-black">{selectedPolicy ? `${selectedPolicy.approved_permissions} / ${selectedPolicy.allowance}` : '-'}</div><div className="mt-1 text-xs text-slate-400">المتبقي: {selectedPolicy?.remaining ?? '-'}</div></div>
+        <div className="rounded-2xl border border-slate-700 bg-slate-900/40 p-4"><div className="text-xs text-slate-400">حد الإذن الواحد</div><div className="mt-1 text-2xl font-black">{selectedPolicy ? `${selectedPolicy.max_minutes_per_permission} دقيقة` : '-'}</div><div className="mt-1 text-xs text-slate-400">أي تجاوز يذهب للمراجعة ولا يخصم تلقائيًا.</div></div>
+        <div className="rounded-2xl border border-slate-700 bg-slate-900/40 p-4"><div className="text-xs text-slate-400">رصيد الإجازة السنوية المسجل</div><div className="mt-1 text-2xl font-black">{annualBalance ? annualBalance.balance : '-'}</div><div className="mt-1 text-xs text-slate-400">الاستحقاق السنوي لم يتم افتراضه حتى اعتماد السياسة.</div></div>
       </div>
 
-      <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl overflow-hidden">
-        <div className="px-4 py-3 border-b border-[#2d4063] text-white font-bold">آخر الإذونات والإجازات</div>
-        {loading ? <div className="p-6 text-slate-400">جاري التحميل...</div> : visibleExceptions.length === 0 ? <div className="p-6 text-slate-400">لا توجد إذونات مسجلة بعد.</div> : (
-          <div className="overflow-x-auto">
-            <table className="data-table">
-              <thead><tr><th>الموظف</th><th>النوع</th><th>الحالة</th><th>الفرع</th><th>اليوم/التاريخ</th><th>المدة</th><th>خصم النقاط</th><th>السبب</th><th>إجراءات</th></tr></thead>
-              <tbody>
-                {visibleExceptions.map((item) => (
-                  <tr key={item.id}>
-                    <td>{item.staff_name}</td><td>{item.type}</td>
-                    <td><span className={item.status === 'approved' ? 'badge-success' : item.status === 'rejected' ? 'badge-danger' : 'badge-info'}>{item.status}</span></td>
-                    <td>{item.branch || '-'}</td><td>{item.date || item.day_name || '-'}</td>
-                    <td>{item.duration_hours ? `${item.duration_hours} ساعة` : item.start_time || item.end_time ? `${item.start_time || '-'} - ${item.end_time || '-'}` : '-'}</td>
-                    <td>{item.deduct_points ? `${item.deduction_points || 0} نقطة` : 'بدون خصم'}</td><td>{item.reason || '-'}</td>
-                    <td><div className="flex flex-wrap gap-2">
-                      {(canApproveRequest || canManageTimeOff) && <button type="button" onClick={() => editItem(item)} className="rounded-lg bg-teal-500/15 px-2 py-1 text-xs font-bold text-teal-200">تعديل</button>}
-                      {canApproveRequest && <button type="button" onClick={() => editItem(item, true)} className="rounded-lg bg-amber-500/15 px-2 py-1 text-xs font-bold text-amber-200">جعله بخصم</button>}
-                      {canManageTimeOff && <button type="button" onClick={() => deleteItem(item)} className="rounded-lg bg-red-500/15 px-2 py-1 text-xs font-bold text-red-200">حذف</button>}
-                    </div></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+      {canCreate && <form onSubmit={submit} className="grid grid-cols-1 gap-3 rounded-2xl border border-slate-700 bg-slate-900/50 p-4 md:grid-cols-6">
+        <select value={form.staffId} onChange={(e) => setForm((f) => ({ ...f, staffId: e.target.value }))} className="input-dark" required><option value="">اختار الموظف</option>{availableStaff.map((item) => <option key={item.id} value={item.id}>{item.name} - {item.role} - {item.branch}</option>)}</select>
+        <select value={form.typeLabel} onChange={(e) => { const next = TYPE_OPTIONS.find((item) => item.label === e.target.value) || TYPE_OPTIONS[0]; setForm((f) => ({ ...f, typeLabel: next.label, durationMinutes: String(next.defaultMinutes || '') })); }} className="input-dark">{TYPE_OPTIONS.map((item) => <option key={item.label}>{item.label}</option>)}</select>
+        <input type="date" value={form.startDate} onChange={(e) => setForm((f) => ({ ...f, startDate: e.target.value, endDate: f.endDate < e.target.value ? e.target.value : f.endDate }))} className="input-dark" />
+        {isRangeLeave ? <input type="date" min={form.startDate} value={form.endDate} onChange={(e) => setForm((f) => ({ ...f, endDate: e.target.value }))} className="input-dark" /> : <div className="input-dark flex items-center text-sm text-slate-400"><CalendarDays size={15} className="ml-2" /> يوم واحد</div>}
+        {isPermission ? <><input type="time" value={form.startTime} onChange={(e) => setForm((f) => ({ ...f, startTime: e.target.value }))} className="input-dark" /><input type="time" value={form.endTime} onChange={(e) => setForm((f) => ({ ...f, endTime: e.target.value }))} className="input-dark" /><input type="number" min="1" max="1440" placeholder="المدة بالدقائق" value={form.durationMinutes} onChange={(e) => setForm((f) => ({ ...f, durationMinutes: e.target.value }))} className="input-dark" /></> : null}
+        <textarea value={form.reason} onChange={(e) => setForm((f) => ({ ...f, reason: e.target.value }))} placeholder="سبب واضح للطلب" className="input-dark min-h-20 md:col-span-4" />
+        <button disabled={saving} className="btn-primary md:col-span-2">{saving ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />} تسجيل الطلب</button>
+      </form>}
+
+      <div className="flex flex-wrap gap-2">{(['all','pending','approved','rejected','cancelled'] as const).map((status) => <button key={status} onClick={() => setStatusFilter(status)} className={statusFilter === status ? 'btn-primary' : 'btn-secondary'}>{status === 'all' ? 'الكل' : STATUS_LABELS[status]}</button>)}</div>
+
+      {loading ? <div className="flex items-center justify-center rounded-2xl border border-slate-700 p-10"><Loader2 className="animate-spin" /></div> : rows.length === 0 ? <div className="rounded-2xl border border-slate-700 p-8 text-center text-slate-400">لا توجد طلبات في هذا النطاق.</div> : <div className="overflow-x-auto rounded-2xl border border-slate-700"><table className="min-w-full text-sm"><thead className="bg-slate-900/70 text-right"><tr><th className="p-3">الموظف</th><th className="p-3">النوع</th><th className="p-3">الفترة</th><th className="p-3">المدة</th><th className="p-3">الحالة</th><th className="p-3">السبب</th><th className="p-3">القرار</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id} className="border-t border-slate-800"><td className="p-3 font-bold">{row.staff_name_snapshot}<div className="text-xs text-slate-500">{row.branch_snapshot || '-'}</div></td><td className="p-3">{row.request_label || row.request_kind}</td><td className="p-3">{row.start_date}{row.end_date !== row.start_date ? ` ← ${row.end_date}` : ''}</td><td className="p-3">{row.duration_minutes ? `${row.duration_minutes} د` : '-'}</td><td className="p-3"><span className={`rounded-full border px-2 py-1 text-xs font-bold ${statusClass(row.status)}`}>{STATUS_LABELS[row.status]}</span></td><td className="max-w-sm p-3 text-slate-300">{row.reason || '-'}</td><td className="p-3"><div className="flex flex-wrap gap-1">{row.status === 'pending' && canApprove && <><button onClick={() => void decide(row,'approved')} className="btn-secondary"><CheckCircle2 size={14} /> اعتماد</button><button onClick={() => void decide(row,'rejected')} className="btn-secondary"><XCircle size={14} /> رفض</button></>}{row.status !== 'cancelled' && (canManageTimeOff || row.staff_id === user?.staffId) && <button onClick={() => void cancel(row)} className="btn-secondary"><Ban size={14} /> إلغاء</button>}{row.decided_at && <span className="inline-flex items-center gap-1 text-xs text-slate-500"><Clock3 size={13} /> {row.decided_by_name || 'إدارة'}</span>}</div></td></tr>)}</tbody></table></div>}
     </div>
   );
 }
