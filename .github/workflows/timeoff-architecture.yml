@@ -1,0 +1,28 @@
+name: Time Off Architecture
+
+on:
+  pull_request:
+    paths:
+      - 'src/pages/TimeOff.tsx'
+      - 'src/lib/timeOffService.ts'
+      - 'src/lib/permissionPolicyService.ts'
+      - 'supabase/migrations/**'
+      - 'scripts/check-timeoff-canonical-architecture.cjs'
+  push:
+    branches: [main]
+    paths:
+      - 'src/pages/TimeOff.tsx'
+      - 'src/lib/timeOffService.ts'
+      - 'src/lib/permissionPolicyService.ts'
+      - 'supabase/migrations/**'
+      - 'scripts/check-timeoff-canonical-architecture.cjs'
+
+jobs:
+  canonical-timeoff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node scripts/check-timeoff-canonical-architecture.cjs
