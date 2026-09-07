@@ -28,7 +28,7 @@ begin
     select 1 from public.staff_accounts sa
     where sa.id=v_actor_id and coalesce(sa.active,false)=true and coalesce(sa.can_login,false)=true
   ) then
-    raise exception using errcode='42501', message='active staff actor required';
+    raise exception using errcode='42501', message='يلزم تسجيل الدخول بحساب موظف فعال';
   end if;
 
   v_health := public.integration_sync_health_v1();
@@ -47,21 +47,21 @@ begin
 
   if v_bio_client_last is null then
     v_bio_diagnosis := 'agent_never_connected';
-    v_bio_action := 'تأكد من تشغيل Windows Fingerprint Agent على الجهاز الرئيسي وصحة مفتاح الاتصال.';
+    v_bio_action := 'تأكد من تشغيل برنامج ربط البصمة على الجهاز الرئيسي ومن صحة مفتاح الاتصال.';
   elsif v_now - v_bio_client_last > interval '20 minutes' then
     v_bio_diagnosis := 'agent_offline';
-    v_bio_action := 'برنامج البصمة لا يرسل heartbeat. راجع الجهاز الرئيسي والإنترنت وتشغيل الـAgent.';
+    v_bio_action := 'برنامج ربط البصمة لا يرسل إشارة اتصال. راجع الجهاز الرئيسي والإنترنت وتأكد من أن البرنامج يعمل.';
   elsif v_bio_watermark is null then
     v_bio_diagnosis := 'watermark_missing';
-    v_bio_action := 'الـAgent متصل لكن لا يوجد Watermark. راجع خطوة التحديث بعد إرسال الدفعة.';
+    v_bio_action := 'برنامج الربط متصل لكن لا توجد علامة تقدم للمزامنة. راجع خطوة تثبيت اكتمال الدفعة بعد إرسالها.';
   elsif v_now - v_bio_watermark > interval '30 minutes'
         and v_bio_ingested_last is not null
         and v_now - v_bio_ingested_last <= interval '20 minutes' then
     v_bio_diagnosis := 'watermark_stalled';
-    v_bio_action := 'البصمات تصل لكن الـWatermark لا يتحرك. راجع ACK/complete_through في الـAgent.';
+    v_bio_action := 'سجلات البصمة تصل لكن علامة تقدم المزامنة لا تتحرك. راجع تأكيد استلام الدفعة وتحديث نقطة الاكتمال في برنامج الربط.';
   elsif v_bio_ingested_last is null or v_now - v_bio_ingested_last > interval '30 minutes' then
     v_bio_diagnosis := 'ingestion_stalled';
-    v_bio_action := 'الـAgent متصل لكن لا تصل سجلات بصمة حديثة. راجع قراءة قاعدة بيانات جهاز البصمة والرفع.';
+    v_bio_action := 'برنامج الربط متصل لكن لا تصل سجلات بصمة حديثة. راجع قراءة قاعدة بيانات جهاز البصمة وعملية الرفع.';
   elsif v_bio_total > 0 and (v_bio_unmapped::numeric / v_bio_total::numeric) > 0.20 then
     v_bio_diagnosis := 'mapping_attention';
     v_bio_action := 'المصدر يعمل لكن نسبة البصمات غير المربوطة مرتفعة. راجع ربط أكواد البصمة بالموظفين.';
