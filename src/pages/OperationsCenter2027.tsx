@@ -389,7 +389,7 @@ export default function OperationsCenter2027() {
         <div className="flex flex-wrap gap-2">
           {tabs.map(({ key, label, icon: Icon }) => (
             <button key={key} type="button" onClick={() => setActiveTab(key)} className={activeTab === key ? 'dawaa-button dawaa-button--primary' : 'dawaa-button dawaa-button--secondary'}>
-              <Icon className="h-4 w-4" /> {label} <span className="rounded-full bg-black/10 px-2 py-0.5 text-xs">{groupCounts[key]}</span>
+              <Icon className="h-4 w-4" /> {label} <span className="rounded-full border border-[var(--dawaa-theme-border)] px-2 py-0.5 text-xs">{groupCounts[key]}</span>
             </button>
           ))}
         </div>
