@@ -8,6 +8,7 @@ import {
   type CanonicalNotificationType,
   type NotificationPriority,
 } from '@/lib/notifications/notificationDomain';
+import { normalizeNotificationMetadata } from '@/lib/notifications/notificationMetadata';
 
 export type NotificationType = CanonicalNotificationType | string;
 export type NotificationStatus = 'new' | 'read' | 'in_progress' | 'completed' | 'dismissed' | 'escalated';
@@ -84,9 +85,11 @@ export interface NotificationFilters {
 export const CANONICAL_NOTIFICATION_READ_MODEL = 'notification_events_v2';
 
 export function normalizeNotification(row: Record<string, unknown>): AppNotification {
-  const metadata = row.metadata && typeof row.metadata === 'object'
+  const rawType = String(row.type || 'system');
+  const rawMetadata = row.metadata && typeof row.metadata === 'object'
     ? row.metadata as Record<string, unknown>
     : {};
+  const metadata = normalizeNotificationMetadata(rawType, rawMetadata);
   const message = String(row.message || '');
   const route = String(row.route || metadata.route || '');
   const read = Boolean(row.is_read ?? row.status === 'read');
@@ -95,7 +98,7 @@ export function normalizeNotification(row: Record<string, unknown>): AppNotifica
     title: String(row.title || row.type || 'إشعار'),
     message,
     body: message,
-    type: String(row.type || 'system'),
+    type: rawType,
     priority: String(row.priority || 'normal'),
     recipient_staff_id: row.recipient_staff_id as string | null | undefined,
     recipient_user_id: row.recipient_user_id as string | null | undefined,
@@ -153,6 +156,16 @@ export async function createNotification(payload: NotificationPayload) {
       entityType: payload.target_type || undefined,
       entityId: payload.target_id || undefined,
     });
+    const metadata = normalizeNotificationMetadata(type, {
+      ...(payload.metadata || {}),
+      branch: payload.branch || payload.metadata?.branch || null,
+      staffId: payload.recipient_staff_id || payload.metadata?.staffId || null,
+      canonicalType: type,
+      requiresAction,
+      soundEnabled: payload.sound_enabled ?? ['urgent', 'critical'].includes(priority),
+      createdByName: payload.created_by_name || null,
+      route,
+    });
 
     const { data: id, error } = await supabase.rpc('create_notification_audience_v1', {
       p_recipient_staff_id: payload.recipient_staff_id || null,
@@ -165,14 +178,7 @@ export async function createNotification(payload: NotificationPayload) {
       p_entity_id: payload.target_id || null,
       p_action_url: route || null,
       p_priority: priority,
-      p_metadata: {
-        ...(payload.metadata || {}),
-        canonicalType: type,
-        requiresAction,
-        soundEnabled: payload.sound_enabled ?? ['urgent', 'critical'].includes(priority),
-        createdByName: payload.created_by_name || null,
-        route,
-      },
+      p_metadata: metadata,
       p_dedupe_key: dedupeKey || null,
     });
     if (error || !id) {
