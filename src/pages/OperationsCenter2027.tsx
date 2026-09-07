@@ -1,5 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { BellRing, CheckCircle2, Clock, Plus, Search, ShieldAlert, Sparkles } from 'lucide-react';
+import {
+  BellRing,
+  CheckCircle2,
+  Clock,
+  ExternalLink,
+  ListChecks,
+  MessageSquareText,
+  Plus,
+  Search,
+  ShieldAlert,
+  Sparkles,
+  UsersRound,
+  Wifi,
+} from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { useStaffDirectory } from '@/hooks/useStaffDirectory';
@@ -31,6 +45,7 @@ type TaskRow = {
 };
 
 type StaffOption = { id: string; name: string; role?: string | null; branch?: string | null };
+type NotificationTab = 'urgent' | 'vip' | 'overdue' | 'completed' | 'reviews' | 'system' | 'all';
 
 const MANAGER_ROLES = new Set([
   'general_manager',
@@ -44,7 +59,84 @@ const MANAGER_ROLES = new Set([
 ]);
 const CLOSED = new Set(['done', 'completed', 'مكتمل', 'closed', 'تم']);
 
+const PRIORITY_AR: Record<string, string> = {
+  low: 'منخفض',
+  normal: 'عادي',
+  medium: 'متوسط',
+  high: 'مهم',
+  urgent: 'عاجل',
+  critical: 'حرج',
+  خطر: 'عاجل',
+  مهم: 'مهم',
+  عادي: 'عادي',
+};
+
+const TYPE_AR: Record<string, string> = {
+  conversation_review: 'تقييم محادثة',
+  chat_evaluation: 'تقييم محادثة',
+  staff_task: 'مهمة موظف',
+  task: 'مهمة موظف',
+  staff_task_overdue: 'مهمة متأخرة',
+  staff_task_completed: 'مهمة تم تنفيذها',
+  customer_followup: 'متابعة عميل',
+  customer_request: 'طلب عميل',
+  customer_alert: 'تنبيه عميل',
+  vip_customer_silence: 'عميل VIP غير نشط',
+  vip_customer_health: 'حركة عميل VIP',
+  vip_customer_health_digest: 'تقرير عملاء VIP',
+  daily_customer_attention_digest: 'عملاء يحتاجون متابعة',
+  sync_health: 'حالة المزامنة',
+  sync_health_alert: 'مشكلة مزامنة',
+  attendance: 'الحضور والانصراف',
+  reward: 'مكافأة',
+  deduction: 'خصم',
+  penalty: 'خصم',
+  expiry_alert: 'تنبيه صلاحية',
+  system: 'النظام',
+};
+
+function priorityLabel(value: unknown) {
+  const key = String(value || 'normal').trim().toLowerCase();
+  return PRIORITY_AR[key] || String(value || 'عادي');
+}
+
+function typeLabel(value: unknown) {
+  const key = String(value || 'system').trim().toLowerCase();
+  return TYPE_AR[key] || 'تنبيه تشغيلي';
+}
+
+function notificationGroup(n: AppNotification): NotificationTab {
+  const type = String(n.type || '').toLowerCase();
+  const title = String(n.title || '').toLowerCase();
+  const priority = String(n.priority || '').toLowerCase();
+  if (['critical', 'urgent'].includes(priority) || type === 'sync_health_alert') return 'urgent';
+  if (type.includes('vip_') || type === 'daily_customer_attention_digest' || title.includes('عميل مهم') || title.includes('vip')) return 'vip';
+  if (type === 'staff_task_overdue' || title.includes('متأخر') || title.includes('تأخر')) return 'overdue';
+  if (type === 'staff_task_completed' || title.includes('تم تنفيذ') || title.includes('تمت المهمة')) return 'completed';
+  if (type.includes('conversation_review') || type === 'chat_evaluation' || title.includes('تقييم محادثة')) return 'reviews';
+  if (type.includes('sync_health') || type === 'system' || title.includes('مزامنة') || title.includes('اتصال')) return 'system';
+  if (priority === 'high') return 'urgent';
+  return 'all';
+}
+
+function metadataValue(n: AppNotification, ...keys: string[]) {
+  const metadata = n.metadata || {};
+  for (const key of keys) {
+    const value = metadata[key];
+    if (value !== null && value !== undefined && String(value).trim() !== '') return value;
+  }
+  return null;
+}
+
+function formatDate(value: string | null | undefined) {
+  if (!value) return 'غير محدد';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString('ar-EG', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
 export default function OperationsCenter2027() {
+  const navigate = useNavigate();
   const { user, checkPermission } = useAuth();
   const role = normalizeRole(user?.role);
   const canCreateTasks = checkPermission('manage_operations') || MANAGER_ROLES.has(role);
@@ -60,6 +152,7 @@ export default function OperationsCenter2027() {
 
   const [notificationsRaw, setNotificationsRaw] = useState<Record<string, unknown>[]>([]);
   const [search, setSearch] = useState('');
+  const [activeTab, setActiveTab] = useState<NotificationTab>('urgent');
   const [form, setForm] = useState({
     title: '',
     priority: 'مهم',
@@ -87,12 +180,7 @@ export default function OperationsCenter2027() {
       if (!identity.id || !identity.name || !identity.active || identity.source === 'alias') continue;
       if (!canSeeAllBranches && user?.branch && identity.branch !== user.branch) continue;
       if (!byId.has(identity.id)) {
-        byId.set(identity.id, {
-          id: identity.id,
-          name: identity.name,
-          role: identity.role,
-          branch: identity.branch,
-        });
+        byId.set(identity.id, { id: identity.id, name: identity.name, role: identity.role, branch: identity.branch });
       }
     }
     return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name, 'ar'));
@@ -113,20 +201,21 @@ export default function OperationsCenter2027() {
   const visibleTasks = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return tasks;
-    return tasks.filter((task) =>
-      `${task.title || ''} ${task.description || ''} ${task.assigned_name || ''} ${task.priority || ''}`
-        .toLowerCase()
-        .includes(q)
-    );
+    return tasks.filter((task) => `${task.title || ''} ${task.description || ''} ${task.assigned_name || ''} ${task.priority || ''}`.toLowerCase().includes(q));
   }, [search, tasks]);
 
-  const visibleNotifications = useMemo(() => {
+  const filteredNotifications = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return notifications;
-    return notifications.filter((n) =>
-      `${n.title} ${n.message} ${n.type} ${n.priority}`.toLowerCase().includes(q)
-    );
-  }, [notifications, search]);
+    return notifications
+      .filter((n) => activeTab === 'all' || notificationGroup(n) === activeTab)
+      .filter((n) => !q || `${n.title} ${n.message} ${n.type} ${n.priority} ${n.branch || ''}`.toLowerCase().includes(q));
+  }, [activeTab, notifications, search]);
+
+  const groupCounts = useMemo(() => {
+    const counts: Record<NotificationTab, number> = { urgent: 0, vip: 0, overdue: 0, completed: 0, reviews: 0, system: 0, all: notifications.length };
+    for (const n of notifications) counts[notificationGroup(n)] += 1;
+    return counts;
+  }, [notifications]);
 
   const openTasks = tasks.filter((task) => !CLOSED.has(String(task.status || '').toLowerCase()));
   const urgentTasks = openTasks.filter((task) => ['خطر', 'high', 'urgent', 'critical'].includes(String(task.priority || '').toLowerCase()));
@@ -173,16 +262,9 @@ export default function OperationsCenter2027() {
     });
 
     await logActivity({
-      action: 'task_created',
-      module: 'operations_center',
-      target_type: 'task',
-      target_id: String(data?.id || ''),
-      user_id: user?.id,
-      user_name: user?.name,
-      user_role: user?.role,
-      branch_name: user?.branch,
-      route_path: '/operations-center',
-      details: { assigned_staff_id: assignee.id, assigned_name: assignee.name },
+      action: 'task_created', module: 'operations_center', target_type: 'task', target_id: String(data?.id || ''),
+      user_id: user?.id, user_name: user?.name, user_role: user?.role, branch_name: user?.branch,
+      route_path: '/operations-center', details: { assigned_staff_id: assignee.id, assigned_name: assignee.name },
     }).catch(() => undefined);
 
     setForm((current) => ({ ...current, title: '', staff_id: '' }));
@@ -208,14 +290,27 @@ export default function OperationsCenter2027() {
     refetchNotifications();
   }
 
+  function openNotification(n: AppNotification) {
+    const route = n.target_route || n.route || (typeof n.metadata?.route === 'string' ? n.metadata.route : null);
+    if (route?.startsWith('/')) navigate(route);
+  }
+
+  const tabs: Array<{ key: NotificationTab; label: string; icon: typeof BellRing }> = [
+    { key: 'urgent', label: 'عاجل', icon: ShieldAlert },
+    { key: 'vip', label: 'VIP والعملاء', icon: UsersRound },
+    { key: 'overdue', label: 'مهام متأخرة', icon: Clock },
+    { key: 'completed', label: 'مهام تمت', icon: CheckCircle2 },
+    { key: 'reviews', label: 'تقييمات المحادثات', icon: MessageSquareText },
+    { key: 'system', label: 'المزامنة والنظام', icon: Wifi },
+    { key: 'all', label: 'الكل', icon: ListChecks },
+  ];
+
   return (
     <div className="space-y-5" dir="rtl">
       <section className="dawaa-card dawaa-card--raised">
-        <span className="dawaa-brand-chip">My Work Center</span>
+        <span className="dawaa-brand-chip">مركز التشغيل اليومي</span>
         <h1 className="dawaa-title mt-3 text-2xl">المهام والتنبيهات</h1>
-        <p className="dawaa-caption mt-1 font-semibold">
-          المعروض هنا يخصك حسب دورك وفرعك ومسؤولياتك. الإدارة ترى نطاق مسؤوليتها فقط، والإدارة العليا ترى الصورة الكاملة.
-        </p>
+        <p className="dawaa-caption mt-1 font-semibold">الأهم أولًا: المشكلات الحرجة، عملاء VIP، المهام المتأخرة، تقييمات المحادثات، ثم باقي التنبيهات.</p>
       </section>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -225,10 +320,17 @@ export default function OperationsCenter2027() {
         <Kpi icon={Sparkles} label="مهام عاجلة" value={urgentTasks.length} />
       </div>
 
-      <section className="dawaa-card">
+      <section className="dawaa-card space-y-4">
         <div className="relative max-w-xl">
           <Search className="dawaa-muted absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2" />
-          <input className="dawaa-input w-full pr-10" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="بحث في مهامي وتنبيهاتي" />
+          <input className="dawaa-input w-full pr-10" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="بحث باسم العميل أو الموظف أو نوع التنبيه" />
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {tabs.map(({ key, label, icon: Icon }) => (
+            <button key={key} type="button" onClick={() => setActiveTab(key)} className={activeTab === key ? 'dawaa-button dawaa-button--primary' : 'dawaa-button dawaa-button--secondary'}>
+              <Icon className="h-4 w-4" /> {label} <span className="rounded-full bg-black/10 px-2 py-0.5 text-xs">{groupCounts[key]}</span>
+            </button>
+          ))}
         </div>
       </section>
 
@@ -257,7 +359,10 @@ export default function OperationsCenter2027() {
             const done = CLOSED.has(String(task.status || '').toLowerCase());
             return <div key={task.id} className="rounded-2xl border border-[var(--dawaa-theme-border)] p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
-                <div><div className="font-black">{task.title}</div><div className="dawaa-caption mt-1">{task.assigned_name || 'مهمة موجهة لك'} · {task.due_date || 'بدون موعد'} · {task.priority || 'عادي'}</div></div>
+                <div>
+                  <div className="font-black">{task.title}</div>
+                  <div className="dawaa-caption mt-1">{task.assigned_name || 'مهمة موجهة لك'} · الموعد {task.due_date || 'غير محدد'} · {priorityLabel(task.priority)}</div>
+                </div>
                 {!done ? <button className="dawaa-button dawaa-button--secondary" onClick={() => void completeTask(task)}><CheckCircle2 className="h-4 w-4" /> تم التنفيذ</button> : <span className="dawaa-brand-chip">مكتملة</span>}
               </div>
             </div>;
@@ -266,17 +371,49 @@ export default function OperationsCenter2027() {
       </section>
 
       <section className="dawaa-card">
-        <h2 className="dawaa-title mb-3 text-lg">التنبيهات</h2>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="dawaa-title text-lg">{tabs.find((tab) => tab.key === activeTab)?.label || 'التنبيهات'}</h2>
+          <span className="dawaa-caption">{filteredNotifications.length} تنبيه</span>
+        </div>
         <div className="space-y-2">
-          {visibleNotifications.length === 0 ? <Empty text="لا توجد تنبيهات تخصك حاليًا" /> : visibleNotifications.map((n) => <div key={n.id} className="rounded-2xl border border-[var(--dawaa-theme-border)] p-4">
-            <div className="font-black">{n.title}</div>
-            <div className="dawaa-caption mt-1">{n.message || n.body}</div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {!n.read && !n.is_read ? <button className="dawaa-button dawaa-button--ghost" onClick={() => void notificationAction('read', n.id)}>تمت القراءة</button> : null}
-              {n.requires_action && n.status !== 'completed' ? <button className="dawaa-button dawaa-button--secondary" onClick={() => void notificationAction('completed', n.id)}>تم الإجراء</button> : null}
-              <button className="dawaa-button dawaa-button--ghost" onClick={() => void notificationAction('dismissed', n.id)}>إخفاء</button>
-            </div>
-          </div>)}
+          {filteredNotifications.length === 0 ? <Empty text="لا توجد تنبيهات في هذا القسم حاليًا" /> : filteredNotifications.map((n) => {
+            const score = metadataValue(n, 'score');
+            const points = metadataValue(n, 'points_impact', 'pointsImpact');
+            const customerName = metadataValue(n, 'customerName');
+            const currentSales = metadataValue(n, 'currentSales');
+            const previousSales = metadataValue(n, 'previousSalesSamePeriod');
+            const changePct = metadataValue(n, 'changePct');
+            const improvement = metadataValue(n, 'improvement_note');
+            return <div key={n.id} className="rounded-2xl border border-[var(--dawaa-theme-border)] p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="font-black">{n.title}</div>
+                    <span className="dawaa-brand-chip">{priorityLabel(n.priority)}</span>
+                    <span className="dawaa-caption">{typeLabel(n.type)}</span>
+                  </div>
+                  <div className="dawaa-caption mt-1 leading-relaxed">{n.message || n.body}</div>
+                  <div className="dawaa-caption mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs">
+                    {n.branch ? <span>الفرع: <b>{n.branch}</b></span> : null}
+                    <span>الوقت: <b>{formatDate(n.created_at)}</b></span>
+                    {score !== null ? <span>الدرجة: <b>{String(score)}/100</b></span> : null}
+                    {points !== null ? <span>تأثير النقاط: <b>{String(points)}</b></span> : null}
+                    {customerName !== null ? <span>العميل: <b>{String(customerName)}</b></span> : null}
+                    {currentSales !== null ? <span>الحالي: <b>{Number(currentSales).toLocaleString('ar-EG')} ج</b></span> : null}
+                    {previousSales !== null ? <span>نفس المدة السابقة: <b>{Number(previousSales).toLocaleString('ar-EG')} ج</b></span> : null}
+                    {changePct !== null ? <span>التغير: <b>{String(changePct)}%</b></span> : null}
+                  </div>
+                  {improvement !== null ? <div className="mt-2 rounded-xl bg-[var(--dawaa-theme-soft)] px-3 py-2 text-xs font-bold">ملاحظة التحسين: {String(improvement)}</div> : null}
+                </div>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {(n.target_route || n.route || n.metadata?.route) ? <button className="dawaa-button dawaa-button--primary" onClick={() => openNotification(n)}><ExternalLink className="h-4 w-4" /> فتح التفاصيل</button> : null}
+                {!n.read && !n.is_read ? <button className="dawaa-button dawaa-button--ghost" onClick={() => void notificationAction('read', n.id)}>تمت القراءة</button> : null}
+                {n.requires_action && n.status !== 'completed' ? <button className="dawaa-button dawaa-button--secondary" onClick={() => void notificationAction('completed', n.id)}>تم الإجراء</button> : null}
+                <button className="dawaa-button dawaa-button--ghost" onClick={() => void notificationAction('dismissed', n.id)}>إخفاء</button>
+              </div>
+            </div>;
+          })}
         </div>
       </section>
     </div>
