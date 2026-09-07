@@ -105,8 +105,11 @@ begin
       count(*) filter(
         where public.dawaa_staff_scheduled_workday_v1(r.staff_id,d::date)
       )::integer scheduled_workdays,
+      -- Only fully elapsed workdays drive the expected pace. The current workday
+      -- is reported separately through counted_today and never marks somebody
+      -- behind before their day has finished.
       count(*) filter(
-        where d::date<=v_anchor
+        where d::date<v_anchor
           and public.dawaa_staff_scheduled_workday_v1(r.staff_id,d::date)
       )::integer elapsed_workdays
     from responsibility r
