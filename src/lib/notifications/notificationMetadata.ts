@@ -43,7 +43,7 @@ export function normalizeNotificationMetadata(
   input: Record<string, unknown> | null | undefined
 ): CanonicalNotificationMetadata {
   const meta = input && typeof input === 'object' ? input : {};
-  const canonicalType = canonicalNotificationType(rawType);
+  const canonicalType = canonicalNotificationType(first(meta, 'canonicalType') || rawType);
 
   const normalized: CanonicalNotificationMetadata = {
     ...meta,
@@ -87,7 +87,7 @@ export function notificationMetadataContractIssues(
   metadata: Record<string, unknown> | null | undefined
 ): string[] {
   const meta = normalizeNotificationMetadata(rawType, metadata);
-  const type = canonicalNotificationType(rawType);
+  const type = canonicalNotificationType(meta.canonicalType);
   const issues: string[] = [];
 
   if (type === 'conversation_review') {
@@ -102,12 +102,12 @@ export function notificationMetadataContractIssues(
   }
 
   if (type === 'vip_customer_silence') {
-    if (!meta.customerCode) issues.push('customerCode');
+    if (!meta.customerCode && !meta.isDigest) issues.push('customerCode');
   }
 
   if (type === 'system' && (meta.syncName || /sync/i.test(String(rawType || '')))) {
     if (!meta.syncName) issues.push('syncName');
-    if (!meta.severity) issues.push('severity');
+    if (!meta.severity && !meta.resolvedAt && !meta.resolved_at) issues.push('severity');
   }
 
   return issues;
