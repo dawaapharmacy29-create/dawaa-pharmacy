@@ -33,6 +33,7 @@ const EvaluationRules2027 = lazy(() => import('@/pages/EvaluationRules2027'));
 const QuarterlyIncentives2027 = lazy(() => import('@/pages/QuarterlyIncentives2027'));
 const OperationsCenter2027 = lazy(() => import('@/pages/OperationsCenter2027'));
 const DataHealthCenter = lazy(() => import('@/pages/DataHealthCenter'));
+const SystemIntegrations = lazy(() => import('@/pages/SystemIntegrations'));
 const Customers = lazy(() => import('@/pages/Customers'));
 const Customer360 = lazy(() => import('@/pages/Customer360'));
 const CustomerImport = lazy(() => import('@/pages/CustomerImport'));
@@ -422,6 +423,14 @@ function AppRoutes() {
         }
       />
       <Route
+        path="/system-integrations"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<SystemIntegrations />, 'مركز المزامنة والتكاملات')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/customers"
         element={<ProtectedRoute>{routeSuspense(<Customers />, 'العملاء')}</ProtectedRoute>}
       />
@@ -769,7 +778,7 @@ function AppRoutes() {
       />
       <Route
         path="/attendance-report"
-        element={<ProtectedRoute>{routeSuspense(<AttendanceReport />, 'الحضور')}</ProtectedRoute>}
+        element={<ProtectedRoute>{routeSuspense(<AttendanceReport />, 'الحضور والبصمة')}</ProtectedRoute>}
       />
       <Route
         path="/loyalty-tiers"
