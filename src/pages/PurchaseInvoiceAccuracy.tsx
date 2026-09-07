@@ -1,160 +1,39 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  AlertTriangle,
-  BarChart3,
-  CheckCircle2,
-  Eye,
-  Filter,
-  Link2,
-  Loader2,
-  Search,
-  ThumbsDown,
-  TrendingUp,
-  Users,
-  X,
-} from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { Loader2, Search, Users, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { Panel, SectionTitle, EmptyState } from '@/components/dashboard/DashboardPrimitives';
+import { Panel, SectionTitle } from '@/components/dashboard/DashboardPrimitives';
 import { searchActiveStaffByName, type StaffDirectoryOption } from '@/lib/staffDirectorySearch';
+import {
+  assignPurchaseInvoiceStaff,
+  classifyPendingPurchaseInvoice,
+  getPurchaseInvoiceAccuracyFilterOptions,
+  getPurchaseInvoiceAccuracyReport,
+  listPendingPurchaseInvoiceReviews,
+  listPurchaseInvoiceReviewHistory,
+  logManualPurchaseInvoiceReview,
+  resolvePurchaseInvoiceAlias,
+  searchPurchaseInvoiceAccuracy,
+} from '@/features/purchaseInvoiceAccuracy/api';
+import { FiltersPanel } from '@/features/purchaseInvoiceAccuracy/components/FiltersPanel';
+import { HistoryPanel } from '@/features/purchaseInvoiceAccuracy/components/HistoryPanel';
+import { QueuePanel } from '@/features/purchaseInvoiceAccuracy/components/QueuePanel';
+import { ReportsPanel } from '@/features/purchaseInvoiceAccuracy/components/ReportsPanel';
+import {
+  EMPTY_FILTER_OPTIONS,
+  EMPTY_REPORT,
+  MATCH_STATUS_LABEL,
+  TRANSACTION_TYPE_LABEL,
+  normalizeSearch,
+  type AccuracyFilterOptions,
+  type HistoricalSearchResult,
+  type Outcome,
+  type PageTab,
+  type QueueRow,
+  type ReviewRow,
+} from '@/features/purchaseInvoiceAccuracy/types';
+import { OUTCOME_CONFIG, OUTCOME_ORDER } from '@/features/purchaseInvoiceAccuracy/ui';
 
 type StaffOption = StaffDirectoryOption;
-type PageTab = 'invoices' | 'manual' | 'history' | 'reports';
-type Outcome = 'correct' | 'mixup_unregistered' | 'negligence' | 'customer_problem';
-
-const OUTCOME_CONFIG: Record<Outcome, { label: string; points: number; color: string; bg: string; borderColor: string; icon: typeof CheckCircle2 }> = {
-  correct: { label: 'إدخال صحيح', points: 2, color: 'var(--dawaa-status-success-text)', bg: 'var(--dawaa-status-success-bg)', borderColor: 'var(--dawaa-status-success-border)', icon: CheckCircle2 },
-  mixup_unregistered: { label: 'لغبطة أو عدم تسجيل', points: -1, color: 'var(--dawaa-status-warning-text)', bg: 'var(--dawaa-status-warning-bg)', borderColor: 'var(--dawaa-status-warning-border)', icon: AlertTriangle },
-  negligence: { label: 'إهمال', points: -2, color: 'var(--dawaa-status-danger-text)', bg: 'var(--dawaa-status-danger-bg)', borderColor: 'var(--dawaa-status-danger-border)', icon: ThumbsDown },
-  customer_problem: { label: 'سبب مشكلة مع عميل', points: -4, color: 'var(--dawaa-status-danger-text)', bg: 'var(--dawaa-status-danger-bg)', borderColor: 'var(--dawaa-status-danger-border)', icon: ThumbsDown },
-};
-
-const OUTCOME_ORDER: Outcome[] = ['correct', 'mixup_unregistered', 'negligence', 'customer_problem'];
-
-type ReviewRow = {
-  id: string;
-  staff_id: string;
-  staff_name: string;
-  branch: string | null;
-  invoice_reference: string | null;
-  outcome: Outcome;
-  points: number;
-  notes: string | null;
-  review_date: string;
-  reviewed_by_name: string | null;
-};
-
-type QueueRow = {
-  id: string;
-  base44_id: string;
-  system_invoice_number: string | null;
-  branch: string | null;
-  transaction_type: string | null;
-  entered_by_raw: string | null;
-  entered_by_staff_id: string | null;
-  entered_by_staff_name: string | null;
-  match_status: 'matched' | 'ambiguous' | 'unmatched' | 'empty';
-  invoice_date: string | null;
-  total_value: number | null;
-};
-
-type ReportSummary = {
-  reviewed_count: number;
-  pending_count: number;
-  correct_count: number;
-  mixup_count: number;
-  negligence_count: number;
-  customer_problem_count: number;
-  unknown_staff_count: number;
-  total_points: number;
-  accuracy_rate: number;
-};
-
-type StaffReportRow = {
-  staff_id: string;
-  staff_name: string;
-  branch: string | null;
-  reviewed_count: number;
-  correct_count: number;
-  mixup_count: number;
-  negligence_count: number;
-  customer_problem_count: number;
-  total_points: number;
-  accuracy_rate: number;
-  avg_points: number;
-};
-
-type BranchReportRow = {
-  branch: string;
-  reviewed_count: number;
-  pending_count: number;
-  correct_count: number;
-  negligence_count: number;
-  customer_problem_count: number;
-  total_points: number;
-  accuracy_rate: number;
-};
-
-type DailyReportRow = {
-  report_date: string;
-  reviewed_count: number;
-  correct_count: number;
-  total_points: number;
-  accuracy_rate: number;
-};
-
-type AccuracyReport = {
-  summary: ReportSummary;
-  staff: StaffReportRow[];
-  branches: BranchReportRow[];
-  daily: DailyReportRow[];
-};
-
-type HistoricalSearchResult = {
-  pending: QueueRow[];
-  reviews: ReviewRow[];
-};
-
-const EMPTY_REPORT: AccuracyReport = {
-  summary: {
-    reviewed_count: 0,
-    pending_count: 0,
-    correct_count: 0,
-    mixup_count: 0,
-    negligence_count: 0,
-    customer_problem_count: 0,
-    unknown_staff_count: 0,
-    total_points: 0,
-    accuracy_rate: 0,
-  },
-  staff: [],
-  branches: [],
-  daily: [],
-};
-
-const MATCH_STATUS_LABEL: Record<QueueRow['match_status'], string> = {
-  matched: 'تمت مطابقة الموظف',
-  ambiguous: 'الاسم محتاج تأكيد',
-  unmatched: 'الاسم غير معروف',
-  empty: 'لم يتم تسجيل اسم في Base44',
-};
-
-const TRANSACTION_TYPE_LABEL: Record<string, string> = {
-  external_purchase: 'شراء خارجي',
-  internal_transfer: 'تحويل بين فرعين',
-};
-
-function normalizeSearch(value: string | null | undefined) {
-  return (value || '').trim().toLocaleLowerCase('ar');
-}
-
-function getStaffStatus(row: StaffReportRow) {
-  const severe = row.negligence_count + row.customer_problem_count;
-  if (row.reviewed_count >= 5 && row.accuracy_rate >= 95 && severe === 0) return { label: 'ممتاز', color: 'var(--dawaa-status-success-text)', bg: 'var(--dawaa-status-success-bg)' };
-  if (row.accuracy_rate >= 85 && severe <= 1) return { label: 'جيد جدًا', color: 'var(--dawaa-theme-primary)', bg: 'var(--dawaa-theme-soft)' };
-  if (row.accuracy_rate >= 70 && severe <= 2) return { label: 'يحتاج متابعة', color: 'var(--dawaa-status-warning-text)', bg: 'var(--dawaa-status-warning-bg)' };
-  return { label: 'خطر تشغيلي', color: 'var(--dawaa-status-danger-text)', bg: 'var(--dawaa-status-danger-bg)' };
-}
 
 export default function PurchaseInvoiceAccuracy() {
   const [activeTab, setActiveTab] = useState<PageTab>('invoices');
@@ -188,9 +67,12 @@ export default function PurchaseInvoiceAccuracy() {
   const [actingRowId, setActingRowId] = useState<string | null>(null);
   const [detailsRow, setDetailsRow] = useState<QueueRow | null>(null);
 
-  const [report, setReport] = useState<AccuracyReport>(EMPTY_REPORT);
+  const [report, setReport] = useState(EMPTY_REPORT);
   const [loadingReport, setLoadingReport] = useState(false);
   const [reportError, setReportError] = useState(false);
+
+  const [filterOptions, setFilterOptions] = useState<AccuracyFilterOptions>(EMPTY_FILTER_OPTIONS);
+  const [filterOptionsAttempted, setFilterOptionsAttempted] = useState(false);
 
   const [historicalSearch, setHistoricalSearch] = useState<HistoricalSearchResult | null>(null);
   const [loadingSearch, setLoadingSearch] = useState(false);
@@ -199,14 +81,13 @@ export default function PurchaseInvoiceAccuracy() {
   const loadQueue = useCallback(async () => {
     setLoadingQueue(true);
     setQueueError(false);
-    const { data, error } = await supabase.rpc('list_base44_pending_invoice_reviews_v1', { p_limit: 100 });
-    if (error) {
+    try {
+      setQueue(await listPendingPurchaseInvoiceReviews(100));
+    } catch {
       setQueueError(true);
+    } finally {
       setLoadingQueue(false);
-      return;
     }
-    setQueue((data || []) as QueueRow[]);
-    setLoadingQueue(false);
   }, []);
 
   useEffect(() => {
@@ -216,40 +97,50 @@ export default function PurchaseInvoiceAccuracy() {
   const loadHistory = useCallback(async () => {
     setLoadingHistory(true);
     setHistoryError(false);
-    const { data, error } = await supabase.rpc('list_purchase_invoice_entry_reviews_v1', { p_limit: 100 });
-    if (error) {
+    try {
+      setHistory(await listPurchaseInvoiceReviewHistory(100));
+      setHistoryLoaded(true);
+    } catch {
       setHistoryError(true);
+    } finally {
       setLoadingHistory(false);
-      return;
     }
-    setHistory((data || []) as ReviewRow[]);
-    setHistoryLoaded(true);
-    setLoadingHistory(false);
   }, []);
 
   useEffect(() => {
-    if ((activeTab === 'history' || activeTab === 'reports') && !historyLoaded && !loadingHistory) {
-      void loadHistory();
-    }
+    if (activeTab === 'history' && !historyLoaded && !loadingHistory) void loadHistory();
   }, [activeTab, historyLoaded, loadHistory, loadingHistory]);
+
+  const loadFilterOptions = useCallback(async () => {
+    if (filterOptionsAttempted) return;
+    setFilterOptionsAttempted(true);
+    try {
+      setFilterOptions(await getPurchaseInvoiceAccuracyFilterOptions());
+    } catch {
+      // Current queue/history/report rows still provide a safe fallback for visible options.
+    }
+  }, [filterOptionsAttempted]);
+
+  useEffect(() => {
+    if (activeTab === 'history' || activeTab === 'reports') void loadFilterOptions();
+  }, [activeTab, loadFilterOptions]);
 
   const loadReport = useCallback(async () => {
     setLoadingReport(true);
     setReportError(false);
-    const { data, error } = await supabase.rpc('get_purchase_invoice_accuracy_report_v1', {
-      p_from_date: fromDate || null,
-      p_to_date: toDate || null,
-      p_staff_name: employeeFilter || null,
-      p_reviewer_name: reviewerFilter || null,
-      p_branch: branchFilter || null,
-    });
-    if (error) {
+    try {
+      setReport(await getPurchaseInvoiceAccuracyReport({
+        fromDate,
+        toDate,
+        employee: employeeFilter,
+        reviewer: reviewerFilter,
+        branch: branchFilter,
+      }));
+    } catch {
       setReportError(true);
+    } finally {
       setLoadingReport(false);
-      return;
     }
-    setReport((data || EMPTY_REPORT) as AccuracyReport);
-    setLoadingReport(false);
   }, [branchFilter, employeeFilter, fromDate, reviewerFilter, toDate]);
 
   useEffect(() => {
@@ -258,9 +149,13 @@ export default function PurchaseInvoiceAccuracy() {
     return () => window.clearTimeout(handle);
   }, [activeTab, loadReport]);
 
+  const recordQuery = normalizeSearch(recordSearch);
+  const hasFilters = Boolean(fromDate || toDate || employeeFilter || reviewerFilter || branchFilter);
+  const textSearchActive = recordQuery.length >= 2;
+  const serverQueryActive = hasFilters || textSearchActive;
+
   useEffect(() => {
-    const term = normalizeSearch(recordSearch);
-    if ((activeTab !== 'invoices' && activeTab !== 'history') || term.length < 2) {
+    if ((activeTab !== 'invoices' && activeTab !== 'history') || !serverQueryActive) {
       setHistoricalSearch(null);
       setLoadingSearch(false);
       setSearchError(false);
@@ -272,31 +167,31 @@ export default function PurchaseInvoiceAccuracy() {
     setSearchError(false);
     setLoadingSearch(true);
     const handle = window.setTimeout(async () => {
-      const { data, error } = await supabase.rpc('search_purchase_invoice_accuracy_v1', {
-        p_query: recordSearch.trim(),
-        p_from_date: fromDate || null,
-        p_to_date: toDate || null,
-        p_staff_name: employeeFilter || null,
-        p_reviewer_name: activeTab === 'history' ? reviewerFilter || null : null,
-        p_branch: branchFilter || null,
-        p_limit: 100,
-      });
-      if (cancelled) return;
-      if (error) {
-        setSearchError(true);
-        setLoadingSearch(false);
-        return;
+      try {
+        const result = await searchPurchaseInvoiceAccuracy(
+          textSearchActive ? recordSearch : '',
+          {
+            fromDate,
+            toDate,
+            employee: employeeFilter,
+            reviewer: activeTab === 'history' ? reviewerFilter : '',
+            branch: branchFilter,
+          },
+          100,
+        );
+        if (!cancelled) setHistoricalSearch(result);
+      } catch {
+        if (!cancelled) setSearchError(true);
+      } finally {
+        if (!cancelled) setLoadingSearch(false);
       }
-      const result = (data || { pending: [], reviews: [] }) as HistoricalSearchResult;
-      setHistoricalSearch({ pending: result.pending || [], reviews: result.reviews || [] });
-      setLoadingSearch(false);
-    }, 350);
+    }, 300);
 
     return () => {
       cancelled = true;
       window.clearTimeout(handle);
     };
-  }, [activeTab, branchFilter, employeeFilter, fromDate, recordSearch, reviewerFilter, toDate]);
+  }, [activeTab, branchFilter, employeeFilter, fromDate, recordSearch, reviewerFilter, serverQueryActive, textSearchActive, toDate]);
 
   useEffect(() => {
     const term = resolveSearch.trim();
@@ -335,22 +230,19 @@ export default function PurchaseInvoiceAccuracy() {
   const markDerivedDataStale = useCallback(() => {
     setHistoryLoaded(false);
     setHistoricalSearch(null);
+    setFilterOptionsAttempted(false);
   }, []);
 
   const classifyQueueRow = useCallback(async (row: QueueRow, staffId: string, rowOutcome: Outcome) => {
     setActingRowId(row.id);
     try {
-      const { error } = await supabase.rpc('log_base44_invoice_review_v1', {
-        p_sync_id: row.id,
-        p_staff_id: staffId,
-        p_outcome: rowOutcome,
-      });
-      if (error) throw error;
+      await classifyPendingPurchaseInvoice(row.id, staffId, rowOutcome);
       toast.success('اتسجل');
-      setQueue((prev) => prev.filter((q) => q.id !== row.id));
+      setQueue((prev) => prev.filter((item) => item.id !== row.id));
+      setHistoricalSearch((prev) => prev ? { ...prev, pending: prev.pending.filter((item) => item.id !== row.id) } : prev);
       markDerivedDataStale();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'حصل خطأ في الحفظ');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'حصل خطأ في الحفظ');
     } finally {
       setActingRowId(null);
     }
@@ -359,10 +251,7 @@ export default function PurchaseInvoiceAccuracy() {
   const resolveAndSaveAlias = useCallback(async (row: QueueRow, staff: StaffOption) => {
     if (!row.entered_by_raw) return;
     try {
-      await supabase.rpc('resolve_base44_entered_by_alias_v1', {
-        p_raw_name: row.entered_by_raw,
-        p_staff_id: staff.id,
-      });
+      await resolvePurchaseInvoiceAlias(row.entered_by_raw, staff.id);
     } catch {
       // حفظ اختيار الفاتورة نفسها لا يعتمد على نجاح alias العام.
     }
@@ -371,35 +260,28 @@ export default function PurchaseInvoiceAccuracy() {
   const persistManualStaffAssignment = useCallback(async (row: QueueRow, staff: StaffOption) => {
     setActingRowId(row.id);
     try {
-      const { error } = await supabase.rpc('assign_base44_invoice_entered_by_v1', {
-        p_sync_id: row.id,
-        p_staff_id: staff.id,
-      });
-      if (error) throw error;
-      setQueue((prev) => prev.map((q) => q.id === row.id ? {
-        ...q,
+      await assignPurchaseInvoiceStaff(row.id, staff.id);
+      const updateRow = (item: QueueRow): QueueRow => item.id === row.id ? {
+        ...item,
         entered_by_staff_id: staff.id,
         entered_by_staff_name: staff.name,
         match_status: 'matched',
-      } : q));
+      } : item;
+      setQueue((prev) => prev.map(updateRow));
+      setHistoricalSearch((prev) => prev ? { ...prev, pending: prev.pending.map(updateRow) } : prev);
       setPickedStaffByRow((prev) => {
         const next = { ...prev };
         delete next[row.id];
         return next;
       });
-      setDetailsRow((prev) => prev?.id === row.id ? {
-        ...prev,
-        entered_by_staff_id: staff.id,
-        entered_by_staff_name: staff.name,
-        match_status: 'matched',
-      } : prev);
+      setDetailsRow((prev) => prev ? updateRow(prev) : prev);
       setResolvingId(null);
       setResolveSearch('');
       setResolveOptions([]);
       if (row.entered_by_raw && row.match_status === 'unmatched') void resolveAndSaveAlias(row, staff);
       toast.success(`اتحفظ إن ${staff.name} هو مدخل الفاتورة`);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'تعذّر حفظ مدخل الفاتورة');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'تعذّر حفظ مدخل الفاتورة');
     } finally {
       setActingRowId(null);
     }
@@ -412,14 +294,13 @@ export default function PurchaseInvoiceAccuracy() {
     }
     setSubmitting(true);
     try {
-      const { error } = await supabase.rpc('log_purchase_invoice_entry_review_v1', {
-        p_staff_id: selectedStaff.id,
-        p_outcome: outcome,
-        p_branch: selectedStaff.branch,
-        p_invoice_reference: invoiceReference.trim() || null,
-        p_notes: notes.trim() || null,
+      await logManualPurchaseInvoiceReview({
+        staffId: selectedStaff.id,
+        outcome,
+        branch: selectedStaff.branch,
+        invoiceReference,
+        notes,
       });
-      if (error) throw error;
       toast.success('اتسجل');
       setSelectedStaff(null);
       setSearch('');
@@ -427,15 +308,15 @@ export default function PurchaseInvoiceAccuracy() {
       setNotes('');
       setOutcome('correct');
       markDerivedDataStale();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'حصل خطأ في الحفظ');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'حصل خطأ في الحفظ');
     } finally {
       setSubmitting(false);
     }
   }, [selectedStaff, outcome, invoiceReference, notes, markDerivedDataStale]);
 
   const employeeOptions = useMemo(() => {
-    const values = new Set<string>();
+    const values = new Set(filterOptions.staff);
     queue.forEach((row) => {
       const name = row.entered_by_staff_name || pickedStaffByRow[row.id]?.name || row.entered_by_raw;
       if (name) values.add(name);
@@ -443,55 +324,40 @@ export default function PurchaseInvoiceAccuracy() {
     history.forEach((row) => row.staff_name && values.add(row.staff_name));
     report.staff.forEach((row) => row.staff_name && values.add(row.staff_name));
     return Array.from(values).sort((a, b) => a.localeCompare(b, 'ar'));
-  }, [history, pickedStaffByRow, queue, report.staff]);
+  }, [filterOptions.staff, history, pickedStaffByRow, queue, report.staff]);
 
-  const reviewerOptions = useMemo(
-    () => Array.from(new Set(history.map((row) => row.reviewed_by_name).filter((name): name is string => Boolean(name)))).sort((a, b) => a.localeCompare(b, 'ar')),
-    [history]
-  );
+  const reviewerOptions = useMemo(() => {
+    const values = new Set(filterOptions.reviewers);
+    history.forEach((row) => row.reviewed_by_name && values.add(row.reviewed_by_name));
+    return Array.from(values).sort((a, b) => a.localeCompare(b, 'ar'));
+  }, [filterOptions.reviewers, history]);
 
   const branchOptions = useMemo(() => {
-    const values = new Set<string>();
+    const values = new Set(filterOptions.branches);
     queue.forEach((row) => row.branch && values.add(row.branch));
     history.forEach((row) => row.branch && values.add(row.branch));
     report.branches.forEach((row) => row.branch && values.add(row.branch));
     return Array.from(values).sort((a, b) => a.localeCompare(b, 'ar'));
-  }, [history, queue, report.branches]);
-
-  const recordQuery = normalizeSearch(recordSearch);
+  }, [filterOptions.branches, history, queue, report.branches]);
 
   const localFilteredQueue = useMemo(() => queue.filter((row) => {
-    const rowEmployee = row.entered_by_staff_name || pickedStaffByRow[row.id]?.name || row.entered_by_raw || '';
-    if (fromDate && (!row.invoice_date || row.invoice_date < fromDate)) return false;
-    if (toDate && (!row.invoice_date || row.invoice_date > toDate)) return false;
-    if (employeeFilter && rowEmployee !== employeeFilter) return false;
-    if (branchFilter && row.branch !== branchFilter) return false;
-    if (recordQuery) {
-      const haystack = [row.system_invoice_number, row.base44_id, row.entered_by_staff_name, row.entered_by_raw, row.branch]
-        .map(normalizeSearch)
-        .join(' ');
-      if (!haystack.includes(recordQuery)) return false;
-    }
-    return true;
-  }), [branchFilter, employeeFilter, fromDate, pickedStaffByRow, queue, recordQuery, toDate]);
+    if (!recordQuery) return true;
+    const haystack = [row.system_invoice_number, row.base44_id, row.entered_by_staff_name, row.entered_by_raw, row.branch]
+      .map(normalizeSearch)
+      .join(' ');
+    return haystack.includes(recordQuery);
+  }), [queue, recordQuery]);
 
   const localFilteredHistory = useMemo(() => history.filter((row) => {
-    if (fromDate && row.review_date < fromDate) return false;
-    if (toDate && row.review_date > toDate) return false;
-    if (employeeFilter && row.staff_name !== employeeFilter) return false;
-    if (reviewerFilter && row.reviewed_by_name !== reviewerFilter) return false;
-    if (branchFilter && row.branch !== branchFilter) return false;
-    if (recordQuery) {
-      const haystack = [row.invoice_reference, row.staff_name, row.reviewed_by_name, row.notes, row.branch]
-        .map(normalizeSearch)
-        .join(' ');
-      if (!haystack.includes(recordQuery)) return false;
-    }
-    return true;
-  }), [branchFilter, employeeFilter, fromDate, history, recordQuery, reviewerFilter, toDate]);
+    if (!recordQuery) return true;
+    const haystack = [row.invoice_reference, row.staff_name, row.reviewed_by_name, row.notes, row.branch]
+      .map(normalizeSearch)
+      .join(' ');
+    return haystack.includes(recordQuery);
+  }), [history, recordQuery]);
 
-  const filteredQueue = recordQuery.length >= 2 && historicalSearch ? historicalSearch.pending : localFilteredQueue;
-  const filteredHistory = recordQuery.length >= 2 && historicalSearch ? historicalSearch.reviews : localFilteredHistory;
+  const filteredQueue = serverQueryActive ? (historicalSearch?.pending ?? []) : localFilteredQueue;
+  const filteredHistory = serverQueryActive ? (historicalSearch?.reviews ?? []) : localFilteredHistory;
 
   const clearFilters = () => {
     setFromDate('');
@@ -500,20 +366,6 @@ export default function PurchaseInvoiceAccuracy() {
     setReviewerFilter('');
     setBranchFilter('');
   };
-
-  const hasFilters = Boolean(fromDate || toDate || employeeFilter || reviewerFilter || branchFilter);
-
-  const topRiskStaff = useMemo(
-    () => [...report.staff].sort((a, b) => (b.negligence_count + b.customer_problem_count) - (a.negligence_count + a.customer_problem_count) || a.accuracy_rate - b.accuracy_rate)[0] || null,
-    [report.staff]
-  );
-
-  const worstBranch = useMemo(
-    () => [...report.branches].sort((a, b) => a.accuracy_rate - b.accuracy_rate || b.pending_count - a.pending_count)[0] || null,
-    [report.branches]
-  );
-
-  const latestDaily = report.daily.length ? report.daily[report.daily.length - 1] : null;
 
   return (
     <div className="mx-auto max-w-6xl space-y-5 p-4 pb-24" dir="rtl">
@@ -533,13 +385,7 @@ export default function PurchaseInvoiceAccuracy() {
         ] as Array<[PageTab, string]>).map(([key, label]) => {
           const active = activeTab === key;
           return (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setActiveTab(key)}
-              className="rounded-xl px-3 py-2 text-xs font-black transition sm:text-sm"
-              style={{ background: active ? 'var(--dawaa-theme-primary)' : 'transparent', color: active ? 'white' : 'var(--dawaa-theme-text)' }}
-            >
+            <button key={key} type="button" onClick={() => setActiveTab(key)} className="rounded-xl px-3 py-2 text-xs font-black transition sm:text-sm" style={{ background: active ? 'var(--dawaa-theme-primary)' : 'transparent', color: active ? 'white' : 'var(--dawaa-theme-text)' }}>
               {label}
             </button>
           );
@@ -547,108 +393,49 @@ export default function PurchaseInvoiceAccuracy() {
       </div>
 
       {activeTab !== 'manual' ? (
-        <Panel className="p-4">
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2 font-black" style={{ color: 'var(--dawaa-theme-heading)' }}><Filter size={16} /> الفلاتر</div>
-            {hasFilters ? (
-              <button type="button" onClick={clearFilters} className="flex items-center gap-1 text-xs font-black" style={{ color: 'var(--dawaa-status-danger-text)' }}><X size={14} /> مسح الفلاتر</button>
-            ) : null}
-          </div>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
-            <label className="space-y-1 text-xs font-black" style={{ color: 'var(--dawaa-theme-muted)' }}><span>من تاريخ</span><input type="date" className="input-dark w-full text-sm" value={fromDate} onChange={(e) => setFromDate(e.target.value)} /></label>
-            <label className="space-y-1 text-xs font-black" style={{ color: 'var(--dawaa-theme-muted)' }}><span>إلى تاريخ</span><input type="date" className="input-dark w-full text-sm" value={toDate} onChange={(e) => setToDate(e.target.value)} /></label>
-            <label className="space-y-1 text-xs font-black" style={{ color: 'var(--dawaa-theme-muted)' }}>
-              <span>الموظف</span>
-              <select className="input-dark w-full text-sm" value={employeeFilter} onChange={(e) => setEmployeeFilter(e.target.value)}>
-                <option value="">كل الموظفين</option>
-                {employeeOptions.map((name) => <option key={name} value={name}>{name}</option>)}
-              </select>
-            </label>
-            {activeTab === 'history' || activeTab === 'reports' ? (
-              <label className="space-y-1 text-xs font-black" style={{ color: 'var(--dawaa-theme-muted)' }}>
-                <span>المراجع</span>
-                <select className="input-dark w-full text-sm" value={reviewerFilter} onChange={(e) => setReviewerFilter(e.target.value)}>
-                  <option value="">كل المراجعين</option>
-                  {reviewerOptions.map((name) => <option key={name} value={name}>{name}</option>)}
-                </select>
-              </label>
-            ) : <div className="hidden lg:block" />}
-            <label className="space-y-1 text-xs font-black" style={{ color: 'var(--dawaa-theme-muted)' }}>
-              <span>الفرع</span>
-              <select className="input-dark w-full text-sm" value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)}>
-                <option value="">كل الفروع</option>
-                {branchOptions.map((branch) => <option key={branch} value={branch}>{branch}</option>)}
-              </select>
-            </label>
-          </div>
-
-          {activeTab === 'invoices' || activeTab === 'history' ? (
-            <div className="relative mt-3">
-              <Search size={16} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--dawaa-theme-muted)' }} />
-              <input
-                type="search"
-                className="input-dark w-full pr-9 text-sm"
-                placeholder="ابحث باسم الموظف أو رقم الفاتورة أو Base44 ID..."
-                value={recordSearch}
-                onChange={(e) => setRecordSearch(e.target.value)}
-              />
-              {loadingSearch ? <Loader2 size={15} className="absolute left-3 top-1/2 -translate-y-1/2 animate-spin" style={{ color: 'var(--dawaa-theme-primary)' }} />
-              : recordSearch ? <button type="button" onClick={() => setRecordSearch('')} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--dawaa-theme-muted)' }} aria-label="مسح البحث"><X size={15} /></button>
-              : null}
-            </div>
-          ) : null}
-          {searchError ? <p className="mt-2 text-xs font-bold" style={{ color: 'var(--dawaa-status-warning-text)' }}>تعذّر البحث التاريخي مؤقتًا؛ المعروض حاليًا من البيانات المحملة فقط.</p> : null}
-        </Panel>
+        <FiltersPanel
+          activeTab={activeTab}
+          fromDate={fromDate}
+          toDate={toDate}
+          employeeFilter={employeeFilter}
+          reviewerFilter={reviewerFilter}
+          branchFilter={branchFilter}
+          recordSearch={recordSearch}
+          loadingSearch={loadingSearch}
+          searchError={searchError}
+          employeeOptions={employeeOptions}
+          reviewerOptions={reviewerOptions}
+          branchOptions={branchOptions}
+          onFromDateChange={setFromDate}
+          onToDateChange={setToDate}
+          onEmployeeChange={setEmployeeFilter}
+          onReviewerChange={setReviewerFilter}
+          onBranchChange={setBranchFilter}
+          onSearchChange={setRecordSearch}
+          onClearFilters={clearFilters}
+        />
       ) : null}
 
       {activeTab === 'invoices' ? (
-        <Panel className="p-4">
-          <SectionTitle title={`فواتير Base44 محتاجة تصنيف (${filteredQueue.length})`} subtitle={recordQuery.length >= 2 ? 'البحث يشمل السجلات التاريخية المطابقة' : 'متسحبة تلقائي من الدورة الحالية'} icon={<Link2 size={18} />} />
-          {loadingQueue ? <div className="flex justify-center py-6"><Loader2 className="animate-spin" style={{ color: 'var(--dawaa-theme-muted)' }} /></div>
-          : queueError ? <EmptyState label="تعذّر تحميل قائمة Base44" error onRetry={() => void loadQueue()} />
-          : filteredQueue.length === 0 ? <EmptyState label={queue.length === 0 ? 'مفيش فواتير محتاجة تصنيف دلوقتي' : 'مفيش فواتير مطابقة للبحث والفلاتر الحالية'} />
-          : (
-            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-              {filteredQueue.map((row) => {
-                const resolvedStaff = row.entered_by_staff_id ? { id: row.entered_by_staff_id, name: row.entered_by_staff_name || '', branch: row.branch } : pickedStaffByRow[row.id] || null;
-                return (
-                  <div key={row.id} className="rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <p className="font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>{row.system_invoice_number ? `فاتورة ${row.system_invoice_number}` : row.base44_id}</p>
-                        <button type="button" onClick={() => setDetailsRow(row)} className="inline-flex h-8 w-8 items-center justify-center rounded-lg border transition hover:bg-[var(--dawaa-theme-soft)]" style={{ borderColor: 'var(--dawaa-theme-border)', color: 'var(--dawaa-theme-primary)' }} title="عرض تفاصيل الفاتورة" aria-label="عرض تفاصيل الفاتورة"><Eye size={16} /></button>
-                      </div>
-                      <span className="text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>{row.branch} — {row.invoice_date} — {TRANSACTION_TYPE_LABEL[row.transaction_type || ''] || row.transaction_type}</span>
-                    </div>
-                    <p className="mt-1 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>{row.total_value != null ? `${row.total_value} جنيه` : ''}</p>
-                    {resolvedStaff ? (
-                      <div className="mt-3 space-y-2">
-                        <p className="text-sm font-black" style={{ color: 'var(--dawaa-theme-text)' }}>دخلها: {resolvedStaff.name}</p>
-                        <div className="grid grid-cols-2 gap-2">
-                          {OUTCOME_ORDER.map((key) => {
-                            const cfg = OUTCOME_CONFIG[key];
-                            return <button key={key} type="button" disabled={actingRowId === row.id} onClick={() => void classifyQueueRow(row, resolvedStaff.id, key)} className="rounded-lg border py-2 text-xs font-black" style={{ borderColor: cfg.borderColor, background: cfg.bg, color: cfg.color }}>{cfg.label} ({cfg.points > 0 ? '+' : ''}{cfg.points})</button>;
-                          })}
-                        </div>
-                      </div>
-                    ) : resolvingId === row.id ? (
-                      <div className="mt-3 space-y-1">
-                        <input type="text" className="input-dark w-full text-sm" placeholder="اكتب اسم الموظف اللي دخلها فعلاً..." value={resolveSearch} onChange={(e) => setResolveSearch(e.target.value)} autoFocus />
-                        {resolveOptions.length > 0 ? (
-                          <div className="space-y-1 rounded-lg border p-1" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
-                            {resolveOptions.map((s) => <button key={s.id} type="button" disabled={actingRowId === row.id} onClick={() => void persistManualStaffAssignment(row, s)} className="flex w-full items-center justify-between rounded-md p-2 text-right text-sm hover:bg-[var(--dawaa-theme-soft)] disabled:opacity-60"><span className="font-bold" style={{ color: 'var(--dawaa-theme-text)' }}>{s.name}</span><span className="text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>{s.branch}</span></button>)}
-                          </div>
-                        ) : null}
-                      </div>
-                    ) : (
-                      <button type="button" onClick={() => setResolvingId(row.id)} className="mt-3 flex items-center gap-2 text-sm font-black" style={{ color: 'var(--dawaa-status-warning-text)' }}><AlertTriangle size={14} />{row.entered_by_raw ? `"${row.entered_by_raw}" مش معروف — اختار مين ده` : 'مسجّلش اسم — اختار مين دخلها'}</button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </Panel>
+        <QueuePanel
+          rows={filteredQueue}
+          totalLoaded={queue.length}
+          loading={loadingQueue || (serverQueryActive && loadingSearch && !historicalSearch)}
+          error={queueError && !serverQueryActive}
+          serverQueryActive={serverQueryActive}
+          textSearchActive={textSearchActive}
+          actingRowId={actingRowId}
+          resolvingId={resolvingId}
+          resolveSearch={resolveSearch}
+          resolveOptions={resolveOptions}
+          pickedStaffByRow={pickedStaffByRow}
+          onRetry={() => void loadQueue()}
+          onOpenDetails={setDetailsRow}
+          onClassify={(row, staffId, rowOutcome) => void classifyQueueRow(row, staffId, rowOutcome)}
+          onStartResolving={setResolvingId}
+          onResolveSearchChange={setResolveSearch}
+          onAssignStaff={(row, staff) => void persistManualStaffAssignment(row, staff)}
+        />
       ) : null}
 
       {activeTab === 'manual' ? (
@@ -661,8 +448,12 @@ export default function PurchaseInvoiceAccuracy() {
             ) : (
               <div className="relative">
                 <Search size={14} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--dawaa-theme-muted)' }} />
-                <input type="text" className="input-dark w-full pr-8 text-sm" placeholder="اكتب اسم الموظف..." value={search} onChange={(e) => setSearch(e.target.value)} />
-                {staffOptions.length > 0 ? <div className="mt-1 space-y-1 rounded-lg border p-1" style={{ borderColor: 'var(--dawaa-theme-border)' }}>{staffOptions.map((s) => <button key={s.id} type="button" onClick={() => { setSelectedStaff(s); setStaffOptions([]); }} className="flex w-full items-center justify-between rounded-md p-2 text-right text-sm hover:bg-[var(--dawaa-theme-soft)]"><span className="font-bold" style={{ color: 'var(--dawaa-theme-text)' }}>{s.name}</span><span className="text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>{s.branch}</span></button>)}</div> : null}
+                <input type="text" className="input-dark w-full pr-8 text-sm" placeholder="اكتب اسم الموظف..." value={search} onChange={(event) => setSearch(event.target.value)} />
+                {staffOptions.length > 0 ? (
+                  <div className="mt-1 space-y-1 rounded-lg border p-1" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
+                    {staffOptions.map((staff) => <button key={staff.id} type="button" onClick={() => { setSelectedStaff(staff); setStaffOptions([]); }} className="flex w-full items-center justify-between rounded-md p-2 text-right text-sm hover:bg-[var(--dawaa-theme-soft)]"><span className="font-bold" style={{ color: 'var(--dawaa-theme-text)' }}>{staff.name}</span><span className="text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>{staff.branch}</span></button>)}
+                  </div>
+                ) : null}
               </div>
             )}
           </div>
@@ -677,84 +468,26 @@ export default function PurchaseInvoiceAccuracy() {
               })}
             </div>
           </div>
-          <div><p className="mb-2 text-xs font-black" style={{ color: 'var(--dawaa-theme-muted)' }}>رقم الفاتورة/الطلبية (اختياري)</p><input type="text" className="input-dark w-full text-sm" value={invoiceReference} onChange={(e) => setInvoiceReference(e.target.value)} /></div>
-          <div><p className="mb-2 text-xs font-black" style={{ color: 'var(--dawaa-theme-muted)' }}>ملاحظة</p><input type="text" className="input-dark w-full text-sm" placeholder="تفاصيل سريعة..." value={notes} onChange={(e) => setNotes(e.target.value)} /></div>
+          <div><p className="mb-2 text-xs font-black" style={{ color: 'var(--dawaa-theme-muted)' }}>رقم الفاتورة/الطلبية (اختياري)</p><input type="text" className="input-dark w-full text-sm" value={invoiceReference} onChange={(event) => setInvoiceReference(event.target.value)} /></div>
+          <div><p className="mb-2 text-xs font-black" style={{ color: 'var(--dawaa-theme-muted)' }}>ملاحظة</p><input type="text" className="input-dark w-full text-sm" placeholder="تفاصيل سريعة..." value={notes} onChange={(event) => setNotes(event.target.value)} /></div>
           <button type="button" onClick={() => void handleSubmit()} disabled={submitting} className="flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-black text-white" style={{ background: 'var(--dawaa-theme-primary)' }}>{submitting ? <Loader2 size={16} className="animate-spin" /> : null}تسجيل</button>
         </Panel>
       ) : null}
 
       {activeTab === 'history' ? (
-        <Panel className="p-4">
-          <SectionTitle title={`آخر المراجعات (${filteredHistory.length})`} subtitle={recordQuery.length >= 2 ? 'نتائج البحث تشمل السجل التاريخي المطابق' : undefined} />
-          {loadingHistory && !historicalSearch ? <div className="flex justify-center py-6"><Loader2 className="animate-spin" style={{ color: 'var(--dawaa-theme-muted)' }} /></div>
-          : historyError && !historicalSearch ? <EmptyState label="تعذّر تحميل السجل" error onRetry={() => void loadHistory()} />
-          : filteredHistory.length === 0 ? <EmptyState label={historyLoaded && history.length === 0 ? 'لسه مفيش مراجعات مسجّلة' : 'مفيش مراجعات مطابقة للبحث والفلاتر الحالية'} />
-          : (
-            <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
-              {filteredHistory.map((h) => {
-                const cfg = OUTCOME_CONFIG[h.outcome];
-                return <div key={h.id} className="rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)' }}><div className="flex items-center justify-between gap-2"><p className="font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>{h.staff_name}</p><span className="rounded-full border px-2 py-0.5 text-[10px] font-black" style={{ borderColor: cfg.borderColor, background: cfg.bg, color: cfg.color }}>{cfg.label} ({h.points > 0 ? '+' : ''}{h.points})</span></div><p className="mt-1 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>{h.review_date} {h.branch ? `— ${h.branch}` : ''} {h.invoice_reference ? `— فاتورة ${h.invoice_reference}` : ''}</p>{h.reviewed_by_name ? <p className="mt-1 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>المراجع: {h.reviewed_by_name}</p> : null}{h.notes ? <p className="mt-1 text-xs font-bold" style={{ color: 'var(--dawaa-theme-text)' }}>{h.notes}</p> : null}</div>;
-              })}
-            </div>
-          )}
-        </Panel>
+        <HistoryPanel
+          rows={filteredHistory}
+          totalLoaded={history.length}
+          loading={loadingHistory || (serverQueryActive && loadingSearch && !historicalSearch)}
+          error={historyError}
+          historicalSearchActive={textSearchActive}
+          historyLoaded={historyLoaded}
+          onRetry={() => void loadHistory()}
+        />
       ) : null}
 
       {activeTab === 'reports' ? (
-        <div className="space-y-4">
-          {loadingReport ? <Panel className="flex justify-center p-10"><Loader2 className="animate-spin" style={{ color: 'var(--dawaa-theme-primary)' }} /></Panel>
-          : reportError ? <Panel className="p-4"><EmptyState label="تعذّر تحميل التقارير الذكية" error onRetry={() => void loadReport()} /></Panel>
-          : (
-            <>
-              <Panel className="p-4">
-                <SectionTitle title="ملخص الرقابة على دقة الإدخال" subtitle="الأرقام محسوبة من قاعدة البيانات على كل السجلات المطابقة للفلاتر" icon={<BarChart3 size={18} />} />
-                <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-                  {[
-                    ['تمت مراجعتها', report.summary.reviewed_count],
-                    ['معلقة للمراجعة', report.summary.pending_count],
-                    ['نسبة الدقة', `${report.summary.accuracy_rate}%`],
-                    ['إجمالي النقاط', report.summary.total_points],
-                    ['إدخال صحيح', report.summary.correct_count],
-                    ['لخبطة/عدم تسجيل', report.summary.mixup_count],
-                    ['إهمال', report.summary.negligence_count],
-                    ['مشكلة مع عميل', report.summary.customer_problem_count],
-                  ].map(([label, value]) => <div key={label} className="rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-soft)' }}><p className="text-[11px] font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>{label}</p><p className="mt-1 text-xl font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>{value}</p></div>)}
-                </div>
-              </Panel>
-
-              <Panel className="p-4">
-                <SectionTitle title="تنبيهات الإدارة" subtitle="لفت نظر سريع لأهم نقاط الخطر الحالية" icon={<AlertTriangle size={18} />} />
-                <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
-                  <div className="rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-status-warning-bg)' }}><p className="text-xs font-black" style={{ color: 'var(--dawaa-status-warning-text)' }}>فواتير بدون موظف مؤكد</p><p className="mt-1 text-2xl font-black" style={{ color: 'var(--dawaa-status-warning-text)' }}>{report.summary.unknown_staff_count}</p></div>
-                  <div className="rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)' }}><p className="text-xs font-black" style={{ color: 'var(--dawaa-theme-muted)' }}>أعلى موظف يحتاج مراجعة</p><p className="mt-1 font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>{topRiskStaff ? `${topRiskStaff.staff_name} — ${topRiskStaff.accuracy_rate}%` : 'لا توجد بيانات كافية'}</p></div>
-                  <div className="rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)' }}><p className="text-xs font-black" style={{ color: 'var(--dawaa-theme-muted)' }}>الفرع الأقل دقة</p><p className="mt-1 font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>{worstBranch ? `${worstBranch.branch} — ${worstBranch.accuracy_rate}%` : 'لا توجد بيانات كافية'}</p></div>
-                </div>
-              </Panel>
-
-              <Panel className="p-4">
-                <SectionTitle title={`أداء الموظفين (${report.staff.length})`} subtitle="ترتيب حسب الدقة وعدد المراجعات" icon={<Users size={18} />} />
-                {report.staff.length === 0 ? <EmptyState label="لا توجد مراجعات موظفين مطابقة للفلاتر" /> : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full min-w-[900px] text-right text-xs">
-                      <thead><tr style={{ color: 'var(--dawaa-theme-muted)' }}><th className="p-2">الموظف</th><th className="p-2">الفرع</th><th className="p-2">مراجعات</th><th className="p-2">صحيح</th><th className="p-2">لخبطة</th><th className="p-2">إهمال</th><th className="p-2">مشكلة عميل</th><th className="p-2">الدقة</th><th className="p-2">النقاط</th><th className="p-2">الحالة</th></tr></thead>
-                      <tbody>{report.staff.map((row) => { const status = getStaffStatus(row); return <tr key={row.staff_id} className="border-t" style={{ borderColor: 'var(--dawaa-theme-border)' }}><td className="p-2 font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>{row.staff_name}</td><td className="p-2">{row.branch || '—'}</td><td className="p-2">{row.reviewed_count}</td><td className="p-2">{row.correct_count}</td><td className="p-2">{row.mixup_count}</td><td className="p-2">{row.negligence_count}</td><td className="p-2">{row.customer_problem_count}</td><td className="p-2 font-black">{row.accuracy_rate}%</td><td className="p-2 font-black">{row.total_points}</td><td className="p-2"><span className="rounded-full px-2 py-1 font-black" style={{ color: status.color, background: status.bg }}>{status.label}</span></td></tr>; })}</tbody>
-                    </table>
-                  </div>
-                )}
-              </Panel>
-
-              <Panel className="p-4">
-                <SectionTitle title="مقارنة الفروع" subtitle="دقة الإدخال والمراجعات المعلقة لكل فرع" icon={<BarChart3 size={18} />} />
-                {report.branches.length === 0 ? <EmptyState label="لا توجد بيانات فروع مطابقة للفلاتر" /> : <div className="grid grid-cols-1 gap-3 md:grid-cols-2">{report.branches.map((row) => <div key={row.branch} className="rounded-xl border p-4" style={{ borderColor: 'var(--dawaa-theme-border)' }}><div className="flex items-center justify-between"><h3 className="font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>{row.branch}</h3><span className="text-lg font-black" style={{ color: 'var(--dawaa-theme-primary)' }}>{row.accuracy_rate}%</span></div><div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs"><div><p style={{ color: 'var(--dawaa-theme-muted)' }}>مراجعات</p><p className="font-black">{row.reviewed_count}</p></div><div><p style={{ color: 'var(--dawaa-theme-muted)' }}>معلق</p><p className="font-black">{row.pending_count}</p></div><div><p style={{ color: 'var(--dawaa-theme-muted)' }}>النقاط</p><p className="font-black">{row.total_points}</p></div><div><p style={{ color: 'var(--dawaa-theme-muted)' }}>صحيح</p><p className="font-black">{row.correct_count}</p></div><div><p style={{ color: 'var(--dawaa-theme-muted)' }}>إهمال</p><p className="font-black">{row.negligence_count}</p></div><div><p style={{ color: 'var(--dawaa-theme-muted)' }}>مشاكل عملاء</p><p className="font-black">{row.customer_problem_count}</p></div></div></div>)}</div>}
-              </Panel>
-
-              <Panel className="p-4">
-                <SectionTitle title="الاتجاه اليومي" subtitle={latestDaily ? `آخر يوم مسجل: ${latestDaily.report_date} — الدقة ${latestDaily.accuracy_rate}%` : 'متابعة تحسن أو تراجع جودة الإدخال يومًا بيوم'} icon={<TrendingUp size={18} />} />
-                {report.daily.length === 0 ? <EmptyState label="لا توجد بيانات يومية للفترة المختارة" /> : <div className="space-y-2">{report.daily.slice(-14).map((row) => <div key={row.report_date} className="grid grid-cols-4 gap-2 rounded-xl border p-3 text-xs" style={{ borderColor: 'var(--dawaa-theme-border)' }}><span className="font-black">{row.report_date}</span><span>مراجعات: <b>{row.reviewed_count}</b></span><span>صحيح: <b>{row.correct_count}</b></span><span>الدقة: <b>{row.accuracy_rate}%</b></span></div>)}</div>}
-              </Panel>
-            </>
-          )}
-        </div>
+        <ReportsPanel report={report} loading={loadingReport} error={reportError} reviewerFilterActive={Boolean(reviewerFilter)} onRetry={() => void loadReport()} />
       ) : null}
 
       {detailsRow ? (
