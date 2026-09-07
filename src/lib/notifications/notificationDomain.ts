@@ -1,12 +1,15 @@
 export type NotificationPriority = 'low' | 'normal' | 'high' | 'urgent' | 'critical';
 export type NotificationActionState = 'new' | 'in_progress' | 'completed' | 'dismissed' | 'escalated';
 export type NotificationGroup = 'urgent' | 'vip' | 'overdue' | 'completed' | 'reviews' | 'system' | 'all';
+export type NotificationPreferenceCategory = 'customerService' | 'delivery' | 'inventory' | 'reviews' | 'attendance' | 'targets' | 'other';
 
 export type CanonicalNotificationType =
   | 'conversation_review'
   | 'staff_task'
   | 'customer_followup'
   | 'customer_request'
+  | 'customer_data_review'
+  | 'welcome_task'
   | 'reward'
   | 'deduction'
   | 'payroll'
@@ -38,6 +41,8 @@ const CANONICAL_TYPES = new Set<CanonicalNotificationType>([
   'staff_task',
   'customer_followup',
   'customer_request',
+  'customer_data_review',
+  'welcome_task',
   'reward',
   'deduction',
   'payroll',
@@ -119,6 +124,8 @@ const TYPE_AR: Record<string, string> = {
   followup: 'متابعة عميل',
   customer_followup: 'متابعة عميل',
   customer_request: 'طلب عميل',
+  customer_data_review: 'مراجعة بيانات عميل',
+  welcome_task: 'مهمة ترحيب بعميل',
   conversation_review: 'تقييم محادثة',
   chat_evaluation: 'تقييم محادثة',
   customer_alert: 'تنبيه عميل',
@@ -195,6 +202,32 @@ export function notificationMetadataValue(item: NotificationLike, ...keys: strin
   return null;
 }
 
+export function notificationPreferenceCategory(type: unknown): NotificationPreferenceCategory {
+  switch (canonicalNotificationType(type)) {
+    case 'customer_followup':
+    case 'customer_request':
+    case 'customer_data_review':
+    case 'welcome_task':
+    case 'manager_alert':
+    case 'vip_customer_silence':
+      return 'customerService';
+    case 'delivery_order':
+      return 'delivery';
+    case 'inventory':
+    case 'expiry_alert':
+      return 'inventory';
+    case 'conversation_review':
+      return 'reviews';
+    case 'attendance':
+    case 'shift_issue':
+      return 'attendance';
+    case 'sales_target':
+      return 'targets';
+    default:
+      return 'other';
+  }
+}
+
 export function notificationGroup(item: NotificationLike): NotificationGroup {
   const rawType = String(item.type || item.target_type || '').trim().toLowerCase();
   const canonical = canonicalNotificationType(rawType);
@@ -252,6 +285,8 @@ export function notificationRequiresAction(type: unknown, priority: Notification
     'staff_task',
     'customer_followup',
     'customer_request',
+    'customer_data_review',
+    'welcome_task',
     'deduction',
     'attendance',
     'inventory',
@@ -281,6 +316,8 @@ export function canonicalNotificationRoute(input: {
     staff_task: id ? `/operations-center?taskId=${id}` : '/operations-center',
     customer_followup: id ? `/customer-service?tab=today&openDetails=1&mode=edit&followupId=${id}` : '/customer-service?tab=today',
     customer_request: id ? `/customer-service?tab=requests&requestId=${id}` : '/customer-service?tab=requests',
+    customer_data_review: '/customer-service?tab=data-review',
+    welcome_task: id ? `/customer-service?tab=welcome&taskId=${id}` : '/customer-service?tab=welcome',
     reward: '/doctor-dashboard?tab=payroll',
     deduction: '/doctor-dashboard?tab=payroll',
     payroll: '/doctor-dashboard?tab=payroll',
