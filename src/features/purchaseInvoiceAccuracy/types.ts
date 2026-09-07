@@ -126,11 +126,12 @@ export function normalizeSearch(value: string | null | undefined) {
   return (value || '').trim().toLocaleLowerCase('ar');
 }
 
-export type StaffStatus = 'excellent' | 'very_good' | 'follow_up' | 'operational_risk';
+export type StaffStatus = 'insufficient_sample' | 'excellent' | 'very_good' | 'follow_up' | 'operational_risk';
 
 export function getStaffStatusKey(row: StaffReportRow): StaffStatus {
+  if (row.reviewed_count < 5) return 'insufficient_sample';
   const severe = row.negligence_count + row.customer_problem_count;
-  if (row.reviewed_count >= 5 && row.accuracy_rate >= 95 && severe === 0) return 'excellent';
+  if (row.accuracy_rate >= 95 && severe === 0) return 'excellent';
   if (row.accuracy_rate >= 85 && severe <= 1) return 'very_good';
   if (row.accuracy_rate >= 70 && severe <= 2) return 'follow_up';
   return 'operational_risk';
