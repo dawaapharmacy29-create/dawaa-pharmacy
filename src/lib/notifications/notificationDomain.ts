@@ -71,6 +71,10 @@ const TYPE_ALIASES: Record<string, CanonicalNotificationType> = {
   'متابعة عميل': 'customer_followup',
   'طلب متابعة': 'customer_followup',
   'طلب عميل': 'customer_request',
+  customer_alert: 'customer_followup',
+  customer_service_progress: 'customer_followup',
+  customer_service_incomplete: 'customer_followup',
+  daily_followup_queue_missing: 'customer_followup',
 
   delivery: 'delivery_order',
   stock_alert: 'inventory',
@@ -81,6 +85,12 @@ const TYPE_ALIASES: Record<string, CanonicalNotificationType> = {
   vip_customer_health: 'vip_customer_silence',
   vip_customer_health_digest: 'vip_customer_silence',
   daily_customer_attention_digest: 'vip_customer_silence',
+
+  branch_manager_operational_digest: 'manager_alert',
+  branch_manager_checklist_gap: 'manager_alert',
+  monthly_evaluation_ready: 'manager_alert',
+  weekly_evaluation_submitted: 'manager_alert',
+  reminder: 'manager_alert',
 
   sync_health: 'system',
   sync_health_alert: 'system',
@@ -112,6 +122,9 @@ const TYPE_AR: Record<string, string> = {
   conversation_review: 'تقييم محادثة',
   chat_evaluation: 'تقييم محادثة',
   customer_alert: 'تنبيه عميل',
+  customer_service_progress: 'تقدم خدمة العملاء',
+  customer_service_incomplete: 'متابعة خدمة عملاء غير مكتملة',
+  daily_followup_queue_missing: 'نقص في قائمة المتابعات اليومية',
   vip_customer_silence: 'عميل VIP غير نشط',
   vip_customer_health: 'حركة عميل VIP',
   vip_customer_health_digest: 'تقرير عملاء VIP',
@@ -129,6 +142,11 @@ const TYPE_AR: Record<string, string> = {
   deduction: 'خصم',
   penalty: 'خصم',
   payroll: 'الرواتب والحوافز',
+  branch_manager_operational_digest: 'ملخص تشغيل الفرع',
+  branch_manager_checklist_gap: 'نقص في قائمة مدير الفرع',
+  monthly_evaluation_ready: 'تقييم شهري جاهز',
+  weekly_evaluation_submitted: 'تم إرسال تقييم أسبوعي',
+  reminder: 'تذكير إداري',
   sync_health: 'حالة المزامنة',
   sync_health_alert: 'مشكلة مزامنة',
   manager_alert: 'تنبيه إداري',
@@ -137,6 +155,7 @@ const TYPE_AR: Record<string, string> = {
 
 const ACTION_AR: Record<string, string> = {
   new: 'جديد',
+  unread: 'جديد',
   read: 'مقروء',
   in_progress: 'قيد المتابعة',
   completed: 'تمت المتابعة',
@@ -271,7 +290,7 @@ export function canonicalNotificationRoute(input: {
     expiry_alert: id ? `/expiry-discounts?itemId=${id}` : '/expiry-discounts',
     delivery_order: id ? `/delivery?orderId=${id}` : '/delivery',
     shift_issue: id ? `/shift-notes?shiftId=${id}` : '/shift-notes',
-    manager_alert: '/daily-command',
+    manager_alert: '/operations-center',
     vip_customer_silence: id ? `/customers?customerId=${id}` : '/customers',
     system: '/operations-center',
   };
