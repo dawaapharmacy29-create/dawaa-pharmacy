@@ -90,6 +90,7 @@ export function normalizeNotification(row: Record<string, unknown>): AppNotifica
     ? row.metadata as Record<string, unknown>
     : {};
   const metadata = normalizeNotificationMetadata(rawType, rawMetadata);
+  const canonicalType = canonicalNotificationType(metadata.canonicalType);
   const message = String(row.message || '');
   const route = String(row.route || metadata.route || '');
   const read = Boolean(row.is_read ?? row.status === 'read');
@@ -98,7 +99,7 @@ export function normalizeNotification(row: Record<string, unknown>): AppNotifica
     title: String(row.title || row.type || 'إشعار'),
     message,
     body: message,
-    type: rawType,
+    type: canonicalType,
     priority: String(row.priority || 'normal'),
     recipient_staff_id: row.recipient_staff_id as string | null | undefined,
     recipient_user_id: row.recipient_user_id as string | null | undefined,
@@ -119,7 +120,7 @@ export function normalizeNotification(row: Record<string, unknown>): AppNotifica
     created_at: String(row.created_at || new Date().toISOString()),
     read_at: row.read_at as string | null | undefined,
     completed_at: row.completed_at as string | null | undefined,
-    metadata,
+    metadata: { ...metadata, rawType },
   };
 }
 
