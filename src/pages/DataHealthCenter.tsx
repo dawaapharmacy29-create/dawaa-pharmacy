@@ -63,15 +63,24 @@ export default function DataHealthCenter() {
               {lastUpdated ? <div className="dawaa-caption mt-2 text-xs">آخر تحديث: {lastUpdated}</div> : null}
             </div>
           </div>
-          <button
-            type="button"
-            onClick={load}
-            disabled={loading}
-            className="dawaa-button dawaa-button--primary disabled:opacity-60"
-          >
-            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-            تحديث المؤشرات
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              to="/system-integrations"
+              className="dawaa-button dawaa-button--secondary"
+            >
+              <ShieldAlert size={16} />
+              مركز المزامنة والتكاملات
+            </Link>
+            <button
+              type="button"
+              onClick={load}
+              disabled={loading}
+              className="dawaa-button dawaa-button--primary disabled:opacity-60"
+            >
+              <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+              تحديث المؤشرات
+            </button>
+          </div>
         </div>
       </section>
 
