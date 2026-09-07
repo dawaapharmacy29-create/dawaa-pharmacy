@@ -93,6 +93,18 @@ export type AccuracyFilters = {
   branch?: string;
 };
 
+export type AccuracyFilterOptions = {
+  staff: string[];
+  reviewers: string[];
+  branches: string[];
+};
+
+export const EMPTY_FILTER_OPTIONS: AccuracyFilterOptions = {
+  staff: [],
+  reviewers: [],
+  branches: [],
+};
+
 export const EMPTY_REPORT: AccuracyReport = {
   summary: {
     reviewed_count: 0,
