@@ -5,6 +5,7 @@ const path = require('node:path');
 const ROOT = process.cwd();
 const SRC = path.join(ROOT, 'src');
 const DOMAIN = 'src/lib/notifications/notificationDomain.ts';
+const METADATA = 'src/lib/notifications/notificationMetadata.ts';
 const SERVICE = 'src/lib/notificationService.ts';
 
 function walk(dir) {
@@ -69,6 +70,7 @@ if (adHocRoutes.length) {
 
 for (const required of [
   DOMAIN,
+  METADATA,
   SERVICE,
   'src/lib/notifications/notificationActionService.ts',
   'src/lib/notifications/notificationWorkflowService.ts',
@@ -83,8 +85,18 @@ if (!serviceSource.includes('notification_events_v2')) {
 if (!serviceSource.includes('create_notification_audience_v1')) {
   failures.push(`${SERVICE} must keep notification creation behind create_notification_audience_v1.`);
 }
+if (!serviceSource.includes('normalizeNotificationMetadata')) {
+  failures.push(`${SERVICE} must normalize metadata through ${METADATA}.`);
+}
 if (/using legacy compatibility reader|\.from\(['"]notifications['"]\)\s*\.select/s.test(serviceSource)) {
   failures.push(`${SERVICE} must fail closed when the canonical read model is unavailable; legacy raw-read fallback is forbidden.`);
+}
+
+const metadataSource = fs.readFileSync(path.join(ROOT, METADATA), 'utf8');
+for (const requiredToken of ['schemaVersion: 2', 'canonicalType', 'notificationMetadataContractIssues']) {
+  if (!metadataSource.includes(requiredToken)) {
+    failures.push(`${METADATA} is missing required contract token: ${requiredToken}`);
+  }
 }
 
 console.log(`[notification-architecture] direct writers: ${directWriters.length}`);
@@ -92,6 +104,7 @@ console.log(`[notification-architecture] raw readers: ${rawReaders.join(', ') ||
 console.log(`[notification-architecture] canonical readers: ${canonicalReaders.join(', ') || 'none'}`);
 console.log(`[notification-architecture] duplicate domain logic: ${duplicateDomainLogic.join(', ') || 'none'}`);
 console.log(`[notification-architecture] ad-hoc routes: ${adHocRoutes.join(', ') || 'none'}`);
+console.log(`[notification-architecture] metadata boundary: ${METADATA}`);
 
 if (failures.length) {
   console.error('\nNotification architecture check failed:');
@@ -99,4 +112,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log('[notification-architecture] PASS: one command boundary, one canonical read model, one domain owner, no compatibility read debt.');
+console.log('[notification-architecture] PASS: one command boundary, one canonical read model, one domain owner, one metadata contract, no compatibility read debt.');
