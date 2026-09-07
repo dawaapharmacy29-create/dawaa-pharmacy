@@ -44,6 +44,17 @@ export function normalizeArabicName(value: unknown): string {
 }
 
 /**
+ * فريق دواء ألفا (هاجر/نور/هبه) يعمل على الفرعين معًا.
+ * rawRole يحتفظ بالدور الحقيقي حتى قبل إدخاله كـ RoleKey رسمي في permissionSystem.
+ */
+export function isDawaaAlphaUser(user: ScopeUser): boolean {
+  const rawRole = String(user?.rawRole || user?.role || '')
+    .trim()
+    .toLowerCase();
+  return rawRole === 'team_dawaa_alpha';
+}
+
+/**
  * أدوار مساحة الدكتور: الصيدلي ومشرفا الشيفت.
  * هذه الدالة تتحكم في الصفحة الرئيسية والقائمة الجانبية فقط، بينما يظل نطاق
  * البيانات الفعلي لكل دور محكومًا بـ permissionSystem وRLS.
@@ -83,17 +94,15 @@ function getReviewBranchOverride(user: ScopeUser): string[] | null {
   if (normalizeRole(user?.role) === 'customer_service_manager') {
     return ['فرع الشامي', 'فرع شكري'];
   }
-  // فريق دواء ألفا (هاجر/نور/هبه) مسؤوليتهم غير مقسومة بين الفرعين — لازم
-  // يقدروا يختاروا يقيّموا أي فرع في أي يوم. rawRole هو الدور الحقيقي من
-  // staff_accounts قبل أي تطبيع، لأن normalizeRole بترجعه 'assistant' دايمًا
-  // لعدم التعرف على 'team_dawaa_alpha' كدور مستقل.
-  if (String(user?.rawRole || '').trim() === 'team_dawaa_alpha') {
+  // فريق دواء ألفا مسؤول عن الفرعين بالكامل، بدون ربط بفرع الحساب الإداري.
+  if (isDawaaAlphaUser(user)) {
     return ['فرع الشامي', 'فرع شكري'];
   }
   return null;
 }
 
 export function canViewAllBranches(user: ScopeUser): boolean {
+  if (isDawaaAlphaUser(user)) return true;
   return ['general_manager', 'executive_manager', 'branches_manager'].includes(
     normalizeRole(user?.role)
   );
@@ -102,8 +111,7 @@ export function canViewAllBranches(user: ScopeUser): boolean {
 export function canViewAllBranchesForServiceAnalytics(user: ScopeUser): boolean {
   const role = normalizeRole(user?.role);
   if (canViewAllBranches(user) || role === 'customer_service_manager') return true;
-  // فريق دواء ألفا مسؤوليتهم غير مقسومة بين الفرعين — نفس منطق getReviewBranchOverride.
-  return String(user?.rawRole || '').trim() === 'team_dawaa_alpha';
+  return false;
 }
 
 export function canViewOwnOnly(user: ScopeUser): boolean {
