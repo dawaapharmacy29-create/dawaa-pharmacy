@@ -1,6 +1,6 @@
 import { Bell, Menu, Sun, Moon, Volume2, VolumeX, CheckCheck, ExternalLink, Settings2, Fingerprint } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { getSafeCurrentUserId, useAuth } from '@/hooks/useAuth';
+import { useAuth } from '@/hooks/useAuth';
 import { useTheme } from '@/hooks/useTheme';
 import { getCurrentCycle, getRemainingDays } from '@/lib/pharmacy-cycle';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -8,8 +8,6 @@ import { cn } from '@/lib/utils';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import type { AppNotification } from '@/lib/notificationService';
 import { saveNotificationSettings, useNotifications } from '@/hooks/useNotifications';
-import { normalizeRole } from '@/lib/core/permissionSystem';
-import { normalizeBranchName } from '@/lib/branch';
 import {
   compareNotificationsOperationally,
   notificationActionLabel,
@@ -18,28 +16,7 @@ import {
 } from '@/lib/notifications/notificationDomain';
 
 interface NotifItem {
-  id: string;
-  user_id?: string | null;
-  recipient_user_id?: string | null;
-  recipient_staff_id?: string | null;
-  recipient_role?: string | null;
-  title?: string | null;
-  body?: string | null;
-  message?: string | null;
-  description?: string | null;
-  type?: string | null;
-  priority?: string | null;
-  read?: boolean | null;
-  is_read?: boolean | null;
-  status?: string | null;
-  route?: string | null;
-  target_route?: string | null;
   details?: string | Record<string, unknown> | null;
-  metadata?: Record<string, unknown> | null;
-  target_type?: string | null;
-  target_id?: string | null;
-  branch?: string | null;
-  created_at: string;
 }
 
 interface HeaderProps {
@@ -127,46 +104,12 @@ function parseDetailsRoute(details: NotifItem['details'] | AppNotification['meta
   }
 }
 
-function inferNotificationRoute(n: Partial<NotifItem & AppNotification>) {
-  if (n.target_route) return n.target_route;
-  if (n.route) return n.route;
-  const detailsRoute = parseDetailsRoute(n.details) || parseDetailsRoute(n.metadata);
+function inferNotificationRoute(notification: AppNotification) {
+  if (notification.target_route) return notification.target_route;
+  if (notification.route) return notification.route;
+  const detailsRoute = parseDetailsRoute(notification.metadata);
   if (detailsRoute) return detailsRoute;
-
-  const text = `${n.type || ''} ${n.title || ''} ${n.body || ''} ${n.message || ''} ${n.target_type || ''}`.toLowerCase();
-  if (text.includes('attendance') || text.includes('حضور') || text.includes('انصراف')) return '/attendance-report';
-  if (text.includes('follow') || text.includes('متابعة')) return '/customer-service';
-  if (text.includes('review') || text.includes('تقييم')) return '/reviews';
-  if (text.includes('deduction') || text.includes('reward') || text.includes('خصم') || text.includes('مكاف')) return '/points';
-  if (text.includes('invoice') || text.includes('فاتور')) return '/invoices';
-  if (text.includes('shift') || text.includes('شيفت')) return '/shift-performance';
-  if (text.includes('stagnant') || text.includes('راكد')) return '/stagnant-medicines';
-  if (text.includes('delivery') || text.includes('دليفري') || text.includes('توصيل')) return '/delivery';
-  if (text.includes('customer') || text.includes('عميل')) return '/customers';
   return '/operations-center';
-}
-
-function canSeeNotification(item: AppNotification, user: ReturnType<typeof useAuth>['user']) {
-  if (!user) return false;
-  const safeUserId = getSafeCurrentUserId();
-  const role = normalizeRole(user.role);
-  const userBranch = normalizeBranchName(user.branch || '');
-  const isAdmin = ['general_manager', 'executive_manager', 'branches_manager'].includes(role);
-  const isBranchManager = ['branch_manager', 'customer_service_manager', 'shift_supervisor_morning', 'shift_supervisor_evening'].includes(role);
-
-  if (isAdmin) return true;
-  if (item.user_id && (item.user_id === user.id || item.user_id === safeUserId)) return true;
-  if (item.recipient_user_id && (item.recipient_user_id === user.id || item.recipient_user_id === safeUserId)) return true;
-  if (item.recipient_staff_id && item.recipient_staff_id === user.staffId) return true;
-  if (item.recipient_role && normalizeRole(item.recipient_role) === role) return true;
-  if (isBranchManager && item.branch && normalizeBranchName(item.branch) === userBranch) return true;
-  return (
-    !item.user_id &&
-    !item.recipient_user_id &&
-    !item.recipient_staff_id &&
-    !item.recipient_role &&
-    (!item.branch || normalizeBranchName(item.branch) === userBranch)
-  );
 }
 
 function formatNotificationDate(value: string | number | null | undefined) {
@@ -187,7 +130,6 @@ function isUrgent(item: AppNotification) {
 
 export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
   const navigate = useNavigate();
-  const { user } = useAuth();
   const { theme, setTheme } = useTheme();
   const [showNotifs, setShowNotifs] = useState(false);
   const [showNotifSettings, setShowNotifSettings] = useState(false);
@@ -199,7 +141,7 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
   const prevUnread = useRef<number | null>(null);
 
   const {
-    notifications: merged,
+    notifications,
     loading: notificationsLoading,
     available: notificationsAvailable,
     settings: notificationSettings,
@@ -208,10 +150,8 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
   } = useNotifications();
 
   const visibleNotifications = useMemo(
-    () => merged
-      .filter((item) => canSeeNotification(item, user))
-      .sort(compareNotificationsOperationally),
-    [merged, user]
+    () => [...notifications].sort(compareNotificationsOperationally),
+    [notifications]
   );
   const visibleUnreadCount = visibleNotifications.filter((item) => !item.read && !item.is_read).length;
 
@@ -231,8 +171,7 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
 
   const openNotification = (item: AppNotification) => {
     setShowNotifs(false);
-    const inferredRoute = inferNotificationRoute(item);
-    handleNotificationClick({ ...item, target_route: item.target_route || inferredRoute });
+    handleNotificationClick({ ...item, target_route: item.target_route || inferNotificationRoute(item) });
   };
 
   const setSound = (mode: 'off' | 'soft' | 'distinct') => {
