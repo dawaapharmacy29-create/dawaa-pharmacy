@@ -1,0 +1,1 @@
+This branch intentionally adds the standalone integrations page and diagnostics RPC first. Route/sidebar/notification rewiring should be added only after permission wiring is verified, so the current attendance route is not broken during rollout.
