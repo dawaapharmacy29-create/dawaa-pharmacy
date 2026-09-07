@@ -5,6 +5,7 @@ import {
   canonicalNotificationType,
   notificationRequiresAction,
 } from '@/lib/notifications/notificationDomain';
+import { CANONICAL_NOTIFICATION_READ_MODEL } from '@/lib/notificationService';
 
 export type StaffNotificationPriority = 'low' | 'normal' | 'high' | 'urgent';
 
@@ -38,8 +39,6 @@ export type CreateStaffNotificationInput = {
   stateKey?: string;
 };
 
-const READ_MODEL = 'notification_events_v2';
-
 function text(value: unknown): string { return String(value ?? '').trim(); }
 function priority(value: unknown): StaffNotificationPriority {
   const candidate = text(value);
@@ -49,17 +48,27 @@ function mapRow(row: RawRow): StaffNotification {
   return {
     id: text(row.id),
     recipientStaffId: text(row.recipient_staff_id),
-    type: text(row.notification_type || row.type || 'system'),
+    type: text(row.type || 'system'),
     title: text(row.title || 'إشعار'),
-    message: text(row.message || row.body || row.description),
+    message: text(row.message),
     priority: priority(row.priority),
-    entityType: text(row.entity_type || row.target_type) || undefined,
-    entityId: text(row.entity_id || row.target_id) || undefined,
-    actionUrl: text(row.action_url || row.target_route || row.route) || undefined,
+    entityType: text(row.target_type) || undefined,
+    entityId: text(row.target_id) || undefined,
+    actionUrl: text(row.route) || undefined,
     metadata: (row.metadata && typeof row.metadata === 'object' ? row.metadata : {}) as Record<string, unknown>,
-    isRead: Boolean(row.is_read ?? row.read ?? row.status === 'read'),
+    isRead: Boolean(row.is_read ?? row.status === 'read'),
     createdAt: text(row.created_at),
   };
+}
+
+async function readStaffNotificationById(id: string): Promise<StaffNotification | null> {
+  const { data, error } = await supabase
+    .from(CANONICAL_NOTIFICATION_READ_MODEL)
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
+  if (error || !data) return null;
+  return mapRow(data as RawRow);
 }
 
 export async function createStaffNotification(input: CreateStaffNotificationInput): Promise<StaffNotification | null> {
@@ -102,25 +111,21 @@ export async function createStaffNotification(input: CreateStaffNotificationInpu
     p_dedupe_key: dedupeKey || null,
   });
 
-  if (!rpcError && rpcId) {
-    const { data: row } = await supabase.from(READ_MODEL).select('*').eq('id', String(rpcId)).maybeSingle();
-    if (row) return mapRow(row as RawRow);
-    return {
-      id: String(rpcId),
-      recipientStaffId,
-      type: canonicalType,
-      title,
-      message: text(input.message),
-      priority: notifPriority,
-      entityType: text(input.entityType) || undefined,
-      entityId: text(input.entityId) || undefined,
-      actionUrl,
-      metadata,
-      isRead: false,
-      createdAt: new Date().toISOString(),
-    };
-  }
-  throw rpcError || new Error('تعذر إنشاء إشعار الموظف.');
+  if (rpcError || !rpcId) throw rpcError || new Error('تعذر إنشاء إشعار الموظف.');
+  return await readStaffNotificationById(String(rpcId)) || {
+    id: String(rpcId),
+    recipientStaffId,
+    type: canonicalType,
+    title,
+    message: text(input.message),
+    priority: notifPriority,
+    entityType: text(input.entityType) || undefined,
+    entityId: text(input.entityId) || undefined,
+    actionUrl,
+    metadata,
+    isRead: false,
+    createdAt: new Date().toISOString(),
+  };
 }
 
 export async function notifyBranchDoctors(
@@ -143,8 +148,8 @@ export async function notifyBranchDoctors(
 export async function listStaffNotifications(staffId: string, limit = 100): Promise<StaffNotification[]> {
   if (!staffId) return [];
   const [personal, global] = await Promise.all([
-    supabase.from(READ_MODEL).select('*').eq('recipient_staff_id', staffId).order('created_at', { ascending: false }).limit(limit),
-    supabase.from(READ_MODEL).select('*').eq('is_global', true).order('created_at', { ascending: false }).limit(Math.min(limit, 30)),
+    supabase.from(CANONICAL_NOTIFICATION_READ_MODEL).select('*').eq('recipient_staff_id', staffId).order('created_at', { ascending: false }).limit(limit),
+    supabase.from(CANONICAL_NOTIFICATION_READ_MODEL).select('*').eq('is_global', true).order('created_at', { ascending: false }).limit(Math.min(limit, 30)),
   ]);
   const unique = new Map<string, StaffNotification>();
   [...(personal.data || []), ...(global.data || [])]
@@ -168,6 +173,8 @@ export async function markAllStaffNotificationsRead(staffId: string): Promise<vo
 
 export function subscribeToStaffNotifications(staffId: string, onChange: () => void) {
   if (!staffId) return () => undefined;
+  // Realtime listens to the physical table because Postgres views are not a realtime source;
+  // all payload reads still go through notification_events_v2.
   const channel = supabase
     .channel(`staff-notifications:${staffId}`)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications', filter: `recipient_staff_id=eq.${staffId}` }, onChange)
