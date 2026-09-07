@@ -58,8 +58,8 @@ export async function searchPurchaseInvoiceAccuracy(
   filters: AccuracyFilters,
   limit = 100,
 ): Promise<HistoricalSearchResult> {
-  const { data, error } = await supabase.rpc('search_purchase_invoice_accuracy_v1', {
-    p_query: query.trim(),
+  const { data, error } = await supabase.rpc('query_purchase_invoice_accuracy_v1', {
+    p_query: query.trim() || null,
     ...rpcFilters(filters),
     p_limit: limit,
   });
