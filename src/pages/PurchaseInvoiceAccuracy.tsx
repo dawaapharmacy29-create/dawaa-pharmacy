@@ -150,7 +150,8 @@ export default function PurchaseInvoiceAccuracy() {
   }, [activeTab, loadReport]);
 
   const recordQuery = normalizeSearch(recordSearch);
-  const hasFilters = Boolean(fromDate || toDate || employeeFilter || reviewerFilter || branchFilter);
+  const reviewerFilterApplies = activeTab === 'history' || activeTab === 'reports';
+  const hasFilters = Boolean(fromDate || toDate || employeeFilter || branchFilter || (reviewerFilterApplies && reviewerFilter));
   const textSearchActive = recordQuery.length >= 2;
   const serverQueryActive = hasFilters || textSearchActive;
 
@@ -239,7 +240,6 @@ export default function PurchaseInvoiceAccuracy() {
       await classifyPendingPurchaseInvoice(row.id, staffId, rowOutcome);
       toast.success('اتسجل');
       setQueue((prev) => prev.filter((item) => item.id !== row.id));
-      setHistoricalSearch((prev) => prev ? { ...prev, pending: prev.pending.filter((item) => item.id !== row.id) } : prev);
       markDerivedDataStale();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'حصل خطأ في الحفظ');
@@ -384,11 +384,7 @@ export default function PurchaseInvoiceAccuracy() {
           ['reports', 'التقارير الذكية'],
         ] as Array<[PageTab, string]>).map(([key, label]) => {
           const active = activeTab === key;
-          return (
-            <button key={key} type="button" onClick={() => setActiveTab(key)} className="rounded-xl px-3 py-2 text-xs font-black transition sm:text-sm" style={{ background: active ? 'var(--dawaa-theme-primary)' : 'transparent', color: active ? 'white' : 'var(--dawaa-theme-text)' }}>
-              {label}
-            </button>
-          );
+          return <button key={key} type="button" onClick={() => setActiveTab(key)} className="rounded-xl px-3 py-2 text-xs font-black transition sm:text-sm" style={{ background: active ? 'var(--dawaa-theme-primary)' : 'transparent', color: active ? 'white' : 'var(--dawaa-theme-text)' }}>{label}</button>;
         })}
       </div>
 
@@ -449,11 +445,7 @@ export default function PurchaseInvoiceAccuracy() {
               <div className="relative">
                 <Search size={14} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--dawaa-theme-muted)' }} />
                 <input type="text" className="input-dark w-full pr-8 text-sm" placeholder="اكتب اسم الموظف..." value={search} onChange={(event) => setSearch(event.target.value)} />
-                {staffOptions.length > 0 ? (
-                  <div className="mt-1 space-y-1 rounded-lg border p-1" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
-                    {staffOptions.map((staff) => <button key={staff.id} type="button" onClick={() => { setSelectedStaff(staff); setStaffOptions([]); }} className="flex w-full items-center justify-between rounded-md p-2 text-right text-sm hover:bg-[var(--dawaa-theme-soft)]"><span className="font-bold" style={{ color: 'var(--dawaa-theme-text)' }}>{staff.name}</span><span className="text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>{staff.branch}</span></button>)}
-                  </div>
-                ) : null}
+                {staffOptions.length > 0 ? <div className="mt-1 space-y-1 rounded-lg border p-1" style={{ borderColor: 'var(--dawaa-theme-border)' }}>{staffOptions.map((staff) => <button key={staff.id} type="button" onClick={() => { setSelectedStaff(staff); setStaffOptions([]); }} className="flex w-full items-center justify-between rounded-md p-2 text-right text-sm hover:bg-[var(--dawaa-theme-soft)]"><span className="font-bold" style={{ color: 'var(--dawaa-theme-text)' }}>{staff.name}</span><span className="text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>{staff.branch}</span></button>)}</div> : null}
               </div>
             )}
           </div>
@@ -475,15 +467,7 @@ export default function PurchaseInvoiceAccuracy() {
       ) : null}
 
       {activeTab === 'history' ? (
-        <HistoryPanel
-          rows={filteredHistory}
-          totalLoaded={history.length}
-          loading={loadingHistory || (serverQueryActive && loadingSearch && !historicalSearch)}
-          error={historyError}
-          historicalSearchActive={textSearchActive}
-          historyLoaded={historyLoaded}
-          onRetry={() => void loadHistory()}
-        />
+        <HistoryPanel rows={filteredHistory} totalLoaded={history.length} loading={loadingHistory || (serverQueryActive && loadingSearch && !historicalSearch)} error={historyError} historicalSearchActive={textSearchActive} historyLoaded={historyLoaded} onRetry={() => void loadHistory()} />
       ) : null}
 
       {activeTab === 'reports' ? (
