@@ -1,5 +1,6 @@
 export type NotificationPriority = 'low' | 'normal' | 'high' | 'urgent' | 'critical';
 export type NotificationActionState = 'new' | 'in_progress' | 'completed' | 'dismissed' | 'escalated';
+export type NotificationGroup = 'urgent' | 'vip' | 'overdue' | 'completed' | 'reviews' | 'system' | 'all';
 
 export type CanonicalNotificationType =
   | 'conversation_review'
@@ -19,29 +20,210 @@ export type CanonicalNotificationType =
   | 'vip_customer_silence'
   | 'system';
 
+export type NotificationLike = {
+  type?: unknown;
+  target_type?: unknown;
+  title?: unknown;
+  message?: unknown;
+  body?: unknown;
+  priority?: unknown;
+  status?: unknown;
+  action_status?: unknown;
+  metadata?: Record<string, unknown> | null;
+  created_at?: unknown;
+};
+
+const CANONICAL_TYPES = new Set<CanonicalNotificationType>([
+  'conversation_review',
+  'staff_task',
+  'customer_followup',
+  'customer_request',
+  'reward',
+  'deduction',
+  'payroll',
+  'attendance',
+  'sales_target',
+  'inventory',
+  'expiry_alert',
+  'delivery_order',
+  'shift_issue',
+  'manager_alert',
+  'vip_customer_silence',
+  'system',
+]);
+
 const TYPE_ALIASES: Record<string, CanonicalNotificationType> = {
   chat_evaluation: 'conversation_review',
   conversation_sales_review: 'conversation_review',
   'تقييم محادثة': 'conversation_review',
   'تقييم المحادثة': 'conversation_review',
+
   task: 'staff_task',
   employee_task: 'staff_task',
   assignment: 'staff_task',
+  cleaning_task: 'staff_task',
+  branch_manager_task: 'staff_task',
+  staff_task_overdue: 'staff_task',
+  staff_task_completed: 'staff_task',
+
   followup: 'customer_followup',
   'متابعة': 'customer_followup',
   'متابعة عميل': 'customer_followup',
   'طلب متابعة': 'customer_followup',
   'طلب عميل': 'customer_request',
+
   delivery: 'delivery_order',
   stock_alert: 'inventory',
   low_stock: 'inventory',
   stagnant_item: 'inventory',
   penalty: 'deduction',
+
+  vip_customer_health: 'vip_customer_silence',
+  vip_customer_health_digest: 'vip_customer_silence',
+  daily_customer_attention_digest: 'vip_customer_silence',
+
+  sync_health: 'system',
+  sync_health_alert: 'system',
+};
+
+const PRIORITY_AR: Record<string, string> = {
+  low: 'منخفض',
+  normal: 'عادي',
+  medium: 'متوسط',
+  high: 'مهم',
+  urgent: 'عاجل',
+  critical: 'حرج',
+  خطر: 'عاجل',
+  مهم: 'مهم',
+  عادي: 'عادي',
+};
+
+const TYPE_AR: Record<string, string> = {
+  task: 'مهمة',
+  employee_task: 'مهمة موظف',
+  staff_task: 'مهمة موظف',
+  cleaning_task: 'مهمة نظافة',
+  branch_manager_task: 'مهمة مدير فرع',
+  staff_task_overdue: 'مهمة متأخرة',
+  staff_task_completed: 'مهمة تم تنفيذها',
+  followup: 'متابعة عميل',
+  customer_followup: 'متابعة عميل',
+  customer_request: 'طلب عميل',
+  conversation_review: 'تقييم محادثة',
+  chat_evaluation: 'تقييم محادثة',
+  customer_alert: 'تنبيه عميل',
+  vip_customer_silence: 'عميل VIP غير نشط',
+  vip_customer_health: 'حركة عميل VIP',
+  vip_customer_health_digest: 'تقرير عملاء VIP',
+  daily_customer_attention_digest: 'عملاء يحتاجون متابعة',
+  delivery: 'الدليفري',
+  delivery_order: 'طلب توصيل',
+  attendance: 'الحضور والانصراف',
+  shift_issue: 'ملاحظة شيفت',
+  sales_target: 'التارجت والمبيعات',
+  low_stock: 'نقص مخزون',
+  stock_alert: 'تنبيه مخزون',
+  inventory: 'المخزون',
+  expiry_alert: 'تنبيه صلاحية',
+  reward: 'مكافأة',
+  deduction: 'خصم',
+  penalty: 'خصم',
+  payroll: 'الرواتب والحوافز',
+  sync_health: 'حالة المزامنة',
+  sync_health_alert: 'مشكلة مزامنة',
+  manager_alert: 'تنبيه إداري',
+  system: 'تنبيه نظام',
+};
+
+const ACTION_AR: Record<string, string> = {
+  new: 'جديد',
+  read: 'مقروء',
+  in_progress: 'قيد المتابعة',
+  completed: 'تمت المتابعة',
+  dismissed: 'مغلق',
+  escalated: 'تم التصعيد',
+  overdue: 'متأخر',
 };
 
 export function canonicalNotificationType(value: unknown): CanonicalNotificationType {
   const raw = String(value || 'system').trim().toLowerCase();
-  return TYPE_ALIASES[raw] || (raw as CanonicalNotificationType) || 'system';
+  if (TYPE_ALIASES[raw]) return TYPE_ALIASES[raw];
+  if (CANONICAL_TYPES.has(raw as CanonicalNotificationType)) return raw as CanonicalNotificationType;
+  return 'system';
+}
+
+export function notificationPriorityLabel(value: unknown): string {
+  const raw = String(value || 'normal').trim().toLowerCase();
+  return PRIORITY_AR[raw] || (/[\u0600-\u06ff]/.test(raw) ? String(value) : 'عادي');
+}
+
+export function notificationTypeLabel(value: unknown): string {
+  const raw = String(value || 'system').trim().toLowerCase();
+  return TYPE_AR[raw] || TYPE_AR[canonicalNotificationType(raw)] || (/[\u0600-\u06ff]/.test(raw) ? String(value) : 'تنبيه تشغيلي');
+}
+
+export function notificationActionLabel(value: unknown): string {
+  const raw = String(value || 'new').trim().toLowerCase();
+  return ACTION_AR[raw] || (/[\u0600-\u06ff]/.test(raw) ? String(value) : 'جديد');
+}
+
+export function notificationMetadataValue(item: NotificationLike, ...keys: string[]): unknown | null {
+  const metadata = item.metadata || {};
+  for (const key of keys) {
+    const value = metadata[key];
+    if (value !== null && value !== undefined && String(value).trim() !== '') return value;
+  }
+  return null;
+}
+
+export function notificationGroup(item: NotificationLike): NotificationGroup {
+  const rawType = String(item.type || item.target_type || '').trim().toLowerCase();
+  const canonical = canonicalNotificationType(rawType);
+  const title = String(item.title || '').toLowerCase();
+  const text = `${rawType} ${title} ${item.message || ''} ${item.body || ''}`.toLowerCase();
+  const priority = String(item.priority || '').trim().toLowerCase();
+  const actionState = String(item.action_status || notificationMetadataValue(item, 'actionState') || '').toLowerCase();
+
+  if (actionState === 'completed' || rawType === 'staff_task_completed' || /تمت المهمة|تم تنفيذ|اكتملت المهمة/.test(text)) return 'completed';
+  if (rawType === 'staff_task_overdue' || /overdue|مهمة متأخرة|تأخر|فات موعد/.test(text)) return 'overdue';
+  if (rawType.startsWith('vip_') || rawType === 'daily_customer_attention_digest' || canonical === 'vip_customer_silence' || /عميل مهم|عميل vip|vip/.test(text)) return 'vip';
+  if (canonical === 'conversation_review' || /تقييم محادثة/.test(text)) return 'reviews';
+  if (['critical', 'urgent'].includes(priority)) return 'urgent';
+  if (rawType.startsWith('sync_health') || canonical === 'system' || /مزامن|offline|اتصال/.test(text)) return 'system';
+  if (priority === 'high') return 'urgent';
+  return 'all';
+}
+
+export function notificationOperationalScore(item: NotificationLike): number {
+  const priority = String(item.priority || '').toLowerCase();
+  const group = notificationGroup(item);
+  const text = `${item.type || ''} ${item.title || ''} ${item.body || ''} ${item.message || ''} ${item.status || ''}`.toLowerCase();
+  const meta = item.metadata || {};
+  let score = priority === 'critical' ? 1000 : priority === 'urgent' ? 900 : priority === 'high' ? 700 : priority === 'normal' ? 300 : 200;
+
+  if (group === 'system' && /مزامن|offline|توقف|sync_health/.test(text)) score += 180;
+  if (group === 'vip') score += 160;
+  if (group === 'overdue') score += 150;
+  if (/مختفي|توقف عن الشراء|تراجع قوي/.test(text)) score += 140;
+  if (group === 'reviews') {
+    const scoreValue = Number(meta.score ?? meta.total_score ?? meta.review_score ?? NaN);
+    score += Number.isFinite(scoreValue) && scoreValue < 80 ? 120 : 20;
+  }
+  if (group === 'completed') score -= 120;
+  if (/ممتاز|100\/100|نمو قوي|تحسن/.test(text)) score -= 30;
+  return score;
+}
+
+export function compareNotificationsOperationally(a: NotificationLike, b: NotificationLike): number {
+  const scoreDiff = notificationOperationalScore(b) - notificationOperationalScore(a);
+  if (scoreDiff !== 0) return scoreDiff;
+  const aTime = new Date(String(a.created_at || 0)).getTime();
+  const bTime = new Date(String(b.created_at || 0)).getTime();
+  return bTime - aTime;
+}
+
+export function notificationRequiresOutcomeNote(item: NotificationLike, nextState: NotificationActionState): boolean {
+  return nextState === 'completed' && ['urgent', 'vip', 'overdue'].includes(notificationGroup(item));
 }
 
 export function notificationRequiresAction(type: unknown, priority: NotificationPriority): boolean {
@@ -77,7 +259,7 @@ export function canonicalNotificationRoute(input: {
 
   const routes: Record<CanonicalNotificationType, string> = {
     conversation_review: id ? `/doctor-dashboard?tab=reviews&review=${id}` : '/doctor-dashboard?tab=reviews',
-    staff_task: id ? `/doctor-dashboard?tab=requirements&assignment=${id}` : '/doctor-dashboard?tab=requirements',
+    staff_task: id ? `/operations-center?taskId=${id}` : '/operations-center',
     customer_followup: id ? `/customer-service?tab=today&openDetails=1&mode=edit&followupId=${id}` : '/customer-service?tab=today',
     customer_request: id ? `/customer-service?tab=requests&requestId=${id}` : '/customer-service?tab=requests',
     reward: '/doctor-dashboard?tab=payroll',
@@ -93,7 +275,7 @@ export function canonicalNotificationRoute(input: {
     vip_customer_silence: id ? `/customers?customerId=${id}` : '/customers',
     system: '/operations-center',
   };
-  return routes[type] || '/operations-center';
+  return routes[type];
 }
 
 function cleanPart(value: unknown): string {
