@@ -10,6 +10,12 @@ import type { AppNotification } from '@/lib/notificationService';
 import { saveNotificationSettings, useNotifications } from '@/hooks/useNotifications';
 import { normalizeRole } from '@/lib/core/permissionSystem';
 import { normalizeBranchName } from '@/lib/branch';
+import {
+  compareNotificationsOperationally,
+  notificationActionLabel,
+  notificationPriorityLabel,
+  notificationTypeLabel,
+} from '@/lib/notifications/notificationDomain';
 
 interface NotifItem {
   id: string;
@@ -84,94 +90,9 @@ const notificationTone: Record<string, string> = {
   delivery: 'dawaa-badge--info',
   attendance: 'dawaa-badge--success',
   sync_health: 'dawaa-badge--warning',
+  sync_health_alert: 'dawaa-badge--danger',
   system: 'dawaa-badge--info',
 };
-
-const PRIORITY_AR: Record<string, string> = {
-  low: 'منخفض',
-  normal: 'عادي',
-  medium: 'متوسط',
-  high: 'مهم',
-  urgent: 'عاجل',
-  critical: 'حرج',
-};
-
-const TYPE_AR: Record<string, string> = {
-  task: 'مهمة',
-  employee_task: 'مهمة موظف',
-  staff_task: 'مهمة موظف',
-  cleaning_task: 'مهمة نظافة',
-  branch_manager_task: 'مهمة مدير فرع',
-  followup: 'متابعة عميل',
-  customer_followup: 'متابعة عميل',
-  customer_request: 'طلب عميل',
-  conversation_review: 'تقييم محادثة',
-  customer_alert: 'تنبيه عميل',
-  vip_customer_health: 'متابعة عميل VIP',
-  vip_customer_health_digest: 'تقرير عملاء VIP',
-  daily_customer_attention_digest: 'عملاء يحتاجون متابعة',
-  delivery: 'الدليفري',
-  delivery_order: 'طلب توصيل',
-  attendance: 'الحضور والانصراف',
-  shift_issue: 'ملاحظة شيفت',
-  sales_target: 'التارجت والمبيعات',
-  low_stock: 'نقص مخزون',
-  stock_alert: 'تنبيه مخزون',
-  inventory: 'المخزون',
-  expiry_alert: 'تنبيه صلاحية',
-  reward: 'مكافأة',
-  deduction: 'خصم',
-  sync_health: 'حالة المزامنة',
-  manager_alert: 'تنبيه إداري',
-  system: 'تنبيه نظام',
-};
-
-const STATUS_AR: Record<string, string> = {
-  new: 'جديد',
-  read: 'مقروء',
-  in_progress: 'قيد التنفيذ',
-  completed: 'تم',
-  dismissed: 'مغلق',
-  escalated: 'تم التصعيد',
-  overdue: 'متأخر',
-};
-
-function notificationPriorityLabel(value: unknown) {
-  const raw = String(value || 'normal').trim().toLowerCase();
-  return PRIORITY_AR[raw] || String(value || 'عادي');
-}
-
-function notificationTypeLabel(value: unknown) {
-  const raw = String(value || 'system').trim().toLowerCase();
-  return TYPE_AR[raw] || (/[\u0600-\u06ff]/.test(raw) ? String(value) : 'تنبيه');
-}
-
-function notificationStatusLabel(value: unknown) {
-  const raw = String(value || '').trim().toLowerCase();
-  if (!raw) return '';
-  return STATUS_AR[raw] || (/[\u0600-\u06ff]/.test(raw) ? String(value) : '');
-}
-
-function notificationOperationalScore(item: AppNotification) {
-  const priority = String(item.priority || '').toLowerCase();
-  const type = String(item.type || item.target_type || '').toLowerCase();
-  const text = `${type} ${item.title || ''} ${item.body || ''} ${item.message || ''} ${item.status || ''}`.toLowerCase();
-  const meta = item.metadata || {};
-  let score = priority === 'critical' ? 1000 : priority === 'urgent' ? 900 : priority === 'high' ? 700 : priority === 'normal' ? 300 : 200;
-
-  if (/sync_health|مزامن|offline|توقف/.test(text)) score += 180;
-  if (/vip_customer_health|vip|عميل vip|مهم جدًا/.test(text)) score += 160;
-  if (/overdue|متأخر|تأخر|فات موعد/.test(text)) score += 150;
-  if (/مختفي|توقف عن الشراء|تراجع قوي/.test(text)) score += 140;
-  if (/conversation_review|تقييم محادثة/.test(text)) {
-    const scoreValue = Number(meta.score ?? meta.total_score ?? meta.review_score ?? NaN);
-    if (Number.isFinite(scoreValue) && scoreValue < 80) score += 120;
-    else score += 20;
-  }
-  if (/completed|تمت المهمة|تم تنفيذ|اكتملت/.test(text)) score -= 120;
-  if (/ممتاز|100\/100|نمو قوي|تحسن/.test(text)) score -= 30;
-  return score;
-}
 
 function playNotificationBeep() {
   const mode = localStorage.getItem(SOUND_KEY) || 'soft';
@@ -279,7 +200,6 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
 
   const {
     notifications: merged,
-    unreadCount,
     loading: notificationsLoading,
     available: notificationsAvailable,
     settings: notificationSettings,
@@ -290,11 +210,7 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
   const visibleNotifications = useMemo(
     () => merged
       .filter((item) => canSeeNotification(item, user))
-      .sort((a, b) => {
-        const scoreDiff = notificationOperationalScore(b) - notificationOperationalScore(a);
-        if (scoreDiff !== 0) return scoreDiff;
-        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-      }),
+      .sort(compareNotificationsOperationally),
     [merged, user]
   );
   const visibleUnreadCount = visibleNotifications.filter((item) => !item.read && !item.is_read).length;
@@ -313,9 +229,10 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
     await markAllAsRead();
   };
 
-  const openNotification = (n: AppNotification) => {
+  const openNotification = (item: AppNotification) => {
     setShowNotifs(false);
-    handleNotificationClick(n);
+    const inferredRoute = inferNotificationRoute(item);
+    handleNotificationClick({ ...item, target_route: item.target_route || inferredRoute });
   };
 
   const setSound = (mode: 'off' | 'soft' | 'distinct') => {
@@ -331,12 +248,7 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
       </button>
       <h1 className="dawaa-header-title flex-1 truncate text-base font-black">{title}</h1>
 
-      <button
-        type="button"
-        onClick={() => navigate('/attendance-report')}
-        className="dawaa-button dawaa-button--primary px-3 py-2 text-xs font-black"
-        title="تسجيل حضور / انصراف"
-      >
+      <button type="button" onClick={() => navigate('/attendance-report')} className="dawaa-button dawaa-button--primary px-3 py-2 text-xs font-black" title="تسجيل حضور / انصراف">
         <Fingerprint size={16} />
         <span className="hidden sm:inline">تسجيل حضور</span>
       </button>
@@ -400,32 +312,25 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
                   <div className="dawaa-header-muted py-8 text-center text-sm font-bold">نظام الإشعارات يحتاج تفعيل قاعدة البيانات</div>
                 ) : visibleNotifications.length === 0 ? (
                   <div className="dawaa-header-muted py-8 text-center text-sm font-bold">لا توجد إشعارات مسجلة حاليًا</div>
-                ) : visibleNotifications.slice(0, 10).map((n) => (
-                  <button
-                    key={n.id}
-                    type="button"
-                    onClick={() => void openNotification(n)}
-                    className={cn('dawaa-header-notification-row w-full border-b px-4 py-3 text-right transition last:border-0', !n.read && !n.is_read && 'is-unread')}
-                  >
+                ) : visibleNotifications.slice(0, 10).map((item) => (
+                  <button key={item.id} type="button" onClick={() => void openNotification(item)} className={cn('dawaa-header-notification-row w-full border-b px-4 py-3 text-right transition last:border-0', !item.read && !item.is_read && 'is-unread')}>
                     <div className="flex items-start gap-2.5">
-                      <span className={cn('dawaa-badge mt-0.5 shrink-0 px-2 py-0.5 text-xs font-black', isUrgent(n) ? 'dawaa-badge--danger' : notificationTone[String(n.type)] || notificationTone.system)}>
-                        {notificationPriorityLabel(n.priority || n.type)}
+                      <span className={cn('dawaa-badge mt-0.5 shrink-0 px-2 py-0.5 text-xs font-black', isUrgent(item) ? 'dawaa-badge--danger' : notificationTone[String(item.type)] || notificationTone.system)}>
+                        {notificationPriorityLabel(item.priority || item.type)}
                       </span>
                       <div className="min-w-0 flex-1">
                         <div className="dawaa-header-title flex items-center gap-1 text-xs font-black">
-                          <span className="truncate">{n.title}</span>
+                          <span className="truncate">{item.title}</span>
                           <ExternalLink size={12} className="dawaa-header-muted shrink-0" />
                         </div>
                         <div className="dawaa-header-muted mt-1 flex items-center justify-between gap-2 text-[10px]">
-                          <span>{notificationTypeLabel(n.type)}</span>
-                          <span>{formatNotificationDate(n.created_at)}</span>
+                          <span>{notificationTypeLabel(item.type)}</span>
+                          <span>{formatNotificationDate(item.created_at)}</span>
                         </div>
-                        {notificationStatusLabel(n.status) ? (
-                          <div className="dawaa-header-muted mt-1 text-[10px] font-bold">الحالة: {notificationStatusLabel(n.status)}</div>
-                        ) : null}
-                        <div className="dawaa-header-muted mt-1 line-clamp-3 text-xs leading-relaxed">{n.body || n.message}</div>
+                        {item.status ? <div className="dawaa-header-muted mt-1 text-[10px] font-bold">الحالة: {notificationActionLabel(item.action_status || item.status)}</div> : null}
+                        <div className="dawaa-header-muted mt-1 line-clamp-3 text-xs leading-relaxed">{item.body || item.message}</div>
                       </div>
-                      {!n.read && !n.is_read && <span className="dawaa-header-unread-dot mt-1 h-2 w-2 shrink-0 rounded-full" />}
+                      {!item.read && !item.is_read && <span className="dawaa-header-unread-dot mt-1 h-2 w-2 shrink-0 rounded-full" />}
                     </div>
                   </button>
                 ))}
