@@ -48,13 +48,13 @@ select
   created_at,
   raw_type,
   canonical_type,
+  missing_keys,
+  normalized_metadata as metadata,
   case
     when coalesce(stored_metadata->>'schemaVersion','') <> '2' then 'legacy_unversioned'
     when cardinality(missing_keys)>0 then 'v2_invalid'
     else 'v2_valid'
-  end as contract_state,
-  missing_keys,
-  normalized_metadata as metadata
+  end as contract_state
 from audited;
 
 grant select on public.notification_metadata_contract_audit_v2 to authenticated;
