@@ -30,6 +30,18 @@ import {
   notifyEmployee,
   type AppNotification,
 } from '@/lib/notificationService';
+import {
+  isTerminalNotificationAction,
+  notificationActionLabel,
+  notificationGroup,
+  notificationMetadataValue,
+  notificationPriorityLabel,
+  notificationRequiresOutcomeNote,
+  notificationTypeLabel,
+  type NotificationActionState,
+  type NotificationGroup,
+} from '@/lib/notifications/notificationDomain';
+import { transitionNotificationWorkflow } from '@/lib/notifications/notificationWorkflowService';
 
 type TaskRow = {
   id: string;
@@ -46,8 +58,7 @@ type TaskRow = {
 };
 
 type StaffOption = { id: string; name: string; role?: string | null; branch?: string | null };
-type NotificationTab = 'urgent' | 'vip' | 'overdue' | 'completed' | 'reviews' | 'system' | 'all';
-type WorkflowState = 'in_progress' | 'completed' | 'dismissed' | 'escalated';
+type WorkflowState = Exclude<NotificationActionState, 'new'>;
 
 const MANAGER_ROLES = new Set([
   'general_manager',
@@ -60,88 +71,6 @@ const MANAGER_ROLES = new Set([
   'procurement_manager',
 ]);
 const CLOSED = new Set(['done', 'completed', 'مكتمل', 'closed', 'تم']);
-
-const PRIORITY_AR: Record<string, string> = {
-  low: 'منخفض',
-  normal: 'عادي',
-  medium: 'متوسط',
-  high: 'مهم',
-  urgent: 'عاجل',
-  critical: 'حرج',
-  خطر: 'عاجل',
-  مهم: 'مهم',
-  عادي: 'عادي',
-};
-
-const TYPE_AR: Record<string, string> = {
-  conversation_review: 'تقييم محادثة',
-  chat_evaluation: 'تقييم محادثة',
-  staff_task: 'مهمة موظف',
-  task: 'مهمة موظف',
-  staff_task_overdue: 'مهمة متأخرة',
-  staff_task_completed: 'مهمة تم تنفيذها',
-  customer_followup: 'متابعة عميل',
-  customer_request: 'طلب عميل',
-  customer_alert: 'تنبيه عميل',
-  vip_customer_silence: 'عميل VIP غير نشط',
-  vip_customer_health: 'حركة عميل VIP',
-  vip_customer_health_digest: 'تقرير عملاء VIP',
-  daily_customer_attention_digest: 'عملاء يحتاجون متابعة',
-  sync_health: 'حالة المزامنة',
-  sync_health_alert: 'مشكلة مزامنة',
-  attendance: 'الحضور والانصراف',
-  reward: 'مكافأة',
-  deduction: 'خصم',
-  penalty: 'خصم',
-  expiry_alert: 'تنبيه صلاحية',
-  system: 'النظام',
-};
-
-const ACTION_AR: Record<string, string> = {
-  new: 'جديد',
-  in_progress: 'قيد المتابعة',
-  completed: 'تمت المتابعة',
-  dismissed: 'مغلق',
-  escalated: 'تم التصعيد',
-};
-
-function priorityLabel(value: unknown) {
-  const key = String(value || 'normal').trim().toLowerCase();
-  return PRIORITY_AR[key] || String(value || 'عادي');
-}
-
-function typeLabel(value: unknown) {
-  const key = String(value || 'system').trim().toLowerCase();
-  return TYPE_AR[key] || 'تنبيه تشغيلي';
-}
-
-function actionLabel(value: unknown) {
-  const key = String(value || 'new').trim().toLowerCase();
-  return ACTION_AR[key] || 'جديد';
-}
-
-function notificationGroup(n: AppNotification): NotificationTab {
-  const type = String(n.type || '').toLowerCase();
-  const title = String(n.title || '').toLowerCase();
-  const priority = String(n.priority || '').toLowerCase();
-  if (['critical', 'urgent'].includes(priority) || type === 'sync_health_alert') return 'urgent';
-  if (type.includes('vip_') || type === 'daily_customer_attention_digest' || title.includes('عميل مهم') || title.includes('vip')) return 'vip';
-  if (type === 'staff_task_overdue' || title.includes('متأخر') || title.includes('تأخر')) return 'overdue';
-  if (type === 'staff_task_completed' || title.includes('تم تنفيذ') || title.includes('تمت المهمة')) return 'completed';
-  if (type.includes('conversation_review') || type === 'chat_evaluation' || title.includes('تقييم محادثة')) return 'reviews';
-  if (type.includes('sync_health') || type === 'system' || title.includes('مزامنة') || title.includes('اتصال')) return 'system';
-  if (priority === 'high') return 'urgent';
-  return 'all';
-}
-
-function metadataValue(n: AppNotification, ...keys: string[]) {
-  const metadata = n.metadata || {};
-  for (const key of keys) {
-    const value = metadata[key];
-    if (value !== null && value !== undefined && String(value).trim() !== '') return value;
-  }
-  return null;
-}
 
 function formatDate(value: string | null | undefined) {
   if (!value) return 'غير محدد';
@@ -167,7 +96,7 @@ export default function OperationsCenter2027() {
 
   const [notificationsRaw, setNotificationsRaw] = useState<Record<string, unknown>[]>([]);
   const [search, setSearch] = useState('');
-  const [activeTab, setActiveTab] = useState<NotificationTab>('urgent');
+  const [activeTab, setActiveTab] = useState<NotificationGroup>('urgent');
   const [actionNotes, setActionNotes] = useState<Record<string, string>>({});
   const [actionBusy, setActionBusy] = useState<string | null>(null);
   const [form, setForm] = useState({
@@ -208,7 +137,7 @@ export default function OperationsCenter2027() {
     for (const row of notificationsRaw) {
       const n = normalizeNotification(row);
       const key = [n.type, n.target_type, n.target_id, n.recipient_staff_id, n.title]
-        .map((v) => String(v || '').trim().toLowerCase())
+        .map((value) => String(value || '').trim().toLowerCase())
         .join('|');
       if (!unique.has(key)) unique.set(key, n);
     }
@@ -224,21 +153,21 @@ export default function OperationsCenter2027() {
   const filteredNotifications = useMemo(() => {
     const q = search.trim().toLowerCase();
     return notifications
-      .filter((n) => activeTab === 'all' || notificationGroup(n) === activeTab)
-      .filter((n) => !q || `${n.title} ${n.message} ${n.type} ${n.priority} ${n.branch || ''} ${metadataValue(n, 'customerName') || ''} ${metadataValue(n, 'staffName', 'staff_name') || ''}`.toLowerCase().includes(q));
+      .filter((item) => activeTab === 'all' || notificationGroup(item) === activeTab)
+      .filter((item) => !q || `${item.title} ${item.message} ${item.type} ${item.priority} ${item.branch || ''} ${notificationMetadataValue(item, 'customerName') || ''} ${notificationMetadataValue(item, 'staffName', 'staff_name') || ''}`.toLowerCase().includes(q));
   }, [activeTab, notifications, search]);
 
   const groupCounts = useMemo(() => {
-    const counts: Record<NotificationTab, number> = { urgent: 0, vip: 0, overdue: 0, completed: 0, reviews: 0, system: 0, all: notifications.length };
-    for (const n of notifications) counts[notificationGroup(n)] += 1;
+    const counts: Record<NotificationGroup, number> = { urgent: 0, vip: 0, overdue: 0, completed: 0, reviews: 0, system: 0, all: notifications.length };
+    for (const item of notifications) counts[notificationGroup(item)] += 1;
     return counts;
   }, [notifications]);
 
   const openTasks = tasks.filter((task) => !CLOSED.has(String(task.status || '').toLowerCase()));
   const urgentTasks = openTasks.filter((task) => ['خطر', 'high', 'urgent', 'critical'].includes(String(task.priority || '').toLowerCase()));
-  const unread = notifications.filter((n) => !n.read && !n.is_read);
-  const actionRequired = notifications.filter((n) => n.requires_action || ['high', 'urgent', 'critical'].includes(String(n.priority || '').toLowerCase()));
-  const inProgressCount = notifications.filter((n) => String(n.action_status || metadataValue(n, 'actionState') || '') === 'in_progress').length;
+  const unread = notifications.filter((item) => !item.read && !item.is_read);
+  const actionRequired = notifications.filter((item) => item.requires_action || ['high', 'urgent', 'critical'].includes(String(item.priority || '').toLowerCase()));
+  const inProgressCount = notifications.filter((item) => String(item.action_status || notificationMetadataValue(item, 'actionState') || '') === 'in_progress').length;
 
   async function addTask() {
     if (!canCreateTasks) return toast.error('ليس لديك صلاحية إنشاء مهمة');
@@ -280,9 +209,16 @@ export default function OperationsCenter2027() {
     });
 
     await logActivity({
-      action: 'task_created', module: 'operations_center', target_type: 'task', target_id: String(data?.id || ''),
-      user_id: user?.id, user_name: user?.name, user_role: user?.role, branch_name: user?.branch,
-      route_path: '/operations-center', details: { assigned_staff_id: assignee.id, assigned_name: assignee.name },
+      action: 'task_created',
+      module: 'operations_center',
+      target_type: 'task',
+      target_id: String(data?.id || ''),
+      user_id: user?.id,
+      user_name: user?.name,
+      user_role: user?.role,
+      branch_name: user?.branch,
+      route_path: '/operations-center',
+      details: { assigned_staff_id: assignee.id, assigned_name: assignee.name },
     }).catch(() => undefined);
 
     setForm((current) => ({ ...current, title: '', staff_id: '' }));
@@ -305,24 +241,24 @@ export default function OperationsCenter2027() {
     refetchNotifications();
   }
 
-  async function workflowAction(n: AppNotification, nextState: WorkflowState) {
-    const note = (actionNotes[n.id] || '').trim();
-    const group = notificationGroup(n);
-    const mustRecordOutcome = nextState === 'completed' && ['urgent', 'vip', 'overdue'].includes(group);
-    if (mustRecordOutcome && !note) {
+  async function workflowAction(item: AppNotification, nextState: WorkflowState) {
+    const note = (actionNotes[item.id] || '').trim();
+    if (notificationRequiresOutcomeNote(item, nextState) && !note) {
       toast.error('اكتب نتيجة المتابعة قبل إغلاق هذا التنبيه المهم');
       return;
     }
 
-    setActionBusy(n.id);
-    const { data: ok, error } = await supabase.rpc('transition_notification_action_with_note_v1', {
-      p_notification_id: n.id,
-      p_next_state: nextState,
-      p_note: note || null,
+    setActionBusy(item.id);
+    const result = await transitionNotificationWorkflow({
+      notificationId: item.id,
+      nextState,
+      note,
+      actor: { id: user?.id, name: user?.name, role: user?.role, branch: user?.branch },
+      context: { notificationType: String(item.type || ''), notificationTitle: item.title },
     });
     setActionBusy(null);
 
-    if (error || !ok) {
+    if (!result.ok) {
       toast.error('تعذر تسجيل الإجراء. تأكد أن التنبيه داخل نطاق مسؤوليتك.');
       return;
     }
@@ -334,28 +270,16 @@ export default function OperationsCenter2027() {
       escalated: 'تم تصعيد التنبيه ورفع أولويته',
     };
     toast.success(toastByState[nextState]);
-    setActionNotes((current) => ({ ...current, [n.id]: '' }));
-    await logActivity({
-      action: `notification_${nextState}`,
-      module: 'operations_center',
-      target_type: 'notification',
-      target_id: n.id,
-      user_id: user?.id,
-      user_name: user?.name,
-      user_role: user?.role,
-      branch_name: user?.branch,
-      route_path: '/operations-center',
-      details: { note: note || null, notification_type: n.type, notification_title: n.title },
-    }).catch(() => undefined);
+    setActionNotes((current) => ({ ...current, [item.id]: '' }));
     refetchNotifications();
   }
 
-  function openNotification(n: AppNotification) {
-    const route = n.target_route || n.route || (typeof n.metadata?.route === 'string' ? n.metadata.route : null);
+  function openNotification(item: AppNotification) {
+    const route = item.target_route || item.route || (typeof item.metadata?.route === 'string' ? item.metadata.route : null);
     if (route?.startsWith('/')) navigate(route);
   }
 
-  const tabs: Array<{ key: NotificationTab; label: string; icon: typeof BellRing }> = [
+  const tabs: Array<{ key: NotificationGroup; label: string; icon: typeof BellRing }> = [
     { key: 'urgent', label: 'عاجل', icon: ShieldAlert },
     { key: 'vip', label: 'VIP والعملاء', icon: UsersRound },
     { key: 'overdue', label: 'مهام متأخرة', icon: Clock },
@@ -384,7 +308,7 @@ export default function OperationsCenter2027() {
       <section className="dawaa-card space-y-4">
         <div className="relative max-w-xl">
           <Search className="dawaa-muted absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2" />
-          <input className="dawaa-input w-full pr-10" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="بحث باسم العميل أو الموظف أو نوع التنبيه" />
+          <input className="dawaa-input w-full pr-10" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="بحث باسم العميل أو الموظف أو نوع التنبيه" />
         </div>
         <div className="flex flex-wrap gap-2">
           {tabs.map(({ key, label, icon: Icon }) => (
@@ -399,15 +323,15 @@ export default function OperationsCenter2027() {
         <section className="dawaa-card">
           <h2 className="dawaa-title mb-4 text-lg">إسناد مهمة لموظف</h2>
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <input className="dawaa-input" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="عنوان المهمة" />
-            <select className="dawaa-select" value={form.staff_id} onChange={(e) => setForm({ ...form, staff_id: e.target.value })}>
+            <input className="dawaa-input" value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="عنوان المهمة" />
+            <select className="dawaa-select" value={form.staff_id} onChange={(event) => setForm({ ...form, staff_id: event.target.value })}>
               <option value="">اختر الموظف</option>
               {staffOptions.map((item) => <option key={item.id} value={item.id}>{item.name} — {item.role}</option>)}
             </select>
-            <select className="dawaa-select" value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })}>
+            <select className="dawaa-select" value={form.priority} onChange={(event) => setForm({ ...form, priority: event.target.value })}>
               <option>عادي</option><option>مهم</option><option>خطر</option>
             </select>
-            <input className="dawaa-input" type="date" value={form.due_date} onChange={(e) => setForm({ ...form, due_date: e.target.value })} />
+            <input className="dawaa-input" type="date" value={form.due_date} onChange={(event) => setForm({ ...form, due_date: event.target.value })} />
           </div>
           <button className="dawaa-button dawaa-button--primary mt-4" onClick={() => void addTask()}><Plus className="h-4 w-4" /> إسناد المهمة</button>
         </section>
@@ -422,7 +346,7 @@ export default function OperationsCenter2027() {
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <div className="font-black">{task.title}</div>
-                  <div className="dawaa-caption mt-1">{task.assigned_name || 'مهمة موجهة لك'} · الموعد {task.due_date || 'غير محدد'} · {priorityLabel(task.priority)}</div>
+                  <div className="dawaa-caption mt-1">{task.assigned_name || 'مهمة موجهة لك'} · الموعد {task.due_date || 'غير محدد'} · {notificationPriorityLabel(task.priority)}</div>
                 </div>
                 {!done ? <button className="dawaa-button dawaa-button--secondary" onClick={() => void completeTask(task)}><CheckCircle2 className="h-4 w-4" /> تم التنفيذ</button> : <span className="dawaa-brand-chip">مكتملة</span>}
               </div>
@@ -437,34 +361,34 @@ export default function OperationsCenter2027() {
           <span className="dawaa-caption">{filteredNotifications.length} تنبيه</span>
         </div>
         <div className="space-y-2">
-          {filteredNotifications.length === 0 ? <Empty text="لا توجد تنبيهات في هذا القسم حاليًا" /> : filteredNotifications.map((n) => {
-            const score = metadataValue(n, 'score');
-            const points = metadataValue(n, 'points_impact', 'pointsImpact');
-            const customerName = metadataValue(n, 'customerName');
-            const currentSales = metadataValue(n, 'currentSales');
-            const previousSales = metadataValue(n, 'previousSalesSamePeriod');
-            const changePct = metadataValue(n, 'changePct');
-            const improvement = metadataValue(n, 'improvement_note');
-            const actionState = String(n.action_status || metadataValue(n, 'actionState') || 'new');
-            const actionByName = metadataValue(n, 'actionByName');
-            const actionAt = metadataValue(n, 'actionStateUpdatedAt');
-            const savedActionNote = metadataValue(n, 'actionNote');
-            const terminal = ['completed', 'dismissed'].includes(actionState);
-            const group = notificationGroup(n);
-            const showWorkflow = ['urgent', 'vip', 'overdue'].includes(group) || Boolean(n.requires_action);
-            return <div key={n.id} className="rounded-2xl border border-[var(--dawaa-theme-border)] p-4">
+          {filteredNotifications.length === 0 ? <Empty text="لا توجد تنبيهات في هذا القسم حاليًا" /> : filteredNotifications.map((item) => {
+            const score = notificationMetadataValue(item, 'score');
+            const points = notificationMetadataValue(item, 'points_impact', 'pointsImpact');
+            const customerName = notificationMetadataValue(item, 'customerName');
+            const currentSales = notificationMetadataValue(item, 'currentSales');
+            const previousSales = notificationMetadataValue(item, 'previousSalesSamePeriod');
+            const changePct = notificationMetadataValue(item, 'changePct');
+            const improvement = notificationMetadataValue(item, 'improvement_note');
+            const actionState = String(item.action_status || notificationMetadataValue(item, 'actionState') || 'new');
+            const actionByName = notificationMetadataValue(item, 'actionByName');
+            const actionAt = notificationMetadataValue(item, 'actionStateUpdatedAt');
+            const savedActionNote = notificationMetadataValue(item, 'actionNote');
+            const terminal = isTerminalNotificationAction(actionState);
+            const group = notificationGroup(item);
+            const showWorkflow = ['urgent', 'vip', 'overdue'].includes(group) || Boolean(item.requires_action);
+            return <div key={item.id} className="rounded-2xl border border-[var(--dawaa-theme-border)] p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <div className="font-black">{n.title}</div>
-                    <span className="dawaa-brand-chip">{priorityLabel(n.priority)}</span>
-                    <span className="dawaa-caption">{typeLabel(n.type)}</span>
-                    {actionState !== 'new' ? <span className="rounded-full border border-[var(--dawaa-theme-border)] px-2 py-0.5 text-xs font-black">{actionLabel(actionState)}</span> : null}
+                    <div className="font-black">{item.title}</div>
+                    <span className="dawaa-brand-chip">{notificationPriorityLabel(item.priority)}</span>
+                    <span className="dawaa-caption">{notificationTypeLabel(item.type)}</span>
+                    {actionState !== 'new' ? <span className="rounded-full border border-[var(--dawaa-theme-border)] px-2 py-0.5 text-xs font-black">{notificationActionLabel(actionState)}</span> : null}
                   </div>
-                  <div className="dawaa-caption mt-1 leading-relaxed">{n.message || n.body}</div>
+                  <div className="dawaa-caption mt-1 leading-relaxed">{item.message || item.body}</div>
                   <div className="dawaa-caption mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs">
-                    {n.branch ? <span>الفرع: <b>{n.branch}</b></span> : null}
-                    <span>الوقت: <b>{formatDate(n.created_at)}</b></span>
+                    {item.branch ? <span>الفرع: <b>{item.branch}</b></span> : null}
+                    <span>الوقت: <b>{formatDate(item.created_at)}</b></span>
                     {score !== null ? <span>الدرجة: <b>{String(score)}/100</b></span> : null}
                     {points !== null ? <span>تأثير النقاط: <b>{String(points)}</b></span> : null}
                     {customerName !== null ? <span>العميل: <b>{String(customerName)}</b></span> : null}
@@ -475,7 +399,7 @@ export default function OperationsCenter2027() {
                   {improvement !== null ? <div className="mt-2 rounded-xl bg-[var(--dawaa-theme-soft)] px-3 py-2 text-xs font-bold">ملاحظة التحسين: {String(improvement)}</div> : null}
                   {(actionByName !== null || savedActionNote !== null) ? (
                     <div className="mt-2 rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] px-3 py-2 text-xs">
-                      <b>{actionLabel(actionState)}</b>
+                      <b>{notificationActionLabel(actionState)}</b>
                       {actionByName !== null ? <> بواسطة <b>{String(actionByName)}</b></> : null}
                       {actionAt !== null ? <> · {formatDate(String(actionAt))}</> : null}
                       {savedActionNote !== null ? <div className="mt-1 font-bold">النتيجة/الملاحظة: {String(savedActionNote)}</div> : null}
@@ -489,20 +413,20 @@ export default function OperationsCenter2027() {
                   <label className="text-xs font-black">نتيجة المتابعة أو ملاحظة المدير</label>
                   <input
                     className="dawaa-input mt-2 w-full"
-                    value={actionNotes[n.id] || ''}
-                    onChange={(event) => setActionNotes((current) => ({ ...current, [n.id]: event.target.value }))}
-                    placeholder={['urgent', 'vip', 'overdue'].includes(group) ? 'مطلوبة عند إغلاق التنبيه: ماذا تم؟ وما النتيجة؟' : 'ملاحظة اختيارية'}
+                    value={actionNotes[item.id] || ''}
+                    onChange={(event) => setActionNotes((current) => ({ ...current, [item.id]: event.target.value }))}
+                    placeholder={notificationRequiresOutcomeNote(item, 'completed') ? 'مطلوبة عند إغلاق التنبيه: ماذا تم؟ وما النتيجة؟' : 'ملاحظة اختيارية'}
                   />
                 </div>
               ) : null}
 
               <div className="mt-3 flex flex-wrap gap-2">
-                {(n.target_route || n.route || n.metadata?.route) ? <button className="dawaa-button dawaa-button--primary" onClick={() => openNotification(n)}><ExternalLink className="h-4 w-4" /> فتح التفاصيل</button> : null}
-                {!n.read && !n.is_read ? <button className="dawaa-button dawaa-button--ghost" onClick={() => void notificationActionRead(n.id)}>تمت القراءة</button> : null}
-                {showWorkflow && !terminal && actionState !== 'in_progress' ? <button disabled={actionBusy === n.id} className="dawaa-button dawaa-button--secondary" onClick={() => void workflowAction(n, 'in_progress')}><PlayCircle className="h-4 w-4" /> بدأت المتابعة</button> : null}
-                {showWorkflow && !terminal ? <button disabled={actionBusy === n.id} className="dawaa-button dawaa-button--secondary" onClick={() => void workflowAction(n, 'completed')}><CheckCircle2 className="h-4 w-4" /> تمت المتابعة</button> : null}
-                {showWorkflow && !terminal ? <button disabled={actionBusy === n.id} className="dawaa-button dawaa-button--ghost" onClick={() => void workflowAction(n, 'escalated')}><ArrowUpCircle className="h-4 w-4" /> تصعيد</button> : null}
-                {!terminal ? <button disabled={actionBusy === n.id} className="dawaa-button dawaa-button--ghost" onClick={() => void workflowAction(n, 'dismissed')}><XCircle className="h-4 w-4" /> إغلاق</button> : null}
+                {(item.target_route || item.route || item.metadata?.route) ? <button className="dawaa-button dawaa-button--primary" onClick={() => openNotification(item)}><ExternalLink className="h-4 w-4" /> فتح التفاصيل</button> : null}
+                {!item.read && !item.is_read ? <button className="dawaa-button dawaa-button--ghost" onClick={() => void notificationActionRead(item.id)}>تمت القراءة</button> : null}
+                {showWorkflow && !terminal && actionState !== 'in_progress' ? <button disabled={actionBusy === item.id} className="dawaa-button dawaa-button--secondary" onClick={() => void workflowAction(item, 'in_progress')}><PlayCircle className="h-4 w-4" /> بدأت المتابعة</button> : null}
+                {showWorkflow && !terminal ? <button disabled={actionBusy === item.id} className="dawaa-button dawaa-button--secondary" onClick={() => void workflowAction(item, 'completed')}><CheckCircle2 className="h-4 w-4" /> تمت المتابعة</button> : null}
+                {showWorkflow && !terminal ? <button disabled={actionBusy === item.id} className="dawaa-button dawaa-button--ghost" onClick={() => void workflowAction(item, 'escalated')}><ArrowUpCircle className="h-4 w-4" /> تصعيد</button> : null}
+                {!terminal ? <button disabled={actionBusy === item.id} className="dawaa-button dawaa-button--ghost" onClick={() => void workflowAction(item, 'dismissed')}><XCircle className="h-4 w-4" /> إغلاق</button> : null}
               </div>
             </div>;
           })}
