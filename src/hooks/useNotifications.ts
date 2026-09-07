@@ -4,16 +4,14 @@ import { useAuth } from '@/hooks/useAuth';
 import { useOptionalNavigationGuard } from '@/contexts/NavigationGuardContext';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import {
+  getRecentNotifications,
   markAllNotificationsRead,
   markNotificationRead,
-  normalizeNotification,
   type AppNotification,
 } from '@/lib/notificationService';
 import { normalizeRole } from '@/lib/core/permissionSystem';
 import { normalizeBranchName } from '@/lib/branch';
 import { canonicalNotificationRoute } from '@/lib/notifications/notificationDomain';
-
-type NotificationTable = 'notifications' | 'app_notifications';
 
 type NotificationRuntimeState = {
   refreshPromise: Promise<AppNotification[]> | null;
@@ -165,16 +163,6 @@ function allowedBySettings(notification: AppNotification, settings: Notification
   return true;
 }
 
-async function fetchTable(table: NotificationTable) {
-  const { data, error } = await supabase
-    .from(table)
-    .select('*')
-    .order('created_at', { ascending: false })
-    .limit(100);
-  if (error) throw error;
-  return (data || []).map((row) => normalizeNotification(row as Record<string, unknown>));
-}
-
 export function useNotifications() {
   const navigate = useNavigate();
   const navigationGuard = useOptionalNavigationGuard();
@@ -219,14 +207,7 @@ export function useNotifications() {
 
     notificationRuntime.refreshPromise = (async () => {
       try {
-        let result: AppNotification[];
-        try {
-          result = await fetchTable('notifications');
-        } catch (primaryError) {
-          if (import.meta.env.DEV) console.warn('[notifications] primary table unavailable', primaryError);
-          result = await fetchTable('app_notifications');
-        }
-
+        const result = await getRecentNotifications({ limit: 100 });
         const unique = new Map<string, AppNotification>();
         for (const item of result) {
           const normalized = { ...item, route: notificationRoute(item) };
