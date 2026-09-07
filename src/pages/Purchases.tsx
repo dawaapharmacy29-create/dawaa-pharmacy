@@ -25,19 +25,20 @@ import {
 
 type Supplier = {
   id: string;
-  supplier_name: string;
+  name?: string | null;
   supplier_type?: string | null;
   active?: boolean | null;
 };
 
 type PurchaseInvoice = {
   id: string;
-  invoice_no?: string | null;
+  system_invoice_number?: string | null;
+  supplier_invoice_number?: string | null;
+  supplier_name?: string | null;
   branch?: string | null;
   invoice_date?: string | null;
-  net_total?: number | null;
-  paid_amount?: number | null;
-  remaining_amount?: number | null;
+  total_value?: number | null;
+  paid_value?: number | null;
   status?: string | null;
 };
 
@@ -62,12 +63,12 @@ export default function Purchases() {
     setError(null);
     try {
       const [suppliersResult, invoicesResult, summary] = await Promise.all([
-        supabase.from('purchase_suppliers_v13').select('*').order('supplier_name'),
-        supabase
-          .from('purchase_invoices_v13')
-          .select('*')
-          .order('invoice_date', { ascending: false })
-          .limit(50),
+        supabase.rpc('list_purchase_suppliers_v1'),
+        supabase.rpc('list_purchase_invoices_v1', {
+          p_branch: null,
+          p_status: null,
+          p_limit: 50,
+        }),
         getProductsCatalogSummary(),
       ]);
       if (suppliersResult.error) throw suppliersResult.error;
@@ -88,9 +89,9 @@ export default function Purchases() {
 
   const totals = invoices.reduce(
     (acc, row) => ({
-      net: acc.net + n(row.net_total),
-      paid: acc.paid + n(row.paid_amount),
-      remaining: acc.remaining + n(row.remaining_amount),
+      net: acc.net + n(row.total_value),
+      paid: acc.paid + n(row.paid_value),
+      remaining: acc.remaining + Math.max(0, n(row.total_value) - n(row.paid_value)),
     }),
     { net: 0, paid: 0, remaining: 0 }
   );
@@ -202,11 +203,11 @@ function PurchasesOverview({
               <tbody>
                 {invoices.map((row) => (
                   <tr key={row.id}>
-                    <td className="font-bold">{row.invoice_no || '-'}</td>
+                    <td className="font-bold">{row.system_invoice_number || row.supplier_invoice_number || '-'}</td>
                     <td>{row.branch || '-'}</td>
                     <td>{row.invoice_date || '-'}</td>
-                    <td>{formatCurrency(n(row.net_total))}</td>
-                    <td>{formatCurrency(n(row.remaining_amount))}</td>
+                    <td>{formatCurrency(n(row.total_value))}</td>
+                    <td>{formatCurrency(Math.max(0, n(row.total_value) - n(row.paid_value)))}</td>
                     <td>{row.status || '-'}</td>
                   </tr>
                 ))}
