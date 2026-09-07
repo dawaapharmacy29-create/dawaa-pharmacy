@@ -4,8 +4,9 @@ const path = require('node:path');
 
 const ROOT = process.cwd();
 const SRC = path.join(ROOT, 'src');
-const ALLOWED_DIRECT_WRITERS = new Set();
-const TRANSITIONAL_DIRECT_WRITERS = new Set();
+const DOMAIN = 'src/lib/notifications/notificationDomain.ts';
+const SERVICE = 'src/lib/notificationService.ts';
+const ALLOWED_LEGACY_READERS = new Set([SERVICE]);
 
 function walk(dir) {
   const out = [];
@@ -19,49 +20,73 @@ function walk(dir) {
 }
 
 const directWriters = [];
-const writerSources = new Map();
-const rawRouteMaps = [];
+const legacyReaders = [];
+const canonicalReaders = [];
+const duplicateDomainLogic = [];
+
 for (const file of walk(SRC)) {
   const rel = path.relative(ROOT, file).replace(/\\/g, '/');
   const source = fs.readFileSync(file, 'utf8');
-  if (/\.from\(['"]notifications['"]\)\s*\.insert\s*\(/s.test(source)) {
+
+  if (/\.from\(['"]notifications['"]\)\s*\.(?:insert|update|delete|upsert)\s*\(/s.test(source)) {
     directWriters.push(rel);
-    writerSources.set(rel, source);
   }
-  if (rel !== 'src/hooks/useNotifications.ts' && /notificationRoute\s*\(|routes\s*:\s*Record<.*notification/si.test(source)) rawRouteMaps.push(rel);
+
+  if (/\.from\(['"]notifications['"]\)\s*\.select\s*\(/s.test(source)) {
+    legacyReaders.push(rel);
+  }
+
+  if (/\.from\((?:['"]notification_events_v2['"]|[A-Z_]*READ_MODEL[A-Z_]*)\)\s*\.select\s*\(/s.test(source)) {
+    canonicalReaders.push(rel);
+  }
+
+  if (rel !== DOMAIN) {
+    const ownsLabels = /const\s+(?:TYPE_AR|PRIORITY_AR|ACTION_AR)\s*:/s.test(source);
+    const ownsScoring = /function\s+notificationOperationalScore\s*\(/s.test(source);
+    const ownsGrouping = /function\s+notificationGroup\s*\(/s.test(source);
+    if (ownsLabels || ownsScoring || ownsGrouping) duplicateDomainLogic.push(rel);
+  }
 }
 
-const unexpected = directWriters.filter((file) => !ALLOWED_DIRECT_WRITERS.has(file));
-const staleAllowlist = [...ALLOWED_DIRECT_WRITERS].filter((file) => !directWriters.includes(file));
 const failures = [];
-if (unexpected.length) failures.push(`New direct notification writer(s): ${unexpected.join(', ')}`);
-if (staleAllowlist.length) failures.push(`Notification writer debt decreased; remove stale allowlist entry(s): ${staleAllowlist.join(', ')}`);
+if (directWriters.length) {
+  failures.push(`Direct notification table writer(s) are forbidden: ${directWriters.join(', ')}`);
+}
 
-for (const rel of TRANSITIONAL_DIRECT_WRITERS) {
-  const source = writerSources.get(rel);
-  if (!source) continue;
-  if (!/\btype\s*:\s*['"`][^'"`]+['"`]/s.test(source)) {
-    failures.push(`Transitional notification writer must set a non-empty type: ${rel}`);
-  }
-  if (/\btype\s*:\s*(?:null|undefined)\b/s.test(source)) {
-    failures.push(`Transitional notification writer must not write a null type: ${rel}`);
-  }
+const unexpectedLegacyReaders = legacyReaders.filter((file) => !ALLOWED_LEGACY_READERS.has(file));
+if (unexpectedLegacyReaders.length) {
+  failures.push(`UI/service code must read notification_events_v2 instead of notifications: ${unexpectedLegacyReaders.join(', ')}`);
+}
+
+if (duplicateDomainLogic.length) {
+  failures.push(`Notification labels/grouping/scoring must live only in ${DOMAIN}: ${duplicateDomainLogic.join(', ')}`);
 }
 
 for (const required of [
-  'src/lib/notifications/notificationDomain.ts',
+  DOMAIN,
   'src/lib/notifications/notificationActionService.ts',
+  'src/lib/notifications/notificationWorkflowService.ts',
 ]) {
   if (!fs.existsSync(path.join(ROOT, required))) failures.push(`Missing canonical notification boundary: ${required}`);
 }
 
+const serviceSource = fs.readFileSync(path.join(ROOT, SERVICE), 'utf8');
+if (!serviceSource.includes('notification_events_v2')) {
+  failures.push(`${SERVICE} must own the canonical notification_events_v2 read boundary.`);
+}
+if (!serviceSource.includes('create_notification_audience_v1')) {
+  failures.push(`${SERVICE} must keep notification creation behind create_notification_audience_v1.`);
+}
+
 console.log(`[notification-architecture] direct writers: ${directWriters.length}`);
-console.log(`[notification-architecture] ${directWriters.join(', ') || 'none'}`);
-if (rawRouteMaps.length) console.log(`[notification-architecture] additional route-like implementations for review: ${rawRouteMaps.join(', ')}`);
+console.log(`[notification-architecture] legacy readers: ${legacyReaders.join(', ') || 'none'}`);
+console.log(`[notification-architecture] canonical readers: ${canonicalReaders.join(', ') || 'none'}`);
+console.log(`[notification-architecture] duplicate domain logic: ${duplicateDomainLogic.join(', ') || 'none'}`);
 
 if (failures.length) {
   console.error('\nNotification architecture check failed:');
   failures.forEach((failure) => console.error(`- ${failure}`));
   process.exit(1);
 }
-console.log('[notification-architecture] PASS: notification writes are command-only; no direct table writers remain.');
+
+console.log('[notification-architecture] PASS: command-only writes, canonical read model, and one notification domain owner are enforced.');
