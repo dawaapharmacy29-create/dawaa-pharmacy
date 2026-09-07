@@ -30,114 +30,137 @@ const SHIFT_NOTES_ITEM: NavItem = { path: '/shift-notes', icon: ClipboardList, l
 const QUICK_FOLLOWUP_ITEM: NavItem = { path: '/customer-service?quickFollowup=1', icon: HeadphonesIcon, label: 'متابعة سريعة', permission: 'view_customer_service' };
 const CUSTOMER_CODING_ITEM: NavItem = { path: '/customer-coding', icon: UserPlus, label: 'تكويد عميل', permission: 'view_customer_service' };
 
+// Navigation is grouped by user workflow, while keeping the existing routes and permissions intact.
 const GROUPS: NavGroup[] = [
-  { title: 'لوحة القيادة', icon: Crown, items: [
-    // كل الأدوار عندها صلاحية view_dashboard الأساسية (حتى المساعد والدليفري)، لكن
-    // /ExecutiveDashboard2027 نفسها بترفض أي دور مش مدير فعليًا وترجّعه لصفحة تانية
-    // (roleHomePath / التوجيه داخل الصفحة). كانت الصلاحية العامة دي بس هي اللي بتحكم
-    // ظهور الرابط في القائمة الجانبية، فكان بيظهر لأدوار هترتد فورًا لصفحة تانية —
-    // استبعدناهم هنا عشان الرابط الظاهر يطابق فعلًا مين يقدر يستخدم الصفحة.
-    { path: '/', icon: LayoutDashboard, label: 'لوحة القيادة 2027', permission: 'view_dashboard', excludeRoles: ['customer_service_manager', 'procurement_manager', 'inventory_assistant', 'customer_service', 'delivery', 'cleaning_supervisor'] },
-    { path: '/branch-inspection', icon: ClipboardList, label: 'مرور مدير الفروع', permission: 'view_branch_inspection' },
-    { path: '/operations-center', icon: BellRing, label: 'المهام والتنبيهات', permission: 'view_operations' },
-    { path: '/data-health', icon: ShieldCheck, label: 'صحة البيانات', permission: 'view_data_health' },
-    { path: '/activity-log', icon: ActivitySquare, label: 'سجل الأنشطة', permission: 'view_activity_log', adminOnly: true },
+  { title: 'الرئيسية والإدارة', icon: Crown, items: [
+    { path: '/', icon: LayoutDashboard, label: 'لوحة الإدارة', permission: 'view_dashboard', excludeRoles: ['customer_service_manager', 'procurement_manager', 'inventory_assistant', 'customer_service', 'delivery', 'cleaning_supervisor'] },
+    { path: '/operations-center', icon: BellRing, label: 'مركز المهام والتنبيهات', permission: 'view_operations' },
+    { path: '/branch-inspection', icon: ClipboardList, label: 'متابعة ومرور الفروع', permission: 'view_branch_inspection' },
   ]},
-  { title: 'الموظفون والحضور', icon: UserCheck, items: [
-    { path: '/team', icon: UserCheck, label: 'الفريق / الموظفون', permission: 'view_team', excludeRoles: ['customer_service_manager'] },
-    { path: '/staff-accounts', icon: ShieldCheck, label: 'الحسابات والصلاحيات', permission: 'view_staff_accounts', adminOnly: true },
-    { path: '/roles-permissions', icon: ShieldCheck, label: 'إعدادات الصلاحيات', permission: 'view_roles_permissions', adminOnly: true },
-    { path: '/staff-duplicate-audit', icon: AlertTriangle, label: 'تدقيق الحسابات والتكرار', permission: 'view_staff_accounts', adminOnly: true },
-    { path: '/staff-payroll', icon: WalletCards, label: 'إدارة الرواتب', permission: 'manage_payroll' },
+
+  { title: 'الموظفون والموارد البشرية', icon: UserCheck, items: [
+    { path: '/team', icon: UserCheck, label: 'الموظفون', permission: 'view_team', excludeRoles: ['customer_service_manager'] },
     { path: '/schedule', icon: Calendar, label: 'الجداول والشيفتات', permission: 'view_schedule' },
-    { path: '/attendance-report', icon: ClipboardCheck, label: 'تسجيل/تقرير الحضور', permission: ['view_attendance_leaves','record_attendance'] },
-    { path: '/time-off', icon: Calendar, label: 'الأذونات والإجازات', permission: 'view_attendance_leaves' },
-    { path: '/shift-performance', icon: ClipboardList, label: 'تقييمات الشيفتات', permission: 'view_shift_performance', excludeRoles: ['customer_service_manager'] },
-    { path: '/employee-operating-system', icon: ClipboardList, label: 'مهام الفريق', permission: 'employee_operating_system_view', excludeRoles: ['customer_service_manager'] },
+    { path: '/attendance-report', icon: ClipboardCheck, label: 'الحضور والانصراف', permission: ['view_attendance_leaves','record_attendance'] },
+    { path: '/time-off', icon: Calendar, label: 'الإجازات والأذونات', permission: 'view_attendance_leaves' },
+    { path: '/staff-payroll', icon: WalletCards, label: 'الرواتب', permission: 'manage_payroll' },
   ]},
-  { title: 'العملاء وخدمة العملاء', icon: HeadphonesIcon, items: [
-    { path: '/customer-service', icon: HeadphonesIcon, label: 'خدمة العملاء', permission: 'view_customer_service' },
-    { path: '/customer-service?quickFollowup=1', icon: ClipboardCheck, label: 'المتابعات', permission: 'view_customer_service' },
+
+  { title: 'خدمة العملاء والمتابعات', icon: HeadphonesIcon, items: [
+    { path: '/customer-service', icon: HeadphonesIcon, label: 'مركز خدمة العملاء', permission: 'view_customer_service' },
+    { path: '/customer-service?quickFollowup=1', icon: ClipboardCheck, label: 'متابعة العملاء', permission: 'view_customer_service' },
     { path: '/customer-requests', icon: PackageSearch, label: 'طلبات العملاء', permission: 'view_customer_requests' },
     { path: '/reviews', icon: ClipboardCheck, label: 'تقييم المحادثات', permission: 'view_reviews' },
-    { path: '/my-daily-checklist', icon: ClipboardCheck, label: 'التشيك ليست اليومي', allowedRoles: ['assistant', 'cleaning_supervisor'] },
-    { path: '/assistant-operational-log', icon: PackageSearch, label: 'تسجيل المشتريات وخدمة العملاء', allowedRoles: ['assistant'] },
-    { path: '/pharmacy-zone-tasks', icon: ClipboardList, label: 'الرص والجرد اليومي', allowedRoles: ['assistant', 'delivery'] },
-    { path: '/purchase-invoice-accuracy', icon: FileSpreadsheet, label: 'دقة إدخال فواتير المشتريات', allowedRoles: ['assistant', 'customer_service_manager', 'general_manager', 'branches_manager'] },
     { path: '/customer-coding', icon: UserPlus, label: 'تكويد العملاء', permission: 'view_customer_service' },
+    { path: '/quick-replies', icon: HeadphonesIcon, label: 'الردود السريعة', permission: 'whatsapp_customer' },
+    { path: '/welcome-messages', icon: MessageCircle, label: 'رسائل الترحيب', permission: 'customer_welcome_messages_view' },
+  ]},
+
+  { title: 'العملاء ونقاط الولاء', icon: Users, items: [
     { path: '/customers', icon: Users, label: 'قاعدة العملاء', permission: 'view_customers' },
     { path: '/customer-monthly-performance', icon: TrendingDown, label: 'أداء العملاء الشهري', permission: 'view_customers' },
     { path: '/customer-data-review', icon: ClipboardCheck, label: 'مراجعة بيانات العملاء', permission: 'view_customer_details' },
     { path: '/customer-cashback', icon: WalletCards, label: 'نقاط العملاء من الفواتير', permission: ['view_customers','view_customer_service'] },
     { path: '/customer-points-ledger', icon: Star, label: 'سجل حركات نقاط العملاء', permission: ['view_customers','view_customer_service'] },
-    { path: '/quick-replies', icon: HeadphonesIcon, label: 'الردود السريعة', permission: 'whatsapp_customer' },
-    { path: '/welcome-messages', icon: MessageCircle, label: 'رسائل الترحيب', permission: 'customer_welcome_messages_view' },
   ]},
-  { title: 'المبيعات والتحليل', icon: BarChart3, items: [
-    { path: '/analytics', icon: BarChart3, label: 'التحليلات والمبيعات', permission: 'view_analytics', excludeRoles: ['customer_service_manager'] },
-    { path: '/invoices', icon: FileSpreadsheet, label: 'استيراد الفواتير', permission: 'view_invoices' },
-    { path: '/branch-comparison', icon: BarChart3, label: 'ترتيب ومقارنة الفرع', permission: 'view_branch_comparison' },
-    { path: '/doctor-competition', icon: Star, label: 'مسابقة الدكاترة', permission: 'view_doctor_dashboard' },
+
+  { title: 'المبيعات والتقارير', icon: BarChart3, items: [
+    { path: '/analytics', icon: BarChart3, label: 'لوحة المبيعات والتحليلات', permission: 'view_analytics', excludeRoles: ['customer_service_manager'] },
+    { path: '/branch-comparison', icon: BarChart3, label: 'مقارنة أداء الفروع', permission: 'view_branch_comparison' },
+    { path: '/doctor-competition', icon: Star, label: 'أداء ومنافسة الدكاترة', permission: 'view_doctor_dashboard' },
     { path: '/whatsapp-analytics', icon: BarChart3, label: 'تحليلات واتساب', permission: 'view_reviews' },
-    { path: '/reports', icon: FileSpreadsheet, label: 'مركز التقارير', permission: 'view_sales_reports' },
     { path: '/monthly-report-360', icon: BarChart3, label: 'تقرير الأداء الشهري 360°', permission: 'view_sales_reports' },
+    { path: '/reports', icon: FileSpreadsheet, label: 'مركز التقارير', permission: 'view_sales_reports' },
   ]},
-  { title: 'التشغيل والمخزون', icon: Store, items: [
-    { path: '/stagnant-medicines', icon: Package, label: 'الرواكد واللستة', permission: 'view_stagnant_medicines' },
-    { path: '/shortages', icon: PackageSearch, label: 'النواقص', permission: 'view_shortages' },
-    { path: '/medicine-expiry', icon: AlertTriangle, label: 'الصلاحية', permission: 'view_expiry_tracker' },
-    { path: '/inventory-counts', icon: ClipboardList, label: 'الجرد', permission: 'view_inventory' },
-    { path: '/shelf-organization', icon: ClipboardList, label: 'تنظيم الأرفف وCheckpoint', permission: ['view_inventory','view_operations'] },
-    { path: '/supplies', icon: PackageSearch, label: 'Checkpoint المستلزمات', permission: ['view_supplies','view_inventory'] },
-    { path: '/accessories', icon: Package, label: 'Checkpoint الإكسسوارات', permission: ['view_operations','view_inventory'] },
-    { path: '/branch-checklist-review', icon: ClipboardCheck, label: 'مراجعة تشيك ليست النظافة والمساعدين', excludeRoles: ['pharmacist', 'assistant', 'customer_service_manager'] },
+
+  { title: 'الفواتير والمشتريات', icon: FileSpreadsheet, items: [
+    { path: '/invoices', icon: FileSpreadsheet, label: 'استيراد فواتير المبيعات', permission: 'view_invoices' },
     { path: '/purchases', icon: FileSpreadsheet, label: 'المشتريات', permission: 'view_purchases' },
-    { path: '/purchase-invoice-entry', icon: FileSpreadsheet, label: 'تسجيل فاتورة مشتريات', allowedRoles: ['assistant'] },
+    { path: '/purchase-invoice-entry', icon: FileSpreadsheet, label: 'إدخال فاتورة مشتريات', allowedRoles: ['assistant'] },
     { path: '/purchase-invoice-review', icon: ClipboardCheck, label: 'مراجعة فواتير المشتريات', excludeRoles: ['pharmacist', 'assistant', 'customer_service_manager'] },
+    { path: '/purchase-invoice-accuracy', icon: FileSpreadsheet, label: 'دقة إدخال فواتير المشتريات', allowedRoles: ['assistant', 'customer_service_manager', 'general_manager', 'branches_manager'] },
   ]},
-  { title: 'الدليفري', icon: Truck, items: [{ path: '/delivery', icon: Truck, label: 'لوحة الدليفري', permission: 'view_delivery' }] },
-  { title: 'الحوافز والرواتب', icon: Star, items: [
-    { path: '/monthly-incentive-report', icon: Wallet, label: 'التقرير الشهري للحوافز والنقاط', allowedRoles: ['general_manager', 'admin', 'executive_manager', 'branches_manager'] },
-    { path: '/incentive-governance', icon: ShieldCheck, label: 'اعتماد الحوافز', permission: 'manage_incentives' },
-    { path: '/assistant-operational-bonus', icon: Sparkles, label: 'مكافأة تميز مفاجئة', permission: 'manage_incentives' },
-    { path: '/points', icon: Star, label: 'النقاط', permission: 'view_points' },
-    { path: '/performance-pillars', icon: BarChart3, label: 'الدرجة المركّبة للأداء', excludeRoles: ['customer_service_manager'] },
-    { path: '/penalty-incentive', icon: AlertTriangle, label: 'جزاءات ومكافآت الفرع', permission: 'view_penalty_management' },
-    { path: '/point-appeals', icon: AlertTriangle, label: 'اعتراضات النقاط' },
-    { path: '/quarterly-incentives', icon: Crown, label: 'شرح الحافز الشهري', permission: 'view_quarterly_incentives' },
+
+  { title: 'المخزون وتشغيل الصيدلية', icon: Store, items: [
+    { path: '/shortages', icon: PackageSearch, label: 'النواقص', permission: 'view_shortages' },
+    { path: '/stagnant-medicines', icon: Package, label: 'الرواكد', permission: 'view_stagnant_medicines' },
+    { path: '/medicine-expiry', icon: AlertTriangle, label: 'متابعة الصلاحية', permission: 'view_expiry_tracker' },
+    { path: '/inventory-counts', icon: ClipboardList, label: 'الجرد', permission: 'view_inventory' },
+    { path: '/shelf-organization', icon: ClipboardList, label: 'تنظيم ورص الأرفف', permission: ['view_inventory','view_operations'] },
+    { path: '/supplies', icon: PackageSearch, label: 'متابعة المستلزمات', permission: ['view_supplies','view_inventory'] },
+    { path: '/accessories', icon: Package, label: 'متابعة الإكسسوارات', permission: ['view_operations','view_inventory'] },
+    { path: '/pharmacy-zone-tasks', icon: ClipboardList, label: 'الرص والجرد اليومي', allowedRoles: ['assistant', 'delivery'] },
+    { path: '/branch-checklist-review', icon: ClipboardCheck, label: 'مراجعة النظافة والرص والجرد', excludeRoles: ['pharmacist', 'assistant', 'customer_service_manager'] },
   ]},
-  { title: 'تقييم الأداء الإداري', icon: ClipboardCheck, items: [
-    { path: '/doctor-quality-summary', icon: Star, label: 'ملخص أداء الدكاترة الذكي', excludeRoles: ['pharmacist', 'customer_service_manager'] },
-    { path: '/daily-manager-checklist', icon: ClipboardList, label: 'المهام اليومية (مدراء ومساعدين)', excludeRoles: ['general_manager', 'executive_manager', 'customer_service_manager'] },
+
+  { title: 'المهام والتشغيل اليومي', icon: ClipboardList, items: [
+    { path: '/employee-operating-system', icon: ClipboardList, label: 'مهام الفريق', permission: 'employee_operating_system_view', excludeRoles: ['customer_service_manager'] },
+    { path: '/my-daily-checklist', icon: ClipboardCheck, label: 'مهامي اليومية', allowedRoles: ['assistant', 'cleaning_supervisor'] },
+    { path: '/assistant-operational-log', icon: PackageSearch, label: 'سجل أعمال المساعد', allowedRoles: ['assistant'] },
+    { path: '/daily-manager-checklist', icon: ClipboardList, label: 'مهام الإدارة اليومية', excludeRoles: ['general_manager', 'executive_manager', 'customer_service_manager'] },
+  ]},
+
+  { title: 'الأداء والتقييمات', icon: ClipboardCheck, items: [
+    { path: '/doctor-quality-summary', icon: Star, label: 'ملخص أداء الدكاترة', excludeRoles: ['pharmacist', 'customer_service_manager'] },
+    { path: '/shift-performance', icon: ClipboardList, label: 'تقييم أداء الشيفتات', permission: 'view_shift_performance', excludeRoles: ['customer_service_manager'] },
     { path: '/weekly-evaluation/branch_manager', icon: ClipboardCheck, label: 'تقييم مدير الفرع', excludeRoles: ['branch_manager', 'customer_service_manager'] },
     { path: '/weekly-evaluation/branches_manager', icon: ClipboardCheck, label: 'تقييم مدير الفروع', excludeRoles: ['branch_manager', 'customer_service_manager'] },
-    { path: '/weekly-evaluation/customer_service', icon: ClipboardCheck, label: 'تقييم خدمة العملاء الأسبوعي', excludeRoles: ['branch_manager', 'customer_service_manager'] },
-    { path: '/staff-monthly-evaluation', icon: Star, label: 'التقييم الشهري (دكاترة وخدمة عملاء)', permission: 'view_shift_performance', excludeRoles: ['customer_service_manager'] },
-    { path: '/staff-monthly-evaluation', icon: Star, label: 'تقييم خدمة العملاء للدكاترة', permission: 'view_shift_performance', allowedRoles: ['customer_service_manager'] },
+    { path: '/weekly-evaluation/customer_service', icon: ClipboardCheck, label: 'تقييم فريق خدمة العملاء ودواء ألفا', excludeRoles: ['branch_manager', 'customer_service_manager'] },
+    { path: '/staff-monthly-evaluation', icon: Star, label: 'التقييم الشهري للدكاترة وخدمة العملاء', permission: 'view_shift_performance', excludeRoles: ['customer_service_manager'] },
+    { path: '/staff-monthly-evaluation', icon: Star, label: 'تقييم الدكاترة من خدمة العملاء', permission: 'view_shift_performance', allowedRoles: ['customer_service_manager'] },
+  ]},
+
+  { title: 'النقاط والحوافز', icon: Star, items: [
+    { path: '/monthly-incentive-report', icon: Wallet, label: 'ملخص الحوافز الشهري', allowedRoles: ['general_manager', 'admin', 'executive_manager', 'branches_manager'] },
+    { path: '/performance-pillars', icon: BarChart3, label: 'مؤشر الأداء الشامل', excludeRoles: ['customer_service_manager'] },
+    { path: '/points', icon: Star, label: 'نقاط الأداء', permission: 'view_points' },
+    { path: '/penalty-incentive', icon: AlertTriangle, label: 'الجزاءات والمكافآت', permission: 'view_penalty_management' },
+    { path: '/point-appeals', icon: AlertTriangle, label: 'اعتراضات النقاط' },
+    { path: '/incentive-governance', icon: ShieldCheck, label: 'اعتماد الحوافز', permission: 'manage_incentives' },
+    { path: '/assistant-operational-bonus', icon: Sparkles, label: 'المكافآت الاستثنائية', permission: 'manage_incentives' },
+    { path: '/quarterly-incentives', icon: Crown, label: 'نظام وقواعد الحافز', permission: 'view_quarterly_incentives' },
+  ]},
+
+  { title: 'إدارة النظام', icon: ShieldCheck, items: [
+    { path: '/staff-accounts', icon: ShieldCheck, label: 'الحسابات والصلاحيات', permission: 'view_staff_accounts', adminOnly: true },
+    { path: '/roles-permissions', icon: ShieldCheck, label: 'إعدادات الأدوار والصلاحيات', permission: 'view_roles_permissions', adminOnly: true },
+    { path: '/staff-duplicate-audit', icon: AlertTriangle, label: 'تدقيق الحسابات والتكرار', permission: 'view_staff_accounts', adminOnly: true },
+    { path: '/data-health', icon: ShieldCheck, label: 'صحة البيانات', permission: 'view_data_health' },
+    { path: '/activity-log', icon: ActivitySquare, label: 'سجل أنشطة النظام', permission: 'view_activity_log', adminOnly: true },
+  ]},
+
+  { title: 'التوصيل', icon: Truck, items: [
+    { path: '/delivery', icon: Truck, label: 'إدارة الدليفري', permission: 'view_delivery' },
   ]},
 ];
 
-const PHARMACIST_GROUPS: NavGroup[] = [{
-  title: 'مساحة الدكتور', icon: UserCheck, items: [
+const PHARMACIST_GROUPS: NavGroup[] = [
+  { title: 'عملي اليومي', icon: UserCheck, items: [
     { path: '/doctor-dashboard', icon: LayoutDashboard, label: 'لوحة الدكتور', permission: 'view_doctor_dashboard' },
-    { path: '/monthly-report-360', icon: BarChart3, label: 'تقريري الشهري 360°', permission: 'view_doctor_dashboard' },
     { path: '/doctor-dashboard?tab=followups', icon: HeadphonesIcon, label: 'متابعاتي المطلوبة', permission: 'view_doctor_dashboard' },
+    { path: '/schedule', icon: Calendar, label: 'الجدول والشيفتات', permission: 'view_schedule' },
+  ]},
+  { title: 'العملاء والمحادثات', icon: HeadphonesIcon, items: [
     { path: '/customers', icon: Users, label: 'بحث العملاء', permission: 'view_customers' },
     { path: '/customer-points-ledger', icon: Star, label: 'نقاط العملاء', permission: 'view_customers' },
-    { path: '/doctor-competition', icon: Star, label: 'مسابقة الدكاترة', permission: 'view_doctor_dashboard' },
-    { path: '/doctor-dashboard?tab=reviews', icon: ClipboardCheck, label: 'تقييماتي الشخصية', permission: 'view_doctor_dashboard' },
-    { path: '/points', icon: Star, label: 'النقاط والحافز', permission: 'view_points' },
-    { path: '/point-appeals', icon: AlertTriangle, label: 'اعتراضاتي على النقاط' },
-    { path: '/doctor-dashboard?tab=payroll', icon: WalletCards, label: 'حسابي والقبض', permission: 'view_doctor_dashboard' },
-    { path: '/doctor-dashboard?tab=notifications', icon: BellRing, label: 'إشعاراتي', permission: 'view_doctor_dashboard' },
-    { path: '/doctor-dashboard?tab=activity', icon: Activity, label: 'سجل نشاطي', permission: 'view_doctor_dashboard' },
     { path: '/quick-replies', icon: HeadphonesIcon, label: 'الردود السريعة', permission: 'whatsapp_customer' },
     { path: '/welcome-messages', icon: MessageCircle, label: 'رسائل الترحيب', permission: 'customer_welcome_messages_view' },
+  ]},
+  { title: 'أدائي وحافزي', icon: Star, items: [
+    { path: '/monthly-report-360', icon: BarChart3, label: 'تقريري الشهري 360°', permission: 'view_doctor_dashboard' },
+    { path: '/doctor-dashboard?tab=reviews', icon: ClipboardCheck, label: 'تقييماتي الشخصية', permission: 'view_doctor_dashboard' },
+    { path: '/doctor-competition', icon: Star, label: 'مسابقة الدكاترة', permission: 'view_doctor_dashboard' },
+    { path: '/points', icon: Star, label: 'نقاطي وحافزي', permission: 'view_points' },
+    { path: '/point-appeals', icon: AlertTriangle, label: 'اعتراضاتي على النقاط' },
+    { path: '/doctor-dashboard?tab=payroll', icon: WalletCards, label: 'راتبي ومستحقاتي', permission: 'view_doctor_dashboard' },
+    { path: '/doctor-dashboard?tab=notifications', icon: BellRing, label: 'إشعاراتي', permission: 'view_doctor_dashboard' },
+    { path: '/doctor-dashboard?tab=activity', icon: Activity, label: 'سجل نشاطي', permission: 'view_doctor_dashboard' },
+  ]},
+  { title: 'الأصناف والتشغيل', icon: Store, items: [
     { path: '/stagnant-medicines', icon: Package, label: 'الرواكد', permission: 'view_stagnant_medicines' },
-    { path: '/incentive-medicines', icon: Sparkles, label: 'اللستة', permission: 'view_incentive_medicines' },
-    { path: '/schedule', icon: Calendar, label: 'الجدول', permission: 'view_schedule' },
-  ],
-}];
+    { path: '/incentive-medicines', icon: Sparkles, label: 'أصناف الحافز', permission: 'view_incentive_medicines' },
+  ]},
+];
 
 function basePath(path: string) { return path.split('?')[0]; }
 function activeItem(itemPath: string, pathname: string, search: string) {
@@ -188,7 +211,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
   const quickFollowupPath = pharmacistView ? '/doctor-dashboard?tab=followups' : QUICK_FOLLOWUP_ITEM.path;
 
   const groups = useMemo(() => (pharmacistView ? PHARMACIST_GROUPS : GROUPS)
-    .filter((group) => group.title !== 'الدليفري' || ENABLE_INTERNAL_DELIVERY_MODULE)
+    .filter((group) => group.title !== 'التوصيل' || ENABLE_INTERNAL_DELIVERY_MODULE)
     .map((group) => ({ ...group, items: group.items.filter(canAccess) }))
     .filter((group) => group.items.length), [checkPermission, pharmacistView, privileged, role]);
 
