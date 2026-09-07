@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   ArrowUpCircle,
   BellRing,
@@ -16,20 +16,14 @@ import {
   Wifi,
   XCircle,
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
+import { useNotifications } from '@/hooks/useNotifications';
 import { useStaffDirectory } from '@/hooks/useStaffDirectory';
 import { useSupabaseQuery, supabaseInsert, supabaseUpdate } from '@/hooks/useSupabaseQuery';
-import { supabase } from '@/lib/supabase';
 import { normalizeRole } from '@/lib/core/permissionSystem';
 import { logActivity } from '@/lib/activityLog';
-import {
-  markNotificationRead,
-  normalizeNotification,
-  notifyEmployee,
-  type AppNotification,
-} from '@/lib/notificationService';
+import { notifyEmployee, type AppNotification } from '@/lib/notificationService';
 import {
   isTerminalNotificationAction,
   notificationActionLabel,
@@ -80,12 +74,17 @@ function formatDate(value: string | null | undefined) {
 }
 
 export default function OperationsCenter2027() {
-  const navigate = useNavigate();
   const { user, checkPermission } = useAuth();
   const role = normalizeRole(user?.role);
   const canCreateTasks = checkPermission('manage_operations') || MANAGER_ROLES.has(role);
   const canSeeAllBranches = ['general_manager', 'executive_manager', 'branches_manager'].includes(role);
   const { data: staffDirectory = [] } = useStaffDirectory();
+  const {
+    notifications,
+    refreshNotifications,
+    markAsRead,
+    handleNotificationClick,
+  } = useNotifications();
 
   const { data: tasks, refetch: refetchTasks } = useSupabaseQuery<TaskRow>({
     table: 'tasks',
@@ -94,7 +93,6 @@ export default function OperationsCenter2027() {
     realtimeEnabled: true,
   });
 
-  const [notificationsRaw, setNotificationsRaw] = useState<Record<string, unknown>[]>([]);
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState<NotificationGroup>('urgent');
   const [actionNotes, setActionNotes] = useState<Record<string, string>>({});
@@ -105,19 +103,6 @@ export default function OperationsCenter2027() {
     due_date: new Date().toISOString().slice(0, 10),
     staff_id: '',
   });
-
-  const refetchNotifications = useCallback(() => {
-    void supabase
-      .from('notifications')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(250)
-      .then(({ data }) => setNotificationsRaw((data as Record<string, unknown>[]) || []));
-  }, []);
-
-  useEffect(() => {
-    refetchNotifications();
-  }, [refetchNotifications]);
 
   const staffOptions = useMemo<StaffOption[]>(() => {
     if (!canCreateTasks) return [];
@@ -131,18 +116,6 @@ export default function OperationsCenter2027() {
     }
     return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name, 'ar'));
   }, [canCreateTasks, canSeeAllBranches, staffDirectory, user?.branch]);
-
-  const notifications = useMemo(() => {
-    const unique = new Map<string, AppNotification>();
-    for (const row of notificationsRaw) {
-      const n = normalizeNotification(row);
-      const key = [n.type, n.target_type, n.target_id, n.recipient_staff_id, n.title]
-        .map((value) => String(value || '').trim().toLowerCase())
-        .join('|');
-      if (!unique.has(key)) unique.set(key, n);
-    }
-    return [...unique.values()];
-  }, [notificationsRaw]);
 
   const visibleTasks = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -224,7 +197,7 @@ export default function OperationsCenter2027() {
     setForm((current) => ({ ...current, title: '', staff_id: '' }));
     toast.success('تم إنشاء المهمة وإرسال التنبيه للموظف');
     refetchTasks();
-    refetchNotifications();
+    void refreshNotifications(true);
   }
 
   async function completeTask(task: TaskRow) {
@@ -232,13 +205,12 @@ export default function OperationsCenter2027() {
     if (error) return toast.error(error);
     toast.success('تم إنهاء المهمة — وسيظهر إشعار التنفيذ في قسم المهام التي تمت');
     refetchTasks();
-    refetchNotifications();
+    void refreshNotifications(true);
   }
 
   async function notificationActionRead(id: string) {
-    const ok = await markNotificationRead(id);
+    const ok = await markAsRead(id);
     if (!ok) return toast.error('تعذر تحديث التنبيه');
-    refetchNotifications();
   }
 
   async function workflowAction(item: AppNotification, nextState: WorkflowState) {
@@ -271,12 +243,7 @@ export default function OperationsCenter2027() {
     };
     toast.success(toastByState[nextState]);
     setActionNotes((current) => ({ ...current, [item.id]: '' }));
-    refetchNotifications();
-  }
-
-  function openNotification(item: AppNotification) {
-    const route = item.target_route || item.route || (typeof item.metadata?.route === 'string' ? item.metadata.route : null);
-    if (route?.startsWith('/')) navigate(route);
+    void refreshNotifications(true);
   }
 
   const tabs: Array<{ key: NotificationGroup; label: string; icon: typeof BellRing }> = [
@@ -421,7 +388,7 @@ export default function OperationsCenter2027() {
               ) : null}
 
               <div className="mt-3 flex flex-wrap gap-2">
-                {(item.target_route || item.route || item.metadata?.route) ? <button className="dawaa-button dawaa-button--primary" onClick={() => openNotification(item)}><ExternalLink className="h-4 w-4" /> فتح التفاصيل</button> : null}
+                <button className="dawaa-button dawaa-button--primary" onClick={() => handleNotificationClick(item)}><ExternalLink className="h-4 w-4" /> فتح التفاصيل</button>
                 {!item.read && !item.is_read ? <button className="dawaa-button dawaa-button--ghost" onClick={() => void notificationActionRead(item.id)}>تمت القراءة</button> : null}
                 {showWorkflow && !terminal && actionState !== 'in_progress' ? <button disabled={actionBusy === item.id} className="dawaa-button dawaa-button--secondary" onClick={() => void workflowAction(item, 'in_progress')}><PlayCircle className="h-4 w-4" /> بدأت المتابعة</button> : null}
                 {showWorkflow && !terminal ? <button disabled={actionBusy === item.id} className="dawaa-button dawaa-button--secondary" onClick={() => void workflowAction(item, 'completed')}><CheckCircle2 className="h-4 w-4" /> تمت المتابعة</button> : null}
