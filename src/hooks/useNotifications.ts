@@ -9,9 +9,10 @@ import {
   markNotificationRead,
   type AppNotification,
 } from '@/lib/notificationService';
-import { normalizeRole } from '@/lib/core/permissionSystem';
-import { normalizeBranchName } from '@/lib/branch';
-import { canonicalNotificationRoute } from '@/lib/notifications/notificationDomain';
+import {
+  canonicalNotificationRoute,
+  notificationPreferenceCategory,
+} from '@/lib/notifications/notificationDomain';
 
 type NotificationRuntimeState = {
   refreshPromise: Promise<AppNotification[]> | null;
@@ -78,12 +79,6 @@ export function saveNotificationSettings(settings: NotificationSettings) {
   window.dispatchEvent(new CustomEvent('dawaa:notification-settings'));
 }
 
-function routeWithId(base: string, key: string, id?: string | null) {
-  if (!id) return base;
-  const separator = base.includes('?') ? '&' : '?';
-  return `${base}${separator}${key}=${encodeURIComponent(id)}`;
-}
-
 export function notificationRoute(notification: AppNotification) {
   const explicit = String(
     notification.route || notification.target_route || notification.metadata?.route || ''
@@ -97,15 +92,10 @@ export function notificationRoute(notification: AppNotification) {
         ''
     );
 
-  if (explicit.startsWith('/')) return explicit;
-
-  const rawType = String(notification.type || notification.target_type || '').trim().toLowerCase();
-  if (rawType === 'customer_data_review') return '/customer-service?tab=data-review';
-  if (rawType === 'welcome_task') return routeWithId('/customer-service?tab=welcome', 'taskId', id);
-
   return canonicalNotificationRoute({
-    type: rawType,
+    type: notification.type || notification.target_type,
     entityId: id,
+    explicitRoute: explicit,
     recipientStaffId: notification.recipient_staff_id || undefined,
   });
 }
@@ -118,48 +108,19 @@ function isUnread(notification: AppNotification) {
   );
 }
 
-function isGeneralManager(role: string) {
-  return ['general_manager', 'executive_manager', 'branches_manager'].includes(normalizeRole(role));
-}
-
-function visibleToUser(
-  notification: AppNotification,
-  user: { id: string; staffId?: string; role: string; branch: string }
-) {
-  if (isGeneralManager(user.role)) return true;
-  const targetUser = notification.recipient_user_id || notification.user_id;
-  if (targetUser && targetUser !== user.id) return false;
-  if (notification.recipient_staff_id && notification.recipient_staff_id !== user.staffId) return false;
-  if (
-    notification.recipient_role &&
-    normalizeRole(notification.recipient_role) !== normalizeRole(user.role)
-  ) return false;
-  if (
-    notification.branch &&
-    normalizeBranchName(notification.branch) !== normalizeBranchName(user.branch)
-  ) return false;
-
-  const hasTarget = Boolean(
-    targetUser ||
-    notification.recipient_staff_id ||
-    notification.recipient_role ||
-    notification.branch
-  );
-  return hasTarget || (!targetUser && !notification.recipient_staff_id && !notification.recipient_role && !notification.branch);
-}
-
 function allowedBySettings(notification: AppNotification, settings: NotificationSettings) {
-  const type = String(notification.type || notification.target_type || '');
   if (
     settings.highPriorityOnly &&
     !/high|urgent|critical|عاجل|حرج/i.test(String(notification.priority || ''))
   ) return false;
-  if (/followup|customer|welcome|manager|vip/.test(type) && !settings.customerService) return false;
-  if (/delivery/.test(type) && !settings.delivery) return false;
-  if (/inventory|stock|expiry/.test(type) && !settings.inventory) return false;
-  if (/review/.test(type) && !settings.reviews) return false;
-  if (/attendance|shift/.test(type) && !settings.attendance) return false;
-  if (/target|sales/.test(type) && !settings.targets) return false;
+
+  const category = notificationPreferenceCategory(notification.type || notification.target_type);
+  if (category === 'customerService') return settings.customerService;
+  if (category === 'delivery') return settings.delivery;
+  if (category === 'inventory') return settings.inventory;
+  if (category === 'reviews') return settings.reviews;
+  if (category === 'attendance') return settings.attendance;
+  if (category === 'targets') return settings.targets;
   return true;
 }
 
@@ -230,7 +191,7 @@ export function useNotifications() {
         notificationRuntime.lastRefreshAt = Date.now();
         return resolvedRows;
       } catch (error) {
-        console.warn('[notifications] database source unavailable', error);
+        console.warn('[notifications] canonical read source unavailable', error);
         notificationRuntime.rows = [];
         notificationRuntime.available = false;
         return [] as AppNotification[];
@@ -319,11 +280,10 @@ export function useNotifications() {
     const retentionStart = Date.now() - settings.retentionDays * 86400000;
     return rows.filter(
       (item) =>
-        visibleToUser(item, user) &&
         allowedBySettings(item, settings) &&
         new Date(item.created_at).getTime() >= retentionStart
     );
-  }, [rows, settings, user?.id, user?.staffId, user?.role, user?.branch]);
+  }, [rows, settings, user?.id]);
 
   const unreadCount = useMemo(() => notifications.filter(isUnread).length, [notifications]);
 
