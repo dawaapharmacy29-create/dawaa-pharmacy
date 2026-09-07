@@ -95,6 +95,7 @@ export interface NotificationFilters {
   page?: number;
 }
 
+const CANONICAL_NOTIFICATION_READ_MODEL = 'notification_events_v2';
 
 export function normalizeNotification(row: Record<string, unknown>): AppNotification {
   const details =
@@ -139,6 +140,18 @@ export function normalizeNotification(row: Record<string, unknown>): AppNotifica
   };
 }
 
+async function getNotificationById(id: string) {
+  const { data, error } = await supabase
+    .from(CANONICAL_NOTIFICATION_READ_MODEL)
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
+  if (!error && data) return normalizeNotification(data as Record<string, unknown>);
+
+  const legacy = await supabase.from('notifications').select('*').eq('id', id).maybeSingle();
+  return legacy.data ? normalizeNotification(legacy.data as Record<string, unknown>) : null;
+}
+
 export async function createNotification(payload: NotificationPayload) {
   if (!isSupabaseConfigured) return null;
 
@@ -152,7 +165,12 @@ export async function createNotification(payload: NotificationPayload) {
     });
     const message = payload.message || payload.body || '';
     const priority = payload.priority || 'normal';
-    const dedupeKey = buildNotificationDedupeKey({ type, recipientStaffId: payload.recipient_staff_id || payload.recipient_role || undefined, entityType: payload.target_type || undefined, entityId: payload.target_id || undefined });
+    const dedupeKey = buildNotificationDedupeKey({
+      type,
+      recipientStaffId: payload.recipient_staff_id || payload.recipient_role || undefined,
+      entityType: payload.target_type || undefined,
+      entityId: payload.target_id || undefined,
+    });
     const { data: id, error } = await supabase.rpc('create_notification_audience_v1', {
       p_recipient_staff_id: payload.recipient_staff_id || null,
       p_recipient_role: payload.recipient_role || null,
@@ -164,7 +182,12 @@ export async function createNotification(payload: NotificationPayload) {
       p_entity_id: payload.target_id || null,
       p_action_url: route || null,
       p_priority: priority,
-      p_metadata: { ...(payload.metadata || {}), requiresAction: payload.requires_action ?? ['high','urgent','critical'].includes(priority), soundEnabled: payload.sound_enabled ?? ['urgent','critical'].includes(priority), createdByName: payload.created_by_name || null },
+      p_metadata: {
+        ...(payload.metadata || {}),
+        requiresAction: payload.requires_action ?? ['high', 'urgent', 'critical'].includes(priority),
+        soundEnabled: payload.sound_enabled ?? ['urgent', 'critical'].includes(priority),
+        createdByName: payload.created_by_name || null,
+      },
       p_dedupe_key: dedupeKey || null,
     });
     if (error || !id) {
@@ -190,8 +213,7 @@ export async function createNotification(payload: NotificationPayload) {
       },
     }).catch(() => undefined);
 
-    const { data } = await supabase.from('notifications').select('*').eq('id', String(id)).maybeSingle();
-    return data ? normalizeNotification(data as Record<string, unknown>) : null;
+    return getNotificationById(String(id));
   } catch (error) {
     console.warn('Notification creation skipped', error);
     return null;
@@ -245,7 +267,7 @@ async function logNotificationAction(action: string, id: string) {
   }).catch(() => undefined);
 }
 
-export async function markAllNotificationsRead(filters: NotificationFilters = {}) {
+export async function markAllNotificationsRead(_filters: NotificationFilters = {}) {
   if (!isSupabaseConfigured) return false;
   const { error } = await supabase.rpc('mark_all_my_notifications_read_v1');
   if (error) {
@@ -255,12 +277,41 @@ export async function markAllNotificationsRead(filters: NotificationFilters = {}
   return true;
 }
 
+async function queryCanonicalNotifications(filters: NotificationFilters, from: number, to: number) {
+  let query = supabase
+    .from(CANONICAL_NOTIFICATION_READ_MODEL)
+    .select('*')
+    .order('created_at', { ascending: false })
+    .range(from, to);
+
+  if (filters.type && filters.type !== 'all') query = query.eq('type', filters.type);
+  if (filters.priority && filters.priority !== 'all') query = query.eq('priority', filters.priority);
+  if (filters.status && filters.status !== 'all') query = query.eq('status', filters.status);
+  if (filters.branch && filters.branch !== 'all') query = query.eq('branch', filters.branch);
+  if (filters.staffId) query = query.eq('recipient_staff_id', filters.staffId);
+  if (filters.userId) query = query.eq('recipient_user_id', filters.userId);
+  if (filters.role) query = query.eq('recipient_role', filters.role);
+  if (filters.search?.trim()) {
+    const q = `%${filters.search.trim().replace(/\*/g, '%')}%`;
+    query = query.or(`title.ilike.${q},message.ilike.${q}`);
+  }
+
+  return query;
+}
+
 export async function getRecentNotifications(filters: NotificationFilters = {}) {
   if (!isSupabaseConfigured) return [];
-  const limit = Math.min(filters.limit || 20, 100);
+  const limit = Math.min(filters.limit || 20, 250);
   const page = Math.max(filters.page || 1, 1);
   const from = (page - 1) * limit;
   const to = from + limit - 1;
+
+  const canonical = await queryCanonicalNotifications(filters, from, to);
+  if (!canonical.error) {
+    return (canonical.data || []).map((row) => normalizeNotification(row as Record<string, unknown>));
+  }
+
+  console.warn('Canonical notification read model unavailable; using legacy compatibility reader', canonical.error);
   let query = supabase
     .from('notifications')
     .select('*')
@@ -268,12 +319,11 @@ export async function getRecentNotifications(filters: NotificationFilters = {}) 
     .range(from, to);
 
   if (filters.type && filters.type !== 'all') query = query.eq('type', filters.type);
-  if (filters.priority && filters.priority !== 'all')
-    query = query.eq('priority', filters.priority);
+  if (filters.priority && filters.priority !== 'all') query = query.eq('priority', filters.priority);
   if (filters.status && filters.status !== 'all') query = query.eq('status', filters.status);
   if (filters.branch && filters.branch !== 'all') query = query.eq('branch', filters.branch);
   if (filters.staffId) query = query.eq('recipient_staff_id', filters.staffId);
-  if (filters.userId) query = query.eq('user_id', filters.userId);
+  if (filters.userId) query = query.eq('recipient_user_id', filters.userId);
   if (filters.role) query = query.eq('recipient_role', filters.role);
   if (filters.search?.trim()) {
     const q = `%${filters.search.trim().replace(/\*/g, '%')}%`;
@@ -290,12 +340,15 @@ export async function getRecentNotifications(filters: NotificationFilters = {}) 
 
 export async function getUnreadNotificationCount(filters: NotificationFilters = {}) {
   if (!isSupabaseConfigured) return 0;
-  let query = supabase.from('notifications').select('id', { count: 'exact', head: true });
-  if (filters.userId) query = query.eq('user_id', filters.userId);
+  let query = supabase
+    .from(CANONICAL_NOTIFICATION_READ_MODEL)
+    .select('id', { count: 'exact', head: true });
+  if (filters.userId) query = query.eq('recipient_user_id', filters.userId);
   if (filters.staffId) query = query.eq('recipient_staff_id', filters.staffId);
   if (filters.role) query = query.eq('recipient_role', filters.role);
   if (filters.branch && filters.branch !== 'all') query = query.eq('branch', filters.branch);
-  query = query.or('read.eq.false,is_read.eq.false,status.eq.new');
+  query = query.eq('is_read', false);
+
   const { count, error } = await query;
   if (error) {
     console.warn('Unread notification count failed', error);
