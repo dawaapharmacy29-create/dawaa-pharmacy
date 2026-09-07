@@ -44,7 +44,7 @@ export function normalizeArabicName(value: unknown): string {
 }
 
 /**
- * فريق دواء ألفا (هاجر/نور/هبه) يعمل على الفرعين معًا.
+ * فريق دواء ألفا (هاجر/نور/هبه) يعمل على الفرعين معًا في مساراته التشغيلية.
  * rawRole يحتفظ بالدور الحقيقي حتى قبل إدخاله كـ RoleKey رسمي في permissionSystem.
  */
 export function isDawaaAlphaUser(user: ScopeUser): boolean {
@@ -102,7 +102,6 @@ function getReviewBranchOverride(user: ScopeUser): string[] | null {
 }
 
 export function canViewAllBranches(user: ScopeUser): boolean {
-  if (isDawaaAlphaUser(user)) return true;
   return ['general_manager', 'executive_manager', 'branches_manager'].includes(
     normalizeRole(user?.role)
   );
@@ -111,7 +110,7 @@ export function canViewAllBranches(user: ScopeUser): boolean {
 export function canViewAllBranchesForServiceAnalytics(user: ScopeUser): boolean {
   const role = normalizeRole(user?.role);
   if (canViewAllBranches(user) || role === 'customer_service_manager') return true;
-  return false;
+  return isDawaaAlphaUser(user);
 }
 
 export function canViewOwnOnly(user: ScopeUser): boolean {
