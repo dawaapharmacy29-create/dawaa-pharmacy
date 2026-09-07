@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Check, Clock3, Loader2, Save, Star, X } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
+import InventoryWeeklyProgressSection from '@/components/branch/InventoryWeeklyProgressSection';
 import {
   loadBranchChecklistDashboard,
   rateCleaningDay,
@@ -10,6 +11,7 @@ import {
   type ChecklistReviewRow,
   type CleaningCycleManagerSummary,
   type DailyRatingCard,
+  type InventoryWeeklyProgressCard,
 } from '@/lib/branchChecklistOperations';
 
 function isAllBranchesValue(value: string) {
@@ -43,8 +45,6 @@ function timingStatus(row: ChecklistReviewRow) {
   const minutes = cairoMinutes(row.submitted_at);
   const slot = row.staff_daily_checklist_items?.time_slot || '';
   if (minutes == null) return 'unclassified' as const;
-  // Internal timing keys are retained for historical compatibility even though the
-  // visible task wording is now 24-hour-operation friendly.
   if (slot === 'فتح') return minutes >= 360 && minutes <= 660 ? 'on_time' as const : 'outside_window' as const;
   if (slot === 'أثناء اليوم') return minutes >= 540 && minutes <= 1320 ? 'on_time' as const : 'outside_window' as const;
   if (slot === 'قفل') return minutes >= 1200 || minutes <= 240 ? 'on_time' as const : 'outside_window' as const;
@@ -105,9 +105,7 @@ function DailyRatingSection({
       </div>
 
       {cards.length === 0 ? (
-        <div className="dawaa-card dawaa-card--soft p-4 text-sm font-semibold text-[var(--dawaa-theme-muted)]">
-          {emptyLabel}
-        </div>
+        <div className="dawaa-card dawaa-card--soft p-4 text-sm font-semibold text-[var(--dawaa-theme-muted)]">{emptyLabel}</div>
       ) : null}
 
       {cards.map((card) => {
@@ -125,9 +123,7 @@ function DailyRatingSection({
                 <p className="mt-1 text-xs font-semibold text-[var(--dawaa-theme-muted)]">{card.branch} • {card.staff_role}</p>
               </div>
               {card.stars ? (
-                <span className="dawaa-badge dawaa-badge--success text-xs">
-                  محفوظ: {card.stars}/5 • {Number(card.score_pct || 0).toLocaleString('ar-EG')}%
-                </span>
+                <span className="dawaa-badge dawaa-badge--success text-xs">محفوظ: {card.stars}/5 • {Number(card.score_pct || 0).toLocaleString('ar-EG')}%</span>
               ) : (
                 <span className="dawaa-badge dawaa-badge--warning text-xs">لم يُقيّم اليوم</span>
               )}
@@ -157,38 +153,23 @@ function DailyRatingSection({
             ) : null}
 
             {!card.rating_ready ? (
-              <div className="dawaa-alert dawaa-alert--warning mt-3 text-xs font-bold">
-                التقييم مقفول حتى تُنفذ وتُراجع كل المهام المستحقة لهذا الموظف في يوم عمله.
-              </div>
+              <div className="dawaa-alert dawaa-alert--warning mt-3 text-xs font-bold">التقييم مقفول حتى تُنفذ وتُراجع كل المهام المستحقة لهذا الموظف في يوم عمله.</div>
             ) : null}
 
             {card.rejected_items > 0 ? (
-              <div className="dawaa-alert dawaa-alert--warning mt-3 text-xs font-bold">
-                يوجد {card.rejected_items} بند مرفوض. الخصم يأتي من البنود المرفوضة نفسها، لذلك لا يتم إنشاء خصم ثانٍ من النجوم ولا تُصرف مكافأة جودة لهذا اليوم.
-              </div>
+              <div className="dawaa-alert dawaa-alert--warning mt-3 text-xs font-bold">يوجد {card.rejected_items} بند مرفوض. الخصم يأتي من البنود المرفوضة نفسها، لذلك لا يتم إنشاء خصم ثانٍ من النجوم ولا تُصرف مكافأة جودة لهذا اليوم.</div>
             ) : null}
 
             <div className="mt-4 flex flex-wrap items-center gap-1" aria-label="اختر تقييم اليوم من 1 إلى 5 نجوم">
               {[1, 2, 3, 4, 5].map((value) => {
                 const unavailable = !card.rating_ready || value > card.max_stars;
                 return (
-                  <button
-                    key={value}
-                    type="button"
-                    disabled={unavailable}
-                    className="rounded-lg p-1.5 transition hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-30"
-                    aria-label={`${value} نجوم`}
-                    onClick={() => onStarChange(card.staff_id, value)}
-                  >
+                  <button key={value} type="button" disabled={unavailable} className="rounded-lg p-1.5 transition hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-30" aria-label={`${value} نجوم`} onClick={() => onStarChange(card.staff_id, value)}>
                     <Star size={30} className={value <= selected ? 'fill-amber-400 text-amber-400' : 'text-[var(--dawaa-theme-muted)]'} />
                   </button>
                 );
               })}
-              {selected ? (
-                <div className="mr-2 text-xs font-black text-[var(--dawaa-theme-text)]">
-                  {selected}/5 = {selected * 20}% • {pointsLabel(bonus)}
-                </div>
-              ) : null}
+              {selected ? <div className="mr-2 text-xs font-black text-[var(--dawaa-theme-text)]">{selected}/5 = {selected * 20}% • {pointsLabel(bonus)}</div> : null}
             </div>
 
             <textarea
@@ -210,9 +191,7 @@ function DailyRatingSection({
             </button>
 
             {card.rated_by_name && card.updated_at ? (
-              <p className="mt-2 text-[11px] font-semibold text-[var(--dawaa-theme-muted)]">
-                آخر اعتماد: {card.rated_by_name} • {new Date(card.updated_at).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
-              </p>
+              <p className="mt-2 text-[11px] font-semibold text-[var(--dawaa-theme-muted)]">آخر اعتماد: {card.rated_by_name} • {new Date(card.updated_at).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}</p>
             ) : null}
           </div>
         );
@@ -239,6 +218,7 @@ export default function BranchChecklistReview() {
   const [rows, setRows] = useState<ChecklistReviewRow[]>([]);
   const [cleaningRatings, setCleaningRatings] = useState<DailyRatingCard[]>([]);
   const [operationsRatings, setOperationsRatings] = useState<DailyRatingCard[]>([]);
+  const [inventoryProgress, setInventoryProgress] = useState<InventoryWeeklyProgressCard[]>([]);
   const [cycleSummary, setCycleSummary] = useState<Record<string, CleaningCycleManagerSummary>>({});
   const [loading, setLoading] = useState(true);
   const [noteDraft, setNoteDraft] = useState<Record<string, string>>({});
@@ -252,6 +232,7 @@ export default function BranchChecklistReview() {
       setRows([]);
       setCleaningRatings([]);
       setOperationsRatings([]);
+      setInventoryProgress([]);
       setCycleSummary({});
       setLoading(false);
       return;
@@ -263,6 +244,7 @@ export default function BranchChecklistReview() {
       setRows(dashboard.rows);
       setCleaningRatings(dashboard.cleaningRatings);
       setOperationsRatings(dashboard.operationsRatings);
+      setInventoryProgress(dashboard.inventoryProgress);
       setCycleSummary(dashboard.cleaningCycle);
 
       setStarDraft((prev) => {
@@ -285,6 +267,7 @@ export default function BranchChecklistReview() {
       setRows([]);
       setCleaningRatings([]);
       setOperationsRatings([]);
+      setInventoryProgress([]);
       setCycleSummary({});
     } finally {
       setLoading(false);
@@ -300,11 +283,7 @@ export default function BranchChecklistReview() {
       return;
     }
     try {
-      await reviewChecklistSubmission({
-        submissionId: row.id,
-        status,
-        reviewerNote: status === 'rejected' ? rejectionNote : null,
-      });
+      await reviewChecklistSubmission({ submissionId: row.id, status, reviewerNote: status === 'rejected' ? rejectionNote : null });
       toast.success(status === 'approved' ? 'تم اعتماد البند' : 'تم رفض البند وتسجيل السبب');
       await load();
     } catch (error) {
@@ -330,11 +309,8 @@ export default function BranchChecklistReview() {
 
     setRatingSaving(card.staff_id);
     try {
-      if (kind === 'cleaning') {
-        await rateCleaningDay({ staffId: card.staff_id, stars, managerNote, date: today });
-      } else {
-        await rateOperationsDay({ staffId: card.staff_id, stars, managerNote, date: today });
-      }
+      if (kind === 'cleaning') await rateCleaningDay({ staffId: card.staff_id, stars, managerNote, date: today });
+      else await rateOperationsDay({ staffId: card.staff_id, stars, managerNote, date: today });
       toast.success(`تم اعتماد تقييم ${card.staff_name}: ${stars}/5`);
       await load();
     } catch (error) {
@@ -349,22 +325,15 @@ export default function BranchChecklistReview() {
     return Array.from(new Set([
       ...cleaningRatings.map((card) => card.branch),
       ...operationsRatings.map((card) => card.branch),
+      ...inventoryProgress.map((card) => card.branch),
       ...rows.map((row) => row.branch),
     ].filter(Boolean))).sort();
-  }, [allBranches, branch, cleaningRatings, operationsRatings, rows]);
+  }, [allBranches, branch, cleaningRatings, inventoryProgress, operationsRatings, rows]);
 
-  const visibleRows = useMemo(
-    () => branchFilter === 'all' ? rows : rows.filter((row) => row.branch === branchFilter),
-    [branchFilter, rows]
-  );
-  const visibleCleaning = useMemo(
-    () => branchFilter === 'all' ? cleaningRatings : cleaningRatings.filter((card) => card.branch === branchFilter),
-    [branchFilter, cleaningRatings]
-  );
-  const visibleOperations = useMemo(
-    () => branchFilter === 'all' ? operationsRatings : operationsRatings.filter((card) => card.branch === branchFilter),
-    [branchFilter, operationsRatings]
-  );
+  const visibleRows = useMemo(() => branchFilter === 'all' ? rows : rows.filter((row) => row.branch === branchFilter), [branchFilter, rows]);
+  const visibleCleaning = useMemo(() => branchFilter === 'all' ? cleaningRatings : cleaningRatings.filter((card) => card.branch === branchFilter), [branchFilter, cleaningRatings]);
+  const visibleOperations = useMemo(() => branchFilter === 'all' ? operationsRatings : operationsRatings.filter((card) => card.branch === branchFilter), [branchFilter, operationsRatings]);
+  const visibleInventory = useMemo(() => branchFilter === 'all' ? inventoryProgress : inventoryProgress.filter((card) => card.branch === branchFilter), [branchFilter, inventoryProgress]);
 
   const pending = visibleRows.filter((row) => row.review_status === 'pending');
   const reviewed = visibleRows.filter((row) => row.review_status !== 'pending');
@@ -373,20 +342,14 @@ export default function BranchChecklistReview() {
     <div className="mx-auto max-w-4xl space-y-6 p-4 pb-24" dir="rtl">
       <div className="dawaa-card dawaa-card--raised p-5">
         <h1 className="dawaa-title text-xl">مركز مراجعة مهام الفرع — {new Date().toLocaleDateString('ar-EG')}</h1>
-        <p className="dawaa-caption mt-1 text-sm font-semibold">
-          كل مهمة مرتبطة بموظف وفرع محددين. النظافة والرص لا يُعتمدان بدون صورة، والخصم يأتي من البند المرفوض نفسه فقط. تقييم اليوم يسجل الجودة ويضيف مكافأة عند الأداء الكامل دون مضاعفة العقوبة.
-        </p>
+        <p className="dawaa-caption mt-1 text-sm font-semibold">كل مهمة مرتبطة بموظف وفرع محددين. النظافة والرص لا يُعتمدان بدون صورة، والجرد الأسبوعي يُقاس من جلسات وأصناف الجرد الفعلية لا من علامة تنفيذ شكلية.</p>
       </div>
 
       {allBranches && availableBranches.length > 1 ? (
         <div className="dawaa-card dawaa-card--soft flex flex-wrap gap-2 p-3">
-          <button type="button" onClick={() => setBranchFilter('all')} className={`dawaa-button ${branchFilter === 'all' ? 'dawaa-button--primary' : 'dawaa-button--secondary'}`}>
-            كل الفروع
-          </button>
+          <button type="button" onClick={() => setBranchFilter('all')} className={`dawaa-button ${branchFilter === 'all' ? 'dawaa-button--primary' : 'dawaa-button--secondary'}`}>كل الفروع</button>
           {availableBranches.map((item) => (
-            <button key={item} type="button" onClick={() => setBranchFilter(item)} className={`dawaa-button ${branchFilter === item ? 'dawaa-button--primary' : 'dawaa-button--secondary'}`}>
-              {item}
-            </button>
+            <button key={item} type="button" onClick={() => setBranchFilter(item)} className={`dawaa-button ${branchFilter === item ? 'dawaa-button--primary' : 'dawaa-button--secondary'}`}>{item}</button>
           ))}
         </div>
       ) : null}
@@ -409,9 +372,11 @@ export default function BranchChecklistReview() {
             onSave={(card) => void saveRating(card, 'cleaning')}
           />
 
+          <InventoryWeeklyProgressSection cards={visibleInventory} />
+
           <DailyRatingSection
             title="تقييم الرص والجرد اليومي"
-            description="يعتمد على مهام الرص والجزء اليومي من الجرد المستحقة في يوم عمل الموظف فقط. يوم الإجازة لا يدخل في المطلوب ولا في التقييم."
+            description="يعتمد على مهام الرص والجزء اليومي من الجرد المستحقة في يوم عمل الموظف فقط. تقدم الجرد الأسبوعي أعلاه يأتي من قائمة الجرد الفعلية، بينما النجوم هنا تقيس جودة تنفيذ مهام اليوم."
             emptyLabel="لا توجد مهام رص أو جرد مستحقة للموظفين في النطاق المحدد اليوم."
             cards={visibleOperations}
             starDraft={starDraft}
@@ -424,9 +389,7 @@ export default function BranchChecklistReview() {
 
           <section className="space-y-3">
             <h2 className="text-sm font-black text-[var(--dawaa-status-warning-text)]">بانتظار المراجعة ({pending.length})</h2>
-            {pending.length === 0 ? (
-              <div className="dawaa-card dawaa-card--soft p-4 text-sm font-semibold text-[var(--dawaa-theme-muted)]">لا توجد بنود تحتاج مراجعة الآن.</div>
-            ) : null}
+            {pending.length === 0 ? <div className="dawaa-card dawaa-card--soft p-4 text-sm font-semibold text-[var(--dawaa-theme-muted)]">لا توجد بنود تحتاج مراجعة الآن.</div> : null}
             {pending.map((row) => {
               const timing = timingStatus(row);
               const requiresPhoto = Boolean(row.staff_daily_checklist_items?.requires_photo);
@@ -454,13 +417,7 @@ export default function BranchChecklistReview() {
                     <div className="dawaa-card dawaa-card--soft mt-3 p-3 text-xs font-semibold text-[var(--dawaa-theme-muted)]">هذا البند لا يتطلب صورة.</div>
                   )}
 
-                  <textarea
-                    placeholder="سبب الرفض — مطلوب عند الرفض"
-                    className="dawaa-input mt-3 w-full p-2 text-xs"
-                    rows={2}
-                    value={noteDraft[row.id] || ''}
-                    onChange={(e) => setNoteDraft((prev) => ({ ...prev, [row.id]: e.target.value }))}
-                  />
+                  <textarea placeholder="سبب الرفض — مطلوب عند الرفض" className="dawaa-input mt-3 w-full p-2 text-xs" rows={2} value={noteDraft[row.id] || ''} onChange={(e) => setNoteDraft((prev) => ({ ...prev, [row.id]: e.target.value }))} />
                   <div className="mt-3 flex gap-2">
                     <button disabled={requiresPhoto && !row.photo_url} onClick={() => void review(row, 'approved')} className="dawaa-button dawaa-button--primary flex flex-1 items-center justify-center gap-1.5 disabled:cursor-not-allowed disabled:opacity-40"><Check size={16} /> اعتماد</button>
                     <button onClick={() => void review(row, 'rejected')} className="dawaa-button dawaa-button--danger flex flex-1 items-center justify-center gap-1.5"><X size={16} /> رفض</button>
@@ -475,9 +432,7 @@ export default function BranchChecklistReview() {
             {reviewed.map((row) => (
               <div key={row.id} className="dawaa-card dawaa-card--soft flex flex-wrap items-center justify-between gap-3 px-3 py-2 text-xs">
                 <span className="font-semibold text-[var(--dawaa-theme-text)]">{row.staff_daily_checklist_items?.title || 'بند'} — {row.staff?.name || 'موظف غير محدد'}{allBranches ? ` — ${row.branch}` : ''}</span>
-                <span className={row.review_status === 'approved' ? 'font-black text-[var(--dawaa-status-success-text)]' : 'font-black text-[var(--dawaa-status-danger-text)]'}>
-                  {row.review_status === 'approved' ? 'معتمد' : `مرفوض${row.reviewer_note ? ` — ${row.reviewer_note}` : ''}`}
-                </span>
+                <span className={row.review_status === 'approved' ? 'font-black text-[var(--dawaa-status-success-text)]' : 'font-black text-[var(--dawaa-status-danger-text)]'}>{row.review_status === 'approved' ? 'معتمد' : `مرفوض${row.reviewer_note ? ` — ${row.reviewer_note}` : ''}`}</span>
               </div>
             ))}
           </section>
