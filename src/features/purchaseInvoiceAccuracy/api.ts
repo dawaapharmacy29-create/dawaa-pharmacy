@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import type {
+  AccuracyFilterOptions,
   AccuracyFilters,
   AccuracyReport,
   HistoricalSearchResult,
@@ -7,7 +8,7 @@ import type {
   QueueRow,
   ReviewRow,
 } from './types';
-import { EMPTY_REPORT } from './types';
+import { EMPTY_FILTER_OPTIONS, EMPTY_REPORT } from './types';
 
 function rpcFilters(filters: AccuracyFilters) {
   return {
@@ -33,6 +34,17 @@ export async function listPurchaseInvoiceReviewHistory(limit = 100): Promise<Rev
   const { data, error } = await supabase.rpc('list_purchase_invoice_entry_reviews_v1', { p_limit: limit });
   throwRpcError(error);
   return (data || []) as ReviewRow[];
+}
+
+export async function getPurchaseInvoiceAccuracyFilterOptions(): Promise<AccuracyFilterOptions> {
+  const { data, error } = await supabase.rpc('get_purchase_invoice_accuracy_filter_options_v1');
+  throwRpcError(error);
+  const result = (data || EMPTY_FILTER_OPTIONS) as AccuracyFilterOptions;
+  return {
+    staff: result.staff || [],
+    reviewers: result.reviewers || [],
+    branches: result.branches || [],
+  };
 }
 
 export async function getPurchaseInvoiceAccuracyReport(filters: AccuracyFilters): Promise<AccuracyReport> {
