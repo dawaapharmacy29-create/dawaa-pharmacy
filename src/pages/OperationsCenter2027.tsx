@@ -99,6 +99,7 @@ export default function OperationsCenter2027() {
   const {
     notifications,
     refreshNotifications,
+    ensureNotificationLoaded,
     markAsRead,
     handleNotificationClick,
   } = useNotifications();
@@ -114,7 +115,6 @@ export default function OperationsCenter2027() {
   const [activeTab, setActiveTab] = useState<NotificationGroup>('urgent');
   const [actionNotes, setActionNotes] = useState<Record<string, string>>({});
   const [actionBusy, setActionBusy] = useState<string | null>(null);
-  const [focusRefreshAttempt, setFocusRefreshAttempt] = useState<string | null>(null);
   const [form, setForm] = useState({
     title: '',
     priority: 'مهم',
@@ -129,20 +129,22 @@ export default function OperationsCenter2027() {
       return;
     }
 
-    const exists = notifications.some((item) => item.id === focusedNotificationId);
-    if (!exists) {
-      if (focusRefreshAttempt !== focusedNotificationId) {
-        setFocusRefreshAttempt(focusedNotificationId);
-        void refreshNotifications(true);
-      }
-      return;
-    }
+    let cancelled = false;
+    let timer: number | null = null;
+    void (async () => {
+      const loaded = notifications.find((item) => item.id === focusedNotificationId)
+        || await ensureNotificationLoaded(focusedNotificationId);
+      if (!loaded || cancelled) return;
+      timer = window.setTimeout(() => {
+        if (!cancelled) document.getElementById(`notification-${focusedNotificationId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 80);
+    })();
 
-    const timer = window.setTimeout(() => {
-      document.getElementById(`notification-${focusedNotificationId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }, 80);
-    return () => window.clearTimeout(timer);
-  }, [activeTab, focusRefreshAttempt, focusedNotificationId, notifications, refreshNotifications]);
+    return () => {
+      cancelled = true;
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [activeTab, ensureNotificationLoaded, focusedNotificationId, notifications]);
 
   const staffOptions = useMemo<StaffOption[]>(() => {
     if (!canCreateTasks) return [];
