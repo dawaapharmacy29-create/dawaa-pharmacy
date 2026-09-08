@@ -292,15 +292,16 @@ export function useNotifications() {
     };
   }, [refreshNotifications]);
 
-  const notifications = useMemo(() => {
+  const allNotifications = useMemo(() => {
     if (!user) return [];
     const retentionStart = Date.now() - settings.retentionDays * 86400000;
-    return rows.filter(
-      (item) =>
-        allowedBySettings(item, settings) &&
-        new Date(item.created_at).getTime() >= retentionStart
-    );
-  }, [rows, settings, user?.id]);
+    return rows.filter((item) => new Date(item.created_at).getTime() >= retentionStart);
+  }, [rows, settings.retentionDays, user?.id]);
+
+  const notifications = useMemo(
+    () => allNotifications.filter((item) => allowedBySettings(item, settings)),
+    [allNotifications, settings]
+  );
 
   const unreadCount = useMemo(() => notifications.filter(isUnread).length, [notifications]);
 
@@ -345,6 +346,7 @@ export function useNotifications() {
 
   return {
     notifications,
+    allNotifications,
     unreadCount,
     loading,
     available,
