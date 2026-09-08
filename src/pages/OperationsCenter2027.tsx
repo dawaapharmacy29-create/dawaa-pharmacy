@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   ArrowUpCircle,
   BellRing,
@@ -89,6 +90,8 @@ function hasSlaBreach(item: AppNotification) {
 
 export default function OperationsCenter2027() {
   const { user, checkPermission } = useAuth();
+  const [searchParams] = useSearchParams();
+  const focusedNotificationId = searchParams.get('notificationId');
   const role = normalizeRole(user?.role);
   const canCreateTasks = checkPermission('manage_operations') || MANAGER_ROLES.has(role);
   const canSeeAllBranches = ['general_manager', 'executive_manager', 'branches_manager'].includes(role);
@@ -111,12 +114,35 @@ export default function OperationsCenter2027() {
   const [activeTab, setActiveTab] = useState<NotificationGroup>('urgent');
   const [actionNotes, setActionNotes] = useState<Record<string, string>>({});
   const [actionBusy, setActionBusy] = useState<string | null>(null);
+  const [focusRefreshAttempt, setFocusRefreshAttempt] = useState<string | null>(null);
   const [form, setForm] = useState({
     title: '',
     priority: 'مهم',
     due_date: new Date().toISOString().slice(0, 10),
     staff_id: '',
   });
+
+  useEffect(() => {
+    if (!focusedNotificationId) return;
+    if (activeTab !== 'all') {
+      setActiveTab('all');
+      return;
+    }
+
+    const exists = notifications.some((item) => item.id === focusedNotificationId);
+    if (!exists) {
+      if (focusRefreshAttempt !== focusedNotificationId) {
+        setFocusRefreshAttempt(focusedNotificationId);
+        void refreshNotifications(true);
+      }
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      document.getElementById(`notification-${focusedNotificationId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [activeTab, focusRefreshAttempt, focusedNotificationId, notifications, refreshNotifications]);
 
   const staffOptions = useMemo<StaffOption[]>(() => {
     if (!canCreateTasks) return [];
@@ -375,13 +401,15 @@ export default function OperationsCenter2027() {
             const resolutionDeadline = notificationMetadataValue(item, 'slaResolutionDeadline', 'resolutionDeadline');
             const sourceNotificationId = notificationMetadataValue(item, 'sourceNotificationId');
             const showWorkflow = !slaGenerated && (['urgent', 'vip', 'overdue'].some((group) => notificationMatchesGroup(item, group as NotificationGroup)) || Boolean(item.requires_action));
-            return <div key={item.id} id={`notification-${item.id}`} className="rounded-2xl border border-[var(--dawaa-theme-border)] p-4">
+            const focused = focusedNotificationId === item.id;
+            return <div key={item.id} id={`notification-${item.id}`} aria-current={focused ? 'true' : undefined} className={`rounded-2xl border border-[var(--dawaa-theme-border)] p-4 ${focused ? 'bg-[var(--dawaa-theme-soft)]' : ''}`}>
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="font-black">{item.title}</div>
                     <span className="dawaa-brand-chip">{notificationPriorityLabel(item.priority)}</span>
                     <span className="dawaa-caption">{notificationTypeLabel(item.type)}</span>
+                    {focused ? <span className="rounded-full border border-[var(--dawaa-theme-border)] px-2 py-0.5 text-xs font-black">التنبيه الأصلي</span> : null}
                     {actionState !== 'new' ? <span className="rounded-full border border-[var(--dawaa-theme-border)] px-2 py-0.5 text-xs font-black">{notificationActionLabel(actionState)}</span> : null}
                     {slaGenerated ? <span className="rounded-full border border-[var(--dawaa-theme-border)] px-2 py-0.5 text-xs font-black">تصعيد SLA</span> : null}
                   </div>
