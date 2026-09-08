@@ -7,6 +7,7 @@ const SRC = path.join(ROOT, 'src');
 const DOMAIN = 'src/lib/notifications/notificationDomain.ts';
 const METADATA = 'src/lib/notifications/notificationMetadata.ts';
 const SERVICE = 'src/lib/notificationService.ts';
+const SLA_MIGRATION = 'supabase/migrations/20260908164500_notification_sla_engine_v1.sql';
 
 function walk(dir) {
   const out = [];
@@ -74,6 +75,7 @@ for (const required of [
   SERVICE,
   'src/lib/notifications/notificationActionService.ts',
   'src/lib/notifications/notificationWorkflowService.ts',
+  SLA_MIGRATION,
 ]) {
   if (!fs.existsSync(path.join(ROOT, required))) failures.push(`Missing canonical notification boundary: ${required}`);
 }
@@ -99,12 +101,31 @@ for (const requiredToken of ['schemaVersion: 2', 'canonicalType', 'notificationM
   }
 }
 
+if (fs.existsSync(path.join(ROOT, SLA_MIGRATION))) {
+  const slaSource = fs.readFileSync(path.join(ROOT, SLA_MIGRATION), 'utf8');
+  for (const requiredToken of [
+    'notification_sla_policies',
+    'notification_sla_events',
+    'evaluate_notification_sla_v1',
+    'evaluate_operational_notification_rules_v1',
+    'emit_system_notification_v2',
+    "coalesce(n.metadata->>'schemaVersion','')='2'",
+    "coalesce(n.metadata->>'slaGenerated','false') <> 'true'",
+  ]) {
+    if (!slaSource.includes(requiredToken)) failures.push(`${SLA_MIGRATION} is missing SLA boundary token: ${requiredToken}`);
+  }
+  if (/cron\.schedule\s*\(/i.test(slaSource)) {
+    failures.push(`${SLA_MIGRATION} must reuse evaluate_operational_notification_rules_v1; a parallel SLA cron is forbidden.`);
+  }
+}
+
 console.log(`[notification-architecture] direct writers: ${directWriters.length}`);
 console.log(`[notification-architecture] raw readers: ${rawReaders.join(', ') || 'none'}`);
 console.log(`[notification-architecture] canonical readers: ${canonicalReaders.join(', ') || 'none'}`);
 console.log(`[notification-architecture] duplicate domain logic: ${duplicateDomainLogic.join(', ') || 'none'}`);
 console.log(`[notification-architecture] ad-hoc routes: ${adHocRoutes.join(', ') || 'none'}`);
 console.log(`[notification-architecture] metadata boundary: ${METADATA}`);
+console.log(`[notification-architecture] SLA boundary: ${SLA_MIGRATION}`);
 
 if (failures.length) {
   console.error('\nNotification architecture check failed:');
@@ -112,4 +133,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log('[notification-architecture] PASS: one command boundary, one canonical read model, one domain owner, one metadata contract, no compatibility read debt.');
+console.log('[notification-architecture] PASS: one command boundary, one canonical read model, one domain owner, one metadata contract, one SLA scheduler path, no compatibility read debt.');
