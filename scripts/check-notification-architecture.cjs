@@ -9,6 +9,7 @@ const METADATA = 'src/lib/notifications/notificationMetadata.ts';
 const SERVICE = 'src/lib/notificationService.ts';
 const SLA_MIGRATION = 'supabase/migrations/20260908164500_notification_sla_engine_v1.sql';
 const SLA_READ_MODEL_MIGRATION = 'supabase/migrations/20260908172000_notification_sla_metadata_surface_v1.sql';
+const SLA_REFERENCE_MIGRATION = 'supabase/migrations/20260908205500_sla_escalations_reference_only_v2.sql';
 
 function walk(dir) {
   const out = [];
@@ -78,6 +79,7 @@ for (const required of [
   'src/lib/notifications/notificationWorkflowService.ts',
   SLA_MIGRATION,
   SLA_READ_MODEL_MIGRATION,
+  SLA_REFERENCE_MIGRATION,
 ]) {
   if (!fs.existsSync(path.join(ROOT, required))) failures.push(`Missing canonical notification boundary: ${required}`);
 }
@@ -91,6 +93,9 @@ if (!serviceSource.includes('create_notification_audience_v1')) {
 }
 if (!serviceSource.includes('normalizeNotificationMetadata')) {
   failures.push(`${SERVICE} must normalize metadata through ${METADATA}.`);
+}
+if (!serviceSource.includes('getNotificationById')) {
+  failures.push(`${SERVICE} must expose canonical notification lookup for deep links and SLA source resolution.`);
 }
 if (/using legacy compatibility reader|\.from\(['"]notifications['"]\)\s*\.select/s.test(serviceSource)) {
   failures.push(`${SERVICE} must fail closed when the canonical read model is unavailable; legacy raw-read fallback is forbidden.`);
@@ -138,6 +143,18 @@ if (fs.existsSync(path.join(ROOT, SLA_READ_MODEL_MIGRATION))) {
   }
 }
 
+if (fs.existsSync(path.join(ROOT, SLA_REFERENCE_MIGRATION))) {
+  const referenceSource = fs.readFileSync(path.join(ROOT, SLA_REFERENCE_MIGRATION), 'utf8');
+  for (const requiredToken of [
+    'emit_system_notification_v2',
+    'v_requires_action',
+    "v_metadata->>'slaGenerated'",
+    'then false',
+  ]) {
+    if (!referenceSource.includes(requiredToken)) failures.push(`${SLA_REFERENCE_MIGRATION} is missing SLA reference-only invariant token: ${requiredToken}`);
+  }
+}
+
 console.log(`[notification-architecture] direct writers: ${directWriters.length}`);
 console.log(`[notification-architecture] raw readers: ${rawReaders.join(', ') || 'none'}`);
 console.log(`[notification-architecture] canonical readers: ${canonicalReaders.join(', ') || 'none'}`);
@@ -146,6 +163,7 @@ console.log(`[notification-architecture] ad-hoc routes: ${adHocRoutes.join(', ')
 console.log(`[notification-architecture] metadata boundary: ${METADATA}`);
 console.log(`[notification-architecture] SLA boundary: ${SLA_MIGRATION}`);
 console.log(`[notification-architecture] SLA read model: ${SLA_READ_MODEL_MIGRATION}`);
+console.log(`[notification-architecture] SLA escalation invariant: ${SLA_REFERENCE_MIGRATION}`);
 
 if (failures.length) {
   console.error('\nNotification architecture check failed:');
@@ -153,4 +171,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log('[notification-architecture] PASS: one command boundary, one canonical read model, one domain owner, one metadata contract, one SLA scheduler path, SLA state travels through the canonical read model, no compatibility read debt.');
+console.log('[notification-architecture] PASS: one command boundary, one canonical read model, one domain owner, one metadata contract, one SLA scheduler path, SLA state travels through the canonical read model, SLA escalation is reference-only, no compatibility read debt.');
