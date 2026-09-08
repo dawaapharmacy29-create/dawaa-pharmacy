@@ -29,6 +29,25 @@ type DoctorSummary = {
 
 const ALL = 'الكل';
 
+// أعمدة التقييمات المستخدمة فعليًا في الصفحة دي (تحليل الفروع/ترتيب الدكاترة/
+// التصدير) بدل select('*') اللي كانت بتجيب كل الـ 98 عمود - فيهم jsonb تقيلة
+// زي raw_scores وreview_items - لكل صف من غير أي داعي.
+const REVIEW_COLUMNS = [
+  'id', 'staff_id', 'staff_name', 'doctor_name', 'branch',
+  'customer_id', 'customer_code', 'customer_phone', 'customer_name',
+  'reviewer_name', 'evaluation_kind', 'conversation_type',
+  'final_score', 'total_score', 'doctor_points_impact', 'point_impact',
+  'main_positive_reason', 'main_negative_reason', 'training_recommendation',
+  'reviewer_notes', 'conversation_date', 'created_at',
+].join(',');
+
+// daily_followups فيها أكتر من 120 عمود، والصفحة دي محتاجة 13 بس منهم.
+const FOLLOWUP_COLUMNS = [
+  'id', 'status', 'followup_status', 'contact_result', 'followup_result', 'notes',
+  'responsible_name', 'assigned_to', 'assigned_doctor', 'completed_by',
+  'completed_at', 'updated_at', 'created_at',
+].join(',');
+
 function num(value: unknown) {
   const parsed = Number(value ?? 0);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -92,12 +111,18 @@ function buildStaffResolver(staffRows: StaffRow[]) {
 
 const EXCLUDED_BRANCHES_FROM_RANKING = new Set(['المخزن']);
 
-function monthKey(row: ReviewRow) {
-  return String(row.conversation_date || row.created_at || '').slice(0, 7);
-}
-
 function dateKey(row: ReviewRow) {
   return String(row.conversation_date || row.created_at || '').slice(0, 10);
+}
+
+// حدود الشهر المختار (بداية الشهر ولحد بداية الشهر اللي بعده)، بنستخدمها عشان
+// نفلتر الصفوف جوه الاستعلام نفسه بدل ما نسحب كل تاريخ التقييمات ونفلتر بعدين
+// في المتصفح - ده أكبر سبب في بطء الصفحة.
+function monthRange(month: string): [string, string] {
+  const [year, monthNum] = month.split('-').map(Number);
+  const start = new Date(Date.UTC(year, monthNum - 1, 1));
+  const end = new Date(Date.UTC(year, monthNum, 1));
+  return [start.toISOString(), end.toISOString()];
 }
 
 function repeatedText(values: unknown[], fallback: string) {
@@ -158,10 +183,18 @@ export default function ReviewsInsightsHub() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
+      const [monthStart, monthEnd] = monthRange(month);
       const [reviewResult, staffResult] = await Promise.all([
         supabase
           .from('conversation_sales_reviews')
-          .select('*')
+          .select(REVIEW_COLUMNS)
+          // بنفلتر بالشهر المختار جوه الاستعلام نفسه بدل ما نجيب كل التاريخ
+          // ونفلتر بعدين في المتصفح. conversation_date لو موجود، وإلا created_at
+          // كبديل - بنفس منطق monthKey القديم بالظبط.
+          .or(
+            `and(conversation_date.gte.${monthStart},conversation_date.lt.${monthEnd}),` +
+            `and(conversation_date.is.null,created_at.gte.${monthStart},created_at.lt.${monthEnd})`
+          )
           .order('created_at', { ascending: false })
           .limit(3000),
         readStaffDirectory(),
@@ -180,23 +213,32 @@ export default function ReviewsInsightsHub() {
         // 'customer_followups' و'customer_service_followups' مش موجودين في السكيمة
         // الفعلية خالص، فالكويري كانت دايمًا بترجع فاضية بصمت (كل الاستعلامات فشلت
         // فـ loaded فضلت []) بغض النظر عن الشهر أو الفلتر. الجدول الحقيقي اللي فيه
-        // كل بيانات المتابعات هو daily_followups.
+        // كل بيانات المتابعات هو daily_followups. وبرضو بنفلتر بالشهر جوه الاستعلام
+        // بنفس ترتيب الأولوية اللي كانت متحسوبة بعدين في serviceSummary
+        // (completed_at ثم updated_at ثم created_at).
         const result = await supabase
           .from('daily_followups')
-          .select('*')
+          .select(FOLLOWUP_COLUMNS)
           .eq('is_hidden', false)
           .eq('is_duplicate', false)
+          .or(
+            `and(completed_at.gte.${monthStart},completed_at.lt.${monthEnd}),` +
+            `and(completed_at.is.null,updated_at.gte.${monthStart},updated_at.lt.${monthEnd}),` +
+            `and(completed_at.is.null,updated_at.is.null,created_at.gte.${monthStart},created_at.lt.${monthEnd})`
+          )
           .order('created_at', { ascending: false })
           .limit(2500);
         if (result.error) toast.error(`تعذر تحميل بيانات متابعات خدمة العملاء: ${result.error.message}`);
         setFollowups((result.data || []) as FollowupRow[]);
+      } else {
+        setFollowups([]);
       }
     } catch (error) {
       toast.error(`تعذر تحميل تقارير التقييمات: ${(error as Error).message}`);
     } finally {
       setLoading(false);
     }
-  }, [showService]);
+  }, [showService, month]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -211,12 +253,13 @@ export default function ReviewsInsightsHub() {
     [reviews, resolveStaff]
   );
 
+  // الشهر بقى بيتفلتر جوه الاستعلام نفسه (شوف load أعلاه)، فمحتاجين هنا بس
+  // نفلتر الفرع والدكتور على الداتا اللي اتحملت بالفعل للشهر المختار.
   const filtered = useMemo(() => reviews.filter((row) => {
-    if (month && monthKey(row) !== month) return false;
     if (branch !== ALL && normalizeBranchName(row.branch || '') !== branch) return false;
     if (doctor !== ALL && resolveStaff(row).name !== doctor) return false;
     return true;
-  }), [branch, doctor, month, reviews, resolveStaff]);
+  }), [branch, doctor, reviews, resolveStaff]);
 
   const doctorSummaries = useMemo<DoctorSummary[]>(() => {
     const grouped = new Map<string, ReviewRow[]>();
@@ -269,9 +312,9 @@ export default function ReviewsInsightsHub() {
   }, [filtered, resolveStaff]);
 
   const serviceSummary = useMemo(() => {
-    const monthRows = followups.filter((row) => String(row.completed_at || row.updated_at || row.created_at || '').slice(0, 7) === month);
+    // followups جاية من load() مفلترة بالشهر المختار بالفعل، فمش محتاجين نفلتر تاني هنا.
     const grouped = new Map<string, FollowupRow[]>();
-    monthRows.forEach((row) => {
+    followups.forEach((row) => {
       const name = String(row.responsible_name || row.assigned_to || row.assigned_doctor || row.completed_by || 'غير محدد');
       grouped.set(name, [...(grouped.get(name) || []), row]);
     });
@@ -282,7 +325,7 @@ export default function ReviewsInsightsHub() {
       const quality = Math.round((completed / Math.max(1, rows.length)) * 45 + (positive / Math.max(1, completed)) * 35 + (documented / Math.max(1, rows.length)) * 20);
       return { name, total: rows.length, completed, positive, documented, quality };
     }).sort((a, b) => b.quality - a.quality || b.completed - a.completed);
-  }, [followups, month]);
+  }, [followups]);
 
   const exportReport = () => {
     if (!filtered.length) { toast.error('لا توجد بيانات في الفلاتر الحالية'); return; }
@@ -338,7 +381,7 @@ export default function ReviewsInsightsHub() {
           </div>
         </div>
         <div className="mt-3 grid gap-3 md:grid-cols-3">
-          <input type="month" className="input-dark" value={month} onChange={(event) => setMonth(event.target.value)} />
+          <input type="month" className="input-dark" value={month} onChange={(event) => { setMonth(event.target.value); setBranch(ALL); setDoctor(ALL); }} />
           <select className="input-dark" value={branch} onChange={(event) => setBranch(event.target.value)}>{branches.map((item) => <option key={item}>{item}</option>)}</select>
           <select className="input-dark" value={doctor} onChange={(event) => setDoctor(event.target.value)}>{doctors.map((item) => <option key={item}>{item}</option>)}</select>
         </div>
