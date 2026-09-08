@@ -12,6 +12,7 @@ import {
   Search,
   ShieldAlert,
   Sparkles,
+  TimerOff,
   UsersRound,
   Wifi,
   XCircle,
@@ -28,6 +29,7 @@ import {
   isTerminalNotificationAction,
   notificationActionLabel,
   notificationGroup,
+  notificationMatchesGroup,
   notificationMetadataValue,
   notificationPriorityLabel,
   notificationRequiresOutcomeNote,
@@ -73,15 +75,16 @@ function formatDate(value: string | null | undefined) {
   return date.toLocaleString('ar-EG', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
-function isSlaGenerated(item: AppNotification) {
-  return String(notificationMetadataValue(item, 'slaGenerated') || '').toLowerCase() === 'true';
+function metaBoolean(item: AppNotification, ...keys: string[]) {
+  return String(notificationMetadataValue(item, ...keys) || '').toLowerCase() === 'true';
 }
 
-function hasActiveSlaBreach(item: AppNotification) {
-  if (isSlaGenerated(item)) return false;
-  const actionState = String(item.action_status || notificationMetadataValue(item, 'actionState') || 'new');
-  if (isTerminalNotificationAction(actionState)) return false;
-  return Boolean(notificationMetadataValue(item, 'slaAckBreached')) || Boolean(notificationMetadataValue(item, 'slaResolutionBreached'));
+function isSlaGenerated(item: AppNotification) {
+  return metaBoolean(item, 'slaGenerated');
+}
+
+function hasSlaBreach(item: AppNotification) {
+  return metaBoolean(item, 'slaAckBreached', 'ackBreached') || metaBoolean(item, 'slaResolutionBreached', 'resolutionBreached');
 }
 
 export default function OperationsCenter2027() {
@@ -137,22 +140,27 @@ export default function OperationsCenter2027() {
   const filteredNotifications = useMemo(() => {
     const q = search.trim().toLowerCase();
     return notifications
-      .filter((item) => activeTab === 'all' || notificationGroup(item) === activeTab)
-      .filter((item) => !q || `${item.id} ${item.title} ${item.message} ${item.type} ${item.priority} ${item.branch || ''} ${notificationMetadataValue(item, 'sourceNotificationId') || ''} ${notificationMetadataValue(item, 'customerName') || ''} ${notificationMetadataValue(item, 'staffName', 'staff_name') || ''}`.toLowerCase().includes(q));
+      .filter((item) => notificationMatchesGroup(item, activeTab))
+      .filter((item) => !q || `${item.title} ${item.message} ${item.type} ${item.priority} ${item.branch || ''} ${notificationMetadataValue(item, 'customerName') || ''} ${notificationMetadataValue(item, 'staffName', 'staff_name') || ''}`.toLowerCase().includes(q));
   }, [activeTab, notifications, search]);
 
   const groupCounts = useMemo(() => {
     const counts: Record<NotificationGroup, number> = { urgent: 0, vip: 0, overdue: 0, completed: 0, reviews: 0, system: 0, all: notifications.length };
-    for (const item of notifications) counts[notificationGroup(item)] += 1;
+    for (const item of notifications) {
+      for (const group of ['urgent', 'vip', 'overdue', 'completed', 'reviews', 'system'] as NotificationGroup[]) {
+        if (notificationMatchesGroup(item, group)) counts[group] += 1;
+      }
+    }
     return counts;
   }, [notifications]);
 
+  const operationalNotifications = notifications.filter((item) => !isSlaGenerated(item));
   const openTasks = tasks.filter((task) => !CLOSED.has(String(task.status || '').toLowerCase()));
   const urgentTasks = openTasks.filter((task) => ['خطر', 'high', 'urgent', 'critical'].includes(String(task.priority || '').toLowerCase()));
-  const unread = notifications.filter((item) => !item.read && !item.is_read);
-  const actionRequired = notifications.filter((item) => !isSlaGenerated(item) && (item.requires_action || ['high', 'urgent', 'critical'].includes(String(item.priority || '').toLowerCase())));
-  const inProgressCount = notifications.filter((item) => !isSlaGenerated(item) && String(item.action_status || notificationMetadataValue(item, 'actionState') || '') === 'in_progress').length;
-  const slaBreaches = notifications.filter(hasActiveSlaBreach);
+  const unread = operationalNotifications.filter((item) => !item.read && !item.is_read);
+  const actionRequired = operationalNotifications.filter((item) => item.requires_action || ['high', 'urgent', 'critical'].includes(String(item.priority || '').toLowerCase()));
+  const inProgressCount = operationalNotifications.filter((item) => String(item.action_status || notificationMetadataValue(item, 'actionState') || '') === 'in_progress').length;
+  const slaBreachCount = operationalNotifications.filter(hasSlaBreach).length;
 
   async function addTask() {
     if (!canCreateTasks) return toast.error('ليس لديك صلاحية إنشاء مهمة');
@@ -225,23 +233,12 @@ export default function OperationsCenter2027() {
     if (!ok) return toast.error('تعذر تحديث التنبيه');
   }
 
-  function openNotification(item: AppNotification) {
-    if (!isSlaGenerated(item)) {
-      handleNotificationClick(item);
-      return;
-    }
-    const sourceId = String(notificationMetadataValue(item, 'sourceNotificationId') || '').trim();
-    const source = notifications.find((candidate) => candidate.id === sourceId);
-    if (source) {
-      handleNotificationClick(source);
-      return;
-    }
-    setActiveTab('all');
-    setSearch(sourceId);
-    toast.info('تم تحويل العرض إلى التنبيه الأصلي إن كان ضمن السجل المحمّل');
-  }
-
   async function workflowAction(item: AppNotification, nextState: WorkflowState) {
+    if (isSlaGenerated(item)) {
+      toast.info('هذا تصعيد إداري؛ تتم المتابعة على التنبيه الأصلي.');
+      return;
+    }
+
     const note = (actionNotes[item.id] || '').trim();
     if (notificationRequiresOutcomeNote(item, nextState) && !note) {
       toast.error('اكتب نتيجة المتابعة قبل إغلاق هذا التنبيه المهم');
@@ -289,7 +286,7 @@ export default function OperationsCenter2027() {
       <section className="dawaa-card dawaa-card--raised">
         <span className="dawaa-brand-chip">مركز التشغيل اليومي</span>
         <h1 className="dawaa-title mt-3 text-2xl">المهام والتنبيهات</h1>
-        <p className="dawaa-caption mt-1 font-semibold">الأهم أولًا: المشكلات الحرجة، عملاء VIP، المهام المتأخرة، تقييمات المحادثات، ثم باقي التنبيهات. كل متابعة مهمة تُسجل باسم من بدأها ونتيجتها.</p>
+        <p className="dawaa-caption mt-1 font-semibold">الأهم أولًا: المشكلات الحرجة، عملاء VIP، المهام المتأخرة، تقييمات المحادثات، ثم باقي التنبيهات. قد يظهر نفس التنبيه في أكثر من قسم وظيفي بدون إنشاء نسخة جديدة منه.</p>
       </section>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
@@ -297,7 +294,7 @@ export default function OperationsCenter2027() {
         <Kpi icon={BellRing} label="تنبيهات غير مقروءة" value={unread.length} />
         <Kpi icon={ShieldAlert} label="تحتاج إجراء" value={actionRequired.length} />
         <Kpi icon={PlayCircle} label="قيد المتابعة" value={inProgressCount} />
-        <Kpi icon={ShieldAlert} label="تجاوز SLA" value={slaBreaches.length} />
+        <Kpi icon={TimerOff} label="تجاوز SLA" value={slaBreachCount} />
         <Kpi icon={Sparkles} label="مهام عاجلة" value={urgentTasks.length} />
       </div>
 
@@ -369,24 +366,24 @@ export default function OperationsCenter2027() {
             const actionByName = notificationMetadataValue(item, 'actionByName');
             const actionAt = notificationMetadataValue(item, 'actionStateUpdatedAt');
             const savedActionNote = notificationMetadataValue(item, 'actionNote');
-            const slaGenerated = isSlaGenerated(item);
-            const slaAckBreached = Boolean(notificationMetadataValue(item, 'slaAckBreached'));
-            const slaResolutionBreached = Boolean(notificationMetadataValue(item, 'slaResolutionBreached'));
-            const slaAckDeadline = notificationMetadataValue(item, 'slaAckDeadlineAt');
-            const slaResolutionDeadline = notificationMetadataValue(item, 'slaResolutionDeadlineAt');
-            const sourceNotificationId = notificationMetadataValue(item, 'sourceNotificationId');
             const terminal = isTerminalNotificationAction(actionState);
-            const group = notificationGroup(item);
-            const showWorkflow = !slaGenerated && (['urgent', 'vip', 'overdue'].includes(group) || Boolean(item.requires_action));
-            return <div key={item.id} className="rounded-2xl border border-[var(--dawaa-theme-border)] p-4">
+            const primaryGroup = notificationGroup(item);
+            const slaGenerated = isSlaGenerated(item);
+            const ackBreached = metaBoolean(item, 'slaAckBreached', 'ackBreached');
+            const resolutionBreached = metaBoolean(item, 'slaResolutionBreached', 'resolutionBreached');
+            const ackDeadline = notificationMetadataValue(item, 'slaAckDeadline', 'ackDeadline');
+            const resolutionDeadline = notificationMetadataValue(item, 'slaResolutionDeadline', 'resolutionDeadline');
+            const sourceNotificationId = notificationMetadataValue(item, 'sourceNotificationId');
+            const showWorkflow = !slaGenerated && (['urgent', 'vip', 'overdue'].some((group) => notificationMatchesGroup(item, group as NotificationGroup)) || Boolean(item.requires_action));
+            return <div key={item.id} id={`notification-${item.id}`} className="rounded-2xl border border-[var(--dawaa-theme-border)] p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="font-black">{item.title}</div>
                     <span className="dawaa-brand-chip">{notificationPriorityLabel(item.priority)}</span>
                     <span className="dawaa-caption">{notificationTypeLabel(item.type)}</span>
-                    {slaGenerated ? <span className="rounded-full border border-[var(--dawaa-theme-border)] px-2 py-0.5 text-xs font-black">تصعيد SLA</span> : null}
                     {actionState !== 'new' ? <span className="rounded-full border border-[var(--dawaa-theme-border)] px-2 py-0.5 text-xs font-black">{notificationActionLabel(actionState)}</span> : null}
+                    {slaGenerated ? <span className="rounded-full border border-[var(--dawaa-theme-border)] px-2 py-0.5 text-xs font-black">تصعيد SLA</span> : null}
                   </div>
                   <div className="dawaa-caption mt-1 leading-relaxed">{item.message || item.body}</div>
                   <div className="dawaa-caption mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs">
@@ -399,17 +396,15 @@ export default function OperationsCenter2027() {
                     {previousSales !== null ? <span>نفس المدة السابقة: <b>{Number(previousSales).toLocaleString('ar-EG')} ج</b></span> : null}
                     {changePct !== null ? <span>التغير: <b>{String(changePct)}%</b></span> : null}
                   </div>
-                  {!slaGenerated && (slaAckBreached || slaResolutionBreached) ? (
+                  {(ackBreached || resolutionBreached) ? (
                     <div className="mt-2 rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] px-3 py-2 text-xs font-bold">
-                      <div>{slaResolutionBreached ? 'تجاوز زمن إغلاق التنبيه' : 'تجاوز زمن بدء المتابعة'}</div>
-                      <div className="dawaa-caption mt-1">
-                        الموعد المستهدف: {formatDate(String(slaResolutionBreached ? slaResolutionDeadline || '' : slaAckDeadline || ''))}
-                      </div>
+                      {ackBreached ? <div>تجاوز زمن بدء المتابعة{ackDeadline ? <> · كان الموعد {formatDate(String(ackDeadline))}</> : null}</div> : null}
+                      {resolutionBreached ? <div>تجاوز زمن إغلاق التنبيه{resolutionDeadline ? <> · كان الموعد {formatDate(String(resolutionDeadline))}</> : null}</div> : null}
                     </div>
                   ) : null}
-                  {slaGenerated && sourceNotificationId !== null ? (
+                  {slaGenerated ? (
                     <div className="mt-2 rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] px-3 py-2 text-xs font-bold">
-                      هذا تنبيه تصعيد إداري مرتبط بالتنبيه الأصلي؛ الإجراء يتم على الأصل وليس على نسخة التصعيد.
+                      هذا تصعيد إداري مرتبط بالتنبيه الأصلي{sourceNotificationId ? <> رقم <span dir="ltr">{String(sourceNotificationId).slice(0, 8)}</span></> : null}. لا يتم إنشاء مسار متابعة مستقل له.
                     </div>
                   ) : null}
                   {improvement !== null ? <div className="mt-2 rounded-xl bg-[var(--dawaa-theme-soft)] px-3 py-2 text-xs font-bold">ملاحظة التحسين: {String(improvement)}</div> : null}
@@ -437,13 +432,15 @@ export default function OperationsCenter2027() {
               ) : null}
 
               <div className="mt-3 flex flex-wrap gap-2">
-                <button className="dawaa-button dawaa-button--primary" onClick={() => openNotification(item)}><ExternalLink className="h-4 w-4" /> {slaGenerated ? 'فتح التنبيه الأصلي' : 'فتح التفاصيل'}</button>
+                <button className="dawaa-button dawaa-button--primary" onClick={() => handleNotificationClick(item)}><ExternalLink className="h-4 w-4" /> فتح التفاصيل</button>
                 {!item.read && !item.is_read ? <button className="dawaa-button dawaa-button--ghost" onClick={() => void notificationActionRead(item.id)}>تمت القراءة</button> : null}
+                {slaGenerated ? <span className="dawaa-caption self-center">المتابعة تتم من التنبيه الأصلي</span> : null}
                 {showWorkflow && !terminal && actionState !== 'in_progress' ? <button disabled={actionBusy === item.id} className="dawaa-button dawaa-button--secondary" onClick={() => void workflowAction(item, 'in_progress')}><PlayCircle className="h-4 w-4" /> بدأت المتابعة</button> : null}
                 {showWorkflow && !terminal ? <button disabled={actionBusy === item.id} className="dawaa-button dawaa-button--secondary" onClick={() => void workflowAction(item, 'completed')}><CheckCircle2 className="h-4 w-4" /> تمت المتابعة</button> : null}
                 {showWorkflow && !terminal ? <button disabled={actionBusy === item.id} className="dawaa-button dawaa-button--ghost" onClick={() => void workflowAction(item, 'escalated')}><ArrowUpCircle className="h-4 w-4" /> تصعيد</button> : null}
                 {!slaGenerated && !terminal ? <button disabled={actionBusy === item.id} className="dawaa-button dawaa-button--ghost" onClick={() => void workflowAction(item, 'dismissed')}><XCircle className="h-4 w-4" /> إغلاق</button> : null}
               </div>
+              <span className="sr-only">التصنيف الأساسي: {primaryGroup}</span>
             </div>;
           })}
         </div>
