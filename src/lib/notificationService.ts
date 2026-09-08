@@ -124,7 +124,8 @@ export function normalizeNotification(row: Record<string, unknown>): AppNotifica
   };
 }
 
-async function getNotificationById(id: string): Promise<AppNotification | null> {
+export async function getNotificationById(id: string): Promise<AppNotification | null> {
+  if (!isSupabaseConfigured || !id) return null;
   const { data, error } = await supabase
     .from(CANONICAL_NOTIFICATION_READ_MODEL)
     .select('*')
