@@ -228,40 +228,82 @@ export function notificationPreferenceCategory(type: unknown): NotificationPrefe
   }
 }
 
-export function notificationGroup(item: NotificationLike): NotificationGroup {
+function notificationClassification(item: NotificationLike) {
   const rawType = String(item.type || item.target_type || '').trim().toLowerCase();
   const canonical = canonicalNotificationType(rawType);
-  const title = String(item.title || '').toLowerCase();
-  const text = `${rawType} ${title} ${item.message || ''} ${item.body || ''}`.toLowerCase();
+  const text = `${rawType} ${item.title || ''} ${item.message || ''} ${item.body || ''}`.toLowerCase();
   const priority = String(item.priority || '').trim().toLowerCase();
   const actionState = String(item.action_status || notificationMetadataValue(item, 'actionState') || '').toLowerCase();
+  const completed = actionState === 'completed' || rawType === 'staff_task_completed' || /تمت المهمة|تم تنفيذ|اكتملت المهمة/.test(text);
+  const dismissed = actionState === 'dismissed';
+  const slaGenerated = String(notificationMetadataValue(item, 'slaGenerated') || '').toLowerCase() === 'true';
+  const slaBreached = String(notificationMetadataValue(item, 'slaAckBreached', 'ackBreached') || '').toLowerCase() === 'true'
+    || String(notificationMetadataValue(item, 'slaResolutionBreached', 'resolutionBreached') || '').toLowerCase() === 'true';
 
-  if (actionState === 'completed' || rawType === 'staff_task_completed' || /تمت المهمة|تم تنفيذ|اكتملت المهمة/.test(text)) return 'completed';
-  if (rawType === 'staff_task_overdue' || /overdue|مهمة متأخرة|تأخر|فات موعد/.test(text)) return 'overdue';
-  if (rawType.startsWith('vip_') || rawType === 'daily_customer_attention_digest' || canonical === 'vip_customer_silence' || /عميل مهم|عميل vip|vip/.test(text)) return 'vip';
-  if (canonical === 'conversation_review' || /تقييم محادثة/.test(text)) return 'reviews';
-  if (['critical', 'urgent'].includes(priority)) return 'urgent';
-  if (rawType.startsWith('sync_health') || canonical === 'system' || /مزامن|offline|اتصال/.test(text)) return 'system';
-  if (priority === 'high') return 'urgent';
+  return {
+    rawType,
+    canonical,
+    text,
+    priority,
+    actionState,
+    completed,
+    dismissed,
+    slaGenerated,
+    slaBreached,
+    overdue: rawType === 'staff_task_overdue' || /overdue|مهمة متأخرة|تأخر|فات موعد/.test(text),
+    vip: rawType.startsWith('vip_') || rawType === 'daily_customer_attention_digest' || canonical === 'vip_customer_silence' || /عميل مهم|عميل vip|vip/.test(text),
+    reviews: canonical === 'conversation_review' || /تقييم محادثة/.test(text),
+    system: rawType.startsWith('sync_health') || canonical === 'system' || /مزامن|offline|اتصال/.test(text),
+  };
+}
+
+export function notificationMatchesGroup(item: NotificationLike, group: NotificationGroup): boolean {
+  if (group === 'all') return true;
+  const c = notificationClassification(item);
+  if (group === 'completed') return c.completed;
+  if (c.completed || c.dismissed) return false;
+  if (group === 'overdue') return c.overdue;
+  if (group === 'vip') return c.vip;
+  if (group === 'reviews') return c.reviews;
+  if (group === 'system') return c.system;
+  if (group === 'urgent') {
+    return ['high', 'urgent', 'critical'].includes(c.priority) || c.slaBreached || c.slaGenerated;
+  }
+  return false;
+}
+
+export function notificationGroups(item: NotificationLike): NotificationGroup[] {
+  const groups: NotificationGroup[] = [];
+  for (const group of ['urgent', 'vip', 'overdue', 'completed', 'reviews', 'system'] as NotificationGroup[]) {
+    if (notificationMatchesGroup(item, group)) groups.push(group);
+  }
+  return groups.length ? groups : ['all'];
+}
+
+export function notificationGroup(item: NotificationLike): NotificationGroup {
+  const groups = notificationGroups(item);
+  for (const preferred of ['completed', 'overdue', 'vip', 'reviews', 'urgent', 'system'] as NotificationGroup[]) {
+    if (groups.includes(preferred)) return preferred;
+  }
   return 'all';
 }
 
 export function notificationOperationalScore(item: NotificationLike): number {
   const priority = String(item.priority || '').toLowerCase();
-  const group = notificationGroup(item);
   const text = `${item.type || ''} ${item.title || ''} ${item.body || ''} ${item.message || ''} ${item.status || ''}`.toLowerCase();
   const meta = item.metadata || {};
   let score = priority === 'critical' ? 1000 : priority === 'urgent' ? 900 : priority === 'high' ? 700 : priority === 'normal' ? 300 : 200;
 
-  if (group === 'system' && /مزامن|offline|توقف|sync_health/.test(text)) score += 180;
-  if (group === 'vip') score += 160;
-  if (group === 'overdue') score += 150;
+  if (notificationMatchesGroup(item, 'system') && /مزامن|offline|توقف|sync_health/.test(text)) score += 180;
+  if (notificationMatchesGroup(item, 'vip')) score += 160;
+  if (notificationMatchesGroup(item, 'overdue')) score += 150;
+  if (String(notificationMetadataValue(item, 'slaAckBreached', 'slaResolutionBreached') || '').toLowerCase() === 'true') score += 170;
   if (/مختفي|توقف عن الشراء|تراجع قوي/.test(text)) score += 140;
-  if (group === 'reviews') {
+  if (notificationMatchesGroup(item, 'reviews')) {
     const scoreValue = Number(meta.score ?? meta.total_score ?? meta.review_score ?? NaN);
     score += Number.isFinite(scoreValue) && scoreValue < 80 ? 120 : 20;
   }
-  if (group === 'completed') score -= 120;
+  if (notificationMatchesGroup(item, 'completed')) score -= 120;
   if (/ممتاز|100\/100|نمو قوي|تحسن/.test(text)) score -= 30;
   return score;
 }
@@ -275,7 +317,7 @@ export function compareNotificationsOperationally(a: NotificationLike, b: Notifi
 }
 
 export function notificationRequiresOutcomeNote(item: NotificationLike, nextState: NotificationActionState): boolean {
-  return nextState === 'completed' && ['urgent', 'vip', 'overdue'].includes(notificationGroup(item));
+  return nextState === 'completed' && ['urgent', 'vip', 'overdue'].some((group) => notificationMatchesGroup(item, group as NotificationGroup));
 }
 
 export function notificationRequiresAction(type: unknown, priority: NotificationPriority): boolean {
