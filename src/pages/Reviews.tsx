@@ -54,6 +54,7 @@ import { mergeStaffChoices } from '@/lib/staffFallback';
 import { TABLES } from '@/lib/supabaseTables';
 import { notifyEmployee } from '@/lib/notificationService';
 import { usePendingFormNavigationGuard } from '@/hooks/useUnsavedChangesGuard';
+import { useDebounce } from '@/hooks/useDebounce';
 
 interface StaffOpt {
   id: string;
@@ -383,6 +384,13 @@ export default function Reviews() {
   const [managerReviewTarget, setManagerReviewTarget] =
     useState<ConversationReviewHistoryRow | null>(null);
 
+  // فلاتر سجل التقييمات: دكتور / عميل / تاريخ من - إلى
+  const [historyFilterStaffId, setHistoryFilterStaffId] = useState('');
+  const [historyFilterCustomer, setHistoryFilterCustomer] = useState('');
+  const [historyFilterDateFrom, setHistoryFilterDateFrom] = useState('');
+  const [historyFilterDateTo, setHistoryFilterDateTo] = useState('');
+  const historyFilterCustomerDebounced = useDebounce(historyFilterCustomer, 350);
+
   const closeSelectedReview = useCallback(() => {
     setSelectedReview(null);
     setSelectedReviewId(null);
@@ -665,6 +673,9 @@ export default function Reviews() {
   }, [reviewHistory]);
 
   const historyLoadSeq = useRef(0);
+  const historyFiltersActive = Boolean(
+    historyFilterStaffId || historyFilterCustomerDebounced.trim() || historyFilterDateFrom || historyFilterDateTo
+  );
   const loadReviewHistory = useCallback(async () => {
     const requestId = ++historyLoadSeq.current;
     const cacheKey = `${REVIEW_HISTORY_CACHE_KEY}:${user?.id || 'anonymous'}`;
@@ -673,32 +684,56 @@ export default function Reviews() {
     setHistoryLoading(true);
     setHistoryError(null);
 
-    try {
-      const cachedRaw = window.sessionStorage.getItem(cacheKey);
-      if (cachedRaw) {
-        const cached = JSON.parse(cachedRaw) as {
-          savedAt?: number;
-          rows?: ConversationReviewHistoryRow[];
-        };
-        const freshEnough = cached.savedAt && Date.now() - cached.savedAt < 10 * 60 * 1000;
-        if (freshEnough && Array.isArray(cached.rows)) {
-          cachedRows = cached.rows.filter((row) =>
-            canUserSeeConversationReviewBranch(user, row.branch)
-          );
-          if (cachedRows.length) setReviewHistory(cachedRows);
+    // الكاش بيغطي بس حالة "من غير فلاتر" — أي فلتر شغال بيروح مباشرة للسيرفر
+    // عشان يجيب النتيجة المفلترة الصح، مش يفلتر نسخة قديمة محفوظة محليًا.
+    if (!historyFiltersActive) {
+      try {
+        const cachedRaw = window.sessionStorage.getItem(cacheKey);
+        if (cachedRaw) {
+          const cached = JSON.parse(cachedRaw) as {
+            savedAt?: number;
+            rows?: ConversationReviewHistoryRow[];
+          };
+          const freshEnough = cached.savedAt && Date.now() - cached.savedAt < 10 * 60 * 1000;
+          if (freshEnough && Array.isArray(cached.rows)) {
+            cachedRows = cached.rows.filter((row) =>
+              canUserSeeConversationReviewBranch(user, row.branch)
+            );
+            if (cachedRows.length) setReviewHistory(cachedRows);
+          }
         }
+      } catch {
+        // Cache is best-effort only; never block the live request.
       }
-    } catch {
-      // Cache is best-effort only; never block the live request.
     }
 
     try {
-      const queryHistory = () =>
-        supabase
+      const queryHistory = () => {
+        let q = supabase
           .from('conversation_sales_reviews')
           .select(REVIEW_HISTORY_SELECT)
-          .order('created_at', { ascending: false })
-          .limit(3000);
+          .order('created_at', { ascending: false });
+
+        if (historyFilterStaffId) {
+          // بنطابق staff_id أو doctor_id لأن بعض الصفوف القديمة بتستخدم العمود التاني
+          q = q.or(`staff_id.eq.${historyFilterStaffId},doctor_id.eq.${historyFilterStaffId}`);
+        }
+        const customerTerm = historyFilterCustomerDebounced.trim();
+        if (customerTerm) {
+          const escaped = customerTerm.replace(/[%,]/g, '');
+          q = q.or(
+            `customer_name.ilike.%${escaped}%,customer_phone.ilike.%${escaped}%,customer_code.ilike.%${escaped}%`
+          );
+        }
+        if (historyFilterDateFrom) {
+          q = q.gte('conversation_date', `${historyFilterDateFrom}T00:00:00`);
+        }
+        if (historyFilterDateTo) {
+          q = q.lte('conversation_date', `${historyFilterDateTo}T23:59:59`);
+        }
+
+        return q.limit(historyFiltersActive ? 1000 : 3000);
+      };
 
       let response = await queryHistory();
       if (response.error && /schema cache|retrying|PGRST002/i.test(response.error.message || '')) {
@@ -712,13 +747,15 @@ export default function Reviews() {
       const rows = sourceRows.filter((row) => canUserSeeConversationReviewBranch(user, row.branch));
       setReviewHistory(rows);
 
-      try {
-        window.sessionStorage.setItem(
-          cacheKey,
-          JSON.stringify({ savedAt: Date.now(), rows: sourceRows })
-        );
-      } catch {
-        // Storage quota/privacy mode must not break history rendering.
+      if (!historyFiltersActive) {
+        try {
+          window.sessionStorage.setItem(
+            cacheKey,
+            JSON.stringify({ savedAt: Date.now(), rows: sourceRows })
+          );
+        } catch {
+          // Storage quota/privacy mode must not break history rendering.
+        }
       }
 
       const params = new URLSearchParams(window.location.search);
@@ -740,7 +777,14 @@ export default function Reviews() {
     } finally {
       if (requestId === historyLoadSeq.current) setHistoryLoading(false);
     }
-  }, [user]);
+  }, [
+    user,
+    historyFiltersActive,
+    historyFilterStaffId,
+    historyFilterCustomerDebounced,
+    historyFilterDateFrom,
+    historyFilterDateTo,
+  ]);
 
   useEffect(() => {
     loadReviewHistory();
@@ -1489,6 +1533,68 @@ export default function Reviews() {
             <ListChecks size={16} />
             الرجوع للتحليل والتقارير
           </button>
+        </div>
+
+        <div className="grid gap-3 rounded-xl border border-slate-700 bg-[#0b1728] p-3 sm:grid-cols-2 lg:grid-cols-4">
+          <label className="flex flex-col gap-1 text-xs text-slate-300">
+            الدكتور
+            <select
+              value={historyFilterStaffId}
+              onChange={(e) => setHistoryFilterStaffId(e.target.value)}
+              className="input-field"
+            >
+              <option value="">كل الدكاترة</option>
+              {mergeStaffChoices(staff)
+                .filter((row) => !isDeliveryRole(row.role))
+                .map((row) => (
+                  <option key={row.id} value={row.id}>
+                    {row.name}
+                  </option>
+                ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-slate-300">
+            العميل (اسم / كود / تليفون)
+            <input
+              type="text"
+              value={historyFilterCustomer}
+              onChange={(e) => setHistoryFilterCustomer(e.target.value)}
+              placeholder="ابحث عن عميل..."
+              className="input-field"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-slate-300">
+            من تاريخ
+            <input
+              type="date"
+              value={historyFilterDateFrom}
+              onChange={(e) => setHistoryFilterDateFrom(e.target.value)}
+              className="input-field"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-slate-300">
+            إلى تاريخ
+            <input
+              type="date"
+              value={historyFilterDateTo}
+              onChange={(e) => setHistoryFilterDateTo(e.target.value)}
+              className="input-field"
+            />
+          </label>
+          {historyFiltersActive && (
+            <button
+              type="button"
+              onClick={() => {
+                setHistoryFilterStaffId('');
+                setHistoryFilterCustomer('');
+                setHistoryFilterDateFrom('');
+                setHistoryFilterDateTo('');
+              }}
+              className="btn-secondary text-xs self-start"
+            >
+              مسح الفلاتر
+            </button>
+          )}
         </div>
 
         {historyError && (

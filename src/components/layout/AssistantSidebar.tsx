@@ -32,6 +32,7 @@ type AssistantNavItem = {
   label: string;
   icon: ElementType;
   permission?: string;
+  excludeStaffIds?: readonly string[];
 };
 
 type AssistantNavGroup = {
@@ -39,13 +40,21 @@ type AssistantNavGroup = {
   items: AssistantNavItem[];
 };
 
+// فريق دواء ألفا (هاجر، نور، هبه حماده): مسؤوليتهم موسّعة عبر الفرعين ومش جزء منها
+// دورة الرص/الجرد المحصورة على د/شيماء ويوسف عصام، فمفيش داعي يشوفوا الرابط ده أصلاً.
+const TEAM_DAWAA_ALPHA_STAFF_IDS = [
+  'e3640642-5c60-4815-8001-1bb93193668f', // هاجر
+  '82b9c2a1-6139-4b07-9937-ef80a6e926d8', // نور
+  'dea91886-1ae8-4766-a166-9952866a5024', // هبه حماده
+] as const;
+
 const GROUPS: AssistantNavGroup[] = [
   {
     title: 'مساحة العمل',
     items: [
       { path: '/assistant-operational-log', label: 'تسجيل المشتريات وخدمة العملاء', icon: LayoutDashboard, permission: 'view_dashboard' },
       { path: '/my-daily-checklist', label: 'التشيك ليست اليومي', icon: ClipboardCheck, permission: 'view_dashboard' },
-      { path: '/pharmacy-zone-tasks', label: 'الرص والجرد اليومي', icon: ClipboardList, permission: 'view_dashboard' },
+      { path: '/pharmacy-zone-tasks', label: 'الرص والجرد اليومي', icon: ClipboardList, permission: 'view_dashboard', excludeStaffIds: TEAM_DAWAA_ALPHA_STAFF_IDS },
       { path: '/schedule', label: 'جدولي والشيفتات', icon: Calendar, permission: 'view_schedule' },
     ],
   },
@@ -96,11 +105,16 @@ function pathIsActive(itemPath: string, pathname: string, search: string) {
 export default function AssistantSidebar({ collapsed, onToggle, mobileOpen, onMobileClose }: SidebarProps) {
   const { user, logout, checkPermission } = useAuth();
   const navigate = useNavigate();
+  const currentStaffId = user?.staffId || user?.id || '';
 
   const groups = GROUPS
     .map((group) => ({
       ...group,
-      items: group.items.filter((item) => !item.permission || checkPermission(item.permission)),
+      items: group.items.filter(
+        (item) =>
+          (!item.permission || checkPermission(item.permission)) &&
+          (!item.excludeStaffIds || !item.excludeStaffIds.includes(currentStaffId))
+      ),
     }))
     .filter((group) => group.items.length > 0);
 
