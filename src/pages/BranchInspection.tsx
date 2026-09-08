@@ -1,5 +1,5 @@
 /* eslint-disable react/no-unescaped-entities */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -46,6 +46,7 @@ interface StaffEval {
   action_type?: 'none' | 'notice' | 'deduction' | 'reward';
   points_delta?: number;
   money_amount?: number;
+  source?: 'schedule' | 'manual';
 }
 
 interface ActionItem {
@@ -104,7 +105,16 @@ function newActionItem(): ActionItem {
 }
 
 function newStaffEval(): StaffEval {
-  return { id: crypto.randomUUID(), name: '', rating: 'جيد', note: '', action_type: 'none', points_delta: 0, money_amount: 0 };
+  return {
+    id: crypto.randomUUID(),
+    name: '',
+    rating: 'جيد',
+    note: '',
+    action_type: 'none',
+    points_delta: 0,
+    money_amount: 0,
+    source: 'manual',
+  };
 }
 
 function arabicDayName(dateText: string) {
@@ -112,6 +122,39 @@ function arabicDayName(dateText: string) {
   const date = new Date(`${dateText}T12:00:00`);
   if (Number.isNaN(date.getTime())) return names[new Date().getDay()];
   return names[date.getDay()];
+}
+
+function normalizeIdentityPart(value?: string | null) {
+  return String(value || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLocaleLowerCase('ar');
+}
+
+function scheduleStaffKey(row: Record<string, any>) {
+  const staffId = String(row.staff_id || '').trim();
+  if (staffId) return `id:${staffId}`;
+  const name = normalizeIdentityPart(row.staff_name || row.name);
+  const role = normalizeIdentityPart(row.role);
+  return `fallback:${name}|${role}`;
+}
+
+function staffEvalKey(row: StaffEval) {
+  const staffId = String(row.staff_id || '').trim();
+  if (staffId) return `id:${staffId}`;
+  return `fallback:${normalizeIdentityPart(row.name)}|${normalizeIdentityPart(row.role)}`;
+}
+
+function earlierTime(current?: string | null, incoming?: string | null) {
+  if (!current) return incoming || null;
+  if (!incoming) return current;
+  return incoming < current ? incoming : current;
+}
+
+function laterTime(current?: string | null, incoming?: string | null) {
+  if (!current) return incoming || null;
+  if (!incoming) return current;
+  return incoming > current ? incoming : current;
 }
 
 function actionImpact(action?: StaffEval['action_type']) {
@@ -183,6 +226,7 @@ export default function BranchInspection() {
 
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [loadingStaff, setLoadingStaff] = useState(false);
   const [pastInspections, setPastInspections] = useState<PastInspection[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [expandedSection, setExpandedSection] = useState<string | null>('cleanliness');
@@ -192,6 +236,12 @@ export default function BranchInspection() {
   const ratedSections = form.sections.filter((s) => s.rating > 0);
   const overallScore = ratedSections.length ? ratedSections.reduce((sum, s) => sum + s.rating, 0) / ratedSections.length : 0;
   const completedSections = ratedSections.length;
+  const urgentActions = form.action_items.filter((item) => item.priority === 'عاجل' && item.text.trim()).length;
+  const staffWithActions = form.staff_evals.filter((ev) => ev.action_type && ev.action_type !== 'none').length;
+  const staffOptions = useMemo(
+    () => Array.from(new Set(form.staff_evals.map((ev) => ev.name.trim()).filter(Boolean))),
+    [form.staff_evals]
+  );
 
   useEffect(() => {
     if (!isSupabaseConfigured || !showHistory) return;
@@ -217,40 +267,86 @@ export default function BranchInspection() {
   useEffect(() => {
     if (!isSupabaseConfigured || !form.branch || !form.date) return;
     const dayName = arabicDayName(form.date);
+    let cancelled = false;
+    setLoadingStaff(true);
+
     supabase
       .from('shift_schedules')
       .select('id,staff_id,staff_name,role,branch,day_name,shift_start,shift_end,start_time,end_time,is_off,status')
       .eq('branch', form.branch)
       .eq('day_name', dayName)
-      .limit(120)
-      .then(({ data }) => {
+      .limit(200)
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error) {
+          toast.error(`تعذر تحميل فريق الشيفت: ${error.message}`);
+          setLoadingStaff(false);
+          return;
+        }
+
         const rows = (data || []) as Array<Record<string, any>>;
         const active = rows.filter((row) => !row.is_off && !String(row.status || '').includes('إجاز'));
-        if (!active.length) return;
+        const deduped = new Map<string, Record<string, any>>();
+
+        for (const row of active) {
+          const key = scheduleStaffKey(row);
+          if (!normalizeIdentityPart(row.staff_name || row.name)) continue;
+          const existing = deduped.get(key);
+          if (!existing) {
+            deduped.set(key, { ...row });
+            continue;
+          }
+          deduped.set(key, {
+            ...existing,
+            staff_id: existing.staff_id || row.staff_id || null,
+            staff_name: existing.staff_name || row.staff_name || row.name,
+            role: existing.role || row.role,
+            shift_start: earlierTime(existing.shift_start || existing.start_time, row.shift_start || row.start_time),
+            shift_end: laterTime(existing.shift_end || existing.end_time, row.shift_end || row.end_time),
+          });
+        }
+
         setForm((prev) => {
-          const typed = prev.staff_evals.filter((row) => row.name && !row.staff_id);
-          const mapped = active.map((row) => {
-            const existing = prev.staff_evals.find(
-              (x) => (x.staff_id && x.staff_id === row.staff_id) || (!x.staff_id && x.name === row.staff_name)
-            );
-            return {
-              id: existing?.id || String(row.id || crypto.randomUUID()),
+          const manual = prev.staff_evals.filter((row) => row.source === 'manual');
+          const previousByKey = new Map(prev.staff_evals.map((row) => [staffEvalKey(row), row]));
+          const mapped = Array.from(deduped.values()).map((row) => {
+            const provisional: StaffEval = {
+              id: String(row.staff_id || row.id || crypto.randomUUID()),
               staff_id: row.staff_id || null,
               name: row.staff_name || row.name || 'موظف غير محدد',
               role: row.role || null,
-              branch: row.branch || form.branch,
+              branch: row.branch || prev.branch,
               shift_start: row.shift_start || row.start_time || null,
               shift_end: row.shift_end || row.end_time || null,
-              rating: existing?.rating || 'جيد',
+              rating: 'جيد',
+              note: '',
+              action_type: 'none',
+              points_delta: 0,
+              money_amount: 0,
+              source: 'schedule',
+            };
+            const existing = previousByKey.get(staffEvalKey(provisional));
+            return {
+              ...provisional,
+              id: existing?.id || provisional.id,
+              rating: existing?.rating || provisional.rating,
               note: existing?.note || '',
               action_type: existing?.action_type || 'none',
-              points_delta: existing?.points_delta ?? actionImpact(existing?.action_type || 'none').points,
+              points_delta: existing?.points_delta ?? 0,
               money_amount: existing?.money_amount ?? 0,
-            } as StaffEval;
+            };
           });
-          return { ...prev, staff_evals: [...mapped, ...typed] };
+
+          const mappedKeys = new Set(mapped.map(staffEvalKey));
+          const manualWithoutDuplicates = manual.filter((row) => !mappedKeys.has(staffEvalKey(row)));
+          return { ...prev, staff_evals: [...mapped, ...manualWithoutDuplicates] };
         });
+        setLoadingStaff(false);
       });
+
+    return () => {
+      cancelled = true;
+    };
   }, [form.branch, form.date]);
 
   const updateSection = useCallback((key: string, field: keyof RatingSection, value: unknown) => {
@@ -306,9 +402,7 @@ export default function BranchInspection() {
         created_at: new Date().toISOString(),
       };
       if (isSupabaseConfigured) {
-        const { error } = await supabase.rpc('save_branch_inspection_v1', {
-          p_payload: payload,
-        });
+        const { error } = await supabase.rpc('save_branch_inspection_v1', { p_payload: payload });
         if (error) throw error;
       }
       setSaved(true);
@@ -345,8 +439,8 @@ export default function BranchInspection() {
           </button>
           <span className="dawaa-icon-tile h-10 w-10"><ClipboardList className="h-5 w-5" /></span>
           <div>
-            <h1 className="dawaa-title text-xl">نموذج مرور وتقييم مدير الفروع</h1>
-            <p className="dawaa-caption text-xs">تقييم يومي شامل لأداء الفرع</p>
+            <h1 className="dawaa-title text-xl">مرور ومتابعة مدير الفروع</h1>
+            <p className="dawaa-caption text-xs">تقييم الفرع، فريق الشيفت، القرارات، ومسؤوليات المتابعة في مسار واحد</p>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -360,9 +454,16 @@ export default function BranchInspection() {
         </div>
       </header>
 
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="dawaa-card dawaa-card--soft p-4"><p className="dawaa-caption text-xs">تقدم التقييم</p><p className="dawaa-title mt-1 text-2xl">{completedSections}/{form.sections.length}</p><p className="dawaa-caption mt-1 text-xs">قسم تم تقييمه</p></div>
+        <div className="dawaa-card dawaa-card--soft p-4"><p className="dawaa-caption text-xs">فريق الشيفت</p><p className="dawaa-title mt-1 text-2xl">{form.staff_evals.length}</p><p className="dawaa-caption mt-1 text-xs">موظف بدون تكرار</p></div>
+        <div className="dawaa-card dawaa-card--soft p-4"><p className="dawaa-caption text-xs">إجراءات عاجلة</p><p className="dawaa-title mt-1 text-2xl">{urgentActions}</p><p className="dawaa-caption mt-1 text-xs">تحتاج متابعة مباشرة</p></div>
+        <div className="dawaa-card dawaa-card--soft p-4"><p className="dawaa-caption text-xs">إجراءات على الموظفين</p><p className="dawaa-title mt-1 text-2xl">{staffWithActions}</p><p className="dawaa-caption mt-1 text-xs">مكافأة / تنبيه / خصم</p></div>
+      </section>
+
       <section className="dawaa-card dawaa-card--soft p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <span className="dawaa-body text-sm font-bold">تقدم النموذج: {completedSections}/{form.sections.length} أقسام</span>
+          <span className="dawaa-body text-sm font-bold">اكتمال المرور: {Math.round((completedSections / form.sections.length) * 100)}%</span>
           {overallScore > 0 && <ScoreBadge score={overallScore} />}
         </div>
         <div className="h-2 overflow-hidden rounded-full bg-[var(--dawaa-theme-soft)]">
@@ -371,7 +472,7 @@ export default function BranchInspection() {
       </section>
 
       <section className="dawaa-card p-5">
-        <h2 className="dawaa-title mb-4 flex items-center gap-2"><User className="h-4 w-4 text-[var(--dawaa-theme-primary)]" /> معلومات المرور</h2>
+        <h2 className="dawaa-title mb-4 flex items-center gap-2"><User className="h-4 w-4 text-[var(--dawaa-theme-primary)]" /> بيانات المرور</h2>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <label className="dawaa-caption text-xs">الفرع<select value={form.branch} onChange={(e) => setForm((prev) => ({ ...prev, branch: e.target.value }))} className="dawaa-select mt-1 font-bold">{BRANCHES.map((b) => <option key={b} value={b}>{b}</option>)}</select></label>
           <label className="dawaa-caption text-xs">التاريخ<input type="date" value={form.date} onChange={(e) => setForm((prev) => ({ ...prev, date: e.target.value }))} className="dawaa-input mt-1 font-bold" /></label>
@@ -381,7 +482,7 @@ export default function BranchInspection() {
       </section>
 
       <section className="space-y-3">
-        <h2 className="dawaa-title flex items-center gap-2 px-1"><Star className="h-4 w-4 text-[var(--dawaa-status-warning-text)]" /> تقييم أقسام الفرع</h2>
+        <h2 className="dawaa-title flex items-center gap-2 px-1"><Star className="h-4 w-4 text-[var(--dawaa-status-warning-text)]" /> 1) تقييم الفرع</h2>
         {form.sections.map((section) => {
           const isOpen = expandedSection === section.key;
           const isDone = section.rating > 0;
@@ -403,8 +504,12 @@ export default function BranchInspection() {
       </section>
 
       <section className="dawaa-card space-y-4 p-5">
-        <div className="flex items-center justify-between gap-3"><h2 className="dawaa-title flex items-center gap-2"><User className="h-4 w-4 text-[var(--dawaa-theme-primary)]" /> تقييم الموظفين الموجودين</h2><button type="button" onClick={addStaffEval} className="dawaa-button dawaa-button--secondary text-sm"><Plus className="h-4 w-4" /> إضافة موظف</button></div>
-        {form.staff_evals.length === 0 && <div className="dawaa-empty-state p-5 text-sm">يتم تحميل موظفي الشيفت تلقائيًا من جدول الشيفتات حسب الفرع واليوم. يمكن إضافة موظف يدويًا عند الحاجة.</div>}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div><h2 className="dawaa-title flex items-center gap-2"><Users className="h-4 w-4 text-[var(--dawaa-theme-primary)]" /> 2) فريق الشيفت وتقييم الموظفين</h2><p className="dawaa-caption mt-1 text-xs">يتم توحيد الموظف حسب حسابه أولاً، ثم الاسم والدور كاحتياط، مع تجميع وقت الشيفت بدل تكرار الاسم.</p></div>
+          <button type="button" onClick={addStaffEval} className="dawaa-button dawaa-button--secondary text-sm"><Plus className="h-4 w-4" /> إضافة يدوي</button>
+        </div>
+        {loadingStaff && <div className="dawaa-caption flex items-center gap-2 py-4"><Loader2 className="h-4 w-4 animate-spin" /> جارٍ تحميل فريق الشيفت...</div>}
+        {!loadingStaff && form.staff_evals.length === 0 && <div className="dawaa-empty-state p-5 text-sm">لا يوجد فريق شيفت نشط مسجل لهذا اليوم والفرع. يمكن إضافة موظف يدويًا عند الحاجة.</div>}
         {form.staff_evals.map((ev) => (
           <article key={ev.id} className="dawaa-card dawaa-card--soft space-y-3 p-4">
             <div className="grid gap-3 lg:grid-cols-6">
@@ -425,19 +530,25 @@ export default function BranchInspection() {
       </section>
 
       <section className="dawaa-card space-y-4 p-5">
-        <div className="flex items-center justify-between gap-3"><h2 className="dawaa-title flex items-center gap-2"><AlertTriangle className="h-4 w-4 text-[var(--dawaa-status-warning-text)]" /> قرارات وإجراءات مطلوبة</h2><button type="button" onClick={addAction} className="dawaa-button dawaa-button--secondary text-sm"><Plus className="h-4 w-4" /> إضافة إجراء</button></div>
-        {form.action_items.length === 0 && <div className="dawaa-empty-state p-5 text-sm">لا توجد إجراءات مضافة — اضغط "إضافة إجراء"</div>}
+        <div className="flex items-center justify-between gap-3"><div><h2 className="dawaa-title flex items-center gap-2"><AlertTriangle className="h-4 w-4 text-[var(--dawaa-status-warning-text)]" /> 3) قرارات ومسؤوليات المتابعة</h2><p className="dawaa-caption mt-1 text-xs">كل قرار له أولوية ومسؤول تنفيذ واضح من فريق اليوم أو اسم يدوي عند الضرورة.</p></div><button type="button" onClick={addAction} className="dawaa-button dawaa-button--secondary text-sm"><Plus className="h-4 w-4" /> إضافة إجراء</button></div>
+        {form.action_items.length === 0 && <div className="dawaa-empty-state p-5 text-sm">لا توجد إجراءات مضافة — اضغط "إضافة إجراء" عند وجود نقطة تحتاج متابعة.</div>}
         {form.action_items.map((action) => (
           <article key={action.id} className="dawaa-card dawaa-card--soft space-y-3 p-4">
             <div className="grid gap-3 sm:grid-cols-3"><input value={action.text} onChange={(e) => updateAction(action.id, 'text', e.target.value)} placeholder="الإجراء المطلوب" className="dawaa-input font-bold sm:col-span-2" /><select value={action.priority} onChange={(e) => updateAction(action.id, 'priority', e.target.value)} className="dawaa-select font-bold">{(['عاجل', 'عادي', 'منخفض'] as const).map((p) => <option key={p}>{p}</option>)}</select></div>
-            <div className="flex gap-3"><input value={action.assigned_to} onChange={(e) => updateAction(action.id, 'assigned_to', e.target.value)} placeholder="مسؤول التنفيذ (اختياري)" className="dawaa-input flex-1" /><button onClick={() => removeAction(action.id)} className="dawaa-button dawaa-badge--danger px-3"><Trash2 className="h-4 w-4" /></button></div>
+            <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+              <div className="grid gap-2 sm:grid-cols-2">
+                <select value={staffOptions.includes(action.assigned_to) ? action.assigned_to : ''} onChange={(e) => updateAction(action.id, 'assigned_to', e.target.value)} className="dawaa-select"><option value="">اختر مسؤول التنفيذ من فريق اليوم</option>{staffOptions.map((name) => <option key={name} value={name}>{name}</option>)}</select>
+                <input value={action.assigned_to} onChange={(e) => updateAction(action.id, 'assigned_to', e.target.value)} placeholder="أو اكتب اسم المسؤول يدويًا" className="dawaa-input" />
+              </div>
+              <button onClick={() => removeAction(action.id)} className="dawaa-button dawaa-badge--danger px-3"><Trash2 className="h-4 w-4" /></button>
+            </div>
           </article>
         ))}
       </section>
 
       <section className="dawaa-card space-y-4 p-5">
-        <h2 className="dawaa-title flex items-center gap-2"><ClipboardList className="h-4 w-4 text-[var(--dawaa-theme-primary)]" /> ملاحظات عامة وموعد المرور القادم</h2>
-        <textarea value={form.overall_notes} onChange={(e) => setForm((prev) => ({ ...prev, overall_notes: e.target.value }))} placeholder="ملاحظاتك الإجمالية عن الفرع وتوصياتك للإدارة..." rows={4} className="dawaa-textarea resize-none" />
+        <h2 className="dawaa-title flex items-center gap-2"><ClipboardList className="h-4 w-4 text-[var(--dawaa-theme-primary)]" /> 4) الخلاصة والمرور القادم</h2>
+        <textarea value={form.overall_notes} onChange={(e) => setForm((prev) => ({ ...prev, overall_notes: e.target.value }))} placeholder="الخلاصة التنفيذية: أهم مشكلة، أهم تحسن، وما المطلوب قبل المرور القادم..." rows={4} className="dawaa-textarea resize-none" />
         <label className="dawaa-body flex flex-wrap items-center gap-3 text-sm font-bold">موعد المرور القادم:<input type="date" value={form.next_visit_date} onChange={(e) => setForm((prev) => ({ ...prev, next_visit_date: e.target.value }))} className="dawaa-input max-w-xs font-bold" /></label>
       </section>
 
