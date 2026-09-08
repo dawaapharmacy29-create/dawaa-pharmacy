@@ -10,6 +10,7 @@ const SERVICE = 'src/lib/notificationService.ts';
 const SLA_MIGRATION = 'supabase/migrations/20260908164500_notification_sla_engine_v1.sql';
 const SLA_READ_MODEL_MIGRATION = 'supabase/migrations/20260908172000_notification_sla_metadata_surface_v1.sql';
 const SLA_REFERENCE_MIGRATION = 'supabase/migrations/20260908205500_sla_escalations_reference_only_v2.sql';
+const SLA_INTEGRITY_MIGRATION = 'supabase/migrations/20260908211500_notification_sla_integrity_audit_v1.sql';
 
 function walk(dir) {
   const out = [];
@@ -80,6 +81,7 @@ for (const required of [
   SLA_MIGRATION,
   SLA_READ_MODEL_MIGRATION,
   SLA_REFERENCE_MIGRATION,
+  SLA_INTEGRITY_MIGRATION,
 ]) {
   if (!fs.existsSync(path.join(ROOT, required))) failures.push(`Missing canonical notification boundary: ${required}`);
 }
@@ -155,6 +157,19 @@ if (fs.existsSync(path.join(ROOT, SLA_REFERENCE_MIGRATION))) {
   }
 }
 
+if (fs.existsSync(path.join(ROOT, SLA_INTEGRITY_MIGRATION))) {
+  const integritySource = fs.readFileSync(path.join(ROOT, SLA_INTEGRITY_MIGRATION), 'utf8');
+  for (const requiredToken of [
+    'notification_sla_integrity_audit_v1',
+    'notification_sla_integrity_health_v1',
+    'orphan_source',
+    'duplicate_workflow',
+    'missing_sla_event_link',
+  ]) {
+    if (!integritySource.includes(requiredToken)) failures.push(`${SLA_INTEGRITY_MIGRATION} is missing SLA integrity token: ${requiredToken}`);
+  }
+}
+
 console.log(`[notification-architecture] direct writers: ${directWriters.length}`);
 console.log(`[notification-architecture] raw readers: ${rawReaders.join(', ') || 'none'}`);
 console.log(`[notification-architecture] canonical readers: ${canonicalReaders.join(', ') || 'none'}`);
@@ -164,6 +179,7 @@ console.log(`[notification-architecture] metadata boundary: ${METADATA}`);
 console.log(`[notification-architecture] SLA boundary: ${SLA_MIGRATION}`);
 console.log(`[notification-architecture] SLA read model: ${SLA_READ_MODEL_MIGRATION}`);
 console.log(`[notification-architecture] SLA escalation invariant: ${SLA_REFERENCE_MIGRATION}`);
+console.log(`[notification-architecture] SLA integrity audit: ${SLA_INTEGRITY_MIGRATION}`);
 
 if (failures.length) {
   console.error('\nNotification architecture check failed:');
@@ -171,4 +187,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log('[notification-architecture] PASS: one command boundary, one canonical read model, one domain owner, one metadata contract, one SLA scheduler path, SLA state travels through the canonical read model, SLA escalation is reference-only, no compatibility read debt.');
+console.log('[notification-architecture] PASS: one command boundary, one canonical read model, one domain owner, one metadata contract, one SLA scheduler path, SLA state travels through the canonical read model, SLA escalation is reference-only, SLA chain integrity is auditable, no compatibility read debt.');
