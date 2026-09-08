@@ -4,6 +4,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useOptionalNavigationGuard } from '@/contexts/NavigationGuardContext';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import {
+  getNotificationById,
   getRecentNotifications,
   markAllNotificationsRead,
   markNotificationRead,
@@ -207,6 +208,22 @@ export function useNotifications() {
     setLoading(false);
   }, []);
 
+  const ensureNotificationLoaded = useCallback(async (id: string) => {
+    if (!id) return null;
+    const existing = notificationRuntime.rows.find((item) => item.id === id);
+    if (existing) {
+      if (mountedRef.current) setRows(notificationRuntime.rows);
+      return existing;
+    }
+
+    const loaded = await getNotificationById(id);
+    if (!loaded) return null;
+    const normalized = { ...loaded, route: notificationRoute(loaded) };
+    notificationRuntime.rows = [normalized, ...notificationRuntime.rows.filter((item) => item.id !== normalized.id)];
+    if (mountedRef.current) setRows(notificationRuntime.rows);
+    return normalized;
+  }, []);
+
   useEffect(() => {
     mountedRef.current = true;
     notificationRuntime.subscribers += 1;
@@ -333,6 +350,7 @@ export function useNotifications() {
     available,
     settings,
     refreshNotifications,
+    ensureNotificationLoaded,
     markAsRead,
     markAllAsRead,
     handleNotificationClick,
