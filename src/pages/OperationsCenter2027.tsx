@@ -97,7 +97,7 @@ export default function OperationsCenter2027() {
   const canSeeAllBranches = ['general_manager', 'executive_manager', 'branches_manager'].includes(role);
   const { data: staffDirectory = [] } = useStaffDirectory();
   const {
-    notifications,
+    allNotifications: notifications,
     refreshNotifications,
     ensureNotificationLoaded,
     markAsRead,
