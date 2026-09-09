@@ -9,6 +9,7 @@ const METADATA = 'src/lib/notifications/notificationMetadata.ts';
 const SERVICE = 'src/lib/notificationService.ts';
 const WORKFLOW_SERVICE = 'src/lib/notifications/notificationWorkflowService.ts';
 const OPERATIONS_CENTER = 'src/pages/OperationsCenter2027.tsx';
+const HEADER = 'src/components/layout/Header.tsx';
 const SLA_MIGRATION = 'supabase/migrations/20260908164500_notification_sla_engine_v1.sql';
 const SLA_READ_MODEL_MIGRATION = 'supabase/migrations/20260908172000_notification_sla_metadata_surface_v1.sql';
 const SLA_REFERENCE_MIGRATION = 'supabase/migrations/20260908205500_sla_escalations_reference_only_v2.sql';
@@ -77,6 +78,7 @@ for (const required of [
   METADATA,
   SERVICE,
   OPERATIONS_CENTER,
+  HEADER,
   'src/lib/notifications/notificationActionService.ts',
   WORKFLOW_SERVICE,
   SLA_MIGRATION,
@@ -125,6 +127,10 @@ for (const requiredToken of [
 ]) {
   if (!operationsSource.includes(requiredToken)) failures.push(`${OPERATIONS_CENTER} must render only lifecycle-valid actions: ${requiredToken}`);
 }
+
+const headerSource = fs.readFileSync(path.join(ROOT, HEADER), 'utf8');
+if (!headerSource.includes('handleNotificationClick(item)')) failures.push(`${HEADER} must delegate notification navigation to useNotifications.handleNotificationClick.`);
+if (/inferNotificationRoute|parseDetailsRoute|canonicalNotificationRoute/s.test(headerSource)) failures.push(`${HEADER} must remain a notification consumer; local notification route inference is forbidden.`);
 
 const metadataSource = fs.readFileSync(path.join(ROOT, METADATA), 'utf8');
 for (const requiredToken of ['schemaVersion: 2', 'canonicalType', 'notificationMetadataContractIssues']) {
@@ -185,6 +191,7 @@ console.log(`[notification-architecture] duplicate domain logic: ${duplicateDoma
 console.log(`[notification-architecture] ad-hoc routes: ${adHocRoutes.join(', ') || 'none'}`);
 console.log(`[notification-architecture] metadata boundary: ${METADATA}`);
 console.log(`[notification-architecture] workflow command gateway: ${WORKFLOW_SERVICE}`);
+console.log(`[notification-architecture] header consumer boundary: ${HEADER}`);
 console.log(`[notification-architecture] SLA boundary: ${SLA_MIGRATION}`);
 console.log(`[notification-architecture] SLA read model: ${SLA_READ_MODEL_MIGRATION}`);
 console.log(`[notification-architecture] SLA escalation invariant: ${SLA_REFERENCE_MIGRATION}`);
@@ -198,4 +205,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log('[notification-architecture] PASS: one creation boundary, one workflow command gateway, one canonical read model, one domain owner, one metadata contract, one SLA scheduler path, DB-enforced lifecycle, no compatibility workflow/read debt.');
+console.log('[notification-architecture] PASS: one creation boundary, one workflow command gateway, one canonical read model, one domain owner, one metadata contract, one SLA scheduler path, DB-enforced lifecycle, consumer-only header, no compatibility workflow/read debt.');
