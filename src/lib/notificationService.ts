@@ -226,30 +226,6 @@ export async function markNotificationRead(id: string) {
   return Boolean(ok);
 }
 
-async function transitionNotification(id: string, nextState: Exclude<NotificationStatus, 'new' | 'read'>) {
-  if (!isSupabaseConfigured || !id) return false;
-  const { data: ok, error } = await supabase.rpc('transition_notification_action_with_note_v1', {
-    p_notification_id: id,
-    p_next_state: nextState,
-    p_note: null,
-  });
-  if (error) return false;
-  if (ok) await logNotificationAction(`notification_${nextState}`, id);
-  return Boolean(ok);
-}
-
-export function markNotificationCompleted(id: string) {
-  return transitionNotification(id, 'completed');
-}
-
-export function dismissNotification(id: string) {
-  return transitionNotification(id, 'dismissed');
-}
-
-export function escalateNotification(id: string) {
-  return transitionNotification(id, 'escalated');
-}
-
 async function logNotificationAction(action: string, id: string) {
   await logActivity({
     action,
