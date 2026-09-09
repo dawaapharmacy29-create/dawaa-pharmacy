@@ -45,7 +45,10 @@ for (const file of walk(SRC)) {
   if (rel !== WORKFLOW_SERVICE && /\.rpc\(['"]transition_notification_action_with_note_v1['"]/s.test(source)) {
     directWorkflowRpcCallers.push(rel);
   }
-  if (/\b(?:markNotificationCompleted|dismissNotification|escalateNotification)\b/s.test(source)) {
+  // Only flag the removed app-notification workflow exports when imported from the
+  // canonical notification service. Generic local helpers with names such as
+  // dismissNotification in unrelated in-memory modules are not workflow debt.
+  if (/import\s*\{[^}]*\b(?:markNotificationCompleted|dismissNotification|escalateNotification)\b[^}]*\}\s*from\s*['"]@\/lib\/notificationService['"]/s.test(source)) {
     legacyWorkflowHelperUsers.push(rel);
   }
 
@@ -176,7 +179,7 @@ if (fs.existsSync(path.join(ROOT, LIFECYCLE_MIGRATION))) {
 console.log(`[notification-architecture] direct writers: ${directWriters.length}`);
 console.log(`[notification-architecture] raw readers: ${rawReaders.join(', ') || 'none'}`);
 console.log(`[notification-architecture] direct workflow RPC callers: ${directWorkflowRpcCallers.join(', ') || 'none'}`);
-console.log(`[notification-architecture] legacy workflow helpers: ${legacyWorkflowHelperUsers.join(', ') || 'none'}`);
+console.log(`[notification-architecture] legacy workflow imports: ${legacyWorkflowHelperUsers.join(', ') || 'none'}`);
 console.log(`[notification-architecture] canonical readers: ${canonicalReaders.join(', ') || 'none'}`);
 console.log(`[notification-architecture] duplicate domain logic: ${duplicateDomainLogic.join(', ') || 'none'}`);
 console.log(`[notification-architecture] ad-hoc routes: ${adHocRoutes.join(', ') || 'none'}`);
