@@ -43,6 +43,9 @@ export interface AppNotification {
   metadata?: Record<string, unknown> | null;
 }
 
+// New notification writes use the canonical staff/role/branch audience identity.
+// recipient_user_id/user_id remain read-only compatibility fields on AppNotification
+// for historical rows and must not be used to target newly-created notifications.
 export interface NotificationPayload {
   title: string;
   message?: string;
@@ -50,9 +53,7 @@ export interface NotificationPayload {
   type?: NotificationType;
   priority?: NotificationPriority;
   recipient_staff_id?: string | null;
-  recipient_user_id?: string | null;
   recipient_role?: string | null;
-  user_id?: string | null;
   branch?: string | null;
   target_type?: string | null;
   target_id?: string | null;
@@ -201,8 +202,8 @@ export async function createNotification(payload: NotificationPayload) {
         title: payload.title,
         type,
         priority,
-        recipient_staff_id: payload.recipient_staff_id,
-        recipient_user_id: payload.recipient_user_id || payload.user_id,
+        recipient_staff_id: payload.recipient_staff_id || null,
+        recipient_role: payload.recipient_role || null,
       },
     }).catch(() => undefined);
 
