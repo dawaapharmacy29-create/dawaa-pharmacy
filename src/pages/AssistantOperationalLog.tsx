@@ -39,7 +39,9 @@ type TaskType =
   | 'followup_execution'
   | 'request_fulfillment'
   | 'exceptional_followup'
-  | 'welcome_message';
+  | 'welcome_message'
+  | 'conversation_review'
+  | 'active_customer_growth';
 
 type StageOption = {
   stage: string;
@@ -130,6 +132,27 @@ const TASK_CONFIG: Record<TaskType, TaskTypeConfig> = {
     requiresCase: false,
     stages: [{ stage: 'sent', label: 'تم إرسال الرسالة', points: 2 }],
   },
+  conversation_review: {
+    label: 'تقييم محادثة عميل',
+    hint: 'حدث واحد — بمجرد اعتماد التقييم',
+    icon: CheckCircle2,
+    requiresCase: false,
+    stages: [{ stage: 'completed', label: 'تم تقييم المحادثة', points: 3 }],
+  },
+  active_customer_growth: {
+    label: 'تحويل عميل إلى نشط',
+    hint: 'حدث واحد — بمجرد تأكيد الشراء اللي حوّل العميل لنشط',
+    icon: Trophy,
+    requiresCase: false,
+    stages: [
+      {
+        stage: 'confirmed',
+        label: 'تم تأكيد شراء العميل (برقم فاتورة)',
+        points: 10,
+        requiresInvoice: true,
+      },
+    ],
+  },
 };
 
 const TASK_ORDER: TaskType[] = [
@@ -139,6 +162,8 @@ const TASK_ORDER: TaskType[] = [
   'request_fulfillment',
   'exceptional_followup',
   'welcome_message',
+  'conversation_review',
+  'active_customer_growth',
 ];
 
 type LogRow = {
@@ -232,6 +257,8 @@ const MAX_CASE_POINTS: Record<TaskType, number> = {
   request_fulfillment: 6,
   exceptional_followup: 7,
   welcome_message: 2,
+  conversation_review: 3,
+  active_customer_growth: 10,
 };
 
 function friendlyError(message: string): string {
