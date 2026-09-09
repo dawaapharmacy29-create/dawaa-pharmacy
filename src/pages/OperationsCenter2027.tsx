@@ -30,10 +30,12 @@ import {
   isTerminalNotificationAction,
   notificationActionLabel,
   notificationGroup,
+  notificationLifecycleState,
   notificationMatchesGroup,
   notificationMetadataValue,
   notificationPriorityLabel,
   notificationRequiresOutcomeNote,
+  notificationTransitionAllowed,
   notificationTypeLabel,
   type NotificationActionState,
   type NotificationGroup,
@@ -187,7 +189,7 @@ export default function OperationsCenter2027() {
   const urgentTasks = openTasks.filter((task) => ['خطر', 'high', 'urgent', 'critical'].includes(String(task.priority || '').toLowerCase()));
   const unread = operationalNotifications.filter((item) => !item.read && !item.is_read);
   const actionRequired = operationalNotifications.filter((item) => item.requires_action || ['high', 'urgent', 'critical'].includes(String(item.priority || '').toLowerCase()));
-  const inProgressCount = operationalNotifications.filter((item) => String(item.action_status || notificationMetadataValue(item, 'actionState') || '') === 'in_progress').length;
+  const inProgressCount = operationalNotifications.filter((item) => notificationLifecycleState(item) === 'in_progress').length;
   const slaBreachCount = operationalNotifications.filter(hasSlaBreach).length;
 
   async function addTask() {
@@ -266,10 +268,18 @@ export default function OperationsCenter2027() {
       toast.info('هذا تصعيد إداري؛ تتم المتابعة على التنبيه الأصلي.');
       return;
     }
+    if (!notificationTransitionAllowed(item, nextState)) {
+      toast.info(nextState === 'completed'
+        ? 'ابدأ المتابعة أولًا قبل تسجيل أن التنبيه تمت متابعته.'
+        : 'هذا الإجراء غير متاح من الحالة الحالية للتنبيه.');
+      return;
+    }
 
     const note = (actionNotes[item.id] || '').trim();
     if (notificationRequiresOutcomeNote(item, nextState) && !note) {
-      toast.error('اكتب نتيجة المتابعة قبل إغلاق هذا التنبيه المهم');
+      toast.error(nextState === 'dismissed'
+        ? 'اكتب سبب الإغلاق قبل إغلاق هذا التنبيه.'
+        : 'اكتب نتيجة المتابعة قبل إنهاء هذا التنبيه.');
       return;
     }
 
@@ -284,14 +294,14 @@ export default function OperationsCenter2027() {
     setActionBusy(null);
 
     if (!result.ok) {
-      toast.error('تعذر تسجيل الإجراء. تأكد أن التنبيه داخل نطاق مسؤوليتك.');
+      toast.error(result.error || 'تعذر تسجيل الإجراء. تأكد أن التنبيه داخل نطاق مسؤوليتك.');
       return;
     }
 
     const toastByState: Record<WorkflowState, string> = {
       in_progress: 'تم تسجيل أن المتابعة بدأت',
       completed: 'تم حفظ نتيجة المتابعة وإغلاق التنبيه',
-      dismissed: 'تم إغلاق التنبيه',
+      dismissed: 'تم حفظ سبب الإغلاق وإغلاق التنبيه',
       escalated: 'تم تصعيد التنبيه ورفع أولويته',
     };
     toast.success(toastByState[nextState]);
@@ -390,7 +400,7 @@ export default function OperationsCenter2027() {
             const previousSales = notificationMetadataValue(item, 'previousSalesSamePeriod');
             const changePct = notificationMetadataValue(item, 'changePct');
             const improvement = notificationMetadataValue(item, 'improvement_note');
-            const actionState = String(item.action_status || notificationMetadataValue(item, 'actionState') || 'new');
+            const actionState = notificationLifecycleState(item);
             const actionByName = notificationMetadataValue(item, 'actionByName');
             const actionAt = notificationMetadataValue(item, 'actionStateUpdatedAt');
             const savedActionNote = notificationMetadataValue(item, 'actionNote');
@@ -402,7 +412,13 @@ export default function OperationsCenter2027() {
             const ackDeadline = notificationMetadataValue(item, 'slaAckDeadline', 'ackDeadline');
             const resolutionDeadline = notificationMetadataValue(item, 'slaResolutionDeadline', 'resolutionDeadline');
             const sourceNotificationId = notificationMetadataValue(item, 'sourceNotificationId');
-            const showWorkflow = !slaGenerated && (['urgent', 'vip', 'overdue'].some((group) => notificationMatchesGroup(item, group as NotificationGroup)) || Boolean(item.requires_action));
+            const operationalWorkflow = ['urgent', 'vip', 'overdue'].some((group) => notificationMatchesGroup(item, group as NotificationGroup)) || Boolean(item.requires_action);
+            const canStart = !slaGenerated && notificationTransitionAllowed(item, 'in_progress') && actionState !== 'in_progress';
+            const canComplete = !slaGenerated && notificationTransitionAllowed(item, 'completed') && actionState !== 'completed';
+            const canEscalate = !slaGenerated && notificationTransitionAllowed(item, 'escalated') && actionState !== 'escalated';
+            const canDismiss = !slaGenerated && notificationTransitionAllowed(item, 'dismissed') && actionState !== 'dismissed';
+            const showWorkflow = operationalWorkflow && (canStart || canComplete || canEscalate || canDismiss);
+            const closeNoteRequired = notificationRequiresOutcomeNote(item, 'completed') || notificationRequiresOutcomeNote(item, 'dismissed');
             const focused = focusedNotificationId === item.id;
             return <div key={item.id} id={`notification-${item.id}`} aria-current={focused ? 'true' : undefined} className={`rounded-2xl border border-[var(--dawaa-theme-border)] p-4 ${focused ? 'bg-[var(--dawaa-theme-soft)]' : ''}`}>
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -456,8 +472,9 @@ export default function OperationsCenter2027() {
                     className="dawaa-input mt-2 w-full"
                     value={actionNotes[item.id] || ''}
                     onChange={(event) => setActionNotes((current) => ({ ...current, [item.id]: event.target.value }))}
-                    placeholder={notificationRequiresOutcomeNote(item, 'completed') ? 'مطلوبة عند إغلاق التنبيه: ماذا تم؟ وما النتيجة؟' : 'ملاحظة اختيارية'}
+                    placeholder={closeNoteRequired ? 'مطلوبة عند الإنهاء أو الإغلاق: ماذا تم؟ أو ما سبب الإغلاق؟' : 'ملاحظة اختيارية'}
                   />
+                  {!canComplete && canStart && item.requires_action ? <div className="dawaa-caption mt-2 text-xs font-bold">ابدأ المتابعة أولًا قبل تسجيل «تمت المتابعة».</div> : null}
                 </div>
               ) : null}
 
@@ -465,10 +482,10 @@ export default function OperationsCenter2027() {
                 <button className="dawaa-button dawaa-button--primary" onClick={() => handleNotificationClick(item)}><ExternalLink className="h-4 w-4" /> فتح التفاصيل</button>
                 {!item.read && !item.is_read ? <button className="dawaa-button dawaa-button--ghost" onClick={() => void notificationActionRead(item.id)}>تمت القراءة</button> : null}
                 {slaGenerated ? <span className="dawaa-caption self-center">المتابعة تتم من التنبيه الأصلي</span> : null}
-                {showWorkflow && !terminal && actionState !== 'in_progress' ? <button disabled={actionBusy === item.id} className="dawaa-button dawaa-button--secondary" onClick={() => void workflowAction(item, 'in_progress')}><PlayCircle className="h-4 w-4" /> بدأت المتابعة</button> : null}
-                {showWorkflow && !terminal ? <button disabled={actionBusy === item.id} className="dawaa-button dawaa-button--secondary" onClick={() => void workflowAction(item, 'completed')}><CheckCircle2 className="h-4 w-4" /> تمت المتابعة</button> : null}
-                {showWorkflow && !terminal ? <button disabled={actionBusy === item.id} className="dawaa-button dawaa-button--ghost" onClick={() => void workflowAction(item, 'escalated')}><ArrowUpCircle className="h-4 w-4" /> تصعيد</button> : null}
-                {!slaGenerated && !terminal ? <button disabled={actionBusy === item.id} className="dawaa-button dawaa-button--ghost" onClick={() => void workflowAction(item, 'dismissed')}><XCircle className="h-4 w-4" /> إغلاق</button> : null}
+                {showWorkflow && canStart ? <button disabled={actionBusy === item.id} className="dawaa-button dawaa-button--secondary" onClick={() => void workflowAction(item, 'in_progress')}><PlayCircle className="h-4 w-4" /> بدأت المتابعة</button> : null}
+                {showWorkflow && canComplete ? <button disabled={actionBusy === item.id} className="dawaa-button dawaa-button--secondary" onClick={() => void workflowAction(item, 'completed')}><CheckCircle2 className="h-4 w-4" /> تمت المتابعة</button> : null}
+                {showWorkflow && canEscalate ? <button disabled={actionBusy === item.id} className="dawaa-button dawaa-button--ghost" onClick={() => void workflowAction(item, 'escalated')}><ArrowUpCircle className="h-4 w-4" /> تصعيد</button> : null}
+                {showWorkflow && canDismiss ? <button disabled={actionBusy === item.id} className="dawaa-button dawaa-button--ghost" onClick={() => void workflowAction(item, 'dismissed')}><XCircle className="h-4 w-4" /> إغلاق</button> : null}
               </div>
               <span className="sr-only">التصنيف الأساسي: {primaryGroup}</span>
             </div>;
