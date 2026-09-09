@@ -7,6 +7,7 @@ const SRC = path.join(ROOT, 'src');
 const DOMAIN = 'src/lib/notifications/notificationDomain.ts';
 const METADATA = 'src/lib/notifications/notificationMetadata.ts';
 const SERVICE = 'src/lib/notificationService.ts';
+const OPERATIONS_CENTER = 'src/pages/OperationsCenter2027.tsx';
 const SLA_MIGRATION = 'supabase/migrations/20260908164500_notification_sla_engine_v1.sql';
 const SLA_READ_MODEL_MIGRATION = 'supabase/migrations/20260908172000_notification_sla_metadata_surface_v1.sql';
 const SLA_REFERENCE_MIGRATION = 'supabase/migrations/20260908205500_sla_escalations_reference_only_v2.sql';
@@ -43,7 +44,8 @@ for (const file of walk(SRC)) {
     const ownsScoring = /function\s+notificationOperationalScore\s*\(/s.test(source);
     const ownsGrouping = /function\s+notificationGroup\s*\(/s.test(source);
     const ownsPreferenceRouting = /function\s+notificationPreferenceCategory\s*\(/s.test(source);
-    if (ownsLabels || ownsScoring || ownsGrouping || ownsPreferenceRouting) duplicateDomainLogic.push(rel);
+    const ownsLifecycle = /function\s+(?:notificationLifecycleState|notificationTransitionAllowed|notificationRequiresOutcomeNote)\s*\(/s.test(source);
+    if (ownsLabels || ownsScoring || ownsGrouping || ownsPreferenceRouting || ownsLifecycle) duplicateDomainLogic.push(rel);
   }
 
   if (rel !== DOMAIN && /(?:customer_data_review|welcome_task)\s*===|rawType\s*===\s*['"][^'"]+['"]\s*\)\s*return\s*['"]\//s.test(source)) adHocRoutes.push(rel);
@@ -52,13 +54,14 @@ for (const file of walk(SRC)) {
 const failures = [];
 if (directWriters.length) failures.push(`Direct notification table writer(s) are forbidden: ${directWriters.join(', ')}`);
 if (rawReaders.length) failures.push(`All application notification reads must use notification_events_v2: ${rawReaders.join(', ')}`);
-if (duplicateDomainLogic.length) failures.push(`Notification labels/grouping/scoring/preferences must live only in ${DOMAIN}: ${duplicateDomainLogic.join(', ')}`);
+if (duplicateDomainLogic.length) failures.push(`Notification labels/grouping/scoring/preferences/lifecycle must live only in ${DOMAIN}: ${duplicateDomainLogic.join(', ')}`);
 if (adHocRoutes.length) failures.push(`Notification route exceptions must live only in ${DOMAIN}: ${adHocRoutes.join(', ')}`);
 
 for (const required of [
   DOMAIN,
   METADATA,
   SERVICE,
+  OPERATIONS_CENTER,
   'src/lib/notifications/notificationActionService.ts',
   'src/lib/notifications/notificationWorkflowService.ts',
   SLA_MIGRATION,
@@ -76,6 +79,28 @@ if (!serviceSource.includes('create_notification_audience_v1')) failures.push(`$
 if (!serviceSource.includes('normalizeNotificationMetadata')) failures.push(`${SERVICE} must normalize metadata through ${METADATA}.`);
 if (!serviceSource.includes('getNotificationById')) failures.push(`${SERVICE} must expose canonical notification lookup for deep links and SLA source resolution.`);
 if (/using legacy compatibility reader|\.from\(['"]notifications['"]\)\s*\.select/s.test(serviceSource)) failures.push(`${SERVICE} must fail closed when the canonical read model is unavailable; legacy raw-read fallback is forbidden.`);
+
+const domainSource = fs.readFileSync(path.join(ROOT, DOMAIN), 'utf8');
+for (const requiredToken of [
+  'notificationLifecycleState',
+  'notificationTransitionAllowed',
+  'notificationRequiresOutcomeNote',
+  "nextState === 'completed'",
+  "'dismissed'",
+  'NOTE_REQUIRED_TYPES',
+]) {
+  if (!domainSource.includes(requiredToken)) failures.push(`${DOMAIN} is missing lifecycle parity token: ${requiredToken}`);
+}
+
+const operationsSource = fs.readFileSync(path.join(ROOT, OPERATIONS_CENTER), 'utf8');
+for (const requiredToken of [
+  'notificationLifecycleState',
+  'notificationTransitionAllowed',
+  "notificationRequiresOutcomeNote(item, 'dismissed')",
+  'ابدأ المتابعة أولًا',
+]) {
+  if (!operationsSource.includes(requiredToken)) failures.push(`${OPERATIONS_CENTER} must render only lifecycle-valid actions: ${requiredToken}`);
+}
 
 const metadataSource = fs.readFileSync(path.join(ROOT, METADATA), 'utf8');
 for (const requiredToken of ['schemaVersion: 2', 'canonicalType', 'notificationMetadataContractIssues']) {
@@ -138,6 +163,7 @@ console.log(`[notification-architecture] SLA read model: ${SLA_READ_MODEL_MIGRAT
 console.log(`[notification-architecture] SLA escalation invariant: ${SLA_REFERENCE_MIGRATION}`);
 console.log(`[notification-architecture] SLA integrity audit: ${SLA_INTEGRITY_MIGRATION}`);
 console.log(`[notification-architecture] lifecycle state machine: ${LIFECYCLE_MIGRATION}`);
+console.log(`[notification-architecture] lifecycle UI parity: ${DOMAIN} -> ${OPERATIONS_CENTER}`);
 
 if (failures.length) {
   console.error('\nNotification architecture check failed:');
@@ -145,4 +171,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log('[notification-architecture] PASS: one command boundary, one canonical read model, one domain owner, one metadata contract, one SLA scheduler path, SLA escalation is reference-only, lifecycle transitions are DB-enforced and auditable, no compatibility read debt.');
+console.log('[notification-architecture] PASS: one command boundary, one canonical read model, one domain owner, one metadata contract, one SLA scheduler path, SLA escalation is reference-only, lifecycle transitions are DB-enforced and UI-aligned, no compatibility read debt.');
