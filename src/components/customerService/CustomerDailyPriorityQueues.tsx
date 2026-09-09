@@ -22,7 +22,7 @@ import { supabase } from '@/lib/supabase';
 import SmartQueueExcelImportModal from '@/components/customerService/SmartQueueExcelImportModal';
 import { downloadCustomerServiceWorkbook, type CustomerServiceExcelColumn } from '@/lib/customerService/customerServiceExcelWorkbook';
 
-type QueueType = 'vip_recent' | 'plus500' | 'points';
+type QueueType = 'vip_recent' | 'plus500' | 'points' | 'at_risk';
 type InvoiceValue = { invoiceNumber?: string; value: number };
 type QueueCustomer = {
   code: string;
@@ -66,6 +66,8 @@ type CompletionRow = {
   plus500_total: number; plus500_handled: number;
   points_total: number; points_handled: number;
 };
+
+type AtRiskCompletionRow = { branch: string; at_risk_total: number; at_risk_handled: number };
 
 type IntelligenceRow = {
   branch: string;
@@ -197,12 +199,14 @@ export default function CustomerDailyPriorityQueues() {
   const [vipDaily, setVipDaily] = useState<QueueCustomer[]>([]);
   const [largeInvoices, setLargeInvoices] = useState<QueueCustomer[]>([]);
   const [pointsDaily, setPointsDaily] = useState<QueueCustomer[]>([]);
+  const [atRiskDaily, setAtRiskDaily] = useState<QueueCustomer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showTop50, setShowTop50] = useState(false);
   const [showIntelligence, setShowIntelligence] = useState(true);
   const [importOpen, setImportOpen] = useState(false);
   const [completion, setCompletion] = useState<CompletionRow[]>([]);
+  const [atRiskCompletion, setAtRiskCompletion] = useState<AtRiskCompletionRow[]>([]);
 
   const yesterday = useMemo(() => { const d = new Date(); d.setDate(d.getDate() - 1); return d; }, []);
   const importBranch = managerView ? 'كل الفروع' : scopedBranch;
@@ -216,10 +220,11 @@ export default function CustomerDailyPriorityQueues() {
       const actorId = user?.id;
       // Load the operational queues together, then run the heavier analytics sequentially.
       // This prevents Top-50 and 3-cycle analytics from competing for DB resources on page open.
-      const [vipResult, plusResult, pointsResult] = await Promise.all([
+      const [vipResult, plusResult, pointsResult, atRiskResult] = await Promise.all([
         supabase.rpc('get_customer_service_daily_vip7_v2', { p_date: today, p_actor_id: actorId }),
         supabase.rpc('get_customer_service_plus500_v2', { p_date: saleDay, p_actor_id: actorId }),
         supabase.rpc('get_customer_points_daily20_v2', { p_date: today, p_actor_id: actorId }),
+        supabase.rpc('get_customer_service_at_risk_daily_v2', { p_date: today, p_actor_id: actorId }),
       ]);
       const topResult = await supabase.rpc('get_customer_service_recent_top50_v2', { p_days: 90, p_actor_id: actorId });
       const intelligenceResult = await supabase.rpc('get_customer_service_three_cycle_intelligence_v1', { p_as_of: today, p_actor_id: actorId });
@@ -229,6 +234,7 @@ export default function CustomerDailyPriorityQueues() {
         ['VIP اليوم', vipResult],
         ['فواتير +500', plusResult],
         ['نقاط اليوم', pointsResult],
+        ['عملاء معرّضين للخطر', atRiskResult],
       ];
       const failed = namedResults.find(([, result]) => result.error);
       if (failed) setError(`تعذر تحميل ${failed[0]} مؤقتًا: ${failed[1].error?.message || 'خطأ غير معروف'} — تم عرض باقي القوائم المتاحة.`);
@@ -286,10 +292,23 @@ export default function CustomerDailyPriorityQueues() {
         label: `رصيد النقاط ${Number(r.points_balance || 0).toLocaleString('ar-EG')} نقطة${r.last_contacted_at ? ` · آخر إبلاغ ${new Date(String(r.last_contacted_at)).toLocaleDateString('ar-EG')}` : ' · لم يتم إبلاغه سابقًا'}`,
       })));
 
+      setAtRiskDaily(((atRiskResult.data || []) as Array<Record<string, unknown>>).map((r) => ({
+        code: String(r.customer_code || ''),
+        name: String(r.customer_name || ''),
+        phone: String(r.customer_phone || ''),
+        branch: String(r.branch || ''),
+        queueType: 'at_risk' as const,
+        value: Number(r.total_spent || 0),
+        lastPurchase: r.last_purchase ? String(r.last_purchase) : null,
+        label: `غايب ${Number(r.days_inactive || 0)} يوم · إجمالي مشترياته ${money(Number(r.total_spent || 0))} · متوسط الفاتورة ${money(Number(r.avg_invoice || 0))}`,
+      })));
+
       // نسبة إنجاز قوائم اليوم (VIP + فواتير 500+ + النقاط) — مرئية لمسئول خدمة العملاء
       // ولمدير الفرع ومدير الفروع، وهي نفس المؤشر اللي بيغذي معيار التقييم الأسبوعي.
       const { data: completionData, error: completionError } = await supabase.rpc('get_customer_service_daily_queue_completion_v1', { p_date: today, p_actor_id: actorId });
       if (!completionError) setCompletion((completionData || []) as CompletionRow[]);
+      const { data: atRiskCompletionData, error: atRiskCompletionError } = await supabase.rpc('get_customer_service_at_risk_completion_v1', { p_date: today, p_actor_id: actorId });
+      if (!atRiskCompletionError) setAtRiskCompletion((atRiskCompletionData || []) as AtRiskCompletionRow[]);
     } catch (e) {
       const message = e instanceof Error ? e.message : 'تعذر تحميل القوائم الذكية';
       setError(message);
@@ -331,21 +350,23 @@ export default function CustomerDailyPriorityQueues() {
       };
       const taskPriority = (customer: QueueCustomer) => {
         if (['خطر فقد', 'تراجع قوي', 'تراجع'].includes(customer.trendState || '')) return 900;
+        if (customer.queueType === 'at_risk') return 800;
         if (customer.queueType === 'plus500') return 700;
         if (customer.queueType === 'vip_recent') return 500;
         return 300;
       };
       const reasonFor = (customer: QueueCustomer) => {
         if (['خطر فقد', 'تراجع قوي', 'تراجع'].includes(customer.trendState || '')) return 'استرجاع عميل انخفض نشاطه';
+        if (customer.queueType === 'at_risk') return 'الحفاظ على عميل نشط قبل ما يتحول لمتوقف';
         if (customer.queueType === 'plus500') return 'متابعة رضا العميل بعد فاتورة كبيرة وفرصة إعادة الشراء';
         if (customer.queueType === 'points') return 'إبلاغ العميل برصيد النقاط وتشجيع استخدامه';
         return 'الحفاظ على علاقة أهم العملاء ومعرفة أي احتياج جديد';
       };
-      const allTasks = [...vipDaily, ...largeInvoices, ...pointsDaily]
+      const allTasks = [...vipDaily, ...largeInvoices, ...pointsDaily, ...atRiskDaily]
         .sort((a, b) => taskPriority(b) - taskPriority(a));
       const dailyRows = allTasks.map((c, index) => ({
         'ترتيب التنفيذ': index + 1,
-        'نوع القائمة': c.queueType === 'vip_recent' ? 'VIP آخر 3 شهور' : c.queueType === 'plus500' ? '+500' : 'نقاط',
+        'نوع القائمة': c.queueType === 'vip_recent' ? 'VIP آخر 3 شهور' : c.queueType === 'plus500' ? '+500' : c.queueType === 'at_risk' ? 'معرّض للخطر' : 'نقاط',
         'الفرع': c.branch,
         'اسم العميل': c.name,
         'كود العميل': c.code,
@@ -384,6 +405,7 @@ export default function CustomerDailyPriorityQueues() {
         { 'المؤشر': 'عملاء النقاط', 'القيمة': pointsDaily.length, 'المعنى': 'عملاء مطلوب إبلاغهم برصيد النقاط.' },
         { 'المؤشر': 'رصيد النقاط بالقائمة', 'القيمة': pointsDaily.reduce((sum, c) => sum + Number(c.pointsBalance || 0), 0), 'المعنى': 'إجمالي أرصدة النقاط داخل مهام اليوم.' },
         { 'المؤشر': 'عملاء خطر/تراجع', 'القيمة': intelligence.filter((r) => ['خطر فقد', 'تراجع قوي', 'تراجع'].includes(r.trend_state)).length, 'المعنى': 'الأولوية في الاسترجاع ومنع فقد العميل.' },
+        { 'المؤشر': 'عملاء معرّضين للخطر (نشط يبعد)', 'القيمة': atRiskDaily.length, 'المعنى': 'الحفاظ على العميل النشط قبل ما يتحول لمتوقف تمامًا.' },
       ];
       const instructions = [
         { 'الخطوة': '1', 'الشرح': 'ابدأ من شيت «تنفيذ اليوم» فقط، واعمل حسب ترتيب التنفيذ من 1 إلى آخر صف.' },
@@ -471,14 +493,15 @@ export default function CustomerDailyPriorityQueues() {
 
     {completion.length ? <div className="grid gap-2 sm:grid-cols-2">
       {completion.map((row) => {
-        const total = row.vip_total + row.plus500_total + row.points_total;
-        const handled = row.vip_handled + row.plus500_handled + row.points_handled;
+        const atRisk = atRiskCompletion.find((r) => r.branch === row.branch);
+        const total = row.vip_total + row.plus500_total + row.points_total + (atRisk?.at_risk_total || 0);
+        const handled = row.vip_handled + row.plus500_handled + row.points_handled + (atRisk?.at_risk_handled || 0);
         const pctValue = total ? Math.round((handled / total) * 100) : null;
         const tone = pctValue === null ? 'text-[var(--dawaa-theme-text)]' : pctValue >= 70 ? 'text-[var(--dawaa-status-success-text)]' : pctValue >= 40 ? 'text-[var(--dawaa-status-warning-text)]' : 'text-[var(--dawaa-status-danger-text)]';
         return <div key={row.branch} className="flex items-center justify-between rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] px-3 py-2">
           <div className="flex items-center gap-2 text-xs font-black text-[var(--dawaa-theme-heading)]"><Gauge size={14} className="text-[var(--dawaa-theme-primary)]"/>{row.branch} · إنجاز اليوم</div>
           <div className="flex items-center gap-2 text-xs font-bold text-[var(--dawaa-theme-text)]">
-            <span>VIP {row.vip_handled}/{row.vip_total} · 500+ {row.plus500_handled}/{row.plus500_total} · نقاط {row.points_handled}/{row.points_total}</span>
+            <span>VIP {row.vip_handled}/{row.vip_total} · 500+ {row.plus500_handled}/{row.plus500_total} · نقاط {row.points_handled}/{row.points_total} · خطر {atRisk?.at_risk_handled || 0}/{atRisk?.at_risk_total || 0}</span>
             <span className={`text-sm font-black ${tone}`}>{pctValue === null ? '—' : `${pctValue}%`}</span>
           </div>
         </div>;
@@ -509,6 +532,7 @@ export default function CustomerDailyPriorityQueues() {
         <div className="max-h-[590px] overflow-auto rounded-2xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-3"><div className="mb-3 flex items-center gap-2 text-[var(--dawaa-status-warning-text)]"><Crown size={18}/><span className="font-black">7 من أهم العملاء اليوم</span></div><BranchQueue title="VIP آخر 3 شهور" customers={vipDaily} loading={loading}/></div>
         <div className="max-h-[590px] overflow-auto rounded-2xl border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] p-3"><div className="mb-3 flex items-center gap-2 text-[var(--dawaa-status-success-text)]"><BadgeDollarSign size={18}/><span className="font-black">كل عملاء +500 أمس</span></div><BranchQueue title={`فواتير ${ymd(yesterday)}`} customers={largeInvoices} loading={loading}/></div>
         <div className="max-h-[590px] overflow-auto rounded-2xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] p-3"><div className="mb-3 flex items-center gap-2 text-[var(--dawaa-theme-primary)]"><Gift size={18}/><span className="font-black">20 عميل نقاط اليوم</span></div><BranchQueue title="الأقدم في الإبلاغ أولًا" customers={pointsDaily} onPointDone={(c) => void markPointDone(c)} loading={loading}/></div>
+        <div className="max-h-[590px] overflow-auto rounded-2xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-3"><div className="mb-3 flex items-center gap-2 text-[var(--dawaa-status-danger-text)]"><TrendingDown size={18}/><span className="font-black">عملاء معرّضين للخطر — حافظ عليهم</span></div><p className="mb-2 text-[10px] font-bold text-[var(--dawaa-theme-muted)]">عملاء نشطين بدأوا يبعدوا؛ الهدف الاتصال بيهم قبل ما يتحولوا لعميل متوقف تمامًا.</p><BranchQueue title="الأعلى قيمة أولًا" customers={atRiskDaily} loading={loading}/></div>
       </div>
     </div>
 
