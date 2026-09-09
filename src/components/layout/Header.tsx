@@ -1,6 +1,5 @@
 import { Bell, Menu, Sun, Moon, Volume2, VolumeX, CheckCheck, ExternalLink, Settings2, Fingerprint } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '@/hooks/useAuth';
 import { useTheme } from '@/hooks/useTheme';
 import { getCurrentCycle, getRemainingDays } from '@/lib/pharmacy-cycle';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -14,10 +13,6 @@ import {
   notificationPriorityLabel,
   notificationTypeLabel,
 } from '@/lib/notifications/notificationDomain';
-
-interface NotifItem {
-  details?: string | Record<string, unknown> | null;
-}
 
 interface HeaderProps {
   onMobileMenuOpen: () => void;
@@ -92,26 +87,6 @@ function playNotificationBeep() {
   }
 }
 
-function parseDetailsRoute(details: NotifItem['details'] | AppNotification['metadata']) {
-  if (!details) return null;
-  if (typeof details === 'object' && typeof details.route === 'string') return details.route;
-  if (typeof details !== 'string') return null;
-  try {
-    const parsed = JSON.parse(details) as { route?: unknown };
-    return typeof parsed.route === 'string' ? parsed.route : null;
-  } catch {
-    return null;
-  }
-}
-
-function inferNotificationRoute(notification: AppNotification) {
-  if (notification.target_route) return notification.target_route;
-  if (notification.route) return notification.route;
-  const detailsRoute = parseDetailsRoute(notification.metadata);
-  if (detailsRoute) return detailsRoute;
-  return '/operations-center';
-}
-
 function formatNotificationDate(value: string | number | null | undefined) {
   const date = value ? new Date(value) : null;
   if (!date || Number.isNaN(date.getTime())) return 'غير متاح';
@@ -171,7 +146,7 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
 
   const openNotification = (item: AppNotification) => {
     setShowNotifs(false);
-    handleNotificationClick({ ...item, target_route: item.target_route || inferNotificationRoute(item) });
+    handleNotificationClick(item);
   };
 
   const setSound = (mode: 'off' | 'soft' | 'distinct') => {
