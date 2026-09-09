@@ -1,5 +1,6 @@
 export type NotificationPriority = 'low' | 'normal' | 'high' | 'urgent' | 'critical';
 export type NotificationActionState = 'new' | 'in_progress' | 'completed' | 'dismissed' | 'escalated';
+export type NotificationLifecycleState = NotificationActionState | 'read';
 export type NotificationGroup = 'urgent' | 'vip' | 'overdue' | 'completed' | 'reviews' | 'system' | 'all';
 export type NotificationPreferenceCategory = 'customerService' | 'delivery' | 'inventory' | 'reviews' | 'attendance' | 'targets' | 'other';
 
@@ -32,6 +33,7 @@ export type NotificationLike = {
   priority?: unknown;
   status?: unknown;
   action_status?: unknown;
+  requires_action?: unknown;
   metadata?: Record<string, unknown> | null;
   created_at?: unknown;
 };
@@ -170,6 +172,20 @@ const ACTION_AR: Record<string, string> = {
   escalated: 'تم التصعيد',
   overdue: 'متأخر',
 };
+
+const NOTE_REQUIRED_TYPES = new Set<CanonicalNotificationType>([
+  'staff_task',
+  'customer_followup',
+  'customer_request',
+  'customer_data_review',
+  'welcome_task',
+  'inventory',
+  'expiry_alert',
+  'delivery_order',
+  'shift_issue',
+  'manager_alert',
+  'vip_customer_silence',
+]);
 
 export function canonicalNotificationType(value: unknown): CanonicalNotificationType {
   const raw = String(value || 'system').trim().toLowerCase();
@@ -316,8 +332,39 @@ export function compareNotificationsOperationally(a: NotificationLike, b: Notifi
   return bTime - aTime;
 }
 
+export function notificationLifecycleState(item: NotificationLike): NotificationLifecycleState {
+  const raw = String(
+    item.action_status ||
+    notificationMetadataValue(item, 'actionState') ||
+    item.status ||
+    'new'
+  ).trim().toLowerCase();
+  if (raw === 'unread') return 'new';
+  if (['new', 'read', 'in_progress', 'completed', 'dismissed', 'escalated'].includes(raw)) {
+    return raw as NotificationLifecycleState;
+  }
+  return 'new';
+}
+
+export function notificationTransitionAllowed(item: NotificationLike, nextState: Exclude<NotificationActionState, 'new'>): boolean {
+  const currentState = notificationLifecycleState(item);
+  const requiresAction = Boolean(item.requires_action);
+  if (currentState === nextState) return true;
+  if (currentState === 'completed' || currentState === 'dismissed') return false;
+  if ((currentState === 'new' || currentState === 'read') && nextState === 'completed' && requiresAction) return false;
+  if (currentState === 'new' || currentState === 'read') return ['in_progress', 'dismissed', 'escalated'].includes(nextState);
+  if (currentState === 'in_progress') return ['completed', 'dismissed', 'escalated'].includes(nextState);
+  if (currentState === 'escalated') return ['in_progress', 'completed', 'dismissed'].includes(nextState);
+  return false;
+}
+
 export function notificationRequiresOutcomeNote(item: NotificationLike, nextState: NotificationActionState): boolean {
-  return nextState === 'completed' && ['urgent', 'vip', 'overdue'].some((group) => notificationMatchesGroup(item, group as NotificationGroup));
+  if (!['completed', 'dismissed'].includes(nextState)) return false;
+  const canonical = canonicalNotificationType(item.type || item.target_type);
+  const priority = String(item.priority || 'normal').trim().toLowerCase();
+  return Boolean(item.requires_action)
+    || ['high', 'urgent', 'critical'].includes(priority)
+    || NOTE_REQUIRED_TYPES.has(canonical);
 }
 
 export function notificationRequiresAction(type: unknown, priority: NotificationPriority): boolean {
