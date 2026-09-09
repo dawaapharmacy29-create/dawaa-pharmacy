@@ -26,9 +26,10 @@ describe('notification lifecycle domain', () => {
     expect(notificationTransitionAllowed(item, 'dismissed')).toBe(true);
   });
 
-  it('allows informational notifications to complete directly', () => {
+  it('keeps completion behind an active lifecycle even for informational notifications', () => {
     const item = notification({ type: 'system', priority: 'normal', requires_action: false });
-    expect(notificationTransitionAllowed(item, 'completed')).toBe(true);
+    expect(notificationTransitionAllowed(item, 'completed')).toBe(false);
+    expect(notificationTransitionAllowed(item, 'in_progress')).toBe(true);
   });
 
   it('allows in-progress notifications to resolve or escalate', () => {
