@@ -7,6 +7,7 @@ const SRC = path.join(ROOT, 'src');
 const DOMAIN = 'src/lib/notifications/notificationDomain.ts';
 const METADATA = 'src/lib/notifications/notificationMetadata.ts';
 const SERVICE = 'src/lib/notificationService.ts';
+const WORKFLOW_SERVICE = 'src/lib/notifications/notificationWorkflowService.ts';
 const OPERATIONS_CENTER = 'src/pages/OperationsCenter2027.tsx';
 const SLA_MIGRATION = 'supabase/migrations/20260908164500_notification_sla_engine_v1.sql';
 const SLA_READ_MODEL_MIGRATION = 'supabase/migrations/20260908172000_notification_sla_metadata_surface_v1.sql';
@@ -30,6 +31,8 @@ const rawReaders = [];
 const canonicalReaders = [];
 const duplicateDomainLogic = [];
 const adHocRoutes = [];
+const directWorkflowRpcCallers = [];
+const legacyWorkflowHelperUsers = [];
 
 for (const file of walk(SRC)) {
   const rel = path.relative(ROOT, file).replace(/\\/g, '/');
@@ -38,6 +41,13 @@ for (const file of walk(SRC)) {
   if (/\.from\(['"]notifications['"]\)\s*\.(?:insert|update|delete|upsert)\s*\(/s.test(source)) directWriters.push(rel);
   if (/\.from\(['"]notifications['"]\)\s*\.select\s*\(/s.test(source)) rawReaders.push(rel);
   if (/\.from\((?:['"]notification_events_v2['"]|[A-Z_]*READ_MODEL[A-Z_]*)\)\s*\.select\s*\(/s.test(source)) canonicalReaders.push(rel);
+
+  if (rel !== WORKFLOW_SERVICE && /\.rpc\(['"]transition_notification_action_with_note_v1['"]/s.test(source)) {
+    directWorkflowRpcCallers.push(rel);
+  }
+  if (/\b(?:markNotificationCompleted|dismissNotification|escalateNotification)\b/s.test(source)) {
+    legacyWorkflowHelperUsers.push(rel);
+  }
 
   if (rel !== DOMAIN) {
     const ownsLabels = /const\s+(?:TYPE_AR|PRIORITY_AR|ACTION_AR)\s*:/s.test(source);
@@ -54,6 +64,8 @@ for (const file of walk(SRC)) {
 const failures = [];
 if (directWriters.length) failures.push(`Direct notification table writer(s) are forbidden: ${directWriters.join(', ')}`);
 if (rawReaders.length) failures.push(`All application notification reads must use notification_events_v2: ${rawReaders.join(', ')}`);
+if (directWorkflowRpcCallers.length) failures.push(`Workflow transitions must go only through ${WORKFLOW_SERVICE}: ${directWorkflowRpcCallers.join(', ')}`);
+if (legacyWorkflowHelperUsers.length) failures.push(`Legacy workflow shortcuts are forbidden; use transitionNotificationWorkflow: ${legacyWorkflowHelperUsers.join(', ')}`);
 if (duplicateDomainLogic.length) failures.push(`Notification labels/grouping/scoring/preferences/lifecycle must live only in ${DOMAIN}: ${duplicateDomainLogic.join(', ')}`);
 if (adHocRoutes.length) failures.push(`Notification route exceptions must live only in ${DOMAIN}: ${adHocRoutes.join(', ')}`);
 
@@ -63,7 +75,7 @@ for (const required of [
   SERVICE,
   OPERATIONS_CENTER,
   'src/lib/notifications/notificationActionService.ts',
-  'src/lib/notifications/notificationWorkflowService.ts',
+  WORKFLOW_SERVICE,
   SLA_MIGRATION,
   SLA_READ_MODEL_MIGRATION,
   SLA_REFERENCE_MIGRATION,
@@ -79,6 +91,14 @@ if (!serviceSource.includes('create_notification_audience_v1')) failures.push(`$
 if (!serviceSource.includes('normalizeNotificationMetadata')) failures.push(`${SERVICE} must normalize metadata through ${METADATA}.`);
 if (!serviceSource.includes('getNotificationById')) failures.push(`${SERVICE} must expose canonical notification lookup for deep links and SLA source resolution.`);
 if (/using legacy compatibility reader|\.from\(['"]notifications['"]\)\s*\.select/s.test(serviceSource)) failures.push(`${SERVICE} must fail closed when the canonical read model is unavailable; legacy raw-read fallback is forbidden.`);
+if (/transition_notification_action_with_note_v1|markNotificationCompleted|dismissNotification|escalateNotification/s.test(serviceSource)) {
+  failures.push(`${SERVICE} must not own workflow transitions; ${WORKFLOW_SERVICE} is the only application workflow command gateway.`);
+}
+
+const workflowSource = fs.readFileSync(path.join(ROOT, WORKFLOW_SERVICE), 'utf8');
+for (const requiredToken of ['transitionNotificationWorkflow', 'transition_notification_action_with_note_v1', 'p_notification_id', 'p_next_state', 'p_note']) {
+  if (!workflowSource.includes(requiredToken)) failures.push(`${WORKFLOW_SERVICE} is missing workflow command token: ${requiredToken}`);
+}
 
 const domainSource = fs.readFileSync(path.join(ROOT, DOMAIN), 'utf8');
 for (const requiredToken of [
@@ -97,6 +117,7 @@ for (const requiredToken of [
   'notificationLifecycleState',
   'notificationTransitionAllowed',
   "notificationRequiresOutcomeNote(item, 'dismissed')",
+  'transitionNotificationWorkflow',
   'ابدأ المتابعة أولًا',
 ]) {
   if (!operationsSource.includes(requiredToken)) failures.push(`${OPERATIONS_CENTER} must render only lifecycle-valid actions: ${requiredToken}`);
@@ -154,10 +175,13 @@ if (fs.existsSync(path.join(ROOT, LIFECYCLE_MIGRATION))) {
 
 console.log(`[notification-architecture] direct writers: ${directWriters.length}`);
 console.log(`[notification-architecture] raw readers: ${rawReaders.join(', ') || 'none'}`);
+console.log(`[notification-architecture] direct workflow RPC callers: ${directWorkflowRpcCallers.join(', ') || 'none'}`);
+console.log(`[notification-architecture] legacy workflow helpers: ${legacyWorkflowHelperUsers.join(', ') || 'none'}`);
 console.log(`[notification-architecture] canonical readers: ${canonicalReaders.join(', ') || 'none'}`);
 console.log(`[notification-architecture] duplicate domain logic: ${duplicateDomainLogic.join(', ') || 'none'}`);
 console.log(`[notification-architecture] ad-hoc routes: ${adHocRoutes.join(', ') || 'none'}`);
 console.log(`[notification-architecture] metadata boundary: ${METADATA}`);
+console.log(`[notification-architecture] workflow command gateway: ${WORKFLOW_SERVICE}`);
 console.log(`[notification-architecture] SLA boundary: ${SLA_MIGRATION}`);
 console.log(`[notification-architecture] SLA read model: ${SLA_READ_MODEL_MIGRATION}`);
 console.log(`[notification-architecture] SLA escalation invariant: ${SLA_REFERENCE_MIGRATION}`);
@@ -171,4 +195,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log('[notification-architecture] PASS: one command boundary, one canonical read model, one domain owner, one metadata contract, one SLA scheduler path, SLA escalation is reference-only, lifecycle transitions are DB-enforced and UI-aligned, no compatibility read debt.');
+console.log('[notification-architecture] PASS: one creation boundary, one workflow command gateway, one canonical read model, one domain owner, one metadata contract, one SLA scheduler path, DB-enforced lifecycle, no compatibility workflow/read debt.');
