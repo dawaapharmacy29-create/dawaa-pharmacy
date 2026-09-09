@@ -41,6 +41,7 @@ interface StaffEval {
   branch?: string | null;
   shift_start?: string | null;
   shift_end?: string | null;
+  attendance_status?: 'scheduled' | 'day_off' | 'unscheduled';
   rating: 'ممتاز' | 'جيد' | 'مقبول' | 'ضعيف';
   note: string;
   action_type?: 'none' | 'notice' | 'deduction' | 'reward';
@@ -270,79 +271,157 @@ export default function BranchInspection() {
     let cancelled = false;
     setLoadingStaff(true);
 
-    supabase
-      .from('shift_schedules')
-      .select('id,staff_id,staff_name,role,branch,day_name,shift_start,shift_end,start_time,end_time,is_off,status')
-      .eq('branch', form.branch)
-      .eq('day_name', dayName)
-      .limit(200)
-      .then(({ data, error }) => {
-        if (cancelled) return;
-        if (error) {
-          toast.error(`تعذر تحميل فريق الشيفت: ${error.message}`);
-          setLoadingStaff(false);
-          return;
-        }
+    const loadRoster = async () => {
+      const [staffResult, scheduleResult] = await Promise.all([
+        supabase
+          .from('staff')
+          .select('id,name,role,branch,active,is_active,status')
+          .eq('branch', form.branch)
+          .eq('active', true)
+          .eq('is_active', true)
+          .limit(300),
+        supabase
+          .from('shift_schedules')
+          .select('id,staff_id,staff_name,role,branch,day_name,shift_start,shift_end,start_time,end_time,is_off,status')
+          .eq('branch', form.branch)
+          .eq('day_name', dayName)
+          .limit(300),
+      ]);
 
-        const rows = (data || []) as Array<Record<string, any>>;
-        const active = rows.filter((row) => !row.is_off && !String(row.status || '').includes('إجاز'));
-        const deduped = new Map<string, Record<string, any>>();
+      if (cancelled) return;
 
-        for (const row of active) {
+      if (staffResult.error) {
+        toast.error(`تعذر تحميل موظفي الفرع: ${staffResult.error.message}`);
+      }
+      if (scheduleResult.error) {
+        toast.error(`تعذر تحميل جدول اليوم: ${scheduleResult.error.message}`);
+      }
+
+      const staffRows = ((staffResult.data || []) as Array<Record<string, any>>).filter((row) => {
+        const status = normalizeIdentityPart(row.status);
+        return !status.includes('terminated') && !status.includes('archiv') && !status.includes('مؤرشف') && !status.includes('غير نشط');
+      });
+      const scheduleRows = (scheduleResult.data || []) as Array<Record<string, any>>;
+
+      const scheduleById = new Map<string, Record<string, any>>();
+      const scheduleByName = new Map<string, Record<string, any>>();
+
+      for (const row of scheduleRows) {
+        const idKey = String(row.staff_id || '').trim();
+        const nameKey = normalizeIdentityPart(row.staff_name || row.name);
+        const existing = (idKey && scheduleById.get(idKey)) || (nameKey && scheduleByName.get(nameKey));
+        const merged = existing
+          ? {
+              ...existing,
+              ...row,
+              staff_id: existing.staff_id || row.staff_id || null,
+              staff_name: existing.staff_name || row.staff_name || row.name,
+              role: existing.role || row.role,
+              shift_start: earlierTime(existing.shift_start || existing.start_time, row.shift_start || row.start_time),
+              shift_end: laterTime(existing.shift_end || existing.end_time, row.shift_end || row.end_time),
+              is_off: Boolean(existing.is_off) && Boolean(row.is_off),
+            }
+          : { ...row };
+        if (idKey) scheduleById.set(idKey, merged);
+        if (nameKey) scheduleByName.set(nameKey, merged);
+      }
+
+      const canonicalStaff = new Map<string, Record<string, any>>();
+      for (const row of staffRows) {
+        const id = String(row.id || '').trim();
+        const name = normalizeIdentityPart(row.name);
+        if (!id || !name) continue;
+        canonicalStaff.set(id, row);
+      }
+
+      let mapped: StaffEval[];
+
+      if (canonicalStaff.size > 0) {
+        mapped = Array.from(canonicalStaff.values()).map((staffRow) => {
+          const id = String(staffRow.id);
+          const schedule = scheduleById.get(id) || scheduleByName.get(normalizeIdentityPart(staffRow.name));
+          const isDayOff = Boolean(schedule?.is_off) || String(schedule?.status || '').includes('إجاز');
+          const attendanceStatus: StaffEval['attendance_status'] = !schedule ? 'unscheduled' : isDayOff ? 'day_off' : 'scheduled';
+          return {
+            id,
+            staff_id: id,
+            name: staffRow.name || 'موظف غير محدد',
+            role: staffRow.role || schedule?.role || null,
+            branch: staffRow.branch || form.branch,
+            shift_start: attendanceStatus === 'scheduled' ? schedule?.shift_start || schedule?.start_time || null : null,
+            shift_end: attendanceStatus === 'scheduled' ? schedule?.shift_end || schedule?.end_time || null : null,
+            attendance_status: attendanceStatus,
+            rating: 'جيد',
+            note: '',
+            action_type: 'none',
+            points_delta: 0,
+            money_amount: 0,
+            source: 'schedule',
+          };
+        });
+      } else {
+        const fallback = new Map<string, Record<string, any>>();
+        for (const row of scheduleRows) {
+          if (row.is_off || String(row.status || '').includes('إجاز')) continue;
           const key = scheduleStaffKey(row);
           if (!normalizeIdentityPart(row.staff_name || row.name)) continue;
-          const existing = deduped.get(key);
-          if (!existing) {
-            deduped.set(key, { ...row });
-            continue;
-          }
-          deduped.set(key, {
+          const existing = fallback.get(key);
+          fallback.set(key, existing ? {
             ...existing,
             staff_id: existing.staff_id || row.staff_id || null,
             staff_name: existing.staff_name || row.staff_name || row.name,
             role: existing.role || row.role,
             shift_start: earlierTime(existing.shift_start || existing.start_time, row.shift_start || row.start_time),
             shift_end: laterTime(existing.shift_end || existing.end_time, row.shift_end || row.end_time),
-          });
+          } : { ...row });
         }
+        mapped = Array.from(fallback.values()).map((row) => ({
+          id: String(row.staff_id || row.id || crypto.randomUUID()),
+          staff_id: row.staff_id || null,
+          name: row.staff_name || row.name || 'موظف غير محدد',
+          role: row.role || null,
+          branch: row.branch || form.branch,
+          shift_start: row.shift_start || row.start_time || null,
+          shift_end: row.shift_end || row.end_time || null,
+          attendance_status: 'scheduled',
+          rating: 'جيد',
+          note: '',
+          action_type: 'none',
+          points_delta: 0,
+          money_amount: 0,
+          source: 'schedule',
+        }));
+      }
 
-        setForm((prev) => {
-          const manual = prev.staff_evals.filter((row) => row.source === 'manual');
-          const previousByKey = new Map(prev.staff_evals.map((row) => [staffEvalKey(row), row]));
-          const mapped = Array.from(deduped.values()).map((row) => {
-            const provisional: StaffEval = {
-              id: String(row.staff_id || row.id || crypto.randomUUID()),
-              staff_id: row.staff_id || null,
-              name: row.staff_name || row.name || 'موظف غير محدد',
-              role: row.role || null,
-              branch: row.branch || prev.branch,
-              shift_start: row.shift_start || row.start_time || null,
-              shift_end: row.shift_end || row.end_time || null,
-              rating: 'جيد',
-              note: '',
-              action_type: 'none',
-              points_delta: 0,
-              money_amount: 0,
-              source: 'schedule',
-            };
-            const existing = previousByKey.get(staffEvalKey(provisional));
-            return {
-              ...provisional,
-              id: existing?.id || provisional.id,
-              rating: existing?.rating || provisional.rating,
-              note: existing?.note || '',
-              action_type: existing?.action_type || 'none',
-              points_delta: existing?.points_delta ?? 0,
-              money_amount: existing?.money_amount ?? 0,
-            };
-          });
+      mapped.sort((a, b) => a.name.localeCompare(b.name, 'ar'));
 
-          const mappedKeys = new Set(mapped.map(staffEvalKey));
-          const manualWithoutDuplicates = manual.filter((row) => !mappedKeys.has(staffEvalKey(row)));
-          return { ...prev, staff_evals: [...mapped, ...manualWithoutDuplicates] };
+      setForm((prev) => {
+        const manual = prev.staff_evals.filter((row) => row.source === 'manual');
+        const previousByKey = new Map(prev.staff_evals.map((row) => [staffEvalKey(row), row]));
+        const preserved = mapped.map((row) => {
+          const existing = previousByKey.get(staffEvalKey(row));
+          return {
+            ...row,
+            id: existing?.id || row.id,
+            rating: existing?.rating || row.rating,
+            note: existing?.note || '',
+            action_type: existing?.action_type || 'none',
+            points_delta: existing?.points_delta ?? 0,
+            money_amount: existing?.money_amount ?? 0,
+          };
         });
-        setLoadingStaff(false);
+        const mappedKeys = new Set(preserved.map(staffEvalKey));
+        const manualWithoutDuplicates = manual.filter((row) => !mappedKeys.has(staffEvalKey(row)));
+        return { ...prev, staff_evals: [...preserved, ...manualWithoutDuplicates] };
       });
+      setLoadingStaff(false);
+    };
+
+    void loadRoster().catch((error) => {
+      if (cancelled) return;
+      toast.error(`تعذر تحميل فريق الفرع: ${error instanceof Error ? error.message : String(error)}`);
+      setLoadingStaff(false);
+    });
 
     return () => {
       cancelled = true;
@@ -456,7 +535,7 @@ export default function BranchInspection() {
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <div className="dawaa-card dawaa-card--soft p-4"><p className="dawaa-caption text-xs">تقدم التقييم</p><p className="dawaa-title mt-1 text-2xl">{completedSections}/{form.sections.length}</p><p className="dawaa-caption mt-1 text-xs">قسم تم تقييمه</p></div>
-        <div className="dawaa-card dawaa-card--soft p-4"><p className="dawaa-caption text-xs">فريق الشيفت</p><p className="dawaa-title mt-1 text-2xl">{form.staff_evals.length}</p><p className="dawaa-caption mt-1 text-xs">موظف بدون تكرار</p></div>
+        <div className="dawaa-card dawaa-card--soft p-4"><p className="dawaa-caption text-xs">فريق الفرع</p><p className="dawaa-title mt-1 text-2xl">{form.staff_evals.length}</p><p className="dawaa-caption mt-1 text-xs">موظف نشط بدون تكرار</p></div>
         <div className="dawaa-card dawaa-card--soft p-4"><p className="dawaa-caption text-xs">إجراءات عاجلة</p><p className="dawaa-title mt-1 text-2xl">{urgentActions}</p><p className="dawaa-caption mt-1 text-xs">تحتاج متابعة مباشرة</p></div>
         <div className="dawaa-card dawaa-card--soft p-4"><p className="dawaa-caption text-xs">إجراءات على الموظفين</p><p className="dawaa-title mt-1 text-2xl">{staffWithActions}</p><p className="dawaa-caption mt-1 text-xs">مكافأة / تنبيه / خصم</p></div>
       </section>
@@ -505,16 +584,16 @@ export default function BranchInspection() {
 
       <section className="dawaa-card space-y-4 p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div><h2 className="dawaa-title flex items-center gap-2"><Users className="h-4 w-4 text-[var(--dawaa-theme-primary)]" /> 2) فريق الشيفت وتقييم الموظفين</h2><p className="dawaa-caption mt-1 text-xs">يتم توحيد الموظف حسب حسابه أولاً، ثم الاسم والدور كاحتياط، مع تجميع وقت الشيفت بدل تكرار الاسم.</p></div>
+          <div><h2 className="dawaa-title flex items-center gap-2"><Users className="h-4 w-4 text-[var(--dawaa-theme-primary)]" /> 2) فريق الفرع وتقييم الموظفين</h2><p className="dawaa-caption mt-1 text-xs">المصدر الأساسي هو الموظفون النشطون في الفرع، وجدول اليوم يضيف وقت الشيفت أو حالة الإجازة فقط، لذلك لا يختفي الموظف النشط ولا يتكرر.</p></div>
           <button type="button" onClick={addStaffEval} className="dawaa-button dawaa-button--secondary text-sm"><Plus className="h-4 w-4" /> إضافة يدوي</button>
         </div>
-        {loadingStaff && <div className="dawaa-caption flex items-center gap-2 py-4"><Loader2 className="h-4 w-4 animate-spin" /> جارٍ تحميل فريق الشيفت...</div>}
-        {!loadingStaff && form.staff_evals.length === 0 && <div className="dawaa-empty-state p-5 text-sm">لا يوجد فريق شيفت نشط مسجل لهذا اليوم والفرع. يمكن إضافة موظف يدويًا عند الحاجة.</div>}
+        {loadingStaff && <div className="dawaa-caption flex items-center gap-2 py-4"><Loader2 className="h-4 w-4 animate-spin" /> جارٍ تحميل فريق الفرع...</div>}
+        {!loadingStaff && form.staff_evals.length === 0 && <div className="dawaa-empty-state p-5 text-sm">لا يوجد موظفون نشطون مسجلون لهذا الفرع. يمكن إضافة موظف يدويًا عند الحاجة.</div>}
         {form.staff_evals.map((ev) => (
           <article key={ev.id} className="dawaa-card dawaa-card--soft space-y-3 p-4">
             <div className="grid gap-3 lg:grid-cols-6">
               <input value={ev.name} onChange={(e) => updateStaffEval(ev.id, 'name', e.target.value)} placeholder="اسم الموظف" className="dawaa-input font-bold lg:col-span-2" />
-              <div className="rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] px-3 py-2 text-xs font-bold dawaa-body"><Users className="ml-1 inline h-3 w-3 text-[var(--dawaa-theme-primary)]" />{ev.role || 'دور غير محدد'}<br /><span className="dawaa-caption">{ev.shift_start || '-'} → {ev.shift_end || '-'}</span></div>
+              <div className="rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] px-3 py-2 text-xs font-bold dawaa-body"><Users className="ml-1 inline h-3 w-3 text-[var(--dawaa-theme-primary)]" />{ev.role || 'دور غير محدد'}<br /><span className="dawaa-caption">{ev.attendance_status === 'day_off' ? 'إجازة اليوم' : ev.attendance_status === 'unscheduled' ? 'بدون جدول لليوم' : `${ev.shift_start || '-'} → ${ev.shift_end || '-'}`}</span></div>
               <select value={ev.rating} onChange={(e) => updateStaffEval(ev.id, 'rating', e.target.value)} className="dawaa-select font-bold">{(['ممتاز', 'جيد', 'مقبول', 'ضعيف'] as const).map((r) => <option key={r}>{r}</option>)}</select>
               <select value={ev.action_type || 'none'} onChange={(e) => updateStaffEval(ev.id, 'action_type', e.target.value)} className="dawaa-select font-bold"><option value="none">بدون إجراء</option><option value="notice">لفت نظر</option><option value="deduction">خصم نقاط</option><option value="reward">مكافأة نقاط</option></select>
               <button onClick={() => removeStaffEval(ev.id)} className="dawaa-button dawaa-badge--danger text-sm"><Trash2 className="h-4 w-4" /> حذف</button>
