@@ -72,6 +72,9 @@ type AtRiskCompletionRow = { branch: string; at_risk_total: number; at_risk_hand
 
 type BranchOffer = { offer_title: string; offer_details: string | null; starts_on: string; ends_on: string };
 
+type RetentionResultRow = { branch: string; save_priority: string; customers_shown: number; customers_contacted: number; customers_purchased_after: number; success_rate_pct: number | null };
+type FirstPurchaseResultRow = { branch: string; customers_shown: number; customers_contacted: number; customers_returned: number; success_rate_pct: number | null };
+
 type IntelligenceRow = {
   branch: string;
   customer_rank: number;
@@ -215,6 +218,8 @@ export default function CustomerDailyPriorityQueues() {
   const [editingOfferBranch, setEditingOfferBranch] = useState<string | null>(null);
   const [offerForm, setOfferForm] = useState({ title: '', details: '', starts: '', ends: '' });
   const [savingOffer, setSavingOffer] = useState(false);
+  const [retentionResults, setRetentionResults] = useState<RetentionResultRow[]>([]);
+  const [firstPurchaseResults, setFirstPurchaseResults] = useState<FirstPurchaseResultRow[]>([]);
 
   const yesterday = useMemo(() => { const d = new Date(); d.setDate(d.getDate() - 1); return d; }, []);
   const importBranch = managerView ? 'كل الفروع' : scopedBranch;
@@ -339,6 +344,17 @@ export default function CustomerDailyPriorityQueues() {
         'فرع شكري': (Array.isArray(shokryOffer.data) ? shokryOffer.data[0] : null) as BranchOffer | null,
         'فرع الشامي': (Array.isArray(shamiOffer.data) ? shamiOffer.data[0] : null) as BranchOffer | null,
       });
+
+      // نتيجة الشهر الفعلية (وآخر شهر كامل، لأن الشهر الحالي لسه ما فيهوش وقت كافي
+      // نتأكد فيه هل العميل رجع اشترى ولا لأ — 21/30 يوم لازم تعدي الأول).
+      const now = new Date(today);
+      const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().slice(0, 10);
+      const [retentionRes, firstPurchaseRes] = await Promise.all([
+        supabase.rpc('get_retention_campaign_results_v1', { p_month: lastMonth }),
+        supabase.rpc('get_first_purchase_campaign_results_v1', { p_month: lastMonth }),
+      ]);
+      if (!retentionRes.error) setRetentionResults((retentionRes.data || []) as RetentionResultRow[]);
+      if (!firstPurchaseRes.error) setFirstPurchaseResults((firstPurchaseRes.data || []) as FirstPurchaseResultRow[]);
     } catch (e) {
       const message = e instanceof Error ? e.message : 'تعذر تحميل القوائم الذكية';
       setError(message);
@@ -573,6 +589,27 @@ export default function CustomerDailyPriorityQueues() {
         </div>;
       })}
     </div>
+
+    {(retentionResults.length > 0 || firstPurchaseResults.length > 0) ? (
+      <div className="rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-3">
+        <div className="mb-2 flex items-center gap-2 text-xs font-black text-[var(--dawaa-theme-heading)]"><Gauge size={14} className="text-[var(--dawaa-theme-primary)]"/>نتيجة الشهر اللي فات — هل المتابعة بتنجح فعلًا؟</div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {retentionResults.map((r) => (
+            <div key={`${r.branch}-${r.save_priority}`} className="rounded-lg border border-[var(--dawaa-theme-border)] px-3 py-2 text-[11px] font-bold text-[var(--dawaa-theme-text)]">
+              <span className="font-black text-[var(--dawaa-theme-heading)]">{r.branch} · {r.save_priority}</span>: من {r.customers_contacted} عميل اتصلنا بيهم، {r.customers_purchased_after} رجعوا اشتروا خلال 3 أسابيع
+              {r.success_rate_pct != null ? <span className="font-black text-[var(--dawaa-status-success-text)]"> ({r.success_rate_pct}%)</span> : <span className="text-[var(--dawaa-theme-muted)]"> (محدش اتصل بيهم بعد)</span>}
+            </div>
+          ))}
+          {firstPurchaseResults.map((r) => (
+            <div key={`fp-${r.branch}`} className="rounded-lg border border-[var(--dawaa-theme-border)] px-3 py-2 text-[11px] font-bold text-[var(--dawaa-theme-text)]">
+              <span className="font-black text-[var(--dawaa-theme-heading)]">{r.branch} · أول تجربة</span>: من {r.customers_shown} عميل ظهروا في القائمة، {r.customers_returned} رجعوا اشتروا تاني
+              {r.success_rate_pct != null ? <span className="font-black text-[var(--dawaa-status-success-text)]"> ({r.success_rate_pct}%)</span> : null}
+            </div>
+          ))}
+        </div>
+        <p className="mt-2 text-[10px] font-bold text-[var(--dawaa-theme-muted)]">النتيجة بتتحسب بس بعد ما يعدي وقت كفاية (3-4 أسابيع) من ظهور العميل في القائمة، فالشهر الحالي هيظهر فاضي لحد ما يخلص.</p>
+      </div>
+    ) : null}
 
     {completion.length ? <div className="grid gap-2 sm:grid-cols-2">
       {completion.map((row) => {
