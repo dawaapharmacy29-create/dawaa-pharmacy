@@ -8,6 +8,7 @@ import {
   FileUp,
   Gauge,
   Gift,
+  Megaphone,
   RefreshCw,
   ShieldAlert,
   TrendingDown,
@@ -68,6 +69,8 @@ type CompletionRow = {
 };
 
 type AtRiskCompletionRow = { branch: string; at_risk_total: number; at_risk_handled: number };
+
+type BranchOffer = { offer_title: string; offer_details: string | null; starts_on: string; ends_on: string };
 
 type IntelligenceRow = {
   branch: string;
@@ -208,6 +211,10 @@ export default function CustomerDailyPriorityQueues() {
   const [importOpen, setImportOpen] = useState(false);
   const [completion, setCompletion] = useState<CompletionRow[]>([]);
   const [atRiskCompletion, setAtRiskCompletion] = useState<AtRiskCompletionRow[]>([]);
+  const [branchOffers, setBranchOffers] = useState<Record<string, BranchOffer | null>>({});
+  const [editingOfferBranch, setEditingOfferBranch] = useState<string | null>(null);
+  const [offerForm, setOfferForm] = useState({ title: '', details: '', starts: '', ends: '' });
+  const [savingOffer, setSavingOffer] = useState(false);
 
   const yesterday = useMemo(() => { const d = new Date(); d.setDate(d.getDate() - 1); return d; }, []);
   const importBranch = managerView ? 'كل الفروع' : scopedBranch;
@@ -323,6 +330,15 @@ export default function CustomerDailyPriorityQueues() {
       if (!completionError) setCompletion((completionData || []) as CompletionRow[]);
       const { data: atRiskCompletionData, error: atRiskCompletionError } = await supabase.rpc('get_customer_service_at_risk_completion_v1', { p_date: today, p_actor_id: actorId });
       if (!atRiskCompletionError) setAtRiskCompletion((atRiskCompletionData || []) as AtRiskCompletionRow[]);
+
+      const [shokryOffer, shamiOffer] = await Promise.all([
+        supabase.rpc('get_current_branch_offer_v1', { p_branch: 'فرع شكري' }),
+        supabase.rpc('get_current_branch_offer_v1', { p_branch: 'فرع الشامي' }),
+      ]);
+      setBranchOffers({
+        'فرع شكري': (Array.isArray(shokryOffer.data) ? shokryOffer.data[0] : null) as BranchOffer | null,
+        'فرع الشامي': (Array.isArray(shamiOffer.data) ? shamiOffer.data[0] : null) as BranchOffer | null,
+      });
     } catch (e) {
       const message = e instanceof Error ? e.message : 'تعذر تحميل القوائم الذكية';
       setError(message);
@@ -347,6 +363,32 @@ export default function CustomerDailyPriorityQueues() {
       await load();
     } catch (e) {
       toast.error(`تعذر التسجيل: ${(e as Error).message}`);
+    }
+  }
+
+  async function saveOffer(branch: string) {
+    if (!offerForm.title.trim() || !offerForm.starts || !offerForm.ends) {
+      toast.error('محتاج عنوان العرض وتاريخ البداية والنهاية على الأقل.');
+      return;
+    }
+    setSavingOffer(true);
+    try {
+      const { error: saveError } = await supabase.rpc('set_branch_weekly_offer_v1', {
+        p_branch: branch,
+        p_offer_title: offerForm.title.trim(),
+        p_offer_details: offerForm.details.trim() || null,
+        p_starts_on: offerForm.starts,
+        p_ends_on: offerForm.ends,
+      });
+      if (saveError) throw saveError;
+      toast.success('اتسجل عرض الأسبوع وهيظهر لخدمة العملاء فورًا.');
+      setEditingOfferBranch(null);
+      setOfferForm({ title: '', details: '', starts: '', ends: '' });
+      await load();
+    } catch (e) {
+      toast.error(`تعذر حفظ العرض: ${(e as Error).message}`);
+    } finally {
+      setSavingOffer(false);
     }
   }
 
@@ -506,6 +548,31 @@ export default function CustomerDailyPriorityQueues() {
     </div>
 
     {error ? <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-3 text-xs font-bold text-[var(--dawaa-status-danger-text)]"><span>{error}</span><button type="button" onClick={() => void load()} className="rounded-lg border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] px-3 py-1.5 text-[11px] font-black text-[var(--dawaa-status-danger-text)] hover:bg-[var(--dawaa-status-danger-bg)]">إعادة المحاولة</button></div> : null}
+
+    <div className="grid gap-2 sm:grid-cols-2">
+      {['فرع شكري', 'فرع الشامي'].filter((b) => managerView || scopedBranch === b).map((branch) => {
+        const offer = branchOffers[branch];
+        return <div key={branch} className="rounded-xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] p-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-xs font-black text-[var(--dawaa-theme-primary)]"><Megaphone size={14}/>{branch} · عرض الأسبوع</div>
+            {managerView ? <button type="button" onClick={() => { setEditingOfferBranch(editingOfferBranch === branch ? null : branch); setOfferForm({ title: offer?.offer_title || '', details: offer?.offer_details || '', starts: offer?.starts_on || '', ends: offer?.ends_on || '' }); }} className="text-[11px] font-black text-[var(--dawaa-theme-primary)] underline">{editingOfferBranch === branch ? 'إغلاق' : offer ? 'تعديل' : 'إضافة عرض'}</button> : null}
+          </div>
+          {editingOfferBranch === branch ? <div className="mt-2 space-y-2">
+            <input value={offerForm.title} onChange={(e) => setOfferForm((f) => ({ ...f, title: e.target.value }))} placeholder="عنوان العرض (مثال: توصيل مجاني)" className="input-dark w-full text-xs"/>
+            <input value={offerForm.details} onChange={(e) => setOfferForm((f) => ({ ...f, details: e.target.value }))} placeholder="تفاصيل إضافية (اختياري)" className="input-dark w-full text-xs"/>
+            <div className="grid grid-cols-2 gap-2">
+              <input type="date" value={offerForm.starts} onChange={(e) => setOfferForm((f) => ({ ...f, starts: e.target.value }))} className="input-dark w-full text-xs"/>
+              <input type="date" value={offerForm.ends} onChange={(e) => setOfferForm((f) => ({ ...f, ends: e.target.value }))} className="input-dark w-full text-xs"/>
+            </div>
+            <button type="button" disabled={savingOffer} onClick={() => void saveOffer(branch)} className="btn-primary w-full text-xs">{savingOffer ? 'جاري الحفظ...' : 'حفظ العرض'}</button>
+          </div> : offer ? <div className="mt-1">
+            <p className="text-sm font-black text-[var(--dawaa-theme-heading)]">{offer.offer_title}</p>
+            {offer.offer_details ? <p className="text-[11px] font-bold text-[var(--dawaa-theme-muted)]">{offer.offer_details}</p> : null}
+            <p className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">حتى {offer.ends_on}</p>
+          </div> : <p className="mt-1 text-[11px] font-bold text-[var(--dawaa-theme-muted)]">مفيش عرض مسجل للأسبوع ده.</p>}
+        </div>;
+      })}
+    </div>
 
     {completion.length ? <div className="grid gap-2 sm:grid-cols-2">
       {completion.map((row) => {
