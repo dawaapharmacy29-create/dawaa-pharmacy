@@ -246,6 +246,12 @@ function friendlyError(message: string): string {
   return message;
 }
 
+type TeamAlphaTrack = {
+  track: 'purchasing' | 'cs_shami' | 'cs_shokry';
+  track_label: string;
+  branch: string;
+};
+
 export default function AssistantOperationalLog() {
   const { user } = useAuth();
   const staffId = user?.staffId || user?.id || '';
@@ -254,6 +260,7 @@ export default function AssistantOperationalLog() {
   const [taskType, setTaskType] = useState<TaskType>('supplier_order');
   const [stage, setStage] = useState<string>(TASK_CONFIG.supplier_order.stages[0].stage);
   const [branch, setBranch] = useState<Branch>('فرع شكري');
+  const [teamAlphaTrack, setTeamAlphaTrack] = useState<TeamAlphaTrack | null>(null);
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [referenceNote, setReferenceNote] = useState('');
@@ -279,11 +286,12 @@ export default function AssistantOperationalLog() {
     }
     setLoading(true);
     setLoadError(false);
-    const [logsRes, casesRes, leaderboardRes, summaryRes] = await Promise.all([
+    const [logsRes, casesRes, leaderboardRes, summaryRes, trackRes] = await Promise.all([
       supabase.rpc('list_my_assistant_operational_logs_v1', { p_limit: 30 }),
       supabase.rpc('list_my_assistant_open_cases_v1'),
       supabase.rpc('get_assistant_operational_leaderboard_v1'),
       supabase.rpc('get_staff_points_dashboard_v3', { p_staff_id: staffId }),
+      supabase.rpc('dawaa_team_alpha_my_track_v1', { p_staff_id: staffId }),
     ]);
     if (logsRes.error || casesRes.error) {
       setLoadError(true);
@@ -292,6 +300,14 @@ export default function AssistantOperationalLog() {
     }
     setLogs((logsRes.data || []) as LogRow[]);
     setCases((casesRes.data || []) as CaseRow[]);
+    if (!trackRes.error) {
+      const track = Array.isArray(trackRes.data) ? (trackRes.data[0] as TeamAlphaTrack) || null : null;
+      setTeamAlphaTrack(track);
+      // في أسبوع خدمة العملاء، الفرع الافتراضي هو فرع حضرتك المسؤول عنه الأسبوع ده.
+      if (track && track.track !== 'purchasing' && (track.branch === 'فرع شكري' || track.branch === 'فرع الشامي')) {
+        setBranch(track.branch as Branch);
+      }
+    }
     if (!leaderboardRes.error) {
       setLeaderboard((leaderboardRes.data || []) as LeaderboardRow[]);
     }
@@ -412,6 +428,20 @@ export default function AssistantOperationalLog() {
           سجّل كل عملية بمجرد تنفيذها — هتتراجع من مدير الفروع قبل ما تتحول لنقاط حقيقية.
         </p>
       </div>
+
+      {teamAlphaTrack ? (
+        <div
+          className="rounded-2xl border p-3 text-sm font-black"
+          style={{
+            borderColor: 'var(--dawaa-status-info-border)',
+            background: 'var(--dawaa-status-info-bg)',
+            color: 'var(--dawaa-theme-heading)',
+          }}
+        >
+          مسارك هذا الأسبوع: {teamAlphaTrack.track_label}
+          {teamAlphaTrack.branch !== 'كل الفروع' ? ` (${teamAlphaTrack.branch})` : ''}
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-2">
         <MiniBox label="بانتظار المراجعة" value={String(pendingCount)} tone="amber" />

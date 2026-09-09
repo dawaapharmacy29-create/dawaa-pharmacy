@@ -42,6 +42,21 @@ type CleaningCycleSummary = {
   performance_band: string;
 };
 
+type TeamAlphaTrack = {
+  track: 'purchasing' | 'cs_shami' | 'cs_shokry';
+  track_label: string;
+  branch: string;
+};
+
+// فريق دواء ألفا (هبه/هاجر/نور): مسار أسبوعي دوّار — كل واحدة تاخد مسار مختلف كل
+// أسبوع (المشتريات / خدمة عملاء الشامي / خدمة عملاء شكري) والدوران بيحصل تلقائيًا
+// من قاعدة البيانات (dawaa_team_alpha_my_track_v1)، فمفيش تحديث يدوي مطلوب هنا.
+const TEAM_ALPHA_TRACK_TO_CHECKLIST_ROLE: Record<TeamAlphaTrack['track'], string> = {
+  purchasing: 'فريق_ألفا_مشتريات',
+  cs_shami: 'مسؤول خدمة العملاء',
+  cs_shokry: 'مسؤول خدمة العملاء',
+};
+
 const TIME_SLOT_ORDER: Record<string, number> = { فتح: 0, 'أثناء اليوم': 1, قفل: 2 };
 
 const STATUS_LABEL: Record<Submission['review_status'], { label: string; color: string; bg: string; borderColor: string }> = {
@@ -119,7 +134,8 @@ export default function StaffDailyChecklist() {
   const canonicalRole = canonicalStaffRole(user?.role);
   const isCleaning = canonicalRole === 'cleaning';
   const isAssistant = canonicalRole === 'assistant';
-  const staffRole = isCleaning
+  const isTeamAlpha = user?.rawRole === 'team_dawaa_alpha';
+  const baseStaffRole = isCleaning
     ? 'مسؤولة النظافة'
     : isAssistant
       ? 'مساعد صيدلي'
@@ -131,12 +147,35 @@ export default function StaffDailyChecklist() {
   const [submissions, setSubmissions] = useState<Record<string, Submission>>({});
   const [dailyRating, setDailyRating] = useState<DailyRating | null>(null);
   const [cycleSummary, setCycleSummary] = useState<CleaningCycleSummary | null>(null);
+  const [teamAlphaTrack, setTeamAlphaTrack] = useState<TeamAlphaTrack | null>(null);
   const [loading, setLoading] = useState(true);
   const [uploadingKey, setUploadingKey] = useState<string | null>(null);
   const today = cairoDateKey();
 
+  // لأعضاء فريق دواء ألفا، المسار الأسبوعي بيحدد قايمة المهام مش الدور العام
+  // "مساعد صيدلي" — لحد ما نجيب المسار من السيرفر منستخدمش أي قايمة مهام.
+  const staffRole = isTeamAlpha
+    ? teamAlphaTrack
+      ? TEAM_ALPHA_TRACK_TO_CHECKLIST_ROLE[teamAlphaTrack.track]
+      : null
+    : baseStaffRole;
+
   const load = useCallback(async () => {
-    if (!staffRole) {
+    let track: TeamAlphaTrack | null = null;
+    if (isTeamAlpha && staffId) {
+      const trackRes = await supabase.rpc('dawaa_team_alpha_my_track_v1', { p_staff_id: staffId });
+      if (trackRes.error) throw trackRes.error;
+      track = Array.isArray(trackRes.data) ? (trackRes.data[0] as TeamAlphaTrack) || null : null;
+      setTeamAlphaTrack(track);
+    }
+
+    const resolvedRole = isTeamAlpha
+      ? track
+        ? TEAM_ALPHA_TRACK_TO_CHECKLIST_ROLE[track.track]
+        : null
+      : baseStaffRole;
+
+    if (!resolvedRole) {
       setLoading(false);
       return;
     }
@@ -145,7 +184,7 @@ export default function StaffDailyChecklist() {
     const checklistItemsQuery = supabase
       .from('staff_daily_checklist_items')
       .select('id, item_key, title, description, time_slot, sort_order, requires_photo')
-      .eq('role', staffRole)
+      .eq('role', resolvedRole)
       .eq('active', true)
       .order('sort_order', { ascending: true });
 
@@ -213,7 +252,7 @@ export default function StaffDailyChecklist() {
       performance_band: String(summary.performance_band || '—'),
     } : null);
     setLoading(false);
-  }, [isAssistant, isCleaning, staffId, staffRole, today]);
+  }, [isAssistant, isCleaning, isTeamAlpha, staffId, baseStaffRole, today]);
 
   useEffect(() => {
     void load().catch((error) => {
@@ -272,6 +311,15 @@ export default function StaffDailyChecklist() {
     }
   }, [branch, staffId, today]);
 
+  if (isTeamAlpha && loading && !teamAlphaTrack) {
+    return (
+      <div className="flex items-center justify-center gap-2 p-10 text-sm font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
+        <Loader2 size={18} className="animate-spin" />
+        جاري تحديد مسارك الأسبوعي...
+      </div>
+    );
+  }
+
   if (!staffRole) {
     return (
       <div className="p-6 text-center text-sm font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
@@ -288,6 +336,18 @@ export default function StaffDailyChecklist() {
           نفّذ كل مهمة مسندة لك. في النظافة والرص لازم لكل مكان صورة واضحة ومستقلة، ولو المدير رفض بند صححه وارفع صورة جديدة.
         </p>
       </div>
+
+      {isTeamAlpha && teamAlphaTrack ? (
+        <Panel className="p-4" style={{ borderColor: 'var(--dawaa-status-info-border)', background: 'var(--dawaa-status-info-bg)' }}>
+          <p className="text-sm font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>
+            مسارك هذا الأسبوع: {teamAlphaTrack.track_label}
+            {teamAlphaTrack.branch !== 'كل الفروع' ? ` (${teamAlphaTrack.branch})` : ''}
+          </p>
+          <p className="mt-1 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
+            المسار بيتبدل تلقائيًا كل أسبوع بين المشتريات وخدمة عملاء الفرعين.
+          </p>
+        </Panel>
+      ) : null}
 
       {!loading ? (
         <Panel className="p-4">
