@@ -279,6 +279,20 @@ type TeamAlphaTrack = {
   branch: string;
 };
 
+type TeamAlphaScoreRow = {
+  staff_id: string;
+  staff_name: string;
+  track: TeamAlphaTrack['track'];
+  track_label: string;
+  branch: string;
+  checklist_total: number;
+  checklist_completed: number;
+  checklist_completion_pct: number;
+  points_this_week: number;
+  track_avg_points: number;
+  performance_index: number | null;
+};
+
 export default function AssistantOperationalLog() {
   const { user } = useAuth();
   const staffId = user?.staffId || user?.id || '';
@@ -288,6 +302,7 @@ export default function AssistantOperationalLog() {
   const [stage, setStage] = useState<string>(TASK_CONFIG.supplier_order.stages[0].stage);
   const [branch, setBranch] = useState<Branch>('فرع شكري');
   const [teamAlphaTrack, setTeamAlphaTrack] = useState<TeamAlphaTrack | null>(null);
+  const [teamScoreboard, setTeamScoreboard] = useState<TeamAlphaScoreRow[]>([]);
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [referenceNote, setReferenceNote] = useState('');
@@ -313,12 +328,13 @@ export default function AssistantOperationalLog() {
     }
     setLoading(true);
     setLoadError(false);
-    const [logsRes, casesRes, leaderboardRes, summaryRes, trackRes] = await Promise.all([
+    const [logsRes, casesRes, leaderboardRes, summaryRes, trackRes, scoreboardRes] = await Promise.all([
       supabase.rpc('list_my_assistant_operational_logs_v1', { p_limit: 30 }),
       supabase.rpc('list_my_assistant_open_cases_v1'),
       supabase.rpc('get_assistant_operational_leaderboard_v1'),
       supabase.rpc('get_staff_points_dashboard_v3', { p_staff_id: staffId }),
       supabase.rpc('dawaa_team_alpha_my_track_v1', { p_staff_id: staffId }),
+      supabase.rpc('dawaa_team_alpha_scoreboard_v1'),
     ]);
     if (logsRes.error || casesRes.error) {
       setLoadError(true);
@@ -327,6 +343,9 @@ export default function AssistantOperationalLog() {
     }
     setLogs((logsRes.data || []) as LogRow[]);
     setCases((casesRes.data || []) as CaseRow[]);
+    if (!scoreboardRes.error) {
+      setTeamScoreboard((scoreboardRes.data || []) as TeamAlphaScoreRow[]);
+    }
     if (!trackRes.error) {
       const track = Array.isArray(trackRes.data) ? (trackRes.data[0] as TeamAlphaTrack) || null : null;
       setTeamAlphaTrack(track);
@@ -468,6 +487,58 @@ export default function AssistantOperationalLog() {
           مسارك هذا الأسبوع: {teamAlphaTrack.track_label}
           {teamAlphaTrack.branch !== 'كل الفروع' ? ` (${teamAlphaTrack.branch})` : ''}
         </div>
+      ) : null}
+
+      {teamScoreboard.length > 0 ? (
+        <Panel className="p-4">
+          <div className="flex items-center gap-2">
+            <Trophy size={18} style={{ color: 'var(--dawaa-status-warning-text)' }} />
+            <h2 className="font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>
+              لوحة أداء فريق دواء ألفا هذا الأسبوع
+            </h2>
+          </div>
+          <p className="mt-1 text-[11px] font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
+            المؤشر بيقارن نقاطك بمتوسط كل اللي عملوا نفس مسارك في أسابيع سابقة — مش مقارنة مباشرة بين
+            المسارات المختلفة، عشان أسبوع خدمة العملاء وأسبوع المشتريات مش نفس طبيعة الشغل.
+          </p>
+          <div className="mt-3 space-y-2">
+            {teamScoreboard.map((row) => {
+              const isMe = row.staff_id === staffId;
+              const badge =
+                row.performance_index == null
+                  ? 'لسه مفيش تاريخ كفاية للمقارنة'
+                  : row.performance_index >= 110
+                    ? `🔥 ${row.performance_index}% من متوسط المسار`
+                    : row.performance_index >= 90
+                      ? `${row.performance_index}% من متوسط المسار`
+                      : `${row.performance_index}% من متوسط المسار — محتاجة دفعة`;
+              return (
+                <div
+                  key={row.staff_id}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3"
+                  style={{
+                    borderColor: isMe ? 'var(--dawaa-status-info-border)' : 'var(--dawaa-theme-border)',
+                    background: isMe ? 'var(--dawaa-status-info-bg)' : 'transparent',
+                  }}
+                >
+                  <div>
+                    <p className="text-sm font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>
+                      {row.staff_name} {isMe ? '(انتِ)' : ''}
+                    </p>
+                    <p className="text-[11px] font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                      {row.track_label}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-4 text-xs font-black" style={{ color: 'var(--dawaa-theme-text)' }}>
+                    <span>التشيك ليست: {row.checklist_completed}/{row.checklist_total} ({row.checklist_completion_pct}%)</span>
+                    <span>نقاط الأسبوع: {row.points_this_week}</span>
+                    <span style={{ color: 'var(--dawaa-theme-muted)' }}>{badge}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </Panel>
       ) : null}
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-2">
