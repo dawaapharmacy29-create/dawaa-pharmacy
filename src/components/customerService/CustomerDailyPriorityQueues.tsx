@@ -22,7 +22,7 @@ import { supabase } from '@/lib/supabase';
 import SmartQueueExcelImportModal from '@/components/customerService/SmartQueueExcelImportModal';
 import { downloadCustomerServiceWorkbook, type CustomerServiceExcelColumn } from '@/lib/customerService/customerServiceExcelWorkbook';
 
-type QueueType = 'vip_recent' | 'plus500' | 'points' | 'at_risk';
+type QueueType = 'vip_recent' | 'plus500' | 'points' | 'at_risk' | 'first_purchase';
 type InvoiceValue = { invoiceNumber?: string; value: number };
 type QueueCustomer = {
   code: string;
@@ -200,6 +200,7 @@ export default function CustomerDailyPriorityQueues() {
   const [largeInvoices, setLargeInvoices] = useState<QueueCustomer[]>([]);
   const [pointsDaily, setPointsDaily] = useState<QueueCustomer[]>([]);
   const [atRiskDaily, setAtRiskDaily] = useState<QueueCustomer[]>([]);
+  const [firstPurchaseDaily, setFirstPurchaseDaily] = useState<QueueCustomer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showTop50, setShowTop50] = useState(false);
@@ -220,11 +221,12 @@ export default function CustomerDailyPriorityQueues() {
       const actorId = user?.id;
       // Load the operational queues together, then run the heavier analytics sequentially.
       // This prevents Top-50 and 3-cycle analytics from competing for DB resources on page open.
-      const [vipResult, plusResult, pointsResult, atRiskResult] = await Promise.all([
+      const [vipResult, plusResult, pointsResult, atRiskResult, firstPurchaseResult] = await Promise.all([
         supabase.rpc('get_customer_service_daily_vip7_v2', { p_date: today, p_actor_id: actorId }),
         supabase.rpc('get_customer_service_plus500_v2', { p_date: saleDay, p_actor_id: actorId }),
         supabase.rpc('get_customer_points_daily20_v2', { p_date: today, p_actor_id: actorId }),
         supabase.rpc('get_customer_service_at_risk_daily_v2', { p_date: today, p_actor_id: actorId }),
+        supabase.rpc('get_customer_service_first_purchase_save_v2', { p_date: today, p_actor_id: actorId }),
       ]);
       const topResult = await supabase.rpc('get_customer_service_recent_top50_v2', { p_days: 90, p_actor_id: actorId });
       const intelligenceResult = await supabase.rpc('get_customer_service_three_cycle_intelligence_v1', { p_as_of: today, p_actor_id: actorId });
@@ -235,6 +237,7 @@ export default function CustomerDailyPriorityQueues() {
         ['فواتير +500', plusResult],
         ['نقاط اليوم', pointsResult],
         ['عملاء معرّضين للخطر', atRiskResult],
+        ['أول تجربة شراء', firstPurchaseResult],
       ];
       const failed = namedResults.find(([, result]) => result.error);
       if (failed) setError(`تعذر تحميل ${failed[0]} مؤقتًا: ${failed[1].error?.message || 'خطأ غير معروف'} — تم عرض باقي القوائم المتاحة.`);
@@ -300,7 +303,18 @@ export default function CustomerDailyPriorityQueues() {
         queueType: 'at_risk' as const,
         value: Number(r.total_spent || 0),
         lastPurchase: r.last_purchase ? String(r.last_purchase) : null,
-        label: `غايب ${Number(r.days_inactive || 0)} يوم · إجمالي مشترياته ${money(Number(r.total_spent || 0))} · متوسط الفاتورة ${money(Number(r.avg_invoice || 0))}`,
+        label: `${String(r.save_priority || '')} · غايب ${Number(r.days_inactive || 0)} يوم · إجمالي مشترياته ${money(Number(r.total_spent || 0))} · متوسط الفاتورة ${money(Number(r.avg_invoice || 0))}`,
+      })));
+
+      setFirstPurchaseDaily(((firstPurchaseResult.data || []) as Array<Record<string, unknown>>).map((r) => ({
+        code: String(r.customer_code || ''),
+        name: String(r.customer_name || ''),
+        phone: String(r.customer_phone || ''),
+        branch: String(r.branch || ''),
+        queueType: 'first_purchase' as const,
+        value: Number(r.first_invoice_value || 0),
+        lastPurchase: r.last_purchase ? String(r.last_purchase) : null,
+        label: `أول فاتورة له من ${Number(r.days_since_purchase || 0)} يوم بقيمة ${money(Number(r.first_invoice_value || 0))} ولسه ما رجعش`,
       })));
 
       // نسبة إنجاز قوائم اليوم (VIP + فواتير 500+ + النقاط) — مرئية لمسئول خدمة العملاء
@@ -352,21 +366,23 @@ export default function CustomerDailyPriorityQueues() {
         if (['خطر فقد', 'تراجع قوي', 'تراجع'].includes(customer.trendState || '')) return 900;
         if (customer.queueType === 'at_risk') return 800;
         if (customer.queueType === 'plus500') return 700;
+        if (customer.queueType === 'first_purchase') return 600;
         if (customer.queueType === 'vip_recent') return 500;
         return 300;
       };
       const reasonFor = (customer: QueueCustomer) => {
         if (['خطر فقد', 'تراجع قوي', 'تراجع'].includes(customer.trendState || '')) return 'استرجاع عميل انخفض نشاطه';
         if (customer.queueType === 'at_risk') return 'الحفاظ على عميل نشط قبل ما يتحول لمتوقف';
+        if (customer.queueType === 'first_purchase') return 'إمساك اللحظة بعد أول تجربة قبل ما ينسى الصيدلية';
         if (customer.queueType === 'plus500') return 'متابعة رضا العميل بعد فاتورة كبيرة وفرصة إعادة الشراء';
         if (customer.queueType === 'points') return 'إبلاغ العميل برصيد النقاط وتشجيع استخدامه';
         return 'الحفاظ على علاقة أهم العملاء ومعرفة أي احتياج جديد';
       };
-      const allTasks = [...vipDaily, ...largeInvoices, ...pointsDaily, ...atRiskDaily]
+      const allTasks = [...vipDaily, ...largeInvoices, ...pointsDaily, ...atRiskDaily, ...firstPurchaseDaily]
         .sort((a, b) => taskPriority(b) - taskPriority(a));
       const dailyRows = allTasks.map((c, index) => ({
         'ترتيب التنفيذ': index + 1,
-        'نوع القائمة': c.queueType === 'vip_recent' ? 'VIP آخر 3 شهور' : c.queueType === 'plus500' ? '+500' : c.queueType === 'at_risk' ? 'معرّض للخطر' : 'نقاط',
+        'نوع القائمة': c.queueType === 'vip_recent' ? 'VIP آخر 3 شهور' : c.queueType === 'plus500' ? '+500' : c.queueType === 'at_risk' ? 'معرّض للخطر' : c.queueType === 'first_purchase' ? 'أول تجربة' : 'نقاط',
         'الفرع': c.branch,
         'اسم العميل': c.name,
         'كود العميل': c.code,
@@ -532,7 +548,8 @@ export default function CustomerDailyPriorityQueues() {
         <div className="max-h-[590px] overflow-auto rounded-2xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-3"><div className="mb-3 flex items-center gap-2 text-[var(--dawaa-status-warning-text)]"><Crown size={18}/><span className="font-black">7 من أهم العملاء اليوم</span></div><BranchQueue title="VIP آخر 3 شهور" customers={vipDaily} loading={loading}/></div>
         <div className="max-h-[590px] overflow-auto rounded-2xl border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] p-3"><div className="mb-3 flex items-center gap-2 text-[var(--dawaa-status-success-text)]"><BadgeDollarSign size={18}/><span className="font-black">كل عملاء +500 أمس</span></div><BranchQueue title={`فواتير ${ymd(yesterday)}`} customers={largeInvoices} loading={loading}/></div>
         <div className="max-h-[590px] overflow-auto rounded-2xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] p-3"><div className="mb-3 flex items-center gap-2 text-[var(--dawaa-theme-primary)]"><Gift size={18}/><span className="font-black">20 عميل نقاط اليوم</span></div><BranchQueue title="الأقدم في الإبلاغ أولًا" customers={pointsDaily} onPointDone={(c) => void markPointDone(c)} loading={loading}/></div>
-        <div className="max-h-[590px] overflow-auto rounded-2xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-3"><div className="mb-3 flex items-center gap-2 text-[var(--dawaa-status-danger-text)]"><TrendingDown size={18}/><span className="font-black">عملاء معرّضين للخطر — حافظ عليهم</span></div><p className="mb-2 text-[10px] font-bold text-[var(--dawaa-theme-muted)]">عملاء نشطين بدأوا يبعدوا؛ الهدف الاتصال بيهم قبل ما يتحولوا لعميل متوقف تمامًا.</p><BranchQueue title="الأعلى قيمة أولًا" customers={atRiskDaily} loading={loading}/></div>
+        <div className="max-h-[590px] overflow-auto rounded-2xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-3"><div className="mb-3 flex items-center gap-2 text-[var(--dawaa-status-danger-text)]"><TrendingDown size={18}/><span className="font-black">عملاء معرّضين للخطر — حافظ عليهم</span></div><p className="mb-2 text-[10px] font-bold text-[var(--dawaa-theme-muted)]">عملاء نشطين بدأوا يبعدوا؛ الهدف الاتصال بيهم قبل ما يتحولوا لعميل متوقف تمامًا.</p><BranchQueue title="المنتظمين الأول، وبعدين فرصة أولى" customers={atRiskDaily} loading={loading}/></div>
+        <div className="max-h-[590px] overflow-auto rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-3"><div className="mb-3 flex items-center gap-2 text-[var(--dawaa-theme-heading)]"><ShieldAlert size={18}/><span className="font-black">أول تجربة — إمساك اللحظة</span></div><p className="mb-2 text-[10px] font-bold text-[var(--dawaa-theme-muted)]">اشتروا مرة واحدة ولسه ما رجعوش؛ دي أنسب لحظة نعرّفهم بالكاش باك أو النقاط قبل ما ينسوا الصيدلية خالص.</p><BranchQueue title="خلال 7-18 يوم من أول فاتورة" customers={firstPurchaseDaily} loading={loading}/></div>
       </div>
     </div>
 
