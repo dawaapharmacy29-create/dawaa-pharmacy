@@ -10,6 +10,7 @@ import {
   Wallet,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { supabase } from '@/lib/supabase';
 import {
   fetchExecutiveDashboardSummary,
   type DashboardSummary,
@@ -32,9 +33,20 @@ import { CommandHeader, MetricCard, SectionState } from '@/components/command/Co
 type Row = Record<string, unknown>;
 const today = () => new Date().toISOString().slice(0, 10);
 
+type TeamAlphaRow = {
+  staff_id: string; staff_name: string; track: string; track_label: string; branch: string;
+  checklist_total: number; checklist_completed: number; checklist_completion_pct: number;
+  points_this_week: number; track_avg_points: number; performance_index: number | null;
+};
+type AtRiskCompletionRow = { branch: string; at_risk_total: number; at_risk_handled: number };
+type BranchOfferRow = { offer_title: string; offer_details: string | null; ends_on: string };
+
 export default function DailyCommand() {
   const { user } = useAuth();
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [teamAlpha, setTeamAlpha] = useState<TeamAlphaRow[]>([]);
+  const [atRiskStatus, setAtRiskStatus] = useState<AtRiskCompletionRow[]>([]);
+  const [branchOffers, setBranchOffers] = useState<Record<string, BranchOfferRow | null>>({});
   const [extras, setExtras] = useState({
     complaints: 0,
     weakReviews: 0,
@@ -117,6 +129,19 @@ export default function DailyCommand() {
         ).length,
         leaveRequests: leaves.rows.filter((r) => /pending|معلق|بانتظار/i.test(safeText(r.status)))
           .length,
+      });
+
+      const [teamAlphaRes, atRiskRes, shokryOfferRes, shamiOfferRes] = await Promise.all([
+        supabase.rpc('dawaa_team_alpha_scoreboard_v1'),
+        supabase.rpc('get_customer_service_at_risk_completion_v1', { p_actor_id: user?.id }),
+        supabase.rpc('get_current_branch_offer_v1', { p_branch: 'فرع شكري' }),
+        supabase.rpc('get_current_branch_offer_v1', { p_branch: 'فرع الشامي' }),
+      ]);
+      if (!teamAlphaRes.error) setTeamAlpha((teamAlphaRes.data || []) as TeamAlphaRow[]);
+      if (!atRiskRes.error) setAtRiskStatus((atRiskRes.data || []) as AtRiskCompletionRow[]);
+      setBranchOffers({
+        'فرع شكري': (Array.isArray(shokryOfferRes.data) ? shokryOfferRes.data[0] : null) as BranchOfferRow | null,
+        'فرع الشامي': (Array.isArray(shamiOfferRes.data) ? shamiOfferRes.data[0] : null) as BranchOfferRow | null,
       });
     } catch (err) {
       console.error('[DailyCommand] Error during load:', err);
@@ -223,6 +248,46 @@ export default function DailyCommand() {
                 </a>
               ))}
             </div>
+          </div>
+        </section>
+
+        <section className="dawaa-panel">
+          <h2 className="mb-4 text-lg font-black text-slate-950 dark:text-white">
+            فريق دواء ألفا — المسار الأسبوعي
+          </h2>
+          <div className="space-y-2">
+            {teamAlpha.map((row) => (
+              <div key={row.staff_id} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-200 p-3 dark:border-slate-700">
+                <div>
+                  <p className="font-black text-slate-800 dark:text-slate-100">{row.staff_name}</p>
+                  <p className="text-xs font-bold text-slate-500 dark:text-slate-400">{row.track_label}</p>
+                </div>
+                <div className="flex items-center gap-4 text-xs font-black text-slate-700 dark:text-slate-200">
+                  <span>تشيك ليست: {row.checklist_completed}/{row.checklist_total} ({row.checklist_completion_pct}%)</span>
+                  <span>نقاط الأسبوع: {row.points_this_week}</span>
+                  <span>{row.performance_index == null ? 'لسه مفيش مقارنة' : `${row.performance_index}% من متوسط المسار`}</span>
+                </div>
+              </div>
+            ))}
+            {!teamAlpha.length ? <p className="text-sm font-bold text-slate-500">تعذر تحميل بيانات الفريق.</p> : null}
+          </div>
+
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            {['فرع شكري', 'فرع الشامي'].map((branch) => {
+              const risk = atRiskStatus.find((r) => r.branch === branch);
+              const offer = branchOffers[branch];
+              return (
+                <div key={branch} className="rounded-2xl border border-slate-200 p-3 dark:border-slate-700">
+                  <p className="font-black text-slate-800 dark:text-slate-100">{branch}</p>
+                  <p className="mt-1 text-xs font-bold text-slate-500 dark:text-slate-400">
+                    عملاء معرّضين للخطر اتعمل معاهم متابعة: {risk ? `${risk.at_risk_handled}/${risk.at_risk_total}` : '—'}
+                  </p>
+                  <p className="mt-1 text-xs font-bold text-slate-500 dark:text-slate-400">
+                    عرض الأسبوع: {offer ? `${offer.offer_title} (حتى ${offer.ends_on})` : 'مفيش عرض مسجل'}
+                  </p>
+                </div>
+              );
+            })}
           </div>
         </section>
       </SectionState>

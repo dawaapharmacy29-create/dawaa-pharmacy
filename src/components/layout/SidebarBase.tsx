@@ -3,7 +3,7 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   Activity, ActivitySquare, AlertTriangle, BarChart3, BellRing, Calendar, ChevronDown, ChevronLeft,
   ClipboardCheck, ClipboardList, Crown, FileSpreadsheet, HeadphonesIcon, LayoutDashboard, LogOut,
-  MessageCircle, Package, PackageSearch, ShieldCheck, Sparkles, Star, Store, TrendingDown, Truck, UserCheck,
+  MessageCircle, Package, PackageSearch, ShieldCheck, Sparkles, Star, Store, Target, TrendingDown, Truck, UserCheck,
   UserPlus, Users, Wallet, WalletCards, X,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
@@ -34,6 +34,7 @@ const CUSTOMER_CODING_ITEM: NavItem = { path: '/customer-coding', icon: UserPlus
 const GROUPS: NavGroup[] = [
   { title: 'الرئيسية والإدارة', icon: Crown, items: [
     { path: '/', icon: LayoutDashboard, label: 'لوحة الإدارة', permission: 'view_dashboard', excludeRoles: ['customer_service_manager', 'procurement_manager', 'inventory_assistant', 'customer_service', 'delivery', 'cleaning_supervisor'] },
+    { path: '/daily-command', icon: Target, label: 'الأمر اليومي', allowedRoles: ['general_manager', 'admin', 'executive_manager', 'branches_manager'] },
     { path: '/operations-center', icon: BellRing, label: 'مركز المهام والتنبيهات', permission: 'view_operations' },
     { path: '/branch-inspection', icon: ClipboardList, label: 'متابعة ومرور الفروع', permission: 'view_branch_inspection' },
   ]},
