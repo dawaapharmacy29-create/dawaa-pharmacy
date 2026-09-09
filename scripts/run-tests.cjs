@@ -131,6 +131,7 @@ const testFiles = [
   'src/lib/__tests__/customerDownwardCorrectionGuard.test.ts',
   'src/lib/__tests__/pointsLedgerIdentity.test.ts',
   'src/lib/__tests__/attendanceReadNormalization.test.ts',
+  'src/lib/__tests__/notificationLifecycleDomain.test.ts',
   'src/lib/security/__tests__/publicViewInvokerBoundaryMigration.test.ts',
   'src/lib/security/__tests__/securityDefinerPublicExecuteMigration.test.ts',
   'src/lib/security/__tests__/internalTriggerFunctionSurfaceMigration.test.ts',

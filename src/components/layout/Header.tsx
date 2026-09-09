@@ -1,6 +1,5 @@
 import { Bell, Menu, Sun, Moon, Volume2, VolumeX, CheckCheck, ExternalLink, Settings2, Fingerprint } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { getSafeCurrentUserId, useAuth } from '@/hooks/useAuth';
 import { useTheme } from '@/hooks/useTheme';
 import { getCurrentCycle, getRemainingDays } from '@/lib/pharmacy-cycle';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -8,33 +7,12 @@ import { cn } from '@/lib/utils';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import type { AppNotification } from '@/lib/notificationService';
 import { saveNotificationSettings, useNotifications } from '@/hooks/useNotifications';
-import { normalizeRole } from '@/lib/core/permissionSystem';
-import { normalizeBranchName } from '@/lib/branch';
-
-interface NotifItem {
-  id: string;
-  user_id?: string | null;
-  recipient_user_id?: string | null;
-  recipient_staff_id?: string | null;
-  recipient_role?: string | null;
-  title?: string | null;
-  body?: string | null;
-  message?: string | null;
-  description?: string | null;
-  type?: string | null;
-  priority?: string | null;
-  read?: boolean | null;
-  is_read?: boolean | null;
-  status?: string | null;
-  route?: string | null;
-  target_route?: string | null;
-  details?: string | Record<string, unknown> | null;
-  metadata?: Record<string, unknown> | null;
-  target_type?: string | null;
-  target_id?: string | null;
-  branch?: string | null;
-  created_at: string;
-}
+import {
+  compareNotificationsOperationally,
+  notificationActionLabel,
+  notificationPriorityLabel,
+  notificationTypeLabel,
+} from '@/lib/notifications/notificationDomain';
 
 interface HeaderProps {
   onMobileMenuOpen: () => void;
@@ -71,11 +49,20 @@ const notificationTone: Record<string, string> = {
   reward: 'dawaa-badge--success',
   deduction: 'dawaa-badge--danger',
   task: 'dawaa-badge--info',
+  employee_task: 'dawaa-badge--info',
+  staff_task: 'dawaa-badge--info',
+  cleaning_task: 'dawaa-badge--info',
+  branch_manager_task: 'dawaa-badge--info',
   followup: 'dawaa-badge--info',
+  customer_followup: 'dawaa-badge--info',
   conversation_review: 'dawaa-badge--info',
   customer_alert: 'dawaa-badge--warning',
+  vip_customer_health: 'dawaa-badge--warning',
+  vip_customer_health_digest: 'dawaa-badge--warning',
   delivery: 'dawaa-badge--info',
   attendance: 'dawaa-badge--success',
+  sync_health: 'dawaa-badge--warning',
+  sync_health_alert: 'dawaa-badge--danger',
   system: 'dawaa-badge--info',
 };
 
@@ -100,60 +87,6 @@ function playNotificationBeep() {
   }
 }
 
-function parseDetailsRoute(details: NotifItem['details'] | AppNotification['metadata']) {
-  if (!details) return null;
-  if (typeof details === 'object' && typeof details.route === 'string') return details.route;
-  if (typeof details !== 'string') return null;
-  try {
-    const parsed = JSON.parse(details) as { route?: unknown };
-    return typeof parsed.route === 'string' ? parsed.route : null;
-  } catch {
-    return null;
-  }
-}
-
-function inferNotificationRoute(n: Partial<NotifItem & AppNotification>) {
-  if (n.target_route) return n.target_route;
-  if (n.route) return n.route;
-  const detailsRoute = parseDetailsRoute(n.details) || parseDetailsRoute(n.metadata);
-  if (detailsRoute) return detailsRoute;
-
-  const text = `${n.type || ''} ${n.title || ''} ${n.body || ''} ${n.message || ''} ${n.target_type || ''}`.toLowerCase();
-  if (text.includes('attendance') || text.includes('حضور') || text.includes('انصراف')) return '/attendance-report';
-  if (text.includes('follow') || text.includes('متابعة')) return '/customer-service';
-  if (text.includes('review') || text.includes('تقييم')) return '/reviews';
-  if (text.includes('deduction') || text.includes('reward') || text.includes('خصم') || text.includes('مكاف')) return '/points';
-  if (text.includes('invoice') || text.includes('فاتور')) return '/invoices';
-  if (text.includes('shift') || text.includes('شيفت')) return '/shift-performance';
-  if (text.includes('stagnant') || text.includes('راكد')) return '/stagnant-medicines';
-  if (text.includes('delivery') || text.includes('دليفري') || text.includes('توصيل')) return '/delivery';
-  if (text.includes('customer') || text.includes('عميل')) return '/customers';
-  return '/operations-center';
-}
-
-function canSeeNotification(item: AppNotification, user: ReturnType<typeof useAuth>['user']) {
-  if (!user) return false;
-  const safeUserId = getSafeCurrentUserId();
-  const role = normalizeRole(user.role);
-  const userBranch = normalizeBranchName(user.branch || '');
-  const isAdmin = ['general_manager', 'executive_manager', 'branches_manager'].includes(role);
-  const isBranchManager = ['branch_manager', 'customer_service_manager', 'shift_supervisor_morning', 'shift_supervisor_evening'].includes(role);
-
-  if (isAdmin) return true;
-  if (item.user_id && (item.user_id === user.id || item.user_id === safeUserId)) return true;
-  if (item.recipient_user_id && (item.recipient_user_id === user.id || item.recipient_user_id === safeUserId)) return true;
-  if (item.recipient_staff_id && item.recipient_staff_id === user.staffId) return true;
-  if (item.recipient_role && normalizeRole(item.recipient_role) === role) return true;
-  if (isBranchManager && item.branch && normalizeBranchName(item.branch) === userBranch) return true;
-  return (
-    !item.user_id &&
-    !item.recipient_user_id &&
-    !item.recipient_staff_id &&
-    !item.recipient_role &&
-    (!item.branch || normalizeBranchName(item.branch) === userBranch)
-  );
-}
-
 function formatNotificationDate(value: string | number | null | undefined) {
   const date = value ? new Date(value) : null;
   if (!date || Number.isNaN(date.getTime())) return 'غير متاح';
@@ -172,7 +105,6 @@ function isUrgent(item: AppNotification) {
 
 export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
   const navigate = useNavigate();
-  const { user } = useAuth();
   const { theme, setTheme } = useTheme();
   const [showNotifs, setShowNotifs] = useState(false);
   const [showNotifSettings, setShowNotifSettings] = useState(false);
@@ -184,8 +116,7 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
   const prevUnread = useRef<number | null>(null);
 
   const {
-    notifications: merged,
-    unreadCount,
+    notifications,
     loading: notificationsLoading,
     available: notificationsAvailable,
     settings: notificationSettings,
@@ -194,8 +125,8 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
   } = useNotifications();
 
   const visibleNotifications = useMemo(
-    () => merged.filter((item) => canSeeNotification(item, user)),
-    [merged, user]
+    () => [...notifications].sort(compareNotificationsOperationally),
+    [notifications]
   );
   const visibleUnreadCount = visibleNotifications.filter((item) => !item.read && !item.is_read).length;
 
@@ -213,9 +144,9 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
     await markAllAsRead();
   };
 
-  const openNotification = (n: AppNotification) => {
+  const openNotification = (item: AppNotification) => {
     setShowNotifs(false);
-    handleNotificationClick(n);
+    handleNotificationClick(item);
   };
 
   const setSound = (mode: 'off' | 'soft' | 'distinct') => {
@@ -231,12 +162,7 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
       </button>
       <h1 className="dawaa-header-title flex-1 truncate text-base font-black">{title}</h1>
 
-      <button
-        type="button"
-        onClick={() => navigate('/attendance-report')}
-        className="dawaa-button dawaa-button--primary px-3 py-2 text-xs font-black"
-        title="تسجيل حضور / انصراف"
-      >
+      <button type="button" onClick={() => navigate('/attendance-report')} className="dawaa-button dawaa-button--primary px-3 py-2 text-xs font-black" title="تسجيل حضور / انصراف">
         <Fingerprint size={16} />
         <span className="hidden sm:inline">تسجيل حضور</span>
       </button>
@@ -300,29 +226,25 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
                   <div className="dawaa-header-muted py-8 text-center text-sm font-bold">نظام الإشعارات يحتاج تفعيل قاعدة البيانات</div>
                 ) : visibleNotifications.length === 0 ? (
                   <div className="dawaa-header-muted py-8 text-center text-sm font-bold">لا توجد إشعارات مسجلة حاليًا</div>
-                ) : visibleNotifications.slice(0, 10).map((n) => (
-                  <button
-                    key={n.id}
-                    type="button"
-                    onClick={() => void openNotification(n)}
-                    className={cn('dawaa-header-notification-row w-full border-b px-4 py-3 text-right transition last:border-0', !n.read && !n.is_read && 'is-unread')}
-                  >
+                ) : visibleNotifications.slice(0, 10).map((item) => (
+                  <button key={item.id} type="button" onClick={() => void openNotification(item)} className={cn('dawaa-header-notification-row w-full border-b px-4 py-3 text-right transition last:border-0', !item.read && !item.is_read && 'is-unread')}>
                     <div className="flex items-start gap-2.5">
-                      <span className={cn('dawaa-badge mt-0.5 shrink-0 px-2 py-0.5 text-xs font-black', isUrgent(n) ? 'dawaa-badge--danger' : notificationTone[String(n.type)] || notificationTone.system)}>
-                        {String(n.priority || n.type || 'تنبيه')}
+                      <span className={cn('dawaa-badge mt-0.5 shrink-0 px-2 py-0.5 text-xs font-black', isUrgent(item) ? 'dawaa-badge--danger' : notificationTone[String(item.type)] || notificationTone.system)}>
+                        {notificationPriorityLabel(item.priority || item.type)}
                       </span>
                       <div className="min-w-0 flex-1">
                         <div className="dawaa-header-title flex items-center gap-1 text-xs font-black">
-                          <span className="truncate">{n.title}</span>
+                          <span className="truncate">{item.title}</span>
                           <ExternalLink size={12} className="dawaa-header-muted shrink-0" />
                         </div>
                         <div className="dawaa-header-muted mt-1 flex items-center justify-between gap-2 text-[10px]">
-                          <span>{String(n.type || 'نوع غير محدد')}</span>
-                          <span>{formatNotificationDate(n.created_at)}</span>
+                          <span>{notificationTypeLabel(item.type)}</span>
+                          <span>{formatNotificationDate(item.created_at)}</span>
                         </div>
-                        <div className="dawaa-header-muted mt-1 line-clamp-2 text-xs leading-relaxed">{n.body || n.message}</div>
+                        {item.status ? <div className="dawaa-header-muted mt-1 text-[10px] font-bold">الحالة: {notificationActionLabel(item.action_status || item.status)}</div> : null}
+                        <div className="dawaa-header-muted mt-1 line-clamp-3 text-xs leading-relaxed">{item.body || item.message}</div>
                       </div>
-                      {!n.read && !n.is_read && <span className="dawaa-header-unread-dot mt-1 h-2 w-2 shrink-0 rounded-full" />}
+                      {!item.read && !item.is_read && <span className="dawaa-header-unread-dot mt-1 h-2 w-2 shrink-0 rounded-full" />}
                     </div>
                   </button>
                 ))}
