@@ -56,11 +56,9 @@ export default function CustomerRequestsOperationsTable({
             <tr>
               <th className="px-3 py-3">الصنف / الكود</th>
               <th className="px-3 py-3">العميل / الكود</th>
-              <th className="px-3 py-3">التصنيف</th>
               <th className="px-3 py-3">الفرع</th>
               <th className="px-3 py-3">الدكتور المسجل</th>
               <th className="px-3 py-3">التسجيل / الموعد</th>
-              <th className="px-3 py-3">معدل توفير الصنف</th>
               <th className="px-3 py-3">الحالة</th>
               <th className="px-3 py-3">العمر</th>
               <th className="px-3 py-3">الإجراء التالي</th>
@@ -70,7 +68,6 @@ export default function CustomerRequestsOperationsTable({
             {rows.map((request) => {
               const view = customerRequestOperationalView(request);
               const selected = selectedId === request.id;
-              const metric = view.product.code ? productMetrics[String(view.product.code)] : undefined;
               return (
                 <tr
                   key={request.id}
@@ -84,13 +81,11 @@ export default function CustomerRequestsOperationsTable({
                   <td className="px-3 py-3">
                     <div className="max-w-44 font-black text-[var(--dawaa-theme-heading)]">{view.customer.name || 'عميل غير مربوط'}</div>
                     <div className="mt-1 text-[10px] font-bold text-[var(--dawaa-theme-muted)]">كود {view.customer.code || 'غير مربوط'}</div>
-                    <div className="mt-1 text-[10px] font-bold text-[var(--dawaa-theme-primary)]">{customerClass(request)}</div>
+                    <div className={`mt-1 text-[10px] font-black ${request.urgency === 'urgent' || request.is_urgent ? 'text-[var(--dawaa-status-danger-text)]' : 'text-[var(--dawaa-theme-primary)]'}`}>{request.urgency === 'urgent' || request.is_urgent ? 'عاجل' : customerClass(request)}</div>
                   </td>
-                  <td className="px-3 py-3"><div className="font-black text-[var(--dawaa-theme-heading)]">{requestType(request)}</div><div className={`mt-1 text-[10px] font-black ${request.urgency === 'urgent' || request.is_urgent ? 'text-[var(--dawaa-status-danger-text)]' : 'text-[var(--dawaa-theme-muted)]'}`}>{request.urgency === 'urgent' || request.is_urgent ? 'عاجل' : request.urgency === 'high' ? 'مهم' : 'عادي'}</div></td>
                   <td className="px-3 py-3 font-black">{customerRequestBranchLabel(request.branch)}</td>
                   <td className="px-3 py-3"><div className="font-black text-[var(--dawaa-theme-heading)]">{view.registrar.name || 'غير مربوط'}</div><div className="mt-1 text-[10px] text-[var(--dawaa-theme-muted)]">{view.owner ? `المسئول: ${view.owner}` : 'بدون مسئول حالي'}</div></td>
                   <td className="px-3 py-3"><div className="whitespace-nowrap font-bold">{dateTime(request.requested_at || request.created_at)}</div><div className="mt-1 whitespace-nowrap text-[10px] text-[var(--dawaa-theme-muted)]">الإجراء/الموعد: {dateTime(view.dueAt)}</div></td>
-                  <td className="px-3 py-3">{metric ? <div><strong className={`text-sm ${Number(metric.fulfillmentRate || 0) >= 70 ? 'text-[var(--dawaa-status-success-text)]' : 'text-[var(--dawaa-status-warning-text)]'}`}>{Number(metric.fulfillmentRate || 0).toLocaleString('ar-EG', { maximumFractionDigits: 1 })}%</strong><div className="mt-1 text-[10px] text-[var(--dawaa-theme-muted)]">{metric.fulfilledCount}/{metric.requestsCount} خلال الفترة</div></div> : <span className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">لا توجد عينة كافية</span>}</td>
                   <td className="px-3 py-3">
                     <span className={`rounded-full border px-2 py-1 text-[10px] font-black ${view.overdue ? 'border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] text-[var(--dawaa-status-danger-text)]' : 'border-[var(--dawaa-theme-border)]'}`}>{CUSTOMER_REQUEST_STAGE_LABELS[view.stage]}</span>
                     <div className="mt-1 text-[10px] font-bold text-[var(--dawaa-theme-muted)]">{customerRequestStatusLabel(request.status)}</div>
@@ -100,7 +95,7 @@ export default function CustomerRequestsOperationsTable({
                 </tr>
               );
             })}
-            {!rows.length ? <tr><td colSpan={10} className="px-4 py-12 text-center font-bold text-[var(--dawaa-theme-muted)]">لا توجد طلبات مطابقة للفلاتر الحالية</td></tr> : null}
+            {!rows.length ? <tr><td colSpan={8} className="px-4 py-12 text-center font-bold text-[var(--dawaa-theme-muted)]">لا توجد طلبات مطابقة للفلاتر الحالية</td></tr> : null}
           </tbody>
         </table>
       </div>
