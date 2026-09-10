@@ -36,6 +36,15 @@ export const CUSTOMER_REQUEST_STATUS_LABELS: Record<CanonicalCustomerRequestStat
 
 export type CustomerRequestOperationalStage = 'intake' | 'sourcing' | 'ready' | 'contact' | 'completed' | 'exception';
 
+export const CUSTOMER_REQUEST_STAGE_LABELS: Record<CustomerRequestOperationalStage, string> = {
+  intake: 'استلام',
+  sourcing: 'بحث وتوفير',
+  ready: 'جاهز',
+  contact: 'تواصل',
+  completed: 'مكتمل',
+  exception: 'استثناء',
+};
+
 export function normalizeCustomerRequestStatus(value?: string | null): CanonicalCustomerRequestStatus {
   const normalized = String(value || 'new').trim().toLowerCase();
   return (CUSTOMER_REQUEST_WORKFLOW as readonly string[]).includes(normalized)

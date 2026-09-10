@@ -1,6 +1,6 @@
 import type { CustomerRequest } from '@/lib/api/customerRequests';
 import { customerRequestOperationalView } from '../domain/request';
-import { customerRequestStatusLabel } from '../domain/status';
+import { customerRequestStatusLabel, CUSTOMER_REQUEST_STAGE_LABELS } from '../domain/status';
 import { customerRequestBranchLabel } from '../domain/branch';
 
 export interface CustomerRequestProductMetric {
@@ -91,7 +91,10 @@ export default function CustomerRequestsOperationsTable({
                   <td className="px-3 py-3"><div className="font-black text-[var(--dawaa-theme-heading)]">{view.registrar.name || 'غير مربوط'}</div><div className="mt-1 text-[10px] text-[var(--dawaa-theme-muted)]">{view.owner ? `المسئول: ${view.owner}` : 'بدون مسئول حالي'}</div></td>
                   <td className="px-3 py-3"><div className="whitespace-nowrap font-bold">{dateTime(request.requested_at || request.created_at)}</div><div className="mt-1 whitespace-nowrap text-[10px] text-[var(--dawaa-theme-muted)]">الإجراء/الموعد: {dateTime(view.dueAt)}</div></td>
                   <td className="px-3 py-3">{metric ? <div><strong className={`text-sm ${Number(metric.fulfillmentRate || 0) >= 70 ? 'text-[var(--dawaa-status-success-text)]' : 'text-[var(--dawaa-status-warning-text)]'}`}>{Number(metric.fulfillmentRate || 0).toLocaleString('ar-EG', { maximumFractionDigits: 1 })}%</strong><div className="mt-1 text-[10px] text-[var(--dawaa-theme-muted)]">{metric.fulfilledCount}/{metric.requestsCount} خلال الفترة</div></div> : <span className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">لا توجد عينة كافية</span>}</td>
-                  <td className="px-3 py-3"><span className={`rounded-full border px-2 py-1 text-[10px] font-black ${view.overdue ? 'border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] text-[var(--dawaa-status-danger-text)]' : 'border-[var(--dawaa-theme-border)]'}`}>{customerRequestStatusLabel(request.status)}</span></td>
+                  <td className="px-3 py-3">
+                    <span className={`rounded-full border px-2 py-1 text-[10px] font-black ${view.overdue ? 'border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] text-[var(--dawaa-status-danger-text)]' : 'border-[var(--dawaa-theme-border)]'}`}>{CUSTOMER_REQUEST_STAGE_LABELS[view.stage]}</span>
+                    <div className="mt-1 text-[10px] font-bold text-[var(--dawaa-theme-muted)]">{customerRequestStatusLabel(request.status)}</div>
+                  </td>
                   <td className="px-3 py-3"><span className={view.overdue ? 'font-black text-[var(--dawaa-status-danger-text)]' : 'font-black'}>{ageText(view.ageHours)}</span></td>
                   <td className="px-3 py-3"><span className="font-black text-[var(--dawaa-theme-primary)]">{view.primaryAction.label}</span><div className="mt-1 text-[10px] font-bold text-[var(--dawaa-theme-muted)]">اضغط للفتح والتنفيذ</div></td>
                 </tr>
