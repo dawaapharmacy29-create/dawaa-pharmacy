@@ -98,17 +98,12 @@ export default function CustomerRequestsWorkspace() {
   }, [canManageRequests, createOpen, workspace.selectedRequestId, workspace.selectRequest]);
 
   const visibleProductCodes = useMemo(
-    () => Array.from(
-      new Set(workspace.rows.map((row) => String(row.product_code || '').trim()).filter(Boolean))
-    ).sort(),
+    () => Array.from(new Set(workspace.rows.map((row) => String(row.product_code || '').trim()).filter(Boolean))).sort(),
     [workspace.rows]
   );
   const visibleProductCodesKey = visibleProductCodes.join('|');
   const visibleProductStateKey = useMemo(
-    () => workspace.rows
-      .map((row) => `${row.id}:${row.status || 'new'}:${row.product_code || ''}`)
-      .sort()
-      .join('|'),
+    () => workspace.rows.map((row) => `${row.id}:${row.status || 'new'}:${row.product_code || ''}`).sort().join('|'),
     [workspace.rows]
   );
 
@@ -182,45 +177,101 @@ export default function CustomerRequestsWorkspace() {
   const selectedBranchValue = canAccessAllBranches ? workspace.filters.branch || 'all' : scopedBranchKey || workspace.filters.branch || 'all';
 
   return (
-    <section className="space-y-4" dir="rtl">
-      <header className="rounded-3xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] p-4 shadow-lg md:p-5">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+    <section className="space-y-3" dir="rtl">
+      <header className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-3 shadow-sm md:p-3.5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2"><h1 className="text-2xl font-black text-[var(--dawaa-theme-heading)]">طلبات العملاء</h1><span className="rounded-full border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] px-2.5 py-1 text-[10px] font-black text-[var(--dawaa-status-success-text)]">Operations Workspace</span>{!canManageRequests ? <span className="rounded-full border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-2.5 py-1 text-[10px] font-black text-[var(--dawaa-status-warning-text)]">عرض فقط</span> : null}{!canAccessAllBranches && scopedBranchKey ? <span className="rounded-full border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] px-2.5 py-1 text-[10px] font-black text-[var(--dawaa-theme-muted)]">نطاق الفرع فقط</span> : null}</div>
-            <p className="mt-1 max-w-3xl text-sm font-bold leading-7 text-[var(--dawaa-theme-muted)]">العميل والكود والصنف والكود والمرحلة والموعد والدكتور ومعدل التوفير والإجراء التالي في شاشة تنفيذ واحدة مرتبطة بنظام النقاط المركزي.</p>
-            <p className="mt-2 text-xs font-black text-[var(--dawaa-theme-heading)]">
-              إجمالي الطلبات المفتوحة: <span className="text-[var(--dawaa-theme-primary)]">{Number(workspace.summary.open || 0).toLocaleString('ar-EG')}</span>
-              <span className="mx-2 text-[var(--dawaa-theme-muted)]">·</span>
-              نسبة التوفير: <span className="text-[var(--dawaa-theme-primary)]">{Number(workspace.summary.fulfillment_rate || 0).toLocaleString('ar-EG', { maximumFractionDigits: 1 })}%</span>
-              <span className="mx-2 text-[var(--dawaa-theme-muted)]">·</span>
-              تم التسليم: <span className="text-[var(--dawaa-theme-primary)]">{Number(workspace.summary.delivered || 0).toLocaleString('ar-EG')}</span>
-            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-xl font-black text-[var(--dawaa-theme-heading)]">طلبات العملاء</h1>
+              {!canManageRequests ? <span className="rounded-full border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-2 py-0.5 text-[9px] font-black text-[var(--dawaa-status-warning-text)]">عرض فقط</span> : null}
+              {!canAccessAllBranches && scopedBranchKey ? <span className="rounded-full border border-[var(--dawaa-theme-border)] px-2 py-0.5 text-[9px] font-black text-[var(--dawaa-theme-muted)]">نطاق الفرع</span> : null}
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] font-black">
+              <MetricChip label="مفتوح" value={Number(workspace.summary.open || 0).toLocaleString('ar-EG')} />
+              <MetricChip label="تم التسليم" value={Number(workspace.summary.delivered || 0).toLocaleString('ar-EG')} />
+              <MetricChip label="نسبة التوفير" value={`${Number(workspace.summary.fulfillment_rate || 0).toLocaleString('ar-EG', { maximumFractionDigits: 1 })}%`} />
+            </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {canManageRequests ? <button type="button" className="btn-primary flex items-center gap-2" onClick={() => setCreateOpen(true)}><Plus size={16} /> تسجيل طلب</button> : null}
-            <button type="button" className="btn-secondary flex items-center gap-2" onClick={() => void workspace.refresh()} disabled={workspace.loading}><RefreshCw size={16} className={workspace.loading ? 'animate-spin' : ''} /> تحديث</button>
-            <button type="button" className="btn-secondary flex items-center gap-2" onClick={() => void exportFiltered()} disabled={exporting || workspace.count === 0}><Download size={16} /> {exporting ? 'جاري التصدير...' : 'تصدير Excel'}</button>
+
+          <div className="flex flex-wrap gap-1.5">
+            {canManageRequests ? <button type="button" className="btn-primary flex items-center gap-1.5 px-3 py-2 text-xs" onClick={() => setCreateOpen(true)}><Plus size={15} /> تسجيل طلب</button> : null}
+            <button type="button" className="btn-secondary flex items-center gap-1.5 px-3 py-2 text-xs" onClick={() => void workspace.refresh()} disabled={workspace.loading}><RefreshCw size={15} className={workspace.loading ? 'animate-spin' : ''} /> تحديث</button>
+            <button type="button" className="btn-secondary flex items-center gap-1.5 px-3 py-2 text-xs" onClick={() => void exportFiltered()} disabled={exporting || workspace.count === 0}><Download size={15} /> {exporting ? 'جاري التصدير...' : 'Excel'}</button>
           </div>
         </div>
 
-        <div className="mt-4 grid gap-2 md:grid-cols-[minmax(0,1fr)_190px_170px_auto]"><input className="input-dark" value={workspace.filters.search || ''} onChange={(event) => workspace.updateFilters({ search: event.target.value, ...clearEntityFilters })} placeholder="بحث بالعميل، كود العميل، الهاتف، اسم الصنف أو كود الصنف" /><select className="input-dark" value={selectedBranchValue} disabled={!canAccessAllBranches} onChange={(event) => workspace.updateFilters({ branch: event.target.value })}>{canAccessAllBranches ? <option value="all">كل الفروع</option> : null}{canAccessAllBranches || scopedBranchKey === 'shokry' ? <option value="shokry">دواء شكري</option> : null}{canAccessAllBranches || scopedBranchKey === 'elshamy' ? <option value="elshamy">دواء الشامي</option> : null}</select><select className="input-dark" value={workspace.pageSize} onChange={(event) => workspace.setPageSize(Number(event.target.value))}><option value={20}>20 طلب / صفحة</option><option value={30}>30 طلب / صفحة</option><option value={50}>50 طلب / صفحة</option></select><button type="button" className="btn-secondary flex items-center justify-center gap-2" onClick={() => setShowAdvancedFilters((value) => !value)}><Filter size={15} /> فلاتر</button></div>
+        <div className="mt-3 grid gap-2 md:grid-cols-[minmax(0,1fr)_170px_auto]">
+          <input
+            className="input-dark"
+            value={workspace.filters.search || ''}
+            onChange={(event) => workspace.updateFilters({ search: event.target.value, ...clearEntityFilters })}
+            placeholder="بحث بالعميل، الهاتف، الصنف أو الكود"
+          />
+          <select className="input-dark" value={selectedBranchValue} disabled={!canAccessAllBranches} onChange={(event) => workspace.updateFilters({ branch: event.target.value })}>
+            {canAccessAllBranches ? <option value="all">كل الفروع</option> : null}
+            {canAccessAllBranches || scopedBranchKey === 'shokry' ? <option value="shokry">دواء شكري</option> : null}
+            {canAccessAllBranches || scopedBranchKey === 'elshamy' ? <option value="elshamy">دواء الشامي</option> : null}
+          </select>
+          <button type="button" className="btn-secondary flex items-center justify-center gap-1.5 px-3" onClick={() => setShowAdvancedFilters((value) => !value)}>
+            <Filter size={14} /> {showAdvancedFilters ? 'إخفاء الفلاتر' : 'فلاتر إضافية'}
+          </button>
+        </div>
 
-        {showAdvancedFilters ? <div className="mt-3 rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-3"><div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4"><select className="input-dark" value={workspace.filters.status || 'all'} onChange={(event) => workspace.updateFilters({ status: event.target.value, quickFilter: 'all' })}><option value="all">كل الحالات</option><option value="new">تسجيل الطلب</option><option value="purchasing_review">استلام المشتريات</option><option value="searching_suppliers">البحث والتوفير</option><option value="needs_customer_confirmation">يحتاج تأكيد العميل</option><option value="customer_confirmed">تم تأكيد العميل</option><option value="sourcing">جاري التوفير</option><option value="available">تم التوفير</option><option value="arrived">وصل للصيدلية</option><option value="customer_contacted">تم التواصل</option><option value="delivered">تم التسليم</option><option value="not_available">غير متوفر</option><option value="cancelled">ملغي</option></select><select className="input-dark" value={workspace.filters.urgency || 'all'} onChange={(event) => workspace.updateFilters({ urgency: event.target.value })}><option value="all">كل الأولويات</option><option value="urgent">عاجل</option><option value="high">مهم</option><option value="normal">عادي</option></select><input className="input-dark" value={workspace.filters.assignee === 'all' ? '' : workspace.filters.assignee || ''} onChange={(event) => workspace.updateFilters({ assignee: event.target.value.trim() ? event.target.value : 'all' })} placeholder="المسئول الحالي" /><select className="input-dark" value={workspace.filters.sourceChannel || 'all'} onChange={(event) => workspace.updateFilters({ sourceChannel: event.target.value })}><option value="all">كل قنوات الطلب</option><option value="داخل الصيدلية">داخل الصيدلية</option><option value="واتساب">واتساب</option><option value="مكالمة هاتفية">مكالمة هاتفية</option></select><label className="text-[10px] font-black text-[var(--dawaa-theme-muted)]">من تاريخ<input type="date" className="input-dark mt-1" value={workspace.filters.dateFrom || ''} onChange={(event) => workspace.updateFilters({ dateFrom: event.target.value })} /></label><label className="text-[10px] font-black text-[var(--dawaa-theme-muted)]">إلى تاريخ<input type="date" className="input-dark mt-1" value={workspace.filters.dateTo || ''} onChange={(event) => workspace.updateFilters({ dateTo: event.target.value })} /></label><select className="input-dark self-end" value={workspace.filters.sourceSystem || 'all'} onChange={(event) => workspace.updateFilters({ sourceSystem: event.target.value })}><option value="all">كل مصادر البيانات</option><option value="manual">تسجيل التطبيق</option><option value="dawaawael">DawaaWael / Base44</option></select><button type="button" className="btn-secondary self-end flex items-center justify-center gap-2" onClick={resetAdvancedFilters}><RotateCcw size={14} /> مسح الفلاتر المتقدمة</button></div></div> : null}
+        {showAdvancedFilters ? (
+          <div className="mt-2.5 rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-2.5">
+            <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+              <select className="input-dark" value={workspace.filters.status || 'all'} onChange={(event) => workspace.updateFilters({ status: event.target.value, quickFilter: 'all' })}>
+                <option value="all">كل الحالات</option><option value="new">تسجيل الطلب</option><option value="purchasing_review">استلام المشتريات</option><option value="searching_suppliers">البحث والتوفير</option><option value="needs_customer_confirmation">يحتاج تأكيد العميل</option><option value="customer_confirmed">تم تأكيد العميل</option><option value="sourcing">جاري التوفير</option><option value="available">تم التوفير</option><option value="arrived">وصل للصيدلية</option><option value="customer_contacted">تم التواصل</option><option value="delivered">تم التسليم</option><option value="not_available">غير متوفر</option><option value="cancelled">ملغي</option>
+              </select>
+              <select className="input-dark" value={workspace.filters.urgency || 'all'} onChange={(event) => workspace.updateFilters({ urgency: event.target.value })}>
+                <option value="all">كل الأولويات</option><option value="urgent">عاجل</option><option value="high">مهم</option><option value="normal">عادي</option>
+              </select>
+              <input className="input-dark" value={workspace.filters.assignee === 'all' ? '' : workspace.filters.assignee || ''} onChange={(event) => workspace.updateFilters({ assignee: event.target.value.trim() ? event.target.value : 'all' })} placeholder="المسئول الحالي" />
+              <select className="input-dark" value={workspace.filters.sourceChannel || 'all'} onChange={(event) => workspace.updateFilters({ sourceChannel: event.target.value })}>
+                <option value="all">كل قنوات الطلب</option><option value="داخل الصيدلية">داخل الصيدلية</option><option value="واتساب">واتساب</option><option value="مكالمة هاتفية">مكالمة هاتفية</option>
+              </select>
+              <label className="text-[10px] font-black text-[var(--dawaa-theme-muted)]">من تاريخ<input type="date" className="input-dark mt-1" value={workspace.filters.dateFrom || ''} onChange={(event) => workspace.updateFilters({ dateFrom: event.target.value })} /></label>
+              <label className="text-[10px] font-black text-[var(--dawaa-theme-muted)]">إلى تاريخ<input type="date" className="input-dark mt-1" value={workspace.filters.dateTo || ''} onChange={(event) => workspace.updateFilters({ dateTo: event.target.value })} /></label>
+              <select className="input-dark self-end" value={workspace.filters.sourceSystem || 'all'} onChange={(event) => workspace.updateFilters({ sourceSystem: event.target.value })}>
+                <option value="all">كل مصادر البيانات</option><option value="manual">تسجيل التطبيق</option><option value="dawaawael">DawaaWael / Base44</option>
+              </select>
+              <select className="input-dark self-end" value={workspace.pageSize} onChange={(event) => workspace.setPageSize(Number(event.target.value))}>
+                <option value={20}>20 طلب / صفحة</option><option value={30}>30 طلب / صفحة</option><option value={50}>50 طلب / صفحة</option>
+              </select>
+            </div>
+            <div className="mt-2 flex justify-end">
+              <button type="button" className="btn-secondary flex items-center justify-center gap-1.5 px-3 py-2 text-xs" onClick={resetAdvancedFilters}><RotateCcw size={13} /> مسح الفلاتر</button>
+            </div>
+          </div>
+        ) : null}
       </header>
 
-      {workspace.summaryError ? <div className="rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-3 py-2 text-sm font-bold text-[var(--dawaa-status-warning-text)]">تعذر تحميل المؤشرات فقط، لكن قائمة التنفيذ مستقلة وما زالت تعمل: {workspace.summaryError}</div> : null}
+      {workspace.summaryError ? <div className="rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-3 py-2 text-sm font-bold text-[var(--dawaa-status-warning-text)]">تعذر تحميل المؤشرات فقط، لكن قائمة التنفيذ ما زالت تعمل: {workspace.summaryError}</div> : null}
 
       <CustomerRequestQueueStrip summary={workspace.summary} activeFilter={workspace.filters.quickFilter} onSelect={(quickFilter) => workspace.updateFilters({ quickFilter, status: 'all', ...clearEntityFilters })} />
 
-      <section className="rounded-3xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-3 shadow-lg md:p-4">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-3"><div><div className="flex items-center gap-2 font-black text-[var(--dawaa-theme-heading)]"><BarChart3 size={17} className="text-[var(--dawaa-theme-primary)]" /> قائمة التنفيذ</div><div className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">{workspace.count.toLocaleString('ar-EG')} طلب مطابق · معدل كل صنف مبني على آخر 90 يومًا للأصناف الظاهرة فقط؛ مؤشر نسبة التوفير بالأعلى = الطلبات التي وصلت لمرحلة التوفير ÷ إجمالي الطلبات.</div></div>{workspace.listLoading ? <span className="text-xs font-bold text-[var(--dawaa-theme-primary)]">جاري تحديث القائمة...</span> : null}</div>
-        {workspace.listError ? <div className="mb-3 rounded-xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] px-3 py-2 text-sm font-bold text-[var(--dawaa-status-danger-text)]">تعذر تحميل القائمة: {workspace.listError}</div> : null}
+      <section className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-2.5 shadow-sm md:p-3">
+        <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div className="flex items-center gap-1.5 text-sm font-black text-[var(--dawaa-theme-heading)]"><BarChart3 size={15} className="text-[var(--dawaa-theme-primary)]" /> قائمة التنفيذ <span className="text-xs font-bold text-[var(--dawaa-theme-muted)]">({workspace.count.toLocaleString('ar-EG')})</span></div>
+            <div className="mt-0.5 text-[10px] font-bold text-[var(--dawaa-theme-muted)]">اضغط على أي طلب لفتح التفاصيل والتنفيذ.</div>
+          </div>
+          {workspace.listLoading ? <span className="text-[11px] font-bold text-[var(--dawaa-theme-primary)]">جاري التحديث...</span> : null}
+        </div>
+        {workspace.listError ? <div className="mb-2.5 rounded-xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] px-3 py-2 text-sm font-bold text-[var(--dawaa-status-danger-text)]">تعذر تحميل القائمة: {workspace.listError}</div> : null}
         <CustomerRequestsOperationsTable rows={workspace.rows} selectedId={workspace.selectedRequestId} onSelect={selectRequest} productMetrics={productMetrics} />
-        <div className="mt-3 flex items-center justify-between gap-3 text-sm font-bold text-[var(--dawaa-theme-muted)]"><span>صفحة {workspace.page} من {workspace.pages}</span><div className="flex gap-2"><button type="button" className="btn-secondary" disabled={workspace.page <= 1 || workspace.listLoading} onClick={() => workspace.setPage(Math.max(1, workspace.page - 1))}>السابق</button><button type="button" className="btn-secondary" disabled={workspace.page >= workspace.pages || workspace.listLoading} onClick={() => workspace.setPage(Math.min(workspace.pages, workspace.page + 1))}>التالي</button></div></div>
+        <div className="mt-2.5 flex items-center justify-between gap-3 text-xs font-bold text-[var(--dawaa-theme-muted)]">
+          <span>صفحة {workspace.page} من {workspace.pages}</span>
+          <div className="flex gap-1.5"><button type="button" className="btn-secondary px-3 py-1.5 text-xs" disabled={workspace.page <= 1 || workspace.listLoading} onClick={() => workspace.setPage(Math.max(1, workspace.page - 1))}>السابق</button><button type="button" className="btn-secondary px-3 py-1.5 text-xs" disabled={workspace.page >= workspace.pages || workspace.listLoading} onClick={() => workspace.setPage(Math.min(workspace.pages, workspace.page + 1))}>التالي</button></div>
+        </div>
       </section>
 
       {canManageRequests && createOpen ? <CanonicalCreateRequestDialog onClose={() => setCreateOpen(false)} onCreated={onCreated} /> : null}
       {canManageRequests && workspace.selectedRequest ? <CustomerRequestDetailsDrawer request={workspace.selectedRequest} onClose={() => workspace.selectRequest(null)} onUpdated={onUpdated} /> : null}
     </section>
   );
+}
+
+function MetricChip({ label, value }: { label: string; value: string }) {
+  return <span className="rounded-lg border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] px-2.5 py-1 text-[var(--dawaa-theme-muted)]"><strong className="ml-1 text-[var(--dawaa-theme-heading)]">{value}</strong>{label}</span>;
 }
