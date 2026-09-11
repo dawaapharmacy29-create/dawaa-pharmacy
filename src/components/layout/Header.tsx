@@ -103,6 +103,58 @@ function isUrgent(item: AppNotification) {
   return /urgent|critical|high|عاجل|حرج|خطر|مرتفع/i.test(String(item.priority || item.type || ''));
 }
 
+type HeaderNotificationBucket = 'tasks' | 'customers' | 'reviews' | 'system' | 'other';
+
+function headerNotificationBucket(item: AppNotification): HeaderNotificationBucket {
+  const type = String(item.type || item.target_type || '').trim().toLowerCase();
+  const text = `${type} ${item.title || ''} ${item.body || ''} ${item.message || ''}`.toLowerCase();
+
+  if (/task|checklist|team[_ -]?alpha|daily_task_reminder|مهمة|تشيك/.test(text)) return 'tasks';
+  if (/conversation_review|chat_evaluation|تقييم محادثة/.test(text)) return 'reviews';
+  if (/vip|customer_alert|customer_followup|daily_customer_attention|عميل|متابعة عميل/.test(text)) return 'customers';
+  if (/sync|system|manager_alert|branch_manager|مزامن|تنبيه نظام|تنبيه إداري/.test(text)) return 'system';
+  return 'other';
+}
+
+function selectHeaderNotifications(items: AppNotification[], limit = 10): AppNotification[] {
+  const operational = [...items].sort(compareNotificationsOperationally);
+  const newest = [...items].sort(
+    (a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+  );
+  const selected: AppNotification[] = [];
+  const seen = new Set<string>();
+
+  const add = (item: AppNotification) => {
+    if (!item?.id || seen.has(item.id) || selected.length >= limit) return false;
+    seen.add(item.id);
+    selected.push(item);
+    return true;
+  };
+
+  const take = (bucket: HeaderNotificationBucket, count: number) => {
+    let taken = 0;
+    for (const item of operational) {
+      if (taken >= count || selected.length >= limit) break;
+      if (headerNotificationBucket(item) === bucket && add(item)) taken += 1;
+    }
+  };
+
+  // Keep the header useful: important work must not be buried under a burst of one alert family.
+  take('tasks', 2);
+  take('customers', 3);
+  take('reviews', 1);
+  take('system', 2);
+  take('other', 1);
+
+  // Reserve the final slots for fresh events so newly-created notifications always get a chance to surface.
+  for (const item of newest) {
+    if (selected.length >= limit) break;
+    add(item);
+  }
+
+  return selected;
+}
+
 export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
   const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
@@ -125,20 +177,23 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
   } = useNotifications();
 
   const visibleNotifications = useMemo(
-    () => [...notifications].sort(compareNotificationsOperationally),
+    () => selectHeaderNotifications(notifications, 10),
     [notifications]
   );
-  const visibleUnreadCount = visibleNotifications.filter((item) => !item.read && !item.is_read).length;
+  const visibleUnreadCount = notifications.filter((item) => !item.read && !item.is_read).length;
+  const newestNotification = useMemo(
+    () => [...notifications].sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())[0],
+    [notifications]
+  );
 
   useEffect(() => {
     if (prevUnread.current === null) {
       prevUnread.current = visibleUnreadCount;
       return;
     }
-    const newest = visibleNotifications[0];
-    if (visibleUnreadCount > prevUnread.current && newest) playNotificationBeep();
+    if (visibleUnreadCount > prevUnread.current && newestNotification) playNotificationBeep();
     prevUnread.current = visibleUnreadCount;
-  }, [visibleNotifications, visibleUnreadCount]);
+  }, [newestNotification, visibleUnreadCount]);
 
   const markAllRead = async () => {
     await markAllAsRead();
@@ -226,7 +281,7 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
                   <div className="dawaa-header-muted py-8 text-center text-sm font-bold">نظام الإشعارات يحتاج تفعيل قاعدة البيانات</div>
                 ) : visibleNotifications.length === 0 ? (
                   <div className="dawaa-header-muted py-8 text-center text-sm font-bold">لا توجد إشعارات مسجلة حاليًا</div>
-                ) : visibleNotifications.slice(0, 10).map((item) => (
+                ) : visibleNotifications.map((item) => (
                   <button key={item.id} type="button" onClick={() => void openNotification(item)} className={cn('dawaa-header-notification-row w-full border-b px-4 py-3 text-right transition last:border-0', !item.read && !item.is_read && 'is-unread')}>
                     <div className="flex items-start gap-2.5">
                       <span className={cn('dawaa-badge mt-0.5 shrink-0 px-2 py-0.5 text-xs font-black', isUrgent(item) ? 'dawaa-badge--danger' : notificationTone[String(item.type)] || notificationTone.system)}>
