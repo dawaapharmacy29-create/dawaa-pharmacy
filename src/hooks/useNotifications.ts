@@ -206,7 +206,7 @@ export function useNotifications() {
 
     notificationRuntime.refreshPromise = (async () => {
       try {
-        const result = await getRecentNotifications({ limit: 100 });
+        const result = await getRecentNotifications({ limit: 300 });
         const unique = new Map<string, AppNotification>();
         for (const item of result) {
           const normalized = { ...item, route: notificationRoute(item) };
