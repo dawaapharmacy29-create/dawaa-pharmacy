@@ -41,6 +41,21 @@ export type CompensationProfileInput = {
   monthlyIncentiveBase: number;
 };
 
+export type PayrollSaveInput = {
+  staffUsername: string;
+  payrollMonth: string;
+  workedHours: number;
+  overtimeHours: number;
+  manualIncentives: number;
+  expiryShortageDeduction: number;
+  branchGeneralDeduction: number;
+  individualDeduction: number;
+  otherDeduction: number;
+  manualAdjustment: number;
+  notes?: string | null;
+  status: string;
+};
+
 const number = (value: unknown) => {
   const parsed = Number(value ?? 0);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -111,4 +126,23 @@ export async function saveCompensationProfile(input: CompensationProfileInput) {
     updated_at: new Date().toISOString(),
   }, { onConflict: 'staff_id' });
   if (error) throw new Error(error.message);
+}
+
+export async function savePayrollV17(input: PayrollSaveInput) {
+  const { data, error } = await supabase.rpc('save_staff_payroll_monthly_v17', {
+    p_staff_username: input.staffUsername,
+    p_payroll_month: input.payrollMonth,
+    p_worked_hours: number(input.workedHours),
+    p_overtime_hours: number(input.overtimeHours),
+    p_manual_incentives: number(input.manualIncentives),
+    p_expiry_shortage_deduction: number(input.expiryShortageDeduction),
+    p_branch_general_deduction: number(input.branchGeneralDeduction),
+    p_individual_deduction: number(input.individualDeduction),
+    p_other_deduction: number(input.otherDeduction),
+    p_manual_adjustment: number(input.manualAdjustment),
+    p_notes: input.notes || null,
+    p_status: input.status,
+  });
+  if (error) throw new Error(error.message);
+  return data;
 }
