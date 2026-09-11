@@ -1,0 +1,1 @@
+Scope: replace generic employee task generation with role-specific task rows while preserving the current notification architecture and existing task table. This change does not add a new cron, read model, or notification writer.
