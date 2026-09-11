@@ -108,6 +108,8 @@ interface ConversationReviewHistoryRow {
   manager_review_notes?: string | null;
   manager_reviewed_by?: string | null;
   manager_reviewed_at?: string | null;
+  repeat_count?: number | string | null;
+  repeat_multiplier?: number | string | null;
 }
 
 interface ReviewDraftPayload {
@@ -360,6 +362,51 @@ function rowReviewItems(row: ConversationReviewHistoryRow) {
   return [];
 }
 
+function reviewStateFromRow(row: ConversationReviewHistoryRow): ConversationReviewState {
+  const next = defaultReviewState();
+  const raw = normalizeRawScores(row.raw_scores);
+  if (raw?.criteria && typeof raw.criteria === 'object') {
+    for (const criterion of REVIEW_CRITERIA) {
+      const saved = raw.criteria[criterion.key];
+      if (!saved || typeof saved !== 'object') continue;
+      next[criterion.key] = {
+        ...next[criterion.key],
+        ...saved,
+        applies: saved.applies !== false,
+      };
+    }
+    return next;
+  }
+
+  for (const item of rowReviewItems(row)) {
+    const key = item?.key as ReviewCriterionKey | undefined;
+    const criterion = REVIEW_CRITERIA.find((candidate) => candidate.key === key);
+    if (!criterion || !key) continue;
+    const selected = String(item.choice || item.selectedOption || '');
+    const matchingChoice =
+      criterion.choices.find((choice) => choice.value === selected) ||
+      criterion.choices.find((choice) => choice.label === selected);
+    next[key] = {
+      ...next[key],
+      applies: item.applies !== false,
+      choice: matchingChoice?.value || next[key].choice,
+      notes: item.notes || '',
+    };
+  }
+  return next;
+}
+
+function severeErrorsFromRow(row: ConversationReviewHistoryRow): SevereErrorsState {
+  const next = defaultSevereErrors();
+  const raw = normalizeRawScores(row.raw_scores);
+  const saved = raw?.severe_errors;
+  if (!saved || typeof saved !== 'object') return next;
+  for (const key of Object.keys(next) as SevereErrorKey[]) {
+    next[key] = Boolean(saved[key]);
+  }
+  return next;
+}
+
 export default function Reviews() {
   const { user, checkPermission } = useAuth();
   const navigate = useNavigate();
@@ -408,6 +455,11 @@ export default function Reviews() {
     }
   }, []);
 
+  const openReviewDetails = useCallback((row: ConversationReviewHistoryRow) => {
+    setSelectedReview(row);
+    setSelectedReviewId(row.id || null);
+  }, []);
+
   useEffect(() => {
     return () => {
       closeSelectedReview();
@@ -420,14 +472,23 @@ export default function Reviews() {
     strengths: '',
     improvements: '',
   });
+  const [editReviewState, setEditReviewState] = useState<ConversationReviewState>(defaultReviewState());
+  const [editSevereErrors, setEditSevereErrors] = useState<SevereErrorsState>(defaultSevereErrors());
   const [editForm, setEditForm] = useState({
+    reviewer_id: '',
+    reviewer_name: '',
+    reviewer_role: '',
     staff_id: '',
     staff_name: '',
+    staff_role: '',
+    branch: '',
     customer_name: '',
     customer_code: '',
     customer_phone: '',
-    final_score: '',
-    point_impact: '',
+    evaluation_kind: 'واتساب',
+    evaluation_reason: 'مراجعة عشوائية',
+    conversation_date: '',
+    invoice_number: '',
     reviewer_notes: '',
     training_recommendation: '',
     manager_note: '',
@@ -1292,19 +1353,40 @@ export default function Reviews() {
     toast.success('تم فتح تقييم جديد');
   };
 
-  const openEdit = (row: ConversationReviewHistoryRow) => {
-    setEditingReview(row);
+  const openEdit = async (row: ConversationReviewHistoryRow) => {
+    let fullRow = row;
+    if (row.id && row.raw_scores == null && row.review_items == null) {
+      const { data, error } = await supabase
+        .from('conversation_sales_reviews')
+        .select('*')
+        .eq('id', row.id)
+        .maybeSingle();
+      if (!error && data) fullRow = data as ConversationReviewHistoryRow;
+    }
+
+    setEditingReview(fullRow);
+    setEditReviewState(reviewStateFromRow(fullRow));
+    setEditSevereErrors(severeErrorsFromRow(fullRow));
     setEditForm({
-      staff_id: row.staff_id || row.doctor_id || '',
-      staff_name: row.staff_name || row.doctor_name || '',
-      customer_name: row.customer_name || '',
-      customer_code: row.customer_code || '',
-      customer_phone: row.customer_phone || '',
-      final_score: String(scoreOf(row) || ''),
-      point_impact: String(impactOf(row) || '0'),
-      reviewer_notes: row.reviewer_notes || '',
-      training_recommendation: row.training_recommendation || '',
-      manager_note: row.manager_review_notes || '',
+      reviewer_id: fullRow.reviewer_id || '',
+      reviewer_name: fullRow.reviewer_name || '',
+      reviewer_role: fullRow.reviewer_role || '',
+      staff_id: fullRow.staff_id || fullRow.doctor_id || '',
+      staff_name: fullRow.staff_name || fullRow.doctor_name || '',
+      staff_role: fullRow.staff_role || '',
+      branch: fullRow.branch || '',
+      customer_name: fullRow.customer_name || '',
+      customer_code: fullRow.customer_code || '',
+      customer_phone: fullRow.customer_phone || '',
+      evaluation_kind: fullRow.evaluation_kind || fullRow.conversation_type || 'واتساب',
+      evaluation_reason: fullRow.evaluation_reason || 'مراجعة عشوائية',
+      conversation_date: fullRow.conversation_date
+        ? new Date(fullRow.conversation_date).toISOString().slice(0, 16)
+        : '',
+      invoice_number: fullRow.invoice_number || '',
+      reviewer_notes: fullRow.reviewer_notes || '',
+      training_recommendation: fullRow.training_recommendation || '',
+      manager_note: fullRow.manager_review_notes || '',
     });
   };
 
@@ -1314,33 +1396,195 @@ export default function Reviews() {
       toast.error('لا توجد صلاحية لتعديل التقييم');
       return false;
     }
+    if (!editForm.manager_note.trim()) {
+      toast.error('اكتب سبب تعديل المدير العام لحفظ سجل مراجعة واضح');
+      return false;
+    }
+
     setSaving(true);
     try {
-      const score = Math.max(0, Math.min(100, Number(editForm.final_score || 0)));
-      const impact = Number(editForm.point_impact || 0);
+      const recalculated = evaluateConversationReview(editReviewState, editSevereErrors, '');
+      if (!recalculated.totalApplicableItems || !recalculated.totalApplicablePoints) {
+        toast.error('لازم يكون فيه بند واحد على الأقل منطبق قبل حفظ التعديل');
+        return false;
+      }
+
+      const repeatMultiplier = Math.max(1, Number(editingReview.repeat_multiplier || 1) || 1);
+      const impact =
+        recalculated.doctorPointsImpact < 0
+          ? -Math.min(
+              Math.abs(recalculated.doctorPointsImpact) * repeatMultiplier,
+              Math.abs(MAX_CONVERSATION_PENALTY)
+            )
+          : recalculated.doctorPointsImpact;
+      const oldScore = scoreOf(editingReview);
+      const oldImpact = impactOf(editingReview);
+      const selectedDoctor = mergeStaffChoices(staff).find((item) => item.id === editForm.staff_id);
+      const selectedReviewerEdit = mergeStaffChoices(staff).find(
+        (item) => item.id === editForm.reviewer_id
+      );
+      const conversationDate = editForm.conversation_date
+        ? new Date(editForm.conversation_date)
+        : new Date(editingReview.conversation_date || editingReview.created_at || Date.now());
+      const cycle = getCycleForDate(conversationDate);
+      const cycleLabel = monthCycleFromDate(conversationDate);
+
       const payload = {
+        reviewer_id: asUuid(editForm.reviewer_id),
+        reviewer_name: editForm.reviewer_name.trim() || null,
+        reviewer_role: editForm.reviewer_role.trim() || null,
         staff_id: asUuid(editForm.staff_id),
         doctor_id: asUuid(editForm.staff_id),
         staff_name: editForm.staff_name.trim() || null,
         doctor_name: editForm.staff_name.trim() || null,
+        staff_role: editForm.staff_role.trim() || selectedDoctor?.role || null,
+        branch: editForm.branch.trim() || selectedDoctor?.branch || null,
         customer_name: editForm.customer_name.trim() || null,
         customer_code: editForm.customer_code.trim() || null,
         customer_phone: editForm.customer_phone.trim() || null,
-        final_score: score,
-        total_score: score,
+        evaluation_kind: editForm.evaluation_kind,
+        conversation_type: editForm.evaluation_kind,
+        evaluation_reason: editForm.evaluation_reason,
+        conversation_date: conversationDate.toISOString(),
+        invoice_number: editForm.invoice_number.trim() || null,
+        total_score: recalculated.finalScore,
+        final_score: recalculated.finalScore,
+        level: recalculated.level,
+        conversation_level: recalculated.level,
         point_impact: impact,
         doctor_points_impact: impact,
+        base_points_impact: recalculated.baseDoctorImpact,
+        extra_penalty_points: recalculated.extraPenaltyPoints,
+        impact_status: recalculated.impactStatus,
+        total_applicable_items: recalculated.totalApplicableItems,
+        total_not_applicable_items: recalculated.totalNotApplicableItems,
+        total_applicable_points: recalculated.totalApplicablePoints,
+        earned_points: recalculated.earnedPoints,
+        positive_points: recalculated.earnedPoints,
+        negative_points: Math.max(0, recalculated.totalApplicablePoints - recalculated.earnedPoints),
+        severe_error_points: Math.abs(recalculated.extraPenaltyPoints),
+        main_positive_reason: recalculated.mainPositiveReason,
+        main_negative_reason: recalculated.mainNegativeReason,
+        top_positive_reason: recalculated.mainPositiveReason,
+        top_deduction_reason: recalculated.mainNegativeReason,
+        forgotten_customer: recalculated.forgottenCustomer,
+        missed_sales_opportunity: recalculated.missedSalesOpportunity,
+        missed_sale_opportunity: recalculated.missedSalesOpportunity,
+        successful_cross_sell: recalculated.successfulCrossSell,
+        handled_angry_customer_well: recalculated.handledAngryCustomerWell,
+        excellent_case: recalculated.excellentCase,
+        has_critical_error: recalculated.hasSevereError,
+        repeated_error_type: recalculated.repeatErrorType,
+        month_cycle: cycleLabel,
+        raw_scores: {
+          criteria: editReviewState,
+          severe_errors: editSevereErrors,
+          result: { ...recalculated, doctorPointsImpact: impact },
+          manager_edit: {
+            edited_by: user?.name || 'مدير عام',
+            edited_at: new Date().toISOString(),
+            reason: editForm.manager_note.trim(),
+            previous_score: oldScore,
+            previous_points_impact: oldImpact,
+          },
+        },
+        review_items: recalculated.reviewItems,
+        response_speed_score: getScore('first_response_speed', editReviewState),
+        greeting_score: getScore('greeting', editReviewState),
+        greeting_message_used: editReviewState.greeting.applies
+          ? choiceLabel('greeting', editReviewState.greeting.choice)
+          : null,
+        doctor_name_used_in_greeting:
+          editReviewState.greeting.applies &&
+          ['official_full', 'close_with_name'].includes(editReviewState.greeting.choice),
+        doctor_name_used:
+          editReviewState.doctor_name.applies && editReviewState.doctor_name.choice !== 'none',
+        doctor_name_score: getScore('doctor_name', editReviewState),
+        customer_name_used:
+          editReviewState.customer_name.applies && editReviewState.customer_name.choice === 'used',
+        customer_name_score: getScore('customer_name', editReviewState),
+        tone_language_score: getScore('tone', editReviewState),
+        bad_tone_flag:
+          editReviewState.tone.applies &&
+          ['dry', 'bad', 'very_bad', 'insult'].includes(editReviewState.tone.choice),
+        understanding_score: getScore('understanding', editReviewState),
+        follow_up_score: getScore('followup_after_wait', editReviewState),
+        consultation_quality_score: getScore('consultation_quality', editReviewState),
+        dosage_explanation_score: getScore('dosage_explanation', editReviewState),
+        alternative_handling_score: getScore('unavailable_items', editReviewState),
+        sales_quality_score: getScore('sales_closing', editReviewState),
+        upsell_cross_sell_score: getScore('cross_sell_upsell', editReviewState),
+        complaint_handling_score: getScore('angry_customer', editReviewState),
+        order_confirmation_score: getScore('order_confirmation', editReviewState),
+        closing_message_score: getScore('closing_message', editReviewState),
         reviewer_notes: editForm.reviewer_notes,
-        training_recommendation: editForm.training_recommendation,
-        manager_review_notes: editForm.manager_note,
+        training_recommendation:
+          editForm.training_recommendation.trim() || recalculated.trainingRecommendation,
+        manager_review_notes: editForm.manager_note.trim(),
         manager_reviewed_by: user?.name || 'مدير عام',
         manager_reviewed_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
+
       await updateSafe('conversation_sales_reviews', editingReview.id, payload);
+
+      const delta = impact - oldImpact;
+      if (delta !== 0 && editForm.staff_id) {
+        const pointsResult = await persistPointsTransaction({
+          employeeId: editForm.staff_id,
+          employeeName: editForm.staff_name || selectedDoctor?.name || 'موظف',
+          branch: editForm.branch || selectedDoctor?.branch || editingReview.branch || '',
+          branchId: selectedDoctor?.branch_id ?? null,
+          operation: 'admin_adjustment',
+          rule: null,
+          pointsToStore: Math.abs(delta),
+          adminDeltaSigned: delta,
+          userNote: `تسوية تلقائية بعد تعديل تقييم محادثة: ${oldImpact} ← ${impact}. ${editForm.manager_note.trim()}`,
+          createdByName: user?.name || 'مدير عام',
+          createdById: user?.id || '',
+          createdByRole: user?.role || 'general_manager',
+          status: 'approved',
+          cycle,
+          source: 'conversation_evaluation_manager_edit',
+          sourceModule: 'conversation_evaluation',
+          sourceRecordId: `${editingReview.id}:manager-reconcile:${oldImpact}:${impact}`,
+          description: `مراجعة إدارية للتقييم ${editingReview.id}` ,
+          reasonLabel: 'تسوية نقاط بعد تعديل تقييم محادثة',
+        });
+        if (pointsResult.error) {
+          toast.error(`تم تعديل التقييم لكن تسوية النقاط لم تكتمل: ${pointsResult.error}`);
+          return false;
+        }
+      }
+
+      const actor = getCurrentUserProfile();
+      await logActivity(
+        actor.id,
+        actor.name,
+        'تعديل تقييم محادثة',
+        'تقييم المحادثات',
+        `${editForm.staff_name || editingReview.staff_name || 'موظف'}: ${oldScore}/100 ← ${recalculated.finalScore}/100`,
+        editForm.branch || editingReview.branch || '',
+        {
+          user_role: actor.role,
+          target_type: 'conversation_review',
+          target_id: editingReview.id,
+          reason: editForm.manager_note.trim(),
+          previous_score: oldScore,
+          new_score: recalculated.finalScore,
+          previous_points_impact: oldImpact,
+          new_points_impact: impact,
+          previous_reviewer: editingReview.reviewer_name || '',
+          new_reviewer: editForm.reviewer_name || selectedReviewerEdit?.name || '',
+        }
+      );
+
+      try {
+        window.sessionStorage.removeItem(`${REVIEW_HISTORY_CACHE_KEY}:${user?.id || 'anonymous'}`);
+      } catch {}
       await loadReviewHistory();
       setEditingReview(null);
-      toast.success('تم تعديل تقييم المحادثة بواسطة المدير العام');
+      toast.success('تم تعديل التقييم بالكامل وإعادة احتساب الدرجة والنقاط');
       return true;
     } catch (error) {
       toast.error(`تعذر تعديل التقييم: ${(error as Error).message}`);
@@ -1697,7 +1941,7 @@ export default function Reviews() {
                   row={row}
                   canEdit={canEditReviews}
                   canApprove={canApproveReviews}
-                  onDetails={setSelectedReview}
+                  onDetails={openReviewDetails}
                   onEdit={openEdit}
                   onManagerReview={openManagerReview}
                 />
@@ -1737,7 +1981,7 @@ export default function Reviews() {
                 return (
                   <tr
                     key={row.id || index}
-                    onClick={() => setSelectedReview(row)}
+                    onClick={() => openReviewDetails(row)}
                     className="group cursor-pointer border-t border-slate-700/80 bg-[#0b1728] transition-colors hover:bg-teal-950/30"
                   >
                     <td className="whitespace-normal p-2 text-slate-300 min-[1500px]:p-3">
@@ -1812,7 +2056,7 @@ export default function Reviews() {
                         row={row}
                         canEdit={canEditReviews}
                         canApprove={canApproveReviews}
-                        onDetails={setSelectedReview}
+                        onDetails={openReviewDetails}
                         onEdit={openEdit}
                         onManagerReview={openManagerReview}
                       />
@@ -2472,110 +2716,182 @@ export default function Reviews() {
       )}
 
       {editingReview && (
-        <Modal title="تعديل تقييم المحادثة - المدير العام" onClose={() => setEditingReview(null)}>
-          <div className="grid md:grid-cols-2 gap-3">
-            <Field label="الدكتور / الموظف الصحيح">
+        <Modal title="تعديل تقييم المحادثة بالكامل - المدير العام" onClose={() => setEditingReview(null)}>
+          <div className="rounded-xl border border-amber-400/25 bg-amber-500/10 p-3 text-sm text-amber-100">
+            أي تعديل هنا يعيد احتساب الدرجة وتأثير النقاط من البنود نفسها، ويتم تسجيل سبب التعديل وسجل المراجعة.
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-3">
+            <Field label="المراجع / من قام بالتقييم">
               <select
                 className="input-dark"
-                value={editForm.staff_id}
+                value={editForm.reviewer_id}
                 onChange={(e) => {
-                  const selected = staffOptions.find((item) => item.id === e.target.value);
+                  const selected = mergeStaffChoices(staff).find((item) => item.id === e.target.value);
                   setEditForm((f) => ({
                     ...f,
-                    staff_id: e.target.value,
-                    staff_name: selected?.name || f.staff_name,
+                    reviewer_id: e.target.value,
+                    reviewer_name: selected?.name || f.reviewer_name,
+                    reviewer_role: selected?.role || f.reviewer_role,
                   }));
                 }}
               >
                 <option value="">اختيار بالاسم يدويًا</option>
-                {staffOptions.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name} — {item.branch}
-                  </option>
+                {mergeStaffChoices(staff).map((item) => (
+                  <option key={item.id} value={item.id}>{item.name} — {item.role}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="اسم المراجع الظاهر">
+              <input className="input-dark" value={editForm.reviewer_name} onChange={(e) => setEditForm((f) => ({ ...f, reviewer_name: e.target.value }))} />
+            </Field>
+            <Field label="دور المراجع">
+              <input className="input-dark" value={editForm.reviewer_role} onChange={(e) => setEditForm((f) => ({ ...f, reviewer_role: e.target.value }))} />
+            </Field>
+
+            <Field label="الدكتور / الموظف">
+              <select
+                className="input-dark"
+                value={editForm.staff_id}
+                onChange={(e) => {
+                  const selected = mergeStaffChoices(staff).find((item) => item.id === e.target.value);
+                  setEditForm((f) => ({
+                    ...f,
+                    staff_id: e.target.value,
+                    staff_name: selected?.name || f.staff_name,
+                    staff_role: selected?.role || f.staff_role,
+                    branch: selected?.branch || f.branch,
+                  }));
+                }}
+              >
+                <option value="">اختيار بالاسم يدويًا</option>
+                {mergeStaffChoices(staff).map((item) => (
+                  <option key={item.id} value={item.id}>{item.name} — {item.branch}</option>
                 ))}
               </select>
             </Field>
             <Field label="اسم الدكتور الظاهر">
-              <input
-                className="input-dark"
-                value={editForm.staff_name}
-                onChange={(e) => setEditForm((f) => ({ ...f, staff_name: e.target.value }))}
-              />
+              <input className="input-dark" value={editForm.staff_name} onChange={(e) => setEditForm((f) => ({ ...f, staff_name: e.target.value }))} />
             </Field>
-            <Field label="اسم العميل الصحيح">
-              <input
-                className="input-dark"
-                value={editForm.customer_name}
-                onChange={(e) => setEditForm((f) => ({ ...f, customer_name: e.target.value }))}
-              />
+            <Field label="الفرع">
+              <input className="input-dark" value={editForm.branch} onChange={(e) => setEditForm((f) => ({ ...f, branch: e.target.value }))} />
+            </Field>
+            <Field label="اسم العميل">
+              <input className="input-dark" value={editForm.customer_name} onChange={(e) => setEditForm((f) => ({ ...f, customer_name: e.target.value }))} />
             </Field>
             <Field label="كود العميل">
-              <input
-                className="input-dark"
-                value={editForm.customer_code}
-                onChange={(e) => setEditForm((f) => ({ ...f, customer_code: e.target.value }))}
-              />
+              <input className="input-dark" value={editForm.customer_code} onChange={(e) => setEditForm((f) => ({ ...f, customer_code: e.target.value }))} />
             </Field>
             <Field label="هاتف العميل">
-              <input
-                className="input-dark"
-                value={editForm.customer_phone}
-                onChange={(e) => setEditForm((f) => ({ ...f, customer_phone: e.target.value }))}
-              />
+              <input className="input-dark" value={editForm.customer_phone} onChange={(e) => setEditForm((f) => ({ ...f, customer_phone: e.target.value }))} />
+            </Field>
+            <Field label="نوع المحادثة">
+              <select className="input-dark" value={editForm.evaluation_kind} onChange={(e) => setEditForm((f) => ({ ...f, evaluation_kind: e.target.value }))}>
+                {EVAL_KINDS.map((kind) => <option key={kind} value={kind}>{kind}</option>)}
+              </select>
+            </Field>
+            <Field label="سبب التقييم">
+              <select className="input-dark" value={editForm.evaluation_reason} onChange={(e) => setEditForm((f) => ({ ...f, evaluation_reason: e.target.value }))}>
+                {EVAL_REASONS.map((reason) => <option key={reason} value={reason}>{reason}</option>)}
+              </select>
+            </Field>
+            <Field label="تاريخ المحادثة">
+              <input type="datetime-local" className="input-dark" value={editForm.conversation_date} onChange={(e) => setEditForm((f) => ({ ...f, conversation_date: e.target.value }))} />
+            </Field>
+            <Field label="رقم الفاتورة">
+              <input className="input-dark" value={editForm.invoice_number} onChange={(e) => setEditForm((f) => ({ ...f, invoice_number: e.target.value }))} />
             </Field>
           </div>
-          <div className="grid md:grid-cols-2 gap-3">
-            <Field label="النتيجة من 100">
-              <input
-                className="input-dark"
-                type="number"
-                min={0}
-                max={100}
-                value={editForm.final_score}
-                onChange={(e) => setEditForm((f) => ({ ...f, final_score: e.target.value }))}
-              />
-            </Field>
-            <Field label="تأثير النقاط">
-              <input
-                className="input-dark"
-                type="number"
-                value={editForm.point_impact}
-                onChange={(e) => setEditForm((f) => ({ ...f, point_impact: e.target.value }))}
-              />
-            </Field>
+
+          <div className="space-y-3">
+            <div className="section-title text-sm">بنود التقييم كاملة</div>
+            {REVIEW_CRITERIA.map((criterion) => {
+              const itemState = editReviewState[criterion.key];
+              return (
+                <div key={criterion.key} className={`rounded-xl border p-3 ${itemState.applies ? 'border-teal-500/25 bg-teal-500/5' : 'border-slate-700 bg-slate-900/30'}`}>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <div className="font-black text-white">{criterion.label}</div>
+                      <div className="text-xs text-slate-400">{criterion.hint}</div>
+                    </div>
+                    <label className="flex items-center gap-2 text-sm text-slate-200">
+                      <input
+                        type="checkbox"
+                        checked={itemState.applies}
+                        onChange={(e) => setEditReviewState((current) => ({ ...current, [criterion.key]: { ...current[criterion.key], applies: e.target.checked } }))}
+                      />
+                      ينطبق
+                    </label>
+                  </div>
+                  {itemState.applies ? (
+                    <div className="mt-3 grid gap-3 md:grid-cols-2">
+                      <select
+                        className="input-dark"
+                        value={itemState.choice}
+                        onChange={(e) => setEditReviewState((current) => ({ ...current, [criterion.key]: { ...current[criterion.key], choice: e.target.value } }))}
+                      >
+                        {criterion.choices.map((choice) => (
+                          <option key={choice.value} value={choice.value}>{choice.label} - {choice.pointsEarned}/{criterion.maxPoints}</option>
+                        ))}
+                      </select>
+                      <input
+                        className="input-dark"
+                        value={itemState.notes || ''}
+                        onChange={(e) => setEditReviewState((current) => ({ ...current, [criterion.key]: { ...current[criterion.key], notes: e.target.value } }))}
+                        placeholder="ملاحظة على البند"
+                      />
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
           </div>
+
+          <div className="rounded-xl border border-red-500/25 bg-red-500/5 p-4">
+            <div className="mb-3 font-black text-red-200">الأخطاء الجسيمة والخصومات الإضافية</div>
+            <div className="grid gap-2 md:grid-cols-2">
+              {(Object.entries(SEVERE_ERRORS) as Array<[SevereErrorKey, (typeof SEVERE_ERRORS)[SevereErrorKey]]>).map(([key, error]) => (
+                <label key={key} className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-950/30 p-3 text-sm text-slate-100">
+                  <input type="checkbox" checked={editSevereErrors[key]} onChange={(e) => setEditSevereErrors((current) => ({ ...current, [key]: e.target.checked }))} />
+                  <span className="flex-1">{error.label}</span>
+                  <span className="num font-black text-red-300">{error.points}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {(() => {
+            const recalculated = evaluateConversationReview(editReviewState, editSevereErrors, '');
+            const repeatMultiplier = Math.max(1, Number(editingReview.repeat_multiplier || 1) || 1);
+            const finalImpact = recalculated.doctorPointsImpact < 0
+              ? -Math.min(Math.abs(recalculated.doctorPointsImpact) * repeatMultiplier, Math.abs(MAX_CONVERSATION_PENALTY))
+              : recalculated.doctorPointsImpact;
+            return (
+              <div className="grid gap-3 md:grid-cols-3">
+                <Metric label="النتيجة بعد التعديل" value={`${recalculated.finalScore}/100`} tone={recalculated.finalScore >= 90 ? 'teal' : recalculated.finalScore >= 70 ? 'amber' : 'red'} />
+                <Metric label="تأثير النقاط الجديد" value={finalImpact > 0 ? `+${finalImpact}` : `${finalImpact}`} tone={finalImpact >= 0 ? 'teal' : 'red'} />
+                <Metric label="البنود المطبقة" value={`${recalculated.totalApplicableItems}`} tone="blue" />
+              </div>
+            );
+          })()}
+
           <Field label="ملاحظات المراجع بعد التعديل">
-            <textarea
-              className="input-dark min-h-24"
-              value={editForm.reviewer_notes}
-              onChange={(e) => setEditForm((f) => ({ ...f, reviewer_notes: e.target.value }))}
-            />
+            <textarea className="input-dark min-h-24" value={editForm.reviewer_notes} onChange={(e) => setEditForm((f) => ({ ...f, reviewer_notes: e.target.value }))} />
           </Field>
           <Field label="التوصية التدريبية">
-            <textarea
-              className="input-dark min-h-24"
-              value={editForm.training_recommendation}
-              onChange={(e) =>
-                setEditForm((f) => ({ ...f, training_recommendation: e.target.value }))
-              }
-            />
+            <textarea className="input-dark min-h-24" value={editForm.training_recommendation} onChange={(e) => setEditForm((f) => ({ ...f, training_recommendation: e.target.value }))} />
           </Field>
-          <Field label="سبب تعديل المدير العام">
+          <Field label="سبب تعديل المدير العام — إجباري">
             <textarea
               className="input-dark min-h-20"
               value={editForm.manager_note}
               onChange={(e) => setEditForm((f) => ({ ...f, manager_note: e.target.value }))}
-              placeholder="مثال: تم مراجعة التسجيل وتعديل درجة بند فهم طلب العميل"
+              placeholder="مثال: بعد مراجعة المحادثة تم تصحيح بند فهم طلب العميل واسم المراجع"
             />
           </Field>
-          <button
-            type="button"
-            onClick={saveEdit}
-            disabled={saving}
-            className="btn-primary w-full justify-center flex items-center gap-2"
-          >
+          <button type="button" onClick={saveEdit} disabled={saving} className="btn-primary w-full justify-center flex items-center gap-2">
             <ShieldCheck size={18} />
-            حفظ تعديل المدير العام
+            {saving ? 'جاري حفظ وإعادة احتساب التقييم...' : 'حفظ التعديل الكامل'}
           </button>
         </Modal>
       )}
@@ -2658,6 +2974,10 @@ function ReviewDetailsModal({
   canApprove: boolean;
 }) {
   const items = rowReviewItems(row);
+  const raw = normalizeRawScores(row.raw_scores);
+  const severe = raw?.severe_errors || {};
+  const activeSevere = (Object.entries(SEVERE_ERRORS) as Array<[SevereErrorKey, (typeof SEVERE_ERRORS)[SevereErrorKey]]>)
+    .filter(([key]) => Boolean(severe[key]));
   return (
     <Modal title="تفاصيل تقييم المحادثة كاملة" onClose={onClose}>
       <div className="grid md:grid-cols-3 gap-3">
@@ -2695,6 +3015,18 @@ function ReviewDetailsModal({
         )}
       </div>
       <ReviewItemsTable items={items} />
+      {activeSevere.length ? (
+        <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4">
+          <div className="mb-2 font-black text-red-200">الأخطاء الجسيمة المسجلة</div>
+          <div className="grid gap-2 md:grid-cols-2">
+            {activeSevere.map(([key, error]) => (
+              <div key={key} className="rounded-lg border border-red-400/20 bg-slate-950/30 p-3 text-sm text-slate-100">
+                {error.label} <span className="num font-black text-red-300">{error.points}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
       {canEdit || canApprove ? (
         <div className="grid md:grid-cols-2 gap-2">
           {canEdit ? (
