@@ -1,0 +1,1 @@
+Implementation note: production database migration has been applied and validated. This branch intentionally preserves the existing `employee_daily_tasks` table, triggers, and notification producers so the change is source-quality only, not a parallel workflow.
