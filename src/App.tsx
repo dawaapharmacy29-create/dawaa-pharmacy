@@ -100,6 +100,7 @@ const InventoryCounts = lazy(() => import('@/pages/InventoryCounts'));
 const Shortages = lazy(() => import('@/pages/Shortages'));
 const Supplies = lazy(() => import('@/pages/Supplies'));
 const Purchases = lazy(() => import('@/pages/Purchases'));
+const ShiftHandovers = lazy(() => import('@/pages/ShiftHandovers'));
 const StaffPayroll = lazy(() => import('@/pages/StaffPayroll'));
 const Accessories = lazy(() => import('@/pages/Accessories'));
 const Offers = lazy(() => import('@/pages/Offers'));
@@ -612,6 +613,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             {routeSuspense(<PurchaseOrderLog />, 'سجل الطلبيات')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/shift-handovers"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<ShiftHandovers />, 'تسليم الشيفتات')}
           </ProtectedRoute>
         }
       />

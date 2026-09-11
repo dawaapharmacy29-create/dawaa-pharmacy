@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ElementType } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   Activity, ActivitySquare, AlertTriangle, BarChart3, BellRing, Calendar, ChevronDown, ChevronLeft,
-  ClipboardCheck, ClipboardList, Crown, FileSpreadsheet, HeadphonesIcon, LayoutDashboard, LogOut,
+  ClipboardCheck, ClipboardList, Clock, Crown, FileSpreadsheet, HeadphonesIcon, LayoutDashboard, LogOut,
   MessageCircle, Package, PackageSearch, PackageX, ShieldCheck, Sparkles, Star, Store, Target, TrendingDown, Truck, UserCheck,
   UserPlus, Users, Wallet, WalletCards, X,
 } from 'lucide-react';
@@ -84,6 +84,7 @@ const GROUPS: NavGroup[] = [
     { path: '/purchase-cycle-report', icon: PackageSearch, label: 'تقرير دورة المشتريات', permission: 'view_purchases' },
     { path: '/supplier-accounts', icon: WalletCards, label: 'حسابات الموردين', permission: 'view_purchases' },
     { path: '/purchase-order-log', icon: ClipboardList, label: 'سجل الطلبيات', permission: 'view_purchases' },
+    { path: '/shift-handovers', icon: Clock, label: 'تسليم الشيفتات', permission: 'view_purchases' },
   ]},
 
   { title: 'المخزون وتشغيل الصيدلية', icon: Store, items: [
