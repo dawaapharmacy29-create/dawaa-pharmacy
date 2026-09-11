@@ -1528,18 +1528,30 @@ export default function Reviews() {
 
       await updateSafe('conversation_sales_reviews', editingReview.id, payload);
 
-      const delta = impact - oldImpact;
-      if (delta !== 0 && editForm.staff_id) {
-        const pointsResult = await persistPointsTransaction({
-          employeeId: editForm.staff_id,
-          employeeName: editForm.staff_name || selectedDoctor?.name || 'موظف',
-          branch: editForm.branch || selectedDoctor?.branch || editingReview.branch || '',
-          branchId: selectedDoctor?.branch_id ?? null,
+      const previousStaffId = editingReview.staff_id || editingReview.doctor_id || '';
+      const nextStaffId = editForm.staff_id;
+      const staffChanged = Boolean(previousStaffId && nextStaffId && previousStaffId !== nextStaffId);
+
+      const persistManagerAdjustment = async (args: {
+        employeeId: string;
+        employeeName: string;
+        branch: string;
+        branchId?: string | null;
+        signedDelta: number;
+        sourceKey: string;
+        note: string;
+      }) => {
+        if (!args.employeeId || args.signedDelta === 0) return null;
+        return persistPointsTransaction({
+          employeeId: args.employeeId,
+          employeeName: args.employeeName,
+          branch: args.branch,
+          branchId: args.branchId ?? null,
           operation: 'admin_adjustment',
           rule: null,
-          pointsToStore: Math.abs(delta),
-          adminDeltaSigned: delta,
-          userNote: `تسوية تلقائية بعد تعديل تقييم محادثة: ${oldImpact} ← ${impact}. ${editForm.manager_note.trim()}`,
+          pointsToStore: Math.abs(args.signedDelta),
+          adminDeltaSigned: args.signedDelta,
+          userNote: args.note,
           createdByName: user?.name || 'مدير عام',
           createdById: user?.id || '',
           createdByRole: user?.role || 'general_manager',
@@ -1547,13 +1559,58 @@ export default function Reviews() {
           cycle,
           source: 'conversation_evaluation_manager_edit',
           sourceModule: 'conversation_evaluation',
-          sourceRecordId: `${editingReview.id}:manager-reconcile:${oldImpact}:${impact}`,
-          description: `مراجعة إدارية للتقييم ${editingReview.id}` ,
+          sourceRecordId: args.sourceKey,
+          description: `مراجعة إدارية للتقييم ${editingReview.id}`,
           reasonLabel: 'تسوية نقاط بعد تعديل تقييم محادثة',
         });
-        if (pointsResult.error) {
-          toast.error(`تم تعديل التقييم لكن تسوية النقاط لم تكتمل: ${pointsResult.error}`);
+      };
+
+      if (staffChanged) {
+        const previousDoctor = mergeStaffChoices(staff).find((item) => item.id === previousStaffId);
+        const reverseOld = await persistManagerAdjustment({
+          employeeId: previousStaffId,
+          employeeName:
+            editingReview.staff_name || editingReview.doctor_name || previousDoctor?.name || 'موظف سابق',
+          branch: editingReview.branch || previousDoctor?.branch || '',
+          branchId: previousDoctor?.branch_id ?? null,
+          signedDelta: -oldImpact,
+          sourceKey: `${editingReview.id}:manager-reassign:reverse:${previousStaffId}:${oldImpact}`,
+          note: `عكس أثر التقييم من الموظف السابق بعد تصحيح صاحب المحادثة. الأثر السابق ${oldImpact}. ${editForm.manager_note.trim()}`,
+        });
+        if (reverseOld?.error) {
+          toast.error(`تم تعديل التقييم لكن تعذر عكس نقاط الموظف السابق: ${reverseOld.error}`);
           return false;
+        }
+
+        const applyNew = await persistManagerAdjustment({
+          employeeId: nextStaffId,
+          employeeName: editForm.staff_name || selectedDoctor?.name || 'موظف',
+          branch: editForm.branch || selectedDoctor?.branch || '',
+          branchId: selectedDoctor?.branch_id ?? null,
+          signedDelta: impact,
+          sourceKey: `${editingReview.id}:manager-reassign:apply:${nextStaffId}:${impact}`,
+          note: `إسناد أثر التقييم للموظف الصحيح بعد تعديل المدير العام. الأثر الجديد ${impact}. ${editForm.manager_note.trim()}`,
+        });
+        if (applyNew?.error) {
+          toast.error(`تم تعديل التقييم وعكس نقاط الموظف السابق لكن تعذر إضافة الأثر للموظف الجديد: ${applyNew.error}`);
+          return false;
+        }
+      } else {
+        const delta = impact - oldImpact;
+        if (delta !== 0 && nextStaffId) {
+          const pointsResult = await persistManagerAdjustment({
+            employeeId: nextStaffId,
+            employeeName: editForm.staff_name || selectedDoctor?.name || 'موظف',
+            branch: editForm.branch || selectedDoctor?.branch || editingReview.branch || '',
+            branchId: selectedDoctor?.branch_id ?? null,
+            signedDelta: delta,
+            sourceKey: `${editingReview.id}:manager-reconcile:${oldImpact}:${impact}`,
+            note: `تسوية تلقائية بعد تعديل تقييم محادثة: ${oldImpact} ← ${impact}. ${editForm.manager_note.trim()}`,
+          });
+          if (pointsResult?.error) {
+            toast.error(`تم تعديل التقييم لكن تسوية النقاط لم تكتمل: ${pointsResult.error}`);
+            return false;
+          }
         }
       }
 
