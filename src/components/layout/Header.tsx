@@ -103,6 +103,14 @@ function isUrgent(item: AppNotification) {
   return /urgent|critical|high|عاجل|حرج|خطر|مرتفع/i.test(String(item.priority || item.type || ''));
 }
 
+function isNotificationUnread(item: AppNotification) {
+  return (
+    !item.read &&
+    !item.is_read &&
+    !['read', 'completed', 'dismissed'].includes(String(item.status || ''))
+  );
+}
+
 export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
   const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
@@ -117,6 +125,7 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
 
   const {
     notifications,
+    unreadCount,
     loading: notificationsLoading,
     available: notificationsAvailable,
     settings: notificationSettings,
@@ -128,7 +137,7 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
     () => selectHeaderNotifications(notifications, 10),
     [notifications]
   );
-  const visibleUnreadCount = notifications.filter((item) => !item.read && !item.is_read).length;
+  const visibleUnreadCount = unreadCount;
   const newestNotification = useMemo(
     () => [...notifications].sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())[0],
     [notifications]
@@ -159,7 +168,7 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
   };
 
   return (
-    <header className="dawaa-header sticky top-0 z-30 flex h-14 items-center gap-3 border-b px-4 backdrop-blur" dir="rtl">
+    <header className="dawaa-header sticky top-0 z-[220] flex h-14 items-center gap-3 border-b px-4 backdrop-blur" dir="rtl">
       <button type="button" onClick={onMobileMenuOpen} className="dawaa-header-icon-button rounded-lg p-2 transition lg:hidden">
         <Menu size={20} />
       </button>
@@ -230,7 +239,7 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
                 ) : visibleNotifications.length === 0 ? (
                   <div className="dawaa-header-muted py-8 text-center text-sm font-bold">لا توجد إشعارات مسجلة حاليًا</div>
                 ) : visibleNotifications.map((item) => (
-                  <button key={item.id} type="button" onClick={() => void openNotification(item)} className={cn('dawaa-header-notification-row w-full border-b px-4 py-3 text-right transition last:border-0', !item.read && !item.is_read && 'is-unread')}>
+                  <button key={item.id} type="button" onClick={() => void openNotification(item)} className={cn('dawaa-header-notification-row w-full border-b px-4 py-3 text-right transition last:border-0', isNotificationUnread(item) && 'is-unread')}>
                     <div className="flex items-start gap-2.5">
                       <span className={cn('dawaa-badge mt-0.5 shrink-0 px-2 py-0.5 text-xs font-black', isUrgent(item) ? 'dawaa-badge--danger' : notificationTone[String(item.type)] || notificationTone.system)}>
                         {notificationPriorityLabel(item.priority || item.type)}
@@ -247,7 +256,7 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
                         {item.status ? <div className="dawaa-header-muted mt-1 text-[10px] font-bold">الحالة: {notificationActionLabel(item.action_status || item.status)}</div> : null}
                         <div className="dawaa-header-muted mt-1 line-clamp-3 text-xs leading-relaxed">{item.body || item.message}</div>
                       </div>
-                      {!item.read && !item.is_read && <span className="dawaa-header-unread-dot mt-1 h-2 w-2 shrink-0 rounded-full" />}
+                      {isNotificationUnread(item) && <span className="dawaa-header-unread-dot mt-1 h-2 w-2 shrink-0 rounded-full" />}
                     </div>
                   </button>
                 ))}
@@ -266,7 +275,6 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
 function NotificationSettingsPanel({ settings, onChange }: { settings: ReturnType<typeof useNotifications>['settings']; onChange: typeof saveNotificationSettings }) {
   const options: Array<[keyof typeof settings, string]> = [
     ['customerService', 'إشعارات خدمة العملاء'],
-    ['delivery', 'إشعارات الدليفري'],
     ['inventory', 'إشعارات المخزون والصلاحية'],
     ['reviews', 'إشعارات التقييمات'],
     ['attendance', 'إشعارات الحضور والشيفت'],
