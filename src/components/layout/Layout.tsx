@@ -152,7 +152,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           onMobileClose={() => setMobileOpen(false)}
         />
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          <Header onMobileMenuOpen={() => setMobileOpen(true)} title={title} />
+          <div className="relative z-[220] shrink-0">
+            <Header onMobileMenuOpen={() => setMobileOpen(true)} title={title} />
+          </div>
           <main ref={mainRef} className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">
             <div className="animate-fade-in mx-auto min-h-[calc(100vh-120px)] max-w-[1720px] space-y-4">
               <PageSectionsPreview path={location.pathname} />
