@@ -26,8 +26,7 @@ function branchLabel(value?: string | null) {
 }
 
 function responsibleName(request: CustomerRequest) {
-  return request.primary_responsible_name
-    || request.purchasing_assignee
+  return request.purchasing_assignee
     || request.source_assigned_employee
     || request.doctor_name
     || 'غير مسند';
