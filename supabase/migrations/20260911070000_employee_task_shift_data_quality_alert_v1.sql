@@ -44,7 +44,7 @@ begin
       p_message => format('%s موظف لديهم مهام اليوم بدون وقت شيفت موثوق، لذلك لا يمكن تحديد موعد تأخير داخل نفس اليوم. الأسماء: %s', v_missing_count, coalesce(v_missing_names,'غير متاح')),
       p_entity_type => 'employee_task_shift_data_quality',
       p_entity_id => to_char(v_today, 'YYYY-MM-DD'),
-      p_action_url => '/employees-accounts',
+      p_action_url => '/staff-accounts',
       p_priority => 'high',
       p_metadata => jsonb_build_object(
         'schemaVersion',2,
