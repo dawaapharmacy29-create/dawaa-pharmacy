@@ -110,11 +110,11 @@ export function notificationRoute(notification: AppNotification) {
   });
 }
 
-function isUnread(notification: AppNotification) {
+export function isNotificationUnread(notification: AppNotification) {
   return (
     !notification.read &&
     !notification.is_read &&
-    !['read', 'completed', 'dismissed'].includes(String(notification.status || ''))
+    !['read', 'completed', 'dismissed'].includes(String(notification.status || '').trim().toLowerCase())
   );
 }
 
@@ -140,6 +140,26 @@ function markRowsRead(rows: AppNotification[], ids: Set<string>, readAt: string)
       ? { ...item, read: true, is_read: true, status: 'read', read_at: readAt }
       : item
   );
+}
+
+function burstDedupeKey(notification: AppNotification) {
+  // Keep genuinely recurring alerts (daily digests, repeated VIP/customer warnings, etc.)
+  // visible across time. Only collapse producer duplicates emitted for the same semantic
+  // event in the same minute. The previous key had no time component and accidentally
+  // made recurring operational notifications look frozen.
+  const minuteBucket = String(notification.created_at || '').slice(0, 16);
+  return [
+    canonicalNotificationType(notification.type || notification.target_type),
+    notification.target_type,
+    notification.target_id || notification.metadata?.entity_id,
+    notification.recipient_staff_id,
+    notification.recipient_role,
+    notification.branch || notification.metadata?.branch,
+    notification.title,
+    minuteBucket,
+  ]
+    .map((value) => String(value || '').trim().toLowerCase())
+    .join('|');
 }
 
 export function useNotifications() {
@@ -190,17 +210,8 @@ export function useNotifications() {
         const unique = new Map<string, AppNotification>();
         for (const item of result) {
           const normalized = { ...item, route: notificationRoute(item) };
-          const semanticKey = [
-            normalized.type,
-            normalized.target_type,
-            normalized.target_id || normalized.metadata?.entity_id,
-            normalized.recipient_staff_id,
-            normalized.branch || normalized.metadata?.branch,
-            normalized.title,
-          ]
-            .map((value) => String(value || '').trim().toLowerCase())
-            .join('|');
-          if (!unique.has(semanticKey)) unique.set(semanticKey, normalized);
+          const key = burstDedupeKey(normalized);
+          if (!unique.has(key)) unique.set(key, normalized);
         }
 
         const resolvedRows = [...unique.values()];
@@ -320,7 +331,7 @@ export function useNotifications() {
     [allNotifications, settings]
   );
 
-  const unreadCount = useMemo(() => notifications.filter(isUnread).length, [notifications]);
+  const unreadCount = useMemo(() => notifications.filter(isNotificationUnread).length, [notifications]);
 
   const markAsRead = useCallback(async (id: string) => {
     const readAt = new Date().toISOString();
@@ -348,7 +359,7 @@ export function useNotifications() {
   }, [refreshNotifications, rows]);
 
   const markAllAsRead = useCallback(async () => {
-    const ids = new Set(notifications.filter(isUnread).map((item) => item.id));
+    const ids = new Set(notifications.filter(isNotificationUnread).map((item) => item.id));
     if (!ids.size) return true;
     const readAt = new Date().toISOString();
     const previousRuntime = notificationRuntime.rows;
