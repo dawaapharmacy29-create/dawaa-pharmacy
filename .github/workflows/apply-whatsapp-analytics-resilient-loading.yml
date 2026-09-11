@@ -1,0 +1,61 @@
+name: Apply whatsapp analytics resilient loading patch
+
+on:
+  push:
+    branches:
+      - fix/whatsapp-analytics-resilient-loading
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Patch WhatsappAnalytics
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('src/pages/WhatsappAnalytics.tsx')
+          s = p.read_text()
+
+          old = """  const loadFailed = Boolean(error || invoicesError || txError);\n  const stillLoading = loading || invoicesLoading || txLoading;\n  const hasData = filtered.length > 0;\n"""
+          new = """  // The review dataset is the primary source for this page.\n  // Sales and points are enrichment sources only, so a temporary failure in either\n  // one must never hide valid conversation-review analytics.\n  const loadFailed = Boolean(error);\n  const stillLoading = loading;\n  const hasData = filtered.length > 0;\n  const enrichmentWarnings = [\n    invoicesError ? 'تعذر تحميل المبيعات المرتبطة مؤقتًا' : null,\n    txError ? 'تعذر تحميل أثر النقاط مؤقتًا' : null,\n  ].filter(Boolean) as string[];\n"""
+          if old not in s:
+              raise SystemExit('primary loading block not found')
+          s = s.replace(old, new)
+
+          old = """      {loadFailed && (\n        <div className=\"stat-card text-red-200\">تعذر تحميل البيانات</div>\n      )}\n\n      {!loadFailed && !stillLoading && !hasData && (\n"""
+          new = """      {loadFailed && (\n        <div className=\"stat-card text-red-200\">تعذر تحميل تقييمات المحادثات</div>\n      )}\n\n      {!loadFailed && enrichmentWarnings.length > 0 && (\n        <div className=\"rounded-2xl border border-amber-400/20 bg-amber-400/10 px-4 py-3 text-sm font-bold text-amber-100\">\n          التحليل الأساسي متاح، لكن بعض البيانات الإضافية غير مكتملة الآن: {enrichmentWarnings.join(' — ')}.\n        </div>\n      )}\n\n      {!loadFailed && !stillLoading && !hasData && (\n"""
+          if old not in s:
+              raise SystemExit('error UI block not found')
+          s = s.replace(old, new)
+
+          # Make enrichment cards distinguish loading/error without blocking the table.
+          old = """              value={linkedInvoiceSales != null ? formatCurrency(linkedInvoiceSales) : '—'}\n"""
+          new = """              value={invoicesLoading ? 'جاري التحميل…' : linkedInvoiceSales != null ? formatCurrency(linkedInvoiceSales) : '—'}\n"""
+          if old not in s:
+              raise SystemExit('linked sales metric block not found')
+          s = s.replace(old, new)
+
+          old = """              value={relatedPoints != null ? relatedPoints.toLocaleString('ar-EG') : '—'}\n"""
+          new = """              value={txLoading ? 'جاري التحميل…' : relatedPoints != null ? relatedPoints.toLocaleString('ar-EG') : '—'}\n"""
+          if old not in s:
+              raise SystemExit('points metric block not found')
+          s = s.replace(old, new)
+
+          p.write_text(s)
+          PY
+      - name: Remove one-off workflow
+        run: rm -f .github/workflows/apply-whatsapp-analytics-resilient-loading.yml
+      - name: Commit patched files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/pages/WhatsappAnalytics.tsx .github/workflows/apply-whatsapp-analytics-resilient-loading.yml
+          git commit -m "fix: keep whatsapp analytics visible when enrichments fail"
+          git push origin HEAD:fix/whatsapp-analytics-resilient-loading
