@@ -218,9 +218,16 @@ export default function WhatsappAnalytics() {
       .reduce((sum, row) => sum + num(row, ['points_delta', 'points'], 0), 0);
   }, [transactions, txError, txLoading]);
 
-  const loadFailed = Boolean(error || invoicesError || txError);
-  const stillLoading = loading || invoicesLoading || txLoading;
+  // The review dataset is the primary source for this page.
+  // Sales and points are enrichment sources only, so a temporary failure in either
+  // one must never hide valid conversation-review analytics.
+  const loadFailed = Boolean(error);
+  const stillLoading = loading;
   const hasData = filtered.length > 0;
+  const enrichmentWarnings = [
+    invoicesError ? 'تعذر تحميل المبيعات المرتبطة مؤقتًا' : null,
+    txError ? 'تعذر تحميل أثر النقاط مؤقتًا' : null,
+  ].filter(Boolean) as string[];
 
   const avgScore = hasData
     ? Math.round(
@@ -287,7 +294,13 @@ export default function WhatsappAnalytics() {
       </div>
 
       {loadFailed && (
-        <div className="stat-card text-red-200">تعذر تحميل البيانات</div>
+        <div className="stat-card text-red-200">تعذر تحميل تقييمات المحادثات</div>
+      )}
+
+      {!loadFailed && enrichmentWarnings.length > 0 && (
+        <div className="rounded-2xl border border-amber-400/20 bg-amber-400/10 px-4 py-3 text-sm font-bold text-amber-100">
+          التحليل الأساسي متاح، لكن بعض البيانات الإضافية غير مكتملة الآن: {enrichmentWarnings.join(' — ')}.
+        </div>
       )}
 
       {!loadFailed && !stillLoading && !hasData && (
@@ -303,12 +316,12 @@ export default function WhatsappAnalytics() {
             <Metric
               icon={TrendingUp}
               label="مبيعات مرتبطة"
-              value={linkedInvoiceSales != null ? formatCurrency(linkedInvoiceSales) : '—'}
+              value={invoicesLoading ? 'جاري التحميل…' : linkedInvoiceSales != null ? formatCurrency(linkedInvoiceSales) : '—'}
             />
             <Metric
               icon={BarChart3}
               label="أثر النقاط"
-              value={relatedPoints != null ? relatedPoints.toLocaleString('ar-EG') : '—'}
+              value={txLoading ? 'جاري التحميل…' : relatedPoints != null ? relatedPoints.toLocaleString('ar-EG') : '—'}
             />
           </div>
 
