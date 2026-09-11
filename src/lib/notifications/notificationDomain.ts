@@ -401,7 +401,7 @@ export function canonicalNotificationRoute(input: {
   const type = canonicalNotificationType(input.type);
 
   const routes: Record<CanonicalNotificationType, string> = {
-    conversation_review: id ? `/doctor-dashboard?tab=reviews&review=${id}` : '/doctor-dashboard?tab=reviews',
+    conversation_review: id ? `/reviews?section=history&id=${id}` : '/reviews?section=history',
     staff_task: id ? `/operations-center?taskId=${id}` : '/operations-center',
     customer_followup: id ? `/customer-service?tab=today&openDetails=1&mode=edit&followupId=${id}` : '/customer-service?tab=today',
     customer_request: id ? `/customer-service?tab=requests&requestId=${id}` : '/customer-service?tab=requests',

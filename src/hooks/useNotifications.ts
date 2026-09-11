@@ -12,6 +12,7 @@ import {
 } from '@/lib/notificationService';
 import {
   canonicalNotificationRoute,
+  canonicalNotificationType,
   notificationPreferenceCategory,
 } from '@/lib/notifications/notificationDomain';
 
@@ -81,6 +82,7 @@ export function saveNotificationSettings(settings: NotificationSettings) {
 }
 
 export function notificationRoute(notification: AppNotification) {
+  const type = canonicalNotificationType(notification.type || notification.target_type);
   const explicit = String(
     notification.route || notification.target_route || notification.metadata?.route || ''
   ).trim();
@@ -89,14 +91,19 @@ export function notificationRoute(notification: AppNotification) {
     String(
       notification.metadata?.entity_id ||
         notification.metadata?.review_id ||
+        notification.metadata?.source_review_id ||
         notification.metadata?.id ||
         ''
     );
 
+  // Review notifications should always open the exact saved review. Older rows can
+  // carry a legacy doctor-dashboard route, so ignore that stale route for this type.
+  const explicitRoute = type === 'conversation_review' ? '' : explicit;
+
   return canonicalNotificationRoute({
-    type: notification.type || notification.target_type,
+    type,
     entityId: id,
-    explicitRoute: explicit,
+    explicitRoute,
     recipientStaffId: notification.recipient_staff_id || undefined,
   });
 }

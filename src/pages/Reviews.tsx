@@ -460,6 +460,45 @@ export default function Reviews() {
     setSelectedReviewId(row.id || null);
   }, []);
 
+  // Notification deep-link: /reviews?section=history&id=<review-id>
+  // Load the exact row directly so the full details modal opens immediately.
+  useEffect(() => {
+    const reviewId = String(searchParams.get('id') || '').trim();
+    if (!reviewId || selectedReviewId === reviewId) return;
+
+    let cancelled = false;
+    setHistoryLoading(true);
+    setHistoryError(null);
+    supabase
+      .from('conversation_sales_reviews')
+      .select('*')
+      .eq('id', reviewId)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        setHistoryLoading(false);
+        if (error) {
+          setHistoryError('تعذر تحميل تفاصيل تقييم المحادثة من الإشعار.');
+          return;
+        }
+        if (!data) {
+          setHistoryError('لم يتم العثور على تقييم المحادثة المرتبط بهذا الإشعار.');
+          return;
+        }
+        setSelectedReview(data as ConversationReviewHistoryRow);
+        setSelectedReviewId(reviewId);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setHistoryLoading(false);
+        setHistoryError('تعذر تحميل تفاصيل تقييم المحادثة من الإشعار.');
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [searchParams, selectedReviewId]);
+
   useEffect(() => {
     return () => {
       closeSelectedReview();
