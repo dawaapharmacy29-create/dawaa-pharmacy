@@ -58,7 +58,7 @@ export type NotificationSettings = {
 const SETTINGS_KEY = 'dawaa_notification_settings_v1';
 const DEFAULT_SETTINGS: NotificationSettings = {
   customerService: true,
-  delivery: true,
+  delivery: false,
   inventory: true,
   reviews: true,
   attendance: true,
@@ -70,14 +70,16 @@ const DEFAULT_SETTINGS: NotificationSettings = {
 
 function readSettings(): NotificationSettings {
   try {
-    return { ...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') };
+    const parsed = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') as Partial<NotificationSettings>;
+    // تطبيق الإدارة لا يملك مسار تشغيل الدليفري؛ حتى الإعدادات القديمة لا تعيد تفعيله.
+    return { ...DEFAULT_SETTINGS, ...parsed, delivery: false };
   } catch {
     return DEFAULT_SETTINGS;
   }
 }
 
 export function saveNotificationSettings(settings: NotificationSettings) {
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...settings, delivery: false }));
   window.dispatchEvent(new CustomEvent('dawaa:notification-settings'));
 }
 
@@ -124,12 +126,20 @@ function allowedBySettings(notification: AppNotification, settings: Notification
 
   const category = notificationPreferenceCategory(notification.type || notification.target_type);
   if (category === 'customerService') return settings.customerService;
-  if (category === 'delivery') return settings.delivery;
+  if (category === 'delivery') return false;
   if (category === 'inventory') return settings.inventory;
   if (category === 'reviews') return settings.reviews;
   if (category === 'attendance') return settings.attendance;
   if (category === 'targets') return settings.targets;
   return true;
+}
+
+function markRowsRead(rows: AppNotification[], ids: Set<string>, readAt: string) {
+  return rows.map((item) =>
+    ids.has(item.id)
+      ? { ...item, read: true, is_read: true, status: 'read', read_at: readAt }
+      : item
+  );
 }
 
 export function useNotifications() {
@@ -313,37 +323,57 @@ export function useNotifications() {
   const unreadCount = useMemo(() => notifications.filter(isUnread).length, [notifications]);
 
   const markAsRead = useCallback(async (id: string) => {
-    const previous = rows;
     const readAt = new Date().toISOString();
-    setRows((current) => current.map((item) => item.id === id ? { ...item, read: true, is_read: true, status: 'read', read_at: readAt } : item));
+    const previousRuntime = notificationRuntime.rows;
+    const ids = new Set([id]);
+    const nextRuntime = markRowsRead(previousRuntime.length ? previousRuntime : rows, ids, readAt);
 
-    const ok = await markNotificationRead(id);
-    if (!ok) {
-      setRows(previous);
+    // حدّث المصدر المشترك قبل الانتقال للصفحة؛ وإلا إعادة تركيب Header تعيد العداد القديم.
+    notificationRuntime.rows = nextRuntime;
+    notificationRuntime.lastRefreshAt = Date.now();
+    setRows(nextRuntime);
+
+    try {
+      const ok = await markNotificationRead(id);
+      if (!ok) throw new Error('notification read update rejected');
+      return true;
+    } catch (error) {
+      notificationRuntime.rows = previousRuntime;
+      notificationRuntime.lastRefreshAt = 0;
+      if (mountedRef.current) setRows(previousRuntime);
+      void refreshNotifications(true);
+      console.warn('[notifications] failed to mark notification as read', error);
       return false;
     }
-    notificationRuntime.rows = notificationRuntime.rows.map((item) => item.id === id ? { ...item, read: true, is_read: true, status: 'read', read_at: readAt } : item);
-    return true;
-  }, [rows]);
+  }, [refreshNotifications, rows]);
 
   const markAllAsRead = useCallback(async () => {
-    const ids = notifications.filter(isUnread).map((item) => item.id);
-    if (!ids.length) return true;
-    const previous = rows;
+    const ids = new Set(notifications.filter(isUnread).map((item) => item.id));
+    if (!ids.size) return true;
     const readAt = new Date().toISOString();
-    setRows((current) => current.map((item) => ids.includes(item.id) ? { ...item, read: true, is_read: true, status: 'read', read_at: readAt } : item));
+    const previousRuntime = notificationRuntime.rows;
+    const nextRuntime = markRowsRead(previousRuntime.length ? previousRuntime : rows, ids, readAt);
 
-    const ok = await markAllNotificationsRead();
-    if (!ok) {
-      setRows(previous);
+    notificationRuntime.rows = nextRuntime;
+    notificationRuntime.lastRefreshAt = Date.now();
+    setRows(nextRuntime);
+
+    try {
+      const ok = await markAllNotificationsRead();
+      if (!ok) throw new Error('mark all notifications read rejected');
+      return true;
+    } catch (error) {
+      notificationRuntime.rows = previousRuntime;
+      notificationRuntime.lastRefreshAt = 0;
+      if (mountedRef.current) setRows(previousRuntime);
       void refreshNotifications(true);
+      console.warn('[notifications] failed to mark all notifications as read', error);
       return false;
     }
-    notificationRuntime.rows = notificationRuntime.rows.map((item) => ids.includes(item.id) ? { ...item, read: true, is_read: true, status: 'read', read_at: readAt } : item);
-    return true;
   }, [notifications, refreshNotifications, rows]);
 
   const handleNotificationClick = useCallback((notification: AppNotification) => {
+    // القراءة تحدث فورًا حتى لو NavigationGuard طلب تأكيد حفظ تغييرات الصفحة الحالية.
     void markAsRead(notification.id);
     const route = notificationRoute(notification);
     const target = route.startsWith('/') ? route : '/operations-center';
