@@ -270,7 +270,7 @@ function buildCanonicalQuery(filters: NotificationFilters, from: number, to: num
 
 export async function getRecentNotifications(filters: NotificationFilters = {}) {
   if (!isSupabaseConfigured) return [];
-  const limit = Math.min(filters.limit || 20, 250);
+  const limit = Math.min(filters.limit || 20, 1000);
   const page = Math.max(filters.page || 1, 1);
   const from = (page - 1) * limit;
   const to = from + limit - 1;
