@@ -1,16 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   BookOpenCheck,
+  ClipboardList,
   FileSpreadsheet,
   FileText,
   Link2,
   PackageSearch,
   RefreshCw,
+  RotateCcw,
   Search,
   Truck,
   Upload,
+  Wallet,
   type LucideIcon,
 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { formatCurrency } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
@@ -40,6 +44,14 @@ type PurchaseInvoice = {
   total_value?: number | null;
   paid_value?: number | null;
   status?: string | null;
+  purchase_category?: string | null;
+};
+
+const CATEGORY_LABEL: Record<string, string> = {
+  medicines: 'أدوية',
+  supplies_accessories: 'مستلزمات وإكسسوار',
+  unclassified: 'غير مصنّف',
+  none: 'غير محدد',
 };
 
 type ViewMode = 'purchases' | 'catalog';
@@ -173,6 +185,33 @@ function PurchasesOverview({
         <Card title="المتبقي للموردين" value={formatCurrency(totals.remaining)} icon={PackageSearch} />
       </div>
 
+      <div className="grid gap-3 md:grid-cols-4">
+        <Link to="/purchase-returns" className="dawaa-card p-4 transition hover:border-[var(--dawaa-theme-border-strong)]">
+          <div className="flex items-center gap-3">
+            <span className="dawaa-icon-tile h-10 w-10 shrink-0"><RotateCcw size={18} /></span>
+            <div className="dawaa-title text-sm">مرتجعات المشتريات</div>
+          </div>
+        </Link>
+        <Link to="/purchase-cycle-report" className="dawaa-card p-4 transition hover:border-[var(--dawaa-theme-border-strong)]">
+          <div className="flex items-center gap-3">
+            <span className="dawaa-icon-tile h-10 w-10 shrink-0"><PackageSearch size={18} /></span>
+            <div className="dawaa-title text-sm">تقرير دورة المشتريات</div>
+          </div>
+        </Link>
+        <Link to="/supplier-accounts" className="dawaa-card p-4 transition hover:border-[var(--dawaa-theme-border-strong)]">
+          <div className="flex items-center gap-3">
+            <span className="dawaa-icon-tile h-10 w-10 shrink-0"><Wallet size={18} /></span>
+            <div className="dawaa-title text-sm">حسابات الموردين</div>
+          </div>
+        </Link>
+        <Link to="/purchase-order-log" className="dawaa-card p-4 transition hover:border-[var(--dawaa-theme-border-strong)]">
+          <div className="flex items-center gap-3">
+            <span className="dawaa-icon-tile h-10 w-10 shrink-0"><ClipboardList size={18} /></span>
+            <div className="dawaa-title text-sm">سجل الطلبيات</div>
+          </div>
+        </Link>
+      </div>
+
       <div className="dawaa-card dawaa-card--soft p-4 text-sm font-bold">
         <div className="flex items-start gap-3">
           <span className="dawaa-icon-tile h-9 w-9 shrink-0"><Link2 size={18} /></span>
@@ -193,6 +232,8 @@ function PurchasesOverview({
               <thead>
                 <tr>
                   <th className="text-right">رقم الفاتورة</th>
+                  <th className="text-right">المورد</th>
+                  <th className="text-right">التصنيف</th>
                   <th className="text-right">الفرع</th>
                   <th className="text-right">التاريخ</th>
                   <th className="text-right">الصافي</th>
@@ -204,6 +245,8 @@ function PurchasesOverview({
                 {invoices.map((row) => (
                   <tr key={row.id}>
                     <td className="font-bold">{row.system_invoice_number || row.supplier_invoice_number || '-'}</td>
+                    <td>{row.supplier_name || '-'}</td>
+                    <td>{CATEGORY_LABEL[row.purchase_category || 'none'] || row.purchase_category || '-'}</td>
                     <td>{row.branch || '-'}</td>
                     <td>{row.invoice_date || '-'}</td>
                     <td>{formatCurrency(n(row.total_value))}</td>

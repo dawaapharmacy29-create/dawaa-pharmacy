@@ -56,6 +56,10 @@ const PharmacyZoneTasks = lazy(() => import('@/pages/PharmacyZoneTasks'));
 const PurchaseInvoiceAccuracy = lazy(() => import('@/pages/PurchaseInvoiceAccuracy'));
 const PurchaseInvoiceEntry = lazy(() => import('@/pages/PurchaseInvoiceEntry'));
 const PurchaseInvoiceReview = lazy(() => import('@/pages/PurchaseInvoiceReview'));
+const PurchaseReturns = lazy(() => import('@/pages/PurchaseReturns'));
+const PurchaseCycleReport = lazy(() => import('@/pages/PurchaseCycleReport'));
+const SupplierAccounts = lazy(() => import('@/pages/SupplierAccounts'));
+const PurchaseOrderLog = lazy(() => import('@/pages/PurchaseOrderLog'));
 const BranchChecklistReview = lazy(() => import('@/pages/BranchChecklistReview'));
 const DoctorCompetition = lazy(() => import('@/pages/DoctorCompetition'));
 const Team = lazy(() => import('@/pages/Team'));
@@ -576,6 +580,38 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             {routeSuspense(<PurchaseInvoiceReview />, 'مراجعة فواتير المشتريات')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/purchase-returns"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<PurchaseReturns />, 'مرتجعات المشتريات')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/purchase-cycle-report"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<PurchaseCycleReport />, 'تقرير دورة المشتريات')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/supplier-accounts"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<SupplierAccounts />, 'حسابات الموردين')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/purchase-order-log"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<PurchaseOrderLog />, 'سجل الطلبيات')}
           </ProtectedRoute>
         }
       />

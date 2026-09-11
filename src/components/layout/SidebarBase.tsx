@@ -3,7 +3,7 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   Activity, ActivitySquare, AlertTriangle, BarChart3, BellRing, Calendar, ChevronDown, ChevronLeft,
   ClipboardCheck, ClipboardList, Crown, FileSpreadsheet, HeadphonesIcon, LayoutDashboard, LogOut,
-  MessageCircle, Package, PackageSearch, ShieldCheck, Sparkles, Star, Store, Target, TrendingDown, Truck, UserCheck,
+  MessageCircle, Package, PackageSearch, PackageX, ShieldCheck, Sparkles, Star, Store, Target, TrendingDown, Truck, UserCheck,
   UserPlus, Users, Wallet, WalletCards, X,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
@@ -80,6 +80,10 @@ const GROUPS: NavGroup[] = [
     { path: '/purchase-invoice-entry', icon: FileSpreadsheet, label: 'إدخال فاتورة مشتريات', allowedRoles: ['assistant'] },
     { path: '/purchase-invoice-review', icon: ClipboardCheck, label: 'مراجعة فواتير المشتريات', excludeRoles: ['pharmacist', 'assistant', 'customer_service_manager'] },
     { path: '/purchase-invoice-accuracy', icon: FileSpreadsheet, label: 'دقة إدخال فواتير المشتريات', allowedRoles: ['assistant', 'customer_service_manager', 'general_manager', 'branches_manager'] },
+    { path: '/purchase-returns', icon: PackageX, label: 'مرتجعات المشتريات', permission: 'view_purchases' },
+    { path: '/purchase-cycle-report', icon: PackageSearch, label: 'تقرير دورة المشتريات', permission: 'view_purchases' },
+    { path: '/supplier-accounts', icon: WalletCards, label: 'حسابات الموردين', permission: 'view_purchases' },
+    { path: '/purchase-order-log', icon: ClipboardList, label: 'سجل الطلبيات', permission: 'view_purchases' },
   ]},
 
   { title: 'المخزون وتشغيل الصيدلية', icon: Store, items: [
