@@ -54,8 +54,14 @@ if (!fs.existsSync(payrollPagePath)) {
   failures.push(`Missing payroll page: ${payrollPagePath}`);
 } else {
   const page = fs.readFileSync(payrollPagePath, 'utf8');
-  for (const token of ['fetchAttendancePayrollReadiness', 'candidateWorkedHours', 'جاهزية البصمة للرواتب']) {
+  for (const token of ['fetchAttendancePayrollReadiness', 'candidateWorkedHours']) {
     if (!page.includes(token)) failures.push(`Payroll page missing readiness token: ${token}`);
+  }
+  if (!/جاهزية البصمة(?: للرواتب)?/.test(page)) {
+    failures.push('Payroll page must expose biometric payroll-readiness status to the operator.');
+  }
+  if (!page.includes('لا تضرب في قيمة الساعة الشهرية')) {
+    failures.push('Payroll page must explicitly keep fingerprint hours separate from the monthly-hour-unit base salary formula.');
   }
   if (/candidateWorkedHours[\s\S]{0,180}setMonthly/.test(page)) {
     failures.push('Payroll page must not automatically copy candidate fingerprint hours into the payroll row.');
@@ -68,4 +74,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log('[attendance-payroll-readiness] PASS: fingerprint promotion is canonical, trigger-only, and payroll readiness remains read-only.');
+console.log('[attendance-payroll-readiness] PASS: fingerprint promotion is canonical, trigger-only, payroll readiness remains read-only, and base salary uses the independent compensation formula.');
