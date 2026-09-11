@@ -36,6 +36,13 @@ function normalizePhoneInput(value: string) {
   return value.replace(/[^\d+]/g, '').trim();
 }
 
+function normalizeCodeInput(value: string) {
+  const arabicDigits = '٠١٢٣٤٥٦٧٨٩';
+  return String(value || '')
+    .trim()
+    .replace(/[٠-٩]/g, (digit) => String(arabicDigits.indexOf(digit)));
+}
+
 function nowLocalInput() {
   return new Date(Date.now() - new Date().getTimezoneOffset() * 60000)
     .toISOString()
@@ -149,31 +156,56 @@ export default function QuickFollowupModal({
 
   useEffect(() => {
     if (!open || (!initialCustomerCode && !initialCustomerName)) return;
-    // تعبئة فورية من بيانات الإشعار نفسها — مش مستنيين نتيجة البحث الحي عشان
-    // النافذة توري بيانات على طول، حتى لو الشبكة بطيئة أو البحث فشل لاحقًا.
     if (initialCustomerName) setName(initialCustomerName);
     if (initialCustomerPhone) setPhone(initialCustomerPhone);
     if (initialCustomerCode) setCode(initialCustomerCode);
 
-    if (!initialCustomerCode) return;
+    const targetCode = normalizeCodeInput(initialCustomerCode || '');
+    if (!targetCode) return;
+
     let cancelled = false;
-    searchCustomerMetrics(initialCustomerCode)
-      .then((found) => {
-        if (cancelled || !found.length) return;
-        const target = String(initialCustomerCode).trim().toLowerCase();
-        const exact =
-          found.find((c) => String(c.customer_code || '').trim().toLowerCase() === target) || found[0];
+    const loadExactCustomer = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('dawaa_customer_metrics_app_view')
+          .select('final_customer_key,customer_id,customer_code,customer_name,customer_phone,branch,invoices_count,total_spent,avg_invoice,last_purchase,avg_monthly,segment,customer_status')
+          .eq('customer_code', targetCode)
+          .limit(1)
+          .maybeSingle();
+        if (cancelled) return;
+        if (error) throw error;
+        if (!data) {
+          console.warn('[QuickFollowupModal] exact customer code not found', targetCode);
+          setSelectedCustomer(null);
+          setSelectedCustomerBranch('');
+          return;
+        }
+        const exact: CustomerSearchResult = {
+          id: String(data.customer_id || data.final_customer_key || targetCode),
+          name: data.customer_name || initialCustomerName || null,
+          phone: data.customer_phone || initialCustomerPhone || null,
+          customer_code: String(data.customer_code || targetCode),
+          branch: normalizeBranchName(data.branch || ''),
+          total_spent: Number(data.total_spent || 0),
+          avg_monthly: Number(data.avg_monthly || 0),
+          avg_invoice: Number(data.avg_invoice || 0),
+          invoices_count: Number(data.invoices_count || 0),
+          last_purchase: data.last_purchase || null,
+          segment: data.segment || data.customer_status || null,
+        };
         setSelectedCustomer(exact);
         setName(exact.name || initialCustomerName || '');
         setPhone(exact.phone || initialCustomerPhone || '');
-        setCode(exact.customer_code || initialCustomerCode || '');
+        setCode(exact.customer_code || targetCode);
         setSelectedCustomerBranch(normalizeBranchName(exact.branch || ''));
-      })
-      .catch((err) => {
-        // البحث التلقائي فشل — البيانات الأساسية (الاسم/الهاتف) اتملت فعلًا فوق
-        // كـ fallback، فالمستخدم مش هيشوف نافذة فاضية تمامًا حتى لو ده حصل.
-        console.warn('[QuickFollowupModal] auto search by code failed', err);
-      });
+        setBranch((current) => normalizeBranchName(exact.branch || '') || current);
+      } catch (err) {
+        console.warn('[QuickFollowupModal] exact auto lookup failed', err);
+        setSelectedCustomer(null);
+        setSelectedCustomerBranch('');
+      }
+    };
+    void loadExactCustomer();
     return () => {
       cancelled = true;
     };
