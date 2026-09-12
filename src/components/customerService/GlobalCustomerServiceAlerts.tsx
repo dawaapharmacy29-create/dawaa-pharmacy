@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, ExternalLink, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
-import { createNotification } from '@/lib/notificationService';
 import { normalizeRole, useAuth } from '@/hooks/useAuth';
 import { normalizeBranchName } from '@/lib/branch';
 
@@ -168,8 +167,6 @@ export default function GlobalCustomerServiceAlerts() {
 
   useEffect(() => {
     if (!enabled || !visibleRows.length) return;
-    const maxLate = Math.max(...visibleRows.map(minutesLate));
-    const priority = maxLate >= 60 ? 'critical' : 'urgent';
     const scope = allBranches ? 'all' : userBranch || 'unknown';
     const bucket = Math.floor(Date.now() / NOTICE_THROTTLE_MS);
     const throttleKey = `dawaa_cs_overdue_notice_${scope}_${bucket}`;
@@ -182,39 +179,59 @@ export default function GlobalCustomerServiceAlerts() {
       byBranch.set(branch, [...(byBranch.get(branch) || []), row]);
     }
 
-    const createForRole = async (recipientRole: string, branch: string | null, branchRows: AlertRow[]) => {
-      await createNotification({
-        title: 'تأخر متابعات خدمة العملاء',
-        message: `يوجد ${branchRows.length} متابعة متأخرة${branch ? ` في ${branch}` : ''}. أطول تأخير ${Math.max(...branchRows.map(minutesLate))} دقيقة.`,
-        type: 'customer_alert',
-        priority,
-        recipient_role: recipientRole,
-        branch,
-        target_type: 'customer_service_followup_overdue',
-        target_route: alertRoute(branch),
-        requires_action: true,
-        sound_enabled: true,
-        metadata: {
-          source: 'global_customer_service_alert_ticker',
-          count: branchRows.length,
-          max_minutes_late: Math.max(...branchRows.map(minutesLate)),
-          branches: [...byBranch.keys()],
-        },
+    const upsertIncidentForRole = async (recipientRole: string, branch: string | null, branchRows: AlertRow[]) => {
+      const { error } = await supabase.rpc('upsert_customer_service_overdue_incident_v1', {
+        p_recipient_role: recipientRole,
+        p_branch: branch,
+        p_count: branchRows.length,
+        p_max_minutes_late: Math.max(...branchRows.map(minutesLate)),
+        p_action_url: alertRoute(branch),
       });
+      if (error) throw error;
     };
 
     void (async () => {
       try {
-        await createForRole('general_manager', null, visibleRows);
-        await createForRole('branches_manager', null, visibleRows);
-        await createForRole('customer_service_manager', null, visibleRows);
-        await Promise.all([...byBranch.entries()].map(([branch, branchRows]) => createForRole('branch_manager', branch, branchRows)));
+        await upsertIncidentForRole('general_manager', null, visibleRows);
+        await upsertIncidentForRole('branches_manager', null, visibleRows);
+        await upsertIncidentForRole('customer_service_manager', null, visibleRows);
+        await Promise.all([...byBranch.entries()].map(([branch, branchRows]) => upsertIncidentForRole('branch_manager', branch, branchRows)));
         toast.warning(`تنبيه خدمة العملاء: ${visibleRows.length} متابعة متأخرة`, { duration: 8000 });
       } catch (error) {
-        console.warn('customer service overdue notification skipped', error);
+        console.warn('customer service overdue incident update skipped', error);
       }
     })();
   }, [allBranches, enabled, userBranch, visibleRows]);
+
+  useEffect(() => {
+    if (!enabled || visibleRows.length) return;
+    const resolveIncident = async (recipientRole: string, branch: string | null) => {
+      const { error } = await supabase.rpc('upsert_customer_service_overdue_incident_v1', {
+        p_recipient_role: recipientRole,
+        p_branch: branch,
+        p_count: 0,
+        p_max_minutes_late: 0,
+        p_action_url: alertRoute(branch),
+      });
+      if (error) throw error;
+    };
+
+    void (async () => {
+      try {
+        if (allBranches) {
+          await Promise.all([
+            resolveIncident('general_manager', null),
+            resolveIncident('branches_manager', null),
+            resolveIncident('customer_service_manager', null),
+          ]);
+        } else if (userBranch) {
+          await resolveIncident('branch_manager', userBranch);
+        }
+      } catch (error) {
+        console.warn('customer service overdue incident resolution skipped', error);
+      }
+    })();
+  }, [allBranches, enabled, userBranch, visibleRows.length]);
 
   if (!enabled || !visibleRows.length || Date.now() < dismissUntil) return null;
 
@@ -230,7 +247,7 @@ export default function GlobalCustomerServiceAlerts() {
               <AlertTriangle size={20} />
             </span>
             <div className="min-w-0 flex-1">
-              <div className="text-sm font-black">تنبيه متكرر: متابعات خدمة العملاء متأخرة</div>
+              <div className="text-sm font-black">متابعات خدمة العملاء متأخرة</div>
               <div className="mt-1 overflow-hidden whitespace-nowrap text-xs font-bold text-red-100/90">
                 <div className="animate-[dawaaTicker_22s_linear_infinite]">
                   {visibleRows.map((row) => `${customerLabel(row)} - ${normalizeBranchName(row.branch || '') || 'فرع غير محدد'} - ${minutesLate(row)} دقيقة - ${responsibleLabel(row)}`).join('   •   ')}
