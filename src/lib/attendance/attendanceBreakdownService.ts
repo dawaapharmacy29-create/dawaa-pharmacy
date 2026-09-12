@@ -81,6 +81,10 @@ export interface BranchRosterRow {
   needs_review_days: number;
   total_worked_hours: number;
   total_overtime_hours: number;
+  risk_level: 'none' | 'watch' | 'urgent';
+  risk_reasons: string[];
+  join_date: string | null;
+  tenure_days: number | null;
 }
 
 export async function getAttendanceBranches(): Promise<string[]> {
@@ -107,6 +111,17 @@ export async function getBranchAttendanceRoster(branch: string, start: string, e
   });
   if (error) throw error;
   return (data || []) as BranchRosterRow[];
+}
+
+export function formatTenure(tenureDays: number | null): string | null {
+  if (tenureDays == null || tenureDays < 0) return null;
+  const years = Math.floor(tenureDays / 365);
+  const months = Math.floor((tenureDays % 365) / 30);
+  if (years <= 0 && months <= 0) return 'أقل من شهر';
+  const parts: string[] = [];
+  if (years > 0) parts.push(`${years} سنة`);
+  if (months > 0) parts.push(`${months} شهر`);
+  return parts.join(' و ');
 }
 
 export const RESOLUTION_STATUS_LABELS: Record<string, string> = {

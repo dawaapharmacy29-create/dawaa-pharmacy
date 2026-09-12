@@ -3,6 +3,7 @@ import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, Loader2, Refres
 import { toast } from 'sonner';
 import {
   decideOvertimeApproval,
+  formatTenure,
   getAttendanceBranches,
   getBranchAttendanceRoster,
   getStaffAttendanceDetail,
@@ -266,6 +267,13 @@ export default function EmployeeAttendanceBreakdown({ branches, defaultBranch, c
         {/* Employee roster */}
         <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-2 shadow-sm">
           <div className="flex items-center gap-2 px-2 py-2 text-xs font-black text-[var(--dawaa-theme-muted)]"><Users size={14} /> الموظفون ({roster.length})</div>
+          {!loadingRoster && roster.some((r) => r.risk_level !== 'none') && (
+            <div className="mx-1 mb-1 rounded-lg border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] px-2 py-1.5 text-[11px] font-black text-[var(--dawaa-status-danger-text)]">
+              {roster.filter((r) => r.risk_level === 'urgent').length > 0 && `${roster.filter((r) => r.risk_level === 'urgent').length} يحتاجون متابعة عاجلة`}
+              {roster.filter((r) => r.risk_level === 'urgent').length > 0 && roster.filter((r) => r.risk_level === 'watch').length > 0 && ' · '}
+              {roster.filter((r) => r.risk_level === 'watch').length > 0 && `${roster.filter((r) => r.risk_level === 'watch').length} تحت الملاحظة`}
+            </div>
+          )}
           {loadingRoster && <div className="space-y-2 p-2">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}</div>}
           {!loadingRoster && (
             <div className="max-h-[560px] space-y-1 overflow-y-auto p-1">
@@ -273,10 +281,14 @@ export default function EmployeeAttendanceBreakdown({ branches, defaultBranch, c
                 <button
                   key={r.staff_id}
                   onClick={() => setSelectedStaffId(r.staff_id)}
-                  className={`w-full rounded-xl border p-2 text-right transition ${selectedStaffId === r.staff_id ? 'border-[var(--dawaa-theme-accent)] bg-[var(--dawaa-theme-accent)]/10' : 'border-transparent hover:border-[var(--dawaa-theme-border)]'}`}
+                  className={`w-full rounded-xl border p-2 text-right transition ${selectedStaffId === r.staff_id ? 'border-[var(--dawaa-theme-accent)] bg-[var(--dawaa-theme-accent)]/10' : r.risk_level === 'urgent' ? 'border-[var(--dawaa-status-danger-border)]' : 'border-transparent hover:border-[var(--dawaa-theme-border)]'}`}
                 >
-                  <p className="truncate text-sm font-black text-[var(--dawaa-theme-heading)]">{r.staff_name}</p>
-                  <p className="truncate text-[11px] font-bold text-[var(--dawaa-theme-muted)]">{r.role || '—'}</p>
+                  <div className="flex items-center justify-between gap-1">
+                    <p className="truncate text-sm font-black text-[var(--dawaa-theme-heading)]">{r.staff_name}</p>
+                    {r.risk_level === 'urgent' && <span className="shrink-0 rounded-full bg-[var(--dawaa-status-danger-bg)] px-1.5 py-0.5 text-[9px] font-black text-[var(--dawaa-status-danger-text)]">عاجل</span>}
+                    {r.risk_level === 'watch' && <span className="shrink-0 rounded-full bg-[var(--dawaa-status-warning-bg)] px-1.5 py-0.5 text-[9px] font-black text-[var(--dawaa-status-warning-text)]">ملاحظة</span>}
+                  </div>
+                  <p className="truncate text-[11px] font-bold text-[var(--dawaa-theme-muted)]">{r.role || '—'}{formatTenure(r.tenure_days) ? ` · ${formatTenure(r.tenure_days)}` : ''}</p>
                   <div className="mt-1 flex flex-wrap gap-1">
                     {r.total_late_minutes > 0 && <span className="rounded-full border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-1.5 py-0.5 text-[10px] font-black text-[var(--dawaa-status-warning-text)]">تأخير {r.total_late_minutes} د</span>}
                     {r.absence_review_days > 0 && <span className="rounded-full border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] px-1.5 py-0.5 text-[10px] font-black text-[var(--dawaa-status-danger-text)]">غياب {r.absence_review_days}</span>}
@@ -299,7 +311,10 @@ export default function EmployeeAttendanceBreakdown({ branches, defaultBranch, c
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-lg font-black text-[var(--dawaa-theme-heading)]">{detail.staff.name}</p>
-                    <p className="text-xs font-bold text-[var(--dawaa-theme-muted)]">{detail.staff.role} · {detail.staff.branch}</p>
+                    <p className="text-xs font-bold text-[var(--dawaa-theme-muted)]">
+                      {detail.staff.role} · {detail.staff.branch}
+                      {(() => { const t = formatTenure(roster.find((r) => r.staff_id === selectedStaffId)?.tenure_days ?? null); return t ? ` · بالشركة منذ ${t}` : ''; })()}
+                    </p>
                   </div>
                 </div>
 
