@@ -83,6 +83,12 @@ export interface BranchRosterRow {
   total_overtime_hours: number;
 }
 
+export async function getAttendanceBranches(): Promise<string[]> {
+  const { data, error } = await supabase.rpc('list_attendance_branches_v1');
+  if (error) throw error;
+  return (data || []) as string[];
+}
+
 export async function getStaffAttendanceDetail(staffId: string, start: string, end: string): Promise<StaffAttendanceDetail> {
   const { data, error } = await supabase.rpc('get_staff_attendance_detail_v1', {
     p_staff_id: staffId,

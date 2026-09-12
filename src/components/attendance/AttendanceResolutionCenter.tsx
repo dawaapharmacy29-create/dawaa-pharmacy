@@ -46,6 +46,8 @@ function statusLabel(status?: string | null) {
     invalid_schedule_time: 'وقت الجدول غير صالح',
     needs_event_review: 'بصمة تحتاج مراجعة',
     sync_pending_verification: 'انتظار اكتمال المزامنة',
+    shift_in_progress: 'الشيفت لسه شغال',
+    invalid_duration: 'مدة عمل غير منطقية',
   };
   return labels[status || ''] || status || 'غير محدد';
 }

@@ -3,6 +3,7 @@ import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, Loader2, Refres
 import { toast } from 'sonner';
 import {
   decideOvertimeApproval,
+  getAttendanceBranches,
   getBranchAttendanceRoster,
   getStaffAttendanceDetail,
   listPendingOvertime,
@@ -102,6 +103,7 @@ interface Props {
 }
 
 export default function EmployeeAttendanceBreakdown({ branches, defaultBranch, canAllBranches }: Props) {
+  const [branchList, setBranchList] = useState<string[]>(branches);
   const [branch, setBranch] = useState(defaultBranch);
   const [mode, setMode] = useState<PeriodMode>('month');
   const [anchor, setAnchor] = useState(cairoToday());
@@ -114,6 +116,17 @@ export default function EmployeeAttendanceBreakdown({ branches, defaultBranch, c
   const [decidingId, setDecidingId] = useState<string | null>(null);
 
   useEffect(() => { setBranch(defaultBranch); }, [defaultBranch]);
+
+  useEffect(() => {
+    getAttendanceBranches()
+      .then((fresh) => {
+        if (fresh.length) {
+          setBranchList(fresh);
+          setBranch((current) => (fresh.includes(current) ? current : fresh[0]));
+        }
+      })
+      .catch(() => { /* keep the prop-provided list if the canonical lookup fails */ });
+  }, []);
 
   const { start, end } = useMemo(() => computeRange(mode, anchor), [mode, anchor]);
 
@@ -205,7 +218,7 @@ export default function EmployeeAttendanceBreakdown({ branches, defaultBranch, c
       {/* Controls */}
       <div className="flex flex-col gap-3 rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap items-center gap-2">
-          {canAllBranches && branches.map((b) => (
+          {canAllBranches && branchList.map((b) => (
             <button key={b} onClick={() => setBranch(b)} className={branch === b ? 'btn-primary' : 'btn-secondary'}>{b}</button>
           ))}
         </div>
