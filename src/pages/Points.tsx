@@ -14,6 +14,7 @@ import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { AddPointsModal } from '@/components/points/AddPointsModal';
 import SalaryCalculator from '@/components/points/SalaryCalculator';
+import { getStaffPointsDashboardV3, type StaffPointsDashboardV3 } from '@/lib/staff/staffPointsDashboardService';
 import { BRANCHES, INITIAL_POINTS } from '@/lib/constants';
 import { mergeRulesFromSupabase, type EvaluationRuleDef } from '@/lib/evaluationRulesCatalog';
 import {
@@ -161,8 +162,18 @@ export default function Points() {
   const [branchFilter, setBranchFilter] = useState('الكل');
   const [search, setSearch] = useState('');
   const [selectedStaffForSalary, setSelectedStaffForSalary] = useState<StaffMember | null>(null);
+  const [canonicalPointsDashboard, setCanonicalPointsDashboard] = useState<StaffPointsDashboardV3 | null>(null);
 
   const cycle = getCurrentCycle();
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!selectedStaffForSalary?.id) { setCanonicalPointsDashboard(null); return; }
+    getStaffPointsDashboardV3(selectedStaffForSalary.id, cycle.label)
+      .then((d) => { if (!cancelled) setCanonicalPointsDashboard(d); })
+      .catch(() => { if (!cancelled) setCanonicalPointsDashboard(null); });
+    return () => { cancelled = true; };
+  }, [selectedStaffForSalary?.id, cycle.label]);
 
   const {
     data: staffList,
@@ -814,6 +825,8 @@ export default function Points() {
               staffIncentiveSummary(selectedStaffForSalary).quarterlyCashRewards
             }
             records={staffIncentiveSummary(selectedStaffForSalary).records}
+            pointRateEgp={canonicalPointsDashboard?.profile_configured ? (canonicalPointsDashboard?.point_rate_egp ?? undefined) : undefined}
+            finalIncentiveOverride={canonicalPointsDashboard?.profile_configured ? (canonicalPointsDashboard?.final_incentive_egp ?? undefined) : undefined}
           />
           <div className="stat-card">
             <h3 className="text-white font-bold mb-3">

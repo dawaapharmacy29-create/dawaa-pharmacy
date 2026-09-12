@@ -53,6 +53,12 @@ interface SalaryCalculatorProps {
   permissionDeduction?: number;
   repeatErrors?: RepeatErrorLine[];
   records: IncentiveTransaction[];
+  /** Per-employee EGP-per-point rate from the canonical points-truth source. When provided,
+   *  this overrides the flat global POINT_VALUE_EGP so this page never disagrees with
+   *  /staff-monthly-evaluation for staff on a custom rate. */
+  pointRateEgp?: number;
+  /** Canonical final incentive (EGP) from get_staff_points_dashboard_v3, when available. */
+  finalIncentiveOverride?: number;
 }
 
 function transactionPoints(row: IncentiveTransaction) {
@@ -134,9 +140,10 @@ function buildTransactionRows(rows: IncentiveTransaction[]) {
 function buildReportHtml(props: SalaryCalculatorProps) {
   const startingPoints = props.startingPoints ?? STARTING_POINTS;
   const targetPoints = props.maxPoints || STARTING_POINTS;
-  const finalIncentive = calculateIncentive(props.currentPoints);
-  const rewardMoney = props.rewardPoints * POINT_VALUE_EGP;
-  const penaltyMoney = props.penaltyPoints * POINT_VALUE_EGP;
+  const pointValue = props.pointRateEgp ?? POINT_VALUE_EGP;
+  const finalIncentive = props.finalIncentiveOverride ?? calculateIncentive(props.currentPoints);
+  const rewardMoney = props.rewardPoints * pointValue;
+  const penaltyMoney = props.penaltyPoints * pointValue;
   const quarterlyCash = props.quarterlyCashRewards ?? 0;
   const uniqueRecords = uniqueTransactions(props.records);
   const rewardRows = uniqueRecords.filter((row) => transactionKind(row) === 'reward');
@@ -240,7 +247,7 @@ function buildReportHtml(props: SalaryCalculatorProps) {
         <h3>طريقة الحساب</h3>
         <table class="calc-table">
           <tbody>
-            <tr><th>قيمة النقطة</th><td>${escapeHtml(POINT_VALUE_EGP)} جنيه</td></tr>
+            <tr><th>قيمة النقطة</th><td>${escapeHtml(pointValue)} جنيه</td></tr>
             <tr><th>الحافز حسب النقاط النهائية</th><td>${escapeHtml(formatCurrency(finalIncentive))}</td></tr>
             <tr><th>قيمة المكافآت داخل النقاط</th><td>${escapeHtml(formatCurrency(rewardMoney))}</td></tr>
             <tr><th>قيمة الخصومات داخل النقاط</th><td>${escapeHtml(formatCurrency(penaltyMoney))}</td></tr>
@@ -464,9 +471,10 @@ async function exportIncentiveReport(props: SalaryCalculatorProps) {
 
 export default function SalaryCalculator(props: SalaryCalculatorProps) {
   const targetPoints = props.maxPoints || STARTING_POINTS;
-  const finalIncentive = calculateIncentive(props.currentPoints);
-  const rewardMoney = props.rewardPoints * POINT_VALUE_EGP;
-  const penaltyMoney = props.penaltyPoints * POINT_VALUE_EGP;
+  const pointValue = props.pointRateEgp ?? POINT_VALUE_EGP;
+  const finalIncentive = props.finalIncentiveOverride ?? calculateIncentive(props.currentPoints);
+  const rewardMoney = props.rewardPoints * pointValue;
+  const penaltyMoney = props.penaltyPoints * pointValue;
   const quarterlyCash = props.quarterlyCashRewards ?? 0;
   const uniqueRecords = uniqueTransactions(props.records);
   const rewardRows = uniqueRecords.filter((row) => transactionKind(row) === 'reward');
