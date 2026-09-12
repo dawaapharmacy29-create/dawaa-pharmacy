@@ -14,6 +14,7 @@ import {
   type PendingOvertimeRow,
   type StaffAttendanceDetail,
 } from '@/lib/attendance/attendanceBreakdownService';
+import { getAnnualLeaveBalanceV1, getPermissionPolicyStatusV2, type AnnualLeaveBalanceV1, type PermissionPolicyStatusV2 } from '@/lib/timeOffService';
 import { Skeleton } from '@/components/ui/skeleton';
 
 type PeriodMode = 'day' | 'week' | 'month';
@@ -43,13 +44,18 @@ function startOfWeek(date: string): string {
 }
 
 function startOfMonth(date: string): string {
-  return `${date.slice(0, 7)}-01`;
+  // Pharmacy pay cycle: 26th of a month through the 25th of the next.
+  const d = new Date(`${date}T00:00:00`);
+  const day = d.getDate();
+  const cycleStartMonth = day >= 26 ? d.getMonth() : d.getMonth() - 1;
+  const start = new Date(d.getFullYear(), cycleStartMonth, 26);
+  return start.toISOString().slice(0, 10);
 }
 
 function endOfMonth(date: string): string {
-  const [y, m] = date.slice(0, 7).split('-').map(Number);
-  const last = new Date(y, m, 0).getDate();
-  return `${date.slice(0, 7)}-${String(last).padStart(2, '0')}`;
+  const start = new Date(`${startOfMonth(date)}T00:00:00`);
+  const end = new Date(start.getFullYear(), start.getMonth() + 1, 25);
+  return end.toISOString().slice(0, 10);
 }
 
 function computeRange(mode: PeriodMode, anchor: string): { start: string; end: string } {
@@ -67,7 +73,7 @@ function shiftAnchor(mode: PeriodMode, anchor: string, dir: 1 | -1): string {
 function rangeLabel(mode: PeriodMode, start: string, end: string): string {
   const fmt = (v: string) => new Date(`${v}T00:00:00`).toLocaleDateString('ar-EG', { day: 'numeric', month: 'short', year: 'numeric' });
   if (mode === 'day') return fmt(start);
-  if (mode === 'month') return new Date(`${start}T00:00:00`).toLocaleDateString('ar-EG', { month: 'long', year: 'numeric' });
+  if (mode === 'month') return `${fmt(start)} — ${fmt(end)}`;
   return `${fmt(start)} — ${fmt(end)}`;
 }
 
@@ -86,11 +92,11 @@ function toneClasses(tone: ReturnType<typeof resolutionStatusTone>): string {
   return 'border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-input)] text-[var(--dawaa-theme-muted)]';
 }
 
-function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
+function StatCard({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: string }) {
   return (
     <div className="rounded-xl border border-[var(--dawaa-theme-border)] dawaa-surface p-3">
       <p className="text-xs font-bold text-[var(--dawaa-theme-muted)]">{label}</p>
-      <p className="mt-1 text-xl font-black text-[var(--dawaa-theme-heading)]">{value}</p>
+      <p className={`mt-1 text-xl font-black ${tone || 'text-[var(--dawaa-theme-heading)]'}`}>{value}</p>
       {sub && <p className="mt-0.5 text-[11px] font-bold text-[var(--dawaa-theme-muted)]">{sub}</p>}
     </div>
   );
@@ -112,6 +118,8 @@ export default function EmployeeAttendanceBreakdown({ branches, defaultBranch, c
   const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null);
   const [detail, setDetail] = useState<StaffAttendanceDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const [leaveBalance, setLeaveBalance] = useState<AnnualLeaveBalanceV1 | null>(null);
+  const [permissionStatus, setPermissionStatus] = useState<PermissionPolicyStatusV2 | null>(null);
   const [pendingOvertime, setPendingOvertime] = useState<PendingOvertimeRow[]>([]);
   const [decidingId, setDecidingId] = useState<string | null>(null);
 
@@ -188,6 +196,21 @@ export default function EmployeeAttendanceBreakdown({ branches, defaultBranch, c
 
   useEffect(() => { void loadDetail(); }, [loadDetail]);
 
+  useEffect(() => {
+    if (!selectedStaffId) { setLeaveBalance(null); setPermissionStatus(null); return; }
+    let cancelled = false;
+    const year = Number(end.slice(0, 4));
+    Promise.all([
+      getAnnualLeaveBalanceV1(selectedStaffId, year).catch(() => null),
+      getPermissionPolicyStatusV2(selectedStaffId, start, end).catch(() => null),
+    ]).then(([leave, permission]) => {
+      if (cancelled) return;
+      setLeaveBalance(leave);
+      setPermissionStatus(permission);
+    });
+    return () => { cancelled = true; };
+  }, [selectedStaffId, start, end]);
+
   const summary = detail?.summary;
   const money = (v: number | null | undefined) => (v == null ? 'غير محدد' : `${v.toLocaleString('ar-EG')} ج.م`);
 
@@ -226,7 +249,7 @@ export default function EmployeeAttendanceBreakdown({ branches, defaultBranch, c
           <div className="flex items-center gap-1 rounded-xl border border-[var(--dawaa-theme-border)] p-1">
             {(['day', 'week', 'month'] as PeriodMode[]).map((m) => (
               <button key={m} onClick={() => setMode(m)} className={`rounded-lg px-3 py-1.5 text-xs font-black ${mode === m ? 'bg-[var(--dawaa-theme-accent)] text-white' : 'text-[var(--dawaa-theme-muted)]'}`}>
-                {m === 'day' ? 'يومي' : m === 'week' ? 'أسبوعي' : 'شهري'}
+                {m === 'day' ? 'يومي' : m === 'week' ? 'أسبوعي' : 'الدورة الشهرية (26 → 25)'}
               </button>
             ))}
           </div>
@@ -310,6 +333,28 @@ export default function EmployeeAttendanceBreakdown({ branches, defaultBranch, c
                     <StatCard label="خصم التأخير" value={money(summary.late_deduction_amount)} />
                     <StatCard label="خصم المغادرة المبكرة" value={money(summary.early_leave_deduction_amount)} />
                     <StatCard label="خصم الغياب" value={money(summary.absence_deduction_amount)} />
+                  </div>
+                )}
+
+                <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  <StatCard
+                    label="رصيد الإجازة السنوية"
+                    value={leaveBalance?.configured ? String(leaveBalance.balance ?? 0) : 'غير مفعّلة'}
+                    sub={leaveBalance?.configured ? `مستخدم ${leaveBalance.used} · محجوز ${leaveBalance.reserved}` : undefined}
+                  />
+                  <StatCard
+                    label="الأذونات هذه الفترة"
+                    value={permissionStatus ? `${permissionStatus.approved_permissions}/${permissionStatus.allowance}` : '—'}
+                    sub={permissionStatus ? `متبقٍ ${permissionStatus.remaining}` : undefined}
+                    tone={permissionStatus?.requires_manager_review ? 'text-[var(--dawaa-status-danger-text)]' : undefined}
+                  />
+                  <StatCard label="مرات تجاوز مدة الإذن" value={permissionStatus ? String(permissionStatus.over_duration_count) : '—'} />
+                  <StatCard label="إجازات معتمدة هذه الفترة" value={String(summary?.approved_leave_days ?? 0)} />
+                </div>
+
+                {permissionStatus?.requires_manager_review && (
+                  <div className="mt-2 flex items-center gap-2 rounded-xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-2 text-xs font-black text-[var(--dawaa-status-danger-text)]">
+                    <AlertTriangle size={14} /> هذا الموظف تجاوز حد الأذونات المسموح به هذه الفترة — يحتاج مراجعة مديره
                   </div>
                 )}
               </div>
