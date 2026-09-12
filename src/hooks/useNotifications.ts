@@ -206,7 +206,9 @@ export function useNotifications() {
 
     notificationRuntime.refreshPromise = (async () => {
       try {
-        const result = await getRecentNotifications({ limit: 300 });
+        // 500 keeps the operational center complete across a busy multi-branch week
+        // without loading the entire historical audit log on every refresh.
+        const result = await getRecentNotifications({ limit: 500 });
         const unique = new Map<string, AppNotification>();
         for (const item of result) {
           const normalized = { ...item, route: notificationRoute(item) };
