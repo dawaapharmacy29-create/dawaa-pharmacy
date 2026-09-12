@@ -3,6 +3,8 @@ import { customerRequestSourceBranch } from '@/lib/customerRequestsBranch';
 
 export type CustomerRequestInsights = {
   period_days: number;
+  period_from?: string;
+  period_to?: string;
   generated_at?: string;
   kpis: {
     total: number;
@@ -83,12 +85,25 @@ export type CustomerRequestInsights = {
   followers: Array<{ staff_name: string; actions_count: number; requests_count: number }>;
 };
 
-export async function getCustomerRequestOperationalInsights(branch = 'all', days = 30) {
+export async function getCustomerRequestOperationalInsights(branch = 'all', days = 30, to?: string) {
   const normalizedBranch = branch === 'all' ? null : customerRequestSourceBranch(branch);
   const { data, error } = await supabase.rpc('get_customer_request_operational_insights', {
     p_branch: normalizedBranch,
     p_days: days,
+    p_to: to || null,
   });
   if (error) throw new Error(error.message);
   return data as CustomerRequestInsights;
+}
+
+/** Fetches the current window plus the immediately preceding window of equal length,
+ *  so the UI can show whether performance improved or declined period-over-period. */
+export async function getCustomerRequestOperationalInsightsWithTrend(branch = 'all', days = 30) {
+  const now = new Date();
+  const previousTo = new Date(now.getTime() - days * 86_400_000).toISOString();
+  const [current, previous] = await Promise.all([
+    getCustomerRequestOperationalInsights(branch, days),
+    getCustomerRequestOperationalInsights(branch, days, previousTo),
+  ]);
+  return { current, previous };
 }

@@ -16,7 +16,7 @@ import {
   UsersRound,
 } from 'lucide-react';
 import { requestStatusLabel } from '@/lib/api/customerRequests';
-import { getCustomerRequestOperationalInsights, type CustomerRequestInsights } from '@/lib/api/customerRequestInsights';
+import { getCustomerRequestOperationalInsightsWithTrend, type CustomerRequestInsights } from '@/lib/api/customerRequestInsights';
 import CustomerRequestActionQueue from '@/components/customer-requests/CustomerRequestActionQueue';
 import CustomerRequestSyncHealthPanel from '@/components/customer-requests/CustomerRequestSyncHealthPanel';
 
@@ -31,6 +31,23 @@ function pct(value: number | null | undefined) {
 function hours(value: number | null | undefined) {
   if (value === null || value === undefined) return '—';
   return `${Number(value).toLocaleString('ar-EG', { maximumFractionDigits: 1 })} س`;
+}
+
+function deltaPct(current: number | null | undefined, previous: number | null | undefined): number | null {
+  const cur = Number(current || 0);
+  const prev = Number(previous || 0);
+  if (!prev) return cur > 0 ? null : 0;
+  return Math.round(((cur - prev) / prev) * 1000) / 10;
+}
+
+function TrendBadge({ delta }: { delta: number | null }) {
+  if (delta === null || delta === 0) return null;
+  const up = delta > 0;
+  return (
+    <span className={`num rounded-full px-1.5 py-0.5 text-[10px] font-black ${up ? 'bg-[var(--dawaa-status-success-bg)] text-[var(--dawaa-status-success-text)]' : 'bg-[var(--dawaa-status-danger-bg)] text-[var(--dawaa-status-danger-text)]'}`}>
+      {up ? '▲' : '▼'} {Math.abs(delta).toLocaleString('ar-EG', { maximumFractionDigits: 1 })}%
+    </span>
+  );
 }
 
 type AnalyticsAction = {
@@ -55,8 +72,9 @@ export default function CustomerRequestInsightsPanel({
 }) {
   const [open, setOpen] = useState(true);
   const [tab, setTab] = useState<'queue' | 'analytics'>('analytics');
-  const [days, setDays] = useState(30);
+  const [days, setDays] = useState(7);
   const [data, setData] = useState<CustomerRequestInsights | null>(null);
+  const [previous, setPrevious] = useState<CustomerRequestInsights | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -65,9 +83,9 @@ export default function CustomerRequestInsightsPanel({
     let cancelled = false;
     setLoading(true);
     setError('');
-    void getCustomerRequestOperationalInsights(branch, days)
+    void getCustomerRequestOperationalInsightsWithTrend(branch, days)
       .then((result) => {
-        if (!cancelled) setData(result);
+        if (!cancelled) { setData(result.current); setPrevious(result.previous); }
       })
       .catch((err) => {
         if (!cancelled) setError((err as Error).message);
@@ -122,11 +140,11 @@ export default function CustomerRequestInsightsPanel({
           {open && (
             <div className="border-t border-[var(--dawaa-theme-border)] p-4 md:p-5">
               <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-2 text-xs font-bold text-[var(--dawaa-theme-muted)]"><SlidersHorizontal size={15} /> الفترة التحليلية</div>
+                <div className="flex items-center gap-2 text-xs font-bold text-[var(--dawaa-theme-muted)]"><SlidersHorizontal size={15} /> الفترة التحليلية <span className="text-[10px] opacity-70">(النسب مقارنة بنفس المدة السابقة)</span></div>
                 <div className="flex gap-2">
-                  {[7, 30, 90].map((value) => (
-                    <button key={value} type="button" onClick={() => setDays(value)} className={`rounded-xl px-3 py-2 text-xs font-black ${days === value ? 'bg-[var(--dawaa-theme-accent-soft)] text-[var(--dawaa-theme-primary)] ring-1 ring-[var(--dawaa-theme-focus)]' : 'bg-[var(--dawaa-theme-surface-2)] text-[var(--dawaa-theme-text)]'}`}>
-                      {value} يوم
+                  {[{ value: 1, label: 'اليوم' }, { value: 7, label: 'الأسبوع' }, { value: 30, label: 'الشهر' }, { value: 90, label: '٣ شهور' }].map((opt) => (
+                    <button key={opt.value} type="button" onClick={() => setDays(opt.value)} className={`rounded-xl px-3 py-2 text-xs font-black ${days === opt.value ? 'bg-[var(--dawaa-theme-accent-soft)] text-[var(--dawaa-theme-primary)] ring-1 ring-[var(--dawaa-theme-focus)]' : 'bg-[var(--dawaa-theme-surface-2)] text-[var(--dawaa-theme-text)]'}`}>
+                      {opt.label}
                     </button>
                   ))}
                 </div>
@@ -154,7 +172,10 @@ export default function CustomerRequestInsightsPanel({
                   <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
                     <Panel title="سرعة وكفاءة الفروع" icon={BarChart3} className="xl:col-span-1">
                       <div className="space-y-3">
-                        {data.branches.map((item) => (
+                        {data.branches.map((item) => {
+                          const prevBranch = previous?.branches?.find((p) => p.branch === item.branch);
+                          const trend = deltaPct(item.fulfillment_rate, prevBranch?.fulfillment_rate);
+                          return (
                           <button type="button" key={item.branch} onClick={() => onAction?.({ quickFilter: 'all', branch: item.branch })} className="w-full rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-4 text-right transition hover:border-[var(--dawaa-theme-accent-border)]">
                             <div className="flex items-center justify-between gap-3">
                               <strong className="text-sm text-[var(--dawaa-theme-heading)]">{item.branch}</strong>
@@ -165,24 +186,28 @@ export default function CustomerRequestInsightsPanel({
                               <Mini label="تم التسليم" value={n(item.delivered)} tone="text-[var(--dawaa-status-success-text)]" />
                               <Mini label="متأخر" value={n(item.overdue)} tone="text-[var(--dawaa-status-danger-text)]" />
                               <Mini label="جاهز" value={n(item.ready)} tone="text-[var(--dawaa-status-warning-text)]" />
-                              <Mini label="نسبة التوفير" value={pct(item.fulfillment_rate)} tone="text-[var(--dawaa-theme-primary)]" />
+                              <Mini label="نسبة التوفير" value={<>{pct(item.fulfillment_rate)}<TrendBadge delta={trend} /></>} tone="text-[var(--dawaa-theme-primary)]" />
                               <Mini label="متوسط الإغلاق" value={hours(item.avg_fulfillment_hours)} tone="text-[var(--dawaa-theme-primary)]" />
                             </div>
                             <div className="mt-3 h-2 overflow-hidden rounded-full bg-[var(--dawaa-theme-surface-2)]">
                               <div className="h-full rounded-full bg-[var(--dawaa-theme-accent-soft)]" style={{ width: `${Math.min(100, Number(item.fulfillment_rate || 0))}%` }} />
                             </div>
                           </button>
-                        ))}
+                          );
+                        })}
                       </div>
                     </Panel>
 
                     <Panel title="أداء المسئولين" icon={UsersRound} className="xl:col-span-1">
                       <div className="max-h-[500px] space-y-2 overflow-y-auto pr-1">
-                        {data.owners.map((item, index) => (
+                        {data.owners.map((item, index) => {
+                          const prevOwner = previous?.owners?.find((p) => p.owner_name === item.owner_name);
+                          const trend = deltaPct(item.completion_rate, prevOwner?.completion_rate);
+                          return (
                           <button type="button" key={`${item.owner_name}-${index}`} onClick={() => onAction?.({ assignee: item.owner_name })} className="w-full rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-3 text-right transition hover:border-[var(--dawaa-status-info-border)]">
                             <div className="flex items-center justify-between gap-2">
                               <div className="flex min-w-0 items-center gap-2"><span className="num flex h-7 w-7 items-center justify-center rounded-full bg-[var(--dawaa-status-info-bg)] text-[11px] font-black text-[var(--dawaa-status-info-text)]">{index + 1}</span><strong className="truncate text-xs text-[var(--dawaa-theme-heading)]">{item.owner_name}</strong></div>
-                              <span className="num text-xs font-black text-[var(--dawaa-status-success-text)]">{pct(item.completion_rate)}</span>
+                              <span className="flex items-center gap-1 num text-xs font-black text-[var(--dawaa-status-success-text)]">{pct(item.completion_rate)}<TrendBadge delta={trend} /></span>
                             </div>
                             <div className="mt-2 grid grid-cols-3 gap-1 text-[10px]">
                               <Mini label="مسند" value={n(item.assigned_count)} />
@@ -193,7 +218,8 @@ export default function CustomerRequestInsightsPanel({
                               <Mini label="متوسط الإغلاق" value={hours(item.avg_close_hours)} tone="text-[var(--dawaa-theme-primary)]" />
                             </div>
                           </button>
-                        ))}
+                          );
+                        })}
                       </div>
                     </Panel>
 
@@ -274,7 +300,10 @@ export default function CustomerRequestInsightsPanel({
                         ))}
                       </div>
                     </Panel>
-                    <Ranking title="الأكثر تسجيلًا للطلبات" rows={(data.registrars || []).map((item) => ({ name: item.staff_name, primary: item.requests_count, secondary: `تم توفير ${item.fulfilled_count}` }))} />
+                    <Ranking title="الأكثر تسجيلًا للطلبات" rows={(data.registrars || []).map((item) => {
+                      const prevItem = previous?.registrars?.find((p) => p.staff_name === item.staff_name);
+                      return { name: item.staff_name, primary: item.requests_count, secondary: `تم توفير ${item.fulfilled_count}`, trend: deltaPct(item.requests_count, prevItem?.requests_count) };
+                    })} />
                     <Ranking title="الأكثر متابعة للطلبات" rows={(data.followers || []).filter((item) => !/dawaawael|sync|system|النظام/i.test(item.staff_name)).map((item) => ({ name: item.staff_name, primary: item.actions_count, secondary: `${item.requests_count} طلب مختلف` }))} />
                   </div>
                 </div>
@@ -296,15 +325,15 @@ function Panel({ title, icon: Icon, children, className = '' }: { title: string;
   return <div className={`rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-4 ${className}`}><div className="mb-3 flex items-center gap-2 font-black text-[var(--dawaa-theme-heading)]"><Icon size={17} className="text-[var(--dawaa-theme-primary)]" />{title}</div>{children}</div>;
 }
 
-function Mini({ label, value, tone = 'text-[var(--dawaa-theme-heading)]' }: { label: string; value: string; tone?: string }) {
-  return <div className="rounded-lg bg-[var(--dawaa-theme-surface)] px-2 py-1.5"><div className="text-[var(--dawaa-theme-muted)]">{label}</div><div className={`mt-0.5 font-black ${tone}`}>{value}</div></div>;
+function Mini({ label, value, tone = 'text-[var(--dawaa-theme-heading)]' }: { label: string; value: React.ReactNode; tone?: string }) {
+  return <div className="rounded-lg bg-[var(--dawaa-theme-surface)] px-2 py-1.5"><div className="text-[var(--dawaa-theme-muted)]">{label}</div><div className={`mt-0.5 flex items-center gap-1 font-black ${tone}`}>{value}</div></div>;
 }
 
 function Empty() {
   return <div className="rounded-xl border border-dashed border-[var(--dawaa-theme-border)] p-4 text-center text-xs text-[var(--dawaa-theme-muted)]">لا توجد بيانات في الفترة.</div>;
 }
 
-function Ranking({ title, rows }: { title: string; rows: Array<{ name: string; primary: number; secondary: string }> }) {
+function Ranking({ title, rows }: { title: string; rows: Array<{ name: string; primary: number; secondary: string; trend?: number | null }> }) {
   return (
     <Panel title={title} icon={UsersRound}>
       <div className="space-y-2">
@@ -312,7 +341,7 @@ function Ranking({ title, rows }: { title: string; rows: Array<{ name: string; p
           <div key={`${row.name}-${index}`} className="flex items-center gap-3 rounded-xl bg-[var(--dawaa-theme-surface-2)] p-3">
             <span className="num flex h-8 w-8 items-center justify-center rounded-full bg-[var(--dawaa-status-info-bg)] font-black text-[var(--dawaa-status-info-text)]">{index + 1}</span>
             <div className="min-w-0 flex-1"><div className="truncate text-xs font-black text-[var(--dawaa-theme-heading)]">{row.name}</div><div className="mt-1 text-[10px] text-[var(--dawaa-theme-muted)]">{row.secondary}</div></div>
-            <strong className="num text-lg text-[var(--dawaa-theme-primary)]">{row.primary}</strong>
+            <div className="flex flex-col items-end gap-1"><strong className="num text-lg text-[var(--dawaa-theme-primary)]">{row.primary}</strong>{row.trend !== undefined ? <TrendBadge delta={row.trend ?? null} /> : null}</div>
           </div>
         )) : <Empty />}
       </div>
