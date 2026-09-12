@@ -58,6 +58,7 @@ type TaskRow = {
 
 type StaffOption = { id: string; name: string; role?: string | null; branch?: string | null };
 type WorkflowState = Exclude<NotificationActionState, 'new'>;
+type DecisionLane = 'now' | 'today' | 'digest' | 'info' | 'all';
 
 const MANAGER_ROLES = new Set([
   'general_manager',
@@ -90,6 +91,80 @@ function hasSlaBreach(item: AppNotification) {
   return metaBoolean(item, 'slaAckBreached', 'ackBreached') || metaBoolean(item, 'slaResolutionBreached', 'resolutionBreached');
 }
 
+function notificationText(item: AppNotification) {
+  return `${item.type || ''} ${item.title || ''} ${item.message || item.body || ''}`.toLowerCase();
+}
+
+function decisionLane(item: AppNotification): Exclude<DecisionLane, 'all'> {
+  const metaTier = String(notificationMetadataValue(item, 'signalTier', 'signal_tier', 'attentionTier', 'attention_tier') || '').toLowerCase();
+  if (['critical', 'now', 'immediate'].includes(metaTier)) return 'now';
+  if (['action', 'today'].includes(metaTier)) return 'today';
+  if (['digest', 'summary'].includes(metaTier)) return 'digest';
+  if (['info', 'reference'].includes(metaTier)) return 'info';
+
+  const text = notificationText(item);
+  const priority = String(item.priority || '').toLowerCase();
+  const state = notificationLifecycleState(item);
+  if (isTerminalNotificationAction(state)) return 'info';
+
+  const severeVip = /vip/.test(text) && /توقف عن الشراء|تراجع قوي|مختفي|لم يشتر|بدون شراء/.test(text);
+  const hardSystemFailure = /مزامن|sync|اتصال|offline/.test(text) && /توقف|تعذر|فشل|offline|critical/.test(text);
+  if (
+    priority === 'critical'
+    || priority === 'urgent'
+    || hasSlaBreach(item)
+    || severeVip
+    || hardSystemFailure
+    || /تجاوز زمن إغلاق|مشكلة حرجة/.test(text)
+  ) return 'now';
+
+  if (
+    Boolean(item.requires_action)
+    || priority === 'high'
+    || state === 'in_progress'
+    || notificationMatchesGroup(item, 'overdue')
+  ) return 'today';
+
+  if (/ملخص|تقرير|digest|صباح الخير|مسارك النهاردة|استعادة مزامنة|تمت استعادة/.test(text)) return 'digest';
+  return 'info';
+}
+
+function decisionReason(item: AppNotification) {
+  const lane = decisionLane(item);
+  const text = notificationText(item);
+  if (lane === 'now') {
+    if (hasSlaBreach(item)) return 'تجاوز زمن المتابعة المحدد';
+    if (/vip/.test(text) && /توقف عن الشراء|تراجع قوي|مختفي|لم يشتر|بدون شراء/.test(text)) return 'عميل مهم يحتاج تدخلًا سريعًا';
+    if (/مزامن|sync|اتصال|offline/.test(text)) return 'مشكلة تشغيل أو مزامنة مؤثرة';
+    return 'أولوية تشغيلية عاجلة';
+  }
+  if (lane === 'today') {
+    if (notificationLifecycleState(item) === 'in_progress') return 'المتابعة بدأت ولم تُغلق بعد';
+    if (notificationMatchesGroup(item, 'overdue')) return 'تأخر عن الموعد المتوقع';
+    return 'يتطلب إجراء أو قرار اليوم';
+  }
+  if (lane === 'digest') return 'ملخص للمراجعة بدون إنشاء مهمة جديدة';
+  return 'للعلم والتوثيق — لا يزاحم التنبيهات التشغيلية';
+}
+
+function decisionLaneLabel(lane: Exclude<DecisionLane, 'all'>) {
+  if (lane === 'now') return 'تدخل الآن';
+  if (lane === 'today') return 'تابعه اليوم';
+  if (lane === 'digest') return 'ملخصات';
+  return 'للعلم';
+}
+
+function decisionScore(item: AppNotification) {
+  const laneWeight = { now: 4000, today: 3000, digest: 2000, info: 1000 }[decisionLane(item)];
+  const priority = String(item.priority || '').toLowerCase();
+  const priorityWeight = priority === 'critical' ? 500 : priority === 'urgent' ? 400 : priority === 'high' ? 250 : 0;
+  const actionWeight = item.requires_action ? 180 : 0;
+  const slaWeight = hasSlaBreach(item) ? 220 : 0;
+  const time = new Date(item.created_at || 0).getTime();
+  const freshness = Number.isFinite(time) ? Math.max(0, 200 - Math.floor((Date.now() - time) / 3_600_000)) : 0;
+  return laneWeight + priorityWeight + actionWeight + slaWeight + freshness;
+}
+
 export default function OperationsCenter2027() {
   const { user, checkPermission } = useAuth();
   const [searchParams] = useSearchParams();
@@ -114,7 +189,8 @@ export default function OperationsCenter2027() {
   });
 
   const [search, setSearch] = useState('');
-  const [activeTab, setActiveTab] = useState<NotificationGroup>('urgent');
+  const [activeTab, setActiveTab] = useState<NotificationGroup>('all');
+  const [decisionFilter, setDecisionFilter] = useState<DecisionLane>('now');
   const [actionNotes, setActionNotes] = useState<Record<string, string>>({});
   const [actionBusy, setActionBusy] = useState<string | null>(null);
   const [form, setForm] = useState({
@@ -126,8 +202,9 @@ export default function OperationsCenter2027() {
 
   useEffect(() => {
     if (!focusedNotificationId) return;
-    if (activeTab !== 'all') {
+    if (activeTab !== 'all' || decisionFilter !== 'all') {
       setActiveTab('all');
+      setDecisionFilter('all');
       return;
     }
 
@@ -146,7 +223,7 @@ export default function OperationsCenter2027() {
       cancelled = true;
       if (timer !== null) window.clearTimeout(timer);
     };
-  }, [activeTab, ensureNotificationLoaded, focusedNotificationId, notifications]);
+  }, [activeTab, decisionFilter, ensureNotificationLoaded, focusedNotificationId, notifications]);
 
   const staffOptions = useMemo<StaffOption[]>(() => {
     if (!canCreateTasks) return [];
@@ -167,28 +244,48 @@ export default function OperationsCenter2027() {
     return tasks.filter((task) => `${task.title || ''} ${task.description || ''} ${task.assigned_name || ''} ${task.priority || ''}`.toLowerCase().includes(q));
   }, [search, tasks]);
 
+  const operationalNotifications = useMemo(
+    () => notifications.filter((item) => !isSlaGenerated(item) || focusedNotificationId === item.id),
+    [focusedNotificationId, notifications]
+  );
+
   const filteredNotifications = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return notifications
+    return operationalNotifications
       .filter((item) => notificationMatchesGroup(item, activeTab))
-      .filter((item) => !q || `${item.title} ${item.message} ${item.type} ${item.priority} ${item.branch || ''} ${notificationMetadataValue(item, 'customerName') || ''} ${notificationMetadataValue(item, 'staffName', 'staff_name') || ''}`.toLowerCase().includes(q));
-  }, [activeTab, notifications, search]);
+      .filter((item) => decisionFilter === 'all' || decisionLane(item) === decisionFilter)
+      .filter((item) => !q || `${item.title} ${item.message} ${item.type} ${item.priority} ${item.branch || ''} ${notificationMetadataValue(item, 'customerName') || ''} ${notificationMetadataValue(item, 'staffName', 'staff_name') || ''}`.toLowerCase().includes(q))
+      .sort((a, b) => decisionScore(b) - decisionScore(a));
+  }, [activeTab, decisionFilter, operationalNotifications, search]);
 
   const groupCounts = useMemo(() => {
-    const counts: Record<NotificationGroup, number> = { urgent: 0, vip: 0, overdue: 0, completed: 0, reviews: 0, system: 0, all: notifications.length };
-    for (const item of notifications) {
+    const counts: Record<NotificationGroup, number> = { urgent: 0, vip: 0, overdue: 0, completed: 0, reviews: 0, system: 0, all: operationalNotifications.length };
+    for (const item of operationalNotifications) {
       for (const group of ['urgent', 'vip', 'overdue', 'completed', 'reviews', 'system'] as NotificationGroup[]) {
         if (notificationMatchesGroup(item, group)) counts[group] += 1;
       }
     }
     return counts;
-  }, [notifications]);
+  }, [operationalNotifications]);
 
-  const operationalNotifications = notifications.filter((item) => !isSlaGenerated(item));
+  const decisionCounts = useMemo(() => {
+    const counts: Record<Exclude<DecisionLane, 'all'>, number> = { now: 0, today: 0, digest: 0, info: 0 };
+    for (const item of operationalNotifications) counts[decisionLane(item)] += 1;
+    return counts;
+  }, [operationalNotifications]);
+
+  const topDecisions = useMemo(
+    () => operationalNotifications
+      .filter((item) => ['now', 'today'].includes(decisionLane(item)))
+      .sort((a, b) => decisionScore(b) - decisionScore(a))
+      .slice(0, 5),
+    [operationalNotifications]
+  );
+
   const openTasks = tasks.filter((task) => !CLOSED.has(String(task.status || '').toLowerCase()));
   const urgentTasks = openTasks.filter((task) => ['خطر', 'high', 'urgent', 'critical'].includes(String(task.priority || '').toLowerCase()));
   const unread = operationalNotifications.filter((item) => !item.read && !item.is_read);
-  const actionRequired = operationalNotifications.filter((item) => item.requires_action || ['high', 'urgent', 'critical'].includes(String(item.priority || '').toLowerCase()));
+  const actionRequired = operationalNotifications.filter((item) => decisionLane(item) === 'now' || decisionLane(item) === 'today');
   const inProgressCount = operationalNotifications.filter((item) => notificationLifecycleState(item) === 'in_progress').length;
   const slaBreachCount = operationalNotifications.filter(hasSlaBreach).length;
 
@@ -319,34 +416,97 @@ export default function OperationsCenter2027() {
     { key: 'all', label: 'الكل', icon: ListChecks },
   ];
 
+  const decisionFilters: Array<{ key: DecisionLane; label: string; description: string; icon: typeof BellRing }> = [
+    { key: 'now', label: 'تدخل الآن', description: 'حرج أو عاجل ويحتاج قرارًا فوريًا', icon: ShieldAlert },
+    { key: 'today', label: 'تابعه اليوم', description: 'إجراء مطلوب أو متابعة لم تُغلق', icon: PlayCircle },
+    { key: 'digest', label: 'ملخصات', description: 'تقارير مركزة بدون ضوضاء', icon: Sparkles },
+    { key: 'info', label: 'للعلم', description: 'توثيق ومعلومات غير عاجلة', icon: BellRing },
+    { key: 'all', label: 'كل الإشارات', description: 'عرض كامل عند الحاجة للمراجعة', icon: ListChecks },
+  ];
+
   return (
     <div className="space-y-5" dir="rtl">
       <section className="dawaa-card dawaa-card--raised">
-        <span className="dawaa-brand-chip">مركز التشغيل اليومي</span>
-        <h1 className="dawaa-title mt-3 text-2xl">المهام والتنبيهات</h1>
-        <p className="dawaa-caption mt-1 font-semibold">الأهم أولًا: المشكلات الحرجة، عملاء VIP، المهام المتأخرة، تقييمات المحادثات، ثم باقي التنبيهات. قد يظهر نفس التنبيه في أكثر من قسم وظيفي بدون إنشاء نسخة جديدة منه.</p>
+        <span className="dawaa-brand-chip">مركز القرار التشغيلي</span>
+        <h1 className="dawaa-title mt-3 text-2xl">المهام والتنبيهات الذكية</h1>
+        <p className="dawaa-caption mt-1 font-semibold">لا نعرض كل حدث بنفس القوة. الأولوية لما يحتاج قرارًا أو إجراءً، ثم متابعة اليوم، ثم الملخصات، بينما المعلومات العادية تظل محفوظة بدون أن تزاحم العمل المهم.</p>
       </section>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+        <Kpi icon={ShieldAlert} label="تدخل الآن" value={decisionCounts.now} />
+        <Kpi icon={PlayCircle} label="تابعه اليوم" value={decisionCounts.today} />
         <Kpi icon={Clock} label="مهامي المفتوحة" value={openTasks.length} />
-        <Kpi icon={BellRing} label="تنبيهات غير مقروءة" value={unread.length} />
-        <Kpi icon={ShieldAlert} label="تحتاج إجراء" value={actionRequired.length} />
-        <Kpi icon={PlayCircle} label="قيد المتابعة" value={inProgressCount} />
+        <Kpi icon={BellRing} label="غير مقروء" value={unread.length} />
         <Kpi icon={TimerOff} label="تجاوز SLA" value={slaBreachCount} />
         <Kpi icon={Sparkles} label="مهام عاجلة" value={urgentTasks.length} />
       </div>
 
+      {topDecisions.length ? (
+        <section className="dawaa-card space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="dawaa-title text-lg">أهم ما يحتاج انتباهك الآن</h2>
+              <p className="dawaa-caption mt-1">أعلى 5 إشارات بعد ترتيبها حسب الخطورة، الإجراء المطلوب، تجاوز الوقت وحداثة الحدث.</p>
+            </div>
+            <span className="dawaa-brand-chip">{actionRequired.length} إشارة تشغيلية نشطة</span>
+          </div>
+          <div className="grid gap-2 lg:grid-cols-2">
+            {topDecisions.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => handleNotificationClick(item)}
+                className="rounded-2xl border border-[var(--dawaa-theme-border)] p-3 text-right transition hover:bg-[var(--dawaa-theme-soft)]"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-black">{item.title}</span>
+                  <span className="dawaa-brand-chip">{decisionLaneLabel(decisionLane(item))}</span>
+                </div>
+                <div className="dawaa-caption mt-1 line-clamp-2">{item.message || item.body}</div>
+                <div className="mt-2 text-xs font-bold">السبب: {decisionReason(item)}</div>
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       <section className="dawaa-card space-y-4">
+        <div>
+          <div className="mb-2 text-sm font-black">مستوى الانتباه</div>
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+            {decisionFilters.map(({ key, label, description, icon: Icon }) => {
+              const count = key === 'all' ? operationalNotifications.length : decisionCounts[key];
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setDecisionFilter(key)}
+                  className={`rounded-2xl border p-3 text-right ${decisionFilter === key ? 'border-[var(--dawaa-theme-primary)] bg-[var(--dawaa-theme-soft)]' : 'border-[var(--dawaa-theme-border)]'}`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-2 font-black"><Icon className="h-4 w-4" /> {label}</span>
+                    <span className="rounded-full border border-[var(--dawaa-theme-border)] px-2 py-0.5 text-xs font-black">{count}</span>
+                  </div>
+                  <div className="dawaa-caption mt-1 text-xs">{description}</div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         <div className="relative max-w-xl">
           <Search className="dawaa-muted absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2" />
           <input className="dawaa-input w-full pr-10" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="بحث باسم العميل أو الموظف أو نوع التنبيه" />
         </div>
-        <div className="flex flex-wrap gap-2">
-          {tabs.map(({ key, label, icon: Icon }) => (
-            <button key={key} type="button" onClick={() => setActiveTab(key)} className={activeTab === key ? 'dawaa-button dawaa-button--primary' : 'dawaa-button dawaa-button--secondary'}>
-              <Icon className="h-4 w-4" /> {label} <span className="rounded-full border border-[var(--dawaa-theme-border)] px-2 py-0.5 text-xs">{groupCounts[key]}</span>
-            </button>
-          ))}
+        <div>
+          <div className="mb-2 text-sm font-black">نوع الإشارة</div>
+          <div className="flex flex-wrap gap-2">
+            {tabs.map(({ key, label, icon: Icon }) => (
+              <button key={key} type="button" onClick={() => setActiveTab(key)} className={activeTab === key ? 'dawaa-button dawaa-button--primary' : 'dawaa-button dawaa-button--secondary'}>
+                <Icon className="h-4 w-4" /> {label} <span className="rounded-full border border-[var(--dawaa-theme-border)] px-2 py-0.5 text-xs">{groupCounts[key]}</span>
+              </button>
+            ))}
+          </div>
         </div>
       </section>
 
@@ -388,7 +548,10 @@ export default function OperationsCenter2027() {
 
       <section className="dawaa-card">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <h2 className="dawaa-title text-lg">{tabs.find((tab) => tab.key === activeTab)?.label || 'التنبيهات'}</h2>
+          <div>
+            <h2 className="dawaa-title text-lg">{decisionFilter === 'all' ? 'كل مستويات الانتباه' : decisionFilters.find((lane) => lane.key === decisionFilter)?.label} · {tabs.find((tab) => tab.key === activeTab)?.label || 'التنبيهات'}</h2>
+            <div className="dawaa-caption mt-1">الترتيب داخل القائمة حسب الأهمية التشغيلية وليس بمجرد وقت الإنشاء.</div>
+          </div>
           <span className="dawaa-caption">{filteredNotifications.length} تنبيه</span>
         </div>
         <div className="space-y-2">
@@ -412,7 +575,8 @@ export default function OperationsCenter2027() {
             const ackDeadline = notificationMetadataValue(item, 'slaAckDeadline', 'ackDeadline');
             const resolutionDeadline = notificationMetadataValue(item, 'slaResolutionDeadline', 'resolutionDeadline');
             const sourceNotificationId = notificationMetadataValue(item, 'sourceNotificationId');
-            const operationalWorkflow = ['urgent', 'vip', 'overdue'].some((group) => notificationMatchesGroup(item, group as NotificationGroup)) || Boolean(item.requires_action);
+            const lane = decisionLane(item);
+            const operationalWorkflow = lane === 'now' || lane === 'today' || Boolean(item.requires_action);
             const canStart = !slaGenerated && notificationTransitionAllowed(item, 'in_progress') && actionState !== 'in_progress';
             const canComplete = !slaGenerated && notificationTransitionAllowed(item, 'completed') && actionState !== 'completed';
             const canEscalate = !slaGenerated && notificationTransitionAllowed(item, 'escalated') && actionState !== 'escalated';
@@ -425,13 +589,15 @@ export default function OperationsCenter2027() {
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="font-black">{item.title}</div>
-                    <span className="dawaa-brand-chip">{notificationPriorityLabel(item.priority)}</span>
+                    <span className="dawaa-brand-chip">{decisionLaneLabel(lane)}</span>
+                    <span className="rounded-full border border-[var(--dawaa-theme-border)] px-2 py-0.5 text-xs font-black">{notificationPriorityLabel(item.priority)}</span>
                     <span className="dawaa-caption">{notificationTypeLabel(item.type)}</span>
                     {focused ? <span className="rounded-full border border-[var(--dawaa-theme-border)] px-2 py-0.5 text-xs font-black">التنبيه الأصلي</span> : null}
                     {actionState !== 'new' ? <span className="rounded-full border border-[var(--dawaa-theme-border)] px-2 py-0.5 text-xs font-black">{notificationActionLabel(actionState)}</span> : null}
-                    {slaGenerated ? <span className="rounded-full border border-[var(--dawaa-theme-border)] px-2 py-0.5 text-xs font-black">تصعيد SLA</span> : null}
+                    {slaGenerated ? <span className="rounded-full border border-[var(--dawaa-theme-border)] px-2 py-0.5 text-xs font-black">مرجع SLA</span> : null}
                   </div>
-                  <div className="dawaa-caption mt-1 leading-relaxed">{item.message || item.body}</div>
+                  <div className="mt-2 rounded-xl bg-[var(--dawaa-theme-soft)] px-3 py-2 text-xs font-bold">لماذا ظهر هنا؟ {decisionReason(item)}</div>
+                  <div className="dawaa-caption mt-2 leading-relaxed">{item.message || item.body}</div>
                   <div className="dawaa-caption mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs">
                     {item.branch ? <span>الفرع: <b>{item.branch}</b></span> : null}
                     <span>الوقت: <b>{formatDate(item.created_at)}</b></span>
@@ -450,7 +616,7 @@ export default function OperationsCenter2027() {
                   ) : null}
                   {slaGenerated ? (
                     <div className="mt-2 rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] px-3 py-2 text-xs font-bold">
-                      هذا تصعيد إداري مرتبط بالتنبيه الأصلي{sourceNotificationId ? <> رقم <span dir="ltr">{String(sourceNotificationId).slice(0, 8)}</span></> : null}. لا يتم إنشاء مسار متابعة مستقل له.
+                      هذا مرجع إداري مرتبط بالتنبيه الأصلي{sourceNotificationId ? <> رقم <span dir="ltr">{String(sourceNotificationId).slice(0, 8)}</span></> : null}. لا يتم إنشاء مسار متابعة مستقل له.
                     </div>
                   ) : null}
                   {improvement !== null ? <div className="mt-2 rounded-xl bg-[var(--dawaa-theme-soft)] px-3 py-2 text-xs font-bold">ملاحظة التحسين: {String(improvement)}</div> : null}
