@@ -12,12 +12,15 @@ import { customerRequestIsClosedStatus } from '../domain/status';
 export type CustomerRequestQuickFilter =
   | 'all'
   | 'today'
+  | 'yesterday'
   | 'recent'
   | 'attention'
   | 'followup_due'
   | 'ready'
   | 'overdue'
   | 'urgent'
+  | 'completed'
+  | 'shortage'
   | 'unassigned'
   | 'unlinked'
   | 'sync_review'
@@ -152,13 +155,13 @@ export function cairoDateBoundaryIso(dateText: string, end = false) {
   return candidate.toISOString();
 }
 
-function cairoTodayDateText() {
+function cairoTodayDateText(dayOffset = 0) {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: CAIRO_TZ,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
-  }).formatToParts(new Date());
+  }).formatToParts(new Date(Date.now() + dayOffset * 86_400_000));
   const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
   return `${values.year}-${values.month}-${values.day}`;
 }
@@ -218,8 +221,7 @@ export async function getCustomerRequestsPage(
       .order('is_urgent', { ascending: false });
   } else {
     query = query
-      .order('is_urgent', { ascending: false })
-      .order('updated_at', { ascending: false, nullsFirst: false })
+      .order('requested_at', { ascending: false, nullsFirst: false })
       .order('created_at', { ascending: false, nullsFirst: false });
   }
 
@@ -260,12 +262,18 @@ export async function getCustomerRequestsPage(
 
   const quick = options.quickFilter || 'all';
   if (quick === 'today') query = query.gte('requested_at', startOfTodayIso());
+  if (quick === 'yesterday') {
+    const yesterdayText = cairoTodayDateText(-1);
+    query = query.gte('requested_at', cairoDateBoundaryIso(yesterdayText)).lt('requested_at', startOfTodayIso());
+  }
   if (quick === 'recent') query = query.gte('requested_at', daysAgoIso(7));
   if (quick === 'followup_due') query = query.not('status', 'in', `(${CLOSED.join(',')})`).or(followupDueOrFilter());
   if (quick === 'ready') query = query.in('status', ['available', 'arrived']);
   if (quick === 'urgent') query = query
     .not('status', 'in', `(${CLOSED.join(',')})`)
     .or('is_urgent.eq.true,urgency.eq.urgent,urgency.eq.high,priority.eq.high');
+  if (quick === 'completed') query = query.eq('status', 'delivered');
+  if (quick === 'shortage') query = query.or('status.eq.not_available,shortage_item_id.not.is.null');
   if (quick === 'unlinked') query = query.is('customer_id', null);
   if (quick === 'unassigned') query = query
     .not('status', 'in', `(${CLOSED.join(',')})`)

@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { BarChart3, Download, Filter, Plus, RefreshCw, RotateCcw } from 'lucide-react';
+import { BarChart3, Download, Filter, ListTree, Plus, RefreshCw, RotateCcw } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import type { CustomerRequest } from '@/lib/api/customerRequests';
 import { useAuth, userHasPermission } from '@/hooks/useAuth';
 import { canSeeAllBranches, getUserBranch } from '@/lib/core/branchScope';
 import { customerRequestBranchKey } from '../domain/branch';
-import { exportCustomerRequestsWorkspace, getCustomerRequestProductMetrics } from '../data';
+import { exportCustomerRequestItemNames, exportCustomerRequestsWorkspace, getCustomerRequestProductMetrics } from '../data';
 import { useCustomerRequestsWorkspace, type CustomerRequestsWorkspaceFilters } from '../hooks';
 import CustomerRequestQueueStrip from './CustomerRequestQueueStrip';
 import CustomerRequestsOperationsTable, { type CustomerRequestProductMetric } from './CustomerRequestsOperationsTable';
@@ -47,6 +47,7 @@ export default function CustomerRequestsWorkspace() {
   const workspace = useCustomerRequestsWorkspace({ initialFilters });
   const [createOpen, setCreateOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [exportingItems, setExportingItems] = useState(false);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(() => Boolean(
     initialFilters.status !== 'all' ||
     initialFilters.urgency !== 'all' ||
@@ -163,6 +164,19 @@ export default function CustomerRequestsWorkspace() {
     }
   };
 
+  const exportItemNames = async () => {
+    if (exportingItems) return;
+    setExportingItems(true);
+    try {
+      const result = await exportCustomerRequestItemNames(workspace.filters);
+      toast.success(`تم تصدير ${result.rows.toLocaleString('ar-EG')} صنف من ${result.requestsCovered.toLocaleString('ar-EG')} طلب بنفس الفلاتر الحالية`);
+    } catch (error) {
+      toast.error(`تعذر تصدير أسماء الأصناف: ${(error as Error).message}`);
+    } finally {
+      setExportingItems(false);
+    }
+  };
+
   const clearEntityFilters = {
     requestId: '', customerId: '', customerCode: '', customerPhone: '', productCode: '', medicineName: '', registrar: '', registrarId: '',
   } as const;
@@ -200,6 +214,7 @@ export default function CustomerRequestsWorkspace() {
             {canManageRequests ? <button type="button" className="btn-primary flex items-center gap-2" onClick={() => setCreateOpen(true)}><Plus size={16} /> تسجيل طلب</button> : null}
             <button type="button" className="btn-secondary flex items-center gap-2" onClick={() => void workspace.refresh()} disabled={workspace.loading}><RefreshCw size={16} className={workspace.loading ? 'animate-spin' : ''} /> تحديث</button>
             <button type="button" className="btn-secondary flex items-center gap-2" onClick={() => void exportFiltered()} disabled={exporting || workspace.count === 0}><Download size={16} /> {exporting ? 'جاري التصدير...' : 'تصدير Excel'}</button>
+            <button type="button" className="btn-secondary flex items-center gap-2" onClick={() => void exportItemNames()} disabled={exportingItems || workspace.count === 0}><ListTree size={16} /> {exportingItems ? 'جاري التصدير...' : 'تصدير أسماء الأصناف'}</button>
           </div>
         </div>
 

@@ -106,3 +106,52 @@ export async function exportCustomerRequestsWorkspace(
   );
   return result;
 }
+
+/**
+ * A lean, deduplicated list of item names only — built for warehouse lookup, not
+ * for reviewing individual customer requests. Groups by item (name + code), summing
+ * quantity and counting how many requests need it, under the same filters currently
+ * applied on screen (e.g. export just the "النواقص" view to go search the warehouse).
+ */
+export async function exportCustomerRequestItemNames(
+  filters: Omit<CustomerRequestPageOptions, 'page' | 'pageSize'>
+) {
+  const result = await getCustomerRequestsForExport(filters);
+  const groups = new Map<string, { name: string; code: string; quantity: number; requests: number; branches: Set<string> }>();
+
+  for (const request of result.rows) {
+    const view = customerRequestOperationalView(request);
+    const name = view.product.name || 'غير محدد';
+    const code = view.product.code || '';
+    const key = `${code}|${name}`.toLowerCase();
+    const existing = groups.get(key);
+    const branch = customerRequestBranchLabel(request.branch);
+    if (existing) {
+      existing.quantity += Number(view.product.quantity) || 0;
+      existing.requests += 1;
+      existing.branches.add(branch);
+    } else {
+      groups.set(key, {
+        name,
+        code,
+        quantity: Number(view.product.quantity) || 0,
+        requests: 1,
+        branches: new Set([branch]),
+      });
+    }
+  }
+
+  const rows = Array.from(groups.values())
+    .sort((a, b) => b.requests - a.requests)
+    .map((group) => ({
+      'اسم الصنف': group.name,
+      'كود الصنف': group.code,
+      'إجمالي الكمية المطلوبة': group.quantity,
+      'عدد الطلبات': group.requests,
+      'الفروع': Array.from(group.branches).join(' / '),
+    }));
+
+  const date = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo' }).format(new Date());
+  await exportToExcel(rows, `أصناف_طلبات_العملاء_${date}`, 'أسماء الأصناف');
+  return { rows: rows.length, requestsCovered: result.rows.length, truncated: result.truncated };
+}
