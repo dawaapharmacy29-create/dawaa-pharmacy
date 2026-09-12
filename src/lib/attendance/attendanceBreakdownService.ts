@@ -10,6 +10,7 @@ export interface AttendanceDayRow {
   candidate_hours: string | number | null;
   scheduled_hours: number | null;
   overtime_hours: number;
+  overtime_approval_status: 'approved' | 'pending' | 'rejected' | null;
   late_minutes: string | number | null;
   early_leave_minutes: string | number | null;
   time_off_kind: string | null;
@@ -27,15 +28,41 @@ export interface AttendanceDetailSummary {
   total_late_minutes: number;
   total_early_leave_minutes: number;
   total_worked_hours: number;
-  total_overtime_hours: number;
+  total_overtime_hours_worked: number;
+  total_overtime_hours_approved: number;
+  total_overtime_hours_pending: number;
   hourly_rate: number | null;
   overtime_hour_rate: number | null;
   monthly_base_salary: number | null;
   late_deduction_amount: number | null;
   early_leave_deduction_amount: number | null;
   absence_deduction_amount: number | null;
-  overtime_amount: number | null;
+  overtime_amount_approved: number | null;
+  overtime_amount_pending_estimate: number | null;
   compensation_profile_complete: boolean;
+}
+
+export interface PendingOvertimeRow {
+  id: string;
+  staff_id: string;
+  staff_name: string;
+  branch: string;
+  attendance_date: string;
+  overtime_hours: number;
+  hourly_rate: number | null;
+  overtime_amount: number | null;
+  status: string;
+}
+
+export async function listPendingOvertime(branch: string | null): Promise<PendingOvertimeRow[]> {
+  const { data, error } = await supabase.rpc('list_pending_overtime_v1', { p_branch: branch });
+  if (error) throw error;
+  return (data || []) as PendingOvertimeRow[];
+}
+
+export async function decideOvertimeApproval(id: string, decision: 'approved' | 'rejected', note?: string) {
+  const { error } = await supabase.rpc('decide_overtime_approval_v1', { p_id: id, p_decision: decision, p_note: note || null });
+  if (error) throw error;
 }
 
 export interface StaffAttendanceDetail {

@@ -2,12 +2,15 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, Loader2, RefreshCw, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import {
+  decideOvertimeApproval,
   getBranchAttendanceRoster,
   getStaffAttendanceDetail,
+  listPendingOvertime,
   RESOLUTION_STATUS_LABELS,
   resolutionStatusTone,
   type AttendanceDayRow,
   type BranchRosterRow,
+  type PendingOvertimeRow,
   type StaffAttendanceDetail,
 } from '@/lib/attendance/attendanceBreakdownService';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -107,6 +110,8 @@ export default function EmployeeAttendanceBreakdown({ branches, defaultBranch, c
   const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null);
   const [detail, setDetail] = useState<StaffAttendanceDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const [pendingOvertime, setPendingOvertime] = useState<PendingOvertimeRow[]>([]);
+  const [decidingId, setDecidingId] = useState<string | null>(null);
 
   useEffect(() => { setBranch(defaultBranch); }, [defaultBranch]);
 
@@ -130,6 +135,31 @@ export default function EmployeeAttendanceBreakdown({ branches, defaultBranch, c
 
   useEffect(() => { void loadRoster(); }, [loadRoster]);
 
+  const loadPendingOvertime = useCallback(async () => {
+    try {
+      const data = await listPendingOvertime(branch);
+      setPendingOvertime(data);
+    } catch (e) {
+      // silent: pending overtime is a supplementary panel, not the primary view
+    }
+  }, [branch]);
+
+  useEffect(() => { void loadPendingOvertime(); }, [loadPendingOvertime]);
+
+  async function handleOvertimeDecision(id: string, decision: 'approved' | 'rejected') {
+    setDecidingId(id);
+    try {
+      await decideOvertimeApproval(id, decision);
+      toast.success(decision === 'approved' ? 'تم اعتماد الأوفر تايم' : 'تم رفض الأوفر تايم');
+      await loadPendingOvertime();
+      if (selectedStaffId) void loadDetail();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'تعذر تسجيل القرار');
+    } finally {
+      setDecidingId(null);
+    }
+  }
+
   const loadDetail = useCallback(async () => {
     if (!selectedStaffId) { setDetail(null); return; }
     setLoadingDetail(true);
@@ -150,6 +180,28 @@ export default function EmployeeAttendanceBreakdown({ branches, defaultBranch, c
 
   return (
     <div className="grid gap-4">
+      {pendingOvertime.length > 0 && (
+        <div className="rounded-2xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-4 shadow-sm">
+          <p className="mb-2 text-sm font-black text-[var(--dawaa-status-warning-text)]">
+            أوفر تايم بانتظار موافقتك ({pendingOvertime.length}) — لا يُصرف ولا يُحتسب في الحوافز إلا بعد الاعتماد
+          </p>
+          <div className="grid gap-2">
+            {pendingOvertime.map((row) => (
+              <div key={row.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--dawaa-theme-border)] dawaa-surface p-2">
+                <div className="text-xs font-bold text-[var(--dawaa-theme-heading)]">
+                  <span className="font-black">{row.staff_name}</span> · {row.branch} · {row.attendance_date} · {row.overtime_hours.toFixed(1)} ساعة
+                  {row.overtime_amount != null && <span className="text-[var(--dawaa-theme-muted)]"> (~{row.overtime_amount.toLocaleString('ar-EG')} ج.م)</span>}
+                </div>
+                <div className="flex gap-2">
+                  <button disabled={decidingId === row.id} onClick={() => handleOvertimeDecision(row.id, 'approved')} className="btn-primary !py-1 !px-3 text-xs">اعتماد</button>
+                  <button disabled={decidingId === row.id} onClick={() => handleOvertimeDecision(row.id, 'rejected')} className="btn-secondary !py-1 !px-3 text-xs">رفض</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Controls */}
       <div className="flex flex-col gap-3 rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap items-center gap-2">
@@ -227,8 +279,16 @@ export default function EmployeeAttendanceBreakdown({ branches, defaultBranch, c
                     <StatCard label="أيام التأخير" value={String(summary.late_days)} sub={`${summary.total_late_minutes} دقيقة`} />
                     <StatCard label="غياب/مراجعة" value={String(summary.absence_review_days + summary.needs_review_days)} />
                     <StatCard label="ساعات العمل" value={summary.total_worked_hours.toFixed(1)} />
-                    <StatCard label="أوفر تايم" value={summary.total_overtime_hours.toFixed(1)} sub={summary.overtime_amount != null ? money(summary.overtime_amount) : undefined} />
-                    <StatCard label="إجازات معتمدة" value={String(summary.approved_leave_days)} />
+                    <StatCard
+                      label="أوفر تايم معتمد"
+                      value={summary.total_overtime_hours_approved.toFixed(1)}
+                      sub={summary.overtime_amount_approved != null ? money(summary.overtime_amount_approved) : undefined}
+                    />
+                    <StatCard
+                      label="أوفر تايم بانتظار الموافقة"
+                      value={summary.total_overtime_hours_pending.toFixed(1)}
+                      sub={summary.overtime_amount_pending_estimate != null ? `تقديريًا ${money(summary.overtime_amount_pending_estimate)}` : undefined}
+                    />
                   </div>
                 )}
 
@@ -272,7 +332,16 @@ export default function EmployeeAttendanceBreakdown({ branches, defaultBranch, c
                         <td className="p-3">{Number(d.late_minutes) > 0 ? `${d.late_minutes} د` : '—'}</td>
                         <td className="p-3">{Number(d.early_leave_minutes) > 0 ? `${d.early_leave_minutes} د` : '—'}</td>
                         <td className="p-3">{d.candidate_hours != null ? Number(d.candidate_hours).toFixed(1) : '—'}</td>
-                        <td className="p-3">{d.overtime_hours > 0 ? d.overtime_hours.toFixed(1) : '—'}</td>
+                        <td className="p-3">
+                          {d.overtime_hours > 0 ? (
+                            <span className="flex items-center gap-1">
+                              {d.overtime_hours.toFixed(1)}
+                              {d.overtime_approval_status === 'approved' && <span className="rounded-full border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] px-1.5 py-0.5 text-[10px] font-black text-[var(--dawaa-status-success-text)]">معتمد</span>}
+                              {d.overtime_approval_status === 'pending' && <span className="rounded-full border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-1.5 py-0.5 text-[10px] font-black text-[var(--dawaa-status-warning-text)]">بانتظار الموافقة</span>}
+                              {d.overtime_approval_status === 'rejected' && <span className="rounded-full border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] px-1.5 py-0.5 text-[10px] font-black text-[var(--dawaa-status-danger-text)]">مرفوض</span>}
+                            </span>
+                          ) : '—'}
+                        </td>
                       </tr>
                     ))}
                     {!detail.days.length && (
