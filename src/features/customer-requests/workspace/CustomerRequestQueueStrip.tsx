@@ -31,7 +31,7 @@ export default function CustomerRequestQueueStrip({
   ];
 
   return (
-    <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-5" aria-label="قوائم تشغيل طلبات العملاء">
+    <div className="grid grid-cols-2 gap-1.5 md:grid-cols-3 xl:grid-cols-5" aria-label="قوائم تشغيل طلبات العملاء">
       {items.map((item) => {
         const active = activeFilter === item.filter;
         return (
@@ -39,14 +39,13 @@ export default function CustomerRequestQueueStrip({
             key={item.key}
             type="button"
             onClick={() => onSelect(item.filter)}
-            className={`rounded-2xl border px-3 py-3 text-right transition ${
+            className={`rounded-xl border px-2.5 py-2 text-right transition ${
               active
                 ? 'border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] shadow-sm'
                 : 'border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] hover:border-[var(--dawaa-theme-accent-border)]'
             }`}
           >
-            <div className="flex items-center justify-between gap-2"><span className="text-xs font-black text-[var(--dawaa-theme-heading)]">{item.label}</span><strong className="text-xl text-[var(--dawaa-theme-primary)]">{item.count == null ? '—' : item.count.toLocaleString('ar-EG')}</strong></div>
-            <div className="mt-1 text-[10px] font-bold text-[var(--dawaa-theme-muted)]">{item.hint}</div>
+            <div className="flex items-center justify-between gap-2"><span className="text-[11px] font-black text-[var(--dawaa-theme-heading)]">{item.label}</span><strong className="text-base text-[var(--dawaa-theme-primary)]">{item.count == null ? '—' : item.count.toLocaleString('ar-EG')}</strong></div>
           </button>
         );
       })}
