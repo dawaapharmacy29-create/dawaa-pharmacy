@@ -52,7 +52,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/purchase-invoice-entry': 'تسجيل فاتورة مشتريات',
 };
 
-const TEAM_DAWAA_ASSISTANT_NAMES = new Set(['هاجر', 'نور', 'هبه حماده', 'هبة حماده']);
+const TEAM_DAWAA_ASSISTANT_NAMES = new Set(['هاجر', 'نور', 'هبه محمد', 'هبة محمد']);
 const TEAM_DAWAA_ASSISTANT_ALLOWED_PATHS = new Set([
   '/assistant-operational-log',
   '/my-daily-checklist',
