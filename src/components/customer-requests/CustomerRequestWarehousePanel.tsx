@@ -78,8 +78,8 @@ export default function CustomerRequestWarehousePanel({ branch }: { branch: stri
     : 'لم يتم تسجيل إرسال سابق';
 
   return (
-    <section className="rounded-3xl border border-[var(--dawaa-status-info-border)] bg-gradient-to-l from-[var(--dawaa-status-info-bg)]/[0.08] via-[var(--dawaa-theme-surface-2)] to-[var(--dawaa-theme-surface-2)] p-4 shadow-xl">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+    <section className="rounded-2xl border border-[var(--dawaa-status-info-border)] bg-gradient-to-l from-[var(--dawaa-status-info-bg)]/[0.08] via-[var(--dawaa-theme-surface-2)] to-[var(--dawaa-theme-surface-2)] p-3 shadow-sm">
+      <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
         <div className="max-w-3xl">
           <div className="flex items-center gap-2 font-black text-[var(--dawaa-theme-heading)]"><FileSpreadsheet size={19} className="text-[var(--dawaa-status-info-text)]" /> دورة المخازن — الأصناف التي لم يتم توفيرها</div>
           <p className="mt-1 text-xs leading-6 text-[var(--dawaa-theme-muted)]">ملف موحد بالكود والاسم المعتمد، مع تاريخ الإرسال السابق والجديد والمتكرر وعمر النقص. نسخة المراجعة لا تُسجل كإرسال؛ التسجيل يتم فقط عند اعتماد الإرسال.</p>
@@ -112,7 +112,7 @@ export default function CustomerRequestWarehousePanel({ branch }: { branch: stri
         <div className="mt-4 flex h-28 items-center justify-center rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)]"><Loader2 className="animate-spin text-[var(--dawaa-status-info-text)]" /></div>
       ) : snapshot ? (
         <>
-          <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-8">
+          <div className="mt-3 grid grid-cols-2 gap-1.5 md:grid-cols-4 xl:grid-cols-8">
             <MiniStat label="أصناف مطلوبة" value={snapshot.groups.length} />
             <MiniStat label="إجمالي الكميات" value={snapshot.totalQuantity} />
             <MiniStat label="عاجل" value={snapshot.urgentRequests} warn={snapshot.urgentRequests > 0} />
@@ -129,24 +129,24 @@ export default function CustomerRequestWarehousePanel({ branch }: { branch: stri
           </div>
 
           {snapshot.groups.length > 0 && (
-            <div className="mt-4 overflow-x-auto rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)]">
+            <div className="mt-3 overflow-x-auto rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)]">
               <table className="min-w-[1180px] w-full text-right text-xs">
-                <thead className="bg-[var(--dawaa-theme-surface)] text-[var(--dawaa-theme-muted)]"><tr><th className="px-3 py-3">الكود</th><th className="px-3 py-3">الصنف المعتمد</th><th className="px-3 py-3">الكمية</th><th className="px-3 py-3">الطلبات</th><th className="px-3 py-3">العاجل</th><th className="px-3 py-3">عمر النقص</th><th className="px-3 py-3">دورات سابقة</th><th className="px-3 py-3">من آخر إرسال</th><th className="px-3 py-3">الفروع</th><th className="px-3 py-3">الربط</th></tr></thead>
+                <thead className="bg-[var(--dawaa-theme-surface)] text-[var(--dawaa-theme-muted)]"><tr><th className="px-2.5 py-2">الكود</th><th className="px-2.5 py-2">الصنف المعتمد</th><th className="px-2.5 py-2">الكمية</th><th className="px-2.5 py-2">الطلبات</th><th className="px-2.5 py-2">العاجل</th><th className="px-2.5 py-2">عمر النقص</th><th className="px-2.5 py-2">دورات سابقة</th><th className="px-2.5 py-2">من آخر إرسال</th><th className="px-2.5 py-2">الفروع</th><th className="px-2.5 py-2">الربط</th></tr></thead>
                 <tbody className="divide-y divide-[var(--dawaa-theme-divider)]">
                   {snapshot.groups.slice(0, 15).map((group) => {
                     const metric = cycle?.metricsByKey[group.key];
                     return (
                       <tr key={group.key} className={metric?.stale ? 'bg-[var(--dawaa-status-danger-bg)]/[0.035] hover:bg-[var(--dawaa-status-danger-bg)]/[0.06]' : 'hover:bg-[var(--dawaa-status-info-bg)]/[0.05]'}>
-                        <td className="px-3 py-3 font-mono font-black text-[var(--dawaa-status-info-text)]">{group.productCode || '—'}</td>
-                        <td className="px-3 py-3 font-black text-[var(--dawaa-theme-heading)]">{group.canonicalName}{group.requestNames.length > 1 && <div className="mt-1 text-[10px] font-bold text-[var(--dawaa-status-warning-text)]">{group.requestNames.length} طرق كتابة مسجلة</div>}</td>
-                        <td className="px-3 py-3 num text-lg font-black text-[var(--dawaa-status-success-text)]">{group.totalQuantity}</td>
-                        <td className="px-3 py-3 num font-black text-[var(--dawaa-theme-heading)]">{group.requestCount}</td>
-                        <td className="px-3 py-3 num font-black text-[var(--dawaa-status-danger-text)]">{group.urgentCount || '—'}</td>
-                        <td className="px-3 py-3"><span className={`font-black ${(metric?.ageDays || 0) >= 3 ? 'text-[var(--dawaa-status-danger-text)]' : 'text-[var(--dawaa-theme-text)]'}`}>{metric?.ageDays ?? '—'} يوم</span></td>
-                        <td className="px-3 py-3 num font-black text-[var(--dawaa-theme-heading)]">{metric?.dispatchCount ?? 0}</td>
-                        <td className="px-3 py-3"><CycleBadge metric={metric} /></td>
-                        <td className="px-3 py-3 text-[var(--dawaa-theme-text)]">{Object.entries(group.branches).map(([name, qty]) => `${name}: ${qty}`).join(' · ')}</td>
-                        <td className="px-3 py-3"><span className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-black ${group.linkQuality === 'unlinked' ? 'bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)]' : 'bg-[var(--dawaa-status-success-bg)] text-[var(--dawaa-status-success-text)]'}`}>{group.linkQuality === 'unlinked' ? <PackageSearch size={11} /> : <ShieldCheck size={11} />}{group.linkQuality === 'linked_code' ? 'كود مؤكد' : group.linkQuality === 'linked_name' ? 'اسم مؤكد' : 'يحتاج مراجعة'}</span></td>
+                        <td className="px-2.5 py-2 font-mono font-black text-[var(--dawaa-status-info-text)]">{group.productCode || '—'}</td>
+                        <td className="px-2.5 py-2 font-black text-[var(--dawaa-theme-heading)]">{group.canonicalName}{group.requestNames.length > 1 && <div className="mt-1 text-[10px] font-bold text-[var(--dawaa-status-warning-text)]">{group.requestNames.length} طرق كتابة مسجلة</div>}</td>
+                        <td className="px-2.5 py-2 num text-lg font-black text-[var(--dawaa-status-success-text)]">{group.totalQuantity}</td>
+                        <td className="px-2.5 py-2 num font-black text-[var(--dawaa-theme-heading)]">{group.requestCount}</td>
+                        <td className="px-2.5 py-2 num font-black text-[var(--dawaa-status-danger-text)]">{group.urgentCount || '—'}</td>
+                        <td className="px-2.5 py-2"><span className={`font-black ${(metric?.ageDays || 0) >= 3 ? 'text-[var(--dawaa-status-danger-text)]' : 'text-[var(--dawaa-theme-text)]'}`}>{metric?.ageDays ?? '—'} يوم</span></td>
+                        <td className="px-2.5 py-2 num font-black text-[var(--dawaa-theme-heading)]">{metric?.dispatchCount ?? 0}</td>
+                        <td className="px-2.5 py-2"><CycleBadge metric={metric} /></td>
+                        <td className="px-2.5 py-2 text-[var(--dawaa-theme-text)]">{Object.entries(group.branches).map(([name, qty]) => `${name}: ${qty}`).join(' · ')}</td>
+                        <td className="px-2.5 py-2"><span className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-black ${group.linkQuality === 'unlinked' ? 'bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)]' : 'bg-[var(--dawaa-status-success-bg)] text-[var(--dawaa-status-success-text)]'}`}>{group.linkQuality === 'unlinked' ? <PackageSearch size={11} /> : <ShieldCheck size={11} />}{group.linkQuality === 'linked_code' ? 'كود مؤكد' : group.linkQuality === 'linked_name' ? 'اسم مؤكد' : 'يحتاج مراجعة'}</span></td>
                       </tr>
                     );
                   })}
@@ -156,7 +156,7 @@ export default function CustomerRequestWarehousePanel({ branch }: { branch: stri
           )}
 
           {!!cycle?.dispatches.length && (
-            <div className="mt-4 rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-3">
+            <div className="mt-3 rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-2.5">
               <div className="flex items-center gap-2 text-xs font-black text-[var(--dawaa-theme-heading)]"><History size={15} className="text-[var(--dawaa-status-info-text)]" /> آخر دورات الإرسال لنفس نطاق الفرع</div>
               <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-5">
                 {cycle.dispatches.slice(0, 5).map((dispatch) => (
