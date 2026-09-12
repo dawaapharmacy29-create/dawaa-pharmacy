@@ -1,16 +1,25 @@
 import { useSearchParams } from 'react-router-dom';
 import Reviews from '@/pages/Reviews';
 import ConversationReviewEvidence from '@/pages/ConversationReviewEvidence';
+import ConversationReviewsHistoryAdvanced from '@/pages/ConversationReviewsHistoryAdvanced';
 
 export default function ReviewsEnhanced() {
   const [params, setParams] = useSearchParams();
   const evidenceMode = params.get('mode') === 'evidence';
+  const historyMode = params.get('section') === 'history';
+  const selectedReviewId = String(params.get('id') || '').trim();
 
   if (evidenceMode) {
     return <div dir="rtl" className="space-y-4">
       <button type="button" onClick={() => setParams({}, { replace: true })} className="dawaa-button dawaa-button--secondary">العودة إلى تقييم المحادثات</button>
       <ConversationReviewEvidence />
     </div>;
+  }
+
+  // سجل التقييمات له مساحة تشغيل مستقلة بفلاتر أوسع وأوضح.
+  // عند فتح تقييم بعينه نرجع للمكوّن الأصلي للحفاظ على تفاصيل البنود والتعديل الإداري كاملة.
+  if (historyMode && !selectedReviewId) {
+    return <ConversationReviewsHistoryAdvanced />;
   }
 
   return <div dir="rtl" className="space-y-4">
