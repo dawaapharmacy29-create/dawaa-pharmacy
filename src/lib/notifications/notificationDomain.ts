@@ -72,6 +72,7 @@ const TYPE_ALIASES: Record<string, CanonicalNotificationType> = {
   branch_manager_task: 'staff_task',
   staff_task_overdue: 'staff_task',
   staff_task_completed: 'staff_task',
+  daily_task_reminder: 'staff_task',
 
   followup: 'customer_followup',
   'متابعة': 'customer_followup',
@@ -81,6 +82,7 @@ const TYPE_ALIASES: Record<string, CanonicalNotificationType> = {
   customer_alert: 'customer_followup',
   customer_service_progress: 'customer_followup',
   customer_service_incomplete: 'customer_followup',
+  customer_service_queue_incomplete: 'customer_followup',
   daily_followup_queue_missing: 'customer_followup',
 
   delivery: 'delivery_order',
@@ -101,6 +103,7 @@ const TYPE_ALIASES: Record<string, CanonicalNotificationType> = {
 
   sync_health: 'system',
   sync_health_alert: 'system',
+  system_alert: 'system',
 };
 
 const PRIORITY_AR: Record<string, string> = {
@@ -123,6 +126,7 @@ const TYPE_AR: Record<string, string> = {
   branch_manager_task: 'مهمة مدير فرع',
   staff_task_overdue: 'مهمة متأخرة',
   staff_task_completed: 'مهمة تم تنفيذها',
+  daily_task_reminder: 'تذكير مهمة يومية',
   followup: 'متابعة عميل',
   customer_followup: 'متابعة عميل',
   customer_request: 'طلب عميل',
@@ -133,6 +137,7 @@ const TYPE_AR: Record<string, string> = {
   customer_alert: 'تنبيه عميل',
   customer_service_progress: 'تقدم خدمة العملاء',
   customer_service_incomplete: 'متابعة خدمة عملاء غير مكتملة',
+  customer_service_queue_incomplete: 'قائمة خدمة العملاء غير مكتملة',
   daily_followup_queue_missing: 'نقص في قائمة المتابعات اليومية',
   vip_customer_silence: 'عميل VIP غير نشط',
   vip_customer_health: 'حركة عميل VIP',
@@ -158,6 +163,7 @@ const TYPE_AR: Record<string, string> = {
   reminder: 'تذكير إداري',
   sync_health: 'حالة المزامنة',
   sync_health_alert: 'مشكلة مزامنة',
+  system_alert: 'تنبيه نظام',
   manager_alert: 'تنبيه إداري',
   system: 'تنبيه نظام',
 };

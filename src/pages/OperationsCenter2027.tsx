@@ -59,6 +59,7 @@ type TaskRow = {
 type StaffOption = { id: string; name: string; role?: string | null; branch?: string | null };
 type WorkflowState = Exclude<NotificationActionState, 'new'>;
 type DecisionLane = 'now' | 'today' | 'digest' | 'info' | 'all';
+type BranchScope = 'all' | 'فرع الشامي' | 'فرع شكري';
 
 const MANAGER_ROLES = new Set([
   'general_manager',
@@ -95,10 +96,17 @@ function notificationText(item: AppNotification) {
   return `${item.type || ''} ${item.title || ''} ${item.message || item.body || ''}`.toLowerCase();
 }
 
+function normalizedBranch(value: unknown) {
+  const branch = String(value || '').trim();
+  if (/شامي/.test(branch)) return 'فرع الشامي';
+  if (/شكري/.test(branch)) return 'فرع شكري';
+  return branch || 'كل الفروع';
+}
+
 function decisionLane(item: AppNotification): Exclude<DecisionLane, 'all'> {
   const metaTier = String(notificationMetadataValue(item, 'signalTier', 'signal_tier', 'attentionTier', 'attention_tier') || '').toLowerCase();
   if (['critical', 'now', 'immediate'].includes(metaTier)) return 'now';
-  if (['action', 'today'].includes(metaTier)) return 'today';
+  if (['action', 'attention', 'today'].includes(metaTier)) return 'today';
   if (['digest', 'summary'].includes(metaTier)) return 'digest';
   if (['info', 'reference'].includes(metaTier)) return 'info';
 
@@ -191,6 +199,7 @@ export default function OperationsCenter2027() {
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState<NotificationGroup>('all');
   const [decisionFilter, setDecisionFilter] = useState<DecisionLane>('now');
+  const [branchScope, setBranchScope] = useState<BranchScope>('all');
   const [actionNotes, setActionNotes] = useState<Record<string, string>>({});
   const [actionBusy, setActionBusy] = useState<string | null>(null);
   const [form, setForm] = useState({
@@ -202,9 +211,10 @@ export default function OperationsCenter2027() {
 
   useEffect(() => {
     if (!focusedNotificationId) return;
-    if (activeTab !== 'all' || decisionFilter !== 'all') {
+    if (activeTab !== 'all' || decisionFilter !== 'all' || branchScope !== 'all') {
       setActiveTab('all');
       setDecisionFilter('all');
+      setBranchScope('all');
       return;
     }
 
@@ -223,7 +233,7 @@ export default function OperationsCenter2027() {
       cancelled = true;
       if (timer !== null) window.clearTimeout(timer);
     };
-  }, [activeTab, decisionFilter, ensureNotificationLoaded, focusedNotificationId, notifications]);
+  }, [activeTab, branchScope, decisionFilter, ensureNotificationLoaded, focusedNotificationId, notifications]);
 
   const staffOptions = useMemo<StaffOption[]>(() => {
     if (!canCreateTasks) return [];
@@ -249,45 +259,70 @@ export default function OperationsCenter2027() {
     [focusedNotificationId, notifications]
   );
 
+  const branchCards = useMemo(() => {
+    const build = (key: BranchScope, label: string, rows: AppNotification[]) => ({
+      key,
+      label,
+      total: rows.length,
+      now: rows.filter((item) => decisionLane(item) === 'now').length,
+      today: rows.filter((item) => decisionLane(item) === 'today').length,
+      reviews: rows.filter((item) => notificationMatchesGroup(item, 'reviews')).length,
+      system: rows.filter((item) => notificationMatchesGroup(item, 'system')).length,
+    });
+    return [
+      build('all', 'كل الفروع', operationalNotifications),
+      build('فرع الشامي', 'الشامي', operationalNotifications.filter((item) => normalizedBranch(item.branch) === 'فرع الشامي')),
+      build('فرع شكري', 'شكري', operationalNotifications.filter((item) => normalizedBranch(item.branch) === 'فرع شكري')),
+    ];
+  }, [operationalNotifications]);
+
+  const scopedOperationalNotifications = useMemo(
+    () => branchScope === 'all'
+      ? operationalNotifications
+      : operationalNotifications.filter((item) => normalizedBranch(item.branch) === branchScope),
+    [branchScope, operationalNotifications]
+  );
+
   const filteredNotifications = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return operationalNotifications
+    return scopedOperationalNotifications
       .filter((item) => notificationMatchesGroup(item, activeTab))
       .filter((item) => decisionFilter === 'all' || decisionLane(item) === decisionFilter)
       .filter((item) => !q || `${item.title} ${item.message} ${item.type} ${item.priority} ${item.branch || ''} ${notificationMetadataValue(item, 'customerName') || ''} ${notificationMetadataValue(item, 'staffName', 'staff_name') || ''}`.toLowerCase().includes(q))
       .sort((a, b) => decisionScore(b) - decisionScore(a));
-  }, [activeTab, decisionFilter, operationalNotifications, search]);
+  }, [activeTab, decisionFilter, scopedOperationalNotifications, search]);
 
   const groupCounts = useMemo(() => {
-    const counts: Record<NotificationGroup, number> = { urgent: 0, vip: 0, overdue: 0, completed: 0, reviews: 0, system: 0, all: operationalNotifications.length };
-    for (const item of operationalNotifications) {
+    const counts: Record<NotificationGroup, number> = { urgent: 0, vip: 0, overdue: 0, completed: 0, reviews: 0, system: 0, all: scopedOperationalNotifications.length };
+    for (const item of scopedOperationalNotifications) {
       for (const group of ['urgent', 'vip', 'overdue', 'completed', 'reviews', 'system'] as NotificationGroup[]) {
         if (notificationMatchesGroup(item, group)) counts[group] += 1;
       }
     }
     return counts;
-  }, [operationalNotifications]);
+  }, [scopedOperationalNotifications]);
 
   const decisionCounts = useMemo(() => {
     const counts: Record<Exclude<DecisionLane, 'all'>, number> = { now: 0, today: 0, digest: 0, info: 0 };
-    for (const item of operationalNotifications) counts[decisionLane(item)] += 1;
+    for (const item of scopedOperationalNotifications) counts[decisionLane(item)] += 1;
     return counts;
-  }, [operationalNotifications]);
+  }, [scopedOperationalNotifications]);
 
   const topDecisions = useMemo(
-    () => operationalNotifications
+    () => scopedOperationalNotifications
       .filter((item) => ['now', 'today'].includes(decisionLane(item)))
       .sort((a, b) => decisionScore(b) - decisionScore(a))
       .slice(0, 5),
-    [operationalNotifications]
+    [scopedOperationalNotifications]
   );
 
   const openTasks = tasks.filter((task) => !CLOSED.has(String(task.status || '').toLowerCase()));
   const urgentTasks = openTasks.filter((task) => ['خطر', 'high', 'urgent', 'critical'].includes(String(task.priority || '').toLowerCase()));
-  const unread = operationalNotifications.filter((item) => !item.read && !item.is_read);
-  const actionRequired = operationalNotifications.filter((item) => decisionLane(item) === 'now' || decisionLane(item) === 'today');
-  const inProgressCount = operationalNotifications.filter((item) => notificationLifecycleState(item) === 'in_progress').length;
-  const slaBreachCount = operationalNotifications.filter(hasSlaBreach).length;
+  const unread = scopedOperationalNotifications.filter((item) => !item.read && !item.is_read);
+  const actionRequired = scopedOperationalNotifications.filter((item) => decisionLane(item) === 'now' || decisionLane(item) === 'today');
+  const inProgressCount = scopedOperationalNotifications.filter((item) => notificationLifecycleState(item) === 'in_progress').length;
+  const slaBreachCount = scopedOperationalNotifications.filter(hasSlaBreach).length;
+  const branchScopeLabel = branchScope === 'all' ? 'كل الفروع' : branchScope.replace('فرع ', '');
 
   async function addTask() {
     if (!canCreateTasks) return toast.error('ليس لديك صلاحية إنشاء مهمة');
@@ -432,6 +467,42 @@ export default function OperationsCenter2027() {
         <p className="dawaa-caption mt-1 font-semibold">لا نعرض كل حدث بنفس القوة. الأولوية لما يحتاج قرارًا أو إجراءً، ثم متابعة اليوم، ثم الملخصات، بينما المعلومات العادية تظل محفوظة بدون أن تزاحم العمل المهم.</p>
       </section>
 
+      <section className="dawaa-card space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="dawaa-title text-lg">الملخص التنفيذي للفروع</h2>
+            <p className="dawaa-caption mt-1">اضغط على أي فرع لفلترة مركز القرار بالكامل على إشاراته فقط، بدون فقدان السجل الأصلي.</p>
+          </div>
+          <span className="dawaa-brand-chip">النطاق الحالي: {branchScopeLabel}</span>
+        </div>
+        <div className="grid gap-3 md:grid-cols-3">
+          {branchCards.map((card) => (
+            <button
+              key={card.key}
+              type="button"
+              onClick={() => {
+                setBranchScope(card.key);
+                setDecisionFilter('all');
+                setActiveTab('all');
+                setSearch('');
+              }}
+              className={`rounded-2xl border p-4 text-right transition ${branchScope === card.key ? 'border-[var(--dawaa-theme-primary)] bg-[var(--dawaa-theme-soft)]' : 'border-[var(--dawaa-theme-border)] hover:bg-[var(--dawaa-theme-soft)]'}`}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div className="font-black">{card.label}</div>
+                <div className="dawaa-title text-2xl">{card.total}</div>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                <span className="rounded-xl bg-[var(--dawaa-theme-soft)] px-2 py-2 font-black">تدخل الآن: {card.now}</span>
+                <span className="rounded-xl bg-[var(--dawaa-theme-soft)] px-2 py-2 font-black">تابعه اليوم: {card.today}</span>
+                <span className="rounded-xl bg-[var(--dawaa-theme-soft)] px-2 py-2 font-bold">تقييمات: {card.reviews}</span>
+                <span className="rounded-xl bg-[var(--dawaa-theme-soft)] px-2 py-2 font-bold">تشغيل/نظام: {card.system}</span>
+              </div>
+            </button>
+          ))}
+        </div>
+      </section>
+
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
         <Kpi icon={ShieldAlert} label="تدخل الآن" value={decisionCounts.now} />
         <Kpi icon={PlayCircle} label="تابعه اليوم" value={decisionCounts.today} />
@@ -475,7 +546,7 @@ export default function OperationsCenter2027() {
           <div className="mb-2 text-sm font-black">مستوى الانتباه</div>
           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
             {decisionFilters.map(({ key, label, description, icon: Icon }) => {
-              const count = key === 'all' ? operationalNotifications.length : decisionCounts[key];
+              const count = key === 'all' ? scopedOperationalNotifications.length : decisionCounts[key];
               return (
                 <button
                   key={key}
@@ -549,7 +620,7 @@ export default function OperationsCenter2027() {
       <section className="dawaa-card">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h2 className="dawaa-title text-lg">{decisionFilter === 'all' ? 'كل مستويات الانتباه' : decisionFilters.find((lane) => lane.key === decisionFilter)?.label} · {tabs.find((tab) => tab.key === activeTab)?.label || 'التنبيهات'}</h2>
+            <h2 className="dawaa-title text-lg">{branchScopeLabel} · {decisionFilter === 'all' ? 'كل مستويات الانتباه' : decisionFilters.find((lane) => lane.key === decisionFilter)?.label} · {tabs.find((tab) => tab.key === activeTab)?.label || 'التنبيهات'}</h2>
             <div className="dawaa-caption mt-1">الترتيب داخل القائمة حسب الأهمية التشغيلية وليس بمجرد وقت الإنشاء.</div>
           </div>
           <span className="dawaa-caption">{filteredNotifications.length} تنبيه</span>
@@ -658,6 +729,7 @@ export default function OperationsCenter2027() {
           })}
         </div>
       </section>
+      <span className="sr-only">قيد المتابعة: {inProgressCount}</span>
     </div>
   );
 }
