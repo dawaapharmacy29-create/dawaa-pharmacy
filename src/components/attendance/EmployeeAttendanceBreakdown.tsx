@@ -290,7 +290,7 @@ export default function EmployeeAttendanceBreakdown({ branches, defaultBranch, c
                   </div>
                   <p className="truncate text-[11px] font-bold text-[var(--dawaa-theme-muted)]">{r.role || '—'}{formatTenure(r.tenure_days) ? ` · ${formatTenure(r.tenure_days)}` : ''}</p>
                   <div className="mt-1 flex flex-wrap gap-1">
-                    {r.total_late_minutes > 0 && <span className="rounded-full border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-1.5 py-0.5 text-[10px] font-black text-[var(--dawaa-status-warning-text)]">تأخير {r.total_late_minutes} د</span>}
+                    {r.total_late_minutes > 0 && <span className="rounded-full border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-1.5 py-0.5 text-[10px] font-black text-[var(--dawaa-status-warning-text)]">إجمالي تأخير {r.total_late_minutes} د{r.late_days > 0 ? ` (${r.late_days} يوم، بمعدل ${Math.round(r.total_late_minutes / r.late_days)} د/يوم)` : ''}</span>}
                     {r.absence_review_days > 0 && <span className="rounded-full border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] px-1.5 py-0.5 text-[10px] font-black text-[var(--dawaa-status-danger-text)]">غياب {r.absence_review_days}</span>}
                     {r.needs_review_days > 0 && <span className="rounded-full border border-[var(--dawaa-theme-border)] px-1.5 py-0.5 text-[10px] font-black text-[var(--dawaa-theme-muted)]">مراجعة {r.needs_review_days}</span>}
                   </div>
