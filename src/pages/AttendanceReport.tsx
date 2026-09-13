@@ -165,7 +165,30 @@ function TableSkeleton() {
 
 function attendanceLabel(status: string) {
   const map: Record<string, string> = {
-    on_time: 'في الموعد', late: 'متأخر', very_late: 'متأخر جدًا', absent: 'غياب', not_arrived: 'لم يحضر بعد', scheduled: 'لم يبدأ موعده', working_now: 'موجود الآن', missing_checkout: 'بصمة خروج ناقصة', off: 'إجازة', worked_on_off: 'حضور في إجازة', approved_exception: 'استثناء معتمد', schedule_conflict: 'تعارض في الجدول', schedule_missing: 'الجدول غير مكتمل', punch_without_valid_schedule: 'بصمة بدون جدول صالح',
+    on_time: 'في الموعد',
+    late: 'متأخر',
+    very_late: 'متأخر جدًا',
+    absent: 'غياب',
+    not_arrived: 'لم يحضر بعد',
+    scheduled: 'لم يبدأ موعده',
+    working_now: 'موجود الآن',
+    missing_checkin: 'بصمة دخول ناقصة',
+    missing_checkout: 'بصمة خروج ناقصة',
+    sync_pending: 'في انتظار مزامنة البصمة',
+    sync_pending_checkout: 'في انتظار مزامنة بصمة الخروج',
+    sync_pending_verification: 'في انتظار تأكيد المزامنة',
+    off: 'إجازة',
+    worked_on_off: 'حضور في إجازة',
+    approved_exception: 'استثناء معتمد',
+    schedule_conflict: 'تعارض في الجدول',
+    schedule_missing: 'الجدول غير مكتمل',
+    no_schedule: 'لا يوجد جدول معتمد',
+    invalid_schedule_time: 'وقت الشيفت غير صالح',
+    punch_without_valid_schedule: 'بصمة بدون جدول صالح',
+    needs_event_review: 'بصمة تحتاج مراجعة',
+    shift_in_progress: 'الشيفت ما زال مستمرًا',
+    invalid_duration: 'مدة عمل غير منطقية',
+    manual_review: 'مراجعة يدوية',
   };
   return map[status] || status;
 }
@@ -173,7 +196,8 @@ function attendanceLabel(status: string) {
 function statusClass(status: string) {
   if (['on_time', 'working_now'].includes(status)) return 'border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] text-[var(--dawaa-status-success-text)]';
   if (['late', 'approved_exception', 'worked_on_off', 'scheduled'].includes(status)) return 'border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)]';
-  if (['very_late', 'absent', 'not_arrived', 'missing_checkout'].includes(status)) return 'border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] text-[var(--dawaa-status-danger-text)]';
+  if (['very_late', 'absent', 'not_arrived', 'missing_checkin', 'missing_checkout', 'invalid_duration'].includes(status)) return 'border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] text-[var(--dawaa-status-danger-text)]';
+  if (['sync_pending', 'sync_pending_checkout', 'sync_pending_verification', 'shift_in_progress', 'no_schedule'].includes(status)) return 'border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] text-[var(--dawaa-theme-muted)]';
   return 'border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] text-[var(--dawaa-status-info-text)]';
 }
 
