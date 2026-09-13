@@ -3,7 +3,7 @@
  * Versioned cache + offline fallback + auto-update
  */
 
-const APP_VERSION = 'dawaa-v21.0-doctor-incentive-system-20260819';
+const APP_VERSION = 'dawaa-v22.0-web-push-20260913';
 const CACHE_STATIC = `${APP_VERSION}-static`;
 const CACHE_DYNAMIC = `${APP_VERSION}-dynamic`;
 const CACHE_IMAGES = `${APP_VERSION}-images`;
@@ -259,33 +259,109 @@ async function limitCacheSize(cache, maxEntries) {
 }
 
 // ─── Push Notifications ───────────────────────────────────────────────────────
+function safePushPayload(event) {
+  if (!event.data) return {};
+  try {
+    return event.data.json();
+  } catch {
+    try {
+      return { body: event.data.text() };
+    } catch {
+      return {};
+    }
+  }
+}
+
+function pushPresentation(data) {
+  const category = String(data.category || data.type || '').toLowerCase();
+  const branch = String(data.branch || data.branchName || '').trim();
+  const score = data.score ?? data.reviewScore;
+  const customer = String(data.customerName || data.customer || '').trim();
+  const doctor = String(data.doctorName || data.doctor || data.assigneeName || '').trim();
+  const task = String(data.taskName || data.task || '').trim();
+  const reason = String(data.reason || data.mainReason || data.actionReason || '').trim();
+  const delay = String(data.delayText || data.overdueText || data.silenceText || '').trim();
+
+  let title = String(data.title || '').trim();
+  let body = String(data.body || data.message || '').trim();
+
+  if (!title && /review/.test(category)) {
+    title = `تقييم يحتاج مراجعة${branch ? ` — ${branch}` : ''}${score !== undefined && score !== null ? ` — ${score}/100` : ''}`;
+  } else if (!title && /follow/.test(category)) {
+    title = `${customer || 'متابعة عميل'} — تحتاج متابعة`;
+  } else if (!title && /vip/.test(category)) {
+    title = `${customer || 'عميل VIP'} — يحتاج تدخل`;
+  } else if (!title && /task/.test(category)) {
+    title = task || 'مهمة تحتاج إجراء';
+  }
+
+  if (!body) {
+    body = [doctor, reason, delay, branch].filter(Boolean).join(' — ');
+  }
+
+  return {
+    title: title || 'صيدليات دواء',
+    body: body.slice(0, 280),
+  };
+}
+
 self.addEventListener('push', (event) => {
-  if (!event.data) return;
-  const data = event.data.json();
+  const data = safePushPayload(event);
+  const presentation = pushPresentation(data);
+  const priority = String(data.priority || '').toLowerCase();
+  const urgent = Boolean(data.requireInteraction || data.urgent)
+    || /urgent|critical|عاجل|حرج|خطر/.test(priority);
+  const eventKey = String(data.tag || data.signalKey || data.notificationId || data.id || `${data.category || data.type || 'notif'}-${data.targetId || data.entityId || ''}`);
+
   event.waitUntil(
-    self.registration.showNotification(data.title || 'صيدليات دواء', {
-      body: data.body || '',
+    self.registration.showNotification(presentation.title, {
+      body: presentation.body,
       icon: '/icon-192.png',
       badge: '/icon-192.png',
       dir: 'rtl',
       lang: 'ar',
-      tag: data.tag || 'dawaa-notif',
-      renotify: true,
-      data: { url: data.url || '/' },
+      tag: `dawaa-${eventKey}`,
+      renotify: false,
+      requireInteraction: urgent,
+      silent: false,
+      data: {
+        url: data.url || data.targetUrl || '/',
+        notificationId: data.notificationId || data.id || null,
+        category: data.category || data.type || null,
+      },
     })
   );
 });
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const targetUrl = event.notification.data?.url || '/';
-  event.waitUntil(
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
-      const existing = clients.find((c) => c.url.includes(targetUrl));
-      if (existing) return existing.focus();
-      return self.clients.openWindow(targetUrl);
-    })
-  );
+  const rawTarget = event.notification.data?.url || '/';
+  const targetUrl = new URL(rawTarget, self.location.origin).href;
+
+  event.waitUntil((async () => {
+    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const exact = windows.find((client) => client.url === targetUrl);
+    if (exact) return exact.focus();
+
+    const appWindow = windows.find((client) => {
+      try {
+        return new URL(client.url).origin === self.location.origin;
+      } catch {
+        return false;
+      }
+    });
+
+    if (appWindow) {
+      try {
+        if ('navigate' in appWindow) await appWindow.navigate(targetUrl);
+      } catch (error) {
+        console.warn('[SW] Failed to navigate existing client', error);
+      }
+      return appWindow.focus();
+    }
+
+    return self.clients.openWindow(targetUrl);
+  })());
 });
 
 // ─── Skip Waiting message ────────────────────────────────────────────────────
