@@ -13,6 +13,8 @@ type IdentifiedNotification = NotificationLike & {
   recipient_staff_id?: unknown;
   target_id?: unknown;
   entity_id?: unknown;
+  read?: unknown;
+  is_read?: unknown;
 };
 
 function textOf(item: NotificationLike) {
@@ -23,12 +25,28 @@ function boolMeta(item: NotificationLike, ...keys: string[]) {
   return String(notificationMetadataValue(item, ...keys) || '').toLowerCase() === 'true';
 }
 
+function isHeaderUnread(item: IdentifiedNotification) {
+  const status = String(item.action_status || item.status || '').trim().toLowerCase();
+  return !Boolean(item.read) && !Boolean(item.is_read) && !['read', 'completed', 'dismissed', 'closed'].includes(status);
+}
+
 function isRoutineReference(item: NotificationLike) {
   const text = textOf(item);
   const status = String(item.action_status || item.status || '').toLowerCase();
+  const tier = String(
+    notificationMetadataValue(item, 'signalTier', 'signal_tier', 'attentionTier', 'attention_tier') || ''
+  ).toLowerCase();
+  const urgent = /urgent|critical|high|عاجل|حرج|خطر|مرتفع/i.test(String(item.priority || ''));
+
   if (boolMeta(item, 'slaGenerated')) return true;
-  if (['completed', 'dismissed'].includes(status)) return true;
+  if (['completed', 'dismissed', 'closed', 'read'].includes(status)) return true;
   if (/تمت استعادة مزامنة|استعادة المزامنة|sync-health-resolved/.test(text)) return true;
+
+  // The top tray is a decision inbox, not an archive. Quiet summaries/reference rows stay
+  // available in the Operations Center but do not occupy scarce header space.
+  if (!urgent && ['digest', 'summary', 'info', 'reference'].includes(tier)) return true;
+  if (!urgent && /ملخص|digest|summary|للعلم|مرجع sla|sla reference/.test(text)) return true;
+
   return false;
 }
 
@@ -89,6 +107,10 @@ function semanticKey(item: IdentifiedNotification) {
 
 export function selectHeaderNotifications<T extends IdentifiedNotification>(items: T[], limit = 10): T[] {
   const candidates = items
+    // Critical behavior: once a notification is opened, useNotifications marks it read.
+    // The row remains in the canonical notification history / Operations Center, while
+    // disappearing immediately from the compact header tray.
+    .filter(isHeaderUnread)
     .filter((item) => !isRoutineReference(item))
     .sort(compareNotificationsOperationally);
   const selected: T[] = [];
@@ -113,11 +135,11 @@ export function selectHeaderNotifications<T extends IdentifiedNotification>(item
     }
   };
 
-  // Header = executive snapshot, not a copy of the full notification table.
-  // Keep a balanced mix and let the Operations Center carry the full workflow.
-  take('tasks', 1);
-  take('customers', 2);
-  take('reviews', 1);
+  // Header = smart decision inbox, not a copy of the historical center.
+  // Balance operational categories first, then fill remaining slots by operational rank.
+  take('tasks', 2);
+  take('customers', 3);
+  take('reviews', 2);
   take('system', 2);
   take('other', 1);
 
