@@ -261,6 +261,34 @@ export function DesktopNotificationSettingsPanel() {
     savePreferences(next);
   };
 
+  const sendTest = () => {
+    if (typeof Notification === 'undefined') {
+      toast.error('هذا المتصفح لا يدعم إشعارات سطح المكتب');
+      return;
+    }
+    if (Notification.permission !== 'granted') {
+      toast.error('لازم تسمح بإشعارات الموقع الأول');
+      return;
+    }
+    try {
+      const test = new Notification('اختبار إشعارات صيدليات دواء', {
+        body: 'لو الرسالة دي ظهرت أسفل يمين الشاشة، إذن إشعارات اللاب تعمل بشكل صحيح ✅',
+        icon: '/icon-192.png',
+        badge: '/icon-192.png',
+        tag: `dawaa-test-${Date.now()}`,
+        requireInteraction: true,
+        silent: false,
+      });
+      test.onclick = () => {
+        window.focus();
+        test.close();
+      };
+      toast.success('تم إرسال إشعار اختبار للنظام');
+    } catch {
+      toast.error('المتصفح سمح بالإشعارات لكن النظام لم يعرضها. راجع إعدادات إشعارات Windows أو عدم الإزعاج.');
+    }
+  };
+
   const enable = async () => {
     if (typeof Notification === 'undefined') return toast.error('هذا المتصفح لا يدعم إشعارات سطح المكتب');
     const result = await Notification.requestPermission();
@@ -268,16 +296,7 @@ export function DesktopNotificationSettingsPanel() {
     if (result === 'granted') {
       update({ enabled: true });
       toast.success('تم تفعيل إشعارات سطح المكتب المهمة');
-      try {
-        const test = new Notification('تم تفعيل إشعارات صيدليات دواء', {
-          body: 'سيظهر هنا فقط: التقييمات التي تحتاج تدخلًا، المتابعات المتأخرة أو المطلوبة، حالات VIP الحرجة، والمهام الجديدة أو المتأخرة.',
-          icon: '/icon-192.png',
-          tag: 'dawaa-desktop-enabled',
-        });
-        setTimeout(() => test.close(), 6000);
-      } catch {
-        // Some browsers suppress test notifications despite granted permission.
-      }
+      setTimeout(sendTest, 250);
     } else if (result === 'denied') {
       update({ enabled: false });
       toast.error('المتصفح حظر الإشعارات. اسمح بها من إعدادات الموقع في المتصفح.');
@@ -309,6 +328,13 @@ export function DesktopNotificationSettingsPanel() {
           <input type="checkbox" checked={preferences.enabled} onChange={(event) => update({ enabled: event.target.checked })} aria-label="تشغيل إشعارات سطح المكتب" />
         )}
       </div>
+
+      {permission === 'granted' && (
+        <div className="space-y-1 rounded-xl border border-[var(--dawaa-theme-border)] p-2">
+          <button type="button" onClick={sendTest} className="dawaa-button dawaa-button--primary w-full px-3 py-2 text-xs font-black">إرسال إشعار اختبار الآن</button>
+          <div className="dawaa-header-muted text-[10px] font-semibold">لو الاختبار لم يظهر رغم أن الحالة «مفعلة»، راجع إشعارات Windows وعدم الإزعاج/Focus Assist للمتصفح.</div>
+        </div>
+      )}
 
       {categories.map(([key, label, description]) => (
         <label key={key} className="dawaa-header-settings-row flex items-center justify-between gap-3 rounded-xl border p-2 text-xs font-bold">
