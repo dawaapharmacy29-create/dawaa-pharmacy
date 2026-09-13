@@ -443,8 +443,13 @@ export default function Reviews() {
     setSelectedReviewId(null);
     setHistoryError(null);
     setHistoryLoading(false);
+    // ما نلمسش رابط الصفحة خالص لو مفيش ?id= أصلاً — نداء setSearchParams
+    // من غير داعي (حتى لو النتيجة النهائية للرابط متطابقة) بيخلق كائن
+    // location جديد في react-router، وده كان بيسبب فتح وقفل متكرر لصفحة
+    // "تقييم جديد" كل ما الكومبوننت يعيد الرندر لأي سبب.
     setSearchParams(
       (prev) => {
+        if (!prev.has('id')) return prev;
         const next = new URLSearchParams(prev);
         next.delete('id');
         return next;
@@ -497,11 +502,19 @@ export default function Reviews() {
     };
   }, [searchParams, selectedReviewId]);
 
+  const closeSelectedReviewRef = useRef(closeSelectedReview);
   useEffect(() => {
-    return () => {
-      closeSelectedReview();
-    };
+    closeSelectedReviewRef.current = closeSelectedReview;
   }, [closeSelectedReview]);
+  useEffect(() => {
+    // مقصود نستخدم مصفوفة تبعيات فاضية هنا: عايزين النداء ده يحصل مرة واحدة
+    // بس لما الصفحة تتقفل فعليًا (unmount)، مش كل مرة closeSelectedReview
+    // يتغير مرجعها لأي سبب أثناء إعادة الرندر العادية.
+    return () => {
+      closeSelectedReviewRef.current();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [managerSaving, setManagerSaving] = useState(false);
   const [managerForm, setManagerForm] = useState({
     score: '100',
