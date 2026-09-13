@@ -3,6 +3,14 @@ import { MonitorUp, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import type { AppNotification } from '@/lib/notificationService';
 import { canonicalNotificationType, notificationMetadataValue } from '@/lib/notifications/notificationDomain';
+import {
+  WebPushDeviceControls,
+  connectCurrentBrowserPush,
+  disconnectCurrentBrowserPush,
+  isCurrentBrowserPushConnected,
+  syncCurrentBrowserPushPreferences,
+  useWebPushHeartbeat,
+} from '@/components/notifications/WebPushDeviceControls';
 
 export type DesktopNotificationPreferences = {
   enabled: boolean;
@@ -182,11 +190,25 @@ export function DesktopNotificationRuntime({ notifications, onOpen }: { notifica
   const initialized = useRef(false);
   const seenThisSession = useRef<Set<string>>(new Set());
   const [preferences, setPreferences] = useState(readPreferences);
+  const [useBrowserFallback, setUseBrowserFallback] = useState(true);
+
+  useWebPushHeartbeat();
 
   useEffect(() => {
     const sync = () => setPreferences(readPreferences());
     window.addEventListener('dawaa:desktop-notification-settings', sync);
     return () => window.removeEventListener('dawaa:desktop-notification-settings', sync);
+  }, []);
+
+  useEffect(() => {
+    const refresh = () => {
+      void isCurrentBrowserPushConnected()
+        .then((connected) => setUseBrowserFallback(!connected))
+        .catch(() => setUseBrowserFallback(true));
+    };
+    refresh();
+    window.addEventListener('dawaa:web-push-status', refresh);
+    return () => window.removeEventListener('dawaa:web-push-status', refresh);
   }, []);
 
   useEffect(() => {
@@ -196,7 +218,7 @@ export function DesktopNotificationRuntime({ notifications, onOpen }: { notifica
       initialized.current = true;
       return;
     }
-    if (!preferences.enabled || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+    if (!useBrowserFallback || !preferences.enabled || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
 
     const persistedShown = new Set(readShown());
     const candidates = notifications
@@ -233,7 +255,7 @@ export function DesktopNotificationRuntime({ notifications, onOpen }: { notifica
         console.warn('[desktop-notifications] native popup failed', error);
       }
     });
-  }, [notifications, onOpen, preferences]);
+  }, [notifications, onOpen, preferences, useBrowserFallback]);
 
   return null;
 }
@@ -259,6 +281,12 @@ export function DesktopNotificationSettingsPanel() {
     const next = { ...preferences, ...patch };
     setPreferences(next);
     savePreferences(next);
+    if (typeof Notification !== 'undefined' && Notification.permission === 'granted' && next.enabled) {
+      void syncCurrentBrowserPushPreferences(next).catch((error) => {
+        console.warn('[web-push] category sync failed', error);
+      });
+    }
+    return next;
   };
 
   const sendTest = () => {
@@ -294,12 +322,38 @@ export function DesktopNotificationSettingsPanel() {
     const result = await Notification.requestPermission();
     setPermission(result);
     if (result === 'granted') {
-      update({ enabled: true });
-      toast.success('تم تفعيل إشعارات سطح المكتب المهمة');
+      const next = update({ enabled: true });
+      try {
+        await connectCurrentBrowserPush(next);
+        toast.success('تم تفعيل إشعارات سطح المكتب وربط Web Push لهذا الجهاز');
+      } catch (error) {
+        console.warn('[web-push] initial registration failed; browser fallback stays active', error);
+        toast.warning('إشعارات المتصفح مفعلة، لكن Web Push يحتاج إصلاح وربط الجهاز من الزر بالأسفل.');
+      }
       setTimeout(sendTest, 250);
     } else if (result === 'denied') {
       update({ enabled: false });
       toast.error('المتصفح حظر الإشعارات. اسمح بها من إعدادات الموقع في المتصفح.');
+    }
+  };
+
+  const setEnabled = async (enabled: boolean) => {
+    const next = update({ enabled });
+    if (!enabled) {
+      try {
+        await disconnectCurrentBrowserPush();
+      } catch (error) {
+        console.warn('[web-push] disable failed', error);
+      }
+      return;
+    }
+    if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+      try {
+        await connectCurrentBrowserPush(next);
+      } catch (error) {
+        console.warn('[web-push] reconnect failed; browser fallback stays active', error);
+        toast.warning('تم تشغيل إشعارات المتصفح، لكن Web Push غير مربوط حاليًا. استخدم زر الإصلاح بالأسفل.');
+      }
     }
   };
 
@@ -325,14 +379,16 @@ export function DesktopNotificationSettingsPanel() {
         {permission !== 'granted' ? (
           <button type="button" onClick={() => void enable()} className="dawaa-button dawaa-button--primary px-2 py-1 text-[11px]">تفعيل</button>
         ) : (
-          <input type="checkbox" checked={preferences.enabled} onChange={(event) => update({ enabled: event.target.checked })} aria-label="تشغيل إشعارات سطح المكتب" />
+          <input type="checkbox" checked={preferences.enabled} onChange={(event) => void setEnabled(event.target.checked)} aria-label="تشغيل إشعارات سطح المكتب" />
         )}
       </div>
+
+      <WebPushDeviceControls />
 
       {permission === 'granted' && (
         <div className="space-y-1 rounded-xl border border-[var(--dawaa-theme-border)] p-2">
           <button type="button" onClick={sendTest} className="dawaa-button dawaa-button--primary w-full px-3 py-2 text-xs font-black">إرسال إشعار اختبار الآن</button>
-          <div className="dawaa-header-muted text-[10px] font-semibold">لو الاختبار لم يظهر رغم أن الحالة «مفعلة»، راجع إشعارات Windows وعدم الإزعاج/Focus Assist للمتصفح.</div>
+          <div className="dawaa-header-muted text-[10px] font-semibold">الاختبار هنا Browser Notification فقط. حالة Web Push الحقيقي موضحة في بطاقة ربط الجهاز أعلاه.</div>
         </div>
       )}
 
