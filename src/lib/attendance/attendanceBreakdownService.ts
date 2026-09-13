@@ -12,6 +12,8 @@ export interface AttendanceDayRow {
   overtime_hours: number;
   overtime_approval_status: 'approved' | 'pending' | 'rejected' | null;
   late_minutes: string | number | null;
+  late_penalty_minutes: number;
+  late_compensated: boolean;
   early_leave_minutes: string | number | null;
   time_off_kind: string | null;
   permission_attached: boolean | null;
@@ -26,6 +28,7 @@ export interface AttendanceDetailSummary {
   absence_review_days: number;
   needs_review_days: number;
   total_late_minutes: number;
+  late_penalty_minutes: number;
   total_early_leave_minutes: number;
   total_worked_hours: number;
   total_overtime_hours_worked: number;

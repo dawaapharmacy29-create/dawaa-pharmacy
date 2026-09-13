@@ -327,7 +327,7 @@ export default function EmployeeAttendanceBreakdown({ branches, defaultBranch, c
                 {summary && (
                   <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
                     <StatCard label="أيام العمل" value={String(summary.period_days - summary.off_days - summary.approved_leave_days)} />
-                    <StatCard label="أيام التأخير" value={String(summary.late_days)} sub={`${summary.total_late_minutes} دقيقة`} />
+                    <StatCard label="أيام التأخير" value={String(summary.late_days)} sub={`فعلي ${summary.total_late_minutes} د · محتسب بعد السياسة ${summary.late_penalty_minutes} د`} />
                     <StatCard label="غياب/مراجعة" value={String(summary.absence_review_days + summary.needs_review_days)} />
                     <StatCard label="ساعات العمل" value={summary.total_worked_hours.toFixed(1)} />
                     <StatCard
@@ -402,7 +402,15 @@ export default function EmployeeAttendanceBreakdown({ branches, defaultBranch, c
                         </td>
                         <td className="p-3">{formatClock(d.first_in)}</td>
                         <td className="p-3">{formatClock(d.last_out)}</td>
-                        <td className="p-3">{Number(d.late_minutes) > 0 ? `${d.late_minutes} د` : '—'}</td>
+                        <td className="p-3">
+                          {Number(d.late_minutes) > 0 ? (
+                            <span className="flex items-center gap-1">
+                              {d.late_minutes} د
+                              {d.late_compensated && <span className="rounded-full border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] px-1.5 py-0.5 text-[9px] font-black text-[var(--dawaa-status-info-text)]">معفى (عوّض بالخروج)</span>}
+                              {!d.late_compensated && d.late_penalty_minutes > 0 && <span className="text-[10px] font-bold text-[var(--dawaa-status-danger-text)]">(محتسب {d.late_penalty_minutes} د)</span>}
+                            </span>
+                          ) : '—'}
+                        </td>
                         <td className="p-3">{Number(d.early_leave_minutes) > 0 ? `${d.early_leave_minutes} د` : '—'}</td>
                         <td className="p-3">{d.candidate_hours != null ? Number(d.candidate_hours).toFixed(1) : '—'}</td>
                         <td className="p-3">
