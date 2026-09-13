@@ -132,7 +132,7 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
     loading: notificationsLoading,
     available: notificationsAvailable,
     settings: notificationSettings,
-    markAllAsRead,
+    markAsRead,
     handleNotificationClick,
   } = useNotifications();
 
@@ -160,8 +160,12 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
     previousVisibleIds.current = currentIds;
   }, [visibleNotifications]);
 
-  const markAllRead = async () => {
-    await markAllAsRead();
+  const clearVisibleNotifications = async () => {
+    // Only clear the compact decision tray. Historical rows remain in the full center,
+    // and unrelated unread notifications are not silently marked as read.
+    for (const item of visibleNotifications) {
+      await markAsRead(item.id);
+    }
   };
 
   const openNotification = (item: AppNotification) => {
@@ -190,7 +194,7 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
 
       {!isSupabaseConfigured && (
         <div className="dawaa-status-warning hidden items-center gap-2 rounded-xl border px-3 py-1.5 sm:flex">
-          <span className="h-2 w-2 rounded-full currentColor" />
+          <span className="h-2 w-2 rounded-full bg-current" />
           <span className="text-xs font-bold">قاعدة البيانات غير مفعلة</span>
         </div>
       )}
@@ -235,7 +239,7 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
                   <button type="button" className={cn('dawaa-header-toggle rounded-md p-1.5', soundMode === 'soft' && 'is-active')} title="تنبيه خفيف" onClick={() => setSound('soft')}><Volume2 size={14} className="opacity-70" /></button>
                   <button type="button" className={cn('dawaa-header-toggle rounded-md p-1.5', soundMode === 'distinct' && 'is-active')} title="نغمة أوضح" onClick={() => { setSound('distinct'); playNotificationBeep(); }}><Volume2 size={14} /></button>
                 </div>
-                {visibleUnreadCount > 0 && <button type="button" onClick={markAllRead} className="dawaa-header-brand inline-flex items-center gap-1 text-xs font-black"><CheckCheck size={14} /> قراءة الكل</button>}
+                {visibleUnreadCount > 0 && <button type="button" onClick={() => void clearVisibleNotifications()} className="dawaa-header-brand inline-flex items-center gap-1 text-xs font-black"><CheckCheck size={14} /> قراءة الظاهر</button>}
                 <button type="button" onClick={() => setShowNotifSettings((value) => !value)} className="dawaa-header-icon-button rounded-lg border p-1.5" title="إعدادات الإشعارات"><Settings2 size={14} /></button>
               </div>
             </div>
@@ -273,6 +277,7 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
                 ))}
               </div>
             )}
+            <div className="dawaa-header-muted border-t px-4 py-2 text-center text-[10px] font-semibold">المقروء يختفي من هنا فقط ويظل محفوظًا في مركز الإشعارات والمهام.</div>
             <button type="button" onClick={() => { setShowNotifs(false); navigate('/operations-center'); }} className="dawaa-header-footer-action w-full border-t px-4 py-3 text-center text-xs font-black">فتح مركز الإشعارات والمهام الكامل</button>
           </div>
         )}
