@@ -12,10 +12,18 @@ export type DesktopNotificationPreferences = {
   tasks: boolean;
 };
 
+type DesktopCategory = keyof Omit<DesktopNotificationPreferences, 'enabled'>;
+
+type DesktopDecision = {
+  category: DesktopCategory;
+  reason: string;
+  sticky: boolean;
+};
+
 const SETTINGS_KEY = 'dawaa_desktop_notification_settings_v1';
-const SHOWN_KEY = 'dawaa_desktop_notification_shown_v1';
-const MAX_SHOWN_IDS = 250;
-const FRESH_WINDOW_MS = 10 * 60_000;
+const SHOWN_KEY = 'dawaa_desktop_notification_shown_v2';
+const MAX_SHOWN_KEYS = 350;
+const FRESH_WINDOW_MS = 15 * 60_000;
 
 const DEFAULTS: DesktopNotificationPreferences = {
   enabled: false,
@@ -41,57 +49,136 @@ function savePreferences(next: DesktopNotificationPreferences) {
 function readShown(): string[] {
   try {
     const value = JSON.parse(localStorage.getItem(SHOWN_KEY) || '[]');
-    return Array.isArray(value) ? value.map(String).slice(-MAX_SHOWN_IDS) : [];
+    return Array.isArray(value) ? value.map(String).slice(-MAX_SHOWN_KEYS) : [];
   } catch {
     return [];
   }
 }
 
-function rememberShown(ids: string[]) {
-  const merged = [...new Set([...readShown(), ...ids])].slice(-MAX_SHOWN_IDS);
+function rememberShown(keys: string[]) {
+  const merged = [...new Set([...readShown(), ...keys])].slice(-MAX_SHOWN_KEYS);
   localStorage.setItem(SHOWN_KEY, JSON.stringify(merged));
 }
 
 function isUnread(item: AppNotification) {
-  return !item.read && !item.is_read && !['read', 'completed', 'dismissed'].includes(String(item.status || '').toLowerCase());
+  return !item.read && !item.is_read && !['read', 'completed', 'dismissed', 'closed'].includes(String(item.status || '').toLowerCase());
 }
 
-function desktopCategory(item: AppNotification): keyof Omit<DesktopNotificationPreferences, 'enabled'> | null {
-  const canonical = canonicalNotificationType(item.type || item.target_type);
-  const raw = String(item.metadata?.rawType || item.type || item.target_type || '').toLowerCase();
-  const text = `${raw} ${item.title || ''} ${item.message || item.body || ''}`.toLowerCase();
-  const entity = String(item.target_type || notificationMetadataValue(item, 'entity_type') || '').toLowerCase();
+function textOf(item: AppNotification) {
+  return `${item.metadata?.rawType || ''} ${item.type || ''} ${item.target_type || ''} ${item.title || ''} ${item.message || item.body || ''}`.toLowerCase();
+}
 
-  if (canonical === 'conversation_review' || /تقييم محادثة|conversation.*review|chat_evaluation/.test(text)) return 'reviews';
-  if (canonical === 'staff_task' || /task|مهمة/.test(`${raw} ${entity}`)) return 'tasks';
-  if (canonical === 'vip_customer_silence' || /vip|عميل مهم|توقف عن الشراء|تراجع قوي/.test(text)) return 'vip';
-  if (canonical === 'customer_followup' || /followup|متابعة/.test(`${raw} ${entity} ${text}`)) return 'followups';
+function numberMeta(item: AppNotification, ...keys: string[]) {
+  const raw = notificationMetadataValue(item, ...keys);
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
+}
+
+function boolMeta(item: AppNotification, ...keys: string[]) {
+  const raw = notificationMetadataValue(item, ...keys);
+  if (typeof raw === 'boolean') return raw;
+  return String(raw || '').toLowerCase() === 'true';
+}
+
+function importantPriority(item: AppNotification) {
+  return /high|urgent|critical|عاجل|حرج|خطر|مرتفع/i.test(String(item.priority || ''));
+}
+
+function isDigestOrReference(item: AppNotification) {
+  const tier = String(notificationMetadataValue(item, 'signalTier', 'signal_tier', 'attentionTier', 'attention_tier') || '').toLowerCase();
+  const text = textOf(item);
+  return ['digest', 'summary', 'info', 'reference'].includes(tier)
+    || /ملخص|تقرير حركة|digest|summary|للعلم|مرجع sla|sla reference/.test(text);
+}
+
+function desktopDecision(item: AppNotification): DesktopDecision | null {
+  const canonical = canonicalNotificationType(item.type || item.target_type);
+  const text = textOf(item);
+  const entity = String(item.target_type || notificationMetadataValue(item, 'entity_type') || '').toLowerCase();
+  const score = numberMeta(item, 'score', 'review_score', 'total_score');
+  const points = numberMeta(item, 'points_impact', 'pointsImpact');
+  const changePct = numberMeta(item, 'changePct', 'change_pct');
+  const requiresAction = Boolean(item.requires_action) || boolMeta(item, 'requiresFollowup', 'requires_followup');
+  const overdue = /متأخر|تأخر|overdue|تجاوز زمن|لم تتم|لم يبدأ|لم تنفذ/.test(text);
+  const escalated = /تصعيد|escalat/.test(text);
+  const severeVip = /توقف عن الشراء|بدون شراء|مختفي|تراجع قوي|تراجع حاد|vip.*خطر/.test(text)
+    || (changePct !== null && changePct <= -30);
+
+  const review = canonical === 'conversation_review' || /تقييم محادثة|conversation.*review|chat_evaluation/.test(text);
+  if (review) {
+    const criticalReview = importantPriority(item)
+      || (score !== null && score < 90)
+      || (points !== null && points < 0)
+      || /خطأ حرج|مشكلة حرجة|شكوى|سيئ|ضعيف/.test(text);
+    if (!criticalReview) return null;
+    return {
+      category: 'reviews',
+      reason: score !== null && score < 90 ? `تقييم منخفض ${score}/100` : points !== null && points < 0 ? 'تأثير سلبي على النقاط' : 'تقييم يحتاج تدخلًا',
+      sticky: importantPriority(item) || (score !== null && score < 80),
+    };
+  }
+
+  const task = canonical === 'staff_task' || /task|مهمة/.test(`${text} ${entity}`);
+  if (task) {
+    if (/تم التنفيذ|مكتمل|completed|closed|تم إغلاق/.test(text)) return null;
+    return {
+      category: 'tasks',
+      reason: overdue ? 'مهمة متأخرة' : escalated ? 'مهمة تم تصعيدها' : 'مهمة جديدة تحتاج تنفيذ',
+      sticky: importantPriority(item) || overdue || escalated,
+    };
+  }
+
+  const vip = canonical === 'vip_customer_silence' || /vip|عميل مهم/.test(text);
+  if (vip) {
+    if (!severeVip && !importantPriority(item) && !requiresAction) return null;
+    if (isDigestOrReference(item) && !severeVip) return null;
+    return {
+      category: 'vip',
+      reason: severeVip ? 'عميل VIP يحتاج تدخلًا سريعًا' : 'حالة VIP تحتاج متابعة',
+      sticky: severeVip || importantPriority(item),
+    };
+  }
+
+  const followup = canonical === 'customer_followup' || /followup|متابعة/.test(`${text} ${entity}`);
+  if (followup) {
+    if (isDigestOrReference(item) && !overdue && !importantPriority(item)) return null;
+    if (!requiresAction && !overdue && !importantPriority(item)) return null;
+    return {
+      category: 'followups',
+      reason: overdue ? 'متابعة عميل متأخرة' : 'متابعة عميل تحتاج إجراء',
+      sticky: overdue || importantPriority(item),
+    };
+  }
+
   return null;
 }
 
-function shouldShow(item: AppNotification, preferences: DesktopNotificationPreferences) {
-  if (!preferences.enabled || !isUnread(item)) return false;
-  const category = desktopCategory(item);
-  if (!category || !preferences[category]) return false;
-  const created = new Date(item.created_at || 0).getTime();
-  if (!Number.isFinite(created) || Date.now() - created > FRESH_WINDOW_MS) return false;
-  return true;
+function popupKey(item: AppNotification, decision: DesktopDecision) {
+  const entityId = item.target_id || notificationMetadataValue(item, 'entity_id', 'customerCode', 'review_id', 'task_id') || item.id;
+  const state = String(item.action_status || item.status || '').toLowerCase();
+  const priority = String(item.priority || '').toLowerCase();
+  return [decision.category, entityId, state, priority, decision.reason]
+    .map((value) => String(value || '').trim().toLowerCase())
+    .join('|');
 }
 
-function notificationBody(item: AppNotification) {
+function shouldShow(item: AppNotification, preferences: DesktopNotificationPreferences) {
+  if (!preferences.enabled || !isUnread(item)) return null;
+  const decision = desktopDecision(item);
+  if (!decision || !preferences[decision.category]) return null;
+  const created = new Date(item.created_at || 0).getTime();
+  if (!Number.isFinite(created) || created > Date.now() + 60_000 || Date.now() - created > FRESH_WINDOW_MS) return null;
+  return decision;
+}
+
+function notificationBody(item: AppNotification, decision: DesktopDecision) {
   const body = String(item.message || item.body || '').trim();
   const branch = String(item.branch || '').trim();
   const prefix = branch ? `${branch} — ` : '';
-  return `${prefix}${body}`.slice(0, 220);
+  return `${decision.reason}\n${prefix}${body}`.slice(0, 260);
 }
 
-export function DesktopNotificationRuntime({
-  notifications,
-  onOpen,
-}: {
-  notifications: AppNotification[];
-  onOpen: (item: AppNotification) => void;
-}) {
+export function DesktopNotificationRuntime({ notifications, onOpen }: { notifications: AppNotification[]; onOpen: (item: AppNotification) => void }) {
   const initialized = useRef(false);
   const seenThisSession = useRef<Set<string>>(new Set());
   const [preferences, setPreferences] = useState(readPreferences);
@@ -112,25 +199,29 @@ export function DesktopNotificationRuntime({
     if (!preferences.enabled || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
 
     const persistedShown = new Set(readShown());
-    const fresh = notifications
+    const candidates = notifications
       .filter((item) => !seenThisSession.current.has(item.id))
-      .filter((item) => !persistedShown.has(item.id))
-      .filter((item) => shouldShow(item, preferences))
-      .sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime())
-      .slice(-3);
+      .map((item) => ({ item, decision: shouldShow(item, preferences) }))
+      .filter((entry): entry is { item: AppNotification; decision: DesktopDecision } => Boolean(entry.decision))
+      .filter((entry) => !persistedShown.has(popupKey(entry.item, entry.decision)))
+      .sort((a, b) => {
+        if (a.decision.sticky !== b.decision.sticky) return a.decision.sticky ? -1 : 1;
+        return new Date(b.item.created_at || 0).getTime() - new Date(a.item.created_at || 0).getTime();
+      })
+      .slice(0, 3);
 
     notifications.forEach((item) => seenThisSession.current.add(item.id));
-    if (!fresh.length) return;
-    rememberShown(fresh.map((item) => item.id));
+    if (!candidates.length) return;
+    rememberShown(candidates.map(({ item, decision }) => popupKey(item, decision)));
 
-    fresh.forEach((item) => {
+    candidates.forEach(({ item, decision }) => {
       try {
         const popup = new Notification(item.title || 'صيدليات دواء', {
-          body: notificationBody(item),
+          body: notificationBody(item, decision),
           icon: '/icon-192.png',
           badge: '/icon-192.png',
-          tag: `dawaa-${item.id}`,
-          requireInteraction: /urgent|critical|high|عاجل|حرج|خطر/i.test(String(item.priority || '')),
+          tag: `dawaa-${popupKey(item, decision)}`,
+          requireInteraction: decision.sticky,
           silent: false,
         });
         popup.onclick = () => {
@@ -149,9 +240,7 @@ export function DesktopNotificationRuntime({
 
 export function DesktopNotificationSettingsPanel() {
   const [preferences, setPreferences] = useState(readPreferences);
-  const [permission, setPermission] = useState<NotificationPermission | 'unsupported'>(() =>
-    typeof Notification === 'undefined' ? 'unsupported' : Notification.permission
-  );
+  const [permission, setPermission] = useState<NotificationPermission | 'unsupported'>(() => typeof Notification === 'undefined' ? 'unsupported' : Notification.permission);
 
   useEffect(() => {
     const sync = () => setPreferences(readPreferences());
@@ -173,10 +262,7 @@ export function DesktopNotificationSettingsPanel() {
   };
 
   const enable = async () => {
-    if (typeof Notification === 'undefined') {
-      toast.error('هذا المتصفح لا يدعم إشعارات سطح المكتب');
-      return;
-    }
+    if (typeof Notification === 'undefined') return toast.error('هذا المتصفح لا يدعم إشعارات سطح المكتب');
     const result = await Notification.requestPermission();
     setPermission(result);
     if (result === 'granted') {
@@ -184,25 +270,25 @@ export function DesktopNotificationSettingsPanel() {
       toast.success('تم تفعيل إشعارات سطح المكتب المهمة');
       try {
         const test = new Notification('تم تفعيل إشعارات صيدليات دواء', {
-          body: 'ستظهر هنا فقط الأنواع التي اخترتها من الإشعارات المهمة.',
+          body: 'سيظهر هنا فقط: التقييمات التي تحتاج تدخلًا، المتابعات المتأخرة أو المطلوبة، حالات VIP الحرجة، والمهام الجديدة أو المتأخرة.',
           icon: '/icon-192.png',
           tag: 'dawaa-desktop-enabled',
         });
-        setTimeout(() => test.close(), 5000);
+        setTimeout(() => test.close(), 6000);
       } catch {
-        // Permission is granted; a browser may still suppress the test popup.
+        // Some browsers suppress test notifications despite granted permission.
       }
     } else if (result === 'denied') {
       update({ enabled: false });
-      toast.error('المتصفح حظر الإشعارات. يمكن السماح بها من إعدادات الموقع في المتصفح.');
+      toast.error('المتصفح حظر الإشعارات. اسمح بها من إعدادات الموقع في المتصفح.');
     }
   };
 
-  const categories: Array<[keyof Omit<DesktopNotificationPreferences, 'enabled'>, string]> = [
-    ['reviews', 'تقييمات المحادثات'],
-    ['followups', 'متابعات العملاء'],
-    ['vip', 'عملاء VIP'],
-    ['tasks', 'المهام'],
+  const categories: Array<[DesktopCategory, string, string]> = [
+    ['reviews', 'تقييمات المحادثات المهمة', 'الدرجات الضعيفة، التأثير السلبي أو الحالات الحرجة فقط'],
+    ['followups', 'متابعات العملاء', 'المتابعات المطلوبة أو المتأخرة فقط'],
+    ['vip', 'عملاء VIP', 'التوقف عن الشراء أو التراجع القوي والحالات التي تحتاج تدخل'],
+    ['tasks', 'المهام', 'المهمة الجديدة أو المتأخرة أو المصعّدة — بدون إشعارات الإغلاق'],
   ];
 
   return (
@@ -210,8 +296,8 @@ export function DesktopNotificationSettingsPanel() {
       <div className="flex items-start gap-2">
         <MonitorUp className="mt-0.5 h-4 w-4 shrink-0" />
         <div className="min-w-0 flex-1">
-          <div className="dawaa-header-title text-xs font-black">إشعارات سطح المكتب</div>
-          <div className="dawaa-header-muted mt-1 text-[11px] font-semibold">مثل واتساب ويب — تظهر أسفل يمين الشاشة عند وصول إشعار جديد مهم.</div>
+          <div className="dawaa-header-title text-xs font-black">إشعارات سطح المكتب الذكية</div>
+          <div className="dawaa-header-muted mt-1 text-[11px] font-semibold">مثل واتساب ويب — لكن بعد فلترة الإشارات المهمة فقط حتى لا تتحول إلى ضوضاء.</div>
         </div>
       </div>
 
@@ -224,9 +310,9 @@ export function DesktopNotificationSettingsPanel() {
         )}
       </div>
 
-      {categories.map(([key, label]) => (
+      {categories.map(([key, label, description]) => (
         <label key={key} className="dawaa-header-settings-row flex items-center justify-between gap-3 rounded-xl border p-2 text-xs font-bold">
-          <span>{label}</span>
+          <span className="min-w-0"><span className="block">{label}</span><span className="dawaa-header-muted mt-0.5 block text-[10px] font-semibold">{description}</span></span>
           <input type="checkbox" disabled={permission !== 'granted'} checked={preferences[key]} onChange={(event) => update({ [key]: event.target.checked })} />
         </label>
       ))}
