@@ -44,6 +44,7 @@ const GROUPS: NavGroup[] = [
     { path: '/schedule', icon: Calendar, label: 'الجداول والشيفتات', permission: 'view_schedule' },
     { path: '/attendance-report', icon: ClipboardCheck, label: 'الحضور والانصراف', permission: ['view_attendance_leaves','record_attendance'] },
     { path: '/time-off', icon: Calendar, label: 'الإجازات والأذونات', permission: 'view_attendance_leaves' },
+    { path: '/my-attendance', icon: ClipboardCheck, label: 'حضوري وانصرافي' },
     { path: '/staff-payroll', icon: WalletCards, label: 'الرواتب', permission: 'manage_payroll' },
   ]},
 

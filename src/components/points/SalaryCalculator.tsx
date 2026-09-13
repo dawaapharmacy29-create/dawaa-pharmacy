@@ -36,7 +36,7 @@ export interface RepeatErrorLine {
   total_deduction: number;
 }
 
-interface SalaryCalculatorProps {
+export interface SalaryCalculatorProps {
   staffName: string;
   role?: string | null;
   branch?: string | null;
@@ -420,7 +420,7 @@ function buildReportStyles() {
   `;
 }
 
-async function exportIncentiveReport(props: SalaryCalculatorProps) {
+export async function exportIncentiveReport(props: SalaryCalculatorProps) {
   const container = document.createElement('div');
   container.style.position = 'fixed';
   container.style.left = '-10000px';

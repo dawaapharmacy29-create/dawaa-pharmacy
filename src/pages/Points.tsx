@@ -8,12 +8,13 @@ import {
   XCircle,
   Calculator,
   BarChart3,
+  FileDown,
   PieChart as PieChartIcon,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { AddPointsModal } from '@/components/points/AddPointsModal';
-import SalaryCalculator from '@/components/points/SalaryCalculator';
+import SalaryCalculator, { exportIncentiveReport } from '@/components/points/SalaryCalculator';
 import { getStaffPointsDashboardV3, type StaffPointsDashboardV3 } from '@/lib/staff/staffPointsDashboardService';
 import { BRANCHES, INITIAL_POINTS } from '@/lib/constants';
 import { mergeRulesFromSupabase, type EvaluationRuleDef } from '@/lib/evaluationRulesCatalog';
@@ -163,6 +164,8 @@ export default function Points() {
   const [search, setSearch] = useState('');
   const [selectedStaffForSalary, setSelectedStaffForSalary] = useState<StaffMember | null>(null);
   const [canonicalPointsDashboard, setCanonicalPointsDashboard] = useState<StaffPointsDashboardV3 | null>(null);
+  const [bulkExporting, setBulkExporting] = useState(false);
+  const [bulkExportProgress, setBulkExportProgress] = useState<{ done: number; total: number } | null>(null);
 
   const cycle = getCurrentCycle();
 
@@ -400,6 +403,45 @@ export default function Points() {
     };
   };
 
+  async function exportAllIncentivePdfs() {
+    if (bulkExporting) return;
+    const targets = staffChoices.filter((staff) => staffIncentiveSummary(staff).records.length > 0);
+    if (!targets.length) { toast.error('لا يوجد موظفون لديهم عمليات في هذه الدورة'); return; }
+    setBulkExporting(true);
+    setBulkExportProgress({ done: 0, total: targets.length });
+    try {
+      for (let i = 0; i < targets.length; i += 1) {
+        const staff = targets[i];
+        const summary = staffIncentiveSummary(staff);
+        let dashboard: StaffPointsDashboardV3 | null = null;
+        try { dashboard = await getStaffPointsDashboardV3(staff.id, cycle.label); } catch { /* fall back to the flat rate below */ }
+        await exportIncentiveReport({
+          staffName: staff.display_name || staff.name,
+          role: staff.role,
+          branch: staff.branch,
+          cycleLabel: cycle.label,
+          currentPoints: summary.currentPoints,
+          maxPoints: summary.maxPoints,
+          startingPoints: summary.maxPoints,
+          rewardPoints: summary.rewardPoints,
+          penaltyPoints: summary.penaltyPoints,
+          quarterlyCashRewards: summary.quarterlyCashRewards,
+          records: summary.records,
+          pointRateEgp: dashboard?.profile_configured ? (dashboard?.point_rate_egp ?? undefined) : undefined,
+          finalIncentiveOverride: dashboard?.profile_configured ? (dashboard?.final_incentive_egp ?? undefined) : undefined,
+        });
+        setBulkExportProgress({ done: i + 1, total: targets.length });
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+      toast.success(`تم تصدير ${targets.length} ملف حوافز`);
+    } catch (error) {
+      toast.error(`توقف التصدير الجماعي: ${(error as Error).message}`);
+    } finally {
+      setBulkExporting(false);
+      setBulkExportProgress(null);
+    }
+  }
+
   const topPerformers = [...staffChoices]
     .sort((a, b) => staffIncentiveSummary(b).currentPoints - staffIncentiveSummary(a).currentPoints)
     .slice(0, 3);
@@ -554,6 +596,14 @@ export default function Points() {
           <StatChip label="عمليات الدورة" value={approvedCycleRecords.length} tone="white" />
         </div>
         <div className="flex gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={() => void exportAllIncentivePdfs()}
+            disabled={bulkExporting}
+            className="btn-secondary flex items-center gap-2"
+          >
+            <FileDown size={16} /> {bulkExporting ? `جاري التصدير... ${bulkExportProgress?.done ?? 0}/${bulkExportProgress?.total ?? 0}` : 'تصدير كل الموظفين PDF'}
+          </button>
           <button
             type="button"
             onClick={() => {

@@ -76,6 +76,7 @@ const StaffDetail = lazy(() => import('@/pages/StaffDetail'));
 const StaffMonthlyEvaluation = lazy(() => import('@/pages/StaffMonthlyEvaluation'));
 const MonthlyIncentiveReport = lazy(() => import('@/pages/MonthlyIncentiveReport'));
 const TimeOff = lazy(() => import('@/pages/TimeOff'));
+const MyAttendance = lazy(() => import('@/pages/MyAttendance'));
 const DoctorDashboard = lazy(() => import('@/pages/DoctorDashboardEnhanced'));
 const StagnantMedicines = lazy(() => import('@/pages/StagnantMedicines'));
 const IncentiveMedicines = lazy(() => import('@/pages/IncentiveMedicines'));
@@ -703,6 +704,10 @@ function AppRoutes() {
       <Route
         path="/time-off"
         element={<ProtectedRoute>{routeSuspense(<TimeOff />, 'الأذونات')}</ProtectedRoute>}
+      />
+      <Route
+        path="/my-attendance"
+        element={<ProtectedRoute>{routeSuspense(<MyAttendance />, 'حضوري')}</ProtectedRoute>}
       />
       <Route
         path="/stagnant-medicines"
