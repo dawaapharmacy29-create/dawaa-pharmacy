@@ -13,6 +13,10 @@ import {
   notificationTypeLabel,
 } from '@/lib/notifications/notificationDomain';
 import { selectHeaderNotifications } from '@/lib/notifications/headerNotificationSelection';
+import {
+  DesktopNotificationRuntime,
+  DesktopNotificationSettingsPanel,
+} from '@/components/notifications/DesktopNotificationController';
 
 interface HeaderProps {
   onMobileMenuOpen: () => void;
@@ -169,6 +173,7 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
 
   return (
     <header className="dawaa-header sticky top-0 z-[220] flex h-14 items-center gap-3 border-b px-4 backdrop-blur" dir="rtl">
+      <DesktopNotificationRuntime notifications={notifications} onOpen={openNotification} />
       <button type="button" onClick={onMobileMenuOpen} className="dawaa-header-icon-button rounded-lg p-2 transition lg:hidden">
         <Menu size={20} />
       </button>
@@ -284,6 +289,7 @@ function NotificationSettingsPanel({ settings, onChange }: { settings: ReturnTyp
   return <div className="max-h-96 space-y-2 overflow-y-auto p-4">
     <div className="dawaa-header-title mb-3 text-xs font-black">إعدادات الإشعارات</div>
     {options.map(([key, label]) => <label key={key} className="dawaa-header-settings-row flex items-center justify-between gap-3 rounded-xl border p-2 text-xs font-bold"><span>{label}</span><input type="checkbox" checked={Boolean(settings[key])} onChange={(event) => onChange({ ...settings, [key]: event.target.checked })} /></label>)}
+    <DesktopNotificationSettingsPanel />
     <label className="dawaa-header-title block text-xs font-bold">مدة الاحتفاظ
       <select value={settings.retentionDays} onChange={(event) => onChange({ ...settings, retentionDays: Number(event.target.value) })} className="dawaa-input mt-1 w-full">
         <option value={7}>7 أيام</option><option value={30}>30 يومًا</option><option value={90}>90 يومًا</option>
