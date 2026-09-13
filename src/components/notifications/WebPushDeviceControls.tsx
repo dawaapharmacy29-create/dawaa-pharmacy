@@ -88,7 +88,8 @@ function subscriptionKeys(subscription: PushSubscription) {
 function deviceLabel() {
   const ua = navigator.userAgent || '';
   const os = /Windows/i.test(ua) ? 'Windows' : /Mac OS/i.test(ua) ? 'macOS' : /Android/i.test(ua) ? 'Android' : /Linux/i.test(ua) ? 'Linux' : 'Device';
-  const browser = /Brave/i.test((navigator as Navigator & { brave?: unknown }).brave ? 'Brave' : '')
+  const isBrave = Boolean((navigator as Navigator & { brave?: unknown }).brave);
+  const browser = isBrave
     ? 'Brave'
     : /Edg\//i.test(ua)
       ? 'Edge'
@@ -224,6 +225,11 @@ async function inspectPushState(): Promise<{ state: PushState; detail: string }>
   }
 }
 
+export async function isCurrentBrowserPushConnected() {
+  const result = await inspectPushState();
+  return result.state === 'connected';
+}
+
 export function WebPushDeviceControls() {
   const [state, setState] = useState<PushState>('checking');
   const [detail, setDetail] = useState('جاري فحص ربط الجهاز...');
@@ -260,7 +266,7 @@ export function WebPushDeviceControls() {
   }, [state]);
 
   const repair = async () => {
-    if (Notification.permission !== 'granted') {
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') {
       toast.error('اسمح بإشعارات الموقع أولًا من زر التفعيل.');
       return;
     }
@@ -293,6 +299,8 @@ export function WebPushDeviceControls() {
     }
   };
 
+  const permissionGranted = typeof Notification !== 'undefined' && Notification.permission === 'granted';
+
   return (
     <div className="space-y-2 rounded-xl border border-[var(--dawaa-theme-border)] p-2">
       <div className="flex items-start gap-2">
@@ -306,7 +314,7 @@ export function WebPushDeviceControls() {
         </button>
       </div>
 
-      {Notification.permission === 'granted' && state !== 'connected' && state !== 'unsupported' && state !== 'denied' && (
+      {permissionGranted && state !== 'connected' && state !== 'unsupported' && state !== 'denied' && (
         <button type="button" onClick={() => void repair()} disabled={state === 'registering'} className="dawaa-button dawaa-button--primary w-full px-3 py-2 text-xs font-black">
           إصلاح وربط إشعارات هذا الجهاز
         </button>
