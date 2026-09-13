@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { BarChart3, ClipboardCheck, FileSpreadsheet, Filter, MessageSquareText, RefreshCw, Star, Users } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -180,7 +180,26 @@ export default function ReviewsInsightsHub() {
   const [activeView, setActiveView] = useState<'overview' | 'doctors' | 'service'>('overview');
   const showService = canSeeServicePerformance(user);
 
-  const load = useCallback(async () => {
+  // حارس صارم ضد أي سبب يخلي load() يتكرر بشكل غير طبيعي (لوحظ فعليًا: مئات
+  // الطلبات المتكررة لنفس البيانات كل ثانية تقريبًا من غير أي تفاعل من المستخدم).
+  // بغض النظر عن سبب إعادة التشغيل، الحارس ده بيمنع أي نداء جديد قبل ما يمر وقت
+  // كافٍ من آخر نداء ناجح، إلا لو كان طلب تحديث يدوي صريح (force=true).
+  const inFlightRef = useRef(false);
+  const lastLoadAtRef = useRef(0);
+  const LOAD_COOLDOWN_MS = 4000;
+
+  const load = useCallback(async (force = false) => {
+    const now = Date.now();
+    if (inFlightRef.current) return;
+    if (!force && now - lastLoadAtRef.current < LOAD_COOLDOWN_MS) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[ReviewsInsightsHub] load() re-fired ${now - lastLoadAtRef.current}ms after the previous call — skipped by cooldown guard.`
+      );
+      return;
+    }
+    inFlightRef.current = true;
+    lastLoadAtRef.current = now;
     setLoading(true);
     try {
       const [monthStart, monthEnd] = monthRange(month);
@@ -237,6 +256,7 @@ export default function ReviewsInsightsHub() {
       toast.error(`تعذر تحميل تقارير التقييمات: ${(error as Error).message}`);
     } finally {
       setLoading(false);
+      inFlightRef.current = false;
     }
   }, [showService, month]);
 
@@ -376,7 +396,7 @@ export default function ReviewsInsightsHub() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2 font-black text-white"><Filter className="h-4 w-4 text-cyan-300" /> فلاتر وتحكم التقارير</div>
           <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => void load()} disabled={loading} className="btn-secondary inline-flex items-center gap-2"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> تحديث</button>
+            <button type="button" onClick={() => void load(true)} disabled={loading} className="btn-secondary inline-flex items-center gap-2"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> تحديث</button>
             <button type="button" onClick={exportReport} className="btn-primary inline-flex items-center gap-2"><FileSpreadsheet className="h-4 w-4" /> تصدير التقرير الكامل</button>
           </div>
         </div>
