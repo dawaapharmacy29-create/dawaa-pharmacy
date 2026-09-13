@@ -111,7 +111,7 @@ function isNotificationUnread(item: AppNotification) {
   return (
     !item.read &&
     !item.is_read &&
-    !['read', 'completed', 'dismissed'].includes(String(item.status || ''))
+    !['read', 'completed', 'dismissed', 'closed'].includes(String(item.status || '').trim().toLowerCase())
   );
 }
 
@@ -125,11 +125,10 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
   );
   const cycle = getCurrentCycle();
   const remaining = getRemainingDays();
-  const prevUnread = useRef<number | null>(null);
+  const previousVisibleIds = useRef<Set<string> | null>(null);
 
   const {
     notifications,
-    unreadCount,
     loading: notificationsLoading,
     available: notificationsAvailable,
     settings: notificationSettings,
@@ -141,20 +140,25 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
     () => selectHeaderNotifications(notifications, 10),
     [notifications]
   );
-  const visibleUnreadCount = unreadCount;
-  const newestNotification = useMemo(
-    () => [...notifications].sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())[0],
-    [notifications]
+  const visibleUnreadCount = visibleNotifications.length;
+  const urgentVisibleCount = useMemo(
+    () => visibleNotifications.filter(isUrgent).length,
+    [visibleNotifications]
   );
 
   useEffect(() => {
-    if (prevUnread.current === null) {
-      prevUnread.current = visibleUnreadCount;
+    const currentIds = new Set(visibleNotifications.map((item) => String(item.id)));
+    if (previousVisibleIds.current === null) {
+      previousVisibleIds.current = currentIds;
       return;
     }
-    if (visibleUnreadCount > prevUnread.current && newestNotification) playNotificationBeep();
-    prevUnread.current = visibleUnreadCount;
-  }, [newestNotification, visibleUnreadCount]);
+
+    const hasNewDecisionSignal = visibleNotifications.some(
+      (item) => !previousVisibleIds.current?.has(String(item.id))
+    );
+    if (hasNewDecisionSignal) playNotificationBeep();
+    previousVisibleIds.current = currentIds;
+  }, [visibleNotifications]);
 
   const markAllRead = async () => {
     await markAllAsRead();
@@ -207,7 +211,7 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
       </div>
 
       <div className="relative">
-        <button type="button" onClick={() => setShowNotifs((value) => !value)} className="dawaa-header-icon-button relative rounded-lg p-2 transition" aria-label="الإشعارات">
+        <button type="button" onClick={() => setShowNotifs((value) => !value)} className="dawaa-header-icon-button relative rounded-lg p-2 transition" aria-label="الإشعارات المهمة">
           <Bell size={18} />
           {visibleUnreadCount > 0 && (
             <span className="dawaa-header-unread-count absolute -right-0.5 -top-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full border px-1 text-[10px] font-black">
@@ -220,8 +224,10 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
           <div className="dawaa-header-popover absolute left-0 top-12 z-50 w-80 overflow-hidden rounded-2xl sm:w-96">
             <div className="dawaa-header-popover-divider flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
               <div>
-                <div className="dawaa-header-title text-sm font-black">الإشعارات</div>
-                <div className="dawaa-header-muted text-xs font-semibold">{visibleUnreadCount} غير مقروء</div>
+                <div className="dawaa-header-title text-sm font-black">الإشعارات المهمة الآن</div>
+                <div className="dawaa-header-muted text-xs font-semibold">
+                  {visibleUnreadCount} تحتاج انتباه{urgentVisibleCount > 0 ? ` · ${urgentVisibleCount} عاجل` : ''}
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 <div className="dawaa-header-toggle-group flex items-center gap-1 rounded-lg p-0.5">
@@ -242,7 +248,7 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
                 ) : !notificationsAvailable ? (
                   <div className="dawaa-header-muted py-8 text-center text-sm font-bold">نظام الإشعارات يحتاج تفعيل قاعدة البيانات</div>
                 ) : visibleNotifications.length === 0 ? (
-                  <div className="dawaa-header-muted py-8 text-center text-sm font-bold">لا توجد إشعارات مسجلة حاليًا</div>
+                  <div className="dawaa-header-muted py-8 text-center text-sm font-bold">لا توجد إشعارات مهمة جديدة الآن</div>
                 ) : visibleNotifications.map((item) => (
                   <button key={item.id} type="button" onClick={() => void openNotification(item)} className={cn('dawaa-header-notification-row w-full border-b px-4 py-3 text-right transition last:border-0', isNotificationUnread(item) && 'is-unread')}>
                     <div className="flex items-start gap-2.5">
@@ -267,7 +273,7 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
                 ))}
               </div>
             )}
-            <button type="button" onClick={() => { setShowNotifs(false); navigate('/operations-center'); }} className="dawaa-header-footer-action w-full border-t px-4 py-3 text-center text-xs font-black">فتح مركز التنبيهات</button>
+            <button type="button" onClick={() => { setShowNotifs(false); navigate('/operations-center'); }} className="dawaa-header-footer-action w-full border-t px-4 py-3 text-center text-xs font-black">فتح مركز الإشعارات والمهام الكامل</button>
           </div>
         )}
       </div>
