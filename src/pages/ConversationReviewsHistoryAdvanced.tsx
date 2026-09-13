@@ -129,6 +129,8 @@ export default function ConversationReviewsHistoryAdvanced() {
   const [impactStatus, setImpactStatus] = useState<ImpactStatus>('');
   const [importantCase, setImportantCase] = useState<ImportantCase>('');
 
+  const [visibleCount, setVisibleCount] = useState(150);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -233,6 +235,12 @@ export default function ConversationReviewsHistoryAdvanced() {
     });
   }, [rows, doctorId, reviewerKey, branch, customer, scorePreset, scoreMin, scoreMax, dateBasis, dateFrom, dateTo, evaluationKind, evaluationReason, managerStatus, saleStatus, impactStatus, importantCase]);
 
+  useEffect(() => {
+    setVisibleCount(150);
+  }, [doctorId, reviewerKey, branch, customer, scorePreset, scoreMin, scoreMax, dateBasis, dateFrom, dateTo, evaluationKind, evaluationReason, managerStatus, saleStatus, impactStatus, importantCase]);
+
+  const visibleRows = useMemo(() => filtered.slice(0, visibleCount), [filtered, visibleCount]);
+
   const stats = useMemo(() => {
     const count = filtered.length;
     const avg = count ? Math.round(filtered.reduce((sum, row) => sum + scoreOf(row), 0) / count) : 0;
@@ -305,11 +313,11 @@ export default function ConversationReviewsHistoryAdvanced() {
 
     {error ? <div className="dawaa-alert dawaa-alert--danger">تعذر تحميل السجل: {error}</div> : null}
     <section className="dawaa-card overflow-hidden">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-700 p-3 text-xs text-slate-400"><span>{loading ? 'جاري التحميل...' : `عرض ${filtered.length} من ${rows.length} تقييم`}</span>{updatedAt ? <span>آخر تحديث: {updatedAt.toLocaleTimeString('ar-EG')}</span> : null}</div>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-700 p-3 text-xs text-slate-400"><span>{loading ? 'جاري التحميل...' : `عرض ${visibleRows.length} من ${filtered.length} (الإجمالي ${rows.length})`}</span>{updatedAt ? <span>آخر تحديث: {updatedAt.toLocaleTimeString('ar-EG')}</span> : null}</div>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[1200px] text-sm">
           <thead className="bg-slate-900/70 text-slate-200"><tr><Th>تاريخ المحادثة</Th><Th>تاريخ التسجيل</Th><Th>المقيّم</Th><Th>الدكتور</Th><Th>الفرع</Th><Th>العميل</Th><Th>النوع</Th><Th>الدرجة</Th><Th>النقاط</Th><Th>مراجعة المدير</Th></tr></thead>
-          <tbody>{!loading && filtered.map((row) => {
+          <tbody>{!loading && visibleRows.map((row) => {
             const score = scoreOf(row); const impact = impactOf(row);
             return <tr key={row.id} onClick={() => navigate(`/reviews?section=history&id=${row.id}`)} className="cursor-pointer border-t border-slate-800 hover:bg-teal-500/5">
               <Td>{row.review_date || String(row.conversation_date || '').slice(0,10) || '-'}</Td><Td>{formatDate(row.created_at)}</Td><Td>{row.reviewer_name || '-'}</Td><Td>{row.staff_name || row.doctor_name || '-'}</Td><Td>{row.branch || '-'}</Td><Td><div className="font-semibold">{row.customer_name || '-'}</div><div className="text-xs text-slate-400">{row.customer_code || row.customer_phone || row.invoice_number || ''}</div></Td><Td>{row.evaluation_kind || '-'}</Td><Td><span className={`rounded-full px-2 py-1 font-black ${score === 100 ? 'bg-emerald-500/15 text-emerald-300' : score >= 90 ? 'bg-cyan-500/15 text-cyan-300' : score >= 70 ? 'bg-amber-500/15 text-amber-300' : 'bg-red-500/15 text-red-300'}`}>{score}/100</span></Td><Td><span className={impact > 0 ? 'text-emerald-300' : impact < 0 ? 'text-red-300' : 'text-slate-400'}>{impact > 0 ? `+${impact}` : impact}</span></Td><Td>{row.manager_review_score == null ? <span className="text-amber-300">لم يراجع</span> : `${row.manager_review_score}/100`}</Td>
@@ -318,6 +326,17 @@ export default function ConversationReviewsHistoryAdvanced() {
         </table>
       </div>
       {!loading && filtered.length === 0 ? <div className="p-8 text-center text-slate-400">لا توجد تقييمات مطابقة للفلاتر الحالية.</div> : null}
+      {!loading && filtered.length > visibleRows.length ? (
+        <div className="flex justify-center border-t border-slate-800 p-3">
+          <button
+            type="button"
+            className="dawaa-button dawaa-button--secondary text-xs"
+            onClick={() => setVisibleCount((n) => n + 150)}
+          >
+            عرض 150 نتيجة إضافية ({filtered.length - visibleRows.length} متبقية)
+          </button>
+        </div>
+      ) : null}
     </section>
   </div>;
 }
