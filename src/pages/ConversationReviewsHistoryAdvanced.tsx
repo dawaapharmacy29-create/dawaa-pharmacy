@@ -149,7 +149,13 @@ export default function ConversationReviewsHistoryAdvanced() {
       setRows(all.filter((row) => canSeeBranch(user, row.branch)));
       setUpdatedAt(new Date());
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'تعذر تحميل سجل التقييمات');
+      const message =
+        err && typeof err === 'object' && 'message' in err && typeof (err as { message?: unknown }).message === 'string'
+          ? (err as { message: string }).message
+          : err instanceof Error
+            ? err.message
+            : 'تعذر تحميل سجل التقييمات';
+      setError(message);
       setRows([]);
     } finally {
       setLoading(false);

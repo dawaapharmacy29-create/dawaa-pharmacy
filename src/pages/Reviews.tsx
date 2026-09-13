@@ -410,7 +410,7 @@ function severeErrorsFromRow(row: ConversationReviewHistoryRow): SevereErrorsSta
 export default function Reviews() {
   const { user, checkPermission } = useAuth();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const newOnlyMode = searchParams.get('mode') === 'new';
   const historyOnlyMode = searchParams.get('section') === 'history';
   const [saving, setSaving] = useState(false);
@@ -443,17 +443,15 @@ export default function Reviews() {
     setSelectedReviewId(null);
     setHistoryError(null);
     setHistoryLoading(false);
-    const params = new URLSearchParams(window.location.search);
-    if (params.has('id')) {
-      params.delete('id');
-      const search = params.toString();
-      window.history.replaceState(
-        null,
-        '',
-        `${window.location.pathname}${search ? `?${search}` : ''}`
-      );
-    }
-  }, []);
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete('id');
+        return next;
+      },
+      { replace: true }
+    );
+  }, [setSearchParams]);
 
   const openReviewDetails = useCallback((row: ConversationReviewHistoryRow) => {
     setSelectedReview(row);
