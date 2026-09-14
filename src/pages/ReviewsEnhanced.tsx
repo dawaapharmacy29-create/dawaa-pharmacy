@@ -2,12 +2,15 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import Reviews from '@/pages/Reviews';
 import ConversationReviewEvidence from '@/pages/ConversationReviewEvidence';
 import ConversationReviewsHistoryAdvanced from '@/pages/ConversationReviewsHistoryAdvanced';
+import ConversationReviewDetailsFast from '@/pages/ConversationReviewDetailsFast';
 
 export default function ReviewsEnhanced() {
   const location = useLocation();
   const navigate = useNavigate();
   const params = new URLSearchParams(location.search);
-  const evidenceMode = params.get('mode') === 'evidence';
+  const mode = params.get('mode') || '';
+  const evidenceMode = mode === 'evidence';
+  const editMode = mode === 'edit';
   const historyMode = params.get('section') === 'history';
   const selectedReviewId = String(params.get('id') || '').trim();
 
@@ -26,9 +29,10 @@ export default function ReviewsEnhanced() {
     );
   }
 
-  // الـ URL هو المصدر الوحيد للحقيقة لوضع سجل التقييمات.
-  // لا نستخدم state داخلي لتبديل الصفحة، حتى لا يحصل flicker أو رجوع تلقائي
-  // عند unmount/remount لمكونات التقييم الأساسية.
+  if (historyMode && selectedReviewId && !editMode) {
+    return <ConversationReviewDetailsFast key={`review-detail-${selectedReviewId}`} />;
+  }
+
   if (historyMode && !selectedReviewId) {
     return <ConversationReviewsHistoryAdvanced key="conversation-reviews-history" />;
   }
@@ -52,7 +56,7 @@ export default function ReviewsEnhanced() {
           </button>
         </div>
       </div>
-      <Reviews key={historyMode ? 'reviews-history-detail' : 'reviews-main'} />
+      <Reviews key={editMode && selectedReviewId ? `reviews-edit-${selectedReviewId}` : 'reviews-main'} />
     </div>
   );
 }
