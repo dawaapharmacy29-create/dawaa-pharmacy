@@ -1,8 +1,21 @@
+import { lazy, Suspense } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import Reviews from '@/pages/Reviews';
-import ConversationReviewEvidence from '@/pages/ConversationReviewEvidence';
-import ConversationReviewsHistoryAdvanced from '@/pages/ConversationReviewsHistoryAdvanced';
-import ConversationReviewDetailsFast from '@/pages/ConversationReviewDetailsFast';
+
+const Reviews = lazy(() => import('@/pages/Reviews'));
+const ConversationReviewEvidence = lazy(() => import('@/pages/ConversationReviewEvidence'));
+const ConversationReviewsHistoryAdvanced = lazy(() => import('@/pages/ConversationReviewsHistoryAdvanced'));
+const ConversationReviewDetailsFast = lazy(() => import('@/pages/ConversationReviewDetailsFast'));
+
+function ReviewModeLoader({ label = 'جاري تحميل الصفحة...' }: { label?: string }) {
+  return (
+    <div dir="rtl" className="dawaa-card dawaa-card--soft flex min-h-[180px] items-center justify-center p-6">
+      <div className="text-center">
+        <div className="mx-auto mb-3 h-7 w-7 animate-spin rounded-full border-2 border-current border-t-transparent opacity-70" />
+        <div className="dawaa-title text-sm font-black">{label}</div>
+      </div>
+    </div>
+  );
+}
 
 export default function ReviewsEnhanced() {
   const location = useLocation();
@@ -24,17 +37,27 @@ export default function ReviewsEnhanced() {
         >
           العودة إلى تقييم المحادثات
         </button>
-        <ConversationReviewEvidence />
+        <Suspense fallback={<ReviewModeLoader label="جاري تحميل مرفقات المحادثة..." />}>
+          <ConversationReviewEvidence />
+        </Suspense>
       </div>
     );
   }
 
   if (historyMode && selectedReviewId && !editMode) {
-    return <ConversationReviewDetailsFast key={`review-detail-${selectedReviewId}`} />;
+    return (
+      <Suspense fallback={<ReviewModeLoader label="جاري تحميل تفاصيل التقييم..." />}>
+        <ConversationReviewDetailsFast key={`review-detail-${selectedReviewId}`} />
+      </Suspense>
+    );
   }
 
   if (historyMode && !selectedReviewId) {
-    return <ConversationReviewsHistoryAdvanced key="conversation-reviews-history" />;
+    return (
+      <Suspense fallback={<ReviewModeLoader label="جاري تحميل سجل التقييمات..." />}>
+        <ConversationReviewsHistoryAdvanced key="conversation-reviews-history" />
+      </Suspense>
+    );
   }
 
   return (
@@ -56,7 +79,9 @@ export default function ReviewsEnhanced() {
           </button>
         </div>
       </div>
-      <Reviews key={editMode && selectedReviewId ? `reviews-edit-${selectedReviewId}` : 'reviews-main'} />
+      <Suspense fallback={<ReviewModeLoader label={editMode ? 'جاري تحميل تعديل التقييم...' : 'جاري تحميل نموذج التقييم...'} />}>
+        <Reviews key={editMode && selectedReviewId ? `reviews-edit-${selectedReviewId}` : 'reviews-main'} />
+      </Suspense>
     </div>
   );
 }
