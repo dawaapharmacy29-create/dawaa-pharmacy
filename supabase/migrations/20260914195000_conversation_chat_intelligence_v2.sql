@@ -7,6 +7,7 @@ create table if not exists public.conversation_chat_sources (
   id uuid primary key default gen_random_uuid(),
   review_id uuid null references public.conversation_sales_reviews(id) on delete set null,
   customer_id uuid null,
+  customer_code text null,
   customer_name text null,
   customer_phone text null,
   staff_id uuid null,
@@ -31,6 +32,17 @@ create table if not exists public.conversation_chat_sources (
   conversion_source text not null default 'ai_suggestion',
   conversion_reason text null,
 
+  -- Invoice verification stores only the matched evidence/fact. Revenue KPIs are calculated live.
+  invoice_match_status text not null default 'pending',
+  matched_invoice_id uuid null,
+  matched_invoice_number text null,
+  matched_invoice_date timestamptz null,
+  matched_invoice_value numeric null,
+  invoice_match_confidence numeric null,
+  invoice_match_reason text null,
+  invoice_verified_at timestamptz null,
+  invoice_verified_by text null,
+
   reviewer_confirmed boolean not null default false,
   reviewer_id text null,
   reviewer_name text null,
@@ -41,16 +53,21 @@ create table if not exists public.conversation_chat_sources (
   constraint conversation_chat_sources_analysis_status_ck check (analysis_status in ('parsed','analyzed','needs_review','confirmed','failed')),
   constraint conversation_chat_sources_conversion_status_ck check (conversion_status in ('pending','converted','not_converted','excluded')),
   constraint conversation_chat_sources_conversion_source_ck check (conversion_source in ('ai_suggestion','reviewer','invoice_match','manual')),
+  constraint conversation_chat_sources_invoice_match_status_ck check (invoice_match_status in ('pending','verified','probable','not_found','rejected','not_applicable')),
   constraint conversation_chat_sources_analysis_confidence_ck check (analysis_confidence is null or (analysis_confidence >= 0 and analysis_confidence <= 1)),
-  constraint conversation_chat_sources_conversion_confidence_ck check (conversion_confidence is null or (conversion_confidence >= 0 and conversion_confidence <= 1))
+  constraint conversation_chat_sources_conversion_confidence_ck check (conversion_confidence is null or (conversion_confidence >= 0 and conversion_confidence <= 1)),
+  constraint conversation_chat_sources_invoice_match_confidence_ck check (invoice_match_confidence is null or (invoice_match_confidence >= 0 and invoice_match_confidence <= 1)),
+  constraint conversation_chat_sources_invoice_value_ck check (matched_invoice_value is null or matched_invoice_value >= 0)
 );
 
 create index if not exists conversation_chat_sources_review_idx on public.conversation_chat_sources(review_id);
 create index if not exists conversation_chat_sources_staff_date_idx on public.conversation_chat_sources(staff_id, conversation_started_at desc);
 create index if not exists conversation_chat_sources_branch_date_idx on public.conversation_chat_sources(branch, conversation_started_at desc);
+create index if not exists conversation_chat_sources_customer_code_idx on public.conversation_chat_sources(customer_code);
 create index if not exists conversation_chat_sources_customer_phone_idx on public.conversation_chat_sources(customer_phone);
 create index if not exists conversation_chat_sources_analysis_status_idx on public.conversation_chat_sources(analysis_status, created_at desc);
 create index if not exists conversation_chat_sources_conversion_idx on public.conversation_chat_sources(branch, staff_id, commercial_eligible, conversion_status, reviewer_confirmed);
+create index if not exists conversation_chat_sources_invoice_match_idx on public.conversation_chat_sources(invoice_match_status, branch, staff_id, conversation_started_at desc);
 
 alter table public.conversation_chat_sources enable row level security;
 
@@ -78,6 +95,11 @@ select
   staff_id,
   coalesce(nullif(trim(staff_name), ''), 'غير محدد') as staff_name,
   conversion_status,
+  invoice_match_status,
+  matched_invoice_id,
+  matched_invoice_number,
+  matched_invoice_value,
+  invoice_match_confidence,
   (conversation_started_at at time zone 'Africa/Cairo')::date as conversation_date,
   case
     when extract(day from (conversation_started_at at time zone 'Africa/Cairo')::date) >= 26
@@ -183,8 +205,59 @@ select
     else null end as conversion_rate
 from rows;
 
-comment on table public.conversation_chat_sources is 'Raw WhatsApp exports and evidence-linked analysis. Raw text remains evidence; official conversion status requires reviewer confirmation.';
-comment on table public.conversation_chat_analysis_audit is 'Audit trail for analysis changes and reviewer confirmation.';
-comment on view public.conversation_conversion_confirmed_v1 is 'Reviewer-confirmed sales-eligible conversion facts with Cairo date and 26-to-25 cycle start.';
+-- Invoice-backed truth: only reviewer-confirmed chats with a verified invoice are counted.
+-- This separates "chat says sold" from "sale exists in sales_invoices" and provides revenue KPIs.
+create or replace view public.conversation_verified_revenue_kpis_v1 as
+with verified as (
+  select
+    branch,
+    staff_id,
+    staff_name,
+    cycle_start,
+    matched_invoice_id,
+    coalesce(matched_invoice_value, 0)::numeric as invoice_value
+  from public.conversation_conversion_confirmed_v1
+  where conversion_status = 'converted'
+    and invoice_match_status = 'verified'
+    and matched_invoice_id is not null
+), rows as (
+  select
+    cycle_start,
+    'branch'::text as dimension,
+    branch as dimension_key,
+    branch as dimension_label,
+    count(*)::integer as verified_conversions,
+    count(distinct matched_invoice_id)::integer as verified_invoices,
+    sum(invoice_value)::numeric as verified_revenue
+  from verified
+  group by cycle_start, branch
+  union all
+  select
+    cycle_start,
+    'doctor'::text as dimension,
+    coalesce(staff_id::text, staff_name) as dimension_key,
+    staff_name as dimension_label,
+    count(*)::integer as verified_conversions,
+    count(distinct matched_invoice_id)::integer as verified_invoices,
+    sum(invoice_value)::numeric as verified_revenue
+  from verified
+  group by cycle_start, coalesce(staff_id::text, staff_name), staff_name
+)
+select
+  cycle_start,
+  (cycle_start + interval '1 month' - interval '1 day')::date as cycle_end,
+  dimension,
+  dimension_key,
+  dimension_label,
+  verified_conversions,
+  verified_invoices,
+  round(verified_revenue, 2) as verified_revenue,
+  case when verified_conversions > 0 then round(verified_revenue / verified_conversions, 2) else null end as revenue_per_verified_chat
+from rows;
+
+comment on table public.conversation_chat_sources is 'Raw WhatsApp exports and evidence-linked analysis. Raw text remains evidence; official conversion and invoice match facts require reviewer confirmation.';
+comment on table public.conversation_chat_analysis_audit is 'Audit trail for analysis changes, invoice verification, and reviewer confirmation.';
+comment on view public.conversation_conversion_confirmed_v1 is 'Reviewer-confirmed sales-eligible conversion facts with Cairo date, invoice evidence, and 26-to-25 cycle start.';
 comment on view public.conversation_conversion_kpis_v1 is 'Live confirmed all-time conversion rate by branch and doctor. No persisted aggregate percentages.';
 comment on view public.conversation_conversion_cycle_kpis_v1 is 'Live confirmed conversion rate by branch and doctor for each pharmacy cycle 26-to-25.';
+comment on view public.conversation_verified_revenue_kpis_v1 is 'Invoice-backed verified conversion and revenue by branch/doctor and pharmacy cycle.';
