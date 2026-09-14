@@ -50,19 +50,23 @@ export function classifyConversionEligibility(item: ConversionConversationItem) 
   const { intelligence } = item;
   const intents = new Set(intelligence.journey.customerIntent || []);
   const stages = new Set(intelligence.journey.stages.map((x) => x.stage));
+  const outcome = intelligence.journey.outcome;
+  const isComplaintFlow = outcome === 'complaint_resolved' || outcome === 'complaint_unresolved';
   const hasCommercialIntent =
-    intents.has('معرفة السعر') ||
-    intents.has('معرفة التوفر') ||
-    intents.has('طلب توصيل') ||
-    intelligence.base.metrics.detectedOrders > 0 ||
-    intelligence.base.metrics.detectedProductQuestions > 0 ||
-    stages.has('availability_price') ||
-    stages.has('order_confirmation') ||
-    stages.has('delivery');
+    !isComplaintFlow && (
+      intents.has('معرفة السعر') ||
+      intents.has('معرفة التوفر') ||
+      intents.has('طلب توصيل') ||
+      intelligence.base.metrics.detectedOrders > 0 ||
+      intelligence.base.metrics.detectedProductQuestions > 0 ||
+      stages.has('availability_price') ||
+      stages.has('order_confirmation') ||
+      stages.has('delivery')
+    );
 
   const confidence = Number(intelligence.journey.conversionConfidence || 0);
   const lowConfidence = confidence < MIN_CONVERSION_CONFIDENCE;
-  const converted = intelligence.journey.outcome === 'sold';
+  const converted = outcome === 'sold';
 
   return {
     salesEligible: hasCommercialIntent,
@@ -129,7 +133,7 @@ export function buildConversionAnalytics(items: ConversionConversationItem[]): C
 
 export const CONVERSION_RULES = {
   minimumConfidence: MIN_CONVERSION_CONFIDENCE,
-  denominator: 'المحادثات ذات نية شراء واضحة فقط وبعد استبعاد الحالات منخفضة الثقة',
+  denominator: 'المحادثات ذات نية شراء واضحة فقط وبعد استبعاد الشكاوى الخدمية والحالات منخفضة الثقة',
   numerator: 'المحادثات التي ظهر فيها تأكيد بيع/طلب واضح',
-  exclusions: ['الشكاوى والخدمة العامة بدون نية شراء', 'المحادثات غير الواضحة منخفضة الثقة'],
+  exclusions: ['الشكاوى والخدمة العامة بدون فرصة بيع جديدة', 'المحادثات غير الواضحة منخفضة الثقة'],
 } as const;
