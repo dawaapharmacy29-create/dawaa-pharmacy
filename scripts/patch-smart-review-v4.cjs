@@ -39,22 +39,4 @@ patchFile('src/pages/Reviews.tsx', [
   }
 ]);
 
-patchFile('src/pages/ReviewsEnhanced.tsx', [
-  {
-    label: 'track new review mode',
-    from: `  const editMode = mode === 'edit';\n  const historyMode = params.get('section') === 'history';`,
-    to: `  const editMode = mode === 'edit';\n  const newMode = mode === 'new';\n  const historyMode = params.get('section') === 'history';`
-  },
-  {
-    label: 'hide evidence card while creating or editing',
-    from: `      <div dir="rtl" className="space-y-4">\n      <div className="dawaa-card dawaa-card--soft p-4">`,
-    to: `      <div dir="rtl" className="space-y-4">\n      {!newMode && !editMode ? <div className="dawaa-card dawaa-card--soft p-4">`
-  },
-  {
-    label: 'close evidence conditional',
-    from: `        </div>\n      </div>\n      <Suspense fallback={<ReviewModeLoader label={editMode ? 'جاري تحميل تعديل التقييم...' : 'جاري تحميل نموذج التقييم...'} />}>`,
-    to: `        </div>\n      </div> : null}\n      <Suspense fallback={<ReviewModeLoader label={editMode ? 'جاري تحميل تعديل التقييم...' : 'جاري تحميل نموذج التقييم...'} />}>`
-  }
-]);
-
-console.log('[smart-review-v4] accuracy refinements and route declutter applied');
+console.log('[smart-review-v4] accuracy refinements applied; ReviewsEnhanced declutter is committed directly on the experiment branch');
