@@ -1,11 +1,23 @@
 import type { WhatsAppConversationSession, WhatsAppParsedMessage } from './whatsappConversationParser';
 
+export interface ResponseWaitEvidence {
+  inboundMessageId: string;
+  outboundMessageId: string | null;
+  seconds: number | null;
+  inboundText: string;
+  outboundText: string | null;
+}
+
 export interface ConversationSignalSummary {
   firstInboundAt: Date | null;
   firstOutboundAt: Date | null;
   firstResponseSeconds: number | null;
+  medianResponseSeconds: number | null;
   longestCustomerWaitSeconds: number | null;
+  waitsOver5Minutes: number;
+  waitsOver10Minutes: number;
   unansweredInboundCount: number;
+  responseWaits: ResponseWaitEvidence[];
   outboundStaffNames: string[];
   greetingDetected: boolean;
   closingDetected: boolean;
@@ -42,6 +54,15 @@ function textOf(messages: WhatsAppParsedMessage[], direction?: 'inbound' | 'outb
     .join('\n');
 }
 
+function median(values: number[]) {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2
+    ? sorted[middle]
+    : Math.round((sorted[middle - 1] + sorted[middle]) / 2);
+}
+
 export function extractConversationSignals(session: WhatsAppConversationSession): ConversationSignalSummary {
   const inbound = session.messages.filter((m) => m.direction === 'inbound');
   const outbound = session.messages.filter((m) => m.direction === 'outbound');
@@ -50,7 +71,7 @@ export function extractConversationSignals(session: WhatsAppConversationSession)
     ? outbound.find((m) => m.timestamp >= firstInbound.timestamp) || null
     : outbound[0] || null;
 
-  let longestWait: number | null = null;
+  const responseWaits: ResponseWaitEvidence[] = [];
   let unansweredInboundCount = 0;
   for (let i = 0; i < session.messages.length; i += 1) {
     const message = session.messages[i];
@@ -58,11 +79,28 @@ export function extractConversationSignals(session: WhatsAppConversationSession)
     const nextOutbound = session.messages.slice(i + 1).find((m) => m.direction === 'outbound');
     if (!nextOutbound) {
       unansweredInboundCount += 1;
+      responseWaits.push({
+        inboundMessageId: message.id,
+        outboundMessageId: null,
+        seconds: null,
+        inboundText: message.text,
+        outboundText: null,
+      });
       continue;
     }
-    const wait = secondsBetween(message.timestamp, nextOutbound.timestamp);
-    longestWait = longestWait == null ? wait : Math.max(longestWait, wait);
+    responseWaits.push({
+      inboundMessageId: message.id,
+      outboundMessageId: nextOutbound.id,
+      seconds: secondsBetween(message.timestamp, nextOutbound.timestamp),
+      inboundText: message.text,
+      outboundText: nextOutbound.text,
+    });
   }
+
+  const measuredWaits = responseWaits
+    .map((item) => item.seconds)
+    .filter((value): value is number => value != null);
+  const longestWait = measuredWaits.length ? Math.max(...measuredWaits) : null;
 
   const allText = textOf(session.messages);
   const inboundText = textOf(session.messages, 'inbound');
@@ -86,8 +124,12 @@ export function extractConversationSignals(session: WhatsAppConversationSession)
       firstInbound && firstOutboundAfterInbound
         ? secondsBetween(firstInbound.timestamp, firstOutboundAfterInbound.timestamp)
         : null,
+    medianResponseSeconds: median(measuredWaits),
     longestCustomerWaitSeconds: longestWait,
+    waitsOver5Minutes: measuredWaits.filter((value) => value > 300).length,
+    waitsOver10Minutes: measuredWaits.filter((value) => value > 600).length,
     unansweredInboundCount,
+    responseWaits,
     outboundStaffNames: session.outboundStaffNames,
     greetingDetected: includesAny(outboundText, GREETING),
     closingDetected: includesAny(outboundText, CLOSING),
