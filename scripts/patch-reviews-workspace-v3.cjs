@@ -18,6 +18,11 @@ function patchFile(filePath, patches) {
 
 patchFile('src/pages/Reviews.tsx', [
   {
+    label: 'skip full history load in new and edit modes',
+    from: `  useEffect(() => {\n    loadReviewHistory();\n  }, [loadReviewHistory]);`,
+    to: `  useEffect(() => {\n    const mode = searchParams.get('mode');\n    if (newOnlyMode || mode === 'edit') return;\n    loadReviewHistory();\n  }, [loadReviewHistory, newOnlyMode, searchParams]);`
+  },
+  {
     label: 'auto open full editor from mode=edit',
     from: `  const saveEdit = async (): Promise<boolean> => {`,
     to: `  useEffect(() => {\n    if (searchParams.get('mode') !== 'edit' || !selectedReview?.id || editingReview?.id === selectedReview.id) return;\n    void openEdit(selectedReview);\n    // openEdit intentionally omitted: editingReview guard makes this one-shot per selected id.\n    // eslint-disable-next-line react-hooks/exhaustive-deps\n  }, [searchParams, selectedReview?.id, editingReview?.id]);\n\n  const saveEdit = async (): Promise<boolean> => {`
