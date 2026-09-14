@@ -5,6 +5,7 @@ const Reviews = lazy(() => import('@/pages/Reviews'));
 const ConversationReviewEvidence = lazy(() => import('@/pages/ConversationReviewEvidence'));
 const ConversationReviewsHistoryAdvanced = lazy(() => import('@/pages/ConversationReviewsHistoryAdvanced'));
 const ConversationReviewDetailsFast = lazy(() => import('@/pages/ConversationReviewDetailsFast'));
+const ConversationChatIntelligenceWorkspace = lazy(() => import('@/pages/ConversationChatIntelligenceWorkspace'));
 
 function ReviewModeLoader({ label = 'جاري تحميل الصفحة...' }: { label?: string }) {
   return (
@@ -23,10 +24,19 @@ export default function ReviewsEnhanced() {
   const params = new URLSearchParams(location.search);
   const mode = params.get('mode') || '';
   const evidenceMode = mode === 'evidence';
+  const chatIntelligenceMode = mode === 'chat-analysis';
   const editMode = mode === 'edit';
   const newMode = mode === 'new';
   const historyMode = params.get('section') === 'history';
   const selectedReviewId = String(params.get('id') || '').trim();
+
+  if (chatIntelligenceMode) {
+    return (
+      <Suspense fallback={<ReviewModeLoader label="جاري تحميل مركز ذكاء محادثات واتساب..." />}>
+        <ConversationChatIntelligenceWorkspace />
+      </Suspense>
+    );
+  }
 
   if (evidenceMode) {
     return (
@@ -64,21 +74,41 @@ export default function ReviewsEnhanced() {
   return (
     <div dir="rtl" className="space-y-4">
       {!newMode && !editMode ? (
-        <div className="dawaa-card dawaa-card--soft p-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <div className="dawaa-title font-black">صور المحادثة ورسالة التوجيه</div>
-              <p className="dawaa-caption mt-1 text-sm">
-                بعد حفظ التقييم، افتحي أداة المرفقات لإضافة رسالة مباشرة للدكتور وحتى 5 صور من الشات.
-              </p>
+        <div className="grid gap-3 lg:grid-cols-2">
+          <div className="dawaa-card dawaa-card--soft p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <div className="dawaa-title font-black">تحليل شات واتساب بالذكاء</div>
+                <p className="dawaa-caption mt-1 text-sm">
+                  ارفع Export Chat TXT لتحليل سرعة الرد، البيع، المتابعة، الاعتراضات، المخاطر، وكل بند مع الدليل من الرسائل.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => navigate('/reviews?mode=chat-analysis')}
+                className="dawaa-button dawaa-button--primary"
+              >
+                فتح التحليل الذكي
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={() => navigate('/reviews?mode=evidence')}
-              className="dawaa-button dawaa-button--primary"
-            >
-              إرفاق صور ورسالة
-            </button>
+          </div>
+
+          <div className="dawaa-card dawaa-card--soft p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <div className="dawaa-title font-black">صور المحادثة ورسالة التوجيه</div>
+                <p className="dawaa-caption mt-1 text-sm">
+                  بعد حفظ التقييم، افتحي أداة المرفقات لإضافة رسالة مباشرة للدكتور وحتى 5 صور من الشات.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => navigate('/reviews?mode=evidence')}
+                className="dawaa-button dawaa-button--secondary"
+              >
+                إرفاق صور ورسالة
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
