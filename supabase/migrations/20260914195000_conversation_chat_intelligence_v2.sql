@@ -70,19 +70,35 @@ create table if not exists public.conversation_chat_analysis_audit (
 create index if not exists conversation_chat_analysis_audit_source_idx on public.conversation_chat_analysis_audit(chat_source_id, created_at desc);
 alter table public.conversation_chat_analysis_audit enable row level security;
 
--- Official conversion percentages are computed live from reviewer-confirmed, sales-eligible chats.
--- Complaint-only/service chats and pending AI classifications never enter the denominator.
+-- Shared confirmed dataset used by all KPI views.
+create or replace view public.conversation_conversion_confirmed_v1 as
+select
+  id,
+  coalesce(nullif(trim(branch), ''), 'غير محدد') as branch,
+  staff_id,
+  coalesce(nullif(trim(staff_name), ''), 'غير محدد') as staff_name,
+  conversion_status,
+  (conversation_started_at at time zone 'Africa/Cairo')::date as conversation_date,
+  case
+    when extract(day from (conversation_started_at at time zone 'Africa/Cairo')::date) >= 26
+      then make_date(
+        extract(year from (conversation_started_at at time zone 'Africa/Cairo')::date)::int,
+        extract(month from (conversation_started_at at time zone 'Africa/Cairo')::date)::int,
+        26
+      )
+    else (date_trunc('month', (conversation_started_at at time zone 'Africa/Cairo')::date) - interval '1 month' + interval '25 days')::date
+  end as cycle_start
+from public.conversation_chat_sources
+where reviewer_confirmed = true
+  and commercial_eligible = true
+  and conversion_status in ('converted', 'not_converted')
+  and conversation_started_at is not null;
+
+-- Official all-time conversion percentages computed live from reviewer-confirmed, sales-eligible chats.
 create or replace view public.conversation_conversion_kpis_v1 as
 with confirmed as (
-  select
-    coalesce(nullif(trim(branch), ''), 'غير محدد') as branch,
-    staff_id,
-    coalesce(nullif(trim(staff_name), ''), 'غير محدد') as staff_name,
-    conversion_status
-  from public.conversation_chat_sources
-  where reviewer_confirmed = true
-    and commercial_eligible = true
-    and conversion_status in ('converted', 'not_converted')
+  select branch, staff_id, staff_name, conversion_status
+  from public.conversation_conversion_confirmed_v1
 ), branch_rows as (
   select
     'branch'::text as dimension,
@@ -118,6 +134,57 @@ from (
   select * from doctor_rows
 ) x;
 
+-- Same KPI broken by the pharmacy cycle (26 -> 25), so current and previous cycles
+-- are compared from source facts instead of a stored snapshot.
+create or replace view public.conversation_conversion_cycle_kpis_v1 as
+with base as (
+  select
+    cycle_start,
+    (cycle_start + interval '1 month' - interval '1 day')::date as cycle_end,
+    branch,
+    staff_id,
+    staff_name,
+    conversion_status
+  from public.conversation_conversion_confirmed_v1
+), rows as (
+  select
+    cycle_start,
+    cycle_end,
+    'branch'::text as dimension,
+    branch as dimension_key,
+    branch as dimension_label,
+    count(*)::integer as eligible_conversations,
+    count(*) filter (where conversion_status = 'converted')::integer as converted_conversations
+  from base
+  group by cycle_start, cycle_end, branch
+  union all
+  select
+    cycle_start,
+    cycle_end,
+    'doctor'::text as dimension,
+    coalesce(staff_id::text, staff_name) as dimension_key,
+    staff_name as dimension_label,
+    count(*)::integer as eligible_conversations,
+    count(*) filter (where conversion_status = 'converted')::integer as converted_conversations
+  from base
+  group by cycle_start, cycle_end, coalesce(staff_id::text, staff_name), staff_name
+)
+select
+  cycle_start,
+  cycle_end,
+  dimension,
+  dimension_key,
+  dimension_label,
+  eligible_conversations,
+  converted_conversations,
+  (eligible_conversations - converted_conversations)::integer as not_converted_conversations,
+  case when eligible_conversations > 0
+    then round((converted_conversations::numeric / eligible_conversations::numeric) * 100, 1)
+    else null end as conversion_rate
+from rows;
+
 comment on table public.conversation_chat_sources is 'Raw WhatsApp exports and evidence-linked analysis. Raw text remains evidence; official conversion status requires reviewer confirmation.';
 comment on table public.conversation_chat_analysis_audit is 'Audit trail for analysis changes and reviewer confirmation.';
-comment on view public.conversation_conversion_kpis_v1 is 'Live confirmed conversion rate by branch and doctor. No persisted aggregate percentages.';
+comment on view public.conversation_conversion_confirmed_v1 is 'Reviewer-confirmed sales-eligible conversion facts with Cairo date and 26-to-25 cycle start.';
+comment on view public.conversation_conversion_kpis_v1 is 'Live confirmed all-time conversion rate by branch and doctor. No persisted aggregate percentages.';
+comment on view public.conversation_conversion_cycle_kpis_v1 is 'Live confirmed conversion rate by branch and doctor for each pharmacy cycle 26-to-25.';
