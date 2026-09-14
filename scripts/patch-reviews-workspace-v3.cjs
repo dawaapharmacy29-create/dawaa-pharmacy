@@ -78,3 +78,4 @@ require('./patch-smart-review-v2.cjs');
 require('./patch-smart-review-v3.cjs');
 require('./patch-smart-review-v4.cjs');
 require('./patch-smart-review-v5.cjs');
+require('./patch-smart-review-v6.cjs');
