@@ -23,7 +23,7 @@ patch(
 patch(
   'live customer search effect',
   `  const countPreviousReviewErrors = async () => {`,
-  `  useEffect(() => {\n    if (!smartReviewEnabled || smartManualCustomer) return;\n    const q = custSearch.trim();\n    if (q.length < 2) {\n      setCustHits([]);\n      setCustSearched(false);\n      setSmartCustomerSearching(false);\n      return;\n    }\n    // لو نفس العميل المختار ظاهر في خانة البحث، مفيش داعي نعيد البحث.\n    if (form.customerName && q === form.customerName.trim()) {\n      setCustHits([]);\n      setCustSearched(false);\n      setSmartCustomerSearching(false);\n      return;\n    }\n    const timer = window.setTimeout(async () => {\n      setSmartCustomerSearching(true);\n      try {\n        const res = await getCustomers({ search: q, limit: 8, offset: 0 });\n        setCustHits(res.customers);\n        setCustSearched(true);\n      } catch {\n        setCustHits([]);\n        setCustSearched(true);\n      } finally {\n        setSmartCustomerSearching(false);\n      }\n    }, 260);\n    return () => window.clearTimeout(timer);\n  }, [custSearch, form.customerName, smartManualCustomer, smartReviewEnabled]);\n\n  const countPreviousReviewErrors = async () => {`
+  `  useEffect(() => {\n    if (!smartReviewEnabled || smartManualCustomer) return;\n    const q = custSearch.trim();\n    if (q.length < 2) {\n      setCustHits([]);\n      setCustSearched(false);\n      setSmartCustomerSearching(false);\n      return;\n    }\n    if (form.customerName && q === form.customerName.trim()) {\n      setCustHits([]);\n      setCustSearched(false);\n      setSmartCustomerSearching(false);\n      return;\n    }\n    const timer = window.setTimeout(async () => {\n      setSmartCustomerSearching(true);\n      try {\n        const res = await getCustomers({ search: q, limit: 8, offset: 0 });\n        setCustHits(res.customers);\n        setCustSearched(true);\n      } catch {\n        setCustHits([]);\n        setCustSearched(true);\n      } finally {\n        setSmartCustomerSearching(false);\n      }\n    }, 260);\n    return () => window.clearTimeout(timer);\n  }, [custSearch, form.customerName, smartManualCustomer, smartReviewEnabled]);\n\n  const countPreviousReviewErrors = async () => {`
 );
 
 patch(
@@ -70,3 +70,4 @@ patch(
 
 fs.writeFileSync(file, src);
 console.log('[smart-review-v13] polished live customer lookup applied successfully');
+require('./patch-whatsapp-conversation-analyzer-v1.cjs');
