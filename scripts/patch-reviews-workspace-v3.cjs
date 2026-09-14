@@ -84,3 +84,4 @@ require('./patch-smart-review-v8.cjs');
 require('./patch-smart-review-v9.cjs');
 require('./patch-smart-review-v10.cjs');
 require('./patch-smart-review-v11.cjs');
+require('./patch-smart-review-v12.cjs');
