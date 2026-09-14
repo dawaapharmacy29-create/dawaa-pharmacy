@@ -73,3 +73,4 @@ patchFile('src/components/reviews/ReviewsInsightsHub.tsx', [
 ]);
 
 console.log('[reviews-v3] review workspace patch complete');
+require('./patch-smart-review-v1.cjs');
