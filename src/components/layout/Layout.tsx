@@ -1,13 +1,14 @@
-import { Children, useEffect, useRef, useState } from 'react';
+import { Children, lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { Link, Navigate, useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Header from './Header';
 import { PageSectionsPreview } from '@/components/security/PermissionGate';
 import { NavigationGuardProvider } from '@/contexts/NavigationGuardContext';
 import BranchTargetEditor from '@/components/dashboard/BranchTargetEditor';
-import ReviewsInsightsHub from '@/components/reviews/ReviewsInsightsHub';
 import { useAuth } from '@/hooks/useAuth';
 import { normalizeRole } from '@/lib/core/permissionSystem';
+
+const ReviewsInsightsHub = lazy(() => import('@/components/reviews/ReviewsInsightsHub'));
 
 const PAGE_TITLES: Record<string, string> = {
   '/': 'لوحة القيادة 2027',
@@ -159,7 +160,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <div className="animate-fade-in mx-auto min-h-[calc(100vh-120px)] max-w-[1720px] space-y-4">
               <PageSectionsPreview path={location.pathname} />
               {showTargetEditor ? <BranchTargetEditor compact /> : null}
-              {showReviewsHub ? <ReviewsInsightsHub /> : null}
+              {showReviewsHub ? (
+                <Suspense fallback={<div className="dawaa-card p-4 text-sm text-[var(--dawaa-theme-muted)]">جاري تحميل تحليلات التقييمات…</div>}>
+                  <ReviewsInsightsHub />
+                </Suspense>
+              ) : null}
               {hasChildren ? (
                 children
               ) : (
