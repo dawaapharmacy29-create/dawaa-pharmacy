@@ -36,6 +36,16 @@ patchFile('src/pages/Reviews.tsx', [
 
 patchFile('src/components/reviews/ReviewsInsightsHub.tsx', [
   {
+    label: 'defer spreadsheet bundle until export',
+    from: `import * as XLSX from 'xlsx';\n`,
+    to: ``
+  },
+  {
+    label: 'load spreadsheet library on demand',
+    from: `  const exportReport = () => {\n    if (!filtered.length) { toast.error('لا توجد بيانات في الفلاتر الحالية'); return; }\n    const workbook = XLSX.utils.book_new();`,
+    to: `  const exportReport = async () => {\n    if (!filtered.length) { toast.error('لا توجد بيانات في الفلاتر الحالية'); return; }\n    const XLSX = await import('xlsx');\n    const workbook = XLSX.utils.book_new();`
+  },
+  {
     label: 'service staff role in resolver',
     from: `type StaffRow = { id: string; name: string; branch: string | null; active: boolean | null; is_active: boolean | null };`,
     to: `type StaffRow = { id: string; name: string; branch: string | null; role?: string | null; active: boolean | null; is_active: boolean | null };`
