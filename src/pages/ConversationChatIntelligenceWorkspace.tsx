@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BarChart3, FileText, Plus, Sparkles, Trash2, TrendingDown, TrendingUp } from 'lucide-react';
+import { BarChart3, FileText, Plus, Sparkles, Trash2, TrendingDown, TrendingUp, ReceiptText } from 'lucide-react';
 import WhatsAppChatIntelligencePanel from '@/components/conversationReviews/WhatsAppChatIntelligencePanel';
 import ConversationPerformanceProfiles from '@/components/conversationReviews/ConversationPerformanceProfiles';
 import type { WhatsAppChatAnalysis } from '@/lib/conversationAnalysis/whatsappChatAnalyzer';
@@ -8,6 +8,7 @@ import { analyzeFullConversation, type FullConversationIntelligence } from '@/li
 import { buildConversationPortfolioSummary, type ConversationPortfolioItem } from '@/lib/conversationAnalysis/conversationPortfolioAnalytics';
 import { buildConversionAnalytics, classifyConversionEligibility, CONVERSION_RULES, type ConversionConversationItem } from '@/lib/conversationAnalysis/conversionAnalytics';
 import { buildConversationCycleAnalytics, type CycleConversationItem } from '@/lib/conversationAnalysis/conversationCycleAnalytics';
+import { verifyConversationAgainstInvoices, type InvoiceConversionVerification } from '@/lib/conversationAnalysis/conversationInvoiceVerification';
 import { defaultReviewState, defaultSevereErrors } from '@/lib/conversationReviews';
 
 const REVIEW_DRAFT_KEY = 'dawaa_conversation_review_draft_v3';
@@ -16,28 +17,37 @@ type StoredChat = ConversationPortfolioItem & ConversionConversationItem & Cycle
   rawText: string;
   intelligence: FullConversationIntelligence;
   conversationAt?: string | null;
+  customerCode?: string | null;
+  customerPhone?: string | null;
 };
 
 const rate = (v: number | null) => v == null ? '-' : `${v}%`;
 const seconds = (v: number | null) => v == null ? '-' : v < 60 ? `${Math.round(v)} ث` : `${Math.round(v / 60)} د`;
 const delta = (v: number | null) => v == null ? '-' : `${v > 0 ? '+' : ''}${v} نقطة`;
 const firstDate = (x: FullConversationIntelligence) => x.base.messages.find((m) => m.timestamp)?.timestamp || null;
+const money = (v: number | null) => v == null ? '-' : `${Math.round(v).toLocaleString('ar-EG')} ج`;
 
 export default function ConversationChatIntelligenceWorkspace() {
   const navigate = useNavigate();
   const [staffName, setStaffName] = useState('');
   const [customerName, setCustomerName] = useState('');
+  const [customerCode, setCustomerCode] = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
   const [branch, setBranch] = useState('');
   const [savedChats, setSavedChats] = useState<StoredChat[]>([]);
+  const [verificationByChat, setVerificationByChat] = useState<Record<string, InvoiceConversionVerification | undefined>>({});
+  const [verifyingId, setVerifyingId] = useState<string | null>(null);
   const summary = useMemo(() => buildConversationPortfolioSummary(savedChats), [savedChats]);
   const conversion = useMemo(() => buildConversionAnalytics(savedChats), [savedChats]);
   const cycle = useMemo(() => buildConversationCycleAnalytics(savedChats), [savedChats]);
+  const verifiedRevenue = useMemo(() => Object.values(verificationByChat).reduce((sum, v) => sum + (v?.status === 'verified_converted' ? Number(v.revenue || 0) : 0), 0), [verificationByChat]);
+  const verifiedConversions = useMemo(() => Object.values(verificationByChat).filter((v) => v?.status === 'verified_converted').length, [verificationByChat]);
 
   const applyToReview = (payload: { analysis: WhatsAppChatAnalysis; reviewState: any; notes: string; rawText: string }) => {
     const full = analyzeFullConversation(payload.rawText, { staffNames: staffName ? [staffName] : undefined, customerNames: customerName ? [customerName] : undefined });
     localStorage.setItem(REVIEW_DRAFT_KEY, JSON.stringify({
       form: {
-        reviewerId: '', staffId: '', customerId: '', customerCode: '', customerName, customerPhone: '', customerType: '',
+        reviewerId: '', staffId: '', customerId: '', customerCode, customerName, customerPhone, customerType: '',
         evaluationKind: 'واتساب', evaluationReason: 'مراجعة عشوائية', invoiceNo: '',
         convertedToSale: full.journey.outcome === 'sold' ? 'yes' : full.journey.outcome === 'not_sold' ? 'no' : '',
         conversationDate: firstDate(full)?.slice(0, 16) || new Date().toISOString().slice(0, 16),
@@ -46,7 +56,7 @@ export default function ConversationChatIntelligenceWorkspace() {
         trainingRecommendationManual: payload.analysis.training.join(' | '),
       },
       reviewState: payload.reviewState || defaultReviewState(), severeErrors: defaultSevereErrors(), custSearch: customerName,
-      savedAt: new Date().toISOString(), chatIntelligence: { version: payload.analysis.version, analysis: payload.analysis, full, staffName, customerName, branch, rawText: payload.rawText },
+      savedAt: new Date().toISOString(), chatIntelligence: { version: payload.analysis.version, analysis: payload.analysis, full, staffName, customerName, customerCode, customerPhone, branch, rawText: payload.rawText },
     }));
     navigate('/reviews?mode=new');
   };
@@ -56,36 +66,53 @@ export default function ConversationChatIntelligenceWorkspace() {
     for (const file of Array.from(files || [])) {
       const rawText = await file.text();
       const intelligence = analyzeFullConversation(rawText, { staffNames: staffName ? [staffName] : undefined, customerNames: customerName ? [customerName] : undefined });
-      additions.push({ id: `${Date.now()}-${Math.random()}-${file.name}`, label: file.name, staffName, customerName, branch, analysis: intelligence.base, intelligence, rawText, conversationAt: firstDate(intelligence) });
+      additions.push({ id: `${Date.now()}-${Math.random()}-${file.name}`, label: file.name, staffName, customerName, customerCode, customerPhone, branch, analysis: intelligence.base, intelligence, rawText, conversationAt: firstDate(intelligence) });
     }
     if (additions.length) setSavedChats((prev) => [...prev, ...additions]);
   };
 
+  const verifyChat = async (chat: StoredChat) => {
+    setVerifyingId(chat.id);
+    try {
+      const result = await verifyConversationAgainstInvoices(chat.intelligence, {
+        customerCode: chat.customerCode,
+        customerPhone: chat.customerPhone,
+        customerName: chat.customerName,
+        branch: chat.branch,
+      });
+      setVerificationByChat((prev) => ({ ...prev, [chat.id]: result }));
+    } finally {
+      setVerifyingId(null);
+    }
+  };
+
   return <div dir="rtl" className="space-y-4">
     <section className="dawaa-card p-4 space-y-3">
-      <div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex items-center gap-2 text-xl font-black"><Sparkles size={20}/> مركز ذكاء محادثات واتساب</div><p className="mt-1 text-sm text-slate-400">تحليل الشات + Conversion لكل فرع ودكتور + مقارنة دورة 26→25 + جودة العينة.</p></div><button className="dawaa-button dawaa-button--secondary" onClick={() => navigate('/reviews')}>العودة للتقييمات</button></div>
-      <div className="grid gap-3 md:grid-cols-3">
+      <div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex items-center gap-2 text-xl font-black"><Sparkles size={20}/> مركز ذكاء محادثات واتساب</div><p className="mt-1 text-sm text-slate-400">تحليل الشات + Conversion لكل فرع ودكتور + مقارنة دورة 26→25 + تحقق فعلي من الفواتير.</p></div><button className="dawaa-button dawaa-button--secondary" onClick={() => navigate('/reviews')}>العودة للتقييمات</button></div>
+      <div className="grid gap-3 md:grid-cols-5">
         <Field label="اسم الدكتور/الموظف"><input value={staffName} onChange={(e) => setStaffName(e.target.value)} className="field" placeholder="مثال: د أحمد"/></Field>
         <Field label="الفرع"><select value={branch} onChange={(e) => setBranch(e.target.value)} className="field"><option value="">اختر الفرع</option><option value="فرع الشامي">فرع الشامي</option><option value="فرع شكري">فرع شكري</option></select></Field>
-        <Field label="اسم العميل إن كان معروفًا"><input value={customerName} onChange={(e) => setCustomerName(e.target.value)} className="field" placeholder="مثال: أ/ محمد"/></Field>
+        <Field label="اسم العميل"><input value={customerName} onChange={(e) => setCustomerName(e.target.value)} className="field" placeholder="مثال: أ/ محمد"/></Field>
+        <Field label="كود العميل"><input value={customerCode} onChange={(e) => setCustomerCode(e.target.value)} className="field" placeholder="مثال: 1234"/></Field>
+        <Field label="هاتف العميل"><input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} className="field" placeholder="01xxxxxxxxx"/></Field>
       </div>
-      <div className="rounded-xl border border-sky-500/20 bg-sky-500/5 p-3 text-xs leading-6 text-sky-100"><b>قاعدة Conversion:</b> المقام = {CONVERSION_RULES.denominator}. البسط = {CONVERSION_RULES.numerator}. الشكاوى والحالات منخفضة الثقة لا تدخل في النسبة.</div>
+      <div className="rounded-xl border border-sky-500/20 bg-sky-500/5 p-3 text-xs leading-6 text-sky-100"><b>قاعدة Conversion:</b> المقام = {CONVERSION_RULES.denominator}. البسط = {CONVERSION_RULES.numerator}. الشكاوى والحالات منخفضة الثقة لا تدخل في النسبة. التحقق من الفاتورة يرفع الحالة من استنتاج الشات إلى Verified Conversion.</div>
     </section>
 
     <WhatsAppChatIntelligencePanel staffName={staffName || null} customerName={customerName || null} onApplySuggestion={applyToReview} />
 
     <section className="dawaa-card p-4 space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3"><div><div className="flex items-center gap-2 font-black text-lg"><BarChart3 size={18}/> تحليل مجموعة محادثات</div><div className="text-xs text-slate-400 mt-1">اختار الدكتور والفرع قبل الرفع؛ يمكن رفع عدة ملفات مرة واحدة.</div></div><label className="dawaa-button dawaa-button--secondary cursor-pointer flex items-center gap-2"><Plus size={16}/> إضافة شاتات<input multiple type="file" accept=".txt,text/plain" className="hidden" onChange={(e) => e.target.files && void addFiles(e.target.files)}/></label></div>
+      <div className="flex flex-wrap items-center justify-between gap-3"><div><div className="flex items-center gap-2 font-black text-lg"><BarChart3 size={18}/> تحليل مجموعة محادثات</div><div className="text-xs text-slate-400 mt-1">اختار الدكتور والفرع وهوية العميل قبل الرفع؛ كل ملف يحتفظ ببياناته وقت الإضافة.</div></div><label className="dawaa-button dawaa-button--secondary cursor-pointer flex items-center gap-2"><Plus size={16}/> إضافة شاتات<input multiple type="file" accept=".txt,text/plain" className="hidden" onChange={(e) => e.target.files && void addFiles(e.target.files)}/></label></div>
 
       {savedChats.length ? <>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6"><Metric label="كل المحادثات" value={String(summary.conversations)}/><Metric label="Conversion Rate" value={rate(conversion.conversionRate)}/><Metric label="بيع مؤهل" value={String(conversion.eligibleConversations)}/><Metric label="Converted" value={String(conversion.convertedConversations)}/><Metric label="متوسط الخدمة" value={rate(summary.avgServiceScore)}/><Metric label="متوسط أول رد" value={seconds(summary.avgFirstResponseSeconds)}/></div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-8"><Metric label="كل المحادثات" value={String(summary.conversations)}/><Metric label="Conversion Rate" value={rate(conversion.conversionRate)}/><Metric label="بيع مؤهل" value={String(conversion.eligibleConversations)}/><Metric label="Converted من الشات" value={String(conversion.convertedConversations)}/><Metric label="Verified بالفاتورة" value={String(verifiedConversions)}/><Metric label="Verified Revenue" value={money(verifiedRevenue)}/><Metric label="متوسط الخدمة" value={rate(summary.avgServiceScore)}/><Metric label="متوسط أول رد" value={seconds(summary.avgFirstResponseSeconds)}/></div>
 
         <CycleDashboard cycle={cycle}/>
         <ConversationPerformanceProfiles items={savedChats}/>
 
         <div className="grid gap-4 lg:grid-cols-2"><ConversionTable title="Conversion حسب الفرع — كل المرفوع" rows={conversion.byBranch}/><ConversionTable title="Conversion حسب الدكتور — كل المرفوع" rows={conversion.byDoctor}/></div>
-        <div className="rounded-xl border border-slate-700 bg-slate-950/25 p-3 text-xs leading-6 text-slate-300"><b className="text-white">جودة المقام:</b> مستبعد غير بيعي: {conversion.excludedNonSales} — مستبعد ثقة منخفضة: {conversion.excludedLowConfidence} — Coverage: {rate(conversion.coverageRate)}.</div>
-        <ChatsTable chats={savedChats} trend={summary.trend} onDelete={(id) => setSavedChats((prev) => prev.filter((x) => x.id !== id))}/>
+        <div className="rounded-xl border border-slate-700 bg-slate-950/25 p-3 text-xs leading-6 text-slate-300"><b className="text-white">جودة المقام:</b> مستبعد غير بيعي: {conversion.excludedNonSales} — مستبعد ثقة منخفضة: {conversion.excludedLowConfidence} — Coverage: {rate(conversion.coverageRate)}. Verified لا يُحسب إلا عند وجود فاتورة قوية التطابق.</div>
+        <ChatsTable chats={savedChats} trend={summary.trend} verifications={verificationByChat} verifyingId={verifyingId} onVerify={verifyChat} onDelete={(id) => setSavedChats((prev) => prev.filter((x) => x.id !== id))}/>
       </> : <div className="rounded-xl border border-dashed border-slate-700 p-6 text-center text-sm text-slate-400">لم يتم رفع مجموعة محادثات بعد.</div>}
     </section>
     <style>{`.field{width:100%;border-radius:.75rem;border:1px solid rgb(51 65 85);background:rgba(2,6,23,.5);padding:.75rem}`}</style>
@@ -96,8 +123,14 @@ function CycleDashboard({ cycle }: { cycle: ReturnType<typeof buildConversationC
   return <section className="space-y-4 rounded-2xl border border-teal-500/20 bg-teal-500/5 p-4"><div><div className="text-lg font-black">Dashboard دورة 26 → 25</div><div className="text-xs text-slate-400">الحالية: {cycle.current.cycleLabel} — السابقة: {cycle.previous.cycleLabel}</div></div><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><DeltaMetric label="Conversion" current={rate(cycle.current.conversion.conversionRate)} previous={rate(cycle.previous.conversion.conversionRate)} change={cycle.conversionChangePp} positiveIsGood/><DeltaMetric label="Lost Sales Rate" current={rate(cycle.current.lostSalesRate)} previous={rate(cycle.previous.lostSalesRate)} change={cycle.lostSalesRateChangePp} positiveIsGood={false}/><DeltaMetric label="Follow-up Recovery" current={rate(cycle.current.followupRecoveryRate)} previous={rate(cycle.previous.followupRecoveryRate)} change={cycle.followupRecoveryChangePp} positiveIsGood/><Metric label="رسائل بلا رد" value={String(cycle.current.unansweredCustomerMessages)} warn={cycle.current.unansweredCustomerMessages > 0}/></div><div className="grid gap-4 lg:grid-cols-2"><CycleTable title="الفروع — الحالية مقابل السابقة" rows={cycle.byBranch}/><CycleTable title="الدكاترة — الحالية مقابل السابقة" rows={cycle.byDoctor}/></div></section>;
 }
 
-function ChatsTable({ chats, trend, onDelete }: { chats: StoredChat[]; trend: Array<{ score: number | null }>; onDelete: (id: string) => void }) {
-  return <div className="overflow-x-auto rounded-xl border border-slate-700"><table className="w-full min-w-[1050px] text-sm"><thead className="bg-slate-950/50"><tr><th className="p-3 text-right">الملف</th><th className="p-3 text-right">التاريخ</th><th className="p-3 text-right">الفرع</th><th className="p-3 text-right">الدكتور</th><th className="p-3 text-right">النتيجة</th><th className="p-3 text-right">Conversion</th><th className="p-3 text-right">الخدمة</th><th className="p-3 text-right">البيع</th><th className="p-3 text-right">أول رد</th><th/></tr></thead><tbody>{chats.map((chat, i) => { const cls = classifyConversionEligibility(chat); return <tr key={chat.id} className="border-t border-slate-800"><td className="p-3"><div className="flex gap-2"><FileText size={14}/><b>{chat.label}</b></div></td><td className="p-3">{chat.conversationAt ? new Date(chat.conversationAt).toLocaleDateString('ar-EG') : '-'}</td><td className="p-3">{chat.branch || 'غير محدد'}</td><td className="p-3">{chat.staffName || 'غير محدد'}</td><td className="p-3 font-black">{outcome(chat.intelligence.journey.outcome)}</td><td className="p-3">{!cls.salesEligible ? 'مستبعد — غير بيعي' : cls.lowConfidence ? 'مستبعد — ثقة منخفضة' : cls.converted ? 'Converted' : 'Not converted'}</td><td className="p-3 font-black">{trend[i]?.score ?? '-'}%</td><td className="p-3 font-black">{chat.intelligence.commercialScore}%</td><td className="p-3">{seconds(chat.analysis.metrics.firstResponseSeconds)}</td><td className="p-3"><button className="text-red-300" onClick={() => onDelete(chat.id)}><Trash2 size={16}/></button></td></tr>; })}</tbody></table></div>;
+function ChatsTable({ chats, trend, verifications, verifyingId, onVerify, onDelete }: { chats: StoredChat[]; trend: Array<{ score: number | null }>; verifications: Record<string, InvoiceConversionVerification | undefined>; verifyingId: string | null; onVerify: (chat: StoredChat) => void; onDelete: (id: string) => void }) {
+  return <div className="overflow-x-auto rounded-xl border border-slate-700"><table className="w-full min-w-[1350px] text-sm"><thead className="bg-slate-950/50"><tr><th className="p-3 text-right">الملف</th><th className="p-3 text-right">التاريخ</th><th className="p-3 text-right">الفرع</th><th className="p-3 text-right">الدكتور</th><th className="p-3 text-right">النتيجة</th><th className="p-3 text-right">Conversion</th><th className="p-3 text-right">تحقق الفاتورة</th><th className="p-3 text-right">Revenue</th><th className="p-3 text-right">الخدمة</th><th className="p-3 text-right">البيع</th><th className="p-3 text-right">أول رد</th><th/></tr></thead><tbody>{chats.map((chat, i) => { const cls = classifyConversionEligibility(chat); const verified = verifications[chat.id]; return <tr key={chat.id} className="border-t border-slate-800"><td className="p-3"><div className="flex gap-2"><FileText size={14}/><b>{chat.label}</b></div></td><td className="p-3">{chat.conversationAt ? new Date(chat.conversationAt).toLocaleDateString('ar-EG') : '-'}</td><td className="p-3">{chat.branch || 'غير محدد'}</td><td className="p-3">{chat.staffName || 'غير محدد'}</td><td className="p-3 font-black">{outcome(chat.intelligence.journey.outcome)}</td><td className="p-3">{!cls.salesEligible ? 'مستبعد — غير بيعي' : cls.lowConfidence ? 'مستبعد — ثقة منخفضة' : cls.converted ? 'Converted' : 'Not converted'}</td><td className="p-3">{verified ? <VerificationBadge value={verified}/> : <button disabled={verifyingId === chat.id} className="dawaa-button dawaa-button--secondary flex items-center gap-1" onClick={() => void onVerify(chat)}><ReceiptText size={14}/>{verifyingId === chat.id ? 'جاري التحقق...' : 'تحقق بالفاتورة'}</button>}</td><td className="p-3 font-black">{money(verified?.revenue ?? null)}</td><td className="p-3 font-black">{trend[i]?.score ?? '-'}%</td><td className="p-3 font-black">{chat.intelligence.commercialScore}%</td><td className="p-3">{seconds(chat.analysis.metrics.firstResponseSeconds)}</td><td className="p-3"><button className="text-red-300" onClick={() => onDelete(chat.id)}><Trash2 size={16}/></button></td></tr>; })}</tbody></table></div>;
+}
+
+function VerificationBadge({ value }: { value: InvoiceConversionVerification }) {
+  const label = value.status === 'verified_converted' ? 'Verified' : value.status === 'probable_converted' ? 'مرجح — راجع' : value.status === 'not_verified' ? 'غير مثبت' : value.status === 'not_applicable' ? 'غير بيعي' : 'يحتاج مراجعة';
+  const cls = value.status === 'verified_converted' ? 'text-emerald-300' : value.status === 'probable_converted' ? 'text-amber-300' : 'text-slate-300';
+  return <div className={cls}><div className="font-black">{label}</div><div className="text-[11px] text-slate-500">{value.bestCandidate?.invoiceNumber ? `فاتورة ${value.bestCandidate.invoiceNumber}` : value.reason}</div></div>;
 }
 
 function ConversionTable({ title, rows }: { title: string; rows: Array<{ key: string; label: string; conversations: number; eligible: number; converted: number; conversionRate: number | null; coverageRate: number | null }> }) {
