@@ -28,8 +28,8 @@ patch(
 
 patch(
   'scroll to cockpit after next review',
-  `    window.localStorage.removeItem(REVIEW_DRAFT_KEY);\n  };`,
-  `    window.localStorage.removeItem(REVIEW_DRAFT_KEY);\n    window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'auto' }));\n  };`
+  `    window.localStorage.removeItem(REVIEW_DRAFT_KEY);\n    toast.success('تم فتح تقييم جديد');`,
+  `    window.localStorage.removeItem(REVIEW_DRAFT_KEY);\n    window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'auto' }));\n    toast.success('تم فتح تقييم جديد');`
 );
 
 patch(
