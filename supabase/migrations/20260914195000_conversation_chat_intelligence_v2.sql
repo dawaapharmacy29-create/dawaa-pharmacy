@@ -1,5 +1,7 @@
 -- Development-only migration for feature/whatsapp-chat-intelligence-v2.
 -- Do not apply to production until the conversation intelligence workflow is reviewed.
+-- Conversion KPIs are derived from confirmed source rows; no aggregate table is stored,
+-- so branch/doctor percentages cannot become stale or drift from the underlying chats.
 
 create table if not exists public.conversation_chat_sources (
   id uuid primary key default gen_random_uuid(),
@@ -21,6 +23,14 @@ create table if not exists public.conversation_chat_sources (
   analysis_status text not null default 'parsed',
   analysis_confidence numeric null,
   analysis_json jsonb not null default '{}'::jsonb,
+
+  -- Conversion classification is stored as a reviewed fact, not as an aggregate percentage.
+  commercial_eligible boolean null,
+  conversion_status text not null default 'pending',
+  conversion_confidence numeric null,
+  conversion_source text not null default 'ai_suggestion',
+  conversion_reason text null,
+
   reviewer_confirmed boolean not null default false,
   reviewer_id text null,
   reviewer_name text null,
@@ -28,13 +38,21 @@ create table if not exists public.conversation_chat_sources (
   created_by text null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  constraint conversation_chat_sources_analysis_status_ck check (analysis_status in ('parsed','analyzed','needs_review','confirmed','failed'))
+  constraint conversation_chat_sources_analysis_status_ck check (analysis_status in ('parsed','analyzed','needs_review','confirmed','failed')),
+  constraint conversation_chat_sources_conversion_status_ck check (conversion_status in ('pending','converted','not_converted','excluded')),
+  constraint conversation_chat_sources_conversion_source_ck check (conversion_source in ('ai_suggestion','reviewer','invoice_match','manual')),
+  constraint conversation_chat_sources_analysis_confidence_ck check (analysis_confidence is null or (analysis_confidence >= 0 and analysis_confidence <= 1)),
+  constraint conversation_chat_sources_conversion_confidence_ck check (conversion_confidence is null or (conversion_confidence >= 0 and conversion_confidence <= 1))
 );
 
 create index if not exists conversation_chat_sources_review_idx on public.conversation_chat_sources(review_id);
 create index if not exists conversation_chat_sources_staff_date_idx on public.conversation_chat_sources(staff_id, conversation_started_at desc);
+create index if not exists conversation_chat_sources_branch_date_idx on public.conversation_chat_sources(branch, conversation_started_at desc);
 create index if not exists conversation_chat_sources_customer_phone_idx on public.conversation_chat_sources(customer_phone);
 create index if not exists conversation_chat_sources_analysis_status_idx on public.conversation_chat_sources(analysis_status, created_at desc);
+create index if not exists conversation_chat_sources_conversion_idx on public.conversation_chat_sources(branch, staff_id, commercial_eligible, conversion_status, reviewer_confirmed);
+
+alter table public.conversation_chat_sources enable row level security;
 
 create table if not exists public.conversation_chat_analysis_audit (
   id uuid primary key default gen_random_uuid(),
@@ -50,6 +68,56 @@ create table if not exists public.conversation_chat_analysis_audit (
 );
 
 create index if not exists conversation_chat_analysis_audit_source_idx on public.conversation_chat_analysis_audit(chat_source_id, created_at desc);
+alter table public.conversation_chat_analysis_audit enable row level security;
 
-comment on table public.conversation_chat_sources is 'Raw WhatsApp exports and their evidence-linked analysis. Raw text remains immutable evidence; reviewer confirmation is separate.';
-comment on table public.conversation_chat_analysis_audit is 'Audit trail for changes and reviewer confirmation of conversation intelligence.';
+-- Official conversion percentages are computed live from reviewer-confirmed, sales-eligible chats.
+-- Complaint-only/service chats and pending AI classifications never enter the denominator.
+create or replace view public.conversation_conversion_kpis_v1 as
+with confirmed as (
+  select
+    coalesce(nullif(trim(branch), ''), 'غير محدد') as branch,
+    staff_id,
+    coalesce(nullif(trim(staff_name), ''), 'غير محدد') as staff_name,
+    conversion_status
+  from public.conversation_chat_sources
+  where reviewer_confirmed = true
+    and commercial_eligible = true
+    and conversion_status in ('converted', 'not_converted')
+), branch_rows as (
+  select
+    'branch'::text as dimension,
+    branch as dimension_key,
+    branch as dimension_label,
+    count(*)::integer as eligible_conversations,
+    count(*) filter (where conversion_status = 'converted')::integer as converted_conversations
+  from confirmed
+  group by branch
+), doctor_rows as (
+  select
+    'doctor'::text as dimension,
+    coalesce(staff_id::text, staff_name) as dimension_key,
+    staff_name as dimension_label,
+    count(*)::integer as eligible_conversations,
+    count(*) filter (where conversion_status = 'converted')::integer as converted_conversations
+  from confirmed
+  group by coalesce(staff_id::text, staff_name), staff_name
+)
+select
+  dimension,
+  dimension_key,
+  dimension_label,
+  eligible_conversations,
+  converted_conversations,
+  (eligible_conversations - converted_conversations)::integer as not_converted_conversations,
+  case when eligible_conversations > 0
+    then round((converted_conversations::numeric / eligible_conversations::numeric) * 100, 1)
+    else null end as conversion_rate
+from (
+  select * from branch_rows
+  union all
+  select * from doctor_rows
+) x;
+
+comment on table public.conversation_chat_sources is 'Raw WhatsApp exports and evidence-linked analysis. Raw text remains evidence; official conversion status requires reviewer confirmation.';
+comment on table public.conversation_chat_analysis_audit is 'Audit trail for analysis changes and reviewer confirmation.';
+comment on view public.conversation_conversion_kpis_v1 is 'Live confirmed conversion rate by branch and doctor. No persisted aggregate percentages.';
