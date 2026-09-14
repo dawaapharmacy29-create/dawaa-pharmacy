@@ -36,7 +36,7 @@ export type ConversionAnalytics = {
   byDoctor: ConversionBreakdownRow[];
 };
 
-const MIN_CONVERSION_CONFIDENCE = 0.65;
+const MIN_CONVERSION_CONFIDENCE = 0.60;
 
 function round1(value: number) {
   return Math.round(value * 10) / 10;
