@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, Fingerprint, RefreshCw, Sparkles } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
+import AttendanceAnomalyPanel from '@/components/attendance/AttendanceAnomalyPanel';
 
 type DailyCommandRow = {
   staff_id: string;
@@ -53,18 +54,25 @@ type DailyIntelRow = {
   timeline: TimelineEvent[];
 };
 
-type Props = {
-  rows: DailyCommandRow[];
-  date: string;
-  branch: string;
-};
+type Props = { rows: DailyCommandRow[]; date: string; branch: string };
 
 function formatTime(value?: string | null, withSeconds = false) {
   if (!value) return '-';
   if (/^\d{2}:\d{2}/.test(value)) return withSeconds ? value.slice(0, 8) : value.slice(0, 5);
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return String(value).slice(0, withSeconds ? 8 : 5);
-  return d.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', second: withSeconds ? '2-digit' : undefined, timeZone: 'Africa/Cairo' });
+  return d.toLocaleTimeString('ar-EG', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: withSeconds ? '2-digit' : undefined,
+    timeZone: 'Africa/Cairo',
+  });
+}
+
+function confidencePct(value?: number | null) {
+  if (value == null) return null;
+  const n = Number(value);
+  return Math.round(n <= 1 ? n * 100 : n);
 }
 
 function attendanceLabel(status: string) {
@@ -151,6 +159,8 @@ export default function SmartDailyCommandTable({ rows, date, branch }: Props) {
   }), { raw: 0, effective: 0, duplicates: 0, corrected: 0, review: 0 }), [intel]);
 
   return <div className="space-y-3">
+    <AttendanceAnomalyPanel rows={rows} date={date} branch={branch} />
+
     <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-3 shadow-sm">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
         <div className="flex items-center gap-2"><Sparkles size={18} className="text-[var(--dawaa-theme-primary-strong)]"/><div><div className="font-black text-[var(--dawaa-theme-heading)]">ذكاء البصمة مدمج في جدول اليوم</div><div className="text-[11px] font-bold text-[var(--dawaa-theme-muted)]">الخام لا يساوي المحتسب: التكرار يُستبعد وتصحيح دخول/خروج يظهر بوضوح مع سبب القرار.</div></div></div>
@@ -166,9 +176,9 @@ export default function SmartDailyCommandTable({ rows, date, branch }: Props) {
       {error && <div className="mt-2 rounded-lg border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-2 text-xs font-bold text-[var(--dawaa-status-danger-text)]">⚠️ {error} — جدول الحضور الأساسي ما زال ظاهرًا بدون تعطيل.</div>}
     </div>
 
-    <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface shadow-sm overflow-hidden">
+    <div className="overflow-hidden rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface shadow-sm">
       <div className="overflow-x-auto"><table className="dawaa-table-semantic min-w-full text-sm">
-        <thead><tr className="text-right"><th className="p-3">الموظف</th><th className="p-3">الفرع</th><th className="p-3">الشيفت</th><th className="p-3">الدخول</th><th className="p-3">التأخير</th><th className="p-3">الخروج</th><th className="p-3">خروج مبكر</th><th className="p-3">الحالة</th><th className="p-3 min-w-[250px]">ملاحظة ذكية</th></tr></thead>
+        <thead><tr className="text-right"><th className="p-3">الموظف</th><th className="p-3">الفرع</th><th className="p-3">الشيفت</th><th className="p-3">الدخول</th><th className="p-3">التأخير</th><th className="p-3">الخروج</th><th className="p-3">خروج مبكر</th><th className="p-3">الحالة</th><th className="min-w-[250px] p-3">ملاحظة ذكية</th></tr></thead>
         <tbody>{rows.map((row) => {
           const item = intelMap.get(row.staff_id);
           const meta = intelMeta(item?.intelligence_status);
@@ -178,8 +188,8 @@ export default function SmartDailyCommandTable({ rows, date, branch }: Props) {
             : row.schedule_status === 'conflict'
               ? 'لا يتم احتساب جزاء حتى تصحيح الجدول'
               : null;
-          return <>
-            <tr key={`${row.staff_id}-${row.work_date}`} className="border-t border-[var(--dawaa-theme-divider)] align-top">
+          return <Fragment key={`${row.staff_id}-${row.work_date}`}>
+            <tr className="border-t border-[var(--dawaa-theme-divider)] align-top">
               <td className="p-3 font-black text-[var(--dawaa-theme-heading)]">{row.staff_name}<div className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">{row.role || '-'}</div></td>
               <td className="p-3">{row.branch || '-'}</td>
               <td className="p-3 font-bold">{row.schedule_status === 'off' ? 'إجازة' : row.shift_start && row.shift_end ? `${formatTime(row.shift_start)} ← ${formatTime(row.shift_end)}` : row.schedule_status === 'conflict' ? 'تعارض' : 'غير مكتمل'}</td>
@@ -189,7 +199,7 @@ export default function SmartDailyCommandTable({ rows, date, branch }: Props) {
               <td className="p-3 font-black text-[var(--dawaa-status-danger-text)]">{row.early_leave_minutes > 0 ? `${row.early_leave_minutes} د` : '-'}</td>
               <td className="p-3"><span className={cn('inline-flex rounded-full border px-2 py-1 text-[11px] font-black', statusClass(row.attendance_status))}>{attendanceLabel(row.attendance_status)}</span></td>
               <td className="p-3">
-                {note ? <div className="mb-2 text-xs font-bold text-[var(--dawaa-theme-muted)]">{note}</div> : null}
+                {note && <div className="mb-2 text-xs font-bold text-[var(--dawaa-theme-muted)]">{note}</div>}
                 {item ? <div className="space-y-2">
                   <div className="flex flex-wrap items-center gap-1.5"><span className={cn('rounded-full border px-2 py-0.5 text-[10px] font-black', meta.cls)}>{meta.label}</span><span className="text-[11px] font-black text-[var(--dawaa-theme-heading)]">{item.raw_events} خام · {item.effective_events} محتسبة{item.duplicate_events ? ` · ${item.duplicate_events} مكررة` : ''}</span></div>
                   {!!item.corrected_type_events && <div className="flex items-center gap-1 text-[11px] font-black text-[var(--dawaa-status-info-text)]"><Sparkles size={13}/> صحح النظام نوع {item.corrected_type_events} بصمة</div>}
@@ -198,24 +208,28 @@ export default function SmartDailyCommandTable({ rows, date, branch }: Props) {
                 </div> : <div className="flex items-center gap-1 text-xs font-bold text-[var(--dawaa-theme-muted)]"><Fingerprint size={14}/> {row.biometric_events ? `${row.biometric_events} بصمة — جاري التحليل الذكي` : 'لا توجد بصمات'}</div>}
               </td>
             </tr>
-            {isOpen && item && <tr key={`${row.staff_id}-${row.work_date}-intel`} className="border-t border-[var(--dawaa-theme-divider)] bg-[var(--dawaa-theme-surface-2)]"><td colSpan={9} className="p-4">
+            {isOpen && item && <tr className="border-t border-[var(--dawaa-theme-divider)] bg-[var(--dawaa-theme-surface-2)]"><td colSpan={9} className="p-4">
               <div className="grid gap-3 lg:grid-cols-4">
-                <div className="rounded-xl border border-[var(--dawaa-theme-border)] dawaa-surface p-3"><div className="text-[11px] font-bold text-[var(--dawaa-theme-muted)]">أول بصمة محتسبة</div><div className="mt-1 font-black">{formatTime(item.first_effective_at, true)}</div></div>
-                <div className="rounded-xl border border-[var(--dawaa-theme-border)] dawaa-surface p-3"><div className="text-[11px] font-bold text-[var(--dawaa-theme-muted)]">آخر بصمة محتسبة</div><div className="mt-1 font-black">{formatTime(item.last_effective_at, true)}</div></div>
-                <div className="rounded-xl border border-[var(--dawaa-theme-border)] dawaa-surface p-3"><div className="text-[11px] font-bold text-[var(--dawaa-theme-muted)]">متوسط الثقة</div><div className="mt-1 font-black">{item.avg_confidence == null ? '-' : `${Math.round(Number(item.avg_confidence) * (Number(item.avg_confidence) <= 1 ? 100 : 1))}%`}</div></div>
-                <div className="rounded-xl border border-[var(--dawaa-theme-border)] dawaa-surface p-3"><div className="text-[11px] font-bold text-[var(--dawaa-theme-muted)]">القرار</div><div className="mt-1 flex items-center gap-1 font-black">{item.review_events ? <AlertTriangle size={15}/> : <CheckCircle2 size={15}/>} {meta.label}</div></div>
+                <IntelCard label="أول بصمة محتسبة" value={formatTime(item.first_effective_at, true)} />
+                <IntelCard label="آخر بصمة محتسبة" value={formatTime(item.last_effective_at, true)} />
+                <IntelCard label="متوسط الثقة" value={confidencePct(item.avg_confidence) == null ? '-' : `${confidencePct(item.avg_confidence)}%`} />
+                <IntelCard label="القرار" value={<span className="flex items-center gap-1">{item.review_events ? <AlertTriangle size={15}/> : <CheckCircle2 size={15}/>} {meta.label}</span>} />
               </div>
               <div className="mt-3 overflow-x-auto rounded-xl border border-[var(--dawaa-theme-border)] dawaa-surface">
                 <table className="min-w-full text-xs"><thead><tr className="text-right"><th className="p-2">الوقت</th><th className="p-2">الجهاز قال</th><th className="p-2">النظام فهم</th><th className="p-2">القرار</th><th className="p-2">الثقة</th><th className="p-2">السبب</th><th className="p-2">الجهاز</th></tr></thead><tbody>{(item.timeline || []).map((event) => {
                   const duplicate = event.decision === 'duplicate' || Boolean(event.duplicate_of);
                   const corrected = !duplicate && event.raw_type && event.semantic_type && event.raw_type !== event.semantic_type;
-                  return <tr key={event.id} className="border-t border-[var(--dawaa-theme-divider)]"><td className="p-2 font-black">{formatTime(event.time, true)}</td><td className="p-2">{punchLabel(event.raw_type)}</td><td className="p-2 font-black">{duplicate ? 'غير محتسبة' : punchLabel(event.semantic_type)}</td><td className="p-2">{duplicate ? <span className="font-black text-[var(--dawaa-status-warning-text)]">تأكيد مكرر</span> : corrected ? <span className="font-black text-[var(--dawaa-status-info-text)]">تصحيح ذكي</span> : <span className="font-black text-[var(--dawaa-status-success-text)]">محتسبة</span>}</td><td className="p-2">{event.confidence == null ? '-' : `${Math.round(Number(event.confidence) * (Number(event.confidence) <= 1 ? 100 : 1))}%`}</td><td className="p-2 font-bold text-[var(--dawaa-theme-muted)]">{reasonLabel(event.reason)}</td><td className="p-2">{event.device_id || '-'}</td></tr>;
+                  return <tr key={event.id} className="border-t border-[var(--dawaa-theme-divider)]"><td className="p-2 font-black">{formatTime(event.time, true)}</td><td className="p-2">{punchLabel(event.raw_type)}</td><td className="p-2 font-black">{duplicate ? 'غير محتسبة' : punchLabel(event.semantic_type)}</td><td className="p-2">{duplicate ? <span className="font-black text-[var(--dawaa-status-warning-text)]">تأكيد مكرر</span> : corrected ? <span className="font-black text-[var(--dawaa-status-info-text)]">تصحيح ذكي</span> : <span className="font-black text-[var(--dawaa-status-success-text)]">محتسبة</span>}</td><td className="p-2">{confidencePct(event.confidence) == null ? '-' : `${confidencePct(event.confidence)}%`}</td><td className="p-2 font-bold text-[var(--dawaa-theme-muted)]">{reasonLabel(event.reason)}</td><td className="p-2">{event.device_id || '-'}</td></tr>;
                 })}{!(item.timeline || []).length && <tr><td colSpan={7} className="p-4 text-center font-bold text-[var(--dawaa-theme-muted)]">لا يوجد مسار تفصيلي متاح.</td></tr>}</tbody></table>
               </div>
             </td></tr>}
-          </>;
+          </Fragment>;
         })}</tbody>
       </table></div>
     </div>
   </div>;
+}
+
+function IntelCard({ label, value }: { label: string; value: React.ReactNode }) {
+  return <div className="rounded-xl border border-[var(--dawaa-theme-border)] dawaa-surface p-3"><div className="text-[11px] font-bold text-[var(--dawaa-theme-muted)]">{label}</div><div className="mt-1 font-black">{value}</div></div>;
 }
