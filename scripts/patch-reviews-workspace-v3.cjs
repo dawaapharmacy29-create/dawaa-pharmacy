@@ -87,3 +87,4 @@ require('./patch-smart-review-v11.cjs');
 require('./patch-smart-review-v12.cjs');
 require('./patch-smart-review-v13.cjs');
 require('./patch-whatsapp-analyzer-official-review-v1.cjs');
+require('./patch-whatsapp-analyzer-decision-support-v2.cjs');
