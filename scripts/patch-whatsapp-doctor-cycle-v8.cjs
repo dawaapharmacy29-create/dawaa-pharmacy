@@ -25,3 +25,4 @@ patch(
 
 fs.writeFileSync(file, src);
 console.log('[whatsapp-doctor-cycle-v8] doctor cycle dashboard wired successfully');
+require('./patch-whatsapp-sales-leakage-v8.cjs');
