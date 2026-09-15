@@ -17,11 +17,21 @@ patch(
   `import WhatsAppDoctorCycleIntelligenceV8 from '@/components/reviews/WhatsAppDoctorCycleIntelligenceV8';\nimport WhatsAppSalesLeakageV8 from '@/components/reviews/WhatsAppSalesLeakageV8';`
 );
 
-patch(
-  'render sales leakage dashboard',
-  `      <WhatsAppDoctorCycleIntelligenceV8 />`,
-  `      <WhatsAppDoctorCycleIntelligenceV8 />\n\n      <WhatsAppSalesLeakageV8 onOpenSource={(sourceId) => { setStatus('all'); setSelectedId(sourceId); }} />`
-);
+const doctorWithNavigation = `      <WhatsAppDoctorCycleIntelligenceV8 onOpenSource={(sourceId) => { setStatus('all'); setSelectedId(sourceId); }} />`;
+const doctorLegacy = `      <WhatsAppDoctorCycleIntelligenceV8 />`;
+const leakageRender = `      <WhatsAppSalesLeakageV8 onOpenSource={(sourceId) => { setStatus('all'); setSelectedId(sourceId); }} />`;
+
+if (src.includes(leakageRender)) {
+  console.log('[whatsapp-sales-leakage-v8] render sales leakage dashboard: already applied');
+} else if (src.includes(doctorWithNavigation)) {
+  src = src.replace(doctorWithNavigation, `${doctorWithNavigation}\n\n${leakageRender}`);
+  console.log('[whatsapp-sales-leakage-v8] render sales leakage dashboard: applied after doctor drilldown');
+} else if (src.includes(doctorLegacy)) {
+  src = src.replace(doctorLegacy, `${doctorLegacy}\n\n${leakageRender}`);
+  console.log('[whatsapp-sales-leakage-v8] render sales leakage dashboard: applied after legacy doctor card');
+} else {
+  throw new Error('[whatsapp-sales-leakage-v8] render sales leakage dashboard: compatible doctor anchor not found');
+}
 
 fs.writeFileSync(file, src);
 console.log('[whatsapp-sales-leakage-v8] sales leakage dashboard wired successfully');
