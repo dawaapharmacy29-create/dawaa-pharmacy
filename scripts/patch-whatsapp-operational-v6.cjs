@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
+// Keep this patch aligned with the Auto Queue metadata shape (sourceName + innerName).
 const analyzerFile = path.join(process.cwd(), 'src/pages/WhatsAppConversationAnalyzer.tsx');
 let analyzer = fs.readFileSync(analyzerFile, 'utf8');
 
