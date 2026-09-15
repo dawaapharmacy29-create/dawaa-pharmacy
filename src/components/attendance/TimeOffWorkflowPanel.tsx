@@ -107,6 +107,20 @@ export default function TimeOffWorkflowPanel() {
     }
   }
 
+  async function cancelRequest(id: string) {
+    setBusyId(id);
+    try {
+      const { error } = await supabase.rpc('attendance_cancel_time_off_request_v1', { p_request_id: id });
+      if (error) throw error;
+      toast.success('تم إلغاء الطلب');
+      await loadAll();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'تعذر إلغاء الطلب');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm">
@@ -130,10 +144,13 @@ export default function TimeOffWorkflowPanel() {
 
         {!!myRequests.length && <div className="mt-4 space-y-1.5 border-t border-[var(--dawaa-theme-border)] pt-3">
           <p className="text-xs font-black text-[var(--dawaa-theme-muted)]">طلباتي الأخيرة</p>
-          {myRequests.slice(0, 8).map((r) => { const meta = STATUS_META[r.status] || STATUS_META.cancelled; return (
+          {myRequests.slice(0, 8).map((r) => { const meta = STATUS_META[r.status] || STATUS_META.cancelled; const cancellable = r.status === 'pending_branch_review' || r.status === 'pending_gm_review'; return (
             <div key={r.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--dawaa-theme-border)] p-2 text-xs">
               <span className="font-bold">{r.request_label} · {r.start_date}{r.end_date !== r.start_date ? ` ← ${r.end_date}` : ''}</span>
-              <span className={cn('rounded-full border px-2 py-0.5 text-[10px] font-black', meta.cls)}>{meta.label}</span>
+              <div className="flex items-center gap-2">
+                <span className={cn('rounded-full border px-2 py-0.5 text-[10px] font-black', meta.cls)}>{meta.label}</span>
+                {cancellable && <button disabled={busyId===r.id} onClick={() => void cancelRequest(r.id)} className="text-[10px] font-black text-[var(--dawaa-status-danger-text)] hover:underline">إلغاء</button>}
+              </div>
             </div>
           ); })}
         </div>}
