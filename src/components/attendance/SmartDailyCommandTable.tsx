@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
 import AttendanceAnomalyPanel from '@/components/attendance/AttendanceAnomalyPanel';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import EmployeeProfileDrawer from '@/components/attendance/EmployeeProfileDrawer';
 
 type RoleGroup = 'الكل' | 'دكاترة وصيادلة' | 'دليفري' | 'باقي الفريق';
 
@@ -142,6 +143,7 @@ export default function SmartDailyCommandTable({ rows, date, branch }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [activeGroup, setActiveGroup] = useState<RoleGroup>('الكل');
+  const [profileStaffId, setProfileStaffId] = useState<string | null>(null);
 
   const groupCounts = useMemo(() => {
     const counts: Record<RoleGroup, number> = { 'الكل': rows.length, 'دكاترة وصيادلة': 0, 'دليفري': 0, 'باقي الفريق': 0 };
@@ -173,7 +175,7 @@ export default function SmartDailyCommandTable({ rows, date, branch }: Props) {
 
   useEffect(() => { void loadIntel(); }, [loadIntel]);
   useEffect(() => {
-    const id = window.setInterval(() => void loadIntel(), 30_000);
+    const id = window.setInterval(() => { if (!document.hidden) void loadIntel(); }, 30_000);
     return () => window.clearInterval(id);
   }, [loadIntel]);
 
@@ -229,7 +231,7 @@ export default function SmartDailyCommandTable({ rows, date, branch }: Props) {
               : null;
           return <Fragment key={`${row.staff_id}-${row.work_date}`}>
             <tr className="border-t border-[var(--dawaa-theme-divider)] align-top">
-              <td className="p-3 font-black text-[var(--dawaa-theme-heading)]">{row.staff_name}<div className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">{row.role || '-'}</div></td>
+              <td className="p-3 font-black text-[var(--dawaa-theme-heading)]"><button onClick={() => setProfileStaffId(row.staff_id)} className="text-right hover:underline hover:text-[var(--dawaa-theme-primary-strong)]">{row.staff_name}</button><div className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">{row.role || '-'}</div></td>
               <td className="p-3">{row.branch || '-'}</td>
               <td className="p-3 font-bold">{row.schedule_status === 'off' ? 'إجازة' : row.shift_start && row.shift_end ? `${formatTime(row.shift_start)} ← ${formatTime(row.shift_end)}` : row.schedule_status === 'conflict' ? 'تعارض' : 'غير مكتمل'}</td>
               <td className="p-3 font-bold">{formatTime(row.first_check_in)}</td>
@@ -266,6 +268,7 @@ export default function SmartDailyCommandTable({ rows, date, branch }: Props) {
         })}{!visibleRows.length && <tr><td colSpan={9} className="p-6 text-center text-sm font-bold text-[var(--dawaa-theme-muted)]">لا يوجد موظفون ضمن "{activeGroup}" لهذا اليوم/الفرع.</td></tr>}</tbody>
       </table></div>
     </div>
+    {profileStaffId && <EmployeeProfileDrawer staffId={profileStaffId} onClose={() => setProfileStaffId(null)} />}
   </div>;
 }
 
