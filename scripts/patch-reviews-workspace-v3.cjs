@@ -100,6 +100,7 @@ require('./patch-whatsapp-auto-invoice-v4.cjs');
 require('./patch-whatsapp-local-inbox-batch-v4.cjs');
 require('./patch-whatsapp-device-setup-v4.cjs');
 require('./patch-whatsapp-production-copy-v4.cjs');
+require('./patch-whatsapp-sidebar-v4.cjs');
 require('./patch-whatsapp-queue-invoice-v4.cjs');
 require('./patch-whatsapp-official-review-bridge-v4.cjs');
 require('./patch-whatsapp-bridge-cleanup-v4.cjs');
