@@ -115,4 +115,5 @@ require('./patch-whatsapp-conversion-funnel-v9.cjs');
 require('./patch-whatsapp-funnel-comparison-v9.cjs');
 require('./patch-whatsapp-leakage-reasons-v10.cjs');
 require('./patch-whatsapp-recoverable-v10.cjs');
+require('./patch-whatsapp-recovery-work-queue-v11.cjs');
 require('./patch-whatsapp-invoice-reconciliation-v6.cjs');
