@@ -43,12 +43,13 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
   const [manualTime, setManualTime] = useState('');
   const [manualReason, setManualReason] = useState('');
   const [manualBusy, setManualBusy] = useState(false);
+  const [daysRange, setDaysRange] = useState(30);
 
   const loadProfile = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const { data, error: rpcError } = await supabase.rpc('attendance_employee_profile_v1', { p_staff_id: staffId, p_days: 30 });
+      const { data, error: rpcError } = await supabase.rpc('attendance_employee_profile_v1', { p_staff_id: staffId, p_days: daysRange });
       if (rpcError) throw rpcError;
       setProfile(data as Profile);
     } catch (e) {
@@ -56,7 +57,7 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
     } finally {
       setLoading(false);
     }
-  }, [staffId]);
+  }, [staffId, daysRange]);
 
   useEffect(() => { void loadProfile(); }, [loadProfile]);
 
@@ -138,7 +139,15 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
           </div>}
 
           <section>
-            <div className="mb-2 flex items-center gap-1.5 font-black text-[var(--dawaa-theme-heading)]"><TrendingUp size={16} /> معدلات آخر 30 يوم</div>
+            <div className="mb-2 flex items-center justify-between gap-1.5">
+              <div className="flex items-center gap-1.5 font-black text-[var(--dawaa-theme-heading)]"><TrendingUp size={16} /> معدلات آخر {daysRange} يوم</div>
+              <select value={daysRange} onChange={(e) => setDaysRange(Number(e.target.value))} className="input-dark text-[10px]">
+                <option value={7}>7 أيام</option>
+                <option value={30}>30 يوم</option>
+                <option value={60}>60 يوم</option>
+                <option value={90}>90 يوم</option>
+              </select>
+            </div>
             <div className="grid grid-cols-3 gap-2">
               <RateBox label="تأخير" value={`${profile.rates.late_rate_pct}%`} sub={`${profile.rates.late_days + profile.rates.very_late_days} يوم`} />
               <RateBox label="إذن/إجازة" value={`${profile.rates.permission_rate_pct}%`} sub={`${profile.rates.permission_days} يوم`} />
@@ -160,7 +169,7 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
           <section>
             <div className="mb-2 flex items-center gap-1.5 font-black text-[var(--dawaa-theme-heading)]"><Clock3 size={16} /> آخر الأيام</div>
             <div className="space-y-1.5">
-              {profile.recent_days.slice(0, 15).map((d) => <div key={d.attendance_date} className={cn('rounded-lg border p-2 text-xs', d.branch_mismatch ? 'border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)]' : 'border-[var(--dawaa-theme-border)]')}>
+              {profile.recent_days.slice(0, Math.min(daysRange, 45)).map((d) => <div key={d.attendance_date} className={cn('rounded-lg border p-2 text-xs', d.branch_mismatch ? 'border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)]' : 'border-[var(--dawaa-theme-border)]')}>
                 <div className="flex items-center justify-between gap-1">
                   <span className="font-bold text-[var(--dawaa-theme-muted)]">{d.attendance_date}</span>
                   <span className="font-bold">{formatTime(d.first_in)} ← {formatTime(d.last_out)}</span>
