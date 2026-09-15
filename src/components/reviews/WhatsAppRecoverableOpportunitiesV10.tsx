@@ -55,6 +55,11 @@ function classify(row: Row) {
   return { score, priority: score >= 75 ? 'عالية' : score >= 50 ? 'متوسطة' : 'منخفضة', why: why.join(' • ') || 'فرصة تحتاج مراجعة بشرية' };
 }
 
+function recoveryDeadline(score: number) {
+  const hours = score >= 75 ? 2 : score >= 50 ? 6 : 24;
+  return new Date(Date.now() + hours * 3600000).toISOString();
+}
+
 export default function WhatsAppRecoverableOpportunitiesV10({ onOpenSource }: { onOpenSource?: (sourceId: string) => void }) {
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
@@ -90,8 +95,7 @@ export default function WhatsAppRecoverableOpportunitiesV10({ onOpenSource }: { 
     const uiKey = `${row.source_id}:${actionKey}`;
     setCreatingKey(uiKey);
     try {
-      const due = new Date();
-      if (recovery.score < 75) due.setDate(due.getDate() + 1);
+      const deadline = recoveryDeadline(recovery.score);
       const { error } = await supabase.from('whatsapp_conversation_actions').insert({
         source_id: row.source_id,
         action_key: actionKey,
@@ -110,16 +114,17 @@ export default function WhatsAppRecoverableOpportunitiesV10({ onOpenSource }: { 
         product_code: row.product_code,
         product_name: row.product_name,
         quantity: row.quantity,
-        due_at: due.toISOString(),
+        due_at: deadline,
+        sla_due_at: deadline,
         reason: row.leakage_reason || row.next_action || recovery.why,
-        evidence: { origin: 'recoverable_v10', recovery_score: recovery.score, current_stage: row.current_stage },
-        payload: { origin: 'recoverable_v10', recovery_score: recovery.score, current_stage: row.current_stage, invoice_match_status: row.invoice_match_status },
+        evidence: { origin: 'recoverable_v12', recovery_score: recovery.score, current_stage: row.current_stage, sla_hours: recovery.score >= 75 ? 2 : recovery.score >= 50 ? 6 : 24 },
+        payload: { origin: 'recoverable_v12', recovery_score: recovery.score, current_stage: row.current_stage, invoice_match_status: row.invoice_match_status },
       });
       if (error) {
         if (error.code === '23505') { toast.info('المهمة موجودة بالفعل في طابور الاسترجاع'); return; }
         throw error;
       }
-      toast.success('تم تحويل الفرصة لمهمة استرجاع بدون إنشاء نقاط أو بيع وهمي');
+      toast.success(`تم إنشاء مهمة استرجاع بأولوية ${recovery.priority} وموعد SLA تلقائي`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'تعذر إنشاء مهمة الاسترجاع');
     } finally {
@@ -139,7 +144,7 @@ export default function WhatsAppRecoverableOpportunitiesV10({ onOpenSource }: { 
 
   return <section className="dawaa-card dawaa-card--raised p-5" dir="rtl">
     <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-      <div><div className="flex items-center gap-2 text-xs font-black text-emerald-200"><RotateCcw size={16}/> فرص قابلة للاسترجاع V10</div><h2 className="mt-1 text-xl font-black text-white">العملاء اللي لسه نقدر نرجع ونكمل معاهم البيع</h2><p className="mt-2 text-sm leading-7 text-slate-400">البيع لا يُحسب إلا بعد فاتورة مؤكدة. تحويل الفرصة لمهمة لا ينشئ نقاط أو إيراد تلقائي.</p></div>
+      <div><div className="flex items-center gap-2 text-xs font-black text-emerald-200"><RotateCcw size={16}/> فرص قابلة للاسترجاع V12</div><h2 className="mt-1 text-xl font-black text-white">العملاء اللي لسه نقدر نرجع ونكمل معاهم البيع</h2><p className="mt-2 text-sm leading-7 text-slate-400">الأولوية العالية SLA ساعتين، المتوسطة 6 ساعات، والمنخفضة 24 ساعة. البيع لا يُحسب إلا بعد فاتورة مؤكدة.</p></div>
       <button onClick={() => void load()} disabled={loading} className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-black text-white disabled:opacity-50"><RefreshCw size={15} className={loading ? 'animate-spin' : ''}/> تحديث</button>
     </div>
     <div className="mt-4 flex flex-col gap-2 lg:flex-row"><label className="relative flex-1"><Search size={15} className="absolute right-3 top-3 text-slate-500"/><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="بحث بالعميل أو الدكتور أو الصنف أو سبب المتابعة" className="w-full rounded-xl border border-slate-700 bg-slate-950 py-2.5 pr-9 pl-3 text-sm text-white"/></label><select value={branch} onChange={(e) => setBranch(e.target.value)} className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white"><option value="all">كل الفروع</option><option value="فرع الشامي">فرع الشامي</option><option value="فرع شكري">فرع شكري</option></select></div>
