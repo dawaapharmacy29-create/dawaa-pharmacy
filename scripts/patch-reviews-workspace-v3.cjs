@@ -107,3 +107,4 @@ require('./patch-whatsapp-bridge-cleanup-v4.cjs');
 require('./patch-whatsapp-analysis-quality-v5.cjs');
 require('./patch-whatsapp-operational-v6.cjs');
 require('./patch-whatsapp-operational-ui-v6.cjs');
+require('./patch-whatsapp-operational-actions-ui-v6.cjs');
