@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { CalendarCheck, CheckCircle2, Clock3, Send, ShieldCheck, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
+import { invalidateCachedRpc } from '@/lib/attendance/cachedRpc';
 import { cn } from '@/lib/utils';
 
 type MyRequest = {
@@ -84,6 +85,7 @@ export default function TimeOffWorkflowPanel() {
       });
       if (error) throw error;
       toast.success('تم إرسال طلبك — بانتظار موافقة مدير الفرع');
+      invalidateCachedRpc('attendance_branch_time_off_queue_v1');
       setStartDate(''); setEndDate(''); setStartTime(''); setEndTime(''); setReason('');
       await loadAll();
     } catch (e) {
@@ -99,6 +101,8 @@ export default function TimeOffWorkflowPanel() {
       const { error } = await supabase.rpc(rpcName, { p_request_id: id, p_decision: decision, p_note: notes[id] || null });
       if (error) throw error;
       toast.success(decision === 'approve' ? 'تم الاعتماد' : 'تم الرفض');
+      invalidateCachedRpc('attendance_branch_time_off_queue_v1');
+      invalidateCachedRpc('attendance_gm_time_off_queue_v1');
       await loadAll();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'تعذر تنفيذ القرار');
@@ -113,6 +117,7 @@ export default function TimeOffWorkflowPanel() {
       const { error } = await supabase.rpc('attendance_cancel_time_off_request_v1', { p_request_id: id });
       if (error) throw error;
       toast.success('تم إلغاء الطلب');
+      invalidateCachedRpc('attendance_branch_time_off_queue_v1');
       await loadAll();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'تعذر إلغاء الطلب');
