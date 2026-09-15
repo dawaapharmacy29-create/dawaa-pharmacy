@@ -108,4 +108,6 @@ require('./patch-whatsapp-analysis-quality-v5.cjs');
 require('./patch-whatsapp-operational-v6.cjs');
 require('./patch-whatsapp-operational-ui-v6.cjs');
 require('./patch-whatsapp-operational-actions-ui-v6.cjs');
+require('./patch-whatsapp-product-journey-ui-v7.cjs');
+require('./patch-whatsapp-action-center-v6.cjs');
 require('./patch-whatsapp-invoice-reconciliation-v6.cjs');
