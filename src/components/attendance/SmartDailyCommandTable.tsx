@@ -8,6 +8,25 @@ import EmployeeProfileDrawer from '@/components/attendance/EmployeeProfileDrawer
 
 type RoleGroup = 'الكل' | 'دكاترة وصيادلة' | 'دليفري' | 'باقي الفريق';
 
+const STATUS_FILTER_LABELS: Record<string, string> = {
+  all: 'كل الحالات',
+  late: 'متأخر',
+  very_late: 'متأخر جدًا',
+  on_time: 'في الموعد',
+  working_now: 'شغال دلوقتي',
+  not_arrived: 'لسه ما وصلش',
+  absent: 'غايب',
+  missing_checkout: 'خروج ناقص',
+  sync_pending: 'بانتظار المزامنة',
+  sync_pending_checkout: 'خروج بانتظار المزامنة',
+  off: 'إجازة',
+  worked_on_off: 'حضور في يوم إجازة',
+  schedule_missing: 'بدون جدول',
+  schedule_conflict: 'تعارض جدول',
+  punch_without_valid_schedule: 'بصمة بدون جدول صالح',
+  approved_exception: 'استثناء معتمد',
+};
+
 function roleGroupOf(role: string | null): Exclude<RoleGroup, 'الكل'> {
   if (role === 'توصيل') return 'دليفري';
   if (role === 'صيدلاني' || role === 'pharmacist') return 'دكاترة وصيادلة';
@@ -143,6 +162,8 @@ export default function SmartDailyCommandTable({ rows, date, branch }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [activeGroup, setActiveGroup] = useState<RoleGroup>('الكل');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [checkTypeFilter, setCheckTypeFilter] = useState<'all' | 'checked_in' | 'checked_out_missing'>('all');
   const [profileStaffId, setProfileStaffId] = useState<string | null>(null);
 
   const groupCounts = useMemo(() => {
@@ -151,10 +172,19 @@ export default function SmartDailyCommandTable({ rows, date, branch }: Props) {
     return counts;
   }, [rows]);
 
+  const availableStatuses = useMemo(() => Array.from(new Set(rows.map((r) => r.attendance_status))).sort(), [rows]);
+
   const visibleRows = useMemo(() => {
-    if (activeGroup === 'الكل') return rows;
-    return rows.filter((row) => roleGroupOf(row.role) === activeGroup);
-  }, [rows, activeGroup]);
+    let list = rows;
+    if (activeGroup !== 'الكل') list = list.filter((row) => roleGroupOf(row.role) === activeGroup);
+    if (statusFilter !== 'all') list = list.filter((row) => row.attendance_status === statusFilter);
+    if (checkTypeFilter === 'checked_in') list = list.filter((row) => !!row.first_check_in);
+    if (checkTypeFilter === 'checked_out_missing') list = list.filter((row) => !!row.first_check_in && !row.last_check_out);
+    return list;
+  }, [rows, activeGroup, statusFilter, checkTypeFilter]);
+
+  const filtersActive = activeGroup !== 'الكل' || statusFilter !== 'all' || checkTypeFilter !== 'all';
+  function resetFilters() { setActiveGroup('الكل'); setStatusFilter('all'); setCheckTypeFilter('all'); }
 
   const loadIntel = useCallback(async () => {
     setLoading(true);
@@ -204,6 +234,19 @@ export default function SmartDailyCommandTable({ rows, date, branch }: Props) {
         </div>
       </div>
       {error && <div className="mt-2 rounded-lg border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-2 text-xs font-bold text-[var(--dawaa-status-danger-text)]">⚠️ {error} — جدول الحضور الأساسي ما زال ظاهرًا بدون تعطيل.</div>}
+    </div>
+
+    <div className="flex flex-wrap items-center gap-2">
+      <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="input-dark text-xs">
+        <option value="all">{STATUS_FILTER_LABELS.all}</option>
+        {availableStatuses.map((s) => <option key={s} value={s}>{STATUS_FILTER_LABELS[s] || s}</option>)}
+      </select>
+      <select value={checkTypeFilter} onChange={(e) => setCheckTypeFilter(e.target.value as typeof checkTypeFilter)} className="input-dark text-xs">
+        <option value="all">دخول وخروج</option>
+        <option value="checked_in">دخول فقط (بصم دخول)</option>
+        <option value="checked_out_missing">دخول بدون خروج</option>
+      </select>
+      {filtersActive && <button onClick={resetFilters} className="rounded-full border border-[var(--dawaa-theme-border)] px-3 py-1.5 text-xs font-black text-[var(--dawaa-theme-muted)] hover:bg-[var(--dawaa-theme-surface-2)]">إعادة ضبط الفلاتر</button>}
     </div>
 
     <Tabs value={activeGroup} onValueChange={(v) => setActiveGroup(v as RoleGroup)} dir="rtl">
@@ -265,7 +308,7 @@ export default function SmartDailyCommandTable({ rows, date, branch }: Props) {
               </div>
             </td></tr>}
           </Fragment>;
-        })}{!visibleRows.length && <tr><td colSpan={9} className="p-6 text-center text-sm font-bold text-[var(--dawaa-theme-muted)]">لا يوجد موظفون ضمن "{activeGroup}" لهذا اليوم/الفرع.</td></tr>}</tbody>
+        })}{!visibleRows.length && <tr><td colSpan={9} className="p-6 text-center text-sm font-bold text-[var(--dawaa-theme-muted)]">لا توجد نتائج مطابقة للفلاتر الحالية لهذا اليوم/الفرع.</td></tr>}</tbody>
       </table></div>
     </div>
     {profileStaffId && <EmployeeProfileDrawer staffId={profileStaffId} onClose={() => setProfileStaffId(null)} />}
