@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Wifi, WifiOff, AlertTriangle, Clock } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { cachedRpc } from '@/lib/attendance/cachedRpc';
 import { cn } from '@/lib/utils';
 
 type BranchHealth = {
@@ -35,10 +35,9 @@ export default function AttendanceHealthStrip() {
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      const { data } = await supabase.rpc('attendance_sync_health_v2');
+      const { data } = await cachedRpc<{ branch_breakdown?: (BranchHealth & { events: number })[] }>('attendance_sync_health_v2', {}, 30);
       if (!cancelled && data?.branch_breakdown) {
-        const rows = (data.branch_breakdown as (BranchHealth & { events: number })[])
-          .filter((b) => b.branch === 'فرع الشامي' || b.branch === 'فرع شكري');
+        const rows = data.branch_breakdown.filter((b) => b.branch === 'فرع الشامي' || b.branch === 'فرع شكري');
         setBranches(rows);
       }
       if (!cancelled) setLoading(false);

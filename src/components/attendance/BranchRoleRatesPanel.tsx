@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Bike, Clock3, Stethoscope, Users2 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { cachedRpc } from '@/lib/attendance/cachedRpc';
 import { cn } from '@/lib/utils';
 
 type RoleGroupRate = {
@@ -88,7 +88,7 @@ export default function BranchRoleRatesPanel() {
       setLoading(true);
       setError(null);
       try {
-        const { data, error: rpcError } = await supabase.rpc('attendance_branch_role_group_rates_v1', {});
+        const { data, error: rpcError } = await cachedRpc<RoleGroupRate[]>('attendance_branch_role_group_rates_v1', {}, 60);
         if (rpcError) throw rpcError;
         if (!cancelled) setRows((data || []) as RoleGroupRate[]);
       } catch (e) {
