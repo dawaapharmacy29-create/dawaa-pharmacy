@@ -18,9 +18,9 @@ patch(
 );
 
 patch(
-  'render doctor cycle dashboard',
+  'render doctor cycle dashboard with queue navigation',
   `      <WhatsAppCustomerActionCenterV6 onOpenSource={(sourceId) => { setStatus('all'); setSelectedId(sourceId); }} />`,
-  `      <WhatsAppCustomerActionCenterV6 onOpenSource={(sourceId) => { setStatus('all'); setSelectedId(sourceId); }} />\n\n      <WhatsAppDoctorCycleIntelligenceV8 />`
+  `      <WhatsAppCustomerActionCenterV6 onOpenSource={(sourceId) => { setStatus('all'); setSelectedId(sourceId); }} />\n\n      <WhatsAppDoctorCycleIntelligenceV8 onOpenSource={(sourceId) => { setStatus('all'); setSelectedId(sourceId); }} />`
 );
 
 fs.writeFileSync(file, src);
