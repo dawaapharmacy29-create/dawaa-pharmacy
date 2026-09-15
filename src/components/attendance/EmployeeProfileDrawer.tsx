@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
-import { X, Calendar, TrendingUp, Clock3 } from 'lucide-react';
+import { X, Calendar, TrendingUp, Clock3, Download } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
+import { buildEmployeeAttendanceProfilePdf } from '@/lib/attendance/employeeProfilePdf';
+import { toast } from 'sonner';
 
 type Profile = {
   staff: { id: string; name: string; role: string | null; branch: string | null; active: boolean };
@@ -34,6 +36,7 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -53,12 +56,35 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
     return () => { cancelled = true; };
   }, [staffId]);
 
+  async function handleExport() {
+    if (!profile) return;
+    setExporting(true);
+    try {
+      const { pdf, fileName } = await buildEmployeeAttendanceProfilePdf({
+        staffName: profile.staff.name,
+        role: profile.staff.role,
+        branch: profile.staff.branch,
+        weeklySchedule: profile.weekly_schedule,
+        rates: profile.rates,
+        recentDays: profile.recent_days,
+      });
+      pdf.save(fileName);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'تعذر إنشاء ملف PDF');
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/40" onClick={onClose} dir="rtl">
       <div className="h-full w-full max-w-lg overflow-y-auto dawaa-surface p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-black text-[var(--dawaa-theme-heading)]">{loading ? 'جارٍ التحميل...' : profile?.staff.name || 'بروفايل الموظف'}</h2>
-          <button onClick={onClose} className="rounded-full p-1.5 hover:bg-[var(--dawaa-theme-surface-2)]"><X size={18} /></button>
+          <div className="flex items-center gap-1">
+            {profile && !loading && <button onClick={() => void handleExport()} disabled={exporting} className="btn-secondary px-2 py-1 text-xs"><Download size={14} className={exporting ? 'animate-pulse' : ''} /> {exporting ? 'جارٍ التصدير...' : 'PDF'}</button>}
+            <button onClick={onClose} className="rounded-full p-1.5 hover:bg-[var(--dawaa-theme-surface-2)]"><X size={18} /></button>
+          </div>
         </div>
 
         {error && <div className="rounded-xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-3 text-xs font-bold text-[var(--dawaa-status-danger-text)]">{error}</div>}
