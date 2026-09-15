@@ -84,7 +84,7 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
             <div className="mb-2 flex items-center gap-1.5 font-black text-[var(--dawaa-theme-heading)]"><Calendar size={16} /> الشيفت الأسبوعي</div>
             <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
               {profile.weekly_schedule.filter((s) => s.day_name).map((s, i) => <div key={i} className={cn('rounded-lg border p-2 text-center text-[11px] font-bold', s.is_off ? 'border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] text-[var(--dawaa-theme-muted)]' : 'border-[var(--dawaa-theme-border)] dawaa-surface-soft')}>
-                <div className="font-black text-[var(--dawaa-theme-heading)]">{s.day_name}</div>
+                <div className="font-black text-[var(--dawaa-theme-heading)]">{s.day_name}{s.shift_date && <span className="mr-1 font-bold text-[var(--dawaa-status-info-text)]">(استثناء {s.shift_date})</span>}</div>
                 <div>{s.is_off ? 'إجازة' : `${formatTime(s.shift_start)} ← ${formatTime(s.shift_end)}`}</div>
               </div>)}
               {!profile.weekly_schedule.length && <div className="col-span-full text-xs font-bold text-[var(--dawaa-theme-muted)]">لا يوجد جدول شيفت مسجل.</div>}
@@ -94,9 +94,10 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
           <section>
             <div className="mb-2 flex items-center gap-1.5 font-black text-[var(--dawaa-theme-heading)]"><Clock3 size={16} /> آخر الأيام</div>
             <div className="space-y-1.5">
-              {profile.recent_days.slice(0, 15).map((d) => <div key={d.attendance_date} className="flex items-center justify-between rounded-lg border border-[var(--dawaa-theme-border)] p-2 text-xs">
+              {profile.recent_days.slice(0, 15).map((d) => <div key={d.attendance_date} className="flex items-center justify-between gap-1 rounded-lg border border-[var(--dawaa-theme-border)] p-2 text-xs">
                 <span className="font-bold text-[var(--dawaa-theme-muted)]">{d.attendance_date}</span>
                 <span className="font-bold">{formatTime(d.first_in)} ← {formatTime(d.last_out)}</span>
+                <span className="font-black text-[var(--dawaa-theme-heading)]">{d.payroll_eligible_hours != null ? `${d.payroll_eligible_hours} س` : '-'}</span>
                 <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-black', d.resolution_status === 'late' || d.resolution_status === 'very_late' ? 'text-[var(--dawaa-status-warning-text)]' : d.resolution_status === 'absence_review' ? 'text-[var(--dawaa-status-danger-text)]' : 'text-[var(--dawaa-status-success-text)]')}>{STATUS_LABEL[d.resolution_status] || d.resolution_status}</span>
               </div>)}
               {!profile.recent_days.length && <div className="text-xs font-bold text-[var(--dawaa-theme-muted)]">لا توجد بيانات حضور مسجلة.</div>}
