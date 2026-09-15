@@ -9,6 +9,7 @@ import {
   type AttendanceImpactRow,
   type AttendanceResolutionRow,
 } from '@/lib/attendance/attendanceResolutionService';
+import EmployeeProfileDrawer from '@/components/attendance/EmployeeProfileDrawer';
 
 function cairoDate(offsetDays = 0) {
   const date = new Date();
@@ -72,6 +73,7 @@ export default function AttendanceResolutionCenter({ defaultBranch = 'الكل' 
   const [loading, setLoading] = useState(false);
   const [materializing, setMaterializing] = useState(false);
   const [selected, setSelected] = useState<AttendanceResolutionRow | null>(null);
+  const [profileStaffId, setProfileStaffId] = useState<string | null>(null);
   const [note, setNote] = useState('');
   const [hours, setHours] = useState('');
   const [approving, setApproving] = useState(false);
@@ -177,7 +179,7 @@ export default function AttendanceResolutionCenter({ defaultBranch = 'الكل' 
               const snapshot = row.resolution_snapshot || {};
               const staffName = String(snapshot.staff_name || row.staff_id);
               return <tr key={row.id} className="border-b border-[var(--dawaa-theme-border)]/60 last:border-0">
-                <td className="p-3"><div className="font-black text-[var(--dawaa-theme-heading)]">{staffName}</div><div className="text-xs text-[var(--dawaa-theme-muted)]">{row.branch || '-'}</div></td>
+                <td className="p-3"><button onClick={() => setProfileStaffId(row.staff_id)} className="text-right font-black text-[var(--dawaa-theme-heading)] hover:underline hover:text-[var(--dawaa-theme-primary-strong)]">{staffName}</button><div className="text-xs text-[var(--dawaa-theme-muted)]">{row.branch || '-'}</div></td>
                 <td className="p-3 font-bold">{row.attendance_date}</td>
                 <td className="p-3"><span className={`inline-flex rounded-full border px-2 py-1 text-xs font-black ${stateClass(row)}`}>{statusLabel(row.resolution_status)}</span></td>
                 <td className="p-3 text-xs"><div>{fmt(row.first_in)}</div><div>{fmt(row.last_out)}</div></td>
@@ -199,6 +201,7 @@ export default function AttendanceResolutionCenter({ defaultBranch = 'الكل' 
       </div>
 
       {selected && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"><div className="w-full max-w-lg rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-5 shadow-2xl"><h3 className="text-lg font-black text-[var(--dawaa-theme-heading)]">مراجعة تسوية {selected.attendance_date}</h3><p className="mt-1 text-sm font-bold text-[var(--dawaa-theme-muted)]">{statusLabel(selected.resolution_status)} — لا يتم الاعتماد بدون سبب محفوظ في الـAudit.</p><label className="mt-4 block text-xs font-black text-[var(--dawaa-theme-muted)]">ساعات الاستحقاق للراتب<input value={hours} onChange={(e) => setHours(e.target.value)} type="number" min="0" max="18" step="0.01" className="input-dark mt-1 w-full" /></label><label className="mt-3 block text-xs font-black text-[var(--dawaa-theme-muted)]">سبب القرار<textarea value={note} onChange={(e) => setNote(e.target.value)} className="input-dark mt-1 min-h-24 w-full" placeholder="مثال: تم التحقق من مدير الفرع ومن سجل البصمة..." /></label><div className="mt-4 flex gap-2"><button onClick={() => void approveSelected()} disabled={approving} className="btn-primary flex-1">اعتماد موثق</button><button onClick={() => { setSelected(null); setNote(''); setHours(''); }} className="btn-secondary">إلغاء</button></div></div></div>}
+      {profileStaffId && <EmployeeProfileDrawer staffId={profileStaffId} onClose={() => setProfileStaffId(null)} />}
     </div>
   );
 }
