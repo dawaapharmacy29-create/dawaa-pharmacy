@@ -78,6 +78,9 @@ export default function AttendanceResolutionCenter({ defaultBranch = 'الكل' 
   const [profileStaffId, setProfileStaffId] = useState<string | null>(null);
   const [pendingDeductions, setPendingDeductions] = useState<{ id: string; staff_id: string; employee_name: string; branch: string; month_cycle: string; points: number; amount: number; description: string; transaction_date: string }[]>([]);
   const [deductionBusy, setDeductionBusy] = useState<string | null>(null);
+  const [editingDeduction, setEditingDeduction] = useState<string | null>(null);
+  const [editPoints, setEditPoints] = useState('');
+  const [editReason, setEditReason] = useState('');
 
   const loadPendingDeductions = useCallback(async () => {
     const { data, error: rpcError } = await supabase.rpc('attendance_deduction_pending_review_v1');
@@ -100,6 +103,24 @@ export default function AttendanceResolutionCenter({ defaultBranch = 'الكل' 
       setDeductionBusy(null);
     }
   }
+  async function adjustDeduction(id: string, params: { newPoints?: number; multiplier?: number }) {
+    if (!editReason.trim()) { toast.warning('اكتب سبب التعديل'); return; }
+    setDeductionBusy(id);
+    try {
+      const { error: rpcError } = await supabase.rpc('attendance_deduction_adjust_v1', {
+        p_transaction_id: id, p_new_points: params.newPoints ?? null, p_multiplier: params.multiplier ?? null, p_reason: editReason.trim(),
+      });
+      if (rpcError) throw rpcError;
+      toast.success('تم تعديل قيمة الخصم');
+      setEditingDeduction(null); setEditPoints(''); setEditReason('');
+      await loadPendingDeductions();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'تعذر تعديل الخصم');
+    } finally {
+      setDeductionBusy(null);
+    }
+  }
+
   const [note, setNote] = useState('');
   const [hours, setHours] = useState('');
   const [approving, setApproving] = useState(false);
@@ -238,10 +259,23 @@ export default function AttendanceResolutionCenter({ defaultBranch = 'الكل' 
               </div>
               <div className="flex items-center gap-2">
                 <span className="rounded-full border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] px-2 py-1 text-xs font-black text-[var(--dawaa-status-danger-text)]">-{d.points} نقطة (-{d.amount} ج.م)</span>
+                <button disabled={deductionBusy===d.id} onClick={() => { setEditingDeduction(editingDeduction===d.id?null:d.id); setEditPoints(String(d.points)); }} className="btn-secondary px-2 py-1 text-xs">تعديل</button>
                 <button disabled={deductionBusy===d.id} onClick={() => void decideDeduction(d.id, 'approve')} className="btn-primary px-2 py-1 text-xs">اعتماد</button>
                 <button disabled={deductionBusy===d.id} onClick={() => void decideDeduction(d.id, 'reject')} className="btn-secondary px-2 py-1 text-xs">رفض</button>
               </div>
             </div>
+            {editingDeduction===d.id && <div className="mt-2 space-y-2 rounded-lg border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-2">
+              <div className="flex items-center gap-2">
+                <input type="number" min="0" step="0.5" value={editPoints} onChange={(e) => setEditPoints(e.target.value)} className="input-dark w-28 text-xs" placeholder="نقطة جديدة" />
+                <button disabled={deductionBusy===d.id} onClick={() => void adjustDeduction(d.id, { multiplier: 2 })} className="btn-secondary px-2 py-1 text-xs">×2 مضاعفة</button>
+                <button disabled={deductionBusy===d.id} onClick={() => void adjustDeduction(d.id, { multiplier: 0.5 })} className="btn-secondary px-2 py-1 text-xs">÷2 تخفيف</button>
+              </div>
+              <input value={editReason} onChange={(e) => setEditReason(e.target.value)} placeholder="سبب التعديل (إجباري)" className="input-dark w-full text-xs" />
+              <div className="flex gap-2">
+                <button disabled={deductionBusy===d.id || !editPoints} onClick={() => void adjustDeduction(d.id, { newPoints: Number(editPoints) })} className="btn-primary px-3 py-1 text-xs">حفظ القيمة الجديدة</button>
+                <button onClick={() => setEditingDeduction(null)} className="btn-secondary px-3 py-1 text-xs">إلغاء</button>
+              </div>
+            </div>}
             <p className="mt-2 text-[11px] font-bold text-[var(--dawaa-theme-muted)]">{d.description}</p>
           </div>)}
         </div>}

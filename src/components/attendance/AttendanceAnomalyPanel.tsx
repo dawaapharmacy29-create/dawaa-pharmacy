@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, Fingerprint, RefreshCw, ShieldAlert, Sparkles } from 'lucide-react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, Fingerprint, RefreshCw, ShieldAlert, Sparkles, PenLine } from 'lucide-react';
+import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
 
@@ -189,6 +190,10 @@ export default function AttendanceAnomalyPanel({ rows, date, branch }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>('all');
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [editingLog, setEditingLog] = useState<string | null>(null);
+  const [editType, setEditType] = useState<'check_in' | 'check_out' | 'duplicate' | 'ignore'>('check_in');
+  const [editReason, setEditReason] = useState('');
+  const [editBusy, setEditBusy] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -209,6 +214,24 @@ export default function AttendanceAnomalyPanel({ rows, date, branch }: Props) {
     const id = window.setInterval(() => void load(), 30_000);
     return () => window.clearInterval(id);
   }, [load]);
+
+  async function submitReinterpret(logId: string) {
+    if (!editReason.trim()) { toast.warning('اكتب سبب التعديل'); return; }
+    setEditBusy(true);
+    try {
+      const { error: rpcError } = await supabase.rpc('attendance_manual_reinterpret_punch_v1', {
+        p_biometric_log_id: logId, p_new_type: editType, p_reason: editReason.trim(),
+      });
+      if (rpcError) throw rpcError;
+      toast.success('تم تعديل تفسير البصمة');
+      setEditingLog(null); setEditReason('');
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'تعذر تعديل تفسير البصمة');
+    } finally {
+      setEditBusy(false);
+    }
+  }
 
   const map = useMemo(() => new Map(intel.map((x) => [x.staff_id, x])), [intel]);
   const anomalies = useMemo(() => rows.map((row) => analyze(row, map.get(row.staff_id))).filter(Boolean).sort((a, b) => (b!.score - a!.score)) as Anomaly[], [rows, map]);
@@ -262,7 +285,23 @@ export default function AttendanceAnomalyPanel({ rows, date, branch }: Props) {
           <div className="mt-2 flex flex-wrap gap-1.5">{a.reasons.slice(0, 2).map((reason) => <span key={reason} className="rounded-lg border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] px-2 py-1 text-[11px] font-bold">{reason}</span>)}</div>
           {open && <div className="mt-3 rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-3">
             <div className="space-y-1 text-xs font-bold text-[var(--dawaa-theme-text)]">{a.reasons.map((reason) => <div key={reason} className="flex gap-2"><AlertTriangle size={13} className="mt-0.5 shrink-0 text-[var(--dawaa-status-warning-text)]"/><span>{reason}</span></div>)}</div>
-            {!!a.item?.timeline?.length && <div className="mt-3 overflow-x-auto"><table className="min-w-full text-[11px]"><thead><tr className="text-right"><th className="p-2">الوقت</th><th className="p-2">نوع البصمة</th><th className="p-2">الجهاز</th><th className="p-2">التفسير</th><th className="p-2">القرار</th><th className="p-2">الثقة</th></tr></thead><tbody>{a.item.timeline.map((event) => { const duplicate = event.decision === 'duplicate' || Boolean(event.duplicate_of); const corrected = !duplicate && event.raw_type && event.semantic_type && event.raw_type !== event.semantic_type; return <tr key={event.id} className="border-t border-[var(--dawaa-theme-divider)]"><td className="p-2 font-black">{formatTime(event.time)}</td><td className="p-2">{typeLabel(duplicate ? event.raw_type : event.semantic_type || event.raw_type)}</td><td className="p-2 text-[var(--dawaa-theme-muted)]">{event.device_id || '-'}</td><td className="p-2 max-w-[220px] whitespace-normal text-[var(--dawaa-theme-muted)]">{reasonLabel(event.reason)}</td><td className="p-2">{duplicate ? 'تأكيد مكرر' : corrected ? 'تصحيح ذكي' : 'محتسبة'}</td><td className="p-2">{pct(event.confidence) == null ? '-' : `${pct(event.confidence)}%`}</td></tr>; })}</tbody></table></div>}
+            {!!a.item?.timeline?.length && <div className="mt-3 overflow-x-auto"><table className="min-w-full text-[11px]"><thead><tr className="text-right"><th className="p-2">الوقت</th><th className="p-2">نوع البصمة</th><th className="p-2">الجهاز</th><th className="p-2">التفسير</th><th className="p-2">القرار</th><th className="p-2">الثقة</th><th className="p-2"></th></tr></thead><tbody>{a.item.timeline.map((event) => { const duplicate = event.decision === 'duplicate' || Boolean(event.duplicate_of); const corrected = !duplicate && event.raw_type && event.semantic_type && event.raw_type !== event.semantic_type; return <Fragment key={event.id}>
+              <tr className="border-t border-[var(--dawaa-theme-divider)]"><td className="p-2 font-black">{formatTime(event.time)}</td><td className="p-2">{typeLabel(duplicate ? event.raw_type : event.semantic_type || event.raw_type)}</td><td className="p-2 text-[var(--dawaa-theme-muted)]">{event.device_id || '-'}</td><td className="p-2 max-w-[220px] whitespace-normal text-[var(--dawaa-theme-muted)]">{reasonLabel(event.reason)}</td><td className="p-2">{duplicate ? 'تأكيد مكرر' : corrected ? 'تصحيح ذكي' : 'محتسبة'}</td><td className="p-2">{pct(event.confidence) == null ? '-' : `${pct(event.confidence)}%`}</td>
+              <td className="p-2"><button onClick={() => { setEditingLog(editingLog===event.id?null:event.id); setEditType('check_in'); }} className="flex items-center gap-1 rounded-lg border border-[var(--dawaa-theme-border)] px-2 py-1 text-[10px] font-black text-[var(--dawaa-theme-primary-strong)] hover:bg-[var(--dawaa-theme-surface-2)]"><PenLine size={11} /> تعديل</button></td></tr>
+              {editingLog===event.id && <tr className="border-t border-[var(--dawaa-theme-divider)] bg-[var(--dawaa-theme-surface-2)]"><td colSpan={7} className="p-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <select value={editType} onChange={(e) => setEditType(e.target.value as typeof editType)} className="input-dark text-xs">
+                    <option value="check_in">اعتبارها دخول</option>
+                    <option value="check_out">اعتبارها خروج</option>
+                    <option value="duplicate">اعتبارها بصمة مكررة (تجاهل)</option>
+                    <option value="ignore">تجاهلها بالكامل</option>
+                  </select>
+                  <input value={editReason} onChange={(e) => setEditReason(e.target.value)} placeholder="سبب التعديل (إجباري)" className="input-dark min-w-[220px] flex-1 text-xs" />
+                  <button disabled={editBusy} onClick={() => void submitReinterpret(event.id)} className="btn-primary px-3 py-1 text-xs">{editBusy ? 'جارٍ الحفظ...' : 'حفظ'}</button>
+                  <button onClick={() => setEditingLog(null)} className="btn-secondary px-3 py-1 text-xs">إلغاء</button>
+                </div>
+              </td></tr>}
+            </Fragment>; })}</tbody></table></div>}
           </div>}
         </div>;
       })}

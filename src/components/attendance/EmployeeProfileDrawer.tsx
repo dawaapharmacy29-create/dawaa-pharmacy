@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { X, Calendar, TrendingUp, Clock3, Download, MapPin } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { X, Calendar, TrendingUp, Clock3, Download, MapPin, PenLine } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
 import { buildEmployeeAttendanceProfilePdf } from '@/lib/attendance/employeeProfilePdf';
@@ -38,24 +38,47 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [manualOpen, setManualOpen] = useState(false);
+  const [manualType, setManualType] = useState<'check_in' | 'check_out'>('check_in');
+  const [manualTime, setManualTime] = useState('');
+  const [manualReason, setManualReason] = useState('');
+  const [manualBusy, setManualBusy] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
+  const loadProfile = useCallback(async () => {
     setLoading(true);
     setError(null);
-    (async () => {
-      try {
-        const { data, error: rpcError } = await supabase.rpc('attendance_employee_profile_v1', { p_staff_id: staffId, p_days: 30 });
-        if (rpcError) throw rpcError;
-        if (!cancelled) setProfile(data as Profile);
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : 'تعذر تحميل بيانات الموظف');
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
+    try {
+      const { data, error: rpcError } = await supabase.rpc('attendance_employee_profile_v1', { p_staff_id: staffId, p_days: 30 });
+      if (rpcError) throw rpcError;
+      setProfile(data as Profile);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'تعذر تحميل بيانات الموظف');
+    } finally {
+      setLoading(false);
+    }
   }, [staffId]);
+
+  useEffect(() => { void loadProfile(); }, [loadProfile]);
+
+  async function submitManualPunch() {
+    if (!manualTime) { toast.warning('اختر وقت البصمة'); return; }
+    if (!manualReason.trim()) { toast.warning('اكتب سبب التسجيل اليدوي'); return; }
+    setManualBusy(true);
+    try {
+      const { error: rpcError } = await supabase.rpc('attendance_manual_punch_entry_v1', {
+        p_staff_id: staffId, p_attendance_type: manualType,
+        p_recorded_at: new Date(manualTime).toISOString(), p_reason: manualReason.trim(),
+      });
+      if (rpcError) throw rpcError;
+      toast.success('تم تسجيل البصمة اليدوية بنجاح');
+      setManualOpen(false); setManualTime(''); setManualReason('');
+      await loadProfile();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'تعذر تسجيل البصمة اليدوية');
+    } finally {
+      setManualBusy(false);
+    }
+  }
 
   async function handleExport() {
     if (!profile) return;
@@ -92,11 +115,27 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
         {loading && <div className="space-y-3">{[0, 1, 2].map((i) => <div key={i} className="h-16 animate-pulse rounded-xl bg-[var(--dawaa-theme-surface-2)]" />)}</div>}
 
         {profile && !loading && <div className="space-y-5">
-          <div className="flex flex-wrap gap-2 text-xs font-bold text-[var(--dawaa-theme-muted)]">
+          <div className="flex flex-wrap items-center gap-2 text-xs font-bold text-[var(--dawaa-theme-muted)]">
             <span className="rounded-full border border-[var(--dawaa-theme-border)] px-2 py-1">{profile.staff.role || '-'}</span>
             <span className="rounded-full border border-[var(--dawaa-theme-border)] px-2 py-1">{profile.staff.branch || '-'}</span>
             {!profile.staff.active && <span className="rounded-full border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] px-2 py-1 text-[var(--dawaa-status-danger-text)]">غير نشط</span>}
+            <button onClick={() => setManualOpen((v) => !v)} className="mr-auto flex items-center gap-1 rounded-full border border-[var(--dawaa-theme-border)] px-2 py-1 text-[var(--dawaa-theme-primary-strong)] hover:bg-[var(--dawaa-theme-surface-2)]"><PenLine size={12} /> تسجيل بصمة يدوية</button>
           </div>
+
+          {manualOpen && <div className="rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-3 space-y-2">
+            <div className="flex gap-2">
+              <select value={manualType} onChange={(e) => setManualType(e.target.value as 'check_in' | 'check_out')} className="input-dark flex-1 text-xs">
+                <option value="check_in">دخول</option>
+                <option value="check_out">خروج</option>
+              </select>
+              <input type="datetime-local" value={manualTime} onChange={(e) => setManualTime(e.target.value)} className="input-dark flex-1 text-xs" />
+            </div>
+            <textarea value={manualReason} onChange={(e) => setManualReason(e.target.value)} placeholder="سبب التسجيل اليدوي (إجباري — يظهر في سجل التدقيق)" className="input-dark w-full min-h-16 text-xs" />
+            <div className="flex gap-2">
+              <button disabled={manualBusy} onClick={() => void submitManualPunch()} className="btn-primary flex-1 text-xs">{manualBusy ? 'جارٍ التسجيل...' : 'تسجيل'}</button>
+              <button onClick={() => setManualOpen(false)} className="btn-secondary text-xs">إلغاء</button>
+            </div>
+          </div>}
 
           <section>
             <div className="mb-2 flex items-center gap-1.5 font-black text-[var(--dawaa-theme-heading)]"><TrendingUp size={16} /> معدلات آخر 30 يوم</div>
