@@ -72,6 +72,111 @@ create index if not exists whatsapp_review_sources_invoice_idx on public.whatsap
 
 alter table public.whatsapp_review_sources enable row level security;
 
+-- Same business scope as conversation reviews, with Dawaa Alpha intentionally cross-branch.
+-- The app currently supports authenticated and staff-header identities, so policies use the
+-- existing strict actor helpers rather than auth.uid() alone.
+drop policy if exists whatsapp_review_sources_select_v1 on public.whatsapp_review_sources;
+create policy whatsapp_review_sources_select_v1
+on public.whatsapp_review_sources
+for select
+to public
+using (
+  public.dawaa_current_actor_can(array['view_reviews','view_conversation_reviews','manage_conversation_evaluations'])
+  and (
+    public.dawaa_actor_is_top_management_v1()
+    or exists (
+      select 1
+      from public.staff_accounts me
+      where me.id = public.dawaa_current_staff_account_id_strict()
+        and coalesce(me.active,false)
+        and coalesce(me.can_login,false)
+        and (
+          lower(trim(coalesce(me.role,''))) in ('team_dawaa_alpha','customer_service_manager')
+          or me.staff_id = whatsapp_review_sources.staff_id::text
+          or (
+            lower(trim(coalesce(me.role,''))) in ('branch_manager','customer_service','shift_supervisor_morning','shift_supervisor_evening')
+            and public.dawaa_customer_request_branch_key(me.branch) is not null
+            and public.dawaa_customer_request_branch_key(me.branch) = public.dawaa_customer_request_branch_key(whatsapp_review_sources.branch)
+          )
+        )
+    )
+  )
+);
+
+drop policy if exists whatsapp_review_sources_insert_v1 on public.whatsapp_review_sources;
+create policy whatsapp_review_sources_insert_v1
+on public.whatsapp_review_sources
+for insert
+to public
+with check (
+  public.dawaa_current_actor_can(array['add_reviews','reviews.action.create','manage_conversation_evaluations'])
+  and (
+    public.dawaa_actor_is_top_management_v1()
+    or exists (
+      select 1
+      from public.staff_accounts me
+      where me.id = public.dawaa_current_staff_account_id_strict()
+        and coalesce(me.active,false)
+        and coalesce(me.can_login,false)
+        and (
+          lower(trim(coalesce(me.role,''))) in ('team_dawaa_alpha','customer_service_manager')
+          or (
+            whatsapp_review_sources.branch is not null
+            and public.dawaa_customer_request_branch_key(me.branch) = public.dawaa_customer_request_branch_key(whatsapp_review_sources.branch)
+          )
+        )
+    )
+  )
+);
+
+drop policy if exists whatsapp_review_sources_update_v1 on public.whatsapp_review_sources;
+create policy whatsapp_review_sources_update_v1
+on public.whatsapp_review_sources
+for update
+to public
+using (
+  public.dawaa_current_actor_can(array['edit_reviews','approve_reviews','manage_conversation_evaluations'])
+  and (
+    public.dawaa_actor_is_top_management_v1()
+    or exists (
+      select 1
+      from public.staff_accounts me
+      where me.id = public.dawaa_current_staff_account_id_strict()
+        and coalesce(me.active,false)
+        and coalesce(me.can_login,false)
+        and (
+          lower(trim(coalesce(me.role,''))) in ('team_dawaa_alpha','customer_service_manager')
+          or me.staff_id = whatsapp_review_sources.staff_id::text
+          or (
+            lower(trim(coalesce(me.role,''))) in ('branch_manager','customer_service','shift_supervisor_morning','shift_supervisor_evening')
+            and public.dawaa_customer_request_branch_key(me.branch) = public.dawaa_customer_request_branch_key(whatsapp_review_sources.branch)
+          )
+        )
+    )
+  )
+)
+with check (
+  public.dawaa_current_actor_can(array['edit_reviews','approve_reviews','manage_conversation_evaluations'])
+  and (
+    public.dawaa_actor_is_top_management_v1()
+    or exists (
+      select 1
+      from public.staff_accounts me
+      where me.id = public.dawaa_current_staff_account_id_strict()
+        and coalesce(me.active,false)
+        and coalesce(me.can_login,false)
+        and (
+          lower(trim(coalesce(me.role,''))) in ('team_dawaa_alpha','customer_service_manager')
+          or me.staff_id = whatsapp_review_sources.staff_id::text
+          or (
+            lower(trim(coalesce(me.role,''))) in ('branch_manager','customer_service','shift_supervisor_morning','shift_supervisor_evening')
+            and public.dawaa_customer_request_branch_key(me.branch) = public.dawaa_customer_request_branch_key(whatsapp_review_sources.branch)
+          )
+        )
+    )
+  )
+);
+
 create table if not exists public.whatsapp_review_audit (
   id uuid primary key default gen_random_uuid(),
   source_id uuid not null references public.whatsapp_review_sources(id) on delete cascade,
@@ -87,8 +192,36 @@ create table if not exists public.whatsapp_review_audit (
 create index if not exists whatsapp_review_audit_source_idx on public.whatsapp_review_audit(source_id, created_at desc);
 alter table public.whatsapp_review_audit enable row level security;
 
+-- Audit is append-only from the client: no UPDATE/DELETE policy by design.
+drop policy if exists whatsapp_review_audit_select_v1 on public.whatsapp_review_audit;
+create policy whatsapp_review_audit_select_v1
+on public.whatsapp_review_audit
+for select
+to public
+using (
+  exists (
+    select 1 from public.whatsapp_review_sources s
+    where s.id = whatsapp_review_audit.source_id
+  )
+);
+
+drop policy if exists whatsapp_review_audit_insert_v1 on public.whatsapp_review_audit;
+create policy whatsapp_review_audit_insert_v1
+on public.whatsapp_review_audit
+for insert
+to public
+with check (
+  public.dawaa_current_actor_can(array['add_reviews','edit_reviews','approve_reviews','manage_conversation_evaluations'])
+  and exists (
+    select 1 from public.whatsapp_review_sources s
+    where s.id = whatsapp_review_audit.source_id
+  )
+);
+
 -- Reviewer-confirmed conversion truth only. Chat text never becomes an official sale by itself.
-create or replace view public.whatsapp_review_confirmed_conversion_v1 as
+create or replace view public.whatsapp_review_confirmed_conversion_v1
+with (security_invoker = true)
+as
 select
   id,
   coalesce(nullif(trim(branch), ''), 'غير محدد') as branch,
@@ -116,7 +249,9 @@ where reviewer_confirmed = true
   and review_status = 'approved'
   and conversation_started_at is not null;
 
-create or replace view public.whatsapp_review_queue_kpis_v1 as
+create or replace view public.whatsapp_review_queue_kpis_v1
+with (security_invoker = true)
+as
 select
   coalesce(nullif(trim(branch), ''), 'غير محدد') as branch,
   count(*)::integer as total,
@@ -131,7 +266,9 @@ select
 from public.whatsapp_review_sources
 group by coalesce(nullif(trim(branch), ''), 'غير محدد');
 
-create or replace view public.whatsapp_review_verified_revenue_v1 as
+create or replace view public.whatsapp_review_verified_revenue_v1
+with (security_invoker = true)
+as
 select
   cycle_start,
   branch,
@@ -143,8 +280,14 @@ select
 from public.whatsapp_review_confirmed_conversion_v1
 group by cycle_start, branch, staff_id, staff_name;
 
+grant select, insert, update on public.whatsapp_review_sources to anon, authenticated;
+grant select, insert on public.whatsapp_review_audit to anon, authenticated;
+grant select on public.whatsapp_review_confirmed_conversion_v1 to anon, authenticated;
+grant select on public.whatsapp_review_queue_kpis_v1 to anon, authenticated;
+grant select on public.whatsapp_review_verified_revenue_v1 to anon, authenticated;
+
 comment on table public.whatsapp_review_sources is 'Unified WhatsApp export/session review queue. AI output is evidence only; official review and points require reviewer confirmation.';
-comment on table public.whatsapp_review_audit is 'Immutable audit trail for AI analysis, invoice matching, reviewer edits and approvals.';
+comment on table public.whatsapp_review_audit is 'Append-only audit trail for AI analysis, invoice matching, reviewer edits and approvals.';
 comment on view public.whatsapp_review_confirmed_conversion_v1 is 'Reviewer-confirmed, sales-eligible WhatsApp sessions using the pharmacy 26-to-25 cycle.';
 comment on view public.whatsapp_review_queue_kpis_v1 is 'Live operational queue KPIs by branch.';
 comment on view public.whatsapp_review_verified_revenue_v1 is 'Invoice-backed revenue only from reviewer-confirmed sessions.';
