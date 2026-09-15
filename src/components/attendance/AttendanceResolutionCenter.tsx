@@ -11,6 +11,7 @@ import {
   type AttendanceResolutionRow,
 } from '@/lib/attendance/attendanceResolutionService';
 import EmployeeProfileDrawer from '@/components/attendance/EmployeeProfileDrawer';
+import { invalidateCachedRpc } from '@/lib/attendance/cachedRpc';
 
 function cairoDate(offsetDays = 0) {
   const date = new Date();
@@ -91,6 +92,7 @@ export default function AttendanceResolutionCenter({ defaultBranch = 'الكل' 
       const { error: rpcError } = await supabase.rpc('attendance_deduction_review_decide_v1', { p_transaction_id: id, p_decision: decision });
       if (rpcError) throw rpcError;
       toast.success(decision === 'approve' ? 'تم اعتماد الخصم — أثر الآن على رصيد الموظف' : 'تم رفض الخصم');
+      invalidateCachedRpc('attendance_branch_role_group_rates_v1');
       await loadPendingDeductions();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'تعذر تنفيذ القرار');
@@ -161,6 +163,7 @@ export default function AttendanceResolutionCenter({ defaultBranch = 'الكل' 
         note: note.trim(),
       });
       toast.success('تم اعتماد التسوية مع حفظ السبب وسجل المراجعة.');
+      invalidateCachedRpc('attendance_branch_role_group_rates_v1');
       setSelected(null); setNote(''); setHours('');
       await load();
     } catch (error) {
