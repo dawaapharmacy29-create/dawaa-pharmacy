@@ -104,3 +104,4 @@ require('./patch-whatsapp-sidebar-v4.cjs');
 require('./patch-whatsapp-queue-invoice-v4.cjs');
 require('./patch-whatsapp-official-review-bridge-v4.cjs');
 require('./patch-whatsapp-bridge-cleanup-v4.cjs');
+require('./patch-whatsapp-analysis-quality-v5.cjs');
