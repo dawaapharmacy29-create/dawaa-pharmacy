@@ -86,7 +86,22 @@ function formatTime(value?: string | null) {
 function typeLabel(value?: string | null) {
   if (value === 'check_in' || value === 'in') return 'دخول';
   if (value === 'check_out' || value === 'out') return 'خروج';
-  return value || '-';
+  if (value === 'unknown' || !value) return 'غير محدد';
+  return value;
+}
+
+const REASON_LABELS: Record<string, string> = {
+  no_matching_schedule_fallback_to_raw: 'البصمة خارج نطاق أي شيفت مجدول لهذا اليوم — لم يقدر النظام يربطها بدخول أو خروج',
+  duplicate_confirmation_window: 'بصمة تأكيد متقاربة جدًا من بصمة سابقة (خلال دقيقتين تقريبًا)',
+  matched_shift_start_window: 'قريبة من وقت بداية الشيفت المجدول',
+  matched_shift_end_window: 'قريبة من وقت نهاية الشيفت المجدول',
+  overnight_shift_previous_day: 'بصمة بعد منتصف الليل تخص شيفت اليوم السابق (شيفت ليلي)',
+  low_confidence_ambiguous_position: 'موقع البصمة الزمني غامض ومش قريب بوضوح من بداية أو نهاية الشيفت',
+};
+
+function reasonLabel(value?: string | null) {
+  if (!value) return 'بدون سبب مسجل';
+  return REASON_LABELS[value] || value;
 }
 
 function severityMeta(severity: Severity) {
@@ -247,7 +262,7 @@ export default function AttendanceAnomalyPanel({ rows, date, branch }: Props) {
           <div className="mt-2 flex flex-wrap gap-1.5">{a.reasons.slice(0, 2).map((reason) => <span key={reason} className="rounded-lg border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] px-2 py-1 text-[11px] font-bold">{reason}</span>)}</div>
           {open && <div className="mt-3 rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-3">
             <div className="space-y-1 text-xs font-bold text-[var(--dawaa-theme-text)]">{a.reasons.map((reason) => <div key={reason} className="flex gap-2"><AlertTriangle size={13} className="mt-0.5 shrink-0 text-[var(--dawaa-status-warning-text)]"/><span>{reason}</span></div>)}</div>
-            {!!a.item?.timeline?.length && <div className="mt-3 overflow-x-auto"><table className="min-w-full text-[11px]"><thead><tr className="text-right"><th className="p-2">الوقت</th><th className="p-2">الجهاز</th><th className="p-2">التفسير</th><th className="p-2">القرار</th><th className="p-2">الثقة</th></tr></thead><tbody>{a.item.timeline.map((event) => { const duplicate = event.decision === 'duplicate' || Boolean(event.duplicate_of); const corrected = !duplicate && event.raw_type && event.semantic_type && event.raw_type !== event.semantic_type; return <tr key={event.id} className="border-t border-[var(--dawaa-theme-divider)]"><td className="p-2 font-black">{formatTime(event.time)}</td><td className="p-2">{typeLabel(event.raw_type)}</td><td className="p-2 font-black">{duplicate ? 'غير محتسبة' : typeLabel(event.semantic_type)}</td><td className="p-2">{duplicate ? 'تأكيد مكرر' : corrected ? 'تصحيح ذكي' : 'محتسبة'}</td><td className="p-2">{pct(event.confidence) == null ? '-' : `${pct(event.confidence)}%`}</td></tr>; })}</tbody></table></div>}
+            {!!a.item?.timeline?.length && <div className="mt-3 overflow-x-auto"><table className="min-w-full text-[11px]"><thead><tr className="text-right"><th className="p-2">الوقت</th><th className="p-2">نوع البصمة</th><th className="p-2">الجهاز</th><th className="p-2">التفسير</th><th className="p-2">القرار</th><th className="p-2">الثقة</th></tr></thead><tbody>{a.item.timeline.map((event) => { const duplicate = event.decision === 'duplicate' || Boolean(event.duplicate_of); const corrected = !duplicate && event.raw_type && event.semantic_type && event.raw_type !== event.semantic_type; return <tr key={event.id} className="border-t border-[var(--dawaa-theme-divider)]"><td className="p-2 font-black">{formatTime(event.time)}</td><td className="p-2">{typeLabel(duplicate ? event.raw_type : event.semantic_type || event.raw_type)}</td><td className="p-2 text-[var(--dawaa-theme-muted)]">{event.device_id || '-'}</td><td className="p-2 max-w-[220px] whitespace-normal text-[var(--dawaa-theme-muted)]">{reasonLabel(event.reason)}</td><td className="p-2">{duplicate ? 'تأكيد مكرر' : corrected ? 'تصحيح ذكي' : 'محتسبة'}</td><td className="p-2">{pct(event.confidence) == null ? '-' : `${pct(event.confidence)}%`}</td></tr>; })}</tbody></table></div>}
           </div>}
         </div>;
       })}
