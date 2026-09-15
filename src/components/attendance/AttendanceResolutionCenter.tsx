@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Clock3, RefreshCw, Scale, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
+import { supabase } from '@/lib/supabase';
 import {
   approveAttendanceResolution,
   listAttendanceImpactLedger,
@@ -74,6 +75,29 @@ export default function AttendanceResolutionCenter({ defaultBranch = 'الكل' 
   const [materializing, setMaterializing] = useState(false);
   const [selected, setSelected] = useState<AttendanceResolutionRow | null>(null);
   const [profileStaffId, setProfileStaffId] = useState<string | null>(null);
+  const [pendingDeductions, setPendingDeductions] = useState<{ id: string; staff_id: string; employee_name: string; branch: string; month_cycle: string; points: number; amount: number; description: string; transaction_date: string }[]>([]);
+  const [deductionBusy, setDeductionBusy] = useState<string | null>(null);
+
+  const loadPendingDeductions = useCallback(async () => {
+    const { data, error: rpcError } = await supabase.rpc('attendance_deduction_pending_review_v1');
+    if (!rpcError) setPendingDeductions((data || []) as typeof pendingDeductions);
+  }, []);
+
+  useEffect(() => { void loadPendingDeductions(); }, [loadPendingDeductions]);
+
+  async function decideDeduction(id: string, decision: 'approve' | 'reject') {
+    setDeductionBusy(id);
+    try {
+      const { error: rpcError } = await supabase.rpc('attendance_deduction_review_decide_v1', { p_transaction_id: id, p_decision: decision });
+      if (rpcError) throw rpcError;
+      toast.success(decision === 'approve' ? 'تم اعتماد الخصم — أثر الآن على رصيد الموظف' : 'تم رفض الخصم');
+      await loadPendingDeductions();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'تعذر تنفيذ القرار');
+    } finally {
+      setDeductionBusy(null);
+    }
+  }
   const [note, setNote] = useState('');
   const [hours, setHours] = useState('');
   const [approving, setApproving] = useState(false);
@@ -192,6 +216,32 @@ export default function AttendanceResolutionCenter({ defaultBranch = 'الكل' 
             {!rows.length && !loading && <tr><td colSpan={8} className="p-8 text-center font-bold text-[var(--dawaa-theme-muted)]">لا توجد تسويات مادية في الفترة الحالية. الحالات غير المكتملة بسبب المزامنة لا تتحول إلى خصم أو غياب نهائي.</td></tr>}
           </tbody>
         </table>
+      </div>
+
+      <div className="rounded-2xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-4 shadow-sm">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div>
+            <h3 className="font-black text-[var(--dawaa-status-warning-text)]">خصومات حضور بانتظار اعتمادك</h3>
+            <p className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">محسوبة تلقائيًا من الأيام المعتمدة فقط، لكن لا تؤثر على رصيد أي موظف إلا بعد اعتمادك الصريح هنا.</p>
+          </div>
+          <span className="rounded-full border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-theme-surface)] px-3 py-1 text-xs font-black text-[var(--dawaa-status-warning-text)]">{pendingDeductions.length.toLocaleString('ar-EG')} بانتظار القرار</span>
+        </div>
+        {!pendingDeductions.length ? <div className="text-sm font-bold text-[var(--dawaa-theme-muted)]">لا توجد خصومات معلّقة حاليًا.</div> : <div className="space-y-2">
+          {pendingDeductions.map((d) => <div key={d.id} className="rounded-xl border border-[var(--dawaa-theme-border)] dawaa-surface p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <button onClick={() => setProfileStaffId(d.staff_id)} className="font-black text-[var(--dawaa-theme-heading)] hover:underline">{d.employee_name}</button>
+                <span className="mr-2 text-xs font-bold text-[var(--dawaa-theme-muted)]">{d.branch}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="rounded-full border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] px-2 py-1 text-xs font-black text-[var(--dawaa-status-danger-text)]">-{d.points} نقطة (-{d.amount} ج.م)</span>
+                <button disabled={deductionBusy===d.id} onClick={() => void decideDeduction(d.id, 'approve')} className="btn-primary px-2 py-1 text-xs">اعتماد</button>
+                <button disabled={deductionBusy===d.id} onClick={() => void decideDeduction(d.id, 'reject')} className="btn-secondary px-2 py-1 text-xs">رفض</button>
+              </div>
+            </div>
+            <p className="mt-2 text-[11px] font-bold text-[var(--dawaa-theme-muted)]">{d.description}</p>
+          </div>)}
+        </div>}
       </div>
 
       <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm">
