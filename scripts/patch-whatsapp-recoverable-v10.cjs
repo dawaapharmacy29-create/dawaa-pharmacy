@@ -25,3 +25,4 @@ patch(
 
 fs.writeFileSync(file, src);
 console.log('[whatsapp-recoverable-v10] recoverable opportunities wired successfully');
+require('./patch-whatsapp-recovery-work-queue-v11.cjs');
