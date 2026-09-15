@@ -113,4 +113,5 @@ require('./patch-whatsapp-action-center-v6.cjs');
 require('./patch-whatsapp-doctor-cycle-v8.cjs');
 require('./patch-whatsapp-conversion-funnel-v9.cjs');
 require('./patch-whatsapp-funnel-comparison-v9.cjs');
+require('./patch-whatsapp-leakage-reasons-v10.cjs');
 require('./patch-whatsapp-invoice-reconciliation-v6.cjs');
