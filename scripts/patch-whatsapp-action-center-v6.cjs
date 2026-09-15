@@ -25,3 +25,4 @@ patch(
 
 fs.writeFileSync(file, src);
 console.log('[whatsapp-action-center-v6] customer service action center wired successfully');
+require('./patch-whatsapp-contact-recommendation-v6.cjs');
