@@ -12,3 +12,5 @@ else {
   fs.writeFileSync(file, src);
   console.log('[whatsapp-invoice-reconciliation-v6] post-import WhatsApp reconciliation applied');
 }
+
+require('./patch-whatsapp-action-center-v6.cjs');
