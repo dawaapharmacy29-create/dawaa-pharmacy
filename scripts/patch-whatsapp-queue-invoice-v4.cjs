@@ -38,8 +38,8 @@ const action = `\n              <div className="mt-4 flex flex-wrap items-center
 
 patch(
   'invoice action under metrics',
-  `              <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-5"><Metric label="ثقة التحليل" value={\`${Math.round(Number(selected.analysis_confidence || 0))}%\`} tone="text-cyan-300"/><Metric label="الخدمة" value={\`${Math.round(Number(selected.service_score || 0))}%\`} tone="text-sky-300"/><Metric label="البيع" value={\`${Math.round(Number(selected.commercial_score || 0))}%\`} tone="text-violet-300"/><Metric label="الفاتورة" value={invoiceLabel[selected.invoice_match_status || 'pending'] || '—'} tone={selected.invoice_match_status === 'verified' ? 'text-emerald-300' : 'text-amber-300'}/><Metric label="قيمة الفاتورة" value={selected.matched_invoice_value ? \`${Number(selected.matched_invoice_value).toFixed(2)} ج\` : '—'} tone="text-emerald-300"/></div>`,
-  `              <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-5"><Metric label="ثقة التحليل" value={\`${Math.round(Number(selected.analysis_confidence || 0))}%\`} tone="text-cyan-300"/><Metric label="الخدمة" value={\`${Math.round(Number(selected.service_score || 0))}%\`} tone="text-sky-300"/><Metric label="البيع" value={\`${Math.round(Number(selected.commercial_score || 0))}%\`} tone="text-violet-300"/><Metric label="الفاتورة" value={invoiceLabel[selected.invoice_match_status || 'pending'] || '—'} tone={selected.invoice_match_status === 'verified' ? 'text-emerald-300' : 'text-amber-300'}/><Metric label="قيمة الفاتورة" value={selected.matched_invoice_value ? \`${Number(selected.matched_invoice_value).toFixed(2)} ج\` : '—'} tone="text-emerald-300"/></div>` + action
+  `            </section>\n\n            <section className="dawaa-card dawaa-card--soft p-4"><div className="font-black text-white">ملخص القرار</div>`,
+  action + `            </section>\n\n            <section className="dawaa-card dawaa-card--soft p-4"><div className="font-black text-white">ملخص القرار</div>`
 );
 
 fs.writeFileSync(file, src);
