@@ -97,6 +97,7 @@ require('./patch-whatsapp-review-queue-v4.cjs');
 require('./patch-whatsapp-customer-resolver-v4.cjs');
 require('./patch-whatsapp-auto-queue-v4.cjs');
 require('./patch-whatsapp-auto-invoice-v4.cjs');
+require('./patch-whatsapp-local-inbox-batch-v4.cjs');
 require('./patch-whatsapp-queue-invoice-v4.cjs');
 require('./patch-whatsapp-official-review-bridge-v4.cjs');
 require('./patch-whatsapp-bridge-cleanup-v4.cjs');
