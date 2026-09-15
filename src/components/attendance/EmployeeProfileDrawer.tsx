@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { X, Calendar, TrendingUp, Clock3, Download } from 'lucide-react';
+import { X, Calendar, TrendingUp, Clock3, Download, MapPin } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
 import { buildEmployeeAttendanceProfilePdf } from '@/lib/attendance/employeeProfilePdf';
@@ -16,6 +16,7 @@ type Profile = {
   recent_days: {
     attendance_date: string; status: string; resolution_status: string; first_in: string | null;
     last_out: string | null; late_minutes: number; early_leave_minutes: number; payroll_eligible_hours: number | null;
+    scheduled_branch: string | null; punch_branches: string[]; branch_mismatch: boolean;
   }[];
 };
 
@@ -120,11 +121,18 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
           <section>
             <div className="mb-2 flex items-center gap-1.5 font-black text-[var(--dawaa-theme-heading)]"><Clock3 size={16} /> آخر الأيام</div>
             <div className="space-y-1.5">
-              {profile.recent_days.slice(0, 15).map((d) => <div key={d.attendance_date} className="flex items-center justify-between gap-1 rounded-lg border border-[var(--dawaa-theme-border)] p-2 text-xs">
-                <span className="font-bold text-[var(--dawaa-theme-muted)]">{d.attendance_date}</span>
-                <span className="font-bold">{formatTime(d.first_in)} ← {formatTime(d.last_out)}</span>
-                <span className="font-black text-[var(--dawaa-theme-heading)]">{d.payroll_eligible_hours != null ? `${d.payroll_eligible_hours} س` : '-'}</span>
-                <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-black', d.resolution_status === 'late' || d.resolution_status === 'very_late' ? 'text-[var(--dawaa-status-warning-text)]' : d.resolution_status === 'absence_review' ? 'text-[var(--dawaa-status-danger-text)]' : 'text-[var(--dawaa-status-success-text)]')}>{STATUS_LABEL[d.resolution_status] || d.resolution_status}</span>
+              {profile.recent_days.slice(0, 15).map((d) => <div key={d.attendance_date} className={cn('rounded-lg border p-2 text-xs', d.branch_mismatch ? 'border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)]' : 'border-[var(--dawaa-theme-border)]')}>
+                <div className="flex items-center justify-between gap-1">
+                  <span className="font-bold text-[var(--dawaa-theme-muted)]">{d.attendance_date}</span>
+                  <span className="font-bold">{formatTime(d.first_in)} ← {formatTime(d.last_out)}</span>
+                  <span className="font-black text-[var(--dawaa-theme-heading)]">{d.payroll_eligible_hours != null ? `${d.payroll_eligible_hours} س` : '-'}</span>
+                  <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-black', d.resolution_status === 'late' || d.resolution_status === 'very_late' ? 'text-[var(--dawaa-status-warning-text)]' : d.resolution_status === 'absence_review' ? 'text-[var(--dawaa-status-danger-text)]' : 'text-[var(--dawaa-status-success-text)]')}>{STATUS_LABEL[d.resolution_status] || d.resolution_status}</span>
+                </div>
+                {!!d.punch_branches.length && <div className="mt-1 flex items-center gap-1 text-[10px] font-bold">
+                  <MapPin size={11} className={d.branch_mismatch ? 'text-[var(--dawaa-status-danger-text)]' : 'text-[var(--dawaa-theme-muted)]'} />
+                  <span className={d.branch_mismatch ? 'text-[var(--dawaa-status-danger-text)]' : 'text-[var(--dawaa-theme-muted)]'}>بصم فعليًا في: {d.punch_branches.join('، ')}</span>
+                  {d.branch_mismatch && <span className="rounded-full bg-[var(--dawaa-status-danger-text)] px-1.5 py-0.5 text-white">مختلف عن الفرع المجدول ({d.scheduled_branch})</span>}
+                </div>}
               </div>)}
               {!profile.recent_days.length && <div className="text-xs font-bold text-[var(--dawaa-theme-muted)]">لا توجد بيانات حضور مسجلة.</div>}
             </div>
