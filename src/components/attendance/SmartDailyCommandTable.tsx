@@ -1,8 +1,24 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, Fingerprint, RefreshCw, Sparkles } from 'lucide-react';
+import { AlertTriangle, Bike, CheckCircle2, ChevronDown, ChevronUp, Fingerprint, LayoutGrid, RefreshCw, Sparkles, Stethoscope, Users2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
 import AttendanceAnomalyPanel from '@/components/attendance/AttendanceAnomalyPanel';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+
+type RoleGroup = 'الكل' | 'دكاترة وصيادلة' | 'دليفري' | 'باقي الفريق';
+
+function roleGroupOf(role: string | null): Exclude<RoleGroup, 'الكل'> {
+  if (role === 'توصيل') return 'دليفري';
+  if (role === 'صيدلاني' || role === 'pharmacist') return 'دكاترة وصيادلة';
+  return 'باقي الفريق';
+}
+
+const ROLE_GROUP_ICON: Record<RoleGroup, typeof Bike> = {
+  'الكل': LayoutGrid,
+  'دكاترة وصيادلة': Stethoscope,
+  'دليفري': Bike,
+  'باقي الفريق': Users2,
+};
 
 type DailyCommandRow = {
   staff_id: string;
@@ -125,6 +141,18 @@ export default function SmartDailyCommandTable({ rows, date, branch }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [activeGroup, setActiveGroup] = useState<RoleGroup>('الكل');
+
+  const groupCounts = useMemo(() => {
+    const counts: Record<RoleGroup, number> = { 'الكل': rows.length, 'دكاترة وصيادلة': 0, 'دليفري': 0, 'باقي الفريق': 0 };
+    for (const row of rows) counts[roleGroupOf(row.role)] += 1;
+    return counts;
+  }, [rows]);
+
+  const visibleRows = useMemo(() => {
+    if (activeGroup === 'الكل') return rows;
+    return rows.filter((row) => roleGroupOf(row.role) === activeGroup);
+  }, [rows, activeGroup]);
 
   const loadIntel = useCallback(async () => {
     setLoading(true);
@@ -176,10 +204,21 @@ export default function SmartDailyCommandTable({ rows, date, branch }: Props) {
       {error && <div className="mt-2 rounded-lg border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-2 text-xs font-bold text-[var(--dawaa-status-danger-text)]">⚠️ {error} — جدول الحضور الأساسي ما زال ظاهرًا بدون تعطيل.</div>}
     </div>
 
+    <Tabs value={activeGroup} onValueChange={(v) => setActiveGroup(v as RoleGroup)} dir="rtl">
+      <TabsList className="h-auto flex-wrap justify-start gap-1.5 rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-1.5">
+        {(['الكل', 'دكاترة وصيادلة', 'دليفري', 'باقي الفريق'] as RoleGroup[]).map((group) => {
+          const Icon = ROLE_GROUP_ICON[group];
+          return <TabsTrigger key={group} value={group} className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md">
+            <Icon size={15} /> {group} <span className="rounded-full bg-black/10 px-1.5 py-0.5 text-[10px]">{groupCounts[group]}</span>
+          </TabsTrigger>;
+        })}
+      </TabsList>
+    </Tabs>
+
     <div className="overflow-hidden rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface shadow-sm">
       <div className="overflow-x-auto"><table className="dawaa-table-semantic min-w-full text-sm">
         <thead><tr className="text-right"><th className="p-3">الموظف</th><th className="p-3">الفرع</th><th className="p-3">الشيفت</th><th className="p-3">الدخول</th><th className="p-3">التأخير</th><th className="p-3">الخروج</th><th className="p-3">خروج مبكر</th><th className="p-3">الحالة</th><th className="min-w-[250px] p-3">ملاحظة ذكية</th></tr></thead>
-        <tbody>{rows.map((row) => {
+        <tbody>{visibleRows.map((row) => {
           const item = intelMap.get(row.staff_id);
           const meta = intelMeta(item?.intelligence_status);
           const isOpen = expanded === row.staff_id;
@@ -224,7 +263,7 @@ export default function SmartDailyCommandTable({ rows, date, branch }: Props) {
               </div>
             </td></tr>}
           </Fragment>;
-        })}</tbody>
+        })}{!visibleRows.length && <tr><td colSpan={9} className="p-6 text-center text-sm font-bold text-[var(--dawaa-theme-muted)]">لا يوجد موظفون ضمن "{activeGroup}" لهذا اليوم/الفرع.</td></tr>}</tbody>
       </table></div>
     </div>
   </div>;
