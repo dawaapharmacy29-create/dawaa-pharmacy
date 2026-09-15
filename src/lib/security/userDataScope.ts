@@ -102,8 +102,9 @@ function getReviewBranchOverride(user: ScopeUser): string[] | null {
 }
 
 export function canViewAllBranches(user: ScopeUser): boolean {
-  return ['general_manager', 'executive_manager', 'branches_manager'].includes(
-    normalizeRole(user?.role)
+  return (
+    ['general_manager', 'executive_manager', 'branches_manager'].includes(normalizeRole(user?.role)) ||
+    isDawaaAlphaUser(user)
   );
 }
 
