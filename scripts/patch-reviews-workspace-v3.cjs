@@ -111,4 +111,5 @@ require('./patch-whatsapp-operational-actions-ui-v6.cjs');
 require('./patch-whatsapp-product-journey-ui-v7.cjs');
 require('./patch-whatsapp-action-center-v6.cjs');
 require('./patch-whatsapp-doctor-cycle-v8.cjs');
+require('./patch-whatsapp-conversion-funnel-v9.cjs');
 require('./patch-whatsapp-invoice-reconciliation-v6.cjs');
