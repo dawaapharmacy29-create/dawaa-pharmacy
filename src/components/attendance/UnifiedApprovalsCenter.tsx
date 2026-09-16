@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { CheckCircle2, Inbox, XCircle } from 'lucide-react';
+import { CheckCircle2, Eye, EyeOff, Inbox, Loader2, Sparkles, Users2, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { invalidateCachedRpc } from '@/lib/attendance/cachedRpc';
@@ -19,6 +19,19 @@ type ApprovalItem = {
   priority: number;
 };
 
+type OvertimeContext = {
+  ready: boolean;
+  reason?: string;
+  window_start?: string;
+  window_end?: string;
+  colleagues_working?: { staff_name: string; role: string | null; first_in: string | null; last_out: string | null }[];
+  colleagues_count?: number;
+  invoices_count?: number;
+  invoices_total_amount?: number;
+  invoices_sample?: { invoice_number: string; amount: number; time: string }[];
+  recommendation?: string;
+};
+
 const TYPE_META: Record<ApprovalItem['item_type'], { label: string; cls: string }> = {
   deduction: { label: 'خصم', cls: 'text-[var(--dawaa-status-danger-text)] bg-[var(--dawaa-status-danger-bg)] border-[var(--dawaa-status-danger-border)]' },
   overtime: { label: 'أوفرتايم', cls: 'text-[var(--dawaa-status-info-text)] bg-[var(--dawaa-status-info-bg)] border-[var(--dawaa-status-info-border)]' },
@@ -33,6 +46,24 @@ export default function UnifiedApprovalsCenter() {
   const [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState<'all' | 'deduction' | 'overtime' | 'timeoff_branch' | 'timeoff_gm'>('all');
   const [profileStaffId, setProfileStaffId] = useState<string | null>(null);
+  const [expandedRow, setExpandedRow] = useState<string | null>(null);
+  const [contextData, setContextData] = useState<Record<string, OvertimeContext | 'loading' | 'error'>>({});
+
+  async function toggleContext(it: ApprovalItem) {
+    const k = key(it);
+    if (expandedRow === k) { setExpandedRow(null); return; }
+    setExpandedRow(k);
+    if (contextData[k]) return;
+    setContextData((prev) => ({ ...prev, [k]: 'loading' }));
+    try {
+      const dateStr = it.requested_at.slice(0, 10);
+      const { data, error } = await supabase.rpc('attendance_overtime_context_v1', { p_staff_id: it.staff_id, p_attendance_date: dateStr });
+      if (error) throw error;
+      setContextData((prev) => ({ ...prev, [k]: data as OvertimeContext }));
+    } catch {
+      setContextData((prev) => ({ ...prev, [k]: 'error' }));
+    }
+  }
 
   const key = (it: ApprovalItem) => `${it.item_type}:${it.item_id}`;
 
@@ -142,25 +173,61 @@ export default function UnifiedApprovalsCenter() {
           </div>
           <div className="space-y-1.5">
             {visible.map((it) => {
-              const meta = TYPE_META[it.item_type];
-              const k = key(it);
-              return (
-                <div key={k} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--dawaa-theme-border)] p-2.5">
-                  <div className="flex items-center gap-2">
-                    <input type="checkbox" checked={selected.has(k)} onChange={() => toggleSelect(k)} />
-                    <span className={cn('rounded-full border px-2 py-0.5 text-[10px] font-black', meta.cls)}>{meta.label}</span>
-                    <div>
-                      <button onClick={() => setProfileStaffId(it.staff_id)} className="font-black text-[var(--dawaa-theme-primary-strong)] underline decoration-dotted underline-offset-2 hover:text-[var(--dawaa-theme-primary)]">{it.staff_name}</button>
-                      <span className="mr-2 text-xs font-bold text-[var(--dawaa-theme-muted)]">{it.branch} · {it.title} · {it.subtitle}</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <button disabled={busy} onClick={() => void decideSingle(it, 'approve')} className="btn-primary px-2 py-1 text-xs">اعتماد</button>
-                    <button disabled={busy} onClick={() => void decideSingle(it, 'reject')} className="btn-secondary px-2 py-1 text-xs">رفض</button>
+          const meta = TYPE_META[it.item_type];
+          const k = key(it);
+          const isExpanded = expandedRow === k;
+          const ctx = contextData[k];
+          return (
+            <div key={k} className="rounded-xl border border-[var(--dawaa-theme-border)] dawaa-surface p-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <input type="checkbox" checked={selected.has(k)} onChange={() => toggleSelect(k)} />
+                  <span className={cn('rounded-full border px-2 py-0.5 text-[10px] font-black', meta.cls)}>{meta.label}</span>
+                  <div>
+                    <button onClick={() => setProfileStaffId(it.staff_id)} className="font-black text-[var(--dawaa-theme-heading)] hover:underline hover:text-[var(--dawaa-theme-primary-strong)]">{it.staff_name}</button>
+                    <span className="mr-2 text-xs font-bold text-[var(--dawaa-theme-muted)]">{it.branch} · {it.title} · {it.subtitle}</span>
                   </div>
                 </div>
-              );
-            })}
+                <div className="flex items-center gap-1.5">
+                  {it.item_type === 'overtime' && (
+                    <button onClick={() => void toggleContext(it)} title="تفاصيل ذكية لاتخاذ القرار" className={cn('flex items-center gap-1 rounded-full border px-2.5 py-1.5 text-xs font-black', isExpanded ? 'border-[var(--dawaa-theme-primary)] bg-[var(--dawaa-theme-primary)] text-white' : 'border-[var(--dawaa-theme-border)] text-[var(--dawaa-theme-primary-strong)] hover:bg-[var(--dawaa-theme-surface-2)]')}>
+                      {isExpanded ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+                  )}
+                  <button disabled={busy} onClick={() => void decideSingle(it, 'approve')} className="btn-primary px-2 py-1 text-xs">اعتماد</button>
+                  <button disabled={busy} onClick={() => void decideSingle(it, 'reject')} className="btn-secondary px-2 py-1 text-xs">رفض</button>
+                </div>
+              </div>
+
+              {isExpanded && (
+                <div className="mt-2 rounded-lg border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-3">
+                  {ctx === 'loading' && <div className="flex items-center gap-2 text-xs font-bold text-[var(--dawaa-theme-muted)]"><Loader2 size={14} className="animate-spin" /> جارٍ تحليل الفترة...</div>}
+                  {ctx === 'error' && <div className="text-xs font-bold text-[var(--dawaa-status-danger-text)]">تعذر تحميل التفاصيل الذكية</div>}
+                  {ctx && ctx !== 'loading' && ctx !== 'error' && !ctx.ready && <div className="text-xs font-bold text-[var(--dawaa-theme-muted)]">{ctx.reason}</div>}
+                  {ctx && ctx !== 'loading' && ctx !== 'error' && ctx.ready && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-1.5 rounded-lg border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] p-2 text-xs font-black text-[var(--dawaa-status-info-text)]">
+                        <Sparkles size={14} /> التوصية: {ctx.recommendation}
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <div className="rounded-lg border border-[var(--dawaa-theme-border)] p-2">
+                          <div className="mb-1 flex items-center gap-1.5 text-xs font-black text-[var(--dawaa-theme-heading)]"><Users2 size={13} /> زملاء كانوا شغالين معه ({ctx.colleagues_count ?? 0})</div>
+                          {!ctx.colleagues_working?.length ? <p className="text-[11px] font-bold text-[var(--dawaa-theme-muted)]">محدش تاني كان موجود — كان لوحده</p> : (
+                            <div className="space-y-1">{ctx.colleagues_working.map((c, i) => <div key={i} className="text-[11px] font-bold text-[var(--dawaa-theme-muted)]">{c.staff_name} ({c.role || '-'})</div>)}</div>
+                          )}
+                        </div>
+                        <div className="rounded-lg border border-[var(--dawaa-theme-border)] p-2">
+                          <div className="mb-1 flex items-center gap-1.5 text-xs font-black text-[var(--dawaa-theme-heading)]">🧾 فواتير بيع في نفس الفترة ({ctx.invoices_count ?? 0})</div>
+                          <p className="text-[11px] font-bold text-[var(--dawaa-theme-muted)]">إجمالي القيمة: <span className="font-black text-[var(--dawaa-theme-heading)]">{ctx.invoices_total_amount ?? 0} ج.م</span></p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
           </div>
         </div>
       )}
