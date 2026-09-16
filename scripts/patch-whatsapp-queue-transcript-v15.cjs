@@ -25,3 +25,4 @@ patch(
 
 fs.writeFileSync(file, src);
 console.log('[whatsapp-queue-transcript-v15] structured queue transcript applied successfully');
+require('./patch-whatsapp-journey-persistence-v15.cjs');
