@@ -48,7 +48,7 @@ replaceOnce(
 );
 
 replaceOnce(
-  "          {activeCohort && (",
+  "          {pageTab === 'cohorts' && activeCohort && (",
   "          {pageTab === 'cohorts' && !activeCohort && (\n            <Panel className=\"p-5\">\n              <SectionTitle title=\"اختاري فئة العملاء\" subtitle=\"افتحي أي فئة لمراجعة العملاء ومبيعاتهم وخطة المتابعة بدون إطالة الصفحة.\" icon={<Users size={18} />} />\n              <div className=\"mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3\">\n                {[\n                  ['new', 'العملاء الجدد', cohortCounts?.new || 0],\n                  ['reactivated', 'العملاء المستعادين', cohortCounts?.reactivated || 0],\n                  ['lost', 'العملاء المختفين', cohortCounts?.lost || 0],\n                  ['strongDecline', 'تراجعوا بقوة', cohortCounts?.strongDecline || 0],\n                  ['decline', 'قللوا مشترياتهم', cohortCounts?.decline || 0],\n                  ['risk', 'العملاء المهددون', cohortCounts?.risk || 0],\n                ].map(([key, label, count]) => (\n                  <button\n                    key={String(key)}\n                    type=\"button\"\n                    onClick={() => openCohort(key as CohortKey)}\n                    className=\"rounded-2xl border p-4 text-right transition hover:-translate-y-0.5\"\n                    style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}\n                  >\n                    <div className=\"text-sm font-black\" style={{ color: 'var(--dawaa-theme-heading)' }}>{label}</div>\n                    <div className=\"mt-2 text-2xl font-black\" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>{count}</div>\n                  </button>\n                ))}\n              </div>\n            </Panel>\n          )}\n\n          {pageTab === 'cohorts' && activeCohort && (",
   'cohort chooser'
 );
@@ -58,8 +58,8 @@ const legacyTabBlockEnd = `          </div>\n\n          {listTab === 'declining
 if (src.includes(legacyTabBlockStart) && src.includes(legacyTabBlockEnd)) {
   const start = src.indexOf(legacyTabBlockStart);
   const end = src.indexOf(legacyTabBlockEnd, start);
-  src = src.slice(0, start) + `          {pageTab === 'attention' && (\n` + src.slice(end + `          </div>\n\n`.length);
-  console.log('[customer-monthly-tabs] removed old inner tabs and opened attention tab: applied');
+  src = src.slice(0, start) + src.slice(end + `          </div>\n\n`.length);
+  console.log('[customer-monthly-tabs] removed old inner tabs: applied');
 } else {
   console.log('[customer-monthly-tabs] old inner tabs anchor changed');
 }
@@ -75,7 +75,6 @@ replaceOnce(
   'improving visibility'
 );
 
-// Remove now-unused local listTab state if present.
 replaceOnce(
   "  const [listTab, setListTab] = useState<'declining' | 'improving'>('declining');\n",
   '',
