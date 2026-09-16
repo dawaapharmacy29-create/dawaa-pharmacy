@@ -40,8 +40,9 @@ if (!src.includes('<WhatsAppCycleEvidenceDashboardV17 mode="customers" />')) {
 if (!src.includes('<WhatsAppOpportunityFunnelV20 />')) {
   const funnelCurrent = `      <WhatsAppConversionFunnelV9 onOpenSource={openQueueSource} />`;
   const funnelLegacy = `      <WhatsAppConversionFunnelV9 onOpenSource={(sourceId) => { setStatus('all'); setSelectedId(sourceId); }} />`;
-  if (src.includes(funnelCurrent)) src = src.replace(funnelCurrent, `${funnelCurrent}\n      <WhatsAppOpportunityFunnelV20 />`);
-  else if (src.includes(funnelLegacy)) src = src.replace(funnelLegacy, `${funnelLegacy}\n      <WhatsAppOpportunityFunnelV20 />`);
+  const wrapSalesFunnel = (funnelLine) => `      <>\n${funnelLine}\n      <WhatsAppOpportunityFunnelV20 />\n      </>`;
+  if (src.includes(funnelCurrent)) src = src.replace(funnelCurrent, wrapSalesFunnel(funnelCurrent));
+  else if (src.includes(funnelLegacy)) src = src.replace(funnelLegacy, wrapSalesFunnel(funnelLegacy));
   else throw new Error('[whatsapp-evidence-ui-v17] conversion funnel anchor not found');
   console.log('[whatsapp-evidence-ui-v17] opportunity funnel v20: applied');
 } else console.log('[whatsapp-evidence-ui-v17] opportunity funnel v20: already applied');
