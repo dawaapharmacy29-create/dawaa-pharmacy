@@ -1,0 +1,1 @@
+Compact customer monthly performance tabs are applied by scripts/run-customer-monthly-tabs.cjs during prebuild.
