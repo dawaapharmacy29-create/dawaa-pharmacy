@@ -41,7 +41,8 @@ function evidence(message: WhatsAppParsedMessage, role?: WhatsAppMessageRoleV15 
     quote: message.text?.slice(0, 260) || '',
     sender: message.sender,
     role: role?.role || null,
-    resolvedStaffId: role?.staffId || null,
+    resolvedAccountId: role?.accountId || null,
+    resolvedStaffCode: role?.staffId || null,
     resolvedStaffName: role?.staffName || null,
     roleConfidence: role?.confidence || null,
     ...extra,
@@ -49,11 +50,7 @@ function evidence(message: WhatsAppParsedMessage, role?: WhatsAppMessageRoleV15 
 }
 
 export async function syncWhatsAppOrderLifecycleV19(session: WhatsAppConversationSession, context: OrderLifecycleSyncContextV19) {
-  const { data: source, error: sourceError } = await supabase
-    .from('whatsapp_review_sources')
-    .select('id,branch,customer_id,customer_code,customer_name,customer_phone,staff_id,staff_name,conversation_started_at,analysis_version')
-    .eq('id', context.sourceId)
-    .single();
+  const { data: source, error: sourceError } = await supabase.from('whatsapp_review_sources').select('id,branch,customer_id,customer_code,customer_name,customer_phone,staff_id,staff_name,conversation_started_at,analysis_version').eq('id', context.sourceId).single();
   if (sourceError) throw sourceError;
 
   const roles = roleByMessage(context.participantRoles);
@@ -61,25 +58,11 @@ export async function syncWhatsAppOrderLifecycleV19(session: WhatsAppConversatio
   const add = (type: LifecycleFact, key: string, message: WhatsAppParsedMessage, confidence: number, extraEvidence: Record<string, unknown> = {}) => {
     const r = roles.get(message.id);
     facts.push({
-      source_id: context.sourceId,
-      fact_key: key,
-      fact_type: type,
-      fact_at: message.timestamp.toISOString(),
-      branch: source.branch || null,
-      customer_id: source.customer_id || null,
-      customer_code: source.customer_code || null,
-      customer_name: source.customer_name || null,
-      customer_phone: source.customer_phone || null,
-      staff_id: r?.staffId || source.staff_id || null,
-      staff_name: r?.staffName || source.staff_name || null,
-      staff_role: r?.role || null,
-      confidence,
-      evidence_kind: 'message',
-      evidence_json: evidence(message, r, extraEvidence),
-      analysis_version: source.analysis_version || 'whatsapp-order-lifecycle-v19',
-      review_state: 'proposed',
-      official_eligible: false,
-      updated_at: new Date().toISOString(),
+      source_id: context.sourceId, fact_key: key, fact_type: type, fact_at: message.timestamp.toISOString(), branch: source.branch || null,
+      customer_id: source.customer_id || null, customer_code: source.customer_code || null, customer_name: source.customer_name || null, customer_phone: source.customer_phone || null,
+      staff_id: r?.accountId || source.staff_id || null, staff_name: r?.staffName || source.staff_name || null, staff_role: r?.role || null,
+      confidence, evidence_kind: 'message', evidence_json: evidence(message, r, extraEvidence), analysis_version: source.analysis_version || 'whatsapp-order-lifecycle-v19',
+      review_state: 'proposed', official_eligible: false, updated_at: new Date().toISOString(),
     });
   };
 
@@ -90,46 +73,28 @@ export async function syncWhatsAppOrderLifecycleV19(session: WhatsAppConversatio
   for (const message of session.messages) {
     if (message.direction !== 'outbound') continue;
     const r = roles.get(message.id);
-    if (PROMISE_RX.test(message.text)) {
-      promises.push(message);
-      add('promise_made', `promise:${message.id}`, message, 86);
-    }
+    if (PROMISE_RX.test(message.text)) { promises.push(message); add('promise_made', `promise:${message.id}`, message, 86); }
     if (DELAY_NOTICE_RX.test(message.text)) {
       add('delay_notice', `delay-notice:${message.id}`, message, 94);
       const reply = nextInboundAfter(session, message);
       if (reply && DELAY_ACCEPT_RX.test(reply.text) && (reply.timestamp.getTime() - message.timestamp.getTime()) <= 30 * 60 * 1000) {
         const replyRole = roles.get(reply.id);
         facts.push({
-          source_id: context.sourceId,
-          fact_key: `delay-accepted:${message.id}:${reply.id}`,
-          fact_type: 'customer_accepted_delay',
-          fact_at: reply.timestamp.toISOString(),
-          branch: source.branch || null,
-          customer_id: source.customer_id || null,
-          customer_code: source.customer_code || null,
-          customer_name: source.customer_name || null,
-          customer_phone: source.customer_phone || null,
-          staff_id: r?.staffId || source.staff_id || null,
-          staff_name: r?.staffName || source.staff_name || null,
-          staff_role: r?.role || null,
-          confidence: 92,
-          evidence_kind: 'message',
+          source_id: context.sourceId, fact_key: `delay-accepted:${message.id}:${reply.id}`, fact_type: 'customer_accepted_delay', fact_at: reply.timestamp.toISOString(), branch: source.branch || null,
+          customer_id: source.customer_id || null, customer_code: source.customer_code || null, customer_name: source.customer_name || null, customer_phone: source.customer_phone || null,
+          staff_id: r?.accountId || source.staff_id || null, staff_name: r?.staffName || source.staff_name || null, staff_role: r?.role || null, confidence: 92, evidence_kind: 'message',
           evidence_json: { delayNotice: evidence(message, r), customerReply: evidence(reply, replyRole), relation: 'next inbound reply within 30 minutes' },
-          analysis_version: source.analysis_version || 'whatsapp-order-lifecycle-v19',
-          review_state: 'proposed', official_eligible: false, updated_at: new Date().toISOString(),
+          analysis_version: source.analysis_version || 'whatsapp-order-lifecycle-v19', review_state: 'proposed', official_eligible: false, updated_at: new Date().toISOString(),
         });
       }
     }
-    if (DELIVERY_BLOCKER_RX.test(message.text)) {
-      blockers.push(message);
-      add('delivery_blocker', `delivery-blocker:${message.id}`, message, 91);
-    }
+    if (DELIVERY_BLOCKER_RX.test(message.text)) { blockers.push(message); add('delivery_blocker', `delivery-blocker:${message.id}`, message, 91); }
     if (APOLOGY_OR_FAILURE_RX.test(message.text) && RECOVERY_OFFER_RX.test(message.text)) add('recovery_offer', `recovery-offer:${message.id}`, message, 91);
     else if (RECOVERY_OFFER_RX.test(message.text)) add('recovery_offer', `recovery-offer:${message.id}`, message, 82);
 
     if (r?.staffName && !['customer','system','pharmacy_unknown'].includes(r.role)) {
       const previous = distinctStaff.at(-1);
-      if (!previous || previous.role.staffId !== r.staffId || previous.role.staffName !== r.staffName) distinctStaff.push({ message, role: r });
+      if (!previous || previous.role.accountId !== r.accountId || previous.role.staffName !== r.staffName) distinctStaff.push({ message, role: r });
     }
   }
 
@@ -137,8 +102,8 @@ export async function syncWhatsAppOrderLifecycleV19(session: WhatsAppConversatio
     const previous = distinctStaff[i - 1];
     const current = distinctStaff[i];
     add('staff_handoff', `handoff:${previous.message.id}:${current.message.id}`, current.message, Math.min(previous.role.confidence, current.role.confidence, 96), {
-      from: { staffId: previous.role.staffId, staffName: previous.role.staffName, role: previous.role.role, messageId: previous.message.id },
-      to: { staffId: current.role.staffId, staffName: current.role.staffName, role: current.role.role, messageId: current.message.id },
+      from: { accountId: previous.role.accountId, staffCode: previous.role.staffId, staffName: previous.role.staffName, role: previous.role.role, messageId: previous.message.id },
+      to: { accountId: current.role.accountId, staffCode: current.role.staffId, staffName: current.role.staffName, role: current.role.role, messageId: current.message.id },
     });
   }
 
@@ -157,9 +122,7 @@ export async function syncWhatsAppOrderLifecycleV19(session: WhatsAppConversatio
       const current = distinctStaff[i];
       if (GREETING_INTRO_RX.test(current.message.text) && !CONTEXT_REFERENCE_RX.test(current.message.text)) {
         const customerRepliedBetween = session.messages.some((m) => m.direction === 'inbound' && m.timestamp > distinctStaff[i - 1].message.timestamp && m.timestamp < current.message.timestamp);
-        if (!customerRepliedBetween) add('case_continuity_break', `continuity:${current.message.id}`, current.message, 66, {
-          note: 'بداية/تعريف جديد بعد تعثر سابق دون إشارة واضحة للسياق، والعميل لم يرسل ردًا جديدًا بينهما. تحتاج مراجعة بشرية قبل نسب خطأ.',
-        });
+        if (!customerRepliedBetween) add('case_continuity_break', `continuity:${current.message.id}`, current.message, 66, { note: 'بداية/تعريف جديد بعد تعثر سابق دون إشارة واضحة للسياق، والعميل لم يرسل ردًا جديدًا بينهما. تحتاج مراجعة بشرية قبل نسب خطأ.' });
       }
     }
   }
