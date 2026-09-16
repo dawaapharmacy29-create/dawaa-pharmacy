@@ -25,4 +25,5 @@ patch(
 
 fs.writeFileSync(file, src);
 console.log('[whatsapp-v26] response metrics, sample quality and deep conversation dashboard wired successfully');
+require('./patch-whatsapp-case-decision-v26.cjs');
 require('./check-whatsapp-deep-intelligence-v26.cjs');

@@ -5,7 +5,9 @@ const root = process.cwd();
 const required = [
   ['src/lib/whatsappDeepConversationIntelligenceV26.ts', ['p90Seconds', 'p95Seconds', 'classifySampleQuality', 'evaluateMedicalHardGate', 'buildExplainableInvoiceMatchScore', 'price_objection_unhandled']],
   ['src/components/reviews/WhatsAppDeepConversationIntelligenceV26.tsx', ['Conversation Deep Intelligence V26', 'whatsapp_response_turns_v18', 'جودة العينة']],
+  ['src/components/reviews/WhatsAppCaseDecisionPanelV26.tsx', ['Case Decision V26', 'Medical Hard Gate', 'deriveLostReasonCodes', 'P90', 'مراجعة بشرية']],
   ['src/pages/WhatsAppReviewQueueV4.tsx', ['WhatsAppDeepConversationIntelligenceV26']],
+  ['src/pages/WhatsAppConversationAnalyzer.tsx', ['WhatsAppCaseDecisionPanelV26', 'session={selected}']],
 ];
 
 const missing = [];
@@ -20,4 +22,4 @@ if (missing.length) {
   console.error('[whatsapp-v26-check] FAIL', missing.join(', '));
   process.exit(1);
 }
-console.log('[whatsapp-v26-check] PASS: response percentiles, sample quality, medical hard gate, explainable invoice scoring and lost reason codes are present.');
+console.log('[whatsapp-v26-check] PASS: response percentiles, deep journey stages, case-level lost reasons, medical hard gate, sample quality and explainable invoice scoring are wired.');
