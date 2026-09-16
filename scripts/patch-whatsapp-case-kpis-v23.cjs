@@ -34,3 +34,4 @@ if (!src.includes('<WhatsAppCaseKpisV23 mode="doctors" />')) {
 
 fs.writeFileSync(file, src);
 console.log('[whatsapp-case-kpis-v23] case outcome KPIs wired successfully');
+require('./patch-whatsapp-lost-opportunity-v24.cjs');
