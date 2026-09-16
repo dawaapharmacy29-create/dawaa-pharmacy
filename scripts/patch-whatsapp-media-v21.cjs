@@ -13,6 +13,45 @@ function patchFile(filePath, patches, tag = 'whatsapp-media-v21') {
   fs.writeFileSync(file, src);
 }
 
+patchFile('src/lib/whatsappConversationParser.ts', [
+  {
+    label: 'semantic media state',
+    from: `  mediaObjectUrl?: string | null;`,
+    to: `  mediaObjectUrl?: string | null;\n  mediaSemanticsAvailable?: boolean;`,
+  },
+]);
+
+patchFile('src/lib/whatsappMediaV21.ts', [
+  {
+    label: 'do not equate physical media with understood media',
+    from: `  message.mediaAvailable = true;\n  message.mediaPlaceholder = true;`,
+    to: `  message.mediaAvailable = true;\n  message.mediaSemanticsAvailable = false;\n  message.mediaPlaceholder = true;`,
+  },
+]);
+
+// V4 inserts the first media-confidence model. V21 corrects one important semantic distinction:
+// a photo/voice file can be physically present but still not understood until Vision/Transcription runs.
+patchFile('src/lib/whatsappUnifiedIntelligenceV4.ts', [
+  {
+    label: 'semantic media context count',
+    from: `  const missingMediaCount = Number(session.missingMediaCount ?? session.messages.filter((m) => m.mediaPlaceholder && !m.mediaAvailable).length);\n  const mediaTotal = Number(session.mediaCount || 0);`,
+    to: `  const mediaMessages = session.messages.filter((m) => ['image', 'voice', 'video', 'document'].includes(m.kind));\n  const physicallyMissingMediaCount = mediaMessages.filter((m) => !m.mediaAvailable).length;\n  const missingMediaCount = mediaMessages.filter((m) => !m.mediaSemanticsAvailable).length;\n  const mediaTotal = Number(session.mediaCount || 0);`,
+  },
+  {
+    label: 'semantic limitation wording',
+    from: `    limitation: missingMediaCount > 0\n      ? 'يوجد محتوى وسائط مشار إليه في المحادثة لكنه غير موجود فعليًا داخل ملف التصدير؛ لا يتم استنتاج محتواه آليًا.'\n      : null,`,
+    to: `    limitation: missingMediaCount > 0\n      ? (physicallyMissingMediaCount > 0\n        ? 'يوجد محتوى وسائط مشار إليه في المحادثة وغير موجود فعليًا داخل ملف التصدير؛ لا يتم استنتاج محتواه آليًا.'\n        : 'ملفات الميديا موجودة ويمكن للمراجع فتحها، لكن محتواها لم يُحلل آليًا بعد؛ لا يتم رفع ثقة التحليل النصي لمجرد وجود الملف.')\n      : null,`,
+  },
+]);
+
+const unifiedFile = path.join(process.cwd(), 'src/lib/whatsappUnifiedIntelligenceV4.ts');
+let unified = fs.readFileSync(unifiedFile, 'utf8');
+if (unified.includes('مرفق غير متاح.')) {
+  unified = unified.replace('مرفق غير متاح.', 'مرفق لم يُحلل محتواه آليًا.');
+  fs.writeFileSync(unifiedFile, unified);
+  console.log('[whatsapp-media-v21] executive summary semantic wording: applied');
+}
+
 patchFile('src/pages/WhatsAppConversationAnalyzer.tsx', [
   {
     label: 'media imports',
@@ -42,7 +81,7 @@ patchFile('src/pages/WhatsAppConversationAnalyzer.tsx', [
   {
     label: 'inline media preview',
     from: `                          <div className="mt-1 whitespace-pre-wrap text-sm leading-6 text-slate-100">{message.text || '—'}</div>`,
-    to: `                          <div className="mt-1 whitespace-pre-wrap text-sm leading-6 text-slate-100">{message.text || '—'}</div>\n                          {message.mediaObjectUrl && message.kind === 'image' ? <img src={message.mediaObjectUrl} alt={message.mediaFileName || 'مرفق واتساب'} className="mt-2 max-h-80 w-full rounded-xl object-contain bg-black/20" /> : null}\n                          {message.mediaObjectUrl && message.kind === 'voice' ? <audio controls preload="metadata" className="mt-2 w-full" src={message.mediaObjectUrl} /> : null}\n                          {message.mediaObjectUrl && message.kind === 'video' ? <video controls preload="metadata" className="mt-2 max-h-80 w-full rounded-xl" src={message.mediaObjectUrl} /> : null}\n                          {message.mediaObjectUrl && message.kind === 'document' ? <a href={message.mediaObjectUrl} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs font-black text-cyan-300 underline">فتح {message.mediaFileName || 'المستند'}</a> : null}\n                          {message.mediaAvailable ? <div className="mt-1 text-[10px] text-emerald-300">الميديا الأصلية متاحة • ثقة الربط {Number(message.mediaMatchConfidence || 0).toFixed(0)}%</div> : null}`,
+    to: `                          <div className="mt-1 whitespace-pre-wrap text-sm leading-6 text-slate-100">{message.text || '—'}</div>\n                          {message.mediaObjectUrl && message.kind === 'image' ? <img src={message.mediaObjectUrl} alt={message.mediaFileName || 'مرفق واتساب'} className="mt-2 max-h-80 w-full rounded-xl object-contain bg-black/20" /> : null}\n                          {message.mediaObjectUrl && message.kind === 'voice' ? <audio controls preload="metadata" className="mt-2 w-full" src={message.mediaObjectUrl} /> : null}\n                          {message.mediaObjectUrl && message.kind === 'video' ? <video controls preload="metadata" className="mt-2 max-h-80 w-full rounded-xl" src={message.mediaObjectUrl} /> : null}\n                          {message.mediaObjectUrl && message.kind === 'document' ? <a href={message.mediaObjectUrl} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs font-black text-cyan-300 underline">فتح {message.mediaFileName || 'المستند'}</a> : null}\n                          {message.mediaAvailable ? <div className="mt-1 text-[10px] text-emerald-300">الميديا الأصلية متاحة للمراجعة • ثقة الربط {Number(message.mediaMatchConfidence || 0).toFixed(0)}% • المحتوى لم يُحلل آليًا بعد</div> : null}`,
   },
 ]);
 
@@ -72,4 +111,4 @@ patchFile('src/pages/WhatsAppReviewQueueV4.tsx', [
   },
 ]);
 
-console.log('[whatsapp-media-v21] real ZIP media reader, local preview, private persistence and queue gallery wired successfully');
+console.log('[whatsapp-media-v21] real ZIP media reader, local preview, private persistence, semantic-safe confidence and queue gallery wired successfully');
