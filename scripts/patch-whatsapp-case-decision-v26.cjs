@@ -28,3 +28,4 @@ if (!src.includes('<WhatsAppCaseDecisionPanelV26 session={selected} />')) {
 
 fs.writeFileSync(file, src);
 console.log('[whatsapp-case-decision-v26] per-case response, journey, loss and medical gates wired into export analyzer');
+require('./patch-whatsapp-analysis-scope.cjs');
