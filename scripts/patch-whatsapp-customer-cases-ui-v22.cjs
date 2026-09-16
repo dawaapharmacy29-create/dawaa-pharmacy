@@ -25,3 +25,4 @@ patch(
 
 fs.writeFileSync(file, src);
 console.log('[whatsapp-cases-ui-v22] operational customer cases board wired successfully');
+require('./patch-whatsapp-case-kpis-v23.cjs');
