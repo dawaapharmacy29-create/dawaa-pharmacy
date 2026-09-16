@@ -61,4 +61,16 @@ if (!src.includes('<WhatsAppOrderLifecycleV19 sourceId={selected.id} />')) {
 } else console.log('[whatsapp-evidence-ui-v17] lifecycle and human fact review: already applied');
 
 fs.writeFileSync(file, src);
+
+const parserFile = path.join(process.cwd(), 'src/lib/whatsappConversationParser.ts');
+let parserSrc = fs.readFileSync(parserFile, 'utf8');
+if (!parserSrc.includes('export function extractIntroducedStaffName')) {
+  const parserAnchor = `function extractStaffNames(messages: WhatsAppParsedMessage[]) {`;
+  const parserHelper = `export function extractIntroducedStaffName(message: WhatsAppParsedMessage) {\n  for (const rx of STAFF_INTRO_PATTERNS) {\n    const match = message.text.match(rx);\n    if (match?.[1]) return match[1].trim();\n  }\n  return null;\n}\n\n`;
+  if (!parserSrc.includes(parserAnchor)) throw new Error('[whatsapp-evidence-ui-v17] parser staff helper anchor not found');
+  parserSrc = parserSrc.replace(parserAnchor, `${parserHelper}${parserAnchor}`);
+  fs.writeFileSync(parserFile, parserSrc);
+  console.log('[whatsapp-evidence-ui-v17] introduced staff name helper export: applied');
+} else console.log('[whatsapp-evidence-ui-v17] introduced staff name helper export: already applied');
+
 console.log('[whatsapp-evidence-ui-v17] evidence, cycle, lifecycle, review and opportunity funnel UI wired successfully');
