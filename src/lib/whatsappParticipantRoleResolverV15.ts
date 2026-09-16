@@ -7,6 +7,7 @@ export interface WhatsAppMessageRoleV15 {
   messageId: string;
   sender: string;
   role: WhatsAppParticipantRoleV15;
+  accountId: string | null;
   staffId: string | null;
   staffName: string | null;
   confidence: number;
@@ -16,7 +17,7 @@ export interface WhatsAppMessageRoleV15 {
 export interface WhatsAppParticipantRoleModelV15 {
   version: 'whatsapp-participant-role-v15';
   messages: WhatsAppMessageRoleV15[];
-  staff: Array<{ staffId: string | null; staffName: string; role: WhatsAppParticipantRoleV15; confidence: number }>;
+  staff: Array<{ accountId: string | null; staffId: string | null; staffName: string; role: WhatsAppParticipantRoleV15; confidence: number }>;
 }
 
 const normalize = (value: unknown) => String(value ?? '')
@@ -99,10 +100,7 @@ export async function resolveWhatsAppParticipantRolesV15(session: WhatsAppConver
 
   const resolvedByName = new Map<string, { row: any; score: number }>();
   for (const candidate of candidateNames) {
-    const scored = staffRows
-      .map((row) => ({ row, score: scoreName(candidate, row) }))
-      .filter((x) => x.score >= 78)
-      .sort((a, b) => b.score - a.score);
+    const scored = staffRows.map((row) => ({ row, score: scoreName(candidate, row) })).filter((x) => x.score >= 78).sort((a, b) => b.score - a.score);
     if (scored[0] && (!scored[1] || scored[0].score > scored[1].score)) resolvedByName.set(normalize(candidate), scored[0]);
   }
 
@@ -111,7 +109,7 @@ export async function resolveWhatsAppParticipantRolesV15(session: WhatsAppConver
   for (const message of session.messages) {
     const lexical = lexicalRole(message);
     if (lexical?.role === 'customer' || lexical?.role === 'system') {
-      messages.push({ messageId: message.id, sender: message.sender, role: lexical.role, staffId: null, staffName: null, confidence: lexical.confidence, reason: lexical.reason });
+      messages.push({ messageId: message.id, sender: message.sender, role: lexical.role, accountId: null, staffId: null, staffName: null, confidence: lexical.confidence, reason: lexical.reason });
       continue;
     }
 
@@ -126,23 +124,23 @@ export async function resolveWhatsAppParticipantRolesV15(session: WhatsAppConver
     else if (!resolved && activeStaff) resolved = activeStaff;
 
     if (lexical?.role === 'customer_service') {
-      messages.push({ messageId: message.id, sender: message.sender, role: 'customer_service', staffId: resolved?.row?.staff_id || null, staffName: resolved?.row?.staff_name || resolved?.row?.name || intro || null, confidence: Math.max(lexical.confidence, resolved?.score || 0), reason: lexical.reason });
+      messages.push({ messageId: message.id, sender: message.sender, role: 'customer_service', accountId: resolved?.row?.id || null, staffId: resolved?.row?.staff_id || null, staffName: resolved?.row?.staff_name || resolved?.row?.name || intro || null, confidence: Math.max(lexical.confidence, resolved?.score || 0), reason: lexical.reason });
       continue;
     }
     if (resolved) {
       const role = roleFromStaff(resolved.row);
-      messages.push({ messageId: message.id, sender: message.sender, role, staffId: resolved.row.staff_id || null, staffName: resolved.row.staff_name || resolved.row.name || intro || null, confidence: Math.min(98, resolved.score), reason: `تم ربط هوية المرسل بحساب الموظف ودوره (${resolved.row.role || resolved.row.staff_role || resolved.row.job_title || 'غير محدد'}).` });
+      messages.push({ messageId: message.id, sender: message.sender, role, accountId: resolved.row.id || null, staffId: resolved.row.staff_id || null, staffName: resolved.row.staff_name || resolved.row.name || intro || null, confidence: Math.min(98, resolved.score), reason: `تم ربط هوية المرسل بحساب الموظف ودوره (${resolved.row.role || resolved.row.staff_role || resolved.row.job_title || 'غير محدد'}).` });
     } else {
-      messages.push({ messageId: message.id, sender: message.sender, role: lexical?.role || 'pharmacy_unknown', staffId: null, staffName: intro || null, confidence: lexical?.confidence || 52, reason: lexical?.reason || 'رسالة خارجة من الصيدلية لكن هوية الموظف/دوره غير محسومة.' });
+      messages.push({ messageId: message.id, sender: message.sender, role: lexical?.role || 'pharmacy_unknown', accountId: null, staffId: null, staffName: intro || null, confidence: lexical?.confidence || 52, reason: lexical?.reason || 'رسالة خارجة من الصيدلية لكن هوية الموظف/دوره غير محسومة.' });
     }
   }
 
-  const uniqueStaff = new Map<string, { staffId: string | null; staffName: string; role: WhatsAppParticipantRoleV15; confidence: number }>();
+  const uniqueStaff = new Map<string, { accountId: string | null; staffId: string | null; staffName: string; role: WhatsAppParticipantRoleV15; confidence: number }>();
   for (const message of messages) {
     if (!message.staffName || ['customer','system'].includes(message.role)) continue;
-    const key = `${message.staffId || ''}:${normalize(message.staffName)}`;
+    const key = `${message.accountId || message.staffId || ''}:${normalize(message.staffName)}`;
     const previous = uniqueStaff.get(key);
-    if (!previous || message.confidence > previous.confidence) uniqueStaff.set(key, { staffId: message.staffId, staffName: message.staffName, role: message.role, confidence: message.confidence });
+    if (!previous || message.confidence > previous.confidence) uniqueStaff.set(key, { accountId: message.accountId, staffId: message.staffId, staffName: message.staffName, role: message.role, confidence: message.confidence });
   }
 
   return { version: 'whatsapp-participant-role-v15', messages, staff: [...uniqueStaff.values()] };
