@@ -25,3 +25,4 @@ patch(
 
 fs.writeFileSync(file, src);
 console.log('[whatsapp-lost-opportunity-v24] loss, leakage and rescue analytics wired successfully');
+require('./patch-whatsapp-governance-v25.cjs');
