@@ -99,3 +99,4 @@ wrapPanel(
 
 fs.writeFileSync(file, src);
 console.log('[whatsapp-workspace-v13] simplified tabbed workspace applied successfully');
+require('./patch-whatsapp-daily-review-ux-v14.cjs');
