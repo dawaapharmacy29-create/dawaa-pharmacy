@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import type { WhatsAppCustomerJourneyIntelligenceV15 } from './whatsappCustomerJourneyIntelligenceV15';
+import { syncPersistentCustomerStoryV16 } from './whatsappCustomerStoryV16';
 
 export interface JourneySessionSourceV15 {
   sessionId: string;
@@ -73,6 +74,7 @@ export async function syncWhatsAppCustomerJourneyV15(
     customer_reply_after_problem: model.customerReplyAfterProblem,
     summary: model.summary,
     journey_json: model,
+    lifecycle_status: model.unresolvedOrder || model.unresolvedComplaint ? 'recovery' : 'open',
     created_by: context.createdBy || null,
     updated_at: new Date().toISOString(),
   };
@@ -143,5 +145,20 @@ export async function syncWhatsAppCustomerJourneyV15(
     if (actionError) throw actionError;
   }
 
-  return { journeyId: String(journey.id), rootSourceId: String(journey.root_source_id), linkedSessions: linkRows.length };
+  const story = await syncPersistentCustomerStoryV16({
+    journeyId: String(journey.id),
+    model,
+    sources: sourceRows,
+    sessionSources: context.sessionSources,
+    branch: context.branch || root.branch || null,
+    createdBy: context.createdBy || null,
+  });
+
+  return {
+    journeyId: String(journey.id),
+    rootSourceId: String(journey.root_source_id),
+    linkedSessions: linkRows.length,
+    storyId: story?.storyId || null,
+    storyKey: story?.storyKey || null,
+  };
 }
