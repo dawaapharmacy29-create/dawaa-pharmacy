@@ -40,23 +40,22 @@ export function buildWhatsAppResponseTurnsV18(session: WhatsAppConversationSessi
       noResponse: !response,
       responderSender: response?.sender || null,
       responderRole: role?.role || (response ? 'pharmacy_unknown' : null),
-      responderStaffId: role?.staffId || null,
+      responderAccountId: role?.accountId || null,
+      responderStaffCode: role?.staffId || null,
       responderStaffName: role?.staffName || null,
       evidence: {
         customerLastMessage: inbound[inbound.length - 1].text?.slice(0, 220) || '',
         responseText: response?.text?.slice(0, 220) || null,
         responderConfidence: role?.confidence || null,
         responderReason: role?.reason || null,
+        responderStaffCode: role?.staffId || null,
       },
     });
     inbound = [];
   };
 
   for (const message of messages) {
-    if (message.direction === 'inbound') {
-      inbound.push(message);
-      continue;
-    }
+    if (message.direction === 'inbound') { inbound.push(message); continue; }
     if (message.direction === 'outbound' && inbound.length) flush(message);
   }
   flush(null);
@@ -67,11 +66,7 @@ export async function syncWhatsAppResponseTurnsV18(session: WhatsAppConversation
   const turns = buildWhatsAppResponseTurnsV18(session, context.participantRoles);
   if (!turns.length) return { turns: 0 };
 
-  const { data: source, error: sourceError } = await supabase
-    .from('whatsapp_review_sources')
-    .select('branch,customer_id,customer_code,staff_id,staff_name')
-    .eq('id', context.sourceId)
-    .single();
+  const { data: source, error: sourceError } = await supabase.from('whatsapp_review_sources').select('branch,customer_id,customer_code,staff_id,staff_name').eq('id', context.sourceId).single();
   if (sourceError) throw sourceError;
 
   const rows = turns.map((turn) => ({
@@ -80,7 +75,7 @@ export async function syncWhatsAppResponseTurnsV18(session: WhatsAppConversation
     branch: source.branch || null,
     customer_id: source.customer_id || null,
     customer_code: source.customer_code || null,
-    staff_id: turn.responderStaffId || source.staff_id || null,
+    staff_id: turn.responderAccountId || source.staff_id || null,
     staff_name: turn.responderStaffName || source.staff_name || null,
     responder_sender: turn.responderSender,
     responder_role: turn.responderRole,
