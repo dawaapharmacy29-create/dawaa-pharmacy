@@ -25,3 +25,4 @@ patch(
 
 fs.writeFileSync(file, src);
 console.log('[whatsapp-recovery-kpis-v12] recovery KPI dashboard wired successfully');
+require('./patch-whatsapp-queue-workspace-tabs-v13.cjs');
