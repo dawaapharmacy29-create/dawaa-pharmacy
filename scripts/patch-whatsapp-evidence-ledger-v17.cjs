@@ -1,0 +1,27 @@
+const fs = require('fs');
+const path = require('path');
+
+const analyzerFile = path.join(process.cwd(), 'src/pages/WhatsAppConversationAnalyzer.tsx');
+let analyzer = fs.readFileSync(analyzerFile, 'utf8');
+
+function patch(label, from, to) {
+  if (analyzer.includes(to)) { console.log(`[whatsapp-evidence-v17] ${label}: already applied`); return; }
+  if (!analyzer.includes(from)) throw new Error(`[whatsapp-evidence-v17] ${label}: anchor not found`);
+  analyzer = analyzer.replace(from, to);
+  console.log(`[whatsapp-evidence-v17] ${label}: applied`);
+}
+
+patch(
+  'evidence ledger import',
+  `import { resolveWhatsAppParticipantRolesV15 } from '@/lib/whatsappParticipantRoleResolverV15';`,
+  `import { resolveWhatsAppParticipantRolesV15 } from '@/lib/whatsappParticipantRoleResolverV15';\nimport { syncWhatsAppEvidenceLedgerV17 } from '@/lib/whatsappEvidenceLedgerV17';`
+);
+
+patch(
+  'sync evidence facts and opportunities',
+  `          persistedSessionSources.push({ sessionId: item.session.id, sourceId: persisted.id, contextOnly });`,
+  `          persistedSessionSources.push({ sessionId: item.session.id, sourceId: persisted.id, contextOnly });\n          try {\n            await syncWhatsAppEvidenceLedgerV17(item.session, {\n              sourceId: persisted.id,\n              contextOnly,\n              operational,\n              analysisVersion: intelligence.version,\n              participantRoles,\n            });\n          } catch (evidenceError) {\n            console.warn('[whatsapp-evidence-v17] evidence sync failed; source remains preserved for review', persisted.id, evidenceError);\n          }`
+);
+
+fs.writeFileSync(analyzerFile, analyzer);
+console.log('[whatsapp-evidence-v17] evidence ledger and sales opportunities wired successfully');
