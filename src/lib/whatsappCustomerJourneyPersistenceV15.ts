@@ -34,7 +34,7 @@ export async function syncWhatsAppCustomerJourneyV15(
   const sourceIds = [...new Set(context.sessionSources.map((row) => row.sourceId))];
   const { data: sources, error: sourceError } = await supabase
     .from('whatsapp_review_sources')
-    .select('id,source_filename,branch,customer_id,customer_code,customer_name,customer_phone,conversation_started_at,conversation_ended_at,staff_id,staff_name')
+    .select('id,source_filename,branch,customer_id,customer_code,customer_name,customer_phone,conversation_started_at,conversation_ended_at,staff_id,staff_name,analysis_json')
     .in('id', sourceIds);
   if (sourceError) throw sourceError;
 
