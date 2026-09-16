@@ -33,3 +33,4 @@ patch(
 
 fs.writeFileSync(file, src);
 console.log('[whatsapp-journey-analyzer-v15] customer journey analyzer panel applied successfully');
+require('./patch-whatsapp-queue-transcript-v15.cjs');
