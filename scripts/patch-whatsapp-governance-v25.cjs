@@ -29,3 +29,4 @@ patch(
 fs.writeFileSync(file, src);
 console.log('[whatsapp-governance-v25] safe automation, human sampling and coaching center wired successfully');
 require('./check-whatsapp-governance-v25.cjs');
+require('./patch-whatsapp-deep-intelligence-v26.cjs');
