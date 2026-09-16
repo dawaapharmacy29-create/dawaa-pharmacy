@@ -15,6 +15,25 @@ type SourceRow = {
   staff_name?: string | null;
 };
 
+type ActionRow = {
+  id: string;
+  source_id: string;
+  action_key: string;
+  action_type: string;
+  status?: string | null;
+  product_id?: string | null;
+  product_code?: string | null;
+  product_name?: string | null;
+  quantity?: number | null;
+  confidence?: number | null;
+  reason?: string | null;
+  due_at?: string | null;
+  created_at?: string | null;
+  staff_id?: string | null;
+  staff_name?: string | null;
+  payload?: any;
+};
+
 function normalizeBranch(value: unknown) {
   return String(value ?? '').trim().toLowerCase().replace(/\s+/g, '-');
 }
@@ -55,6 +74,22 @@ function eventTitleForRole(role: string) {
   if (role === 'recommendation_followup') return 'متابعة ترشيح';
   if (role === 'general_followup') return 'متابعة من الصيدلية';
   return 'محادثة واتساب';
+}
+
+function actionEventType(actionType: string) {
+  if (actionType === 'customer_request') return 'product_request';
+  if (actionType === 'recommendation_followup') return 'recommendation_followup';
+  if (actionType === 'complaint_followup') return 'complaint_followup';
+  if (actionType === 'customer_followup') return 'service_followup';
+  return null;
+}
+
+function actionTitle(action: ActionRow) {
+  if (action.action_type === 'customer_request') return action.product_name ? `طلب صنف: ${action.product_name}` : 'طلب صنف من العميل';
+  if (action.action_type === 'recommendation_followup') return action.product_name ? `متابعة ترشيح: ${action.product_name}` : 'متابعة ترشيح';
+  if (action.action_type === 'complaint_followup') return 'متابعة شكوى';
+  if (action.action_type === 'customer_followup') return 'متابعة العميل';
+  return 'إجراء تشغيلي';
 }
 
 export async function syncPersistentCustomerStoryV16(params: {
@@ -124,6 +159,15 @@ export async function syncPersistentCustomerStoryV16(params: {
 
   const sourceBySession = new Map(sessionSources.map((x) => [x.sessionId, x.sourceId]));
   const sourceById = new Map(sources.map((x) => [String(x.id), x]));
+  const sourceIds = sources.map((x) => String(x.id));
+  const { data: actions, error: actionsError } = sourceIds.length
+    ? await supabase
+      .from('whatsapp_conversation_actions')
+      .select('id,source_id,action_key,action_type,status,product_id,product_code,product_name,quantity,confidence,reason,due_at,created_at,staff_id,staff_name,payload')
+      .in('source_id', sourceIds)
+    : { data: [], error: null } as any;
+  if (actionsError) throw actionsError;
+
   const eventRows: any[] = [];
   for (const session of model.sessions) {
     const sourceId = sourceBySession.get(session.sessionId) || null;
@@ -163,6 +207,36 @@ export async function syncPersistentCustomerStoryV16(params: {
         payload: { role: session.role, customerSilentAfterOutbound: session.customerSilentAfterOutbound },
       });
     }
+  }
+
+  for (const action of (actions || []) as ActionRow[]) {
+    const eventType = actionEventType(action.action_type);
+    if (!eventType) continue;
+    eventRows.push({
+      story_id: story.id,
+      event_key: `action:${action.id}:${eventType}`,
+      event_type: eventType,
+      event_at: action.created_at || endedAt,
+      journey_id: journeyId,
+      source_id: action.source_id,
+      action_id: action.id,
+      staff_id: action.staff_id || null,
+      staff_name: action.staff_name || null,
+      product_id: action.product_id || null,
+      product_code: action.product_code || null,
+      product_name: action.product_name || null,
+      confidence: action.confidence || null,
+      title: actionTitle(action),
+      detail: action.reason || null,
+      payload: {
+        actionKey: action.action_key,
+        actionType: action.action_type,
+        status: action.status,
+        quantity: action.quantity,
+        dueAt: action.due_at,
+        originalPayload: action.payload,
+      },
+    });
   }
 
   eventRows.push({
