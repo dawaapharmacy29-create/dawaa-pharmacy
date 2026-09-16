@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, ArrowUpLeft, CheckCircle2, Clock3, ImageOff, RefreshCw } from 'lucide-react';
+import { AlertTriangle, ArrowUpLeft, CheckCircle2, Clock3, ImageOff, RefreshCw, ReceiptText } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
 type CaseRow = {
@@ -24,21 +24,28 @@ type CaseRow = {
   is_open: boolean;
   hours_since_last_event: number;
   work_bucket: 'recovery' | 'pharmacy_action' | 'customer_followup' | 'monitor';
+  effective_outcome: string | null;
+  outcome_source: 'human_confirmed' | 'invoice_verified' | 'ai_proposed' | null;
+  outcome_confidence: number | null;
+  effective_lost_reason: string | null;
+  lost_reason_source: 'human_confirmed' | 'ai_proposed' | 'none' | null;
+  lost_reason_confidence: number | null;
+  commercial_opportunity: boolean;
+  verified_revenue: number | null;
+  verified_invoice_number: string | null;
 };
 
 const stateLabel: Record<CaseRow['case_state'], string> = {
-  open: 'مفتوحة',
-  awaiting_customer: 'بانتظار العميل',
-  awaiting_pharmacy: 'بانتظار الصيدلية',
-  confirmed_order: 'أوردر مؤكد',
-  failed: 'متعثر',
-  recovery: 'استرجاع',
-  reengaged: 'عاد للتفاعل',
-  closed: 'مغلقة',
+  open: 'مفتوحة', awaiting_customer: 'بانتظار العميل', awaiting_pharmacy: 'بانتظار الصيدلية', confirmed_order: 'أوردر مؤكد', failed: 'متعثر', recovery: 'استرجاع', reengaged: 'عاد للتفاعل', closed: 'مغلقة',
 };
-
 const typeLabel: Record<CaseRow['case_type'], string> = {
   order: 'طلب', complaint: 'شكوى/تعثر', recommendation: 'ترشيح', followup: 'متابعة', mixed: 'متعددة المراحل',
+};
+const outcomeLabel: Record<string, string> = {
+  verified_sale: 'بيع مؤكد بالفاتورة', order_confirmed_waiting_invoice: 'أوردر مؤكد — ينتظر الفاتورة', customer_reengaged: 'العميل عاد للتفاعل', followup_needed: 'متابعة مطلوبة', awaiting_pharmacy: 'بانتظار الصيدلية', awaiting_customer: 'بانتظار العميل', lost_opportunity: 'فرصة مفقودة', complaint_resolved: 'الشكوى تم حلها', open: 'قيد المتابعة',
+};
+const lostReasonLabel: Record<string, string> = {
+  unavailable: 'الصنف غير متوفر', delivery_or_fulfillment_failure: 'تعثر التوصيل/التنفيذ', price_objection: 'اعتراض على السعر', no_response_after_followup: 'لم يرد بعد المتابعة', not_interested: 'غير مهتم', alternative_rejected: 'البديل غير مقبول', other: 'سبب آخر',
 };
 
 function tone(state: CaseRow['case_state']) {
@@ -48,23 +55,29 @@ function tone(state: CaseRow['case_state']) {
   return 'border-slate-800 bg-slate-950/30';
 }
 
+function sourceLabel(source: CaseRow['outcome_source']) {
+  if (source === 'invoice_verified') return 'فاتورة مؤكدة';
+  if (source === 'human_confirmed') return 'مراجعة بشرية';
+  return 'تحليل مبدئي';
+}
+
 export default function WhatsAppCustomerCasesV22({ onOpenSource }: { onOpenSource?: (sourceId: string) => void }) {
   const [rows, setRows] = useState<CaseRow[]>([]);
   const [loading, setLoading] = useState(false);
-  const [filter, setFilter] = useState<'open' | 'recovery' | 'pharmacy' | 'customer' | 'media' | 'all'>('open');
+  const [filter, setFilter] = useState<'open' | 'recovery' | 'pharmacy' | 'customer' | 'media' | 'sales' | 'all'>('open');
 
   const load = async () => {
     setLoading(true);
     try {
       const { data, error } = await supabase
-        .from('whatsapp_customer_case_queue_v22')
-        .select('id,root_source_id,customer_name,customer_code,branch,case_type,case_state,started_at,last_event_at,session_count,staff_names,media_referenced,media_available,media_missing,media_coverage_percent,needs_human_review,next_action,summary,is_open,hours_since_last_event,work_bucket')
+        .from('whatsapp_customer_case_queue_v23')
+        .select('id,root_source_id,customer_name,customer_code,branch,case_type,case_state,started_at,last_event_at,session_count,staff_names,media_referenced,media_available,media_missing,media_coverage_percent,needs_human_review,next_action,summary,is_open,hours_since_last_event,work_bucket,effective_outcome,outcome_source,outcome_confidence,effective_lost_reason,lost_reason_source,lost_reason_confidence,commercial_opportunity,verified_revenue,verified_invoice_number')
         .order('last_event_at', { ascending: false })
         .limit(300);
       if (error) throw error;
       setRows((data || []) as CaseRow[]);
     } catch (error) {
-      console.warn('[whatsapp-case-v22] failed to load customer case board', error);
+      console.warn('[whatsapp-case-v23] failed to load customer case board', error);
       setRows([]);
     } finally {
       setLoading(false);
@@ -79,6 +92,7 @@ export default function WhatsAppCustomerCasesV22({ onOpenSource }: { onOpenSourc
     pharmacy: rows.filter((x) => x.work_bucket === 'pharmacy_action').length,
     customer: rows.filter((x) => x.work_bucket === 'customer_followup').length,
     media: rows.filter((x) => x.media_missing > 0).length,
+    sales: rows.filter((x) => x.effective_outcome === 'verified_sale').length,
   }), [rows]);
 
   const filtered = useMemo(() => rows.filter((row) => {
@@ -87,25 +101,21 @@ export default function WhatsAppCustomerCasesV22({ onOpenSource }: { onOpenSourc
     if (filter === 'pharmacy') return row.work_bucket === 'pharmacy_action';
     if (filter === 'customer') return row.work_bucket === 'customer_followup';
     if (filter === 'media') return row.media_missing > 0;
+    if (filter === 'sales') return row.effective_outcome === 'verified_sale';
     return true;
   }), [rows, filter]);
 
   const chips: Array<[typeof filter, string, number]> = [
-    ['open', 'مفتوحة', summary.open],
-    ['recovery', 'Recovery', summary.recovery],
-    ['pharmacy', 'بانتظار الصيدلية', summary.pharmacy],
-    ['customer', 'بانتظار العميل', summary.customer],
-    ['media', 'ميديا ناقصة', summary.media],
-    ['all', 'الكل', rows.length],
+    ['open', 'مفتوحة', summary.open], ['recovery', 'Recovery', summary.recovery], ['pharmacy', 'بانتظار الصيدلية', summary.pharmacy], ['customer', 'بانتظار العميل', summary.customer], ['sales', 'بيع مؤكد', summary.sales], ['media', 'ميديا ناقصة', summary.media], ['all', 'الكل', rows.length],
   ];
 
   return (
     <section className="dawaa-card dawaa-card--raised p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="text-xs font-black text-cyan-200">Customer Cases V22</div>
-          <div className="mt-1 text-xl font-black text-white">الحالات التشغيلية للعميل</div>
-          <div className="mt-1 text-xs leading-6 text-slate-400">كل Case تجمع الطلب/الشكوى/الترشيح مع المتابعات التابعة لها بدل التعامل مع كل جلسة كحالة مستقلة.</div>
+          <div className="text-xs font-black text-cyan-200">Customer Cases V23</div>
+          <div className="mt-1 text-xl font-black text-white">الحالات التشغيلية + النتيجة التجارية</div>
+          <div className="mt-1 text-xs leading-6 text-slate-400">الـOutcome وسبب فقد الفرصة يظهران بمصدر الدليل. التحليل المبدئي لا يتحول لمسؤولية أو خصم رسمي بدون مراجعة بشرية.</div>
         </div>
         <button type="button" onClick={() => void load()} disabled={loading} className="rounded-xl border border-slate-700 bg-slate-950/40 px-3 py-2 text-xs font-black text-slate-200 disabled:opacity-50">
           <RefreshCw size={14} className={loading ? 'ml-1 inline animate-spin' : 'ml-1 inline'} /> تحديث
@@ -139,8 +149,23 @@ export default function WhatsAppCustomerCasesV22({ onOpenSource }: { onOpenSourc
               </div>
             </div>
 
+            <div className="mt-2 grid gap-2 md:grid-cols-2">
+              <div className="rounded-xl border border-slate-800 bg-slate-950/35 px-3 py-2 text-xs">
+                <div className="text-[10px] text-slate-500">النتيجة</div>
+                <div className="mt-1 font-black text-white">{outcomeLabel[row.effective_outcome || ''] || row.effective_outcome || 'غير محسومة'}</div>
+                <div className="mt-1 text-[10px] text-slate-400">{sourceLabel(row.outcome_source)}{row.outcome_confidence != null && row.outcome_source === 'ai_proposed' ? ` • ثقة ${Math.round(Number(row.outcome_confidence))}%` : ''}</div>
+                {row.effective_outcome === 'verified_sale' ? <div className="mt-1 flex items-center gap-1 text-emerald-300"><ReceiptText size={12} /> {Number(row.verified_revenue || 0).toLocaleString('ar-EG')} ج{row.verified_invoice_number ? ` • فاتورة ${row.verified_invoice_number}` : ''}</div> : null}
+              </div>
+              <div className="rounded-xl border border-slate-800 bg-slate-950/35 px-3 py-2 text-xs">
+                <div className="text-[10px] text-slate-500">سبب الفقد/التعثر</div>
+                <div className="mt-1 font-black text-white">{row.effective_lost_reason ? (lostReasonLabel[row.effective_lost_reason] || row.effective_lost_reason) : 'لا يوجد سبب مثبت'}</div>
+                {row.effective_lost_reason ? <div className="mt-1 text-[10px] text-slate-400">{row.lost_reason_source === 'human_confirmed' ? 'مراجعة بشرية' : 'اقتراح تحليلي'}{row.lost_reason_confidence != null && row.lost_reason_source === 'ai_proposed' ? ` • ثقة ${Math.round(Number(row.lost_reason_confidence))}%` : ''}</div> : null}
+              </div>
+            </div>
+
             <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
               {(row.staff_names || []).length ? <span className="text-emerald-300">الموظفون: {(row.staff_names || []).join('، ')}</span> : null}
+              {row.commercial_opportunity ? <span className="text-cyan-300">• فرصة تجارية</span> : null}
               {row.media_missing > 0 ? <span className="flex items-center gap-1 text-amber-300"><ImageOff size={12} /> ميديا ناقصة {row.media_missing}/{row.media_referenced}</span> : null}
               {row.is_open ? <span className="flex items-center gap-1 text-violet-300"><Clock3 size={12} /> مفتوحة منذ آخر حدث {Math.max(0, Math.round(Number(row.hours_since_last_event || 0)))} س</span> : null}
             </div>
