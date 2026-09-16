@@ -14,7 +14,7 @@ function patch(label, from, to) {
 patch(
   'imports',
   `import WhatsAppCustomerStory360V16 from '@/components/reviews/WhatsAppCustomerStory360V16';`,
-  `import WhatsAppCustomerStory360V16 from '@/components/reviews/WhatsAppCustomerStory360V16';\nimport WhatsAppEvidenceCoverageV17 from '@/components/reviews/WhatsAppEvidenceCoverageV17';\nimport WhatsAppCycleEvidenceDashboardV17 from '@/components/reviews/WhatsAppCycleEvidenceDashboardV17';\nimport WhatsAppOrderLifecycleV19 from '@/components/reviews/WhatsAppOrderLifecycleV19';\nimport WhatsAppEvidenceFactReviewV19 from '@/components/reviews/WhatsAppEvidenceFactReviewV19';`
+  `import WhatsAppCustomerStory360V16 from '@/components/reviews/WhatsAppCustomerStory360V16';\nimport WhatsAppEvidenceCoverageV17 from '@/components/reviews/WhatsAppEvidenceCoverageV17';\nimport WhatsAppCycleEvidenceDashboardV17 from '@/components/reviews/WhatsAppCycleEvidenceDashboardV17';\nimport WhatsAppOrderLifecycleV19 from '@/components/reviews/WhatsAppOrderLifecycleV19';\nimport WhatsAppEvidenceFactReviewV19 from '@/components/reviews/WhatsAppEvidenceFactReviewV19';\nimport WhatsAppOpportunityFunnelV20 from '@/components/reviews/WhatsAppOpportunityFunnelV20';`
 );
 
 if (!src.includes('<WhatsAppCycleEvidenceDashboardV17 mode="doctors" />')) {
@@ -36,6 +36,15 @@ if (!src.includes('<WhatsAppCycleEvidenceDashboardV17 mode="customers" />')) {
   console.log('[whatsapp-evidence-ui-v17] customer and service evidence dashboards: applied');
 } else console.log('[whatsapp-evidence-ui-v17] customer and service evidence dashboards: already applied');
 
+if (!src.includes('<WhatsAppOpportunityFunnelV20 />')) {
+  const funnelCurrent = `      <WhatsAppConversionFunnelV9 onOpenSource={openQueueSource} />`;
+  const funnelLegacy = `      <WhatsAppConversionFunnelV9 onOpenSource={(sourceId) => { setStatus('all'); setSelectedId(sourceId); }} />`;
+  if (src.includes(funnelCurrent)) src = src.replace(funnelCurrent, `${funnelCurrent}\n      <WhatsAppOpportunityFunnelV20 />`);
+  else if (src.includes(funnelLegacy)) src = src.replace(funnelLegacy, `${funnelLegacy}\n      <WhatsAppOpportunityFunnelV20 />`);
+  else throw new Error('[whatsapp-evidence-ui-v17] conversion funnel anchor not found');
+  console.log('[whatsapp-evidence-ui-v17] opportunity funnel v20: applied');
+} else console.log('[whatsapp-evidence-ui-v17] opportunity funnel v20: already applied');
+
 const transcript = `            <section className="dawaa-card dawaa-card--soft p-4"><div className="flex items-center gap-2 font-black text-white"><FileText size={17}/>المحادثة الأصلية المنظمة</div>`;
 if (!src.includes('<WhatsAppEvidenceCoverageV17 sourceId={selected.id} />')) {
   if (!src.includes(transcript)) throw new Error('[whatsapp-evidence-ui-v17] transcript anchor not found for coverage');
@@ -50,4 +59,4 @@ if (!src.includes('<WhatsAppOrderLifecycleV19 sourceId={selected.id} />')) {
 } else console.log('[whatsapp-evidence-ui-v17] lifecycle and human fact review: already applied');
 
 fs.writeFileSync(file, src);
-console.log('[whatsapp-evidence-ui-v17] evidence, cycle, lifecycle and review UI wired successfully');
+console.log('[whatsapp-evidence-ui-v17] evidence, cycle, lifecycle, review and opportunity funnel UI wired successfully');
