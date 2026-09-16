@@ -25,3 +25,4 @@ patch(
 
 fs.writeFileSync(analyzerFile, analyzer);
 console.log('[whatsapp-participant-role-v15] participant roles wired into saved intelligence');
+require('./patch-whatsapp-evidence-ledger-v17.cjs');
