@@ -14,13 +14,19 @@ function patch(label, from, to) {
 patch(
   'case engine import',
   `import { buildWhatsAppCustomerJourneyIntelligenceV15 } from '@/lib/whatsappCustomerJourneyIntelligenceV15';`,
-  `import { buildWhatsAppCustomerJourneyIntelligenceV15 } from '@/lib/whatsappCustomerJourneyIntelligenceV15';\nimport { buildWhatsAppCustomerCaseEngineV22 } from '@/lib/whatsappCustomerCaseEngineV22';`
+  `import { buildWhatsAppCustomerJourneyIntelligenceV15 } from '@/lib/whatsappCustomerJourneyIntelligenceV15';\nimport { buildWhatsAppCustomerCaseEngineV22 } from '@/lib/whatsappCustomerCaseEngineV22';\nimport { syncWhatsAppCustomerCasesV22 } from '@/lib/whatsappCustomerCasePersistenceV22';`
 );
 
 patch(
   'case engine memo',
   `  const customerJourney = useMemo(\n    () => buildWhatsAppCustomerJourneyIntelligenceV15(sessions),\n    [sessions]\n  );`,
   `  const customerJourney = useMemo(\n    () => buildWhatsAppCustomerJourneyIntelligenceV15(sessions),\n    [sessions]\n  );\n  const customerCases = useMemo(\n    () => buildWhatsAppCustomerCaseEngineV22(sessions),\n    [sessions]\n  );`
+);
+
+patch(
+  'persist cases after session sources',
+  `      setQueueResult(result);\n      if (!options?.silent) {`,
+  `      if (persistedSessionSources.length) {\n        try {\n          const caseModel = buildWhatsAppCustomerCaseEngineV22(queueItems.map((entry) => entry.session));\n          const caseSync = await syncWhatsAppCustomerCasesV22(caseModel, {\n            branch: importBranch,\n            createdBy: String(user?.name || user?.username || user?.id || ''),\n            sessionSources: persistedSessionSources,\n          });\n          if (caseSync.failed) console.warn('[whatsapp-case-v22] some customer cases failed to persist', caseSync);\n        } catch (caseError) {\n          console.warn('[whatsapp-case-v22] case sync failed; sessions and journey remain preserved', caseError);\n        }\n      }\n      setQueueResult(result);\n      if (!options?.silent) {`
 );
 
 if (!src.includes('whatsapp-customer-case-v22-panel')) {
