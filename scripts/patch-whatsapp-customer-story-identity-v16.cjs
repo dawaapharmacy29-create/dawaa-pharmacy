@@ -6,6 +6,7 @@ let src = fs.readFileSync(file, 'utf8');
 
 if (src.includes("supabase.rpc('dawaa_upsert_whatsapp_customer_story_v16'")) {
   console.log('[whatsapp-customer-story-identity-v16] canonical identity upsert already applied');
+  require('./patch-whatsapp-evidence-ui-v17.cjs');
   process.exit(0);
 }
 
@@ -21,3 +22,4 @@ const replacement = `  const storyState = {\n    latestJourneyId: journeyId,\n  
 src = src.slice(0, start) + replacement + src.slice(end);
 fs.writeFileSync(file, src);
 console.log('[whatsapp-customer-story-identity-v16] canonical identity upsert applied successfully');
+require('./patch-whatsapp-evidence-ui-v17.cjs');
