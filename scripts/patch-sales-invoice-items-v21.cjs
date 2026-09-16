@@ -98,3 +98,4 @@ if (!src.includes('تفاصيل أصناف الفواتير — Product Conversi
 
 fs.writeFileSync(file, src);
 console.log('[sales-items-v21] invoice item auto-detection/import wired successfully');
+require('./patch-whatsapp-product-conversion-v21.cjs');
