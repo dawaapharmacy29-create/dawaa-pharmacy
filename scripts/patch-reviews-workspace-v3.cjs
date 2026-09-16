@@ -118,3 +118,4 @@ require('./patch-whatsapp-recoverable-v10.cjs');
 require('./patch-whatsapp-recovery-work-queue-v11.cjs');
 require('./patch-whatsapp-recovery-kpis-v12.cjs');
 require('./patch-whatsapp-invoice-reconciliation-v6.cjs');
+require('./patch-whatsapp-media-v21.cjs');
