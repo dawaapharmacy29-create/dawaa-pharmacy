@@ -42,15 +42,8 @@ export async function syncWhatsAppCustomerJourneyV15(
   const root = sourceRows.find((row: any) => String(row.id) === rootMapping.sourceId) || sourceRows[0];
   if (!root) return null;
 
-  const started = sourceRows
-    .map((row: any) => row.conversation_started_at)
-    .filter(Boolean)
-    .sort()[0] || null;
-  const ended = sourceRows
-    .map((row: any) => row.conversation_ended_at)
-    .filter(Boolean)
-    .sort()
-    .at(-1) || null;
+  const started = sourceRows.map((row: any) => row.conversation_started_at).filter(Boolean).sort()[0] || null;
+  const ended = sourceRows.map((row: any) => row.conversation_ended_at).filter(Boolean).sort().at(-1) || null;
 
   const journeyKey = `wa:${String(root.id)}`;
   const journeyPayload = {
@@ -102,9 +95,7 @@ export async function syncWhatsAppCustomerJourneyV15(
   });
 
   if (linkRows.length) {
-    const { error: linkError } = await supabase
-      .from('whatsapp_customer_journey_sessions')
-      .upsert(linkRows, { onConflict: 'journey_id,source_id', ignoreDuplicates: false });
+    const { error: linkError } = await supabase.from('whatsapp_customer_journey_sessions').upsert(linkRows, { onConflict: 'journey_id,source_id', ignoreDuplicates: false });
     if (linkError) throw linkError;
   }
 
@@ -153,6 +144,17 @@ export async function syncWhatsAppCustomerJourneyV15(
     branch: context.branch || root.branch || null,
     createdBy: context.createdBy || null,
   });
+
+  try {
+    const { error: evidenceLinkError } = await supabase.rpc('dawaa_link_whatsapp_evidence_journey_v17', {
+      p_journey_id: journey.id,
+      p_story_id: story?.storyId || null,
+      p_source_ids: sourceIds,
+    });
+    if (evidenceLinkError) throw evidenceLinkError;
+  } catch (evidenceLinkError) {
+    console.warn('[whatsapp-evidence-v17] journey/story link failed; evidence rows remain source-linked', evidenceLinkError);
+  }
 
   return {
     journeyId: String(journey.id),
