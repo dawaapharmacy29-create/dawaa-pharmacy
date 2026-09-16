@@ -120,3 +120,4 @@ require('./patch-whatsapp-recovery-kpis-v12.cjs');
 require('./patch-whatsapp-invoice-reconciliation-v6.cjs');
 require('./patch-whatsapp-media-v21.cjs');
 require('./patch-sales-invoice-items-v21.cjs');
+require('./patch-whatsapp-customer-case-v22.cjs');
