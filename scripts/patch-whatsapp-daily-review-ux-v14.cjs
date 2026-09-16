@@ -26,7 +26,6 @@ patch(
   `  const selected = filtered.find((row) => row.id === selectedId) || filtered[0] || null;\n  const selectedIndex = selected ? filtered.findIndex((row) => row.id === selected.id) : -1;\n  const canGoPrevious = selectedIndex > 0;\n  const canGoNext = selectedIndex >= 0 && selectedIndex < filtered.length - 1;\n  const openQueueSource = (sourceId: string) => { setActiveWorkspace('daily'); setStatus('all'); setSelectedId(sourceId); };\n  const goPrevious = () => { if (canGoPrevious) setSelectedId(filtered[selectedIndex - 1].id); };\n  const goNext = () => { if (canGoNext) setSelectedId(filtered[selectedIndex + 1].id); };`
 );
 
-// Any dashboard drill-down should return to the daily workspace and open the requested conversation.
 src = src.replaceAll(`onOpenSource={(sourceId) => { setStatus('all'); setSelectedId(sourceId); }}`, `onOpenSource={openQueueSource}`);
 
 patch(
@@ -73,3 +72,4 @@ patch(
 
 fs.writeFileSync(file, src);
 console.log('[whatsapp-daily-ux-v14] streamlined daily review UX applied successfully');
+require('./patch-whatsapp-customer-journey-analyzer-v15.cjs');
