@@ -123,12 +123,17 @@ async function extractBestChatTextFromZip(buffer: ArrayBuffer) {
   const entries = readCentralDirectory(buffer).filter((entry) => !entry.name.includes('__MACOSX') && !entry.name.endsWith('/'));
   const archiveEntries = entries.map((entry) => entry.name);
   const textEntries = entries.filter((entry) => /\.(txt|md)$/i.test(entry.name));
+
+  // Prefer the native WhatsApp TXT export when both chat.txt and chat.md exist.
+  // The TXT file preserves full date + time on every message and is the canonical parser input.
+  // Markdown exports may contain only section-level dates, which can otherwise look valid but parse to zero messages.
   const target =
-    textEntries.find((item) => /(^|\/)chat\.md$/i.test(item.name)) ||
     textEntries.find((item) => /(^|\/)chat\.txt$/i.test(item.name)) ||
+    textEntries.find((item) => /(^|\/)chat\.md$/i.test(item.name)) ||
+    textEntries.find((item) => /\.txt$/i.test(item.name)) ||
     textEntries.find((item) => /\.md$/i.test(item.name)) ||
     textEntries[0];
-  if (!target) throw new Error('لم يتم العثور على chat.md أو chat.txt أو ملف نصي داخل ZIP.');
+  if (!target) throw new Error('لم يتم العثور على chat.txt أو chat.md أو ملف نصي داخل ZIP.');
 
   const targetBytes = await extractEntryBytes(buffer, target);
   const mediaFiles: WhatsAppExportMediaFile[] = [];
