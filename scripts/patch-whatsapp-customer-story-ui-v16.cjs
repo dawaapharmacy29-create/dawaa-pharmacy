@@ -32,3 +32,4 @@ if (!src.includes(replacement)) {
 
 fs.writeFileSync(file, src);
 console.log('[whatsapp-customer-story-ui-v16] customer story workspace wired successfully');
+require('./patch-whatsapp-customer-story-identity-v16.cjs');
