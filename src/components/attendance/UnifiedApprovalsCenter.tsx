@@ -15,9 +15,18 @@ type ApprovalItem = {
   title: string;
   subtitle: string;
   amount: number | null;
+  hours: number | null;
   requested_at: string;
   priority: number;
 };
+
+function formatHoursMinutes(hours: number) {
+  const totalMinutes = Math.round(hours * 60);
+  if (totalMinutes < 60) return `${totalMinutes} دقيقة`;
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  return m === 0 ? `${h} ساعة` : `${h} ساعة و${m} دقيقة`;
+}
 
 type OvertimeContext = {
   ready: boolean;
@@ -185,7 +194,7 @@ export default function UnifiedApprovalsCenter() {
                   <span className={cn('rounded-full border px-2 py-0.5 text-[10px] font-black', meta.cls)}>{meta.label}</span>
                   <div>
                     <button onClick={() => setProfileStaffId(it.staff_id)} className="font-black text-[var(--dawaa-theme-heading)] hover:underline hover:text-[var(--dawaa-theme-primary-strong)]">{it.staff_name}</button>
-                    <span className="mr-2 text-xs font-bold text-[var(--dawaa-theme-muted)]">{it.branch} · {it.title} · {it.subtitle}</span>
+                    <span className="mr-2 text-xs font-bold text-[var(--dawaa-theme-muted)]">{it.branch} · {it.title} · {it.item_type === 'overtime' && it.hours != null ? `${formatHoursMinutes(it.hours)} · ` : ''}{it.subtitle}</span>
                   </div>
                 </div>
                 <div className="flex items-center gap-1.5">
