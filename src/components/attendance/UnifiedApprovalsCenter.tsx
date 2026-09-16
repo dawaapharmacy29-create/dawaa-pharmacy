@@ -31,6 +31,10 @@ function formatHoursMinutes(hours: number) {
 type OvertimeContext = {
   ready: boolean;
   reason?: string;
+  staff_first_in?: string | null;
+  staff_last_out?: string | null;
+  scheduled_start_at?: string | null;
+  scheduled_end_at?: string | null;
   window_start?: string;
   window_end?: string;
   colleagues_working?: { staff_name: string; role: string | null; first_in: string | null; last_out: string | null }[];
@@ -40,6 +44,13 @@ type OvertimeContext = {
   invoices_sample?: { invoice_number: string; amount: number; time: string }[];
   recommendation?: string;
 };
+
+function formatClock(value?: string | null) {
+  if (!value) return '-';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '-';
+  return d.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', timeZone: 'Africa/Cairo' });
+}
 
 const TYPE_META: Record<ApprovalItem['item_type'], { label: string; cls: string }> = {
   deduction: { label: 'خصم', cls: 'text-[var(--dawaa-status-danger-text)] bg-[var(--dawaa-status-danger-bg)] border-[var(--dawaa-status-danger-border)]' },
@@ -215,6 +226,10 @@ export default function UnifiedApprovalsCenter() {
                   {ctx && ctx !== 'loading' && ctx !== 'error' && !ctx.ready && <div className="text-xs font-bold text-[var(--dawaa-theme-muted)]">{ctx.reason}</div>}
                   {ctx && ctx !== 'loading' && ctx !== 'error' && ctx.ready && (
                     <div className="space-y-2">
+                      <div className="flex items-center gap-1.5 rounded-lg border border-[var(--dawaa-theme-border)] p-2 text-xs font-black text-[var(--dawaa-theme-heading)]">
+                        🕐 بصمته: دخل {formatClock(ctx.staff_first_in)} ← خرج {formatClock(ctx.staff_last_out)}
+                        <span className="mr-auto font-bold text-[var(--dawaa-theme-muted)]">(الميعاد: {formatClock(ctx.scheduled_start_at)} ← {formatClock(ctx.scheduled_end_at)})</span>
+                      </div>
                       <div className="flex items-center gap-1.5 rounded-lg border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] p-2 text-xs font-black text-[var(--dawaa-status-info-text)]">
                         <Sparkles size={14} /> التوصية: {ctx.recommendation}
                       </div>
@@ -222,7 +237,7 @@ export default function UnifiedApprovalsCenter() {
                         <div className="rounded-lg border border-[var(--dawaa-theme-border)] p-2">
                           <div className="mb-1 flex items-center gap-1.5 text-xs font-black text-[var(--dawaa-theme-heading)]"><Users2 size={13} /> زملاء كانوا شغالين معه ({ctx.colleagues_count ?? 0})</div>
                           {!ctx.colleagues_working?.length ? <p className="text-[11px] font-bold text-[var(--dawaa-theme-muted)]">محدش تاني كان موجود — كان لوحده</p> : (
-                            <div className="space-y-1">{ctx.colleagues_working.map((c, i) => <div key={i} className="text-[11px] font-bold text-[var(--dawaa-theme-muted)]">{c.staff_name} ({c.role || '-'})</div>)}</div>
+                            <div className="space-y-1">{ctx.colleagues_working.map((c, i) => <div key={i} className="text-[11px] font-bold text-[var(--dawaa-theme-muted)]">{c.staff_name} ({c.role || '-'}) — {formatClock(c.first_in)} ← {formatClock(c.last_out)}</div>)}</div>
                           )}
                         </div>
                         <div className="rounded-lg border border-[var(--dawaa-theme-border)] p-2">
