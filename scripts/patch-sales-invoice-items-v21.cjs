@@ -35,11 +35,30 @@ patch(
   `        const result =\n          importKind === 'sales'\n            ? parseInvoiceFile(buffer, file.name, branch)\n            : parseCustomerFile(buffer, file.name);\n        const detectedItems = importKind === 'sales' ? parseSalesInvoiceItemsV21(buffer, branch) : null;\n        setInvoiceItemsParseResult(detectedItems);\n\n        setParseResult(result);`
 );
 
-patch(
-  'import invoice items after safe invoice import',
-  `      setImportSummary(summary);\n\n      const branchMismatch = (summary.errors || []).find((error) => error.field === 'الفرع');`,
-  `      setImportSummary(summary);\n\n      const branchMismatch = (summary.errors || []).find((error) => error.field === 'الفرع');\n      if (importKind === 'sales' && !branchMismatch && invoiceItemsParseResult?.rows.length) {\n        const itemImport = await importSalesInvoiceItemsV21(invoiceItemsParseResult.rows, {\n          sourceFile: fileName,\n          importBatch: batch,\n          createdBy: String(user?.name || user?.id || ''),\n        });\n        setInvoiceItemsImportResult(itemImport);\n        if (itemImport.saved > 0) {\n          const conversionNote = itemImport.reconciledProductConversions\n            ? ` وربط ${itemImport.reconciledProductConversions.toLocaleString('ar-EG')} فرصة واتساب بصنف مباع فعليًا`\n            : '';\n          toast.success(`تم حفظ ${itemImport.saved.toLocaleString('ar-EG')} بند صنف${conversionNote}`);\n        }\n        if (itemImport.failed > 0) {\n          toast.warning(`تعذر حفظ ${itemImport.failed.toLocaleString('ar-EG')} بند صنف؛ الفواتير نفسها محفوظة ولم تتأثر.`);\n        }\n      }`
-);
+const importFrom = `      setImportSummary(summary);\n\n      const branchMismatch = (summary.errors || []).find((error) => error.field === 'الفرع');`;
+const importTo = [
+  `      setImportSummary(summary);`,
+  ``,
+  `      const branchMismatch = (summary.errors || []).find((error) => error.field === 'الفرع');`,
+  `      if (importKind === 'sales' && !branchMismatch && invoiceItemsParseResult?.rows.length) {`,
+  `        const itemImport = await importSalesInvoiceItemsV21(invoiceItemsParseResult.rows, {`,
+  `          sourceFile: fileName,`,
+  `          importBatch: batch,`,
+  `          createdBy: String(user?.name || user?.id || ''),`,
+  `        });`,
+  `        setInvoiceItemsImportResult(itemImport);`,
+  `        if (itemImport.saved > 0) {`,
+  `          const conversionNote = itemImport.reconciledProductConversions`,
+  `            ? ' وربط ' + itemImport.reconciledProductConversions.toLocaleString('ar-EG') + ' فرصة واتساب بصنف مباع فعليًا'`,
+  `            : '';`,
+  `          toast.success('تم حفظ ' + itemImport.saved.toLocaleString('ar-EG') + ' بند صنف' + conversionNote);`,
+  `        }`,
+  `        if (itemImport.failed > 0) {`,
+  `          toast.warning('تعذر حفظ ' + itemImport.failed.toLocaleString('ar-EG') + ' بند صنف؛ الفواتير نفسها محفوظة ولم تتأثر.');`,
+  `        }`,
+  `      }`,
+].join('\n');
+patch('import invoice items after safe invoice import', importFrom, importTo);
 
 patch(
   'reset item states',
@@ -54,7 +73,25 @@ if (!src.includes('تفاصيل أصناف الفواتير — Product Conversi
   const statsAnchor = `          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">`;
   const statsStart = src.indexOf(statsAnchor, workspaceStart);
   if (statsStart < 0) throw new Error('[sales-items-v21] preview stats anchor not found after workspace');
-  const itemSummary = `          {importKind === 'sales' && invoiceItemsParseResult ? (\n            <div className={\`rounded-2xl border p-4 text-sm \${invoiceItemsParseResult.rows.length ? 'border-emerald-400/25 bg-emerald-500/5' : 'border-amber-400/25 bg-amber-500/5'}\`}>\n              <div className="font-black text-[var(--dawaa-theme-heading)]">تفاصيل أصناف الفواتير — Product Conversion</div>\n              {invoiceItemsParseResult.rows.length ? (\n                <div className="mt-2 space-y-1 text-xs text-[var(--dawaa-theme-text)]">\n                  <div>تم اكتشاف <b>{invoiceItemsParseResult.rows.length.toLocaleString('ar-EG')}</b> بند صنف داخل: <b>{invoiceItemsParseResult.detectedSheets.join('، ')}</b>.</div>\n                  <div>بعد حفظ الفواتير سيتم حفظ البنود وربطها تلقائيًا بفرص واتساب المطابقة برقم الفاتورة + الفرع + كود/اسم الصنف.</div>\n                  {invoiceItemsImportResult ? <div className="mt-2 font-bold text-emerald-300">حُفظ: {invoiceItemsImportResult.saved.toLocaleString('ar-EG')} • فشل: {invoiceItemsImportResult.failed.toLocaleString('ar-EG')} • Product Conversion مؤكدة: {invoiceItemsImportResult.reconciledProductConversions.toLocaleString('ar-EG')}</div> : null}\n                </div>\n              ) : (\n                <div className="mt-2 text-xs leading-6 text-amber-200">الملف الحالي يحتوي ملخص الفواتير فقط ولا يحتوي أسماء/أكواد بنود البيع. يمكن تأكيد Conversion المحادثة بالفاتورة، لكن Product Conversion يظل غير مثبت حتى يتوفر ملف تفاصيل الأصناف.</div>\n              )}\n            </div>\n          ) : null}\n\n`;
+
+  const itemSummary = [
+    `          {importKind === 'sales' && invoiceItemsParseResult ? (`,
+    `            <div className={'rounded-2xl border p-4 text-sm ' + (invoiceItemsParseResult.rows.length ? 'border-emerald-400/25 bg-emerald-500/5' : 'border-amber-400/25 bg-amber-500/5')}>`,
+    `              <div className="font-black text-[var(--dawaa-theme-heading)]">تفاصيل أصناف الفواتير — Product Conversion</div>`,
+    `              {invoiceItemsParseResult.rows.length ? (`,
+    `                <div className="mt-2 space-y-1 text-xs text-[var(--dawaa-theme-text)]">`,
+    `                  <div>تم اكتشاف <b>{invoiceItemsParseResult.rows.length.toLocaleString('ar-EG')}</b> بند صنف داخل: <b>{invoiceItemsParseResult.detectedSheets.join('، ')}</b>.</div>`,
+    `                  <div>بعد حفظ الفواتير سيتم حفظ البنود وربطها تلقائيًا بفرص واتساب المطابقة برقم الفاتورة + الفرع + كود/اسم الصنف.</div>`,
+    `                  {invoiceItemsImportResult ? <div className="mt-2 font-bold text-emerald-300">حُفظ: {invoiceItemsImportResult.saved.toLocaleString('ar-EG')} • فشل: {invoiceItemsImportResult.failed.toLocaleString('ar-EG')} • Product Conversion مؤكدة: {invoiceItemsImportResult.reconciledProductConversions.toLocaleString('ar-EG')}</div> : null}`,
+    `                </div>`,
+    `              ) : (`,
+    `                <div className="mt-2 text-xs leading-6 text-amber-200">الملف الحالي يحتوي ملخص الفواتير فقط ولا يحتوي أسماء/أكواد بنود البيع. يمكن تأكيد Conversion المحادثة بالفاتورة، لكن Product Conversion يظل غير مثبت حتى يتوفر ملف تفاصيل الأصناف.</div>`,
+    `              )}`,
+    `            </div>`,
+    `          ) : null}`,
+    ``,
+  ].join('\n');
+
   src = src.slice(0, statsStart) + itemSummary + src.slice(statsStart);
   console.log('[sales-items-v21] product conversion preview card: applied');
 } else console.log('[sales-items-v21] product conversion preview card: already applied');
