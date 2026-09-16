@@ -20,8 +20,9 @@ patch(
 if (!src.includes('<WhatsAppCycleEvidenceDashboardV17 mode="doctors" />')) {
   const doctorCurrent = `      <WhatsAppDoctorCycleIntelligenceV8 onOpenSource={openQueueSource} />`;
   const doctorLegacy = `      <WhatsAppDoctorCycleIntelligenceV8 onOpenSource={(sourceId) => { setStatus('all'); setSelectedId(sourceId); }} />`;
-  if (src.includes(doctorCurrent)) src = src.replace(doctorCurrent, `${doctorCurrent}\n      <WhatsAppCycleEvidenceDashboardV17 mode="doctors" />`);
-  else if (src.includes(doctorLegacy)) src = src.replace(doctorLegacy, `${doctorLegacy}\n      <WhatsAppCycleEvidenceDashboardV17 mode="doctors" />`);
+  const wrapDoctorDashboard = (doctorLine) => `      <>\n${doctorLine}\n      <WhatsAppCycleEvidenceDashboardV17 mode="doctors" />\n      </>`;
+  if (src.includes(doctorCurrent)) src = src.replace(doctorCurrent, wrapDoctorDashboard(doctorCurrent));
+  else if (src.includes(doctorLegacy)) src = src.replace(doctorLegacy, wrapDoctorDashboard(doctorLegacy));
   else throw new Error('[whatsapp-evidence-ui-v17] doctor dashboard anchor not found');
   console.log('[whatsapp-evidence-ui-v17] doctor evidence cycle dashboard: applied');
 } else console.log('[whatsapp-evidence-ui-v17] doctor evidence cycle dashboard: already applied');
