@@ -39,7 +39,12 @@ export default function UnifiedApprovalsCenter() {
   const load = useCallback(async () => {
     setLoading(true);
     const { data, error } = await supabase.rpc('attendance_unified_approvals_v1');
-    if (!error) setItems((data || []) as ApprovalItem[]);
+    if (error) {
+      toast.error(`تعذر تحميل مركز الاعتمادات: ${error.message}`);
+      setItems([]);
+    } else {
+      setItems((data || []) as ApprovalItem[]);
+    }
     setLoading(false);
   }, []);
 
