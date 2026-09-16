@@ -84,3 +84,4 @@ analyzer = analyzer.replace('جلسات المتابعة الصادرة فقط �
 
 fs.writeFileSync(analyzerFile, analyzer);
 console.log('[whatsapp-journey-persistence-v15] context sessions and journey persistence wired successfully');
+require('./patch-whatsapp-participant-role-v15.cjs');
