@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowUpLeft, RefreshCw } from 'lucide-react';
+import { ArrowUpLeft, RefreshCw, UserRoundPlus } from 'lucide-react';
+import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 
 type LostReasonRow = {
@@ -86,6 +87,7 @@ export default function WhatsAppLostOpportunityAnalyticsV24({ onOpenSource }: { 
   const [doctors, setDoctors] = useState<DoctorRow[]>([]);
   const [rescue, setRescue] = useState<RescueRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const [creatingTaskFor, setCreatingTaskFor] = useState<string | null>(null);
   const cycle = cairoCycleStart();
 
   const load = async () => {
@@ -107,6 +109,24 @@ export default function WhatsAppLostOpportunityAnalyticsV24({ onOpenSource }: { 
       setReasons([]); setDoctors([]); setRescue([]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const createRescueTask = async (row: RescueRow) => {
+    setCreatingTaskFor(row.id);
+    try {
+      const { data, error } = await supabase.rpc('dawaa_create_case_rescue_task_v24', { p_case_id: row.id });
+      if (error) throw error;
+      const payload = data as any;
+      toast.success(`تم تجهيز مهمة متابعة للعميل${payload?.rescue_score != null ? ` — أولوية ${payload.rescue_score}` : ''}`);
+    } catch (error: any) {
+      const message = String(error?.message || 'تعذر إنشاء مهمة المتابعة');
+      if (message.includes('case_already_won')) toast.error('الحالة لها بيع مؤكد بالفعل ولا تحتاج Rescue.');
+      else if (message.includes('case_confirmed_lost')) toast.error('الحالة معتمدة Lost؛ راجع النتيجة أولًا قبل إعادة فتحها.');
+      else if (message.includes('case_not_salvageable')) toast.error('الحالة الحالية غير مؤهلة للـRescue.');
+      else toast.error('تعذر تجهيز مهمة المتابعة.');
+    } finally {
+      setCreatingTaskFor(null);
     }
   };
 
@@ -163,7 +183,7 @@ export default function WhatsAppLostOpportunityAnalyticsV24({ onOpenSource }: { 
 
       <div className="mt-5 rounded-2xl border border-amber-400/20 bg-amber-500/5 p-3">
         <div className="font-black text-amber-100">Rescue Queue — فرص لسه ممكن تتلحق</div>
-        <div className="mt-1 text-xs text-slate-400">مرتبة بدرجة إنقاذ تشغيلية، وليست توقعًا لاحتمال الشراء.</div>
+        <div className="mt-1 text-xs text-slate-400">مرتبة بدرجة إنقاذ تشغيلية، وليست توقعًا لاحتمال الشراء. إنشاء المهمة لا يضيف نقاط أو حوافز تلقائيًا.</div>
         <div className="mt-3 grid gap-2 xl:grid-cols-2">
           {rescue.slice(0, 20).map((row) => (
             <div key={row.id} className="rounded-xl border border-slate-800 bg-slate-950/35 p-3">
@@ -173,7 +193,13 @@ export default function WhatsAppLostOpportunityAnalyticsV24({ onOpenSource }: { 
               </div>
               <div className="mt-2 flex flex-wrap gap-2 text-[11px]"><span className="text-cyan-200">{stageLabel[row.stop_stage] || row.stop_stage}</span><span className="text-violet-200">{statusLabel[row.opportunity_status] || row.opportunity_status}</span>{(row.staff_names || []).length ? <span className="text-emerald-300">{(row.staff_names || []).join('، ')}</span> : null}</div>
               {row.effective_lost_reason ? <div className="mt-2 text-xs text-amber-100">إشارة التعثر: {row.effective_lost_reason}</div> : null}
-              <div className="mt-2 flex items-center justify-between gap-3"><span className="text-xs text-slate-400">قيمة الفرصة: {n(row.opportunity_value).toLocaleString('ar-EG')} ج</span>{onOpenSource ? <button type="button" onClick={() => onOpenSource(row.root_source_id)} className="rounded-lg border border-slate-700 bg-slate-950/40 px-2 py-1 text-xs font-black text-cyan-200"><ArrowUpLeft size={13} className="ml-1 inline" /> فتح المحادثة</button> : null}</div>
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs text-slate-400">قيمة الفرصة: {n(row.opportunity_value).toLocaleString('ar-EG')} ج</span>
+                <div className="flex gap-2">
+                  <button type="button" disabled={creatingTaskFor === row.id} onClick={() => void createRescueTask(row)} className="rounded-lg border border-amber-400/30 bg-amber-500/10 px-2 py-1 text-xs font-black text-amber-100 disabled:opacity-50"><UserRoundPlus size={13} className="ml-1 inline" /> {creatingTaskFor === row.id ? 'جاري التجهيز...' : 'تحويل لمهمة متابعة'}</button>
+                  {onOpenSource ? <button type="button" onClick={() => onOpenSource(row.root_source_id)} className="rounded-lg border border-slate-700 bg-slate-950/40 px-2 py-1 text-xs font-black text-cyan-200"><ArrowUpLeft size={13} className="ml-1 inline" /> فتح المحادثة</button> : null}
+                </div>
+              </div>
             </div>
           ))}
           {!rescue.length && !loading ? <div className="col-span-full rounded-xl border border-dashed border-slate-800 p-5 text-center text-sm text-slate-500">لا توجد فرص Salvageable محفوظة في الدورة الحالية.</div> : null}
