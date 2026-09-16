@@ -39,3 +39,4 @@ if (!src.includes('whatsapp-customer-case-v22-panel')) {
 
 fs.writeFileSync(file, src);
 console.log('[whatsapp-case-v22] customer cases, media coverage and bounded episodes wired successfully');
+require('./patch-whatsapp-customer-cases-ui-v22.cjs');
