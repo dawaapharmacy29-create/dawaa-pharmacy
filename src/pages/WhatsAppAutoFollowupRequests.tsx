@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Search } from 'lucide-react';
+import { BadgeCheck, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
+import {
+  verifyFollowupSale,
+  type FollowupSaleVerification,
+} from '@/lib/whatsappFollowupSalesVerification';
 
 type FollowupRow = {
   id: string;
   created_at: string;
+  evidence_timestamp?: string | null;
   branch: string | null;
   doctor_name: string | null;
   customer_name: string;
@@ -42,6 +47,30 @@ function normalizeSearch(value: unknown) {
   return String(value ?? '').trim().toLocaleLowerCase('ar-EG');
 }
 
+function isMissingRpc(error: { code?: string | null; message?: string | null } | null) {
+  if (!error) return false;
+  return error.code === 'PGRST202' || /function.+not found|could not find the function/i.test(error.message || '');
+}
+
+async function listFollowups(status: string, signalType: string) {
+  const params = { p_status: status || null, p_signal_type: signalType || null };
+  const v2 = await supabase.rpc('whatsapp_auto_followup_list_v2', params);
+  if (!v2.error || !isMissingRpc(v2.error)) return v2;
+  return supabase.rpc('whatsapp_auto_followup_list_v1', params);
+}
+
+async function updateFollowupRpc(id: string, status: string, notes: string | null, assignedTo: string | null) {
+  const params = { p_id: id, p_status: status, p_notes: notes, p_assigned_to: assignedTo };
+  const v2 = await supabase.rpc('whatsapp_auto_followup_update_status_v2', params);
+  if (!v2.error || !isMissingRpc(v2.error)) return v2;
+  return supabase.rpc('whatsapp_auto_followup_update_status_v1', params);
+}
+
+function formatMoney(value: number | null) {
+  if (value == null) return '-';
+  return value.toLocaleString('ar-EG', { maximumFractionDigits: 2 });
+}
+
 export default function WhatsAppAutoFollowupRequests() {
   const [rows, setRows] = useState<FollowupRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -50,14 +79,13 @@ export default function WhatsAppAutoFollowupRequests() {
   const [branchFilter, setBranchFilter] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [saleBusyId, setSaleBusyId] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, FollowupDraft>>({});
+  const [saleChecks, setSaleChecks] = useState<Record<string, FollowupSaleVerification>>({});
 
   const load = useCallback(async () => {
     setLoading(true);
-    const { data, error } = await supabase.rpc('whatsapp_auto_followup_list_v1', {
-      p_status: statusFilter || null,
-      p_signal_type: signalFilter || null,
-    });
+    const { data, error } = await listFollowups(statusFilter, signalFilter);
     if (error) {
       toast.error(error.message);
     } else {
@@ -119,12 +147,12 @@ export default function WhatsAppAutoFollowupRequests() {
     setBusyId(id);
     try {
       const draft = drafts[id];
-      const { error } = await supabase.rpc('whatsapp_auto_followup_update_status_v1', {
-        p_id: id,
-        p_status: status,
-        p_notes: includeDraft ? (draft?.notes.trim() || null) : null,
-        p_assigned_to: includeDraft ? (draft?.assignedTo.trim() || null) : null,
-      });
+      const { error } = await updateFollowupRpc(
+        id,
+        status,
+        includeDraft ? (draft?.notes.trim() || null) : null,
+        includeDraft ? (draft?.assignedTo.trim() || null) : null,
+      );
       if (error) throw error;
       toast.success(includeDraft ? 'تم حفظ بيانات المتابعة' : 'تم تحديث الحالة');
       await load();
@@ -132,6 +160,28 @@ export default function WhatsAppAutoFollowupRequests() {
       toast.error(error instanceof Error ? error.message : 'تعذر التحديث');
     } finally {
       setBusyId(null);
+    }
+  }
+
+  async function checkSale(row: FollowupRow) {
+    setSaleBusyId(row.id);
+    try {
+      const verification = await verifyFollowupSale({
+        customerPhone: row.customer_phone,
+        customerName: row.customer_name,
+        branch: row.branch,
+        signalAt: row.evidence_timestamp || row.created_at,
+        windowDays: 14,
+      });
+      setSaleChecks((current) => ({ ...current, [row.id]: verification }));
+      if (verification.status === 'verified_candidate') toast.success('تم العثور على فاتورة قوية المطابقة بعد المتابعة');
+      else if (verification.status === 'weak_candidate') toast.info('تم العثور على فاتورة محتملة وتحتاج مراجعة بشرية');
+      else if (verification.status === 'insufficient_identity') toast.warning('بيانات العميل غير كافية للتحقق من البيع');
+      else toast.info('لم تظهر فاتورة مطابقة داخل نافذة التحقق');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'تعذر التحقق من المبيعات');
+    } finally {
+      setSaleBusyId(null);
     }
   }
 
@@ -168,7 +218,7 @@ export default function WhatsAppAutoFollowupRequests() {
     <div className="dawaa-text space-y-4 p-4" dir="rtl">
       <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm">
         <h1 className="text-xl font-black text-[var(--dawaa-theme-heading)]">طلبات المتابعة الآلية من محادثات الواتساب</h1>
-        <p className="mt-1 text-sm font-bold text-[var(--dawaa-theme-muted)]">طابور تشغيلي للحالات التي التقطها التحليل تلقائيًا: شكوى، حالة مريض بالمنزل، ترشيح دكتور، أو صنف مطلوب غير متوفر. القرار والتنفيذ النهائي يظل بشريًا.</p>
+        <p className="mt-1 text-sm font-bold text-[var(--dawaa-theme-muted)]">طابور تشغيلي للحالات التي التقطها التحليل تلقائيًا. البيع لا يُعتمد آليًا: النظام يبحث عن فاتورة مرشحة ويترك القرار النهائي للمراجع.</p>
 
         <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
           <div className="rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-3"><div className="text-[11px] font-bold text-[var(--dawaa-theme-muted)]">جديد</div><div className="mt-1 text-2xl font-black text-[var(--dawaa-theme-heading)]">{stats.newCount.toLocaleString('ar-EG')}</div></div>
@@ -206,19 +256,21 @@ export default function WhatsAppAutoFollowupRequests() {
         <table className="min-w-full text-xs">
           <thead className="bg-[var(--dawaa-theme-surface-2)]">
             <tr>
-              {['التاريخ', 'الفرع', 'العميل / الهاتف', 'الدكتور', 'النوع', 'الدليل من المحادثة', 'الصنف / البديل', 'الحالة', 'المتابعة'].map((header) => (
+              {['التاريخ', 'الفرع', 'العميل / الهاتف', 'الدكتور', 'النوع', 'الدليل من المحادثة', 'الصنف / البديل', 'التحقق من البيع', 'الحالة', 'المتابعة'].map((header) => (
                 <th key={header} className="whitespace-nowrap p-2.5 text-right font-black text-[var(--dawaa-theme-heading)]">{header}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td colSpan={9} className="p-6 text-center font-bold text-[var(--dawaa-theme-muted)]">جارٍ التحميل...</td></tr>}
-            {!loading && !visibleRows.length && <tr><td colSpan={9} className="p-6 text-center font-bold text-[var(--dawaa-theme-muted)]">لا توجد طلبات متابعة مطابقة للفلاتر الحالية.</td></tr>}
+            {loading && <tr><td colSpan={10} className="p-6 text-center font-bold text-[var(--dawaa-theme-muted)]">جارٍ التحميل...</td></tr>}
+            {!loading && !visibleRows.length && <tr><td colSpan={10} className="p-6 text-center font-bold text-[var(--dawaa-theme-muted)]">لا توجد طلبات متابعة مطابقة للفلاتر الحالية.</td></tr>}
             {visibleRows.map((row) => {
               const draft = drafts[row.id] || { assignedTo: row.assigned_to || '', notes: row.followup_notes || '' };
+              const saleCheck = saleChecks[row.id];
+              const bestSale = saleCheck?.candidates[0];
               return (
                 <tr key={row.id} className="border-t border-[var(--dawaa-theme-border)] align-top">
-                  <td className="whitespace-nowrap p-2.5 font-bold text-[var(--dawaa-theme-muted)]">{new Date(row.created_at).toLocaleDateString('ar-EG')}</td>
+                  <td className="whitespace-nowrap p-2.5 font-bold text-[var(--dawaa-theme-muted)]">{new Date(row.evidence_timestamp || row.created_at).toLocaleDateString('ar-EG')}</td>
                   <td className="whitespace-nowrap p-2.5">{row.branch || '-'}</td>
                   <td className="whitespace-nowrap p-2.5 font-black text-[var(--dawaa-theme-heading)]">{row.customer_name}<div className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">{row.customer_phone || '-'}</div></td>
                   <td className="whitespace-nowrap p-2.5 font-bold text-[var(--dawaa-theme-muted)]">{row.doctor_name || '-'}</td>
@@ -229,11 +281,28 @@ export default function WhatsAppAutoFollowupRequests() {
                     {row.alternative_offered != null && <div className={row.alternative_offered ? 'text-emerald-400' : 'text-red-400'}>{row.alternative_offered ? '✓ اتعرض بديل' : '✗ مفيش بديل اتعرض'}</div>}
                     {row.alternative_product_name && <div className="mt-1 text-[10px]">البديل: {row.alternative_product_name}</div>}
                   </td>
+                  <td className="min-w-[190px] p-2.5">
+                    <button type="button" disabled={saleBusyId === row.id} onClick={() => void checkSale(row)} className="w-full rounded-lg border border-emerald-400/25 bg-emerald-500/10 px-2 py-1.5 text-[10px] font-black text-emerald-100 disabled:opacity-50">{saleBusyId === row.id ? 'جاري التحقق...' : 'تحقق من الفواتير'}</button>
+                    {saleCheck ? (
+                      <div className="mt-2 rounded-lg border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-2 text-[10px] leading-5">
+                        {bestSale ? (
+                          <>
+                            <div className="flex items-center gap-1 font-black text-emerald-300"><BadgeCheck size={12} /> فاتورة مرشحة {Math.round(bestSale.confidence * 100)}%</div>
+                            <div className="mt-1 text-[var(--dawaa-theme-muted)]">رقم: {bestSale.invoiceNumber || '-'}</div>
+                            <div className="text-[var(--dawaa-theme-muted)]">القيمة: {formatMoney(bestSale.amount)} ج</div>
+                            <div className="text-[var(--dawaa-theme-muted)]">التاريخ: {new Date(bestSale.invoiceDate).toLocaleDateString('ar-EG')}</div>
+                            <div className="mt-1 text-amber-200">مرشح فقط — الاعتماد النهائي بشري.</div>
+                          </>
+                        ) : <div className="text-[var(--dawaa-theme-muted)]">لا توجد فاتورة مطابقة داخل نافذة 14 يومًا.</div>}
+                      </div>
+                    ) : null}
+                  </td>
                   <td className="whitespace-nowrap p-2.5">
                     <select value={row.status} disabled={busyId === row.id} onChange={(event) => void updateFollowup(row.id, event.target.value)} className="input-dark text-[10px]">
                       {STATUS_OPTIONS.map((status) => <option key={status} value={status}>{status}</option>)}
                     </select>
                     {row.status === 'جديد' ? <button type="button" disabled={busyId === row.id} onClick={() => void updateFollowup(row.id, 'قيد المتابعة')} className="mt-2 block w-full rounded-lg border border-amber-400/25 bg-amber-500/10 px-2 py-1.5 text-[10px] font-black text-amber-200 disabled:opacity-50">ابدأ المتابعة</button> : null}
+                    {bestSale && row.status !== 'تم البيع' ? <button type="button" disabled={busyId === row.id} onClick={() => void updateFollowup(row.id, 'تم البيع')} className="mt-2 block w-full rounded-lg border border-emerald-400/25 bg-emerald-500/10 px-2 py-1.5 text-[10px] font-black text-emerald-200 disabled:opacity-50">اعتماد البيع بشريًا</button> : null}
                   </td>
                   <td className="min-w-[240px] p-2.5">
                     <input value={draft.assignedTo} onChange={(event) => setDraft(row.id, { assignedTo: event.target.value })} placeholder="اسم المسؤول عن المتابعة" className="input-dark w-full text-[10px]" />
