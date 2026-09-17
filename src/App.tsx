@@ -41,6 +41,8 @@ const CustomerServiceClassic = lazy(() => import('@/pages/CustomerService'));
 const WhatsAppAutoFollowupRequests = lazy(() => import('@/pages/WhatsAppAutoFollowupRequests'));
 const WhatsAppFolderWatcher = lazy(() => import('@/pages/WhatsAppFolderWatcher'));
 const WhatsAppDoctorPerformance = lazy(() => import('@/pages/WhatsAppDoctorPerformance'));
+const WhatsAppCustomerHistory = lazy(() => import('@/pages/WhatsAppCustomerHistory'));
+const WhatsAppLostOpportunities = lazy(() => import('@/pages/WhatsAppLostOpportunities'));
 const CustomerRequests = lazy(() => import('@/pages/CustomerRequests'));
 const CustomerIncubation = lazy(() => import('@/pages/CustomerIncubation'));
 const CustomerDataReview = lazy(() => import('@/pages/CustomerDataReview'));
@@ -483,6 +485,22 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             {routeSuspense(<WhatsAppDoctorPerformance />, 'أداء الدكاترة في الواتساب')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/whatsapp-customer-history"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<WhatsAppCustomerHistory />, 'سجل محادثات العميل')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/whatsapp-lost-opportunities"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<WhatsAppLostOpportunities />, 'الفرص الضائعة')}
           </ProtectedRoute>
         }
       />
