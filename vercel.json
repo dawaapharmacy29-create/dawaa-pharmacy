@@ -3,7 +3,7 @@
   "framework": "vite",
   "git": {
     "deploymentEnabled": {
-      "whatsapp-review-integration-test": false
+      "whatsapp-review-integration-test": true
     }
   },
   "installCommand": "npm install -g npm@10.9.2 && npm ci --legacy-peer-deps --no-audit --no-fund",
