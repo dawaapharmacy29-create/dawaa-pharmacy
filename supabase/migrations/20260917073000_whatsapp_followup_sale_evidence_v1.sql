@@ -35,11 +35,15 @@ grant all on table public.whatsapp_auto_followup_audit to service_role;
 create index if not exists whatsapp_auto_followup_audit_followup_created_idx
   on public.whatsapp_auto_followup_audit(followup_id, created_at desc);
 
+drop function if exists public.whatsapp_auto_followup_confirm_sale_v1(uuid, text, numeric, text);
 drop function if exists public.whatsapp_auto_followup_confirm_sale_v1(uuid, text, text, date, numeric, numeric, text);
 
 create or replace function public.whatsapp_auto_followup_confirm_sale_v1(
   p_id uuid,
   p_invoice_id text,
+  p_invoice_number text,
+  p_invoice_date date,
+  p_invoice_value numeric,
   p_confidence numeric,
   p_notes text default null
 )
@@ -120,6 +124,10 @@ begin
     raise exception using errcode = '22023', message = 'الفاتورة من فرع مختلف عن طلب المتابعة';
   end if;
 
+  -- p_invoice_number / p_invoice_date / p_invoice_value come from the UI preview only.
+  -- They are deliberately ignored here; canonical facts are re-read from sales_invoices above.
+  perform p_invoice_number, p_invoice_date, p_invoice_value;
+
   select * into v_actor
   from public.staff_accounts a
   where a.id = public.dawaa_current_staff_account_id_strict()
@@ -162,8 +170,8 @@ begin
 end;
 $$;
 
-revoke all on function public.whatsapp_auto_followup_confirm_sale_v1(uuid, text, numeric, text) from public, anon;
-grant execute on function public.whatsapp_auto_followup_confirm_sale_v1(uuid, text, numeric, text) to authenticated, service_role;
+revoke all on function public.whatsapp_auto_followup_confirm_sale_v1(uuid, text, text, date, numeric, numeric, text) from public, anon;
+grant execute on function public.whatsapp_auto_followup_confirm_sale_v1(uuid, text, text, date, numeric, numeric, text) to authenticated, service_role;
 
 create or replace function public.whatsapp_auto_followup_revoke_sale_v1(
   p_id uuid,
@@ -231,7 +239,64 @@ $$;
 revoke all on function public.whatsapp_auto_followup_revoke_sale_v1(uuid, text) from public, anon;
 grant execute on function public.whatsapp_auto_followup_revoke_sale_v1(uuid, text) to authenticated, service_role;
 
-comment on function public.whatsapp_auto_followup_confirm_sale_v1(uuid, text, numeric, text) is
-  'Human confirmation endpoint for WhatsApp follow-up conversion. Invoice facts are re-read server-side and identity, branch and 14-day timing are independently validated.';
+-- Once a sale has evidence, generic status updates may not silently detach it.
+-- Corrections must use whatsapp_auto_followup_revoke_sale_v1 so the action is audited.
+create or replace function public.whatsapp_auto_followup_update_status_v2(
+  p_id uuid,
+  p_status text,
+  p_notes text default null,
+  p_assigned_to text default null
+)
+returns public.whatsapp_auto_followup_requests
+language plpgsql
+security definer
+set search_path = public, pg_catalog
+as $$
+declare
+  v_row public.whatsapp_auto_followup_requests%rowtype;
+  v_actor public.staff_accounts%rowtype;
+  v_allowed_statuses constant text[] := array['جديد','قيد المتابعة','تم التواصل','تم البيع','لم يتم الرد','ملغى'];
+  v_actor_name text;
+begin
+  if not public.dawaa_can_manage_whatsapp_followups_v1() then
+    raise exception using errcode = '42501', message = 'صلاحية متابعة محادثات واتساب مطلوبة';
+  end if;
+  if not (p_status = any(v_allowed_statuses)) then
+    raise exception using errcode = '22023', message = 'حالة المتابعة غير صالحة';
+  end if;
+
+  select * into v_row from public.whatsapp_auto_followup_requests where id = p_id;
+  if v_row.id is null then raise exception using errcode = 'P0002', message = 'طلب المتابعة غير موجود'; end if;
+
+  if p_status = 'تم البيع' and v_row.matched_invoice_id is null then
+    raise exception using errcode = '22023', message = 'اعتماد البيع يتطلب فاتورة موثقة';
+  end if;
+  if v_row.matched_invoice_id is not null and p_status <> 'تم البيع' then
+    raise exception using errcode = '22023', message = 'إلغاء البيع الموثق يتطلب مسار إلغاء الربط مع سبب';
+  end if;
+
+  select * into v_actor from public.staff_accounts where id = public.dawaa_current_staff_account_id_strict() limit 1;
+  v_actor_name := coalesce(v_actor.staff_name, v_actor.name, v_actor.username, 'غير معروف');
+
+  update public.whatsapp_auto_followup_requests r
+  set
+    status = p_status,
+    followup_notes = case when p_notes is null then r.followup_notes else nullif(trim(p_notes), '') end,
+    assigned_to = case when p_assigned_to is null then r.assigned_to else nullif(trim(p_assigned_to), '') end,
+    updated_at = now(),
+    resolved_at = case when p_status in ('تم البيع','تم التواصل','ملغى') then coalesce(r.resolved_at, now()) else null end,
+    resolved_by = case when p_status in ('تم البيع','تم التواصل','ملغى') then v_actor_name else null end
+  where r.id = p_id
+  returning r.* into v_row;
+
+  return v_row;
+end;
+$$;
+
+revoke all on function public.whatsapp_auto_followup_update_status_v2(uuid, text, text, text) from public, anon;
+grant execute on function public.whatsapp_auto_followup_update_status_v2(uuid, text, text, text) to authenticated, service_role;
+
+comment on function public.whatsapp_auto_followup_confirm_sale_v1(uuid, text, text, date, numeric, numeric, text) is
+  'Human confirmation endpoint for WhatsApp follow-up conversion. UI preview fields are ignored; canonical invoice facts are re-read server-side and identity, branch and 14-day timing are independently validated.';
 comment on function public.whatsapp_auto_followup_revoke_sale_v1(uuid, text) is
   'Explicit audited correction path for removing an incorrectly linked WhatsApp follow-up sale.';
