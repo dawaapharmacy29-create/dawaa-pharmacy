@@ -20,3 +20,4 @@ if (!src.includes(renderLine)) {
 
 fs.writeFileSync(file, src);
 console.log('[smart-intelligence-panel] deep conversation intelligence wired into smart review UI');
+require('./patch-smart-review-actions-v1.cjs');
