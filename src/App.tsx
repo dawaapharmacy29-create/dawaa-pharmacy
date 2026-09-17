@@ -38,6 +38,7 @@ const Customer360 = lazy(() => import('@/pages/Customer360'));
 const CustomerImport = lazy(() => import('@/pages/CustomerImport'));
 const CustomerService = lazy(() => import('@/pages/SmartCustomerService'));
 const CustomerServiceClassic = lazy(() => import('@/pages/CustomerService'));
+const WhatsAppAutoFollowupRequests = lazy(() => import('@/pages/WhatsAppAutoFollowupRequests'));
 const CustomerRequests = lazy(() => import('@/pages/CustomerRequests'));
 const CustomerIncubation = lazy(() => import('@/pages/CustomerIncubation'));
 const CustomerDataReview = lazy(() => import('@/pages/CustomerDataReview'));
@@ -456,6 +457,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             {routeSuspense(<CustomerServiceClassic />, 'خدمة العملاء الكلاسيكية')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/whatsapp-followup-requests"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<WhatsAppAutoFollowupRequests />, 'طلبات المتابعة الآلية')}
           </ProtectedRoute>
         }
       />
