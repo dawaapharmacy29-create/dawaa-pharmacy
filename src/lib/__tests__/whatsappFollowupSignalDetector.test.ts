@@ -88,14 +88,16 @@ describe('WhatsApp follow-up signal detector', () => {
     expect(missing?.alternativeProductName).toContain('ابيکوبريد'.replace('ک', 'ك'));
   });
 
-  it('creates a separate opportunity when the customer asks to be contacted once stock returns', () => {
+  it('creates a callback opportunity and keeps the original requested product name', () => {
     const result = detectFollowupSignals(session([
       message('1', 0, 'inbound', 'عايز فلورست'),
       message('2', 1, 'outbound', 'للأسف مش متوفر حاليا'),
       message('3', 2, 'inbound', 'اول ما يتوفر كلموني لو سمحت'),
     ]));
+    const opportunity = result.find((item) => item.signalType === 'other_opportunity');
     expect(result.some((item) => item.signalType === 'missing_product')).toBe(true);
-    expect(result.some((item) => item.signalType === 'other_opportunity')).toBe(true);
+    expect(opportunity).toBeTruthy();
+    expect(opportunity?.requestedProductName).toBe('فلورست');
   });
 
   it('downgrades a missing-stock signal after an explicit customer decline', () => {
