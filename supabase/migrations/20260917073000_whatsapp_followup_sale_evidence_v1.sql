@@ -2,7 +2,7 @@
 -- Branch-only until the WhatsApp review system is approved for release.
 
 alter table public.whatsapp_auto_followup_requests
-  add column if not exists matched_invoice_id uuid,
+  add column if not exists matched_invoice_id text,
   add column if not exists matched_invoice_number text,
   add column if not exists matched_invoice_date date,
   add column if not exists matched_invoice_value numeric,
@@ -20,7 +20,7 @@ create index if not exists whatsapp_auto_followup_requests_sale_verified_at_idx
 
 create or replace function public.whatsapp_auto_followup_confirm_sale_v1(
   p_id uuid,
-  p_invoice_id uuid,
+  p_invoice_id text,
   p_invoice_number text,
   p_invoice_date date,
   p_invoice_value numeric,
@@ -45,7 +45,7 @@ begin
     raise exception using errcode = '42501', message = 'صلاحية متابعة محادثات واتساب مطلوبة';
   end if;
 
-  if p_invoice_id is null then
+  if nullif(trim(coalesce(p_invoice_id, '')), '') is null then
     raise exception using errcode = '22023', message = 'الفاتورة مطلوبة لاعتماد البيع';
   end if;
 
@@ -62,7 +62,7 @@ begin
 
   select * into v_invoice
   from public.sales_invoices i
-  where i.id = p_invoice_id;
+  where i.id = trim(p_invoice_id);
   if v_invoice.id is null then
     raise exception using errcode = 'P0002', message = 'الفاتورة غير موجودة';
   end if;
@@ -111,8 +111,8 @@ begin
 end;
 $$;
 
-revoke all on function public.whatsapp_auto_followup_confirm_sale_v1(uuid, uuid, text, date, numeric, numeric, text) from public, anon;
-grant execute on function public.whatsapp_auto_followup_confirm_sale_v1(uuid, uuid, text, date, numeric, numeric, text) to authenticated, service_role;
+revoke all on function public.whatsapp_auto_followup_confirm_sale_v1(uuid, text, text, date, numeric, numeric, text) from public, anon;
+grant execute on function public.whatsapp_auto_followup_confirm_sale_v1(uuid, text, text, date, numeric, numeric, text) to authenticated, service_role;
 
-comment on function public.whatsapp_auto_followup_confirm_sale_v1(uuid, uuid, text, date, numeric, numeric, text) is
+comment on function public.whatsapp_auto_followup_confirm_sale_v1(uuid, text, text, date, numeric, numeric, text) is
   'Human confirmation endpoint for WhatsApp follow-up conversion, storing verified invoice evidence and re-checking identity, branch and 14-day timing.';
