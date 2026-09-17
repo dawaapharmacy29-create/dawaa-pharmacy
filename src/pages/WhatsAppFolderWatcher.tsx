@@ -32,8 +32,13 @@ export default function WhatsAppFolderWatcher() {
           const result = await ingestWhatsAppExportFile(candidate.file);
           markLocalWhatsAppFileProcessed(candidate.key);
           setLog((prev) => [{ ...result, at: new Date().toLocaleTimeString('ar-EG') }, ...prev].slice(0, 50));
-          if (result.errors.length) toast.warning(`${candidate.name}: ${result.errors[0]}`);
-          else toast.success(`تم تحليل ${candidate.name} — ${result.sessionsSaved} محادثة جديدة، ${result.followupsCreated} طلب متابعة`);
+          if (result.errors.length) {
+            toast.warning(`${candidate.name}: ${result.errors[0]}`);
+          } else {
+            toast.success(
+              `تم تحليل ${candidate.name} — ${result.sessionsSaved} محادثة جديدة، ${result.customersMatched} عميل متطابق، ${result.followupsCreated} طلب متابعة جديد`,
+            );
+          }
         } catch (e) {
           const reason = e instanceof Error ? e.message : 'خطأ غير معروف';
           markLocalWhatsAppFileFailed(candidate.key, reason);
@@ -78,7 +83,7 @@ export default function WhatsAppFolderWatcher() {
       <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm">
         <h1 className="text-xl font-black text-[var(--dawaa-theme-heading)]">المراقبة التلقائية لمحادثات الواتساب</h1>
         <p className="mt-1 text-sm font-bold text-[var(--dawaa-theme-muted)]">
-          اربط فولدر تصدير محادثات الواتساب على كمبيوتر الصيدلية مرة واحدة — أي ملف جديد هيتحلل تلقائيًا (تقييم كامل + اكتشاف فرص متابعة) من غير ما تعمل حاجة تانية.
+          اربط فولدر تصدير محادثات الواتساب على كمبيوتر الصيدلية مرة واحدة — أي ملف جديد هيتحلل تلقائيًا، ويتربط بالعميل إن أمكن، ويتمنع تكرار المحادثات وطلبات المتابعة.
         </p>
 
         {!supportsLocalWhatsAppInbox() ? (
@@ -108,8 +113,10 @@ export default function WhatsAppFolderWatcher() {
                 <div className="mt-1 flex flex-wrap gap-3 font-bold text-[var(--dawaa-theme-muted)]">
                   <span>محادثات: {item.sessionsFound}</span>
                   <span className="text-emerald-400">جديدة: {item.sessionsSaved}</span>
-                  <span>مكررة: {item.sessionsDuplicate}</span>
-                  <span className="text-sky-400">طلبات متابعة: {item.followupsCreated}</span>
+                  <span>محادثات مكررة: {item.sessionsDuplicate}</span>
+                  <span className="text-violet-400">عملاء متطابقون: {item.customersMatched}</span>
+                  <span className="text-sky-400">متابعات جديدة: {item.followupsCreated}</span>
+                  <span>متابعات مكررة تم منعها: {item.followupsDuplicate}</span>
                 </div>
                 {item.errors.map((err, j) => <div key={j} className="mt-1 flex items-center gap-1 text-[var(--dawaa-status-danger-text)]"><XCircle size={12} /> {err}</div>)}
               </div>

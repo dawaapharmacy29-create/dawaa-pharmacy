@@ -1,5 +1,11 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "vite",
+  "git": {
+    "deploymentEnabled": {
+      "whatsapp-review-integration-test": false
+    }
+  },
   "installCommand": "npm install -g npm@10.9.2 && npm ci --legacy-peer-deps --no-audit --no-fund",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
