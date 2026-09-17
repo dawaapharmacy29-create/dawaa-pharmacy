@@ -23,6 +23,11 @@ type FollowupRow = {
   ai_confidence: number | null;
 };
 
+type FollowupDraft = {
+  assignedTo: string;
+  notes: string;
+};
+
 const SIGNAL_COLORS: Record<string, string> = {
   complaint: 'bg-red-950 text-red-300 border-red-800',
   sick_person: 'bg-amber-950 text-amber-300 border-amber-800',
@@ -45,6 +50,7 @@ export default function WhatsAppAutoFollowupRequests() {
   const [branchFilter, setBranchFilter] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [drafts, setDrafts] = useState<Record<string, FollowupDraft>>({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -52,8 +58,19 @@ export default function WhatsAppAutoFollowupRequests() {
       p_status: statusFilter || null,
       p_signal_type: signalFilter || null,
     });
-    if (error) toast.error(error.message);
-    else setRows((data || []) as FollowupRow[]);
+    if (error) {
+      toast.error(error.message);
+    } else {
+      const nextRows = (data || []) as FollowupRow[];
+      setRows(nextRows);
+      setDrafts((current) => {
+        const next = { ...current };
+        for (const row of nextRows) {
+          if (!next[row.id]) next[row.id] = { assignedTo: row.assigned_to || '', notes: row.followup_notes || '' };
+        }
+        return next;
+      });
+    }
     setLoading(false);
   }, [statusFilter, signalFilter]);
 
@@ -87,15 +104,32 @@ export default function WhatsAppAutoFollowupRequests() {
     soldCount: visibleRows.filter((row) => row.status === 'تم البيع').length,
   }), [visibleRows]);
 
-  async function updateStatus(id: string, status: string) {
+  function setDraft(id: string, patch: Partial<FollowupDraft>) {
+    setDrafts((current) => ({
+      ...current,
+      [id]: {
+        assignedTo: current[id]?.assignedTo || '',
+        notes: current[id]?.notes || '',
+        ...patch,
+      },
+    }));
+  }
+
+  async function updateFollowup(id: string, status: string, includeDraft = false) {
     setBusyId(id);
     try {
-      const { error } = await supabase.rpc('whatsapp_auto_followup_update_status_v1', { p_id: id, p_status: status });
+      const draft = drafts[id];
+      const { error } = await supabase.rpc('whatsapp_auto_followup_update_status_v1', {
+        p_id: id,
+        p_status: status,
+        p_notes: includeDraft ? (draft?.notes.trim() || null) : null,
+        p_assigned_to: includeDraft ? (draft?.assignedTo.trim() || null) : null,
+      });
       if (error) throw error;
-      toast.success('تم تحديث الحالة');
+      toast.success(includeDraft ? 'تم حفظ بيانات المتابعة' : 'تم تحديث الحالة');
       await load();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'تعذر التحديث');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'تعذر التحديث');
     } finally {
       setBusyId(null);
     }
@@ -172,7 +206,7 @@ export default function WhatsAppAutoFollowupRequests() {
         <table className="min-w-full text-xs">
           <thead className="bg-[var(--dawaa-theme-surface-2)]">
             <tr>
-              {['التاريخ', 'الفرع', 'العميل / الهاتف', 'الدكتور', 'النوع', 'الدليل من المحادثة', 'الصنف / البديل', 'الحالة', 'المسؤول / الملاحظات'].map((header) => (
+              {['التاريخ', 'الفرع', 'العميل / الهاتف', 'الدكتور', 'النوع', 'الدليل من المحادثة', 'الصنف / البديل', 'الحالة', 'المتابعة'].map((header) => (
                 <th key={header} className="whitespace-nowrap p-2.5 text-right font-black text-[var(--dawaa-theme-heading)]">{header}</th>
               ))}
             </tr>
@@ -180,31 +214,36 @@ export default function WhatsAppAutoFollowupRequests() {
           <tbody>
             {loading && <tr><td colSpan={9} className="p-6 text-center font-bold text-[var(--dawaa-theme-muted)]">جارٍ التحميل...</td></tr>}
             {!loading && !visibleRows.length && <tr><td colSpan={9} className="p-6 text-center font-bold text-[var(--dawaa-theme-muted)]">لا توجد طلبات متابعة مطابقة للفلاتر الحالية.</td></tr>}
-            {visibleRows.map((row) => (
-              <tr key={row.id} className="border-t border-[var(--dawaa-theme-border)] align-top">
-                <td className="whitespace-nowrap p-2.5 font-bold text-[var(--dawaa-theme-muted)]">{new Date(row.created_at).toLocaleDateString('ar-EG')}</td>
-                <td className="whitespace-nowrap p-2.5">{row.branch || '-'}</td>
-                <td className="whitespace-nowrap p-2.5 font-black text-[var(--dawaa-theme-heading)]">{row.customer_name}<div className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">{row.customer_phone || '-'}</div></td>
-                <td className="whitespace-nowrap p-2.5 font-bold text-[var(--dawaa-theme-muted)]">{row.doctor_name || '-'}</td>
-                <td className="whitespace-nowrap p-2.5"><span className={`rounded-full border px-2 py-1 text-[10px] font-black ${SIGNAL_COLORS[row.signal_type] || SIGNAL_COLORS.other_opportunity}`}>{row.signal_type_label}</span><div className="mt-2 text-[10px] text-[var(--dawaa-theme-muted)]">ثقة {row.ai_confidence == null ? '-' : `${Math.round(row.ai_confidence * 100)}%`}</div></td>
-                <td className="max-w-[300px] p-2.5 leading-6 text-[var(--dawaa-theme-muted)]">{row.evidence_quote}</td>
-                <td className="max-w-[240px] p-2.5 text-[var(--dawaa-theme-muted)]">
-                  {row.requested_product_name && <div>مطلوب: <b className="text-[var(--dawaa-theme-heading)]">{row.requested_product_name}</b></div>}
-                  {row.alternative_offered != null && <div className={row.alternative_offered ? 'text-emerald-400' : 'text-red-400'}>{row.alternative_offered ? '✓ اتعرض بديل' : '✗ مفيش بديل اتعرض'}</div>}
-                  {row.alternative_product_name && <div className="mt-1 text-[10px]">البديل: {row.alternative_product_name}</div>}
-                </td>
-                <td className="whitespace-nowrap p-2.5">
-                  <select value={row.status} disabled={busyId === row.id} onChange={(event) => void updateStatus(row.id, event.target.value)} className="input-dark text-[10px]">
-                    {STATUS_OPTIONS.map((status) => <option key={status} value={status}>{status}</option>)}
-                  </select>
-                  {row.status === 'جديد' ? <button type="button" disabled={busyId === row.id} onClick={() => void updateStatus(row.id, 'قيد المتابعة')} className="mt-2 block w-full rounded-lg border border-amber-400/25 bg-amber-500/10 px-2 py-1.5 text-[10px] font-black text-amber-200 disabled:opacity-50">ابدأ المتابعة</button> : null}
-                </td>
-                <td className="min-w-[180px] p-2.5 text-[10px] font-bold text-[var(--dawaa-theme-muted)]">
-                  <div>{row.assigned_to || row.assigned_team || '-'}</div>
-                  {row.followup_notes ? <div className="mt-2 rounded-lg bg-[var(--dawaa-theme-surface-2)] p-2 leading-5">{row.followup_notes}</div> : <div className="mt-2 opacity-60">لا توجد ملاحظات مسجلة</div>}
-                </td>
-              </tr>
-            ))}
+            {visibleRows.map((row) => {
+              const draft = drafts[row.id] || { assignedTo: row.assigned_to || '', notes: row.followup_notes || '' };
+              return (
+                <tr key={row.id} className="border-t border-[var(--dawaa-theme-border)] align-top">
+                  <td className="whitespace-nowrap p-2.5 font-bold text-[var(--dawaa-theme-muted)]">{new Date(row.created_at).toLocaleDateString('ar-EG')}</td>
+                  <td className="whitespace-nowrap p-2.5">{row.branch || '-'}</td>
+                  <td className="whitespace-nowrap p-2.5 font-black text-[var(--dawaa-theme-heading)]">{row.customer_name}<div className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">{row.customer_phone || '-'}</div></td>
+                  <td className="whitespace-nowrap p-2.5 font-bold text-[var(--dawaa-theme-muted)]">{row.doctor_name || '-'}</td>
+                  <td className="whitespace-nowrap p-2.5"><span className={`rounded-full border px-2 py-1 text-[10px] font-black ${SIGNAL_COLORS[row.signal_type] || SIGNAL_COLORS.other_opportunity}`}>{row.signal_type_label}</span><div className="mt-2 text-[10px] text-[var(--dawaa-theme-muted)]">ثقة {row.ai_confidence == null ? '-' : `${Math.round(row.ai_confidence * 100)}%`}</div></td>
+                  <td className="max-w-[300px] p-2.5 leading-6 text-[var(--dawaa-theme-muted)]">{row.evidence_quote}</td>
+                  <td className="max-w-[240px] p-2.5 text-[var(--dawaa-theme-muted)]">
+                    {row.requested_product_name && <div>مطلوب: <b className="text-[var(--dawaa-theme-heading)]">{row.requested_product_name}</b></div>}
+                    {row.alternative_offered != null && <div className={row.alternative_offered ? 'text-emerald-400' : 'text-red-400'}>{row.alternative_offered ? '✓ اتعرض بديل' : '✗ مفيش بديل اتعرض'}</div>}
+                    {row.alternative_product_name && <div className="mt-1 text-[10px]">البديل: {row.alternative_product_name}</div>}
+                  </td>
+                  <td className="whitespace-nowrap p-2.5">
+                    <select value={row.status} disabled={busyId === row.id} onChange={(event) => void updateFollowup(row.id, event.target.value)} className="input-dark text-[10px]">
+                      {STATUS_OPTIONS.map((status) => <option key={status} value={status}>{status}</option>)}
+                    </select>
+                    {row.status === 'جديد' ? <button type="button" disabled={busyId === row.id} onClick={() => void updateFollowup(row.id, 'قيد المتابعة')} className="mt-2 block w-full rounded-lg border border-amber-400/25 bg-amber-500/10 px-2 py-1.5 text-[10px] font-black text-amber-200 disabled:opacity-50">ابدأ المتابعة</button> : null}
+                  </td>
+                  <td className="min-w-[240px] p-2.5">
+                    <input value={draft.assignedTo} onChange={(event) => setDraft(row.id, { assignedTo: event.target.value })} placeholder="اسم المسؤول عن المتابعة" className="input-dark w-full text-[10px]" />
+                    <textarea value={draft.notes} onChange={(event) => setDraft(row.id, { notes: event.target.value })} placeholder="ملاحظة المتابعة أو نتيجة التواصل" rows={2} className="input-dark mt-2 w-full resize-y text-[10px]" />
+                    <button type="button" disabled={busyId === row.id} onClick={() => void updateFollowup(row.id, row.status, true)} className="mt-2 w-full rounded-lg border border-cyan-400/25 bg-cyan-500/10 px-2 py-1.5 text-[10px] font-black text-cyan-100 disabled:opacity-50">حفظ المسؤول والملاحظة</button>
+                    <div className="mt-2 text-[10px] font-bold text-[var(--dawaa-theme-muted)]">الفريق: {row.assigned_team || '-'}</div>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
