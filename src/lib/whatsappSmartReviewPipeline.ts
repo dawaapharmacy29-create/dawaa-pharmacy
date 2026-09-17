@@ -1,4 +1,5 @@
 import type { WhatsAppConversationSession } from './whatsappConversationParser';
+import { rankSuggestedCriteriaByHistoricalUse } from './whatsappHistoricalReviewCalibration';
 import { classifySmartConversation } from './whatsappSmartReviewCore';
 import { analyzeSmartConversationDeep, type SmartDeepConversationAnalysis } from './whatsappSmartConversationIntelligence';
 import { buildSmartQuickDecision, type SmartQuickDecisionResult } from './whatsappSmartReviewDecision';
@@ -61,6 +62,10 @@ function buildScopedSummary(
     .map((turn) => turn.responseLatencySeconds)
     .filter((value): value is number => Number.isFinite(value));
   const deepReasons = deepReviewReasons(deep);
+  const rankedCriteria = rankSuggestedCriteriaByHistoricalUse([
+    ...classified.suggestedReviewCriteria,
+    ...deep.suggestedCriteria,
+  ]);
 
   return {
     staffName,
@@ -78,7 +83,7 @@ function buildScopedSummary(
     unansweredTurns: classified.responseTurns.filter((turn) => turn.noResponse).length,
     slowResponseTurns: classified.responseTurns.filter((turn) => !turn.noResponse && Number(turn.responseLatencySeconds) > 600).length,
     maxResponseSeconds: responseSeconds.length ? Math.max(...responseSeconds) : null,
-    suggestedReviewCriteria: unique([...classified.suggestedReviewCriteria, ...deep.suggestedCriteria]),
+    suggestedReviewCriteria: rankedCriteria,
     reviewReasons: unique([...classified.reviewReasons, ...deepReasons]),
     evidenceMessageIds: unique([...classified.evidenceMessageIds, ...deep.evidenceMessageIds]),
     requiresHumanReview: classified.requiresHumanReview || deep.humanReviewRequired,
