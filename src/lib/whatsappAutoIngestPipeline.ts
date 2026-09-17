@@ -3,7 +3,8 @@ import { readWhatsAppExportFile } from '@/lib/whatsappExportFileReader';
 import { parseWhatsAppExport, splitWhatsAppSessions, type WhatsAppConversationSession } from '@/lib/whatsappConversationParser';
 import { buildSmartConversationReviewSummary } from '@/lib/whatsappSmartReviewSummary';
 import { detectFollowupSignals, type DetectedFollowupSignal } from '@/lib/whatsappFollowupSignalDetector';
-import { hashWhatsAppSession } from '@/lib/whatsappReviewPersistenceV4';
+import { attachInvoiceVerificationToQueue, hashWhatsAppSession } from '@/lib/whatsappReviewPersistenceV4';
+import { verifySessionAgainstInvoices } from '@/lib/whatsappUnifiedIntelligenceV4';
 
 type CustomerIdentity = {
   customerId: string | null;
@@ -39,6 +40,10 @@ export interface IngestOneFileResult {
   customersMatched: number;
   followupsCreated: number;
   followupsDuplicate: number;
+  invoicesVerified: number;
+  invoicesProbable: number;
+  invoicesNotFound: number;
+  invoiceChecksSkipped: number;
   errors: string[];
 }
 
@@ -172,12 +177,12 @@ async function saveSessionReview(
     .eq('source_hash', sourceHash)
     .maybeSingle();
   if (existingError && existingError.code !== 'PGRST116') throw existingError;
-  if (existing?.id) return { duplicate: true as const };
+  if (existing?.id) return { sourceId: String(existing.id), duplicate: true as const };
 
   const summary = buildSmartConversationReviewSummary(session);
   const staffName = session.outboundStaffNames[0] || null;
 
-  const { error } = await supabase.from('whatsapp_review_sources').insert({
+  const { data, error } = await supabase.from('whatsapp_review_sources').insert({
     source_hash: sourceHash,
     source_type: 'whatsapp_export_auto',
     source_filename: sourceFileName,
@@ -191,7 +196,7 @@ async function saveSessionReview(
     conversation_started_at: session.startedAt.toISOString(),
     conversation_ended_at: session.endedAt.toISOString(),
     message_count: session.messages.length,
-    parser_version: 'whatsapp-auto-ingest-v2',
+    parser_version: 'whatsapp-auto-ingest-v3',
     analysis_version: 'smart-summary-v1',
     analysis_status: 'analyzed',
     review_status: summary.confidence < 60 ? 'needs_context' : 'ready_quick',
@@ -210,9 +215,36 @@ async function saveSessionReview(
         branch: identity.branch,
       },
     },
+  }).select('id').single();
+  if (error) {
+    if (error.code === '23505') {
+      const { data: duplicate, error: duplicateError } = await supabase
+        .from('whatsapp_review_sources')
+        .select('id')
+        .eq('source_hash', sourceHash)
+        .single();
+      if (duplicateError) throw duplicateError;
+      return { sourceId: String(duplicate.id), duplicate: true as const };
+    }
+    throw error;
+  }
+  return { sourceId: String(data.id), duplicate: false as const, summary };
+}
+
+async function verifySessionSale(
+  session: WhatsAppConversationSession,
+  sourceId: string,
+  identity: CustomerIdentity,
+) {
+  const verification = await verifySessionAgainstInvoices(session, {
+    customerId: identity.customerId,
+    customerCode: identity.customerCode,
+    customerPhone: identity.customerPhone,
+    customerName: identity.customerName,
+    branch: identity.branch,
   });
-  if (error && error.code !== '23505') throw error;
-  return { duplicate: false as const, summary };
+  await attachInvoiceVerificationToQueue(sourceId, verification);
+  return verification.status;
 }
 
 function followupKey(signalType: string, evidenceTimestamp: string | Date | null, evidenceQuote: string) {
@@ -293,6 +325,10 @@ export async function ingestWhatsAppExportFile(file: File): Promise<IngestOneFil
     customersMatched: 0,
     followupsCreated: 0,
     followupsDuplicate: 0,
+    invoicesVerified: 0,
+    invoicesProbable: 0,
+    invoicesNotFound: 0,
+    invoiceChecksSkipped: 0,
     errors: [],
   };
 
@@ -314,6 +350,12 @@ export async function ingestWhatsAppExportFile(file: File): Promise<IngestOneFil
       const saved = await saveSessionReview(session, source.sourceFileName, source.innerFileName || null, identity);
       if (saved.duplicate) result.sessionsDuplicate += 1;
       else result.sessionsSaved += 1;
+
+      const invoiceStatus = await verifySessionSale(session, saved.sourceId, identity);
+      if (invoiceStatus === 'verified') result.invoicesVerified += 1;
+      else if (invoiceStatus === 'probable' || invoiceStatus === 'needs_review') result.invoicesProbable += 1;
+      else if (invoiceStatus === 'not_found') result.invoicesNotFound += 1;
+      else result.invoiceChecksSkipped += 1;
 
       const followups = await saveFollowupSignals(session, source.sourceFileName, identity);
       result.followupsCreated += followups.created;
