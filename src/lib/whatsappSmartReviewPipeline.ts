@@ -2,6 +2,7 @@ import type { WhatsAppConversationSession } from './whatsappConversationParser';
 import { rankSuggestedCriteriaByHistoricalUse } from './whatsappHistoricalReviewCalibration';
 import { classifySmartConversation } from './whatsappSmartReviewCore';
 import { analyzeSmartConversationDeep, type SmartDeepConversationAnalysis } from './whatsappSmartConversationIntelligence';
+import { buildSmartReviewQualityGate, type SmartReviewQualityGate } from './whatsappSmartReviewQualityGate';
 import { buildSmartQuickDecision, type SmartQuickDecisionResult } from './whatsappSmartReviewDecision';
 import { applySmartReviewMessageScope, type SmartReviewScopeInput, type SmartReviewScopeResult } from './whatsappSmartReviewScope';
 import type { SmartConversationReviewResult, SmartOwnedReviewSummary } from './whatsappSmartReviewResult';
@@ -18,6 +19,7 @@ export interface SmartReviewPipelineResult {
   decision: SmartQuickDecisionResult;
   conversationIntelligence: SmartDeepConversationAnalysis | null;
   intelligence: SmartDeepConversationAnalysis | null;
+  qualityGate: SmartReviewQualityGate | null;
 }
 
 function unique<T>(items: T[]) {
@@ -55,6 +57,7 @@ function buildScopedSummary(
   staffName: string,
   role: SmartStaffRole,
   deep: SmartDeepConversationAnalysis,
+  qualityGate: SmartReviewQualityGate,
   options?: { invoiceVerified?: boolean; invoiceMatchAmbiguous?: boolean },
 ): SmartOwnedReviewSummary {
   const classified = classifySmartConversation(scoredSession, options);
@@ -84,9 +87,13 @@ function buildScopedSummary(
     slowResponseTurns: classified.responseTurns.filter((turn) => !turn.noResponse && Number(turn.responseLatencySeconds) > 600).length,
     maxResponseSeconds: responseSeconds.length ? Math.max(...responseSeconds) : null,
     suggestedReviewCriteria: rankedCriteria,
-    reviewReasons: unique([...classified.reviewReasons, ...deepReasons]),
-    evidenceMessageIds: unique([...classified.evidenceMessageIds, ...deep.evidenceMessageIds]),
-    requiresHumanReview: classified.requiresHumanReview || deep.humanReviewRequired,
+    reviewReasons: unique([...classified.reviewReasons, ...deepReasons, ...qualityGate.reasons]),
+    evidenceMessageIds: unique([
+      ...classified.evidenceMessageIds,
+      ...deep.evidenceMessageIds,
+      ...qualityGate.criticalMissingMediaMessageIds,
+    ]),
+    requiresHumanReview: classified.requiresHumanReview || deep.humanReviewRequired || qualityGate.humanReviewRequired,
   };
 }
 
@@ -103,28 +110,33 @@ export function runSmartReviewPipeline(
       decision: emptyDecision(scope.blockingReasons),
       conversationIntelligence,
       intelligence: null,
+      qualityGate: null,
     };
   }
 
+  const intelligence = analyzeSmartConversationDeep(scope.scoredSession);
+  const qualityGate = buildSmartReviewQualityGate(scope.scoredSession, intelligence);
+
   if (!input.staffName || !input.role) {
-    const reasons = ['اختيار المسؤول والدور مطلوب قبل القرار الذكي على نطاق زمني محدد'];
+    const reasons = ['اختيار المسؤول والدور مطلوب قبل القرار الذكي على نطاق زمني محدد', ...qualityGate.reasons];
     return {
       scope,
       review: null,
       decision: emptyDecision(reasons),
       conversationIntelligence,
-      intelligence: analyzeSmartConversationDeep(scope.scoredSession),
+      intelligence,
+      qualityGate,
     };
   }
 
-  const intelligence = analyzeSmartConversationDeep(scope.scoredSession);
-  const summary = buildScopedSummary(scope.scoredSession, input.staffName, input.role, intelligence, {
+  const summary = buildScopedSummary(scope.scoredSession, input.staffName, input.role, intelligence, qualityGate, {
     invoiceVerified: input.invoiceVerified,
     invoiceMatchAmbiguous: input.invoiceMatchAmbiguous,
   });
 
   const blockingReasons = [...scope.blockingReasons];
   if (input.invoiceMatchAmbiguous) blockingReasons.push('ربط الفاتورة غير مؤكد');
+  if (qualityGate.humanReviewRequired) blockingReasons.push(...qualityGate.reasons);
 
   const review: SmartConversationReviewResult = {
     sessionId: scope.scoredSession.id,
@@ -132,7 +144,7 @@ export function runSmartReviewPipeline(
     unassignedMessageIds: [],
     handoffs: [],
     safeForOfficialScoring: blockingReasons.length === 0 && !summary.requiresHumanReview,
-    blockingReasons,
+    blockingReasons: unique(blockingReasons),
   };
 
   return {
@@ -141,5 +153,6 @@ export function runSmartReviewPipeline(
     decision: buildSmartQuickDecision(review, input.staffName),
     conversationIntelligence,
     intelligence,
+    qualityGate,
   };
 }
