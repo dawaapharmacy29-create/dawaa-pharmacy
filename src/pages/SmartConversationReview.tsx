@@ -1,10 +1,19 @@
 import { useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Clock3, FileArchive, Search, Sparkles, Upload, UserRound } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Clock3, FileArchive, Loader2, Search, Sparkles, Upload, UserRound } from 'lucide-react';
 import { toast } from 'sonner';
+import { supabase } from '@/lib/supabase';
 import { readWhatsAppExportFile } from '@/lib/whatsappExportFileReader';
 import { parseWhatsAppExport, splitWhatsAppSessions, type WhatsAppConversationSession } from '@/lib/whatsappConversationParser';
 import { applyWhatsAppAnalysisScope, collectDetectedDoctors, toLocalDateTimeInput } from '@/lib/whatsappAnalysisScope';
 import { buildSmartConversationReviewSummary } from '@/lib/whatsappSmartReviewSummary';
+import { appendWhatsAppReviewAudit, hashWhatsAppSession } from '@/lib/whatsappReviewPersistenceV4';
+
+type ReviewDecision = 'approved' | 'flagged' | 'detailed';
+
+type ReviewActor = {
+  id: string | null;
+  name: string | null;
+};
 
 function fmt(value: Date) {
   return value.toLocaleString('ar-EG', { dateStyle: 'medium', timeStyle: 'short' });
@@ -17,14 +26,33 @@ function duration(seconds: number | null) {
   return `${minutes} د${seconds % 60 ? ` ${seconds % 60} ث` : ''}`;
 }
 
+function sessionRawText(session: WhatsAppConversationSession) {
+  return session.messages.map((message) => message.raw || `${message.rawTimestamp} ${message.sender}: ${message.text}`).join('\n');
+}
+
+async function getReviewActor(): Promise<ReviewActor> {
+  const { data } = await supabase.auth.getUser();
+  const user = data.user;
+  if (!user) return { id: null, name: null };
+  const metadata = user.user_metadata || {};
+  return {
+    id: user.id,
+    name: metadata.full_name || metadata.name || user.email || null,
+  };
+}
+
 export default function SmartConversationReview() {
   const [fileName, setFileName] = useState('');
+  const [sourceFileName, setSourceFileName] = useState<string | null>(null);
+  const [innerFileName, setInnerFileName] = useState<string | null>(null);
   const [sessions, setSessions] = useState<WhatsAppConversationSession[]>([]);
   const [doctor, setDoctor] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [applied, setApplied] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [savingDecision, setSavingDecision] = useState<ReviewDecision | null>(null);
+  const [savedDecision, setSavedDecision] = useState<ReviewDecision | null>(null);
 
   const doctors = useMemo(() => collectDetectedDoctors(sessions), [sessions]);
   const preview = useMemo(() => applyWhatsAppAnalysisScope(sessions, {
@@ -46,15 +74,21 @@ export default function SmartConversationReview() {
       if (!messages.length) throw new Error('لم يتم التعرف على رسائل WhatsApp داخل الملف.');
       const parsed = splitWhatsAppSessions(messages, 120);
       setSessions(parsed);
+      setSourceFileName(source.sourceFileName || file.name);
+      setInnerFileName(source.innerFileName || null);
       setFileName(source.innerFileName ? `${source.sourceFileName} → ${source.innerFileName}` : source.sourceFileName);
       setDoctor('');
       setFrom(toLocalDateTimeInput(messages[0]?.timestamp));
       setTo(toLocalDateTimeInput(messages[messages.length - 1]?.timestamp));
       setApplied(false);
+      setSavedDecision(null);
       toast.success(`تمت قراءة ${messages.length} رسالة`);
     } catch (error) {
       setSessions([]);
       setFileName('');
+      setSourceFileName(null);
+      setInnerFileName(null);
+      setSavedDecision(null);
       toast.error(error instanceof Error ? error.message : 'تعذر قراءة المحادثة');
     } finally {
       setLoading(false);
@@ -71,8 +105,123 @@ export default function SmartConversationReview() {
       return;
     }
     setApplied(true);
+    setSavedDecision(null);
     toast.success('تم تطبيق نطاق المراجعة الذكية');
   };
+
+  async function ensureReviewSource(session: WhatsAppConversationSession) {
+    if (!summary) throw new Error('لا توجد خلاصة تحليل متاحة للحفظ');
+    const sourceHash = await hashWhatsAppSession(session);
+    const { data: existing, error: existingError } = await supabase
+      .from('whatsapp_review_sources')
+      .select('id')
+      .eq('source_hash', sourceHash)
+      .maybeSingle();
+    if (existingError && existingError.code !== 'PGRST116') throw existingError;
+    if (existing?.id) return String(existing.id);
+
+    const { data, error } = await supabase
+      .from('whatsapp_review_sources')
+      .insert({
+        source_hash: sourceHash,
+        source_type: 'whatsapp_export_manual_smart_review',
+        source_filename: sourceFileName,
+        inner_filename: innerFileName,
+        customer_name: session.customerName || null,
+        staff_name: session.outboundStaffNames[0] || null,
+        conversation_started_at: session.startedAt.toISOString(),
+        conversation_ended_at: session.endedAt.toISOString(),
+        message_count: session.messages.length,
+        parser_version: 'whatsapp-smart-review-v2',
+        analysis_version: 'smart-summary-v1',
+        analysis_status: 'analyzed',
+        review_status: summary.confidence < 60 ? 'needs_context' : 'ready_quick',
+        priority: summary.flags.length ? 'important' : 'normal',
+        analysis_confidence: summary.confidence,
+        commercial_eligible: summary.outcome === 'sale_intent',
+        followup_required: summary.flags.length > 0,
+        suggested_followup_reason: summary.flags.join('، ') || null,
+        analysis_json: JSON.parse(JSON.stringify(summary)),
+        raw_text: sessionRawText(session),
+      })
+      .select('id')
+      .single();
+
+    if (error) {
+      if (error.code === '23505') {
+        const { data: duplicate, error: duplicateError } = await supabase
+          .from('whatsapp_review_sources')
+          .select('id')
+          .eq('source_hash', sourceHash)
+          .single();
+        if (duplicateError) throw duplicateError;
+        return String(duplicate.id);
+      }
+      throw error;
+    }
+
+    return String(data.id);
+  }
+
+  async function saveReviewDecision(decision: ReviewDecision) {
+    if (!latestSession || !summary || savingDecision) return;
+    setSavingDecision(decision);
+    try {
+      const sourceId = await ensureReviewSource(latestSession);
+      const actor = await getReviewActor();
+      const { data: before, error: beforeError } = await supabase
+        .from('whatsapp_review_sources')
+        .select('id,review_status,analysis_status,reviewer_confirmed,reviewer_id,reviewer_name')
+        .eq('id', sourceId)
+        .single();
+      if (beforeError) throw beforeError;
+
+      const now = new Date().toISOString();
+      const patch = decision === 'approved'
+        ? {
+            review_status: 'approved',
+            reviewer_confirmed: true,
+            reviewer_id: actor.id,
+            reviewer_name: actor.name,
+            reviewer_confirmed_at: now,
+            updated_at: now,
+          }
+        : {
+            review_status: 'ready_detailed',
+            analysis_status: 'needs_review',
+            reviewer_confirmed: false,
+            reviewer_id: actor.id,
+            reviewer_name: actor.name,
+            reviewer_confirmed_at: null,
+            updated_at: now,
+          };
+
+      const { error: updateError } = await supabase
+        .from('whatsapp_review_sources')
+        .update(patch)
+        .eq('id', sourceId);
+      if (updateError) throw updateError;
+
+      const action = decision === 'approved'
+        ? 'smart_review_approved'
+        : decision === 'flagged'
+          ? 'smart_review_flagged'
+          : 'smart_review_detailed_requested';
+      const note = decision === 'approved'
+        ? 'اعتماد بشري: المحادثة سليمة بالكامل.'
+        : decision === 'flagged'
+          ? 'المراجع البشري وجد ملاحظة ويطلب مراجعة تفصيلية.'
+          : 'تم تحويل المحادثة يدويًا للمراجعة التفصيلية.';
+
+      await appendWhatsAppReviewAudit(sourceId, action, before, patch, actor.id, actor.name, null, note);
+      setSavedDecision(decision);
+      toast.success(decision === 'approved' ? 'تم حفظ اعتماد المراجعة' : 'تم تحويل المحادثة للمراجعة التفصيلية');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'تعذر حفظ قرار المراجعة');
+    } finally {
+      setSavingDecision(null);
+    }
+  }
 
   return (
     <div dir="rtl" className="space-y-5">
@@ -99,15 +248,15 @@ export default function SmartConversationReview() {
           </div>
           <div className="grid gap-3 lg:grid-cols-3">
             <label className="text-xs text-slate-300">الدكتور
-              <select value={doctor} onChange={(e) => { setDoctor(e.target.value); setApplied(false); }} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white">
+              <select value={doctor} onChange={(e) => { setDoctor(e.target.value); setApplied(false); setSavedDecision(null); }} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white">
                 <option value="">كل الدكاترة</option>{doctors.map((name) => <option key={name} value={name}>{name}</option>)}
               </select>
             </label>
             <label className="text-xs text-slate-300">من
-              <input type="datetime-local" value={from} onChange={(e) => { setFrom(e.target.value); setApplied(false); }} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white" />
+              <input type="datetime-local" value={from} onChange={(e) => { setFrom(e.target.value); setApplied(false); setSavedDecision(null); }} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white" />
             </label>
             <label className="text-xs text-slate-300">إلى
-              <input type="datetime-local" value={to} onChange={(e) => { setTo(e.target.value); setApplied(false); }} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white" />
+              <input type="datetime-local" value={to} onChange={(e) => { setTo(e.target.value); setApplied(false); setSavedDecision(null); }} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white" />
             </label>
           </div>
           <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-700 bg-slate-950/45 p-3 text-xs text-slate-300">
@@ -167,11 +316,12 @@ export default function SmartConversationReview() {
             <div className="flex items-center gap-2 font-black text-white">{summary.flags.length ? <AlertTriangle className="text-amber-300" size={18} /> : <CheckCircle2 className="text-emerald-300" size={18} />}قرار المراجعة</div>
             {summary.flags.length ? <div className="mt-3 flex flex-wrap gap-2">{summary.flags.map((flag) => <span key={flag} className="rounded-full border border-amber-400/25 bg-amber-500/10 px-3 py-1.5 text-xs font-black text-amber-100">{flag}</span>)}</div> : <div className="mt-3 text-sm text-emerald-200">لا توجد إشارات نصية قوية تستدعي التصعيد تلقائيًا. يظل الاعتماد النهائي بشريًا.</div>}
             <div className="mt-4 grid gap-2 sm:grid-cols-3">
-              <button type="button" className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 font-black text-emerald-100">سليمة بالكامل</button>
-              <button type="button" className="rounded-xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 font-black text-amber-100">فيها ملاحظة</button>
-              <button type="button" className="rounded-xl border border-slate-600 bg-slate-900/70 px-4 py-3 font-black text-slate-100">مراجعة تفصيلية</button>
+              <button type="button" disabled={Boolean(savingDecision)} onClick={() => void saveReviewDecision('approved')} className="flex items-center justify-center gap-2 rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 font-black text-emerald-100 disabled:opacity-50">{savingDecision === 'approved' ? <Loader2 className="animate-spin" size={16} /> : null}سليمة بالكامل</button>
+              <button type="button" disabled={Boolean(savingDecision)} onClick={() => void saveReviewDecision('flagged')} className="flex items-center justify-center gap-2 rounded-xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 font-black text-amber-100 disabled:opacity-50">{savingDecision === 'flagged' ? <Loader2 className="animate-spin" size={16} /> : null}فيها ملاحظة</button>
+              <button type="button" disabled={Boolean(savingDecision)} onClick={() => void saveReviewDecision('detailed')} className="flex items-center justify-center gap-2 rounded-xl border border-slate-600 bg-slate-900/70 px-4 py-3 font-black text-slate-100 disabled:opacity-50">{savingDecision === 'detailed' ? <Loader2 className="animate-spin" size={16} /> : null}مراجعة تفصيلية</button>
             </div>
-            <div className="mt-3 text-[11px] leading-6 text-slate-500">الأزرار حاليًا للمسار التجريبي فقط ولا تحفظ تقييمًا رسميًا أو نقاطًا.</div>
+            {savedDecision ? <div className="mt-3 rounded-xl border border-emerald-400/20 bg-emerald-500/10 px-3 py-2 text-xs font-black text-emerald-200">تم حفظ قرار المراجع وتسجيله في سجل التدقيق.</div> : null}
+            <div className="mt-3 text-[11px] leading-6 text-slate-500">القرار محفوظ كمراجعة بشرية مستقلة فقط؛ لا يتم إنشاء خصم نقاط أو تقييم رسمي تلقائيًا من هذه الصفحة.</div>
           </section>
         </>
       )}
