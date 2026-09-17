@@ -48,6 +48,25 @@ describe('WhatsApp follow-up signal detector', () => {
     expect(complaint?.confidence).toBeGreaterThanOrEqual(0.85);
   });
 
+  it('keeps a resolved strong complaint but lowers its confidence', () => {
+    const result = detectFollowupSignals(session([
+      message('1', 0, 'inbound', 'الطلب اتأخر جدا ومحدش رد علينا'),
+      message('2', 1, 'outbound', 'حق حضرتك علينا وتم حل الموضوع'),
+      message('3', 2, 'inbound', 'حصل خير شكرا'),
+    ]));
+    const complaint = result.find((item) => item.signalType === 'complaint');
+    expect(complaint).toBeTruthy();
+    expect(complaint?.confidence).toBeLessThan(0.8);
+  });
+
+  it('does not convert a generic tired phrase into a patient follow-up without medical context', () => {
+    const result = detectFollowupSignals(session([
+      message('1', 0, 'inbound', 'انا تعبان من الشغل النهارده'),
+      message('2', 1, 'outbound', 'ربنا يعين حضرتك'),
+    ]));
+    expect(result.some((item) => item.signalType === 'sick_person')).toBe(false);
+  });
+
   it('detects a strong home-patient follow-up without relying on one generic word', () => {
     const result = detectFollowupSignals(session([
       message('1', 0, 'inbound', 'ابني عنده حرارة عالية وقيء من امبارح'),
@@ -67,6 +86,27 @@ describe('WhatsApp follow-up signal detector', () => {
     expect(missing?.requestedProductName).toContain('سولوبريد');
     expect(missing?.alternativeOffered).toBe(true);
     expect(missing?.alternativeProductName).toContain('ابيکوبريد'.replace('ک', 'ك'));
+  });
+
+  it('creates a separate opportunity when the customer asks to be contacted once stock returns', () => {
+    const result = detectFollowupSignals(session([
+      message('1', 0, 'inbound', 'عايز فلورست'),
+      message('2', 1, 'outbound', 'للأسف مش متوفر حاليا'),
+      message('3', 2, 'inbound', 'اول ما يتوفر كلموني لو سمحت'),
+    ]));
+    expect(result.some((item) => item.signalType === 'missing_product')).toBe(true);
+    expect(result.some((item) => item.signalType === 'other_opportunity')).toBe(true);
+  });
+
+  it('downgrades a missing-stock signal after an explicit customer decline', () => {
+    const result = detectFollowupSignals(session([
+      message('1', 0, 'inbound', 'محتاج الصنف ده'),
+      message('2', 1, 'outbound', 'الصنف مش موجود حاليا'),
+      message('3', 2, 'inbound', 'خلاص مش محتاج شكرا'),
+    ]));
+    const missing = result.find((item) => item.signalType === 'missing_product');
+    expect(missing).toBeTruthy();
+    expect(missing?.confidence).toBeLessThan(0.7);
   });
 
   it('merges repeated identical signals within five minutes', () => {
