@@ -59,15 +59,15 @@ export interface SmartDeepConversationAnalysis {
   evidenceMessageIds: string[];
 }
 
-const normalize = (value: unknown) => String(value || '')
-  .trim().toLowerCase().replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه')
-  .replace(/[\u064B-\u065F]/g, '').replace(/\s+/g, ' ');
-
 const SERVICE_FOLLOWUP_RX = /(خدم[هة]\s*عملاء|حابين نطمن|حبيت اطمن|مستوى الخدم[هة]|رضا حضرتك|رأيك في الخدم[هة]|اخر تجرب[هة]|آخر تجرب[هة])/i;
 const PRODUCT_RX = /(محتاج|محتاجه|عايز|عايزه|متاح|موجود|بكام|سعر|عاوز|ابعت|ابعته|علب[هة]|شريط|سرنج|اوردر|أوردر)/i;
+const SALES_OPPORTUNITY_RX = /(محتاج(?:ه)?(?:\s+|$)|عايز(?:ه)?(?:\s+|$)|عاوز(?:ه)?(?:\s+|$)|موجود(?:ه)?\s*(?:عندكم|\?|؟|$)|متاح(?:ه)?\s*(?:عندكم|\?|؟|$)|بكام|سعر(?:ه|ها|هم)?\s*كام|شريط\s+\S+|علب[هة]\s+\S+|سرنجات?\s*\d+)/i;
+const ORDER_ACCEPTANCE_RX = /^\s*(?:اه|أه|ايوه|أيوه|تمام|حاضر|ماشي)?\s*(?:ابعت|ابعته|ابعتهالي|ابعتها|ابعتهم)\b/i;
+const ORDER_STATUS_RX = /(بعت.*(?:اوردر|أوردر)|(?:اوردر|أوردر).*فين|وصل.*(?:اوردر|أوردر)|استعجل.*(?:اوردر|أوردر)|تستعجل.*(?:اوردر|أوردر))/i;
 const AVAILABILITY_RX = /(متاح|موجود|ناقص|مش موجود|غير متوفر|مش متوفر|خلصان|متوفر)/i;
 const CONSULT_RX = /(جرع[هة]|طريق[هة] الاستخدام|ازاي استخدم|استخدامه|اعراض|أعراض|كح[هة]|حرار[هة]|ضغط|سكر|حموض[هة]|اسهال|إسهال|ترجيع|قيء|طفل|حامل|رضاع[هة]|تعبان|مفعول|ينفع|مناسب|ارشح|ترشح|بديل علاجي)/i;
 const COMPLAINT_RX = /(شكوى|شكوي|متضايق|زعلان|تاخير|تأخير|مش راضي|مشكله|مشكلة|وحش|سيئ|رفض|محدش رد)/i;
+const COMPLAINT_NEGATION_RX = /(مفيش|مافيش|ما فيش|مش|لا يوجد|ولا)\s+(?:اي\s+)?(?:مشكله|مشكلة|شكوى|شكوي)|(?:مشكله|مشكلة)\s*(?:مفيش|مافيش)/i;
 const ORDER_RX = /(ابعت|ابعته|ابعتهم|تمام ابعت|العنوان|الدليفري|المندوب|تم الارسال|تم الإرسال|تم تأكيد|هطلب|عايز واحد|محتاج واحد)/i;
 const UNAVAILABLE_RX = /(مش موجود|غير متوفر|مش متوفر|ناقص|خلصان|معجز|غير متاح)/i;
 const ALTERNATIVE_RX = /(بديل|ممكن بدل|ارشح|أرشح|نقدر نوفر|فيه بديل|في بديل|بديله|بديلة)/i;
@@ -75,6 +75,8 @@ const EXPLAIN_RX = /(الفرق|لانه|لأن|بيعمل|بيساعد|طريق
 const REQUEST_REGISTERED_RX = /(تم تسجيل طلب|سجلنا طلب|اتسجل طلب|تم تسجيل الصنف|هنسجل طلب|سجلت طلب)/i;
 const CS_FOLLOWUP_TOLD_RX = /(خدم[هة] العملاء.*هتتابع|هيتم متابعه|هيتم متابعة|هنخلي خدم[هة] العملاء|متابع[هة] من خدم[هة] العملاء)/i;
 const SALES_CLOSE_RX = /(ابعت لحضرتك|ابعته لحضرتك|ابعتهم لحضرتك|أبعته لحضرتك|تحب.*نبعته|تحبي.*نبعته|اكمل الطلب|أكمل الطلب|على عنوان|علي عنوان)/i;
+const FULFILLMENT_RX = /(جاري الارسال|جاري الإرسال|تم الارسال|تم الإرسال|في الطريق|فى الطريق|خرج لحضرتك|هبعته لحضرتك|هتكون عند حضرتك|مساف[هة] الطريق)/i;
+const DIRECT_COMMERCIAL_REPLY_RX = /(موجود|متاح|متوفر|ب\s*\d+|\d+\s*(?:ج|جنيه)|من عنيا|من عيني|حاضر|تحت امر حضرتك|تحت أمر حضرتك)/i;
 const CHOICE_RX = /(تحب|تحبي|حضرتك تفضل|حضرتك تفضلي|مقاس|تركيز|حجم|عدد)/i;
 const FOLLOWUP_PROMISE_RX = /(هتابع|هنتابع|بنتابع|هرجع لحضرتك|هنرجع لحضرتك|اطمن على حضرتك|نطمن على حضرتك)/i;
 const ILLNESS_RX = /(تعبان|تعبانه|اعراض|أعراض|كحه|كحة|حراره|حرارة|اسهال|إسهال|ترجيع|قيء|احتقان|الم|ألم|ضغط)/i;
@@ -87,16 +89,26 @@ function orderedMessages(session: WhatsAppConversationSession) {
 function meaningful(messages: WhatsAppParsedMessage[]) {
   return messages.filter((m) => String(m.text || '').trim() && m.kind !== 'deleted');
 }
+function isComplaintMessage(message: WhatsAppParsedMessage) {
+  const text = String(message.text || '');
+  return message.direction === 'inbound' && COMPLAINT_RX.test(text) && !COMPLAINT_NEGATION_RX.test(text);
+}
 function intentFor(message: WhatsAppParsedMessage): SmartIntent[] {
   const text = message.text || '';
   const out: SmartIntent[] = [];
   if (SERVICE_FOLLOWUP_RX.test(text)) out.push('service_followup');
-  if (message.direction === 'inbound' && COMPLAINT_RX.test(text)) out.push('complaint');
+  if (isComplaintMessage(message)) out.push('complaint');
   if (CONSULT_RX.test(text)) out.push('consultation');
   if (PRODUCT_RX.test(text)) out.push('product_request');
   if (AVAILABILITY_RX.test(text)) out.push('availability_check');
   if (ORDER_RX.test(text)) out.push('order');
   return unique(out);
+}
+function isSalesOpportunityTrigger(message: WhatsAppParsedMessage) {
+  if (message.direction !== 'inbound') return false;
+  const text = String(message.text || '').trim();
+  if (!text || ORDER_ACCEPTANCE_RX.test(text) || ORDER_STATUS_RX.test(text)) return false;
+  return SALES_OPPORTUNITY_RX.test(text);
 }
 function extractField(text: string, labels: string[]) {
   for (const label of labels) {
@@ -145,16 +157,24 @@ export function analyzeSmartConversationDeep(session: WhatsAppConversationSessio
 
   const opportunities: SmartSalesOpportunity[] = [];
   messages.forEach((m, index) => {
-    if (m.direction !== 'inbound' || !PRODUCT_RX.test(m.text || '')) return;
-    const following = messages.slice(index + 1, index + 5).filter((x) => x.direction === 'outbound');
+    if (!isSalesOpportunityTrigger(m)) return;
+    const following = messages.slice(index + 1, index + 6).filter((x) => x.direction === 'outbound');
     const evidence = [m.id, ...following.map((x) => x.id)];
-    const closed = following.some((x) => SALES_CLOSE_RX.test(x.text || ''));
+    const closed = following.some((x) => SALES_CLOSE_RX.test(x.text || '') || FULFILLMENT_RX.test(x.text || ''));
     const guided = following.some((x) => CHOICE_RX.test(x.text || '') || ALTERNATIVE_RX.test(x.text || ''));
+    const answered = following.some((x) => DIRECT_COMMERCIAL_REPLY_RX.test(x.text || '') || /\d/.test(String(x.text || '')));
+    const handling: OpportunityHandling = closed ? 'handled_well' : guided || answered ? 'partial' : following.length ? 'missed' : 'needs_review';
     opportunities.push({
       triggerMessageId: m.id,
-      handling: closed && guided ? 'handled_well' : closed || guided ? 'partial' : following.length ? 'missed' : 'needs_review',
+      handling,
       evidenceMessageIds: evidence,
-      reason: closed && guided ? 'تم توجيه العميل ومحاولة إغلاق الطلب' : closed ? 'تم الإغلاق بدون استكشاف/توجيه واضح' : guided ? 'تمت مساعدة العميل بدون إغلاق واضح' : following.length ? 'ظهرت فرصة بيع ولم يظهر توجيه أو إغلاق واضح' : 'لا توجد استجابة مؤكدة بعد فرصة البيع',
+      reason: handling === 'handled_well'
+        ? 'تم الرد على فرصة البيع وتحويلها لخطوة إغلاق/إرسال واضحة'
+        : handling === 'partial'
+          ? 'تمت مساعدة العميل لكن كان ممكن تكون خطوة الإغلاق أو التوجيه أوضح'
+          : handling === 'missed'
+            ? 'ظهرت فرصة بيع ولم يظهر رد تجاري كافٍ أو خطوة إغلاق واضحة'
+            : 'لا توجد استجابة مؤكدة بعد فرصة البيع',
     });
   });
 
@@ -194,7 +214,7 @@ export function analyzeSmartConversationDeep(session: WhatsAppConversationSessio
   const explicitPromise = messages.find((m) => m.direction === 'outbound' && FOLLOWUP_PROMISE_RX.test(m.text || ''));
   const illness = firstInbound && ILLNESS_RX.test(firstInbound.text || '') ? firstInbound : messages.find((m) => m.direction === 'inbound' && ILLNESS_RX.test(m.text || ''));
   const recommendation = messages.find((m) => m.direction === 'outbound' && RECOMMENDATION_RX.test(m.text || ''));
-  const serviceIssue = messages.find((m) => m.direction === 'inbound' && COMPLAINT_RX.test(m.text || ''));
+  const serviceIssue = messages.find((m) => isComplaintMessage(m));
   const followReason = explicitPromise ? 'explicit_promise' : illness ? 'illness' : recommendation ? 'recommendation' : serviceIssue ? 'service_issue' : null;
   const followEvidence = [explicitPromise?.id, illness?.id, recommendation?.id, serviceIssue?.id].filter(Boolean) as string[];
   const followup: SmartFollowupCandidate = { detected: Boolean(followReason), reason: followReason, evidenceMessageIds: unique(followEvidence), needsConfirmation: followReason !== 'explicit_promise' };
