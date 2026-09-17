@@ -170,7 +170,7 @@ export function detectFollowupSignals(session: WhatsAppConversationSession): Det
           signalTypeLabel: SIGNAL_LABELS.other_opportunity,
           evidenceQuote: compactQuote(text),
           evidenceTimestamp: m.timestamp,
-          requestedProductName: extractRequestedProduct(messages, i + 1),
+          requestedProductName: extractRequestedProduct(messages, i),
           confidence: 0.82,
         });
       }
