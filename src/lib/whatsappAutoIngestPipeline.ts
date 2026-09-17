@@ -14,6 +14,14 @@ export interface IngestOneFileResult {
   errors: string[];
 }
 
+async function resolveBranchForStaff(staffName: string | null): Promise<string | null> {
+  if (!staffName) return null;
+  const cleaned = staffName.replace(/من صيدليات دواء.*$/i, '').replace(/[🥼✨💚🌷😊🙏]/g, '').trim();
+  if (!cleaned) return null;
+  const { data } = await supabase.from('staff').select('branch').ilike('name', `%${cleaned}%`).eq('active', true).limit(1).maybeSingle();
+  return data?.branch || null;
+}
+
 async function saveSessionReview(session: WhatsAppConversationSession, sourceFileName: string, innerFileName: string | null) {
   const sourceHash = await hashWhatsAppSession(session);
   const { data: existing, error: existingError } = await supabase
@@ -26,13 +34,14 @@ async function saveSessionReview(session: WhatsAppConversationSession, sourceFil
 
   const summary = buildSmartConversationReviewSummary(session);
   const staffName = session.outboundStaffNames[0] || null;
+  const branch = await resolveBranchForStaff(staffName);
 
   const { error } = await supabase.from('whatsapp_review_sources').insert({
     source_hash: sourceHash,
     source_type: 'whatsapp_export_auto',
     source_filename: sourceFileName,
     inner_filename: innerFileName,
-    branch: null,
+    branch,
     customer_name: session.customerName,
     staff_name: staffName,
     conversation_started_at: session.startedAt.toISOString(),
@@ -50,16 +59,16 @@ async function saveSessionReview(session: WhatsAppConversationSession, sourceFil
     analysis_json: JSON.parse(JSON.stringify(summary)),
   });
   if (error && error.code !== '23505') throw error;
-  return { duplicate: false as const, summary };
+  return { duplicate: false as const, summary, branch };
 }
 
-async function saveFollowupSignals(session: WhatsAppConversationSession, sourceFileName: string) {
+async function saveFollowupSignals(session: WhatsAppConversationSession, sourceFileName: string, branch: string | null) {
   const signals = detectFollowupSignals(session);
   if (!signals.length) return 0;
   const rows = signals.map((s) => ({
     source_file_name: sourceFileName,
     conversation_session_id: session.id,
-    branch: null,
+    branch,
     doctor_name: session.outboundStaffNames[0] || null,
     customer_name: session.customerName || 'غير معروف',
     signal_type: s.signalType,
@@ -93,7 +102,8 @@ export async function ingestWhatsAppExportFile(file: File): Promise<IngestOneFil
       const saved = await saveSessionReview(session, source.sourceFileName, source.innerFileName || null);
       if (saved.duplicate) result.sessionsDuplicate += 1;
       else result.sessionsSaved += 1;
-      const created = await saveFollowupSignals(session, source.sourceFileName);
+      const resolvedBranch = saved.duplicate ? null : saved.branch;
+      const created = await saveFollowupSignals(session, source.sourceFileName, resolvedBranch);
       result.followupsCreated += created;
     } catch (e) {
       result.errors.push(e instanceof Error ? e.message : 'خطأ غير معروف أثناء معالجة جلسة محادثة');
