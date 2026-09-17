@@ -2,6 +2,7 @@ import type { WhatsAppConversationSession } from './whatsappConversationParser';
 import { rankSuggestedCriteriaByHistoricalUse } from './whatsappHistoricalReviewCalibration';
 import { classifySmartConversation } from './whatsappSmartReviewCore';
 import { analyzeSmartConversationDeep, type SmartDeepConversationAnalysis } from './whatsappSmartConversationIntelligence';
+import { refineSmartDeepConversationAnalysis } from './whatsappSmartConversationRefinement';
 import { buildSmartReviewQualityGate, type SmartReviewQualityGate } from './whatsappSmartReviewQualityGate';
 import { buildSmartQuickDecision, type SmartQuickDecisionResult } from './whatsappSmartReviewDecision';
 import { applySmartReviewMessageScope, type SmartReviewScopeInput, type SmartReviewScopeResult } from './whatsappSmartReviewScope';
@@ -101,7 +102,7 @@ export function runSmartReviewPipeline(
   session: WhatsAppConversationSession,
   input: SmartReviewPipelineInput,
 ): SmartReviewPipelineResult {
-  const conversationIntelligence = analyzeSmartConversationDeep(session);
+  const conversationIntelligence = refineSmartDeepConversationAnalysis(session, analyzeSmartConversationDeep(session));
   const scope = applySmartReviewMessageScope(session, input);
   if (!scope.valid || !scope.scoredSession) {
     return {
@@ -114,7 +115,7 @@ export function runSmartReviewPipeline(
     };
   }
 
-  const intelligence = analyzeSmartConversationDeep(scope.scoredSession);
+  const intelligence = refineSmartDeepConversationAnalysis(scope.scoredSession, analyzeSmartConversationDeep(scope.scoredSession));
   const qualityGate = buildSmartReviewQualityGate(scope.scoredSession, intelligence);
 
   if (!input.staffName || !input.role) {
