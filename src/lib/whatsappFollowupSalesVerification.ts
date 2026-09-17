@@ -29,6 +29,11 @@ export type FollowupSaleVerification = {
   warnings: string[];
 };
 
+export type FollowupSaleRankingInput = Pick<FollowupSaleVerificationInput, 'branch' | 'signalAt' | 'windowDays'> & {
+  rows: CustomerInvoiceReadRow[];
+  matchedBy: CustomerInvoiceMatch | 'mixed' | null;
+};
+
 function normalizeBranch(value: unknown) {
   return customerIdentityText(value)
     .replace(/^فرع\s+/i, '')
@@ -64,29 +69,14 @@ function strategyBaseConfidence(matchedBy: FollowupSaleCandidate['matchedBy']) {
   return 0.4;
 }
 
-export async function verifyFollowupSale(input: FollowupSaleVerificationInput): Promise<FollowupSaleVerification> {
-  const hasIdentity = Boolean(
-    customerIdentityText(input.customerCode) ||
-    customerIdentityText(input.customerId) ||
-    customerIdentityText(input.customerPhone) ||
-    customerIdentityText(input.customerName)
-  );
-  if (!hasIdentity) return { status: 'insufficient_identity', candidates: [], warnings: [] };
-
-  const result = await readCustomerInvoices({
-    customerCode: input.customerCode,
-    customerId: input.customerId,
-    customerPhone: input.customerPhone,
-    customerName: input.customerName,
-  });
-
+export function rankFollowupSaleCandidates(input: FollowupSaleRankingInput): FollowupSaleCandidate[] {
   const from = startOfDay(input.signalAt);
   const until = new Date(from);
   until.setDate(until.getDate() + Math.max(1, Math.min(input.windowDays ?? 14, 45)));
   until.setHours(23, 59, 59, 999);
   const targetBranch = normalizeBranch(input.branch);
 
-  const candidates = result.rows
+  return input.rows
     .map((row): FollowupSaleCandidate | null => {
       const invoiceDateText = dateValue(row);
       if (!invoiceDateText) return null;
@@ -98,8 +88,8 @@ export async function verifyFollowupSale(input: FollowupSaleVerificationInput): 
       if (targetBranch && invoiceBranch && !branchMatches) return null;
 
       const reasons: string[] = [];
-      let confidence = strategyBaseConfidence(result.matchedBy);
-      reasons.push(`مطابقة العميل: ${result.matchedBy || 'غير محددة'}`);
+      let confidence = strategyBaseConfidence(input.matchedBy);
+      reasons.push(`مطابقة العميل: ${input.matchedBy || 'غير محددة'}`);
       if (branchMatches && targetBranch && invoiceBranch) {
         confidence += 0.05;
         reasons.push('نفس الفرع');
@@ -118,17 +108,46 @@ export async function verifyFollowupSale(input: FollowupSaleVerificationInput): 
         amount: amountValue(row),
         sellerName: customerIdentityText(row.normalized_seller_name || row.seller_name || row.staff_name) || null,
         confidence: Math.min(0.99, confidence),
-        matchedBy: result.matchedBy,
+        matchedBy: input.matchedBy,
         reasons,
       };
     })
     .filter((candidate): candidate is FollowupSaleCandidate => Boolean(candidate))
     .sort((a, b) => b.confidence - a.confidence || new Date(a.invoiceDate).getTime() - new Date(b.invoiceDate).getTime())
     .slice(0, 5);
+}
+
+export function saleCandidateCanBeHumanConfirmed(candidate: FollowupSaleCandidate | null | undefined) {
+  return Boolean(candidate?.invoiceId && candidate.confidence >= 0.75);
+}
+
+export async function verifyFollowupSale(input: FollowupSaleVerificationInput): Promise<FollowupSaleVerification> {
+  const hasIdentity = Boolean(
+    customerIdentityText(input.customerCode) ||
+    customerIdentityText(input.customerId) ||
+    customerIdentityText(input.customerPhone) ||
+    customerIdentityText(input.customerName)
+  );
+  if (!hasIdentity) return { status: 'insufficient_identity', candidates: [], warnings: [] };
+
+  const result = await readCustomerInvoices({
+    customerCode: input.customerCode,
+    customerId: input.customerId,
+    customerPhone: input.customerPhone,
+    customerName: input.customerName,
+  });
+
+  const candidates = rankFollowupSaleCandidates({
+    rows: result.rows,
+    matchedBy: result.matchedBy,
+    branch: input.branch,
+    signalAt: input.signalAt,
+    windowDays: input.windowDays,
+  });
 
   if (!candidates.length) return { status: 'not_found', candidates: [], warnings: result.warnings };
   return {
-    status: candidates[0].confidence >= 0.75 ? 'verified_candidate' : 'weak_candidate',
+    status: saleCandidateCanBeHumanConfirmed(candidates[0]) ? 'verified_candidate' : 'weak_candidate',
     candidates,
     warnings: result.warnings,
   };
