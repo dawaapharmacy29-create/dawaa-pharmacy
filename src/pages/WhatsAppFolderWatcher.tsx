@@ -35,8 +35,16 @@ export default function WhatsAppFolderWatcher() {
           if (result.errors.length) {
             toast.warning(`${candidate.name}: ${result.errors[0]}`);
           } else {
+            const autoReviewNote = result.autoReviewsCreated
+              ? `، ${result.autoReviewsCreated} تقييم آلي جديد`
+              : '';
             toast.success(
-              `تم تحليل ${candidate.name} — ${result.sessionsSaved} محادثة جديدة، ${result.customersMatched} عميل متطابق، ${result.followupsCreated} طلب متابعة جديد`,
+              `تم تحليل ${candidate.name} — ${result.sessionsSaved} محادثة جديدة، ${result.customersMatched} عميل متطابق، ${result.followupsCreated} طلب متابعة جديد${autoReviewNote}`,
+            );
+          }
+          if (result.autoReviewsPointsFailed) {
+            toast.error(
+              `${candidate.name}: ${result.autoReviewsPointsFailed} تقييم آلي اتسجل لكن ربط النقاط بتاعه فشل — يحتاج مراجعة يدوية`,
             );
           }
         } catch (e) {
@@ -117,6 +125,11 @@ export default function WhatsAppFolderWatcher() {
                   <span className="text-violet-400">عملاء متطابقون: {item.customersMatched}</span>
                   <span className="text-sky-400">متابعات جديدة: {item.followupsCreated}</span>
                   <span>متابعات مكررة تم منعها: {item.followupsDuplicate}</span>
+                  <span className="text-teal-400">تقييمات آلية: {item.autoReviewsCreated}</span>
+                  {item.autoReviewsSkipped > 0 && <span>تقييمات آلية متجاهلة: {item.autoReviewsSkipped}</span>}
+                  {item.autoReviewsPointsFailed > 0 && (
+                    <span className="text-[var(--dawaa-status-danger-text)]">فشل ربط نقاط: {item.autoReviewsPointsFailed}</span>
+                  )}
                 </div>
                 {item.errors.map((err, j) => <div key={j} className="mt-1 flex items-center gap-1 text-[var(--dawaa-status-danger-text)]"><XCircle size={12} /> {err}</div>)}
               </div>
