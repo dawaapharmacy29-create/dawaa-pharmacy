@@ -27,7 +27,7 @@ create unique index if not exists uq_shift_schedules_staff_day_version
 create index if not exists idx_shift_schedules_staff_effective
   on public.shift_schedules(staff_id, effective_from, effective_to);
 
--- Preserve Yusuf Maher's old schedule through Sep 18, then start the new 16:00 -> 02:00 schedule on Sep 19.
+-- Preserve Yusuf Maher's old schedule through Sep 17, then start the new 16:00 -> 02:00 schedule on Sep 18.
 with target as (
   select id
   from public.staff
@@ -38,7 +38,7 @@ with target as (
   limit 1
 )
 update public.shift_schedules ss
-set effective_to = date '2026-09-18',
+set effective_to = date '2026-09-17',
     updated_at = now()
 from target t
 where ss.staff_id=t.id
@@ -60,7 +60,7 @@ with target as (
   from public.shift_schedules ss
   join target t on t.id=ss.staff_id
   where ss.shift_date is null and ss.date is null
-    and ss.effective_to=date '2026-09-18'
+    and ss.effective_to=date '2026-09-17'
     and coalesce(ss.is_off,false)=false
     and coalesce(ss.is_day_off,false)=false
 )
@@ -73,8 +73,8 @@ select
   gen_random_uuid(),staff_name,employee_name,role,branch,day_name,'16:00:00','02:00:00',10,false,
   '16:00-02:00',coalesce(source,'attendance_schedule_v3'),now(),staff_id,day_of_week,false,now(),
   time '16:00',time '02:00',true,true,branch_id,
-  concat_ws(' | ',nullif(notes,''),'تغيير معتمد: يوسف ماهر 16:00 إلى 02:00 اعتبارًا من 2026-09-19'),
-  null,null,coalesce(shift_name,'مسائي'),coalesce(status,'active'),date '2026-09-19',null
+  concat_ws(' | ',nullif(notes,''),'تغيير معتمد: يوسف ماهر 16:00 إلى 02:00 اعتبارًا من 2026-09-18'),
+  null,null,coalesce(shift_name,'مسائي'),coalesce(status,'active'),date '2026-09-18',null
 from source_rows
 on conflict (staff_id,day_name,effective_from)
 where staff_id is not null and day_name is not null and shift_date is null and date is null
