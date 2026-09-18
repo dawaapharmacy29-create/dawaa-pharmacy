@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// CI sentinel: attendance-page-rebuild hardening contract.
 const fs = require('node:fs');
 
 const failures = [];
