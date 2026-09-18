@@ -68,6 +68,7 @@ export default function UnifiedApprovalsCenter() {
   const [profileStaffId, setProfileStaffId] = useState<string | null>(null);
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
   const [contextData, setContextData] = useState<Record<string, OvertimeContext | 'loading' | 'error'>>({});
+  const [decisionNotes, setDecisionNotes] = useState<Record<string, string>>({});
 
   async function toggleContext(it: ApprovalItem) {
     const k = key(it);
@@ -86,6 +87,7 @@ export default function UnifiedApprovalsCenter() {
   }
 
   const key = (it: ApprovalItem) => `${it.item_type}:${it.item_id}`;
+  const isBulkEligible = (it: ApprovalItem) => it.item_type === 'timeoff_branch' || it.item_type === 'timeoff_gm';
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -103,18 +105,24 @@ export default function UnifiedApprovalsCenter() {
 
   const visible = expanded === 'all' ? items : items.filter((i) => i.item_type === expanded);
 
-  function toggleSelect(k: string) {
+  function toggleSelect(it: ApprovalItem) {
+    if (!isBulkEligible(it)) {
+      toast.info('الخصومات والأوفرتايم لازم يتراجعوا حالة بحالة');
+      return;
+    }
+    const k = key(it);
     setSelected((prev) => { const next = new Set(prev); next.has(k) ? next.delete(k) : next.add(k); return next; });
   }
 
   function toggleSelectAll() {
-    if (selected.size === visible.length) setSelected(new Set());
-    else setSelected(new Set(visible.map(key)));
+    const eligible = visible.filter(isBulkEligible);
+    if (eligible.length && selected.size === eligible.length) setSelected(new Set());
+    else setSelected(new Set(eligible.map(key)));
   }
 
-  async function decideOne(it: ApprovalItem, decision: 'approve' | 'reject') {
+  async function decideOne(it: ApprovalItem, decision: 'approve' | 'reject', note: string | null) {
     const { error } = await supabase.rpc('attendance_unified_approval_decide_v1', {
-      p_item_type: it.item_type, p_item_id: it.item_id, p_decision: decision, p_note: null,
+      p_item_type: it.item_type, p_item_id: it.item_id, p_decision: decision, p_note: note,
     });
     if (error) throw error;
   }
@@ -125,7 +133,8 @@ export default function UnifiedApprovalsCenter() {
     let ok = 0; let failed = 0;
     for (const it of visible) {
       if (!selected.has(key(it))) continue;
-      try { await decideOne(it, decision); ok++; } catch { failed++; }
+      if (!isBulkEligible(it)) continue;
+      try { await decideOne(it, decision, null); ok++; } catch { failed++; }
     }
     invalidateCachedRpc('attendance_branch_role_group_rates_v1');
     toast.success(`${ok} حالة اتنفذت${failed ? ` — ${failed} فشلت` : ''}`);
@@ -135,10 +144,28 @@ export default function UnifiedApprovalsCenter() {
   }
 
   async function decideSingle(it: ApprovalItem, decision: 'approve' | 'reject') {
+    const k = key(it);
+    const note = (decisionNotes[k] || '').trim();
+
+    if ((it.item_type === 'deduction' || it.item_type === 'overtime') && !note) {
+      toast.warning('اكتب سبب القرار قبل اعتماد أو رفض الخصم/الأوفرتايم');
+      return;
+    }
+
+    if (it.item_type === 'overtime' && decision === 'approve') {
+      const ctx = contextData[k];
+      if (!ctx || ctx === 'loading' || ctx === 'error' || !ctx.ready) {
+        toast.warning('افتح تفاصيل الأوفرتايم وراجع الأدلة أولاً قبل الاعتماد');
+        if (!ctx) await toggleContext(it);
+        return;
+      }
+    }
+
     setBusy(true);
     try {
-      await decideOne(it, decision);
+      await decideOne(it, decision, note || null);
       toast.success(decision === 'approve' ? 'تم الاعتماد' : 'تم الرفض');
+      setDecisionNotes((prev) => ({ ...prev, [k]: '' }));
       invalidateCachedRpc('attendance_branch_role_group_rates_v1');
       await load();
     } catch (e) {
@@ -180,8 +207,8 @@ export default function UnifiedApprovalsCenter() {
         <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-3 shadow-sm">
           <div className="mb-2 flex items-center justify-between gap-2 border-b border-[var(--dawaa-theme-border)] pb-2">
             <label className="flex items-center gap-2 text-xs font-black text-[var(--dawaa-theme-muted)]">
-              <input type="checkbox" checked={selected.size > 0 && selected.size === visible.length} onChange={toggleSelectAll} />
-              تحديد الكل ({visible.length})
+              <input type="checkbox" checked={visible.filter(isBulkEligible).length > 0 && selected.size === visible.filter(isBulkEligible).length} onChange={toggleSelectAll} />
+              تحديد الأذونات الآمنة للمعالجة الجماعية ({visible.filter(isBulkEligible).length})
             </label>
             {selected.size > 0 && (
               <div className="flex items-center gap-2">
@@ -201,7 +228,7 @@ export default function UnifiedApprovalsCenter() {
             <div key={k} className="rounded-xl border border-[var(--dawaa-theme-border)] dawaa-surface p-2.5">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <input type="checkbox" checked={selected.has(k)} onChange={() => toggleSelect(k)} />
+                  <input type="checkbox" disabled={!isBulkEligible(it)} checked={selected.has(k)} onChange={() => toggleSelect(it)} title={isBulkEligible(it) ? 'تحديد للمعالجة الجماعية' : 'هذه الحالة تحتاج قرارًا فرديًا'} />
                   <span className={cn('rounded-full border px-2 py-0.5 text-[10px] font-black', meta.cls)}>{meta.label}</span>
                   <div>
                     <button onClick={() => setProfileStaffId(it.staff_id)} className="font-black text-[var(--dawaa-theme-heading)] hover:underline hover:text-[var(--dawaa-theme-primary-strong)]">{it.staff_name}</button>
@@ -219,6 +246,17 @@ export default function UnifiedApprovalsCenter() {
                 </div>
               </div>
 
+              {(it.item_type === 'deduction' || it.item_type === 'overtime') && (
+                <div className="mt-2">
+                  <input
+                    value={decisionNotes[k] || ''}
+                    onChange={(e) => setDecisionNotes((prev) => ({ ...prev, [k]: e.target.value }))}
+                    placeholder={it.item_type === 'overtime' ? 'سبب قرار الأوفرتايم (إجباري)' : 'سبب قرار الخصم (إجباري)'}
+                    className="input-dark w-full text-xs"
+                  />
+                </div>
+              )}
+
               {isExpanded && (
                 <div className="mt-2 rounded-lg border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-3">
                   {ctx === 'loading' && <div className="flex items-center gap-2 text-xs font-bold text-[var(--dawaa-theme-muted)]"><Loader2 size={14} className="animate-spin" /> جارٍ تحليل الفترة...</div>}
@@ -231,7 +269,7 @@ export default function UnifiedApprovalsCenter() {
                         <span className="mr-auto font-bold text-[var(--dawaa-theme-muted)]">(الميعاد: {formatClock(ctx.scheduled_start_at)} ← {formatClock(ctx.scheduled_end_at)})</span>
                       </div>
                       <div className="flex items-center gap-1.5 rounded-lg border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] p-2 text-xs font-black text-[var(--dawaa-status-info-text)]">
-                        <Sparkles size={14} /> التوصية: {ctx.recommendation}
+                        <Sparkles size={14} /> أدلة مساعدة فقط — القرار النهائي للإدارة بعد مراجعة الوقت والزملاء والمبيعات.
                       </div>
                       <div className="grid gap-2 sm:grid-cols-2">
                         <div className="rounded-lg border border-[var(--dawaa-theme-border)] p-2">
