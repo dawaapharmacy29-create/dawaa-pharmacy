@@ -61,6 +61,20 @@ function expect(actual) {
     toContain(value) {
       if (!actual?.includes?.(value)) throw new Error(`Expected value to contain ${value}`);
     },
+    toEqual(expected) {
+      const left = JSON.stringify(actual);
+      const right = JSON.stringify(expected);
+      if (left !== right) throw new Error(`Expected ${left} to equal ${right}`);
+    },
+    toHaveLength(expected) {
+      if (actual?.length !== expected) throw new Error(`Expected length ${actual?.length} to be ${expected}`);
+    },
+    toBeTruthy() {
+      if (!actual) throw new Error(`Expected ${actual} to be truthy`);
+    },
+    toBeFalsy() {
+      if (actual) throw new Error(`Expected ${actual} to be falsy`);
+    },
     toBeGreaterThan(value) {
       if (!(actual > value)) throw new Error(`Expected ${actual} to be greater than ${value}`);
     },
@@ -76,6 +90,12 @@ function expect(actual) {
     not: {
       toBeNull() {
         if (actual === null) throw new Error('Expected value not to be null');
+      },
+      toContain(value) {
+        if (actual?.includes?.(value)) throw new Error(`Expected value not to contain ${value}`);
+      },
+      toBe(expected) {
+        if (Object.is(actual, expected)) throw new Error(`Expected ${actual} not to be ${expected}`);
       },
     },
   };
@@ -136,7 +156,19 @@ const testFiles = [
   'src/lib/security/__tests__/securityDefinerPublicExecuteMigration.test.ts',
   'src/lib/security/__tests__/internalTriggerFunctionSurfaceMigration.test.ts',
   'src/lib/security/__tests__/scheduledMaintenanceSurfaceMigration.test.ts',
-  'src/lib/security/__tests__/monthlyEvaluationSelfGuardMigration.test.ts',
+  'src/lib/security/__tests__/monthlyEvaluationSelfGuardMigration.test.ts',\n  'src/lib/__tests__/conversationReviewTranscript.test.ts',
+  'src/lib/__tests__/whatsappSmartReviewCore.test.ts',
+  'src/lib/__tests__/whatsappSmartReviewOwnership.test.ts',
+  'src/lib/__tests__/whatsappSmartReviewResult.test.ts',
+  'src/lib/__tests__/whatsappSmartReviewScope.test.ts',
+  'src/lib/__tests__/whatsappSmartReviewDecision.test.ts',
+  'src/lib/__tests__/whatsappSmartReviewPipeline.test.ts',
+  'src/lib/__tests__/whatsappSmartReviewPipelineIntelligence.test.ts',
+  'src/lib/__tests__/whatsappSmartConversationIntelligence.test.ts',
+  'src/lib/__tests__/whatsappSmartConversationIntelligence.realRegression.test.ts',
+  'src/lib/__tests__/whatsappSmartConversationRefinement.test.ts',
+  'src/lib/__tests__/whatsappSmartReviewActions.test.ts',
+  'src/lib/__tests__/whatsappSmartReviewGoldenCases.test.ts',
 ];
 for (const relativePath of testFiles) {
   const testFile = path.join(root, relativePath);

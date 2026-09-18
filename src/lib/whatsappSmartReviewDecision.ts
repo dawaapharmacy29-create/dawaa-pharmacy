@@ -1,4 +1,5 @@
 import type { SmartConversationReviewResult, SmartOwnedReviewSummary } from './whatsappSmartReviewResult';
+import type { SmartStaffRole } from './whatsappSmartReviewOwnership';
 
 export type SmartQuickDecision = 'clear' | 'issue' | 'detailed_review';
 
@@ -10,14 +11,6 @@ export interface SmartQuickDecisionResult {
   safeToQuickApprove: boolean;
 }
 
-const CRITICAL_CRITERIA = new Set([
-  'angry_customer',
-  'order_delay_handling',
-  'consultation_quality',
-  'dosage_explanation',
-  'unavailable_items',
-]);
-
 function unique<T>(items: T[]) {
   return Array.from(new Set(items));
 }
@@ -25,26 +18,25 @@ function unique<T>(items: T[]) {
 function decideStaff(summary: SmartOwnedReviewSummary): SmartQuickDecisionResult {
   const criteria = unique(summary.suggestedReviewCriteria);
   const reasons = unique(summary.reviewReasons);
-  const critical = criteria.filter((item) => CRITICAL_CRITERIA.has(item));
   const evidence = unique(summary.evidenceMessageIds);
 
   if (summary.unansweredTurns > 0) reasons.push('يوجد عميل بدون رد داخل فترة المسؤولية المؤكدة');
   if (summary.slowResponseTurns > 0) reasons.push('يوجد رد متأخر داخل فترة المسؤولية المؤكدة');
 
-  if (summary.requiresHumanReview || critical.length > 0 || summary.unansweredTurns > 0) {
+  if (summary.requiresHumanReview || summary.unansweredTurns > 0) {
     return {
       decision: 'detailed_review',
-      reasons,
+      reasons: unique(reasons),
       affectedCriteria: criteria,
       evidenceMessageIds: evidence,
       safeToQuickApprove: false,
     };
   }
 
-  if (criteria.length > 0 || summary.slowResponseTurns > 0) {
+  if (reasons.length > 0 || summary.slowResponseTurns > 0) {
     return {
       decision: 'issue',
-      reasons,
+      reasons: unique(reasons),
       affectedCriteria: criteria,
       evidenceMessageIds: evidence,
       safeToQuickApprove: false,
@@ -54,7 +46,7 @@ function decideStaff(summary: SmartOwnedReviewSummary): SmartQuickDecisionResult
   return {
     decision: 'clear',
     reasons: [],
-    affectedCriteria: [],
+    affectedCriteria: criteria,
     evidenceMessageIds: evidence,
     safeToQuickApprove: true,
   };
@@ -63,10 +55,13 @@ function decideStaff(summary: SmartOwnedReviewSummary): SmartQuickDecisionResult
 export function buildSmartQuickDecision(
   review: SmartConversationReviewResult,
   staffName?: string | null,
+  role?: SmartStaffRole | null,
 ): SmartQuickDecisionResult {
   const selected = staffName
-    ? review.staffSummaries.filter((item) => item.staffName === staffName)
-    : review.staffSummaries;
+    ? review.staffSummaries.filter((item) => item.staffName === staffName && (!role || item.role === role))
+    : role
+      ? review.staffSummaries.filter((item) => item.role === role)
+      : review.staffSummaries;
 
   const blockers = [...review.blockingReasons];
   if (!selected.length) blockers.push('لا يوجد مسؤول مؤكد يمكن اتخاذ قرار مراجعة عليه');
@@ -104,7 +99,7 @@ export function buildSmartQuickDecision(
   return {
     decision: 'clear',
     reasons: [],
-    affectedCriteria: [],
+    affectedCriteria: unique(staffDecisions.flatMap((item) => item.affectedCriteria)),
     evidenceMessageIds: unique(staffDecisions.flatMap((item) => item.evidenceMessageIds)),
     safeToQuickApprove: review.safeForOfficialScoring,
   };

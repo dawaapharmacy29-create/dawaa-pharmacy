@@ -31,9 +31,15 @@ export interface SmartOwnershipHandoff {
   evidenceMessageId: string;
 }
 
+export interface SmartIdentityTransition extends SmartOwnershipHandoff {
+  acrossGap: boolean;
+}
+
 export interface SmartOwnershipTimeline {
   episodes: SmartOwnershipEpisode[];
   handoffs: SmartOwnershipHandoff[];
+  identityTransitions: SmartIdentityTransition[];
+  identityEvents: SmartStaffIdentity[];
   verifiedStaff: SmartStaffIdentity[];
   unassignedMessageIds: string[];
 }
@@ -92,11 +98,7 @@ function sameIdentity(a: SmartStaffIdentity | null, b: SmartStaffIdentity | null
   return normalizeArabic(a.name) === normalizeArabic(b.name) && a.role === b.role;
 }
 
-function makeEpisode(
-  index: number,
-  messages: WhatsAppParsedMessage[],
-  owner: SmartStaffIdentity | null,
-): SmartOwnershipEpisode {
+function makeEpisode(index: number, messages: WhatsAppParsedMessage[], owner: SmartStaffIdentity | null): SmartOwnershipEpisode {
   const first = messages[0];
   const last = messages[messages.length - 1];
   return {
@@ -114,23 +116,27 @@ function makeEpisode(
   };
 }
 
-export function buildSmartOwnershipTimeline(
-  session: WhatsAppConversationSession,
-  gapMinutes = 120,
-): SmartOwnershipTimeline {
+export function buildSmartOwnershipTimeline(session: WhatsAppConversationSession, gapMinutes = 120): SmartOwnershipTimeline {
   const messages = session.messages
     .filter((message) => message.direction !== 'system' && message.kind !== 'system')
     .slice()
     .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
-  if (!messages.length) return { episodes: [], handoffs: [], verifiedStaff: [], unassignedMessageIds: [] };
+
+  if (!messages.length) {
+    return { episodes: [], handoffs: [], identityTransitions: [], identityEvents: [], verifiedStaff: [], unassignedMessageIds: [] };
+  }
 
   const episodes: SmartOwnershipEpisode[] = [];
   const handoffs: SmartOwnershipHandoff[] = [];
+  const identityTransitions: SmartIdentityTransition[] = [];
+  const identityEvents: SmartStaffIdentity[] = [];
   const verifiedStaff: SmartStaffIdentity[] = [];
   const seenStaff = new Set<string>();
   let currentOwner: SmartStaffIdentity | null = null;
+  let lastVerifiedIdentity: SmartStaffIdentity | null = null;
   let bucket: WhatsAppParsedMessage[] = [];
   let previous: WhatsAppParsedMessage | null = null;
+  let gapResetSinceLastIdentity = false;
 
   const flush = () => {
     if (!bucket.length) return;
@@ -143,15 +149,28 @@ export function buildSmartOwnershipTimeline(
     if (previous && gap > gapMinutes) {
       flush();
       currentOwner = null;
+      gapResetSinceLastIdentity = true;
     }
 
     const intro = extractSmartStaffIdentity(message);
     if (intro) {
+      identityEvents.push(intro);
       const staffKey = `${normalizeArabic(intro.name)}|${intro.role}`;
       if (!seenStaff.has(staffKey)) {
         seenStaff.add(staffKey);
         verifiedStaff.push(intro);
       }
+
+      if (lastVerifiedIdentity && !sameIdentity(lastVerifiedIdentity, intro)) {
+        identityTransitions.push({
+          from: lastVerifiedIdentity.name,
+          to: intro.name,
+          at: message.timestamp,
+          evidenceMessageId: message.id,
+          acrossGap: gapResetSinceLastIdentity,
+        });
+      }
+
       if (!sameIdentity(currentOwner, intro)) {
         const priorOwner = currentOwner;
         flush();
@@ -160,6 +179,9 @@ export function buildSmartOwnershipTimeline(
         }
         currentOwner = intro;
       }
+
+      lastVerifiedIdentity = intro;
+      gapResetSinceLastIdentity = false;
     }
 
     bucket.push(message);
@@ -170,6 +192,8 @@ export function buildSmartOwnershipTimeline(
   return {
     episodes,
     handoffs,
+    identityTransitions,
+    identityEvents,
     verifiedStaff,
     unassignedMessageIds: episodes.filter((episode) => !episode.eligibleForScoring).flatMap((episode) => episode.messageIds),
   };
@@ -179,12 +203,16 @@ export function selectOwnedMessagesForStaff(
   session: WhatsAppConversationSession,
   staffName: string,
   gapMinutes = 120,
+  role?: SmartStaffRole | null,
 ) {
   const target = normalizeArabic(staffName);
   const timeline = buildSmartOwnershipTimeline(session, gapMinutes);
   const allowedIds = new Set(
     timeline.episodes
-      .filter((episode) => episode.eligibleForScoring && normalizeArabic(episode.ownerName) === target)
+      .filter((episode) =>
+        episode.eligibleForScoring
+        && normalizeArabic(episode.ownerName) === target
+        && (!role || episode.ownerRole === role))
       .flatMap((episode) => episode.messageIds),
   );
   return session.messages.filter((message) => allowedIds.has(message.id));

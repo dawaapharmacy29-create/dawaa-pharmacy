@@ -151,7 +151,7 @@ export function runSmartReviewPipeline(
   return {
     scope,
     review,
-    decision: buildSmartQuickDecision(review, input.staffName),
+    decision: buildSmartQuickDecision(review, input.staffName, input.role),
     conversationIntelligence,
     intelligence,
     qualityGate,

@@ -5,7 +5,6 @@ import { applySmartReviewMessageScope } from '../whatsappSmartReviewScope';
 function msg(id: string, at: string, direction: 'inbound' | 'outbound', text: string): WhatsAppParsedMessage {
   return { id, timestamp: new Date(at), rawTimestamp: at, sender: direction === 'outbound' ? 'You' : 'Customer', text, direction, kind: 'text', forwarded: false, raw: text };
 }
-
 function session(messages: WhatsAppParsedMessage[]): WhatsAppConversationSession {
   return { id: 's1', startedAt: messages[0].timestamp, endedAt: messages[messages.length - 1].timestamp, messages, participants: ['You','Customer'], outboundStaffNames: [], customerName: 'Customer', mediaCount: 0 };
 }
@@ -47,6 +46,24 @@ describe('whatsappSmartReviewScope', () => {
     expect(result.contextMessageIds).toContain('b1');
     expect(result.contextMessageIds).toContain('b2');
     expect(result.scoredSession?.messages.map((m) => m.id)).toEqual(['c2']);
+  });
+
+  it('does not turn a long unrelated middle episode into context for disjoint ownership ranges', () => {
+    const d = session([
+      msg('a1','2026-09-13T03:01:00','outbound','مع حضرتك د اسلام'),
+      msg('a2','2026-09-13T03:02:00','outbound','تمام'),
+      msg('b1','2026-09-13T03:03:00','outbound','مع حضرتك د شبل'),
+      msg('b2','2026-09-13T03:04:00','inbound','رسالة 1'),
+      msg('b3','2026-09-13T03:05:00','outbound','رد 1'),
+      msg('b4','2026-09-13T03:06:00','inbound','رسالة 2'),
+      msg('b5','2026-09-13T03:07:00','outbound','رد 2'),
+      msg('a3','2026-09-13T03:08:00','outbound','مع حضرتك د اسلام'),
+      msg('a4','2026-09-13T03:09:00','outbound','تحت امرك'),
+    ]);
+    const result = applySmartReviewMessageScope(d, { staffName: 'اسلام', role: 'pharmacist', contextMessages: 1 });
+    expect(result.contextMessageIds).toContain('b1');
+    expect(result.contextMessageIds).toContain('b5');
+    expect(result.contextMessageIds).not.toContain('b3');
   });
 
   it('blocks invalid time ranges and empty owner matches', () => {

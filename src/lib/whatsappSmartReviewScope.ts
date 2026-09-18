@@ -40,6 +40,33 @@ function cloneSession(source: WhatsAppConversationSession, messages: WhatsAppPar
   };
 }
 
+function addBoundedContext(
+  ordered: WhatsAppParsedMessage[],
+  inScopeIds: Set<string>,
+  indexes: number[],
+  contextCount: number,
+) {
+  const contextIds = new Set<string>();
+  if (!indexes.length || contextCount <= 0) return contextIds;
+  const sorted = Array.from(new Set(indexes)).sort((a, b) => a - b);
+  const clusters: Array<{ start: number; end: number }> = [];
+  for (const index of sorted) {
+    const last = clusters[clusters.length - 1];
+    if (!last || index > last.end + 1) clusters.push({ start: index, end: index });
+    else last.end = index;
+  }
+  for (const cluster of clusters) {
+    for (
+      let i = Math.max(0, cluster.start - contextCount);
+      i <= Math.min(ordered.length - 1, cluster.end + contextCount);
+      i += 1
+    ) {
+      if (!inScopeIds.has(ordered[i].id)) contextIds.add(ordered[i].id);
+    }
+  }
+  return contextIds;
+}
+
 export function applySmartReviewMessageScope(
   session: WhatsAppConversationSession,
   input: SmartReviewScopeInput,
@@ -80,14 +107,7 @@ export function applySmartReviewMessageScope(
   const inScopeIds = new Set(inScope.map((m) => m.id));
   const contextCount = Math.max(0, Math.min(10, input.contextMessages ?? 2));
   const indexes = inScope.map((m) => ordered.findIndex((x) => x.id === m.id)).filter((i) => i >= 0);
-  const contextIds = new Set<string>();
-  if (indexes.length && contextCount > 0) {
-    const min = Math.min(...indexes);
-    const max = Math.max(...indexes);
-    for (let i = Math.max(0, min - contextCount); i <= Math.min(ordered.length - 1, max + contextCount); i += 1) {
-      if (!inScopeIds.has(ordered[i].id)) contextIds.add(ordered[i].id);
-    }
-  }
+  const contextIds = addBoundedContext(ordered, inScopeIds, indexes, contextCount);
 
   const displayMessages = ordered.filter((m) => inScopeIds.has(m.id) || contextIds.has(m.id));
   const scoredSession = inScope.length ? cloneSession(session, inScope, 'smart-scope') : null;
