@@ -1,0 +1,38 @@
+name: Attendance Rebuild Hardening
+
+on:
+  push:
+    branches:
+      - attendance-page-rebuild
+    paths:
+      - 'src/pages/AttendanceReport.tsx'
+      - 'src/components/attendance/**'
+      - 'src/lib/attendance/**'
+      - 'supabase/migrations/*attendance*'
+      - 'supabase/migrations/*biometric*'
+      - 'scripts/check-attendance-*.cjs'
+      - 'package.json'
+      - 'package-lock.json'
+  pull_request:
+    paths:
+      - 'src/pages/AttendanceReport.tsx'
+      - 'src/components/attendance/**'
+      - 'src/lib/attendance/**'
+      - 'supabase/migrations/*attendance*'
+      - 'supabase/migrations/*biometric*'
+      - 'scripts/check-attendance-*.cjs'
+
+jobs:
+  attendance-rebuild:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - run: node scripts/check-attendance-biometric-hardening.cjs
+      - run: npm run typecheck
+      - run: npm run build
