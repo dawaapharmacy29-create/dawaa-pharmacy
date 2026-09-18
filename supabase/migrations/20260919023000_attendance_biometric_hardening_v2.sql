@@ -358,6 +358,7 @@ as $function$
 declare
   v_staff record;
   v_r jsonb;
+  v_summary public.attendance_daily_summary%rowtype;
   v_window_start timestamptz;
   v_window_end timestamptz;
   v_colleagues jsonb;
@@ -372,9 +373,31 @@ begin
     raise exception using errcode='42501', message='صلاحية الإدارة مطلوبة';
   end if;
 
-  v_r:=public.dawaa_build_attendance_day_resolution_v2(p_staff_id,p_attendance_date);
-  v_window_start:=nullif(v_r->>'scheduled_end_at','')::timestamptz;
-  v_window_end:=nullif(v_r->>'last_out','')::timestamptz;
+  select * into v_summary
+  from public.attendance_daily_summary
+  where staff_id=p_staff_id
+    and attendance_date=p_attendance_date
+    and status='approved'
+    and coalesce(resolution_version,0)>=2
+  limit 1;
+
+  if v_summary.id is null then
+    return jsonb_build_object(
+      'ready',false,
+      'reason','اليوم لم يتم تسويته واعتماده بعد'
+    );
+  end if;
+
+  if coalesce(v_summary.review_required,false) then
+    return jsonb_build_object(
+      'ready',false,
+      'reason','اليوم ما زال يحتاج مراجعة قبل الأوفرتايم'
+    );
+  end if;
+
+  v_r:=coalesce(v_summary.resolution_snapshot,public.dawaa_build_attendance_day_resolution_v2(p_staff_id,p_attendance_date));
+  v_window_start:=coalesce(v_summary.scheduled_end_at,nullif(v_r->>'scheduled_end_at','')::timestamptz);
+  v_window_end:=coalesce(v_summary.last_out,nullif(v_r->>'last_out','')::timestamptz);
 
   if v_window_start is null or v_window_end is null or v_window_end<=v_window_start then
     return jsonb_build_object(
@@ -453,6 +476,9 @@ language plpgsql
 security definer
 set search_path=public,pg_catalog
 as $function$
+declare
+  v_ot public.staff_overtime_approvals%rowtype;
+  v_ctx jsonb;
 begin
   if p_item_type in ('deduction','overtime')
      and nullif(trim(coalesce(p_note,'')),'') is null then
@@ -462,6 +488,17 @@ begin
   if p_item_type='deduction' then
     return public.attendance_deduction_review_decide_v1(p_item_id,p_decision,p_note);
   elsif p_item_type='overtime' then
+    if p_decision='approve' then
+      select * into v_ot from public.staff_overtime_approvals where id=p_item_id limit 1;
+      if v_ot.id is null then
+        raise exception using errcode='22023', message='حالة الأوفرتايم غير موجودة';
+      end if;
+      v_ctx:=public.attendance_overtime_context_v1(v_ot.staff_id,v_ot.attendance_date);
+      if not coalesce((v_ctx->>'ready')::boolean,false) then
+        raise exception using errcode='22023', message=coalesce(v_ctx->>'reason','اليوم غير جاهز لاعتماد الأوفرتايم');
+      end if;
+    end if;
+
     perform public.decide_overtime_approval_v1(
       p_item_id,
       case when p_decision='approve' then 'approved' else 'rejected' end,
