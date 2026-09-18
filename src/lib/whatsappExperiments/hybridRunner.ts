@@ -1,14 +1,20 @@
-// Runner لصفحة تجربة "Hybrid A+B" — بيشغّل بالظبط نفس مسار الإنتاج الحالي
-// (ingestWhatsAppExportFile من غير أي تعديل في الخيارات)، يعني A ثم B تلقائيًا
-// بالتتابع زي ما بيحصل فعليًا من صفحة "المراقبة التلقائية للفولدر" في الإنتاج.
-// بعد التشغيل، بيقرأ نتائج الطريقتين (قراءة فقط) عشان يعرضهم في قسمين منفصلين.
+// Runner لصفحة تجربة "Hybrid A+B".
+// Dry Run افتراضي: يشغّل preview آمن لكل من A وB بدون أي كتابة DB.
+// Live Run: يشغّل نفس مسار الإنتاج الحالي A ثم B.
 import { supabase } from '@/lib/supabase';
 import { readWhatsAppExportFile } from '@/lib/whatsappExportFileReader';
 import { parseWhatsAppExport, splitWhatsAppSessions } from '@/lib/whatsappConversationParser';
 import { hashWhatsAppSession } from '@/lib/whatsappReviewPersistenceV4';
 import { ingestWhatsAppExportFile } from '@/lib/whatsappAutoIngestPipeline';
 import { isAutomaticReview, reviewerDisplayName } from '@/lib/conversationReviews';
-import type { ApproachAResultDetail, ApproachBResultDetail, ExperimentFileLogEntry } from './types';
+import { runApproachAExperiment } from './approachARunner';
+import { runApproachBExperiment } from './approachBRunner';
+import type {
+  ApproachAResultDetail,
+  ApproachBResultDetail,
+  ExperimentFileLogEntry,
+  ExperimentRunMode,
+} from './types';
 
 interface SourceRow {
   id: string;
@@ -87,13 +93,42 @@ function toApproachBDetail(row: ReviewRow | undefined): ApproachBResultDetail {
     pointsError: null,
     hasSevereError: Boolean(row.has_critical_error || row.has_medical_error),
     evaluationKind: 'automatic',
-    reviewerDisplay: isAutomaticReview({ evaluation_kind: row.evaluation_kind }) ? reviewerDisplayName({ evaluation_kind: row.evaluation_kind }) : String(row.reviewer_name || '-'),
+    reviewerDisplay: isAutomaticReview({ evaluation_kind: row.evaluation_kind })
+      ? reviewerDisplayName({ evaluation_kind: row.evaluation_kind })
+      : String(row.reviewer_name || '-'),
     suspicions: [],
     duplicatePrevented: false,
   };
 }
 
-export async function runHybridExperiment(file: File): Promise<ExperimentFileLogEntry> {
+async function runHybridDry(file: File): Promise<ExperimentFileLogEntry> {
+  const startedAt = performance.now();
+  const [a, b] = await Promise.all([
+    runApproachAExperiment(file, 'dry-run'),
+    runApproachBExperiment(file, 'dry-run'),
+  ]);
+  return {
+    fileName: file.name,
+    at: new Date().toLocaleTimeString('ar-EG'),
+    runMode: 'dry-run',
+    durationMs: performance.now() - startedAt,
+    counts: {
+      filesRead: 1,
+      sessionsFound: Math.max(a.counts.sessionsFound, b.counts.sessionsFound),
+      previewed: Math.max(a.counts.previewed, b.counts.previewed),
+      created: 0,
+      skipped: a.counts.skipped + b.counts.skipped,
+      duplicates: 0,
+      failed: a.counts.failed + b.counts.failed,
+      pointsFailed: 0,
+    },
+    approachA: a.approachA,
+    approachB: b.approachB,
+    errors: [...a.errors, ...b.errors],
+  };
+}
+
+async function runHybridLive(file: File): Promise<ExperimentFileLogEntry> {
   const startedAt = performance.now();
   const errors: string[] = [];
   let hashes: string[] = [];
@@ -146,14 +181,15 @@ export async function runHybridExperiment(file: File): Promise<ExperimentFileLog
     return toApproachBDetail(source ? reviewBySourceId.get(source.id) : undefined);
   });
 
-  const durationMs = performance.now() - startedAt;
   return {
     fileName: file.name,
     at: new Date().toLocaleTimeString('ar-EG'),
-    durationMs,
+    runMode: 'live',
+    durationMs: performance.now() - startedAt,
     counts: {
       filesRead: 1,
       sessionsFound: result.sessionsFound,
+      previewed: 0,
       created: result.sessionsSaved,
       skipped: result.autoReviewsSkipped,
       duplicates: result.sessionsDuplicate,
@@ -164,4 +200,11 @@ export async function runHybridExperiment(file: File): Promise<ExperimentFileLog
     approachB,
     errors: [...errors, ...result.errors],
   };
+}
+
+export async function runHybridExperiment(
+  file: File,
+  mode: ExperimentRunMode = 'dry-run'
+): Promise<ExperimentFileLogEntry> {
+  return mode === 'live' ? runHybridLive(file) : runHybridDry(file);
 }
