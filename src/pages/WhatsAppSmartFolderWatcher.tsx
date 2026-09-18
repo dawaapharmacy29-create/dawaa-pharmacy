@@ -401,7 +401,12 @@ export default function WhatsAppSmartFolderWatcher() {
               <section className="overflow-hidden rounded-2xl border border-slate-800">
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 bg-slate-950/35 p-4">
                   <div>
-                    <div className="font-black text-white">المحادثة والأدلة</div>
+                    <div>
+  <div className="flex items-center gap-2">
+    <div className="font-black text-white">المحادثة والأدلة</div>
+    <span className="rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-black text-slate-950">واجهة واتساب الجديدة V2</span>
+  </div>
+</div>
                     <div className="mt-1 text-xs text-slate-500">{selected.snapshot.messages.length} رسالة داخل النطاق والسياق</div>
                   </div>
                   <div className="inline-flex rounded-xl border border-slate-700 bg-slate-900 p-1 text-xs font-black">
@@ -425,6 +430,7 @@ export default function WhatsAppSmartFolderWatcher() {
                 {conversationView === 'whatsapp' ? (
                   <div
                     className="max-h-[58vh] overflow-y-auto p-4 md:p-5"
+                    data-whatsapp-view-version="v2"
                     style={{
                       backgroundColor: '#0b141a',
                       backgroundImage: 'radial-gradient(circle at 25% 25%, rgba(255,255,255,.025) 0 1px, transparent 1px), radial-gradient(circle at 75% 75%, rgba(255,255,255,.018) 0 1px, transparent 1px)',
