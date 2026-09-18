@@ -17,6 +17,8 @@ import {
 } from '@/lib/notifications/notificationDomain';
 
 type NotificationRuntimeState = {
+  ownerKey: string | null;
+  generation: number;
   refreshPromise: Promise<AppNotification[]> | null;
   lastRefreshAt: number;
   subscribers: number;
@@ -30,6 +32,8 @@ type NotificationRuntimeState = {
 const notificationRuntime = ((globalThis as typeof globalThis & {
   __dawaaNotificationRuntime?: NotificationRuntimeState;
 }).__dawaaNotificationRuntime ??= {
+  ownerKey: null,
+  generation: 0,
   refreshPromise: null,
   lastRefreshAt: 0,
   subscribers: 0,
@@ -39,6 +43,9 @@ const notificationRuntime = ((globalThis as typeof globalThis & {
   timer: null,
   channel: null,
 });
+// Keep hot-reload sessions compatible when the runtime shape gains fields.
+notificationRuntime.ownerKey ??= null;
+notificationRuntime.generation ??= 0;
 
 const NOTIFICATION_CACHE_TTL_MS = 30_000;
 const NOTIFICATION_POLL_INTERVAL_MS = 120_000;
@@ -166,13 +173,49 @@ export function useNotifications() {
   const navigate = useNavigate();
   const navigationGuard = useOptionalNavigationGuard();
   const { user } = useAuth();
-  const [rows, setRows] = useState<AppNotification[]>(notificationRuntime.rows);
-  const [loading, setLoading] = useState(notificationRuntime.loading);
-  const [available, setAvailable] = useState(notificationRuntime.available);
+  const ownerKey = user?.id ? String(user.id) : null;
+  const ownsRuntime = Boolean(ownerKey && notificationRuntime.ownerKey === ownerKey);
+  const [rows, setRows] = useState<AppNotification[]>(ownsRuntime ? notificationRuntime.rows : []);
+  const [loading, setLoading] = useState(ownsRuntime ? notificationRuntime.loading : Boolean(ownerKey));
+  const [available, setAvailable] = useState(ownsRuntime ? notificationRuntime.available : true);
   const [settings, setSettings] = useState(readSettings);
   const mountedRef = useRef(true);
 
   const refreshNotifications = useCallback(async (force = false) => {
+    if (!ownerKey) {
+      notificationRuntime.ownerKey = null;
+      notificationRuntime.generation += 1;
+      notificationRuntime.refreshPromise = null;
+      notificationRuntime.rows = [];
+      notificationRuntime.lastRefreshAt = 0;
+      notificationRuntime.available = true;
+      notificationRuntime.loading = false;
+      if (mountedRef.current) {
+        setRows([]);
+        setAvailable(true);
+        setLoading(false);
+      }
+      return;
+    }
+
+    if (notificationRuntime.ownerKey !== ownerKey) {
+      // The shared runtime must never carry one staff account's inbox into the
+      // next account on the same browser. Incrementing the generation also makes
+      // an older in-flight request unable to publish its result after logout/login.
+      notificationRuntime.ownerKey = ownerKey;
+      notificationRuntime.generation += 1;
+      notificationRuntime.refreshPromise = null;
+      notificationRuntime.rows = [];
+      notificationRuntime.lastRefreshAt = 0;
+      notificationRuntime.available = true;
+      notificationRuntime.loading = true;
+      if (mountedRef.current) {
+        setRows([]);
+        setAvailable(true);
+        setLoading(true);
+      }
+    }
+
     if (!isSupabaseConfigured) {
       notificationRuntime.available = false;
       notificationRuntime.loading = false;
@@ -204,6 +247,7 @@ export function useNotifications() {
       return;
     }
 
+    const refreshGeneration = notificationRuntime.generation;
     notificationRuntime.refreshPromise = (async () => {
       try {
         // 500 keeps the operational center complete across a busy multi-branch week
@@ -217,26 +261,41 @@ export function useNotifications() {
         }
 
         const resolvedRows = [...unique.values()];
+        if (
+          notificationRuntime.ownerKey !== ownerKey ||
+          notificationRuntime.generation !== refreshGeneration
+        ) return notificationRuntime.rows;
+
         notificationRuntime.rows = resolvedRows;
         notificationRuntime.available = true;
         notificationRuntime.lastRefreshAt = Date.now();
         return resolvedRows;
       } catch (error) {
         console.warn('[notifications] canonical read source unavailable', error);
-        notificationRuntime.rows = [];
-        notificationRuntime.available = false;
-        return [] as AppNotification[];
+        if (
+          notificationRuntime.ownerKey === ownerKey &&
+          notificationRuntime.generation === refreshGeneration
+        ) notificationRuntime.available = false;
+        // Preserve the last known-good rows. A temporary outage must not look
+        // like an empty inbox or clear the decision tray.
+        return notificationRuntime.rows;
       } finally {
-        notificationRuntime.refreshPromise = null;
+        if (notificationRuntime.generation === refreshGeneration) {
+          notificationRuntime.refreshPromise = null;
+        }
       }
     })();
 
     const nextRows = await notificationRuntime.refreshPromise;
-    if (!mountedRef.current) return;
+    if (
+      !mountedRef.current ||
+      notificationRuntime.ownerKey !== ownerKey ||
+      notificationRuntime.generation !== refreshGeneration
+    ) return;
     setRows(nextRows);
     setAvailable(notificationRuntime.available);
     setLoading(false);
-  }, []);
+  }, [ownerKey]);
 
   const ensureNotificationLoaded = useCallback(async (id: string) => {
     if (!id) return null;
@@ -323,10 +382,10 @@ export function useNotifications() {
   }, [refreshNotifications]);
 
   const allNotifications = useMemo(() => {
-    if (!user) return [];
+    if (!ownerKey) return [];
     const retentionStart = Date.now() - settings.retentionDays * 86400000;
     return rows.filter((item) => new Date(item.created_at).getTime() >= retentionStart);
-  }, [rows, settings.retentionDays, user?.id]);
+  }, [ownerKey, rows, settings.retentionDays]);
 
   const notifications = useMemo(
     () => allNotifications.filter((item) => allowedBySettings(item, settings)),
