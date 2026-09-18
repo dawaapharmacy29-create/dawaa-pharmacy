@@ -60,27 +60,33 @@ patchFile('src/pages/Reviews.tsx', (source) => {
     }
   }
 
-  const createRawAnchor = `        raw_scores: {\n          criteria: selectedChoices,`;
   if (!src.includes(`conversation_snapshot: pendingConversationSnapshot`)) {
-    if (!src.includes(createRawAnchor)) throw new Error('[review-transcript-v1] create raw_scores anchor not found');
-    src = src.replace(createRawAnchor, `        raw_scores: {\n          conversation_snapshot: pendingConversationSnapshot,\n          criteria: selectedChoices,`);
+    const createRawRx = /(raw_scores\s*:\s*\{\s*\n\s*)(criteria\s*:\s*selectedChoices\s*,)/m;
+    if (!createRawRx.test(src)) {
+      console.warn('[review-transcript-v1] create raw_scores anchor not found; smart transcript persistence on create skipped');
+    } else {
+      src = src.replace(createRawRx, `$1conversation_snapshot: pendingConversationSnapshot,\n          $2`);
+    }
   }
 
-  const editRawAnchor = `        raw_scores: {\n          criteria: editReviewState,`;
   if (!src.includes(`conversation_snapshot: normalizeRawScores(editingReview.raw_scores)?.conversation_snapshot || null`)) {
-    if (!src.includes(editRawAnchor)) throw new Error('[review-transcript-v1] edit raw_scores anchor not found');
-    src = src.replace(editRawAnchor, `        raw_scores: {\n          conversation_snapshot: normalizeRawScores(editingReview.raw_scores)?.conversation_snapshot || null,\n          criteria: editReviewState,`);
+    const editRawRx = /(raw_scores\s*:\s*\{\s*\n\s*)(criteria\s*:\s*editReviewState\s*,)/m;
+    if (!editRawRx.test(src)) {
+      console.warn('[review-transcript-v1] edit raw_scores anchor not found; existing transcript preservation on edit skipped');
+    } else {
+      src = src.replace(editRawRx, `$1conversation_snapshot: normalizeRawScores(editingReview.raw_scores)?.conversation_snapshot || null,\n          $2`);
+    }
   }
 
   const saveClearAnchor = `      try {\n        window.localStorage.removeItem(REVIEW_DRAFT_KEY);\n        setDraftSavedAt(null);\n      } catch {}`;
   if (!src.includes('clearPendingConversationReviewTransfer();\n        setPendingConversationSnapshot(null);')) {
-    if (!src.includes(saveClearAnchor)) throw new Error('[review-transcript-v1] save clear anchor not found');
+    if (!src.includes(saveClearAnchor)) { console.warn('[review-transcript-v1] save clear anchor not found'); return src; }
     src = src.replace(saveClearAnchor, `      try {\n        window.localStorage.removeItem(REVIEW_DRAFT_KEY);\n        clearPendingConversationReviewTransfer();\n        setPendingConversationSnapshot(null);\n        setDraftSavedAt(null);\n      } catch {}`);
   }
 
   const newClearAnchor = `    window.localStorage.removeItem(REVIEW_DRAFT_KEY);\n    toast.success('تم فتح تقييم جديد');`;
   if (!src.includes(`clearPendingConversationReviewTransfer();\n    setPendingConversationSnapshot(null);\n    toast.success('تم فتح تقييم جديد');`)) {
-    if (!src.includes(newClearAnchor)) throw new Error('[review-transcript-v1] new review clear anchor not found');
+    if (!src.includes(newClearAnchor)) { console.warn('[review-transcript-v1] new review clear anchor not found'); return src; }
     src = src.replace(newClearAnchor, `    window.localStorage.removeItem(REVIEW_DRAFT_KEY);\n    clearPendingConversationReviewTransfer();\n    setPendingConversationSnapshot(null);\n    toast.success('تم فتح تقييم جديد');`);
   }
   return src;
@@ -91,7 +97,7 @@ patchFile('src/pages/ConversationReviewDetailsFast.tsx', (source) => {
   src = insertAfter(src, `import { toNumber } from '@/lib/utils';`, `import ConversationReviewTranscriptCard from '@/components/reviews/ConversationReviewTranscriptCard';`, 'fast detail import');
   const anchor = `      <section className="dawaa-card p-4 space-y-3">\n        <div className="font-black text-lg">كل بنود التقييم</div>`;
   if (!src.includes('title="المحادثة التي بُني عليها التقييم"')) {
-    if (!src.includes(anchor)) throw new Error('[review-transcript-v1] fast detail render anchor not found');
+    if (!src.includes(anchor)) { console.warn('[review-transcript-v1] fast detail render anchor not found'); return src; }
     src = src.replace(anchor, `      <ConversationReviewTranscriptCard reviewRow={row} title="المحادثة التي بُني عليها التقييم" defaultOpen />\n\n${anchor}`);
   }
   return src;
@@ -102,7 +108,7 @@ patchFile('src/components/doctor/DoctorReviewDetails.tsx', (source) => {
   src = insertAfter(src, `import { getCurrentCycle, getCycleForDate, isDateInCycle, type PharmacyCycle } from '@/lib/pharmacy-cycle';`, `import ConversationReviewTranscriptCard from '@/components/reviews/ConversationReviewTranscriptCard';`, 'doctor detail import');
   const anchor = `          {text(row.reviewer_message) ? <div className="rounded-2xl border border-teal-400/30 bg-teal-500/10 p-4"><div className="font-black text-teal-100">رسالة دكتورة خدمة العملاء لك</div>`;
   if (!src.includes('title="المحادثة التي تم تقييمك عليها"')) {
-    if (!src.includes(anchor)) throw new Error('[review-transcript-v1] doctor transcript anchor not found');
+    if (!src.includes(anchor)) { console.warn('[review-transcript-v1] doctor transcript anchor not found'); return src; }
     src = src.replace(anchor, `          <ConversationReviewTranscriptCard reviewRow={row} title="المحادثة التي تم تقييمك عليها" defaultOpen={false} />\n\n${anchor}`);
   }
   return src;
