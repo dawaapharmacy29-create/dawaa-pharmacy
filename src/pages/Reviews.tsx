@@ -55,6 +55,11 @@ import { TABLES } from '@/lib/supabaseTables';
 import { notifyEmployee } from '@/lib/notificationService';
 import { usePendingFormNavigationGuard } from '@/hooks/useUnsavedChangesGuard';
 import { useDebounce } from '@/hooks/useDebounce';
+import {
+  clearPendingConversationReviewTransfer,
+  readPendingConversationReviewTransfer,
+  type ConversationReviewSnapshot,
+} from '@/lib/conversationReviewTranscript';
 
 interface StaffOpt {
   id: string;
@@ -420,6 +425,8 @@ export default function Reviews() {
   const [custSearch, setCustSearch] = useState('');
   const [custHits, setCustHits] = useState<CustomerMetric[]>([]);
   const [repeatInfo, setRepeatInfo] = useState<{ count: number; multiplier: number } | null>(null);
+  const [smartSnapshot, setSmartSnapshot] = useState<ConversationReviewSnapshot | null>(null);
+  const [smartTransferApplied, setSmartTransferApplied] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [reviewHistory, setReviewHistory] = useState<ConversationReviewHistoryRow[]>([]);
@@ -682,6 +689,61 @@ export default function Reviews() {
     targetBranch,
     reviewAllowedBranches,
   ]);
+  useEffect(() => {
+    if (smartTransferApplied || !draftRestored || !newOnlyMode || searchParams.get('fromSmart') !== '1') return;
+    const snapshot = readPendingConversationReviewTransfer();
+    if (!snapshot) {
+      setSmartTransferApplied(true);
+      return;
+    }
+
+    const normalizedTarget = normalizeArabicName(snapshot.staffName || '');
+    const matchedStaff = staffOptions.find(
+      (item) => normalizeArabicName(item.name || '') === normalizedTarget
+    );
+
+    // استنى تحميل قائمة الموظفين قبل ما نعتبر إن المطابقة فشلت.
+    if (!matchedStaff && !staffOptions.length) return;
+
+    const firstScored =
+      snapshot.messages.find((message) => message.scope === 'scored') ||
+      snapshot.messages[0] ||
+      null;
+    const conversationDate = firstScored?.timestamp
+      ? (() => {
+          const d = new Date(firstScored.timestamp);
+          if (Number.isNaN(d.getTime())) return isoInputNow();
+          d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+          return d.toISOString().slice(0, 16);
+        })()
+      : isoInputNow();
+
+    setSmartSnapshot(snapshot);
+    if (matchedStaff?.branch) setTargetBranch(normalizeBranchName(matchedStaff.branch));
+    setForm((current) => ({
+      ...current,
+      staffId: matchedStaff?.id || current.staffId,
+      customerName: snapshot.customerName || current.customerName,
+      evaluationKind: 'واتساب',
+      evaluationReason: 'متابعة جودة',
+      conversationDate,
+    }));
+    clearPendingConversationReviewTransfer();
+    setSmartTransferApplied(true);
+
+    if (matchedStaff) {
+      toast.success(`تم تجهيز Draft التقييم لـ ${matchedStaff.name} من المحادثة الذكية`);
+    } else {
+      toast.warning(`تم نقل المحادثة، لكن اسم المسؤول «${snapshot.staffName}» يحتاج اختيار يدوي من القائمة`);
+    }
+  }, [
+    draftRestored,
+    newOnlyMode,
+    searchParams,
+    smartTransferApplied,
+    staffOptions,
+  ]);
+
   const canEditReviews = checkPermission('edit_reviews');
   const canApproveReviews = checkPermission('approve_reviews');
   const selectedStaff = staffOptions.find((s) => s.id === form.staffId) || null;
@@ -1158,6 +1220,17 @@ export default function Reviews() {
           criteria: selectedChoices,
           severe_errors: severeErrors,
           result: { ...result, doctorPointsImpact: repeatedDoctorImpact },
+          conversation_snapshot: smartSnapshot,
+          smart_review_source: smartSnapshot
+            ? {
+                source: smartSnapshot.source,
+                source_file_name: smartSnapshot.sourceFileName,
+                session_id: smartSnapshot.sessionId,
+                decision: smartSnapshot.decision,
+                transferred_at: new Date().toISOString(),
+                human_confirmed: true,
+              }
+            : null,
         },
         review_items: result.reviewItems,
         first_customer_message_at: form.firstCustomerMessageAt
@@ -1861,6 +1934,77 @@ export default function Reviews() {
           </div>
         </div>
       </div>
+
+      {newOnlyMode && smartSnapshot ? (
+        <section className="overflow-hidden rounded-3xl border border-emerald-500/30 bg-[#0b141a] shadow-xl">
+          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-white/10 bg-[#202c33] p-4">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-lg font-black text-white">المحادثة المنقولة للمراجعة الرسمية</h2>
+                <span className="rounded-full bg-emerald-400 px-2 py-1 text-[10px] font-black text-slate-950">
+                  SMART DRAFT
+                </span>
+              </div>
+              <div className="mt-1 text-xs text-slate-300">
+                {smartSnapshot.staffName} • {smartSnapshot.customerName || 'عميل غير محدد'} • {smartSnapshot.messages.length} رسالة
+              </div>
+            </div>
+            <div className="text-left text-xs text-slate-400">
+              <div>قرار المحرك: <b className="text-white">{smartSnapshot.decision.value}</b></div>
+              <div className="mt-1">لا يتم اعتماد أي درجة إلا بعد مراجعتك وحفظ النموذج.</div>
+            </div>
+          </div>
+
+          {smartSnapshot.decision.reasons.length ? (
+            <div className="border-b border-white/10 bg-amber-950/20 px-4 py-3 text-xs leading-6 text-amber-100">
+              {smartSnapshot.decision.reasons.map((reason) => <div key={reason}>• {reason}</div>)}
+            </div>
+          ) : null}
+
+          <div
+            className="max-h-[52vh] overflow-y-auto p-4 md:p-5"
+            style={{
+              backgroundColor: '#0b141a',
+              backgroundImage:
+                'radial-gradient(circle at 25% 25%, rgba(255,255,255,.025) 0 1px, transparent 1px), radial-gradient(circle at 75% 75%, rgba(255,255,255,.018) 0 1px, transparent 1px)',
+              backgroundSize: '28px 28px',
+            }}
+          >
+            <div className="mx-auto max-w-3xl space-y-2">
+              {smartSnapshot.messages.map((message) => {
+                const inbound = message.direction === 'inbound';
+                const context = message.scope === 'context';
+                return (
+                  <div key={message.id} className={`flex ${inbound ? 'justify-start' : 'justify-end'} ${context ? 'opacity-60' : ''}`}>
+                    <div className="flex max-w-[86%] flex-col md:max-w-[74%]">
+                      <div
+                        className={`rounded-2xl px-3.5 py-2.5 shadow-sm ${
+                          inbound
+                            ? 'rounded-tl-sm bg-[#202c33] text-slate-100'
+                            : 'rounded-tr-sm bg-[#005c4b] text-white'
+                        } ${message.evidence ? 'ring-2 ring-cyan-400/80 ring-offset-2 ring-offset-[#0b141a]' : ''}`}
+                      >
+                        <div className="mb-1 flex flex-wrap items-center gap-1.5 text-[10px] font-bold opacity-80">
+                          <span>{inbound ? 'العميل' : smartSnapshot.staffName}</span>
+                          {message.evidence ? <span className="rounded bg-cyan-400/15 px-1.5 py-0.5 text-cyan-100">دليل</span> : null}
+                          {context ? <span className="rounded bg-white/10 px-1.5 py-0.5">سياق فقط</span> : null}
+                        </div>
+                        <div className="whitespace-pre-wrap break-words text-sm leading-7">
+                          {message.text || `[${message.kind}]`}
+                        </div>
+                        <div className="mt-1 text-left text-[10px] opacity-60">
+                          {new Date(message.timestamp).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
+                        </div>
+                      </div>
+                      {context ? <div className="mt-1 text-[10px] text-slate-500">سياق فقط — لا يدخل في التقييم</div> : null}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+      ) : null}
 
       <section
         className={`${newOnlyMode || !historyOnlyMode ? 'hidden' : ''} stat-card border border-teal-500/20 bg-teal-500/5 space-y-4`}
