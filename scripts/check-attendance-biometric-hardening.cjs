@@ -10,8 +10,10 @@ const closureMigrationPath = 'supabase/migrations/20260919024500_attendance_dail
 const closurePanelPath = 'src/components/attendance/AttendanceDailyClosurePanel.tsx';
 const attendancePagePath = 'src/pages/AttendanceReport.tsx';
 const semanticPreviewPath = 'supabase/migrations/20260919025500_attendance_semantic_hardening_preview_v1.sql';
+const productionContractPath = 'supabase/migrations/20260919031500_attendance_production_contract_reconciliation_v1.sql';
+const operationalAlignmentPath = 'supabase/migrations/20260919032000_attendance_operational_alignment_v2.sql';
 
-for (const path of [migrationPath, healthPath, approvalsPath, closureMigrationPath, closurePanelPath, attendancePagePath, semanticPreviewPath]) {
+for (const path of [migrationPath, healthPath, approvalsPath, closureMigrationPath, closurePanelPath, attendancePagePath, semanticPreviewPath, productionContractPath, operationalAlignmentPath]) {
   if (!fs.existsSync(path)) failures.push('Missing attendance hardening file: ' + path);
 }
 
@@ -23,6 +25,8 @@ if (!failures.length) {
   const closurePanel = fs.readFileSync(closurePanelPath, 'utf8');
   const attendancePage = fs.readFileSync(attendancePagePath, 'utf8');
   const semanticPreview = fs.readFileSync(semanticPreviewPath, 'utf8');
+  const productionContract = fs.readFileSync(productionContractPath, 'utf8');
+  const operationalAlignment = fs.readFileSync(operationalAlignmentPath, 'utf8');
 
   const migrationTokens = [
     'branch_sync_status',
@@ -74,6 +78,16 @@ if (!failures.length) {
   }
   if (!semanticPreview.includes("'mutation_performed',false")) {
     failures.push('Semantic hardening preview must explicitly report that it performs no mutation.');
+  }
+
+  for (const token of ['staff_overtime_approvals', 'staff_time_off_requests', 'attendance_manual_actions_audit', 'attendance_schedule_mismatch_dismissals']) {
+    if (!productionContract.includes(token)) failures.push('Production attendance contract missing: ' + token);
+  }
+  if (!operationalAlignment.includes("bd.reason in ('no_matching_schedule_fallback_to_raw','no_matching_schedule_review')")) {
+    failures.push('Schedule mismatch detector must understand both legacy and hardened no-schedule reasons.');
+  }
+  if (!operationalAlignment.includes("ads.status='approved'") || !operationalAlignment.includes("'source','approved_attendance_daily_summary_v2'")) {
+    failures.push('Overtime detection must be sourced from approved canonical daily resolution.');
   }
 
   const unsafeNoScheduleAcceptance = /no_matching_schedule[^\n]{0,120}decision['",\s:]+accepted/i.test(migration);
