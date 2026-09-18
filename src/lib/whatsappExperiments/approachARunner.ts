@@ -1,13 +1,17 @@
-// Runner لصفحة تجربة "Approach A" — بيشغّل مسار الاستيراد التلقائي الحقيقي بالظبط
-// (ingestWhatsAppExportFile) لكن بعلم runApproachB=false عشان يضمن إن التقييم الآلي
-// (Approach B) ما يتفعلش خالص. بعد التشغيل، بيقرأ صفوف whatsapp_review_sources اللي
-// اتعملت/اتلاقت عشان يعرض تفاصيلها — قراءة فقط، مفيش أي تغيير في منطق A.
+// Runner لصفحة تجربة "Approach A".
+// الوضع الافتراضي Dry Run: parsing + smart-summary الحقيقي فقط، بدون أي كتابة DB.
+// Live Run: يشغّل ingest الحقيقي مع runApproachB=false لعزل A عن B.
 import { supabase } from '@/lib/supabase';
 import { readWhatsAppExportFile } from '@/lib/whatsappExportFileReader';
 import { parseWhatsAppExport, splitWhatsAppSessions } from '@/lib/whatsappConversationParser';
 import { hashWhatsAppSession } from '@/lib/whatsappReviewPersistenceV4';
+import { buildSmartConversationReviewSummary } from '@/lib/whatsappSmartReviewSummary';
 import { ingestWhatsAppExportFile, type IngestOneFileResult } from '@/lib/whatsappAutoIngestPipeline';
-import type { ApproachAResultDetail, ExperimentFileLogEntry } from './types';
+import type {
+  ApproachAResultDetail,
+  ExperimentFileLogEntry,
+  ExperimentRunMode,
+} from './types';
 
 interface SourceRow {
   id: string;
@@ -64,7 +68,65 @@ function toApproachADetail(row: SourceRow | undefined, hash: string, duplicate: 
   };
 }
 
-export async function runApproachAExperiment(file: File): Promise<ExperimentFileLogEntry> {
+async function runApproachADry(file: File): Promise<ExperimentFileLogEntry> {
+  const startedAt = performance.now();
+  const errors: string[] = [];
+  const details: ApproachAResultDetail[] = [];
+  let sessionsFound = 0;
+
+  try {
+    const source = await readWhatsAppExportFile(file);
+    const messages = parseWhatsAppExport(source.text);
+    if (!messages.length) errors.push('لم يتم التعرف على رسائل WhatsApp داخل الملف.');
+    const sessions = splitWhatsAppSessions(messages, 120);
+    sessionsFound = sessions.length;
+
+    for (const session of sessions) {
+      const hash = await hashWhatsAppSession(session);
+      const summary = buildSmartConversationReviewSummary(session);
+      details.push({
+        sourceId: null,
+        sourceHash: hash,
+        duplicate: false,
+        analysisStatus: 'preview',
+        reviewStatus: 'preview',
+        priority: summary.outcome === 'sale_intent' ? 'important' : 'normal',
+        confidence: summary.confidence,
+        primaryTypeLabel: summary.primaryTypeLabel || null,
+        journey: Array.isArray(summary.journey) ? summary.journey : [],
+        outcomeLabel: summary.outcomeLabel || null,
+        flags: Array.isArray(summary.flags) ? summary.flags : [],
+        followupRequired: summary.flags.length > 0,
+        suggestedFollowupReason: summary.flags.join('، ') || null,
+        invoiceMatchStatus: 'skipped_dry_run',
+        v4FieldsPopulated: false,
+      });
+    }
+  } catch (e) {
+    errors.push(e instanceof Error ? e.message : 'خطأ غير معروف أثناء Dry Run لـ Approach A');
+  }
+
+  return {
+    fileName: file.name,
+    at: new Date().toLocaleTimeString('ar-EG'),
+    runMode: 'dry-run',
+    durationMs: performance.now() - startedAt,
+    counts: {
+      filesRead: 1,
+      sessionsFound,
+      previewed: details.length,
+      created: 0,
+      skipped: 0,
+      duplicates: 0,
+      failed: errors.length,
+      pointsFailed: 0,
+    },
+    approachA: details,
+    errors,
+  };
+}
+
+async function runApproachALive(file: File): Promise<ExperimentFileLogEntry> {
   const startedAt = performance.now();
   const errors: string[] = [];
   let result: IngestOneFileResult;
@@ -87,14 +149,15 @@ export async function runApproachAExperiment(file: File): Promise<ExperimentFile
   try {
     result = await ingestWhatsAppExportFile(file, { runApproachB: false });
   } catch (e) {
-    const durationMs = performance.now() - startedAt;
     return {
       fileName: file.name,
       at: new Date().toLocaleTimeString('ar-EG'),
-      durationMs,
+      runMode: 'live',
+      durationMs: performance.now() - startedAt,
       counts: {
         filesRead: 1,
         sessionsFound: hashes.length,
+        previewed: 0,
         created: 0,
         skipped: 0,
         duplicates: 0,
@@ -121,14 +184,15 @@ export async function runApproachAExperiment(file: File): Promise<ExperimentFile
   const byHash = new Map(rows.map((row) => [row.source_hash, row]));
   const approachA = hashes.map((hash) => toApproachADetail(byHash.get(hash), hash, preExistingHashes.has(hash)));
 
-  const durationMs = performance.now() - startedAt;
   return {
     fileName: file.name,
     at: new Date().toLocaleTimeString('ar-EG'),
-    durationMs,
+    runMode: 'live',
+    durationMs: performance.now() - startedAt,
     counts: {
       filesRead: 1,
       sessionsFound: result.sessionsFound,
+      previewed: 0,
       created: result.sessionsSaved,
       skipped: 0,
       duplicates: result.sessionsDuplicate,
@@ -138,4 +202,11 @@ export async function runApproachAExperiment(file: File): Promise<ExperimentFile
     approachA,
     errors: [...errors, ...result.errors],
   };
+}
+
+export async function runApproachAExperiment(
+  file: File,
+  mode: ExperimentRunMode = 'dry-run'
+): Promise<ExperimentFileLogEntry> {
+  return mode === 'live' ? runApproachALive(file) : runApproachADry(file);
 }
