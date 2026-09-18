@@ -9,8 +9,9 @@ const approvalsPath = 'src/components/attendance/UnifiedApprovalsCenter.tsx';
 const closureMigrationPath = 'supabase/migrations/20260919024500_attendance_daily_closure_v1.sql';
 const closurePanelPath = 'src/components/attendance/AttendanceDailyClosurePanel.tsx';
 const attendancePagePath = 'src/pages/AttendanceReport.tsx';
+const semanticPreviewPath = 'supabase/migrations/20260919025500_attendance_semantic_hardening_preview_v1.sql';
 
-for (const path of [migrationPath, healthPath, approvalsPath, closureMigrationPath, closurePanelPath, attendancePagePath]) {
+for (const path of [migrationPath, healthPath, approvalsPath, closureMigrationPath, closurePanelPath, attendancePagePath, semanticPreviewPath]) {
   if (!fs.existsSync(path)) failures.push('Missing attendance hardening file: ' + path);
 }
 
@@ -21,6 +22,7 @@ if (!failures.length) {
   const closureMigration = fs.readFileSync(closureMigrationPath, 'utf8');
   const closurePanel = fs.readFileSync(closurePanelPath, 'utf8');
   const attendancePage = fs.readFileSync(attendancePagePath, 'utf8');
+  const semanticPreview = fs.readFileSync(semanticPreviewPath, 'utf8');
 
   const migrationTokens = [
     'branch_sync_status',
@@ -65,6 +67,13 @@ if (!failures.length) {
   }
   if (!migration.includes("status='approved'") || !migration.includes('اليوم لم يتم تسويته واعتماده بعد')) {
     failures.push('Overtime evidence must be gated on an approved daily attendance resolution.');
+  }
+
+  for (const token of ['attendance_semantic_hardening_preview_v1', 'mutation_performed', 'would_change', 'accepted_to_review']) {
+    if (!semanticPreview.includes(token)) failures.push('Semantic hardening preview missing: ' + token);
+  }
+  if (!semanticPreview.includes("'mutation_performed',false")) {
+    failures.push('Semantic hardening preview must explicitly report that it performs no mutation.');
   }
 
   const unsafeNoScheduleAcceptance = /no_matching_schedule[^\n]{0,120}decision['",\s:]+accepted/i.test(migration);
