@@ -276,8 +276,10 @@ export async function getRecentNotifications(filters: NotificationFilters = {}) 
   const to = from + limit - 1;
   const { data, error } = await buildCanonicalQuery(filters, from, to);
   if (error) {
-    console.warn('Canonical notification read failed', error);
-    return [];
+    // An unavailable read model is not the same thing as a healthy empty inbox.
+    // Let the runtime preserve the last known-good snapshot and surface degraded
+    // availability instead of making every notification appear to have vanished.
+    throw new Error(`Canonical notification read failed: ${error.message}`, { cause: error });
   }
   return (data || []).map((row) => normalizeNotification(row as Record<string, unknown>));
 }
