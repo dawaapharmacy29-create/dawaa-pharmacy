@@ -6,8 +6,11 @@ const failures = [];
 const migrationPath = 'supabase/migrations/20260919023000_attendance_biometric_hardening_v2.sql';
 const healthPath = 'src/components/attendance/AttendanceHealthStrip.tsx';
 const approvalsPath = 'src/components/attendance/UnifiedApprovalsCenter.tsx';
+const closureMigrationPath = 'supabase/migrations/20260919024500_attendance_daily_closure_v1.sql';
+const closurePanelPath = 'src/components/attendance/AttendanceDailyClosurePanel.tsx';
+const attendancePagePath = 'src/pages/AttendanceReport.tsx';
 
-for (const path of [migrationPath, healthPath, approvalsPath]) {
+for (const path of [migrationPath, healthPath, approvalsPath, closureMigrationPath, closurePanelPath, attendancePagePath]) {
   if (!fs.existsSync(path)) failures.push('Missing attendance hardening file: ' + path);
 }
 
@@ -15,6 +18,9 @@ if (!failures.length) {
   const migration = fs.readFileSync(migrationPath, 'utf8');
   const health = fs.readFileSync(healthPath, 'utf8');
   const approvals = fs.readFileSync(approvalsPath, 'utf8');
+  const closureMigration = fs.readFileSync(closureMigrationPath, 'utf8');
+  const closurePanel = fs.readFileSync(closurePanelPath, 'utf8');
+  const attendancePage = fs.readFileSync(attendancePagePath, 'utf8');
 
   const migrationTokens = [
     'branch_sync_status',
@@ -46,6 +52,19 @@ if (!failures.length) {
   }
   if (approvals.includes('التوصية: {ctx.recommendation}')) {
     failures.push('Overtime UI must present evidence, not an automatic approval recommendation.');
+  }
+
+  for (const token of ['attendance_daily_closure_v1', 'can_close_day', 'closure_status', 'confidence_score', 'review_required', 'sync_pending']) {
+    if (!closureMigration.includes(token)) failures.push('Daily closure read model missing: ' + token);
+  }
+  if (!closurePanel.includes('الحالات التي تمنع الإغلاق') || !closurePanel.includes('onOpenResolution')) {
+    failures.push('Daily closure panel must expose blockers and a path to resolution.');
+  }
+  if (!attendancePage.includes('AttendanceDailyClosurePanel')) {
+    failures.push('Attendance command center must render the daily closure panel.');
+  }
+  if (!migration.includes("status='approved'") || !migration.includes('اليوم لم يتم تسويته واعتماده بعد')) {
+    failures.push('Overtime evidence must be gated on an approved daily attendance resolution.');
   }
 
   const unsafeNoScheduleAcceptance = /no_matching_schedule[^\n]{0,120}decision['",\s:]+accepted/i.test(migration);
