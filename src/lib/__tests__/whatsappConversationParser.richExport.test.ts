@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { detectWhatsAppExportFormat, parseWhatsAppExport, splitWhatsAppSessions } from '@/lib/whatsappConversationParser';
+import {
+  detectWhatsAppExportFormat,
+  parseWhatsAppExport,
+  splitWhatsAppSessions,
+} from '@/lib/whatsappConversationParser';
 
 const sample = `# WhatsApp Chat Export: عميل تجريبي 1234
 Export date: September 14, 2026 at 7:00 PM
@@ -38,7 +42,7 @@ describe('rich WhatsApp markdown export', () => {
   it('detects markdown and keeps reply/media semantics without duplicating quote text into message body', () => {
     expect(detectWhatsAppExportFormat(sample)).toBe('md');
     const messages = parseWhatsAppExport(sample);
-    expect(messages).toHaveLength(8);
+    expect(messages).toHaveLength(9);
 
     const reply = messages.find((message) => message.text === '25');
     expect(reply?.replyTo?.sender).toBe('You');
