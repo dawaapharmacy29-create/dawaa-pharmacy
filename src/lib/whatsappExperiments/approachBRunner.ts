@@ -1,20 +1,15 @@
-// Runner لصفحة تجربة "Approach B" (وحدها، من غير تشغيل ميزات Approach A).
-//
-// التقييم الآلي (persistAutomaticWhatsAppReview) محتاج FK حقيقي على
-// whatsapp_review_sources.id (whatsapp_review_source_id) عشان يقدر يربط التقييم
-// بمصدره ويمنع التكرار — ده قيد قاعدة بيانات حقيقي مش اختياري. عشان نفصل Approach B
-// عن ميزات Approach A الفعلية (smart-summary التحليل، فحص الفاتورة، رصد المتابعة)،
-// بننشئ هنا أقل صف ممكن في whatsapp_review_sources (فقط الحقول المطلوبة للربط
-// والمنع من التكرار)، ونعلّمه بوضوح كـ review_status='archived' وparser_version
-// مميز عشان الصف ده ميظهرش في طابور Approach A الحقيقي أو تحليلاته.
+// Runner لصفحة تجربة "Approach B" وحدها.
+// Dry Run افتراضي: parser + محرك التقييم الرسمي نفسه، بدون أي DB write/RPC/notification.
+// Live Run: يستخدم أقل linking source ممكن ثم persistence الحقيقي.
 import { supabase } from '@/lib/supabase';
 import { readWhatsAppExportFile } from '@/lib/whatsappExportFileReader';
 import { parseWhatsAppExport, splitWhatsAppSessions, type WhatsAppConversationSession } from '@/lib/whatsappConversationParser';
 import { hashWhatsAppSession } from '@/lib/whatsappReviewPersistenceV4';
 import { persistAutomaticWhatsAppReview } from '@/lib/whatsappAutomaticReviewPersistence';
+import { evaluateAutomaticWhatsAppReview } from '@/lib/whatsappAutomaticReviewScoring';
 import { getCycleForDate } from '@/lib/pharmacy-cycle';
 import { AUTOMATIC_REVIEW_REVIEWER_LABEL } from '@/lib/conversationReviews';
-import type { ApproachBResultDetail, ExperimentFileLogEntry } from './types';
+import type { ApproachBResultDetail, ExperimentFileLogEntry, ExperimentRunMode } from './types';
 
 const MINIMAL_LINK_PARSER_VERSION = 'approach-b-standalone-experiment-v1';
 
@@ -42,8 +37,6 @@ async function ensureMinimalLinkingSource(session: WhatsAppConversationSession, 
       parser_version: MINIMAL_LINK_PARSER_VERSION,
       analysis_version: 'none',
       analysis_status: 'skipped',
-      // archived + غير مضمّن في فلاتر الطابور الافتراضية لـ WhatsAppReviewQueueV4.tsx،
-      // عشان تجربة B ما تلوّثش طابور A الحقيقي.
       review_status: 'archived',
       priority: 'normal',
     })
@@ -72,7 +65,7 @@ function toApproachBDetail(
     reviewId: outcome.reviewId,
     finalScore: outcome.finalScore,
     doctorPointsImpact: outcome.pointsImpact,
-    impactStatus: outcome.pointsImpact !== 0 ? 'pending' : outcome.pointsImpact === 0 ? 'approved' : null,
+    impactStatus: outcome.pointsImpact !== 0 ? 'pending' : 'approved',
     pointsRecorded: outcome.pointsRecorded,
     pointsError: outcome.pointsError,
     hasSevereError: false,
@@ -84,7 +77,7 @@ function toApproachBDetail(
   };
 }
 
-export async function runApproachBExperiment(file: File): Promise<ExperimentFileLogEntry> {
+async function runApproachBDry(file: File): Promise<ExperimentFileLogEntry> {
   const startedAt = performance.now();
   const errors: string[] = [];
   const approachB: ApproachBResultDetail[] = [];
@@ -93,9 +86,68 @@ export async function runApproachBExperiment(file: File): Promise<ExperimentFile
   try {
     const source = await readWhatsAppExportFile(file);
     const messages = parseWhatsAppExport(source.text);
-    if (!messages.length) {
-      errors.push('لم يتم التعرف على رسائل WhatsApp داخل الملف.');
+    if (!messages.length) errors.push('لم يتم التعرف على رسائل WhatsApp داخل الملف.');
+    const sessions = splitWhatsAppSessions(messages, 120);
+    sessionsFound = sessions.length;
+
+    for (const session of sessions) {
+      try {
+        const { build, result } = evaluateAutomaticWhatsAppReview(session, session.customerName);
+        approachB.push({
+          status: 'preview',
+          reviewId: null,
+          finalScore: result.finalScore,
+          level: result.level,
+          doctorPointsImpact: result.doctorPointsImpact,
+          impactStatus: result.doctorPointsImpact !== 0 ? 'pending' : 'approved',
+          pointsRecorded: false,
+          pointsError: null,
+          hasSevereError: result.hasSevereError,
+          evaluationKind: 'automatic',
+          reviewerDisplay: AUTOMATIC_REVIEW_REVIEWER_LABEL,
+          signalResolvedCount: build.signalResolvedCount,
+          defaultFallbackCount: build.defaultFallbackCount,
+          suspicions: build.suspicions.map((s) => `${s.key}: "${s.evidenceQuote}"`),
+          duplicatePrevented: false,
+        });
+      } catch (e) {
+        errors.push(e instanceof Error ? `جلسة ${session.id}: ${e.message}` : `جلسة ${session.id}: خطأ غير معروف`);
+      }
     }
+  } catch (e) {
+    errors.push(e instanceof Error ? e.message : 'خطأ غير معروف أثناء Dry Run لـ Approach B');
+  }
+
+  return {
+    fileName: file.name,
+    at: new Date().toLocaleTimeString('ar-EG'),
+    runMode: 'dry-run',
+    durationMs: performance.now() - startedAt,
+    counts: {
+      filesRead: 1,
+      sessionsFound,
+      previewed: approachB.length,
+      created: 0,
+      skipped: 0,
+      duplicates: 0,
+      failed: errors.length,
+      pointsFailed: 0,
+    },
+    approachB,
+    errors,
+  };
+}
+
+async function runApproachBLive(file: File): Promise<ExperimentFileLogEntry> {
+  const startedAt = performance.now();
+  const errors: string[] = [];
+  const approachB: ApproachBResultDetail[] = [];
+  let sessionsFound = 0;
+
+  try {
+    const source = await readWhatsAppExportFile(file);
+    const messages = parseWhatsAppExport(source.text);
+    if (!messages.length) errors.push('لم يتم التعرف على رسائل WhatsApp داخل الملف.');
     const sessions = splitWhatsAppSessions(messages, 120);
     sessionsFound = sessions.length;
 
@@ -123,14 +175,15 @@ export async function runApproachBExperiment(file: File): Promise<ExperimentFile
     errors.push(e instanceof Error ? e.message : 'خطأ غير معروف أثناء تشغيل تجربة Approach B');
   }
 
-  const durationMs = performance.now() - startedAt;
   return {
     fileName: file.name,
     at: new Date().toLocaleTimeString('ar-EG'),
-    durationMs,
+    runMode: 'live',
+    durationMs: performance.now() - startedAt,
     counts: {
       filesRead: 1,
       sessionsFound,
+      previewed: 0,
       created: approachB.filter((r) => r.status === 'saved').length,
       skipped: approachB.filter((r) => r.status === 'skipped_no_staff').length,
       duplicates: approachB.filter((r) => r.duplicatePrevented).length,
@@ -140,4 +193,11 @@ export async function runApproachBExperiment(file: File): Promise<ExperimentFile
     approachB,
     errors,
   };
+}
+
+export async function runApproachBExperiment(
+  file: File,
+  mode: ExperimentRunMode = 'dry-run'
+): Promise<ExperimentFileLogEntry> {
+  return mode === 'live' ? runApproachBLive(file) : runApproachBDry(file);
 }
