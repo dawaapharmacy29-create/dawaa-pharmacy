@@ -21,6 +21,7 @@ import {
   defaultSevereErrors,
   evaluateConversationReview,
   monthCycleFromDate,
+  reviewerDisplayName,
   MAX_CONVERSATION_PENALTY,
   REVIEW_CRITERIA,
   SEVERE_ERRORS,
@@ -2034,7 +2035,7 @@ export default function Reviews() {
                   </span>
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-300">
-                  <Info label="المراجع" value={row.reviewer_name || '-'} />
+                  <Info label="المراجع" value={reviewerDisplayName(row, '-')} />
                   <Info label="الدكتور" value={row.staff_name || row.doctor_name || '-'} />
                   <Info label="الفرع" value={row.branch || '-'} />
                   <Info label="النقاط" value={impact > 0 ? `+${impact}` : String(impact)} />
@@ -2095,8 +2096,8 @@ export default function Reviews() {
                       {formatDateTime(row.created_at)}
                     </td>
                     <td className="p-2 font-bold text-slate-100 min-[1500px]:p-3">
-                      <span className="line-clamp-2" title={row.reviewer_name || 'غير محدد'}>
-                        {row.reviewer_name || 'غير محدد'}
+                      <span className="line-clamp-2" title={reviewerDisplayName(row)}>
+                        {reviewerDisplayName(row)}
                       </span>
                     </td>
                     <td className="p-2 font-bold text-slate-100 min-[1500px]:p-3">
@@ -3011,7 +3012,7 @@ export default function Reviews() {
           <div className="rounded-xl bg-[#16253f] border border-[#2d4063] p-3 text-sm text-slate-200">
             <div>
               المراجع:{' '}
-              <b className="text-white">{managerReviewTarget.reviewer_name || 'غير محدد'}</b>
+              <b className="text-white">{reviewerDisplayName(managerReviewTarget)}</b>
             </div>
             <div>
               التقييم المرتبط:{' '}
@@ -3089,7 +3090,7 @@ function ReviewDetailsModal({
     <Modal title="تفاصيل تقييم المحادثة كاملة" onClose={onClose}>
       <div className="grid md:grid-cols-3 gap-3">
         <Info label="الدكتور / الموظف" value={row.staff_name || row.doctor_name || 'غير محدد'} />
-        <Info label="المراجع" value={row.reviewer_name || 'غير محدد'} />
+        <Info label="المراجع" value={reviewerDisplayName(row)} />
         <Info label="العميل" value={row.customer_name || 'غير محدد'} />
         <Info label="الفرع" value={row.branch || '-'} />
         <Info label="رقم الفاتورة" value={row.invoice_number || '-'} />

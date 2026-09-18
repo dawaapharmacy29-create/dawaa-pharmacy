@@ -1,5 +1,31 @@
 import type { CustomerType } from '@/lib/constants';
 
+// اسم ثابت وواضح للتقييمات اللي عملها النظام الآلي (whatsappAutomaticReviewPersistence)،
+// عشان محدش يفتكر إن موظف حقيقي هو اللي كتب التقييم ده.
+export const AUTOMATIC_REVIEW_REVIEWER_LABEL = 'تقييم آلي - نظام دواء';
+
+/**
+ * التمييز بين تقييم آلي وتقييم بشري لازم يعتمد على evaluation_kind فقط،
+ * مش على reviewer_name: عمود reviewer_name في قاعدة البيانات بيتكتب فوقه
+ * دايمًا بمعرفة trigger أمان (bind_conversation_review_reviewer_v1) بهوية
+ * أي حساب موظف مسجّل دخول وقت الحفظ — حتى لو كان الحفظ آليًا بالكامل.
+ * evaluation_kind هو الحقل الوحيد اللي بيوصل زي ما كتبه الكود بالظبط.
+ */
+export function isAutomaticReview(
+  row: { evaluation_kind?: string | null } | null | undefined
+): boolean {
+  return String(row?.evaluation_kind ?? '').trim() === 'automatic';
+}
+
+/** اسم المراجع المعروض: التقييم الآلي دايمًا باسم ثابت، والتقييم اليدوي باسم المراجع الحقيقي. */
+export function reviewerDisplayName(
+  row: { evaluation_kind?: string | null; reviewer_name?: string | null } | null | undefined,
+  fallback = 'غير محدد'
+): string {
+  if (isAutomaticReview(row)) return AUTOMATIC_REVIEW_REVIEWER_LABEL;
+  return row?.reviewer_name?.trim() || fallback;
+}
+
 export type ReviewErrorType =
   | 'forgotten_customer'
   | 'missing_greeting'
