@@ -1,4 +1,5 @@
--- Attendance daily command: resolve versioned schedules by work date.\n-- Keep the public function signature stable, but remove legacy name-based
+-- Attendance daily command: resolve versioned schedules by work date.
+-- Keep the public function signature stable, but remove legacy name-based
 -- shift_exceptions matching from attendance truth. Approved exceptions now come
 -- from staff_time_off_requests by canonical staff_id, and lateness thresholds
 -- come from attendance_policy_versions.
@@ -38,7 +39,9 @@ begin
     from canonical_staff cs
     left join lateral (
       select x.* from public.shift_schedules x
-      where x.staff_id=cs.id\n        and p_date between x.effective_from and coalesce(x.effective_to,date '9999-12-31')\n        and (coalesce(x.shift_date,x.date)=p_date or (x.shift_date is null and x.date is null and trim(coalesce(x.day_name,''))=v_day_name))
+      where x.staff_id=cs.id
+        and p_date between x.effective_from and coalesce(x.effective_to,date '9999-12-31')
+        and (coalesce(x.shift_date,x.date)=p_date or (x.shift_date is null and x.date is null and trim(coalesce(x.day_name,''))=v_day_name))
       order by (coalesce(x.shift_date,x.date)=p_date) desc,x.effective_from desc,coalesce(x.updated_at,x.created_at) desc nulls last,x.id desc limit 1
     ) ss on true
   ), exceptions as (
