@@ -21,6 +21,8 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { isSupabaseConfigured } from '@/lib/supabase';
+import { branchMatches } from '@/lib/branch';
+import { readStaffDirectory } from '@/lib/readModels/staffDirectoryReadModel';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
 
@@ -272,14 +274,8 @@ export default function BranchInspection() {
     setLoadingStaff(true);
 
     const loadRoster = async () => {
-      const [staffResult, scheduleResult] = await Promise.all([
-        supabase
-          .from('staff')
-          .select('id,name,role,branch,active,is_active,status')
-          .eq('branch', form.branch)
-          .eq('active', true)
-          .eq('is_active', true)
-          .limit(300),
+      const [staffDirectory, scheduleResult] = await Promise.all([
+        readStaffDirectory(),
         supabase
           .from('shift_schedules')
           .select('id,staff_id,staff_name,role,branch,day_name,shift_start,shift_end,start_time,end_time,is_off,status')
@@ -290,14 +286,12 @@ export default function BranchInspection() {
 
       if (cancelled) return;
 
-      if (staffResult.error) {
-        toast.error(`تعذر تحميل موظفي الفرع: ${staffResult.error.message}`);
-      }
       if (scheduleResult.error) {
         toast.error(`تعذر تحميل جدول اليوم: ${scheduleResult.error.message}`);
       }
 
-      const staffRows = ((staffResult.data || []) as Array<Record<string, any>>).filter((row) => {
+      const staffRows = staffDirectory.filter((row) => {
+        if (row.source === 'alias' || !row.active || !branchMatches(form.branch, row.branch)) return false;
         const status = normalizeIdentityPart(row.status);
         return !status.includes('terminated') && !status.includes('archiv') && !status.includes('مؤرشف') && !status.includes('غير نشط');
       });
