@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { normalizeBranchName } from '@/lib/branch';
 import { readStaffDirectory } from '@/lib/readModels/staffDirectoryReadModel';
+import { reviewerDisplayName } from '@/lib/conversationReviews';
 
 type ReviewRow = Record<string, any>;
 type FollowupRow = Record<string, any>;
@@ -359,7 +360,7 @@ export default function ReviewsInsightsHub() {
       الفرع: row.name, التقييمات: row.reviews, الدكاترة: row.doctors, العملاء: row.customers, المتوسط: row.average, 'أقل من 70': row.weak,
     }))), 'تحليل الفروع');
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(filtered.map((row, index) => ({
-      '#': index + 1, التاريخ: dateKey(row), المراجع: row.reviewer_name, الدكتور: row.staff_name || row.doctor_name, الفرع: row.branch,
+      '#': index + 1, التاريخ: dateKey(row), المراجع: reviewerDisplayName(row), الدكتور: row.staff_name || row.doctor_name, الفرع: row.branch,
       العميل: row.customer_name, 'كود العميل': row.customer_code, 'نوع التقييم': row.evaluation_kind || row.conversation_type,
       التقييم: scoreOf(row), 'تأثير النقاط': impactOf(row), 'نقطة القوة': row.main_positive_reason,
       'نقطة التطوير': row.main_negative_reason, 'التوصية': row.training_recommendation, 'ملاحظات المراجع': row.reviewer_notes,

@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { getCurrentCycle, getCycleForDate, isDateInCycle, type PharmacyCycle } from '@/lib/pharmacy-cycle';
+import { reviewerDisplayName } from '@/lib/conversationReviews';
 
 type Row = Record<string, any>;
 
@@ -159,7 +160,7 @@ export default function DoctorReviewDetails() {
       const open = openId === id;
       return <article key={id} id={`review-${id}`} className="rounded-2xl border border-slate-700 bg-slate-950/40 p-4">
         <button type="button" onClick={() => setOpenId(open ? null : id)} className="flex w-full items-start justify-between gap-3 text-right">
-          <div><div className="font-black text-white">{text(row.evaluation_kind || row.conversation_type || 'تقييم محادثة')} — {text(row.customer_name || 'عميل غير محدد')}</div><div className="mt-1 text-xs text-slate-400">{formatDate(row.created_at || row.conversation_date)} · بواسطة {text(row.reviewer_name || 'خدمة العملاء')} · تأثير النقاط {num(row.doctor_points_impact ?? row.point_impact)}</div></div>
+          <div><div className="font-black text-white">{text(row.evaluation_kind || row.conversation_type || 'تقييم محادثة')} — {text(row.customer_name || 'عميل غير محدد')}</div><div className="mt-1 text-xs text-slate-400">{formatDate(row.created_at || row.conversation_date)} · بواسطة {text(reviewerDisplayName(row, 'خدمة العملاء'))} · تأثير النقاط {num(row.doctor_points_impact ?? row.point_impact)}</div></div>
           <div className="flex items-center gap-3">
             <span className="text-xl font-black text-teal-200">{num(row.final_score ?? row.total_score)}/100</span>
             <span className="flex items-center gap-1 rounded-lg border border-cyan-400/30 bg-cyan-400/10 px-2.5 py-1.5 text-xs font-black text-cyan-200">

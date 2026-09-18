@@ -17,7 +17,7 @@ import {
   calculateMonthlyIncentive,
   monthlyIncentiveInputsFromProfile,
 } from '@/lib/incentives/incentiveRulesEngine';
-import { monthCycleFromDate } from '@/lib/conversationReviews';
+import { monthCycleFromDate, reviewerDisplayName } from '@/lib/conversationReviews';
 import { calculateTargetAchievementBonus } from '@/lib/incentives/targetAchievementBonus';
 import { normalizeBranchName } from '@/lib/branch';
 import { loadSalesAnalyticsSummary, type SalesAnalyticsSummary } from '@/lib/salesAnalyticsSummaryService';
@@ -373,7 +373,7 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
       id: text(row.id), createdAt: text(row.created_at || row.conversation_date), kind: text(row.evaluation_kind || row.conversation_type || 'تقييم محادثة'),
       score: number(row.final_score ?? row.total_score), impact: number(row.doctor_points_impact ?? row.point_impact),
       positive: text(row.main_positive_reason), negative: text(row.main_negative_reason), notes: text(row.reviewer_notes),
-      training: text(row.training_recommendation), reviewer: text(row.reviewer_name || 'مراجع خدمة العملاء'),
+      training: text(row.training_recommendation), reviewer: text(reviewerDisplayName(row, 'مراجع خدمة العملاء')),
       repeatCount: number(row.repeat_count), repeatedErrorType: text(row.repeated_error_type),
     })));
     setPart('reviews', 'success');

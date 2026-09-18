@@ -7,6 +7,7 @@ import { normalizeBranchName } from '@/lib/branch';
 import { normalizeRole } from '@/lib/core/permissionSystem';
 import { canViewAllBranches, rowMatchesCurrentUserScope } from '@/lib/security/userDataScope';
 import { toNumber } from '@/lib/utils';
+import { isAutomaticReview, reviewerDisplayName } from '@/lib/conversationReviews';
 
 interface ReviewRow {
   id: string;
@@ -73,6 +74,15 @@ function scoreOf(row: ReviewRow) {
 
 function impactOf(row: ReviewRow) {
   return toNumber(row.doctor_points_impact ?? row.point_impact ?? 0);
+}
+
+// كل التقييمات الآلية بتتجمع تحت مفتاح واحد ثابت في فلتر المراجع، بدل ما تتوزع
+// على أي حساب موظف حقيقي كان مسجّل دخول وقت الحفظ (انظر isAutomaticReview).
+function reviewerFilterKey(row: ReviewRow): string | null {
+  if (isAutomaticReview(row)) return 'automatic';
+  const name = String(row.reviewer_name || '').trim();
+  if (!name) return null;
+  return row.reviewer_id ? `id:${row.reviewer_id}` : `name:${name}`;
 }
 
 function cairoDate(value?: string | null) {
@@ -179,10 +189,9 @@ export default function ConversationReviewsHistoryAdvanced() {
   const reviewers = useMemo(() => {
     const map = new Map<string, { id: string | null; name: string }>();
     rows.forEach((row) => {
-      const name = String(row.reviewer_name || '').trim();
-      if (!name) return;
-      const key = row.reviewer_id ? `id:${row.reviewer_id}` : `name:${name}`;
-      map.set(key, { id: row.reviewer_id, name });
+      const key = reviewerFilterKey(row);
+      if (!key) return;
+      map.set(key, { id: isAutomaticReview(row) ? null : row.reviewer_id, name: reviewerDisplayName(row) });
     });
     return [...map.entries()].sort((a, b) => a[1].name.localeCompare(b[1].name, 'ar'));
   }, [rows]);
@@ -200,8 +209,7 @@ export default function ConversationReviewsHistoryAdvanced() {
       const staffKey = row.staff_id || row.doctor_id || `name:${row.staff_name || row.doctor_name || ''}`;
       if (doctorId && staffKey !== doctorId) return false;
       if (reviewerKey) {
-        const rowKey = row.reviewer_id ? `id:${row.reviewer_id}` : `name:${String(row.reviewer_name || '').trim()}`;
-        if (rowKey !== reviewerKey) return false;
+        if (reviewerFilterKey(row) !== reviewerKey) return false;
       }
       if (branch && normalizeBranchName(row.branch || '') !== branch) return false;
       if (term) {
@@ -320,7 +328,7 @@ export default function ConversationReviewsHistoryAdvanced() {
           <tbody>{!loading && visibleRows.map((row) => {
             const score = scoreOf(row); const impact = impactOf(row);
             return <tr key={row.id} onClick={() => navigate(`/reviews?section=history&id=${row.id}`)} className="cursor-pointer border-t border-slate-800 hover:bg-teal-500/5">
-              <Td>{row.review_date || String(row.conversation_date || '').slice(0,10) || '-'}</Td><Td>{formatDate(row.created_at)}</Td><Td>{row.reviewer_name || '-'}</Td><Td>{row.staff_name || row.doctor_name || '-'}</Td><Td>{row.branch || '-'}</Td><Td><div className="font-semibold">{row.customer_name || '-'}</div><div className="text-xs text-slate-400">{row.customer_code || row.customer_phone || row.invoice_number || ''}</div></Td><Td>{row.evaluation_kind || '-'}</Td><Td><span className={`rounded-full px-2 py-1 font-black ${score === 100 ? 'bg-emerald-500/15 text-emerald-300' : score >= 90 ? 'bg-cyan-500/15 text-cyan-300' : score >= 70 ? 'bg-amber-500/15 text-amber-300' : 'bg-red-500/15 text-red-300'}`}>{score}/100</span></Td><Td><span className={impact > 0 ? 'text-emerald-300' : impact < 0 ? 'text-red-300' : 'text-slate-400'}>{impact > 0 ? `+${impact}` : impact}</span></Td><Td>{row.manager_review_score == null ? <span className="text-amber-300">لم يراجع</span> : `${row.manager_review_score}/100`}</Td>
+              <Td>{row.review_date || String(row.conversation_date || '').slice(0,10) || '-'}</Td><Td>{formatDate(row.created_at)}</Td><Td>{reviewerDisplayName(row, '-')}</Td><Td>{row.staff_name || row.doctor_name || '-'}</Td><Td>{row.branch || '-'}</Td><Td><div className="font-semibold">{row.customer_name || '-'}</div><div className="text-xs text-slate-400">{row.customer_code || row.customer_phone || row.invoice_number || ''}</div></Td><Td>{row.evaluation_kind || '-'}</Td><Td><span className={`rounded-full px-2 py-1 font-black ${score === 100 ? 'bg-emerald-500/15 text-emerald-300' : score >= 90 ? 'bg-cyan-500/15 text-cyan-300' : score >= 70 ? 'bg-amber-500/15 text-amber-300' : 'bg-red-500/15 text-red-300'}`}>{score}/100</span></Td><Td><span className={impact > 0 ? 'text-emerald-300' : impact < 0 ? 'text-red-300' : 'text-slate-400'}>{impact > 0 ? `+${impact}` : impact}</span></Td><Td>{row.manager_review_score == null ? <span className="text-amber-300">لم يراجع</span> : `${row.manager_review_score}/100`}</Td>
             </tr>;
           })}</tbody>
         </table>

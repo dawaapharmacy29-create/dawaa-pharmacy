@@ -4,7 +4,7 @@ import { Pencil, RefreshCw, X } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { normalizeRole } from '@/lib/core/permissionSystem';
-import { REVIEW_CRITERIA } from '@/lib/conversationReviews';
+import { REVIEW_CRITERIA, reviewerDisplayName } from '@/lib/conversationReviews';
 import { toNumber } from '@/lib/utils';
 
 type ReviewRow = Record<string, any>;
@@ -122,7 +122,7 @@ export default function ConversationReviewDetailsFast() {
       <section className="dawaa-card p-4 space-y-4">
         <div className="grid gap-3 md:grid-cols-3">
           <Info label="الدكتور / الموظف" value={row.staff_name || row.doctor_name || '-'} />
-          <Info label="المراجع" value={row.reviewer_name || '-'} />
+          <Info label="المراجع" value={reviewerDisplayName(row, '-')} />
           <Info label="الفرع" value={row.branch || '-'} />
           <Info label="العميل" value={row.customer_name || '-'} />
           <Info label="كود العميل" value={row.customer_code || '-'} />

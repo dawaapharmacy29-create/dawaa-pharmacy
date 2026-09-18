@@ -2,7 +2,7 @@ import { supabase } from '@/lib/supabase';
 import { persistPointsTransaction } from '@/lib/pointsPersistence';
 import { resolveStaffNameToStaffId } from '@/lib/staffIdentityMapping';
 import { appendWhatsAppReviewAudit } from '@/lib/whatsappReviewPersistenceV4';
-import { monthCycleFromDate } from '@/lib/conversationReviews';
+import { AUTOMATIC_REVIEW_REVIEWER_LABEL, monthCycleFromDate } from '@/lib/conversationReviews';
 import { logSupabaseError } from '@/lib/supabaseError';
 import type { PharmacyCycle } from '@/lib/pharmacy-cycle';
 import type { WhatsAppConversationSession } from '@/lib/whatsappConversationParser';
@@ -39,7 +39,7 @@ export interface AutomaticReviewPersistOutcome {
   suspicions: string[];
 }
 
-const SYSTEM_REVIEWER_NAME = 'تقييم آلي - نظام دواء';
+const SYSTEM_REVIEWER_NAME = AUTOMATIC_REVIEW_REVIEWER_LABEL;
 const SYSTEM_REVIEWER_ROLE = 'automatic_system';
 const SYSTEM_ACTOR_ID = 'system:whatsapp-automatic-review';
 
