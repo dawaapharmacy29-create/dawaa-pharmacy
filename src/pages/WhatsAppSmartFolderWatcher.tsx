@@ -10,6 +10,7 @@ import {
   queryLocalWhatsAppFolderPermission,
   restoreLocalWhatsAppFolder,
   supportsLocalWhatsAppInbox,
+  resetLocalWhatsAppProcessedLedger,
 } from '@/lib/localWhatsAppInbox';
 import { readWhatsAppExportFile } from '@/lib/whatsappExportFileReader';
 import { parseWhatsAppExport, splitWhatsAppSessions } from '@/lib/whatsappConversationParser';
@@ -197,6 +198,13 @@ export default function WhatsAppSmartFolderWatcher() {
     return () => window.clearInterval(timer);
   }, [connected, scanOnce]);
 
+  async function reanalyzeExisting() {
+    resetLocalWhatsAppProcessedLedger();
+    setRuns([]);
+    toast.success('تمت إعادة تهيئة سجل الملفات — هنعيد تحليل الملفات الموجودة في الفولدر');
+    await scanOnce();
+  }
+
   async function connect() {
     try {
       const handle = await connectLocalWhatsAppFolder();
@@ -247,16 +255,21 @@ export default function WhatsAppSmartFolderWatcher() {
               <span className="inline-flex items-center gap-2"><FolderOpen size={16} /> ربط فولدر التصدير</span>
             </button>
           ) : (
-            <button type="button" disabled={scanning} onClick={() => void scanOnce()} className="rounded-xl border border-slate-700 bg-slate-900 px-4 py-2.5 text-sm font-black text-white disabled:opacity-50">
-              <span className="inline-flex items-center gap-2">{scanning ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />} فحص الآن</span>
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" disabled={scanning} onClick={() => void scanOnce()} className="rounded-xl border border-slate-700 bg-slate-900 px-4 py-2.5 text-sm font-black text-white disabled:opacity-50">
+                <span className="inline-flex items-center gap-2">{scanning ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />} فحص الآن</span>
+              </button>
+              <button type="button" disabled={scanning} onClick={() => void reanalyzeExisting()} className="rounded-xl border border-cyan-700/60 bg-cyan-950/20 px-4 py-2.5 text-sm font-black text-cyan-100 disabled:opacity-50">
+                إعادة تحليل الملفات الموجودة
+              </button>
+            </div>
           )}
         </div>
         {connected ? <div className="mt-3 text-xs font-bold text-emerald-300">الفولدر متصل — فحص تلقائي كل دقيقة أثناء فتح التطبيق.</div> : null}
       </section>
 
       <section className="space-y-3">
-        {!runs.length ? <div className="dawaa-card p-8 text-center text-slate-400">لسه مفيش ملفات جديدة تم تحليلها في هذه الجلسة.</div> : null}
+        {!runs.length ? <div className="dawaa-card p-8 text-center text-slate-400">لسه مفيش ملفات جديدة تم تحليلها في هذه الجلسة. لو الملفات موجودة من اختبار سابق استخدم زر «إعادة تحليل الملفات الموجودة».</div> : null}
         {runs.map((run, runIndex) => (
           <article key={`${run.fileName}-${run.at}-${runIndex}`} className="dawaa-card overflow-hidden">
             <div className="border-b border-slate-800 p-4">
