@@ -133,17 +133,22 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
     available: notificationsAvailable,
     settings: notificationSettings,
     markAsRead,
+    refreshNotifications,
     handleNotificationClick,
   } = useNotifications();
 
-  const visibleNotifications = useMemo(
-    () => selectHeaderNotifications(notifications, 10),
+  const decisionNotifications = useMemo(
+    () => selectHeaderNotifications(notifications, 500),
     [notifications]
   );
-  const visibleUnreadCount = visibleNotifications.length;
+  const visibleNotifications = useMemo(
+    () => decisionNotifications.slice(0, 10),
+    [decisionNotifications]
+  );
+  const visibleUnreadCount = decisionNotifications.length;
   const urgentVisibleCount = useMemo(
-    () => visibleNotifications.filter(isUrgent).length,
-    [visibleNotifications]
+    () => decisionNotifications.filter(isUrgent).length,
+    [decisionNotifications]
   );
 
   useEffect(() => {
@@ -247,10 +252,14 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
               <NotificationSettingsPanel settings={notificationSettings} onChange={saveNotificationSettings} />
             ) : (
               <div className="max-h-96 overflow-y-auto">
-                {notificationsLoading ? (
+                {!notificationsAvailable && (
+                  <div className="dawaa-status-warning m-3 flex items-center justify-between gap-3 rounded-xl border px-3 py-2 text-xs font-bold">
+                    <span>تعذر تحديث الإشعارات الآن؛ المعروض هو آخر تحديث ناجح.</span>
+                    <button type="button" onClick={() => void refreshNotifications(true)} className="dawaa-button shrink-0 px-2 py-1 text-[10px] font-black">إعادة المحاولة</button>
+                  </div>
+                )}
+                {notificationsLoading && visibleNotifications.length === 0 ? (
                   <div className="dawaa-header-muted py-8 text-center text-sm font-bold">جاري تحميل الإشعارات...</div>
-                ) : !notificationsAvailable ? (
-                  <div className="dawaa-header-muted py-8 text-center text-sm font-bold">نظام الإشعارات يحتاج تفعيل قاعدة البيانات</div>
                 ) : visibleNotifications.length === 0 ? (
                   <div className="dawaa-header-muted py-8 text-center text-sm font-bold">لا توجد إشعارات مهمة جديدة الآن</div>
                 ) : visibleNotifications.map((item) => (

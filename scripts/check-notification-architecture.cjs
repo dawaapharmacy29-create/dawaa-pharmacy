@@ -15,6 +15,7 @@ const SLA_READ_MODEL_MIGRATION = 'supabase/migrations/20260908172000_notificatio
 const SLA_REFERENCE_MIGRATION = 'supabase/migrations/20260908205500_sla_escalations_reference_only_v2.sql';
 const SLA_INTEGRITY_MIGRATION = 'supabase/migrations/20260908211500_notification_sla_integrity_audit_v1.sql';
 const LIFECYCLE_MIGRATION = 'supabase/migrations/20260908192500_notification_lifecycle_state_machine_v1.sql';
+const LEGACY_BURST_DEDUPE_MIGRATION = 'supabase/migrations/20260918021423_archive_legacy_notification_burst_duplicates_v1.sql';
 
 function walk(dir) {
   const out = [];
@@ -66,6 +67,7 @@ for (const file of walk(SRC)) {
 }
 
 const failures = [];
+if (fs.existsSync(path.join(ROOT, 'src/lib/notificationFeed.ts'))) failures.push('Legacy synthetic notificationFeed must not return as a parallel read/alert source.');
 if (directWriters.length) failures.push(`Direct notification table writer(s) are forbidden: ${directWriters.join(', ')}`);
 if (rawReaders.length) failures.push(`All application notification reads must use notification_events_v2: ${rawReaders.join(', ')}`);
 if (directWorkflowRpcCallers.length) failures.push(`Workflow transitions must go only through ${WORKFLOW_SERVICE}: ${directWorkflowRpcCallers.join(', ')}`);
@@ -86,8 +88,17 @@ for (const required of [
   SLA_REFERENCE_MIGRATION,
   SLA_INTEGRITY_MIGRATION,
   LIFECYCLE_MIGRATION,
+  LEGACY_BURST_DEDUPE_MIGRATION,
 ]) {
   if (!fs.existsSync(path.join(ROOT, required))) failures.push(`Missing canonical notification boundary: ${required}`);
+}
+
+if (fs.existsSync(path.join(ROOT, LEGACY_BURST_DEDUPE_MIGRATION))) {
+  const dedupeSource = fs.readFileSync(path.join(ROOT, LEGACY_BURST_DEDUPE_MIGRATION), 'utf8');
+  for (const requiredToken of ['archived_at', 'exact_burst_duplicate_v1', "coalesce(message, body, '')", 'duplicate_rank > 1']) {
+    if (!dedupeSource.includes(requiredToken)) failures.push(`${LEGACY_BURST_DEDUPE_MIGRATION} is missing safe archival token: ${requiredToken}`);
+  }
+  if (/delete\s+from\s+public\.notifications/i.test(dedupeSource)) failures.push(`${LEGACY_BURST_DEDUPE_MIGRATION} must archive history, never delete it.`);
 }
 
 const serviceSource = fs.readFileSync(path.join(ROOT, SERVICE), 'utf8');
@@ -95,6 +106,7 @@ if (!serviceSource.includes('notification_events_v2')) failures.push(`${SERVICE}
 if (!serviceSource.includes('create_notification_audience_v1')) failures.push(`${SERVICE} must keep notification creation behind create_notification_audience_v1.`);
 if (!serviceSource.includes('normalizeNotificationMetadata')) failures.push(`${SERVICE} must normalize metadata through ${METADATA}.`);
 if (!serviceSource.includes('getNotificationById')) failures.push(`${SERVICE} must expose canonical notification lookup for deep links and SLA source resolution.`);
+if (!serviceSource.includes('throw new Error(`Canonical notification read failed:')) failures.push(`${SERVICE} must distinguish read-model failure from a healthy empty inbox.`);
 if (/using legacy compatibility reader|\.from\(['"]notifications['"]\)\s*\.select/s.test(serviceSource)) failures.push(`${SERVICE} must fail closed when the canonical read model is unavailable; legacy raw-read fallback is forbidden.`);
 if (/transition_notification_action_with_note_v1|markNotificationCompleted|dismissNotification|escalateNotification/s.test(serviceSource)) {
   failures.push(`${SERVICE} must not own workflow transitions; ${WORKFLOW_SERVICE} is the only application workflow command gateway.`);
@@ -131,6 +143,14 @@ for (const requiredToken of [
 const headerSource = fs.readFileSync(path.join(ROOT, HEADER), 'utf8');
 if (!headerSource.includes('handleNotificationClick(item)')) failures.push(`${HEADER} must delegate notification navigation to useNotifications.handleNotificationClick.`);
 if (/inferNotificationRoute|parseDetailsRoute|canonicalNotificationRoute/s.test(headerSource)) failures.push(`${HEADER} must remain a notification consumer; local notification route inference is forbidden.`);
+
+const hookSource = fs.readFileSync(path.join(ROOT, 'src/hooks/useNotifications.ts'), 'utf8');
+for (const requiredToken of ['ownerKey', 'generation', 'Preserve the last known-good rows']) {
+  if (!hookSource.includes(requiredToken)) failures.push(`src/hooks/useNotifications.ts is missing inbox isolation/resilience token: ${requiredToken}`);
+}
+if (/canonical read source unavailable[\s\S]{0,240}notificationRuntime\.rows\s*=\s*\[\]/s.test(hookSource)) {
+  failures.push('Notification read failures must not erase the last known-good runtime rows.');
+}
 
 const metadataSource = fs.readFileSync(path.join(ROOT, METADATA), 'utf8');
 for (const requiredToken of ['schemaVersion: 2', 'canonicalType', 'notificationMetadataContractIssues']) {

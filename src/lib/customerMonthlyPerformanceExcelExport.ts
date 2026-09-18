@@ -314,7 +314,6 @@ export async function exportCustomerFollowupWorkbook(context: CustomerFollowupEx
 
   const lastWorkRow = Math.max(7, sortedRows.length + 6);
   work.autoFilter = { from: 'A6', to: 'AD6' };
-  work.getRange?.('A6:AD6');
 
   const widths = [6, 11, 20, 27, 14, 16, 14, 15, 15, 15, 15, 18, 16, 18, 22, 17, 32, 17, 32, 19, 20, 18, 20, 15, 25, 16, 21, 22, 42, 34];
   widths.forEach((width, index) => {
@@ -363,39 +362,39 @@ export async function exportCustomerFollowupWorkbook(context: CustomerFollowupEx
   work.addConditionalFormatting({
     ref: priorityRef,
     rules: [
-      { type: 'expression', formulae: ['B7="عاجلة"'], style: { fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: COLORS.redLight }, fgColor: { argb: COLORS.redLight } }, font: { bold: true, color: { argb: COLORS.red } } } },
-      { type: 'expression', formulae: ['B7="عالية"'], style: { fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: COLORS.amberLight }, fgColor: { argb: COLORS.amberLight } }, font: { bold: true, color: { argb: COLORS.amber } } } },
-      { type: 'expression', formulae: ['B7="متوسطة"'], style: { fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: COLORS.blueLight }, fgColor: { argb: COLORS.blueLight } }, font: { bold: true, color: { argb: COLORS.blue } } } },
+      { type: 'expression', priority: 1, formulae: ['B7="عاجلة"'], style: { fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: COLORS.redLight }, fgColor: { argb: COLORS.redLight } }, font: { bold: true, color: { argb: COLORS.red } } } },
+      { type: 'expression', priority: 2, formulae: ['B7="عالية"'], style: { fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: COLORS.amberLight }, fgColor: { argb: COLORS.amberLight } }, font: { bold: true, color: { argb: COLORS.amber } } } },
+      { type: 'expression', priority: 3, formulae: ['B7="متوسطة"'], style: { fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: COLORS.blueLight }, fgColor: { argb: COLORS.blueLight } }, font: { bold: true, color: { argb: COLORS.blue } } } },
     ],
   });
   work.addConditionalFormatting({
     ref: followupRef,
     rules: [
-      { type: 'expression', formulae: ['M7="لم تبدأ"'], style: { fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: COLORS.grayLight }, fgColor: { argb: COLORS.grayLight } }, font: { bold: true, color: { argb: COLORS.muted } } } },
-      { type: 'expression', formulae: ['M7="تم التواصل"'], style: { fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: COLORS.greenLight }, fgColor: { argb: COLORS.greenLight } }, font: { bold: true, color: { argb: COLORS.green } } } },
-      { type: 'expression', formulae: ['M7="مغلق"'], style: { fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: COLORS.blueLight }, fgColor: { argb: COLORS.blueLight } }, font: { bold: true, color: { argb: COLORS.blue } } } },
+      { type: 'expression', priority: 4, formulae: ['M7="لم تبدأ"'], style: { fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: COLORS.grayLight }, fgColor: { argb: COLORS.grayLight } }, font: { bold: true, color: { argb: COLORS.muted } } } },
+      { type: 'expression', priority: 5, formulae: ['M7="تم التواصل"'], style: { fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: COLORS.greenLight }, fgColor: { argb: COLORS.greenLight } }, font: { bold: true, color: { argb: COLORS.green } } } },
+      { type: 'expression', priority: 6, formulae: ['M7="مغلق"'], style: { fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: COLORS.blueLight }, fgColor: { argb: COLORS.blueLight } }, font: { bold: true, color: { argb: COLORS.blue } } } },
     ],
   });
   work.addConditionalFormatting({
     ref: responseRef,
     rules: [
-      { type: 'expression', formulae: ['N7="تم الرد"'], style: { fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: COLORS.greenLight }, fgColor: { argb: COLORS.greenLight } }, font: { bold: true, color: { argb: COLORS.green } } } },
-      { type: 'expression', formulae: ['N7="لم يتم الرد"'], style: { fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: COLORS.redLight }, fgColor: { argb: COLORS.redLight } }, font: { bold: true, color: { argb: COLORS.red } } } },
-      { type: 'expression', formulae: ['N7="طلب التواصل لاحقًا"'], style: { fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: COLORS.amberLight }, fgColor: { argb: COLORS.amberLight } }, font: { bold: true, color: { argb: COLORS.amber } } } },
+      { type: 'expression', priority: 7, formulae: ['N7="تم الرد"'], style: { fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: COLORS.greenLight }, fgColor: { argb: COLORS.greenLight } }, font: { bold: true, color: { argb: COLORS.green } } } },
+      { type: 'expression', priority: 8, formulae: ['N7="لم يتم الرد"'], style: { fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: COLORS.redLight }, fgColor: { argb: COLORS.redLight } }, font: { bold: true, color: { argb: COLORS.red } } } },
+      { type: 'expression', priority: 9, formulae: ['N7="طلب التواصل لاحقًا"'], style: { fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: COLORS.amberLight }, fgColor: { argb: COLORS.amberLight } }, font: { bold: true, color: { argb: COLORS.amber } } } },
     ],
   });
   work.addConditionalFormatting({
     ref: outcomeRef,
     rules: [
-      { type: 'expression', formulae: ['O7="تم بيع / طلب"'], style: { fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: COLORS.greenLight }, fgColor: { argb: COLORS.greenLight } }, font: { bold: true, color: { argb: COLORS.green } } } },
-      { type: 'expression', formulae: ['O7="شكوى / ملاحظة"'], style: { fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: COLORS.redLight }, fgColor: { argb: COLORS.redLight } }, font: { bold: true, color: { argb: COLORS.red } } } },
+      { type: 'expression', priority: 10, formulae: ['O7="تم بيع / طلب"'], style: { fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: COLORS.greenLight }, fgColor: { argb: COLORS.greenLight } }, font: { bold: true, color: { argb: COLORS.green } } } },
+      { type: 'expression', priority: 11, formulae: ['O7="شكوى / ملاحظة"'], style: { fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: COLORS.redLight }, fgColor: { argb: COLORS.redLight } }, font: { bold: true, color: { argb: COLORS.red } } } },
     ],
   });
   work.addConditionalFormatting({
     ref: nextDateRef,
     rules: [
-      { type: 'expression', formulae: ['AND(U7<>"",U7<TODAY(),T7="نعم")'], style: { fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: COLORS.redLight }, fgColor: { argb: COLORS.redLight } }, font: { bold: true, color: { argb: COLORS.red } } } },
-      { type: 'expression', formulae: ['AND(U7=TODAY(),T7="نعم")'], style: { fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: COLORS.amberLight }, fgColor: { argb: COLORS.amberLight } }, font: { bold: true, color: { argb: COLORS.amber } } } },
+      { type: 'expression', priority: 12, formulae: ['AND(U7<>"",U7<TODAY(),T7="نعم")'], style: { fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: COLORS.redLight }, fgColor: { argb: COLORS.redLight } }, font: { bold: true, color: { argb: COLORS.red } } } },
+      { type: 'expression', priority: 13, formulae: ['AND(U7=TODAY(),T7="نعم")'], style: { fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: COLORS.amberLight }, fgColor: { argb: COLORS.amberLight } }, font: { bold: true, color: { argb: COLORS.amber } } } },
     ],
   });
 
@@ -438,7 +437,7 @@ export async function exportCustomerFollowupWorkbook(context: CustomerFollowupEx
     cell.value = { formula, result: 0 };
     cell.numFmt = '#,##0';
     cell.font = { name: 'Arial', size: 20, bold: true, color: { argb: color } };
-    cell.alignment = { horizontal: 'center', vertical: 'center', wrapText: true };
+    cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fill } };
     cell.border = {
       top: { style: 'medium', color: { argb: color } },
@@ -468,7 +467,7 @@ export async function exportCustomerFollowupWorkbook(context: CustomerFollowupEx
   dashboard.getCell('G9').value = { formula: `SUM('خطة العمل'!X7:X${lastWorkRow})`, result: 0 };
   dashboard.getCell('G9').numFmt = '#,##0.00 "ج.م"';
   dashboard.getCell('G9').font = { name: 'Arial', size: 19, bold: true, color: { argb: COLORS.purple } };
-  dashboard.getCell('G9').alignment = { horizontal: 'center', vertical: 'center', wrapText: true };
+  dashboard.getCell('G9').alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
   dashboard.getCell('G9').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.purpleLight } };
   dashboard.getCell('G9').border = {
     top: { style: 'medium', color: { argb: COLORS.purple } }, bottom: { style: 'medium', color: { argb: COLORS.purple } }, left: { style: 'medium', color: { argb: COLORS.purple } }, right: { style: 'medium', color: { argb: COLORS.purple } },

@@ -154,20 +154,26 @@ function semanticKey(item: IdentifiedNotification) {
       || ''
   ).trim();
   const title = normalizedTitle(item);
+  const rowId = String(item.id || '').trim();
 
-  if (bucket === 'tasks') return `task:${branch}:${staff}:${title}`;
-  if (bucket === 'customers') return `customer:${target || `${branch}:${title}`}`;
-  if (bucket === 'reviews') return `review:${staff || target || title}`;
+  // Sparse legacy rows may have only an id/type/priority. Never collapse those
+  // into one generic signal just because the semantic identity fields are
+  // absent; deduplication is safe only when there is an actual shared identity.
+  const fallbackIdentity = title || rowId;
+
+  if (bucket === 'tasks') return `task:${branch}:${staff}:${fallbackIdentity}`;
+  if (bucket === 'customers') return `customer:${target || `${branch}:${fallbackIdentity}`}`;
+  if (bucket === 'reviews') return `review:${staff || target || fallbackIdentity}`;
   if (bucket === 'system') {
     const text = textOf(item);
     const incident = /بصم|fingerprint/.test(text)
       ? 'fingerprint'
       : /طلب.*عميل|customer.*request/.test(text)
         ? 'customer-requests'
-        : title;
+        : fallbackIdentity;
     return `system:${branch}:${incident}`;
   }
-  return `${bucket}:${branch}:${title}`;
+  return `${bucket}:${branch}:${fallbackIdentity}`;
 }
 
 export function selectHeaderNotifications<T extends IdentifiedNotification>(items: T[], limit = 10): T[] {

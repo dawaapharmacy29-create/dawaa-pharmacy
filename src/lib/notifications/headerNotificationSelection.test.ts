@@ -8,12 +8,12 @@ describe('headerNotificationSelection', () => {
       { id: 't2', type: 'staff_task', priority: 'high', created_at: '2026-09-11T03:01:00Z' },
       { id: 'c1', type: 'vip_customer_silence', priority: 'urgent', created_at: '2026-09-11T03:02:00Z' },
       { id: 'c2', type: 'customer_followup', priority: 'high', created_at: '2026-09-11T03:03:00Z' },
-      { id: 'c3', type: 'customer_request', priority: 'normal', created_at: '2026-09-11T03:04:00Z' },
+      { id: 'c3', type: 'customer_request', priority: 'normal', requires_action: true, created_at: '2026-09-11T03:04:00Z' },
       { id: 'r1', type: 'conversation_review', priority: 'high', created_at: '2026-09-11T03:05:00Z' },
       { id: 's1', type: 'system', priority: 'high', created_at: '2026-09-11T03:06:00Z' },
       { id: 's2', type: 'manager_alert', priority: 'high', created_at: '2026-09-11T03:07:00Z' },
-      { id: 'o1', type: 'sales_target', priority: 'normal', created_at: '2026-09-11T03:08:00Z' },
-      { id: 'o2', type: 'attendance', priority: 'normal', created_at: '2026-09-11T03:09:00Z' },
+      { id: 'o1', type: 'sales_target', priority: 'high', created_at: '2026-09-11T03:08:00Z' },
+      { id: 'o2', type: 'attendance', priority: 'high', created_at: '2026-09-11T03:09:00Z' },
     ];
 
     const selected = selectHeaderNotifications(items, 10);
@@ -26,5 +26,18 @@ describe('headerNotificationSelection', () => {
 
   it('maps legacy Team Alpha task wording into the task bucket', () => {
     expect(headerNotificationBucket({ type: 'system', title: 'فريق دواء ألفا — مهمة اليوم' })).toBe('tasks');
+  });
+
+  it('deduplicates a real shared signal but keeps sparse legacy rows distinct', () => {
+    const selected = selectHeaderNotifications([
+      { id: 'sparse-1', type: 'staff_task', priority: 'high' },
+      { id: 'sparse-2', type: 'staff_task', priority: 'high' },
+      { id: 'same-1', type: 'customer_followup', priority: 'high', target_id: 'C-55', title: 'متابعة عميل' },
+      { id: 'same-2', type: 'customer_followup', priority: 'high', target_id: 'C-55', title: 'متابعة عميل' },
+    ], 10);
+
+    expect(selected).toHaveLength(3);
+    expect(selected.some((item) => item.id === 'sparse-1')).toBe(true);
+    expect(selected.some((item) => item.id === 'sparse-2')).toBe(true);
   });
 });
