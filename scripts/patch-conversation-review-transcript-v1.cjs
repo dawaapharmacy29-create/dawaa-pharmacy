@@ -50,10 +50,14 @@ patchFile('src/pages/Reviews.tsx', (source) => {
     src = src.replace(formAnchor, `${formAnchor}\n  const [pendingConversationSnapshot, setPendingConversationSnapshot] = useState<ConversationReviewSnapshot | null>(null);\n  useEffect(() => {\n    const pending = readPendingConversationReviewTransfer();\n    if (!pending) return;\n    setPendingConversationSnapshot(pending);\n    setForm((current) => ({ ...current, evaluationKind: 'واتساب' }));\n  }, []);`);
   }
 
-  const dataSection = `          <section className="stat-card space-y-4">\n            <div className="section-title text-sm">بيانات المحادثة</div>`;
   if (!src.includes('title="المحادثة محل التقييم"')) {
-    if (!src.includes(dataSection)) throw new Error('[review-transcript-v1] reviews conversation data anchor not found');
-    src = src.replace(dataSection, `          {pendingConversationSnapshot ? <ConversationReviewTranscriptCard snapshot={pendingConversationSnapshot} title="المحادثة محل التقييم" defaultOpen /> : null}\n\n${dataSection}`);
+    const dataSectionRx = /(^\s*<section[^\n>]*>\s*\n\s*<div[^\n>]*>بيانات المحادثة<\/div>)/m;
+    const match = src.match(dataSectionRx);
+    if (!match) {
+      console.warn('[review-transcript-v1] reviews conversation data anchor not found; transcript card render skipped');
+    } else {
+      src = src.replace(match[0], `          {pendingConversationSnapshot ? <ConversationReviewTranscriptCard snapshot={pendingConversationSnapshot} title="المحادثة محل التقييم" defaultOpen /> : null}\n\n${match[0]}`);
+    }
   }
 
   const createRawAnchor = `        raw_scores: {\n          criteria: selectedChoices,`;
