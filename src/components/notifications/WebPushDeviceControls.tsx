@@ -182,14 +182,23 @@ export async function disconnectCurrentBrowserPush() {
 }
 
 async function touchExistingSubscription() {
-  if (!pushSupported() || Notification.permission !== 'granted') return;
+  const preferences = getPreferences();
+  if (!preferences.enabled || !pushSupported() || Notification.permission !== 'granted') return;
   const lastHeartbeat = Number(localStorage.getItem(HEARTBEAT_KEY) || 0);
   if (Number.isFinite(lastHeartbeat) && Date.now() - lastHeartbeat < HEARTBEAT_INTERVAL_MS) return;
 
   const registration = await navigator.serviceWorker.getRegistration('/');
-  if (!registration) return;
+  if (!registration) {
+    await connectCurrentBrowserPush(preferences);
+    return;
+  }
   const subscription = await registration.pushManager.getSubscription();
-  if (!subscription) return;
+  if (!subscription) {
+    // Permission may have been granted on an older release that never created
+    // the PushManager subscription. Repair it silently without prompting again.
+    await connectCurrentBrowserPush(preferences);
+    return;
+  }
 
   const { error } = await supabase.rpc('touch_notification_push_subscription_v1', {
     p_endpoint: subscription.endpoint,
