@@ -2,10 +2,12 @@
 // هذا الملف عرض/تجميع فقط — مبيغيّرش في سلوك أي من الطريقتين نفسه.
 
 export type ExperimentApproach = 'A' | 'B' | 'hybrid';
+export type ExperimentRunMode = 'dry-run' | 'live';
 
 export interface ExperimentCommonCounts {
   filesRead: number;
   sessionsFound: number;
+  previewed: number;
   created: number;
   skipped: number;
   duplicates: number;
@@ -37,7 +39,7 @@ export interface ApproachAResultDetail {
 }
 
 export interface ApproachBResultDetail {
-  status: 'saved' | 'skipped_no_staff' | 'skipped_existing' | 'failed';
+  status: 'preview' | 'saved' | 'skipped_no_staff' | 'skipped_existing' | 'failed';
   reviewId: string | null;
   finalScore: number | null;
   level?: string | null;
@@ -58,6 +60,7 @@ export interface ApproachBResultDetail {
 export interface ExperimentFileLogEntry {
   fileName: string;
   at: string;
+  runMode: ExperimentRunMode;
   durationMs: number;
   counts: ExperimentCommonCounts;
   approachA?: ApproachAResultDetail[];
