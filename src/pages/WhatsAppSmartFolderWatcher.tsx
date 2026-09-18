@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowLeft, FileText, FolderOpen, Loader2, RefreshCw, X } from 'lucide-react';
+import { ArrowLeft, FileText, FolderOpen, Image as ImageIcon, Loader2, Mic, RefreshCw, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
@@ -75,6 +75,53 @@ function opportunityLabel(value: string) {
   return value;
 }
 
+function isVoiceMessage(kind: string, text: string) {
+  return kind === 'voice' || /voice message omitted|audio omitted/i.test(text);
+}
+
+function isImageMessage(kind: string, text: string) {
+  return kind === 'image' || /image omitted|photo omitted/i.test(text);
+}
+
+function messageBody(kind: string, text: string) {
+  if (isVoiceMessage(kind, text)) {
+    return (
+      <div className="flex min-w-[220px] items-center gap-3 py-1">
+        <div className="grid h-9 w-9 place-items-center rounded-full bg-white/10"><Mic size={17} /></div>
+        <div className="flex flex-1 items-center gap-1">
+          {Array.from({ length: 18 }).map((_, index) => (
+            <span key={index} className="h-1 rounded-full bg-current opacity-50" style={{ width: index % 4 === 0 ? 10 : 5 }} />
+          ))}
+        </div>
+        <span className="text-[11px] opacity-70">رسالة صوتية</span>
+      </div>
+    );
+  }
+  if (isImageMessage(kind, text)) {
+    return (
+      <div className="flex min-w-[220px] items-center gap-3 py-1">
+        <div className="grid h-9 w-9 place-items-center rounded-xl bg-white/10"><ImageIcon size={17} /></div>
+        <div>
+          <div className="font-bold">صورة</div>
+          <div className="text-[11px] opacity-70">المحتوى غير متاح داخل تصدير واتساب</div>
+        </div>
+      </div>
+    );
+  }
+  if (kind === 'document' || /document omitted/i.test(text)) {
+    return (
+      <div className="flex min-w-[220px] items-center gap-3 py-1">
+        <div className="grid h-9 w-9 place-items-center rounded-xl bg-white/10"><FileText size={17} /></div>
+        <div>
+          <div className="font-bold">ملف مرفق</div>
+          <div className="text-[11px] opacity-70">غير متاح داخل التصدير النصي</div>
+        </div>
+      </div>
+    );
+  }
+  return <div className="whitespace-pre-wrap break-words text-[14px] leading-7">{text || `[${kind}]`}</div>;
+}
+
 export default function WhatsAppSmartFolderWatcher() {
   const navigate = useNavigate();
   const handleRef = useRef<any>(null);
@@ -83,6 +130,7 @@ export default function WhatsAppSmartFolderWatcher() {
   const [scanning, setScanning] = useState(false);
   const [runs, setRuns] = useState<FileRun[]>([]);
   const [selected, setSelected] = useState<StaffRun | null>(null);
+  const [conversationView, setConversationView] = useState<'whatsapp' | 'review'>('whatsapp');
 
   const analyzeFile = useCallback(async (file: File): Promise<FileRun> => {
     const read = await readWhatsAppExportFile(file);
@@ -350,25 +398,87 @@ export default function WhatsAppSmartFolderWatcher() {
                 </section>
               ) : null}
 
-              <section className="rounded-2xl border border-slate-800 p-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="font-black text-white">المحادثة والأدلة</div>
-                  <div className="text-xs text-slate-500">{selected.snapshot.messages.length} رسالة داخل النطاق والسياق</div>
-                </div>
-                <div className="mt-3 max-h-[52vh] space-y-2 overflow-y-auto pl-1">
-                  {selected.snapshot.messages.map((message) => (
-                    <div
-                      key={message.id}
-                      className={`rounded-xl border p-3 ${message.evidence ? 'border-cyan-500/60 bg-cyan-950/20' : message.scope === 'context' ? 'border-dashed border-slate-700 bg-slate-950/20 opacity-70' : 'border-slate-800 bg-slate-950/35'}`}
+              <section className="overflow-hidden rounded-2xl border border-slate-800">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 bg-slate-950/35 p-4">
+                  <div>
+                    <div className="font-black text-white">المحادثة والأدلة</div>
+                    <div className="mt-1 text-xs text-slate-500">{selected.snapshot.messages.length} رسالة داخل النطاق والسياق</div>
+                  </div>
+                  <div className="inline-flex rounded-xl border border-slate-700 bg-slate-900 p-1 text-xs font-black">
+                    <button
+                      type="button"
+                      onClick={() => setConversationView('whatsapp')}
+                      className={`rounded-lg px-3 py-1.5 ${conversationView === 'whatsapp' ? 'bg-emerald-500 text-slate-950' : 'text-slate-300'}`}
                     >
-                      <div className="mb-1 flex flex-wrap justify-between gap-2 text-[11px] text-slate-500">
-                        <span>{message.direction === 'inbound' ? 'العميل' : selected.staffName}{message.scope === 'context' ? ' • سياق فقط' : ''}{message.evidence ? ' • دليل' : ''}</span>
-                        <span>{new Date(message.timestamp).toLocaleString('ar-EG')}</span>
-                      </div>
-                      <div className="whitespace-pre-wrap text-sm leading-7 text-slate-200">{message.text || `[${message.kind}]`}</div>
-                    </div>
-                  ))}
+                      عرض واتساب
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConversationView('review')}
+                      className={`rounded-lg px-3 py-1.5 ${conversationView === 'review' ? 'bg-cyan-500 text-slate-950' : 'text-slate-300'}`}
+                    >
+                      عرض تحليلي
+                    </button>
+                  </div>
                 </div>
+
+                {conversationView === 'whatsapp' ? (
+                  <div
+                    className="max-h-[58vh] overflow-y-auto p-4 md:p-5"
+                    style={{
+                      backgroundColor: '#0b141a',
+                      backgroundImage: 'radial-gradient(circle at 25% 25%, rgba(255,255,255,.025) 0 1px, transparent 1px), radial-gradient(circle at 75% 75%, rgba(255,255,255,.018) 0 1px, transparent 1px)',
+                      backgroundSize: '28px 28px',
+                    }}
+                  >
+                    <div className="mx-auto max-w-3xl space-y-2" dir="rtl">
+                      {selected.snapshot.messages.map((message) => {
+                        const inbound = message.direction === 'inbound';
+                        const context = message.scope === 'context';
+                        return (
+                          <div
+                            key={message.id}
+                            className={`flex ${inbound ? 'justify-start' : 'justify-end'} ${context ? 'opacity-60' : ''}`}
+                          >
+                            <div className={`max-w-[86%] md:max-w-[74%] ${inbound ? 'items-start' : 'items-end'} flex flex-col`}>
+                              <div
+                                className={`relative rounded-2xl px-3.5 py-2.5 shadow-sm ${
+                                  inbound ? 'bg-[#202c33] text-slate-100 rounded-tl-sm' : 'bg-[#005c4b] text-white rounded-tr-sm'
+                                } ${message.evidence ? 'ring-2 ring-cyan-400/80 ring-offset-2 ring-offset-[#0b141a]' : ''}`}
+                              >
+                                <div className="mb-1 flex flex-wrap items-center gap-1.5 text-[10px] font-bold opacity-80">
+                                  <span>{inbound ? 'العميل' : selected.staffName}</span>
+                                  {message.evidence ? <span className="rounded bg-cyan-400/15 px-1.5 py-0.5 text-cyan-100">دليل</span> : null}
+                                  {context ? <span className="rounded bg-white/10 px-1.5 py-0.5">سياق فقط</span> : null}
+                                </div>
+                                {messageBody(message.kind, message.text)}
+                                <div className="mt-1 text-left text-[10px] opacity-60">
+                                  {new Date(message.timestamp).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
+                                </div>
+                              </div>
+                              {context ? <div className="mt-1 text-[10px] text-slate-500">لا تدخل هذه الرسالة في التقييم</div> : null}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="max-h-[58vh] space-y-2 overflow-y-auto bg-slate-950/20 p-4">
+                    {selected.snapshot.messages.map((message) => (
+                      <div
+                        key={message.id}
+                        className={`rounded-xl border p-3 ${message.evidence ? 'border-cyan-500/60 bg-cyan-950/20' : message.scope === 'context' ? 'border-dashed border-slate-700 bg-slate-950/20 opacity-70' : 'border-slate-800 bg-slate-950/35'}`}
+                      >
+                        <div className="mb-1 flex flex-wrap justify-between gap-2 text-[11px] text-slate-500">
+                          <span>{message.direction === 'inbound' ? 'العميل' : selected.staffName}{message.scope === 'context' ? ' • سياق فقط' : ''}{message.evidence ? ' • دليل' : ''}</span>
+                          <span>{new Date(message.timestamp).toLocaleString('ar-EG')}</span>
+                        </div>
+                        <div className="text-slate-200">{messageBody(message.kind, message.text)}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </section>
 
               <section className="flex flex-wrap gap-2 border-t border-slate-800 pt-4">
