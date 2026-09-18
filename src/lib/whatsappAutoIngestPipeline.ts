@@ -359,7 +359,20 @@ async function saveFollowupSignals(
   return { created: rows.length, duplicate };
 }
 
-export async function ingestWhatsAppExportFile(file: File): Promise<IngestOneFileResult> {
+export interface IngestOptions {
+  /**
+   * افتراضيًا true — يحافظ بالظبط على سلوك الإنتاج الحالي (Hybrid: A ثم B تلقائيًا).
+   * صفحة تجربة "Approach A" فقط هي اللي بتبعت false هنا عشان تضمن إن التقييم الآلي
+   * (Approach B) ما يشتغلش خالص، من غير ما تلمس منطق A نفسه.
+   */
+  runApproachB?: boolean;
+}
+
+export async function ingestWhatsAppExportFile(
+  file: File,
+  options: IngestOptions = {}
+): Promise<IngestOneFileResult> {
+  const runApproachB = options.runApproachB !== false;
   const result: IngestOneFileResult = {
     fileName: file.name,
     sessionsFound: 0,
@@ -402,7 +415,7 @@ export async function ingestWhatsAppExportFile(file: File): Promise<IngestOneFil
       if (saved.duplicate) result.sessionsDuplicate += 1;
       else result.sessionsSaved += 1;
 
-      if (!saved.duplicate) {
+      if (!saved.duplicate && runApproachB) {
         try {
           const autoReview = await persistAutomaticWhatsAppReview({
             sourceId: saved.sourceId,

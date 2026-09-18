@@ -40,6 +40,9 @@ const CustomerService = lazy(() => import('@/pages/SmartCustomerService'));
 const CustomerServiceClassic = lazy(() => import('@/pages/CustomerService'));
 const WhatsAppAutoFollowupRequests = lazy(() => import('@/pages/WhatsAppAutoFollowupRequests'));
 const WhatsAppFolderWatcher = lazy(() => import('@/pages/WhatsAppFolderWatcher'));
+const WhatsAppReviewExperimentApproachA = lazy(() => import('@/pages/WhatsAppReviewExperimentApproachA'));
+const WhatsAppReviewExperimentApproachB = lazy(() => import('@/pages/WhatsAppReviewExperimentApproachB'));
+const WhatsAppReviewExperimentHybrid = lazy(() => import('@/pages/WhatsAppReviewExperimentHybrid'));
 const WhatsAppDoctorPerformance = lazy(() => import('@/pages/WhatsAppDoctorPerformance'));
 const WhatsAppCustomerHistory = lazy(() => import('@/pages/WhatsAppCustomerHistory'));
 const WhatsAppLostOpportunities = lazy(() => import('@/pages/WhatsAppLostOpportunities'));
@@ -478,6 +481,30 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             {routeSuspense(<WhatsAppFolderWatcher />, 'المراقبة التلقائية للواتساب')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/whatsapp-review-experiments/approach-a"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<WhatsAppReviewExperimentApproachA />, 'تحليل واتساب الذكي - الطريقة A')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/whatsapp-review-experiments/approach-b"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<WhatsAppReviewExperimentApproachB />, 'التقييم الآلي لواتساب - الطريقة B')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/whatsapp-review-experiments/hybrid"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<WhatsAppReviewExperimentHybrid />, 'واتساب - النظام المدمج A+B')}
           </ProtectedRoute>
         }
       />

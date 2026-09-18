@@ -67,6 +67,12 @@ const GROUPS: NavGroup[] = [
     { path: '/whatsapp-branch-comparison', icon: BarChart3, label: 'مقارنة الفروع (واتساب)' },
   ]},
 
+  { title: 'تجارب تقييم واتساب', icon: Sparkles, items: [
+    { path: '/whatsapp-review-experiments/approach-a', icon: Sparkles, label: 'تحليل واتساب الذكي - الطريقة A' },
+    { path: '/whatsapp-review-experiments/approach-b', icon: Target, label: 'التقييم الآلي لواتساب - الطريقة B' },
+    { path: '/whatsapp-review-experiments/hybrid', icon: Activity, label: 'واتساب - النظام المدمج A+B' },
+  ]},
+
   { title: 'العملاء ونقاط الولاء', icon: Users, items: [
     { path: '/customers', icon: Users, label: 'قاعدة العملاء', permission: 'view_customers' },
     { path: '/customer-monthly-performance', icon: TrendingDown, label: 'أداء العملاء الشهري', permission: 'view_customers' },
