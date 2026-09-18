@@ -24,6 +24,7 @@ export default function ReviewsEnhanced() {
   const mode = params.get('mode') || '';
   const evidenceMode = mode === 'evidence';
   const editMode = mode === 'edit';
+  const newMode = mode === 'new';
   const historyMode = params.get('section') === 'history';
   const selectedReviewId = String(params.get('id') || '').trim();
 
@@ -62,23 +63,25 @@ export default function ReviewsEnhanced() {
 
   return (
     <div dir="rtl" className="space-y-4">
-      <div className="dawaa-card dawaa-card--soft p-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <div className="dawaa-title font-black">صور المحادثة ورسالة التوجيه</div>
-            <p className="dawaa-caption mt-1 text-sm">
-              بعد حفظ التقييم، افتحي أداة المرفقات لإضافة رسالة مباشرة للدكتور وحتى 5 صور من الشات.
-            </p>
+      {!newMode && !editMode ? (
+        <div className="dawaa-card dawaa-card--soft p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="dawaa-title font-black">صور المحادثة ورسالة التوجيه</div>
+              <p className="dawaa-caption mt-1 text-sm">
+                بعد حفظ التقييم، افتحي أداة المرفقات لإضافة رسالة مباشرة للدكتور وحتى 5 صور من الشات.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => navigate('/reviews?mode=evidence')}
+              className="dawaa-button dawaa-button--primary"
+            >
+              إرفاق صور ورسالة
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={() => navigate('/reviews?mode=evidence')}
-            className="dawaa-button dawaa-button--primary"
-          >
-            إرفاق صور ورسالة
-          </button>
         </div>
-      </div>
+      ) : null}
       <Suspense fallback={<ReviewModeLoader label={editMode ? 'جاري تحميل تعديل التقييم...' : 'جاري تحميل نموذج التقييم...'} />}>
         <Reviews key={editMode && selectedReviewId ? `reviews-edit-${selectedReviewId}` : 'reviews-main'} />
       </Suspense>

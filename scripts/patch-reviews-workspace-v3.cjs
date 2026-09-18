@@ -63,7 +63,7 @@ patchFile('src/components/reviews/ReviewsInsightsHub.tsx', [
   {
     label: 'active current service team only',
     from: `  const serviceSummary = useMemo(() => {\n    // followups جاية من load() مفلترة بالشهر المختار بالفعل، فمش محتاجين نفلتر تاني هنا.\n    const grouped = new Map<string, FollowupRow[]>();\n    followups.forEach((row) => {\n      const name = String(row.responsible_name || row.assigned_to || row.assigned_doctor || row.completed_by || 'غير محدد');\n      grouped.set(name, [...(grouped.get(name) || []), row]);\n    });`,
-    to: `  const serviceSummary = useMemo(() => {\n    // تقارير خدمة العملاء الحالية تُنسب فقط لفريق دواء ألفا النشط حاليًا.\n    // كده الموظف المؤرشف أو صاحب دور قديم (مثل أسماء تاريخية في المتابعات) لا يظهر\n    // كأنه ما زال ضمن فريق خدمة العملاء الحالي.\n    const currentServiceStaff = staffRows.filter((row) =>\n      row.active !== false && row.is_active !== false && String(row.role || '').toLowerCase() === 'team_dawaa_alpha'\n    );\n    const resolveCurrentServiceName = (rawValue) => {\n      const raw = normalizeName(rawValue);\n      if (!raw) return null;\n      const match = currentServiceStaff.find((staff) => {\n        const canonical = normalizeName(staff.name);\n        return canonical === raw || canonical.includes(raw) || raw.includes(canonical);\n      });\n      return match?.name || null;\n    };\n    const grouped = new Map<string, FollowupRow[]>();\n    followups.forEach((row) => {\n      const rawName = String(row.responsible_name || row.assigned_to || row.assigned_doctor || row.completed_by || '');\n      const name = resolveCurrentServiceName(rawName);\n      if (!name) return;\n      grouped.set(name, [...(grouped.get(name) || []), row]);\n    });`
+    to: `  const serviceSummary = useMemo(() => {\n    // تقارير خدمة العملاء الحالية تُنسب فقط لفريق دواء ألفا النشط حاليًا.\n    // كده الموظف المؤرشف أو صاحب دور قديم لا يظهر كأنه ما زال ضمن الفريق الحالي.\n    const currentServiceStaff = staffRows.filter((row) =>\n      row.active !== false && row.is_active !== false && String(row.role || '').toLowerCase() === 'team_dawaa_alpha'\n    );\n    const resolveCurrentServiceName = (rawValue) => {\n      const raw = normalizeName(rawValue);\n      if (!raw) return null;\n      const match = currentServiceStaff.find((staff) => {\n        const canonical = normalizeName(staff.name);\n        return canonical === raw || canonical.includes(raw) || raw.includes(canonical);\n      });\n      return match?.name || null;\n    };\n    const grouped = new Map<string, FollowupRow[]>();\n    followups.forEach((row) => {\n      const rawName = String(row.responsible_name || row.assigned_to || row.assigned_doctor || row.completed_by || '');\n      const name = resolveCurrentServiceName(rawName);\n      if (!name) return;\n      grouped.set(name, [...(grouped.get(name) || []), row]);\n    });`
   },
   {
     label: 'service summary dependency on current staff',
@@ -73,3 +73,51 @@ patchFile('src/components/reviews/ReviewsInsightsHub.tsx', [
 ]);
 
 console.log('[reviews-v3] review workspace patch complete');
+require('./patch-smart-review-v1.cjs');
+require('./patch-smart-review-v2.cjs');
+require('./patch-smart-review-v3.cjs');
+require('./patch-smart-review-v4.cjs');
+require('./patch-smart-review-v5.cjs');
+require('./patch-smart-review-v6.cjs');
+require('./patch-smart-review-v7.cjs');
+require('./patch-smart-review-v8.cjs');
+require('./patch-smart-review-v9.cjs');
+require('./patch-smart-review-v10.cjs');
+require('./patch-smart-review-v11.cjs');
+require('./patch-smart-review-v12.cjs');
+require('./patch-smart-review-v13.cjs');
+require('./patch-whatsapp-analyzer-official-review-v1.cjs');
+require('./patch-whatsapp-analyzer-decision-support-v2.cjs');
+require('./patch-whatsapp-analyzer-framework-v3.cjs');
+require('./patch-whatsapp-local-inbox-v1.cjs');
+require('./patch-whatsapp-media-confidence-v4.cjs');
+require('./patch-whatsapp-unified-v4.cjs');
+require('./patch-whatsapp-media-ui-v4.cjs');
+require('./patch-whatsapp-review-queue-v4.cjs');
+require('./patch-whatsapp-customer-resolver-v4.cjs');
+require('./patch-whatsapp-auto-queue-v4.cjs');
+require('./patch-whatsapp-auto-invoice-v4.cjs');
+require('./patch-whatsapp-local-inbox-batch-v4.cjs');
+require('./patch-whatsapp-device-setup-v4.cjs');
+require('./patch-whatsapp-production-copy-v4.cjs');
+require('./patch-whatsapp-sidebar-v4.cjs');
+require('./patch-whatsapp-queue-invoice-v4.cjs');
+require('./patch-whatsapp-official-review-bridge-v4.cjs');
+require('./patch-whatsapp-bridge-cleanup-v4.cjs');
+require('./patch-whatsapp-analysis-quality-v5.cjs');
+require('./patch-whatsapp-operational-v6.cjs');
+require('./patch-whatsapp-operational-ui-v6.cjs');
+require('./patch-whatsapp-operational-actions-ui-v6.cjs');
+require('./patch-whatsapp-product-journey-ui-v7.cjs');
+require('./patch-whatsapp-action-center-v6.cjs');
+require('./patch-whatsapp-doctor-cycle-v8.cjs');
+require('./patch-whatsapp-conversion-funnel-v9.cjs');
+require('./patch-whatsapp-funnel-comparison-v9.cjs');
+require('./patch-whatsapp-leakage-reasons-v10.cjs');
+require('./patch-whatsapp-recoverable-v10.cjs');
+require('./patch-whatsapp-recovery-work-queue-v11.cjs');
+require('./patch-whatsapp-recovery-kpis-v12.cjs');
+require('./patch-whatsapp-invoice-reconciliation-v6.cjs');
+require('./patch-whatsapp-media-v21.cjs');
+require('./patch-sales-invoice-items-v21.cjs');
+require('./patch-whatsapp-customer-case-v22.cjs');

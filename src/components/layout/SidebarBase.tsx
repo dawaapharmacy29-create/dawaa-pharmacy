@@ -58,6 +58,15 @@ const GROUPS: NavGroup[] = [
     { path: '/welcome-messages', icon: MessageCircle, label: 'رسائل الترحيب', permission: 'customer_welcome_messages_view' },
   ]},
 
+  { title: 'مراجعة واتساب الذكية (تجريبي)', icon: MessageCircle, items: [
+    { path: '/whatsapp-folder-watcher', icon: MessageCircle, label: 'المراقبة التلقائية للفولدر' },
+    { path: '/whatsapp-followup-requests', icon: ClipboardCheck, label: 'طلبات المتابعة الآلية' },
+    { path: '/whatsapp-doctor-performance', icon: Star, label: 'أداء الدكاترة' },
+    { path: '/whatsapp-customer-history', icon: Users, label: 'سجل محادثات العميل' },
+    { path: '/whatsapp-lost-opportunities', icon: PackageX, label: 'الفرص الضائعة' },
+    { path: '/whatsapp-branch-comparison', icon: BarChart3, label: 'مقارنة الفروع (واتساب)' },
+  ]},
+
   { title: 'العملاء ونقاط الولاء', icon: Users, items: [
     { path: '/customers', icon: Users, label: 'قاعدة العملاء', permission: 'view_customers' },
     { path: '/customer-monthly-performance', icon: TrendingDown, label: 'أداء العملاء الشهري', permission: 'view_customers' },

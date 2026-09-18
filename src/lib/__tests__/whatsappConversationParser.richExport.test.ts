@@ -1,0 +1,70 @@
+import { describe, expect, it } from 'vitest';
+import {
+  detectWhatsAppExportFormat,
+  parseWhatsAppExport,
+  splitWhatsAppSessions,
+} from '@/lib/whatsappConversationParser';
+
+const sample = `# WhatsApp Chat Export: عميل تجريبي 1234
+Export date: September 14, 2026 at 7:00 PM
+
+---
+
+## September 14, 2026
+
+[1:12 AM] **عميل تجريبي 1234:** [Voice message]
+
+[1:15 AM] **You:** أهلًا وسهلًا بحضرتك
+مع حضرتك د أحمد
+خدمة التوصيل متاحة على مدار ٢٤ ساعة
+
+[1:17 AM] **You:** هل يوجد عرض آخر؟
+
+[1:17 AM] **عميل تجريبي 1234:**
+> _You: هل يوجد عرض آخر؟_
+لا
+
+[1:20 AM] **عميل تجريبي 1234:** [Forwarded] [Image] صورة المنتج المطلوب
+
+[1:21 AM] **You:** تركيز إيه يا فندم؟
+
+[1:22 AM] **عميل تجريبي 1234:**
+> _You: تركيز إيه يا فندم؟_
+25
+
+[5:30 PM] **عميل تجريبي 1234:** مساء الخير
+
+[5:31 PM] **You:** أهلًا بحضرتك
+مع حضرتك د ندى
+`;
+
+describe('rich WhatsApp markdown export', () => {
+  it('detects markdown and keeps reply/media semantics without duplicating quote text into message body', () => {
+    expect(detectWhatsAppExportFormat(sample)).toBe('md');
+    const messages = parseWhatsAppExport(sample);
+    expect(messages).toHaveLength(9);
+
+    const reply = messages.find((message) => message.text === '25');
+    expect(reply?.replyTo?.sender).toBe('You');
+    expect(reply?.replyTo?.text).toContain('تركيز');
+    expect(reply?.text).not.toContain('You:');
+
+    const image = messages.find((message) => message.kind === 'image');
+    expect(image?.forwarded).toBe(true);
+    expect(image?.mediaPlaceholder).toBe(true);
+    expect(image?.mediaAvailable).toBe(false);
+
+    const voice = messages.find((message) => message.kind === 'voice');
+    expect(voice?.mediaPlaceholder).toBe(true);
+  });
+
+  it('extracts introduced staff and splits independent conversations after long inactivity', () => {
+    const sessions = splitWhatsAppSessions(parseWhatsAppExport(sample), 120);
+    expect(sessions).toHaveLength(2);
+    expect(sessions[0].outboundStaffNames).toContain('أحمد');
+    expect(sessions[1].outboundStaffNames).toContain('ندى');
+    expect(sessions[0].replyCount).toBe(2);
+    expect(sessions[0].forwardedCount).toBe(1);
+    expect(sessions[0].missingMediaCount).toBe(2);
+  });
+});

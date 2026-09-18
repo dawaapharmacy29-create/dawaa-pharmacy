@@ -42,10 +42,30 @@ function afterEach(fn) {
   currentSuite?.afterEach.push(fn);
 }
 
+function deepEqual(a, b) {
+  if (Object.is(a, b)) return true;
+  if (typeof a !== typeof b) return false;
+  if (a === null || b === null) return false;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    return a.every((item, i) => deepEqual(item, b[i]));
+  }
+  if (typeof a === 'object') {
+    const aKeys = Object.keys(a);
+    const bKeys = Object.keys(b);
+    if (aKeys.length !== bKeys.length) return false;
+    return aKeys.every((key) => deepEqual(a[key], b[key]));
+  }
+  return false;
+}
+
 function expect(actual) {
   const api = {
     toBe(expected) {
       if (!Object.is(actual, expected)) throw new Error(`Expected ${actual} to be ${expected}`);
+    },
+    toEqual(expected) {
+      if (!deepEqual(actual, expected)) throw new Error(`Expected ${JSON.stringify(actual)} to equal ${JSON.stringify(expected)}`);
     },
     toBeDefined() {
       if (actual === undefined) throw new Error('Expected value to be defined');
@@ -53,19 +73,35 @@ function expect(actual) {
     toBeNull() {
       if (actual !== null) throw new Error(`Expected ${actual} to be null`);
     },
+    toBeTruthy() {
+      if (!actual) throw new Error(`Expected ${actual} to be truthy`);
+    },
+    toBeFalsy() {
+      if (actual) throw new Error(`Expected ${actual} to be falsy`);
+    },
     toHaveProperty(prop) {
       if (actual == null || !(prop in Object(actual))) {
         throw new Error(`Expected value to have property ${String(prop)}`);
       }
     },
+    toHaveLength(length) {
+      if (actual?.length !== length) throw new Error(`Expected length ${actual?.length} to be ${length}`);
+    },
     toContain(value) {
       if (!actual?.includes?.(value)) throw new Error(`Expected value to contain ${value}`);
+    },
+    toMatch(pattern) {
+      const re = pattern instanceof RegExp ? pattern : new RegExp(pattern);
+      if (!re.test(String(actual))) throw new Error(`Expected ${actual} to match ${pattern}`);
     },
     toBeGreaterThan(value) {
       if (!(actual > value)) throw new Error(`Expected ${actual} to be greater than ${value}`);
     },
     toBeGreaterThanOrEqual(value) {
       if (!(actual >= value)) throw new Error(`Expected ${actual} to be >= ${value}`);
+    },
+    toBeLessThan(value) {
+      if (!(actual < value)) throw new Error(`Expected ${actual} to be less than ${value}`);
     },
     toBeLessThanOrEqual(value) {
       if (!(actual <= value)) throw new Error(`Expected ${actual} to be <= ${value}`);
@@ -74,8 +110,24 @@ function expect(actual) {
   return {
     ...api,
     not: {
+      toBe(expected) {
+        if (Object.is(actual, expected)) throw new Error(`Expected ${actual} not to be ${expected}`);
+      },
+      toEqual(expected) {
+        if (deepEqual(actual, expected)) throw new Error(`Expected value not to equal ${JSON.stringify(expected)}`);
+      },
       toBeNull() {
         if (actual === null) throw new Error('Expected value not to be null');
+      },
+      toBeTruthy() {
+        if (actual) throw new Error(`Expected ${actual} not to be truthy`);
+      },
+      toContain(value) {
+        if (actual?.includes?.(value)) throw new Error(`Expected value not to contain ${value}`);
+      },
+      toMatch(pattern) {
+        const re = pattern instanceof RegExp ? pattern : new RegExp(pattern);
+        if (re.test(String(actual))) throw new Error(`Expected ${actual} not to match ${pattern}`);
       },
     },
   };
@@ -137,6 +189,9 @@ const testFiles = [
   'src/lib/security/__tests__/internalTriggerFunctionSurfaceMigration.test.ts',
   'src/lib/security/__tests__/scheduledMaintenanceSurfaceMigration.test.ts',
   'src/lib/security/__tests__/monthlyEvaluationSelfGuardMigration.test.ts',
+  'src/lib/__tests__/whatsappFollowupSignalDetector.test.ts',
+  'src/lib/__tests__/whatsappFollowupSalesVerification.test.ts',
+  'src/lib/__tests__/whatsappFollowupGovernance.test.ts',
 ];
 for (const relativePath of testFiles) {
   const testFile = path.join(root, relativePath);
