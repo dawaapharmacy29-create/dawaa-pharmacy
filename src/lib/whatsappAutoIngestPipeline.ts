@@ -1,10 +1,22 @@
 import { supabase } from '@/lib/supabase';
 import { readWhatsAppExportFile } from '@/lib/whatsappExportFileReader';
-import { parseWhatsAppExport, splitWhatsAppSessions, type WhatsAppConversationSession } from '@/lib/whatsappConversationParser';
+import {
+  parseWhatsAppExport,
+  splitWhatsAppSessions,
+  type WhatsAppConversationSession,
+} from '@/lib/whatsappConversationParser';
 import { buildSmartConversationReviewSummary } from '@/lib/whatsappSmartReviewSummary';
-import { detectFollowupSignals, type DetectedFollowupSignal } from '@/lib/whatsappFollowupSignalDetector';
-import { attachInvoiceVerificationToQueue, hashWhatsAppSession } from '@/lib/whatsappReviewPersistenceV4';
+import {
+  detectFollowupSignals,
+  type DetectedFollowupSignal,
+} from '@/lib/whatsappFollowupSignalDetector';
+import {
+  attachInvoiceVerificationToQueue,
+  hashWhatsAppSession,
+} from '@/lib/whatsappReviewPersistenceV4';
 import { verifySessionAgainstInvoices } from '@/lib/whatsappUnifiedIntelligenceV4';
+import { persistAutomaticWhatsAppReview } from '@/lib/whatsappAutomaticReviewPersistence';
+import { getCycleForDate } from '@/lib/pharmacy-cycle';
 
 type CustomerIdentity = {
   customerId: string | null;
@@ -44,6 +56,9 @@ export interface IngestOneFileResult {
   invoicesProbable: number;
   invoicesNotFound: number;
   invoiceChecksSkipped: number;
+  autoReviewsCreated: number;
+  autoReviewsSkipped: number;
+  autoReviewsPointsFailed: number;
   errors: string[];
 }
 
@@ -81,7 +96,9 @@ function normalizeEgyptPhone(value: unknown) {
 function phoneFromSession(session: WhatsAppConversationSession) {
   const candidates = [
     session.customerName,
-    ...session.messages.filter((message) => message.direction === 'inbound').map((message) => message.sender),
+    ...session.messages
+      .filter((message) => message.direction === 'inbound')
+      .map((message) => message.sender),
   ];
   for (const candidate of candidates) {
     const phone = normalizeEgyptPhone(candidate);
@@ -91,10 +108,17 @@ function phoneFromSession(session: WhatsAppConversationSession) {
 }
 
 function normalizedName(value: unknown) {
-  return String(value ?? '').replace(/\s+/g, ' ').trim();
+  return String(value ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
-function mapCustomerIdentity(row: CustomerRow, fallbackName: string | null, fallbackPhone: string | null, matchedBy: 'phone' | 'name'): CustomerIdentity {
+function mapCustomerIdentity(
+  row: CustomerRow,
+  fallbackName: string | null,
+  fallbackPhone: string | null,
+  matchedBy: 'phone' | 'name'
+): CustomerIdentity {
   return {
     customerId: row.id,
     customerCode: row.customer_code,
@@ -113,7 +137,9 @@ function mapCustomerIdentity(row: CustomerRow, fallbackName: string | null, fall
   };
 }
 
-async function resolveCustomerIdentity(session: WhatsAppConversationSession): Promise<CustomerIdentity> {
+async function resolveCustomerIdentity(
+  session: WhatsAppConversationSession
+): Promise<CustomerIdentity> {
   const fallbackName = normalizedName(session.customerName) || null;
   const phone = phoneFromSession(session);
 
@@ -123,16 +149,18 @@ async function resolveCustomerIdentity(session: WhatsAppConversationSession): Pr
       .from('customers')
       .select(CUSTOMER_SELECT)
       .eq('is_duplicate', false)
-      .or([
-        `normalized_phone.eq.${phone}`,
-        `normalized_phone.ilike.%${phoneTail}`,
-        `phone.eq.${phone}`,
-        `customer_phone.eq.${phone}`,
-        `whatsapp_phone.eq.${phone}`,
-        `mobile.eq.${phone}`,
-        `whatsapp.eq.${phone}`,
-        `phone_alt.eq.${phone}`,
-      ].join(','))
+      .or(
+        [
+          `normalized_phone.eq.${phone}`,
+          `normalized_phone.ilike.%${phoneTail}`,
+          `phone.eq.${phone}`,
+          `customer_phone.eq.${phone}`,
+          `whatsapp_phone.eq.${phone}`,
+          `mobile.eq.${phone}`,
+          `whatsapp.eq.${phone}`,
+          `phone_alt.eq.${phone}`,
+        ].join(',')
+      )
       .limit(3);
     if (error) throw error;
     const matches = (data || []) as CustomerRow[];
@@ -168,7 +196,7 @@ async function saveSessionReview(
   session: WhatsAppConversationSession,
   sourceFileName: string,
   innerFileName: string | null,
-  identity: CustomerIdentity,
+  identity: CustomerIdentity
 ) {
   const sourceHash = await hashWhatsAppSession(session);
   const { data: existing, error: existingError } = await supabase
@@ -182,40 +210,44 @@ async function saveSessionReview(
   const summary = buildSmartConversationReviewSummary(session);
   const staffName = session.outboundStaffNames[0] || null;
 
-  const { data, error } = await supabase.from('whatsapp_review_sources').insert({
-    source_hash: sourceHash,
-    source_type: 'whatsapp_export_auto',
-    source_filename: sourceFileName,
-    inner_filename: innerFileName,
-    branch: identity.branch,
-    customer_id: identity.customerId,
-    customer_code: identity.customerCode,
-    customer_name: identity.customerName || session.customerName,
-    customer_phone: identity.customerPhone,
-    staff_name: staffName,
-    conversation_started_at: session.startedAt.toISOString(),
-    conversation_ended_at: session.endedAt.toISOString(),
-    message_count: session.messages.length,
-    parser_version: 'whatsapp-auto-ingest-v3',
-    analysis_version: 'smart-summary-v1',
-    analysis_status: 'analyzed',
-    review_status: summary.confidence < 60 ? 'needs_context' : 'ready_quick',
-    priority: summary.outcome === 'sale_intent' ? 'important' : 'normal',
-    analysis_confidence: summary.confidence,
-    commercial_eligible: summary.outcome === 'sale_intent',
-    followup_required: summary.flags.length > 0,
-    suggested_followup_reason: summary.flags.join('، ') || null,
-    analysis_json: {
-      ...JSON.parse(JSON.stringify(summary)),
-      customerIdentity: {
-        matchedBy: identity.matchedBy,
-        customerId: identity.customerId,
-        customerCode: identity.customerCode,
-        customerPhone: identity.customerPhone,
-        branch: identity.branch,
+  const { data, error } = await supabase
+    .from('whatsapp_review_sources')
+    .insert({
+      source_hash: sourceHash,
+      source_type: 'whatsapp_export_auto',
+      source_filename: sourceFileName,
+      inner_filename: innerFileName,
+      branch: identity.branch,
+      customer_id: identity.customerId,
+      customer_code: identity.customerCode,
+      customer_name: identity.customerName || session.customerName,
+      customer_phone: identity.customerPhone,
+      staff_name: staffName,
+      conversation_started_at: session.startedAt.toISOString(),
+      conversation_ended_at: session.endedAt.toISOString(),
+      message_count: session.messages.length,
+      parser_version: 'whatsapp-auto-ingest-v3',
+      analysis_version: 'smart-summary-v1',
+      analysis_status: 'analyzed',
+      review_status: summary.confidence < 60 ? 'needs_context' : 'ready_quick',
+      priority: summary.outcome === 'sale_intent' ? 'important' : 'normal',
+      analysis_confidence: summary.confidence,
+      commercial_eligible: summary.outcome === 'sale_intent',
+      followup_required: summary.flags.length > 0,
+      suggested_followup_reason: summary.flags.join('، ') || null,
+      analysis_json: {
+        ...JSON.parse(JSON.stringify(summary)),
+        customerIdentity: {
+          matchedBy: identity.matchedBy,
+          customerId: identity.customerId,
+          customerCode: identity.customerCode,
+          customerPhone: identity.customerPhone,
+          branch: identity.branch,
+        },
       },
-    },
-  }).select('id').single();
+    })
+    .select('id')
+    .single();
   if (error) {
     if (error.code === '23505') {
       const { data: duplicate, error: duplicateError } = await supabase
@@ -234,7 +266,7 @@ async function saveSessionReview(
 async function verifySessionSale(
   session: WhatsAppConversationSession,
   sourceId: string,
-  identity: CustomerIdentity,
+  identity: CustomerIdentity
 ) {
   const verification = await verifySessionAgainstInvoices(session, {
     customerId: identity.customerId,
@@ -247,17 +279,26 @@ async function verifySessionSale(
   return verification.status;
 }
 
-function followupKey(signalType: string, evidenceTimestamp: string | Date | null, evidenceQuote: string) {
+function followupKey(
+  signalType: string,
+  evidenceTimestamp: string | Date | null,
+  evidenceQuote: string
+) {
   const timestamp = evidenceTimestamp
-    ? (evidenceTimestamp instanceof Date ? evidenceTimestamp : new Date(evidenceTimestamp)).toISOString()
+    ? (evidenceTimestamp instanceof Date
+        ? evidenceTimestamp
+        : new Date(evidenceTimestamp)
+      ).toISOString()
     : '';
-  return `${signalType}|${timestamp}|${String(evidenceQuote || '').replace(/\s+/g, ' ').trim()}`;
+  return `${signalType}|${timestamp}|${String(evidenceQuote || '')
+    .replace(/\s+/g, ' ')
+    .trim()}`;
 }
 
 async function saveFollowupSignals(
   session: WhatsAppConversationSession,
   sourceFileName: string,
-  identity: CustomerIdentity,
+  identity: CustomerIdentity
 ) {
   const signals = detectFollowupSignals(session);
   if (!signals.length) return { created: 0, duplicate: 0 };
@@ -269,11 +310,13 @@ async function saveFollowupSignals(
   if (existingError) throw existingError;
 
   const existingKeys = new Set(
-    (existing || []).map((row) => followupKey(
-      String(row.signal_type || ''),
-      row.evidence_timestamp ? String(row.evidence_timestamp) : null,
-      String(row.evidence_quote || ''),
-    )),
+    (existing || []).map((row) =>
+      followupKey(
+        String(row.signal_type || ''),
+        row.evidence_timestamp ? String(row.evidence_timestamp) : null,
+        String(row.evidence_quote || '')
+      )
+    )
   );
 
   const freshSignals: DetectedFollowupSignal[] = [];
@@ -329,6 +372,9 @@ export async function ingestWhatsAppExportFile(file: File): Promise<IngestOneFil
     invoicesProbable: 0,
     invoicesNotFound: 0,
     invoiceChecksSkipped: 0,
+    autoReviewsCreated: 0,
+    autoReviewsSkipped: 0,
+    autoReviewsPointsFailed: 0,
     errors: [],
   };
 
@@ -347,13 +393,54 @@ export async function ingestWhatsAppExportFile(file: File): Promise<IngestOneFil
       const identity = await resolveCustomerIdentity(session);
       if (identity.matchedBy !== 'none') result.customersMatched += 1;
 
-      const saved = await saveSessionReview(session, source.sourceFileName, source.innerFileName || null, identity);
+      const saved = await saveSessionReview(
+        session,
+        source.sourceFileName,
+        source.innerFileName || null,
+        identity
+      );
       if (saved.duplicate) result.sessionsDuplicate += 1;
       else result.sessionsSaved += 1;
 
+      if (!saved.duplicate) {
+        try {
+          const autoReview = await persistAutomaticWhatsAppReview({
+            sourceId: saved.sourceId,
+            session,
+            branch: identity.branch,
+            customerId: identity.customerId,
+            customerCode: identity.customerCode,
+            customerName: identity.customerName,
+            customerPhone: identity.customerPhone,
+            staffName: session.outboundStaffNames[0] || null,
+            reviewCycle: getCycleForDate(session.startedAt),
+          });
+          if (autoReview.status === 'saved') {
+            result.autoReviewsCreated += 1;
+            if (autoReview.pointsError) {
+              result.autoReviewsPointsFailed += 1;
+              result.errors.push(
+                `تقييم آلي رقم ${autoReview.reviewId}: تم حفظ التقييم لكن ربط النقاط فشل: ${autoReview.pointsError}`
+              );
+            }
+          } else if (autoReview.status === 'failed') {
+            result.errors.push(`تعذر إنشاء تقييم آلي لجلسة ${saved.sourceId}: ${autoReview.error}`);
+          } else {
+            result.autoReviewsSkipped += 1;
+          }
+        } catch (autoReviewError) {
+          result.errors.push(
+            autoReviewError instanceof Error
+              ? `تقييم آلي: ${autoReviewError.message}`
+              : 'خطأ غير معروف أثناء التقييم الآلي للمحادثة'
+          );
+        }
+      }
+
       const invoiceStatus = await verifySessionSale(session, saved.sourceId, identity);
       if (invoiceStatus === 'verified') result.invoicesVerified += 1;
-      else if (invoiceStatus === 'probable' || invoiceStatus === 'needs_review') result.invoicesProbable += 1;
+      else if (invoiceStatus === 'probable' || invoiceStatus === 'needs_review')
+        result.invoicesProbable += 1;
       else if (invoiceStatus === 'not_found') result.invoicesNotFound += 1;
       else result.invoiceChecksSkipped += 1;
 
