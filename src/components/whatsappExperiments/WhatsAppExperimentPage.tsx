@@ -1,6 +1,14 @@
 import { useCallback, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
-import { FolderOpen, PlayCircle, Trash2, Loader2, XCircle } from 'lucide-react';
+import {
+  FolderOpen,
+  PlayCircle,
+  Trash2,
+  Loader2,
+  XCircle,
+  ShieldCheck,
+  AlertTriangle,
+} from 'lucide-react';
 import {
   supportsLocalWhatsAppInbox,
   restoreLocalWhatsAppFolder,
@@ -8,7 +16,11 @@ import {
   getUnprocessedWhatsAppExports,
   type LocalInboxCandidate,
 } from '@/lib/localWhatsAppInbox';
-import type { ExperimentApproach, ExperimentFileLogEntry } from '@/lib/whatsappExperiments/types';
+import type {
+  ExperimentApproach,
+  ExperimentFileLogEntry,
+  ExperimentRunMode,
+} from '@/lib/whatsappExperiments/types';
 
 export interface ExperimentInfoBox {
   name: string;
@@ -68,7 +80,7 @@ export interface WhatsAppExperimentPageProps {
   pageTitle: string;
   description: string;
   info: ExperimentInfoBox;
-  onRunFile: (file: File) => Promise<ExperimentFileLogEntry>;
+  onRunFile: (file: File, mode: ExperimentRunMode) => Promise<ExperimentFileLogEntry>;
   renderDetails: (entry: ExperimentFileLogEntry) => ReactNode;
   warningNote?: string;
 }
@@ -84,8 +96,10 @@ export default function WhatsAppExperimentPage({
 }: WhatsAppExperimentPageProps) {
   const styles = APPROACH_STYLES[approach];
   const [running, setRunning] = useState(false);
+  const [liveRunEnabled, setLiveRunEnabled] = useState(false);
   const [log, setLog] = useState<ExperimentFileLogEntry[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const runMode: ExperimentRunMode = liveRunEnabled ? 'live' : 'dry-run';
 
   const runFiles = useCallback(
     async (files: File[]) => {
@@ -94,10 +108,11 @@ export default function WhatsAppExperimentPage({
       try {
         for (const file of files) {
           try {
-            const entry = await onRunFile(file);
+            const entry = await onRunFile(file, runMode);
             setLog((prev) => [entry, ...prev].slice(0, 50));
             if (entry.errors.length) toast.warning(`${file.name}: ${entry.errors[0]}`);
-            else toast.success(`تم تشغيل ${styles.label} على ${file.name}`);
+            else if (entry.runMode === 'dry-run') toast.success(`تمت المعاينة الآمنة لـ ${styles.label} على ${file.name}`);
+            else toast.success(`تم تشغيل Live لـ ${styles.label} على ${file.name}`);
           } catch (e) {
             toast.error(e instanceof Error ? `${file.name}: ${e.message}` : `فشل تشغيل ${file.name}`);
           }
@@ -106,7 +121,7 @@ export default function WhatsAppExperimentPage({
         setRunning(false);
       }
     },
-    [onRunFile, running, styles.label]
+    [onRunFile, runMode, running, styles.label]
   );
 
   async function handleFileInput(event: React.ChangeEvent<HTMLInputElement>) {
@@ -130,8 +145,6 @@ export default function WhatsAppExperimentPage({
       toast.error('تعذر الوصول للفولدر المتصل.');
       return;
     }
-    // قراءة فقط للاختيار — من غير أي تعليم "processed" في دفتر المراقبة الحقيقي،
-    // عشان تجربة الصفحة دي ما تتداخلش مع سجل صفحة المراقبة التلقائية.
     const candidates: LocalInboxCandidate[] = await getUnprocessedWhatsAppExports(handle, 25);
     if (!candidates.length) {
       toast.info('مفيش ملفات جديدة في الفولدر المتصل.');
@@ -143,6 +156,7 @@ export default function WhatsAppExperimentPage({
   const totals = log.reduce(
     (acc, entry) => ({
       files: acc.files + 1,
+      previewed: acc.previewed + entry.counts.previewed,
       created: acc.created + entry.counts.created,
       skipped: acc.skipped + entry.counts.skipped,
       duplicates: acc.duplicates + entry.counts.duplicates,
@@ -150,7 +164,7 @@ export default function WhatsAppExperimentPage({
       pointsFailed: acc.pointsFailed + entry.counts.pointsFailed,
       durationMs: acc.durationMs + entry.durationMs,
     }),
-    { files: 0, created: 0, skipped: 0, duplicates: 0, failed: 0, pointsFailed: 0, durationMs: 0 }
+    { files: 0, previewed: 0, created: 0, skipped: 0, duplicates: 0, failed: 0, pointsFailed: 0, durationMs: 0 }
   );
 
   return (
@@ -161,6 +175,22 @@ export default function WhatsAppExperimentPage({
           <h1 className="text-xl font-black text-[var(--dawaa-theme-heading)]">{pageTitle}</h1>
         </div>
         <p className="mt-1 text-sm font-bold text-[var(--dawaa-theme-muted)]">{description}</p>
+
+        <div className={`mt-3 rounded-xl border p-3 text-xs font-black ${
+          liveRunEnabled
+            ? 'border-rose-400/40 bg-rose-500/10 text-rose-200'
+            : 'border-emerald-400/40 bg-emerald-500/10 text-emerald-200'
+        }`}>
+          <div className="flex items-center gap-2">
+            {liveRunEnabled ? <AlertTriangle size={16} /> : <ShieldCheck size={16} />}
+            <span>
+              {liveRunEnabled
+                ? 'LIVE RUN — التشغيل القادم قد يكتب بيانات حقيقية في قاعدة الإنتاج'
+                : 'وضع المعاينة الآمن — لا يتم حفظ أي بيانات أو نقاط أو إشعارات'}
+            </span>
+          </div>
+        </div>
+
         {warningNote ? (
           <div className="mt-3 rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-3 text-xs font-bold text-[var(--dawaa-status-warning-text)]">
             {warningNote}
@@ -169,6 +199,33 @@ export default function WhatsAppExperimentPage({
       </div>
 
       <InfoBoxCard info={info} />
+
+      <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="font-black text-[var(--dawaa-theme-heading)]">وضع التشغيل</h3>
+            <p className="mt-1 text-[11px] font-bold text-[var(--dawaa-theme-muted)]">
+              Dry Run هو الافتراضي. تفعيل Live لا يشغّل أي شيء وحده؛ التنفيذ يحصل فقط من زر التشغيل.
+            </p>
+          </div>
+          <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-[var(--dawaa-theme-border)] px-3 py-2">
+            <input
+              type="checkbox"
+              checked={liveRunEnabled}
+              disabled={running}
+              onChange={(e) => setLiveRunEnabled(e.target.checked)}
+            />
+            <span className={`text-xs font-black ${liveRunEnabled ? 'text-rose-300' : 'text-emerald-300'}`}>
+              السماح بالاختبار الفعلي
+            </span>
+          </label>
+        </div>
+        {liveRunEnabled ? (
+          <div className="mt-3 rounded-xl border border-rose-400/30 bg-rose-500/10 p-3 text-xs font-bold text-rose-200">
+            تحذير: التشغيل الفعلي قد ينشئ صفوفًا حقيقية، تقييمات رسمية، points pending أو side effects حسب الطريقة المختارة.
+          </div>
+        ) : null}
+      </div>
 
       <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm">
         <h3 className="mb-3 font-black text-[var(--dawaa-theme-heading)]">منطقة الاختبار</h3>
@@ -184,9 +241,10 @@ export default function WhatsAppExperimentPage({
           <button
             disabled={running}
             onClick={() => fileInputRef.current?.click()}
-            className="btn-primary flex items-center gap-2 text-sm disabled:opacity-50"
+            className={`${liveRunEnabled ? 'btn-danger' : 'btn-primary'} flex items-center gap-2 text-sm disabled:opacity-50`}
           >
-            {running ? <Loader2 size={16} className="animate-spin" /> : <PlayCircle size={16} />} رفع TXT / Markdown وتشغيل
+            {running ? <Loader2 size={16} className="animate-spin" /> : <PlayCircle size={16} />}
+            {liveRunEnabled ? 'رفع وتشغيل Live' : 'رفع TXT / Markdown ومعاينة آمنة'}
           </button>
           {supportsLocalWhatsAppInbox() ? (
             <button
@@ -206,12 +264,13 @@ export default function WhatsAppExperimentPage({
           </button>
         </div>
         <p className="mt-2 text-[11px] font-bold text-[var(--dawaa-theme-muted)]">
-          زر "مسح النتائج" بيمسح سجل العرض في الصفحة دي بس — مش بيحذف أي صف من قاعدة البيانات. كل تشغيل هنا بيكتب بيانات حقيقية زي الإنتاج بالظبط.
+          زر "مسح النتائج" يمسح سجل العرض المحلي فقط. في Dry Run لا توجد أي كتابة دائمة أصلًا.
         </p>
 
         {log.length ? (
-          <div className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+          <div className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-8">
             <SummaryTile label="ملفات" value={totals.files} />
+            <SummaryTile label="Previewed" value={totals.previewed} tone="text-sky-300" />
             <SummaryTile label="Created" value={totals.created} tone="text-emerald-400" />
             <SummaryTile label="Skipped" value={totals.skipped} />
             <SummaryTile label="Duplicates" value={totals.duplicates} tone="text-violet-300" />
@@ -233,10 +292,11 @@ export default function WhatsAppExperimentPage({
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="font-black text-[var(--dawaa-theme-heading)]">{entry.fileName}</span>
                   <span className="font-bold text-[var(--dawaa-theme-muted)]">
-                    {entry.at} · {Math.round(entry.durationMs)}ms · {entry.counts.sessionsFound} جلسة
+                    {entry.runMode === 'dry-run' ? 'DRY RUN' : 'LIVE'} · {entry.at} · {Math.round(entry.durationMs)}ms · {entry.counts.sessionsFound} جلسة
                   </span>
                 </div>
                 <div className="mt-1 flex flex-wrap gap-3 font-bold text-[var(--dawaa-theme-muted)]">
+                  {entry.counts.previewed > 0 ? <span className="text-sky-300">Previewed: {entry.counts.previewed}</span> : null}
                   <span className="text-emerald-400">Created: {entry.counts.created}</span>
                   <span>Skipped: {entry.counts.skipped}</span>
                   <span className="text-violet-300">Duplicates: {entry.counts.duplicates}</span>
