@@ -39,6 +39,9 @@ export interface CustomerPurchaseHistory {
 }
 
 export interface SmartConversationIntelligenceResult {
+  sessionId: string;
+  sessionStartedAt: string;
+  customerName: string | null;
   journey: ConversationJourneyResult;
   primaryIntent: string;
   initiator: string;
@@ -142,6 +145,9 @@ export async function analyzeSmartConversationIntelligence(
   });
 
   return {
+    sessionId: session.id,
+    sessionStartedAt: session.startedAt.toISOString(),
+    customerName: session.customerName,
     journey,
     primaryIntent: operational.primaryIntent,
     initiator: operational.initiator,
