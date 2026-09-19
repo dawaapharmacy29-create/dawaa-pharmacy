@@ -24,6 +24,7 @@ import { buildSmartIntelligenceSnapshotV1 } from '@/lib/whatsappSmartIntelligenc
 import { resolveConversationBranchHint, type BranchHintResult } from '@/lib/whatsappConversationBranchHint';
 import { resolveStaffIdentity, type ResolvedStaffIdentity } from '@/lib/whatsappStaffIdentityResolver';
 import { buildSmartOfficialReviewDraftV1 } from '@/lib/whatsappSmartOfficialReviewDraft';
+import { resolveCustomerContext } from '@/lib/whatsappCustomerContextResolver';
 import type { SmartQuickDecisionResult } from '@/lib/whatsappSmartReviewDecision';
 import {
   buildConversationReviewSnapshot,
@@ -159,12 +160,21 @@ export default function WhatsAppSmartFolderWatcher() {
       // Branch hint حقيقي (source > active owner > staff resolver > majority fallback) —
       // مفيش source branch متاح من الصفحة دي حاليًا، فبيبدأ من tier "active owner".
       const branchHint = await resolveConversationBranchHint(session, roles, null);
+      // هوية العميل الحقيقية (customer_id) + تاريخ مشترياته — أفضل هوية متاحة (هاتف > اسم)
+      // مع branchHint لفك تعارض الأسماء المكررة. لو ambiguous، customer بيفضل null ومفيش
+      // اختيار تلقائي — والـinvoice verification تحت بترجع تلقائيًا لمطابقة بالاسم بس.
+      const customerContext = await resolveCustomerContext(session, branchHint.value);
+      const resolvedCustomer = customerContext.resolution.customer;
       // مطابقة فاتورة حقيقية (قراءة فقط) — مرة واحدة لكل جلسة، بتتشارك بين كل الموظفين في
       // نفس الجلسة. البيع المؤكد الوحيد هو invoiceVerification.status === 'verified'؛ مفيش
-      // حالات cancel/return لسه (تحتاج فحص schema للفواتير والمرتجعات الأول).
+      // حالات cancel/return لسه (تحتاج فحص schema للفواتير والمرتجعات الأول). لو العميل
+      // اتحل بثقة، بنستخدم customerId/code/phone الحقيقيين بدل الاسم بس — مطابقة أقوى بكتير.
       const invoiceVerification = await verifySessionAgainstInvoices(session, {
-        customerName: session.customerName,
-        branch: branchHint.value,
+        customerId: resolvedCustomer?.id || null,
+        customerCode: resolvedCustomer?.code || null,
+        customerPhone: resolvedCustomer?.phone || customerContext.phoneCandidate || null,
+        customerName: resolvedCustomer?.name || session.customerName,
+        branch: resolvedCustomer?.branch || branchHint.value,
       });
       for (const staff of base.staffSummaries) {
         // هوية الموظف الحقيقية (staff_id) — قبل أي حاجة تانية، عشان لو موجودة بثقة، تُستخدم
@@ -206,6 +216,8 @@ export default function WhatsAppSmartFolderWatcher() {
             staffEffort: outboundBurstMetrics,
             invoiceVerification,
             branchHint,
+            customer: customerContext.resolution,
+            purchaseHistory: customerContext.purchaseHistory,
           }),
         });
 
@@ -448,6 +460,33 @@ export default function WhatsAppSmartFolderWatcher() {
                   <div className="text-xs font-bold text-amber-200">لم يتم تحديد هوية الموظف الحقيقية — "{selected.staffIdentity.displayName}" فقط (اسم من نص المحادثة، بدون staff_id مؤكد).</div>
                 )}
               </section>
+
+              {selected.snapshot.smartIntelligence?.customer ? (
+                <section className={`rounded-2xl border p-4 ${selected.snapshot.smartIntelligence.customer.strategy === 'ambiguous' ? 'border-rose-800/60 bg-rose-950/20' : selected.snapshot.smartIntelligence.customer.customer ? 'border-cyan-800/50 bg-cyan-950/10' : 'border-slate-800 bg-slate-950/20'}`}>
+                  {selected.snapshot.smartIntelligence.customer.customer ? (
+                    <div className="text-sm text-cyan-100">
+                      <b>{selected.snapshot.smartIntelligence.customer.customer.name}</b>
+                      <span className="text-slate-400"> | كود {selected.snapshot.smartIntelligence.customer.customer.code || '-'} | {selected.snapshot.smartIntelligence.customer.customer.branch || 'فرع غير محدد'} | ثقة {Math.round(selected.snapshot.smartIntelligence.customer.confidence * 100)}% ({selected.snapshot.smartIntelligence.customer.strategy})</span>
+                      {selected.snapshot.smartIntelligence.purchaseHistory ? (
+                        <div className="mt-1 text-xs text-slate-400">
+                          مشترياته: {selected.snapshot.smartIntelligence.purchaseHistory.totalPurchases ?? '-'} عملية · إجمالي: {selected.snapshot.smartIntelligence.purchaseHistory.totalSpent ?? '-'} · متوسط شهري: {selected.snapshot.smartIntelligence.purchaseHistory.avgMonthly ?? '-'} · آخر شراء: {selected.snapshot.smartIntelligence.purchaseHistory.lastPurchaseAt || '-'}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : selected.snapshot.smartIntelligence.customer.strategy === 'ambiguous' ? (
+                    <div>
+                      <div className="font-black text-rose-200">⚠ العميل غير محسوم</div>
+                      <div className="mt-1 flex flex-wrap gap-2">
+                        {selected.snapshot.smartIntelligence.customer.candidates.map((c, i) => (
+                          <div key={i} className="rounded-lg border border-rose-900/40 bg-black/10 p-2 text-xs text-rose-100">{c.name} | كود {c.code || '-'} | {c.branch || '-'}</div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-xs font-bold text-slate-400">لم يتم التعرف على العميل في قاعدة العملاء.</div>
+                  )}
+                </section>
+              ) : null}
 
               <section className="grid gap-3 md:grid-cols-4">
                 <div className="rounded-2xl border border-slate-800 bg-slate-950/30 p-3"><div className="text-xs text-slate-500">النية الأساسية</div><div className="mt-1 font-black text-white">{selected.intelligence?.primaryIntent || 'غير محدد'}</div></div>
