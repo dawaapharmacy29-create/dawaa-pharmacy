@@ -9,7 +9,14 @@ import { persistAutomaticWhatsAppReview } from '@/lib/whatsappAutomaticReviewPer
 import { evaluateAutomaticWhatsAppReview } from '@/lib/whatsappAutomaticReviewScoring';
 import { getCycleForDate } from '@/lib/pharmacy-cycle';
 import { AUTOMATIC_REVIEW_REVIEWER_LABEL } from '@/lib/conversationReviews';
-import type { ApproachBResultDetail, ExperimentFileLogEntry, ExperimentRunMode } from './types';
+import type {
+  ApproachBCriterionDetail,
+  ApproachBResultDetail,
+  ExperimentFileLogEntry,
+  ExperimentRunMode,
+  ExperimentSessionSnapshot,
+} from './types';
+import { toExperimentSessionSnapshot } from './sessionSnapshot';
 
 const MINIMAL_LINK_PARSER_VERSION = 'approach-b-standalone-experiment-v1';
 
@@ -82,17 +89,35 @@ async function runApproachBDry(file: File): Promise<ExperimentFileLogEntry> {
   const errors: string[] = [];
   const approachB: ApproachBResultDetail[] = [];
   let sessionsFound = 0;
+  let sessions: ExperimentSessionSnapshot[] = [];
 
   try {
     const source = await readWhatsAppExportFile(file);
     const messages = parseWhatsAppExport(source.text);
     if (!messages.length) errors.push('لم يتم التعرف على رسائل WhatsApp داخل الملف.');
-    const sessions = splitWhatsAppSessions(messages, 120);
-    sessionsFound = sessions.length;
+    const parsedSessions = splitWhatsAppSessions(messages, 120);
+    sessionsFound = parsedSessions.length;
+    sessions = parsedSessions.map(toExperimentSessionSnapshot);
 
-    for (const session of sessions) {
+    for (const session of parsedSessions) {
       try {
         const { build, result } = evaluateAutomaticWhatsAppReview(session, session.customerName);
+        const traceByKey = new Map(build.trace.map((item) => [item.key, item]));
+        const criteria: ApproachBCriterionDetail[] = build.suggestion.items.map((item) => {
+          const trace = traceByKey.get(item.key);
+          return {
+            key: item.key,
+            label: item.label,
+            maxPoints: item.maxPoints,
+            status: item.status,
+            selectedLabel: item.selectedLabel,
+            pointsEarned: item.pointsEarned,
+            confidence: item.confidence,
+            reason: item.reason,
+            source: trace?.source || 'default_fallback',
+            evidenceMessageIds: item.evidenceMessageIds,
+          };
+        });
         approachB.push({
           status: 'preview',
           reviewId: null,
@@ -107,6 +132,10 @@ async function runApproachBDry(file: File): Promise<ExperimentFileLogEntry> {
           reviewerDisplay: AUTOMATIC_REVIEW_REVIEWER_LABEL,
           signalResolvedCount: build.signalResolvedCount,
           defaultFallbackCount: build.defaultFallbackCount,
+          coveragePercent: build.suggestion.coveragePercent,
+          reviewRequiredCount: build.suggestion.reviewRequiredCount,
+          notApplicableCount: build.suggestion.notApplicableCount,
+          criteria,
           suspicions: build.suspicions.map((s) => `${s.key}: "${s.evidenceQuote}"`),
           duplicatePrevented: false,
         });
@@ -133,6 +162,8 @@ async function runApproachBDry(file: File): Promise<ExperimentFileLogEntry> {
       failed: errors.length,
       pointsFailed: 0,
     },
+    sessions,
+    sessions,
     approachB,
     errors,
   };
@@ -143,15 +174,17 @@ async function runApproachBLive(file: File): Promise<ExperimentFileLogEntry> {
   const errors: string[] = [];
   const approachB: ApproachBResultDetail[] = [];
   let sessionsFound = 0;
+  let sessions: ExperimentSessionSnapshot[] = [];
 
   try {
     const source = await readWhatsAppExportFile(file);
     const messages = parseWhatsAppExport(source.text);
     if (!messages.length) errors.push('لم يتم التعرف على رسائل WhatsApp داخل الملف.');
-    const sessions = splitWhatsAppSessions(messages, 120);
-    sessionsFound = sessions.length;
+    const parsedSessions = splitWhatsAppSessions(messages, 120);
+    sessionsFound = parsedSessions.length;
+    sessions = parsedSessions.map(toExperimentSessionSnapshot);
 
-    for (const session of sessions) {
+    for (const session of parsedSessions) {
       try {
         const { sourceId } = await ensureMinimalLinkingSource(session, source.sourceFileName);
         const outcome = await persistAutomaticWhatsAppReview({
