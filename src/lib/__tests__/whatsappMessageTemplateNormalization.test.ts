@@ -13,6 +13,25 @@ describe('buildMessageTemplateKey', () => {
     expect(displayText).toContain('{{name}}');
     expect(displayText).not.toContain('أحمد');
   });
+
+  it('does NOT corrupt an unrelated word that merely contains the customer name as a substring', () => {
+    // "نور" (short, common name) is a substring of "منور" (unrelated word) — must not be replaced.
+    const { displayText } = buildMessageTemplateKey('الدوا ده بيخلي بشرتك منور وصحتك أحسن', 'نور');
+    expect(displayText).toContain('منور');
+    expect(displayText).not.toContain('{{name}}');
+  });
+
+  it('still replaces the name when it appears as a real standalone word, even short', () => {
+    const { displayText } = buildMessageTemplateKey('صباح الخير يا نور، عامله ايه؟', 'نور');
+    expect(displayText).toContain('{{name}}');
+    expect(displayText).not.toMatch(/(?<![\p{L}\p{N}])نور(?![\p{L}\p{N}])/u);
+  });
+
+  it('two different messages that only differ by an unrelated word inside a similar name-bearing sentence do not collapse into one template', () => {
+    const a = buildMessageTemplateKey('تمام يا نور هظبطلك الطلب', 'نور');
+    const b = buildMessageTemplateKey('تمام يا نور هظبطلك التوصيل', 'نور'); // "الطلب" vs "التوصيل" — different meaning
+    expect(a.templateKey).not.toBe(b.templateKey);
+  });
 });
 
 describe('aggregateBestMessages', () => {

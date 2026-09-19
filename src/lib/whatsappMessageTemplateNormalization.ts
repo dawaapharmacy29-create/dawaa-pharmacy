@@ -22,16 +22,27 @@ export interface BestMessageAggregate {
 }
 
 const EMOJI_RX = /\p{Extended_Pictographic}/gu;
+// أقل طول اسم نحاول نستبدله — أسماء عربية قصيرة (زي "نور"، "علا") شائعة وممكن تبقى substring
+// جوه كلمة تانية تمامًا (زي "منور")، فمينفعش نستبدل أي تطابق substring عشوائي.
+const MIN_NAME_LENGTH_FOR_REPLACEMENT = 3;
 
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+// استبدال آمن لاسم العميل: بديل عن \b (اللي مش موثوق مع العربي لأن \w في جافاسكريبت بيغطي
+// ASCII بس) — بيستخدم lookbehind/lookahead للتأكد إن التطابق "كلمة كاملة" (مش جزء من كلمة
+// أكبر) قبل ما يستبدلها، عشان نمنع false positives زي استبدال "نور" جوه "منور".
+function replaceWholeWord(text: string, target: string, replacement: string) {
+  const pattern = new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(target)}(?![\\p{L}\\p{N}])`, 'gu');
+  return text.replace(pattern, replacement);
+}
+
 export function buildMessageTemplateKey(rawText: string, customerName?: string | null): { templateKey: string; displayText: string } {
   let displayText = rawText.trim();
   const trimmedName = (customerName || '').trim();
-  if (trimmedName.length >= 2) {
-    displayText = displayText.replace(new RegExp(escapeRegExp(trimmedName), 'g'), '{{name}}');
+  if (trimmedName.length >= MIN_NAME_LENGTH_FOR_REPLACEMENT) {
+    displayText = replaceWholeWord(displayText, trimmedName, '{{name}}');
   }
 
   let normalized = displayText
