@@ -14,7 +14,9 @@ import type {
   ApproachBResultDetail,
   ExperimentFileLogEntry,
   ExperimentRunMode,
+  ExperimentSessionSnapshot,
 } from './types';
+import { toExperimentSessionSnapshot } from './sessionSnapshot';
 
 interface SourceRow {
   id: string;
@@ -122,6 +124,7 @@ async function runHybridDry(file: File): Promise<ExperimentFileLogEntry> {
       failed: a.counts.failed + b.counts.failed,
       pointsFailed: 0,
     },
+    sessions: a.sessions || b.sessions,
     approachA: a.approachA,
     approachB: b.approachB,
     errors: [...a.errors, ...b.errors],
@@ -132,13 +135,15 @@ async function runHybridLive(file: File): Promise<ExperimentFileLogEntry> {
   const startedAt = performance.now();
   const errors: string[] = [];
   let hashes: string[] = [];
+  let sessions: ExperimentSessionSnapshot[] = [];
   let preExistingHashes = new Set<string>();
 
   try {
     const source = await readWhatsAppExportFile(file);
     const messages = parseWhatsAppExport(source.text);
-    const sessions = splitWhatsAppSessions(messages, 120);
-    hashes = await Promise.all(sessions.map((session) => hashWhatsAppSession(session)));
+    const parsedSessions = splitWhatsAppSessions(messages, 120);
+    sessions = parsedSessions.map(toExperimentSessionSnapshot);
+    hashes = await Promise.all(parsedSessions.map((session) => hashWhatsAppSession(session)));
     if (hashes.length) {
       const { data } = await supabase.from('whatsapp_review_sources').select('source_hash').in('source_hash', hashes);
       preExistingHashes = new Set((data || []).map((row) => String(row.source_hash)));
@@ -196,6 +201,7 @@ async function runHybridLive(file: File): Promise<ExperimentFileLogEntry> {
       failed: result.errors.length,
       pointsFailed: result.autoReviewsPointsFailed,
     },
+    sessions,
     approachA,
     approachB,
     errors: [...errors, ...result.errors],
