@@ -433,6 +433,9 @@ export default function Reviews() {
   const [ambiguousStaffIdentity, setAmbiguousStaffIdentity] = useState<ConversationReviewSnapshot['staffIdentity'] | null>(null);
   // نفس المنطق للعميل — لو الـresolver في الـWatcher رجع أكتر من مرشح محتمل.
   const [ambiguousCustomerCandidates, setAmbiguousCustomerCandidates] = useState<CustomerSearchResult[] | null>(null);
+  // ID الرسائل اللي المراجع دوس "عرض الدليل" عليها لبند معين — تتعمل لها تمييز مؤقت
+  // (highlight) في عرض المحادثة، بدون ما تغيّر شكل "دليل" العام الدائم لكل المحادثة.
+  const [focusedEvidenceIds, setFocusedEvidenceIds] = useState<string[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [reviewHistory, setReviewHistory] = useState<ConversationReviewHistoryRow[]>([]);
@@ -1129,6 +1132,15 @@ export default function Reviews() {
 
   const setSevere = (key: SevereErrorKey, active: boolean) => {
     setSevereErrors((current) => ({ ...current, [key]: active }));
+  };
+
+  const showCriterionEvidence = (messageIds: string[]) => {
+    setFocusedEvidenceIds(messageIds);
+    const firstId = messageIds[0];
+    if (!firstId) return;
+    window.setTimeout(() => {
+      document.getElementById(`smart-msg-${firstId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 0);
   };
 
   const applyTiming = () => {
@@ -2150,15 +2162,22 @@ export default function Reviews() {
               {smartSnapshot.messages.map((message) => {
                 const inbound = message.direction === 'inbound';
                 const context = message.scope === 'context';
+                const focused = focusedEvidenceIds.includes(message.id);
                 return (
-                  <div key={message.id} className={`flex ${inbound ? 'justify-start' : 'justify-end'} ${context ? 'opacity-60' : ''}`}>
+                  <div
+                    key={message.id}
+                    id={`smart-msg-${message.id}`}
+                    className={`flex ${inbound ? 'justify-start' : 'justify-end'} ${context ? 'opacity-60' : ''}`}
+                  >
                     <div className="flex max-w-[86%] flex-col md:max-w-[74%]">
                       <div
-                        className={`rounded-2xl px-3.5 py-2.5 shadow-sm ${
+                        className={`rounded-2xl px-3.5 py-2.5 shadow-sm transition-shadow ${
                           inbound
                             ? 'rounded-tl-sm bg-[#202c33] text-slate-100'
                             : 'rounded-tr-sm bg-[#005c4b] text-white'
-                        } ${message.evidence ? 'ring-2 ring-cyan-400/80 ring-offset-2 ring-offset-[#0b141a]' : ''}`}
+                        } ${message.evidence ? 'ring-2 ring-cyan-400/80 ring-offset-2 ring-offset-[#0b141a]' : ''} ${
+                          focused ? 'ring-4 ring-yellow-400 ring-offset-2 ring-offset-[#0b141a]' : ''
+                        }`}
                       >
                         <div className="mb-1 flex flex-wrap items-center gap-1.5 text-[10px] font-bold opacity-80">
                           <span>{inbound ? 'العميل' : smartSnapshot.staffName}</span>
@@ -2969,6 +2988,15 @@ export default function Reviews() {
                         )}
                       </div>
                       <p className="mt-1 leading-relaxed opacity-90">{suggestion.reason}</p>
+                      {suggestion.evidenceMessageIds.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => showCriterionEvidence(suggestion.evidenceMessageIds)}
+                          className="mt-1 text-[11px] font-bold underline underline-offset-2 hover:opacity-80"
+                        >
+                          عرض الدليل ({suggestion.evidenceMessageIds.length})
+                        </button>
+                      )}
                     </div>
                   )}
                   {itemState.applies && (
