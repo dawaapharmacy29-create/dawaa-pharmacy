@@ -233,7 +233,7 @@ export default function WhatsAppExperimentPage({
           <input
             ref={fileInputRef}
             type="file"
-            accept=".txt,.md,text/plain"
+            accept=".zip,.txt,.md,application/zip,application/x-zip-compressed,text/plain,text/markdown"
             multiple
             className="hidden"
             onChange={(e) => void handleFileInput(e)}
@@ -244,7 +244,7 @@ export default function WhatsAppExperimentPage({
             className={`${liveRunEnabled ? 'btn-danger' : 'btn-primary'} flex items-center gap-2 text-sm disabled:opacity-50`}
           >
             {running ? <Loader2 size={16} className="animate-spin" /> : <PlayCircle size={16} />}
-            {liveRunEnabled ? 'رفع وتشغيل Live' : 'رفع TXT / Markdown ومعاينة آمنة'}
+            {liveRunEnabled ? 'رفع ZIP / TXT / Markdown وتشغيل Live' : 'رفع ZIP / TXT / Markdown ومعاينة آمنة'}
           </button>
           {supportsLocalWhatsAppInbox() ? (
             <button
@@ -264,7 +264,7 @@ export default function WhatsAppExperimentPage({
           </button>
         </div>
         <p className="mt-2 text-[11px] font-bold text-[var(--dawaa-theme-muted)]">
-          زر "مسح النتائج" يمسح سجل العرض المحلي فقط. في Dry Run لا توجد أي كتابة دائمة أصلًا.
+          يمكن رفع تصدير واتساب ZIP مباشرة؛ النظام يفك الضغط محليًا ويختار chat.txt تلقائيًا (ثم chat.md عند الحاجة). زر "مسح النتائج" يمسح سجل العرض المحلي فقط. في Dry Run لا توجد أي كتابة دائمة أصلًا.
         </p>
 
         {log.length ? (
