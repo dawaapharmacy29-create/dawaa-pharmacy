@@ -79,4 +79,7 @@ export type {
   BestMessageCandidate,
   CustomerPurchaseHistory,
   BestMessageAggregate,
+  ConversationJourneyResult,
+  ConversationJourneyType,
+  SaleState,
 } from './smartConversationIntelligence';

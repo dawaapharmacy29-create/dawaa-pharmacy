@@ -24,6 +24,13 @@ import type {
   SmartConversationIntelligenceResult,
 } from '@/lib/whatsappExperiments/types';
 
+const SALE_STATE_TONE: Record<string, string> = {
+  invoice_verified_sale: 'text-emerald-300',
+  probable_sale: 'text-amber-300',
+  chat_sale_signal: 'text-sky-300',
+  no_verified_invoice: 'text-slate-400',
+};
+
 function SmartIntelligencePanel({ results }: { results: SmartConversationIntelligenceResult[] }) {
   if (!results.length) return null;
   return (
@@ -31,37 +38,47 @@ function SmartIntelligencePanel({ results }: { results: SmartConversationIntelli
       {results.map((r, i) => (
         <div key={i} className="rounded-lg border border-sky-400/20 bg-sky-500/5 p-2 text-[11px] text-slate-300">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full bg-sky-500/15 px-2 py-0.5 font-black text-sky-200">{r.conversationTypeLabel}</span>
-            <span className="text-slate-400">intent: {r.primaryIntent} · initiator: {r.initiator} · outcome: {r.operationalOutcome}</span>
+            <span className="rounded-full bg-sky-500/15 px-2 py-0.5 font-black text-sky-200">{r.journey.journeyLabel}</span>
+            <span className={`rounded-full px-2 py-0.5 font-black ${SALE_STATE_TONE[r.journey.saleState] || 'text-slate-400'} bg-black/20`}>
+              {r.journey.saleStateLabel}
+            </span>
+          </div>
+          <div className="mt-1 text-slate-500">
+            intent: {r.primaryIntent} · initiator: {r.initiator} · outcome: {r.operationalOutcome} · checkin: {r.journey.checkinDetected ? 'نعم' : 'لا'}
+            {r.journey.checkinDetected ? ` · طلب بعد المتابعة: ${r.journey.requestAfterCheckin ? 'نعم' : 'لا'} · استشارة بعد المتابعة: ${r.journey.consultationAfterCheckin ? 'نعم' : 'لا'}` : ''}
           </div>
           <div className="mt-1 flex flex-wrap gap-3 text-slate-400">
             <span>
               العميل: {r.customer.customer ? `${r.customer.customer.name} (${r.customer.customer.code || 'بدون كود'})` : 'غير معروف'} ·
-              {' '}الفرع: {r.customer.customer?.branch || '-'} · ثقة التعرّف: {Math.round(r.customer.confidence * 100)}% ({r.customer.strategy})
+              {' '}الفرع: {r.customer.customer?.branch || r.branchHint || '-'} · ثقة التعرّف: {Math.round(r.customer.confidence * 100)}% ({r.customer.strategy})
             </span>
           </div>
+          {r.customer.strategy === 'ambiguous' ? (
+            <div className="mt-1 text-amber-300">
+              ⚠ الاسم متطابق مع أكتر من عميل ({r.customer.candidates.length}) — ما تم اختيار سجل تلقائيًا، محتاج مراجعة بشرية.
+            </div>
+          ) : null}
           {r.purchaseHistory ? (
             <div className="mt-1 text-slate-400">
               {r.purchaseHistory.fetchError
                 ? `تعذرت قراءة تاريخ المشتريات: ${r.purchaseHistory.fetchError}`
-                : `مشترياته المسجلة: ${r.purchaseHistory.totalPurchases ?? '-'} عملية · آخر شراء: ${r.purchaseHistory.lastPurchaseAt || '-'}`}
+                : `مشترياته: ${r.purchaseHistory.totalPurchases ?? '-'} عملية · إجمالي الإنفاق: ${r.purchaseHistory.totalSpent ?? '-'} · متوسط شهري: ${r.purchaseHistory.avgMonthly ?? '-'} · آخر شراء: ${r.purchaseHistory.lastPurchaseAt || '-'}`}
             </div>
           ) : null}
-          <div className="mt-1 text-slate-400">
-            التحقق من البيع (بالفاتورة): <span className={r.invoiceVerification.status === 'verified' ? 'text-emerald-300' : r.invoiceVerification.status === 'probable' ? 'text-amber-300' : 'text-slate-400'}>
-              {r.invoiceVerification.status}
-            </span>
-            {r.invoiceVerification.revenue ? ` · قيمة الفاتورة: ${r.invoiceVerification.revenue}` : ''}
-          </div>
+          {r.invoiceVerification.revenue ? <div className="mt-1 text-slate-400">قيمة الفاتورة المطابقة: {r.invoiceVerification.revenue}</div> : null}
           {r.staffEffort.length ? (
             <div className="mt-2 overflow-x-auto">
-              <table className="w-full min-w-[360px] text-[11px]">
+              <div className="mb-1 text-[10px] font-bold text-slate-500">
+                Burst Reply Rate = KPI الأساسي (رسائل متتالية من نفس الموظف قبل رد العميل = burst واحدة)
+              </div>
+              <table className="w-full min-w-[420px] text-[11px]">
                 <thead>
                   <tr className="text-slate-500">
                     <th className="text-right font-bold">الموظف</th>
                     <th className="text-right font-bold">رسائل صادرة</th>
-                    <th className="text-right font-bold">اترد عليها</th>
-                    <th className="text-right font-bold">معدل الرد</th>
+                    <th className="text-right font-bold">Bursts</th>
+                    <th className="text-right font-bold">Bursts اترد عليها</th>
+                    <th className="text-right font-bold">Burst Reply Rate</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -69,8 +86,9 @@ function SmartIntelligencePanel({ results }: { results: SmartConversationIntelli
                     <tr key={j} className="border-t border-[var(--dawaa-theme-border)]">
                       <td className="py-1">{s.staffName}</td>
                       <td>{s.outboundMessages}</td>
-                      <td>{s.repliedMessages}</td>
-                      <td>{s.replyRatePct}%</td>
+                      <td>{s.burstCount}</td>
+                      <td>{s.repliedBursts}</td>
+                      <td className="font-black text-emerald-300">{s.burstReplyRatePct}%</td>
                     </tr>
                   ))}
                 </tbody>
@@ -93,17 +111,21 @@ function BestMessagesPanel({ log }: { log: ExperimentFileLogEntry[] }) {
     <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm">
       <h3 className="mb-1 font-black text-[var(--dawaa-theme-heading)]">أفضل الرسائل (أعلى معدل رد من العملاء)</h3>
       <p className="mb-3 text-[11px] font-bold text-[var(--dawaa-theme-muted)]">
-        "رد" هنا يعني أي رسالة نصية من العميل بعد رسالة الموظف — إيموجي الـ reaction غير متاح في تصدير واتساب النصي فمش
-        داخل في الحساب. التجميع على نص الرسالة الحرفي عبر كل التشغيلات في هذه الجلسة (رسالتين تكرار على الأقل).
+        "رد" هنا يعني أي رسالة نصية من العميل بعد الـburst — إيموجي الـ reaction غير متاح في تصدير واتساب النصي فمش داخل
+        في الحساب. التجميع على "قالب" الرسالة بعد استبدال اسم العميل وتوحيد المسافات/الإيموجي، مش النص الحرفي، عشان نفس
+        الصياغة لعملاء مختلفين تتجمع مع بعض. رسائل بعدد إرسال أقل من 5 معلّمة "بيانات أولية".
       </p>
       <div className="space-y-2">
         {best.map((m, i) => (
           <div key={i} className="rounded-lg border border-[var(--dawaa-theme-border)] p-2 text-[11px]">
-            <div className="flex items-center justify-between gap-2">
-              <span className="font-black text-emerald-300">{m.replyRatePct}% رد</span>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="font-black text-emerald-300">{m.replyRate}% رد</span>
               <span className="text-slate-400">أُرسلت {m.sentCount} مرة · اترد عليها {m.repliedCount}</span>
+              {m.sampleSizeLabel === 'preliminary' ? (
+                <span className="rounded-full bg-amber-500/15 px-2 py-0.5 font-black text-amber-300">بيانات أولية</span>
+              ) : null}
             </div>
-            <div className="mt-1 text-slate-300">{m.text}</div>
+            <div className="mt-1 text-slate-300">{m.displayText}</div>
           </div>
         ))}
       </div>

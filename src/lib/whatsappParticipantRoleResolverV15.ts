@@ -10,6 +10,10 @@ export interface WhatsAppMessageRoleV15 {
   accountId: string | null;
   staffId: string | null;
   staffName: string | null;
+  /** فرع الموظف المُطابَق (من staff_accounts.branch) — كانت متاحة داخليًا وغير مُصدَّرة.
+   * بتُستخدم كـ branch context لمحلّلات أخرى (مثل whatsappCustomerResolverV4) بدل تمرير
+   * null دايمًا، من غير ما نعمل استعلام/محلّل فرع مواز جديد. */
+  branch: string | null;
   confidence: number;
   reason: string;
 }
@@ -17,7 +21,7 @@ export interface WhatsAppMessageRoleV15 {
 export interface WhatsAppParticipantRoleModelV15 {
   version: 'whatsapp-participant-role-v15';
   messages: WhatsAppMessageRoleV15[];
-  staff: Array<{ accountId: string | null; staffId: string | null; staffName: string; role: WhatsAppParticipantRoleV15; confidence: number }>;
+  staff: Array<{ accountId: string | null; staffId: string | null; staffName: string; role: WhatsAppParticipantRoleV15; branch: string | null; confidence: number }>;
 }
 
 const normalize = (value: unknown) => String(value ?? '')
@@ -159,7 +163,7 @@ export async function resolveWhatsAppParticipantRolesV15(session: WhatsAppConver
   for (const message of session.messages) {
     const lexical = lexicalRole(message);
     if (lexical?.role === 'customer' || lexical?.role === 'system') {
-      messages.push({ messageId: message.id, sender: message.sender, role: lexical.role, accountId: null, staffId: null, staffName: null, confidence: lexical.confidence, reason: lexical.reason });
+      messages.push({ messageId: message.id, sender: message.sender, role: lexical.role, accountId: null, staffId: null, staffName: null, branch: null, confidence: lexical.confidence, reason: lexical.reason });
       continue;
     }
 
@@ -185,24 +189,24 @@ export async function resolveWhatsAppParticipantRolesV15(session: WhatsAppConver
     else if (!resolved && activeStaff) resolved = activeStaff;
 
     if (lexical?.role === 'customer_service') {
-      messages.push({ messageId: message.id, sender: message.sender, role: 'customer_service', accountId: resolved?.row?.id || null, staffId: resolved?.row?.staff_id || null, staffName: canonicalDisplayName(resolved?.row, intro), confidence: Math.min(99, Math.max(lexical.confidence, resolved?.score || 0)), reason: resolved ? `${lexical.reason} تم توحيد الهوية مع الحساب الحالي.` : lexical.reason });
+      messages.push({ messageId: message.id, sender: message.sender, role: 'customer_service', accountId: resolved?.row?.id || null, staffId: resolved?.row?.staff_id || null, staffName: canonicalDisplayName(resolved?.row, intro), branch: resolved?.row?.branch || null, confidence: Math.min(99, Math.max(lexical.confidence, resolved?.score || 0)), reason: resolved ? `${lexical.reason} تم توحيد الهوية مع الحساب الحالي.` : lexical.reason });
       continue;
     }
     if (resolved) {
       const role = roleFromStaff(resolved.row);
       const confidence = Math.max(72, Math.min(99, Math.round(resolved.score - Math.max(0, 6 - (resolved.margin || 6)))));
-      messages.push({ messageId: message.id, sender: message.sender, role, accountId: resolved.row.id || null, staffId: resolved.row.staff_id || null, staffName: canonicalDisplayName(resolved.row, intro), confidence, reason: `تم توحيد اسم المرسل وربطه بالحساب الأنسب (${resolved.row.role || resolved.row.staff_role || resolved.row.job_title || 'غير محدد'}).` });
+      messages.push({ messageId: message.id, sender: message.sender, role, accountId: resolved.row.id || null, staffId: resolved.row.staff_id || null, staffName: canonicalDisplayName(resolved.row, intro), branch: resolved.row.branch || null, confidence, reason: `تم توحيد اسم المرسل وربطه بالحساب الأنسب (${resolved.row.role || resolved.row.staff_role || resolved.row.job_title || 'غير محدد'}).` });
     } else {
-      messages.push({ messageId: message.id, sender: message.sender, role: lexical?.role || 'pharmacy_unknown', accountId: null, staffId: null, staffName: intro || null, confidence: lexical?.confidence || 52, reason: lexical?.reason || 'رسالة خارجة من الصيدلية لكن هوية الموظف/دوره غير محسومة.' });
+      messages.push({ messageId: message.id, sender: message.sender, role: lexical?.role || 'pharmacy_unknown', accountId: null, staffId: null, staffName: intro || null, branch: null, confidence: lexical?.confidence || 52, reason: lexical?.reason || 'رسالة خارجة من الصيدلية لكن هوية الموظف/دوره غير محسومة.' });
     }
   }
 
-  const uniqueStaff = new Map<string, { accountId: string | null; staffId: string | null; staffName: string; role: WhatsAppParticipantRoleV15; confidence: number }>();
+  const uniqueStaff = new Map<string, { accountId: string | null; staffId: string | null; staffName: string; role: WhatsAppParticipantRoleV15; branch: string | null; confidence: number }>();
   for (const message of messages) {
     if (!message.staffName || ['customer','system'].includes(message.role)) continue;
     const key = message.accountId || message.staffId || normalize(message.staffName);
     const previous = uniqueStaff.get(key);
-    if (!previous || message.confidence > previous.confidence) uniqueStaff.set(key, { accountId: message.accountId, staffId: message.staffId, staffName: message.staffName, role: message.role, confidence: message.confidence });
+    if (!previous || message.confidence > previous.confidence) uniqueStaff.set(key, { accountId: message.accountId, staffId: message.staffId, staffName: message.staffName, role: message.role, branch: message.branch, confidence: message.confidence });
   }
 
   return { version: 'whatsapp-participant-role-v15', messages, staff: [...uniqueStaff.values()] };
