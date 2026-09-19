@@ -11,7 +11,9 @@ import type {
   ApproachAResultDetail,
   ExperimentFileLogEntry,
   ExperimentRunMode,
+  ExperimentSessionSnapshot,
 } from './types';
+import { toExperimentSessionSnapshot } from './sessionSnapshot';
 
 interface SourceRow {
   id: string;
@@ -38,11 +40,17 @@ function toApproachADetail(row: SourceRow | undefined, hash: string, duplicate: 
       confidence: null,
       primaryTypeLabel: null,
       journey: [],
+      finalIntent: null,
       outcomeLabel: null,
       flags: [],
       followupRequired: null,
       suggestedFollowupReason: null,
       invoiceMatchStatus: null,
+      firstResponseSeconds: null,
+      longestWaitSeconds: null,
+      unansweredInboundCount: null,
+      lastOwner: null,
+      lastMeaningfulMessage: null,
       v4FieldsPopulated: false,
       error: 'تعذر إيجاد صف whatsapp_review_sources الناتج للعرض (تمت المعالجة لكن القراءة الاسترجاعية فشلت).',
     };
@@ -59,11 +67,17 @@ function toApproachADetail(row: SourceRow | undefined, hash: string, duplicate: 
     confidence: row.analysis_confidence,
     primaryTypeLabel: summary.primaryTypeLabel || null,
     journey: Array.isArray(summary.journey) ? summary.journey : [],
+    finalIntent: summary.finalIntent || null,
     outcomeLabel: summary.outcomeLabel || null,
     flags: Array.isArray(summary.flags) ? summary.flags : [],
     followupRequired: row.followup_required,
     suggestedFollowupReason: row.suggested_followup_reason,
     invoiceMatchStatus: row.invoice_match_status,
+    firstResponseSeconds: summary.firstResponseSeconds ?? null,
+    longestWaitSeconds: summary.longestWaitSeconds ?? null,
+    unansweredInboundCount: summary.unansweredInboundCount ?? null,
+    lastOwner: summary.lastOwner || null,
+    lastMeaningfulMessage: summary.lastMeaningfulMessage?.text || summary.lastMeaningfulMessage || null,
     v4FieldsPopulated: hasV4Fields,
   };
 }
@@ -73,15 +87,17 @@ async function runApproachADry(file: File): Promise<ExperimentFileLogEntry> {
   const errors: string[] = [];
   const details: ApproachAResultDetail[] = [];
   let sessionsFound = 0;
+  let sessions: ExperimentSessionSnapshot[] = [];
 
   try {
     const source = await readWhatsAppExportFile(file);
     const messages = parseWhatsAppExport(source.text);
     if (!messages.length) errors.push('لم يتم التعرف على رسائل WhatsApp داخل الملف.');
-    const sessions = splitWhatsAppSessions(messages, 120);
-    sessionsFound = sessions.length;
+    const parsedSessions = splitWhatsAppSessions(messages, 120);
+    sessionsFound = parsedSessions.length;
+    sessions = parsedSessions.map(toExperimentSessionSnapshot);
 
-    for (const session of sessions) {
+    for (const session of parsedSessions) {
       const hash = await hashWhatsAppSession(session);
       const summary = buildSmartConversationReviewSummary(session);
       details.push({
@@ -94,11 +110,17 @@ async function runApproachADry(file: File): Promise<ExperimentFileLogEntry> {
         confidence: summary.confidence,
         primaryTypeLabel: summary.primaryTypeLabel || null,
         journey: Array.isArray(summary.journey) ? summary.journey : [],
+        finalIntent: summary.finalIntent || null,
         outcomeLabel: summary.outcomeLabel || null,
         flags: Array.isArray(summary.flags) ? summary.flags : [],
         followupRequired: summary.flags.length > 0,
         suggestedFollowupReason: summary.flags.join('، ') || null,
         invoiceMatchStatus: 'skipped_dry_run',
+        firstResponseSeconds: summary.firstResponseSeconds ?? null,
+        longestWaitSeconds: summary.longestWaitSeconds ?? null,
+        unansweredInboundCount: summary.unansweredInboundCount ?? null,
+        lastOwner: summary.lastOwner || null,
+        lastMeaningfulMessage: summary.lastMeaningfulMessage?.text || summary.lastMeaningfulMessage || null,
         v4FieldsPopulated: false,
       });
     }
@@ -121,6 +143,7 @@ async function runApproachADry(file: File): Promise<ExperimentFileLogEntry> {
       failed: errors.length,
       pointsFailed: 0,
     },
+    sessions,
     approachA: details,
     errors,
   };
@@ -131,13 +154,15 @@ async function runApproachALive(file: File): Promise<ExperimentFileLogEntry> {
   const errors: string[] = [];
   let result: IngestOneFileResult;
   let hashes: string[] = [];
+  let sessions: ExperimentSessionSnapshot[] = [];
   let preExistingHashes = new Set<string>();
 
   try {
     const source = await readWhatsAppExportFile(file);
     const messages = parseWhatsAppExport(source.text);
-    const sessions = splitWhatsAppSessions(messages, 120);
-    hashes = await Promise.all(sessions.map((session) => hashWhatsAppSession(session)));
+    const parsedSessions = splitWhatsAppSessions(messages, 120);
+    sessions = parsedSessions.map(toExperimentSessionSnapshot);
+    hashes = await Promise.all(parsedSessions.map((session) => hashWhatsAppSession(session)));
     if (hashes.length) {
       const { data } = await supabase.from('whatsapp_review_sources').select('source_hash').in('source_hash', hashes);
       preExistingHashes = new Set((data || []).map((row) => String(row.source_hash)));
@@ -164,6 +189,7 @@ async function runApproachALive(file: File): Promise<ExperimentFileLogEntry> {
         failed: 1,
         pointsFailed: 0,
       },
+      sessions,
       approachA: [],
       errors: [...errors, e instanceof Error ? e.message : 'فشل تشغيل Approach A'],
     };
@@ -199,6 +225,7 @@ async function runApproachALive(file: File): Promise<ExperimentFileLogEntry> {
       failed: result.errors.length,
       pointsFailed: 0,
     },
+    sessions,
     approachA,
     errors: [...errors, ...result.errors],
   };
