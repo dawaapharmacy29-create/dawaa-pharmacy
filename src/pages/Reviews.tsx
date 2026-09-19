@@ -2040,6 +2040,32 @@ export default function Reviews() {
             </div>
           ) : null}
 
+          {smartSnapshot.officialReviewDraft ? (
+            <div className="border-b border-white/10 bg-violet-950/20 px-4 py-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="rounded-full bg-violet-500/20 px-2 py-1 text-[10px] font-black text-violet-200">تقييم ذكي مقترح</span>
+                <span className="text-[11px] text-slate-400">AI evaluates → Human approves — مفيش نقاط أو اعتماد قبل حفظك اليدوي للنموذج تحت</span>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-4 text-xs text-slate-200">
+                <span>الدرجة المقترحة: <b className="text-white">{smartSnapshot.officialReviewDraft.provisionalScore ?? '-'}</b> ({smartSnapshot.officialReviewDraft.scoreLabel})</span>
+                <span className="text-emerald-300">بنود واثقة: {smartSnapshot.officialReviewDraft.confidentCriteriaCount}</span>
+                <span className="text-amber-300">تحتاج مراجعتك: {smartSnapshot.officialReviewDraft.needsReviewCriteriaCount}</span>
+              </div>
+              {smartSnapshot.officialReviewDraft.topPositives.length ? (
+                <div className="mt-2 text-xs text-emerald-200">
+                  <span className="font-black">أهم الإيجابيات: </span>
+                  {smartSnapshot.officialReviewDraft.topPositives.join(' • ')}
+                </div>
+              ) : null}
+              {smartSnapshot.officialReviewDraft.topConcerns.length ? (
+                <div className="mt-1 text-xs text-amber-200">
+                  <span className="font-black">أهم الملاحظات: </span>
+                  {smartSnapshot.officialReviewDraft.topConcerns.join(' • ')}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
           {smartSnapshot.decision.reasons.length ? (
             <div className="border-b border-white/10 bg-amber-950/20 px-4 py-3 text-xs leading-6 text-amber-100">
               {smartSnapshot.decision.reasons.map((reason) => <div key={reason}>• {reason}</div>)}

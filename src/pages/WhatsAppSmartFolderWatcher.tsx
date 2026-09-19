@@ -23,6 +23,7 @@ import { verifySessionAgainstInvoices } from '@/lib/whatsappUnifiedIntelligenceV
 import { buildSmartIntelligenceSnapshotV1 } from '@/lib/whatsappSmartIntelligenceSnapshot';
 import { resolveConversationBranchHint, type BranchHintResult } from '@/lib/whatsappConversationBranchHint';
 import { resolveStaffIdentity, type ResolvedStaffIdentity } from '@/lib/whatsappStaffIdentityResolver';
+import { buildSmartOfficialReviewDraftV1 } from '@/lib/whatsappSmartOfficialReviewDraft';
 import type { SmartQuickDecisionResult } from '@/lib/whatsappSmartReviewDecision';
 import {
   buildConversationReviewSnapshot,
@@ -180,6 +181,13 @@ export default function WhatsAppSmartFolderWatcher() {
         });
         if (!result.scope.scoredSession) continue;
 
+        // اقتراح فعلي لكل بند تقييم رسمي — AI evaluates, human approves. بيتحسب على نفس
+        // الجلسة المُقيَّمة (scoredSession)، وبيستخدم الميديا الناقصة من qualityGate عشان
+        // يخفّض ثقة أي بند دليله رسالة ميديا مفقودة.
+        const officialReviewDraft = buildSmartOfficialReviewDraftV1(result.scope.scoredSession, session.customerName, {
+          missingMediaMessageIds: result.qualityGate?.criticalMissingMediaMessageIds || [],
+        });
+
         const snapshot = buildConversationReviewSnapshot({
           session,
           displayMessages: result.scope.displayMessages,
@@ -192,6 +200,7 @@ export default function WhatsAppSmartFolderWatcher() {
           decision: result.decision,
           outboundBurstMetrics,
           staffIdentity,
+          officialReviewDraft,
           smartIntelligence: buildSmartIntelligenceSnapshotV1({
             journey: result.journeyCrossCheck,
             staffEffort: outboundBurstMetrics,
@@ -473,6 +482,20 @@ export default function WhatsAppSmartFolderWatcher() {
                   </div>
                 ) : null}
               </section>
+
+              {selected.snapshot.officialReviewDraft ? (
+                <section className="rounded-2xl border border-violet-800/50 bg-violet-950/10 p-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded-full bg-violet-500/15 px-2 py-0.5 text-[11px] font-black text-violet-200">تقييم ذكي مقترح</span>
+                    <span className="text-[11px] font-bold text-slate-500">AI evaluates → Human approves — لا اعتماد نقاط قبل الحفظ اليدوي</span>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-4 text-xs text-slate-300">
+                    <span>الدرجة المقترحة: <b className="text-white">{selected.snapshot.officialReviewDraft.provisionalScore ?? '-'}</b> ({selected.snapshot.officialReviewDraft.scoreLabel})</span>
+                    <span className="text-emerald-300">بنود واثقة: {selected.snapshot.officialReviewDraft.confidentCriteriaCount}</span>
+                    <span className="text-amber-300">تحتاج مراجعة: {selected.snapshot.officialReviewDraft.needsReviewCriteriaCount}</span>
+                  </div>
+                </section>
+              ) : null}
 
               {selected.reasons.length ? (
                 <section className="rounded-2xl border border-amber-800/40 bg-amber-950/20 p-4">

@@ -4,6 +4,7 @@ import type { SmartStaffRole } from './whatsappSmartReviewOwnership';
 import type { StaffMessageEffort } from './whatsappOutboundMessageBursts';
 import type { SmartIntelligenceSnapshotV1 } from './whatsappSmartIntelligenceSnapshot';
 import type { ResolvedStaffIdentity } from './whatsappStaffIdentityResolver';
+import type { SmartOfficialReviewDraftV1 } from './whatsappSmartOfficialReviewDraft';
 
 export type ConversationReviewMessageScope = 'scored' | 'context';
 
@@ -33,6 +34,12 @@ export interface ConversationReviewSnapshot {
    * للعرض بس — مش مصدر الهوية الرسمي. Optional عشان أي snapshot قديم يفضل صالح.
    */
   staffIdentity?: ResolvedStaffIdentity;
+  /**
+   * اقتراح فعلي لكل بند تقييم رسمي (whatsappSmartOfficialReviewDraft.ts) — AI evaluates,
+   * human approves. ممنوع severeErrorAutoApplied يبقى غير false، وممنوع أي اعتماد نقاط
+   * قبل حفظ بشري. Optional عشان أي snapshot قديم يفضل صالح.
+   */
+  officialReviewDraft?: SmartOfficialReviewDraftV1;
   createdAt: string;
   scope: {
     from: string | null;
@@ -99,6 +106,7 @@ export function buildConversationReviewSnapshot(args: {
   outboundBurstMetrics?: StaffMessageEffort[];
   smartIntelligence?: SmartIntelligenceSnapshotV1;
   staffIdentity?: ResolvedStaffIdentity;
+  officialReviewDraft?: SmartOfficialReviewDraftV1;
 }): ConversationReviewSnapshot {
   const scored = new Set(args.scoredMessageIds);
   const context = new Set(args.contextMessageIds);
@@ -117,6 +125,7 @@ export function buildConversationReviewSnapshot(args: {
     staffName: text(args.staffName),
     staffRole: args.staffRole,
     ...(args.staffIdentity ? { staffIdentity: args.staffIdentity } : {}),
+    ...(args.officialReviewDraft ? { officialReviewDraft: args.officialReviewDraft } : {}),
     createdAt: new Date().toISOString(),
     scope: {
       from: iso(args.from),
