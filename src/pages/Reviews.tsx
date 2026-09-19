@@ -60,6 +60,7 @@ import {
   readPendingConversationReviewTransfer,
   type ConversationReviewSnapshot,
 } from '@/lib/conversationReviewTranscript';
+import type { CustomerSearchResult } from '@/lib/customerSearch';
 
 interface StaffOpt {
   id: string;
@@ -430,6 +431,8 @@ export default function Reviews() {
   // لو staffIdentity من الـWatcher جالها أكتر من مرشح محتمل (ambiguous) — ما نختارش تلقائيًا،
   // نعرض القائمة ونستنى اختيار بشري صريح من staffOptions.
   const [ambiguousStaffIdentity, setAmbiguousStaffIdentity] = useState<ConversationReviewSnapshot['staffIdentity'] | null>(null);
+  // نفس المنطق للعميل — لو الـresolver في الـWatcher رجع أكتر من مرشح محتمل.
+  const [ambiguousCustomerCandidates, setAmbiguousCustomerCandidates] = useState<CustomerSearchResult[] | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [reviewHistory, setReviewHistory] = useState<ConversationReviewHistoryRow[]>([]);
@@ -727,6 +730,24 @@ export default function Reviews() {
 
     setSmartSnapshot(snapshot);
 
+    // هوية العميل — لو مؤكدة (customerId حقيقي، مش ambiguous)، تُنقل مباشرة للفورم من غير
+    // أي إعادة بحث بالاسم. لو ambiguous، نعرض قائمة اختيار بشري (نفس منطق الموظف).
+    const customerResolution = snapshot.smartIntelligence?.customer || null;
+    const resolvedCustomer = customerResolution?.customer || null;
+    const customerFields = resolvedCustomer
+      ? {
+          customerId: resolvedCustomer.id,
+          customerCode: resolvedCustomer.code || '',
+          customerName: resolvedCustomer.name || snapshot.customerName || '',
+          customerPhone: resolvedCustomer.phone || '',
+        }
+      : { customerName: snapshot.customerName || '' };
+    if (customerResolution?.strategy === 'ambiguous' && customerResolution.candidates.length) {
+      setAmbiguousCustomerCandidates(customerResolution.candidates);
+    } else {
+      setAmbiguousCustomerCandidates(null);
+    }
+
     // المسار الجديد: هوية مؤكدة (staff_id حقيقي، مش ambiguous) — تُستخدم مباشرة، بدون أي
     // إعادة تخمين بالاسم خالص.
     if (identity && identity.staffId && !identity.ambiguous) {
@@ -734,7 +755,7 @@ export default function Reviews() {
       setForm((current) => ({
         ...current,
         staffId: identity.staffId!,
-        customerName: snapshot.customerName || current.customerName,
+        ...customerFields,
         evaluationKind: 'واتساب',
         evaluationReason: 'متابعة جودة',
         conversationDate,
@@ -750,7 +771,7 @@ export default function Reviews() {
     if (identity && identity.ambiguous) {
       setForm((current) => ({
         ...current,
-        customerName: snapshot.customerName || current.customerName,
+        ...customerFields,
         evaluationKind: 'واتساب',
         evaluationReason: 'متابعة جودة',
         conversationDate,
@@ -767,7 +788,7 @@ export default function Reviews() {
     setForm((current) => ({
       ...current,
       staffId: matchedStaff?.id || current.staffId,
-      customerName: snapshot.customerName || current.customerName,
+      ...customerFields,
       evaluationKind: 'واتساب',
       evaluationReason: 'متابعة جودة',
       conversationDate,
@@ -2034,6 +2055,29 @@ export default function Reviews() {
                   >
                     <div className="font-black">{c.canonicalStaffName}</div>
                     <div className="mt-0.5 text-rose-300">{c.role || '-'} • {c.branch || 'فرع غير محدد'} • ثقة {c.confidence}%</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {ambiguousCustomerCandidates ? (
+            <div className="border-b border-white/10 bg-rose-950/10 px-4 py-3">
+              <div className="mb-2 text-xs font-black text-rose-200">⚠ العميل غير محسوم — مرشحون محتملون:</div>
+              <div className="flex flex-wrap gap-2">
+                {ambiguousCustomerCandidates.map((c, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => {
+                      setForm((current) => ({ ...current, customerId: c.id, customerCode: c.code || '', customerName: c.name || '', customerPhone: c.phone || '' }));
+                      setAmbiguousCustomerCandidates(null);
+                      toast.success(`تم اختيار ${c.name} يدويًا`);
+                    }}
+                    className="rounded-xl border border-rose-700/50 bg-rose-950/30 px-3 py-2 text-right text-xs text-rose-100 hover:bg-rose-900/40"
+                  >
+                    <div className="font-black">{c.name}</div>
+                    <div className="mt-0.5 text-rose-300">كود {c.code || '-'} • {c.branch || 'فرع غير محدد'} • {c.phone || 'بدون هاتف'}</div>
                   </button>
                 ))}
               </div>
