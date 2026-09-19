@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import {
   FolderOpen,
@@ -16,11 +16,117 @@ import {
   getUnprocessedWhatsAppExports,
   type LocalInboxCandidate,
 } from '@/lib/localWhatsAppInbox';
+import { aggregateBestMessages } from '@/lib/whatsappExperiments/smartConversationIntelligence';
 import type {
   ExperimentApproach,
   ExperimentFileLogEntry,
   ExperimentRunMode,
+  SmartConversationIntelligenceResult,
 } from '@/lib/whatsappExperiments/types';
+
+
+const SALE_STATE_TONE: Record<string, string> = {
+  invoice_verified_sale: 'text-emerald-300',
+  probable_sale: 'text-amber-300',
+  chat_sale_signal: 'text-sky-300',
+  no_verified_invoice: 'text-slate-400',
+};
+
+function SmartIntelligencePanel({ results }: { results: SmartConversationIntelligenceResult[] }) {
+  if (!results.length) return null;
+  return (
+    <div className="mt-3 space-y-2">
+      <div className="text-[11px] font-black text-sky-300">التحليل الذكي الموحّد — قراءة فقط ولا يغيّر نتيجة A/B</div>
+      {results.map((r, i) => (
+        <div key={i} className="rounded-lg border border-sky-400/20 bg-sky-500/5 p-3 text-[11px] text-slate-300">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full bg-sky-500/15 px-2 py-0.5 font-black text-sky-200">{r.journey.journeyLabel}</span>
+            <span className={`rounded-full bg-black/20 px-2 py-0.5 font-black ${SALE_STATE_TONE[r.journey.saleState] || 'text-slate-400'}`}>
+              {r.journey.saleStateLabel}
+            </span>
+          </div>
+          <div className="mt-1 text-slate-500">
+            intent: {r.primaryIntent} · initiator: {r.initiator} · outcome: {r.operationalOutcome}
+          </div>
+          <div className="mt-1 text-slate-400">
+            العميل: {r.customer.customer ? `${r.customer.customer.name} (${r.customer.customer.code || 'بدون كود'})` : 'غير معروف'} ·
+            {' '}الفرع: {r.customer.customer?.branch || r.branchHint || '-'} · ثقة التعرّف: {Math.round(r.customer.confidence * 100)}%
+          </div>
+          {r.customer.strategy === 'ambiguous' ? (
+            <div className="mt-1 text-amber-300">⚠ تطابق عميل غير محسوم — يحتاج مراجعة بشرية.</div>
+          ) : null}
+          {r.purchaseHistory ? (
+            <div className="mt-1 text-slate-400">
+              {r.purchaseHistory.fetchError
+                ? `تعذرت قراءة تاريخ المشتريات: ${r.purchaseHistory.fetchError}`
+                : `المشتريات: ${r.purchaseHistory.totalPurchases ?? '-'} · إجمالي الإنفاق: ${r.purchaseHistory.totalSpent ?? '-'} · متوسط شهري: ${r.purchaseHistory.avgMonthly ?? '-'} · آخر شراء: ${r.purchaseHistory.lastPurchaseAt || '-'}`}
+            </div>
+          ) : null}
+          <div className="mt-1 text-slate-400">
+            مطابقة الفاتورة: {r.invoiceVerification.status}
+            {r.invoiceVerification.revenue ? ` · القيمة: ${r.invoiceVerification.revenue}` : ''}
+          </div>
+          {r.staffEffort.length ? (
+            <div className="mt-2 overflow-x-auto">
+              <table className="w-full min-w-[420px] text-[11px]">
+                <thead>
+                  <tr className="text-slate-500">
+                    <th className="text-right font-bold">الموظف</th>
+                    <th className="text-right font-bold">رسائل</th>
+                    <th className="text-right font-bold">Bursts</th>
+                    <th className="text-right font-bold">تم الرد</th>
+                    <th className="text-right font-bold">Burst Reply Rate</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {r.staffEffort.map((s, j) => (
+                    <tr key={j} className="border-t border-[var(--dawaa-theme-border)]">
+                      <td className="py-1">{s.staffName}</td>
+                      <td>{s.outboundMessages}</td>
+                      <td>{s.burstCount}</td>
+                      <td>{s.repliedBursts}</td>
+                      <td className="font-black text-emerald-300">{s.burstReplyRatePct}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function BestMessagesPanel({ log }: { log: ExperimentFileLogEntry[] }) {
+  const best = useMemo(
+    () => aggregateBestMessages(log.flatMap((entry) => entry.smartIntelligence?.flatMap((s) => s.messageEffectiveness) || [])),
+    [log]
+  );
+  if (!best.length) return null;
+  return (
+    <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm">
+      <h3 className="mb-1 font-black text-[var(--dawaa-theme-heading)]">أفضل الرسائل — مؤشر استكشافي</h3>
+      <p className="mb-3 text-[11px] font-bold text-[var(--dawaa-theme-muted)]">
+        القياس على مستوى نمط الرسالة والـburst، والنتائج قليلة العينة تظل أولية وليست حكم أداء.
+      </p>
+      <div className="space-y-2">
+        {best.map((m, i) => (
+          <div key={i} className="rounded-lg border border-[var(--dawaa-theme-border)] p-2 text-[11px]">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="font-black text-emerald-300">{m.replyRate}% رد</span>
+              <span className="text-slate-400">أُرسلت {m.sentCount} مرة · اترد عليها {m.repliedCount}</span>
+              {m.sampleSizeLabel === 'preliminary' ? (
+                <span className="rounded-full bg-amber-500/15 px-2 py-0.5 font-black text-amber-300">بيانات أولية</span>
+              ) : null}
+            </div>
+            <div className="mt-1 text-slate-300">{m.displayText}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export interface ExperimentInfoBox {
   name: string;
@@ -281,6 +387,8 @@ export default function WhatsAppExperimentPage({
         ) : null}
       </div>
 
+      <BestMessagesPanel log={log} />
+
       <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm">
         <h3 className="mb-2 font-black text-[var(--dawaa-theme-heading)]">سجل التشغيل</h3>
         {!log.length ? (
@@ -304,6 +412,12 @@ export default function WhatsAppExperimentPage({
                   {entry.counts.pointsFailed > 0 ? <span className="text-amber-400">Points Failed: {entry.counts.pointsFailed}</span> : null}
                 </div>
                 {renderDetails(entry)}
+                <SmartIntelligencePanel results={entry.smartIntelligence || []} />
+                {(entry.smartIntelligenceErrors || []).map((err, j) => (
+                  <div key={`smart-${j}`} className="mt-1 flex items-center gap-1 text-amber-300">
+                    <AlertTriangle size={12} /> Smart Intelligence: {err}
+                  </div>
+                ))}
                 {entry.errors.map((err, j) => (
                   <div key={j} className="mt-1 flex items-center gap-1 text-[var(--dawaa-status-danger-text)]">
                     <XCircle size={12} /> {err}
