@@ -7,6 +7,7 @@ import { parseWhatsAppExport, splitWhatsAppSessions } from '@/lib/whatsappConver
 import { hashWhatsAppSession } from '@/lib/whatsappReviewPersistenceV4';
 import { buildSmartConversationReviewSummary } from '@/lib/whatsappSmartReviewSummary';
 import { ingestWhatsAppExportFile, type IngestOneFileResult } from '@/lib/whatsappAutoIngestPipeline';
+import { analyzeSmartConversationIntelligence, type SmartConversationIntelligenceResult } from './smartConversationIntelligence';
 import type {
   ApproachAResultDetail,
   ExperimentFileLogEntry,
@@ -14,6 +15,14 @@ import type {
   ExperimentSessionSnapshot,
 } from './types';
 import { toExperimentSessionSnapshot } from './sessionSnapshot';
+
+async function analyzeSmartWithError(session: Parameters<typeof analyzeSmartConversationIntelligence>[0]) {
+  try {
+    return { result: await analyzeSmartConversationIntelligence(session), error: null as string | null };
+  } catch (error) {
+    return { result: null as SmartConversationIntelligenceResult | null, error: error instanceof Error ? error.message : 'فشل التحليل الذكي' };
+  }
+}
 
 interface SourceRow {
   id: string;
@@ -86,6 +95,8 @@ async function runApproachADry(file: File): Promise<ExperimentFileLogEntry> {
   const startedAt = performance.now();
   const errors: string[] = [];
   const details: ApproachAResultDetail[] = [];
+  const smartIntelligence: SmartConversationIntelligenceResult[] = [];
+  const smartIntelligenceErrors: string[] = [];
   let sessionsFound = 0;
   let sessions: ExperimentSessionSnapshot[] = [];
 
@@ -100,6 +111,9 @@ async function runApproachADry(file: File): Promise<ExperimentFileLogEntry> {
     for (const session of parsedSessions) {
       const hash = await hashWhatsAppSession(session);
       const summary = buildSmartConversationReviewSummary(session);
+      const smart = await analyzeSmartWithError(session);
+      if (smart.result) smartIntelligence.push(smart.result);
+      if (smart.error) smartIntelligenceErrors.push(`جلسة ${session.id}: ${smart.error}`);
       details.push({
         sourceId: null,
         sourceHash: hash,
@@ -145,6 +159,8 @@ async function runApproachADry(file: File): Promise<ExperimentFileLogEntry> {
     },
     sessions,
     approachA: details,
+    smartIntelligence,
+    smartIntelligenceErrors,
     errors,
   };
 }
@@ -155,6 +171,8 @@ async function runApproachALive(file: File): Promise<ExperimentFileLogEntry> {
   let result: IngestOneFileResult;
   let hashes: string[] = [];
   let sessions: ExperimentSessionSnapshot[] = [];
+  const smartIntelligence: SmartConversationIntelligenceResult[] = [];
+  const smartIntelligenceErrors: string[] = [];
   let preExistingHashes = new Set<string>();
 
   try {
@@ -163,6 +181,11 @@ async function runApproachALive(file: File): Promise<ExperimentFileLogEntry> {
     const parsedSessions = splitWhatsAppSessions(messages, 120);
     sessions = parsedSessions.map(toExperimentSessionSnapshot);
     hashes = await Promise.all(parsedSessions.map((session) => hashWhatsAppSession(session)));
+    for (const session of parsedSessions) {
+      const smart = await analyzeSmartWithError(session);
+      if (smart.result) smartIntelligence.push(smart.result);
+      if (smart.error) smartIntelligenceErrors.push(`جلسة ${session.id}: ${smart.error}`);
+    }
     if (hashes.length) {
       const { data } = await supabase.from('whatsapp_review_sources').select('source_hash').in('source_hash', hashes);
       preExistingHashes = new Set((data || []).map((row) => String(row.source_hash)));
@@ -191,6 +214,8 @@ async function runApproachALive(file: File): Promise<ExperimentFileLogEntry> {
       },
       sessions,
       approachA: [],
+      smartIntelligence,
+      smartIntelligenceErrors,
       errors: [...errors, e instanceof Error ? e.message : 'فشل تشغيل Approach A'],
     };
   }
@@ -227,6 +252,8 @@ async function runApproachALive(file: File): Promise<ExperimentFileLogEntry> {
     },
     sessions,
     approachA,
+    smartIntelligence,
+    smartIntelligenceErrors,
     errors: [...errors, ...result.errors],
   };
 }
