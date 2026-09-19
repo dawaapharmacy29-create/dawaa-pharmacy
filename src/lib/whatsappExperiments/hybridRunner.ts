@@ -9,6 +9,7 @@ import { ingestWhatsAppExportFile } from '@/lib/whatsappAutoIngestPipeline';
 import { isAutomaticReview, reviewerDisplayName } from '@/lib/conversationReviews';
 import { runApproachAExperiment } from './approachARunner';
 import { runApproachBExperiment } from './approachBRunner';
+import { analyzeSmartConversationIntelligence, type SmartConversationIntelligenceResult } from './smartConversationIntelligence';
 import type {
   ApproachAResultDetail,
   ApproachBResultDetail,
@@ -17,6 +18,14 @@ import type {
   ExperimentSessionSnapshot,
 } from './types';
 import { toExperimentSessionSnapshot } from './sessionSnapshot';
+
+async function analyzeSmartWithError(session: Parameters<typeof analyzeSmartConversationIntelligence>[0]) {
+  try {
+    return { result: await analyzeSmartConversationIntelligence(session), error: null as string | null };
+  } catch (error) {
+    return { result: null as SmartConversationIntelligenceResult | null, error: error instanceof Error ? error.message : 'فشل التحليل الذكي' };
+  }
+}
 
 interface SourceRow {
   id: string;
@@ -127,6 +136,8 @@ async function runHybridDry(file: File): Promise<ExperimentFileLogEntry> {
     sessions: a.sessions || b.sessions,
     approachA: a.approachA,
     approachB: b.approachB,
+    smartIntelligence: a.smartIntelligence || b.smartIntelligence,
+    smartIntelligenceErrors: [...(a.smartIntelligenceErrors || []), ...(b.smartIntelligenceErrors || [])],
     errors: [...a.errors, ...b.errors],
   };
 }
@@ -136,6 +147,8 @@ async function runHybridLive(file: File): Promise<ExperimentFileLogEntry> {
   const errors: string[] = [];
   let hashes: string[] = [];
   let sessions: ExperimentSessionSnapshot[] = [];
+  const smartIntelligence: SmartConversationIntelligenceResult[] = [];
+  const smartIntelligenceErrors: string[] = [];
   let preExistingHashes = new Set<string>();
 
   try {
@@ -144,6 +157,11 @@ async function runHybridLive(file: File): Promise<ExperimentFileLogEntry> {
     const parsedSessions = splitWhatsAppSessions(messages, 120);
     sessions = parsedSessions.map(toExperimentSessionSnapshot);
     hashes = await Promise.all(parsedSessions.map((session) => hashWhatsAppSession(session)));
+    for (const session of parsedSessions) {
+      const smart = await analyzeSmartWithError(session);
+      if (smart.result) smartIntelligence.push(smart.result);
+      if (smart.error) smartIntelligenceErrors.push(`جلسة ${session.id}: ${smart.error}`);
+    }
     if (hashes.length) {
       const { data } = await supabase.from('whatsapp_review_sources').select('source_hash').in('source_hash', hashes);
       preExistingHashes = new Set((data || []).map((row) => String(row.source_hash)));
@@ -204,6 +222,8 @@ async function runHybridLive(file: File): Promise<ExperimentFileLogEntry> {
     sessions,
     approachA,
     approachB,
+    smartIntelligence,
+    smartIntelligenceErrors,
     errors: [...errors, ...result.errors],
   };
 }
