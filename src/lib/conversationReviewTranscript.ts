@@ -3,6 +3,7 @@ import type { SmartQuickDecisionResult } from './whatsappSmartReviewDecision';
 import type { SmartStaffRole } from './whatsappSmartReviewOwnership';
 import type { StaffMessageEffort } from './whatsappOutboundMessageBursts';
 import type { SmartIntelligenceSnapshotV1 } from './whatsappSmartIntelligenceSnapshot';
+import type { ResolvedStaffIdentity } from './whatsappStaffIdentityResolver';
 
 export type ConversationReviewMessageScope = 'scored' | 'context';
 
@@ -25,6 +26,13 @@ export interface ConversationReviewSnapshot {
   customerName: string | null;
   staffName: string;
   staffRole: SmartStaffRole;
+  /**
+   * هوية الموظف الحقيقية (whatsappStaffIdentityResolver.ts) — staffId/branch/confidence
+   * محسوبين وقت الاستيراد. لو موجودة ومش ambiguous، Reviews.tsx المفروض يستخدمها مباشرة
+   * ومايعملش إعادة تخمين بالاسم. staffName فوق يفضل الاسم الظاهر في المحادثة (display name)
+   * للعرض بس — مش مصدر الهوية الرسمي. Optional عشان أي snapshot قديم يفضل صالح.
+   */
+  staffIdentity?: ResolvedStaffIdentity;
   createdAt: string;
   scope: {
     from: string | null;
@@ -90,6 +98,7 @@ export function buildConversationReviewSnapshot(args: {
   decision: SmartQuickDecisionResult;
   outboundBurstMetrics?: StaffMessageEffort[];
   smartIntelligence?: SmartIntelligenceSnapshotV1;
+  staffIdentity?: ResolvedStaffIdentity;
 }): ConversationReviewSnapshot {
   const scored = new Set(args.scoredMessageIds);
   const context = new Set(args.contextMessageIds);
@@ -107,6 +116,7 @@ export function buildConversationReviewSnapshot(args: {
     customerName: args.session.customerName || null,
     staffName: text(args.staffName),
     staffRole: args.staffRole,
+    ...(args.staffIdentity ? { staffIdentity: args.staffIdentity } : {}),
     createdAt: new Date().toISOString(),
     scope: {
       from: iso(args.from),

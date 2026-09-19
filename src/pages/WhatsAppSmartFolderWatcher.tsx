@@ -21,6 +21,8 @@ import { resolveWhatsAppParticipantRolesV15 } from '@/lib/whatsappParticipantRol
 import { groupOutboundBursts, computeStaffBurstEffort } from '@/lib/whatsappOutboundMessageBursts';
 import { verifySessionAgainstInvoices } from '@/lib/whatsappUnifiedIntelligenceV4';
 import { buildSmartIntelligenceSnapshotV1 } from '@/lib/whatsappSmartIntelligenceSnapshot';
+import { resolveConversationBranchHint, type BranchHintResult } from '@/lib/whatsappConversationBranchHint';
+import { resolveStaffIdentity, type ResolvedStaffIdentity } from '@/lib/whatsappStaffIdentityResolver';
 import type { SmartQuickDecisionResult } from '@/lib/whatsappSmartReviewDecision';
 import {
   buildConversationReviewSnapshot,
@@ -46,6 +48,8 @@ type StaffRun = {
   intelligence: ReturnType<typeof runSmartReviewPipeline>['intelligence'];
   /** Cross-check مستقل (V6/Journey) — عرض فقط، ما بيأثرش على decision/reasons/safe فوق. */
   journeyCrossCheck: SmartReviewPipelineResult['journeyCrossCheck'];
+  staffIdentity: ResolvedStaffIdentity;
+  branchHint: BranchHintResult;
   snapshot: ConversationReviewSnapshot;
   actions: SmartReviewActionPlan;
 };
@@ -151,11 +155,21 @@ export default function WhatsAppSmartFolderWatcher() {
       // في نفس الجلسة، عشان الـburst مبني على تتابع الرسائل الصادرة مش على staff واحد بعينه.
       const roles = await resolveWhatsAppParticipantRolesV15(session);
       const outboundBurstMetrics = computeStaffBurstEffort(groupOutboundBursts(session, roles));
+      // Branch hint حقيقي (source > active owner > staff resolver > majority fallback) —
+      // مفيش source branch متاح من الصفحة دي حاليًا، فبيبدأ من tier "active owner".
+      const branchHint = await resolveConversationBranchHint(session, roles, null);
       // مطابقة فاتورة حقيقية (قراءة فقط) — مرة واحدة لكل جلسة، بتتشارك بين كل الموظفين في
       // نفس الجلسة. البيع المؤكد الوحيد هو invoiceVerification.status === 'verified'؛ مفيش
       // حالات cancel/return لسه (تحتاج فحص schema للفواتير والمرتجعات الأول).
-      const invoiceVerification = await verifySessionAgainstInvoices(session, { customerName: session.customerName });
+      const invoiceVerification = await verifySessionAgainstInvoices(session, {
+        customerName: session.customerName,
+        branch: branchHint.value,
+      });
       for (const staff of base.staffSummaries) {
+        // هوية الموظف الحقيقية (staff_id) — قبل أي حاجة تانية، عشان لو موجودة بثقة، تُستخدم
+        // مباشرة في صفحة التقييم الرسمي من غير إعادة تخمين بالاسم.
+        const staffIdentity = await resolveStaffIdentity(staff.staffName, roles, staff.messageIds, branchHint.value);
+
         const result = runSmartReviewPipeline(session, {
           staffName: staff.staffName,
           role: staff.role,
@@ -177,10 +191,12 @@ export default function WhatsAppSmartFolderWatcher() {
           sourceFileName: file.name,
           decision: result.decision,
           outboundBurstMetrics,
+          staffIdentity,
           smartIntelligence: buildSmartIntelligenceSnapshotV1({
             journey: result.journeyCrossCheck,
             staffEffort: outboundBurstMetrics,
             invoiceVerification,
+            branchHint,
           }),
         });
 
@@ -201,6 +217,8 @@ export default function WhatsAppSmartFolderWatcher() {
           criteria: result.decision.affectedCriteria,
           intelligence: result.intelligence,
           journeyCrossCheck: result.journeyCrossCheck,
+          staffIdentity,
+          branchHint,
           snapshot,
           actions,
         });
@@ -394,6 +412,34 @@ export default function WhatsAppSmartFolderWatcher() {
             </div>
 
             <div className="space-y-4 p-4">
+              <section className={`rounded-2xl border p-4 ${selected.staffIdentity.ambiguous ? 'border-rose-800/60 bg-rose-950/20' : selected.staffIdentity.staffId ? 'border-emerald-800/50 bg-emerald-950/10' : 'border-amber-800/50 bg-amber-950/10'}`}>
+                {selected.staffIdentity.ambiguous ? (
+                  <div>
+                    <div className="font-black text-rose-200">⚠ المسؤول غير محسوم</div>
+                    <div className="mt-1 text-xs text-rose-300">
+                      "{selected.staffIdentity.displayName}" مطابق لأكتر من موظف — لازم اختيار يدوي، ممنوع الاعتماد التلقائي.
+                    </div>
+                    <div className="mt-2 space-y-1">
+                      {selected.staffIdentity.candidates.map((c, i) => (
+                        <div key={i} className="rounded-lg border border-rose-900/40 bg-black/10 p-2 text-xs text-rose-100">
+                          {c.canonicalStaffName} | {c.role || 'دور غير محدد'} | {c.branch || 'فرع غير محدد'} | ثقة {c.confidence}%
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : selected.staffIdentity.staffId ? (
+                  <div className="text-sm text-emerald-100">
+                    <span className="text-slate-400">{selected.staffIdentity.displayName}</span>
+                    <span className="mx-2 text-emerald-400">→</span>
+                    <span className="font-black">{selected.staffIdentity.canonicalStaffName}</span>
+                    <span className="text-slate-400"> | {selected.staffIdentity.role || '-'} | {selected.staffIdentity.branch || 'فرع غير محدد'} | ثقة {selected.staffIdentity.identityConfidence}%</span>
+                    <span className="mr-2 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-black text-emerald-300">{selected.staffIdentity.identitySource}</span>
+                  </div>
+                ) : (
+                  <div className="text-xs font-bold text-amber-200">لم يتم تحديد هوية الموظف الحقيقية — "{selected.staffIdentity.displayName}" فقط (اسم من نص المحادثة، بدون staff_id مؤكد).</div>
+                )}
+              </section>
+
               <section className="grid gap-3 md:grid-cols-4">
                 <div className="rounded-2xl border border-slate-800 bg-slate-950/30 p-3"><div className="text-xs text-slate-500">النية الأساسية</div><div className="mt-1 font-black text-white">{selected.intelligence?.primaryIntent || 'غير محدد'}</div></div>
                 <div className="rounded-2xl border border-slate-800 bg-slate-950/30 p-3"><div className="text-xs text-slate-500">فرص البيع</div><div className="mt-1 font-black text-white">{selected.intelligence?.salesOpportunities.length || 0}</div></div>
