@@ -20,6 +20,7 @@ import type { SmartStaffRole } from '@/lib/whatsappSmartReviewOwnership';
 import { resolveWhatsAppParticipantRolesV15 } from '@/lib/whatsappParticipantRoleResolverV15';
 import { groupOutboundBursts, computeStaffBurstEffort } from '@/lib/whatsappOutboundMessageBursts';
 import { verifySessionAgainstInvoices } from '@/lib/whatsappUnifiedIntelligenceV4';
+import { buildSmartIntelligenceSnapshotV1 } from '@/lib/whatsappSmartIntelligenceSnapshot';
 import type { SmartQuickDecisionResult } from '@/lib/whatsappSmartReviewDecision';
 import {
   buildConversationReviewSnapshot,
@@ -176,6 +177,11 @@ export default function WhatsAppSmartFolderWatcher() {
           sourceFileName: file.name,
           decision: result.decision,
           outboundBurstMetrics,
+          smartIntelligence: buildSmartIntelligenceSnapshotV1({
+            journey: result.journeyCrossCheck,
+            staffEffort: outboundBurstMetrics,
+            invoiceVerification,
+          }),
         });
 
         const actions = buildSmartReviewActionPlan({

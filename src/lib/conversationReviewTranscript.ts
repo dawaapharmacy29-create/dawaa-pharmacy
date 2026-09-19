@@ -2,6 +2,7 @@ import type { WhatsAppConversationSession, WhatsAppParsedMessage } from './whats
 import type { SmartQuickDecisionResult } from './whatsappSmartReviewDecision';
 import type { SmartStaffRole } from './whatsappSmartReviewOwnership';
 import type { StaffMessageEffort } from './whatsappOutboundMessageBursts';
+import type { SmartIntelligenceSnapshotV1 } from './whatsappSmartIntelligenceSnapshot';
 
 export type ConversationReviewMessageScope = 'scored' | 'context';
 
@@ -45,6 +46,14 @@ export interface ConversationReviewSnapshot {
    * قديم من غير الحقل ده يفضل صالح للقراءة.
    */
   outboundBurstMetrics?: StaffMessageEffort[];
+  /**
+   * عقد الخرج الموحّد من طبقة التحليل الذكي الإضافي (whatsappSmartIntelligenceSnapshot.ts) —
+   * journey/saleState/staffEffort/invoiceVerification + حقول لسه مش متربطة (customer/
+   * purchaseHistory/branchHint/bestMessageSignals). قراءة فقط، مفيش write منفصل — بيتحفظ
+   * بس لما المراجع البشري يحفظ التقييم الرسمي عبر المسار الموجود أصلًا (raw_scores.
+   * conversation_snapshot في Reviews.tsx). Optional عشان أي snapshot قديم يفضل صالح.
+   */
+  smartIntelligence?: SmartIntelligenceSnapshotV1;
 }
 
 const TRANSFER_KEY = 'dawaa_pending_conversation_review_snapshot_v1';
@@ -80,6 +89,7 @@ export function buildConversationReviewSnapshot(args: {
   to?: Date | null;
   decision: SmartQuickDecisionResult;
   outboundBurstMetrics?: StaffMessageEffort[];
+  smartIntelligence?: SmartIntelligenceSnapshotV1;
 }): ConversationReviewSnapshot {
   const scored = new Set(args.scoredMessageIds);
   const context = new Set(args.contextMessageIds);
@@ -121,6 +131,7 @@ export function buildConversationReviewSnapshot(args: {
       evidence: evidence.has(message.id),
     })),
     ...(args.outboundBurstMetrics ? { outboundBurstMetrics: args.outboundBurstMetrics } : {}),
+    ...(args.smartIntelligence ? { smartIntelligence: args.smartIntelligence } : {}),
   };
 }
 
