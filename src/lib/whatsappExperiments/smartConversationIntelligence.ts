@@ -19,9 +19,11 @@ import {
   type UnifiedInvoiceVerification,
 } from '@/lib/whatsappUnifiedIntelligenceV4';
 import { buildWhatsAppOperationalIntelligenceV6 } from '@/lib/whatsappOperationalIntelligenceV6';
+import { resolveConversationBranchHint, type BranchHintResult } from '@/lib/whatsappConversationBranchHint';
 import { classifyConversationJourney, type ConversationJourneyResult } from './conversationJourneyClassifier';
 import { groupOutboundBursts, computeStaffBurstEffort, type StaffMessageEffort } from './outboundMessageBursts';
 import { buildMessageTemplateKey, aggregateBestMessages, type BestMessageCandidate } from './messageTemplateNormalization';
+import { buildSmartIntelligenceSnapshotV1, type SmartIntelligenceSnapshotV1 } from './smartIntelligenceSnapshot';
 
 export type { StaffMessageEffort } from './outboundMessageBursts';
 export type { BestMessageCandidate, BestMessageAggregate } from './messageTemplateNormalization';
@@ -43,18 +45,13 @@ export interface SmartConversationIntelligenceResult {
   operationalOutcome: string;
   customer: WhatsAppResolvedCustomer;
   branchHint: string | null;
+  branchHintSource: BranchHintResult['source'];
+  branchHintReason: string;
   purchaseHistory: CustomerPurchaseHistory | null;
   invoiceVerification: UnifiedInvoiceVerification;
   staffEffort: StaffMessageEffort[];
   messageEffectiveness: BestMessageCandidate[];
-}
-
-function deriveBranchHint(roles: Awaited<ReturnType<typeof resolveWhatsAppParticipantRolesV15>>): string | null {
-  const branches = roles.staff.map((s) => s.branch).filter((b): b is string => Boolean(b && b.trim()));
-  if (!branches.length) return null;
-  const counts = new Map<string, number>();
-  for (const b of branches) counts.set(b, (counts.get(b) || 0) + 1);
-  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+  snapshot: SmartIntelligenceSnapshotV1;
 }
 
 async function fetchPurchaseHistory(customerId: string): Promise<CustomerPurchaseHistory> {
@@ -76,13 +73,15 @@ async function fetchPurchaseHistory(customerId: string): Promise<CustomerPurchas
 }
 
 export async function analyzeSmartConversationIntelligence(
-  session: WhatsAppConversationSession
+  session: WhatsAppConversationSession,
+  options?: { sourceBranch?: string | null }
 ): Promise<SmartConversationIntelligenceResult> {
   const base = buildUnifiedConversationIntelligence(session);
   const operational = buildWhatsAppOperationalIntelligenceV6(session, base);
 
   const roles = await resolveWhatsAppParticipantRolesV15(session);
-  const branchHint = deriveBranchHint(roles);
+  const branchHintResult = await resolveConversationBranchHint(session, roles, options?.sourceBranch ?? null);
+  const branchHint = branchHintResult.value;
   const customer = await resolveWhatsAppCustomerIdentity(session.customerName, branchHint);
 
   const [invoiceVerification, purchaseHistory] = await Promise.all([
@@ -104,22 +103,43 @@ export async function analyzeSmartConversationIntelligence(
   const roleByMessageId = new Map(roles.messages.map((m) => [m.messageId, m]));
   const messageEffectiveness: BestMessageCandidate[] = [];
   for (const burst of bursts) {
-    for (const messageId of burst.messageIds) {
-      const message = session.messages.find((m) => m.id === messageId);
-      if (!message) continue;
-      const roleInfo = roleByMessageId.get(messageId);
-      const { templateKey } = buildMessageTemplateKey(message.text, session.customerName);
-      messageEffectiveness.push({
-        messageId,
-        text: message.text,
-        templateKey,
-        staffName: roleInfo?.staffName || null,
-        burstId: burst.burstId,
-        gotReply: burst.gotReply,
-        replyLatencySeconds: burst.replyLatencySeconds,
-      });
-    }
+    // Credit the reply outcome to one representative message per burst (the last meaningful
+    // outbound message), not every message in the burst. This avoids multiplying success credit.
+    const representativeId = [...burst.messageIds].reverse().find((id) => {
+      const message = session.messages.find((m) => m.id === id);
+      return Boolean(message?.text?.trim());
+    }) || burst.messageIds[burst.messageIds.length - 1];
+    const message = session.messages.find((m) => m.id === representativeId);
+    if (!message) continue;
+    const roleInfo = roleByMessageId.get(representativeId);
+    const { templateKey } = buildMessageTemplateKey(message.text, session.customerName);
+    messageEffectiveness.push({
+      messageId: representativeId,
+      text: message.text,
+      templateKey,
+      staffName: roleInfo?.staffName || null,
+      burstId: burst.burstId,
+      gotReply: burst.gotReply,
+      replyLatencySeconds: burst.replyLatencySeconds,
+    });
   }
+
+  const snapshot = buildSmartIntelligenceSnapshotV1({
+    journey,
+    staffEffort,
+    invoiceVerification,
+    customer,
+    purchaseHistory: purchaseHistory
+      ? {
+          totalPurchases: purchaseHistory.totalPurchases,
+          totalSpent: purchaseHistory.totalSpent,
+          avgMonthly: purchaseHistory.avgMonthly,
+          lastPurchaseAt: purchaseHistory.lastPurchaseAt,
+        }
+      : null,
+    branchHint: branchHintResult,
+    bestMessageSignals: aggregateBestMessages(messageEffectiveness, 1, 5),
+  });
 
   return {
     journey,
@@ -128,9 +148,12 @@ export async function analyzeSmartConversationIntelligence(
     operationalOutcome: operational.operationalOutcome,
     customer,
     branchHint,
+    branchHintSource: branchHintResult.source,
+    branchHintReason: branchHintResult.reason,
     purchaseHistory,
     invoiceVerification,
     staffEffort,
     messageEffectiveness,
+    snapshot,
   };
 }
