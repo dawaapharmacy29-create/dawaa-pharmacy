@@ -69,6 +69,16 @@ export interface ConversationReviewSnapshot {
    * conversation_snapshot في Reviews.tsx). Optional عشان أي snapshot قديم يفضل صالح.
    */
   smartIntelligence?: SmartIntelligenceSnapshotV1;
+  /**
+   * حقول تدقيق (Audit) لقرار الاعتماد البشري على SmartOfficialReviewDraftV1 — تتسجل في
+   * Reviews.tsx وقت الحفظ فقط، وممنوع تتحول لجدول منفصل أو تُستخدم كمصدر نقاط مستقل.
+   * كلها Optional عشان أي snapshot قديم أو محادثة من غير Draft ذكي يفضل صالح.
+   */
+  smartDraftGeneratedAt?: string | null;
+  smartDraftVersion?: string | null;
+  smartSuggestedScore?: number | null;
+  humanDecision?: 'approved_as_is' | 'edited_then_approved' | 'rejected' | null;
+  humanModifiedCriteriaCount?: number | null;
 }
 
 const TRANSFER_KEY = 'dawaa_pending_conversation_review_snapshot_v1';

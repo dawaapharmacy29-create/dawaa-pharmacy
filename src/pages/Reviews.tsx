@@ -421,6 +421,10 @@ export default function Reviews() {
   const historyOnlyMode = searchParams.get('section') === 'history';
   const [saving, setSaving] = useState(false);
   const saveInFlightRef = useRef(false);
+  // نسخة "المقترح وقت التعبئة" لبنود الـconfident اللي اتعمل لها prefill تلقائي — تُستخدم
+  // فقط لحساب humanModifiedCriteriaCount وقت الحفظ (كام بند غيّره المراجع عن اقتراح النظام)،
+  // مش لأي غرض آخر.
+  const smartPrefillBaselineRef = useRef<Partial<Record<ReviewCriterionKey, string>>>({});
   const [reviewState, setReviewState] = useState<ConversationReviewState>(defaultReviewState());
   const [severeErrors, setSevereErrors] = useState<SevereErrorsState>(defaultSevereErrors());
   const [custSearch, setCustSearch] = useState('');
@@ -436,6 +440,9 @@ export default function Reviews() {
   // ID الرسائل اللي المراجع دوس "عرض الدليل" عليها لبند معين — تتعمل لها تمييز مؤقت
   // (highlight) في عرض المحادثة، بدون ما تغيّر شكل "دليل" العام الدائم لكل المحادثة.
   const [focusedEvidenceIds, setFocusedEvidenceIds] = useState<string[]>([]);
+  // قرار المراجع البشري الصريح على التقييم الذكي المقترح — audit field بس، مفيش نقاط أو
+  // حفظ رسمي مرتبط بيه مباشرة؛ الحفظ الفعلي لسه محتاج ضغط زر الحفظ الرئيسي.
+  const [humanDecision, setHumanDecision] = useState<'approved_as_is' | 'edited_then_approved' | 'rejected' | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [reviewHistory, setReviewHistory] = useState<ConversationReviewHistoryRow[]>([]);
@@ -731,7 +738,19 @@ export default function Reviews() {
         })()
       : isoInputNow();
 
-    setSmartSnapshot(snapshot);
+    const draft = snapshot.officialReviewDraft;
+    setSmartSnapshot(
+      draft
+        ? {
+            ...snapshot,
+            smartDraftGeneratedAt: new Date().toISOString(),
+            smartDraftVersion: draft.version,
+            smartSuggestedScore: draft.provisionalScore,
+          }
+        : snapshot
+    );
+    setHumanDecision(null);
+    smartPrefillBaselineRef.current = {};
 
     // هوية العميل — لو مؤكدة (customerId حقيقي، مش ambiguous)، تُنقل مباشرة للفورم من غير
     // أي إعادة بحث بالاسم. لو ambiguous، نعرض قائمة اختيار بشري (نفس منطق الموظف).
@@ -755,7 +774,6 @@ export default function Reviews() {
     // غير مدعوم بيفضل على الافتراضي، والمقترح بيتعرض جنبه للمراجع بدون ما يتفرض عليه.
     // AI evaluates -> Human approves: الـprefill بيملأ الاختيار، لكن مفيش نقاط أو حفظ رسمي
     // إلا لما المراجع نفسه يضغط حفظ.
-    const draft = snapshot.officialReviewDraft;
     if (draft) {
       setReviewState((current) => {
         const next = { ...current };
@@ -766,6 +784,7 @@ export default function Reviews() {
               choice: criterion.suggestedChoice,
               notes: `اقتراح تلقائي من التقييم الذكي (ثقة ${criterion.confidence}%)`,
             };
+            smartPrefillBaselineRef.current[criterion.criterionKey] = criterion.suggestedChoice;
           }
         }
         return next;
@@ -1262,6 +1281,29 @@ export default function Reviews() {
       setRepeatInfo({ count: previousCount, multiplier });
 
       const selectedChoices = reviewState;
+
+      // audit فقط: كام بند من البنود اللي عملها الـWatcher prefill تلقائي (confident) غيّره
+      // المراجع فعليًا قبل الحفظ، وإيه القرار النهائي — مفيش أثر على النقاط أو الحفظ نفسه.
+      const prefillBaseline = smartPrefillBaselineRef.current;
+      const humanModifiedCriteriaCount = Object.keys(prefillBaseline).reduce((count, key) => {
+        const criterionKey = key as ReviewCriterionKey;
+        const original = prefillBaseline[criterionKey];
+        const current = selectedChoices[criterionKey];
+        if (!current || original === undefined) return count;
+        return current.choice !== original ? count + 1 : count;
+      }, 0);
+      const finalHumanDecision: NonNullable<ConversationReviewSnapshot['humanDecision']> | null =
+        smartSnapshot?.officialReviewDraft
+          ? humanDecision ?? (humanModifiedCriteriaCount > 0 ? 'edited_then_approved' : 'approved_as_is')
+          : null;
+      const smartSnapshotForSave: ConversationReviewSnapshot | null = smartSnapshot
+        ? {
+            ...smartSnapshot,
+            humanDecision: finalHumanDecision,
+            humanModifiedCriteriaCount: smartSnapshot.officialReviewDraft ? humanModifiedCriteriaCount : null,
+          }
+        : null;
+
       const payload = {
         reviewer_id: asUuid(selectedReviewer.id || user?.id),
         reviewer_name: selectedReviewer.name || user?.name || null,
@@ -1319,7 +1361,7 @@ export default function Reviews() {
           criteria: selectedChoices,
           severe_errors: severeErrors,
           result: { ...result, doctorPointsImpact: repeatedDoctorImpact },
-          conversation_snapshot: smartSnapshot,
+          conversation_snapshot: smartSnapshotForSave,
           smart_review_source: smartSnapshot
             ? {
                 source: smartSnapshot.source,
@@ -1571,6 +1613,9 @@ export default function Reviews() {
     setCustSearched(false);
     setRepeatInfo(null);
     setDraftSavedAt(null);
+    setHumanDecision(null);
+    setFocusedEvidenceIds([]);
+    smartPrefillBaselineRef.current = {};
     window.localStorage.removeItem(REVIEW_DRAFT_KEY);
     toast.success('تم فتح تقييم جديد');
   };
@@ -2140,6 +2185,54 @@ export default function Reviews() {
                   {smartSnapshot.officialReviewDraft.topConcerns.join(' • ')}
                 </div>
               ) : null}
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setHumanDecision('approved_as_is')}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-bold transition-colors ${
+                    humanDecision === 'approved_as_is'
+                      ? 'bg-emerald-500 text-white'
+                      : 'bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/25'
+                  }`}
+                >
+                  اعتماد التقييم المقترح
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHumanDecision('edited_then_approved');
+                    document.getElementById('review-criteria-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  }}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-bold transition-colors ${
+                    humanDecision === 'edited_then_approved'
+                      ? 'bg-amber-500 text-white'
+                      : 'bg-amber-500/15 text-amber-200 hover:bg-amber-500/25'
+                  }`}
+                >
+                  تعديل ثم اعتماد
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHumanDecision('rejected');
+                    setReviewState(defaultReviewState());
+                  }}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-bold transition-colors ${
+                    humanDecision === 'rejected'
+                      ? 'bg-red-500 text-white'
+                      : 'bg-red-500/15 text-red-200 hover:bg-red-500/25'
+                  }`}
+                >
+                  رفض التقييم الذكي
+                </button>
+                {humanDecision && (
+                  <span className="text-[11px] text-slate-400">
+                    {humanDecision === 'approved_as_is' && 'تم اعتماد البنود الواثقة كما هي — لسه محتاج حفظك اليدوي تحت'}
+                    {humanDecision === 'edited_then_approved' && 'عدّل البنود اللي محتاجة مراجعة تحت، ثم احفظ'}
+                    {humanDecision === 'rejected' && 'تم رفض التقييم الذكي — البنود رجعت للوضع الافتراضي وابدأ التقييم يدويًا'}
+                  </span>
+                )}
+              </div>
             </div>
           ) : null}
 
@@ -2930,7 +3023,7 @@ export default function Reviews() {
             </div>
           </section>
 
-          <section className="space-y-3">
+          <section id="review-criteria-section" className="space-y-3">
             {REVIEW_CRITERIA.map((criterion) => {
               const itemState = reviewState[criterion.key];
               const suggestion = smartSnapshot?.officialReviewDraft?.criteria.find(
