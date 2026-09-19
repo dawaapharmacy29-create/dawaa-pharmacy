@@ -19,6 +19,7 @@ import { runSmartReviewPipeline, type SmartReviewPipelineResult } from '@/lib/wh
 import type { SmartStaffRole } from '@/lib/whatsappSmartReviewOwnership';
 import { resolveWhatsAppParticipantRolesV15 } from '@/lib/whatsappParticipantRoleResolverV15';
 import { groupOutboundBursts, computeStaffBurstEffort } from '@/lib/whatsappOutboundMessageBursts';
+import { verifySessionAgainstInvoices } from '@/lib/whatsappUnifiedIntelligenceV4';
 import type { SmartQuickDecisionResult } from '@/lib/whatsappSmartReviewDecision';
 import {
   buildConversationReviewSnapshot,
@@ -149,11 +150,18 @@ export default function WhatsAppSmartFolderWatcher() {
       // في نفس الجلسة، عشان الـburst مبني على تتابع الرسائل الصادرة مش على staff واحد بعينه.
       const roles = await resolveWhatsAppParticipantRolesV15(session);
       const outboundBurstMetrics = computeStaffBurstEffort(groupOutboundBursts(session, roles));
+      // مطابقة فاتورة حقيقية (قراءة فقط) — مرة واحدة لكل جلسة، بتتشارك بين كل الموظفين في
+      // نفس الجلسة. البيع المؤكد الوحيد هو invoiceVerification.status === 'verified'؛ مفيش
+      // حالات cancel/return لسه (تحتاج فحص schema للفواتير والمرتجعات الأول).
+      const invoiceVerification = await verifySessionAgainstInvoices(session, { customerName: session.customerName });
       for (const staff of base.staffSummaries) {
         const result = runSmartReviewPipeline(session, {
           staffName: staff.staffName,
           role: staff.role,
           contextMessages: 2,
+          invoiceVerification,
+          invoiceVerified: invoiceVerification.status === 'verified',
+          invoiceMatchAmbiguous: invoiceVerification.status === 'needs_review',
         });
         if (!result.scope.scoredSession) continue;
 

@@ -15,6 +15,14 @@ import { classifyConversationJourney, type ConversationJourneyResult } from './w
 export interface SmartReviewPipelineInput extends SmartReviewScopeInput {
   invoiceVerified?: boolean;
   invoiceMatchAmbiguous?: boolean;
+  /**
+   * نتيجة verifySessionAgainstInvoices الحقيقية (V4) — لو متاحة، بتحل محل الـboolean bridge
+   * تحت وبتدي saleState/revenue أدق (البيع المؤكد الوحيد = invoiceVerification.status==='verified').
+   * الـpipeline لسه sync عمدًا (verifySessionAgainstInvoices نفسها async)، فالـcaller هو اللي
+   * بيستدعيها ويمررها هنا — لضمان صفر breaking changes على الـcallers الحاليين اللي ما زالوا
+   * بيمروا بس invoiceVerified/invoiceMatchAmbiguous.
+   */
+  invoiceVerification?: UnifiedInvoiceVerification;
 }
 
 export interface SmartReviewPipelineResult {
@@ -31,22 +39,25 @@ export interface SmartReviewPipelineResult {
    * (بيتحسب على الجلسة كلها مش الـscoped session، عشان ياخد الصورة الكاملة للرحلة). لازم
    * يتعرض في الواجهة بشكل منفصل وواضح، مش يندمج بصمت مع نتيجة SmartIntent.
    *
-   * ملحوظة: saleState هنا لسه بيعتمد على input.invoiceVerified/invoiceMatchAmbiguous
-   * (Boolean موجود بالفعل في الـpipeline) كقيمة مؤقتة، مش استدعاء verifySessionAgainstInvoices
-   * الحقيقي — ده هيتوصل في خطوة منفصلة (رقم 9) لسه ما اتنفذتش.
+   * saleState هنا بياخد input.invoiceVerification (نتيجة verifySessionAgainstInvoices
+   * الحقيقية) لو الـcaller مررها؛ لو لأ، بيرجع لـfallback من input.invoiceVerified/
+   * invoiceMatchAmbiguous (الـbooleans الموجودة بالفعل في الـpipeline من الأول) عشان
+   * الـcallers اللي لسه ما اتحدثوش (زي SmartConversationReviewRebuild.tsx) يفضلوا شغالين
+   * زي ما هما. البيع المؤكد الوحيد = invoiceVerification.status === 'verified'.
    */
   journeyCrossCheck: ConversationJourneyResult;
 }
 
-function interimInvoiceVerification(input: Pick<SmartReviewPipelineInput, 'invoiceVerified' | 'invoiceMatchAmbiguous'>): UnifiedInvoiceVerification {
+function fallbackInvoiceVerification(input: Pick<SmartReviewPipelineInput, 'invoiceVerified' | 'invoiceMatchAmbiguous'>): UnifiedInvoiceVerification {
   const status = input.invoiceVerified ? 'verified' : input.invoiceMatchAmbiguous ? 'needs_review' : 'not_applicable';
-  return { status, bestCandidate: null, candidates: [], verificationConfidence: status === 'verified' ? 0.9 : status === 'needs_review' ? 0.5 : 1, revenue: null, reason: 'قيمة مؤقتة من input.invoiceVerified الموجود بالفعل بالـpipeline — لسه مفيش استدعاء verifySessionAgainstInvoices الحقيقي (خطوة 9 لسه ما اتنفذتش).', warnings: [] };
+  return { status, bestCandidate: null, candidates: [], verificationConfidence: status === 'verified' ? 0.9 : status === 'needs_review' ? 0.5 : 1, revenue: null, reason: 'مشتقة من input.invoiceVerified/invoiceMatchAmbiguous — الـcaller لم يمرر نتيجة verifySessionAgainstInvoices الحقيقية.', warnings: [] };
 }
 
-function buildJourneyCrossCheck(session: WhatsAppConversationSession, input: Pick<SmartReviewPipelineInput, 'invoiceVerified' | 'invoiceMatchAmbiguous'>): ConversationJourneyResult {
+function buildJourneyCrossCheck(session: WhatsAppConversationSession, input: SmartReviewPipelineInput): ConversationJourneyResult {
   const base = buildUnifiedConversationIntelligence(session);
   const operational = buildWhatsAppOperationalIntelligenceV6(session, base);
-  return classifyConversationJourney(session, operational, base, interimInvoiceVerification(input));
+  const invoiceVerification = input.invoiceVerification || fallbackInvoiceVerification(input);
+  return classifyConversationJourney(session, operational, base, invoiceVerification);
 }
 
 function unique<T>(items: T[]) {
