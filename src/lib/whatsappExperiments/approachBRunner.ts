@@ -9,7 +9,16 @@ import { persistAutomaticWhatsAppReview } from '@/lib/whatsappAutomaticReviewPer
 import { evaluateAutomaticWhatsAppReview } from '@/lib/whatsappAutomaticReviewScoring';
 import { getCycleForDate } from '@/lib/pharmacy-cycle';
 import { AUTOMATIC_REVIEW_REVIEWER_LABEL } from '@/lib/conversationReviews';
+import { analyzeSmartConversationIntelligence, type SmartConversationIntelligenceResult } from './smartConversationIntelligence';
 import type { ApproachBResultDetail, ExperimentFileLogEntry, ExperimentRunMode } from './types';
+
+async function safeAnalyzeSmart(session: WhatsAppConversationSession) {
+  try {
+    return await analyzeSmartConversationIntelligence(session);
+  } catch {
+    return null;
+  }
+}
 
 const MINIMAL_LINK_PARSER_VERSION = 'approach-b-standalone-experiment-v1';
 
@@ -81,6 +90,7 @@ async function runApproachBDry(file: File): Promise<ExperimentFileLogEntry> {
   const startedAt = performance.now();
   const errors: string[] = [];
   const approachB: ApproachBResultDetail[] = [];
+  const smartIntelligence: SmartConversationIntelligenceResult[] = [];
   let sessionsFound = 0;
 
   try {
@@ -92,6 +102,8 @@ async function runApproachBDry(file: File): Promise<ExperimentFileLogEntry> {
 
     for (const session of sessions) {
       try {
+        const smart = await safeAnalyzeSmart(session);
+        if (smart) smartIntelligence.push(smart);
         const { build, result } = evaluateAutomaticWhatsAppReview(session, session.customerName);
         approachB.push({
           status: 'preview',
@@ -134,6 +146,7 @@ async function runApproachBDry(file: File): Promise<ExperimentFileLogEntry> {
       pointsFailed: 0,
     },
     approachB,
+    smartIntelligence,
     errors,
   };
 }
@@ -142,6 +155,7 @@ async function runApproachBLive(file: File): Promise<ExperimentFileLogEntry> {
   const startedAt = performance.now();
   const errors: string[] = [];
   const approachB: ApproachBResultDetail[] = [];
+  const smartIntelligence: SmartConversationIntelligenceResult[] = [];
   let sessionsFound = 0;
 
   try {
@@ -153,6 +167,8 @@ async function runApproachBLive(file: File): Promise<ExperimentFileLogEntry> {
 
     for (const session of sessions) {
       try {
+        const smart = await safeAnalyzeSmart(session);
+        if (smart) smartIntelligence.push(smart);
         const { sourceId } = await ensureMinimalLinkingSource(session, source.sourceFileName);
         const outcome = await persistAutomaticWhatsAppReview({
           sourceId,
@@ -191,6 +207,7 @@ async function runApproachBLive(file: File): Promise<ExperimentFileLogEntry> {
       pointsFailed: approachB.filter((r) => Boolean(r.pointsError)).length,
     },
     approachB,
+    smartIntelligence,
     errors,
   };
 }

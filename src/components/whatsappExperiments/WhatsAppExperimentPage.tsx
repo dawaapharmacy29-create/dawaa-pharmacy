@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import {
   FolderOpen,
@@ -16,11 +16,100 @@ import {
   getUnprocessedWhatsAppExports,
   type LocalInboxCandidate,
 } from '@/lib/localWhatsAppInbox';
+import { aggregateBestMessages } from '@/lib/whatsappExperiments/smartConversationIntelligence';
 import type {
   ExperimentApproach,
   ExperimentFileLogEntry,
   ExperimentRunMode,
+  SmartConversationIntelligenceResult,
 } from '@/lib/whatsappExperiments/types';
+
+function SmartIntelligencePanel({ results }: { results: SmartConversationIntelligenceResult[] }) {
+  if (!results.length) return null;
+  return (
+    <div className="mt-2 space-y-2">
+      {results.map((r, i) => (
+        <div key={i} className="rounded-lg border border-sky-400/20 bg-sky-500/5 p-2 text-[11px] text-slate-300">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full bg-sky-500/15 px-2 py-0.5 font-black text-sky-200">{r.conversationTypeLabel}</span>
+            <span className="text-slate-400">intent: {r.primaryIntent} · initiator: {r.initiator} · outcome: {r.operationalOutcome}</span>
+          </div>
+          <div className="mt-1 flex flex-wrap gap-3 text-slate-400">
+            <span>
+              العميل: {r.customer.customer ? `${r.customer.customer.name} (${r.customer.customer.code || 'بدون كود'})` : 'غير معروف'} ·
+              {' '}الفرع: {r.customer.customer?.branch || '-'} · ثقة التعرّف: {Math.round(r.customer.confidence * 100)}% ({r.customer.strategy})
+            </span>
+          </div>
+          {r.purchaseHistory ? (
+            <div className="mt-1 text-slate-400">
+              {r.purchaseHistory.fetchError
+                ? `تعذرت قراءة تاريخ المشتريات: ${r.purchaseHistory.fetchError}`
+                : `مشترياته المسجلة: ${r.purchaseHistory.totalPurchases ?? '-'} عملية · آخر شراء: ${r.purchaseHistory.lastPurchaseAt || '-'}`}
+            </div>
+          ) : null}
+          <div className="mt-1 text-slate-400">
+            التحقق من البيع (بالفاتورة): <span className={r.invoiceVerification.status === 'verified' ? 'text-emerald-300' : r.invoiceVerification.status === 'probable' ? 'text-amber-300' : 'text-slate-400'}>
+              {r.invoiceVerification.status}
+            </span>
+            {r.invoiceVerification.revenue ? ` · قيمة الفاتورة: ${r.invoiceVerification.revenue}` : ''}
+          </div>
+          {r.staffEffort.length ? (
+            <div className="mt-2 overflow-x-auto">
+              <table className="w-full min-w-[360px] text-[11px]">
+                <thead>
+                  <tr className="text-slate-500">
+                    <th className="text-right font-bold">الموظف</th>
+                    <th className="text-right font-bold">رسائل صادرة</th>
+                    <th className="text-right font-bold">اترد عليها</th>
+                    <th className="text-right font-bold">معدل الرد</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {r.staffEffort.map((s, j) => (
+                    <tr key={j} className="border-t border-[var(--dawaa-theme-border)]">
+                      <td className="py-1">{s.staffName}</td>
+                      <td>{s.outboundMessages}</td>
+                      <td>{s.repliedMessages}</td>
+                      <td>{s.replyRatePct}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function BestMessagesPanel({ log }: { log: ExperimentFileLogEntry[] }) {
+  const best = useMemo(
+    () => aggregateBestMessages(log.flatMap((entry) => entry.smartIntelligence?.flatMap((s) => s.messageEffectiveness) || [])),
+    [log]
+  );
+  if (!best.length) return null;
+  return (
+    <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm">
+      <h3 className="mb-1 font-black text-[var(--dawaa-theme-heading)]">أفضل الرسائل (أعلى معدل رد من العملاء)</h3>
+      <p className="mb-3 text-[11px] font-bold text-[var(--dawaa-theme-muted)]">
+        "رد" هنا يعني أي رسالة نصية من العميل بعد رسالة الموظف — إيموجي الـ reaction غير متاح في تصدير واتساب النصي فمش
+        داخل في الحساب. التجميع على نص الرسالة الحرفي عبر كل التشغيلات في هذه الجلسة (رسالتين تكرار على الأقل).
+      </p>
+      <div className="space-y-2">
+        {best.map((m, i) => (
+          <div key={i} className="rounded-lg border border-[var(--dawaa-theme-border)] p-2 text-[11px]">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-black text-emerald-300">{m.replyRatePct}% رد</span>
+              <span className="text-slate-400">أُرسلت {m.sentCount} مرة · اترد عليها {m.repliedCount}</span>
+            </div>
+            <div className="mt-1 text-slate-300">{m.text}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export interface ExperimentInfoBox {
   name: string;
@@ -281,6 +370,8 @@ export default function WhatsAppExperimentPage({
         ) : null}
       </div>
 
+      <BestMessagesPanel log={log} />
+
       <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm">
         <h3 className="mb-2 font-black text-[var(--dawaa-theme-heading)]">سجل التشغيل</h3>
         {!log.length ? (
@@ -304,6 +395,7 @@ export default function WhatsAppExperimentPage({
                   {entry.counts.pointsFailed > 0 ? <span className="text-amber-400">Points Failed: {entry.counts.pointsFailed}</span> : null}
                 </div>
                 {renderDetails(entry)}
+                <SmartIntelligencePanel results={entry.smartIntelligence || []} />
                 {entry.errors.map((err, j) => (
                   <div key={j} className="mt-1 flex items-center gap-1 text-[var(--dawaa-status-danger-text)]">
                     <XCircle size={12} /> {err}

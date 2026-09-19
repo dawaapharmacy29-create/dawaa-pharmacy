@@ -9,12 +9,21 @@ import { ingestWhatsAppExportFile } from '@/lib/whatsappAutoIngestPipeline';
 import { isAutomaticReview, reviewerDisplayName } from '@/lib/conversationReviews';
 import { runApproachAExperiment } from './approachARunner';
 import { runApproachBExperiment } from './approachBRunner';
+import { analyzeSmartConversationIntelligence, type SmartConversationIntelligenceResult } from './smartConversationIntelligence';
 import type {
   ApproachAResultDetail,
   ApproachBResultDetail,
   ExperimentFileLogEntry,
   ExperimentRunMode,
 } from './types';
+
+async function safeAnalyzeSmart(session: Parameters<typeof analyzeSmartConversationIntelligence>[0]) {
+  try {
+    return await analyzeSmartConversationIntelligence(session);
+  } catch {
+    return null;
+  }
+}
 
 interface SourceRow {
   id: string;
@@ -124,6 +133,7 @@ async function runHybridDry(file: File): Promise<ExperimentFileLogEntry> {
     },
     approachA: a.approachA,
     approachB: b.approachB,
+    smartIntelligence: a.smartIntelligence,
     errors: [...a.errors, ...b.errors],
   };
 }
@@ -133,12 +143,17 @@ async function runHybridLive(file: File): Promise<ExperimentFileLogEntry> {
   const errors: string[] = [];
   let hashes: string[] = [];
   let preExistingHashes = new Set<string>();
+  const smartIntelligence: SmartConversationIntelligenceResult[] = [];
 
   try {
     const source = await readWhatsAppExportFile(file);
     const messages = parseWhatsAppExport(source.text);
     const sessions = splitWhatsAppSessions(messages, 120);
     hashes = await Promise.all(sessions.map((session) => hashWhatsAppSession(session)));
+    for (const session of sessions) {
+      const smart = await safeAnalyzeSmart(session);
+      if (smart) smartIntelligence.push(smart);
+    }
     if (hashes.length) {
       const { data } = await supabase.from('whatsapp_review_sources').select('source_hash').in('source_hash', hashes);
       preExistingHashes = new Set((data || []).map((row) => String(row.source_hash)));
@@ -198,6 +213,7 @@ async function runHybridLive(file: File): Promise<ExperimentFileLogEntry> {
     },
     approachA,
     approachB,
+    smartIntelligence,
     errors: [...errors, ...result.errors],
   };
 }

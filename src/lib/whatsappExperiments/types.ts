@@ -1,6 +1,8 @@
 // أنواع مشتركة لصفحات تجارب مقارنة تقييم واتساب (Approach A / Approach B / Hybrid).
 // هذا الملف عرض/تجميع فقط — مبيغيّرش في سلوك أي من الطريقتين نفسه.
 
+import type { SmartConversationIntelligenceResult } from './smartConversationIntelligence';
+
 export type ExperimentApproach = 'A' | 'B' | 'hybrid';
 export type ExperimentRunMode = 'dry-run' | 'live';
 
@@ -65,5 +67,16 @@ export interface ExperimentFileLogEntry {
   counts: ExperimentCommonCounts;
   approachA?: ApproachAResultDetail[];
   approachB?: ApproachBResultDetail[];
+  /** تحليل ذكي إضافي (قراءة فقط) لكل جلسة داخل الملف — نوع المحادثة، هوية العميل +
+   * تاريخ مشترياته، التحقق من البيع بالفاتورة، ومجهود كل موظف على مستوى الرسائل. */
+  smartIntelligence?: SmartConversationIntelligenceResult[];
   errors: string[];
 }
+
+export type {
+  SmartConversationIntelligenceResult,
+  StaffMessageEffort,
+  BestMessageCandidate,
+  CustomerPurchaseHistory,
+  BestMessageAggregate,
+} from './smartConversationIntelligence';

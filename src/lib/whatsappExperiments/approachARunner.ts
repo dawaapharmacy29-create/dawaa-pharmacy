@@ -7,11 +7,20 @@ import { parseWhatsAppExport, splitWhatsAppSessions } from '@/lib/whatsappConver
 import { hashWhatsAppSession } from '@/lib/whatsappReviewPersistenceV4';
 import { buildSmartConversationReviewSummary } from '@/lib/whatsappSmartReviewSummary';
 import { ingestWhatsAppExportFile, type IngestOneFileResult } from '@/lib/whatsappAutoIngestPipeline';
+import { analyzeSmartConversationIntelligence, type SmartConversationIntelligenceResult } from './smartConversationIntelligence';
 import type {
   ApproachAResultDetail,
   ExperimentFileLogEntry,
   ExperimentRunMode,
 } from './types';
+
+async function safeAnalyzeSmart(session: Parameters<typeof analyzeSmartConversationIntelligence>[0]) {
+  try {
+    return await analyzeSmartConversationIntelligence(session);
+  } catch {
+    return null;
+  }
+}
 
 interface SourceRow {
   id: string;
@@ -72,6 +81,7 @@ async function runApproachADry(file: File): Promise<ExperimentFileLogEntry> {
   const startedAt = performance.now();
   const errors: string[] = [];
   const details: ApproachAResultDetail[] = [];
+  const smartIntelligence: SmartConversationIntelligenceResult[] = [];
   let sessionsFound = 0;
 
   try {
@@ -84,6 +94,8 @@ async function runApproachADry(file: File): Promise<ExperimentFileLogEntry> {
     for (const session of sessions) {
       const hash = await hashWhatsAppSession(session);
       const summary = buildSmartConversationReviewSummary(session);
+      const smart = await safeAnalyzeSmart(session);
+      if (smart) smartIntelligence.push(smart);
       details.push({
         sourceId: null,
         sourceHash: hash,
@@ -122,6 +134,7 @@ async function runApproachADry(file: File): Promise<ExperimentFileLogEntry> {
       pointsFailed: 0,
     },
     approachA: details,
+    smartIntelligence,
     errors,
   };
 }
@@ -132,12 +145,17 @@ async function runApproachALive(file: File): Promise<ExperimentFileLogEntry> {
   let result: IngestOneFileResult;
   let hashes: string[] = [];
   let preExistingHashes = new Set<string>();
+  const smartIntelligence: SmartConversationIntelligenceResult[] = [];
 
   try {
     const source = await readWhatsAppExportFile(file);
     const messages = parseWhatsAppExport(source.text);
     const sessions = splitWhatsAppSessions(messages, 120);
     hashes = await Promise.all(sessions.map((session) => hashWhatsAppSession(session)));
+    for (const session of sessions) {
+      const smart = await safeAnalyzeSmart(session);
+      if (smart) smartIntelligence.push(smart);
+    }
     if (hashes.length) {
       const { data } = await supabase.from('whatsapp_review_sources').select('source_hash').in('source_hash', hashes);
       preExistingHashes = new Set((data || []).map((row) => String(row.source_hash)));
@@ -200,6 +218,7 @@ async function runApproachALive(file: File): Promise<ExperimentFileLogEntry> {
       pointsFailed: 0,
     },
     approachA,
+    smartIntelligence,
     errors: [...errors, ...result.errors],
   };
 }
