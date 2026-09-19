@@ -21,7 +21,8 @@
     "check": "npm run doctor && npm run typecheck && npm run build && npm run perf:budget",
     "test:integration": "vitest run src/lib/staff/__tests__/staffPerformanceProfileService.integration.ts",
     "vercel:install": "npm ci --legacy-peer-deps --no-audit --no-fund",
-    "verify": "npm run doctor && npm run test && npm run typecheck && npm run build && npm run perf:budget"
+    "verify": "npm run doctor && npm run test && npm run typecheck && npm run build && npm run perf:budget",
+    "test:whatsapp-unified": "vitest run src/lib/whatsappExperiments/__tests__/conversationJourneyClassifier.test.ts src/lib/whatsappExperiments/__tests__/customerBranchDisambiguation.test.ts src/lib/whatsappExperiments/__tests__/messageTemplateNormalization.test.ts src/lib/whatsappExperiments/__tests__/outboundMessageBursts.test.ts src/lib/whatsappExperiments/__tests__/smartIntelligenceSnapshot.test.ts src/lib/__tests__/whatsappConversationBranchHint.test.ts"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",
