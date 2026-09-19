@@ -1,6 +1,7 @@
 import type { WhatsAppConversationSession, WhatsAppParsedMessage } from './whatsappConversationParser';
 import type { SmartQuickDecisionResult } from './whatsappSmartReviewDecision';
 import type { SmartStaffRole } from './whatsappSmartReviewOwnership';
+import type { StaffMessageEffort } from './whatsappOutboundMessageBursts';
 
 export type ConversationReviewMessageScope = 'scored' | 'context';
 
@@ -37,6 +38,13 @@ export interface ConversationReviewSnapshot {
     safeToQuickApprove: boolean;
   };
   messages: ConversationReviewSnapshotMessage[];
+  /**
+   * مقاييس burst للرسائل الصادرة (whatsappOutboundMessageBursts.ts) — قراءة/عرض فقط،
+   * تشخيصية بحتة. ممنوع استخدامها في أي KPI رسمي أو نقاط حاليًا (لسه ما اتحقّقتش على
+   * بيانات حقيقية — راجع threshold الـ10 دقائق في مراجعة التكامل). Optional عشان أي snapshot
+   * قديم من غير الحقل ده يفضل صالح للقراءة.
+   */
+  outboundBurstMetrics?: StaffMessageEffort[];
 }
 
 const TRANSFER_KEY = 'dawaa_pending_conversation_review_snapshot_v1';
@@ -71,6 +79,7 @@ export function buildConversationReviewSnapshot(args: {
   from?: Date | null;
   to?: Date | null;
   decision: SmartQuickDecisionResult;
+  outboundBurstMetrics?: StaffMessageEffort[];
 }): ConversationReviewSnapshot {
   const scored = new Set(args.scoredMessageIds);
   const context = new Set(args.contextMessageIds);
@@ -111,6 +120,7 @@ export function buildConversationReviewSnapshot(args: {
       scope: scored.has(message.id) ? 'scored' : 'context',
       evidence: evidence.has(message.id),
     })),
+    ...(args.outboundBurstMetrics ? { outboundBurstMetrics: args.outboundBurstMetrics } : {}),
   };
 }
 

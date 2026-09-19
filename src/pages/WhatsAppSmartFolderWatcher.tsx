@@ -17,6 +17,8 @@ import { parseWhatsAppExport, splitWhatsAppSessions } from '@/lib/whatsappConver
 import { buildSmartConversationReviewResult } from '@/lib/whatsappSmartReviewResult';
 import { runSmartReviewPipeline, type SmartReviewPipelineResult } from '@/lib/whatsappSmartReviewPipeline';
 import type { SmartStaffRole } from '@/lib/whatsappSmartReviewOwnership';
+import { resolveWhatsAppParticipantRolesV15 } from '@/lib/whatsappParticipantRoleResolverV15';
+import { groupOutboundBursts, computeStaffBurstEffort } from '@/lib/whatsappOutboundMessageBursts';
 import type { SmartQuickDecisionResult } from '@/lib/whatsappSmartReviewDecision';
 import {
   buildConversationReviewSnapshot,
@@ -143,6 +145,10 @@ export default function WhatsAppSmartFolderWatcher() {
 
     for (const session of sessions) {
       const base = buildSmartConversationReviewResult(session);
+      // Burst metrics على مستوى الجلسة كلها (تشخيصي، read-only) — نفس القيمة لكل الموظفين
+      // في نفس الجلسة، عشان الـburst مبني على تتابع الرسائل الصادرة مش على staff واحد بعينه.
+      const roles = await resolveWhatsAppParticipantRolesV15(session);
+      const outboundBurstMetrics = computeStaffBurstEffort(groupOutboundBursts(session, roles));
       for (const staff of base.staffSummaries) {
         const result = runSmartReviewPipeline(session, {
           staffName: staff.staffName,
@@ -161,6 +167,7 @@ export default function WhatsAppSmartFolderWatcher() {
           staffRole: staff.role,
           sourceFileName: file.name,
           decision: result.decision,
+          outboundBurstMetrics,
         });
 
         const actions = buildSmartReviewActionPlan({
@@ -393,6 +400,18 @@ export default function WhatsAppSmartFolderWatcher() {
                     : ''}
                 </div>
                 <div className="mt-1 text-xs text-slate-400">{selected.journeyCrossCheck.saleStateLabel}</div>
+                {selected.snapshot.outboundBurstMetrics?.length ? (
+                  <div className="mt-3 border-t border-sky-900/40 pt-2">
+                    <div className="text-[11px] font-bold text-slate-500">
+                      Outbound burst metrics (تشخيصي فقط — مش KPI رسمي، لسه ما اتحقّقش على بيانات حقيقية)
+                    </div>
+                    <div className="mt-1 space-y-1 text-xs text-slate-400">
+                      {selected.snapshot.outboundBurstMetrics.map((s, i) => (
+                        <div key={i}>{s.staffName}: {s.burstCount} burst · {s.repliedBursts} اترد عليها · {s.burstReplyRatePct}%</div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
               </section>
 
               {selected.reasons.length ? (

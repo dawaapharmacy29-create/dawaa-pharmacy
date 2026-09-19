@@ -51,4 +51,24 @@ describe('conversationReviewTranscript', () => {
     expect(parseConversationReviewSnapshot(JSON.stringify(snapshot))?.staffName).toBe('اسلام');
     expect(snapshotFromReviewRow({ raw_scores: { conversation_snapshot: snapshot } })?.messages[0].id).toBe('m1');
   });
+
+  it('outboundBurstMetrics is additive and read-only: absent when not passed, present and round-trips through JSON when passed', () => {
+    const messages = [msg('m1', '2026-09-13T03:01:00', 'inbound', 'السلام عليكم')];
+    const withoutMetrics = buildConversationReviewSnapshot({
+      session: { ...session, messages }, displayMessages: messages,
+      scoredMessageIds: ['m1'], contextMessageIds: [], staffName: 'اسلام', staffRole: 'pharmacist',
+      decision: { decision: 'clear', reasons: [], affectedCriteria: [], evidenceMessageIds: [], safeToQuickApprove: true },
+    });
+    expect(withoutMetrics.outboundBurstMetrics).toBeUndefined();
+
+    const metrics = [{ staffName: 'اسلام', staffId: null, outboundMessages: 2, burstCount: 1, repliedBursts: 1, burstReplyRatePct: 100 }];
+    const withMetrics = buildConversationReviewSnapshot({
+      session: { ...session, messages }, displayMessages: messages,
+      scoredMessageIds: ['m1'], contextMessageIds: [], staffName: 'اسلام', staffRole: 'pharmacist',
+      decision: { decision: 'clear', reasons: [], affectedCriteria: [], evidenceMessageIds: [], safeToQuickApprove: true },
+      outboundBurstMetrics: metrics,
+    });
+    expect(withMetrics.outboundBurstMetrics).toEqual(metrics);
+    expect(parseConversationReviewSnapshot(JSON.stringify(withMetrics))?.outboundBurstMetrics).toEqual(metrics);
+  });
 });
