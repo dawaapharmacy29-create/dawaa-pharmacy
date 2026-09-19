@@ -104,7 +104,7 @@ export function classifyConversationJourney(
   const saleState = mapSaleState(base, invoiceVerification);
 
   let journeyType: ConversationJourneyType;
-  if (checkinDetected && saleState === 'invoice_verified_sale') {
+  if (checkinDetected && requestAfterCheckin && saleState === 'invoice_verified_sale') {
     journeyType = 'checkin_then_verified_sale';
   } else if (checkinDetected && requestAfterCheckin) {
     journeyType = 'checkin_then_order';
@@ -112,7 +112,7 @@ export function classifyConversationJourney(
     journeyType = 'checkin_then_consultation';
   } else if (checkinDetected) {
     journeyType = 'checkin_ack_only';
-  } else if (operational.initiator === 'customer') {
+  } else if (operational.initiator === 'customer' && (hasRequestSignal || hasConsultationSignal)) {
     journeyType = 'direct_customer_request';
   } else {
     journeyType = 'other';
