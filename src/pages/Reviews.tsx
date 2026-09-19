@@ -748,6 +748,27 @@ export default function Reviews() {
       setAmbiguousCustomerCandidates(null);
     }
 
+    // Prefill تلقائي للبنود الواثقة فقط (status === 'confident') — أي بند محتاج مراجعة أو
+    // غير مدعوم بيفضل على الافتراضي، والمقترح بيتعرض جنبه للمراجع بدون ما يتفرض عليه.
+    // AI evaluates -> Human approves: الـprefill بيملأ الاختيار، لكن مفيش نقاط أو حفظ رسمي
+    // إلا لما المراجع نفسه يضغط حفظ.
+    const draft = snapshot.officialReviewDraft;
+    if (draft) {
+      setReviewState((current) => {
+        const next = { ...current };
+        for (const criterion of draft.criteria) {
+          if (criterion.status === 'confident' && criterion.suggestedChoice) {
+            next[criterion.criterionKey] = {
+              applies: criterion.applies,
+              choice: criterion.suggestedChoice,
+              notes: `اقتراح تلقائي من التقييم الذكي (ثقة ${criterion.confidence}%)`,
+            };
+          }
+        }
+        return next;
+      });
+    }
+
     // المسار الجديد: هوية مؤكدة (staff_id حقيقي، مش ambiguous) — تُستخدم مباشرة، بدون أي
     // إعادة تخمين بالاسم خالص.
     if (identity && identity.staffId && !identity.ambiguous) {
@@ -2893,6 +2914,9 @@ export default function Reviews() {
           <section className="space-y-3">
             {REVIEW_CRITERIA.map((criterion) => {
               const itemState = reviewState[criterion.key];
+              const suggestion = smartSnapshot?.officialReviewDraft?.criteria.find(
+                (c) => c.criterionKey === criterion.key
+              );
               return (
                 <div
                   key={criterion.key}
@@ -2920,6 +2944,33 @@ export default function Reviews() {
                       ينطبق
                     </label>
                   </div>
+                  {suggestion && (
+                    <div
+                      className={`mt-3 rounded-lg border px-3 py-2 text-xs ${
+                        suggestion.status === 'confident'
+                          ? 'border-emerald-500/25 bg-emerald-950/20 text-emerald-100'
+                          : suggestion.status === 'review_required'
+                            ? 'border-amber-500/25 bg-amber-950/20 text-amber-100'
+                            : 'border-slate-600/40 bg-slate-900/20 text-slate-400'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 flex-wrap font-bold">
+                        <span>اقتراح النظام الذكي:</span>
+                        <span>
+                          {suggestion.status === 'unsupported'
+                            ? 'لا يوجد أساس كافٍ للاقتراح'
+                            : `${suggestion.suggestedLabel} — ثقة ${suggestion.confidence}%`}
+                        </span>
+                        {suggestion.status === 'confident' && (
+                          <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px]">تم التعبئة تلقائيًا</span>
+                        )}
+                        {suggestion.status === 'review_required' && (
+                          <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px]">يحتاج مراجعتك</span>
+                        )}
+                      </div>
+                      <p className="mt-1 leading-relaxed opacity-90">{suggestion.reason}</p>
+                    </div>
+                  )}
                   {itemState.applies && (
                     <div className="grid md:grid-cols-2 gap-3 mt-4">
                       <select
