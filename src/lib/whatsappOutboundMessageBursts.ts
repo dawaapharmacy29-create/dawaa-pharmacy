@@ -8,7 +8,11 @@
 import type { WhatsAppConversationSession } from '@/lib/whatsappConversationParser';
 import type { WhatsAppParticipantRoleModelV15 } from '@/lib/whatsappParticipantRoleResolverV15';
 
-export const BURST_GAP_THRESHOLD_MS = 10 * 60 * 1000; // 10 دقايق بين رسايل نفس الموظف تعتبر لسه جزء من نفس الـburst
+// 10 دقايق افتراضيًا — رقم تقديري لسه ما اتحقّقش على توزيع فجوات رد حقيقي من بياناتنا.
+// اتعمل parameter قابل للتخصيص (مش ثابت جوه الدالة) بالظبط عشان كده — عشان نقدر نجرب
+// thresholds مختلفة على بيانات حقيقية من غير ما نلمس منطق التجميع نفسه، ومن غير ما نعتبره
+// KPI رسمي لحد ما يتحقق.
+export const DEFAULT_BURST_GAP_THRESHOLD_MS = 10 * 60 * 1000;
 
 export interface OutboundBurst {
   burstId: string;
@@ -31,7 +35,8 @@ export interface StaffMessageEffort {
 
 export function groupOutboundBursts(
   session: WhatsAppConversationSession,
-  roles: WhatsAppParticipantRoleModelV15
+  roles: WhatsAppParticipantRoleModelV15,
+  gapThresholdMs: number = DEFAULT_BURST_GAP_THRESHOLD_MS
 ): OutboundBurst[] {
   const roleByMessageId = new Map(roles.messages.map((m) => [m.messageId, m]));
   const bursts: OutboundBurst[] = [];
@@ -66,7 +71,7 @@ export function groupOutboundBursts(
     if (!roleInfo || roleInfo.role === 'customer' || roleInfo.role === 'system') continue;
 
     const key = roleInfo.staffId || roleInfo.staffName || roleInfo.sender || 'unknown';
-    const withinGap = current ? message.timestamp.getTime() - current.lastTimestamp.getTime() <= BURST_GAP_THRESHOLD_MS : false;
+    const withinGap = current ? message.timestamp.getTime() - current.lastTimestamp.getTime() <= gapThresholdMs : false;
     if (current && current.staffKey === key && withinGap) {
       current.messageIds.push(message.id);
       current.lastTimestamp = message.timestamp;

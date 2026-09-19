@@ -97,4 +97,25 @@ describe('groupOutboundBursts', () => {
     expect(effort[0].repliedBursts).toBe(1);
     expect(effort[0].burstReplyRatePct).toBe(50);
   });
+
+  it('the gap threshold is a configurable parameter, defaulting to the same 10-minute value', () => {
+    // فجوة 5 دقائق بين رسالتين من نفس الموظف: الـdefault (10 دقايق) بيدمجهم burst واحدة.
+    const messages = [
+      msg('m1', '2026-09-01T10:00:00', 'outbound', 'أهلًا بحضرتك'),
+      msg('m2', '2026-09-01T10:05:00', 'outbound', 'لسه مستني رد حضرتك'),
+      msg('m3', '2026-09-01T10:06:00', 'inbound', 'اسفه اتأخرت'),
+    ];
+    const s = session(messages);
+    const roles = rolesFor(messages);
+
+    const withDefault = groupOutboundBursts(s, roles);
+    expect(withDefault).toHaveLength(1);
+    expect(withDefault[0].messageCount).toBe(2);
+
+    // نفس البيانات، threshold أقصر (دقيقتين) — بيقطع الـburst لاتنين لأن الفجوة (5 دقائق) أكبر منه.
+    const withShorterThreshold = groupOutboundBursts(s, roles, 2 * 60 * 1000);
+    expect(withShorterThreshold).toHaveLength(2);
+    expect(withShorterThreshold[0].messageCount).toBe(1);
+    expect(withShorterThreshold[1].messageCount).toBe(1);
+  });
 });
