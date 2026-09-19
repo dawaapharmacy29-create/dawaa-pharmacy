@@ -12,7 +12,7 @@
 // ده بالظبط الـhierarchy المطلوب في مراجعة التكامل: source > active owner > staff resolver >
 // majority fallback — بدل الاعتماد على الأغلبية فقط، اللي كانت بتخلط فروع مختلفة في حالة
 // handoff بين فرعين.
-import type { WhatsAppConversationSession } from '@/lib/whatsappConversationParser';
+import { extractIntroducedStaffName, type WhatsAppConversationSession } from '@/lib/whatsappConversationParser';
 import type { WhatsAppParticipantRoleModelV15 } from '@/lib/whatsappParticipantRoleResolverV15';
 import { resolveWhatsAppStaffV6 } from '@/lib/whatsappStaffResolverV6';
 
@@ -60,6 +60,21 @@ export async function resolveConversationBranchHint(
         value: resolved.staff.branch,
         source: 'active_owner',
         reason: `فرع أول موظف تم التعرف عليه من تسلسل الرسائل (${firstResolvedOwner.staffName}).`,
+      };
+    }
+  }
+
+  const introducedOwner = session.messages
+    .filter((message) => message.direction === 'outbound')
+    .map((message) => extractIntroducedStaffName(message))
+    .find((name): name is string => Boolean(name));
+  if (introducedOwner) {
+    const resolved = await resolveWhatsAppStaffV6([introducedOwner], null);
+    if (resolved.staff?.branch) {
+      return {
+        value: resolved.staff.branch,
+        source: 'active_owner',
+        reason: `فرع أول موظف عرّف نفسه داخل المحادثة (${introducedOwner}).`,
       };
     }
   }
