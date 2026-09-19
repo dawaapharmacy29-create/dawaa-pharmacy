@@ -15,7 +15,7 @@ import {
 import { readWhatsAppExportFile } from '@/lib/whatsappExportFileReader';
 import { parseWhatsAppExport, splitWhatsAppSessions } from '@/lib/whatsappConversationParser';
 import { buildSmartConversationReviewResult } from '@/lib/whatsappSmartReviewResult';
-import { runSmartReviewPipeline } from '@/lib/whatsappSmartReviewPipeline';
+import { runSmartReviewPipeline, type SmartReviewPipelineResult } from '@/lib/whatsappSmartReviewPipeline';
 import type { SmartStaffRole } from '@/lib/whatsappSmartReviewOwnership';
 import type { SmartQuickDecisionResult } from '@/lib/whatsappSmartReviewDecision';
 import {
@@ -40,6 +40,8 @@ type StaffRun = {
   reasons: string[];
   criteria: string[];
   intelligence: ReturnType<typeof runSmartReviewPipeline>['intelligence'];
+  /** Cross-check مستقل (V6/Journey) — عرض فقط، ما بيأثرش على decision/reasons/safe فوق. */
+  journeyCrossCheck: SmartReviewPipelineResult['journeyCrossCheck'];
   snapshot: ConversationReviewSnapshot;
   actions: SmartReviewActionPlan;
 };
@@ -177,6 +179,7 @@ export default function WhatsAppSmartFolderWatcher() {
           reasons: result.decision.reasons,
           criteria: result.decision.affectedCriteria,
           intelligence: result.intelligence,
+          journeyCrossCheck: result.journeyCrossCheck,
           snapshot,
           actions,
         });
@@ -375,6 +378,21 @@ export default function WhatsAppSmartFolderWatcher() {
                 <div className="rounded-2xl border border-slate-800 bg-slate-950/30 p-3"><div className="text-xs text-slate-500">فرص البيع</div><div className="mt-1 font-black text-white">{selected.intelligence?.salesOpportunities.length || 0}</div></div>
                 <div className="rounded-2xl border border-slate-800 bg-slate-950/30 p-3"><div className="text-xs text-slate-500">وضوح الاستشارة</div><div className="mt-1 font-black text-white">{selected.intelligence?.consultationCommunication || 'غير منطبق'}</div></div>
                 <div className="rounded-2xl border border-slate-800 bg-slate-950/30 p-3"><div className="text-xs text-slate-500">الاعتماد السريع</div><div className="mt-1 font-black text-white">{selected.safe ? 'ممكن بعد مراجعة بشرية' : 'غير مسموح'}</div></div>
+              </section>
+
+              <section className="rounded-2xl border border-sky-800/50 bg-sky-950/10 p-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-full bg-sky-500/15 px-2 py-0.5 text-[11px] font-black text-sky-200">Cross-check (V6/Journey)</span>
+                  <span className="text-[11px] font-bold text-slate-500">مصدر مستقل — لا يؤثر على القرار أو الأسباب أعلاه</span>
+                </div>
+                <div className="mt-2 font-black text-white">{selected.journeyCrossCheck.journeyLabel}</div>
+                <div className="mt-1 text-xs text-slate-400">
+                  intent: {selected.journeyCrossCheck.checkinDetected ? 'checkin detected' : 'no checkin'}
+                  {selected.journeyCrossCheck.checkinDetected
+                    ? ` • طلب بعد المتابعة: ${selected.journeyCrossCheck.requestAfterCheckin ? 'نعم' : 'لا'} • استشارة بعد المتابعة: ${selected.journeyCrossCheck.consultationAfterCheckin ? 'نعم' : 'لا'}`
+                    : ''}
+                </div>
+                <div className="mt-1 text-xs text-slate-400">{selected.journeyCrossCheck.saleStateLabel}</div>
               </section>
 
               {selected.reasons.length ? (

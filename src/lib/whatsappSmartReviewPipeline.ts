@@ -8,6 +8,9 @@ import { buildSmartQuickDecision, type SmartQuickDecisionResult } from './whatsa
 import { applySmartReviewMessageScope, type SmartReviewScopeInput, type SmartReviewScopeResult } from './whatsappSmartReviewScope';
 import type { SmartConversationReviewResult, SmartOwnedReviewSummary } from './whatsappSmartReviewResult';
 import type { SmartStaffRole } from './whatsappSmartReviewOwnership';
+import { buildUnifiedConversationIntelligence, type UnifiedInvoiceVerification } from './whatsappUnifiedIntelligenceV4';
+import { buildWhatsAppOperationalIntelligenceV6 } from './whatsappOperationalIntelligenceV6';
+import { classifyConversationJourney, type ConversationJourneyResult } from './whatsappConversationJourneyClassifier';
 
 export interface SmartReviewPipelineInput extends SmartReviewScopeInput {
   invoiceVerified?: boolean;
@@ -21,6 +24,29 @@ export interface SmartReviewPipelineResult {
   conversationIntelligence: SmartDeepConversationAnalysis | null;
   intelligence: SmartDeepConversationAnalysis | null;
   qualityGate: SmartReviewQualityGate | null;
+  /**
+   * Cross-check output فقط (V6/V4-based journey classification) — مصدر مستقل تمامًا عن
+   * SmartIntent/analyzeSmartConversationDeep الموجود فوق. Per القرار الحالي (Option a):
+   * ما بيغيّرش decision/review/qualityGate خالص، وما بيتلغيش لو staffName/role مش موجودين
+   * (بيتحسب على الجلسة كلها مش الـscoped session، عشان ياخد الصورة الكاملة للرحلة). لازم
+   * يتعرض في الواجهة بشكل منفصل وواضح، مش يندمج بصمت مع نتيجة SmartIntent.
+   *
+   * ملحوظة: saleState هنا لسه بيعتمد على input.invoiceVerified/invoiceMatchAmbiguous
+   * (Boolean موجود بالفعل في الـpipeline) كقيمة مؤقتة، مش استدعاء verifySessionAgainstInvoices
+   * الحقيقي — ده هيتوصل في خطوة منفصلة (رقم 9) لسه ما اتنفذتش.
+   */
+  journeyCrossCheck: ConversationJourneyResult;
+}
+
+function interimInvoiceVerification(input: Pick<SmartReviewPipelineInput, 'invoiceVerified' | 'invoiceMatchAmbiguous'>): UnifiedInvoiceVerification {
+  const status = input.invoiceVerified ? 'verified' : input.invoiceMatchAmbiguous ? 'needs_review' : 'not_applicable';
+  return { status, bestCandidate: null, candidates: [], verificationConfidence: status === 'verified' ? 0.9 : status === 'needs_review' ? 0.5 : 1, revenue: null, reason: 'قيمة مؤقتة من input.invoiceVerified الموجود بالفعل بالـpipeline — لسه مفيش استدعاء verifySessionAgainstInvoices الحقيقي (خطوة 9 لسه ما اتنفذتش).', warnings: [] };
+}
+
+function buildJourneyCrossCheck(session: WhatsAppConversationSession, input: Pick<SmartReviewPipelineInput, 'invoiceVerified' | 'invoiceMatchAmbiguous'>): ConversationJourneyResult {
+  const base = buildUnifiedConversationIntelligence(session);
+  const operational = buildWhatsAppOperationalIntelligenceV6(session, base);
+  return classifyConversationJourney(session, operational, base, interimInvoiceVerification(input));
 }
 
 function unique<T>(items: T[]) {
@@ -103,6 +129,7 @@ export function runSmartReviewPipeline(
   input: SmartReviewPipelineInput,
 ): SmartReviewPipelineResult {
   const conversationIntelligence = refineSmartDeepConversationAnalysis(session, analyzeSmartConversationDeep(session));
+  const journeyCrossCheck = buildJourneyCrossCheck(session, input);
   const scope = applySmartReviewMessageScope(session, input);
   if (!scope.valid || !scope.scoredSession) {
     return {
@@ -112,6 +139,7 @@ export function runSmartReviewPipeline(
       conversationIntelligence,
       intelligence: null,
       qualityGate: null,
+      journeyCrossCheck,
     };
   }
 
@@ -127,6 +155,7 @@ export function runSmartReviewPipeline(
       conversationIntelligence,
       intelligence,
       qualityGate,
+      journeyCrossCheck,
     };
   }
 
@@ -155,5 +184,6 @@ export function runSmartReviewPipeline(
     conversationIntelligence,
     intelligence,
     qualityGate,
+    journeyCrossCheck,
   };
 }

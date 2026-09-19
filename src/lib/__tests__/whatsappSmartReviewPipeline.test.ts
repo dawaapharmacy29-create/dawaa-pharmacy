@@ -61,4 +61,43 @@ describe('whatsappSmartReviewPipeline', () => {
     expect(result.review).toBeNull();
     expect(result.decision.reasons.join(' ')).toContain('اختيار المسؤول');
   });
+
+  describe('journeyCrossCheck (V6/V4-based, additive — never touches review/decision)', () => {
+    it('is always present, even when the scope is invalid (before any staff/decision logic runs)', () => {
+      const result = runSmartReviewPipeline(s, {
+        staffName: 'شبل', role: 'pharmacist',
+        from: new Date('2026-09-13T03:06:00'),
+        to: new Date('2026-09-13T03:05:00'), // invalid range -> scope.valid === false
+      });
+      expect(result.review).toBeNull();
+      expect(result.journeyCrossCheck).toBeTruthy();
+      expect(result.journeyCrossCheck.journeyType).toBeTruthy();
+    });
+
+    it('is always present even when no staff/role was selected yet', () => {
+      const result = runSmartReviewPipeline(s, { from: new Date('2026-09-13T03:02:00'), to: new Date('2026-09-13T03:03:00') });
+      expect(result.review).toBeNull();
+      expect(result.journeyCrossCheck).toBeTruthy();
+    });
+
+    it('is computed on the full session, independent of scope/staff selection, and never appears inside review/decision/qualityGate', () => {
+      const a = runSmartReviewPipeline(s, {
+        staffName: 'شبل', role: 'pharmacist',
+        from: new Date('2026-09-13T03:05:00'),
+        to: new Date('2026-09-13T03:06:00'),
+        contextMessages: 1,
+      });
+      const b = runSmartReviewPipeline(s, {
+        staffName: 'اسلام', role: 'pharmacist',
+        from: new Date('2026-09-13T03:01:00'),
+        to: new Date('2026-09-13T03:02:00'),
+      });
+      // نفس الجلسة، اختيار staff/scope مختلف تمامًا -> نفس journeyCrossCheck (مبني على
+      // الجلسة الكاملة)، وده دليل إنه مستقل عن أي قرار مراجعة أو نطاق.
+      expect(a.journeyCrossCheck).toEqual(b.journeyCrossCheck);
+      expect(JSON.stringify(a.review)).not.toContain('journeyType');
+      expect(JSON.stringify(a.decision)).not.toContain('journeyType');
+      expect(JSON.stringify(a.qualityGate)).not.toContain('journeyType');
+    });
+  });
 });
