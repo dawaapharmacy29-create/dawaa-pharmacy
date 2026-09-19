@@ -14,7 +14,6 @@
 // handoff بين فرعين.
 import type { WhatsAppConversationSession } from '@/lib/whatsappConversationParser';
 import type { WhatsAppParticipantRoleModelV15 } from '@/lib/whatsappParticipantRoleResolverV15';
-import { buildSmartOwnershipTimeline } from '@/lib/whatsappSmartReviewOwnership';
 import { resolveWhatsAppStaffV6 } from '@/lib/whatsappStaffResolverV6';
 
 export type BranchHintSource = 'source' | 'active_owner' | 'staff_resolver' | 'majority_fallback' | 'none';
@@ -44,16 +43,28 @@ export async function resolveConversationBranchHint(
     return { value: trimmedSource, source: 'source', reason: 'الفرع مُسجَّل فعليًا على مصدر الاستيراد (whatsapp_review_sources.branch).' };
   }
 
-  const timeline = buildSmartOwnershipTimeline(session);
-  const firstOwner = timeline.episodes.find((e) => e.eligibleForScoring)?.ownerName || null;
-  if (firstOwner) {
-    const resolved = await resolveWhatsAppStaffV6([firstOwner], null);
+  const firstResolvedOwner = roles.messages.find(
+    (message) => message.role !== 'customer' && message.role !== 'system' && Boolean(message.staffName || message.staffId)
+  );
+  if (firstResolvedOwner?.branch) {
+    return {
+      value: firstResolvedOwner.branch,
+      source: 'active_owner',
+      reason: `فرع أول موظف تم ربطه فعليًا بأول جزء من المحادثة (${firstResolvedOwner.staffName || firstResolvedOwner.sender}) — قبل أي handoff لاحق.`,
+    };
+  }
+  if (firstResolvedOwner?.staffName) {
+    const resolved = await resolveWhatsAppStaffV6([firstResolvedOwner.staffName], null);
     if (resolved.staff?.branch) {
-      return { value: resolved.staff.branch, source: 'active_owner', reason: `فرع أول موظف متحقق منه بدأ ملكية المحادثة (${firstOwner}) — قبل أي handoff محتمل لاحقًا.` };
+      return {
+        value: resolved.staff.branch,
+        source: 'active_owner',
+        reason: `فرع أول موظف تم التعرف عليه من تسلسل الرسائل (${firstResolvedOwner.staffName}).`,
+      };
     }
   }
 
-  const candidateNames = [...new Set([...timeline.verifiedStaff.map((s) => s.name), ...session.outboundStaffNames])];
+  const candidateNames = [...new Set([...roles.staff.map((s) => s.staffName), ...session.outboundStaffNames].filter(Boolean))];
   if (candidateNames.length) {
     const resolved = await resolveWhatsAppStaffV6(candidateNames, null);
     if (resolved.staff?.branch) {
