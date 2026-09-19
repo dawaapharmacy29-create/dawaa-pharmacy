@@ -65,6 +65,26 @@ describe('classifyConversationJourney', () => {
     expect(result.journeyType).toBe('direct_customer_request');
   });
 
+  it('customer greeting alone is not misclassified as a direct request', () => {
+    const result = classify(
+      `[9/15/26, 9:00:00 AM] Customer: مساء الخير
+[9/15/26, 9:01:00 AM] You: مساء النور تحت أمر حضرتك`
+    );
+    expect(result.checkinDetected).toBe(false);
+    expect(result.journeyType).toBe('other');
+  });
+
+  it('verified invoice without a request after the check-in does not claim the check-in converted the sale', () => {
+    const result = classify(
+      `[9/15/26, 9:00:00 AM] You: حبينا نطمن عليك بعد العلاج
+[9/15/26, 9:01:00 AM] Customer: الحمد لله تمام`,
+      { ...NOT_APPLICABLE, status: 'verified' }
+    );
+    expect(result.saleState).toBe('invoice_verified_sale');
+    expect(result.requestAfterCheckin).toBe(false);
+    expect(result.journeyType).toBe('checkin_ack_only');
+  });
+
   it('a check-in that leads to an invoice-verified sale -> checkin_then_verified_sale', () => {
     const result = classify(
       `[9/15/26, 9:00:00 AM] You: عامل ايه حضرتك؟ حبينا نطمن عليك\n[9/15/26, 9:01:00 AM] Customer: الحمد لله كويس، عايز اطلب فيتامين د\n[9/15/26, 9:02:00 AM] You: تم تأكيد الطلب`,
