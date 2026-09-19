@@ -17,6 +17,7 @@ import {
   type LocalInboxCandidate,
 } from '@/lib/localWhatsAppInbox';
 import { aggregateBestMessages } from '@/lib/whatsappExperiments/smartConversationIntelligence';
+import { buildUnifiedExperimentAnalytics } from '@/lib/whatsappExperiments/unifiedAnalytics';
 import type {
   ExperimentApproach,
   ExperimentFileLogEntry,
@@ -124,6 +125,108 @@ function BestMessagesPanel({ log }: { log: ExperimentFileLogEntry[] }) {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+
+function UnifiedAnalyticsPanel({ log }: { log: ExperimentFileLogEntry[] }) {
+  const results = useMemo(() => log.flatMap((entry) => entry.smartIntelligence || []), [log]);
+  const analytics = useMemo(() => buildUnifiedExperimentAnalytics(results), [results]);
+  if (!results.length) return null;
+
+  return (
+    <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 className="font-black text-[var(--dawaa-theme-heading)]">التحليل التشغيلي الموحّد</h3>
+          <p className="mt-1 text-[11px] font-bold text-[var(--dawaa-theme-muted)]">
+            البيع المؤكد لا يُحسب إلا من Invoice Verification، والمحادثات غير التجارية لا تدخل مقام التحويل.
+          </p>
+        </div>
+        <div className="rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-black text-emerald-300">
+          Verified conversion: {analytics.verifiedConversionRate ?? '-'}%
+        </div>
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+        <SummaryTile label="المحادثات" value={analytics.totalConversations} />
+        <SummaryTile label="فرص تجارية" value={analytics.commercialChats} tone="text-sky-300" />
+        <SummaryTile label="بيع مؤكد" value={analytics.verifiedSales} tone="text-emerald-300" />
+        <SummaryTile label="بيع مرجح" value={analytics.probableSales} tone="text-amber-300" />
+        <SummaryTile label="إشارة بيع فقط" value={analytics.chatSaleSignals} tone="text-violet-300" />
+        <SummaryTile label="بدون فاتورة مؤكدة" value={analytics.noVerifiedInvoice} />
+      </div>
+
+      <div className="mt-3 grid gap-3 lg:grid-cols-2">
+        <div className="rounded-xl border border-[var(--dawaa-theme-border)] p-3 text-xs">
+          <div className="font-black text-[var(--dawaa-theme-heading)]">مقارنة الدورة</div>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <div className="rounded-lg bg-black/10 p-2">
+              <div className="text-[10px] text-slate-500">الحالية</div>
+              <div className="font-black">{analytics.currentCycle.label}</div>
+              <div className="mt-1 text-slate-400">
+                {analytics.currentCycle.verifiedSales}/{analytics.currentCycle.commercialChats} بيع مؤكد · {analytics.currentCycle.verifiedConversionRate ?? '-'}%
+              </div>
+            </div>
+            <div className="rounded-lg bg-black/10 p-2">
+              <div className="text-[10px] text-slate-500">السابقة</div>
+              <div className="font-black">{analytics.previousCycle.label}</div>
+              <div className="mt-1 text-slate-400">
+                {analytics.previousCycle.verifiedSales}/{analytics.previousCycle.commercialChats} بيع مؤكد · {analytics.previousCycle.verifiedConversionRate ?? '-'}%
+              </div>
+            </div>
+          </div>
+          <div className="mt-2 text-[11px] text-slate-400">
+            التغير: {analytics.verifiedConversionChangePp == null ? '-' : String(analytics.verifiedConversionChangePp) + ' نقطة مئوية'}
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-[var(--dawaa-theme-border)] p-3 text-xs">
+          <div className="font-black text-[var(--dawaa-theme-heading)]">الفروع — بيانات التجربة الحالية</div>
+          <div className="mt-2 space-y-1">
+            {analytics.byBranch.slice(0, 6).map((row) => (
+              <div key={row.key} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-black/10 p-2">
+                <span className="font-black">{row.label}</span>
+                <span className="text-slate-400">
+                  {row.conversations} محادثة · {row.verifiedSales}/{row.commercialChats} بيع مؤكد · {row.verifiedConversionRate ?? '-'}%
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {analytics.byStaff.length ? (
+        <div className="mt-3 overflow-x-auto">
+          <div className="mb-1 text-xs font-black text-[var(--dawaa-theme-heading)]">مشاركة الموظفين</div>
+          <table className="w-full min-w-[620px] text-[11px]">
+            <thead>
+              <tr className="text-slate-500">
+                <th className="text-right">الموظف</th>
+                <th className="text-right">محادثات شارك فيها</th>
+                <th className="text-right">فرص تجارية</th>
+                <th className="text-right">بيع مؤكد داخل المحادثات</th>
+                <th className="text-right">Burst Reply Rate</th>
+              </tr>
+            </thead>
+            <tbody>
+              {analytics.byStaff.slice(0, 10).map((row) => (
+                <tr key={row.key} className="border-t border-[var(--dawaa-theme-border)]">
+                  <td className="py-1 font-bold">{row.label}</td>
+                  <td>{row.conversations}</td>
+                  <td>{row.commercialChats}</td>
+                  <td>{row.verifiedSales}</td>
+                  <td>{row.burstReplyRate == null ? '-' : String(row.burstReplyRate) + '%'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="mt-1 text-[10px] text-slate-500">
+            مشاركة الموظف لا تعني Attribution نهائي للبيع لو المحادثة شارك فيها أكثر من شخص.
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -386,6 +489,8 @@ export default function WhatsAppExperimentPage({
           </div>
         ) : null}
       </div>
+
+      <UnifiedAnalyticsPanel log={log} />
 
       <BestMessagesPanel log={log} />
 
