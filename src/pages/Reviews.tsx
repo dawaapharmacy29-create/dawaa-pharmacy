@@ -427,6 +427,9 @@ export default function Reviews() {
   const [repeatInfo, setRepeatInfo] = useState<{ count: number; multiplier: number } | null>(null);
   const [smartSnapshot, setSmartSnapshot] = useState<ConversationReviewSnapshot | null>(null);
   const [smartTransferApplied, setSmartTransferApplied] = useState(false);
+  // لو staffIdentity من الـWatcher جالها أكتر من مرشح محتمل (ambiguous) — ما نختارش تلقائيًا،
+  // نعرض القائمة ونستنى اختيار بشري صريح من staffOptions.
+  const [ambiguousStaffIdentity, setAmbiguousStaffIdentity] = useState<ConversationReviewSnapshot['staffIdentity'] | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [reviewHistory, setReviewHistory] = useState<ConversationReviewHistoryRow[]>([]);
@@ -697,13 +700,17 @@ export default function Reviews() {
       return;
     }
 
-    const normalizedTarget = normalizeArabicName(snapshot.staffName || '');
-    const matchedStaff = staffOptions.find(
-      (item) => normalizeArabicName(item.name || '') === normalizedTarget
-    );
-
-    // استنى تحميل قائمة الموظفين قبل ما نعتبر إن المطابقة فشلت.
-    if (!matchedStaff && !staffOptions.length) return;
+    const identity = snapshot.staffIdentity;
+    // Legacy snapshots (من قبل staffIdentity contract) لسه محتاجين مطابقة بالاسم القديمة —
+    // مفيش داعي غيرها لو مفيش identity خالص جايه من الـWatcher.
+    const isLegacySnapshot = !identity;
+    let matchedStaff: (typeof staffOptions)[number] | undefined;
+    if (isLegacySnapshot) {
+      const normalizedTarget = normalizeArabicName(snapshot.staffName || '');
+      matchedStaff = staffOptions.find((item) => normalizeArabicName(item.name || '') === normalizedTarget);
+      // استنى تحميل قائمة الموظفين قبل ما نعتبر إن المطابقة فشلت (مسار legacy بس).
+      if (!matchedStaff && !staffOptions.length) return;
+    }
 
     const firstScored =
       snapshot.messages.find((message) => message.scope === 'scored') ||
@@ -719,6 +726,43 @@ export default function Reviews() {
       : isoInputNow();
 
     setSmartSnapshot(snapshot);
+
+    // المسار الجديد: هوية مؤكدة (staff_id حقيقي، مش ambiguous) — تُستخدم مباشرة، بدون أي
+    // إعادة تخمين بالاسم خالص.
+    if (identity && identity.staffId && !identity.ambiguous) {
+      if (identity.branch) setTargetBranch(normalizeBranchName(identity.branch));
+      setForm((current) => ({
+        ...current,
+        staffId: identity.staffId!,
+        customerName: snapshot.customerName || current.customerName,
+        evaluationKind: 'واتساب',
+        evaluationReason: 'متابعة جودة',
+        conversationDate,
+      }));
+      setAmbiguousStaffIdentity(null);
+      clearPendingConversationReviewTransfer();
+      setSmartTransferApplied(true);
+      toast.success(`تم تجهيز Draft التقييم لـ ${identity.canonicalStaffName} (${identity.identitySource}) من المحادثة الذكية`);
+      return;
+    }
+
+    // هوية غامضة (أكتر من مرشح) — ما نختارش تلقائيًا، نعرض القائمة ونستنى اختيار بشري.
+    if (identity && identity.ambiguous) {
+      setForm((current) => ({
+        ...current,
+        customerName: snapshot.customerName || current.customerName,
+        evaluationKind: 'واتساب',
+        evaluationReason: 'متابعة جودة',
+        conversationDate,
+      }));
+      setAmbiguousStaffIdentity(identity);
+      clearPendingConversationReviewTransfer();
+      setSmartTransferApplied(true);
+      toast.warning(`المسؤول غير محسوم — "${identity.displayName}" مطابق لأكتر من موظف، اختر يدويًا من القائمة`);
+      return;
+    }
+
+    // legacy fallback (بالاسم فقط) — نفس السلوك القديم بالظبط.
     if (matchedStaff?.branch) setTargetBranch(normalizeBranchName(matchedStaff.branch));
     setForm((current) => ({
       ...current,
@@ -728,6 +772,7 @@ export default function Reviews() {
       evaluationReason: 'متابعة جودة',
       conversationDate,
     }));
+    setAmbiguousStaffIdentity(null);
     clearPendingConversationReviewTransfer();
     setSmartTransferApplied(true);
 
@@ -1954,6 +1999,46 @@ export default function Reviews() {
               <div className="mt-1">لا يتم اعتماد أي درجة إلا بعد مراجعتك وحفظ النموذج.</div>
             </div>
           </div>
+
+          {smartSnapshot.staffIdentity ? (
+            <div className={`border-b border-white/10 px-4 py-3 text-xs ${smartSnapshot.staffIdentity.staffId && !smartSnapshot.staffIdentity.ambiguous ? 'bg-emerald-950/20 text-emerald-100' : 'bg-rose-950/20 text-rose-100'}`}>
+              {smartSnapshot.staffIdentity.staffId && !smartSnapshot.staffIdentity.ambiguous ? (
+                <div>
+                  هوية الموظف: <span className="text-slate-300">{smartSnapshot.staffIdentity.displayName}</span>
+                  <span className="mx-1 text-emerald-400">→</span>
+                  <b>{smartSnapshot.staffIdentity.canonicalStaffName}</b>
+                  {' | '}{smartSnapshot.staffIdentity.role || '-'}{' | '}{smartSnapshot.staffIdentity.branch || 'فرع غير محدد'}{' | ثقة '}{smartSnapshot.staffIdentity.identityConfidence}%
+                  <span className="mr-2 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-black">{smartSnapshot.staffIdentity.identitySource}</span>
+                </div>
+              ) : (
+                <div className="font-bold">⚠ المسؤول غير محسوم — اختر يدويًا من قائمة "المسؤول" تحت قبل الحفظ.</div>
+              )}
+            </div>
+          ) : null}
+
+          {ambiguousStaffIdentity ? (
+            <div className="border-b border-white/10 bg-rose-950/10 px-4 py-3">
+              <div className="mb-2 text-xs font-black text-rose-200">مرشحون محتملون لـ "{ambiguousStaffIdentity.displayName}":</div>
+              <div className="flex flex-wrap gap-2">
+                {ambiguousStaffIdentity.candidates.map((c, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => {
+                      setForm((current) => ({ ...current, staffId: c.staffId }));
+                      if (c.branch) setTargetBranch(normalizeBranchName(c.branch));
+                      setAmbiguousStaffIdentity(null);
+                      toast.success(`تم اختيار ${c.canonicalStaffName} يدويًا`);
+                    }}
+                    className="rounded-xl border border-rose-700/50 bg-rose-950/30 px-3 py-2 text-right text-xs text-rose-100 hover:bg-rose-900/40"
+                  >
+                    <div className="font-black">{c.canonicalStaffName}</div>
+                    <div className="mt-0.5 text-rose-300">{c.role || '-'} • {c.branch || 'فرع غير محدد'} • ثقة {c.confidence}%</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           {smartSnapshot.decision.reasons.length ? (
             <div className="border-b border-white/10 bg-amber-950/20 px-4 py-3 text-xs leading-6 text-amber-100">

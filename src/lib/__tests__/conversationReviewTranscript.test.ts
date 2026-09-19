@@ -71,4 +71,28 @@ describe('conversationReviewTranscript', () => {
     expect(withMetrics.outboundBurstMetrics).toEqual(metrics);
     expect(parseConversationReviewSnapshot(JSON.stringify(withMetrics))?.outboundBurstMetrics).toEqual(metrics);
   });
+
+  it('staffIdentity (resolved staff_id, branch, confidence, source) round-trips through JSON unchanged', () => {
+    const messages = [msg('m1', '2026-09-13T03:01:00', 'inbound', 'السلام عليكم')];
+    const identity = {
+      staffId: 's1', accountId: 'a1', canonicalStaffName: 'اسلام محمد', displayName: 'اسلام',
+      role: 'pharmacist', branch: 'فرع الشامي', identityConfidence: 91,
+      identitySource: 'v15_resolved_id' as const, ambiguous: false, candidates: [],
+    };
+    const snapshot = buildConversationReviewSnapshot({
+      session: { ...session, messages }, displayMessages: messages,
+      scoredMessageIds: ['m1'], contextMessageIds: [], staffName: 'اسلام', staffRole: 'pharmacist',
+      decision: { decision: 'clear', reasons: [], affectedCriteria: [], evidenceMessageIds: [], safeToQuickApprove: true },
+      staffIdentity: identity,
+    });
+    expect(snapshot.staffIdentity).toEqual(identity);
+    expect(parseConversationReviewSnapshot(JSON.stringify(snapshot))?.staffIdentity).toEqual(identity);
+
+    const withoutIdentity = buildConversationReviewSnapshot({
+      session: { ...session, messages }, displayMessages: messages,
+      scoredMessageIds: ['m1'], contextMessageIds: [], staffName: 'اسلام', staffRole: 'pharmacist',
+      decision: { decision: 'clear', reasons: [], affectedCriteria: [], evidenceMessageIds: [], safeToQuickApprove: true },
+    });
+    expect(withoutIdentity.staffIdentity).toBeUndefined();
+  });
 });
