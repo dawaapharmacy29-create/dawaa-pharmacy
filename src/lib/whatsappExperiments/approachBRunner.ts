@@ -9,6 +9,7 @@ import { persistAutomaticWhatsAppReview } from '@/lib/whatsappAutomaticReviewPer
 import { evaluateAutomaticWhatsAppReview } from '@/lib/whatsappAutomaticReviewScoring';
 import { getCycleForDate } from '@/lib/pharmacy-cycle';
 import { AUTOMATIC_REVIEW_REVIEWER_LABEL } from '@/lib/conversationReviews';
+import { analyzeSmartConversationIntelligence, type SmartConversationIntelligenceResult } from './smartConversationIntelligence';
 import type {
   ApproachBCriterionDetail,
   ApproachBResultDetail,
@@ -17,6 +18,14 @@ import type {
   ExperimentSessionSnapshot,
 } from './types';
 import { toExperimentSessionSnapshot } from './sessionSnapshot';
+
+async function analyzeSmartWithError(session: Parameters<typeof analyzeSmartConversationIntelligence>[0]) {
+  try {
+    return { result: await analyzeSmartConversationIntelligence(session), error: null as string | null };
+  } catch (error) {
+    return { result: null as SmartConversationIntelligenceResult | null, error: error instanceof Error ? error.message : 'فشل التحليل الذكي' };
+  }
+}
 
 const MINIMAL_LINK_PARSER_VERSION = 'approach-b-standalone-experiment-v1';
 
@@ -88,6 +97,8 @@ async function runApproachBDry(file: File): Promise<ExperimentFileLogEntry> {
   const startedAt = performance.now();
   const errors: string[] = [];
   const approachB: ApproachBResultDetail[] = [];
+  const smartIntelligence: SmartConversationIntelligenceResult[] = [];
+  const smartIntelligenceErrors: string[] = [];
   let sessionsFound = 0;
   let sessions: ExperimentSessionSnapshot[] = [];
 
@@ -101,6 +112,9 @@ async function runApproachBDry(file: File): Promise<ExperimentFileLogEntry> {
 
     for (const session of parsedSessions) {
       try {
+        const smart = await analyzeSmartWithError(session);
+        if (smart.result) smartIntelligence.push(smart.result);
+        if (smart.error) smartIntelligenceErrors.push(`جلسة ${session.id}: ${smart.error}`);
         const { build, result } = evaluateAutomaticWhatsAppReview(session, session.customerName);
         const traceByKey = new Map(build.trace.map((item) => [item.key, item]));
         const criteria: ApproachBCriterionDetail[] = build.suggestion.items.map((item) => {
@@ -163,8 +177,9 @@ async function runApproachBDry(file: File): Promise<ExperimentFileLogEntry> {
       pointsFailed: 0,
     },
     sessions,
-    sessions,
     approachB,
+    smartIntelligence,
+    smartIntelligenceErrors,
     errors,
   };
 }
@@ -173,6 +188,8 @@ async function runApproachBLive(file: File): Promise<ExperimentFileLogEntry> {
   const startedAt = performance.now();
   const errors: string[] = [];
   const approachB: ApproachBResultDetail[] = [];
+  const smartIntelligence: SmartConversationIntelligenceResult[] = [];
+  const smartIntelligenceErrors: string[] = [];
   let sessionsFound = 0;
   let sessions: ExperimentSessionSnapshot[] = [];
 
@@ -186,6 +203,9 @@ async function runApproachBLive(file: File): Promise<ExperimentFileLogEntry> {
 
     for (const session of parsedSessions) {
       try {
+        const smart = await analyzeSmartWithError(session);
+        if (smart.result) smartIntelligence.push(smart.result);
+        if (smart.error) smartIntelligenceErrors.push(`جلسة ${session.id}: ${smart.error}`);
         const { sourceId } = await ensureMinimalLinkingSource(session, source.sourceFileName);
         const outcome = await persistAutomaticWhatsAppReview({
           sourceId,
@@ -223,7 +243,10 @@ async function runApproachBLive(file: File): Promise<ExperimentFileLogEntry> {
       failed: approachB.filter((r) => r.status === 'failed').length,
       pointsFailed: approachB.filter((r) => Boolean(r.pointsError)).length,
     },
+    sessions,
     approachB,
+    smartIntelligence,
+    smartIntelligenceErrors,
     errors,
   };
 }
