@@ -196,6 +196,7 @@ export default function WhatsAppSmartFolderWatcher() {
         // يخفّض ثقة أي بند دليله رسالة ميديا مفقودة.
         const officialReviewDraft = buildSmartOfficialReviewDraftV1(result.scope.scoredSession, session.customerName, {
           missingMediaMessageIds: result.qualityGate?.criticalMissingMediaMessageIds || [],
+          journey: result.journeyCrossCheck,
         });
 
         const snapshot = buildConversationReviewSnapshot({
