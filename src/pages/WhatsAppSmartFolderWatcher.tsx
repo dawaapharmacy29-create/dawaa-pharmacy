@@ -463,7 +463,7 @@ export default function WhatsAppSmartFolderWatcher() {
               </section>
 
               {selected.snapshot.smartIntelligence?.customer ? (
-                <section className={`rounded-2xl border p-4 ${selected.snapshot.smartIntelligence.customer.strategy === 'ambiguous' ? 'border-rose-800/60 bg-rose-950/20' : selected.snapshot.smartIntelligence.customer.customer ? 'border-cyan-800/50 bg-cyan-950/10' : 'border-slate-800 bg-slate-950/20'}`}>
+                <section className={`rounded-2xl border p-4 ${selected.snapshot.smartIntelligence.customer.customer ? 'border-cyan-800/50 bg-cyan-950/10' : selected.snapshot.smartIntelligence.customer.candidates.length ? 'border-amber-800/60 bg-amber-950/20' : 'border-slate-800 bg-slate-950/20'}`}>
                   {selected.snapshot.smartIntelligence.customer.customer ? (
                     <div className="text-sm text-cyan-100">
                       <b>{selected.snapshot.smartIntelligence.customer.customer.name}</b>
@@ -474,17 +474,22 @@ export default function WhatsAppSmartFolderWatcher() {
                         </div>
                       ) : null}
                     </div>
-                  ) : selected.snapshot.smartIntelligence.customer.strategy === 'ambiguous' ? (
+                  ) : selected.snapshot.smartIntelligence.customer.candidates.length ? (
                     <div>
-                      <div className="font-black text-rose-200">⚠ العميل غير محسوم</div>
-                      <div className="mt-1 flex flex-wrap gap-2">
-                        {selected.snapshot.smartIntelligence.customer.candidates.map((c, i) => (
-                          <div key={i} className="rounded-lg border border-rose-900/40 bg-black/10 p-2 text-xs text-rose-100">{c.name} | كود {c.code || '-'} | {c.branch || '-'}</div>
+                      <div className="font-black text-amber-200">⚠ العميل غير محدد بثقة كافية</div>
+                      <div className="mt-1 text-xs leading-6 text-slate-400">{selected.snapshot.smartIntelligence.customer.reason}</div>
+                      <div className="mt-2 text-[11px] font-bold text-slate-500">أقرب المرشحين الموثوقين فقط — لا يتم اختيار أي عميل تلقائيًا:</div>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {selected.snapshot.smartIntelligence.customer.candidates.slice(0, 3).map((c, i) => (
+                          <div key={i} className="rounded-lg border border-amber-900/40 bg-black/10 p-2 text-xs text-amber-100">{c.name} | كود {c.code || '-'} | {c.branch || '-'}</div>
                         ))}
                       </div>
                     </div>
                   ) : (
-                    <div className="text-xs font-bold text-slate-400">لم يتم التعرف على العميل في قاعدة العملاء.</div>
+                    <div>
+                      <div className="text-xs font-black text-slate-300">تعذر تحديد العميل تلقائيًا</div>
+                      <div className="mt-1 text-xs leading-6 text-slate-500">{selected.snapshot.smartIntelligence.customer.reason}</div>
+                    </div>
                   )}
                 </section>
               ) : null}
