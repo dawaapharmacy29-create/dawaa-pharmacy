@@ -26,7 +26,7 @@ patchFile('src/lib/whatsappConversationSignals.ts', [
 
 const customerResolverPath = path.join(process.cwd(), 'src/lib/whatsappCustomerResolverV4.ts');
 const customerResolverSource = fs.readFileSync(customerResolverPath, 'utf8');
-if (customerResolverSource.includes("strategy: 'strong_name_candidates'") && customerResolverSource.includes('customerNameSimilarity')) {
+if (customerResolverSource.includes("'strong_name_candidates'") && customerResolverSource.includes('customerNameSimilarity')) {
   console.log('[whatsapp-analysis-quality-v5] hardened customer resolver detected; legacy resolver patches skipped');
 } else {
   patchFile('src/lib/whatsappCustomerResolverV4.ts', [
