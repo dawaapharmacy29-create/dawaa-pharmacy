@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Clock, Download, Filter, Fingerprint, LocateFixed, LogIn, LogOut, Printer, RefreshCw, Search, ShieldAlert, UserCheck, Users, XCircle } from 'lucide-react';
+import { AlertTriangle, CalendarClock, CheckCircle2, Clock, ClipboardCheck, Download, Filter, Fingerprint, LocateFixed, LogIn, LogOut, Printer, RefreshCw, Search, ShieldAlert, UserCheck, Users, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
@@ -10,12 +10,16 @@ import { createNotification } from '@/lib/notificationService';
 import { normalizeBranchName } from '@/lib/branch';
 import { canSeeAllBranches } from '@/lib/security/permissionScopes';
 import { fetchAttendanceReportRows, type AttendanceReportRow } from '@/lib/attendance/attendanceReportRows';
+import { listAttendanceResolutionQueue } from '@/lib/attendance/attendanceResolutionService';
+import { addDays } from '@/lib/attendance/period';
+import { listStaffTimeOffRequests } from '@/lib/timeOffService';
 import { lazy, Suspense } from 'react';
 const AttendanceSyncCommandCenter = lazy(() => import('@/components/attendance/AttendanceSyncCommandCenter'));
 const AttendanceResolutionCenter = lazy(() => import('@/components/attendance/AttendanceResolutionCenter'));
 const EmployeeAttendanceBreakdown = lazy(() => import('@/components/attendance/EmployeeAttendanceBreakdown'));
 const SmartDailyCommandTable = lazy(() => import('@/components/attendance/SmartDailyCommandTable'));
 const BranchRoleRatesPanel = lazy(() => import('@/components/attendance/BranchRoleRatesPanel'));
+const TimeOffPanel = lazy(() => import('@/pages/TimeOff'));
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   fetchAttendanceLocations,
@@ -29,7 +33,7 @@ import {
   type DevicePosition,
 } from '@/lib/attendanceGeoService';
 
-type Tab = 'clock' | 'today' | 'resolution' | 'sync' | 'report' | 'logs';
+type Tab = 'clock' | 'today' | 'resolution' | 'timeoff' | 'sync' | 'report' | 'logs';
 type AttendanceRow = AttendanceReportRow;
 
 type DailyCommandRow = {
@@ -101,6 +105,22 @@ interface StaffSummary {
   total_days: number;
   attendance_rate: number;
   avg_checkin: string | null;
+}
+
+interface ApprovalsSummary {
+  pendingResolutions: number | null;
+  pendingDeductions: number | null;
+  pendingTimeOff: number | null;
+  unmappedBiometrics: number | null;
+}
+
+function settledCount(result: PromiseSettledResult<any>): number | null {
+  if (result.status !== 'fulfilled') return null;
+  const value = result.value;
+  if (value == null) return null;
+  if (Array.isArray(value)) return value.length;
+  if (value.error) return null;
+  return Array.isArray(value.data) ? value.data.length : null;
 }
 
 const MANAGER_TODAY_ROLES = new Set(['general_manager', 'executive_manager', 'branches_manager', 'branch_manager', 'shift_supervisor_morning', 'shift_supervisor_evening']);
@@ -206,13 +226,15 @@ function statusClass(status: string) {
 }
 
 export default function AttendanceReport() {
-  const { user } = useAuth();
+  const { user, checkPermission, canManage } = useAuth();
   const now = new Date();
   const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const canAllBranches = canSeeAllBranches(user?.role);
   const normalizedUserBranch = normalizeBranchName(user?.branch || '');
   const isOperationalManager = MANAGER_TODAY_ROLES.has(user?.role || '');
   const canViewSyncHealth = SYNC_HEALTH_ROLES.has(user?.role || '');
+  const canViewTimeOff = checkPermission('view_attendance_leaves') || canManage;
+  const showApprovalsBar = isOperationalManager || canViewTimeOff || canViewSyncHealth;
   const [tab, setTab] = useState<Tab>(() => (isOperationalManager ? 'today' : 'clock'));
   const [month, setMonth] = useState(defaultMonth);
   const [dailyDate, setDailyDate] = useState(cairoDate());
@@ -234,6 +256,8 @@ export default function AttendanceReport() {
   const [loadingSync, setLoadingSync] = useState(false);
   const [clocking, setClocking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [approvalsSummary, setApprovalsSummary] = useState<ApprovalsSummary | null>(null);
+  const [loadingSummary, setLoadingSummary] = useState(false);
 
   const userId = user?.staffId || user?.id || null;
   const userName = user?.name || 'غير محدد';
@@ -289,6 +313,26 @@ export default function AttendanceReport() {
     finally { setLoading(false); }
   }, [effectiveBranch, endDate, startDate]);
 
+  const loadApprovalsSummary = useCallback(async () => {
+    if (!isSupabaseConfigured || !showApprovalsBar) return;
+    setLoadingSummary(true);
+    try {
+      const today = cairoDate();
+      const [resolutionResult, deductionResult, timeOffResult, unmappedResult] = await Promise.allSettled([
+        isOperationalManager ? listAttendanceResolutionQueue({ start: addDays(today, -13), end: today, branch: effectiveBranch, status: 'pending_review', limit: 200 }) : Promise.resolve(null),
+        isOperationalManager ? supabase.rpc('attendance_deduction_pending_review_v1') : Promise.resolve(null),
+        canViewTimeOff ? listStaffTimeOffRequests({ status: 'pending', limit: 200 }) : Promise.resolve(null),
+        canViewSyncHealth ? supabase.rpc('list_unmapped_biometric_staff_v1', { p_limit: 100 }) : Promise.resolve(null),
+      ]);
+      setApprovalsSummary({
+        pendingResolutions: isOperationalManager ? settledCount(resolutionResult) : null,
+        pendingDeductions: isOperationalManager ? settledCount(deductionResult) : null,
+        pendingTimeOff: canViewTimeOff ? settledCount(timeOffResult) : null,
+        unmappedBiometrics: canViewSyncHealth ? settledCount(unmappedResult) : null,
+      });
+    } finally { setLoadingSummary(false); }
+  }, [canViewSyncHealth, canViewTimeOff, effectiveBranch, isOperationalManager, showApprovalsBar]);
+
   const searchMappingCandidates = useCallback(async () => {
     if (!mappingTarget) return;
     const q = candidateSearch.trim();
@@ -325,6 +369,7 @@ export default function AttendanceReport() {
     return () => window.clearInterval(id);
   }, [tab, canViewSyncHealth, loadSyncHealth]);
   useEffect(() => { if (tab === 'report') void loadReport(); }, [tab, loadReport]);
+  useEffect(() => { void loadApprovalsSummary(); }, [tab, loadApprovalsSummary]);
 
   const branches = useMemo(() => {
     if (!canAllBranches && normalizedUserBranch) return [normalizedUserBranch];
@@ -380,10 +425,12 @@ export default function AttendanceReport() {
 
   return (
     <div className="dawaa-text dawaa-print-surface space-y-6 print:space-y-4" dir="rtl">
-      <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-5 shadow-sm print:hidden"><div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"><div><h1 className="text-2xl font-black text-[var(--dawaa-theme-heading)]">مركز الحضور والانصراف</h1><p className="mt-1 text-sm font-bold text-[var(--dawaa-theme-muted)]">الجدول المعتمد + البصمة + الأذونات والإجازات + التسوية اليومية في مسار واحد. لا يتحول أي Raw event إلى خصم أو غياب نهائي قبل اكتمال المزامنة والقرار المعتمد.</p></div><Tabs value={tab} onValueChange={(v) => setTab(v as Tab)} dir="rtl"><TabsList className="h-auto flex-wrap justify-start gap-1.5 rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-1.5">{isOperationalManager && <TabsTrigger value="today" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><Users size={16} /> اليوم</TabsTrigger>}{isOperationalManager && <TabsTrigger value="resolution" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><ShieldAlert size={16} /> التسوية والالتزام</TabsTrigger>}{canViewSyncHealth && <TabsTrigger value="sync" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><Fingerprint size={16} /> البصمات والمزامنة</TabsTrigger>}<TabsTrigger value="report" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><Filter size={16} /> التقرير الشهري</TabsTrigger><TabsTrigger value="clock" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><Fingerprint size={16} /> تسجيل حضور</TabsTrigger><TabsTrigger value="logs" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><Clock size={16} /> محاولاتي</TabsTrigger></TabsList></Tabs></div></div>
+      <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-5 shadow-sm print:hidden"><div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"><div><h1 className="text-2xl font-black text-[var(--dawaa-theme-heading)]">مركز الحضور والانصراف</h1><p className="mt-1 text-sm font-bold text-[var(--dawaa-theme-muted)]">الجدول المعتمد + البصمة + الأذونات والإجازات + الأوفر تايم + التسوية اليومية في لوحة قرار يومية واحدة. لا يتحول أي Raw event إلى خصم أو غياب نهائي قبل اكتمال المزامنة والقرار المعتمد.</p></div><Tabs value={tab} onValueChange={(v) => setTab(v as Tab)} dir="rtl"><TabsList className="h-auto flex-wrap justify-start gap-1.5 rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-1.5">{isOperationalManager && <TabsTrigger value="today" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><Users size={16} /> اليوم</TabsTrigger>}{isOperationalManager && <TabsTrigger value="resolution" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><ShieldAlert size={16} /> التسوية والالتزام <TabBadge value={(approvalsSummary?.pendingResolutions || 0) + (approvalsSummary?.pendingDeductions || 0)} /></TabsTrigger>}{canViewTimeOff && <TabsTrigger value="timeoff" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><CalendarClock size={16} /> الأذونات والإجازات <TabBadge value={approvalsSummary?.pendingTimeOff} /></TabsTrigger>}{canViewSyncHealth && <TabsTrigger value="sync" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><Fingerprint size={16} /> البصمات والمزامنة <TabBadge value={approvalsSummary?.unmappedBiometrics} /></TabsTrigger>}<TabsTrigger value="report" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><Filter size={16} /> التقرير الشهري</TabsTrigger><TabsTrigger value="clock" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><Fingerprint size={16} /> تسجيل حضور</TabsTrigger><TabsTrigger value="logs" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><Clock size={16} /> محاولاتي</TabsTrigger></TabsList></Tabs></div></div>
+      {showApprovalsBar && <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm print:hidden"><div className="mb-3 flex items-center justify-between gap-2"><h2 className="flex items-center gap-2 text-base font-black text-[var(--dawaa-theme-heading)]"><ClipboardCheck size={18} className="text-[var(--dawaa-theme-primary-strong)]" /> قرارات اليوم المطلوبة منك</h2><button onClick={() => void loadApprovalsSummary()} className="btn-secondary text-xs"><RefreshCw size={14} className={loadingSummary ? 'animate-spin' : ''} /> تحديث</button></div><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{isOperationalManager && <DecisionTile label="تسويات وأوفر تايم تحتاج مراجعة" hint="تأخير + ساعات عمل إضافي + حالات غير مكتملة (آخر 14 يوم)" value={approvalsSummary?.pendingResolutions ?? null} icon={ShieldAlert} onClick={() => setTab('resolution')} />}{isOperationalManager && <DecisionTile label="خصومات حضور بانتظار اعتمادك" hint="لا تؤثر على رصيد أي موظف قبل قرارك" value={approvalsSummary?.pendingDeductions ?? null} icon={AlertTriangle} onClick={() => setTab('resolution')} />}{canViewTimeOff && <DecisionTile label="أذونات وإجازات معلّقة" hint="طلبات إذن/إجازة بانتظار قرارك" value={approvalsSummary?.pendingTimeOff ?? null} icon={CalendarClock} onClick={() => setTab('timeoff')} />}{canViewSyncHealth && <DecisionTile label="أكواد بصمة بدون ربط بموظف" hint="بصماتهم لن تُحتسب حتى تربطها بموظف" value={approvalsSummary?.unmappedBiometrics ?? null} icon={Fingerprint} onClick={() => setTab('sync')} />}</div></div>}
       {error && <div className="rounded-xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-4 text-sm font-bold text-[var(--dawaa-status-danger-text)]">⚠️ {error}</div>}
       {tab === 'today' && <><div className="flex flex-col gap-3 rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm sm:flex-row sm:items-end"><label className="flex-1 space-y-1 text-xs font-black text-[var(--dawaa-theme-muted)]"><span>اليوم</span><input type="date" value={dailyDate} onChange={(e) => setDailyDate(e.target.value)} className="input-dark w-full" /></label><label className="flex-1 space-y-1 text-xs font-black text-[var(--dawaa-theme-muted)]"><span>الفرع</span><select value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)} className="input-dark w-full">{branches.map((b) => <option key={b}>{b}</option>)}</select></label><button onClick={() => void loadDaily()} className="btn-primary"><RefreshCw size={16} className={loadingDaily ? 'animate-spin' : ''} /> تحديث</button></div><div className="grid gap-3 md:grid-cols-5"><Metric label="موظفين في المتابعة" value={dailyTotals.staff} icon={Users} color="text-[var(--dawaa-status-info-text)] bg-[var(--dawaa-status-info-bg)] border-[var(--dawaa-status-info-border)]" /><Metric label="في الموعد/موجود" value={dailyTotals.onTime} icon={CheckCircle2} color="text-[var(--dawaa-status-success-text)] bg-[var(--dawaa-status-success-bg)] border-[var(--dawaa-status-success-border)]" /><Metric label="متأخر" value={dailyTotals.late} icon={Clock} color="text-[var(--dawaa-status-warning-text)] bg-[var(--dawaa-status-warning-bg)] border-[var(--dawaa-status-warning-border)]" /><Metric label="غياب/بصمة ناقصة" value={dailyTotals.missing} icon={XCircle} color="text-[var(--dawaa-status-danger-text)] bg-[var(--dawaa-status-danger-bg)] border-[var(--dawaa-status-danger-border)]" /><Metric label="مشاكل جدول" value={dailyTotals.issues} icon={AlertTriangle} color="text-[var(--dawaa-status-warning-text)] bg-[var(--dawaa-status-warning-bg)] border-[var(--dawaa-status-warning-border)]" /></div><Suspense fallback={<div className="h-24 animate-pulse rounded-2xl bg-[var(--dawaa-theme-surface-2)]" />}><BranchRoleRatesPanel /></Suspense>{loadingDaily ? <TableSkeleton /> : dailyRows.length ? <Suspense fallback={<TableSkeleton />}><SmartDailyCommandTable rows={dailyRows} date={dailyDate} branch={effectiveBranch} /></Suspense> : <Empty text="لا توجد بيانات جدول أو بصمة لهذا اليوم في النطاق الحالي." />}</>}
       {tab === 'resolution' && <Suspense fallback={<TableSkeleton />}><AttendanceResolutionCenter defaultBranch={effectiveBranch} /></Suspense>}
+      {tab === 'timeoff' && canViewTimeOff && <Suspense fallback={<TableSkeleton />}><TimeOffPanel /></Suspense>}
       {tab === 'sync' && <Suspense fallback={<TableSkeleton />}><AttendanceSyncCommandCenter branches={branches} defaultBranch={effectiveBranch} /></Suspense>}{tab === 'sync' && <><div className="flex items-center justify-between gap-3 rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm"><div><h2 className="font-black text-[var(--dawaa-theme-heading)]">صحة مزامنة جهاز البصمة</h2><p className="text-xs font-bold text-[var(--dawaa-theme-muted)]">مراقبة مباشرة للاتصال والمزامنة والربط. يتم التحديث تلقائيًا كل دقيقة، مع الاحتفاظ بالـRaw evidence للرقابة.</p></div><button onClick={() => void loadSyncHealth()} className="btn-primary"><RefreshCw size={16} className={loadingSync ? 'animate-spin' : ''} /> تحديث</button></div>{loadingSync ? <TableSkeleton /> : syncHealth ? <SyncHealthPanel health={syncHealth} /> : <Empty text="لا توجد بيانات مزامنة متاحة." />}{!loadingSync && <BiometricMappingQueue rows={unmappedRows} target={mappingTarget} search={candidateSearch} candidates={candidates} selected={selectedCandidate} busy={mappingBusy} onOpen={(row) => { setMappingTarget(row); setCandidateSearch(row.source_name || ''); setCandidates([]); setSelectedCandidate(null); }} onClose={() => { setMappingTarget(null); setCandidateSearch(''); setCandidates([]); setSelectedCandidate(null); }} onSearchChange={setCandidateSearch} onSearch={() => void searchMappingCandidates()} onSelect={setSelectedCandidate} onAssign={() => void assignMapping()} />}</>}
       {tab === 'clock' && <div className="grid gap-4 lg:grid-cols-3"><Panel title="بيانات الموظف" icon={Fingerprint}><Info label="الاسم" value={userName} /><Info label="الدور" value={user?.role || 'غير محدد'} /><Info label="الفرع" value={userBranch || 'غير محدد'} /></Panel><Panel title="حالة الموقع" icon={LocateFixed}>{loading ? <Skeleton className="h-24 w-full" /> : nearest ? <><Info label="أقرب موقع" value={nearest.nearestLocation?.name || 'غير محدد'} /><Info label="المسافة" value={round(nearest.distanceMeters)} /><Info label="دقة GPS" value={round(position?.accuracy)} /><div className={cn('mt-3 rounded-xl border p-3 text-sm font-black', nearest.status === 'accepted' ? 'border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] text-[var(--dawaa-status-success-text)]' : 'border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] text-[var(--dawaa-status-danger-text)]')}>{nearest.status === 'accepted' ? 'داخل النطاق ومتاح التسجيل' : nearest.rejectionReason}</div></> : <div className="text-sm font-bold text-[var(--dawaa-theme-muted)]">اضغط تحديث للحصول على الموقع قبل التسجيل.</div>}</Panel><Panel title="تسجيل سريع" icon={Clock}><Info label="آخر حضور" value={formatDateTime(lastCheckIn?.recorded_at)} /><Info label="آخر انصراف" value={formatDateTime(lastCheckOut?.recorded_at)} /><div className="mt-4 grid grid-cols-2 gap-2"><button disabled={clocking} onClick={() => void handleClock('check_in')} className="btn-primary"><LogIn size={16} /> حضور</button><button disabled={clocking} onClick={() => void handleClock('check_out')} className="btn-secondary"><LogOut size={16} /> انصراف</button></div><button onClick={() => void loadClock()} className="btn-secondary mt-2 w-full"><RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> تحديث الموقع</button></Panel></div>}
       {tab === 'logs' && <AttendanceLogs logs={logs} loading={loading} />}
@@ -404,6 +451,23 @@ function Panel({ title, icon: Icon, children }: { title: string; icon: any; chil
 function Info({ label, value }: { label: string; value: React.ReactNode }) { return <div className="mb-2 flex items-center justify-between gap-3 rounded-xl dawaa-surface-soft px-3 py-2 text-sm"><span className="font-bold text-[var(--dawaa-theme-muted)]">{label}</span><b className="text-[var(--dawaa-theme-heading)]">{value}</b></div>; }
 function Metric({ label, value, icon: Icon, color }: { label: string; value: number; icon: any; color: string }) { return <div className="dawaa-surface flex items-center gap-3 rounded-2xl border p-4 shadow-sm"><span className={cn('rounded-xl border p-2', color)}><Icon size={28} /></span><div><div className="text-xs font-bold">{label}</div><div className="text-3xl font-black">{value.toLocaleString('ar-EG')}</div></div></div>; }
 function Empty({ text }: { text: string }) { return <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface-soft p-8 text-center text-sm font-bold text-[var(--dawaa-theme-muted)]">{text}</div>; }
+function TabBadge({ value }: { value?: number | null }) { if (!value) return null; return <span className="inline-flex min-w-[18px] items-center justify-center rounded-full border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] px-1.5 py-0.5 text-[10px] font-black text-[var(--dawaa-status-danger-text)]">{value > 99 ? '99+' : value}</span>; }
+function DecisionTile({ label, hint, value, icon: Icon, onClick }: { label: string; hint: string; value: number | null; icon: any; onClick: () => void }) {
+  const isUnknown = value == null;
+  const isClear = value === 0;
+  const tone = isUnknown
+    ? 'border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] text-[var(--dawaa-theme-muted)]'
+    : isClear
+    ? 'border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] text-[var(--dawaa-status-success-text)]'
+    : 'border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)]';
+  return (
+    <button onClick={onClick} className={cn('flex flex-col items-start gap-1 rounded-2xl border p-3 text-right transition hover:shadow-md', tone)}>
+      <span className="flex w-full items-center justify-between gap-2"><Icon size={18} /><span className="text-2xl font-black">{value == null ? '—' : value.toLocaleString('ar-EG')}</span></span>
+      <span className="text-xs font-black">{label}</span>
+      <span className="text-[10px] font-bold opacity-80">{isUnknown ? 'تعذر تحميل هذا المؤشر — اضغط تحديث' : hint}</span>
+    </button>
+  );
+}
 function DailyCommandTable({ rows }: { rows: DailyCommandRow[] }) { return <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface shadow-sm overflow-hidden"><div className="overflow-x-auto"><table className="dawaa-table-semantic min-w-full text-sm"><thead><tr className="text-right"><th className="p-3">الموظف</th><th className="p-3">الفرع</th><th className="p-3">الشيفت</th><th className="p-3">الدخول</th><th className="p-3">التأخير</th><th className="p-3">الخروج</th><th className="p-3">خروج مبكر</th><th className="p-3">الحالة</th><th className="p-3">ملاحظة</th></tr></thead><tbody>{rows.map((row) => <tr key={`${row.staff_id}-${row.work_date}`} className="border-t border-[var(--dawaa-theme-divider)]"><td className="p-3 font-black text-[var(--dawaa-theme-heading)]">{row.staff_name}<div className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">{row.role || '-'}</div></td><td className="p-3">{row.branch || '-'}</td><td className="p-3 font-bold">{row.schedule_status === 'off' ? 'إجازة' : row.shift_start && row.shift_end ? `${formatTime(row.shift_start)} ← ${formatTime(row.shift_end)}` : row.schedule_status === 'conflict' ? 'تعارض' : 'غير مكتمل'}</td><td className="p-3 font-bold">{formatTime(row.first_check_in)}</td><td className="p-3 font-black text-[var(--dawaa-status-warning-text)]">{row.late_minutes > 0 ? `${row.late_minutes} د` : '-'}</td><td className="p-3 font-bold">{formatTime(row.last_check_out)}</td><td className="p-3 font-black text-[var(--dawaa-status-danger-text)]">{row.early_leave_minutes > 0 ? `${row.early_leave_minutes} د` : '-'}</td><td className="p-3"><span className={cn('inline-flex rounded-full border px-2 py-1 text-[11px] font-black', statusClass(row.attendance_status))}>{attendanceLabel(row.attendance_status)}</span></td><td className="p-3 text-xs font-bold text-[var(--dawaa-theme-muted)]">{row.approved_exception_type ? `${row.approved_exception_type}${row.approved_exception_reason ? ` — ${row.approved_exception_reason}` : ''}` : row.schedule_status === 'conflict' ? 'لا يتم احتساب جزاء حتى تصحيح الجدول' : row.biometric_events ? `${row.biometric_events} بصمة` : '-'}</td></tr>)}</tbody></table></div></div>; }
 function SyncHealthPanel({ health }: { health: SyncHealth }) {
   const raw = Number(health.raw_events || 0);
