@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowLeft, FileText, FolderOpen, Image as ImageIcon, Loader2, Mic, RefreshCw, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AlertTriangle, ArrowLeft, CheckCircle2, ChevronDown, ChevronUp, FileText, FolderOpen, Image as ImageIcon, Loader2, Mic, RefreshCw, Search, Sparkles, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
@@ -143,6 +143,10 @@ export default function WhatsAppSmartFolderWatcher() {
   const [runs, setRuns] = useState<FileRun[]>([]);
   const [selected, setSelected] = useState<StaffRun | null>(null);
   const [conversationView, setConversationView] = useState<'whatsapp' | 'review'>('whatsapp');
+  const [detailTab, setDetailTab] = useState<'overview' | 'conversation' | 'review'>('overview');
+  const [expandedRuns, setExpandedRuns] = useState<Record<string, boolean>>({});
+  const [runQuery, setRunQuery] = useState('');
+
 
   const analyzeFile = useCallback(async (file: File): Promise<FileRun> => {
     const read = await readWhatsAppExportFile(file);
@@ -346,334 +350,358 @@ export default function WhatsAppSmartFolderWatcher() {
     navigate('/customer-service?quickFollowup=1');
   }
 
+  const overview = useMemo(() => {
+    const allStaff = runs.flatMap((run) => run.staffRuns);
+    const clear = allStaff.filter((item) => item.decision === 'clear').length;
+    const issues = allStaff.filter((item) => item.decision === 'issue').length;
+    const review = allStaff.length - clear - issues;
+    const followups = allStaff.filter((item) => item.intelligence?.followup.detected).length;
+    const opportunities = allStaff.reduce((sum, item) => sum + (item.intelligence?.salesOpportunities.length || 0), 0);
+    return { files: runs.length, staff: allStaff.length, clear, issues, review, followups, opportunities };
+  }, [runs]);
+
+  const filteredRuns = useMemo(() => {
+    const query = runQuery.trim().toLowerCase();
+    if (!query) return runs;
+    return runs.filter((run) =>
+      run.fileName.toLowerCase().includes(query) ||
+      run.staffRuns.some((item) =>
+        item.staffName.toLowerCase().includes(query) ||
+        String(item.customerName || '').toLowerCase().includes(query)
+      )
+    );
+  }, [runs, runQuery]);
+
+  function runKey(run: FileRun, index: number) {
+    return `${run.fileName}-${run.at}-${index}`;
+  }
+
+  function toggleRun(run: FileRun, index: number) {
+    const key = runKey(run, index);
+    setExpandedRuns((current) => ({ ...current, [key]: !current[key] }));
+  }
+
+  function openDetails(item: StaffRun) {
+    setSelected(item);
+    setDetailTab('overview');
+    setConversationView('whatsapp');
+  }
+
+  function intentLabel(value?: string | null) {
+    const map: Record<string, string> = {
+      product_request: 'طلب منتج',
+      consultation: 'استشارة',
+      service_followup: 'متابعة خدمة',
+      complaint: 'شكوى',
+      availability: 'استعلام عن توافر',
+      general: 'خدمة عامة',
+    };
+    return value ? (map[value] || value) : 'غير محدد';
+  }
+
+  function consultationLabel(value?: string | null) {
+    if (!value || value === 'not_applicable') return 'غير منطبق';
+    if (value === 'clear') return 'واضحة';
+    if (value === 'partial') return 'جزئية';
+    if (value === 'needs_review') return 'تحتاج مراجعة';
+    return value;
+  }
+
   return (
-    <div dir="rtl" className="mx-auto max-w-7xl space-y-4 p-4 md:p-6">
-      <section className="dawaa-card dawaa-card--raised p-5">
-        <div className="flex flex-wrap items-start justify-between gap-4">
+    <div dir="rtl" className="mx-auto max-w-7xl space-y-4 p-3 md:p-5">
+      <section className="dawaa-card dawaa-card--raised overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 p-4">
           <div>
-            <div className="text-xs font-black text-cyan-300">SMART REVIEW • FOLDER WATCHER</div>
-            <h1 className="mt-1 text-2xl font-black text-white">التقاط محادثات واتساب تلقائيًا</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-400">
-              اربط فولدر التصدير مرة واحدة. أي ZIP/TXT/MD جديد يتم التقاطه وتحليله بالمحرك الذكي الجديد كل دقيقة.
-              اضغط على أي مسؤول لفتح المحادثة والأدلة والفرص ثم إنشاء Draft للتقييم الرسمي.
-            </p>
+            <div className="flex items-center gap-2 text-xs font-black text-cyan-300"><Sparkles size={14} /> SMART REVIEW</div>
+            <h1 className="mt-1 text-xl font-black text-white md:text-2xl">مركز مراجعة محادثات واتساب</h1>
+            <p className="mt-1 text-xs text-slate-400">الملفات تتحلل تلقائيًا، وافتح فقط الحالات التي تحتاج قرارًا أو اعتمادًا.</p>
           </div>
           {!supportsLocalWhatsAppInbox() ? (
-            <div className="rounded-xl border border-amber-700/50 bg-amber-950/20 px-4 py-3 text-sm text-amber-100">
-              استخدم Chrome أو Edge على كمبيوتر الصيدلية لربط فولدر محلي.
-            </div>
+            <div className="rounded-xl border border-amber-700/50 bg-amber-950/20 px-3 py-2 text-xs text-amber-100">استخدم Chrome أو Edge لربط فولدر محلي.</div>
           ) : !connected ? (
             <button type="button" onClick={() => void connect()} className="rounded-xl bg-cyan-500 px-4 py-2.5 text-sm font-black text-slate-950">
               <span className="inline-flex items-center gap-2"><FolderOpen size={16} /> ربط فولدر التصدير</span>
             </button>
           ) : (
             <div className="flex flex-wrap gap-2">
-              <button type="button" disabled={scanning} onClick={() => void scanOnce()} className="rounded-xl border border-slate-700 bg-slate-900 px-4 py-2.5 text-sm font-black text-white disabled:opacity-50">
-                <span className="inline-flex items-center gap-2">{scanning ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />} فحص الآن</span>
+              <button type="button" disabled={scanning} onClick={() => void scanOnce()} className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-black text-white disabled:opacity-50">
+                <span className="inline-flex items-center gap-2">{scanning ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />} فحص الآن</span>
               </button>
-              <button type="button" disabled={scanning} onClick={() => void reanalyzeExisting()} className="rounded-xl border border-cyan-700/60 bg-cyan-950/20 px-4 py-2.5 text-sm font-black text-cyan-100 disabled:opacity-50">
-                إعادة تحليل الملفات الموجودة
+              <button type="button" disabled={scanning} onClick={() => void reanalyzeExisting()} className="rounded-xl border border-cyan-700/60 bg-cyan-950/20 px-3 py-2 text-xs font-black text-cyan-100 disabled:opacity-50">
+                إعادة تحليل
               </button>
             </div>
           )}
         </div>
-        {connected ? <div className="mt-3 text-xs font-bold text-emerald-300">الفولدر متصل — فحص تلقائي كل دقيقة أثناء فتح التطبيق.</div> : null}
+
+        <div className="grid grid-cols-2 gap-px bg-slate-800 sm:grid-cols-4 lg:grid-cols-7">
+          {[
+            ['ملفات', overview.files, 'text-white'],
+            ['مسؤولون', overview.staff, 'text-white'],
+            ['سليمة', overview.clear, 'text-emerald-300'],
+            ['ملاحظات', overview.issues, 'text-amber-300'],
+            ['مراجعة', overview.review, 'text-rose-300'],
+            ['متابعات', overview.followups, 'text-cyan-300'],
+            ['فرص بيع', overview.opportunities, 'text-violet-300'],
+          ].map(([label, value, tone]) => (
+            <div key={String(label)} className="bg-[#111c2b] px-3 py-3 text-center">
+              <div className="text-[10px] font-bold text-slate-500">{label}</div>
+              <div className={`mt-1 text-lg font-black ${tone}`}>{value}</div>
+            </div>
+          ))}
+        </div>
+        {connected ? <div className="border-t border-slate-800 px-4 py-2 text-[11px] font-bold text-emerald-300">● الفولدر متصل — فحص تلقائي كل دقيقة أثناء فتح التطبيق</div> : null}
       </section>
 
-      <section className="space-y-3">
-        {!runs.length ? <div className="dawaa-card p-8 text-center text-slate-400">لسه مفيش ملفات جديدة تم تحليلها في هذه الجلسة. لو الملفات موجودة من اختبار سابق استخدم زر «إعادة تحليل الملفات الموجودة».</div> : null}
-        {runs.map((run, runIndex) => (
-          <article key={`${run.fileName}-${run.at}-${runIndex}`} className="dawaa-card overflow-hidden">
-            <div className="border-b border-slate-800 p-4">
-              <div className="font-black text-white">{run.fileName}</div>
-              <div className="mt-1 text-xs text-slate-400">{run.at} • {run.messages} رسالة • {run.sessions} جلسة • {run.staffRuns.length} مسؤول</div>
-            </div>
-            {run.errors.length ? <div className="p-4 text-sm text-rose-200">{run.errors.map((error) => <div key={error}>• {error}</div>)}</div> : (
-              <div className="grid gap-3 p-4 lg:grid-cols-2">
-                {run.staffRuns.map((item, index) => (
-                  <button
-                    type="button"
-                    onClick={() => setSelected(item)}
-                    key={`${item.sessionId}-${item.staffName}-${item.role}-${index}`}
-                    className="rounded-2xl border border-slate-800 bg-slate-950/30 p-4 text-right transition hover:border-cyan-700/60 hover:bg-cyan-950/10"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div>
-                        <div className="font-black text-white">{item.staffName}</div>
-                        <div className="text-xs text-slate-500">{roleLabel(item.role)} • {item.customerName || 'عميل غير محدد'}</div>
+      <section className="dawaa-card overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 p-3">
+          <div className="font-black text-white">الملفات المحللة</div>
+          <div className="relative w-full sm:w-80">
+            <Search size={15} className="absolute right-3 top-2.5 text-slate-500" />
+            <input
+              value={runQuery}
+              onChange={(event) => setRunQuery(event.target.value)}
+              placeholder="ابحث باسم الملف أو الدكتور أو العميل"
+              className="w-full rounded-xl border border-slate-700 bg-slate-950/40 py-2 pr-9 pl-3 text-xs text-white outline-none focus:border-cyan-600"
+            />
+          </div>
+        </div>
+
+        {!filteredRuns.length ? (
+          <div className="p-8 text-center text-sm text-slate-400">
+            {runs.length ? 'لا توجد نتائج مطابقة للبحث.' : 'لسه مفيش ملفات محللة. لو الملفات موجودة استخدم «إعادة تحليل».'}
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-800">
+            {filteredRuns.map((run, runIndex) => {
+              const key = runKey(run, runIndex);
+              const expanded = Boolean(expandedRuns[key]);
+              const clearCount = run.staffRuns.filter((item) => item.decision === 'clear').length;
+              const issueCount = run.staffRuns.filter((item) => item.decision === 'issue').length;
+              const reviewCount = run.staffRuns.length - clearCount - issueCount;
+              return (
+                <article key={key}>
+                  <button type="button" onClick={() => toggleRun(run, runIndex)} className="flex w-full items-center justify-between gap-3 px-4 py-3 text-right transition hover:bg-slate-950/25">
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-black text-white">{run.fileName}</div>
+                      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-500">
+                        <span>{run.at}</span><span>{run.messages} رسالة</span><span>{run.sessions} جلسة</span><span>{run.staffRuns.length} مسؤول</span>
                       </div>
-                      <span className={`rounded-full px-3 py-1 text-xs font-black ${item.decision === 'clear' ? 'bg-emerald-500/15 text-emerald-200' : item.decision === 'issue' ? 'bg-amber-500/15 text-amber-200' : 'bg-rose-500/15 text-rose-200'}`}>
-                        {decisionLabel(item.decision)}
-                      </span>
                     </div>
-                    <div className="mt-3 text-xs leading-6 text-slate-300">
-                      <div>النية: <b className="text-white">{item.intelligence?.primaryIntent || 'غير محدد'}</b></div>
-                      <div>فرص البيع: <b className="text-white">{item.intelligence?.salesOpportunities.length || 0}</b></div>
-                      <div>متابعة مقترحة: <b className="text-white">{item.intelligence?.followup.detected ? 'نعم' : 'لا'}</b></div>
-                      <div>طلب عميل: <b className="text-white">{item.intelligence?.customerRequest.detected ? 'نعم' : 'لا'}</b></div>
+                    <div className="hidden flex-wrap items-center gap-1.5 sm:flex">
+                      {clearCount ? <span className="rounded-full bg-emerald-500/10 px-2 py-1 text-[10px] font-black text-emerald-300">{clearCount} سليمة</span> : null}
+                      {issueCount ? <span className="rounded-full bg-amber-500/10 px-2 py-1 text-[10px] font-black text-amber-300">{issueCount} ملاحظة</span> : null}
+                      {reviewCount ? <span className="rounded-full bg-rose-500/10 px-2 py-1 text-[10px] font-black text-rose-300">{reviewCount} مراجعة</span> : null}
                     </div>
-                    {item.reasons.length ? <div className="mt-3 space-y-1 text-xs text-amber-100">{item.reasons.slice(0, 3).map((reason) => <div key={reason}>• {reason}</div>)}</div> : null}
-                    <div className="mt-3 inline-flex items-center gap-1 text-xs font-black text-cyan-300">فتح التفاصيل <ArrowLeft size={13} /></div>
+                    {expanded ? <ChevronUp size={18} className="shrink-0 text-slate-500" /> : <ChevronDown size={18} className="shrink-0 text-slate-500" />}
                   </button>
-                ))}
-              </div>
-            )}
-          </article>
-        ))}
+
+                  {expanded ? (
+                    <div className="border-t border-slate-800 bg-slate-950/15 p-3">
+                      {run.errors.length ? (
+                        <div className="rounded-xl border border-rose-800/40 bg-rose-950/20 p-3 text-sm text-rose-200">{run.errors.map((error) => <div key={error}>• {error}</div>)}</div>
+                      ) : (
+                        <div className="space-y-2">
+                          {run.staffRuns.map((item, index) => (
+                            <button
+                              type="button"
+                              onClick={() => openDetails(item)}
+                              key={`${item.sessionId}-${item.staffName}-${item.role}-${index}`}
+                              className="grid w-full items-center gap-2 rounded-xl border border-slate-800 bg-[#111c2b]/70 px-3 py-2.5 text-right transition hover:border-cyan-700/60 hover:bg-cyan-950/10 md:grid-cols-[1.2fr_.8fr_.7fr_.6fr_auto]"
+                            >
+                              <div className="min-w-0">
+                                <div className="truncate text-sm font-black text-white">{item.staffIdentity.canonicalStaffName || item.staffName}</div>
+                                <div className="truncate text-[10px] text-slate-500">{roleLabel(item.role)} · {item.staffIdentity.branch || item.branchHint.value || 'فرع غير محدد'}</div>
+                              </div>
+                              <div className="truncate text-xs text-slate-300">{intentLabel(item.intelligence?.primaryIntent)}</div>
+                              <div className="text-xs text-slate-400">{item.intelligence?.salesOpportunities.length || 0} فرصة · {item.intelligence?.followup.detected ? 'متابعة' : 'بدون متابعة'}</div>
+                              <div className="truncate text-[11px] text-slate-500">{item.customerName || 'عميل غير محدد'}</div>
+                              <div className="flex items-center gap-2 justify-self-end">
+                                <span className={`rounded-full px-2.5 py-1 text-[10px] font-black ${item.decision === 'clear' ? 'bg-emerald-500/15 text-emerald-200' : item.decision === 'issue' ? 'bg-amber-500/15 text-amber-200' : 'bg-rose-500/15 text-rose-200'}`}>{decisionLabel(item.decision)}</span>
+                                <ArrowLeft size={14} className="text-cyan-300" />
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
+                </article>
+              );
+            })}
+          </div>
+        )}
       </section>
 
       {selected ? (
-        <div className="fixed inset-0 z-[120] overflow-y-auto bg-slate-950/80 p-3 backdrop-blur-sm md:p-6" onClick={() => setSelected(null)}>
-          <div className="mx-auto max-w-5xl rounded-3xl border border-slate-700 bg-[#111c2b] shadow-2xl" onClick={(event) => event.stopPropagation()}>
-            <div className="sticky top-0 z-10 flex items-start justify-between gap-3 rounded-t-3xl border-b border-slate-700 bg-[#111c2b]/95 p-4 backdrop-blur">
-              <div>
-                <div className="text-xl font-black text-white">{selected.staffName}</div>
-                <div className="mt-1 text-xs text-slate-400">{roleLabel(selected.role)} • {selected.customerName || 'عميل غير محدد'} • {decisionLabel(selected.decision)}</div>
+        <div className="fixed inset-0 z-[120] bg-slate-950/80 backdrop-blur-sm" onClick={() => setSelected(null)}>
+          <div className="mx-auto flex h-full max-w-6xl flex-col border-x border-slate-700 bg-[#111c2b] shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-700 bg-[#111c2b]/95 p-4 backdrop-blur">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="truncate text-xl font-black text-white">{selected.staffIdentity.canonicalStaffName || selected.staffName}</div>
+                  <span className={`rounded-full px-2 py-1 text-[10px] font-black ${selected.decision === 'clear' ? 'bg-emerald-500/15 text-emerald-200' : selected.decision === 'issue' ? 'bg-amber-500/15 text-amber-200' : 'bg-rose-500/15 text-rose-200'}`}>{decisionLabel(selected.decision)}</span>
+                </div>
+                <div className="mt-1 text-xs text-slate-400">{roleLabel(selected.role)} · {selected.staffIdentity.branch || selected.branchHint.value || 'فرع غير محدد'} · {selected.customerName || 'عميل غير محدد'}</div>
               </div>
               <button type="button" onClick={() => setSelected(null)} className="rounded-xl border border-slate-700 p-2 text-slate-300"><X size={18} /></button>
             </div>
 
-            <div className="space-y-4 p-4">
-              <section className={`rounded-2xl border p-4 ${selected.staffIdentity.ambiguous ? 'border-rose-800/60 bg-rose-950/20' : selected.staffIdentity.staffId ? 'border-emerald-800/50 bg-emerald-950/10' : 'border-amber-800/50 bg-amber-950/10'}`}>
-                {selected.staffIdentity.ambiguous ? (
-                  <div>
-                    <div className="font-black text-rose-200">⚠ المسؤول غير محسوم</div>
-                    <div className="mt-1 text-xs text-rose-300">
-                      "{selected.staffIdentity.displayName}" مطابق لأكتر من موظف — لازم اختيار يدوي، ممنوع الاعتماد التلقائي.
-                    </div>
-                    <div className="mt-2 space-y-1">
-                      {selected.staffIdentity.candidates.map((c, i) => (
-                        <div key={i} className="rounded-lg border border-rose-900/40 bg-black/10 p-2 text-xs text-rose-100">
-                          {c.canonicalStaffName} | {c.role || 'دور غير محدد'} | {c.branch || 'فرع غير محدد'} | ثقة {c.confidence}%
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : selected.staffIdentity.staffId ? (
-                  <div className="text-sm text-emerald-100">
-                    <span className="text-slate-400">{selected.staffIdentity.displayName}</span>
-                    <span className="mx-2 text-emerald-400">→</span>
-                    <span className="font-black">{selected.staffIdentity.canonicalStaffName}</span>
-                    <span className="text-slate-400"> | {selected.staffIdentity.role || '-'} | {selected.staffIdentity.branch || 'فرع غير محدد'} | ثقة {selected.staffIdentity.identityConfidence}%</span>
-                    <span className="mr-2 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-black text-emerald-300">{selected.staffIdentity.identitySource}</span>
-                  </div>
-                ) : (
-                  <div className="text-xs font-bold text-amber-200">لم يتم تحديد هوية الموظف الحقيقية — "{selected.staffIdentity.displayName}" فقط (اسم من نص المحادثة، بدون staff_id مؤكد).</div>
-                )}
-              </section>
+            <div className="flex shrink-0 gap-1 border-b border-slate-800 bg-slate-950/20 px-3 pt-2">
+              {[
+                ['overview', 'الخلاصة'],
+                ['conversation', `المحادثة (${selected.snapshot.messages.length})`],
+                ['review', 'التقييم المقترح'],
+              ].map(([key, label]) => (
+                <button key={key} type="button" onClick={() => setDetailTab(key as 'overview' | 'conversation' | 'review')} className={`rounded-t-xl px-4 py-2 text-xs font-black ${detailTab === key ? 'bg-cyan-500 text-slate-950' : 'text-slate-400 hover:text-white'}`}>{label}</button>
+              ))}
+            </div>
 
-              {selected.snapshot.smartIntelligence?.customer ? (
-                <section className={`rounded-2xl border p-4 ${selected.snapshot.smartIntelligence.customer.customer ? 'border-cyan-800/50 bg-cyan-950/10' : selected.snapshot.smartIntelligence.customer.candidates.length ? 'border-amber-800/60 bg-amber-950/20' : 'border-slate-800 bg-slate-950/20'}`}>
-                  {selected.snapshot.smartIntelligence.customer.customer ? (
-                    <div className="text-sm text-cyan-100">
-                      <b>{selected.snapshot.smartIntelligence.customer.customer.name}</b>
-                      <span className="text-slate-400"> | كود {selected.snapshot.smartIntelligence.customer.customer.code || '-'} | {selected.snapshot.smartIntelligence.customer.customer.branch || 'فرع غير محدد'} | ثقة {Math.round(selected.snapshot.smartIntelligence.customer.confidence * 100)}% ({selected.snapshot.smartIntelligence.customer.strategy})</span>
-                      {selected.snapshot.smartIntelligence.purchaseHistory ? (
-                        <div className="mt-1 text-xs text-slate-400">
-                          مشترياته: {selected.snapshot.smartIntelligence.purchaseHistory.totalPurchases ?? '-'} عملية · إجمالي: {selected.snapshot.smartIntelligence.purchaseHistory.totalSpent ?? '-'} · متوسط شهري: {selected.snapshot.smartIntelligence.purchaseHistory.avgMonthly ?? '-'} · آخر شراء: {selected.snapshot.smartIntelligence.purchaseHistory.lastPurchaseAt || '-'}
+            <div className="min-h-0 flex-1 overflow-y-auto p-4">
+              {detailTab === 'overview' ? (
+                <div className="space-y-3">
+                  <section className="grid gap-3 lg:grid-cols-2">
+                    <div className={`rounded-2xl border p-4 ${selected.staffIdentity.ambiguous ? 'border-rose-800/60 bg-rose-950/20' : selected.staffIdentity.staffId ? 'border-emerald-800/50 bg-emerald-950/10' : 'border-amber-800/50 bg-amber-950/10'}`}>
+                      <div className="text-[10px] font-black text-slate-500">هوية المسؤول</div>
+                      {selected.staffIdentity.staffId && !selected.staffIdentity.ambiguous ? (
+                        <div className="mt-2 text-sm text-emerald-100">
+                          <span className="text-slate-400">{selected.staffIdentity.displayName}</span><span className="mx-2 text-emerald-400">→</span><b>{selected.staffIdentity.canonicalStaffName}</b>
+                          <div className="mt-1 text-xs text-slate-400">{selected.staffIdentity.role || '-'} · {selected.staffIdentity.branch || 'فرع غير محدد'} · ثقة {selected.staffIdentity.identityConfidence}%</div>
                         </div>
-                      ) : null}
+                      ) : (
+                        <div className="mt-2 text-xs font-bold text-amber-200">{selected.staffIdentity.ambiguous ? 'المسؤول غير محسوم ويحتاج اختيارًا يدويًا.' : `لم يتم تحديد staff_id لـ ${selected.staffIdentity.displayName}`}</div>
+                      )}
                     </div>
-                  ) : selected.snapshot.smartIntelligence.customer.candidates.length ? (
-                    <div>
-                      <div className="font-black text-amber-200">⚠ العميل غير محدد بثقة كافية</div>
-                      <div className="mt-1 text-xs leading-6 text-slate-400">{selected.snapshot.smartIntelligence.customer.reason}</div>
-                      <div className="mt-2 text-[11px] font-bold text-slate-500">أقرب المرشحين الموثوقين فقط — لا يتم اختيار أي عميل تلقائيًا:</div>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {selected.snapshot.smartIntelligence.customer.candidates.slice(0, 3).map((c, i) => (
-                          <div key={i} className="rounded-lg border border-amber-900/40 bg-black/10 p-2 text-xs text-amber-100">{c.name} | كود {c.code || '-'} | {c.branch || '-'}</div>
-                        ))}
+
+                    <div className="rounded-2xl border border-slate-800 bg-slate-950/20 p-4">
+                      <div className="text-[10px] font-black text-slate-500">هوية العميل</div>
+                      {selected.snapshot.smartIntelligence?.customer?.customer ? (
+                        <div className="mt-2 text-sm text-cyan-100">
+                          <b>{selected.snapshot.smartIntelligence.customer.customer.name}</b>
+                          <div className="mt-1 text-xs text-slate-400">كود {selected.snapshot.smartIntelligence.customer.customer.code || '-'} · {selected.snapshot.smartIntelligence.customer.customer.branch || 'فرع غير محدد'} · ثقة {Math.round(selected.snapshot.smartIntelligence.customer.confidence * 100)}%</div>
+                        </div>
+                      ) : (
+                        <div className="mt-2 text-xs text-slate-400">{selected.snapshot.smartIntelligence?.customer?.reason || 'تعذر تحديد العميل تلقائيًا.'}</div>
+                      )}
+                    </div>
+                  </section>
+
+                  <section className="grid grid-cols-2 gap-2 md:grid-cols-4">
+                    <div className="rounded-xl border border-slate-800 bg-slate-950/30 p-3"><div className="text-[10px] text-slate-500">النية</div><div className="mt-1 text-sm font-black text-white">{intentLabel(selected.intelligence?.primaryIntent)}</div></div>
+                    <div className="rounded-xl border border-slate-800 bg-slate-950/30 p-3"><div className="text-[10px] text-slate-500">فرص البيع</div><div className="mt-1 text-sm font-black text-white">{selected.intelligence?.salesOpportunities.length || 0}</div></div>
+                    <div className="rounded-xl border border-slate-800 bg-slate-950/30 p-3"><div className="text-[10px] text-slate-500">الاستشارة</div><div className="mt-1 text-sm font-black text-white">{consultationLabel(selected.intelligence?.consultationCommunication)}</div></div>
+                    <div className="rounded-xl border border-slate-800 bg-slate-950/30 p-3"><div className="text-[10px] text-slate-500">الاعتماد السريع</div><div className="mt-1 text-sm font-black text-white">{selected.safe ? 'ممكن بعد مراجعة' : 'غير مسموح'}</div></div>
+                  </section>
+
+                  {(selected.reasons.length || selected.intelligence?.salesOpportunities.length) ? (
+                    <section className="grid gap-3 lg:grid-cols-2">
+                      <div className="rounded-2xl border border-amber-800/30 bg-amber-950/10 p-4">
+                        <div className="flex items-center gap-2 font-black text-amber-100"><AlertTriangle size={15} /> أهم الملاحظات</div>
+                        <div className="mt-2 space-y-1 text-xs leading-6 text-slate-300">
+                          {selected.reasons.length ? selected.reasons.slice(0, 5).map((reason) => <div key={reason}>• {reason}</div>) : <div className="text-slate-500">لا توجد ملاحظات مؤثرة.</div>}
+                        </div>
+                      </div>
+                      <div className="rounded-2xl border border-violet-800/30 bg-violet-950/10 p-4">
+                        <div className="font-black text-violet-100">فرص البيع</div>
+                        <div className="mt-2 space-y-2">
+                          {selected.intelligence?.salesOpportunities.length ? selected.intelligence.salesOpportunities.slice(0, 4).map((opportunity, index) => (
+                            <div key={`${opportunity.triggerMessageId}-${index}`} className="text-xs leading-6 text-slate-300">
+                              <b className="text-cyan-200">{opportunityLabel(opportunity.handling)}</b> · {opportunity.reason}
+                            </div>
+                          )) : <div className="text-xs text-slate-500">لا توجد فرص بيع مرصودة.</div>}
+                        </div>
+                      </div>
+                    </section>
+                  ) : null}
+
+                  <section className="rounded-2xl border border-sky-800/40 bg-sky-950/10 p-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded-full bg-sky-500/15 px-2 py-0.5 text-[10px] font-black text-sky-200">Cross-check</span>
+                      <b className="text-sm text-white">{selected.journeyCrossCheck.journeyLabel}</b>
+                    </div>
+                    <div className="mt-1 text-xs text-slate-400">{selected.journeyCrossCheck.saleStateLabel}</div>
+                  </section>
+                </div>
+              ) : null}
+
+              {detailTab === 'conversation' ? (
+                <section className="overflow-hidden rounded-2xl border border-slate-800">
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 bg-slate-950/35 p-3">
+                    <div className="text-sm font-black text-white">المحادثة والأدلة</div>
+                    <div className="inline-flex rounded-xl border border-slate-700 bg-slate-900 p-1 text-[11px] font-black">
+                      <button type="button" onClick={() => setConversationView('whatsapp')} className={`rounded-lg px-3 py-1.5 ${conversationView === 'whatsapp' ? 'bg-emerald-500 text-slate-950' : 'text-slate-300'}`}>واتساب</button>
+                      <button type="button" onClick={() => setConversationView('review')} className={`rounded-lg px-3 py-1.5 ${conversationView === 'review' ? 'bg-cyan-500 text-slate-950' : 'text-slate-300'}`}>تحليلي</button>
+                    </div>
+                  </div>
+                  {conversationView === 'whatsapp' ? (
+                    <div className="h-[62vh] overflow-y-auto p-4 md:p-5" style={{ backgroundColor: '#0b141a', backgroundImage: 'radial-gradient(circle at 25% 25%, rgba(255,255,255,.025) 0 1px, transparent 1px)', backgroundSize: '28px 28px' }}>
+                      <div className="mx-auto max-w-3xl space-y-2" dir="rtl">
+                        {selected.snapshot.messages.map((message) => {
+                          const inbound = message.direction === 'inbound';
+                          const context = message.scope === 'context';
+                          return (
+                            <div key={message.id} className={`flex ${inbound ? 'justify-start' : 'justify-end'} ${context ? 'opacity-60' : ''}`}>
+                              <div className={`flex max-w-[86%] flex-col md:max-w-[74%] ${inbound ? 'items-start' : 'items-end'}`}>
+                                <div className={`relative rounded-2xl px-3.5 py-2.5 shadow-sm ${inbound ? 'rounded-tl-sm bg-[#202c33] text-slate-100' : 'rounded-tr-sm bg-[#005c4b] text-white'} ${message.evidence ? 'ring-2 ring-cyan-400/80 ring-offset-2 ring-offset-[#0b141a]' : ''}`}>
+                                  <div className="mb-1 flex flex-wrap items-center gap-1.5 text-[10px] font-bold opacity-80"><span>{inbound ? 'العميل' : selected.staffName}</span>{message.evidence ? <span className="rounded bg-cyan-400/15 px-1.5 py-0.5 text-cyan-100">دليل</span> : null}{context ? <span className="rounded bg-white/10 px-1.5 py-0.5">سياق</span> : null}</div>
+                                  {messageBody(message.kind, message.text)}
+                                  <div className="mt-1 text-left text-[10px] opacity-60">{new Date(message.timestamp).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}</div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   ) : (
-                    <div>
-                      <div className="text-xs font-black text-slate-300">تعذر تحديد العميل تلقائيًا</div>
-                      <div className="mt-1 text-xs leading-6 text-slate-500">{selected.snapshot.smartIntelligence.customer.reason}</div>
+                    <div className="h-[62vh] space-y-2 overflow-y-auto bg-slate-950/20 p-4">
+                      {selected.snapshot.messages.map((message) => (
+                        <div key={message.id} className={`rounded-xl border p-3 ${message.evidence ? 'border-cyan-500/60 bg-cyan-950/20' : message.scope === 'context' ? 'border-dashed border-slate-700 bg-slate-950/20 opacity-70' : 'border-slate-800 bg-slate-950/35'}`}>
+                          <div className="mb-1 flex flex-wrap justify-between gap-2 text-[11px] text-slate-500"><span>{message.direction === 'inbound' ? 'العميل' : selected.staffName}{message.scope === 'context' ? ' · سياق' : ''}{message.evidence ? ' · دليل' : ''}</span><span>{new Date(message.timestamp).toLocaleString('ar-EG')}</span></div>
+                          <div className="text-slate-200">{messageBody(message.kind, message.text)}</div>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </section>
               ) : null}
 
-              <section className="grid gap-3 md:grid-cols-4">
-                <div className="rounded-2xl border border-slate-800 bg-slate-950/30 p-3"><div className="text-xs text-slate-500">النية الأساسية</div><div className="mt-1 font-black text-white">{selected.intelligence?.primaryIntent || 'غير محدد'}</div></div>
-                <div className="rounded-2xl border border-slate-800 bg-slate-950/30 p-3"><div className="text-xs text-slate-500">فرص البيع</div><div className="mt-1 font-black text-white">{selected.intelligence?.salesOpportunities.length || 0}</div></div>
-                <div className="rounded-2xl border border-slate-800 bg-slate-950/30 p-3"><div className="text-xs text-slate-500">وضوح الاستشارة</div><div className="mt-1 font-black text-white">{selected.intelligence?.consultationCommunication || 'غير منطبق'}</div></div>
-                <div className="rounded-2xl border border-slate-800 bg-slate-950/30 p-3"><div className="text-xs text-slate-500">الاعتماد السريع</div><div className="mt-1 font-black text-white">{selected.safe ? 'ممكن بعد مراجعة بشرية' : 'غير مسموح'}</div></div>
-              </section>
-
-              <section className="rounded-2xl border border-sky-800/50 bg-sky-950/10 p-4">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="rounded-full bg-sky-500/15 px-2 py-0.5 text-[11px] font-black text-sky-200">Cross-check (V6/Journey)</span>
-                  <span className="text-[11px] font-bold text-slate-500">مصدر مستقل — لا يؤثر على القرار أو الأسباب أعلاه</span>
-                </div>
-                <div className="mt-2 font-black text-white">{selected.journeyCrossCheck.journeyLabel}</div>
-                <div className="mt-1 text-xs text-slate-400">
-                  intent: {selected.journeyCrossCheck.checkinDetected ? 'checkin detected' : 'no checkin'}
-                  {selected.journeyCrossCheck.checkinDetected
-                    ? ` • طلب بعد المتابعة: ${selected.journeyCrossCheck.requestAfterCheckin ? 'نعم' : 'لا'} • استشارة بعد المتابعة: ${selected.journeyCrossCheck.consultationAfterCheckin ? 'نعم' : 'لا'}`
-                    : ''}
-                </div>
-                <div className="mt-1 text-xs text-slate-400">{selected.journeyCrossCheck.saleStateLabel}</div>
-                {selected.snapshot.outboundBurstMetrics?.length ? (
-                  <div className="mt-3 border-t border-sky-900/40 pt-2">
-                    <div className="text-[11px] font-bold text-slate-500">
-                      Outbound burst metrics (تشخيصي فقط — مش KPI رسمي، لسه ما اتحقّقش على بيانات حقيقية)
-                    </div>
-                    <div className="mt-1 space-y-1 text-xs text-slate-400">
-                      {selected.snapshot.outboundBurstMetrics.map((s, i) => (
-                        <div key={i}>{s.staffName}: {s.burstCount} burst · {s.repliedBursts} اترد عليها · {s.burstReplyRatePct}%</div>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-              </section>
-
-              {selected.snapshot.officialReviewDraft ? (
-                <section className="rounded-2xl border border-violet-800/50 bg-violet-950/10 p-4">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded-full bg-violet-500/15 px-2 py-0.5 text-[11px] font-black text-violet-200">تقييم ذكي مقترح</span>
-                    <span className="text-[11px] font-bold text-slate-500">AI evaluates → Human approves — لا اعتماد نقاط قبل الحفظ اليدوي</span>
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-4 text-xs text-slate-300">
-                    <span>الدرجة المقترحة: <b className="text-white">{selected.snapshot.officialReviewDraft.provisionalScore ?? '-'}</b> ({selected.snapshot.officialReviewDraft.scoreLabel})</span>
-                    <span className="text-emerald-300">بنود واثقة: {selected.snapshot.officialReviewDraft.confidentCriteriaCount}</span>
-                    <span className="text-amber-300">تحتاج مراجعة: {selected.snapshot.officialReviewDraft.needsReviewCriteriaCount}</span>
-                  </div>
-                </section>
-              ) : null}
-
-              {selected.reasons.length ? (
-                <section className="rounded-2xl border border-amber-800/40 bg-amber-950/20 p-4">
-                  <div className="font-black text-amber-100">أسباب القرار</div>
-                  <div className="mt-2 space-y-1 text-sm text-amber-50">{selected.reasons.map((reason) => <div key={reason}>• {reason}</div>)}</div>
-                </section>
-              ) : null}
-
-              {selected.intelligence?.salesOpportunities.length ? (
-                <section className="rounded-2xl border border-slate-800 p-4">
-                  <div className="font-black text-white">فرص البيع</div>
-                  <div className="mt-3 space-y-2">
-                    {selected.intelligence.salesOpportunities.map((opportunity, index) => (
-                      <div key={`${opportunity.triggerMessageId}-${index}`} className="rounded-xl bg-slate-950/30 p-3 text-sm">
-                        <div className="font-black text-cyan-200">{opportunityLabel(opportunity.handling)}</div>
-                        <div className="mt-1 text-slate-300">{opportunity.reason}</div>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-              ) : null}
-
-              <section className="overflow-hidden rounded-2xl border border-slate-800">
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 bg-slate-950/35 p-4">
-                  <div>
-                    <div>
-  <div className="flex items-center gap-2">
-    <div className="font-black text-white">المحادثة والأدلة</div>
-    <span className="rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-black text-slate-950">واجهة واتساب الجديدة V2</span>
-  </div>
-</div>
-                    <div className="mt-1 text-xs text-slate-500">{selected.snapshot.messages.length} رسالة داخل النطاق والسياق</div>
-                  </div>
-                  <div className="inline-flex rounded-xl border border-slate-700 bg-slate-900 p-1 text-xs font-black">
-                    <button
-                      type="button"
-                      onClick={() => setConversationView('whatsapp')}
-                      className={`rounded-lg px-3 py-1.5 ${conversationView === 'whatsapp' ? 'bg-emerald-500 text-slate-950' : 'text-slate-300'}`}
-                    >
-                      عرض واتساب
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setConversationView('review')}
-                      className={`rounded-lg px-3 py-1.5 ${conversationView === 'review' ? 'bg-cyan-500 text-slate-950' : 'text-slate-300'}`}
-                    >
-                      عرض تحليلي
-                    </button>
-                  </div>
-                </div>
-
-                {conversationView === 'whatsapp' ? (
-                  <div
-                    className="max-h-[58vh] overflow-y-auto p-4 md:p-5"
-                    data-whatsapp-view-version="v2"
-                    style={{
-                      backgroundColor: '#0b141a',
-                      backgroundImage: 'radial-gradient(circle at 25% 25%, rgba(255,255,255,.025) 0 1px, transparent 1px), radial-gradient(circle at 75% 75%, rgba(255,255,255,.018) 0 1px, transparent 1px)',
-                      backgroundSize: '28px 28px',
-                    }}
-                  >
-                    <div className="mx-auto max-w-3xl space-y-2" dir="rtl">
-                      {selected.snapshot.messages.map((message) => {
-                        const inbound = message.direction === 'inbound';
-                        const context = message.scope === 'context';
-                        return (
-                          <div
-                            key={message.id}
-                            className={`flex ${inbound ? 'justify-start' : 'justify-end'} ${context ? 'opacity-60' : ''}`}
-                          >
-                            <div className={`max-w-[86%] md:max-w-[74%] ${inbound ? 'items-start' : 'items-end'} flex flex-col`}>
-                              <div
-                                className={`relative rounded-2xl px-3.5 py-2.5 shadow-sm ${
-                                  inbound ? 'bg-[#202c33] text-slate-100 rounded-tl-sm' : 'bg-[#005c4b] text-white rounded-tr-sm'
-                                } ${message.evidence ? 'ring-2 ring-cyan-400/80 ring-offset-2 ring-offset-[#0b141a]' : ''}`}
-                              >
-                                <div className="mb-1 flex flex-wrap items-center gap-1.5 text-[10px] font-bold opacity-80">
-                                  <span>{inbound ? 'العميل' : selected.staffName}</span>
-                                  {message.evidence ? <span className="rounded bg-cyan-400/15 px-1.5 py-0.5 text-cyan-100">دليل</span> : null}
-                                  {context ? <span className="rounded bg-white/10 px-1.5 py-0.5">سياق فقط</span> : null}
-                                </div>
-                                {messageBody(message.kind, message.text)}
-                                <div className="mt-1 text-left text-[10px] opacity-60">
-                                  {new Date(message.timestamp).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
-                                </div>
-                              </div>
-                              {context ? <div className="mt-1 text-[10px] text-slate-500">لا تدخل هذه الرسالة في التقييم</div> : null}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="max-h-[58vh] space-y-2 overflow-y-auto bg-slate-950/20 p-4">
-                    {selected.snapshot.messages.map((message) => (
-                      <div
-                        key={message.id}
-                        className={`rounded-xl border p-3 ${message.evidence ? 'border-cyan-500/60 bg-cyan-950/20' : message.scope === 'context' ? 'border-dashed border-slate-700 bg-slate-950/20 opacity-70' : 'border-slate-800 bg-slate-950/35'}`}
-                      >
-                        <div className="mb-1 flex flex-wrap justify-between gap-2 text-[11px] text-slate-500">
-                          <span>{message.direction === 'inbound' ? 'العميل' : selected.staffName}{message.scope === 'context' ? ' • سياق فقط' : ''}{message.evidence ? ' • دليل' : ''}</span>
-                          <span>{new Date(message.timestamp).toLocaleString('ar-EG')}</span>
+              {detailTab === 'review' ? (
+                <div className="space-y-3">
+                  {selected.snapshot.officialReviewDraft ? (
+                    <section className="rounded-2xl border border-violet-800/50 bg-violet-950/10 p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <div className="text-xs font-black text-violet-200">التقييم الذكي المقترح</div>
+                          <div className="mt-1 text-2xl font-black text-white">{selected.snapshot.officialReviewDraft.provisionalScore ?? '-'}<span className="text-sm text-slate-500">/100</span></div>
+                          <div className="text-xs text-slate-400">{selected.snapshot.officialReviewDraft.scoreLabel}</div>
                         </div>
-                        <div className="text-slate-200">{messageBody(message.kind, message.text)}</div>
+                        <div className="flex gap-2 text-xs">
+                          <span className="rounded-xl bg-emerald-500/10 px-3 py-2 font-black text-emerald-300">{selected.snapshot.officialReviewDraft.confidentCriteriaCount} واثقة</span>
+                          <span className="rounded-xl bg-amber-500/10 px-3 py-2 font-black text-amber-300">{selected.snapshot.officialReviewDraft.needsReviewCriteriaCount} تحتاج مراجعة</span>
+                        </div>
                       </div>
-                    ))}
+                    </section>
+                  ) : (
+                    <div className="rounded-2xl border border-slate-800 p-5 text-sm text-slate-400">لا يوجد Draft ذكي لهذه الحالة.</div>
+                  )}
+                  <div className="rounded-2xl border border-slate-800 bg-slate-950/20 p-4 text-xs leading-6 text-slate-400">
+                    هنا نعرض الخلاصة فقط. البنود التفصيلية والأدلة والتعديل النهائي موجودة في صفحة التقييم الرسمي لتقليل التكرار وطول الصفحة.
                   </div>
-                )}
-              </section>
-
-              <section className="flex flex-wrap gap-2 border-t border-slate-800 pt-4">
-                <button type="button" onClick={() => openOfficialReview(selected)} className="inline-flex items-center gap-2 rounded-xl bg-cyan-500 px-4 py-2.5 text-sm font-black text-slate-950">
-                  <FileText size={16} /> إنشاء Draft تقييم رسمي
-                </button>
-                {selected.actions.followup ? (
-                  <button type="button" onClick={() => openFollowup(selected)} className="rounded-xl border border-emerald-700/60 bg-emerald-950/30 px-4 py-2.5 text-sm font-black text-emerald-100">
-                    فتح متابعة للعميل
-                  </button>
-                ) : null}
-                {selected.actions.customerRequest ? (
-                  <button type="button" onClick={() => openCustomerRequest(selected)} className="rounded-xl border border-amber-700/60 bg-amber-950/30 px-4 py-2.5 text-sm font-black text-amber-100">
-                    تأكيد وتسجيل طلب العميل
-                  </button>
-                ) : null}
-                <div className="w-full text-xs leading-6 text-slate-500">
-                  لا يتم اعتماد درجة أو تسجيل متابعة/طلب تلقائيًا. كل زر يفتح المسار الرسمي للمراجعة والتأكيد.
                 </div>
-              </section>
+              ) : null}
+            </div>
+
+            <div className="shrink-0 border-t border-slate-700 bg-[#111c2b]/95 p-3 backdrop-blur">
+              <div className="flex flex-wrap items-center gap-2">
+                <button type="button" onClick={() => openOfficialReview(selected)} className="inline-flex items-center gap-2 rounded-xl bg-cyan-500 px-4 py-2.5 text-sm font-black text-slate-950"><FileText size={16} /> فتح Draft التقييم الرسمي</button>
+                {selected.actions.followup ? <button type="button" onClick={() => openFollowup(selected)} className="rounded-xl border border-emerald-700/60 bg-emerald-950/30 px-3 py-2.5 text-xs font-black text-emerald-100">فتح متابعة</button> : null}
+                {selected.actions.customerRequest ? <button type="button" onClick={() => openCustomerRequest(selected)} className="rounded-xl border border-amber-700/60 bg-amber-950/30 px-3 py-2.5 text-xs font-black text-amber-100">تسجيل طلب</button> : null}
+                <span className="mr-auto hidden text-[10px] text-slate-500 md:inline">لا نقاط ولا حفظ رسمي قبل الاعتماد البشري.</span>
+              </div>
             </div>
           </div>
         </div>
       ) : null}
     </div>
-  );
-}
+  );}
