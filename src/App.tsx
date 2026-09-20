@@ -70,6 +70,7 @@ const Analytics = lazy(() => import('@/pages/Analytics'));
 const Invoices = lazy(() => import('@/pages/Invoices'));
 const ActivityLog = lazy(() => import('@/pages/ActivityLog'));
 const Reviews = lazy(() => import('@/pages/ReviewsEnhanced'));
+const WhatsAppSmartFolderWatcher = lazy(() => import('@/pages/WhatsAppSmartFolderWatcher'));
 const ShiftPerformance = lazy(() => import('@/pages/ShiftPerformance'));
 const ShiftNotes = lazy(() => import('@/pages/ShiftNotes'));
 const StaffDetail = lazy(() => import('@/pages/StaffDetail'));
@@ -670,6 +671,10 @@ function AppRoutes() {
       <Route
         path="/reviews"
         element={<ProtectedRoute>{routeSuspense(<Reviews />, 'التقييمات')}</ProtectedRoute>}
+      />
+      <Route
+        path="/whatsapp-smart-folder-watcher"
+        element={<ProtectedRoute permission="view_reviews">{routeSuspense(<WhatsAppSmartFolderWatcher />, 'التقاط واتساب تلقائيًا')}</ProtectedRoute>}
       />
       <Route
         path="/shift-performance"
