@@ -180,31 +180,16 @@ export default function SmartDailyCommandTable({ rows, date, branch }: Props) {
   }, [loadIntel]);
 
   const intelMap = useMemo(() => new Map(intel.map((item) => [item.staff_id, item])), [intel]);
-  const smartTotals = useMemo(() => intel.reduce((acc, item) => ({
-    raw: acc.raw + Number(item.raw_events || 0),
-    effective: acc.effective + Number(item.effective_events || 0),
-    duplicates: acc.duplicates + Number(item.duplicate_events || 0),
-    corrected: acc.corrected + Number(item.corrected_type_events || 0),
-    review: acc.review + Number(item.review_events || 0),
-  }), { raw: 0, effective: 0, duplicates: 0, corrected: 0, review: 0 }), [intel]);
+  const reviewCount = useMemo(() => intel.reduce((sum, item) => sum + Number(item.review_events || 0), 0), [intel]);
 
   return <div className="space-y-3">
-    <AttendanceAnomalyPanel rows={rows} date={date} branch={branch} />
+    <AttendanceAnomalyPanel rows={rows} intel={intel} loading={loading} onRefresh={() => void loadIntel()} />
 
-    <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-3 shadow-sm">
-      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-        <div className="flex items-center gap-2"><Sparkles size={18} className="text-[var(--dawaa-theme-primary-strong)]"/><div><div className="font-black text-[var(--dawaa-theme-heading)]">ذكاء البصمة مدمج في جدول اليوم</div><div className="text-[11px] font-bold text-[var(--dawaa-theme-muted)]">الخام لا يساوي المحتسب: التكرار يُستبعد وتصحيح دخول/خروج يظهر بوضوح مع سبب القرار.</div></div></div>
-        <div className="flex flex-wrap items-center gap-2 text-[11px] font-black">
-          <span className="rounded-full border border-[var(--dawaa-theme-border)] px-2 py-1">خام {smartTotals.raw}</span>
-          <span className="rounded-full border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] px-2 py-1 text-[var(--dawaa-status-success-text)]">محتسب {smartTotals.effective}</span>
-          <span className="rounded-full border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-2 py-1 text-[var(--dawaa-status-warning-text)]">مكرر {smartTotals.duplicates}</span>
-          <span className="rounded-full border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] px-2 py-1 text-[var(--dawaa-status-info-text)]">تصحيح {smartTotals.corrected}</span>
-          {!!smartTotals.review && <span className="rounded-full border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] px-2 py-1 text-[var(--dawaa-status-danger-text)]">مراجعة {smartTotals.review}</span>}
-          <button onClick={() => void loadIntel()} className="btn-secondary px-2 py-1"><RefreshCw size={14} className={loading ? 'animate-spin' : ''}/> تحديث الذكاء</button>
-        </div>
-      </div>
-      {error && <div className="mt-2 rounded-lg border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-2 text-xs font-bold text-[var(--dawaa-status-danger-text)]">⚠️ {error} — جدول الحضور الأساسي ما زال ظاهرًا بدون تعطيل.</div>}
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--dawaa-theme-border)] dawaa-surface-soft px-3 py-2">
+      <div className="flex items-center gap-2 text-xs font-bold text-[var(--dawaa-theme-muted)]"><Sparkles size={15} className="text-[var(--dawaa-theme-primary-strong)]"/> ذكاء البصمة مدمج في الجدول أدناه{!!reviewCount && <span className="rounded-full border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] px-2 py-0.5 font-black text-[var(--dawaa-status-danger-text)]">{reviewCount} بصمة تحتاج مراجعة اليوم</span>}</div>
+      <button onClick={() => void loadIntel()} className="btn-secondary px-2 py-1 text-xs"><RefreshCw size={13} className={loading ? 'animate-spin' : ''}/> تحديث الذكاء</button>
     </div>
+    {error && <div className="rounded-lg border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-2 text-xs font-bold text-[var(--dawaa-status-danger-text)]">⚠️ {error} — جدول الحضور الأساسي ما زال ظاهرًا بدون تعطيل.</div>}
 
     <Tabs value={activeGroup} onValueChange={(v) => setActiveGroup(v as RoleGroup)} dir="rtl">
       <TabsList className="h-auto flex-wrap justify-start gap-1.5 rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-1.5">

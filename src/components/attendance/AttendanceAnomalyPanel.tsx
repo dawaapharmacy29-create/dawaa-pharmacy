@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, Fingerprint, RefreshCw, ShieldAlert, Sparkles } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
 
 type DailyCommandRow = {
@@ -53,7 +52,7 @@ type DailyIntelRow = {
   timeline: TimelineEvent[];
 };
 
-type Props = { rows: DailyCommandRow[]; date: string; branch: string };
+type Props = { rows: DailyCommandRow[]; intel: DailyIntelRow[]; loading: boolean; onRefresh: () => void };
 type Severity = 'critical' | 'high' | 'medium' | 'info';
 type Filter = 'all' | 'critical' | 'review' | 'single' | 'corrected' | 'duplicate';
 
@@ -183,32 +182,10 @@ function analyze(row: DailyCommandRow, item?: DailyIntelRow): Anomaly | null {
   return { staffId: row.staff_id, staffName: row.staff_name, branch: row.branch || '-', severity, score, title, reasons, tags: Array.from(new Set(tags)), item, row };
 }
 
-export default function AttendanceAnomalyPanel({ rows, date, branch }: Props) {
-  const [intel, setIntel] = useState<DailyIntelRow[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+export default function AttendanceAnomalyPanel({ rows, intel, loading, onRefresh }: Props) {
+  const [collapsed, setCollapsed] = useState(true);
   const [filter, setFilter] = useState<Filter>('all');
   const [expanded, setExpanded] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const { data, error: rpcError } = await supabase.rpc('attendance_daily_intelligence_v2', { p_date: date, p_branch: branch === 'الكل' ? null : branch });
-      if (rpcError) throw rpcError;
-      setIntel((data || []) as DailyIntelRow[]);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'تعذر تحميل رادار الحالات غير الطبيعية');
-    } finally {
-      setLoading(false);
-    }
-  }, [branch, date]);
-
-  useEffect(() => { void load(); }, [load]);
-  useEffect(() => {
-    const id = window.setInterval(() => void load(), 30_000);
-    return () => window.clearInterval(id);
-  }, [load]);
 
   const map = useMemo(() => new Map(intel.map((x) => [x.staff_id, x])), [intel]);
   const anomalies = useMemo(() => rows.map((row) => analyze(row, map.get(row.staff_id))).filter(Boolean).sort((a, b) => (b!.score - a!.score)) as Anomaly[], [rows, map]);
@@ -229,10 +206,11 @@ export default function AttendanceAnomalyPanel({ rows, date, branch }: Props) {
 
   return <section className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm">
     <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-      <div className="flex items-start gap-2"><ShieldAlert size={20} className="mt-0.5 text-[var(--dawaa-status-warning-text)]"/><div><h2 className="font-black text-[var(--dawaa-theme-heading)]">رادار الحالات غير الطبيعية</h2><p className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">يرتب الحالات التي تستحق انتباه المدير أولًا. لا يحذف الـRaw ولا ينشئ خصمًا تلقائيًا؛ هو طبقة تفسير ومراجعة قبل الاعتماد.</p></div></div>
-      <button onClick={() => void load()} className="btn-secondary"><RefreshCw size={15} className={loading ? 'animate-spin' : ''}/> تحديث الرادار</button>
+      <button onClick={() => setCollapsed((c) => !c)} className="flex flex-1 items-start gap-2 text-right"><ShieldAlert size={20} className="mt-0.5 text-[var(--dawaa-status-warning-text)]"/><div><h2 className="flex items-center gap-1.5 font-black text-[var(--dawaa-theme-heading)]">رادار الحالات غير الطبيعية {collapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}{anomalies.length > 0 && <span className="rounded-full border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-2 py-0.5 text-[11px] text-[var(--dawaa-status-warning-text)]">{anomalies.length} حالة تحتاج انتباه</span>}</h2><p className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">يرتب الحالات التي تستحق انتباه المدير أولًا. لا يحذف الـRaw ولا ينشئ خصمًا تلقائيًا؛ هو طبقة تفسير ومراجعة قبل الاعتماد.</p></div></button>
+      <button onClick={onRefresh} className="btn-secondary"><RefreshCw size={15} className={loading ? 'animate-spin' : ''}/> تحديث الرادار</button>
     </div>
 
+    {!collapsed && <>
     <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
       <RadarMetric label="حرجة" value={totals.urgent} tone="bad" />
       <RadarMetric label="مهمة" value={totals.important} tone="warn" />
@@ -245,8 +223,6 @@ export default function AttendanceAnomalyPanel({ rows, date, branch }: Props) {
     <div className="mt-3 flex flex-wrap gap-2">
       {([['all','الكل'],['critical','الأهم أولًا'],['review','تحتاج مراجعة'],['single','بصمة واحدة'],['corrected','تصحيح دخول/خروج'],['duplicate','تكرار سريع']] as Array<[Filter,string]>).map(([key,label]) => <button key={key} onClick={() => setFilter(key)} className={cn('rounded-full border px-3 py-1 text-[11px] font-black transition', filter === key ? 'border-[var(--dawaa-theme-primary)] bg-[var(--dawaa-theme-primary)] text-white' : 'border-[var(--dawaa-theme-border)] hover:bg-[var(--dawaa-theme-surface-2)]')}>{label}</button>)}
     </div>
-
-    {error && <div className="mt-3 rounded-xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-3 text-xs font-black text-[var(--dawaa-status-danger-text)]">⚠️ {error}</div>}
 
     <div className="mt-4 space-y-2">
       {!loading && !filtered.length && <div className="rounded-xl border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] p-4 text-sm font-black text-[var(--dawaa-status-success-text)]"><CheckCircle2 size={17} className="ml-1 inline"/> لا توجد حالات ضمن الفلتر الحالي تحتاج تصعيدًا.</div>}
@@ -267,6 +243,7 @@ export default function AttendanceAnomalyPanel({ rows, date, branch }: Props) {
         </div>;
       })}
     </div>
+    </>}
   </section>;
 }
 

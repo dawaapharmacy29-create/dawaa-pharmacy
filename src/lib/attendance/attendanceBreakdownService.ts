@@ -57,6 +57,12 @@ export interface PendingOvertimeRow {
   status: string;
 }
 
+export interface OvertimeDecisionRow extends PendingOvertimeRow {
+  decided_at: string | null;
+  decided_by_name: string | null;
+  decision_note: string | null;
+}
+
 export async function listPendingOvertime(branch: string | null): Promise<PendingOvertimeRow[]> {
   const { data, error } = await supabase.rpc('list_pending_overtime_v1', { p_branch: branch });
   if (error) throw error;
@@ -66,6 +72,20 @@ export async function listPendingOvertime(branch: string | null): Promise<Pendin
 export async function decideOvertimeApproval(id: string, decision: 'approved' | 'rejected', note?: string) {
   const { error } = await supabase.rpc('decide_overtime_approval_v1', { p_id: id, p_decision: decision, p_note: note || null });
   if (error) throw error;
+}
+
+export async function listOvertimeDecisions(args: {
+  branch?: string | null;
+  status?: 'approved' | 'rejected' | null;
+  limit?: number;
+} = {}): Promise<OvertimeDecisionRow[]> {
+  const { data, error } = await supabase.rpc('list_overtime_decisions_v1', {
+    p_branch: args.branch || null,
+    p_status: args.status || null,
+    p_limit: args.limit ?? 200,
+  });
+  if (error) throw error;
+  return (data || []) as OvertimeDecisionRow[];
 }
 
 export interface StaffAttendanceDetail {

@@ -2,17 +2,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, Loader2, RefreshCw, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import {
-  decideOvertimeApproval,
   formatTenure,
   getAttendanceBranches,
   getBranchAttendanceRoster,
   getStaffAttendanceDetail,
-  listPendingOvertime,
   RESOLUTION_STATUS_LABELS,
   resolutionStatusTone,
   type AttendanceDayRow,
   type BranchRosterRow,
-  type PendingOvertimeRow,
   type StaffAttendanceDetail,
 } from '@/lib/attendance/attendanceBreakdownService';
 import { getAnnualLeaveBalanceV1, getPermissionPolicyStatusV2, type AnnualLeaveBalanceV1, type PermissionPolicyStatusV2 } from '@/lib/timeOffService';
@@ -47,8 +44,6 @@ export default function EmployeeAttendanceBreakdown({ branches, defaultBranch, c
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [leaveBalance, setLeaveBalance] = useState<AnnualLeaveBalanceV1 | null>(null);
   const [permissionStatus, setPermissionStatus] = useState<PermissionPolicyStatusV2 | null>(null);
-  const [pendingOvertime, setPendingOvertime] = useState<PendingOvertimeRow[]>([]);
-  const [decidingId, setDecidingId] = useState<string | null>(null);
 
   useEffect(() => { setBranch(defaultBranch); }, [defaultBranch]);
 
@@ -82,31 +77,6 @@ export default function EmployeeAttendanceBreakdown({ branches, defaultBranch, c
   }, [branch, start, end]);
 
   useEffect(() => { void loadRoster(); }, [loadRoster]);
-
-  const loadPendingOvertime = useCallback(async () => {
-    try {
-      const data = await listPendingOvertime(branch);
-      setPendingOvertime(data);
-    } catch (e) {
-      // silent: pending overtime is a supplementary panel, not the primary view
-    }
-  }, [branch]);
-
-  useEffect(() => { void loadPendingOvertime(); }, [loadPendingOvertime]);
-
-  async function handleOvertimeDecision(id: string, decision: 'approved' | 'rejected') {
-    setDecidingId(id);
-    try {
-      await decideOvertimeApproval(id, decision);
-      toast.success(decision === 'approved' ? 'تم اعتماد الأوفر تايم' : 'تم رفض الأوفر تايم');
-      await loadPendingOvertime();
-      if (selectedStaffId) void loadDetail();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'تعذر تسجيل القرار');
-    } finally {
-      setDecidingId(null);
-    }
-  }
 
   const loadDetail = useCallback(async () => {
     if (!selectedStaffId) { setDetail(null); return; }
@@ -143,28 +113,6 @@ export default function EmployeeAttendanceBreakdown({ branches, defaultBranch, c
 
   return (
     <div className="grid gap-4">
-      {pendingOvertime.length > 0 && (
-        <div className="rounded-2xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-4 shadow-sm">
-          <p className="mb-2 text-sm font-black text-[var(--dawaa-status-warning-text)]">
-            أوفر تايم بانتظار موافقتك ({pendingOvertime.length}) — لا يُصرف ولا يُحتسب في الحوافز إلا بعد الاعتماد
-          </p>
-          <div className="grid gap-2">
-            {pendingOvertime.map((row) => (
-              <div key={row.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--dawaa-theme-border)] dawaa-surface p-2">
-                <div className="text-xs font-bold text-[var(--dawaa-theme-heading)]">
-                  <span className="font-black">{row.staff_name}</span> · {row.branch} · {row.attendance_date} · {row.overtime_hours.toFixed(1)} ساعة
-                  {row.overtime_amount != null && <span className="text-[var(--dawaa-theme-muted)]"> (~{row.overtime_amount.toLocaleString('ar-EG')} ج.م)</span>}
-                </div>
-                <div className="flex gap-2">
-                  <button disabled={decidingId === row.id} onClick={() => handleOvertimeDecision(row.id, 'approved')} className="btn-primary !py-1 !px-3 text-xs">اعتماد</button>
-                  <button disabled={decidingId === row.id} onClick={() => handleOvertimeDecision(row.id, 'rejected')} className="btn-secondary !py-1 !px-3 text-xs">رفض</button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* Controls */}
       <div className="flex flex-col gap-3 rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap items-center gap-2">
