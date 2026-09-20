@@ -41,18 +41,6 @@ patchFile('src/pages/SmartConversationReviewRebuild.tsx', (source) => {
 });
 
 patchFile('src/pages/Reviews.tsx', (source) => {
-  // Modern Smart Review flow already owns transcript transfer, identity resolution, smart draft,
-  // evidence rendering, and conversation_snapshot persistence. Do not re-inject the legacy
-  // pendingConversationSnapshot bridge during npm prebuild; doing so duplicates imports/state
-  // and can make Vercel's npm run build fail even though a direct vite build succeeds.
-  if (
-    source.includes('const [smartSnapshot, setSmartSnapshot]') &&
-    source.includes('readPendingConversationReviewTransfer') &&
-    source.includes('conversation_snapshot: smartSnapshotForSave')
-  ) {
-    console.log('[review-transcript-v1] modern smart snapshot flow detected; legacy Reviews patch skipped');
-    return source;
-  }
   let src = source;
   src = insertAfter(src, `import { useDebounce } from '@/hooks/useDebounce';`, `import ConversationReviewTranscriptCard from '@/components/reviews/ConversationReviewTranscriptCard';\nimport { clearPendingConversationReviewTransfer, readPendingConversationReviewTransfer, type ConversationReviewSnapshot } from '@/lib/conversationReviewTranscript';`, 'reviews imports');
 
