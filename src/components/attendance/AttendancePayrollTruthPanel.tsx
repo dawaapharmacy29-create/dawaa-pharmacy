@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CalendarDays, Clock3, RefreshCw, Timer, Users2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { toast } from 'sonner';
+import { reopenAttendanceResolution } from '@/lib/attendance/attendanceResolutionService';
 
 type DriftRow = {
   staff_id: string;
@@ -58,9 +60,11 @@ function n(value: unknown) {
 export default function AttendancePayrollTruthPanel({
   branches,
   defaultBranch,
+  onOpenResolutions,
 }: {
   branches: string[];
   defaultBranch: string;
+  onOpenResolutions?: (date: string) => void;
 }) {
   const bounds = useMemo(() => cycleBounds(), []);
   const [start, setStart] = useState(bounds.start);
@@ -70,6 +74,9 @@ export default function AttendancePayrollTruthPanel({
   const [driftRows, setDriftRows] = useState<DriftRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reopenTarget, setReopenTarget] = useState<DriftRow | null>(null);
+  const [reopenNote, setReopenNote] = useState('');
+  const [reopening, setReopening] = useState(false);
 
   useEffect(() => {
     if (defaultBranch) setBranch(defaultBranch);
@@ -121,6 +128,33 @@ export default function AttendancePayrollTruthPanel({
   }, [branch, end, start]);
 
   useEffect(() => { void load(); }, [load]);
+
+  const reopenFinancialDrift = useCallback(async () => {
+    if (!reopenTarget) return;
+    if (!reopenNote.trim()) {
+      toast.warning('اكتب سبب إعادة فتح اليوم حتى يظل القرار موثقًا.');
+      return;
+    }
+
+    setReopening(true);
+    try {
+      await reopenAttendanceResolution({
+        staffId: reopenTarget.staff_id,
+        date: reopenTarget.attendance_date,
+        note: reopenNote.trim(),
+      });
+      const reopenedDate = reopenTarget.attendance_date;
+      toast.success('تمت إعادة فتح اليوم للمراجعة. لن يدخل في المرتب حتى يتم اعتماده من جديد.');
+      setReopenTarget(null);
+      setReopenNote('');
+      await load();
+      onOpenResolutions?.(reopenedDate);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'تعذر إعادة فتح اليوم للمراجعة');
+    } finally {
+      setReopening(false);
+    }
+  }, [load, onOpenResolutions, reopenNote, reopenTarget]);
 
   const financialDriftRows = useMemo(
     () => driftRows.filter((row) => Math.abs(row.stored_hours - row.rebuilt_hours) > 0.1),
@@ -186,7 +220,7 @@ export default function AttendancePayrollTruthPanel({
               <thead><tr className="border-b border-[var(--dawaa-theme-border)]">
                 <th className="p-2 text-right">الموظف</th><th className="p-2 text-right">التاريخ</th>
                 <th className="p-2 text-right">المحفوظ</th><th className="p-2 text-right">إعادة البناء</th>
-                <th className="p-2 text-right">الساعات</th><th className="p-2 text-right">سبب الفرق</th>
+                <th className="p-2 text-right">الساعات</th><th className="p-2 text-right">سبب الفرق</th><th className="p-2 text-right">الإجراء</th>
               </tr></thead>
               <tbody>
                 {financialDriftRows.slice(0, 25).map((row) => <tr key={`${row.staff_id}-${row.attendance_date}`} className="border-b border-[var(--dawaa-theme-divider)] last:border-0">
@@ -196,6 +230,14 @@ export default function AttendancePayrollTruthPanel({
                   <td className="p-2 font-black text-[var(--dawaa-status-danger-text)]">{statusLabel(row.rebuilt_status)}</td>
                   <td className="p-2">{row.stored_hours.toFixed(2)} ← {row.rebuilt_hours.toFixed(2)}</td>
                   <td className="p-2">{driftReasonLabel(row.drift_reason)}</td>
+                  <td className="p-2">
+                    <button
+                      onClick={() => { setReopenTarget(row); setReopenNote(''); }}
+                      className="btn-secondary whitespace-nowrap px-2 py-1 text-[11px]"
+                    >
+                      إعادة فتح للمراجعة
+                    </button>
+                  </td>
                 </tr>)}
               </tbody>
             </table>
@@ -253,6 +295,42 @@ export default function AttendancePayrollTruthPanel({
       <div className="rounded-xl border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] p-3 text-xs font-bold text-[var(--dawaa-status-info-text)]">
         هذا التقرير لا يحسب قيمة المرتب ولا يغيّر Payroll. الهدف منه تثبيت الحقيقة التشغيلية أولًا: اشتغل كام يوم وساعة فعلًا، وما الذي ما زال معلقًا للمراجعة.
       </div>
+
+      {reopenTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-lg rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-5 shadow-2xl">
+            <h3 className="text-lg font-black text-[var(--dawaa-theme-heading)]">إعادة فتح يوم مالي للمراجعة</h3>
+            <p className="mt-2 text-sm font-bold text-[var(--dawaa-theme-muted)]">
+              {reopenTarget.staff_name} — {reopenTarget.attendance_date}
+            </p>
+            <div className="mt-3 rounded-xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-3 text-xs font-bold text-[var(--dawaa-status-danger-text)]">
+              الساعات المعتمدة: {reopenTarget.stored_hours.toFixed(2)} — إعادة البناء: {reopenTarget.rebuilt_hours.toFixed(2)}.
+              بعد إعادة الفتح لن يدخل اليوم في المرتب حتى يتم اعتماده من شاشة التسويات.
+            </div>
+            <label className="mt-4 block text-xs font-black text-[var(--dawaa-theme-muted)]">
+              سبب إعادة الفتح
+              <textarea
+                value={reopenNote}
+                onChange={(e) => setReopenNote(e.target.value)}
+                className="input-dark mt-1 min-h-24 w-full"
+                placeholder="مثال: فرق في ساعات اليوم بعد تحديث الجدول التاريخي والبصمات."
+              />
+            </label>
+            <div className="mt-4 flex gap-2">
+              <button onClick={() => void reopenFinancialDrift()} disabled={reopening} className="btn-primary flex-1">
+                {reopening ? 'جارٍ إعادة الفتح...' : 'تأكيد وإرسال للتسويات'}
+              </button>
+              <button
+                onClick={() => { setReopenTarget(null); setReopenNote(''); }}
+                disabled={reopening}
+                className="btn-secondary"
+              >
+                إلغاء
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

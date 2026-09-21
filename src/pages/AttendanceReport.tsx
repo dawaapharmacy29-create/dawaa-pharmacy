@@ -205,6 +205,7 @@ export default function AttendanceReport() {
   });
   const [systemSubTab, setSystemSubTab] = useState<SystemSubTab>(() => requestedAlias?.systemSub || 'sync');
   const [reportSubTab, setReportSubTab] = useState<ReportSubTab>('overview');
+  const [resolutionFocusDate, setResolutionFocusDate] = useState<string | null>(null);
   const [clockSubView, setClockSubView] = useState<ClockSubView>(() => requestedAlias?.clockSub || 'clock');
   const [dailyDate, setDailyDate] = useState(cairoDate());
   const [branchFilter, setBranchFilter] = useState(() => (canAllBranches ? 'الكل' : normalizedUserBranch || 'الكل'));
@@ -437,7 +438,7 @@ export default function AttendanceReport() {
           {isOperationalManager && <TabsTrigger value="overtime" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><Timer size={16} /> الأوفر تايم <TabBadge value={approvalsSummary?.pendingOvertime} /></TabsTrigger>}
           {canViewTimeOff && <TabsTrigger value="timeoff" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><CalendarClock size={16} /> الأذونات والإجازات <TabBadge value={approvalsSummary?.pendingTimeOff} /></TabsTrigger>}
         </TabsList></Tabs>
-        {decisionSubTab === 'resolution' && isOperationalManager && <Suspense fallback={<TableSkeleton />}><AttendanceResolutionCenter defaultBranch={effectiveBranch} /></Suspense>}
+        {decisionSubTab === 'resolution' && isOperationalManager && <Suspense fallback={<TableSkeleton />}><AttendanceResolutionCenter defaultBranch={effectiveBranch} initialDate={resolutionFocusDate} /></Suspense>}
         {decisionSubTab === 'overtime' && isOperationalManager && <Suspense fallback={<TableSkeleton />}><OvertimeApprovalCenter defaultBranch={effectiveBranch === 'الكل' ? '' : effectiveBranch} /></Suspense>}
         {decisionSubTab === 'timeoff' && canViewTimeOff && <Suspense fallback={<TableSkeleton />}><TimeOffPanel /></Suspense>}
       </>}
@@ -464,6 +465,11 @@ export default function AttendanceReport() {
             <AttendancePayrollTruthPanel
               branches={branches}
               defaultBranch={effectiveBranch}
+              onOpenResolutions={(date) => {
+                setResolutionFocusDate(date);
+                setTab('decisions');
+                setDecisionSubTab('resolution');
+              }}
             />
           </Suspense>}
         </>

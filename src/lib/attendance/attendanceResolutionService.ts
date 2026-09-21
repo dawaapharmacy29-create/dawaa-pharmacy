@@ -111,3 +111,18 @@ export async function listAttendanceImpactLedger(args: {
   if (error) throw new Error(error.message);
   return (data || []) as AttendanceImpactRow[];
 }
+
+
+export async function reopenAttendanceResolution(args: {
+  staffId: string;
+  date: string;
+  note: string;
+}): Promise<AttendanceResolutionRow> {
+  const { data, error } = await supabase.rpc('reopen_attendance_resolution_v1', {
+    p_staff_id: args.staffId,
+    p_attendance_date: args.date,
+    p_note: args.note,
+  });
+  if (error) throw new Error(error.message);
+  return data as AttendanceResolutionRow;
+}

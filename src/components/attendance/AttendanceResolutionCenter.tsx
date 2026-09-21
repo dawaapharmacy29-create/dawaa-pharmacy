@@ -64,9 +64,15 @@ function stateClass(row: AttendanceResolutionRow) {
   return 'border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)]';
 }
 
-export default function AttendanceResolutionCenter({ defaultBranch = 'الكل' }: { defaultBranch?: string }) {
-  const [start, setStart] = useState(cairoDate(-7));
-  const [end, setEnd] = useState(cairoDate());
+export default function AttendanceResolutionCenter({
+  defaultBranch = 'الكل',
+  initialDate = null,
+}: {
+  defaultBranch?: string;
+  initialDate?: string | null;
+}) {
+  const [start, setStart] = useState(() => initialDate || cairoDate(-7));
+  const [end, setEnd] = useState(() => initialDate || cairoDate());
   const [branch, setBranch] = useState(defaultBranch || 'الكل');
   const [status, setStatus] = useState<string>('');
   const [rows, setRows] = useState<AttendanceResolutionRow[]>([]);
@@ -77,6 +83,13 @@ export default function AttendanceResolutionCenter({ defaultBranch = 'الكل' 
   const [profileStaffId, setProfileStaffId] = useState<string | null>(null);
   const [pendingDeductions, setPendingDeductions] = useState<{ id: string; staff_id: string; employee_name: string; branch: string; month_cycle: string; points: number; amount: number; description: string; transaction_date: string }[]>([]);
   const [deductionBusy, setDeductionBusy] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!initialDate) return;
+    setStart(initialDate);
+    setEnd(initialDate);
+    setStatus('pending_review');
+  }, [initialDate]);
 
   const loadPendingDeductions = useCallback(async () => {
     const { data, error: rpcError } = await supabase.rpc('attendance_deduction_pending_review_v1');
