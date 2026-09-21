@@ -21,6 +21,7 @@ const BranchRoleRatesPanel = lazy(() => import('@/components/attendance/BranchRo
 const TimeOffPanel = lazy(() => import('@/pages/TimeOff'));
 const OvertimeApprovalCenter = lazy(() => import('@/components/attendance/OvertimeApprovalCenter'));
 const AttendancePayrollTruthPanel = lazy(() => import('@/components/attendance/AttendancePayrollTruthPanel'));
+const AttendanceScheduleHealthPanel = lazy(() => import('@/components/attendance/AttendanceScheduleHealthPanel'));
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   fetchAttendanceLocations,
@@ -36,7 +37,7 @@ import {
 
 type Tab = 'dashboard' | 'daily' | 'decisions' | 'report' | 'system' | 'clock';
 type DecisionSubTab = 'resolution' | 'overtime' | 'timeoff';
-type SystemSubTab = 'sync' | 'unmapped';
+type SystemSubTab = 'sync' | 'unmapped' | 'schedules';
 type ReportSubTab = 'overview' | 'payroll-truth';
 type ClockSubView = 'clock' | 'logs';
 
@@ -134,6 +135,7 @@ const TAB_ALIASES: Record<string, { tab: Tab; decisionSub?: DecisionSubTab; syst
   system: { tab: 'system' },
   sync: { tab: 'system', systemSub: 'sync' },
   unmapped: { tab: 'system', systemSub: 'unmapped' },
+  schedules: { tab: 'system', systemSub: 'schedules' },
   clock: { tab: 'clock', clockSub: 'clock' },
   logs: { tab: 'clock', clockSub: 'logs' },
 };
@@ -470,7 +472,7 @@ export default function AttendanceReport() {
       {tab === 'system' && <>
         <Tabs value={systemSubTab} onValueChange={(v) => setSystemSubTab(v as SystemSubTab)} dir="rtl"><TabsList className="h-auto flex-wrap justify-start gap-1.5 rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-1.5">
           <TabsTrigger value="sync" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><Fingerprint size={16} /> المزامنة والذكاء</TabsTrigger>
-          <TabsTrigger value="unmapped" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><UserCheck size={16} /> الأكواد غير المربوطة <TabBadge value={approvalsSummary?.unmappedBiometrics} /></TabsTrigger>
+          <TabsTrigger value="unmapped" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><UserCheck size={16} /> الأكواد غير المربوطة <TabBadge value={approvalsSummary?.unmappedBiometrics} /></TabsTrigger><TabsTrigger value="schedules" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><CalendarClock size={16} /> سلامة الجداول</TabsTrigger>
         </TabsList></Tabs>
         {systemSubTab === 'sync' && <Suspense fallback={<TableSkeleton />}><AttendanceSyncCommandCenter branches={branches} defaultBranch={effectiveBranch} /></Suspense>}
         {systemSubTab === 'unmapped' && <>
@@ -478,6 +480,9 @@ export default function AttendanceReport() {
           {loadingSync ? <TableSkeleton /> : syncHealth ? <SyncHealthPanel health={syncHealth} /> : <Empty text="لا توجد بيانات مزامنة متاحة." />}
           {!loadingSync && <BiometricMappingQueue rows={unmappedRows} target={mappingTarget} search={candidateSearch} candidates={candidates} selected={selectedCandidate} busy={mappingBusy} onOpen={(row) => { setMappingTarget(row); setCandidateSearch(row.source_name || ''); setCandidates([]); setSelectedCandidate(null); }} onClose={() => { setMappingTarget(null); setCandidateSearch(''); setCandidates([]); setSelectedCandidate(null); }} onSearchChange={setCandidateSearch} onSearch={() => void searchMappingCandidates()} onSelect={setSelectedCandidate} onAssign={() => void assignMapping()} />}
         </>}
+        {systemSubTab === 'schedules' && <Suspense fallback={<TableSkeleton />}>
+          <AttendanceScheduleHealthPanel defaultBranch={effectiveBranch} />
+        </Suspense>}
       </>}
 
       {tab === 'clock' && <>
