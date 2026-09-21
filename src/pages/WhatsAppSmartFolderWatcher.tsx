@@ -34,6 +34,7 @@ import { buildWhatsAppCaseContextsV27 } from '@/lib/whatsappCaseContextV27';
 import { buildConversationTimingV28 } from '@/lib/whatsappConversationTimingV28';
 import { buildDelayAttributionV29 } from '@/lib/whatsappDelayAttributionV29';
 import { buildConversationFocusV30 } from '@/lib/whatsappConversationFocusV30';
+import { buildEvaluationConversationV31 } from '@/lib/whatsappEvaluationConversationV31';
 import { syncWhatsAppResponseTurnsV18 } from '@/lib/whatsappResponseTurnsV18';
 import { persistAnalyzedWhatsAppSession, attachInvoiceVerificationToQueue } from '@/lib/whatsappReviewPersistenceV4';
 import { buildWhatsAppCustomerJourneyIntelligenceV15 } from '@/lib/whatsappCustomerJourneyIntelligenceV15';
@@ -284,20 +285,6 @@ export default function WhatsAppSmartFolderWatcher() {
         if (!result.scope.scoredSession) return null;
         const staffTimingV28 = buildConversationTimingV28(result.scope.scoredSession, roles, invoiceVerification);
 
-        const evaluationV2 = buildSmartConversationEvaluationV2(result.scope.scoredSession, {
-          invoiceVerification,
-          purchaseHistory: customerContext.purchaseHistory,
-          salesOpportunities: result.intelligence?.salesOpportunities || [],
-          consultationCommunication: result.intelligence?.consultationCommunication || null,
-        });
-
-        const officialReviewDraft = buildSmartOfficialReviewDraftV1(result.scope.scoredSession, session.customerName, {
-          missingMediaMessageIds: result.qualityGate?.criticalMissingMediaMessageIds || [],
-          journey: result.journeyCrossCheck,
-          evaluationV2,
-          timingV28: staffTimingV28,
-        });
-
         const conversationFocusV30 = buildConversationFocusV30(session, {
           scoredMessageIds: result.scope.inScopeMessageIds,
           evidenceMessageIds: result.decision.evidenceMessageIds,
@@ -305,18 +292,42 @@ export default function WhatsAppSmartFolderWatcher() {
           delayAttribution: delayAttributionV29,
         });
 
-        const scoredIds = new Set(result.scope.inScopeMessageIds);
-        const fullCaseContextIds = session.messages
-          .filter((message) => !scoredIds.has(message.id))
-          .map((message) => message.id);
+        // V31: المحادثة التي سيتم التقييم عليها فعليًا.
+        // لا نستخدم الـCase كلها ولا رسالتين context ثابتين؛ نضم فقط رسائل الموظف،
+        // سؤال العميل الذي رد عليه، milestones المهمة، والأدلة/السياق القريب اللازم.
+        const evaluationConversationV31 = buildEvaluationConversationV31(session, {
+          scoredMessageIds: result.scope.inScopeMessageIds,
+          evidenceMessageIds: result.decision.evidenceMessageIds,
+          focus: conversationFocusV30,
+          staffTiming: staffTimingV28,
+        });
+        const evaluationSession = evaluationConversationV31.session;
+        const focusedStaffTimingV28 = buildConversationTimingV28(evaluationSession, roles, invoiceVerification);
+
+        const evaluationV2 = buildSmartConversationEvaluationV2(evaluationSession, {
+          invoiceVerification,
+          purchaseHistory: customerContext.purchaseHistory,
+          salesOpportunities: result.intelligence?.salesOpportunities || [],
+          consultationCommunication: result.intelligence?.consultationCommunication || null,
+        });
+
+        const officialReviewDraft = buildSmartOfficialReviewDraftV1(evaluationSession, session.customerName, {
+          missingMediaMessageIds: result.qualityGate?.criticalMissingMediaMessageIds || [],
+          journey: result.journeyCrossCheck,
+          evaluationV2,
+          timingV28: focusedStaffTimingV28,
+        });
+
+        const includedIds = new Set(evaluationConversationV31.includedMessageIds);
+        const focusedScoredIds = result.scope.inScopeMessageIds.filter((id) => includedIds.has(id));
+        const focusedContextIds = evaluationConversationV31.includedMessageIds.filter((id) => !focusedScoredIds.includes(id));
 
         const snapshot = buildConversationReviewSnapshot({
-          session,
-          // العرض بقى Case كاملة حتى لو التقييم الحالي لدكتور واحد.
-          // رسائل الدكتور الجاري تقييمه = scored، وباقي المشاركين = context.
-          displayMessages: session.messages,
-          scoredMessageIds: result.scope.inScopeMessageIds,
-          contextMessageIds: fullCaseContextIds,
+          session: evaluationSession,
+          displayMessages: evaluationSession.messages,
+          fullCaseDisplayMessages: session.messages,
+          scoredMessageIds: focusedScoredIds,
+          contextMessageIds: focusedContextIds,
           evidenceMessageIds: result.decision.evidenceMessageIds,
           staffName: staff.staffName,
           staffRole: staff.role,
@@ -335,7 +346,7 @@ export default function WhatsAppSmartFolderWatcher() {
             purchaseHistory: customerContext.purchaseHistory,
             evaluationV2,
             timingV28: caseTimingV28,
-            staffTimingV28,
+            staffTimingV28: focusedStaffTimingV28,
             delayAttributionV29,
           }),
         });
