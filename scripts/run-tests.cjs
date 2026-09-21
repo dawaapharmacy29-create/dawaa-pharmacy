@@ -192,6 +192,19 @@ const testFiles = [
   'src/lib/__tests__/whatsappFollowupSignalDetector.test.ts',
   'src/lib/__tests__/whatsappFollowupSalesVerification.test.ts',
   'src/lib/__tests__/whatsappFollowupGovernance.test.ts',
+  'src/lib/__tests__/conversationReviewTranscript.test.ts',
+  'src/lib/__tests__/whatsappSmartReviewCore.test.ts',
+  'src/lib/__tests__/whatsappSmartReviewOwnership.test.ts',
+  'src/lib/__tests__/whatsappSmartReviewResult.test.ts',
+  'src/lib/__tests__/whatsappSmartReviewScope.test.ts',
+  'src/lib/__tests__/whatsappSmartReviewDecision.test.ts',
+  'src/lib/__tests__/whatsappSmartReviewPipeline.test.ts',
+  'src/lib/__tests__/whatsappSmartReviewPipelineIntelligence.test.ts',
+  'src/lib/__tests__/whatsappSmartConversationIntelligence.test.ts',
+  'src/lib/__tests__/whatsappSmartConversationIntelligence.realRegression.test.ts',
+  'src/lib/__tests__/whatsappSmartConversationRefinement.test.ts',
+  'src/lib/__tests__/whatsappSmartReviewActions.test.ts',
+  'src/lib/__tests__/whatsappSmartReviewGoldenCases.test.ts',
 ];
 for (const relativePath of testFiles) {
   const testFile = path.join(root, relativePath);

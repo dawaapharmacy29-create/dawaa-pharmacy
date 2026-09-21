@@ -889,6 +889,27 @@ export function clampScore(value: number) {
   return Math.max(0, Math.min(100, Math.round(value)));
 }
 
+/**
+ * أخطاء البند العادية لا يجب أن تُخصم مرتين:
+ * مرة من درجة البند ومرة كـ extra penalty.
+ * الـextra penalty محجوز للأخطاء التشغيلية/الجسيمة المثبتة فقط.
+ */
+const EXTRA_PENALTY_ERROR_TYPES = new Set<ReviewErrorType>([
+  'medical_error',
+  'invoice_error',
+  'delivery_error',
+  'forgotten_customer',
+  'wrong_price',
+  'promised_unavailable',
+  'poor_order_delay_handling',
+  'unregistered_customer_request',
+]);
+
+function shouldApplyExtraPenalty(type: ReviewErrorType, severe?: boolean) {
+  if (type === 'poor_tone') return Boolean(severe);
+  return EXTRA_PENALTY_ERROR_TYPES.has(type);
+}
+
 export function baseDoctorImpactFromScore(score: number) {
   // السلم المعتمد رسميًا من صاحب الصيدلية (نظام النقاط الجديد):
   // 96-100% = +6، 90-95% = +3، 85-89% = -3، 80-84% = -6، أقل من 80% = -10.
@@ -966,7 +987,11 @@ export function evaluateConversationReview(
       if (choice.handledAngryCustomerWell) handledAngryCustomerWell = true;
       if (choice.excellentCase) excellentCase = true;
       if (choice.severe) hasSevereError = true;
-      if (choice.errorType && choice.pointsEarned === 0) {
+      if (
+        choice.errorType &&
+        choice.pointsEarned === 0 &&
+        shouldApplyExtraPenalty(choice.errorType, choice.severe)
+      ) {
         const extra = extraPenaltyForError(choice.errorType, choice.severe);
         // لو نفس نوع الخطأ اتسجل من معيار تاني بدرجة أخف، ناخد الأشد (الأقل نقاطًا) مش آخر واحد بالترتيب.
         const existing = extraPenaltyMap.get(extra?.key as ReviewErrorType);

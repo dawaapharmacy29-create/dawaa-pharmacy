@@ -53,6 +53,7 @@ const GROUPS: NavGroup[] = [
     { path: '/customer-service?quickFollowup=1', icon: ClipboardCheck, label: 'متابعة العملاء', permission: 'view_customer_service' },
     { path: '/customer-requests', icon: PackageSearch, label: 'طلبات العملاء', permission: 'view_customer_requests' },
     { path: '/reviews', icon: ClipboardCheck, label: 'تقييم المحادثات', permission: 'view_reviews' },
+    { path: '/whatsapp-smart-folder-watcher', icon: MessageCircle, label: 'التقاط واتساب تلقائيًا', permission: 'view_reviews' },
     { path: '/customer-coding', icon: UserPlus, label: 'تكويد العملاء', permission: 'view_customer_service' },
     { path: '/quick-replies', icon: HeadphonesIcon, label: 'الردود السريعة', permission: 'whatsapp_customer' },
     { path: '/welcome-messages', icon: MessageCircle, label: 'رسائل الترحيب', permission: 'customer_welcome_messages_view' },
