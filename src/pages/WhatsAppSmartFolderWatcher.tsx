@@ -33,6 +33,7 @@ import { extractCustomerHintFromExportFileName } from '@/lib/whatsappExportCusto
 import { buildWhatsAppCaseContextsV27 } from '@/lib/whatsappCaseContextV27';
 import { buildConversationTimingV28 } from '@/lib/whatsappConversationTimingV28';
 import { buildDelayAttributionV29 } from '@/lib/whatsappDelayAttributionV29';
+import { buildConversationFocusV30 } from '@/lib/whatsappConversationFocusV30';
 import { syncWhatsAppResponseTurnsV18 } from '@/lib/whatsappResponseTurnsV18';
 import { persistAnalyzedWhatsAppSession, attachInvoiceVerificationToQueue } from '@/lib/whatsappReviewPersistenceV4';
 import { buildWhatsAppCustomerJourneyIntelligenceV15 } from '@/lib/whatsappCustomerJourneyIntelligenceV15';
@@ -296,6 +297,13 @@ export default function WhatsAppSmartFolderWatcher() {
           timingV28: staffTimingV28,
         });
 
+        const conversationFocusV30 = buildConversationFocusV30(session, {
+          scoredMessageIds: result.scope.inScopeMessageIds,
+          evidenceMessageIds: result.decision.evidenceMessageIds,
+          timing: caseTimingV28,
+          delayAttribution: delayAttributionV29,
+        });
+
         const scoredIds = new Set(result.scope.inScopeMessageIds);
         const fullCaseContextIds = session.messages
           .filter((message) => !scoredIds.has(message.id))
@@ -316,6 +324,7 @@ export default function WhatsAppSmartFolderWatcher() {
           outboundBurstMetrics,
           staffIdentity,
           officialReviewDraft,
+          conversationFocusV30,
           smartIntelligence: buildSmartIntelligenceSnapshotV1({
             journey: result.journeyCrossCheck,
             staffEffort: outboundBurstMetrics,
