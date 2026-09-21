@@ -11,6 +11,8 @@ import {
   restoreLocalWhatsAppFolder,
   supportsLocalWhatsAppInbox,
   resetLocalWhatsAppProcessedLedger,
+  loadLocalWhatsAppAnalysisHistory,
+  saveLocalWhatsAppAnalysisHistory,
 } from '@/lib/localWhatsAppInbox';
 import { readWhatsAppExportFile } from '@/lib/whatsappExportFileReader';
 import { parseWhatsAppExport, splitWhatsAppSessions } from '@/lib/whatsappConversationParser';
@@ -27,6 +29,7 @@ import { buildSmartOfficialReviewDraftV1 } from '@/lib/whatsappSmartOfficialRevi
 import { buildSmartConversationEvaluationV2 } from '@/lib/whatsappConversationEvaluationV2';
 import { extractPhoneCandidate, resolveCustomerContext } from '@/lib/whatsappCustomerContextResolver';
 import { extractCustomerHintFromExportFileName } from '@/lib/whatsappExportCustomerHint';
+import { buildWhatsAppCaseContextsV27 } from '@/lib/whatsappCaseContextV27';
 import type { SmartQuickDecisionResult } from '@/lib/whatsappSmartReviewDecision';
 import {
   buildConversationReviewSnapshot,
@@ -42,6 +45,10 @@ import {
 
 type StaffRun = {
   sessionId: string;
+  caseId: string;
+  caseSummary: string;
+  caseSessionCount: number;
+  caseStaffNames: string[];
   customerName: string | null;
   staffName: string;
   role: SmartStaffRole;
@@ -63,6 +70,7 @@ type FileRun = {
   at: string;
   messages: number;
   sessions: number;
+  cases: number;
   staffRuns: StaffRun[];
   errors: string[];
 };
@@ -155,19 +163,25 @@ export default function WhatsAppSmartFolderWatcher() {
     const messages = parseWhatsAppExport(read.text);
     if (!messages.length) throw new Error('لم يتم التعرف على رسائل WhatsApp داخل الملف');
     const fileCustomerHint = extractCustomerHintFromExportFileName(file.name);
-    const sessions = splitWhatsAppSessions(messages, 120).map((session) => ({
+    const rawSessions = splitWhatsAppSessions(messages, 120).map((session) => ({
       ...session,
       // اسم الملف عندنا جزء من workflow التصدير وبيحمل اسم العميل. بنستخدمه كـhint
       // وليس كـID مؤكد؛ الـresolver يظل هو اللي يحسم العميل الحقيقي من الهاتف/الكود/الاسم/الفرع.
       customerName: fileCustomerHint.nameHint || session.customerName,
     }));
+
+    // مهم: الـ120 دقيقة بقت Boundary للـraw sessions فقط، وليست Boundary لرحلة العميل.
+    // Case Context V27 يجمع الجلسات المرتبطة بنفس الطلب/الشكوى/recovery قبل تقييم الأفراد.
+    // مثال إبراهيم الصياد: رد دكتور أولًا ثم دكتور آخر بعد ساعة بسبب تأخير الأوردر = Case واحدة.
+    const caseContexts = buildWhatsAppCaseContextsV27(rawSessions);
+    const analysisUnits = caseContexts.contexts;
     const staffRuns: StaffRun[] = [];
 
     // نفس ملف التصدير غالبًا يحتوي أكثر من Session لنفس العميل. قبل التحسين كنا بنكرر
     // customer search + purchase-history query لكل Session. الكاش هنا محلي للتحليل فقط
     // (لا يغيّر أي مصدر حقيقة) ويعيد استخدام نفس Promise حتى لو جلستين شغالين بالتوازي.
     const customerContextCache = new Map<string, ReturnType<typeof resolveCustomerContext>>();
-    const getCustomerContext = (session: (typeof sessions)[number], branch: string | null) => {
+    const getCustomerContext = (session: (typeof analysisUnits)[number]['mergedSession'], branch: string | null) => {
       const identity = extractPhoneCandidate(session) || session.customerName || 'unknown';
       const key = `${identity.trim().toLowerCase()}|${String(branch || '').trim().toLowerCase()}`;
       const existing = customerContextCache.get(key);
@@ -180,7 +194,8 @@ export default function WhatsAppSmartFolderWatcher() {
       return request;
     };
 
-    const analyzeSession = async (session: (typeof sessions)[number]): Promise<StaffRun[]> => {
+    const analyzeCase = async (caseContext: (typeof analysisUnits)[number]): Promise<StaffRun[]> => {
+      const session = caseContext.mergedSession;
       const base = buildSmartConversationReviewResult(session);
 
       // V15/V6 عندهم دلوقتي directory cache قصير العمر، فالجلسات المتتالية لا تعيد تحميل
@@ -261,6 +276,10 @@ export default function WhatsAppSmartFolderWatcher() {
 
         return {
           sessionId: session.id,
+          caseId: caseContext.caseItem.id,
+          caseSummary: caseContext.caseItem.summary,
+          caseSessionCount: caseContext.caseItem.sessionIds.length,
+          caseStaffNames: caseContext.caseItem.staffNames,
           customerName: session.customerName || null,
           staffName: staff.staffName,
           role: staff.role,
@@ -280,16 +299,15 @@ export default function WhatsAppSmartFolderWatcher() {
       return resolvedRuns.filter((item): item is StaffRun => Boolean(item));
     };
 
-    // الجلسات كانت تتحلل واحدة واحدة بالكامل. بنستخدم concurrency=2 فقط:
-    // أسرع بوضوح، لكن بدون انفجار طلبات Supabase أو تجميد المتصفح على ملفات كبيرة.
-    const SESSION_CONCURRENCY = 2;
-    for (let index = 0; index < sessions.length; index += SESSION_CONCURRENCY) {
-      const batch = sessions.slice(index, index + SESSION_CONCURRENCY);
-      const batchRuns = await Promise.all(batch.map(analyzeSession));
+    // التحليل يتم على مستوى الـCase لا الـraw session. كده الـhandoff بين دكتورين
+    // لا يخلق قصتين منفصلتين لنفس الأوردر، ومع ذلك كل دكتور يأخذ Scope رسائله فقط.
+    const CASE_CONCURRENCY = 2;
+    for (let index = 0; index < analysisUnits.length; index += CASE_CONCURRENCY) {
+      const batch = analysisUnits.slice(index, index + CASE_CONCURRENCY);
+      const batchRuns = await Promise.all(batch.map(analyzeCase));
       staffRuns.push(...batchRuns.flat());
 
-      // سيب فرصة للمتصفح يرسم ويتجاوب بين الدفعات بدل إحساس "الصفحة معلقة".
-      if (typeof window !== 'undefined' && index + SESSION_CONCURRENCY < sessions.length) {
+      if (typeof window !== 'undefined' && index + CASE_CONCURRENCY < analysisUnits.length) {
         await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
       }
     }
@@ -298,7 +316,8 @@ export default function WhatsAppSmartFolderWatcher() {
       fileName: file.name,
       at: new Date().toLocaleString('ar-EG'),
       messages: messages.length,
-      sessions: sessions.length,
+      sessions: rawSessions.length,
+      cases: caseContexts.caseEngine.caseCount,
       staffRuns,
       errors: [],
     };
@@ -318,8 +337,9 @@ export default function WhatsAppSmartFolderWatcher() {
       const processCandidate = async (candidate: (typeof candidates)[number]): Promise<FileRun> => {
         try {
           const result = await analyzeFile(candidate.file);
+          await saveLocalWhatsAppAnalysisHistory<FileRun>(candidate.key, candidate.name, result);
           markLocalWhatsAppFileProcessed(candidate.key);
-          toast.success(`تم تحليل ${candidate.name}: ${result.sessions} جلسة / ${result.staffRuns.length} مسؤول`);
+          toast.success(`تم تحليل ${candidate.name}: ${result.sessions} جلسة → ${result.cases} حالة / ${result.staffRuns.length} مسؤول`);
           return result;
         } catch (error) {
           const reason = error instanceof Error ? error.message : 'خطأ غير معروف';
@@ -329,6 +349,7 @@ export default function WhatsAppSmartFolderWatcher() {
             at: new Date().toLocaleString('ar-EG'),
             messages: 0,
             sessions: 0,
+            cases: 0,
             staffRuns: [],
             errors: [reason],
           };
@@ -354,6 +375,13 @@ export default function WhatsAppSmartFolderWatcher() {
 
   useEffect(() => {
     void (async () => {
+      try {
+        const history = await loadLocalWhatsAppAnalysisHistory<FileRun>(30);
+        if (history.length) setRuns(history.map((row) => row.payload));
+      } catch (error) {
+        console.warn('[whatsapp-watcher] failed to restore local analysis history', error);
+      }
+
       const handle = await restoreLocalWhatsAppFolder();
       if (!handle) return;
       if (await queryLocalWhatsAppFolderPermission(handle, false) !== 'granted') return;
@@ -552,7 +580,7 @@ export default function WhatsAppSmartFolderWatcher() {
                     <div className="min-w-0 flex-1">
                       <div className="truncate font-black text-white">{run.fileName}</div>
                       <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-500">
-                        <span>{run.at}</span><span>{run.messages} رسالة</span><span>{run.sessions} جلسة</span><span>{run.staffRuns.length} مسؤول</span>
+                        <span>{run.at}</span><span>{run.messages} رسالة</span><span>{run.sessions} جلسة خام</span><span>{run.cases ?? run.sessions} حالة/رحلة</span><span>{run.staffRuns.length} مسؤول</span>
                       </div>
                     </div>
                     <div className="hidden flex-wrap items-center gap-1.5 sm:flex">
