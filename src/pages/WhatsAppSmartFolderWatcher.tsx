@@ -262,7 +262,7 @@ export default function WhatsAppSmartFolderWatcher() {
         branch: resolvedCustomer?.branch || branchHint.value,
       });
 
-      const timingV28 = buildConversationTimingV28(session, roles, invoiceVerification);
+      const caseTimingV28 = buildConversationTimingV28(session, roles, invoiceVerification);
 
       // الموظفون داخل نفس Session مستقلون بعد تجهيز سياق الجلسة، فبدل N awaits متتالية
       // بنحل هويتهم ونبني تقييماتهم بالتوازي. ده يسرّع handoff sessions بوضوح.
@@ -278,6 +278,7 @@ export default function WhatsAppSmartFolderWatcher() {
           invoiceMatchAmbiguous: invoiceVerification.status === 'needs_review',
         });
         if (!result.scope.scoredSession) return null;
+        const staffTimingV28 = buildConversationTimingV28(result.scope.scoredSession, roles, invoiceVerification);
 
         const evaluationV2 = buildSmartConversationEvaluationV2(result.scope.scoredSession, {
           invoiceVerification,
@@ -290,7 +291,7 @@ export default function WhatsAppSmartFolderWatcher() {
           missingMediaMessageIds: result.qualityGate?.criticalMissingMediaMessageIds || [],
           journey: result.journeyCrossCheck,
           evaluationV2,
-          timingV28,
+          timingV28: staffTimingV28,
         });
 
         const snapshot = buildConversationReviewSnapshot({
@@ -314,7 +315,8 @@ export default function WhatsAppSmartFolderWatcher() {
             customer: customerContext.resolution,
             purchaseHistory: customerContext.purchaseHistory,
             evaluationV2,
-            timingV28,
+            timingV28: caseTimingV28,
+            staffTimingV28,
           }),
         });
 
