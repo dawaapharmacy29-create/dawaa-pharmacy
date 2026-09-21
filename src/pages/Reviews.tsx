@@ -938,6 +938,8 @@ export default function Reviews() {
       } as any;
     }
   }, [reviewState, severeErrors, form.customerType, smartSnapshot]);
+  const salesJourneyResult =
+    (result as any)?.scoringVersion === 'sales-journey-review-v2' ? (result as any) : null;
   const finalTraining = form.trainingRecommendationManual || result.trainingRecommendation;
   const conversationDate = form.conversationDate || isoInputNow();
   const reviewCycle = useMemo(
@@ -2668,7 +2670,7 @@ export default function Reviews() {
         <>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <Metric
-              label="تقييم المحادثة"
+              label={salesJourneyResult ? 'تقييم رحلة البيع' : 'تقييم المحادثة'}
               value={`${result.finalScore}/100`}
               tone={result.finalScore >= 90 ? 'teal' : result.finalScore >= 70 ? 'amber' : 'red'}
             />
@@ -2688,6 +2690,69 @@ export default function Reviews() {
               tone="slate"
             />
           </div>
+
+          {salesJourneyResult ? (
+            <section className="stat-card space-y-3 border border-cyan-500/20 bg-cyan-500/5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-xs font-black text-cyan-300">SALES JOURNEY RUBRIC V2</div>
+                  <div className="mt-1 text-sm font-black text-white">التقييم مركز على تحويل الاحتياج إلى بيع، تنفيذ الأوردر، وزيادة فرص رجوع العميل.</div>
+                </div>
+                <div className="flex flex-wrap gap-2 text-[11px]">
+                  {salesJourneyResult.saleOutcomeLabel ? (
+                    <span className="rounded-full bg-emerald-500/10 px-3 py-1.5 font-black text-emerald-200">
+                      {salesJourneyResult.saleOutcomeLabel}
+                    </span>
+                  ) : null}
+                  <span className="rounded-full bg-slate-800 px-3 py-1.5 font-black text-slate-300">
+                    Legacy: {salesJourneyResult.legacyScore}/100
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+                {salesJourneyResult.salesJourneyAxes.map((axis: any) => (
+                  <div key={axis.key} className="rounded-xl border border-white/10 bg-black/10 p-3">
+                    <div className="text-[10px] font-bold text-slate-500">{axis.label}</div>
+                    <div className="mt-1 flex items-end gap-2">
+                      <div className={`text-2xl font-black ${
+                        axis.score == null
+                          ? 'text-slate-500'
+                          : axis.score >= 90
+                            ? 'text-emerald-300'
+                            : axis.score >= 75
+                              ? 'text-amber-300'
+                              : 'text-rose-300'
+                      }`}>
+                        {axis.score ?? '-'}
+                      </div>
+                      <div className="pb-1 text-[10px] text-slate-500">وزن {axis.weight}%</div>
+                    </div>
+                    <div className="mt-1 text-[10px] leading-5 text-slate-400">{axis.summary}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="grid gap-2 md:grid-cols-4 text-xs">
+                <div className="rounded-xl bg-black/10 p-3">
+                  <div className="text-slate-500">تحويل لبيع</div>
+                  <div className="mt-1 font-black text-white">{salesJourneyResult.growthSignals.convertedSale ? 'نعم' : 'غير مثبت'}</div>
+                </div>
+                <div className="rounded-xl bg-black/10 p-3">
+                  <div className="text-slate-500">بيع مؤكد بفاتورة</div>
+                  <div className="mt-1 font-black text-white">{salesJourneyResult.growthSignals.verifiedSale ? 'نعم' : 'لا'}</div>
+                </div>
+                <div className="rounded-xl bg-black/10 p-3">
+                  <div className="text-slate-500">اكتمال الأوردر</div>
+                  <div className="mt-1 font-black text-white">{salesJourneyResult.growthSignals.orderCompletenessScore ?? '-'}{salesJourneyResult.growthSignals.orderCompletenessScore != null ? '%' : ''}</div>
+                </div>
+                <div className="rounded-xl bg-black/10 p-3">
+                  <div className="text-slate-500">فرص المتابعة</div>
+                  <div className="mt-1 font-black text-white">{salesJourneyResult.growthSignals.followupOpportunities}</div>
+                </div>
+              </div>
+            </section>
+          ) : null}
 
           {canManageCoverage ? (
             <section className="stat-card space-y-3 border border-violet-500/20 bg-violet-500/5">
@@ -3239,7 +3304,7 @@ export default function Reviews() {
 
             <div className="grid md:grid-cols-2 gap-3">
               <div className="rounded-2xl bg-[#16253f] border border-[#2d4063] p-5 text-center">
-                <div className="text-slate-300 text-sm">تقييم المحادثة</div>
+                <div className="text-slate-300 text-sm">{salesJourneyResult ? 'تقييم رحلة البيع' : 'تقييم المحادثة'}</div>
                 <div
                   className={`num text-5xl font-black mt-2 ${result.finalScore >= 90 ? 'text-teal-400' : result.finalScore >= 70 ? 'text-amber-400' : 'text-red-400'}`}
                 >
