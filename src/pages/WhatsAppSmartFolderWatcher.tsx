@@ -26,6 +26,7 @@ import { resolveStaffIdentity, type ResolvedStaffIdentity } from '@/lib/whatsapp
 import { buildSmartOfficialReviewDraftV1 } from '@/lib/whatsappSmartOfficialReviewDraft';
 import { buildSmartConversationEvaluationV2 } from '@/lib/whatsappConversationEvaluationV2';
 import { extractPhoneCandidate, resolveCustomerContext } from '@/lib/whatsappCustomerContextResolver';
+import { extractCustomerHintFromExportFileName } from '@/lib/whatsappExportCustomerHint';
 import type { SmartQuickDecisionResult } from '@/lib/whatsappSmartReviewDecision';
 import {
   buildConversationReviewSnapshot,
@@ -153,7 +154,13 @@ export default function WhatsAppSmartFolderWatcher() {
     const read = await readWhatsAppExportFile(file);
     const messages = parseWhatsAppExport(read.text);
     if (!messages.length) throw new Error('لم يتم التعرف على رسائل WhatsApp داخل الملف');
-    const sessions = splitWhatsAppSessions(messages, 120);
+    const fileCustomerHint = extractCustomerHintFromExportFileName(file.name);
+    const sessions = splitWhatsAppSessions(messages, 120).map((session) => ({
+      ...session,
+      // اسم الملف عندنا جزء من workflow التصدير وبيحمل اسم العميل. بنستخدمه كـhint
+      // وليس كـID مؤكد؛ الـresolver يظل هو اللي يحسم العميل الحقيقي من الهاتف/الكود/الاسم/الفرع.
+      customerName: fileCustomerHint.nameHint || session.customerName,
+    }));
     const staffRuns: StaffRun[] = [];
 
     // نفس ملف التصدير غالبًا يحتوي أكثر من Session لنفس العميل. قبل التحسين كنا بنكرر
@@ -165,7 +172,10 @@ export default function WhatsAppSmartFolderWatcher() {
       const key = `${identity.trim().toLowerCase()}|${String(branch || '').trim().toLowerCase()}`;
       const existing = customerContextCache.get(key);
       if (existing) return existing;
-      const request = resolveCustomerContext(session, branch);
+      const request = resolveCustomerContext(session, branch, {
+        customerNameHint: fileCustomerHint.nameHint,
+        customerCodeHint: fileCustomerHint.codeHint,
+      });
       customerContextCache.set(key, request);
       return request;
     };
@@ -438,6 +448,7 @@ export default function WhatsAppSmartFolderWatcher() {
       product_request: 'طلب منتج',
       consultation: 'استشارة',
       service_followup: 'متابعة خدمة',
+      service_recovery: 'اعتذار/استعادة خدمة',
       complaint: 'شكوى',
       availability: 'استعلام عن توافر',
       general: 'خدمة عامة',
