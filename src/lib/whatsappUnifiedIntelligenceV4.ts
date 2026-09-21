@@ -227,7 +227,11 @@ export function buildUnifiedConversationIntelligence(session: WhatsAppConversati
   const commercialScore = scoreCommercial(session, lostSales, outcome);
   const commercialEligible = signals.saleIntentDetected || journeyStages.some((x) => ['need', 'availability', 'alternative', 'closing'].includes(x.key) && x.detected);
   const chatSuggestedSold = outcome === 'sold';
-  const followupRequired = outcome === 'needs_followup' || outcome === 'complaint_unresolved' || signals.unansweredInboundCount > 0 || (signals.followupPromiseDetected && !signals.closingDetected);
+  // نقص/عدم توفر بدون بديل (lostSales.severity==='high') هي بالظبط نفس حالة
+  // "stockout_recovery" في whatsappConversationEvaluationV2.ts - لازم تتابع، حتى لو
+  // outcome نفسه فضل 'unknown' لأن العميل ما استخدمش كلمة NEED_RX المعروفة (زي "موجود؟"
+  // بدل "متوفر؟"). عدم التوفر بدون بديل يستاهل متابعة سواء اتصنف كـneeds_followup أو لأ.
+  const followupRequired = outcome === 'needs_followup' || outcome === 'complaint_unresolved' || signals.unansweredInboundCount > 0 || (signals.followupPromiseDetected && !signals.closingDetected) || lostSales.some((x) => x.severity === 'high');
   const suggestedFollowupReason = outcome === 'complaint_unresolved'
     ? 'شكوى لم يظهر لها حل واضح.'
     : signals.unansweredInboundCount > 0
