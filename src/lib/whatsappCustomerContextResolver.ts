@@ -51,10 +51,13 @@ async function fetchPurchaseHistory(customerId: string): Promise<CustomerPurchas
 
 export async function resolveCustomerContext(
   session: WhatsAppConversationSession,
-  branchHint: string | null
+  branchHint: string | null,
+  hint?: { customerNameHint?: string | null; customerCodeHint?: string | null }
 ): Promise<CustomerContextResult> {
   const phoneCandidate = extractPhoneCandidate(session);
-  const resolution = await resolveWhatsAppCustomerIdentity(phoneCandidate || session.customerName, branchHint);
+  const hintedIdentity = [hint?.customerNameHint, hint?.customerCodeHint].filter(Boolean).join(' ').trim();
+  const fallbackIdentity = hintedIdentity || session.customerName;
+  const resolution = await resolveWhatsAppCustomerIdentity(phoneCandidate || fallbackIdentity, branchHint);
   const purchaseHistory = resolution.customer?.id ? await fetchPurchaseHistory(resolution.customer.id) : null;
   return { resolution, phoneCandidate, purchaseHistory };
 }
