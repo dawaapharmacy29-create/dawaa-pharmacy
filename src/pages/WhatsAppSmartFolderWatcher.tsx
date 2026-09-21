@@ -880,7 +880,48 @@ export default function WhatsAppSmartFolderWatcher() {
                     </section>
                   ) : null}
 
-                  <section className="grid gap-3 lg:grid-cols-2">
+                  {selected.snapshot.smartIntelligence?.delayAttributionV29?.detected ? (
+                    <section className="rounded-2xl border border-amber-700/40 bg-amber-950/10 p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <div className="text-[10px] font-black text-amber-300">DELAY ATTRIBUTION V29</div>
+                          <div className="mt-1 text-sm font-black text-white">{selected.snapshot.smartIntelligence.delayAttributionV29.label}</div>
+                          <div className="mt-1 text-[11px] text-slate-400">
+                            المسؤولية التشغيلية: {
+                              selected.snapshot.smartIntelligence.delayAttributionV29.caseResponsibility === 'staff_response' ? 'زمن رد'
+                              : selected.snapshot.smartIntelligence.delayAttributionV29.caseResponsibility === 'pharmacy_operations' ? 'تجهيز/تنفيذ داخلي'
+                              : selected.snapshot.smartIntelligence.delayAttributionV29.caseResponsibility === 'delivery' ? 'التوصيل/المندوب'
+                              : selected.snapshot.smartIntelligence.delayAttributionV29.caseResponsibility === 'shared_handoff' ? 'تسليم المسؤولية بين أكثر من موظف'
+                              : 'غير محسومة/قد تعتمد على العميل'
+                            } · ثقة {selected.snapshot.smartIntelligence.delayAttributionV29.confidence}%
+                          </div>
+                        </div>
+                        <div className="rounded-xl bg-black/15 px-3 py-2 text-center">
+                          <div className="text-[10px] text-slate-500">المشكلة → أول معالجة</div>
+                          <div className="mt-1 text-xs font-black text-amber-100">{timingDuration(selected.snapshot.smartIntelligence.delayAttributionV29.problemToRecoverySeconds)}</div>
+                        </div>
+                      </div>
+                      <div className="mt-3 grid gap-2 md:grid-cols-2">
+                        <div className="rounded-xl bg-black/10 p-3">
+                          <div className="text-[10px] font-black text-slate-500">لماذا وصلنا لهذا التفسير؟</div>
+                          <div className="mt-1 space-y-1 text-xs leading-5 text-slate-300">
+                            {selected.snapshot.smartIntelligence.delayAttributionV29.reasons.map((reason) => <div key={reason}>• {reason}</div>)}
+                          </div>
+                        </div>
+                        <div className="rounded-xl bg-black/10 p-3">
+                          <div className="text-[10px] font-black text-slate-500">المسؤول الذي عالج المشكلة</div>
+                          <div className="mt-1 text-sm font-black text-white">{selected.snapshot.smartIntelligence.delayAttributionV29.responsibleStaffName || 'غير محسوم'}</div>
+                          <div className="mt-1 text-[11px] text-slate-400">{selected.snapshot.smartIntelligence.delayAttributionV29.responsibleRole || ''}</div>
+                          {selected.snapshot.smartIntelligence.delayAttributionV29.trainingFocus ? <div className="mt-2 text-xs leading-5 text-amber-100">{selected.snapshot.smartIntelligence.delayAttributionV29.trainingFocus}</div> : null}
+                        </div>
+                      </div>
+                      <div className="mt-3 rounded-xl border border-emerald-800/30 bg-emerald-950/10 px-3 py-2 text-[11px] text-emerald-200">
+                        لا يتم خصم نقاط تلقائيًا بسبب سبب التأخير نفسه؛ التقييم يحاسب الموظف على زمن رده وطريقة تعامله مع الجزء الذي استلمه فقط.
+                      </div>
+                    </section>
+                  ) : null}
+
+                                    <section className="grid gap-3 lg:grid-cols-2">
                     <div className={`rounded-2xl border p-4 ${selected.staffIdentity.ambiguous ? 'border-rose-800/60 bg-rose-950/20' : selected.staffIdentity.staffId ? 'border-emerald-800/50 bg-emerald-950/10' : 'border-amber-800/50 bg-amber-950/10'}`}>
                       <div className="text-[10px] font-black text-slate-500">هوية المسؤول</div>
                       {selected.staffIdentity.staffId && !selected.staffIdentity.ambiguous ? (
