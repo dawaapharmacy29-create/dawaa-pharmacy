@@ -12,17 +12,24 @@ function session(messages: WhatsAppParsedMessage[]): WhatsAppConversationSession
 
 describe('whatsappSmartReviewResult', () => {
   it('separates ownership summaries across pharmacist handoff', () => {
+    // الفجوة بين a2 وb1 لازم تفضل أقل من عتبة إعادة تعيين الملكية (120 دقيقة
+    // افتراضيًا في buildSmartOwnershipTimeline)، وإلا الانتقال بيتحسب "محادثة جديدة"
+    // بدل Handoff فعلي - سلوك موثّق ومُختبر عمدًا في
+    // whatsappSmartReviewOwnership.test.ts ("resets ownership after a long gap").
     const s = session([
       msg('a1','2026-09-13T03:01:39','outbound','مع حضرتك د اسلام'),
       msg('c1','2026-09-13T03:06:40','inbound','محتاج واحد من ده'),
       msg('a2','2026-09-13T03:09:19','outbound','من عنيا لحضرتك'),
-      msg('b1','2026-09-13T06:04:58','outbound','مع حضرتك د شبل'),
-      msg('b2','2026-09-13T06:05:12','outbound','انا متاسف لحضرتك عالتاخير'),
+      msg('b1','2026-09-13T03:12:00','outbound','مع حضرتك د شبل'),
+      msg('b2','2026-09-13T03:12:15','outbound','انا متاسف لحضرتك عالتاخير'),
     ]);
     const result = buildSmartConversationReviewResult(s);
     expect(result.staffSummaries.map(x => x.staffName)).toEqual(['اسلام','شبل']);
     expect(result.handoffs).toHaveLength(1);
+    // أهم نقطة: سؤال العميل اللي رد عليه اسلام (c1) لازم يفضل جوه تقييمه هو، مش يضيع
+    // ولا ينتقل لشبل اللي جه بعده - العدالة في الـTiming محتاجة الـTurn الأصلي محفوظ هنا.
     expect(result.staffSummaries[0].messageIds).toContain('c1');
+    expect(result.staffSummaries[1].messageIds).not.toContain('c1');
     expect(result.staffSummaries[1].suggestedReviewCriteria).toContain('order_delay_handling');
   });
 
