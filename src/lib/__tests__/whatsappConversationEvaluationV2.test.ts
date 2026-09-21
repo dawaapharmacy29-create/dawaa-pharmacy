@@ -132,4 +132,76 @@ describe('SmartConversationEvaluationV2', () => {
     expect(result.followups.some((x) => x.type === 'stockout_recovery')).toBe(true);
     expect(result.followups.some((x) => x.type === 'clinical_checkin')).toBe(true);
   });
+
+  // Golden Case: Saved Sale (stockout -> alternative offered -> explicit customer
+  // acceptance -> order confirmed/invoice verified). ما لقيناش حالة حقيقية مؤكدة
+  // في قاعدة البيانات لحد دلوقتي، فده Fixture اصطناعي واضح لتثبيت السلوك المطلوب:
+  // الثلاثة شروط لازم تتحقق مع بعض، وأي شرط ناقص = صفر Saved Sale.
+  describe('Golden Case: Saved Sale requires stockout + alternative offered + explicit acceptance together', () => {
+    const STOCKOUT_ALT_ACCEPTED = `[9/15/26, 9:00:00 AM] Customer: عايز بانادول اكسترا
+[9/15/26, 9:01:00 AM] You: للأسف الصنف مش موجود حاليًا، ممكن نرشح لحضرتك بديل بنفس المادة الفعالة
+[9/15/26, 9:02:00 AM] Customer: تمام ابعته
+[9/15/26, 9:03:00 AM] You: تم تأكيد الطلب وهيتم التوصيل`;
+
+    it('marks the sale as rescued by an alternative when stockout + alternative + explicit acceptance all hold', () => {
+      const session = oneSession(STOCKOUT_ALT_ACCEPTED);
+      const result = buildSmartConversationEvaluationV2(session, {
+        invoiceVerification: invoice('verified', 180),
+        salesOpportunities: [{ handling: 'handled_well', triggerMessageId: session.messages[0].id, reason: 'stockout rescued by alternative' }],
+        consultationCommunication: 'not_applicable',
+      });
+      expect(result.sale.outcome).toBe('invoice_verified_sale');
+      expect(result.opportunities.rescuedByAlternative).toBe(1);
+    });
+
+    it('does NOT mark a saved sale when no stockout was ever detected (bare cross-sell suggestion)', () => {
+      const session = oneSession(`[9/15/26, 9:00:00 AM] Customer: عايز بانادول اكسترا
+[9/15/26, 9:01:00 AM] You: متوفر، وممكن نرشح لحضرتك فيتامين سي معاه
+[9/15/26, 9:02:00 AM] Customer: تمام ابعته
+[9/15/26, 9:03:00 AM] You: تم تأكيد الطلب وهيتم التوصيل`);
+      const result = buildSmartConversationEvaluationV2(session, {
+        invoiceVerification: invoice('verified', 180),
+        salesOpportunities: [],
+        consultationCommunication: 'not_applicable',
+      });
+      expect(result.opportunities.rescuedByAlternative).toBe(0);
+    });
+
+    it('does NOT mark a saved sale when a stockout is detected but no alternative was ever offered', () => {
+      const session = oneSession(`[9/15/26, 9:00:00 AM] Customer: عايز بانادول اكسترا
+[9/15/26, 9:01:00 AM] You: للأسف الصنف مش موجود حاليًا، هنحاول نوفره لحضرتك
+[9/15/26, 9:02:00 AM] Customer: تمام هستنى`);
+      const result = buildSmartConversationEvaluationV2(session, {
+        invoiceVerification: invoice('not_found'),
+        salesOpportunities: [],
+        consultationCommunication: 'not_applicable',
+      });
+      expect(result.opportunities.rescuedByAlternative).toBe(0);
+    });
+
+    it('does NOT mark a saved sale when stockout + alternative both exist but the customer never explicitly accepted it', () => {
+      const session = oneSession(`[9/15/26, 9:00:00 AM] Customer: عايز بانادول اكسترا
+[9/15/26, 9:01:00 AM] You: للأسف الصنف مش موجود حاليًا، ممكن نرشح لحضرتك بديل بنفس المادة الفعالة
+[9/15/26, 9:02:00 AM] Customer: هفكر وارجعلك
+[9/15/26, 9:03:00 AM] You: تحت أمر حضرتك في أي وقت`);
+      const result = buildSmartConversationEvaluationV2(session, {
+        invoiceVerification: invoice('not_found'),
+        salesOpportunities: [],
+        consultationCommunication: 'not_applicable',
+      });
+      expect(result.opportunities.rescuedByAlternative).toBe(0);
+    });
+
+    it('does NOT mark a saved sale when the customer explicitly declines the alternative', () => {
+      const session = oneSession(`[9/15/26, 9:00:00 AM] Customer: عايز بانادول اكسترا
+[9/15/26, 9:01:00 AM] You: للأسف الصنف مش موجود حاليًا، ممكن نرشح لحضرتك بديل بنفس المادة الفعالة
+[9/15/26, 9:02:00 AM] Customer: لا شكرا مش عايز بديل`);
+      const result = buildSmartConversationEvaluationV2(session, {
+        invoiceVerification: invoice('not_found'),
+        salesOpportunities: [],
+        consultationCommunication: 'not_applicable',
+      });
+      expect(result.opportunities.rescuedByAlternative).toBe(0);
+    });
+  });
 });

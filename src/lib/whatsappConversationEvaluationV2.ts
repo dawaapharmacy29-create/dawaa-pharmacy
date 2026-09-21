@@ -423,7 +423,18 @@ export function buildSmartConversationEvaluationV2(
   const salesOpps = options.salesOpportunities || [];
   const handled = salesOpps.filter((x) => x.handling === 'handled_well').length;
   const missed = salesOpps.filter((x) => x.handling === 'missed').length;
-  const altRescued = ALT_RX.test(session.messages.map((m) => m.text).join(' ')) && ['order_confirmed', 'invoice_verified_sale', 'probable_sale'].includes(sale.outcome) ? 1 : 0;
+  // Saved Sale (rescuedByAlternative) لازم الثلاثة شروط مع بعض، مش بس ذكر كلمة "بديل"
+  // في أي مكان بالمحادثة: (1) نقص/عدم توفر فعلي مثبت، (2) بديل اتعرض من الموظف
+  // تحديدًا، (3) قبول صريح من العميل بعد عرض البديل تحديدًا - وإلا أي محادثة بيع
+  // عادية فيها اقتراح Cross-sell عابر كانت بتتحسب "أنقذت بيع" غلط رغم إنه مفيش
+  // نقص أصلًا. أي شرط ناقص من التلاتة = لا Saved Sale.
+  const stockoutDetected = STOCKOUT_RX.test(session.messages.map((m) => m.text || '').join(' '));
+  const altOfferedIndex = session.messages.findIndex((m) => m.direction === 'outbound' && ALT_RX.test(m.text || ''));
+  const altOffered = altOfferedIndex !== -1;
+  const customerAcceptedAlternative = altOffered && session.messages
+    .slice(altOfferedIndex + 1)
+    .some((m) => m.direction === 'inbound' && ACCEPT_RX.test(m.text || '') && !DECLINE_RX.test(m.text || ''));
+  const altRescued = stockoutDetected && altOffered && customerAcceptedAlternative && ['order_confirmed', 'invoice_verified_sale', 'probable_sale'].includes(sale.outcome) ? 1 : 0;
   const crossSell = matching(session, CROSS_SELL_RX, 'outbound');
   const opportunityScore = salesOpps.length ? clamp(Math.round(((handled + altRescued) / Math.max(1, salesOpps.length)) * 100) - missed * 20) : null;
   const saleScore = sale.outcome === 'invoice_verified_sale' ? 100
