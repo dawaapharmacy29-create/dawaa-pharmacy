@@ -25,7 +25,7 @@ import { resolveConversationBranchHint, type BranchHintResult } from '@/lib/what
 import { resolveStaffIdentity, type ResolvedStaffIdentity } from '@/lib/whatsappStaffIdentityResolver';
 import { buildSmartOfficialReviewDraftV1 } from '@/lib/whatsappSmartOfficialReviewDraft';
 import { buildSmartConversationEvaluationV2 } from '@/lib/whatsappConversationEvaluationV2';
-import { resolveCustomerContext } from '@/lib/whatsappCustomerContextResolver';
+import { extractPhoneCandidate, resolveCustomerContext } from '@/lib/whatsappCustomerContextResolver';
 import type { SmartQuickDecisionResult } from '@/lib/whatsappSmartReviewDecision';
 import {
   buildConversationReviewSnapshot,
@@ -156,24 +156,33 @@ export default function WhatsAppSmartFolderWatcher() {
     const sessions = splitWhatsAppSessions(messages, 120);
     const staffRuns: StaffRun[] = [];
 
-    for (const session of sessions) {
+    // نفس ملف التصدير غالبًا يحتوي أكثر من Session لنفس العميل. قبل التحسين كنا بنكرر
+    // customer search + purchase-history query لكل Session. الكاش هنا محلي للتحليل فقط
+    // (لا يغيّر أي مصدر حقيقة) ويعيد استخدام نفس Promise حتى لو جلستين شغالين بالتوازي.
+    const customerContextCache = new Map<string, ReturnType<typeof resolveCustomerContext>>();
+    const getCustomerContext = (session: (typeof sessions)[number], branch: string | null) => {
+      const identity = extractPhoneCandidate(session) || session.customerName || 'unknown';
+      const key = `${identity.trim().toLowerCase()}|${String(branch || '').trim().toLowerCase()}`;
+      const existing = customerContextCache.get(key);
+      if (existing) return existing;
+      const request = resolveCustomerContext(session, branch);
+      customerContextCache.set(key, request);
+      return request;
+    };
+
+    const analyzeSession = async (session: (typeof sessions)[number]): Promise<StaffRun[]> => {
       const base = buildSmartConversationReviewResult(session);
-      // Burst metrics على مستوى الجلسة كلها (تشخيصي، read-only) — نفس القيمة لكل الموظفين
-      // في نفس الجلسة، عشان الـburst مبني على تتابع الرسائل الصادرة مش على staff واحد بعينه.
+
+      // V15/V6 عندهم دلوقتي directory cache قصير العمر، فالجلسات المتتالية لا تعيد تحميل
+      // مئات سجلات الموظفين والـaliases من Supabase كل مرة.
       const roles = await resolveWhatsAppParticipantRolesV15(session);
       const outboundBurstMetrics = computeStaffBurstEffort(groupOutboundBursts(session, roles));
-      // Branch hint حقيقي (source > active owner > staff resolver > majority fallback) —
-      // مفيش source branch متاح من الصفحة دي حاليًا، فبيبدأ من tier "active owner".
       const branchHint = await resolveConversationBranchHint(session, roles, null);
-      // هوية العميل الحقيقية (customer_id) + تاريخ مشترياته — أفضل هوية متاحة (هاتف > اسم)
-      // مع branchHint لفك تعارض الأسماء المكررة. لو ambiguous، customer بيفضل null ومفيش
-      // اختيار تلقائي — والـinvoice verification تحت بترجع تلقائيًا لمطابقة بالاسم بس.
-      const customerContext = await resolveCustomerContext(session, branchHint.value);
+      const customerContext = await getCustomerContext(session, branchHint.value);
       const resolvedCustomer = customerContext.resolution.customer;
-      // مطابقة فاتورة حقيقية (قراءة فقط) — مرة واحدة لكل جلسة، بتتشارك بين كل الموظفين في
-      // نفس الجلسة. البيع المؤكد الوحيد هو invoiceVerification.status === 'verified'؛ مفيش
-      // حالات cancel/return لسه (تحتاج فحص schema للفواتير والمرتجعات الأول). لو العميل
-      // اتحل بثقة، بنستخدم customerId/code/phone الحقيقيين بدل الاسم بس — مطابقة أقوى بكتير.
+
+      // التحقق من الفاتورة يظل per-session لأن التوقيت وسياق الجلسة جزء من المطابقة؛
+      // لذلك لا نكاشه بشكل قد يخلط بيع Session بآخر.
       const invoiceVerification = await verifySessionAgainstInvoices(session, {
         customerId: resolvedCustomer?.id || null,
         customerCode: resolvedCustomer?.code || null,
@@ -181,9 +190,10 @@ export default function WhatsAppSmartFolderWatcher() {
         customerName: resolvedCustomer?.name || session.customerName,
         branch: resolvedCustomer?.branch || branchHint.value,
       });
-      for (const staff of base.staffSummaries) {
-        // هوية الموظف الحقيقية (staff_id) — قبل أي حاجة تانية، عشان لو موجودة بثقة، تُستخدم
-        // مباشرة في صفحة التقييم الرسمي من غير إعادة تخمين بالاسم.
+
+      // الموظفون داخل نفس Session مستقلون بعد تجهيز سياق الجلسة، فبدل N awaits متتالية
+      // بنحل هويتهم ونبني تقييماتهم بالتوازي. ده يسرّع handoff sessions بوضوح.
+      const resolvedRuns = await Promise.all(base.staffSummaries.map(async (staff): Promise<StaffRun | null> => {
         const staffIdentity = await resolveStaffIdentity(staff.staffName, roles, staff.messageIds, branchHint.value);
 
         const result = runSmartReviewPipeline(session, {
@@ -194,11 +204,8 @@ export default function WhatsAppSmartFolderWatcher() {
           invoiceVerified: invoiceVerification.status === 'verified',
           invoiceMatchAmbiguous: invoiceVerification.status === 'needs_review',
         });
-        if (!result.scope.scoredSession) continue;
+        if (!result.scope.scoredSession) return null;
 
-        // اقتراح فعلي لكل بند تقييم رسمي — AI evaluates, human approves. بيتحسب على نفس
-        // الجلسة المُقيَّمة (scoredSession)، وبيستخدم الميديا الناقصة من qualityGate عشان
-        // يخفّض ثقة أي بند دليله رسالة ميديا مفقودة.
         const evaluationV2 = buildSmartConversationEvaluationV2(result.scope.scoredSession, {
           invoiceVerification,
           purchaseHistory: customerContext.purchaseHistory,
@@ -242,7 +249,7 @@ export default function WhatsAppSmartFolderWatcher() {
           fallbackCustomerName: session.customerName || null,
         });
 
-        staffRuns.push({
+        return {
           sessionId: session.id,
           customerName: session.customerName || null,
           staffName: staff.staffName,
@@ -257,7 +264,23 @@ export default function WhatsAppSmartFolderWatcher() {
           branchHint,
           snapshot,
           actions,
-        });
+        };
+      }));
+
+      return resolvedRuns.filter((item): item is StaffRun => Boolean(item));
+    };
+
+    // الجلسات كانت تتحلل واحدة واحدة بالكامل. بنستخدم concurrency=2 فقط:
+    // أسرع بوضوح، لكن بدون انفجار طلبات Supabase أو تجميد المتصفح على ملفات كبيرة.
+    const SESSION_CONCURRENCY = 2;
+    for (let index = 0; index < sessions.length; index += SESSION_CONCURRENCY) {
+      const batch = sessions.slice(index, index + SESSION_CONCURRENCY);
+      const batchRuns = await Promise.all(batch.map(analyzeSession));
+      staffRuns.push(...batchRuns.flat());
+
+      // سيب فرصة للمتصفح يرسم ويتجاوب بين الدفعات بدل إحساس "الصفحة معلقة".
+      if (typeof window !== 'undefined' && index + SESSION_CONCURRENCY < sessions.length) {
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
       }
     }
 
