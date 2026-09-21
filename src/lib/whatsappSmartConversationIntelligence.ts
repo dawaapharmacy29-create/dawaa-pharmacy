@@ -2,7 +2,7 @@ import type { WhatsAppConversationSession, WhatsAppParsedMessage } from './whats
 import { extractSmartStaffIdentity } from './whatsappSmartReviewOwnership';
 
 export type SmartEntryOrigin = 'customer_service_outreach' | 'customer_initiated' | 'unknown';
-export type SmartIntent = 'service_followup' | 'product_request' | 'availability_check' | 'consultation' | 'complaint' | 'order' | 'unknown';
+export type SmartIntent = 'service_followup' | 'service_recovery' | 'product_request' | 'availability_check' | 'consultation' | 'complaint' | 'order' | 'unknown';
 export type OpportunityHandling = 'handled_well' | 'partial' | 'missed' | 'needs_review' | 'not_applicable';
 export type ConsultationCommunication = 'clear' | 'partial' | 'weak' | 'not_applicable';
 
@@ -60,6 +60,7 @@ export interface SmartDeepConversationAnalysis {
 }
 
 const SERVICE_FOLLOWUP_RX = /(خدم[هة]\s*عملاء|حابين نطمن|حبيت اطمن|مستوى الخدم[هة]|رضا حضرتك|رأيك في الخدم[هة]|اخر تجرب[هة]|آخر تجرب[هة])/i;
+const SERVICE_RECOVERY_RX = /(بنعتذر|نعتذر|متاسف|متأسف|اسفين|آسفين|عن\s+التاخير|عن\s+التأخير|التأخير اللي حصل|تاخير\s+(?:الطلب|الاوردر|الأوردر)|تأخير\s+(?:الطلب|الاوردر|الأوردر)|هنعوض|نعوض حضرتك|نتابع مع الفريق|هنتابع مع الفريق|أسرع وقت ممكن|وصول طلب حضرتك|رضا حضرتك وثقتك)/i;
 const PRODUCT_RX = /(محتاج|محتاجه|عايز|عايزه|متاح|موجود|بكام|سعر|عاوز|ابعت|ابعته|علب[هة]|شريط|سرنج|اوردر|أوردر)/i;
 const SALES_OPPORTUNITY_RX = /(محتاج(?:ه)?(?:\s+|$)|عايز(?:ه)?(?:\s+|$)|عاوز(?:ه)?(?:\s+|$)|موجود(?:ه)?\s*(?:عندكم|\?|؟|$)|متاح(?:ه)?\s*(?:عندكم|\?|؟|$)|بكام|سعر(?:ه|ها|هم)?\s*كام|شريط\s+\S+|علب[هة]\s+\S+|سرنجات?\s*\d+)/i;
 const ORDER_ACCEPTANCE_RX = /^\s*(?:اه|أه|ايوه|أيوه|تمام|حاضر|ماشي)?\s*(?:ابعت|ابعته|ابعتهالي|ابعتها|ابعتهم)\b/i;
@@ -93,15 +94,24 @@ function isComplaintMessage(message: WhatsAppParsedMessage) {
   const text = String(message.text || '');
   return message.direction === 'inbound' && COMPLAINT_RX.test(text) && !COMPLAINT_NEGATION_RX.test(text);
 }
+function isServiceRecoveryMessage(message: WhatsAppParsedMessage) {
+  return message.direction === 'outbound' && SERVICE_RECOVERY_RX.test(String(message.text || ''));
+}
+
 function intentFor(message: WhatsAppParsedMessage): SmartIntent[] {
   const text = message.text || '';
   const out: SmartIntent[] = [];
+  const serviceRecovery = isServiceRecoveryMessage(message);
   if (SERVICE_FOLLOWUP_RX.test(text)) out.push('service_followup');
+  if (serviceRecovery) out.push('service_recovery');
   if (isComplaintMessage(message)) out.push('complaint');
   if (CONSULT_RX.test(text)) out.push('consultation');
-  if (PRODUCT_RX.test(text)) out.push('product_request');
+
+  // نية الشراء والطلب تُستمد من كلام العميل أساسًا. رسالة خدمة العملاء التي تقول
+  // "نعتذر عن تأخير الأوردر/وصول طلب حضرتك" لا يجوز تحويلها تلقائيًا إلى "طلب منتج".
+  if (message.direction === 'inbound' && PRODUCT_RX.test(text)) out.push('product_request');
   if (AVAILABILITY_RX.test(text)) out.push('availability_check');
-  if (ORDER_RX.test(text)) out.push('order');
+  if (message.direction === 'inbound' && ORDER_RX.test(text)) out.push('order');
   return unique(out);
 }
 function isSalesOpportunityTrigger(message: WhatsAppParsedMessage) {
@@ -139,21 +149,34 @@ function analyzeRequestCandidate(messages: WhatsAppParsedMessage[]): SmartCustom
 export function analyzeSmartConversationDeep(session: WhatsAppConversationSession): SmartDeepConversationAnalysis {
   const messages = meaningful(orderedMessages(session));
   const first = messages[0] || null;
-  const firstIdentity = first ? extractSmartStaffIdentity(first) : null;
   const firstInbound = firstCustomerMessage(messages);
-  const entryOrigin: SmartEntryOrigin = first?.direction === 'outbound' && firstIdentity?.role === 'customer_service'
-    ? 'customer_service_outreach'
-    : first?.direction === 'inbound' ? 'customer_initiated' : 'unknown';
+  const openingWindow = messages.slice(0, 4);
+  const openingServiceIdentity = openingWindow
+    .map((message) => extractSmartStaffIdentity(message))
+    .find((identity) => identity?.role === 'customer_service');
+  const openingRecovery = openingWindow.find((message) => isServiceRecoveryMessage(message));
+  const entryOrigin: SmartEntryOrigin =
+    first?.direction === 'outbound' && (openingServiceIdentity || openingRecovery)
+      ? 'customer_service_outreach'
+      : first?.direction === 'inbound'
+        ? 'customer_initiated'
+        : 'unknown';
 
   const intentEvents = messages.flatMap((m) => intentFor(m).map((intent) => ({ intent, id: m.id, direction: m.direction })));
   const intentJourney = unique(intentEvents.map((e) => e.intent));
-  const primaryIntent: SmartIntent = entryOrigin === 'customer_service_outreach' ? 'service_followup'
-    : intentJourney.find((x) => x === 'complaint')
-      || intentJourney.find((x) => x === 'consultation')
-      || intentJourney.find((x) => x === 'product_request')
-      || intentJourney.find((x) => x === 'availability_check')
-      || intentJourney.find((x) => x === 'order')
-      || 'unknown';
+  const recoveryDetected = intentJourney.includes('service_recovery');
+  const primaryIntent: SmartIntent =
+    entryOrigin === 'customer_service_outreach' && recoveryDetected
+      ? 'service_recovery'
+      : entryOrigin === 'customer_service_outreach'
+        ? 'service_followup'
+        : intentJourney.find((x) => x === 'complaint')
+          || intentJourney.find((x) => x === 'consultation')
+          || intentJourney.find((x) => x === 'product_request')
+          || intentJourney.find((x) => x === 'availability_check')
+          || intentJourney.find((x) => x === 'order')
+          || intentJourney.find((x) => x === 'service_recovery')
+          || 'unknown';
 
   const opportunities: SmartSalesOpportunity[] = [];
   messages.forEach((m, index) => {
@@ -214,7 +237,7 @@ export function analyzeSmartConversationDeep(session: WhatsAppConversationSessio
   const explicitPromise = messages.find((m) => m.direction === 'outbound' && FOLLOWUP_PROMISE_RX.test(m.text || ''));
   const illness = firstInbound && ILLNESS_RX.test(firstInbound.text || '') ? firstInbound : messages.find((m) => m.direction === 'inbound' && ILLNESS_RX.test(m.text || ''));
   const recommendation = messages.find((m) => m.direction === 'outbound' && RECOMMENDATION_RX.test(m.text || ''));
-  const serviceIssue = messages.find((m) => isComplaintMessage(m));
+  const serviceIssue = messages.find((m) => isComplaintMessage(m) || isServiceRecoveryMessage(m));
   const followReason = explicitPromise ? 'explicit_promise' : illness ? 'illness' : recommendation ? 'recommendation' : serviceIssue ? 'service_issue' : null;
   const followEvidence = [explicitPromise?.id, illness?.id, recommendation?.id, serviceIssue?.id].filter(Boolean) as string[];
   const followup: SmartFollowupCandidate = { detected: Boolean(followReason), reason: followReason, evidenceMessageIds: unique(followEvidence), needsConfirmation: followReason !== 'explicit_promise' };
