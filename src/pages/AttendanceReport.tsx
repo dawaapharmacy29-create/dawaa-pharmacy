@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CalendarClock, CheckCircle2, Clock, ClipboardCheck, Filter, Fingerprint, LayoutDashboard, LocateFixed, LogIn, LogOut, RefreshCw, Search, ShieldAlert, Timer, UserCheck, Users, XCircle } from 'lucide-react';
+import { AlertTriangle, CalendarClock, CheckCircle2, Clock, ClipboardCheck, Filter, Fingerprint, LayoutDashboard, LocateFixed, LogIn, LogOut, MapPin, RefreshCw, Search, ShieldAlert, Timer, UserCheck, Users, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { useSearchParams } from 'react-router-dom';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
@@ -9,7 +9,6 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { createNotification } from '@/lib/notificationService';
 import { normalizeBranchName } from '@/lib/branch';
 import { canSeeAllBranches } from '@/lib/security/permissionScopes';
-import { listAttendanceResolutionQueue } from '@/lib/attendance/attendanceResolutionService';
 import { listPendingOvertime } from '@/lib/attendance/attendanceBreakdownService';
 import { listStaffTimeOffRequests } from '@/lib/timeOffService';
 import { lazy, Suspense } from 'react';
@@ -22,6 +21,7 @@ const TimeOffPanel = lazy(() => import('@/pages/TimeOff'));
 const OvertimeApprovalCenter = lazy(() => import('@/components/attendance/OvertimeApprovalCenter'));
 const AttendancePayrollTruthPanel = lazy(() => import('@/components/attendance/AttendancePayrollTruthPanel'));
 const AttendanceScheduleHealthPanel = lazy(() => import('@/components/attendance/AttendanceScheduleHealthPanel'));
+const CrossBranchPunchesPanel = lazy(() => import('@/components/attendance/CrossBranchPunchesPanel'));
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   fetchAttendanceLocations,
@@ -37,7 +37,7 @@ import {
 
 type Tab = 'dashboard' | 'daily' | 'decisions' | 'report' | 'system' | 'clock';
 type DecisionSubTab = 'resolution' | 'overtime' | 'timeoff';
-type SystemSubTab = 'sync' | 'unmapped' | 'schedules';
+type SystemSubTab = 'sync' | 'unmapped' | 'cross-branch' | 'schedules';
 type ReportSubTab = 'overview' | 'payroll-truth';
 type ClockSubView = 'clock' | 'logs';
 
@@ -87,8 +87,9 @@ type UnmappedBiometric = {
   provider: string;
   biometric_user_id: string;
   source_name: string | null;
+  source_branch: string | null;
   raw_rows: number;
-  semantic_events: number;
+  cycle_rows: number;
   first_event: string | null;
   last_event: string | null;
 };
@@ -103,10 +104,19 @@ type StaffCandidate = {
 
 interface ApprovalsSummary {
   pendingResolutions: number | null;
+  systemInterpretation: number | null;
+  systemPairable: number | null;
+  trueNoPunch: number | null;
+  singlePunch: number | null;
+  scheduleIssues: number | null;
+  totalPending: number | null;
   pendingDeductions: number | null;
   pendingOvertime: number | null;
   pendingTimeOff: number | null;
   unmappedBiometrics: number | null;
+  unmappedEvents: number | null;
+  crossBranchEvents: number | null;
+  crossBranchStaff: number | null;
 }
 
 function settledCount(result: PromiseSettledResult<any>): number | null {
@@ -135,6 +145,8 @@ const TAB_ALIASES: Record<string, { tab: Tab; decisionSub?: DecisionSubTab; syst
   system: { tab: 'system' },
   sync: { tab: 'system', systemSub: 'sync' },
   unmapped: { tab: 'system', systemSub: 'unmapped' },
+  crossbranch: { tab: 'system', systemSub: 'cross-branch' },
+  'cross-branch': { tab: 'system', systemSub: 'cross-branch' },
   schedules: { tab: 'system', systemSub: 'schedules' },
   clock: { tab: 'clock', clockSub: 'clock' },
   logs: { tab: 'clock', clockSub: 'logs' },
@@ -148,6 +160,22 @@ function addDays(date: string, days: number): string {
   const d = new Date(`${date}T00:00:00`);
   d.setDate(d.getDate() + days);
   return d.toISOString().slice(0, 10);
+}
+
+function attendanceCycleBounds(date: string) {
+  const [year, month, day] = date.split('-').map(Number);
+  const endOfCurrentCycle = day >= 26
+    ? new Date(Date.UTC(year, month, 25))
+    : new Date(Date.UTC(year, month - 1, 25));
+  const startOfCurrentCycle = new Date(Date.UTC(
+    endOfCurrentCycle.getUTCFullYear(),
+    endOfCurrentCycle.getUTCMonth() - 1,
+    26
+  ));
+  return {
+    start: startOfCurrentCycle.toISOString().slice(0, 10),
+    end: endOfCurrentCycle.toISOString().slice(0, 10),
+  };
 }
 
 function round(value?: number | null) {
@@ -206,6 +234,7 @@ export default function AttendanceReport() {
   const [systemSubTab, setSystemSubTab] = useState<SystemSubTab>(() => requestedAlias?.systemSub || 'sync');
   const [reportSubTab, setReportSubTab] = useState<ReportSubTab>('overview');
   const [resolutionFocusDate, setResolutionFocusDate] = useState<string | null>(null);
+  const [resolutionFocusTriage, setResolutionFocusTriage] = useState<'all' | 'manager' | 'system'>('manager');
   const [clockSubView, setClockSubView] = useState<ClockSubView>(() => requestedAlias?.clockSub || 'clock');
   const [dailyDate, setDailyDate] = useState(cairoDate());
   const [branchFilter, setBranchFilter] = useState(() => (canAllBranches ? 'الكل' : normalizedUserBranch || 'الكل'));
@@ -296,7 +325,12 @@ export default function AttendanceReport() {
     if (!isSupabaseConfigured || !canViewSyncHealth) return;
     setLoadingSync(true); setError(null);
     try {
-      const [healthResult, unmappedResult] = await Promise.all([supabase.rpc('attendance_sync_health_v2'), supabase.rpc('list_unmapped_biometric_staff_v1', { p_limit: 100 })]);
+      const today = cairoDate();
+      const cycle = attendanceCycleBounds(today);
+      const [healthResult, unmappedResult] = await Promise.all([
+        supabase.rpc('attendance_sync_health_v2'),
+        supabase.rpc('list_unmapped_biometric_staff_v2', { p_start: cycle.start, p_end: today, p_limit: 100 }),
+      ]);
       if (healthResult.error) throw healthResult.error;
       if (unmappedResult.error) throw unmappedResult.error;
       setSyncHealth((healthResult.data || {}) as SyncHealth);
@@ -309,21 +343,43 @@ export default function AttendanceReport() {
     setLoadingSummary(true);
     try {
       const today = cairoDate();
-      const [resolutionResult, deductionResult, overtimeResult, timeOffResult, unmappedResult] = await Promise.allSettled([
-        isOperationalManager ? listAttendanceResolutionQueue({ start: addDays(today, -13), end: today, branch: effectiveBranch, status: 'pending_review', limit: 200 }) : Promise.resolve(null),
+      const cycle = attendanceCycleBounds(today);
+      const [triageResult, deductionResult, overtimeResult, timeOffResult] = await Promise.allSettled([
+        isOperationalManager
+          ? supabase.rpc('attendance_review_triage_v1', {
+              p_start: cycle.start,
+              p_end: today,
+              p_branch: effectiveBranch === 'الكل' ? null : effectiveBranch,
+            })
+          : Promise.resolve(null),
         isOperationalManager ? supabase.rpc('attendance_deduction_pending_review_v1') : Promise.resolve(null),
         isOperationalManager ? listPendingOvertime(effectiveBranch === 'الكل' ? null : effectiveBranch) : Promise.resolve(null),
         canViewTimeOff ? listStaffTimeOffRequests({ status: 'pending', limit: 200 }) : Promise.resolve(null),
-        canViewSyncHealth ? supabase.rpc('list_unmapped_biometric_staff_v1', { p_limit: 100 }) : Promise.resolve(null),
       ]);
+
+      const triage = triageResult.status === 'fulfilled' && triageResult.value && !triageResult.value.error
+        ? ((triageResult.value.data || {}) as Record<string, unknown>)
+        : {};
+
       setApprovalsSummary({
-        pendingResolutions: isOperationalManager ? settledCount(resolutionResult) : null,
+        pendingResolutions: isOperationalManager ? Number(triage.needs_manager_decision || 0) : null,
+        systemInterpretation: isOperationalManager ? Number(triage.system_interpretation || 0) : null,
+        systemPairable: isOperationalManager ? Number(triage.system_pairable || 0) : null,
+        trueNoPunch: isOperationalManager ? Number(triage.true_no_punch || 0) : null,
+        singlePunch: isOperationalManager ? Number(triage.single_punch || 0) : null,
+        scheduleIssues: isOperationalManager ? Number(triage.schedule_issues || 0) : null,
+        totalPending: isOperationalManager ? Number(triage.total_pending || 0) : null,
         pendingDeductions: isOperationalManager ? settledCount(deductionResult) : null,
         pendingOvertime: isOperationalManager ? settledCount(overtimeResult) : null,
         pendingTimeOff: canViewTimeOff ? settledCount(timeOffResult) : null,
-        unmappedBiometrics: canViewSyncHealth ? settledCount(unmappedResult) : null,
+        unmappedBiometrics: canViewSyncHealth ? Number(triage.unmapped_active_codes || 0) : null,
+        unmappedEvents: canViewSyncHealth ? Number(triage.unmapped_events || 0) : null,
+        crossBranchEvents: canViewSyncHealth ? Number(triage.cross_branch_events || 0) : null,
+        crossBranchStaff: canViewSyncHealth ? Number(triage.cross_branch_staff || 0) : null,
       });
-    } finally { setLoadingSummary(false); }
+    } finally {
+      setLoadingSummary(false);
+    }
   }, [canViewSyncHealth, canViewTimeOff, effectiveBranch, isOperationalManager, showDashboard]);
 
   const searchMappingCandidates = useCallback(async () => {
@@ -346,12 +402,12 @@ export default function AttendanceReport() {
       const { data, error: mappingError } = await supabase.rpc('assign_biometric_staff_mapping_v1', { p_provider: mappingTarget.provider, p_biometric_user_id: mappingTarget.biometric_user_id, p_staff_account_id: selectedCandidate.staff_account_id });
       if (mappingError) throw mappingError;
       const result = (data || {}) as Record<string, unknown>;
-      toast.success(`تم ربط كود ${mappingTarget.biometric_user_id} بـ ${selectedCandidate.staff_name} وإضافة ${Number(result.attendance_events_added || 0)} بصمة قديمة`);
+      toast.success(`تم ربط كود ${mappingTarget.biometric_user_id} بـ ${selectedCandidate.staff_name} ومعالجة ${Number(result.attendance_events_processed || 0)} بصمة وإعادة بناء ${Number(result.attendance_days_rebuilt || 0)} يوم`);
       setMappingTarget(null); setCandidateSearch(''); setCandidates([]); setSelectedCandidate(null);
-      await Promise.all([loadSyncHealth(), loadDaily()]);
+      await Promise.all([loadSyncHealth(), loadDaily(), loadApprovalsSummary()]);
     } catch (e) { toast.error(e instanceof Error ? e.message : 'تعذر اعتماد ربط البصمة'); }
     finally { setMappingBusy(false); }
-  }, [loadDaily, loadSyncHealth, mappingTarget, selectedCandidate]);
+  }, [loadApprovalsSummary, loadDaily, loadSyncHealth, mappingTarget, selectedCandidate]);
 
   useEffect(() => { if (tab === 'clock') void loadClock(); }, [tab, loadClock]);
   useEffect(() => { if (tab === 'daily') void loadDaily(); }, [tab, loadDaily]);
@@ -372,7 +428,11 @@ export default function AttendanceReport() {
     return Array.from(set);
   }, [canAllBranches, normalizedUserBranch, dailyRows]);
 
-  function openDecision(sub: DecisionSubTab) { setTab('decisions'); setDecisionSubTab(sub); }
+  function openDecision(sub: DecisionSubTab, triage: 'all' | 'manager' | 'system' = 'manager') {
+    setResolutionFocusTriage(triage);
+    setTab('decisions');
+    setDecisionSubTab(sub);
+  }
 
   async function notifyManager(type: AttendanceType, finalValidation: { status: string; rejectionReason?: string | null; nearestLocation?: AttendanceLocation | null; distanceMeters?: number | null }, biometric: { verified: boolean; method: string }, pos: DevicePosition) {
     const eventName = type === 'check_in' ? 'حضور' : 'انصراف'; const nowText = new Date().toLocaleString('ar-EG', { dateStyle: 'short', timeStyle: 'short' });
@@ -417,12 +477,16 @@ export default function AttendanceReport() {
         </div>
         <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm">
           <div className="mb-3 flex items-center justify-between gap-2"><h2 className="flex items-center gap-2 text-base font-black text-[var(--dawaa-theme-heading)]"><ClipboardCheck size={18} className="text-[var(--dawaa-theme-primary-strong)]" /> مطلوب مراجعتك الآن</h2></div>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {isOperationalManager && <DecisionTile label="تسويات تحتاج مراجعة" hint="تأخير + بصمة ناقصة + حالات غير مكتملة (آخر 14 يوم)" value={approvalsSummary?.pendingResolutions ?? null} icon={ShieldAlert} onClick={() => openDecision('resolution')} />}
-            {isOperationalManager && <DecisionTile label="خصومات حضور بانتظار اعتمادك" hint="لا تؤثر على رصيد أي موظف قبل قرارك" value={approvalsSummary?.pendingDeductions ?? null} icon={AlertTriangle} onClick={() => openDecision('resolution')} />}
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {isOperationalManager && <DecisionTile label="يحتاج قرارك فعلًا" hint={`${approvalsSummary?.trueNoPunch || 0} بدون بصمة · ${approvalsSummary?.singlePunch || 0} بصمة واحدة · ${approvalsSummary?.scheduleIssues || 0} مشكلة جدول`} value={approvalsSummary?.pendingResolutions ?? null} icon={ShieldAlert} onClick={() => openDecision('resolution', 'manager')} />}
+            {isOperationalManager && <DecisionTile label="مشكلة تفسير نظام" hint={`${(approvalsSummary?.systemPairable || 0) + (approvalsSummary?.systemInterpretation || 0)} حالة عندها أكثر من بصمة — لا تعتبر خطأ موظف`} value={(approvalsSummary?.systemPairable || 0) + (approvalsSummary?.systemInterpretation || 0)} icon={AlertTriangle} onClick={() => openDecision('resolution', 'system')} />}
+            {canViewSyncHealth && <DecisionTile label="أكواد نشطة غير مربوطة" hint={`${approvalsSummary?.unmappedEvents || 0} بصمة متأثرة في الدورة الحالية`} value={approvalsSummary?.unmappedBiometrics ?? null} icon={Fingerprint} onClick={() => { setTab('system'); setSystemSubTab('unmapped'); }} />}
+            {canViewSyncHealth && <DecisionTile label="بصمات من فرع آخر" hint={`${approvalsSummary?.crossBranchStaff || 0} موظفين — معلومة رقابية وليست خطأ`} value={approvalsSummary?.crossBranchEvents ?? null} icon={MapPin} onClick={() => { setTab('system'); setSystemSubTab('cross-branch'); }} />}
+          </div>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {isOperationalManager && <DecisionTile label="خصومات حضور بانتظار اعتمادك" hint="لا تؤثر على رصيد أي موظف قبل قرارك" value={approvalsSummary?.pendingDeductions ?? null} icon={AlertTriangle} onClick={() => openDecision('resolution', 'manager')} />}
             {isOperationalManager && <DecisionTile label="أوفر تايم بانتظار اعتمادك" hint="ساعات إضافية مسجلة تحتاج قرارك" value={approvalsSummary?.pendingOvertime ?? null} icon={Timer} onClick={() => openDecision('overtime')} />}
             {canViewTimeOff && <DecisionTile label="أذونات وإجازات معلّقة" hint="طلبات إذن/إجازة بانتظار قرارك" value={approvalsSummary?.pendingTimeOff ?? null} icon={CalendarClock} onClick={() => openDecision('timeoff')} />}
-            {canViewSyncHealth && <DecisionTile label="أكواد بصمة بدون ربط بموظف" hint="بصماتهم لن تُحتسب حتى تربطها بموظف" value={approvalsSummary?.unmappedBiometrics ?? null} icon={Fingerprint} onClick={() => { setTab('system'); setSystemSubTab('unmapped'); }} />}
           </div>
         </div>
       </>}
@@ -438,7 +502,7 @@ export default function AttendanceReport() {
           {isOperationalManager && <TabsTrigger value="overtime" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><Timer size={16} /> الأوفر تايم <TabBadge value={approvalsSummary?.pendingOvertime} /></TabsTrigger>}
           {canViewTimeOff && <TabsTrigger value="timeoff" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><CalendarClock size={16} /> الأذونات والإجازات <TabBadge value={approvalsSummary?.pendingTimeOff} /></TabsTrigger>}
         </TabsList></Tabs>
-        {decisionSubTab === 'resolution' && isOperationalManager && <Suspense fallback={<TableSkeleton />}><AttendanceResolutionCenter defaultBranch={effectiveBranch} initialDate={resolutionFocusDate} /></Suspense>}
+        {decisionSubTab === 'resolution' && isOperationalManager && <Suspense fallback={<TableSkeleton />}><AttendanceResolutionCenter defaultBranch={effectiveBranch} initialDate={resolutionFocusDate} initialTriage={resolutionFocusTriage} /></Suspense>}
         {decisionSubTab === 'overtime' && isOperationalManager && <Suspense fallback={<TableSkeleton />}><OvertimeApprovalCenter defaultBranch={effectiveBranch === 'الكل' ? '' : effectiveBranch} /></Suspense>}
         {decisionSubTab === 'timeoff' && canViewTimeOff && <Suspense fallback={<TableSkeleton />}><TimeOffPanel /></Suspense>}
       </>}
@@ -467,6 +531,7 @@ export default function AttendanceReport() {
               defaultBranch={effectiveBranch}
               onOpenResolutions={(date) => {
                 setResolutionFocusDate(date);
+                setResolutionFocusTriage('manager');
                 setTab('decisions');
                 setDecisionSubTab('resolution');
               }}
@@ -478,7 +543,7 @@ export default function AttendanceReport() {
       {tab === 'system' && <>
         <Tabs value={systemSubTab} onValueChange={(v) => setSystemSubTab(v as SystemSubTab)} dir="rtl"><TabsList className="h-auto flex-wrap justify-start gap-1.5 rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-1.5">
           <TabsTrigger value="sync" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><Fingerprint size={16} /> المزامنة والذكاء</TabsTrigger>
-          <TabsTrigger value="unmapped" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><UserCheck size={16} /> الأكواد غير المربوطة <TabBadge value={approvalsSummary?.unmappedBiometrics} /></TabsTrigger><TabsTrigger value="schedules" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><CalendarClock size={16} /> سلامة الجداول</TabsTrigger>
+          <TabsTrigger value="unmapped" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><UserCheck size={16} /> الأكواد غير المربوطة <TabBadge value={approvalsSummary?.unmappedBiometrics} /></TabsTrigger><TabsTrigger value="cross-branch" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><MapPin size={16} /> البصمات بين الفروع <TabBadge value={approvalsSummary?.crossBranchStaff} /></TabsTrigger><TabsTrigger value="schedules" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><CalendarClock size={16} /> سلامة الجداول</TabsTrigger>
         </TabsList></Tabs>
         {systemSubTab === 'sync' && <Suspense fallback={<TableSkeleton />}><AttendanceSyncCommandCenter branches={branches} defaultBranch={effectiveBranch} /></Suspense>}
         {systemSubTab === 'unmapped' && <>
@@ -486,6 +551,9 @@ export default function AttendanceReport() {
           {loadingSync ? <TableSkeleton /> : syncHealth ? <SyncHealthPanel health={syncHealth} /> : <Empty text="لا توجد بيانات مزامنة متاحة." />}
           {!loadingSync && <BiometricMappingQueue rows={unmappedRows} target={mappingTarget} search={candidateSearch} candidates={candidates} selected={selectedCandidate} busy={mappingBusy} onOpen={(row) => { setMappingTarget(row); setCandidateSearch(row.source_name || ''); setCandidates([]); setSelectedCandidate(null); }} onClose={() => { setMappingTarget(null); setCandidateSearch(''); setCandidates([]); setSelectedCandidate(null); }} onSearchChange={setCandidateSearch} onSearch={() => void searchMappingCandidates()} onSelect={setSelectedCandidate} onAssign={() => void assignMapping()} />}
         </>}
+        {systemSubTab === 'cross-branch' && <Suspense fallback={<TableSkeleton />}>
+          <CrossBranchPunchesPanel defaultBranch={effectiveBranch} />
+        </Suspense>}
         {systemSubTab === 'schedules' && <Suspense fallback={<TableSkeleton />}>
           <AttendanceScheduleHealthPanel defaultBranch={effectiveBranch} />
         </Suspense>}
@@ -546,7 +614,98 @@ function SyncHealthPanel({ health }: { health: SyncHealth }) {
     {!!health.branch_breakdown?.length && <Panel title="المزامنة حسب الفرع" icon={Users}><div className="grid gap-2 md:grid-cols-2">{health.branch_breakdown.map((b) => <div key={b.branch} className="rounded-xl border border-[var(--dawaa-theme-border)] dawaa-surface-soft p-3"><div className="font-black text-[var(--dawaa-theme-heading)]">{b.branch}</div><div className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">{Number(b.events).toLocaleString('ar-EG')} بصمة · {Number(b.mapped).toLocaleString('ar-EG')} مربوطة · {Number(b.unmapped).toLocaleString('ar-EG')} غير مربوطة</div><div className="mt-1 text-[11px] text-[var(--dawaa-theme-muted)]">آخر وصول: {formatDateTime(b.last_ingested_at)}</div></div>)}</div></Panel>}
   </div>;
 }
-function BiometricMappingQueue({ rows, target, search, candidates, selected, busy, onOpen, onClose, onSearchChange, onSearch, onSelect, onAssign }: { rows: UnmappedBiometric[]; target: UnmappedBiometric | null; search: string; candidates: StaffCandidate[]; selected: StaffCandidate | null; busy: boolean; onOpen: (row: UnmappedBiometric) => void; onClose: () => void; onSearchChange: (value: string) => void; onSearch: () => void; onSelect: (candidate: StaffCandidate) => void; onAssign: () => void; }) { return <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm"><div className="mb-4 flex items-center justify-between gap-3"><div><h2 className="font-black text-[var(--dawaa-theme-heading)]">أكواد بصمة تحتاج ربط</h2><p className="text-xs font-bold text-[var(--dawaa-theme-muted)]">لا يتم الربط بالاسم تلقائيًا. اختر الموظف canonical بنفسك ثم اعتمد.</p></div><span className="rounded-full border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-3 py-1 text-xs font-black text-[var(--dawaa-status-warning-text)]">{rows.length.toLocaleString('ar-EG')} كود</span></div>{!rows.length ? <div className="rounded-xl border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] p-4 text-sm font-black text-[var(--dawaa-status-success-text)]">كل الأكواد الحالية مربوطة بموظفين.</div> : <div className="overflow-x-auto"><table className="dawaa-table-semantic min-w-full text-sm"><thead><tr className="text-right"><th className="p-3">الكود</th><th className="p-3">الاسم من الجهاز</th><th className="p-3">Raw</th><th className="p-3">بصمات فعلية</th><th className="p-3">آخر بصمة</th><th className="p-3">الربط</th></tr></thead><tbody>{rows.map((row) => <tr key={`${row.provider}-${row.biometric_user_id}`} className="border-t border-[var(--dawaa-theme-divider)]"><td className="p-3 font-black text-[var(--dawaa-theme-heading)]">{row.biometric_user_id}</td><td className="p-3 font-bold">{row.source_name || 'غير مسجل'}</td><td className="p-3">{Number(row.raw_rows || 0).toLocaleString('ar-EG')}</td><td className="p-3 font-black">{Number(row.semantic_events || 0).toLocaleString('ar-EG')}</td><td className="p-3 text-xs font-bold">{formatDateTime(row.last_event)}</td><td className="p-3"><button onClick={() => onOpen(row)} className="btn-secondary"><UserCheck size={15} /> اختيار الموظف</button></td></tr>)}</tbody></table></div>}{target && <div className="mt-5 rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface-soft p-4"><div className="mb-3 flex items-start justify-between gap-3"><div><div className="text-xs font-bold text-[var(--dawaa-theme-muted)]">ربط كود {target.biometric_user_id}</div><div className="text-lg font-black text-[var(--dawaa-theme-heading)]">{target.source_name || 'اسم غير معروف من الجهاز'}</div></div><button onClick={onClose} className="btn-secondary">إلغاء</button></div><div className="flex flex-col gap-2 sm:flex-row"><input value={search} onChange={(e) => onSearchChange(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') onSearch(); }} placeholder="اكتب اسم الموظف الحقيقي..." className="input-dark flex-1" /><button disabled={busy} onClick={onSearch} className="btn-primary"><Search size={16} /> بحث</button></div>{!!candidates.length && <div className="mt-3 grid gap-2">{candidates.map((candidate) => <button key={candidate.staff_account_id} onClick={() => onSelect(candidate)} className={cn('rounded-xl border p-3 text-right transition', selected?.staff_account_id === candidate.staff_account_id ? 'border-[var(--dawaa-theme-primary)] bg-[var(--dawaa-status-success-bg)]' : 'border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] hover:bg-[var(--dawaa-theme-surface-2)]')}><div className="font-black text-[var(--dawaa-theme-heading)]">{candidate.staff_name}</div><div className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">{candidate.branch || '-'} · {candidate.role || '-'}</div></button>)}</div>}{selected && <div className="mt-4 rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-3"><div className="text-sm font-black text-[var(--dawaa-status-warning-text)]">تأكيد: كود البصمة {target.biometric_user_id} سيتم ربطه بـ {selected.staff_name} ({selected.branch || '-'})، وكل البصمات القديمة لهذا الكود ستُنسب إليه بعد إزالة التكرار الدلالي.</div><button disabled={busy} onClick={onAssign} className="btn-primary mt-3 w-full">{busy ? 'جارٍ الاعتماد...' : 'اعتماد الربط وربط البصمات القديمة'}</button></div>}</div>}</div>; }
+function BiometricMappingQueue({
+  rows,
+  target,
+  search,
+  candidates,
+  selected,
+  busy,
+  onOpen,
+  onClose,
+  onSearchChange,
+  onSearch,
+  onSelect,
+  onAssign,
+}: {
+  rows: UnmappedBiometric[];
+  target: UnmappedBiometric | null;
+  search: string;
+  candidates: StaffCandidate[];
+  selected: StaffCandidate | null;
+  busy: boolean;
+  onOpen: (row: UnmappedBiometric) => void;
+  onClose: () => void;
+  onSearchChange: (value: string) => void;
+  onSearch: () => void;
+  onSelect: (candidate: StaffCandidate) => void;
+  onAssign: () => void;
+}) {
+  const affectedEvents = rows.reduce((sum, row) => sum + Number(row.cycle_rows || 0), 0);
+  return <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm">
+    <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+      <div>
+        <h2 className="font-black text-[var(--dawaa-theme-heading)]">أكواد بصمة نشطة تحتاج ربط</h2>
+        <p className="text-xs font-bold text-[var(--dawaa-theme-muted)]">
+          القائمة تعرض فقط الأكواد التي استخدمت فعليًا في الدورة الحالية، مرتبة حسب عدد البصمات المتأثرة. الربط لا يغيّر مكان البصمة الحقيقي.
+        </p>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <span className="rounded-full border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-3 py-1 text-xs font-black text-[var(--dawaa-status-warning-text)]">{rows.length.toLocaleString('ar-EG')} كود نشط</span>
+        <span className="rounded-full border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] px-3 py-1 text-xs font-black text-[var(--dawaa-status-info-text)]">{affectedEvents.toLocaleString('ar-EG')} بصمة متأثرة</span>
+      </div>
+    </div>
+
+    {!rows.length ? <div className="rounded-xl border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] p-4 text-sm font-black text-[var(--dawaa-status-success-text)]">كل الأكواد النشطة في الدورة الحالية مربوطة بموظفين.</div> : <div className="overflow-x-auto">
+      <table className="dawaa-table-semantic min-w-[900px] w-full text-sm">
+        <thead><tr className="text-right">
+          <th className="p-3">الكود</th>
+          <th className="p-3">فرع الجهاز</th>
+          <th className="p-3">الاسم من الجهاز</th>
+          <th className="p-3">بصمات الدورة</th>
+          <th className="p-3">إجمالي السجل</th>
+          <th className="p-3">آخر بصمة</th>
+          <th className="p-3">الإجراء</th>
+        </tr></thead>
+        <tbody>{rows.map((row) => <tr key={`${row.provider}-${row.biometric_user_id}`} className="border-t border-[var(--dawaa-theme-divider)]">
+          <td className="p-3 font-black text-[var(--dawaa-theme-heading)]">{row.biometric_user_id}</td>
+          <td className="p-3"><span className="inline-flex items-center gap-1 rounded-full border border-[var(--dawaa-theme-border)] px-2 py-1 text-xs font-black"><MapPin size={12}/>{row.source_branch || 'غير محدد'}</span></td>
+          <td className="p-3 font-bold">{row.source_name || 'غير مسجل'}</td>
+          <td className="p-3"><span className="rounded-full border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-2 py-1 font-black text-[var(--dawaa-status-warning-text)]">{Number(row.cycle_rows || 0).toLocaleString('ar-EG')}</span></td>
+          <td className="p-3">{Number(row.raw_rows || 0).toLocaleString('ar-EG')}</td>
+          <td className="p-3 text-xs font-bold">{formatDateTime(row.last_event)}</td>
+          <td className="p-3"><button onClick={() => onOpen(row)} className="btn-secondary"><UserCheck size={15} /> اختيار الموظف</button></td>
+        </tr>)}</tbody>
+      </table>
+    </div>}
+
+    {target && <div className="mt-5 rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface-soft p-4">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <div className="text-xs font-bold text-[var(--dawaa-theme-muted)]">ربط كود {target.biometric_user_id} · جهاز {target.source_branch || 'غير محدد'}</div>
+          <div className="text-lg font-black text-[var(--dawaa-theme-heading)]">{target.source_name || 'اسم غير معروف من الجهاز'}</div>
+          <div className="mt-1 text-xs font-bold text-[var(--dawaa-status-warning-text)]">{Number(target.cycle_rows || 0).toLocaleString('ar-EG')} بصمة في الدورة الحالية ستُعاد معالجتها بعد الربط.</div>
+        </div>
+        <button onClick={onClose} className="btn-secondary">إلغاء</button>
+      </div>
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <input value={search} onChange={(e) => onSearchChange(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') onSearch(); }} placeholder="اكتب اسم الموظف الحقيقي..." className="input-dark flex-1" />
+        <button disabled={busy} onClick={onSearch} className="btn-primary"><Search size={16} /> بحث</button>
+      </div>
+      {!!candidates.length && <div className="mt-3 grid gap-2">{candidates.map((candidate) => <button key={candidate.staff_account_id} onClick={() => onSelect(candidate)} className={cn('rounded-xl border p-3 text-right transition', selected?.staff_account_id === candidate.staff_account_id ? 'border-[var(--dawaa-theme-primary)] bg-[var(--dawaa-status-success-bg)]' : 'border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] hover:bg-[var(--dawaa-theme-surface-2)]')}>
+        <div className="font-black text-[var(--dawaa-theme-heading)]">{candidate.staff_name}</div>
+        <div className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">{candidate.branch || '-'} · {candidate.role || '-'}</div>
+      </button>)}</div>}
+      {selected && <div className="mt-4 rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-3">
+        <div className="text-sm font-black text-[var(--dawaa-status-warning-text)]">
+          تأكيد: الكود {target.biometric_user_id} من جهاز {target.source_branch || 'غير محدد'} سيتم ربطه بـ {selected.staff_name} ({selected.branch || '-'}).
+          مكان البصمات الخام سيظل محفوظًا كما هو، ثم يعيد النظام معالجة الأيام المتأثرة تلقائيًا.
+        </div>
+        <button disabled={busy} onClick={onAssign} className="btn-primary mt-3 w-full">{busy ? 'جارٍ الاعتماد...' : 'اعتماد الربط وإعادة معالجة الأيام'}</button>
+      </div>}
+    </div>}
+  </div>;
+}
 function attemptStatusLabel(status?: string | null) {
   const labels: Record<string, string> = {
     accepted: 'مقبولة',
