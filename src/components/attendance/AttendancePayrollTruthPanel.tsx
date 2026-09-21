@@ -2,6 +2,18 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CalendarDays, Clock3, RefreshCw, Timer, Users2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
+type DriftRow = {
+  staff_id: string;
+  staff_name: string;
+  branch: string | null;
+  attendance_date: string;
+  stored_status: string;
+  rebuilt_status: string;
+  stored_hours: number;
+  rebuilt_hours: number;
+  drift_reason: string;
+};
+
 type Row = {
   staff_id: string;
   staff_name: string;
@@ -55,6 +67,7 @@ export default function AttendancePayrollTruthPanel({
   const [end, setEnd] = useState(bounds.end);
   const [branch, setBranch] = useState(defaultBranch || 'الكل');
   const [rows, setRows] = useState<Row[]>([]);
+  const [driftRows, setDriftRows] = useState<DriftRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -66,13 +79,23 @@ export default function AttendancePayrollTruthPanel({
     setLoading(true);
     setError(null);
     try {
-      const { data, error: rpcError } = await supabase.rpc('attendance_payroll_truth_preview_v1', {
-        p_start: start,
-        p_end: end,
-        p_branch: branch === 'الكل' ? null : branch,
-      });
-      if (rpcError) throw rpcError;
-      setRows((data || []).map((row: any) => ({
+      const branchArg = branch === 'الكل' ? null : branch;
+      const [truthResult, driftResult] = await Promise.all([
+        supabase.rpc('attendance_payroll_truth_preview_v1', {
+          p_start: start,
+          p_end: end,
+          p_branch: branchArg,
+        }),
+        supabase.rpc('attendance_resolution_drift_v1', {
+          p_start: start,
+          p_end: end,
+          p_branch: branchArg,
+        }),
+      ]);
+      if (truthResult.error) throw truthResult.error;
+      if (driftResult.error) throw driftResult.error;
+
+      setRows((truthResult.data || []).map((row: any) => ({
         ...row,
         actual_worked_days: n(row.actual_worked_days),
         actual_worked_hours: n(row.actual_worked_hours),
@@ -85,6 +108,11 @@ export default function AttendancePayrollTruthPanel({
         approved_overtime_hours: n(row.approved_overtime_hours),
         pending_overtime_hours: n(row.pending_overtime_hours),
       })) as Row[]);
+      setDriftRows((driftResult.data || []).map((row: any) => ({
+        ...row,
+        stored_hours: n(row.stored_hours),
+        rebuilt_hours: n(row.rebuilt_hours),
+      })) as DriftRow[]);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'تعذر تحميل حقيقة الحضور للمرتب');
     } finally {
@@ -121,15 +149,49 @@ export default function AttendancePayrollTruthPanel({
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <Metric label="أيام عمل فعلية" value={totals.workedDays} icon={CalendarDays} />
         <Metric label="ساعات عمل فعلية" value={totals.workedHours.toFixed(2)} icon={Clock3} />
         <Metric label="ساعات أساسية مرشحة" value={totals.baseHours.toFixed(2)} icon={Users2} />
         <Metric label="أيام معلقة" value={totals.pending} icon={AlertTriangle} />
         <Metric label="أوفر تايم معتمد" value={totals.approvedOvertime.toFixed(2)} icon={Timer} />
+        <Metric label="إعادة اعتماد مطلوبة" value={driftRows.length} icon={AlertTriangle} />
       </div>
 
       {error && <div className="rounded-xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-3 text-sm font-bold text-[var(--dawaa-status-danger-text)]">⚠️ {error}</div>}
+
+      {driftRows.length > 0 && (
+        <div className="rounded-2xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-4">
+          <div className="flex items-start gap-2">
+            <AlertTriangle size={18} className="mt-0.5 shrink-0 text-[var(--dawaa-status-danger-text)]" />
+            <div>
+              <div className="font-black text-[var(--dawaa-status-danger-text)]">يوجد {driftRows.length} يوم معتمد يحتاج إعادة مراجعة</div>
+              <div className="mt-1 text-xs font-bold text-[var(--dawaa-status-danger-text)]">
+                البيانات المحفوظة قديمًا لا تطابق إعادة بناء اليوم بالجدول والبصمات الحالية. هذه الأيام تمنع الاعتماد المالي النهائي ولا يتم تعديلها تلقائيًا.
+              </div>
+            </div>
+          </div>
+          <div className="mt-3 overflow-x-auto rounded-xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-theme-surface)]">
+            <table className="min-w-[760px] w-full text-xs">
+              <thead><tr className="border-b border-[var(--dawaa-theme-border)]">
+                <th className="p-2 text-right">الموظف</th><th className="p-2 text-right">التاريخ</th>
+                <th className="p-2 text-right">المحفوظ</th><th className="p-2 text-right">إعادة البناء</th>
+                <th className="p-2 text-right">الساعات</th><th className="p-2 text-right">سبب الفرق</th>
+              </tr></thead>
+              <tbody>
+                {driftRows.slice(0, 25).map((row) => <tr key={`${row.staff_id}-${row.attendance_date}`} className="border-b border-[var(--dawaa-theme-divider)] last:border-0">
+                  <td className="p-2 font-black">{row.staff_name}<div className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">{row.branch || '-'}</div></td>
+                  <td className="p-2">{row.attendance_date}</td>
+                  <td className="p-2">{statusLabel(row.stored_status)}</td>
+                  <td className="p-2 font-black text-[var(--dawaa-status-danger-text)]">{statusLabel(row.rebuilt_status)}</td>
+                  <td className="p-2">{row.stored_hours.toFixed(2)} ← {row.rebuilt_hours.toFixed(2)}</td>
+                  <td className="p-2">{driftReasonLabel(row.drift_reason)}</td>
+                </tr>)}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       <div className="overflow-x-auto rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface shadow-sm">
         <table className="min-w-[1100px] w-full text-sm">
@@ -181,4 +243,31 @@ export default function AttendancePayrollTruthPanel({
 
 function Metric({ label, value, icon: Icon }: { label: string; value: number | string; icon: typeof Clock3 }) {
   return <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm"><div className="flex items-center gap-2 text-xs font-black text-[var(--dawaa-theme-muted)]"><Icon size={16}/>{label}</div><div className="mt-2 text-2xl font-black text-[var(--dawaa-theme-heading)]">{value}</div></div>;
+}
+
+function statusLabel(value: string) {
+  const labels: Record<string, string> = {
+    on_time: 'في الموعد',
+    on_time_with_permission: 'في الموعد بإذن',
+    late: 'متأخر',
+    very_late: 'متأخر جدًا',
+    off_day: 'إجازة أسبوعية',
+    approved_time_off: 'إجازة معتمدة',
+    time_off_with_events: 'إجازة وبها بصمات',
+    absence_review: 'غياب',
+    worked_on_off: 'عمل في يوم إجازة',
+    missing_checkin: 'دخول ناقص',
+    missing_checkout: 'خروج ناقص',
+    early_leave_review: 'خروج مبكر',
+    needs_event_review: 'بصمات تحتاج مراجعة',
+  };
+  return labels[value] || value || '-';
+}
+
+function driftReasonLabel(value: string) {
+  return String(value || '')
+    .replace('status_changed', 'الحالة تغيرت')
+    .replace('schedule_changed', 'الجدول تغير')
+    .replace('hours_changed', 'الساعات تغيرت')
+    .replaceAll(',', ' + ');
 }
