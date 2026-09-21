@@ -20,6 +20,7 @@ import { buildOfficialReviewSuggestion, type ReviewSuggestionStatus } from '@/li
 import type { WhatsAppConversationSession } from '@/lib/whatsappConversationParser';
 import type { ReviewCriterionKey } from '@/lib/conversationReviews';
 import type { ConversationJourneyResult } from '@/lib/whatsappConversationJourneyClassifier';
+import type { SmartConversationEvaluationV2 } from '@/lib/whatsappConversationEvaluationV2';
 
 const MIN_CONFIDENT_CONFIDENCE = 70;
 
@@ -82,7 +83,7 @@ function resolveStatus(
 export function buildSmartOfficialReviewDraftV1(
   session: WhatsAppConversationSession,
   customerName?: string | null,
-  options?: { missingMediaMessageIds?: string[]; journey?: ConversationJourneyResult | null }
+  options?: { missingMediaMessageIds?: string[]; journey?: ConversationJourneyResult | null; evaluationV2?: SmartConversationEvaluationV2 | null }
 ): SmartOfficialReviewDraftV1 {
   const suggestion = buildOfficialReviewSuggestion(session, customerName);
   const missingMedia = new Set(options?.missingMediaMessageIds || []);
@@ -106,6 +107,165 @@ export function buildSmartOfficialReviewDraftV1(
       sourceEngine: 'whatsapp-review-scoring-v1',
     };
   });
+
+  const evalV2 = options?.evaluationV2 || null;
+  if (evalV2) {
+    const byKey = new Map(criteria.map((item) => [item.criterionKey, item]));
+    const set = (
+      key: ReviewCriterionKey,
+      patch: Partial<SmartOfficialCriterionSuggestion>
+    ) => {
+      const current = byKey.get(key);
+      if (current) Object.assign(current, patch);
+    };
+
+    // افتتاح الرسالة: V2 يفحص عناصر محددة (تحية/الصيدلية/اسم المسؤول/عرض المساعدة)
+    // بدل اعتبار أي كلمة ترحيب = رسالة رسمية كاملة.
+    if (evalV2.opening.coverage >= 80 && evalV2.opening.score != null) {
+      const hasGreeting = evalV2.opening.passed.includes('تحية مناسبة');
+      const hasDoctor = evalV2.opening.passed.includes('تعريف المسؤول بنفسه');
+      const missing = evalV2.opening.missing.length;
+      const choice = missing === 0
+        ? 'official_full'
+        : hasGreeting && hasDoctor
+          ? 'close_with_name'
+          : hasGreeting
+            ? 'greeting_no_name'
+            : 'direct_reply';
+      set('greeting', {
+        applies: true,
+        suggestedChoice: choice,
+        suggestedLabel: choice === 'official_full'
+          ? 'استخدم الرسالة الرسمية كاملة'
+          : choice === 'close_with_name'
+            ? 'رسالة قريبة وبها اسم الدكتور'
+            : choice === 'greeting_no_name'
+              ? 'رحب بدون اسم الدكتور'
+              : 'رد مباشرة بدون ترحيب مناسب',
+        confidence: evalV2.opening.evidence.confidence,
+        status: evalV2.opening.evidence.confidence >= MIN_CONFIDENT_CONFIDENCE ? 'confident' : 'review_required',
+        reason: `فحص الافتتاح V2: ${evalV2.opening.passed.join('، ') || 'لا عناصر مكتملة'}${missing ? `؛ الناقص: ${evalV2.opening.missing.join('، ')}` : ''}.`,
+        evidenceMessageIds: evalV2.opening.evidence.messageIds,
+      });
+      set('doctor_name', {
+        applies: true,
+        suggestedChoice: hasDoctor ? 'start' : 'none',
+        suggestedLabel: hasDoctor ? 'ذكر اسمه في بداية المحادثة' : 'لم يذكر اسمه',
+        confidence: evalV2.opening.evidence.confidence,
+        status: 'confident',
+        reason: hasDoctor ? 'تم رصد تعريف المسؤول بنفسه ضمن افتتاح الجلسة.' : 'لم يتم رصد تعريف واضح للمسؤول ضمن افتتاح الجلسة.',
+        evidenceMessageIds: evalV2.opening.evidence.messageIds,
+      });
+    }
+
+    // إغلاق البيع لا يعتبر "تم" من مجرد كلمة موافقة؛ نعتمد على مراحل البيع المتدرجة.
+    if (evalV2.sale.outcome === 'invoice_verified_sale' || evalV2.sale.outcome === 'order_confirmed') {
+      set('sales_closing', {
+        applies: true,
+        suggestedChoice: 'clear_order',
+        suggestedLabel: 'قاد المحادثة لطلب واضح باحتراف',
+        confidence: evalV2.sale.outcome === 'invoice_verified_sale' ? Math.max(95, evalV2.sale.confidence) : Math.max(88, evalV2.sale.confidence),
+        status: 'confident',
+        reason: evalV2.sale.outcome === 'invoice_verified_sale'
+          ? `تم إثبات البيع بفاتورة${evalV2.sale.invoiceNumber ? ` رقم ${evalV2.sale.invoiceNumber}` : ''}.`
+          : 'تم رصد تأكيد واضح للطلب داخل المحادثة، مع بقاء الفاتورة غير مؤكدة.',
+        evidenceMessageIds: evalV2.sale.evidenceMessageIds,
+      });
+    } else if (evalV2.sale.outcome === 'customer_accepted') {
+      set('sales_closing', {
+        applies: true,
+        suggestedChoice: 'helped',
+        suggestedLabel: 'ساعد العميل على القرار بدون ضغط',
+        confidence: 72,
+        status: 'review_required',
+        reason: 'العميل وافق مبدئيًا لكن لا يوجد دليل كافٍ أن الطلب اتنفذ؛ لا نحسبها بيعًا مكتملًا.',
+        evidenceMessageIds: evalV2.sale.evidenceMessageIds,
+      });
+    } else if (evalV2.sale.outcome === 'opportunity_detected' || evalV2.sale.outcome === 'stockout_blocked') {
+      set('sales_closing', {
+        applies: true,
+        suggestedChoice: 'passive',
+        suggestedLabel: 'رد فقط بدون محاولة إغلاق رغم وجود فرصة',
+        confidence: 68,
+        status: 'review_required',
+        reason: evalV2.sale.reason,
+        evidenceMessageIds: evalV2.sale.evidenceMessageIds,
+      });
+    }
+
+    if (evalV2.orderCompleteness.applicable && evalV2.orderCompleteness.score != null) {
+      const score = evalV2.orderCompleteness.score;
+      const choice = evalV2.orderCompleteness.missingCritical.length
+        ? 'important_missing'
+        : score >= 90
+          ? 'full'
+          : score >= 70
+            ? 'minor_missing'
+            : 'many_missing';
+      set('order_confirmation', {
+        applies: true,
+        suggestedChoice: choice,
+        suggestedLabel: choice === 'full'
+          ? 'أكد كل البيانات المطلوبة'
+          : choice === 'minor_missing'
+            ? 'ناقص بند بسيط'
+            : choice === 'many_missing'
+              ? 'ناقص أكثر من بند'
+              : 'لم يؤكد بيانات مهمة',
+        confidence: 88,
+        status: 'confident',
+        reason: `اكتمال بيانات الأوردر: ${evalV2.orderCompleteness.confirmedCount}/${evalV2.orderCompleteness.requiredCount}${evalV2.orderCompleteness.missingCritical.length ? `؛ الناقص المهم: ${evalV2.orderCompleteness.missingCritical.join('، ')}` : ''}.`,
+        evidenceMessageIds: evalV2.orderCompleteness.items.flatMap((item) => item.evidenceMessageIds).slice(0, 12),
+      });
+    }
+
+    if (evalV2.closing.score != null && evalV2.closing.coverage >= 70) {
+      const score = evalV2.closing.score;
+      const completed = ['invoice_verified_sale', 'order_confirmed', 'probable_sale'].includes(evalV2.sale.outcome);
+      const choice = score >= 90 ? 'official' : score >= 50 ? 'respectful' : completed ? 'none_completed' : 'left_open';
+      set('closing_message', {
+        applies: true,
+        suggestedChoice: choice,
+        suggestedLabel: choice === 'official'
+          ? 'استخدم رسالة الختام الرسمية'
+          : choice === 'respectful'
+            ? 'ختام محترم قريب من الرسمي'
+            : choice === 'none_completed'
+              ? 'لا يوجد ختام رغم اكتمال المحادثة'
+              : 'ترك العميل بدون إغلاق',
+        confidence: evalV2.closing.evidence.confidence,
+        status: evalV2.closing.evidence.confidence >= MIN_CONFIDENT_CONFIDENCE ? 'confident' : 'review_required',
+        reason: `فحص نهاية الجلسة: ${evalV2.closing.passed.join('، ') || 'لا عناصر ختام مكتملة'}${evalV2.closing.missing.length ? `؛ الناقص: ${evalV2.closing.missing.join('، ')}` : ''}.`,
+        evidenceMessageIds: evalV2.closing.evidence.messageIds,
+      });
+    }
+
+    // وجود فرص متابعة ذكية يجعل البند منطبقًا، لكن "هل سجّلها فعليًا" يحتاج قاعدة البيانات.
+    if (evalV2.followups.length) {
+      set('exceptional_followup_recognition', {
+        applies: true,
+        suggestedChoice: null,
+        suggestedLabel: 'يحتاج مراجعة تسجيل المتابعة',
+        confidence: Math.max(...evalV2.followups.map((item) => item.confidence)),
+        status: 'review_required',
+        reason: `تم اكتشاف ${evalV2.followups.length} فرصة متابعة: ${evalV2.followups.map((item) => item.label).join('، ')}. إثبات التسجيل يحتاج بيانات النظام.`,
+        evidenceMessageIds: Array.from(new Set(evalV2.followups.flatMap((item) => item.evidenceMessageIds))).slice(0, 12),
+      });
+    }
+
+    // Cross-sell لا يتحول لنقطة إيجابية تلقائيًا بدون مراجعة مناسبة المنتج طبيًا.
+    if (evalV2.opportunities.explicitCrossSellOffers > 0) {
+      set('cross_sell_upsell', {
+        applies: true,
+        suggestedChoice: null,
+        suggestedLabel: 'تم رصد اقتراح إضافي — راجع مناسبته',
+        confidence: 75,
+        status: 'review_required',
+        reason: 'تم رصد محاولة Cross-sell/Up-sell نصيًا، لكن ملاءمة الاقتراح طبيًا وتجاريًا تحتاج مراجعة بشرية.',
+        evidenceMessageIds: evalV2.opportunities.evidenceMessageIds,
+      });
+    }
+  }
 
   const confidentCriteriaCount = criteria.filter((c) => c.status === 'confident').length;
   const needsReviewCriteriaCount = criteria.filter((c) => c.status === 'review_required').length;
