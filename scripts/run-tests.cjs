@@ -269,6 +269,7 @@ const testFiles = [
   'src/lib/__tests__/conversationReviewsReviewerDisplay.test.ts',
   'src/lib/__tests__/reviewWorkspaceAccess.test.ts',
   'src/lib/__tests__/doctorCompetitionReviewLinking.test.ts',
+  'src/lib/__tests__/whatsappGoldenCaseIbrahimAlSayyad.test.ts',
 ];
 for (const relativePath of testFiles) {
   const testFile = path.join(root, relativePath);
