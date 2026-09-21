@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ArrowLeft, CheckCircle2, ChevronDown, ChevronUp, FileText, FolderOpen, Image as ImageIcon, Loader2, Mic, RefreshCw, Search, Sparkles, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
 import {
   connectLocalWhatsAppFolder,
@@ -21,7 +22,7 @@ import { runSmartReviewPipeline, type SmartReviewPipelineResult } from '@/lib/wh
 import type { SmartStaffRole } from '@/lib/whatsappSmartReviewOwnership';
 import { resolveWhatsAppParticipantRolesV15 } from '@/lib/whatsappParticipantRoleResolverV15';
 import { groupOutboundBursts, computeStaffBurstEffort } from '@/lib/whatsappOutboundMessageBursts';
-import { verifySessionAgainstInvoices } from '@/lib/whatsappUnifiedIntelligenceV4';
+import { buildUnifiedConversationIntelligence, verifySessionAgainstInvoices } from '@/lib/whatsappUnifiedIntelligenceV4';
 import { buildSmartIntelligenceSnapshotV1 } from '@/lib/whatsappSmartIntelligenceSnapshot';
 import { resolveConversationBranchHint, type BranchHintResult } from '@/lib/whatsappConversationBranchHint';
 import { resolveStaffIdentity, type ResolvedStaffIdentity } from '@/lib/whatsappStaffIdentityResolver';
@@ -30,6 +31,10 @@ import { buildSmartConversationEvaluationV2 } from '@/lib/whatsappConversationEv
 import { extractPhoneCandidate, resolveCustomerContext } from '@/lib/whatsappCustomerContextResolver';
 import { extractCustomerHintFromExportFileName } from '@/lib/whatsappExportCustomerHint';
 import { buildWhatsAppCaseContextsV27 } from '@/lib/whatsappCaseContextV27';
+import { persistAnalyzedWhatsAppSession, attachInvoiceVerificationToQueue } from '@/lib/whatsappReviewPersistenceV4';
+import { buildWhatsAppCustomerJourneyIntelligenceV15 } from '@/lib/whatsappCustomerJourneyIntelligenceV15';
+import { syncWhatsAppCustomerJourneyV15, type JourneySessionSourceV15 } from '@/lib/whatsappCustomerJourneyPersistenceV15';
+import { syncWhatsAppCustomerCasesV22 } from '@/lib/whatsappCustomerCasePersistenceV22';
 import type { SmartQuickDecisionResult } from '@/lib/whatsappSmartReviewDecision';
 import {
   buildConversationReviewSnapshot,
@@ -163,6 +168,8 @@ function messageBody(kind: string, text: string) {
 
 export default function WhatsAppSmartFolderWatcher() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const actorName = String(user?.name || user?.username || user?.id || 'system');
   const handleRef = useRef<any>(null);
   const scanningRef = useRef(false);
   const [connected, setConnected] = useState(false);
@@ -193,6 +200,8 @@ export default function WhatsAppSmartFolderWatcher() {
     const caseContexts = buildWhatsAppCaseContextsV27(rawSessions);
     const analysisUnits = caseContexts.contexts;
     const staffRuns: StaffRun[] = [];
+    const persistedSessionSources: JourneySessionSourceV15[] = [];
+    const persistedBranchHints: string[] = [];
 
     // نفس ملف التصدير غالبًا يحتوي أكثر من Session لنفس العميل. قبل التحسين كنا بنكرر
     // customer search + purchase-history query لكل Session. الكاش هنا محلي للتحليل فقط
@@ -313,7 +322,51 @@ export default function WhatsAppSmartFolderWatcher() {
         };
       }));
 
-      return resolvedRuns.filter((item): item is StaffRun => Boolean(item));
+      const keptRuns = resolvedRuns.filter((item): item is StaffRun => Boolean(item));
+
+      // نحفظ Case واحدة كمصدر دائم بدل أن نعيد عدّ نفس الأوردر لكل دكتور شارك فيه.
+      // لو Case لها مسؤول واحد مؤكد نسند المصدر له؛ لو أكتر من مسؤول نترك staff_id فارغ
+      // ونحفظ participantRoles داخل analysis_json، ثم Stage Ownership V23 يوزع المسؤوليات.
+      try {
+        const singleResolvedStaff = keptRuns.length === 1 && keptRuns[0].staffIdentity.staffId && !keptRuns[0].staffIdentity.ambiguous
+          ? keptRuns[0].staffIdentity
+          : null;
+        const baseIntelligence = buildUnifiedConversationIntelligence(session);
+        const persistenceIntelligence = {
+          ...baseIntelligence,
+          participantRoles: roles,
+          contextOnly: false,
+          caseContext: {
+            caseId: caseContext.caseItem.id,
+            summary: caseContext.caseItem.summary,
+            rawSessionIds: caseContext.caseItem.sessionIds,
+            rawSessionCount: caseContext.caseItem.sessionIds.length,
+            staffNames: caseContext.caseItem.staffNames,
+          },
+        } as any;
+        const persisted = await persistAnalyzedWhatsAppSession(session, persistenceIntelligence, {
+          sourceFileName: file.name,
+          branch: resolvedCustomer?.branch || branchHint.value || null,
+          customerId: resolvedCustomer?.id || null,
+          customerCode: resolvedCustomer?.code || fileCustomerHint.codeHint || null,
+          customerName: resolvedCustomer?.name || fileCustomerHint.nameHint || session.customerName || null,
+          customerPhone: resolvedCustomer?.phone || customerContext.phoneCandidate || null,
+          staffId: singleResolvedStaff?.staffId || null,
+          staffName: singleResolvedStaff?.canonicalStaffName || null,
+          createdBy: actorName,
+        });
+        await attachInvoiceVerificationToQueue(persisted.id, invoiceVerification, String(user?.id || '') || null, actorName);
+        persistedSessionSources.push({
+          sessionId: session.id,
+          sourceId: persisted.id,
+          contextOnly: false,
+        });
+        if (resolvedCustomer?.branch || branchHint.value) persistedBranchHints.push(String(resolvedCustomer?.branch || branchHint.value));
+      } catch (persistError) {
+        console.warn('[whatsapp-watcher] persistent case source sync failed; local analysis preserved', persistError);
+      }
+
+      return keptRuns;
     };
 
     // التحليل يتم على مستوى الـCase لا الـraw session. كده الـhandoff بين دكتورين
@@ -329,7 +382,37 @@ export default function WhatsAppSmartFolderWatcher() {
       }
     }
 
-    return {
+    if (persistedSessionSources.length) {
+      try {
+        const mergedSessions = analysisUnits.map((context) => context.mergedSession);
+        const journeyModel = buildWhatsAppCustomerJourneyIntelligenceV15(mergedSessions);
+        const branch = persistedBranchHints.find(Boolean) || null;
+        await syncWhatsAppCustomerJourneyV15(journeyModel, {
+          sourceFileName: file.name,
+          branch,
+          createdBy: actorName,
+          sessionSources: persistedSessionSources,
+        });
+
+        const sourceByMergedSession = new Map(persistedSessionSources.map((row) => [row.sessionId, row.sourceId]));
+        const persistedCaseModel = {
+          ...caseContexts.caseEngine,
+          cases: caseContexts.contexts.map((context) => ({
+            ...context.caseItem,
+            sessionIds: [context.mergedSession.id],
+          })),
+        };
+        await syncWhatsAppCustomerCasesV22(persistedCaseModel, {
+          branch,
+          createdBy: actorName,
+          sessionSources: persistedSessionSources.filter((row) => sourceByMergedSession.has(row.sessionId)),
+        });
+      } catch (syncError) {
+        console.warn('[whatsapp-watcher] journey/case persistence failed; local capture remains available', syncError);
+      }
+    }
+
+        return {
       fileName: file.name,
       at: new Date().toLocaleString('ar-EG'),
       messages: messages.length,
@@ -338,7 +421,7 @@ export default function WhatsAppSmartFolderWatcher() {
       staffRuns,
       errors: [],
     };
-  }, []);
+  }, [actorName, user?.id]);
 
   const scanOnce = useCallback(async () => {
     if (!handleRef.current || scanningRef.current) return;
