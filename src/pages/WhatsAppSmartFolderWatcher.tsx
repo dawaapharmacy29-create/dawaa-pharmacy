@@ -199,16 +199,17 @@ export default function WhatsAppSmartFolderWatcher() {
         // اقتراح فعلي لكل بند تقييم رسمي — AI evaluates, human approves. بيتحسب على نفس
         // الجلسة المُقيَّمة (scoredSession)، وبيستخدم الميديا الناقصة من qualityGate عشان
         // يخفّض ثقة أي بند دليله رسالة ميديا مفقودة.
-        const officialReviewDraft = buildSmartOfficialReviewDraftV1(result.scope.scoredSession, session.customerName, {
-          missingMediaMessageIds: result.qualityGate?.criticalMissingMediaMessageIds || [],
-          journey: result.journeyCrossCheck,
-        });
-
         const evaluationV2 = buildSmartConversationEvaluationV2(result.scope.scoredSession, {
           invoiceVerification,
           purchaseHistory: customerContext.purchaseHistory,
           salesOpportunities: result.intelligence?.salesOpportunities || [],
           consultationCommunication: result.intelligence?.consultationCommunication || null,
+        });
+
+        const officialReviewDraft = buildSmartOfficialReviewDraftV1(result.scope.scoredSession, session.customerName, {
+          missingMediaMessageIds: result.qualityGate?.criticalMissingMediaMessageIds || [],
+          journey: result.journeyCrossCheck,
+          evaluationV2,
         });
 
         const snapshot = buildConversationReviewSnapshot({
