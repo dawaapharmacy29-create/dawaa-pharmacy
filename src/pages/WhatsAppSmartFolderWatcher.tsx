@@ -379,6 +379,8 @@ export default function WhatsAppSmartFolderWatcher() {
             rawSessionCount: caseContext.caseItem.sessionIds.length,
             staffNames: caseContext.caseItem.staffNames,
           },
+          timingV28: caseTimingV28,
+          delayAttributionV29,
         } as any;
         const persisted = await persistAnalyzedWhatsAppSession(session, persistenceIntelligence, {
           sourceFileName: file.name,
