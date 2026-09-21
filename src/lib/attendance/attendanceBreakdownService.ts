@@ -50,6 +50,9 @@ export interface AttendanceDetailSummary {
   overtime_hour_rate: number | null;
   salary_calculation_mode: string | null;
   financial_deductions_source: string;
+  resolution_drift_days: number;
+  financial_drift_days: number;
+  classification_only_drift_days: number;
   compensation_profile_complete: boolean;
 }
 
@@ -127,7 +130,7 @@ export async function getAttendanceBranches(): Promise<string[]> {
 }
 
 export async function getStaffAttendanceDetail(staffId: string, start: string, end: string): Promise<StaffAttendanceDetail> {
-  const { data, error } = await supabase.rpc('get_staff_attendance_detail_v2', {
+  const { data, error } = await supabase.rpc('get_staff_attendance_detail_v3', {
     p_staff_id: staffId,
     p_start: start,
     p_end: end,
@@ -137,7 +140,7 @@ export async function getStaffAttendanceDetail(staffId: string, start: string, e
 }
 
 export async function getBranchAttendanceRoster(branch: string, start: string, end: string): Promise<BranchRosterRow[]> {
-  const { data, error } = await supabase.rpc('get_branch_attendance_roster_v2', {
+  const { data, error } = await supabase.rpc('get_branch_attendance_roster_v3', {
     p_branch: branch,
     p_start: start,
     p_end: end,
