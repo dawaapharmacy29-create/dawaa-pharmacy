@@ -842,11 +842,34 @@ export default function WhatsAppSmartFolderWatcher() {
                             {selected.snapshot.smartIntelligence.timingV28.episodes.length} مرحلة زمنية · {selected.snapshot.smartIntelligence.timingV28.handoff.responderCount} مسؤول رد · {selected.snapshot.smartIntelligence.timingV28.handoff.handoffCount} handoff
                           </div>
                         </div>
-                        <div className="grid grid-cols-2 gap-2 text-center sm:grid-cols-4">
-                          <div className="rounded-xl bg-black/15 px-3 py-2"><div className="text-[10px] text-slate-500">أول رد</div><div className="mt-1 text-xs font-black text-cyan-100">{timingDuration(selected.snapshot.smartIntelligence.timingV28.responseSummary.firstResponseSeconds)}</div></div>
+                        <div className="grid grid-cols-2 gap-2 text-center sm:grid-cols-5">
+                          <div className="rounded-xl bg-black/15 px-3 py-2"><div className="text-[10px] text-slate-500">أول رد للرحلة</div><div className="mt-1 text-xs font-black text-cyan-100">{timingDuration(selected.snapshot.smartIntelligence.timingV28.responseSummary.firstResponseSeconds)}</div></div>
+                          <div className="rounded-xl bg-black/15 px-3 py-2"><div className="text-[10px] text-slate-500">رد المسؤول الحالي</div><div className="mt-1 text-xs font-black text-violet-100">{timingDuration(selected.snapshot.smartIntelligence.staffTimingV28?.responseSummary.firstResponseSeconds)}</div></div>
                           <div className="rounded-xl bg-black/15 px-3 py-2"><div className="text-[10px] text-slate-500">Median</div><div className="mt-1 text-xs font-black text-cyan-100">{timingDuration(selected.snapshot.smartIntelligence.timingV28.responseSummary.medianResponseSeconds)}</div></div>
                           <div className="rounded-xl bg-black/15 px-3 py-2"><div className="text-[10px] text-slate-500">≤ 5 دقائق</div><div className="mt-1 text-xs font-black text-cyan-100">{selected.snapshot.smartIntelligence.timingV28.responseSummary.within5mRate ?? '—'}{selected.snapshot.smartIntelligence.timingV28.responseSummary.within5mRate != null ? '%' : ''}</div></div>
                           <div className="rounded-xl bg-black/15 px-3 py-2"><div className="text-[10px] text-slate-500">بدون رد</div><div className="mt-1 text-xs font-black text-cyan-100">{selected.snapshot.smartIntelligence.timingV28.responseSummary.unansweredTurns}</div></div>
+                        </div>
+                      </div>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+                        <div className="rounded-xl border border-slate-800 bg-black/10 p-3">
+                          <div className="text-[10px] text-slate-500">طلب العميل</div>
+                          <div className="mt-1 text-xs font-black text-white">{selected.snapshot.smartIntelligence.timingV28.orderTimeline.requestAt ? new Date(selected.snapshot.smartIntelligence.timingV28.orderTimeline.requestAt).toLocaleString('ar-EG') : 'غير مرصود'}</div>
+                        </div>
+                        <div className="rounded-xl border border-slate-800 bg-black/10 p-3">
+                          <div className="text-[10px] text-slate-500">الطلب → أول رد</div>
+                          <div className="mt-1 text-xs font-black text-white">{timingDuration(selected.snapshot.smartIntelligence.timingV28.orderTimeline.requestToFirstResponseSeconds)}</div>
+                        </div>
+                        <div className="rounded-xl border border-slate-800 bg-black/10 p-3">
+                          <div className="text-[10px] text-slate-500">الطلب → التأكيد</div>
+                          <div className="mt-1 text-xs font-black text-white">{timingDuration(selected.snapshot.smartIntelligence.timingV28.orderTimeline.requestToConfirmationSeconds)}</div>
+                        </div>
+                        <div className="rounded-xl border border-slate-800 bg-black/10 p-3">
+                          <div className="text-[10px] text-slate-500">ظهور مشكلة/تأخير</div>
+                          <div className="mt-1 text-xs font-black text-white">{selected.snapshot.smartIntelligence.timingV28.orderTimeline.delayOrProblemAt ? new Date(selected.snapshot.smartIntelligence.timingV28.orderTimeline.delayOrProblemAt).toLocaleString('ar-EG') : 'غير مرصود'}</div>
+                        </div>
+                        <div className="rounded-xl border border-slate-800 bg-black/10 p-3">
+                          <div className="text-[10px] text-slate-500">المشكلة → Recovery</div>
+                          <div className="mt-1 text-xs font-black text-white">{timingDuration(selected.snapshot.smartIntelligence.timingV28.orderTimeline.problemToRecoverySeconds)}</div>
                         </div>
                       </div>
                     </section>
