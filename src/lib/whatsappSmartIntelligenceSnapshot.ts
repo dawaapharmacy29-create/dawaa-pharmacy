@@ -17,6 +17,7 @@ import type { BranchHintResult } from './whatsappConversationBranchHint';
 import type { WhatsAppResolvedCustomer } from './whatsappCustomerResolverV4';
 import type { BestMessageAggregate } from './whatsappMessageTemplateNormalization';
 import { WHATSAPP_OPERATIONAL_ENGINE_VERSION } from './whatsappOperationalEngineVersion';
+import type { SmartConversationEvaluationV2 } from './whatsappConversationEvaluationV2';
 
 export interface SmartIntelligenceCustomerPurchaseHistory {
   totalPurchases: number | null;
@@ -39,6 +40,8 @@ export interface SmartIntelligenceSnapshotV1 {
   branchHint: BranchHintResult | null;
   /** template-effectiveness aggregation لسه مش متربطة بصفحة الـWatcher. */
   bestMessageSignals: BestMessageAggregate[];
+  /** تقييم الرحلة الكامل V2: بيع/افتتاح/ختام/اكتمال الأوردر/الفرص/المتابعات/المحاور. */
+  evaluationV2?: SmartConversationEvaluationV2 | null;
   evidence: {
     engineVersions: Record<string, string>;
   };
@@ -52,6 +55,7 @@ export function buildSmartIntelligenceSnapshotV1(args: {
   purchaseHistory?: SmartIntelligenceCustomerPurchaseHistory | null;
   branchHint?: BranchHintResult | null;
   bestMessageSignals?: BestMessageAggregate[];
+  evaluationV2?: SmartConversationEvaluationV2 | null;
 }): SmartIntelligenceSnapshotV1 {
   return {
     version: 'smart-intelligence-snapshot-v1',
@@ -63,6 +67,7 @@ export function buildSmartIntelligenceSnapshotV1(args: {
     purchaseHistory: args.purchaseHistory ?? null,
     branchHint: args.branchHint ?? null,
     bestMessageSignals: args.bestMessageSignals ?? [],
+    evaluationV2: args.evaluationV2 ?? null,
     evidence: {
       engineVersions: {
         v6: WHATSAPP_OPERATIONAL_ENGINE_VERSION,
