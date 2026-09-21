@@ -26,6 +26,20 @@ describe('whatsappSmartConversationIntelligence', () => {
     expect(analyzeSmartConversationDeep(request).intentJourney).toContain('product_request');
   });
 
+  it('treats proactive customer-service apology for order delay as service recovery, not a product request', () => {
+    const recovery = session([
+      msg('o1','2026-09-17T10:00:00','outbound','أهلاً بحضرتك، مع حضرتك نور من خدمة عملاء صيدليات دواء. بنعتذر لحضرتك عن التأخير اللي حصل في طلب حضرتك وبنتابع مع الفريق المختص علشان يتم التوصيل في أسرع وقت ممكن.'),
+      msg('c1','2026-09-17T10:04:00','inbound','تمام شكراً لحضرتك'),
+    ]);
+    const result = analyzeSmartConversationDeep(recovery);
+    expect(result.entryOrigin).toBe('customer_service_outreach');
+    expect(result.primaryIntent).toBe('service_recovery');
+    expect(result.intentJourney).toContain('service_recovery');
+    expect(result.intentJourney).not.toContain('product_request');
+    expect(result.followup.detected).toBe(true);
+    expect(result.followup.reason).toBe('service_issue');
+  });
+
   it('tracks unavailable item alternative and customer request registration separately', () => {
     const s = session([
       msg('c1','2026-09-17T10:00:00','inbound','محتاج مونجارو 5'),
