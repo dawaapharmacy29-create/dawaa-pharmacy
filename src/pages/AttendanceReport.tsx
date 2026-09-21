@@ -369,11 +369,6 @@ export default function AttendanceReport() {
     return Array.from(set);
   }, [canAllBranches, normalizedUserBranch, dailyRows]);
 
-  const dailyTotals = useMemo(() => {
-    const statuses = dailyRows.map((r) => r.attendance_status);
-    return { staff: dailyRows.length, onTime: statuses.filter((s) => ['on_time', 'working_now'].includes(s)).length, late: statuses.filter((s) => ['late', 'very_late'].includes(s)).length, missing: statuses.filter((s) => ['absent', 'not_arrived', 'missing_checkout'].includes(s)).length, issues: statuses.filter((s) => ['schedule_conflict', 'schedule_missing', 'punch_without_valid_schedule'].includes(s)).length };
-  }, [dailyRows]);
-
   function openDecision(sub: DecisionSubTab) { setTab('decisions'); setDecisionSubTab(sub); }
 
   async function notifyManager(type: AttendanceType, finalValidation: { status: string; rejectionReason?: string | null; nearestLocation?: AttendanceLocation | null; distanceMeters?: number | null }, biometric: { verified: boolean; method: string }, pos: DevicePosition) {
