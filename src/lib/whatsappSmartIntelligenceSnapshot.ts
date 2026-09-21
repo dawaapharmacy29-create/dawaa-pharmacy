@@ -43,8 +43,10 @@ export interface SmartIntelligenceSnapshotV1 {
   bestMessageSignals: BestMessageAggregate[];
   /** تقييم الرحلة الكامل V2: بيع/افتتاح/ختام/اكتمال الأوردر/الفرص/المتابعات/المحاور. */
   evaluationV2?: SmartConversationEvaluationV2 | null;
-  /** توقيت الرحلة V28: turns، زمن الرد، handoff، ومراحل الأوردر عبر الجلسات المدمجة. */
+  /** توقيت الرحلة V28 بالكامل: turns، handoff، ومراحل الأوردر عبر الجلسات المدمجة. */
   timingV28?: ConversationTimingV28 | null;
+  /** نفس محرك التوقيت لكن على Scope الموظف الحالي فقط، لمنع تحميله تأخير موظف آخر. */
+  staffTimingV28?: ConversationTimingV28 | null;
   evidence: {
     engineVersions: Record<string, string>;
   };
@@ -60,6 +62,7 @@ export function buildSmartIntelligenceSnapshotV1(args: {
   bestMessageSignals?: BestMessageAggregate[];
   evaluationV2?: SmartConversationEvaluationV2 | null;
   timingV28?: ConversationTimingV28 | null;
+  staffTimingV28?: ConversationTimingV28 | null;
 }): SmartIntelligenceSnapshotV1 {
   return {
     version: 'smart-intelligence-snapshot-v1',
@@ -73,6 +76,7 @@ export function buildSmartIntelligenceSnapshotV1(args: {
     bestMessageSignals: args.bestMessageSignals ?? [],
     evaluationV2: args.evaluationV2 ?? null,
     timingV28: args.timingV28 ?? null,
+    staffTimingV28: args.staffTimingV28 ?? null,
     evidence: {
       engineVersions: {
         v6: WHATSAPP_OPERATIONAL_ENGINE_VERSION,
