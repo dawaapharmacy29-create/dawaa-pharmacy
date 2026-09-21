@@ -74,6 +74,7 @@ const CONFIRM_RX = /(تم تأكيد|تم التاكيد|تم التأكيد|ا�
 const PROBLEM_RX = /(متاخر|متأخر|تاخير|تأخير|ماوصلش|موصلش|لسه مجاش|مشكله|مشكلة|غلط|شكوى|شكوي)/i;
 const RECOVERY_RX = /(بنعتذر|نعتذر|متاسف|متأسف|اسفين|آسفين|بنتابع|هنتابع|هنراجع|نعوض|تعويض|رضا حضرتك)/i;
 const FOLLOWUP_RX = /(حابين نطمن|حبيت اطمن|حبيت أطمن|متابعه|متابعة|بنطمن|نطمن|هتابع|هتواصل|اول ما|أول ما)/i;
+const DELETED_MESSAGE_RX = /(you deleted this message|this message was deleted|تم حذف هذه الرسالة|لقد حذفت هذه الرسالة)/i;
 
 function firstMessage(session: WhatsAppConversationSession, rx: RegExp, direction?: 'inbound'|'outbound') {
   return session.messages.find((m) => (!direction || m.direction === direction) && rx.test(String(m.text || ''))) || null;
@@ -169,7 +170,12 @@ export function buildConversationTimingV28(
 
   const request = firstMessage(session, ORDER_RX, 'inbound');
   const firstResponseAfterRequest = request
-    ? session.messages.find((m) => m.direction === 'outbound' && m.timestamp.getTime() >= request.timestamp.getTime())
+    ? session.messages.find(
+        (m) =>
+          m.direction === 'outbound' &&
+          m.timestamp.getTime() >= request.timestamp.getTime() &&
+          !DELETED_MESSAGE_RX.test(String(m.text || ''))
+      )
     : null;
   const confirmed = firstMessage(session, CONFIRM_RX);
   const problem = firstMessage(session, PROBLEM_RX);
