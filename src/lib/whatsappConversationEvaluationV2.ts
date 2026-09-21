@@ -129,8 +129,14 @@ const normalize = (value: unknown) => String(value ?? '')
 const clamp = (n: number, min = 0, max = 100) => Math.max(min, Math.min(max, n));
 const uniq = <T,>(items: T[]) => [...new Set(items)];
 
+const DELETED_MESSAGE_RX = /(you deleted this message|this message was deleted|تم حذف هذه الرسالة|لقد حذفت هذه الرسالة)/i;
+
 function messages(session: WhatsAppConversationSession, direction?: 'inbound' | 'outbound') {
-  return session.messages.filter((m) => !direction || m.direction === direction);
+  return session.messages.filter(
+    (m) =>
+      (!direction || m.direction === direction) &&
+      !DELETED_MESSAGE_RX.test(String(m.text || ''))
+  );
 }
 function matching(session: WhatsAppConversationSession, rx: RegExp, direction?: 'inbound' | 'outbound') {
   return messages(session, direction).filter((m) => rx.test(m.text));
