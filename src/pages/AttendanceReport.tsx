@@ -33,7 +33,10 @@ import {
   type DevicePosition,
 } from '@/lib/attendanceGeoService';
 
-type Tab = 'dashboard' | 'daily' | 'resolution' | 'overtime' | 'timeoff' | 'sync' | 'report' | 'clock' | 'logs';
+type Tab = 'dashboard' | 'daily' | 'decisions' | 'report' | 'system' | 'clock';
+type DecisionSubTab = 'resolution' | 'overtime' | 'timeoff';
+type SystemSubTab = 'sync' | 'unmapped';
+type ClockSubView = 'clock' | 'logs';
 
 type DailyCommandRow = {
   staff_id: string;
@@ -115,6 +118,24 @@ function settledCount(result: PromiseSettledResult<any>): number | null {
 const MANAGER_TODAY_ROLES = new Set(['general_manager', 'executive_manager', 'branches_manager', 'branch_manager', 'shift_supervisor_morning', 'shift_supervisor_evening']);
 const SYNC_HEALTH_ROLES = new Set(['general_manager', 'executive_manager', 'branches_manager']);
 
+// Backward-compatible aliases so old deep links (?tab=resolution, ?tab=sync, ...) still land
+// on the right place after tabs were grouped under 'decisions'/'system'/'clock'.
+const TAB_ALIASES: Record<string, { tab: Tab; decisionSub?: DecisionSubTab; systemSub?: SystemSubTab; clockSub?: ClockSubView }> = {
+  dashboard: { tab: 'dashboard' },
+  daily: { tab: 'daily' },
+  today: { tab: 'daily' },
+  decisions: { tab: 'decisions' },
+  resolution: { tab: 'decisions', decisionSub: 'resolution' },
+  overtime: { tab: 'decisions', decisionSub: 'overtime' },
+  timeoff: { tab: 'decisions', decisionSub: 'timeoff' },
+  report: { tab: 'report' },
+  system: { tab: 'system' },
+  sync: { tab: 'system', systemSub: 'sync' },
+  unmapped: { tab: 'system', systemSub: 'unmapped' },
+  clock: { tab: 'clock', clockSub: 'clock' },
+  logs: { tab: 'clock', clockSub: 'logs' },
+};
+
 function cairoDate(value = new Date()) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(value);
 }
@@ -154,8 +175,6 @@ function TableSkeleton() {
   return <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-6 shadow-sm"><Skeleton className="h-5 w-48" /><div className="mt-4 space-y-3">{Array.from({ length: 7 }).map((_, i) => <Skeleton key={i} className="h-4 w-full" />)}</div></div>;
 }
 
-const VALID_TABS: Tab[] = ['dashboard', 'daily', 'resolution', 'overtime', 'timeoff', 'sync', 'report', 'clock', 'logs'];
-
 export default function AttendanceReport() {
   const { user, checkPermission, canManage } = useAuth();
   const [searchParams] = useSearchParams();
@@ -165,15 +184,23 @@ export default function AttendanceReport() {
   const canViewSyncHealth = SYNC_HEALTH_ROLES.has(user?.role || '');
   const canViewTimeOff = checkPermission('view_attendance_leaves') || canManage;
   const showDashboard = isOperationalManager || canViewTimeOff || canViewSyncHealth;
+  const showDecisions = isOperationalManager || canViewTimeOff;
+  const requestedAlias = TAB_ALIASES[searchParams.get('tab') || ''] || null;
   const [tab, setTab] = useState<Tab>(() => {
-    const requested = searchParams.get('tab') as Tab | null;
-    const allowed: Tab[] = ['clock', 'logs', 'report'];
-    if (isOperationalManager) allowed.push('dashboard', 'daily', 'resolution', 'overtime');
-    if (canViewTimeOff) allowed.push('timeoff');
-    if (canViewSyncHealth) allowed.push('sync');
-    if (requested && VALID_TABS.includes(requested) && allowed.includes(requested)) return requested;
+    const allowed: Tab[] = ['report', 'clock'];
+    if (isOperationalManager) allowed.push('dashboard', 'daily');
+    if (showDecisions) allowed.push('decisions');
+    if (canViewSyncHealth) allowed.push('system');
+    if (requestedAlias && allowed.includes(requestedAlias.tab)) return requestedAlias.tab;
     return isOperationalManager ? 'dashboard' : 'clock';
   });
+  const [decisionSubTab, setDecisionSubTab] = useState<DecisionSubTab>(() => {
+    if (requestedAlias?.decisionSub) return requestedAlias.decisionSub;
+    if (isOperationalManager) return 'resolution';
+    return 'timeoff';
+  });
+  const [systemSubTab, setSystemSubTab] = useState<SystemSubTab>(() => requestedAlias?.systemSub || 'sync');
+  const [clockSubView, setClockSubView] = useState<ClockSubView>(() => requestedAlias?.clockSub || 'clock');
   const [dailyDate, setDailyDate] = useState(cairoDate());
   const [branchFilter, setBranchFilter] = useState(() => (canAllBranches ? 'الكل' : normalizedUserBranch || 'الكل'));
   const [dailyRows, setDailyRows] = useState<DailyCommandRow[]>([]);
@@ -287,14 +314,14 @@ export default function AttendanceReport() {
     finally { setMappingBusy(false); }
   }, [loadDaily, loadSyncHealth, mappingTarget, selectedCandidate]);
 
-  useEffect(() => { if (tab === 'clock' || tab === 'logs') void loadClock(); }, [tab, loadClock]);
+  useEffect(() => { if (tab === 'clock') void loadClock(); }, [tab, loadClock]);
   useEffect(() => { if (tab === 'dashboard' || tab === 'daily') void loadDaily(); }, [tab, loadDaily]);
-  useEffect(() => { if (tab === 'sync') void loadSyncHealth(); }, [tab, loadSyncHealth]);
+  useEffect(() => { if (tab === 'system' && systemSubTab === 'unmapped') void loadSyncHealth(); }, [tab, systemSubTab, loadSyncHealth]);
   useEffect(() => {
-    if (tab !== 'sync' || !canViewSyncHealth) return;
+    if (tab !== 'system' || systemSubTab !== 'unmapped' || !canViewSyncHealth) return;
     const id = window.setInterval(() => { void loadSyncHealth(); }, 60_000); // biometric-auto-refresh
     return () => window.clearInterval(id);
-  }, [tab, canViewSyncHealth, loadSyncHealth]);
+  }, [tab, systemSubTab, canViewSyncHealth, loadSyncHealth]);
   useEffect(() => { if (tab === 'dashboard') void loadApprovalsSummary(); }, [tab, loadApprovalsSummary]);
 
   const branches = useMemo(() => {
@@ -309,6 +336,8 @@ export default function AttendanceReport() {
     const statuses = dailyRows.map((r) => r.attendance_status);
     return { staff: dailyRows.length, onTime: statuses.filter((s) => ['on_time', 'working_now'].includes(s)).length, late: statuses.filter((s) => ['late', 'very_late'].includes(s)).length, missing: statuses.filter((s) => ['absent', 'not_arrived', 'missing_checkout'].includes(s)).length, issues: statuses.filter((s) => ['schedule_conflict', 'schedule_missing', 'punch_without_valid_schedule'].includes(s)).length };
   }, [dailyRows]);
+
+  function openDecision(sub: DecisionSubTab) { setTab('decisions'); setDecisionSubTab(sub); }
 
   async function notifyManager(type: AttendanceType, finalValidation: { status: string; rejectionReason?: string | null; nearestLocation?: AttendanceLocation | null; distanceMeters?: number | null }, biometric: { verified: boolean; method: string }, pos: DevicePosition) {
     const eventName = type === 'check_in' ? 'حضور' : 'انصراف'; const nowText = new Date().toLocaleString('ar-EG', { dateStyle: 'short', timeStyle: 'short' });
@@ -330,9 +359,11 @@ export default function AttendanceReport() {
     } catch (e) { const message = e instanceof Error ? e.message : 'تعذر تسجيل الحضور'; setError(message); toast.error(message); } finally { setClocking(false); }
   }
 
+  const decisionsBadge = (approvalsSummary?.pendingResolutions || 0) + (approvalsSummary?.pendingDeductions || 0) + (approvalsSummary?.pendingOvertime || 0) + (approvalsSummary?.pendingTimeOff || 0);
+
   return (
     <div className="dawaa-text dawaa-print-surface space-y-6 print:space-y-4" dir="rtl">
-      <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-5 shadow-sm print:hidden"><div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"><div><h1 className="text-2xl font-black text-[var(--dawaa-theme-heading)]">مركز الحضور والانصراف</h1><p className="mt-1 text-sm font-bold text-[var(--dawaa-theme-muted)]">لوحة قرار يومية واحدة: مين موجود، مين متأخر أو غايب، إيه اللي محتاج قرارك، وهل المزامنة سليمة — قبل الدخول لأي تفاصيل.</p></div><Tabs value={tab} onValueChange={(v) => setTab(v as Tab)} dir="rtl"><TabsList className="h-auto flex-wrap justify-start gap-1.5 rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-1.5">{isOperationalManager && <TabsTrigger value="dashboard" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><LayoutDashboard size={16} /> اللوحة الرئيسية</TabsTrigger>}{isOperationalManager && <TabsTrigger value="daily" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><Users size={16} /> الحضور اليومي</TabsTrigger>}{isOperationalManager && <TabsTrigger value="resolution" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><ShieldAlert size={16} /> المراجعات والتسويات <TabBadge value={(approvalsSummary?.pendingResolutions || 0) + (approvalsSummary?.pendingDeductions || 0)} /></TabsTrigger>}{isOperationalManager && <TabsTrigger value="overtime" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><Timer size={16} /> الأوفر تايم <TabBadge value={approvalsSummary?.pendingOvertime} /></TabsTrigger>}{canViewTimeOff && <TabsTrigger value="timeoff" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><CalendarClock size={16} /> الأذونات والإجازات <TabBadge value={approvalsSummary?.pendingTimeOff} /></TabsTrigger>}{canViewSyncHealth && <TabsTrigger value="sync" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><Fingerprint size={16} /> البصمة والمزامنة <TabBadge value={approvalsSummary?.unmappedBiometrics} /></TabsTrigger>}<TabsTrigger value="report" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><Filter size={16} /> التقرير الشهري</TabsTrigger><TabsTrigger value="clock" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><Fingerprint size={16} /> تسجيل حضور</TabsTrigger><TabsTrigger value="logs" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><Clock size={16} /> محاولاتي</TabsTrigger></TabsList></Tabs></div></div>
+      <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-5 shadow-sm print:hidden"><div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"><div><h1 className="text-2xl font-black text-[var(--dawaa-theme-heading)]">مركز الحضور والانصراف</h1><p className="mt-1 text-sm font-bold text-[var(--dawaa-theme-muted)]">لوحة قرار يومية واحدة: مين موجود، مين متأخر أو غايب، إيه اللي محتاج قرارك، وهل المزامنة سليمة — قبل الدخول لأي تفاصيل.</p></div><Tabs value={tab} onValueChange={(v) => setTab(v as Tab)} dir="rtl"><TabsList className="h-auto flex-wrap justify-start gap-1.5 rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-1.5">{isOperationalManager && <TabsTrigger value="dashboard" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><LayoutDashboard size={16} /> الرئيسية</TabsTrigger>}{isOperationalManager && <TabsTrigger value="daily" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><Users size={16} /> اليوم</TabsTrigger>}{showDecisions && <TabsTrigger value="decisions" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><ClipboardCheck size={16} /> القرارات <TabBadge value={decisionsBadge} /></TabsTrigger>}<TabsTrigger value="report" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><Filter size={16} /> التقارير</TabsTrigger>{canViewSyncHealth && <TabsTrigger value="system" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><Fingerprint size={16} /> النظام <TabBadge value={approvalsSummary?.unmappedBiometrics} /></TabsTrigger>}<TabsTrigger value="clock" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><Clock size={16} /> حضوري</TabsTrigger></TabsList></Tabs></div></div>
       {error && <div className="rounded-xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-4 text-sm font-bold text-[var(--dawaa-status-danger-text)]">⚠️ {error}</div>}
 
       {tab === 'dashboard' && <>
@@ -350,11 +381,11 @@ export default function AttendanceReport() {
         <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm">
           <div className="mb-3 flex items-center justify-between gap-2"><h2 className="flex items-center gap-2 text-base font-black text-[var(--dawaa-theme-heading)]"><ClipboardCheck size={18} className="text-[var(--dawaa-theme-primary-strong)]" /> مطلوب مراجعتك الآن</h2></div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {isOperationalManager && <DecisionTile label="تسويات تحتاج مراجعة" hint="تأخير + بصمة ناقصة + حالات غير مكتملة (آخر 14 يوم)" value={approvalsSummary?.pendingResolutions ?? null} icon={ShieldAlert} onClick={() => setTab('resolution')} />}
-            {isOperationalManager && <DecisionTile label="خصومات حضور بانتظار اعتمادك" hint="لا تؤثر على رصيد أي موظف قبل قرارك" value={approvalsSummary?.pendingDeductions ?? null} icon={AlertTriangle} onClick={() => setTab('resolution')} />}
-            {isOperationalManager && <DecisionTile label="أوفر تايم بانتظار اعتمادك" hint="ساعات إضافية مسجلة تحتاج قرارك" value={approvalsSummary?.pendingOvertime ?? null} icon={Timer} onClick={() => setTab('overtime')} />}
-            {canViewTimeOff && <DecisionTile label="أذونات وإجازات معلّقة" hint="طلبات إذن/إجازة بانتظار قرارك" value={approvalsSummary?.pendingTimeOff ?? null} icon={CalendarClock} onClick={() => setTab('timeoff')} />}
-            {canViewSyncHealth && <DecisionTile label="أكواد بصمة بدون ربط بموظف" hint="بصماتهم لن تُحتسب حتى تربطها بموظف" value={approvalsSummary?.unmappedBiometrics ?? null} icon={Fingerprint} onClick={() => setTab('sync')} />}
+            {isOperationalManager && <DecisionTile label="تسويات تحتاج مراجعة" hint="تأخير + بصمة ناقصة + حالات غير مكتملة (آخر 14 يوم)" value={approvalsSummary?.pendingResolutions ?? null} icon={ShieldAlert} onClick={() => openDecision('resolution')} />}
+            {isOperationalManager && <DecisionTile label="خصومات حضور بانتظار اعتمادك" hint="لا تؤثر على رصيد أي موظف قبل قرارك" value={approvalsSummary?.pendingDeductions ?? null} icon={AlertTriangle} onClick={() => openDecision('resolution')} />}
+            {isOperationalManager && <DecisionTile label="أوفر تايم بانتظار اعتمادك" hint="ساعات إضافية مسجلة تحتاج قرارك" value={approvalsSummary?.pendingOvertime ?? null} icon={Timer} onClick={() => openDecision('overtime')} />}
+            {canViewTimeOff && <DecisionTile label="أذونات وإجازات معلّقة" hint="طلبات إذن/إجازة بانتظار قرارك" value={approvalsSummary?.pendingTimeOff ?? null} icon={CalendarClock} onClick={() => openDecision('timeoff')} />}
+            {canViewSyncHealth && <DecisionTile label="أكواد بصمة بدون ربط بموظف" hint="بصماتهم لن تُحتسب حتى تربطها بموظف" value={approvalsSummary?.unmappedBiometrics ?? null} icon={Fingerprint} onClick={() => { setTab('system'); setSystemSubTab('unmapped'); }} />}
           </div>
         </div>
       </>}
@@ -363,12 +394,18 @@ export default function AttendanceReport() {
         <div className="flex flex-col gap-3 rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm sm:flex-row sm:items-end"><label className="flex-1 space-y-1 text-xs font-black text-[var(--dawaa-theme-muted)]"><span>اليوم</span><input type="date" value={dailyDate} onChange={(e) => setDailyDate(e.target.value)} className="input-dark w-full" /></label><label className="flex-1 space-y-1 text-xs font-black text-[var(--dawaa-theme-muted)]"><span>الفرع</span><select value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)} className="input-dark w-full">{branches.map((b) => <option key={b}>{b}</option>)}</select></label><button onClick={() => void loadDaily()} className="btn-primary"><RefreshCw size={16} className={loadingDaily ? 'animate-spin' : ''} /> تحديث</button></div>
         {loadingDaily ? <TableSkeleton /> : dailyRows.length ? <Suspense fallback={<TableSkeleton />}><SmartDailyCommandTable rows={dailyRows} date={dailyDate} branch={effectiveBranch} /></Suspense> : <Empty text="لا توجد بيانات جدول أو بصمة لهذا اليوم في النطاق الحالي." />}
       </>}
-      {tab === 'resolution' && <Suspense fallback={<TableSkeleton />}><AttendanceResolutionCenter defaultBranch={effectiveBranch} /></Suspense>}
-      {tab === 'overtime' && <Suspense fallback={<TableSkeleton />}><OvertimeApprovalCenter defaultBranch={effectiveBranch === 'الكل' ? '' : effectiveBranch} /></Suspense>}
-      {tab === 'timeoff' && canViewTimeOff && <Suspense fallback={<TableSkeleton />}><TimeOffPanel /></Suspense>}
-      {tab === 'sync' && <Suspense fallback={<TableSkeleton />}><AttendanceSyncCommandCenter branches={branches} defaultBranch={effectiveBranch} /></Suspense>}{tab === 'sync' && <><div className="flex items-center justify-between gap-3 rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm"><div><h2 className="font-black text-[var(--dawaa-theme-heading)]">صحة مزامنة جهاز البصمة</h2><p className="text-xs font-bold text-[var(--dawaa-theme-muted)]">مراقبة مباشرة للاتصال والمزامنة والربط. يتم التحديث تلقائيًا كل دقيقة، مع الاحتفاظ بالـRaw evidence للرقابة.</p></div><button onClick={() => void loadSyncHealth()} className="btn-primary"><RefreshCw size={16} className={loadingSync ? 'animate-spin' : ''} /> تحديث</button></div>{loadingSync ? <TableSkeleton /> : syncHealth ? <SyncHealthPanel health={syncHealth} /> : <Empty text="لا توجد بيانات مزامنة متاحة." />}{!loadingSync && <BiometricMappingQueue rows={unmappedRows} target={mappingTarget} search={candidateSearch} candidates={candidates} selected={selectedCandidate} busy={mappingBusy} onOpen={(row) => { setMappingTarget(row); setCandidateSearch(row.source_name || ''); setCandidates([]); setSelectedCandidate(null); }} onClose={() => { setMappingTarget(null); setCandidateSearch(''); setCandidates([]); setSelectedCandidate(null); }} onSearchChange={setCandidateSearch} onSearch={() => void searchMappingCandidates()} onSelect={setSelectedCandidate} onAssign={() => void assignMapping()} />}</>}
-      {tab === 'clock' && <div className="grid gap-4 lg:grid-cols-3"><Panel title="بيانات الموظف" icon={Fingerprint}><Info label="الاسم" value={userName} /><Info label="الدور" value={user?.role || 'غير محدد'} /><Info label="الفرع" value={userBranch || 'غير محدد'} /></Panel><Panel title="حالة الموقع" icon={LocateFixed}>{loading ? <Skeleton className="h-24 w-full" /> : nearest ? <><Info label="أقرب موقع" value={nearest.nearestLocation?.name || 'غير محدد'} /><Info label="المسافة" value={round(nearest.distanceMeters)} /><Info label="دقة GPS" value={round(position?.accuracy)} /><div className={cn('mt-3 rounded-xl border p-3 text-sm font-black', nearest.status === 'accepted' ? 'border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] text-[var(--dawaa-status-success-text)]' : 'border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] text-[var(--dawaa-status-danger-text)]')}>{nearest.status === 'accepted' ? 'داخل النطاق ومتاح التسجيل' : nearest.rejectionReason}</div></> : <div className="text-sm font-bold text-[var(--dawaa-theme-muted)]">اضغط تحديث للحصول على الموقع قبل التسجيل.</div>}</Panel><Panel title="تسجيل سريع" icon={Clock}><Info label="آخر حضور" value={formatDateTime(lastCheckIn?.recorded_at)} /><Info label="آخر انصراف" value={formatDateTime(lastCheckOut?.recorded_at)} /><div className="mt-4 grid grid-cols-2 gap-2"><button disabled={clocking} onClick={() => void handleClock('check_in')} className="btn-primary"><LogIn size={16} /> حضور</button><button disabled={clocking} onClick={() => void handleClock('check_out')} className="btn-secondary"><LogOut size={16} /> انصراف</button></div><button onClick={() => void loadClock()} className="btn-secondary mt-2 w-full"><RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> تحديث الموقع</button></Panel></div>}
-      {tab === 'logs' && <AttendanceLogs logs={logs} loading={loading} />}
+
+      {tab === 'decisions' && <>
+        <Tabs value={decisionSubTab} onValueChange={(v) => setDecisionSubTab(v as DecisionSubTab)} dir="rtl"><TabsList className="h-auto flex-wrap justify-start gap-1.5 rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-1.5">
+          {isOperationalManager && <TabsTrigger value="resolution" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><ShieldAlert size={16} /> المراجعات والتسويات <TabBadge value={(approvalsSummary?.pendingResolutions || 0) + (approvalsSummary?.pendingDeductions || 0)} /></TabsTrigger>}
+          {isOperationalManager && <TabsTrigger value="overtime" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><Timer size={16} /> الأوفر تايم <TabBadge value={approvalsSummary?.pendingOvertime} /></TabsTrigger>}
+          {canViewTimeOff && <TabsTrigger value="timeoff" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><CalendarClock size={16} /> الأذونات والإجازات <TabBadge value={approvalsSummary?.pendingTimeOff} /></TabsTrigger>}
+        </TabsList></Tabs>
+        {decisionSubTab === 'resolution' && isOperationalManager && <Suspense fallback={<TableSkeleton />}><AttendanceResolutionCenter defaultBranch={effectiveBranch} /></Suspense>}
+        {decisionSubTab === 'overtime' && isOperationalManager && <Suspense fallback={<TableSkeleton />}><OvertimeApprovalCenter defaultBranch={effectiveBranch === 'الكل' ? '' : effectiveBranch} /></Suspense>}
+        {decisionSubTab === 'timeoff' && canViewTimeOff && <Suspense fallback={<TableSkeleton />}><TimeOffPanel /></Suspense>}
+      </>}
+
       {tab === 'report' && (
         <>
         <Suspense fallback={<div className="h-24 animate-pulse rounded-2xl bg-[var(--dawaa-theme-surface-2)]" />}><BranchRoleRatesPanel /></Suspense>
@@ -381,6 +418,28 @@ export default function AttendanceReport() {
         </Suspense>
         </>
       )}
+
+      {tab === 'system' && <>
+        <Tabs value={systemSubTab} onValueChange={(v) => setSystemSubTab(v as SystemSubTab)} dir="rtl"><TabsList className="h-auto flex-wrap justify-start gap-1.5 rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-1.5">
+          <TabsTrigger value="sync" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><Fingerprint size={16} /> المزامنة والذكاء</TabsTrigger>
+          <TabsTrigger value="unmapped" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><UserCheck size={16} /> الأكواد غير المربوطة <TabBadge value={approvalsSummary?.unmappedBiometrics} /></TabsTrigger>
+        </TabsList></Tabs>
+        {systemSubTab === 'sync' && <Suspense fallback={<TableSkeleton />}><AttendanceSyncCommandCenter branches={branches} defaultBranch={effectiveBranch} /></Suspense>}
+        {systemSubTab === 'unmapped' && <>
+          <div className="flex items-center justify-between gap-3 rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm"><div><h2 className="font-black text-[var(--dawaa-theme-heading)]">صحة مزامنة جهاز البصمة وربط الأكواد</h2><p className="text-xs font-bold text-[var(--dawaa-theme-muted)]">مراقبة مباشرة للاتصال والمزامنة، وربط أكواد البصمة غير المرتبطة بموظف. يتم التحديث تلقائيًا كل دقيقة.</p></div><button onClick={() => void loadSyncHealth()} className="btn-primary"><RefreshCw size={16} className={loadingSync ? 'animate-spin' : ''} /> تحديث</button></div>
+          {loadingSync ? <TableSkeleton /> : syncHealth ? <SyncHealthPanel health={syncHealth} /> : <Empty text="لا توجد بيانات مزامنة متاحة." />}
+          {!loadingSync && <BiometricMappingQueue rows={unmappedRows} target={mappingTarget} search={candidateSearch} candidates={candidates} selected={selectedCandidate} busy={mappingBusy} onOpen={(row) => { setMappingTarget(row); setCandidateSearch(row.source_name || ''); setCandidates([]); setSelectedCandidate(null); }} onClose={() => { setMappingTarget(null); setCandidateSearch(''); setCandidates([]); setSelectedCandidate(null); }} onSearchChange={setCandidateSearch} onSearch={() => void searchMappingCandidates()} onSelect={setSelectedCandidate} onAssign={() => void assignMapping()} />}
+        </>}
+      </>}
+
+      {tab === 'clock' && <>
+        <div className="flex items-center gap-1 rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-1 w-fit">
+          <button onClick={() => setClockSubView('clock')} className={cn('rounded-lg px-3 py-1.5 text-xs font-black', clockSubView === 'clock' ? 'bg-[var(--dawaa-theme-primary)] text-white' : 'text-[var(--dawaa-theme-muted)]')}>تسجيل حضور</button>
+          <button onClick={() => setClockSubView('logs')} className={cn('rounded-lg px-3 py-1.5 text-xs font-black', clockSubView === 'logs' ? 'bg-[var(--dawaa-theme-primary)] text-white' : 'text-[var(--dawaa-theme-muted)]')}>محاولاتي</button>
+        </div>
+        {clockSubView === 'clock' && <div className="grid gap-4 lg:grid-cols-3"><Panel title="بيانات الموظف" icon={Fingerprint}><Info label="الاسم" value={userName} /><Info label="الدور" value={user?.role || 'غير محدد'} /><Info label="الفرع" value={userBranch || 'غير محدد'} /></Panel><Panel title="حالة الموقع" icon={LocateFixed}>{loading ? <Skeleton className="h-24 w-full" /> : nearest ? <><Info label="أقرب موقع" value={nearest.nearestLocation?.name || 'غير محدد'} /><Info label="المسافة" value={round(nearest.distanceMeters)} /><Info label="دقة GPS" value={round(position?.accuracy)} /><div className={cn('mt-3 rounded-xl border p-3 text-sm font-black', nearest.status === 'accepted' ? 'border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] text-[var(--dawaa-status-success-text)]' : 'border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] text-[var(--dawaa-status-danger-text)]')}>{nearest.status === 'accepted' ? 'داخل النطاق ومتاح التسجيل' : nearest.rejectionReason}</div></> : <div className="text-sm font-bold text-[var(--dawaa-theme-muted)]">اضغط تحديث للحصول على الموقع قبل التسجيل.</div>}</Panel><Panel title="تسجيل سريع" icon={Clock}><Info label="آخر حضور" value={formatDateTime(lastCheckIn?.recorded_at)} /><Info label="آخر انصراف" value={formatDateTime(lastCheckOut?.recorded_at)} /><div className="mt-4 grid grid-cols-2 gap-2"><button disabled={clocking} onClick={() => void handleClock('check_in')} className="btn-primary"><LogIn size={16} /> حضور</button><button disabled={clocking} onClick={() => void handleClock('check_out')} className="btn-secondary"><LogOut size={16} /> انصراف</button></div><button onClick={() => void loadClock()} className="btn-secondary mt-2 w-full"><RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> تحديث الموقع</button></Panel></div>}
+        {clockSubView === 'logs' && <AttendanceLogs logs={logs} loading={loading} />}
+      </>}
     </div>
   );
 }
