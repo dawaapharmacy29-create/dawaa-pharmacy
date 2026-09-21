@@ -272,6 +272,7 @@ export default function WhatsAppSmartFolderWatcher() {
           missingMediaMessageIds: result.qualityGate?.criticalMissingMediaMessageIds || [],
           journey: result.journeyCrossCheck,
           evaluationV2,
+          timingV28,
         });
 
         const snapshot = buildConversationReviewSnapshot({
