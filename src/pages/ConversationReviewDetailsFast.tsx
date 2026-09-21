@@ -6,6 +6,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { normalizeRole } from '@/lib/core/permissionSystem';
 import { REVIEW_CRITERIA, reviewerDisplayName } from '@/lib/conversationReviews';
 import { toNumber } from '@/lib/utils';
+import ConversationReviewTranscriptCard from '@/components/reviews/ConversationReviewTranscriptCard';
 
 type ReviewRow = Record<string, any>;
 
@@ -159,6 +160,8 @@ export default function ConversationReviewDetailsFast() {
       </section>
 
       {severeEntries.length > 0 && <section className="dawaa-card p-4 border border-red-500/30"><div className="font-black text-red-200 mb-2">الأخطاء الجسيمة</div><div className="flex flex-wrap gap-2">{severeEntries.map(([key]) => <span key={key} className="rounded-lg border border-red-400/25 bg-red-500/10 px-3 py-2 text-sm text-red-100">{key}</span>)}</div></section>}
+
+      <ConversationReviewTranscriptCard reviewRow={row} defaultOpen={false} />
     </div>
   );
 }

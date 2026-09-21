@@ -25,6 +25,14 @@ function resolveSnapshot(props: Props): ConversationReviewSnapshot | null {
   return parseConversationReviewSnapshot(props.snapshot);
 }
 
+const delayResponsibilityLabel: Record<string, string> = {
+  staff_response: 'زمن رد',
+  pharmacy_operations: 'تجهيز/تنفيذ داخلي',
+  delivery: 'التوصيل/المندوب',
+  shared_handoff: 'تسليم المسؤولية بين أكثر من موظف',
+  customer_or_unknown: 'بيانات/تأكيد من العميل',
+};
+
 export default function ConversationReviewTranscriptCard(props: Props) {
   const snapshot = useMemo(() => resolveSnapshot(props), [props.snapshot, props.reviewRow]);
   const [showContext, setShowContext] = useState(true);
@@ -87,6 +95,23 @@ export default function ConversationReviewTranscriptCard(props: Props) {
         <div className="font-black text-amber-200">لماذا تم توجيه المراجعة؟</div>
         {snapshot.decision.reasons.map((reason) => <div key={reason}>• {reason}</div>)}
       </div> : null}
+
+      {snapshot.smartIntelligence?.delayAttributionV29?.detected ? (
+        <div className="mt-4 rounded-xl border border-orange-700/30 bg-orange-950/15 p-3 text-xs leading-6 text-orange-100/85">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="font-black text-orange-200">سبب التأخير/المشكلة (لا يُحتسب تلقائيًا على أي موظف)</div>
+            <span>ثقة {snapshot.smartIntelligence.delayAttributionV29.confidence}%</span>
+          </div>
+          <div className="mt-1">{snapshot.smartIntelligence.delayAttributionV29.label} — {delayResponsibilityLabel[snapshot.smartIntelligence.delayAttributionV29.caseResponsibility] || snapshot.smartIntelligence.delayAttributionV29.caseResponsibility}</div>
+          {snapshot.smartIntelligence.delayAttributionV29.responsibleStaffName ? (
+            <div className="mt-1">المسؤول المرصود: <b>{snapshot.smartIntelligence.delayAttributionV29.responsibleStaffName}</b>{snapshot.smartIntelligence.delayAttributionV29.responsibleRole ? ` — ${snapshot.smartIntelligence.delayAttributionV29.responsibleRole}` : ''}</div>
+          ) : null}
+          {snapshot.smartIntelligence.delayAttributionV29.reasons.map((reason) => <div key={reason}>• {reason}</div>)}
+          {snapshot.smartIntelligence.delayAttributionV29.trainingFocus ? (
+            <div className="mt-2 font-bold">توصية تدريبية: {snapshot.smartIntelligence.delayAttributionV29.trainingFocus}</div>
+          ) : null}
+        </div>
+      ) : null}
     </section>
   );
 }
