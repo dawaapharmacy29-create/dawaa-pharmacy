@@ -148,10 +148,14 @@ function lastMeaningful(session: WhatsAppConversationSession) {
   return session.messages.filter((m) => m.kind !== 'system' && m.text.trim()).slice(-1)[0] || null;
 }
 
-const GREETING_RX = /(السلام عليكم|مساء الخير|صباح الخير|اهلا|أهلا|نورت)/i;
+// لازم يشمل رد التحية الطبيعي ("صباح النور"/"مساء النور") مش بس بادئها ("صباح الخير")،
+// وإلا رد رسمي كامل بيتحاسب "من غير تحية" لمجرد إنه رد على العميل بدل ما يبدأ هو.
+const GREETING_RX = /(السلام عليكم|مساء الخير|مساء النور|صباح الخير|صباح النور|اهلا|أهلا|نورت)/i;
 const PHARMACY_RX = /(صيدليات\s+دواء|صيدليه\s+دواء|صيدلية\s+دواء)/i;
 const INTRO_RX = /(مع حضرتك|معاك|د\.?\s*[^\s،,.]+|دكتور|دكتوره|دكتورة)/i;
-const HELP_RX = /(تحت امر|تحت أمرك|اقدر اساعد|أقدر أساعد|خدمتك|نساعد حضرتك)/i;
+// "تحت امر" و"تحت أمرك" بس كانوا مكتوبين بإملاء واحد لكل حالة - "تحت أمر حضرتك"
+// (الإملاء الأصح والأكثر شيوعًا، بالهمزة، وحضرتك منفصلة) ما كانش بيتغطى خالص.
+const HELP_RX = /(تحت\s+[اأ]مرك?|اقدر اساعد|أقدر أساعد|خدمتك|نساعد حضرتك)/i;
 const SALE_INTENT_RX = /(عايز|عاوز|محتاج|متوفر|موجود|بكام|السعر|سعر|ابعته|ابعت|هات|خلاص ماشي|تمام ابعت)/i;
 const ACCEPT_RX = /(تمام|موافق|ماشي|خلاص|ابعت|ابعته|هات|اوكي|أوكي)/i;
 const DECLINE_RX = /(لا شكرا|مش عايز|مش عاوز|غالي|مش مناسب|خلاص مش محتاج|مش هطلب)/i;
@@ -352,7 +356,10 @@ function saleOutcome(session: WhatsAppConversationSession, invoice: UnifiedInvoi
   if (invoice.status === 'probable') return { outcome: 'probable_sale' as const, label: 'بيع مرجح — يحتاج مراجعة', confidence: Math.round(invoice.verificationConfidence * 100), reason: invoice.reason, evidenceMessageIds: evidence };
   if (declined) return { outcome: 'customer_declined' as const, label: 'العميل تراجع/رفض', confidence: 88, reason: 'تم رصد رفض أو تراجع واضح من العميل.', evidenceMessageIds: evidence };
   if (confirmed) return { outcome: 'order_confirmed' as const, label: 'طلب مؤكد من الشات — لم تؤكد الفاتورة', confidence: invoice.status === 'not_found' ? 82 : 75, reason: 'يوجد تأكيد تنفيذ/طلب في المحادثة لكن لا توجد فاتورة مؤكدة.', evidenceMessageIds: evidence };
-  if (accepted) return { outcome: 'customer_accepted' as const, label: 'موافقة مبدئية من العميل', confidence: 72, reason: 'العميل أبدى موافقة لكن لا يوجد دليل كافٍ على إتمام التنفيذ.', evidenceMessageIds: evidence };
+  // "تمام"/"أوكي" وحدها معناها عام جدًا (ممكن تكون رد على اعتذار أو متابعة، مش بيع) -
+  // ميتحسبش قبول بيع إلا لو فيه إشارة احتياج/شراء فعلية في المحادثة (saleIntent) بتثبت
+  // إن في رحلة بيع أصلًا، وإلا محادثة استعادة خدمة هتتصنف غلط كـ"بيع محتمل".
+  if (accepted && saleIntent) return { outcome: 'customer_accepted' as const, label: 'موافقة مبدئية من العميل', confidence: 72, reason: 'العميل أبدى موافقة لكن لا يوجد دليل كافٍ على إتمام التنفيذ.', evidenceMessageIds: evidence };
   if (stockout && saleIntent) return { outcome: 'stockout_blocked' as const, label: 'فرصة بيع توقفت بسبب عدم التوفر', confidence: 80, reason: 'يوجد طلب بيع مع إشارة واضحة لعدم التوفر.', evidenceMessageIds: evidence };
   if (saleIntent) return { outcome: 'opportunity_detected' as const, label: 'فرصة بيع مفتوحة', confidence: 70, reason: 'يوجد احتياج/نية شراء لكن لم يظهر إغلاق واضح.', evidenceMessageIds: evidence };
   return { outcome: 'not_applicable' as const, label: 'لا توجد رحلة بيع مثبتة', confidence: 75, reason: 'لم يظهر احتياج شرائي كافٍ للحكم على البيع.', evidenceMessageIds: evidence };
