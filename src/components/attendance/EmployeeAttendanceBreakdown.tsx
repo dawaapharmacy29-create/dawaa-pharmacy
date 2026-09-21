@@ -13,7 +13,7 @@ import {
   type StaffAttendanceDetail,
 } from '@/lib/attendance/attendanceBreakdownService';
 import { getAnnualLeaveBalanceV1, getPermissionPolicyStatusV2, type AnnualLeaveBalanceV1, type PermissionPolicyStatusV2 } from '@/lib/timeOffService';
-import { addMonths, cairoToday, computeRange, formatClock, type PeriodMode, rangeLabel, shiftAnchor, toneClasses } from '@/lib/attendance/period';
+import { cairoToday, computeRange, formatClock, type PeriodMode, rangeLabel, shiftAnchor, toneClasses } from '@/lib/attendance/period';
 import { Skeleton } from '@/components/ui/skeleton';
 
 function StatCard({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: string }) {
@@ -109,7 +109,6 @@ export default function EmployeeAttendanceBreakdown({ branches, defaultBranch, c
   }, [selectedStaffId, start, end]);
 
   const summary = detail?.summary;
-  const money = (v: number | null | undefined) => (v == null ? 'غير محدد' : `${v.toLocaleString('ar-EG')} ج.م`);
 
   return (
     <div className="grid gap-4">
@@ -165,8 +164,10 @@ export default function EmployeeAttendanceBreakdown({ branches, defaultBranch, c
                   <p className="truncate text-[11px] font-bold text-[var(--dawaa-theme-muted)]">{r.role || '—'}{formatTenure(r.tenure_days) ? ` · ${formatTenure(r.tenure_days)}` : ''}</p>
                   <div className="mt-1 flex flex-wrap gap-1">
                     {r.total_late_minutes > 0 && <span className="rounded-full border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-1.5 py-0.5 text-[10px] font-black text-[var(--dawaa-status-warning-text)]">إجمالي تأخير {r.total_late_minutes} د{r.late_days > 0 ? ` (${r.late_days} يوم، بمعدل ${Math.round(r.total_late_minutes / r.late_days)} د/يوم)` : ''}</span>}
-                    {r.absence_review_days > 0 && <span className="rounded-full border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] px-1.5 py-0.5 text-[10px] font-black text-[var(--dawaa-status-danger-text)]">غياب {r.absence_review_days}</span>}
-                    {r.needs_review_days > 0 && <span className="rounded-full border border-[var(--dawaa-theme-border)] px-1.5 py-0.5 text-[10px] font-black text-[var(--dawaa-theme-muted)]">مراجعة {r.needs_review_days}</span>}
+                    {r.actual_worked_days > 0 && <span className="rounded-full border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] px-1.5 py-0.5 text-[10px] font-black text-[var(--dawaa-status-success-text)]">حضور فعلي {r.actual_worked_days}</span>}
+                    {r.absence_review_days > 0 && <span className="rounded-full border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] px-1.5 py-0.5 text-[10px] font-black text-[var(--dawaa-status-danger-text)]">غياب للمراجعة {r.absence_review_days}</span>}
+                    {r.needs_review_days > 0 && <span className="rounded-full border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-1.5 py-0.5 text-[10px] font-black text-[var(--dawaa-status-warning-text)]">قرار مدير {r.needs_review_days}</span>}
+                    {r.system_review_days > 0 && <span className="rounded-full border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] px-1.5 py-0.5 text-[10px] font-black text-[var(--dawaa-status-info-text)]">مشكلة نظام {r.system_review_days}</span>}
                   </div>
                 </button>
               ))}
@@ -192,37 +193,32 @@ export default function EmployeeAttendanceBreakdown({ branches, defaultBranch, c
                   </div>
                 </div>
 
-                {summary && !summary.compensation_profile_complete && (
-                  <div className="mt-3 flex items-center gap-2 rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-2 text-xs font-black text-[var(--dawaa-status-warning-text)]">
-                    <AlertTriangle size={14} /> بيانات المرتب (سعر الساعة) غير مسجلة لهذا الموظف — الخصومات المالية لن تظهر حتى تُستكمل
-                  </div>
-                )}
-
                 {summary && (
-                  <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-                    <StatCard label="أيام العمل" value={String(summary.period_days - summary.off_days - summary.approved_leave_days)} />
-                    <StatCard label="أيام التأخير" value={String(summary.late_days)} sub={`فعلي ${summary.total_late_minutes} د · محتسب بعد السياسة ${summary.late_penalty_minutes} د`} />
-                    <StatCard label="غياب/مراجعة" value={String(summary.absence_review_days + summary.needs_review_days)} />
-                    <StatCard label="ساعات العمل" value={summary.total_worked_hours.toFixed(1)} />
-                    <StatCard
-                      label="أوفر تايم معتمد"
-                      value={summary.total_overtime_hours_approved.toFixed(1)}
-                      sub={summary.overtime_amount_approved != null ? money(summary.overtime_amount_approved) : undefined}
-                    />
-                    <StatCard
-                      label="أوفر تايم بانتظار الموافقة"
-                      value={summary.total_overtime_hours_pending.toFixed(1)}
-                      sub={summary.overtime_amount_pending_estimate != null ? `تقديريًا ${money(summary.overtime_amount_pending_estimate)}` : undefined}
-                    />
-                  </div>
-                )}
-
-                {summary?.compensation_profile_complete && (
-                  <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
-                    <StatCard label="خصم التأخير" value={money(summary.late_deduction_amount)} />
-                    <StatCard label="خصم المغادرة المبكرة" value={money(summary.early_leave_deduction_amount)} />
-                    <StatCard label="خصم الغياب" value={money(summary.absence_deduction_amount)} />
-                  </div>
+                  <>
+                    {summary.cycle_open && (
+                      <div className="mt-3 flex items-center gap-2 rounded-xl border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] p-2 text-xs font-black text-[var(--dawaa-status-info-text)]">
+                        <CalendarDays size={14} />
+                        الدورة مفتوحة — الحساب حتى {summary.effective_end || 'اليوم'} فقط، وتم استبعاد {summary.future_days_excluded} أيام مستقبلية.
+                      </div>
+                    )}
+                    <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+                      <StatCard label="أيام حضور فعلية" value={String(summary.actual_worked_days)} sub={`من ${summary.scheduled_workdays} يوم مطلوب حتى اليوم`} />
+                      <StatCard label="أيام التأخير المعتمدة" value={String(summary.late_days)} sub={`${summary.total_late_minutes} دقيقة فعلية — بدون حساب جزاء هنا`} />
+                      <StatCard label="أيام معلّقة للمراجعة" value={String(summary.pending_review_days)} sub={`غياب ${summary.absence_review_days} · بصمة ناقصة ${summary.missing_punch_days}`} />
+                      <StatCard label="ساعات فعلية معتمدة" value={summary.total_worked_hours.toFixed(1)} sub="هي فقط التي تدخل حقيقة الحضور" />
+                      <StatCard label="أوفر تايم معتمد" value={summary.total_overtime_hours_approved.toFixed(1)} />
+                      <StatCard label="أوفر تايم بانتظار الموافقة" value={summary.total_overtime_hours_pending.toFixed(1)} />
+                    </div>
+                    <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                      <StatCard label="إجازات أسبوعية" value={String(summary.off_days)} />
+                      <StatCard label="إجازات معتمدة" value={String(summary.approved_leave_days)} />
+                      <StatCard label="ساعات معلقة" value={summary.pending_worked_hours.toFixed(1)} sub="لا تدخل المرتب قبل الحسم" />
+                      <StatCard label="الفترة المحسوبة" value={String(summary.period_days)} sub={summary.effective_end ? `حتى ${summary.effective_end}` : undefined} />
+                    </div>
+                    <div className="mt-2 rounded-xl border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] p-2 text-xs font-bold text-[var(--dawaa-status-info-text)]">
+                      هذا تقرير حقيقة الحضور فقط. أي خصم مالي أو جزاء يُحسب ويُعتمد من محرك المرتبات، وليس من هذه الشاشة.
+                    </div>
+                  </>
                 )}
 
                 <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -255,6 +251,7 @@ export default function EmployeeAttendanceBreakdown({ branches, defaultBranch, c
                       <th className="p-3">التاريخ</th>
                       <th className="p-3">اليوم</th>
                       <th className="p-3">الحالة</th>
+                      <th className="p-3">الاعتماد</th>
                       <th className="p-3">حضور</th>
                       <th className="p-3">انصراف</th>
                       <th className="p-3">تأخير</th>
@@ -274,6 +271,13 @@ export default function EmployeeAttendanceBreakdown({ branches, defaultBranch, c
                           </span>
                           {d.time_off_kind && <span className="mr-1 text-[10px] font-bold text-[var(--dawaa-theme-muted)]">({d.time_off_kind})</span>}
                         </td>
+                        <td className="p-3">
+                          {d.approval_state === 'approved'
+                            ? <span className="rounded-full border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] px-2 py-0.5 text-[10px] font-black text-[var(--dawaa-status-success-text)]">معتمد</span>
+                            : d.approval_state === 'pending_review'
+                              ? <span className="rounded-full border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-2 py-0.5 text-[10px] font-black text-[var(--dawaa-status-warning-text)]">معلّق</span>
+                              : <span className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">غير مكوّن</span>}
+                        </td>
                         <td className="p-3">{formatClock(d.first_in)}</td>
                         <td className="p-3">{formatClock(d.last_out)}</td>
                         <td className="p-3">
@@ -286,7 +290,10 @@ export default function EmployeeAttendanceBreakdown({ branches, defaultBranch, c
                           ) : '—'}
                         </td>
                         <td className="p-3">{Number(d.early_leave_minutes) > 0 ? `${d.early_leave_minutes} د` : '—'}</td>
-                        <td className="p-3">{d.candidate_hours != null ? Number(d.candidate_hours).toFixed(1) : '—'}</td>
+                        <td className="p-3">
+                          {d.candidate_hours != null ? Number(d.candidate_hours).toFixed(1) : '—'}
+                          {d.approval_state === 'pending_review' && d.candidate_hours != null && <span className="mr-1 text-[9px] font-black text-[var(--dawaa-status-warning-text)]">(معلقة)</span>}
+                        </td>
                         <td className="p-3">
                           {d.overtime_hours > 0 ? (
                             <span className="flex items-center gap-1">
@@ -300,7 +307,7 @@ export default function EmployeeAttendanceBreakdown({ branches, defaultBranch, c
                       </tr>
                     ))}
                     {!detail.days.length && (
-                      <tr><td colSpan={9} className="p-6 text-center text-xs font-bold text-[var(--dawaa-theme-muted)]">لا توجد بيانات لهذه الفترة</td></tr>
+                      <tr><td colSpan={10} className="p-6 text-center text-xs font-bold text-[var(--dawaa-theme-muted)]">لا توجد بيانات لهذه الفترة</td></tr>
                     )}
                   </tbody>
                 </table>

@@ -18,30 +18,38 @@ export interface AttendanceDayRow {
   time_off_kind: string | null;
   permission_attached: boolean | null;
   reason: string | null;
+  approval_state: 'approved' | 'pending_review' | 'not_materialized' | string;
+  payroll_eligible_hours: string | number | null;
+  data_source: 'approved_snapshot' | 'pending_snapshot' | 'schedule_only' | string;
 }
 
 export interface AttendanceDetailSummary {
+  requested_start: string;
+  requested_end: string;
+  effective_start: string;
+  effective_end: string | null;
+  cycle_open: boolean;
+  future_days_excluded: number;
   period_days: number;
+  scheduled_workdays: number;
+  actual_worked_days: number;
   off_days: number;
   approved_leave_days: number;
-  late_days: number;
+  pending_review_days: number;
   absence_review_days: number;
-  needs_review_days: number;
+  missing_punch_days: number;
+  late_days: number;
   total_late_minutes: number;
-  late_penalty_minutes: number;
   total_early_leave_minutes: number;
   total_worked_hours: number;
-  total_overtime_hours_worked: number;
+  pending_worked_hours: number;
   total_overtime_hours_approved: number;
   total_overtime_hours_pending: number;
   hourly_rate: number | null;
+  true_hourly_rate: number | null;
   overtime_hour_rate: number | null;
-  monthly_base_salary: number | null;
-  late_deduction_amount: number | null;
-  early_leave_deduction_amount: number | null;
-  absence_deduction_amount: number | null;
-  overtime_amount_approved: number | null;
-  overtime_amount_pending_estimate: number | null;
+  salary_calculation_mode: string | null;
+  financial_deductions_source: string;
   compensation_profile_complete: boolean;
 }
 
@@ -102,6 +110,8 @@ export interface BranchRosterRow {
   late_days: number;
   absence_review_days: number;
   needs_review_days: number;
+  system_review_days: number;
+  actual_worked_days: number;
   total_worked_hours: number;
   total_overtime_hours: number;
   risk_level: 'none' | 'watch' | 'urgent';
@@ -117,7 +127,7 @@ export async function getAttendanceBranches(): Promise<string[]> {
 }
 
 export async function getStaffAttendanceDetail(staffId: string, start: string, end: string): Promise<StaffAttendanceDetail> {
-  const { data, error } = await supabase.rpc('get_staff_attendance_detail_v1', {
+  const { data, error } = await supabase.rpc('get_staff_attendance_detail_v2', {
     p_staff_id: staffId,
     p_start: start,
     p_end: end,
@@ -127,7 +137,7 @@ export async function getStaffAttendanceDetail(staffId: string, start: string, e
 }
 
 export async function getBranchAttendanceRoster(branch: string, start: string, end: string): Promise<BranchRosterRow[]> {
-  const { data, error } = await supabase.rpc('get_branch_attendance_roster_v1', {
+  const { data, error } = await supabase.rpc('get_branch_attendance_roster_v2', {
     p_branch: branch,
     p_start: start,
     p_end: end,
