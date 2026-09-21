@@ -31,6 +31,8 @@ import { buildSmartConversationEvaluationV2 } from '@/lib/whatsappConversationEv
 import { extractPhoneCandidate, resolveCustomerContext } from '@/lib/whatsappCustomerContextResolver';
 import { extractCustomerHintFromExportFileName } from '@/lib/whatsappExportCustomerHint';
 import { buildWhatsAppCaseContextsV27 } from '@/lib/whatsappCaseContextV27';
+import { buildConversationTimingV28 } from '@/lib/whatsappConversationTimingV28';
+import { syncWhatsAppResponseTurnsV18 } from '@/lib/whatsappResponseTurnsV18';
 import { persistAnalyzedWhatsAppSession, attachInvoiceVerificationToQueue } from '@/lib/whatsappReviewPersistenceV4';
 import { buildWhatsAppCustomerJourneyIntelligenceV15 } from '@/lib/whatsappCustomerJourneyIntelligenceV15';
 import { syncWhatsAppCustomerJourneyV15, type JourneySessionSourceV15 } from '@/lib/whatsappCustomerJourneyPersistenceV15';
@@ -242,6 +244,8 @@ export default function WhatsAppSmartFolderWatcher() {
         branch: resolvedCustomer?.branch || branchHint.value,
       });
 
+      const timingV28 = buildConversationTimingV28(session, roles, invoiceVerification);
+
       // الموظفون داخل نفس Session مستقلون بعد تجهيز سياق الجلسة، فبدل N awaits متتالية
       // بنحل هويتهم ونبني تقييماتهم بالتوازي. ده يسرّع handoff sessions بوضوح.
       const resolvedRuns = await Promise.all(base.staffSummaries.map(async (staff): Promise<StaffRun | null> => {
@@ -291,6 +295,7 @@ export default function WhatsAppSmartFolderWatcher() {
             customer: customerContext.resolution,
             purchaseHistory: customerContext.purchaseHistory,
             evaluationV2,
+            timingV28,
           }),
         });
 
@@ -356,6 +361,15 @@ export default function WhatsAppSmartFolderWatcher() {
           createdBy: actorName,
         });
         await attachInvoiceVerificationToQueue(persisted.id, invoiceVerification, String(user?.id || '') || null, actorName);
+        try {
+          await syncWhatsAppResponseTurnsV18(session, {
+            sourceId: persisted.id,
+            participantRoles: roles,
+            contextOnly: false,
+          });
+        } catch (timingPersistError) {
+          console.warn('[whatsapp-watcher] response timing sync failed; source preserved', timingPersistError);
+        }
         persistedSessionSources.push({
           sessionId: session.id,
           sourceId: persisted.id,
