@@ -8,6 +8,9 @@ import { buildEvaluationConversationV31 } from '@/lib/whatsappEvaluationConversa
 import { applySmartReviewMessageScope } from '@/lib/whatsappSmartReviewScope';
 import { buildSmartOwnershipTimeline } from '@/lib/whatsappSmartReviewOwnership';
 import { buildSmartConversationEvaluationV2 } from '@/lib/whatsappConversationEvaluationV2';
+import { buildConversationUnderstandingV32 } from '@/lib/whatsappConversationUnderstandingV32';
+import { evaluateResponseSpeedV32 } from '@/lib/whatsappResponseSpeedEvidenceV32';
+import { evaluateUnderstandingV32 } from '@/lib/whatsappUnderstandingEvidenceV32';
 
 // Golden Case: إبراهيم الصياد - محادثة حقيقية (whatsapp_review_sources id
 // ace3b141-8c66-4bed-80f9-ee4eda07dc5a، فرع شكري، فاتورة حقيقية رقم 72981 بقيمة
@@ -212,5 +215,22 @@ describe('Golden Case: إبراهيم الصياد (real conversation, whatsapp_
     }
     // مرجع فقط عشان delay يفضل مستخدم في أي تحسين مستقبلي بدون تحذير lint
     expect(delay.detected).toBe(true);
+  });
+
+  it('V32 Shadow Mode: never mistakes the opening greeting ("السلام عليكم") for the actual customer request', () => {
+    const merged = buildIbrahimCase().contexts[0].mergedSession;
+    const understanding = buildConversationUnderstandingV32(merged);
+
+    const responseSpeed = evaluateResponseSpeedV32({ understanding });
+    expect(responseSpeed.scoreBand).toBe('within_5');
+    expect(responseSpeed.pointsEarned).toBe(10);
+
+    const comprehension = evaluateUnderstandingV32({ understanding });
+    const needClarity = comprehension.findings.find((f) => f.key === 'need_clarity');
+    // البند الحقيقي هو "محتاجه واحد من دا" (طلب فعلي) - مش "السلام عليكم" (تحية بلا طلب).
+    expect(needClarity?.fact).toContain('محتاجه واحد من دا');
+    expect(needClarity?.fact).not.toContain('السلام عليكم');
+    expect(comprehension.scoreBand).toBe('strong');
+    expect(comprehension.pointsEarned).toBe(10);
   });
 });
