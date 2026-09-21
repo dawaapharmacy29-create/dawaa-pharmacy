@@ -1040,15 +1040,20 @@ export default function WhatsAppSmartFolderWatcher() {
               {detailTab === 'conversation' ? (
                 <section className="overflow-hidden rounded-2xl border border-slate-800">
                   <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 bg-slate-950/35 p-3">
-                    <div className="text-sm font-black text-white">المحادثة والأدلة</div>
+                    <div>
+                      <div className="text-sm font-black text-white">المحادثة والأدلة</div>
+                      <div className="mt-0.5 text-[10px] text-slate-500">
+                        الافتراضي يعرض فقط الرسائل اللازمة لتقييم المسؤول الحالي؛ الرحلة الكاملة متاحة للمراجعة عند الحاجة.
+                      </div>
+                    </div>
                     <div className="flex flex-wrap items-center gap-2">
                       {selected.snapshot.conversationFocusV30 ? (
                         <div className="inline-flex rounded-xl border border-violet-800/50 bg-violet-950/20 p-1 text-[11px] font-black">
                           <button type="button" onClick={() => setConversationFocusMode('focused')} className={`rounded-lg px-3 py-1.5 ${conversationFocusMode === 'focused' ? 'bg-violet-500 text-white' : 'text-slate-300'}`}>
-                            المهم ({selected.snapshot.conversationFocusV30.primaryCount + selected.snapshot.conversationFocusV30.supportingCount})
+                            المحادثة المقيمة ({selected.snapshot.messages.length})
                           </button>
                           <button type="button" onClick={() => setConversationFocusMode('full')} className={`rounded-lg px-3 py-1.5 ${conversationFocusMode === 'full' ? 'bg-slate-700 text-white' : 'text-slate-300'}`}>
-                            كامل ({selected.snapshot.conversationFocusV30.messageCount})
+                            الرحلة كاملة ({selected.snapshot.fullCaseMessages?.length || selected.snapshot.conversationFocusV30.messageCount})
                           </button>
                         </div>
                       ) : null}
@@ -1061,17 +1066,17 @@ export default function WhatsAppSmartFolderWatcher() {
                   {conversationView === 'whatsapp' ? (
                     <div className="h-[62vh] overflow-y-auto p-4 md:p-5" style={{ backgroundColor: '#0b141a', backgroundImage: 'radial-gradient(circle at 25% 25%, rgba(255,255,255,.025) 0 1px, transparent 1px)', backgroundSize: '28px 28px' }}>
                       <div className="mx-auto max-w-3xl space-y-2" dir="rtl">
-                        {selected.snapshot.messages.map((message) => {
+                        {(conversationFocusMode === 'full' && selected.snapshot.fullCaseMessages?.length ? selected.snapshot.fullCaseMessages : selected.snapshot.messages).map((message) => {
                           const inbound = message.direction === 'inbound';
                           const context = message.scope === 'context';
                           const focusLevel = message.focusLevel || (message.evidence ? 'primary' : context ? 'background' : 'supporting');
-                          const focusedOpacity = conversationFocusMode === 'full'
-                            ? ''
+                          const focusedOpacity = conversationFocusMode === 'focused'
+                            ? 'opacity-100'
                             : focusLevel === 'primary'
                               ? 'opacity-100'
                               : focusLevel === 'supporting'
-                                ? 'opacity-80'
-                                : 'opacity-25 hover:opacity-70';
+                                ? 'opacity-75'
+                                : 'opacity-25 hover:opacity-65';
                           const timing = selected.snapshot.smartIntelligence?.timingV28;
                           const episode = timing?.episodes.find((row) => row.messageIds[0] === message.id) || null;
                           return (
@@ -1105,7 +1110,7 @@ export default function WhatsAppSmartFolderWatcher() {
                     </div>
                   ) : (
                     <div className="h-[62vh] space-y-2 overflow-y-auto bg-slate-950/20 p-4">
-                      {selected.snapshot.messages.map((message) => (
+                      {(conversationFocusMode === 'full' && selected.snapshot.fullCaseMessages?.length ? selected.snapshot.fullCaseMessages : selected.snapshot.messages).map((message) => (
                         <div key={message.id} className={`rounded-xl border p-3 ${message.evidence ? 'border-cyan-500/60 bg-cyan-950/20' : message.scope === 'context' ? 'border-dashed border-slate-700 bg-slate-950/20 opacity-70' : 'border-slate-800 bg-slate-950/35'}`}>
                           <div className="mb-1 flex flex-wrap justify-between gap-2 text-[11px] text-slate-500"><span>{message.direction === 'inbound' ? 'العميل' : selected.staffName}{message.scope === 'context' ? ' · سياق' : ''}{message.evidence ? ' · دليل' : ''}</span><span>{new Date(message.timestamp).toLocaleString('ar-EG')}</span></div>
                           <div className="text-slate-200">{messageBody(message.kind, message.text)}</div>
