@@ -176,7 +176,7 @@ export default function AttendanceResolutionCenter({ defaultBranch = 'الكل' 
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
           <div className="flex-1">
             <h2 className="text-lg font-black text-[var(--dawaa-theme-heading)]">التسوية اليومية والالتزام</h2>
-            <p className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">البصمة دليل فقط. القرار هنا يجمع الجدول + المزامنة + الإذن/الإجازة + السياسة قبل أي أثر على الحافز أو المرتب.</p>
+            <p className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">البصمة دليل فقط. كل صف هنا سجل تسوية لموظف/يوم وليس «يوم حضور للمرتب». أيام العمل الفعلية موجودة منفصلة في التقارير ← الحضور الفعلي للمرتب.</p>
           </div>
           <label className="text-xs font-black text-[var(--dawaa-theme-muted)]">من<input type="date" value={start} onChange={(e) => setStart(e.target.value)} className="input-dark mt-1 block" /></label>
           <label className="text-xs font-black text-[var(--dawaa-theme-muted)]">إلى<input type="date" value={end} onChange={(e) => setEnd(e.target.value)} className="input-dark mt-1 block" /></label>
@@ -188,9 +188,9 @@ export default function AttendanceResolutionCenter({ defaultBranch = 'الكل' 
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <Metric label="إجمالي الأيام" value={totals.total} icon={Clock3} />
-        <Metric label="معتمدة" value={totals.approved} icon={CheckCircle2} />
-        <Metric label="تحتاج مراجعة" value={totals.review} icon={AlertTriangle} />
+        <Metric label="إجمالي سجلات التسوية" value={totals.total} icon={Clock3} />
+        <Metric label="سجلات معتمدة" value={totals.approved} icon={CheckCircle2} />
+        <Metric label="سجلات تحتاج مراجعة" value={totals.review} icon={AlertTriangle} />
         <Metric label="اعتماد تلقائي" value={totals.system} icon={ShieldCheck} />
         <Metric label="اعتماد إداري" value={totals.manager} icon={Scale} />
       </div>
