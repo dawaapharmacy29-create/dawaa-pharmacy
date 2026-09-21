@@ -104,6 +104,22 @@ describe('SmartConversationEvaluationV2', () => {
     expect(incomplete.orderCompleteness.missingCritical.length).toBeGreaterThan(0);
   });
 
+  it('scores proactive order-delay apology as service recovery without inventing a new sale journey', () => {
+    const session = oneSession(`[9/15/26, 9:00:00 AM] You: أهلاً بحضرتك، مع حضرتك نور من خدمة عملاء صيدليات دواء. بنعتذر عن التأخير اللي حصل في طلب حضرتك، وبنتابع مع الفريق المختص علشان يتم التوصيل في أسرع وقت ممكن ونطمن حضرتك على وصوله
+[9/15/26, 9:03:00 AM] Customer: تمام شكراً`);
+    const result = buildSmartConversationEvaluationV2(session, {
+      invoiceVerification: invoice('not_found'),
+      salesOpportunities: [],
+      consultationCommunication: 'not_applicable',
+    });
+    expect(result.sale.outcome).toBe('not_applicable');
+    expect(result.serviceRecovery.detected).toBe(true);
+    expect(result.serviceRecovery.issueType).toBe('order_delay');
+    expect(result.serviceRecovery.score).toBeGreaterThanOrEqual(65);
+    expect(result.axes.find((axis) => axis.key === 'fulfillment')?.score).not.toBeNull();
+    expect(result.followups.some((item) => item.type === 'delivery_confirmation')).toBe(true);
+  });
+
   it('extracts multiple follow-up opportunities without auto-saving any action', () => {
     const session = oneSession(`[9/15/26, 9:00:00 AM] Customer: عندي حموضة وعايز المنتج بس مش موجود عندكم؟
 [9/15/26, 9:01:00 AM] You: مع حضرتك د هبة، الصنف ناقص وهطلبه لحضرتك وأبلغك أول ما يتوفر`);
