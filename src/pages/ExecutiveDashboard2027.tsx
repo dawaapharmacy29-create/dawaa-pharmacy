@@ -1339,6 +1339,7 @@ export default function ExecutiveDashboard2027() {
             supabase
               .from('shift_schedules')
               .select('staff_id,staff_name,branch,day_name,shift_start,shift_end,is_off')
+              .is('effective_to', null)
               .limit(1200) as PromiseLike<{
                 data: ShiftScheduleRow[] | null;
                 error: { message?: string } | null;
