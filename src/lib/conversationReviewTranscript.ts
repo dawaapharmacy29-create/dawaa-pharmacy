@@ -5,6 +5,7 @@ import type { StaffMessageEffort } from './whatsappOutboundMessageBursts';
 import type { SmartIntelligenceSnapshotV1 } from './whatsappSmartIntelligenceSnapshot';
 import type { ResolvedStaffIdentity } from './whatsappStaffIdentityResolver';
 import type { SmartOfficialReviewDraftV1 } from './whatsappSmartOfficialReviewDraft';
+import type { ConversationFocusV30, ConversationFocusLevelV30 } from './whatsappConversationFocusV30';
 
 export type ConversationReviewMessageScope = 'scored' | 'context';
 
@@ -17,6 +18,13 @@ export interface ConversationReviewSnapshotMessage {
   text: string;
   scope: ConversationReviewMessageScope;
   evidence: boolean;
+  /**
+   * مستوى الأهمية للعرض فقط. لا يغيّر نطاق التقييم أو النقاط.
+   * primary/supporting/background محسوبة على مستوى الـCase الكاملة.
+   */
+  focusLevel?: ConversationFocusLevelV30;
+  focusScore?: number;
+  focusReasons?: string[];
 }
 
 export interface ConversationReviewSnapshot {
@@ -69,6 +77,7 @@ export interface ConversationReviewSnapshot {
    * conversation_snapshot في Reviews.tsx). Optional عشان أي snapshot قديم يفضل صالح.
    */
   smartIntelligence?: SmartIntelligenceSnapshotV1;
+  conversationFocusV30?: ConversationFocusV30;
   /**
    * حقول تدقيق (Audit) لقرار الاعتماد البشري على SmartOfficialReviewDraftV1 — تتسجل في
    * Reviews.tsx وقت الحفظ فقط، وممنوع تتحول لجدول منفصل أو تُستخدم كمصدر نقاط مستقل.
@@ -117,6 +126,7 @@ export function buildConversationReviewSnapshot(args: {
   smartIntelligence?: SmartIntelligenceSnapshotV1;
   staffIdentity?: ResolvedStaffIdentity;
   officialReviewDraft?: SmartOfficialReviewDraftV1;
+  conversationFocusV30?: ConversationFocusV30;
 }): ConversationReviewSnapshot {
   const scored = new Set(args.scoredMessageIds);
   const context = new Set(args.contextMessageIds);
@@ -149,18 +159,27 @@ export function buildConversationReviewSnapshot(args: {
       affectedCriteria: args.decision.affectedCriteria.slice(),
       safeToQuickApprove: args.decision.safeToQuickApprove,
     },
-    messages: ordered.map((message) => ({
-      id: message.id,
-      timestamp: message.timestamp.toISOString(),
-      sender: message.sender,
-      direction: message.direction,
-      kind: message.kind,
-      text: String(message.text || ''),
-      scope: scored.has(message.id) ? 'scored' : 'context',
-      evidence: evidence.has(message.id),
-    })),
+    messages: ordered.map((message) => {
+      const focus = args.conversationFocusV30?.messages.find((row) => row.messageId === message.id);
+      return {
+        id: message.id,
+        timestamp: message.timestamp.toISOString(),
+        sender: message.sender,
+        direction: message.direction,
+        kind: message.kind,
+        text: String(message.text || ''),
+        scope: scored.has(message.id) ? 'scored' : 'context',
+        evidence: evidence.has(message.id),
+        ...(focus ? {
+          focusLevel: focus.level,
+          focusScore: focus.score,
+          focusReasons: focus.reasons,
+        } : {}),
+      };
+    }),
     ...(args.outboundBurstMetrics ? { outboundBurstMetrics: args.outboundBurstMetrics } : {}),
     ...(args.smartIntelligence ? { smartIntelligence: args.smartIntelligence } : {}),
+    ...(args.conversationFocusV30 ? { conversationFocusV30: args.conversationFocusV30 } : {}),
   };
 }
 
