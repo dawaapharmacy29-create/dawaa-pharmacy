@@ -85,11 +85,15 @@ export function buildDelayAttributionV29(
   const maxResponse = timing.responseSummary.maxResponseSeconds || 0;
   const recoveryLatency = timing.orderTimeline.problemToRecoverySeconds;
 
-  if (DELIVERY_RX.test(text) && WAITING_RX.test(inbound)) {
+  // كان بيشترط WAITING_RX عالعميل تحديدًا، فلو الموظف نفسه بادر واعتذر/فسّر السبب
+  // التشغيلي (مندوب متأخر مثلاً) قبل ما العميل يشتكي أصلًا - وده أفضل سيناريو ممكن -
+  // كان بيفشل في تصنيف السبب ويرجع "غير محسوم" رغم إن نص الموظف نفسه واضح فيه المندوب
+  // والتأخير. النص الكامل (عميل أو موظف) كافي طالما فيه بالفعل "مشكلة/تأخير" مرصودة أصلًا.
+  if (DELIVERY_RX.test(text) && WAITING_RX.test(text)) {
     cause = 'delivery_delay';
     caseResponsibility = 'delivery';
     confidence = 90;
-    reasons.push('رسائل المشكلة مرتبطة بالتوصيل/المندوب مع انتظار واضح من العميل.');
+    reasons.push('رسائل المشكلة مرتبطة بالتوصيل/المندوب مع انتظار واضح (من العميل أو من تفسير الموظف نفسه).');
   } else if (HANDOFF_RX.test(outbound) && timing.handoff.handoffCount > 0) {
     cause = 'handoff_delay';
     caseResponsibility = 'shared_handoff';
@@ -105,11 +109,11 @@ export function buildDelayAttributionV29(
     caseResponsibility = 'staff_response';
     confidence = 82;
     reasons.push(`يوجد Turn عميل انتظر ردًا طويلًا (حتى ${Math.round(maxResponse / 60)} دقيقة).`);
-  } else if (FULFILLMENT_RX.test(text) && WAITING_RX.test(inbound)) {
+  } else if (FULFILLMENT_RX.test(text) && WAITING_RX.test(text)) {
     cause = 'pharmacy_fulfillment_delay';
     caseResponsibility = 'pharmacy_operations';
     confidence = 78;
-    reasons.push('النص يشير لتأخير في تجهيز/تنفيذ الطلب أكثر من كونه تأخير رد.');
+    reasons.push('النص يشير لتأخير في تجهيز/تنفيذ الطلب أكثر من كونه تأخير رد (من العميل أو من تفسير الموظف نفسه).');
   } else {
     reasons.push('يوجد تأخير مرصود لكن الدليل النصي لا يكفي لتحديد السبب التشغيلي بثقة عالية.');
   }

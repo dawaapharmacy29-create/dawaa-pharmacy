@@ -62,6 +62,25 @@ describe('DelayAttributionV29', () => {
     expect(result.shouldPenalizeCurrentStaffAutomatically).toBe(false);
   });
 
+  it('attributes a courier delay to delivery even when the customer never complains (staff disclosed it proactively)', () => {
+    // مطابق لحالة حقيقية (إبراهيم الصياد): الموظف بادر يشرح إن المندوب هياخد وقت أطول
+    // والعميل رد "مفيش مشكله" - مفيش أي كلمة انتظار/شكوى من العميل خالص، لكن نص
+    // الموظف نفسه واضح فيه المندوب والتأخير. السبب لازم يتصنف delivery مش "unknown".
+    const s = session([
+      msg('c1', '2026-09-15T10:00:00', 'inbound', 'عايز الاوردر', 'العميل'),
+      msg('o1', '2026-09-15T10:02:00', 'outbound', 'من عنيا لحضرتك', 'اسلام'),
+      msg('o2', '2026-09-15T10:05:00', 'outbound', 'هجيب مندوب من الفرع التاني فممكن يتاخر شوية', 'اسلام'),
+      msg('c2', '2026-09-15T10:10:00', 'inbound', 'مفيش مشكله', 'العميل'),
+      msg('o3', '2026-09-15T11:35:00', 'outbound', 'متاسف لحضرتك عالتاخير الكبير، كان المندوب هيجي ومجاش', 'شبل'),
+    ]);
+    const timing = buildConversationTimingV28(s);
+    const result = buildDelayAttributionV29(s, timing);
+    expect(result.detected).toBe(true);
+    expect(result.cause).toBe('delivery_delay');
+    expect(result.caseResponsibility).toBe('delivery');
+    expect(result.shouldPenalizeCurrentStaffAutomatically).toBe(false);
+  });
+
   it('keeps ambiguous causes unassigned instead of inventing blame', () => {
     const s=session([
       msg('c1','2026-09-15T10:00:00','inbound','لسه الموضوع متأخر'),
