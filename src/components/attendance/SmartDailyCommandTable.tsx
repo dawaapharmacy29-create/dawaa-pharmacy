@@ -71,7 +71,7 @@ type DailyIntelRow = {
   timeline: TimelineEvent[];
 };
 
-type Props = { rows: DailyCommandRow[]; date: string; branch: string };
+type Props = { rows: DailyCommandRow[]; date: string; branch: string; preloadedIntel?: DailyIntelRow[] | null };
 
 function formatTime(value?: string | null, withSeconds = false) {
   if (!value) return '-';
@@ -137,7 +137,7 @@ function reasonLabel(value?: string | null) {
   return labels[value || ''] || value || 'سبب غير محدد';
 }
 
-export default function SmartDailyCommandTable({ rows, date, branch }: Props) {
+export default function SmartDailyCommandTable({ rows, date, branch, preloadedIntel }: Props) {
   const [intel, setIntel] = useState<DailyIntelRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -173,9 +173,16 @@ export default function SmartDailyCommandTable({ rows, date, branch }: Props) {
     }
   }, [branch, date]);
 
-  useEffect(() => { void loadIntel(); }, [loadIntel]);
   useEffect(() => {
-    const id = window.setInterval(() => { if (!document.hidden) void loadIntel(); }, 30_000);
+    if (preloadedIntel) {
+      setIntel(preloadedIntel);
+      setError(null);
+      return;
+    }
+    void loadIntel();
+  }, [loadIntel, preloadedIntel]);
+  useEffect(() => {
+    const id = window.setInterval(() => { if (!document.hidden) void loadIntel(); }, 90_000);
     return () => window.clearInterval(id);
   }, [loadIntel]);
 
