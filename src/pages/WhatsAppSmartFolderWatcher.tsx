@@ -304,23 +304,36 @@ export default function WhatsAppSmartFolderWatcher() {
         toast.message('لا توجد ملفات جديدة في الفولدر');
         return;
       }
-      for (const candidate of candidates) {
+
+      const processCandidate = async (candidate: (typeof candidates)[number]): Promise<FileRun> => {
         try {
           const result = await analyzeFile(candidate.file);
           markLocalWhatsAppFileProcessed(candidate.key);
-          setRuns((current) => [result, ...current].slice(0, 30));
           toast.success(`تم تحليل ${candidate.name}: ${result.sessions} جلسة / ${result.staffRuns.length} مسؤول`);
+          return result;
         } catch (error) {
           const reason = error instanceof Error ? error.message : 'خطأ غير معروف';
           markLocalWhatsAppFileFailed(candidate.key, reason);
-          setRuns((current) => [{
+          return {
             fileName: candidate.name,
             at: new Date().toLocaleString('ar-EG'),
             messages: 0,
             sessions: 0,
             staffRuns: [],
             errors: [reason],
-          }, ...current].slice(0, 30));
+          };
+        }
+      };
+
+      // ملفان فقط بالتوازي: يختصر زمن إعادة تحليل فولدر كامل، مع سقف محافظ لطلبات
+      // قاعدة البيانات. تحديث الواجهة مرة لكل batch بدل rerender بعد كل ملف.
+      const FILE_CONCURRENCY = 2;
+      for (let index = 0; index < candidates.length; index += FILE_CONCURRENCY) {
+        const batch = candidates.slice(index, index + FILE_CONCURRENCY);
+        const results = await Promise.all(batch.map(processCandidate));
+        setRuns((current) => [...results.reverse(), ...current].slice(0, 30));
+        if (typeof window !== 'undefined' && index + FILE_CONCURRENCY < candidates.length) {
+          await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
         }
       }
     } finally {
