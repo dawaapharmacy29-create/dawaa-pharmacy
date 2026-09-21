@@ -121,6 +121,24 @@ function opportunityLabel(value: string) {
   return value;
 }
 
+function timingDuration(seconds: number | null | undefined) {
+  if (seconds == null) return '—';
+  if (seconds < 60) return `${seconds} ث`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} د`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? `${hours} س ${rest} د` : `${hours} س`;
+}
+
+function episodeGapLabel(minutes: number | null) {
+  if (minutes == null || minutes <= 0) return null;
+  if (minutes < 60) return `بعد ${minutes} دقيقة`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return m ? `بعد ${h} س ${m} د` : `بعد ${h} ساعة`;
+}
+
 function isVoiceMessage(kind: string, text: string) {
   return kind === 'voice' || /voice message omitted|audio omitted/i.test(text);
 }
@@ -805,6 +823,26 @@ export default function WhatsAppSmartFolderWatcher() {
                     </div>
                   </section>
 
+                  {selected.snapshot.smartIntelligence?.timingV28 ? (
+                    <section className="rounded-2xl border border-cyan-800/40 bg-cyan-950/10 p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <div className="text-[10px] font-black text-cyan-300">TIMING INTELLIGENCE V28</div>
+                          <div className="mt-1 text-sm font-black text-white">زمن الرد ومسار الأوردر عبر الرحلة كاملة</div>
+                          <div className="mt-1 text-[11px] text-slate-400">
+                            {selected.snapshot.smartIntelligence.timingV28.episodes.length} مرحلة زمنية · {selected.snapshot.smartIntelligence.timingV28.handoff.responderCount} مسؤول رد · {selected.snapshot.smartIntelligence.timingV28.handoff.handoffCount} handoff
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-center sm:grid-cols-4">
+                          <div className="rounded-xl bg-black/15 px-3 py-2"><div className="text-[10px] text-slate-500">أول رد</div><div className="mt-1 text-xs font-black text-cyan-100">{timingDuration(selected.snapshot.smartIntelligence.timingV28.responseSummary.firstResponseSeconds)}</div></div>
+                          <div className="rounded-xl bg-black/15 px-3 py-2"><div className="text-[10px] text-slate-500">Median</div><div className="mt-1 text-xs font-black text-cyan-100">{timingDuration(selected.snapshot.smartIntelligence.timingV28.responseSummary.medianResponseSeconds)}</div></div>
+                          <div className="rounded-xl bg-black/15 px-3 py-2"><div className="text-[10px] text-slate-500">≤ 5 دقائق</div><div className="mt-1 text-xs font-black text-cyan-100">{selected.snapshot.smartIntelligence.timingV28.responseSummary.within5mRate ?? '—'}{selected.snapshot.smartIntelligence.timingV28.responseSummary.within5mRate != null ? '%' : ''}</div></div>
+                          <div className="rounded-xl bg-black/15 px-3 py-2"><div className="text-[10px] text-slate-500">بدون رد</div><div className="mt-1 text-xs font-black text-cyan-100">{selected.snapshot.smartIntelligence.timingV28.responseSummary.unansweredTurns}</div></div>
+                        </div>
+                      </div>
+                    </section>
+                  ) : null}
+
                   <section className="grid gap-3 lg:grid-cols-2">
                     <div className={`rounded-2xl border p-4 ${selected.staffIdentity.ambiguous ? 'border-rose-800/60 bg-rose-950/20' : selected.staffIdentity.staffId ? 'border-emerald-800/50 bg-emerald-950/10' : 'border-amber-800/50 bg-amber-950/10'}`}>
                       <div className="text-[10px] font-black text-slate-500">هوية المسؤول</div>
@@ -914,13 +952,30 @@ export default function WhatsAppSmartFolderWatcher() {
                         {selected.snapshot.messages.map((message) => {
                           const inbound = message.direction === 'inbound';
                           const context = message.scope === 'context';
+                          const timing = selected.snapshot.smartIntelligence?.timingV28;
+                          const episode = timing?.episodes.find((row) => row.messageIds[0] === message.id) || null;
                           return (
-                            <div key={message.id} className={`flex ${inbound ? 'justify-start' : 'justify-end'} ${context ? 'opacity-60' : ''}`}>
-                              <div className={`flex max-w-[86%] flex-col md:max-w-[74%] ${inbound ? 'items-start' : 'items-end'}`}>
-                                <div className={`relative rounded-2xl px-3.5 py-2.5 shadow-sm ${inbound ? 'rounded-tl-sm bg-[#202c33] text-slate-100' : 'rounded-tr-sm bg-[#005c4b] text-white'} ${message.evidence ? 'ring-2 ring-cyan-400/80 ring-offset-2 ring-offset-[#0b141a]' : ''}`}>
-                                  <div className="mb-1 flex flex-wrap items-center gap-1.5 text-[10px] font-bold opacity-80"><span>{inbound ? 'العميل' : selected.staffName}</span>{message.evidence ? <span className="rounded bg-cyan-400/15 px-1.5 py-0.5 text-cyan-100">دليل</span> : null}{context ? <span className="rounded bg-white/10 px-1.5 py-0.5">سياق</span> : null}</div>
-                                  {messageBody(message.kind, message.text)}
-                                  <div className="mt-1 text-left text-[10px] opacity-60">{new Date(message.timestamp).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}</div>
+                            <div key={message.id}>
+                              {episode ? (
+                                <div className="my-4 flex items-center gap-3" dir="rtl">
+                                  <div className="h-px flex-1 bg-slate-700/60" />
+                                  <div className="rounded-full border border-slate-700 bg-[#111b21] px-3 py-1.5 text-center shadow-sm">
+                                    <div className="text-[10px] font-black text-cyan-200">{episode.label}</div>
+                                    <div className="mt-0.5 text-[9px] text-slate-400">
+                                      {new Date(episode.startedAt).toLocaleString('ar-EG', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                                      {episodeGapLabel(episode.gapFromPreviousMinutes) ? ` · ${episodeGapLabel(episode.gapFromPreviousMinutes)}` : ''}
+                                    </div>
+                                  </div>
+                                  <div className="h-px flex-1 bg-slate-700/60" />
+                                </div>
+                              ) : null}
+                              <div className={`flex ${inbound ? 'justify-start' : 'justify-end'} ${context ? 'opacity-60' : ''}`}>
+                                <div className={`flex max-w-[86%] flex-col md:max-w-[74%] ${inbound ? 'items-start' : 'items-end'}`}>
+                                  <div className={`relative rounded-2xl px-3.5 py-2.5 shadow-sm ${inbound ? 'rounded-tl-sm bg-[#202c33] text-slate-100' : 'rounded-tr-sm bg-[#005c4b] text-white'} ${message.evidence ? 'ring-2 ring-cyan-400/80 ring-offset-2 ring-offset-[#0b141a]' : ''}`}>
+                                    <div className="mb-1 flex flex-wrap items-center gap-1.5 text-[10px] font-bold opacity-80"><span>{inbound ? 'العميل' : message.sender || selected.staffName}</span>{message.evidence ? <span className="rounded bg-cyan-400/15 px-1.5 py-0.5 text-cyan-100">دليل</span> : null}{context ? <span className="rounded bg-white/10 px-1.5 py-0.5">سياق</span> : null}</div>
+                                    {messageBody(message.kind, message.text)}
+                                    <div className="mt-1 text-left text-[10px] opacity-60">{new Date(message.timestamp).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}</div>
+                                  </div>
                                 </div>
                               </div>
                             </div>
