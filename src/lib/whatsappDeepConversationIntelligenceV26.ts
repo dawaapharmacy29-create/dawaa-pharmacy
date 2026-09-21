@@ -48,7 +48,12 @@ const percentile = (values: number[], p: number) => {
 const average = (values: number[]) => values.length ? Math.round(values.reduce((sum, value) => sum + value, 0) / values.length) : null;
 
 export function summarizeResponseMetrics(turns: Array<{ response_latency_seconds?: number | null; no_response?: boolean | null }>): ResponseMetricSummary {
-  const measured = turns.map((row) => Number(row.response_latency_seconds)).filter((value) => Number.isFinite(value) && value >= 0);
+  // Number(null) === 0 في JS، فلو فلترنا بعد التحويل، الـTurns اللي معندهاش رد
+  // (response_latency_seconds: null, no_response: true) كانت بتتحسب غلط كرد بـ0 ثانية
+  // بدل ما تتستبعد، وده بيلخبط count والمتوسط والـPercentiles كلهم.
+  const measured = turns
+    .map((row) => row.response_latency_seconds)
+    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0);
   return {
     count: measured.length,
     averageSeconds: average(measured),
