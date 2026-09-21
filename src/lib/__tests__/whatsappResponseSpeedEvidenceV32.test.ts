@@ -71,4 +71,23 @@ describe('ResponseSpeedEvidenceV32 (Shadow Mode — Golden Cases)', () => {
     expect(result.needsHumanReview).toBe(true);
     expect(result.humanReviewReasons).toContain('no_staff_reply_found');
   });
+
+  it('V32.2: times a 3-message customer request burst from the earliest substantive message, not the greeting or the last message', () => {
+    const raw = `[9/15/26, 9:00:00 AM] Customer: مساء الخير
+[9/15/26, 9:00:20 AM] Customer: عايز اسأل عن دواء
+[9/15/26, 9:00:40 AM] Customer: ترايليبتال 600
+[9/15/26, 9:03:00 AM] You: متوفر بسعر 90 جنيه`;
+    const understanding = understandingOf(raw);
+    const burstMessages = understanding.messages.filter((m) => m.requestBurstId);
+    expect(burstMessages.length).toBe(3);
+    expect(new Set(burstMessages.map((m) => m.requestBurstId)).size).toBe(1);
+
+    const result = evaluateResponseSpeedV32({ understanding });
+    // Trigger is "عايز اسأل عن دواء" (9:00:20), not "مساء الخير" (9:00:00) and not "ترايليبتال 600"
+    // (9:00:40). Reply at 9:03:00 -> 160s from the real trigger -> still within_5.
+    expect(result.findings[0].fact).toContain('عايز اسأل عن دواء');
+    expect(result.findings[0].fact).not.toContain('"مساء الخير"');
+    expect(result.scoreBand).toBe('within_5');
+    expect(result.pointsEarned).toBe(10);
+  });
 });

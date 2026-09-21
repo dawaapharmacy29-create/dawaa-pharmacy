@@ -2,6 +2,12 @@
 // whatsappSmart*/whatsappCase*/whatsapp*V2x engine. Read-once, facts-only, no scoring.
 // See conversation history for the full V32 scope agreement (Phase A/B/C only).
 import type { WhatsAppConversationSession, WhatsAppParsedMessage } from './whatsappConversationParser';
+import {
+  AUTOMATED_REPLY_RX,
+  buildSemanticSignalsV32,
+  computeRequestBurstIds,
+  type ConversationSemanticSignalV32,
+} from './whatsappSemanticSignalsV32';
 
 export type ParticipantRoleV32 = 'staff' | 'customer' | 'system' | 'unknown';
 
@@ -29,6 +35,8 @@ export interface NormalizedConversationMessageV32 {
   isMeaningful: boolean;
   /** Id of the ConversationInteractionV32 this message was assigned to. */
   interactionId: string | null;
+  /** Id shared by 2+ consecutive customer messages sent in quick succession before any staff reply, or null. */
+  requestBurstId: string | null;
 }
 
 export interface ConversationInteractionV32 {
@@ -42,7 +50,7 @@ export interface ConversationInteractionV32 {
   /** Staff who sent at least one meaningful outbound message inside this interaction. */
   primaryStaffNames: string[];
   /** Why the segmentation boundary was drawn here — kept for reviewability, not a business rule. */
-  segmentationReason: 'conversation_start' | 'time_gap' | 'reopened_after_closing';
+  segmentationReason: 'conversation_start' | 'time_gap' | 'reopened_after_closing' | 'topic_shift_marker';
 }
 
 export interface ConversationUnderstandingV32 {
@@ -53,11 +61,10 @@ export interface ConversationUnderstandingV32 {
   staffNames: string[];
   messages: NormalizedConversationMessageV32[];
   interactions: ConversationInteractionV32[];
+  /** Facts extracted once, shared by every criterion — see whatsappSemanticSignalsV32.ts. */
+  signals: ConversationSemanticSignalV32[];
   byId: Map<string, NormalizedConversationMessageV32>;
 }
-
-const AUTOMATED_REPLY_RX =
-  /رسال[ةه]\s*(آلي[ةه]|تلقائي[ةه])|رد\s*تلقائي|هذه\s*رساله\s*تلقائيه|out\s*of\s*office|automated\s*reply|بعيد[ًا]?\s*عن\s*مكتبي|خارج\s*مواعيد\s*العمل\s*الرسمي[ةه]?\s*نرد\s*عليك/i;
 
 // Matches an entire string made up only of emoji / VS16 / ZWJ / whitespace / punctuation, with at least one emoji.
 const EMOJI_RX = /\p{Extended_Pictographic}/u;
@@ -70,8 +77,27 @@ function isEmojiOnlyText(text: string): boolean {
   return !NON_EMOJI_MEANINGFUL_RX.test(trimmed);
 }
 
+// The parser's own `mediaPlaceholder` flag only covers image/voice/video/document (see
+// hasMediaPlaceholder() in whatsappConversationParser.ts) — a sticker placeholder ("<sticker
+// omitted>") falls through to kind:'unknown' there and is NOT flagged, which meant V32.1 could
+// pick a bare sticker line as "the customer's request" (a real bug found validating against real
+// production conversations). V32.2 detects any bare placeholder line independently of `kind`.
+const PLACEHOLDER_ONLY_RX =
+  /^<[^<>]*\bomitted>$|^\[(?:voice message|image|video|document|file|sticker)\]$|^(?:this message was deleted|you deleted this message)$/i;
+const FORWARDED_PREFIX_RX = /^\[Forwarded\]\s*/i;
+
+function isPlaceholderOnlyText(text: string): boolean {
+  const stripped = (text || '').trim().replace(FORWARDED_PREFIX_RX, '').trim();
+  return PLACEHOLDER_ONLY_RX.test(stripped);
+}
+
 const INTERACTION_GAP_MS = 30 * 60 * 1000; // 30 minutes of silence -> treat as a new topic/interaction
 const CLOSING_RX = /شكر[اً]?\s*لتواصلك|تحت\s*أمرك\s*دائم[اً]?|يومك\s*سعيد|في\s*خدمتك\s*دائم[اً]?/i;
+// A light semantic cue for "this is a different topic", independent of any time gap. Deliberately
+// narrow (explicit topic-shift phrasing only) — this is not a full Case Lifecycle/topic classifier,
+// just enough to stop two genuinely different requests in the same conversation from being scored
+// as one interaction when the customer moves straight on without a pause.
+const TOPIC_SHIFT_MARKER_RX = /بالمناسبة|كمان\s*حاجة|سؤال\s*تاني|بس\s*كمان\s*عايز|في\s*مشكلة\s*تاني[ةه]|حاجة\s*تانية\s*خالص/i;
 
 function normalizeMessage(
   message: WhatsAppParsedMessage,
@@ -84,8 +110,12 @@ function normalizeMessage(
   const hasText = Boolean((message.text || '').trim());
   // A bare media placeholder line (e.g. "<image omitted>") is not text evidence of a request or
   // a reply — only a caption sent alongside it (a separate message in WhatsApp's own export format) is.
-  const isMediaPlaceholder = Boolean(message.mediaPlaceholder);
-  const isMeaningful = hasText && !isSystemGenerated && !isAutomated && !isEmojiOnly && !isMediaPlaceholder;
+  const isMediaPlaceholder = Boolean(message.mediaPlaceholder) || isPlaceholderOnlyText(message.text);
+  // Pure punctuation ("..", "?", "!!") carries no letters/digits — same non-evidence status as
+  // emoji-only, just without any emoji present.
+  const hasRealContent = NON_EMOJI_MEANINGFUL_RX.test((message.text || '').trim());
+  const isMeaningful =
+    hasText && hasRealContent && !isSystemGenerated && !isAutomated && !isEmojiOnly && !isMediaPlaceholder;
 
   let role: ParticipantRoleV32 = 'unknown';
   if (isSystemGenerated) role = 'system';
@@ -105,6 +135,7 @@ function normalizeMessage(
     isMediaPlaceholder,
     isMeaningful,
     interactionId: null,
+    requestBurstId: null,
   };
 }
 
@@ -153,6 +184,14 @@ function segmentInteractions(messages: NormalizedConversationMessageV32[]): Conv
       ) {
         flush();
         reason = 'reopened_after_closing';
+      } else if (
+        message.role === 'customer' &&
+        message.isMeaningful &&
+        current.length > 0 &&
+        TOPIC_SHIFT_MARKER_RX.test(message.text)
+      ) {
+        flush();
+        reason = 'topic_shift_marker';
       }
     }
     if (message.role === 'staff' && CLOSING_RX.test(message.text)) {
@@ -178,6 +217,13 @@ export function buildConversationUnderstandingV32(
 
   const interactions = segmentInteractions(messages);
 
+  const burstIdByMessageId = computeRequestBurstIds(messages);
+  messages.forEach((message) => {
+    message.requestBurstId = burstIdByMessageId.get(message.id) || null;
+  });
+
+  const signals = buildSemanticSignalsV32(messages);
+
   const participants: ParticipantIdentityV32[] = [];
   const seen = new Set<string>();
   messages.forEach((message) => {
@@ -194,6 +240,7 @@ export function buildConversationUnderstandingV32(
     staffNames: Array.from(staffNames),
     messages,
     interactions,
+    signals,
     byId: new Map(messages.map((m) => [m.id, m])),
   };
 }

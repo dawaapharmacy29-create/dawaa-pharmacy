@@ -62,4 +62,18 @@ describe('ConversationUnderstandingV32 (Shadow Mode, read-only, facts-only)', ()
     expect(understanding.interactions.length).toBe(1);
     expect(understanding.interactions[0].messageIds.length).toBe(3);
   });
+
+  it('V32.2: segments a new interaction on an explicit topic-shift marker even without a time gap', () => {
+    const raw = `[9/15/26, 9:00:00 AM] Customer: عايز فيتامين د
+[9/15/26, 9:01:00 AM] You: متوفر بسعر 250 جنيه
+[9/15/26, 9:02:00 AM] Customer: تمام هطلبه
+[9/15/26, 9:03:00 AM] Customer: بالمناسبة عندكم شامبو للشعر؟
+[9/15/26, 9:04:00 AM] You: أيوه متوفر`;
+    const session = oneSession(raw);
+    const understanding = buildConversationUnderstandingV32(session);
+    expect(understanding.interactions.length).toBe(2);
+    expect(understanding.interactions[1].segmentationReason).toBe('topic_shift_marker');
+    const shampooTrigger = understanding.byId.get(understanding.interactions[1].triggerMessageId || '');
+    expect(shampooTrigger?.text).toContain('شامبو');
+  });
 });

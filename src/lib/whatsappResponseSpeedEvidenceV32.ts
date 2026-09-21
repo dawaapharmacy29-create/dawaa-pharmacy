@@ -1,4 +1,4 @@
-// V32 Phase C.1 — Response Speed criterion, evidence-contract implementation.
+// V32 Phase C.1 / C.2 — Response Speed criterion, evidence-contract implementation.
 // Reuses the EXACT point thresholds already live in REVIEW_CRITERIA['first_response_speed']
 // and whatsappReviewScoring.ts's firstResponseOption() — no business-rule change.
 import {
@@ -10,8 +10,9 @@ import {
   type CriterionEvidenceResultV32,
   type CriterionFindingV32,
 } from './whatsappCriterionEvidenceV32';
+import { isGreetingOnly } from './whatsappSemanticSignalsV32';
 
-const VERSION = 'response-speed-evidence-v32';
+const VERSION = 'response-speed-evidence-v32.2';
 const MAX_POINTS = 10;
 
 // Mirrors REVIEW_CRITERIA['first_response_speed'].choices point values exactly.
@@ -27,10 +28,24 @@ function bandFor(seconds: number) {
   return SCORE_BANDS.find((b) => seconds <= b.maxSeconds) || SCORE_BANDS[SCORE_BANDS.length - 1];
 }
 
+/**
+ * The trigger is the EARLIEST substantive customer message, not the first meaningful one and
+ * not the last one of a request burst. A pure greeting ("مساء الخير") is skipped in favor of the
+ * next meaningful message if one exists in scope — but if the customer only ever sent greetings
+ * (nothing else), that greeting is still the trigger: we never lose the measurement entirely.
+ * This also means a 3-message customer burst ("مساء الخير" / "عايز اسأل عن دواء" / "ترايليبتال
+ * 600") is timed from message 2, not message 3 — never later than the real first substantive ask.
+ */
+function selectTrigger(scoped: ReturnType<typeof messagesInScopeV32>) {
+  const meaningfulCustomerMessages = scoped.filter((m) => m.role === 'customer' && m.isMeaningful);
+  const nonGreeting = meaningfulCustomerMessages.find((m) => !isGreetingOnly(m.text));
+  return nonGreeting || meaningfulCustomerMessages[0] || null;
+}
+
 export function evaluateResponseSpeedV32(input: CriterionEvaluationInputV32): CriterionEvidenceResultV32 {
   const scoped = messagesInScopeV32(input);
 
-  const trigger = scoped.find((m) => m.role === 'customer' && m.isMeaningful);
+  const trigger = selectTrigger(scoped);
   if (!trigger) {
     return notApplicableResultV32(
       'response_speed',
@@ -45,6 +60,12 @@ export function evaluateResponseSpeedV32(input: CriterionEvaluationInputV32): Cr
     (m) => m.timestamp.getTime() >= trigger.timestamp.getTime() && m.role === 'staff' && m.isMeaningful
   );
 
+  const triggerRuleId = trigger.requestBurstId
+    ? 'response_speed.trigger.earliest_substantive_message_in_burst'
+    : isGreetingOnly(trigger.text)
+      ? 'response_speed.trigger.greeting_only_no_alternative'
+      : 'response_speed.trigger.first_substantive_customer_message';
+
   if (!reply) {
     const finding: CriterionFindingV32 = {
       key: 'no_staff_reply',
@@ -52,7 +73,9 @@ export function evaluateResponseSpeedV32(input: CriterionEvaluationInputV32): Cr
       fact: `لم يتم العثور على رد فعلي من الموظف بعد رسالة العميل "${trigger.text.slice(0, 80)}" داخل نطاق هذا التفاعل.`,
       interpretation: null,
       source: 'conversation',
+      provenance: 'derived_timing',
       evidenceMessageIds: [trigger.id],
+      ruleId: triggerRuleId,
     };
     return {
       criterionKey: 'response_speed',
@@ -64,6 +87,7 @@ export function evaluateResponseSpeedV32(input: CriterionEvaluationInputV32): Cr
       positiveEvidenceMessageIds: [],
       negativeEvidenceMessageIds: [trigger.id],
       contradictionMessageIds: [],
+      primaryMessageIds: [trigger.id],
       scoreBand: null,
       pointsEarned: null,
       scoreReasoning: 'لا يمكن حساب زمن الرد لعدم وجود رد فعلي من الموظف في نطاق هذا التفاعل.',
@@ -89,7 +113,9 @@ export function evaluateResponseSpeedV32(input: CriterionEvaluationInputV32): Cr
     fact: `أول رسالة عميل ذات محتوى فعلي: "${trigger.text.slice(0, 80)}" في ${trigger.timestamp.toISOString()}. أول رد فعلي من الموظف "${reply.sender}": "${reply.text.slice(0, 80)}" في ${reply.timestamp.toISOString()}. الفارق الزمني: ${elapsedSeconds} ثانية (${elapsedMinutes} دقيقة).`,
     interpretation: null,
     source: 'conversation',
+    provenance: 'derived_timing',
     evidenceMessageIds: [trigger.id, reply.id],
+    ruleId: triggerRuleId,
   };
 
   return {
@@ -102,6 +128,7 @@ export function evaluateResponseSpeedV32(input: CriterionEvaluationInputV32): Cr
     positiveEvidenceMessageIds: [trigger.id, reply.id],
     negativeEvidenceMessageIds: [],
     contradictionMessageIds: [],
+    primaryMessageIds: [trigger.id, reply.id],
     scoreBand: band,
     pointsEarned: points,
     scoreReasoning: `زمن أول رد = ${elapsedSeconds} ثانية، ضمن نطاق "${band}" (${points}/${MAX_POINTS}) حسب سلم النقاط الحالي لسرعة أول رد.`,

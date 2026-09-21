@@ -14,6 +14,18 @@ export type EvidenceStatus =
 
 export type EvidenceSource = 'conversation' | 'order' | 'invoice' | 'customer_profile' | 'system_metadata';
 
+// V32.2 — how a finding's value was actually established, distinct from EvidenceSource (which
+// only says conversation-vs-order/invoice/etc). A conversation-sourced finding can still be a
+// bare customer statement never confirmed by staff (customer_statement) vs an explicit staff
+// confirmation (staff_confirmation) vs both sides agreeing (mutual_confirmation).
+export type EvidenceProvenance =
+  | 'customer_statement'
+  | 'staff_confirmation'
+  | 'mutual_confirmation'
+  | 'order_record'
+  | 'invoice_record'
+  | 'derived_timing';
+
 /** A minimal, optional trusted external context. Nothing here is fetched by V32 itself in this phase — tests/callers supply it. */
 export interface TrustedOrderContextV32 {
   deliveryMethod?: 'delivery' | 'pickup' | null;
@@ -44,6 +56,10 @@ export interface CriterionFindingV32 {
   interpretation: string | null;
   source: EvidenceSource;
   evidenceMessageIds: string[];
+  /** How this specific value was established — see EvidenceProvenance. Omitted only by findings that predate V32.2. */
+  provenance?: EvidenceProvenance;
+  /** Which named rule produced this finding — lets a reviewer trace "why did the system decide this" to exact code. */
+  ruleId?: string;
 }
 
 export interface ConfidenceFactorsV32 {
@@ -63,6 +79,8 @@ export interface CriterionEvidenceResultV32 {
   positiveEvidenceMessageIds: string[];
   negativeEvidenceMessageIds: string[];
   contradictionMessageIds: string[];
+  /** The minimal message set a reviewer actually needs to check this result — never "show everything that matched". */
+  primaryMessageIds: string[];
   scoreBand: string | null;
   pointsEarned: number | null;
   scoreReasoning: string;
@@ -105,6 +123,7 @@ export function notApplicableResultV32(
     positiveEvidenceMessageIds: [],
     negativeEvidenceMessageIds: [],
     contradictionMessageIds: [],
+    primaryMessageIds: [],
     scoreBand: null,
     pointsEarned: null,
     scoreReasoning: reason,
