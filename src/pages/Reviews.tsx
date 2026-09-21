@@ -764,6 +764,25 @@ export default function Reviews() {
           customerPhone: resolvedCustomer.phone || '',
         }
       : { customerName: snapshot.customerName || '' };
+
+    const evaluationV2 = snapshot.smartIntelligence?.evaluationV2 || null;
+    const saleTransferFields = evaluationV2?.sale.outcome === 'invoice_verified_sale'
+      ? {
+          convertedToSale: 'yes' as const,
+          invoiceNo: evaluationV2.sale.invoiceNumber || '',
+          evaluationReason: 'عملية بيع مهمة',
+        }
+      : evaluationV2?.sale.outcome === 'order_confirmed'
+        ? {
+            convertedToSale: '' as const,
+            invoiceNo: '',
+            evaluationReason: 'متابعة جودة',
+          }
+        : {
+            convertedToSale: '' as const,
+            invoiceNo: '',
+            evaluationReason: 'متابعة جودة',
+          };
     if (customerResolution?.strategy === 'ambiguous' && customerResolution.candidates.length) {
       setAmbiguousCustomerCandidates(customerResolution.candidates);
     } else {
@@ -799,8 +818,8 @@ export default function Reviews() {
         ...current,
         staffId: identity.staffId!,
         ...customerFields,
+        ...saleTransferFields,
         evaluationKind: 'واتساب',
-        evaluationReason: 'متابعة جودة',
         conversationDate,
       }));
       setAmbiguousStaffIdentity(null);
@@ -815,8 +834,8 @@ export default function Reviews() {
       setForm((current) => ({
         ...current,
         ...customerFields,
+        ...saleTransferFields,
         evaluationKind: 'واتساب',
-        evaluationReason: 'متابعة جودة',
         conversationDate,
       }));
       setAmbiguousStaffIdentity(identity);
@@ -2168,8 +2187,22 @@ export default function Reviews() {
                 <span className="rounded-full bg-violet-500/20 px-2 py-1 text-[10px] font-black text-violet-200">تقييم ذكي مقترح</span>
                 <span className="text-[11px] text-slate-400">AI evaluates → Human approves — مفيش نقاط أو اعتماد قبل حفظك اليدوي للنموذج تحت</span>
               </div>
+              {smartSnapshot.smartIntelligence?.evaluationV2 ? (
+                <>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-4">
+                    <div className="rounded-xl bg-black/15 p-2.5 text-xs"><div className="text-slate-500">جودة المحادثة</div><div className="mt-1 text-lg font-black text-white">{smartSnapshot.smartIntelligence.evaluationV2.qualityScore ?? '-'}</div></div>
+                    <div className="rounded-xl bg-black/15 p-2.5 text-xs"><div className="text-slate-500">تغطية الأدلة</div><div className="mt-1 text-lg font-black text-cyan-200">{smartSnapshot.smartIntelligence.evaluationV2.evidenceCoverage}%</div></div>
+                    <div className="rounded-xl bg-black/15 p-2.5 text-xs"><div className="text-slate-500">ثقة التحليل</div><div className="mt-1 text-lg font-black text-emerald-200">{smartSnapshot.smartIntelligence.evaluationV2.confidence}%</div></div>
+                    <div className="rounded-xl bg-black/15 p-2.5 text-xs"><div className="text-slate-500">نتيجة البيع</div><div className="mt-1 font-black text-white">{smartSnapshot.smartIntelligence.evaluationV2.sale.label}</div></div>
+                  </div>
+                  <div className="mt-2 text-[11px] text-slate-400">{smartSnapshot.smartIntelligence.evaluationV2.scoreDisplayLabel}</div>
+                </>
+              ) : (
+                <div className="mt-2 text-xs text-slate-200">
+                  الدرجة على البنود المثبتة فقط: <b className="text-white">{smartSnapshot.officialReviewDraft.provisionalScore ?? '-'}</b> ({smartSnapshot.officialReviewDraft.scoreLabel})
+                </div>
+              )}
               <div className="mt-2 flex flex-wrap gap-4 text-xs text-slate-200">
-                <span>الدرجة المقترحة: <b className="text-white">{smartSnapshot.officialReviewDraft.provisionalScore ?? '-'}</b> ({smartSnapshot.officialReviewDraft.scoreLabel})</span>
                 <span className="text-emerald-300">بنود واثقة: {smartSnapshot.officialReviewDraft.confidentCriteriaCount}</span>
                 <span className="text-amber-300">تحتاج مراجعتك: {smartSnapshot.officialReviewDraft.needsReviewCriteriaCount}</span>
               </div>
