@@ -77,7 +77,10 @@ const REQUEST_REGISTERED_RX = /(تم تسجيل طلب|سجلنا طلب|اتس�
 const CS_FOLLOWUP_TOLD_RX = /(خدم[هة] العملاء.*هتتابع|هيتم متابعه|هيتم متابعة|هنخلي خدم[هة] العملاء|متابع[هة] من خدم[هة] العملاء)/i;
 const SALES_CLOSE_RX = /(ابعت لحضرتك|ابعته لحضرتك|ابعتهم لحضرتك|أبعته لحضرتك|تحب.*نبعته|تحبي.*نبعته|اكمل الطلب|أكمل الطلب|على عنوان|علي عنوان)/i;
 const FULFILLMENT_RX = /(جاري الارسال|جاري الإرسال|تم الارسال|تم الإرسال|في الطريق|فى الطريق|خرج لحضرتك|هبعته لحضرتك|هتكون عند حضرتك|مساف[هة] الطريق)/i;
-const DIRECT_COMMERCIAL_REPLY_RX = /(موجود|متاح|متوفر|ب\s*\d+|\d+\s*(?:ج|جنيه)|من عنيا|من عيني|حاضر|تحت امر حضرتك|تحت أمر حضرتك)/i;
+// "موجود/متاح/متوفر" اتشالوا من هنا عمدًا - بيأكدوا إن الصنف موجود بس، ومش بحد ذاتهم
+// خطوة تجارية (سعر/التزام بتنفيذ)، فمجرد "ايوه موجود" بدون أي حاجة تانية لازم يفضل
+// "missed" مش "partial" لأن الموظف رد على السؤال ومحاولش يقفل الفرصة خالص.
+const DIRECT_COMMERCIAL_REPLY_RX = /(ب\s*\d+|\d+\s*(?:ج|جنيه)|من عنيا|من عيني|حاضر|تحت امر حضرتك|تحت أمر حضرتك)/i;
 const CHOICE_RX = /(تحب|تحبي|حضرتك تفضل|حضرتك تفضلي|مقاس|تركيز|حجم|عدد)/i;
 const FOLLOWUP_PROMISE_RX = /(هتابع|هنتابع|بنتابع|هرجع لحضرتك|هنرجع لحضرتك|اطمن على حضرتك|نطمن على حضرتك)/i;
 const ILLNESS_RX = /(تعبان|تعبانه|اعراض|أعراض|كحه|كحة|حراره|حرارة|اسهال|إسهال|ترجيع|قيء|احتقان|الم|ألم|ضغط)/i;
@@ -155,10 +158,14 @@ export function analyzeSmartConversationDeep(session: WhatsAppConversationSessio
     .map((message) => extractSmartStaffIdentity(message))
     .find((identity) => identity?.role === 'customer_service');
   const openingRecovery = openingWindow.find((message) => isServiceRecoveryMessage(message));
+  // بادئ صيدلي عادي (تحية + تعريف بس، من غير سبب تواصل استباقي زي خدمة عملاء أو اعتذار)
+  // مش "Outreach" حقيقي - غرض المحادثة الفعلي بيبقى اللي العميل جاي عشانه. من غير كده،
+  // محادثة بيبدأها صيدلي بـ"أهلًا، مع حضرتك د اسلام" وبعدين طلب منتج حقيقي من العميل
+  // كانت بتتصنف "unknown" غلط بدل "customer_initiated".
   const entryOrigin: SmartEntryOrigin =
     first?.direction === 'outbound' && (openingServiceIdentity || openingRecovery)
       ? 'customer_service_outreach'
-      : first?.direction === 'inbound'
+      : first?.direction === 'inbound' || firstInbound
         ? 'customer_initiated'
         : 'unknown';
 
@@ -237,8 +244,14 @@ export function analyzeSmartConversationDeep(session: WhatsAppConversationSessio
   const explicitPromise = messages.find((m) => m.direction === 'outbound' && FOLLOWUP_PROMISE_RX.test(m.text || ''));
   const illness = firstInbound && ILLNESS_RX.test(firstInbound.text || '') ? firstInbound : messages.find((m) => m.direction === 'inbound' && ILLNESS_RX.test(m.text || ''));
   const recommendation = messages.find((m) => m.direction === 'outbound' && RECOMMENDATION_RX.test(m.text || ''));
-  const serviceIssue = messages.find((m) => isComplaintMessage(m) || isServiceRecoveryMessage(m));
-  const followReason = explicitPromise ? 'explicit_promise' : illness ? 'illness' : recommendation ? 'recommendation' : serviceIssue ? 'service_issue' : null;
+  // لو العميل نفى وجود مشكلة صراحة (زي "مفيش مشكله")، اعتذار الموظف اللاحق بيبقى أدب
+  // زيادة مش سبب متابعة حقيقي - ميتحسبش Service Issue خالص.
+  const customerDismissedIssue = messages.some((m) => m.direction === 'inbound' && COMPLAINT_NEGATION_RX.test(String(m.text || '')));
+  const serviceIssue = customerDismissedIssue ? undefined : messages.find((m) => isComplaintMessage(m) || isServiceRecoveryMessage(m));
+  // ترتيب الأولوية: سبب المتابعة الجذري (مشكلة خدمة/شكوى) يسبق أي وعد متابعة عام -
+  // رسالة اعتذار عن تأخير فيها كمان "بنتابع مع الفريق" لازم تتصنف service_issue مش
+  // explicit_promise؛ الوعد العام (explicit_promise) يفوز بس لو مفيش مشكلة خدمة حقيقية.
+  const followReason = serviceIssue ? 'service_issue' : illness ? 'illness' : recommendation ? 'recommendation' : explicitPromise ? 'explicit_promise' : null;
   const followEvidence = [explicitPromise?.id, illness?.id, recommendation?.id, serviceIssue?.id].filter(Boolean) as string[];
   const followup: SmartFollowupCandidate = { detected: Boolean(followReason), reason: followReason, evidenceMessageIds: unique(followEvidence), needsConfirmation: followReason !== 'explicit_promise' };
 
