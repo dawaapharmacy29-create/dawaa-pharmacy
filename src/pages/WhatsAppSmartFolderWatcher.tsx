@@ -32,6 +32,7 @@ import { extractPhoneCandidate, resolveCustomerContext } from '@/lib/whatsappCus
 import { extractCustomerHintFromExportFileName } from '@/lib/whatsappExportCustomerHint';
 import { buildWhatsAppCaseContextsV27 } from '@/lib/whatsappCaseContextV27';
 import { buildConversationTimingV28 } from '@/lib/whatsappConversationTimingV28';
+import { buildDelayAttributionV29 } from '@/lib/whatsappDelayAttributionV29';
 import { syncWhatsAppResponseTurnsV18 } from '@/lib/whatsappResponseTurnsV18';
 import { persistAnalyzedWhatsAppSession, attachInvoiceVerificationToQueue } from '@/lib/whatsappReviewPersistenceV4';
 import { buildWhatsAppCustomerJourneyIntelligenceV15 } from '@/lib/whatsappCustomerJourneyIntelligenceV15';
@@ -263,6 +264,7 @@ export default function WhatsAppSmartFolderWatcher() {
       });
 
       const caseTimingV28 = buildConversationTimingV28(session, roles, invoiceVerification);
+      const delayAttributionV29 = buildDelayAttributionV29(session, caseTimingV28, roles);
 
       // الموظفون داخل نفس Session مستقلون بعد تجهيز سياق الجلسة، فبدل N awaits متتالية
       // بنحل هويتهم ونبني تقييماتهم بالتوازي. ده يسرّع handoff sessions بوضوح.
@@ -324,6 +326,7 @@ export default function WhatsAppSmartFolderWatcher() {
             evaluationV2,
             timingV28: caseTimingV28,
             staffTimingV28,
+            delayAttributionV29,
           }),
         });
 
