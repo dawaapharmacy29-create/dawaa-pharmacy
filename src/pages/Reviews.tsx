@@ -30,6 +30,7 @@ import {
   type SevereErrorKey,
   type SevereErrorsState,
 } from '@/lib/conversationReviews';
+import { evaluateSalesJourneyReviewV2 } from '@/lib/salesJourneyReviewV2';
 import { supabase } from '@/lib/supabase';
 import { useAuth, getCurrentUserProfile } from '@/hooks/useAuth';
 import { normalizeBranchName } from '@/lib/branch';
@@ -897,6 +898,14 @@ export default function Reviews() {
   );
   const result = useMemo(() => {
     try {
+      if (smartSnapshot?.smartIntelligence?.evaluationV2) {
+        return evaluateSalesJourneyReviewV2(
+          reviewState,
+          severeErrors,
+          smartSnapshot.smartIntelligence.evaluationV2,
+          form.customerType
+        );
+      }
       return evaluateConversationReview(reviewState, severeErrors, form.customerType);
     } catch (err) {
       console.warn('[reviews] evaluateConversationReview failed', err);
@@ -928,7 +937,7 @@ export default function Reviews() {
         extraPenalties: [],
       } as any;
     }
-  }, [reviewState, severeErrors, form.customerType]);
+  }, [reviewState, severeErrors, form.customerType, smartSnapshot]);
   const finalTraining = form.trainingRecommendationManual || result.trainingRecommendation;
   const conversationDate = form.conversationDate || isoInputNow();
   const reviewCycle = useMemo(
