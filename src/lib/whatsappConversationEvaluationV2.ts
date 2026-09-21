@@ -95,6 +95,17 @@ export interface SmartConversationEvaluationV2 {
     summary: string;
     evidenceMessageIds: string[];
   };
+  serviceRecovery: {
+    detected: boolean;
+    score: number | null;
+    status: 'strong' | 'partial' | 'weak' | 'not_applicable';
+    issueType: 'order_delay' | 'service_issue' | 'unknown';
+    passed: string[];
+    missing: string[];
+    evidenceMessageIds: string[];
+    confidence: number;
+    summary: string;
+  };
   followups: FollowupOpportunityV2[];
   axes: EvaluationAxisV2[];
   qualityScore: number | null;
@@ -155,6 +166,12 @@ const SYMPTOM_RX = /(الم|ألم|حراره|حرارة|كحه|كحة|اسها�
 const RESULT_PRODUCT_RX = /(شعر|بشره|بشرة|كريم|سيرم|شامبو|غسول|فيتامين|مكمل)/i;
 const FOLLOWUP_PROMISE_RX = /(هتابع|هرجع|هبلغ|هتواصل|اول ما يتوفر|أول ما يتوفر|هطلبه|هنوفر)/i;
 const CROSS_SELL_RX = /(كمان|معاه|معاها|ممكن نضيف|نرشح لحضرتك|أرشح لحضرتك|في عرض|عندنا عرض)/i;
+const SERVICE_RECOVERY_RX = /(بنعتذر|نعتذر|متاسف|متأسف|اسفين|آسفين|عن\s+التاخير|عن\s+التأخير|التأخير اللي حصل|تاخير\s+(?:الطلب|الاوردر|الأوردر)|تأخير\s+(?:الطلب|الاوردر|الأوردر)|هنعوض|نعوض حضرتك|نتابع مع الفريق|هنتابع مع الفريق|رضا حضرتك وثقتك|أسرع وقت ممكن)/i;
+const RECOVERY_APOLOGY_RX = /(بنعتذر|نعتذر|متاسف|متأسف|اسفين|آسفين)/i;
+const RECOVERY_OWNERSHIP_RX = /(بنتابع|هنتابع|هنراجع|نتابع مع الفريق|الفريق المختص|مهتمين.*(?:طلب|وصول)|هنحل|تم الحل)/i;
+const RECOVERY_ETA_RX = /(خلال\s+\d+|نص ساعه|نص ساعة|خلال ساعة|موعد|ميعاد|النهارده|اليوم|بكره|بكرة|أسرع وقت ممكن|اسرع وقت ممكن)/i;
+const RECOVERY_COMPENSATION_RX = /(هنعوض|نعوض حضرتك|تعويض|هدية|خصم|رضا حضرتك وثقتك)/i;
+const RECOVERY_REASSURANCE_RX = /(اطمن|أطمن|مهتمين|رضا حضرتك|ثقتك|حسن ظنك)/i;
 
 function scoreOpening(session: WhatsAppConversationSession): ComplianceDimensionV2 {
   const out = messages(session, 'outbound');
@@ -201,6 +218,63 @@ function scoreClosing(session: WhatsAppConversationSession, orderConfirmed: bool
     passed,
     missing,
     evidence: { messageIds: ids(tail), reason: customerEnded ? 'العميل أرسل آخر رسالة؛ تم خفض يقين الحكم على الختام.' : 'تم فحص آخر الرسائل الصادرة كنهاية فعلية للجلسة.', confidence: customerEnded ? 78 : 92 },
+  };
+}
+
+function scoreServiceRecovery(session: WhatsAppConversationSession) {
+  const outbound = messages(session, 'outbound');
+  const recoveryMessages = outbound.filter((message) => SERVICE_RECOVERY_RX.test(String(message.text || '')));
+  if (!recoveryMessages.length) {
+    return {
+      detected: false,
+      score: null,
+      status: 'not_applicable' as const,
+      issueType: 'unknown' as const,
+      passed: [],
+      missing: [],
+      evidenceMessageIds: [],
+      confidence: 90,
+      summary: 'لا توجد رحلة اعتذار/استعادة خدمة واضحة في هذه الجلسة.',
+    };
+  }
+
+  const text = recoveryMessages.map((message) => message.text).join(' ');
+  const all = session.messages.map((message) => message.text).join(' ');
+  const passed: string[] = [];
+  const missing: string[] = [];
+
+  if (RECOVERY_APOLOGY_RX.test(text)) passed.push('اعتذار واضح'); else missing.push('الاعتذار');
+  if (COMPLAINT_RX.test(all) || /تأخير|تاخير|مشكله|مشكلة|ماوصلش|لسه مجاش/i.test(all)) passed.push('تحديد سبب التواصل/المشكلة'); else missing.push('تحديد المشكلة');
+  if (RECOVERY_OWNERSHIP_RX.test(text)) passed.push('تحمل المسؤولية وذكر إجراء واضح'); else missing.push('الإجراء/تحمل المسؤولية');
+  if (RECOVERY_ETA_RX.test(text)) passed.push('توضيح الخطوة التالية أو التوقيت'); else missing.push('توقيت أو خطوة تالية واضحة');
+  if (RECOVERY_REASSURANCE_RX.test(text)) passed.push('طمأنة واهتمام بالعميل'); else missing.push('طمأنة العميل');
+  if (RECOVERY_COMPENSATION_RX.test(text)) passed.push('محاولة استعادة الرضا/تعويض'); else missing.push('استعادة الرضا/تعويض عند اللزوم');
+
+  // التعويض عنصر Bonus وليس مطلوبًا دائمًا، لذلك الأساس 5 عناصر،
+  // ويصبح العنصر السادس قيمة إضافية بدل أن يظلم الرسالة لو لم يكن التعويض مناسبًا.
+  const corePassed = passed.filter((item) => item !== 'محاولة استعادة الرضا/تعويض').length;
+  const bonus = passed.includes('محاولة استعادة الرضا/تعويض') ? 8 : 0;
+  const score = clamp(Math.round((corePassed / 5) * 92) + bonus);
+  const issueType = /تأخير|تاخير|ماوصلش|لسه مجاش|توصيل|اوردر|أوردر/i.test(all)
+    ? 'order_delay' as const
+    : COMPLAINT_RX.test(all)
+      ? 'service_issue' as const
+      : 'unknown' as const;
+
+  return {
+    detected: true,
+    score,
+    status: score >= 90 ? 'strong' as const : score >= 65 ? 'partial' as const : 'weak' as const,
+    issueType,
+    passed,
+    missing,
+    evidenceMessageIds: ids(recoveryMessages),
+    confidence: 92,
+    summary: score >= 90
+      ? 'استعادة خدمة قوية: اعتذار + إجراء + طمأنة + خطوة تالية واضحة.'
+      : score >= 65
+        ? 'استعادة خدمة جيدة لكن ينقصها عنصر أو أكثر لإغلاق المشكلة باحتراف.'
+        : 'الاعتذار موجود لكن إدارة استعادة الخدمة ما زالت ناقصة.',
   };
 }
 
@@ -308,6 +382,7 @@ export function buildSmartConversationEvaluationV2(
   }
 ): SmartConversationEvaluationV2 {
   const sale = saleOutcome(session, options.invoiceVerification);
+  const serviceRecovery = scoreServiceRecovery(session);
   const opening = scoreOpening(session);
   const closing = scoreClosing(session, ['order_confirmed', 'invoice_verified_sale', 'probable_sale'].includes(sale.outcome));
   const order = orderCompleteness(session, sale.outcome);
@@ -330,15 +405,38 @@ export function buildSmartConversationEvaluationV2(
       : options.consultationCommunication === 'needs_review' ? 50
         : null;
   const followups = followupsFor(session, sale.outcome, options.purchaseHistory);
-  const retentionScore = closing.score == null
-    ? null
-    : clamp(Math.round(closing.score * 0.55 + (followups.length ? 45 : 30)));
+  const retentionScore = serviceRecovery.detected
+    ? clamp(Math.round((serviceRecovery.score || 0) * 0.65 + (followups.length ? 35 : 20)))
+    : closing.score == null
+      ? null
+      : clamp(Math.round(closing.score * 0.55 + (followups.length ? 45 : 30)));
+
+  const communicationComponents = serviceRecovery.detected
+    ? [opening.score, serviceRecovery.score]
+    : [opening.score, closing.score];
+  const fulfillmentComponents = serviceRecovery.detected && serviceRecovery.issueType === 'order_delay'
+    ? [serviceRecovery.score]
+    : [order.score];
 
   const axes = [
-    axis('communication', 'الخدمة والتواصل', [opening.score, closing.score], 'الافتتاح والختام وجودة اكتمال التواصل الظاهر.'),
+    axis(
+      'communication',
+      'الخدمة والتواصل',
+      communicationComponents,
+      serviceRecovery.detected ? serviceRecovery.summary : 'الافتتاح والختام وجودة اكتمال التواصل الظاهر.'
+    ),
     axis('consultation', 'الاستشارة والجودة', [consultationScore], consultationScore == null ? 'لا يوجد أساس كافٍ لتقييم الاستشارة آليًا.' : 'مبني على وضوح التواصل الاستشاري فقط، وليس حكمًا طبيًا على صحة العلاج.'),
     axis('sales', 'البيع واستغلال الفرص', [saleScore, opportunityScore], sale.label),
-    axis('fulfillment', 'تنفيذ الأوردر', [order.score], order.applicable ? `تم تأكيد ${order.confirmedCount} من ${order.requiredCount} عناصر قابلة للحسم.` : 'لا يوجد أوردر مكتمل يجعل المحور منطبقًا.'),
+    axis(
+      'fulfillment',
+      'تنفيذ الأوردر',
+      fulfillmentComponents,
+      serviceRecovery.detected && serviceRecovery.issueType === 'order_delay'
+        ? 'المحور هنا يقيس جودة التعامل مع تأخير الأوردر، وليس اكتمال أوردر جديد.'
+        : order.applicable
+          ? `تم تأكيد ${order.confirmedCount} من ${order.requiredCount} عناصر قابلة للحسم.`
+          : 'لا يوجد أوردر مكتمل يجعل المحور منطبقًا.'
+    ),
     axis('retention', 'الاحتفاظ والمتابعة', [retentionScore], followups.length ? `${followups.length} فرصة متابعة محتملة.` : 'لم يتم اكتشاف متابعة واضحة لهذه الجلسة.'),
   ];
 
@@ -351,7 +449,8 @@ export function buildSmartConversationEvaluationV2(
   const warnings: string[] = [];
   if (evidenceCoverage < 80) warnings.push('تغطية الأدلة أقل من 80%؛ الدرجة لا تمثل كل جوانب المحادثة.');
   if (session.missingMediaCount) warnings.push(`يوجد ${session.missingMediaCount} مرفق غير متاح قد يخفي تفاصيل مؤثرة.`);
-  if (order.missingCritical.length) warnings.push(`بيانات أوردر مهمة غير مثبتة: ${order.missingCritical.join('، ')}.`);
+  if (!serviceRecovery.detected && order.missingCritical.length) warnings.push(`بيانات أوردر مهمة غير مثبتة: ${order.missingCritical.join('، ')}.`);
+  if (serviceRecovery.detected && serviceRecovery.missing.length) warnings.push(`استعادة الخدمة ينقصها: ${serviceRecovery.missing.join('، ')}.`);
   if (sale.outcome === 'customer_accepted' && options.invoiceVerification.status === 'not_found') warnings.push('موافقة العميل لا تعني بيعًا مكتملًا بدون دليل تنفيذ/فاتورة.');
 
   return {
@@ -365,6 +464,7 @@ export function buildSmartConversationEvaluationV2(
     opening,
     closing,
     orderCompleteness: order,
+    serviceRecovery,
     opportunities: {
       detected: salesOpps.length,
       handled,
