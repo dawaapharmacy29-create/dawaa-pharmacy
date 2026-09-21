@@ -306,6 +306,7 @@ export async function loadStaffDetailSections(args: {
         .from('shift_schedules')
         .select('*')
         .eq('staff_id', args.staffId)
+        .is('effective_to', null)
         .limit(80);
       const timeOff = await listStaffTimeOffRequests({
         staffId: args.staffId,
