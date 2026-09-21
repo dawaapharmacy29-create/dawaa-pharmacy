@@ -782,7 +782,43 @@ export default function WhatsAppSmartFolderWatcher() {
                         ))}
                       </section>
 
-                      <section className="grid gap-3 lg:grid-cols-2">
+                      {selected.snapshot.smartIntelligence.evaluationV2.serviceRecovery.detected ? (
+                        <section className="rounded-2xl border border-amber-700/40 bg-amber-950/10 p-4">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                              <div className="text-xs font-black text-amber-200">استعادة الخدمة / معالجة التأخير</div>
+                              <div className="mt-1 text-base font-black text-white">{selected.snapshot.smartIntelligence.evaluationV2.serviceRecovery.summary}</div>
+                              <div className="mt-1 text-[11px] text-slate-400">
+                                {selected.snapshot.smartIntelligence.evaluationV2.serviceRecovery.issueType === 'order_delay' ? 'تأخير أوردر' : 'مشكلة خدمة'} · ثقة {selected.snapshot.smartIntelligence.evaluationV2.serviceRecovery.confidence}%
+                              </div>
+                            </div>
+                            <div className="rounded-xl bg-black/15 px-4 py-2 text-center">
+                              <div className="text-[10px] text-slate-500">Recovery Score</div>
+                              <div className="text-2xl font-black text-amber-200">{selected.snapshot.smartIntelligence.evaluationV2.serviceRecovery.score ?? '-'}</div>
+                            </div>
+                          </div>
+                          <div className="mt-3 grid gap-2 md:grid-cols-2">
+                            <div className="rounded-xl bg-emerald-500/5 p-3">
+                              <div className="text-[10px] font-black text-emerald-300">تم بشكل جيد</div>
+                              <div className="mt-1 text-xs leading-6 text-slate-300">
+                                {selected.snapshot.smartIntelligence.evaluationV2.serviceRecovery.passed.length
+                                  ? selected.snapshot.smartIntelligence.evaluationV2.serviceRecovery.passed.map((item) => <div key={item}>✓ {item}</div>)
+                                  : <div className="text-slate-500">لا توجد عناصر مؤكدة.</div>}
+                              </div>
+                            </div>
+                            <div className="rounded-xl bg-rose-500/5 p-3">
+                              <div className="text-[10px] font-black text-rose-300">فرص التحسين</div>
+                              <div className="mt-1 text-xs leading-6 text-slate-300">
+                                {selected.snapshot.smartIntelligence.evaluationV2.serviceRecovery.missing.length
+                                  ? selected.snapshot.smartIntelligence.evaluationV2.serviceRecovery.missing.map((item) => <div key={item}>• {item}</div>)
+                                  : <div className="text-slate-500">لا توجد نواقص واضحة.</div>}
+                              </div>
+                            </div>
+                          </div>
+                        </section>
+                      ) : null}
+
+                                            <section className="grid gap-3 lg:grid-cols-2">
                         <div className="rounded-2xl border border-emerald-800/30 bg-emerald-950/10 p-4">
                           <div className="text-xs font-black text-emerald-200">نتيجة البيع</div>
                           <div className="mt-1 text-base font-black text-white">{selected.snapshot.smartIntelligence.evaluationV2.sale.label}</div>
