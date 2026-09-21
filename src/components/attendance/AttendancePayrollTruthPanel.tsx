@@ -122,6 +122,15 @@ export default function AttendancePayrollTruthPanel({
 
   useEffect(() => { void load(); }, [load]);
 
+  const financialDriftRows = useMemo(
+    () => driftRows.filter((row) => Math.abs(row.stored_hours - row.rebuilt_hours) > 0.1),
+    [driftRows]
+  );
+  const classificationDriftRows = useMemo(
+    () => driftRows.filter((row) => Math.abs(row.stored_hours - row.rebuilt_hours) <= 0.1),
+    [driftRows]
+  );
+
   const totals = useMemo(() => rows.reduce((acc, row) => ({
     workedDays: acc.workedDays + row.actual_worked_days,
     workedHours: acc.workedHours + row.actual_worked_hours,
@@ -149,25 +158,26 @@ export default function AttendancePayrollTruthPanel({
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
         <Metric label="أيام عمل فعلية" value={totals.workedDays} icon={CalendarDays} />
         <Metric label="ساعات عمل فعلية" value={totals.workedHours.toFixed(2)} icon={Clock3} />
         <Metric label="ساعات أساسية مرشحة" value={totals.baseHours.toFixed(2)} icon={Users2} />
         <Metric label="أيام معلقة" value={totals.pending} icon={AlertTriangle} />
         <Metric label="أوفر تايم معتمد" value={totals.approvedOvertime.toFixed(2)} icon={Timer} />
-        <Metric label="إعادة اعتماد مطلوبة" value={driftRows.length} icon={AlertTriangle} />
+        <Metric label="فروق مالية تحتاج اعتماد" value={financialDriftRows.length} icon={AlertTriangle} />
+        <Metric label="فروق تصنيف فقط" value={classificationDriftRows.length} icon={AlertTriangle} />
       </div>
 
       {error && <div className="rounded-xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-3 text-sm font-bold text-[var(--dawaa-status-danger-text)]">⚠️ {error}</div>}
 
-      {driftRows.length > 0 && (
+      {financialDriftRows.length > 0 && (
         <div className="rounded-2xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-4">
           <div className="flex items-start gap-2">
             <AlertTriangle size={18} className="mt-0.5 shrink-0 text-[var(--dawaa-status-danger-text)]" />
             <div>
-              <div className="font-black text-[var(--dawaa-status-danger-text)]">يوجد {driftRows.length} يوم معتمد يحتاج إعادة مراجعة</div>
+              <div className="font-black text-[var(--dawaa-status-danger-text)]">يوجد {financialDriftRows.length} يوم فيه فرق ساعات مالي ويحتاج إعادة اعتماد</div>
               <div className="mt-1 text-xs font-bold text-[var(--dawaa-status-danger-text)]">
-                البيانات المحفوظة قديمًا لا تطابق إعادة بناء اليوم بالجدول والبصمات الحالية. هذه الأيام تمنع الاعتماد المالي النهائي ولا يتم تعديلها تلقائيًا.
+                الساعات المعتمدة قديمًا تختلف عن إعادة بناء اليوم من الجدول والبصمات الحالية. هذه الأيام فقط تمنع الاعتماد المالي النهائي، ولا يتم تعديلها تلقائيًا.
               </div>
             </div>
           </div>
@@ -179,7 +189,7 @@ export default function AttendancePayrollTruthPanel({
                 <th className="p-2 text-right">الساعات</th><th className="p-2 text-right">سبب الفرق</th>
               </tr></thead>
               <tbody>
-                {driftRows.slice(0, 25).map((row) => <tr key={`${row.staff_id}-${row.attendance_date}`} className="border-b border-[var(--dawaa-theme-divider)] last:border-0">
+                {financialDriftRows.slice(0, 25).map((row) => <tr key={`${row.staff_id}-${row.attendance_date}`} className="border-b border-[var(--dawaa-theme-divider)] last:border-0">
                   <td className="p-2 font-black">{row.staff_name}<div className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">{row.branch || '-'}</div></td>
                   <td className="p-2">{row.attendance_date}</td>
                   <td className="p-2">{statusLabel(row.stored_status)}</td>
@@ -190,6 +200,12 @@ export default function AttendancePayrollTruthPanel({
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {classificationDriftRows.length > 0 && (
+        <div className="rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-3 text-xs font-bold text-[var(--dawaa-status-warning-text)]">
+          يوجد {classificationDriftRows.length} فرق تصنيف تاريخي مع نفس عدد الساعات (مثل متأخر ↔ متأخر جدًا أو حالة يوم إجازة). تظهر للمراجعة والجودة، لكنها لا توقف المرتب وحدها.
         </div>
       )}
 
