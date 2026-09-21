@@ -637,6 +637,14 @@ export default function WhatsAppSmartFolderWatcher() {
                           <b>{selected.snapshot.smartIntelligence.customer.customer.name}</b>
                           <div className="mt-1 text-xs text-slate-400">كود {selected.snapshot.smartIntelligence.customer.customer.code || '-'} · {selected.snapshot.smartIntelligence.customer.customer.branch || 'فرع غير محدد'} · ثقة {Math.round(selected.snapshot.smartIntelligence.customer.confidence * 100)}%</div>
                         </div>
+                      ) : selected.customerName ? (
+                        <div className="mt-2">
+                          <div className="text-sm font-black text-cyan-100">{selected.customerName}</div>
+                          <div className="mt-1 text-[11px] leading-5 text-slate-500">
+                            اسم مستخرج من ملف التصدير/المحادثة كـ hint للبحث — لم يتم ربطه بسجل عميل مؤكد بعد.
+                          </div>
+                          <div className="mt-1 text-xs text-slate-400">{selected.snapshot.smartIntelligence?.customer?.reason || 'تعذر تحديد العميل تلقائيًا.'}</div>
+                        </div>
                       ) : (
                         <div className="mt-2 text-xs text-slate-400">{selected.snapshot.smartIntelligence?.customer?.reason || 'تعذر تحديد العميل تلقائيًا.'}</div>
                       )}
