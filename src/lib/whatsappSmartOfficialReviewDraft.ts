@@ -21,6 +21,7 @@ import type { WhatsAppConversationSession } from '@/lib/whatsappConversationPars
 import type { ReviewCriterionKey } from '@/lib/conversationReviews';
 import type { ConversationJourneyResult } from '@/lib/whatsappConversationJourneyClassifier';
 import type { SmartConversationEvaluationV2 } from '@/lib/whatsappConversationEvaluationV2';
+import type { ConversationTimingV28 } from '@/lib/whatsappConversationTimingV28';
 
 const MIN_CONFIDENT_CONFIDENCE = 70;
 
@@ -83,7 +84,7 @@ function resolveStatus(
 export function buildSmartOfficialReviewDraftV1(
   session: WhatsAppConversationSession,
   customerName?: string | null,
-  options?: { missingMediaMessageIds?: string[]; journey?: ConversationJourneyResult | null; evaluationV2?: SmartConversationEvaluationV2 | null }
+  options?: { missingMediaMessageIds?: string[]; journey?: ConversationJourneyResult | null; evaluationV2?: SmartConversationEvaluationV2 | null; timingV28?: ConversationTimingV28 | null }
 ): SmartOfficialReviewDraftV1 {
   const suggestion = buildOfficialReviewSuggestion(session, customerName);
   const missingMedia = new Set(options?.missingMediaMessageIds || []);
@@ -109,6 +110,7 @@ export function buildSmartOfficialReviewDraftV1(
   });
 
   const evalV2 = options?.evaluationV2 || null;
+  const timingV28 = options?.timingV28 || null;
   if (evalV2) {
     const byKey = new Map(criteria.map((item) => [item.criterionKey, item]));
     const set = (
@@ -118,6 +120,43 @@ export function buildSmartOfficialReviewDraftV1(
       const current = byKey.get(key);
       if (current) Object.assign(current, patch);
     };
+
+    // سرعة أول رد تعتمد على الـTurn الفعلي: آخر رسالة للعميل → أول رد صيدلية بعدها.
+    // ده يمنع حساب وقت من بداية الـCase أو تحميل دكتور جديد تأخير حصل قبل استلامه.
+    if (timingV28?.responseSummary.firstResponseSeconds != null) {
+      const seconds = timingV28.responseSummary.firstResponseSeconds;
+      const minutes = seconds / 60;
+      const choice = minutes <= 5
+        ? 'within_5'
+        : minutes <= 10
+          ? 'five_to_10'
+          : minutes <= 20
+            ? 'ten_to_20'
+            : minutes <= 30
+              ? 'over_20'
+              : 'over_30';
+      const firstTurn = timingV28.responseTurns.find((turn) => turn.responseLatencySeconds === seconds) || timingV28.responseTurns[0];
+      set('first_response_speed', {
+        applies: true,
+        suggestedChoice: choice,
+        suggestedLabel: choice === 'within_5'
+          ? 'من 0 إلى 5 دقائق'
+          : choice === 'five_to_10'
+            ? 'أكثر من 5 إلى 10 دقائق'
+            : choice === 'ten_to_20'
+              ? 'أكثر من 10 إلى 20 دقيقة'
+              : choice === 'over_20'
+                ? 'أكثر من 20 إلى 30 دقيقة'
+                : 'أكثر من 30 دقيقة',
+        confidence: 99,
+        status: 'confident',
+        reason: `زمن أول رد الفعلي محسوب من آخر رسالة في Turn العميل إلى أول رد بعدها: ${Math.max(0, Math.round(seconds / 60))} دقيقة.`,
+        evidenceMessageIds: [
+          ...(firstTurn?.inboundMessageIds || []),
+          ...(firstTurn?.responseMessageId ? [firstTurn.responseMessageId] : []),
+        ],
+      });
+    }
 
     // افتتاح الرسالة: V2 يفحص عناصر محددة (تحية/الصيدلية/اسم المسؤول/عرض المساعدة)
     // بدل اعتبار أي كلمة ترحيب = رسالة رسمية كاملة.
