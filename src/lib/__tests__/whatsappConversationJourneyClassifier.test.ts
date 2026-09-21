@@ -57,6 +57,15 @@ describe('classifyConversationJourney', () => {
     expect(result.journeyType).toBe('checkin_then_consultation');
   });
 
+  it('pharmacy proactively apologizes for delayed order -> service_recovery_outreach', () => {
+    const result = classify(
+      `[9/15/26, 9:00:00 AM] You: مع حضرتك نور من خدمة عملاء صيدليات دواء، بنعتذر عن تأخير الأوردر وبنتابع مع الفريق المختص علشان يوصل في أسرع وقت ممكن
+[9/15/26, 9:02:00 AM] Customer: تمام شكراً`
+    );
+    expect(result.journeyType).toBe('service_recovery_outreach');
+    expect(result.saleState).toBe('no_verified_invoice');
+  });
+
   it('customer opens the conversation with a direct request -> direct_customer_request', () => {
     const result = classify(
       `[9/15/26, 9:00:00 AM] Customer: عايز اطلب فيتامين د للتوصيل\n[9/15/26, 9:01:00 AM] You: تمام هظبطلك الطلب بسعر 100 جنيه`
