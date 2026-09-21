@@ -19,6 +19,9 @@ export type ConversationJourneyType =
   | 'checkin_then_order'
   | 'checkin_then_consultation'
   | 'checkin_then_verified_sale'
+  | 'service_recovery_outreach'
+  | 'service_recovery_then_request'
+  | 'service_recovery_then_verified_sale'
   | 'direct_customer_request'
   | 'other';
 
@@ -37,9 +40,14 @@ const JOURNEY_LABELS: Record<ConversationJourneyType, string> = {
   checkin_then_order: 'خدمة عملاء بدأت متابعة، وبعدها العميل طلب صنف/كمّل أوردر',
   checkin_then_consultation: 'متابعة بدأت من الصيدلية ثم تحوّلت لاستشارة',
   checkin_then_verified_sale: 'متابعة بدأت من الصيدلية ثم تحوّلت لعملية بيع مؤكدة بالفاتورة',
+  service_recovery_outreach: 'خدمة العملاء بدأت باعتذار/استعادة خدمة بسبب مشكلة أو تأخير سابق',
+  service_recovery_then_request: 'اعتذار/استعادة خدمة ثم ظهر طلب جديد من العميل',
+  service_recovery_then_verified_sale: 'اعتذار/استعادة خدمة ثم تحولت المحادثة لبيع مؤكد',
   direct_customer_request: 'العميل بدأ المحادثة بطلب مباشر',
   other: 'نوع محادثة غير محسوم',
 };
+
+const SERVICE_RECOVERY_RX = /(بنعتذر|نعتذر|متاسف|متأسف|اسفين|آسفين|عن\s+التاخير|عن\s+التأخير|تاخير\s+(?:الطلب|الاوردر|الأوردر)|تأخير\s+(?:الطلب|الاوردر|الأوردر)|هنعوض|نعوض حضرتك|نتابع مع الفريق|هنتابع مع الفريق|وصول طلب حضرتك)/i;
 
 const SALE_STATE_LABELS: Record<SaleState, string> = {
   chat_sale_signal: 'إشارة بيع من الشات فقط (غير مؤكدة)',
@@ -102,9 +110,25 @@ export function classifyConversationJourney(
   const consultationAfterCheckin = checkinDetected && hasConsultationSignal;
 
   const saleState = mapSaleState(base, invoiceVerification);
+  const recoveryMessages = session.messages.filter(
+    (message) => message.direction === 'outbound' && SERVICE_RECOVERY_RX.test(String(message.text || ''))
+  );
+  const recoveryDetected = recoveryMessages.length > 0;
+  const firstRecoveryIdx = recoveryDetected
+    ? Math.min(...recoveryMessages.map((message) => messageIndexById(session, message.id)).filter((index) => index >= 0))
+    : -1;
+  const requestAfterRecovery = recoveryDetected
+    ? hasRequestSignal && (firstRecoveryIdx < 0 || anyAfter(session, requestIds, firstRecoveryIdx))
+    : false;
 
   let journeyType: ConversationJourneyType;
-  if (checkinDetected && saleState === 'invoice_verified_sale') {
+  if (recoveryDetected && saleState === 'invoice_verified_sale') {
+    journeyType = 'service_recovery_then_verified_sale';
+  } else if (recoveryDetected && requestAfterRecovery) {
+    journeyType = 'service_recovery_then_request';
+  } else if (recoveryDetected) {
+    journeyType = 'service_recovery_outreach';
+  } else if (checkinDetected && saleState === 'invoice_verified_sale') {
     journeyType = 'checkin_then_verified_sale';
   } else if (checkinDetected && requestAfterCheckin) {
     journeyType = 'checkin_then_order';
