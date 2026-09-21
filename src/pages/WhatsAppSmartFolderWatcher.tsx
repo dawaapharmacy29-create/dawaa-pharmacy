@@ -603,6 +603,28 @@ export default function WhatsAppSmartFolderWatcher() {
                     <div className="rounded-xl border border-slate-800 bg-slate-950/30 p-3"><div className="text-[10px] text-slate-500">الاعتماد السريع</div><div className="mt-1 text-sm font-black text-white">{selected.safe ? 'ممكن بعد مراجعة' : 'غير مسموح'}</div></div>
                   </section>
 
+                  {selected.snapshot.smartIntelligence?.evaluationV2 ? (
+                    <section className="rounded-2xl border border-cyan-800/40 bg-cyan-950/10 p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <div className="text-[10px] font-black text-cyan-300">CONVERSATION OUTCOME V2</div>
+                          <div className="mt-1 text-base font-black text-white">{selected.snapshot.smartIntelligence.evaluationV2.sale.label}</div>
+                          <div className="mt-1 text-xs leading-6 text-slate-400">{selected.snapshot.smartIntelligence.evaluationV2.sale.reason}</div>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2 text-center text-[10px]">
+                          <div className="rounded-xl bg-black/15 px-3 py-2"><div className="text-slate-500">جودة</div><b className="text-white">{selected.snapshot.smartIntelligence.evaluationV2.qualityScore ?? '-'}</b></div>
+                          <div className="rounded-xl bg-black/15 px-3 py-2"><div className="text-slate-500">تغطية</div><b className="text-cyan-200">{selected.snapshot.smartIntelligence.evaluationV2.evidenceCoverage}%</b></div>
+                          <div className="rounded-xl bg-black/15 px-3 py-2"><div className="text-slate-500">ثقة</div><b className="text-emerald-200">{selected.snapshot.smartIntelligence.evaluationV2.confidence}%</b></div>
+                        </div>
+                      </div>
+                      {selected.snapshot.smartIntelligence.evaluationV2.warnings.length ? (
+                        <div className="mt-3 space-y-1 rounded-xl border border-amber-800/30 bg-amber-950/10 p-3 text-[11px] text-amber-100">
+                          {selected.snapshot.smartIntelligence.evaluationV2.warnings.map((warning) => <div key={warning}>• {warning}</div>)}
+                        </div>
+                      ) : null}
+                    </section>
+                  ) : null}
+
                   {(selected.reasons.length || selected.intelligence?.salesOpportunities.length) ? (
                     <section className="grid gap-3 lg:grid-cols-2">
                       <div className="rounded-2xl border border-amber-800/30 bg-amber-950/10 p-4">
@@ -678,25 +700,84 @@ export default function WhatsAppSmartFolderWatcher() {
 
               {detailTab === 'review' ? (
                 <div className="space-y-3">
-                  {selected.snapshot.officialReviewDraft ? (
+                  {selected.snapshot.smartIntelligence?.evaluationV2 ? (
+                    <>
+                      <section className="rounded-2xl border border-violet-800/50 bg-violet-950/10 p-4">
+                        <div className="flex flex-wrap items-start justify-between gap-4">
+                          <div>
+                            <div className="text-xs font-black text-violet-200">التقييم الذكي — رحلة المحادثة</div>
+                            <div className="mt-1 text-2xl font-black text-white">{selected.snapshot.smartIntelligence.evaluationV2.qualityScore ?? '-'}<span className="text-sm text-slate-500">/100</span></div>
+                            <div className="mt-1 text-xs text-slate-400">{selected.snapshot.smartIntelligence.evaluationV2.scoreDisplayLabel}</div>
+                          </div>
+                          <div className="flex flex-wrap gap-2 text-[11px]">
+                            <span className="rounded-xl bg-cyan-500/10 px-3 py-2 font-black text-cyan-200">تغطية {selected.snapshot.smartIntelligence.evaluationV2.evidenceCoverage}%</span>
+                            <span className="rounded-xl bg-emerald-500/10 px-3 py-2 font-black text-emerald-300">ثقة {selected.snapshot.smartIntelligence.evaluationV2.confidence}%</span>
+                            {selected.snapshot.officialReviewDraft ? <span className="rounded-xl bg-amber-500/10 px-3 py-2 font-black text-amber-300">{selected.snapshot.officialReviewDraft.needsReviewCriteriaCount} بند مراجعة</span> : null}
+                          </div>
+                        </div>
+                      </section>
+
+                      <section className="grid gap-2 md:grid-cols-5">
+                        {selected.snapshot.smartIntelligence.evaluationV2.axes.map((axis) => (
+                          <div key={axis.key} className="rounded-xl border border-slate-800 bg-slate-950/25 p-3">
+                            <div className="text-[10px] font-bold text-slate-500">{axis.label}</div>
+                            <div className="mt-1 text-xl font-black text-white">{axis.score ?? '-'}</div>
+                            <div className="mt-1 text-[10px] text-slate-500">تغطية {axis.coverage}%</div>
+                          </div>
+                        ))}
+                      </section>
+
+                      <section className="grid gap-3 lg:grid-cols-2">
+                        <div className="rounded-2xl border border-emerald-800/30 bg-emerald-950/10 p-4">
+                          <div className="text-xs font-black text-emerald-200">نتيجة البيع</div>
+                          <div className="mt-1 text-base font-black text-white">{selected.snapshot.smartIntelligence.evaluationV2.sale.label}</div>
+                          <div className="mt-1 text-xs leading-6 text-slate-400">{selected.snapshot.smartIntelligence.evaluationV2.sale.reason}</div>
+                          {selected.snapshot.smartIntelligence.evaluationV2.sale.invoiceNumber ? <div className="mt-2 text-xs text-emerald-300">فاتورة {selected.snapshot.smartIntelligence.evaluationV2.sale.invoiceNumber}{selected.snapshot.smartIntelligence.evaluationV2.sale.revenue != null ? ` · ${selected.snapshot.smartIntelligence.evaluationV2.sale.revenue} ج` : ''}</div> : null}
+                        </div>
+                        <div className="rounded-2xl border border-sky-800/30 bg-sky-950/10 p-4">
+                          <div className="text-xs font-black text-sky-200">اكتمال الأوردر</div>
+                          <div className="mt-1 text-base font-black text-white">{selected.snapshot.smartIntelligence.evaluationV2.orderCompleteness.applicable ? `${selected.snapshot.smartIntelligence.evaluationV2.orderCompleteness.confirmedCount}/${selected.snapshot.smartIntelligence.evaluationV2.orderCompleteness.requiredCount}` : 'غير منطبق'}</div>
+                          {selected.snapshot.smartIntelligence.evaluationV2.orderCompleteness.applicable ? (
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              {selected.snapshot.smartIntelligence.evaluationV2.orderCompleteness.items.filter((item) => item.status !== 'not_applicable').map((item) => (
+                                <span key={item.key} className={`rounded-full px-2 py-1 text-[10px] font-black ${item.status === 'confirmed' ? 'bg-emerald-500/10 text-emerald-300' : item.status === 'missing' ? 'bg-rose-500/10 text-rose-300' : 'bg-slate-800 text-slate-400'}`}>{item.label}</span>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+                      </section>
+
+                      <section className="grid gap-3 lg:grid-cols-2">
+                        <div className="rounded-2xl border border-slate-800 p-4">
+                          <div className="text-xs font-black text-white">الافتتاح والختام</div>
+                          <div className="mt-3 grid grid-cols-2 gap-2">
+                            <div className="rounded-xl bg-slate-950/30 p-3"><div className="text-[10px] text-slate-500">الافتتاح</div><b className="text-white">{selected.snapshot.smartIntelligence.evaluationV2.opening.score ?? '-'}</b><div className="mt-1 text-[10px] text-slate-500">{selected.snapshot.smartIntelligence.evaluationV2.opening.missing.length ? `ناقص: ${selected.snapshot.smartIntelligence.evaluationV2.opening.missing.join('، ')}` : 'مكتمل'}</div></div>
+                            <div className="rounded-xl bg-slate-950/30 p-3"><div className="text-[10px] text-slate-500">الختام</div><b className="text-white">{selected.snapshot.smartIntelligence.evaluationV2.closing.score ?? '-'}</b><div className="mt-1 text-[10px] text-slate-500">{selected.snapshot.smartIntelligence.evaluationV2.closing.missing.length ? `ناقص: ${selected.snapshot.smartIntelligence.evaluationV2.closing.missing.join('، ')}` : 'مكتمل'}</div></div>
+                          </div>
+                        </div>
+                        <div className="rounded-2xl border border-cyan-800/30 bg-cyan-950/10 p-4">
+                          <div className="text-xs font-black text-cyan-200">فرص المتابعة القادمة</div>
+                          <div className="mt-2 space-y-2">
+                            {selected.snapshot.smartIntelligence.evaluationV2.followups.length ? selected.snapshot.smartIntelligence.evaluationV2.followups.map((item) => (
+                              <div key={item.type} className="rounded-xl bg-black/10 p-2.5 text-xs">
+                                <div className="font-black text-white">{item.label} <span className="text-[10px] text-slate-500">· {item.timingLabel}</span></div>
+                                <div className="mt-1 text-slate-400">{item.reason}</div>
+                              </div>
+                            )) : <div className="text-xs text-slate-500">لا توجد فرصة متابعة واضحة لهذه الجلسة.</div>}
+                          </div>
+                        </div>
+                      </section>
+                    </>
+                  ) : selected.snapshot.officialReviewDraft ? (
                     <section className="rounded-2xl border border-violet-800/50 bg-violet-950/10 p-4">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                          <div className="text-xs font-black text-violet-200">التقييم الذكي المقترح</div>
-                          <div className="mt-1 text-2xl font-black text-white">{selected.snapshot.officialReviewDraft.provisionalScore ?? '-'}<span className="text-sm text-slate-500">/100</span></div>
-                          <div className="text-xs text-slate-400">{selected.snapshot.officialReviewDraft.scoreLabel}</div>
-                        </div>
-                        <div className="flex gap-2 text-xs">
-                          <span className="rounded-xl bg-emerald-500/10 px-3 py-2 font-black text-emerald-300">{selected.snapshot.officialReviewDraft.confidentCriteriaCount} واثقة</span>
-                          <span className="rounded-xl bg-amber-500/10 px-3 py-2 font-black text-amber-300">{selected.snapshot.officialReviewDraft.needsReviewCriteriaCount} تحتاج مراجعة</span>
-                        </div>
-                      </div>
+                      <div className="text-xs font-black text-violet-200">التقييم الذكي المقترح</div>
+                      <div className="mt-1 text-2xl font-black text-white">{selected.snapshot.officialReviewDraft.provisionalScore ?? '-'}<span className="text-sm text-slate-500">/100</span></div>
                     </section>
                   ) : (
                     <div className="rounded-2xl border border-slate-800 p-5 text-sm text-slate-400">لا يوجد Draft ذكي لهذه الحالة.</div>
                   )}
                   <div className="rounded-2xl border border-slate-800 bg-slate-950/20 p-4 text-xs leading-6 text-slate-400">
-                    هنا نعرض الخلاصة فقط. البنود التفصيلية والأدلة والتعديل النهائي موجودة في صفحة التقييم الرسمي لتقليل التكرار وطول الصفحة.
+                    الدرجة هنا مقترحة ومقيدة بنسبة تغطية الأدلة. البنود الرسمية والأدلة والتعديل النهائي موجودة في صفحة التقييم الرسمي، ولا توجد نقاط قبل الاعتماد والحفظ البشري.
                   </div>
                 </div>
               ) : null}
@@ -714,4 +795,5 @@ export default function WhatsAppSmartFolderWatcher() {
         </div>
       ) : null}
     </div>
-  );}
+  );
+}
