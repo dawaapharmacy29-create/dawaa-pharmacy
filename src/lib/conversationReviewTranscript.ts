@@ -62,6 +62,8 @@ export interface ConversationReviewSnapshot {
     safeToQuickApprove: boolean;
   };
   messages: ConversationReviewSnapshotMessage[];
+  /** النسخة الكاملة للـCase للمراجعة عند الحاجة. العرض/التقييم الافتراضي يعتمد على messages المركزة. */
+  fullCaseMessages?: ConversationReviewSnapshotMessage[];
   /**
    * مقاييس burst للرسائل الصادرة (whatsappOutboundMessageBursts.ts) — قراءة/عرض فقط،
    * تشخيصية بحتة. ممنوع استخدامها في أي KPI رسمي أو نقاط حاليًا (لسه ما اتحقّقتش على
@@ -113,6 +115,7 @@ function iso(value: Date | string | null | undefined) {
 export function buildConversationReviewSnapshot(args: {
   session: WhatsAppConversationSession;
   displayMessages: WhatsAppParsedMessage[];
+  fullCaseDisplayMessages?: WhatsAppParsedMessage[];
   scoredMessageIds: string[];
   contextMessageIds: string[];
   evidenceMessageIds?: string[];
@@ -135,6 +138,29 @@ export function buildConversationReviewSnapshot(args: {
     .filter((message) => scored.has(message.id) || context.has(message.id))
     .slice()
     .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+
+  const toSnapshotMessage = (message: WhatsAppParsedMessage): ConversationReviewSnapshotMessage => {
+    const focus = args.conversationFocusV30?.messages.find((row) => row.messageId === message.id);
+    return {
+      id: message.id,
+      timestamp: message.timestamp.toISOString(),
+      sender: message.sender,
+      direction: message.direction,
+      kind: message.kind,
+      text: String(message.text || ''),
+      scope: scored.has(message.id) ? 'scored' : 'context',
+      evidence: evidence.has(message.id),
+      ...(focus ? {
+        focusLevel: focus.level,
+        focusScore: focus.score,
+        focusReasons: focus.reasons,
+      } : {}),
+    };
+  };
+
+  const fullCaseOrdered = (args.fullCaseDisplayMessages || [])
+    .slice()
+    .sort((a,b) => a.timestamp.getTime() - b.timestamp.getTime());
 
   return {
     version: 1,
@@ -159,24 +185,8 @@ export function buildConversationReviewSnapshot(args: {
       affectedCriteria: args.decision.affectedCriteria.slice(),
       safeToQuickApprove: args.decision.safeToQuickApprove,
     },
-    messages: ordered.map((message) => {
-      const focus = args.conversationFocusV30?.messages.find((row) => row.messageId === message.id);
-      return {
-        id: message.id,
-        timestamp: message.timestamp.toISOString(),
-        sender: message.sender,
-        direction: message.direction,
-        kind: message.kind,
-        text: String(message.text || ''),
-        scope: scored.has(message.id) ? 'scored' : 'context',
-        evidence: evidence.has(message.id),
-        ...(focus ? {
-          focusLevel: focus.level,
-          focusScore: focus.score,
-          focusReasons: focus.reasons,
-        } : {}),
-      };
-    }),
+    messages: ordered.map(toSnapshotMessage),
+    ...(fullCaseOrdered.length ? { fullCaseMessages: fullCaseOrdered.map(toSnapshotMessage) } : {}),
     ...(args.outboundBurstMetrics ? { outboundBurstMetrics: args.outboundBurstMetrics } : {}),
     ...(args.smartIntelligence ? { smartIntelligence: args.smartIntelligence } : {}),
     ...(args.conversationFocusV30 ? { conversationFocusV30: args.conversationFocusV30 } : {}),
