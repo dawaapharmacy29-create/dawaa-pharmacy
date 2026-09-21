@@ -456,6 +456,16 @@ export default function WhatsAppSmartFolderWatcher() {
     return value ? (map[value] || value) : 'غير محدد';
   }
 
+  function caseLabel(item: StaffRun) {
+    const evaluation = item.snapshot.smartIntelligence?.evaluationV2;
+    if (evaluation?.serviceRecovery.detected) {
+      return evaluation.serviceRecovery.issueType === 'order_delay'
+        ? 'اعتذار/متابعة تأخير أوردر'
+        : 'استعادة خدمة';
+    }
+    return intentLabel(item.intelligence?.primaryIntent);
+  }
+
   function consultationLabel(value?: string | null) {
     if (!value || value === 'not_applicable') return 'غير منطبق';
     if (value === 'clear') return 'واضحة';
@@ -570,7 +580,7 @@ export default function WhatsAppSmartFolderWatcher() {
                                 <div className="truncate text-sm font-black text-white">{item.staffIdentity.canonicalStaffName || item.staffName}</div>
                                 <div className="truncate text-[10px] text-slate-500">{roleLabel(item.role)} · {item.staffIdentity.branch || item.branchHint.value || 'فرع غير محدد'}</div>
                               </div>
-                              <div className="truncate text-xs text-slate-300">{intentLabel(item.intelligence?.primaryIntent)}</div>
+                              <div className="truncate text-xs text-slate-300">{caseLabel(item)}</div>
                               <div className="text-xs text-slate-400">{item.intelligence?.salesOpportunities.length || 0} فرصة · {item.intelligence?.followup.detected ? 'متابعة' : 'بدون متابعة'}</div>
                               <div className="truncate text-[11px] text-slate-500">{item.customerName || 'عميل غير محدد'}</div>
                               <div className="flex items-center gap-2 justify-self-end">
@@ -652,7 +662,7 @@ export default function WhatsAppSmartFolderWatcher() {
                   </section>
 
                   <section className="grid grid-cols-2 gap-2 md:grid-cols-4">
-                    <div className="rounded-xl border border-slate-800 bg-slate-950/30 p-3"><div className="text-[10px] text-slate-500">النية</div><div className="mt-1 text-sm font-black text-white">{intentLabel(selected.intelligence?.primaryIntent)}</div></div>
+                    <div className="rounded-xl border border-slate-800 bg-slate-950/30 p-3"><div className="text-[10px] text-slate-500">النية</div><div className="mt-1 text-sm font-black text-white">{caseLabel(selected)}</div></div>
                     <div className="rounded-xl border border-slate-800 bg-slate-950/30 p-3"><div className="text-[10px] text-slate-500">فرص البيع</div><div className="mt-1 text-sm font-black text-white">{selected.intelligence?.salesOpportunities.length || 0}</div></div>
                     <div className="rounded-xl border border-slate-800 bg-slate-950/30 p-3"><div className="text-[10px] text-slate-500">الاستشارة</div><div className="mt-1 text-sm font-black text-white">{consultationLabel(selected.intelligence?.consultationCommunication)}</div></div>
                     <div className="rounded-xl border border-slate-800 bg-slate-950/30 p-3"><div className="text-[10px] text-slate-500">الاعتماد السريع</div><div className="mt-1 text-sm font-black text-white">{selected.safe ? 'ممكن بعد مراجعة' : 'غير مسموح'}</div></div>
