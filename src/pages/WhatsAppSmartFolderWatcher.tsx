@@ -294,11 +294,18 @@ export default function WhatsAppSmartFolderWatcher() {
           timingV28: staffTimingV28,
         });
 
+        const scoredIds = new Set(result.scope.inScopeMessageIds);
+        const fullCaseContextIds = session.messages
+          .filter((message) => !scoredIds.has(message.id))
+          .map((message) => message.id);
+
         const snapshot = buildConversationReviewSnapshot({
           session,
-          displayMessages: result.scope.displayMessages,
+          // العرض بقى Case كاملة حتى لو التقييم الحالي لدكتور واحد.
+          // رسائل الدكتور الجاري تقييمه = scored، وباقي المشاركين = context.
+          displayMessages: session.messages,
           scoredMessageIds: result.scope.inScopeMessageIds,
-          contextMessageIds: result.scope.contextMessageIds,
+          contextMessageIds: fullCaseContextIds,
           evidenceMessageIds: result.decision.evidenceMessageIds,
           staffName: staff.staffName,
           staffRole: staff.role,
