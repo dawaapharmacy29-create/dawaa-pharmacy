@@ -24,6 +24,32 @@ export interface WhatsAppParticipantRoleModelV15 {
   staff: Array<{ accountId: string | null; staffId: string | null; staffName: string; role: WhatsAppParticipantRoleV15; branch: string | null; confidence: number }>;
 }
 
+const STAFF_DIRECTORY_CACHE_TTL_MS = 5 * 60_000;
+let staffDirectoryCache: { rows: any[]; expiresAt: number } | null = null;
+let staffDirectoryRequest: Promise<any[]> | null = null;
+
+async function getStaffDirectoryRows() {
+  const now = Date.now();
+  if (staffDirectoryCache && staffDirectoryCache.expiresAt > now) return staffDirectoryCache.rows;
+  if (staffDirectoryRequest) return staffDirectoryRequest;
+
+  staffDirectoryRequest = (async () => {
+    const { data } = await supabase
+      .from('staff_accounts')
+      .select('id,staff_id,staff_name,name,username,role,staff_role,job_title,role_label,branch,active,is_active')
+      .limit(800);
+    const rows = data || [];
+    staffDirectoryCache = { rows, expiresAt: Date.now() + STAFF_DIRECTORY_CACHE_TTL_MS };
+    return rows;
+  })();
+
+  try {
+    return await staffDirectoryRequest;
+  } finally {
+    staffDirectoryRequest = null;
+  }
+}
+
 const normalize = (value: unknown) => String(value ?? '')
   .trim().toLowerCase()
   .replace(/^(?:د\s*[\/.\-]?\s*|دكتور(?:ه|ة)?\s+|أستاذ(?:ه|ة)?\s+|استاذ(?:ه|ة)?\s+)/i, '')
@@ -133,14 +159,7 @@ export async function resolveWhatsAppParticipantRolesV15(session: WhatsAppConver
   }
   session.outboundStaffNames.forEach((name) => { if (isPlausibleName(name)) candidateNames.add(cleanCandidateName(name)); });
 
-  let staffRows: any[] = [];
-  if (candidateNames.size) {
-    const { data } = await supabase
-      .from('staff_accounts')
-      .select('id,staff_id,staff_name,name,username,role,staff_role,job_title,role_label,branch,active,is_active')
-      .limit(800);
-    staffRows = data || [];
-  }
+  const staffRows: any[] = candidateNames.size ? await getStaffDirectoryRows() : [];
 
   const resolvedByName = new Map<string, { row: any; score: number; margin: number }>();
   for (const candidate of candidateNames) {
