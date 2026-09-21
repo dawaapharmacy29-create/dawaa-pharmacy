@@ -387,7 +387,9 @@ export default function AttendanceReport() {
       await saveAttendanceAttempt({ user: { id: userId, name: userName, role: user?.role, branch: userBranch }, attendanceType: type, position: pos, validation: finalValidation, biometric: { verified: biometric.verified, method: biometric.method }, deviceId: getDeviceId() });
       await notifyManager(type, finalValidation, biometric, pos);
       toast[finalValidation.status === 'accepted' ? 'success' : finalValidation.status === 'manual_review' ? 'warning' : 'error'](finalValidation.status === 'accepted' ? (type === 'check_in' ? 'تم تسجيل الحضور وإرسال إشعار فوري للإدارة' : 'تم تسجيل الانصراف وإرسال إشعار فوري للإدارة') : finalValidation.rejectionReason || 'تم تسجيل المحاولة للمراجعة وإرسال إشعار للإدارة');
-      await loadClock(); if (tab === 'dashboard' || tab === 'daily') await loadDaily();
+      await loadClock();
+      if (tab === 'daily') await loadDaily();
+      if (tab === 'dashboard') await loadDashboardDailySummary();
     } catch (e) { const message = e instanceof Error ? e.message : 'تعذر تسجيل الحضور'; setError(message); toast.error(message); } finally { setClocking(false); }
   }
 
