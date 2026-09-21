@@ -20,6 +20,7 @@ const SmartDailyCommandTable = lazy(() => import('@/components/attendance/SmartD
 const BranchRoleRatesPanel = lazy(() => import('@/components/attendance/BranchRoleRatesPanel'));
 const TimeOffPanel = lazy(() => import('@/pages/TimeOff'));
 const OvertimeApprovalCenter = lazy(() => import('@/components/attendance/OvertimeApprovalCenter'));
+const AttendancePayrollTruthPanel = lazy(() => import('@/components/attendance/AttendancePayrollTruthPanel'));
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   fetchAttendanceLocations,
@@ -36,6 +37,7 @@ import {
 type Tab = 'dashboard' | 'daily' | 'decisions' | 'report' | 'system' | 'clock';
 type DecisionSubTab = 'resolution' | 'overtime' | 'timeoff';
 type SystemSubTab = 'sync' | 'unmapped';
+type ReportSubTab = 'overview' | 'payroll-truth';
 type ClockSubView = 'clock' | 'logs';
 
 type DailyCommandRow = {
@@ -200,10 +202,13 @@ export default function AttendanceReport() {
     return 'timeoff';
   });
   const [systemSubTab, setSystemSubTab] = useState<SystemSubTab>(() => requestedAlias?.systemSub || 'sync');
+  const [reportSubTab, setReportSubTab] = useState<ReportSubTab>('overview');
   const [clockSubView, setClockSubView] = useState<ClockSubView>(() => requestedAlias?.clockSub || 'clock');
   const [dailyDate, setDailyDate] = useState(cairoDate());
   const [branchFilter, setBranchFilter] = useState(() => (canAllBranches ? 'الكل' : normalizedUserBranch || 'الكل'));
   const [dailyRows, setDailyRows] = useState<DailyCommandRow[]>([]);
+  const [dailyIntel, setDailyIntel] = useState<any[] | null>(null);
+  const [dashboardTotals, setDashboardTotals] = useState({ staff: 0, onTime: 0, late: 0, missing: 0, issues: 0 });
   const [syncHealth, setSyncHealth] = useState<SyncHealth | null>(null);
   const [unmappedRows, setUnmappedRows] = useState<UnmappedBiometric[]>([]);
   const [mappingTarget, setMappingTarget] = useState<UnmappedBiometric | null>(null);
@@ -247,11 +252,42 @@ export default function AttendanceReport() {
     if (!isSupabaseConfigured) return;
     setLoadingDaily(true); setError(null);
     try {
-      const { data, error: dailyError } = await supabase.rpc('attendance_daily_command_v1', { p_date: dailyDate, p_branch: effectiveBranch === 'الكل' ? null : effectiveBranch });
-      if (dailyError) throw dailyError;
-      setDailyRows((data || []) as DailyCommandRow[]);
+      const branchArg = effectiveBranch === 'الكل' ? null : effectiveBranch;
+      const [dailyResult, intelResult] = await Promise.all([
+        supabase.rpc('attendance_daily_command_v1', { p_date: dailyDate, p_branch: branchArg }),
+        supabase.rpc('attendance_daily_intelligence_v2', { p_date: dailyDate, p_branch: branchArg }),
+      ]);
+      if (dailyResult.error) throw dailyResult.error;
+      setDailyRows((dailyResult.data || []) as DailyCommandRow[]);
+      if (intelResult.error) {
+        console.warn('[attendance] intelligence preload failed', intelResult.error);
+        setDailyIntel(null);
+      } else {
+        setDailyIntel((intelResult.data || []) as any[]);
+      }
     } catch (e) { setError(e instanceof Error ? e.message : 'تعذر تحميل مركز الحضور اليومي'); } finally { setLoadingDaily(false); }
   }, [dailyDate, effectiveBranch]);
+
+  const loadDashboardDailySummary = useCallback(async () => {
+    if (!isSupabaseConfigured || !isOperationalManager) return;
+    try {
+      const { data, error: summaryError } = await supabase.rpc('attendance_dashboard_daily_summary_v1', {
+        p_date: dailyDate,
+        p_branch: effectiveBranch === 'الكل' ? null : effectiveBranch,
+      });
+      if (summaryError) throw summaryError;
+      const row = (data || {}) as Record<string, unknown>;
+      setDashboardTotals({
+        staff: Number(row.staff || 0),
+        onTime: Number(row.on_time || 0),
+        late: Number(row.late || 0),
+        missing: Number(row.missing || 0),
+        issues: Number(row.issues || 0),
+      });
+    } catch (e) {
+      console.warn('[attendance] dashboard daily summary failed', e);
+    }
+  }, [dailyDate, effectiveBranch, isOperationalManager]);
 
   const loadSyncHealth = useCallback(async () => {
     if (!isSupabaseConfigured || !canViewSyncHealth) return;
@@ -315,7 +351,8 @@ export default function AttendanceReport() {
   }, [loadDaily, loadSyncHealth, mappingTarget, selectedCandidate]);
 
   useEffect(() => { if (tab === 'clock') void loadClock(); }, [tab, loadClock]);
-  useEffect(() => { if (tab === 'dashboard' || tab === 'daily') void loadDaily(); }, [tab, loadDaily]);
+  useEffect(() => { if (tab === 'daily') void loadDaily(); }, [tab, loadDaily]);
+  useEffect(() => { if (tab === 'dashboard') void loadDashboardDailySummary(); }, [tab, loadDashboardDailySummary]);
   useEffect(() => { if (tab === 'system' && systemSubTab === 'unmapped') void loadSyncHealth(); }, [tab, systemSubTab, loadSyncHealth]);
   useEffect(() => {
     if (tab !== 'system' || systemSubTab !== 'unmapped' || !canViewSyncHealth) return;
@@ -370,13 +407,13 @@ export default function AttendanceReport() {
         <div className="flex flex-col gap-3 rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm sm:flex-row sm:items-end">
           <label className="flex-1 space-y-1 text-xs font-black text-[var(--dawaa-theme-muted)]"><span>اليوم</span><input type="date" value={dailyDate} onChange={(e) => setDailyDate(e.target.value)} className="input-dark w-full" /></label>
           <label className="flex-1 space-y-1 text-xs font-black text-[var(--dawaa-theme-muted)]"><span>الفرع</span><select value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)} className="input-dark w-full">{branches.map((b) => <option key={b}>{b}</option>)}</select></label>
-          <button onClick={() => { void loadDaily(); void loadApprovalsSummary(); }} className="btn-primary"><RefreshCw size={16} className={loadingDaily || loadingSummary ? 'animate-spin' : ''} /> تحديث</button>
+          <button onClick={() => { void loadDashboardDailySummary(); void loadApprovalsSummary(); }} className="btn-primary"><RefreshCw size={16} className={loadingSummary ? 'animate-spin' : ''} /> تحديث</button>
         </div>
         <div className="grid gap-3 md:grid-cols-4">
-          <Metric label="موجودين الآن" value={dailyTotals.onTime} icon={CheckCircle2} color="text-[var(--dawaa-status-success-text)] bg-[var(--dawaa-status-success-bg)] border-[var(--dawaa-status-success-border)]" />
-          <Metric label="متأخرين" value={dailyTotals.late} icon={Clock} color="text-[var(--dawaa-status-warning-text)] bg-[var(--dawaa-status-warning-bg)] border-[var(--dawaa-status-warning-border)]" />
-          <Metric label="غياب/بصمة ناقصة" value={dailyTotals.missing} icon={XCircle} color="text-[var(--dawaa-status-danger-text)] bg-[var(--dawaa-status-danger-bg)] border-[var(--dawaa-status-danger-border)]" />
-          <Metric label="مشاكل جدول" value={dailyTotals.issues} icon={AlertTriangle} color="text-[var(--dawaa-status-warning-text)] bg-[var(--dawaa-status-warning-bg)] border-[var(--dawaa-status-warning-border)]" />
+          <Metric label="موجودين الآن" value={dashboardTotals.onTime} icon={CheckCircle2} color="text-[var(--dawaa-status-success-text)] bg-[var(--dawaa-status-success-bg)] border-[var(--dawaa-status-success-border)]" />
+          <Metric label="متأخرين" value={dashboardTotals.late} icon={Clock} color="text-[var(--dawaa-status-warning-text)] bg-[var(--dawaa-status-warning-bg)] border-[var(--dawaa-status-warning-border)]" />
+          <Metric label="غياب/بصمة ناقصة" value={dashboardTotals.missing} icon={XCircle} color="text-[var(--dawaa-status-danger-text)] bg-[var(--dawaa-status-danger-bg)] border-[var(--dawaa-status-danger-border)]" />
+          <Metric label="مشاكل جدول" value={dashboardTotals.issues} icon={AlertTriangle} color="text-[var(--dawaa-status-warning-text)] bg-[var(--dawaa-status-warning-bg)] border-[var(--dawaa-status-warning-border)]" />
         </div>
         <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm">
           <div className="mb-3 flex items-center justify-between gap-2"><h2 className="flex items-center gap-2 text-base font-black text-[var(--dawaa-theme-heading)]"><ClipboardCheck size={18} className="text-[var(--dawaa-theme-primary-strong)]" /> مطلوب مراجعتك الآن</h2></div>
@@ -392,7 +429,7 @@ export default function AttendanceReport() {
 
       {tab === 'daily' && <>
         <div className="flex flex-col gap-3 rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm sm:flex-row sm:items-end"><label className="flex-1 space-y-1 text-xs font-black text-[var(--dawaa-theme-muted)]"><span>اليوم</span><input type="date" value={dailyDate} onChange={(e) => setDailyDate(e.target.value)} className="input-dark w-full" /></label><label className="flex-1 space-y-1 text-xs font-black text-[var(--dawaa-theme-muted)]"><span>الفرع</span><select value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)} className="input-dark w-full">{branches.map((b) => <option key={b}>{b}</option>)}</select></label><button onClick={() => void loadDaily()} className="btn-primary"><RefreshCw size={16} className={loadingDaily ? 'animate-spin' : ''} /> تحديث</button></div>
-        {loadingDaily ? <TableSkeleton /> : dailyRows.length ? <Suspense fallback={<TableSkeleton />}><SmartDailyCommandTable rows={dailyRows} date={dailyDate} branch={effectiveBranch} /></Suspense> : <Empty text="لا توجد بيانات جدول أو بصمة لهذا اليوم في النطاق الحالي." />}
+        {loadingDaily ? <TableSkeleton /> : dailyRows.length ? <Suspense fallback={<TableSkeleton />}><SmartDailyCommandTable rows={dailyRows} date={dailyDate} branch={effectiveBranch} preloadedIntel={dailyIntel} /></Suspense> : <Empty text="لا توجد بيانات جدول أو بصمة لهذا اليوم في النطاق الحالي." />}
       </>}
 
       {tab === 'decisions' && <>
@@ -408,14 +445,28 @@ export default function AttendanceReport() {
 
       {tab === 'report' && (
         <>
-        <Suspense fallback={<div className="h-24 animate-pulse rounded-2xl bg-[var(--dawaa-theme-surface-2)]" />}><BranchRoleRatesPanel /></Suspense>
-        <Suspense fallback={<TableSkeleton />}>
-        <EmployeeAttendanceBreakdown
-          branches={branches.filter((b) => b !== 'الكل')}
-          defaultBranch={effectiveBranch === 'الكل' ? (branches.find((b) => b !== 'الكل') || effectiveBranch) : effectiveBranch}
-          canAllBranches={canAllBranches}
-        />
-        </Suspense>
+          <Tabs value={reportSubTab} onValueChange={(v) => setReportSubTab(v as ReportSubTab)} dir="rtl">
+            <TabsList className="h-auto flex-wrap justify-start gap-1.5 rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-1.5">
+              <TabsTrigger value="overview" className="rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white">التحليل الشهري</TabsTrigger>
+              <TabsTrigger value="payroll-truth" className="rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white">الحضور الفعلي للمرتب</TabsTrigger>
+            </TabsList>
+          </Tabs>
+          {reportSubTab === 'overview' && <>
+            <Suspense fallback={<div className="h-24 animate-pulse rounded-2xl bg-[var(--dawaa-theme-surface-2)]" />}><BranchRoleRatesPanel /></Suspense>
+            <Suspense fallback={<TableSkeleton />}>
+              <EmployeeAttendanceBreakdown
+                branches={branches.filter((b) => b !== 'الكل')}
+                defaultBranch={effectiveBranch === 'الكل' ? (branches.find((b) => b !== 'الكل') || effectiveBranch) : effectiveBranch}
+                canAllBranches={canAllBranches}
+              />
+            </Suspense>
+          </>}
+          {reportSubTab === 'payroll-truth' && <Suspense fallback={<TableSkeleton />}>
+            <AttendancePayrollTruthPanel
+              branches={branches}
+              defaultBranch={effectiveBranch}
+            />
+          </Suspense>}
         </>
       )}
 
