@@ -199,6 +199,7 @@ export default function WhatsAppSmartFolderWatcher() {
   const [runs, setRuns] = useState<FileRun[]>([]);
   const [selected, setSelected] = useState<StaffRun | null>(null);
   const [conversationView, setConversationView] = useState<'whatsapp' | 'review'>('whatsapp');
+  const [conversationFocusMode, setConversationFocusMode] = useState<'focused' | 'full'>('focused');
   const [detailTab, setDetailTab] = useState<'overview' | 'conversation' | 'review'>('overview');
   const [expandedRuns, setExpandedRuns] = useState<Record<string, boolean>>({});
   const [runQuery, setRunQuery] = useState('');
@@ -625,6 +626,7 @@ export default function WhatsAppSmartFolderWatcher() {
     setSelected(item);
     setDetailTab('overview');
     setConversationView('whatsapp');
+    setConversationFocusMode('focused');
   }
 
   function intentLabel(value?: string | null) {
@@ -1028,9 +1030,21 @@ export default function WhatsAppSmartFolderWatcher() {
                 <section className="overflow-hidden rounded-2xl border border-slate-800">
                   <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 bg-slate-950/35 p-3">
                     <div className="text-sm font-black text-white">المحادثة والأدلة</div>
-                    <div className="inline-flex rounded-xl border border-slate-700 bg-slate-900 p-1 text-[11px] font-black">
-                      <button type="button" onClick={() => setConversationView('whatsapp')} className={`rounded-lg px-3 py-1.5 ${conversationView === 'whatsapp' ? 'bg-emerald-500 text-slate-950' : 'text-slate-300'}`}>واتساب</button>
-                      <button type="button" onClick={() => setConversationView('review')} className={`rounded-lg px-3 py-1.5 ${conversationView === 'review' ? 'bg-cyan-500 text-slate-950' : 'text-slate-300'}`}>تحليلي</button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {selected.snapshot.conversationFocusV30 ? (
+                        <div className="inline-flex rounded-xl border border-violet-800/50 bg-violet-950/20 p-1 text-[11px] font-black">
+                          <button type="button" onClick={() => setConversationFocusMode('focused')} className={`rounded-lg px-3 py-1.5 ${conversationFocusMode === 'focused' ? 'bg-violet-500 text-white' : 'text-slate-300'}`}>
+                            المهم ({selected.snapshot.conversationFocusV30.primaryCount + selected.snapshot.conversationFocusV30.supportingCount})
+                          </button>
+                          <button type="button" onClick={() => setConversationFocusMode('full')} className={`rounded-lg px-3 py-1.5 ${conversationFocusMode === 'full' ? 'bg-slate-700 text-white' : 'text-slate-300'}`}>
+                            كامل ({selected.snapshot.conversationFocusV30.messageCount})
+                          </button>
+                        </div>
+                      ) : null}
+                      <div className="inline-flex rounded-xl border border-slate-700 bg-slate-900 p-1 text-[11px] font-black">
+                        <button type="button" onClick={() => setConversationView('whatsapp')} className={`rounded-lg px-3 py-1.5 ${conversationView === 'whatsapp' ? 'bg-emerald-500 text-slate-950' : 'text-slate-300'}`}>واتساب</button>
+                        <button type="button" onClick={() => setConversationView('review')} className={`rounded-lg px-3 py-1.5 ${conversationView === 'review' ? 'bg-cyan-500 text-slate-950' : 'text-slate-300'}`}>تحليلي</button>
+                      </div>
                     </div>
                   </div>
                   {conversationView === 'whatsapp' ? (
@@ -1039,6 +1053,14 @@ export default function WhatsAppSmartFolderWatcher() {
                         {selected.snapshot.messages.map((message) => {
                           const inbound = message.direction === 'inbound';
                           const context = message.scope === 'context';
+                          const focusLevel = message.focusLevel || (message.evidence ? 'primary' : context ? 'background' : 'supporting');
+                          const focusedOpacity = conversationFocusMode === 'full'
+                            ? ''
+                            : focusLevel === 'primary'
+                              ? 'opacity-100'
+                              : focusLevel === 'supporting'
+                                ? 'opacity-80'
+                                : 'opacity-25 hover:opacity-70';
                           const timing = selected.snapshot.smartIntelligence?.timingV28;
                           const episode = timing?.episodes.find((row) => row.messageIds[0] === message.id) || null;
                           return (
@@ -1056,10 +1078,10 @@ export default function WhatsAppSmartFolderWatcher() {
                                   <div className="h-px flex-1 bg-slate-700/60" />
                                 </div>
                               ) : null}
-                              <div className={`flex ${inbound ? 'justify-start' : 'justify-end'} ${context ? 'opacity-60' : ''}`}>
+                              <div className={`flex ${inbound ? 'justify-start' : 'justify-end'} transition-opacity ${focusedOpacity}`}>
                                 <div className={`flex max-w-[86%] flex-col md:max-w-[74%] ${inbound ? 'items-start' : 'items-end'}`}>
                                   <div className={`relative rounded-2xl px-3.5 py-2.5 shadow-sm ${inbound ? 'rounded-tl-sm bg-[#202c33] text-slate-100' : 'rounded-tr-sm bg-[#005c4b] text-white'} ${message.evidence ? 'ring-2 ring-cyan-400/80 ring-offset-2 ring-offset-[#0b141a]' : ''}`}>
-                                    <div className="mb-1 flex flex-wrap items-center gap-1.5 text-[10px] font-bold opacity-80"><span>{inbound ? 'العميل' : message.sender || selected.staffName}</span>{message.evidence ? <span className="rounded bg-cyan-400/15 px-1.5 py-0.5 text-cyan-100">دليل</span> : null}{context ? <span className="rounded bg-white/10 px-1.5 py-0.5">سياق</span> : null}</div>
+                                    <div className="mb-1 flex flex-wrap items-center gap-1.5 text-[10px] font-bold opacity-80"><span>{inbound ? 'العميل' : message.sender || selected.staffName}</span>{message.evidence ? <span className="rounded bg-cyan-400/15 px-1.5 py-0.5 text-cyan-100">دليل</span> : null}{focusLevel === 'primary' ? <span className="rounded bg-violet-400/15 px-1.5 py-0.5 text-violet-100">محوري</span> : focusLevel === 'supporting' ? <span className="rounded bg-sky-400/10 px-1.5 py-0.5 text-sky-100">مساند</span> : <span className="rounded bg-white/10 px-1.5 py-0.5">خلفية</span>}</div>
                                     {messageBody(message.kind, message.text)}
                                     <div className="mt-1 text-left text-[10px] opacity-60">{new Date(message.timestamp).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}</div>
                                   </div>
