@@ -38,6 +38,10 @@ interface ShiftSchedule {
   shift_end: string | null;
   is_off: boolean | null;
   is_day_off?: boolean | null;
+  shift_date?: string | null;
+  date?: string | null;
+  effective_from?: string | null;
+  effective_to?: string | null;
 }
 
 const ROLE_COLORS: Record<string, string> = {
@@ -131,12 +135,23 @@ export default function Schedule() {
       };
     }
 
-    const candidates = schedules.filter(
-      (item) =>
-        (item.staff_id === emp.id || item.staff_name === emp.name) &&
-        normalizeBranch(item.branch) === normalizeBranch(emp.branch) &&
-        item.day_name === day
-    );
+    const candidates = schedules
+      .filter((item) => {
+        if (!(item.staff_id === emp.id || item.staff_name === emp.name)) return false;
+        if (normalizeBranch(item.branch) !== normalizeBranch(emp.branch)) return false;
+        const effective = (!item.effective_from || item.effective_from <= targetDateStr)
+          && (!item.effective_to || item.effective_to >= targetDateStr);
+        if (!effective) return false;
+        const dated = (item.shift_date || item.date || '').slice(0, 10);
+        if (dated) return dated === targetDateStr;
+        return item.day_name === day;
+      })
+      .sort((a, b) => {
+        const aDated = Boolean((a.shift_date || a.date || '').slice(0, 10));
+        const bDated = Boolean((b.shift_date || b.date || '').slice(0, 10));
+        if (aDated !== bDated) return aDated ? -1 : 1;
+        return String(b.effective_from || '').localeCompare(String(a.effective_from || ''));
+      });
 
     // لو فيه سجلات مكررة لنفس الموظف/اليوم، لا نسمح لسجل إجازة قديم يطغى على شيفت صحيح.
     // الأولوية: سجل فيه وقت بداية ونهاية، ثم أحدث سجل، ثم إجازة لو لا يوجد شيفت.
@@ -155,6 +170,9 @@ export default function Schedule() {
         (item) =>
           (item.staff_id === emp.id || item.staff_name === emp.name) &&
           normalizeBranch(item.branch) === normalizeBranch(emp.branch) &&
+          item.effective_to == null &&
+          !item.shift_date &&
+          !item.date &&
           item.is_off !== true &&
           item.is_day_off !== true &&
           item.shift_start &&

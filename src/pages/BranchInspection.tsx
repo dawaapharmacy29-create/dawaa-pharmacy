@@ -281,6 +281,7 @@ export default function BranchInspection() {
           .select('id,staff_id,staff_name,role,branch,day_name,shift_start,shift_end,start_time,end_time,is_off,status')
           .eq('branch', form.branch)
           .eq('day_name', dayName)
+          .is('effective_to', null)
           .limit(300),
       ]);
 
