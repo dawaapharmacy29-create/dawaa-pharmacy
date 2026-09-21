@@ -19,6 +19,7 @@ import type { BestMessageAggregate } from './whatsappMessageTemplateNormalizatio
 import { WHATSAPP_OPERATIONAL_ENGINE_VERSION } from './whatsappOperationalEngineVersion';
 import type { SmartConversationEvaluationV2 } from './whatsappConversationEvaluationV2';
 import type { ConversationTimingV28 } from './whatsappConversationTimingV28';
+import type { DelayAttributionV29 } from './whatsappDelayAttributionV29';
 
 export interface SmartIntelligenceCustomerPurchaseHistory {
   totalPurchases: number | null;
@@ -47,6 +48,8 @@ export interface SmartIntelligenceSnapshotV1 {
   timingV28?: ConversationTimingV28 | null;
   /** نفس محرك التوقيت لكن على Scope الموظف الحالي فقط، لمنع تحميله تأخير موظف آخر. */
   staffTimingV28?: ConversationTimingV28 | null;
+  /** تفسير سبب التأخير على مستوى الـCase بدون خصم تلقائي على الموظف. */
+  delayAttributionV29?: DelayAttributionV29 | null;
   evidence: {
     engineVersions: Record<string, string>;
   };
@@ -63,6 +66,7 @@ export function buildSmartIntelligenceSnapshotV1(args: {
   evaluationV2?: SmartConversationEvaluationV2 | null;
   timingV28?: ConversationTimingV28 | null;
   staffTimingV28?: ConversationTimingV28 | null;
+  delayAttributionV29?: DelayAttributionV29 | null;
 }): SmartIntelligenceSnapshotV1 {
   return {
     version: 'smart-intelligence-snapshot-v1',
@@ -77,6 +81,7 @@ export function buildSmartIntelligenceSnapshotV1(args: {
     evaluationV2: args.evaluationV2 ?? null,
     timingV28: args.timingV28 ?? null,
     staffTimingV28: args.staffTimingV28 ?? null,
+    delayAttributionV29: args.delayAttributionV29 ?? null,
     evidence: {
       engineVersions: {
         v6: WHATSAPP_OPERATIONAL_ENGINE_VERSION,
