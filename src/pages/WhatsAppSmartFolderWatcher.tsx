@@ -24,6 +24,7 @@ import { buildSmartIntelligenceSnapshotV1 } from '@/lib/whatsappSmartIntelligenc
 import { resolveConversationBranchHint, type BranchHintResult } from '@/lib/whatsappConversationBranchHint';
 import { resolveStaffIdentity, type ResolvedStaffIdentity } from '@/lib/whatsappStaffIdentityResolver';
 import { buildSmartOfficialReviewDraftV1 } from '@/lib/whatsappSmartOfficialReviewDraft';
+import { buildSmartConversationEvaluationV2 } from '@/lib/whatsappConversationEvaluationV2';
 import { resolveCustomerContext } from '@/lib/whatsappCustomerContextResolver';
 import type { SmartQuickDecisionResult } from '@/lib/whatsappSmartReviewDecision';
 import {
@@ -203,6 +204,13 @@ export default function WhatsAppSmartFolderWatcher() {
           journey: result.journeyCrossCheck,
         });
 
+        const evaluationV2 = buildSmartConversationEvaluationV2(result.scope.scoredSession, {
+          invoiceVerification,
+          purchaseHistory: customerContext.purchaseHistory,
+          salesOpportunities: result.intelligence?.salesOpportunities || [],
+          consultationCommunication: result.intelligence?.consultationCommunication || null,
+        });
+
         const snapshot = buildConversationReviewSnapshot({
           session,
           displayMessages: result.scope.displayMessages,
@@ -223,6 +231,7 @@ export default function WhatsAppSmartFolderWatcher() {
             branchHint,
             customer: customerContext.resolution,
             purchaseHistory: customerContext.purchaseHistory,
+            evaluationV2,
           }),
         });
 
