@@ -180,10 +180,17 @@ function scoreOpening(session: WhatsAppConversationSession): ComplianceDimension
   const text = firstTwo.map((m) => m.text).join(' ');
   const passed: string[] = [];
   const missing: string[] = [];
+  const recoveryOpening = SERVICE_RECOVERY_RX.test(text);
   if (GREETING_RX.test(text)) passed.push('تحية مناسبة'); else missing.push('التحية');
   if (PHARMACY_RX.test(text)) passed.push('ذكر صيدليات دواء'); else missing.push('اسم الصيدلية');
-  if (INTRO_RX.test(text)) passed.push('تعريف المسؤول بنفسه'); else missing.push('اسم/تعريف الدكتور');
-  if (HELP_RX.test(text)) passed.push('عرض المساعدة'); else missing.push('عرض المساعدة');
+  if (INTRO_RX.test(text)) passed.push('تعريف المسؤول بنفسه'); else missing.push('اسم/تعريف المسؤول');
+  if (recoveryOpening) {
+    if (RECOVERY_APOLOGY_RX.test(text)) passed.push('سبب التواصل/الاعتذار واضح'); else missing.push('سبب التواصل/الاعتذار');
+  } else if (HELP_RX.test(text)) {
+    passed.push('عرض المساعدة');
+  } else {
+    missing.push('عرض المساعدة');
+  }
   const score = Math.round((passed.length / 4) * 100);
   return {
     score,
@@ -204,10 +211,24 @@ function scoreClosing(session: WhatsAppConversationSession, orderConfirmed: bool
   const missing: string[] = [];
   if (orderConfirmed && ORDER_CONFIRM_RX.test(text)) passed.push('تأكيد التنفيذ/الطلب'); else if (orderConfirmed) missing.push('إعادة تأكيد التنفيذ');
   if (orderConfirmed && ETA_RX.test(text)) passed.push('توضيح الخطوة أو زمن التوصيل'); else if (orderConfirmed) missing.push('الخطوة التالية/موعد الوصول');
-  if (ANYTHING_ELSE_RX.test(text)) passed.push('عرض مساعدة إضافية'); else missing.push('عرض مساعدة إضافية');
-  if (CLOSING_RX.test(text)) passed.push('ختام مهذب'); else missing.push('الختام الرسمي');
-  const applicable = orderConfirmed ? 4 : 2;
-  const relevantPassed = orderConfirmed ? passed.length : passed.filter((x) => /مساعدة|ختام/.test(x)).length;
+  const recoveryClosing = SERVICE_RECOVERY_RX.test(text);
+  if (ANYTHING_ELSE_RX.test(text)) passed.push('عرض مساعدة إضافية');
+  else if (!recoveryClosing) missing.push('عرض مساعدة إضافية');
+
+  if (CLOSING_RX.test(text)) {
+    passed.push('ختام مهذب');
+  } else if (recoveryClosing && (RECOVERY_REASSURANCE_RX.test(text) || RECOVERY_OWNERSHIP_RX.test(text))) {
+    passed.push('ختام استعادة خدمة محترم');
+  } else {
+    missing.push(recoveryClosing ? 'إغلاق واضح لاستعادة الخدمة' : 'الختام الرسمي');
+  }
+
+  const applicable = orderConfirmed ? 4 : recoveryClosing ? 1 : 2;
+  const relevantPassed = orderConfirmed
+    ? passed.length
+    : recoveryClosing
+      ? passed.filter((x) => /ختام استعادة/.test(x)).length
+      : passed.filter((x) => /مساعدة|ختام/.test(x)).length;
   const score = Math.round((relevantPassed / applicable) * 100);
   const last = lastMeaningful(session);
   const customerEnded = last?.direction === 'inbound';
