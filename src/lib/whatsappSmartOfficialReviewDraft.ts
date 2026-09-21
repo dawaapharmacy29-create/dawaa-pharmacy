@@ -158,7 +158,59 @@ export function buildSmartOfficialReviewDraftV1(
       });
     }
 
-    // إغلاق البيع لا يعتبر "تم" من مجرد كلمة موافقة؛ نعتمد على مراحل البيع المتدرجة.
+    if (evalV2.serviceRecovery.detected) {
+      const recoveryScore = evalV2.serviceRecovery.score ?? 0;
+      const delayChoice = recoveryScore >= 90
+        ? 'handled_full'
+        : recoveryScore >= 70
+          ? 'informed_only'
+          : recoveryScore >= 45
+            ? 'late_apology'
+            : 'not_informed';
+
+      set('order_delay_handling', {
+        applies: evalV2.serviceRecovery.issueType === 'order_delay',
+        suggestedChoice: evalV2.serviceRecovery.issueType === 'order_delay' ? delayChoice : null,
+        suggestedLabel: evalV2.serviceRecovery.issueType === 'order_delay'
+          ? delayChoice === 'handled_full'
+            ? 'أبلغ العميل واعتذر وحدد خطوة متابعة واضحة'
+            : delayChoice === 'informed_only'
+              ? 'اعتذر واهتم لكن التوقيت/المتابعة تحتاج توضيح'
+              : delayChoice === 'late_apology'
+                ? 'الاعتذار موجود لكن إدارة التأخير ناقصة'
+                : 'لم تتم إدارة التأخير بشكل كافٍ'
+          : 'استعادة خدمة غير مرتبطة بتأخير أوردر',
+        confidence: evalV2.serviceRecovery.confidence,
+        status: evalV2.serviceRecovery.issueType === 'order_delay' ? 'confident' : 'review_required',
+        reason: `${evalV2.serviceRecovery.summary}${evalV2.serviceRecovery.missing.length ? ` الناقص: ${evalV2.serviceRecovery.missing.join('، ')}.` : ''}`,
+        evidenceMessageIds: evalV2.serviceRecovery.evidenceMessageIds,
+      });
+
+      // في محادثة recovery لا نعتبر عدم وجود بيع جديد "فرصة ضائعة"؛ الهدف الأساسي
+      // هو استعادة رضا العميل وإغلاق مشكلة الطلب السابق.
+      if (evalV2.sale.outcome === 'not_applicable') {
+        set('sales_closing', {
+          applies: false,
+          suggestedChoice: null,
+          suggestedLabel: 'غير منطبق — المحادثة لاستعادة خدمة وليست رحلة بيع جديدة',
+          confidence: 96,
+          status: 'unsupported',
+          reason: 'المحادثة بدأت كاعتذار/متابعة مشكلة قائمة، ولم يظهر احتياج شرائي جديد من العميل.',
+          evidenceMessageIds: evalV2.serviceRecovery.evidenceMessageIds,
+        });
+        set('cross_sell_upsell', {
+          applies: false,
+          suggestedChoice: null,
+          suggestedLabel: 'غير منطبق على استعادة الخدمة',
+          confidence: 96,
+          status: 'unsupported',
+          reason: 'الأولوية هنا حل المشكلة واستعادة الثقة، وليس الضغط لزيادة السلة.',
+          evidenceMessageIds: evalV2.serviceRecovery.evidenceMessageIds,
+        });
+      }
+    }
+
+        // إغلاق البيع لا يعتبر "تم" من مجرد كلمة موافقة؛ نعتمد على مراحل البيع المتدرجة.
     if (evalV2.sale.outcome === 'invoice_verified_sale' || evalV2.sale.outcome === 'order_confirmed') {
       set('sales_closing', {
         applies: true,
