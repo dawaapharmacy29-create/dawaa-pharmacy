@@ -250,7 +250,7 @@ export default function HRWorkforceCenter() {
               نقطة الدخول الموحدة للموظفين والجداول والحضور والإجازات والأوفر تايم والرواتب. الإدارة تراجع الاستثناءات فقط، بينما تظل البصمات الخام والجداول والحضور المعتمد في طبقات منفصلة.
             </p>
             <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-black text-[var(--dawaa-theme-muted)]">
-              <span className="rounded-full border border-[var(--dawaa-theme-border)] px-3 py-1">الدورة الحالية: {cycleStart} ← {today}</span>
+              <span className="rounded-full border border-[var(--dawaa-theme-border)] px-3 py-1">بيانات الدورة حتى اليوم: {cycleStart} ← {today}</span>
               <span className="rounded-full border border-[var(--dawaa-theme-border)] px-3 py-1">{branchLabel}</span>
             </div>
           </div>
@@ -271,10 +271,10 @@ export default function HRWorkforceCenter() {
           </Link>
         </div>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <Metric label="قرارات حضور" value={review.needsManager} hint="حالات تحتاج قرار مدير" icon={ClipboardCheck} tone={review.needsManager ? 'warn' : 'ok'} />
+          <Metric label="حالات حضور تحتاج قرار" value={review.needsManager} hint="عدد أيام/حالات حضور داخل الدورة، وليس عدد الموظفين" icon={ClipboardCheck} tone={review.needsManager ? 'warn' : 'ok'} />
           <Metric label="أوفر تايم معلق" value={pendingOvertime} hint="ينتظر اعتمادًا بشريًا" icon={Clock} tone={pendingOvertime ? 'warn' : 'ok'} />
           <Metric label="طلبات إجازة" value={pendingTimeOff} hint="طلبات معلقة" icon={CalendarDays} tone={pendingTimeOff ? 'warn' : 'ok'} />
-          <Metric label="إجمالي يحتاج تدخل" value={interventionCount} hint="دون مشاكل النظام المعلوماتية" icon={AlertTriangle} tone={interventionCount ? 'warn' : 'ok'} />
+          <Metric label="إجمالي عناصر تحتاج تدخل" value={interventionCount} hint="مجموع حالات الحضور + الأوفر تايم + طلبات الإجازة، وليس عدد الموظفين" icon={AlertTriangle} tone={interventionCount ? 'warn' : 'ok'} />
         </div>
       </section>
 
