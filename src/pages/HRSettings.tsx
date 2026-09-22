@@ -1,5 +1,7 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Calendar, Fingerprint, ShieldCheck, SlidersHorizontal, Users, WalletCards } from 'lucide-react';
+import { ArrowLeft, Calendar, Fingerprint, RefreshCw, ShieldCheck, SlidersHorizontal, Users, WalletCards } from 'lucide-react';
+import { getAttendancePolicyCatalog, type AttendancePolicyCatalog } from '@/lib/attendance/attendanceResolutionService';
 
 const settings = [
   {
@@ -34,7 +36,31 @@ const settings = [
   },
 ];
 
+function policyValue(policy: Record<string, unknown> | null, key: string, suffix = '') {
+  if (!policy || policy[key] == null || policy[key] === '') return 'غير محدد بعد';
+  return `${String(policy[key])}${suffix}`;
+}
+
 export default function HRSettings() {
+  const [catalog, setCatalog] = useState<AttendancePolicyCatalog | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function loadPolicies() {
+    setLoading(true);
+    try {
+      setCatalog(await getAttendancePolicyCatalog());
+    } catch {
+      setCatalog(null);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { void loadPolicies(); }, []);
+
+  const activePolicy = catalog?.policies.find((p) => p.active === true) || catalog?.policies[0] || null;
+  const defaultAssignment = catalog?.assignments.find((a) => a.scope_type === 'default') || null;
+
   return (
     <div className="space-y-5" dir="rtl">
       <section className="rounded-3xl border border-[var(--dawaa-theme-border)] dawaa-surface p-5 shadow-sm">
@@ -59,6 +85,30 @@ export default function HRSettings() {
             <div className="mt-1 text-xs font-bold leading-5 text-[var(--dawaa-theme-muted)]">{description}</div>
           </Link>
         ))}
+      </section>
+
+      <section className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-black text-[var(--dawaa-theme-heading)]">سياسة الحضور الفعلية</h2>
+            <p className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">قراءة مباشرة من Attendance Policy Contract. الحقول غير المحددة لا يتم اختراع قيمة لها من الواجهة.</p>
+          </div>
+          <button onClick={() => void loadPolicies()} className="btn-secondary"><RefreshCw size={15} className={loading ? 'animate-spin' : ''} /> تحديث</button>
+        </div>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          <PolicyStat label="كود السياسة" value={policyValue(activePolicy, 'policy_code')} />
+          <PolicyStat label="Grace للتأخير" value={policyValue(activePolicy, 'late_grace_minutes', ' دقيقة')} />
+          <PolicyStat label="تأخير شديد من" value={policyValue(activePolicy, 'very_late_minutes', ' دقيقة')} />
+          <PolicyStat label="Grace للخروج المبكر" value={policyValue(activePolicy, 'early_leave_grace_minutes', ' دقيقة')} />
+          <PolicyStat label="ساعات يوم متوقعة" value={policyValue(activePolicy, 'expected_daily_hours', ' ساعة')} />
+          <PolicyStat label="أقصى ساعات مدفوعة" value={policyValue(activePolicy, 'max_payable_minutes', ' دقيقة')} />
+          <PolicyStat label="بداية OT" value={policyValue(activePolicy, 'overtime_threshold_minutes', ' دقيقة')} />
+          <PolicyStat label="اعتماد OT" value={activePolicy ? (activePolicy.overtime_requires_approval === false ? 'لا يحتاج' : 'يحتاج اعتماد') : 'غير محدد'} />
+        </div>
+        <div className="mt-3 rounded-xl border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] p-3 text-xs font-bold text-[var(--dawaa-status-info-text)]">
+          التعيين الافتراضي الحالي: {defaultAssignment ? `${String(defaultAssignment.scope_type)} · من ${String(defaultAssignment.effective_from || '-')}` : 'لا يوجد تعيين افتراضي'}.
+          ترتيب الحل: موظف ← دور ← فرع ← افتراضي.
+        </div>
       </section>
 
       <section className="rounded-2xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-4">
@@ -89,6 +139,16 @@ export default function HRSettings() {
       <section className="rounded-2xl border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] p-4 text-xs font-bold text-[var(--dawaa-status-info-text)]">
         ترتيب التطبيق المستهدف للسياسات: موظف ← دور ← نوع توظيف ← فرع ← السياسة الافتراضية. الأكثر تحديدًا يتغلب على العامة، وكل تغيير تاريخي يكون Effective-dated.
       </section>
+    </div>
+  );
+}
+
+
+function PolicyStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-3">
+      <div className="text-[10px] font-black text-[var(--dawaa-theme-muted)]">{label}</div>
+      <div className="mt-1 text-sm font-black text-[var(--dawaa-theme-heading)]">{value}</div>
     </div>
   );
 }

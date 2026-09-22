@@ -1,14 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Clock3, RefreshCw, Scale, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Clock3, RefreshCw, ShieldCheck, Wrench } from 'lucide-react';
 import { toast } from 'sonner';
-import { supabase } from '@/lib/supabase';
 import {
   approveAttendanceResolution,
-  listAttendanceImpactLedger,
-  listAttendanceResolutionQueue,
+  listAttendanceExceptionInbox,
   materializeAttendanceRange,
-  type AttendanceImpactRow,
-  type AttendanceResolutionRow,
+  type AttendanceExceptionLane,
+  type AttendanceExceptionRow,
 } from '@/lib/attendance/attendanceResolutionService';
 import EmployeeProfileDrawer from '@/components/attendance/EmployeeProfileDrawer';
 
@@ -16,7 +14,10 @@ function cairoDate(offsetDays = 0) {
   const date = new Date();
   date.setDate(date.getDate() + offsetDays);
   return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit',
+    timeZone: 'Africa/Cairo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
   }).format(date);
 }
 
@@ -24,44 +25,26 @@ function fmt(value?: string | null) {
   if (!value) return '-';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString('ar-EG', { timeZone: 'Africa/Cairo', dateStyle: 'short', timeStyle: 'short' });
+  return date.toLocaleString('ar-EG', {
+    timeZone: 'Africa/Cairo',
+    dateStyle: 'short',
+    timeStyle: 'short',
+  });
 }
 
-function statusLabel(status?: string | null) {
-  const labels: Record<string, string> = {
-    on_time: 'ملتزم',
-    on_time_with_permission: 'ملتزم + إذن',
-    late: 'تأخير',
-    very_late: 'تأخير شديد',
-    approved_time_off: 'إجازة/غياب معتمد',
-    off_day: 'إجازة أسبوعية',
-    absence_review: 'غياب يحتاج مراجعة',
-    missing_checkin: 'بصمة دخول ناقصة',
-    missing_checkout: 'بصمة خروج ناقصة',
-    early_leave_review: 'خروج مبكر يحتاج مراجعة',
-    worked_on_off: 'عمل في يوم إجازة',
-    time_off_with_events: 'بصمة أثناء إجازة',
-    time_off_conflict: 'تعارض أذونات/إجازات',
-    schedule_conflict: 'تعارض جدول',
-    shift_swap_requires_schedule: 'تبديل شيفت غير مثبت بالجدول',
-    no_schedule: 'لا يوجد جدول معتمد',
-    invalid_schedule_time: 'وقت الجدول غير صالح',
-    needs_event_review: 'بصمة تحتاج مراجعة',
-    sync_pending_verification: 'انتظار اكتمال المزامنة',
-    shift_in_progress: 'الشيفت لسه شغال',
-    invalid_duration: 'مدة عمل غير منطقية',
+function laneMeta(lane: AttendanceExceptionLane) {
+  if (lane === 'system') {
+    return {
+      label: 'مشكلة نظام',
+      className: 'border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] text-[var(--dawaa-status-info-text)]',
+      description: 'لا تُنسب للموظف ولا تعتمد كغياب أو خصم قبل إصلاح السبب النظامي.',
+    };
+  }
+  return {
+    label: 'يحتاج قرار مدير',
+    className: 'border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)]',
+    description: 'حالة تحتاج قرارًا بشريًا موثقًا بعد مراجعة الدليل.',
   };
-  return labels[status || ''] || status || 'غير محدد';
-}
-
-function stateClass(row: AttendanceResolutionRow) {
-  if (row.status === 'approved' && ['on_time', 'on_time_with_permission', 'off_day', 'approved_time_off'].includes(row.resolution_status || '')) {
-    return 'border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] text-[var(--dawaa-status-success-text)]';
-  }
-  if (row.status === 'pending_review') {
-    return 'border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] text-[var(--dawaa-status-danger-text)]';
-  }
-  return 'border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)]';
 }
 
 export default function AttendanceResolutionCenter({
@@ -76,83 +59,59 @@ export default function AttendanceResolutionCenter({
   const [start, setStart] = useState(() => initialDate || cairoDate(-7));
   const [end, setEnd] = useState(() => initialDate || cairoDate());
   const [branch, setBranch] = useState(defaultBranch || 'الكل');
-  const [status, setStatus] = useState<string>('pending_review');
-  const [triage, setTriage] = useState<'all' | 'manager' | 'system'>(initialTriage);
-  const [rows, setRows] = useState<AttendanceResolutionRow[]>([]);
-  const [impacts, setImpacts] = useState<AttendanceImpactRow[]>([]);
+  const [lane, setLane] = useState<'all' | AttendanceExceptionLane>(initialTriage);
+  const [rows, setRows] = useState<AttendanceExceptionRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [materializing, setMaterializing] = useState(false);
-  const [selected, setSelected] = useState<AttendanceResolutionRow | null>(null);
+  const [selected, setSelected] = useState<AttendanceExceptionRow | null>(null);
   const [profileStaffId, setProfileStaffId] = useState<string | null>(null);
-  const [pendingDeductions, setPendingDeductions] = useState<{ id: string; staff_id: string; employee_name: string; branch: string; month_cycle: string; points: number; amount: number; description: string; transaction_date: string }[]>([]);
-  const [deductionBusy, setDeductionBusy] = useState<string | null>(null);
-
-  useEffect(() => {
-    setTriage(initialTriage);
-    if (!initialDate) return;
-    setStart(initialDate);
-    setEnd(initialDate);
-    setStatus('pending_review');
-  }, [initialDate, initialTriage]);
-
-  const loadPendingDeductions = useCallback(async () => {
-    const { data, error: rpcError } = await supabase.rpc('attendance_deduction_pending_review_v1');
-    if (!rpcError) setPendingDeductions((data || []) as typeof pendingDeductions);
-  }, []);
-
-  useEffect(() => { void loadPendingDeductions(); }, [loadPendingDeductions]);
-
-  async function decideDeduction(id: string, decision: 'approve' | 'reject') {
-    setDeductionBusy(id);
-    try {
-      const { error: rpcError } = await supabase.rpc('attendance_deduction_review_decide_v1', { p_transaction_id: id, p_decision: decision });
-      if (rpcError) throw rpcError;
-      toast.success(decision === 'approve' ? 'تم اعتماد الخصم — أثر الآن على رصيد الموظف' : 'تم رفض الخصم');
-      await loadPendingDeductions();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'تعذر تنفيذ القرار');
-    } finally {
-      setDeductionBusy(null);
-    }
-  }
   const [note, setNote] = useState('');
   const [hours, setHours] = useState('');
   const [approving, setApproving] = useState(false);
 
+  useEffect(() => {
+    setLane(initialTriage);
+    if (!initialDate) return;
+    setStart(initialDate);
+    setEnd(initialDate);
+  }, [initialDate, initialTriage]);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [queue, ledger] = await Promise.all([
-        listAttendanceResolutionQueue({ start, end, branch, status: status || null, triage, limit: 500 }),
-        listAttendanceImpactLedger({ start, end, limit: 500 }),
-      ]);
+      const queue = await listAttendanceExceptionInbox({
+        start,
+        end,
+        branch,
+        lane,
+        limit: 500,
+      });
       setRows(queue);
-      setImpacts(ledger);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'تعذر تحميل تسويات الحضور');
+      toast.error(error instanceof Error ? error.message : 'تعذر تحميل صندوق مراجعة الحضور');
     } finally {
       setLoading(false);
     }
-  }, [branch, end, start, status, triage]);
+  }, [branch, end, lane, start]);
 
   useEffect(() => { void load(); }, [load]);
 
   const totals = useMemo(() => ({
     total: rows.length,
-    approved: rows.filter((row) => row.status === 'approved').length,
-    review: rows.filter((row) => row.status === 'pending_review').length,
-    system: rows.filter((row) => row.resolution_origin === 'system').length,
-    manager: rows.filter((row) => row.resolution_origin === 'manager').length,
+    manager: rows.filter((row) => row.queue_lane === 'manager').length,
+    system: rows.filter((row) => row.queue_lane === 'system').length,
+    missingPunch: rows.filter((row) => row.issue_group === 'missing_punch').length,
+    absence: rows.filter((row) => row.issue_group === 'absence').length,
   }), [rows]);
 
   async function runMaterialization() {
     setMaterializing(true);
     try {
       const result = await materializeAttendanceRange({ start, end, branch });
-      toast.success(`تمت التسوية: ${Number(result.approved || 0)} معتمد تلقائيًا، ${Number(result.pending_review || 0)} للمراجعة.`);
+      toast.success(`تم تحديث حقيقة الحضور: ${Number(result.approved || 0)} يوم معتمد تلقائيًا، ${Number(result.pending_review || 0)} يحتاج مراجعة.`);
       await load();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'تعذر تشغيل التسوية');
+      toast.error(error instanceof Error ? error.message : 'تعذر تحديث حقيقة الحضور');
     } finally {
       setMaterializing(false);
     }
@@ -160,8 +119,12 @@ export default function AttendanceResolutionCenter({
 
   async function approveSelected() {
     if (!selected) return;
+    if (selected.queue_lane !== 'manager') {
+      toast.warning('هذه مشكلة نظام وليست قرار موظف. أصلح السبب النظامي أولًا.');
+      return;
+    }
     if (!note.trim()) {
-      toast.warning('اكتب سبب الاعتماد أو التعديل حتى يظل القرار قابلًا للمراجعة.');
+      toast.warning('اكتب سبب القرار حتى يظل الاعتماد قابلًا للمراجعة.');
       return;
     }
     const parsedHours = hours.trim() === '' ? null : Number(hours);
@@ -169,6 +132,7 @@ export default function AttendanceResolutionCenter({
       toast.error('ساعات الاستحقاق يجب أن تكون بين 0 و18 ساعة.');
       return;
     }
+
     setApproving(true);
     try {
       await approveAttendanceResolution({
@@ -177,110 +141,191 @@ export default function AttendanceResolutionCenter({
         payrollEligibleHours: parsedHours,
         note: note.trim(),
       });
-      toast.success('تم اعتماد التسوية مع حفظ السبب وسجل المراجعة.');
-      setSelected(null); setNote(''); setHours('');
+      toast.success('تم اعتماد قرار الحضور وحفظ السبب في سجل المراجعة.');
+      setSelected(null);
+      setNote('');
+      setHours('');
       await load();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'تعذر اعتماد التسوية');
+      toast.error(error instanceof Error ? error.message : 'تعذر اعتماد قرار الحضور');
     } finally {
       setApproving(false);
     }
   }
 
+  const currentLaneMeta = lane === 'system' ? laneMeta('system') : laneMeta('manager');
+
   return (
     <div className="space-y-4">
-      <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
+      <section className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm">
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-end">
           <div className="flex-1">
-            <h2 className="text-lg font-black text-[var(--dawaa-theme-heading)]">التسوية اليومية والالتزام</h2>
-            <p className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">البصمة دليل فقط. كل صف هنا سجل تسوية لموظف/يوم وليس «يوم حضور للمرتب». أيام العمل الفعلية موجودة منفصلة في التقارير ← الحضور الفعلي للمرتب.</p>
+            <div className="text-xs font-black text-[var(--dawaa-theme-primary-strong)]">Exception Inbox V2</div>
+            <h2 className="mt-1 text-xl font-black text-[var(--dawaa-theme-heading)]">صندوق مراجعة الحضور</h2>
+            <p className="mt-1 text-xs font-bold leading-5 text-[var(--dawaa-theme-muted)]">
+              الموظف السليم لا يظهر هنا. نفصل قرار المدير عن مشكلة النظام، ومشكلة النظام لا تتحول تلقائيًا إلى مخالفة أو خصم.
+            </p>
           </div>
-          <label className="text-xs font-black text-[var(--dawaa-theme-muted)]">من<input type="date" value={start} onChange={(e) => setStart(e.target.value)} className="input-dark mt-1 block" /></label>
-          <label className="text-xs font-black text-[var(--dawaa-theme-muted)]">إلى<input type="date" value={end} onChange={(e) => setEnd(e.target.value)} className="input-dark mt-1 block" /></label>
-          <label className="text-xs font-black text-[var(--dawaa-theme-muted)]">الحالة<select value={status} onChange={(e) => setStatus(e.target.value)} className="input-dark mt-1 block"><option value="">الكل</option><option value="pending_review">تحتاج مراجعة</option><option value="approved">معتمدة</option></select></label>
-          <label className="text-xs font-black text-[var(--dawaa-theme-muted)]">نوع المتابعة<select value={triage} onChange={(e) => setTriage(e.target.value as 'all' | 'manager' | 'system')} className="input-dark mt-1 block"><option value="manager">قرار مدير فقط</option><option value="system">مشكلة تفسير نظام</option><option value="all">الكل</option></select></label>
-          <button onClick={() => void load()} className="btn-secondary"><RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> تحديث</button>
-          <button onClick={() => void runMaterialization()} disabled={materializing} className="btn-primary"><ShieldCheck size={16} className={materializing ? 'animate-pulse' : ''} /> تشغيل التسوية</button>
+
+          <label className="text-xs font-black text-[var(--dawaa-theme-muted)]">
+            من
+            <input type="date" value={start} onChange={(e) => setStart(e.target.value)} className="input-dark mt-1 block" />
+          </label>
+          <label className="text-xs font-black text-[var(--dawaa-theme-muted)]">
+            إلى
+            <input type="date" value={end} onChange={(e) => setEnd(e.target.value)} className="input-dark mt-1 block" />
+          </label>
+          <label className="text-xs font-black text-[var(--dawaa-theme-muted)]">
+            المسار
+            <select value={lane} onChange={(e) => setLane(e.target.value as 'all' | AttendanceExceptionLane)} className="input-dark mt-1 block">
+              <option value="manager">يحتاج قرار مدير</option>
+              <option value="system">مشكلة نظام</option>
+              <option value="all">الكل</option>
+            </select>
+          </label>
+          <button onClick={() => void load()} className="btn-secondary">
+            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> تحديث
+          </button>
+          <button onClick={() => void runMaterialization()} disabled={materializing} className="btn-primary">
+            <ShieldCheck size={16} className={materializing ? 'animate-pulse' : ''} /> تحديث حقيقة الحضور
+          </button>
         </div>
+
         <input value={branch} onChange={(e) => setBranch(e.target.value)} className="input-dark mt-3 max-w-xs" placeholder="الفرع أو الكل" />
-        <div className={`mt-3 rounded-xl border p-3 text-xs font-bold ${triage === 'system' ? 'border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] text-[var(--dawaa-status-info-text)]' : 'border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] text-[var(--dawaa-theme-muted)]'}`}>
-          {triage === 'system'
-            ? 'هذه الحالات عندها بصمتان أو أكثر لكن تفسير دخول/خروج غير صحيح. لا تعتبرها خطأ موظف قبل إصلاح التفسير أو الربط.'
-            : triage === 'manager'
-              ? 'يعرض فقط الحالات التي تحتاج قرارًا إداريًا فعليًا: غياب حقيقي، بصمة واحدة، خروج مبكر، عمل في إجازة، أو مشكلة جدول.'
-              : 'يعرض كل سجلات التسوية بما فيها الحالات النظامية.'}
+
+        <div className={`mt-3 rounded-xl border p-3 text-xs font-bold ${lane === 'all' ? 'border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] text-[var(--dawaa-theme-muted)]' : currentLaneMeta.className}`}>
+          {lane === 'all'
+            ? 'تعرض هذه النظرة قرارات المدير ومشاكل النظام معًا. استخدم المسارات المنفصلة للعمل اليومي.'
+            : currentLaneMeta.description}
         </div>
-      </div>
+      </section>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <Metric label="إجمالي سجلات التسوية" value={totals.total} icon={Clock3} />
-        <Metric label="سجلات معتمدة" value={totals.approved} icon={CheckCircle2} />
-        <Metric label="سجلات تحتاج مراجعة" value={totals.review} icon={AlertTriangle} />
-        <Metric label="اعتماد تلقائي" value={totals.system} icon={ShieldCheck} />
-        <Metric label="اعتماد إداري" value={totals.manager} icon={Scale} />
-      </div>
+      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <Metric label="إجمالي الاستثناءات" value={totals.total} icon={Clock3} />
+        <Metric label="تحتاج قرار مدير" value={totals.manager} icon={AlertTriangle} tone="warn" />
+        <Metric label="مشاكل نظام" value={totals.system} icon={Wrench} tone="info" />
+        <Metric label="بصمات ناقصة" value={totals.missingPunch} icon={Clock3} />
+        <Metric label="غياب محتمل" value={totals.absence} icon={AlertTriangle} tone="warn" />
+      </section>
 
-      <div className="overflow-x-auto rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface shadow-sm">
-        <table className="min-w-full text-sm">
-          <thead className="border-b border-[var(--dawaa-theme-border)] text-[var(--dawaa-theme-muted)]"><tr><th className="p-3 text-right">الموظف</th><th className="p-3 text-right">اليوم</th><th className="p-3 text-right">القرار</th><th className="p-3 text-right">دخول / خروج</th><th className="p-3 text-right">تأخير</th><th className="p-3 text-right">ساعات مرشحة</th><th className="p-3 text-right">المصدر</th><th className="p-3 text-right">إجراء</th></tr></thead>
+      <section className="overflow-x-auto rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface shadow-sm">
+        <table className="min-w-[1050px] w-full text-sm">
+          <thead className="border-b border-[var(--dawaa-theme-border)] text-[var(--dawaa-theme-muted)]">
+            <tr>
+              <th className="p-3 text-right">الموظف</th>
+              <th className="p-3 text-right">اليوم</th>
+              <th className="p-3 text-right">نوع الحالة</th>
+              <th className="p-3 text-right">المسار</th>
+              <th className="p-3 text-right">الدليل</th>
+              <th className="p-3 text-right">دخول / خروج</th>
+              <th className="p-3 text-right">ساعات مرشحة</th>
+              <th className="p-3 text-right">إجراء</th>
+            </tr>
+          </thead>
           <tbody>
             {rows.map((row) => {
-              const snapshot = row.resolution_snapshot || {};
-              const staffName = String(snapshot.staff_name || row.staff_id);
-              return <tr key={row.id} className="border-b border-[var(--dawaa-theme-border)]/60 last:border-0">
-                <td className="p-3"><button onClick={() => setProfileStaffId(row.staff_id)} className="text-right font-black text-[var(--dawaa-theme-heading)] hover:underline hover:text-[var(--dawaa-theme-primary-strong)]">{staffName}</button><div className="text-xs text-[var(--dawaa-theme-muted)]">{row.branch || '-'}</div></td>
-                <td className="p-3 font-bold">{row.attendance_date}</td>
-                <td className="p-3"><span className={`inline-flex rounded-full border px-2 py-1 text-xs font-black ${stateClass(row)}`}>{statusLabel(row.resolution_status)}</span></td>
-                <td className="p-3 text-xs"><div>{fmt(row.first_in)}</div><div>{fmt(row.last_out)}</div></td>
-                <td className="p-3 font-black">{Number(row.late_minutes || 0)} د</td>
-                <td className="p-3 font-black">{Number(row.candidate_hours || 0).toFixed(2)}</td>
-                <td className="p-3 text-xs">{row.resolution_origin === 'system' ? 'النظام' : row.resolution_origin === 'manager' ? 'إدارة' : 'مراجعة'}</td>
-                <td className="p-3">{row.status === 'pending_review' ? <button onClick={() => { setSelected(row); setHours(row.candidate_hours == null ? '' : String(row.candidate_hours)); setNote(''); }} className="btn-secondary text-xs">مراجعة</button> : <span className="text-xs font-bold text-[var(--dawaa-theme-muted)]">معتمد</span>}</td>
-              </tr>;
+              const meta = laneMeta(row.queue_lane);
+              return (
+                <tr key={row.id} className="border-b border-[var(--dawaa-theme-border)]/60 last:border-0">
+                  <td className="p-3">
+                    <button onClick={() => setProfileStaffId(row.staff_id)} className="text-right font-black text-[var(--dawaa-theme-heading)] hover:underline hover:text-[var(--dawaa-theme-primary-strong)]">
+                      {row.staff_name}
+                    </button>
+                    <div className="text-xs text-[var(--dawaa-theme-muted)]">{row.branch || '-'}</div>
+                  </td>
+                  <td className="p-3 font-bold">{row.attendance_date}</td>
+                  <td className="p-3">
+                    <div className="font-black text-[var(--dawaa-theme-heading)]">{row.issue_label}</div>
+                    <div className="mt-1 text-[10px] font-bold text-[var(--dawaa-theme-muted)]">{row.issue_group}</div>
+                  </td>
+                  <td className="p-3">
+                    <span className={`inline-flex rounded-full border px-2 py-1 text-[11px] font-black ${meta.className}`}>{meta.label}</span>
+                    {row.queue_lane === 'system' && <div className="mt-1 text-[10px] font-bold text-[var(--dawaa-status-info-text)]">لا إجراء على الموظف</div>}
+                  </td>
+                  <td className="p-3">
+                    <div className="font-black">{row.raw_events.toLocaleString('ar-EG')} بصمة خام</div>
+                    <div className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">الدليل محفوظ ولا يتم تعديله</div>
+                  </td>
+                  <td className="p-3 text-xs">
+                    <div>{fmt(row.first_in)}</div>
+                    <div>{fmt(row.last_out)}</div>
+                  </td>
+                  <td className="p-3 font-black">{row.candidate_hours == null ? '-' : row.candidate_hours.toFixed(2)}</td>
+                  <td className="p-3">
+                    {row.queue_lane === 'manager'
+                      ? <button onClick={() => { setSelected(row); setHours(row.candidate_hours == null ? '' : String(row.candidate_hours)); setNote(''); }} className="btn-secondary text-xs">اتخاذ قرار</button>
+                      : <span className="rounded-full border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] px-2 py-1 text-[11px] font-black text-[var(--dawaa-status-info-text)]">إصلاح نظامي</span>}
+                  </td>
+                </tr>
+              );
             })}
-            {!rows.length && !loading && <tr><td colSpan={8} className="p-8 text-center font-bold text-[var(--dawaa-theme-muted)]">لا توجد تسويات مادية في الفترة الحالية. الحالات غير المكتملة بسبب المزامنة لا تتحول إلى خصم أو غياب نهائي.</td></tr>}
+            {!rows.length && !loading && (
+              <tr>
+                <td colSpan={8} className="p-8 text-center font-bold text-[var(--dawaa-theme-muted)]">
+                  لا توجد حالات في هذا المسار خلال الفترة المحددة.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
-      </div>
+      </section>
 
-      <div className="rounded-2xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-4 shadow-sm">
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <div>
-            <h3 className="font-black text-[var(--dawaa-status-warning-text)]">خصومات حضور بانتظار اعتمادك</h3>
-            <p className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">محسوبة تلقائيًا من الأيام المعتمدة فقط، لكن لا تؤثر على رصيد أي موظف إلا بعد اعتمادك الصريح هنا.</p>
-          </div>
-          <span className="rounded-full border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-theme-surface)] px-3 py-1 text-xs font-black text-[var(--dawaa-status-warning-text)]">{pendingDeductions.length.toLocaleString('ar-EG')} بانتظار القرار</span>
-        </div>
-        {!pendingDeductions.length ? <div className="text-sm font-bold text-[var(--dawaa-theme-muted)]">لا توجد خصومات معلّقة حاليًا.</div> : <div className="space-y-2">
-          {pendingDeductions.map((d) => <div key={d.id} className="rounded-xl border border-[var(--dawaa-theme-border)] dawaa-surface p-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <button onClick={() => setProfileStaffId(d.staff_id)} className="font-black text-[var(--dawaa-theme-heading)] hover:underline">{d.employee_name}</button>
-                <span className="mr-2 text-xs font-bold text-[var(--dawaa-theme-muted)]">{d.branch}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="rounded-full border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] px-2 py-1 text-xs font-black text-[var(--dawaa-status-danger-text)]">-{d.points} نقطة (-{d.amount} ج.م)</span>
-                <button disabled={deductionBusy===d.id} onClick={() => void decideDeduction(d.id, 'approve')} className="btn-primary px-2 py-1 text-xs">اعتماد</button>
-                <button disabled={deductionBusy===d.id} onClick={() => void decideDeduction(d.id, 'reject')} className="btn-secondary px-2 py-1 text-xs">رفض</button>
-              </div>
+      <section className="rounded-2xl border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] p-4 text-xs font-bold text-[var(--dawaa-status-info-text)]">
+        الخصومات والجزاءات لم تعد جزءًا من صندوق مراجعة الحضور. الحضور يثبت الحقيقة التشغيلية فقط؛ الأثر المالي يمر من الرواتب/الجزاءات بعد الاعتماد.
+      </section>
+
+      {selected && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-lg rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-5 shadow-2xl">
+            <h3 className="text-lg font-black text-[var(--dawaa-theme-heading)]">قرار حضور — {selected.staff_name}</h3>
+            <p className="mt-1 text-sm font-bold text-[var(--dawaa-theme-muted)]">
+              {selected.issue_label} · {selected.attendance_date}
+            </p>
+            <div className="mt-3 rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-3 text-xs font-bold text-[var(--dawaa-status-warning-text)]">
+              هذا اعتماد لحقيقة الحضور، وليس قرار خصم أو جزاء مالي.
             </div>
-            <p className="mt-2 text-[11px] font-bold text-[var(--dawaa-theme-muted)]">{d.description}</p>
-          </div>)}
-        </div>}
-      </div>
+            <label className="mt-4 block text-xs font-black text-[var(--dawaa-theme-muted)]">
+              ساعات الاستحقاق للمرتب
+              <input value={hours} onChange={(e) => setHours(e.target.value)} type="number" min="0" max="18" step="0.01" className="input-dark mt-1 w-full" />
+            </label>
+            <label className="mt-3 block text-xs font-black text-[var(--dawaa-theme-muted)]">
+              سبب القرار
+              <textarea value={note} onChange={(e) => setNote(e.target.value)} className="input-dark mt-1 min-h-24 w-full" placeholder="مثال: تم التحقق من مدير الفرع وسجل البصمات..." />
+            </label>
+            <div className="mt-4 flex gap-2">
+              <button onClick={() => void approveSelected()} disabled={approving} className="btn-primary flex-1">اعتماد موثق</button>
+              <button onClick={() => { setSelected(null); setNote(''); setHours(''); }} className="btn-secondary">إلغاء</button>
+            </div>
+          </div>
+        </div>
+      )}
 
-      <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm">
-        <h3 className="font-black text-[var(--dawaa-theme-heading)]">سجل أثر الالتزام</h3>
-        <p className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">تصنيف قابل للتتبع فقط؛ القيم المالية والنقاط تظل صفرًا حتى يمر الحدث بسياسة الحوافز/الرواتب المعتمدة.</p>
-        <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">{impacts.slice(0, 18).map((impact) => <div key={impact.id} className="rounded-xl border border-[var(--dawaa-theme-border)] p-3"><div className="font-black text-[var(--dawaa-theme-heading)]">{statusLabel(String(impact.event_type).replace('attendance_', ''))}</div><div className="mt-1 text-xs text-[var(--dawaa-theme-muted)]">{impact.attendance_date} · سياسة {impact.policy_version || 'غير محددة'}</div></div>)}</div>
-      </div>
-
-      {selected && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"><div className="w-full max-w-lg rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-5 shadow-2xl"><h3 className="text-lg font-black text-[var(--dawaa-theme-heading)]">مراجعة تسوية {selected.attendance_date}</h3><p className="mt-1 text-sm font-bold text-[var(--dawaa-theme-muted)]">{statusLabel(selected.resolution_status)} — لا يتم الاعتماد بدون سبب محفوظ في الـAudit.</p><label className="mt-4 block text-xs font-black text-[var(--dawaa-theme-muted)]">ساعات الاستحقاق للراتب<input value={hours} onChange={(e) => setHours(e.target.value)} type="number" min="0" max="18" step="0.01" className="input-dark mt-1 w-full" /></label><label className="mt-3 block text-xs font-black text-[var(--dawaa-theme-muted)]">سبب القرار<textarea value={note} onChange={(e) => setNote(e.target.value)} className="input-dark mt-1 min-h-24 w-full" placeholder="مثال: تم التحقق من مدير الفرع ومن سجل البصمة..." /></label><div className="mt-4 flex gap-2"><button onClick={() => void approveSelected()} disabled={approving} className="btn-primary flex-1">اعتماد موثق</button><button onClick={() => { setSelected(null); setNote(''); setHours(''); }} className="btn-secondary">إلغاء</button></div></div></div>}
       {profileStaffId && <EmployeeProfileDrawer staffId={profileStaffId} onClose={() => setProfileStaffId(null)} />}
     </div>
   );
 }
 
-function Metric({ label, value, icon: Icon }: { label: string; value: number; icon: typeof Clock3 }) {
-  return <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm"><div className="flex items-center gap-2 text-[var(--dawaa-theme-muted)]"><Icon size={17} /><span className="text-xs font-black">{label}</span></div><div className="mt-2 text-2xl font-black text-[var(--dawaa-theme-heading)]">{value}</div></div>;
+function Metric({
+  label,
+  value,
+  icon: Icon,
+  tone = 'neutral',
+}: {
+  label: string;
+  value: number;
+  icon: typeof Clock3;
+  tone?: 'neutral' | 'warn' | 'info';
+}) {
+  const cls = tone === 'warn'
+    ? 'border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)]'
+    : tone === 'info'
+      ? 'border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)]'
+      : 'border-[var(--dawaa-theme-border)] dawaa-surface';
+
+  return (
+    <div className={`rounded-2xl border p-4 shadow-sm ${cls}`}>
+      <div className="flex items-center gap-2 text-[var(--dawaa-theme-muted)]"><Icon size={17} /><span className="text-xs font-black">{label}</span></div>
+      <div className="mt-2 text-2xl font-black text-[var(--dawaa-theme-heading)]">{value.toLocaleString('ar-EG')}</div>
+    </div>
+  );
 }
