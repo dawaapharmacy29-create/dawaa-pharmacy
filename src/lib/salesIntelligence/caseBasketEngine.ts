@@ -8,7 +8,6 @@ import {
   contextWindowV32,
   extractAcceptanceSignals,
   extractConfirmationSignals,
-  extractPriceSignals,
   extractProductReferenceSignals,
   extractQuantitySignals,
   extractRejectionSignals,
@@ -22,8 +21,11 @@ import type {
   CaseStatus,
   ConfidenceAssessment,
   ConfidenceLevel,
+  CustomerConfirmationEvent,
   EvidenceRef,
+  FinalBasketSummaryEvent,
   ItemResolutionStatus,
+  StaffFinalConfirmationEvent,
 } from './types';
 
 // ---------------------------------------------------------------------------
@@ -33,17 +35,40 @@ import type {
 // ---------------------------------------------------------------------------
 
 const FINAL_BASKET_SUMMARY_MARKER_RX = /تأمر\s*ب|إجمالي\s*الحساب|هل\s*الطلب\s*كده\s*كامل|حضرتك\s*تأمر/i;
-const STAFF_FINAL_CONFIRMATION_RX = /تم\s*تأكيد\s*الطلب|تم\s*تسجيل(?:\s*طلبك)?|تسجيل\s*طلبك/i;
+// Phase C: broadened past the two original "تم تأكيد/تسجيل" phrases to cover the natural-language
+// fulfillment variants the spec explicitly requires ("جاري الإرسال/التجهيز", "الطلب اتأكد") — still
+// deliberately narrow (no bare "حاضر"/"تمام" alone) since this only ever fires once a customer
+// confirmation already exists (see the `status === 'confirmed'` gate in buildCaseBaskets below).
+const STAFF_FINAL_CONFIRMATION_RX =
+  /تم\s*تأكيد\s*الطلب|تم\s*تسجيل(?:\s*طلبك)?|تسجيل\s*طلبك|جاري\s*(?:التجهيز|الإرسال|الارسال)|الطلب\s*اتأكد/i;
+// Phase C: combo confirmation phrases the shared V32 ACCEPTANCE_RX doesn't cover (each of its
+// alternatives requires an exact whole-string match to ONE fixed token) — "ايوه تمام"/"كده تمام"/
+// "لا كده تمام"/"شكرا كده تمام" are all real ways a customer confirms an exact presented basket.
+const CUSTOMER_BASKET_CONFIRMATION_RX =
+  /^(?:ايوا|ايوه|اه|آه)?\s*كده\s*تمام[!.، ]*$|^لا\s*كده\s*تمام[!.، ]*$|^شكرا?ً?\s*(?:يا\s*فندم\s*)?كده\s*تمام[!.، ]*$|^(?:ايوا|ايوه|اه|آه)\s*تمام[!.، ]*$/i;
 const MODIFICATION_ADD_RX = /زود(?:ي)?|ضيف(?:ي)?\s|كمان\s*عايز|كمان\s*حاجة|نسيت/i;
 const MODIFICATION_REMOVE_RX = /شيل(?:ي)?\s|الغ[يى](?:ي)?\s*(?!.*كل)/i;
 const MODIFICATION_QTY_CHANGE_RX = /خليه?م?\s*(\d+|اتنين|تلات[ةه]?|أربع[ةه]?|خمس[ةه]?)\s*بدل\s*(\d+|اتنين|تلات[ةه]?|أربع[ةه]?|خمس[ةه]?)/i;
 /** "بدل الصابونة العادية هات التاني" — a product swap, distinct from the numeric quantity-change phrasing above. */
 const SUBSTITUTION_MARKER_RX = /بدل(?:ها|منها|ه)?\s/i;
-const WHOLE_BASKET_REJECTION_RX = /مش\s*عايز\s*(?:ده|حاجه|أي\s*حاجه|الطلب)\s*خالص|الغ[يى]\s*كل\s*حاجة|كنسل\s*الطلب|مش\s*عايز\s*الطلب\s*خالص/i;
+// Phase C: "خالص" is now optional after "الطلب" — the spec's own canonical example ("لا خلاص مش
+// عايز الطلب") has no trailing "خالص". "الطلب" itself (not a product name) is what distinguishes
+// a whole-order rejection from a partial one ("مش عايز الزوركال" stays a single-item rejection).
+const WHOLE_BASKET_REJECTION_RX = /مش\s*عايز\s*(?:ده|حاجه|أي\s*حاجه|الطلب)(?:\s*خالص)?|الغ[يى]\s*كل\s*حاجة|كنسل\s*الطلب/i;
 
 /** Parses a multi-item consolidated summary ("3 علب انتينال\n2 علبة ستريبتوكين\n1 شريط زوركال"). */
 const QUANTITY_UNIT_ITEM_RX =
   /(\d+|واحد[ةه]?|اتنين|تلات[ةه]?|أربع[ةه]?|خمس[ةه]?)\s*(علبة|علب|حبة|حبوب|شريط|عبوة|قطعة|كيس)\s+([^\n,،]+)/gi;
+
+/**
+ * Phase C: the TOTAL a staff explicitly announced ("الحساب كله 1000 جنيه", "الإجمالي 1000",
+ * "كده الإجمالي 1000", "المجموع 1000 جنيه") — deliberately distinct from a bare price mention
+ * (extractPriceSignals matches ANY "<number> جنيه", including a single item's price or a delivery
+ * fee). Requiring one of these total-specific keywords is what keeps a per-item price or a
+ * delivery fee from ever being mistaken for the announced order total.
+ */
+const ANNOUNCED_TOTAL_RX =
+  /(?:كده\s*)?(?:إجمالي\s*الحساب|الحساب\s*كل?ه|الإجمالي|المجموع|الحساب)\s*(?:كده\s*)?(\d+(?:\.\d+)?)\s*(?:جنيه|جنيها|ج\.?م\.?)?/i;
 
 const ARABIC_NUMBER_WORDS: Record<string, number> = {
   واحد: 1, واحده: 1, واحدة: 1,
@@ -228,20 +253,23 @@ function extractAnnouncedTotal(
   summaryMessage: NormalizedConversationMessageV32,
   version: number
 ): AnnouncedTotal | null {
-  const priceSignals = extractPriceSignals(scopedMessages).filter(
-    (s) => s.messageId === summaryMessage.id || scopedMessages.find((m) => m.id === s.messageId)!.timestamp.getTime() >= summaryMessage.timestamp.getTime()
-  );
-  const nearest = priceSignals[0];
-  if (!nearest || !nearest.extractedValue) return null;
-  return {
-    amount: Number(nearest.extractedValue),
-    currency: 'EGP',
-    messageId: nearest.messageId,
-    staffId: null,
-    announcedAt: scopedMessages.find((m) => m.id === nearest.messageId)!.timestamp.toISOString(),
-    basketVersion: version,
-    supersededByTotalId: null,
-  };
+  const candidates = scopedMessages
+    .filter((m) => m.timestamp.getTime() >= summaryMessage.timestamp.getTime())
+    .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+  for (const m of candidates) {
+    const match = m.text.match(ANNOUNCED_TOTAL_RX);
+    if (!match) continue;
+    return {
+      amount: Number(match[1]),
+      currency: 'EGP',
+      messageId: m.id,
+      staffId: null,
+      announcedAt: m.timestamp.toISOString(),
+      basketVersion: version,
+      supersededByTotalId: null,
+    };
+  }
+  return null;
 }
 
 function isFinalBasketSummary(message: NormalizedConversationMessageV32): boolean {
@@ -292,6 +320,12 @@ function isLinkedToSummary(
 interface BuildCaseBasketsResult {
   baskets: CaseBasket[];
   itemsByBasketId: Record<string, CaseBasketItem[]>;
+  /** Phase C — one per staff message that genuinely qualifies as a consolidated order recap. */
+  summaryEvents: FinalBasketSummaryEvent[];
+  /** Phase C — only customer confirmations CONTEXTUALLY LINKED to a specific summary/version. */
+  customerConfirmationEvents: CustomerConfirmationEvent[];
+  /** Phase C — the staff's own post-acceptance "order registered/being prepared" message. */
+  staffFinalConfirmationEvents: StaffFinalConfirmationEvent[];
 }
 
 /**
@@ -303,6 +337,9 @@ export function buildCaseBaskets(caseId: string, scopedMessages: NormalizedConve
   const messages = scopedMessages.slice().sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
   const baskets: CaseBasket[] = [];
   const itemsByBasketId: Record<string, CaseBasketItem[]> = {};
+  const summaryEvents: FinalBasketSummaryEvent[] = [];
+  const customerConfirmationEvents: CustomerConfirmationEvent[] = [];
+  const staffFinalConfirmationEvents: StaffFinalConfirmationEvent[] = [];
 
   let version = 0;
   let items = new Map<string, DraftItem>();
@@ -382,6 +419,20 @@ export function buildCaseBaskets(caseId: string, scopedMessages: NormalizedConve
       sourceMessageIds.push(message.id);
       announcedTotal = extractAnnouncedTotal(messages, message, version) ?? announcedTotal;
       lastSummaryMessageId = message.id;
+      summaryEvents.push({
+        eventId: `${currentBasketId()}:summary:${message.id}`,
+        caseId,
+        basketId: currentBasketId(),
+        basketVersion: version,
+        staffId: null,
+        messageId: message.id,
+        presentedAt: message.timestamp.toISOString(),
+        evidence: [refFor(message, `ملخص طلب نهائي: "${message.text.slice(0, 120)}".`)],
+        ruleIds: ['commercial.final_summary.marker_matched'],
+        confidence: assessment('strongly_inferred', 0.75, 'commercial.final_summary.marker_matched', [
+          refFor(message, `تطابقت الرسالة مع علامات ملخص الطلب النهائي: "${message.text.slice(0, 120)}".`),
+        ]),
+      });
       return;
     }
 
@@ -457,8 +508,9 @@ export function buildCaseBaskets(caseId: string, scopedMessages: NormalizedConve
         }
         const rejectionSignal = extractRejectionSignals([message])[0];
         const acceptanceSignal = extractAcceptanceSignals([message])[0];
+        const localComboConfirmation = CUSTOMER_BASKET_CONFIRMATION_RX.test(message.text);
         const confirmationLinked =
-          (acceptanceSignal && isLinkedToSummary(messages, message.id, lastSummaryMessageId)) ||
+          ((acceptanceSignal || localComboConfirmation) && isLinkedToSummary(messages, message.id, lastSummaryMessageId)) ||
           extractConfirmationSignals(messages)
             .filter(isSubstantiveConfirmationSignal)
             .some((s) => s.relatedMessageIds?.includes(lastSummaryMessageId!));
@@ -466,17 +518,38 @@ export function buildCaseBaskets(caseId: string, scopedMessages: NormalizedConve
           status = 'confirmed';
           confirmedByCustomerAt = message.timestamp.toISOString();
           sourceMessageIds.push(message.id);
+          customerConfirmationEvents.push({
+            eventId: `${currentBasketId()}:customer_confirm:${message.id}`,
+            caseId,
+            basketId: currentBasketId(),
+            basketVersion: version,
+            messageId: message.id,
+            confirmedAt: message.timestamp.toISOString(),
+            relatedSummaryMessageId: lastSummaryMessageId,
+            evidence: [refFor(message, `تأكيد العميل: "${message.text.slice(0, 120)}", مرتبط بملخص الرسالة ${lastSummaryMessageId}.`)],
+            ruleIds: ['commercial.customer_confirmation.linked_to_summary'],
+            confidence: assessment('strongly_inferred', 0.8, 'commercial.customer_confirmation.linked_to_summary', [
+              refFor(message, `تأكيد العميل مرتبط بسياق ملخص الطلب الأخير: "${message.text.slice(0, 120)}".`),
+            ]),
+          });
           return;
         }
       }
 
       // Ongoing basket-building content (no summary yet, or unrelated chit-chat): fold in any
-      // new item-bearing signal from this single message without forcing a version bump.
+      // new item-bearing signal from this single message without forcing a version bump. Once a
+      // final summary exists (awaiting_confirmation/confirmed), an unclassified message must NOT
+      // silently mutate the basket this way — it already had its chance to be recognized as a
+      // modification/confirmation/rejection above; anything else here (e.g. a question like "هو
+      // السعر ده شامل التوصيل؟", where a bare "ده" would otherwise spuriously resolve as a
+      // product reference) is a no-op, leaving the basket exactly as awaiting confirmation.
       if (!hasOpenBasket) startNewVersion(new Map(), 'draft');
-      extractDraftItemsFromScope(messages, new Set([message.id])).forEach((item) => {
-        items.set(normalizeProductKey(item.productNameRaw), item);
-        sourceMessageIds.push(message.id);
-      });
+      if (status === 'draft') {
+        extractDraftItemsFromScope(messages, new Set([message.id])).forEach((item) => {
+          items.set(normalizeProductKey(item.productNameRaw), item);
+          sourceMessageIds.push(message.id);
+        });
+      }
       return;
     }
 
@@ -484,6 +557,20 @@ export function buildCaseBaskets(caseId: string, scopedMessages: NormalizedConve
       if (status === 'confirmed' && isStaffFinalConfirmation(message)) {
         confirmedAt = message.timestamp.toISOString();
         sourceMessageIds.push(message.id);
+        staffFinalConfirmationEvents.push({
+          eventId: `${currentBasketId()}:staff_confirm:${message.id}`,
+          caseId,
+          basketId: currentBasketId(),
+          basketVersion: version,
+          staffId: null,
+          messageId: message.id,
+          confirmedAt: message.timestamp.toISOString(),
+          evidence: [refFor(message, `تأكيد نهائي من الموظف بعد قبول العميل: "${message.text.slice(0, 120)}".`)],
+          ruleIds: ['commercial.staff_final_confirmation.after_customer_acceptance'],
+          confidence: assessment('strongly_inferred', 0.85, 'commercial.staff_final_confirmation.after_customer_acceptance', [
+            refFor(message, `رسالة تأكيد نهائي من الموظف: "${message.text.slice(0, 120)}".`),
+          ]),
+        });
         return;
       }
       // Staff building the basket before any consolidated summary (e.g. confirming each item as offered).
@@ -503,7 +590,7 @@ export function buildCaseBaskets(caseId: string, scopedMessages: NormalizedConve
     baskets[i] = { ...baskets[i], status: baskets[i].status === 'cancelled' ? 'cancelled' : 'superseded', supersededByBasketId: baskets[i + 1].basketId };
   }
 
-  return { baskets, itemsByBasketId };
+  return { baskets, itemsByBasketId, summaryEvents, customerConfirmationEvents, staffFinalConfirmationEvents };
 }
 
 /** Refines a ConversationCase's coarse status once its basket state is known — Phase B stops at 'customer_confirmed'. */

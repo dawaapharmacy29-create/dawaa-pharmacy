@@ -190,6 +190,104 @@ export interface AnnouncedTotal {
 }
 
 // ---------------------------------------------------------------------------
+// Phase C — Final Confirmation + Announced Total + Commercial Confirmation State
+//
+// This is the canonical commercial state INSIDE the conversation, established before any
+// invoice/order linking is attempted (Phase D). "commercial_confirmation_complete" is never
+// "sold" — a sale is only ever confirmed later by order/invoice evidence (Phase 5/6/9).
+// ---------------------------------------------------------------------------
+
+/**
+ * The moment a staff message qualifies as a genuine consolidated order recap — never every
+ * product-list mention. One event per (basketId, basketVersion): a later final summary for the
+ * same version is a re-presentation, not a second event (see deriveCommercialConfirmationState).
+ */
+export interface FinalBasketSummaryEvent {
+  eventId: string;
+  caseId: string;
+  basketId: string;
+  basketVersion: number;
+  staffId: string | null;
+  messageId: string;
+  presentedAt: string;
+  evidence: EvidenceRef[];
+  ruleIds: string[];
+  confidence: ConfidenceAssessment;
+}
+
+/**
+ * A customer confirmation CONTEXTUALLY LINKED to a specific final-basket-summary/version — never
+ * a bare "تمام" credited to a basket merely because one exists earlier in the conversation.
+ */
+export interface CustomerConfirmationEvent {
+  eventId: string;
+  caseId: string;
+  basketId: string;
+  basketVersion: number;
+  messageId: string;
+  confirmedAt: string;
+  relatedSummaryMessageId: string | null;
+  evidence: EvidenceRef[];
+  ruleIds: string[];
+  confidence: ConfidenceAssessment;
+}
+
+/**
+ * Distinct from CustomerConfirmationEvent: this is the STAFF's own final "order registered /
+ * being prepared" message, which only ever fires after a customer confirmation exists for the
+ * same basket version. Reaching this means `commercial_confirmation_complete`, never `sold`.
+ */
+export interface StaffFinalConfirmationEvent {
+  eventId: string;
+  caseId: string;
+  basketId: string;
+  basketVersion: number;
+  staffId: string | null;
+  messageId: string;
+  confirmedAt: string;
+  evidence: EvidenceRef[];
+  ruleIds: string[];
+  confidence: ConfidenceAssessment;
+}
+
+export type CommercialConfirmationState =
+  | 'basket_in_progress'
+  | 'final_summary_presented'
+  | 'awaiting_customer_confirmation'
+  | 'customer_confirmed'
+  | 'modified_after_confirmation'
+  | 'staff_confirmed'
+  | 'commercial_confirmation_complete'
+  | 'rejected'
+  | 'cancelled'
+  | 'unknown';
+
+/**
+ * Assessed against the CURRENT (latest, non-superseded) basket version only. A version that was
+ * confirmed and later superseded by a customer modification stays historically true on its own
+ * (superseded) CaseBasket row — it is never re-used as "permission" for the new version, which
+ * must independently reach its own summary/confirmation/staff-confirmation before this can read
+ * `commercial_confirmation_complete` again.
+ */
+export interface CommercialConfirmationAssessment {
+  caseId: string;
+  basketId: string;
+  basketVersion: number;
+  summaryPresented: boolean;
+  customerConfirmed: boolean;
+  staffConfirmed: boolean;
+  announcedTotalPresent: boolean;
+  /** True when an earlier version of THIS case was customer-confirmed and then superseded. */
+  modificationAfterConfirmation: boolean;
+  currentState: CommercialConfirmationState;
+  primaryMessageIds: string[];
+  ruleIds: string[];
+  confidence: ConfidenceAssessment;
+  needsHumanReview: boolean;
+  humanReviewReasons: string[];
+}
+
+// ---------------------------------------------------------------------------
 // Phase 5 — Sale Attribution Engine
 // ---------------------------------------------------------------------------
 
