@@ -177,3 +177,22 @@ export async function simulateAttendancePolicy(args: {
   if (error) throw new Error(error.message);
   return data as PolicySimulation;
 }
+
+
+export type PolicyRolloutAssignment = {
+  id: string;
+  scope_type: 'staff' | 'role' | 'branch' | 'default';
+  scope_key: string | null;
+  mode: 'off' | 'shadow' | 'enforce';
+  effective_from: string;
+  effective_to: string | null;
+  active: boolean;
+  note: string | null;
+  created_at: string;
+};
+
+export async function getAttendancePolicyRollout(): Promise<PolicyRolloutAssignment[]> {
+  const { data, error } = await supabase.rpc('list_attendance_policy_rollout_v1');
+  if (error) throw new Error(error.message);
+  return Array.isArray(data) ? data as PolicyRolloutAssignment[] : [];
+}

@@ -2,7 +2,12 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, Calendar, Fingerprint, RefreshCw, ShieldCheck, SlidersHorizontal, Users, WalletCards } from 'lucide-react';
 import { getAttendancePolicyCatalog, type AttendancePolicyCatalog } from '@/lib/attendance/attendanceResolutionService';
-import { getPolicyShadowAudit, type PolicyShadowAudit } from '@/lib/hr/workforceService';
+import {
+  getAttendancePolicyRollout,
+  getPolicyShadowAudit,
+  type PolicyRolloutAssignment,
+  type PolicyShadowAudit,
+} from '@/lib/hr/workforceService';
 import { cairoToday, startOfMonth } from '@/lib/attendance/period';
 import AttendancePolicySimulator from '@/components/attendance/AttendancePolicySimulator';
 
@@ -48,13 +53,20 @@ export default function HRSettings() {
   const [catalog, setCatalog] = useState<AttendancePolicyCatalog | null>(null);
   const [loading, setLoading] = useState(false);
   const [shadow, setShadow] = useState<PolicyShadowAudit | null>(null);
+  const [rollout, setRollout] = useState<PolicyRolloutAssignment[]>([]);
 
   async function loadPolicies() {
     setLoading(true);
     try {
-      setCatalog(await getAttendancePolicyCatalog());
+      const [catalogResult, rolloutResult] = await Promise.all([
+        getAttendancePolicyCatalog(),
+        getAttendancePolicyRollout(),
+      ]);
+      setCatalog(catalogResult);
+      setRollout(rolloutResult);
     } catch {
       setCatalog(null);
+      setRollout([]);
     } finally {
       setLoading(false);
     }
@@ -119,6 +131,32 @@ export default function HRSettings() {
         <div className="mt-3 rounded-xl border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] p-3 text-xs font-bold text-[var(--dawaa-status-info-text)]">
           التعيين الافتراضي الحالي: {defaultAssignment ? `${String(defaultAssignment.scope_type)} · من ${String(defaultAssignment.effective_from || '-')}` : 'لا يوجد تعيين افتراضي'}.
           ترتيب الحل: موظف ← دور ← فرع ← افتراضي.
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-black text-[var(--dawaa-theme-heading)]">حالة تطبيق Policy Engine</h2>
+            <p className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">
+              المحرك V3 جاهز على مراحل. الوضع الافتراضي الحالي Shadow، لذلك لا يغير Attendance Truth أو المرتب.
+            </p>
+          </div>
+          <span className={
+            (rollout.find((item) => item.scope_type === 'default')?.mode || 'shadow') === 'enforce'
+              ? 'rounded-full border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-3 py-1 text-xs font-black text-[var(--dawaa-status-warning-text)]'
+              : 'rounded-full border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] px-3 py-1 text-xs font-black text-[var(--dawaa-status-info-text)]'
+          }>
+            {(rollout.find((item) => item.scope_type === 'default')?.mode || 'shadow') === 'enforce' ? 'Enforce' : 'Shadow'}
+          </span>
+        </div>
+        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+          <PolicyStat label="نطاقات Shadow" value={String(rollout.filter((item) => item.mode === 'shadow').length)} />
+          <PolicyStat label="نطاقات Enforce" value={String(rollout.filter((item) => item.mode === 'enforce').length)} />
+          <PolicyStat label="نطاقات Off" value={String(rollout.filter((item) => item.mode === 'off').length)} />
+        </div>
+        <div className="mt-3 rounded-xl border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] p-3 text-xs font-bold text-[var(--dawaa-status-info-text)]">
+          تم التحقق على عينة حية أن V2 وV3 يعطون نفس قرار الحضور في وضع Shadow. لا يوجد أي نطاق Enforce مفعّل حاليًا.
         </div>
       </section>
 
