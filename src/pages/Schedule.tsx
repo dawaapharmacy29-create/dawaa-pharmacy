@@ -17,6 +17,7 @@ import { toast } from 'sonner';
 import { listStaffTimeOffRequests, type StaffTimeOffRequest } from '@/lib/timeOffService';
 import ScheduleIdentityGovernance from '@/components/attendance/ScheduleIdentityGovernance';
 import ScheduleGovernancePanel from '@/components/attendance/ScheduleGovernancePanel';
+import WorkforceScheduleCoverage from '@/components/attendance/WorkforceScheduleCoverage';
 
 interface Employee {
   id: string;
@@ -291,7 +292,13 @@ export default function Schedule() {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5" dir="rtl">
+      <section className="rounded-3xl border border-[var(--dawaa-theme-border)] dawaa-surface p-5 shadow-sm">
+        <div className="text-xs font-black text-[var(--dawaa-theme-primary-strong)]">Workforce Scheduling</div>
+        <h1 className="mt-1 text-2xl font-black text-[var(--dawaa-theme-heading)]">الجداول والمناوبات</h1>
+        <p className="mt-1 text-sm font-bold text-[var(--dawaa-theme-muted)]">التخطيط أولًا ثم الحضور: الجدول هو المرجع الزمني، والتغييرات المؤقتة بتاريخ محدد تتغلب على الجدول الأسبوعي بدون مسح التاريخ السابق.</p>
+      </section>
+      <WorkforceScheduleCoverage branch={branchFilter} />
       <ScheduleGovernancePanel branch={branchFilter} />
       {/* Filter */}
       <div className="flex items-center gap-3 flex-wrap">

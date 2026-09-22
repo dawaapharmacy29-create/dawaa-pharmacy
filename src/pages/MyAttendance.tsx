@@ -31,6 +31,7 @@ export default function MyAttendance() {
   const [detail, setDetail] = useState<StaffAttendanceDetail | null>(null);
   const [leaveBalance, setLeaveBalance] = useState<AnnualLeaveBalanceV1 | null>(null);
   const [permissionStatus, setPermissionStatus] = useState<PermissionPolicyStatusV2 | null>(null);
+  const [workforceSnapshot, setWorkforceSnapshot] = useState<Record<string, any> | null>(null);
   const [loading, setLoading] = useState(false);
 
   const { start, end } = computeRange(mode, anchor);
@@ -42,24 +43,32 @@ export default function MyAttendance() {
     });
   }, []);
 
+  const loadWorkforceSnapshot = useCallback(async () => {
+    const { data, error } = await supabase.rpc('my_workforce_snapshot_v1', { p_date: cairoToday() });
+    if (error) throw error;
+    return (data || null) as Record<string, any> | null;
+  }, []);
+
   const load = useCallback(async () => {
     if (!staffId) return;
     setLoading(true);
     try {
-      const [d, leave, permission] = await Promise.all([
+      const [d, leave, permission, snapshot] = await Promise.all([
         getStaffAttendanceDetail(staffId, start, end),
         getAnnualLeaveBalanceV1(staffId, Number(end.slice(0, 4))).catch(() => null),
         getPermissionPolicyStatusV2(staffId, start, end).catch(() => null),
+        loadWorkforceSnapshot().catch(() => null),
       ]);
       setDetail(d);
       setLeaveBalance(leave);
       setPermissionStatus(permission);
+      setWorkforceSnapshot(snapshot);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'تعذر تحميل بيانات الحضور');
     } finally {
       setLoading(false);
     }
-  }, [staffId, start, end]);
+  }, [staffId, start, end, loadWorkforceSnapshot]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -74,7 +83,28 @@ export default function MyAttendance() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-3 p-3" dir="rtl">
-      <h1 className="text-lg font-black text-[var(--dawaa-theme-heading)]">حضوري وانصرافي</h1>
+      <div>
+        <div className="text-xs font-black text-[var(--dawaa-theme-primary-strong)]">Employee Self-Service</div>
+        <h1 className="text-xl font-black text-[var(--dawaa-theme-heading)]">حضوري وجدولي</h1>
+        <p className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">شيفتك، حضورك، الإجازات وطلبات التصحيح في مكان واحد.</p>
+      </div>
+
+      {workforceSnapshot?.linked && (
+        <section className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          <StatCard
+            label="شيفت اليوم"
+            value={workforceSnapshot.today_schedule ? `${String(workforceSnapshot.today_schedule.shift_start || '—').slice(0,5)} → ${String(workforceSnapshot.today_schedule.shift_end || '—').slice(0,5)}` : 'غير مجدول'}
+            sub={workforceSnapshot.today_schedule?.source_kind === 'date_override' ? 'تعديل مؤقت بتاريخ محدد' : workforceSnapshot.today_schedule ? 'الجدول الحالي' : 'راجع الإدارة إذا كان متوقعًا عملك اليوم'}
+          />
+          <StatCard
+            label="الشيفت القادم"
+            value={workforceSnapshot.next_schedule ? `${String(workforceSnapshot.next_schedule.shift_start || '—').slice(0,5)} → ${String(workforceSnapshot.next_schedule.shift_end || '—').slice(0,5)}` : 'غير متاح'}
+            sub={workforceSnapshot.next_schedule?.day_name ? String(workforceSnapshot.next_schedule.day_name) : undefined}
+          />
+          <StatCard label="تصحيحات معلقة" value={String(workforceSnapshot.pending_corrections || 0)} />
+          <StatCard label="طلبات معلقة" value={String((workforceSnapshot.pending_time_off || 0) + (workforceSnapshot.pending_overtime || 0))} sub={`إجازات ${workforceSnapshot.pending_time_off || 0} · OT ${workforceSnapshot.pending_overtime || 0}`} />
+        </section>
+      )}
 
       <div className="flex flex-col gap-2.5 rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-1 rounded-xl border border-[var(--dawaa-theme-border)] p-1">

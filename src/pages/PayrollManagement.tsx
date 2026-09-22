@@ -32,9 +32,10 @@ const mutedText = { color: 'var(--dawaa-theme-muted)' };
 type Row = Record<string, unknown>;
 type StaffRow = { id: string; staffId: string; username: string; name: string; branch: string; role: string; active: boolean };
 type CompensationProfileState = {
-  salaryCalculationMode: 'legacy_fixed' | 'monthly_hour_unit';
+  salaryCalculationMode: 'legacy_fixed' | 'monthly_hour_unit' | 'attendance_hours_v1';
   monthlyHourUnitValue: number;
   contractedDailyHours: number;
+  attendanceMonthlyReferenceRate: number;
   monthlyBaseSalary: number;
   overtimeHourRate: number;
   monthlyIncentiveBase: number;
@@ -82,6 +83,7 @@ function emptyProfile(): CompensationProfileState {
     salaryCalculationMode: 'monthly_hour_unit',
     monthlyHourUnitValue: 0,
     contractedDailyHours: 0,
+    attendanceMonthlyReferenceRate: 0,
     monthlyBaseSalary: 0,
     overtimeHourRate: 0,
     monthlyIncentiveBase: 0,
@@ -166,9 +168,14 @@ export default function PayrollManagement() {
       ]);
 
       setProfile(canonicalProfile ? {
-        salaryCalculationMode: canonicalProfile.salary_calculation_mode === 'monthly_hour_unit' ? 'monthly_hour_unit' : 'legacy_fixed',
+        salaryCalculationMode: canonicalProfile.salary_calculation_mode === 'attendance_hours_v1'
+          ? 'attendance_hours_v1'
+          : canonicalProfile.salary_calculation_mode === 'monthly_hour_unit'
+            ? 'monthly_hour_unit'
+            : 'legacy_fixed',
         monthlyHourUnitValue: num(canonicalProfile.monthly_hour_unit_value),
         contractedDailyHours: num(canonicalProfile.contracted_daily_hours),
+        attendanceMonthlyReferenceRate: num(canonicalProfile.hourly_rate),
         monthlyBaseSalary: num(canonicalProfile.monthly_base_salary),
         overtimeHourRate: num(canonicalProfile.overtime_hour_rate),
         monthlyIncentiveBase: num(canonicalProfile.monthly_incentive_base),
@@ -213,6 +220,10 @@ export default function PayrollManagement() {
 
   const saveProfile = async () => {
     if (!selected) return;
+    if (profile.salaryCalculationMode === 'attendance_hours_v1' && profile.attendanceMonthlyReferenceRate <= 0) {
+      toast.error('أدخل القيمة الشهرية المرجعية قبل تفعيل حساب الساعات الفعلية.');
+      return;
+    }
     setSaving(true);
     try {
       await saveCompensationProfile({
@@ -222,6 +233,7 @@ export default function PayrollManagement() {
         salaryCalculationMode: profile.salaryCalculationMode,
         monthlyHourUnitValue: profile.monthlyHourUnitValue,
         contractedDailyHours: profile.contractedDailyHours,
+        attendanceMonthlyReferenceRate: profile.attendanceMonthlyReferenceRate,
         monthlyBaseSalary: profile.monthlyBaseSalary,
         overtimeHourRate: profile.overtimeHourRate,
         monthlyIncentiveBase: profile.monthlyIncentiveBase,
@@ -325,11 +337,19 @@ export default function PayrollManagement() {
               <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 <label className="text-xs font-bold" style={mutedText}>طريقة حساب الأساسي
                   <select className="input mt-1 w-full" value={profile.salaryCalculationMode} onChange={(e) => setProfile((p) => ({ ...p, salaryCalculationMode: e.target.value as CompensationProfileState['salaryCalculationMode'] }))}>
+                    <option value="attendance_hours_v1">الساعات الفعلية المعتمدة — Attendance Truth</option>
                     <option value="monthly_hour_unit">قيمة الساعة الشهرية × ساعات الدوام اليومية</option>
                     <option value="legacy_fixed">راتب أساسي ثابت — نظام قديم</option>
                   </select>
                 </label>
-                {profile.salaryCalculationMode === 'monthly_hour_unit' ? <>
+                {profile.salaryCalculationMode === 'attendance_hours_v1' ? <>
+                  <label className="text-xs font-bold" style={mutedText}>القيمة الشهرية المرجعية للساعة<input type="number" className="input mt-1 w-full" value={profile.attendanceMonthlyReferenceRate} onChange={(e) => setProfile((p) => ({ ...p, attendanceMonthlyReferenceRate: num(e.target.value) }))} /></label>
+                  <div className="rounded-xl border p-3 text-xs" style={surfaceSoft}>
+                    <div style={mutedText}>قيمة الساعة الفعلية للحساب</div>
+                    <div className="mt-1 text-lg font-black text-teal-200">{formatCurrency(profile.attendanceMonthlyReferenceRate / 26)}</div>
+                    <div className="mt-1 text-[10px]" style={mutedText}>الأساسي = ساعات Attendance Truth المعتمدة × هذه القيمة. التأخير لا يُخصم مرة ثانية، والـOT منفصل.</div>
+                  </div>
+                </> : profile.salaryCalculationMode === 'monthly_hour_unit' ? <>
                   <label className="text-xs font-bold" style={mutedText}>قيمة الساعة الشهرية<input type="number" className="input mt-1 w-full" value={profile.monthlyHourUnitValue} onChange={(e) => setProfile((p) => ({ ...p, monthlyHourUnitValue: num(e.target.value) }))} /></label>
                   <label className="text-xs font-bold" style={mutedText}>ساعات الدوام اليومية<input type="number" className="input mt-1 w-full" value={profile.contractedDailyHours} onChange={(e) => setProfile((p) => ({ ...p, contractedDailyHours: num(e.target.value) }))} /></label>
                 </> : <label className="text-xs font-bold" style={mutedText}>الراتب الأساسي الثابت<input type="number" className="input mt-1 w-full" value={profile.monthlyBaseSalary} onChange={(e) => setProfile((p) => ({ ...p, monthlyBaseSalary: num(e.target.value) }))} /></label>}
@@ -337,7 +357,7 @@ export default function PayrollManagement() {
                 <label className="text-xs font-bold" style={mutedText}>سعر ساعة الإضافي<input type="number" className="input mt-1 w-full" value={profile.overtimeHourRate} onChange={(e) => setProfile((p) => ({ ...p, overtimeHourRate: num(e.target.value) }))} /></label>
                 <div className="rounded-xl border p-3 text-xs" style={surfaceSoft}>
                   <div style={mutedText}>الأساسي المتوقع</div>
-                  <div className="mt-1 text-lg font-black text-teal-200">{formatCurrency(profile.salaryCalculationMode === 'monthly_hour_unit' ? profile.monthlyHourUnitValue * profile.contractedDailyHours : profile.monthlyBaseSalary)}</div>
+                  <div className="mt-1 text-lg font-black text-teal-200">{formatCurrency(profile.salaryCalculationMode === 'attendance_hours_v1' ? num(components?.baseSalaryComponent) : profile.salaryCalculationMode === 'monthly_hour_unit' ? profile.monthlyHourUnitValue * profile.contractedDailyHours : profile.monthlyBaseSalary)}</div>
                 </div>
               </div>
               <button className="btn-primary mt-4 flex items-center gap-2" disabled={saving} onClick={() => void saveProfile()}><Save size={16} /> حفظ ملف التعويضات</button>

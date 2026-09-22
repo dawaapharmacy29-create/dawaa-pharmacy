@@ -15,9 +15,10 @@ export type PayrollComponents = {
   staffName: string;
   branch: string;
   monthCycle: string;
-  salaryCalculationMode: 'legacy_fixed' | 'monthly_hour_unit';
+  salaryCalculationMode: 'legacy_fixed' | 'monthly_hour_unit' | 'attendance_hours_v1';
   monthlyHourUnitValue: number;
   contractedDailyHours: number;
+  attendanceMonthlyReferenceRate: number;
   baseSalaryComponent: number;
   monthlyIncentiveComponent: number;
   overtimeHourRate: number;
@@ -33,9 +34,10 @@ export type CompensationProfileInput = {
   staffId: string;
   staffName: string;
   branch: string;
-  salaryCalculationMode: 'legacy_fixed' | 'monthly_hour_unit';
+  salaryCalculationMode: 'legacy_fixed' | 'monthly_hour_unit' | 'attendance_hours_v1';
   monthlyHourUnitValue: number;
   contractedDailyHours: number;
+  attendanceMonthlyReferenceRate: number;
   monthlyBaseSalary: number;
   overtimeHourRate: number;
   monthlyIncentiveBase: number;
@@ -77,9 +79,14 @@ export async function fetchPayrollComponents(staffId?: string | null, monthCycle
     staffName: String(row.staff_name || ''),
     branch: String(row.branch || ''),
     monthCycle: String(row.month_cycle || monthCycle),
-    salaryCalculationMode: row.salary_calculation_mode === 'monthly_hour_unit' ? 'monthly_hour_unit' : 'legacy_fixed',
+    salaryCalculationMode: row.salary_calculation_mode === 'attendance_hours_v1'
+      ? 'attendance_hours_v1'
+      : row.salary_calculation_mode === 'monthly_hour_unit'
+        ? 'monthly_hour_unit'
+        : 'legacy_fixed',
     monthlyHourUnitValue: number(row.monthly_hour_unit_value),
     contractedDailyHours: number(row.contracted_daily_hours),
+    attendanceMonthlyReferenceRate: number(row.attendance_hours_breakdown?.monthly_reference_rate),
     baseSalaryComponent: number(row.base_salary_component),
     monthlyIncentiveComponent: number(row.monthly_incentive_component),
     overtimeHourRate: number(row.overtime_hour_rate),
@@ -104,7 +111,7 @@ export async function fetchCompensationProfile(staffId?: string | null) {
   if (!staffId) return null;
   const { data, error } = await supabase
     .from('employee_compensation_profiles')
-    .select('staff_id,staff_name,branch,salary_calculation_mode,monthly_hour_unit_value,contracted_daily_hours,monthly_base_salary,overtime_hour_rate,monthly_incentive_base,active')
+    .select('staff_id,staff_name,branch,salary_calculation_mode,hourly_rate,monthly_hour_unit_value,contracted_daily_hours,monthly_base_salary,overtime_hour_rate,monthly_incentive_base,active')
     .eq('staff_id', staffId)
     .maybeSingle();
   if (error) throw new Error(error.message);
@@ -117,6 +124,7 @@ export async function saveCompensationProfile(input: CompensationProfileInput) {
     staff_name: input.staffName,
     branch: input.branch,
     salary_calculation_mode: input.salaryCalculationMode,
+    hourly_rate: input.salaryCalculationMode === 'attendance_hours_v1' ? number(input.attendanceMonthlyReferenceRate) : undefined,
     monthly_hour_unit_value: number(input.monthlyHourUnitValue),
     contracted_daily_hours: number(input.contractedDailyHours),
     monthly_base_salary: number(input.monthlyBaseSalary),
