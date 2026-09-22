@@ -250,16 +250,30 @@ export interface StaffFinalConfirmationEvent {
   confidence: ConfidenceAssessment;
 }
 
+/**
+ * Phase C.1: trimmed to only states `deriveCommercialConfirmationState` can actually produce —
+ * see the Phase C.1 report for the reachability audit. Three states from the original Phase C
+ * draft were removed, each for a documented reason, not silently:
+ *   - `final_summary_presented` — a summary event always immediately implies "now waiting on the
+ *     customer" in this engine; the raw fact is already exposed via `summaryPresented` and the
+ *     FinalBasketSummaryEvent record itself, so a separate state was pure redundancy.
+ *   - `staff_confirmed` — structurally, by caseBasketEngine's own invariants, staff confirmation
+ *     can only ever be observed together with customer confirmation AND a presented summary for
+ *     the same version (isStaffFinalConfirmation only fires once `status === 'confirmed'`), which
+ *     is exactly `commercial_confirmation_complete`'s own condition — never a distinct moment.
+ *   - `cancelled` — reserved for a future explicit administrative/staff cancellation event; Phase
+ *     C has no source for it (only a customer-initiated whole-basket rejection, `rejected`, exists
+ *     today). Re-add it in whichever future phase actually produces that event.
+ * `unknown` stays: reachable via the "no basket at all" guard (e.g. a case whose only messages
+ * are automated/non-meaningful) — see the reachability tests.
+ */
 export type CommercialConfirmationState =
   | 'basket_in_progress'
-  | 'final_summary_presented'
   | 'awaiting_customer_confirmation'
   | 'customer_confirmed'
   | 'modified_after_confirmation'
-  | 'staff_confirmed'
   | 'commercial_confirmation_complete'
   | 'rejected'
-  | 'cancelled'
   | 'unknown';
 
 /**
@@ -285,6 +299,29 @@ export interface CommercialConfirmationAssessment {
   confidence: ConfidenceAssessment;
   needsHumanReview: boolean;
   humanReviewReasons: string[];
+}
+
+/**
+ * Phase C.1: deliberately SEPARATE from CommercialConfirmationAssessment. Commercial truth
+ * (`commercial_confirmation_complete`) never requires an announced total — an older/organic
+ * conversation can have a real summary + real customer acceptance + real staff "جاري الإرسال"
+ * with no total ever stated aloud, and that IS a completed commercial confirmation. Protocol
+ * compliance is a stricter, separate, operational lens for measuring staff adherence to the
+ * FULL 4-step pharmacy protocol (summary + total + customer confirmation + staff confirmation)
+ * — a case can be `commercial_confirmation_complete: true` while `protocolCompliant: false`.
+ * Never conflate the two: protocol non-compliance is a coaching signal, not a reason to doubt
+ * that a sale was commercially agreed.
+ */
+export interface OrderConfirmationProtocolAssessment {
+  caseId: string;
+  basketId: string;
+  basketVersion: number;
+  summaryCompliant: boolean;
+  announcedTotalCompliant: boolean;
+  customerConfirmationCompliant: boolean;
+  staffFinalConfirmationCompliant: boolean;
+  protocolCompliant: boolean;
+  missingProtocolSteps: string[];
 }
 
 // ---------------------------------------------------------------------------

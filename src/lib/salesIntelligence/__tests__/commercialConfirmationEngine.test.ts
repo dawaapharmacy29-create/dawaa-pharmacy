@@ -3,7 +3,10 @@ import { parseWhatsAppExport, splitWhatsAppSessions } from '@/lib/whatsappConver
 import { buildConversationUnderstandingV32 } from '@/lib/whatsappConversationUnderstandingV32';
 import { deriveConversationCases } from '@/lib/salesIntelligence/conversationCaseEngine';
 import { buildCaseBaskets } from '@/lib/salesIntelligence/caseBasketEngine';
-import { deriveCommercialConfirmationState } from '@/lib/salesIntelligence/commercialConfirmationEngine';
+import {
+  assessOrderConfirmationProtocol,
+  deriveCommercialConfirmationState,
+} from '@/lib/salesIntelligence/commercialConfirmationEngine';
 
 /** Builds the case + baskets + Phase C events + assessment for the FIRST case in a fixture. */
 function assessFirstCase(raw: string) {
@@ -21,7 +24,8 @@ function assessFirstCase(raw: string) {
     result.customerConfirmationEvents,
     result.staffFinalConfirmationEvents
   );
-  return { theCase: cases[0], ...result, assessment };
+  const protocol = assessOrderConfirmationProtocol(assessment);
+  return { theCase: cases[0], ...result, assessment, protocol };
 }
 
 describe('Commercial Confirmation Engine (Sales Intelligence Phase C) — Golden Cases', () => {
@@ -99,7 +103,7 @@ describe('Commercial Confirmation Engine (Sales Intelligence Phase C) — Golden
       expect(baskets[0].announcedTotal).toBeNull();
     });
 
-    it('9-10. a modification supersedes v1\'s total; v2 gets its own new total, never the old one carried forward', () => {
+    it('9. a modification supersedes v1, and v1\'s own total stays attached to it exclusively', () => {
       const { baskets } = assessFirstCase(`[9/15/26, 9:00:00 AM] Customer: عايز 2 علبة فيتامين د
 [9/15/26, 9:01:00 AM] You: حضرتك تأمر بـ:
 2 علبة فيتامين د
@@ -114,6 +118,44 @@ describe('Commercial Confirmation Engine (Sales Intelligence Phase C) — Golden
       expect(baskets.length).toBe(2);
       expect(baskets[0].status).toBe('superseded');
       expect(baskets[0].announcedTotal?.amount).toBe(180);
+    });
+
+    it('10. v2 becomes active only once ITS own new total-announcement wording is stated, never inheriting v1\'s', () => {
+      const { baskets } = assessFirstCase(`[9/15/26, 9:00:00 AM] Customer: عايز 2 علبة فيتامين د
+[9/15/26, 9:01:00 AM] You: حضرتك تأمر بـ:
+2 علبة فيتامين د
+إجمالي الحساب 180 جنيه
+هل الطلب كده كامل؟
+[9/15/26, 9:02:00 AM] Customer: كمان عايز شامبو للشعر
+[9/15/26, 9:03:00 AM] You: حضرتك تأمر بـ:
+2 علبة فيتامين د
+1 قطعة شامبو
+إجمالي الحساب 250 جنيه
+هل الطلب كده كامل؟`);
+      expect(baskets.length).toBe(2);
+      expect(baskets[1].announcedTotal?.amount).toBe(250);
+      expect(baskets[1].announcedTotal?.basketVersion).toBe(2);
+    });
+
+    it('10b. the full announced-total lifecycle: old total stays on v1, v2 stays null through an unrelated price mention, and only activates on v2\'s own total wording', () => {
+      const { baskets } = assessFirstCase(`[9/15/26, 9:00:00 AM] Customer: عايز 2 علبة فيتامين د
+[9/15/26, 9:01:00 AM] You: حضرتك تأمر بـ:
+2 علبة فيتامين د
+إجمالي الحساب 180 جنيه
+هل الطلب كده كامل؟
+[9/15/26, 9:02:00 AM] Customer: تمام
+[9/15/26, 9:03:00 AM] Customer: كمان عايز شامبو للشعر
+[9/15/26, 9:04:00 AM] You: شامبو سعره 70 جنيه بس
+[9/15/26, 9:05:00 AM] You: حضرتك تأمر بـ:
+2 علبة فيتامين د
+1 قطعة شامبو
+إجمالي الحساب 250 جنيه
+هل الطلب كده كامل؟`);
+      expect(baskets.length).toBe(2);
+      // v1's total (180) is untouched, exclusively attached to the superseded v1 record.
+      expect(baskets[0].announcedTotal?.amount).toBe(180);
+      // v2's FINAL total is 250 — the intervening unrelated per-item price mention ("شامبو سعره 70
+      // جنيه بس", no إجمالي/الحساب/مجموع keyword) was never promoted to the order total.
       expect(baskets[1].announcedTotal?.amount).toBe(250);
     });
   });
@@ -357,6 +399,179 @@ describe('Commercial Confirmation Engine (Sales Intelligence Phase C) — Golden
       expect(assessment.currentState).toBe('commercial_confirmation_complete');
       expect(assessment.announcedTotalPresent).toBe(true);
       expect(baskets[1].announcedTotal?.amount).toBe(250);
+    });
+  });
+
+  // Phase C.1 hardening: every state left in the public CommercialConfirmationState union must be
+  // provably reachable — see the reachability audit in types.ts's doc comment on the union itself.
+  describe('State reachability (Phase C.1)', () => {
+    it('basket_in_progress is reachable: no final summary yet', () => {
+      const { assessment } = assessFirstCase(`[9/15/26, 9:00:00 AM] Customer: عايز فيتامين د
+[9/15/26, 9:01:00 AM] You: متوفر بسعر 90 جنيه`);
+      expect(assessment.currentState).toBe('basket_in_progress');
+    });
+
+    it('awaiting_customer_confirmation is reachable: summary presented, not yet confirmed', () => {
+      const { assessment } = assessFirstCase(`[9/15/26, 9:00:00 AM] Customer: عايز 2 علبة فيتامين د
+[9/15/26, 9:01:00 AM] You: حضرتك تأمر بـ:
+2 علبة فيتامين د
+إجمالي الحساب 180 جنيه
+هل الطلب كده كامل؟`);
+      expect(assessment.currentState).toBe('awaiting_customer_confirmation');
+    });
+
+    it('customer_confirmed is reachable: customer confirmed, staff has not yet', () => {
+      const { assessment } = assessFirstCase(`[9/15/26, 9:00:00 AM] Customer: عايز 2 علبة فيتامين د
+[9/15/26, 9:01:00 AM] You: حضرتك تأمر بـ:
+2 علبة فيتامين د
+إجمالي الحساب 180 جنيه
+هل الطلب كده كامل؟
+[9/15/26, 9:02:00 AM] Customer: تمام`);
+      expect(assessment.currentState).toBe('customer_confirmed');
+    });
+
+    it('modified_after_confirmation is reachable: modified, current version has no NEW summary yet', () => {
+      const { assessment } = assessFirstCase(`[9/15/26, 9:00:00 AM] Customer: عايز 2 علبة فيتامين د
+[9/15/26, 9:01:00 AM] You: حضرتك تأمر بـ:
+2 علبة فيتامين د
+إجمالي الحساب 180 جنيه
+هل الطلب كده كامل؟
+[9/15/26, 9:02:00 AM] Customer: تمام
+[9/15/26, 9:03:00 AM] Customer: خليهم 3 بدل 2`);
+      expect(assessment.currentState).toBe('modified_after_confirmation');
+    });
+
+    it('a modified version that HAS its own new summary reports awaiting_customer_confirmation, not modified_after_confirmation', () => {
+      // Regression for the Phase C.1 reordering fix: once the current version earns its own
+      // fresh final summary, the case has genuinely moved past the modification.
+      const { assessment } = assessFirstCase(`[9/15/26, 9:00:00 AM] Customer: عايز 2 علبة فيتامين د
+[9/15/26, 9:01:00 AM] You: حضرتك تأمر بـ:
+2 علبة فيتامين د
+إجمالي الحساب 180 جنيه
+هل الطلب كده كامل؟
+[9/15/26, 9:02:00 AM] Customer: تمام
+[9/15/26, 9:03:00 AM] Customer: كمان عايز شامبو للشعر
+[9/15/26, 9:04:00 AM] You: حضرتك تأمر بـ:
+2 علبة فيتامين د
+1 قطعة شامبو
+إجمالي الحساب 250 جنيه
+هل الطلب كده كامل؟`);
+      expect(assessment.modificationAfterConfirmation).toBe(true);
+      expect(assessment.currentState).toBe('awaiting_customer_confirmation');
+    });
+
+    it('commercial_confirmation_complete is reachable: summary + customer confirm + staff confirm', () => {
+      const { assessment } = assessFirstCase(`[9/15/26, 9:00:00 AM] Customer: عايز 2 علبة فيتامين د
+[9/15/26, 9:01:00 AM] You: حضرتك تأمر بـ:
+2 علبة فيتامين د
+إجمالي الحساب 180 جنيه
+هل الطلب كده كامل؟
+[9/15/26, 9:02:00 AM] Customer: ايوه تمام
+[9/15/26, 9:03:00 AM] You: تمام يا فندم، تم تأكيد الطلب وجاري الإرسال`);
+      expect(assessment.currentState).toBe('commercial_confirmation_complete');
+    });
+
+    it('rejected is reachable: whole-basket rejection', () => {
+      const { assessment } = assessFirstCase(`[9/15/26, 9:00:00 AM] Customer: عايز فيتامين د
+[9/15/26, 9:01:00 AM] You: حضرتك تأمر بـ:
+2 علبة فيتامين د
+إجمالي الحساب 180 جنيه
+هل الطلب كده كامل؟
+[9/15/26, 9:02:00 AM] Customer: لا خلاص مش عايز الطلب`);
+      expect(assessment.currentState).toBe('rejected');
+    });
+
+    it('unknown is reachable: a case with zero baskets (e.g. no meaningful messages)', () => {
+      const assessment = deriveCommercialConfirmationState('case-empty', [], [], [], []);
+      expect(assessment.currentState).toBe('unknown');
+      expect(assessment.needsHumanReview).toBe(true);
+    });
+  });
+
+  describe('Protocol Compliance (Phase C.1)', () => {
+    it('a full protocol-compliant case has protocolCompliant=true and no missing steps', () => {
+      const { protocol } = assessFirstCase(`[9/15/26, 9:00:00 AM] Customer: عايز 2 علبة فيتامين د
+[9/15/26, 9:01:00 AM] You: حضرتك تأمر بـ:
+2 علبة فيتامين د
+إجمالي الحساب 180 جنيه
+هل الطلب كده كامل؟
+[9/15/26, 9:02:00 AM] Customer: ايوه تمام
+[9/15/26, 9:03:00 AM] You: تمام يا فندم، تم تأكيد الطلب وجاري الإرسال`);
+      expect(protocol.protocolCompliant).toBe(true);
+      expect(protocol.missingProtocolSteps).toEqual([]);
+    });
+
+    it('commercial_confirmation_complete can hold TRUE while protocolCompliant is FALSE (legacy conversation with no announced total)', () => {
+      // A real summary + real customer acceptance + real staff "جاري الإرسال" with no total ever
+      // stated aloud — a valid commercial confirmation, but not protocol-compliant on the total step.
+      const { assessment, protocol } = assessFirstCase(`[9/15/26, 9:00:00 AM] Customer: عايز 2 علبة فيتامين د
+[9/15/26, 9:01:00 AM] You: حضرتك تأمر بـ:
+2 علبة فيتامين د
+هل الطلب كده كامل؟
+[9/15/26, 9:02:00 AM] Customer: تمام
+[9/15/26, 9:03:00 AM] You: جاري الإرسال`);
+      expect(assessment.currentState).toBe('commercial_confirmation_complete');
+      expect(protocol.protocolCompliant).toBe(false);
+      expect(protocol.missingProtocolSteps).toEqual(['announced_total']);
+    });
+
+    it('an incomplete case reports every missing protocol step, not just one', () => {
+      const { protocol } = assessFirstCase(`[9/15/26, 9:00:00 AM] Customer: عايز فيتامين د
+[9/15/26, 9:01:00 AM] You: متوفر بسعر 90 جنيه`);
+      expect(protocol.protocolCompliant).toBe(false);
+      expect(protocol.missingProtocolSteps).toEqual([
+        'final_basket_summary',
+        'announced_total',
+        'customer_final_confirmation',
+        'staff_final_confirmation',
+      ]);
+    });
+  });
+
+  describe('Superseded confirmation auditability (Phase C.1)', () => {
+    it('v1\'s confirmation event and basket record stay intact after v2 supersedes it — the full chain is queryable', () => {
+      const { baskets, customerConfirmationEvents } = assessFirstCase(`[9/15/26, 9:00:00 AM] Customer: عايز 2 علبة فيتامين د
+[9/15/26, 9:01:00 AM] You: حضرتك تأمر بـ:
+2 علبة فيتامين د
+إجمالي الحساب 180 جنيه
+هل الطلب كده كامل؟
+[9/15/26, 9:02:00 AM] Customer: تمام
+[9/15/26, 9:03:00 AM] Customer: خليهم 3 بدل 2`);
+      expect(baskets.length).toBe(2);
+      // Which basket version was confirmed:
+      const v1Confirmation = customerConfirmationEvents.find((e) => e.basketVersion === 1);
+      expect(v1Confirmation).toBeDefined();
+      expect(v1Confirmation!.basketId).toBe(baskets[0].basketId);
+      // The confirmed basket's own record still carries that fact, even though superseded:
+      expect(baskets[0].status).toBe('superseded');
+      expect(baskets[0].confirmedByCustomerAt).not.toBeNull();
+      // Which later basket version replaced it:
+      expect(baskets[0].supersededByBasketId).toBe(baskets[1].basketId);
+      // v2 has NOT inherited v1's confirmation — no confirmation event exists yet for v2.
+      expect(customerConfirmationEvents.some((e) => e.basketVersion === 2)).toBe(false);
+    });
+  });
+
+  describe('Staff final confirmation timing across a version boundary (Phase C.1)', () => {
+    it('a staff message after a POST-CONFIRMATION modification never combines with the old (superseded) customer confirmation', () => {
+      // v1 confirmed -> customer modifies to v2 -> staff says "جاري الإرسال" while v2 is still a
+      // bare draft (no summary, no customer confirmation for v2 yet). This must NOT be read as a
+      // staff final confirmation for v2 — staff confirmation only ever belongs to a version that
+      // has its OWN customer confirmation, never a prior version's.
+      const { baskets, staffFinalConfirmationEvents, assessment } = assessFirstCase(`[9/15/26, 9:00:00 AM] Customer: عايز 2 علبة فيتامين د
+[9/15/26, 9:01:00 AM] You: حضرتك تأمر بـ:
+2 علبة فيتامين د
+إجمالي الحساب 180 جنيه
+هل الطلب كده كامل؟
+[9/15/26, 9:02:00 AM] Customer: تمام
+[9/15/26, 9:03:00 AM] Customer: كمان عايز شامبو للشعر
+[9/15/26, 9:04:00 AM] You: جاري الإرسال`);
+      expect(baskets.length).toBe(2);
+      expect(baskets[1].confirmedAt).toBeNull();
+      expect(staffFinalConfirmationEvents.length).toBe(0);
+      expect(assessment.staffConfirmed).toBe(false);
+      expect(assessment.currentState).not.toBe('commercial_confirmation_complete');
+      expect(assessment.currentState).toBe('modified_after_confirmation');
     });
   });
 });

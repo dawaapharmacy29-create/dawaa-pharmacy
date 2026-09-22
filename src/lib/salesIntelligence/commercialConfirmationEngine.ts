@@ -17,6 +17,7 @@ import type {
   CustomerConfirmationEvent,
   EvidenceRef,
   FinalBasketSummaryEvent,
+  OrderConfirmationProtocolAssessment,
   StaffFinalConfirmationEvent,
 } from './types';
 
@@ -56,8 +57,8 @@ export function deriveCommercialConfirmationState(
       primaryMessageIds: [],
       ruleIds: ['commercial.state.no_basket'],
       confidence: assessment('unknown', 0.2, ['commercial.state.no_basket'], []),
-      needsHumanReview: false,
-      humanReviewReasons: [],
+      needsHumanReview: true,
+      humanReviewReasons: ['no_basket_state_for_case'],
     };
   }
 
@@ -81,11 +82,16 @@ export function deriveCommercialConfirmationState(
   const ruleIds: string[] = [];
   const humanReviewReasons: string[] = [];
 
+  // Exhaustive over latest.status ('superseded' never applies to the LAST basket — see the
+  // supersede-wiring loop in caseBasketEngine.ts): 'cancelled' -> rejected; 'confirmed' always
+  // implies customerConfirmed=true -> complete or customer_confirmed; 'awaiting_confirmation'
+  // always implies summaryPresented=true and customerConfirmed=false (confirming flips status to
+  // 'confirmed', so the two can never coexist) -> the summaryPresented branch; 'draft' falls
+  // through to modification-in-progress or a fresh basket_in_progress.
   let currentState: CommercialConfirmationState;
   if (latest.status === 'cancelled') {
     // WHOLE_BASKET_REJECTION_RX is the only path that produces this today — a customer-initiated
-    // rejection of the presented basket. 'cancelled' is reserved for a future explicit
-    // administrative/staff cancellation event this phase does not produce.
+    // rejection of the presented basket.
     currentState = 'rejected';
     ruleIds.push('commercial.state.rejected_whole_basket');
   } else if (staffConfirmed && customerConfirmed && summaryPresented) {
@@ -94,19 +100,23 @@ export function deriveCommercialConfirmationState(
   } else if (customerConfirmed && !staffConfirmed) {
     currentState = 'customer_confirmed';
     ruleIds.push('commercial.state.customer_confirmed_awaiting_staff');
+  } else if (summaryPresented && !customerConfirmed) {
+    // Checked BEFORE modificationAfterConfirmation: once the CURRENT version has its own fresh
+    // summary, the case has genuinely moved past the modification into a new confirmation cycle
+    // — 'awaiting_customer_confirmation' is the accurate, forward-looking state. A case that was
+    // modified but has NOT yet received a new summary for the current version falls through to
+    // 'modified_after_confirmation' below instead.
+    currentState = 'awaiting_customer_confirmation';
+    ruleIds.push('commercial.state.awaiting_customer_confirmation');
   } else if (modificationAfterConfirmation && !customerConfirmed) {
     currentState = 'modified_after_confirmation';
     ruleIds.push('commercial.state.modified_after_confirmation');
-  } else if (summaryPresented && !customerConfirmed) {
-    // 'final_summary_presented' and 'awaiting_customer_confirmation' describe the same moment in
-    // this engine (a summary always immediately puts the basket in a waiting state) — the more
-    // actionable name is reported; see the Phase C ambiguities note in the report.
-    currentState = 'awaiting_customer_confirmation';
-    ruleIds.push('commercial.state.awaiting_customer_confirmation');
   } else if (latest.status === 'draft') {
     currentState = 'basket_in_progress';
     ruleIds.push('commercial.state.basket_in_progress');
   } else {
+    // Not structurally reachable given the invariants above, kept only as a defensive fallback —
+    // 'unknown' is genuinely reached via the zero-basket guard at the top of this function.
     currentState = 'unknown';
     ruleIds.push('commercial.state.unresolved');
     humanReviewReasons.push('commercial_confirmation_state_unresolved');
@@ -154,5 +164,40 @@ export function deriveCommercialConfirmationState(
     confidence: assessment(level, score, ruleIds, evidence),
     needsHumanReview,
     humanReviewReasons,
+  };
+}
+
+/**
+ * The stricter OPERATIONAL lens, kept fully separate from commercial truth (see
+ * OrderConfirmationProtocolAssessment in types.ts): a case can be
+ * `commercial_confirmation_complete` while failing protocol compliance (e.g. a real
+ * summary/acceptance/staff-confirmation with no total ever announced aloud). This never feeds
+ * back into `deriveCommercialConfirmationState` — it is a read-only report on top of it, for
+ * measuring staff adherence to the full 4-step protocol without corrupting the sale classifier.
+ */
+export function assessOrderConfirmationProtocol(
+  commercial: CommercialConfirmationAssessment
+): OrderConfirmationProtocolAssessment {
+  const summaryCompliant = commercial.summaryPresented;
+  const announcedTotalCompliant = commercial.announcedTotalPresent;
+  const customerConfirmationCompliant = commercial.customerConfirmed;
+  const staffFinalConfirmationCompliant = commercial.staffConfirmed;
+
+  const missingProtocolSteps: string[] = [];
+  if (!summaryCompliant) missingProtocolSteps.push('final_basket_summary');
+  if (!announcedTotalCompliant) missingProtocolSteps.push('announced_total');
+  if (!customerConfirmationCompliant) missingProtocolSteps.push('customer_final_confirmation');
+  if (!staffFinalConfirmationCompliant) missingProtocolSteps.push('staff_final_confirmation');
+
+  return {
+    caseId: commercial.caseId,
+    basketId: commercial.basketId,
+    basketVersion: commercial.basketVersion,
+    summaryCompliant,
+    announcedTotalCompliant,
+    customerConfirmationCompliant,
+    staffFinalConfirmationCompliant,
+    protocolCompliant: missingProtocolSteps.length === 0,
+    missingProtocolSteps,
   };
 }
