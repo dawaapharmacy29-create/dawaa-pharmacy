@@ -42,6 +42,7 @@ const GROUPS: NavGroup[] = [
   { title: 'الموارد البشرية', icon: UserCheck, items: [
     { path: '/hr-workforce', icon: Crown, label: 'مركز الموارد البشرية', allowedRoles: ['general_manager', 'admin', 'executive_manager', 'branches_manager', 'branch_manager'] },
     { path: '/team', icon: Users, label: 'دليل الموظفين', permission: 'view_team', excludeRoles: ['customer_service_manager'] },
+    { path: '/hr-staff-milestones', icon: ClipboardCheck, label: 'مهام ملف الموظف', allowedRoles: ['general_manager', 'admin', 'executive_manager', 'branches_manager', 'branch_manager'] },
     { path: '/schedule', icon: Calendar, label: 'الجداول والمناوبات', permission: 'view_schedule' },
     { path: '/time-off', icon: Calendar, label: 'الإجازات والغياب', permission: 'view_attendance_leaves' },
     { path: '/my-attendance', icon: UserCheck, label: 'حضوري' },

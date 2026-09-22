@@ -110,6 +110,12 @@ function Metric({
 
 const quickLinks = [
   {
+    title: 'مهام ملف الموظف',
+    description: 'تهيئة الموظفين، استكمال المستندات، التدريب، وتسليم المهام.',
+    href: '/hr-staff-milestones',
+    icon: ClipboardCheck,
+  },
+  {
     title: 'متابعة اليوم',
     description: 'من المفترض حضوره، من حضر، ومن يحتاج انتباه الآن.',
     href: '/attendance-report?tab=dashboard',

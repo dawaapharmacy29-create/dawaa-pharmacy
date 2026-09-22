@@ -128,6 +128,7 @@ const ExpiryDiscounts = lazy(() => import('@/pages/ExpiryDiscounts'));
 const EmployeeKpi = lazy(() => import('@/pages/EmployeeKpi'));
 const EmployeeOperatingSystem = lazy(() => import('@/pages/EmployeeOperatingSystem'));
 const HRWorkforceCenter = lazy(() => import('@/pages/HRWorkforceCenter'));
+const HRStaffMilestones = lazy(() => import('@/pages/HRStaffMilestones'));
 const HRDataQuality = lazy(() => import('@/pages/HRDataQuality'));
 const HRReportsHub = lazy(() => import('@/pages/HRReportsHub'));
 const HRSettings = lazy(() => import('@/pages/HRSettings'));
@@ -931,6 +932,10 @@ function AppRoutes() {
             {routeSuspense(<HRWorkforceCenter />, 'مركز الموارد البشرية')}
           </ProtectedRoute>
         }
+      />
+      <Route
+        path="/hr-staff-milestones"
+        element={<ProtectedRoute>{routeSuspense(<HRStaffMilestones />, 'مهام ملف الموظف')}</ProtectedRoute>}
       />
       <Route
         path="/hr-data-quality"

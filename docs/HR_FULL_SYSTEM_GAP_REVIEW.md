@@ -2,6 +2,8 @@
 
 Scope: `experiment/hr-workforce-architecture-v1` at `4e62622c`, compared with the official Odoo HR documentation and Zoho People feature/service catalog. This is a code and architecture review, not a claim of production acceptance.
 
+Update: the first employee lifecycle slice now tracks onboarding, document completion, training and offboarding tasks at `/hr-staff-milestones`. These are auditable tasks tied to canonical `staff.id`; they do not create contracts, change staff employment status or affect payroll. Central HR roles create tasks; branch managers can review and complete tasks for staff in their own branch.
+
 ## What exists
 
 | Domain | Current entry point | State |
