@@ -1,31 +1,90 @@
 import { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle2, RefreshCw, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, History, RefreshCw, Save, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
-import { getPayrollFinalizationGate, getPayrollFinalSnapshotPreview, type PayrollFinalizationGate, type PayrollFinalSnapshotPreview } from '@/lib/hr/workforceService';
+import {
+  comparePayrollStagedSnapshot,
+  getPayrollFinalizationGate,
+  getPayrollFinalSnapshotPreview,
+  listPayrollSnapshotAudit,
+  listPayrollStagedSnapshots,
+  stagePayrollFinalSnapshot,
+  type PayrollFinalizationGate,
+  type PayrollFinalSnapshotPreview,
+  type PayrollSnapshotAuditRow,
+  type PayrollStagedSnapshot,
+} from '@/lib/hr/workforceService';
 
 export default function PayrollAttendanceSafetyGate({ staffId, monthCycle }: { staffId: string; monthCycle: string }) {
   const [gate, setGate] = useState<PayrollFinalizationGate | null>(null);
   const [snapshot, setSnapshot] = useState<PayrollFinalSnapshotPreview | null>(null);
+  const [staged, setStaged] = useState<PayrollStagedSnapshot[]>([]);
+  const [audit, setAudit] = useState<PayrollSnapshotAuditRow[]>([]);
+  const [snapshotNote, setSnapshotNote] = useState('');
+  const [compareResult, setCompareResult] = useState<{ snapshotId: string; unchanged: boolean } | null>(null);
   const [loading, setLoading] = useState(false);
 
   const load = useCallback(async () => {
     if (!staffId || !monthCycle) return;
     setLoading(true);
     try {
-      const [gateResult, snapshotResult] = await Promise.all([
+      const [gateResult, snapshotResult, stagedResult, auditResult] = await Promise.all([
         getPayrollFinalizationGate(staffId, monthCycle),
         getPayrollFinalSnapshotPreview(staffId, monthCycle),
+        listPayrollStagedSnapshots(staffId, monthCycle, 10),
+        listPayrollSnapshotAudit(staffId, monthCycle, 20),
       ]);
       setGate(gateResult);
       setSnapshot(snapshotResult);
+      setStaged(stagedResult);
+      setAudit(auditResult);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'تعذر فحص جاهزية الحضور للمرتب');
       setGate(null);
       setSnapshot(null);
+      setStaged([]);
+      setAudit([]);
     } finally {
       setLoading(false);
     }
   }, [monthCycle, staffId]);
+
+  async function stageSnapshot() {
+    if (!staffId || !monthCycle) return;
+    setLoading(true);
+    try {
+      const result = await stagePayrollFinalSnapshot({
+        staffId,
+        monthCycle,
+        note: snapshotNote,
+      });
+      toast.success(result.existing
+        ? 'نفس Snapshot موجود بالفعل؛ تم تسجيل Reuse في الـAudit بدون تكرار البيانات.'
+        : 'تم حفظ Snapshot staged ثابت للمراجعة — بدون اعتماد أو دفع.');
+      setSnapshotNote('');
+      await load();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'تعذر حفظ Snapshot staged');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function compareSnapshot(snapshotId: string) {
+    setLoading(true);
+    try {
+      const result = await comparePayrollStagedSnapshot(snapshotId);
+      setCompareResult({ snapshotId, unchanged: result.unchanged });
+      toast[result.unchanged ? 'success' : 'warning'](
+        result.unchanged
+          ? 'Snapshot المخزنة مطابقة تمامًا للحالة الحالية.'
+          : 'الحالة الحالية تغيّرت عن Snapshot المخزنة؛ راجع الفروق قبل أي اعتماد.'
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'تعذر مقارنة Snapshot');
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => { void load(); }, [load]);
 
@@ -88,6 +147,56 @@ export default function PayrollAttendanceSafetyGate({ staffId, monthCycle }: { s
           <div className="mt-2 break-all font-mono text-[10px] text-[var(--dawaa-theme-muted)]">
             fingerprint: {snapshot.snapshot_fingerprint}
           </div>
+          <div className="mt-3 grid gap-2 md:grid-cols-[1fr_auto]">
+            <input
+              value={snapshotNote}
+              onChange={(e) => setSnapshotNote(e.target.value)}
+              placeholder="ملاحظة اختيارية على النسخة staged"
+              className="input-dark w-full"
+            />
+            <button onClick={() => void stageSnapshot()} disabled={loading} className="btn-secondary">
+              <Save size={14} /> حفظ Snapshot staged
+            </button>
+          </div>
+          <div className="mt-2 text-[10px] font-bold text-[var(--dawaa-theme-muted)]">
+            الحفظ هنا للمراجعة والتدقيق فقط. لا يغيّر الراتب ولا يعتبر Finalize أو Paid.
+          </div>
+        </div>
+      )}
+
+      {!!staged.length && (
+        <div className="mt-3 rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-3">
+          <div className="flex items-center gap-2 text-xs font-black text-[var(--dawaa-theme-heading)]"><History size={14} /> Snapshot Staging History</div>
+          <div className="mt-2 space-y-2">
+            {staged.slice(0, 5).map((row) => (
+              <div key={row.id} className="rounded-lg border border-[var(--dawaa-theme-border)] p-2 text-xs">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <div className="font-black text-[var(--dawaa-theme-heading)]">
+                      {new Date(row.created_at).toLocaleString('ar-EG')} · {row.finalization_ready ? 'Ready وقت الحفظ' : 'Blocked وقت الحفظ'}
+                    </div>
+                    <div className="mt-1 break-all font-mono text-[10px] text-[var(--dawaa-theme-muted)]">{row.snapshot_fingerprint}</div>
+                    {row.note && <div className="mt-1 font-bold text-[var(--dawaa-theme-muted)]">{row.note}</div>}
+                  </div>
+                  <button onClick={() => void compareSnapshot(row.id)} className="btn-secondary !px-2 !py-1">
+                    مقارنة بالحالي
+                  </button>
+                </div>
+                {compareResult?.snapshotId === row.id && (
+                  <div className={compareResult.unchanged
+                    ? 'mt-2 text-[11px] font-black text-[var(--dawaa-status-success-text)]'
+                    : 'mt-2 text-[11px] font-black text-[var(--dawaa-status-warning-text)]'}>
+                    {compareResult.unchanged ? 'مطابقة للحالة الحالية' : 'توجد تغييرات عن النسخة المخزنة'}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          {!!audit.length && (
+            <div className="mt-3 border-t border-[var(--dawaa-theme-border)] pt-2 text-[10px] font-bold text-[var(--dawaa-theme-muted)]">
+              Audit: {audit.slice(0, 5).map((row) => `${row.action} · ${row.actor_name || 'النظام'} · ${new Date(row.created_at).toLocaleString('ar-EG')}`).join(' | ')}
+            </div>
+          )}
         </div>
       )}
 
