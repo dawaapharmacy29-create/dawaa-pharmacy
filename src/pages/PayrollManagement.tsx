@@ -17,6 +17,7 @@ import {
   type AttendancePayrollReadiness,
 } from '@/lib/payroll/attendancePayrollReadinessService';
 import PayrollAttendanceSafetyGate from '@/components/attendance/PayrollAttendanceSafetyGate';
+import PayrollCycleReadinessOverview from '@/components/attendance/PayrollCycleReadinessOverview';
 import {
   fetchCompensationProfile,
   fetchPayrollComponents,
@@ -256,6 +257,11 @@ export default function PayrollManagement() {
         <h1 className="mt-1 text-2xl font-black text-white">كشوف رواتب الموظفين</h1>
         <p className="mt-1 text-sm" style={mutedText}>Attendance Truth + ملف تعويضات موحد + حوافز آلية + لستة أصناف + Finalization Gate قبل أي اعتماد مالي</p>
       </div>
+
+      <PayrollCycleReadinessOverview
+        monthCycle={month.slice(0, 7)}
+        branch={allBranches ? null : ownBranch || null}
+      />
 
       <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
         <div className="rounded-3xl border p-4" style={surface}>
