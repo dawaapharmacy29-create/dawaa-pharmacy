@@ -1,17 +1,17 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, RefreshCw, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
-import { getPayrollSafetyGate, type PayrollSafetyGate } from '@/lib/hr/workforceService';
+import { getPayrollFinalizationGate, type PayrollFinalizationGate } from '@/lib/hr/workforceService';
 
 export default function PayrollAttendanceSafetyGate({ staffId, monthCycle }: { staffId: string; monthCycle: string }) {
-  const [gate, setGate] = useState<PayrollSafetyGate | null>(null);
+  const [gate, setGate] = useState<PayrollFinalizationGate | null>(null);
   const [loading, setLoading] = useState(false);
 
   const load = useCallback(async () => {
     if (!staffId || !monthCycle) return;
     setLoading(true);
     try {
-      setGate(await getPayrollSafetyGate(staffId, monthCycle));
+      setGate(await getPayrollFinalizationGate(staffId, monthCycle));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'تعذر فحص جاهزية الحضور للمرتب');
       setGate(null);
@@ -42,12 +42,12 @@ export default function PayrollAttendanceSafetyGate({ staffId, monthCycle }: { s
         <div>
           <div className="flex items-center gap-2 font-black text-[var(--dawaa-theme-heading)]">
             {gate.ready ? <CheckCircle2 size={18} /> : <ShieldCheck size={18} />}
-            بوابة أمان المرتب
+            بوابة الإقفال المالي للمرتب
           </div>
           <p className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">
             {gate.ready
-              ? 'الحضور والأوفر تايم والـdrift لا تحتوي حاليًا على مانع نهائي لهذه الدورة.'
-              : 'لا تعتمد المرتب النهائي قبل إغلاق الموانع أدناه.'}
+              ? 'Attendance Truth وPolicy V3 والأوفر تايم والـdrift سليمة لهذه الدورة، ويمكن الانتقال لخطوة الاعتماد المالي.'
+              : 'الإقفال المالي محجوب حتى يتم إغلاق موانع Attendance Truth وPolicy Engine والأوفر تايم أدناه.'}
           </p>
         </div>
         <button onClick={() => void load()} className="btn-secondary"><RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> إعادة الفحص</button>
@@ -65,6 +65,13 @@ export default function PayrollAttendanceSafetyGate({ staffId, monthCycle }: { s
         </div>
       )}
 
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        <Metric label="أيام Policy مفحوصة" value={gate.policy_validation.checked_days} />
+        <Metric label="V2/V3 mismatch" value={gate.policy_validation.effective_status_changes} warn={gate.policy_validation.effective_status_changes > 0} />
+        <Metric label="V3 materialized" value={gate.policy_validation.v3_materialized_days} />
+        <Metric label="V3 pending" value={gate.policy_validation.v3_pending_days} warn={gate.policy_validation.v3_pending_days > 0} />
+      </div>
+
       {!!gate.warnings.length && (
         <div className="mt-3 space-y-2">
           {gate.warnings.map((item) => (
@@ -76,8 +83,20 @@ export default function PayrollAttendanceSafetyGate({ staffId, monthCycle }: { s
       )}
 
       <div className="mt-3 text-[10px] font-bold text-[var(--dawaa-theme-muted)]">
-        القاعدة: base payable hours = ساعات الحضور المعتمدة بحد أقصى ساعات الجدول، والـOT المعتمد منفصل. لا يوجد خصم تأخير مزدوج.
+        القاعدة: الإقفال المالي لا يعتمد على زر الواجهة. الـBackend يعيد فحص Attendance Truth + V2/V3 + OT + Financial Drift + هوية الفرع قبل اعتبار الدورة جاهزة.
       </div>
     </section>
+  );
+}
+
+
+function Metric({ label, value, warn = false }: { label: string; value: number; warn?: boolean }) {
+  return (
+    <div className={warn
+      ? 'rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-theme-surface)] p-3'
+      : 'rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-3'}>
+      <div className="text-[10px] font-black text-[var(--dawaa-theme-muted)]">{label}</div>
+      <div className="mt-1 text-lg font-black text-[var(--dawaa-theme-heading)]">{value.toLocaleString('ar-EG')}</div>
+    </div>
   );
 }
