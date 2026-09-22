@@ -15,7 +15,9 @@ import type {
   DifferenceExplanationKind,
   EvidenceRef,
   IntegrityEvaluationScope,
+  OrderConfirmationProtocolApplicability,
   OrderConfirmationProtocolAssessment,
+  ProtocolPolicyComplianceState,
   SaleAttributionAssessment,
   SalesIntegrityAssessment,
   SalesIntegrityException,
@@ -43,6 +45,21 @@ export interface SalesIntegrityInput {
   invoiceStatusHint?: 'cancelled' | 'returned' | null;
   /** Plain traceability (e.g. Phase B StaffContribution.staffId values) — see involvedStaffIds's own doc comment. NEVER a fault list. */
   knownStaffIds?: string[];
+  /**
+   * Phase G.1 — the case's own segmented ConversationCase.endedAt, used ONLY to compare against
+   * protocolPolicyEffectiveAt below. Never a coarse conversation-level timestamp — see the Phase G
+   * pipeline's own timing discipline.
+   */
+  caseEndedAt?: string | null;
+  /**
+   * Phase G.1 — see ProtocolPolicyComplianceState's own doc comment for the full 3-way semantics:
+   * OMITTED (undefined) preserves this engine's exact pre-G.1 behavior (protocol exceptions fire
+   * whenever applicable+non-compliant, with no enforcement-date concept at all) — every pre-G.1
+   * caller/test keeps working unchanged. Explicit `null` means "the caller has opted into
+   * effective-date semantics, but no policy date is configured yet" -> nothing is enforced yet. An
+   * ISO date string means the policy took effect at that moment; NEVER hard-coded by this engine.
+   */
+  protocolPolicyEffectiveAt?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -96,16 +113,65 @@ interface ExceptionDraft {
 }
 
 // ---------------------------------------------------------------------------
+// Phase G.1 — protocol applicability + policy-enforcement gate. A real Phase G real-data finding
+// drove this: feeding every case (including price-only inquiries and bare acknowledgements) through
+// protocol compliance produced 55/55 real cases flagged for a "missing final total" that was never
+// a genuine staff omission — see deriveOrderConfirmationProtocolApplicability's own doc comment in
+// commercialConfirmationEngine.ts for the full reasoning. This function is the single place that
+// turns (applicability, protocolCompliant, timing, an optional policy effective date) into one
+// state — used BOTH to gate exception emission below AND exposed on the final assessment.
+// ---------------------------------------------------------------------------
+
+export function deriveProtocolPolicyComplianceState(params: {
+  applicability: OrderConfirmationProtocolApplicability;
+  protocolCompliant: boolean;
+  caseEndedAt: string | null;
+  protocolPolicyEffectiveAt: string | null | undefined;
+}): ProtocolPolicyComplianceState {
+  const { applicability, protocolCompliant, caseEndedAt, protocolPolicyEffectiveAt } = params;
+
+  if (applicability === 'not_applicable') return 'not_applicable';
+  if (applicability === 'not_reached') return 'not_reached';
+  if (applicability === 'unknown') return 'unknown';
+
+  // applicability === 'applicable' from here on.
+  if (protocolPolicyEffectiveAt === undefined) {
+    // Caller did not opt into effective-date semantics — preserve this engine's exact pre-G.1
+    // behavior: always enforced once applicable.
+    return protocolCompliant ? 'compliant' : 'non_compliant';
+  }
+  if (protocolPolicyEffectiveAt === null) {
+    // Caller explicitly opted in, but no policy date is configured yet anywhere -> nothing is
+    // enforced yet for ANY case, regardless of its own timing.
+    return 'not_enforced';
+  }
+  if (!caseEndedAt) return 'unknown'; // opted in, but no comparable case timestamp — never guess.
+  const caseMs = new Date(caseEndedAt).getTime();
+  const effMs = new Date(protocolPolicyEffectiveAt).getTime();
+  if (!Number.isFinite(caseMs) || !Number.isFinite(effMs)) return 'unknown';
+  if (caseMs < effMs) return 'not_enforced';
+  return protocolCompliant ? 'compliant' : 'non_compliant';
+}
+
+// ---------------------------------------------------------------------------
 // Detection: conversation / protocol exceptions. NEVER treats protocolCompliant=false as proof of
 // a commercial problem — these are process facts only, entirely separate from header/item facts
 // (see detectHeaderExceptions/detectItemExceptions, which are gated on real total/item EVIDENCE,
 // never on protocol compliance).
 // ---------------------------------------------------------------------------
 
-function detectProtocolExceptions(input: SalesIntegrityInput, scope: IntegrityEvaluationScope): ExceptionDraft[] {
+function detectProtocolExceptions(
+  input: SalesIntegrityInput,
+  scope: IntegrityEvaluationScope,
+  policyState: ProtocolPolicyComplianceState
+): ExceptionDraft[] {
   const { protocolAssessment, commercialConfirmation } = input;
   const drafts: ExceptionDraft[] = [];
 
+  // basket_modified_after_confirmation is a BASKET-VERSIONING fact, not a protocol-policy
+  // violation — it can only ever be true once an earlier version WAS genuinely confirmed, which
+  // itself implies applicability was already 'applicable'. Left ungated by policyState/applicability
+  // on purpose (see the Phase G.1 report's own reasoning).
   if (commercialConfirmation.modificationAfterConfirmation && commercialConfirmation.currentState !== 'commercial_confirmation_complete') {
     drafts.push({
       type: 'basket_modified_after_confirmation',
@@ -121,6 +187,12 @@ function detectProtocolExceptions(input: SalesIntegrityInput, scope: IntegrityEv
       needsHumanReview: true,
     });
   }
+
+  // Phase G.1: the 3 step-specific/generic protocol exceptions below are gated on this case being
+  // BOTH genuinely applicable AND genuinely enforced — never a staff violation for a case that
+  // never reached an order-closing stage, and never a violation of a policy that did not yet exist
+  // for this case's own timing (see deriveProtocolPolicyComplianceState above).
+  if (policyState !== 'non_compliant') return drafts;
 
   if (!protocolAssessment.protocolCompliant) {
     const missing = protocolAssessment.missingProtocolSteps;
@@ -495,8 +567,18 @@ export function deriveSalesIntegrityAssessment(input: SalesIntegrityInput): Sale
   const { caseId, commercialConfirmation, protocolAssessment, attribution, basketInvoiceMatch, knownStaffIds = [] } = input;
   const scope = basketInvoiceMatch.integrityEvaluationScope;
 
+  // Undefined applicability (every pre-G.1 caller/test) defaults to 'applicable' — preserves exact
+  // prior behavior for anything that never opted into the Phase G.1 applicability model.
+  const applicability: OrderConfirmationProtocolApplicability = protocolAssessment.applicability ?? 'applicable';
+  const policyState = deriveProtocolPolicyComplianceState({
+    applicability,
+    protocolCompliant: protocolAssessment.protocolCompliant,
+    caseEndedAt: input.caseEndedAt ?? null,
+    protocolPolicyEffectiveAt: input.protocolPolicyEffectiveAt,
+  });
+
   const drafts: ExceptionDraft[] = [
-    ...detectProtocolExceptions(input, scope),
+    ...detectProtocolExceptions(input, scope, policyState),
     ...detectAttributionExceptions(input, scope),
     ...detectHeaderExceptions(input, scope),
     ...detectItemExceptions(input, scope),
@@ -581,5 +663,6 @@ export function deriveSalesIntegrityAssessment(input: SalesIntegrityInput): Sale
     canEvaluateHeaderIntegrity: basketInvoiceMatch.headerEvidenceReady,
     canEvaluateItemIntegrity: basketInvoiceMatch.itemEvidenceReady,
     canEvaluateFulfillmentIntegrity: false,
+    protocolPolicyCompliance: policyState,
   };
 }

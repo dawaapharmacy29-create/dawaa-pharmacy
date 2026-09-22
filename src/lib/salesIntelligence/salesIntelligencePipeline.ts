@@ -14,7 +14,11 @@ import {
 } from '../whatsappConversationUnderstandingV32';
 import { deriveConversationCases } from './conversationCaseEngine';
 import { buildCaseBaskets } from './caseBasketEngine';
-import { assessOrderConfirmationProtocol, deriveCommercialConfirmationState } from './commercialConfirmationEngine';
+import {
+  assessOrderConfirmationProtocol,
+  deriveCommercialConfirmationState,
+  deriveOrderConfirmationProtocolApplicability,
+} from './commercialConfirmationEngine';
 import {
   deriveSaleAttributionAssessment,
   unavailableInvoiceItemEvidenceProvider,
@@ -23,6 +27,7 @@ import {
 } from './saleAttributionEngine';
 import { deriveBasketInvoiceMatch, resolveActiveBasket, type DocumentedAdjustment } from './basketInvoiceMatchingEngine';
 import { deriveSalesIntegrityAssessment } from './salesIntegrityEngine';
+import { deriveHistoricalCommercialClosureAssessment } from './historicalCommercialClosureEngine';
 import type { InvoiceLike } from '../invoices/invoiceCore';
 import type { InvoiceCandidateQueryContext } from './invoiceCandidateRetrieval';
 import type {
@@ -69,6 +74,12 @@ export interface SalesIntelligencePipelineInput {
   competingSelections?: Array<{ caseId: string; invoiceId: string }>;
   /** Passed through to splitWhatsAppSessions() — defaults to its own default (120 minutes). */
   sessionSplitGapMinutes?: number;
+  /**
+   * Phase G.1 — passed straight through to SalesIntegrityInput.protocolPolicyEffectiveAt (see its
+   * own doc comment for the full 3-way undefined/null/date semantics). OMITTED by default,
+   * preserving this pipeline's pre-G.1 behavior exactly.
+   */
+  protocolPolicyEffectiveAt?: string | null;
 }
 
 export interface SalesIntelligencePipelineResult {
@@ -173,10 +184,30 @@ function analyzeOneCase(
     customerConfirmationEvents,
     staffFinalConfirmationEvents
   );
-  const protocolAssessment = assessOrderConfirmationProtocol(commercialConfirmation);
+
+  // Phase G.1: a meaningful customer message alone can produce an empty 'draft' CaseBasket record
+  // with no items (see buildCaseBaskets' own ongoing-basket-building fallback) — that artifact is
+  // not real evidence of commercial intent. Computed once here and reused both for protocol
+  // applicability and for evidenceCompleteness.basketDetected below.
+  const hasMeaningfulBasketItems = baskets.some((basket) => (itemsByBasketId[basket.basketId] ?? []).length > 0);
+
+  const applicability = deriveOrderConfirmationProtocolApplicability({
+    caseType: conversationCase.caseType,
+    commercial: commercialConfirmation,
+    hasMeaningfulBasketItems,
+  });
+  const protocolAssessment = { ...assessOrderConfirmationProtocol(commercialConfirmation), applicability };
 
   const activeItems = activeBasket ? (itemsByBasketId[activeBasket.basketId] ?? []) : [];
   const activeBasketValue = computeActiveBasketValue(activeItems);
+
+  const historicalClosure = deriveHistoricalCommercialClosureAssessment(
+    conversationCase.caseId,
+    scopedMessages,
+    commercialConfirmation,
+    activeItems,
+    activeBasket?.announcedTotal != null
+  );
 
   // CRITICAL (Phase G instruction #2): the candidate-retrieval context uses THIS CASE's own
   // segmented startedAt/endedAt — never conversation-level (whatsapp_review_sources) timestamps.
@@ -243,6 +274,8 @@ function analyzeOneCase(
     basketInvoiceMatch,
     invoiceStatusHint: input.invoiceStatusHint ?? null,
     knownStaffIds: input.knownStaffIds,
+    caseEndedAt: conversationCase.endedAt,
+    protocolPolicyEffectiveAt: input.protocolPolicyEffectiveAt,
   });
 
   const evidenceCompletenessBase: Omit<EvidenceCompleteness, 'overallEvidenceLevel'> = {
@@ -252,7 +285,7 @@ function analyzeOneCase(
     // A meaningful customer message alone can produce an empty 'draft' CaseBasket record with no
     // items (see buildCaseBaskets's own ongoing-basket-building fallback in caseBasketEngine.ts) —
     // that artifact is not real evidence of commercial intent, so this requires at least one item.
-    basketDetected: baskets.some((basket) => (itemsByBasketId[basket.basketId] ?? []).length > 0),
+    basketDetected: hasMeaningfulBasketItems,
     finalBasketDetected: activeBasket !== null && activeBasket.status !== 'draft',
     announcedTotalAvailable: activeBasket?.announcedTotal != null,
     customerConfirmationDetected: commercialConfirmation.customerConfirmed,
@@ -347,6 +380,7 @@ function analyzeOneCase(
     activeBasket,
     commercialConfirmation,
     protocolAssessment,
+    historicalClosure,
     invoiceCandidateIds: invoiceCandidates.map(invoiceRowLookupId),
     attribution,
     basketInvoiceMatch,

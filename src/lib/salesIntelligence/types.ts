@@ -322,6 +322,90 @@ export interface OrderConfirmationProtocolAssessment {
   staffFinalConfirmationCompliant: boolean;
   protocolCompliant: boolean;
   missingProtocolSteps: string[];
+  /**
+   * Phase G.1: whether this case genuinely reached a stage where the 4-step protocol is even
+   * meaningful to evaluate — see deriveOrderConfirmationProtocolApplicability() in
+   * commercialConfirmationEngine.ts. OPTIONAL and defaults to 'applicable' wherever omitted
+   * (see salesIntegrityEngine.ts's own fallback), so every pre-G.1 test/caller that never set
+   * this field keeps its exact prior behavior. `not_reached`/`not_applicable`/`unknown` cases must
+   * NEVER be scored against missingProtocolSteps as a staff violation (see Phase F's own gating).
+   */
+  applicability?: OrderConfirmationProtocolApplicability;
+}
+
+/**
+ * Phase G.1 — see OrderConfirmationProtocolAssessment.applicability's own doc comment.
+ * `applicable`: the case genuinely reached an order-closing stage (a final summary was presented,
+ * or later) — the 4-step protocol is meaningful to evaluate here.
+ * `not_reached`: a real commercial opportunity existed (a basket was building, or a price/
+ * availability question was asked) but never progressed to a closing stage — e.g. a price-only
+ * inquiry, an availability question the customer never followed up on, or an abandoned basket.
+ * `not_applicable`: not an order-sale flow at all — information-only, a greeting, a complaint, a
+ * follow-up, or a case with no meaningful basket content whatsoever.
+ * `unknown`: evidence is genuinely insufficient to classify (kept for reachability completeness —
+ * see the function's own doc comment for exactly when this is reached).
+ */
+export type OrderConfirmationProtocolApplicability = 'applicable' | 'not_reached' | 'not_applicable' | 'unknown';
+
+/**
+ * Phase G.1 — layered on top of `applicability`, adding the NEW Dawaa protocol's own effective
+ * date so a historical, pre-policy conversation is never treated as a staff violation of a policy
+ * that did not yet exist for it. See deriveProtocolPolicyComplianceState() in
+ * salesIntegrityEngine.ts. `not_applicable`/`not_reached`/`unknown` simply mirror
+ * OrderConfirmationProtocolApplicability's own value when applicability itself isn't `applicable`.
+ * `not_enforced`: applicability is `applicable`, but either no policy effective date has been
+ * configured yet, or this case's own timing predates the configured effective date — a fact about
+ * WHEN the policy applied, never a staff violation.
+ * `compliant`/`non_compliant`: applicability is `applicable` AND the policy was in effect for this
+ * case's own timing — the only two states where `missingProtocolSteps` may be read as a real
+ * finding.
+ */
+export type ProtocolPolicyComplianceState =
+  | 'not_enforced'
+  | 'compliant'
+  | 'non_compliant'
+  | 'not_applicable'
+  | 'not_reached'
+  | 'unknown';
+
+// ---------------------------------------------------------------------------
+// Phase G.1 — Historical Commercial Closure (conversation-level only)
+//
+// Deliberately SEPARATE from both CommercialConfirmationAssessment (Phase C's own strict,
+// formal-marker-driven state machine — UNCHANGED by this phase) and
+// OrderConfirmationProtocolAssessment (the NEW Dawaa policy). This recognizes ORGANIC, real
+// closing language that never produces a formal FinalBasketSummaryEvent/StaffFinalConfirmationEvent,
+// WITHOUT loosening either of those strict Phase C markers. It is explicitly NOT invoice proof,
+// NOT sale proof, NOT protocol compliance, and NOT a sold outcome — Phase D's own invoice evidence
+// remains required for sale attribution; this assessment is never consumed by saleAttributionEngine.ts.
+// ---------------------------------------------------------------------------
+
+/**
+ * `explicit`: the FORMAL Phase C state machine already reached `commercial_confirmation_complete`
+ * — this level simply mirrors that fact, never re-derives it.
+ * `strongly_inferred`: both a real customer-acceptance signal AND a real staff-fulfillment-intent
+ * signal were found, tied to a SINGLE resolvable product context.
+ * `weakly_inferred`: only one of those two signals was found, OR both were found but multiple
+ * distinct, not-yet-disambiguated products were in play at the time — never silently picked.
+ * `not_closed`: real purchase intent existed but neither acceptance nor fulfillment-intent
+ * language was ever found.
+ * `unknown`: no real purchase intent was ever detected in this case at all.
+ */
+export type HistoricalClosureLevel = 'explicit' | 'strongly_inferred' | 'weakly_inferred' | 'not_closed' | 'unknown';
+
+export interface HistoricalCommercialClosureAssessment {
+  caseId: string;
+  purchaseIntentDetected: boolean;
+  customerAcceptanceDetected: boolean;
+  staffFulfillmentIntentDetected: boolean;
+  /** True only when the ALREADY-BUILT CaseBasket (buildCaseBaskets, unmodified by this phase) has at least one item with a proven/partially_proven resolutionStatus — never re-parsed here. */
+  basketReconstructable: boolean;
+  announcedValueAvailable: boolean;
+  closureLevel: HistoricalClosureLevel;
+  primaryMessageIds: string[];
+  confidence: ConfidenceAssessment;
+  needsHumanReview: boolean;
+  ruleIds: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -669,6 +753,8 @@ export interface SalesIntegrityAssessment {
   canEvaluateItemIntegrity: boolean;
   /** Always false today — no fulfillment/delivery evidence source exists yet (see the module header comment). */
   canEvaluateFulfillmentIntegrity: boolean;
+  /** Phase G.1 — see ProtocolPolicyComplianceState's own doc comment. Computed once and used to gate protocol-violation exceptions; exposed here for reporting. */
+  protocolPolicyCompliance: ProtocolPolicyComplianceState;
 }
 
 // ---------------------------------------------------------------------------
@@ -832,6 +918,8 @@ export interface SalesIntelligenceCaseAnalysis {
   activeBasket: CaseBasket | null;
   commercialConfirmation: CommercialConfirmationAssessment;
   protocolAssessment: OrderConfirmationProtocolAssessment;
+  /** Phase G.1 — organic, conversation-level closure evidence, kept fully separate from commercialConfirmation and protocolAssessment. Never invoice/sale proof. */
+  historicalClosure: HistoricalCommercialClosureAssessment;
   /** ids of the invoice rows the read-only candidate-retrieval boundary returned for THIS case — before any attribution scoring. */
   invoiceCandidateIds: string[];
   attribution: SaleAttributionAssessment;

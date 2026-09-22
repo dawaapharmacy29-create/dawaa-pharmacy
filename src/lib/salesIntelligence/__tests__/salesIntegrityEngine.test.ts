@@ -9,7 +9,11 @@ import {
 } from '@/lib/salesIntelligence/commercialConfirmationEngine';
 import { deriveSaleAttributionAssessment } from '@/lib/salesIntelligence/saleAttributionEngine';
 import { deriveBasketInvoiceMatch } from '@/lib/salesIntelligence/basketInvoiceMatchingEngine';
-import { deriveSalesIntegrityAssessment, type SalesIntegrityInput } from '@/lib/salesIntelligence/salesIntegrityEngine';
+import {
+  deriveProtocolPolicyComplianceState,
+  deriveSalesIntegrityAssessment,
+  type SalesIntegrityInput,
+} from '@/lib/salesIntelligence/salesIntegrityEngine';
 import type {
   BasketInvoiceDifference,
   BasketInvoiceMatch,
@@ -679,6 +683,96 @@ describe('Sales Integrity Engine (Sales Intelligence Phase F) — Golden Cases',
       expect(basketInvoiceMatch.itemEvidenceReady).toBe(false);
       expect(integrity.exceptions.filter((e) => e.stage === 'invoice_items')).toEqual([]);
       expect(integrity.canEvaluateItemIntegrity).toBe(false);
+    });
+  });
+
+  describe('Protocol Policy Compliance (Phase G.1)', () => {
+    it('1. not_applicable/not_reached/unknown applicability pass straight through, regardless of policy date', () => {
+      expect(
+        deriveProtocolPolicyComplianceState({ applicability: 'not_applicable', protocolCompliant: false, caseEndedAt: null, protocolPolicyEffectiveAt: '2026-01-01' })
+      ).toBe('not_applicable');
+      expect(
+        deriveProtocolPolicyComplianceState({ applicability: 'not_reached', protocolCompliant: false, caseEndedAt: null, protocolPolicyEffectiveAt: null })
+      ).toBe('not_reached');
+      expect(
+        deriveProtocolPolicyComplianceState({ applicability: 'unknown', protocolCompliant: false, caseEndedAt: null, protocolPolicyEffectiveAt: undefined })
+      ).toBe('unknown');
+    });
+
+    it('2. protocolPolicyEffectiveAt omitted (undefined) preserves pre-G.1 behavior: always enforced once applicable', () => {
+      expect(
+        deriveProtocolPolicyComplianceState({ applicability: 'applicable', protocolCompliant: false, caseEndedAt: null, protocolPolicyEffectiveAt: undefined })
+      ).toBe('non_compliant');
+      expect(
+        deriveProtocolPolicyComplianceState({ applicability: 'applicable', protocolCompliant: true, caseEndedAt: null, protocolPolicyEffectiveAt: undefined })
+      ).toBe('compliant');
+    });
+
+    it('3. protocolPolicyEffectiveAt explicitly null -> not_enforced for every applicable case, whatever protocolCompliant says', () => {
+      expect(
+        deriveProtocolPolicyComplianceState({ applicability: 'applicable', protocolCompliant: false, caseEndedAt: '2026-06-01', protocolPolicyEffectiveAt: null })
+      ).toBe('not_enforced');
+    });
+
+    it('4. a case ending BEFORE the configured effective date -> not_enforced, never non_compliant', () => {
+      expect(
+        deriveProtocolPolicyComplianceState({
+          applicability: 'applicable', protocolCompliant: false,
+          caseEndedAt: '2026-01-01T00:00:00.000Z', protocolPolicyEffectiveAt: '2026-06-01T00:00:00.000Z',
+        })
+      ).toBe('not_enforced');
+    });
+
+    it('5. a case ending ON/AFTER the configured effective date -> evaluated for real (compliant or non_compliant)', () => {
+      expect(
+        deriveProtocolPolicyComplianceState({
+          applicability: 'applicable', protocolCompliant: false,
+          caseEndedAt: '2026-07-01T00:00:00.000Z', protocolPolicyEffectiveAt: '2026-06-01T00:00:00.000Z',
+        })
+      ).toBe('non_compliant');
+      expect(
+        deriveProtocolPolicyComplianceState({
+          applicability: 'applicable', protocolCompliant: true,
+          caseEndedAt: '2026-07-01T00:00:00.000Z', protocolPolicyEffectiveAt: '2026-06-01T00:00:00.000Z',
+        })
+      ).toBe('compliant');
+    });
+
+    it('6. an opted-in comparison with no comparable case timestamp -> unknown, never a guess', () => {
+      expect(
+        deriveProtocolPolicyComplianceState({
+          applicability: 'applicable', protocolCompliant: false, caseEndedAt: null, protocolPolicyEffectiveAt: '2026-06-01T00:00:00.000Z',
+        })
+      ).toBe('unknown');
+    });
+
+    it('7. wired end-to-end: an applicable+non-compliant case with a future effective date suppresses the protocol exceptions', () => {
+      const a = deriveSalesIntegrityAssessment(
+        baseInput({
+          commercialConfirmation: cc({ announcedTotalPresent: false }),
+          protocolAssessment: protocol({ announcedTotalCompliant: false, protocolCompliant: false, missingProtocolSteps: ['announced_total'], applicability: 'applicable' }),
+          caseEndedAt: '2026-01-01T00:00:00.000Z',
+          protocolPolicyEffectiveAt: '2027-01-01T00:00:00.000Z',
+        })
+      );
+      expect(a.exceptions.some((e) => e.type === 'final_total_missing')).toBe(false);
+      expect(a.protocolPolicyCompliance).toBe('not_enforced');
+    });
+
+    it('8. wired end-to-end: applicability not_reached suppresses protocol exceptions even though missingProtocolSteps is non-empty', () => {
+      const a = deriveSalesIntegrityAssessment(
+        baseInput({
+          commercialConfirmation: cc({ currentState: 'basket_in_progress', summaryPresented: false, customerConfirmed: false, staffConfirmed: false, announcedTotalPresent: false }),
+          protocolAssessment: protocol({
+            summaryCompliant: false, announcedTotalCompliant: false, customerConfirmationCompliant: false, staffFinalConfirmationCompliant: false,
+            protocolCompliant: false, missingProtocolSteps: ['final_basket_summary', 'announced_total', 'customer_final_confirmation', 'staff_final_confirmation'],
+            applicability: 'not_reached',
+          }),
+          basketInvoiceMatch: bim({ totalMatch: 'insufficient_data', headerEvidenceReady: false, overallMatch: 'insufficient_data', integrityEvaluationScope: 'insufficient' }),
+        })
+      );
+      expect(a.exceptionCount).toBe(0);
+      expect(a.protocolPolicyCompliance).toBe('not_reached');
     });
   });
 });

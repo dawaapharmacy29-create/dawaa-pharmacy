@@ -6,7 +6,9 @@ import { buildCaseBaskets } from '@/lib/salesIntelligence/caseBasketEngine';
 import {
   assessOrderConfirmationProtocol,
   deriveCommercialConfirmationState,
+  deriveOrderConfirmationProtocolApplicability,
 } from '@/lib/salesIntelligence/commercialConfirmationEngine';
+import type { CommercialConfirmationAssessment } from '@/lib/salesIntelligence/types';
 
 /** Builds the case + baskets + Phase C events + assessment for the FIRST case in a fixture. */
 function assessFirstCase(raw: string) {
@@ -572,6 +574,110 @@ describe('Commercial Confirmation Engine (Sales Intelligence Phase C) — Golden
       expect(assessment.staffConfirmed).toBe(false);
       expect(assessment.currentState).not.toBe('commercial_confirmation_complete');
       expect(assessment.currentState).toBe('modified_after_confirmation');
+    });
+  });
+
+  describe('Protocol Applicability (Phase G.1)', () => {
+    function commercial(overrides: Partial<CommercialConfirmationAssessment> = {}): CommercialConfirmationAssessment {
+      return {
+        caseId: 'c1', basketId: 'b1', basketVersion: 1,
+        summaryPresented: false, customerConfirmed: false, staffConfirmed: false,
+        announcedTotalPresent: false, modificationAfterConfirmation: false,
+        currentState: 'basket_in_progress',
+        primaryMessageIds: [], ruleIds: [],
+        confidence: { level: 'weakly_inferred', score: 0.5, ruleIds: [], evidence: [] },
+        needsHumanReview: false, humanReviewReasons: [],
+        ...overrides,
+      };
+    }
+
+    it('1. information-only with no meaningful basket items -> not_applicable', () => {
+      const applicability = deriveOrderConfirmationProtocolApplicability({
+        caseType: 'information_only',
+        commercial: commercial({ currentState: 'unknown' }),
+        hasMeaningfulBasketItems: false,
+      });
+      expect(applicability).toBe('not_applicable');
+    });
+
+    it('2. a follow-up caseType is always not_applicable, regardless of basket state', () => {
+      const applicability = deriveOrderConfirmationProtocolApplicability({
+        caseType: 'follow_up',
+        commercial: commercial({ currentState: 'basket_in_progress' }),
+        hasMeaningfulBasketItems: true,
+      });
+      expect(applicability).toBe('not_applicable');
+    });
+
+    it('3. a complaint caseType is always not_applicable', () => {
+      const applicability = deriveOrderConfirmationProtocolApplicability({
+        caseType: 'complaint',
+        commercial: commercial({ currentState: 'basket_in_progress' }),
+        hasMeaningfulBasketItems: true,
+      });
+      expect(applicability).toBe('not_applicable');
+    });
+
+    it('4. a real commercial opportunity with a draft basket (price inquiry) -> not_reached', () => {
+      const applicability = deriveOrderConfirmationProtocolApplicability({
+        caseType: 'sales_opportunity',
+        commercial: commercial({ currentState: 'basket_in_progress' }),
+        hasMeaningfulBasketItems: true,
+      });
+      expect(applicability).toBe('not_reached');
+    });
+
+    it('5. a real commercial signal (sales_opportunity) with no captured item yet -> not_reached, even before any item is parseable', () => {
+      // A real-data regression: a price-quote-only exchange ("سعره كام" -> "170ج") never gets a
+      // captured basket item (no quantity+unit phrase, no resolvable pronoun), but Phase B's own
+      // caseType classification already confirms real commercial intent — this must never read as
+      // "not an order flow at all" just because our item-extraction regex found nothing to parse.
+      const applicability = deriveOrderConfirmationProtocolApplicability({
+        caseType: 'sales_opportunity',
+        commercial: commercial({ currentState: 'basket_in_progress' }),
+        hasMeaningfulBasketItems: false,
+      });
+      expect(applicability).toBe('not_reached');
+    });
+
+    it('5b. a bare acknowledgement with NO request signal at all (information_only, no items) -> not_applicable', () => {
+      const applicability = deriveOrderConfirmationProtocolApplicability({
+        caseType: 'information_only',
+        commercial: commercial({ currentState: 'basket_in_progress' }),
+        hasMeaningfulBasketItems: false,
+      });
+      expect(applicability).toBe('not_applicable');
+    });
+
+    it('6. a summary was presented (awaiting customer confirmation) -> applicable', () => {
+      const applicability = deriveOrderConfirmationProtocolApplicability({
+        caseType: 'sales_opportunity',
+        commercial: commercial({ currentState: 'awaiting_customer_confirmation', summaryPresented: true }),
+        hasMeaningfulBasketItems: true,
+      });
+      expect(applicability).toBe('applicable');
+    });
+
+    it('7. commercial_confirmation_complete -> applicable', () => {
+      const applicability = deriveOrderConfirmationProtocolApplicability({
+        caseType: 'sales_opportunity',
+        commercial: commercial({ currentState: 'commercial_confirmation_complete', summaryPresented: true, customerConfirmed: true, staffConfirmed: true }),
+        hasMeaningfulBasketItems: true,
+      });
+      expect(applicability).toBe('applicable');
+    });
+
+    it('8. real-data regression: a price-only inquiry ("ده موجود" -> "لحظات اشوفه" -> silence) is not_reached end-to-end', () => {
+      const { theCase, assessment, itemsByBasketId, baskets } = assessFirstCase(`[9/12/26, 9:51:32 PM] Customer: ده موجود
+[9/12/26, 9:52:36 PM] You: لحظات اشوفه لحضرتك
+[9/12/26, 10:36:37 PM] You: حضرتك تحب نبتعه باذن الله`);
+      const hasMeaningfulBasketItems = baskets.some((b) => (itemsByBasketId[b.basketId] ?? []).length > 0);
+      const applicability = deriveOrderConfirmationProtocolApplicability({
+        caseType: theCase.caseType,
+        commercial: assessment,
+        hasMeaningfulBasketItems,
+      });
+      expect(applicability).toBe('not_reached');
     });
   });
 });

@@ -11,12 +11,14 @@
 // types.ts. A sale is only ever confirmed later by order/invoice evidence (a future phase).
 import type {
   CaseBasket,
+  CaseType,
   CommercialConfirmationAssessment,
   CommercialConfirmationState,
   ConfidenceAssessment,
   CustomerConfirmationEvent,
   EvidenceRef,
   FinalBasketSummaryEvent,
+  OrderConfirmationProtocolApplicability,
   OrderConfirmationProtocolAssessment,
   StaffFinalConfirmationEvent,
 } from './types';
@@ -200,4 +202,60 @@ export function assessOrderConfirmationProtocol(
     protocolCompliant: missingProtocolSteps.length === 0,
     missingProtocolSteps,
   };
+}
+
+/**
+ * Phase G.1 — whether the 4-step Dawaa protocol is even meaningful to evaluate for this case. A
+ * real Phase G shadow-validation finding drove this: feeding every case (including price-only
+ * inquiries and bare "شكرا" exchanges) through protocol compliance produced 55/55 real cases
+ * flagged for a "missing final total" that was never a genuine staff omission — the conversation
+ * simply never reached an order-closing stage in the first place. See
+ * OrderConfirmationProtocolApplicability's own doc comment in types.ts for what each value means.
+ *
+ * Exhaustive over CommercialConfirmationState's reachable values (mirrors the reachability
+ * discipline already used throughout this engine suite — see deriveCommercialConfirmationState's
+ * own comment). The `caseType === 'information_only' && !hasMeaningfulBasketItems` guard above
+ * is deliberately the ONLY place `not_applicable` is decided by item-presence — a real-data
+ * regression found that a price-quote-only exchange ("سعره كام" -> "170ج") never gets a captured
+ * basket item (no quantity+unit phrase, no resolvable pronoun — see caseBasketEngine.ts's own
+ * extraction rules), which would otherwise wrongly read as "not an order flow at all" even though
+ * Phase B's own caseType classification already confirms a real request/commercial signal existed:
+ *   - 'unknown' (zero baskets at all): not structurally reachable here in practice — it requires
+ *     zero meaningful customer messages, which itself requires caseType === 'information_only'
+ *     (any request signal implies at least one meaningful customer message, which
+ *     buildCaseBaskets always opens a basket for) — already excluded above. Kept as a defensive
+ *     `not_applicable` fallback only.
+ *   - 'basket_in_progress' (a draft basket, no final summary yet) -> always not_reached: reaching
+ *     this branch already means the top-level information_only-with-no-items case was excluded,
+ *     so either a real commercial/request signal was confirmed by Phase B (sales_opportunity) or
+ *     real items exist regardless of caseType — either way a genuine commercial opportunity
+ *     existed but never reached a closing stage.
+ *   - 'awaiting_customer_confirmation' / 'customer_confirmed' / 'modified_after_confirmation' /
+ *     'commercial_confirmation_complete' / 'rejected' -> applicable: a final summary was
+ *     genuinely presented (or the case progressed past that point) in every one of these states.
+ */
+export function deriveOrderConfirmationProtocolApplicability(params: {
+  caseType: CaseType;
+  commercial: CommercialConfirmationAssessment;
+  hasMeaningfulBasketItems: boolean;
+}): OrderConfirmationProtocolApplicability {
+  const { caseType, commercial, hasMeaningfulBasketItems } = params;
+
+  if (caseType === 'complaint' || caseType === 'follow_up') return 'not_applicable';
+  if (caseType === 'information_only' && !hasMeaningfulBasketItems) return 'not_applicable';
+
+  switch (commercial.currentState) {
+    case 'unknown':
+      return 'not_applicable';
+    case 'basket_in_progress':
+      return 'not_reached';
+    case 'awaiting_customer_confirmation':
+    case 'customer_confirmed':
+    case 'modified_after_confirmation':
+    case 'commercial_confirmation_complete':
+    case 'rejected':
+      return 'applicable';
+    default:
+      return 'unknown';
+  }
 }
