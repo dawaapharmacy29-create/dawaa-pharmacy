@@ -1,4 +1,7 @@
 // Sales Intelligence Phase E — Basket <-> Invoice Matching Engine.
+// Phase E.1 hardening: explicit active-basket selection (never array order), a percentage-based
+// amount-tolerance rule informed by real invoice data, product-identity-basis-aware item matching,
+// and a structural integrity-evaluation-scope gate for Phase F.
 //
 // Compares the case's CURRENT (latest, never-superseded) basket version against the invoice
 // Phase D already selected. This engine NEVER re-runs Sale Attribution (which invoice belongs to
@@ -17,10 +20,10 @@ import {
   normalizeProductNameForMatch,
   unavailableInvoiceItemEvidenceProvider,
   type InvoiceItemEvidenceProvider,
+  type InvoiceItemRecordForAttribution,
 } from './saleAttributionEngine';
 import type {
   BasketInvoiceDifference,
-  BasketInvoiceDifferenceType,
   BasketInvoiceMatch,
   CaseBasket,
   CaseBasketItem,
@@ -28,17 +31,35 @@ import type {
   DifferenceExplanationKind,
   EvidenceRef,
   FieldMatchStatus,
+  IntegrityEvaluationScope,
+  ProductIdentityMatchBasis,
   SaleAttributionAssessment,
 } from './types';
 
 // ---------------------------------------------------------------------------
-// Centralized, documented tolerance — the SAME formula Phase D uses for its own total-match
-// classification (see saleAttributionEngine.ts's AMOUNT_MATCH_TOLERANCE), reused here rather than
-// re-invented so "near_match" means the same thing everywhere in this codebase.
+// Phase E.1: amount-tolerance semantics, informed by a read-only real-data investigation (see the
+// Phase E.1 report). sales_invoices.net_amount: median 124 EGP, p25 50 EGP, p10 24 EGP — 43% of
+// all invoices are under 100 EGP. A flat 20 EGP (or 2%) tolerance would have swallowed 20-80%+ of
+// a typical small invoice's own value as "near enough". Amounts round to at most half-EGP
+// granularity (max observed fractional part: 0.5 EGP across 69,614 invoices) — a 1 EGP floor
+// safely covers genuine rounding noise without hiding a real commercial-size difference.
+//
+// Three SEPARATE concepts, never conflated:
+//   - technicalToleranceEgp: pure rounding/float noise — always negligible, never a business signal.
+//   - nearMatchRelativeFraction: a small, still-visible business-level discrepancy — PURELY
+//     relative, with no large flat absolute floor that could hide a big percentage gap on a small
+//     basket (the exact failure mode of the old 20 EGP-or-2% rule: 100 -> 120 is only 20 EGP but a
+//     real 20% difference, and must never be called "near").
+//   - An explained adjustment (delivery fee/discount/cashback/documented edit) is EVIDENCE, not a
+//     tolerance band — see explainTotalGap(). It never changes the raw totalMatch classification
+//     (see classifyTotalMatch/deriveBasketInvoiceMatch): a mismatch stays a mismatch as a FACT,
+//     with the explanation recorded as a SEPARATE, additional difference entry.
 // ---------------------------------------------------------------------------
-export const TOTAL_MATCH_TOLERANCE = {
-  absoluteEgp: 20,
-  relativeFraction: 0.02,
+export const AMOUNT_TOLERANCE = {
+  /** Genuine rounding/float noise only — max observed real fractional part is 0.5 EGP. */
+  technicalToleranceEgp: 1,
+  /** A small, still-visible business-level gap — purely relative, no flat absolute override. */
+  nearMatchRelativeFraction: 0.03,
 } as const;
 
 export type DocumentedAdjustmentKind = 'delivery_fee' | 'discount' | 'cashback' | 'documented_edit';
@@ -56,7 +77,7 @@ export interface DocumentedAdjustment {
 
 export interface BasketInvoiceMatchingInput {
   caseId: string;
-  /** Full version history — this engine selects the active (latest, never-superseded) version itself; never accept a version pointer from the caller, per the active-basket invariant. */
+  /** Full version history — this engine selects the active version itself via resolveActiveBasket(); never accept a version pointer from the caller, per the active-basket invariant. */
   baskets: CaseBasket[];
   itemsByBasketId: Record<string, CaseBasketItem[]>;
   /** Phase D's own result, taken as-is — this engine never re-selects or re-scores a candidate invoice. */
@@ -77,23 +98,48 @@ function amountRef(description: string): EvidenceRef {
   return { sourceTable: 'sales_invoices', sourceId: '', description };
 }
 
-/** The ONLY place the active basket is selected — never a version pointer from the caller (rule: no old basket/total may enter matching). */
-function selectActiveBasket(baskets: CaseBasket[]): CaseBasket | null {
-  if (baskets.length === 0) return null;
-  return baskets[baskets.length - 1];
+// ---------------------------------------------------------------------------
+// Phase E.1: active-basket selection, hardened. Derived EXPLICITLY from each basket's own
+// `status`/`version` metadata — never from array position. A caller may pass baskets in any
+// order; the outcome must be identical.
+// ---------------------------------------------------------------------------
+
+export type ActiveBasketResolution =
+  | { outcome: 'selected'; basket: CaseBasket }
+  | { outcome: 'insufficient_data' }
+  | { outcome: 'needs_human_review'; conflictingBaskets: CaseBasket[] };
+
+/**
+ * The ONLY place the active basket is selected. A basket counts as a candidate for "active" when
+ * its own `status` is not `'superseded'` (superseded is the one status the engine's own
+ * caseBasketEngine.ts uses to explicitly retire a historical version — never re-eligible).
+ * Exactly one candidate is the expected, valid case (`selected`). Zero candidates means there is
+ * nothing to match against (`insufficient_data`) — never a basket from history. More than one
+ * candidate is a genuine data-invariant violation (two versions both claiming to be active) —
+ * this is NEVER resolved by guessing (e.g. picking the highest version number), only surfaced
+ * for human review, per the explicit "not guessing" requirement.
+ */
+export function resolveActiveBasket(baskets: CaseBasket[]): ActiveBasketResolution {
+  const candidates = baskets.filter((b) => b.status !== 'superseded');
+  if (candidates.length === 0) return { outcome: 'insufficient_data' };
+  if (candidates.length === 1) return { outcome: 'selected', basket: candidates[0] };
+  const conflictingBaskets = [...candidates].sort((a, b) => b.version - a.version);
+  return { outcome: 'needs_human_review', conflictingBaskets };
 }
 
 /**
- * Raw amount-match classification, reusing Phase D's exact tolerance formula. Returns the
- * generic 'exact' | 'near_match' | 'different' | 'not_available' vocabulary, mapped by the
- * caller into this engine's own FieldMatchStatus (mapAmountToFieldStatus below).
+ * Raw amount-match classification. Purely relative near-match band (see AMOUNT_TOLERANCE) — never
+ * a large flat absolute floor that could hide a real percentage-size gap on a small basket.
  */
 function classifyAmountDifference(expected: number | null, actual: number | null): 'exact' | 'near_match' | 'different' | 'not_available' {
   if (expected == null || actual == null) return 'not_available';
   const diff = Math.abs(expected - actual);
-  if (diff === 0) return 'exact';
-  const tolerance = Math.max(TOTAL_MATCH_TOLERANCE.absoluteEgp, expected * TOTAL_MATCH_TOLERANCE.relativeFraction);
-  return diff <= tolerance ? 'near_match' : 'different';
+  if (diff <= AMOUNT_TOLERANCE.technicalToleranceEgp) return 'exact';
+  const nearMatchTolerance = Math.max(
+    AMOUNT_TOLERANCE.technicalToleranceEgp,
+    Math.abs(expected) * AMOUNT_TOLERANCE.nearMatchRelativeFraction
+  );
+  return diff <= nearMatchTolerance ? 'near_match' : 'different';
 }
 
 function mapAmountToFieldStatus(kind: 'exact' | 'near_match' | 'different' | 'not_available'): FieldMatchStatus {
@@ -105,7 +151,9 @@ function mapAmountToFieldStatus(kind: 'exact' | 'near_match' | 'different' | 'no
 /**
  * Reconciles a real total gap against caller-supplied documented adjustments (delivery fee,
  * discount, cashback, a documented conversation edit). Only ever classifies 'explained_difference'
- * when the adjustments actually account for the gap within the same tolerance — never guessed.
+ * when the adjustments actually account for the gap within the technical tolerance — never
+ * guessed, and NEVER changes the raw totalMatch classification itself (see rule §3 of the Phase
+ * E.1 spec: "Do NOT convert the underlying amount comparison itself into near_match or exact").
  */
 function explainTotalGap(
   rawDiff: number,
@@ -114,8 +162,7 @@ function explainTotalGap(
   if (adjustments.length === 0) return { explanation: 'none', evidence: [] };
   const adjustmentSum = adjustments.reduce((sum, a) => sum + a.amount, 0);
   const residual = Math.abs(rawDiff - adjustmentSum);
-  const tolerance = Math.max(TOTAL_MATCH_TOLERANCE.absoluteEgp, Math.abs(rawDiff) * TOTAL_MATCH_TOLERANCE.relativeFraction);
-  if (residual > tolerance) return { explanation: 'none', evidence: [] };
+  if (residual > AMOUNT_TOLERANCE.technicalToleranceEgp) return { explanation: 'none', evidence: [] };
   // Single-kind adjustments report that kind; a mix of kinds is reported as a documented edit —
   // still explained, but not misleadingly labeled as one specific kind.
   const kinds = new Set(adjustments.map((a) => a.kind));
@@ -133,15 +180,42 @@ function classifyTotalMatch(
   return { status, basketAmount, invoiceAmount };
 }
 
+// ---------------------------------------------------------------------------
+// Phase E.1: product-identity-basis-aware item/quantity matching.
+//   - canonical_id: basketItem.productId equals an invoice item's productCode — the only basis
+//     that can ever be `proven`. Forward-looking: neither side populates these today (Phase B has
+//     no catalog-resolution step, sales_invoice_items_v21 is empty) — see the Phase E.1 report.
+//   - normalized_name: matched only via normalizeProductNameForMatch() text equality — real,
+//     useful evidence, but capped at `strongly_inferred`, never `proven` (never claim identity
+//     certainty from text alone).
+//   - ambiguous: more than one invoice item normalizes to the SAME key as a basket item (or vice
+//     versa) — never silently pick one; excluded from quantity comparison, forces human review.
+//   - unresolved: the basket item's OWN identity was never resolved by Phase B
+//     (resolutionStatus === 'unknown', e.g. a raw pronoun like "التاني") — even a coincidental
+//     text match is not trusted enough to compare quantities against.
+// ---------------------------------------------------------------------------
+
+interface MatchedPair {
+  basketItem: CaseBasketItem;
+  invoiceItem: InvoiceItemRecordForAttribution;
+  basis: ProductIdentityMatchBasis;
+}
+
 interface ItemComparisonResult {
   itemMatch: FieldMatchStatus;
   quantityMatch: FieldMatchStatus;
   differences: BasketInvoiceDifference[];
-  itemEvidenceAvailable: boolean;
+  itemEvidenceReady: boolean;
+  needsHumanReview: boolean;
+  humanReviewReasons: string[];
+}
+
+function quantityConfidenceFor(basis: ProductIdentityMatchBasis): ConfidenceAssessment {
+  if (basis === 'canonical_id') return assessment('proven', 0.95, ['matching.item.quantity_mismatch.canonical_id'], []);
+  return assessment('strongly_inferred', 0.75, ['matching.item.quantity_mismatch.normalized_name'], []);
 }
 
 function classifyItemsAndQuantities(
-  caseId: string,
   basketItems: CaseBasketItem[],
   invoiceId: string,
   invoiceNumber: string | null,
@@ -151,22 +225,83 @@ function classifyItemsAndQuantities(
 
   // Never fabricate missing/extra items or a quantity verdict from absent evidence.
   if (invoiceItems === 'unavailable') {
-    return { itemMatch: 'insufficient_data', quantityMatch: 'insufficient_data', differences: [], itemEvidenceAvailable: false };
+    return { itemMatch: 'insufficient_data', quantityMatch: 'insufficient_data', differences: [], itemEvidenceReady: false, needsHumanReview: false, humanReviewReasons: [] };
   }
   if (basketItems.length === 0) {
-    return { itemMatch: 'insufficient_data', quantityMatch: 'insufficient_data', differences: [], itemEvidenceAvailable: true };
+    return { itemMatch: 'insufficient_data', quantityMatch: 'insufficient_data', differences: [], itemEvidenceReady: true, needsHumanReview: false, humanReviewReasons: [] };
   }
 
-  const invoiceByKey = new Map(invoiceItems.map((i) => [normalizeProductNameForMatch(i.productNameRaw), i]));
-  const basketKeysSeen = new Set<string>();
+  // Group invoice items by normalized name key — a Map keyed 1:1 would silently DROP a genuine
+  // ambiguity (two different invoice lines normalizing to the same key); grouping preserves it.
+  const invoiceGroupsByName = new Map<string, InvoiceItemRecordForAttribution[]>();
+  invoiceItems.forEach((i) => {
+    const key = normalizeProductNameForMatch(i.productNameRaw);
+    const group = invoiceGroupsByName.get(key) ?? [];
+    group.push(i);
+    invoiceGroupsByName.set(key, group);
+  });
+  const invoiceGroupsByCode = new Map<string, InvoiceItemRecordForAttribution[]>();
+  invoiceItems.forEach((i) => {
+    if (!i.productCode) return;
+    const group = invoiceGroupsByCode.get(i.productCode) ?? [];
+    group.push(i);
+    invoiceGroupsByCode.set(i.productCode, group);
+  });
+
   const differences: BasketInvoiceDifference[] = [];
-  const matchedPairs: Array<{ basketItem: CaseBasketItem; invoiceQuantity: number | null }> = [];
+  const matchedPairs: MatchedPair[] = [];
+  const claimedInvoiceKeys = new Set<string>();
+  let ambiguousCount = 0;
+  let unresolvedCount = 0;
+  const humanReviewReasons: string[] = [];
 
   basketItems.forEach((item) => {
-    const key = normalizeProductNameForMatch(item.productNameRaw);
-    basketKeysSeen.add(key);
-    const invoiceItem = invoiceByKey.get(key);
-    if (!invoiceItem) {
+    const nameKey = normalizeProductNameForMatch(item.productNameRaw);
+
+    // A basket item Phase B never resolved a real identity for (e.g. a raw pronoun) is never
+    // trusted for a positive match, even if its raw text coincidentally equals an invoice item's.
+    if (item.resolutionStatus === 'unknown') {
+      const candidates = invoiceGroupsByName.get(nameKey) ?? [];
+      if (candidates.length === 0) {
+        differences.push({
+          type: 'missing_item',
+          key: item.productNameRaw,
+          before: item.quantity,
+          after: null,
+          explanation: 'none',
+          evidence: [amountRef(`صنف بهوية غير محلولة من المحادثة ("${item.productNameRaw}") لا يقابله أي بند في الفاتورة.`)],
+          confidence: assessment('weakly_inferred', 0.4, ['matching.item.missing.unresolved_identity'], []),
+        });
+      } else {
+        unresolvedCount += 1;
+        humanReviewReasons.push('unresolved_product_identity');
+      }
+      return;
+    }
+
+    // Canonical id/code match first — the only path to a proven identity match.
+    const codeCandidates = item.productId ? invoiceGroupsByCode.get(item.productId) ?? [] : [];
+    if (codeCandidates.length === 1) {
+      const invoiceItem = codeCandidates[0];
+      matchedPairs.push({ basketItem: item, invoiceItem, basis: 'canonical_id' });
+      claimedInvoiceKeys.add(normalizeProductNameForMatch(invoiceItem.productNameRaw));
+      return;
+    }
+    if (codeCandidates.length > 1) {
+      ambiguousCount += 1;
+      humanReviewReasons.push('ambiguous_product_alias');
+      return;
+    }
+
+    // Fall back to normalized-name matching — real evidence, but never `proven`.
+    const nameCandidates = invoiceGroupsByName.get(nameKey) ?? [];
+    if (nameCandidates.length === 1) {
+      matchedPairs.push({ basketItem: item, invoiceItem: nameCandidates[0], basis: 'normalized_name' });
+      claimedInvoiceKeys.add(nameKey);
+    } else if (nameCandidates.length > 1) {
+      ambiguousCount += 1;
+      humanReviewReasons.push('ambiguous_product_alias');
+    } else {
       differences.push({
         type: 'missing_item',
         key: item.productNameRaw,
@@ -176,42 +311,48 @@ function classifyItemsAndQuantities(
         evidence: [amountRef(`الصنف "${item.productNameRaw}" موجود في السلة ولم يُعثر عليه في بنود الفاتورة.`)],
         confidence: assessment('proven', 0.9, ['matching.item.missing'], []),
       });
-    } else {
-      matchedPairs.push({ basketItem: item, invoiceQuantity: invoiceItem.quantity });
     }
   });
 
   invoiceItems.forEach((invoiceItem) => {
     const key = normalizeProductNameForMatch(invoiceItem.productNameRaw);
-    if (!basketKeysSeen.has(key)) {
-      differences.push({
-        type: 'extra_item',
-        key: invoiceItem.productNameRaw,
-        before: null,
-        after: invoiceItem.quantity,
-        explanation: 'none',
-        evidence: [amountRef(`الصنف "${invoiceItem.productNameRaw}" موجود في بنود الفاتورة ولم يُعثر عليه في السلة.`)],
-        confidence: assessment('proven', 0.9, ['matching.item.extra'], []),
-      });
+    if (!claimedInvoiceKeys.has(key) && (invoiceGroupsByName.get(key) ?? []).length === 1) {
+      // Only report a clean, unambiguous extra — an item that's part of an ambiguous group at the
+      // invoice side was already counted in ambiguousCount above via the basket-side pass.
+      const alreadyReported = differences.some((d) => d.type === 'extra_item' && d.key === invoiceItem.productNameRaw);
+      if (!alreadyReported) {
+        differences.push({
+          type: 'extra_item',
+          key: invoiceItem.productNameRaw,
+          before: null,
+          after: invoiceItem.quantity,
+          explanation: 'none',
+          evidence: [amountRef(`الصنف "${invoiceItem.productNameRaw}" موجود في بنود الفاتورة ولم يُعثر عليه في السلة.`)],
+          confidence: assessment('proven', 0.9, ['matching.item.extra'], []),
+        });
+      }
     }
   });
 
   const missingCount = differences.filter((d) => d.type === 'missing_item').length;
   const extraCount = differences.filter((d) => d.type === 'extra_item').length;
   let itemMatch: FieldMatchStatus;
-  if (missingCount === 0 && extraCount === 0) itemMatch = 'exact';
+  if (missingCount === 0 && extraCount === 0 && ambiguousCount === 0 && unresolvedCount === 0) itemMatch = 'exact';
   else if (matchedPairs.length === 0) itemMatch = 'mismatch';
   else itemMatch = 'partial';
 
+  // Quantity is compared ONLY over matchedPairs — ambiguous and unresolved items are structurally
+  // excluded above, so "quantity comparison occurs only after product identity is sufficiently
+  // resolved" holds by construction, not by a separate check.
   let quantityMatch: FieldMatchStatus;
   if (matchedPairs.length === 0) {
     quantityMatch = 'insufficient_data';
   } else {
     let agreed = 0;
     let disagreed = 0;
-    matchedPairs.forEach(({ basketItem, invoiceQuantity }) => {
-      if (basketItem.quantity == null || invoiceQuantity == null) return; // unknown on one side — not counted either way
-      if (basketItem.quantity === invoiceQuantity) {
+    matchedPairs.forEach(({ basketItem, invoiceItem, basis }) => {
+      if (basketItem.quantity == null || invoiceItem.quantity == null) return; // unknown on one side — not counted either way, never a mismatch
+      if (basketItem.quantity === invoiceItem.quantity) {
         agreed += 1;
       } else {
         disagreed += 1;
@@ -219,10 +360,10 @@ function classifyItemsAndQuantities(
           type: 'quantity_mismatch',
           key: basketItem.productNameRaw,
           before: basketItem.quantity,
-          after: invoiceQuantity,
+          after: invoiceItem.quantity,
           explanation: 'none',
-          evidence: [amountRef(`الكمية في السلة (${basketItem.quantity}) تختلف عن الكمية في الفاتورة (${invoiceQuantity}) للصنف "${basketItem.productNameRaw}".`)],
-          confidence: assessment('proven', 0.9, ['matching.item.quantity_mismatch'], []),
+          evidence: [amountRef(`الكمية في السلة (${basketItem.quantity}) تختلف عن الكمية في الفاتورة (${invoiceItem.quantity}) للصنف "${basketItem.productNameRaw}".`)],
+          confidence: quantityConfidenceFor(basis),
         });
       }
     });
@@ -232,7 +373,14 @@ function classifyItemsAndQuantities(
     else quantityMatch = 'partial';
   }
 
-  return { itemMatch, quantityMatch, differences, itemEvidenceAvailable: true };
+  return {
+    itemMatch,
+    quantityMatch,
+    differences,
+    itemEvidenceReady: true,
+    needsHumanReview: humanReviewReasons.length > 0,
+    humanReviewReasons: Array.from(new Set(humanReviewReasons)),
+  };
 }
 
 /**
@@ -240,8 +388,8 @@ function classifyItemsAndQuantities(
  * header-only invoice (no item evidence) caps `overallMatch` at 'partial' at best, however good
  * the total looks, because the item-level content was never actually verified.
  */
-function rollupOverallMatch(totalMatch: FieldMatchStatus, itemMatch: FieldMatchStatus, quantityMatch: FieldMatchStatus, itemEvidenceAvailable: boolean): FieldMatchStatus {
-  if (!itemEvidenceAvailable) {
+function rollupOverallMatch(totalMatch: FieldMatchStatus, itemMatch: FieldMatchStatus, quantityMatch: FieldMatchStatus, itemEvidenceReady: boolean): FieldMatchStatus {
+  if (!itemEvidenceReady) {
     if (totalMatch === 'mismatch') return 'mismatch';
     if (totalMatch === 'insufficient_data') return 'insufficient_data';
     return 'partial'; // exact or near_match total, item-level unconfirmed — never 'exact' here.
@@ -252,6 +400,16 @@ function rollupOverallMatch(totalMatch: FieldMatchStatus, itemMatch: FieldMatchS
     return 'insufficient_data';
   }
   return 'partial';
+}
+
+/**
+ * Phase E.1 §7: the structural gate Phase F must read before drawing any conclusion. Never a
+ * comment — a real field. `header_only` can support total-vs-invoiced-total and invoice-status
+ * findings; it can NEVER support a missing/extra-product or wrong-quantity finding.
+ */
+function resolveIntegrityScope(headerEvidenceReady: boolean, itemEvidenceReady: boolean): IntegrityEvaluationScope {
+  if (!headerEvidenceReady) return 'insufficient';
+  return itemEvidenceReady ? 'header_and_items' : 'header_only';
 }
 
 function insufficientDataMatch(caseId: string, ruleId: string, needsHumanReview = false, humanReviewReasons: string[] = []): BasketInvoiceMatch {
@@ -266,7 +424,9 @@ function insufficientDataMatch(caseId: string, ruleId: string, needsHumanReview 
     itemMatch: 'insufficient_data',
     quantityMatch: 'insufficient_data',
     overallMatch: 'insufficient_data',
-    itemEvidenceAvailable: false,
+    headerEvidenceReady: false,
+    itemEvidenceReady: false,
+    integrityEvaluationScope: 'insufficient',
     differences: [],
     confidence: assessment('unknown', 0.2, [ruleId], []),
     needsHumanReview,
@@ -279,7 +439,7 @@ function insufficientDataMatch(caseId: string, ruleId: string, needsHumanReview 
  * The single entry point. Never re-runs Sale Attribution — `input.attribution` is taken as-is.
  * When attribution has no usable invoice (`unknown` level or no selected invoice), returns
  * `insufficient_data` across the board rather than guessing. Only ever compares against the
- * CURRENT (latest, non-superseded) basket version — see selectActiveBasket().
+ * CURRENT active basket version — see resolveActiveBasket().
  */
 export function deriveBasketInvoiceMatch(input: BasketInvoiceMatchingInput): BasketInvoiceMatch {
   const { caseId, attribution } = input;
@@ -288,10 +448,19 @@ export function deriveBasketInvoiceMatch(input: BasketInvoiceMatchingInput): Bas
     return insufficientDataMatch(caseId, 'matching.insufficient_attribution', attribution.needsHumanReview, attribution.humanReviewReasons);
   }
 
-  const activeBasket = selectActiveBasket(input.baskets);
-  if (!activeBasket) {
+  const resolution = resolveActiveBasket(input.baskets);
+  if (resolution.outcome === 'insufficient_data') {
     return insufficientDataMatch(caseId, 'matching.no_active_basket');
   }
+  if (resolution.outcome === 'needs_human_review') {
+    return insufficientDataMatch(
+      caseId,
+      'matching.conflicting_active_basket_versions',
+      true,
+      ['conflicting_active_basket_versions']
+    );
+  }
+  const activeBasket = resolution.basket;
 
   if (input.invoiceCancelledOrReturned) {
     return {
@@ -305,7 +474,9 @@ export function deriveBasketInvoiceMatch(input: BasketInvoiceMatchingInput): Bas
       itemMatch: 'mismatch',
       quantityMatch: 'mismatch',
       overallMatch: 'mismatch',
-      itemEvidenceAvailable: false,
+      headerEvidenceReady: false,
+      itemEvidenceReady: false,
+      integrityEvaluationScope: 'insufficient',
       differences: [],
       confidence: assessment('unknown', 0.3, ['matching.invoice_cancelled_or_returned'], []),
       needsHumanReview: true,
@@ -319,13 +490,15 @@ export function deriveBasketInvoiceMatch(input: BasketInvoiceMatchingInput): Bas
   const adjustments = input.documentedAdjustments ?? [];
 
   const { status: totalMatch, basketAmount, invoiceAmount } = classifyTotalMatch(activeBasket, input.invoiceRow);
-  const { itemMatch, quantityMatch, differences: itemDifferences, itemEvidenceAvailable } = classifyItemsAndQuantities(
-    caseId,
-    basketItems,
-    attribution.selectedInvoiceId,
-    attribution.selectedInvoiceNumber,
-    provider
-  );
+  const headerEvidenceReady = basketAmount != null && invoiceAmount != null;
+  const {
+    itemMatch,
+    quantityMatch,
+    differences: itemDifferences,
+    itemEvidenceReady,
+    needsHumanReview: itemsNeedHumanReview,
+    humanReviewReasons: itemHumanReviewReasons,
+  } = classifyItemsAndQuantities(basketItems, attribution.selectedInvoiceId, attribution.selectedInvoiceNumber, provider);
 
   const differences: BasketInvoiceDifference[] = [...itemDifferences];
   if (totalMatch === 'near_match') {
@@ -366,9 +539,10 @@ export function deriveBasketInvoiceMatch(input: BasketInvoiceMatchingInput): Bas
     });
   }
 
-  const overallMatch = rollupOverallMatch(totalMatch, itemMatch, quantityMatch, itemEvidenceAvailable);
+  const overallMatch = rollupOverallMatch(totalMatch, itemMatch, quantityMatch, itemEvidenceReady);
+  const integrityEvaluationScope = resolveIntegrityScope(headerEvidenceReady, itemEvidenceReady);
 
-  const humanReviewReasons: string[] = [...attribution.humanReviewReasons];
+  const humanReviewReasons: string[] = [...attribution.humanReviewReasons, ...itemHumanReviewReasons];
   if (differences.some((d) => d.type === 'unexplained_difference')) humanReviewReasons.push('unexplained_basket_invoice_difference');
   // A total gap that IS explained (e.g. a documented delivery fee) is an accounted-for fact, not
   // something to send to human review — only flag 'basket_invoice_mismatch' when the mismatch is
@@ -378,7 +552,8 @@ export function deriveBasketInvoiceMatch(input: BasketInvoiceMatchingInput): Bas
   if (overallMatch === 'mismatch' && !(totalGapExplained && !hasItemLevelIssue)) {
     humanReviewReasons.push('basket_invoice_mismatch');
   }
-  const needsHumanReview = attribution.needsHumanReview || humanReviewReasons.length > attribution.humanReviewReasons.length;
+  const dedupedHumanReviewReasons = Array.from(new Set(humanReviewReasons));
+  const needsHumanReview = attribution.needsHumanReview || itemsNeedHumanReview || dedupedHumanReviewReasons.length > attribution.humanReviewReasons.length;
 
   const level: ConfidenceAssessment['level'] =
     overallMatch === 'exact' ? 'strongly_inferred' : overallMatch === 'insufficient_data' ? 'unknown' : 'weakly_inferred';
@@ -388,6 +563,7 @@ export function deriveBasketInvoiceMatch(input: BasketInvoiceMatchingInput): Bas
     `matching.item.${itemMatch}`,
     `matching.quantity.${quantityMatch}`,
     `matching.overall.${overallMatch}`,
+    `matching.scope.${integrityEvaluationScope}`,
   ];
 
   return {
@@ -401,11 +577,13 @@ export function deriveBasketInvoiceMatch(input: BasketInvoiceMatchingInput): Bas
     itemMatch,
     quantityMatch,
     overallMatch,
-    itemEvidenceAvailable,
+    headerEvidenceReady,
+    itemEvidenceReady,
+    integrityEvaluationScope,
     differences,
     confidence: assessment(level, score, ruleIds, []),
     needsHumanReview,
-    humanReviewReasons,
+    humanReviewReasons: dedupedHumanReviewReasons,
     ruleIds,
   };
 }

@@ -107,6 +107,14 @@ const UNKNOWN_BRANCH_LABEL = normalizeBranchName('');
 
 export interface InvoiceItemRecordForAttribution {
   productNameRaw: string;
+  /**
+   * sales_invoice_items_v21.product_code — present in the real schema (see the Phase D
+   * investigation) but not populated by any resolution path today, since CaseBasketItem.productId
+   * (Phase B) has no catalog-resolution step yet either. Kept optional and forward-looking: Phase
+   * E.1's product-identity matcher uses it for a canonical_id match WHEN a caller populates it,
+   * but this is currently unreachable in production — see basketInvoiceMatchingEngine.ts.
+   */
+  productCode?: string | null;
   quantity: number | null;
   lineTotal: number | null;
 }

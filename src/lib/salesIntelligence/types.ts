@@ -498,6 +498,24 @@ export interface BasketInvoiceDifference {
 }
 
 /**
+ * How a basket item and an invoice item were determined to be the same product — never a bare
+ * boolean, because how confidently we know they're the same product is exactly the thing Phase F
+ * (Sales Integrity) needs to distinguish. Mirrors the identity-precedence discipline already used
+ * for customer identity in Phase D (canonical id first, text-based matching never proven).
+ */
+export type ProductIdentityMatchBasis = 'canonical_id' | 'normalized_name' | 'ambiguous' | 'unresolved';
+
+/**
+ * Phase E.1: what this specific match result is structurally ALLOWED to support conclusions
+ * about — not a comment, a field Phase F must read before drawing any conclusion. `header_only`
+ * can support total-vs-invoiced-total and invoice-status findings; it can NEVER support a
+ * confirmed-product-missing, extra-product, or wrong-quantity finding — that requires
+ * `header_and_items`. `insufficient` means neither is usable (e.g. no active basket, or
+ * attribution unknown).
+ */
+export type IntegrityEvaluationScope = 'header_only' | 'header_and_items' | 'insufficient';
+
+/**
  * The case-level result of Phase E. Total/item/quantity are tracked SEPARATELY — an exact
  * `totalMatch` alone can never promote `overallMatch` to 'exact' (a header-only invoice with no
  * item evidence caps `overallMatch` at 'partial' at best; see rollupOverallMatch's own comment).
@@ -515,8 +533,12 @@ export interface BasketInvoiceMatch {
   itemMatch: FieldMatchStatus;
   quantityMatch: FieldMatchStatus;
   overallMatch: FieldMatchStatus;
+  /** True only when a real basket total AND a real invoice amount were both available to compare — never assumed. */
+  headerEvidenceReady: boolean;
   /** True only when a real InvoiceItemEvidenceProvider returned rows — never assumed. */
-  itemEvidenceAvailable: boolean;
+  itemEvidenceReady: boolean;
+  /** The structural gate Phase F must check before drawing any conclusion — see IntegrityEvaluationScope's own doc comment. */
+  integrityEvaluationScope: IntegrityEvaluationScope;
   differences: BasketInvoiceDifference[];
   confidence: ConfidenceAssessment;
   needsHumanReview: boolean;

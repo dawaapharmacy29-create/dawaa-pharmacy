@@ -7,6 +7,7 @@ import { deriveCommercialConfirmationState } from '@/lib/salesIntelligence/comme
 import { deriveSaleAttributionAssessment } from '@/lib/salesIntelligence/saleAttributionEngine';
 import {
   deriveBasketInvoiceMatch,
+  resolveActiveBasket,
   type BasketInvoiceMatchingInput,
 } from '@/lib/salesIntelligence/basketInvoiceMatchingEngine';
 import type {
@@ -112,8 +113,9 @@ describe('Basket <-> Invoice Matching Engine (Sales Intelligence Phase E) — Go
     expect(m.totalMatch).toBe('exact');
   });
 
-  it('3. a near-total difference (within documented tolerance) is classified near_match', () => {
-    const m = deriveBasketInvoiceMatch(baseInput({ invoiceRow: { id: 'inv-1', net_amount: 195 } }));
+  it('3. a near-total difference (within the 3% relative tolerance) is classified near_match', () => {
+    // basket=180, tolerance=max(1, 180*0.03)=5.4 EGP — diff of 4 EGP is within it.
+    const m = deriveBasketInvoiceMatch(baseInput({ invoiceRow: { id: 'inv-1', net_amount: 184 } }));
     expect(m.totalMatch).toBe('near_match');
   });
 
@@ -129,7 +131,7 @@ describe('Basket <-> Invoice Matching Engine (Sales Intelligence Phase E) — Go
 
   it('6. invoice item data unavailable never fabricates a missing/extra item, and caps overallMatch at partial even with an exact total', () => {
     const m = deriveBasketInvoiceMatch(baseInput({ itemsByBasketId: { 'basket:1': [item('فيتامين د', 2)] } }));
-    expect(m.itemEvidenceAvailable).toBe(false);
+    expect(m.itemEvidenceReady).toBe(false);
     expect(m.itemMatch).toBe('insufficient_data');
     expect(m.quantityMatch).toBe('insufficient_data');
     expect(m.differences.filter((d) => d.type === 'missing_item' || d.type === 'extra_item')).toEqual([]);
@@ -350,5 +352,220 @@ describe('Basket <-> Invoice Matching Engine (Sales Intelligence Phase E) — Go
     });
     expect(match.basketVersion).toBe(baskets[baskets.length - 1].version);
     expect(match.totalMatch).toBe('exact');
+  });
+
+  describe('Active basket selection hardening (Phase E.1)', () => {
+    it('1. v2 before v1 in the input array — v2 is still selected (never array position)', () => {
+      const v1 = { ...basket(1, 180), status: 'superseded' as const, supersededByBasketId: 'basket:2' };
+      const v2 = basket(2, 250);
+      const resolution = resolveActiveBasket([v2, v1]);
+      expect(resolution.outcome).toBe('selected');
+      expect(resolution.outcome === 'selected' && resolution.basket.basketId).toBe('basket:2');
+    });
+
+    it('2. v1/v2/v3 shuffled — the highest valid (non-superseded) version is selected regardless of order', () => {
+      const v1 = { ...basket(1, 100), status: 'superseded' as const, supersededByBasketId: 'basket:2' };
+      const v2 = { ...basket(2, 200), status: 'superseded' as const, supersededByBasketId: 'basket:3' };
+      const v3 = basket(3, 300);
+      const shuffled = [v3, v1, v2];
+      const resolution = resolveActiveBasket(shuffled);
+      expect(resolution.outcome).toBe('selected');
+      expect(resolution.outcome === 'selected' && resolution.basket.version).toBe(3);
+    });
+
+    it('3. two baskets incorrectly both marked non-superseded — needs_human_review, never a guess', () => {
+      const v1 = basket(1, 100); // 'confirmed', NOT superseded
+      const v2 = basket(2, 200); // also 'confirmed', NOT superseded — a real invariant violation
+      const resolution = resolveActiveBasket([v1, v2]);
+      expect(resolution.outcome).toBe('needs_human_review');
+      expect(resolution.outcome === 'needs_human_review' && resolution.conflictingBaskets.length).toBe(2);
+    });
+
+    it('4. all versions superseded (or no baskets at all) — insufficient_data', () => {
+      const v1 = { ...basket(1, 100), status: 'superseded' as const, supersededByBasketId: 'basket:2' };
+      const v2 = { ...basket(2, 200), status: 'superseded' as const, supersededByBasketId: 'basket:3' };
+      expect(resolveActiveBasket([v1, v2]).outcome).toBe('insufficient_data');
+      expect(resolveActiveBasket([]).outcome).toBe('insufficient_data');
+    });
+
+    it('wiring: deriveBasketInvoiceMatch surfaces a genuine active-basket conflict as insufficient_data + human review, never silently picking one', () => {
+      const v1 = basket(1, 100);
+      const v2 = basket(2, 200);
+      const m = deriveBasketInvoiceMatch(baseInput({ baskets: [v1, v2] }));
+      expect(m.overallMatch).toBe('insufficient_data');
+      expect(m.basketId).toBeNull();
+      expect(m.needsHumanReview).toBe(true);
+      expect(m.humanReviewReasons).toContain('conflicting_active_basket_versions');
+    });
+  });
+
+  describe('Amount tolerance semantics (Phase E.1)', () => {
+    it('100 -> 120 (20 EGP, but 20%) is NOT a near-match — a flat absolute tolerance must never hide a large percentage gap on a small basket', () => {
+      const m = deriveBasketInvoiceMatch(baseInput({ baskets: [basket(1, 100)], invoiceRow: { id: 'inv-1', net_amount: 120 } }));
+      expect(m.totalMatch).toBe('mismatch');
+    });
+
+    it('1000 -> 1010 (1%) is reasonably a near-match', () => {
+      const m = deriveBasketInvoiceMatch(baseInput({ baskets: [basket(1, 1000)], invoiceRow: { id: 'inv-1', net_amount: 1010 } }));
+      expect(m.totalMatch).toBe('near_match');
+    });
+
+    it('a documented delivery fee explains a real (beyond-tolerance) gap as evidence, not as a widened tolerance', () => {
+      // Note: a 20 EGP gap on a 980 EGP basket (~2%) actually falls WITHIN the 3% near-match band
+      // itself under this tolerance — a small legitimate adjustment often does, and that is fine;
+      // the explanation mechanism exists distinctly for gaps tolerance does NOT already cover, so
+      // this test uses a gap well beyond near-match to prove the mechanism itself, independent of
+      // where the tolerance boundary happens to sit.
+      const m = deriveBasketInvoiceMatch(
+        baseInput({
+          baskets: [basket(1, 980)],
+          invoiceRow: { id: 'inv-1', net_amount: 1050 },
+          documentedAdjustments: [{ kind: 'delivery_fee', amount: 70, evidence: [{ sourceTable: 'x', sourceId: '', description: 'مصاريف توصيل 70 جنيه' }] }],
+        })
+      );
+      expect(m.totalMatch).toBe('mismatch');
+      const explained = m.differences.find((d) => d.type === 'explained_difference');
+      expect(explained?.explanation).toBe('delivery_fee');
+    });
+  });
+
+  describe('Raw mismatch stays separate from explanation (Phase E.1 §3)', () => {
+    it('basket=1000, invoice=950, documented discount=50 — totalMatch stays "mismatch" as the raw fact; the explanation is a SEPARATE difference entry, never a reclassification to near_match/exact', () => {
+      const m = deriveBasketInvoiceMatch(
+        baseInput({
+          baskets: [basket(1, 1000)],
+          invoiceRow: { id: 'inv-1', net_amount: 950 },
+          documentedAdjustments: [{ kind: 'discount', amount: -50, evidence: [{ sourceTable: 'x', sourceId: '', description: 'خصم موثق 50 جنيه' }] }],
+        })
+      );
+      expect(m.totalMatch).toBe('mismatch');
+      expect(m.totalMatch).not.toBe('near_match');
+      expect(m.totalMatch).not.toBe('exact');
+      const rawFact = m.differences.find((d) => d.type === 'total_mismatch');
+      expect(rawFact).toBeDefined();
+      const explanation = m.differences.find((d) => d.type === 'explained_difference');
+      expect(explanation?.explanation).toBe('discount');
+    });
+  });
+
+  describe('Product identity confidence audit (Phase E.1 §4)', () => {
+    it('a canonical productId/productCode match is proven', () => {
+      const basketItemWithId: CaseBasketItem = { ...item('فيتامين د', 2), productId: 'PROD-001' };
+      const m = deriveBasketInvoiceMatch(
+        baseInput({
+          itemsByBasketId: { 'basket:1': [basketItemWithId] },
+          itemEvidenceProvider: { getItemsForInvoice: () => [{ productNameRaw: 'اسم مختلف تمامًا', productCode: 'PROD-001', quantity: 2, lineTotal: 180 }] },
+        })
+      );
+      const qtyDiffs = m.differences.filter((d) => d.type === 'quantity_mismatch');
+      expect(qtyDiffs.length).toBe(0); // quantities agree (2=2); prove basis via itemMatch instead
+      expect(m.itemMatch).toBe('exact');
+    });
+
+    it('a normalized-exact-name-only match is strongly_inferred, never proven', () => {
+      const m = deriveBasketInvoiceMatch(
+        baseInput({
+          itemsByBasketId: { 'basket:1': [item('فيتامين د', 3)] },
+          itemEvidenceProvider: { getItemsForInvoice: () => [{ productNameRaw: 'فيتامين د', quantity: 2, lineTotal: 180 }] },
+        })
+      );
+      const qtyDiff = m.differences.find((d) => d.type === 'quantity_mismatch');
+      expect(qtyDiff).toBeDefined();
+      expect(qtyDiff?.confidence.level).toBe('strongly_inferred');
+      expect(qtyDiff?.confidence.level).not.toBe('proven');
+    });
+
+    it('an ambiguous alias (two invoice items normalize to the same key) is never silently picked — flagged for human review', () => {
+      const m = deriveBasketInvoiceMatch(
+        baseInput({
+          itemsByBasketId: { 'basket:1': [item('فيتامين د', 2)] },
+          itemEvidenceProvider: {
+            getItemsForInvoice: () => [
+              { productNameRaw: 'فيتامين د', quantity: 2, lineTotal: 90 },
+              { productNameRaw: 'فيتامين  د', quantity: 3, lineTotal: 90 }, // normalizes to the same key (extra space collapses)
+            ],
+          },
+        })
+      );
+      expect(m.needsHumanReview).toBe(true);
+      expect(m.humanReviewReasons).toContain('ambiguous_product_alias');
+      expect(m.itemMatch).not.toBe('exact');
+    });
+
+    it('an unresolved basket item (Phase B never resolved its identity) stays unknown-confidence and is not silently treated as a clean match even if its raw text happens to equal an invoice item', () => {
+      const m = deriveBasketInvoiceMatch(
+        baseInput({
+          itemsByBasketId: { 'basket:1': [item('التاني', 2, 'unknown')] },
+          itemEvidenceProvider: { getItemsForInvoice: () => [{ productNameRaw: 'التاني', quantity: 2, lineTotal: 90 }] },
+        })
+      );
+      expect(m.needsHumanReview).toBe(true);
+      expect(m.humanReviewReasons).toContain('unresolved_product_identity');
+      // Never compared for quantity — no quantity_mismatch/agreement claim was made about it.
+      expect(m.differences.some((d) => d.type === 'quantity_mismatch' && d.key === 'التاني')).toBe(false);
+    });
+  });
+
+  describe('Quantity semantics (Phase E.1 §5)', () => {
+    it('an unknown basket quantity never produces a quantity mismatch', () => {
+      const m = deriveBasketInvoiceMatch(
+        baseInput({
+          itemsByBasketId: { 'basket:1': [item('فيتامين د', null)] },
+          itemEvidenceProvider: { getItemsForInvoice: () => [{ productNameRaw: 'فيتامين د', quantity: 2, lineTotal: 180 }] },
+        })
+      );
+      expect(m.differences.some((d) => d.type === 'quantity_mismatch')).toBe(false);
+    });
+
+    it('an explicit basket quantity (2) vs invoice quantity (3) is a real quantity_mismatch', () => {
+      const m = deriveBasketInvoiceMatch(
+        baseInput({
+          itemsByBasketId: { 'basket:1': [item('فيتامين د', 2)] },
+          itemEvidenceProvider: { getItemsForInvoice: () => [{ productNameRaw: 'فيتامين د', quantity: 3, lineTotal: 270 }] },
+        })
+      );
+      expect(m.differences.some((d) => d.type === 'quantity_mismatch')).toBe(true);
+    });
+
+    it('an ambiguous alias is excluded from quantity comparison — identity must be resolved first', () => {
+      const m = deriveBasketInvoiceMatch(
+        baseInput({
+          itemsByBasketId: { 'basket:1': [item('شامبو', 5)] },
+          itemEvidenceProvider: {
+            getItemsForInvoice: () => [
+              { productNameRaw: 'شامبو', quantity: 1, lineTotal: 70 },
+              { productNameRaw: 'شامبو', quantity: 9, lineTotal: 70 },
+            ],
+          },
+        })
+      );
+      expect(m.differences.some((d) => d.type === 'quantity_mismatch' && d.key === 'شامبو')).toBe(false);
+    });
+  });
+
+  describe('Sales Integrity readiness/scope contract (Phase E.1 §7)', () => {
+    it('header_and_items scope when both a real total AND item evidence are available', () => {
+      const m = deriveBasketInvoiceMatch(
+        baseInput({
+          itemsByBasketId: { 'basket:1': [item('فيتامين د', 2)] },
+          itemEvidenceProvider: { getItemsForInvoice: () => [{ productNameRaw: 'فيتامين د', quantity: 2, lineTotal: 180 }] },
+        })
+      );
+      expect(m.headerEvidenceReady).toBe(true);
+      expect(m.itemEvidenceReady).toBe(true);
+      expect(m.integrityEvaluationScope).toBe('header_and_items');
+    });
+
+    it('header_only scope when the total is comparable but item evidence is unavailable — the common case today', () => {
+      const m = deriveBasketInvoiceMatch(baseInput());
+      expect(m.headerEvidenceReady).toBe(true);
+      expect(m.itemEvidenceReady).toBe(false);
+      expect(m.integrityEvaluationScope).toBe('header_only');
+    });
+
+    it('insufficient scope when there is no active basket (or attribution is unknown) — never header_only by accident', () => {
+      const m = deriveBasketInvoiceMatch(baseInput({ baskets: [] }));
+      expect(m.integrityEvaluationScope).toBe('insufficient');
+    });
   });
 });
