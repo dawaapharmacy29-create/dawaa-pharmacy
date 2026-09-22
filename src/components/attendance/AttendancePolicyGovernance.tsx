@@ -7,10 +7,12 @@ import {
   assignAttendancePolicy,
   compareAttendancePolicyV3,
   createAttendancePolicyVersion,
+  getAttendancePolicyEnforcePreflight,
   getAttendancePolicyRollout,
   listAttendancePolicyAudit,
   setAttendancePolicyRollout,
   type PolicyChangeAuditRow,
+  type PolicyEnforcePreflight,
   type PolicyRolloutAssignment,
   type PolicyV3Compare,
 } from '@/lib/hr/workforceService';
@@ -34,6 +36,7 @@ export default function AttendancePolicyGovernance() {
   const [rollout, setRollout] = useState<PolicyRolloutAssignment[]>([]);
   const [audit, setAudit] = useState<PolicyChangeAuditRow[]>([]);
   const [compare, setCompare] = useState<PolicyV3Compare | null>(null);
+  const [preflight, setPreflight] = useState<PolicyEnforcePreflight | null>(null);
   const [loading, setLoading] = useState(false);
 
   const [policyCode, setPolicyCode] = useState('attendance_policy_pilot_' + today.replaceAll('-', ''));
@@ -145,6 +148,33 @@ export default function AttendancePolicyGovernance() {
     }
   }
 
+  async function runPreflight() {
+    if (!scopeKey) {
+      toast.warning('اختر نطاق الـPilot أولًا.');
+      return;
+    }
+    setLoading(true);
+    try {
+      const result = await getAttendancePolicyEnforcePreflight({
+        scopeType,
+        scopeKey,
+      });
+      setPreflight(result);
+      if (result.ready) {
+        toast.success(result.candidate_changes > 0
+          ? 'فحص الأمان ناجح، ويوجد Candidate changes تحتاج مراجعة قبل Enforce.'
+          : 'فحص الأمان ناجح. النطاق جاهز تقنيًا للـPilot Enforce.');
+      } else {
+        toast.warning('النطاق غير جاهز للـEnforce بعد: ' + preflightReason(result.reason));
+      }
+    } catch (error) {
+      setPreflight(null);
+      toast.error(error instanceof Error ? error.message : 'تعذر تشغيل فحص الأمان');
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function saveRollout() {
     if (rolloutMode === 'enforce' && enforcePhrase.trim() !== 'ENFORCE') {
       toast.warning('لتفعيل Enforce اكتب ENFORCE حرفيًا. هذا يمنع التفعيل غير المقصود.');
@@ -152,6 +182,10 @@ export default function AttendancePolicyGovernance() {
     }
     if (!scopeKey) {
       toast.warning('اختر نطاق التطبيق.');
+      return;
+    }
+    if (rolloutMode === 'enforce' && !preflight?.ready) {
+      toast.warning('شغّل فحص الأمان للنطاق الحالي أولًا. Enforce محجوب بدون Preflight ناجح.');
       return;
     }
     setLoading(true);
@@ -230,12 +264,12 @@ export default function AttendancePolicyGovernance() {
               </select>
             </Field>
             <Field label="نوع النطاق">
-              <select value={scopeType} onChange={(e) => { setScopeType(e.target.value as typeof scopeType); setScopeKey(''); }} className="input-dark w-full">
+              <select value={scopeType} onChange={(e) => { setScopeType(e.target.value as typeof scopeType); setScopeKey(''); setPreflight(null); }} className="input-dark w-full">
                 <option value="branch">فرع</option><option value="role">دور</option><option value="staff">موظف</option>
               </select>
             </Field>
             <Field label="النطاق">
-              <select value={scopeKey} onChange={(e) => setScopeKey(e.target.value)} className="input-dark w-full">
+              <select value={scopeKey} onChange={(e) => { setScopeKey(e.target.value); setPreflight(null); }} className="input-dark w-full">
                 <option value="">اختر</option>
                 {scopeType === 'staff'
                   ? (scopeOptions as Array<{ value: string; label: string }>).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)
@@ -266,6 +300,36 @@ export default function AttendancePolicyGovernance() {
         </div>
         <div className="mt-3 text-xs font-bold text-[var(--dawaa-status-info-text)]">
           حاليًا: {rollout.filter((r) => r.mode === 'shadow').length} Shadow · {rollout.filter((r) => r.mode === 'enforce').length} Enforce · {rollout.filter((r) => r.mode === 'off').length} Off.
+        </div>
+
+        <div className="mt-4 rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="text-xs font-black text-[var(--dawaa-theme-heading)]">Enforce Safety Gate</div>
+              <div className="mt-1 text-[11px] font-bold text-[var(--dawaa-theme-muted)]">
+                يفحص آخر 14 يومًا للنطاق نفسه. لا يسمح الـBackend بـEnforce عام، ولا يسمح بالنطاق قبل Shadow كافٍ ومقارنة سليمة.
+              </div>
+            </div>
+            <button onClick={() => void runPreflight()} className="btn-secondary">فحص جاهزية النطاق</button>
+          </div>
+
+          {preflight && (
+            <>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
+                <Mini label="أيام حضور" value={preflight.checked_days} />
+                <Mini label="تواريخ مفحوصة" value={preflight.evaluated_dates} warn={preflight.evaluated_dates < 7} />
+                <Mini label="V2/V3 mismatch" value={preflight.effective_status_changes} warn={preflight.effective_status_changes > 0} />
+                <Mini label="Candidate changes" value={preflight.candidate_changes} warn={preflight.candidate_changes > 0} />
+                <Mini label="Shadow" value={preflight.shadow_days} />
+                <Mini label="Policy unresolved" value={preflight.unresolved_policy_days} warn={preflight.unresolved_policy_days > 0} />
+              </div>
+              <div className={preflight.ready
+                ? 'mt-3 rounded-xl border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] p-3 text-xs font-black text-[var(--dawaa-status-success-text)]'
+                : 'mt-3 rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-3 text-xs font-black text-[var(--dawaa-status-warning-text)]'}>
+                {preflight.ready ? 'جاهز تقنيًا للـPilot Enforce' : 'غير جاهز للـEnforce'} · {preflightReason(preflight.reason)}
+              </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -321,4 +385,20 @@ function Mini({ label, value, warn = false }: { label: string; value: number; wa
     <div className="text-[10px] font-black text-[var(--dawaa-theme-muted)]">{label}</div>
     <div className="mt-1 text-xl font-black text-[var(--dawaa-theme-heading)]">{value.toLocaleString('ar-EG')}</div>
   </div>;
+}
+
+
+function preflightReason(reason: string) {
+  const labels: Record<string, string> = {
+    ready: 'المقارنة سليمة وكل الأيام كانت Shadow.',
+    ready_with_candidate_changes_for_review: 'المقارنة سليمة مع تغييرات Candidate يجب مراجعتها قبل التفعيل.',
+    global_enforce_disabled_during_pilot: 'التفعيل العام مقفول أثناء مرحلة الـPilot.',
+    no_attendance_data_for_scope: 'لا توجد بيانات حضور كافية لهذا النطاق.',
+    insufficient_shadow_history: 'أقل من 7 تواريخ حضور متاحة في فترة Shadow.',
+    v2_v3_effective_mismatch: 'يوجد اختلاف فعلي بين قرار V2 وV3.',
+    unresolved_policy_days: 'يوجد أيام لم يتم حل Policy لها.',
+    scope_already_contains_enforced_days: 'النطاق يحتوي أيام Enforce بالفعل.',
+    not_all_scope_days_are_shadow: 'ليست كل الأيام في النطاق محسوبة بوضع Shadow.',
+  };
+  return labels[reason] || reason;
 }
