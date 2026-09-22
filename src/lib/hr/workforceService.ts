@@ -420,3 +420,106 @@ export async function getPayrollFinalSnapshotPreview(staffId: string, monthCycle
   if (error) throw new Error(error.message);
   return data as PayrollFinalSnapshotPreview;
 }
+
+
+export type PayrollStagedSnapshot = {
+  id: string;
+  staff_id: string;
+  staff_username: string;
+  staff_name: string;
+  branch: string | null;
+  month_cycle: string;
+  cycle_start: string | null;
+  cycle_end: string | null;
+  snapshot_schema: string;
+  snapshot_mode: 'staged';
+  finalization_ready: boolean;
+  snapshot_fingerprint: string;
+  payload: PayrollFinalSnapshotPreview;
+  note: string | null;
+  created_by: string | null;
+  created_by_name: string | null;
+  created_at: string;
+};
+
+export type PayrollSnapshotAuditRow = {
+  id: string;
+  snapshot_id: string | null;
+  action: 'staged' | 'reused';
+  staff_id: string;
+  month_cycle: string;
+  snapshot_fingerprint: string;
+  actor_id: string | null;
+  actor_name: string | null;
+  note: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+};
+
+export async function stagePayrollFinalSnapshot(args: {
+  staffId: string;
+  monthCycle: string;
+  note?: string | null;
+}): Promise<{ success: boolean; existing: boolean; snapshot: PayrollStagedSnapshot }> {
+  const { data, error } = await supabase.rpc('stage_payroll_final_snapshot_v1', {
+    p_staff_id: args.staffId,
+    p_month_cycle: args.monthCycle,
+    p_note: args.note || null,
+  });
+  if (error) throw new Error(error.message);
+  return data as { success: boolean; existing: boolean; snapshot: PayrollStagedSnapshot };
+}
+
+export async function listPayrollStagedSnapshots(
+  staffId: string,
+  monthCycle: string,
+  limit = 20
+): Promise<PayrollStagedSnapshot[]> {
+  const { data, error } = await supabase.rpc('list_payroll_final_snapshot_staging_v1', {
+    p_staff_id: staffId,
+    p_month_cycle: monthCycle,
+    p_limit: limit,
+  });
+  if (error) throw new Error(error.message);
+  return Array.isArray(data) ? data as PayrollStagedSnapshot[] : [];
+}
+
+export async function comparePayrollStagedSnapshot(snapshotId: string): Promise<{
+  snapshot_id: string;
+  stored_fingerprint: string;
+  current_fingerprint: string;
+  unchanged: boolean;
+  stored_ready: boolean;
+  current_ready: boolean;
+  stored_created_at: string;
+  current_generated_at: string;
+}> {
+  const { data, error } = await supabase.rpc('compare_payroll_final_snapshot_v1', {
+    p_snapshot_id: snapshotId,
+  });
+  if (error) throw new Error(error.message);
+  return data as {
+    snapshot_id: string;
+    stored_fingerprint: string;
+    current_fingerprint: string;
+    unchanged: boolean;
+    stored_ready: boolean;
+    current_ready: boolean;
+    stored_created_at: string;
+    current_generated_at: string;
+  };
+}
+
+export async function listPayrollSnapshotAudit(
+  staffId: string,
+  monthCycle: string,
+  limit = 50
+): Promise<PayrollSnapshotAuditRow[]> {
+  const { data, error } = await supabase.rpc('list_payroll_snapshot_audit_v1', {
+    p_staff_id: staffId,
+    p_month_cycle: monthCycle,
+    p_limit: limit,
+  });
+  if (error) throw new Error(error.message);
+  return Array.isArray(data) ? data as PayrollSnapshotAuditRow[] : [];
+}
