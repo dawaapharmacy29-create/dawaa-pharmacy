@@ -8,7 +8,8 @@ import {
   deriveCommercialConfirmationState,
   deriveOrderConfirmationProtocolApplicability,
 } from '@/lib/salesIntelligence/commercialConfirmationEngine';
-import type { CommercialConfirmationAssessment } from '@/lib/salesIntelligence/types';
+import { deriveHistoricalCommercialClosureAssessment } from '@/lib/salesIntelligence/historicalCommercialClosureEngine';
+import type { CommercialConfirmationAssessment, HistoricalCommercialClosureAssessment } from '@/lib/salesIntelligence/types';
 
 /** Builds the case + baskets + Phase C events + assessment for the FIRST case in a fixture. */
 function assessFirstCase(raw: string) {
@@ -27,7 +28,7 @@ function assessFirstCase(raw: string) {
     result.staffFinalConfirmationEvents
   );
   const protocol = assessOrderConfirmationProtocol(assessment);
-  return { theCase: cases[0], ...result, assessment, protocol };
+  return { theCase: cases[0], scoped, ...result, assessment, protocol };
 }
 
 describe('Commercial Confirmation Engine (Sales Intelligence Phase C) — Golden Cases', () => {
@@ -577,7 +578,7 @@ describe('Commercial Confirmation Engine (Sales Intelligence Phase C) — Golden
     });
   });
 
-  describe('Protocol Applicability (Phase G.1)', () => {
+  describe('Protocol Applicability (Phase G.1 / G.2)', () => {
     function commercial(overrides: Partial<CommercialConfirmationAssessment> = {}): CommercialConfirmationAssessment {
       return {
         caseId: 'c1', basketId: 'b1', basketVersion: 1,
@@ -591,20 +592,40 @@ describe('Commercial Confirmation Engine (Sales Intelligence Phase C) — Golden
       };
     }
 
-    it('1. information-only with no meaningful basket items -> not_applicable', () => {
+    /** Defaults to "no historical evidence at all" — most unit tests below only care about caseType/commercial. */
+    function historicalClosure(overrides: Partial<HistoricalCommercialClosureAssessment> = {}): HistoricalCommercialClosureAssessment {
+      return {
+        caseId: 'c1',
+        purchaseIntentDetected: false,
+        customerAcceptanceDetected: false,
+        staffFulfillmentIntentDetected: false,
+        basketReconstructable: false,
+        announcedValueAvailable: false,
+        closureLevel: 'unknown',
+        primaryMessageIds: [],
+        confidence: { level: 'unknown', score: 0.2, ruleIds: [], evidence: [] },
+        needsHumanReview: false,
+        ruleIds: [],
+        ...overrides,
+      };
+    }
+
+    it('1. information-only with no meaningful basket items and no closure evidence -> not_applicable', () => {
       const applicability = deriveOrderConfirmationProtocolApplicability({
         caseType: 'information_only',
         commercial: commercial({ currentState: 'unknown' }),
         hasMeaningfulBasketItems: false,
+        historicalClosure: historicalClosure(),
       });
       expect(applicability).toBe('not_applicable');
     });
 
-    it('2. a follow-up caseType is always not_applicable, regardless of basket state', () => {
+    it('2. a follow-up caseType is always not_applicable, regardless of basket state or closure evidence', () => {
       const applicability = deriveOrderConfirmationProtocolApplicability({
         caseType: 'follow_up',
         commercial: commercial({ currentState: 'basket_in_progress' }),
         hasMeaningfulBasketItems: true,
+        historicalClosure: historicalClosure({ closureLevel: 'strongly_inferred', purchaseIntentDetected: true }),
       });
       expect(applicability).toBe('not_applicable');
     });
@@ -614,15 +635,17 @@ describe('Commercial Confirmation Engine (Sales Intelligence Phase C) — Golden
         caseType: 'complaint',
         commercial: commercial({ currentState: 'basket_in_progress' }),
         hasMeaningfulBasketItems: true,
+        historicalClosure: historicalClosure(),
       });
       expect(applicability).toBe('not_applicable');
     });
 
-    it('4. a real commercial opportunity with a draft basket (price inquiry) -> not_reached', () => {
+    it('4. a real commercial opportunity with a draft basket but no closure evidence (price inquiry) -> not_reached', () => {
       const applicability = deriveOrderConfirmationProtocolApplicability({
         caseType: 'sales_opportunity',
         commercial: commercial({ currentState: 'basket_in_progress' }),
         hasMeaningfulBasketItems: true,
+        historicalClosure: historicalClosure({ closureLevel: 'not_closed', purchaseIntentDetected: true }),
       });
       expect(applicability).toBe('not_reached');
     });
@@ -636,24 +659,27 @@ describe('Commercial Confirmation Engine (Sales Intelligence Phase C) — Golden
         caseType: 'sales_opportunity',
         commercial: commercial({ currentState: 'basket_in_progress' }),
         hasMeaningfulBasketItems: false,
+        historicalClosure: historicalClosure({ closureLevel: 'not_closed', purchaseIntentDetected: true }),
       });
       expect(applicability).toBe('not_reached');
     });
 
-    it('5b. a bare acknowledgement with NO request signal at all (information_only, no items) -> not_applicable', () => {
+    it('5b. a bare acknowledgement with NO request signal and no closure evidence at all -> not_applicable', () => {
       const applicability = deriveOrderConfirmationProtocolApplicability({
         caseType: 'information_only',
         commercial: commercial({ currentState: 'basket_in_progress' }),
         hasMeaningfulBasketItems: false,
+        historicalClosure: historicalClosure(),
       });
       expect(applicability).toBe('not_applicable');
     });
 
-    it('6. a summary was presented (awaiting customer confirmation) -> applicable', () => {
+    it('6. a summary was presented (awaiting customer confirmation) -> applicable (formal evidence alone is sufficient)', () => {
       const applicability = deriveOrderConfirmationProtocolApplicability({
         caseType: 'sales_opportunity',
         commercial: commercial({ currentState: 'awaiting_customer_confirmation', summaryPresented: true }),
         hasMeaningfulBasketItems: true,
+        historicalClosure: historicalClosure(),
       });
       expect(applicability).toBe('applicable');
     });
@@ -663,19 +689,105 @@ describe('Commercial Confirmation Engine (Sales Intelligence Phase C) — Golden
         caseType: 'sales_opportunity',
         commercial: commercial({ currentState: 'commercial_confirmation_complete', summaryPresented: true, customerConfirmed: true, staffConfirmed: true }),
         hasMeaningfulBasketItems: true,
+        historicalClosure: historicalClosure({ closureLevel: 'explicit' }),
       });
       expect(applicability).toBe('applicable');
     });
 
     it('8. real-data regression: a price-only inquiry ("ده موجود" -> "لحظات اشوفه" -> silence) is not_reached end-to-end', () => {
-      const { theCase, assessment, itemsByBasketId, baskets } = assessFirstCase(`[9/12/26, 9:51:32 PM] Customer: ده موجود
+      const { theCase, assessment, itemsByBasketId, baskets, scoped } = assessFirstCase(`[9/12/26, 9:51:32 PM] Customer: ده موجود
 [9/12/26, 9:52:36 PM] You: لحظات اشوفه لحضرتك
 [9/12/26, 10:36:37 PM] You: حضرتك تحب نبتعه باذن الله`);
       const hasMeaningfulBasketItems = baskets.some((b) => (itemsByBasketId[b.basketId] ?? []).length > 0);
+      const latest = baskets[baskets.length - 1];
+      const closure = deriveHistoricalCommercialClosureAssessment(
+        theCase.caseId, scoped, assessment, itemsByBasketId[latest?.basketId] ?? [], latest?.announcedTotal != null
+      );
       const applicability = deriveOrderConfirmationProtocolApplicability({
         caseType: theCase.caseType,
         commercial: assessment,
         hasMeaningfulBasketItems,
+        historicalClosure: closure,
+      });
+      expect(applicability).toBe('not_reached');
+    });
+
+    it('9. STRONG historical closure without a formal summary -> applicable (Phase G.2 calibration, formal summary is a compliance step, never an applicability prerequisite)', () => {
+      const applicability = deriveOrderConfirmationProtocolApplicability({
+        caseType: 'sales_opportunity',
+        commercial: commercial({ currentState: 'basket_in_progress' }),
+        hasMeaningfulBasketItems: false,
+        historicalClosure: historicalClosure({
+          closureLevel: 'strongly_inferred', purchaseIntentDetected: true,
+          customerAcceptanceDetected: true, staffFulfillmentIntentDetected: true,
+        }),
+      });
+      expect(applicability).toBe('applicable');
+    });
+
+    it('10. WEAK/ambiguous closure is never automatically applicable — a reconstructable basket + one signal is flagged unknown, not silently promoted', () => {
+      const applicability = deriveOrderConfirmationProtocolApplicability({
+        caseType: 'sales_opportunity',
+        commercial: commercial({ currentState: 'basket_in_progress' }),
+        hasMeaningfulBasketItems: true,
+        historicalClosure: historicalClosure({
+          closureLevel: 'weakly_inferred', purchaseIntentDetected: true,
+          customerAcceptanceDetected: true, basketReconstructable: true,
+        }),
+      });
+      expect(applicability).toBe('unknown');
+    });
+
+    it('11. WEAK closure with no reconstructable basket at all stays not_reached — real commercial signal, but too thin to call a closing moment', () => {
+      const applicability = deriveOrderConfirmationProtocolApplicability({
+        caseType: 'sales_opportunity',
+        commercial: commercial({ currentState: 'basket_in_progress' }),
+        hasMeaningfulBasketItems: false,
+        historicalClosure: historicalClosure({
+          closureLevel: 'weakly_inferred', purchaseIntentDetected: true, customerAcceptanceDetected: true,
+        }),
+      });
+      expect(applicability).toBe('not_reached');
+    });
+
+    it('12. a strongly_inferred closure that the closure engine itself flagged as ambiguous (needsHumanReview) is downgraded to unknown, never silently applicable', () => {
+      const applicability = deriveOrderConfirmationProtocolApplicability({
+        caseType: 'sales_opportunity',
+        commercial: commercial({ currentState: 'basket_in_progress' }),
+        hasMeaningfulBasketItems: true,
+        historicalClosure: historicalClosure({
+          closureLevel: 'strongly_inferred', purchaseIntentDetected: true,
+          customerAcceptanceDetected: true, staffFulfillmentIntentDetected: true, needsHumanReview: true,
+        }),
+      });
+      expect(applicability).toBe('unknown');
+    });
+
+    it('13. applicability does not depend on any policy effective date — it is derived purely from case/closure evidence', () => {
+      // deriveOrderConfirmationProtocolApplicability's signature has no date parameter at all —
+      // this is a structural guarantee, not just a behavioral one (see salesIntegrityEngine.ts's
+      // own deriveProtocolPolicyComplianceState for where the date is actually consumed).
+      const a1 = deriveOrderConfirmationProtocolApplicability({
+        caseType: 'sales_opportunity',
+        commercial: commercial({ currentState: 'basket_in_progress' }),
+        hasMeaningfulBasketItems: false,
+        historicalClosure: historicalClosure({ closureLevel: 'strongly_inferred', purchaseIntentDetected: true, customerAcceptanceDetected: true, staffFulfillmentIntentDetected: true }),
+      });
+      expect(a1).toBe('applicable');
+    });
+
+    it('14. real-data regression: "ده موجود" pattern real closure is not_closed (no acceptance ever detected) -> not_reached, not applicable', () => {
+      const { theCase, assessment, itemsByBasketId, baskets, scoped } = assessFirstCase(`[9/12/26, 9:51:32 PM] Customer: ده موجود
+[9/12/26, 9:52:36 PM] You: لحظات اشوفه لحضرتك
+[9/12/26, 10:36:37 PM] You: حضرتك تحب نبتعه باذن الله`);
+      const latest = baskets[baskets.length - 1];
+      const closure = deriveHistoricalCommercialClosureAssessment(
+        theCase.caseId, scoped, assessment, itemsByBasketId[latest?.basketId] ?? [], latest?.announcedTotal != null
+      );
+      expect(closure.closureLevel).toBe('not_closed');
+      const hasMeaningfulBasketItems = baskets.some((b) => (itemsByBasketId[b.basketId] ?? []).length > 0);
+      const applicability = deriveOrderConfirmationProtocolApplicability({
+        caseType: theCase.caseType, commercial: assessment, hasMeaningfulBasketItems, historicalClosure: closure,
       });
       expect(applicability).toBe('not_reached');
     });

@@ -18,6 +18,7 @@ import type {
   CustomerConfirmationEvent,
   EvidenceRef,
   FinalBasketSummaryEvent,
+  HistoricalCommercialClosureAssessment,
   OrderConfirmationProtocolApplicability,
   OrderConfirmationProtocolAssessment,
   StaffFinalConfirmationEvent,
@@ -212,50 +213,81 @@ export function assessOrderConfirmationProtocol(
  * simply never reached an order-closing stage in the first place. See
  * OrderConfirmationProtocolApplicability's own doc comment in types.ts for what each value means.
  *
- * Exhaustive over CommercialConfirmationState's reachable values (mirrors the reachability
- * discipline already used throughout this engine suite — see deriveCommercialConfirmationState's
- * own comment). The `caseType === 'information_only' && !hasMeaningfulBasketItems` guard above
- * is deliberately the ONLY place `not_applicable` is decided by item-presence — a real-data
- * regression found that a price-quote-only exchange ("سعره كام" -> "170ج") never gets a captured
- * basket item (no quantity+unit phrase, no resolvable pronoun — see caseBasketEngine.ts's own
- * extraction rules), which would otherwise wrongly read as "not an order flow at all" even though
- * Phase B's own caseType classification already confirms a real request/commercial signal existed:
- *   - 'unknown' (zero baskets at all): not structurally reachable here in practice — it requires
- *     zero meaningful customer messages, which itself requires caseType === 'information_only'
- *     (any request signal implies at least one meaningful customer message, which
- *     buildCaseBaskets always opens a basket for) — already excluded above. Kept as a defensive
- *     `not_applicable` fallback only.
- *   - 'basket_in_progress' (a draft basket, no final summary yet) -> always not_reached: reaching
- *     this branch already means the top-level information_only-with-no-items case was excluded,
- *     so either a real commercial/request signal was confirmed by Phase B (sales_opportunity) or
- *     real items exist regardless of caseType — either way a genuine commercial opportunity
- *     existed but never reached a closing stage.
- *   - 'awaiting_customer_confirmation' / 'customer_confirmed' / 'modified_after_confirmation' /
- *     'commercial_confirmation_complete' / 'rejected' -> applicable: a final summary was
- *     genuinely presented (or the case progressed past that point) in every one of these states.
+ * Phase G.2 CALIBRATION — a second real-data finding: Phase G.1's own applicability logic was
+ * still too dependent on the FORMAL Phase C state machine (`commercial.currentState`), which can
+ * only ever progress past `basket_in_progress` once a formal FinalBasketSummaryEvent was
+ * presented. On the real Phase G sample, EVERY case with strong organic evidence of a genuine
+ * closing moment (a clear customer acceptance + a clear staff fulfillment-intent reply — see
+ * historicalCommercialClosureEngine.ts) still stayed `basket_in_progress` (no formal summary was
+ * ever presented) and was therefore always read as `not_reached` — wrongly, since the order-closing
+ * moment DID happen, just never through the formal script. A formal summary is a COMPLIANCE step
+ * (see assessOrderConfirmationProtocol above), never an applicability prerequisite.
+ *
+ * The three questions stay permanently separate, per the recommended one-way data flow:
+ *   conversation/case facts -> historical closure -> applicability -> (+ policy date) -> compliance.
+ * This function is the "-> applicability" step; it consumes `historicalClosure` as one evidence
+ * source but never writes back into it, and compliance (salesIntegrityEngine.ts) never feeds back
+ * into applicability either.
+ *
+ * Decision order:
+ *   1. `complaint`/`follow_up` caseTypes are always not_applicable (forward-compat only — these
+ *      values are not produced by the current conversationCaseEngine.ts).
+ *   2. If the FORMAL Phase C state machine already reached a real order-closing stage
+ *      (`awaiting_customer_confirmation`/`customer_confirmed`/`modified_after_confirmation`/
+ *      `commercial_confirmation_complete`/`rejected` — all of which require a summary to have been
+ *      presented), that alone is sufficient for `applicable`. Formal evidence is never REQUIRED,
+ *      but when present it's always enough.
+ *   3. Otherwise (no formal summary ever presented — `commercial.currentState` stayed
+ *      `basket_in_progress` or `unknown`), fall back to `historicalClosure.closureLevel`, per the
+ *      explicit non-blind mapping in the Phase G.2 report:
+ *        - `explicit`: not structurally reachable here (it implies step 2 above already fired) —
+ *          kept for defensive completeness.
+ *        - `strongly_inferred`: applicable, UNLESS the closure engine itself flagged a
+ *          contradiction (`needsHumanReview`, e.g. an ambiguous multi-product acceptance — which,
+ *          by that engine's own construction, already downgrades to weakly_inferred in practice) ->
+ *          `unknown` in that defensive case.
+ *        - `weakly_inferred`: never automatically applicable. A reconstructable basket (real
+ *          product/quantity evidence) PLUS at least one of acceptance/fulfillment-intent is close
+ *          enough to a real closing moment to flag for human review (`unknown`) rather than
+ *          dismissed outright; otherwise it's still a real, unresolved commercial opportunity
+ *          (`not_reached`) or, with no commercial signal evidence at all, `not_applicable`.
+ *        - `not_closed` / `unknown`: no closure evidence exists — `not_reached` when SOME real
+ *          commercial signal exists (a meaningful basket item, or the closure engine's own
+ *          `purchaseIntentDetected`), else `not_applicable`.
  */
 export function deriveOrderConfirmationProtocolApplicability(params: {
   caseType: CaseType;
   commercial: CommercialConfirmationAssessment;
   hasMeaningfulBasketItems: boolean;
+  historicalClosure: HistoricalCommercialClosureAssessment;
 }): OrderConfirmationProtocolApplicability {
-  const { caseType, commercial, hasMeaningfulBasketItems } = params;
+  const { caseType, commercial, hasMeaningfulBasketItems, historicalClosure } = params;
 
   if (caseType === 'complaint' || caseType === 'follow_up') return 'not_applicable';
-  if (caseType === 'information_only' && !hasMeaningfulBasketItems) return 'not_applicable';
 
-  switch (commercial.currentState) {
-    case 'unknown':
-      return 'not_applicable';
-    case 'basket_in_progress':
-      return 'not_reached';
-    case 'awaiting_customer_confirmation':
-    case 'customer_confirmed':
-    case 'modified_after_confirmation':
-    case 'commercial_confirmation_complete':
-    case 'rejected':
+  const formalOrderClosingReached =
+    commercial.currentState === 'awaiting_customer_confirmation' ||
+    commercial.currentState === 'customer_confirmed' ||
+    commercial.currentState === 'modified_after_confirmation' ||
+    commercial.currentState === 'commercial_confirmation_complete' ||
+    commercial.currentState === 'rejected';
+  if (formalOrderClosingReached) return 'applicable';
+
+  const hasRealCommercialSignal = hasMeaningfulBasketItems || historicalClosure.purchaseIntentDetected;
+
+  switch (historicalClosure.closureLevel) {
+    case 'explicit':
       return 'applicable';
+    case 'strongly_inferred':
+      return historicalClosure.needsHumanReview ? 'unknown' : 'applicable';
+    case 'weakly_inferred':
+      if (historicalClosure.basketReconstructable && (historicalClosure.customerAcceptanceDetected || historicalClosure.staffFulfillmentIntentDetected)) {
+        return 'unknown';
+      }
+      return hasRealCommercialSignal ? 'not_reached' : 'not_applicable';
+    case 'not_closed':
+    case 'unknown':
     default:
-      return 'unknown';
+      return hasRealCommercialSignal ? 'not_reached' : 'not_applicable';
   }
 }

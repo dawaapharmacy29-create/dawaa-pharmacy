@@ -80,6 +80,40 @@ describe('Sales Intelligence Pipeline (Phase G) — Golden Cases', () => {
     expect(result.caseAnalyses).toHaveLength(2);
     expect(result.caseAnalyses[0].attribution.selectedInvoiceId).toBe('inv-a');
     expect(result.caseAnalyses[1].attribution.selectedInvoiceId).toBe('inv-b');
+    // Regression (found via the Phase G.2 real-data re-validation): each session's own interaction
+    // numbering restarts at 0, so without a session-qualifier the two cases would collide on the
+    // SAME caseId ("conv:interaction:0") — corrupting anything keyed by caseId (competingSelections,
+    // batch reporting). Must be genuinely unique per derived case.
+    expect(result.caseAnalyses[0].caseId).not.toBe(result.caseAnalyses[1].caseId);
+  });
+
+  it('3b. caseIds stay unique across 3+ sessions of the same conversation, not just 2', () => {
+    const raw = `[9/1/26, 9:00:00 AM] Customer: عايز 2 علبة فيتامين د
+[9/1/26, 9:01:00 AM] You: حضرتك تأمر بـ:
+2 علبة فيتامين د
+إجمالي الحساب 180 جنيه
+هل الطلب كده كامل؟
+[9/1/26, 9:02:00 AM] Customer: ايوه تمام
+[9/1/26, 9:03:00 AM] You: تمام يا فندم، تم تأكيد الطلب وجاري الإرسال
+[9/5/26, 9:00:00 AM] Customer: عايز 3 علبة زوركال
+[9/5/26, 9:01:00 AM] You: حضرتك تأمر بـ:
+3 علبة زوركال
+إجمالي الحساب 300 جنيه
+هل الطلب كده كامل؟
+[9/5/26, 9:02:00 AM] Customer: ايوه تمام
+[9/5/26, 9:03:00 AM] You: تمام يا فندم، تم تأكيد الطلب وجاري الإرسال
+[9/10/26, 9:00:00 AM] Customer: عايز شامبو
+[9/10/26, 9:01:00 AM] You: حضرتك تأمر بـ:
+1 قطعة شامبو
+إجمالي الحساب 90 جنيه
+هل الطلب كده كامل؟
+[9/10/26, 9:02:00 AM] Customer: ايوه تمام
+[9/10/26, 9:03:00 AM] You: تمام يا فندم، تم تأكيد الطلب وجاري الإرسال`;
+    const result = runSalesIntelligencePipeline(baseInput({ rawWhatsAppExportText: raw, resolveInvoiceCandidates: () => [] }));
+    expect(result.sessionsProcessed).toBe(3);
+    expect(result.caseAnalyses).toHaveLength(3);
+    const caseIds = result.caseAnalyses.map((a) => a.caseId);
+    expect(new Set(caseIds).size).toBe(3);
   });
 
   it('4. a modified basket (v1 -> v2) is used throughout D/E/F — never the stale v1 total', () => {
@@ -482,7 +516,7 @@ describe('Protocol Applicability + Historical Closure (Sales Intelligence Phase 
     expect(a.integrityAssessment.exceptions.some((e) => e.type === 'final_total_missing')).toBe(true);
   });
 
-  it('11. historical organic closure without a formal final summary is still reported (strongly_inferred), even though the formal protocol path never engages', () => {
+  it('11. historical organic closure without a formal final summary is still reported (strongly_inferred) AND now correctly makes the case applicable (Phase G.2)', () => {
     const raw = `[9/12/26, 9:07:51 AM] Customer: سعره كام
 [9/12/26, 9:08:07 AM] You: ب170ج
 [9/12/26, 9:08:25 AM] Customer: ابعته
@@ -491,7 +525,10 @@ describe('Protocol Applicability + Historical Closure (Sales Intelligence Phase 
     const a = runSalesIntelligencePipeline(baseInput({ rawWhatsAppExportText: raw })).caseAnalyses[0];
     expect(a.historicalClosure.closureLevel).toBe('strongly_inferred');
     expect(a.commercialConfirmation.currentState).not.toBe('commercial_confirmation_complete');
-    expect(a.protocolAssessment.applicability).toBe('not_reached');
+    // Phase G.2 calibration: a formal Phase C summary was never presented, but strong organic
+    // closure evidence (clear acceptance + clear staff fulfillment intent) alone is sufficient for
+    // applicability — a formal summary is a COMPLIANCE step, never an applicability prerequisite.
+    expect(a.protocolAssessment.applicability).toBe('applicable');
   });
 
   it('12. a clear organic acceptance linked to one basket produces strongly_inferred closure at the pipeline level', () => {
@@ -559,18 +596,79 @@ describe('Protocol Applicability + Historical Closure (Sales Intelligence Phase 
     expect(a.integrityAssessment.exceptions.filter((e) => e.stage === 'basket_confirmation')).toEqual([]);
   });
 
-  it('18. historical closure and protocol compliance can legitimately disagree: strongly_inferred organic closure with protocol still not_reached', () => {
+  it('18. historical closure and protocol compliance can legitimately disagree: strongly_inferred organic closure, applicable, but the FORMAL 4-step steps were never followed', () => {
     const raw = `[9/12/26, 9:07:51 AM] Customer: سعره كام
 [9/12/26, 9:08:07 AM] You: ب170ج
 [9/12/26, 9:08:25 AM] Customer: ابعته
 [9/12/26, 9:08:46 AM] You: عنيا حاضر
 [9/12/26, 9:16:17 AM] You: تم الارسال`;
-    const a = runSalesIntelligencePipeline(baseInput({ rawWhatsAppExportText: raw })).caseAnalyses[0];
-    // Real customer commercial closure was strong, but the FORMAL 4-step protocol was never
-    // followed (no explicit final summary/announced total) — both facts are true simultaneously,
-    // neither overrides the other.
+    const a = runSalesIntelligencePipeline(
+      baseInput({ rawWhatsAppExportText: raw, customerIdHint: 'cust-c18', protocolPolicyEffectiveAt: '2026-01-01T00:00:00.000Z', resolveInvoiceCandidates: () => [] })
+    ).caseAnalyses[0];
+    // Real customer commercial closure was strong (a real order-closing moment happened), but the
+    // FORMAL 4-step protocol steps (summary/total/confirmation) were never followed — both facts
+    // are true simultaneously; neither overrides the other. With the policy actually enforced for
+    // this case's timing, that gap is a real, reportable non-compliance finding.
     expect(a.historicalClosure.closureLevel).toBe('strongly_inferred');
-    expect(a.protocolAssessment.applicability).toBe('not_reached');
-    expect(a.integrityAssessment.protocolPolicyCompliance).toBe('not_reached');
+    expect(a.protocolAssessment.applicability).toBe('applicable');
+    expect(a.integrityAssessment.protocolPolicyCompliance).toBe('non_compliant');
+  });
+
+  it('19. Phase G.2: strong historical closure PRE-policy -> not_enforced, zero protocol exceptions, even though the case is now applicable', () => {
+    const raw = `[9/12/26, 9:07:51 AM] Customer: سعره كام
+[9/12/26, 9:08:07 AM] You: ب170ج
+[9/12/26, 9:08:25 AM] Customer: ابعته
+[9/12/26, 9:08:46 AM] You: عنيا حاضر
+[9/12/26, 9:16:17 AM] You: تم الارسال`;
+    const a = runSalesIntelligencePipeline(
+      baseInput({ rawWhatsAppExportText: raw, customerIdHint: 'cust-c19', protocolPolicyEffectiveAt: null, resolveInvoiceCandidates: () => [] })
+    ).caseAnalyses[0];
+    expect(a.historicalClosure.closureLevel).toBe('strongly_inferred');
+    expect(a.protocolAssessment.applicability).toBe('applicable');
+    expect(a.integrityAssessment.protocolPolicyCompliance).toBe('not_enforced');
+    expect(a.integrityAssessment.exceptions.filter((e) => e.stage === 'basket_confirmation')).toEqual([]);
+  });
+
+  it('20. Phase G.2: the SAME closure evaluated POST-policy (an effective date already in the past) -> non_compliant, a real finding', () => {
+    const raw = `[9/12/26, 9:07:51 AM] Customer: سعره كام
+[9/12/26, 9:08:07 AM] You: ب170ج
+[9/12/26, 9:08:25 AM] Customer: ابعته
+[9/12/26, 9:08:46 AM] You: عنيا حاضر
+[9/12/26, 9:16:17 AM] You: تم الارسال`;
+    const a = runSalesIntelligencePipeline(
+      baseInput({ rawWhatsAppExportText: raw, customerIdHint: 'cust-c20', protocolPolicyEffectiveAt: '2026-01-01T00:00:00.000Z', resolveInvoiceCandidates: () => [] })
+    ).caseAnalyses[0];
+    expect(a.protocolAssessment.applicability).toBe('applicable');
+    expect(a.integrityAssessment.protocolPolicyCompliance).toBe('non_compliant');
+    expect(a.integrityAssessment.exceptions.some((e) => e.type === 'final_total_missing')).toBe(true);
+  });
+
+  it('21. Phase G.2: policy effective date never alters the historical closure classification itself', () => {
+    const raw = `[9/12/26, 9:07:51 AM] Customer: سعره كام
+[9/12/26, 9:08:07 AM] You: ب170ج
+[9/12/26, 9:08:25 AM] Customer: ابعته
+[9/12/26, 9:08:46 AM] You: عنيا حاضر
+[9/12/26, 9:16:17 AM] You: تم الارسال`;
+    const notEnforced = runSalesIntelligencePipeline(
+      baseInput({ rawWhatsAppExportText: raw, customerIdHint: 'c', protocolPolicyEffectiveAt: null, resolveInvoiceCandidates: () => [] })
+    ).caseAnalyses[0];
+    const enforced = runSalesIntelligencePipeline(
+      baseInput({ rawWhatsAppExportText: raw, customerIdHint: 'c', protocolPolicyEffectiveAt: '2020-01-01T00:00:00.000Z', resolveInvoiceCandidates: () => [] })
+    ).caseAnalyses[0];
+    expect(notEnforced.historicalClosure.closureLevel).toBe(enforced.historicalClosure.closureLevel);
+    expect(notEnforced.protocolAssessment.applicability).toBe(enforced.protocolAssessment.applicability);
+    // Only compliance differs based on the policy date — applicability and closure never do.
+    expect(notEnforced.integrityAssessment.protocolPolicyCompliance).not.toBe(enforced.integrityAssessment.protocolPolicyCompliance);
+  });
+
+  it('22. Phase G.2: a weak/ambiguous organic acceptance across multiple unresolved products is never automatically applicable at the pipeline level', () => {
+    const raw = `[9/14/26, 1:00:00 AM] Customer: عايز 3 علب انتينال
+[9/14/26, 1:01:00 AM] You: تمام
+[9/14/26, 1:02:00 AM] Customer: وعايز 2 علبة ستريبتوكين كمان
+[9/14/26, 1:03:00 AM] Customer: تمام ابعته
+[9/14/26, 1:04:00 AM] You: تم الارسال`;
+    const a = runSalesIntelligencePipeline(baseInput({ rawWhatsAppExportText: raw })).caseAnalyses[0];
+    expect(a.historicalClosure.closureLevel).toBe('weakly_inferred');
+    expect(a.protocolAssessment.applicability).not.toBe('applicable');
   });
 });

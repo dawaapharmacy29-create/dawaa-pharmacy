@@ -191,16 +191,14 @@ function analyzeOneCase(
   // applicability and for evidenceCompleteness.basketDetected below.
   const hasMeaningfulBasketItems = baskets.some((basket) => (itemsByBasketId[basket.basketId] ?? []).length > 0);
 
-  const applicability = deriveOrderConfirmationProtocolApplicability({
-    caseType: conversationCase.caseType,
-    commercial: commercialConfirmation,
-    hasMeaningfulBasketItems,
-  });
-  const protocolAssessment = { ...assessOrderConfirmationProtocol(commercialConfirmation), applicability };
-
   const activeItems = activeBasket ? (itemsByBasketId[activeBasket.basketId] ?? []) : [];
   const activeBasketValue = computeActiveBasketValue(activeItems);
 
+  // Phase G.2 data flow (never reversed): conversation/case facts -> historical closure ->
+  // applicability -> (+ policy date) -> compliance. historicalClosure is computed BEFORE
+  // applicability and consumed BY it as one evidence source — applicability never writes back
+  // into historicalClosure, and compliance (salesIntegrityEngine.ts) never feeds back into
+  // applicability either.
   const historicalClosure = deriveHistoricalCommercialClosureAssessment(
     conversationCase.caseId,
     scopedMessages,
@@ -208,6 +206,14 @@ function analyzeOneCase(
     activeItems,
     activeBasket?.announcedTotal != null
   );
+
+  const applicability = deriveOrderConfirmationProtocolApplicability({
+    caseType: conversationCase.caseType,
+    commercial: commercialConfirmation,
+    hasMeaningfulBasketItems,
+    historicalClosure,
+  });
+  const protocolAssessment = { ...assessOrderConfirmationProtocol(commercialConfirmation), applicability };
 
   // CRITICAL (Phase G instruction #2): the candidate-retrieval context uses THIS CASE's own
   // segmented startedAt/endedAt — never conversation-level (whatsapp_review_sources) timestamps.
@@ -417,7 +423,7 @@ export function runSalesIntelligencePipeline(input: SalesIntelligencePipelineInp
     return { conversationId: input.conversationId, sessionsProcessed: 0, caseAnalyses: [], pipelineWarnings };
   }
 
-  for (const session of sessions) {
+  sessions.forEach((session, sessionIndex) => {
     const understanding = buildConversationUnderstandingV32(session);
     const cases = deriveConversationCases({
       understanding,
@@ -433,11 +439,21 @@ export function runSalesIntelligencePipeline(input: SalesIntelligencePipelineInp
     // implementation in conversationCaseEngine.ts. Zipping by index is exact, never a re-parse of
     // the caseId string.
     understanding.interactions.forEach((interaction, index) => {
-      const conversationCase = cases[index];
+      const rawCase = cases[index];
+      // BUG FIX (found via this pipeline's own multi-session shadow re-validation): conversationCaseEngine.ts
+      // builds caseId as `${conversationId}:${interaction.id}`, where interaction.id
+      // ("interaction:N") is only unique WITHIN one V32 understanding/session — it resets to 0 for
+      // EVERY session. A raw conversation whose sessions split apart (session gap >
+      // sessionSplitGapMinutes) would otherwise silently produce the SAME caseId
+      // ("conversationId:interaction:0") for the first case of every session, corrupting anything
+      // keyed by caseId (competingSelections, batch reporting, a future persistence primary key).
+      // deriveConversationCases() itself is left untouched — it was never designed to be called
+      // more than once per conversationId; the fix belongs here, in the ONLY layer that does that.
+      const conversationCase = sessions.length > 1 ? { ...rawCase, caseId: `${rawCase.caseId}:session:${sessionIndex}` } : rawCase;
       const scopedMessages = messagesForMessageIds(understanding, interaction.messageIds);
       caseAnalyses.push(analyzeOneCase(conversationCase, scopedMessages, input));
     });
-  }
+  });
 
   return {
     conversationId: input.conversationId,
