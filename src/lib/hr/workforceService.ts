@@ -357,3 +357,36 @@ export async function getAttendancePolicyEnforcePreflight(args: {
   if (error) throw new Error(error.message);
   return data as PolicyEnforcePreflight;
 }
+
+
+export type PayrollFinalizationGate = {
+  ready: boolean;
+  staff_id: string;
+  staff_username: string;
+  month_cycle: string;
+  cycle_start: string | null;
+  cycle_end: string | null;
+  blockers: Array<{ code: string; label: string; count?: number; hours?: number }>;
+  warnings: Array<{ code: string; label: string; count?: number; hours?: number }>;
+  attendance_gate: PayrollSafetyGate;
+  payroll_components: Record<string, unknown>;
+  policy_validation: {
+    checked_days: number;
+    effective_status_changes: number;
+    candidate_changes: number;
+    enforce_days: number;
+    unresolved_policy_days: number;
+    v3_materialized_days: number;
+    v3_pending_days: number;
+  };
+  generated_at: string;
+};
+
+export async function getPayrollFinalizationGate(staffId: string, monthCycle: string): Promise<PayrollFinalizationGate> {
+  const { data, error } = await supabase.rpc('payroll_finalization_gate_v1', {
+    p_staff_id: staffId,
+    p_month_cycle: monthCycle,
+  });
+  if (error) throw new Error(error.message);
+  return data as PayrollFinalizationGate;
+}
