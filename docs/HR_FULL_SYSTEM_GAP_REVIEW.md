@@ -4,6 +4,8 @@ Scope: `experiment/hr-workforce-architecture-v1` at `4e62622c`, compared with th
 
 Update: the first employee lifecycle slice now tracks onboarding, document completion, training and offboarding tasks at `/hr-staff-milestones`. These are auditable tasks tied to canonical `staff.id`; they do not create contracts, change staff employment status or affect payroll. Central HR roles create tasks; branch managers can review and complete tasks for staff in their own branch.
 
+The due inbox lists open tasks overdue or due within seven days, using the Cairo date. It enforces branch scope in the database and has a bounded 100-row UI request. Tasks without a due date remain visible on the individual employee record.
+
 ## What exists
 
 | Domain | Current entry point | State |

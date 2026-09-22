@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { normalizeBranchName } from '@/lib/branch';
 import { readStaffDirectory, type StaffDirectoryIdentity } from '@/lib/readModels/staffDirectoryReadModel';
-import { completeStaffMilestone, createStaffMilestone, listStaffMilestones, type StaffMilestone } from '@/lib/hr/staffMilestoneService';
+import { completeStaffMilestone, createStaffMilestone, listDueStaffMilestones, listStaffMilestones, type DueStaffMilestone, type StaffMilestone } from '@/lib/hr/staffMilestoneService';
 
 const kinds: Record<StaffMilestone['kind'], string> = {
   onboarding: 'تهيئة موظف جديد', document: 'استكمال مستند',
@@ -19,6 +19,8 @@ export default function HRStaffMilestones() {
   const [staff, setStaff] = useState<StaffDirectoryIdentity[]>([]);
   const [staffId, setStaffId] = useState('');
   const [rows, setRows] = useState<StaffMilestone[]>([]);
+  const [due, setDue] = useState<DueStaffMilestone[]>([]);
+  const [dueError, setDueError] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [kind, setKind] = useState<StaffMilestone['kind']>('onboarding');
@@ -40,6 +42,15 @@ export default function HRStaffMilestones() {
   }, [allowed, central, user?.branch]);
 
   useEffect(() => {
+    if (!allowed) return;
+    let active = true;
+    listDueStaffMilestones(central ? null : user?.branch || null)
+      .then((items) => { if (active) { setDue(items); setDueError(''); } })
+      .catch((cause) => { if (active) { setDue([]); setDueError(cause instanceof Error ? cause.message : 'تعذر تحميل المهام المستحقة'); } });
+    return () => { active = false; };
+  }, [allowed, central, user?.branch]);
+
+  useEffect(() => {
     if (!staffId || !allowed) { setRows([]); return; }
     let active = true;
     setLoading(true);
@@ -54,9 +65,14 @@ export default function HRStaffMilestones() {
   if (!allowed) return <div role="alert" className="p-6">غير مصرح بعرض سجلات الموارد البشرية.</div>;
 
   async function refresh() {
-    if (!staffId) return;
-    setRows(await listStaffMilestones(staffId));
+    const [staffRows, dueRows] = await Promise.all([
+      staffId ? listStaffMilestones(staffId) : Promise.resolve([]),
+      listDueStaffMilestones(central ? null : user?.branch || null),
+    ]);
+    setRows(staffRows);
+    setDue(dueRows);
     setError('');
+    setDueError('');
   }
 
   async function create() {
@@ -86,6 +102,16 @@ export default function HRStaffMilestones() {
       <h1 className="text-2xl font-black text-[var(--dawaa-theme-heading)]">ملف الموظف الوظيفي · المهام</h1>
       <p className="mt-2 text-sm text-[var(--dawaa-theme-muted)]">متابعة تهيئة الموظف والمستندات والتدريب والتسليم. الإكمال يسجل اسم المسؤول ووقته، ولا يغيّر الحضور أو المرتب.</p>
     </header>
+    <section className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4">
+      <h2 className="font-black">مهام تحتاج متابعة خلال أسبوع · {dueError ? 'غير متاحة' : due.length}</h2>
+      <p className="mt-1 text-xs text-[var(--dawaa-theme-muted)]">تعرض أول ١٠٠ مهمة متأخرة أو مستحقة خلال ٧ أيام، مرتبة حسب الموعد. المهام بلا موعد تظهر في ملف الموظف فقط.</p>
+      {dueError && <div role="alert" className="mt-2 text-sm text-[var(--dawaa-status-danger-text)]">{dueError}</div>}
+      {!dueError && due.length === 0 && <p className="mt-3 text-sm">لا توجد مهام محددة الموعد تحتاج متابعة.</p>}
+      <div className="mt-3 grid gap-2 md:grid-cols-2">{due.map((item) => <button key={item.id} type="button" onClick={() => setStaffId(item.staff_id)} className="rounded-xl border border-[var(--dawaa-theme-border)] p-3 text-right hover:bg-[var(--dawaa-theme-surface-2)]">
+        <div className="flex justify-between gap-2"><strong>{item.staff_name} · {item.title}</strong><span className={item.days_until_due < 0 ? 'text-[var(--dawaa-status-danger-text)]' : 'text-[var(--dawaa-theme-muted)]'}>{item.days_until_due < 0 ? `متأخرة ${Math.abs(item.days_until_due)} يوم` : item.days_until_due === 0 ? 'اليوم' : `خلال ${item.days_until_due} يوم`}</span></div>
+        <div className="mt-1 text-xs text-[var(--dawaa-theme-muted)]">{item.branch} · {kinds[item.kind]} · {item.due_on}</div>
+      </button>)}</div>
+    </section>
     <section className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4">
       <label className="block text-sm font-bold">الموظف</label>
       <select className="input-dark mt-2 w-full max-w-lg" value={staffId} onChange={(event) => setStaffId(event.target.value)}>

@@ -13,6 +13,20 @@ export type StaffMilestone = {
   completed_by_name: string | null;
 };
 
+export type DueStaffMilestone = Pick<StaffMilestone, 'id' | 'staff_id' | 'kind' | 'title' | 'due_on' | 'note' | 'created_at'> & {
+  staff_name: string;
+  branch: string;
+  days_until_due: number;
+};
+
+export async function listDueStaffMilestones(branch: string | null): Promise<DueStaffMilestone[]> {
+  const { data, error } = await supabase.rpc('hr_list_due_staff_milestones_v1', {
+    p_branch: branch, p_limit: 100,
+  });
+  if (error) throw new Error(error.message);
+  return data as DueStaffMilestone[];
+}
+
 export async function listStaffMilestones(staffId: string): Promise<StaffMilestone[]> {
   const { data, error } = await supabase.rpc('hr_list_staff_milestones_v1', { p_staff_id: staffId, p_limit: 100 });
   if (error) throw new Error(error.message);
