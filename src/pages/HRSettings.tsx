@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, Calendar, Fingerprint, RefreshCw, ShieldCheck, SlidersHorizontal, Users, WalletCards } from 'lucide-react';
 import { getAttendancePolicyCatalog, type AttendancePolicyCatalog } from '@/lib/attendance/attendanceResolutionService';
+import { getPolicyShadowAudit, type PolicyShadowAudit } from '@/lib/hr/workforceService';
+import { cairoToday, startOfMonth } from '@/lib/attendance/period';
 
 const settings = [
   {
@@ -44,6 +46,7 @@ function policyValue(policy: Record<string, unknown> | null, key: string, suffix
 export default function HRSettings() {
   const [catalog, setCatalog] = useState<AttendancePolicyCatalog | null>(null);
   const [loading, setLoading] = useState(false);
+  const [shadow, setShadow] = useState<PolicyShadowAudit | null>(null);
 
   async function loadPolicies() {
     setLoading(true);
@@ -57,6 +60,13 @@ export default function HRSettings() {
   }
 
   useEffect(() => { void loadPolicies(); }, []);
+
+  useEffect(() => {
+    const today = cairoToday();
+    void getPolicyShadowAudit(startOfMonth(today), today, null)
+      .then(setShadow)
+      .catch(() => setShadow(null));
+  }, []);
 
   const activePolicy = catalog?.policies.find((p) => p.active === true) || catalog?.policies[0] || null;
   const defaultAssignment = catalog?.assignments.find((a) => a.scope_type === 'default') || null;
@@ -110,6 +120,19 @@ export default function HRSettings() {
           ترتيب الحل: موظف ← دور ← فرع ← افتراضي.
         </div>
       </section>
+
+      {shadow && (
+        <section className="rounded-2xl border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] p-4">
+          <h2 className="font-black text-[var(--dawaa-status-info-text)]">Shadow Mode — أثر السياسة قبل التفعيل</h2>
+          <p className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">النظام يحسب أثر Policy Contract للمقارنة فقط بدون تعديل Attendance Truth أو المرتب.</p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            <PolicyStat label="أيام تم تقييمها" value={shadow.evaluated_days.toLocaleString('ar-EG')} />
+            <PolicyStat label="أيام حُلّت لها سياسة" value={shadow.policies_resolved.toLocaleString('ar-EG')} />
+            <PolicyStat label="تغييرات تصنيف التأخير" value={shadow.late_classification_changes.toLocaleString('ar-EG')} />
+            <PolicyStat label="خروج مبكر داخل Grace جديد" value={shadow.early_leave_within_new_grace.toLocaleString('ar-EG')} />
+          </div>
+        </section>
+      )}
 
       <section className="rounded-2xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-4">
         <h2 className="font-black text-[var(--dawaa-theme-heading)]">سياسات الحضور — الهيكل المستهدف</h2>

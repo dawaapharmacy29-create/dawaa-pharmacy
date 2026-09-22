@@ -16,6 +16,7 @@ import { saveScheduleImport, type StaffingSaveReport } from '@/lib/api/staffing'
 import { toast } from 'sonner';
 import { listStaffTimeOffRequests, type StaffTimeOffRequest } from '@/lib/timeOffService';
 import ScheduleIdentityGovernance from '@/components/attendance/ScheduleIdentityGovernance';
+import ScheduleGovernancePanel from '@/components/attendance/ScheduleGovernancePanel';
 
 interface Employee {
   id: string;
@@ -291,6 +292,7 @@ export default function Schedule() {
 
   return (
     <div className="space-y-5">
+      <ScheduleGovernancePanel branch={branchFilter} />
       {/* Filter */}
       <div className="flex items-center gap-3 flex-wrap">
         <div className="section-title">الجدول الأسبوعي</div>

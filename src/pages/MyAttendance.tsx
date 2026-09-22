@@ -11,6 +11,7 @@ import {
 import { getAnnualLeaveBalanceV1, getPermissionPolicyStatusV2, type AnnualLeaveBalanceV1, type PermissionPolicyStatusV2 } from '@/lib/timeOffService';
 import { cairoToday, computeRange, formatClock, type PeriodMode, rangeLabel, shiftAnchor, toneClasses } from '@/lib/attendance/period';
 import { supabase } from '@/lib/supabase';
+import AttendanceCorrectionRequestPanel from '@/components/attendance/AttendanceCorrectionRequestPanel';
 
 function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
@@ -138,6 +139,8 @@ export default function MyAttendance() {
               <AlertTriangle size={14} /> تجاوزت حد الأذونات المسموح به هذه الفترة
             </div>
           )}
+
+          <AttendanceCorrectionRequestPanel defaultDate={end} />
 
           <div className="overflow-x-auto rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface shadow-sm">
             <table className="w-full text-sm">

@@ -9,6 +9,7 @@ import {
   type AttendanceExceptionRow,
 } from '@/lib/attendance/attendanceResolutionService';
 import EmployeeProfileDrawer from '@/components/attendance/EmployeeProfileDrawer';
+import AttendanceCorrectionReviewPanel from '@/components/attendance/AttendanceCorrectionReviewPanel';
 
 function cairoDate(offsetDays = 0) {
   const date = new Date();
@@ -207,6 +208,8 @@ export default function AttendanceResolutionCenter({
         <Metric label="بصمات ناقصة" value={totals.missingPunch} icon={Clock3} />
         <Metric label="غياب محتمل" value={totals.absence} icon={AlertTriangle} tone="warn" />
       </section>
+
+      <AttendanceCorrectionReviewPanel branch={branch} />
 
       <section className="overflow-x-auto rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface shadow-sm">
         <table className="min-w-[1050px] w-full text-sm">
