@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ElementType } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   Activity, ActivitySquare, AlertTriangle, BarChart3, BellRing, Calendar, ChevronDown, ChevronLeft,
-  ClipboardCheck, ClipboardList, Clock, Crown, FileSpreadsheet, HeadphonesIcon, LayoutDashboard, LogOut,
+  ClipboardCheck, ClipboardList, Clock, Crown, FileSpreadsheet, Fingerprint, HeadphonesIcon, LayoutDashboard, LogOut,
   MessageCircle, Package, PackageSearch, PackageX, ShieldCheck, Sparkles, Star, Store, Target, TrendingDown, Truck, UserCheck,
   UserPlus, Users, Wallet, WalletCards, X,
 } from 'lucide-react';
@@ -39,13 +39,33 @@ const GROUPS: NavGroup[] = [
     { path: '/branch-inspection', icon: ClipboardList, label: 'متابعة ومرور الفروع', permission: 'view_branch_inspection' },
   ]},
 
-  { title: 'الموظفون والموارد البشرية', icon: UserCheck, items: [
-    { path: '/team', icon: UserCheck, label: 'الموظفون', permission: 'view_team', excludeRoles: ['customer_service_manager'] },
-    { path: '/schedule', icon: Calendar, label: 'الجداول والشيفتات', permission: 'view_schedule' },
-    { path: '/attendance-report', icon: ClipboardCheck, label: 'الحضور والانصراف', permission: ['view_attendance_leaves','record_attendance'] },
-    { path: '/time-off', icon: Calendar, label: 'الإجازات والأذونات', permission: 'view_attendance_leaves' },
-    { path: '/my-attendance', icon: ClipboardCheck, label: 'حضوري وانصرافي' },
-    { path: '/staff-payroll', icon: WalletCards, label: 'الرواتب', permission: 'manage_payroll' },
+  { title: 'الموارد البشرية', icon: UserCheck, items: [
+    { path: '/hr-workforce', icon: Crown, label: 'مركز الموارد البشرية', allowedRoles: ['general_manager', 'admin', 'executive_manager', 'branches_manager', 'branch_manager'] },
+    { path: '/team', icon: Users, label: 'دليل الموظفين', permission: 'view_team', excludeRoles: ['customer_service_manager'] },
+    { path: '/schedule', icon: Calendar, label: 'الجداول والمناوبات', permission: 'view_schedule' },
+    { path: '/time-off', icon: Calendar, label: 'الإجازات والغياب', permission: 'view_attendance_leaves' },
+    { path: '/my-attendance', icon: UserCheck, label: 'حضوري' },
+  ]},
+
+  { title: 'الحضور والوقت', icon: Clock, items: [
+    { path: '/attendance-report?tab=dashboard', icon: Activity, label: 'متابعة اليوم', permission: ['view_attendance_leaves','record_attendance'] },
+    { path: '/attendance-report?tab=resolution', icon: ClipboardCheck, label: 'صندوق المراجعة', permission: 'view_attendance_leaves' },
+    { path: '/attendance-report?tab=report', icon: FileSpreadsheet, label: 'سجل وتقارير الحضور', permission: ['view_attendance_leaves','record_attendance'] },
+    { path: '/attendance-report?tab=overtime', icon: Clock, label: 'العمل الإضافي', permission: 'view_attendance_leaves' },
+    { path: '/attendance-report?tab=sync', icon: Fingerprint, label: 'صحة أجهزة البصمة', permission: 'view_attendance_leaves' },
+    { path: '/attendance-report?tab=unmapped', icon: UserCheck, label: 'أكواد تحتاج ربط', permission: 'view_attendance_leaves' },
+    { path: '/attendance-report?tab=cross-branch', icon: Users, label: 'العمل بين الفروع', permission: 'view_attendance_leaves' },
+    { path: '/hr-data-quality', icon: ShieldCheck, label: 'جودة بيانات الموارد البشرية', allowedRoles: ['general_manager', 'admin', 'executive_manager', 'branches_manager', 'branch_manager'] },
+    { path: '/hr-reports', icon: BarChart3, label: 'تقارير الموارد البشرية', permission: 'view_attendance_leaves' },
+    { path: '/hr-settings', icon: ShieldCheck, label: 'إعدادات الموارد البشرية', allowedRoles: ['general_manager', 'admin', 'executive_manager', 'branches_manager'] },
+  ]},
+
+  { title: 'الرواتب والأداء', icon: WalletCards, items: [
+    { path: '/staff-payroll', icon: WalletCards, label: 'الرواتب والجاهزية', permission: 'manage_payroll' },
+    { path: '/employee-kpi', icon: BarChart3, label: 'مؤشرات الموظفين' },
+    { path: '/staff-monthly-evaluation', icon: Star, label: 'التقييم الشهري' },
+    { path: '/monthly-incentive-report', icon: Wallet, label: 'الحوافز الشهرية' },
+    { path: '/penalty-incentive', icon: AlertTriangle, label: 'الجزاءات والمكافآت' },
   ]},
 
   { title: 'خدمة العملاء والمتابعات', icon: HeadphonesIcon, items: [

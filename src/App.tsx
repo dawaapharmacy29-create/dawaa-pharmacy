@@ -127,6 +127,10 @@ const CustomerHealthProfile = lazy(() => import('@/pages/CustomerHealthProfile')
 const ExpiryDiscounts = lazy(() => import('@/pages/ExpiryDiscounts'));
 const EmployeeKpi = lazy(() => import('@/pages/EmployeeKpi'));
 const EmployeeOperatingSystem = lazy(() => import('@/pages/EmployeeOperatingSystem'));
+const HRWorkforceCenter = lazy(() => import('@/pages/HRWorkforceCenter'));
+const HRDataQuality = lazy(() => import('@/pages/HRDataQuality'));
+const HRReportsHub = lazy(() => import('@/pages/HRReportsHub'));
+const HRSettings = lazy(() => import('@/pages/HRSettings'));
 const SupplierPerformance = lazy(() => import('@/pages/SupplierPerformance'));
 const ReportsCenter = lazy(() => import('@/pages/ReportsCenter'));
 const MonthlyPerformanceReport360 = lazy(() => import('@/pages/MonthlyPerformanceReport360'));
@@ -919,6 +923,38 @@ function AppRoutes() {
       <Route
         path="/employee-kpi"
         element={<ProtectedRoute>{routeSuspense(<EmployeeKpi />, 'مؤشرات الموظف')}</ProtectedRoute>}
+      />
+      <Route
+        path="/hr-workforce"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<HRWorkforceCenter />, 'مركز الموارد البشرية')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/hr-data-quality"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<HRDataQuality />, 'جودة بيانات الموارد البشرية')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/hr-reports"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<HRReportsHub />, 'تقارير الموارد البشرية')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/hr-settings"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<HRSettings />, 'إعدادات الموارد البشرية')}
+          </ProtectedRoute>
+        }
       />
       <Route
         path="/employee-operating-system"
