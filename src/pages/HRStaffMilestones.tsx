@@ -5,6 +5,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { normalizeBranchName } from '@/lib/branch';
 import { readStaffDirectory, type StaffDirectoryIdentity } from '@/lib/readModels/staffDirectoryReadModel';
 import { completeStaffMilestone, createStaffMilestone, listDueStaffMilestones, listStaffMilestones, type DueStaffMilestone, type StaffMilestone } from '@/lib/hr/staffMilestoneService';
+import StaffEmploymentRecords from '@/components/hr/StaffEmploymentRecords';
 
 const kinds: Record<StaffMilestone['kind'], string> = {
   onboarding: 'تهيئة موظف جديد', document: 'استكمال مستند',
@@ -131,6 +132,7 @@ export default function HRStaffMilestones() {
       </div>
       <button className="btn-primary mt-3" disabled={saving} onClick={() => void create()}>تسجيل المهمة</button>
     </section>}
+    {staffId && <StaffEmploymentRecords staffId={staffId} canWrite={central} />}
     {staffId && <section className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4">
       <h2 className="font-black">سجل المهام {loading ? '· جارٍ التحميل' : `· ${rows.length}`}</h2>
       {!loading && !error && rows.length === 0 && <p className="mt-3 text-sm text-[var(--dawaa-theme-muted)]">لا توجد مهام مسجلة لهذا الموظف.</p>}

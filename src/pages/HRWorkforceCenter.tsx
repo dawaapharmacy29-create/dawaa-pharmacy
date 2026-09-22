@@ -110,8 +110,8 @@ function Metric({
 
 const quickLinks = [
   {
-    title: 'مهام ملف الموظف',
-    description: 'تهيئة الموظفين، استكمال المستندات، التدريب، وتسليم المهام.',
+    title: 'ملف الموظف الوظيفي',
+    description: 'سجل العقود والتكليفات ومهام التهيئة والمستندات والتدريب.',
     href: '/hr-staff-milestones',
     icon: ClipboardCheck,
   },

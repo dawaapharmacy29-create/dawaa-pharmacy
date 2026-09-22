@@ -6,6 +6,8 @@ Update: the first employee lifecycle slice now tracks onboarding, document compl
 
 The due inbox lists open tasks overdue or due within seven days, using the Cairo date. It enforces branch scope in the database and has a bounded 100-row UI request. Tasks without a due date remain visible on the individual employee record.
 
+The employee page also contains an immutable register for contracts, renewals and documented assignments. It stores dates and a document reference, with corrections linked to the original record. This register is documentary metadata only: it neither stores the document file nor drives current branch, login role, schedule, salary or payroll. Those changes need a separate reviewed command workflow.
+
 ## What exists
 
 | Domain | Current entry point | State |
