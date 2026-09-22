@@ -151,3 +151,38 @@ export async function getAnnualLeaveBalanceV1(staffId: string, year: number): Pr
   if (error) throw new Error(error.message);
   return data as AnnualLeaveBalanceV1;
 }
+
+
+export async function configureAnnualLeaveEntitlementV1(args: {
+  staffId: string;
+  year: number;
+  days: number;
+  reason?: string | null;
+}): Promise<{
+  success: boolean;
+  ledger_id: string;
+  staff_id: string;
+  staff_name: string;
+  year: number;
+  days: number;
+  configured_by: string;
+  configured_at: string;
+}> {
+  const { data, error } = await supabase.rpc('configure_annual_leave_entitlement_v1', {
+    p_staff_id: args.staffId,
+    p_year: args.year,
+    p_days: args.days,
+    p_reason: args.reason || null,
+  });
+  if (error) throw new Error(error.message);
+  return data as {
+    success: boolean;
+    ledger_id: string;
+    staff_id: string;
+    staff_name: string;
+    year: number;
+    days: number;
+    configured_by: string;
+    configured_at: string;
+  };
+}
