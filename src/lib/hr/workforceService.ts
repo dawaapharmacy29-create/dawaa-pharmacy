@@ -390,3 +390,33 @@ export async function getPayrollFinalizationGate(staffId: string, monthCycle: st
   if (error) throw new Error(error.message);
   return data as PayrollFinalizationGate;
 }
+
+
+export type PayrollFinalSnapshotPreview = {
+  snapshot_schema: string;
+  snapshot_mode: 'preview_only';
+  snapshot_fingerprint: string;
+  staff_id: string;
+  staff_username: string;
+  staff_name: string;
+  branch: string;
+  month_cycle: string;
+  cycle_start: string | null;
+  cycle_end: string | null;
+  finalization_ready: boolean;
+  attendance_truth: PayrollSafetyGate;
+  policy_validation: PayrollFinalizationGate['policy_validation'];
+  payroll_components: Record<string, unknown>;
+  blockers: PayrollFinalizationGate['blockers'];
+  warnings: PayrollFinalizationGate['warnings'];
+  generated_at: string;
+};
+
+export async function getPayrollFinalSnapshotPreview(staffId: string, monthCycle: string): Promise<PayrollFinalSnapshotPreview> {
+  const { data, error } = await supabase.rpc('payroll_final_snapshot_preview_v1', {
+    p_staff_id: staffId,
+    p_month_cycle: monthCycle,
+  });
+  if (error) throw new Error(error.message);
+  return data as PayrollFinalSnapshotPreview;
+}
