@@ -180,6 +180,7 @@ export default function HRWorkforceCenter() {
   const [pendingOvertime, setPendingOvertime] = useState(0);
   const [pendingTimeOff, setPendingTimeOff] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [failedSources, setFailedSources] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -191,6 +192,14 @@ export default function HRWorkforceCenter() {
         listPendingOvertime(branchArg),
         listStaffTimeOffRequests({ status: 'pending', limit: 200 }),
       ]);
+      const failures = [
+        dailyResult.status === 'rejected' || !!dailyResult.value.error ? 'تشغيل اليوم' : null,
+        triageResult.status === 'rejected' || !!triageResult.value.error ? 'صندوق المراجعة' : null,
+        syncResult.status === 'rejected' || !!syncResult.value.error ? 'أجهزة البصمة' : null,
+        overtimeResult.status === 'rejected' ? 'الأوفر تايم' : null,
+        timeOffResult.status === 'rejected' ? 'طلبات الإجازة' : null,
+      ].filter((item): item is string => item !== null);
+      setFailedSources(failures);
 
       if (dailyResult.status === 'fulfilled' && !dailyResult.value.error) {
         const row = (dailyResult.value.data || {}) as Record<string, unknown>;
@@ -227,6 +236,8 @@ export default function HRWorkforceCenter() {
 
       if (overtimeResult.status === 'fulfilled') setPendingOvertime((overtimeResult.value || []).length);
       if (timeOffResult.status === 'fulfilled') setPendingTimeOff((timeOffResult.value || []).length);
+    } catch {
+      setFailedSources(['بيانات المركز']);
     } finally {
       setLoading(false);
     }
@@ -237,6 +248,7 @@ export default function HRWorkforceCenter() {
   const attendanceCompleted = Math.max(0, daily.onTime + daily.late);
   const interventionCount = review.needsManager + pendingOvertime + pendingTimeOff;
   const syncHealthy = sync.status === 'healthy';
+  const available = (source: string) => !failedSources.includes(source) && !failedSources.includes('بيانات المركز');
   const branchLabel = useMemo(() => branchArg || 'كل الفروع', [branchArg]);
 
   return (
@@ -260,6 +272,12 @@ export default function HRWorkforceCenter() {
         </div>
       </section>
 
+      {failedSources.length > 0 && (
+        <div role="alert" className="rounded-2xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-4 text-sm font-bold text-[var(--dawaa-status-warning-text)]">
+          تعذر تحديث: {failedSources.join('، ')}. الأرقام المتعلقة بها قديمة أو غير متاحة؛ افتح الصفحة المختصة قبل اتخاذ قرار.
+        </div>
+      )}
+
       <section>
         <div className="mb-2 flex items-center justify-between">
           <div>
@@ -271,21 +289,21 @@ export default function HRWorkforceCenter() {
           </Link>
         </div>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <Metric label="حالات حضور تحتاج قرار" value={review.needsManager} hint="عدد أيام/حالات حضور داخل الدورة، وليس عدد الموظفين" icon={ClipboardCheck} tone={review.needsManager ? 'warn' : 'ok'} />
-          <Metric label="أوفر تايم معلق" value={pendingOvertime} hint="ينتظر اعتمادًا بشريًا" icon={Clock} tone={pendingOvertime ? 'warn' : 'ok'} />
-          <Metric label="طلبات إجازة" value={pendingTimeOff} hint="طلبات معلقة" icon={CalendarDays} tone={pendingTimeOff ? 'warn' : 'ok'} />
-          <Metric label="إجمالي عناصر تحتاج تدخل" value={interventionCount} hint="مجموع حالات الحضور + الأوفر تايم + طلبات الإجازة، وليس عدد الموظفين" icon={AlertTriangle} tone={interventionCount ? 'warn' : 'ok'} />
+          <Metric label="حالات حضور تحتاج قرار" value={available('صندوق المراجعة') ? review.needsManager : 'غير متاح'} hint="عدد أيام/حالات حضور داخل الدورة، وليس عدد الموظفين" icon={ClipboardCheck} tone={review.needsManager ? 'warn' : 'ok'} />
+          <Metric label="أوفر تايم معلق" value={available('الأوفر تايم') ? pendingOvertime : 'غير متاح'} hint="ينتظر اعتمادًا بشريًا" icon={Clock} tone={pendingOvertime ? 'warn' : 'ok'} />
+          <Metric label="طلبات إجازة" value={available('طلبات الإجازة') ? pendingTimeOff : 'غير متاح'} hint="طلبات معلقة" icon={CalendarDays} tone={pendingTimeOff ? 'warn' : 'ok'} />
+          <Metric label="إجمالي عناصر تحتاج تدخل" value={available('صندوق المراجعة') && available('الأوفر تايم') && available('طلبات الإجازة') ? interventionCount : 'غير متاح'} hint="مجموع حالات الحضور + الأوفر تايم + طلبات الإجازة، وليس عدد الموظفين" icon={AlertTriangle} tone={interventionCount ? 'warn' : 'ok'} />
         </div>
       </section>
 
       <section>
         <h2 className="mb-2 text-lg font-black text-[var(--dawaa-theme-heading)]">تشغيل اليوم</h2>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-          <Metric label="مجدولون اليوم" value={daily.staff} icon={Users} />
-          <Metric label="حضروا" value={attendanceCompleted} icon={UserCheck} tone="ok" />
-          <Metric label="منتظمون" value={daily.onTime} icon={CheckCircle2} tone="ok" />
-          <Metric label="متأخرون" value={daily.late} icon={Clock} tone={daily.late ? 'warn' : 'ok'} />
-          <Metric label="لم تُحسم حالتهم" value={daily.missing} hint="لا تعني غيابًا نهائيًا" icon={AlertTriangle} tone={daily.missing ? 'warn' : 'neutral'} />
+          <Metric label="مجدولون اليوم" value={available('تشغيل اليوم') ? daily.staff : 'غير متاح'} icon={Users} />
+          <Metric label="حضروا" value={available('تشغيل اليوم') ? attendanceCompleted : 'غير متاح'} icon={UserCheck} tone="ok" />
+          <Metric label="منتظمون" value={available('تشغيل اليوم') ? daily.onTime : 'غير متاح'} icon={CheckCircle2} tone="ok" />
+          <Metric label="متأخرون" value={available('تشغيل اليوم') ? daily.late : 'غير متاح'} icon={Clock} tone={daily.late ? 'warn' : 'ok'} />
+          <Metric label="لم تُحسم حالتهم" value={available('تشغيل اليوم') ? daily.missing : 'غير متاح'} hint="لا تعني غيابًا نهائيًا" icon={AlertTriangle} tone={daily.missing ? 'warn' : 'neutral'} />
         </div>
       </section>
 
@@ -297,14 +315,14 @@ export default function HRWorkforceCenter() {
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Metric
             label="أجهزة البصمة"
-            value={syncHealthy ? 'سليمة' : 'تحتاج فحص'}
+            value={available('أجهزة البصمة') ? (syncHealthy ? 'سليمة' : 'تحتاج فحص') : 'غير متاح'}
             hint={`${sync.devices} جهاز نشط · آخر نشاط ${fmtDateTime(sync.latestActivity)}`}
             icon={Fingerprint}
             tone={syncHealthy ? 'ok' : 'warn'}
           />
-          <Metric label="أكواد تحتاج ربط" value={review.unmappedCodes} hint={`${review.unmappedEvents.toLocaleString('ar-EG')} بصمة متأثرة في الدورة`} icon={UserCheck} tone={review.unmappedCodes ? 'warn' : 'ok'} />
-          <Metric label="تفسير النظام" value={review.systemInterpretation} hint="لا تُنسب للموظف" icon={Activity} tone={review.systemInterpretation ? 'info' : 'ok'} />
-          <Metric label="عمل بين الفروع" value={review.crossBranchStaff} hint={`${review.crossBranchEvents.toLocaleString('ar-EG')} بصمة معلوماتية`} icon={Users} tone="info" />
+          <Metric label="أكواد تحتاج ربط" value={available('صندوق المراجعة') ? review.unmappedCodes : 'غير متاح'} hint="بصمات تحتاج ربطًا في الدورة" icon={UserCheck} tone={review.unmappedCodes ? 'warn' : 'ok'} />
+          <Metric label="تفسير النظام" value={available('صندوق المراجعة') ? review.systemInterpretation : 'غير متاح'} hint="لا تُنسب للموظف" icon={Activity} tone={review.systemInterpretation ? 'info' : 'ok'} />
+          <Metric label="عمل بين الفروع" value={available('صندوق المراجعة') ? review.crossBranchStaff : 'غير متاح'} hint="بصمات معلوماتية بين الفروع" icon={Users} tone="info" />
         </div>
       </section>
 

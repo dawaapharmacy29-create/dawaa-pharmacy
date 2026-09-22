@@ -55,6 +55,8 @@ export default function HRSettings() {
   const [loading, setLoading] = useState(false);
   const [shadow, setShadow] = useState<PolicyShadowAudit | null>(null);
   const [rollout, setRollout] = useState<PolicyRolloutAssignment[]>([]);
+  const [policyError, setPolicyError] = useState(false);
+  const [shadowError, setShadowError] = useState(false);
 
   async function loadPolicies() {
     setLoading(true);
@@ -65,9 +67,11 @@ export default function HRSettings() {
       ]);
       setCatalog(catalogResult);
       setRollout(rolloutResult);
+      setPolicyError(false);
     } catch {
       setCatalog(null);
       setRollout([]);
+      setPolicyError(true);
     } finally {
       setLoading(false);
     }
@@ -78,8 +82,8 @@ export default function HRSettings() {
   useEffect(() => {
     const today = cairoToday();
     void getPolicyShadowAudit(startOfMonth(today), today, null)
-      .then(setShadow)
-      .catch(() => setShadow(null));
+      .then((result) => { setShadow(result); setShadowError(false); })
+      .catch(() => { setShadow(null); setShadowError(true); });
   }, []);
 
   const activePolicy = catalog?.policies.find((p) => p.active === true) || catalog?.policies[0] || null;
@@ -97,6 +101,12 @@ export default function HRSettings() {
           واجهة حوكمة موحدة للإعدادات الموجودة بالفعل. أي سياسة جديدة للحضور أو الأوفر تايم يجب أن تُبنى كمصدر Canonical واحد، وليس قواعد متفرقة داخل الشاشات.
         </p>
       </section>
+
+      {(policyError || shadowError) && (
+        <div role="alert" className="rounded-2xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-4 text-sm font-bold text-[var(--dawaa-status-warning-text)]">
+          تعذر تحميل {policyError ? 'سياسات الحضور ونطاقات التطبيق' : ''}{policyError && shadowError ? ' و' : ''}{shadowError ? 'نتائج المقارنة' : ''}. راجع البيانات قبل تغيير سياسة الحضور.
+        </div>
+      )}
 
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {settings.map(({ title, description, href, icon: Icon }) => (
@@ -157,7 +167,7 @@ export default function HRSettings() {
           <PolicyStat label="نطاقات Off" value={String(rollout.filter((item) => item.mode === 'off').length)} />
         </div>
         <div className="mt-3 rounded-xl border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] p-3 text-xs font-bold text-[var(--dawaa-status-info-text)]">
-          تم التحقق على عينة حية أن V2 وV3 يعطون نفس قرار الحضور في وضع Shadow. لا يوجد أي نطاق Enforce مفعّل حاليًا.
+          راجع مقارنة V2 وV3 وسجل الـRollout الحالي قبل التفعيل. الملخص أعلاه يقرأ النطاقات الحالية، وقد تكون هناك تغييرات بعد آخر اختبار.
         </div>
       </section>
 
