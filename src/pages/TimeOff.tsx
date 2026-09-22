@@ -7,6 +7,7 @@ import { mergeStaffChoices } from '@/lib/staffFallback';
 import { getCurrentCycle } from '@/lib/pharmacy-cycle';
 import {
   cancelStaffTimeOffRequest,
+  configureAnnualLeaveEntitlementV1,
   createStaffTimeOffRequest,
   decideStaffTimeOffRequest,
   getAnnualLeaveBalanceV1,
@@ -60,6 +61,7 @@ export default function TimeOff() {
   const canCreate = checkPermission('create_leave_request') || canManage;
   const canApprove = checkPermission('approve_leave_request') || checkPermission('manage_time_off') || canManage;
   const canManageTimeOff = checkPermission('manage_time_off') || canManage;
+  const canConfigureAnnualLeave = ['general_manager', 'executive_manager', 'branches_manager'].includes(user?.role || '');
   const { data: staffDirectory = [] } = useStaffDirectory();
   const staffChoices = useMemo(
     () => mergeStaffChoices(staffDirectory.filter((item) => item.source !== 'alias' && item.active && Boolean(item.id) && Boolean(item.name))),
@@ -76,6 +78,8 @@ export default function TimeOff() {
   const [statusFilter, setStatusFilter] = useState<'all' | TimeOffStatus>('all');
   const [selectedPolicy, setSelectedPolicy] = useState<PermissionPolicyStatusV2 | null>(null);
   const [annualBalance, setAnnualBalance] = useState<AnnualLeaveBalanceV1 | null>(null);
+  const [entitlementDays, setEntitlementDays] = useState('');
+  const [configuringEntitlement, setConfiguringEntitlement] = useState(false);
   const [form, setForm] = useState({
     staffId: user?.staffId || '',
     typeLabel: TYPE_OPTIONS[0].label,
@@ -107,6 +111,7 @@ export default function TimeOff() {
   useEffect(() => { void loadRows(); }, [loadRows]);
 
   useEffect(() => {
+    setEntitlementDays('');
     if (!form.staffId) { setSelectedPolicy(null); setAnnualBalance(null); return; }
     const cycle = getCurrentCycle();
     const year = Number(form.startDate.slice(0, 4));
@@ -168,6 +173,35 @@ export default function TimeOff() {
     }
   }
 
+  async function configureAnnualEntitlement() {
+    if (!canConfigureAnnualLeave) return toast.error('تحديد الاستحقاق السنوي متاح للإدارة العليا فقط.');
+    if (!selectedStaff) return toast.error('اختار الموظف أولًا.');
+    if (annualBalance?.configured) return toast.error('الاستحقاق السنوي لهذا الموظف مُفعّل بالفعل.');
+    const days = Number(entitlementDays);
+    if (!Number.isFinite(days) || days <= 0 || days > 365) return toast.error('اكتب عدد أيام صحيحًا من 1 إلى 365.');
+    const year = Number(form.startDate.slice(0, 4));
+    const reason = window.prompt(`سبب تحديد استحقاق ${year} للموظف ${selectedStaff.name}؟`) || '';
+    if (!reason.trim()) return toast.error('سبب تحديد الاستحقاق مطلوب للتدقيق.');
+
+    setConfiguringEntitlement(true);
+    try {
+      await configureAnnualLeaveEntitlementV1({
+        staffId: selectedStaff.id,
+        year,
+        days,
+        reason: reason.trim(),
+      });
+      const updated = await getAnnualLeaveBalanceV1(selectedStaff.id, year);
+      setAnnualBalance(updated);
+      setEntitlementDays('');
+      toast.success('تم تسجيل الاستحقاق السنوي في الـLeave Ledger مع Audit، بدون افتراض أو تعديل تلقائي.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'تعذر تسجيل الاستحقاق السنوي');
+    } finally {
+      setConfiguringEntitlement(false);
+    }
+  }
+
   async function cancel(row: StaffTimeOffRequest) {
     const reason = window.prompt('اكتب سبب الإلغاء. السجل لن يُحذف وسيظل محفوظًا في الـAudit.') || '';
     if (!reason.trim()) return;
@@ -193,7 +227,28 @@ export default function TimeOff() {
       <div className="grid gap-3 md:grid-cols-3">
         <div className="rounded-2xl border border-slate-700 bg-slate-900/40 p-4"><div className="text-xs text-slate-400">الأذونات المعتمدة في الدورة</div><div className="mt-1 text-2xl font-black">{selectedPolicy ? `${selectedPolicy.approved_permissions} / ${selectedPolicy.allowance}` : '-'}</div><div className="mt-1 text-xs text-slate-400">المتبقي: {selectedPolicy?.remaining ?? '-'}</div></div>
         <div className="rounded-2xl border border-slate-700 bg-slate-900/40 p-4"><div className="text-xs text-slate-400">حد الإذن الواحد</div><div className="mt-1 text-2xl font-black">{selectedPolicy ? `${selectedPolicy.max_minutes_per_permission} دقيقة` : '-'}</div><div className="mt-1 text-xs text-slate-400">أي تجاوز يذهب للمراجعة ولا يخصم تلقائيًا.</div></div>
-        <div className="rounded-2xl border border-slate-700 bg-slate-900/40 p-4"><div className="text-xs text-slate-400">رصيد الإجازة السنوية المسجل</div><div className="mt-1 text-2xl font-black">{annualBalance?.configured ? annualBalance.balance : 'غير مفعّل'}</div><div className="mt-1 text-xs text-slate-400">{annualBalance?.configured ? `مستخدم: ${annualBalance.used} · محجوز: ${annualBalance.reserved}` : 'لم يتم إدخال استحقاق/رصيد افتتاحي سنوي لهذا الموظف، والنظام لا يفترض عدد أيام تلقائيًا.'}</div></div>
+        <div className="rounded-2xl border border-slate-700 bg-slate-900/40 p-4">
+          <div className="text-xs text-slate-400">رصيد الإجازة السنوية المسجل</div>
+          <div className="mt-1 text-2xl font-black">{annualBalance?.configured ? annualBalance.balance : 'غير مفعّل'}</div>
+          <div className="mt-1 text-xs text-slate-400">{annualBalance?.configured ? `مستخدم: ${annualBalance.used} · محجوز: ${annualBalance.reserved}` : 'لم يتم إدخال استحقاق/رصيد افتتاحي سنوي لهذا الموظف، والنظام لا يفترض عدد أيام تلقائيًا.'}</div>
+          {!annualBalance?.configured && canConfigureAnnualLeave && selectedStaff && (
+            <div className="mt-3 flex gap-2">
+              <input
+                type="number"
+                min="1"
+                max="365"
+                step="0.5"
+                value={entitlementDays}
+                onChange={(e) => setEntitlementDays(e.target.value)}
+                placeholder="عدد أيام الاستحقاق"
+                className="input-dark min-w-0 flex-1"
+              />
+              <button type="button" onClick={() => void configureAnnualEntitlement()} disabled={configuringEntitlement} className="btn-secondary whitespace-nowrap">
+                {configuringEntitlement ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />} تفعيل الرصيد
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {canCreate && <form onSubmit={submit} className="grid grid-cols-1 gap-3 rounded-2xl border border-slate-700 bg-slate-900/50 p-4 md:grid-cols-6">
