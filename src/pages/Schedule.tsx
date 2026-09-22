@@ -18,6 +18,7 @@ import { listStaffTimeOffRequests, type StaffTimeOffRequest } from '@/lib/timeOf
 import ScheduleIdentityGovernance from '@/components/attendance/ScheduleIdentityGovernance';
 import ScheduleGovernancePanel from '@/components/attendance/ScheduleGovernancePanel';
 import WorkforceScheduleCoverage from '@/components/attendance/WorkforceScheduleCoverage';
+import SchedulePublishingCenter from '@/components/attendance/SchedulePublishingCenter';
 
 interface Employee {
   id: string;
@@ -299,6 +300,17 @@ export default function Schedule() {
         <p className="mt-1 text-sm font-bold text-[var(--dawaa-theme-muted)]">التخطيط أولًا ثم الحضور: الجدول هو المرجع الزمني، والتغييرات المؤقتة بتاريخ محدد تتغلب على الجدول الأسبوعي بدون مسح التاريخ السابق.</p>
       </section>
       <WorkforceScheduleCoverage branch={branchFilter} />
+      <SchedulePublishingCenter
+        branch={branchFilter}
+        staff={employees
+          .filter((employee) => staffRowIsActive(employee) && staffRowVisibleInSchedule(employee))
+          .map((employee) => ({
+            id: employee.id,
+            name: employee.name,
+            role: employee.role,
+            branch: normalizeBranch(employee.branch),
+          }))}
+      />
       <ScheduleGovernancePanel branch={branchFilter} />
       {/* Filter */}
       <div className="flex items-center gap-3 flex-wrap">
