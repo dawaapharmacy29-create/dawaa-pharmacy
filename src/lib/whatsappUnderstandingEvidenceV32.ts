@@ -98,6 +98,21 @@ function computeClarificationRelevance(triggerText: string, clarificationText: s
 }
 
 /**
+ * V32.2.1: a staff message occurring after a customer correction only counts as resolving it
+ * when its content actually relates back to the correction — repeating a word from the
+ * correction (e.g. the corrected item/type), or asking a real clarifying question about it. A
+ * bare "تمام"/"حاضر"/"ماشي" or a message about something else entirely (e.g. a delivery-hours
+ * remark) is never enough on its own — see the "resolutionAfterCorrection" hardening.
+ */
+function isSubstantiveCorrectionResponse(correctionText: string, staffText: string): boolean {
+  if (isBareAcknowledgementOnly(staffText)) return false;
+  const correctionTokens = new Set(tokenize(correctionText));
+  const hasOverlap = tokenize(staffText).some((w) => correctionTokens.has(w));
+  if (hasOverlap) return true;
+  return QUESTION_RX.test(staffText);
+}
+
+/**
  * needClarity treats a request as 'clear' either because it names something specific directly,
  * or because a pronoun reference ("محتاجه واحد من دا") resolves unambiguously to a single prior
  * staff offer (image/product mention). An unresolved/ambiguous reference stays 'unclear' rather
@@ -165,10 +180,15 @@ function computeSignals(
       .filter((m) => m.role === 'staff' && m.isMeaningful && m.timestamp.getTime() < firstCorrection.timestamp.getTime())
       .pop();
     correctedMessageIds = priorStaff ? [priorStaff.id] : [];
-    const staffAfterCorrection = allMessages.some(
+    const staffMessagesAfterCorrection = allMessages.filter(
       (m) => m.role === 'staff' && m.isMeaningful && m.timestamp.getTime() > firstCorrection.timestamp.getTime()
     );
-    resolutionAfterCorrection = staffAfterCorrection ? 'resolved' : 'unresolved';
+    const substantiveReply = staffMessagesAfterCorrection.find((m) =>
+      isSubstantiveCorrectionResponse(firstCorrection.text, m.text)
+    );
+    // A staff reply that exists but never actually engages with the correction (a bare "تمام" or
+    // an unrelated remark) is treated the same as no reply at all — 'resolved' must be earned.
+    resolutionAfterCorrection = substantiveReply ? 'resolved' : 'unresolved';
   }
 
   const assumptionDetected = clarificationNeeded && !clarificationAsked && offerMessages.length > 0;

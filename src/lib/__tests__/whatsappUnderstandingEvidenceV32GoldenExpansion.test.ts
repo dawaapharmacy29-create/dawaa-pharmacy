@@ -121,4 +121,45 @@ describe('UnderstandingEvidenceV32.2 — Golden Dataset Expansion', () => {
     const result = evaluateUnderstandingV32({ understanding: understandingOf(raw) });
     expect(result.primaryMessageIds.length).toBeLessThanOrEqual(2);
   });
+
+  // V32.2.1 hardening: a bare acknowledgement after a correction is never itself proof of resolution.
+  it('V32.2.1: a bare "تمام" after a correction is NOT resolutionAfterCorrection=resolved', () => {
+    const raw = `[9/15/26, 9:00:00 AM] Customer: عايز باراسيتامول
+[9/15/26, 9:01:00 AM] You: متوفر بسعر 20 جنيه
+[9/15/26, 9:02:00 AM] Customer: لا قصدي النوع التاني
+[9/15/26, 9:03:00 AM] You: تمام`;
+    const result = evaluateUnderstandingV32({ understanding: understandingOf(raw) });
+    const correction = result.findings.find((f) => f.key === 'customer_correction');
+    expect(correction?.interpretation).not.toContain('أرسل الموظف رسالة أخرى');
+    expect(correction?.interpretation).toContain('لم يُعثر على رد من الموظف بعد التصحيح');
+  });
+
+  it('V32.2.1: an unrelated staff message after a correction is NOT resolutionAfterCorrection=resolved', () => {
+    const raw = `[9/15/26, 9:00:00 AM] Customer: عايز باراسيتامول
+[9/15/26, 9:01:00 AM] You: متوفر بسعر 20 جنيه
+[9/15/26, 9:02:00 AM] Customer: لا قصدي النوع التاني
+[9/15/26, 9:03:00 AM] You: بالمناسبة التوصيل متاح 24 ساعة`;
+    const result = evaluateUnderstandingV32({ understanding: understandingOf(raw) });
+    const correction = result.findings.find((f) => f.key === 'customer_correction');
+    expect(correction?.interpretation).toContain('لم يُعثر على رد من الموظف بعد التصحيح');
+  });
+
+  it('V32.2.1: a staff reply that explicitly names the corrected item IS resolutionAfterCorrection=resolved (no question mark needed)', () => {
+    const raw = `[9/15/26, 9:00:00 AM] Customer: عايز باراسيتامول
+[9/15/26, 9:01:00 AM] You: متوفر بسعر 20 جنيه
+[9/15/26, 9:02:00 AM] Customer: لا قصدي النوع التاني
+[9/15/26, 9:03:00 AM] You: تمام هبعتلك النوع التاني`;
+    const result = evaluateUnderstandingV32({ understanding: understandingOf(raw) });
+    const correction = result.findings.find((f) => f.key === 'customer_correction');
+    expect(correction?.interpretation).toContain('أرسل الموظف رسالة أخرى');
+  });
+
+  it('V32.2.1: تمام never becomes a new Understanding trigger after an earlier real request in the same scope', () => {
+    const raw = `[9/15/26, 9:00:00 AM] Customer: عايز فيتامين د
+[9/15/26, 9:01:00 AM] You: متوفر بسعر 250 جنيه
+[9/15/26, 9:02:00 AM] Customer: تمام`;
+    const result = evaluateUnderstandingV32({ understanding: understandingOf(raw) });
+    expect(result.findings[0].fact).toContain('عايز فيتامين د');
+    expect(result.findings[0].fact).not.toContain('"تمام"');
+  });
 });

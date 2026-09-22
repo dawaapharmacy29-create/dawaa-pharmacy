@@ -98,16 +98,25 @@ const STRONG_IMPLICIT_CONFIRMATION_RX =
   /(?:من\s*)?عني?ا(؟)?\s*(?:حاضر|لحضرتك)?|حاضر\s*(?:هبعت(?:هم|ه)?|هيكون\s*عند\s*حضرتك)|تمام\s*هيتبعت|تمام\s*يا\s*فندم\s*جاري\s*(?:التجهيز|ال[اإ]رسال)|جاري\s*(?:التجهيز|ال[اإ]رسال)|هبعت(?:لك|له|لحضرتك|هم)/i;
 
 // Weak implicit: a bare acknowledgement with no fulfillment promise attached — ambiguous alone.
-const WEAK_IMPLICIT_RX = /^(?:تمام|حاضر|اوك|ok|ماشي)[!.، ]*$/i;
+const WEAK_IMPLICIT_RX = /^(?:تمام|حاضر|اوك|ok|ماشي|خلاص)[!.، ]*$/i;
 
 const ACCEPTANCE_RX =
   /^(?:تمام|ماشي|ايوا|ايوه|اه|آه|موافق|تمام\s*كده|خلاص\s*ابعت(?:ه|هم|يه|يهم)?)[!.، ]*$|(?:تمام|ايوا|ايوه|اه|آه)[،, ]*\s*(?:هطلبه|ابعت(?:ه|هم|يه|يهم)?|يبقى\s*كده)/i;
 const REJECTION_RX = /^(?:لا|لأ)[!.، ]*$|مش\s*عايز(?:ه)?|معلش\s*مش\s*هاخد(?:ه|ها)?|مش\s*محتاج(?:ه)?/i;
+// Pure thanks/closing — carries no request content of its own, but (unlike a rejection) isn't a
+// "no" either. Kept separate so isRequestCandidate() can exclude it without touching REJECTION_RX.
+const THANKS_CLOSING_ONLY_RX =
+  /^(?:شكرًا|شكرا)(?:\s*لحضرتك)?[!.، ]*$|^لا\s*شكرا[!.، ]*$|^تسلم(?:ي|لي)?[!.، ]*$|^الله\s*يسلم(?:ك|ي)?[!.، ]*$|^وصل(?:ني|تلي)?[!.، ]*$/i;
 
 const CORRECTION_RX =
   /لا\s*قصدي|مش\s*ده(?:\s*اللي)?|ده\s*مش(?:\s*اللي)?|أنا\s*(?:أ|ا)قصد|لا\s*التاني\b|مش\s*كده|لا\s*حضرتك\s*فهمتني\s*غلط|أنا\s*قلت|فهمت\s*غلط/i;
 
-const QUANTITY_RX = /(\d+|واحد[ةه]?|اتنين|تلات[ةه]?|أربع[ةه]?|خمس[ةه]?)\s*(علبة|علب|حبة|حبوب|شريط|عبوة|قطعة|كيس)?/i;
+// V32.2.1: the unit word is now MANDATORY. A naked number ("250") used to match this regex with
+// its unit group left undefined, which meant a price ("هو بـ 250؟") or a phone number ("رقمي
+// 01012345678") could satisfy isConfirmationContextuallyLinked()'s quantity check and wrongly
+// link an unrelated implicit confirmation to it. Requiring a real unit word keeps quantity
+// detection separate from price/phone/address numbers, without inventing a new regex family.
+const QUANTITY_RX = /(\d+|واحد[ةه]?|اتنين|تلات[ةه]?|أربع[ةه]?|خمس[ةه]?)\s*(علبة|علب|حبة|حبوب|شريط|عبوة|قطعة|كيس)/i;
 // Reference-aware quantity: "هات منه اتنين" / "عايز اتنين منه" — the quantity word is attached
 // to a pronoun reference rather than an explicit unit word.
 const REFERENCE_QUANTITY_RX = /(?:منه|من\s*ده|من\s*دا)\s*(اتنين|تلات[ةه]?|أربع[ةه]?|خمس[ةه]?|\d+)|(\d+|اتنين|تلات[ةه]?)\s*منه/i;
@@ -136,8 +145,39 @@ export function isSubstantiveConfirmationSignal(signal: ConversationSemanticSign
   return signal.confidence >= 0.5;
 }
 
+/** Same matching semantics as extractAcceptanceSignals() — a message that is essentially just "yes"/"go ahead". */
+export function isAcceptanceOnly(text: string): boolean {
+  return ACCEPTANCE_RX.test((text || '').trim());
+}
+
+/** Same matching semantics as extractRejectionSignals() — a message that is essentially just "no". */
+export function isRejectionOnly(text: string): boolean {
+  return REJECTION_RX.test((text || '').trim());
+}
+
+/** "شكرا"/"تسلم"/"وصل"/"لا شكرا" — a closing pleasantry, not a new request. */
+export function isThanksOrClosingOnly(text: string): boolean {
+  return THANKS_CLOSING_ONLY_RX.test((text || '').trim());
+}
+
+/**
+ * V32.2.1: narrowed. A customer message only counts as a real request candidate — the thing an
+ * Understanding/Response-Speed trigger can point at — when it isn't just a greeting, a bare
+ * acknowledgement ("تمام"/"خلاص"), a pure acceptance ("ايوا"/"خلاص ابعته"), a pure rejection
+ * ("لا"/"مش عايز"), or a closing pleasantry ("شكرا"/"تسلم"/"وصل"). Anything else meaningful —
+ * an explicit request, a price/availability question, a symptom/need statement, a delivery
+ * action request, or any other substantive question — still qualifies, including sentences that
+ * never use an explicit request verb like "عايز" (e.g. "ابني عنده كحة وحرارة").
+ */
 export function isRequestCandidate(message: NormalizedConversationMessageV32): boolean {
-  return message.role === 'customer' && message.isMeaningful && !isGreetingOnly(message.text);
+  if (message.role !== 'customer' || !message.isMeaningful) return false;
+  const text = message.text;
+  if (isGreetingOnly(text)) return false;
+  if (isBareAcknowledgementOnly(text)) return false;
+  if (isAcceptanceOnly(text)) return false;
+  if (isRejectionOnly(text)) return false;
+  if (isThanksOrClosingOnly(text)) return false;
+  return true;
 }
 
 /** Small helper: the N meaningful messages before `index`, plus `after` meaningful messages following it. */
