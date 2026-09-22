@@ -325,7 +325,15 @@ export interface OrderConfirmationProtocolAssessment {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 5 — Sale Attribution Engine
+// Phase D — Sale Attribution Engine
+//
+// CORE RULE: the AI never proves that a sale happened — an invoice/order is what proves a
+// commercial transaction occurred. This engine only proves or estimates whether a REAL invoice
+// belongs to a specific ConversationCase. `commercial_confirmation_complete` (Phase C) never by
+// itself upgrades an attribution past `weakly_inferred` — see deriveSaleAttributionAssessment's
+// own doc comment in saleAttributionEngine.ts. sales_invoices carries no FK to customers/staff/
+// branch in the live schema (see the Phase D schema investigation) — every link here is built and
+// scored at the application layer, never trusted from a schema relationship that doesn't exist.
 // ---------------------------------------------------------------------------
 
 export type AttributionEvidenceKind =
@@ -335,10 +343,16 @@ export type AttributionEvidenceKind =
   | 'time_proximity'
   | 'product_match'
   | 'quantity_match'
-  | 'price_or_total_match'
+  | 'announced_total_match'
+  | 'basket_value_match'
   | 'same_staff'
+  | 'compatible_staff'
   | 'direct_order_id'
-  | 'direct_invoice_id';
+  | 'direct_invoice_id'
+  | 'legacy_v17_match'
+  | 'identity_conflict'
+  | 'branch_mismatch'
+  | 'temporal_inversion';
 
 export interface AttributionEvidenceItem {
   kind: AttributionEvidenceKind;
@@ -347,24 +361,93 @@ export interface AttributionEvidenceItem {
   weight: number;
 }
 
+/** Exact canonical identity vs phone-only vs name-only vs an unresolved conflict between sources. */
+export type IdentityConflictStatus = 'none' | 'phone_vs_customer_id_conflict';
+
+export type BranchMatchKind = 'exact_canonical' | 'normalized_alias_match' | 'mismatch' | 'unknown';
+
+/** Centralized, documented time-distance bands — see TIME_MATCH_BANDS in saleAttributionEngine.ts. */
+export type TimeMatchStrength = 'very_strong' | 'strong' | 'moderate' | 'weak' | 'very_weak' | 'unknown';
+
+/** Reused for both announced-total-vs-invoice and basket-value-vs-invoice comparisons. */
+export type AmountMatchKind = 'exact' | 'near_match' | 'different' | 'not_available';
+
 /**
- * The AI never declares a sale by itself — see Phase A report §10/§12: sales_invoices carries NO
- * foreign key to customers/staff/branch today, so every link here is built and scored at the
- * application layer, not trusted from the schema. `isOfficialForStaffEvaluation` is a hard
- * invariant, not a UI choice: it must be false whenever confidence.level is 'weakly_inferred' or
- * 'unknown' — enforce this in the Phase D engine, not by convention.
+ * A different staff member on the invoice must never auto-disqualify a candidate (one doctor may
+ * advise, another may close/invoice) — see the Phase D spec §12. `compatible` is reported (rather
+ * than collapsing to `different`) only when the case itself already shows more than one
+ * contributing staff member, i.e. a multi-staff case where a third closer is plausible.
  */
-export interface SaleAttribution {
-  attributionId: string;
+export type StaffCompatibility = 'same' | 'compatible' | 'different' | 'unknown';
+
+/** Driven by an InvoiceItemEvidenceProvider — 'unavailable' whenever sales_invoice_items_v21 has
+ * no rows for this invoice, which is the common case today. Never faked from the header total. */
+export type ProductEvidenceAvailability = 'available_match' | 'available_mismatch' | 'unavailable';
+
+/**
+ * One invoice's candidacy for a specific ConversationCase, with every evidence dimension kept
+ * separately inspectable — never collapsed into a single opaque score. Not all fields need to be
+ * populated: a header-only invoice with no item rows leaves productMatch/quantityMatch
+ * 'unavailable' rather than guessing.
+ */
+export interface SaleAttributionCandidate {
   caseId: string;
-  basketId: string | null;
-  /** sales_invoices.id (note: text, not uuid, in the current schema). */
-  candidateInvoiceId: string | null;
-  candidateInvoiceNumber: string | null;
-  confidence: ConfidenceAssessment;
+  /** sales_invoices.id — text, not uuid, in the live schema (see Phase D schema investigation). */
+  invoiceId: string;
+  invoiceNumber: string | null;
+  /** Exact canonical customers.id match between the case and this invoice row. */
+  customerIdMatch: boolean;
+  /** Exact normalized-Egyptian-mobile match (src/lib/customers/customerIdentity.ts, reused). */
+  phoneMatch: boolean;
+  identityConflict: IdentityConflictStatus;
+  branchMatch: BranchMatchKind;
+  timeDistanceMinutes: number | null;
+  timeMatchStrength: TimeMatchStrength;
+  staffMatch: StaffCompatibility;
+  announcedTotalMatch: AmountMatchKind;
+  basketValueMatch: AmountMatchKind;
+  productMatch: ProductEvidenceAvailability;
+  quantityMatch: ProductEvidenceAvailability;
+  /** True only when V17's own matched_invoice_id/number equals THIS candidate — never sufficient alone. */
+  legacyEvidenceMatch: boolean;
+  /** Always false today — no `orders` table exists in the live schema (see investigation). Kept for forward compatibility. */
+  directOrderLink: boolean;
+  /** True only when the caller supplies an explicit, already-trusted system link (e.g. whatsapp_review_sources.matched_invoice_id) that equals this candidate. The only path to `proven`. */
+  directInvoiceLink: boolean;
   evidence: AttributionEvidenceItem[];
   ruleIds: string[];
+  confidenceAssessment: ConfidenceAssessment;
+  /** Named reasons this candidate's level was capped or flagged — never silently dropped. */
+  disqualifiers: string[];
+}
+
+/**
+ * The case-level result of Phase D. `hasAttributedInvoice` is the ONLY outcome-adjacent signal
+ * this phase exposes — never `sold`/`lost`/etc. (Phase 9's job). `isOfficialForStaffEvaluation`
+ * is a hard gate: false for anything short of `proven` or a clean, unambiguous, uncontested
+ * `strongly_inferred` — see the gate's own implementation for the exact conditions.
+ */
+export interface SaleAttributionAssessment {
+  caseId: string;
+  commercialConfirmationState: CommercialConfirmationState;
+  candidateCount: number;
+  selectedInvoiceId: string | null;
+  selectedInvoiceNumber: string | null;
+  selectedCandidate: SaleAttributionCandidate | null;
+  alternativeCandidates: SaleAttributionCandidate[];
+  attributionLevel: ConfidenceLevel;
+  confidence: ConfidenceAssessment;
+  primaryEvidence: AttributionEvidenceItem[];
+  contradictions: string[];
+  needsHumanReview: boolean;
+  humanReviewReasons: string[];
   isOfficialForStaffEvaluation: boolean;
+  legacyEvidenceUsed: boolean;
+  ruleIds: string[];
+  /** Phase D stops here — no sold/lost/outcome classification (that is a later phase's job). */
+  hasAttributedInvoice: boolean;
+  /** Other caseIds independently attributed to the SAME invoice — flagged, never auto-resolved. */
+  competingCaseIds: string[];
 }
 
 // ---------------------------------------------------------------------------
