@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import {
-  Activity, AlertTriangle, Banknote, CalendarClock, CheckCircle2, ClipboardList,
+  Activity, AlertTriangle, Banknote, CalendarClock, ClipboardList,
   LockKeyhole, PackageCheck, RefreshCw, Save, Search, ShieldCheck, TrendingDown,
   Trophy, User, WalletCards,
 } from 'lucide-react';
@@ -21,7 +21,6 @@ import {
   fetchCompensationProfile,
   fetchPayrollComponents,
   saveCompensationProfile,
-  savePayrollV17,
   type PayrollComponents,
 } from '@/lib/payroll/payrollCompensationService';
 
@@ -65,13 +64,6 @@ type MonthlyRow = {
   freeze_version?: number | null;
   approved_by_name?: string | null;
 };
-
-const STATUS_OPTIONS = [
-  { key: 'draft', label: 'مسودة' },
-  { key: 'review', label: 'مراجعة' },
-  { key: 'approved', label: 'معتمد' },
-  { key: 'paid', label: 'مدفوع' },
-];
 
 function num(v: unknown) {
   const n = Number(v ?? 0);
@@ -247,48 +239,7 @@ export default function PayrollManagement() {
     }
   };
 
-  const saveMonthly = async () => {
-    if (!monthly || !selected) return;
-    if (monthlyPaid) {
-      toast.error('الكشف مدفوع ومقفول نهائيًا. أي تصحيح لاحق يتم كتسوية مستقلة موثقة.');
-      return;
-    }
-    setSaving(true);
-    try {
-      await savePayrollV17({
-        staffUsername: monthly.staff_username,
-        payrollMonth: monthly.payroll_month,
-        workedHours: num(monthly.worked_hours),
-        overtimeHours: num(monthly.overtime_hours),
-        manualIncentives: num(monthly.incentives_total),
-        expiryShortageDeduction: num(monthly.expiry_shortage_deduction),
-        branchGeneralDeduction: num(monthly.branch_general_deduction),
-        individualDeduction: num(monthly.individual_deduction),
-        otherDeduction: num(monthly.other_deduction),
-        manualAdjustment: num(monthly.manual_adjustment),
-        notes: monthly.notes,
-        status: monthly.status,
-      });
-      toast.success(monthly.status === 'approved'
-        ? 'تم اعتماد كشف V17 وتجميد كل مكوناته'
-        : monthly.status === 'paid'
-          ? 'تم تعليم الكشف كمدفوع وإقفاله نهائيًا'
-          : 'تم حفظ كشف الدورة');
-      await loadPerson(selected, month);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'تعذر حفظ كشف الدورة');
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const filteredStaff = staff.filter((s) => !search.trim() || s.name.includes(search.trim()) || s.username.includes(search.trim()));
-  const statusOptions = monthlyPaid
-    ? STATUS_OPTIONS.filter((s) => s.key === 'paid')
-    : monthly?.status === 'approved'
-      ? STATUS_OPTIONS.filter((s) => s.key === 'approved' || s.key === 'paid')
-      : STATUS_OPTIONS.filter((s) => s.key !== 'paid');
-
   const summaryCards = [
     ['الراتب الأساسي', num(monthlyFrozen ? monthly?.base_salary_component : components?.baseSalaryComponent)],
     ['الحافز الشهري', num(monthlyFrozen ? monthly?.monthly_incentive_component : components?.monthlyIncentiveComponent)],
@@ -392,11 +343,17 @@ export default function PayrollManagement() {
                 <label className="text-xs font-bold" style={mutedText}>خصم فردي<input disabled={monthlyFrozen} type="number" className="input mt-1 w-full" value={monthly?.individual_deduction ?? 0} onChange={(e) => setMonthly((m) => m && ({ ...m, individual_deduction: num(e.target.value) }))} /></label>
                 <label className="text-xs font-bold" style={mutedText}>خصومات أخرى<input disabled={monthlyFrozen} type="number" className="input mt-1 w-full" value={monthly?.other_deduction ?? 0} onChange={(e) => setMonthly((m) => m && ({ ...m, other_deduction: num(e.target.value) }))} /></label>
                 <label className="text-xs font-bold" style={mutedText}>تسوية يدوية (+/-)<input disabled={monthlyFrozen} type="number" className="input mt-1 w-full" value={monthly?.manual_adjustment ?? 0} onChange={(e) => setMonthly((m) => m && ({ ...m, manual_adjustment: num(e.target.value) }))} /></label>
-                <label className="text-xs font-bold" style={mutedText}>الحالة<select disabled={monthlyPaid} className="input mt-1 w-full" value={monthly?.status ?? 'draft'} onChange={(e) => setMonthly((m) => m && ({ ...m, status: e.target.value }))}>{statusOptions.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}</select></label>
+                <div className="rounded-xl border p-3 text-xs" style={surfaceSoft}>
+                  <div style={mutedText}>حالة الإقفال المالي</div>
+                  <div className="mt-1 font-black text-amber-200">تُحدد من Finalization Gate</div>
+                  <div className="mt-1 text-[10px]" style={mutedText}>مسار V13/V17 القديم مقفول ولا يُستخدم للاعتماد.</div>
+                </div>
               </div>
 
               <div className="mt-4 flex items-center justify-between rounded-2xl border p-4" style={surfaceSoft}><span className="font-black text-white">{monthlyFrozen ? 'صافي الراتب المجمد' : 'صافي الراتب المتوقع'}</span><span className="text-xl font-black text-teal-200">{formatCurrency(netSalaryPreview)}</span></div>
-              <button className="btn-primary mt-4 flex items-center gap-2" disabled={saving || monthlyPaid} onClick={() => void saveMonthly()}><CheckCircle2 size={16} /> {monthly?.status === 'approved' ? 'اعتماد وتجميد الكشف' : monthly?.status === 'paid' ? 'الكشف مدفوع' : 'حفظ كشف الدورة'}</button>
+              <div className="mt-4 rounded-2xl border border-amber-400/30 bg-amber-400/5 p-3 text-xs font-bold text-amber-100">
+                اعتماد/دفع الكشف القديم V13/V17 متوقف عمدًا. الصفحة الآن تعرض Preview فقط، والاعتماد المالي النهائي سيتم من المسار الجديد بعد نجاح Finalization Gate.
+              </div>
             </div>
 
             <div className="rounded-3xl border p-5" style={surface}>
