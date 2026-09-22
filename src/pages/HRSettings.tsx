@@ -10,6 +10,7 @@ import {
 } from '@/lib/hr/workforceService';
 import { cairoToday, startOfMonth } from '@/lib/attendance/period';
 import AttendancePolicySimulator from '@/components/attendance/AttendancePolicySimulator';
+import AttendancePolicyGovernance from '@/components/attendance/AttendancePolicyGovernance';
 
 const settings = [
   {
@@ -161,6 +162,7 @@ export default function HRSettings() {
       </section>
 
       <AttendancePolicySimulator activePolicy={activePolicy} />
+      <AttendancePolicyGovernance />
 
       {shadow && (
         <section className="rounded-2xl border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] p-4">

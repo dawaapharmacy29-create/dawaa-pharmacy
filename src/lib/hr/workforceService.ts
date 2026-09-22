@@ -196,3 +196,129 @@ export async function getAttendancePolicyRollout(): Promise<PolicyRolloutAssignm
   if (error) throw new Error(error.message);
   return Array.isArray(data) ? data as PolicyRolloutAssignment[] : [];
 }
+
+
+export type PolicyChangeAuditRow = {
+  id: string;
+  action: string;
+  actor_id: string | null;
+  actor_name: string | null;
+  policy_version_id: string | null;
+  rollout_assignment_id: string | null;
+  scope_type: string | null;
+  scope_key: string | null;
+  effective_from: string | null;
+  effective_to: string | null;
+  note: string | null;
+  created_at: string;
+  before_snapshot?: Record<string, unknown> | null;
+  after_snapshot?: Record<string, unknown> | null;
+};
+
+export type PolicyV3Compare = {
+  checked_days: number;
+  effective_status_changes: number;
+  candidate_changes: number;
+  shadow_days: number;
+  enforced_days: number;
+  samples: Array<{
+    staff_id: string;
+    staff_name: string;
+    branch: string;
+    attendance_date: string;
+    v2_status: string;
+    v3_status: string;
+    candidate_status: string;
+    rollout_mode: string;
+    policy_version: string | null;
+  }>;
+  generated_at: string;
+};
+
+export async function createAttendancePolicyVersion(args: {
+  policyCode: string;
+  effectiveFrom: string;
+  lateGraceMinutes: number;
+  veryLateMinutes: number;
+  earlyLeaveGraceMinutes?: number | null;
+  overtimeThresholdMinutes?: number | null;
+  roundingMinutes?: number | null;
+  note?: string | null;
+}): Promise<Record<string, unknown>> {
+  const { data, error } = await supabase.rpc('create_attendance_policy_version_v1', {
+    p_policy_code: args.policyCode,
+    p_effective_from: args.effectiveFrom,
+    p_late_grace_minutes: args.lateGraceMinutes,
+    p_very_late_minutes: args.veryLateMinutes,
+    p_early_leave_grace_minutes: args.earlyLeaveGraceMinutes ?? null,
+    p_overtime_threshold_minutes: args.overtimeThresholdMinutes ?? null,
+    p_rounding_minutes: args.roundingMinutes ?? null,
+    p_note: args.note || null,
+  });
+  if (error) throw new Error(error.message);
+  return (data || {}) as Record<string, unknown>;
+}
+
+export async function assignAttendancePolicy(args: {
+  policyVersionId: string;
+  scopeType: 'staff' | 'role' | 'branch';
+  scopeKey: string;
+  effectiveFrom: string;
+  effectiveTo?: string | null;
+  note?: string | null;
+}): Promise<Record<string, unknown>> {
+  const { data, error } = await supabase.rpc('assign_attendance_policy_v1', {
+    p_policy_version_id: args.policyVersionId,
+    p_scope_type: args.scopeType,
+    p_scope_key: args.scopeKey,
+    p_effective_from: args.effectiveFrom,
+    p_effective_to: args.effectiveTo || null,
+    p_note: args.note || null,
+  });
+  if (error) throw new Error(error.message);
+  return (data || {}) as Record<string, unknown>;
+}
+
+export async function setAttendancePolicyRollout(args: {
+  scopeType: 'staff' | 'role' | 'branch' | 'default';
+  scopeKey?: string | null;
+  mode: 'off' | 'shadow' | 'enforce';
+  effectiveFrom: string;
+  effectiveTo?: string | null;
+  note?: string | null;
+}): Promise<Record<string, unknown>> {
+  const { data, error } = await supabase.rpc('set_attendance_policy_rollout_v1', {
+    p_scope_type: args.scopeType,
+    p_scope_key: args.scopeType === 'default' ? null : (args.scopeKey || null),
+    p_mode: args.mode,
+    p_effective_from: args.effectiveFrom,
+    p_effective_to: args.effectiveTo || null,
+    p_note: args.note || null,
+  });
+  if (error) throw new Error(error.message);
+  return (data || {}) as Record<string, unknown>;
+}
+
+export async function listAttendancePolicyAudit(limit = 100): Promise<PolicyChangeAuditRow[]> {
+  const { data, error } = await supabase.rpc('list_attendance_policy_change_audit_v1', {
+    p_limit: limit,
+  });
+  if (error) throw new Error(error.message);
+  return Array.isArray(data) ? data as PolicyChangeAuditRow[] : [];
+}
+
+export async function compareAttendancePolicyV3(args: {
+  start: string;
+  end: string;
+  branch?: string | null;
+  limit?: number;
+}): Promise<PolicyV3Compare> {
+  const { data, error } = await supabase.rpc('attendance_policy_v3_compare_v1', {
+    p_start: args.start,
+    p_end: args.end,
+    p_branch: args.branch || null,
+    p_limit: args.limit ?? 30,
+  });
+  if (error) throw new Error(error.message);
+  return data as PolicyV3Compare;
+}
