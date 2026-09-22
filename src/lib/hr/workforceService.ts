@@ -322,3 +322,38 @@ export async function compareAttendancePolicyV3(args: {
   if (error) throw new Error(error.message);
   return data as PolicyV3Compare;
 }
+
+
+export type PolicyEnforcePreflight = {
+  ready: boolean;
+  reason: string;
+  scope_type: 'staff' | 'role' | 'branch' | 'default';
+  scope_key: string | null;
+  start_date: string;
+  end_date: string;
+  checked_days: number;
+  evaluated_dates: number;
+  effective_status_changes: number;
+  candidate_changes: number;
+  shadow_days: number;
+  enforced_days: number;
+  unresolved_policy_days: number;
+  samples: PolicyV3Compare['samples'];
+  generated_at: string;
+};
+
+export async function getAttendancePolicyEnforcePreflight(args: {
+  scopeType: 'staff' | 'role' | 'branch' | 'default';
+  scopeKey?: string | null;
+  start?: string | null;
+  end?: string | null;
+}): Promise<PolicyEnforcePreflight> {
+  const { data, error } = await supabase.rpc('attendance_policy_enforce_preflight_v1', {
+    p_scope_type: args.scopeType,
+    p_scope_key: args.scopeType === 'default' ? null : (args.scopeKey || null),
+    p_start: args.start || null,
+    p_end: args.end || null,
+  });
+  if (error) throw new Error(error.message);
+  return data as PolicyEnforcePreflight;
+}
