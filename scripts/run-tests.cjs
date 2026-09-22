@@ -285,6 +285,8 @@ const testFiles = [
   'src/lib/salesIntelligence/__tests__/salesIntegrityEngine.test.ts',
   'src/lib/salesIntelligence/__tests__/salesIntelligencePipeline.test.ts',
   'src/lib/salesIntelligence/__tests__/historicalCommercialClosureEngine.test.ts',
+  'src/lib/salesIntelligence/persistence/__tests__/hashing.test.ts',
+  'src/lib/salesIntelligence/persistence/__tests__/writerFailures.test.ts',
 ];
 for (const relativePath of testFiles) {
   const testFile = path.join(root, relativePath);

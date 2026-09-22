@@ -400,32 +400,56 @@ function analyzeOneCase(
   };
 }
 
+export interface SegmentedCase {
+  conversationCase: ConversationCase;
+  scopedMessages: NormalizedConversationMessageV32[];
+}
+
+export interface DeriveSegmentedCasesInput {
+  conversationId: string;
+  rawWhatsAppExportText: string;
+  sourceCaseIdV22?: string | null;
+  customerIdHint?: string | null;
+  customerPhoneHint?: string | null;
+  branchIdHint?: string | null;
+  branchNameRawHint?: string | null;
+  sessionSplitGapMinutes?: number;
+}
+
+export interface DeriveSegmentedCasesResult {
+  sessionsProcessed: number;
+  cases: SegmentedCase[];
+  pipelineWarnings: string[];
+}
+
 /**
- * Runs the full B-F pipeline over one raw WhatsApp export/thread, producing one
- * SalesIntelligenceCaseAnalysis per ConversationCase derived from it (a single thread can contain
- * more than one independent commercial case, and a raw text with a large time gap can itself
- * split into more than one session — see splitWhatsAppSessions()). Never forces every conversation
- * into a commercial case: an information-only conversation is a complete, valid, non-error output.
+ * Phase B segmentation only (parse -> split sessions -> deriveConversationCases), shared by
+ * runSalesIntelligencePipeline() below AND by deriveCasesOnly() (H.1B addition — see that
+ * function's own comment for why the batch service needs this split out). Extracted so there is
+ * exactly ONE place the `:session:N` caseId-uniqueness fix (see the inline comment below) is
+ * applied — duplicating it into a second call site would risk the two ever drifting apart and
+ * silently producing mismatched caseIds between a batch service's pre-pass and its real pipeline
+ * run. Still fully pure — no Supabase, no I/O (Phases B-G remain pure, H.1B instruction #3).
  */
-export function runSalesIntelligencePipeline(input: SalesIntelligencePipelineInput): SalesIntelligencePipelineResult {
+export function deriveSegmentedCases(input: DeriveSegmentedCasesInput): DeriveSegmentedCasesResult {
   const pipelineWarnings: string[] = [];
-  const caseAnalyses: SalesIntelligenceCaseAnalysis[] = [];
+  const cases: SegmentedCase[] = [];
 
   const parsedMessages = parseWhatsAppExport(input.rawWhatsAppExportText);
   if (parsedMessages.length === 0) {
     pipelineWarnings.push('raw_text_produced_no_parsed_messages');
-    return { conversationId: input.conversationId, sessionsProcessed: 0, caseAnalyses: [], pipelineWarnings };
+    return { sessionsProcessed: 0, cases: [], pipelineWarnings };
   }
 
   const sessions = splitWhatsAppSessions(parsedMessages, input.sessionSplitGapMinutes ?? 120);
   if (sessions.length === 0) {
     pipelineWarnings.push('no_sessions_derived_from_raw_text');
-    return { conversationId: input.conversationId, sessionsProcessed: 0, caseAnalyses: [], pipelineWarnings };
+    return { sessionsProcessed: 0, cases: [], pipelineWarnings };
   }
 
   sessions.forEach((session, sessionIndex) => {
     const understanding = buildConversationUnderstandingV32(session);
-    const cases = deriveConversationCases({
+    const rawCases = deriveConversationCases({
       understanding,
       conversationId: input.conversationId,
       sourceCaseIdV22: input.sourceCaseIdV22 ?? null,
@@ -439,7 +463,7 @@ export function runSalesIntelligencePipeline(input: SalesIntelligencePipelineInp
     // implementation in conversationCaseEngine.ts. Zipping by index is exact, never a re-parse of
     // the caseId string.
     understanding.interactions.forEach((interaction, index) => {
-      const rawCase = cases[index];
+      const rawCase = rawCases[index];
       // BUG FIX (found via this pipeline's own multi-session shadow re-validation): conversationCaseEngine.ts
       // builds caseId as `${conversationId}:${interaction.id}`, where interaction.id
       // ("interaction:N") is only unique WITHIN one V32 understanding/session — it resets to 0 for
@@ -451,14 +475,54 @@ export function runSalesIntelligencePipeline(input: SalesIntelligencePipelineInp
       // more than once per conversationId; the fix belongs here, in the ONLY layer that does that.
       const conversationCase = sessions.length > 1 ? { ...rawCase, caseId: `${rawCase.caseId}:session:${sessionIndex}` } : rawCase;
       const scopedMessages = messagesForMessageIds(understanding, interaction.messageIds);
-      caseAnalyses.push(analyzeOneCase(conversationCase, scopedMessages, input));
+      cases.push({ conversationCase, scopedMessages });
     });
   });
 
+  return { sessionsProcessed: sessions.length, cases, pipelineWarnings };
+}
+
+/**
+ * H.1B addition: segmentation-only output (ConversationCase[], no basket/attribution/matching/
+ * integrity) for the customer-grouped batch service's pre-pass — it needs each case's own
+ * customerId/branchNameRaw/startedAt/endedAt to group conversations by canonical customer and
+ * compute a bounded per-group time window BEFORE fetching any invoice candidates (H.1B instruction
+ * #12: "fetch candidate invoices ONCE per customer/time-window group"), which is only possible once
+ * segmentation has already run. Reuses deriveSegmentedCases() (same function
+ * runSalesIntelligencePipeline() itself calls), so the caseIds this produces are GUARANTEED
+ * identical to what the real pipeline run will later produce for the same input — never a
+ * re-implementation that could drift.
+ */
+export function deriveCasesOnly(input: DeriveSegmentedCasesInput): {
+  sessionsProcessed: number;
+  cases: ConversationCase[];
+  pipelineWarnings: string[];
+} {
+  const result = deriveSegmentedCases(input);
+  return {
+    sessionsProcessed: result.sessionsProcessed,
+    cases: result.cases.map((c) => c.conversationCase),
+    pipelineWarnings: result.pipelineWarnings,
+  };
+}
+
+/**
+ * Runs the full B-F pipeline over one raw WhatsApp export/thread, producing one
+ * SalesIntelligenceCaseAnalysis per ConversationCase derived from it (a single thread can contain
+ * more than one independent commercial case, and a raw text with a large time gap can itself
+ * split into more than one session — see splitWhatsAppSessions()). Never forces every conversation
+ * into a commercial case: an information-only conversation is a complete, valid, non-error output.
+ */
+export function runSalesIntelligencePipeline(input: SalesIntelligencePipelineInput): SalesIntelligencePipelineResult {
+  const segmented = deriveSegmentedCases(input);
+  const caseAnalyses = segmented.cases.map(({ conversationCase, scopedMessages }) =>
+    analyzeOneCase(conversationCase, scopedMessages, input)
+  );
+
   return {
     conversationId: input.conversationId,
-    sessionsProcessed: sessions.length,
+    sessionsProcessed: segmented.sessionsProcessed,
     caseAnalyses,
-    pipelineWarnings,
+    pipelineWarnings: segmented.pipelineWarnings,
   };
 }

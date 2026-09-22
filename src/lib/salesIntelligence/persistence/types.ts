@@ -297,6 +297,14 @@ export interface SalesIntelligenceBasketInvoiceMatchRow extends AnalysisDependen
   /** FK -> SalesIntelligenceAttributionRow.id — the EXACT attribution evaluation this match was computed against, never "whichever is current now". */
   attributionRowId: string;
   matchingEngineVersion: string;
+  /**
+   * H.1B live-schema fix: matching's OWN input hash — covers the active basket state (items +
+   * quantities actually evaluated) and the selected invoice's header/item fields, plus
+   * matchingEngineVersion. NOT the raw conversation text (semanticSourceHash) and NOT the
+   * attribution decision itself (attributionInputHash) — only what this specific match evaluation
+   * was computed from. Idempotency key alongside (analysisId, attributionRowId, evaluationVersion).
+   */
+  matchingInputHash: string;
 
   basketId: string | null;
   basketVersion: number | null;

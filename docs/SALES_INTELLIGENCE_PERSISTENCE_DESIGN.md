@@ -329,4 +329,141 @@ H.1A and H.1B are never combined into one pass — H.1A gives a clean, independe
 rollback boundary (drop the still-empty, still-unwritten-to schema) before any writer code exists
 to reason about.
 
-**Phase H.0.2 complete. Stopping here — no SQL migrations, no Supabase tables, no RPCs, no dashboards were created.**
+## 25. H.1B live-schema gap found and fixed (instruction #1)
+
+H.1B instruction #1 required re-inspecting the LIVE Supabase schema as the authoritative
+persistence contract before writing any writer code, rather than trusting this design doc as
+current. That re-inspection surfaced one real drift: `sales_intelligence_basket_invoice_matches`,
+as actually applied in H.1A, had no `matching_input_hash` column, even though §11 (H.0.1 section,
+"basket-version model") always intended match idempotency to be keyed on analysis_id +
+attribution_row_id + a matching-input hash + matching engine version — mirroring the pattern
+already used by `attribution_input_hash` on `sales_intelligence_attributions`. This is exactly the
+"real contradiction" scenario instruction #1 anticipated ("stop and report if SQL constraints
+reveal a real contradiction rather than silently redesigning").
+
+Fix applied, scoped to only this gap: one additive migration
+(`20260922154439_sales_intelligence_matching_input_hash_column_v1.sql`) adding
+`matching_input_hash text not null` to the table via an add-default/drop-default two-step (safe
+because the table was confirmed empty — 0 rows — both before and after H.1A, so no backfill was
+needed). `SalesIntelligenceBasketInvoiceMatchRow.matchingInputHash` was added to
+`persistence/types.ts` to match. Nothing else about the six H.1A tables, their RLS policies, or
+their constraints was touched.
+
+`matchingInputHash` covers: the active basket state (items/quantities actually evaluated, per
+`integrityEvaluationScope`) + the selected invoice's header/item fields actually compared +
+`matchingEngineVersion`. It deliberately excludes raw conversation text (that's
+`semanticSourceHash`'s job) and the attribution decision itself (`attributionInputHash`'s job) —
+only the narrower inputs this one match evaluation was computed from.
+
+## 26. Atomic supersede+insert RPCs (instruction #7)
+
+Instruction #7 requires that two concurrent workers never create two "current" rows for the same
+case/analysis — and explicitly says: if the Supabase client alone cannot safely express the
+multi-step "find current → mark superseded → insert new current" sequence as one atomic operation,
+do not improvise a fragile read-then-write, and instead consider a narrowly-scoped SQL RPC.
+
+A plain client-side read-then-write is not safe here: between the writer's `SELECT ... WHERE
+is_current = true` and its subsequent `UPDATE ... SET is_current = false` + `INSERT`, a second
+concurrent writer racing on the same case_id/analysis_id could interleave and produce two "current"
+rows, violating the partial unique index (`... WHERE is_current = true`) non-deterministically
+depending on timing, or (worse, if the unique index somehow didn't fire first) silently leaving two
+current rows.
+
+Four narrowly-scoped `SECURITY DEFINER` RPCs are introduced, one per supersede-capable table
+(`sales_intelligence_case_analyses`, `sales_intelligence_policy_evaluations`,
+`sales_intelligence_attributions`, `sales_intelligence_basket_invoice_matches`). `sales_intelligence_cases`
+does **not** get one — its upsert (`INSERT ... ON CONFLICT (case_id) DO UPDATE`) is already atomic
+via Postgres's native `ON CONFLICT` handling, no advisory lock needed.
+
+Each RPC:
+- Takes the new row's data as a single `jsonb` parameter plus its own scalar dedup key (e.g.
+  `p_semantic_source_hash`, `p_policy_input_hash`, `p_attribution_input_hash`,
+  `p_matching_input_hash`) and a `p_pipeline_version`/`p_engine_version` scalar.
+- Opens with `perform pg_advisory_xact_lock(hashtext('<table_prefix>:' || <scoping_key>))` —
+  scoped to `analysis_id` for the three analysis-dependent tables (policy_evaluations,
+  attributions, basket_invoice_matches), and to `case_id` for case_analyses itself — so two
+  concurrent calls for the *same* case/analysis serialize on this lock, while calls for different
+  cases/analyses never contend. The lock is released automatically at transaction end.
+- Inside the lock, re-reads the current row (if any) and compares its dedup key(s) to the incoming
+  payload. Identical → returns `{is_new: false, ...(existing row)}`, no write. Different → marks
+  the existing current row `is_current = false, superseded_at = now(), superseded_by_* = <new id>`
+  and inserts the new row via `jsonb_populate_record`, with server-computed fields (surrogate id,
+  version number, `is_current = true`, timestamps) applied on top of the caller-supplied jsonb
+  rather than trusted from the payload. Returns `{is_new: true, ...(new row)}`.
+- Is intentionally single-purpose: it does the supersede+insert for exactly one table and nothing
+  else — no cascading writes to dependent tables, no competing-case computation, no policy lookup.
+  The batch service (TypeScript) is still what decides *when* to call which RPC and in what order;
+  the RPC only guarantees the one atomic step is actually atomic.
+- Runs as `SECURITY DEFINER` (so it can bypass the engine tables' service-role-write-only RLS
+  policies from inside a definer context) but is only ever `GRANT EXECUTE`-d to the `service_role`
+  — never to `authenticated` or `anon` — so it does not widen who can write engine output; it only
+  changes *how* the already-service-role-only writer performs its write.
+
+This keeps H.1A's RLS model unchanged (still zero direct INSERT/UPDATE/DELETE grants to
+`authenticated`/`anon` on any of the six tables) while giving the TypeScript writer a single atomic
+call per table instead of an unsafe multi-statement client-side sequence.
+
+## 27. RPC bugs found and fixed via smoke-testing before any TypeScript writer was built
+
+Before writing any TypeScript against the four RPCs in §26, each was smoke-tested directly against
+the live database inside `BEGIN; ... ROLLBACK;` (never committed, confirmed 0 residual rows
+afterward — same discipline as H.1A's own constraint testing). This surfaced two real bugs, both
+fixed before any writer code was written against these functions:
+
+1. **`jsonb_populate_record` does not apply column defaults.** A payload that omitted a defaultable
+   column (e.g. `needs_human_review`, `competing_case_ids`) came through as SQL `NULL` rather than
+   the table's own `DEFAULT`, which then failed the column's `NOT NULL` constraint. Fixed by
+   explicitly `coalesce`-ing every defaultable column to the same default the table itself declares,
+   immediately after `jsonb_populate_record`.
+2. **Self-referencing FK vs. partial unique index ordering.** The natural-seeming "insert new
+   current row, then retire the old one" order fails the self-referencing
+   `superseded_by_analysis_id`/`superseded_by_policy_evaluation_id` FK (the new row doesn't exist
+   yet when the old row tries to point at it). The reverse order — "retire the old row first, then
+   insert the new current row" — instead fails the partial unique index on `is_current(_evaluation)`
+   for `sales_intelligence_attributions` and `sales_intelligence_basket_invoice_matches` in the
+   general case (both rows briefly `is_current = true` at once is avoided, but the specific ordering
+   used initially still raced past it incorrectly during testing). The correct sequence, now used by
+   all four RPCs, is three steps: (a) insert the new row as `is_current(_evaluation) = false`, (b)
+   retire the old row (which can now safely reference the new row's id), (c) flip the new row to
+   `is_current(_evaluation) = true` last. At no point during this sequence do two rows for the same
+   case/analysis hold `is_current = true` simultaneously, and the self-referencing FK is always
+   satisfied by the time it's written.
+
+Re-verified after both fixes: a full sequence of insert → no-op → new-version calls against all four
+RPCs (case_analyses, policy_evaluations, attributions, basket_invoice_matches) inside one rolled-back
+transaction produced the expected `is_new`/version results at every step, and the post-rollback row
+counts for all four tables (plus the test policy_config row) returned to 0.
+
+Because `CREATE OR REPLACE FUNCTION` is idempotent-overwrite (there is no incremental ALTER for a
+function body the way there is for a table), the live database now only retains the final, corrected
+function bodies — the intermediate buggy revisions applied and replaced during this same development
+session are not separately represented as local migration files. The four local RPC migration files
+under `supabase/migrations/` already contain the final, corrected bodies (each says so in its own
+header comment), so replaying the local migrations from scratch reproduces the exact function bodies
+now live on Supabase. This differs from the `matching_input_hash` column fix (§25), which — being
+table DDL, not a function body — genuinely needed its own separate additive migration.
+
+## 28. RPC EXECUTE-grant hardening (instruction #19)
+
+Instruction #19 requires confirming, before any writer code is built against them, that an ordinary
+`authenticated` role cannot call/write engine output directly and that RLS is never weakened. A
+direct `information_schema.routine_privileges` check on the four RPCs from §26 found `EXECUTE`
+granted not only to `service_role` (intended) but also to `anon` and `authenticated` — a real gap:
+Supabase's default privileges on the `public` schema auto-grant `EXECUTE` on newly created functions
+to those roles regardless of the `revoke all ... from public` statement each RPC migration already
+included (that revoke only removes the implicit `PUBLIC` pseudo-role grant, not separate
+already-materialized grants to named roles). Since these RPCs are `SECURITY DEFINER`, an
+`authenticated` caller with `EXECUTE` could have written engine rows directly, bypassing the engine
+tables' service-role-write-only RLS design entirely.
+
+Fixed via `20260922163412_sales_intelligence_write_rpcs_execute_grant_hardening.sql`, an explicit
+`revoke execute ... from anon, authenticated` on all four RPCs. Re-verified via the same
+`information_schema.routine_privileges` query: only `service_role` and `postgres` (the
+bootstrapping/superuser role) now have `EXECUTE`, matching every other engine object's access model
+in this schema. Any future `SECURITY DEFINER` function added to this schema must include this same
+explicit revoke — the `revoke all from public` pattern alone is not sufficient on this Supabase
+project's default privilege configuration.
+
+**Phase H.0.2 complete; H.1B schema-gap fix, RPC design, smoke-testing, and grant hardening
+complete. No writer/batch-service TypeScript code exists yet as of this section — that is the next
+piece of work.**
