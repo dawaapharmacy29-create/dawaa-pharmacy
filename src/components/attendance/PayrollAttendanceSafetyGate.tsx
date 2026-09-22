@@ -6,11 +6,14 @@ import {
   getPayrollFinalizationGate,
   getPayrollFinalSnapshotPreview,
   listPayrollSnapshotAudit,
+  listPayrollSnapshotReviews,
   listPayrollStagedSnapshots,
+  reviewPayrollStagedSnapshot,
   stagePayrollFinalSnapshot,
   type PayrollFinalizationGate,
   type PayrollFinalSnapshotPreview,
   type PayrollSnapshotAuditRow,
+  type PayrollSnapshotReviewRow,
   type PayrollStagedSnapshot,
 } from '@/lib/hr/workforceService';
 
@@ -20,6 +23,8 @@ export default function PayrollAttendanceSafetyGate({ staffId, monthCycle }: { s
   const [staged, setStaged] = useState<PayrollStagedSnapshot[]>([]);
   const [audit, setAudit] = useState<PayrollSnapshotAuditRow[]>([]);
   const [snapshotNote, setSnapshotNote] = useState('');
+  const [reviewNote, setReviewNote] = useState('');
+  const [reviewsBySnapshot, setReviewsBySnapshot] = useState<Record<string, PayrollSnapshotReviewRow[]>>({});
   const [compareResult, setCompareResult] = useState<{ snapshotId: string; unchanged: boolean } | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -37,12 +42,17 @@ export default function PayrollAttendanceSafetyGate({ staffId, monthCycle }: { s
       setSnapshot(snapshotResult);
       setStaged(stagedResult);
       setAudit(auditResult);
+      const reviewPairs = await Promise.all(
+        stagedResult.slice(0, 5).map(async (row) => [row.id, await listPayrollSnapshotReviews(row.id, 10)] as const)
+      );
+      setReviewsBySnapshot(Object.fromEntries(reviewPairs));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'تعذر فحص جاهزية الحضور للمرتب');
       setGate(null);
       setSnapshot(null);
       setStaged([]);
       setAudit([]);
+      setReviewsBySnapshot({});
     } finally {
       setLoading(false);
     }
@@ -74,13 +84,37 @@ export default function PayrollAttendanceSafetyGate({ staffId, monthCycle }: { s
     try {
       const result = await comparePayrollStagedSnapshot(snapshotId);
       setCompareResult({ snapshotId, unchanged: result.unchanged });
-      toast[result.unchanged ? 'success' : 'warning'](
-        result.unchanged
-          ? 'Snapshot المخزنة مطابقة تمامًا للحالة الحالية.'
-          : 'الحالة الحالية تغيّرت عن Snapshot المخزنة؛ راجع الفروق قبل أي اعتماد.'
-      );
+      if (result.unchanged) {
+        toast.success('Snapshot المخزنة مطابقة تمامًا للحالة الحالية.');
+      } else {
+        toast.warning('الحالة الحالية تغيّرت عن Snapshot المخزنة؛ راجع الفروق قبل أي اعتماد.');
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'تعذر مقارنة Snapshot');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function reviewSnapshot(snapshotId: string, decision: 'approved' | 'rejected') {
+    if (decision === 'rejected' && !reviewNote.trim()) {
+      toast.warning('اكتب سبب الرفض في ملاحظة المراجعة أولًا.');
+      return;
+    }
+    setLoading(true);
+    try {
+      await reviewPayrollStagedSnapshot({
+        snapshotId,
+        decision,
+        note: reviewNote,
+      });
+      toast.success(decision === 'approved'
+        ? 'تم اعتماد المراجعة فقط — لم يحدث Finalize أو دفع.'
+        : 'تم تسجيل رفض المراجعة بدون أي أثر مالي.');
+      setReviewNote('');
+      await load();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'تعذر تسجيل قرار المراجعة');
     } finally {
       setLoading(false);
     }
@@ -167,6 +201,14 @@ export default function PayrollAttendanceSafetyGate({ staffId, monthCycle }: { s
       {!!staged.length && (
         <div className="mt-3 rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-3">
           <div className="flex items-center gap-2 text-xs font-black text-[var(--dawaa-theme-heading)]"><History size={14} /> Snapshot Staging History</div>
+          <div className="mt-2">
+            <input
+              value={reviewNote}
+              onChange={(e) => setReviewNote(e.target.value)}
+              placeholder="ملاحظة المراجعة — مطلوبة عند الرفض"
+              className="input-dark w-full"
+            />
+          </div>
           <div className="mt-2 space-y-2">
             {staged.slice(0, 5).map((row) => (
               <div key={row.id} className="rounded-lg border border-[var(--dawaa-theme-border)] p-2 text-xs">
@@ -178,10 +220,31 @@ export default function PayrollAttendanceSafetyGate({ staffId, monthCycle }: { s
                     <div className="mt-1 break-all font-mono text-[10px] text-[var(--dawaa-theme-muted)]">{row.snapshot_fingerprint}</div>
                     {row.note && <div className="mt-1 font-bold text-[var(--dawaa-theme-muted)]">{row.note}</div>}
                   </div>
-                  <button onClick={() => void compareSnapshot(row.id)} className="btn-secondary !px-2 !py-1">
-                    مقارنة بالحالي
-                  </button>
+                  <div className="flex flex-wrap gap-1">
+                    <button onClick={() => void compareSnapshot(row.id)} className="btn-secondary !px-2 !py-1">
+                      مقارنة بالحالي
+                    </button>
+                    <button
+                      onClick={() => void reviewSnapshot(row.id, 'approved')}
+                      disabled={loading || !row.finalization_ready}
+                      className="btn-secondary !px-2 !py-1"
+                    >
+                      اعتماد المراجعة
+                    </button>
+                    <button
+                      onClick={() => void reviewSnapshot(row.id, 'rejected')}
+                      disabled={loading}
+                      className="btn-secondary !px-2 !py-1"
+                    >
+                      رفض المراجعة
+                    </button>
+                  </div>
                 </div>
+                {!!reviewsBySnapshot[row.id]?.length && (
+                  <div className="mt-2 text-[11px] font-bold text-[var(--dawaa-theme-muted)]">
+                    آخر مراجعة: {reviewsBySnapshot[row.id][0].decision === 'approved' ? 'معتمدة للمراجعة' : 'مرفوضة'} · {reviewsBySnapshot[row.id][0].reviewer_name} · {new Date(reviewsBySnapshot[row.id][0].created_at).toLocaleString('ar-EG')}
+                  </div>
+                )}
                 {compareResult?.snapshotId === row.id && (
                   <div className={compareResult.unchanged
                     ? 'mt-2 text-[11px] font-black text-[var(--dawaa-status-success-text)]'
