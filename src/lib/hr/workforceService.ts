@@ -123,3 +123,57 @@ export async function getScheduleGovernance(start: string, end: string, branch?:
   if (error) throw new Error(error.message);
   return data as ScheduleGovernance;
 }
+
+
+export type PolicySimulationSample = {
+  staff_id: string;
+  staff_name: string;
+  branch: string;
+  attendance_date: string;
+  current_status: string;
+  candidate_status: string;
+  late_minutes: number;
+  early_leave_minutes: number;
+};
+
+export type PolicySimulation = {
+  range_start: string;
+  range_end: string;
+  branch: string | null;
+  candidate: {
+    late_grace_minutes: number;
+    very_late_minutes: number;
+    early_leave_grace_minutes: number;
+  };
+  evaluated_days: number;
+  changed_days: number;
+  late_to_on_time: number;
+  on_time_to_late: number;
+  early_leave_cleared: number;
+  early_leave_new: number;
+  samples: PolicySimulationSample[];
+  generated_at: string;
+};
+
+export async function simulateAttendancePolicy(args: {
+  start: string;
+  end: string;
+  branch?: string | null;
+  lateGraceMinutes?: number | null;
+  veryLateMinutes?: number | null;
+  earlyLeaveGraceMinutes?: number | null;
+}): Promise<PolicySimulation> {
+  const candidate: Record<string, number> = {};
+  if (args.lateGraceMinutes != null) candidate.late_grace_minutes = args.lateGraceMinutes;
+  if (args.veryLateMinutes != null) candidate.very_late_minutes = args.veryLateMinutes;
+  if (args.earlyLeaveGraceMinutes != null) candidate.early_leave_grace_minutes = args.earlyLeaveGraceMinutes;
+
+  const { data, error } = await supabase.rpc('attendance_policy_simulate_v1', {
+    p_start: args.start,
+    p_end: args.end,
+    p_branch: args.branch || null,
+    p_candidate: candidate,
+  });
+  if (error) throw new Error(error.message);
+  return data as PolicySimulation;
+}

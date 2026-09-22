@@ -4,6 +4,7 @@ import { ArrowLeft, Calendar, Fingerprint, RefreshCw, ShieldCheck, SlidersHorizo
 import { getAttendancePolicyCatalog, type AttendancePolicyCatalog } from '@/lib/attendance/attendanceResolutionService';
 import { getPolicyShadowAudit, type PolicyShadowAudit } from '@/lib/hr/workforceService';
 import { cairoToday, startOfMonth } from '@/lib/attendance/period';
+import AttendancePolicySimulator from '@/components/attendance/AttendancePolicySimulator';
 
 const settings = [
   {
@@ -120,6 +121,8 @@ export default function HRSettings() {
           ترتيب الحل: موظف ← دور ← فرع ← افتراضي.
         </div>
       </section>
+
+      <AttendancePolicySimulator activePolicy={activePolicy} />
 
       {shadow && (
         <section className="rounded-2xl border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] p-4">
