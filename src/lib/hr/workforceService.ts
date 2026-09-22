@@ -523,3 +523,42 @@ export async function listPayrollSnapshotAudit(
   if (error) throw new Error(error.message);
   return Array.isArray(data) ? data as PayrollSnapshotAuditRow[] : [];
 }
+
+
+export type PayrollSnapshotReviewRow = {
+  id: string;
+  snapshot_id: string;
+  decision: 'approved' | 'rejected';
+  reviewer_id: string | null;
+  reviewer_name: string;
+  reviewer_role: string | null;
+  note: string | null;
+  comparison: Record<string, unknown>;
+  created_at: string;
+};
+
+export async function reviewPayrollStagedSnapshot(args: {
+  snapshotId: string;
+  decision: 'approved' | 'rejected';
+  note?: string | null;
+}): Promise<Record<string, unknown>> {
+  const { data, error } = await supabase.rpc('review_payroll_staged_snapshot_v1', {
+    p_snapshot_id: args.snapshotId,
+    p_decision: args.decision,
+    p_note: args.note || null,
+  });
+  if (error) throw new Error(error.message);
+  return (data || {}) as Record<string, unknown>;
+}
+
+export async function listPayrollSnapshotReviews(
+  snapshotId: string,
+  limit = 50
+): Promise<PayrollSnapshotReviewRow[]> {
+  const { data, error } = await supabase.rpc('list_payroll_snapshot_reviews_v1', {
+    p_snapshot_id: snapshotId,
+    p_limit: limit,
+  });
+  if (error) throw new Error(error.message);
+  return Array.isArray(data) ? data as PayrollSnapshotReviewRow[] : [];
+}
