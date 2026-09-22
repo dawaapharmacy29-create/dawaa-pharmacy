@@ -751,3 +751,97 @@ export interface StaffContribution {
   /** True only for the person responsible at final_confirmation/order_creation — see Phase 10 spec. */
   isSaleOwner: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// Phase G — End-to-End Sales Intelligence Shadow Pipeline
+//
+// A pure ORCHESTRATION layer over Phases B-F. `salesIntelligencePipeline.ts` composes the
+// existing engines only — it never re-derives conversation understanding, basket state,
+// commercial confirmation, attribution, or invoice matching. Every intermediate result is
+// preserved on SalesIntelligenceCaseAnalysis so a reviewer can inspect exactly which stage
+// produced what, never a single collapsed score.
+// ---------------------------------------------------------------------------
+
+/** Evidence AVAILABILITY only — never a staff-quality or sale-quality judgment. */
+export type EvidenceLevel = 'high' | 'medium' | 'low' | 'insufficient';
+
+/**
+ * What evidence exists to reason about this case, independent of what conclusion that evidence
+ * supports. `fulfillmentEvidenceAvailable` is always false today — no fulfillment/delivery
+ * evidence source exists yet (mirrors SalesIntegrityAssessment.canEvaluateFulfillmentIntegrity).
+ * See computeOverallEvidenceLevel() in salesIntelligencePipeline.ts for how overallEvidenceLevel
+ * is derived — a fixed, documented ratio, never a free-floating guess.
+ */
+export interface EvidenceCompleteness {
+  conversationAvailable: boolean;
+  customerIdentityResolved: boolean;
+  caseSegmentationConfident: boolean;
+  basketDetected: boolean;
+  finalBasketDetected: boolean;
+  announcedTotalAvailable: boolean;
+  customerConfirmationDetected: boolean;
+  staffConfirmationDetected: boolean;
+  invoiceCandidatesAvailable: boolean;
+  invoiceAttributed: boolean;
+  invoiceItemsAvailable: boolean;
+  fulfillmentEvidenceAvailable: boolean;
+  overallEvidenceLevel: EvidenceLevel;
+}
+
+/**
+ * `information_only` conversations are a valid, complete pipeline output — never forced into a
+ * commercial case. `insufficient_data` means there isn't enough evidence to reason about this
+ * case at all (e.g. no conversation text); `partial` means some stages produced real facts but
+ * evidence stops short of a confident read; `needs_human_review` mirrors any stage's own
+ * needsHumanReview flag bubbling up to the case level.
+ */
+export type PipelineStatus = 'analyzed' | 'partial' | 'needs_human_review' | 'insufficient_data';
+
+/**
+ * WHY a case's evidence fell short — never WHO is at fault. Counted across a shadow sample to
+ * tell us what to improve next (more segmentation coverage, more identity resolution, etc.), not
+ * to judge any single conversation or the staff in it.
+ */
+export type PipelineFailureReason =
+  | 'case_segmentation_uncertain'
+  | 'customer_identity_unresolved'
+  | 'basket_not_detected'
+  | 'product_identity_unresolved'
+  | 'quantity_unknown'
+  | 'final_summary_missing'
+  | 'announced_total_missing'
+  | 'customer_confirmation_uncertain'
+  | 'invoice_candidate_missing'
+  | 'invoice_candidates_ambiguous'
+  | 'invoice_items_unavailable'
+  | 'staff_identity_unresolved'
+  | 'conversation_timestamp_quality_issue';
+
+/**
+ * The case-level result of the Phase G pipeline — one per ConversationCase derived from a raw
+ * conversation. Every intermediate engine output is preserved as-is (never collapsed into one
+ * score), so a reviewer can see exactly which stage a conclusion came from.
+ */
+export interface SalesIntelligenceCaseAnalysis {
+  caseId: string;
+  conversationId: string;
+  conversationCase: ConversationCase;
+  basketHistory: CaseBasket[];
+  itemsByBasketId: Record<string, CaseBasketItem[]>;
+  /** Resolved via basketInvoiceMatchingEngine's own resolveActiveBasket() — null when insufficient/ambiguous. */
+  activeBasket: CaseBasket | null;
+  commercialConfirmation: CommercialConfirmationAssessment;
+  protocolAssessment: OrderConfirmationProtocolAssessment;
+  /** ids of the invoice rows the read-only candidate-retrieval boundary returned for THIS case — before any attribution scoring. */
+  invoiceCandidateIds: string[];
+  attribution: SaleAttributionAssessment;
+  basketInvoiceMatch: BasketInvoiceMatch;
+  integrityAssessment: SalesIntegrityAssessment;
+  evidenceCompleteness: EvidenceCompleteness;
+  status: PipelineStatus;
+  /** Pipeline-level observations (e.g. an active-basket conflict) — distinct from any engine's own humanReviewReasons. */
+  pipelineWarnings: string[];
+  needsHumanReview: boolean;
+  humanReviewReasons: string[];
+  failureReasons: PipelineFailureReason[];
+}
