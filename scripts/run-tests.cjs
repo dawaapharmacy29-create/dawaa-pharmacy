@@ -277,6 +277,8 @@ const testFiles = [
   'src/lib/__tests__/whatsappUnderstandingEvidenceV32GoldenExpansion.test.ts',
   'src/lib/__tests__/whatsappOrderConfirmationEvidenceV32GoldenExpansion.test.ts',
   'src/lib/__tests__/whatsappSemanticSignalsV32.test.ts',
+  'src/lib/salesIntelligence/__tests__/conversationCaseEngine.test.ts',
+  'src/lib/salesIntelligence/__tests__/caseBasketEngine.test.ts',
 ];
 for (const relativePath of testFiles) {
   const testFile = path.join(root, relativePath);

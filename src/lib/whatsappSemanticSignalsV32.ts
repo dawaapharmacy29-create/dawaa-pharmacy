@@ -129,7 +129,12 @@ const PROMISE_RX = /هبعت(?:لك|لحضرتك)?|هيوصل|هجهز(?:لك|ل
 
 // Product/offer reference pronouns — resolved against the nearest prior staff "offer" message
 // (a meaningful staff message that isn't itself just an acknowledgement/confirmation).
-const PRODUCT_REFERENCE_RX = /\bده\b|\bدي\b|\bدول\b|\bمنه\b|\bمنها\b|واحد\s*من\s*(?:ده|دا)|الاتنين|نفس\s*اللي\s*فات|اللي\s*حضرتك\s*قولت?\s*عليه|البديل\s*ده|التاني\b/i;
+// Uses \p{L}/\p{N} lookaround instead of \b: JS's \b is defined in terms of [A-Za-z0-9_], so it
+// never matches adjacent to Arabic letters (both sides read as "non-word") — a plain \bده\b can
+// never match anywhere in Arabic text. Discovered via Sales Intelligence Phase B dry-run (bare
+// pronoun references like "هات منه" silently produced zero product-reference signals).
+const PRODUCT_REFERENCE_RX =
+  /(?<![\p{L}\p{N}])(?:ده|دي|دول|منه|منها)(?![\p{L}\p{N}])|واحد\s*من\s*(?:ده|دا)|الاتنين|نفس\s*اللي\s*فات|اللي\s*حضرتك\s*قولت?\s*عليه|البديل\s*ده|(?<![\p{L}\p{N}])التاني(?![\p{L}\p{N}])/iu;
 
 export function isGreetingOnly(text: string): boolean {
   return GREETING_ONLY_RX.test((text || '').trim());
