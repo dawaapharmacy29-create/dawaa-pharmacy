@@ -1,20 +1,27 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, RefreshCw, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
-import { getPayrollFinalizationGate, type PayrollFinalizationGate } from '@/lib/hr/workforceService';
+import { getPayrollFinalizationGate, getPayrollFinalSnapshotPreview, type PayrollFinalizationGate, type PayrollFinalSnapshotPreview } from '@/lib/hr/workforceService';
 
 export default function PayrollAttendanceSafetyGate({ staffId, monthCycle }: { staffId: string; monthCycle: string }) {
   const [gate, setGate] = useState<PayrollFinalizationGate | null>(null);
+  const [snapshot, setSnapshot] = useState<PayrollFinalSnapshotPreview | null>(null);
   const [loading, setLoading] = useState(false);
 
   const load = useCallback(async () => {
     if (!staffId || !monthCycle) return;
     setLoading(true);
     try {
-      setGate(await getPayrollFinalizationGate(staffId, monthCycle));
+      const [gateResult, snapshotResult] = await Promise.all([
+        getPayrollFinalizationGate(staffId, monthCycle),
+        getPayrollFinalSnapshotPreview(staffId, monthCycle),
+      ]);
+      setGate(gateResult);
+      setSnapshot(snapshotResult);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'تعذر فحص جاهزية الحضور للمرتب');
       setGate(null);
+      setSnapshot(null);
     } finally {
       setLoading(false);
     }
@@ -71,6 +78,18 @@ export default function PayrollAttendanceSafetyGate({ staffId, monthCycle }: { s
         <Metric label="V3 materialized" value={gate.policy_validation.v3_materialized_days} />
         <Metric label="V3 pending" value={gate.policy_validation.v3_pending_days} warn={gate.policy_validation.v3_pending_days > 0} />
       </div>
+
+      {snapshot && (
+        <div className="mt-3 rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-3 text-xs">
+          <div className="font-black text-[var(--dawaa-theme-heading)]">Final Snapshot Preview</div>
+          <div className="mt-1 font-bold text-[var(--dawaa-theme-muted)]">
+            {snapshot.snapshot_schema} · {snapshot.snapshot_mode === 'preview_only' ? 'Preview فقط — بدون كتابة مالية' : snapshot.snapshot_mode}
+          </div>
+          <div className="mt-2 break-all font-mono text-[10px] text-[var(--dawaa-theme-muted)]">
+            fingerprint: {snapshot.snapshot_fingerprint}
+          </div>
+        </div>
+      )}
 
       {!!gate.warnings.length && (
         <div className="mt-3 space-y-2">
