@@ -62,9 +62,15 @@ type DailyCommandRow = {
 };
 
 type SyncHealth = {
+  range_start?: string | null;
+  range_end?: string | null;
   raw_events?: number;
   mapped_events?: number;
   unmapped_events?: number;
+  unmapped_codes?: number;
+  historical_raw_events?: number;
+  historical_mapped_events?: number;
+  historical_unmapped_events?: number;
   last_ingested_at?: string | null;
   last_punch_time?: string | null;
   events_last_24h?: number;
@@ -328,7 +334,7 @@ export default function AttendanceReport() {
       const today = cairoDate();
       const cycle = attendanceCycleBounds(today);
       const [healthResult, unmappedResult] = await Promise.all([
-        supabase.rpc('attendance_sync_health_v2'),
+        supabase.rpc('attendance_sync_health_v3', { p_start: cycle.start, p_end: today }),
         supabase.rpc('list_unmapped_biometric_staff_v2', { p_start: cycle.start, p_end: today, p_limit: 100 }),
       ]);
       if (healthResult.error) throw healthResult.error;
@@ -596,6 +602,10 @@ function SyncHealthPanel({ health }: { health: SyncHealth }) {
   const raw = Number(health.raw_events || 0);
   const mapped = Number(health.mapped_events || 0);
   const unmapped = Number(health.unmapped_events || 0);
+  const unmappedCodes = Number(health.unmapped_codes || 0);
+  const historicalRaw = Number(health.historical_raw_events || 0);
+  const historicalMapped = Number(health.historical_mapped_events || 0);
+  const historicalUnmapped = Number(health.historical_unmapped_events || 0);
   const ratio = Number(health.mapped_ratio ?? (raw ? (mapped / raw) * 100 : 0));
   const lag = health.sync_lag_minutes == null ? null : Number(health.sync_lag_minutes);
   const status = health.sync_status || (lag == null ? 'never_connected' : lag <= 5 ? 'healthy' : lag <= 30 ? 'delayed' : lag <= 180 ? 'stale' : 'offline');
@@ -609,9 +619,20 @@ function SyncHealthPanel({ health }: { health: SyncHealth }) {
   const st = statusMap[status] || statusMap.offline;
   return <div className="space-y-4">
     <div className={cn('rounded-2xl border p-4 font-black', st.cls)}><div className="flex flex-wrap items-center justify-between gap-2"><span>{st.label}</span><span className="text-xs">آخر اتصال: {formatDateTime(health.client_last_seen_at || health.last_ingested_at)}</span></div><div className="mt-1 text-xs opacity-80">{lag == null ? 'لا توجد مدة تأخير محسوبة' : 'التأخير الحالي: ' + Math.round(lag) + ' دقيقة'}</div></div>
-    <div className="grid gap-3 md:grid-cols-4"><Metric label="إجمالي البصمات الخام" value={raw} icon={Fingerprint} color="text-[var(--dawaa-status-info-text)] bg-[var(--dawaa-status-info-bg)] border-[var(--dawaa-status-info-border)]" /><Metric label="بصمات مربوطة" value={mapped} icon={UserCheck} color="text-[var(--dawaa-status-success-text)] bg-[var(--dawaa-status-success-bg)] border-[var(--dawaa-status-success-border)]" /><Metric label="غير مربوطة" value={unmapped} icon={AlertTriangle} color="text-[var(--dawaa-status-warning-text)] bg-[var(--dawaa-status-warning-bg)] border-[var(--dawaa-status-warning-border)]" /><Metric label="آخر 24 ساعة" value={Number(health.events_last_24h || 0)} icon={Clock} color="text-[var(--dawaa-status-info-text)] bg-[var(--dawaa-status-info-bg)] border-[var(--dawaa-status-info-border)]" /></div>
+    <div className="rounded-xl border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] p-3 text-xs font-bold text-[var(--dawaa-status-info-text)]">
+      الأرقام الرئيسية أدناه تخص الدورة الحالية فقط ({health.range_start || '-'} ← {health.range_end || '-'}). السجل التاريخي محفوظ في الأرشيف ولا يدخل ضمن المطلوب متابعته الآن.
+    </div>
+    <div className="grid gap-3 md:grid-cols-4"><Metric label="بصمات الدورة الحالية" value={raw} icon={Fingerprint} color="text-[var(--dawaa-status-info-text)] bg-[var(--dawaa-status-info-bg)] border-[var(--dawaa-status-info-border)]" /><Metric label="مربوطة في الدورة" value={mapped} icon={UserCheck} color="text-[var(--dawaa-status-success-text)] bg-[var(--dawaa-status-success-bg)] border-[var(--dawaa-status-success-border)]" /><Metric label="غير مربوطة في الدورة" value={unmapped} icon={AlertTriangle} color="text-[var(--dawaa-status-warning-text)] bg-[var(--dawaa-status-warning-bg)] border-[var(--dawaa-status-warning-border)]" /><Metric label="أكواد نشطة تحتاج ربط" value={unmappedCodes} icon={Users} color="text-[var(--dawaa-status-warning-text)] bg-[var(--dawaa-status-warning-bg)] border-[var(--dawaa-status-warning-border)]" /></div>
     <div className="grid gap-4 lg:grid-cols-3"><Panel title="حالة الاتصال" icon={ShieldAlert}><Info label="عملاء API النشطون" value={Number(health.active_clients || 0)} /><Info label="آخر اتصال للعميل" value={formatDateTime(health.client_last_seen_at)} /><Info label="آخر دفعة وصلت" value={formatDateTime(health.last_ingested_at)} /><Info label="آخر وقت بصمة" value={formatDateTime(health.last_punch_time)} /></Panel><Panel title="جودة الربط" icon={UserCheck}><Info label="نسبة الربط" value={ratio.toFixed(1) + '%'} /><Info label="غير مربوط آخر 24 ساعة" value={Number(health.unmapped_last_24h || 0).toLocaleString('ar-EG')} /><Info label="آخر ساعة" value={Number(health.events_last_hour || 0).toLocaleString('ar-EG')} /><Info label="آخر 7 أيام" value={Number(health.events_last_7d || 0).toLocaleString('ar-EG')} /></Panel><Panel title="استمرارية المزامنة" icon={RefreshCw}><Info label="آخر Watermark مكتمل" value={formatDateTime(health.watermark_complete_through)} /><Info label="تأخير Watermark" value={health.watermark_lag_minutes == null ? 'غير مسجل' : Math.round(Number(health.watermark_lag_minutes)) + ' دقيقة'} /><Info label="عدد المزودين" value={Number(health.provider_count || 0)} /><Info label="آخر فحص للوحة" value={formatDateTime(health.checked_at)} /></Panel></div>
-    {!!health.branch_breakdown?.length && <Panel title="المزامنة حسب الفرع" icon={Users}><div className="grid gap-2 md:grid-cols-2">{health.branch_breakdown.map((b) => <div key={b.branch} className="rounded-xl border border-[var(--dawaa-theme-border)] dawaa-surface-soft p-3"><div className="font-black text-[var(--dawaa-theme-heading)]">{b.branch}</div><div className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">{Number(b.events).toLocaleString('ar-EG')} بصمة · {Number(b.mapped).toLocaleString('ar-EG')} مربوطة · {Number(b.unmapped).toLocaleString('ar-EG')} غير مربوطة</div><div className="mt-1 text-[11px] text-[var(--dawaa-theme-muted)]">آخر وصول: {formatDateTime(b.last_ingested_at)}</div></div>)}</div></Panel>}
+    {!!health.branch_breakdown?.length && <Panel title="المزامنة حسب الفرع — الدورة الحالية" icon={Users}><div className="grid gap-2 md:grid-cols-2">{health.branch_breakdown.map((b) => <div key={b.branch} className="rounded-xl border border-[var(--dawaa-theme-border)] dawaa-surface-soft p-3"><div className="font-black text-[var(--dawaa-theme-heading)]">{b.branch}</div><div className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">{Number(b.events).toLocaleString('ar-EG')} بصمة · {Number(b.mapped).toLocaleString('ar-EG')} مربوطة · {Number(b.unmapped).toLocaleString('ar-EG')} غير مربوطة</div><div className="mt-1 text-[11px] text-[var(--dawaa-theme-muted)]">آخر وصول: {formatDateTime(b.last_ingested_at)}</div></div>)}</div></Panel>}
+    <Panel title="الأرشيف التاريخي قبل الدورة الحالية" icon={Clock}>
+      <div className="grid gap-2 sm:grid-cols-3">
+        <Info label="بصمات محفوظة" value={historicalRaw.toLocaleString('ar-EG')} />
+        <Info label="مربوطة تاريخيًا" value={historicalMapped.toLocaleString('ar-EG')} />
+        <Info label="غير مربوطة تاريخيًا" value={historicalUnmapped.toLocaleString('ar-EG')} />
+      </div>
+      <div className="mt-2 text-[11px] font-bold text-[var(--dawaa-theme-muted)]">هذه أرقام أرشيفية فقط ولا تُضاف إلى قائمة العمل الحالية. لا نحذفها إلا لو ثبت أنها دفعة تجريبية غير مستخدمة.</div>
+    </Panel>
   </div>;
 }
 function BiometricMappingQueue({
