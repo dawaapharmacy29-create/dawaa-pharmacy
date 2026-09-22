@@ -252,9 +252,9 @@ export default function PayrollManagement() {
   return (
     <div className="space-y-5 p-4 md:p-6" dir="rtl">
       <div className="rounded-3xl border p-5" style={surface}>
-        <div className="flex items-center gap-2 text-teal-200"><Banknote size={18} /><span className="text-xs font-black">إدارة الرواتب والحوافز · V17</span></div>
+        <div className="flex items-center gap-2 text-teal-200"><Banknote size={18} /><span className="text-xs font-black">إدارة الرواتب والحوافز · Engine V18</span></div>
         <h1 className="mt-1 text-2xl font-black text-white">كشوف رواتب الموظفين</h1>
-        <p className="mt-1 text-sm" style={mutedText}>ملف تعويضات موحد + حوافز آلية + لستة أصناف + خصومات مفصلة + Snapshot عند الاعتماد</p>
+        <p className="mt-1 text-sm" style={mutedText}>Attendance Truth + ملف تعويضات موحد + حوافز آلية + لستة أصناف + Finalization Gate قبل أي اعتماد مالي</p>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
@@ -285,6 +285,10 @@ export default function PayrollManagement() {
                 <div className="flex items-center gap-2 font-black text-teal-200"><WalletCards size={18} /> ملف التعويضات الموحد — {selected.name}</div>
                 <span className="rounded-full border border-amber-400/30 bg-amber-400/5 px-3 py-1 text-[11px] font-black text-amber-200">الحافز الربع سنوي مؤرشف مؤقتًا ولا يدخل الحساب</span>
               </div>
+              <div className="mt-4 rounded-xl border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] p-3 text-[11px] font-bold text-[var(--dawaa-status-info-text)]">
+                القيم اليدوية أدناه مخصصة للمعاينة What-if فقط في المرحلة الحالية ولا تُكتب في سجل رواتب قديم. مصدر الأساسي الفعلي هو Payroll Engine V18.
+              </div>
+
               <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 <label className="text-xs font-bold" style={mutedText}>طريقة حساب الأساسي
                   <select className="input mt-1 w-full" value={profile.salaryCalculationMode} onChange={(e) => setProfile((p) => ({ ...p, salaryCalculationMode: e.target.value as CompensationProfileState['salaryCalculationMode'] }))}>
