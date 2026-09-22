@@ -562,3 +562,43 @@ export async function listPayrollSnapshotReviews(
   if (error) throw new Error(error.message);
   return Array.isArray(data) ? data as PayrollSnapshotReviewRow[] : [];
 }
+
+
+export type PayrollCycleFinalizationOverview = {
+  month_cycle: string;
+  branch: string | null;
+  staff_count: number;
+  ready_count: number;
+  blocked_count: number;
+  rows: Array<{
+    staff_id: string;
+    staff_name: string;
+    branch: string | null;
+    ready: boolean;
+    blocker_count: number;
+    warning_count: number;
+    blockers: Array<{ code: string; label: string; count?: number; hours?: number }>;
+    warnings: Array<{ code: string; label: string; count?: number; hours?: number }>;
+    policy_validation: PayrollFinalizationGate['policy_validation'];
+  }>;
+  top_blockers: Array<{
+    code: string;
+    label: string;
+    affected_staff: number;
+  }>;
+  generated_at: string;
+};
+
+export async function getPayrollCycleFinalizationOverview(args: {
+  monthCycle: string;
+  branch?: string | null;
+  limit?: number;
+}): Promise<PayrollCycleFinalizationOverview> {
+  const { data, error } = await supabase.rpc('payroll_cycle_finalization_overview_v1', {
+    p_month_cycle: args.monthCycle,
+    p_branch: args.branch || null,
+    p_limit: args.limit ?? 100,
+  });
+  if (error) throw new Error(error.message);
+  return data as PayrollCycleFinalizationOverview;
+}
