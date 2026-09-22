@@ -213,7 +213,8 @@ function getInvoiceDateTimeForAttribution(row: InvoiceLike): { iso: string | nul
   return { iso: null, precise: false };
 }
 
-function normalizeProductNameForMatch(name: string): string {
+/** Reused by Phase E's basketInvoiceMatchingEngine.ts — one product-key normalization, never duplicated. */
+export function normalizeProductNameForMatch(name: string): string {
   return name
     .trim()
     .toLowerCase()

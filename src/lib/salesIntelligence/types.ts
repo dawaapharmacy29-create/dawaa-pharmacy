@@ -451,46 +451,77 @@ export interface SaleAttributionAssessment {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 6 — Matching Engine (Basket <-> Order <-> Invoice <-> Fulfillment)
+// Phase E — Basket <-> Invoice Matching Engine
+//
+// Compares the case's CURRENT (latest, never-superseded) basket version against the invoice
+// Phase D already selected — never re-derives attribution, never touches a superseded basket
+// version or its total. Never assigns staff fault: differences are facts about WHAT differs,
+// never WHO is responsible — see BasketInvoiceDifference's own doc comment.
 // ---------------------------------------------------------------------------
 
-export type MatchOutcome =
-  | 'exact_match'
-  | 'partial_match'
-  | 'quantity_mismatch'
+/**
+ * A single field-level match verdict, reused across total/item/quantity/overall so every
+ * dimension speaks the same vocabulary. Not every state is reachable for every field — see each
+ * classifier's own doc comment in basketInvoiceMatchingEngine.ts for which ones it actually
+ * produces (mirrors the Phase C.1 reachability discipline: never leave an unreachable state
+ * undocumented).
+ */
+export type FieldMatchStatus = 'exact' | 'near_match' | 'partial' | 'mismatch' | 'insufficient_data';
+
+export type BasketInvoiceDifferenceType =
   | 'missing_item'
   | 'extra_item'
+  | 'quantity_mismatch'
   | 'total_mismatch'
-  | 'unexplained_difference'
-  | 'explained_difference';
+  | 'explained_difference'
+  | 'unexplained_difference';
 
+/** A documented reason a total (or item) difference exists — only ever set when real evidence backs it, never guessed. */
+export type DifferenceExplanationKind = 'delivery_fee' | 'discount' | 'cashback' | 'documented_edit' | 'none';
+
+/**
+ * A single detected difference between the basket and the invoice — a FACT about what differs,
+ * never a verdict about who caused it. No staff id, no fault language, no "employee error" ever
+ * appears here or anywhere in this engine's output.
+ */
 export interface BasketInvoiceDifference {
-  /** A product name or 'total' — identifies which line the difference is about. */
+  type: BasketInvoiceDifferenceType;
+  /** A product name (normalized as typed) or 'total' — identifies which line the difference is about. */
   key: string;
+  /** The basket-side value (quantity, or amount for 'total'). */
   before: string | number | null;
+  /** The invoice-side value. */
   after: string | number | null;
+  explanation: DifferenceExplanationKind;
   evidence: EvidenceRef[];
-  responsibleStage: CaseStage | 'unknown';
   confidence: ConfidenceAssessment;
 }
 
 /**
- * Item-level matching (Missing/Extra/Quantity mismatch) is only possible once
- * `sales_invoice_items_v21` actually holds rows for the invoice in question — see Phase A report
- * §1/§10: that table's schema and import pipeline (src/lib/salesInvoiceItemsV21.ts) already
- * exist, but it is a manual Excel import, not populated automatically, and currently has 0 rows.
- * Until it is populated for a given invoice, this engine can only compare at the HEADER level
- * (announced total vs. sales_invoices.net_amount/total_amount) and must report `unknown` rather
- * than fabricate a per-item outcome.
+ * The case-level result of Phase E. Total/item/quantity are tracked SEPARATELY — an exact
+ * `totalMatch` alone can never promote `overallMatch` to 'exact' (a header-only invoice with no
+ * item evidence caps `overallMatch` at 'partial' at best; see rollupOverallMatch's own comment).
+ * When Phase D's attribution is `unknown`, every field here is `insufficient_data` — Phase E never
+ * guesses an invoice to compare against.
  */
 export interface BasketInvoiceMatch {
   matchId: string;
   caseId: string;
-  basketId: string;
-  invoiceId: string;
-  outcome: MatchOutcome;
+  basketId: string | null;
+  basketVersion: number | null;
+  invoiceId: string | null;
+  invoiceNumber: string | null;
+  totalMatch: FieldMatchStatus;
+  itemMatch: FieldMatchStatus;
+  quantityMatch: FieldMatchStatus;
+  overallMatch: FieldMatchStatus;
+  /** True only when a real InvoiceItemEvidenceProvider returned rows — never assumed. */
+  itemEvidenceAvailable: boolean;
   differences: BasketInvoiceDifference[];
   confidence: ConfidenceAssessment;
+  needsHumanReview: boolean;
+  humanReviewReasons: string[];
+  ruleIds: string[];
 }
 
 // ---------------------------------------------------------------------------
