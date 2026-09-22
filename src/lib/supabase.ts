@@ -1,9 +1,16 @@
 import { createClient } from '@supabase/supabase-js';
+import { AUTH_STORAGE_KEY } from '@/lib/appRecovery';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const hasSupabaseConfig = Boolean(supabaseUrl && supabaseAnonKey);
-const AUTH_STORAGE_KEY = 'dawaa_auth_user_v2';
+
+if (!hasSupabaseConfig && import.meta.env.PROD) {
+  throw new Error(
+    '[Dawaa bootstrap] Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY. ' +
+      'Production must fail fast instead of rendering empty/zero data from a stub database client.'
+  );
+}
 
 function readStoredUserId(): string | null {
   if (typeof window === 'undefined' || typeof localStorage === 'undefined') return null;
@@ -29,7 +36,8 @@ const supabaseFetch: typeof fetch = (input, init?: RequestInit) => {
   return fetch(input, { ...init, headers });
 };
 
-// When Supabase is not configured, export a lightweight stub client to avoid noisy network failures in dev.
+// Development-only fallback. Production is intentionally fail-fast above so a missing
+// database configuration can never masquerade as a healthy application with empty data.
 function createStubClient() {
   const noop = () => stubQuery;
   const stubQuery: any = {
@@ -66,7 +74,7 @@ function createStubClient() {
 }
 
 export const supabase = hasSupabaseConfig
-  ? createClient(hasSupabaseConfig ? supabaseUrl : 'https://placeholder.supabase.co', hasSupabaseConfig ? supabaseAnonKey : 'placeholder-anon-key', {
+  ? createClient(supabaseUrl!, supabaseAnonKey!, {
       auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
       realtime: { params: { eventsPerSecond: 10 } },
       global: { fetch: supabaseFetch },
