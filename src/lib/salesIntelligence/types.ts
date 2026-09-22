@@ -547,37 +547,128 @@ export interface BasketInvoiceMatch {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 7 — Sales Integrity Engine
+// Phase F — Sales Integrity Engine
+//
+// A REASONING layer over Phase A-E.1's already-established facts — never a re-derivation of
+// conversation understanding, basket state, attribution, or invoice matching. Detects OPERATIONAL
+// INCONSISTENCIES, never assigns blame: naming is deliberately neutral (`operational_exception`,
+// `integrity_exception`, `investigation_required` register) and `involvedStaffIds` on
+// SalesIntegrityException means "touched this stage of the evidence chain", NEVER "responsible
+// for this exception" — see that field's own doc comment. Phase F never deducts points, changes
+// incentives, or marks anyone guilty; it is a pure, read-only reasoning function.
 // ---------------------------------------------------------------------------
 
-/**
- * Naming is deliberate: these are `operational_exception`s, never an accusation. `relatedStaffId`
- * records who touched the relevant stage as a FACT (for drill-down), not a verdict — see
- * instruction #15: never load an employee with fault from weak inference.
- */
-export type IntegrityExceptionType =
-  | 'confirmed_item_not_in_order'
-  | 'order_item_not_in_invoice'
-  | 'invoice_item_not_delivered'
-  | 'quantity_mismatch'
-  | 'price_mismatch'
-  | 'total_mismatch'
-  | 'confirmed_order_without_invoice'
-  | 'invoice_without_case'
-  | 'unrecorded_post_confirmation_edit'
-  | 'confirmed_basket_not_sent_for_fulfillment'
-  | 'order_without_customer_final_confirmation'
-  | 'staff_said_sending_without_order_or_invoice';
+export type SalesIntegrityExceptionType =
+  // Conversation / protocol — process exceptions, not necessarily sale failures.
+  | 'confirmation_protocol_incomplete'
+  | 'basket_modified_after_confirmation'
+  | 'final_total_missing'
+  | 'staff_final_confirmation_missing'
+  // Attribution
+  | 'confirmed_case_without_attributed_invoice'
+  | 'ambiguous_invoice_attribution'
+  | 'identity_conflict'
+  | 'branch_conflict'
+  | 'competing_case_attribution'
+  // Header-level invoice
+  | 'confirmed_total_invoice_mismatch'
+  | 'unexplained_total_difference'
+  | 'cancelled_invoice_linked_to_case'
+  | 'returned_invoice_linked_to_case'
+  // Item-level — only ever emitted when integrityEvaluationScope === 'header_and_items'.
+  | 'confirmed_item_missing_from_invoice'
+  | 'extra_invoice_item'
+  | 'confirmed_quantity_mismatch'
+  | 'product_identity_conflict'
+  // Future fulfillment — contracts only; no fulfillment evidence source exists yet, so these are
+  // never actually produced by this phase (see basketInvoiceMatchingEngine's own item-evidence
+  // gating precedent). Consuming code must treat their absence as 'not_evaluated', not 'clean'.
+  | 'invoiced_item_not_fulfilled'
+  | 'fulfilled_quantity_mismatch';
 
+/** Business impact / review urgency ONLY — never a fault judgment. See the module header comment. */
+export type SalesIntegritySeverity = 'info' | 'review' | 'high_priority';
+
+/** Phase F's own pure-engine output is always 'open' — no lifecycle/admin workflow exists yet. */
+export type SalesIntegrityExceptionStatus = 'open' | 'reviewed' | 'resolved' | 'dismissed';
+
+/**
+ * Where in the evidence chain this exception was observed. Future-proofed for a later Order
+ * layer (`fulfillment_handoff` sits between basket confirmation and attribution — the moment a
+ * confirmed basket would be handed off for fulfillment/order creation, a stage this codebase does
+ * not yet populate). Used to compute the assessment's earliest-observable-break stage.
+ */
+export type SalesIntegrityStage =
+  | 'conversation'
+  | 'basket_confirmation'
+  | 'fulfillment_handoff'
+  | 'attribution'
+  | 'invoice_header'
+  | 'invoice_items'
+  | 'delivery'
+  | 'unknown';
+
+/**
+ * One detected operational inconsistency. `fact` is the objective, judgment-free observation;
+ * `interpretation` is the (still non-accusatory) reading of what that fact might mean —
+ * kept SEPARATE, mirroring the Fact/Interpretation split used throughout this whole engine suite.
+ * `involvedStaffIds` records who TOUCHED the relevant stage of the evidence chain as a plain
+ * traceability fact (for drill-down) — it is NEVER a responsibility list. No field named
+ * `responsibleStaffId` exists anywhere in this module, deliberately.
+ */
 export interface SalesIntegrityException {
   exceptionId: string;
   caseId: string;
-  type: IntegrityExceptionType;
-  detectedAt: string;
-  evidence: EvidenceRef[];
+  type: SalesIntegrityExceptionType;
+  stage: SalesIntegrityStage;
+  severity: SalesIntegritySeverity;
+  status: SalesIntegrityExceptionStatus;
+  summary: string;
+  fact: string;
+  interpretation: string;
+  sourceEvidence: EvidenceRef[];
+  ruleIds: string[];
+  basketVersion: number | null;
+  invoiceId: string | null;
+  invoiceNumber: string | null;
+  expectedValue: string | number | null;
+  observedValue: string | number | null;
+  difference: number | null;
+  differencePercentage: number | null;
+  explained: boolean;
+  explanationKind: DifferenceExplanationKind | null;
   confidence: ConfidenceAssessment;
-  relatedStaffId: string | null;
-  status: 'open' | 'investigating' | 'explained' | 'dismissed';
+  integrityEvaluationScope: IntegrityEvaluationScope;
+  needsHumanReview: boolean;
+  /** Traceability only — see the interface's own doc comment. NEVER implies fault. */
+  involvedStaffIds: string[];
+}
+
+/**
+ * The case-level result of Phase F. `exceptions: []` is a legitimate, expected output for a
+ * healthy flow — optional missing data (e.g. no item evidence) is reported via
+ * `canEvaluateItemIntegrity`/`integrityEvaluationScope`, never manufactured into a false exception.
+ */
+export interface SalesIntegrityAssessment {
+  caseId: string;
+  integrityEvaluationScope: IntegrityEvaluationScope;
+  commercialState: CommercialConfirmationState;
+  protocolCompliant: boolean;
+  attributionLevel: ConfidenceLevel;
+  basketInvoiceOverallMatch: FieldMatchStatus;
+  exceptions: SalesIntegrityException[];
+  highestSeverity: SalesIntegritySeverity | null;
+  exceptionCount: number;
+  /** The earliest stage (by evidence-chain order) any exception was observed at — null when clean. */
+  earliestBreakStage: SalesIntegrityStage | null;
+  needsHumanReview: boolean;
+  humanReviewReasons: string[];
+  primaryEvidence: EvidenceRef[];
+  ruleIds: string[];
+  canEvaluateHeaderIntegrity: boolean;
+  canEvaluateItemIntegrity: boolean;
+  /** Always false today — no fulfillment/delivery evidence source exists yet (see the module header comment). */
+  canEvaluateFulfillmentIntegrity: boolean;
 }
 
 // ---------------------------------------------------------------------------
