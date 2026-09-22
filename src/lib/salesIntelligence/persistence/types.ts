@@ -1,17 +1,23 @@
-// Sales Intelligence Phase H / H.0.1 — Persistence Design Contracts.
+// Sales Intelligence Phase H / H.0.1 / H.0.2 — Persistence Design Contracts.
 //
 // DESIGN ONLY. Pure TypeScript interfaces describing the PROPOSED storage shape for the B-G.3
 // engine outputs (see ../types.ts for the semantic source of truth these rows are derived from).
 // No Supabase client, no SQL, no migrations, no runtime logic anywhere in this file — see
 // docs/SALES_INTELLIGENCE_PERSISTENCE_DESIGN.md for the full architecture this file supports.
 //
-// H.0.1 CHANGE (see the design doc's "Phase H.0.1" section for the full rationale): Phase H's
-// first draft used `case_id` as a general FK target inside a table where `case_id` was NOT unique
-// (multiple analysis-version rows share one case_id). That is not a valid FK model. This revision
-// introduces a STABLE case entity (`sales_intelligence_cases`, PK = case_id) separate from the
-// VERSIONED analysis output, and makes `analysis_id` — never `case_id` — the provenance FK every
-// dependent table points at. `case_id` is kept on dependent rows too, but only as a redundant,
-// indexed column for debugging/filtering, never as the referential-integrity mechanism.
+// H.0.1: fixed a structural FK defect — `case_id` was used as a general FK target inside a table
+// where it was NOT unique. Introduced `sales_intelligence_cases` (stable identity, PK = case_id,
+// genuinely unique) and made `analysis_id` — never `case_id` — the provenance FK every dependent
+// table points at.
+//
+// H.0.2 (this revision): fixed a historical-reproducibility defect in H.0.1 itself — H.0.1 still
+// updated `protocolPolicyCompliance` IN PLACE on the (otherwise immutable) case_analyses row when
+// policy config changed, which meant "what did A1 say under policy P1" became unanswerable once
+// P2 overwrote it. `protocol_policy_compliance` is now split out into its own derived, versioned
+// table (`sales_intelligence_policy_evaluations`) that references an IMMUTABLE `analysis_id` and
+// an IMMUTABLE `policy_config_id` — `case_analyses` itself is now never mutated after write, full
+// stop, no exceptions. `sales_intelligence_policy_config` is also now append-only/versioned rather
+// than a single mutable row, for the same reason. See the design doc's "Phase H.0.2" section.
 import type {
   AttributionEvidenceItem,
   CaseStatus,
@@ -38,16 +44,25 @@ import type {
 // case, for its entire lifetime. This table answers "does this commercial case exist" — it is
 // NEVER versioned and NEVER carries any engine-analysis output. `case_id` is a safe, stable FK
 // target specifically because this table (unlike case_analyses) guarantees `case_id` uniqueness.
+//
+// H.0.2 identity-correction clarification (see design doc): `customerId`/`branchId` here are the
+// CURRENT, CORRECTABLE canonical references — they may be updated later (a customer-identity
+// merge, a branch-mapping fix) WITHOUT that being a semantic re-analysis. They are explicitly NOT
+// the identity evidence a past analysis reasoned with — that snapshot lives on the analysis row
+// itself (see `SalesIntelligenceCaseAnalysisRow.identityAtAnalysis` below), so correcting this
+// table's pointer never destroys the evidence needed to explain an old, already-superseded
+// analysis. Rule of thumb: `sales_intelligence_cases` = current canonical reference; the analysis
+// row = identity facts/version actually used at that analysis's own time.
 // ---------------------------------------------------------------------------
 export interface SalesIntelligenceCaseRow {
   caseId: string; // PK. The same string the engines already compute (conversationId:interactionId[:session:N]).
   conversationId: string;
   sourceCaseIdV22: string | null;
+  /** CURRENT canonical reference — correctable, e.g. by a later customer-identity merge. Never the sole record of what an old analysis saw (see module comment). */
   customerId: string | null;
   customerPhone: string | null;
   branchId: string | null;
   branchNameRaw: string | null;
-  /** From the FIRST analysis that ever derived this case — case-level identity facts, not re-derived per analysis version (a re-analysis confirms/updates these via the batch job, but the row itself is the stable anchor). */
   caseStartedAt: string;
   caseEndedAt: string | null;
   /** First time any pipeline run produced this exact caseId. */
@@ -64,13 +79,17 @@ export interface SalesIntelligenceCaseRow {
 // unlike the tables below, `sales_intelligence_case_analyses` legitimately needs `case_id` to be
 // its own versioning axis — `analysis_id` (surrogate) is still the PK and the FK target for every
 // dependent table, but `(case_id, analysis_version)` is what a human reasons about.
+//
+// H.0.2: this row is now IMMUTABLE ONCE WRITTEN, full stop — no field on it is ever updated in
+// place, not even policy compliance (which H.0.1 mistakenly still mutated in place; see
+// SalesIntelligencePolicyEvaluationRow below for where that moved).
 // ---------------------------------------------------------------------------
 export interface CaseAnalysisProvenanceFields {
   analysisId: string; // PK (uuid) — the ONLY valid FK target for dependent tables. Never case_id.
   caseId: string; // FK -> sales_intelligence_cases.case_id. Safe now: that table guarantees uniqueness.
   analysisVersion: number; // monotonic per case_id, starting at 1.
   pipelineVersion: string; // e.g. 'sales-intelligence-v1' — independent of any git SHA.
-  /** Only the engines whose output lives ON the case_analyses row itself — case segmentation, historical closure, commercial confirmation, protocol applicability. Attribution/matching/integrity engine versions live on THEIR OWN dependent rows (see AnalysisDependentProvenanceFields) because they can be re-evaluated independently without bumping analysis_version — see the reprocessing matrix. */
+  /** Only the engines whose output lives ON the case_analyses row itself — case segmentation, historical closure, commercial confirmation, protocol applicability. Attribution/matching/integrity engine versions live on THEIR OWN dependent rows because they can be re-evaluated independently without bumping analysis_version. */
   engineVersions: {
     caseSegmentation: string;
     historicalClosure: string;
@@ -78,31 +97,29 @@ export interface CaseAnalysisProvenanceFields {
     protocolApplicability: string;
   };
   /**
-   * H.0.1: renamed from `sourceHash` and NARROWED. Covers ONLY the inputs that could change
-   * case segmentation / historical closure / commercial confirmation / protocol applicability:
-   * a hash of the raw conversation source text, plus (where semantically material to
-   * segmentation) the branch/identity mapping version active at analysis time. Deliberately
-   * EXCLUDES: `protocol_policy_effective_at` (policy changes must never force a full
-   * re-analysis — see §7/§10), resolved customer identity (affects attribution only, not case
-   * segmentation/closure — see AnalysisDependentProvenanceFields.attributionInputHash), and
-   * invoice candidate/item data (affects attribution/matching/integrity only).
+   * Covers ONLY the inputs that could change case segmentation / historical closure / commercial
+   * confirmation / protocol applicability: a hash of the raw conversation source text, plus
+   * (where semantically material to segmentation) the branch/identity mapping version active at
+   * analysis time. Deliberately EXCLUDES: `protocol_policy_effective_at` (policy changes must
+   * never force a full re-analysis or mutate this row — see SalesIntelligencePolicyEvaluationRow),
+   * resolved customer identity used for ATTRIBUTION purposes (see
+   * AnalysisDependentProvenanceFields on SalesIntelligenceAttributionRow), and invoice
+   * candidate/item data (affects attribution/matching/integrity only).
    */
   semanticSourceHash: string;
   analyzedAt: string;
   /** True only for the current, active analysis of this caseId — never more than one per caseId. */
   isCurrent: boolean;
   supersededAt: string | null;
-  /** H.0.1: points at the analysis_id (not a bare version number) that superseded this row — analysis_id is the stable reference, version numbers are only meaningful alongside their case_id. */
   supersededByAnalysisId: string | null;
 }
 
 // ---------------------------------------------------------------------------
 // Analysis-dependent provenance — for tables whose content can be re-evaluated WITHOUT a full
-// semantic re-analysis (attribution, basket-invoice matching, integrity exceptions). These get
-// their OWN `evaluationVersion`, scoped within one `analysisId`, so e.g. "invoice item data
-// finally became available" can bump matching/integrity's evaluation without touching case
-// segmentation/closure or forcing a new case_analyses row (see design doc's reprocessing matrix
-// and the explicit "matching/integrity-only" vs "full re-analysis" decision).
+// semantic re-analysis (attribution, basket-invoice matching, integrity exceptions, policy
+// evaluations). These get their OWN `evaluationVersion`, scoped within one `analysisId`, so e.g.
+// "invoice item data finally became available" or "policy config changed" can bump the relevant
+// evaluation without touching case segmentation/closure or forcing a new case_analyses row.
 // ---------------------------------------------------------------------------
 export interface AnalysisDependentProvenanceFields {
   id: string; // surrogate PK of this specific row.
@@ -117,6 +134,8 @@ export interface AnalysisDependentProvenanceFields {
 
 // ---------------------------------------------------------------------------
 // 1. sales_intelligence_case_analyses — one row per (caseId, analysisVersion). PK = analysisId.
+// H.0.2: fully immutable once written — see CaseAnalysisProvenanceFields's own comment. No
+// `policyCompliance` field here anymore (moved to sales_intelligence_policy_evaluations).
 // ---------------------------------------------------------------------------
 export interface SalesIntelligenceCaseAnalysisRow extends CaseAnalysisProvenanceFields {
   caseType: CaseType;
@@ -125,24 +144,37 @@ export interface SalesIntelligenceCaseAnalysisRow extends CaseAnalysisProvenance
   pipelineStatus: PipelineStatus;
   overallEvidenceLevel: EvidenceLevel;
 
-  /** First-class, never collapsed into JSON — see design doc on why these stay separate columns. */
-  historicalClosureLevel: HistoricalClosureLevel;
-  commercialConfirmationState: CommercialConfirmationState;
-  protocolApplicability: OrderConfirmationProtocolApplicability;
-
   /**
-   * H.0.1: the ONE field on this immutable-once-superseded row that IS updated in place — see
-   * design doc §7/§16. A policy-date change never creates a new analysisVersion; it recomputes
-   * this struct, in place, on the CURRENT row only, from already-stored `caseEndedAt` +
-   * `protocolApplicability` against the new policy config. `policyConfigVersion` records exactly
-   * which config produced the current value, so "why does this say non_compliant" is always
-   * answerable without guessing which policy row was active.
+   * H.0.2: the identity facts/version actually used WHEN THIS ANALYSIS RAN — an immutable
+   * snapshot, deliberately separate from `sales_intelligence_cases`'s own current/correctable
+   * pointer fields (see that table's module comment). If a customer-identity merge later changes
+   * `sales_intelligence_cases.customer_id`, THIS field on an already-superseded analysis stays
+   * exactly what it was, so "what identity did A1 actually reason with" is always answerable.
    */
-  policyCompliance: {
-    state: ProtocolPolicyComplianceState;
-    policyConfigVersion: number;
-    computedAt: string;
+  identityAtAnalysis: {
+    customerId: string | null;
+    customerPhone: string | null;
+    branchId: string | null;
+    branchNameRaw: string | null;
   };
+
+  caseStartedAt: string;
+  caseEndedAt: string | null;
+
+  /** SEMANTIC FACT — derived purely from conversation content, independent of any policy config. Never mixed with policy-derived state (see design doc's semantic-fact-vs-policy-evaluation split). */
+  historicalClosureLevel: HistoricalClosureLevel;
+  /** SEMANTIC FACT — Phase C's own formal state machine, independent of policy config. */
+  commercialConfirmationState: CommercialConfirmationState;
+  /**
+   * SEMANTIC FACT — whether this case reached a stage where the 4-step protocol is meaningful to
+   * evaluate at all. Derived from the conversation/commercial stage itself (historicalClosure +
+   * commercialConfirmation + caseType), NOT from any policy config or effective date — this is
+   * exactly why it stays here rather than moving to the policy-evaluation table alongside
+   * `protocol_policy_compliance`: applicability is a fact about the CONVERSATION, compliance is a
+   * fact about how that conversation reads AGAINST A POLICY, and only the latter can change
+   * without the conversation itself changing.
+   */
+  protocolApplicability: OrderConfirmationProtocolApplicability;
 
   /** Denormalized read-optimization ONLY — always equal to the current attribution row's own attributionLevel for this analysisId. Never the source of truth; see sales_intelligence_attributions. */
   attributionLevel: ConfidenceLevel;
@@ -170,12 +202,12 @@ export interface SalesIntelligenceCaseAnalysisRow extends CaseAnalysisProvenance
 
 // ---------------------------------------------------------------------------
 // 2. sales_intelligence_case_baskets — immutable version history, provenance-tied to analysisId.
-// disabled_by_default: G.3 observed 0 real multi-version baskets (see design doc §10/§19).
-// H.0.1: `basket_version` (the CaseBasket's own version, from re-editing within one conversation)
-// is a DIFFERENT axis than `analysisId`'s `analysisVersion` (a re-run of the semantic engines).
-// One analysisId can own multiple basket_version rows (v1, v2, ... within that one analysis); a
-// LATER analysisId (a full re-analysis) can reconstruct an entirely different basket history for
-// the same case — both axes are preserved, never conflated.
+// disabled_by_default: G.3 observed 0 real multi-version baskets.
+// `basket_version` (the CaseBasket's own version, from re-editing within one conversation) is a
+// DIFFERENT axis than `analysisId`'s `analysisVersion` (a re-run of the semantic engines). One
+// analysisId can own multiple basket_version rows (v1, v2, ... within that one analysis); a LATER
+// analysisId (a full re-analysis) can reconstruct an entirely different basket history for the
+// same case — both axes are preserved, never conflated.
 // ---------------------------------------------------------------------------
 export interface SalesIntelligenceCaseBasketRow {
   id: string; // surrogate PK
@@ -212,26 +244,34 @@ export interface SalesIntelligenceCaseBasketItemRow {
 // ---------------------------------------------------------------------------
 // 3. sales_intelligence_attributions — one row per (analysisId, evaluationVersion).
 // competing_case_ids is FIRST-CLASS, persisted data, and belongs to THIS EXACT evaluation — never
-// recomputed lazily, and never stored only on the stable case entity (design doc §9/§15): if a
-// later analysisId changes segmentation/attribution, the competing set is recomputed fresh and
-// tied to the NEW evaluation, leaving the old evaluation's set exactly as it was.
+// recomputed lazily, and never stored only on the stable case entity: if a later analysisId
+// changes segmentation/attribution, the competing set is recomputed fresh and tied to the NEW
+// evaluation, leaving the old evaluation's set exactly as it was.
 // ---------------------------------------------------------------------------
 export interface SalesIntelligenceAttributionRow extends AnalysisDependentProvenanceFields {
   /** The attribution engine's OWN version — separate from CaseAnalysisProvenanceFields.engineVersions because attribution can be re-evaluated (customer identity merge, branch mapping fix, new invoice candidates) without a full semantic re-analysis. */
   attributionEngineVersion: string;
   /**
-   * H.0.1: attribution's OWN narrower input hash — covers resolved customer identity (id +
-   * normalized phone), the candidate invoice id set actually used, and branch mapping — NOT the
-   * raw conversation text (that's semanticSourceHash's job) and NOT policy date (irrelevant to
+   * Attribution's OWN narrower input hash — covers resolved customer identity (id + normalized
+   * phone), the candidate invoice id set actually used, and branch mapping — NOT the raw
+   * conversation text (that's semanticSourceHash's job) and NOT policy date (irrelevant to
    * attribution). Changing any of these bumps evaluationVersion, never analysisVersion.
    */
   attributionInputHash: string;
+  /** The identity actually used for THIS evaluation — an immutable snapshot, same discipline as SalesIntelligenceCaseAnalysisRow.identityAtAnalysis, kept separately because attribution can be re-evaluated on a different identity snapshot than the one the semantic analysis itself recorded (e.g. a customer-identity merge lands after the semantic analysis but before attribution is re-run). */
+  identityAtEvaluation: { customerId: string | null; customerPhone: string | null };
 
   selectedInvoiceId: string | null;
   selectedInvoiceNumber: string | null;
   attributionLevel: ConfidenceLevel;
   confidenceScore: number;
 
+  /**
+   * Staff-evaluation safety gate, part 1 of 2 (see module comment on
+   * `StaffEvaluationSafetyRequirement` below for the full rule). Never true for
+   * weakly_inferred/unknown attribution or unresolved ambiguity — unchanged from the engine's own
+   * existing gate in saleAttributionEngine.ts.
+   */
   isOfficialForStaffEvaluation: boolean;
 
   competingCaseIds: string[];
@@ -248,10 +288,10 @@ export interface SalesIntelligenceAttributionRow extends AnalysisDependentProven
 
 // ---------------------------------------------------------------------------
 // 4. sales_intelligence_basket_invoice_matches — one row per (analysisId, evaluationVersion).
-// item-level fields must never imply matching exists while sales_invoice_items_v21 = 0 rows
-// (see design doc §5) — itemEvidenceReady is the structural gate a reader MUST check first.
-// H.0.1: references the specific attribution row it was computed against (matching depends on
-// attribution's selected invoice) — never re-derives or assumes which attribution is "current".
+// item-level fields must never imply matching exists while sales_invoice_items_v21 = 0 rows —
+// itemEvidenceReady is the structural gate a reader MUST check first. References the specific
+// attribution row it was computed against (matching depends on attribution's selected invoice) —
+// never re-derives or assumes which attribution is "current".
 // ---------------------------------------------------------------------------
 export interface SalesIntelligenceBasketInvoiceMatchRow extends AnalysisDependentProvenanceFields {
   /** FK -> SalesIntelligenceAttributionRow.id — the EXACT attribution evaluation this match was computed against, never "whichever is current now". */
@@ -286,14 +326,14 @@ export interface SalesIntelligenceBasketInvoiceMatchRow extends AnalysisDependen
 
 // ---------------------------------------------------------------------------
 // 5. sales_integrity_exceptions — one row per canonical exception PER EVALUATION.
-// disabled_by_default: G.3 observed 0 real exceptions (see design doc §11/§19) because
-// headerEvidenceReady is essentially never true on real data — do not invent semantics for a
-// path that has never actually fired.
-// H.0.1: `exceptionId` is now deterministically derived from (analysisId, evaluationVersion,
-// type, canonical subject) — NEVER from case_id alone. The same LOGICAL exception recurring
-// across two different analyses (A1 and A2) gets two distinct persisted rows; a later evaluation
-// of the SAME analysisId (e.g. once item data appears) also gets its own distinct row rather than
-// overwriting the earlier evaluation's finding.
+// disabled_by_default: G.3 observed 0 real exceptions, root-caused to `headerEvidenceReady`
+// essentially never being true on real data — do not invent semantics for a path that has never
+// actually fired.
+// `exceptionId` is deterministically derived from (analysisId, evaluationVersion, type, canonical
+// subject) — NEVER from case_id alone. The same LOGICAL exception recurring across two different
+// analyses (A1 and A2) gets two distinct persisted rows; a later evaluation of the SAME analysisId
+// (e.g. once item data appears) also gets its own distinct row rather than overwriting the earlier
+// evaluation's finding.
 // ---------------------------------------------------------------------------
 export interface SalesIntegrityExceptionRow extends AnalysisDependentProvenanceFields {
   /** Deterministic: hash(analysisId + evaluationVersion + type + canonicalSubject). See module comment above. */
@@ -303,7 +343,7 @@ export interface SalesIntegrityExceptionRow extends AnalysisDependentProvenanceF
   type: SalesIntegrityExceptionType;
   stage: SalesIntegrityStage;
   severity: SalesIntegritySeverity;
-  /** Engine output is always 'open' at write time — see human-review lifecycle (design doc §13) for how this can change AFTER persistence, via a separate table, never by mutating this row. */
+  /** Engine output is always 'open' at write time — see human-review lifecycle for how this can change AFTER persistence, via a separate table, never by mutating this row. */
   status: 'open' | 'reviewed' | 'resolved' | 'dismissed';
 
   summary: string;
@@ -331,32 +371,66 @@ export interface SalesIntegrityExceptionRow extends AnalysisDependentProvenanceF
 }
 
 // ---------------------------------------------------------------------------
-// 6. sales_intelligence_policy_config — one canonical config row (see design doc §7/§12/§16).
-// Historical facts (historicalClosureLevel, commercialConfirmationState, protocolApplicability)
-// never depend on this row — only SalesIntelligenceCaseAnalysisRow.policyCompliance does, and only
-// its `state`/`policyConfigVersion`/`computedAt` sub-fields, updated in place (the one deliberate
-// exception to "rows are never mutated after write" — see CaseAnalysisProvenanceFields).
+// 6. sales_intelligence_policy_config — H.0.2: now APPEND-ONLY/VERSIONED, never a single mutable
+// row. Every change to the policy (effective date, enabled flag, or the underlying protocol-step
+// requirements) creates a NEW row with a new `policyConfigId`/`policyConfigVersion`; the previous
+// row is marked `isCurrent = false`/`supersededAt` and kept forever, exactly like case_analyses.
+// This is what makes "which policy config produced this evaluation" a stable, permanent fact
+// rather than a lookup into a value that may since have been overwritten.
 // ---------------------------------------------------------------------------
 export interface SalesIntelligencePolicyConfigRow {
-  id: string; // singleton row id, e.g. 'default'
-  enabled: boolean;
+  policyConfigId: string; // uuid PK — the real, permanent identity of one specific config.
+  policyConfigVersion: number; // monotonic global counter, human-readable alongside policyConfigId.
   /** null == "opted in, no date configured yet" (matches deriveProtocolPolicyComplianceState's own `null` semantics) — never a guessed/default date. */
   protocolPolicyEffectiveAt: string | null;
-  /** H.0.1: distinct from the pipeline/engine semantic version — this increments only when the POLICY itself (date, or the underlying protocol-step requirements) changes, never when engine code changes. */
-  policyConfigVersion: number;
-  updatedAt: string;
-  updatedBy: string; // staff/user id — never a raw name string.
+  enabled: boolean;
+  /** When THIS config version itself became the active one — distinct from protocolPolicyEffectiveAt, which is the date historical CASES are compared against, not when the config row was created. */
+  effectiveFrom: string;
+  supersededAt: string | null;
+  isCurrent: boolean;
+  createdAt: string;
+  createdBy: string; // staff/user id — never a raw name string.
 }
 
 // ---------------------------------------------------------------------------
-// 7. sales_intelligence_review_events — human-review lifecycle, kept SEPARATE from engine output
-// (design doc §13). H.0.1: now carries BOTH `caseId` and `analysisId` explicitly, so a review is
-// permanently pinned to the exact analysis a manager actually looked at. If a later analysisId
-// becomes current, the review is NEVER silently transferred — a reader compares this row's
-// `analysisId` against the case's current `analysisId` (via sales_intelligence_cases /
-// sales_intelligence_current_case_analyses) to derive `reviewed_analysis_superseded` at READ time;
-// no such column is stored here, since it is fully derivable and would otherwise need updating
-// every time a new analysis lands (a write-amplification pattern this design avoids elsewhere too).
+// 6b. sales_intelligence_policy_evaluations — H.0.2 NEW TABLE. The derived POLICY-EVALUATION
+// output that H.0.1 mistakenly still stored in-place on the immutable case_analyses row. This is
+// NOT another semantic analysis: it is a lightweight, versioned evaluation of ONE immutable
+// analysis (`analysisId`) under ONE immutable policy config (`policyConfigId`). See design doc's
+// "Phase H.0.2" section for the full policy-change lifecycle this enables:
+//   Analysis A1 evaluated under Policy P1 -> Evaluation E1 (not_enforced, say).
+//   Policy changes to P2 -> a NEW Evaluation E2 is created for the SAME A1 (e.g. non_compliant).
+//   E1 remains, forever, exactly as it was — "what was visible under P1" stays answerable.
+// A NEW analysis (A2, from an unrelated raw-text change) gets evaluated against whichever policy
+// config is CURRENT at that time, producing its own initial evaluation — the two timelines
+// (semantic re-analysis vs. policy re-evaluation) never interfere with each other.
+// ---------------------------------------------------------------------------
+export interface SalesIntelligencePolicyEvaluationRow {
+  policyEvaluationId: string; // uuid PK
+  analysisId: string; // FK -> sales_intelligence_case_analyses.analysis_id — the exact IMMUTABLE analysis being evaluated. Never changes for this row once written.
+  caseId: string; // redundant, indexed, for debugging/filtering only — never the FK.
+  policyConfigId: string; // FK -> sales_intelligence_policy_config.policy_config_id — the exact IMMUTABLE config version used.
+  policyConfigVersion: number; // denormalized copy of the config's own version number, for cheap display without a join.
+  /** Snapshot of the config's own effective date AT THE TIME this evaluation ran — denormalized for the same reason as policyConfigVersion (the config row itself is immutable too, so this never drifts, but keeping it here avoids a join for the single most commonly displayed field). */
+  protocolPolicyEffectiveAt: string | null;
+  /** Copied from the analysis at evaluation time, for audit/display convenience — NEVER authoritative; sales_intelligence_case_analyses.protocolApplicability is the one true source. */
+  protocolApplicability: OrderConfirmationProtocolApplicability;
+  /** POLICY-DERIVED EVALUATION — the one field this whole table exists to hold. */
+  protocolPolicyCompliance: ProtocolPolicyComplianceState;
+  evaluationVersion: number; // monotonic within analysisId, scoped to policy evaluations specifically (independent of attribution's/matching's own evaluationVersion counters).
+  /** Deterministic hash of (analysisId's protocolApplicability + caseEndedAt + policyConfigId) — the exact inputs this evaluation was computed from. */
+  policyInputHash: string;
+  isCurrent: boolean;
+  evaluatedAt: string;
+  supersededAt: string | null;
+  supersededByPolicyEvaluationId: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// 7. sales_intelligence_review_events — human-review lifecycle, kept SEPARATE from engine output.
+// H.0.2: adds `policyEvaluationId` so a review of a policy-compliance finding stays pinned to the
+// exact policy evaluation (E1), never silently reassigned when a later evaluation (E2) becomes
+// current — same discipline as `analysisId` already had in H.0.1, now extended to this new axis.
 // ---------------------------------------------------------------------------
 export type ReviewSubjectKind =
   | 'attribution_ambiguity'
@@ -364,7 +438,8 @@ export type ReviewSubjectKind =
   | 'branch_conflict'
   | 'integrity_exception'
   | 'case_segmentation_ambiguity'
-  | 'basket_conflict';
+  | 'basket_conflict'
+  | 'policy_compliance_finding';
 
 export type ReviewEventStatus = 'open' | 'reviewed' | 'resolved' | 'dismissed';
 
@@ -372,14 +447,14 @@ export interface SalesIntelligenceReviewEventRow {
   eventId: string;
   caseId: string; // kept for cross-analysis lookup ("show me every review this case has ever had").
   analysisId: string; // the EXACT analysis reviewed — pinned permanently, never updated to a newer analysisId.
+  /** Set only when subjectKind === 'policy_compliance_finding' — pins the review to the EXACT policy evaluation (E1) a manager looked at. Never reassigned to a later evaluation (E2) — see design doc §7. */
+  policyEvaluationId: string | null;
   subjectKind: ReviewSubjectKind;
   /**
-   * Points at the specific row this review concerns (an attribution row id, a match row id, or an
-   * exceptionId) — no single DB-level FK type fits every subject kind, so referential integrity
-   * is preserved by convention (subjectKind disambiguates which table subjectRowId belongs to)
-   * rather than a native FK. See design doc §13 for why a fully-normalized per-kind FK set was
-   * rejected (it would require a separate nullable FK column per subject kind, all-but-one always
-   * null, for a marginal integrity gain over a documented, narrowly-enumerated subjectKind).
+   * Points at the specific row this review concerns (an attribution row id, a match row id, an
+   * exceptionId, or a policyEvaluationId) — no single DB-level FK type fits every subject kind, so
+   * referential integrity is preserved by convention (subjectKind disambiguates which table
+   * subjectRowId belongs to) rather than a native FK.
    */
   subjectRowId: string;
   status: ReviewEventStatus;
@@ -390,16 +465,45 @@ export interface SalesIntelligenceReviewEventRow {
 }
 
 // ---------------------------------------------------------------------------
-// Convenience read views — DESIGN ONLY, implemented as SQL VIEWs in H.1, never base tables and
-// never a place new facts are written. See design doc §6. Same row shape as the underlying table,
-// filtered/joined to "current" rows only, so a dashboard query never has to know about versioning.
+// Staff-evaluation safety — H.0.2 makes this STRUCTURALLY queryable rather than a UI convention
+// (per the explicit instruction). Any future staff-KPI consumer MUST join through BOTH gates
+// below; neither alone is sufficient. This type documents the join shape a real query/view would
+// need to implement — it is not itself a table, just the contract H.1B's writers and any future
+// KPI reader must honor.
+//
+// Concretely: "historical closure strongly_inferred" + "policy evaluation not_enforced" must NEVER
+// become a protocol penalty, because gate 2 (currentPolicyEvaluation.protocolPolicyCompliance)
+// is 'not_enforced', not 'non_compliant' — a KPI consumer that only checked gate 1
+// (attribution.isOfficialForStaffEvaluation, or worse, historicalClosureLevel directly) would miss
+// this and wrongly penalize. Both gates are required, always, with no exception.
+// ---------------------------------------------------------------------------
+export interface StaffEvaluationSafetyRequirement {
+  /** Gate 1: correct/official semantic evidence. Must be true. */
+  attributionIsOfficialForStaffEvaluation: boolean;
+  /** Gate 2: a CURRENT, ENFORCED policy evaluation. Must equal 'compliant' or 'non_compliant' — 'not_enforced'/'not_applicable'/'not_reached'/'unknown' must NEVER be read as, or silently treated as equivalent to, a violation. */
+  currentPolicyEvaluationCompliance: ProtocolPolicyComplianceState;
+}
+
+/** True only when BOTH structural gates hold — the ONLY condition under which a case may ever contribute to a staff protocol-compliance KPI. */
+export function isActionableForStaffProtocolKpi(gates: StaffEvaluationSafetyRequirement): boolean {
+  return (
+    gates.attributionIsOfficialForStaffEvaluation &&
+    (gates.currentPolicyEvaluationCompliance === 'compliant' || gates.currentPolicyEvaluationCompliance === 'non_compliant')
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Convenience read views — DESIGN ONLY, implemented as SQL VIEWs in H.1A, never base tables and
+// never a place new facts are written. Same row shape as the underlying table, filtered/joined to
+// "current" rows only, so a dashboard query never has to know about versioning.
 // ---------------------------------------------------------------------------
 export type SalesIntelligenceCurrentCaseAnalysisRow = SalesIntelligenceCaseAnalysisRow; // view: WHERE is_current = true
 export type SalesIntelligenceCurrentAttributionRow = SalesIntelligenceAttributionRow; // view: JOIN current case_analyses, WHERE is_current_evaluation = true
+export type SalesIntelligenceCurrentPolicyEvaluationRow = SalesIntelligencePolicyEvaluationRow; // view: WHERE is_current = true, joined against current case_analyses via analysis_id
 
 // ---------------------------------------------------------------------------
-// Feature flags — see design doc §15. All default OFF except case-analysis persistence itself,
-// which is "enabled only after review" (i.e. also starts false until a human turns it on).
+// Feature flags — all default OFF except case-analysis persistence itself, which is "enabled only
+// after review" (i.e. also starts false until a human turns it on).
 // ---------------------------------------------------------------------------
 export interface SalesIntelligenceFeatureFlags {
   caseAnalysisPersistenceEnabled: boolean;
@@ -418,7 +522,7 @@ export const DEFAULT_SALES_INTELLIGENCE_FEATURE_FLAGS: SalesIntelligenceFeatureF
 };
 
 // ---------------------------------------------------------------------------
-// Batch pipeline contracts — see design doc §8. Pure shape only; no I/O here.
+// Batch pipeline contracts. Pure shape only; no I/O here.
 // ---------------------------------------------------------------------------
 export interface CaseBatchGroup {
   customerId: string | null;
@@ -430,10 +534,9 @@ export interface CaseBatchGroup {
 }
 
 /**
- * The output of step 6 in the batch pipeline (design doc §8) — cross-case competing-selection
- * resolution, computed ONCE per batch, BEFORE any attribution row is persisted. Mirrors the G.3
- * shadow harness's own two-pass pattern, but as a real batch-time step instead of a validation-only
- * harness.
+ * The output of the batch pipeline's cross-case competing-selection resolution step, computed
+ * ONCE per batch, BEFORE any attribution row is persisted. Mirrors the G.3 shadow harness's own
+ * two-pass pattern, but as a real batch-time step instead of a validation-only harness.
  */
 export interface CompetingCaseResolution {
   invoiceId: string;
@@ -441,9 +544,13 @@ export interface CompetingCaseResolution {
 }
 
 // ---------------------------------------------------------------------------
-// Reprocessing-trigger vocabulary — see design doc "Reprocessing matrix". A pure enum + the
-// decision it maps to, so the (future) reprocessing job's dispatch logic has a typed contract to
-// implement against rather than re-deriving this table from prose each time.
+// Reprocessing-trigger vocabulary. A pure enum + the decision it maps to, so the (future)
+// reprocessing job's dispatch logic has a typed contract to implement against rather than
+// re-deriving this table from prose each time.
+//
+// H.0.2: `policy_effective_date_changed` and `protocol_policy_version_changed` now both map to
+// `policy_evaluation_only` (a NEW SalesIntelligencePolicyEvaluationRow, never a mutation of
+// case_analyses) rather than the old `compliance_only` in-place-mutation scope.
 // ---------------------------------------------------------------------------
 export type ReprocessingTrigger =
   | 'raw_conversation_changed'
@@ -460,7 +567,7 @@ export type ReprocessingScope =
   | 'full_semantic_reanalysis' // new sales_intelligence_case_analyses row (new analysisId)
   | 'attribution_only' // new sales_intelligence_attributions evaluation, same analysisId
   | 'matching_integrity_only' // new basket_invoice_matches / sales_integrity_exceptions evaluation, same analysisId, same attribution row
-  | 'compliance_only' // in-place update of case_analyses.policyCompliance only, no new row anywhere
+  | 'policy_evaluation_only' // new sales_intelligence_policy_evaluations row, same analysisId — case_analyses is NEVER mutated (H.0.2 fix)
   | 'stable_case_identity_review_required'; // segmentation logic changed enough that sales_intelligence_cases rows themselves may need to be added/retired — never automatic, always a flagged batch-review step.
 
 export const REPROCESSING_MATRIX: Record<ReprocessingTrigger, ReprocessingScope> = {
@@ -471,6 +578,6 @@ export const REPROCESSING_MATRIX: Record<ReprocessingTrigger, ReprocessingScope>
   invoice_candidates_updated: 'attribution_only',
   invoice_item_data_appeared: 'matching_integrity_only',
   semantic_pipeline_version_changed: 'full_semantic_reanalysis',
-  policy_effective_date_changed: 'compliance_only',
+  policy_effective_date_changed: 'policy_evaluation_only',
   protocol_policy_version_changed: 'full_semantic_reanalysis',
 };
