@@ -9,6 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { createNotification } from '@/lib/notificationService';
 import { normalizeBranchName } from '@/lib/branch';
 import { canSeeAllBranches } from '@/lib/security/permissionScopes';
+import { canManageBiometricOperations } from '@/lib/core/permissionSystem';
 import { listPendingOvertime } from '@/lib/attendance/attendanceBreakdownService';
 import { listStaffTimeOffRequests } from '@/lib/timeOffService';
 import { lazy, Suspense } from 'react';
@@ -144,7 +145,6 @@ function settledCount(result: PromiseSettledResult<any>): number | null {
 }
 
 const MANAGER_TODAY_ROLES = new Set(['admin', 'general_manager', 'executive_manager', 'branches_manager', 'branch_manager', 'shift_supervisor_morning', 'shift_supervisor_evening']);
-const SYNC_HEALTH_ROLES = new Set(['admin', 'general_manager', 'executive_manager', 'branches_manager']);
 
 // Backward-compatible aliases so old deep links (?tab=resolution, ?tab=sync, ...) still land
 // on the right place after tabs were grouped under 'decisions'/'system'/'clock'.
@@ -228,7 +228,8 @@ export default function AttendanceReport() {
   const canAllBranches = canSeeAllBranches(user?.role);
   const normalizedUserBranch = normalizeBranchName(user?.branch || '');
   const isOperationalManager = MANAGER_TODAY_ROLES.has(user?.role || '');
-  const canViewSyncHealth = SYNC_HEALTH_ROLES.has(user?.role || '');
+  const canViewSyncHealth = canManageBiometricOperations(user?.role);
+  const canViewSystem = isOperationalManager;
   const canViewTimeOff = checkPermission('view_attendance_leaves') || canManage;
   const showDashboard = isOperationalManager || canViewTimeOff || canViewSyncHealth;
   const showDecisions = isOperationalManager || canViewTimeOff;
@@ -237,7 +238,7 @@ export default function AttendanceReport() {
     const allowed: Tab[] = ['report', 'clock'];
     if (isOperationalManager) allowed.push('dashboard', 'daily');
     if (showDecisions) allowed.push('decisions');
-    if (canViewSyncHealth) allowed.push('system');
+    if (canViewSystem) allowed.push('system');
     if (requestedAlias && allowed.includes(requestedAlias.tab)) return requestedAlias.tab;
     return isOperationalManager ? 'dashboard' : 'clock';
   });
@@ -246,11 +247,12 @@ export default function AttendanceReport() {
     if (isOperationalManager) return 'resolution';
     return 'timeoff';
   });
-  const [systemSubTab, setSystemSubTab] = useState<SystemSubTab>(() => requestedAlias?.systemSub || 'sync');
-  const [reportSubTabState, setReportSubTab] = useState<ReportSubTab>(() => searchParams.get('section') === 'payroll-truth' ? 'payroll-truth' : 'overview');
-  const reportSubTab: ReportSubTab = searchParams.get('section') === 'payroll-truth' ? 'payroll-truth' : reportSubTabState;
+  const [systemSubTabState, setSystemSubTab] = useState<SystemSubTab>(() => requestedAlias?.systemSub || (canViewSyncHealth ? 'sync' : 'cross-branch'));
+  const systemSubTab: SystemSubTab = canViewSyncHealth || !['sync', 'unmapped'].includes(systemSubTabState)
+    ? systemSubTabState : 'cross-branch';
+  const reportSubTab: ReportSubTab = searchParams.get('section') === 'payroll-truth' ? 'payroll-truth' : 'overview';
   const [resolutionFocusDate, setResolutionFocusDate] = useState<string | null>(null);
-  const [resolutionFocusTriage, setResolutionFocusTriage] = useState<'all' | 'manager' | 'system'>('manager');
+  const [resolutionFocusTriage, setResolutionFocusTriage] = useState<'all' | 'manager' | 'system'>(() => searchParams.get('triage') === 'system' ? 'system' : 'manager');
   const [clockSubView, setClockSubView] = useState<ClockSubView>(() => requestedAlias?.clockSub || 'clock');
   const [dailyDate, setDailyDate] = useState(cairoDate());
   const [branchFilter, setBranchFilter] = useState(() => (canAllBranches ? 'الكل' : normalizedUserBranch || 'الكل'));
@@ -286,13 +288,14 @@ export default function AttendanceReport() {
   const allowedTabs: Tab[] = ['report', 'clock'];
   if (isOperationalManager) allowedTabs.push('dashboard', 'daily');
   if (showDecisions) allowedTabs.push('decisions');
-  if (canViewSyncHealth) allowedTabs.push('system');
+  if (canViewSystem) allowedTabs.push('system');
   const activeTab = requestedAlias && allowedTabs.includes(requestedAlias.tab) ? requestedAlias.tab : tab;
-  const setTab = (next: Tab) => {
+  const setTab = (next: Tab, sub?: DecisionSubTab | SystemSubTab) => {
     setTabState(next);
     setSearchParams((params) => {
       const updated = new URLSearchParams(params);
-      updated.set('tab', next);
+      updated.set('tab', next === 'decisions' ? (sub || decisionSubTab) : next === 'system' ? (sub || systemSubTab) : next);
+      if (next !== 'report') updated.delete('section');
       return updated;
     }, { replace: true });
   };
@@ -302,14 +305,18 @@ export default function AttendanceReport() {
     const allowed: Tab[] = ['report', 'clock'];
     if (isOperationalManager) allowed.push('dashboard', 'daily');
     if (showDecisions) allowed.push('decisions');
-    if (canViewSyncHealth) allowed.push('system');
+    if (canViewSystem) allowed.push('system');
     if (!allowed.includes(destination.tab)) return;
+    if (destination.systemSub && !canViewSyncHealth && ['sync', 'unmapped'].includes(destination.systemSub)) {
+      setSearchParams((params) => { const updated = new URLSearchParams(params); updated.set('tab', 'cross-branch'); return updated; }, { replace: true });
+      return;
+    }
     setTabState(destination.tab);
     if (destination.decisionSub) setDecisionSubTab(destination.decisionSub);
     if (destination.systemSub) setSystemSubTab(destination.systemSub);
     if (destination.clockSub) setClockSubView(destination.clockSub);
     document.querySelector('main')?.scrollTo({ top: 0, behavior: 'instant' });
-  }, [requestedTab, isOperationalManager, showDecisions, canViewSyncHealth]);
+  }, [requestedTab, isOperationalManager, showDecisions, canViewSystem, canViewSyncHealth, setSearchParams]);
 
   const userId = user?.staffId || user?.id || null;
   const userName = user?.name || 'غير محدد';
@@ -421,25 +428,25 @@ export default function AttendanceReport() {
         canViewTimeOff ? listStaffTimeOffRequests({ status: 'pending', limit: 200 }) : Promise.resolve(null),
       ]);
 
-      const triage = triageResult.status === 'fulfilled' && triageResult.value && !triageResult.value.error
-        ? ((triageResult.value.data || {}) as Record<string, unknown>)
-        : {};
+      const triage = triageResult.status === 'fulfilled' && triageResult.value && !triageResult.value.error && triageResult.value.data
+        ? (triageResult.value.data as Record<string, unknown>)
+        : null;
 
       setApprovalsSummary({
-        pendingResolutions: isOperationalManager ? Number(triage.needs_manager_decision || 0) : null,
-        systemInterpretation: isOperationalManager ? Number(triage.system_interpretation || 0) : null,
-        systemPairable: isOperationalManager ? Number(triage.system_pairable || 0) : null,
-        trueNoPunch: isOperationalManager ? Number(triage.true_no_punch || 0) : null,
-        singlePunch: isOperationalManager ? Number(triage.single_punch || 0) : null,
-        scheduleIssues: isOperationalManager ? Number(triage.schedule_issues || 0) : null,
-        totalPending: isOperationalManager ? Number(triage.total_pending || 0) : null,
+        pendingResolutions: isOperationalManager && triage ? Number(triage.needs_manager_decision || 0) : null,
+        systemInterpretation: isOperationalManager && triage ? Number(triage.system_interpretation || 0) : null,
+        systemPairable: isOperationalManager && triage ? Number(triage.system_pairable || 0) : null,
+        trueNoPunch: isOperationalManager && triage ? Number(triage.true_no_punch || 0) : null,
+        singlePunch: isOperationalManager && triage ? Number(triage.single_punch || 0) : null,
+        scheduleIssues: isOperationalManager && triage ? Number(triage.schedule_issues || 0) : null,
+        totalPending: isOperationalManager && triage ? Number(triage.total_pending || 0) : null,
         pendingDeductions: isOperationalManager ? settledCount(deductionResult) : null,
         pendingOvertime: isOperationalManager ? settledCount(overtimeResult) : null,
         pendingTimeOff: canViewTimeOff ? settledCount(timeOffResult) : null,
-        unmappedBiometrics: canViewSyncHealth ? Number(triage.unmapped_active_codes || 0) : null,
-        unmappedEvents: canViewSyncHealth ? Number(triage.unmapped_events || 0) : null,
-        crossBranchEvents: canViewSyncHealth ? Number(triage.cross_branch_events || 0) : null,
-        crossBranchStaff: canViewSyncHealth ? Number(triage.cross_branch_staff || 0) : null,
+        unmappedBiometrics: canViewSyncHealth && triage ? Number(triage.unmapped_active_codes || 0) : null,
+        unmappedEvents: canViewSyncHealth && triage ? Number(triage.unmapped_events || 0) : null,
+        crossBranchEvents: isOperationalManager && triage ? Number(triage.cross_branch_events || 0) : null,
+        crossBranchStaff: isOperationalManager && triage ? Number(triage.cross_branch_staff || 0) : null,
       });
     } finally {
       setLoadingSummary(false);
@@ -522,7 +529,7 @@ export default function AttendanceReport() {
 
   function openDecision(sub: DecisionSubTab, triage: 'all' | 'manager' | 'system' = 'manager') {
     setResolutionFocusTriage(triage);
-    setTab('decisions');
+    setTab('decisions', sub);
     setDecisionSubTab(sub);
   }
 
@@ -552,7 +559,7 @@ export default function AttendanceReport() {
 
   return (
     <div className="dawaa-text dawaa-print-surface space-y-6 print:space-y-4" dir="rtl">
-      <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-5 shadow-sm print:hidden"><div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"><div><h1 className="text-2xl font-black text-[var(--dawaa-theme-heading)]">الحضور والوقت</h1><p className="mt-1 text-sm font-bold text-[var(--dawaa-theme-muted)]">إدارة الحضور الفعلي والجداول والاستثناءات والبصمة من مكان واحد. الحالات السليمة تمر تلقائيًا، وما يحتاج تدخلك فقط يظهر في صندوق المراجعة.</p></div><Tabs value={activeTab} onValueChange={(v) => setTab(v as Tab)} dir="rtl"><TabsList className="h-auto flex-wrap justify-start gap-1.5 rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-1.5">{isOperationalManager && <TabsTrigger value="dashboard" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><LayoutDashboard size={16} /> نظرة عامة</TabsTrigger>}{isOperationalManager && <TabsTrigger value="daily" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><Users size={16} /> متابعة اليوم</TabsTrigger>}{showDecisions && <TabsTrigger value="decisions" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><ClipboardCheck size={16} /> صندوق المراجعة <TabBadge value={decisionsBadge} /></TabsTrigger>}<TabsTrigger value="report" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><Filter size={16} /> سجل الحضور</TabsTrigger>{canViewSyncHealth && <TabsTrigger value="system" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><Fingerprint size={16} /> إدارة البصمة <TabBadge value={approvalsSummary?.unmappedBiometrics} /></TabsTrigger>}<TabsTrigger value="clock" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><Clock size={16} /> حضوري</TabsTrigger></TabsList></Tabs></div></div>
+      <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-5 shadow-sm print:hidden"><div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"><div><h1 className="text-2xl font-black text-[var(--dawaa-theme-heading)]">الحضور والوقت</h1><p className="mt-1 text-sm font-bold text-[var(--dawaa-theme-muted)]">إدارة الحضور الفعلي والجداول والاستثناءات والبصمة من مكان واحد. الحالات السليمة تمر تلقائيًا، وما يحتاج تدخلك فقط يظهر في صندوق المراجعة.</p></div><Tabs value={activeTab} onValueChange={(v) => setTab(v as Tab)} dir="rtl"><TabsList className="h-auto flex-wrap justify-start gap-1.5 rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-1.5">{isOperationalManager && <TabsTrigger value="dashboard" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><LayoutDashboard size={16} /> نظرة عامة</TabsTrigger>}{isOperationalManager && <TabsTrigger value="daily" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><Users size={16} /> متابعة اليوم</TabsTrigger>}{showDecisions && <TabsTrigger value="decisions" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><ClipboardCheck size={16} /> صندوق المراجعة <TabBadge value={decisionsBadge} /></TabsTrigger>}<TabsTrigger value="report" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><Filter size={16} /> سجل الحضور</TabsTrigger>{canViewSystem && <TabsTrigger value="system" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><Fingerprint size={16} /> إدارة البصمة <TabBadge value={approvalsSummary?.unmappedBiometrics} /></TabsTrigger>}<TabsTrigger value="clock" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><Clock size={16} /> حضوري</TabsTrigger></TabsList></Tabs></div></div>
       {error && <div className="rounded-xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-4 text-sm font-bold text-[var(--dawaa-status-danger-text)]">⚠️ {error}</div>}
 
       {activeTab === 'dashboard' && <>
@@ -573,8 +580,8 @@ export default function AttendanceReport() {
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {isOperationalManager && <DecisionTile label="يحتاج قرارك فعلًا" hint={`${approvalsSummary?.trueNoPunch || 0} بدون بصمة · ${approvalsSummary?.singlePunch || 0} بصمة واحدة · ${approvalsSummary?.scheduleIssues || 0} مشكلة جدول`} value={approvalsSummary?.pendingResolutions ?? null} icon={ShieldAlert} onClick={() => openDecision('resolution', 'manager')} />}
             {isOperationalManager && <DecisionTile label="مشكلة تفسير نظام" hint={`${(approvalsSummary?.systemPairable || 0) + (approvalsSummary?.systemInterpretation || 0)} حالة عندها أكثر من بصمة — لا تعتبر خطأ موظف`} value={(approvalsSummary?.systemPairable || 0) + (approvalsSummary?.systemInterpretation || 0)} icon={AlertTriangle} onClick={() => openDecision('resolution', 'system')} />}
-            {canViewSyncHealth && <DecisionTile label="أكواد نشطة غير مربوطة" hint={`${approvalsSummary?.unmappedEvents || 0} بصمة متأثرة في الدورة الحالية`} value={approvalsSummary?.unmappedBiometrics ?? null} icon={Fingerprint} onClick={() => { setTab('system'); setSystemSubTab('unmapped'); }} />}
-            {canViewSyncHealth && <DecisionTile label="بصمات من فرع آخر" hint={`${approvalsSummary?.crossBranchStaff || 0} موظفين — معلومة رقابية وليست خطأ`} value={approvalsSummary?.crossBranchEvents ?? null} icon={MapPin} onClick={() => { setTab('system'); setSystemSubTab('cross-branch'); }} />}
+            {canViewSyncHealth && <DecisionTile label="أكواد نشطة غير مربوطة" hint={`${approvalsSummary?.unmappedEvents ?? 'غير متاح'} بصمة متأثرة في الدورة الحالية`} value={approvalsSummary?.unmappedBiometrics ?? null} icon={Fingerprint} onClick={() => { setSystemSubTab('unmapped'); setTab('system', 'unmapped'); }} />}
+            {isOperationalManager && <DecisionTile label="بصمات من فرع آخر" hint={`${approvalsSummary?.crossBranchStaff ?? 'غير متاح'} موظفين — معلومة رقابية وليست خطأ`} value={approvalsSummary?.crossBranchEvents ?? null} icon={MapPin} onClick={() => { setSystemSubTab('cross-branch'); setTab('system', 'cross-branch'); }} />}
           </div>
           <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {isOperationalManager && <DecisionTile label="خصومات حضور بانتظار اعتمادك" hint="لا تؤثر على رصيد أي موظف قبل قرارك" value={approvalsSummary?.pendingDeductions ?? null} icon={AlertTriangle} onClick={() => openDecision('resolution', 'manager')} />}
@@ -602,7 +609,7 @@ export default function AttendanceReport() {
 
       {activeTab === 'report' && (
         <>
-          <Tabs value={reportSubTab} onValueChange={(v) => { setReportSubTab(v as ReportSubTab); setSearchParams((params) => { const updated = new URLSearchParams(params); if (v === 'payroll-truth') updated.set('section', v); else updated.delete('section'); return updated; }, { replace: true }); }} dir="rtl">
+          <Tabs value={reportSubTab} onValueChange={(v) => { setSearchParams((params) => { const updated = new URLSearchParams(params); if (v === 'payroll-truth') updated.set('section', v); else updated.delete('section'); return updated; }, { replace: true }); }} dir="rtl">
             <TabsList className="h-auto flex-wrap justify-start gap-1.5 rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-1.5">
               <TabsTrigger value="overview" className="rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white">سجل وتحليل الدورة</TabsTrigger>
               <TabsTrigger value="payroll-truth" className="rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white">جاهزية الحضور للمرتب</TabsTrigger>
@@ -625,7 +632,7 @@ export default function AttendanceReport() {
               onOpenResolutions={(date) => {
                 setResolutionFocusDate(date);
                 setResolutionFocusTriage('manager');
-                setTab('decisions');
+                setTab('decisions', 'resolution');
                 setDecisionSubTab('resolution');
               }}
             />
@@ -641,8 +648,8 @@ export default function AttendanceReport() {
           {systemSubTab === 'schedules' && <p><b className="text-[var(--dawaa-theme-heading)]">جودة الجداول:</b> تعرض الأيام التي يصعب فيها تفسير البصمات بسبب جدول ناقص أو متعارض. صحح الجدول أولًا ثم راجع الحضور الناتج عنه.</p>}
         </div>
         <Tabs value={systemSubTab} onValueChange={(v) => { setSystemSubTab(v as SystemSubTab); setSearchParams((params) => { const updated = new URLSearchParams(params); updated.set('tab', v); return updated; }, { replace: true }); }} dir="rtl"><TabsList className="h-auto flex-wrap justify-start gap-1.5 rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-1.5">
-          <TabsTrigger value="sync" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><Fingerprint size={16} /> صحة الأجهزة والمزامنة</TabsTrigger>
-          <TabsTrigger value="unmapped" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><UserCheck size={16} /> أكواد تحتاج ربط <TabBadge value={approvalsSummary?.unmappedBiometrics} /></TabsTrigger><TabsTrigger value="cross-branch" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><MapPin size={16} /> العمل بين الفروع <TabBadge value={approvalsSummary?.crossBranchStaff} /></TabsTrigger><TabsTrigger value="schedules" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><CalendarClock size={16} /> جودة الجداول</TabsTrigger>
+          {canViewSyncHealth && <TabsTrigger value="sync" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><Fingerprint size={16} /> صحة الأجهزة والمزامنة</TabsTrigger>}
+          {canViewSyncHealth && <TabsTrigger value="unmapped" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><UserCheck size={16} /> أكواد تحتاج ربط <TabBadge value={approvalsSummary?.unmappedBiometrics} /></TabsTrigger>}<TabsTrigger value="cross-branch" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><MapPin size={16} /> العمل بين الفروع <TabBadge value={approvalsSummary?.crossBranchStaff} /></TabsTrigger><TabsTrigger value="schedules" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><CalendarClock size={16} /> جودة الجداول</TabsTrigger>
         </TabsList></Tabs>
         {systemSubTab === 'sync' && <Suspense fallback={<TableSkeleton />}><AttendanceSyncCommandCenter branches={branches} defaultBranch={effectiveBranch} /></Suspense>}
         {systemSubTab === 'unmapped' && <>

@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { normalizeBranchName } from '@/lib/branch';
 import { canSeeAllBranches } from '@/lib/security/permissionScopes';
+import { canManageBiometricOperations } from '@/lib/core/permissionSystem';
 
 function cairoToday() {
   return new Intl.DateTimeFormat('en-CA', {
@@ -63,12 +64,15 @@ function QualityCard({
 }
 
 export default function HRDataQuality() {
-  const { user } = useAuth();
+  const { user, checkPermission } = useAuth();
+  const canManageBiometrics = canManageBiometricOperations(user?.role);
   const today = cairoToday();
   const start = cycleStartFor(today);
   const branch = canSeeAllBranches(user?.role) ? null : normalizeBranchName(user?.branch || '') || null;
 
   const [loading, setLoading] = useState(false);
+  const [triageAvailable, setTriageAvailable] = useState(false);
+  const [opsAvailable, setOpsAvailable] = useState(false);
   const [stats, setStats] = useState({
     scheduleIssues: 0,
     systemInterpretation: 0,
@@ -84,10 +88,14 @@ export default function HRDataQuality() {
     try {
       const [triageResult, opsResult] = await Promise.all([
         supabase.rpc('attendance_review_triage_v1', { p_start: start, p_end: today, p_branch: branch }),
-        supabase.rpc('attendance_biometric_operations_v3'),
+        canManageBiometrics ? supabase.rpc('attendance_biometric_operations_v3') : Promise.resolve(null),
       ]);
-      const triage = !triageResult.error ? ((triageResult.data || {}) as Record<string, unknown>) : {};
-      const ops = !opsResult.error ? ((opsResult.data || {}) as Record<string, any>) : {};
+      const triageOk = !triageResult.error && !!triageResult.data;
+      const opsOk = !!opsResult && !opsResult.error && !!opsResult.data;
+      setTriageAvailable(triageOk);
+      setOpsAvailable(opsOk);
+      const triage = triageOk ? (triageResult.data as Record<string, unknown>) : {};
+      const ops = opsOk ? (opsResult.data as Record<string, any>) : {};
       setStats({
         scheduleIssues: Number(triage.schedule_issues || 0),
         systemInterpretation: Number(triage.system_interpretation || 0),
@@ -97,10 +105,13 @@ export default function HRDataQuality() {
         openSyncAlerts: Array.isArray(ops.alerts) ? ops.alerts.filter((a: any) => !a.resolved).length : 0,
         activeDevices: Array.isArray(ops.devices) ? ops.devices.length : 0,
       });
+    } catch {
+      setTriageAvailable(false);
+      setOpsAvailable(false);
     } finally {
       setLoading(false);
     }
-  }, [branch, start, today]);
+  }, [branch, start, today, canManageBiometrics]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -121,52 +132,54 @@ export default function HRDataQuality() {
         </div>
       </section>
 
+      {(!triageAvailable || (canManageBiometrics && !opsAvailable)) && !loading && <div role="alert" className="rounded-2xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-4 text-sm font-bold">بعض بيانات الجودة غير متاحة الآن. لا تعتبر المؤشرات غير المتاحة صفرًا، وراجع الصفحة المختصة قبل اعتماد الأرقام.</div>}
+
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <QualityCard
           title="مشاكل الجداول"
-          value={stats.scheduleIssues}
+          value={triageAvailable ? stats.scheduleIssues : 'غير متاح'}
           description="جدول ناقص أو غير قابل للتفسير خلال الدورة."
           href="/attendance-report?tab=schedules"
           icon={CalendarClock}
-          healthy={stats.scheduleIssues === 0}
+          healthy={triageAvailable && stats.scheduleIssues === 0}
         />
         <QualityCard
           title="تفسير النظام"
-          value={stats.systemInterpretation}
+          value={triageAvailable ? stats.systemInterpretation : 'غير متاح'}
           description="حالات تحتاج تحسين تفسير آلي، وليست خطأ موظف."
-          href="/attendance-report?tab=decisions"
+          href="/attendance-report?tab=resolution&triage=system"
           icon={ShieldCheck}
-          healthy={stats.systemInterpretation === 0}
+          healthy={triageAvailable && stats.systemInterpretation === 0}
         />
-        <QualityCard
+        {canManageBiometrics && <QualityCard
           title="أكواد بصمة تحتاج ربط"
-          value={stats.unmappedCodes}
-          description={`${stats.unmappedEvents.toLocaleString('ar-EG')} بصمة متأثرة في الدورة الحالية.`}
+          value={triageAvailable ? stats.unmappedCodes : 'غير متاح'}
+          description={`${triageAvailable ? stats.unmappedEvents.toLocaleString('ar-EG') : 'عدد غير متاح'} بصمة متأثرة في الدورة الحالية.`}
           href="/attendance-report?tab=unmapped"
           icon={UserCheck}
-          healthy={stats.unmappedCodes === 0}
-        />
-        <QualityCard
+          healthy={triageAvailable && stats.unmappedCodes === 0}
+        />}
+        {canManageBiometrics && <QualityCard
           title="تنبيهات مزامنة مفتوحة"
-          value={stats.openSyncAlerts}
-          description={`${stats.activeDevices.toLocaleString('ar-EG')} جهاز تشغيل ظاهر حاليًا.`}
+          value={opsAvailable ? stats.openSyncAlerts : 'غير متاح'}
+          description={`${opsAvailable ? stats.activeDevices.toLocaleString('ar-EG') : 'عدد غير متاح'} جهاز تشغيل ظاهر حاليًا.`}
           href="/attendance-report?tab=sync"
           icon={Fingerprint}
-          healthy={stats.openSyncAlerts === 0}
-        />
+          healthy={opsAvailable && stats.openSyncAlerts === 0}
+        />}
       </section>
 
       <section className="grid gap-3 md:grid-cols-3">
         <Link to="/attendance-report?tab=cross-branch" className="rounded-2xl border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] p-4">
           <div className="flex items-center gap-2 font-black text-[var(--dawaa-theme-heading)]"><Users size={18} /> العمل بين الفروع</div>
-          <div className="mt-2 text-2xl font-black">{stats.crossBranchStaff.toLocaleString('ar-EG')}</div>
+          <div className="mt-2 text-2xl font-black">{triageAvailable ? stats.crossBranchStaff.toLocaleString('ar-EG') : 'غير متاح'}</div>
           <div className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">معلومة تشغيلية فقط وليست مخالفة.</div>
         </Link>
-        <Link to="/staff-duplicate-audit" className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4">
+        {checkPermission('view_staff_accounts') && <Link to="/staff-duplicate-audit" className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4">
           <div className="flex items-center gap-2 font-black text-[var(--dawaa-theme-heading)]"><Users size={18} /> هوية الموظفين</div>
           <div className="mt-2 text-xs font-bold text-[var(--dawaa-theme-muted)]">مراجعة السجلات المكررة والهوية الموحدة للموظف.</div>
-        </Link>
-        <Link to="/attendance-report?tab=report" className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4">
+        </Link>}
+        <Link to="/attendance-report?tab=report&section=payroll-truth" className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4">
           <div className="flex items-center gap-2 font-black text-[var(--dawaa-theme-heading)]"><WalletCards size={18} /> فروق الاعتماد المالي</div>
           <div className="mt-2 text-xs font-bold text-[var(--dawaa-theme-muted)]">مراجعة Attendance Truth والـdrift قبل اعتماد المرتب.</div>
         </Link>

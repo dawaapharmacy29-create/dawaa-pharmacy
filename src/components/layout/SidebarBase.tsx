@@ -12,7 +12,7 @@ import { usePendingShiftNotesCount } from '@/hooks/usePendingShiftNotesCount';
 import { LOGO_URL } from '@/lib/constants';
 import { cn } from '@/lib/utils';
 import { getVisibleSectionsForPath } from '@/lib/permissionMatrix';
-import { getRoutePermissions, normalizeRole } from '@/lib/core/permissionSystem';
+import { canAccessHRRoute, canManageBiometricOperations, getRoutePermissions, normalizeRole } from '@/lib/core/permissionSystem';
 
 type NavItem = {
   path: string;
@@ -22,6 +22,7 @@ type NavItem = {
   adminOnly?: boolean;
   excludeRoles?: string[];
   allowedRoles?: string[];
+  biometricOnly?: boolean;
 };
 type NavGroup = { title: string; icon: ElementType; items: NavItem[] };
 
@@ -40,9 +41,9 @@ const GROUPS: NavGroup[] = [
   ]},
 
   { title: 'الموارد البشرية', icon: UserCheck, items: [
-    { path: '/hr-workforce', icon: Crown, label: 'مركز الموارد البشرية', allowedRoles: ['general_manager', 'admin', 'executive_manager', 'branches_manager', 'branch_manager'] },
+    { path: '/hr-workforce', icon: Crown, label: 'مركز الموارد البشرية' },
     { path: '/team', icon: Users, label: 'دليل الموظفين', permission: 'view_team', excludeRoles: ['customer_service_manager'] },
-    { path: '/hr-staff-milestones', icon: ClipboardCheck, label: 'ملف الموظف الوظيفي', allowedRoles: ['general_manager', 'admin', 'executive_manager', 'branches_manager', 'branch_manager'] },
+    { path: '/hr-staff-milestones', icon: ClipboardCheck, label: 'ملف الموظف الوظيفي' },
     { path: '/schedule', icon: Calendar, label: 'الجداول والمناوبات', permission: 'view_schedule' },
     { path: '/time-off', icon: Calendar, label: 'الإجازات والغياب', permission: 'view_attendance_leaves' },
     { path: '/my-attendance', icon: UserCheck, label: 'حضوري' },
@@ -54,12 +55,12 @@ const GROUPS: NavGroup[] = [
     { path: '/attendance-report?tab=resolution', icon: ClipboardCheck, label: 'صندوق المراجعة', permission: 'view_attendance_leaves', allowedRoles: ['admin','general_manager','executive_manager','branches_manager','branch_manager','shift_supervisor_morning','shift_supervisor_evening'] },
     { path: '/attendance-report?tab=report', icon: FileSpreadsheet, label: 'سجل وتقارير الحضور', permission: ['view_attendance_leaves','record_attendance'] },
     { path: '/attendance-report?tab=overtime', icon: Clock, label: 'العمل الإضافي', permission: 'view_attendance_leaves', allowedRoles: ['admin','general_manager','executive_manager','branches_manager','branch_manager','shift_supervisor_morning','shift_supervisor_evening'] },
-    { path: '/attendance-report?tab=sync', icon: Fingerprint, label: 'صحة أجهزة البصمة', permission: 'view_attendance_leaves', allowedRoles: ['admin','general_manager','executive_manager','branches_manager'] },
-    { path: '/attendance-report?tab=unmapped', icon: UserCheck, label: 'أكواد تحتاج ربط', permission: 'view_attendance_leaves', allowedRoles: ['admin','general_manager','executive_manager','branches_manager'] },
-    { path: '/attendance-report?tab=cross-branch', icon: Users, label: 'العمل بين الفروع', permission: 'view_attendance_leaves', allowedRoles: ['admin','general_manager','executive_manager','branches_manager'] },
-    { path: '/hr-data-quality', icon: ShieldCheck, label: 'جودة بيانات الموارد البشرية', allowedRoles: ['general_manager', 'admin', 'executive_manager', 'branches_manager', 'branch_manager'] },
+    { path: '/attendance-report?tab=sync', icon: Fingerprint, label: 'صحة أجهزة البصمة', permission: 'view_attendance_leaves', biometricOnly: true },
+    { path: '/attendance-report?tab=unmapped', icon: UserCheck, label: 'أكواد تحتاج ربط', permission: 'view_attendance_leaves', biometricOnly: true },
+    { path: '/attendance-report?tab=cross-branch', icon: Users, label: 'العمل بين الفروع', permission: 'view_attendance_leaves', allowedRoles: ['admin','general_manager','executive_manager','branches_manager','branch_manager','shift_supervisor_morning','shift_supervisor_evening'] },
+    { path: '/hr-data-quality', icon: ShieldCheck, label: 'جودة بيانات الموارد البشرية' },
     { path: '/hr-reports', icon: BarChart3, label: 'تقارير الموارد البشرية', permission: 'view_attendance_leaves' },
-    { path: '/hr-settings', icon: ShieldCheck, label: 'إعدادات الموارد البشرية', allowedRoles: ['general_manager', 'admin', 'executive_manager', 'branches_manager'] },
+    { path: '/hr-settings', icon: ShieldCheck, label: 'إعدادات الموارد البشرية' },
   ]},
 
   { title: 'الرواتب والأداء', icon: WalletCards, items: [
@@ -226,6 +227,8 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
     && !checkPermission('view_executive_dashboard');
 
   const canAccess = (item: NavItem) => {
+    if (!canAccessHRRoute(basePath(item.path), user?.role)) return false;
+    if (item.biometricOnly && !canManageBiometricOperations(user?.role)) return false;
     if (item.adminOnly && !privileged) return false;
     if (item.allowedRoles?.length && !item.allowedRoles.includes(role)) return false;
     if (item.excludeRoles?.includes(role)) return false;

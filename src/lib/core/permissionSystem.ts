@@ -967,6 +967,7 @@ export const ROUTE_PERMISSION_MAP: Record<string, string | string[]> = {
   '/schedule': 'view_schedule',
   '/time-off': ['view_attendance_leaves'],
   '/attendance-report': ['view_attendance_leaves', 'record_attendance'],
+  '/hr-reports': 'view_attendance_leaves',
   '/attendance': ['view_attendance_leaves', 'record_attendance'],
   '/shift-notes': 'view_schedule',
   '/shift-performance': 'view_shift_performance',
@@ -1052,4 +1053,27 @@ export function getRoutePermissions(pathname: string): string[] | undefined {
   if (pathname.startsWith('/customer-health/')) return ['view_customer_details'];
   if (pathname.startsWith('/weekly-evaluation/')) return ['view_team'];
   return undefined;
+}
+
+// HR navigation and direct URL access share one role boundary. Database RPCs
+// still enforce their own staff/branch authorization.
+const HR_CENTER_ROLES = ['general_manager', 'executive_manager', 'branches_manager', 'branch_manager'];
+const HR_SETTINGS_ROLES = ['general_manager', 'executive_manager', 'branches_manager'];
+const HR_ROUTE_ROLES: Record<string, string[]> = {
+  '/hr-workforce': HR_CENTER_ROLES,
+  '/hr-staff-milestones': HR_CENTER_ROLES,
+  '/hr-data-quality': HR_CENTER_ROLES,
+  '/hr-settings': HR_SETTINGS_ROLES,
+};
+
+export function canAccessHRRoute(pathname: string, role: unknown): boolean {
+  const allowed = HR_ROUTE_ROLES[pathname];
+  return !allowed || allowed.includes(normalizeRole(role));
+}
+
+// Matches dawaa_can_manage_biometric_mapping_v1 in the database. The legacy
+// "admin" alias normalizes to general_manager for navigation, but that raw
+// database role is not granted biometric operations.
+export function canManageBiometricOperations(role: unknown): boolean {
+  return ['general_manager', 'executive_manager', 'branches_manager'].includes(String(role || ''));
 }

@@ -18,6 +18,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { normalizeBranchName } from '@/lib/branch';
 import { canSeeAllBranches } from '@/lib/security/permissionScopes';
+import { canManageBiometricOperations, getRoutePermissions } from '@/lib/core/permissionSystem';
 import { listPendingOvertime } from '@/lib/attendance/attendanceBreakdownService';
 import { listStaffTimeOffRequests } from '@/lib/timeOffService';
 
@@ -166,7 +167,8 @@ const quickLinks = [
 ];
 
 export default function HRWorkforceCenter() {
-  const { user } = useAuth();
+  const { user, checkPermission } = useAuth();
+  const canManageBiometrics = canManageBiometricOperations(user?.role);
   const today = cairoToday();
   const cycleStart = cycleStartFor(today);
   const canAllBranches = canSeeAllBranches(user?.role);
@@ -186,6 +188,7 @@ export default function HRWorkforceCenter() {
   const [pendingOvertime, setPendingOvertime] = useState(0);
   const [pendingTimeOff, setPendingTimeOff] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const [failedSources, setFailedSources] = useState<string[]>([]);
 
   const load = useCallback(async () => {
@@ -194,20 +197,20 @@ export default function HRWorkforceCenter() {
       const [dailyResult, triageResult, syncResult, overtimeResult, timeOffResult] = await Promise.allSettled([
         supabase.rpc('attendance_dashboard_daily_summary_v1', { p_date: today, p_branch: branchArg }),
         supabase.rpc('attendance_review_triage_v1', { p_start: cycleStart, p_end: today, p_branch: branchArg }),
-        supabase.rpc('attendance_biometric_operations_v3'),
+        canManageBiometrics ? supabase.rpc('attendance_biometric_operations_v3') : Promise.resolve(null),
         listPendingOvertime(branchArg),
         listStaffTimeOffRequests({ status: 'pending', limit: 200 }),
       ]);
       const failures = [
-        dailyResult.status === 'rejected' || !!dailyResult.value.error ? 'تشغيل اليوم' : null,
-        triageResult.status === 'rejected' || !!triageResult.value.error ? 'صندوق المراجعة' : null,
-        syncResult.status === 'rejected' || !!syncResult.value.error ? 'أجهزة البصمة' : null,
+        dailyResult.status === 'rejected' || !!dailyResult.value.error || !dailyResult.value.data ? 'تشغيل اليوم' : null,
+        triageResult.status === 'rejected' || !!triageResult.value.error || !triageResult.value.data ? 'صندوق المراجعة' : null,
+        canManageBiometrics && (syncResult.status === 'rejected' || !syncResult.value || !!syncResult.value.error || !syncResult.value.data) ? 'أجهزة البصمة' : null,
         overtimeResult.status === 'rejected' ? 'الأوفر تايم' : null,
         timeOffResult.status === 'rejected' ? 'طلبات الإجازة' : null,
       ].filter((item): item is string => item !== null);
       setFailedSources(failures);
 
-      if (dailyResult.status === 'fulfilled' && !dailyResult.value.error) {
+      if (dailyResult.status === 'fulfilled' && !dailyResult.value.error && dailyResult.value.data) {
         const row = (dailyResult.value.data || {}) as Record<string, unknown>;
         setDaily({
           staff: Number(row.staff || 0),
@@ -218,7 +221,7 @@ export default function HRWorkforceCenter() {
         });
       }
 
-      if (triageResult.status === 'fulfilled' && !triageResult.value.error) {
+      if (triageResult.status === 'fulfilled' && !triageResult.value.error && triageResult.value.data) {
         const row = (triageResult.value.data || {}) as Record<string, unknown>;
         setReview({
           needsManager: Number(row.needs_manager_decision || 0),
@@ -230,7 +233,7 @@ export default function HRWorkforceCenter() {
         });
       }
 
-      if (syncResult.status === 'fulfilled' && !syncResult.value.error) {
+      if (syncResult.status === 'fulfilled' && syncResult.value && !syncResult.value.error && syncResult.value.data) {
         const row = (syncResult.value.data || {}) as Record<string, any>;
         setSync({
           status: String(row.status || 'unknown'),
@@ -245,16 +248,17 @@ export default function HRWorkforceCenter() {
     } catch {
       setFailedSources(['بيانات المركز']);
     } finally {
+      setLoaded(true);
       setLoading(false);
     }
-  }, [branchArg, cycleStart, today]);
+  }, [branchArg, cycleStart, today, canManageBiometrics]);
 
   useEffect(() => { void load(); }, [load]);
 
   const attendanceCompleted = Math.max(0, daily.onTime + daily.late);
   const interventionCount = review.needsManager + pendingOvertime + pendingTimeOff;
   const syncHealthy = sync.status === 'healthy';
-  const available = (source: string) => !failedSources.includes(source) && !failedSources.includes('بيانات المركز');
+  const available = (source: string) => loaded && !failedSources.includes(source) && !failedSources.includes('بيانات المركز');
   const branchLabel = useMemo(() => branchArg || 'كل الفروع', [branchArg]);
 
   return (
@@ -319,14 +323,14 @@ export default function HRWorkforceCenter() {
           <p className="text-xs font-bold text-[var(--dawaa-theme-muted)]">هذه مؤشرات نظامية منفصلة عن أداء الموظف ولا تتحول تلقائيًا إلى مخالفة أو خصم.</p>
         </div>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <Metric
+          {canManageBiometrics && <Metric
             label="أجهزة البصمة"
             value={available('أجهزة البصمة') ? (syncHealthy ? 'سليمة' : 'تحتاج فحص') : 'غير متاح'}
             hint={`${sync.devices} جهاز نشط · آخر نشاط ${fmtDateTime(sync.latestActivity)}`}
             icon={Fingerprint}
             tone={syncHealthy ? 'ok' : 'warn'}
-          />
-          <Metric label="أكواد تحتاج ربط" value={available('صندوق المراجعة') ? review.unmappedCodes : 'غير متاح'} hint="بصمات تحتاج ربطًا في الدورة" icon={UserCheck} tone={review.unmappedCodes ? 'warn' : 'ok'} />
+          />}
+          {canManageBiometrics && <Metric label="أكواد تحتاج ربط" value={available('صندوق المراجعة') ? review.unmappedCodes : 'غير متاح'} hint="بصمات تحتاج ربطًا في الدورة" icon={UserCheck} tone={review.unmappedCodes ? 'warn' : 'ok'} />}
           <Metric label="تفسير النظام" value={available('صندوق المراجعة') ? review.systemInterpretation : 'غير متاح'} hint="لا تُنسب للموظف" icon={Activity} tone={review.systemInterpretation ? 'info' : 'ok'} />
           <Metric label="عمل بين الفروع" value={available('صندوق المراجعة') ? review.crossBranchStaff : 'غير متاح'} hint="بصمات معلوماتية بين الفروع" icon={Users} tone="info" />
         </div>
@@ -335,7 +339,7 @@ export default function HRWorkforceCenter() {
       <section>
         <h2 className="mb-2 text-lg font-black text-[var(--dawaa-theme-heading)]">وحدات الموارد البشرية</h2>
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {quickLinks.map(({ title, description, href, icon: Icon }) => (
+          {quickLinks.filter(({ href }) => (href !== '/attendance-report?tab=sync' || canManageBiometrics) && (getRoutePermissions(href.split('?')[0])?.some(checkPermission) ?? true)).map(({ title, description, href, icon: Icon }) => (
             <Link key={title} to={href} className="group rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
               <div className="flex items-center justify-between">
                 <span className="rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-2 text-[var(--dawaa-theme-primary-strong)]"><Icon size={19} /></span>

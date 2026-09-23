@@ -4,7 +4,7 @@ import { Component, lazy, Suspense, useEffect, useState, type ReactNode } from '
 import { isIOSWebKit } from '@/lib/mobileSafariCompat';
 import { Toaster } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
-import { getRoutePermissions, normalizeRole } from '@/lib/core/permissionSystem';
+import { canAccessHRRoute, getRoutePermissions, normalizeRole } from '@/lib/core/permissionSystem';
 import Layout from '@/components/layout/Layout';
 import PWABanner from '@/components/features/PWABanner';
 import { isDoctorRole, isManagerRole } from '@/lib/security/userDataScope';
@@ -236,10 +236,11 @@ function ProtectedRoute({ children, permission }: { children: ReactNode; permiss
     }
   }
   if (
-    effectivePermissions &&
-    (Array.isArray(effectivePermissions)
-      ? !effectivePermissions.some((item) => checkPermission(item))
-      : !checkPermission(effectivePermissions))
+    !canAccessHRRoute(location.pathname, user.role) ||
+    (effectivePermissions &&
+      (Array.isArray(effectivePermissions)
+        ? !effectivePermissions.some((item) => checkPermission(item))
+        : !checkPermission(effectivePermissions)))
   ) {
     return (
       <Layout>

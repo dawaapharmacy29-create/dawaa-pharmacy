@@ -1,9 +1,11 @@
 import { Link } from 'react-router-dom';
 import { ArrowLeft, BarChart3, CalendarDays, Clock, FileSpreadsheet, Fingerprint, Star, Users, WalletCards } from 'lucide-react';
+import { useAuth } from '@/hooks/useAuth';
+import { canManageBiometricOperations, getRoutePermissions } from '@/lib/core/permissionSystem';
 
 const reports = [
   { title: 'تقرير الحضور الشهري', description: 'أيام الحضور الفعلية، التأخير، الغياب المعلق، والساعات.', href: '/attendance-report?tab=report', icon: Clock },
-  { title: 'جاهزية الحضور للمرتب', description: 'الساعات المعتمدة والـdrift قبل إدخالها في المرتبات.', href: '/attendance-report?tab=report', icon: WalletCards },
+  { title: 'جاهزية الحضور للمرتب', description: 'الساعات المعتمدة والـdrift قبل إدخالها في المرتبات.', href: '/attendance-report?tab=report&section=payroll-truth', icon: WalletCards },
   { title: 'العمل الإضافي', description: 'Worked OT مقابل Approved OT والحالات المعلقة.', href: '/attendance-report?tab=overtime', icon: Clock },
   { title: 'الإجازات والأذونات', description: 'الطلبات، الاعتمادات، والأرصدة وربطها بالحضور.', href: '/time-off', icon: CalendarDays },
   { title: 'العمل بين الفروع', description: 'الفرع الأساسي مقابل مكان البصمة الحقيقي.', href: '/attendance-report?tab=cross-branch', icon: Users },
@@ -15,6 +17,7 @@ const reports = [
 ];
 
 export default function HRReportsHub() {
+  const { user, checkPermission } = useAuth();
   return (
     <div className="space-y-5" dir="rtl">
       <section className="rounded-3xl border border-[var(--dawaa-theme-border)] dawaa-surface p-5 shadow-sm">
@@ -26,7 +29,7 @@ export default function HRReportsHub() {
       </section>
 
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {reports.map(({ title, description, href, icon: Icon }) => (
+        {reports.filter(({ href }) => (href !== '/attendance-report?tab=sync' || canManageBiometricOperations(user?.role)) && (getRoutePermissions(href.split('?')[0])?.some(checkPermission) ?? true)).map(({ title, description, href, icon: Icon }) => (
           <Link key={title} to={href} className="group rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
             <div className="flex items-center justify-between gap-2">
               <span className="rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-2 text-[var(--dawaa-theme-primary-strong)]"><Icon size={18} /></span>
