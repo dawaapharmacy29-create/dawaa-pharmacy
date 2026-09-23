@@ -15,7 +15,8 @@ import type {
   ResolveProductMentionOptions,
 } from '../pharmacyProducts/pharmacyProductResolverV2';
 import { resolveProductMention } from '../pharmacyProducts/pharmacyProductResolverV2';
-import type { ProductMentionRole, ProductMentionV2 } from './quantityReferenceTypes';
+import type { MentionValidity, ProductMentionRole, ProductMentionV2 } from './quantityReferenceTypes';
+import type { ProductResolutionResult } from '../pharmacyProducts/pharmacyProductResolverV2';
 
 // A staff message that ONLY confirms availability, with no product content of its own to add —
 // e.g. bare "موجود"/"متوفر". Distinguished from a staff_offer (which actually names/describes a
@@ -68,26 +69,136 @@ function identityCoreText(rawText: string): string {
 // use — a plain "and" list never licenses that.
 const ENUMERATION_OR_RX = /^(.+?)\s+(?:أو|او)\s+(.+)$/;
 
+// I.B.3.1 — structural root cause #2 ("phantom active candidates"): a customer message phrased as
+// an AVAILABILITY/PRICE QUESTION about something already under discussion ("موجود عندكم الغسول
+// ده" = "do you have THIS wash") was previously indistinguishable, at this layer, from a customer
+// naming a brand-new product ("عايز غسول فيتشي"). isRequestCandidate() (whatsappSemanticSignalsV32,
+// reused as-is) is deliberately broad — built for response-TIMING purposes, where "did the customer
+// say something substantive" is exactly what's needed — but this tracker was repurposing that same
+// broad signal as its product-mention gate. The real, general shape of the bug: an
+// availability/price marker word CO-OCCURRING with a demonstrative pronoun referring back ("ده"/
+// "دي"/"دول"/"دا") is a QUESTION about an existing topic, never a fresh product name — this is true
+// regardless of which specific nouns sit in between. \p{L}/\p{N} lookaround (not \b) for the same
+// reason documented in whatsappSemanticSignalsV32.ts's own PRODUCT_REFERENCE_RX.
+const DEMONSTRATIVE_REFERENCE_RX = /(?<![\p{L}\p{N}])(?:ده|دي|دول|دا)(?![\p{L}\p{N}])/u;
+const AVAILABILITY_OR_PRICE_QUESTION_MARKER_RX = /موجود[ةه]?|متوفر[ةه]?|متاح[ةه]?|عندك(?:م)?|فيه|بكام|كام(?:\s*كده)?|سعر[ةه]?/i;
+
 /**
- * I.B.2.1 instruction #7's "several active products" hardening needs a customer's own single
- * message ("انتينال وزوركال موجودين؟") to yield TWO distinct product identities, not one garbled
- * blob — the I.B.2 tracker's known limitation (documented in its own commit) that made the
- * multi-product ambiguity tests need artificially-split messages. Splits on a "و" that is NOT the
- * very first character (so a genuine product name starting with "و" is never mangled) and is
- * immediately followed by another Arabic letter (so "و" as a separate word, e.g. after "حضرتك و",
- * still requires a real word boundary). Deliberately conservative: falls back to the original,
- * unsplit text whenever the split would produce a trivially short fragment.
+ * I.B.3.1 instruction #5 — explicit ProductMention validity, computed at the EARLIEST layer
+ * (mention creation itself), so every downstream consumer (computeActiveProductCandidates,
+ * quantityIntelligenceV2, referenceResolverV2, the I.B.3 graph) inherits the fix for free rather
+ * than needing its own Basket-level exception. `resolution` is this candidate's own
+ * ProductResolverV2 result when a PharmacyProductIndex was supplied — never re-derived, only read.
  */
-function splitConjunctionList(text: string): string[] {
-  if (text.length < 4) return [text];
-  // Requires at least one PRECEDING SPACE before the "و" (not just "not string start") — otherwise
-  // this would wrongly cut apart any product name whose own second letter happens to be و (e.g.
-  // "زوركال" -> "ز" + "وركال"), a real bug caught by this module's own tests.
-  const parts = text
-    .split(/\s+و(?=[ء-ي])/)
-    .map((p) => p.trim())
-    .filter(Boolean);
-  return parts.length > 1 && parts.every((p) => p.length >= 2) ? parts : [text];
+function classifyMentionValidity(rawTextForClassification: string, resolution: ProductResolutionResult | null): MentionValidity {
+  if (resolution?.selected) return 'canonical_resolved';
+  if (resolution?.ambiguous) return 'ambiguous';
+  const core = identityCoreText(rawTextForClassification);
+  if (core.length === 0) return 'non_product';
+  if (
+    COLLECTIVE_REFERENCE_RX.test(core) ||
+    AVAILABILITY_CORE_RX.test(core) ||
+    ADDRESS_ONLY_RX.test(core.trim()) ||
+    PURE_QUANTITY_RX.test(core)
+  ) {
+    return 'non_product';
+  }
+  if (DEMONSTRATIVE_REFERENCE_RX.test(rawTextForClassification) && AVAILABILITY_OR_PRICE_QUESTION_MARKER_RX.test(rawTextForClassification)) {
+    return 'non_product';
+  }
+  return 'unresolved_but_product_like';
+}
+
+interface ConjunctionBoundary {
+  index: number;
+  length: number;
+}
+
+/** Every "و" boundary that is NOT the very first character (a genuine product name starting with
+ * "و" is never mangled) and is immediately followed by another Arabic letter (a real word
+ * boundary, not e.g. "زوركال" -> "ز"+"وركال"). Only finds candidate CUT POINTS — never decides by
+ * itself whether to actually cut there; see resolveProductSegments(). */
+function findConjunctionBoundaries(text: string): ConjunctionBoundary[] {
+  const boundaries: ConjunctionBoundary[] = [];
+  const re = /\s+و(?=[ء-ي])/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text))) {
+    boundaries.push({ index: m.index, length: m[0].length });
+  }
+  return boundaries;
+}
+
+interface ProductSegment {
+  text: string;
+  start: number;
+  end: number;
+  resolution: ProductResolutionResult | null;
+}
+
+/**
+ * I.B.3.1 instructions #2/#3 — structural root cause #1 fix ("conjunction splitting"). The old
+ * splitConjunctionList() blindly cut on every "و" boundary BEFORE ever consulting the catalog,
+ * which mangled a product name with an internal transliterated "و" (e.g. "سنترم ومان" = "Centrum
+ * Woman" was split into "سنترم" + "مان"). This function is CATALOG-FIRST / longest-safe-match:
+ * 1. Always try the WHOLE phrase against the catalog first. If it safely resolves, the whole phrase
+ *    IS one product mention — never split a genuine (possibly multi-word, possibly containing "و")
+ *    product name apart.
+ * 2. Only when the whole phrase does NOT safely resolve does this fall back to conjunction
+ *    boundaries, splitting into independent candidate spans and resolving EACH ONE SEPARATELY —
+ *    never re-deriving resolveProductMention()'s own resolution logic, only deciding how many times
+ *    to call it and on what spans. A split-out piece that itself fails to resolve is still returned
+ *    (as an unresolved segment) rather than silently dropped — classifyMentionValidity() is what
+ *    decides whether it may ever become an active candidate, not this function.
+ * This naturally handles an arbitrary number of conjunction-joined products (splitting occurs at
+ * every boundary at once, not just the first), never invents multi-word spans beyond what the
+ * conjunction boundaries themselves delimit (no O(N×catalog) span brute force).
+ */
+function resolveProductSegments(
+  core: string,
+  productIndex: PharmacyProductIndex | undefined,
+  resolveOptions: ResolveProductMentionOptions | undefined
+): ProductSegment[] {
+  const whole = productIndex ? resolveProductMention(core, productIndex, resolveOptions) : null;
+  if (whole?.selected) {
+    return [{ text: core, start: 0, end: core.length, resolution: whole }];
+  }
+
+  const boundaries = findConjunctionBoundaries(core);
+  if (boundaries.length === 0) {
+    return [{ text: core, start: 0, end: core.length, resolution: whole }];
+  }
+
+  const rawPieces: Array<{ text: string; start: number }> = [];
+  let cursor = 0;
+  boundaries.forEach((b) => {
+    const raw = core.slice(cursor, b.index);
+    const trimmed = raw.trim();
+    if (trimmed.length > 0) {
+      const leadingWhitespace = raw.length - raw.trimStart().length;
+      rawPieces.push({ text: trimmed, start: cursor + leadingWhitespace });
+    }
+    cursor = b.index + b.length;
+  });
+  const tailRaw = core.slice(cursor);
+  const tailTrimmed = tailRaw.trim();
+  if (tailTrimmed.length > 0) {
+    const leadingWhitespace = tailRaw.length - tailRaw.trimStart().length;
+    rawPieces.push({ text: tailTrimmed, start: cursor + leadingWhitespace });
+  }
+
+  const validPieces = rawPieces.filter((p) => p.text.length >= 2);
+  if (validPieces.length <= 1) {
+    // Nothing safely splittable — deliberately conservative: keep the whole (still-unresolved)
+    // phrase as ONE segment rather than guess.
+    return [{ text: core, start: 0, end: core.length, resolution: whole }];
+  }
+
+  return validPieces.map((p) => ({
+    text: p.text,
+    start: p.start,
+    end: p.start + p.text.length,
+    resolution: productIndex ? resolveProductMention(p.text, productIndex, resolveOptions) : null,
+  }));
 }
 
 export interface BuildProductMentionsOptions {
@@ -155,31 +266,57 @@ export function buildProductMentions(
         identityKey: `text:${normalizeProductKey(core)}`,
         messageIndex,
         timestamp: message.timestamp.toISOString(),
+        validity: classifyMentionValidity(rawText, null),
+        sourceOffsetStart: 0,
+        sourceOffsetEnd: rawText.length,
       });
       return;
     }
 
     const enumMatch = role === 'staff_offer' ? core.match(ENUMERATION_OR_RX) : null;
-    const isEnumeration = Boolean(enumMatch);
-    const parts = enumMatch ? [enumMatch[1].trim(), enumMatch[2].trim()] : splitConjunctionList(core);
-    const groupId = isEnumeration ? `grp:${message.id}` : undefined;
+    if (enumMatch) {
+      // Explicit "X أو Y" enumerated offer — a different, already-correct mechanism than
+      // conjunction splitting (the customer picks ONE named alternative), never routed through
+      // resolveProductSegments()'s catalog-first logic.
+      const groupId = `grp:${message.id}`;
+      [enumMatch[1].trim(), enumMatch[2].trim()].forEach((part, partIndex) => {
+        const resolution = options.productIndex ? resolveProductMention(part, options.productIndex, options.resolveOptions) : null;
+        const offsetStart = rawText.indexOf(part);
+        mentions.push({
+          mentionId: `pm:${message.id}:${seq++}`,
+          sourceMessageId: message.id,
+          rawText: part,
+          role,
+          resolvedProductId: resolution?.selected?.product.productId ?? null,
+          identityKey: resolution?.selected?.product.productId ?? `text:${normalizeProductKey(part)}`,
+          messageIndex,
+          timestamp: message.timestamp.toISOString(),
+          enumerationGroupId: groupId,
+          enumerationIndex: partIndex,
+          validity: classifyMentionValidity(part, resolution),
+          sourceOffsetStart: offsetStart === -1 ? null : offsetStart,
+          sourceOffsetEnd: offsetStart === -1 ? null : offsetStart + part.length,
+        });
+      });
+      return;
+    }
 
-    parts.forEach((part, partIndex) => {
-      let resolvedProductId: string | null = null;
-      if (options.productIndex) {
-        const result = resolveProductMention(part, options.productIndex, options.resolveOptions);
-        resolvedProductId = result.selected?.product.productId ?? null;
-      }
+    const segments = resolveProductSegments(core, options.productIndex, options.resolveOptions);
+    segments.forEach((segment) => {
+      const resolvedProductId = segment.resolution?.selected?.product.productId ?? null;
+      const offsetStart = rawText.indexOf(segment.text);
       mentions.push({
         mentionId: `pm:${message.id}:${seq++}`,
         sourceMessageId: message.id,
-        rawText: parts.length > 1 ? part : rawText,
+        rawText: segments.length > 1 ? segment.text : rawText,
         role,
         resolvedProductId,
-        identityKey: resolvedProductId ?? `text:${normalizeProductKey(part)}`,
+        identityKey: resolvedProductId ?? `text:${normalizeProductKey(segment.text)}`,
         messageIndex,
         timestamp: message.timestamp.toISOString(),
-        ...(groupId ? { enumerationGroupId: groupId, enumerationIndex: partIndex } : {}),
+        validity: classifyMentionValidity(segment.text, segment.resolution),
+        sourceOffsetStart: offsetStart === -1 ? null : offsetStart,
+        sourceOffsetEnd: offsetStart === -1 ? null : offsetStart + segment.text.length,
       });
     });
   });
@@ -211,7 +348,14 @@ export function computeActiveProductCandidates(
 ): ActiveProductCandidate[] {
   // staff_availability mentions ("موجود" alone) carry no new product identity of their own — they
   // only confirm whatever was named earlier, so they must never seed their own candidate bucket.
-  const relevant = mentions.filter((m) => m.messageIndex < beforeMessageIndex && m.role !== 'staff_availability');
+  // I.B.3.1 fix ("phantom active candidates", instruction #4/#5): a `non_product` mention (a
+  // reference-question like "موجود عندكم الغسول ده", a bare address/quantity/collective phrase)
+  // must never seed a candidate bucket either — fixed HERE, the earliest layer both quantity
+  // linking and reference resolution (and the I.B.3 graph) share, so every consumer inherits the
+  // fix without its own exception.
+  const relevant = mentions.filter(
+    (m) => m.messageIndex < beforeMessageIndex && m.role !== 'staff_availability' && m.validity !== 'non_product'
+  );
   const byIdentity = new Map<string, ProductMentionV2[]>();
   relevant.forEach((m) => {
     const bucket = byIdentity.get(m.identityKey);

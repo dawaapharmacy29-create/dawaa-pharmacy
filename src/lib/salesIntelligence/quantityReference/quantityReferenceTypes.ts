@@ -19,6 +19,18 @@
 
 export type ProductMentionRole = 'customer_request' | 'staff_offer' | 'staff_availability' | 'other';
 
+/**
+ * I.B.3.1 instruction #5 — explicit semantic validity for a ProductMention candidate. Only
+ * `canonical_resolved` and `unresolved_but_product_like` may ever seed an active-product candidate
+ * (see productMentionTracker.ts's computeActiveProductCandidates, which filters on this field) —
+ * `non_product` must never enter product discourse (this is the earliest-layer fix for the
+ * "phantom active candidate" bug: a customer availability QUESTION about something already under
+ * discussion, e.g. "موجود عندكم الغسول ده", was previously indistinguishable from a fresh product
+ * name). `ambiguous` mirrors ProductResolutionResult.ambiguous — a real, catalog-plausible mention
+ * whose exact identity could not be safely narrowed to one product.
+ */
+export type MentionValidity = 'canonical_resolved' | 'unresolved_but_product_like' | 'non_product' | 'ambiguous';
+
 export interface ProductMentionV2 {
   mentionId: string;
   sourceMessageId: string;
@@ -34,6 +46,18 @@ export interface ProductMentionV2 {
   /** I.B.2.1 instruction #7 — set only when this mention was one member of an explicit, single-message "X أو Y" enumerated list (e.g. staff "ممكن زوركال أو نيكسيوم"). Lets referenceResolverV2 safely resolve "التاني"/"الأول" to a specific list position ONLY when the list structure is this unambiguous — never inferred across separate messages. */
   enumerationGroupId?: string;
   enumerationIndex?: number;
+  /** I.B.3.1 instruction #5 — see MentionValidity's own doc comment. Defaults conceptually to
+   * 'unresolved_but_product_like' for any mention built before this field existed (every producer
+   * in productMentionTracker.ts now sets it explicitly). */
+  validity: MentionValidity;
+  /** I.B.3.1 instruction #13/#14 — character offsets of this mention's own `rawText` within its
+   * immediate parent text (the message's own request/offer text before filler-word stripping for a
+   * single, unsegmented mention; the pre-segmentation candidate text for one piece of a
+   * multi-product message), preserved so a later phase can reason about same-message
+   * ordering/overlap without re-deriving span positions from scratch. Null when `rawText` could not
+   * be located as a literal substring there (never fabricated). */
+  sourceOffsetStart: number | null;
+  sourceOffsetEnd: number | null;
 }
 
 // ---------------------------------------------------------------------------

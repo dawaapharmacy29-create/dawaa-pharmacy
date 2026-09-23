@@ -13,6 +13,7 @@
 // files): price intelligence (priceIntelligenceV1.ts) and action/intent classification
 // (actionIntentClassifierV2.ts) — neither existed before this phase.
 import type { BasketLinkingSafety } from '../quantityReference/quantityReferenceTypes';
+import type { ActiveProductStateV2 } from './activeProductStateV2';
 
 export type { BasketLinkingSafety };
 
@@ -165,6 +166,12 @@ export interface ConversationEntityGraphV2 {
   actions: ActionNode[];
   intents: IntentNode[];
   edges: GraphEdge[];
+  /** I.B.3.1 instructions #6/#7 — end-of-conversation Active Product State V2 snapshot: which
+   * identities ended in which commercial discourse state (recommendation_only/availability_only/
+   * requested/confirmed/rejected), with decay factors exposed for QA. Informational only — never
+   * consulted by basketReconstructionV2.ts to decide a mutation (instruction #4's "no invisible
+   * inference" still applies; Basket safety is driven entirely by edge `safety`, unchanged). */
+  activeProductStates: ActiveProductStateV2[];
 }
 
 // ---------------------------------------------------------------------------

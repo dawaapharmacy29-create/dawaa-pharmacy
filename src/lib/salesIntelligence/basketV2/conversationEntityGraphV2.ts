@@ -17,6 +17,7 @@ import type { PharmacyProductIndex } from '../pharmacyProducts/pharmacyProductRe
 import type { CanonicalProduct } from '../pharmacyProducts/canonicalProduct';
 import { extractPriceMentions } from './priceIntelligenceV1';
 import { classifyMessageActions, classifyMessageIntent } from './actionIntentClassifierV2';
+import { computeActiveProductStateV2 } from './activeProductStateV2';
 import type {
   ActionNode,
   BasketLinkingSafety,
@@ -486,5 +487,7 @@ export function buildConversationEntityGraphV2(
     });
   });
 
-  return { caseId, productMentions, quantities: quantityNodes, prices, references: referenceNodes, actions, intents, edges };
+  const activeProductStates = computeActiveProductStateV2(messages, mentions, messages.length);
+
+  return { caseId, productMentions, quantities: quantityNodes, prices, references: referenceNodes, actions, intents, edges, activeProductStates };
 }

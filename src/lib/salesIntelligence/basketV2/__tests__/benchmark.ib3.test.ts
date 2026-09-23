@@ -23,10 +23,13 @@
 // REAL catalog products (Antinal, Flexilax, Centrum) confirmed present in the actual `products`
 // table, never an invented SKU.
 //
-// FINAL COUNT (reported honestly, not padded to the instruction's 40-case target): 18 cases
-// (10 real + 8 synthetic). This corpus is small (90 conversations total) and overwhelmingly
+// FINAL COUNT (reported honestly, not padded to the instruction's 30/40-case targets): 22 cases
+// (12 real + 10 synthetic). This corpus is small (90 conversations total) and overwhelmingly
 // voice/image-dependent for the exact commercial decision (which SKU, whether accepted) — a
-// finding reported in its own right in the I.B.3 report, not hidden by inflating the case count.
+// finding reported in its own right in the I.B.3/I.B.3.1 reports, not hidden by inflating the case
+// count. I.B.3.1 added R11/R12 (further real price-only/misspelling cases outside this benchmark's
+// catalog subset, mined the same way) and S09/S10 (mandatory families #6/#8 — recommendation-only
+// and availability-then-order, which I.B.3's own 18-case set did not yet cover explicitly).
 import { describe, expect, it } from 'vitest';
 import { buildCanonicalProduct, countNormalizedNames, type RawProductRow } from '../../pharmacyProducts/canonicalProduct';
 import { buildPharmacyProductIndex } from '../../pharmacyProducts/pharmacyProductResolverV2';
@@ -260,6 +263,41 @@ const CASES: BasketBenchmarkCase[] = [
 [12/22/25, 8:57:44 AM] You: متاح`,
     groundTruth: { expectedAddedProductCodes: [], expectedNeverAddedProductCodes: ['68697', '64439'], expectedQuantities: {}, expectedStatus: null, expectUnresolvedSignal: false },
   },
+  {
+    id: 'R11',
+    source: 'real',
+    category: 'price_only_inquiry',
+    sourceNote: 'اليماني حسين حسن, id 6fedfe58 — customer asks the price of "مجموعه كلاري" (a Clarins hair-care line), staff lists 7 individual line-item prices plus a bundle total; no order verb or acceptance anywhere in the window. Deliberately outside this benchmark\'s catalog subset (no Clarins rows) — ground truth is that nothing safely resolves, and CRITICALLY neither engine may hallucinate a match against an unrelated catalog row just because 7 prices were quoted.',
+    raw: `[12/22/25, 2:08:06 PM] Customer: مجموعه كلاري بكام
+[12/22/25, 2:09:22 PM] You: دقايق اشوف لحضرتك سعرها
+[12/22/25, 2:13:55 PM] You: البلسم ٣٢٠
+[12/22/25, 2:13:56 PM] You: الشامبو العادي ٣٠٠
+[12/22/25, 2:13:57 PM] You: شامبو القشره ٣٢٠
+[12/22/25, 2:13:58 PM] You: سيروم التساقط ٣٥٠
+[12/22/25, 2:13:59 PM] You: بوستر شوت التساقط ٤٥٠
+[12/22/25, 2:14:00 PM] You: ليف ان كريم ٣٠٠
+[12/22/25, 2:14:01 PM] You: الماسك ٣٦٠
+[12/22/25, 2:14:26 PM] You: في حال ان حضرتك محتاجه منتجين او اكتر هيكون عليهم خصم ان شاء الله
+[12/22/25, 2:20:20 PM] You: المجموعة كامله يفندم هيكون سعرها ٢١٥٠ ان شاء الله`,
+    groundTruth: { expectedAddedProductCodes: [], expectedNeverAddedProductCodes: [], expectedQuantities: {}, expectedStatus: null, expectUnresolvedSignal: false },
+  },
+  {
+    id: 'R12',
+    source: 'real',
+    category: 'arabic_misspelling',
+    sourceNote: 'اليماني حسين حسن, id f1d98bf0 — customer misspells a brand ("كيرليكس"), staff explicitly corrects it ("حضرتك تقصد كلاريكس") mid-conversation — a real staff-side spelling correction, not a text-normalization artifact. Deliberately outside this benchmark\'s catalog subset — ground truth is that nothing safely resolves; the point of this case is that the misspelling correction itself must never be mistaken for a NEW product mention or silently merged with an unrelated catalog row.',
+    raw: `[6/19/26, 9:20:42 AM] Customer: موجود برشام كيرليكس
+[6/19/26, 9:21:23 AM] Customer: واستفسار بس عن منتج كويس جدا لانبات الشعر ميكونش فيه مينكسديل
+[6/19/26, 9:28:54 AM] You: حضرتك تقصد كلاريكس
+[6/19/26, 9:29:11 AM] You: كابكسي اسبراي او امبولات
+[6/19/26, 9:30:37 AM] You: لا يفندم مش زي المينوكسديل
+[6/19/26, 9:31:17 AM] You: في نوفوفين اقراص ده نوع فرنسي فعال جدا للتساقط
+[6/19/26, 10:01:12 AM] Customer: تمنهم كام
+[6/19/26, 10:01:22 AM] Customer: الاسبراي والفيتامين
+[6/19/26, 10:01:56 AM] You: الفيتمين العلبه 990
+[6/19/26, 10:02:01 AM] You: الاسبراي 700`,
+    groundTruth: { expectedAddedProductCodes: [], expectedNeverAddedProductCodes: [], expectedQuantities: {}, expectedStatus: null, expectUnresolvedSignal: false },
+  },
 
   // -------------------------------------------------------------------------
   // SYNTHETIC — structural categories with zero real hits in this 90-row corpus (confirmed via SQL:
@@ -345,6 +383,24 @@ const CASES: BasketBenchmarkCase[] = [
 [9/15/26, 9:01:00 AM] Customer: لا مش عايزه`,
     groundTruth: { expectedAddedProductCodes: [], expectedNeverAddedProductCodes: ['68114'], expectedQuantities: {}, expectedStatus: null, expectUnresolvedSignal: false },
   },
+  {
+    id: 'S09',
+    source: 'synthetic',
+    category: 'recommendation_only',
+    sourceNote: 'I.B.3.1 instruction #19 family #6 — a bare staff recommendation with NO customer response anywhere in the window must never itself add an item (Active Product State V2\'s own recommendation_only classification, instruction #8).',
+    raw: '[9/15/26, 9:00:00 AM] You: ممكن انتينال',
+    groundTruth: { expectedAddedProductCodes: [], expectedNeverAddedProductCodes: ['56822'], expectedQuantities: {}, expectedStatus: null, expectUnresolvedSignal: false },
+  },
+  {
+    id: 'S10',
+    source: 'synthetic',
+    category: 'availability_then_order',
+    sourceNote: 'I.B.3.1 instruction #19 family #8 — a bare availability question must not add an item by itself, but a LATER genuine order verb for the SAME product must safely transition it into the basket (instruction #9\'s own worked example).',
+    raw: `[9/15/26, 9:00:00 AM] Customer: عندك انتينال؟
+[9/15/26, 9:01:00 AM] You: موجود
+[9/15/26, 9:02:00 AM] Customer: عايز انتينال`,
+    groundTruth: { expectedAddedProductCodes: ['56822'], expectedNeverAddedProductCodes: [], expectedQuantities: {}, expectedStatus: null, expectUnresolvedSignal: false },
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -411,7 +467,7 @@ function classify(c: BasketBenchmarkCase, oldItems: NormalizedItem[], v2Items: N
   return 'both_wrong';
 }
 
-describe('I.B.3 — real Basket benchmark: OLD vs Basket Reconstruction V2 (18 cases: 10 real + 8 synthetic)', () => {
+describe('I.B.3/I.B.3.1 — real Basket benchmark: OLD vs Basket Reconstruction V2 (22 cases: 12 real + 10 synthetic)', () => {
   it('computes item-level precision/recall, the false-added-product safety metric, and a case-by-case classification table', () => {
     let oldTP = 0, oldFP = 0, oldFN = 0;
     let v2TP = 0, v2FP = 0, v2FN = 0;
