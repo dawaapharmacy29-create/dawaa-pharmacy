@@ -1,0 +1,60 @@
+// Phase I.B.4 — one deterministic, read-only evaluation entry point for the complete semantic benchmark.
+//
+// This composes the canonical Basket Ground Truth, canonical Closure Ground Truth, both benchmark
+// runners, and the readiness gate. It performs no DB writes and does not alter runtime behaviour.
+import type { PharmacyProductIndex } from '../pharmacyProducts/pharmacyProductResolverV2';
+import { runSalesIntelligenceBenchmarkV2, SALES_INTELLIGENCE_GROUND_TRUTH_VERSION, type SalesIntelligenceBenchmarkReport } from './benchmarkV2';
+import { runHistoricalClosureBenchmarkV2, type ClosureBenchmarkReportV2 } from './closureBenchmarkV2';
+import { BASKET_GROUND_TRUTH_CASES_V1 } from './benchmarkGroundTruthV1';
+import { CLOSURE_GROUND_TRUTH_CASES_V1 } from './closureGroundTruthV1';
+import { evaluateSemanticIntelligenceReadinessV2, type SemanticReadinessAssessmentV2 } from './semanticReadinessV2';
+
+export interface Ib4EvaluationReportV2 {
+  evaluationVersion: 'ib4-evaluation-v1';
+  basketDatasetVersion: string;
+  basket: SalesIntelligenceBenchmarkReport;
+  closure: ClosureBenchmarkReportV2;
+  readiness: SemanticReadinessAssessmentV2;
+  safetyCriticalErrors: string[];
+  blockers: string[];
+  summary: string;
+}
+
+export function runIb4EvaluationV2(productIndex: PharmacyProductIndex): Ib4EvaluationReportV2 {
+  const basket = runSalesIntelligenceBenchmarkV2(
+    BASKET_GROUND_TRUTH_CASES_V1,
+    productIndex,
+    SALES_INTELLIGENCE_GROUND_TRUTH_VERSION
+  );
+  const closure = runHistoricalClosureBenchmarkV2(CLOSURE_GROUND_TRUTH_CASES_V1, productIndex);
+  const readiness = evaluateSemanticIntelligenceReadinessV2(basket.metrics, closure);
+
+  const safetyCriticalErrors = basket.cases.flatMap((c) => c.safetyCritical.map((e) => `${c.caseId}:${e}`));
+  if (closure.shadowBinary.fp > 0) safetyCriticalErrors.push(`closure:false_positive_count=${closure.shadowBinary.fp}`);
+
+  const summary = [
+    'Phase I.B.4 — Full Intelligence Evaluation',
+    `Basket dataset: ${SALES_INTELLIGENCE_GROUND_TRUTH_VERSION}`,
+    `Basket cases: ${basket.metrics.totalCases} (real ${basket.metrics.realCases}, synthetic ${basket.metrics.syntheticCases})`,
+    `Real-only V2 product precision/recall: ${(basket.metrics.realOnlyV2Product.precision * 100).toFixed(1)}% / ${(basket.metrics.realOnlyV2Product.recall * 100).toFixed(1)}%`,
+    `False-added products: ${basket.metrics.falseAddedProductToBasket.v2}`,
+    `Wrong quantity links: ${basket.metrics.wrongQuantityAppliedToCorrectProduct}`,
+    `Verified safe-edge errors: ${basket.metrics.safeEdgeAudit.verifiedIncorrect}`,
+    `Shadow closure precision/recall: ${(closure.shadowBinary.precision * 100).toFixed(1)}% / ${(closure.shadowBinary.recall * 100).toFixed(1)}%`,
+    `Shadow false closures: ${closure.shadowBinary.fp}`,
+    `Human review precision/recall: ${(basket.metrics.humanReviewQuality.precision * 100).toFixed(1)}% / ${(basket.metrics.humanReviewQuality.recall * 100).toFixed(1)}%`,
+    `Ready for next stage: ${readiness.readyForNextStage ? 'YES' : 'NO'}`,
+    `Blockers: ${readiness.blockers.length ? readiness.blockers.join(', ') : 'none'}`,
+  ].join('\n');
+
+  return {
+    evaluationVersion: 'ib4-evaluation-v1',
+    basketDatasetVersion: SALES_INTELLIGENCE_GROUND_TRUTH_VERSION,
+    basket,
+    closure,
+    readiness,
+    safetyCriticalErrors,
+    blockers: [...readiness.blockers],
+    summary,
+  };
+}
