@@ -17,6 +17,15 @@ pectedLevel: 'strongly_inferred',
   },
 ];
 
+describe('Phase I.B.4 — closure Ground Truth evidence composition', () => {
+  it('has enough REAL positive and negative closure cases for calibration', () => {
+    const report = runHistoricalClosureBenchmarkV2(CASES, CATALOG);
+    expect(report.realCases).toBeGreaterThanOrEqual(5);
+    expect(report.realExpectedClosedCases).toBeGreaterThanOrEqual(3);
+    expect(report.realExpectedNotClosedCases).toBeGreaterThanOrEqual(2);
+  });
+});
+
 describe('Phase I.B.4 — closure benchmark current vs Basket-V2 shadow', () => {
   it('does not introduce new closure overclaims and fixes the known advisory-politeness false positive', () => {
     const report = runHistoricalClosureBenchmarkV2(CASES, CATALOG);

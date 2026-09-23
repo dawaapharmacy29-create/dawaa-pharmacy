@@ -48,6 +48,8 @@ export interface ClosureBenchmarkReportV2 {
   totalCases: number;
   realCases: number;
   syntheticCases: number;
+  realExpectedClosedCases: number;
+  realExpectedNotClosedCases: number;
   currentExactMatches: number;
   shadowExactMatches: number;
   currentOverclaims: number;
@@ -164,6 +166,8 @@ export function runHistoricalClosureBenchmarkV2(
     totalCases: cases.length,
     realCases: cases.filter((c) => c.source === 'real').length,
     syntheticCases: cases.filter((c) => c.source === 'synthetic').length,
+    realExpectedClosedCases: cases.filter((c) => c.source === 'real' && closureAchieved(c.expectedLevel)).length,
+    realExpectedNotClosedCases: cases.filter((c) => c.source === 'real' && !closureAchieved(c.expectedLevel)).length,
     currentExactMatches: results.filter((r) => r.currentExact).length,
     shadowExactMatches: results.filter((r) => r.shadowExact).length,
     currentOverclaims: results.filter((r) => r.currentOverclaim).length,

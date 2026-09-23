@@ -58,6 +58,8 @@ function closure(overrides: Partial<ClosureBenchmarkReportV2> = {}): ClosureBenc
     totalCases: 8,
     realCases: 5,
     syntheticCases: 3,
+    realExpectedClosedCases: 3,
+    realExpectedNotClosedCases: 2,
     currentExactMatches: 6,
     shadowExactMatches: 7,
     currentOverclaims: 1,

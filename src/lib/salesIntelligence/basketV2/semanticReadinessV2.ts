@@ -14,6 +14,9 @@ export interface SemanticReadinessThresholdsV2 {
   minimumRealCases: number;
   minimumRealPositiveOrderCases: number;
   minimumRealHardCases: number;
+  minimumRealClosureCases: number;
+  minimumRealPositiveClosureCases: number;
+  minimumRealNegativeClosureCases: number;
   /** Hard safety thresholds. */
   maxFalseAddedProducts: number;
   maxWrongQuantities: number;
@@ -38,6 +41,9 @@ export const DEFAULT_SEMANTIC_READINESS_THRESHOLDS_V2: SemanticReadinessThreshol
   minimumRealCases: 20,
   minimumRealPositiveOrderCases: 8,
   minimumRealHardCases: 5,
+  minimumRealClosureCases: 5,
+  minimumRealPositiveClosureCases: 3,
+  minimumRealNegativeClosureCases: 2,
   maxFalseAddedProducts: 0,
   maxWrongQuantities: 0,
   maxVerifiedSafeEdgeErrors: 0,
@@ -64,6 +70,15 @@ export function evaluateSemanticIntelligenceReadinessV2(
   }
   if (benchmark.realHardCases < thresholds.minimumRealHardCases) {
     blockers.push(`insufficient_real_hard_cases:${benchmark.realHardCases}<${thresholds.minimumRealHardCases}`);
+  }
+  if (closure.realCases < thresholds.minimumRealClosureCases) {
+    blockers.push(`insufficient_real_closure_cases:${closure.realCases}<${thresholds.minimumRealClosureCases}`);
+  }
+  if (closure.realExpectedClosedCases < thresholds.minimumRealPositiveClosureCases) {
+    blockers.push(`insufficient_real_positive_closure_cases:${closure.realExpectedClosedCases}<${thresholds.minimumRealPositiveClosureCases}`);
+  }
+  if (closure.realExpectedNotClosedCases < thresholds.minimumRealNegativeClosureCases) {
+    blockers.push(`insufficient_real_negative_closure_cases:${closure.realExpectedNotClosedCases}<${thresholds.minimumRealNegativeClosureCases}`);
   }
   if (benchmark.falseAddedProductToBasket.v2 > thresholds.maxFalseAddedProducts) {
     blockers.push(`false_added_products:${benchmark.falseAddedProductToBasket.v2}`);
@@ -106,7 +121,10 @@ export function evaluateSemanticIntelligenceReadinessV2(
   const evidenceBlocker = (b: string) =>
     b.startsWith('insufficient_real_ground_truth_cases:') ||
     b.startsWith('insufficient_real_positive_order_cases:') ||
-    b.startsWith('insufficient_real_hard_cases:');
+    b.startsWith('insufficient_real_hard_cases:') ||
+    b.startsWith('insufficient_real_closure_cases:') ||
+    b.startsWith('insufficient_real_positive_closure_cases:') ||
+    b.startsWith('insufficient_real_negative_closure_cases:');
   const evidenceSufficient = !blockers.some(evidenceBlocker);
   const safetyPassed = !blockers.some((b) => !evidenceBlocker(b));
 
