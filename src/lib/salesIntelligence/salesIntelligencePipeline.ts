@@ -44,6 +44,8 @@ export interface SalesIntelligencePipelineInput {
   /** whatsapp_review_sources.id (or the root_source_id of a merged case) this raw text reads. */
   conversationId: string;
   rawWhatsAppExportText: string;
+  /** Trusted persisted whatsapp_review_sources.conversation_started_at; used only as a date anchor for time-only markdown exports. */
+  trustedConversationStartedAt?: string | null;
   sourceCaseIdV22?: string | null;
   customerIdHint?: string | null;
   customerPhoneHint?: string | null;
@@ -408,6 +410,8 @@ export interface SegmentedCase {
 export interface DeriveSegmentedCasesInput {
   conversationId: string;
   rawWhatsAppExportText: string;
+  /** Trusted source date for time-only markdown; no fallback to created_at. */
+  trustedConversationStartedAt?: string | null;
   sourceCaseIdV22?: string | null;
   customerIdHint?: string | null;
   customerPhoneHint?: string | null;
@@ -435,7 +439,9 @@ export function deriveSegmentedCases(input: DeriveSegmentedCasesInput): DeriveSe
   const pipelineWarnings: string[] = [];
   const cases: SegmentedCase[] = [];
 
-  const parsedMessages = parseWhatsAppExport(input.rawWhatsAppExportText);
+  const parsedMessages = parseWhatsAppExport(input.rawWhatsAppExportText, {
+    trustedConversationStartedAt: input.trustedConversationStartedAt ?? null,
+  });
   if (parsedMessages.length === 0) {
     pipelineWarnings.push('raw_text_produced_no_parsed_messages');
     return { sessionsProcessed: 0, cases: [], pipelineWarnings };

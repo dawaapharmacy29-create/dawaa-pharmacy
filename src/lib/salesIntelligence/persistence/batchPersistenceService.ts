@@ -42,6 +42,8 @@ export interface BatchConversationInput {
   /** whatsapp_review_sources.id — the real uuid FK target for sales_intelligence_cases.conversation_id. */
   conversationId: string;
   rawWhatsAppExportText: string;
+  /** Trusted whatsapp_review_sources.conversation_started_at, when the caller loaded it. */
+  trustedConversationStartedAt?: string | null;
   sourceCaseIdV22?: string | null;
   customerIdHint?: string | null;
   customerPhoneHint?: string | null;
@@ -302,6 +304,7 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
     const result = deriveCasesOnly({
       conversationId: conversation.conversationId,
       rawWhatsAppExportText: conversation.rawWhatsAppExportText,
+      trustedConversationStartedAt: conversation.trustedConversationStartedAt ?? null,
       sourceCaseIdV22: conversation.sourceCaseIdV22,
       customerIdHint: conversation.customerIdHint,
       customerPhoneHint: conversation.customerPhoneHint,
@@ -345,6 +348,7 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
     const pipelineInput: SalesIntelligencePipelineInput = {
       conversationId: conversation.conversationId,
       rawWhatsAppExportText: conversation.rawWhatsAppExportText,
+      trustedConversationStartedAt: conversation.trustedConversationStartedAt ?? null,
       sourceCaseIdV22: conversation.sourceCaseIdV22,
       customerIdHint: conversation.customerIdHint,
       customerPhoneHint: conversation.customerPhoneHint,
@@ -383,6 +387,7 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
     const pipelineInput: SalesIntelligencePipelineInput = {
       conversationId: conversation.conversationId,
       rawWhatsAppExportText: conversation.rawWhatsAppExportText,
+      trustedConversationStartedAt: conversation.trustedConversationStartedAt ?? null,
       sourceCaseIdV22: conversation.sourceCaseIdV22,
       customerIdHint: conversation.customerIdHint,
       customerPhoneHint: conversation.customerPhoneHint,

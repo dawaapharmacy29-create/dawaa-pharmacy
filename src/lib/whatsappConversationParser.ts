@@ -9,6 +9,16 @@ export type WhatsAppMessageKind =
   | 'unknown';
 export type WhatsAppExportSourceFormat = 'txt' | 'md';
 
+export interface WhatsAppParseOptions {
+  /**
+   * Optional TRUSTED conversation timestamp from persistence metadata. Only its calendar DATE is
+   * used, and only for markdown exports whose message lines contain time-of-day but omit the usual
+   * "## Month Day, Year" heading. Never pass import/created_at time here unless it is itself the
+   * persisted conversation_started_at for this exact source.
+   */
+  trustedConversationStartedAt?: string | Date | null;
+}
+
 export interface WhatsAppReplyContext {
   sender: string | null;
   text: string;
@@ -346,10 +356,19 @@ function parseMarkdownReply(lines: string[]) {
   return { sender: null, text: combined.replace(/^_|_$/g, '') } satisfies WhatsAppReplyContext;
 }
 
-function parseMarkdownExport(text: string): WhatsAppParsedMessage[] {
+function trustedDateParts(value: string | Date | null | undefined): { year: number; month: number; day: number } | null {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  // Persistence timestamps are timestamptz. Use UTC calendar parts so server/browser local timezone
+  // never silently changes the trusted source date.
+  return { year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate() };
+}
+
+function parseMarkdownExport(text: string, trustedConversationStartedAt?: string | Date | null): WhatsAppParsedMessage[] {
   const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/);
   const messages: WhatsAppParsedMessage[] = [];
-  let currentDate: { year: number; month: number; day: number } | null = null;
+  let currentDate: { year: number; month: number; day: number } | null = trustedDateParts(trustedConversationStartedAt);
   let current: {
     timestamp: Date;
     rawTimestamp: string;
@@ -424,14 +443,17 @@ function parseMarkdownExport(text: string): WhatsAppParsedMessage[] {
 
 export function detectWhatsAppExportFormat(text: string): WhatsAppExportSourceFormat {
   const head = text.slice(0, 5000);
-  if (/^# WhatsApp Chat Export:/m.test(head) || /^##\s+[A-Za-z]+\s+\d{1,2},\s+\d{4}$/m.test(head))
-    return 'md';
+  if (
+    /^# WhatsApp Chat Export:/m.test(head) ||
+    /^##\s+[A-Za-z]+\s+\d{1,2},\s+\d{4}$/m.test(head) ||
+    /^\[\d{1,2}:\d{2}(?::\d{2})?\s*[APap][Mm]\]\s+\*\*[^*]{1,100}:\*\*/m.test(head)
+  ) return 'md';
   return 'txt';
 }
 
-export function parseWhatsAppExport(text: string): WhatsAppParsedMessage[] {
+export function parseWhatsAppExport(text: string, options: WhatsAppParseOptions = {}): WhatsAppParsedMessage[] {
   return detectWhatsAppExportFormat(text) === 'md'
-    ? parseMarkdownExport(text)
+    ? parseMarkdownExport(text, options.trustedConversationStartedAt)
     : parseTextExport(text);
 }
 

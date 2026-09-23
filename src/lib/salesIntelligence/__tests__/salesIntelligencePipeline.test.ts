@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  deriveCasesOnly,
   runSalesIntelligencePipeline,
   type SalesIntelligencePipelineInput,
 } from '@/lib/salesIntelligence/salesIntelligencePipeline';
@@ -13,6 +14,26 @@ function baseInput(overrides: Partial<SalesIntelligencePipelineInput> = {}): Sal
     ...overrides,
   };
 }
+
+describe('Sales Intelligence I.B.4 — trusted date anchor for time-only markdown', () => {
+  const raw = `[4:27 PM] **عبد الرحمن ابو عرب 17765:** عايزه زنك اوليف\n\n[4:30 PM] **You:** موجود ان شاء الله`;
+
+  it('keeps the historical parser gap explicit when no trusted date exists', () => {
+    const result = deriveCasesOnly({ conversationId: 'time-only-no-anchor', rawWhatsAppExportText: raw });
+    expect(result.cases).toHaveLength(0);
+    expect(result.pipelineWarnings).toContain('raw_text_produced_no_parsed_messages');
+  });
+
+  it('recovers the conversation when persistence supplies conversation_started_at as a trusted date anchor', () => {
+    const result = deriveCasesOnly({
+      conversationId: 'time-only-with-anchor',
+      rawWhatsAppExportText: raw,
+      trustedConversationStartedAt: '2026-09-15T13:27:00.000Z',
+    });
+    expect(result.cases.length).toBeGreaterThan(0);
+    expect(result.pipelineWarnings).not.toContain('raw_text_produced_no_parsed_messages');
+  });
+});
 
 describe('Sales Intelligence Pipeline (Phase G) — Golden Cases', () => {
   it('1. one clean conversation end-to-end: summary, total, confirmation, matching invoice -> zero exceptions', () => {

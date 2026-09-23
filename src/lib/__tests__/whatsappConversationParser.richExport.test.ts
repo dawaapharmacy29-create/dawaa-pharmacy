@@ -38,6 +38,25 @@ Export date: September 14, 2026 at 7:00 PM
 مع حضرتك د ندى
 `;
 
+describe('time-only WhatsApp markdown export', () => {
+  const timeOnly = `[4:27 PM] **عبد الرحمن ابو عرب 17765:** لو سمحت بامبرز بي بم مقاس ٤ موجود؟\n\n[4:30 PM] **You:** موجود ان شاء الله`;
+
+  it('detects time-only markdown but refuses to invent a calendar date without a trusted anchor', () => {
+    expect(detectWhatsAppExportFormat(timeOnly)).toBe('md');
+    expect(parseWhatsAppExport(timeOnly)).toHaveLength(0);
+  });
+
+  it('parses time-only markdown when persisted conversation_started_at supplies the trusted date', () => {
+    const messages = parseWhatsAppExport(timeOnly, { trustedConversationStartedAt: '2026-09-15T13:27:00.000Z' });
+    expect(messages).toHaveLength(2);
+    expect(messages[0].timestamp.getFullYear()).toBe(2026);
+    expect(messages[0].timestamp.getMonth()).toBe(8);
+    expect(messages[0].timestamp.getDate()).toBe(15);
+    expect(messages[0].sender).toContain('عبد الرحمن');
+    expect(messages[1].direction).toBe('outbound');
+  });
+});
+
 describe('rich WhatsApp markdown export', () => {
   it('detects markdown and keeps reply/media semantics without duplicating quote text into message body', () => {
     expect(detectWhatsAppExportFormat(sample)).toBe('md');
