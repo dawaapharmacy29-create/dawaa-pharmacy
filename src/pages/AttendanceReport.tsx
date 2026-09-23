@@ -265,6 +265,24 @@ export default function AttendanceReport() {
   const [approvalsSummary, setApprovalsSummary] = useState<ApprovalsSummary | null>(null);
   const [loadingSummary, setLoadingSummary] = useState(false);
 
+  // The sidebar navigates between query aliases without remounting this page.
+  // Keep the visible group and nested tab in step with each navigation.
+  const requestedTab = searchParams.get('tab');
+  useEffect(() => {
+    const destination = TAB_ALIASES[requestedTab || ''];
+    if (!destination) return;
+    const allowed: Tab[] = ['report', 'clock'];
+    if (isOperationalManager) allowed.push('dashboard', 'daily');
+    if (showDecisions) allowed.push('decisions');
+    if (canViewSyncHealth) allowed.push('system');
+    if (!allowed.includes(destination.tab)) return;
+    setTab(destination.tab);
+    if (destination.decisionSub) setDecisionSubTab(destination.decisionSub);
+    if (destination.systemSub) setSystemSubTab(destination.systemSub);
+    if (destination.clockSub) setClockSubView(destination.clockSub);
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  }, [requestedTab, isOperationalManager, showDecisions, canViewSyncHealth]);
+
   const userId = user?.staffId || user?.id || null;
   const userName = user?.name || 'غير محدد';
   const userBranch = user?.branch || null;
@@ -547,6 +565,12 @@ export default function AttendanceReport() {
       )}
 
       {tab === 'system' && <>
+        <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 text-sm leading-7 text-[var(--dawaa-theme-muted)]">
+          {systemSubTab === 'sync' && <p><b className="text-[var(--dawaa-theme-heading)]">صحة أجهزة البصمة:</b> تعرض آخر اتصال وآخر بصمة وصلت من كل فرع، وتأخر المزامنة ونسبة البصمات المرتبطة. وصول بصمات حديثة يعني أن الاتصال يعمل؛ راجع الأكواد غير المربوطة قبل الاعتماد على الحضور في المرتبات.</p>}
+          {systemSubTab === 'unmapped' && <p><b className="text-[var(--dawaa-theme-heading)]">أكواد تحتاج ربط:</b> كل صف هو كود على جهاز البصمة لم يُعرف الموظف المقابل له. عدد البصمات هو مرات ظهوره، وليس عدد الموظفين. افتح «اختيار الموظف» للكود المؤكد فقط؛ اترك أي كود غير معروف للمراجعة.</p>}
+          {systemSubTab === 'cross-branch' && <p><b className="text-[var(--dawaa-theme-heading)]">العمل بين الفروع:</b> يعرض موظفًا مسجلاً في فرع وبصم في فرع آخر. راجع مكان عمله في اليوم المعروض؛ الظهور هنا لا يعني مخالفة تلقائيًا.</p>}
+          {systemSubTab === 'schedules' && <p><b className="text-[var(--dawaa-theme-heading)]">جودة الجداول:</b> تعرض الأيام التي يصعب فيها تفسير البصمات بسبب جدول ناقص أو متعارض. صحح الجدول أولًا ثم راجع الحضور الناتج عنه.</p>}
+        </div>
         <Tabs value={systemSubTab} onValueChange={(v) => setSystemSubTab(v as SystemSubTab)} dir="rtl"><TabsList className="h-auto flex-wrap justify-start gap-1.5 rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-1.5">
           <TabsTrigger value="sync" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><Fingerprint size={16} /> صحة الأجهزة والمزامنة</TabsTrigger>
           <TabsTrigger value="unmapped" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><UserCheck size={16} /> أكواد تحتاج ربط <TabBadge value={approvalsSummary?.unmappedBiometrics} /></TabsTrigger><TabsTrigger value="cross-branch" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><MapPin size={16} /> العمل بين الفروع <TabBadge value={approvalsSummary?.crossBranchStaff} /></TabsTrigger><TabsTrigger value="schedules" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white data-[state=active]:shadow-md"><CalendarClock size={16} /> جودة الجداول</TabsTrigger>
