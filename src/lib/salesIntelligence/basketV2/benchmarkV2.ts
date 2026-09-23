@@ -12,7 +12,8 @@ import { buildConversationEntityGraphV2 } from './conversationEntityGraphV2';
 import { reconstructBasketV2 } from './basketReconstructionV2';
 import type { BasketStatusV2, ConversationEntityGraphV2 } from './basketV2Types';
 
-export const SALES_INTELLIGENCE_GROUND_TRUTH_VERSION = 'dawaa-intelligence-ground-truth-v1';
+/** @deprecated Pass the canonical dataset version explicitly from benchmarkGroundTruthV1.ts. */
+export const SALES_INTELLIGENCE_GROUND_TRUTH_VERSION = 'legacy-unspecified-ground-truth-version';
 
 export type BenchmarkSource = 'real' | 'synthetic';
 export type BenchmarkDifficulty = 'easy' | 'medium' | 'hard';

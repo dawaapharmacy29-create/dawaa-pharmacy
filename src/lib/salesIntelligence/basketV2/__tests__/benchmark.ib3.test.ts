@@ -39,8 +39,8 @@ import { buildConversationEntityGraphV2 } from '../conversationEntityGraphV2';
 import { reconstructBasketV2 } from '../basketReconstructionV2';
 import { messagesFrom } from './testUtils';
 import type { BasketStatusV2 } from '../basketV2Types';
-import { BASKET_GROUND_TRUTH_CASES_V1, REAL_CATALOG_ROWS_V1 } from '../benchmarkGroundTruthV1';
-import { runSalesIntelligenceBenchmarkV2, SALES_INTELLIGENCE_GROUND_TRUTH_VERSION } from '../benchmarkV2';
+import { BASKET_GROUND_TRUTH_CASES_V1, BASKET_GROUND_TRUTH_VERSION_V1, REAL_CATALOG_ROWS_V1 } from '../benchmarkGroundTruthV1';
+import { runSalesIntelligenceBenchmarkV2 } from '../benchmarkV2';
 
 function catalogFrom(rows: RawProductRow[]) {
   const counts = countNormalizedNames(rows);
@@ -171,7 +171,7 @@ describe('I.B.3/I.B.3.1 — real Basket benchmark: OLD vs Basket Reconstruction 
   });
 
   it('I.B.4 deterministic benchmark runner returns identical machine-readable output twice and preserves the safety baseline', () => {
-    const first = runSalesIntelligenceBenchmarkV2(CASES, CATALOG, SALES_INTELLIGENCE_GROUND_TRUTH_VERSION);
+    const first = runSalesIntelligenceBenchmarkV2(CASES, CATALOG, BASKET_GROUND_TRUTH_VERSION_V1);
     const second = runSalesIntelligenceBenchmarkV2(CASES, CATALOG, SALES_INTELLIGENCE_GROUND_TRUTH_VERSION);
 
     expect(first.machineReadableJson).toBe(second.machineReadableJson);

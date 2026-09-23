@@ -3,15 +3,16 @@
 // This composes the canonical Basket Ground Truth, canonical Closure Ground Truth, both benchmark
 // runners, and the readiness gate. It performs no DB writes and does not alter runtime behaviour.
 import type { PharmacyProductIndex } from '../pharmacyProducts/pharmacyProductResolverV2';
-import { runSalesIntelligenceBenchmarkV2, SALES_INTELLIGENCE_GROUND_TRUTH_VERSION, type SalesIntelligenceBenchmarkReport } from './benchmarkV2';
+import { runSalesIntelligenceBenchmarkV2, type SalesIntelligenceBenchmarkReport } from './benchmarkV2';
 import { runHistoricalClosureBenchmarkV2, type ClosureBenchmarkReportV2 } from './closureBenchmarkV2';
-import { BASKET_GROUND_TRUTH_CASES_V1 } from './benchmarkGroundTruthV1';
-import { CLOSURE_GROUND_TRUTH_CASES_V1 } from './closureGroundTruthV1';
+import { BASKET_GROUND_TRUTH_CASES_V1, BASKET_GROUND_TRUTH_VERSION_V1 } from './benchmarkGroundTruthV1';
+import { CLOSURE_GROUND_TRUTH_CASES_V1, CLOSURE_GROUND_TRUTH_VERSION_V1 } from './closureGroundTruthV1';
 import { evaluateSemanticIntelligenceReadinessV2, type SemanticReadinessAssessmentV2 } from './semanticReadinessV2';
 
 export interface Ib4EvaluationReportV2 {
   evaluationVersion: 'ib4-evaluation-v1';
   basketDatasetVersion: string;
+  closureDatasetVersion: string;
   basket: SalesIntelligenceBenchmarkReport;
   closure: ClosureBenchmarkReportV2;
   readiness: SemanticReadinessAssessmentV2;
@@ -24,7 +25,7 @@ export function runIb4EvaluationV2(productIndex: PharmacyProductIndex): Ib4Evalu
   const basket = runSalesIntelligenceBenchmarkV2(
     BASKET_GROUND_TRUTH_CASES_V1,
     productIndex,
-    SALES_INTELLIGENCE_GROUND_TRUTH_VERSION
+    BASKET_GROUND_TRUTH_VERSION_V1
   );
   const closure = runHistoricalClosureBenchmarkV2(CLOSURE_GROUND_TRUTH_CASES_V1, productIndex);
   const readiness = evaluateSemanticIntelligenceReadinessV2(basket.metrics, closure);
@@ -34,7 +35,8 @@ export function runIb4EvaluationV2(productIndex: PharmacyProductIndex): Ib4Evalu
 
   const summary = [
     'Phase I.B.4 — Full Intelligence Evaluation',
-    `Basket dataset: ${SALES_INTELLIGENCE_GROUND_TRUTH_VERSION}`,
+    `Basket dataset: ${BASKET_GROUND_TRUTH_VERSION_V1}`,
+    `Closure dataset: ${CLOSURE_GROUND_TRUTH_VERSION_V1}`,
     `Basket cases: ${basket.metrics.totalCases} (real ${basket.metrics.realCases}, synthetic ${basket.metrics.syntheticCases})`,
     `Real-only V2 product precision/recall: ${(basket.metrics.realOnlyV2Product.precision * 100).toFixed(1)}% / ${(basket.metrics.realOnlyV2Product.recall * 100).toFixed(1)}%`,
     `False-added products: ${basket.metrics.falseAddedProductToBasket.v2}`,
@@ -49,7 +51,8 @@ export function runIb4EvaluationV2(productIndex: PharmacyProductIndex): Ib4Evalu
 
   return {
     evaluationVersion: 'ib4-evaluation-v1',
-    basketDatasetVersion: SALES_INTELLIGENCE_GROUND_TRUTH_VERSION,
+    basketDatasetVersion: BASKET_GROUND_TRUTH_VERSION_V1,
+    closureDatasetVersion: CLOSURE_GROUND_TRUTH_VERSION_V1,
     basket,
     closure,
     readiness,

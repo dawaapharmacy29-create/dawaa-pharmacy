@@ -4,6 +4,9 @@
 // Any label change requires reviewed source change; do not silently rewrite labels from predictions.
 import type { ClosureGroundTruthCaseV2 } from './closureBenchmarkV2';
 
+/** Closure Ground Truth is versioned independently from Basket Ground Truth. */
+export const CLOSURE_GROUND_TRUTH_VERSION_V1 = 'dawaa-closure-ground-truth-v1';
+
 export const CLOSURE_GROUND_TRUTH_CASES_V1: ClosureGroundTruthCaseV2[] = [
   {
     id: 'C01-real-advisory-politeness',

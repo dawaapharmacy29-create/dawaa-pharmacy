@@ -8,6 +8,9 @@
 import type { RawProductRow } from '../pharmacyProducts/canonicalProduct';
 import type { SalesIntelligenceGroundTruthCase } from './benchmarkV2';
 
+/** Dataset version changes whenever labels OR case membership change. */
+export const BASKET_GROUND_TRUTH_VERSION_V1 = 'dawaa-intelligence-ground-truth-v1.1';
+
 export const REAL_CATALOG_ROWS_V1: RawProductRow[] = [
   { id: '8418f406-2c16-423e-8528-529d39e7d17b', name: 'ANTINAL 24 CAP', product_code: '56822', normalized_name: 'antinal 24 cap', category: null, price: '52', source: 'catalog_import' },
   { id: '8e762d26-b981-4f29-a696-8f361d70349a', name: 'Flexilax 30 tabs', product_code: '68114', normalized_name: 'flexilax 30 tabs', category: null, price: '84', source: 'catalog_import' },
