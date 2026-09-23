@@ -76,11 +76,41 @@ export function deriveHistoricalClosureShadowFromBasketV2(
     .filter((item) => !['removed', 'rejected', 'substituted'].includes(item.itemState))
     .map((item) => toLegacyCompatibleItem(basket, item));
 
-  return deriveHistoricalCommercialClosureAssessment(
+  const base = deriveHistoricalCommercialClosureAssessment(
     caseId,
     scopedMessages,
     commercial,
     activeItems,
     basket.announcedOrderTotal !== null
   );
+
+  // I.B.4 calibration guard: the legacy historical engine intentionally treats Egyptian staff
+  // phrases such as "من عنيا" as a fulfillment-intent marker. G.3 documented a real false
+  // positive where the phrase occurred in an advisory/recommendation conversation before any
+  // reconstructable order existed. Basket V2 gives us an independent semantic fact the old engine
+  // did not have: whether there is a safely reconstructable active commercial item. In SHADOW mode
+  // only, a staff-only weak closure with NO customer acceptance and NO reconstructable basket is
+  // downgraded to not_closed. We do NOT touch cases with customer acceptance, a real basket, or an
+  // explicit/formal closure.
+  if (
+    base.closureLevel === 'weakly_inferred' &&
+    base.staffFulfillmentIntentDetected &&
+    !base.customerAcceptanceDetected &&
+    !base.basketReconstructable
+  ) {
+    return {
+      ...base,
+      closureLevel: 'not_closed',
+      confidence: {
+        level: 'strongly_inferred',
+        score: 0.75,
+        ruleIds: [...base.confidence.ruleIds, 'historical_closure_shadow.staff_politeness_without_reconstructable_basket'],
+        evidence: base.confidence.evidence,
+      },
+      ruleIds: [...base.ruleIds, 'historical_closure_shadow.staff_politeness_without_reconstructable_basket'],
+      needsHumanReview: false,
+    };
+  }
+
+  return base;
 }

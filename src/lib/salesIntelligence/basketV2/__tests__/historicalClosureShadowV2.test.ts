@@ -53,6 +53,26 @@ describe('Phase I.B.4 — Historical Closure shadow using Basket V2 evidence', (
     expect(['strongly_inferred', 'explicit']).toContain(shadow.closureLevel);
   });
 
+  it('downgrades bare staff "من عنيا" in advisory context when Basket V2 has no reconstructable order', () => {
+    const raw = `[5/9/26, 11:27:38 PM] Customer: انا كنت واخد نوع شيكولاته للجنس
+[5/9/26, 11:28:21 PM] Customer: فأفضل حاجه ايه تظبط الرغبه
+[5/9/26, 11:31:49 PM] You: من عنيا لحضرتك طبعا
+[5/9/26, 11:32:04 PM] You: هراجع افضل نوع عندنا والبلغك بيه والسعر كمان`;
+    const messages = messagesFrom(raw);
+    const result = buildBasketFromConversation(raw, 'shadow-advisory', { productIndex: CATALOG });
+    const shadow = deriveHistoricalClosureShadowFromBasketV2(
+      'shadow-advisory',
+      messages,
+      commercial('shadow-advisory', result.currentBasket.basketId, result.currentBasket.version),
+      result.currentBasket
+    );
+
+    expect(shadow.basketReconstructable).toBe(false);
+    expect(shadow.customerAcceptanceDetected).toBe(false);
+    expect(shadow.closureLevel).toBe('not_closed');
+    expect(shadow.ruleIds).toContain('historical_closure_shadow.staff_politeness_without_reconstructable_basket');
+  });
+
   it('does not hallucinate closure from a price-only mention', () => {
     const raw = '[9/15/26, 9:00:00 AM] Customer: سعر انتينال كام؟';
     const messages = messagesFrom(raw);
