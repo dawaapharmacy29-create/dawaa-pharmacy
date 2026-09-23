@@ -104,8 +104,15 @@ export function buildConversationEntityGraphV2(
   const catalogById = productLookup(options.productIndex);
   const mentionOpts: BuildProductMentionsOptions = { productIndex: options.productIndex, ...options.mentionOptions };
   const mentions = buildProductMentions(messages, mentionOpts);
-  const quantities = extractQuantityMentionsV2(messages, mentions, { productIndex: options.productIndex, ...options.quantityOptions });
+  // I.B.4: references are derived first so Quantity Intelligence can consume ONLY their already-
+  // calibrated safe same-message edges. Quantity never re-runs reference resolution itself.
   const references = extractReferenceMentionsV2(messages, mentions);
+  const quantities = extractQuantityMentionsV2(
+    messages,
+    mentions,
+    { productIndex: options.productIndex, ...options.quantityOptions },
+    references
+  );
 
   // IMPORTANT: node id = IDENTITY KEY, not the raw mention id. I.B.2's own quantity/reference
   // linking (QuantityMentionV2.linkedProductMentionId, ReferenceMentionV2.selectedAntecedentId)

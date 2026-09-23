@@ -3,7 +3,8 @@ import { extractQuantityCandidatesFromText, extractQuantityMentionsV2 } from '..
 import { buildProductMentions } from '../productMentionTracker';
 import { messagesFrom } from './testUtils';
 import { buildCanonicalProduct, countNormalizedNames, type RawProductRow } from '../../pharmacyProducts/canonicalProduct';
-import { buildPharmacyProductIndex } from '../../pharmacyProducts/pharmacyProductResolverV2';
+import { buildPharmacyProductIndex, CROSS_SCRIPT_SEED } from '../../pharmacyProducts/pharmacyProductResolverV2';
+import { extractReferenceMentionsV2 } from '../referenceResolverV2';
 import { normalizePharmacyText } from '../../pharmacyProducts/pharmacyNormalization';
 
 function catalogFrom(rows: RawProductRow[]) {
@@ -11,6 +12,11 @@ function catalogFrom(rows: RawProductRow[]) {
   const catalog = rows.map((r) => buildCanonicalProduct(r, counts, normalizePharmacyText));
   return buildPharmacyProductIndex(catalog);
 }
+
+const SAME_MESSAGE_CATALOG = catalogFrom([
+  { id: 'p-antinal', name: 'Antinal', product_code: '56822', normalized_name: 'antinal', category: null, price: '80', source: 'catalog_import' },
+  { id: 'p-zurcal', name: 'Zurcal', product_code: 'z20', normalized_name: 'zurcal', category: null, price: '100', source: 'catalog_import' },
+]);
 
 const ZURCAL_CATALOG = catalogFrom([
   { id: 'p-zurcal-20', name: 'Zurcal 20 mg 14 tablets', product_code: 'z20', normalized_name: 'zurcal 20mg 14 tablets', category: null, price: '100', source: 'catalog_import' },
@@ -185,5 +191,38 @@ describe('extractQuantityMentionsV2 — cross-message correction + linking (inst
     const [correction] = extractQuantityMentionsV2(messages, productMentions).filter((q) => q.correctionKind === 'replace');
     expect(correction.numericValue).toBe(2);
     expect(correction.linkedProductMentionId).not.toBeNull();
+  });
+});
+
+describe('Phase I.B.4 — quantity targeting via safe same-message references', () => {
+  const mentionOptions = { productIndex: SAME_MESSAGE_CATALOG, resolveOptions: { crossScriptSeed: CROSS_SCRIPT_SEED } };
+  const quantityOptions = { productIndex: SAME_MESSAGE_CATALOG, resolveOptions: { crossScriptSeed: CROSS_SCRIPT_SEED } };
+
+  it('links "اتنين" to Antinal through the safe "منه" edge in the same message', () => {
+    const messages = messagesFrom('[9/15/26, 9:00:00 AM] Customer: عايز انتينال وهات منه اتنين');
+    const products = buildProductMentions(messages, mentionOptions);
+    const refs = extractReferenceMentionsV2(messages, products);
+    const quantities = extractQuantityMentionsV2(messages, products, quantityOptions, refs);
+    const two = quantities.find((q) => q.numericValue === 2 && q.semanticRole === 'order_quantity')!;
+    expect(two.linkedProductMentionId).toBe('p-antinal');
+    expect(two.ambiguityReasons).not.toContain('multiple_active_products_target_ambiguous');
+  });
+
+  it('does not link quantity when the same-message reference is ambiguous', () => {
+    const messages = messagesFrom('[9/15/26, 9:00:00 AM] Customer: عايز انتينال وزوركال وهات منه اتنين');
+    const products = buildProductMentions(messages, mentionOptions);
+    const refs = extractReferenceMentionsV2(messages, products);
+    const quantities = extractQuantityMentionsV2(messages, products, quantityOptions, refs);
+    const two = quantities.find((q) => q.numericValue === 2 && q.semanticRole === 'order_quantity')!;
+    expect(two.linkedProductMentionId).toBeNull();
+  });
+
+  it('never lets a future reference target or future product link an earlier quantity', () => {
+    const messages = messagesFrom('[9/15/26, 9:00:00 AM] Customer: هات اتنين ومنه انتينال');
+    const products = buildProductMentions(messages, mentionOptions);
+    const refs = extractReferenceMentionsV2(messages, products);
+    const quantities = extractQuantityMentionsV2(messages, products, quantityOptions, refs);
+    const two = quantities.find((q) => q.numericValue === 2 && q.semanticRole === 'order_quantity')!;
+    expect(two.linkedProductMentionId).toBeNull();
   });
 });

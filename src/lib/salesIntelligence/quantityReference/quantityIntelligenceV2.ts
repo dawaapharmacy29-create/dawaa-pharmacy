@@ -27,7 +27,7 @@ import { convertArabicDigits } from '../pharmacyProducts/pharmacyNormalization';
 import { resolveProductMention } from '../pharmacyProducts/pharmacyProductResolverV2';
 import type { PharmacyProductIndex, ResolveProductMentionOptions } from '../pharmacyProducts/pharmacyProductResolverV2';
 import { computeActiveProductCandidates } from './productMentionTracker';
-import type { ProductMentionV2 } from './quantityReferenceTypes';
+import type { ProductMentionV2, ReferenceMentionV2 } from './quantityReferenceTypes';
 import type { BasketLinkingSafety, QuantityCorrectionKind, QuantityMentionV2, QuantitySemanticRole } from './quantityReferenceTypes';
 
 // ---------------------------------------------------------------------------
@@ -441,13 +441,15 @@ const DECREMENT_RX = /(?:^|(?<=\s))شيل(?:ي)?\s*(واحد[ةه]?|اتنين|[
 const IMPLICIT_ONE_ORDER_RX = /(?:هات[ي]?|عايز[ةه]?|عاوز[ةه]?|محتاج[ةه]?)\s+(علبة|علبه|علب|شريط|عبوة|عبوه|زجاجة|زجاجه|امبول|أمبول|فيال|كيس)/i;
 const INTERROGATIVE_RX = /[؟?]|بكام|كام(?![ء-ي])|هل(?![ء-ي])/i;
 
-function detectImplicitOne(text: string): { unit: string; normalizedUnit: string } | null {
+function detectImplicitOne(text: string): { unit: string; normalizedUnit: string; start: number; end: number } | null {
   if (INTERROGATIVE_RX.test(text)) return null;
   const match = text.match(IMPLICIT_ONE_ORDER_RX);
-  if (!match) return null;
+  if (!match || match.index === undefined) return null;
   const info = lookupUnit(match[1]);
   if (info?.kind !== 'retail_pack') return null;
-  return { unit: match[1], normalizedUnit: info.normalizedUnit };
+  const unitOffset = match[0].lastIndexOf(match[1]);
+  const start = match.index + Math.max(0, unitOffset);
+  return { unit: match[1], normalizedUnit: info.normalizedUnit, start, end: start + match[1].length };
 }
 
 function parseCorrectionNumber(token: string | undefined): number {
@@ -498,6 +500,8 @@ export function extractQuantityCandidatesFromText(
       ruleIds: ['quantity.correction.replace'],
       ambiguityReasons: [],
       correctionKind: 'replace' as QuantityCorrectionKind,
+      sourceOffsetStart: replaceMatch.index,
+      sourceOffsetEnd: replaceMatch.index + replaceMatch[0].length,
     });
     consumed.push([replaceMatch.index, replaceMatch.index + replaceMatch[0].length]);
   }
@@ -514,6 +518,8 @@ export function extractQuantityCandidatesFromText(
       ruleIds: ['quantity.correction.increment'],
       ambiguityReasons: [],
       correctionKind: 'increment' as QuantityCorrectionKind,
+      sourceOffsetStart: incMatch.index,
+      sourceOffsetEnd: incMatch.index + incMatch[0].length,
     });
     consumed.push([incMatch.index, incMatch.index + incMatch[0].length]);
   }
@@ -530,6 +536,8 @@ export function extractQuantityCandidatesFromText(
       ruleIds: ['quantity.correction.decrement'],
       ambiguityReasons: [],
       correctionKind: 'decrement' as QuantityCorrectionKind,
+      sourceOffsetStart: decMatch.index,
+      sourceOffsetEnd: decMatch.index + decMatch[0].length,
     });
     consumed.push([decMatch.index, decMatch.index + decMatch[0].length]);
   }
@@ -547,6 +555,8 @@ export function extractQuantityCandidatesFromText(
       ruleIds: ['quantity.frequency.explicit_phrase'],
       ambiguityReasons: [],
       correctionKind: null,
+      sourceOffsetStart: freqMatch.index,
+      sourceOffsetEnd: freqMatch.index + freqMatch[0].length,
     });
     consumed.push([freqMatch.index, freqMatch.index + freqMatch[0].length]);
   }
@@ -563,6 +573,8 @@ export function extractQuantityCandidatesFromText(
       ruleIds: ['quantity.duration.explicit_phrase'],
       ambiguityReasons: [],
       correctionKind: null,
+      sourceOffsetStart: durMatch.index,
+      sourceOffsetEnd: durMatch.index + durMatch[0].length,
     });
     consumed.push([durMatch.index, durMatch.index + durMatch[0].length]);
   }
@@ -581,6 +593,8 @@ export function extractQuantityCandidatesFromText(
       ruleIds: classified.ruleIds,
       ambiguityReasons: classified.ambiguityReasons,
       correctionKind: null,
+      sourceOffsetStart: occurrence.start,
+      sourceOffsetEnd: occurrence.end,
     });
   }
 
@@ -601,6 +615,8 @@ export function extractQuantityCandidatesFromText(
         ruleIds: ['quantity.order.implicit_one_bare_retail_unit'],
         ambiguityReasons: ['implicit_quantity_inferred_not_stated'],
         correctionKind: null,
+        sourceOffsetStart: implicit.start,
+        sourceOffsetEnd: implicit.end,
       });
     }
   }
@@ -624,6 +640,32 @@ function computeQuantitySafety(mention: Pick<QuantityMentionV2, 'semanticRole' |
 }
 
 /**
+ * Phase I.B.4 — use an already-resolved SAME-MESSAGE reference as an independent target resolver
+ * for an order quantity. This does not re-run reference logic and never lowers its safety gate:
+ * only a reference marked `safe`, pointing to exactly one selected antecedent, whose literal span
+ * ends before this quantity begins may supply the target. If multiple safe references disagree,
+ * no target is chosen. This is the missing bridge for phrases such as
+ * "عايز انتينال وهات منه اتنين".
+ */
+function targetFromSafeSameMessageReference(
+  sourceMessageId: string,
+  quantityOffsetStart: number | null | undefined,
+  references: ReferenceMentionV2[]
+): string | null {
+  if (quantityOffsetStart == null) return null;
+  const eligible = references.filter((r) =>
+    r.sourceMessageId === sourceMessageId &&
+    r.safeForBasketLinking === 'safe' &&
+    r.resolutionStatus === 'resolved' &&
+    r.selectedAntecedentId != null &&
+    r.sourceOffsetEnd != null &&
+    r.sourceOffsetEnd <= quantityOffsetStart
+  );
+  const targets = Array.from(new Set(eligible.map((r) => r.selectedAntecedentId!)));
+  return targets.length === 1 ? targets[0] : null;
+}
+
+/**
  * Case-scoped orchestrator: extracts every message's candidates, then does cross-message linking
  * (instruction #12/#5) — a correction/increment/decrement or a unit-less order_quantity is only
  * ever linked to a product when EXACTLY ONE product is active at that point; otherwise it stays
@@ -632,7 +674,8 @@ function computeQuantitySafety(mention: Pick<QuantityMentionV2, 'semanticRole' |
 export function extractQuantityMentionsV2(
   messages: NormalizedConversationMessageV32[],
   productMentions: ProductMentionV2[],
-  options: QuantityExtractionOptions = {}
+  options: QuantityExtractionOptions = {},
+  referenceMentions: ReferenceMentionV2[] = []
 ): QuantityMentionV2[] {
   const mentions: QuantityMentionV2[] = [];
   let priorOrderQuantityMentionId: string | null = null;
@@ -653,7 +696,15 @@ export function extractQuantityMentionsV2(
       const ambiguityReasons = [...candidate.ambiguityReasons];
 
       if (candidate.semanticRole === 'order_quantity') {
-        if (soleActiveProductId) {
+        const sameMessageReferenceTarget = targetFromSafeSameMessageReference(
+          message.id,
+          candidate.sourceOffsetStart,
+          referenceMentions
+        );
+        if (sameMessageReferenceTarget) {
+          linkedProductMentionId = sameMessageReferenceTarget;
+          ambiguityReasons.splice(0, ambiguityReasons.length, ...ambiguityReasons.filter((r) => r !== 'multiple_active_products_target_ambiguous'));
+        } else if (soleActiveProductId) {
           linkedProductMentionId = soleActiveProductId;
         } else if (activeCandidates.length > 1) {
           ambiguityReasons.push('multiple_active_products_target_ambiguous');
@@ -661,7 +712,9 @@ export function extractQuantityMentionsV2(
       }
 
       if (candidate.correctionKind) {
-        if (soleActiveProductId) {
+        if (linkedProductMentionId) {
+          correctionOfMentionId = priorOrderQuantityMentionId;
+        } else if (soleActiveProductId) {
           correctionOfMentionId = priorOrderQuantityMentionId;
           linkedProductMentionId = soleActiveProductId;
         } else {
@@ -678,6 +731,8 @@ export function extractQuantityMentionsV2(
         semanticRole: candidate.semanticRole,
         linkedProductMentionId,
         sourceMessageId: message.id,
+        sourceOffsetStart: candidate.sourceOffsetStart ?? null,
+        sourceOffsetEnd: candidate.sourceOffsetEnd ?? null,
         confidence: candidate.confidence,
         confidenceFactors: candidate.confidenceFactors,
         ruleIds: candidate.ruleIds,

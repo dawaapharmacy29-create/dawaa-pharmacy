@@ -358,9 +358,9 @@ const CASES: BasketBenchmarkCase[] = [
     id: 'S06',
     source: 'synthetic',
     category: 'ambiguous_reference',
-    sourceNote: 'Phase I.B.4 calibration case — "عايز انتينال وهات منه اتنين" in ONE message. Reference resolution is now structurally testable via raw-message offsets, but Quantity Intelligence V2 does not yet consume same-message reference edges, so the Basket benchmark deliberately leaves exact quantity unasserted rather than pretending that integration already exists.',
+    sourceNote: 'Phase I.B.4 calibration case — "عايز انتينال وهات منه اتنين" in ONE message. Reference resolution uses raw-message offsets and Quantity Intelligence now consumes only the resulting SAFE same-message reference edge, so quantity 2 is part of Ground Truth.'
     raw: `[9/15/26, 9:00:00 AM] Customer: عايز انتينال وهات منه اتنين`,
-    groundTruth: { expectedAddedProductCodes: ['56822'], expectedNeverAddedProductCodes: [], expectedQuantities: {}, expectedStatus: null, expectUnresolvedSignal: false },
+    groundTruth: { expectedAddedProductCodes: ['56822'], expectedNeverAddedProductCodes: [], expectedQuantities: { '56822': 2 }, expectedStatus: null, expectUnresolvedSignal: false },
   },
   {
     id: 'S07',

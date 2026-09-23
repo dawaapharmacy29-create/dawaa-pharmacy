@@ -104,6 +104,9 @@ export interface QuantityMentionV2 {
   semanticRole: QuantitySemanticRole;
   linkedProductMentionId: string | null;
   sourceMessageId: string;
+  /** Phase I.B.4 — character offsets in the ORIGINAL message.text. Optional for compatibility with older fixtures, but every V2 extractor path now populates them when a literal span is known. */
+  sourceOffsetStart?: number | null;
+  sourceOffsetEnd?: number | null;
   confidence: number;
   /** Named, inspectable factors behind `confidence` — see instruction #22. Never a free-floating number alone. */
   confidenceFactors: string[];
