@@ -83,10 +83,9 @@ begin
 end;
 $$;
 
--- Direct replacement remains an internal building block for SECURITY DEFINER publish functions.
--- Browser clients must use draft -> validate -> publish.
-revoke execute on function public.replace_staff_shift_schedule_version_v1(uuid,jsonb,date,text) from anon,authenticated;
-grant execute on function public.replace_staff_shift_schedule_version_v1(uuid,jsonb,date,text) to service_role;
+-- Direct-write lockdown is intentionally deferred until the V2 client is fully accepted.
+-- This migration is additive so the current production client remains compatible while the
+-- experimental branch is validated. A later release migration will revoke direct replacement.
 
 revoke execute on function public.hr_canonical_schedule_week_v2(date,text) from public;
 grant execute on function public.hr_canonical_schedule_week_v2(date,text) to anon,authenticated,service_role;
