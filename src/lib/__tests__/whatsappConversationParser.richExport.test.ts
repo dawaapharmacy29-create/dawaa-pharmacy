@@ -57,6 +57,31 @@ describe('time-only WhatsApp markdown export', () => {
   });
 });
 
+describe('I.B.4 — real Shami time-only markdown regressions', () => {
+  it('recovers the previously-unparseable خالد فوده source using only its trusted persisted date', () => {
+    const raw = `[6:04 PM] **خالد فوده 9281:** الحمدلله احسن كتير\n\n[6:05 PM] **You:** يارب ديما بخير وصحه وسعاده يا فندم يارب`;
+    const withoutAnchor = parseWhatsAppExport(raw);
+    const withAnchor = parseWhatsAppExport(raw, { trustedConversationStartedAt: '2026-09-15T15:04:00.000Z' });
+
+    expect(withoutAnchor).toHaveLength(0);
+    expect(withAnchor).toHaveLength(2);
+    expect(withAnchor[0].sender).toBe('خالد فوده 9281');
+    expect(withAnchor[1].sender).toBe('You');
+    expect(withAnchor[1].direction).toBe('outbound');
+  });
+
+  it('parses reply quotes and multiple messages from the عبد الرحمن ابو عرب time-only source without inventing a date', () => {
+    const raw = `[4:27 PM] **عبد الرحمن ابو عرب 17765:** لو سمحت بامبرز بي بم مقاس ٤ موجود؟\n\n[4:34 PM] **You:**\n> _عبد الرحمن ابو عرب 17765: لو سمحت بامبرز بي بم مقاس ٤ موجود؟_\nموجود ان شاء الله\n\n[4:35 PM] **عبد الرحمن ابو عرب 17765:** كام قطعه؟\n\n[4:36 PM] **You:** 58 ا شاء الله`;
+    const messages = parseWhatsAppExport(raw, { trustedConversationStartedAt: '2026-09-15T13:27:00.000Z' });
+
+    expect(messages).toHaveLength(4);
+    expect(messages[1].replyTo?.sender).toBe('عبد الرحمن ابو عرب 17765');
+    expect(messages[1].replyTo?.text).toContain('بامبرز');
+    expect(messages[1].text).toBe('موجود ان شاء الله');
+    expect(messages[3].direction).toBe('outbound');
+  });
+});
+
 describe('rich WhatsApp markdown export', () => {
   it('detects markdown and keeps reply/media semantics without duplicating quote text into message body', () => {
     expect(detectWhatsAppExportFormat(sample)).toBe('md');
