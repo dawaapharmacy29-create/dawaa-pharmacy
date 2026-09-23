@@ -30,6 +30,7 @@ import {
 const surface = { background: 'var(--dawaa-theme-surface)', borderColor: 'var(--dawaa-theme-border)' };
 const surfaceSoft = { background: 'var(--dawaa-theme-bg-soft)', borderColor: 'var(--dawaa-theme-border)' };
 const mutedText = { color: 'var(--dawaa-theme-muted)' };
+const STATUS_OPTIONS = [{ key: 'draft', label: 'مسودة' }, { key: 'approved', label: 'معتمد' }, { key: 'paid', label: 'مدفوع' }];
 
 type Row = Record<string, unknown>;
 type StaffRow = { id: string; staffId: string; username: string; name: string; branch: string; role: string; active: boolean };

@@ -274,9 +274,12 @@ export function buildWhatsAppOperationalIntelligenceV6(session: WhatsAppConversa
   else if (operationalOutcome === 'checkin_complete') { followupRequired = false; followupReason = null; dueInDays = null; followupEvidence = ids(session.messages, IMPROVED_RX); }
 
   const missingStaff = session.messages.some((m) => m.direction === 'outbound') && session.outboundStaffNames.length === 0;
-  const intentConfidence = Math.min(intents.confidence, Math.max(45, base.evaluationCoverage + 15));
-  const outcomeConfidence = Math.min(close || rejected || recovered || state !== 'unknown' ? 92 : 76, Math.max(40, base.evaluationCoverage + 18));
-  const officialScoringEligible = base.evaluationCoverage >= 65 && base.confidence >= 70 && !missingStaff && base.mediaEvidence.missingContent === 0;
+  const missingMediaContent = session.mediaCount;
+  const readableMessages = session.messages.filter((m) => !['image', 'voice', 'video', 'document'].includes(m.kind) && m.text.trim()).length;
+  const evaluationCoverage = session.messages.length ? Math.round(100 * readableMessages / session.messages.length) : 0;
+  const intentConfidence = Math.min(intents.confidence, Math.max(45, evaluationCoverage + 15));
+  const outcomeConfidence = Math.min(close || rejected || recovered || state !== 'unknown' ? 92 : 76, Math.max(40, evaluationCoverage + 18));
+  const officialScoringEligible = evaluationCoverage >= 65 && base.confidence >= 70 && !missingStaff && missingMediaContent === 0;
 
   let nextBestAction = 'مراجعة بشرية سريعة ثم إغلاق الجلسة.';
   if (operationalOutcome === 'complaint_unresolved') nextBestAction = 'تصعيد فوري لخدمة العملاء ومتابعة حل الشكوى.';

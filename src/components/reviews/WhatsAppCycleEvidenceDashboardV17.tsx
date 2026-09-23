@@ -63,7 +63,7 @@ export default function WhatsAppCycleEvidenceDashboardV17({ mode }: { mode: Mode
     return () => { cancelled = true; };
   }, [mode, cycle.start]);
 
-  const current = useMemo(() => {
+  const current = useMemo<AnyRow[]>(() => {
     if (mode !== 'doctors') return rows;
     return rows.map((row) => ({ ...row, responseTiming: responseRows.find((timing) => sameIdentity(row, timing)) || null }));
   }, [rows, responseRows, mode]);
