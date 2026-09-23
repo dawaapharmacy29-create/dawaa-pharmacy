@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle2, History, RefreshCw, Save, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, History, LockKeyhole, RefreshCw, Save, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   comparePayrollStagedSnapshot,
@@ -16,6 +16,7 @@ import {
   type PayrollSnapshotReviewRow,
   type PayrollStagedSnapshot,
 } from '@/lib/hr/workforceService';
+import { finalizePayrollSnapshotV2, listPayrollFinalizedSnapshotsV2, type PayrollFinalizedSnapshotV2 } from '@/lib/hr/payrollContractService';
 
 export default function PayrollAttendanceSafetyGate({ staffId, monthCycle }: { staffId: string; monthCycle: string }) {
   const [gate, setGate] = useState<PayrollFinalizationGate | null>(null);
@@ -26,22 +27,25 @@ export default function PayrollAttendanceSafetyGate({ staffId, monthCycle }: { s
   const [reviewNote, setReviewNote] = useState('');
   const [reviewsBySnapshot, setReviewsBySnapshot] = useState<Record<string, PayrollSnapshotReviewRow[]>>({});
   const [compareResult, setCompareResult] = useState<{ snapshotId: string; unchanged: boolean } | null>(null);
+  const [finalized, setFinalized] = useState<PayrollFinalizedSnapshotV2[]>([]);
   const [loading, setLoading] = useState(false);
 
   const load = useCallback(async () => {
     if (!staffId || !monthCycle) return;
     setLoading(true);
     try {
-      const [gateResult, snapshotResult, stagedResult, auditResult] = await Promise.all([
+      const [gateResult, snapshotResult, stagedResult, auditResult, finalizedResult] = await Promise.all([
         getPayrollFinalizationGate(staffId, monthCycle),
         getPayrollFinalSnapshotPreview(staffId, monthCycle),
         listPayrollStagedSnapshots(staffId, monthCycle, 10),
         listPayrollSnapshotAudit(staffId, monthCycle, 20),
+        listPayrollFinalizedSnapshotsV2({ staffId, monthCycle, limit: 10 }),
       ]);
       setGate(gateResult);
       setSnapshot(snapshotResult);
       setStaged(stagedResult);
       setAudit(auditResult);
+      setFinalized(finalizedResult);
       const reviewPairs = await Promise.all(
         stagedResult.slice(0, 5).map(async (row) => [row.id, await listPayrollSnapshotReviews(row.id, 10)] as const)
       );
@@ -52,6 +56,7 @@ export default function PayrollAttendanceSafetyGate({ staffId, monthCycle }: { s
       setSnapshot(null);
       setStaged([]);
       setAudit([]);
+      setFinalized([]);
       setReviewsBySnapshot({});
     } finally {
       setLoading(false);
@@ -115,6 +120,25 @@ export default function PayrollAttendanceSafetyGate({ staffId, monthCycle }: { s
       await load();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'تعذر تسجيل قرار المراجعة');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function finalizeSnapshot(snapshotId: string) {
+    const latestReview = reviewsBySnapshot[snapshotId]?.[0];
+    if (!latestReview || latestReview.decision !== 'approved') {
+      toast.warning('يجب أن تكون آخر مراجعة للـSnapshot معتمدة قبل القفل النهائي.');
+      return;
+    }
+    if (!window.confirm('سيتم قفل Snapshot هذه كنسخة نهائية للدورة. العملية لا تعني الدفع، لكنها تمنع استبدال النسخة النهائية بصمت. هل تريد المتابعة؟')) return;
+    setLoading(true);
+    try {
+      const result = await finalizePayrollSnapshotV2(snapshotId);
+      toast.success(result.existing ? 'هذه النسخة مقفلة نهائيًا بالفعل.' : 'تم قفل نسخة المرتب النهائية للدورة — بدون دفع أو أثر مالي تلقائي.');
+      await load();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'تعذر قفل Snapshot النهائية');
     } finally {
       setLoading(false);
     }
@@ -198,6 +222,23 @@ export default function PayrollAttendanceSafetyGate({ staffId, monthCycle }: { s
         </div>
       )}
 
+      {!!finalized.length && (
+        <div className="mt-3 rounded-xl border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] p-3">
+          <div className="flex items-center gap-2 text-xs font-black text-[var(--dawaa-status-success-text)]">
+            <LockKeyhole size={14} /> Payroll Contract V2 — نسخة نهائية مقفلة
+          </div>
+          <div className="mt-2 text-xs font-bold text-[var(--dawaa-theme-muted)]">
+            {finalized[0].staff_name} · دورة {finalized[0].month_cycle} · تم القفل بواسطة {finalized[0].finalized_by_name} في {new Date(finalized[0].finalized_at).toLocaleString('ar-EG')}
+          </div>
+          <div className="mt-1 break-all font-mono text-[10px] text-[var(--dawaa-theme-muted)]">
+            fingerprint: {finalized[0].snapshot_fingerprint}
+          </div>
+          <div className="mt-2 text-[10px] font-black text-[var(--dawaa-theme-muted)]">
+            Finalized ≠ Paid. هذه الخطوة تثبت مدخلات المرتب فقط ولا تسجل دفعًا أو تحويلًا ماليًا.
+          </div>
+        </div>
+      )}
+
       {!!staged.length && (
         <div className="mt-3 rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-3">
           <div className="flex items-center gap-2 text-xs font-black text-[var(--dawaa-theme-heading)]"><History size={14} /> Snapshot Staging History</div>
@@ -237,6 +278,13 @@ export default function PayrollAttendanceSafetyGate({ staffId, monthCycle }: { s
                       className="btn-secondary !px-2 !py-1"
                     >
                       رفض المراجعة
+                    </button>
+                    <button
+                      onClick={() => void finalizeSnapshot(row.id)}
+                      disabled={loading || !!finalized.length || reviewsBySnapshot[row.id]?.[0]?.decision !== 'approved'}
+                      className="btn-secondary !px-2 !py-1"
+                    >
+                      <LockKeyhole size={12} /> قفل نهائي
                     </button>
                   </div>
                 </div>
