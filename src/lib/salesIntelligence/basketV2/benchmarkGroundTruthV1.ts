@@ -458,7 +458,7 @@ export const BASKET_GROUND_TRUTH_CASES_V1: SalesIntelligenceGroundTruthCase[] = 
     raw: `[9/15/26, 9:00:00 AM] Customer: عايز انتينال
 [9/15/26, 9:01:00 AM] You: موجود
 [9/15/26, 9:02:00 AM] Customer: شيل انتينال`,
-    groundTruth: { expectedAddedProductCodes: [], expectedNeverAddedProductCodes: [], expectedQuantities: {}, expectedStatus: null, expectUnresolvedSignal: false },
+    groundTruth: { expectedAddedProductCodes: [], expectedNeverAddedProductCodes: [], expectedQuantities: {}, expectedStatus: null, expectUnresolvedSignal: false, expectedEventTypes: ['ITEM_ADDED', 'ITEM_REMOVED'], expectedVersionCount: 1 },
   },
   {
     id: 'S02',
@@ -469,7 +469,7 @@ export const BASKET_GROUND_TRUTH_CASES_V1: SalesIntelligenceGroundTruthCase[] = 
 [9/15/26, 9:01:00 AM] You: موجود
 [9/15/26, 9:02:00 AM] Customer: هات 2
 [9/15/26, 9:03:00 AM] Customer: خليهم 3`,
-    groundTruth: { expectedAddedProductCodes: ['56822'], expectedNeverAddedProductCodes: [], expectedQuantities: { '56822': 3 }, expectedStatus: null, expectUnresolvedSignal: false },
+    groundTruth: { expectedAddedProductCodes: ['56822'], expectedNeverAddedProductCodes: [], expectedQuantities: { '56822': 3 }, expectedStatus: null, expectUnresolvedSignal: false, expectedEventTypes: ['ITEM_ADDED', 'QUANTITY_SET', 'QUANTITY_SET'], expectedVersionCount: 1 },
   },
   {
     id: 'S03',
@@ -479,7 +479,7 @@ export const BASKET_GROUND_TRUTH_CASES_V1: SalesIntelligenceGroundTruthCase[] = 
     raw: `[9/15/26, 9:00:00 AM] Customer: عايز انتينال
 [9/15/26, 9:01:00 AM] You: موجود
 [9/15/26, 9:02:00 AM] Customer: كنسل الطلب`,
-    groundTruth: { expectedAddedProductCodes: [], expectedNeverAddedProductCodes: [], expectedQuantities: {}, expectedStatus: 'cancelled', expectUnresolvedSignal: false },
+    groundTruth: { expectedAddedProductCodes: [], expectedNeverAddedProductCodes: [], expectedQuantities: {}, expectedStatus: 'cancelled', expectUnresolvedSignal: false, expectedEventTypes: ['ITEM_ADDED', 'BASKET_CANCELLED'], expectedVersionCount: 1 },
   },
   {
     id: 'S04',

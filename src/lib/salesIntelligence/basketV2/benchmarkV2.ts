@@ -30,6 +30,11 @@ export interface SalesIntelligenceGroundTruthCase {
     expectedQuantities: Record<string, number | null>;
     expectedStatus: BasketStatusV2 | null;
     expectUnresolvedSignal: boolean;
+    /** Optional I.B.4 event-history labels. Treated as ordered-subsequence expectations, not a demand
+     * that the engine emit no extra explainability events. */
+    expectedEventTypes?: string[];
+    /** Optional immutable-basket version label. */
+    expectedVersionCount?: number;
   };
 }
 
@@ -142,6 +147,8 @@ export interface SalesIntelligenceBenchmarkMetrics {
     referenceLinks: ConfidenceBucketCalibrationV2[];
   };
   humanReviewQuality: HumanReviewQualityV2;
+  eventSequenceAudit: { labeledCases: number; correct: number; incorrect: number; unverifiable: number; accuracy: number };
+  versioningAudit: { labeledCases: number; correct: number; incorrect: number; unverifiable: number; accuracy: number };
   wrongQuantityAppliedToCorrectProduct: number;
   missedExpectedQuantity: number;
   unresolvedCases: number;
@@ -196,6 +203,7 @@ function runV2(caseId: string, messages: NormalizedConversationMessageV32[], ind
   status: BasketStatusV2;
   unresolved: boolean;
   versionCount: number;
+  eventTypes: string[];
 } {
   const graph = buildConversationEntityGraphV2(caseId, messages, { productIndex: index });
   const timestamps = new Map(messages.map((m) => [m.id, m.timestamp.toISOString()] as const));
@@ -204,7 +212,14 @@ function runV2(caseId: string, messages: NormalizedConversationMessageV32[], ind
     .filter((i) => !['removed', 'rejected', 'substituted'].includes(i.itemState))
     .map((i) => ({ productCode: i.canonicalProductCode, quantity: i.currentQuantity }));
   const unresolved = result.currentBasket.unresolvedCandidates.length > 0 || result.currentBasket.pendingReviewSignals.length > 0;
-  return { graph, items, status: result.currentBasket.status, unresolved, versionCount: result.basketVersions.length + 1 };
+  return {
+    graph,
+    items,
+    status: result.currentBasket.status,
+    unresolved,
+    versionCount: result.basketVersions.length + 1,
+    eventTypes: result.events.map((e) => e.eventType),
+  };
 }
 
 function countItemMetrics(items: NormalizedBasketItem[], expected: Set<string>): { tp: number; fp: number; fn: number } {
@@ -352,6 +367,8 @@ export function runSalesIntelligenceBenchmarkV2(
   let falseOld = 0, falseV2 = 0;
   let wrongQty = 0, missedQty = 0, unresolvedCases = 0, regressions = 0;
   let mediaLimitedCases = 0, transliterationFailureCases = 0, safetyCriticalErrorCount = 0;
+  let eventLabeled = 0, eventCorrect = 0, eventIncorrect = 0;
+  let versionLabeled = 0, versionCorrect = 0, versionIncorrect = 0;
   let safeEdgeTotal = 0, safeEdgeCorrect = 0, safeEdgeIncorrect = 0, safeEdgeUnverifiable = 0;
   const productCalibration = emptyCalibration();
   const quantityCalibration = emptyCalibration();
@@ -395,6 +412,20 @@ export function runSalesIntelligenceBenchmarkV2(
     if (v2.unresolved) unresolvedCases++;
     const classification = classifyCase(c, old.items, v2.items, v2.unresolved);
     if (classification === 'old_correct_v2_regression') regressions++;
+
+    if (c.groundTruth.expectedEventTypes) {
+      eventLabeled++;
+      let cursor = 0;
+      for (const actual of v2.eventTypes) {
+        if (actual === c.groundTruth.expectedEventTypes[cursor]) cursor++;
+        if (cursor === c.groundTruth.expectedEventTypes.length) break;
+      }
+      cursor === c.groundTruth.expectedEventTypes.length ? eventCorrect++ : eventIncorrect++;
+    }
+    if (typeof c.groundTruth.expectedVersionCount === 'number') {
+      versionLabeled++;
+      v2.versionCount === c.groundTruth.expectedVersionCount ? versionCorrect++ : versionIncorrect++;
+    }
 
     const reviewExpected = c.groundTruth.expectUnresolvedSignal;
     if (reviewExpected && v2.unresolved) trueReviewNeeded++;
@@ -571,6 +602,20 @@ export function runSalesIntelligenceBenchmarkV2(
       precision: ratio(trueReviewNeeded, trueReviewNeeded + unnecessaryReview),
       recall: ratio(trueReviewNeeded, trueReviewNeeded + missedReview),
     },
+    eventSequenceAudit: {
+      labeledCases: eventLabeled,
+      correct: eventCorrect,
+      incorrect: eventIncorrect,
+      unverifiable: cases.length - eventLabeled,
+      accuracy: ratio(eventCorrect, eventLabeled),
+    },
+    versioningAudit: {
+      labeledCases: versionLabeled,
+      correct: versionCorrect,
+      incorrect: versionIncorrect,
+      unverifiable: cases.length - versionLabeled,
+      accuracy: ratio(versionCorrect, versionLabeled),
+    },
     wrongQuantityAppliedToCorrectProduct: wrongQty,
     missedExpectedQuantity: missedQty,
     unresolvedCases,
@@ -598,6 +643,7 @@ export function runSalesIntelligenceBenchmarkV2(
     `False-added products: ${metrics.falseAddedProductToBasket.v2}`,
     `Safe edges: ${metrics.safeEdgeAudit.total} (verified wrong ${metrics.safeEdgeAudit.verifiedIncorrect}, unverifiable ${metrics.safeEdgeAudit.unverifiable})`,
     `Human review precision/recall: ${(metrics.humanReviewQuality.precision * 100).toFixed(1)}% / ${(metrics.humanReviewQuality.recall * 100).toFixed(1)}%`,
+    `Event sequence audit: ${metrics.eventSequenceAudit.correct}/${metrics.eventSequenceAudit.labeledCases} labeled correct; versioning: ${metrics.versioningAudit.correct}/${metrics.versioningAudit.labeledCases}`,
     `Wrong quantity links: ${metrics.wrongQuantityAppliedToCorrectProduct}`,
     `V2 regressions: ${metrics.regressions}`,
     `Unresolved/review cases: ${metrics.unresolvedCases}`,

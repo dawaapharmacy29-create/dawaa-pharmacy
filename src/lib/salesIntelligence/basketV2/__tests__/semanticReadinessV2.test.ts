@@ -36,6 +36,8 @@ function benchmark(overrides: Partial<SalesIntelligenceBenchmarkMetrics> = {}): 
       precision: 5 / 6,
       recall: 1,
     },
+    eventSequenceAudit: { labeledCases: 3, correct: 3, incorrect: 0, unverifiable: 27, accuracy: 1 },
+    versioningAudit: { labeledCases: 3, correct: 3, incorrect: 0, unverifiable: 27, accuracy: 1 },
     wrongQuantityAppliedToCorrectProduct: 0,
     missedExpectedQuantity: 2,
     unresolvedCases: 6,
