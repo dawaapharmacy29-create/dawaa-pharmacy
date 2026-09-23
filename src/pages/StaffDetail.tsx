@@ -2,6 +2,11 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { AlertTriangle, CalendarClock, CheckCircle2, MapPin, RefreshCw, UserRound } from 'lucide-react';
 import StaffDetailLegacy from '@/pages/StaffDetailLegacy';
+import EmploymentProfileTimeline from '@/components/hr/EmploymentProfileTimeline';
+import StaffEmploymentRecords from '@/components/hr/StaffEmploymentRecords';
+import { readStaffDirectory, type StaffDirectoryIdentity } from '@/lib/readModels/staffDirectoryReadModel';
+import { useAuth } from '@/hooks/useAuth';
+import { normalizeRole } from '@/lib/core/permissionSystem';
 import { getHREmployeeCore360V2, type HREmployeeCore360V2 } from '@/lib/hr/hrTruthService';
 
 function formatShift(value?: string | null) {
@@ -11,9 +16,21 @@ function formatShift(value?: string | null) {
 
 export default function StaffDetail() {
   const { id } = useParams();
+  const { user } = useAuth();
+  const role = normalizeRole(user?.role);
+  const canWriteHR = ['general_manager', 'admin', 'executive_manager', 'branches_manager'].includes(role);
+  const [staffOptions, setStaffOptions] = useState<StaffDirectoryIdentity[]>([]);
   const [truth, setTruth] = useState<HREmployeeCore360V2 | null>(null);
   const [loading, setLoading] = useState(false);
   const [available, setAvailable] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    readStaffDirectory()
+      .then((rows) => { if (active) setStaffOptions(rows.filter((row) => row.id && row.active)); })
+      .catch(() => { if (active) setStaffOptions([]); });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     if (!id) return;
@@ -125,7 +142,22 @@ export default function StaffDetail() {
         </section>
       )}
 
-      <StaffDetailLegacy />
+      {id && (
+        <section className="grid gap-4 xl:grid-cols-2">
+          <EmploymentProfileTimeline staffId={id} canWrite={canWriteHR} staffOptions={staffOptions} />
+          <StaffEmploymentRecords staffId={id} canWrite={canWriteHR} />
+        </section>
+      )}
+
+      <section>
+        <div className="mb-2">
+          <h2 className="text-lg font-black text-[var(--dawaa-theme-heading)]">الأداء والتشغيل التاريخي</h2>
+          <p className="text-xs font-bold text-[var(--dawaa-theme-muted)]">
+            هذا الجزء يعرض طبقة الأداء والحوافز والتفاصيل التشغيلية القديمة داخل Employee 360، بينما تبقى الهوية والجدول والسجل الوظيفي تحت HR Truth V2.
+          </p>
+        </div>
+        <StaffDetailLegacy />
+      </section>
     </div>
   );
 }
