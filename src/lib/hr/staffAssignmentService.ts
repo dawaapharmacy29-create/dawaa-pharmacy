@@ -58,3 +58,49 @@ export async function requestStaffAssignmentV2(args: {
   if (error) throw new Error(error.message);
   return data as { success: boolean; id: string; state: string };
 }
+
+
+export type PendingStaffAssignmentV2 = {
+  id: string;
+  staff_id: string;
+  staff_name: string;
+  effective_from: string;
+  branch: string;
+  role: string;
+  change_reason: string;
+  state: 'pending';
+  requested_at: string;
+  requested_by_name: string | null;
+};
+
+export async function listPendingStaffAssignmentsV2(): Promise<PendingStaffAssignmentV2[]> {
+  const { data, error } = await supabase.rpc('hr_staff_assignment_change_v2', {
+    p_action: 'list_pending',
+    p_staff_id: null,
+    p_assignment_id: null,
+    p_payload: {},
+  });
+  if (error) throw new Error(error.message);
+  return (data || []) as PendingStaffAssignmentV2[];
+}
+
+export async function decideStaffAssignmentV2(
+  assignmentId: string,
+  decision: 'approve' | 'reject',
+  note?: string | null
+) {
+  const { data, error } = await supabase.rpc('hr_staff_assignment_change_v2', {
+    p_action: decision,
+    p_staff_id: null,
+    p_assignment_id: assignmentId,
+    p_payload: { note: note || null },
+  });
+  if (error) throw new Error(error.message);
+  return data as {
+    success: boolean;
+    id: string;
+    state: 'approved' | 'rejected';
+    effective_from: string;
+    applied_now: boolean;
+  };
+}
