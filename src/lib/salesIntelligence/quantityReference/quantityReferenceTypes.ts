@@ -153,6 +153,9 @@ export interface ReferenceMentionV2 {
   rawText: string;
   referenceType: ReferenceType;
   sourceMessageId: string;
+  /** Phase I.B.4 — raw-message character offsets for this reference token. These share the SAME coordinate system as ProductMentionV2.sourceOffsetStart/sourceOffsetEnd (the original message.text), so intra-message ordering can be evaluated without comparing normalized-text offsets to raw-text offsets. Null only when the detector cannot locate a literal span. */
+  sourceOffsetStart: number | null;
+  sourceOffsetEnd: number | null;
   /** Every distinct active-product identity considered, even when unresolved/ambiguous — for auditability, never trimmed to just the winner. */
   candidateAntecedentIds: string[];
   /** I.B.2.1 instruction #6 — full scored breakdown for every candidate in candidateAntecedentIds, sorted highest-score-first. */

@@ -2,6 +2,25 @@ import { describe, expect, it } from 'vitest';
 import { detectReferenceMentions, extractReferenceMentionsV2, resolveReferenceV2 } from '../referenceResolverV2';
 import { buildProductMentions } from '../productMentionTracker';
 import { messagesFrom, findByText } from './testUtils';
+import { buildPharmacyProductIndex, CROSS_SCRIPT_SEED } from '../../pharmacyProducts/pharmacyProductResolverV2';
+import type { CanonicalProduct } from '../../pharmacyProducts/canonicalProduct';
+
+function product(productId: string, productCode: string, canonicalName: string): CanonicalProduct {
+  return {
+    productId, productCode, barcode: null, canonicalName,
+    arabicName: null, englishName: canonicalName,
+    normalizedNames: [canonicalName.toLowerCase()], strengths: [], dosageForms: [], packSizes: [],
+    category: null, manufacturer: null, price: null, sourceTable: 'test',
+    qualityFlags: { hasNormalizedNameCollision: false, missingStrength: true, missingDosageForm: true, missingAnyQuantitySignal: true },
+  };
+}
+
+const SAME_MESSAGE_INDEX = buildPharmacyProductIndex([
+  product('p-antinal', '56822', 'Antinal'),
+  product('p-zurcal', 'z20', 'Zurcal'),
+]);
+const SAME_MESSAGE_OPTIONS = { productIndex: SAME_MESSAGE_INDEX, resolveOptions: { crossScriptSeed: CROSS_SCRIPT_SEED } };
+
 
 describe('detectReferenceMentions — vocabulary classification (instruction #7/#8)', () => {
   it.each([
@@ -112,6 +131,54 @@ describe('resolveReferenceV2 — scored antecedent selection (instructions #9/#1
     const result = resolveReferenceV2(caseBMessages, 0, caseAMentions, 'منه', 'pronoun');
     expect(result.resolutionStatus).toBe('unresolved');
     expect(result.candidateAntecedentIds).toHaveLength(0);
+  });
+});
+
+describe('Phase I.B.4 — same-message reference ordering', () => {
+  it('resolves one preceding canonical product inside the same message', () => {
+    const messages = messagesFrom('[9/15/26, 9:00:00 AM] Customer: عايز انتينال وهات منه اتنين');
+    const mentions = buildProductMentions(messages, SAME_MESSAGE_OPTIONS);
+    const ref = extractReferenceMentionsV2(messages, mentions).find((r) => r.rawText.includes('منه'))!;
+    expect(ref.resolutionStatus).toBe('resolved');
+    expect(ref.selectedAntecedentId).toBe('p-antinal');
+    expect(ref.referenceDistance).toBe(0);
+    expect(ref.safeForBasketLinking).toBe('safe');
+    expect(ref.confidenceFactors).toContain('structural_offset_ordering');
+  });
+
+  it('never resolves to a product that appears later in the same message', () => {
+    const messages = messagesFrom('[9/15/26, 9:00:00 AM] Customer: هات منه اتنين وانتينال');
+    const mentions = buildProductMentions(messages, SAME_MESSAGE_OPTIONS);
+    const ref = extractReferenceMentionsV2(messages, mentions).find((r) => r.rawText.includes('منه'))!;
+    expect(ref.resolutionStatus).toBe('unresolved');
+    expect(ref.selectedAntecedentId).toBeNull();
+  });
+
+  it('keeps a pronoun ambiguous when two canonical products precede it in the same message', () => {
+    const messages = messagesFrom('[9/15/26, 9:00:00 AM] Customer: عايز انتينال وزوركال وهات منه اتنين');
+    const mentions = buildProductMentions(messages, SAME_MESSAGE_OPTIONS);
+    const ref = extractReferenceMentionsV2(messages, mentions).find((r) => r.rawText.includes('منه'))!;
+    expect(ref.resolutionStatus).toBe('ambiguous');
+    expect(ref.selectedAntecedentId).toBeNull();
+    expect(ref.safeForBasketLinking).toBe('unsafe');
+  });
+
+  it('ignores a later second product when exactly one canonical antecedent precedes the reference', () => {
+    const messages = messagesFrom('[9/15/26, 9:00:00 AM] Customer: عايز انتينال وهات منه اتنين وزوركال');
+    const mentions = buildProductMentions(messages, SAME_MESSAGE_OPTIONS);
+    const ref = extractReferenceMentionsV2(messages, mentions).find((r) => r.rawText.includes('منه'))!;
+    expect(ref.resolutionStatus).toBe('resolved');
+    expect(ref.selectedAntecedentId).toBe('p-antinal');
+  });
+
+  it('stores product and reference offsets in one raw-message coordinate system', () => {
+    const messages = messagesFrom('[9/15/26, 9:00:00 AM] Customer: عايز انتينال وهات منه اتنين');
+    const mentions = buildProductMentions(messages, SAME_MESSAGE_OPTIONS);
+    const antinal = mentions.find((m) => m.resolvedProductId === 'p-antinal')!;
+    const ref = extractReferenceMentionsV2(messages, mentions).find((r) => r.rawText.includes('منه'))!;
+    expect(antinal.sourceOffsetStart).toBe(messages[0].text.indexOf('انتينال'));
+    expect(ref.sourceOffsetStart).toBe(messages[0].text.indexOf('منه'));
+    expect(antinal.sourceOffsetEnd ?? 0).toBeLessThanOrEqual(ref.sourceOffsetStart ?? -1);
   });
 });
 

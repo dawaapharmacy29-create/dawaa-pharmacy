@@ -63,6 +63,19 @@ function identityCoreText(rawText: string): string {
   return rawText.replace(FILLER_WORDS_RX, ' ').replace(/\s+/g, ' ').trim();
 }
 
+/**
+ * Phase I.B.4: ProductMention offsets must be comparable with reference offsets. Earlier I.B.3.1
+ * stored offsets relative to a stripped request/offer substring; reference detection naturally
+ * reports offsets in the original message text. Comparing those two coordinate systems would make
+ * same-message resolution subtly wrong whenever a prefix such as "عايز"/"ممكن" was stripped.
+ * Resolve the literal span back into the ORIGINAL message text once, here, and keep one coordinate
+ * system everywhere. Never fabricate an offset when the raw span is not literally present.
+ */
+function sourceSpanInMessage(messageText: string, rawSpan: string): { start: number | null; end: number | null } {
+  const start = messageText.indexOf(rawSpan);
+  return start === -1 ? { start: null, end: null } : { start, end: start + rawSpan.length };
+}
+
 // I.B.2.1 instruction #7 — an explicit, single-message "X أو Y" enumerated offer (e.g. staff
 // "ممكن زوركال أو نيكسيوم"). Distinct from a plain "و" (and) list below: "أو" means the customer
 // picks ONE, which is exactly the structural evidence an ordinal reference ("التاني") may safely
@@ -267,8 +280,10 @@ export function buildProductMentions(
         messageIndex,
         timestamp: message.timestamp.toISOString(),
         validity: classifyMentionValidity(rawText, null),
-        sourceOffsetStart: 0,
-        sourceOffsetEnd: rawText.length,
+        ...(() => {
+          const span = sourceSpanInMessage(message.text, rawText);
+          return { sourceOffsetStart: span.start, sourceOffsetEnd: span.end };
+        })(),
       });
       return;
     }
@@ -281,7 +296,7 @@ export function buildProductMentions(
       const groupId = `grp:${message.id}`;
       [enumMatch[1].trim(), enumMatch[2].trim()].forEach((part, partIndex) => {
         const resolution = options.productIndex ? resolveProductMention(part, options.productIndex, options.resolveOptions) : null;
-        const offsetStart = rawText.indexOf(part);
+        const span = sourceSpanInMessage(message.text, part);
         mentions.push({
           mentionId: `pm:${message.id}:${seq++}`,
           sourceMessageId: message.id,
@@ -294,8 +309,8 @@ export function buildProductMentions(
           enumerationGroupId: groupId,
           enumerationIndex: partIndex,
           validity: classifyMentionValidity(part, resolution),
-          sourceOffsetStart: offsetStart === -1 ? null : offsetStart,
-          sourceOffsetEnd: offsetStart === -1 ? null : offsetStart + part.length,
+          sourceOffsetStart: span.start,
+          sourceOffsetEnd: span.end,
         });
       });
       return;
@@ -304,19 +319,20 @@ export function buildProductMentions(
     const segments = resolveProductSegments(core, options.productIndex, options.resolveOptions);
     segments.forEach((segment) => {
       const resolvedProductId = segment.resolution?.selected?.product.productId ?? null;
-      const offsetStart = rawText.indexOf(segment.text);
+      const storedRawText = segments.length > 1 ? segment.text : rawText;
+      const span = sourceSpanInMessage(message.text, storedRawText);
       mentions.push({
         mentionId: `pm:${message.id}:${seq++}`,
         sourceMessageId: message.id,
-        rawText: segments.length > 1 ? segment.text : rawText,
+        rawText: storedRawText,
         role,
         resolvedProductId,
         identityKey: resolvedProductId ?? `text:${normalizeProductKey(segment.text)}`,
         messageIndex,
         timestamp: message.timestamp.toISOString(),
         validity: classifyMentionValidity(segment.text, segment.resolution),
-        sourceOffsetStart: offsetStart === -1 ? null : offsetStart,
-        sourceOffsetEnd: offsetStart === -1 ? null : offsetStart + segment.text.length,
+        sourceOffsetStart: span.start,
+        sourceOffsetEnd: span.end,
       });
     });
   });

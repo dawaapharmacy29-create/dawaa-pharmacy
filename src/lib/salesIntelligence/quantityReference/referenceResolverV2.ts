@@ -47,13 +47,13 @@ const NON_PRODUCT_ORDINAL_CONTEXT_RX = /(?:الفرع|المندوب|الموظ�
 
 export function detectReferenceMentions(
   message: NormalizedConversationMessageV32
-): Array<{ rawText: string; referenceType: ReferenceType }> {
-  const found: Array<{ rawText: string; referenceType: ReferenceType }> = [];
+): Array<{ rawText: string; referenceType: ReferenceType; sourceOffsetStart: number; sourceOffsetEnd: number }> {
+  const found: Array<{ rawText: string; referenceType: ReferenceType; sourceOffsetStart: number; sourceOffsetEnd: number }> = [];
   for (const [rx, type] of REFERENCE_VOCAB) {
     const match = message.text.match(rx);
     if (match && match.index !== undefined) {
       if (type === 'ordinal' && NON_PRODUCT_ORDINAL_CONTEXT_RX.test(message.text.slice(0, match.index))) continue;
-      found.push({ rawText: match[0], referenceType: type });
+      found.push({ rawText: match[0], referenceType: type, sourceOffsetStart: match.index, sourceOffsetEnd: match.index + match[0].length });
       break; // one reference classification per message — the dominant phrase, never double-count
     }
   }
@@ -235,7 +235,9 @@ export function resolveReferenceV2(
   referenceIndex: number,
   mentions: ProductMentionV2[],
   rawText: string,
-  referenceType: ReferenceType
+  referenceType: ReferenceType,
+  referenceOffsetStart: number | null = null,
+  referenceOffsetEnd: number | null = null
 ): ReferenceMentionV2 {
   const messageIds = new Set(messages.map((m) => m.id));
   // I.B.2.1 instruction #15 — directionality: only mentions strictly BEFORE the reference message
@@ -246,8 +248,45 @@ export function resolveReferenceV2(
   // ever looks at `messageIndex < referenceIndex` (see productMentionTracker.ts).
   const scopedMentions = mentions.filter((m) => messageIds.has(m.sourceMessageId));
 
-  const candidates = computeActiveProductCandidates(messages, scopedMentions, referenceIndex);
+  const priorCandidates = computeActiveProductCandidates(messages, scopedMentions, referenceIndex);
   const referenceId = `ref:${messages[referenceIndex].id}`;
+
+  // Phase I.B.4 — same-message reference resolution. Product mentions and reference mentions use
+  // ORIGINAL message.text character offsets so ordering is structural, not inferred from normalized
+  // strings. Only canonical-resolved product spans ending BEFORE the reference may participate.
+  const sameMessagePreceding = referenceOffsetStart == null
+    ? []
+    : scopedMentions.filter((m) =>
+        m.sourceMessageId === messages[referenceIndex].id &&
+        m.validity === 'canonical_resolved' &&
+        m.role !== 'staff_availability' &&
+        m.resolvedProductId != null &&
+        m.sourceOffsetStart != null &&
+        m.sourceOffsetEnd != null &&
+        m.sourceOffsetEnd <= referenceOffsetStart
+      );
+
+  const sameByIdentity = new Map<string, ProductMentionV2[]>();
+  for (const mention of sameMessagePreceding) {
+    const bucket = sameByIdentity.get(mention.identityKey);
+    if (bucket) bucket.push(mention);
+    else sameByIdentity.set(mention.identityKey, [mention]);
+  }
+  const sameMessageCandidates: ActiveProductCandidate[] = Array.from(sameByIdentity.entries()).map(([identityKey, bucket]) => {
+    const ordered = bucket.slice().sort((a, b) => (a.sourceOffsetStart ?? 0) - (b.sourceOffsetStart ?? 0));
+    const last = ordered[ordered.length - 1];
+    return {
+      identityKey,
+      mentionIds: ordered.map((m) => m.mentionId),
+      lastMentionId: last.mentionId,
+      lastMessageIndex: referenceIndex,
+      lastMentionWasStaffOffer: last.role === 'staff_offer',
+    };
+  });
+
+  // Explicit same-message antecedents define the local discourse window. Multiple local identities
+  // are intentionally ambiguous; future mentions are excluded by the offset gate above.
+  const candidates = sameMessageCandidates.length > 0 ? sameMessageCandidates : priorCandidates;
 
   const mentionsByIdentity = new Map<string, ProductMentionV2[]>();
   scopedMentions.forEach((m) => {
@@ -268,11 +307,58 @@ export function resolveReferenceV2(
       rawText,
       referenceType,
       sourceMessageId: messages[referenceIndex].id,
+      sourceOffsetStart: referenceOffsetStart,
+      sourceOffsetEnd: referenceOffsetEnd,
       candidateAntecedentIds: candidates.map((c) => c.identityKey),
       candidateScores,
       ...fields,
       safeForBasketLinking: computeReferenceSafety(fields),
     };
+  }
+
+  // Structural same-message path. Exactly one canonical product before the reference is strong
+  // local evidence. Two or more are ambiguous — never "nearest mention wins" inside a message.
+  if (sameMessageCandidates.length === 1) {
+    const winner = sameMessageCandidates[0];
+    const candidateScores: ReferenceCandidateScore[] = [{
+      identityKey: winner.identityKey,
+      score: 0.95,
+      factors: ['same_message_preceding_canonical_product', 'structural_offset_ordering'],
+    }];
+    return build(
+      {
+        resolutionStatus: 'resolved',
+        selectedAntecedentId: winner.identityKey,
+        confidence: 0.95,
+        confidenceFactors: ['same_message_preceding_canonical_product', 'structural_offset_ordering'],
+        ambiguityReasons: [],
+        referenceDistance: 0,
+        substitutionContext: null,
+        scoreMargin: 0.95,
+      },
+      candidateScores
+    );
+  }
+
+  if (sameMessageCandidates.length > 1) {
+    const candidateScores: ReferenceCandidateScore[] = sameMessageCandidates.map((c) => ({
+      identityKey: c.identityKey,
+      score: 0.5,
+      factors: ['same_message_preceding_canonical_product', 'competing_same_message_candidate'],
+    }));
+    return build(
+      {
+        resolutionStatus: 'ambiguous',
+        selectedAntecedentId: null,
+        confidence: 0.5,
+        confidenceFactors: ['multiple_same_message_preceding_products'],
+        ambiguityReasons: ['multiple_same_message_preceding_products', `competing_candidate_count_${sameMessageCandidates.length}`],
+        referenceDistance: null,
+        substitutionContext: null,
+        scoreMargin: 0,
+      },
+      candidateScores
+    );
   }
 
   if (candidates.length === 0) {
@@ -385,8 +471,8 @@ export function extractReferenceMentionsV2(
   messages.forEach((message, index) => {
     if (!message.isMeaningful) return;
     const found = detectReferenceMentions(message);
-    found.forEach(({ rawText, referenceType }) => {
-      results.push(resolveReferenceV2(messages, index, mentions, rawText, referenceType));
+    found.forEach(({ rawText, referenceType, sourceOffsetStart, sourceOffsetEnd }) => {
+      results.push(resolveReferenceV2(messages, index, mentions, rawText, referenceType, sourceOffsetStart, sourceOffsetEnd));
     });
   });
   return results;

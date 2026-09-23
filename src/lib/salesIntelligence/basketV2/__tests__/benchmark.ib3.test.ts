@@ -358,9 +358,9 @@ const CASES: BasketBenchmarkCase[] = [
     id: 'S06',
     source: 'synthetic',
     category: 'ambiguous_reference',
-    sourceNote: 'Instruction #23\'s own residual same-message reference gap example — "عايز انتينال وهات منه اتنين" in ONE message. Antinal itself MUST be added (its own direct "عايز انتينال" mention is unambiguous, independent of the reference gap); the quantity "اتنين" linking via "منه" within the SAME message is the known residual gap — ground truth honestly leaves the exact quantity unasserted rather than forcing an outcome I.B.2.1 was never required to guarantee.',
+    sourceNote: 'Phase I.B.4 calibration case — "عايز انتينال وهات منه اتنين" in ONE message. Product/reference offsets now share raw-message coordinates; the one preceding canonical product is the safe antecedent, so quantity 2 is asserted in Ground Truth.',
     raw: `[9/15/26, 9:00:00 AM] Customer: عايز انتينال وهات منه اتنين`,
-    groundTruth: { expectedAddedProductCodes: ['56822'], expectedNeverAddedProductCodes: [], expectedQuantities: {}, expectedStatus: null, expectUnresolvedSignal: false },
+    groundTruth: { expectedAddedProductCodes: ['56822'], expectedNeverAddedProductCodes: [], expectedQuantities: { '56822': 2 }, expectedStatus: null, expectUnresolvedSignal: false },
   },
   {
     id: 'S07',
