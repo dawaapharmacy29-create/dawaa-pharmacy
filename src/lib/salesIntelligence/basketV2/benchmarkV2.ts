@@ -122,6 +122,9 @@ export interface SalesIntelligenceBenchmarkMetrics {
   totalCases: number;
   realCases: number;
   syntheticCases: number;
+  /** Evidence-composition counters: prevent "20 real cases" from being satisfied only by easy negatives. */
+  realPositiveOrderCases: number;
+  realHardCases: number;
   byDifficulty: Record<BenchmarkDifficulty, number>;
   difficultyMetrics: Record<BenchmarkDifficulty, DifficultyBenchmarkMetricsV2>;
   realOnlyV2Product: { tp: number; fp: number; fn: number; precision: number; recall: number };
@@ -527,6 +530,8 @@ export function runSalesIntelligenceBenchmarkV2(
     totalCases: cases.length,
     realCases: cases.filter((c) => c.source === 'real').length,
     syntheticCases: cases.filter((c) => c.source === 'synthetic').length,
+    realPositiveOrderCases: cases.filter((c) => c.source === 'real' && c.groundTruth.expectedAddedProductCodes.length > 0).length,
+    realHardCases: cases.filter((c) => c.source === 'real' && difficultyFor(c) === 'hard').length,
     byDifficulty,
     difficultyMetrics,
     realOnlyV2Product: { ...realV2, precision: ratio(realV2.tp, realV2.tp + realV2.fp), recall: ratio(realV2.tp, realV2.tp + realV2.fn) },
@@ -571,6 +576,7 @@ export function runSalesIntelligenceBenchmarkV2(
   const humanSummary = [
     `Dataset: ${datasetVersion}`,
     `Cases: ${metrics.totalCases} (real ${metrics.realCases}, synthetic ${metrics.syntheticCases})`,
+    `Real positive-order cases: ${metrics.realPositiveOrderCases}; real hard cases: ${metrics.realHardCases}`,
     `V2 product precision: ${(metrics.v2Product.precision * 100).toFixed(1)}%`,
     `V2 product recall: ${(metrics.v2Product.recall * 100).toFixed(1)}%`,
     `Real-only V2 product precision/recall: ${(metrics.realOnlyV2Product.precision * 100).toFixed(1)}% / ${(metrics.realOnlyV2Product.recall * 100).toFixed(1)}%`,

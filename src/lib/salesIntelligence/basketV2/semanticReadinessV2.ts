@@ -12,6 +12,8 @@ import type { ClosureBenchmarkReportV2 } from './closureBenchmarkV2';
 export interface SemanticReadinessThresholdsV2 {
   /** Minimum independently-labelled REAL cases before a next-stage readiness claim is evidence-backed. */
   minimumRealCases: number;
+  minimumRealPositiveOrderCases: number;
+  minimumRealHardCases: number;
   /** Hard safety thresholds. */
   maxFalseAddedProducts: number;
   maxWrongQuantities: number;
@@ -32,6 +34,8 @@ export interface SemanticReadinessAssessmentV2 {
 
 export const DEFAULT_SEMANTIC_READINESS_THRESHOLDS_V2: SemanticReadinessThresholdsV2 = {
   minimumRealCases: 20,
+  minimumRealPositiveOrderCases: 8,
+  minimumRealHardCases: 5,
   maxFalseAddedProducts: 0,
   maxWrongQuantities: 0,
   maxVerifiedSafeEdgeErrors: 0,
@@ -50,6 +54,12 @@ export function evaluateSemanticIntelligenceReadinessV2(
 
   if (benchmark.realCases < thresholds.minimumRealCases) {
     blockers.push(`insufficient_real_ground_truth_cases:${benchmark.realCases}<${thresholds.minimumRealCases}`);
+  }
+  if (benchmark.realPositiveOrderCases < thresholds.minimumRealPositiveOrderCases) {
+    blockers.push(`insufficient_real_positive_order_cases:${benchmark.realPositiveOrderCases}<${thresholds.minimumRealPositiveOrderCases}`);
+  }
+  if (benchmark.realHardCases < thresholds.minimumRealHardCases) {
+    blockers.push(`insufficient_real_hard_cases:${benchmark.realHardCases}<${thresholds.minimumRealHardCases}`);
   }
   if (benchmark.falseAddedProductToBasket.v2 > thresholds.maxFalseAddedProducts) {
     blockers.push(`false_added_products:${benchmark.falseAddedProductToBasket.v2}`);
@@ -83,8 +93,12 @@ export function evaluateSemanticIntelligenceReadinessV2(
     warnings.push(`genuine_closures_lost_by_shadow:${closure.genuineClosuresLostByShadow}`);
   }
 
-  const evidenceSufficient = !blockers.some((b) => b.startsWith('insufficient_real_ground_truth_cases:'));
-  const safetyPassed = !blockers.some((b) => !b.startsWith('insufficient_real_ground_truth_cases:'));
+  const evidenceBlocker = (b: string) =>
+    b.startsWith('insufficient_real_ground_truth_cases:') ||
+    b.startsWith('insufficient_real_positive_order_cases:') ||
+    b.startsWith('insufficient_real_hard_cases:');
+  const evidenceSufficient = !blockers.some(evidenceBlocker);
+  const safetyPassed = !blockers.some((b) => !evidenceBlocker(b));
 
   return {
     readyForNextStage: blockers.length === 0,

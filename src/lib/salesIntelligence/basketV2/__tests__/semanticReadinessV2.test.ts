@@ -9,6 +9,8 @@ function benchmark(overrides: Partial<SalesIntelligenceBenchmarkMetrics> = {}): 
     totalCases: 30,
     realCases: 25,
     syntheticCases: 5,
+    realPositiveOrderCases: 15,
+    realHardCases: 8,
     byDifficulty: { easy: 10, medium: 10, hard: 10 },
     difficultyMetrics: {
       easy: { cases: 10, tp: 10, fp: 0, fn: 0, precision: 1, recall: 1, falseAddedProducts: 0, wrongQuantities: 0 },
@@ -70,7 +72,7 @@ describe('Phase I.B.4 — semantic readiness gate', () => {
   });
 
   it('blocks on an insufficient real benchmark even when safety is clean', () => {
-    const result = evaluateSemanticIntelligenceReadinessV2(benchmark({ realCases: 13 }), closure());
+    const result = evaluateSemanticIntelligenceReadinessV2(benchmark({ realCases: 13, realPositiveOrderCases: 7, realHardCases: 4 }), closure());
     expect(result.readyForNextStage).toBe(false);
     expect(result.safetyPassed).toBe(true);
     expect(result.evidenceSufficient).toBe(false);
