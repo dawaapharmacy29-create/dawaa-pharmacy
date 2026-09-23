@@ -26,9 +26,8 @@ describe('detectReferenceMentions — vocabulary classification (instruction #7/
 
 describe('resolveReferenceV2 — scored antecedent selection (instructions #9/#10/#11)', () => {
   it('one active product + pronoun -> resolved with high confidence', () => {
-    const messages = messagesFrom(`[9/15/26, 9:00:00 AM] Customer: عايز حاجة للحموضة
-[9/15/26, 9:01:00 AM] You: ممكن زوركال 20
-[9/15/26, 9:02:00 AM] Customer: هات منه علبتين`);
+    const messages = messagesFrom(`[9/15/26, 9:00:00 AM] You: ممكن زوركال 20
+[9/15/26, 9:01:00 AM] Customer: هات منه علبتين`);
     const productMentions = buildProductMentions(messages);
     const referenceMessage = findByText(messages, 'هات منه');
     const index = messages.indexOf(referenceMessage);

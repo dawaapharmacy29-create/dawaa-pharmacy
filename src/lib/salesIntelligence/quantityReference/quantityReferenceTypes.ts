@@ -27,10 +27,13 @@ export interface ProductMentionV2 {
   role: ProductMentionRole;
   /** Set only when a PharmacyProductIndex was supplied and resolution found a safe candidate — see resolveProductMention(). Never invented when resolution is ambiguous/unresolved. */
   resolvedProductId: string | null;
-  /** The identity bucket this mention belongs to for active-candidate tracking: resolvedProductId when available, else a normalized-text key. Never used as a claim of catalog identity by itself. */
+  /** The identity bucket this mention belongs to for active-candidate tracking: resolvedProductId when available, else a normalized-text key. Never used as a claim of catalog identity by itself. Instruction #17 (I.B.2.1): when a PharmacyProductIndex is supplied, two mentions worded differently (e.g. "انتينال" / "Antinal") that resolve to the SAME product_code naturally share this key already — no separate merge step needed. */
   identityKey: string;
   messageIndex: number;
   timestamp: string;
+  /** I.B.2.1 instruction #7 — set only when this mention was one member of an explicit, single-message "X أو Y" enumerated list (e.g. staff "ممكن زوركال أو نيكسيوم"). Lets referenceResolverV2 safely resolve "التاني"/"الأول" to a specific list position ONLY when the list structure is this unambiguous — never inferred across separate messages. */
+  enumerationGroupId?: string;
+  enumerationIndex?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -55,6 +58,17 @@ export type QuantitySemanticRole =
 
 export type QuantityCorrectionKind = 'replace' | 'increment' | 'decrement';
 
+/**
+ * I.B.2.1 instruction #18 — the explicit eligibility contract Basket V2 (I.B.3) must read rather
+ * than re-deriving its own judgment call from raw confidence numbers. Defined HERE, once, so I.B.3
+ * never has to infer it: `safe` may be consumed automatically; `review` was detected but a human
+ * should confirm before it mutates a Basket; `unsafe` must NEVER automatically mutate a Basket.
+ * Precision-first (per I.B.2.1's own objective): the bar for `safe` is deliberately high, and nothing
+ * in this phase widens it merely to raise a recall number — see computeQuantitySafety()/
+ * computeReferenceSafety() for the exact, documented rules.
+ */
+export type BasketLinkingSafety = 'safe' | 'review' | 'unsafe';
+
 export interface QuantityMentionV2 {
   mentionId: string;
   rawText: string;
@@ -75,6 +89,8 @@ export interface QuantityMentionV2 {
   correctionKind: QuantityCorrectionKind | null;
   /** The prior QuantityMentionV2 this one supersedes, when correctionKind is set and a safe, unambiguous target was found. */
   correctionOfMentionId: string | null;
+  /** I.B.2.1 instruction #18 — see BasketLinkingSafety's own doc comment. Computed by computeQuantitySafety() in quantityIntelligenceV2.ts; I.B.3 reads this, never re-derives it. */
+  safeForBasketLinking: BasketLinkingSafety;
 }
 
 // ---------------------------------------------------------------------------
@@ -101,6 +117,13 @@ export interface ReferenceSubstitutionContext {
   originalProductMentionId: string;
 }
 
+/** I.B.2.1 instruction #6 — one candidate's full scored evidence, not just its identity. Exposed so a human (or a future Basket auditor) can see WHY a candidate won or lost, never just the final answer. */
+export interface ReferenceCandidateScore {
+  identityKey: string;
+  score: number;
+  factors: string[];
+}
+
 export interface ReferenceMentionV2 {
   referenceId: string;
   rawText: string;
@@ -108,6 +131,10 @@ export interface ReferenceMentionV2 {
   sourceMessageId: string;
   /** Every distinct active-product identity considered, even when unresolved/ambiguous — for auditability, never trimmed to just the winner. */
   candidateAntecedentIds: string[];
+  /** I.B.2.1 instruction #6 — full scored breakdown for every candidate in candidateAntecedentIds, sorted highest-score-first. */
+  candidateScores: ReferenceCandidateScore[];
+  /** I.B.2.1 instruction #6 — the winning score minus the runner-up's (or the sole candidate's own score). Null when there were zero candidates. This is the exact number RESOLVED_MARGIN_THRESHOLD in referenceResolverV2.ts is compared against. */
+  scoreMargin: number | null;
   selectedAntecedentId: string | null;
   confidence: number;
   confidenceFactors: string[];
@@ -116,4 +143,6 @@ export interface ReferenceMentionV2 {
   /** Messages between the antecedent and this reference — see instruction #16. Null when unresolved. */
   referenceDistance: number | null;
   substitutionContext: ReferenceSubstitutionContext | null;
+  /** I.B.2.1 instruction #18 — see BasketLinkingSafety's own doc comment. Computed by computeReferenceSafety() in referenceResolverV2.ts. */
+  safeForBasketLinking: BasketLinkingSafety;
 }

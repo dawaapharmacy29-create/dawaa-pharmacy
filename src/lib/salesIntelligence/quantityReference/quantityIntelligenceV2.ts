@@ -28,7 +28,7 @@ import { resolveProductMention } from '../pharmacyProducts/pharmacyProductResolv
 import type { PharmacyProductIndex, ResolveProductMentionOptions } from '../pharmacyProducts/pharmacyProductResolverV2';
 import { computeActiveProductCandidates } from './productMentionTracker';
 import type { ProductMentionV2 } from './quantityReferenceTypes';
-import type { QuantityCorrectionKind, QuantityMentionV2, QuantitySemanticRole } from './quantityReferenceTypes';
+import type { BasketLinkingSafety, QuantityCorrectionKind, QuantityMentionV2, QuantitySemanticRole } from './quantityReferenceTypes';
 
 // ---------------------------------------------------------------------------
 // Arabic quantity morphology (instruction #3) — ones words plus dual (-ين) forms. Extended a
@@ -49,15 +49,26 @@ const ONES_WORDS: Record<string, number> = {
   'عشر': 10, 'عشرة': 10, 'عشره': 10,
 };
 
-/** dual (-ين) surface form -> the base unit word it implies, count always 2. */
+/**
+ * dual (-ين) surface form -> the base unit word it implies, count always 2.
+ * I.B.2.1 instruction #9 fix: امبول/فيال are MASCULINE nouns not ending in ة, so their real Arabic
+ * dual is stem+ين (امبولين/فيالين) — confirmed against a real Dawaa message ("فيها امبولين هتاخد
+ * كل اسبوعين امبول"). I.B.2's original table used "امبولتين", the -تين pattern that only applies
+ * to feminine ة-nouns (علبة->علبتين, عبوة->عبوتين) — a genuine morphology bug, not a style choice.
+ * The incorrect -تين forms are kept alongside as a lenient fallback (harmless if a customer types
+ * them anyway) rather than removed, since colloquial typing is not always grammatically strict.
+ */
 const DUAL_UNIT_WORDS: Record<string, string> = {
   'علبتين': 'علبة',
   'شريطين': 'شريط',
   'عبوتين': 'عبوة',
   'كيسين': 'كيس',
   'زجاجتين': 'زجاجة',
-  'امبولتين': 'امبول',
+  'امبولين': 'امبول',
+  'أمبولين': 'أمبول',
+  'امبولتين': 'امبول', // lenient fallback — see comment above
   'أمبولتين': 'أمبول',
+  'فيالين': 'فيال',
   'قرصين': 'قرص',
   'كبسولتين': 'كبسولة',
   'حبتين': 'حبة',
@@ -122,6 +133,30 @@ function lookupUnit(word: string | null): UnitInfo | null {
 const ORDER_VERB_OR_PRONOUN_RX = /(?:هات[ي]?|عايز[ةه]?|عاوز[ةه]?|محتاج[ةه]?|ضيف[ي]?|ابعت(?:لي|يلي)?|منه|منها)$/i;
 const LATIN_BRAND_TOKEN_RX = /^[A-Za-z][A-Za-z\-]{2,}$/;
 
+// I.B.2.1 instruction #13 — a number near any of these markers is talking about MONEY, never a
+// quantity to order. Checked before any unit-based classification so it can never be shadowed by
+// an accidental unit-word match nearby.
+const PRICE_CONTEXT_RX = /جنيه|جنيها|ج\.?م\.?|بكام|كام|السعر|سعر|الحساب|حساب|الاجمالي|الإجمالي|المجموع/i;
+
+function priceContextNearby(text: string, start: number, end: number, windowChars = 12): boolean {
+  const before = text.slice(Math.max(0, start - windowChars), start);
+  const after = text.slice(end, end + windowChars);
+  return PRICE_CONTEXT_RX.test(before) || PRICE_CONTEXT_RX.test(after);
+}
+
+// I.B.2.1 instruction #12 — a strength number followed by an administration instruction ("5 مل
+// بعد الأكل") describes a DOSE (how much to take), not the strength label the catalog quotes it by.
+const DOSE_ADMINISTRATION_MARKER_RX =
+  /بعد\s*(?:الأكل|الاكل|الفطار|الغدا|العشا)|قبل\s*(?:الأكل|الاكل|النوم)|علي?\s*الريق/i;
+
+function doseAdministrationMarkerFollows(text: string, end: number, windowChars = 30): boolean {
+  return DOSE_ADMINISTRATION_MARKER_RX.test(text.slice(end, end + windowChars));
+}
+
+function precedingPhrase(text: string, start: number, maxChars = 40): string {
+  return text.slice(Math.max(0, start - maxChars), start).trim();
+}
+
 // A number/number-word occurrence and its immediate lexical context.
 interface NumberOccurrence {
   rawText: string;
@@ -181,6 +216,34 @@ function classifyNumberOccurrence(
   productIndex?: PharmacyProductIndex,
   resolveOptions?: ResolveProductMentionOptions
 ): { role: QuantitySemanticRole; unit: string | null; normalizedUnit: string | null; confidence: number; confidenceFactors: string[]; ruleIds: string[]; ambiguityReasons: string[] } {
+  // I.B.2.1 instruction #14 — a number that IS a known catalog product_code must never be read as
+  // a quantity at all, regardless of any other pattern nearby. Checked first, highest priority.
+  if (productIndex?.byCode.has(String(occurrence.numericValue))) {
+    return {
+      role: 'unknown',
+      unit: null,
+      normalizedUnit: null,
+      confidence: 0.3,
+      confidenceFactors: ['numeric_matches_known_product_code'],
+      ruleIds: ['quantity.protection.product_code_excluded'],
+      ambiguityReasons: ['numeric_product_code_excluded'],
+    };
+  }
+
+  // I.B.2.1 instruction #13 — price protection, checked before any unit-based rule so a coincidental
+  // adjacent unit word can never override it.
+  if (priceContextNearby(fullText, occurrence.start, occurrence.end)) {
+    return {
+      role: 'unknown',
+      unit: null,
+      normalizedUnit: null,
+      confidence: 0.3,
+      confidenceFactors: ['price_context_nearby'],
+      ruleIds: ['quantity.protection.price_context_excluded'],
+      ambiguityReasons: ['price_context_excluded'],
+    };
+  }
+
   if (occurrence.isDual && occurrence.dualBaseUnit) {
     const info = lookupUnit(occurrence.dualBaseUnit);
     if (info?.kind === 'retail_pack') {
@@ -213,6 +276,18 @@ function classifyNumberOccurrence(
   const beforeUnit = lookupUnit(before);
 
   if (afterUnit?.kind === 'strength_unit') {
+    // I.B.2.1 instruction #12 — "5 مل بعد الأكل" is a DOSE instruction, not the SKU's strength label.
+    if (doseAdministrationMarkerFollows(fullText, occurrence.end)) {
+      return {
+        role: 'dose',
+        unit: after,
+        normalizedUnit: afterUnit.normalizedUnit,
+        confidence: 0.75,
+        confidenceFactors: ['explicit_unit', 'administration_instruction_follows'],
+        ruleIds: ['quantity.dose.unit_with_administration_marker'],
+        ambiguityReasons: [],
+      };
+    }
     return {
       role: 'strength',
       unit: after,
@@ -222,6 +297,29 @@ function classifyNumberOccurrence(
       ruleIds: ['quantity.strength.explicit_unit'],
       ambiguityReasons: [],
     };
+  }
+
+  // I.B.2.1 instruction #11 — catalog-assisted pack-size disambiguation. A bare number matching a
+  // KNOWN packSize.count for a product plausibly named just before it is strong, independent
+  // evidence the number describes the catalog's own pack size — checked before the weaker generic
+  // dose/retail-unit heuristics below, since real catalog data beats a regex guess.
+  if (productIndex) {
+    const phrase = precedingPhrase(fullText, occurrence.start);
+    if (phrase.length >= 3) {
+      const resolution = resolveProductMention(phrase, productIndex, resolveOptions);
+      const packSizeMatch = resolution.candidates.some((c) => c.product.packSizes.some((p) => p.count === occurrence.numericValue));
+      if (packSizeMatch) {
+        return {
+          role: 'pack_size',
+          unit: after,
+          normalizedUnit: afterUnit?.normalizedUnit ?? null,
+          confidence: 0.85,
+          confidenceFactors: ['catalog_confirmed_pack_size'],
+          ruleIds: ['quantity.pack_size.catalog_confirmed'],
+          ambiguityReasons: [],
+        };
+      }
+    }
   }
 
   if (afterUnit?.kind === 'dose_unit' && (beforeUnit?.kind === 'retail_pack' || retailUnitPrecedesWithinWindow(fullText, occurrence.start))) {
@@ -318,12 +416,39 @@ function classifyNumberOccurrence(
   };
 }
 
-const FREQUENCY_RX = /(مرت?ين|مرة|مره|مرات)\s*(?:في|كل)?\s*(اليوم|يوم|الاسبوع|اسبوع)?/i;
+// I.B.2.1 instruction #12 fix: the leading count ("3 مرات") was previously ignored entirely —
+// numericValue silently fell back to the fixed 1/2 implied by مرة/مرتين, so "3 مرات في اليوم" was
+// reported as frequency=1, dropping the real number.
+const FREQUENCY_RX = /(?:([0-9]+)\s*)?(مرت?ين|مرة|مره|مرات)\s*(?:في|كل)?\s*(اليوم|يوم|الاسبوع|اسبوع)?/i;
 const DURATION_RX = /لمدة\s*([0-9]+|واحد[ةه]?|اتنين|تلات[ةه]?|أربع[ةه]?|اربع[ةه]?|خمس[ةه]?)\s*(يوم|أيام|ايام|اسبوع|أسبوع|اسابيع|أسابيع|شهر|شهور)/i;
 
-const CORRECTION_REPLACE_RX = /(?:لا\s*)?خلي(?:ه|هم|ها)?\s*(?:يبقو[او]|يبقى)?\s*([0-9]+|واحد[ةه]?|اتنين|تلات[ةه]?|أربع[ةه]?|اربع[ةه]?|خمس[ةه]?)(?!\s*بدل)/i;
-const INCREMENT_RX = /زود(?:ي)?\s*(واحد[ةه]?|اتنين|[0-9]+)?/i;
-const DECREMENT_RX = /شيل(?:ي)?\s*(واحد[ةه]?|اتنين|[0-9]+)?/i;
+// I.B.2.1 fix: all three require a real LEFT word boundary (start-of-string or preceded by
+// whitespace) — without it, "ازود لحضرتك حاجة معاه؟" (a real Dawaa STAFF question, "should I add
+// something for you?") matched INCREMENT_RX as a substring ("زود" inside "ازود"), which combined
+// with the missing role gate below would have wrongly treated a staff QUESTION as a confirmed
+// customer correction. `\b` cannot be used here — it never matches next to Arabic script.
+const CORRECTION_REPLACE_RX = /(?:^|(?<=\s))(?:لا\s*)?خلي(?:ه|هم|ها)?\s*(?:يبقو[او]|يبقى)?\s*([0-9]+|واحد[ةه]?|اتنين|تلات[ةه]?|أربع[ةه]?|اربع[ةه]?|خمس[ةه]?)(?!\s*بدل)/i;
+const INCREMENT_RX = /(?:^|(?<=\s))زود(?:ي)?\s*(واحد[ةه]?|اتنين|[0-9]+)?/i;
+const DECREMENT_RX = /(?:^|(?<=\s))شيل(?:ي)?\s*(واحد[ةه]?|اتنين|[0-9]+)?/i;
+
+// I.B.2.1 instruction #10 — implicit quantity=1 is inferred ONLY for this narrow, benchmarked
+// shape (customer order verb immediately followed by a BARE retail-unit noun, no number at all
+// anywhere in the message) and NEVER for an availability/price question about the same words
+// ("هو الشريط بكام؟", "الدواء موجود شريط؟"). Kept deliberately narrow per the instruction's own
+// caution — see computeQuantitySafety() below, which never lets this rule's output reach `safe`.
+// No trailing \b: JS's \b never matches next to Arabic script (see the same documented pitfall in
+// pharmacyNormalization.ts/whatsappSemanticSignalsV32.ts) — "شريط\b" would silently never match.
+const IMPLICIT_ONE_ORDER_RX = /(?:هات[ي]?|عايز[ةه]?|عاوز[ةه]?|محتاج[ةه]?)\s+(علبة|علبه|علب|شريط|عبوة|عبوه|زجاجة|زجاجه|امبول|أمبول|فيال|كيس)/i;
+const INTERROGATIVE_RX = /[؟?]|بكام|كام(?![ء-ي])|هل(?![ء-ي])/i;
+
+function detectImplicitOne(text: string): { unit: string; normalizedUnit: string } | null {
+  if (INTERROGATIVE_RX.test(text)) return null;
+  const match = text.match(IMPLICIT_ONE_ORDER_RX);
+  if (!match) return null;
+  const info = lookupUnit(match[1]);
+  if (info?.kind !== 'retail_pack') return null;
+  return { unit: match[1], normalizedUnit: info.normalizedUnit };
+}
 
 function parseCorrectionNumber(token: string | undefined): number {
   if (!token) return 1;
@@ -334,22 +459,32 @@ function parseCorrectionNumber(token: string | undefined): number {
 export interface QuantityExtractionOptions {
   productIndex?: PharmacyProductIndex;
   resolveOptions?: ResolveProductMentionOptions;
+  /**
+   * I.B.2.1 fix: a زود/شيل/خليهم-style correction is only ever a real customer instruction — a
+   * STAFF message using the same words is asking a question ("ازود لحضرتك حاجة معاه؟"), never
+   * confirming a quantity change. Corrections are skipped entirely when this is anything but
+   * 'customer'; left undefined (the default for direct, message-less calls in tests) still allows
+   * them, since a bare phrase with no known speaker is assumed customer-authored.
+   */
+  role?: NormalizedConversationMessageV32['role'];
 }
 
 /** Pure, single-message extraction — no cross-message linking (see extractQuantityMentionsV2 for that). Exported for direct unit testing of the role classifier. */
 export function extractQuantityCandidatesFromText(
   rawMessageText: string,
   options: QuantityExtractionOptions = {}
-): Array<Omit<QuantityMentionV2, 'mentionId' | 'sourceMessageId' | 'linkedProductMentionId' | 'correctionOfMentionId'>> {
+): Array<Omit<QuantityMentionV2, 'mentionId' | 'sourceMessageId' | 'linkedProductMentionId' | 'correctionOfMentionId' | 'safeForBasketLinking'>> {
   const text = convertArabicDigits(rawMessageText);
-  const results: Array<Omit<QuantityMentionV2, 'mentionId' | 'sourceMessageId' | 'linkedProductMentionId' | 'correctionOfMentionId'>> = [];
+  const results: Array<Omit<QuantityMentionV2, 'mentionId' | 'sourceMessageId' | 'linkedProductMentionId' | 'correctionOfMentionId' | 'safeForBasketLinking'>> = [];
   const consumed: Array<[number, number]> = [];
 
   const isConsumed = (start: number, end: number) => consumed.some(([s, e]) => start < e && end > s);
 
   // Corrections first — they claim their own number and must not also be double-counted by the
-  // generic scanner below.
-  const replaceMatch = text.match(CORRECTION_REPLACE_RX);
+  // generic scanner below. Only ever attempted for a customer message (or an unknown speaker, for
+  // direct/bare-string calls) — see QuantityExtractionOptions.role's own doc comment.
+  const allowCorrections = options.role === undefined || options.role === 'customer';
+  const replaceMatch = allowCorrections ? text.match(CORRECTION_REPLACE_RX) : null;
   if (replaceMatch && replaceMatch.index !== undefined) {
     const numToken = replaceMatch[1];
     results.push({
@@ -366,7 +501,7 @@ export function extractQuantityCandidatesFromText(
     });
     consumed.push([replaceMatch.index, replaceMatch.index + replaceMatch[0].length]);
   }
-  const incMatch = text.match(INCREMENT_RX);
+  const incMatch = allowCorrections ? text.match(INCREMENT_RX) : null;
   if (incMatch && incMatch.index !== undefined && !isConsumed(incMatch.index, incMatch.index + incMatch[0].length)) {
     results.push({
       rawText: incMatch[0].trim(),
@@ -382,7 +517,7 @@ export function extractQuantityCandidatesFromText(
     });
     consumed.push([incMatch.index, incMatch.index + incMatch[0].length]);
   }
-  const decMatch = text.match(DECREMENT_RX);
+  const decMatch = allowCorrections ? text.match(DECREMENT_RX) : null;
   if (decMatch && decMatch.index !== undefined && !isConsumed(decMatch.index, decMatch.index + decMatch[0].length)) {
     results.push({
       rawText: decMatch[0].trim(),
@@ -403,8 +538,8 @@ export function extractQuantityCandidatesFromText(
   if (freqMatch && freqMatch.index !== undefined) {
     results.push({
       rawText: freqMatch[0].trim(),
-      numericValue: freqMatch[1].includes('ين') ? 2 : 1,
-      unit: freqMatch[1],
+      numericValue: freqMatch[1] ? Number(freqMatch[1]) : freqMatch[2].includes('ين') ? 2 : 1,
+      unit: freqMatch[2],
       normalizedUnit: 'times_per_period',
       semanticRole: 'frequency',
       confidence: 0.6,
@@ -449,7 +584,43 @@ export function extractQuantityCandidatesFromText(
     });
   }
 
+  // I.B.2.1 instruction #10 — only ever attempted when NO number was found anywhere in the
+  // message at all; a message that already states an explicit number never needs (or gets) an
+  // inferred one.
+  if (results.length === 0) {
+    const implicit = detectImplicitOne(text);
+    if (implicit) {
+      results.push({
+        rawText: implicit.unit,
+        numericValue: 1,
+        unit: implicit.unit,
+        normalizedUnit: implicit.normalizedUnit,
+        semanticRole: 'order_quantity',
+        confidence: 0.5,
+        confidenceFactors: ['implicit_one_from_order_verb_plus_bare_retail_unit'],
+        ruleIds: ['quantity.order.implicit_one_bare_retail_unit'],
+        ambiguityReasons: ['implicit_quantity_inferred_not_stated'],
+        correctionKind: null,
+      });
+    }
+  }
+
   return results;
+}
+
+/**
+ * I.B.2.1 instruction #18 — see BasketLinkingSafety's own doc comment. `safe` requires the role to
+ * be a real order_quantity, a confirmed link to exactly one product, decent confidence, AND no
+ * open ambiguity reason at all (an inferred-not-stated implicit quantity always carries
+ * 'implicit_quantity_inferred_not_stated', which alone caps it at `review` — see instruction #10's
+ * own caution that this rule's safety has not been demonstrated strongly enough for `safe`).
+ */
+function computeQuantitySafety(mention: Pick<QuantityMentionV2, 'semanticRole' | 'linkedProductMentionId' | 'confidence' | 'ambiguityReasons'>): BasketLinkingSafety {
+  if (mention.semanticRole !== 'order_quantity') return 'unsafe';
+  if (!mention.linkedProductMentionId) return 'unsafe';
+  if (mention.ambiguityReasons.length > 0) return 'review';
+  if (mention.confidence >= 0.8) return 'safe';
+  return 'review';
 }
 
 /**
@@ -469,7 +640,7 @@ export function extractQuantityMentionsV2(
 
   messages.forEach((message, messageIndex) => {
     if (!message.isMeaningful) return;
-    const candidates = extractQuantityCandidatesFromText(message.text, options);
+    const candidates = extractQuantityCandidatesFromText(message.text, { ...options, role: message.role });
     if (candidates.length === 0) return;
 
     const activeCandidates = computeActiveProductCandidates(messages, productMentions, messageIndex);
@@ -513,6 +684,7 @@ export function extractQuantityMentionsV2(
         ambiguityReasons,
         correctionKind: candidate.correctionKind,
         correctionOfMentionId,
+        safeForBasketLinking: computeQuantitySafety({ semanticRole: candidate.semanticRole, linkedProductMentionId, confidence: candidate.confidence, ambiguityReasons }),
       };
       mentions.push(mention);
       if (mention.semanticRole === 'order_quantity' && linkedProductMentionId) {

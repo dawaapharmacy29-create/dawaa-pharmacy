@@ -32,8 +32,18 @@ const ALTERNATIVE_INTRO_RX = /(?:بس|لكن)?\s*(?:و)?\s*فيه\s+(.+)$/i;
 // the identity-bucketing key, never from the stored `rawText` fact. Deliberately NOT using \b:
 // JS's \b never matches next to Arabic script (Arabic letters aren't \w) — see the same pitfall
 // documented in pharmacyNormalization.ts / whatsappSemanticSignalsV32.ts.
-const FILLER_WORDS_RX = /(?:موجودين|متوفرين|موجود[ةه]?|متوفر[ةه]?|متاح[ةه]?|برضو|كمان|ايضا|أيضا|كذلك|تقريبا)/gi;
+const FILLER_WORDS_RX =
+  /(?:موجودين|متوفرين|موجود[ةه]?|متوفر[ةه]?|متاح[ةه]?|برضو|كمان|ايضا|أيضا|كذلك|تقريبا|ان\s*شاء\s*الله|باذن\s*الله|يا\s*فندم|ي\s*فندم|لو\s*سمحت)/gi;
 const COLLECTIVE_REFERENCE_RX = /^(?:الاتنين|كلهم|الكل|كله)$/;
+// I.B.2.1 fix: a staff reply like "متوفر ي فندم" or "موجود ان شاء الله" is STILL just a bare
+// availability confirmation once the trailing pleasantry is stripped as filler — real Dawaa
+// examples ("متوفر ي فندم", "موجود ان شاء الله") were wrongly kept as staff_offer, seeding a
+// garbled identity ("ي فندم") that a later pronoun could wrongly resolve to.
+const AVAILABILITY_CORE_RX = /^(?:موجود[ةه]?|متوفر[ةه]?|متاح[ةه]?)$/;
+// I.B.2.1 fix: a bare title/address ("دكتوره مي", "يا فندم") is not a product request — a real
+// example ("هو ممكن ياخد ده" / customer: "دكتوره مي") was wrongly kept as a customer_request
+// mention, becoming a bogus competing identity for a later reference to resolve against.
+const ADDRESS_ONLY_RX = /^(?:يا\s*)?(?:دكتور[ةه]?|فندم|باشا|هانم|دكتوره\s+\S+|دكتور\s+\S+)$/i;
 // A message that is ONLY a quantity-operation instruction ("خليهم 3"/"زود واحدة"/"شيل واحدة")
 // names no new product — quantityIntelligenceV2.ts is what interprets these, not this tracker.
 const QUANTITY_OPERATION_ONLY_RX = /^(?:لا\s*)?(?:خلي(?:ه|هم|ها)?|زود(?:ي)?|شيل(?:ي)?)\b/i;
@@ -44,9 +54,40 @@ function cleanStaffOfferText(text: string): string {
   return text.replace(STAFF_FILLER_PREFIX_RX, '').trim() || text.trim();
 }
 
+// I.B.2.1 bug fix: `stripped || rawText` looked like a safe fallback, but an EMPTY result is
+// exactly the meaningful signal callers check for ("this message was pure filler, e.g. "موجود ان
+// شاء الله"") — `||` treats '' as falsy and silently un-does the strip, which is what let two real
+// examples ("موجود ان شاء الله", "متوفر ي فندم") keep their full untouched text as a bogus identity.
 function identityCoreText(rawText: string): string {
-  const stripped = rawText.replace(FILLER_WORDS_RX, ' ').replace(/\s+/g, ' ').trim();
-  return stripped || rawText;
+  return rawText.replace(FILLER_WORDS_RX, ' ').replace(/\s+/g, ' ').trim();
+}
+
+// I.B.2.1 instruction #7 — an explicit, single-message "X أو Y" enumerated offer (e.g. staff
+// "ممكن زوركال أو نيكسيوم"). Distinct from a plain "و" (and) list below: "أو" means the customer
+// picks ONE, which is exactly the structural evidence an ordinal reference ("التاني") may safely
+// use — a plain "and" list never licenses that.
+const ENUMERATION_OR_RX = /^(.+?)\s+(?:أو|او)\s+(.+)$/;
+
+/**
+ * I.B.2.1 instruction #7's "several active products" hardening needs a customer's own single
+ * message ("انتينال وزوركال موجودين؟") to yield TWO distinct product identities, not one garbled
+ * blob — the I.B.2 tracker's known limitation (documented in its own commit) that made the
+ * multi-product ambiguity tests need artificially-split messages. Splits on a "و" that is NOT the
+ * very first character (so a genuine product name starting with "و" is never mangled) and is
+ * immediately followed by another Arabic letter (so "و" as a separate word, e.g. after "حضرتك و",
+ * still requires a real word boundary). Deliberately conservative: falls back to the original,
+ * unsplit text whenever the split would produce a trivially short fragment.
+ */
+function splitConjunctionList(text: string): string[] {
+  if (text.length < 4) return [text];
+  // Requires at least one PRECEDING SPACE before the "و" (not just "not string start") — otherwise
+  // this would wrongly cut apart any product name whose own second letter happens to be و (e.g.
+  // "زوركال" -> "ز" + "وركال"), a real bug caught by this module's own tests.
+  const parts = text
+    .split(/\s+و(?=[ء-ي])/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  return parts.length > 1 && parts.every((p) => p.length >= 2) ? parts : [text];
 }
 
 export interface BuildProductMentionsOptions {
@@ -76,7 +117,7 @@ export function buildProductMentions(
 
     if (message.role === 'customer' && isRequestCandidate(message)) {
       const stripped = stripRequestPrefix(message.text);
-      if (stripped.length >= 2 && !PURE_QUANTITY_RX.test(stripped)) {
+      if (stripped.length >= 2 && !PURE_QUANTITY_RX.test(stripped) && !ADDRESS_ONLY_RX.test(stripped.trim())) {
         role = 'customer_request';
         rawText = stripped;
       }
@@ -100,25 +141,46 @@ export function buildProductMentions(
     // itself just a collective reference ("الاتنين") names no NEW product — downgrade rather than
     // let it become its own bogus identity competing with the real ones.
     const core = identityCoreText(rawText);
-    if (role === 'staff_offer' && (core.length === 0 || COLLECTIVE_REFERENCE_RX.test(core))) {
+    if (role === 'staff_offer' && (core.length === 0 || COLLECTIVE_REFERENCE_RX.test(core) || AVAILABILITY_CORE_RX.test(core))) {
       role = 'staff_availability';
     }
 
-    let resolvedProductId: string | null = null;
-    if (options.productIndex && role !== 'staff_availability') {
-      const result = resolveProductMention(core, options.productIndex, options.resolveOptions);
-      resolvedProductId = result.selected?.product.productId ?? null;
+    if (role === 'staff_availability') {
+      mentions.push({
+        mentionId: `pm:${message.id}:${seq++}`,
+        sourceMessageId: message.id,
+        rawText,
+        role,
+        resolvedProductId: null,
+        identityKey: `text:${normalizeProductKey(core)}`,
+        messageIndex,
+        timestamp: message.timestamp.toISOString(),
+      });
+      return;
     }
 
-    mentions.push({
-      mentionId: `pm:${message.id}:${seq++}`,
-      sourceMessageId: message.id,
-      rawText,
-      role,
-      resolvedProductId,
-      identityKey: resolvedProductId ?? `text:${normalizeProductKey(core)}`,
-      messageIndex,
-      timestamp: message.timestamp.toISOString(),
+    const enumMatch = role === 'staff_offer' ? core.match(ENUMERATION_OR_RX) : null;
+    const isEnumeration = Boolean(enumMatch);
+    const parts = enumMatch ? [enumMatch[1].trim(), enumMatch[2].trim()] : splitConjunctionList(core);
+    const groupId = isEnumeration ? `grp:${message.id}` : undefined;
+
+    parts.forEach((part, partIndex) => {
+      let resolvedProductId: string | null = null;
+      if (options.productIndex) {
+        const result = resolveProductMention(part, options.productIndex, options.resolveOptions);
+        resolvedProductId = result.selected?.product.productId ?? null;
+      }
+      mentions.push({
+        mentionId: `pm:${message.id}:${seq++}`,
+        sourceMessageId: message.id,
+        rawText: parts.length > 1 ? part : rawText,
+        role,
+        resolvedProductId,
+        identityKey: resolvedProductId ?? `text:${normalizeProductKey(part)}`,
+        messageIndex,
+        timestamp: message.timestamp.toISOString(),
+        ...(groupId ? { enumerationGroupId: groupId, enumerationIndex: partIndex } : {}),
+      });
     });
   });
 
