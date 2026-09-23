@@ -5,7 +5,7 @@
 import type { ClosureGroundTruthCaseV2 } from './closureBenchmarkV2';
 
 /** Closure Ground Truth is versioned independently from Basket Ground Truth. */
-export const CLOSURE_GROUND_TRUTH_VERSION_V1 = 'dawaa-closure-ground-truth-v1';
+export const CLOSURE_GROUND_TRUTH_VERSION_V1 = 'dawaa-closure-ground-truth-v1.1';
 
 export const CLOSURE_GROUND_TRUTH_CASES_V1: ClosureGroundTruthCaseV2[] = [
   {
@@ -40,6 +40,61 @@ export const CLOSURE_GROUND_TRUTH_CASES_V1: ClosureGroundTruthCaseV2[] = [
 [6/21/26, 2:57:00 PM] Customer: سعره كام
 [6/21/26, 2:57:59 PM] You: 400 مللي ب 1200 جنيه`,
     expectedLevel: 'not_closed',
+  },
+  {
+    id: 'C06-real-dermactive-direct-order',
+    source: 'real',
+    sourceNote: 'Real Dawaa conversation f09471e8...: staff recommends Derma Active, customer explicitly says "ابعته", staff acknowledges and later says "تم الارسال".',
+    raw: `[9/12/26, 9:07:06 AM] You: ديرما اكتيف
+[9/12/26, 9:07:51 AM] Customer: سعره كام
+[9/12/26, 9:08:04 AM] Customer: ماشي تمام
+[9/12/26, 9:08:07 AM] You: ب170ج
+[9/12/26, 9:08:25 AM] Customer: ابعته
+[9/12/26, 9:08:46 AM] You: عنيا حاضر
+[9/12/26, 9:16:17 AM] You: تم الارسال`,
+    expectedLevel: 'strongly_inferred',
+  },
+  {
+    id: 'C07-real-flexilax-order',
+    source: 'real',
+    sourceNote: 'Real Dawaa conversation bf93b5f0...: customer asks for a Flexilax strip, later explicitly confirms the injection+strip should be sent, and staff says "تم الارسال".',
+    raw: `[7/15/26, 12:49:53 PM] Customer: محتاج شريط فليكس لايكس
+[7/15/26, 1:01:12 PM] You: ابعت لحضرتك الشريط دلوقت ؟
+[7/15/26, 1:02:02 PM] Customer: ماشي تمام
+[7/15/26, 1:45:13 PM] You: يعني ابعت الحقنه والشريط فقط دلوفت ؟
+[7/15/26, 1:45:21 PM] Customer: اه تمام
+[7/15/26, 1:45:38 PM] You: تم الارسال`,
+    expectedLevel: 'strongly_inferred',
+  },
+  {
+    id: 'C08-real-media-product-explicit-acceptance',
+    source: 'real',
+    sourceNote: 'Real Dawaa conversation 619b9056...: product identity is image-mediated, but commercial acceptance itself is explicit ("حضرتك تحب ابعته ؟" → "ياااااريت" → "عنيا حاضر"). Closure can be strong even while SKU identity stays unresolved.',
+    raw: `[8/1/26, 11:07:03 AM] You: <image omitted>
+[8/1/26, 11:07:26 AM] You: ده الشكل اللي حضرتك طلبته
+[8/1/26, 11:09:22 AM] You: حضرتك تحب ابعته ؟
+[8/1/26, 11:09:33 AM] Customer: ياااااريت
+[8/1/26, 11:09:40 AM] Customer: بكام
+[8/1/26, 11:09:46 AM] You: عنيا حاضر ان شاء الله حالا
+[8/1/26, 11:10:03 AM] You: ب 400
+[8/1/26, 11:10:12 AM] Customer: تمام`,
+    expectedLevel: 'strongly_inferred',
+  },
+  {
+    id: 'C09-real-multi-item-paid-order',
+    source: 'real',
+    sourceNote: 'Real Dawaa conversation 167b0383...: three named items, explicit total, customer requests transfer number, staff gives it and confirms dispatch. This is a high-evidence organic closure.',
+    raw: `[7/11/26, 12:12:26 PM] Customer: سنترم ومان و فوليك أسيد و نيروفيت حبوب
+[7/11/26, 12:34:59 PM] Customer: كده الحساب كام
+[7/11/26, 12:35:45 PM] You: اه حضرتك السنترم ال 100 قرص
+[7/11/26, 12:36:01 PM] You: 936
+[7/11/26, 12:36:05 PM] You: والتوصيل 10
+[7/11/26, 12:36:11 PM] Customer: تمام
+[7/11/26, 12:36:23 PM] Customer: رقم تحويل
+[7/11/26, 12:36:40 PM] You: 01028308235
+[7/11/26, 12:40:02 PM] You: جاري الارسال نتشرف ب خدمة حضرتك
+[7/11/26, 12:40:15 PM] You: تم الارسال نتشرف ب خدمة حضرتك`,
+    expectedLevel: 'strongly_inferred',
   },
   {
     id: 'C04-synthetic-pure-thanks',
