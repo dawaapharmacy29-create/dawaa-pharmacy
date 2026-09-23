@@ -34,6 +34,16 @@ export interface ClosureBenchmarkCaseResultV2 {
   shadowOverclaim: boolean;
 }
 
+export interface BinaryClosureMetricsV2 {
+  tp: number;
+  fp: number;
+  fn: number;
+  tn: number;
+  precision: number;
+  recall: number;
+  falseClosureRate: number;
+}
+
 export interface ClosureBenchmarkReportV2 {
   totalCases: number;
   realCases: number;
@@ -42,6 +52,10 @@ export interface ClosureBenchmarkReportV2 {
   shadowExactMatches: number;
   currentOverclaims: number;
   shadowOverclaims: number;
+  currentBinary: BinaryClosureMetricsV2;
+  shadowBinary: BinaryClosureMetricsV2;
+  falseClosuresPreventedByShadow: number;
+  genuineClosuresLostByShadow: number;
   cases: ClosureBenchmarkCaseResultV2[];
 }
 
@@ -49,6 +63,32 @@ function messagesFrom(raw: string): NormalizedConversationMessageV32[] {
   const sessions = splitWhatsAppSessions(parseWhatsAppExport(raw), 120);
   if (sessions.length === 0) return [];
   return buildConversationUnderstandingV32(sessions[0]).messages;
+}
+
+function closureAchieved(level: HistoricalClosureLevel): boolean {
+  return level === 'strongly_inferred' || level === 'explicit';
+}
+
+function ratio(n: number, d: number): number {
+  return d === 0 ? 0 : n / d;
+}
+
+function binaryMetrics(cases: ClosureGroundTruthCaseV2[], results: ClosureBenchmarkCaseResultV2[], useShadow: boolean): BinaryClosureMetricsV2 {
+  let tp = 0, fp = 0, fn = 0, tn = 0;
+  results.forEach((r, index) => {
+    const expected = closureAchieved(cases[index].expectedLevel);
+    const actual = closureAchieved(useShadow ? r.shadowLevel : r.currentLevel);
+    if (expected && actual) tp++;
+    else if (!expected && actual) fp++;
+    else if (expected && !actual) fn++;
+    else tn++;
+  });
+  return {
+    tp, fp, fn, tn,
+    precision: ratio(tp, tp + fp),
+    recall: ratio(tp, tp + fn),
+    falseClosureRate: ratio(fp, fp + tn),
+  };
 }
 
 function overclaimRank(level: HistoricalClosureLevel): number {
@@ -109,6 +149,17 @@ export function runHistoricalClosureBenchmarkV2(
     };
   });
 
+  const currentBinary = binaryMetrics(cases, results, false);
+  const shadowBinary = binaryMetrics(cases, results, true);
+  const falseClosuresPreventedByShadow = results.filter((r, index) => {
+    const expectedClosed = closureAchieved(cases[index].expectedLevel);
+    return !expectedClosed && closureAchieved(r.currentLevel) && !closureAchieved(r.shadowLevel);
+  }).length;
+  const genuineClosuresLostByShadow = results.filter((r, index) => {
+    const expectedClosed = closureAchieved(cases[index].expectedLevel);
+    return expectedClosed && closureAchieved(r.currentLevel) && !closureAchieved(r.shadowLevel);
+  }).length;
+
   return {
     totalCases: cases.length,
     realCases: cases.filter((c) => c.source === 'real').length,
@@ -117,6 +168,10 @@ export function runHistoricalClosureBenchmarkV2(
     shadowExactMatches: results.filter((r) => r.shadowExact).length,
     currentOverclaims: results.filter((r) => r.currentOverclaim).length,
     shadowOverclaims: results.filter((r) => r.shadowOverclaim).length,
+    currentBinary,
+    shadowBinary,
+    falseClosuresPreventedByShadow,
+    genuineClosuresLostByShadow,
     cases: results,
   };
 }

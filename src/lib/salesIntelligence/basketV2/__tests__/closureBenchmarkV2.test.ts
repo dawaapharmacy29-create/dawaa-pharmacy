@@ -77,6 +77,10 @@ describe('Phase I.B.4 — closure benchmark current vs Basket-V2 shadow', () => 
     expect(advisory.shadowLevel).toBe('not_closed');
     expect(report.shadowOverclaims).toBeLessThanOrEqual(report.currentOverclaims);
     expect(report.shadowExactMatches).toBeGreaterThanOrEqual(report.currentExactMatches);
+    expect(report.shadowBinary.fp).toBeLessThanOrEqual(report.currentBinary.fp);
+    expect(report.shadowBinary.precision).toBeGreaterThanOrEqual(report.currentBinary.precision);
+    expect(report.falseClosuresPreventedByShadow).toBeGreaterThanOrEqual(1);
+    expect(report.genuineClosuresLostByShadow).toBe(0);
   });
 
   it('preserves genuine strong organic closures', () => {
