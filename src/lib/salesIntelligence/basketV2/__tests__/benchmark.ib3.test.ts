@@ -39,6 +39,7 @@ import { buildConversationEntityGraphV2 } from '../conversationEntityGraphV2';
 import { reconstructBasketV2 } from '../basketReconstructionV2';
 import { messagesFrom } from './testUtils';
 import type { BasketStatusV2 } from '../basketV2Types';
+import { runSalesIntelligenceBenchmarkV2, SALES_INTELLIGENCE_GROUND_TRUTH_VERSION } from '../benchmarkV2';
 
 function catalogFrom(rows: RawProductRow[]) {
   const counts = countNormalizedNames(rows);
@@ -529,6 +530,17 @@ describe('I.B.3/I.B.3.1 — real Basket benchmark: OLD vs Basket Reconstruction 
     expect(v2FalseAddedCount).toBe(0);
     // V2 must not regress below OLD on this same safety metric.
     expect(v2FalseAddedCount).toBeLessThanOrEqual(oldFalseAddedCount);
+  });
+
+  it('I.B.4 deterministic benchmark runner returns identical machine-readable output twice and preserves the safety baseline', () => {
+    const first = runSalesIntelligenceBenchmarkV2(CASES, CATALOG, SALES_INTELLIGENCE_GROUND_TRUTH_VERSION);
+    const second = runSalesIntelligenceBenchmarkV2(CASES, CATALOG, SALES_INTELLIGENCE_GROUND_TRUTH_VERSION);
+
+    expect(first.machineReadableJson).toBe(second.machineReadableJson);
+    expect(first.metrics.totalCases).toBe(CASES.length);
+    expect(first.metrics.falseAddedProductToBasket.v2).toBe(0);
+    expect(first.metrics.wrongQuantityAppliedToCorrectProduct).toBe(0);
+    expect(first.metrics.regressions).toBe(0);
   });
 
   it('every real conversation case actually parses to at least one meaningful message (fixture sanity)', () => {
