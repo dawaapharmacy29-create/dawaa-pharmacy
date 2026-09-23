@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { Stethoscope, Truck } from 'lucide-react';
 import { useSupabaseQuery } from '@/hooks/useSupabaseQuery';
 import { DAYS_AR, BRANCHES } from '@/lib/constants';
-import { replaceStaffShiftSchedules } from '@/services/shiftScheduleService';
 import { useAuth } from '@/hooks/useAuth';
 import { canViewAllBranches } from '@/lib/security/userDataScope';
 import {
@@ -19,6 +18,7 @@ import ScheduleIdentityGovernance from '@/components/attendance/ScheduleIdentity
 import ScheduleGovernancePanel from '@/components/attendance/ScheduleGovernancePanel';
 import WorkforceScheduleCoverage from '@/components/attendance/WorkforceScheduleCoverage';
 import SchedulePublishingCenter from '@/components/attendance/SchedulePublishingCenter';
+import { getCanonicalScheduleWeekV2, type CanonicalScheduleWeekV2 } from '@/lib/hr/canonicalScheduleService';
 
 interface Employee {
   id: string;
@@ -29,22 +29,6 @@ interface Employee {
   shift_start?: string | null;
   shift_end?: string | null;
   visible_in_schedule?: boolean | null;
-}
-
-interface ShiftSchedule {
-  id: string;
-  staff_id?: string | null;
-  staff_name: string;
-  branch: string;
-  day_name: string;
-  shift_start: string | null;
-  shift_end: string | null;
-  is_off: boolean | null;
-  is_day_off?: boolean | null;
-  shift_date?: string | null;
-  date?: string | null;
-  effective_from?: string | null;
-  effective_to?: string | null;
 }
 
 const ROLE_COLORS: Record<string, string> = {
@@ -68,6 +52,23 @@ function normalizeBranch(branch?: string | null) {
   return value || 'غير محدد';
 }
 
+function cairoDate(date = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Africa/Cairo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
+}
+
+function currentSunday() {
+  const now = new Date();
+  const cairo = cairoDate(now);
+  const base = new Date(`${cairo}T12:00:00+03:00`);
+  base.setDate(base.getDate() - base.getDay());
+  return cairoDate(base);
+}
+
 export default function Schedule() {
   const { user } = useAuth();
   const managerView = canViewAllBranches(user);
@@ -85,10 +86,33 @@ export default function Schedule() {
     orderBy: { column: 'name', ascending: true },
     realtimeEnabled: true,
   });
-  const { data: schedules, loading: schedulesLoading } = useSupabaseQuery<ShiftSchedule>({
-    table: 'shift_schedules',
-    realtimeEnabled: true,
-  });
+  const weekStart = currentSunday();
+  const [canonicalWeek, setCanonicalWeek] = useState<CanonicalScheduleWeekV2 | null>(null);
+  const [scheduleLoading, setScheduleLoading] = useState(true);
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    setScheduleLoading(true);
+    setScheduleError(null);
+    void getCanonicalScheduleWeekV2({
+      weekStart,
+      branch: branchFilter === 'الكل' ? null : branchFilter,
+    })
+      .then((data) => {
+        if (!alive) return;
+        setCanonicalWeek(data);
+      })
+      .catch((error) => {
+        if (!alive) return;
+        setCanonicalWeek(null);
+        setScheduleError((error as Error).message);
+      })
+      .finally(() => {
+        if (alive) setScheduleLoading(false);
+      });
+    return () => { alive = false; };
+  }, [branchFilter, weekStart]);
+
   const [exceptions, setExceptions] = useState<StaffTimeOffRequest[]>([]);
   useEffect(() => {
     let alive = true;
@@ -108,26 +132,24 @@ export default function Schedule() {
   );
 
   const scheduleFor = (emp: Employee, day: string) => {
-    // First check for approved leave/exceptions
-    const today = new Date();
-    const dayIndex = DAYS_AR.indexOf(day);
-    const targetDate = new Date(today);
-    const diff = dayIndex - today.getDay();
-    targetDate.setDate(today.getDate() + diff);
-    const targetDateStr = targetDate.toISOString().split('T')[0];
+    const staffWeek = canonicalWeek?.staff.find((item) => item.staff_id === emp.id);
+    const canonical = staffWeek?.days.find((item) => item.day_name === day) || null;
+    const targetDateStr = canonical?.date || '';
 
-    const exception = exceptions.find(
-      (item) =>
-        item.staff_id === emp.id &&
-        normalizeBranch(item.branch_snapshot) === normalizeBranch(emp.branch) &&
-        item.status === 'approved' &&
-        ['annual_leave', 'sick_leave', 'exceptional_leave', 'approved_absence'].includes(item.request_kind) &&
-        item.start_date <= targetDateStr &&
-        item.end_date >= targetDateStr
-    );
+    const exception = targetDateStr
+      ? exceptions.find(
+          (item) =>
+            item.staff_id === emp.id &&
+            item.status === 'approved' &&
+            ['annual_leave', 'sick_leave', 'exceptional_leave', 'approved_absence'].includes(item.request_kind) &&
+            item.start_date <= targetDateStr &&
+            item.end_date >= targetDateStr
+        )
+      : null;
 
     if (exception) {
       return {
+        ...canonical,
         staff_name: emp.name,
         branch: emp.branch,
         day_name: day,
@@ -135,51 +157,25 @@ export default function Schedule() {
         shift_end: null,
         is_off: true,
         is_day_off: false,
+        source_kind: 'approved_time_off',
+        has_schedule: true,
       };
     }
 
-    const candidates = schedules
-      .filter((item) => {
-        if (!(item.staff_id === emp.id || item.staff_name === emp.name)) return false;
-        if (normalizeBranch(item.branch) !== normalizeBranch(emp.branch)) return false;
-        const effective = (!item.effective_from || item.effective_from <= targetDateStr)
-          && (!item.effective_to || item.effective_to >= targetDateStr);
-        if (!effective) return false;
-        const dated = (item.shift_date || item.date || '').slice(0, 10);
-        if (dated) return dated === targetDateStr;
-        return item.day_name === day;
-      })
-      .sort((a, b) => {
-        const aDated = Boolean((a.shift_date || a.date || '').slice(0, 10));
-        const bDated = Boolean((b.shift_date || b.date || '').slice(0, 10));
-        if (aDated !== bDated) return aDated ? -1 : 1;
-        return String(b.effective_from || '').localeCompare(String(a.effective_from || ''));
-      });
-
-    // لو فيه سجلات مكررة لنفس الموظف/اليوم، لا نسمح لسجل إجازة قديم يطغى على شيفت صحيح.
-    // الأولوية: سجل فيه وقت بداية ونهاية، ثم أحدث سجل، ثم إجازة لو لا يوجد شيفت.
-    const working = candidates.find(
-      (item) =>
-        item.is_off !== true && item.is_day_off !== true && item.shift_start && item.shift_end
-    );
-    if (working) return working;
-    return candidates[0] || null;
+    return canonical?.has_schedule ? canonical : null;
   };
 
   const normalShiftFor = (emp: Employee) => {
+    const staffWeek = canonicalWeek?.staff.find((item) => item.staff_id === emp.id);
     const counts = new Map<string, number>();
-    schedules
-      .filter(
-        (item) =>
-          (item.staff_id === emp.id || item.staff_name === emp.name) &&
-          normalizeBranch(item.branch) === normalizeBranch(emp.branch) &&
-          item.effective_to == null &&
-          !item.shift_date &&
-          !item.date &&
-          item.is_off !== true &&
-          item.is_day_off !== true &&
-          item.shift_start &&
-          item.shift_end
+    (staffWeek?.days || [])
+      .filter((item) =>
+        item.has_schedule &&
+        item.source_kind !== 'date_override' &&
+        !item.is_off &&
+        !item.is_day_off &&
+        item.shift_start &&
+        item.shift_end
       )
       .forEach((item) => {
         const key = `${item.shift_start}-${item.shift_end}`;
@@ -188,7 +184,7 @@ export default function Schedule() {
     return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || '';
   };
 
-  if (loading || schedulesLoading)
+  if (loading || scheduleLoading)
     return (
       <div className="space-y-3">
         {[1, 2, 3].map((i) => (
@@ -212,50 +208,19 @@ export default function Schedule() {
     }
   };
 
-  const regenerateWeeklySchedule = async (emp: Employee) => {
-    if (!emp.shift_start || !emp.shift_end) {
-      toast.error('لا يوجد ميعاد أساسي لهذا الموظف لإعادة إنشاء الجدول.');
-      return;
-    }
-    const confirmed = window.confirm(
-      `إعادة إنشاء جدول أسبوعي لـ ${emp.name} بناء على الميعاد الأساسي؟`
-    );
-    if (!confirmed) return;
-    const records = DAYS_AR.map((day, index) => ({
-      staff_id: emp.id,
-      staff_name: emp.name,
-      branch: normalizeBranch(emp.branch),
-      day_name: day,
-      day_of_week: index,
-      shift_start: emp.shift_start || null,
-      shift_end: emp.shift_end || null,
-      is_off: false,
-      is_day_off: false,
-      is_different: false,
-      has_custom_time: false,
-      notes: 'regenerated_from_base_shift',
-    }));
-    const { error } = await replaceStaffShiftSchedules(emp.id, records);
-    if (error) {
-      toast.error('تعذر إعادة إنشاء الجدول الأسبوعي.');
-      return;
-    }
-    toast.success('تمت إعادة إنشاء الجدول الأسبوعي.');
-  };
-
   const handleSavePreview = async () => {
     if (!preview) return;
     if (!preview.validation.valid) {
       toast.error('يوجد أخطاء في ملف الشيفتات. راجع تقرير التحقق قبل الحفظ.');
       return;
     }
-    if (!window.confirm('سيتم حفظ بيانات الفريق والشيفتات المقروءة من الملف. هل تريد المتابعة؟'))
+    if (!window.confirm('سيتم إنشاء مسودات جدول والتحقق منها ثم نشرها عبر Schedule Core V2. لن يتم تعديل بيانات الموظف أو أرشفته تلقائيًا. هل تريد المتابعة؟'))
       return;
     setSaving(true);
     try {
       const report = await saveScheduleImport(preview);
       setSaveReport(report);
-      toast.success(`تم حفظ ${report.staffSaved} عضو فريق`);
+      toast.success(`تم نشر جداول ${report.staffSaved} موظف عبر المسار المعتمد`);
     } catch (error) {
       toast.error(`تعذر حفظ بيانات الجدول: ${(error as Error).message}`);
     } finally {
@@ -295,10 +260,21 @@ export default function Schedule() {
   return (
     <div className="space-y-5" dir="rtl">
       <section className="rounded-3xl border border-[var(--dawaa-theme-border)] dawaa-surface p-5 shadow-sm">
-        <div className="text-xs font-black text-[var(--dawaa-theme-primary-strong)]">Workforce Scheduling</div>
+        <div className="text-xs font-black text-[var(--dawaa-theme-primary-strong)]">Schedule Core V2 · Canonical Workforce Scheduling</div>
         <h1 className="mt-1 text-2xl font-black text-[var(--dawaa-theme-heading)]">الجداول والمناوبات</h1>
-        <p className="mt-1 text-sm font-bold text-[var(--dawaa-theme-muted)]">التخطيط أولًا ثم الحضور: الجدول هو المرجع الزمني، والتغييرات المؤقتة بتاريخ محدد تتغلب على الجدول الأسبوعي بدون مسح التاريخ السابق.</p>
+        <p className="mt-1 text-sm font-bold text-[var(--dawaa-theme-muted)]">الجدول المنشور هو مصدر المواعيد الوحيد. أي تغيير يمر عبر مسودة → تحقق → نشر، والتغييرات بتاريخ محدد تتغلب على الجدول الأسبوعي بدون مسح التاريخ السابق.</p>
       </section>
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <MiniStat label="الموظفون في المصدر المعتمد" value={canonicalWeek?.summary.staff_count || 0} />
+        <MiniStat label="أيام بدون جدول" value={canonicalWeek?.summary.missing_schedule_days || 0} />
+        <MiniStat label="تغييرات بتاريخ محدد" value={canonicalWeek?.summary.date_override_days || 0} />
+        <MiniStat label="شيفتات تتخطى منتصف الليل" value={canonicalWeek?.summary.overnight_days || 0} />
+      </section>
+      {scheduleError && (
+        <div className="rounded-2xl border border-red-400/30 bg-red-500/10 p-4 text-sm font-bold text-red-100">
+          تعذر تحميل الجدول المعتمد: {scheduleError}. لن يتم الرجوع تلقائيًا إلى قراءة raw shift_schedules حتى لا تظهر بيانات متعارضة.
+        </div>
+      )}
       <WorkforceScheduleCoverage branch={branchFilter} />
       <SchedulePublishingCenter
         branch={branchFilter}
@@ -348,7 +324,7 @@ export default function Schedule() {
           <div className="flex-1">
             <div className="text-white font-bold text-sm">استيراد شيفتات Excel</div>
             <div className="text-slate-400 text-xs mt-1">
-              يدعم الشيفتات التي تتعدى منتصف الليل مثل 7 PM → 3 AM. المعاينة فقط قبل أي حفظ.
+              يدعم الشيفتات التي تتعدى منتصف الليل مثل 7 PM → 3 AM. بعد المعاينة يتم الحفظ عبر Draft → Validate → Publish فقط.
             </div>
           </div>
           <label className="btn-secondary cursor-pointer">
@@ -457,7 +433,7 @@ export default function Schedule() {
                 {saving ? 'جاري الحفظ...' : 'حفظ البيانات المقروءة'}
               </button>
               <div className="text-amber-300 text-xs">
-                الحفظ يكتب الجدول التشغيلي فقط. أي سجل قديم بلا staff_id يظهر في قسم جودة الهوية ولا يدخل قرار الحضور المالي حتى تتم مراجعته.
+                الاستيراد لا يعدّل staff.shift_* ولا يؤرشف موظفين ولا يكتب إجازات مكررة. الجدول المنشور فقط هو المصدر التشغيلي.
               </div>
             </div>
             {saveReport && (
@@ -469,14 +445,14 @@ export default function Schedule() {
                     <span className="text-teal-300">{saveReport.staffTable || 'غير موجود'}</span>
                   </div>
                   <div>
-                    الفريق المحفوظ:{' '}
+                    الموظفون المطابقون:{' '}
                     <span className="num text-teal-300">{saveReport.staffSaved}</span>
                   </div>
                   <div>
                     الشيفتات: <span className="num text-teal-300">{saveReport.shiftsSaved}</span>
                   </div>
                   <div>
-                    الإجازات: <span className="num text-teal-300">{saveReport.leavesSaved}</span>
+                    legacy exceptions: <span className="num text-teal-300">{saveReport.leavesSaved}</span>
                   </div>
                 </div>
                 {saveReport.skipped.length > 0 && (
@@ -543,13 +519,9 @@ export default function Schedule() {
                         <div className="text-slate-500 text-[11px] mt-0.5">
                           {normalizeBranch(emp.branch)}
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => regenerateWeeklySchedule(emp)}
-                          className="text-[11px] text-teal-300 hover:text-teal-200 mt-1"
-                        >
-                          إعادة إنشاء الجدول
-                        </button>
+                        <div className="mt-1 text-[10px] font-bold text-slate-500">
+                          التعديل من مركز نشر الجداول فقط
+                        </div>
                       </div>
                     </div>
                   </td>
