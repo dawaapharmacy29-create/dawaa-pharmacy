@@ -25,6 +25,7 @@ import { listStaffTimeOffRequests } from '@/lib/timeOffService';
 import { getHRTruthQualitySnapshotV2, type HRTruthQualitySnapshotV2 } from '@/lib/hr/hrTruthService';
 import { getHRWorkforceCycleReadinessV2, type HRWorkforceCycleReadinessV2 } from '@/lib/hr/hrCommandCenterService';
 import StaffAssignmentApprovalPanelV2 from '@/components/hr/StaffAssignmentApprovalPanelV2';
+import StaffLifecycleApprovalPanelV2 from '@/components/hr/StaffLifecycleApprovalPanelV2';
 
 type DashboardSummary = {
   staff: number;
@@ -175,6 +176,7 @@ export default function HRWorkforceCenter() {
   const canManageBiometrics = canManageBiometricOperations(user?.role);
   const normalizedRole = normalizeRole(user?.role);
   const canApproveAssignments = ['general_manager', 'executive_manager'].includes(normalizedRole);
+  const canApproveLifecycle = ['general_manager', 'executive_manager'].includes(normalizedRole);
   const today = cairoToday();
   const cycleStart = cycleStartFor(today);
   const canAllBranches = canSeeAllBranches(user?.role);
@@ -371,7 +373,7 @@ export default function HRWorkforceCenter() {
         </div>
 
         {commandCenter && (
-          <div className="mt-3 grid gap-2 sm:grid-cols-3">
+          <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
             <Link to="/attendance-report?tab=resolution" className="rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-3 text-xs font-bold">
               تصحيحات حضور معلقة: <strong>{commandCenter.actions.corrections_pending.toLocaleString('ar-EG')}</strong>
             </Link>
@@ -381,10 +383,17 @@ export default function HRWorkforceCenter() {
             <Link to="/attendance-report?tab=overtime" className="rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-3 text-xs font-bold">
               أوفر تايم معلق: <strong>{commandCenter.actions.overtime_pending.toLocaleString('ar-EG')}</strong>
             </Link>
+            <div className="rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-3 text-xs font-bold">
+              Lifecycle معلق: <strong>{commandCenter.actions.lifecycle_pending.toLocaleString('ar-EG')}</strong>
+            </div>
+            <div className="rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-3 text-xs font-bold">
+              مؤرشف وله دخول نشط: <strong className={commandCenter.actions.archived_login_enabled ? 'text-[var(--dawaa-status-danger-text)]' : ''}>{commandCenter.actions.archived_login_enabled.toLocaleString('ar-EG')}</strong>
+            </div>
           </div>
         )}
       </section>
 
+      <StaffLifecycleApprovalPanelV2 enabled={canApproveLifecycle} />
       <StaffAssignmentApprovalPanelV2 enabled={canApproveAssignments} />
 
       <section>

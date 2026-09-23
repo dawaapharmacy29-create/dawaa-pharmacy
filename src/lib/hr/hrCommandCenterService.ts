@@ -15,6 +15,8 @@ export type HRWorkforceCycleReadinessV2 = {
     overtime_pending: number;
     overtime_stale_approved: number;
     payroll_blocked_staff: number;
+    lifecycle_pending: number;
+    archived_login_enabled: number;
   };
   gates: {
     hr_truth_ready: boolean;
