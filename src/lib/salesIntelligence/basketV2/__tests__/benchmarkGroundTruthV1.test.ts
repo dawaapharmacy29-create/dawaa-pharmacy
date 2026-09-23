@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BASKET_GROUND_TRUTH_CASES_V1, BASKET_GROUND_TRUTH_VERSION_V1 } from '../benchmarkGroundTruthV1';
+import { BASKET_GROUND_TRUTH_CASES_V1, BASKET_GROUND_TRUTH_VERSION_V1, BENCHMARK_CATALOG_FIXTURE_VERSION_V1, REAL_CATALOG_ROWS_V1 } from '../benchmarkGroundTruthV1';
 
 function inferredDifficulty(category: string): 'easy' | 'medium' | 'hard' {
   if (/image|media|substitution|ambiguous|quantity_change|multiple|multi_item|hard/i.test(category)) return 'hard';
@@ -8,6 +8,16 @@ function inferredDifficulty(category: string): 'easy' | 'medium' | 'hard' {
 }
 
 describe('Phase I.B.4 — canonical Ground Truth integrity', () => {
+  it('keeps the hermetic catalog fixture versioned and includes realistic ambiguity confusers', () => {
+    expect(BENCHMARK_CATALOG_FIXTURE_VERSION_V1).toBe('dawaa-benchmark-catalog-fixture-v1.1');
+    const codes = new Set(REAL_CATALOG_ROWS_V1.map((r) => r.product_code));
+    expect(codes.has('60650')).toBe(true); // CIPRO 500
+    expect(codes.has('8635')).toBe(true);  // CIPRO drops
+    expect(codes.has('67660')).toBe(true); // Sweetal sticks
+    expect(codes.has('60145')).toBe(true); // Sweetal tabs
+    expect(codes.has('56544')).toBe(true); // Sweetal sachets
+  });
+
   it('keeps dataset identity explicit and case ids unique', () => {
     expect(BASKET_GROUND_TRUTH_VERSION_V1).toBe('dawaa-intelligence-ground-truth-v1.2');
     const ids = BASKET_GROUND_TRUTH_CASES_V1.map((c) => c.id);
@@ -22,6 +32,12 @@ describe('Phase I.B.4 — canonical Ground Truth integrity', () => {
     expect(real.length).toBeGreaterThanOrEqual(20);
     expect(realPositive.length).toBeGreaterThanOrEqual(8);
     expect(realHard.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it('contains every positively-labeled Ground Truth SKU in the hermetic catalog fixture', () => {
+    const catalogCodes = new Set(REAL_CATALOG_ROWS_V1.map((r) => r.product_code));
+    const expectedCodes = new Set(BASKET_GROUND_TRUTH_CASES_V1.flatMap((c) => c.groundTruth.expectedAddedProductCodes));
+    for (const code of expectedCodes) expect(catalogCodes.has(code), `missing catalog fixture code ${code}`).toBe(true);
   });
 
   it('never gives a media-only case a guessed canonical product', () => {

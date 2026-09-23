@@ -10,6 +10,8 @@ import type { SalesIntelligenceGroundTruthCase } from './benchmarkV2';
 
 /** Dataset version changes whenever labels OR case membership change. */
 export const BASKET_GROUND_TRUTH_VERSION_V1 = 'dawaa-intelligence-ground-truth-v1.2';
+/** Hermetic catalog fixture version; deliberately includes real near-match confusers. */
+export const BENCHMARK_CATALOG_FIXTURE_VERSION_V1 = 'dawaa-benchmark-catalog-fixture-v1.1';
 
 export const REAL_CATALOG_ROWS_V1: RawProductRow[] = [
   { id: '8418f406-2c16-423e-8528-529d39e7d17b', name: 'ANTINAL 24 CAP', product_code: '56822', normalized_name: 'antinal 24 cap', category: null, price: '52', source: 'catalog_import' },
@@ -27,6 +29,17 @@ export const REAL_CATALOG_ROWS_V1: RawProductRow[] = [
   { id: '265f1158-4c01-4a9e-af62-1ed5f764dca8', name: 'Solofresh eye drops', product_code: '66682', normalized_name: 'solofresh eye drops', category: null, price: '67', source: 'catalog_import' },
   { id: '1fc42fd9-d597-4965-8549-02f705672a81', name: 'HYFRESH DROPS', product_code: '28532', normalized_name: 'hyfresh drops', category: null, price: '75', source: 'catalog_import' },
   { id: '0d790180-87f6-4b4f-ad21-38003b7aaee9', name: 'DERMACTIVE SWEAT CONTROL REFRESHING ROLL ON 60ML', product_code: '77480', normalized_name: 'dermactive sweat control refreshing roll on 60ml', category: null, price: '170', source: 'catalog_import' },
+  // Real catalog confusers intentionally kept in the hermetic fixture. R01 says "سيبرو برو"; none
+  // of these is actually "Cipro Pro", so a fuzzy-only resolver must not invent one.
+  { id: 'ce1f3a1e-35f2-428d-ba93-615587c55625', name: 'CIPRO 500 MG 10 TAB', product_code: '60650', normalized_name: 'cipro 500 mg 10 tab', category: null, price: '53', source: 'catalog_import' },
+  { id: '225fd89c-cc76-409f-bb65-54d61b061015', name: 'CIPRO DROPS', product_code: '8635', normalized_name: 'cipro drops', category: null, price: '15', source: 'catalog_import' },
+  { id: '2af1bc90-5973-4db9-8463-43819b0c2470', name: 'CIPROCIN 500MG TAB', product_code: '19164', normalized_name: 'ciprocin 500mg tab', category: null, price: '53', source: 'catalog_import' },
+  // R16 contains "سويتال شبه دى" plus image context. Multiple real Sweetal SKUs make the identity
+  // intentionally ambiguous; benchmark success must come from preserving that ambiguity, not from
+  // a tiny catalog with only one convenient Sweetal row.
+  { id: 'f12faa40-4d2f-4c5e-9c70-b727d031cb86', name: 'sweetal 100 sticks', product_code: '67660', normalized_name: 'sweetal 100 sticks', category: null, price: '130', source: 'catalog_import' },
+  { id: '10ae49d6-8218-478d-8de9-5d3ecd5a0799', name: 'SWEETAL 100 TAB', product_code: '60145', normalized_name: 'sweetal 100 tab', category: null, price: '90', source: 'catalog_import' },
+  { id: '99b7ec8f-e220-4ebe-a167-aeab52ab4ece', name: 'SWEETAL 50 SACHETS 100 G', product_code: '56544', normalized_name: 'sweetal 50 sachets 100 g', category: null, price: '95', source: 'catalog_import' },
 ];
 export const BASKET_GROUND_TRUTH_CASES_V1: SalesIntelligenceGroundTruthCase[] = [
   {
