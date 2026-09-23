@@ -7,7 +7,7 @@
 // extractReferenceMentionsV2, computeActiveProductCandidates, and every mention's own
 // safeForBasketLinking. Nothing here re-derives product/quantity/reference resolution.
 import type { NormalizedConversationMessageV32 } from '../../whatsappConversationUnderstandingV32';
-import { buildProductMentions, computeActiveProductCandidates } from '../quantityReference/productMentionTracker';
+import { buildProductMentions, computeActiveProductCandidates, resolveRejectionTarget } from '../quantityReference/productMentionTracker';
 import type { BuildProductMentionsOptions } from '../quantityReference/productMentionTracker';
 import { extractQuantityMentionsV2 } from '../quantityReference/quantityIntelligenceV2';
 import type { QuantityExtractionOptions } from '../quantityReference/quantityIntelligenceV2';
@@ -304,6 +304,7 @@ export function buildConversationEntityGraphV2(
         // re-derives resolution logic: it calls resolveProductMention (I.B.1) AS-IS against the same
         // text with the operation verb stripped off.
         const stripped = message.text.replace(/^\s*(?:خلي(?:ه|ها|هم)?|زود(?:ي)?|شيل(?:ي)?|الغ[يى](?:ي)?)\s*/u, '').trim();
+        let resolvedViaBareVerb = false;
         if (stripped.length >= 2) {
           const resolution = resolveProductMention(stripped, options.productIndex, options.mentionOptions?.resolveOptions);
           if (resolution.selected) {
@@ -326,6 +327,40 @@ export function buildConversationEntityGraphV2(
             targetMentionId = resolvedId;
             targetSafety = 'safe';
             targetRuleIds = ['graph.action_target.remove_reject_bare_verb_fallback_resolved'];
+            resolvedViaBareVerb = true;
+          }
+        }
+        // I.B.4 fix (R13) — a BARE rejection ("لا"/"مش عايز" naming no product of its own, so the
+        // bare-verb fallback just above found nothing either) still needs a structural target;
+        // without one this action produces no edge at all and basketReconstructionV2.ts's own
+        // existing REVIEW_SIGNAL handling for an unsafe/absent rejection target (instruction #19)
+        // never gets the chance to fire. resolveRejectionTarget() attributes it to the CURRENT
+        // topic (see its own doc comment in productMentionTracker.ts) — never to every product ever
+        // mentioned in the conversation, and never a guess when 2+ candidates are equally current.
+        if (!resolvedViaBareVerb && c.actionType === 'reject') {
+          const rejectionTarget = resolveRejectionTarget(mentions, messageIndex);
+          if (rejectionTarget.identityKey) {
+            targetMentionId = rejectionTarget.identityKey;
+            targetSafety = 'safe'; // gateOnResolvedIdentity below downgrades to 'review' when this identity was never a real, resolved product
+            targetRuleIds = ['graph.action_target.rejection_attributed_to_current_topic'];
+          } else if (rejectionTarget.tiedIdentityKeys.length > 1) {
+            // Genuine tie between 2+ equally-recent identities (e.g. two products offered in the
+            // SAME message) — never guesses a winner. One `unsafe` edge per tied candidate so
+            // basketReconstructionV2.ts's existing REVIEW_SIGNAL handling surfaces this instead of
+            // silently dropping — or silently rejecting — any of them.
+            rejectionTarget.tiedIdentityKeys.forEach((identityKey) => {
+              edges.push({
+                edgeId: nextEdgeId(),
+                type: 'action_targets_product',
+                fromNodeId: actionId,
+                toNodeId: identityKey,
+                sourceMessageIds: [message.id],
+                ruleIds: ['graph.action_target.rejection_target_ambiguous_tied_candidates'],
+                confidence: c.confidence,
+                safety: 'unsafe',
+              });
+            });
+            return;
           }
         }
       }

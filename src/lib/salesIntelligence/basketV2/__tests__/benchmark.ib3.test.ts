@@ -182,19 +182,17 @@ describe('I.B.3/I.B.3.1 — real Basket benchmark: OLD vs Basket Reconstruction 
     expect(first.metrics.quantityTargetAudit.incorrect).toBe(0);
     expect(first.metrics.safeEdgeAudit.verifiedIncorrect).toBe(0);
     expect(first.metrics.confidenceCalibration.productMentions.length).toBe(3);
-    // I.B.4 completion pass: R07 (image_antecedent) and R09 (substitution) are now fixed — an
-    // unresolved reference with NO real catalog candidate among its options (never a candidate that
-    // ALSO includes an already-resolved product, e.g. S04's "الاتنين موجودين" over two explicitly
-    // named items) now correctly surfaces a review signal instead of silently vanishing. R15 is
-    // fixed as a side effect of recognizing "ماشي تمام" as a double-acknowledgement acceptance.
-    // R13 remains a known, honestly-reported gap: Flexilax genuinely resolves early in the
-    // conversation, but a later, UNRELATED "لا" (rejecting a different, staff-suggested product)
-    // retroactively invalidates it as an active candidate — computeActiveProductCandidates()
-    // attributes a whole-item rejection globally rather than to the specific product it was about.
-    // Fixing that safely requires rejection-target attribution, a real but separate investigation
-    // (see the I.B.4 completion report), not a narrow fix here. Locked at the current count so a
-    // future regression (a 6th case silently going unreviewed) still fails loudly.
-    expect(first.metrics.humanReviewQuality.missedReview).toBe(1);
+    // I.B.4 fully closed: R07/R09 (unresolved reference with no real candidate among its options —
+    // never a candidate that ALSO includes an already-resolved product, e.g. S04's "الاتنين موجودين"
+    // over two explicitly named items — now correctly surfaces a review signal instead of silently
+    // vanishing), R15 (recognizing "ماشي تمام" as a double-acknowledgement acceptance), and R13
+    // (resolveRejectionTarget() in productMentionTracker.ts attributes a bare whole-item rejection
+    // to the CURRENT topic — the most recent mention strictly before it — never to every product
+    // ever mentioned in the conversation; R13's "لا" rejects an unrelated staff clarification, not
+    // the already-resolved Flexilax from 5 messages earlier, and the rejection itself now gets a
+    // real action_targets_product/rejects_product edge so the existing "ambiguous rejection target"
+    // REVIEW_SIGNAL path fires instead of the action silently producing no edge at all).
+    expect(first.metrics.humanReviewQuality.missedReview).toBe(0);
     expect(first.metrics.wrongQuantityAppliedToCorrectProduct).toBe(0);
     expect(first.metrics.regressions).toBe(0);
   });

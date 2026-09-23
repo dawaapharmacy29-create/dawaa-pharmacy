@@ -24,12 +24,14 @@ describe('Phase I.B.4 — composed evaluation report', () => {
     expect(a.basket.metrics.safeEdgeAudit.verifiedIncorrect).toBe(0);
     expect(a.regressionCases).toEqual([]);
     expect(Array.isArray(a.topFailureCategories)).toBe(true);
-    // Real Ground Truth volume has now crossed the minimumRealCases gate (21 >= 20) —
-    // evidenceSufficient is true, so this is no longer the blocking reason. `readyForNextStage`
-    // still correctly reports false, driven by the real remaining quality gaps (missed human
-    // reviews, event-sequence errors) rather than case volume.
+    // I.B.4 closed: real Ground Truth volume crosses the minimumRealCases gate (21 >= 20), and the
+    // last real quality blocker (R13's missed human review — see productMentionTracker.ts's
+    // resolveRejectionTarget()) is fixed. readyForNextStage now correctly reports true with zero
+    // blockers. This assertion is the phase's own acceptance criterion — a real future regression
+    // (a false-added product, a wrong quantity, a missed review, a mis-sequenced event, etc.) must
+    // flip this back to false and fail loudly, never be silently tolerated.
     expect(a.readiness.evidenceSufficient).toBe(true);
-    expect(a.readiness.readyForNextStage).toBe(false);
-    expect(a.readiness.blockers.length).toBeGreaterThan(0);
+    expect(a.readiness.readyForNextStage).toBe(true);
+    expect(a.readiness.blockers).toEqual([]);
   });
 });

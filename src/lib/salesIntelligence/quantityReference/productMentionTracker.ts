@@ -393,10 +393,47 @@ export interface ActiveProductCandidate {
   lastMentionWasStaffOffer: boolean;
 }
 
+export interface RejectionTargetResolution {
+  /** Exactly one identity was structurally the current topic when this rejection fired — safe to attribute the rejection to it. */
+  identityKey: string | null;
+  /** Two or more identities were equally "current" (e.g. two products offered in the SAME message) — never resolved by picking one arbitrarily; caller must treat this as ambiguous. */
+  tiedIdentityKeys: string[];
+}
+
+/**
+ * I.B.4 fix (R13) — target attribution for a bare whole-item rejection ("لا"/"مش عايز" carrying no
+ * product name of its own). The bug this replaces: `computeActiveProductCandidates` used to treat
+ * ANY rejection as invalidating EVERY identity ever mentioned earlier in the whole conversation,
+ * regardless of what the rejection was actually about (R13: a customer explicitly, clearly resolved
+ * "فليكس ليكس" to Flexilax in message 1; a "لا" at message 6 — replying to a staff clarification
+ * about a completely different, unrelated product ("حضرتك تقصد كومتركس؟") — retroactively wiped
+ * Flexilax out of the active-candidate set for the rest of the conversation).
+ *
+ * The fix: a bare rejection is attributed to the CURRENT topic at the moment it was said — the
+ * identity (or identities) whose most recent mention is the closest one strictly before the
+ * rejection message. This is structural adjacency (the rejection is a direct reply to whatever was
+ * JUST under discussion), never "nearest-wins by mere temporal proximity across the whole history":
+ * it only ever looks at the immediately preceding exchange, and an identity from several messages
+ * earlier that was never re-raised near the rejection is left completely untouched. A genuine tie
+ * (2+ identities equally recent) is reported via `tiedIdentityKeys` and never resolved by guessing;
+ * callers must treat that as ambiguous — never dropping any of the tied candidates.
+ */
+export function resolveRejectionTarget(mentions: ProductMentionV2[], rejectionMessageIndex: number): RejectionTargetResolution {
+  const prior = mentions.filter(
+    (m) => m.messageIndex < rejectionMessageIndex && m.role !== 'staff_availability' && m.validity !== 'non_product'
+  );
+  if (prior.length === 0) return { identityKey: null, tiedIdentityKeys: [] };
+  const maxIndex = Math.max(...prior.map((m) => m.messageIndex));
+  const mostRecentIdentityKeys = Array.from(new Set(prior.filter((m) => m.messageIndex === maxIndex).map((m) => m.identityKey)));
+  if (mostRecentIdentityKeys.length === 1) return { identityKey: mostRecentIdentityKeys[0], tiedIdentityKeys: [] };
+  return { identityKey: null, tiedIdentityKeys: mostRecentIdentityKeys };
+}
+
 /**
  * The "currently active products" concept instructions #11/#12/#17 require: distinct product
  * identities mentioned strictly BEFORE `beforeMessageIndex` in this same case, excluding any
  * identity whose most recent mention was followed by an explicit whole-item customer rejection
+ * STRUCTURALLY ATTRIBUTED TO IT (see resolveRejectionTarget — never every identity ever mentioned),
  * with no later re-mention. Never "nearest mention wins" by itself — this only computes the
  * CANDIDATE SET; referenceResolverV2.ts and quantityIntelligenceV2.ts do the actual scored
  * selection among these candidates.
@@ -424,15 +461,27 @@ export function computeActiveProductCandidates(
   });
 
   const rejectionSignals = extractRejectionSignals(messages.slice(0, beforeMessageIndex));
-  const rejectionIndices = rejectionSignals.map((s) => messages.findIndex((m) => m.id === s.messageId));
+  const rejectionIndices = rejectionSignals.map((s) => messages.findIndex((m) => m.id === s.messageId)).filter((idx) => idx >= 0);
+  // Each rejection is attributed to ITS OWN structural target (resolveRejectionTarget), never
+  // blanket-applied to every identity in the conversation. Keep the LATEST rejection index that
+  // targeted each identity, so a re-mention BETWEEN two rejections still correctly "revives" it
+  // ahead of the later one, same as the identity's own last-mention check below expects.
+  const rejectedIdentityIndex = new Map<string, number>();
+  rejectionIndices.forEach((idx) => {
+    const { identityKey } = resolveRejectionTarget(mentions, idx);
+    if (!identityKey) return;
+    const existing = rejectedIdentityIndex.get(identityKey);
+    if (existing === undefined || idx > existing) rejectedIdentityIndex.set(identityKey, idx);
+  });
 
   const candidates: ActiveProductCandidate[] = [];
   byIdentity.forEach((bucketMentions, identityKey) => {
     const sorted = bucketMentions.slice().sort((a, b) => a.messageIndex - b.messageIndex);
     const last = sorted[sorted.length - 1];
-    // Rejected only if a whole-item rejection occurs strictly after this identity's last mention
-    // and no LATER mention of the same identity re-establishes it.
-    const rejectedAfter = rejectionIndices.some((idx) => idx > last.messageIndex);
+    // Rejected only if a rejection STRUCTURALLY ATTRIBUTED TO THIS IDENTITY occurs strictly after
+    // its last mention and no LATER mention of the same identity re-establishes it.
+    const rejectionIndexForIdentity = rejectedIdentityIndex.get(identityKey);
+    const rejectedAfter = rejectionIndexForIdentity !== undefined && rejectionIndexForIdentity > last.messageIndex;
     if (rejectedAfter) return;
     candidates.push({
       identityKey,
