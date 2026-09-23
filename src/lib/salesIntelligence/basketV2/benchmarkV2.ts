@@ -316,7 +316,10 @@ function inferFailures(
     }
   }
 
-  if (c.groundTruth.expectUnresolvedSignal && /image|media|voice/i.test(c.sourceNote)) failures.push('media_unavailable');
+  if (
+    c.groundTruth.expectUnresolvedSignal &&
+    (graph.references.some((r) => r.antecedentKind === 'media') || /image|media|voice/i.test(c.sourceNote))
+  ) failures.push('media_unavailable');
 
   const unique = Array.from(new Set(failures));
   return { failures: unique, safetyCritical, firstDivergence: unique[0] ?? null };
