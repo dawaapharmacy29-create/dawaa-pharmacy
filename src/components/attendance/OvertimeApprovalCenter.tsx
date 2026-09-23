@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { CheckCircle2, Clock3, History, Link2, RefreshCw, ShieldCheck, XCircle } from 'lucide-react';
+import { CheckCircle2, ChevronDown, ChevronUp, Clock3, History, Link2, ReceiptText, RefreshCw, ShieldCheck, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   decideOvertimeApproval,
@@ -8,6 +8,7 @@ import {
   type OvertimeDecisionRow,
   type PendingOvertimeRow,
 } from '@/lib/attendance/attendanceBreakdownService';
+import OvertimeDecisionEvidenceCardV3 from '@/components/attendance/OvertimeDecisionEvidenceCardV3';
 
 export default function OvertimeApprovalCenter({ defaultBranch = '' }: { defaultBranch?: string }) {
   const [branch, setBranch] = useState(defaultBranch);
@@ -16,6 +17,7 @@ export default function OvertimeApprovalCenter({ defaultBranch = '' }: { default
   const [loading, setLoading] = useState(false);
   const [decidingId, setDecidingId] = useState<string | null>(null);
   const [noteById, setNoteById] = useState<Record<string, string>>({});
+  const [expandedEvidenceId, setExpandedEvidenceId] = useState<string | null>(null);
 
   useEffect(() => { setBranch(defaultBranch); }, [defaultBranch]);
 
@@ -72,10 +74,10 @@ export default function OvertimeApprovalCenter({ defaultBranch = '' }: { default
     <div className="space-y-4" dir="rtl">
       <div className="flex flex-col gap-3 rounded-3xl border border-[var(--dawaa-theme-border)] dawaa-surface p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <div className="text-xs font-black text-[var(--dawaa-theme-primary-strong)]">Overtime Truth V2</div>
-          <h2 className="mt-1 text-lg font-black text-[var(--dawaa-theme-heading)]">اعتماد الأوفر تايم</h2>
+          <div className="text-xs font-black text-[var(--dawaa-theme-primary-strong)]">Overtime Decision Evidence V3</div>
+          <h2 className="mt-1 text-lg font-black text-[var(--dawaa-theme-heading)]">اعتماد الأوفر تايم بالأدلة التشغيلية</h2>
           <p className="mt-1 max-w-3xl text-xs font-bold leading-5 text-[var(--dawaa-theme-muted)]">
-            الاعتماد المالي لا يتم من ساعات إضافية خام. عند الضغط على اعتماد يعيد الـBackend التحقق أن يوم الحضور نفسه Approved وأن بصمته لم تتغير منذ إنشاء سجل الأوفر تايم.
+            القرار يعرض Attendance Truth + عدد زملاء نفس الفئة الموجودين في الفرع + حركة مبيعات الفرع والموظف داخل نفس نافذة الوقت. الأدلة تساعد المدير ولا تصدر حكم استحقاق تلقائيًا.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -115,6 +117,15 @@ export default function OvertimeApprovalCenter({ defaultBranch = '' }: { default
                   </div>
 
                   <div className="flex min-w-[360px] flex-col gap-2 sm:flex-row">
+                    <button
+                      type="button"
+                      onClick={() => setExpandedEvidenceId((current) => current === row.id ? null : row.id)}
+                      className="btn-secondary !py-1 !px-3 text-xs"
+                    >
+                      <ReceiptText size={14} />
+                      تفاصيل القرار
+                      {expandedEvidenceId === row.id ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                    </button>
                     <input
                       value={noteById[row.id] || ''}
                       onChange={(e) => setNoteById((current) => ({ ...current, [row.id]: e.target.value }))}
@@ -129,6 +140,7 @@ export default function OvertimeApprovalCenter({ defaultBranch = '' }: { default
                     </button>
                   </div>
                 </div>
+                {expandedEvidenceId === row.id && <OvertimeDecisionEvidenceCardV3 overtimeId={row.id} />}
               </div>
             ))}
           </div>

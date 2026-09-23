@@ -83,8 +83,77 @@ export async function listPendingOvertime(branch: string | null): Promise<Pendin
   return (data || []) as PendingOvertimeRow[];
 }
 
+export type OvertimeEvidenceRoleGroupV3 = 'doctor' | 'delivery' | 'assistant' | 'other';
+
+export interface OvertimeEvidencePersonV3 {
+  staff_id: string;
+  name: string;
+  role: string | null;
+  is_current_employee: boolean;
+  overlap_minutes: number;
+  covers_full_window: boolean;
+  first_in: string;
+  last_out: string;
+}
+
+export interface OvertimeSalesWindowV3 {
+  start_at: string;
+  end_at: string;
+  invoice_count: number | null;
+  invoice_value: number | null;
+}
+
+export interface OvertimeDecisionEvidenceV3 {
+  evidence_available: boolean;
+  overtime_id: string;
+  staff_id: string;
+  staff_name: string;
+  branch: string;
+  role: string | null;
+  role_group: OvertimeEvidenceRoleGroupV3;
+  reason?: string;
+  attendance_truth?: {
+    resolution_id: string;
+    resolution_status: string | null;
+    status: string;
+    scheduled_start_at: string;
+    scheduled_end_at: string;
+    first_in: string | null;
+    last_out: string;
+    raw_post_shift_minutes: number;
+    overtime_candidate_hours: number;
+    late_minutes: number;
+  };
+  staffing?: {
+    same_role_total_present_any: number;
+    same_role_others_present_any: number;
+    same_role_others_cover_full_window: number;
+    people: OvertimeEvidencePersonV3[];
+  };
+  sales?: {
+    timestamp_source: string;
+    employee_attribution_available: boolean;
+    employee_attribution_method: 'seller' | 'delivery_staff' | 'not_applicable' | string;
+    branch_overtime: OvertimeSalesWindowV3;
+    employee_shift: OvertimeSalesWindowV3;
+    employee_last_hour: OvertimeSalesWindowV3;
+    employee_overtime: OvertimeSalesWindowV3;
+  };
+  warnings: string[];
+  decision_note?: string;
+  generated_at: string;
+}
+
+export async function getOvertimeDecisionEvidenceV3(id: string): Promise<OvertimeDecisionEvidenceV3> {
+  const { data, error } = await supabase.rpc('overtime_decision_evidence_v3', {
+    p_overtime_id: id,
+  });
+  if (error) throw new Error(error.message);
+  return data as OvertimeDecisionEvidenceV3;
+}
+
 export async function decideOvertimeApproval(id: string, decision: 'approved' | 'rejected', note?: string) {
-  const { error } = await supabase.rpc('decide_overtime_approval_v2', { p_id: id, p_decision: decision, p_note: note || null });
+  const { error } = await supabase.rpc('decide_overtime_approval_v3', { p_id: id, p_decision: decision, p_note: note || null });
   if (error) throw error;
 }
 
