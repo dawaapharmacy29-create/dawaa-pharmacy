@@ -4,6 +4,7 @@ import { AlertTriangle, CalendarClock, CheckCircle2, MapPin, RefreshCw, UserRoun
 import StaffDetailLegacy from '@/pages/StaffDetailLegacy';
 import EmploymentProfileTimeline from '@/components/hr/EmploymentProfileTimeline';
 import StaffEmploymentRecords from '@/components/hr/StaffEmploymentRecords';
+import StaffAssignmentTimelineV2 from '@/components/hr/StaffAssignmentTimelineV2';
 import { readStaffDirectory, type StaffDirectoryIdentity } from '@/lib/readModels/staffDirectoryReadModel';
 import { useAuth } from '@/hooks/useAuth';
 import { normalizeRole } from '@/lib/core/permissionSystem';
@@ -143,10 +144,13 @@ export default function StaffDetail() {
       )}
 
       {id && (
-        <section className="grid gap-4 xl:grid-cols-2">
-          <EmploymentProfileTimeline staffId={id} canWrite={canWriteHR} staffOptions={staffOptions} />
-          <StaffEmploymentRecords staffId={id} canWrite={canWriteHR} />
-        </section>
+        <>
+          <StaffAssignmentTimelineV2 staffId={id} canWrite={canWriteHR} />
+          <section className="grid gap-4 xl:grid-cols-2">
+            <EmploymentProfileTimeline staffId={id} canWrite={canWriteHR} staffOptions={staffOptions} />
+            <StaffEmploymentRecords staffId={id} canWrite={canWriteHR} />
+          </section>
+        </>
       )}
 
       <section>
