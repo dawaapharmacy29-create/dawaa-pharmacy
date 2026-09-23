@@ -21,6 +21,8 @@ export interface SemanticReadinessThresholdsV2 {
   maxRegressions: number;
   maxShadowFalseClosures: number;
   maxMissedHumanReviews: number;
+  maxEventSequenceErrors: number;
+  maxVersioningErrors: number;
 }
 
 export interface SemanticReadinessAssessmentV2 {
@@ -42,6 +44,8 @@ export const DEFAULT_SEMANTIC_READINESS_THRESHOLDS_V2: SemanticReadinessThreshol
   maxRegressions: 0,
   maxShadowFalseClosures: 0,
   maxMissedHumanReviews: 0,
+  maxEventSequenceErrors: 0,
+  maxVersioningErrors: 0,
 };
 
 export function evaluateSemanticIntelligenceReadinessV2(
@@ -78,6 +82,12 @@ export function evaluateSemanticIntelligenceReadinessV2(
   }
   if (benchmark.humanReviewQuality.missedReview > thresholds.maxMissedHumanReviews) {
     blockers.push(`missed_human_reviews:${benchmark.humanReviewQuality.missedReview}`);
+  }
+  if (benchmark.eventSequenceAudit.incorrect > thresholds.maxEventSequenceErrors) {
+    blockers.push(`event_sequence_errors:${benchmark.eventSequenceAudit.incorrect}`);
+  }
+  if (benchmark.versioningAudit.incorrect > thresholds.maxVersioningErrors) {
+    blockers.push(`basket_versioning_errors:${benchmark.versioningAudit.incorrect}`);
   }
 
   if (benchmark.safeEdgeAudit.unverifiable > 0) {

@@ -97,6 +97,8 @@ describe('Phase I.B.4 — semantic readiness gate', () => {
         humanReviewQuality: {
           trueReviewNeeded: 1, unnecessaryReview: 0, missedReview: 1, correctlyNoReview: 27, precision: 1, recall: 0.5,
         },
+        eventSequenceAudit: { labeledCases: 3, correct: 2, incorrect: 1, unverifiable: 27, accuracy: 2 / 3 },
+        versioningAudit: { labeledCases: 3, correct: 2, incorrect: 1, unverifiable: 27, accuracy: 2 / 3 },
       }),
       closure({
         shadowBinary: { tp: 2, fp: 1, fn: 0, tn: 4, precision: 2 / 3, recall: 1, falseClosureRate: 0.2 },
@@ -111,6 +113,8 @@ describe('Phase I.B.4 — semantic readiness gate', () => {
       'v2_regressions:1',
       'shadow_false_closures:1',
       'missed_human_reviews:1',
+      'event_sequence_errors:1',
+      'basket_versioning_errors:1',
     ]));
   });
 });
