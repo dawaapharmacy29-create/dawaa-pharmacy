@@ -9,12 +9,14 @@
 // mutation (instruction #14) — the same code path is used for both modes so a dry-run plan can
 // never drift from what a real run would actually do.
 import { normalizeEgyptianCustomerPhone, isValidEgyptianCustomerMobile } from '../../customers/customerIdentity';
-import type { InvoiceLike } from '../../invoices/invoiceCore';
+import { parseInvoiceDateTime, type InvoiceLike } from '../../invoices/invoiceCore';
 import {
   CANDIDATE_RETRIEVAL_MAX_ROWS,
   CANDIDATE_RETRIEVAL_TIME_WINDOW,
+  buildInvoiceCandidateQuery,
   fetchInvoiceCandidates,
   type InvoiceCandidateQuery,
+  type InvoiceCandidateQueryContext,
 } from '../invoiceCandidateRetrieval';
 import { deriveCasesOnly, runSalesIntelligencePipeline, type SalesIntelligencePipelineInput } from '../salesIntelligencePipeline';
 import type { ConversationCase, SalesIntelligenceCaseAnalysis } from '../types';
@@ -238,6 +240,36 @@ async function fetchCandidatesForGroup(supabaseClient: any, group: CustomerGroup
   return fetchInvoiceCandidates(supabaseClient, query);
 }
 
+/**
+ * I.C.2.1 fix — root cause of the ~88%-contradicted finding (see the I.C.2.1 report): the GROUP
+ * fetch above deliberately spans the union of every case in the customer group (instruction #12's
+ * N+1 reduction — one fetch per customer, not per case), which for a customer with a long real
+ * history (many months, many invoices) can span far more time than any ONE case's own window ever
+ * should. Every case in the group was then scored against the ENTIRE shared pool with no per-case
+ * temporal narrowing, so a case from November could be attributed to an invoice from June — and
+ * once several equally-weak, untimed candidates tie in Phase D's own scoring (customerId+branch
+ * match only, no strong time/amount signal), the tie always broke toward whichever invoice
+ * happened to sort first in the shared array, not a real decision.
+ *
+ * This restores EXACTLY the per-case window discipline invoiceCandidateRetrieval.ts already
+ * documents and single-case callers already get (`beforeCaseStartHours`/`afterCaseEndHours` around
+ * THIS case's own segmented startedAt/endedAt) — reusing buildInvoiceCandidateQuery() itself,
+ * never re-deriving the window math. Never touches Phase D's scoring/weights/thresholds: this is a
+ * candidate-retrieval-time filter, applied BEFORE attribution ever sees the pool, exactly mirroring
+ * what a per-case fetch would have returned in the first place.
+ */
+export function filterCandidatesToCaseWindow(candidates: InvoiceLike[], context: InvoiceCandidateQueryContext): InvoiceLike[] {
+  const { windowStartIso, windowEndIso } = buildInvoiceCandidateQuery(context);
+  const windowStartMs = new Date(windowStartIso).getTime();
+  const windowEndMs = new Date(windowEndIso).getTime();
+  return candidates.filter((row) => {
+    const iso = parseInvoiceDateTime((row as Record<string, unknown>).invoice_datetime);
+    if (!iso) return false;
+    const ms = new Date(iso).getTime();
+    return ms >= windowStartMs && ms <= windowEndMs;
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Read-only decision planning (used by dry-run, and to decide what to report even in a real run) —
 // mirrors each RPC's own no-op comparison via a plain SELECT, never a write. A dry-run's decision
@@ -339,9 +371,10 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
   for (const group of groups) {
     for (const { conversationCase } of group.cases) groupKeyByCaseId.set(conversationCase.caseId, group.key);
   }
-  const conversationToGroupCandidates = (conversation: BatchConversationInput, caseId: string): InvoiceLike[] => {
-    const groupKey = groupKeyByCaseId.get(caseId);
-    return groupKey ? (candidatesByGroupKey.get(groupKey) ?? []) : [];
+  const conversationToGroupCandidates = (_conversation: BatchConversationInput, context: InvoiceCandidateQueryContext): InvoiceLike[] => {
+    const groupKey = groupKeyByCaseId.get(context.caseId);
+    const groupCandidates = groupKey ? (candidatesByGroupKey.get(groupKey) ?? []) : [];
+    return filterCandidatesToCaseWindow(groupCandidates, context);
   };
 
   for (const conversation of input.conversations) {
@@ -364,7 +397,7 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
       sessionSplitGapMinutes: conversation.sessionSplitGapMinutes,
       protocolPolicyEffectiveAt: conversation.protocolPolicyEffectiveAt,
       competingSelections: [],
-      resolveInvoiceCandidates: (context) => conversationToGroupCandidates(conversation, context.caseId),
+      resolveInvoiceCandidates: (context) => conversationToGroupCandidates(conversation, context),
     };
     const result = runSalesIntelligencePipeline(pipelineInput);
     pass1ByConversation.set(conversation.conversationId, result.caseAnalyses);
@@ -403,7 +436,7 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
       sessionSplitGapMinutes: conversation.sessionSplitGapMinutes,
       protocolPolicyEffectiveAt: conversation.protocolPolicyEffectiveAt,
       competingSelections,
-      resolveInvoiceCandidates: (context) => conversationToGroupCandidates(conversation, context.caseId),
+      resolveInvoiceCandidates: (context) => conversationToGroupCandidates(conversation, context),
     };
     const result = runSalesIntelligencePipeline(pipelineInput);
     caseAnalyses.push(...result.caseAnalyses);
