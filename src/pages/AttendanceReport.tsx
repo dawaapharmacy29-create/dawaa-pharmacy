@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, CalendarClock, CheckCircle2, Clock, ClipboardCheck, Filter, Fingerprint, LayoutDashboard, LocateFixed, LogIn, LogOut, MapPin, RefreshCw, Search, ShieldAlert, Timer, UserCheck, Users, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { useSearchParams } from 'react-router-dom';
@@ -257,6 +257,9 @@ export default function AttendanceReport() {
   const [dailyRows, setDailyRows] = useState<DailyCommandRow[]>([]);
   const [dailyIntel, setDailyIntel] = useState<any[] | null>(null);
   const [dashboardTotals, setDashboardTotals] = useState({ staff: 0, onTime: 0, late: 0, missing: 0, issues: 0 });
+  const [dashboardSummaryError, setDashboardSummaryError] = useState(false);
+  const [dashboardSummaryAvailable, setDashboardSummaryAvailable] = useState(false);
+  const dashboardRequestId = useRef(0);
   const [syncHealth, setSyncHealth] = useState<SyncHealth | null>(null);
   const [unmappedRows, setUnmappedRows] = useState<UnmappedBiometric[]>([]);
   const [mappingTarget, setMappingTarget] = useState<UnmappedBiometric | null>(null);
@@ -351,22 +354,34 @@ export default function AttendanceReport() {
 
   const loadDashboardDailySummary = useCallback(async () => {
     if (!isSupabaseConfigured || !isOperationalManager) return;
+    const requestId = ++dashboardRequestId.current;
+    setDashboardSummaryAvailable(false);
+    setDashboardSummaryError(false);
     try {
       const { data, error: summaryError } = await supabase.rpc('attendance_dashboard_daily_summary_v1', {
         p_date: dailyDate,
         p_branch: effectiveBranch === 'الكل' ? null : effectiveBranch,
       });
       if (summaryError) throw summaryError;
-      const row = (data || {}) as Record<string, unknown>;
+      if (!data || typeof data !== 'object') throw new Error('ملخص الحضور غير متاح');
+      const row = data as Record<string, unknown>;
+      const fields = ['staff', 'on_time', 'late', 'missing', 'issues'];
+      if (fields.some((field) => row[field] == null || !Number.isFinite(Number(row[field])))) {
+        throw new Error('ملخص الحضور غير مكتمل');
+      }
+      if (requestId !== dashboardRequestId.current) return;
       setDashboardTotals({
-        staff: Number(row.staff || 0),
-        onTime: Number(row.on_time || 0),
-        late: Number(row.late || 0),
-        missing: Number(row.missing || 0),
-        issues: Number(row.issues || 0),
+        staff: Number(row.staff),
+        onTime: Number(row.on_time),
+        late: Number(row.late),
+        missing: Number(row.missing),
+        issues: Number(row.issues),
       });
+      setDashboardSummaryAvailable(true);
     } catch (e) {
+      if (requestId !== dashboardRequestId.current) return;
       console.warn('[attendance] dashboard daily summary failed', e);
+      setDashboardSummaryError(true);
     }
   }, [dailyDate, effectiveBranch, isOperationalManager]);
 
@@ -546,11 +561,12 @@ export default function AttendanceReport() {
           <label className="flex-1 space-y-1 text-xs font-black text-[var(--dawaa-theme-muted)]"><span>الفرع</span><select value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)} className="input-dark w-full">{branches.map((b) => <option key={b}>{b}</option>)}</select></label>
           <button onClick={() => { void loadDashboardDailySummary(); void loadApprovalsSummary(); }} className="btn-primary"><RefreshCw size={16} className={loadingSummary ? 'animate-spin' : ''} /> تحديث</button>
         </div>
+        {dashboardSummaryError && <div role="alert" className="rounded-xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-3 text-sm font-bold text-[var(--dawaa-status-danger-text)]">تعذر تحميل ملخص الحضور؛ الأعداد غير متاحة حاليًا. اضغط تحديث للمحاولة مرة أخرى.</div>}
         <div className="grid gap-3 md:grid-cols-4">
-          <Metric label="موجودين الآن" value={dashboardTotals.onTime} icon={CheckCircle2} color="text-[var(--dawaa-status-success-text)] bg-[var(--dawaa-status-success-bg)] border-[var(--dawaa-status-success-border)]" />
-          <Metric label="متأخرين" value={dashboardTotals.late} icon={Clock} color="text-[var(--dawaa-status-warning-text)] bg-[var(--dawaa-status-warning-bg)] border-[var(--dawaa-status-warning-border)]" />
-          <Metric label="غياب/بصمة ناقصة" value={dashboardTotals.missing} icon={XCircle} color="text-[var(--dawaa-status-danger-text)] bg-[var(--dawaa-status-danger-bg)] border-[var(--dawaa-status-danger-border)]" />
-          <Metric label="مشاكل جدول" value={dashboardTotals.issues} icon={AlertTriangle} color="text-[var(--dawaa-status-warning-text)] bg-[var(--dawaa-status-warning-bg)] border-[var(--dawaa-status-warning-border)]" />
+          <Metric label="موجودين الآن" value={dashboardSummaryAvailable ? dashboardTotals.onTime : null} icon={CheckCircle2} color="text-[var(--dawaa-status-success-text)] bg-[var(--dawaa-status-success-bg)] border-[var(--dawaa-status-success-border)]" />
+          <Metric label="متأخرين" value={dashboardSummaryAvailable ? dashboardTotals.late : null} icon={Clock} color="text-[var(--dawaa-status-warning-text)] bg-[var(--dawaa-status-warning-bg)] border-[var(--dawaa-status-warning-border)]" />
+          <Metric label="غياب/بصمة ناقصة" value={dashboardSummaryAvailable ? dashboardTotals.missing : null} icon={XCircle} color="text-[var(--dawaa-status-danger-text)] bg-[var(--dawaa-status-danger-bg)] border-[var(--dawaa-status-danger-border)]" />
+          <Metric label="مشاكل جدول" value={dashboardSummaryAvailable ? dashboardTotals.issues : null} icon={AlertTriangle} color="text-[var(--dawaa-status-warning-text)] bg-[var(--dawaa-status-warning-bg)] border-[var(--dawaa-status-warning-border)]" />
         </div>
         <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm">
           <div className="mb-3 flex items-center justify-between gap-2"><h2 className="flex items-center gap-2 text-base font-black text-[var(--dawaa-theme-heading)]"><ClipboardCheck size={18} className="text-[var(--dawaa-theme-primary-strong)]" /> مطلوب مراجعتك الآن</h2></div>
@@ -656,7 +672,7 @@ export default function AttendanceReport() {
 
 function Panel({ title, icon: Icon, children }: { title: string; icon: any; children: React.ReactNode }) { return <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-5 shadow-sm"><h2 className="mb-4 flex items-center gap-2 text-lg font-black text-[var(--dawaa-theme-heading)]"><Icon size={20} className="text-[var(--dawaa-theme-primary-strong)]" /> {title}</h2>{children}</div>; }
 function Info({ label, value }: { label: string; value: React.ReactNode }) { return <div className="mb-2 flex items-center justify-between gap-3 rounded-xl dawaa-surface-soft px-3 py-2 text-sm"><span className="font-bold text-[var(--dawaa-theme-muted)]">{label}</span><b className="text-[var(--dawaa-theme-heading)]">{value}</b></div>; }
-function Metric({ label, value, icon: Icon, color }: { label: string; value: number; icon: any; color: string }) { return <div className="dawaa-surface flex items-center gap-3 rounded-2xl border p-4 shadow-sm"><span className={cn('rounded-xl border p-2', color)}><Icon size={28} /></span><div><div className="text-xs font-bold">{label}</div><div className="text-3xl font-black">{value.toLocaleString('ar-EG')}</div></div></div>; }
+function Metric({ label, value, icon: Icon, color }: { label: string; value: number | null; icon: any; color: string }) { return <div className="dawaa-surface flex items-center gap-3 rounded-2xl border p-4 shadow-sm"><span className={cn('rounded-xl border p-2', color)}><Icon size={28} /></span><div><div className="text-xs font-bold">{label}</div><div className="text-3xl font-black">{value == null ? '—' : value.toLocaleString('ar-EG')}</div></div></div>; }
 function Empty({ text }: { text: string }) { return <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface-soft p-8 text-center text-sm font-bold text-[var(--dawaa-theme-muted)]">{text}</div>; }
 function TabBadge({ value }: { value?: number | null }) { if (!value) return null; return <span className="inline-flex min-w-[18px] items-center justify-center rounded-full border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] px-1.5 py-0.5 text-[10px] font-black text-[var(--dawaa-status-danger-text)]">{value > 99 ? '99+' : value}</span>; }
 function DecisionTile({ label, hint, value, icon: Icon, onClick }: { label: string; hint: string; value: number | null; icon: any; onClick: () => void }) {
