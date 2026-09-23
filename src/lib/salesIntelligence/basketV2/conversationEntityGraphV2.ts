@@ -171,6 +171,7 @@ export function buildConversationEntityGraphV2(
     id: r.referenceId,
     sourceMessageId: r.sourceMessageId,
     rawText: r.rawText,
+    antecedentKind: r.antecedentKind,
     candidateAntecedents: r.candidateAntecedentIds,
     selectedAntecedent: r.selectedAntecedentId,
     safeForBasketLinking: r.safeForBasketLinking,

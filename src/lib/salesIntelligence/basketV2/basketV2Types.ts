@@ -74,6 +74,7 @@ export interface ReferenceNode {
   id: string;
   sourceMessageId: string;
   rawText: string;
+  antecedentKind: 'product' | 'media' | 'unknown';
   candidateAntecedents: string[];
   selectedAntecedent: string | null;
   safeForBasketLinking: BasketLinkingSafety;

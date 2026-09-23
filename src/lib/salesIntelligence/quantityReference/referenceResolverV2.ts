@@ -293,6 +293,14 @@ export function resolveReferenceV2(
   // are intentionally ambiguous; future mentions are excluded by the offset gate above.
   const candidates = sameMessageCandidates.length > 0 ? sameMessageCandidates : priorCandidates;
 
+  // I.B.4 media-aware semantics: if a deictic/pronoun reference follows a bare image/voice
+  // placeholder and there is no text-resolvable product identity, preserve that as structured
+  // evidence instead of collapsing it into a generic NLP miss. The media contents remain unknown.
+  const priorMedia = messages
+    .slice(Math.max(0, referenceIndex - 3), referenceIndex)
+    .filter((m) => m.isMediaPlaceholder && (m.role === 'customer' || m.role === 'staff'))
+    .slice(-1)[0] ?? null;
+
   const mentionsByIdentity = new Map<string, ProductMentionV2[]>();
   scopedMentions.forEach((m) => {
     const bucket = mentionsByIdentity.get(m.identityKey);
@@ -303,7 +311,7 @@ export function resolveReferenceV2(
   function build(
     fields: Pick<
       ReferenceMentionV2,
-      'resolutionStatus' | 'selectedAntecedentId' | 'confidence' | 'confidenceFactors' | 'ambiguityReasons' | 'referenceDistance' | 'substitutionContext' | 'scoreMargin'
+      'resolutionStatus' | 'selectedAntecedentId' | 'confidence' | 'confidenceFactors' | 'antecedentKind' | 'ambiguityReasons' | 'referenceDistance' | 'substitutionContext' | 'scoreMargin'
     >,
     candidateScores: ReferenceCandidateScore[]
   ): ReferenceMentionV2 {
@@ -334,6 +342,7 @@ export function resolveReferenceV2(
       {
         resolutionStatus: 'resolved',
         selectedAntecedentId: winner.identityKey,
+        antecedentKind: 'product',
         confidence: 0.95,
         confidenceFactors: ['same_message_preceding_canonical_product', 'structural_offset_ordering'],
         ambiguityReasons: [],
@@ -355,6 +364,7 @@ export function resolveReferenceV2(
       {
         resolutionStatus: 'ambiguous',
         selectedAntecedentId: null,
+        antecedentKind: 'product',
         confidence: 0.45,
         confidenceFactors: ['unresolved_same_message_product_competitor'],
         ambiguityReasons: ['unresolved_same_message_product_competitor'],
@@ -376,6 +386,7 @@ export function resolveReferenceV2(
       {
         resolutionStatus: 'ambiguous',
         selectedAntecedentId: null,
+        antecedentKind: 'product',
         confidence: 0.5,
         confidenceFactors: ['multiple_same_message_preceding_products'],
         ambiguityReasons: ['multiple_same_message_preceding_products', `competing_candidate_count_${sameMessageCandidates.length}`],
@@ -388,13 +399,15 @@ export function resolveReferenceV2(
   }
 
   if (candidates.length === 0) {
+    const mediaAntecedent = Boolean(priorMedia);
     return build(
       {
         resolutionStatus: 'unresolved',
         selectedAntecedentId: null,
+        antecedentKind: mediaAntecedent ? 'media' : 'unknown',
         confidence: 0,
-        confidenceFactors: [],
-        ambiguityReasons: ['no_active_product_candidate'],
+        confidenceFactors: mediaAntecedent ? ['preceding_media_placeholder'] : [],
+        ambiguityReasons: mediaAntecedent ? ['media_content_unavailable'] : ['no_active_product_candidate'],
         referenceDistance: null,
         substitutionContext: null,
         scoreMargin: null,
@@ -419,6 +432,7 @@ export function resolveReferenceV2(
         {
           resolutionStatus: 'resolved',
           selectedAntecedentId: enumerationMatch.identityKey,
+          antecedentKind: 'product',
           confidence: 0.9,
           confidenceFactors: ['structural_enumeration_match', `enumeration_group_${enumerationMatch.groupId}`],
           ambiguityReasons: [],
@@ -446,6 +460,7 @@ export function resolveReferenceV2(
       {
         resolutionStatus: 'resolved',
         selectedAntecedentId: top.candidate.identityKey,
+        antecedentKind: 'product',
         confidence: top.score,
         confidenceFactors: top.factors,
         ambiguityReasons: [],
@@ -462,6 +477,7 @@ export function resolveReferenceV2(
       {
         resolutionStatus: 'unresolved',
         selectedAntecedentId: null,
+        antecedentKind: 'product',
         confidence: top.score,
         confidenceFactors: top.factors,
         ambiguityReasons: ['sole_candidate_below_confidence_floor'],
@@ -477,6 +493,7 @@ export function resolveReferenceV2(
     {
       resolutionStatus: 'ambiguous',
       selectedAntecedentId: null,
+      antecedentKind: 'product',
       confidence: top.score,
       confidenceFactors: top.factors,
       ambiguityReasons: ['multiple_candidates_no_clear_margin', `competing_candidate_count_${candidates.length}`],

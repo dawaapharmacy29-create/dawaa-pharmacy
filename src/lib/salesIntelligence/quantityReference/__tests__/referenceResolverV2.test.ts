@@ -201,6 +201,19 @@ describe('Phase I.B.4 — same-message reference ordering', () => {
   });
 });
 
+describe('Phase I.B.4 — media antecedents stay structured but unresolved', () => {
+  it('marks "دي" after an image placeholder as media_content_unavailable instead of guessing a product', () => {
+    const messages = messagesFrom(`[9/15/26, 9:00:00 AM] Customer: <image omitted>\n[9/15/26, 9:00:10 AM] Customer: عايزه دي`);
+    const mentions = buildProductMentions(messages);
+    const ref = extractReferenceMentionsV2(messages, mentions).find((r) => r.rawText.includes('دي'))!;
+    expect(ref.resolutionStatus).toBe('unresolved');
+    expect(ref.antecedentKind).toBe('media');
+    expect(ref.selectedAntecedentId).toBeNull();
+    expect(ref.ambiguityReasons).toContain('media_content_unavailable');
+    expect(ref.safeForBasketLinking).toBe('unsafe');
+  });
+});
+
 describe('extractReferenceMentionsV2 — full case scan', () => {
   it('produces one ReferenceMentionV2 per detected reference in a real-shaped mini conversation', () => {
     const messages = messagesFrom(`[9/15/26, 9:00:00 AM] Customer: عايز حاجة للحموضة

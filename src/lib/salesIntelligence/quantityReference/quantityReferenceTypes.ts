@@ -133,6 +133,7 @@ export type ReferenceType =
   | 'previous_item_reference';
 
 export type ReferenceResolutionStatus = 'resolved' | 'ambiguous' | 'unresolved';
+export type ReferenceAntecedentKind = 'product' | 'media' | 'unknown';
 
 /**
  * Populated only when the reference follows a detected staff "not available, but here's X"
@@ -169,6 +170,8 @@ export interface ReferenceMentionV2 {
   confidence: number;
   confidenceFactors: string[];
   resolutionStatus: ReferenceResolutionStatus;
+  /** What kind of antecedent the text evidence points toward. Media never implies a product id. */
+  antecedentKind: ReferenceAntecedentKind;
   ambiguityReasons: string[];
   /** Messages between the antecedent and this reference — see instruction #16. Null when unresolved. */
   referenceDistance: number | null;
