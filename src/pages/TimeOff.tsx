@@ -12,6 +12,7 @@ import {
   decideStaffTimeOffRequest,
   getAnnualLeaveBalanceV1,
   getPermissionPolicyStatusV2,
+  getTimeOffRequestPreflightV3,
   listStaffTimeOffRequests,
   type AnnualLeaveBalanceV1,
   type PermissionPolicyStatusV2,
@@ -162,14 +163,39 @@ export default function TimeOff() {
 
   async function decide(row: StaffTimeOffRequest, decision: 'approved' | 'rejected') {
     if (!canApprove) return toast.error('ليس لديك صلاحية اعتماد الطلبات.');
+
+    if (decision === 'approved') {
+      try {
+        const preflight = await getTimeOffRequestPreflightV3(row.id);
+        if (!preflight.allowed) {
+          toast.error(preflight.blockers.map((item) => item.label).join(' · ') || 'الطلب غير جاهز للاعتماد.');
+          return;
+        }
+        if (preflight.warnings.length) {
+          const ok = window.confirm(
+            `يوجد تنبيهات قبل الاعتماد:\n\n${preflight.warnings.map((item) => `• ${item.label}`).join('\n')}\n\nهل تريد المتابعة؟`
+          );
+          if (!ok) return;
+        }
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'تعذر فحص الطلب قبل الاعتماد');
+        return;
+      }
+    }
+
     const note = window.prompt(decision === 'approved' ? 'ملاحظة الاعتماد (اختياري)' : 'سبب الرفض') || '';
     if (decision === 'rejected' && !note.trim()) return toast.error('سبب الرفض مطلوب.');
     try {
       await decideStaffTimeOffRequest(row.id, decision, note);
-      toast.success(decision === 'approved' ? 'تم اعتماد الطلب.' : 'تم رفض الطلب.');
+      toast.success(decision === 'approved' ? 'تم اعتماد الطلب بعد Policy Preflight V3.' : 'تم رفض الطلب.');
       await loadRows();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'تعذر تحديث الطلب');
+      const message = error instanceof Error ? error.message : 'تعذر تحديث الطلب';
+      if (message.includes('time_off_preflight_blocked')) {
+        toast.error('الطلب لم يعد صالحًا للاعتماد وفق سياسة الإجازات الحالية. أعد فحص الرصيد والتداخلات.');
+      } else {
+        toast.error(message);
+      }
     }
   }
 
@@ -218,8 +244,9 @@ export default function TimeOff() {
     <div className="space-y-5" dir="rtl">
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
-          <div className="section-title">الإذونات والإجازات</div>
-          <div className="mt-1 text-sm text-slate-400">مصدر موحد للإذن والإجازة والغياب بإذن. الاعتماد منفصل عن أي أثر مالي أو نقاط.</div>
+          <div className="text-xs font-black text-[var(--dawaa-theme-primary-strong)]">Time Off Policy V3</div>
+          <div className="section-title mt-1">الإذونات والإجازات</div>
+          <div className="mt-1 text-sm text-slate-400">مصدر موحد للإذن والإجازة والغياب بإذن. كل اعتماد يمر بفحص الرصيد والتداخلات والسياسة أولًا، بدون أثر مالي مباشر من الصفحة.</div>
         </div>
         <button onClick={() => void loadRows()} className="btn-secondary"><RefreshCw size={16} /> تحديث</button>
       </div>
