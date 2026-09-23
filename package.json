@@ -20,6 +20,7 @@
     "test": "node scripts/run-tests.cjs",
     "check": "npm run doctor && npm run typecheck && npm run build && npm run perf:budget",
     "test:integration": "vitest run src/lib/staff/__tests__/staffPerformanceProfileService.integration.ts",
+    "benchmark:ib4": "vitest run src/lib/salesIntelligence/basketV2/__tests__/ib4LiveBenchmark.integration.test.ts",
     "vercel:install": "npm ci --legacy-peer-deps --no-audit --no-fund",
     "verify": "npm run doctor && npm run test && npm run typecheck && npm run build && npm run perf:budget"
   },
