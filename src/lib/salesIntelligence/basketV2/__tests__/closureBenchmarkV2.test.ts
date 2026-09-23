@@ -12,10 +12,10 @@ function catalogFrom(rows: RawProductRow[]) {
 
 const CATALOG = catalogFrom([
   { id: 'p-antinal', name: 'ANTINAL 24 CAP', product_code: '56822', normalized_name: 'antinal 24 cap', category: null, price: '52', source: 'catalog_import' },
-  { id: 'p-isis', name: 'ISIS TEEN DERM GEL SENSITIVE 250ML', product_code: '70271', normalized_name: 'isis teen derm gel sensitive 250ml', category: null, priceconst CASES = CLOSURE_GROUND_TRUTH_CASES_V1;
-pectedLevel: 'strongly_inferred',
-  },
-];
+  { id: 'p-isis', name: 'ISIS TEEN DERM GEL SENSITIVE 250ML', product_code: '70271', normalized_name: 'isis teen derm gel sensitive 250ml', category: null, price: '659', source: 'catalog_import' },
+]);
+
+const CASES = CLOSURE_GROUND_TRUTH_CASES_V1;
 
 describe('Phase I.B.4 — closure Ground Truth evidence composition', () => {
   it('has enough REAL positive and negative closure cases for calibration', () => {

@@ -182,12 +182,26 @@ function resolveProductSegments(
   productIndex: PharmacyProductIndex | undefined,
   resolveOptions: ResolveProductMentionOptions | undefined
 ): ProductSegment[] {
+  const boundaries = findConjunctionBoundaries(core);
+  // I.B.4 fix ("substring absorption" regression): a weak/fuzzy whole-phrase match can claim the
+  // ENTIRE string — including a trailing order/reference clause ("...وهات منه اتنين") — as one
+  // product mention's span, corrupting same-message offset comparisons downstream (the mention's
+  // sourceOffsetEnd then lands AFTER the reference it should precede). When the text after ANY
+  // conjunction boundary is itself an order/reference fragment (ORDER_REFERENCE_FRAGMENT_RX,
+  // already used below by classifyMentionValidity for exactly this shape) — not just the first
+  // boundary, since a middle unresolved clause ("...وغسول غريب وهات منه اتنين") pushes the
+  // fragment to a later boundary — the whole-phrase shortcut must never be taken; force
+  // segmentation so that fragment becomes its own (non-product-classified) mention instead of
+  // being absorbed into the product's span.
+  const hasTrailingReferenceFragment = boundaries.some((b) =>
+    ORDER_REFERENCE_FRAGMENT_RX.test(core.slice(b.index + b.length).trim())
+  );
+
   const whole = productIndex ? resolveProductMention(core, productIndex, resolveOptions) : null;
-  if (whole?.selected) {
+  if (whole?.selected && !hasTrailingReferenceFragment) {
     return [{ text: core, start: 0, end: core.length, resolution: whole }];
   }
 
-  const boundaries = findConjunctionBoundaries(core);
   if (boundaries.length === 0) {
     return [{ text: core, start: 0, end: core.length, resolution: whole }];
   }

@@ -6,8 +6,8 @@ import type { BuildGraphOptions } from '../conversationEntityGraphV2';
 import { reconstructBasketV2 } from '../basketReconstructionV2';
 import type { BasketReconstructionResultV2 } from '../basketV2Types';
 
-export function messagesFrom(raw: string): NormalizedConversationMessageV32[] {
-  const sessions = splitWhatsAppSessions(parseWhatsAppExport(raw), 120);
+export function messagesFrom(raw: string, trustedConversationStartedAt?: string | Date | null): NormalizedConversationMessageV32[] {
+  const sessions = splitWhatsAppSessions(parseWhatsAppExport(raw, { trustedConversationStartedAt }), 120);
   if (sessions.length === 0) throw new Error('no session parsed from fixture');
   return buildConversationUnderstandingV32(sessions[0]).messages;
 }

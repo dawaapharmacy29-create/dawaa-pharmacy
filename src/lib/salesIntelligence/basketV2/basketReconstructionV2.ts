@@ -225,6 +225,8 @@ export function reconstructBasketV2(graph: ConversationEntityGraphV2, messageTim
         // in that case, so every one of them is processed here, never just the first.
         const targetEdges = actionTargetEdges(action.id, 'action_targets_product');
         if (targetEdges.length === 0) break;
+        const targetProductIds = new Set(targetEdges.map((e) => productById.get(e.toNodeId)?.canonicalProductId).filter((id): id is string => Boolean(id)));
+        const appliedQuantityIds = new Set<string>();
         targetEdges.forEach((edge) => {
           const product = productById.get(edge.toNodeId) ?? null;
           if (!product) return;
@@ -256,9 +258,30 @@ export function reconstructBasketV2(graph: ConversationEntityGraphV2, messageTim
             item.currentQuantity = linkedQuantity.value;
             item.quantityUnit = linkedQuantity.unit;
             item.quantityStatus = 'known';
+            appliedQuantityIds.add(linkedQuantity.id);
           }
           pushEvent('ITEM_ADDED', action, product.canonicalProductId, before, cloneItem(item), action.confidence, 'safe', action.ruleIds, `Added "${product.canonicalName ?? product.rawText}" from "${action.rawText.slice(0, 80)}".`);
         });
+
+        // An order-quantity mention in the same message that never got safely applied to any of
+        // THESE products is not silently dropped. Two distinct upstream shapes both land here:
+        // (a) a `quantity_applies_to_product` edge exists but its safety is 'review'/'unsafe'
+        //     (caught via appliedQuantityIds, same as before), or
+        // (b) quantityIntelligenceV2 never even linked it (`linkedProductMentionId` stayed null —
+        //     e.g. "عايز انتينال وزوركال وهات منه اتنين", ambiguous between two live candidates), so
+        //     conversationEntityGraphV2.ts never created an edge for it AT ALL (see its own
+        //     `if (q.linkedProductMentionId)` gate) — there is nothing for `edgesByFrom` to find.
+        // Either way the customer stated a real number this action never captured, so it surfaces as
+        // a human-review signal instead, same as an unsafe product mention or quantity correction
+        // already do above/below.
+        if (targetProductIds.size > 0) {
+          graph.quantities
+            .filter((q) => q.sourceMessageId === action.sourceMessageId && q.semanticRole === 'order_quantity' && !appliedQuantityIds.has(q.id))
+            .forEach((q) => {
+              recordReview(action.sourceMessageId, action.rawText, 'ambiguous_same_message_quantity_not_applied', null);
+              pushEvent('REVIEW_SIGNAL', action, null, null, null, q.confidence, q.safeForBasketLinking, action.ruleIds, `Quantity "${q.value}${q.unit ? ' ' + q.unit : ''}" could not be safely linked to a single product among the candidates in this message — basket left unchanged, human review required.`);
+            });
+        }
         break;
       }
 

@@ -228,7 +228,7 @@ function runV2(caseId: string, messages: NormalizedConversationMessageV32[], ind
     status: result.currentBasket.status,
     unresolved,
     versionCount: result.basketVersions.length + 1,
-    eventTypes: result.events.map((e) => e.eventType),
+    eventTypes: result.events.map((e) => e.type),
   };
 }
 
@@ -527,17 +527,52 @@ export function runSalesIntelligenceBenchmarkV2(
     // This prevents an attractive but meaningless near-100% safe-edge number.
     const productCodeByNodeId = new Map(v2.graph.productMentions.map((p) => [p.id, p.canonicalProductCode] as const));
     const quantityByNodeId = new Map(v2.graph.quantities.map((q) => [q.id, q] as const));
+    // `expectedQuantities` in Ground Truth is a single scalar per product — the FINAL settled
+    // quantity, not every value that was ever stated. A correction ("هات 2" then "خليهم 3", S02)
+    // produces one quantity_applies_to_product edge per stated value; the earlier ones are true
+    // historical facts, superseded by a later one, not errors. Only the temporally-LAST edge per
+    // product is compared against the final expected value; earlier ones fall through to
+    // `unverifiable` below rather than being wrongly counted as incorrect.
+    const messageIndexById = new Map(messages.map((m, idx) => [m.id, idx] as const));
+    const latestQuantityEdgeIdByCode = new Map<string, string>();
+    {
+      const latestIndexByCode = new Map<string, number>();
+      for (const edge of v2.graph.edges) {
+        if (edge.type !== 'quantity_applies_to_product') continue;
+        const code = productCodeByNodeId.get(edge.toNodeId);
+        if (!code) continue;
+        const q = quantityByNodeId.get(edge.fromNodeId);
+        const idx = q ? messageIndexById.get(q.sourceMessageId) ?? -1 : -1;
+        if (idx >= (latestIndexByCode.get(code) ?? -1)) {
+          latestIndexByCode.set(code, idx);
+          latestQuantityEdgeIdByCode.set(code, edge.edgeId);
+        }
+      }
+    }
     for (const edge of v2.graph.edges.filter((e) => e.safety === 'safe' && (e.type === 'quantity_applies_to_product' || e.type === 'reference_points_to_product'))) {
       safeEdgeTotal++;
       const targetCode = productCodeByNodeId.get(edge.toNodeId) ?? null;
-      if (targetCode && !expected.has(targetCode)) {
+      // A "safe" edge asserts a LOCAL discourse fact (this quantity/reference really does apply to
+      // this product, at that point in the conversation) — it is not a claim about the FINAL basket.
+      // A product legitimately requested and later removed/rejected (e.g. S01: Antinal requested
+      // then "شيل انتينال") is correctly absent from `expected` (the final-basket set) but the edge
+      // that captured the original request was still a true fact, not a safety violation. Comparing
+      // against `expected` here conflated "not in the final basket" with "wrongly linked," penalizing
+      // exactly the remove/reject/substitute cases the graph is supposed to model. `never` (Ground
+      // Truth's explicit "this SKU must never be linked" denylist) is the correct bar for an actual
+      // error — anything else this case has no opinion on falls through to the per-edge-type
+      // correctness check below, which already only counts an exact, verifiable match (never
+      // silently counted "correct" either), landing on `unverifiable` otherwise per this function's
+      // own stated design above.
+      if (targetCode && never.has(targetCode)) {
         safeEdgeIncorrect++;
         continue;
       }
       if (edge.type === 'quantity_applies_to_product') {
         const q = quantityByNodeId.get(edge.fromNodeId);
         const expectedQty = targetCode ? c.groundTruth.expectedQuantities[targetCode] : undefined;
-        if (q && targetCode && typeof expectedQty === 'number') {
+        const isLatestForProduct = targetCode ? latestQuantityEdgeIdByCode.get(targetCode) === edge.edgeId : false;
+        if (q && targetCode && isLatestForProduct && typeof expectedQty === 'number') {
           q.value === expectedQty ? safeEdgeCorrect++ : safeEdgeIncorrect++;
         } else {
           safeEdgeUnverifiable++;

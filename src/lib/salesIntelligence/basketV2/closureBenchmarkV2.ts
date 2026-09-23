@@ -153,9 +153,17 @@ export function runHistoricalClosureBenchmarkV2(
 
   const currentBinary = binaryMetrics(cases, results, false);
   const shadowBinary = binaryMetrics(cases, results, true);
+  // Rank-based, not binary-`closureAchieved`-based: the known advisory-politeness false positive
+  // (C01 — staff says "من عنيا" mid-advisory, no product ever accepted) has current=`weakly_inferred`
+  // against expected=`not_closed`, a real overclaim, but `weakly_inferred` never satisfies
+  // `closureAchieved` (which only counts strongly_inferred/explicit) — so the strict binary
+  // definition could never credit the shadow assessment for correctly settling it back down to
+  // `not_closed`, even though that IS the exact false positive this metric exists to catch. Overclaim
+  // RANK (already computed per-case above) captures every degree of overclaim, not just the ones that
+  // cross the binary "achieved" line.
   const falseClosuresPreventedByShadow = results.filter((r, index) => {
-    const expectedClosed = closureAchieved(cases[index].expectedLevel);
-    return !expectedClosed && closureAchieved(r.currentLevel) && !closureAchieved(r.shadowLevel);
+    const expectedRank = overclaimRank(cases[index].expectedLevel);
+    return overclaimRank(r.currentLevel) > expectedRank && overclaimRank(r.shadowLevel) <= expectedRank;
   }).length;
   const genuineClosuresLostByShadow = results.filter((r, index) => {
     const expectedClosed = closureAchieved(cases[index].expectedLevel);

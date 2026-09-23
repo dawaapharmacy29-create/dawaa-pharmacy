@@ -11,7 +11,7 @@ function productIndex() {
 }
 
 describe('Phase I.B.4 — composed evaluation report', () => {
-  it('is deterministic and keeps the current evidence-size blocker explicit', () => {
+  it('is deterministic and keeps real quality blockers explicit', () => {
     const index = productIndex();
     const a = runIb4EvaluationV2(index);
     const b = runIb4EvaluationV2(index);
@@ -24,7 +24,12 @@ describe('Phase I.B.4 — composed evaluation report', () => {
     expect(a.basket.metrics.safeEdgeAudit.verifiedIncorrect).toBe(0);
     expect(a.regressionCases).toEqual([]);
     expect(Array.isArray(a.topFailureCategories)).toBe(true);
+    // Real Ground Truth volume has now crossed the minimumRealCases gate (21 >= 20) —
+    // evidenceSufficient is true, so this is no longer the blocking reason. `readyForNextStage`
+    // still correctly reports false, driven by the real remaining quality gaps (missed human
+    // reviews, event-sequence errors) rather than case volume.
+    expect(a.readiness.evidenceSufficient).toBe(true);
     expect(a.readiness.readyForNextStage).toBe(false);
-    expect(a.readiness.blockers.some((x) => x.startsWith('insufficient_real_ground_truth_cases:'))).toBe(true);
+    expect(a.readiness.blockers.length).toBeGreaterThan(0);
   });
 });
