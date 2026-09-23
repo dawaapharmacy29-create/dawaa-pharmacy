@@ -106,3 +106,38 @@ describe('filterCaseListRows', () => {
     expect(result).toHaveLength(0);
   });
 });
+
+describe('Final Pilot Readiness — SaleProofState list wiring', () => {
+  const proven = { ...baseAnalysis, analysis_id: 'p1', case_id: 'proven-case' };
+  const provenAttribution = { analysis_id: 'p1', attribution_level: 'proven', selected_invoice_id: 'inv-p1', selected_invoice_number: '999', competing_case_ids: [], candidate_count: 1, identity_conflict: 'none', branch_conflict: false, is_official_for_staff_evaluation: true };
+
+  const contradicted = { ...baseAnalysis, analysis_id: 'c1', case_id: 'contradicted-case' };
+  const contradictedAttribution = { analysis_id: 'c1', attribution_level: 'proven', selected_invoice_id: 'inv-c1', selected_invoice_number: '888', competing_case_ids: ['other'], candidate_count: 2, identity_conflict: 'none', branch_conflict: false, is_official_for_staff_evaluation: true };
+
+  const rows = mergeCaseListRows([proven, contradicted], [provenAttribution, contradictedAttribution]);
+
+  function withFilters(overrides: Partial<QaListFilters>): QaListFilters {
+    return { ...DEFAULT_QA_LIST_FILTERS, ...overrides };
+  }
+
+  it('never re-derives SaleProofState with its own logic — reuses the real engine and gets the real answer', () => {
+    expect(rows.find((r) => r.caseId === 'proven-case')?.saleProofState).toBe('proven');
+    // A "competing" attribution is a real, already-computed contradiction — never silently 'proven'.
+    expect(rows.find((r) => r.caseId === 'contradicted-case')?.saleProofState).toBe('contradicted');
+  });
+
+  it('filters by saleProofState', () => {
+    expect(filterCaseListRows(rows, withFilters({ saleProofState: 'proven' })).map((r) => r.caseId)).toEqual(['proven-case']);
+    expect(filterCaseListRows(rows, withFilters({ saleProofState: 'contradicted' })).map((r) => r.caseId)).toEqual(['contradicted-case']);
+  });
+
+  it('applies the proof_proven / proof_contradicted quick filters', () => {
+    expect(filterCaseListRows(rows, withFilters({ quickFilter: 'proof_proven' })).map((r) => r.caseId)).toEqual(['proven-case']);
+    expect(filterCaseListRows(rows, withFilters({ quickFilter: 'proof_contradicted' })).map((r) => r.caseId)).toEqual(['contradicted-case']);
+  });
+
+  it('applies the has_invoice / no_invoice quick filters', () => {
+    expect(filterCaseListRows(rows, withFilters({ quickFilter: 'has_invoice' })).map((r) => r.caseId).sort()).toEqual(['contradicted-case', 'proven-case']);
+    expect(filterCaseListRows(rows, withFilters({ quickFilter: 'no_invoice' }))).toHaveLength(0);
+  });
+});

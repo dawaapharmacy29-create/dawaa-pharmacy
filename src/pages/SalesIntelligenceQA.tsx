@@ -18,15 +18,25 @@ import {
   integrityScopeBadge,
   protocolApplicabilityLabelFor,
   reviewReasonsSummary,
+  saleProofStateBadge,
+  saleProofStateLabelFor,
 } from '@/lib/salesIntelligence/qa/presentation';
 
+/** SaleProofState-specific quick filters first (the primary lens for the pilot), then the rest. */
 const QUICK_FILTERS: Array<{ key: QaListFilters['quickFilter']; label: string }> = [
+  { key: 'proof_proven', label: 'مؤكد (Proven)' },
+  { key: 'proof_strongly_supported', label: 'مدعوم بقوة' },
+  { key: 'proof_weakly_supported', label: 'مدعوم بضعف' },
+  { key: 'proof_unknown', label: 'غير معروف' },
+  { key: 'proof_contradicted', label: 'متناقض' },
+  { key: 'needs_human_review', label: 'تحتاج مراجعة بشرية' },
+  { key: 'competing_attribution', label: 'منافسة على فاتورة/حالة' },
+  { key: 'no_invoice', label: 'بدون فاتورة' },
+  { key: 'has_invoice', label: 'توجد فاتورة' },
   { key: 'strongly_inferred_closure', label: 'إغلاق مُستدل بقوة' },
   { key: 'applicable_cases', label: 'حالات ينطبق عليها البروتوكول' },
   { key: 'strongly_inferred_attribution', label: 'إسناد مُستدل بقوة' },
-  { key: 'competing_attribution', label: 'منافسة على فاتورة/حالة' },
-  { key: 'unknown_cases', label: 'حالات غير معروفة' },
-  { key: 'needs_human_review', label: 'تحتاج مراجعة بشرية' },
+  { key: 'unknown_cases', label: 'حالات غير معروفة (الأبعاد القديمة)' },
   { key: 'no_basket', label: 'بدون سلة' },
   { key: 'multiple_unresolved_products', label: 'منتجات متعددة غير محسومة' },
 ];
@@ -131,6 +141,18 @@ export default function SalesIntelligenceQA() {
           <option value="weakly_inferred">مُستدل بضعف</option>
           <option value="unknown">غير معروف</option>
         </select>
+        <select
+          className="dawaa-select"
+          value={filters.saleProofState}
+          onChange={(e) => setFilters((f) => ({ ...f, saleProofState: e.target.value as QaListFilters['saleProofState'] }))}
+        >
+          <option value="all">كل حالات إثبات البيع (Sale Proof State)</option>
+          <option value="proven">{saleProofStateLabelFor('proven')}</option>
+          <option value="strongly_supported">{saleProofStateLabelFor('strongly_supported')}</option>
+          <option value="weakly_supported">{saleProofStateLabelFor('weakly_supported')}</option>
+          <option value="unknown">{saleProofStateLabelFor('unknown')}</option>
+          <option value="contradicted">{saleProofStateLabelFor('contradicted')}</option>
+        </select>
         <select className="dawaa-select" value={filters.needsHumanReview} onChange={(e) => setFilters((f) => ({ ...f, needsHumanReview: e.target.value as QaListFilters['needsHumanReview'] }))}>
           <option value="all">تحتاج مراجعة بشرية؟ (الكل)</option>
           <option value="yes">تحتاج مراجعة</option>
@@ -172,7 +194,23 @@ export default function SalesIntelligenceQA() {
             <table className="min-w-full text-sm">
               <thead>
                 <tr className="dawaa-muted border-b border-[var(--dawaa-theme-border)] text-right">
-                  {['رقم الحالة', 'الفرع', 'البداية / النهاية', 'نوع الحالة', 'الإغلاق التاريخي', 'انطباق البروتوكول', 'مستوى الإسناد', 'الفاتورة', 'منافسة', 'نطاق التكامل', 'مراجعة بشرية'].map((h) => (
+                  {[
+                    'رقم الحالة',
+                    'الفرع',
+                    'البداية / النهاية',
+                    'نوع الحالة',
+                    'الإغلاق التاريخي',
+                    'انطباق البروتوكول',
+                    'مستوى الإسناد',
+                    'الفاتورة',
+                    'إثبات البيع (Sale Proof)',
+                    'عدد المرشحين',
+                    'منافسة',
+                    'نطاق التكامل',
+                    'نطاق أدلة الفاتورة',
+                    'أدلة الأصناف',
+                    'مراجعة بشرية',
+                  ].map((h) => (
                     <th key={h} className="p-3">{h}</th>
                   ))}
                 </tr>
@@ -191,9 +229,21 @@ export default function SalesIntelligenceQA() {
                     <td className="p-3">{historicalClosureBadge(row.historicalClosureLevel)}</td>
                     <td className="p-3">{protocolApplicabilityLabelFor(row.protocolApplicability)}</td>
                     <td className="p-3">{attributionLevelBadge(row.attributionLevel)}</td>
-                    <td className="dawaa-body p-3">{row.selectedInvoiceNumber || '—'}</td>
+                    <td className="dawaa-body p-3" title={row.selectedInvoiceId ? `selected_invoice_id: ${row.selectedInvoiceId}` : undefined}>
+                      {row.selectedInvoiceNumber || '—'}
+                    </td>
+                    <td className="p-3">{saleProofStateBadge(row.saleProofState)}</td>
+                    <td className="p-3">{row.candidateCount > 0 ? row.candidateCount.toLocaleString('ar-EG') : <span className="dawaa-muted">0</span>}</td>
                     <td className="p-3">{row.competingCaseCount > 0 ? <span className="dawaa-badge dawaa-badge--warning">{row.competingCaseCount}</span> : <span className="dawaa-muted">0</span>}</td>
                     <td className="p-3">{integrityScopeBadge(row.integrityEvaluationScope)}</td>
+                    <td className="p-3">{integrityScopeBadge(row.invoiceEvidenceScope)}</td>
+                    <td className="p-3">
+                      {row.itemEvidenceReady ? (
+                        <span className="dawaa-badge dawaa-badge--success">متاحة</span>
+                      ) : (
+                        <span className="dawaa-badge dawaa-badge--warning" title="بيانات أصناف الفاتورة غير متاحة حاليًا — التقييم الحالي Header-level فقط">غير متاحة</span>
+                      )}
+                    </td>
                     <td className="p-3">
                       {row.needsHumanReview ? <span className="dawaa-badge dawaa-badge--warning" title={reviewReasonsSummary(row.humanReviewReasons)}>نعم</span> : <span className="dawaa-badge dawaa-badge--success">لا</span>}
                     </td>

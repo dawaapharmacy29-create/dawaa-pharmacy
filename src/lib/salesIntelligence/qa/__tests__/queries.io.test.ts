@@ -22,10 +22,14 @@ describe('fetchQaCaseList (I/O wrapper)', () => {
     const client = fakeSupabase({
       sales_intelligence_current_case_analyses: { data: [], error: null },
       sales_intelligence_current_attributions: { data: [], error: null },
+      sales_intelligence_basket_invoice_matches: { data: [], error: null },
     });
     await fetchQaCaseList(client);
     expect(client.from).toHaveBeenCalledWith('sales_intelligence_current_case_analyses');
     expect(client.from).toHaveBeenCalledWith('sales_intelligence_current_attributions');
+    // No "current" view exists for this table (see queries.ts's own comment) — it is filtered
+    // directly by is_current_evaluation=true instead, never read unfiltered.
+    expect(client.from).toHaveBeenCalledWith('sales_intelligence_basket_invoice_matches');
   });
 
   it('propagates a Supabase error instead of silently returning an empty list', async () => {

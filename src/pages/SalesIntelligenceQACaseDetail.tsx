@@ -17,14 +17,22 @@ import {
   attributionLevelBadge,
   branchLabelFor,
   caseTypeLabelFor,
+  contradictionReasonsList,
   failureReasonLabelFor,
   fieldMatchBadge,
   historicalClosureBadge,
+  integrityScopeBadge,
   itemResolutionStatusLabelFor,
   protocolApplicabilityLabelFor,
   protocolPolicyComplianceLabelFor,
   reviewReasonLabelFor,
+  saleProofSourceLabelFor,
+  saleProofStateBadge,
+  unknownProofReason,
 } from '@/lib/salesIntelligence/qa/presentation';
+
+/** Exact wording the Final Pilot Readiness spec requires wherever item-level invoice evidence is unavailable — never a paraphrase, so a reviewer never mistakes header-only evaluation for item-level proof. */
+const ITEM_EVIDENCE_UNAVAILABLE_TEXT = 'بيانات أصناف الفاتورة غير متاحة حاليًا — التقييم الحالي Header-level فقط';
 
 function Section({ title, children, id }: { title: string; children: React.ReactNode; id?: string }) {
   return (
@@ -88,13 +96,14 @@ export default function SalesIntelligenceQACaseDetail() {
     return <div className="dawaa-empty-state py-16 text-center" dir="rtl">لم يتم العثور على هذه الحالة.</div>;
   }
 
-  const { persisted, conversation, transcript, liveEvidence } = bundle;
+  const { persisted, conversation, transcript, liveEvidence, saleProof } = bundle;
   const analysis = persisted.analysisRow;
   const attribution = persisted.attributionRow;
   const match = persisted.matchRow;
   const policyEvaluation = persisted.policyEvaluationRow;
   const activeBasket = liveEvidence?.activeBasket ?? null;
   const basketItems = activeBasket ? liveEvidence?.itemsByBasketId[activeBasket.basketId] ?? [] : [];
+  const unresolvedItems = basketItems.filter((item) => item.resolutionStatus !== 'proven' || item.quantity === null);
 
   return (
     <div className="space-y-5" dir="rtl">
@@ -149,8 +158,13 @@ export default function SalesIntelligenceQACaseDetail() {
         </Evidence>
       </Section>
 
-      {/* 3. Basket understanding */}
-      <Section title="٣. فهم السلة">
+      {/* 3. Basket understanding (live, conversation-only re-derivation) */}
+      <Section title="٣. فهم السلة (Live)">
+        <div className="dawaa-alert dawaa-alert--info text-xs">
+          ملاحظة معروفة وموثّقة: هذا القسم يعتمد على محرك السلة الحالي المستخدم فعليًا داخل الـpipeline
+          (caseBasketEngine) — وليس على basketReconstructionV2 الأحدث والأكثر دقة (I.B.3/I.B.3.1/I.B.4).
+          هذا قيد معروف، وليس خطأ إخفاء.
+        </div>
         {!activeBasket || !basketItems.length ? (
           <div className="dawaa-empty-state py-4 text-center font-bold">لم يتم تكوين سلة موثوقة</div>
         ) : (
@@ -180,10 +194,43 @@ export default function SalesIntelligenceQACaseDetail() {
         )}
       </Section>
 
-      {/* 4. Historical Commercial Closure */}
-      <Section title="٤. الإغلاق التجاري التاريخي">
-        <div className="flex items-center gap-3">
-          {historicalClosureBadge(analysis.historical_closure_level)}
+      {/* 4. Quantity / references / unresolved signals (NEW) */}
+      <Section title="٤. الكمية والإشارات غير المحسومة">
+        <div className="dawaa-muted text-xs">
+          يعرض هذا القسم أصناف السلة (Live) التي لم تصل لحالة "مؤكد" أو التي لم تُحسم كميتها بعد — نفس بيانات
+          محرك السلة الحالي أعلاه (caseBasketEngine)، دون أي منطق جديد.
+        </div>
+        {!activeBasket || !unresolvedItems.length ? (
+          <div className="dawaa-alert dawaa-alert--success mt-2 text-xs">لا توجد إشارات كمية/مرجعية غير محسومة في السلة الحالية.</div>
+        ) : (
+          <div className="mt-2 overflow-x-auto">
+            <table className="min-w-full text-xs">
+              <thead>
+                <tr className="dawaa-muted border-b border-[var(--dawaa-theme-border)] text-right">
+                  {['الصنف', 'الكمية', 'حالة الحسم', 'الثقة', 'رسالة المصدر'].map((h) => <th key={h} className="p-2">{h}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {unresolvedItems.map((item) => (
+                  <tr key={item.itemId} className="border-b border-[var(--dawaa-theme-border)]/60">
+                    <td className="p-2">{item.productNameRaw}</td>
+                    <td className="p-2">{item.quantity ?? <span className="dawaa-badge dawaa-badge--warning">غير معروفة</span>}{item.unit ? ` ${item.unit}` : ''}</td>
+                    <td className="p-2">{itemResolutionStatusLabelFor(item.resolutionStatus)}</td>
+                    <td className="p-2">{item.confidence?.level ?? '—'}</td>
+                    <td className="dawaa-muted p-2 font-mono">{item.sourceMessageId}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Section>
+
+      {/* 5. Historical / Commercial closure (merges the previous separate closure + protocol sections) */}
+      <Section title="٥. الإغلاق التاريخي والتجاري">
+        <div className="grid gap-2 sm:grid-cols-2">
+          <Field label="الإغلاق التاريخي" value={historicalClosureBadge(analysis.historical_closure_level)} />
+          <Field label="انطباق البروتوكول" value={protocolApplicabilityLabelFor(analysis.protocol_applicability)} />
         </div>
         <Evidence>
           {analysis.evidence_snapshot?.historicalClosureEvidence?.length ? (
@@ -194,19 +241,14 @@ export default function SalesIntelligenceQACaseDetail() {
             </ul>
           ) : <div>لا توجد أدلة إغلاق تاريخي مسجّلة.</div>}
         </Evidence>
-      </Section>
-
-      {/* 5. Protocol */}
-      <Section title="٥. البروتوكول">
-        <div className="grid gap-2 sm:grid-cols-2">
-          <Field label="الانطباق" value={protocolApplicabilityLabelFor(analysis.protocol_applicability)} />
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
           <Field
             label="الالتزام بالسياسة"
             value={policyEvaluation ? protocolPolicyComplianceLabelFor(policyEvaluation.protocol_policy_compliance) : 'البروتوكول غير مُفعّل بعد'}
           />
         </div>
         {!policyEvaluation ? (
-          <div className="dawaa-alert dawaa-alert--info text-xs">لا يوجد إعداد سياسة حالي في النظام — أي إشارة لخطوة إجرائية ناقصة أدناه دلالة على اكتمال المحادثة نفسها فقط، وليست مخالفة موظف.</div>
+          <div className="dawaa-alert dawaa-alert--info mt-2 text-xs">لا يوجد إعداد سياسة حالي في النظام — أي إشارة لخطوة إجرائية ناقصة أدناه دلالة على اكتمال المحادثة نفسها فقط، وليست مخالفة موظف.</div>
         ) : null}
       </Section>
 
@@ -248,37 +290,105 @@ export default function SalesIntelligenceQACaseDetail() {
         )}
       </Section>
 
-      {/* 7. Basket <-> Invoice */}
-      <Section title="٧. مطابقة السلة والفاتورة">
+      {/* 7. Sale Proof State (NEW) — always from PERSISTED rows via deriveSaleProofStateFromPersisted(), never liveEvidence. */}
+      <Section title="٧. إثبات البيع (Sale Proof State)">
+        <div className="flex flex-wrap items-center gap-3">
+          {saleProofStateBadge(saleProof.state)}
+          <span className="dawaa-muted text-xs">مصدر الإثبات: {saleProofSourceLabelFor(saleProof.proofSource)}</span>
+        </div>
+        <div className="mt-2 grid gap-2 sm:grid-cols-3">
+          <Field label="فاتورة موثوقة (trustedInvoiceId)؟" value={saleProof.trustedInvoiceId ? 'نعم' : 'لا'} />
+          <Field label="الفاتورة المختارة" value={saleProof.selectedInvoiceNumber || 'لا توجد'} />
+          <Field label="نطاق أدلة الفاتورة" value={integrityScopeBadge(saleProof.invoiceEvidenceScope)} />
+          <Field label="أدلة الأصناف؟" value={saleProof.itemEvidenceReady ? 'متاحة' : 'غير متاحة'} />
+          <Field label="أدلة الكمية؟" value={saleProof.quantityEvidenceReady ? 'متاحة' : 'غير متاحة'} />
+          <Field label="تحتاج مراجعة بشرية؟" value={saleProof.needsHumanReview ? 'نعم' : 'لا'} />
+        </div>
+
+        {!saleProof.itemEvidenceReady ? (
+          <div className="dawaa-alert dawaa-alert--info mt-2 text-xs">{ITEM_EVIDENCE_UNAVAILABLE_TEXT}</div>
+        ) : null}
+
+        {saleProof.state === 'contradicted' ? (
+          <div className="dawaa-alert dawaa-alert--danger mt-2 text-xs">
+            <div className="mb-1 font-bold">سبب التناقض:</div>
+            <ul className="space-y-1">
+              {contradictionReasonsList(saleProof.contradictions).map((reason, i) => <li key={i}>• {reason}</li>)}
+            </ul>
+          </div>
+        ) : null}
+
+        {saleProof.state === 'unknown' ? (
+          <div className="dawaa-alert dawaa-alert--warning mt-2 text-xs">
+            {unknownProofReason({
+              candidateCount: attribution?.candidate_count ?? 0,
+              attributionLevel: attribution?.attribution_level ?? analysis.attribution_level ?? 'unknown',
+              rawContradictions: attribution?.contradictions ?? [],
+            })}
+          </div>
+        ) : null}
+
+        {saleProof.ruleIds.length ? (
+          <Evidence>
+            <div className="dawaa-muted">القواعد: {saleProof.ruleIds.join('، ')}</div>
+          </Evidence>
+        ) : null}
+      </Section>
+
+      {/* 8. Basket <-> Invoice (summary only — differences moved to section 9) */}
+      <Section title="٨. مطابقة السلة والفاتورة">
         {!match ? (
           <div className="dawaa-empty-state py-4 text-center">لا يوجد تقييم مطابقة لهذه الحالة.</div>
         ) : (
           <>
             <div className="grid gap-2 sm:grid-cols-2">
-              <Field label="نطاق التكامل" value={match.integrity_evaluation_scope} />
+              <Field label="نطاق التكامل" value={integrityScopeBadge(match.integrity_evaluation_scope)} />
               <Field label="التطابق الكلي" value={fieldMatchBadge(match.overall_match)} />
               <Field label="تطابق الإجمالي" value={fieldMatchBadge(match.total_match)} />
               <Field label="تطابق الأصناف" value={fieldMatchBadge(match.item_match)} />
             </div>
             {!match.item_evidence_ready ? (
-              <div className="dawaa-alert dawaa-alert--info mt-2 text-xs">بيانات أصناف الفاتورة غير متاحة</div>
+              <div className="dawaa-alert dawaa-alert--info mt-2 text-xs">{ITEM_EVIDENCE_UNAVAILABLE_TEXT}</div>
             ) : null}
             {!match.header_evidence_ready ? (
               <div className="dawaa-alert dawaa-alert--info mt-2 text-xs">لا يوجد إجمالي فاتورة/سلة كافٍ للمقارنة على مستوى الرأس.</div>
-            ) : null}
-            {match.differences?.length ? (
-              <Evidence>
-                <ul className="space-y-1">
-                  {match.differences.map((d: any, i: number) => <li key={i}>• {d.type} — {d.key}: {String(d.before)} ← {String(d.after)} ({d.explanation})</li>)}
-                </ul>
-              </Evidence>
             ) : null}
           </>
         )}
       </Section>
 
-      {/* 8. Human Review */}
-      <Section title="٨. المراجعة البشرية">
+      {/* 9. Integrity / contradictions (NEW, separated out from Human Review) */}
+      <Section title="٩. التكامل والتناقضات">
+        {saleProof.contradictions.length ? (
+          <div className="dawaa-alert dawaa-alert--danger text-xs">
+            <div className="mb-1 font-bold">تناقضات إثبات البيع (Sale Proof):</div>
+            <ul className="space-y-1">
+              {contradictionReasonsList(saleProof.contradictions).map((reason, i) => <li key={i}>• {reason}</li>)}
+            </ul>
+          </div>
+        ) : (
+          <div className="dawaa-alert dawaa-alert--success text-xs">لا يوجد تناقض مكتشف على مستوى إثبات البيع لهذه الحالة.</div>
+        )}
+
+        {attribution?.contradictions?.length ? (
+          <div className="mt-2 text-xs">
+            <div className="dawaa-muted mb-1">تناقضات إسناد خام (كما سجّلها محرك الإسناد):</div>
+            <div className="text-amber-300">{attribution.contradictions.join('، ')}</div>
+          </div>
+        ) : null}
+
+        {match?.differences?.length ? (
+          <Evidence>
+            <div className="dawaa-muted mb-1">فروقات السلة/الفاتورة المسجّلة:</div>
+            <ul className="space-y-1">
+              {match.differences.map((d: any, i: number) => <li key={i}>• {d.type} — {d.key}: {String(d.before)} ← {String(d.after)} ({d.explanation})</li>)}
+            </ul>
+          </Evidence>
+        ) : null}
+      </Section>
+
+      {/* 10. Human Review */}
+      <Section title="١٠. المراجعة البشرية">
         <div className="flex items-center gap-2">
           <span className={analysis.needs_human_review ? 'dawaa-badge dawaa-badge--warning' : 'dawaa-badge dawaa-badge--success'}>
             {analysis.needs_human_review ? 'تحتاج مراجعة بشرية' : 'لا تحتاج مراجعة'}

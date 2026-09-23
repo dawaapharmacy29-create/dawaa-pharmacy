@@ -60,6 +60,37 @@ export const confidenceLevelLabels: Record<string, string> = {
   unknown: 'غير معروف',
 };
 
+/** Final Pilot Readiness — I.C.2 canonical SaleProofState labels. See saleProofState.ts. */
+export const saleProofStateLabels: Record<string, string> = {
+  proven: 'مؤكد بفاتورة موثوقة',
+  strongly_supported: 'مدعوم بقوة (إحصائي)',
+  weakly_supported: 'مدعوم بضعف',
+  unknown: 'غير معروف',
+  contradicted: 'متناقض',
+};
+
+/** SaleProofSource vocab — see saleProofState.ts's own SaleProofSource union. */
+export const saleProofSourceLabels: Record<string, string> = {
+  trusted_invoice: 'فاتورة موثوقة (رابط مباشر)',
+  statistical_strong: 'استدلال إحصائي قوي',
+  statistical_weak: 'استدلال إحصائي ضعيف',
+  none: 'لا يوجد مصدر إثبات',
+  trusted_invoice_with_contradiction: 'فاتورة موثوقة — لكن يوجد تناقض مكتشف',
+  statistical_with_contradiction: 'استدلال إحصائي — لكن يوجد تناقض مكتشف',
+};
+
+/** Named contradiction categories deriveSaleProofState() produces — see saleProofState.ts's own CONTRADICTION_CATEGORY_BY_EXCEPTION_TYPE. */
+export const contradictionCategoryLabels: Record<string, string> = {
+  cross_customer_invoice_link: 'الفاتورة مرتبطة بمعرف عميل مختلف رغم تطابق رقم الهاتف',
+  cross_case_invoice_collision: 'نفس الفاتورة اختارتها حالة محادثة أخرى بشكل مستقل',
+  cancelled_invoice_linked_to_case: 'الفاتورة المرتبطة بهذه الحالة ملغاة',
+  returned_invoice_linked_to_case: 'الفاتورة المرتبطة بهذه الحالة مرتجعة',
+  unexplained_amount_conflict: 'فرق حقيقي غير مُفسَّر بين إجمالي السلة وإجمالي الفاتورة',
+  item_evidence_conflict: 'تعارض في بنود/كميات الفاتورة مقابل السلة',
+  cross_branch_invoice_link: 'فرع الفاتورة يختلف عن فرع المحادثة رغم أن الفاتورة موثوقة',
+  temporal_inversion_conflict: 'توقيت الفاتورة يسبق توقيت المحادثة بشكل غير منطقي',
+};
+
 export type BadgeTone = 'success' | 'warning' | 'danger' | 'info';
 
 /** Shared tone rule for any ConfidenceLevel-shaped value (attribution level, etc.). */

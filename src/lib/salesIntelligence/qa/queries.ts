@@ -19,7 +19,9 @@
 // unbounded high-volume reads.
 import { parseWhatsAppExport, type WhatsAppParsedMessage } from '../../whatsappConversationParser';
 import { runSalesIntelligencePipeline } from '../salesIntelligencePipeline';
+import { deriveSaleProofStateFromPersisted } from './saleProofProjection';
 import type { SalesIntelligenceCaseAnalysis } from '../types';
+import type { SaleProofAssessment } from '../saleProofState';
 import type { QaCaseListRow, QaListFilters } from './types';
 
 const MAX_LIST_ROWS = 2000;
@@ -33,6 +35,7 @@ interface RawCaseAnalysisRow {
   case_ended_at: string | null;
   historical_closure_level: string;
   protocol_applicability: string;
+  commercial_confirmation_state?: string | null;
   attribution_level: string;
   integrity_evaluation_scope: string;
   needs_human_review: boolean;
@@ -41,15 +44,49 @@ interface RawCaseAnalysisRow {
 
 interface RawAttributionRow {
   analysis_id: string;
+  selected_invoice_id?: string | null;
   selected_invoice_number: string | null;
   competing_case_ids: string[] | null;
+  candidate_count?: number | null;
+  attribution_level?: string | null;
+  identity_conflict?: string | null;
+  branch_conflict?: boolean | null;
+  is_official_for_staff_evaluation?: boolean | null;
+  legacy_evidence_used?: boolean | null;
+  primary_evidence?: unknown[] | null;
+  contradictions?: string[] | null;
+  rule_ids?: string[] | null;
+  confidence_score?: number | null;
 }
 
-/** Pure — no I/O — so it's directly unit-testable without a Supabase mock. */
-export function mergeCaseListRows(analyses: RawCaseAnalysisRow[], attributions: RawAttributionRow[]): QaCaseListRow[] {
+interface RawMatchRow {
+  analysis_id: string;
+  integrity_evaluation_scope?: string | null;
+  item_evidence_ready?: boolean | null;
+  header_evidence_ready?: boolean | null;
+  total_match?: string | null;
+  differences?: unknown[] | null;
+  needs_human_review?: boolean | null;
+  human_review_reasons?: string[] | null;
+}
+
+/**
+ * Pure — no I/O — so it's directly unit-testable without a Supabase mock. `saleProofState`/
+ * `proofSource`/etc. are computed via deriveSaleProofStateFromPersisted() (saleProofProjection.ts)
+ * — this function NEVER decides Sale Proof State itself, only joins rows and hands them to that
+ * shared helper (Final Pilot Readiness: "ممنوع duplication لمنطق Sale Proof").
+ */
+export function mergeCaseListRows(
+  analyses: RawCaseAnalysisRow[],
+  attributions: RawAttributionRow[],
+  matches: RawMatchRow[] = []
+): QaCaseListRow[] {
   const attributionByAnalysisId = new Map(attributions.map((row) => [row.analysis_id, row]));
+  const matchByAnalysisId = new Map(matches.map((row) => [row.analysis_id, row]));
   return analyses.map((analysis) => {
-    const attribution = attributionByAnalysisId.get(analysis.analysis_id);
+    const attribution = attributionByAnalysisId.get(analysis.analysis_id) ?? null;
+    const match = matchByAnalysisId.get(analysis.analysis_id) ?? null;
+    const proof: SaleProofAssessment = deriveSaleProofStateFromPersisted(analysis.case_id, analysis, attribution, match);
     return {
       caseId: analysis.case_id,
       analysisId: analysis.analysis_id,
@@ -61,10 +98,17 @@ export function mergeCaseListRows(analyses: RawCaseAnalysisRow[], attributions: 
       protocolApplicability: analysis.protocol_applicability,
       attributionLevel: analysis.attribution_level,
       integrityEvaluationScope: analysis.integrity_evaluation_scope,
+      selectedInvoiceId: attribution?.selected_invoice_id ?? null,
       selectedInvoiceNumber: attribution?.selected_invoice_number ?? null,
+      candidateCount: attribution?.candidate_count ?? 0,
       competingCaseCount: attribution?.competing_case_ids?.length ?? 0,
       needsHumanReview: analysis.needs_human_review,
       humanReviewReasons: analysis.human_review_reasons ?? [],
+      saleProofState: proof.state,
+      proofSource: proof.proofSource,
+      trustedInvoiceId: proof.trustedInvoiceId,
+      itemEvidenceReady: proof.itemEvidenceReady,
+      invoiceEvidenceScope: proof.invoiceEvidenceScope,
     };
   });
 }
@@ -78,6 +122,7 @@ export function filterCaseListRows(rows: QaCaseListRow[], filters: QaListFilters
     if (filters.historicalClosureLevel !== 'all' && row.historicalClosureLevel !== filters.historicalClosureLevel) return false;
     if (filters.protocolApplicability !== 'all' && row.protocolApplicability !== filters.protocolApplicability) return false;
     if (filters.attributionLevel !== 'all' && row.attributionLevel !== filters.attributionLevel) return false;
+    if (filters.saleProofState !== 'all' && row.saleProofState !== filters.saleProofState) return false;
     if (filters.needsHumanReview === 'yes' && !row.needsHumanReview) return false;
     if (filters.needsHumanReview === 'no' && row.needsHumanReview) return false;
     if (filters.competingAttribution === 'yes' && row.competingCaseCount === 0) return false;
@@ -110,6 +155,27 @@ export function filterCaseListRows(rows: QaCaseListRow[], filters: QaListFilters
       case 'multiple_unresolved_products':
         if (!row.humanReviewReasons.includes('possible_unsegmented_multiple_requests')) return false;
         break;
+      case 'proof_proven':
+        if (row.saleProofState !== 'proven') return false;
+        break;
+      case 'proof_strongly_supported':
+        if (row.saleProofState !== 'strongly_supported') return false;
+        break;
+      case 'proof_weakly_supported':
+        if (row.saleProofState !== 'weakly_supported') return false;
+        break;
+      case 'proof_unknown':
+        if (row.saleProofState !== 'unknown') return false;
+        break;
+      case 'proof_contradicted':
+        if (row.saleProofState !== 'contradicted') return false;
+        break;
+      case 'has_invoice':
+        if (!row.selectedInvoiceNumber) return false;
+        break;
+      case 'no_invoice':
+        if (row.selectedInvoiceNumber) return false;
+        break;
       default:
         break;
     }
@@ -123,22 +189,39 @@ export function filterCaseListRows(rows: QaCaseListRow[], filters: QaListFilters
 }
 
 export async function fetchQaCaseList(supabaseClient: any): Promise<QaCaseListRow[]> {
-  const [{ data: analyses, error: analysesError }, { data: attributions, error: attributionsError }] = await Promise.all([
+  const [
+    { data: analyses, error: analysesError },
+    { data: attributions, error: attributionsError },
+    { data: matches, error: matchesError },
+  ] = await Promise.all([
     supabaseClient
       .from('sales_intelligence_current_case_analyses')
       .select(
-        'analysis_id, case_id, case_type, identity_branch_name_raw, case_started_at, case_ended_at, historical_closure_level, protocol_applicability, attribution_level, integrity_evaluation_scope, needs_human_review, human_review_reasons'
+        'analysis_id, case_id, case_type, identity_branch_name_raw, case_started_at, case_ended_at, historical_closure_level, protocol_applicability, commercial_confirmation_state, attribution_level, integrity_evaluation_scope, needs_human_review, human_review_reasons'
       )
       .order('case_started_at', { ascending: false })
       .limit(MAX_LIST_ROWS),
     supabaseClient
       .from('sales_intelligence_current_attributions')
-      .select('analysis_id, selected_invoice_number, competing_case_ids')
+      .select(
+        'analysis_id, selected_invoice_id, selected_invoice_number, competing_case_ids, candidate_count, attribution_level, identity_conflict, branch_conflict, is_official_for_staff_evaluation, legacy_evidence_used, primary_evidence, contradictions, rule_ids, confidence_score'
+      )
+      .limit(MAX_LIST_ROWS),
+    // Not a "current_*" view (none exists for this table) — filtered directly, same as fetchQaCaseDetail.
+    supabaseClient
+      .from('sales_intelligence_basket_invoice_matches')
+      .select('analysis_id, integrity_evaluation_scope, item_evidence_ready, header_evidence_ready, total_match, differences, needs_human_review, human_review_reasons')
+      .eq('is_current_evaluation', true)
       .limit(MAX_LIST_ROWS),
   ]);
   if (analysesError) throw analysesError;
   if (attributionsError) throw attributionsError;
-  return mergeCaseListRows((analyses ?? []) as RawCaseAnalysisRow[], (attributions ?? []) as RawAttributionRow[]);
+  if (matchesError) throw matchesError;
+  return mergeCaseListRows(
+    (analyses ?? []) as RawCaseAnalysisRow[],
+    (attributions ?? []) as RawAttributionRow[],
+    (matches ?? []) as RawMatchRow[]
+  );
 }
 
 export const QA_BRANCH_OPTIONS_QUERY = 'identity_branch_name_raw';
@@ -192,6 +275,13 @@ export interface QaCaseDetailBundle {
    * the detail page must then fall back to the persisted summary fields only, never invent evidence.
    */
   liveEvidence: SalesIntelligenceCaseAnalysis | null;
+  /**
+   * The canonical I.C.2 Sale Proof State, computed from `persisted.attributionRow`/`matchRow`/
+   * `analysisRow` via deriveSaleProofStateFromPersisted() (saleProofProjection.ts) — the SAME
+   * function the list page uses. Never derived from `liveEvidence` (which runs with zero invoice
+   * candidates and would misrepresent the real, batch-computed attribution).
+   */
+  saleProof: SaleProofAssessment;
 }
 
 export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Promise<QaCaseDetailBundle | null> {
@@ -257,10 +347,13 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
     }
   }
 
+  const saleProof = deriveSaleProofStateFromPersisted(caseId, analysisRow, attributionRow ?? null, matchRow ?? null);
+
   return {
     persisted: { caseRow: caseRow ?? null, analysisRow, attributionRow: attributionRow ?? null, matchRow: matchRow ?? null, policyEvaluationRow: policyEvaluationRow ?? null },
     conversation,
     transcript,
     liveEvidence,
+    saleProof,
   };
 }

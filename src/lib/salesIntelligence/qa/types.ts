@@ -5,8 +5,15 @@
 // and detail pages read from the already-persisted CURRENT views/tables (see
 // docs/SALES_INTELLIGENCE_PERSISTENCE_DESIGN.md) plus a live, in-memory re-run of the same
 // deterministic pipeline for full evidence drill-down (see queries.ts's own module comment).
+import type { SaleProofSource, SaleProofState } from '../saleProofState';
 
-/** One row of the QA list — deliberately excludes customer name/phone/id (never shown in the list). */
+/**
+ * One row of the QA list — deliberately excludes customer name/phone/id (never shown in the list).
+ * `saleProofState`/`proofSource`/`itemEvidenceReady`/`invoiceEvidenceScope` are computed from the
+ * PERSISTED attribution/match rows via saleProofProjection.ts's deriveSaleProofStateFromPersisted()
+ * — never a fresh business-logic decision made by this UI layer (Final Pilot Readiness: "ممنوع
+ * duplication لمنطق Sale Proof").
+ */
 export interface QaCaseListRow {
   caseId: string;
   analysisId: string;
@@ -18,10 +25,18 @@ export interface QaCaseListRow {
   protocolApplicability: string;
   attributionLevel: string;
   integrityEvaluationScope: string;
+  selectedInvoiceId: string | null;
   selectedInvoiceNumber: string | null;
+  candidateCount: number;
   competingCaseCount: number;
   needsHumanReview: boolean;
   humanReviewReasons: string[];
+  /** Canonical I.C.2 Sale Proof State — see saleProofState.ts. Computed from PERSISTED rows only. */
+  saleProofState: SaleProofState;
+  proofSource: SaleProofSource;
+  trustedInvoiceId: string | null;
+  itemEvidenceReady: boolean;
+  invoiceEvidenceScope: string;
 }
 
 export interface QaListFilters {
@@ -31,6 +46,7 @@ export interface QaListFilters {
   historicalClosureLevel: string | 'all';
   protocolApplicability: string | 'all';
   attributionLevel: string | 'all';
+  saleProofState: SaleProofState | 'all';
   needsHumanReview: 'all' | 'yes' | 'no';
   competingAttribution: 'all' | 'yes' | 'no';
   invoiceStatus: 'all' | 'has_invoice' | 'no_invoice';
@@ -44,7 +60,14 @@ export interface QaListFilters {
     | 'unknown_cases'
     | 'needs_human_review'
     | 'no_basket'
-    | 'multiple_unresolved_products';
+    | 'multiple_unresolved_products'
+    | 'proof_proven'
+    | 'proof_strongly_supported'
+    | 'proof_weakly_supported'
+    | 'proof_unknown'
+    | 'proof_contradicted'
+    | 'has_invoice'
+    | 'no_invoice';
 }
 
 export const DEFAULT_QA_LIST_FILTERS: QaListFilters = {
@@ -54,6 +77,7 @@ export const DEFAULT_QA_LIST_FILTERS: QaListFilters = {
   historicalClosureLevel: 'all',
   protocolApplicability: 'all',
   attributionLevel: 'all',
+  saleProofState: 'all',
   needsHumanReview: 'all',
   competingAttribution: 'all',
   invoiceStatus: 'all',
