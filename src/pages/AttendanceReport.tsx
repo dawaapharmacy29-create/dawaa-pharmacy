@@ -143,8 +143,8 @@ function settledCount(result: PromiseSettledResult<any>): number | null {
   return Array.isArray(value.data) ? value.data.length : null;
 }
 
-const MANAGER_TODAY_ROLES = new Set(['general_manager', 'executive_manager', 'branches_manager', 'branch_manager', 'shift_supervisor_morning', 'shift_supervisor_evening']);
-const SYNC_HEALTH_ROLES = new Set(['general_manager', 'executive_manager', 'branches_manager']);
+const MANAGER_TODAY_ROLES = new Set(['admin', 'general_manager', 'executive_manager', 'branches_manager', 'branch_manager', 'shift_supervisor_morning', 'shift_supervisor_evening']);
+const SYNC_HEALTH_ROLES = new Set(['admin', 'general_manager', 'executive_manager', 'branches_manager']);
 
 // Backward-compatible aliases so old deep links (?tab=resolution, ?tab=sync, ...) still land
 // on the right place after tabs were grouped under 'decisions'/'system'/'clock'.
