@@ -319,6 +319,16 @@ function parseMarkdownDateHeading(line: string) {
   return { year: Number(match[3]), month, day: Number(match[2]) };
 }
 
+function parseMarkdownClockSeconds(raw: string): number | null {
+  const match = raw.trim().match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([APap][Mm])$/);
+  if (!match) return null;
+  let hour = Number(match[1]);
+  const meridiem = match[4].toLowerCase();
+  if (meridiem === 'pm' && hour < 12) hour += 12;
+  if (meridiem === 'am' && hour === 12) hour = 0;
+  return hour * 3600 + Number(match[2]) * 60 + Number(match[3] || 0);
+}
+
 function parseMarkdownTime(raw: string, date: { year: number; month: number; day: number }) {
   const match = raw.trim().match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([APap][Mm])$/);
   if (!match) return null;
@@ -369,6 +379,12 @@ function parseMarkdownExport(text: string, trustedConversationStartedAt?: string
   const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/);
   const messages: WhatsAppParsedMessage[] = [];
   let currentDate: { year: number; month: number; day: number } | null = trustedDateParts(trustedConversationStartedAt);
+  const trustedAnchor = trustedConversationStartedAt
+    ? (trustedConversationStartedAt instanceof Date ? trustedConversationStartedAt : new Date(trustedConversationStartedAt))
+    : null;
+  let usingTrustedTimeOnlyTimeline = Boolean(trustedAnchor && !Number.isNaN(trustedAnchor.getTime()));
+  let firstClockSeconds: number | null = null;
+  let previousAbsoluteClockSeconds: number | null = null;
   let current: {
     timestamp: Date;
     rawTimestamp: string;
@@ -409,6 +425,9 @@ function parseMarkdownExport(text: string, trustedConversationStartedAt?: string
     if (dateHeading) {
       flush();
       currentDate = dateHeading;
+      usingTrustedTimeOnlyTimeline = false;
+      firstClockSeconds = null;
+      previousAbsoluteClockSeconds = null;
       continue;
     }
     if (!currentDate) continue;
@@ -418,7 +437,29 @@ function parseMarkdownExport(text: string, trustedConversationStartedAt?: string
     );
     if (header) {
       flush();
-      const timestamp = parseMarkdownTime(header[1], currentDate);
+      let timestamp: Date | null = null;
+      if (usingTrustedTimeOnlyTimeline && trustedAnchor) {
+        const clockSeconds = parseMarkdownClockSeconds(header[1]);
+        if (clockSeconds != null) {
+          if (firstClockSeconds == null) {
+            firstClockSeconds = clockSeconds;
+            previousAbsoluteClockSeconds = clockSeconds;
+            // The persisted conversation_started_at is the trusted absolute timestamp of the first
+            // source message. This avoids a hidden server-timezone dependency (Vercel runs UTC,
+            // while these WhatsApp clocks are Egypt-local).
+            timestamp = new Date(trustedAnchor.getTime());
+          } else {
+            let absoluteClockSeconds = clockSeconds;
+            while (previousAbsoluteClockSeconds != null && absoluteClockSeconds < previousAbsoluteClockSeconds) {
+              absoluteClockSeconds += 24 * 3600;
+            }
+            previousAbsoluteClockSeconds = absoluteClockSeconds;
+            timestamp = new Date(trustedAnchor.getTime() + (absoluteClockSeconds - firstClockSeconds) * 1000);
+          }
+        }
+      } else {
+        timestamp = parseMarkdownTime(header[1], currentDate);
+      }
       if (!timestamp) continue;
       current = {
         timestamp,
