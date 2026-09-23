@@ -19,11 +19,12 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { normalizeBranchName } from '@/lib/branch';
 import { canSeeAllBranches } from '@/lib/security/permissionScopes';
-import { canManageBiometricOperations, getRoutePermissions } from '@/lib/core/permissionSystem';
+import { canManageBiometricOperations, getRoutePermissions, normalizeRole } from '@/lib/core/permissionSystem';
 import { listPendingOvertime } from '@/lib/attendance/attendanceBreakdownService';
 import { listStaffTimeOffRequests } from '@/lib/timeOffService';
 import { getHRTruthQualitySnapshotV2, type HRTruthQualitySnapshotV2 } from '@/lib/hr/hrTruthService';
 import { getHRWorkforceCycleReadinessV2, type HRWorkforceCycleReadinessV2 } from '@/lib/hr/hrCommandCenterService';
+import StaffAssignmentApprovalPanelV2 from '@/components/hr/StaffAssignmentApprovalPanelV2';
 
 type DashboardSummary = {
   staff: number;
@@ -172,6 +173,8 @@ const quickLinks = [
 export default function HRWorkforceCenter() {
   const { user, checkPermission } = useAuth();
   const canManageBiometrics = canManageBiometricOperations(user?.role);
+  const normalizedRole = normalizeRole(user?.role);
+  const canApproveAssignments = ['general_manager', 'executive_manager'].includes(normalizedRole);
   const today = cairoToday();
   const cycleStart = cycleStartFor(today);
   const canAllBranches = canSeeAllBranches(user?.role);
@@ -381,6 +384,8 @@ export default function HRWorkforceCenter() {
           </div>
         )}
       </section>
+
+      <StaffAssignmentApprovalPanelV2 enabled={canApproveAssignments} />
 
       <section>
         <div className="mb-2 flex items-center justify-between">
