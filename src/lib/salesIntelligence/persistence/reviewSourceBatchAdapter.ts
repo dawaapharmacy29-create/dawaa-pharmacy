@@ -3,6 +3,14 @@
 // This adapter is deliberately pure: no Supabase calls, no writes. Its purpose is to make the
 // trusted conversation_started_at date anchor structurally hard to forget when historical
 // time-only markdown sources are reprocessed.
+//
+// I.C.1 addition: also resolves trustedInvoiceId/trustedInvoiceNumber via
+// resolveTrustedInvoiceEvidenceFromReviewSource() (trustedInvoiceEvidenceBridge.ts) — the only
+// path to a `proven` sale attribution (saleAttributionEngine.ts). See that module's own header
+// comment for the full eligibility rule and why matched_invoice_id/invoice_match_status alone are
+// never sufficient. legacyMatchedInvoiceId/legacyMatchedInvoiceNumber (evidence-only, pre-existing)
+// are left completely unchanged.
+import { resolveTrustedInvoiceEvidenceFromReviewSource } from '../trustedInvoiceEvidenceBridge';
 import type { BatchConversationInput } from './batchPersistenceService';
 
 export interface WhatsAppReviewSourceBatchRow {
@@ -14,6 +22,10 @@ export interface WhatsAppReviewSourceBatchRow {
   branch?: string | null;
   matched_invoice_id?: string | null;
   matched_invoice_number?: string | null;
+  /** I.C.1 additions — see trustedInvoiceEvidenceBridge.ts's own eligibility rule. */
+  invoice_match_status?: string | null;
+  reviewer_confirmed?: boolean | null;
+  reviewer_id?: string | null;
 }
 
 /**
@@ -25,6 +37,16 @@ export interface WhatsAppReviewSourceBatchRow {
 export function reviewSourceRowToBatchConversation(
   row: WhatsAppReviewSourceBatchRow
 ): BatchConversationInput {
+  const trustedEvidence = resolveTrustedInvoiceEvidenceFromReviewSource({
+    sourceId: row.id,
+    matchedInvoiceId: row.matched_invoice_id ?? null,
+    matchedInvoiceNumber: row.matched_invoice_number ?? null,
+    invoiceMatchStatus: row.invoice_match_status ?? null,
+    reviewerConfirmed: row.reviewer_confirmed ?? null,
+    reviewerId: row.reviewer_id ?? null,
+    branch: row.branch ?? null,
+  });
+
   return {
     conversationId: row.id,
     rawWhatsAppExportText: row.raw_text ?? '',
@@ -34,5 +56,7 @@ export function reviewSourceRowToBatchConversation(
     branchNameRawHint: row.branch ?? null,
     legacyMatchedInvoiceId: row.matched_invoice_id ?? null,
     legacyMatchedInvoiceNumber: row.matched_invoice_number ?? null,
+    trustedInvoiceId: trustedEvidence.trustedInvoiceId,
+    trustedInvoiceNumber: trustedEvidence.trustedInvoiceNumber,
   };
 }
