@@ -274,6 +274,28 @@ export const BASKET_GROUND_TRUTH_CASES_V1: SalesIntelligenceGroundTruthCase[] = 
     },
   },
   {
+    id: 'R14',
+    source: 'real',
+    category: 'direct_misspelled_single_item_order',
+    sourceNote: 'Real Dawaa conversation 2524fc3e... — customer directly asks for "شريط فليكس ليكس تقريبا", staff confirms availability and says it will be sent immediately. Ground Truth maps this to the real Flexilax SKU (code 68114); the quantity is one strip semantically, but the current Quantity V2 policy does not globally promote implicit-one from all unit phrases, so exact quantity remains unlabeled here rather than forcing the engine.',
+    raw: `[9/2/26, 9:00:39 AM] Customer: السلام عليكم
+[9/2/26, 9:01:22 AM] Customer: محتاج شريط فليكس ليكس تقريبا
+[9/2/26, 9:03:24 AM] You: وعليكم السلام ورحمه الله وبركاته
+[9/2/26, 9:15:06 AM] Customer: موجود
+[9/2/26, 9:15:47 AM] You: موةجود
+[9/2/26, 9:15:54 AM] You: موجود
+[9/2/26, 9:16:06 AM] You: هبعته لحضرتك حالا
+[9/2/26, 9:16:12 AM] Customer: تمام
+[9/2/26, 9:25:46 AM] You: تم الارسال`,
+    groundTruth: {
+      expectedAddedProductCodes: ['68114'],
+      expectedNeverAddedProductCodes: [],
+      expectedQuantities: { '68114': null },
+      expectedStatus: null,
+      expectUnresolvedSignal: false,
+    },
+  },
+  {
     id: 'S01',
     source: 'synthetic',
     category: 'remove_item',
