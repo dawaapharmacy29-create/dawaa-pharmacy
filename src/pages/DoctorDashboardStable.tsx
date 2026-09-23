@@ -12,6 +12,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { getCurrentCycle, formatCycleDate } from '@/lib/pharmacy-cycle';
 import { formatCurrency } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
+import { buildPaidStatementPdf } from '@/lib/payroll/paidStatementPdf';
 import { TABLES } from '@/lib/supabaseTables';
 import {
   calculateMonthlyIncentive,
@@ -419,6 +420,7 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
             .select('*')
             .ilike('username', username)
             .not('payroll_month', 'is', null)
+            .in('status', ['approved', 'paid'])
             .order('payroll_month', { ascending: false })
             .limit(12)
         )
@@ -1187,6 +1189,7 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
                     <span className="flex items-center gap-1.5 text-rose-300"><TrendingDown size={14} /> الخصومات: {formatCurrency(number(row.deductions_total))}</span>
                   </div>
                   <div className="mt-3 border-t pt-3 text-lg font-black text-teal-200" style={{ borderColor: 'var(--dawaa-theme-border)' }}>الصافي: {formatCurrency(number(row.calculated_net_salary))}</div>
+                  {text(row.status)==='paid' && staffId && <button className="btn-secondary mt-3" onClick={() => void buildPaidStatementPdf(staffId,text(row.payroll_month).slice(0,7)).then(({pdf,fileName})=>pdf.save(fileName)).catch((error)=>window.alert(error instanceof Error?error.message:'تعذر تنزيل الكشف'))}>تنزيل كشف PDF المدفوع</button>}
                 </article>
               ))}
               {personalState.payroll === 'success' && !payrollRows.length ? <Empty>لسه مفيش كشف شهري معتمد لحسابك — هيظهر هنا أول ما يتم اعتماد دورة راتب فعلية.</Empty> : null}

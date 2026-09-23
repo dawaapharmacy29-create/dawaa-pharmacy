@@ -12,6 +12,8 @@ import { getAnnualLeaveBalanceV1, getPermissionPolicyStatusV2, type AnnualLeaveB
 import { cairoToday, computeRange, formatClock, type PeriodMode, rangeLabel, shiftAnchor, toneClasses } from '@/lib/attendance/period';
 import { supabase } from '@/lib/supabase';
 import AttendanceCorrectionRequestPanel from '@/components/attendance/AttendanceCorrectionRequestPanel';
+import { listMyPaidStatements } from '@/lib/payroll/paidStatementService';
+import { buildPaidStatementPdf } from '@/lib/payroll/paidStatementPdf';
 
 function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
@@ -33,6 +35,13 @@ export default function MyAttendance() {
   const [permissionStatus, setPermissionStatus] = useState<PermissionPolicyStatusV2 | null>(null);
   const [workforceSnapshot, setWorkforceSnapshot] = useState<Record<string, any> | null>(null);
   const [loading, setLoading] = useState(false);
+  const [paidStatements,setPaidStatements] = useState<{month_cycle:string;cycle_start:string;cycle_end:string;net_salary:number}[]>([]);
+  const [statementError,setStatementError] = useState('');
+  const [exportingMonth,setExportingMonth] = useState('');
+
+  useEffect(()=>{if(!staffId)return;let active=true;listMyPaidStatements().then(rows=>{if(active){setPaidStatements(rows);setStatementError('')}}).catch(error=>{if(active)setStatementError(error instanceof Error?error.message:'تعذر تحميل كشوف الرواتب')});return()=>{active=false}},[staffId]);
+
+  async function exportStatement(monthCycle:string){if(!staffId)return;setExportingMonth(monthCycle);try{const {pdf,fileName}=await buildPaidStatementPdf(staffId,monthCycle);pdf.save(fileName)}catch(error){toast.error(error instanceof Error?error.message:'تعذر تنزيل كشف الراتب')}finally{setExportingMonth('')}}
 
   const { start, end } = computeRange(mode, anchor);
 
@@ -88,6 +97,14 @@ export default function MyAttendance() {
         <h1 className="text-xl font-black text-[var(--dawaa-theme-heading)]">حضوري وجدولي</h1>
         <p className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">شيفتك، حضورك، الإجازات وطلبات التصحيح في مكان واحد.</p>
       </div>
+
+      <section className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4">
+        <h2 className="font-black">كشوف رواتبي المدفوعة</h2>
+        <p className="mt-1 text-xs text-[var(--dawaa-theme-muted)]">يظهر كشف PDF بعد تسجيل الدفع ووجود نسخة اعتماد مالية كاملة. بصمات كل يوم معروضة أسفل الصفحة.</p>
+        {statementError&&<p role="alert" className="mt-2 text-sm text-[var(--dawaa-status-danger-text)]">{statementError}</p>}
+        {!statementError&&paidStatements.length===0&&<p className="mt-2 text-sm">لا توجد كشوف مدفوعة متاحة حتى الآن.</p>}
+        {paidStatements.map(row=><div key={row.month_cycle} className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--dawaa-theme-border)] p-3 text-sm"><span>دورة {row.cycle_start} إلى {row.cycle_end} · الصافي {Number(row.net_salary).toLocaleString('ar-EG')} ج</span><button className="btn-secondary" disabled={!!exportingMonth} onClick={()=>void exportStatement(row.month_cycle)}>{exportingMonth===row.month_cycle?'جارٍ إعداد PDF':'تنزيل PDF'}</button></div>)}
+      </section>
 
       {workforceSnapshot?.linked && (
         <section className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">

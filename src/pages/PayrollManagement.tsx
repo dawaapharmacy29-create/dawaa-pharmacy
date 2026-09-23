@@ -12,6 +12,7 @@ import { normalizeBranchName } from '@/lib/branch';
 import { formatCurrency } from '@/lib/utils';
 import { getCurrentCycle, formatCycleDate } from '@/lib/pharmacy-cycle';
 import { cairoToday } from '@/lib/attendance/period';
+import { buildPaidStatementPdf } from '@/lib/payroll/paidStatementPdf';
 import { fetchPayrollIncentiveTruth, type PayrollIncentiveTruth } from '@/lib/incentives/payrollIncentiveTruthService';
 import {
   fetchAttendancePayrollReadiness,
@@ -123,6 +124,7 @@ export default function PayrollManagement() {
   const [month, setMonth] = useState(currentMonth);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [exportingStatement,setExportingStatement] = useState(false);
   const [compensationReason,setCompensationReason] = useState('');
   const [compensationEffective,setCompensationEffective] = useState(cairoToday());
   const [compensationChanges,setCompensationChanges] = useState<CompensationChange[]>([]);
@@ -253,6 +255,8 @@ export default function PayrollManagement() {
   };
 
   async function decideChange(id:string,approve:boolean){if(!selected)return;setSaving(true);try{await decideCompensationChange(id,approve,'');setCompensationChanges(await listCompensationChanges(selected.staffId));await loadPerson(selected,month);toast.success(approve?'تم اعتماد التعديل وتطبيقه':'تم رفض الطلب')}catch(e){toast.error(e instanceof Error?e.message:'تعذر اتخاذ القرار')}finally{setSaving(false)}}
+
+  async function exportPaidStatement(payrollMonth:string){if(!selected?.staffId)return;setExportingStatement(true);try{const {pdf,fileName}=await buildPaidStatementPdf(selected.staffId,payrollMonth.slice(0,7));pdf.save(fileName)}catch(e){toast.error(e instanceof Error?e.message:'تعذر إصدار كشف الراتب المدفوع')}finally{setExportingStatement(false)}}
 
   const filteredStaff = staff.filter((s) => !search.trim() || s.name.includes(search.trim()) || s.username.includes(search.trim()));
   const summaryCards = [
@@ -397,7 +401,8 @@ export default function PayrollManagement() {
 
             {history.length ? <div className="rounded-3xl border p-5" style={surface}>
               <div className="flex items-center gap-2 font-black text-teal-200"><ClipboardList size={18} /> آخر الدورات</div>
-              <div className="mt-3 space-y-2">{history.map((h) => <div key={h.payroll_month} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3 text-sm" style={surfaceSoft}><span className="font-black text-white">{h.payroll_month?.slice(0, 7)}</span><span className="flex items-center gap-1 text-emerald-300"><Trophy size={13} /> {formatCurrency(num(h.net_salary))}</span><span className="flex items-center gap-1 text-rose-300"><TrendingDown size={13} /> {formatCurrency(num(h.deductions_total))}</span><span className="rounded-full px-3 py-1 text-xs font-black text-teal-200" style={surface}>{STATUS_OPTIONS.find((s) => s.key === h.status)?.label || h.status}</span></div>)}</div>
+              <p className="mt-2 text-xs" style={mutedText}>يمكن تنزيل كشف PDF فقط لدورة مدفوعة ولها نسخة اعتماد مالية كاملة. المراجعة والـStaging لا يصدران ككشف نهائي.</p>
+              <div className="mt-3 space-y-2">{history.map((h) => <div key={h.payroll_month} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3 text-sm" style={surfaceSoft}><span className="font-black text-white">{h.payroll_month?.slice(0, 7)}</span><span className="flex items-center gap-1 text-emerald-300"><Trophy size={13} /> {formatCurrency(num(h.net_salary))}</span><span className="flex items-center gap-1 text-rose-300"><TrendingDown size={13} /> {formatCurrency(num(h.deductions_total))}</span><span className="rounded-full px-3 py-1 text-xs font-black text-teal-200" style={surface}>{STATUS_OPTIONS.find((s) => s.key === h.status)?.label || h.status}</span>{h.status==='paid'&&<button className="btn-secondary" disabled={exportingStatement} onClick={()=>void exportPaidStatement(h.payroll_month)}>كشف PDF المدفوع</button>}</div>)}</div>
             </div> : null}
           </div>
         )}
