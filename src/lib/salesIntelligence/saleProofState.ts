@@ -79,6 +79,7 @@ export interface SaleProofStateInput {
 }
 
 export interface SaleProofAssessment {
+  caseId: string;
   state: SaleProofState;
   /** Reuses the existing ConfidenceAssessment vocabulary for consistency with every other engine's output — see mapStateToConfidenceLevel's own doc comment for why `contradicted` maps to `unknown` here, never to a positive level. */
   confidence: ConfidenceAssessment;
@@ -89,12 +90,18 @@ export interface SaleProofAssessment {
   proofSource: SaleProofSource;
   /** sales_invoices.id, non-null ONLY when state === 'proven' (see the invariant in this module's own tests). NEVER derived from invoice_number. */
   trustedInvoiceId: string | null;
+  /** attribution.selectedInvoiceId as-is — the candidate Phase D actually picked, whatever the state (may differ from trustedInvoiceId when state !== 'proven'). */
+  selectedInvoiceId: string | null;
+  /** Display/logging only — mirrors attribution.selectedInvoiceNumber verbatim; NEVER unique on its own (I.C.0/I.C.1) — never used as an identity key. */
+  selectedInvoiceNumber: string | null;
   /** Mirrors basketInvoiceMatch.integrityEvaluationScope verbatim — never re-derived. 'header_only' today because sales_invoice_items_v21 = 0 rows (I.C.0/I.C.1). */
   invoiceEvidenceScope: IntegrityEvaluationScope;
   /** Mirrors basketInvoiceMatch.itemEvidenceReady verbatim. Always false in Production today — never inferred from product text or the invoice total. */
   itemEvidenceReady: boolean;
   /** Same gate as itemEvidenceReady today (quantity comparison only ever runs once item identity is resolved — see basketInvoiceMatchingEngine.ts's own classifyItemsAndQuantities). Kept as its own field for forward compatibility if the two gates are ever split. */
   quantityEvidenceReady: boolean;
+  /** True for `contradicted` (always), plus whatever attribution/basketInvoiceMatch/integrityAssessment already flagged — never re-derived, purely an OR over already-computed flags. */
+  needsHumanReview: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -272,7 +279,14 @@ export function deriveSaleProofState(input: SaleProofStateInput): SaleProofAsses
   const evidence: EvidenceRef[] =
     state === 'contradicted' ? collectContradictionEvidence(input, contradictions) : attribution.confidence.evidence;
 
+  const needsHumanReview =
+    state === 'contradicted' ||
+    attribution.needsHumanReview ||
+    basketInvoiceMatch.needsHumanReview ||
+    input.integrityAssessment.needsHumanReview;
+
   return {
+    caseId: attribution.caseId,
     state,
     confidence: {
       level: mapStateToConfidenceLevel(state),
@@ -285,8 +299,11 @@ export function deriveSaleProofState(input: SaleProofStateInput): SaleProofAsses
     ruleIds,
     proofSource,
     trustedInvoiceId,
+    selectedInvoiceId: attribution.selectedInvoiceId,
+    selectedInvoiceNumber: attribution.selectedInvoiceNumber,
     invoiceEvidenceScope: basketInvoiceMatch.integrityEvaluationScope,
     itemEvidenceReady: basketInvoiceMatch.itemEvidenceReady,
     quantityEvidenceReady: basketInvoiceMatch.itemEvidenceReady,
+    needsHumanReview,
   };
 }

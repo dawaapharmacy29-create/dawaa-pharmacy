@@ -393,6 +393,23 @@ describe('I.C.2 — Canonical Sale Proof State', () => {
     expect(result.contradictions).toContain('cross_case_invoice_collision');
   });
 
+  it('19. carries caseId/selectedInvoiceId/selectedInvoiceNumber straight through from attribution, and sets needsHumanReview on any contradiction', () => {
+    const proven = assess(
+      attribution({ caseId: 'case-carry', attributionLevel: 'proven', selectedCandidate: candidate({ directInvoiceLink: true }) }),
+      bim()
+    );
+    expect(proven.caseId).toBe('case-carry');
+    expect(proven.selectedInvoiceId).toBe('inv-1');
+    expect(proven.selectedInvoiceNumber).toBe('INV-1');
+    expect(proven.needsHumanReview).toBe(false);
+
+    const contradicted = assess(
+      attribution({ selectedCandidate: candidate({ identityConflict: 'phone_vs_customer_id_conflict' }) }),
+      bim()
+    );
+    expect(contradicted.needsHumanReview).toBe(true);
+  });
+
   it('18. an unexplained real total mismatch against the trusted selected invoice contradicts it', () => {
     const result = assess(
       attribution({ attributionLevel: 'proven', selectedCandidate: candidate({ directInvoiceLink: true }) }),
