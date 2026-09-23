@@ -23,6 +23,7 @@ import { canManageBiometricOperations, getRoutePermissions } from '@/lib/core/pe
 import { listPendingOvertime } from '@/lib/attendance/attendanceBreakdownService';
 import { listStaffTimeOffRequests } from '@/lib/timeOffService';
 import { getHRTruthQualitySnapshotV2, type HRTruthQualitySnapshotV2 } from '@/lib/hr/hrTruthService';
+import { getHRWorkforceCycleReadinessV2, type HRWorkforceCycleReadinessV2 } from '@/lib/hr/hrCommandCenterService';
 
 type DashboardSummary = {
   staff: number;
@@ -191,6 +192,8 @@ export default function HRWorkforceCenter() {
   const [pendingTimeOff, setPendingTimeOff] = useState(0);
   const [truth, setTruth] = useState<HRTruthQualitySnapshotV2 | null>(null);
   const [truthAvailable, setTruthAvailable] = useState(false);
+  const [commandCenter, setCommandCenter] = useState<HRWorkforceCycleReadinessV2 | null>(null);
+  const [commandCenterAvailable, setCommandCenterAvailable] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [failedSources, setFailedSources] = useState<string[]>([]);
@@ -198,13 +201,14 @@ export default function HRWorkforceCenter() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [dailyResult, triageResult, syncResult, overtimeResult, timeOffResult, truthResult] = await Promise.allSettled([
+      const [dailyResult, triageResult, syncResult, overtimeResult, timeOffResult, truthResult, commandResult] = await Promise.allSettled([
         supabase.rpc('attendance_dashboard_daily_summary_v1', { p_date: today, p_branch: branchArg }),
         supabase.rpc('attendance_review_triage_v1', { p_start: cycleStart, p_end: today, p_branch: branchArg }),
         canManageBiometrics ? supabase.rpc('attendance_biometric_operations_v3') : Promise.resolve(null),
         listPendingOvertime(branchArg),
         listStaffTimeOffRequests({ status: 'pending', limit: 200 }),
         getHRTruthQualitySnapshotV2({ date: today, branch: branchArg }),
+        getHRWorkforceCycleReadinessV2({ branch: branchArg }),
       ]);
       const failures = [
         dailyResult.status === 'rejected' || !!dailyResult.value.error || !dailyResult.value.data ? 'تشغيل اليوم' : null,
@@ -213,6 +217,7 @@ export default function HRWorkforceCenter() {
         overtimeResult.status === 'rejected' ? 'الأوفر تايم' : null,
         timeOffResult.status === 'rejected' ? 'طلبات الإجازة' : null,
         truthResult.status === 'rejected' ? 'سلامة بيانات HR' : null,
+        commandResult.status === 'rejected' ? 'جاهزية دورة HR' : null,
       ].filter((item): item is string => item !== null);
       setFailedSources(failures);
 
@@ -257,6 +262,13 @@ export default function HRWorkforceCenter() {
       } else {
         setTruth(null);
         setTruthAvailable(false);
+      }
+      if (commandResult.status === 'fulfilled') {
+        setCommandCenter(commandResult.value);
+        setCommandCenterAvailable(true);
+      } else {
+        setCommandCenter(null);
+        setCommandCenterAvailable(false);
       }
     } catch {
       setFailedSources(['بيانات المركز']);
@@ -303,6 +315,72 @@ export default function HRWorkforceCenter() {
           تعذر تحديث: {failedSources.join('، ')}. الأرقام المتعلقة بها قديمة أو غير متاحة؛ افتح الصفحة المختصة قبل اتخاذ قرار.
         </div>
       )}
+
+      <section className="rounded-3xl border border-[var(--dawaa-theme-border)] dawaa-surface p-5 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-xs font-black text-[var(--dawaa-theme-primary-strong)]">HR Command Center V2</div>
+            <h2 className="mt-1 text-lg font-black text-[var(--dawaa-theme-heading)]">جاهزية دورة الموارد البشرية</h2>
+            <p className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">
+              قراءة موحدة من HR Truth + Schedule + Attendance Truth + Time Off + Overtime + Payroll بدل تجميع قرارات من صفحات منفصلة.
+            </p>
+          </div>
+          {commandCenterAvailable && commandCenter && (
+            <div className="rounded-full border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] px-4 py-2 text-xs font-black">
+              دورة {commandCenter.month_cycle} · {commandCenter.cycle_start} ← {commandCenter.cycle_end}
+            </div>
+          )}
+        </div>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <Metric
+            label="HR Truth"
+            value={commandCenterAvailable && commandCenter ? (commandCenter.gates.hr_truth_ready ? 'جاهز' : 'يحتاج معالجة') : 'غير متاح'}
+            hint={commandCenter ? `${commandCenter.actions.structural_hr_issues.toLocaleString('ar-EG')} مشكلة بنيوية` : undefined}
+            icon={Users}
+            tone={commandCenter?.gates.hr_truth_ready ? 'ok' : 'warn'}
+          />
+          <Metric
+            label="Attendance Truth"
+            value={commandCenterAvailable && commandCenter ? (commandCenter.gates.attendance_truth_ready ? 'مستقرة' : 'غير مكتملة') : 'غير متاح'}
+            hint={commandCenter ? `${commandCenter.actions.attendance_pending.toLocaleString('ar-EG')} يوم حضور معلق` : undefined}
+            icon={Clock}
+            tone={commandCenter?.gates.attendance_truth_ready ? 'ok' : 'warn'}
+          />
+          <Metric
+            label="Overtime Truth"
+            value={commandCenterAvailable && commandCenter ? (commandCenter.gates.overtime_truth_ready ? 'سليم' : 'يحتاج مراجعة') : 'غير متاح'}
+            hint={commandCenter ? `${commandCenter.actions.overtime_pending.toLocaleString('ar-EG')} معلق · ${commandCenter.actions.overtime_stale_approved.toLocaleString('ar-EG')} stale` : undefined}
+            icon={Clock}
+            tone={commandCenter?.gates.overtime_truth_ready ? 'ok' : 'bad'}
+          />
+          <Metric
+            label="Payroll Readiness"
+            value={commandCenterAvailable && commandCenter
+              ? commandCenter.gates.payroll_ready == null
+                ? 'حسب الصلاحية'
+                : commandCenter.gates.payroll_ready ? 'جاهز' : 'محجوب'
+              : 'غير متاح'}
+            hint={commandCenter ? `${commandCenter.actions.payroll_blocked_staff.toLocaleString('ar-EG')} موظف محجوب` : undefined}
+            icon={WalletCards}
+            tone={commandCenter?.gates.payroll_ready === true ? 'ok' : commandCenter?.gates.payroll_ready === false ? 'warn' : 'neutral'}
+          />
+        </div>
+
+        {commandCenter && (
+          <div className="mt-3 grid gap-2 sm:grid-cols-3">
+            <Link to="/attendance-report?tab=resolution" className="rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-3 text-xs font-bold">
+              تصحيحات حضور معلقة: <strong>{commandCenter.actions.corrections_pending.toLocaleString('ar-EG')}</strong>
+            </Link>
+            <Link to="/time-off" className="rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-3 text-xs font-bold">
+              طلبات إجازة معلقة: <strong>{commandCenter.actions.timeoff_pending.toLocaleString('ar-EG')}</strong>
+            </Link>
+            <Link to="/attendance-report?tab=overtime" className="rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-3 text-xs font-bold">
+              أوفر تايم معلق: <strong>{commandCenter.actions.overtime_pending.toLocaleString('ar-EG')}</strong>
+            </Link>
+          </div>
+        )}
+      </section>
 
       <section>
         <div className="mb-2 flex items-center justify-between">
