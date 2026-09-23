@@ -264,6 +264,7 @@ export default function AttendanceReport() {
   const [selectedCandidate, setSelectedCandidate] = useState<StaffCandidate | null>(null);
   const [crossSourceCandidates, setCrossSourceCandidates] = useState<CrossSourceCandidate[] | null>(null);
   const [mappingBusy, setMappingBusy] = useState(false);
+  const [batchMappingBusy, setBatchMappingBusy] = useState(false);
   const [logs, setLogs] = useState<any[]>([]);
   const [locations, setLocations] = useState<AttendanceLocation[]>([]);
   const [position, setPosition] = useState<DevicePosition | null>(null);
@@ -458,6 +459,19 @@ export default function AttendanceReport() {
     finally { setMappingBusy(false); }
   }, [loadApprovalsSummary, loadDaily, loadSyncHealth, mappingTarget, selectedCandidate]);
 
+  const applyConfirmedBatch = useCallback(async () => {
+    if (!window.confirm('اعتماد ٢١ ربطًا مؤكّدًا بالأسماء والفرع من القائمة التي راجعها صاحب العمل؟ سيتم إعادة معالجة أيام الحضور المتأثرة. الأكواد غير المعروفة والسجلات المؤرشفة خارج هذه الدفعة.')) return;
+    setBatchMappingBusy(true);
+    try {
+      const { data, error: batchError } = await supabase.rpc('apply_confirmed_biometric_batch_v1');
+      if (batchError) throw batchError;
+      const result = data as { applied?: number; already_mapped?: number } | null;
+      toast.success(`تم ربط ${result?.applied ?? 0} كود مؤكد. كان ${result?.already_mapped ?? 0} مربوطًا بالفعل.`);
+      await Promise.all([loadSyncHealth(), loadDaily(), loadApprovalsSummary()]);
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'تعذر اعتماد دفعة الربط؛ لم يتم تطبيقها'); }
+    finally { setBatchMappingBusy(false); }
+  }, [loadApprovalsSummary, loadDaily, loadSyncHealth]);
+
   useEffect(() => { if (tab === 'clock') void loadClock(); }, [tab, loadClock]);
   useEffect(() => { if (tab === 'daily') void loadDaily(); }, [tab, loadDaily]);
   useEffect(() => { if (tab === 'dashboard') void loadDashboardDailySummary(); }, [tab, loadDashboardDailySummary]);
@@ -602,7 +616,7 @@ export default function AttendanceReport() {
         </TabsList></Tabs>
         {systemSubTab === 'sync' && <Suspense fallback={<TableSkeleton />}><AttendanceSyncCommandCenter branches={branches} defaultBranch={effectiveBranch} /></Suspense>}
         {systemSubTab === 'unmapped' && <>
-          <div className="flex items-center justify-between gap-3 rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm"><div><h2 className="font-black text-[var(--dawaa-theme-heading)]">صحة مزامنة جهاز البصمة وربط الأكواد</h2><p className="text-xs font-bold text-[var(--dawaa-theme-muted)]">مراقبة مباشرة للاتصال والمزامنة، وربط أكواد البصمة غير المرتبطة بموظف. يتم التحديث تلقائيًا كل دقيقة.</p></div><button onClick={() => void loadSyncHealth()} className="btn-primary"><RefreshCw size={16} className={loadingSync ? 'animate-spin' : ''} /> تحديث</button></div>
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm"><div><h2 className="font-black text-[var(--dawaa-theme-heading)]">صحة مزامنة جهاز البصمة وربط الأكواد</h2><p className="text-xs font-bold text-[var(--dawaa-theme-muted)]">مراقبة مباشرة للاتصال والمزامنة، وربط أكواد البصمة غير المرتبطة بموظف. يتم التحديث تلقائيًا كل دقيقة.</p></div><div className="flex flex-wrap gap-2"><button disabled={batchMappingBusy || loadingSync} onClick={() => void applyConfirmedBatch()} className="btn-secondary">{batchMappingBusy ? 'جارٍ ربط الأكواد...' : 'اعتماد ٢١ كود مؤكّد'}</button><button onClick={() => void loadSyncHealth()} className="btn-primary"><RefreshCw size={16} className={loadingSync ? 'animate-spin' : ''} /> تحديث</button></div></div>
           {loadingSync ? <TableSkeleton /> : syncHealth ? <SyncHealthPanel health={syncHealth} /> : <Empty text="لا توجد بيانات مزامنة متاحة." />}
           {!loadingSync && <BiometricMappingQueue rows={unmappedRows} target={mappingTarget} crossSourceCandidates={crossSourceCandidates} search={candidateSearch} candidates={candidates} selected={selectedCandidate} busy={mappingBusy} onOpen={(row) => { setMappingTarget(row); setCandidateSearch(row.source_name || ''); setCandidates([]); setSelectedCandidate(null); }} onClose={() => { setMappingTarget(null); setCandidateSearch(''); setCandidates([]); setSelectedCandidate(null); }} onSearchChange={setCandidateSearch} onSearch={() => void searchMappingCandidates()} onSelect={setSelectedCandidate} onAssign={() => void assignMapping()} />}
         </>}
