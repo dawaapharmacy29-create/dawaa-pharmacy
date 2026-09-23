@@ -21,6 +21,7 @@ import { canSeeAllBranches } from '@/lib/security/permissionScopes';
 import { canManageBiometricOperations, getRoutePermissions } from '@/lib/core/permissionSystem';
 import { listPendingOvertime } from '@/lib/attendance/attendanceBreakdownService';
 import { listStaffTimeOffRequests } from '@/lib/timeOffService';
+import { getHRTruthQualitySnapshotV2, type HRTruthQualitySnapshotV2 } from '@/lib/hr/hrTruthService';
 
 type DashboardSummary = {
   staff: number;
@@ -187,6 +188,8 @@ export default function HRWorkforceCenter() {
   const [sync, setSync] = useState<SyncSummary>({ status: 'unknown', lagMinutes: null, latestActivity: null, devices: 0 });
   const [pendingOvertime, setPendingOvertime] = useState(0);
   const [pendingTimeOff, setPendingTimeOff] = useState(0);
+  const [truth, setTruth] = useState<HRTruthQualitySnapshotV2 | null>(null);
+  const [truthAvailable, setTruthAvailable] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [failedSources, setFailedSources] = useState<string[]>([]);
@@ -194,12 +197,13 @@ export default function HRWorkforceCenter() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [dailyResult, triageResult, syncResult, overtimeResult, timeOffResult] = await Promise.allSettled([
+      const [dailyResult, triageResult, syncResult, overtimeResult, timeOffResult, truthResult] = await Promise.allSettled([
         supabase.rpc('attendance_dashboard_daily_summary_v1', { p_date: today, p_branch: branchArg }),
         supabase.rpc('attendance_review_triage_v1', { p_start: cycleStart, p_end: today, p_branch: branchArg }),
         canManageBiometrics ? supabase.rpc('attendance_biometric_operations_v3') : Promise.resolve(null),
         listPendingOvertime(branchArg),
         listStaffTimeOffRequests({ status: 'pending', limit: 200 }),
+        getHRTruthQualitySnapshotV2({ date: today, branch: branchArg }),
       ]);
       const failures = [
         dailyResult.status === 'rejected' || !!dailyResult.value.error || !dailyResult.value.data ? 'تشغيل اليوم' : null,
@@ -207,6 +211,7 @@ export default function HRWorkforceCenter() {
         canManageBiometrics && (syncResult.status === 'rejected' || !syncResult.value || !!syncResult.value.error || !syncResult.value.data) ? 'أجهزة البصمة' : null,
         overtimeResult.status === 'rejected' ? 'الأوفر تايم' : null,
         timeOffResult.status === 'rejected' ? 'طلبات الإجازة' : null,
+        truthResult.status === 'rejected' ? 'سلامة بيانات HR' : null,
       ].filter((item): item is string => item !== null);
       setFailedSources(failures);
 
@@ -245,6 +250,13 @@ export default function HRWorkforceCenter() {
 
       if (overtimeResult.status === 'fulfilled') setPendingOvertime((overtimeResult.value || []).length);
       if (timeOffResult.status === 'fulfilled') setPendingTimeOff((timeOffResult.value || []).length);
+      if (truthResult.status === 'fulfilled') {
+        setTruth(truthResult.value);
+        setTruthAvailable(true);
+      } else {
+        setTruth(null);
+        setTruthAvailable(false);
+      }
     } catch {
       setFailedSources(['بيانات المركز']);
     } finally {
@@ -258,6 +270,9 @@ export default function HRWorkforceCenter() {
   const attendanceCompleted = Math.max(0, daily.onTime + daily.late);
   const interventionCount = review.needsManager + pendingOvertime + pendingTimeOff;
   const syncHealthy = sync.status === 'healthy';
+  const truthBlockers = truth
+    ? truth.active_without_schedule + truth.active_schedule_branch_mismatch + truth.legacy_shift_drift + truth.archived_visible_in_schedule
+    : 0;
   const available = (source: string) => loaded && !failedSources.includes(source) && !failedSources.includes('بيانات المركز');
   const branchLabel = useMemo(() => branchArg || 'كل الفروع', [branchArg]);
 
@@ -314,6 +329,22 @@ export default function HRWorkforceCenter() {
           <Metric label="منتظمون" value={available('تشغيل اليوم') ? daily.onTime : 'غير متاح'} icon={CheckCircle2} tone="ok" />
           <Metric label="متأخرون" value={available('تشغيل اليوم') ? daily.late : 'غير متاح'} icon={Clock} tone={daily.late ? 'warn' : 'ok'} />
           <Metric label="لم تُحسم حالتهم" value={available('تشغيل اليوم') ? daily.missing : 'غير متاح'} hint="لا تعني غيابًا نهائيًا" icon={AlertTriangle} tone={daily.missing ? 'warn' : 'neutral'} />
+        </div>
+      </section>
+
+      <section>
+        <div className="mb-2 flex items-end justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-black text-[var(--dawaa-theme-heading)]">سلامة منظومة الموارد البشرية</h2>
+            <p className="text-xs font-bold text-[var(--dawaa-theme-muted)]">فحص مركزي يمنع تضارب الموظف والجدول قبل وصوله للحضور أو المرتب.</p>
+          </div>
+          <Link to="/hr-data-quality" className="btn-secondary">فتح جودة البيانات <ArrowLeft size={15} /></Link>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <Metric label="موظفون بدون جدول" value={truthAvailable && truth ? truth.active_without_schedule : 'غير متاح'} hint="نشطون بدون Schedule canonical لليوم" icon={CalendarDays} tone={truth?.active_without_schedule ? 'warn' : 'ok'} />
+          <Metric label="تعارض فرع وجدول" value={truthAvailable && truth ? truth.active_schedule_branch_mismatch : 'غير متاح'} hint="هوية الفرع لا تطابق الجدول المعتمد" icon={Users} tone={truth?.active_schedule_branch_mismatch ? 'warn' : 'ok'} />
+          <Metric label="تعارض ساعات legacy" value={truthAvailable && truth ? truth.legacy_shift_drift : 'غير متاح'} hint="staff.shift_* مختلف عن الجدول المعتمد" icon={Clock} tone={truth?.legacy_shift_drift ? 'warn' : 'ok'} />
+          <Metric label="بوابة HR Truth" value={truthAvailable ? (truthBlockers === 0 ? 'سليمة' : `${truthBlockers} تعارض`) : 'غير متاح'} hint="لا تتحول هذه التعارضات إلى خصم على الموظف" icon={ShieldCheck} tone={truthBlockers ? 'warn' : 'ok'} />
         </div>
       </section>
 
