@@ -19,7 +19,7 @@ describe('Phase I.B.4 — canonical Ground Truth integrity', () => {
   });
 
   it('keeps dataset identity explicit and case ids unique', () => {
-    expect(BASKET_GROUND_TRUTH_VERSION_V1).toBe('dawaa-intelligence-ground-truth-v1.2');
+    expect(BASKET_GROUND_TRUTH_VERSION_V1).toBe('dawaa-intelligence-ground-truth-v1.3');
     const ids = BASKET_GROUND_TRUTH_CASES_V1.map((c) => c.id);
     expect(new Set(ids).size).toBe(ids.length);
   });
@@ -38,6 +38,12 @@ describe('Phase I.B.4 — canonical Ground Truth integrity', () => {
     const catalogCodes = new Set(REAL_CATALOG_ROWS_V1.map((r) => r.product_code));
     const expectedCodes = new Set(BASKET_GROUND_TRUTH_CASES_V1.flatMap((c) => c.groundTruth.expectedAddedProductCodes));
     for (const code of expectedCodes) expect(catalogCodes.has(code), `missing catalog fixture code ${code}`).toBe(true);
+  });
+
+  it('requires an explicit trusted date anchor for every time-only markdown Ground Truth case', () => {
+    const timeOnly = BASKET_GROUND_TRUTH_CASES_V1.filter((c) => /time_only_markdown/i.test(c.category));
+    expect(timeOnly.length).toBeGreaterThan(0);
+    for (const c of timeOnly) expect(c.trustedConversationStartedAt).toBeTruthy();
   });
 
   it('never gives a media-only case a guessed canonical product', () => {

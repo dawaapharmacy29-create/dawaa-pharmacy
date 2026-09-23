@@ -25,6 +25,8 @@ export interface SalesIntelligenceGroundTruthCase {
   difficulty?: BenchmarkDifficulty;
   sourceNote: string;
   raw: string;
+  /** Trusted persisted conversation_started_at for time-only markdown exports; never inferred. */
+  trustedConversationStartedAt?: string | null;
   groundTruth: {
     expectedAddedProductCodes: string[];
     expectedNeverAddedProductCodes: string[];
@@ -173,8 +175,11 @@ export interface SalesIntelligenceBenchmarkReport {
   humanSummary: string;
 }
 
-function messagesFrom(raw: string): NormalizedConversationMessageV32[] {
-  const sessions = splitWhatsAppSessions(parseWhatsAppExport(raw), 120);
+function messagesFrom(raw: string, trustedConversationStartedAt?: string | null): NormalizedConversationMessageV32[] {
+  const sessions = splitWhatsAppSessions(
+    parseWhatsAppExport(raw, { trustedConversationStartedAt: trustedConversationStartedAt ?? null }),
+    120
+  );
   if (sessions.length === 0) return [];
   return buildConversationUnderstandingV32(sessions[0]).messages;
 }
@@ -402,7 +407,7 @@ export function runSalesIntelligenceBenchmarkV2(
   const failureCounts: Partial<Record<BenchmarkFailureCategory, number>> = {};
 
   const results: SalesIntelligenceBenchmarkCaseResult[] = cases.map((c) => {
-    const messages = messagesFrom(c.raw);
+    const messages = messagesFrom(c.raw, c.trustedConversationStartedAt);
     const old = runOld(c.id, messages, productIndex);
     const v2 = runV2(c.id, messages, productIndex);
     const expected = new Set(c.groundTruth.expectedAddedProductCodes);

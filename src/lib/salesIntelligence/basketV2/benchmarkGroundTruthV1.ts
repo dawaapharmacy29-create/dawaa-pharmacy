@@ -9,7 +9,7 @@ import type { RawProductRow } from '../pharmacyProducts/canonicalProduct';
 import type { SalesIntelligenceGroundTruthCase } from './benchmarkV2';
 
 /** Dataset version changes whenever labels OR case membership change. */
-export const BASKET_GROUND_TRUTH_VERSION_V1 = 'dawaa-intelligence-ground-truth-v1.2';
+export const BASKET_GROUND_TRUTH_VERSION_V1 = 'dawaa-intelligence-ground-truth-v1.3';
 /** Hermetic catalog fixture version; deliberately includes real near-match confusers. */
 export const BENCHMARK_CATALOG_FIXTURE_VERSION_V1 = 'dawaa-benchmark-catalog-fixture-v1.1';
 
@@ -40,6 +40,7 @@ export const REAL_CATALOG_ROWS_V1: RawProductRow[] = [
   { id: 'f12faa40-4d2f-4c5e-9c70-b727d031cb86', name: 'sweetal 100 sticks', product_code: '67660', normalized_name: 'sweetal 100 sticks', category: null, price: '130', source: 'catalog_import' },
   { id: '10ae49d6-8218-478d-8de9-5d3ecd5a0799', name: 'SWEETAL 100 TAB', product_code: '60145', normalized_name: 'sweetal 100 tab', category: null, price: '90', source: 'catalog_import' },
   { id: '99b7ec8f-e220-4ebe-a167-aeab52ab4ece', name: 'SWEETAL 50 SACHETS 100 G', product_code: '56544', normalized_name: 'sweetal 50 sachets 100 g', category: null, price: '95', source: 'catalog_import' },
+  { id: 'eb58b2d9-1acf-474c-ac43-3726725b1768', name: 'PAMPERS 4 58 pcs', product_code: '80376', normalized_name: 'pampers 4 58 pcs', category: null, price: '463', source: 'catalog_import' },
 ];
 export const BASKET_GROUND_TRUTH_CASES_V1: SalesIntelligenceGroundTruthCase[] = [
   {
@@ -466,6 +467,49 @@ export const BASKET_GROUND_TRUTH_CASES_V1: SalesIntelligenceGroundTruthCase[] = 
       expectedAddedProductCodes: [],
       expectedNeverAddedProductCodes: [],
       expectedQuantities: {},
+      expectedStatus: null,
+      expectUnresolvedSignal: true,
+    },
+  },
+  {
+    id: 'R22',
+    source: 'real',
+    category: 'hard_time_only_markdown_multi_item_order',
+    sourceNote: 'Real Shami source 2b17106c... — historical time-only markdown with no date heading. Persistence supplies trusted conversation_started_at=2026-09-15T13:27:00Z. Customer explicitly orders 2 packs Pampers size 4 after staff confirms 58 pieces; other requested products include size-5 Pampers, Zinc Olive and image-mediated items, so Ground Truth asserts only the uniquely text+catalog-supported size-4 SKU and keeps the rest review-grade.',
+    trustedConversationStartedAt: '2026-09-15T13:27:00.000Z',
+    raw: `[4:27 PM] **عبد الرحمن ابو عرب 17765:** لو سمحت بامبرز بي بم مقاس ٤ موجود؟
+
+[4:34 PM] **You:**
+> _عبد الرحمن ابو عرب 17765: لو سمحت بامبرز بي بم مقاس ٤ موجود؟_
+موجود ان شاء الله
+
+[4:35 PM] **عبد الرحمن ابو عرب 17765:** كام قطعه؟
+
+[4:36 PM] **You:** 58 ا شاء الله
+
+[4:37 PM] **عبد الرحمن ابو عرب 17765:** عايزه ٢ باكيت مقاس ٤ وباكيت مقاس ٥
+
+[4:38 PM] **عبد الرحمن ابو عرب 17765:** وعايزه زنك اوليف
+
+[4:40 PM] **You:** [Image] دي ككويسه جدا حضرتك ان شاء الله
+
+[4:45 PM] **عبد الرحمن ابو عرب 17765:** [Image] وعايزه دي
+
+[4:47 PM] **عبد الرحمن ابو عرب 17765:** كده الحساب كام
+
+[4:53 PM] **You:** الزنك اوليف لوشن ولا كريم ان شاء الله ؟
+
+[4:54 PM] **عبد الرحمن ابو عرب 17765:** كريم بتاع التسلخات للأطفال
+
+[5:06 PM] **You:** الحساب ان شاء الله 1900.
+
+[5:09 PM] **عبد الرحمن ابو عرب 17765:** تمام شكرا
+
+[5:10 PM] **You:** جارى الارسال`,
+    groundTruth: {
+      expectedAddedProductCodes: ['80376'],
+      expectedNeverAddedProductCodes: [],
+      expectedQuantities: { '80376': 2 },
       expectedStatus: null,
       expectUnresolvedSignal: true,
     },
