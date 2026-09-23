@@ -32,6 +32,30 @@ describe('BasketReconstructionV2 — core scenarios', () => {
     expect(currentBasket.items[0].quantityStatus).toBe('known');
   });
 
+  it('Phase I.B.4 — same-message reference carries quantity safely into Basket V2', () => {
+    const { currentBasket } = buildBasketFromConversation(
+      '[9/15/26, 9:00:00 AM] Customer: عايز انتينال وهات منه اتنين',
+      'ib4-same-message-qty',
+      { productIndex: CATALOG }
+    );
+    const antinal = currentBasket.items.find((i) => i.canonicalProductId === 'p-antinal');
+    expect(antinal).toBeDefined();
+    expect(antinal?.currentQuantity).toBe(2);
+    expect(antinal?.quantityStatus).toBe('known');
+  });
+
+  it('Phase I.B.4 — ambiguous same-message pronoun never applies quantity to either product', () => {
+    const { currentBasket } = buildBasketFromConversation(
+      '[9/15/26, 9:00:00 AM] Customer: عايز انتينال وزوركال 20 وهات منه اتنين',
+      'ib4-same-message-ambiguous',
+      { productIndex: CATALOG }
+    );
+    const active = currentBasket.items.filter((i) => i.itemState !== 'removed' && i.itemState !== 'rejected' && i.itemState !== 'substituted');
+    expect(active.length).toBeGreaterThanOrEqual(2);
+    active.forEach((item) => expect(item.currentQuantity).toBeNull());
+    expect(currentBasket.pendingReviewSignals.length).toBeGreaterThan(0);
+  });
+
   it('multi-item order: two distinct, safely-resolved products both added', () => {
     const { currentBasket } = buildBasketFromConversation(
       `[9/15/26, 9:00:00 AM] Customer: عايز انتينال
