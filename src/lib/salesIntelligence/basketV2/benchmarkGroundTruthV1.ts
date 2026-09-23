@@ -20,6 +20,7 @@ export const REAL_CATALOG_ROWS_V1: RawProductRow[] = [
   { id: 'dfbaa321-45eb-42b4-a345-b687bd8cfbf0', name: 'corega denture fixative cream 40gm', product_code: '64439', normalized_name: 'corega denture fixative cream 40gm', category: null, price: '250', source: 'catalog_import' },
   { id: '8659053b-f2da-42c2-83f7-4efe698e77b1', name: 'VICHY NORMADERM PURIFYING 400M', product_code: '71207', normalized_name: 'vichy normaderm purifying 400m', category: null, price: '1200', source: 'catalog_import' },
   { id: 'b872d26e-30e0-4e49-98ba-0ee29ece241f', name: 'ISIS TEEN DERM GEL SENSITIVE 250ML', product_code: '70271', normalized_name: 'isis teen derm gel sensitive 250ml', category: null, price: '659', source: 'catalog_import' },
+  { id: '42e2b052-2885-4cd3-804c-310860d51a89', name: 'bloomville 30 tab', product_code: '73046', normalized_name: 'bloomville 30 tab', category: null, price: '275', source: 'catalog_import' },
 ];
 const CATALOG = catalogFrom(REAL_CATALOG_ROWS);
 
@@ -293,6 +294,32 @@ export const BASKET_GROUND_TRUTH_CASES_V1: SalesIntelligenceGroundTruthCase[] = 
       expectedQuantities: { '68114': null },
       expectedStatus: null,
       expectUnresolvedSignal: false,
+    },
+  },
+  {
+    id: 'R15',
+    source: 'real',
+    category: 'staff_recommendation_then_customer_acceptance',
+    sourceNote: 'Real Dawaa conversation 269d5c5d... — staff explicitly recommends Bloomville, customer says "ماشي تمام" then "هحتاج معاه" before another image-based item; later asks where the order is and delivery is in progress. Ground Truth safely asserts Bloomville only; the image item stays outside the canonical product set rather than being guessed.',
+    raw: `[7/8/26, 8:22:36 AM] Customer: انهي فيتامين كويس جدا
+[7/8/26, 8:24:54 AM] You: bloomville
+[7/8/26, 8:26:42 AM] You: ده كويس جدا
+[7/8/26, 8:27:19 AM] You: العلبه 275ج
+[7/8/26, 8:30:12 AM] Customer: ماشي تمام
+[7/8/26, 8:30:20 AM] Customer: هحتاج معاه
+[7/8/26, 8:30:35 AM] Customer: <image omitted>
+[7/8/26, 8:35:29 AM] You: تحت امر حضرتك
+[7/8/26, 8:35:45 AM] You: حضرتك تؤمرني بحاجه تانيه
+[7/8/26, 9:28:16 AM] Customer: هتبعت الاوردر
+[7/8/26, 9:28:25 AM] Customer: ولا ايه الدنيا
+[7/8/26, 9:28:38 AM] Customer: لسه واصل اهو
+[7/8/26, 9:29:34 AM] You: معلش يفندم بنعتذر لحضرتك ع التاخير`,
+    groundTruth: {
+      expectedAddedProductCodes: ['73046'],
+      expectedNeverAddedProductCodes: [],
+      expectedQuantities: { '73046': null },
+      expectedStatus: null,
+      expectUnresolvedSignal: true,
     },
   },
   {
