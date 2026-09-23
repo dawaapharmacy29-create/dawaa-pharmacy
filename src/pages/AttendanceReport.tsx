@@ -247,7 +247,8 @@ export default function AttendanceReport() {
     return 'timeoff';
   });
   const [systemSubTab, setSystemSubTab] = useState<SystemSubTab>(() => requestedAlias?.systemSub || 'sync');
-  const [reportSubTab, setReportSubTab] = useState<ReportSubTab>('overview');
+  const [reportSubTabState, setReportSubTab] = useState<ReportSubTab>(() => searchParams.get('section') === 'payroll-truth' ? 'payroll-truth' : 'overview');
+  const reportSubTab: ReportSubTab = searchParams.get('section') === 'payroll-truth' ? 'payroll-truth' : reportSubTabState;
   const [resolutionFocusDate, setResolutionFocusDate] = useState<string | null>(null);
   const [resolutionFocusTriage, setResolutionFocusTriage] = useState<'all' | 'manager' | 'system'>('manager');
   const [clockSubView, setClockSubView] = useState<ClockSubView>(() => requestedAlias?.clockSub || 'clock');
@@ -585,7 +586,7 @@ export default function AttendanceReport() {
 
       {activeTab === 'report' && (
         <>
-          <Tabs value={reportSubTab} onValueChange={(v) => setReportSubTab(v as ReportSubTab)} dir="rtl">
+          <Tabs value={reportSubTab} onValueChange={(v) => { setReportSubTab(v as ReportSubTab); setSearchParams((params) => { const updated = new URLSearchParams(params); if (v === 'payroll-truth') updated.set('section', v); else updated.delete('section'); return updated; }, { replace: true }); }} dir="rtl">
             <TabsList className="h-auto flex-wrap justify-start gap-1.5 rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-1.5">
               <TabsTrigger value="overview" className="rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white">سجل وتحليل الدورة</TabsTrigger>
               <TabsTrigger value="payroll-truth" className="rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-white">جاهزية الحضور للمرتب</TabsTrigger>
