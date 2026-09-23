@@ -106,12 +106,37 @@ export async function createStaffTimeOffRequest(args: {
   return data as StaffTimeOffRequest;
 }
 
+export interface TimeOffPreflightV3 {
+  request_id: string;
+  staff_id: string;
+  staff_name: string;
+  request_kind: TimeOffKind;
+  status: TimeOffStatus;
+  start_date: string;
+  end_date: string;
+  allowed: boolean;
+  blockers: Array<{ code: string; label: string; count?: number; requested_days?: number; available_days?: number }>;
+  warnings: Array<{ code: string; label: string; count?: number; duration_minutes?: number; limit_minutes?: number }>;
+  policy_version: string;
+  annual_leave_balance: AnnualLeaveBalanceV1 | null;
+  permission_policy: PermissionPolicyStatusV2 | null;
+  generated_at: string;
+}
+
+export async function getTimeOffRequestPreflightV3(requestId: string): Promise<TimeOffPreflightV3> {
+  const { data, error } = await supabase.rpc('time_off_request_preflight_v3', {
+    p_request_id: requestId,
+  });
+  if (error) throw new Error(error.message);
+  return data as TimeOffPreflightV3;
+}
+
 export async function decideStaffTimeOffRequest(
   requestId: string,
   decision: 'approved' | 'rejected',
   note?: string | null
 ): Promise<StaffTimeOffRequest> {
-  const { data, error } = await supabase.rpc('decide_staff_time_off_request_v1', {
+  const { data, error } = await supabase.rpc('decide_staff_time_off_request_v3', {
     p_request_id: requestId,
     p_decision: decision,
     p_note: note || null,
