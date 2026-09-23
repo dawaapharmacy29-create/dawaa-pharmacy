@@ -108,6 +108,15 @@ type StaffCandidate = {
   role: string | null;
 };
 
+type CrossSourceCandidate = {
+  staff_id: string;
+  staff_name: string;
+  staff_branch: string | null;
+  staff_active: boolean;
+  source_providers: string[];
+  has_conflict: boolean;
+};
+
 interface ApprovalsSummary {
   pendingResolutions: number | null;
   systemInterpretation: number | null;
@@ -253,6 +262,7 @@ export default function AttendanceReport() {
   const [candidateSearch, setCandidateSearch] = useState('');
   const [candidates, setCandidates] = useState<StaffCandidate[]>([]);
   const [selectedCandidate, setSelectedCandidate] = useState<StaffCandidate | null>(null);
+  const [crossSourceCandidates, setCrossSourceCandidates] = useState<CrossSourceCandidate[] | null>(null);
   const [mappingBusy, setMappingBusy] = useState(false);
   const [logs, setLogs] = useState<any[]>([]);
   const [locations, setLocations] = useState<AttendanceLocation[]>([]);
@@ -419,6 +429,21 @@ export default function AttendanceReport() {
     finally { setMappingBusy(false); }
   }, [candidateSearch, mappingTarget]);
 
+  useEffect(() => {
+    if (!mappingTarget) { setCrossSourceCandidates(null); return; }
+    let current = true;
+    setCrossSourceCandidates(null);
+    void supabase.rpc('biometric_cross_source_candidate_v1', {
+      p_provider: mappingTarget.provider,
+      p_biometric_user_id: mappingTarget.biometric_user_id,
+    }).then(({ data, error: candidateError }) => {
+      if (!current) return;
+      if (candidateError) { console.warn('[attendance] cross-source candidates unavailable', candidateError); return; }
+      setCrossSourceCandidates((data || []) as CrossSourceCandidate[]);
+    });
+    return () => { current = false; };
+  }, [mappingTarget]);
+
   const assignMapping = useCallback(async () => {
     if (!mappingTarget || !selectedCandidate) return;
     setMappingBusy(true);
@@ -579,7 +604,7 @@ export default function AttendanceReport() {
         {systemSubTab === 'unmapped' && <>
           <div className="flex items-center justify-between gap-3 rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm"><div><h2 className="font-black text-[var(--dawaa-theme-heading)]">صحة مزامنة جهاز البصمة وربط الأكواد</h2><p className="text-xs font-bold text-[var(--dawaa-theme-muted)]">مراقبة مباشرة للاتصال والمزامنة، وربط أكواد البصمة غير المرتبطة بموظف. يتم التحديث تلقائيًا كل دقيقة.</p></div><button onClick={() => void loadSyncHealth()} className="btn-primary"><RefreshCw size={16} className={loadingSync ? 'animate-spin' : ''} /> تحديث</button></div>
           {loadingSync ? <TableSkeleton /> : syncHealth ? <SyncHealthPanel health={syncHealth} /> : <Empty text="لا توجد بيانات مزامنة متاحة." />}
-          {!loadingSync && <BiometricMappingQueue rows={unmappedRows} target={mappingTarget} search={candidateSearch} candidates={candidates} selected={selectedCandidate} busy={mappingBusy} onOpen={(row) => { setMappingTarget(row); setCandidateSearch(row.source_name || ''); setCandidates([]); setSelectedCandidate(null); }} onClose={() => { setMappingTarget(null); setCandidateSearch(''); setCandidates([]); setSelectedCandidate(null); }} onSearchChange={setCandidateSearch} onSearch={() => void searchMappingCandidates()} onSelect={setSelectedCandidate} onAssign={() => void assignMapping()} />}
+          {!loadingSync && <BiometricMappingQueue rows={unmappedRows} target={mappingTarget} crossSourceCandidates={crossSourceCandidates} search={candidateSearch} candidates={candidates} selected={selectedCandidate} busy={mappingBusy} onOpen={(row) => { setMappingTarget(row); setCandidateSearch(row.source_name || ''); setCandidates([]); setSelectedCandidate(null); }} onClose={() => { setMappingTarget(null); setCandidateSearch(''); setCandidates([]); setSelectedCandidate(null); }} onSearchChange={setCandidateSearch} onSearch={() => void searchMappingCandidates()} onSelect={setSelectedCandidate} onAssign={() => void assignMapping()} />}
         </>}
         {systemSubTab === 'cross-branch' && <Suspense fallback={<TableSkeleton />}>
           <CrossBranchPunchesPanel defaultBranch={effectiveBranch} />
@@ -662,6 +687,7 @@ function SyncHealthPanel({ health }: { health: SyncHealth }) {
 function BiometricMappingQueue({
   rows,
   target,
+  crossSourceCandidates,
   search,
   candidates,
   selected,
@@ -675,6 +701,7 @@ function BiometricMappingQueue({
 }: {
   rows: UnmappedBiometric[];
   target: UnmappedBiometric | null;
+  crossSourceCandidates: CrossSourceCandidate[] | null;
   search: string;
   candidates: StaffCandidate[];
   selected: StaffCandidate | null;
@@ -733,6 +760,11 @@ function BiometricMappingQueue({
         </div>
         <button onClick={onClose} className="btn-secondary">إلغاء</button>
       </div>
+      {crossSourceCandidates && crossSourceCandidates.length > 0 && <div className="mb-3 rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-3 text-xs font-bold text-[var(--dawaa-status-warning-text)]">
+        <div>نفس الكود له ربط سابق في مصدر بصمة آخر. دي أسماء للمراجعة فقط، وليست ربطًا تلقائيًا؛ ممكن الرقم يتكرر لشخص مختلف على جهاز آخر.</div>
+        {crossSourceCandidates.map((match) => <div key={match.staff_id} className="mt-1">{match.staff_name} · {match.staff_branch || 'بدون فرع'} · {match.staff_active ? 'نشط' : 'مؤرشف'} · {match.source_providers.join('، ')}</div>)}
+        {crossSourceCandidates.some((match) => match.has_conflict) && <div className="mt-1">تنبيه: نفس الكود مربوط بأكثر من موظف؛ راجع هوية الجهاز قبل الاعتماد.</div>}
+      </div>}
       <div className="flex flex-col gap-2 sm:flex-row">
         <input value={search} onChange={(e) => onSearchChange(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') onSearch(); }} placeholder="اكتب اسم الموظف الحقيقي..." className="input-dark flex-1" />
         <button disabled={busy} onClick={onSearch} className="btn-primary"><Search size={16} /> بحث</button>
