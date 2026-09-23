@@ -153,12 +153,12 @@ export function reconstructBasketV2(graph: ConversationEntityGraphV2, messageTim
     announcedOrderTotal: null,
   };
 
-  function pushEvent(type: BasketEventType, action: ActionNode | null, targetProductId: string | null, previousState: unknown, nextState: unknown, confidence: number, safety: BasketLinkingSafety, ruleIds: string[], note: string) {
+  function pushEvent(type: BasketEventType, action: ActionNode | null, targetProductId: string | null, previousState: unknown, nextState: unknown, confidence: number, safety: BasketLinkingSafety, ruleIds: string[], note: string, sourceMessageIdOverride?: string) {
     events.push({
       eventId: `evt:${graph.caseId}:${seq}`,
       type,
       sequence: seq++,
-      sourceMessageId: action?.sourceMessageId ?? '',
+      sourceMessageId: sourceMessageIdOverride ?? action?.sourceMessageId ?? '',
       targetProductId,
       previousState,
       nextState,
@@ -183,6 +183,33 @@ export function reconstructBasketV2(graph: ConversationEntityGraphV2, messageTim
   function recordReview(sourceMessageId: string, rawText: string, reason: string, relatedProductId: string | null) {
     state.pendingReviewSignals.push({ sourceMessageId, reason, rawText, relatedProductId });
   }
+
+  // I.B.4 media-aware review propagation. A reference such as "دي" / "نفس دي" immediately
+  // after an image/voice placeholder has a real antecedent KIND but no text-visible SKU. The graph
+  // deliberately keeps selectedAntecedent=null; Basket V2 must still surface a human-review signal
+  // instead of silently treating the case as complete. This never mutates basket items.
+  const mediaReviewKeys = new Set<string>();
+  graph.references
+    .filter((ref) => ref.antecedentKind === 'media' && ref.selectedAntecedent === null)
+    .forEach((ref) => {
+      const key = `${ref.sourceMessageId}:${ref.rawText}`;
+      if (mediaReviewKeys.has(key)) return;
+      mediaReviewKeys.add(key);
+      state.sourceMessageIds.add(ref.sourceMessageId);
+      recordReview(ref.sourceMessageId, ref.rawText, 'media_content_unavailable', null);
+      pushEvent(
+        'REVIEW_SIGNAL',
+        null,
+        null,
+        null,
+        null,
+        ref.confidence,
+        'unsafe',
+        ['basket.review.media_content_unavailable'],
+        `Reference "${ref.rawText}" points to media content whose product identity is unavailable — human review required.`,
+        ref.sourceMessageId
+      );
+    });
 
   graph.actions.forEach((action) => {
     state.sourceMessageIds.add(action.sourceMessageId);

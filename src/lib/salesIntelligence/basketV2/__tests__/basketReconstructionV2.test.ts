@@ -56,6 +56,17 @@ describe('BasketReconstructionV2 — core scenarios', () => {
     expect(currentBasket.pendingReviewSignals.length).toBeGreaterThan(0);
   });
 
+  it('Phase I.B.4 — media-only reference creates review signal without inventing a basket item', () => {
+    const { currentBasket, events } = buildBasketFromConversation(
+      `[9/15/26, 9:00:00 AM] Customer: <image omitted>\n[9/15/26, 9:00:10 AM] Customer: عايزه دي`,
+      'ib4-media-reference',
+      { productIndex: CATALOG }
+    );
+    expect(currentBasket.items).toHaveLength(0);
+    expect(currentBasket.pendingReviewSignals.some((r) => r.reason === 'media_content_unavailable')).toBe(true);
+    expect(events.some((e) => e.type === 'REVIEW_SIGNAL' && e.ruleIds.includes('basket.review.media_content_unavailable'))).toBe(true);
+  });
+
   it('multi-item order: two distinct, safely-resolved products both added', () => {
     const { currentBasket } = buildBasketFromConversation(
       `[9/15/26, 9:00:00 AM] Customer: عايز انتينال
