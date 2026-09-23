@@ -49,9 +49,10 @@ describe('time-only WhatsApp markdown export', () => {
   it('parses time-only markdown when persisted conversation_started_at supplies the trusted date', () => {
     const messages = parseWhatsAppExport(timeOnly, { trustedConversationStartedAt: '2026-09-15T13:27:00.000Z' });
     expect(messages).toHaveLength(2);
-    expect(messages[0].timestamp.getFullYear()).toBe(2026);
-    expect(messages[0].timestamp.getMonth()).toBe(8);
-    expect(messages[0].timestamp.getDate()).toBe(15);
+    // The first time-only message is anchored to persisted conversation_started_at exactly, not
+    // interpreted in the Node/Vercel machine timezone. The second follows the raw local clock delta.
+    expect(messages[0].timestamp.toISOString()).toBe('2026-09-15T13:27:00.000Z');
+    expect(messages[1].timestamp.toISOString()).toBe('2026-09-15T13:30:00.000Z');
     expect(messages[0].sender).toContain('عبد الرحمن');
     expect(messages[1].direction).toBe('outbound');
   });
@@ -65,6 +66,8 @@ describe('I.B.4 — real Shami time-only markdown regressions', () => {
 
     expect(withoutAnchor).toHaveLength(0);
     expect(withAnchor).toHaveLength(2);
+    expect(withAnchor[0].timestamp.toISOString()).toBe('2026-09-15T15:04:00.000Z');
+    expect(withAnchor[1].timestamp.toISOString()).toBe('2026-09-15T15:05:00.000Z');
     expect(withAnchor[0].sender).toBe('خالد فوده 9281');
     expect(withAnchor[1].sender).toBe('You');
     expect(withAnchor[1].direction).toBe('outbound');
@@ -79,6 +82,17 @@ describe('I.B.4 — real Shami time-only markdown regressions', () => {
     expect(messages[1].replyTo?.text).toContain('بامبرز');
     expect(messages[1].text).toBe('موجود ان شاء الله');
     expect(messages[3].direction).toBe('outbound');
+  });
+});
+
+describe('I.B.4 — trusted time-only timeline across midnight', () => {
+  it('preserves chronology when the raw local clock rolls from PM to AM', () => {
+    const raw = `[11:59 PM] **Customer:** قبل نص الليل\n\n[12:01 AM] **You:** بعد نص الليل`;
+    const messages = parseWhatsAppExport(raw, { trustedConversationStartedAt: '2026-09-15T20:59:00.000Z' });
+    expect(messages).toHaveLength(2);
+    expect(messages[0].timestamp.toISOString()).toBe('2026-09-15T20:59:00.000Z');
+    expect(messages[1].timestamp.toISOString()).toBe('2026-09-15T21:01:00.000Z');
+    expect(messages[1].timestamp.getTime()).toBeGreaterThan(messages[0].timestamp.getTime());
   });
 });
 
