@@ -374,6 +374,83 @@ export const BASKET_GROUND_TRUTH_CASES_V1: SalesIntelligenceGroundTruthCase[] = 
     },
   },
   {
+    id: 'R18',
+    source: 'real',
+    category: 'direct_misspelled_product_with_explicit_strip_order',
+    sourceNote: 'Real Dawaa conversation bf93b5f0... — customer explicitly asks for "شريط فليكس لايكس", later staff asks whether to send it now, customer accepts, and final clarification sends the injection plus that strip. Ground Truth safely asserts Flexilax SKU 68114; other recommended products are not added because the customer explicitly declines adding them at that moment.',
+    raw: `[7/15/26, 12:49:53 PM] Customer: محتاج شريط فليكس لايكس
+[7/15/26, 12:50:14 PM] Customer: هو ايه فايده فيتامين سي
+[7/15/26, 1:01:12 PM] You: ابعت لحضرتك الشريط دلوقت ؟
+[7/15/26, 1:02:02 PM] Customer: ماشي تمام
+[7/15/26, 1:03:48 PM] You: ولو زودنا مالتي فيتامين زي السنتريم هيكون كويس جدا
+[7/15/26, 1:37:32 PM] You: ابعت لحضرتك الاوردر دلوقت ؟
+[7/15/26, 1:39:35 PM] Customer: ماشي تمام
+[7/15/26, 1:40:21 PM] Customer: هبقا ابعتهم تحويل وابعتهولي
+[7/15/26, 1:43:19 PM] You: تمام ازود مع الاوردر
+[7/15/26, 1:44:19 PM] Customer: لا لما ابعت حسابه
+[7/15/26, 1:45:13 PM] You: يعني ابعت الحقنه والشريط فقط دلوفت ؟
+[7/15/26, 1:45:21 PM] Customer: اه تمام
+[7/15/26, 1:45:38 PM] You: تم الارسال`,
+    groundTruth: {
+      expectedAddedProductCodes: ['68114'],
+      expectedNeverAddedProductCodes: [],
+      expectedQuantities: { '68114': null },
+      expectedStatus: null,
+      expectUnresolvedSignal: true,
+    },
+  },
+  {
+    id: 'R19',
+    source: 'real',
+    category: 'hard_media_only_wrong_item_correction',
+    sourceNote: 'Real Dawaa conversation fd505a4d... — customer says the received treatment is wrong and identifies both requested and received products only through images/voice ("ده الا محتاجه", "ده الا جالي", "محتاج نفس دي"). Text never reveals a canonical SKU. Ground Truth therefore requires review/unresolved and asserts NO product identity; guessing here would be a safety failure.',
+    raw: `[7/31/26, 7:57:24 AM] Customer: كنت واخد علاج وطلع غلط
+[7/31/26, 7:57:35 AM] Customer: <image omitted>
+[7/31/26, 7:57:45 AM] Customer: <image omitted>
+[7/31/26, 7:57:45 AM] Customer: ده الا محتاجه
+[7/31/26, 7:59:55 AM] Customer: <image omitted>
+[7/31/26, 7:59:58 AM] Customer: ده الا جالي
+[7/31/26, 8:00:49 AM] You: مش هو نفس ال حضرتك طالبه
+[7/31/26, 8:01:15 AM] Customer: <voice message omitted>
+[7/31/26, 8:01:33 AM] Customer: محتاج نفس دي
+[7/31/26, 8:08:37 AM] You: هو تقريبا يا فندم غيروا شكل العلبة
+[7/31/26, 8:10:44 AM] Customer: <voice message omitted>
+[7/31/26, 8:10:49 AM] Customer: دي
+[7/31/26, 8:10:56 AM] Customer: نفس الا معايا`,
+    groundTruth: {
+      expectedAddedProductCodes: [],
+      expectedNeverAddedProductCodes: [],
+      expectedQuantities: {},
+      expectedStatus: null,
+      expectUnresolvedSignal: true,
+    },
+  },
+  {
+    id: 'R20',
+    source: 'real',
+    category: 'hard_media_only_exact_product_request',
+    sourceNote: 'Real Dawaa conversation 44999fee... — customer repeatedly requests exactly the product shown in forwarded images ("محتاج نفس العلبه دي", "نفسي دي بظبط"), rejects an incorrect interpretation, and staff later sources it. Product identity is absent from text, so Ground Truth intentionally remains unresolved rather than inferring a SKU from context.',
+    raw: `[8/19/26, 8:37:51 PM] Customer: <image omitted>
+[8/19/26, 8:38:08 PM] Customer: محتاج نفس العلبه دي
+[8/19/26, 8:38:30 PM] Customer: متاحه
+[8/19/26, 8:39:10 PM] Customer: سعرها كام
+[8/19/26, 8:39:47 PM] You: نفسها ي فندم
+[8/19/26, 8:41:17 PM] Customer: مش دي
+[8/19/26, 8:44:25 PM] Customer: <image omitted>
+[8/19/26, 8:44:42 PM] Customer: نفسي دي بظبط
+[8/19/26, 9:10:00 PM] You: بتاكد لحضرتك ي فندم
+[8/19/26, 9:26:36 PM] You: وفرته لحضرتك ي فندم
+[8/19/26, 9:27:06 PM] You: <image omitted>
+[8/19/26, 9:29:46 PM] You: استاذن حضرتك الصبح ي فندم حضرتك تبعتلنا رسالة للتاكيد`,
+    groundTruth: {
+      expectedAddedProductCodes: [],
+      expectedNeverAddedProductCodes: [],
+      expectedQuantities: {},
+      expectedStatus: null,
+      expectUnresolvedSignal: true,
+    },
+  },
+  {
     id: 'S01',
     source: 'synthetic',
     category: 'remove_item',
