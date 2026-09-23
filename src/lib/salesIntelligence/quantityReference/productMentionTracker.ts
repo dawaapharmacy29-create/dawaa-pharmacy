@@ -99,6 +99,12 @@ const ENUMERATION_OR_RX = /^(.+?)\s+(?:أو|او)\s+(.+)$/;
 // reason documented in whatsappSemanticSignalsV32.ts's own PRODUCT_REFERENCE_RX.
 const DEMONSTRATIVE_REFERENCE_RX = /(?<![\p{L}\p{N}])(?:ده|دي|دول|دا)(?![\p{L}\p{N}])/u;
 const AVAILABILITY_OR_PRICE_QUESTION_MARKER_RX = /موجود[ةه]?|متوفر[ةه]?|متاح[ةه]?|عندك(?:م)?|فيه|بكام|كام(?:\s*كده)?|سعر[ةه]?/i;
+// Phase I.B.4: when catalog-first conjunction segmentation sees a second clause such as
+// "هات منه اتنين", that clause is an ORDER ACTION over an already-mentioned product, not a new
+// product name. It must never become an unresolved competing ProductMention and poison the
+// same-message reference resolver. Deliberately narrow: only an order/send verb followed by an
+// explicit reference token is suppressed; "هات زوركال" still remains product-like.
+const ORDER_REFERENCE_FRAGMENT_RX = /^(?:هات[ي]?|ابعت(?:لي|يلي|لنا|ه|ها|هم)?|ابعث(?:لي|ه|ها|هم)?|ضيف[ي]?)\s+(?:منه|منها|ده|دي|دول|التاني[ةه]?|الأول|الاول|نفسه|نفسها|زيه|زيها)(?:\s+.*)?$/iu;
 
 /**
  * I.B.3.1 instruction #5 — explicit ProductMention validity, computed at the EARLIEST layer
@@ -116,7 +122,8 @@ function classifyMentionValidity(rawTextForClassification: string, resolution: P
     COLLECTIVE_REFERENCE_RX.test(core) ||
     AVAILABILITY_CORE_RX.test(core) ||
     ADDRESS_ONLY_RX.test(core.trim()) ||
-    PURE_QUANTITY_RX.test(core)
+    PURE_QUANTITY_RX.test(core) ||
+    ORDER_REFERENCE_FRAGMENT_RX.test(core)
   ) {
     return 'non_product';
   }

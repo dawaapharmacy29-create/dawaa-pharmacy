@@ -144,3 +144,15 @@ describe('I.B.3.1 — same-SKU merge still holds after segmentation changes (reg
     expect(antinalIdentities.size).toBe(1);
   });
 });
+
+
+describe('Phase I.B.4 — same-message order/reference fragments are not products', () => {
+  it('"عايز انتينال وهات منه اتنين" keeps Antinal canonical and marks the action fragment non-product', () => {
+    const messages = messagesFrom('[9/15/26, 9:00:00 AM] Customer: عايز انتينال وهات منه اتنين');
+    const mentions = buildProductMentions(messages, { productIndex: CATALOG, resolveOptions: { crossScriptSeed: CROSS_SCRIPT_SEED } });
+    const antinal = mentions.find((m) => m.resolvedProductId === 'p-antinal');
+    expect(antinal).toBeDefined();
+    const actionFragment = mentions.find((m) => /هات\s+منه/.test(m.rawText));
+    expect(actionFragment?.validity).toBe('non_product');
+  });
+});
