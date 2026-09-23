@@ -19,6 +19,7 @@ describe('Phase I.B.4 — composed evaluation report', () => {
     expect(a.summary).toBe(b.summary);
     expect(a.basket.machineReadableJson).toBe(b.basket.machineReadableJson);
     expect(a.basket.metrics.falseAddedProductToBasket.v2).toBe(0);
+    expect(a.basket.metrics.quantityTargetAudit.incorrect).toBe(0);
     expect(a.basket.metrics.wrongQuantityAppliedToCorrectProduct).toBe(0);
     expect(a.basket.metrics.safeEdgeAudit.verifiedIncorrect).toBe(0);
     expect(a.readiness.readyForNextStage).toBe(false);

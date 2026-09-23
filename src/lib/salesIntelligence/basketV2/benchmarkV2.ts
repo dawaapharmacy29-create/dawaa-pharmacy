@@ -137,6 +137,10 @@ export interface SalesIntelligenceBenchmarkMetrics {
   syntheticOnlyV2Product: { tp: number; fp: number; fn: number; precision: number; recall: number };
   oldProduct: { tp: number; fp: number; fn: number; precision: number; recall: number };
   v2Product: { tp: number; fp: number; fn: number; precision: number; recall: number };
+  /** Canonical SKU correctness over all V2 SKU predictions that Ground Truth can judge. */
+  canonicalSkuAccuracy: number;
+  basketMatch: { exactCases: number; partialCases: number; wrongCases: number; intentionallyUnresolvedCases: number; exactRate: number; partialRate: number };
+  quantityTargetAudit: { labeled: number; correct: number; incorrect: number; missed: number; accuracy: number };
   falseAddedProductToBasket: { old: number; v2: number };
   /** Empirical audit of graph edges already marked safeForBasketLinking=safe. "Unverifiable" is
    * deliberately separate — Ground Truth does not pretend to label every reference relation. */
@@ -366,6 +370,8 @@ export function runSalesIntelligenceBenchmarkV2(
   let v2TP = 0, v2FP = 0, v2FN = 0;
   let falseOld = 0, falseV2 = 0;
   let wrongQty = 0, missedQty = 0, unresolvedCases = 0, regressions = 0;
+  let exactBasketCases = 0, partialBasketCases = 0, wrongBasketCases = 0, intentionallyUnresolvedCases = 0;
+  let labeledQuantities = 0, correctQuantities = 0;
   let mediaLimitedCases = 0, transliterationFailureCases = 0, safetyCriticalErrorCount = 0;
   let eventLabeled = 0, eventCorrect = 0, eventIncorrect = 0;
   let versionLabeled = 0, versionCorrect = 0, versionIncorrect = 0;
@@ -404,14 +410,20 @@ export function runSalesIntelligenceBenchmarkV2(
 
     for (const [code, expectedQty] of Object.entries(c.groundTruth.expectedQuantities)) {
       if (expectedQty === null) continue;
+      labeledQuantities++;
       const item = v2.items.find((i) => i.productCode === code);
       if (!item || item.quantity === null) missedQty++;
       else if (item.quantity !== expectedQty) wrongQty++;
+      else correctQuantities++;
     }
 
     if (v2.unresolved) unresolvedCases++;
     const classification = classifyCase(c, old.items, v2.items, v2.unresolved);
     if (classification === 'old_correct_v2_regression') regressions++;
+    if (classification === 'both_correct' || classification === 'v2_fixed_old') exactBasketCases++;
+    else if (classification === 'intentionally_unresolved') intentionallyUnresolvedCases++;
+    else if (classification === 'both_partial') partialBasketCases++;
+    else wrongBasketCases++;
 
     if (c.groundTruth.expectedEventTypes) {
       eventLabeled++;
@@ -581,6 +593,22 @@ export function runSalesIntelligenceBenchmarkV2(
     syntheticOnlyV2Product: { ...syntheticV2, precision: ratio(syntheticV2.tp, syntheticV2.tp + syntheticV2.fp), recall: ratio(syntheticV2.tp, syntheticV2.tp + syntheticV2.fn) },
     oldProduct: { tp: oldTP, fp: oldFP, fn: oldFN, precision: ratio(oldTP, oldTP + oldFP), recall: ratio(oldTP, oldTP + oldFN) },
     v2Product: { tp: v2TP, fp: v2FP, fn: v2FN, precision: ratio(v2TP, v2TP + v2FP), recall: ratio(v2TP, v2TP + v2FN) },
+    canonicalSkuAccuracy: ratio(v2TP, v2TP + v2FP),
+    basketMatch: {
+      exactCases: exactBasketCases,
+      partialCases: partialBasketCases,
+      wrongCases: wrongBasketCases,
+      intentionallyUnresolvedCases,
+      exactRate: ratio(exactBasketCases, cases.length),
+      partialRate: ratio(partialBasketCases, cases.length),
+    },
+    quantityTargetAudit: {
+      labeled: labeledQuantities,
+      correct: correctQuantities,
+      incorrect: wrongQty,
+      missed: missedQty,
+      accuracy: ratio(correctQuantities, labeledQuantities),
+    },
     falseAddedProductToBasket: { old: falseOld, v2: falseV2 },
     safeEdgeAudit: {
       total: safeEdgeTotal,
@@ -639,6 +667,8 @@ export function runSalesIntelligenceBenchmarkV2(
     `Real positive-order cases: ${metrics.realPositiveOrderCases}; real hard cases: ${metrics.realHardCases}`,
     `V2 product precision: ${(metrics.v2Product.precision * 100).toFixed(1)}%`,
     `V2 product recall: ${(metrics.v2Product.recall * 100).toFixed(1)}%`,
+    `Exact basket match: ${metrics.basketMatch.exactCases}/${metrics.totalCases} (${(metrics.basketMatch.exactRate * 100).toFixed(1)}%); partial: ${metrics.basketMatch.partialCases}`,
+    `Quantity target accuracy: ${metrics.quantityTargetAudit.correct}/${metrics.quantityTargetAudit.labeled} (${(metrics.quantityTargetAudit.accuracy * 100).toFixed(1)}%)`,
     `Real-only V2 product precision/recall: ${(metrics.realOnlyV2Product.precision * 100).toFixed(1)}% / ${(metrics.realOnlyV2Product.recall * 100).toFixed(1)}%`,
     `False-added products: ${metrics.falseAddedProductToBasket.v2}`,
     `Safe edges: ${metrics.safeEdgeAudit.total} (verified wrong ${metrics.safeEdgeAudit.verifiedIncorrect}, unverifiable ${metrics.safeEdgeAudit.unverifiable})`,

@@ -21,6 +21,9 @@ function benchmark(overrides: Partial<SalesIntelligenceBenchmarkMetrics> = {}): 
     syntheticOnlyV2Product: { tp: 5, fp: 0, fn: 0, precision: 1, recall: 1 },
     oldProduct: { tp: 0, fp: 0, fn: 25, precision: 0, recall: 0 },
     v2Product: { tp: 25, fp: 0, fn: 5, precision: 1, recall: 25 / 30 },
+    canonicalSkuAccuracy: 1,
+    basketMatch: { exactCases: 20, partialCases: 5, wrongCases: 0, intentionallyUnresolvedCases: 5, exactRate: 20 / 30, partialRate: 5 / 30 },
+    quantityTargetAudit: { labeled: 10, correct: 8, incorrect: 0, missed: 2, accuracy: 0.8 },
     falseAddedProductToBasket: { old: 0, v2: 0 },
     safeEdgeAudit: { total: 20, verifiedCorrect: 18, verifiedIncorrect: 0, unverifiable: 2, empiricalErrorRate: 0 },
     confidenceCalibration: {
