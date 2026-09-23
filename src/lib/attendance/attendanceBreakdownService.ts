@@ -66,6 +66,9 @@ export interface PendingOvertimeRow {
   hourly_rate: number | null;
   overtime_amount: number | null;
   status: string;
+  source_resolution_id?: string | null;
+  source_resolution_fingerprint?: string | null;
+  source_resolution_linked_at?: string | null;
 }
 
 export interface OvertimeDecisionRow extends PendingOvertimeRow {
