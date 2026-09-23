@@ -282,6 +282,21 @@ export function buildProductMentions(
     } else if (message.role === 'staff' && OFFER_MARKER_RX.test(message.text)) {
       role = AVAILABILITY_ONLY_RX.test(message.text.trim()) ? 'staff_availability' : 'staff_offer';
       rawText = cleanStaffOfferText(message.text);
+    } else if (message.role === 'staff' && options.productIndex) {
+      // I.B.4 fix (R15): a staff recommendation stated as a BARE product name with no
+      // availability/offer marker at all ("bloomville", after the customer asked "انهي فيتامين
+      // كويس جدا") previously produced NO mention whatsoever — OFFER_MARKER_RX (checked just above)
+      // requires an explicit marker word (موجود/متوفر/متاح/عندنا/هبعتلك/ينفع) that a plain
+      // recommendation never carries. Deliberately gated on `proven`/`strongly_inferred` confidence
+      // only (exact code, exact canonical name, or an approved alias) — never `weakly_inferred`
+      // (cross-script/fuzzy), so this never becomes a backdoor for guessing at a loosely-matching
+      // phrase; it only recognizes a staff message that the SAME resolver every other role already
+      // trusts at its strongest tier.
+      const bareResolution = resolveProductMention(message.text.trim(), options.productIndex, options.resolveOptions);
+      if (bareResolution.selected && bareResolution.selected.confidence !== 'weakly_inferred') {
+        role = 'staff_offer';
+        rawText = message.text.trim();
+      }
     }
 
     if (!role || !rawText) return;

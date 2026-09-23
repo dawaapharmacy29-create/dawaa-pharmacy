@@ -41,6 +41,15 @@ const RECOMMEND_REQUEST_RX = /ترشح(?:ي)?\s*لي|ممكن\s*ترشح|عاي�
 // Used ONLY below, gated to the no-existing-basket-content case (instruction #18's own example).
 const RECOMMENDATION_ACCEPTANCE_RX = /^تمام\s*(?:هات(?:ه|ها|يه|يها|هم)?|ابعت(?:ه|ها|يه|يها|هم|لي|لحضرتك)?)[!.، ]*$/i;
 
+// I.B.4 fix (R15) — same narrowly-scoped spirit as RECOMMENDATION_ACCEPTANCE_RX above, never a
+// modification to whatsappSemanticSignalsV32.ts. Its own WEAK_IMPLICIT_RX/ACCEPTANCE_RX only ever
+// match a SINGLE bare acknowledgement word ("تمام" alone); a real Dawaa example ("ماشي تمام", right
+// after a staff recommendation) doubles up two of these words back-to-back — a much stronger,
+// unambiguous "yes, agreed" than either word carries alone — and neither existing regex's `^...$`
+// anchors ever match a two-word string. Order-independent (also matches "تمام ماشي") since either
+// arrangement means the same thing colloquially.
+const DOUBLE_ACKNOWLEDGEMENT_ACCEPTANCE_RX = /^(?:تمام|حاضر|اوك|ok|ماشي|خلاص)\s+(?:تمام|حاضر|اوك|ok|ماشي|خلاص)[!.، ]*$/i;
+
 // I.B.3-owned, narrowly-scoped exception — NEVER modifies quantityIntelligenceV2.ts. Its
 // DECREMENT_RX/INCREMENT_RX capture a quantity word (واحدة/اتنين/N) OPTIONALLY, so "شيل انتينال"
 // and "زود فليكسيلاكس" (a bare-verb REMOVE/ADD naming a PRODUCT, not a quantity) still match with
@@ -114,7 +123,9 @@ export function classifyMessageActions(
 
     const acceptanceSignal = extractAcceptanceSignals([message])[0];
     const confirmationSignal = extractConfirmationSignals([message])[0];
-    const recommendationAcceptance = !hasExistingBasketContent && RECOMMENDATION_ACCEPTANCE_RX.test(text.trim());
+    const recommendationAcceptance =
+      !hasExistingBasketContent &&
+      (RECOMMENDATION_ACCEPTANCE_RX.test(text.trim()) || DOUBLE_ACKNOWLEDGEMENT_ACCEPTANCE_RX.test(text.trim()));
     if (acceptanceSignal || recommendationAcceptance || (confirmationSignal && isSubstantiveConfirmationSignal(confirmationSignal))) {
       const confidence = Math.max(acceptanceSignal?.confidence ?? 0, confirmationSignal?.confidence ?? 0, recommendationAcceptance ? 0.6 : 0);
       // Instruction #18's own worked example: staff recommends ("ممكن زوركال 20"), customer accepts

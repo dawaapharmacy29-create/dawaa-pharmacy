@@ -182,15 +182,19 @@ describe('I.B.3/I.B.3.1 — real Basket benchmark: OLD vs Basket Reconstruction 
     expect(first.metrics.quantityTargetAudit.incorrect).toBe(0);
     expect(first.metrics.safeEdgeAudit.verifiedIncorrect).toBe(0);
     expect(first.metrics.confidenceCalibration.productMentions.length).toBe(3);
-    // Known, honestly-reported recall gap (not a safety violation — no false add, no wrong SKU):
-    // R07 (image_antecedent), R09 (substitution), R13 (misspelled_product_then_quantity_clarification),
-    // R15 (staff_recommendation_then_customer_acceptance) each need their own root-cause
-    // investigation across different subsystems (media reference detection, substitution flow,
-    // misspelling+quantity linkage, recommendation-acceptance flow) — out of scope for a single
-    // narrow fix here per this phase's own "no large new architecture inside I.B.4" rule. Locked at
-    // the current count so a future regression (a 5th case silently going unreviewed) still fails
-    // loudly, without pretending this is already 0.
-    expect(first.metrics.humanReviewQuality.missedReview).toBe(4);
+    // I.B.4 completion pass: R07 (image_antecedent) and R09 (substitution) are now fixed — an
+    // unresolved reference with NO real catalog candidate among its options (never a candidate that
+    // ALSO includes an already-resolved product, e.g. S04's "الاتنين موجودين" over two explicitly
+    // named items) now correctly surfaces a review signal instead of silently vanishing. R15 is
+    // fixed as a side effect of recognizing "ماشي تمام" as a double-acknowledgement acceptance.
+    // R13 remains a known, honestly-reported gap: Flexilax genuinely resolves early in the
+    // conversation, but a later, UNRELATED "لا" (rejecting a different, staff-suggested product)
+    // retroactively invalidates it as an active candidate — computeActiveProductCandidates()
+    // attributes a whole-item rejection globally rather than to the specific product it was about.
+    // Fixing that safely requires rejection-target attribution, a real but separate investigation
+    // (see the I.B.4 completion report), not a narrow fix here. Locked at the current count so a
+    // future regression (a 6th case silently going unreviewed) still fails loudly.
+    expect(first.metrics.humanReviewQuality.missedReview).toBe(1);
     expect(first.metrics.wrongQuantityAppliedToCorrectProduct).toBe(0);
     expect(first.metrics.regressions).toBe(0);
   });

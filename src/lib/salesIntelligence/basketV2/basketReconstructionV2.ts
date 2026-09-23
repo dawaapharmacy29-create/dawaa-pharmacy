@@ -211,6 +211,53 @@ export function reconstructBasketV2(graph: ConversationEntityGraphV2, messageTim
       );
     });
 
+  // I.B.4 fix (R07): the SAME structural gap as the media case above, but with antecedentKind
+  // `'product'` instead of `'media'` — referenceResolverV2.ts correctly refuses to guess between
+  // several genuinely competing candidates (e.g. staff "ده الصغير يفندم" / "الاتنين كريم حضرتك"
+  // pointing at two real, still-undecided product variants shown in two images, R07's real
+  // Corega-cream example) and leaves `selectedAntecedent: null`, `safeForBasketLinking: 'unsafe'`.
+  // Previously this evidence simply had nowhere to go — nothing in this file ever consumed an
+  // unresolved reference outside the media-only case, so a genuine "customer must choose between
+  // two real products, and the choice was never captured in text" decision point silently vanished
+  // instead of surfacing for a human to check. Never mutates basket items, exactly like the media
+  // case above — this only ever ADDS a review signal, never a product.
+  const ambiguousProductReferenceKeys = new Set<string>();
+  graph.references
+    .filter(
+      (ref) =>
+        ref.antecedentKind === 'product' &&
+        ref.selectedAntecedent === null &&
+        ref.safeForBasketLinking !== 'safe' &&
+        ref.candidateAntecedents.length > 0 &&
+        // A reference genuinely worth flagging has NO real, already-resolved product among its
+        // candidates at all (R07: every candidate is a weak, never-resolved text mention — the
+        // decision was never captured anywhere). A collective/summary reference over products that
+        // are ALREADY safely established through their own direct mention (S04's "الاتنين موجودين"
+        // acknowledging two products the customer just named explicitly) is not a new, unresolved
+        // decision point — those products are independently correct via their own edges, and this
+        // reference finding them merely "ambiguous to pick ONE of" is not itself a gap to report.
+        ref.candidateAntecedents.every((id) => !productById.get(id)?.canonicalProductId)
+    )
+    .forEach((ref) => {
+      const key = `${ref.sourceMessageId}:${ref.rawText}`;
+      if (ambiguousProductReferenceKeys.has(key)) return;
+      ambiguousProductReferenceKeys.add(key);
+      state.sourceMessageIds.add(ref.sourceMessageId);
+      recordReview(ref.sourceMessageId, ref.rawText, 'ambiguous_reference_no_safe_antecedent', null);
+      pushEvent(
+        'REVIEW_SIGNAL',
+        null,
+        null,
+        null,
+        null,
+        ref.confidence,
+        ref.safeForBasketLinking,
+        ['basket.review.ambiguous_reference_no_safe_antecedent'],
+        `Reference "${ref.rawText}" could not be safely linked to a single product among several candidates — human review required.`,
+        ref.sourceMessageId
+      );
+    });
+
   graph.actions.forEach((action) => {
     state.sourceMessageIds.add(action.sourceMessageId);
     const targetEdge = actionTargetEdge(action.id, 'action_targets_product');
@@ -254,13 +301,21 @@ export function reconstructBasketV2(graph: ConversationEntityGraphV2, messageTim
             const qEdge = edgesByFrom.get(q.id)?.find((e) => e.type === 'quantity_applies_to_product' && e.toNodeId === product.canonicalProductId);
             return Boolean(qEdge && isSafeToMutate(qEdge.safety));
           });
+          const quantityBefore = before?.currentQuantity ?? null;
           if (linkedQuantity) {
             item.currentQuantity = linkedQuantity.value;
             item.quantityUnit = linkedQuantity.unit;
             item.quantityStatus = 'known';
             appliedQuantityIds.add(linkedQuantity.id);
           }
-          pushEvent('ITEM_ADDED', action, product.canonicalProductId, before, cloneItem(item), action.confidence, 'safe', action.ruleIds, `Added "${product.canonicalName ?? product.rawText}" from "${action.rawText.slice(0, 80)}".`);
+          // I.B.4 fix: this branch also handles a bare order-verb re-mention of an ALREADY-present
+          // item purely to state its quantity ("هات 2" right after "عايز انتينال", classified `add`
+          // because a basket already exists — see actionIntentClassifierV2.ts's ORDER_VERB_RX path).
+          // Unconditionally emitting ITEM_ADDED here mislabeled that as a second addition of the
+          // same product; the item was never re-added, only its quantity changed. Genuinely new
+          // items (`before === null`) are unaffected and still emit ITEM_ADDED as before.
+          const eventType = before !== null && linkedQuantity && item.currentQuantity !== quantityBefore ? 'QUANTITY_SET' : 'ITEM_ADDED';
+          pushEvent(eventType, action, product.canonicalProductId, before, cloneItem(item), action.confidence, 'safe', action.ruleIds, eventType === 'QUANTITY_SET' ? `Quantity set to ${item.currentQuantity} for "${product.canonicalName ?? product.rawText}" from "${action.rawText.slice(0, 80)}".` : `Added "${product.canonicalName ?? product.rawText}" from "${action.rawText.slice(0, 80)}".`);
         });
 
         // An order-quantity mention in the same message that never got safely applied to any of
