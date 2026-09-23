@@ -8,6 +8,8 @@ The due inbox lists open tasks overdue or due within seven days, using the Cairo
 
 The employee page also contains an immutable register for contracts, renewals and documented assignments. It stores dates and a document reference, with corrections linked to the original record. This register is documentary metadata only: it neither stores the document file nor drives current branch, login role, schedule, salary or payroll. Those changes need a separate reviewed command workflow.
 
+Pending batch: an effective-dated employment profile adds employment type, grade and reporting line to the employee page. Its correction chain retains old versions and the read API can reconstruct the profile as of a chosen date. Central HR roles write; branch managers read within their branch. This remains descriptive metadata and does not alter payroll or the canonical `staff` row. Release only after its migration and UI are verified together.
+
 ## What exists
 
 | Domain | Current entry point | State |
