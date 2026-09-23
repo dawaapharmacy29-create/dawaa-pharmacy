@@ -118,7 +118,7 @@ const quickLinks = [
   {
     title: 'متابعة اليوم',
     description: 'من المفترض حضوره، من حضر، ومن يحتاج انتباه الآن.',
-    href: '/attendance-report?tab=dashboard',
+    href: '/attendance-report?tab=daily',
     icon: Activity,
   },
   {
@@ -160,7 +160,7 @@ const quickLinks = [
   {
     title: 'جاهزية المرتبات',
     description: 'الحضور الفعلي الجاهز للمرتب قبل الحساب النهائي.',
-    href: '/attendance-report?tab=report',
+    href: '/attendance-report?tab=report&section=payroll-truth',
     icon: WalletCards,
   },
 ];
