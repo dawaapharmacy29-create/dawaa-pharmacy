@@ -45,6 +45,7 @@ export type BenchmarkFailureCategory =
   | 'parser_failure'
   | 'product_not_detected'
   | 'product_wrong_sku'
+  | 'transliteration_failure'
   | 'quantity_missed'
   | 'quantity_wrong_target'
   | 'reference_false_resolution'
@@ -144,6 +145,9 @@ export interface SalesIntelligenceBenchmarkMetrics {
   wrongQuantityAppliedToCorrectProduct: number;
   missedExpectedQuantity: number;
   unresolvedCases: number;
+  mediaLimitedCases: number;
+  transliterationFailureCases: number;
+  safetyCriticalErrorCount: number;
   regressions: number;
   failureCounts: Partial<Record<BenchmarkFailureCategory, number>>;
 }
@@ -260,7 +264,11 @@ function inferFailures(
 
   for (const code of expected) {
     if (!predicted.has(code)) {
-      failures.push(graphCodes.has(code) ? 'basket_mutation_error' : 'product_not_detected');
+      if (!graphCodes.has(code) && /transliter|misspell|فليكس|arabic.*latin|latin.*arabic/i.test(`${c.category} ${c.sourceNote}`)) {
+        failures.push('transliteration_failure');
+      } else {
+        failures.push(graphCodes.has(code) ? 'basket_mutation_error' : 'product_not_detected');
+      }
     }
   }
 
@@ -343,6 +351,7 @@ export function runSalesIntelligenceBenchmarkV2(
   let v2TP = 0, v2FP = 0, v2FN = 0;
   let falseOld = 0, falseV2 = 0;
   let wrongQty = 0, missedQty = 0, unresolvedCases = 0, regressions = 0;
+  let mediaLimitedCases = 0, transliterationFailureCases = 0, safetyCriticalErrorCount = 0;
   let safeEdgeTotal = 0, safeEdgeCorrect = 0, safeEdgeIncorrect = 0, safeEdgeUnverifiable = 0;
   const productCalibration = emptyCalibration();
   const quantityCalibration = emptyCalibration();
@@ -411,6 +420,9 @@ export function runSalesIntelligenceBenchmarkV2(
     }
     const failure = inferFailures(c, v2.graph, v2.items, messages.length > 0);
     for (const f of failure.failures) failureCounts[f] = (failureCounts[f] ?? 0) + 1;
+    if (failure.failures.includes('media_unavailable')) mediaLimitedCases++;
+    if (failure.failures.includes('transliteration_failure')) transliterationFailureCases++;
+    safetyCriticalErrorCount += failure.safetyCritical.length;
 
     // Confidence calibration: score only what Ground Truth can actually verify; everything else
     // remains explicitly unverifiable. This prevents confidence charts from rewarding unlabeled
@@ -562,6 +574,9 @@ export function runSalesIntelligenceBenchmarkV2(
     wrongQuantityAppliedToCorrectProduct: wrongQty,
     missedExpectedQuantity: missedQty,
     unresolvedCases,
+    mediaLimitedCases,
+    transliterationFailureCases,
+    safetyCriticalErrorCount,
     regressions,
     failureCounts,
   };
@@ -586,6 +601,8 @@ export function runSalesIntelligenceBenchmarkV2(
     `Wrong quantity links: ${metrics.wrongQuantityAppliedToCorrectProduct}`,
     `V2 regressions: ${metrics.regressions}`,
     `Unresolved/review cases: ${metrics.unresolvedCases}`,
+    `Media-limited cases: ${metrics.mediaLimitedCases}; transliteration failures: ${metrics.transliterationFailureCases}`,
+    `Safety-critical errors: ${metrics.safetyCriticalErrorCount}`,
   ].join('\n');
 
   return { ...reportWithoutRenderers, machineReadableJson, humanSummary };
