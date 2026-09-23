@@ -23,8 +23,8 @@
 // REAL catalog products (Antinal, Flexilax, Centrum) confirmed present in the actual `products`
 // table, never an invented SKU.
 //
-// FINAL COUNT (reported honestly, not padded to the instruction's 30/40-case targets): 22 cases
-// (12 real + 10 synthetic). This corpus is small (90 conversations total) and overwhelmingly
+// FINAL COUNT (reported honestly, not padded to the instruction's 30/40-case targets): 23 cases
+// (13 real + 10 synthetic). This corpus is small (90 conversations total) and overwhelmingly
 // voice/image-dependent for the exact commercial decision (which SKU, whether accepted) — a
 // finding reported in its own right in the I.B.3/I.B.3.1 reports, not hidden by inflating the case
 // count. I.B.3.1 added R11/R12 (further real price-only/misspelling cases outside this benchmark's
@@ -304,6 +304,35 @@ const CASES: BasketBenchmarkCase[] = [
   // SYNTHETIC — structural categories with zero real hits in this 90-row corpus (confirmed via SQL:
   // remove/cancel/reject phrasing all returned 0 rows). Real products throughout, synthetic text only.
   // -------------------------------------------------------------------------
+  {
+    id: 'R13',
+    source: 'real',
+    category: 'misspelled_product_then_quantity_clarification',
+    sourceNote: 'Real Dawaa conversation a58a9b7d... — customer types the misspelling "فليكس ليكس", later staff states "شريط فليكسيلاكس", and the customer explicitly settles on a strip. The same conversation contains media/another unknown cold product, so Ground Truth asserts only the safely visible Flexilax SKU and intentionally leaves the rest unresolved.',
+    raw: `[4/25/26, 1:34:45 PM] Customer: في نوع برشام
+[4/25/26, 1:34:50 PM] Customer: فليكس ليكس
+[4/25/26, 1:34:57 PM] Customer: تقريبا
+[4/25/26, 1:35:22 PM] Customer: هعوز شريط
+[4/25/26, 1:35:23 PM] Customer: وموجود كيرلكس
+[4/25/26, 1:35:53 PM] You: حضرتك تقصد كومتركس ؟
+[4/25/26, 1:36:01 PM] Customer: لا
+[4/25/26, 1:36:08 PM] Customer: هبعتلك صورته
+[4/25/26, 1:40:24 PM] Customer: كليرست
+[4/25/26, 1:41:53 PM] You: موجود يا فندم ان شاء الله
+[4/25/26, 1:42:24 PM] You: شريط ولا علبة حضرتك
+[4/25/26, 1:45:56 PM] Customer: هخد شريط
+[4/25/26, 1:46:46 PM] You: شريط فليكسيلاكس وعلبة كليريست والجل
+[4/25/26, 1:48:03 PM] Customer: كليريست شريط
+[4/25/26, 1:48:26 PM] Customer: تمام
+[4/25/26, 1:50:31 PM] You: تم الارسال`,
+    groundTruth: {
+      expectedAddedProductCodes: ['68114'],
+      expectedNeverAddedProductCodes: [],
+      expectedQuantities: { '68114': null },
+      expectedStatus: null,
+      expectUnresolvedSignal: true,
+    },
+  },
   {
     id: 'S01',
     source: 'synthetic',
