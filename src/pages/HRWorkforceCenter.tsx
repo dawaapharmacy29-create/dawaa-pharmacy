@@ -10,6 +10,7 @@ import {
   Clock,
   Fingerprint,
   RefreshCw,
+  ShieldCheck,
   UserCheck,
   Users,
   WalletCards,
