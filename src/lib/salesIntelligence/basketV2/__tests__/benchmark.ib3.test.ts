@@ -178,6 +178,8 @@ describe('I.B.3/I.B.3.1 — real Basket benchmark: OLD vs Basket Reconstruction 
     expect(first.metrics.totalCases).toBe(CASES.length);
     expect(first.metrics.falseAddedProductToBasket.v2).toBe(0);
     expect(first.metrics.safeEdgeAudit.verifiedIncorrect).toBe(0);
+    expect(first.metrics.confidenceCalibration.productMentions.length).toBe(3);
+    expect(first.metrics.humanReviewQuality.missedReview).toBe(0);
     expect(first.metrics.wrongQuantityAppliedToCorrectProduct).toBe(0);
     expect(first.metrics.regressions).toBe(0);
   });

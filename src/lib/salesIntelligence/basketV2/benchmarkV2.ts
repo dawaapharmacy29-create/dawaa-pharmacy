@@ -99,6 +99,24 @@ export interface DifficultyBenchmarkMetricsV2 {
   wrongQuantities: number;
 }
 
+export interface ConfidenceBucketCalibrationV2 {
+  bucket: 'high' | 'medium' | 'low';
+  total: number;
+  verifiedCorrect: number;
+  verifiedIncorrect: number;
+  unverifiable: number;
+  empiricalCorrectness: number;
+}
+
+export interface HumanReviewQualityV2 {
+  trueReviewNeeded: number;
+  unnecessaryReview: number;
+  missedReview: number;
+  correctlyNoReview: number;
+  precision: number;
+  recall: number;
+}
+
 export interface SalesIntelligenceBenchmarkMetrics {
   datasetVersion: string;
   totalCases: number;
@@ -114,6 +132,12 @@ export interface SalesIntelligenceBenchmarkMetrics {
   /** Empirical audit of graph edges already marked safeForBasketLinking=safe. "Unverifiable" is
    * deliberately separate — Ground Truth does not pretend to label every reference relation. */
   safeEdgeAudit: { total: number; verifiedCorrect: number; verifiedIncorrect: number; unverifiable: number; empiricalErrorRate: number };
+  confidenceCalibration: {
+    productMentions: ConfidenceBucketCalibrationV2[];
+    quantityLinks: ConfidenceBucketCalibrationV2[];
+    referenceLinks: ConfidenceBucketCalibrationV2[];
+  };
+  humanReviewQuality: HumanReviewQualityV2;
   wrongQuantityAppliedToCorrectProduct: number;
   missedExpectedQuantity: number;
   unresolvedCases: number;
@@ -282,6 +306,31 @@ function ratio(n: number, d: number): number {
   return d === 0 ? 0 : n / d;
 }
 
+function confidenceBucket(value: number): ConfidenceBucketCalibrationV2['bucket'] {
+  if (value >= 0.8) return 'high';
+  if (value >= 0.5) return 'medium';
+  return 'low';
+}
+
+function emptyCalibration(): Record<ConfidenceBucketCalibrationV2['bucket'], { total: number; verifiedCorrect: number; verifiedIncorrect: number; unverifiable: number }> {
+  return {
+    high: { total: 0, verifiedCorrect: 0, verifiedIncorrect: 0, unverifiable: 0 },
+    medium: { total: 0, verifiedCorrect: 0, verifiedIncorrect: 0, unverifiable: 0 },
+    low: { total: 0, verifiedCorrect: 0, verifiedIncorrect: 0, unverifiable: 0 },
+  };
+}
+
+function finalizeCalibration(raw: ReturnType<typeof emptyCalibration>): ConfidenceBucketCalibrationV2[] {
+  return (['high', 'medium', 'low'] as const).map((bucket) => {
+    const row = raw[bucket];
+    return {
+      bucket,
+      ...row,
+      empiricalCorrectness: ratio(row.verifiedCorrect, row.verifiedCorrect + row.verifiedIncorrect),
+    };
+  });
+}
+
 export function runSalesIntelligenceBenchmarkV2(
   cases: SalesIntelligenceGroundTruthCase[],
   productIndex: PharmacyProductIndex,
@@ -292,6 +341,10 @@ export function runSalesIntelligenceBenchmarkV2(
   let falseOld = 0, falseV2 = 0;
   let wrongQty = 0, missedQty = 0, unresolvedCases = 0, regressions = 0;
   let safeEdgeTotal = 0, safeEdgeCorrect = 0, safeEdgeIncorrect = 0, safeEdgeUnverifiable = 0;
+  const productCalibration = emptyCalibration();
+  const quantityCalibration = emptyCalibration();
+  const referenceCalibration = emptyCalibration();
+  let trueReviewNeeded = 0, unnecessaryReview = 0, missedReview = 0, correctlyNoReview = 0;
   const byDifficulty: Record<BenchmarkDifficulty, number> = { easy: 0, medium: 0, hard: 0 };
   const difficultyRaw: Record<BenchmarkDifficulty, { tp: number; fp: number; fn: number; falseAddedProducts: number; wrongQuantities: number }> = {
     easy: { tp: 0, fp: 0, fn: 0, falseAddedProducts: 0, wrongQuantities: 0 },
@@ -331,6 +384,12 @@ export function runSalesIntelligenceBenchmarkV2(
     const classification = classifyCase(c, old.items, v2.items, v2.unresolved);
     if (classification === 'old_correct_v2_regression') regressions++;
 
+    const reviewExpected = c.groundTruth.expectUnresolvedSignal;
+    if (reviewExpected && v2.unresolved) trueReviewNeeded++;
+    else if (!reviewExpected && v2.unresolved) unnecessaryReview++;
+    else if (reviewExpected && !v2.unresolved) missedReview++;
+    else correctlyNoReview++;
+
     const difficulty = difficultyFor(c);
     for (const code of never) if (v2Codes.has(code)) difficultyRaw[difficulty].falseAddedProducts++;
     for (const [code, expectedQty] of Object.entries(c.groundTruth.expectedQuantities)) {
@@ -349,6 +408,45 @@ export function runSalesIntelligenceBenchmarkV2(
     }
     const failure = inferFailures(c, v2.graph, v2.items, messages.length > 0);
     for (const f of failure.failures) failureCounts[f] = (failureCounts[f] ?? 0) + 1;
+
+    // Confidence calibration: score only what Ground Truth can actually verify; everything else
+    // remains explicitly unverifiable. This prevents confidence charts from rewarding unlabeled
+    // predictions by default.
+    for (const p of v2.graph.productMentions) {
+      const bucket = confidenceBucket(p.confidence);
+      productCalibration[bucket].total++;
+      const code = p.canonicalProductCode;
+      if (!code) productCalibration[bucket].unverifiable++;
+      else if (never.has(code)) productCalibration[bucket].verifiedIncorrect++;
+      else if (expected.has(code)) productCalibration[bucket].verifiedCorrect++;
+      else productCalibration[bucket].unverifiable++;
+    }
+
+    const codeByProductNodeId = new Map(v2.graph.productMentions.map((p) => [p.id, p.canonicalProductCode] as const));
+    const quantityByNodeIdForCalibration = new Map(v2.graph.quantities.map((q) => [q.id, q] as const));
+    for (const edge of v2.graph.edges.filter((e) => e.type === 'quantity_applies_to_product')) {
+      const bucket = confidenceBucket(edge.confidence);
+      quantityCalibration[bucket].total++;
+      const code = codeByProductNodeId.get(edge.toNodeId) ?? null;
+      const q = quantityByNodeIdForCalibration.get(edge.fromNodeId);
+      const expectedQty = code ? c.groundTruth.expectedQuantities[code] : undefined;
+      if (code && q && typeof expectedQty === 'number') {
+        q.value === expectedQty ? quantityCalibration[bucket].verifiedCorrect++ : quantityCalibration[bucket].verifiedIncorrect++;
+      } else if (code && never.has(code)) {
+        quantityCalibration[bucket].verifiedIncorrect++;
+      } else {
+        quantityCalibration[bucket].unverifiable++;
+      }
+    }
+
+    for (const edge of v2.graph.edges.filter((e) => e.type === 'reference_points_to_product')) {
+      const bucket = confidenceBucket(edge.confidence);
+      referenceCalibration[bucket].total++;
+      const code = codeByProductNodeId.get(edge.toNodeId) ?? null;
+      if (code && never.has(code)) referenceCalibration[bucket].verifiedIncorrect++;
+      else if (code && c.groundTruth.expectedAddedProductCodes.length === 1 && c.groundTruth.expectedAddedProductCodes[0] === code) referenceCalibration[bucket].verifiedCorrect++;
+      else referenceCalibration[bucket].unverifiable++;
+    }
 
     // I.B.4 safe-edge calibration. We only score an edge when this Ground Truth case can actually
     // verify it. Everything else is explicitly "unverifiable" rather than being counted correct.
@@ -443,6 +541,19 @@ export function runSalesIntelligenceBenchmarkV2(
       unverifiable: safeEdgeUnverifiable,
       empiricalErrorRate: ratio(safeEdgeIncorrect, safeEdgeCorrect + safeEdgeIncorrect),
     },
+    confidenceCalibration: {
+      productMentions: finalizeCalibration(productCalibration),
+      quantityLinks: finalizeCalibration(quantityCalibration),
+      referenceLinks: finalizeCalibration(referenceCalibration),
+    },
+    humanReviewQuality: {
+      trueReviewNeeded,
+      unnecessaryReview,
+      missedReview,
+      correctlyNoReview,
+      precision: ratio(trueReviewNeeded, trueReviewNeeded + unnecessaryReview),
+      recall: ratio(trueReviewNeeded, trueReviewNeeded + missedReview),
+    },
     wrongQuantityAppliedToCorrectProduct: wrongQty,
     missedExpectedQuantity: missedQty,
     unresolvedCases,
@@ -465,6 +576,7 @@ export function runSalesIntelligenceBenchmarkV2(
     `Real-only V2 product precision/recall: ${(metrics.realOnlyV2Product.precision * 100).toFixed(1)}% / ${(metrics.realOnlyV2Product.recall * 100).toFixed(1)}%`,
     `False-added products: ${metrics.falseAddedProductToBasket.v2}`,
     `Safe edges: ${metrics.safeEdgeAudit.total} (verified wrong ${metrics.safeEdgeAudit.verifiedIncorrect}, unverifiable ${metrics.safeEdgeAudit.unverifiable})`,
+    `Human review precision/recall: ${(metrics.humanReviewQuality.precision * 100).toFixed(1)}% / ${(metrics.humanReviewQuality.recall * 100).toFixed(1)}%`,
     `Wrong quantity links: ${metrics.wrongQuantityAppliedToCorrectProduct}`,
     `V2 regressions: ${metrics.regressions}`,
     `Unresolved/review cases: ${metrics.unresolvedCases}`,
