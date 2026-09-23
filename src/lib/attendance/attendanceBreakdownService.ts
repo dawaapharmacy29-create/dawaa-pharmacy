@@ -81,7 +81,7 @@ export async function listPendingOvertime(branch: string | null): Promise<Pendin
 }
 
 export async function decideOvertimeApproval(id: string, decision: 'approved' | 'rejected', note?: string) {
-  const { error } = await supabase.rpc('decide_overtime_approval_v1', { p_id: id, p_decision: decision, p_note: note || null });
+  const { error } = await supabase.rpc('decide_overtime_approval_v2', { p_id: id, p_decision: decision, p_note: note || null });
   if (error) throw error;
 }
 
