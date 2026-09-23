@@ -83,7 +83,7 @@ function parseNumberToken(token: string): number | null {
   return ARABIC_NUMBER_WORDS[token.trim()] ?? null;
 }
 
-function normalizeProductKey(name: string): string {
+export function normalizeProductKey(name: string): string {
   return name
     .trim()
     .toLowerCase()
@@ -93,7 +93,7 @@ function normalizeProductKey(name: string): string {
     .replace(/\s+/g, ' ');
 }
 
-function stripRequestPrefix(text: string): string {
+export function stripRequestPrefix(text: string): string {
   return text
     .replace(/^\s*(?:عايز|عاوز|محتاج|ممكن|هات[ي]?|ابعت(?:لي|يلي)?)\s*/i, '')
     .trim()

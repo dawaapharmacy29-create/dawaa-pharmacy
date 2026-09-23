@@ -71,7 +71,7 @@ const ARABIC_LETTER_VARIANTS: Array<[RegExp, string]> = [
   [/[ً-ْٰـ]/g, ''], // tashkeel + tatweel
 ];
 
-function convertArabicDigits(text: string): string {
+export function convertArabicDigits(text: string): string {
   return text.replace(/[٠-٩]/g, (d) => ARABIC_INDIC_DIGITS[d] ?? d);
 }
 
