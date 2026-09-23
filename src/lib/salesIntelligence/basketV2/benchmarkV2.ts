@@ -97,6 +97,9 @@ export interface SalesIntelligenceBenchmarkMetrics {
   oldProduct: { tp: number; fp: number; fn: number; precision: number; recall: number };
   v2Product: { tp: number; fp: number; fn: number; precision: number; recall: number };
   falseAddedProductToBasket: { old: number; v2: number };
+  /** Empirical audit of graph edges already marked safeForBasketLinking=safe. "Unverifiable" is
+   * deliberately separate — Ground Truth does not pretend to label every reference relation. */
+  safeEdgeAudit: { total: number; verifiedCorrect: number; verifiedIncorrect: number; unverifiable: number; empiricalErrorRate: number };
   wrongQuantityAppliedToCorrectProduct: number;
   missedExpectedQuantity: number;
   unresolvedCases: number;
@@ -274,6 +277,7 @@ export function runSalesIntelligenceBenchmarkV2(
   let v2TP = 0, v2FP = 0, v2FN = 0;
   let falseOld = 0, falseV2 = 0;
   let wrongQty = 0, missedQty = 0, unresolvedCases = 0, regressions = 0;
+  let safeEdgeTotal = 0, safeEdgeCorrect = 0, safeEdgeIncorrect = 0, safeEdgeUnverifiable = 0;
   const byDifficulty: Record<BenchmarkDifficulty, number> = { easy: 0, medium: 0, hard: 0 };
   const failureCounts: Partial<Record<BenchmarkFailureCategory, number>> = {};
 
@@ -310,6 +314,34 @@ export function runSalesIntelligenceBenchmarkV2(
     byDifficulty[difficulty]++;
     const failure = inferFailures(c, v2.graph, v2.items, messages.length > 0);
     for (const f of failure.failures) failureCounts[f] = (failureCounts[f] ?? 0) + 1;
+
+    // I.B.4 safe-edge calibration. We only score an edge when this Ground Truth case can actually
+    // verify it. Everything else is explicitly "unverifiable" rather than being counted correct.
+    // This prevents an attractive but meaningless near-100% safe-edge number.
+    const productCodeByNodeId = new Map(v2.graph.productMentions.map((p) => [p.id, p.canonicalProductCode] as const));
+    const quantityByNodeId = new Map(v2.graph.quantities.map((q) => [q.id, q] as const));
+    for (const edge of v2.graph.edges.filter((e) => e.safety === 'safe' && (e.type === 'quantity_applies_to_product' || e.type === 'reference_points_to_product'))) {
+      safeEdgeTotal++;
+      const targetCode = productCodeByNodeId.get(edge.toNodeId) ?? null;
+      if (targetCode && never.has(targetCode)) {
+        safeEdgeIncorrect++;
+        continue;
+      }
+      if (edge.type === 'quantity_applies_to_product') {
+        const q = quantityByNodeId.get(edge.fromNodeId);
+        const expectedQty = targetCode ? c.groundTruth.expectedQuantities[targetCode] : undefined;
+        if (q && targetCode && typeof expectedQty === 'number') {
+          q.value === expectedQty ? safeEdgeCorrect++ : safeEdgeIncorrect++;
+        } else {
+          safeEdgeUnverifiable++;
+        }
+      } else if (targetCode && c.groundTruth.expectedAddedProductCodes.length === 1 && c.groundTruth.expectedAddedProductCodes[0] === targetCode) {
+        // Only one expected ordered SKU: a safe reference to that exact SKU is verifiable.
+        safeEdgeCorrect++;
+      } else {
+        safeEdgeUnverifiable++;
+      }
+    }
 
     return {
       caseId: c.id,
@@ -350,6 +382,13 @@ export function runSalesIntelligenceBenchmarkV2(
     oldProduct: { tp: oldTP, fp: oldFP, fn: oldFN, precision: ratio(oldTP, oldTP + oldFP), recall: ratio(oldTP, oldTP + oldFN) },
     v2Product: { tp: v2TP, fp: v2FP, fn: v2FN, precision: ratio(v2TP, v2TP + v2FP), recall: ratio(v2TP, v2TP + v2FN) },
     falseAddedProductToBasket: { old: falseOld, v2: falseV2 },
+    safeEdgeAudit: {
+      total: safeEdgeTotal,
+      verifiedCorrect: safeEdgeCorrect,
+      verifiedIncorrect: safeEdgeIncorrect,
+      unverifiable: safeEdgeUnverifiable,
+      empiricalErrorRate: ratio(safeEdgeIncorrect, safeEdgeCorrect + safeEdgeIncorrect),
+    },
     wrongQuantityAppliedToCorrectProduct: wrongQty,
     missedExpectedQuantity: missedQty,
     unresolvedCases,
@@ -370,6 +409,7 @@ export function runSalesIntelligenceBenchmarkV2(
     `V2 product precision: ${(metrics.v2Product.precision * 100).toFixed(1)}%`,
     `V2 product recall: ${(metrics.v2Product.recall * 100).toFixed(1)}%`,
     `False-added products: ${metrics.falseAddedProductToBasket.v2}`,
+    `Safe edges: ${metrics.safeEdgeAudit.total} (verified wrong ${metrics.safeEdgeAudit.verifiedIncorrect}, unverifiable ${metrics.safeEdgeAudit.unverifiable})`,
     `Wrong quantity links: ${metrics.wrongQuantityAppliedToCorrectProduct}`,
     `V2 regressions: ${metrics.regressions}`,
     `Unresolved/review cases: ${metrics.unresolvedCases}`,
