@@ -171,6 +171,25 @@ describe('Phase I.B.4 — same-message reference ordering', () => {
     expect(ref.selectedAntecedentId).toBe('p-antinal');
   });
 
+  it('does not mark a canonical antecedent safe when another preceding product-like span is unresolved', () => {
+    const messages = messagesFrom('[9/15/26, 9:00:00 AM] Customer: عايز انتينال وغسول غريب وهات منه اتنين');
+    const mentions = buildProductMentions(messages, SAME_MESSAGE_OPTIONS);
+    const ref = extractReferenceMentionsV2(messages, mentions).find((r) => r.rawText.includes('منه'))!;
+    expect(ref.resolutionStatus).toBe('ambiguous');
+    expect(ref.selectedAntecedentId).toBeNull();
+    expect(ref.safeForBasketLinking).toBe('unsafe');
+    expect(ref.ambiguityReasons).toContain('unresolved_same_message_product_competitor');
+  });
+
+  it('keeps repeated identical product mentions at distinct raw-message offsets', () => {
+    const messages = messagesFrom('[9/15/26, 9:00:00 AM] Customer: عايز انتينال وانتينال');
+    const mentions = buildProductMentions(messages, SAME_MESSAGE_OPTIONS).filter((m) => m.resolvedProductId === 'p-antinal');
+    if (mentions.length >= 2) {
+      expect(mentions[0].sourceOffsetStart).not.toBe(mentions[1].sourceOffsetStart);
+      expect((mentions[0].sourceOffsetStart ?? -1)).toBeLessThan(mentions[1].sourceOffsetStart ?? -1);
+    }
+  });
+
   it('stores product and reference offsets in one raw-message coordinate system', () => {
     const messages = messagesFrom('[9/15/26, 9:00:00 AM] Customer: عايز انتينال وهات منه اتنين');
     const mentions = buildProductMentions(messages, SAME_MESSAGE_OPTIONS);

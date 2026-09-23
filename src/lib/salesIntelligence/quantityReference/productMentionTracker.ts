@@ -71,8 +71,12 @@ function identityCoreText(rawText: string): string {
  * Resolve the literal span back into the ORIGINAL message text once, here, and keep one coordinate
  * system everywhere. Never fabricate an offset when the raw span is not literally present.
  */
-function sourceSpanInMessage(messageText: string, rawSpan: string): { start: number | null; end: number | null } {
-  const start = messageText.indexOf(rawSpan);
+function sourceSpanInMessage(
+  messageText: string,
+  rawSpan: string,
+  fromIndex = 0
+): { start: number | null; end: number | null } {
+  const start = messageText.indexOf(rawSpan, Math.max(0, fromIndex));
   return start === -1 ? { start: null, end: null } : { start, end: start + rawSpan.length };
 }
 
@@ -294,9 +298,11 @@ export function buildProductMentions(
       // conjunction splitting (the customer picks ONE named alternative), never routed through
       // resolveProductSegments()'s catalog-first logic.
       const groupId = `grp:${message.id}`;
+      let enumSearchFrom = 0;
       [enumMatch[1].trim(), enumMatch[2].trim()].forEach((part, partIndex) => {
         const resolution = options.productIndex ? resolveProductMention(part, options.productIndex, options.resolveOptions) : null;
-        const span = sourceSpanInMessage(message.text, part);
+        const span = sourceSpanInMessage(message.text, part, enumSearchFrom);
+        if (span.end != null) enumSearchFrom = span.end;
         mentions.push({
           mentionId: `pm:${message.id}:${seq++}`,
           sourceMessageId: message.id,
@@ -317,10 +323,12 @@ export function buildProductMentions(
     }
 
     const segments = resolveProductSegments(core, options.productIndex, options.resolveOptions);
+    let segmentSearchFrom = 0;
     segments.forEach((segment) => {
       const resolvedProductId = segment.resolution?.selected?.product.productId ?? null;
       const storedRawText = segments.length > 1 ? segment.text : rawText;
-      const span = sourceSpanInMessage(message.text, storedRawText);
+      const span = sourceSpanInMessage(message.text, storedRawText, segmentSearchFrom);
+      if (span.end != null) segmentSearchFrom = span.end;
       mentions.push({
         mentionId: `pm:${message.id}:${seq++}`,
         sourceMessageId: message.id,

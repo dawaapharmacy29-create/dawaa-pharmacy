@@ -254,17 +254,22 @@ export function resolveReferenceV2(
   // Phase I.B.4 — same-message reference resolution. Product mentions and reference mentions use
   // ORIGINAL message.text character offsets so ordering is structural, not inferred from normalized
   // strings. Only canonical-resolved product spans ending BEFORE the reference may participate.
-  const sameMessagePreceding = referenceOffsetStart == null
+  const sameMessagePrecedingAll = referenceOffsetStart == null
     ? []
     : scopedMentions.filter((m) =>
         m.sourceMessageId === messages[referenceIndex].id &&
-        m.validity === 'canonical_resolved' &&
         m.role !== 'staff_availability' &&
-        m.resolvedProductId != null &&
+        m.validity !== 'non_product' &&
         m.sourceOffsetStart != null &&
         m.sourceOffsetEnd != null &&
         m.sourceOffsetEnd <= referenceOffsetStart
       );
+  const sameMessagePreceding = sameMessagePrecedingAll.filter(
+    (m) => m.validity === 'canonical_resolved' && m.resolvedProductId != null
+  );
+  const unresolvedSameMessageCompetitors = sameMessagePrecedingAll.filter(
+    (m) => m.validity !== 'canonical_resolved' || m.resolvedProductId == null
+  );
 
   const sameByIdentity = new Map<string, ProductMentionV2[]>();
   for (const mention of sameMessagePreceding) {
@@ -318,7 +323,7 @@ export function resolveReferenceV2(
 
   // Structural same-message path. Exactly one canonical product before the reference is strong
   // local evidence. Two or more are ambiguous — never "nearest mention wins" inside a message.
-  if (sameMessageCandidates.length === 1) {
+  if (sameMessageCandidates.length === 1 && unresolvedSameMessageCompetitors.length === 0) {
     const winner = sameMessageCandidates[0];
     const candidateScores: ReferenceCandidateScore[] = [{
       identityKey: winner.identityKey,
@@ -335,6 +340,27 @@ export function resolveReferenceV2(
         referenceDistance: 0,
         substitutionContext: null,
         scoreMargin: 0.95,
+      },
+      candidateScores
+    );
+  }
+
+  if (sameMessageCandidates.length >= 1 && unresolvedSameMessageCompetitors.length > 0) {
+    const candidateScores: ReferenceCandidateScore[] = sameMessageCandidates.map((c) => ({
+      identityKey: c.identityKey,
+      score: 0.45,
+      factors: ['same_message_preceding_canonical_product', 'unresolved_same_message_product_competitor'],
+    }));
+    return build(
+      {
+        resolutionStatus: 'ambiguous',
+        selectedAntecedentId: null,
+        confidence: 0.45,
+        confidenceFactors: ['unresolved_same_message_product_competitor'],
+        ambiguityReasons: ['unresolved_same_message_product_competitor'],
+        referenceDistance: null,
+        substitutionContext: null,
+        scoreMargin: 0,
       },
       candidateScores
     );
