@@ -56,8 +56,8 @@ export interface ProductMentionV2 {
    * multi-product message), preserved so a later phase can reason about same-message
    * ordering/overlap without re-deriving span positions from scratch. Null when `rawText` could not
    * be located as a literal substring there (never fabricated). */
-  sourceOffsetStart: number | null;
-  sourceOffsetEnd: number | null;
+  sourceOffsetStart?: number | null;
+  sourceOffsetEnd?: number | null;
 }
 
 // ---------------------------------------------------------------------------

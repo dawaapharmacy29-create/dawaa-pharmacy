@@ -577,7 +577,15 @@ function v2ResolveCase(conversation: string, referenceNeedle: string) {
   const index = messages.indexOf(refMessage);
   const detected = detectReferenceMentions(refMessage)[0];
   if (!detected) return null; // no reference vocabulary matched at all — correct for `no_reference` truth
-  return resolveReferenceV2(messages, index, mentions, detected.rawText, detected.referenceType);
+  return resolveReferenceV2(
+    messages,
+    index,
+    mentions,
+    detected.rawText,
+    detected.referenceType,
+    detected.sourceOffsetStart,
+    detected.sourceOffsetEnd
+  );
 }
 
 describe('I.B.2.1 — expanded reference benchmark (28 cases: 20 real + 8 synthetic)', () => {
