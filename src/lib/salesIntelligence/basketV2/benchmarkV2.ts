@@ -88,12 +88,26 @@ export interface SalesIntelligenceBenchmarkCaseResult {
   firstDivergence: BenchmarkFailureCategory | null;
 }
 
+export interface DifficultyBenchmarkMetricsV2 {
+  cases: number;
+  tp: number;
+  fp: number;
+  fn: number;
+  precision: number;
+  recall: number;
+  falseAddedProducts: number;
+  wrongQuantities: number;
+}
+
 export interface SalesIntelligenceBenchmarkMetrics {
   datasetVersion: string;
   totalCases: number;
   realCases: number;
   syntheticCases: number;
   byDifficulty: Record<BenchmarkDifficulty, number>;
+  difficultyMetrics: Record<BenchmarkDifficulty, DifficultyBenchmarkMetricsV2>;
+  realOnlyV2Product: { tp: number; fp: number; fn: number; precision: number; recall: number };
+  syntheticOnlyV2Product: { tp: number; fp: number; fn: number; precision: number; recall: number };
   oldProduct: { tp: number; fp: number; fn: number; precision: number; recall: number };
   v2Product: { tp: number; fp: number; fn: number; precision: number; recall: number };
   falseAddedProductToBasket: { old: number; v2: number };
@@ -279,6 +293,13 @@ export function runSalesIntelligenceBenchmarkV2(
   let wrongQty = 0, missedQty = 0, unresolvedCases = 0, regressions = 0;
   let safeEdgeTotal = 0, safeEdgeCorrect = 0, safeEdgeIncorrect = 0, safeEdgeUnverifiable = 0;
   const byDifficulty: Record<BenchmarkDifficulty, number> = { easy: 0, medium: 0, hard: 0 };
+  const difficultyRaw: Record<BenchmarkDifficulty, { tp: number; fp: number; fn: number; falseAddedProducts: number; wrongQuantities: number }> = {
+    easy: { tp: 0, fp: 0, fn: 0, falseAddedProducts: 0, wrongQuantities: 0 },
+    medium: { tp: 0, fp: 0, fn: 0, falseAddedProducts: 0, wrongQuantities: 0 },
+    hard: { tp: 0, fp: 0, fn: 0, falseAddedProducts: 0, wrongQuantities: 0 },
+  };
+  const realV2 = { tp: 0, fp: 0, fn: 0 };
+  const syntheticV2 = { tp: 0, fp: 0, fn: 0 };
   const failureCounts: Partial<Record<BenchmarkFailureCategory, number>> = {};
 
   const results: SalesIntelligenceBenchmarkCaseResult[] = cases.map((c) => {
@@ -311,7 +332,21 @@ export function runSalesIntelligenceBenchmarkV2(
     if (classification === 'old_correct_v2_regression') regressions++;
 
     const difficulty = difficultyFor(c);
+    for (const code of never) if (v2Codes.has(code)) difficultyRaw[difficulty].falseAddedProducts++;
+    for (const [code, expectedQty] of Object.entries(c.groundTruth.expectedQuantities)) {
+      if (expectedQty === null) continue;
+      const item = v2.items.find((i) => i.productCode === code);
+      if (item && item.quantity !== null && item.quantity !== expectedQty) difficultyRaw[difficulty].wrongQuantities++;
+    }
     byDifficulty[difficulty]++;
+    difficultyRaw[difficulty].tp += v2M.tp;
+    difficultyRaw[difficulty].fp += v2M.fp;
+    difficultyRaw[difficulty].fn += v2M.fn;
+    if (c.source === 'real') {
+      realV2.tp += v2M.tp; realV2.fp += v2M.fp; realV2.fn += v2M.fn;
+    } else {
+      syntheticV2.tp += v2M.tp; syntheticV2.fp += v2M.fp; syntheticV2.fn += v2M.fn;
+    }
     const failure = inferFailures(c, v2.graph, v2.items, messages.length > 0);
     for (const f of failure.failures) failureCounts[f] = (failureCounts[f] ?? 0) + 1;
 
@@ -373,12 +408,31 @@ export function runSalesIntelligenceBenchmarkV2(
     };
   });
 
+  const difficultyMetrics = Object.fromEntries(
+    (['easy', 'medium', 'hard'] as BenchmarkDifficulty[]).map((difficulty) => {
+      const raw = difficultyRaw[difficulty];
+      return [difficulty, {
+        cases: byDifficulty[difficulty],
+        tp: raw.tp,
+        fp: raw.fp,
+        fn: raw.fn,
+        precision: ratio(raw.tp, raw.tp + raw.fp),
+        recall: ratio(raw.tp, raw.tp + raw.fn),
+        falseAddedProducts: raw.falseAddedProducts,
+        wrongQuantities: raw.wrongQuantities,
+      }];
+    })
+  ) as Record<BenchmarkDifficulty, DifficultyBenchmarkMetricsV2>;
+
   const metrics: SalesIntelligenceBenchmarkMetrics = {
     datasetVersion,
     totalCases: cases.length,
     realCases: cases.filter((c) => c.source === 'real').length,
     syntheticCases: cases.filter((c) => c.source === 'synthetic').length,
     byDifficulty,
+    difficultyMetrics,
+    realOnlyV2Product: { ...realV2, precision: ratio(realV2.tp, realV2.tp + realV2.fp), recall: ratio(realV2.tp, realV2.tp + realV2.fn) },
+    syntheticOnlyV2Product: { ...syntheticV2, precision: ratio(syntheticV2.tp, syntheticV2.tp + syntheticV2.fp), recall: ratio(syntheticV2.tp, syntheticV2.tp + syntheticV2.fn) },
     oldProduct: { tp: oldTP, fp: oldFP, fn: oldFN, precision: ratio(oldTP, oldTP + oldFP), recall: ratio(oldTP, oldTP + oldFN) },
     v2Product: { tp: v2TP, fp: v2FP, fn: v2FN, precision: ratio(v2TP, v2TP + v2FP), recall: ratio(v2TP, v2TP + v2FN) },
     falseAddedProductToBasket: { old: falseOld, v2: falseV2 },
@@ -408,6 +462,7 @@ export function runSalesIntelligenceBenchmarkV2(
     `Cases: ${metrics.totalCases} (real ${metrics.realCases}, synthetic ${metrics.syntheticCases})`,
     `V2 product precision: ${(metrics.v2Product.precision * 100).toFixed(1)}%`,
     `V2 product recall: ${(metrics.v2Product.recall * 100).toFixed(1)}%`,
+    `Real-only V2 product precision/recall: ${(metrics.realOnlyV2Product.precision * 100).toFixed(1)}% / ${(metrics.realOnlyV2Product.recall * 100).toFixed(1)}%`,
     `False-added products: ${metrics.falseAddedProductToBasket.v2}`,
     `Safe edges: ${metrics.safeEdgeAudit.total} (verified wrong ${metrics.safeEdgeAudit.verifiedIncorrect}, unverifiable ${metrics.safeEdgeAudit.unverifiable})`,
     `Wrong quantity links: ${metrics.wrongQuantityAppliedToCorrectProduct}`,
