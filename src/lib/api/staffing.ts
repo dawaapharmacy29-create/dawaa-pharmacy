@@ -1,6 +1,8 @@
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import type { ParsedScheduleImport, ParsedStaffShifts } from '@/lib/shiftParser';
 import { TABLES } from '@/lib/supabaseTables';
+import { DAYS_AR } from '@/lib/constants';
+import { createScheduleDraft, publishScheduleDraft, validateScheduleDraft } from '@/lib/hr/scheduleDraftService';
 
 export interface StaffingSaveReport {
   staffTable: string | null;
@@ -432,82 +434,73 @@ export async function saveScheduleImport(
   const staffTable = await detectTable(STAFF_TABLES);
   let staffSaved = 0;
   let shiftsSaved = 0;
-  let leavesSaved = 0;
+  const leavesSaved = 0;
   let matchedStaff: MatchedStaff[] = [];
-  let archivedStaff: string[] = [];
-  let existingStaff: ExistingStaffRow[] = [];
+  const archivedStaff: string[] = [];
 
   if (!staffTable) {
     skipped.push('لم يتم العثور على جدول staff، لذلك لم يتم حفظ أي بيانات.');
   } else {
-    existingStaff = await loadExistingStaff(staffTable);
+    const existingStaff = await loadExistingStaff(staffTable);
     matchedStaff = matchImportedStaff(savableStaff, existingStaff, skipped);
-    staffSaved = await updateMatchedStaffBaseShifts(staffTable, matchedStaff);
+    staffSaved = matchedStaff.length;
   }
 
-  const scheduleTable = await detectTable(['shift_schedules']);
-  if (scheduleTable && matchedStaff.length > 0) {
-    try {
-      const effectiveFrom = new Intl.DateTimeFormat('en-CA', {
-        timeZone: 'Africa/Cairo',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-      }).format(new Date());
+  const effectiveFrom = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Africa/Cairo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
 
-      for (const item of matchedStaff) {
-        const rows = scheduleRows([item]);
-        const { error } = await supabase.rpc('replace_staff_shift_schedule_version_v1', {
-          p_staff_id: item.staffId,
-          p_rows: rows,
-          p_effective_from: effectiveFrom,
-          p_note: 'استيراد جدول حضور جديد مع حفظ النسخة السابقة',
-        });
-        if (error) throw error;
-        shiftsSaved += rows.length;
+  for (const item of matchedStaff) {
+    try {
+      const byDay = new Map(
+        scheduleRows([item]).map((row) => [row.day_name, row])
+      );
+      const rows = DAYS_AR.map((day, sortOrder) => {
+        const row = byDay.get(day);
+        return {
+          day_name: day,
+          shift_start: row?.is_off ? null : row?.shift_start || null,
+          shift_end: row?.is_off ? null : row?.shift_end || null,
+          is_off: row?.is_off ?? true,
+          is_day_off: row?.is_day_off ?? row?.is_off ?? true,
+          notes: row?.raw_shift || 'schedule_import_v2',
+          sort_order: sortOrder,
+        };
+      });
+
+      const draft = await createScheduleDraft({
+        staffId: item.staffId,
+        effectiveFrom,
+        rows,
+        note: 'استيراد جدول Excel عبر Schedule Core V2',
+      });
+      const validation = await validateScheduleDraft(draft.draft_id);
+      if (!validation.valid) {
+        skipped.push(
+          `لم يتم نشر جدول "${item.canonicalName}" لأن التحقق فشل: ${validation.errors.map((x) => x.label || x.code).join('، ')}`
+        );
+        continue;
       }
+      await publishScheduleDraft(draft.draft_id, 'نشر معتمد من استيراد Excel');
+      shiftsSaved += rows.length;
     } catch (error) {
-      skipped.push(`تعذر حفظ نسخة الشيفتات الجديدة: ${(error as Error).message}`);
+      skipped.push(`تعذر نشر جدول "${item.canonicalName}": ${(error as Error).message}`);
     }
-  } else if (!scheduleTable) {
-    skipped.push('جدول shift_schedules غير موجود، لذلك لم يتم حفظ الشيفتات.');
   }
 
-  const exceptionTable = await detectTable(['shift_exceptions']);
-  if (exceptionTable && matchedStaff.length > 0) {
-    try {
-      await deleteExceptionRowsByNameBranch(
-        exceptionTable,
-        matchedStaff.map((item) => ({ name: item.canonicalName, branch: item.canonicalBranch }))
-      );
-      leavesSaved = await insertFlexible(exceptionTable, leaveRows(matchedStaff));
-    } catch (error) {
-      skipped.push(`تعذر استبدال الإجازات في shift_exceptions: ${(error as Error).message}`);
-    }
-  } else if (!exceptionTable) {
-    skipped.push('جدول shift_exceptions غير موجود، لذلك لم يتم حفظ الإجازات كاستثناءات مستقلة.');
-  }
-
-  if (staffTable && existingStaff.length && matchedStaff.length) {
-    try {
-      archivedStaff = await archiveMissingStaff(
-        staffTable,
-        exceptionTable,
-        existingStaff,
-        savableStaff,
-        matchedStaff
-      );
-    } catch (error) {
-      skipped.push(`تعذر أرشفة الموظفين الغير موجودين في الملف: ${(error as Error).message}`);
-    }
-  }
+  skipped.push(
+    'Schedule Core V2: لم يعد الاستيراد يعدّل staff.shift_* أو shift_exceptions أو يؤرشف موظفين تلقائيًا. الأرشفة والتغييرات الوظيفية تتم من مسار HR مستقل.'
+  );
 
   await supabase.from('activity_log').insert({
     user_id: 'system',
     user_name: 'النظام',
-    action: 'استيراد واستبدال شيفتات الموظفين الموجودين',
-    module: 'الفريق والجدول',
-    details: `تمت قراءة ${importData.staffCount} اسم، ومطابقة ${matchedStaff.length} موظف موجود، واستبدال جدولهم بـ ${shiftsSaved} شيفت بدون تكرار، وأرشفة ${archivedStaff.length} موظف مش موجود في الملف الجديد. لم يتم إنشاء أي حسابات.`,
+    action: 'نشر شيفتات عبر Schedule Core V2',
+    module: 'الموارد البشرية والجداول',
+    details: `تمت قراءة ${importData.staffCount} اسم، ومطابقة ${matchedStaff.length} موظف، ونشر ${shiftsSaved} صف جدول عبر Draft → Validate → Publish. لم يتم تعديل staff.shift_* ولم تتم أرشفة موظفين تلقائيًا.`,
     branch: 'كل الفروع',
   });
 
