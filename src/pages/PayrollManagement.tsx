@@ -11,6 +11,7 @@ import { canViewAllBranches } from '@/lib/security/userDataScope';
 import { normalizeBranchName } from '@/lib/branch';
 import { formatCurrency } from '@/lib/utils';
 import { getCurrentCycle, formatCycleDate } from '@/lib/pharmacy-cycle';
+import { cairoToday } from '@/lib/attendance/period';
 import { fetchPayrollIncentiveTruth, type PayrollIncentiveTruth } from '@/lib/incentives/payrollIncentiveTruthService';
 import {
   fetchAttendancePayrollReadiness,
@@ -22,6 +23,7 @@ import {
   fetchCompensationProfile,
   fetchPayrollComponents,
   saveCompensationProfile,
+  listCompensationChanges, decideCompensationChange, type CompensationChange,
   type PayrollComponents,
 } from '@/lib/payroll/payrollCompensationService';
 
@@ -120,6 +122,11 @@ export default function PayrollManagement() {
   const [month, setMonth] = useState(currentMonth);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [compensationReason,setCompensationReason] = useState('');
+  const [compensationEffective,setCompensationEffective] = useState(cairoToday());
+  const [compensationChanges,setCompensationChanges] = useState<CompensationChange[]>([]);
+  const [compensationError,setCompensationError] = useState('');
+  useEffect(()=>{let active=true;setCompensationChanges([]);setCompensationError('');if(selected?.staffId)listCompensationChanges(selected.staffId).then(r=>{if(active)setCompensationChanges(r)}).catch(e=>{if(active)setCompensationError(e.message)});return()=>{active=false}},[selected?.staffId]);
 
   const loadStaff = useCallback(async () => {
     const { data, error } = await supabase.rpc('get_staff_accounts_directory', {
@@ -213,6 +220,7 @@ export default function PayrollManagement() {
 
   const saveProfile = async () => {
     if (!selected) return;
+    if (compensationReason.trim().length<5 || !compensationEffective) { toast.warning('حدد تاريخ السريان وسبب التغيير (٥ أحرف على الأقل).'); return; }
     if (profile.salaryCalculationMode === 'attendance_hours_v1' && profile.attendanceMonthlyReferenceRate <= 0) {
       toast.error('أدخل القيمة الشهرية المرجعية قبل تفعيل حساب الساعات الفعلية.');
       return;
@@ -230,15 +238,20 @@ export default function PayrollManagement() {
         monthlyBaseSalary: profile.monthlyBaseSalary,
         overtimeHourRate: profile.overtimeHourRate,
         monthlyIncentiveBase: profile.monthlyIncentiveBase,
+        effectiveFrom: compensationEffective,
+        reason: compensationReason.trim(),
       });
-      toast.success('تم حفظ ملف التعويضات الموحد');
-      await loadPerson(selected, month);
+      toast.success('تم إرسال التعديل للاعتماد؛ القيم الحالية لم تتغير');
+      setCompensationReason('');
+      setCompensationChanges(await listCompensationChanges(selected.staffId));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'تعذر حفظ ملف التعويضات');
     } finally {
       setSaving(false);
     }
   };
+
+  async function decideChange(id:string,approve:boolean){if(!selected)return;setSaving(true);try{await decideCompensationChange(id,approve,'');setCompensationChanges(await listCompensationChanges(selected.staffId));await loadPerson(selected,month);toast.success(approve?'تم اعتماد التعديل وتطبيقه':'تم رفض الطلب')}catch(e){toast.error(e instanceof Error?e.message:'تعذر اتخاذ القرار')}finally{setSaving(false)}}
 
   const filteredStaff = staff.filter((s) => !search.trim() || s.name.includes(search.trim()) || s.username.includes(search.trim()));
   const summaryCards = [
@@ -321,7 +334,9 @@ export default function PayrollManagement() {
                   <div className="mt-1 text-lg font-black text-teal-200">{formatCurrency(profile.salaryCalculationMode === 'attendance_hours_v1' ? num(components?.baseSalaryComponent) : profile.salaryCalculationMode === 'monthly_hour_unit' ? profile.monthlyHourUnitValue * profile.contractedDailyHours : profile.monthlyBaseSalary)}</div>
                 </div>
               </div>
-              <button className="btn-primary mt-4 flex items-center gap-2" disabled={saving} onClick={() => void saveProfile()}><Save size={16} /> حفظ ملف التعويضات</button>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2"><label className="text-xs">تاريخ سريان التعديل<input type="date" className="input mt-1 w-full" value={compensationEffective} onChange={e=>setCompensationEffective(e.target.value)}/></label><label className="text-xs">سبب التغيير<input className="input mt-1 w-full" maxLength={500} value={compensationReason} onChange={e=>setCompensationReason(e.target.value)}/></label></div>
+              <button className="btn-primary mt-4 flex items-center gap-2" disabled={saving} onClick={() => void saveProfile()}><Save size={16} /> طلب اعتماد تعديل التعويضات</button>
+              <div className="mt-4"><h3 className="font-bold">طلبات التعويضات وسجل الاعتماد</h3>{compensationError&&<p role="alert" className="text-red-400">{compensationError}</p>}{compensationChanges.map(change=><div key={change.id} className="mt-2 rounded-xl border p-3 text-xs" style={surfaceSoft}><div>{change.state==='pending'?'قيد الاعتماد':change.state==='approved'?'معتمد':'مرفوض'} · يسري من {change.effective_from} · {change.reason}</div><div className="mt-1">طريقة الحساب: {String(change.proposed.salary_calculation_mode)} · الأساسي الثابت: {String(change.proposed.monthly_base_salary)} · قيمة الساعة الشهرية: {String(change.proposed.monthly_hour_unit_value)} · ساعات اليوم: {String(change.proposed.contracted_daily_hours)} · الحافز الشهري: {String(change.proposed.monthly_incentive_base)} · سعر الإضافي: {String(change.proposed.overtime_hour_rate)}</div>{change.state==='pending'&&user?.role==='general_manager'&&change.requested_by!==user.id&&<div className="mt-2 flex gap-2"><button className="btn-primary" disabled={saving} onClick={()=>void decideChange(change.id,true)}>اعتماد وتطبيق</button><button className="btn-secondary" disabled={saving} onClick={()=>void decideChange(change.id,false)}>رفض</button></div>}</div>)}</div>
             </div>
 
             <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-6">

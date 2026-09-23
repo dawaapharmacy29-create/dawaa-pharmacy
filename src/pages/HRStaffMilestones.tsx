@@ -7,6 +7,7 @@ import { readStaffDirectory, type StaffDirectoryIdentity } from '@/lib/readModel
 import { completeStaffMilestone, createStaffMilestone, listDueStaffMilestones, listStaffMilestones, type DueStaffMilestone, type StaffMilestone } from '@/lib/hr/staffMilestoneService';
 import StaffEmploymentRecords from '@/components/hr/StaffEmploymentRecords';
 import EmploymentProfileTimeline from '@/components/hr/EmploymentProfileTimeline';
+import RecruitmentPipeline from '@/components/hr/RecruitmentPipeline';
 
 const kinds: Record<StaffMilestone['kind'], string> = {
   onboarding: 'تهيئة موظف جديد', document: 'استكمال مستند',
@@ -104,6 +105,7 @@ export default function HRStaffMilestones() {
       <h1 className="text-2xl font-black text-[var(--dawaa-theme-heading)]">ملف الموظف الوظيفي · المهام</h1>
       <p className="mt-2 text-sm text-[var(--dawaa-theme-muted)]">متابعة تهيئة الموظف والمستندات والتدريب والتسليم. الإكمال يسجل اسم المسؤول ووقته، ولا يغيّر الحضور أو المرتب.</p>
     </header>
+    {central && <RecruitmentPipeline staff={staff} />}
     <section className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4">
       <h2 className="font-black">مهام تحتاج متابعة خلال أسبوع · {dueError ? 'غير متاحة' : due.length}</h2>
       <p className="mt-1 text-xs text-[var(--dawaa-theme-muted)]">تعرض أول ١٠٠ مهمة متأخرة أو مستحقة خلال ٧ أيام، مرتبة حسب الموعد. المهام بلا موعد تظهر في ملف الموظف فقط.</p>

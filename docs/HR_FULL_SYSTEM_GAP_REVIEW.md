@@ -10,6 +10,8 @@ The employee page also contains an immutable register for contracts, renewals an
 
 Pending batch: an effective-dated employment profile adds employment type, grade and reporting line to the employee page. Its correction chain retains old versions and the read API can reconstruct the profile as of a chosen date. Central HR roles write; branch managers read within their branch. This remains descriptive metadata and does not alter payroll or the canonical `staff` row. Release only after its migration and UI are verified together.
 
+Next batch: recruitment records applicants and stage changes, with a hired applicant linked only to an existing reviewed `staff.id`. No files or document expiry reminders are planned. Compensation edits now enter a pending request history; a different general manager account approves and applies the canonical profile when its effective date arrives. The old direct browser upsert is removed and direct Data API writes are revoked. Future-dated requests remain pending until their effective date; previously paid payroll snapshots must not be rewritten.
+
 ## What exists
 
 | Domain | Current entry point | State |

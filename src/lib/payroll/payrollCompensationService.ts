@@ -41,7 +41,22 @@ export type CompensationProfileInput = {
   monthlyBaseSalary: number;
   overtimeHourRate: number;
   monthlyIncentiveBase: number;
+  effectiveFrom: string;
+  reason: string;
 };
+
+export type CompensationChange = { id: string; staff_id: string; effective_from: string; proposed: Record<string, number | string>; previous: Record<string, number | string> | null; reason: string; state: string; requested_at: string; requested_by: string; decided_at: string | null; decision_note: string | null };
+
+export async function listCompensationChanges(staffId?: string): Promise<CompensationChange[]> {
+  const { data,error } = await supabase.rpc('hr_compensation_change_v1',{p_action:'list',p_staff_id:staffId||null});
+  if(error) throw new Error(error.message);
+  return data as CompensationChange[];
+}
+
+export async function decideCompensationChange(id: string, approve: boolean, note: string) {
+  const { error } = await supabase.rpc('hr_compensation_change_v1',{p_action:approve?'approve':'reject',p_change_id:id,p_payload:{note}});
+  if(error) throw new Error(error.message);
+}
 
 export type PayrollSaveInput = {
   staffUsername: string;
@@ -119,20 +134,16 @@ export async function fetchCompensationProfile(staffId?: string | null) {
 }
 
 export async function saveCompensationProfile(input: CompensationProfileInput) {
-  const { error } = await supabase.from('employee_compensation_profiles').upsert({
-    staff_id: input.staffId,
-    staff_name: input.staffName,
-    branch: input.branch,
+  const { error } = await supabase.rpc('hr_compensation_change_v1',{p_action:'request',p_staff_id:input.staffId,p_payload:{
+    reason:input.reason,effective_from:input.effectiveFrom,profile:{
     salary_calculation_mode: input.salaryCalculationMode,
-    hourly_rate: input.salaryCalculationMode === 'attendance_hours_v1' ? number(input.attendanceMonthlyReferenceRate) : undefined,
+    hourly_rate: number(input.attendanceMonthlyReferenceRate),
     monthly_hour_unit_value: number(input.monthlyHourUnitValue),
     contracted_daily_hours: number(input.contractedDailyHours),
     monthly_base_salary: number(input.monthlyBaseSalary),
     overtime_hour_rate: number(input.overtimeHourRate),
     monthly_incentive_base: number(input.monthlyIncentiveBase),
-    active: true,
-    updated_at: new Date().toISOString(),
-  }, { onConflict: 'staff_id' });
+  }}});
   if (error) throw new Error(error.message);
 }
 
