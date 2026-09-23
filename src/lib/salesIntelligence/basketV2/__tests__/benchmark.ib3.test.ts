@@ -186,6 +186,20 @@ describe('I.B.3/I.B.3.1 — real Basket benchmark: OLD vs Basket Reconstruction 
     expect(first.metrics.regressions).toBe(0);
   });
 
+  it('treats ANY predicted SKU outside Ground Truth as a false-added product, even without an explicit denylist', () => {
+    const deliberatelyWrong = CASES.map((c) => c.id === 'R01'
+      ? { ...c, groundTruth: { ...c.groundTruth, expectedAddedProductCodes: [], expectedNeverAddedProductCodes: [] } }
+      : c);
+    const report = runSalesIntelligenceBenchmarkV2(deliberatelyWrong, CATALOG, BASKET_GROUND_TRUTH_VERSION_V1);
+    // This assertion does not force R01 to be wrong; it locks the metric invariant globally:
+    // falseAddedProductToBasket.v2 must exactly equal the sum of per-case unexpected basket SKUs.
+    const unexpected = report.cases.reduce((sum, row) => {
+      const expected = new Set(row.groundTruth.addedProductCodes);
+      return sum + row.v2.productCodes.filter((code) => !expected.has(code)).length;
+    }, 0);
+    expect(report.metrics.falseAddedProductToBasket.v2).toBe(unexpected);
+  });
+
   it('every real conversation case actually parses to at least one meaningful message (fixture sanity)', () => {
     CASES.filter((c) => c.source === 'real').forEach((c) => {
       const messages = messagesFrom(c.raw);

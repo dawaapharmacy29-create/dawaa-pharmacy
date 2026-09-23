@@ -292,9 +292,16 @@ function inferFailures(
     }
   }
 
-  for (const code of never) {
-    if (predicted.has(code)) {
+  for (const code of predicted) {
+    if (!expected.has(code)) {
       failures.push(graphCodes.has(code) ? 'basket_mutation_error' : 'product_wrong_sku');
+      safetyCritical.push(`false_added_product:${code}`);
+    }
+  }
+  // expectedNeverAddedProductCodes remains useful as an explicit label even when the engine made no
+  // prediction; the generic predicted-not-expected rule above is the actual false-add safety gate.
+  for (const code of never) {
+    if (predicted.has(code) && !safetyCritical.includes(`false_added_product:${code}`)) {
       safetyCritical.push(`false_added_product:${code}`);
     }
   }
@@ -404,10 +411,10 @@ export function runSalesIntelligenceBenchmarkV2(
 
     const oldCodes = new Set(old.items.map((i) => i.productCode).filter((x): x is string => Boolean(x)));
     const v2Codes = new Set(v2.items.map((i) => i.productCode).filter((x): x is string => Boolean(x)));
-    for (const code of never) {
-      if (oldCodes.has(code)) falseOld++;
-      if (v2Codes.has(code)) falseV2++;
-    }
+    // Safety definition: any SKU present in the reconstructed basket but absent from the complete
+    // Ground Truth basket is a false-added product. Do not restrict this to a hand-written denylist.
+    for (const code of oldCodes) if (!expected.has(code)) falseOld++;
+    for (const code of v2Codes) if (!expected.has(code)) falseV2++;
 
     for (const [code, expectedQty] of Object.entries(c.groundTruth.expectedQuantities)) {
       if (expectedQty === null) continue;
@@ -447,7 +454,7 @@ export function runSalesIntelligenceBenchmarkV2(
     else correctlyNoReview++;
 
     const difficulty = difficultyFor(c);
-    for (const code of never) if (v2Codes.has(code)) difficultyRaw[difficulty].falseAddedProducts++;
+    for (const code of v2Codes) if (!expected.has(code)) difficultyRaw[difficulty].falseAddedProducts++;
     for (const [code, expectedQty] of Object.entries(c.groundTruth.expectedQuantities)) {
       if (expectedQty === null) continue;
       const item = v2.items.find((i) => i.productCode === code);
@@ -476,7 +483,7 @@ export function runSalesIntelligenceBenchmarkV2(
       productCalibration[bucket].total++;
       const code = p.canonicalProductCode;
       if (!code) productCalibration[bucket].unverifiable++;
-      else if (never.has(code)) productCalibration[bucket].verifiedIncorrect++;
+      else if (!expected.has(code)) productCalibration[bucket].verifiedIncorrect++;
       else if (expected.has(code)) productCalibration[bucket].verifiedCorrect++;
       else productCalibration[bucket].unverifiable++;
     }
@@ -491,7 +498,7 @@ export function runSalesIntelligenceBenchmarkV2(
       const expectedQty = code ? c.groundTruth.expectedQuantities[code] : undefined;
       if (code && q && typeof expectedQty === 'number') {
         q.value === expectedQty ? quantityCalibration[bucket].verifiedCorrect++ : quantityCalibration[bucket].verifiedIncorrect++;
-      } else if (code && never.has(code)) {
+      } else if (code && !expected.has(code)) {
         quantityCalibration[bucket].verifiedIncorrect++;
       } else {
         quantityCalibration[bucket].unverifiable++;
@@ -502,7 +509,7 @@ export function runSalesIntelligenceBenchmarkV2(
       const bucket = confidenceBucket(edge.confidence);
       referenceCalibration[bucket].total++;
       const code = codeByProductNodeId.get(edge.toNodeId) ?? null;
-      if (code && never.has(code)) referenceCalibration[bucket].verifiedIncorrect++;
+      if (code && !expected.has(code)) referenceCalibration[bucket].verifiedIncorrect++;
       else if (code && c.groundTruth.expectedAddedProductCodes.length === 1 && c.groundTruth.expectedAddedProductCodes[0] === code) referenceCalibration[bucket].verifiedCorrect++;
       else referenceCalibration[bucket].unverifiable++;
     }
@@ -515,7 +522,7 @@ export function runSalesIntelligenceBenchmarkV2(
     for (const edge of v2.graph.edges.filter((e) => e.safety === 'safe' && (e.type === 'quantity_applies_to_product' || e.type === 'reference_points_to_product'))) {
       safeEdgeTotal++;
       const targetCode = productCodeByNodeId.get(edge.toNodeId) ?? null;
-      if (targetCode && never.has(targetCode)) {
+      if (targetCode && !expected.has(targetCode)) {
         safeEdgeIncorrect++;
         continue;
       }
