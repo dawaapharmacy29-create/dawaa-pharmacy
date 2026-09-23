@@ -126,7 +126,6 @@ export default function Schedule() {
     (e) =>
       staffRowIsActive(e) &&
       staffRowVisibleInSchedule(e) &&
-      e.status === 'نشط' &&
       (branchFilter === 'الكل' || normalizeBranch(e.branch) === branchFilter) &&
       (roleFilter === 'الكل' || e.role === roleFilter)
   );
@@ -534,7 +533,7 @@ export default function Schedule() {
                       shift?.shift_start &&
                       shift?.shift_end &&
                       isCurrentlyOnShift(shift.shift_start, shift.shift_end) &&
-                      emp.status === 'نشط';
+                      staffRowIsActive(emp);
                     const normalShift = normalShiftFor(emp);
                     const shiftKey =
                       shift?.shift_start && shift?.shift_end
