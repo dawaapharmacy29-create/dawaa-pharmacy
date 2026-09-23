@@ -9,7 +9,7 @@ import type { RawProductRow } from '../pharmacyProducts/canonicalProduct';
 import type { SalesIntelligenceGroundTruthCase } from './benchmarkV2';
 
 /** Dataset version changes whenever labels OR case membership change. */
-export const BASKET_GROUND_TRUTH_VERSION_V1 = 'dawaa-intelligence-ground-truth-v1.1';
+export const BASKET_GROUND_TRUTH_VERSION_V1 = 'dawaa-intelligence-ground-truth-v1.2';
 
 export const REAL_CATALOG_ROWS_V1: RawProductRow[] = [
   { id: '8418f406-2c16-423e-8528-529d39e7d17b', name: 'ANTINAL 24 CAP', product_code: '56822', normalized_name: 'antinal 24 cap', category: null, price: '52', source: 'catalog_import' },
@@ -28,8 +28,6 @@ export const REAL_CATALOG_ROWS_V1: RawProductRow[] = [
   { id: '1fc42fd9-d597-4965-8549-02f705672a81', name: 'HYFRESH DROPS', product_code: '28532', normalized_name: 'hyfresh drops', category: null, price: '75', source: 'catalog_import' },
   { id: '0d790180-87f6-4b4f-ad21-38003b7aaee9', name: 'DERMACTIVE SWEAT CONTROL REFRESHING ROLL ON 60ML', product_code: '77480', normalized_name: 'dermactive sweat control refreshing roll on 60ml', category: null, price: '170', source: 'catalog_import' },
 ];
-const CATALOG = catalogFrom(REAL_CATALOG_ROWS);
-
 export const BASKET_GROUND_TRUTH_CASES_V1: SalesIntelligenceGroundTruthCase[] = [
   {
     id: 'R01',
@@ -62,26 +60,6 @@ export const BASKET_GROUND_TRUTH_CASES_V1: SalesIntelligenceGroundTruthCase[] = 
 [9/14/26, 1:21:27 AM] Customer: شريط وشريط
 [9/14/26, 1:21:32 AM] You: العفو يا فندم تخت امر حضرتك
 [9/14/26, 1:27:37 AM] You: تم الارسال نتشرف ب خدمة حضرتك`,
-    groundTruth: { expectedAddedProductCodes: [], expectedNeverAddedProductCodes: [], expectedQuantities: {}, expectedStatus: null, expectUnresolvedSignal: true },
-  },
-  {
-    id: 'R03',
-    source: 'real',
-    category: 'multi_item_order',
-    sourceNote: 'مونزا الحماقي, id e9e231ad (second exchange, same day) — 4 items named rapid-fire; "متوفر ال ٥٠ كيس" is an image-only antecedent (the forwarded photo, not resolvable from text) — ground truth marks it a review/unresolved candidate, never a guessed product. "كيوتابكس"/"سولو فريش"/"هاى فريش"/"سويتال" are not in the real catalog subset used here — real-world unresolved names, not an engine bug.',
-    raw: `[9/14/26, 5:21:31 PM] Customer: سلام عليكم
-[9/14/26, 5:21:40 PM] Customer: لو سمحت عاوزة قطرة سولو فريش
-[9/14/26, 5:21:44 PM] Customer: وقطرة هاى فريش
-[9/14/26, 5:21:51 PM] Customer: وعلبة سويتال شبه دى
-[9/14/26, 5:22:01 PM] Customer: متوفر ال ٥٠ كيس ابعته لحضرتك ؟
-[9/14/26, 5:22:03 PM] You: أهلا بحضرتك مع حضرتك د ندى من صيدليات دواء
-[9/14/26, 5:22:07 PM] You: وعليكم السلام ورحمه الله وبركاته
-[9/14/26, 5:22:10 PM] Customer: وشريط كيوتابكس
-[9/14/26, 5:22:21 PM] You: تركيز ايه ي فندم؟
-[9/14/26, 5:23:56 PM] Customer: 25
-[9/14/26, 5:29:16 PM] Customer: تمام؟
-[9/14/26, 5:29:52 PM] You: تمام عنيا
-[9/14/26, 5:31:27 PM] You: جاري الارسال نتشرف ب خدمة حضرتك`,
     groundTruth: { expectedAddedProductCodes: [], expectedNeverAddedProductCodes: [], expectedQuantities: {}, expectedStatus: null, expectUnresolvedSignal: true },
   },
   {
@@ -445,6 +423,32 @@ export const BASKET_GROUND_TRUTH_CASES_V1: SalesIntelligenceGroundTruthCase[] = 
 [8/19/26, 9:26:36 PM] You: وفرته لحضرتك ي فندم
 [8/19/26, 9:27:06 PM] You: <image omitted>
 [8/19/26, 9:29:46 PM] You: استاذن حضرتك الصبح ي فندم حضرتك تبعتلنا رسالة للتاكيد`,
+    groundTruth: {
+      expectedAddedProductCodes: [],
+      expectedNeverAddedProductCodes: [],
+      expectedQuantities: {},
+      expectedStatus: null,
+      expectUnresolvedSignal: true,
+    },
+  },
+  {
+    id: 'R21',
+    source: 'real',
+    category: 'hard_media_product_then_explicit_customer_acceptance',
+    sourceNote: 'Real Dawaa conversation 619b9056... — staff eventually finds the exact requested product via images after a long advisory exchange, asks "حضرتك تحب ابعته ؟", customer answers "ياااااريت", and price 400 is given. Product identity itself remains image-only in the visible text, so Ground Truth requires unresolved/review and intentionally asserts no canonical SKU.',
+    raw: `[8/1/26, 10:03:51 AM] You: بالنسبه للشراب هو انا دورت لحضرتك ع الشكل القديم للاسف معتش بينزل هي الشركه بس غيرت شكل العبوه
+[8/1/26, 10:12:07 AM] Customer: <image omitted>
+[8/1/26, 10:12:22 AM] Customer: ده الا محتاجه يكون فيه
+[8/1/26, 10:13:26 AM] Customer: <voice message omitted>
+[8/1/26, 11:07:03 AM] You: <image omitted>
+[8/1/26, 11:07:16 AM] You: <image omitted>
+[8/1/26, 11:07:26 AM] You: ده الشكل اللي حضرتك طلبته
+[8/1/26, 11:09:22 AM] You: حضرتك تحب ابعته ؟
+[8/1/26, 11:09:33 AM] Customer: ياااااريت
+[8/1/26, 11:09:40 AM] Customer: بكام
+[8/1/26, 11:09:46 AM] You: عنيا حاضر ان شاء الله حالا
+[8/1/26, 11:10:03 AM] You: ب 400
+[8/1/26, 11:10:12 AM] Customer: تمام`,
     groundTruth: {
       expectedAddedProductCodes: [],
       expectedNeverAddedProductCodes: [],

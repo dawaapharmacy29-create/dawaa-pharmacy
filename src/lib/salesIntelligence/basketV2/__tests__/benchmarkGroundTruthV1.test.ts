@@ -9,7 +9,7 @@ function inferredDifficulty(category: string): 'easy' | 'medium' | 'hard' {
 
 describe('Phase I.B.4 — canonical Ground Truth integrity', () => {
   it('keeps dataset identity explicit and case ids unique', () => {
-    expect(BASKET_GROUND_TRUTH_VERSION_V1).toBe('dawaa-intelligence-ground-truth-v1.1');
+    expect(BASKET_GROUND_TRUTH_VERSION_V1).toBe('dawaa-intelligence-ground-truth-v1.2');
     const ids = BASKET_GROUND_TRUTH_CASES_V1.map((c) => c.id);
     expect(new Set(ids).size).toBe(ids.length);
   });
@@ -33,6 +33,11 @@ describe('Phase I.B.4 — canonical Ground Truth integrity', () => {
       expect(c.groundTruth.expectedAddedProductCodes).toEqual([]);
       expect(c.groundTruth.expectUnresolvedSignal).toBe(true);
     }
+  });
+
+  it('does not count the same conversation window twice as separate evidence', () => {
+    const normalized = BASKET_GROUND_TRUTH_CASES_V1.map((c) => c.raw.replace(/\s+/g, ' ').trim());
+    expect(new Set(normalized).size).toBe(normalized.length);
   });
 
   it('keeps synthetic cases explicitly synthetic rather than padding real evidence', () => {
