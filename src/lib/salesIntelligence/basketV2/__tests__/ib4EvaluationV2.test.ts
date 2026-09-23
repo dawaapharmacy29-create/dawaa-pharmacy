@@ -22,6 +22,8 @@ describe('Phase I.B.4 — composed evaluation report', () => {
     expect(a.basket.metrics.quantityTargetAudit.incorrect).toBe(0);
     expect(a.basket.metrics.wrongQuantityAppliedToCorrectProduct).toBe(0);
     expect(a.basket.metrics.safeEdgeAudit.verifiedIncorrect).toBe(0);
+    expect(a.regressionCases).toEqual([]);
+    expect(Array.isArray(a.topFailureCategories)).toBe(true);
     expect(a.readiness.readyForNextStage).toBe(false);
     expect(a.readiness.blockers.some((x) => x.startsWith('insufficient_real_ground_truth_cases:'))).toBe(true);
   });
