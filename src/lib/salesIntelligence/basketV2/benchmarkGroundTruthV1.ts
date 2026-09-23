@@ -21,6 +21,9 @@ export const REAL_CATALOG_ROWS_V1: RawProductRow[] = [
   { id: '8659053b-f2da-42c2-83f7-4efe698e77b1', name: 'VICHY NORMADERM PURIFYING 400M', product_code: '71207', normalized_name: 'vichy normaderm purifying 400m', category: null, price: '1200', source: 'catalog_import' },
   { id: 'b872d26e-30e0-4e49-98ba-0ee29ece241f', name: 'ISIS TEEN DERM GEL SENSITIVE 250ML', product_code: '70271', normalized_name: 'isis teen derm gel sensitive 250ml', category: null, price: '659', source: 'catalog_import' },
   { id: '42e2b052-2885-4cd3-804c-310860d51a89', name: 'bloomville 30 tab', product_code: '73046', normalized_name: 'bloomville 30 tab', category: null, price: '275', source: 'catalog_import' },
+  { id: '265f1158-4c01-4a9e-af62-1ed5f764dca8', name: 'Solofresh eye drops', product_code: '66682', normalized_name: 'solofresh eye drops', category: null, price: '67', source: 'catalog_import' },
+  { id: '1fc42fd9-d597-4965-8549-02f705672a81', name: 'HYFRESH DROPS', product_code: '28532', normalized_name: 'hyfresh drops', category: null, price: '75', source: 'catalog_import' },
+  { id: '0d790180-87f6-4b4f-ad21-38003b7aaee9', name: 'DERMACTIVE SWEAT CONTROL REFRESHING ROLL ON 60ML', product_code: '77480', normalized_name: 'dermactive sweat control refreshing roll on 60ml', category: null, price: '170', source: 'catalog_import' },
 ];
 const CATALOG = catalogFrom(REAL_CATALOG_ROWS);
 
@@ -320,6 +323,54 @@ export const BASKET_GROUND_TRUTH_CASES_V1: SalesIntelligenceGroundTruthCase[] = 
       expectedQuantities: { '73046': null },
       expectedStatus: null,
       expectUnresolvedSignal: true,
+    },
+  },
+  {
+    id: 'R16',
+    source: 'real',
+    category: 'hard_multi_item_direct_order_with_media_gap',
+    sourceNote: 'Real Dawaa conversation e9e231ad... — customer explicitly orders Solo Fresh and Hyfresh drops, plus Sweetal/Qutabex context with image/voice details. Ground Truth asserts only the two text-explicit catalog SKUs and requires unresolved/review for the media-dependent remainder; nothing else is guessed.',
+    raw: `[9/14/26, 5:21:40 PM] Customer: لو سمحت عاوزة قطرة سولو فريش
+[9/14/26, 5:21:44 PM] Customer: وقطرة هاى فريش
+[9/14/26, 5:21:51 PM] Customer: وعلبة سويتال شبه دى
+[9/14/26, 5:22:01 PM] Customer: <image omitted>
+[9/14/26, 5:22:10 PM] Customer: وشريط كيوتابكس
+[9/14/26, 5:22:21 PM] You: تركيز ايه ي فندم؟
+[9/14/26, 5:23:38 PM] Customer: <voice message omitted>
+[9/14/26, 5:23:56 PM] Customer: 25
+[9/14/26, 5:29:52 PM] You: تمام عنيا
+[9/14/26, 5:30:23 PM] Customer: تمام ياريت بس تبعت الاوردر بسرعة
+[9/14/26, 5:30:40 PM] You: حالا ي فندم
+[9/14/26, 5:31:27 PM] You: جاري الارسال`,
+    groundTruth: {
+      expectedAddedProductCodes: ['66682', '28532'],
+      expectedNeverAddedProductCodes: [],
+      expectedQuantities: { '66682': null, '28532': null },
+      expectedStatus: null,
+      expectUnresolvedSignal: true,
+    },
+  },
+  {
+    id: 'R17',
+    source: 'real',
+    category: 'recommendation_price_acceptance_direct_order',
+    sourceNote: 'Real Dawaa conversation f09471e8... — staff recommends Derma Active, states price 170, customer says "ماشي تمام" then explicitly "ابعته", and staff confirms fulfillment. The 170 EGP catalog row uniquely supports DERMACTIVE SWEAT CONTROL REFRESHING ROLL ON 60ML (code 77480); no image-only SKU is invented.',
+    raw: `[9/12/26, 9:04:35 AM] You: فكرني حضرتك اخر مرة كنت واخد ايه
+[9/12/26, 9:07:01 AM] You: اقولك على ال انا بستخدمه حاليا وجميل جدا
+[9/12/26, 9:07:06 AM] You: ديرما اكتيف
+[9/12/26, 9:07:49 AM] You: <image omitted>
+[9/12/26, 9:07:51 AM] Customer: سعره كام
+[9/12/26, 9:08:04 AM] Customer: ماشي تمام
+[9/12/26, 9:08:07 AM] You: ب170ج
+[9/12/26, 9:08:25 AM] Customer: ابعته
+[9/12/26, 9:08:46 AM] You: عنيا حاضر
+[9/12/26, 9:16:17 AM] You: تم الارسال`,
+    groundTruth: {
+      expectedAddedProductCodes: ['77480'],
+      expectedNeverAddedProductCodes: [],
+      expectedQuantities: { '77480': null },
+      expectedStatus: null,
+      expectUnresolvedSignal: false,
     },
   },
   {
