@@ -177,6 +177,7 @@ export const failureReasonLabels: Record<string, string> = {
 /** Arabic-only reviewer text for engine rule ids. Never changes engine logic or stored values. */
 export const ruleIdLabels: Record<string, string> = {
   'case.classification.request_with_commercial_signal': 'تم تصنيف الحالة كطلب ذي إشارة شرائية واضحة',
+  'case.classification.explicit_commercial_journey': 'طلب واضح + صنف/إشارة تجارية + قبول صريح من العميل + تأكيد أو نية تنفيذ واضحة من الصيدلية',
   'case.classification.request_without_commercial_signal': 'تم تصنيف الحالة كطلب دون إشارة شرائية كافية',
   'historical_closure.customer_acceptance_and_staff_fulfillment_intent': 'يوجد قبول من العميل مع نية واضحة من الموظف لتنفيذ الطلب',
   'attribution.assessment.no_candidates': 'لم يتم العثور على فاتورة مرشحة مناسبة',
@@ -207,4 +208,11 @@ export const productMatchLabelLabels: Record<string, string> = {
   fuzzy: 'تطابق تقريبي',
   weak: 'تطابق ضعيف',
   ambiguous: 'تطابق ملتبس',
+};
+
+export const confidenceDisplayLabels: Record<string, string> = {
+  proven: 'مؤكد',
+  strongly_inferred: 'ثقة عالية',
+  weakly_inferred: 'ثقة محدودة',
+  unknown: 'غير معروف',
 };
