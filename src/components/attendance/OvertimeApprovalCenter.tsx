@@ -70,6 +70,16 @@ export default function OvertimeApprovalCenter({ defaultBranch = '' }: { default
 
   const money = (v: number | null | undefined) => (v == null ? 'غير محدد' : `${v.toLocaleString('ar-EG')} ج.م`);
 
+  const formatOvertimeDuration = (hours: number | null | undefined) => {
+    const totalMinutes = Math.max(0, Math.round(Number(hours || 0) * 60));
+    if (totalMinutes < 60) return `${totalMinutes.toLocaleString('ar-EG')} دقيقة`;
+    const wholeHours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return minutes
+      ? `${wholeHours.toLocaleString('ar-EG')}:${String(minutes).padStart(2, '0')} ساعة`
+      : `${wholeHours.toLocaleString('ar-EG')} ساعة`;
+  };
+
   return (
     <div className="space-y-4" dir="rtl">
       <div className="flex flex-col gap-3 rounded-3xl border border-[var(--dawaa-theme-border)] dawaa-surface p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
@@ -101,11 +111,24 @@ export default function OvertimeApprovalCenter({ defaultBranch = '' }: { default
         ) : (
           <div className="grid gap-3">
             {pending.map((row) => (
-              <div key={row.id} className="rounded-xl border border-[var(--dawaa-theme-border)] dawaa-surface p-3">
+              <div
+                key={row.id}
+                role="button"
+                tabIndex={0}
+                aria-expanded={expandedEvidenceId === row.id}
+                onClick={() => setExpandedEvidenceId((current) => current === row.id ? null : row.id)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    setExpandedEvidenceId((current) => current === row.id ? null : row.id);
+                  }
+                }}
+                className="cursor-pointer rounded-xl border border-[var(--dawaa-theme-border)] dawaa-surface p-3 transition hover:border-[var(--dawaa-theme-primary)]"
+              >
                 <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
                   <div>
                     <div className="text-sm font-bold text-[var(--dawaa-theme-heading)]">
-                      <span className="font-black">{row.staff_name}</span> · {row.branch} · {row.attendance_date} · {Number(row.overtime_hours).toFixed(2)} ساعة
+                      <span className="font-black">{row.staff_name}</span> · {row.branch} · {row.attendance_date} · {formatOvertimeDuration(row.overtime_hours)}
                       {row.overtime_amount != null && <span className="text-[var(--dawaa-theme-muted)]"> (~{money(row.overtime_amount)})</span>}
                     </div>
                     <div className="mt-1 flex items-center gap-1.5 text-[10px] font-black text-[var(--dawaa-theme-muted)]">
@@ -119,7 +142,10 @@ export default function OvertimeApprovalCenter({ defaultBranch = '' }: { default
                   <div className="flex min-w-[360px] flex-col gap-2 sm:flex-row">
                     <button
                       type="button"
-                      onClick={() => setExpandedEvidenceId((current) => current === row.id ? null : row.id)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setExpandedEvidenceId((current) => current === row.id ? null : row.id);
+                      }}
                       className="btn-secondary !py-1 !px-3 text-xs"
                     >
                       <ReceiptText size={14} />
@@ -128,14 +154,16 @@ export default function OvertimeApprovalCenter({ defaultBranch = '' }: { default
                     </button>
                     <input
                       value={noteById[row.id] || ''}
+                      onClick={(event) => event.stopPropagation()}
+                      onKeyDown={(event) => event.stopPropagation()}
                       onChange={(e) => setNoteById((current) => ({ ...current, [row.id]: e.target.value }))}
                       placeholder="ملاحظة القرار · مطلوبة عند الرفض"
                       className="input-dark flex-1"
                     />
-                    <button disabled={decidingId === row.id} onClick={() => void decide(row, 'approved')} className="btn-primary !py-1 !px-3 text-xs">
+                    <button disabled={decidingId === row.id} onClick={(event) => { event.stopPropagation(); void decide(row, 'approved'); }} className="btn-primary !py-1 !px-3 text-xs">
                       <CheckCircle2 size={14} /> اعتماد
                     </button>
-                    <button disabled={decidingId === row.id} onClick={() => void decide(row, 'rejected')} className="btn-secondary !py-1 !px-3 text-xs">
+                    <button disabled={decidingId === row.id} onClick={(event) => { event.stopPropagation(); void decide(row, 'rejected'); }} className="btn-secondary !py-1 !px-3 text-xs">
                       <XCircle size={14} /> رفض
                     </button>
                   </div>
@@ -165,7 +193,7 @@ export default function OvertimeApprovalCenter({ defaultBranch = '' }: { default
                     <td className="p-3 font-bold text-[var(--dawaa-theme-heading)]">{row.staff_name}</td>
                     <td className="p-3">{row.branch}</td>
                     <td className="p-3">{row.attendance_date}</td>
-                    <td className="p-3 font-black">{Number(row.overtime_hours).toFixed(2)}</td>
+                    <td className="p-3 font-black">{formatOvertimeDuration(row.overtime_hours)}</td>
                     <td className="p-3">{money(row.overtime_amount)}</td>
                     <td className="p-3 text-xs font-bold">
                       {row.source_resolution_id
