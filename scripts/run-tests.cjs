@@ -313,6 +313,8 @@ const testFiles = [
   'src/lib/salesIntelligence/__tests__/sourceSnapshotLineage.test.ts',
   'src/lib/salesIntelligence/__tests__/salesPricingExecutionV1.test.ts',
   'src/lib/salesIntelligence/__tests__/staffCommercialAnalyticsV1.test.ts',
+  'src/lib/salesIntelligence/__tests__/recommendationConversionV1.test.ts',
+  'src/lib/salesIntelligence/__tests__/staffRecommendationAnalyticsV1.test.ts',
   'src/lib/__tests__/salesInvoiceItemsV21.bconnect.test.ts',
   'src/lib/salesIntelligence/__tests__/trustedInvoiceEvidenceBridge.test.ts',
   'src/lib/salesIntelligence/qa/__tests__/saleProofProjection.test.ts',
