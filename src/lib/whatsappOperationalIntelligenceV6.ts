@@ -168,44 +168,35 @@ const GENERIC_NON_PRODUCT_RX =
 const SERVICE_SENTENCE_RX =
   /(?:تحت أمر|صيدليات دواء|خدمة التوصيل|الشركة المنتجة|هنحاول نوفر|هبلغ حضرتك|تصرفهوله|يقلل الاعراض)/i;
 const DOSAGE_FOLLOWUP_RX =
-  /^(?:\\s*)(?:امبول|أمبول|امبولات|أمبولات|شريط|شرايط|علبه|علبة|علب|كريم|جل|شراب|بخاخ|بخاخه|قطره|قطرة|كبسول|كبسوله|كبسولة|اقراص|أقراص|قرص)(?:\\s+.*)?$/i;
+  /^(?:\s*)(?:امبول|أمبول|امبولات|أمبولات|شريط|شرايط|علبه|علبة|علب|كريم|جل|شراب|بخاخ|بخاخه|قطره|قطرة|كبسول|كبسوله|كبسولة|اقراص|أقراص|قرص)(?:\s+.*)?$/i;
+
+function replaceStandaloneToken(value: string, token: string) {
+  const escaped = token.replace(/[.*+?^$()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
+  return value.replace(new RegExp('(?<![\\p{L}\\p{N}])' + escaped + '(?![\\p{L}\\p{N}])', 'giu'), ' ');
+}
 
 function cleanProductPhrase(raw: string) {
-  let value = raw.replace(/https?:\\/\\/\\S+/g, ' ');
+  let value = raw.replace(/https?:\/\/\S+/g, ' ');
   const removable = ['لو سمحت','من فضلك','يا فندم','حضرتك','عندكم','موجود','متوفر','بكام','كام','ممكن','لوسمحت'];
-  for (const token of removable) {
-    const escaped = token.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\function cleanProductPhrase(raw: string) {
-  let value = raw
-    .replace(/https?:\/\/\S+/g, ' ')
-    .replace(/(لو سمحت|من فضلك|يا فندم|حضرتك|عندكم|موجود|متوفر|بكام|كام|ممكن|لي|لوسمحت)/gi, ' ')
-    .replace(/[؟?!،,;:]/g, ' ')
-    .replace(/\s+/g, ' ').trim();
-  const stop = value.search(/\b(علشان|عشان|لان|لأن|بس|وكمان|و كمان|لو|اذا|إذا)\b/i);
+  for (const token of removable) value = replaceStandaloneToken(value, token);
+  value = value.replace(/[؟?!،,;:]/g, ' ').replace(/\s+/g, ' ').trim();
+  const stop = value.search(/(?<![\p{L}\p{N}])(?:علشان|عشان|لان|لأن|بس|وكمان|و\s+كمان|لو|اذا|إذا)(?![\p{L}\p{N}])/iu);
   if (stop > 1) value = value.slice(0, stop).trim();
-  const words = value.split(/\s+/).filter(Boolean).slice(0, 8);
-  value = words.join(' ').trim();
-  if (value.length < 2 || /^(حاجه|حاجة|دواء|دوا|علاج|صنف|منتج)$/i.test(value)) return '';
-  return value;
-}').replace(/\\s+/g, '\\\\s+');
-    value = value.replace(new RegExp('(?<![\\\\p{L}\\\\p{N}])' + escaped + '(?![\\\\p{L}\\\\p{N}])', 'giu'), ' ');
-  }
-  value = value.replace(/[؟?!،,;:]/g, ' ').replace(/\\s+/g, ' ').trim();
-  const stop = value.search(/(?<![\\p{L}\\p{N}])(?:علشان|عشان|لان|لأن|بس|وكمان|و\\s+كمان|لو|اذا|إذا)(?![\\p{L}\\p{N}])/iu);
-  if (stop > 1) value = value.slice(0, stop).trim();
-  value = value.split(/\\s+/).filter(Boolean).slice(0, 10).join(' ').trim();
-  value = value.replace(/^(?:عايز|عاوز|عايزه|عاوزه|محتاج|محتاجه|هات|ابعت|ابعث)\\s+/i, '').trim();
-  value = value.replace(/\\s+(?:تقريبا|تقريباً|ضروري+|جدا|جدًا)$/i, '').trim();
-  if (value.length < 2 || /^(?:حاجه|حاجة|دواء|دوا|علاج|صنف|منتج|ده|دي|دول|منه|منها)$/i.test(value) || GENERIC_NON_PRODUCT_RX.test(value) || SERVICE_SENTENCE_RX.test(value)) return '';
+  value = value.split(/\s+/).filter(Boolean).slice(0, 10).join(' ').trim();
+  value = value.replace(/^(?:عايز|عاوز|عايزه|عاوزه|محتاج|محتاجه|هات|ابعت|ابعث)\s+/i, '').trim();
+  value = value.replace(/\s+(?:تقريبا|تقريباً|ضروري+|جدا|جدًا)$/i, '').trim();
+  if (value.length < 2) return '';
+  if (/^(?:حاجه|حاجة|دواء|دوا|علاج|صنف|منتج|ده|دي|دول|منه|منها)$/i.test(value)) return '';
+  if (GENERIC_NON_PRODUCT_RX.test(value) || SERVICE_SENTENCE_RX.test(value)) return '';
   return value;
 }
 
 function plausibleProductPhrase(value: string) {
   const cleaned = cleanProductPhrase(value);
   if (!cleaned) return false;
-  if (cleaned.split(/\\s+/).length > 9) return false;
-  return /[A-Za-z]{3,}|[\\u0600-\\u06ff]{3,}/.test(cleaned);
+  if (cleaned.split(/\s+/).length > 9) return false;
+  return /[A-Za-z]{3,}|[\u0600-\u06ff]{3,}/.test(cleaned);
 }
-
 function extractAfterTrigger(message: WhatsAppParsedMessage, rx: RegExp) {
   const match = message.text.match(rx);
   if (!match || match.index == null) return '';
