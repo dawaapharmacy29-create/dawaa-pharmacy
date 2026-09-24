@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import { supabase } from '@/lib/supabase';
+import { normalizeBranchName } from '@/lib/branch';
 
 export interface RawSalesInvoiceItemV21 {
   sheetName: string;
@@ -389,10 +390,7 @@ export function parseSalesInvoiceItemsV21(buffer: ArrayBuffer, fallbackBranch: s
 }
 
 function normalizeBranch(value: unknown) {
-  const v = normalize(value);
-  if (/شكري|shokry|shoukry/.test(v)) return 'فرع شكري';
-  if (/شامي|الشامي|shamy|shami/.test(v)) return 'فرع الشامي';
-  return v;
+  return normalizeBranchName(value);
 }
 
 export function cairoInvoiceDayV21(value: string | null | undefined) {
