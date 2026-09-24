@@ -45,7 +45,7 @@ const statusLabel: Record<string, string> = {
 
 const invoiceLabel: Record<string, string> = {
   pending: 'لم تُراجع',
-  verified: 'فاتورة مؤكدة',
+  verified: 'مطابقة آلية قوية — غير مؤكدة رسميًا',
   probable: 'فاتورة مرجحة',
   not_found: 'لم توجد فاتورة',
   needs_review: 'تحتاج مراجعة',
@@ -119,7 +119,7 @@ export default function WhatsAppReviewQueueV4() {
     followup: filtered.filter((row) => row.followup_required).length,
     quick: filtered.filter((row) => row.review_status === 'ready_quick').length,
     detailed: filtered.filter((row) => row.review_status === 'ready_detailed').length,
-    invoiceVerified: filtered.filter((row) => row.invoice_match_status === 'verified').length,
+    invoiceAutoStrong: filtered.filter((row) => row.invoice_match_status === 'verified').length,
   }), [filtered]);
 
   const model = selected?.analysis_json || {};
@@ -134,7 +134,7 @@ export default function WhatsAppReviewQueueV4() {
           <div>
             <div className="text-xs font-black text-violet-200">WhatsApp Review V4</div>
             <h1 className="mt-1 text-2xl font-black text-white">قائمة مراجعة المحادثات</h1>
-            <p className="mt-2 text-sm text-slate-400">الأولوية، المتابعة، فرص البيع، الأمان الطبي ومطابقة الفاتورة في مكان واحد. الاعتماد الرسمي يظل بشريًا.</p>
+            <p className="mt-2 text-sm text-slate-400">الأولوية، المتابعة، فرص البيع، الأمان الطبي ومطابقة الفاتورة في مكان واحد. حالة verified هنا مطابقة آلية إحصائية وليست إثبات بيع أو تأكيد فاتورة رسمي.</p>
           </div>
           <button onClick={() => void load()} disabled={loading} className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2.5 text-sm font-black text-white disabled:opacity-50">
             <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> تحديث
@@ -147,7 +147,7 @@ export default function WhatsAppReviewQueueV4() {
           <Metric label="متابعة" value={stats.followup} tone="text-violet-300" />
           <Metric label="Quick Review" value={stats.quick} tone="text-emerald-300" />
           <Metric label="تفصيلية" value={stats.detailed} tone="text-amber-300" />
-          <Metric label="فاتورة مؤكدة" value={stats.invoiceVerified} tone="text-cyan-300" />
+          <Metric label="مطابقة فاتورة آلية قوية" value={stats.invoiceAutoStrong} tone="text-cyan-300" />
         </div>
       </section>
 
@@ -186,7 +186,7 @@ export default function WhatsAppReviewQueueV4() {
           {!selected ? <section className="dawaa-card dawaa-card--soft p-10 text-center text-slate-500">اختار جلسة من القائمة.</section> : <>
             <section className="dawaa-card dawaa-card--raised p-5">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between"><div><div className="flex items-center gap-2 text-xl font-black text-white"><UserRound size={20}/>{selected.customer_name || 'عميل غير محدد'}</div><div className="mt-2 text-xs text-slate-400">{selected.customer_code ? `كود ${selected.customer_code} • ` : ''}{selected.customer_phone || ''}</div><div className="mt-1 text-xs text-slate-400">{selected.staff_name || 'الدكتور غير محدد'} • {selected.branch || 'الفرع غير محدد'} • {selected.message_count || 0} رسالة</div></div><div className="text-left text-xs text-slate-400">{formatDate(selected.conversation_started_at)}<br/>{statusLabel[selected.review_status] || selected.review_status}</div></div>
-              <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-5"><Metric label="ثقة التحليل" value={`${Math.round(Number(selected.analysis_confidence || 0))}%`} tone="text-cyan-300"/><Metric label="الخدمة" value={`${Math.round(Number(selected.service_score || 0))}%`} tone="text-sky-300"/><Metric label="البيع" value={`${Math.round(Number(selected.commercial_score || 0))}%`} tone="text-violet-300"/><Metric label="الفاتورة" value={invoiceLabel[selected.invoice_match_status || 'pending'] || '—'} tone={selected.invoice_match_status === 'verified' ? 'text-emerald-300' : 'text-amber-300'}/><Metric label="قيمة الفاتورة" value={selected.matched_invoice_value ? `${Number(selected.matched_invoice_value).toFixed(2)} ج` : '—'} tone="text-emerald-300"/></div>
+              <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-5"><Metric label="ثقة التحليل" value={`${Math.round(Number(selected.analysis_confidence || 0))}%`} tone="text-cyan-300"/><Metric label="الخدمة" value={`${Math.round(Number(selected.service_score || 0))}%`} tone="text-sky-300"/><Metric label="البيع" value={`${Math.round(Number(selected.commercial_score || 0))}%`} tone="text-violet-300"/><Metric label="مطابقة الفاتورة" value={invoiceLabel[selected.invoice_match_status || 'pending'] || '—'} tone={selected.invoice_match_status === 'verified' ? 'text-cyan-300' : 'text-amber-300'}/><Metric label="قيمة الفاتورة" value={selected.matched_invoice_value ? `${Number(selected.matched_invoice_value).toFixed(2)} ج` : '—'} tone="text-emerald-300"/></div>
             </section>
 
             <section className="dawaa-card dawaa-card--soft p-4"><div className="font-black text-white">ملخص القرار</div><div className="mt-2 text-sm leading-7 text-slate-300">{model?.executiveSummary || 'لا يوجد ملخص محفوظ.'}</div>{selected.followup_required ? <div className="mt-3 rounded-xl border border-violet-400/25 bg-violet-500/10 p-3 text-sm text-violet-100"><Clock3 size={16} className="ml-2 inline"/>{selected.suggested_followup_reason || 'المتابعة مطلوبة'}</div> : null}</section>
