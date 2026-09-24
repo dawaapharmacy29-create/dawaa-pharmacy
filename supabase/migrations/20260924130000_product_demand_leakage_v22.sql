@@ -24,37 +24,62 @@ from public.whatsapp_sales_opportunities_v17
 where product_id is not null
   and product_code is not null
   and product_name is not null
+  and analysis_version='product-demand-v22.1'
 group by
   dawaa_cycle_start_26(coalesce(opened_at::date, created_at::date)),
   dawaa_cycle_end_25(coalesce(opened_at::date, created_at::date)),
   branch, product_id, product_code, product_name;
 
 drop view if exists public.whatsapp_product_demand_unresolved_v22;
-create view public.whatsapp_product_demand_unresolved_v22 as
-with unresolved as (
+drop view if exists public.whatsapp_product_demand_unresolved_detail_v22;
+
+create view public.whatsapp_product_demand_unresolved_detail_v22 as
+with raw_unresolved as (
   select
     s.id as source_id,
     s.branch,
     s.customer_id,
+    s.customer_code,
+    s.customer_name,
+    s.customer_phone,
     s.conversation_started_at,
-    p.value as product_json
+    p.value->>'rawName' as raw_name,
+    p.value->>'status' as product_status,
+    nullif(p.value->>'confidence','')::numeric as confidence
   from public.whatsapp_review_sources s
   cross join lateral jsonb_array_elements(coalesce(s.analysis_json#>'{operational,products}','[]'::jsonb)) p(value)
-  where s.analysis_json->>'productDemandVersion'='product-demand-v22'
+  where s.analysis_json->>'productDemandVersion'='product-demand-v22.1'
     and coalesce(p.value->>'productId','')=''
+),
+classified as (
+  select *,
+    case
+      when raw_name is null or length(trim(raw_name)) < 2 then 'noise'
+      when raw_name ~* '^(بالظبط|عليه|شكله|يهم|يكون فيه|بعد اذنك|اعرف مكان|يجيلي عند|هم تحويل|لحضرتك الاسكرينه)' then 'noise'
+      when raw_name ~* '(نفس|\mده\M|\mدي\M|العلبه|العلبة|الغسول|العسل|القطره|القطرة|اللي لسه بعته|الا لسه بعته)' then 'reference_or_media'
+      when raw_name ~* '(باكيت|مقاس|عدد|قطعه|قطعة)' and raw_name !~* '[A-Za-z]{3,}' then 'contextual_product_reference'
+      when raw_name ~* '(للحموضه|للحموضة|فيتامين|للعين|للارهاق|للإرهاق|للخمول|لزياده رغبه|لزيادة رغبة|استشاره|استشارة|حاجه كويسه|حاجة كويسة)' then 'category_need'
+      else 'named_product_unresolved'
+    end as unresolved_type
+  from raw_unresolved
 )
 select
+  source_id,branch,customer_id,customer_code,customer_name,customer_phone,
+  conversation_started_at,
   dawaa_cycle_start_26(conversation_started_at::date) as cycle_start,
   dawaa_cycle_end_25(conversation_started_at::date) as cycle_end,
-  branch,
+  raw_name,product_status,confidence,unresolved_type
+from classified;
+
+create view public.whatsapp_product_demand_unresolved_v22 as
+select
+  cycle_start,cycle_end,branch,unresolved_type,
   count(*) as unresolved_mentions,
   count(distinct source_id) as conversations_affected,
   count(distinct customer_id) filter (where customer_id is not null) as unique_customers
-from unresolved
-group by
-  dawaa_cycle_start_26(conversation_started_at::date),
-  dawaa_cycle_end_25(conversation_started_at::date),
-  branch;
+from public.whatsapp_product_demand_unresolved_detail_v22
+where unresolved_type <> 'noise'
+group by cycle_start,cycle_end,branch,unresolved_type;
 
 create or replace view public.whatsapp_sales_leakage_monthly_v22 as
 with base as (
@@ -88,7 +113,7 @@ with base as (
       end
     ) as leakage_code
   from public.whatsapp_sales_opportunities_v17
-  where analysis_version='product-demand-v22'
+  where analysis_version='product-demand-v22.1'
 )
 select
   cycle_start,cycle_end,branch,leakage_code,
@@ -106,16 +131,16 @@ select
   count(*) filter (where raw_text is not null and length(trim(raw_text)) > 0) as analyzable_sources,
   count(*) filter (
     where raw_text is not null and length(trim(raw_text)) > 0
-      and coalesce(analysis_json->>'productDemandVersion','') = 'product-demand-v22'
+      and coalesce(analysis_json->>'productDemandVersion','') = 'product-demand-v22.1'
   ) as analyzed_v22,
   count(*) filter (
     where raw_text is not null and length(trim(raw_text)) > 0
-      and coalesce(analysis_json->>'productDemandVersion','') <> 'product-demand-v22'
+      and coalesce(analysis_json->>'productDemandVersion','') <> 'product-demand-v22.1'
   ) as remaining_sources,
   round(
     100.0 * count(*) filter (
       where raw_text is not null and length(trim(raw_text)) > 0
-        and coalesce(analysis_json->>'productDemandVersion','') = 'product-demand-v22'
+        and coalesce(analysis_json->>'productDemandVersion','') = 'product-demand-v22.1'
     ) / nullif(count(*) filter (where raw_text is not null and length(trim(raw_text)) > 0),0),
     1
   ) as completion_percent
@@ -152,7 +177,7 @@ select
   o.last_stage_at,
   o.updated_at
 from public.whatsapp_sales_opportunities_v17 o
-where o.analysis_version='product-demand-v22';
+where o.analysis_version='product-demand-v22.1';
 
 create or replace view public.whatsapp_product_demand_cycle_summary_v22 as
 select
