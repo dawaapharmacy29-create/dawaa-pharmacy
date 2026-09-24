@@ -101,3 +101,5 @@ console.log('  - stale approved overtime backfill is present');
 console.log('  - V1 detector/sync delegate to V2 and app-role EXECUTE is revoked');
 console.log('  - cross-branch diagnostics compare punch branch against same-day schedule truth');
 console.log('  - missing-punch occurrences are serialized per cycle and deductions require financial permission');
+
+// vercel-preview-retry-marker: no-op preview retrigger after build-rate-limit
