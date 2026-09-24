@@ -317,6 +317,8 @@ const testFiles = [
   'src/lib/salesIntelligence/__tests__/salesIntelligencePipeline.test.ts',
   'src/lib/salesIntelligence/__tests__/historicalCommercialClosureEngine.test.ts',
   'src/lib/salesIntelligence/persistence/__tests__/hashing.test.ts',
+  'src/lib/salesIntelligence/persistence/__tests__/batchPersistenceService.test.ts',
+  'src/lib/salesIntelligence/persistence/__tests__/reviewSourceBatchAdapter.test.ts',
   'src/lib/salesIntelligence/persistence/__tests__/writerFailures.test.ts',
 ];
 for (const relativePath of testFiles) {
