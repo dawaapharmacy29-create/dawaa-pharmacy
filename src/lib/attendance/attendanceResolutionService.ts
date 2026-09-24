@@ -198,6 +198,42 @@ export async function listAttendanceExceptionInbox(args: {
   }));
 }
 
+
+export type AttendanceDiagnosticAction = {
+  id: string;
+  label: string;
+};
+
+export type AttendanceCaseDiagnosticV1 = {
+  staff_id: string;
+  staff_name: string;
+  branch: string | null;
+  date: string;
+  root_cause_code: string;
+  title: string;
+  diagnosis: string;
+  blocking_reason: string;
+  owner: 'manager' | 'system' | 'schedule' | 'sync' | 'timeoff' | string;
+  confidence: number;
+  auto_fix_available: boolean;
+  suggested_actions: AttendanceDiagnosticAction[];
+  evidence: Record<string, unknown>;
+  engine_version: string;
+  generated_at: string;
+};
+
+export async function getAttendanceCaseDiagnosticV1(
+  staffId: string,
+  date: string
+): Promise<AttendanceCaseDiagnosticV1> {
+  const { data, error } = await supabase.rpc('attendance_case_diagnostic_v1', {
+    p_staff_id: staffId,
+    p_date: date,
+  });
+  if (error) throw new Error(error.message);
+  return data as AttendanceCaseDiagnosticV1;
+}
+
 export type AttendancePolicyCatalog = {
   policies: Array<Record<string, unknown>>;
   assignments: Array<Record<string, unknown>>;
