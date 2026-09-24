@@ -430,6 +430,18 @@ function candidateFragmentsFromMessage(textValue: string) {
   if (!base) return [];
 
   const fragments = [base];
+
+  const forwardedNamedProduct = base.match(/^(.{3,120}?)\s+(?:بديل\s+(?:الغسول|الصنف|المنتج)|لو\s+(?:موجود|متوفر))/i);
+  if (forwardedNamedProduct?.[1]) {
+    const named = cleanProductPhrase(forwardedNamedProduct[1].replace(/^\s*و\s*/u, '').trim());
+    if (named) fragments.push(named);
+  }
+
+  const leadingRequestStripped = cleanProductPhrase(
+    base.replace(/^(?:لو\s*سمحت\s*)?(?:عايزه|عاوزه|عايز|عاوز|محتاجه|محتاج|ممكن)\s+/i, '')
+  );
+  if (leadingRequestStripped) fragments.push(leadingRequestStripped);
+
   // Conservative commercial separators. Each fragment still has to resolve strongly/proven
   // against the pharmacy catalog; weak/fuzzy-only matches are rejected.
   for (const part of base.split(/\s+(?:مع|و(?=[\p{L}\p{N}]))\s+/iu)) {
