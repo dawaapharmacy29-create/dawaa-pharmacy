@@ -22,6 +22,9 @@ import {
   ruleIdLabels,
   pipelineWarningLabels,
   productMatchLabelLabels,
+  evidenceCompletenessLabels,
+  evidenceLevelLabels,
+  commercialConfirmationStateLabels,
 } from './labels';
 
 export function branchLabelFor(branch: string | null): string {
@@ -169,4 +172,17 @@ export function pipelineWarningLabelFor(value: string): string {
 
 export function productMatchLabelFor(value: string): string {
   return productMatchLabelLabels[value] ?? 'مطابقة كتالوج';
+}
+
+
+export function evidenceCompletenessLabelFor(value: string): string {
+  return evidenceCompletenessLabels[value] ?? 'دليل تحليلي';
+}
+
+export function evidenceLevelLabelFor(value: string): string {
+  return evidenceLevelLabels[value] ?? 'مستوى أدلة غير معروف';
+}
+
+export function commercialConfirmationStateLabelFor(value: string): string {
+  return commercialConfirmationStateLabels[value] ?? 'حالة تجارية غير معروفة';
 }
