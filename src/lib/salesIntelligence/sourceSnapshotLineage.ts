@@ -27,14 +27,26 @@ function clean(value: unknown): string {
   return String(value ?? '').trim().toLowerCase();
 }
 
-function identityKey(row: ReviewSourceSnapshotLike): string {
-  const id = clean(row.customer_id);
-  if (id) return `id:${id}`;
-  const code = clean(row.customer_code);
-  if (code) return `code:${code}`;
-  const phone = clean(row.customer_phone).replace(/\D/g, '');
-  if (phone) return `phone:${phone}`;
-  return `name:${clean(row.customer_name)}`;
+function normalizedPhone(value: unknown): string {
+  return clean(value).replace(/\D/g, '');
+}
+
+function sameLikelyIdentity(a: ReviewSourceSnapshotLike, b: ReviewSourceSnapshotLike): boolean {
+  const aId = clean(a.customer_id);
+  const bId = clean(b.customer_id);
+  if (aId && bId) return aId === bId;
+
+  const aCode = clean(a.customer_code);
+  const bCode = clean(b.customer_code);
+  if (aCode && bCode) return aCode === bCode;
+
+  const aPhone = normalizedPhone(a.customer_phone);
+  const bPhone = normalizedPhone(b.customer_phone);
+  if (aPhone && bPhone) return aPhone === bPhone;
+
+  const aName = clean(a.customer_name);
+  const bName = clean(b.customer_name);
+  return Boolean(aName && bName && aName === bName);
 }
 
 function timeMs(value: string | null | undefined): number | null {
@@ -43,11 +55,10 @@ function timeMs(value: string | null | undefined): number | null {
   return Number.isFinite(ms) ? ms : null;
 }
 
-function groupKey(row: ReviewSourceSnapshotLike): string | null {
-  const filename = clean(row.source_filename);
-  const identity = identityKey(row);
-  if (!filename || identity.endsWith(':')) return null;
-  return `${identity}|file:${filename}`;
+function sameSnapshotFamily(a: ReviewSourceSnapshotLike, b: ReviewSourceSnapshotLike): boolean {
+  const aFilename = clean(a.source_filename);
+  const bFilename = clean(b.source_filename);
+  return Boolean(aFilename && bFilename && aFilename === bFilename && sameLikelyIdentity(a, b));
 }
 
 function contains(outer: ReviewSourceSnapshotLike, inner: ReviewSourceSnapshotLike): boolean {
@@ -73,21 +84,15 @@ function isClearlyFuller(outer: ReviewSourceSnapshotLike, inner: ReviewSourceSna
 
 export function selectCanonicalReviewSourceIds(rows: ReviewSourceSnapshotLike[]): Set<string> {
   const canonical = new Set(rows.map((row) => row.id));
-  const groups = new Map<string, ReviewSourceSnapshotLike[]>();
 
-  for (const row of rows) {
-    const key = groupKey(row);
-    if (!key) continue;
-    const bucket = groups.get(key) ?? [];
-    bucket.push(row);
-    groups.set(key, bucket);
-  }
-
-  for (const bucket of groups.values()) {
-    for (const inner of bucket) {
-      const superseded = bucket.some((outer) => outer.id !== inner.id && isClearlyFuller(outer, inner));
-      if (superseded) canonical.delete(inner.id);
-    }
+  for (const inner of rows) {
+    const superseded = rows.some(
+      (outer) =>
+        outer.id !== inner.id &&
+        sameSnapshotFamily(outer, inner) &&
+        isClearlyFuller(outer, inner)
+    );
+    if (superseded) canonical.delete(inner.id);
   }
 
   return canonical;
@@ -110,7 +115,7 @@ export function resolveReviewSourceSnapshotLineage(
   row: ReviewSourceSnapshotLike,
   allRows: ReviewSourceSnapshotLike[]
 ): ReviewSourceSnapshotResolution {
-  const sameGroup = allRows.filter((candidate) => groupKey(candidate) === groupKey(row));
+  const sameGroup = allRows.filter((candidate) => sameSnapshotFamily(candidate, row));
   if (sameGroup.length === 0) return { isCanonical: true, canonicalSourceId: row.id };
 
   const canonicalIds = selectCanonicalReviewSourceIds(sameGroup);
