@@ -24,7 +24,7 @@ import {
 
 /** SaleProofState-specific quick filters first (the primary lens for the pilot), then the rest. */
 const QUICK_FILTERS: Array<{ key: QaListFilters['quickFilter']; label: string }> = [
-  { key: 'proof_proven', label: 'مؤكد (Proven)' },
+  { key: 'proof_proven', label: 'مؤكد' },
   { key: 'proof_strongly_supported', label: 'مدعوم بقوة' },
   { key: 'proof_weakly_supported', label: 'مدعوم بضعف' },
   { key: 'proof_unknown', label: 'غير معروف' },
@@ -87,7 +87,7 @@ export default function SalesIntelligenceQA() {
           <span className="dawaa-icon-tile h-10 w-10 shrink-0"><ShieldCheck className="h-5 w-5" /></span>
           <div className="dawaa-body flex-1">
             أداة مراجعة داخلية <b>للقراءة فقط</b> — لفحص فهم الذكاء الاصطناعي لكل حالة (تقسيم المحادثة، السلة، الإسناد، التطابق مع الفاتورة).
-            لا تعديل على نتائج المحرك، ولا احتساب لتقييم موظفين، ولا استهلاك KPI.
+            لا تعديل على نتائج المحرك، ولا احتساب لتقييم الموظفين، ولا استخدام مباشر في مؤشرات الأداء.
           </div>
           <button type="button" onClick={() => window.location.reload()} className="dawaa-button dawaa-button--secondary" disabled={loading}>
             <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> تحديث
@@ -146,7 +146,7 @@ export default function SalesIntelligenceQA() {
           value={filters.saleProofState}
           onChange={(e) => setFilters((f) => ({ ...f, saleProofState: e.target.value as QaListFilters['saleProofState'] }))}
         >
-          <option value="all">كل حالات إثبات البيع (Sale Proof State)</option>
+          <option value="all">كل حالات إثبات البيع</option>
           <option value="proven">{saleProofStateLabelFor('proven')}</option>
           <option value="strongly_supported">{saleProofStateLabelFor('strongly_supported')}</option>
           <option value="weakly_supported">{saleProofStateLabelFor('weakly_supported')}</option>
@@ -204,7 +204,7 @@ export default function SalesIntelligenceQA() {
                     'انطباق البروتوكول',
                     'مستوى الإسناد',
                     'الفاتورة',
-                    'إثبات البيع (Sale Proof)',
+                    'إثبات البيع',
                     'عدد المرشحين',
                     'منافسة',
                     'نطاق التكامل',
@@ -256,7 +256,7 @@ export default function SalesIntelligenceQA() {
                       {row.itemEvidenceReady ? (
                         <span className="dawaa-badge dawaa-badge--success">متاحة</span>
                       ) : (
-                        <span className="dawaa-badge dawaa-badge--warning" title="بيانات أصناف الفاتورة غير متاحة حاليًا — التقييم الحالي Header-level فقط">غير متاحة</span>
+                        <span className="dawaa-badge dawaa-badge--warning" title="بيانات أصناف الفاتورة غير متاحة حاليًا — التقييم الحالي يعتمد على بيانات رأس الفاتورة فقط">غير متاحة</span>
                       )}
                     </td>
                     <td className="p-3">
