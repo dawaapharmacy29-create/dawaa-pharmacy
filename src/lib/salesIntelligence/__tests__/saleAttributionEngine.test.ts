@@ -347,6 +347,16 @@ describe('Sale Attribution Engine (Sales Intelligence Phase D) — Golden Cases'
       expect(c.quantityMatch).toBe('available_match');
     });
 
+    it('29b. a fully returned invoice line never becomes positive product evidence', () => {
+      const provider: InvoiceItemEvidenceProvider = {
+        getItemsForInvoice: () => [{ productNameRaw: 'فيتامين د', quantity: 0, returnedQuantity: 2, lineTotal: 0 }],
+      };
+      const ctx = baseCase({ activeBasketItems: basketItems });
+      const c = buildAttributionCandidate(ctx, { id: 'inv-1' }, provider);
+      expect(c.productMatch).toBe('available_mismatch');
+      expect(c.quantityMatch).toBe('unavailable');
+    });
+
     it('30. available item evidence that conflicts with the basket is classified available_mismatch and caps confidence', () => {
       const provider: InvoiceItemEvidenceProvider = {
         getItemsForInvoice: () => [{ productNameRaw: 'شامبو', quantity: 1, lineTotal: 70 }],
