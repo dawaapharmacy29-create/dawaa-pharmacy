@@ -658,7 +658,7 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
       );
     })
     .map((message) => ({
-      sourceMessageId: message.sourceMessageId,
+      sourceMessageId: message.id,
       rawPhrase: message.text.replace(/^\s*\[Forwarded\]\s*/i, '').trim(),
     }))
     .slice(0, 8);
