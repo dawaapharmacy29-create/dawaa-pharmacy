@@ -629,6 +629,11 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
       customerPhone: conversationCase.customerPhone,
       candidateInvoiceIds: analysis.invoiceCandidateIds,
       branchNameRaw: conversationCase.branchNameRaw,
+      activeBasketItems: activeItems.map((item) => ({
+        productNameRaw: item.productNameRaw,
+        productId: item.productId,
+        quantity: item.quantity,
+      })),
       invoiceItemEvidenceSnapshot: attributionItemSnapshot,
     });
     let currentAttributionRowId: string | null = null;
@@ -662,6 +667,7 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
       basketVersion: analysis.basketInvoiceMatch.basketVersion,
       activeItems: activeItems.map((item) => ({
         productNameRaw: item.productNameRaw,
+        productId: item.productId,
         quantity: item.quantity,
       })),
       selectedInvoiceId: analysis.basketInvoiceMatch.invoiceId,
