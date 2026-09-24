@@ -11,6 +11,7 @@ import {
 import EmployeeProfileDrawer from '@/components/attendance/EmployeeProfileDrawer';
 import AttendanceCorrectionReviewPanel from '@/components/attendance/AttendanceCorrectionReviewPanel';
 import { listStaffTimeOffRequests, type StaffTimeOffRequest, type TimeOffKind } from '@/lib/timeOffService';
+import { useStaffDirectory } from '@/hooks/useStaffDirectory';
 
 function cairoDate(offsetDays = 0) {
   const date = new Date();
@@ -95,6 +96,8 @@ export default function AttendanceResolutionCenter({
   const [branch, setBranch] = useState(defaultBranch || 'الكل');
   const [lane, setLane] = useState<'all' | AttendanceExceptionLane>(initialTriage);
   const [rows, setRows] = useState<AttendanceExceptionRow[]>([]);
+  const [showFormer, setShowFormer] = useState(false);
+  const { data: staffDirectory = [], isLoading: directoryLoading, isError: directoryError } = useStaffDirectory();
   const [loading, setLoading] = useState(false);
   const [materializing, setMaterializing] = useState(false);
   const [selected, setSelected] = useState<AttendanceExceptionRow | null>(null);
@@ -123,7 +126,7 @@ export default function AttendanceResolutionCenter({
         end,
         branch,
         lane,
-        limit: 500,
+        limit: 1000,
       });
       setRows(queue);
     } catch (error) {
@@ -148,13 +151,18 @@ export default function AttendanceResolutionCenter({
     return () => { active = false; };
   }, [selected]);
 
+  const formerIds = useMemo(() => new Set(staffDirectory
+    .filter((person) => person.source === 'staff' && person.id && !person.active)
+    .map((person) => person.id)), [staffDirectory]);
+  const formerRows = rows.filter((row) => formerIds.has(row.staff_id));
+  const visibleRows = showFormer ? rows : rows.filter((row) => !formerIds.has(row.staff_id));
   const totals = useMemo(() => ({
-    total: rows.length,
-    manager: rows.filter((row) => row.queue_lane === 'manager').length,
-    system: rows.filter((row) => row.queue_lane === 'system').length,
-    missingPunch: rows.filter((row) => row.issue_group === 'missing_punch').length,
-    absence: rows.filter((row) => row.issue_group === 'absence').length,
-  }), [rows]);
+    total: visibleRows.length,
+    manager: visibleRows.filter((row) => row.queue_lane === 'manager').length,
+    system: visibleRows.filter((row) => row.queue_lane === 'system').length,
+    missingPunch: visibleRows.filter((row) => row.issue_group === 'missing_punch').length,
+    absence: visibleRows.filter((row) => row.issue_group === 'absence').length,
+  }), [visibleRows]);
 
   async function runMaterialization() {
     setMaterializing(true);
@@ -273,6 +281,13 @@ export default function AttendanceResolutionCenter({
 
         <input value={branch} onChange={(e) => setBranch(e.target.value)} className="input-dark mt-3 max-w-xs" placeholder="الفرع أو الكل" />
 
+        <label className="mt-3 flex items-center gap-2 text-xs font-bold text-[var(--dawaa-theme-muted)]">
+          <input type="checkbox" checked={showFormer} onChange={(e) => setShowFormer(e.target.checked)} />
+          إظهار الموظفين السابقين ({formerRows.length} يوم معلّق في النطاق الحالي)
+        </label>
+        {directoryError && <p className="mt-2 text-xs text-[var(--dawaa-status-warning-text)]">تعذر التحقق من حالة الموظفين؛ تظهر كل الحالات حتى يُعاد تحميل دليل الموظفين.</p>}
+        {formerRows.length > 0 && !showFormer && <p className="mt-1 text-xs text-[var(--dawaa-theme-muted)]">أيام الموظفين السابقين محفوظة للمراجعة التاريخية، ولا تُلغى من جاهزية الرواتب بمجرد إخفائها هنا.</p>}
+
         <div className={`mt-3 rounded-xl border p-3 text-xs font-bold ${lane === 'all' ? 'border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] text-[var(--dawaa-theme-muted)]' : currentLaneMeta.className}`}>
           {lane === 'all'
             ? 'تعرض هذه النظرة قرارات المدير ومشاكل النظام معًا. استخدم المسارات المنفصلة للعمل اليومي.'
@@ -305,7 +320,7 @@ export default function AttendanceResolutionCenter({
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => {
+            {!directoryLoading && visibleRows.map((row) => {
               const meta = laneMeta(row.queue_lane);
               return (
                 <tr key={row.id} className="border-b border-[var(--dawaa-theme-border)]/60 last:border-0">
@@ -314,6 +329,7 @@ export default function AttendanceResolutionCenter({
                       {row.staff_name}
                     </button>
                     <div className="text-xs text-[var(--dawaa-theme-muted)]">{row.branch || '-'}</div>
+                    {formerIds.has(row.staff_id) && <div className="text-xs text-[var(--dawaa-status-warning-text)]">موظف سابق — راجع تاريخ آخر يوم عمل</div>}
                   </td>
                   <td className="p-3 font-bold">{row.attendance_date}</td>
                   <td className="p-3">
@@ -341,13 +357,14 @@ export default function AttendanceResolutionCenter({
                 </tr>
               );
             })}
-            {!rows.length && !loading && (
+            {!visibleRows.length && !loading && !directoryLoading && (
               <tr>
                 <td colSpan={8} className="p-8 text-center font-bold text-[var(--dawaa-theme-muted)]">
                   لا توجد حالات في هذا المسار خلال الفترة المحددة.
                 </td>
               </tr>
             )}
+            {directoryLoading && <tr><td colSpan={8} className="p-8 text-center">جارٍ التحقق من حالة الموظفين...</td></tr>}
           </tbody>
         </table>
       </section>
