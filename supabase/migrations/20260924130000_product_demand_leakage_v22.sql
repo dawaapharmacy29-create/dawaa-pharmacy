@@ -31,19 +31,29 @@ group by
 
 drop view if exists public.whatsapp_product_demand_unresolved_v22;
 create view public.whatsapp_product_demand_unresolved_v22 as
+with unresolved as (
+  select
+    s.id as source_id,
+    s.branch,
+    s.customer_id,
+    s.conversation_started_at,
+    p.value as product_json
+  from public.whatsapp_review_sources s
+  cross join lateral jsonb_array_elements(coalesce(s.analysis_json#>'{operational,products}','[]'::jsonb)) p(value)
+  where s.analysis_json->>'productDemandVersion'='product-demand-v22'
+    and coalesce(p.value->>'productId','')=''
+)
 select
-  dawaa_cycle_start_26(coalesce(opened_at::date, created_at::date)) as cycle_start,
-  dawaa_cycle_end_25(coalesce(opened_at::date, created_at::date)) as cycle_end,
+  dawaa_cycle_start_26(conversation_started_at::date) as cycle_start,
+  dawaa_cycle_end_25(conversation_started_at::date) as cycle_end,
   branch,
   count(*) as unresolved_mentions,
-  count(distinct root_source_id) as conversations_affected,
+  count(distinct source_id) as conversations_affected,
   count(distinct customer_id) filter (where customer_id is not null) as unique_customers
-from public.whatsapp_sales_opportunities_v17
-where product_id is null
-  and analysis_version='product-demand-v22'
+from unresolved
 group by
-  dawaa_cycle_start_26(coalesce(opened_at::date, created_at::date)),
-  dawaa_cycle_end_25(coalesce(opened_at::date, created_at::date)),
+  dawaa_cycle_start_26(conversation_started_at::date),
+  dawaa_cycle_end_25(conversation_started_at::date),
   branch;
 
 create or replace view public.whatsapp_sales_leakage_monthly_v22 as
