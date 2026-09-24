@@ -171,4 +171,56 @@ describe('recommendationConversionV1', () => {
     expect(rows[0].conversionStatus).toBe('accepted_waiting_official_invoice');
   });
 
+  it('treats null quantity or null net value as insufficient evidence, never as a sale', () => {
+    const session = buildSession();
+
+    for (const line of [
+      { quantity: null, netLineAmount: 500 },
+      { quantity: 1, netLineAmount: null },
+    ]) {
+      const rows = deriveRecommendationConversionFactsV1({
+        session,
+        journeySummary,
+        invoiceLines: [{
+          productId: 'p1',
+          productCode: 'X1',
+          productName: 'Product X',
+          quantity: line.quantity,
+          netLineAmount: line.netLineAmount,
+          staffId: 'staff-w',
+          staffName: 'د وائل',
+        }],
+        invoiceEvidenceLevel: 'official',
+      });
+
+      expect(rows[0].invoiceContainsProduct).toBe(false);
+      expect(rows[0].officialSaleFromRecommendation).toBe(false);
+      expect(rows[0].soldQuantity).toBeNull();
+      expect(rows[0].soldNetValue).toBeNull();
+      expect(rows[0].conversionStatus).toBe('accepted_waiting_official_invoice');
+    }
+  });
+
+  it('does not fall back to productCode when both product ids exist and conflict', () => {
+    const session = buildSession();
+    const rows = deriveRecommendationConversionFactsV1({
+      session,
+      journeySummary,
+      invoiceLines: [{
+        productId: 'different-product-id',
+        productCode: 'X1',
+        productName: 'Product X',
+        quantity: 1,
+        netLineAmount: 500,
+        staffId: 'staff-w',
+        staffName: 'د وائل',
+      }],
+      invoiceEvidenceLevel: 'official',
+    });
+
+    expect(rows[0].invoiceContainsProduct).toBe(false);
+    expect(rows[0].officialSaleFromRecommendation).toBe(false);
+    expect(rows[0].conversionStatus).toBe('accepted_waiting_official_invoice');
+  });
+
 });
