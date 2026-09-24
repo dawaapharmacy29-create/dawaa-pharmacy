@@ -172,3 +172,39 @@ export const failureReasonLabels: Record<string, string> = {
   invoice_candidates_ambiguous: 'مرشحو الفواتير غير حاسمين',
   invoice_items_unavailable: 'بيانات أصناف الفاتورة غير متاحة',
 };
+
+
+/** Arabic-only reviewer text for engine rule ids. Never changes engine logic or stored values. */
+export const ruleIdLabels: Record<string, string> = {
+  'case.classification.request_with_commercial_signal': 'تم تصنيف الحالة كطلب ذي إشارة شرائية واضحة',
+  'case.classification.request_without_commercial_signal': 'تم تصنيف الحالة كطلب دون إشارة شرائية كافية',
+  'historical_closure.customer_acceptance_and_staff_fulfillment_intent': 'يوجد قبول من العميل مع نية واضحة من الموظف لتنفيذ الطلب',
+  'attribution.assessment.no_candidates': 'لم يتم العثور على فاتورة مرشحة مناسبة',
+  'attribution.level.strongly_inferred': 'الإسناد مدعوم بقوة من مجموعة الأدلة المتاحة',
+  'attribution.factor.customer_id_match': 'تطابق معرف العميل',
+  'attribution.factor.phone_match': 'تطابق رقم الهاتف',
+  'attribution.factor.branch_exact_canonical': 'تطابق الفرع',
+  'attribution.factor.time_moderate': 'الفارق الزمني مقبول ويدعم الإسناد بدرجة متوسطة',
+  'matching.insufficient_attribution': 'بيانات إسناد الفاتورة غير كافية لإجراء المطابقة',
+  'matching.no_active_basket': 'لا توجد سلة نشطة قابلة للمطابقة',
+  'matching.item.unavailable': 'بيانات أصناف الفاتورة غير متاحة للمطابقة',
+  'matching.quantity.insufficient_data': 'بيانات الكمية غير كافية للمطابقة',
+  'matching.overall.insufficient_data': 'بيانات المطابقة الكلية غير كافية',
+};
+
+export const pipelineWarningLabels: Record<string, string> = {
+  raw_text_produced_no_parsed_messages: 'تعذر استخراج رسائل مفهومة من النص الأصلي للمحادثة',
+  no_sessions_derived_from_raw_text: 'لم يتم تكوين جلسة محادثة قابلة للتحليل',
+  active_basket_conflict_multiple_non_superseded_versions: 'يوجد أكثر من نسخة نشطة من السلة وتحتاج للمراجعة',
+  selected_invoice_row_not_found_in_candidate_pool: 'الفاتورة المختارة لم تعد موجودة داخل مجموعة الفواتير المرشحة',
+};
+
+export const productMatchLabelLabels: Record<string, string> = {
+  exact_name: 'تطابق اسم تام',
+  exact_code: 'تطابق كود تام',
+  normalized_exact: 'تطابق تام بعد توحيد الكتابة',
+  strong: 'تطابق قوي',
+  fuzzy: 'تطابق تقريبي',
+  weak: 'تطابق ضعيف',
+  ambiguous: 'تطابق ملتبس',
+};
