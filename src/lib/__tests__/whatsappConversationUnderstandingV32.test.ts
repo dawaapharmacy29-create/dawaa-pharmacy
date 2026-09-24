@@ -77,3 +77,26 @@ describe('ConversationUnderstandingV32 (Shadow Mode, read-only, facts-only)', ()
     expect(shampooTrigger?.text).toContain('شامبو');
   });
 });
+
+
+describe('V32 fulfillment continuity across silence', () => {
+  it('keeps an explicit same-order delivery follow-up in one interaction across a 45-minute gap', () => {
+    const raw = `[9/15/26, 9:30:55 PM] محمد الكموني17777: [Forwarded] Isis teenderm gel for sensitive skin بديل الغسول
+[9/15/26, 9:35:06 PM] You: تحب نبعته لحضرتك باذن الله ؟
+[9/15/26, 9:42:30 PM] محمد الكموني17777: اه ابعته
+[9/15/26, 9:42:57 PM] You: من عنيا لحضرتك مسافه الطريق ويكون عند حضرتك
+[9/15/26, 10:28:27 PM] محمد الكموني17777: حضرتك بعت الاوردر
+[9/15/26, 10:28:58 PM] You: اه يا فندم المندوب في الطريق لحضرتك`;
+    const understanding = buildConversationUnderstandingV32(oneSession(raw));
+    expect(understanding.interactions).toHaveLength(1);
+  });
+
+  it('still splits a genuinely different topic after a 45-minute gap', () => {
+    const raw = `[9/15/26, 9:00:00 PM] Customer: عايز فيتامين د
+[9/15/26, 9:02:00 PM] Customer: اه ابعته
+[9/15/26, 9:03:00 PM] You: من عنيا لحضرتك مسافة الطريق
+[9/15/26, 9:48:00 PM] Customer: بالمناسبة عندكم شامبو للشعر؟`;
+    const understanding = buildConversationUnderstandingV32(oneSession(raw));
+    expect(understanding.interactions).toHaveLength(2);
+  });
+});

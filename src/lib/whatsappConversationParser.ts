@@ -492,10 +492,26 @@ export function detectWhatsAppExportFormat(text: string): WhatsAppExportSourceFo
   return 'txt';
 }
 
+function rebaseTextTimelineToTrustedStart(
+  messages: WhatsAppParsedMessage[],
+  trustedConversationStartedAt?: string | Date | null
+): WhatsAppParsedMessage[] {
+  if (!messages.length || !trustedConversationStartedAt) return messages;
+  const trusted = new Date(trustedConversationStartedAt);
+  if (Number.isNaN(trusted.getTime())) return messages;
+  const delta = trusted.getTime() - messages[0].timestamp.getTime();
+  if (!Number.isFinite(delta) || delta === 0) return messages;
+  return messages.map((message, index) => {
+    const timestamp = new Date(message.timestamp.getTime() + delta);
+    return { ...message, timestamp, id: messageId(index, timestamp, message.sender) };
+  });
+}
+
 export function parseWhatsAppExport(text: string, options: WhatsAppParseOptions = {}): WhatsAppParsedMessage[] {
-  return detectWhatsAppExportFormat(text) === 'md'
-    ? parseMarkdownExport(text, options.trustedConversationStartedAt)
-    : parseTextExport(text);
+  if (detectWhatsAppExportFormat(text) === 'md') {
+    return parseMarkdownExport(text, options.trustedConversationStartedAt);
+  }
+  return rebaseTextTimelineToTrustedStart(parseTextExport(text), options.trustedConversationStartedAt);
 }
 
 export function extractIntroducedStaffName(message: WhatsAppParsedMessage): string | null {

@@ -126,3 +126,16 @@ describe('rich WhatsApp markdown export', () => {
     expect(sessions[0].missingMediaCount).toBe(2);
   });
 });
+
+
+describe('trusted TXT absolute timeline', () => {
+  it('anchors explicit-date TXT to persisted conversation_started_at and preserves raw clock deltas', () => {
+    const raw = `[9/15/26, 9:30:55 PM] محمد الكموني17777: Isis teenderm gel for sensitive skin
+[9/15/26, 9:42:57 PM] You: من عنيا لحضرتك
+[9/15/26, 10:28:27 PM] محمد الكموني17777: حضرتك بعت الاوردر`;
+    const messages = parseWhatsAppExport(raw, { trustedConversationStartedAt: '2026-09-15T18:30:55.000Z' });
+    expect(messages[0].timestamp.toISOString()).toBe('2026-09-15T18:30:55.000Z');
+    expect(messages[1].timestamp.toISOString()).toBe('2026-09-15T18:42:57.000Z');
+    expect(messages[2].timestamp.toISOString()).toBe('2026-09-15T19:28:27.000Z');
+  });
+});

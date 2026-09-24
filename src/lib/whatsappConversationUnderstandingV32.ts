@@ -91,7 +91,22 @@ function isPlaceholderOnlyText(text: string): boolean {
   return PLACEHOLDER_ONLY_RX.test(stripped);
 }
 
-const INTERACTION_GAP_MS = 30 * 60 * 1000; // 30 minutes of silence -> treat as a new topic/interaction
+const INTERACTION_GAP_MS = 30 * 60 * 1000;
+const FULFILLMENT_CONTINUATION_MAX_GAP_MS = 6 * 60 * 60 * 1000;
+const PRIOR_ORDER_COMMITMENT_RX =
+  /(?:اه|ايوه|تمام)?\s*(?:ابعته|ابعت(?:ه|وه|لي)?|هات(?:ه|ها)?)|من\s*عنيا.*(?:الطريق|عند\s*حضرتك)|جاري\s*(?:الارسال|الإرسال|التجهيز)|تم\s*(?:تأكيد|تاكيد).*الطلب|الطلب\s*اتأكد/i;
+const FULFILLMENT_FOLLOWUP_RX =
+  /(?:بعت|بعتوا|اتبعت|اتبعث).*?(?:الاوردر|الأوردر|الطلب)|(?:الاوردر|الأوردر|الطلب).*?(?:فين|وصل|اتبعت|اتبعث)|المندوب.*?(?:فين|وصل|الطريق)|(?:وصل|استلمت|استلمه).*?(?:الاوردر|الأوردر|الطلب)/i;
+
+function shouldKeepFulfillmentContinuation(
+  current: NormalizedConversationMessageV32[],
+  next: NormalizedConversationMessageV32,
+  gapMs: number
+): boolean {
+  if (gapMs <= INTERACTION_GAP_MS || gapMs > FULFILLMENT_CONTINUATION_MAX_GAP_MS) return false;
+  if (next.role !== 'customer' || !next.isMeaningful || !FULFILLMENT_FOLLOWUP_RX.test(next.text)) return false;
+  return current.some((m) => m.isMeaningful && PRIOR_ORDER_COMMITMENT_RX.test(m.text));
+}
 const CLOSING_RX = /شكر[اً]?\s*لتواصلك|تحت\s*أمرك\s*دائم[اً]?|يومك\s*سعيد|في\s*خدمتك\s*دائم[اً]?/i;
 // A light semantic cue for "this is a different topic", independent of any time gap. Deliberately
 // narrow (explicit topic-shift phrasing only) — this is not a full Case Lifecycle/topic classifier,
@@ -174,7 +189,7 @@ function segmentInteractions(messages: NormalizedConversationMessageV32[]): Conv
     const prev = messages[i - 1];
     if (prev) {
       const gapMs = message.timestamp.getTime() - prev.timestamp.getTime();
-      if (gapMs > INTERACTION_GAP_MS) {
+      if (gapMs > INTERACTION_GAP_MS && !shouldKeepFulfillmentContinuation(current, message, gapMs)) {
         flush();
         reason = 'time_gap';
       } else if (
