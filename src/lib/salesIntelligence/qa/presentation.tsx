@@ -19,6 +19,9 @@ import {
   reviewReasonLabels,
   saleProofSourceLabels,
   saleProofStateLabels,
+  ruleIdLabels,
+  pipelineWarningLabels,
+  productMatchLabelLabels,
 } from './labels';
 
 export function branchLabelFor(branch: string | null): string {
@@ -153,4 +156,17 @@ export function unknownProofReason(input: {
     return 'توجد فاتورة/فواتير مرشحة، لكن الأدلة (الهوية/الوقت/المبلغ) غير كافية لاعتماد أي منها.';
   }
   return 'أدلة غير كافية لتحديد حالة إثبات واضحة لهذه الحالة.';
+}
+
+
+export function ruleIdLabelFor(value: string): string {
+  return ruleIdLabels[value] ?? 'قاعدة تحليل داخلية غير مسماة بالعربية';
+}
+
+export function pipelineWarningLabelFor(value: string): string {
+  return pipelineWarningLabels[value] ?? 'تنبيه فني داخلي يحتاج مراجعة';
+}
+
+export function productMatchLabelFor(value: string): string {
+  return productMatchLabelLabels[value] ?? 'مطابقة كتالوج';
 }
