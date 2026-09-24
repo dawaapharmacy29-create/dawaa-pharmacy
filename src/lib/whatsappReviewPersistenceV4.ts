@@ -81,7 +81,9 @@ export async function persistAnalyzedWhatsAppSession(
     return { id: String(existing.id), duplicate: true, sourceHash, reviewStatus: (existing.review_status || reviewStatus) as ReviewQueueStatus };
   }
 
-  const staffName = context.staffName || session.outboundStaffNames[0] || null;
+  const staffName =
+    context.staffName ||
+    (session.outboundStaffNames.length === 1 ? session.outboundStaffNames[0] : null);
   const customerName = context.customerName || session.customerName || null;
   const { data, error } = await supabase
     .from('whatsapp_review_sources')
