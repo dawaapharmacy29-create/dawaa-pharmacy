@@ -11,6 +11,10 @@ const crossBranchPanel = path.join(root, 'src/components/attendance/CrossBranchP
 const crossBranchV2 = path.join(root, 'supabase/migrations/20260924124000_cross_branch_schedule_truth_v2.sql');
 const payrollPage = path.join(root, 'src/pages/PayrollManagement.tsx');
 const diagnosticGuard = path.join(root, 'supabase/migrations/20260924125000_attendance_diagnostic_actor_guard_v1.sql');
+const missingPunchGuard = path.join(root, 'supabase/migrations/20260924180500_missing_punch_financial_and_cycle_guard_v2.sql');
+const missingPunchCapability = path.join(root, 'supabase/migrations/20260924181000_missing_punch_deduction_capability_v1.sql');
+const attendanceResolutionService = path.join(root, 'src/lib/attendance/attendanceResolutionService.ts');
+const attendanceResolutionCenter = path.join(root, 'src/components/attendance/AttendanceResolutionCenter.tsx');
 
 function fail(message) {
   console.error('[hr-canonical-hardening] ' + message);
@@ -33,6 +37,10 @@ const crossBranchUi = read(crossBranchPanel);
 const crossBranchSql = read(crossBranchV2);
 const payrollPageText = read(payrollPage);
 const diagnosticGuardSql = read(diagnosticGuard);
+const missingPunchGuardSql = read(missingPunchGuard);
+const missingPunchCapabilitySql = read(missingPunchCapability);
+const attendanceResolutionServiceText = read(attendanceResolutionService);
+const attendanceResolutionCenterText = read(attendanceResolutionCenter);
 
 assertContains(migration, 'return public.decide_overtime_approval_v3(p_id,p_decision,p_note);', 'V1 overtime compatibility wrapper');
 assertContains(migration, 'dawaa_can_manage_payroll_staff_v1(v_target_username)', 'branch-scoped overtime authorization');
@@ -53,6 +61,11 @@ assertContains(payrollPageText, 'PayrollAttendanceSafetyGate', 'canonical payrol
 if (/attendanceReadiness[^\n]{0,120}readyForPayroll/.test(payrollPageText)) fail('legacy biometric readiness must not gate financial payroll actions');
 assertContains(diagnosticGuardSql, 'dawaa_current_staff_account_id_strict()', 'attendance diagnostic active actor check');
 assertContains(diagnosticGuardSql, 'dawaa_can_read_staff_attendance_log(a.staff_id,a.branch)', 'attendance diagnostic row scope');
+assertContains(missingPunchGuardSql, "'missing-punch-cycle:'||p_staff_id::text||':'||v_cycle", 'missing punch cycle serialization');
+assertContains(missingPunchGuardSql, "dawaa_current_actor_can(array['create_deduction','manage_points','manage_payroll'])", 'missing punch financial permission gate');
+assertContains(missingPunchCapabilitySql, "'can_apply_deduction',v_can_apply_deduction", 'missing punch capability contract');
+assertContains(attendanceResolutionServiceText, 'can_apply_deduction: boolean', 'missing punch capability type');
+assertContains(attendanceResolutionCenterText, '!missingPunchContext.can_apply_deduction', 'missing punch UI financial gate');
 
 function walk(dir, out = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -83,3 +96,4 @@ console.log('  - scheduled detector/reward cutover targets V2');
 console.log('  - stale approved overtime backfill is present');
 console.log('  - V1 detector/sync delegate to V2 and app-role EXECUTE is revoked');
 console.log('  - cross-branch diagnostics compare punch branch against same-day schedule truth');
+console.log('  - missing-punch occurrences are serialized per cycle and deductions require financial permission');
