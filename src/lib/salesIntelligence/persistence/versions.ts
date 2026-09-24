@@ -8,7 +8,7 @@
 export const PIPELINE_VERSION = 'sales-intelligence-v1';
 
 export const ENGINE_VERSIONS = {
-  caseSegmentation: 'case-segmentation-v1',
+  caseSegmentation: 'case-segmentation-v2',
   historicalClosure: 'historical-closure-v1',
   commercialConfirmation: 'commercial-confirmation-v1',
   protocolApplicability: 'protocol-applicability-v1',
@@ -22,4 +22,4 @@ export const ENGINE_VERSIONS = {
  * semanticSourceHash (design doc H.0.2's own wording: "future-proofing only" — there is no real
  * branch/identity mapping versioning system yet, so this is a constant until one exists).
  */
-export const BRANCH_IDENTITY_MAPPING_VERSION = 'branch-identity-mapping-v1';
+export const BRANCH_IDENTITY_MAPPING_VERSION = 'branch-identity-mapping-v2';
