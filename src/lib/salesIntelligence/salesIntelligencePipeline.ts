@@ -241,7 +241,11 @@ function analyzeOneCase(
     commercialConfirmation,
     activeAnnouncedTotal: activeBasket?.announcedTotal ?? null,
     activeBasketValue,
-    activeBasketItems: activeItems.map((item) => ({ productNameRaw: item.productNameRaw, quantity: item.quantity })),
+    activeBasketItems: activeItems.map((item) => ({
+      productNameRaw: item.productNameRaw,
+      productId: item.productId,
+      quantity: item.quantity,
+    })),
     knownStaffIds: input.knownStaffIds ?? [],
     legacyMatchedInvoiceId: input.legacyMatchedInvoiceId ?? null,
     legacyMatchedInvoiceNumber: input.legacyMatchedInvoiceNumber ?? null,
