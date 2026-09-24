@@ -15,6 +15,7 @@ const missingPunchGuard = path.join(root, 'supabase/migrations/20260924180500_mi
 const missingPunchCapability = path.join(root, 'supabase/migrations/20260924181000_missing_punch_deduction_capability_v1.sql');
 const attendanceResolutionService = path.join(root, 'src/lib/attendance/attendanceResolutionService.ts');
 const attendanceResolutionCenter = path.join(root, 'src/components/attendance/AttendanceResolutionCenter.tsx');
+const attendanceSyncCommandCenter = path.join(root, 'src/components/attendance/AttendanceSyncCommandCenter.tsx');
 
 function fail(message) {
   console.error('[hr-canonical-hardening] ' + message);
@@ -41,6 +42,7 @@ const missingPunchGuardSql = read(missingPunchGuard);
 const missingPunchCapabilitySql = read(missingPunchCapability);
 const attendanceResolutionServiceText = read(attendanceResolutionService);
 const attendanceResolutionCenterText = read(attendanceResolutionCenter);
+const attendanceSyncCommandCenterText = read(attendanceSyncCommandCenter);
 
 assertContains(migration, 'return public.decide_overtime_approval_v3(p_id,p_decision,p_note);', 'V1 overtime compatibility wrapper');
 assertContains(migration, 'dawaa_can_manage_payroll_staff_v1(v_target_username)', 'branch-scoped overtime authorization');
@@ -66,6 +68,8 @@ assertContains(missingPunchGuardSql, "dawaa_current_actor_can(array['create_dedu
 assertContains(missingPunchCapabilitySql, "'can_apply_deduction',v_can_apply_deduction", 'missing punch capability contract');
 assertContains(attendanceResolutionServiceText, 'can_apply_deduction: boolean', 'missing punch capability type');
 assertContains(attendanceResolutionCenterText, '!missingPunchContext.can_apply_deduction', 'missing punch UI financial gate');
+assertContains(attendanceSyncCommandCenterText, "supabase.rpc('attendance_sync_health_v4'", 'heartbeat-aware biometric sync health');
+assertContains(attendanceSyncCommandCenterText, 'Heartbeat مستقل عن وجود بصمات جديدة', 'heartbeat UI contract');
 
 function walk(dir, out = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
