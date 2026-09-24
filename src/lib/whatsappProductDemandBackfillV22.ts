@@ -23,6 +23,8 @@ export interface ProductDemandBackfillSourceResultV22 {
   canonicalProducts: number;
   unresolvedProducts: number;
   productCodes: string[];
+  canonicalProductNames: string[];
+  unresolvedExamples: string[];
 }
 
 export interface ProductDemandBackfillResultV22 {
@@ -124,7 +126,7 @@ export async function runProductDemandBackfillV22(
     try {
       const raw = String(source.raw_text || '').trim();
       if (!raw) {
-        rows.push({ sourceId: source.id, status: 'skipped', reason: 'النص الأصلي للمحادثة غير متاح.', canonicalProducts: 0, unresolvedProducts: 0, productCodes: [] });
+        rows.push({ sourceId: source.id, status: 'skipped', reason: 'النص الأصلي للمحادثة غير متاح.', canonicalProducts: 0, unresolvedProducts: 0, productCodes: [], canonicalProductNames: [], unresolvedExamples: [] });
         continue;
       }
 
@@ -137,7 +139,7 @@ export async function runProductDemandBackfillV22(
         source.conversation_ended_at
       );
       if (!session) {
-        rows.push({ sourceId: source.id, status: 'skipped', reason: 'تعذر تكوين جلسة محادثة صالحة للتحليل.', canonicalProducts: 0, unresolvedProducts: 0, productCodes: [] });
+        rows.push({ sourceId: source.id, status: 'skipped', reason: 'تعذر تكوين جلسة محادثة صالحة للتحليل.', canonicalProducts: 0, unresolvedProducts: 0, productCodes: [], canonicalProductNames: [], unresolvedExamples: [] });
         continue;
       }
 
@@ -208,6 +210,8 @@ export async function runProductDemandBackfillV22(
         canonicalProducts: canonical.length,
         unresolvedProducts: unresolved.length,
         productCodes,
+        canonicalProductNames: Array.from(new Set(canonical.map((product) => String(product.canonicalName || product.rawName)).filter(Boolean))).slice(0, 12),
+        unresolvedExamples: Array.from(new Set(unresolved.map((product) => String(product.rawName || '').trim()).filter(Boolean))).slice(0, 12),
       });
     } catch (error) {
       rows.push({
