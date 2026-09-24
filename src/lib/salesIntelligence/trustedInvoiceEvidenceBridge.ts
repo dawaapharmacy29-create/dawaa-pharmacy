@@ -96,8 +96,13 @@ export function resolveTrustedInvoiceEvidenceFromReviewSource(
 
   if (!input.matchedInvoiceId) ruleIds.push('trusted_invoice.ineligible.no_matched_invoice');
   if (input.invoiceMatchStatus !== 'verified') ruleIds.push('trusted_invoice.ineligible.match_status_not_verified');
-  if (reviewerConfirmed) {
+  if (!reviewerConfirmed) {
+    ruleIds.push('trusted_invoice.ineligible.reviewer_not_confirmed');
+  } else {
     ruleIds.push('trusted_invoice.ineligible.overall_review_confirmation_not_invoice_confirmation');
+  }
+  if (reviewerConfirmed && !input.reviewerId) {
+    ruleIds.push('trusted_invoice.ineligible.reviewer_id_missing');
   }
 
   return {
