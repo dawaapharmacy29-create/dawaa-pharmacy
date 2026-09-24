@@ -180,12 +180,12 @@ export default function SalesIntelligenceQACaseDetail() {
           <div className="dawaa-alert dawaa-alert--success mt-3 text-xs">المحادثة لم تُقسّم إلى أكثر من حالة محفوظة.</div>
         )}
         <Evidence>
-          <div>ثقة تصنيف المحادثة: {attributionLevelLabelFor(analysis.evidence_snapshot?.conversationCaseConfidence?.level ?? 'unknown')} (الدرجة {analysis.evidence_snapshot?.conversationCaseConfidence?.score ?? '—'})</div>
+          <div>ثقة تصنيف المحادثة: {attributionLevelLabelFor(analysis.evidence_snapshot?.conversationCaseConfidence?.level ?? 'unknown')} — {Math.round(Number(analysis.evidence_snapshot?.conversationCaseConfidence?.score ?? 0) * 100)}٪</div>
           {analysis.evidence_snapshot?.conversationCaseConfidence?.ruleIds?.length ? (
-            <div className="mt-1">القواعد: {analysis.evidence_snapshot.conversationCaseConfidence.ruleIds.join('، ')}</div>
+            <div className="mt-1">قواعد التحليل: {analysis.evidence_snapshot.conversationCaseConfidence.ruleIds.map(ruleIdLabelFor).join('، ')}</div>
           ) : null}
           {analysis.pipeline_warnings?.length ? (
-            <div className="mt-2 text-amber-300">تحذيرات التقسيم: {analysis.pipeline_warnings.join('، ')}</div>
+            <div className="mt-2 text-amber-300">تنبيهات التقسيم: {analysis.pipeline_warnings.map(pipelineWarningLabelFor).join('، ')}</div>
           ) : <div className="mt-2">لا توجد تحذيرات تقسيم محفوظة.</div>}
         </Evidence>
       </Section>
