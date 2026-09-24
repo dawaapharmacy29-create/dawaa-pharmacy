@@ -4,9 +4,11 @@ import { toast } from 'sonner';
 import {
   approveAttendanceResolution,
   getAttendanceCaseDiagnosticV1,
+  getAttendanceDiagnosticSummaryV1,
   listAttendanceExceptionInbox,
   materializeAttendanceRange,
   type AttendanceCaseDiagnosticV1,
+  type AttendanceDiagnosticSummaryV1,
   type AttendanceExceptionLane,
   type AttendanceExceptionRow,
 } from '@/lib/attendance/attendanceResolutionService';
@@ -111,6 +113,7 @@ export default function AttendanceResolutionCenter({
   const [branch, setBranch] = useState(defaultBranch || 'الكل');
   const [lane, setLane] = useState<'all' | AttendanceExceptionLane>(initialTriage);
   const [rows, setRows] = useState<AttendanceExceptionRow[]>([]);
+  const [diagnosticSummary, setDiagnosticSummary] = useState<AttendanceDiagnosticSummaryV1 | null>(null);
   const [showFormer, setShowFormer] = useState(false);
   const { data: staffDirectory = [], isLoading: directoryLoading, isError: directoryError } = useStaffDirectory();
   const [loading, setLoading] = useState(false);
@@ -146,14 +149,18 @@ export default function AttendanceResolutionCenter({
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const queue = await listAttendanceExceptionInbox({
-        start,
-        end,
-        branch,
-        lane,
-        limit: 1000,
-      });
+      const [queue, summary] = await Promise.all([
+        listAttendanceExceptionInbox({
+          start,
+          end,
+          branch,
+          lane,
+          limit: 1000,
+        }),
+        getAttendanceDiagnosticSummaryV1({ start, end, branch }),
+      ]);
       setRows(queue);
+      setDiagnosticSummary(summary);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'تعذر تحميل صندوق مراجعة الحضور');
     } finally {
@@ -507,6 +514,36 @@ export default function AttendanceResolutionCenter({
         <Metric label="بصمات ناقصة" value={totals.missingPunch} icon={Clock3} />
         <Metric label="غياب محتمل" value={totals.absence} icon={AlertTriangle} tone="warn" />
       </section>
+
+      {diagnosticSummary && diagnosticSummary.causes.length > 0 && (
+        <section className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="text-xs font-black text-[var(--dawaa-theme-primary-strong)]">Diagnostic Engine V1</div>
+              <h3 className="mt-1 text-base font-black text-[var(--dawaa-theme-heading)]">أسباب التعليق الحالية</h3>
+            </div>
+            <div className="text-xs font-bold text-[var(--dawaa-theme-muted)]">
+              مدير: {diagnosticSummary.manager_cases.toLocaleString('ar-EG')} · نظام: {diagnosticSummary.system_cases.toLocaleString('ar-EG')}
+            </div>
+          </div>
+          <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+            {diagnosticSummary.causes.slice(0, 6).map((cause) => (
+              <div key={`${cause.code}-${cause.owner}`} className="rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-black text-[var(--dawaa-theme-heading)]">{cause.label}</div>
+                    <div className="mt-1 text-[10px] font-bold text-[var(--dawaa-theme-muted)]">{cause.code}</div>
+                  </div>
+                  <span className="text-lg font-black text-[var(--dawaa-theme-heading)]">{cause.cases.toLocaleString('ar-EG')}</span>
+                </div>
+                <div className="mt-2 text-[10px] font-bold text-[var(--dawaa-theme-muted)]">
+                  المسئول: {cause.owner === 'system' ? 'إصلاح نظامي' : 'قرار مدير'}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       <AttendanceCorrectionReviewPanel branch={branch} />
 
