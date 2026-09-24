@@ -34,6 +34,9 @@ import {
   pipelineWarningLabelFor,
   productMatchLabelFor,
   attributionLevelLabelFor,
+  evidenceCompletenessLabelFor,
+  evidenceLevelLabelFor,
+  commercialConfirmationStateLabelFor,
 } from '@/lib/salesIntelligence/qa/presentation';
 
 /** Exact wording the Final Pilot Readiness spec requires wherever item-level invoice evidence is unavailable — never a paraphrase, so a reviewer never mistakes header-only evaluation for item-level proof. */
@@ -109,6 +112,15 @@ export default function SalesIntelligenceQACaseDetail() {
   const activeBasket = liveEvidence?.activeBasket ?? null;
   const basketItems = activeBasket ? liveEvidence?.itemsByBasketId[activeBasket.basketId] ?? [] : [];
   const unresolvedItems = basketItems.filter((item) => item.resolutionStatus !== 'proven' || item.quantity === null);
+  const completeness = (analysis.evidence_snapshot?.evidenceCompleteness ?? {}) as Record<string, unknown>;
+  const completenessEntries = Object.entries(completeness).filter(([key]) => key !== 'overallEvidenceLevel');
+  const availableEvidenceCount = completenessEntries.filter(([, value]) => value === true).length;
+  const evidenceCoveragePercent = completenessEntries.length ? Math.round((availableEvidenceCount / completenessEntries.length) * 100) : 0;
+  const attributionConfidencePercent = attribution?.confidence_score == null ? null : Math.round(Number(attribution.confidence_score) * 100);
+  const classificationConfidencePercent = Math.round(Number(analysis.evidence_snapshot?.conversationCaseConfidence?.score ?? 0) * 100);
+  const commercial = liveEvidence?.commercialConfirmation ?? null;
+  const historical = liveEvidence?.historicalClosure ?? null;
+  const basketKnownQuantities = basketItems.filter((item) => item.quantity != null).length;
 
   return (
     <div className="space-y-5" dir="rtl">
@@ -131,6 +143,109 @@ export default function SalesIntelligenceQACaseDetail() {
           <Field label="تقسيم المصدر" value={<span className="inline-flex items-center gap-2"><Layers3 size={16} /> {siblingCases.length > 1 ? `${siblingCases.length} أجزاء` : 'جزء واحد'}</span>} />
         </div>
       </section>
+
+      <Section title="المراجعة الذكية الشاملة — ملخص الحالة بالكامل">
+        <div className="dawaa-alert dawaa-alert--info text-xs leading-6">
+          هذا الملخص يجمع نتائج كل مسارات التحليل الحالية في مكان واحد: هوية العميل، تقسيم المحادثة، الطلب والسلة، القبول والتأكيد،
+          مطابقة الأصناف، الفواتير، إثبات البيع، وما ينقصنا من أدلة. لا يتم اختراع أي معلومة غير موجودة، وأي نقطة غير محسومة تظهر بوضوح.
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] p-4">
+            <div className="dawaa-muted text-xs">هوية العميل</div>
+            <div className="dawaa-heading mt-2 font-black">{conversation?.customerName || 'غير معروف'}</div>
+            <div className="dawaa-body mt-2 text-xs leading-6">
+              الكود: {conversation?.customerCode || 'غير متاح'}<br />
+              الهاتف: {conversation?.customerPhone || 'غير متاح'}<br />
+              الفرع: {branchLabelFor(conversation?.branch ?? analysis.identity_branch_name_raw)}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] p-4">
+            <div className="dawaa-muted text-xs">فهم المحادثة</div>
+            <div className="dawaa-heading mt-2 font-black">{caseTypeLabelFor(analysis.case_type)}</div>
+            <div className="dawaa-body mt-2 text-xs leading-6">
+              ثقة التصنيف: {classificationConfidencePercent}٪<br />
+              عدد أجزاء نفس المحادثة: {Math.max(1, siblingCases.length)}<br />
+              بداية الحالة: {formatDateTime(analysis.case_started_at)}<br />
+              النهاية: {analysis.case_ended_at ? formatDateTime(analysis.case_ended_at) : 'مستمرة'}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] p-4">
+            <div className="dawaa-muted text-xs">الطلب والسلة</div>
+            <div className="dawaa-heading mt-2 font-black">{basketItems.length ? basketItems.length + ' صنف/طلب ظاهر' : 'لا توجد سلة مكتملة'}</div>
+            <div className="dawaa-body mt-2 text-xs leading-6">
+              كميات محسومة: {basketKnownQuantities} من {basketItems.length}<br />
+              تطابقات كتالوج: {catalogProductMatches.length}<br />
+              الإجمالي المعلن: {activeBasket?.announcedTotal?.amount ?? 'غير متاح'}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] p-4">
+            <div className="dawaa-muted text-xs">القرار الشرائي</div>
+            <div className="dawaa-heading mt-2 font-black">{commercialConfirmationStateLabelFor(commercial?.currentState ?? analysis.commercial_confirmation_state)}</div>
+            <div className="dawaa-body mt-2 text-xs leading-6">
+              نية شراء: {historical?.purchaseIntentDetected ? 'موجودة' : 'غير مؤكدة'}<br />
+              قبول العميل: {historical?.customerAcceptanceDetected ? 'موجود' : 'غير مؤكد'}<br />
+              نية التنفيذ من الصيدلية: {historical?.staffFulfillmentIntentDetected ? 'موجودة' : 'غير مؤكدة'}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] p-4">
+            <div className="dawaa-muted text-xs">الفاتورة والإسناد</div>
+            <div className="dawaa-heading mt-2 font-black">{attribution?.selected_invoice_number ? 'فاتورة ' + attribution.selected_invoice_number : 'لا توجد فاتورة مختارة'}</div>
+            <div className="dawaa-body mt-2 text-xs leading-6">
+              مستوى الإسناد: {attributionLevelLabelFor(attribution?.attribution_level ?? analysis.attribution_level)}<br />
+              ثقة الإسناد: {attributionConfidencePercent == null ? 'غير متاحة' : attributionConfidencePercent + '٪'}<br />
+              عدد المرشحين: {attribution?.candidate_count ?? 0} • حالات منافسة: {attribution?.competing_case_ids?.length ?? 0}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] p-4">
+            <div className="dawaa-muted text-xs">إثبات البيع وجودة الأدلة</div>
+            <div className="mt-2">{saleProofStateBadge(saleProof.state)}</div>
+            <div className="dawaa-body mt-2 text-xs leading-6">
+              تغطية الأدلة المتاحة: {evidenceCoveragePercent}٪<br />
+              {evidenceLevelLabelFor(String(completeness.overallEvidenceLevel ?? analysis.overall_evidence_level))}<br />
+              مراجعة بشرية: {analysis.needs_human_review ? 'مطلوبة' : 'غير مطلوبة'}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4">
+          <div className="dawaa-heading mb-2 text-sm font-black">خريطة الأدلة — ماذا نعرف فعليًا؟</div>
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            {completenessEntries.map(([key, value]) => (
+              <div key={key} className="flex items-center justify-between gap-3 rounded-xl border border-[var(--dawaa-theme-border)] px-3 py-2 text-xs">
+                <span>{evidenceCompletenessLabelFor(key)}</span>
+                <span className={value === true ? 'dawaa-badge dawaa-badge--success' : 'dawaa-badge dawaa-badge--warning'}>
+                  {value === true ? 'متاح' : 'غير متاح'}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-3 lg:grid-cols-2">
+          <div className="rounded-xl border border-emerald-700/30 bg-emerald-950/10 p-3 text-xs leading-6">
+            <div className="mb-1 font-black text-emerald-300">النقاط المؤكدة أو المدعومة حاليًا</div>
+            <div>• هوية العميل: {conversation?.customerCode && conversation?.customerPhone ? 'مرتبطة ببيانات واضحة' : 'غير مكتملة'}</div>
+            <div>• تصنيف الحالة: {caseTypeLabelFor(analysis.case_type)} — {classificationConfidencePercent}٪</div>
+            <div>• الفاتورة: {attribution?.selected_invoice_number ? 'مرشحة رقم ' + attribution.selected_invoice_number : 'لا توجد فاتورة مرشحة'}</div>
+            <div>• الأصناف: {catalogProductMatches.length ? catalogProductMatches.length + ' تطابق كتالوج ظاهر' : 'لا توجد مطابقة كتالوج حاليًا'}</div>
+          </div>
+
+          <div className="rounded-xl border border-amber-700/30 bg-amber-950/10 p-3 text-xs leading-6">
+            <div className="mb-1 font-black text-amber-300">ما الذي يمنع اليقين الكامل؟</div>
+            {analysis.failure_reasons?.length ? (
+              analysis.failure_reasons.map((reason: string) => <div key={reason}>• {failureReasonLabelFor(reason)}</div>)
+            ) : (
+              <div>لا توجد أسباب نقص أدلة مسجلة لهذه الحالة.</div>
+            )}
+          </div>
+        </div>
+      </Section>
 
       {/* 1. Full source conversation */}
       <Section title="١. المحادثة الأصلية — عرض واقعي كامل">
