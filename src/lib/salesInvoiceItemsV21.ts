@@ -5,7 +5,7 @@ export interface RawSalesInvoiceItemV21 {
   sheetName: string;
   rowIndex: number;
   invoiceNumber: string;
-  branch: string;
+  branch: string | null;
   invoiceDate: string | null;
   customerCode: string | null;
   customerName: string | null;
@@ -22,10 +22,14 @@ export interface RawSalesInvoiceItemV21 {
   unitName: string | null;
   expiryRaw: string | null;
   returnedQuantity: number | null;
+  effectiveQuantity: number | null;
   unitPrice: number | null;
   itemDiscountAmount: number | null;
   itemDiscountPercent: number | null;
   grossLineAmount: number | null;
+  effectiveGrossAfterReturn: number | null;
+  allocatedInvoiceDiscountAmount: number | null;
+  invoiceNetFactor: number | null;
   netLineAmount: number | null;
   lineTotal: number | null;
   raw: Record<string, unknown>;
@@ -35,6 +39,7 @@ export interface SalesInvoiceItemsParseResultV21 {
   rows: RawSalesInvoiceItemV21[];
   detectedSheets: string[];
   warnings: string[];
+  allWarehouseExport: boolean;
 }
 
 export interface SalesInvoiceItemsImportResultV21 {
@@ -224,7 +229,9 @@ function excelDateToIso(value: unknown): string | null {
 }
 
 function normalizeCustomerCode(value: unknown): string {
-  return text(value).replace(/\.0+$/, '');
+  const normalized = text(value).replace(/\.0+$/, '');
+  if (!normalized || normalized === '.' || normalized === '-' || normalized === '—') return '';
+  return normalized;
 }
 
 export function parseSalesInvoiceItemsV21(buffer: ArrayBuffer, fallbackBranch: string): SalesInvoiceItemsParseResultV21 {
@@ -232,6 +239,7 @@ export function parseSalesInvoiceItemsV21(buffer: ArrayBuffer, fallbackBranch: s
   const rows: RawSalesInvoiceItemV21[] = [];
   const detectedSheets: string[] = [];
   const warnings: string[] = [];
+  let allWarehouseExportDetected = false;
 
   for (const sheetName of workbook.SheetNames) {
     const sheet = workbook.Sheets[sheetName];
@@ -241,6 +249,14 @@ export function parseSalesInvoiceItemsV21(buffer: ArrayBuffer, fallbackBranch: s
     detectedSheets.push(sheetName);
 
     const idx = header.indexes;
+    const titleCells = matrix
+      .slice(0, header.rowIndex)
+      .flat()
+      .map((value) => normalize(value))
+      .join(' ');
+    const allWarehouseExport = /مخزن.*الكل|<<.*الكل.*>>|الكـــل/.test(titleCells);
+    if (allWarehouseExport) allWarehouseExportDetected = true;
+
     for (let r = header.rowIndex + 1; r < matrix.length; r += 1) {
       const row = matrix[r] || [];
       const invoiceNumber = text(row[idx.invoice]);
@@ -249,29 +265,35 @@ export function parseSalesInvoiceItemsV21(buffer: ArrayBuffer, fallbackBranch: s
       const quantity = numberOrNull(row[idx.quantity]);
       if (!invoiceNumber || !productName || quantity == null) continue;
 
-      const unitPrice = idx.unitPrice >= 0 ? numberOrNull(row[idx.unitPrice]) : null;
+      // In the real B-Connect export, "سعر بيع" is the TOTAL gross value of the line,
+      // not a per-unit price. Example: quantity=2, sale value=360 => 180/unit.
+      const grossLineAmount = idx.unitPrice >= 0 ? numberOrNull(row[idx.unitPrice]) : null;
+      const returnedQuantity = idx.returnedQuantity >= 0 ? numberOrNull(row[idx.returnedQuantity]) : null;
+      const effectiveQuantity =
+        quantity == null
+          ? null
+          : Math.max(0, quantity - Math.max(0, returnedQuantity ?? 0));
+      const unitPrice =
+        quantity != null && quantity > 0 && grossLineAmount != null
+          ? grossLineAmount / quantity
+          : null;
+      const effectiveGrossAfterReturn =
+        quantity != null && quantity > 0 && grossLineAmount != null
+          ? grossLineAmount * (effectiveQuantity ?? 0) / quantity
+          : grossLineAmount;
       const itemDiscountAmount = idx.itemDiscountAmount >= 0 ? numberOrNull(row[idx.itemDiscountAmount]) : null;
       const itemDiscountPercent = idx.itemDiscountPercent >= 0 ? numberOrNull(row[idx.itemDiscountPercent]) : null;
-      const explicitLineTotal = idx.lineTotal >= 0 ? numberOrNull(row[idx.lineTotal]) : null;
-      const grossLineAmount = quantity != null && unitPrice != null ? quantity * unitPrice : null;
-      const derivedDiscount =
-        itemDiscountAmount != null
-          ? itemDiscountAmount
-          : grossLineAmount != null && itemDiscountPercent != null
-            ? grossLineAmount * itemDiscountPercent / 100
-            : 0;
-      const netLineAmount =
-        explicitLineTotal != null
-          ? explicitLineTotal
-          : grossLineAmount != null
-            ? grossLineAmount - derivedDiscount
-            : null;
 
       rows.push({
         sheetName,
         rowIndex: r + 1,
         invoiceNumber,
-        branch: idx.branch >= 0 ? text(row[idx.branch]) || fallbackBranch : fallbackBranch,
+        branch:
+          idx.branch >= 0
+            ? text(row[idx.branch]) || null
+            : allWarehouseExport
+              ? null
+              : fallbackBranch || null,
         invoiceDate: idx.date >= 0 ? excelDateToIso(row[idx.date]) : null,
         customerCode: idx.customerCode >= 0 ? normalizeCustomerCode(row[idx.customerCode]) || null : null,
         customerName: idx.customerName >= 0 ? text(row[idx.customerName]) || null : null,
@@ -287,21 +309,75 @@ export function parseSalesInvoiceItemsV21(buffer: ArrayBuffer, fallbackBranch: s
         quantity,
         unitName: idx.unit >= 0 ? text(row[idx.unit]) || null : null,
         expiryRaw: idx.expiry >= 0 ? text(row[idx.expiry]) || null : null,
-        returnedQuantity: idx.returnedQuantity >= 0 ? numberOrNull(row[idx.returnedQuantity]) : null,
+        returnedQuantity,
+        effectiveQuantity,
         unitPrice,
         itemDiscountAmount,
         itemDiscountPercent,
         grossLineAmount,
-        netLineAmount,
-        lineTotal: netLineAmount,
+        effectiveGrossAfterReturn,
+        allocatedInvoiceDiscountAmount: null,
+        invoiceNetFactor: null,
+        netLineAmount: effectiveGrossAfterReturn,
+        lineTotal: effectiveGrossAfterReturn,
         raw: Object.fromEntries(header.headers.map((name, i) => [name || `col_${i + 1}`, row[i]])),
       });
     }
   }
 
+  // Reconcile every invoice against B-Connect's own net total. This is safer than trusting
+  // "خصم قيمة" blindly: in real exports some rows carry a declared discount value even when the
+  // invoice net shows that value was informational/already reflected. We therefore derive the
+  // actual goods-net factor from: (invoice net - fees) / gross after returns.
+  const rowsByInvoice = new Map<string, RawSalesInvoiceItemV21[]>();
+  for (const row of rows) {
+    const key = [
+      row.invoiceNumber,
+      isoDay(row.invoiceDate),
+      normalizeCustomerCode(row.customerCode),
+    ].join('|');
+    const bucket = rowsByInvoice.get(key) ?? [];
+    bucket.push(row);
+    rowsByInvoice.set(key, bucket);
+  }
+
+  for (const invoiceRows of rowsByInvoice.values()) {
+    const sample = invoiceRows[0];
+    const effectiveGross = invoiceRows.reduce(
+      (sum, row) => sum + Math.max(0, row.effectiveGrossAfterReturn ?? 0),
+      0
+    );
+    const invoiceNet = sample.invoiceNetAmount;
+    const fees = Math.max(0, sample.invoiceExtraFees ?? 0);
+    const goodsNet =
+      invoiceNet == null
+        ? null
+        : Math.max(0, invoiceNet - fees);
+    const factor =
+      effectiveGross > 0 && goodsNet != null
+        ? Math.max(0, goodsNet / effectiveGross)
+        : null;
+
+    for (const row of invoiceRows) {
+      const lineEffectiveGross = Math.max(0, row.effectiveGrossAfterReturn ?? 0);
+      const netLineAmount =
+        factor == null
+          ? lineEffectiveGross
+          : lineEffectiveGross * factor;
+      row.invoiceNetFactor = factor;
+      row.allocatedInvoiceDiscountAmount = Math.max(0, lineEffectiveGross - netLineAmount);
+      row.netLineAmount = netLineAmount;
+      row.lineTotal = netLineAmount;
+    }
+  }
+
+  if (detectedSheets.length && rows.some((row) => row.branch == null)) {
+    warnings.push('تم اكتشاف تصدير B-Connect لمخزن «الكل»؛ سيتم تحديد الفرع من الفاتورة المسجلة في التطبيق بدل افتراض فرع واحد للملف.');
+  }
+
   if (!detectedSheets.length) warnings.push('الملف الحالي لا يحتوي Sheet واضح لتفاصيل أصناف الفواتير؛ سيتم استيراد ملخص الفواتير فقط.');
   if (detectedSheets.length && !rows.length) warnings.push('تم اكتشاف أعمدة تفاصيل أصناف لكن لم توجد صفوف صالحة للاستيراد.');
-  return { rows, detectedSheets, warnings };
+  return { rows, detectedSheets, warnings, allWarehouseExport: allWarehouseExportDetected };
 }
 
 function normalizeBranch(value: unknown) {
@@ -396,12 +472,12 @@ export async function importSalesInvoiceItemsV21(
 
   const payload: any[] = [];
   for (const row of rows) {
-    const itemBranch = normalizeBranch(row.branch);
+    const itemBranch = row.branch ? normalizeBranch(row.branch) : '';
     const itemDay = isoDay(row.invoiceDate);
     const itemCustomerCode = normalizeCustomerCode(row.customerCode);
     const headerCandidates = (invoiceHeadersByNumber.get(row.invoiceNumber) ?? []).filter((invoice) => {
       const invoiceBranch = normalizeBranch(invoice.branch_name || invoice.branch);
-      if (invoiceBranch !== itemBranch) return false;
+      if (itemBranch && invoiceBranch !== itemBranch) return false;
       if (itemDay) {
         const invoiceDay = isoDay(invoice.invoice_datetime || invoice.invoice_date || invoice.sale_date);
         if (invoiceDay !== itemDay) return false;
@@ -471,7 +547,7 @@ export async function importSalesInvoiceItemsV21(
       item_identity: await sha256(identityBase),
       invoice_id: uniqueHeader?.id ? String(uniqueHeader.id) : null,
       invoice_number: row.invoiceNumber,
-      branch: row.branch,
+      branch: uniqueHeader?.branch_name || uniqueHeader?.branch || row.branch || null,
       invoice_date: row.invoiceDate,
       customer_id: uniqueHeader?.customer_id || null,
       customer_code: row.customerCode,
@@ -497,10 +573,15 @@ export async function importSalesInvoiceItemsV21(
           unit_name: row.unitName,
           expiry_raw: row.expiryRaw,
           returned_quantity: row.returnedQuantity,
+          effective_quantity: row.effectiveQuantity,
           item_discount_amount: row.itemDiscountAmount,
           item_discount_percent: row.itemDiscountPercent,
           gross_line_amount: row.grossLineAmount,
+          effective_gross_after_return: row.effectiveGrossAfterReturn,
+          allocated_invoice_discount_amount: row.allocatedInvoiceDiscountAmount,
+          invoice_net_factor: row.invoiceNetFactor,
           net_line_amount: row.netLineAmount,
+          bconnect_sale_value_semantics: 'line_gross_total',
           invoice_link_status: invoiceLinkStatus,
           invoice_link_reason: invoiceLinkReason,
           seller_name: uniqueHeader?.seller_name || uniqueHeader?.normalized_seller_name || null,
@@ -513,10 +594,15 @@ export async function importSalesInvoiceItemsV21(
     });
   }
 
+  // Only uniquely linked invoice items become canonical evidence. Ambiguous/unmatched rows are
+  // intentionally NOT persisted; re-upload after the invoice headers exist instead of creating
+  // a null-invoice identity that would later duplicate when the header becomes available.
+  const persistablePayload = payload.filter((row) => Boolean(row.invoice_id));
+
   let saved = 0;
   let failed = 0;
-  for (let start = 0; start < payload.length; start += 300) {
-    const batch = payload.slice(start, start + 300);
+  for (let start = 0; start < persistablePayload.length; start += 300) {
+    const batch = persistablePayload.slice(start, start + 300);
     const { data, error } = await supabase
       .from('sales_invoice_items_v21')
       .upsert(batch, { onConflict: 'item_identity', ignoreDuplicates: false })
@@ -539,7 +625,7 @@ export async function importSalesInvoiceItemsV21(
   const unmatchedInvoiceRows = payload.filter(
     (row) => !row.invoice_id && row.raw_data?.__dawaa_commercial?.invoice_link_status !== 'ambiguous'
   ).length;
-  const productLinkedRows = payload.filter((row) => row.product_id).length;
+  const productLinkedRows = persistablePayload.filter((row) => row.product_id).length;
 
   return {
     parsed: rows.length,

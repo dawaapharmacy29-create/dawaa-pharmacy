@@ -564,6 +564,7 @@ export default function Invoices() {
     useState<SalesInvoiceItemsParseResultV21 | null>(null);
   const [invoiceItemsImportResult, setInvoiceItemsImportResult] =
     useState<SalesInvoiceItemsImportResultV21 | null>(null);
+  const [itemsOnlyImport, setItemsOnlyImport] = useState(false);
   const [progress, setProgress] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [managedInvoices, setManagedInvoices] = useState<ManagedInvoiceRow[]>([]);
@@ -725,6 +726,7 @@ export default function Invoices() {
       setImportSummary(null);
       setInvoiceItemsParseResult(null);
       setInvoiceItemsImportResult(null);
+      setItemsOnlyImport(false);
       setProgress(0);
 
       try {
@@ -738,14 +740,29 @@ export default function Invoices() {
             ? parseSalesInvoiceItemsV21(buffer, branch)
             : null;
 
+        const detectedItemsOnly = Boolean(
+          importKind === 'sales' &&
+          itemResult?.rows.length &&
+          itemResult.allWarehouseExport
+        );
+        setItemsOnlyImport(detectedItemsOnly);
         setInvoiceItemsParseResult(itemResult);
         setParseResult(result);
         setStep('preview');
 
-        if (result.rows.length === 0) toast.error('لم يتم العثور على صفوف صالحة في الملف');
-        else toast.success(`تم تحليل الملف: ${result.rows.length.toLocaleString('ar-EG')} صف صالح`);
+        if (detectedItemsOnly) {
+          setBranchMismatchWarning(null);
+          setBranchMismatchAcknowledged(false);
+          toast.success(
+            `تم اكتشاف ملف تفاصيل أصناف B-Connect: ${itemResult!.rows.length.toLocaleString('ar-EG')} بند — لن يتم تعديل رؤوس الفواتير.`
+          );
+        } else if (result.rows.length === 0) {
+          toast.error('لم يتم العثور على صفوف صالحة في الملف');
+        } else {
+          toast.success(`تم تحليل الملف: ${result.rows.length.toLocaleString('ar-EG')} صف صالح`);
+        }
 
-        if (importKind === 'sales' && result.rows.length > 0) {
+        if (importKind === 'sales' && result.rows.length > 0 && !detectedItemsOnly) {
           void checkBranchMismatch((result as ParseResult).rows, branch);
         }
       } catch (error) {
@@ -757,13 +774,47 @@ export default function Invoices() {
   );
 
   const handleConfirmImport = async () => {
-    if (!parseResult || parseResult.rows.length === 0) return;
+    if (
+      (!parseResult || parseResult.rows.length === 0) &&
+      !invoiceItemsParseResult?.rows.length
+    ) return;
 
     setStep('importing');
     setProgress(0);
-    const batch = `import-${importKind}-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}`;
+    const batch = `import-${itemsOnlyImport ? 'items' : importKind}-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}`;
 
     try {
+      if (importKind === 'sales' && itemsOnlyImport && invoiceItemsParseResult?.rows.length) {
+        const itemImport = await importSalesInvoiceItemsV21(invoiceItemsParseResult.rows, {
+          sourceFile: fileName,
+          importBatch: batch,
+          createdBy: String(user?.name || user?.id || ''),
+        });
+        setInvoiceItemsImportResult(itemImport);
+        setProgress(100);
+        setStep('done');
+
+        if (itemImport.failed > 0) {
+          toast.warning(
+            `تم حفظ ${itemImport.saved.toLocaleString('ar-EG')} بند، وتعذر حفظ ${itemImport.failed.toLocaleString('ar-EG')} بند.`
+          );
+        } else {
+          toast.success(
+            `تم حفظ ${itemImport.saved.toLocaleString('ar-EG')} بند B-Connect • مربوط بفاتورة: ${itemImport.linkedInvoiceRows.toLocaleString('ar-EG')} • مربوط بمنتج: ${itemImport.productLinkedRows.toLocaleString('ar-EG')}`
+          );
+        }
+
+        const currentUserProfile = getCurrentUserProfile();
+        await logActivity(
+          currentUserProfile.id,
+          currentUserProfile.name,
+          'استيراد تفاصيل أصناف B-Connect',
+          'الفواتير',
+          `ملف ${fileName} - بنود ${itemImport.saved} - مربوط بفاتورة ${itemImport.linkedInvoiceRows} - مربوط بمنتج ${itemImport.productLinkedRows} - غامض ${itemImport.ambiguousInvoiceRows} - بدون Header ${itemImport.unmatchedInvoiceRows}`,
+          'كل الفروع'
+        );
+        return;
+      }
       const summary =
         importKind === 'sales'
           ? await importInvoicesToDB(
@@ -903,6 +954,7 @@ export default function Invoices() {
     setImportSummary(null);
     setInvoiceItemsParseResult(null);
     setInvoiceItemsImportResult(null);
+    setItemsOnlyImport(false);
     setProgress(0);
     setSummaryRefreshPhase('idle');
     setPhoneUpdateParseResult(null);
@@ -2007,9 +2059,9 @@ export default function Invoices() {
                     داخل Sheet: <b>{invoiceItemsParseResult.detectedSheets.join('، ')}</b>.
                   </div>
                   <div>
-                    بعد حفظ الفواتير سيتم حفظ البنود وربطها بالفاتورة والمنتج بشكل canonical قدر
-                    الإمكان. هذه البنود Evidence للتحليل؛ لا تتحول إلى بيع مثبت إلا بعد اجتياز
-                    Sales Intelligence لقواعد إسناد الفاتورة ومطابقة السلة.
+                    {itemsOnlyImport
+                      ? 'تم التعرف على الملف كتفاصيل أصناف B-Connect لمخزن «الكل». عند التأكيد سيتم حفظ البنود فقط وربطها بالفواتير الموجودة أصلًا؛ لن يتم إنشاء أو تعديل رؤوس الفواتير ولن يتم افتراض فرع واحد للملف.'
+                      : 'بعد حفظ الفواتير سيتم حفظ البنود وربطها بالفاتورة والمنتج بشكل canonical قدر الإمكان. هذه البنود Evidence للتحليل؛ لا تتحول إلى بيع مثبت إلا بعد اجتياز Sales Intelligence لقواعد إسناد الفاتورة ومطابقة السلة.'}
                   </div>
                   {invoiceItemsImportResult ? (
                     <div className="font-bold text-emerald-300">
@@ -2148,21 +2200,47 @@ export default function Invoices() {
             </div>
           )}
 
-          {step === 'preview' && validCount > 0 && (
+          {step === 'preview' && (validCount > 0 || (itemsOnlyImport && Boolean(invoiceItemsParseResult?.rows.length))) && (
             <div className="flex gap-3">
               <button
                 onClick={handleConfirmImport}
                 disabled={Boolean(branchMismatchWarning) && !branchMismatchAcknowledged}
                 className="dawaa-button dawaa-button--primary flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <CheckCircle size={16} /> تأكيد استيراد {validCount.toLocaleString('ar-EG')}{' '}
-                {importKind === 'sales' ? 'فاتورة' : 'عميل'}
+                <CheckCircle size={16} />{' '}
+                {itemsOnlyImport
+                  ? `تأكيد استيراد ${(invoiceItemsParseResult?.rows.length || 0).toLocaleString('ar-EG')} بند B-Connect`
+                  : `تأكيد استيراد ${validCount.toLocaleString('ar-EG')} ${importKind === 'sales' ? 'فاتورة' : 'عميل'}`}
               </button>
               <button onClick={handleReset} className="dawaa-button dawaa-button--secondary flex items-center gap-2">
                 <XCircle size={16} /> إلغاء
               </button>
             </div>
           )}
+        </div>
+      )}
+
+      {step === 'done' && itemsOnlyImport && invoiceItemsImportResult && (
+        <div className="rounded-2xl border border-emerald-400/25 bg-emerald-500/5 p-6 space-y-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-500/10">
+              <CheckCircle size={24} className="text-emerald-300" />
+            </div>
+            <div>
+              <div className="text-lg font-bold text-[var(--dawaa-theme-heading)]">اكتمل استيراد تفاصيل B-Connect</div>
+              <div className="text-sm text-[var(--dawaa-theme-muted)]">تم حفظ البنود فقط، بدون تعديل رؤوس الفواتير.</div>
+            </div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <StatTile value={invoiceItemsImportResult.saved} label="بنود محفوظة" color="text-emerald-300" />
+            <StatTile value={invoiceItemsImportResult.linkedInvoiceRows} label="مرتبطة بفاتورة" color="text-cyan-300" />
+            <StatTile value={invoiceItemsImportResult.productLinkedRows} label="مرتبطة بمنتج" color="text-violet-300" />
+            <StatTile value={invoiceItemsImportResult.ambiguousInvoiceRows} label="ربط غامض" color="text-amber-300" />
+            <StatTile value={invoiceItemsImportResult.unmatchedInvoiceRows} label="بدون Header" color="text-rose-300" />
+          </div>
+          <button onClick={handleReset} className="dawaa-button dawaa-button--secondary">
+            استيراد ملف آخر
+          </button>
         </div>
       )}
 

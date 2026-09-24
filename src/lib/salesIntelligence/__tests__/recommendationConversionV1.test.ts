@@ -148,4 +148,27 @@ describe('recommendationConversionV1', () => {
     expect(rows[0].soldNetValue).toBe(500);
   });
 
+
+  it('does not count a fully returned invoice line as an official recommendation sale', () => {
+    const session = buildSession();
+    const rows = deriveRecommendationConversionFactsV1({
+      session,
+      journeySummary,
+      invoiceLines: [{
+        productId: 'p1',
+        productCode: 'X1',
+        productName: 'Product X',
+        quantity: 0,
+        netLineAmount: 0,
+        staffId: 'staff-w',
+        staffName: 'د وائل',
+      }],
+      invoiceEvidenceLevel: 'official',
+    });
+
+    expect(rows[0].invoiceContainsProduct).toBe(false);
+    expect(rows[0].officialSaleFromRecommendation).toBe(false);
+    expect(rows[0].conversionStatus).toBe('accepted_waiting_official_invoice');
+  });
+
 });

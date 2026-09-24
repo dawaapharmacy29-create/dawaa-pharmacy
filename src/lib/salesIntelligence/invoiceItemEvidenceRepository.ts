@@ -87,7 +87,13 @@ export function buildInvoiceItemEvidenceProvider(
       productNameRaw: productName,
       productId: clean(row.product_id) || null,
       productCode: clean(row.product_code) || null,
-      quantity: numberOrNull(row.quantity),
+      quantity:
+        numberOrNull(meta.effective_quantity) ??
+        (() => {
+          const quantity = numberOrNull(row.quantity);
+          const returned = numberOrNull(meta.returned_quantity) ?? 0;
+          return quantity == null ? null : Math.max(0, quantity - Math.max(0, returned));
+        })(),
       unitName: clean(meta.unit_name) || null,
       expiryRaw: clean(meta.expiry_raw) || null,
       returnedQuantity: numberOrNull(meta.returned_quantity),

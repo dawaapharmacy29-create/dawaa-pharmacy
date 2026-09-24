@@ -605,13 +605,13 @@ export default function SalesIntelligenceQACaseDetail() {
               <Field label="فروق سعر تحتاج مراجعة" value={priceMismatchRows.length} />
             </div>
             <div className="dawaa-alert dawaa-alert--info mb-3 text-xs leading-6">
-              سعر الكتالوج الحالي يظهر كمرجع معلوماتي فقط، ولا يُستخدم للحكم على سعر تاريخي. تقييم الخصم يعتمد على ملف B-Connect والعروض السارية وقت الفاتورة.
+              في تصدير B-Connect، «سعر بيع» هو إجمالي قيمة السطر قبل المرتجع وخصم الفاتورة، وليس سعر الوحدة. سعر الوحدة النهائي أدناه مشتق من صافي السطر بعد المرتجع والتسوية. سعر الكتالوج الحالي مرجع معلوماتي فقط.
             </div>
             <div className="overflow-x-auto">
               <table className="min-w-full text-xs">
                 <thead>
                   <tr className="dawaa-muted border-b border-[var(--dawaa-theme-border)] text-right">
-                    {['الصنف', 'الكود', 'الكمية', 'السعر في المحادثة', 'سعر البيع الفعلي', 'الفرق', 'دقة السعر', 'خصم الصنف', 'صافي البند', 'مرتجع', 'الدكتور المنفذ', 'حالة العرض/الخصم'].map((h) => <th key={h} className="p-2">{h}</th>)}
+                    {['الصنف', 'الكود', 'الكمية الأصلية', 'الكمية المباعة', 'السعر في المحادثة', 'سعر الوحدة قبل الخصم', 'سعر الوحدة النهائي', 'الفرق', 'دقة السعر', 'خصم فعلي موزع', 'صافي البند', 'مرتجع', 'الدكتور المنفذ', 'حالة العرض/الخصم'].map((h) => <th key={h} className="p-2">{h}</th>)}
                   </tr>
                 </thead>
                 <tbody>
@@ -620,8 +620,10 @@ export default function SalesIntelligenceQACaseDetail() {
                       <td className="p-2 font-bold">{item.productName || '—'}</td>
                       <td className="p-2 font-mono">{item.productCode || '—'}</td>
                       <td className="p-2">{item.quantity ?? '—'}{item.unitName ? ` ${item.unitName}` : ''}</td>
+                      <td className="p-2">{item.effectiveQuantity ?? '—'}{item.unitName ? ` ${item.unitName}` : ''}</td>
                       <td className="p-2">{item.quotedUnitPrice == null ? '—' : `${item.quotedUnitPrice.toFixed(2)} ج.م`}</td>
                       <td className="p-2">{item.unitPrice == null ? '—' : `${item.unitPrice.toFixed(2)} ج.م`}</td>
+                      <td className="p-2">{item.effectiveUnitPrice == null ? '—' : `${item.effectiveUnitPrice.toFixed(2)} ج.م`}</td>
                       <td className="p-2">
                         {item.quotedPriceDifference == null ? '—' : `${item.quotedPriceDifference.toFixed(2)} ج.م`}
                       </td>
@@ -631,7 +633,9 @@ export default function SalesIntelligenceQACaseDetail() {
                         </span>
                       </td>
                       <td className="p-2">
-                        {item.itemDiscountAmount ? `${item.itemDiscountAmount.toFixed(2)} ج.م` : item.itemDiscountPercent ? `${item.itemDiscountPercent}%` : '0'}
+                        {item.allocatedInvoiceDiscountAmount == null
+                          ? '—'
+                          : `${item.allocatedInvoiceDiscountAmount.toFixed(2)} ج.م`}
                       </td>
                       <td className="p-2">{item.netLineAmount == null ? '—' : `${item.netLineAmount.toFixed(2)} ج.م`}</td>
                       <td className="p-2">{item.returnedQuantity ?? 0}</td>

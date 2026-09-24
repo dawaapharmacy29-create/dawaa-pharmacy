@@ -155,12 +155,18 @@ export async function fetchDoctorCommercialCycleDataV1(
     const pricing = derivePricingExecutionAssessment(
       {
         quantity: row.quantity == null ? null : Number(row.quantity),
+        returnedQuantity: meta.returned_quantity == null ? null : Number(meta.returned_quantity),
+        effectiveQuantity: meta.effective_quantity == null ? null : Number(meta.effective_quantity),
         unitPrice: row.unit_price == null ? null : Number(row.unit_price),
-        itemDiscountAmount: meta.item_discount_amount == null ? null : Number(meta.item_discount_amount),
+        itemDiscountAmount:
+        meta.allocated_invoice_discount_amount == null
+          ? (meta.item_discount_amount == null ? null : Number(meta.item_discount_amount))
+          : Number(meta.allocated_invoice_discount_amount),
         itemDiscountPercent: meta.item_discount_percent == null ? null : Number(meta.item_discount_percent),
         grossLineAmount: meta.gross_line_amount == null ? null : Number(meta.gross_line_amount),
         netLineAmount: meta.net_line_amount == null ? (row.line_total == null ? null : Number(row.line_total)) : Number(meta.net_line_amount),
         invoiceDiscountAmount: meta.invoice_discount_amount == null ? null : Number(meta.invoice_discount_amount),
+        allocatedInvoiceDiscountAmount: meta.allocated_invoice_discount_amount == null ? null : Number(meta.allocated_invoice_discount_amount),
       },
       lineOffers
     );
@@ -171,10 +177,24 @@ export async function fetchDoctorCommercialCycleDataV1(
       invoiceNumber: String(row.invoice_number ?? ''),
       staffId: header?.staff_id == null ? null : String(header.staff_id),
       staffName: header?.staff_name ?? header?.seller_name ?? header?.normalized_seller_name ?? meta.staff_name ?? null,
-      quantity: row.quantity == null ? null : Number(row.quantity),
-      grossLineAmount: meta.gross_line_amount == null
-        ? (row.quantity != null && row.unit_price != null ? Number(row.quantity) * Number(row.unit_price) : null)
-        : Number(meta.gross_line_amount),
+      quantity:
+        meta.effective_quantity == null
+          ? (
+              row.quantity == null
+                ? null
+                : Math.max(0, Number(row.quantity) - Math.max(0, Number(meta.returned_quantity ?? 0)))
+            )
+          : Number(meta.effective_quantity),
+      grossLineAmount:
+        meta.effective_gross_after_return == null
+          ? (
+              row.quantity != null && Number(row.quantity) > 0 && meta.gross_line_amount != null
+                ? Number(meta.gross_line_amount) *
+                  Math.max(0, Number(row.quantity) - Math.max(0, Number(meta.returned_quantity ?? 0))) /
+                  Number(row.quantity)
+                : (meta.gross_line_amount == null ? null : Number(meta.gross_line_amount))
+            )
+          : Number(meta.effective_gross_after_return),
       netLineAmount: meta.net_line_amount == null ? (row.line_total == null ? null : Number(row.line_total)) : Number(meta.net_line_amount),
       itemDiscountAmount: meta.item_discount_amount == null ? null : Number(meta.item_discount_amount),
       returnedQuantity: meta.returned_quantity == null ? null : Number(meta.returned_quantity),

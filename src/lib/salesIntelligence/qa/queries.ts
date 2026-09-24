@@ -410,6 +410,7 @@ export interface QaCaseDetailBundle {
     unitPrice: number | null;
     itemDiscountAmount: number | null;
     itemDiscountPercent: number | null;
+    allocatedInvoiceDiscountAmount: number | null;
     grossLineAmount: number | null;
     netLineAmount: number | null;
     returnedQuantity: number | null;
@@ -936,6 +937,10 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
         unitPrice: row.unit_price == null ? null : Number(row.unit_price),
         itemDiscountAmount: meta.item_discount_amount == null ? null : Number(meta.item_discount_amount),
         itemDiscountPercent: meta.item_discount_percent == null ? null : Number(meta.item_discount_percent),
+        allocatedInvoiceDiscountAmount:
+          meta.allocated_invoice_discount_amount == null
+            ? null
+            : Number(meta.allocated_invoice_discount_amount),
         grossLineAmount: meta.gross_line_amount == null ? null : Number(meta.gross_line_amount),
         netLineAmount: meta.net_line_amount == null ? (row.line_total == null ? null : Number(row.line_total)) : Number(meta.net_line_amount),
         returnedQuantity: meta.returned_quantity == null ? null : Number(meta.returned_quantity),

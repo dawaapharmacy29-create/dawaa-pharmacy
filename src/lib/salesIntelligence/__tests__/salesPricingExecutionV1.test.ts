@@ -72,4 +72,26 @@ describe('salesPricingExecutionV1', () => {
     expect(result.status).toBe('not_quoted');
     expect(result.needsHumanReview).toBe(false);
   });
+
+  it('uses effective sold quantity and actual allocated invoice discount from B-Connect', () => {
+    const result = derivePricingExecutionAssessment(
+      {
+        quantity: 2,
+        returnedQuantity: 1,
+        effectiveQuantity: 1,
+        unitPrice: 100,
+        itemDiscountAmount: 0,
+        itemDiscountPercent: 0,
+        grossLineAmount: 200,
+        netLineAmount: 90,
+        invoiceDiscountAmount: 0,
+        allocatedInvoiceDiscountAmount: 10,
+      },
+      []
+    );
+    expect(result.effectiveUnitPrice).toBe(90);
+    expect(result.status).toBe('invoice_discount_review');
+    expect(result.needsHumanReview).toBe(true);
+  });
+
 });

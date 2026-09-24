@@ -8,12 +8,15 @@ export type PricingExecutionStatus =
 
 export interface InvoiceItemPricingObservation {
   quantity: number | null;
+  returnedQuantity?: number | null;
+  effectiveQuantity?: number | null;
   unitPrice: number | null;
   itemDiscountAmount: number | null;
   itemDiscountPercent: number | null;
   grossLineAmount: number | null;
   netLineAmount: number | null;
   invoiceDiscountAmount: number | null;
+  allocatedInvoiceDiscountAmount?: number | null;
 }
 
 export interface OfferPricingReference {
@@ -40,17 +43,33 @@ export function derivePricingExecutionAssessment(
   offers: OfferPricingReference[]
 ): PricingExecutionAssessment {
   const quantity = numeric(observation.quantity);
+  const returnedQuantity = Math.max(0, numeric(observation.returnedQuantity) ?? 0);
+  const effectiveQuantity =
+    numeric(observation.effectiveQuantity) ??
+    (quantity != null ? Math.max(0, quantity - returnedQuantity) : null);
   const unitPrice = numeric(observation.unitPrice);
   const gross = numeric(observation.grossLineAmount) ??
     (quantity != null && unitPrice != null ? quantity * unitPrice : null);
   const itemDiscountAmount = Math.max(0, numeric(observation.itemDiscountAmount) ?? 0);
   const itemDiscountPercent = numeric(observation.itemDiscountPercent);
-  const invoiceDiscountAmount = Math.max(0, numeric(observation.invoiceDiscountAmount) ?? 0);
+  const declaredInvoiceDiscountAmount = Math.max(0, numeric(observation.invoiceDiscountAmount) ?? 0);
+  const allocatedInvoiceDiscountAmount = Math.max(
+    0,
+    numeric(observation.allocatedInvoiceDiscountAmount) ?? 0
+  );
   const net = numeric(observation.netLineAmount);
   const effectiveUnitPrice =
-    quantity != null && quantity > 0
-      ? (net != null ? net / quantity : gross != null ? (gross - itemDiscountAmount) / quantity : unitPrice)
-      : unitPrice;
+    effectiveQuantity != null && effectiveQuantity > 0
+      ? (
+          net != null
+            ? net / effectiveQuantity
+            : gross != null && quantity != null && quantity > 0
+              ? (gross / quantity)
+              : unitPrice
+        )
+      : effectiveQuantity === 0
+        ? null
+        : unitPrice;
 
   const matchingOffer = offers.find((offer) =>
     effectiveUnitPrice != null &&
@@ -62,15 +81,19 @@ export function derivePricingExecutionAssessment(
   }
 
   const itemDiscountObserved = itemDiscountAmount > 0.009 || (itemDiscountPercent != null && itemDiscountPercent > 0.009);
+  const actualInvoiceDiscountObserved = allocatedInvoiceDiscountAmount > 0.009;
   if (offers.length > 0 && (itemDiscountObserved || effectiveUnitPrice != null)) {
     return { status: 'offer_price_mismatch_review', effectiveUnitPrice, matchedOfferId: null, matchedOfferTitle: null, needsHumanReview: true };
   }
   if (itemDiscountObserved) {
     return { status: 'discount_needs_review', effectiveUnitPrice, matchedOfferId: null, matchedOfferTitle: null, needsHumanReview: true };
   }
-  if (invoiceDiscountAmount > 0.009) {
+  if (actualInvoiceDiscountObserved) {
     return { status: 'invoice_discount_review', effectiveUnitPrice, matchedOfferId: null, matchedOfferTitle: null, needsHumanReview: true };
   }
+  // B-Connect can carry a non-zero declared "خصم قيمة" even when the invoice net proves that
+  // no extra discount was actually applied. Do not flag that informational field by itself.
+  void declaredInvoiceDiscountAmount;
   if (unitPrice != null) {
     return { status: 'no_discount_observed', effectiveUnitPrice, matchedOfferId: null, matchedOfferTitle: null, needsHumanReview: false };
   }

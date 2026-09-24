@@ -89,7 +89,12 @@ export function deriveRecommendationConversionFactsV1(input: {
       const acceptedInChat = journey.events.some((event) => event.stage === 'accepted');
       const rejectedInChat = journey.events.some((event) => event.stage === 'rejected');
 
-      const matchingLines = input.invoiceLines.filter((line) => sameProduct(journey, line));
+      const matchingLines = input.invoiceLines.filter(
+        (line) =>
+          sameProduct(journey, line) &&
+          (line.quantity == null || Number(line.quantity) > 0) &&
+          (line.netLineAmount == null || Number(line.netLineAmount) > 0)
+      );
       const invoiceContainsProduct = matchingLines.length > 0;
       const soldQuantity = invoiceContainsProduct
         ? matchingLines.reduce((sum, line) => sum + (Number(line.quantity) || 0), 0)
@@ -190,7 +195,12 @@ export function derivePersistedRecommendationConversionFactsV1(input: {
       const acceptedInChat = journey.events.some((event) => event.stage === 'accepted');
       const rejectedInChat = journey.events.some((event) => event.stage === 'rejected');
 
-      const matchingLines = input.invoiceLines.filter((line) => sameProduct(journey, line));
+      const matchingLines = input.invoiceLines.filter(
+        (line) =>
+          sameProduct(journey, line) &&
+          (line.quantity == null || Number(line.quantity) > 0) &&
+          (line.netLineAmount == null || Number(line.netLineAmount) > 0)
+      );
       const invoiceContainsProduct = matchingLines.length > 0;
       const soldQuantity = invoiceContainsProduct
         ? matchingLines.reduce((sum, line) => sum + (Number(line.quantity) || 0), 0)
