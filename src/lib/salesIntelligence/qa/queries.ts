@@ -568,12 +568,44 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
           }));
         }
 
-        const result = runSalesIntelligencePipeline({
+        const runLivePipeline = (
+          competingSelections: Array<{ caseId: string; invoiceId: string }> = []
+        ) => runSalesIntelligencePipeline({
           ...baseInput,
-          competingSelections: [],
+          competingSelections,
           resolveInvoiceCandidates: (context) => context.caseId === caseId ? freshCandidates : [],
         });
-        liveEvidence = result.caseAnalyses.find((a) => a.caseId === caseId) ?? null;
+
+        let result = runLivePipeline([]);
+        let targetAnalysis = result.caseAnalyses.find((a) => a.caseId === caseId) ?? null;
+
+        // Until the full maintenance backfill has replaced stale historical snapshots, the QA
+        // detail must not silently present an invoice as uncontested when a CURRENT persisted case
+        // still claims the same invoice. Feed those claims back into the canonical attribution
+        // engine, which already converts competition into human-review + non-official evidence.
+        const provisionalInvoiceId = targetAnalysis?.attribution.selectedInvoiceId ?? null;
+        if (provisionalInvoiceId) {
+          const { data: persistedCompetingClaims } = await supabaseClient
+            .from('sales_intelligence_current_attributions')
+            .select('case_id, selected_invoice_id')
+            .eq('selected_invoice_id', provisionalInvoiceId)
+            .neq('case_id', caseId)
+            .limit(MAX_LIST_ROWS);
+
+          const competingSelections = (persistedCompetingClaims ?? [])
+            .filter((row: any) => row.case_id && row.selected_invoice_id)
+            .map((row: any) => ({
+              caseId: String(row.case_id),
+              invoiceId: String(row.selected_invoice_id),
+            }));
+
+          if (competingSelections.length > 0) {
+            result = runLivePipeline(competingSelections);
+            targetAnalysis = result.caseAnalyses.find((a) => a.caseId === caseId) ?? null;
+          }
+        }
+
+        liveEvidence = targetAnalysis;
         if (liveEvidence) {
           liveSaleProof = deriveSaleProofState({
             attribution: liveEvidence.attribution,

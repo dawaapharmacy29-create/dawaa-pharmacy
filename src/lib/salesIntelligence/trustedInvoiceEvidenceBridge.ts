@@ -20,13 +20,12 @@
 // algorithmically-verified match exists. That it selects zero rows today is the correct and safe
 // answer, not a bug — see the I.C.1 final report for the full investigation and rationale.
 //
-// Eligibility (ALL four required — each one alone is insufficient, see the doc comment on
-// resolveTrustedInvoiceEvidenceFromReviewSource):
-//   1. matchedInvoiceId is present — a candidate invoice was identified at all.
-//   2. invoiceMatchStatus === 'verified' — the strongest automated tier only, never probable/
-//      needs_review/pending/not_found/not_applicable.
-//   3. reviewerConfirmed === true.
-//   4. reviewerId is present — an identified confirming actor, never a bare unattributed flag.
+// Current rule (2026-09-24): this table has NO invoice-link-specific confirmation field. The
+// existing reviewer_confirmed/reviewer_id pair confirms the overall review record, not the exact
+// invoice attribution. Therefore this bridge deliberately emits NO trusted invoice from
+// whatsapp_review_sources, even when invoice_match_status='verified'. A future dedicated
+// invoice-confirmation source must introduce a new explicit evidence type rather than reusing
+// these general review fields.
 //
 // Identity discipline (I.C.0 finding, confirmed against live data): `matched_invoice_id` is
 // `sales_invoices.id` — the real row key (verified: every one of the 54 currently-populated
@@ -53,17 +52,17 @@ export interface ReviewSourceInvoiceEvidenceInput {
   invoiceMatchStatus: string | null;
   /**
    * whatsapp_review_sources.reviewer_confirmed — approves the case's OVERALL review record, never
-   * the invoice link specifically (see module comment). Necessary but never sufficient alone.
+   * the invoice link specifically. It is informational here and can never establish trust.
    */
   reviewerConfirmed: boolean | null;
-  /** whatsapp_review_sources.reviewer_id — required alongside reviewerConfirmed so a bare unattributed flag can never qualify. */
+  /** whatsapp_review_sources.reviewer_id — identifies the overall reviewer only; not invoice-link provenance. */
   reviewerId: string | null;
   /** whatsapp_review_sources.branch — carried through for display/logging only, never an identity key. */
   branch: string | null;
 }
 
 export interface TrustedInvoiceEvidenceResult {
-  /** sales_invoices.id when (and only when) eligibility holds — null otherwise. NEVER derived from matchedInvoiceNumber. */
+  /** Always null for this source table until invoice-specific confirmation provenance exists. */
   trustedInvoiceId: string | null;
   /** Display/logging only — never a safe identity key on its own (see module comment). */
   trustedInvoiceNumber: string | null;
@@ -79,11 +78,9 @@ export interface TrustedInvoiceEvidenceResult {
 
 /**
  * Pure function — no Supabase, no I/O. Given the exact whatsapp_review_sources fields relevant to
- * invoice trust, returns whether this row's invoice match is eligible to become
- * CaseAttributionContext.trustedInvoiceId/trustedInvoiceNumber (saleAttributionEngine.ts) — the
- * ONLY path to a `proven` sale attribution. See the module header comment for why each signal
- * alone (a 'verified' statistical status, a bare matched_invoice_id, reviewer_confirmed without an
- * identified reviewer) is deliberately treated as insufficient.
+ * invoice trust. Under the current schema it always returns trustedInvoiceId=null because none
+ * of these fields confirms the invoice link itself. A dedicated future source may feed
+ * CaseAttributionContext.trustedInvoiceId directly, but this bridge must not manufacture it.
  */
 export function resolveTrustedInvoiceEvidenceFromReviewSource(
   input: ReviewSourceInvoiceEvidenceInput
