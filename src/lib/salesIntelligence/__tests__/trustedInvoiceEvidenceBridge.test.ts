@@ -190,4 +190,19 @@ describe('I.C.1 — end-to-end pipeline: a trusted invoice link reaches `proven`
     expect(a.integrityAssessment.canEvaluateItemIntegrity).toBe(false);
     expect(a.integrityAssessment.exceptions.some((e) => e.stage === 'invoice_items')).toBe(false);
   });
+  it('does not treat overall reviewer confirmation as invoice-specific trust', () => {
+    const result = resolveTrustedInvoiceEvidenceFromReviewSource({
+      sourceId: 'source-review',
+      matchedInvoiceId: 'invoice-1',
+      matchedInvoiceNumber: '12345',
+      invoiceMatchStatus: 'verified',
+      reviewerConfirmed: true,
+      reviewerId: 'reviewer-1',
+      branch: 'فرع شكري',
+    });
+    expect(result.trustedInvoiceId).toBeNull();
+    expect(result.evidenceType).toBe('none');
+    expect(result.ruleIds).toContain('trusted_invoice.ineligible.overall_review_confirmation_not_invoice_confirmation');
+  });
+
 });

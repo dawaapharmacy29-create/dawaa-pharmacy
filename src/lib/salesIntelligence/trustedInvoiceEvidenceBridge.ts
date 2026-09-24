@@ -40,7 +40,7 @@
 // treat the number alone as a safe identity key.
 import type { ConfidenceAssessment } from './types';
 
-export type TrustedInvoiceEvidenceType = 'none' | 'reviewer_confirmed_verified_match';
+export type TrustedInvoiceEvidenceType = 'none';
 
 export interface ReviewSourceInvoiceEvidenceInput {
   /** whatsapp_review_sources.id — kept only for evidence traceability. */
@@ -89,52 +89,25 @@ export function resolveTrustedInvoiceEvidenceFromReviewSource(
   input: ReviewSourceInvoiceEvidenceInput
 ): TrustedInvoiceEvidenceResult {
   const reviewerConfirmed = input.reviewerConfirmed === true;
-  const hasMatchedInvoice = Boolean(input.matchedInvoiceId);
-  const isVerified = input.invoiceMatchStatus === 'verified';
-  const hasReviewerId = Boolean(input.reviewerId);
 
-  const ruleIds: string[] = [];
-  if (!hasMatchedInvoice) ruleIds.push('trusted_invoice.ineligible.no_matched_invoice');
-  if (!isVerified) ruleIds.push('trusted_invoice.ineligible.match_status_not_verified');
-  if (!reviewerConfirmed) ruleIds.push('trusted_invoice.ineligible.reviewer_not_confirmed');
-  if (reviewerConfirmed && !hasReviewerId) ruleIds.push('trusted_invoice.ineligible.reviewer_id_missing');
+  const ruleIds = [
+    'trusted_invoice.ineligible.no_invoice_specific_confirmation_source',
+  ];
 
-  const eligible = hasMatchedInvoice && isVerified && reviewerConfirmed && hasReviewerId;
-
-  if (!eligible) {
-    return {
-      trustedInvoiceId: null,
-      trustedInvoiceNumber: null,
-      trustedInvoiceBranch: null,
-      source: 'none',
-      evidenceType: 'none',
-      reviewerConfirmed,
-      ruleIds,
-      confidence: { level: 'unknown', score: 0, ruleIds, evidence: [] },
-    };
+  if (!input.matchedInvoiceId) ruleIds.push('trusted_invoice.ineligible.no_matched_invoice');
+  if (input.invoiceMatchStatus !== 'verified') ruleIds.push('trusted_invoice.ineligible.match_status_not_verified');
+  if (reviewerConfirmed) {
+    ruleIds.push('trusted_invoice.ineligible.overall_review_confirmation_not_invoice_confirmation');
   }
 
-  const eligibleRuleIds = ['trusted_invoice.eligible.reviewer_confirmed_verified_match'];
   return {
-    trustedInvoiceId: input.matchedInvoiceId,
-    trustedInvoiceNumber: input.matchedInvoiceNumber,
-    trustedInvoiceBranch: input.branch,
-    source: 'whatsapp_review_sources',
-    evidenceType: 'reviewer_confirmed_verified_match',
-    reviewerConfirmed: true,
-    ruleIds: eligibleRuleIds,
-    confidence: {
-      level: 'proven',
-      score: 1,
-      ruleIds: eligibleRuleIds,
-      evidence: [
-        {
-          sourceTable: 'whatsapp_review_sources',
-          sourceId: input.sourceId,
-          description:
-            'رابط فاتورة مؤكَّد من مراجع بشري محدد الهوية فوق تطابق آلي بأعلى درجة ثقة (verified) — دليل موثوق، وليس تخمينًا إحصائيًا.',
-        },
-      ],
-    },
+    trustedInvoiceId: null,
+    trustedInvoiceNumber: null,
+    trustedInvoiceBranch: null,
+    source: 'none',
+    evidenceType: 'none',
+    reviewerConfirmed,
+    ruleIds,
+    confidence: { level: 'unknown', score: 0, ruleIds, evidence: [] },
   };
 }
