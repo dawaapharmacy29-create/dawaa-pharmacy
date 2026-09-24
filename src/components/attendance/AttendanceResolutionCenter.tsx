@@ -489,6 +489,63 @@ export default function AttendanceResolutionCenter({
       return;
     }
 
+    if (['forgot_in', 'forgot_out'].includes(decision.id)) {
+      const missingType = decision.id === 'forgot_in' ? 'check_in' : 'check_out';
+      if (!manualPunchAt) {
+        toast.warning('حدد وقت البصمة اليدوية بعد مراجعة الدليل.');
+        return;
+      }
+      if (missingPunchLoading || !missingPunchContext) {
+        toast.error('تعذر تحميل سجل نسيان البصمة. أغلق القرار وافتحه مرة أخرى.');
+        return;
+      }
+      if (applyMissingPunchPenalty && !missingPunchContext.penalty_eligible) {
+        toast.warning('أول مرتين نسيان بصمة في الدورة سماح، ولا يمكن تنفيذ خصم 50 جنيه قبل الواقعة الثالثة.');
+        return;
+      }
+
+      const manualIso = new Date(manualPunchAt).toISOString();
+      setApproving(true);
+      try {
+        const result = await resolveMissingPunchIncidentV1({
+          staffId: selected.staff_id,
+          date: selected.attendance_date,
+          missingType,
+          recordedAt: manualIso,
+          reason: note.trim() || decision.label,
+          applyDeduction: applyMissingPunchPenalty,
+        });
+        const occurrence = Number(result.occurrence_no || missingPunchContext.occurrence_no);
+        toast.success(
+          applyMissingPunchPenalty
+            ? `تم تسجيل البصمة اليدوية وتسجيل واقعة النسيان رقم ${occurrence} وتنفيذ خصم 50 جنيه.`
+            : `تم تسجيل البصمة اليدوية وواقعة النسيان رقم ${occurrence} في سجل الموظف.`
+        );
+        setSelected(null);
+        setNote('');
+        setReason('');
+        setMultiplier('');
+        setHours('');
+        setManualPunchAt('');
+        setApplyMissingPunchPenalty(false);
+        setMissingPunchContext(null);
+        setMissingPunchHistory([]);
+        await load();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'تعذر معالجة البصمة المفقودة';
+        if (message.includes('missing_punch_allowance_not_exhausted')) {
+          toast.error('أول مرتين نسيان بصمة سماح في الدورة الحالية؛ الخصم يبدأ من الواقعة الثالثة.');
+        } else if (message.includes('manual_punch_time')) {
+          toast.error('وقت البصمة اليدوية غير صالح لهذا اليوم.');
+        } else {
+          toast.error(message);
+        }
+      } finally {
+        setApproving(false);
+      }
+      return;
+    }
+
     const linkedRequest = decision.requestKind && approvedRequests.find((request) => request.request_kind === decision.requestKind);
     if (decision.requestKind && (requestsLoading || requestsError || !linkedRequest)) {
       toast.error('سجّل الطلب واعتمده في صفحة الإجازات والغياب أولًا، ثم راجع اليوم مجددًا.');
@@ -604,6 +661,37 @@ export default function AttendanceResolutionCenter({
         <Metric label="غياب محتمل" value={totals.absence} icon={AlertTriangle} tone="warn" />
       </section>
 
+      <section className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-3 shadow-sm">
+        <div className="flex flex-wrap gap-2">
+          {[
+            { id: 'all', label: 'الكل', count: tabCounts.all },
+            { id: 'absence', label: 'غياب', count: tabCounts.absence },
+            { id: 'early_leave', label: 'خروج مبكر', count: tabCounts.earlyLeave },
+            { id: 'missing_punch', label: 'بصمة مفقودة', count: tabCounts.missingPunch },
+            { id: 'system', label: 'مشاكل نظام', count: tabCounts.system },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => {
+                setCategoryTab(tab.id as typeof categoryTab);
+                if (tab.id === 'system') setLane('system');
+                else setLane('all');
+              }}
+              className={`rounded-xl border px-4 py-2 text-xs font-black transition ${categoryTab === tab.id
+                ? 'border-[var(--dawaa-theme-primary)] bg-[var(--dawaa-theme-primary-soft)] text-[var(--dawaa-theme-primary-strong)]'
+                : 'border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] text-[var(--dawaa-theme-muted)]'}`}
+            >
+              {tab.label}
+              <span className="ms-2 rounded-full border border-current px-2 py-0.5 text-[10px]">{tab.count.toLocaleString('ar-EG')}</span>
+            </button>
+          ))}
+        </div>
+        <p className="mt-2 text-[11px] font-bold text-[var(--dawaa-theme-muted)]">
+          الأرقام تمثل عدد الحالات في الفترة والفرع المحددين. اختر التاب لمراجعة المسار يوميًا.
+        </p>
+      </section>
+
       {diagnosticSummary && diagnosticSummary.causes.length > 0 && (
         <section className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -688,7 +776,7 @@ export default function AttendanceResolutionCenter({
                 </tr>
               );
             })}
-            {!visibleRows.length && !loading && !directoryLoading && (
+            {!displayRows.length && !loading && !directoryLoading && (
               <tr>
                 <td colSpan={8} className="p-8 text-center font-bold text-[var(--dawaa-theme-muted)]">
                   لا توجد حالات في هذا المسار خلال الفترة المحددة.
@@ -780,6 +868,70 @@ export default function AttendanceResolutionCenter({
               const decision = decisionsFor(selected).find((item) => item.id === reason);
               const linked = decision?.requestKind && approvedRequests.find((request) => request.request_kind === decision.requestKind);
               return <>
+                {decision && ['forgot_in', 'forgot_out'].includes(decision.id) && (
+                  <div className="mt-3 rounded-xl border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] p-3 text-xs font-bold text-[var(--dawaa-status-info-text)]">
+                    {missingPunchLoading ? 'جارٍ تحميل سجل نسيان البصمة...' : missingPunchContext ? <>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          دورة الحضور الحالية <b>{missingPunchContext.month_cycle}</b> · هذه الواقعة رقم <b>{missingPunchContext.occurrence_no}</b>
+                        </div>
+                        <span className="rounded-full border border-current px-2 py-1">
+                          {missingPunchContext.penalty_eligible ? 'مؤهلة لخصم 50ج' : 'ضمن مرات السماح'}
+                        </span>
+                      </div>
+                      <div className="mt-2 font-normal">
+                        أول <b>{missingPunchContext.allowance_limit}</b> مرات في دورة 26→25 سماح.
+                        {missingPunchContext.penalty_eligible
+                          ? <> هذه الواقعة بعد استهلاك السماح، ويمكن تنفيذ خصم <b>50 جنيه</b>.</>
+                          : <> المتبقي قبل بدء الخصم: <b>{Math.max(missingPunchContext.allowance_limit - missingPunchContext.occurrence_no, 0)}</b> مرة بعد تسجيل هذه الواقعة.</>}
+                      </div>
+
+                      <label className="mt-3 block font-black">
+                        وقت البصمة اليدوية
+                        <input
+                          type="datetime-local"
+                          value={manualPunchAt}
+                          onChange={(e) => setManualPunchAt(e.target.value)}
+                          className="input-dark mt-1 w-full"
+                        />
+                        <span className="mt-1 block font-normal">راجع الوقت من الدليل قبل الحفظ. سيتم تسجيلها كبصمة إدارية موثقة وإعادة حساب اليوم تلقائيًا.</span>
+                      </label>
+
+                      <label className={`mt-3 flex items-start gap-2 rounded-xl border p-3 ${missingPunchContext.penalty_eligible ? 'border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)]' : 'border-[var(--dawaa-theme-border)] text-[var(--dawaa-theme-muted)]'}`}>
+                        <input
+                          type="checkbox"
+                          checked={applyMissingPunchPenalty}
+                          disabled={!missingPunchContext.penalty_eligible || Boolean(missingPunchContext.deduction_transaction_id)}
+                          onChange={(e) => setApplyMissingPunchPenalty(e.target.checked)}
+                        />
+                        <span>
+                          <b>تنفيذ خصم 50 جنيه بسبب تكرار نسيان البصمة</b>
+                          <span className="mt-1 block font-normal">
+                            {missingPunchContext.deduction_transaction_id
+                              ? 'الخصم مسجل بالفعل لهذه الواقعة ولن يتكرر.'
+                              : missingPunchContext.penalty_eligible
+                                ? 'متاح لأن الموظف تجاوز مرتين السماح في الدورة الحالية.'
+                                : 'غير متاح حاليًا لأن الموظف ما زال داخل مرتين السماح.'}
+                          </span>
+                        </span>
+                      </label>
+
+                      {missingPunchHistory.length > 0 && (
+                        <div className="mt-3">
+                          <div className="font-black">آخر سجل نسيان بصمة للموظف</div>
+                          <div className="mt-2 space-y-1">
+                            {missingPunchHistory.slice(0, 5).map((item) => (
+                              <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--dawaa-theme-border)] px-2 py-1 font-normal">
+                                <span>{item.attendance_date} · {item.missing_type === 'check_in' ? 'دخول' : 'خروج'} · الواقعة {item.occurrence_no}</span>
+                                <span>{item.deduction_transaction_id ? 'خصم 50ج ✓' : item.penalty_eligible ? 'مؤهلة للخصم' : 'سماح'}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </> : 'تعذر تحميل سجل نسيان البصمة لهذه الحالة.'}
+                  </div>
+                )}
                 {decision?.id === 'annual_leave' && <div className="mt-3 rounded-xl border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] p-3 text-xs font-bold text-[var(--dawaa-status-info-text)]">
                   {annualLeavePreviewLoading ? 'جارٍ حساب استهلاك الإجازة السنوية...' : annualLeavePreviewError ? 'تعذر تحميل ملخص الرصيد. أغلق القرار وافتحه مرة أخرى.' : annualLeavePreview ? (
                     annualLeavePreview.existing_request_status === 'approved'
@@ -840,11 +992,13 @@ export default function AttendanceResolutionCenter({
                     ? `اعتماد ${decisionsFor(selected).find((item) => item.id === reason)?.label || 'القرار'} وتسجيله`
                     : reason === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review')
                       ? 'اعتماد تغيير يوم الراحة'
-                      : decisionsFor(selected).find((item) => item.id === reason)?.financial
-                      ? 'اعتماد الحضور وتوثيق اقتراح الخصم'
-                      : 'اعتماد موثق'}
+                      : ['forgot_in', 'forgot_out'].includes(reason)
+                        ? applyMissingPunchPenalty ? 'تسجيل البصمة اليدوية + خصم 50ج' : 'تسجيل البصمة اليدوية'
+                        : decisionsFor(selected).find((item) => item.id === reason)?.financial
+                          ? 'اعتماد الحضور وتوثيق اقتراح الخصم'
+                          : 'اعتماد موثق'}
               </button>
-              <button onClick={() => { setSelected(null); setNote(''); setReason(''); setMultiplier(''); setHours(''); setSwapWithDate(''); setWeeklyOffSwapPreview(null); }} className="btn-secondary">إلغاء</button>
+              <button onClick={() => { setSelected(null); setNote(''); setReason(''); setMultiplier(''); setHours(''); setSwapWithDate(''); setWeeklyOffSwapPreview(null); setManualPunchAt(''); setApplyMissingPunchPenalty(false); setMissingPunchContext(null); setMissingPunchHistory([]); }} className="btn-secondary">إلغاء</button>
             </div>
           </div>
         </div>
