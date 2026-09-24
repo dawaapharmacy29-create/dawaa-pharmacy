@@ -4,6 +4,7 @@ import type { UnifiedConversationIntelligence } from './whatsappUnifiedIntellige
 import { buildCanonicalProduct, countNormalizedNames, type RawProductRow } from './salesIntelligence/pharmacyProducts/canonicalProduct';
 import { normalizePharmacyText } from './salesIntelligence/pharmacyProducts/pharmacyNormalization';
 import { buildPharmacyProductIndex, resolveProductMention, CROSS_SCRIPT_SEED } from './salesIntelligence/pharmacyProducts/pharmacyProductResolverV2';
+import { isDirectCommercialProductMessageV22 } from './whatsappDirectProductIntentV22';
 
 export type WhatsAppPrimaryIntent =
   | 'customer_request'
@@ -479,7 +480,11 @@ async function discoverStrongCatalogMentions(session: WhatsAppConversationSessio
         rawName,
         normalizedName: normalize(rawName),
         quantity: quantityFrom(message.text),
-        status: message.direction === 'outbound' ? 'recommended' : 'requested',
+        status: message.direction === 'outbound'
+          ? 'recommended'
+          : isDirectCommercialProductMessageV22(message)
+            ? 'requested'
+            : 'mentioned',
         sourceDirection: message.direction,
         evidenceMessageIds: [message.id],
         confidence: 72,
@@ -532,6 +537,33 @@ export async function enrichWhatsAppOperationalProductsV6(
     );
     return { ...r, productName: linked?.canonicalName || r.productName };
   });
+
+  // Strong catalog discovery can recover a direct product request that the trigger-based
+  // extractor could not see (for example a short forwarded product name). Promote ONLY products
+  // already classified as requested by the conservative direct-commercial guard above.
+  for (const product of products) {
+    if (product.sourceDirection !== 'inbound' || product.status !== 'requested') continue;
+    if (customerRequests.some((request) =>
+      request.evidenceMessageIds.some((id) => product.evidenceMessageIds.includes(id))
+    )) continue;
+    customerRequests.push({
+      productName: product.canonicalName || product.rawName,
+      quantity: product.quantity,
+      urgency: 'normal',
+      unresolved: true,
+      evidenceMessageIds: product.evidenceMessageIds,
+      confidence: Math.max(72, product.confidence),
+    });
+  }
+
+  const recoveredDirectRequest = customerRequests.some((request) =>
+    request.unresolved && request.confidence >= 72
+  );
+  const canPromoteRecoveredRequest =
+    recoveredDirectRequest &&
+    ['general_service', 'product_inquiry', 'other'].includes(model.primaryIntent) &&
+    ['unknown', 'unresolved_request'].includes(model.operationalOutcome);
+
   const recommendations = model.recommendations.map((r) => {
     const linked = products.find((p) =>
       p.rawName === r.productName ||
@@ -539,7 +571,27 @@ export async function enrichWhatsAppOperationalProductsV6(
     );
     return { ...r, productName: linked?.canonicalName || r.productName };
   });
-  return { ...model, products, customerRequests, recommendations };
+  return {
+    ...model,
+    primaryIntent: canPromoteRecoveredRequest ? 'customer_request' : model.primaryIntent,
+    operationalOutcome: canPromoteRecoveredRequest ? 'unresolved_request' : model.operationalOutcome,
+    followupPlan: canPromoteRecoveredRequest
+      ? {
+          required: true,
+          reason: 'تم استعادة طلب صنف مباشر من رسالة تجارية وربطه بالكتالوج، ولم يظهر له إغلاق واضح.',
+          ownerRole: 'team_dawaa_alpha',
+          dueInDays: 1,
+          priority: 'important',
+          evidenceMessageIds: uniq(customerRequests.filter((request) => request.unresolved).flatMap((request) => request.evidenceMessageIds)),
+        }
+      : model.followupPlan,
+    nextBestAction: canPromoteRecoveredRequest
+      ? 'تسجيل طلب العميل وربطه بالصنف ثم متابعة التوفر/الإغلاق.'
+      : model.nextBestAction,
+    products,
+    customerRequests,
+    recommendations,
+  };
 }
 
 function dueIso(days: number | null) {
