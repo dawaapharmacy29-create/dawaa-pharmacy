@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { BarChart3, Boxes, CircleAlert, RefreshCw, TrendingUp } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import { runProductDemandBackfillV22 } from '@/lib/whatsappProductDemandBackfillV22';
+import { runProductDemandBackfillV22, type ProductDemandBackfillSourceResultV22 } from '@/lib/whatsappProductDemandBackfillV22';
 
 type DemandRow = {
   cycle_start: string;
@@ -113,6 +113,7 @@ export default function ProductDemandLeakageV22() {
   const [backfillMessage, setBackfillMessage] = useState<string | null>(null);
   const [previewSourceIds, setPreviewSourceIds] = useState<string[]>([]);
   const [previewHasFailures, setPreviewHasFailures] = useState(false);
+  const [previewRows, setPreviewRows] = useState<ProductDemandBackfillSourceResultV22[]>([]);
   const [branchFilter, setBranchFilter] = useState<'all' | string>('all');
   const [cycleFilter, setCycleFilter] = useState<string>('latest');
   const [details, setDetails] = useState<DetailRow[]>([]);
@@ -147,11 +148,13 @@ export default function ProductDemandLeakageV22() {
     setBackfillRunning(true);
     setBackfillMessage(null);
     setPreviewSourceIds([]);
+    setPreviewRows([]);
     setPreviewHasFailures(false);
     try {
       const result = await runProductDemandBackfillV22({ limit: 20, dryRun: true });
       const ids = result.rows.filter((row) => row.status === 'ready').map((row) => row.sourceId);
       setPreviewSourceIds(ids);
+      setPreviewRows(result.rows);
       setPreviewHasFailures(result.failed > 0);
       setBackfillMessage(
         `معاينة آمنة V22.1: ${result.scanned} محادثة • ${result.canonicalProducts} صنف مرتبط بالكتالوج • ${result.unresolvedProducts} عبارة غير محسومة • أخطاء ${result.failed}. ${result.failed ? 'لن يُسمح بالتنفيذ قبل مراجعة الأخطاء.' : 'الدفعة ثابتة وجاهزة للتنفيذ.'}`
@@ -184,6 +187,7 @@ export default function ProductDemandLeakageV22() {
         `تم تنفيذ نفس الدفعة المعاينة V22.1: ${result.written} محادثة • ${result.canonicalProducts} صنف مرتبط بالكتالوج • ${result.unresolvedProducts} عبارة غير محسومة • أخطاء ${result.failed}`
       );
       setPreviewSourceIds([]);
+      setPreviewRows([]);
       setPreviewHasFailures(false);
       await load();
     } catch (cause) {
@@ -275,6 +279,38 @@ export default function ProductDemandLeakageV22() {
 
       {error ? <div className="dawaa-alert dawaa-alert--danger mt-3 text-xs">{error}</div> : null}
       {backfillMessage ? <div className="dawaa-alert dawaa-alert--info mt-3 text-xs">{backfillMessage}</div> : null}
+
+      {previewRows.length ? (
+        <div className="mt-3 rounded-2xl border border-[var(--dawaa-theme-border)] p-4">
+          <div className="font-black text-sm">مراجعة الدفعة قبل التنفيذ</div>
+          <div className="dawaa-muted mt-1 text-xs">لن يتم تنفيذ غير هذه المحادثات نفسها. راجع الأصناف المحسومة والعبارات غير المحسومة قبل الضغط على التنفيذ.</div>
+          <div className="mt-3 max-h-[360px] overflow-auto">
+            <table className="min-w-full text-xs">
+              <thead>
+                <tr className="border-b border-[var(--dawaa-theme-border)] text-right">
+                  {['المصدر','الحالة','أصناف مرتبطة','أمثلة الأصناف','عبارات غير محسومة'].map((h) => <th key={h} className="p-2">{h}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {previewRows.map((row) => (
+                  <tr key={row.sourceId} className="border-b border-[var(--dawaa-theme-border)]/60 align-top">
+                    <td className="p-2 font-mono text-[10px]">{row.sourceId.slice(0, 8)}…</td>
+                    <td className="p-2">{row.status === 'ready' ? 'جاهزة' : row.status === 'failed' ? 'خطأ' : row.status}</td>
+                    <td className="p-2">{row.canonicalProducts}</td>
+                    <td className="max-w-[360px] p-2">
+                      {row.canonicalProductNames.length ? row.canonicalProductNames.join('، ') : '—'}
+                    </td>
+                    <td className="max-w-[360px] p-2">
+                      {row.unresolvedExamples.length ? row.unresolvedExamples.join('، ') : '—'}
+                      {row.reason ? <div className="mt-1 text-red-400">{row.reason}</div> : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : null}
 
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <label className="flex items-center gap-2 text-xs">
