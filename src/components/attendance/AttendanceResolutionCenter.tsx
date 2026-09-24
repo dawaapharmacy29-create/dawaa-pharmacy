@@ -3,8 +3,10 @@ import { AlertTriangle, CheckCircle2, Clock3, RefreshCw, ShieldCheck, Wrench } f
 import { toast } from 'sonner';
 import {
   approveAttendanceResolution,
+  getAttendanceCaseDiagnosticV1,
   listAttendanceExceptionInbox,
   materializeAttendanceRange,
+  type AttendanceCaseDiagnosticV1,
   type AttendanceExceptionLane,
   type AttendanceExceptionRow,
 } from '@/lib/attendance/attendanceResolutionService';
@@ -128,6 +130,9 @@ export default function AttendanceResolutionCenter({
   const [weeklyOffSwapLoading, setWeeklyOffSwapLoading] = useState(false);
   const [weeklyOffSwapError, setWeeklyOffSwapError] = useState(false);
   const [swapWithDate, setSwapWithDate] = useState('');
+  const [diagnostic, setDiagnostic] = useState<AttendanceCaseDiagnosticV1 | null>(null);
+  const [diagnosticLoading, setDiagnosticLoading] = useState(false);
+  const [diagnosticError, setDiagnosticError] = useState(false);
   const [hours, setHours] = useState('');
   const [approving, setApproving] = useState(false);
 
@@ -157,6 +162,24 @@ export default function AttendanceResolutionCenter({
   }, [branch, end, lane, start]);
 
   useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => {
+    if (!selected) {
+      setDiagnostic(null);
+      setDiagnosticLoading(false);
+      setDiagnosticError(false);
+      return;
+    }
+    let active = true;
+    setDiagnosticLoading(true);
+    setDiagnosticError(false);
+    setDiagnostic(null);
+    void getAttendanceCaseDiagnosticV1(selected.staff_id, selected.attendance_date)
+      .then((result) => { if (active) setDiagnostic(result); })
+      .catch(() => { if (active) setDiagnosticError(true); })
+      .finally(() => { if (active) setDiagnosticLoading(false); });
+    return () => { active = false; };
+  }, [selected]);
 
   useEffect(() => {
     if (!selected) { setApprovedRequests([]); return; }
@@ -534,7 +557,7 @@ export default function AttendanceResolutionCenter({
                   <td className="p-3">
                     {row.queue_lane === 'manager'
                       ? <button onClick={() => { setSelected(row); setHours(row.candidate_hours == null ? '' : String(row.candidate_hours)); setNote(''); setReason(''); setMultiplier(''); }} className="btn-secondary text-xs">اتخاذ قرار</button>
-                      : <span className="rounded-full border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] px-2 py-1 text-[11px] font-black text-[var(--dawaa-status-info-text)]">إصلاح نظامي</span>}
+                      : <button onClick={() => { setSelected(row); setHours(row.candidate_hours == null ? '' : String(row.candidate_hours)); setNote(''); setReason(''); setMultiplier(''); }} className="btn-secondary text-xs">تشخيص وإصلاح</button>}
                   </td>
                 </tr>
               );
@@ -557,7 +580,7 @@ export default function AttendanceResolutionCenter({
 
       {selected && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="w-full max-w-lg rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-5 shadow-2xl">
+          <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-5 shadow-2xl">
             <h3 className="text-lg font-black text-[var(--dawaa-theme-heading)]">قرار حضور — {selected.staff_name}</h3>
             <p className="mt-1 text-sm font-bold text-[var(--dawaa-theme-muted)]">
               {selected.issue_label} · {selected.attendance_date}
@@ -565,6 +588,57 @@ export default function AttendanceResolutionCenter({
             <div className="mt-3 rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-3 text-xs font-bold text-[var(--dawaa-status-warning-text)]">
               هذا اعتماد لحقيقة الحضور، وليس قرار خصم أو جزاء مالي.
             </div>
+            <div className="mt-4 rounded-2xl border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] p-4">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <div className="text-xs font-black text-[var(--dawaa-status-info-text)]">التشخيص الذكي للحالة</div>
+                  <div className="mt-1 text-sm font-black text-[var(--dawaa-theme-heading)]">
+                    {diagnosticLoading ? 'جارٍ تحليل السبب...' : diagnosticError ? 'تعذر تحميل التشخيص' : diagnostic?.title || selected.issue_label}
+                  </div>
+                </div>
+                {diagnostic && <span className="rounded-full border border-[var(--dawaa-status-info-border)] px-2 py-1 text-[10px] font-black text-[var(--dawaa-status-info-text)]">
+                  ثقة {diagnostic.confidence}%
+                </span>}
+              </div>
+
+              {diagnostic && <>
+                <div className="mt-2 text-[10px] font-black tracking-wide text-[var(--dawaa-theme-muted)]">{diagnostic.root_cause_code}</div>
+                <p className="mt-2 text-xs font-bold leading-5 text-[var(--dawaa-theme-heading)]">{diagnostic.diagnosis}</p>
+                <div className="mt-2 rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-2 text-xs font-bold text-[var(--dawaa-status-warning-text)]">
+                  <b>ما يمنع الإغلاق التلقائي:</b> {diagnostic.blocking_reason}
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] font-bold text-[var(--dawaa-theme-muted)] sm:grid-cols-3">
+                  <div>بصمات خام: <b className="text-[var(--dawaa-theme-heading)]">{Number(diagnostic.evidence.raw_events || 0)}</b></div>
+                  <div>دخول: <b className="text-[var(--dawaa-theme-heading)]">{Number(diagnostic.evidence.check_in_count || 0)}</b></div>
+                  <div>خروج: <b className="text-[var(--dawaa-theme-heading)]">{Number(diagnostic.evidence.check_out_count || 0)}</b></div>
+                  <div>المزامنة: <b className="text-[var(--dawaa-theme-heading)]">{diagnostic.evidence.sync_complete_for_shift ? 'مكتملة' : 'غير مكتملة'}</b></div>
+                  <div>الجدول: <b className="text-[var(--dawaa-theme-heading)]">{diagnostic.evidence.schedule_id ? 'موجود' : 'غير موجود'}</b></div>
+                  <div>خروج مبكر: <b className="text-[var(--dawaa-theme-heading)]">{Number(diagnostic.evidence.early_leave_minutes || 0)} د</b></div>
+                </div>
+                <div className="mt-3">
+                  <div className="text-xs font-black text-[var(--dawaa-theme-heading)]">الإجراءات المقترحة</div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {diagnostic.suggested_actions.map((action) => {
+                      const selectable = decisionsFor(selected).some((item) => item.id === action.id);
+                      if (selectable) {
+                        return <button key={action.id} type="button" onClick={() => setReason(action.id)} className="rounded-full border border-[var(--dawaa-theme-border)] px-3 py-1 text-[11px] font-black text-[var(--dawaa-theme-heading)] hover:border-[var(--dawaa-theme-primary)]">
+                          {action.label}
+                        </button>;
+                      }
+                      if (action.id === 'open_schedule' || action.id === 'review_schedule_versions' || action.id === 'fix_schedule_time') {
+                        return <a key={action.id} href="/schedule" className="rounded-full border border-[var(--dawaa-theme-border)] px-3 py-1 text-[11px] font-black text-[var(--dawaa-theme-heading)] hover:underline">
+                          {action.label}
+                        </a>;
+                      }
+                      return <span key={action.id} className="rounded-full border border-[var(--dawaa-theme-border)] px-3 py-1 text-[11px] font-bold text-[var(--dawaa-theme-muted)]">
+                        {action.label}
+                      </span>;
+                    })}
+                  </div>
+                </div>
+              </>}
+            </div>
+
             <label className="mt-4 block text-xs font-black text-[var(--dawaa-theme-muted)]">
               ساعات الاستحقاق للمرتب
               <input value={hours} onChange={(e) => setHours(e.target.value)} type="number" min="0" max="18" step="0.01" className="input-dark mt-1 w-full" />
@@ -629,10 +703,12 @@ export default function AttendanceResolutionCenter({
             <div className="mt-4 flex gap-2">
               <button
                 onClick={() => void approveSelected()}
-                disabled={approving || (reason === 'annual_leave' && annualLeavePreviewLoading) || (reason === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review') && weeklyOffSwapLoading)}
+                disabled={selected.queue_lane !== 'manager' || approving || (reason === 'annual_leave' && annualLeavePreviewLoading) || (reason === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review') && weeklyOffSwapLoading)}
                 className="btn-primary flex-1"
               >
-                {reason === 'annual_leave'
+                {selected.queue_lane !== 'manager'
+                  ? 'مشكلة نظام — أصلح السبب أولًا'
+                  : reason === 'annual_leave'
                   ? 'اعتماد الإجازة السنوية وتسجيلها'
                   : ['sick_leave', 'exceptional_leave', 'approved_absence'].includes(reason)
                     ? `اعتماد ${decisionsFor(selected).find((item) => item.id === reason)?.label || 'القرار'} وتسجيله`
