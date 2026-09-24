@@ -21,9 +21,14 @@ import { parseWhatsAppExport, type WhatsAppParsedMessage } from '../../whatsappC
 import { deriveCasesOnly, runSalesIntelligencePipeline } from '../salesIntelligencePipeline';
 import { buildInvoiceCandidateQuery, fetchInvoiceCandidates } from '../invoiceCandidateRetrieval';
 import { deriveSaleProofState } from '../saleProofState';
+import { deriveCanonicalSalesOutcome } from '../canonicalSalesOutcomeEngine';
 import { deriveSaleProofStateFromPersisted } from './saleProofProjection';
 import { resolveCustomerDisplayIdentity } from './customerDisplayIdentity';
-import type { SalesIntelligenceCaseAnalysis } from '../types';
+import type {
+  CanonicalSalesOutcomeAssessment,
+  CommercialConfirmationState,
+  SalesIntelligenceCaseAnalysis,
+} from '../types';
 import type { SaleProofAssessment } from '../saleProofState';
 import type { QaCaseListRow, QaListFilters } from './types';
 import { rankProductCandidates } from '../../productMatching';
@@ -370,6 +375,8 @@ export interface QaCaseDetailBundle {
    * candidates and would misrepresent the real, batch-computed attribution).
    */
   saleProof: SaleProofAssessment;
+  /** Current canonical commercial outcome derived from current proof + commercial state. */
+  salesOutcome: CanonicalSalesOutcomeAssessment;
   catalogProductMatches: Array<{
     sourceMessageId: string;
     rawPhrase: string;
@@ -629,6 +636,25 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
 
   const persistedSaleProof = deriveSaleProofStateFromPersisted(caseId, analysisRow, attributionRow ?? null, matchRow ?? null);
   const saleProof = liveSaleProof ?? persistedSaleProof;
+  const persistedCommercialState = String(
+    analysisRow.commercial_confirmation_state ?? 'unknown'
+  ) as CommercialConfirmationState;
+  const persistedBasketDetected = Boolean(
+    analysisRow.evidence_snapshot?.evidenceCompleteness?.basketDetected
+  );
+  const salesOutcome = liveEvidence?.salesOutcome ?? deriveCanonicalSalesOutcome({
+    caseId,
+    caseType: analysisRow.case_type,
+    commercialConfirmation: {
+      currentState: persistedCommercialState,
+      customerConfirmed:
+        persistedCommercialState === 'customer_confirmed' ||
+        persistedCommercialState === 'commercial_confirmation_complete',
+    },
+    saleProof,
+    hasMeaningfulBasketItems: persistedBasketDetected,
+    needsHumanReview: Boolean(analysisRow.needs_human_review),
+  });
 
   // Read-only catalog matching for reviewer visibility. Scope STRICTLY to the current Case.
   // Prefer the active basket's own source messages/items; only fall back to messages inside this
@@ -733,6 +759,7 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
     liveEvidence,
     liveSaleProof,
     saleProof,
+    salesOutcome,
     catalogProductMatches,
   };
 }
