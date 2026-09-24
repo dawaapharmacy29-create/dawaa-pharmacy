@@ -59,6 +59,20 @@ interface RawAttributionRow {
   confidence_score?: number | null;
 }
 
+interface RawCaseIdentityRow {
+  case_id: string;
+  conversation_id?: string | null;
+  customer_id?: string | null;
+  customer_phone?: string | null;
+}
+
+interface RawConversationIdentityRow {
+  id: string;
+  customer_name?: string | null;
+  customer_code?: string | null;
+  customer_phone?: string | null;
+}
+
 interface RawMatchRow {
   analysis_id: string;
   integrity_evaluation_scope?: string | null;
@@ -79,17 +93,35 @@ interface RawMatchRow {
 export function mergeCaseListRows(
   analyses: RawCaseAnalysisRow[],
   attributions: RawAttributionRow[],
-  matches: RawMatchRow[] = []
+  matches: RawMatchRow[] = [],
+  cases: RawCaseIdentityRow[] = [],
+  conversations: RawConversationIdentityRow[] = []
 ): QaCaseListRow[] {
   const attributionByAnalysisId = new Map(attributions.map((row) => [row.analysis_id, row]));
   const matchByAnalysisId = new Map(matches.map((row) => [row.analysis_id, row]));
+  const caseByCaseId = new Map(cases.map((row) => [row.case_id, row]));
+  const conversationById = new Map(conversations.map((row) => [row.id, row]));
+  const caseCountByConversationId = new Map<string, number>();
+  for (const row of cases) {
+    const id = row.conversation_id ?? null;
+    if (!id) continue;
+    caseCountByConversationId.set(id, (caseCountByConversationId.get(id) ?? 0) + 1);
+  }
   return analyses.map((analysis) => {
     const attribution = attributionByAnalysisId.get(analysis.analysis_id) ?? null;
     const match = matchByAnalysisId.get(analysis.analysis_id) ?? null;
+    const caseIdentity = caseByCaseId.get(analysis.case_id) ?? null;
+    const conversationId = caseIdentity?.conversation_id ?? null;
+    const conversationIdentity = conversationId ? conversationById.get(conversationId) ?? null : null;
     const proof: SaleProofAssessment = deriveSaleProofStateFromPersisted(analysis.case_id, analysis, attribution, match);
     return {
       caseId: analysis.case_id,
       analysisId: analysis.analysis_id,
+      conversationId,
+      customerName: conversationIdentity?.customer_name ?? null,
+      customerCode: conversationIdentity?.customer_code ?? null,
+      customerPhone: conversationIdentity?.customer_phone ?? caseIdentity?.customer_phone ?? null,
+      conversationCaseCount: conversationId ? (caseCountByConversationId.get(conversationId) ?? 1) : 1,
       branchNameRaw: analysis.identity_branch_name_raw,
       caseStartedAt: analysis.case_started_at,
       caseEndedAt: analysis.case_ended_at,
@@ -183,7 +215,10 @@ export function filterCaseListRows(rows: QaCaseListRow[], filters: QaListFilters
     if (!search) return true;
     return (
       row.caseId.toLowerCase().includes(search) ||
-      (row.selectedInvoiceNumber ?? '').toLowerCase().includes(search)
+      (row.selectedInvoiceNumber ?? '').toLowerCase().includes(search) ||
+      (row.customerName ?? '').toLowerCase().includes(search) ||
+      (row.customerCode ?? '').toLowerCase().includes(search) ||
+      (row.customerPhone ?? '').toLowerCase().includes(search)
     );
   });
 }
@@ -193,6 +228,8 @@ export async function fetchQaCaseList(supabaseClient: any): Promise<QaCaseListRo
     { data: analyses, error: analysesError },
     { data: attributions, error: attributionsError },
     { data: matches, error: matchesError },
+    { data: cases, error: casesError },
+    { data: conversations, error: conversationsError },
   ] = await Promise.all([
     supabaseClient
       .from('sales_intelligence_current_case_analyses')
@@ -213,14 +250,26 @@ export async function fetchQaCaseList(supabaseClient: any): Promise<QaCaseListRo
       .select('analysis_id, integrity_evaluation_scope, item_evidence_ready, header_evidence_ready, total_match, differences, needs_human_review, human_review_reasons')
       .eq('is_current_evaluation', true)
       .limit(MAX_LIST_ROWS),
+    supabaseClient
+      .from('sales_intelligence_cases')
+      .select('case_id, conversation_id, customer_id, customer_phone')
+      .limit(MAX_LIST_ROWS),
+    supabaseClient
+      .from('whatsapp_review_sources')
+      .select('id, customer_name, customer_code, customer_phone')
+      .limit(MAX_LIST_ROWS),
   ]);
   if (analysesError) throw analysesError;
   if (attributionsError) throw attributionsError;
   if (matchesError) throw matchesError;
+  if (casesError) throw casesError;
+  if (conversationsError) throw conversationsError;
   return mergeCaseListRows(
     (analyses ?? []) as RawCaseAnalysisRow[],
     (attributions ?? []) as RawAttributionRow[],
-    (matches ?? []) as RawMatchRow[]
+    (matches ?? []) as RawMatchRow[],
+    (cases ?? []) as RawCaseIdentityRow[],
+    (conversations ?? []) as RawConversationIdentityRow[]
   );
 }
 
@@ -259,7 +308,18 @@ export interface QaCaseDetailBundle {
     branch: string | null;
     startedAt: string | null;
     endedAt: string | null;
+    customerId: string | null;
+    customerName: string | null;
+    customerCode: string | null;
+    customerPhone: string | null;
   } | null;
+  /** All persisted case slices belonging to the same raw conversation, for honest segmentation navigation. */
+  siblingCases: Array<{
+    caseId: string;
+    startedAt: string | null;
+    endedAt: string | null;
+    isCurrent: boolean;
+  }>;
   /** Parsed transcript messages (whatsappConversationParser.parseWhatsAppExport) — never re-interpreted, just rendered. */
   transcript: WhatsAppParsedMessage[];
   /**
@@ -312,23 +372,61 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
   ]);
 
   let conversation: QaCaseDetailBundle['conversation'] = null;
+  let siblingCases: QaCaseDetailBundle['siblingCases'] = [];
   let transcript: WhatsAppParsedMessage[] = [];
   let liveEvidence: SalesIntelligenceCaseAnalysis | null = null;
 
   if (caseRow?.conversation_id) {
     const { data: conversationRow } = await supabaseClient
       .from('whatsapp_review_sources')
-      .select('id, raw_text, branch, conversation_started_at, conversation_ended_at, customer_id, customer_phone')
+      .select('id, raw_text, branch, conversation_started_at, conversation_ended_at, customer_id, customer_name, customer_code, customer_phone')
       .eq('id', caseRow.conversation_id)
       .maybeSingle();
     if (conversationRow?.raw_text) {
+      let customerName = conversationRow.customer_name ?? null;
+      let customerCode = conversationRow.customer_code ?? null;
+      let customerPhone = conversationRow.customer_phone ?? caseRow?.customer_phone ?? null;
+
+      // Source rows are preferred because they are the exact conversation identity snapshot.
+      // If older sources predate those denormalized fields, fill display-only identity from customers.
+      if ((!customerName || !customerCode || !customerPhone) && conversationRow.customer_id) {
+        const { data: customerRow } = await supabaseClient
+          .from('customers')
+          .select('name, customer_name, customer_code, code, phone, customer_phone, mobile, whatsapp')
+          .eq('id', conversationRow.customer_id)
+          .maybeSingle();
+        if (customerRow) {
+          customerName = customerName ?? customerRow.name ?? customerRow.customer_name ?? null;
+          customerCode = customerCode ?? customerRow.customer_code ?? customerRow.code ?? null;
+          customerPhone = customerPhone ?? customerRow.customer_phone ?? customerRow.phone ?? customerRow.mobile ?? customerRow.whatsapp ?? null;
+        }
+      }
+
       conversation = {
         id: conversationRow.id,
         rawText: conversationRow.raw_text,
         branch: conversationRow.branch,
         startedAt: conversationRow.conversation_started_at,
         endedAt: conversationRow.conversation_ended_at,
+        customerId: conversationRow.customer_id ?? caseRow?.customer_id ?? null,
+        customerName,
+        customerCode,
+        customerPhone,
       };
+
+      const { data: siblingCaseRows } = await supabaseClient
+        .from('sales_intelligence_cases')
+        .select('case_id, case_started_at, case_ended_at')
+        .eq('conversation_id', conversationRow.id)
+        .order('case_started_at', { ascending: true })
+        .limit(MAX_LIST_ROWS);
+      siblingCases = (siblingCaseRows ?? []).map((row: any) => ({
+        caseId: row.case_id,
+        startedAt: row.case_started_at ?? null,
+        endedAt: row.case_ended_at ?? null,
+        isCurrent: row.case_id === caseId,
+      }));
+
       transcript = parseWhatsAppExport(conversationRow.raw_text);
       try {
         const result = runSalesIntelligencePipeline({
@@ -352,6 +450,7 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
   return {
     persisted: { caseRow: caseRow ?? null, analysisRow, attributionRow: attributionRow ?? null, matchRow: matchRow ?? null, policyEvaluationRow: policyEvaluationRow ?? null },
     conversation,
+    siblingCases,
     transcript,
     liveEvidence,
     saleProof,

@@ -8,10 +8,11 @@
 // src/lib/salesIntelligence/qa/queries.ts's module comment). Never both blended into one claim.
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowRight, RefreshCw } from 'lucide-react';
+import { ArrowRight, Building2, Hash, Layers3, Phone, RefreshCw, UserRound } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { formatDateTime } from '@/lib/utils';
 import { fetchQaCaseDetail, type QaCaseDetailBundle } from '@/lib/salesIntelligence/qa/queries';
+import { WhatsAppConversationPanel } from '@/components/salesIntelligence/WhatsAppConversationPanel';
 import {
   ambiguityStatusLabelFor,
   attributionLevelBadge,
@@ -96,7 +97,7 @@ export default function SalesIntelligenceQACaseDetail() {
     return <div className="dawaa-empty-state py-16 text-center" dir="rtl">لم يتم العثور على هذه الحالة.</div>;
   }
 
-  const { persisted, conversation, transcript, liveEvidence, saleProof } = bundle;
+  const { persisted, conversation, siblingCases, transcript, liveEvidence, saleProof } = bundle;
   const analysis = persisted.analysisRow;
   const attribution = persisted.attributionRow;
   const match = persisted.matchRow;
@@ -107,46 +108,73 @@ export default function SalesIntelligenceQACaseDetail() {
 
   return (
     <div className="space-y-5" dir="rtl">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <button type="button" onClick={() => navigate('/sales-intelligence/qa')} className="dawaa-button dawaa-button--secondary">
           <ArrowRight size={16} /> رجوع للقائمة
         </button>
-        <div className="dawaa-muted font-mono text-xs">{caseId}</div>
+        <div className="dawaa-muted max-w-full truncate font-mono text-xs" title={caseId}>{caseId}</div>
       </div>
 
-      {/* 1. Original conversation */}
-      <Section title="١. المحادثة الأصلية">
+      <section className="dawaa-card">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <Field label="العميل" value={<span className="inline-flex items-center gap-2"><UserRound size={16} /> {conversation?.customerName || 'عميل غير مسمى'}</span>} />
+          <Field label="كود العميل" value={<span className="inline-flex items-center gap-2"><Hash size={16} /> {conversation?.customerCode || 'غير متاح'}</span>} />
+          <Field label="رقم الهاتف" value={<span className="inline-flex items-center gap-2"><Phone size={16} /> {conversation?.customerPhone || 'غير متاح'}</span>} />
+          <Field label="الفرع" value={<span className="inline-flex items-center gap-2"><Building2 size={16} /> {branchLabelFor(conversation?.branch ?? analysis.identity_branch_name_raw)}</span>} />
+          <Field label="نوع الحالة" value={caseTypeLabelFor(analysis.case_type)} />
+          <Field label="إثبات البيع" value={saleProofStateBadge(saleProof.state)} />
+          <Field label="مستوى الإسناد" value={attributionLevelBadge(attribution?.attribution_level ?? analysis.attribution_level)} />
+          <Field label="تقسيم المصدر" value={<span className="inline-flex items-center gap-2"><Layers3 size={16} /> {siblingCases.length > 1 ? `${siblingCases.length} أجزاء` : 'جزء واحد'}</span>} />
+        </div>
+      </section>
+
+      {/* 1. WhatsApp-style full source conversation */}
+      <Section title="١. المحادثة الأصلية — عرض واقعي كامل">
         {!conversation ? (
           <div className="dawaa-empty-state py-6 text-center">لا يوجد نص محادثة مرتبط بهذه الحالة.</div>
         ) : (
-          <>
-            <div className="grid gap-2 text-xs sm:grid-cols-3">
-              <Field label="الفرع" value={branchLabelFor(conversation.branch)} />
-              <Field label="بداية المحادثة" value={formatDateTime(conversation.startedAt || '')} />
-              <Field label="نهاية المحادثة" value={conversation.endedAt ? formatDateTime(conversation.endedAt) : '—'} />
-            </div>
-            <div className="mt-3 max-h-96 space-y-2 overflow-y-auto rounded-xl border border-[var(--dawaa-theme-border)] p-3">
-              {transcript.length ? transcript.map((m) => (
-                <div key={m.id} className={`rounded-lg border p-2 text-sm ${m.direction === 'outbound' ? 'border-cyan-800/30 bg-cyan-950/10' : m.direction === 'system' ? 'border-slate-700 bg-slate-900/20 opacity-70' : 'border-[var(--dawaa-theme-border)]'}`}>
-                  <div className="dawaa-muted mb-1 flex justify-between text-[11px]">
-                    <span>{m.direction === 'outbound' ? (m.sender || 'الصيدلية') : m.direction === 'system' ? 'النظام' : 'العميل'}</span>
-                    <span>{formatDateTime(m.timestamp)}</span>
-                  </div>
-                  <div className="whitespace-pre-wrap">{m.text || `[${m.kind}]`}</div>
-                </div>
-              )) : <div className="dawaa-muted text-center text-xs">تعذّر تحليل رسائل هذه المحادثة (راجع تنسيق المصدر).</div>}
-            </div>
-          </>
+          <WhatsAppConversationPanel
+            messages={transcript}
+            customerName={conversation.customerName}
+            customerCode={conversation.customerCode}
+            customerPhone={conversation.customerPhone}
+            branch={conversation.branch}
+            caseStartedAt={analysis.case_started_at}
+            caseEndedAt={analysis.case_ended_at}
+          />
         )}
       </Section>
 
       {/* 2. Case segmentation */}
-      <Section title="٢. تقسيم الحالة">
-        <div className="grid gap-2 sm:grid-cols-3">
-          <Field label="البداية" value={formatDateTime(analysis.case_started_at)} />
-          <Field label="النهاية" value={analysis.case_ended_at ? formatDateTime(analysis.case_ended_at) : '—'} />
-          <Field label="نوع الحالة" value={caseTypeLabelFor(analysis.case_type)} />
+      <Section title="٢. تقسيم المحادثة إلى حالات">
+        <div className="dawaa-alert dawaa-alert--info text-xs">
+          المصدر الأصلي معروض كاملًا في الأعلى. الحدود أدناه هي تقسيم المحرك لنفس المحادثة، وليست محادثات واتساب منفصلة.
         </div>
+        <div className="grid gap-2 sm:grid-cols-3">
+          <Field label="بداية الجزء الحالي" value={formatDateTime(analysis.case_started_at)} />
+          <Field label="نهاية الجزء الحالي" value={analysis.case_ended_at ? formatDateTime(analysis.case_ended_at) : '—'} />
+          <Field label="نوع الجزء" value={caseTypeLabelFor(analysis.case_type)} />
+        </div>
+        {siblingCases.length > 1 ? (
+          <div className="mt-3">
+            <div className="dawaa-muted mb-2 text-xs">أجزاء نفس المحادثة — اضغط للتنقل ومقارنة التقسيم:</div>
+            <div className="flex flex-wrap gap-2">
+              {siblingCases.map((sibling, index) => (
+                <button
+                  key={sibling.caseId}
+                  type="button"
+                  onClick={() => navigate(`/sales-intelligence/qa/${encodeURIComponent(sibling.caseId)}`)}
+                  className={sibling.isCurrent ? 'dawaa-badge dawaa-badge--info px-3 py-2 text-xs font-black' : 'dawaa-button dawaa-button--secondary text-xs'}
+                  title={sibling.caseId}
+                >
+                  جزء {index + 1} • {sibling.startedAt ? formatDateTime(sibling.startedAt) : 'وقت غير معروف'}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="dawaa-alert dawaa-alert--success mt-3 text-xs">المحادثة لم تُقسّم إلى أكثر من حالة محفوظة.</div>
+        )}
         <Evidence>
           <div>ثقة تصنيف المحادثة: {analysis.evidence_snapshot?.conversationCaseConfidence?.level ?? '—'} (نسبة {analysis.evidence_snapshot?.conversationCaseConfidence?.score ?? '—'})</div>
           {analysis.evidence_snapshot?.conversationCaseConfidence?.ruleIds?.length ? (
@@ -154,7 +182,7 @@ export default function SalesIntelligenceQACaseDetail() {
           ) : null}
           {analysis.pipeline_warnings?.length ? (
             <div className="mt-2 text-amber-300">تحذيرات التقسيم: {analysis.pipeline_warnings.join('، ')}</div>
-          ) : <div className="mt-2">لا توجد تحذيرات تقسيم.</div>}
+          ) : <div className="mt-2">لا توجد تحذيرات تقسيم محفوظة.</div>}
         </Evidence>
       </Section>
 

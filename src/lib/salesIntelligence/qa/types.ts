@@ -17,6 +17,11 @@ import type { SaleProofSource, SaleProofState } from '../saleProofState';
 export interface QaCaseListRow {
   caseId: string;
   analysisId: string;
+  conversationId: string | null;
+  customerName: string | null;
+  customerCode: string | null;
+  customerPhone: string | null;
+  conversationCaseCount: number;
   branchNameRaw: string | null;
   caseStartedAt: string;
   caseEndedAt: string | null;

@@ -34,12 +34,20 @@ describe('mergeCaseListRows', () => {
     });
   });
 
-  it('never exposes customer identity fields (list must stay non-sensitive)', () => {
-    const rows = mergeCaseListRows([baseAnalysis], [baseAttribution]);
-    const keys = Object.keys(rows[0]);
-    expect(keys).not.toContain('customerId');
-    expect(keys).not.toContain('customerPhone');
-    expect(keys).not.toContain('customerName');
+  it('adds reviewer-facing customer display identity when conversation metadata is available', () => {
+    const rows = mergeCaseListRows(
+      [baseAnalysis],
+      [baseAttribution],
+      [],
+      [{ case_id: 'case-1', conversation_id: 'conv-1', customer_phone: '01000000000' }],
+      [{ id: 'conv-1', customer_name: 'أحمد محمد', customer_code: 'C100', customer_phone: '01000000000' }]
+    );
+    expect(rows[0]).toMatchObject({
+      customerName: 'أحمد محمد',
+      customerCode: 'C100',
+      customerPhone: '01000000000',
+      conversationCaseCount: 1,
+    });
   });
 
   it('handles a case analysis with no matching attribution row (defensive)', () => {
@@ -87,6 +95,19 @@ describe('filterCaseListRows', () => {
 
   it('searches by invoice number', () => {
     expect(filterCaseListRows(rows, withFilters({ search: '12345' })).map((r) => r.caseId)).toEqual(['case-1']);
+  });
+
+  it('searches by customer name/code/phone when reviewer-facing identity is present', () => {
+    const identityRows = mergeCaseListRows(
+      [baseAnalysis],
+      [baseAttribution],
+      [],
+      [{ case_id: 'case-1', conversation_id: 'conv-1', customer_phone: '01000000000' }],
+      [{ id: 'conv-1', customer_name: 'أحمد محمد', customer_code: 'C100', customer_phone: '01000000000' }]
+    );
+    expect(filterCaseListRows(identityRows, withFilters({ search: 'أحمد' }))).toHaveLength(1);
+    expect(filterCaseListRows(identityRows, withFilters({ search: 'c100' }))).toHaveLength(1);
+    expect(filterCaseListRows(identityRows, withFilters({ search: '01000000000' }))).toHaveLength(1);
   });
 
   it('applies the "unknown cases" quick filter across all three dimensions', () => {

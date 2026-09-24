@@ -104,7 +104,7 @@ export default function SalesIntelligenceQA() {
             className="dawaa-input w-full pr-9"
             value={filters.search}
             onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
-            placeholder="بحث برقم الحالة (Case ID) أو رقم الفاتورة..."
+            placeholder="بحث باسم العميل أو الكود أو الهاتف أو رقم الفاتورة أو الحالة..."
           />
         </label>
         <select className="dawaa-select" value={filters.branch} onChange={(e) => setFilters((f) => ({ ...f, branch: e.target.value }))}>
@@ -195,7 +195,8 @@ export default function SalesIntelligenceQA() {
               <thead>
                 <tr className="dawaa-muted border-b border-[var(--dawaa-theme-border)] text-right">
                   {[
-                    'رقم الحالة',
+                    'العميل',
+                    'تقسيم المحادثة',
                     'الفرع',
                     'البداية / النهاية',
                     'نوع الحالة',
@@ -222,7 +223,21 @@ export default function SalesIntelligenceQA() {
                     className="cursor-pointer border-b border-[var(--dawaa-theme-border)]/60 hover:bg-[var(--dawaa-theme-soft)]"
                     onClick={() => navigate(`/sales-intelligence/qa/${encodeURIComponent(row.caseId)}`)}
                   >
-                    <td className="p-3 font-mono text-xs">{row.caseId}</td>
+                    <td className="p-3">
+                      <div className="dawaa-heading font-bold">{row.customerName || 'عميل غير مسمى'}</div>
+                      <div className="dawaa-muted mt-1 text-[11px]">
+                        {row.customerCode ? `كود: ${row.customerCode}` : 'كود غير متاح'}
+                        {row.customerPhone ? ` • ${row.customerPhone}` : ''}
+                      </div>
+                      <div className="dawaa-muted mt-1 max-w-[220px] truncate font-mono text-[10px]" title={row.caseId}>{row.caseId}</div>
+                    </td>
+                    <td className="p-3">
+                      {row.conversationCaseCount > 1 ? (
+                        <span className="dawaa-badge dawaa-badge--warning">{row.conversationCaseCount.toLocaleString('ar-EG')} أجزاء</span>
+                      ) : (
+                        <span className="dawaa-badge dawaa-badge--success">محادثة واحدة</span>
+                      )}
+                    </td>
                     <td className="dawaa-body p-3">{branchLabelFor(row.branchNameRaw)}</td>
                     <td className="dawaa-muted whitespace-nowrap p-3 text-xs">{formatDateTime(row.caseStartedAt)}{row.caseEndedAt ? ` — ${formatDateTime(row.caseEndedAt)}` : ''}</td>
                     <td className="p-3">{caseTypeLabelFor(row.caseType)}</td>
