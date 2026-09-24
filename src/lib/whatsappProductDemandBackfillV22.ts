@@ -145,7 +145,7 @@ export async function runProductDemandBackfillV22(
 
       const base = buildUnifiedConversationIntelligence(session);
       const operational0 = buildWhatsAppOperationalIntelligenceV6(session, base);
-      const operational1 = await enrichWhatsAppOperationalProductsV6(operational0);
+      const operational1 = await enrichWhatsAppOperationalProductsV6(operational0, session);
       const operational = enrichWhatsAppOperationalJourneysV7(session, operational1);
 
       const canonical = operational.products.filter((product) => Boolean(product.productId && product.productCode));
