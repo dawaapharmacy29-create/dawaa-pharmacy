@@ -63,6 +63,20 @@ function Evidence({ children }: { children: React.ReactNode }) {
   );
 }
 
+function salesOutcomeLabel(value: string | null | undefined) {
+  const labels: Record<string, string> = {
+    sale_proven: 'بيع مثبت بفاتورة موثوقة',
+    order_confirmed_unproven: 'أوردر مؤكد بالشات — البيع غير مثبت',
+    customer_confirmed_unproven: 'العميل وافق — الإغلاق/البيع غير مثبت',
+    open_opportunity: 'فرصة بيعية مفتوحة',
+    customer_rejected: 'العميل رفض',
+    information_only: 'استفسار / معلومات فقط',
+    needs_review: 'تحتاج مراجعة بشرية',
+    unknown: 'غير محسومة',
+  };
+  return labels[String(value || 'unknown')] || String(value || 'غير محسومة');
+}
+
 function Field({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="rounded-xl bg-[var(--dawaa-theme-soft)] p-3">
@@ -126,6 +140,7 @@ export default function SalesIntelligenceQACaseDetail() {
       ...(persistedAnalysis.evidence_snapshot || {}),
       conversationCaseConfidence: liveEvidence.conversationCase.confidence,
       evidenceCompleteness: liveEvidence.evidenceCompleteness,
+      canonicalSalesOutcome: liveEvidence.salesOutcome,
     },
   } : persistedAnalysis;
   const attribution = liveEvidence ? {
@@ -166,6 +181,7 @@ export default function SalesIntelligenceQACaseDetail() {
   const commercial = liveEvidence?.commercialConfirmation ?? null;
   const historical = liveEvidence?.historicalClosure ?? null;
   const basketKnownQuantities = basketItems.filter((item) => item.quantity != null).length;
+  const salesOutcome = liveEvidence?.salesOutcome ?? analysis.evidence_snapshot?.canonicalSalesOutcome ?? null;
 
   return (
     <div className="space-y-5" dir="rtl">
@@ -190,6 +206,7 @@ export default function SalesIntelligenceQACaseDetail() {
           <Field label="رقم الهاتف" value={<span className="inline-flex items-center gap-2"><Phone size={16} /> {conversation?.customerPhone || 'غير متاح'}</span>} />
           <Field label="الفرع" value={<span className="inline-flex items-center gap-2"><Building2 size={16} /> {branchLabelFor(conversation?.branch ?? analysis.identity_branch_name_raw)}</span>} />
           <Field label="نوع الحالة" value={caseTypeLabelFor(analysis.case_type)} />
+          <Field label="العملية البيعية" value={salesOutcomeLabel(salesOutcome?.outcome)} />
           <Field label="إثبات البيع" value={saleProofStateBadge(saleProof.state)} />
           <Field label="مستوى الإسناد" value={attributionLevelBadge(attribution?.attribution_level ?? analysis.attribution_level)} />
           <Field label="تقسيم المصدر" value={<span className="inline-flex items-center gap-2"><Layers3 size={16} /> {siblingCases.length > 1 ? `${siblingCases.length} أجزاء` : 'جزء واحد'}</span>} />
@@ -241,7 +258,10 @@ export default function SalesIntelligenceQACaseDetail() {
 
           <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] p-4">
             <div className="dawaa-muted text-xs">القرار الشرائي</div>
-            <div className="dawaa-heading mt-2 font-black">{commercialConfirmationStateLabelFor(commercial?.currentState ?? analysis.commercial_confirmation_state)}</div>
+            <div className="dawaa-heading mt-2 font-black">{salesOutcomeLabel(salesOutcome?.outcome)}</div>
+            <div className="dawaa-body mt-1 text-xs text-[var(--dawaa-theme-muted)]">
+              حالة تأكيد الطلب: {commercialConfirmationStateLabelFor(commercial?.currentState ?? analysis.commercial_confirmation_state)}
+            </div>
             <div className="dawaa-body mt-2 text-xs leading-6">
               نية شراء: {historical?.purchaseIntentDetected ? 'موجودة' : 'غير مؤكدة'}<br />
               قبول العميل: {historical?.customerAcceptanceDetected ? 'موجود' : 'غير مؤكد'}<br />
@@ -265,6 +285,8 @@ export default function SalesIntelligenceQACaseDetail() {
             <div className="dawaa-body mt-2 text-xs leading-6">
               تغطية الأدلة المتاحة: {evidenceCoveragePercent}٪<br />
               {evidenceLevelLabelFor(String(completeness.overallEvidenceLevel ?? analysis.overall_evidence_level))}<br />
+              بيع قابل للعد رسميًا: {salesOutcome?.isSaleCountable ? 'نعم' : 'لا'}<br />
+              إيراد قابل للعد رسميًا: {salesOutcome?.isRevenueCountable ? 'نعم' : 'لا'}<br />
               مراجعة بشرية: {analysis.needs_human_review ? 'مطلوبة' : 'غير مطلوبة'}
             </div>
           </div>
