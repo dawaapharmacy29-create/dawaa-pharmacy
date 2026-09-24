@@ -11,6 +11,7 @@ import {
 import EmployeeProfileDrawer from '@/components/attendance/EmployeeProfileDrawer';
 import AttendanceCorrectionReviewPanel from '@/components/attendance/AttendanceCorrectionReviewPanel';
 import {
+  approveAttendanceFullDayTimeOffV1,
   getAnnualLeaveAttendancePreviewV1,
   listStaffTimeOffRequests,
   resolveAnnualLeaveFromAttendanceV1,
@@ -294,6 +295,35 @@ export default function AttendanceResolutionCenter({
       return;
     }
 
+    if (['sick_leave', 'exceptional_leave', 'approved_absence'].includes(decision.id)) {
+      setApproving(true);
+      try {
+        const result = await approveAttendanceFullDayTimeOffV1({
+          staffId: selected.staff_id,
+          date: selected.attendance_date,
+          requestKind: decision.id as 'sick_leave' | 'exceptional_leave' | 'approved_absence',
+          note: note.trim() || null,
+        });
+        toast.success(`تم اعتماد ${result.request_label} وتسجيله في سجل الإجازات والغياب، وتم تحديث حقيقة الحضور.`);
+        setSelected(null);
+        setNote('');
+        setReason('');
+        setMultiplier('');
+        setHours('');
+        await load();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'تعذر اعتماد الإجازة/الغياب';
+        if (message.includes('overlapping_approved_full_day_timeoff') || message.includes('time_off_preflight_blocked')) {
+          toast.error('يوجد إجازة أو غياب معتمد متداخل مع هذا اليوم. راجع السجل قبل الاعتماد.');
+        } else {
+          toast.error(message);
+        }
+      } finally {
+        setApproving(false);
+      }
+      return;
+    }
+
     const isWeeklyOffSwap = decision.id === 'shift_swap'
       && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review');
     if (isWeeklyOffSwap) {
@@ -557,6 +587,11 @@ export default function AttendanceResolutionCenter({
                       : <>قبل اعتماد هذا اليوم: المستخدم سنويًا <b>{annualLeavePreview.year_used}</b> يوم، وفي نفس الشهر <b>{annualLeavePreview.calendar_month_used}</b> يوم{annualLeavePreview.year_balance != null ? <>، والمتبقي الحالي <b>{annualLeavePreview.year_balance}</b> يوم</> : null}. بعد الاعتماد سيزيد الاستهلاك يومًا واحدًا. <span className="block mt-1 font-normal">دورة 26→25 الحالية: {annualLeavePreview.cycle_used} يوم مستخدم.</span></>
                   ) : 'جارٍ تجهيز ملخص الإجازة السنوية...'}
                 </div>}
+                {decision && ['sick_leave', 'exceptional_leave', 'approved_absence'].includes(decision.id) && (
+                  <div className="mt-3 rounded-xl border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] p-3 text-xs font-bold text-[var(--dawaa-status-info-text)]">
+                    سيتم تسجيل هذا القرار واعتماده مباشرة في سجل الإجازات والغياب من نفس الشاشة، ثم تحديث حقيقة الحضور تلقائيًا. لا تحتاج لإنشاء الطلب مسبقًا.
+                  </div>
+                )}
                 {decision?.id === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review') && (
                   <div className="mt-3 rounded-xl border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] p-3 text-xs font-bold text-[var(--dawaa-status-info-text)]">
                     {weeklyOffSwapLoading ? 'جارٍ تحميل يوم الراحة المعتمد لهذا الأسبوع...' : weeklyOffSwapError ? 'تعذر قراءة جدول الأسبوع. أغلق القرار وافتحه مرة أخرى.' : weeklyOffSwapPreview ? (
@@ -576,7 +611,7 @@ export default function AttendanceResolutionCenter({
                     ) : 'جارٍ تجهيز بيانات الأسبوع...'}
                   </div>
                 )}
-                {decision?.requestKind && decision.id !== 'annual_leave' && !(decision.id === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review')) && <div className="mt-3 text-xs font-bold text-[var(--dawaa-theme-muted)]">
+                {decision?.requestKind && !['annual_leave', 'sick_leave', 'exceptional_leave', 'approved_absence'].includes(decision.id) && !(decision.id === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review')) && <div className="mt-3 text-xs font-bold text-[var(--dawaa-theme-muted)]">
                   {requestsLoading ? 'جارٍ التحقق من الطلب المعتمد...' : requestsError ? 'تعذر التحقق من سجل الإجازات. أعد فتح القرار.' : linked ? `الطلب المعتمد المرتبط: ${linked.request_label || linked.request_kind} (${linked.id}). ${decision.requestKind === 'permission' ? 'راجع ساعات اليوم قبل الاعتماد.' : 'اضغط تحديث حقيقة الحضور من أعلى الصفحة بعد إغلاق القرار.'}` : <>لا يوجد طلب معتمد من هذا النوع لهذا اليوم. <a className="underline" href="/time-off">افتح الإجازات والغياب</a> لتسجيله واعتماده أولًا.</>}
                 </div>}
                 {decision?.schedule && !(decision.id === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review')) && <p className="mt-3 text-xs font-bold text-[var(--dawaa-status-warning-text)]">راجع تغيير الراحة أو الشيفت في الجدول ثم حدّث حقيقة الحضور؛ لا يُعتمد من هذه الشاشة مباشرة.</p>}
@@ -599,9 +634,11 @@ export default function AttendanceResolutionCenter({
               >
                 {reason === 'annual_leave'
                   ? 'اعتماد الإجازة السنوية وتسجيلها'
-                  : reason === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review')
-                    ? 'اعتماد تغيير يوم الراحة'
-                    : decisionsFor(selected).find((item) => item.id === reason)?.financial
+                  : ['sick_leave', 'exceptional_leave', 'approved_absence'].includes(reason)
+                    ? `اعتماد ${decisionsFor(selected).find((item) => item.id === reason)?.label || 'القرار'} وتسجيله`
+                    : reason === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review')
+                      ? 'اعتماد تغيير يوم الراحة'
+                      : decisionsFor(selected).find((item) => item.id === reason)?.financial
                       ? 'اعتماد الحضور وتوثيق اقتراح الخصم'
                       : 'اعتماد موثق'}
               </button>
