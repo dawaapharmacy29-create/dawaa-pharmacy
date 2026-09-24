@@ -34,6 +34,7 @@ import type { QaCaseListRow, QaListFilters } from './types';
 import { rankProductCandidates } from '../../productMatching';
 import { resolveReviewSourceSnapshotLineage, selectCanonicalReviewSourceIds } from '../sourceSnapshotLineage';
 import { fetchInvoiceItemEvidenceProvider } from '../invoiceItemEvidenceRepository';
+import { fetchPharmacyProductIndex } from '../pharmacyProductCatalogRepository';
 
 const MAX_LIST_ROWS = 2000;
 
@@ -580,6 +581,7 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
           supabaseClient,
           freshCandidates
         );
+        const productIndex = await fetchPharmacyProductIndex(supabaseClient);
 
         const runLivePipeline = (
           competingSelections: Array<{ caseId: string; invoiceId: string }> = []
@@ -588,6 +590,7 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
           competingSelections,
           resolveInvoiceCandidates: (context) => context.caseId === caseId ? freshCandidates : [],
           itemEvidenceProvider,
+          productIndex,
         });
 
         let result = runLivePipeline([]);
