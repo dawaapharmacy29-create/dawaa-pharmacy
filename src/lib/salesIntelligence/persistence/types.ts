@@ -197,24 +197,6 @@ export interface SalesIntelligenceCaseAnalysisRow extends CaseAnalysisProvenance
     evidenceCompleteness: Record<string, boolean | EvidenceLevel>;
     historicalClosureEvidence: EvidenceRef[];
     protocolApplicabilityRuleIds: string[];
-    canonicalSalesOutcome: {
-      caseId: string;
-      outcome:
-        | 'sale_proven'
-        | 'order_confirmed_unproven'
-        | 'customer_confirmed_unproven'
-        | 'open_opportunity'
-        | 'customer_rejected'
-        | 'information_only'
-        | 'needs_review'
-        | 'unknown';
-      saleProofState: 'proven' | 'strongly_supported' | 'weakly_supported' | 'unknown' | 'contradicted';
-      isSaleCountable: boolean;
-      isRevenueCountable: boolean;
-      isOrderConfirmed: boolean;
-      needsHumanReview: boolean;
-      reasonCodes: string[];
-    };
   };
 }
 
