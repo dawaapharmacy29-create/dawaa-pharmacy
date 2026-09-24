@@ -119,7 +119,7 @@ const has = (value: string, rx: RegExp) => rx.test(value);
 const ids = (messages: WhatsAppParsedMessage[], rx: RegExp) => messages.filter((m) => rx.test(m.text)).map((m) => m.id).slice(0, 10);
 const uniq = <T,>(rows: T[]) => [...new Set(rows)];
 
-const REQUEST_RX = /(عايز|عاوز|عايزه|عاوزه|محتاج|محتاجه|ممكن|ابعت|ابعث|هات|عايزين|محتاجين|اطلب|أطلب|متوفر|موجود عندكم|عندكم)/i;
+const REQUEST_RX = /(عايزه|عاوزه|محتاجه|عايزين|محتاجين|عايز|عاوز|محتاج|ممكن|ابعت|ابعث|هات|اطلب|أطلب|متوفر|موجود عندكم|عندكم)/i;
 const PRODUCT_INQUIRY_RX = /(بكام|سعر|متوفر|موجود|عندكم|فيه|في من|العبوه|العبوة|تركيز|كام قرص|كام شريط)/i;
 const RECOMMEND_RX = /(ارشح|أرشح|نرشح|ترشيح|انصح|أنصح|ممكن تستخدم|ممكن تاخد|ممكن تاخدي|الافضل|الأفضل|بديل|بداله|بدلها)/i;
 const ACCEPT_RX = /(^|\s)(تمام|ماشي|موافق|اوكي|أوكي|خلاص|ابعت|ابعته|ابعتي|هات|هاته|هاخده|هاخدها|هجربه|هجربها|تمام كده|تمام كدا)(\s|$)/i;
@@ -183,10 +183,13 @@ function cleanProductPhrase(raw: string) {
   const stop = value.search(/(?<![\p{L}\p{N}])(?:علشان|عشان|لان|لأن|بس|وكمان|و\s+كمان|لو|اذا|إذا)(?![\p{L}\p{N}])/iu);
   if (stop > 1) value = value.slice(0, stop).trim();
   value = value.split(/\s+/).filter(Boolean).slice(0, 10).join(' ').trim();
-  value = value.replace(/^(?:عايز|عاوز|عايزه|عاوزه|محتاج|محتاجه|هات|ابعت|ابعث)\s+/i, '').trim();
+  value = value.replace(/^(?:عايزه|عاوزه|محتاجه|عايز|عاوز|محتاج|هات|ابعت|ابعث)\s+/i, '').trim();
+  value = value.replace(/^[هة]\s+(?=[\p{L}\p{N}])/u, '').trim();
   value = value.replace(/\s+(?:تقريبا|تقريباً|ضروري+|جدا|جدًا)$/i, '').trim();
   if (value.length < 2) return '';
-  if (/^(?:حاجه|حاجة|دواء|دوا|علاج|صنف|منتج|ده|دي|دول|منه|منها)$/i.test(value)) return '';
+  if (/^(?:حاجه|حاجة|دواء|دوا|علاج|صنف|منتج|ده|دي|دول|منه|منها|علبه|علبة|شريط|باكيت|كيس|امبول|أمبول)$/i.test(value)) return '';
+  if (/^(?:واحد|واحده|واحدة)\s+من\s+(?:ده|دا|دي)$/i.test(value)) return '';
+  if (/^(?:اشوف|أشوف)\s+شكل|^يطلع\s+منه/i.test(value)) return '';
   if (GENERIC_NON_PRODUCT_RX.test(value) || SERVICE_SENTENCE_RX.test(value)) return '';
   return value;
 }
