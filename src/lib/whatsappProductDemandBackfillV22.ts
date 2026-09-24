@@ -13,6 +13,7 @@ export interface ProductDemandBackfillOptionsV22 {
   limit?: number;
   dryRun?: boolean;
   sourceIds?: string[];
+  force?: boolean;
 }
 
 export interface ProductDemandBackfillSourceResultV22 {
@@ -82,17 +83,23 @@ function chooseBestSession(
 
 async function loadSources(options: ProductDemandBackfillOptionsV22): Promise<SourceRow[]> {
   const limit = Math.max(1, Math.min(100, options.limit ?? 20));
+  // Pull a wider candidate window, then skip rows already backfilled. This avoids repeatedly
+  // rewriting the same 20 conversations while keeping the query compatible with old JSON rows.
   let query = supabase
     .from('whatsapp_review_sources')
     .select('id,raw_text,conversation_started_at,conversation_ended_at,branch,customer_id,customer_code,customer_name,customer_phone,staff_id,staff_name,created_by,analysis_json')
     .not('raw_text', 'is', null)
     .order('conversation_started_at', { ascending: false })
-    .limit(limit);
+    .limit(Math.min(300, limit * 5));
 
   if (options.sourceIds?.length) query = query.in('id', options.sourceIds);
   const { data, error } = await query;
   if (error) throw error;
-  return (data || []) as SourceRow[];
+  const rows = (data || []) as SourceRow[];
+  const filtered = options.force || options.sourceIds?.length
+    ? rows
+    : rows.filter((row) => row.analysis_json?.productDemandVersion !== 'product-demand-v22');
+  return filtered.slice(0, limit);
 }
 
 export async function runProductDemandBackfillV22(
