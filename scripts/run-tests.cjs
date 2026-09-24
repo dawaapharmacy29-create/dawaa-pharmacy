@@ -305,6 +305,7 @@ const testFiles = [
   'src/lib/__tests__/whatsappCaseLostReasonV23.test.ts',
   'src/lib/salesIntelligence/__tests__/conversationCaseEngine.test.ts',
   'src/lib/salesIntelligence/__tests__/caseBasketEngine.test.ts',
+  'src/lib/salesIntelligence/__tests__/canonicalSalesOutcomeEngine.test.ts',
   'src/lib/salesIntelligence/__tests__/commercialConfirmationEngine.test.ts',
   'src/lib/salesIntelligence/__tests__/saleAttributionEngine.test.ts',
   'src/lib/salesIntelligence/__tests__/invoiceClaimResolution.test.ts',
