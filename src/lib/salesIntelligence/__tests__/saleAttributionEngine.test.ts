@@ -636,6 +636,50 @@ describe('Sale Attribution Engine (Sales Intelligence Phase D) — Golden Cases'
     expect(candidate.disqualifiers).not.toContain('temporal_inversion_invoice_predates_case');
   });
 
+  it('does not select a weak-time identity-only invoice as the case invoice', () => {
+    const ctx = baseCase({
+      customerId: 'cust-1',
+      customerPhone: '01012345678',
+      branchNameRaw: 'فرع شكري',
+      legacyMatchedInvoiceId: 'inv-late',
+      caseStartedAt: '2026-09-10T09:51:33.000Z',
+      caseEndedAt: '2026-09-10T09:54:01.000Z',
+    });
+    const assess = deriveSaleAttributionAssessment(ctx, [{
+      id: 'inv-late',
+      customer_id: 'cust-1',
+      customer_phone: '01012345678',
+      branch: 'فرع شكري',
+      invoice_datetime: '2026-09-11T08:32:00.000Z',
+      net_amount: 60,
+    }]);
+    expect(assess.selectedInvoiceId).toBeNull();
+    expect(assess.attributionLevel).toBe('unknown');
+    expect(assess.humanReviewReasons).toContain('statistical_invoice_lacks_transactional_corroboration');
+    expect(assess.alternativeCandidates).toHaveLength(1);
+  });
+
+  it('can select a weak-time candidate when an exact announced total independently corroborates the transaction', () => {
+    const ctx = baseCase({
+      customerId: 'cust-1',
+      customerPhone: '01012345678',
+      branchNameRaw: 'فرع شكري',
+      activeAnnouncedTotal: total(60),
+      caseStartedAt: '2026-09-10T09:51:33.000Z',
+      caseEndedAt: '2026-09-10T09:54:01.000Z',
+    });
+    const assess = deriveSaleAttributionAssessment(ctx, [{
+      id: 'inv-late-but-corroborated',
+      customer_id: 'cust-1',
+      customer_phone: '01012345678',
+      branch: 'فرع شكري',
+      invoice_datetime: '2026-09-10T20:00:00.000Z',
+      net_amount: 60,
+    }]);
+    expect(assess.selectedInvoiceId).toBe('inv-late-but-corroborated');
+    expect(assess.selectedCandidate?.announcedTotalMatch).toBe('exact');
+  });
+
   it('keeps a trusted but pre-case invoice visible yet blocks it from official staff evaluation', () => {
     const ctx = baseCase({
       trustedInvoiceId: 'trusted-old',

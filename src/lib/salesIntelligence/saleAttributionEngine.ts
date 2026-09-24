@@ -807,16 +807,41 @@ export function deriveSaleAttributionAssessment(
   const legacyEvidenceUsed = candidates.some((c) => c.legacyEvidenceMatch);
   const directLinked = candidates.find((c) => c.directInvoiceLink) ?? null;
 
-  // A statistical/legacy candidate that clearly predates THIS case's start is not a selectable
-  // invoice for that case. Keep it visible as rejected evidence, but never display it as the
-  // case's selected invoice. A separately trusted direct link remains visible for audit and is
-  // handled by the canonical SaleProof contradiction rules.
+  const hasIndependentTransactionalCorroboration = (candidate: SaleAttributionCandidate): boolean =>
+    candidate.announcedTotalMatch === 'exact' ||
+    candidate.announcedTotalMatch === 'near_match' ||
+    candidate.basketValueMatch === 'exact' ||
+    candidate.basketValueMatch === 'near_match' ||
+    candidate.productMatch === 'available_match' ||
+    candidate.quantityMatch === 'available_match' ||
+    candidate.staffMatch === 'same';
+
+  const isStatisticallySelectable = (candidate: SaleAttributionCandidate): boolean => {
+    if (candidate.disqualifiers.includes('temporal_inversion_invoice_predates_case')) return false;
+    if (candidate.timeMatchStrength === 'very_strong' || candidate.timeMatchStrength === 'strong' || candidate.timeMatchStrength === 'moderate') {
+      return true;
+    }
+    // A weak/very-weak temporal relation can remain visible as an alternative candidate, but it
+    // cannot become the selected invoice from identity/branch/legacy similarity alone.
+    return hasIndependentTransactionalCorroboration(candidate);
+  };
+
+  // Direct trusted links stay visible even when contradictory (audit + human review). Statistical
+  // candidates must be chronologically plausible enough, or carry independent transactional
+  // corroboration, before the UI is allowed to call one "selected".
   const selectableCandidates = directLinked
-    ? [directLinked, ...candidates.filter((c) => c !== directLinked && !c.disqualifiers.includes('temporal_inversion_invoice_predates_case'))]
-    : candidates.filter((c) => !c.disqualifiers.includes('temporal_inversion_invoice_predates_case'));
+    ? [directLinked, ...candidates.filter((c) => c !== directLinked && isStatisticallySelectable(c))]
+    : candidates.filter(isStatisticallySelectable);
 
   if (selectableCandidates.length === 0) {
     const rejectedTop = candidates[0];
+    const temporalInversion = rejectedTop?.disqualifiers.includes('temporal_inversion_invoice_predates_case') ?? false;
+    const reason = temporalInversion
+      ? 'invoice_predates_case_start'
+      : 'statistical_invoice_lacks_transactional_corroboration';
+    const ruleId = temporalInversion
+      ? 'attribution.assessment.no_temporally_valid_candidates'
+      : 'attribution.assessment.no_selectable_transaction_link';
     return {
       caseId: ctx.caseId,
       commercialConfirmationState,
@@ -829,16 +854,16 @@ export function deriveSaleAttributionAssessment(
       confidence: {
         level: 'unknown',
         score: 0,
-        ruleIds: ['attribution.assessment.no_temporally_valid_candidates'],
+        ruleIds: [ruleId],
         evidence: rejectedTop?.confidenceAssessment.evidence ?? [],
       },
       primaryEvidence: rejectedTop?.evidence ?? [],
-      contradictions: ['temporal_inversion'],
+      contradictions: temporalInversion ? ['temporal_inversion'] : [],
       needsHumanReview: true,
-      humanReviewReasons: ['invoice_predates_case_start'],
+      humanReviewReasons: [reason],
       isOfficialForStaffEvaluation: false,
       legacyEvidenceUsed,
-      ruleIds: ['attribution.assessment.no_temporally_valid_candidates'],
+      ruleIds: [ruleId],
       hasAttributedInvoice: false,
       competingCaseIds: [],
     };
@@ -891,19 +916,12 @@ export function deriveSaleAttributionAssessment(
   // the temporal link is genuinely close, or a separate transactional signal corroborates the
   // conversation->invoice link. Legacy V17 is deliberately NOT counted as independent
   // corroboration because it is another historical matcher, not transaction truth.
-  const hasIndependentTransactionalCorroboration =
-    top.announcedTotalMatch === 'exact' ||
-    top.announcedTotalMatch === 'near_match' ||
-    top.basketValueMatch === 'exact' ||
-    top.basketValueMatch === 'near_match' ||
-    top.productMatch === 'available_match' ||
-    top.quantityMatch === 'available_match' ||
-    top.staffMatch === 'same';
+  const topHasIndependentTransactionalCorroboration = hasIndependentTransactionalCorroboration(top);
 
   const statisticalOfficialTimingOk =
     top.timeMatchStrength === 'very_strong' ||
     top.timeMatchStrength === 'strong' ||
-    (top.timeMatchStrength === 'moderate' && hasIndependentTransactionalCorroboration);
+    (top.timeMatchStrength === 'moderate' && topHasIndependentTransactionalCorroboration);
 
   const isOfficialForStaffEvaluation =
     (attributionLevel === 'proven' &&
