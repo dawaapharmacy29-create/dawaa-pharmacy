@@ -155,6 +155,7 @@ export async function computePolicyInputHash(input: PolicyInputHashInput): Promi
 
 export interface MatchingInputHashItem {
   productNameRaw: string;
+  productId?: string | null;
   quantity: number | null;
 }
 
@@ -184,7 +185,7 @@ export async function computeMatchingInputHash(input: MatchingInputHashInput): P
     basketId: input.basketId,
     basketVersion: input.basketVersion,
     activeItems: [...input.activeItems]
-      .map((item) => ({ productNameRaw: item.productNameRaw, quantity: item.quantity }))
+      .map((item) => ({ productNameRaw: item.productNameRaw, productId: item.productId ?? null, quantity: item.quantity }))
       .sort((a, b) => a.productNameRaw.localeCompare(b.productNameRaw)),
     selectedInvoiceId: input.selectedInvoiceId,
     selectedInvoiceNumber: input.selectedInvoiceNumber,
