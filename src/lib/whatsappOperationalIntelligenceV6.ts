@@ -227,8 +227,25 @@ function extractProducts(session: WhatsAppConversationSession): WhatsAppProductS
     const isRecommendation = message.direction === 'outbound' && RECOMMEND_RX.test(message.text);
     const trigger = isRecommendation ? RECOMMEND_RX : isRequest ? REQUEST_RX : PRODUCT_INQUIRY_RX.test(message.text) ? PRODUCT_INQUIRY_RX : null;
     if (!trigger) continue;
-    const rawName = extractAfterTrigger(message, trigger);
+    let rawName = extractAfterTrigger(message, trigger);
     if (!rawName) continue;
+
+    if (message.direction === 'inbound' && isRequest) {
+      const messageIndex = session.messages.findIndex((row) => row.id === message.id);
+      const next = session.messages[messageIndex + 1];
+      if (
+        next &&
+        next.direction === 'inbound' &&
+        next.kind === 'text' &&
+        next.timestamp.getTime() >= message.timestamp.getTime() &&
+        next.timestamp.getTime() - message.timestamp.getTime() <= 2 * 60 * 1000 &&
+        DOSAGE_FOLLOWUP_RX.test(next.text.trim())
+      ) {
+        rawName = cleanProductPhrase(rawName + ' ' + next.text) || rawName;
+      }
+    }
+    if (!plausibleProductPhrase(rawName)) continue;
+
     let status: WhatsAppProductSignal['status'] = isRecommendation ? 'recommended' : isRequest ? 'requested' : 'mentioned';
     if (/(مش موجود|غير متوفر|ناقص)/i.test(message.text)) status = 'unavailable';
     found.push({ rawName, normalizedName: normalize(rawName), quantity: quantityFrom(message.text), status, sourceDirection: message.direction, evidenceMessageIds: [message.id], confidence: isRecommendation ? 82 : isRequest ? 80 : 64 });
@@ -344,6 +361,19 @@ async function searchProductCandidates(raw: string): Promise<RawProductRow[]> {
     .limit(80);
   for (const row of exactRows || []) byId.set(String(row.id), row as RawProductRow);
 
+  // Arabic/English seed discovery. Candidate retrieval may broaden, but the resolver still
+  // applies its ambiguity, form and strength safety rules before selecting a catalog item.
+  for (const [arabicKey, latinToken] of CROSS_SCRIPT_SEED) {
+    const normalizedArabicKey = normalizePharmacyText(arabicKey).normalized;
+    if (!normalized.includes(normalizedArabicKey)) continue;
+    const { data } = await supabase
+      .from('products')
+      .select('id,name,product_code,normalized_name,category,price,source')
+      .ilike('normalized_name', '%' + normalizePharmacyText(latinToken).normalized + '%')
+      .limit(120);
+    for (const row of data || []) byId.set(String(row.id), row as RawProductRow);
+  }
+
   // Then token-based discovery. This is only candidate retrieval; the canonical resolver decides.
   for (const token of tokens) {
     const { data } = await supabase
@@ -388,7 +418,15 @@ async function resolveProduct(product: WhatsAppProductSignal) {
 }
 
 export async function enrichWhatsAppOperationalProductsV6(model: WhatsAppOperationalIntelligenceV6) {
-  const products = await Promise.all(model.products.map(resolveProduct));
+  const resolvedProducts = await Promise.all(model.products.map(resolveProduct));
+  const products = resolvedProducts.filter((product) =>
+    Boolean(product.productId) ||
+    (
+      product.sourceDirection === 'inbound' &&
+      ['requested', 'unavailable'].includes(product.status) &&
+      plausibleProductPhrase(product.rawName)
+    )
+  );
   const byRaw = new Map(products.map((p) => [p.normalizedName, p]));
   const customerRequests = model.customerRequests.map((r) => {
     const linked = products.find((p) => p.rawName === r.productName);
