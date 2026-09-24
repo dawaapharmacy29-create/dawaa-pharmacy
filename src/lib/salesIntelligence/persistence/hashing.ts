@@ -116,6 +116,8 @@ export interface AttributionInputHashInput {
   /** The candidate invoice id SET actually used — order-independent, caller need not pre-sort (sorted here). */
   candidateInvoiceIds: string[];
   branchNameRaw: string | null;
+  /** Current basket product identity used by attribution product evidence. */
+  activeBasketItems?: Array<{ productNameRaw: string; productId?: string | null; quantity: number | null }>;
   /** Deterministic snapshot of line-item evidence for all candidate invoices. */
   invoiceItemEvidenceSnapshot?: unknown;
 }
@@ -131,6 +133,7 @@ export async function computeAttributionInputHash(input: AttributionInputHashInp
     customerPhone: input.customerPhone,
     candidateInvoiceIds: [...input.candidateInvoiceIds].sort(),
     branchNameRaw: input.branchNameRaw,
+    activeBasketItems: input.activeBasketItems ?? [],
     invoiceItemEvidenceSnapshot: input.invoiceItemEvidenceSnapshot ?? null,
   });
 }
