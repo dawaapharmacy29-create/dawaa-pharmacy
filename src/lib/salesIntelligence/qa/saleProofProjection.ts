@@ -9,11 +9,12 @@
 // Proof". Every `if` below is either a null-safety default or one of the two documented, logically
 // EXACT reconstructions below — never a guess at what the real engine would have decided.
 //
-// Two narrow, exact reconstructions (both provably equivalent to what saleAttributionEngine.ts
-// itself already guarantees, never an approximation):
-//   - selectedCandidate.directInvoiceLink := (attribution_level === 'proven'). Exact by
-//     deriveSaleAttributionAssessment's own construction: `directInvoiceLink` is the ONLY path to
-//     `proven` (see saleAttributionEngine.ts's own `const level = directInvoiceLink ? 'proven' : ...`).
+// Persisted-row safety rule:
+//   - NEVER reconstruct selectedCandidate.directInvoiceLink from attribution_level='proven' alone.
+//     The attribution row does not persist invoice-link provenance. Without that provenance, a
+//     stale/legacy 'proven' label is insufficient to establish trusted invoice evidence in QA.
+//     Fresh live re-analysis may still establish trusted evidence when a real invoice-specific
+//     source exists.
 //   - selectedCandidate.branchMatch := branch_conflict ? 'mismatch' : 'unknown'. deriveSaleProofState()
 //     only ever checks for the literal 'mismatch' value; collapsing the other three real BranchMatchKind
 //     values (exact_canonical/normalized_alias_match/unknown) into 'unknown' here is exact for every
@@ -107,8 +108,10 @@ export function projectSaleAttributionFromPersistedRow(
     };
   }
 
-  const attributionLevel = (attributionRow.attribution_level ?? 'unknown') as ConfidenceLevel;
-  const isProven = attributionLevel === 'proven';
+  const persistedLevel = (attributionRow.attribution_level ?? 'unknown') as ConfidenceLevel;
+  // Persisted attribution rows do not preserve the provenance required to reconstruct a trusted
+  // directInvoiceLink. Conservatively downgrade legacy/stale 'proven' labels for projection only.
+  const attributionLevel: ConfidenceLevel = persistedLevel === 'proven' ? 'strongly_inferred' : persistedLevel;
   const candidate: SaleAttributionCandidate | null = attributionRow.selected_invoice_id
     ? {
         caseId: fallbackCaseId,
@@ -127,7 +130,7 @@ export function projectSaleAttributionFromPersistedRow(
         quantityMatch: 'unavailable',
         legacyEvidenceMatch: Boolean(attributionRow.legacy_evidence_used),
         directOrderLink: false,
-        directInvoiceLink: isProven,
+        directInvoiceLink: false,
         evidence: [],
         ruleIds: attributionRow.rule_ids ?? [],
         confidenceAssessment: { level: attributionLevel, score: Number(attributionRow.confidence_score ?? 0), ruleIds: [], evidence: [] },
@@ -157,7 +160,7 @@ export function projectSaleAttributionFromPersistedRow(
     isOfficialForStaffEvaluation: Boolean(attributionRow.is_official_for_staff_evaluation),
     legacyEvidenceUsed: Boolean(attributionRow.legacy_evidence_used),
     ruleIds: attributionRow.rule_ids ?? [],
-    hasAttributedInvoice: attributionLevel === 'proven' || attributionLevel === 'strongly_inferred',
+    hasAttributedInvoice: attributionLevel === 'strongly_inferred',
     competingCaseIds: attributionRow.competing_case_ids ?? [],
   };
 }

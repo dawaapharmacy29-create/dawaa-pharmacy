@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { deriveSaleProofStateFromPersisted } from '../saleProofProjection';
 
 describe('Final Pilot Readiness — deriveSaleProofStateFromPersisted (persisted-row projection)', () => {
-  it('proven: attribution_level=proven, no conflicts -> proven, trustedInvoiceId set', () => {
+  it('does not reconstruct trusted invoice proof from a persisted proven label without provenance', () => {
     const result = deriveSaleProofStateFromPersisted(
       'case-1',
       { commercial_confirmation_state: 'commercial_confirmation_complete' },
@@ -22,8 +22,8 @@ describe('Final Pilot Readiness — deriveSaleProofStateFromPersisted (persisted
       },
       { integrity_evaluation_scope: 'header_only', item_evidence_ready: false, total_match: 'exact', header_evidence_ready: true, differences: [] }
     );
-    expect(result.state).toBe('proven');
-    expect(result.trustedInvoiceId).toBe('inv-1');
+    expect(result.state).toBe('strongly_supported');
+    expect(result.trustedInvoiceId).toBeNull();
   });
 
   it('strongly_supported: strongly_inferred + official, no trusted link -> strongly_supported, never proven', () => {

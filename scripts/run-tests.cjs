@@ -287,6 +287,8 @@ const testFiles = [
   'src/lib/salesIntelligence/__tests__/commercialConfirmationEngine.test.ts',
   'src/lib/salesIntelligence/__tests__/saleAttributionEngine.test.ts',
   'src/lib/salesIntelligence/__tests__/invoiceClaimResolution.test.ts',
+  'src/lib/salesIntelligence/__tests__/trustedInvoiceEvidenceBridge.test.ts',
+  'src/lib/salesIntelligence/qa/__tests__/saleProofProjection.test.ts',
   'src/lib/salesIntelligence/__tests__/basketInvoiceMatchingEngine.test.ts',
   'src/lib/salesIntelligence/__tests__/salesIntegrityEngine.test.ts',
   'src/lib/salesIntelligence/__tests__/salesIntelligencePipeline.test.ts',
