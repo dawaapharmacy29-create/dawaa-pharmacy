@@ -7,6 +7,8 @@ const backfill = path.join(root, 'supabase/migrations/20260924121000_overtime_st
 const systemCutover = path.join(root, 'supabase/migrations/20260924122000_overtime_system_rpc_cutover_v1.sql');
 const attendanceService = path.join(root, 'src/lib/attendance/attendanceBreakdownService.ts');
 const timeOffService = path.join(root, 'src/lib/timeOffService.ts');
+const crossBranchPanel = path.join(root, 'src/components/attendance/CrossBranchPunchesPanel.tsx');
+const crossBranchV2 = path.join(root, 'supabase/migrations/20260924124000_cross_branch_schedule_truth_v2.sql');
 
 function fail(message) {
   console.error('[hr-canonical-hardening] ' + message);
@@ -25,6 +27,8 @@ const backfillSql = read(backfill);
 const systemCutoverSql = read(systemCutover);
 const attendance = read(attendanceService);
 const timeOff = read(timeOffService);
+const crossBranchUi = read(crossBranchPanel);
+const crossBranchSql = read(crossBranchV2);
 
 assertContains(migration, 'return public.decide_overtime_approval_v3(p_id,p_decision,p_note);', 'V1 overtime compatibility wrapper');
 assertContains(migration, 'dawaa_can_manage_payroll_staff_v1(v_target_username)', 'branch-scoped overtime authorization');
@@ -38,6 +42,9 @@ assertContains(systemCutoverSql, 'return public.dawaa_sync_attendance_overtime_r
 assertContains(systemCutoverSql, 'from public,anon,authenticated;', 'system RPC grant tightening');
 assertContains(attendance, "supabase.rpc('decide_overtime_approval_v3'", 'frontend overtime decision path');
 assertContains(timeOff, "supabase.rpc('decide_staff_time_off_request_v3'", 'frontend time-off decision path');
+assertContains(crossBranchUi, "supabase.rpc('list_cross_branch_biometric_events_v2'", 'cross-branch UI canonical diagnostic path');
+assertContains(crossBranchSql, "attendance_schedule_for_date_v1", 'cross-branch schedule-day resolver');
+assertContains(crossBranchSql, "expected_branch", 'cross-branch expected branch contract');
 
 function walk(dir, out = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -67,3 +74,4 @@ console.log('  - attendance changes invalidate prior approved overtime');
 console.log('  - scheduled detector/reward cutover targets V2');
 console.log('  - stale approved overtime backfill is present');
 console.log('  - V1 detector/sync delegate to V2 and app-role EXECUTE is revoked');
+console.log('  - cross-branch diagnostics compare punch branch against same-day schedule truth');
