@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { WhatsAppConversationSession, WhatsAppParsedMessage } from '@/lib/whatsappConversationParser';
 import type { WhatsAppProductJourneySummaryV7 } from '@/lib/whatsappProductJourneyV7';
-import { deriveRecommendationConversionFactsV1 } from '@/lib/salesIntelligence/recommendationConversionV1';
+import {
+  derivePersistedRecommendationConversionFactsV1,
+  deriveRecommendationConversionFactsV1,
+} from '@/lib/salesIntelligence/recommendationConversionV1';
 
 function msg(
   id: string,
@@ -119,4 +122,30 @@ describe('recommendationConversionV1', () => {
     expect(candidate[0].conversionStatus).toBe('candidate_invoice_match');
     expect(candidate[0].needsHumanReview).toBe(true);
   });
+
+  it('uses persisted participant-role attribution for the recommender while keeping invoice executor separate', () => {
+    const rows = derivePersistedRecommendationConversionFactsV1({
+      journeySummary,
+      participantMessages: [
+        { messageId: 'm2', role: 'pharmacist', staffName: 'د هبة', staffId: 'staff-h' },
+      ],
+      invoiceLines: [{
+        productId: 'p1',
+        productCode: 'X1',
+        productName: 'Product X',
+        quantity: 1,
+        netLineAmount: 500,
+        staffId: 'staff-w',
+        staffName: 'د وائل',
+      }],
+      invoiceEvidenceLevel: 'official',
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].recommenderName).toBe('د هبة');
+    expect(rows[0].invoiceStaffName).toBe('د وائل');
+    expect(rows[0].officialSaleFromRecommendation).toBe(true);
+    expect(rows[0].soldNetValue).toBe(500);
+  });
+
 });

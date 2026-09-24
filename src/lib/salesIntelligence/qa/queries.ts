@@ -41,6 +41,10 @@ import {
 } from '../salesPricingExecutionV1';
 import { buildConversationEntityGraphV2 } from '../basketV2/conversationEntityGraphV2';
 import { reconstructBasketV2 } from '../basketV2/basketReconstructionV2';
+import {
+  derivePersistedRecommendationConversionFactsV1,
+  type RecommendationConversionFactV1,
+} from '../recommendationConversionV1';
 
 const MAX_LIST_ROWS = 2000;
 
@@ -392,6 +396,7 @@ export interface QaCaseDetailBundle {
     unitPrice: number | null;
     lineTotal: number | null;
   }>;
+  recommendationConversions: RecommendationConversionFactV1[];
   invoiceItemFacts: Array<{
     id: string;
     invoiceId: string | null;
@@ -468,15 +473,18 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
   let liveEvidence: SalesIntelligenceCaseAnalysis | null = null;
   let liveSaleProof: SaleProofAssessment | null = null;
   let quotedBasketV2Items: QaCaseDetailBundle['quotedBasketV2Items'] = [];
+  let caseScopedMessageIds = new Set<string>();
+  let sourceAnalysisJson: any = null;
   let sourceSnapshot: QaCaseDetailBundle['sourceSnapshot'] = { isCanonical: true, canonicalSourceId: null };
 
   if (caseRow?.conversation_id) {
     const { data: conversationRow } = await supabaseClient
       .from('whatsapp_review_sources')
-      .select('id, raw_text, source_filename, branch, conversation_started_at, conversation_ended_at, customer_id, customer_name, customer_code, customer_phone, message_count, created_at')
+      .select('id, raw_text, source_filename, branch, conversation_started_at, conversation_ended_at, customer_id, customer_name, customer_code, customer_phone, message_count, created_at, analysis_json')
       .eq('id', caseRow.conversation_id)
       .maybeSingle();
     if (conversationRow?.raw_text) {
+      sourceAnalysisJson = conversationRow.analysis_json ?? null;
       let customerName = conversationRow.customer_name ?? null;
       let customerCode = conversationRow.customer_code ?? null;
       let customerPhone = conversationRow.customer_phone ?? caseRow?.customer_phone ?? null;
@@ -634,6 +642,7 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
           (entry) => entry.conversationCase.caseId === caseId
         ) ?? null;
         if (priceSegment) {
+          caseScopedMessageIds = new Set(priceSegment.scopedMessages.map((message) => message.id));
           const graph = buildConversationEntityGraphV2(
             caseId,
             priceSegment.scopedMessages,
@@ -948,6 +957,49 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
     }
   }
 
+  const rawJourneySummary = sourceAnalysisJson?.operational?.productJourney ?? null;
+  const scopedJourneySummary = rawJourneySummary && Array.isArray(rawJourneySummary.journeys)
+    ? {
+        ...rawJourneySummary,
+        journeys: rawJourneySummary.journeys.filter((journey: any) => {
+          const recommendationEvent =
+            journey?.events?.find((event: any) => event?.stage === 'recommended') ??
+            journey?.events?.find((event: any) => event?.stage === 'alternative_offered') ??
+            null;
+          if (!recommendationEvent) return false;
+          return Array.isArray(recommendationEvent.messageIds) &&
+            recommendationEvent.messageIds.some((id: string) => caseScopedMessageIds.has(id));
+        }),
+      }
+    : null;
+
+  const recommendationConversions = derivePersistedRecommendationConversionFactsV1({
+    journeySummary: scopedJourneySummary,
+    participantMessages: Array.isArray(sourceAnalysisJson?.participantRoles?.messages)
+      ? sourceAnalysisJson.participantRoles.messages.map((row: any) => ({
+          messageId: String(row.messageId ?? ''),
+          role: row.role == null ? null : String(row.role),
+          staffName: row.staffName == null ? null : String(row.staffName),
+          staffId: row.staffId == null ? null : String(row.staffId),
+        }))
+      : [],
+    invoiceLines: invoiceItemFacts.map((item) => ({
+      productId: item.productId,
+      productCode: item.productCode,
+      productName: item.productName,
+      quantity: item.quantity,
+      netLineAmount: item.netLineAmount,
+      staffId: item.staffId,
+      staffName: item.staffName,
+    })),
+    invoiceEvidenceLevel:
+      attributionRow?.selected_invoice_id && attributionRow?.is_official_for_staff_evaluation
+        ? 'official'
+        : attributionRow?.selected_invoice_id
+          ? 'candidate'
+          : 'unavailable',
+  });
+
   return {
     persisted: { caseRow: caseRow ?? null, analysisRow, attributionRow: attributionRow ?? null, matchRow: matchRow ?? null, policyEvaluationRow: policyEvaluationRow ?? null },
     conversation,
@@ -959,6 +1011,7 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
     saleProof,
     salesOutcome,
     quotedBasketV2Items,
+    recommendationConversions,
     invoiceItemFacts,
     catalogProductMatches,
   };

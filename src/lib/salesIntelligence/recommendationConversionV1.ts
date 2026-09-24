@@ -151,3 +151,97 @@ export function deriveRecommendationConversionFactsV1(input: {
     })
     .filter((fact): fact is RecommendationConversionFactV1 => Boolean(fact));
 }
+
+
+export interface PersistedParticipantRoleMessageV1 {
+  messageId: string;
+  role: string | null;
+  staffName: string | null;
+  staffId?: string | null;
+}
+
+export function derivePersistedRecommendationConversionFactsV1(input: {
+  journeySummary: WhatsAppProductJourneySummaryV7 | null | undefined;
+  participantMessages: PersistedParticipantRoleMessageV1[];
+  invoiceLines: RecommendationInvoiceLineV1[];
+  invoiceEvidenceLevel: RecommendationInvoiceEvidenceLevel;
+}): RecommendationConversionFactV1[] {
+  if (!input.journeySummary?.journeys?.length) return [];
+
+  const roleByMessageId = new Map(
+    input.participantMessages.map((row) => [row.messageId, row])
+  );
+
+  return input.journeySummary.journeys
+    .map((journey) => {
+      const recommendationEvent = journeyRecommendationEvent(journey);
+      if (!recommendationEvent) return null;
+
+      const recommenders = Array.from(
+        new Set(
+          recommendationEvent.messageIds
+            .map((id) => roleByMessageId.get(id))
+            .filter((row) => row?.role === 'pharmacist' || row?.role === 'staff')
+            .map((row) => String(row?.staffName || '').trim())
+            .filter(Boolean)
+        )
+      );
+      const recommenderName = recommenders.length === 1 ? recommenders[0] : null;
+      const acceptedInChat = journey.events.some((event) => event.stage === 'accepted');
+      const rejectedInChat = journey.events.some((event) => event.stage === 'rejected');
+
+      const matchingLines = input.invoiceLines.filter((line) => sameProduct(journey, line));
+      const invoiceContainsProduct = matchingLines.length > 0;
+      const soldQuantity = invoiceContainsProduct
+        ? matchingLines.reduce((sum, line) => sum + (Number(line.quantity) || 0), 0)
+        : null;
+      const soldNetValue = invoiceContainsProduct
+        ? matchingLines.reduce((sum, line) => sum + (Number(line.netLineAmount) || 0), 0)
+        : null;
+      const invoiceStaffNames = Array.from(
+        new Set(matchingLines.map((line) => String(line.staffName || '').trim()).filter(Boolean))
+      );
+      const invoiceStaffName = invoiceStaffNames.length === 1 ? invoiceStaffNames[0] : null;
+
+      let conversionStatus: RecommendationConversionStatus;
+      let needsHumanReview = false;
+
+      if (!journey.productId && !journey.productCode) {
+        conversionStatus = 'product_identity_unresolved';
+        needsHumanReview = true;
+      } else if (recommenders.length !== 1) {
+        conversionStatus = 'ambiguous_recommender';
+        needsHumanReview = true;
+      } else if (rejectedInChat) {
+        conversionStatus = 'rejected';
+      } else if (input.invoiceEvidenceLevel === 'official' && invoiceContainsProduct) {
+        conversionStatus = 'official_sale';
+      } else if (input.invoiceEvidenceLevel === 'candidate' && invoiceContainsProduct) {
+        conversionStatus = 'candidate_invoice_match';
+        needsHumanReview = true;
+      } else if (acceptedInChat) {
+        conversionStatus = 'accepted_waiting_official_invoice';
+      } else {
+        conversionStatus = 'recommended_not_accepted';
+      }
+
+      return {
+        productId: journey.productId,
+        productCode: journey.productCode,
+        productName: journey.productName,
+        recommenderName,
+        recommendationMessageIds: recommendationEvent.messageIds,
+        acceptedInChat,
+        rejectedInChat,
+        invoiceEvidenceLevel: input.invoiceEvidenceLevel,
+        invoiceContainsProduct,
+        officialSaleFromRecommendation: conversionStatus === 'official_sale',
+        soldQuantity,
+        soldNetValue,
+        invoiceStaffName,
+        conversionStatus,
+        needsHumanReview,
+      } satisfies RecommendationConversionFactV1;
+    })
+    .filter((fact): fact is RecommendationConversionFactV1 => Boolean(fact));
+}

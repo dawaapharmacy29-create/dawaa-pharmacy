@@ -109,6 +109,19 @@ function quotedPriceStatusLabel(status: string) {
   return labels[status] || status;
 }
 
+function recommendationConversionLabel(status: string) {
+  const labels: Record<string, string> = {
+    official_sale: 'بيع رسمي مثبت',
+    candidate_invoice_match: 'ظهر في فاتورة مرشحة فقط',
+    accepted_waiting_official_invoice: 'العميل وافق — انتظار فاتورة رسمية',
+    recommended_not_accepted: 'ترشيح بدون قبول مثبت',
+    rejected: 'العميل رفض الترشيح',
+    ambiguous_recommender: 'دكتور الترشيح غير محسوم',
+    product_identity_unresolved: 'هوية الصنف غير محسومة',
+  };
+  return labels[status] || status;
+}
+
 export default function SalesIntelligenceQACaseDetail() {
   const { caseId: rawCaseId } = useParams<{ caseId: string }>();
   const caseId = rawCaseId ? decodeURIComponent(rawCaseId) : '';
@@ -141,7 +154,7 @@ export default function SalesIntelligenceQACaseDetail() {
     return <div className="dawaa-empty-state py-16 text-center" dir="rtl">لم يتم العثور على هذه الحالة.</div>;
   }
 
-  const { persisted, conversation, sourceSnapshot, siblingCases, transcript, liveEvidence, saleProof, salesOutcome, invoiceItemFacts, catalogProductMatches } = bundle;
+  const { persisted, conversation, sourceSnapshot, siblingCases, transcript, liveEvidence, saleProof, salesOutcome, recommendationConversions, invoiceItemFacts, catalogProductMatches } = bundle;
   const persistedAnalysis = persisted.analysisRow;
   const persistedAttribution = persisted.attributionRow;
   const persistedMatch = persisted.matchRow;
@@ -636,6 +649,40 @@ export default function SalesIntelligenceQACaseDetail() {
               </table>
             </div>
           </>
+        )}
+      </Section>
+
+      <Section title="٦.ج. الترشيحات وتحولها لمبيعات فعلية">
+        {!recommendationConversions.length ? (
+          <div className="dawaa-empty-state py-4 text-center">
+            لا يوجد ترشيح صيدلي موثق داخل نطاق هذه الـCase يمكن ربطه بالفاتورة الحالية.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {recommendationConversions.map((rec, index) => (
+              <div key={`${rec.productId || rec.productCode || rec.productName}-${index}`} className="rounded-xl border border-[var(--dawaa-theme-border)] p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="font-bold">{rec.productName}</div>
+                  <span className={rec.officialSaleFromRecommendation ? 'dawaa-badge dawaa-badge--success' : rec.needsHumanReview ? 'dawaa-badge dawaa-badge--warning' : 'dawaa-badge'}>
+                    {recommendationConversionLabel(rec.conversionStatus)}
+                  </span>
+                </div>
+                <div className="mt-2 grid gap-2 text-xs sm:grid-cols-2 xl:grid-cols-6">
+                  <Field label="كود الصنف" value={rec.productCode || 'غير متاح'} />
+                  <Field label="دكتور الترشيح" value={rec.recommenderName || 'غير محسوم'} />
+                  <Field label="قبول العميل" value={rec.acceptedInChat ? 'نعم' : rec.rejectedInChat ? 'رفض' : 'غير مؤكد'} />
+                  <Field label="الصنف في الفاتورة" value={rec.invoiceContainsProduct ? 'موجود' : 'غير مثبت'} />
+                  <Field label="دكتور تنفيذ الفاتورة" value={rec.invoiceStaffName || 'غير متاح'} />
+                  <Field label="قيمة البيع المرتبطة" value={rec.officialSaleFromRecommendation && rec.soldNetValue != null ? `${rec.soldNetValue.toFixed(2)} ج.م` : 'غير محتسبة رسميًا'} />
+                </div>
+                {rec.conversionStatus === 'candidate_invoice_match' ? (
+                  <div className="mt-2 text-[11px] leading-5 text-amber-200">
+                    الصنف موجود في فاتورة مرشحة، لكن الإسناد غير رسمي للتقييم؛ لذلك لا تُحسب قيمة البيع على دكتور الترشيح.
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
         )}
       </Section>
 
