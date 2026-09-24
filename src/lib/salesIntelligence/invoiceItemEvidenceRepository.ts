@@ -82,6 +82,7 @@ export function buildInvoiceItemEvidenceProvider(
     const bucket = itemsByInvoiceId.get(resolvedId) ?? [];
     bucket.push({
       productNameRaw: productName,
+      productId: clean(row.product_id) || null,
       productCode: clean(row.product_code) || null,
       quantity: numberOrNull(row.quantity),
       lineTotal: numberOrNull(row.line_total),
@@ -137,4 +138,31 @@ export async function fetchInvoiceItemEvidenceProvider(
   }
 
   return buildInvoiceItemEvidenceProvider(candidates, Array.from(itemMap.values()));
+}
+
+
+export function snapshotInvoiceItemEvidence(
+  provider: InvoiceItemEvidenceProvider,
+  invoiceIds: string[]
+): Array<{ invoiceId: string; items: 'unavailable' | InvoiceItemRecordForAttribution[] }> {
+  return Array.from(new Set(invoiceIds.filter(Boolean)))
+    .sort()
+    .map((invoiceId) => {
+      const items = provider.getItemsForInvoice(invoiceId, null);
+      if (items === 'unavailable') return { invoiceId, items: 'unavailable' as const };
+      const normalized = [...items]
+        .map((item) => ({
+          productNameRaw: item.productNameRaw,
+          productId: item.productId ?? null,
+          productCode: item.productCode ?? null,
+          quantity: item.quantity,
+          lineTotal: item.lineTotal,
+        }))
+        .sort((a, b) =>
+          String(a.productId ?? a.productCode ?? a.productNameRaw).localeCompare(
+            String(b.productId ?? b.productCode ?? b.productNameRaw)
+          )
+        );
+      return { invoiceId, items: normalized };
+    });
 }
