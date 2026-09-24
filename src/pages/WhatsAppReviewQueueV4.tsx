@@ -3,6 +3,7 @@ import { AlertTriangle, CheckCircle2, Clock3, FileText, Filter, RefreshCw, Searc
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
+import WhatsAppCycleEvidenceDashboardV17 from '@/components/reviews/WhatsAppCycleEvidenceDashboardV17';
 
 type QueueRow = {
   id: string;
@@ -78,6 +79,7 @@ export default function WhatsAppReviewQueueV4() {
   const [branch, setBranch] = useState('all');
   const [status, setStatus] = useState('pending');
   const [priority, setPriority] = useState('all');
+  const [activeView, setActiveView] = useState<'queue' | 'doctors'>('queue');
 
   const load = async () => {
     setLoading(true);
@@ -151,6 +153,27 @@ export default function WhatsAppReviewQueueV4() {
         </div>
       </section>
 
+      <section className="dawaa-card dawaa-card--soft p-2">
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setActiveView('queue')}
+            className={`rounded-xl px-4 py-2 text-sm font-black transition ${activeView === 'queue' ? 'bg-violet-500/20 text-violet-100 ring-1 ring-violet-400/40' : 'bg-slate-950/40 text-slate-400 hover:text-white'}`}
+          >
+            مراجعة المحادثات
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveView('doctors')}
+            className={`rounded-xl px-4 py-2 text-sm font-black transition ${activeView === 'doctors' ? 'bg-emerald-500/15 text-emerald-100 ring-1 ring-emerald-400/35' : 'bg-slate-950/40 text-slate-400 hover:text-white'}`}
+          >
+            أداء الدكاترة والمبيعات
+          </button>
+        </div>
+      </section>
+
+      {activeView === 'queue' ? (
+        <>
       <section className="dawaa-card dawaa-card--soft p-4">
         <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-5">
           <label className="relative xl:col-span-2">
@@ -202,6 +225,10 @@ export default function WhatsAppReviewQueueV4() {
           </>}
         </main>
       </div>
+        </>
+      ) : (
+        <WhatsAppCycleEvidenceDashboardV17 mode="doctors" />
+      )}
     </div>
   );
 }
