@@ -231,17 +231,23 @@ function classifyItemsAndQuantities(
     return { itemMatch: 'insufficient_data', quantityMatch: 'insufficient_data', differences: [], itemEvidenceReady: true, needsHumanReview: false, humanReviewReasons: [] };
   }
 
+  // Fully returned / zero-effective-quantity lines are financial history, not positive sale
+  // evidence. Keep them out of product/quantity matching so they can never corroborate a sale.
+  const sellableInvoiceItems = invoiceItems.filter(
+    (item) => item.quantity != null && Number(item.quantity) > 0
+  );
+
   // Group invoice items by normalized name key — a Map keyed 1:1 would silently DROP a genuine
   // ambiguity (two different invoice lines normalizing to the same key); grouping preserves it.
   const invoiceGroupsByName = new Map<string, InvoiceItemRecordForAttribution[]>();
-  invoiceItems.forEach((i) => {
+  sellableInvoiceItems.forEach((i) => {
     const key = normalizeProductNameForMatch(i.productNameRaw);
     const group = invoiceGroupsByName.get(key) ?? [];
     group.push(i);
     invoiceGroupsByName.set(key, group);
   });
   const invoiceGroupsByProductId = new Map<string, InvoiceItemRecordForAttribution[]>();
-  invoiceItems.forEach((i) => {
+  sellableInvoiceItems.forEach((i) => {
     if (!i.productId) return;
     const key = String(i.productId);
     const group = invoiceGroupsByProductId.get(key) ?? [];
@@ -317,7 +323,7 @@ function classifyItemsAndQuantities(
     }
   });
 
-  invoiceItems.forEach((invoiceItem) => {
+  sellableInvoiceItems.forEach((invoiceItem) => {
     const key = normalizeProductNameForMatch(invoiceItem.productNameRaw);
     if (!claimedInvoiceKeys.has(key) && (invoiceGroupsByName.get(key) ?? []).length === 1) {
       // Only report a clean, unambiguous extra — an item that's part of an ambiguous group at the
