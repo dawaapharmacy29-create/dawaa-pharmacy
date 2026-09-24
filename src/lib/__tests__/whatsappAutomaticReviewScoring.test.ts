@@ -91,12 +91,15 @@ describe('buildAutomaticWhatsAppReview', () => {
     expect(build.suspicions.some((s) => s.key === 'medical_error')).toBe(true);
   });
 
-  it('marks signal-backed items as "signal" and unverifiable ones as "default_fallback"', () => {
+  it('marks signal-backed items as signal and excludes review-required criteria from automatic points', () => {
     const build = buildAutomaticWhatsAppReview(normalConversation);
     const greeting = build.trace.find((t) => t.key === 'greeting');
     const dosage = build.trace.find((t) => t.key === 'dosage_explanation');
     expect(greeting?.source).toBe('signal');
-    expect(dosage?.source).toBe('default_fallback');
+    expect(dosage?.source).toBe('signal');
+    expect(build.state.tone.applies).toBe(false);
+    expect(build.state.understanding.applies).toBe(false);
+    expect(build.state.dosage_explanation.applies).toBe(false);
   });
 });
 
@@ -110,10 +113,16 @@ describe('evaluateAutomaticWhatsAppReview', () => {
     expect(result.hasSevereError).toBe(false);
   });
 
-  it('produces a full result usable by the shared evaluateConversationReview engine', () => {
-    const { result } = evaluateAutomaticWhatsAppReview(normalConversation);
+  it('produces a full result without awarding points to review-required criteria', () => {
+    const { build, result } = evaluateAutomaticWhatsAppReview(normalConversation);
     expect(result.finalScore).toBeGreaterThanOrEqual(0);
     expect(result.finalScore).toBeLessThanOrEqual(100);
     expect(result.reviewItems).toHaveLength(REVIEW_CRITERIA.length);
+    expect(build.state.tone.applies).toBe(false);
+    expect(build.state.understanding.applies).toBe(false);
+    const tone = result.reviewItems.find((item) => item.key === 'tone');
+    const understanding = result.reviewItems.find((item) => item.key === 'understanding');
+    expect(tone?.applies).toBe(false);
+    expect(understanding?.applies).toBe(false);
   });
 });
