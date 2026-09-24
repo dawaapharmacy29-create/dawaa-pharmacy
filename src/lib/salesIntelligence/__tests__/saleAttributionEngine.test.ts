@@ -593,4 +593,21 @@ describe('Sale Attribution Engine (Sales Intelligence Phase D) — Golden Cases'
     expect(candidate.disqualifiers).not.toContain('temporal_inversion_invoice_predates_case');
   });
 
+  it('keeps a trusted but pre-case invoice visible yet blocks it from official staff evaluation', () => {
+    const ctx = baseCase({
+      trustedInvoiceId: 'trusted-old',
+      caseStartedAt: '2026-09-15T18:00:00.000Z',
+      caseEndedAt: '2026-09-15T18:10:00.000Z',
+    });
+    const assess = deriveSaleAttributionAssessment(ctx, [{
+      id: 'trusted-old',
+      invoice_datetime: '2026-09-15T06:49:00.000Z',
+      net_amount: 108,
+    }]);
+    expect(assess.selectedInvoiceId).toBe('trusted-old');
+    expect(assess.contradictions).toContain('temporal_inversion');
+    expect(assess.needsHumanReview).toBe(true);
+    expect(assess.isOfficialForStaffEvaluation).toBe(false);
+  });
+
 });

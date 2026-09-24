@@ -51,6 +51,13 @@ describe('Sales Intelligence Persistence — hashing determinism (instruction #2
     // pipeline_version alone, same hash, still produces a new analysis row).
   });
 
+  it('4b. a trusted conversation timeline-anchor change changes the semantic hash', async () => {
+    const common = { rawWhatsAppExportText: '[9/15/26, 9:46:45 AM] Customer: hello', branchIdentityMappingVersion: 'v1' };
+    const a = await computeSemanticSourceHash({ ...common, trustedConversationStartedAt: '2026-09-15T06:46:45.000Z' });
+    const b = await computeSemanticSourceHash({ ...common, trustedConversationStartedAt: '2026-09-15T09:46:45.000Z' });
+    expect(a).not.toBe(b);
+  });
+
   it('5. a conversation content change changes the semantic hash', async () => {
     const a = await computeSemanticSourceHash({ rawWhatsAppExportText: 'version A', branchIdentityMappingVersion: 'v1' });
     const b = await computeSemanticSourceHash({ rawWhatsAppExportText: 'version B', branchIdentityMappingVersion: 'v1' });

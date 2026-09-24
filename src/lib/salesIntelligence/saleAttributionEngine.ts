@@ -854,6 +854,10 @@ export function deriveSaleAttributionAssessment(
     contradictions.push('identity_conflict');
     humanReviewReasons.push('customer_identity_conflict');
   }
+  if (top.disqualifiers.includes('temporal_inversion_invoice_predates_case')) {
+    contradictions.push('temporal_inversion');
+    humanReviewReasons.push('invoice_predates_case_start');
+  }
 
   let ambiguous = false;
   if (
@@ -883,9 +887,12 @@ export function deriveSaleAttributionAssessment(
   if (ambiguous && attributionLevel === 'strongly_inferred') attributionLevel = 'weakly_inferred';
 
   const isOfficialForStaffEvaluation =
-    attributionLevel === 'proven' ||
+    (attributionLevel === 'proven' &&
+      contradictions.length === 0 &&
+      top.disqualifiers.length === 0) ||
     (attributionLevel === 'strongly_inferred' &&
       !ambiguous &&
+      contradictions.length === 0 &&
       top.identityConflict === 'none' &&
       competingCaseIds.length === 0 &&
       top.disqualifiers.length === 0);

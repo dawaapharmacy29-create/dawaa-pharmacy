@@ -86,6 +86,8 @@ export function normalizeRawExportTextForHashing(rawWhatsAppExportText: string):
 
 export interface SemanticSourceHashInput {
   rawWhatsAppExportText: string;
+  /** Persisted source timeline anchor. It changes the absolute meaning of time-only/local WhatsApp timestamps. */
+  trustedConversationStartedAt?: string | null;
   /** Design doc H.0.2: future-proofing only, see versions.ts's own comment — pass ENGINE_VERSIONS-adjacent BRANCH_IDENTITY_MAPPING_VERSION. */
   branchIdentityMappingVersion: string;
 }
@@ -103,6 +105,7 @@ export interface SemanticSourceHashInput {
 export async function computeSemanticSourceHash(input: SemanticSourceHashInput): Promise<string> {
   return hashCanonical({
     rawWhatsAppExportText: normalizeRawExportTextForHashing(input.rawWhatsAppExportText),
+    trustedConversationStartedAt: input.trustedConversationStartedAt ?? null,
     branchIdentityMappingVersion: input.branchIdentityMappingVersion,
   });
 }

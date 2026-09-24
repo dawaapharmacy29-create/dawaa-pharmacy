@@ -558,6 +558,7 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
     const caseAnalysisContent = mapCaseAnalysisRowContent(analysis);
     const semanticSourceHash = await computeSemanticSourceHash({
       rawWhatsAppExportText: conversationInput?.rawWhatsAppExportText ?? '',
+      trustedConversationStartedAt: conversationInput?.trustedConversationStartedAt ?? null,
       branchIdentityMappingVersion: BRANCH_IDENTITY_MAPPING_VERSION,
     });
 
@@ -721,7 +722,8 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
           supabaseClient,
           analysis.caseId,
           conversationInput?.rawWhatsAppExportText ?? '',
-          caseAnalysisContent
+          caseAnalysisContent,
+          conversationInput?.trustedConversationStartedAt ?? null
         );
         outcome.attribution = await persistAttribution(
           supabaseClient,
