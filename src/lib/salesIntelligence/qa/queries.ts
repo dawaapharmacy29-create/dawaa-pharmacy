@@ -18,7 +18,9 @@
 // than paginating server-side, deliberately kept small per CLAUDE.md's standing constraint against
 // unbounded high-volume reads.
 import { parseWhatsAppExport, type WhatsAppParsedMessage } from '../../whatsappConversationParser';
-import { runSalesIntelligencePipeline } from '../salesIntelligencePipeline';
+import { deriveCasesOnly, runSalesIntelligencePipeline } from '../salesIntelligencePipeline';
+import { buildInvoiceCandidateQuery, fetchInvoiceCandidates } from '../invoiceCandidateRetrieval';
+import { deriveSaleProofState } from '../saleProofState';
 import { deriveSaleProofStateFromPersisted } from './saleProofProjection';
 import { resolveCustomerDisplayIdentity } from './customerDisplayIdentity';
 import type { SalesIntelligenceCaseAnalysis } from '../types';
@@ -333,18 +335,14 @@ export interface QaCaseDetailBundle {
   /** Parsed transcript messages (whatsappConversationParser.parseWhatsAppExport) — never re-interpreted, just rendered. */
   transcript: WhatsAppParsedMessage[];
   /**
-   * Live, in-memory re-derivation of this caseId's conversation-only evidence (case segmentation,
-   * basket items/quantities/unresolved products, historical-closure evidence) — see module
-   * comment. Deliberately run with NO invoice candidates (resolveInvoiceCandidates returns []),
-   * so `liveEvidence.attribution` / `liveEvidence.basketInvoiceMatch` / `liveEvidence.integrityAssessment`
-   * are NOT reproductions of the real, batch-computed persisted values and must never be rendered
-   * as such — the UI must read attribution/matching/integrity from `persisted` instead. The only
-   * fields this exists for are `activeBasket`/`itemsByBasketId`/`historicalClosure`, which depend
-   * only on the raw conversation text and were never persisted item-by-item anywhere. Null when
-   * the live re-run could not reproduce this exact caseId (e.g. raw text no longer parseable) —
-   * the detail page must then fall back to the persisted summary fields only, never invent evidence.
+   * Fresh read-only re-derivation of this exact case using the trusted source timeline plus the
+   * current real invoice candidates for THIS case window. It performs SELECTs only and runs the
+   * same pure pipeline in memory; it never writes. The detail UI prefers this fresh projection so
+   * stale persisted snapshots cannot keep showing a temporally invalid invoice after an engine fix.
    */
   liveEvidence: SalesIntelligenceCaseAnalysis | null;
+  /** Canonical Sale Proof derived from the fresh read-only pipeline, when reproducible. */
+  liveSaleProof: SaleProofAssessment | null;
   /**
    * The canonical I.C.2 Sale Proof State, computed from `persisted.attributionRow`/`matchRow`/
    * `analysisRow` via deriveSaleProofStateFromPersisted() (saleProofProjection.ts) — the SAME
@@ -395,6 +393,7 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
   let siblingCases: QaCaseDetailBundle['siblingCases'] = [];
   let transcript: WhatsAppParsedMessage[] = [];
   let liveEvidence: SalesIntelligenceCaseAnalysis | null = null;
+  let liveSaleProof: SaleProofAssessment | null = null;
 
   if (caseRow?.conversation_id) {
     const { data: conversationRow } = await supabaseClient
@@ -503,24 +502,59 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
         trustedConversationStartedAt: conversationRow.conversation_started_at ?? null,
       });
       try {
-        const result = runSalesIntelligencePipeline({
+        const baseInput = {
           conversationId: conversationRow.id,
           rawWhatsAppExportText: conversationRow.raw_text,
           trustedConversationStartedAt: conversationRow.conversation_started_at ?? null,
-          customerIdHint: conversationRow.customer_id,
-          customerPhoneHint: conversationRow.customer_phone,
-          branchNameRawHint: conversationRow.branch,
+          customerIdHint: conversationRow.customer_id ?? caseRow?.customer_id ?? null,
+          customerPhoneHint: conversationRow.customer_phone ?? caseRow?.customer_phone ?? null,
+          branchNameRawHint: conversationRow.branch ?? caseRow?.branch_name_raw ?? null,
+        };
+        const segmented = deriveCasesOnly(baseInput);
+        const targetCase = segmented.cases.find((candidate) => candidate.caseId === caseId) ?? null;
+        let freshCandidates: any[] = [];
+        if (targetCase) {
+          freshCandidates = await fetchInvoiceCandidates(
+            supabaseClient,
+            buildInvoiceCandidateQuery({
+              caseId: targetCase.caseId,
+              customerId: targetCase.customerId,
+              customerPhone: targetCase.customerPhone,
+              branchNameRaw: targetCase.branchNameRaw,
+              caseStartedAt: targetCase.startedAt,
+              caseEndedAt: targetCase.endedAt,
+            })
+          );
+          siblingCases = segmented.cases.map((candidate) => ({
+            caseId: candidate.caseId,
+            startedAt: candidate.startedAt,
+            endedAt: candidate.endedAt,
+            isCurrent: candidate.caseId === caseId,
+          }));
+        }
+
+        const result = runSalesIntelligencePipeline({
+          ...baseInput,
           competingSelections: [],
-          resolveInvoiceCandidates: () => [],
+          resolveInvoiceCandidates: (context) => context.caseId === caseId ? freshCandidates : [],
         });
         liveEvidence = result.caseAnalyses.find((a) => a.caseId === caseId) ?? null;
+        if (liveEvidence) {
+          liveSaleProof = deriveSaleProofState({
+            attribution: liveEvidence.attribution,
+            basketInvoiceMatch: liveEvidence.basketInvoiceMatch,
+            integrityAssessment: liveEvidence.integrityAssessment,
+          });
+        }
       } catch {
         liveEvidence = null;
+        liveSaleProof = null;
       }
     }
   }
 
-  const saleProof = deriveSaleProofStateFromPersisted(caseId, analysisRow, attributionRow ?? null, matchRow ?? null);
+  const persistedSaleProof = deriveSaleProofStateFromPersisted(caseId, analysisRow, attributionRow ?? null, matchRow ?? null);
+  const saleProof = liveSaleProof ?? persistedSaleProof;
 
   // Read-only catalog matching for reviewer visibility. This does NOT mutate Basket/SaleProof.
   const catalogProductMatches: QaCaseDetailBundle['catalogProductMatches'] = [];
@@ -587,6 +621,7 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
     siblingCases,
     transcript,
     liveEvidence,
+    liveSaleProof,
     saleProof,
     catalogProductMatches,
   };

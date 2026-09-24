@@ -105,9 +105,54 @@ export default function SalesIntelligenceQACaseDetail() {
   }
 
   const { persisted, conversation, siblingCases, transcript, liveEvidence, saleProof, catalogProductMatches } = bundle;
-  const analysis = persisted.analysisRow;
-  const attribution = persisted.attributionRow;
-  const match = persisted.matchRow;
+  const persistedAnalysis = persisted.analysisRow;
+  const persistedAttribution = persisted.attributionRow;
+  const persistedMatch = persisted.matchRow;
+  const analysis = liveEvidence ? {
+    ...persistedAnalysis,
+    case_type: liveEvidence.conversationCase.caseType,
+    case_started_at: liveEvidence.conversationCase.startedAt,
+    case_ended_at: liveEvidence.conversationCase.endedAt,
+    historical_closure_level: liveEvidence.historicalClosure.closureLevel,
+    protocol_applicability: liveEvidence.protocolAssessment.applicability,
+    commercial_confirmation_state: liveEvidence.commercialConfirmation.currentState,
+    attribution_level: liveEvidence.attribution.attributionLevel,
+    integrity_evaluation_scope: liveEvidence.basketInvoiceMatch.integrityEvaluationScope,
+    needs_human_review: liveEvidence.needsHumanReview,
+    human_review_reasons: liveEvidence.humanReviewReasons,
+    failure_reasons: liveEvidence.failureReasons,
+    overall_evidence_level: liveEvidence.evidenceCompleteness.overallEvidenceLevel,
+    evidence_snapshot: {
+      ...(persistedAnalysis.evidence_snapshot || {}),
+      conversationCaseConfidence: liveEvidence.conversationCase.confidence,
+      evidenceCompleteness: liveEvidence.evidenceCompleteness,
+    },
+  } : persistedAnalysis;
+  const attribution = liveEvidence ? {
+    ...(persistedAttribution || {}),
+    selected_invoice_id: liveEvidence.attribution.selectedInvoiceId,
+    selected_invoice_number: liveEvidence.attribution.selectedInvoiceNumber,
+    attribution_level: liveEvidence.attribution.attributionLevel,
+    confidence_score: liveEvidence.attribution.confidence.score,
+    candidate_count: liveEvidence.attribution.candidateCount,
+    competing_case_ids: liveEvidence.attribution.competingCaseIds,
+    is_official_for_staff_evaluation: liveEvidence.attribution.isOfficialForStaffEvaluation,
+    primary_evidence: liveEvidence.attribution.primaryEvidence,
+    contradictions: liveEvidence.attribution.contradictions,
+    rule_ids: liveEvidence.attribution.ruleIds,
+  } : persistedAttribution;
+  const match = liveEvidence ? {
+    ...(persistedMatch || {}),
+    invoice_id: liveEvidence.basketInvoiceMatch.invoiceId,
+    invoice_number: liveEvidence.basketInvoiceMatch.invoiceNumber,
+    integrity_evaluation_scope: liveEvidence.basketInvoiceMatch.integrityEvaluationScope,
+    item_evidence_ready: liveEvidence.basketInvoiceMatch.itemEvidenceReady,
+    header_evidence_ready: liveEvidence.basketInvoiceMatch.headerEvidenceReady,
+    total_match: liveEvidence.basketInvoiceMatch.totalMatch,
+    differences: liveEvidence.basketInvoiceMatch.differences,
+    needs_human_review: liveEvidence.basketInvoiceMatch.needsHumanReview,
+    human_review_reasons: liveEvidence.basketInvoiceMatch.humanReviewReasons,
+  } : persistedMatch;
   const policyEvaluation = persisted.policyEvaluationRow;
   const activeBasket = liveEvidence?.activeBasket ?? null;
   const basketItems = activeBasket ? liveEvidence?.itemsByBasketId[activeBasket.basketId] ?? [] : [];
@@ -145,6 +190,11 @@ export default function SalesIntelligenceQACaseDetail() {
       </section>
 
       <Section title="المراجعة الذكية الشاملة — ملخص الحالة بالكامل">
+        {liveEvidence ? (
+          <div className="dawaa-alert dawaa-alert--success mb-3 text-xs leading-6">
+            التفاصيل المعروضة هنا أُعيد حسابها الآن للقراءة فقط من المحادثة الأصلية + التوقيت الموثوق + مرشحي الفواتير الحاليين. الصفوف القديمة المحفوظة تُحتفظ بها للـAudit ولا تُستخدم لتغطية نتيجة أحدث.
+          </div>
+        ) : null}
         <div className="dawaa-alert dawaa-alert--info text-xs leading-6">
           هذا الملخص يجمع نتائج كل مسارات التحليل الحالية في مكان واحد: هوية العميل، تقسيم المحادثة، الطلب والسلة، القبول والتأكيد،
           مطابقة الأصناف، الفواتير، إثبات البيع، وما ينقصنا من أدلة. لا يتم اختراع أي معلومة غير موجودة، وأي نقطة غير محسومة تظهر بوضوح.
