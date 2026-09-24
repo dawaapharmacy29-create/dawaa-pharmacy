@@ -10,7 +10,14 @@ import {
 } from '@/lib/attendance/attendanceResolutionService';
 import EmployeeProfileDrawer from '@/components/attendance/EmployeeProfileDrawer';
 import AttendanceCorrectionReviewPanel from '@/components/attendance/AttendanceCorrectionReviewPanel';
-import {\n  getAnnualLeaveAttendancePreviewV1,\n  listStaffTimeOffRequests,\n  resolveAnnualLeaveFromAttendanceV1,\n  type AnnualLeaveAttendancePreviewV1,\n  type StaffTimeOffRequest,\n  type TimeOffKind,\n} from '@/lib/timeOffService';
+import {
+  getAnnualLeaveAttendancePreviewV1,
+  listStaffTimeOffRequests,
+  resolveAnnualLeaveFromAttendanceV1,
+  type AnnualLeaveAttendancePreviewV1,
+  type StaffTimeOffRequest,
+  type TimeOffKind,
+} from '@/lib/timeOffService';
 import { useStaffDirectory } from '@/hooks/useStaffDirectory';
 
 function cairoDate(offsetDays = 0) {
@@ -108,6 +115,9 @@ export default function AttendanceResolutionCenter({
   const [approvedRequests, setApprovedRequests] = useState<StaffTimeOffRequest[]>([]);
   const [requestsLoading, setRequestsLoading] = useState(false);
   const [requestsError, setRequestsError] = useState(false);
+  const [annualLeavePreview, setAnnualLeavePreview] = useState<AnnualLeaveAttendancePreviewV1 | null>(null);
+  const [annualLeavePreviewLoading, setAnnualLeavePreviewLoading] = useState(false);
+  const [annualLeavePreviewError, setAnnualLeavePreviewError] = useState(false);
   const [hours, setHours] = useState('');
   const [approving, setApproving] = useState(false);
 
