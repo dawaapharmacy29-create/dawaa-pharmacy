@@ -886,6 +886,25 @@ export function deriveSaleAttributionAssessment(
   let attributionLevel: ConfidenceLevel = top.confidenceAssessment.level;
   if (ambiguous && attributionLevel === 'strongly_inferred') attributionLevel = 'weakly_inferred';
 
+  // Identity proves WHO the invoice belongs to; it does not, by itself, prove WHICH conversation
+  // generated it. A statistical invoice can only become official staff-evaluation evidence when
+  // the temporal link is genuinely close, or a separate transactional signal corroborates the
+  // conversation->invoice link. Legacy V17 is deliberately NOT counted as independent
+  // corroboration because it is another historical matcher, not transaction truth.
+  const hasIndependentTransactionalCorroboration =
+    top.announcedTotalMatch === 'exact' ||
+    top.announcedTotalMatch === 'near_match' ||
+    top.basketValueMatch === 'exact' ||
+    top.basketValueMatch === 'near_match' ||
+    top.productMatch === 'available_match' ||
+    top.quantityMatch === 'available_match' ||
+    top.staffMatch === 'same';
+
+  const statisticalOfficialTimingOk =
+    top.timeMatchStrength === 'very_strong' ||
+    top.timeMatchStrength === 'strong' ||
+    (top.timeMatchStrength === 'moderate' && hasIndependentTransactionalCorroboration);
+
   const isOfficialForStaffEvaluation =
     (attributionLevel === 'proven' &&
       contradictions.length === 0 &&
@@ -895,10 +914,21 @@ export function deriveSaleAttributionAssessment(
       contradictions.length === 0 &&
       top.identityConflict === 'none' &&
       competingCaseIds.length === 0 &&
-      top.disqualifiers.length === 0);
+      top.disqualifiers.length === 0 &&
+      statisticalOfficialTimingOk);
+
+  if (
+    attributionLevel === 'strongly_inferred' &&
+    !directLinked &&
+    !statisticalOfficialTimingOk &&
+    !humanReviewReasons.includes('statistical_invoice_lacks_transactional_corroboration')
+  ) {
+    humanReviewReasons.push('statistical_invoice_lacks_transactional_corroboration');
+  }
 
   // A genuinely zero-signal top candidate (score 0, level 'unknown') isn't worth flagging — there
-  // is simply nothing to review. A nonzero-but-insufficient one IS worth a human look.
+  // is simply nothing to review. A strong statistical score that fails the official transaction-
+  // link gate ALSO needs review; it must not silently look equivalent to a staff-safe attribution.
   const needsHumanReview =
     humanReviewReasons.length > 0 || (attributionLevel === 'unknown' && top.confidenceAssessment.score > 0);
   if (needsHumanReview && !humanReviewReasons.includes('insufficient_evidence') && attributionLevel === 'unknown') {

@@ -423,6 +423,49 @@ describe('Sale Attribution Engine (Sales Intelligence Phase D) — Golden Cases'
       expect(assess.isOfficialForStaffEvaluation).toBe(true);
     });
 
+    it('35b. identity + branch + legacy after many hours stays statistical but is never official without transaction corroboration', () => {
+      const ctx = baseCase({
+        customerId: 'cust-1',
+        customerPhone: '01012345678',
+        branchNameRaw: 'فرع شكري',
+        legacyMatchedInvoiceId: 'inv-next-day',
+        caseStartedAt: '2026-09-10T09:51:33.000Z',
+        caseEndedAt: '2026-09-10T09:54:01.000Z',
+      });
+      const assess = deriveSaleAttributionAssessment(ctx, [{
+        id: 'inv-next-day',
+        customer_id: 'cust-1',
+        customer_phone: '01012345678',
+        branch: 'فرع شكري',
+        invoice_datetime: '2026-09-11T08:32:00.000Z',
+        net_amount: 60,
+      }]);
+      expect(assess.attributionLevel).toBe('strongly_inferred');
+      expect(assess.isOfficialForStaffEvaluation).toBe(false);
+      expect(assess.needsHumanReview).toBe(true);
+      expect(assess.humanReviewReasons).toContain('statistical_invoice_lacks_transactional_corroboration');
+    });
+
+    it('35c. a close identity-linked invoice can still be official without an announced total', () => {
+      const ctx = baseCase({
+        customerId: 'cust-1',
+        customerPhone: '01012345678',
+        branchNameRaw: 'فرع شكري',
+        caseStartedAt: '2026-09-15T09:00:00.000Z',
+        caseEndedAt: '2026-09-15T09:10:00.000Z',
+      });
+      const assess = deriveSaleAttributionAssessment(ctx, [{
+        id: 'inv-close',
+        customer_id: 'cust-1',
+        customer_phone: '01012345678',
+        branch: 'فرع شكري',
+        invoice_datetime: '2026-09-15T09:20:00.000Z',
+        net_amount: 60,
+      }]);
+      expect(assess.attributionLevel).toBe('strongly_inferred');
+      expect(assess.isOfficialForStaffEvaluation).toBe(true);
+    });
+
     it('36. weak evidence is never official', () => {
       const ctx = baseCase();
       const assess = deriveSaleAttributionAssessment(ctx, [{ id: 'inv-1', invoice_datetime: '2026-09-15T18:00:00.000Z', net_amount: 40 }]);
