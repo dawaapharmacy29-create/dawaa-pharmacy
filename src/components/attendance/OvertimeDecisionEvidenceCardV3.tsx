@@ -41,6 +41,34 @@ function invoices(value?: number | null) {
   return `${Number(value).toLocaleString('ar-EG')} فاتورة`;
 }
 
+function minutesBetween(later?: string | null, earlier?: string | null) {
+  if (!later || !earlier) return 0;
+  const laterDate = new Date(later);
+  const earlierDate = new Date(earlier);
+  if (Number.isNaN(laterDate.getTime()) || Number.isNaN(earlierDate.getTime())) return 0;
+  return Math.max(0, Math.round((laterDate.getTime() - earlierDate.getTime()) / 60000));
+}
+
+function durationLabelFromMinutes(total?: number | null) {
+  const minutes = Math.max(0, Math.round(Number(total || 0)));
+  if (minutes < 60) return `${minutes.toLocaleString('ar-EG')} دقيقة`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest
+    ? `${hours.toLocaleString('ar-EG')}:${String(rest).padStart(2, '0')} ساعة`
+    : `${hours.toLocaleString('ar-EG')} ساعة`;
+}
+
+function TimeBox({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  return (
+    <div className="rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-3">
+      <div className="text-[10px] font-black text-[var(--dawaa-theme-muted)]">{label}</div>
+      <div className="mt-1 text-base font-black text-[var(--dawaa-theme-heading)]">{value}</div>
+      {hint ? <div className="mt-1 text-[10px] font-bold text-[var(--dawaa-theme-muted)]">{hint}</div> : null}
+    </div>
+  );
+}
+
 function Metric({
   label,
   count,
@@ -123,6 +151,11 @@ export default function OvertimeDecisionEvidenceCardV3({ overtimeId }: { overtim
   const staffing = data.staffing!;
   const sales = data.sales!;
   const category = roleLabel[data.role_group] || 'نفس الفئة الوظيفية';
+  const earlyArrivalMinutes = attendance.first_in
+    ? minutesBetween(attendance.scheduled_start_at, attendance.first_in)
+    : 0;
+  const postShiftMinutes = minutesBetween(attendance.last_out, attendance.scheduled_end_at);
+  const candidateMinutes = Math.round(Number(attendance.overtime_candidate_hours || 0) * 60);
 
   return (
     <div className="mt-3 space-y-3 rounded-2xl border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] p-4">
@@ -132,14 +165,45 @@ export default function OvertimeDecisionEvidenceCardV3({ overtimeId }: { overtim
             <ShieldCheck size={17} /> Overtime Decision Evidence V3
           </div>
           <div className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">
-            الشيفت {cairoTime(attendance.scheduled_start_at)} → {cairoTime(attendance.scheduled_end_at)}
-            {' · '}الخروج الفعلي {cairoTime(attendance.last_out)}
+            راجع موعد الشيفت مقابل الدخول والخروج الفعلي قبل اتخاذ قرار الاعتماد.
           </div>
         </div>
         <div className="rounded-full border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] px-3 py-1.5 text-xs font-black">
-          وقت بعد نهاية الشيفت: {attendance.raw_post_shift_minutes.toLocaleString('ar-EG')} دقيقة
-          {' · '}المرشح للدفع: {Number(attendance.overtime_candidate_hours).toFixed(2)} ساعة
+          المدة المرشحة بعد التسوية: {durationLabelFromMinutes(candidateMinutes)}
         </div>
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        <TimeBox
+          label="الشيفت الأصلي"
+          value={`${cairoTime(attendance.scheduled_start_at)} → ${cairoTime(attendance.scheduled_end_at)}`}
+          hint="الموعد المعتمد في الجدول"
+        />
+        <TimeBox
+          label="الدخول الفعلي"
+          value={cairoTime(attendance.first_in)}
+          hint={earlyArrivalMinutes > 0 ? `قبل بداية الشيفت بـ ${durationLabelFromMinutes(earlyArrivalMinutes)}` : 'لا يوجد دخول مبكر'}
+        />
+        <TimeBox
+          label="الخروج الفعلي"
+          value={cairoTime(attendance.last_out)}
+          hint={postShiftMinutes > 0 ? `بعد نهاية الشيفت بـ ${durationLabelFromMinutes(postShiftMinutes)}` : 'لا يوجد خروج بعد الموعد'}
+        />
+        <TimeBox
+          label="وقت قبل الشيفت"
+          value={durationLabelFromMinutes(earlyArrivalMinutes)}
+          hint="للمراجعة عند وجود دخول مبكر"
+        />
+        <TimeBox
+          label="وقت بعد الشيفت"
+          value={durationLabelFromMinutes(postShiftMinutes)}
+          hint="الوقت الفعلي بعد نهاية الجدول"
+        />
+        <TimeBox
+          label="المؤهل الحالي للأوفر تايم"
+          value={durationLabelFromMinutes(candidateMinutes)}
+          hint={attendance.late_minutes > 0 ? `بعد تسوية تأخير ${attendance.late_minutes.toLocaleString('ar-EG')} دقيقة` : 'بعد مقارنة العمل الفعلي بساعات الجدول'}
+        />
       </div>
 
       <div className="grid gap-3 lg:grid-cols-3">
