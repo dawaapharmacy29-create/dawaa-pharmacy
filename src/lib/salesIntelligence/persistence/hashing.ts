@@ -116,6 +116,8 @@ export interface AttributionInputHashInput {
   /** The candidate invoice id SET actually used — order-independent, caller need not pre-sort (sorted here). */
   candidateInvoiceIds: string[];
   branchNameRaw: string | null;
+  /** Deterministic snapshot of line-item evidence for all candidate invoices. */
+  invoiceItemEvidenceSnapshot?: unknown;
 }
 
 /**
@@ -129,6 +131,7 @@ export async function computeAttributionInputHash(input: AttributionInputHashInp
     customerPhone: input.customerPhone,
     candidateInvoiceIds: [...input.candidateInvoiceIds].sort(),
     branchNameRaw: input.branchNameRaw,
+    invoiceItemEvidenceSnapshot: input.invoiceItemEvidenceSnapshot ?? null,
   });
 }
 
@@ -160,6 +163,8 @@ export interface MatchingInputHashInput {
   selectedInvoiceId: string | null;
   selectedInvoiceNumber: string | null;
   matchingEngineVersion: string;
+  /** Deterministic snapshot of the selected invoice's line-item evidence. */
+  invoiceItemEvidenceSnapshot?: unknown;
 }
 
 /**
@@ -181,5 +186,6 @@ export async function computeMatchingInputHash(input: MatchingInputHashInput): P
     selectedInvoiceId: input.selectedInvoiceId,
     selectedInvoiceNumber: input.selectedInvoiceNumber,
     matchingEngineVersion: input.matchingEngineVersion,
+    invoiceItemEvidenceSnapshot: input.invoiceItemEvidenceSnapshot ?? null,
   });
 }

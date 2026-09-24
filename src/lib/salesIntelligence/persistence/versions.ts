@@ -12,8 +12,8 @@ export const ENGINE_VERSIONS = {
   historicalClosure: 'historical-closure-v1',
   commercialConfirmation: 'commercial-confirmation-v1',
   protocolApplicability: 'protocol-applicability-v1',
-  attribution: 'attribution-v4-selectable-transaction-link',
-  matching: 'matching-v1',
+  attribution: 'attribution-v5-line-item-evidence',
+  matching: 'matching-v2-line-item-evidence',
   policyEvaluation: 'policy-evaluation-v1',
 } as const;
 
