@@ -40,6 +40,7 @@ select
   count(distinct customer_id) filter (where customer_id is not null) as unique_customers
 from public.whatsapp_sales_opportunities_v17
 where product_id is null
+  and analysis_version='product-demand-v22'
 group by
   dawaa_cycle_start_26(coalesce(opened_at::date, created_at::date)),
   dawaa_cycle_end_25(coalesce(opened_at::date, created_at::date)),
