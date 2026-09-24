@@ -97,7 +97,7 @@ export default function SalesIntelligenceQACaseDetail() {
     return <div className="dawaa-empty-state py-16 text-center" dir="rtl">لم يتم العثور على هذه الحالة.</div>;
   }
 
-  const { persisted, conversation, siblingCases, transcript, liveEvidence, saleProof } = bundle;
+  const { persisted, conversation, siblingCases, transcript, liveEvidence, saleProof, catalogProductMatches } = bundle;
   const analysis = persisted.analysisRow;
   const attribution = persisted.attributionRow;
   const match = persisted.matchRow;
@@ -219,6 +219,40 @@ export default function SalesIntelligenceQACaseDetail() {
             </div>
             {activeBasket.announcedTotal ? <div className="dawaa-body mt-2 text-xs">الإجمالي المُعلن: {activeBasket.announcedTotal.amount}</div> : null}
           </>
+        )}
+      </Section>
+
+      <Section title="٣.ب. مطابقة أصناف المحادثة مع كتالوج الصيدلية">
+        <div className="dawaa-muted text-xs">
+          مطابقة قراءة فقط مع جدول المنتجات الفعلي. النتيجة هنا مرشح كتالوج وليست إثبات بيع؛ التأكيد النهائي سيعتمد على بيانات الفاتورة وبنودها عند توفرها.
+        </div>
+        {!catalogProductMatches.length ? (
+          <div className="dawaa-empty-state py-4 text-center">لم يظهر تطابق كتالوج من النص المتاح لهذه الحالة.</div>
+        ) : (
+          <div className="mt-2 overflow-x-auto">
+            <table className="min-w-full text-xs">
+              <thead>
+                <tr className="dawaa-muted border-b border-[var(--dawaa-theme-border)] text-right">
+                  {['النص في المحادثة', 'الصنف الفعلي', 'كود الصنف', 'السعر الحالي', 'قوة المطابقة'].map((h) => <th key={h} className="p-2">{h}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {catalogProductMatches.map((match) => (
+                  <tr key={`${match.sourceMessageId}:${match.productId}`} className="border-b border-[var(--dawaa-theme-border)]/60">
+                    <td className="max-w-[360px] p-2">{match.rawPhrase}</td>
+                    <td className="p-2 font-bold">{match.productName}</td>
+                    <td className="p-2 font-mono">{match.productCode}</td>
+                    <td className="p-2">{match.price == null ? '—' : `${match.price} ج.م`}</td>
+                    <td className="p-2">
+                      <span className={match.score >= 68 ? 'dawaa-badge dawaa-badge--success' : 'dawaa-badge dawaa-badge--warning'}>
+                        {match.label} • {match.score}%
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </Section>
 

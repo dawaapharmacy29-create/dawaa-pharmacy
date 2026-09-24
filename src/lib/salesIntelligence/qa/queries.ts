@@ -24,6 +24,7 @@ import { resolveCustomerDisplayIdentity } from './customerDisplayIdentity';
 import type { SalesIntelligenceCaseAnalysis } from '../types';
 import type { SaleProofAssessment } from '../saleProofState';
 import type { QaCaseListRow, QaListFilters } from './types';
+import { rankProductCandidates } from '../../productMatching';
 
 const MAX_LIST_ROWS = 2000;
 
@@ -349,6 +350,16 @@ export interface QaCaseDetailBundle {
    * candidates and would misrepresent the real, batch-computed attribution).
    */
   saleProof: SaleProofAssessment;
+  catalogProductMatches: Array<{
+    sourceMessageId: string;
+    rawPhrase: string;
+    productId: string;
+    productCode: string;
+    productName: string;
+    price: number | null;
+    score: number;
+    label: string;
+  }>;
 }
 
 export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Promise<QaCaseDetailBundle | null> {
@@ -492,6 +503,65 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
 
   const saleProof = deriveSaleProofStateFromPersisted(caseId, analysisRow, attributionRow ?? null, matchRow ?? null);
 
+  // Read-only catalog matching for reviewer visibility. This does NOT mutate Basket/SaleProof.
+  const catalogProductMatches: QaCaseDetailBundle['catalogProductMatches'] = [];
+  const seenProductIds = new Set<string>();
+  const productBearingMessages = transcript
+    .filter((message) => message.direction === 'inbound' && /[A-Za-z]{3,}/.test(message.text))
+    .slice(0, 8);
+
+  for (const message of productBearingMessages) {
+    const rawPhrase = message.text.replace(/^\s*\[Forwarded\]\s*/i, '').trim();
+    const tokens = rawPhrase
+      .toLowerCase()
+      .replace(/[^a-z0-9\u0600-\u06ff\s]/gi, ' ')
+      .split(/\s+/)
+      .filter((token) => token.length >= 3 && !['forwarded', 'for', 'skin', 'بديل', 'الغسول'].includes(token))
+      .slice(0, 5);
+    const candidateMap = new Map<string, any>();
+
+    for (const token of tokens.slice(0, 4)) {
+      const { data } = await supabaseClient
+        .from('products')
+        .select('id, product_code, name, price')
+        .ilike('normalized_name', `%${token}%`)
+        .limit(40);
+      for (const row of data ?? []) if (row?.id) candidateMap.set(String(row.id), row);
+    }
+
+    // Small spelling bridge for common joined brand words seen in WhatsApp (e.g. "teenderm" vs
+    // catalog "teen derm"). It only broadens candidate discovery; ranking still decides the match.
+    const joined = tokens.find((token) => token.length >= 7);
+    if (joined) {
+      const halves = [];
+      for (let i = 3; i <= joined.length - 3; i += 1) halves.push([joined.slice(0, i), joined.slice(i)]);
+      for (const [left, right] of halves.slice(0, 8)) {
+        const { data } = await supabaseClient
+          .from('products')
+          .select('id, product_code, name, price')
+          .ilike('normalized_name', `%${left}%`)
+          .ilike('normalized_name', `%${right}%`)
+          .limit(20);
+        for (const row of data ?? []) if (row?.id) candidateMap.set(String(row.id), row);
+      }
+    }
+
+    const ranked = rankProductCandidates({ name: rawPhrase }, Array.from(candidateMap.values()));
+    const best = ranked[0];
+    if (!best || best.score < 20 || !best.product.id || seenProductIds.has(String(best.product.id))) continue;
+    seenProductIds.add(String(best.product.id));
+    catalogProductMatches.push({
+      sourceMessageId: message.id,
+      rawPhrase,
+      productId: String(best.product.id),
+      productCode: String(best.product.product_code ?? ''),
+      productName: String(best.product.name ?? ''),
+      price: best.product.price == null ? null : Number(best.product.price),
+      score: best.score,
+      label: best.label,
+    });
+  }
+
   return {
     persisted: { caseRow: caseRow ?? null, analysisRow, attributionRow: attributionRow ?? null, matchRow: matchRow ?? null, policyEvaluationRow: policyEvaluationRow ?? null },
     conversation,
@@ -499,5 +569,6 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
     transcript,
     liveEvidence,
     saleProof,
+    catalogProductMatches,
   };
 }
