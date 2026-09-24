@@ -376,6 +376,23 @@ async function searchProductCandidates(raw: string): Promise<RawProductRow[]> {
     for (const row of data || []) byId.set(String(row.id), row as RawProductRow);
   }
 
+  // Joined-brand discovery: WhatsApp users often write catalog words without spaces
+  // ("teenderm" vs "teen derm"). Split only long tokens, and require BOTH halves in the
+  // catalog candidate row. This broadens retrieval but does not bypass resolver safety.
+  for (const token of tokens.filter((value) => value.length >= 7)) {
+    for (let i = 3; i <= token.length - 3; i += 1) {
+      const left = token.slice(0, i);
+      const right = token.slice(i);
+      const { data } = await supabase
+        .from('products')
+        .select('id,name,product_code,normalized_name,category,price,source')
+        .ilike('normalized_name', `%${left}%`)
+        .ilike('normalized_name', `%${right}%`)
+        .limit(40);
+      for (const row of data || []) byId.set(String(row.id), row as RawProductRow);
+    }
+  }
+
   // Then token-based discovery. This is only candidate retrieval; the canonical resolver decides.
   for (const token of tokens) {
     const { data } = await supabase
