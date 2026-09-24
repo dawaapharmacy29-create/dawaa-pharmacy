@@ -216,3 +216,36 @@ export const confidenceDisplayLabels: Record<string, string> = {
   weakly_inferred: 'ثقة محدودة',
   unknown: 'غير معروف',
 };
+
+
+export const evidenceCompletenessLabels: Record<string, string> = {
+  conversationAvailable: 'المحادثة الأصلية متاحة',
+  customerIdentityResolved: 'هوية العميل مرتبطة بسجل واضح',
+  caseSegmentationConfident: 'تقسيم المحادثة للحالة الحالية واضح',
+  basketDetected: 'تم رصد سلة/طلب',
+  finalBasketDetected: 'تم الوصول إلى سلة نهائية',
+  announcedTotalAvailable: 'يوجد إجمالي معلن داخل المحادثة',
+  customerConfirmationDetected: 'تم رصد تأكيد صريح من العميل',
+  staffConfirmationDetected: 'تم رصد تأكيد أو نية تنفيذ من الصيدلية',
+  invoiceCandidatesAvailable: 'توجد فواتير مرشحة داخل النطاق الزمني',
+  invoiceAttributed: 'تم إسناد فاتورة مرشحة للحالة',
+  invoiceItemsAvailable: 'أصناف الفاتورة متاحة للمطابقة',
+  fulfillmentEvidenceAvailable: 'يوجد دليل تنفيذ أو تسليم مستقل',
+};
+
+export const evidenceLevelLabels: Record<string, string> = {
+  high: 'تغطية أدلة مرتفعة',
+  medium: 'تغطية أدلة متوسطة',
+  low: 'تغطية أدلة محدودة',
+  insufficient: 'الأدلة غير كافية',
+};
+
+export const commercialConfirmationStateLabels: Record<string, string> = {
+  unknown: 'غير معروف',
+  basket_in_progress: 'الطلب ما زال في مرحلة تكوين السلة',
+  summary_presented: 'تم عرض ملخص الطلب',
+  awaiting_customer_confirmation: 'بانتظار تأكيد العميل',
+  customer_confirmed: 'العميل أكد الطلب',
+  commercial_confirmation_complete: 'اكتمل التأكيد التجاري',
+  rejected: 'العميل رفض أو ألغى الطلب',
+};
