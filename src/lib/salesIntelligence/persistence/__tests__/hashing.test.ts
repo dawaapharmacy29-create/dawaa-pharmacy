@@ -266,6 +266,50 @@ describe('Sales Intelligence Persistence — hashing edge cases', () => {
     expect(a).toBe(b);
   });
 
+  it('attributionInputHash changes when candidate line-item evidence changes', async () => {
+    const base = {
+      customerId: 'c1',
+      customerPhone: null,
+      candidateInvoiceIds: ['inv-1'],
+      branchNameRaw: 'فرع شكري',
+    };
+    const a = await computeAttributionInputHash({
+      ...base,
+      invoiceItemEvidenceSnapshot: [{ invoiceId: 'inv-1', items: 'unavailable' }],
+    });
+    const b = await computeAttributionInputHash({
+      ...base,
+      invoiceItemEvidenceSnapshot: [{
+        invoiceId: 'inv-1',
+        items: [{ productNameRaw: 'A', productId: 'p1', productCode: '1', quantity: 1, lineTotal: 10 }],
+      }],
+    });
+    expect(a).not.toBe(b);
+  });
+
+  it('matchingInputHash changes when selected invoice line items change', async () => {
+    const base = {
+      basketId: 'b1',
+      basketVersion: 1,
+      activeItems: [{ productNameRaw: 'A', quantity: 1 }],
+      selectedInvoiceId: 'inv-1',
+      selectedInvoiceNumber: '100',
+      matchingEngineVersion: 'matching-v2-line-item-evidence',
+    };
+    const a = await computeMatchingInputHash({
+      ...base,
+      invoiceItemEvidenceSnapshot: [{ invoiceId: 'inv-1', items: 'unavailable' }],
+    });
+    const b = await computeMatchingInputHash({
+      ...base,
+      invoiceItemEvidenceSnapshot: [{
+        invoiceId: 'inv-1',
+        items: [{ productNameRaw: 'A', productId: 'p1', quantity: 1, lineTotal: 10 }],
+      }],
+    });
+    expect(a).not.toBe(b);
+  });
+
   it('policyInputHash changes when the policy config id changes', async () => {
     const a = await computePolicyInputHash({ protocolApplicability: 'applicable', caseEndedAt: '2026-01-01T00:00:00.000Z', policyConfigId: 'p1' });
     const b = await computePolicyInputHash({ protocolApplicability: 'applicable', caseEndedAt: '2026-01-01T00:00:00.000Z', policyConfigId: 'p2' });
