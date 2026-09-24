@@ -21,7 +21,8 @@ export async function persistBasketInvoiceMatch(
   attributionRowId: string,
   /** The active basket's own items AT MATCH TIME — caller supplies these (e.g. from `analysis.itemsByBasketId[analysis.activeBasket?.basketId ?? '']`); this writer never re-derives them, only hashes them. */
   activeItems: MatchingInputHashItem[],
-  content: BasketInvoiceMatchRowContent
+  content: BasketInvoiceMatchRowContent,
+  invoiceItemEvidenceSnapshot: unknown = null
 ): Promise<PersistBasketInvoiceMatchResult> {
   const matchingInputHash = await computeMatchingInputHash({
     basketId: content.basketId,
@@ -30,6 +31,7 @@ export async function persistBasketInvoiceMatch(
     selectedInvoiceId: content.invoiceId,
     selectedInvoiceNumber: content.invoiceNumber,
     matchingEngineVersion: ENGINE_VERSIONS.matching,
+    invoiceItemEvidenceSnapshot,
   });
 
   const { data, error } = await supabaseClient.rpc('sales_intelligence_write_basket_invoice_match', {
