@@ -1,6 +1,9 @@
 import { supabase } from '@/lib/supabase';
 import type { WhatsAppConversationSession, WhatsAppParsedMessage } from './whatsappConversationParser';
 import type { UnifiedConversationIntelligence } from './whatsappUnifiedIntelligenceV4';
+import { buildCanonicalProduct, countNormalizedNames, type RawProductRow } from './salesIntelligence/pharmacyProducts/canonicalProduct';
+import { normalizePharmacyText } from './salesIntelligence/pharmacyProducts/pharmacyNormalization';
+import { buildPharmacyProductIndex, resolveProductMention } from './salesIntelligence/pharmacyProducts/pharmacyProductResolverV2';
 
 export type WhatsAppPrimaryIntent =
   | 'customer_request'
@@ -299,19 +302,60 @@ export function buildWhatsAppOperationalIntelligenceV6(session: WhatsAppConversa
   };
 }
 
+async function searchProductCandidates(raw: string): Promise<RawProductRow[]> {
+  const normalized = normalizePharmacyText(raw).normalized;
+  const tokens = normalized.split(/\s+/).filter((token) => token.length >= 3 && !/^\d+(?:\.\d+)?$/.test(token)).slice(0, 5);
+  const byId = new Map<string, RawProductRow>();
+
+  // Exact/near-exact name first.
+  const { data: exactRows } = await supabase
+    .from('products')
+    .select('id,name,product_code,normalized_name,category,price,source')
+    .ilike('normalized_name', `%${normalized}%`)
+    .limit(80);
+  for (const row of exactRows || []) byId.set(String(row.id), row as RawProductRow);
+
+  // Then token-based discovery. This is only candidate retrieval; the canonical resolver decides.
+  for (const token of tokens) {
+    const { data } = await supabase
+      .from('products')
+      .select('id,name,product_code,normalized_name,category,price,source')
+      .ilike('normalized_name', `%${token}%`)
+      .limit(120);
+    for (const row of data || []) byId.set(String(row.id), row as RawProductRow);
+  }
+
+  return [...byId.values()];
+}
+
 async function resolveProduct(product: WhatsAppProductSignal) {
   const raw = product.rawName.replace(/[,%()]/g, ' ').replace(/\s+/g, ' ').trim();
   if (raw.length < 2) return product;
-  const { data, error } = await supabase.from('products').select('id,name,product_code,normalized_name').ilike('name', `%${raw}%`).limit(8);
-  if (error || !data?.length) return product;
-  const key = normalize(raw);
-  const scored = data.map((row: any) => {
-    const name = normalize(row.normalized_name || row.name);
-    const score = name === key ? 100 : name.includes(key) || key.includes(name) ? 82 : 45;
-    return { row, score };
-  }).sort((a, b) => b.score - a.score);
-  if (scored[0]?.score < 80 || (scored[1] && scored[1].score === scored[0].score)) return product;
-  return { ...product, productId: String(scored[0].row.id), productCode: scored[0].row.product_code || null, canonicalName: scored[0].row.name || product.rawName, confidence: Math.min(98, Math.max(product.confidence, scored[0].score)) };
+
+  const rows = await searchProductCandidates(raw);
+  if (!rows.length) return product;
+
+  const counts = countNormalizedNames(rows);
+  const catalog = rows.map((row) => buildCanonicalProduct(row, counts, normalizePharmacyText));
+  const result = resolveProductMention(raw, buildPharmacyProductIndex(catalog));
+  const selected = result.selected;
+
+  if (!selected) return product;
+  return {
+    ...product,
+    productId: selected.product.productId,
+    productCode: selected.product.productCode,
+    canonicalName: selected.product.canonicalName,
+    confidence: Math.min(
+      98,
+      Math.max(
+        product.confidence,
+        selected.confidence === 'proven' ? 98 :
+        selected.confidence === 'strongly_inferred' ? 92 :
+        selected.confidence === 'weakly_inferred' ? 72 : product.confidence
+      )
+    ),
+  };
 }
 
 export async function enrichWhatsAppOperationalProductsV6(model: WhatsAppOperationalIntelligenceV6) {
