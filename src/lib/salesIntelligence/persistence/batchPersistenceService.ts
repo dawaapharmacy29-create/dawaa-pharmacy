@@ -41,7 +41,10 @@ import {
 } from './mappers';
 import { BRANCH_IDENTITY_MAPPING_VERSION, ENGINE_VERSIONS } from './versions';
 import { mergeDeniedInvoiceMaps, resolveExclusiveInvoiceClaims } from '../invoiceClaimResolution';
-import { fetchInvoiceItemEvidenceProvider } from '../invoiceItemEvidenceRepository';
+import {
+  fetchInvoiceItemEvidenceProvider,
+  snapshotInvoiceItemEvidence,
+} from '../invoiceItemEvidenceRepository';
 
 // ---------------------------------------------------------------------------
 // Input contract
@@ -617,11 +620,16 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
     // (a brand-new case can never have an existing dependent row).
     const effectiveAnalysisId = analysisPlan.currentAnalysisId;
 
+    const attributionItemSnapshot = snapshotInvoiceItemEvidence(
+      itemEvidenceProvider,
+      analysis.invoiceCandidateIds
+    );
     const attributionInputHash = await computeAttributionInputHash({
       customerId: conversationCase.customerId,
       customerPhone: conversationCase.customerPhone,
       candidateInvoiceIds: analysis.invoiceCandidateIds,
       branchNameRaw: conversationCase.branchNameRaw,
+      invoiceItemEvidenceSnapshot: attributionItemSnapshot,
     });
     let currentAttributionRowId: string | null = null;
     if (effectiveAnalysisId) {
@@ -646,13 +654,20 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
     else plan.attributionsToInsert.push(planAttributionEntry);
 
     const activeItems = analysis.activeBasket ? (analysis.itemsByBasketId[analysis.activeBasket.basketId] ?? []) : [];
+    const selectedInvoiceItemSnapshot = analysis.basketInvoiceMatch.invoiceId
+      ? snapshotInvoiceItemEvidence(itemEvidenceProvider, [analysis.basketInvoiceMatch.invoiceId])
+      : [];
     const matchingInputHash = await computeMatchingInputHash({
       basketId: analysis.basketInvoiceMatch.basketId,
       basketVersion: analysis.basketInvoiceMatch.basketVersion,
-      activeItems: activeItems.map((item) => ({ productNameRaw: item.productNameRaw, quantity: item.quantity })),
+      activeItems: activeItems.map((item) => ({
+        productNameRaw: item.productNameRaw,
+        quantity: item.quantity,
+      })),
       selectedInvoiceId: analysis.basketInvoiceMatch.invoiceId,
       selectedInvoiceNumber: analysis.basketInvoiceMatch.invoiceNumber,
       matchingEngineVersion: ENGINE_VERSIONS.matching,
+      invoiceItemEvidenceSnapshot: selectedInvoiceItemSnapshot,
     });
     let currentMatchRowId: string | null = null;
     if (effectiveAnalysisId) {
