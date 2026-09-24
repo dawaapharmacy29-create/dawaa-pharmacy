@@ -129,6 +129,22 @@ describe('rich WhatsApp markdown export', () => {
 
 
 describe('trusted TXT absolute timeline', () => {
+  it('reproduces the real 15-Sep Dawaa timeline without a +3h server shift', () => {
+    const raw = `[9/15/26, 9:46:45 AM] اليماني حسين حسن 4250: [Forwarded] <image omitted>
+[9/15/26, 9:47:41 AM] You: جاري الارسال
+[9/15/26, 6:14:37 PM] You: مساء الخير يا فندم
+[9/15/26, 6:19:01 PM] اليماني حسين حسن 4250: مساء الفل`;
+    const messages = parseWhatsAppExport(raw, {
+      trustedConversationStartedAt: '2026-09-15T06:46:45.000Z',
+    });
+    expect(messages).toHaveLength(4);
+    expect(messages[0].timestamp.toISOString()).toBe('2026-09-15T06:46:45.000Z');
+    expect(messages[1].timestamp.toISOString()).toBe('2026-09-15T06:47:41.000Z');
+    expect(messages[2].timestamp.toISOString()).toBe('2026-09-15T15:14:37.000Z');
+    expect(messages[3].timestamp.toISOString()).toBe('2026-09-15T15:19:01.000Z');
+  });
+
+
   it('anchors explicit-date TXT to persisted conversation_started_at and preserves raw clock deltas', () => {
     const raw = `[9/15/26, 9:30:55 PM] محمد الكموني17777: Isis teenderm gel for sensitive skin
 [9/15/26, 9:42:57 PM] You: من عنيا لحضرتك
