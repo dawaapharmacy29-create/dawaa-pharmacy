@@ -461,7 +461,20 @@ export async function syncWhatsAppOperationalActionsV6(model: WhatsAppOperationa
     actions.push({ action_key: 'manual-review', action_type: 'manual_review', status: 'proposed', confidence: Math.min(model.intentConfidence, model.outcomeConfidence), auto_eligible: false, due_at: null, reason: 'السياق أو هوية الدكتور لا يكفيان لاعتماد تقييم رسمي آليًا.', evidence: [], payload: { primaryIntent: model.primaryIntent, operationalOutcome: model.operationalOutcome } });
   }
   if (!actions.length) return [];
-  const rows = actions.map((a) => ({ ...a, source_id: context.sourceId, branch: context.branch || null, customer_id: context.customerId || null, customer_code: context.customerCode || null, customer_name: context.customerName || null, customer_phone: context.customerPhone || null, staff_id: context.staffId || null, staff_name: context.staffName || null, created_by: context.createdBy || null, updated_at: new Date().toISOString() }));
+  const rows = actions.map((a) => ({
+    ...a,
+    confidence: Number.isFinite(Number(a.confidence)) ? Math.max(0, Math.min(100, Number(a.confidence))) : 0,
+    source_id: context.sourceId,
+    branch: context.branch || null,
+    customer_id: context.customerId || null,
+    customer_code: context.customerCode || null,
+    customer_name: context.customerName || null,
+    customer_phone: context.customerPhone || null,
+    staff_id: context.staffId || null,
+    staff_name: context.staffName || null,
+    created_by: context.createdBy || null,
+    updated_at: new Date().toISOString(),
+  }));
   const { data, error } = await supabase.from('whatsapp_conversation_actions').upsert(rows, { onConflict: 'source_id,action_key', ignoreDuplicates: false }).select('id,action_key,action_type,status,target_table,target_id');
   if (error) throw error;
   return data || [];
