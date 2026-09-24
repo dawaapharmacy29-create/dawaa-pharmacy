@@ -57,6 +57,7 @@ export default function ProductDemandLeakageV22() {
   const [error, setError] = useState<string | null>(null);
   const [backfillRunning, setBackfillRunning] = useState(false);
   const [backfillMessage, setBackfillMessage] = useState<string | null>(null);
+  const [branchFilter, setBranchFilter] = useState<'all' | string>('all');
 
   async function load() {
     setLoading(true);
@@ -116,9 +117,22 @@ export default function ProductDemandLeakageV22() {
     return values[0] || null;
   }, [demand, leakage, unresolved]);
 
-  const cycleDemand = useMemo(() => demand.filter((r) => !latestCycle || r.cycle_start === latestCycle), [demand, latestCycle]);
-  const cycleLeakage = useMemo(() => leakage.filter((r) => !latestCycle || r.cycle_start === latestCycle), [leakage, latestCycle]);
-  const cycleUnresolved = useMemo(() => unresolved.filter((r) => !latestCycle || r.cycle_start === latestCycle), [unresolved, latestCycle]);
+  const branches = useMemo(
+    () => Array.from(new Set([...demand, ...leakage, ...unresolved].map((row) => row.branch).filter(Boolean))) as string[],
+    [demand, leakage, unresolved]
+  );
+  const cycleDemand = useMemo(
+    () => demand.filter((r) => (!latestCycle || r.cycle_start === latestCycle) && (branchFilter === 'all' || r.branch === branchFilter)),
+    [demand, latestCycle, branchFilter]
+  );
+  const cycleLeakage = useMemo(
+    () => leakage.filter((r) => (!latestCycle || r.cycle_start === latestCycle) && (branchFilter === 'all' || r.branch === branchFilter)),
+    [leakage, latestCycle, branchFilter]
+  );
+  const cycleUnresolved = useMemo(
+    () => unresolved.filter((r) => (!latestCycle || r.cycle_start === latestCycle) && (branchFilter === 'all' || r.branch === branchFilter)),
+    [unresolved, latestCycle, branchFilter]
+  );
 
   const totals = useMemo(() => ({
     demand: cycleDemand.reduce((sum, row) => sum + Number(row.inquiry_opportunities || 0), 0),
@@ -153,6 +167,16 @@ export default function ProductDemandLeakageV22() {
 
       {error ? <div className="dawaa-alert dawaa-alert--danger mt-3 text-xs">{error}</div> : null}
       {backfillMessage ? <div className="dawaa-alert dawaa-alert--info mt-3 text-xs">{backfillMessage}</div> : null}
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <span className="dawaa-muted text-xs">الفرع:</span>
+        <button type="button" onClick={() => setBranchFilter('all')} className={branchFilter === 'all' ? 'dawaa-badge dawaa-badge--info' : 'dawaa-button dawaa-button--ghost text-xs'}>كل الفروع</button>
+        {branches.map((branch) => (
+          <button key={branch} type="button" onClick={() => setBranchFilter(branch)} className={branchFilter === branch ? 'dawaa-badge dawaa-badge--info' : 'dawaa-button dawaa-button--ghost text-xs'}>
+            {branch}
+          </button>
+        ))}
+      </div>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-2xl border border-[var(--dawaa-theme-border)] p-3">
