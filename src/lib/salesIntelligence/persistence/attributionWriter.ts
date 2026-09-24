@@ -21,6 +21,8 @@ export interface AttributionInputContext {
   /** The candidate invoice id set actually offered to the attribution engine for this case — see computeAttributionInputHash's own doc comment on why order doesn't matter. */
   candidateInvoiceIds: string[];
   branchNameRaw: string | null;
+  activeBasketItems?: Array<{ productNameRaw: string; productId?: string | null; quantity: number | null }>;
+  invoiceItemEvidenceSnapshot?: unknown;
 }
 
 export async function persistAttribution(
