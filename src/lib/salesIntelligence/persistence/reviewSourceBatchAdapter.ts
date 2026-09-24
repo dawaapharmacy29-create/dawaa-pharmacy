@@ -11,6 +11,7 @@
 // never sufficient. legacyMatchedInvoiceId/legacyMatchedInvoiceNumber (evidence-only, pre-existing)
 // are left completely unchanged.
 import { resolveTrustedInvoiceEvidenceFromReviewSource } from '../trustedInvoiceEvidenceBridge';
+import { extractTrailingCustomerCodeFromDisplayName, normalizeDawaaCustomerCode } from '../../customers/customerIdentity';
 import type { BatchConversationInput } from './batchPersistenceService';
 
 export interface WhatsAppReviewSourceBatchRow {
@@ -19,6 +20,8 @@ export interface WhatsAppReviewSourceBatchRow {
   conversation_started_at: string | null;
   customer_id?: string | null;
   customer_phone?: string | null;
+  customer_name?: string | null;
+  customer_code?: string | null;
   branch?: string | null;
   matched_invoice_id?: string | null;
   matched_invoice_number?: string | null;
@@ -53,6 +56,11 @@ export function reviewSourceRowToBatchConversation(
     trustedConversationStartedAt: row.conversation_started_at ?? null,
     customerIdHint: row.customer_id ?? null,
     customerPhoneHint: row.customer_phone ?? null,
+    customerNameHint: row.customer_name ?? null,
+    customerCodeHint:
+      normalizeDawaaCustomerCode(row.customer_code) ||
+      extractTrailingCustomerCodeFromDisplayName(row.customer_name) ||
+      null,
     branchNameRawHint: row.branch ?? null,
     legacyMatchedInvoiceId: row.matched_invoice_id ?? null,
     legacyMatchedInvoiceNumber: row.matched_invoice_number ?? null,
