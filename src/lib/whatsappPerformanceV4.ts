@@ -88,7 +88,11 @@ function profile(items: WhatsAppPerformanceItem[], dimension: 'branch' | 'doctor
 function group(items: WhatsAppPerformanceItem[], dimension: 'branch' | 'doctor') {
   const grouped = new Map<string, WhatsAppPerformanceItem[]>();
   for (const item of items) {
-    const label = normalize(dimension === 'branch' ? item.branch : (item.staffName || item.session.outboundStaffNames[0]));
+    const doctorLabel =
+      item.staffName ||
+      (item.session.outboundStaffNames.length === 1 ? item.session.outboundStaffNames[0] : null) ||
+      'غير محسوم';
+    const label = normalize(dimension === 'branch' ? item.branch : doctorLabel);
     grouped.set(label, [...(grouped.get(label) || []), item]);
   }
   return [...grouped.entries()].map(([label, rows]) => profile(rows, dimension, label, label));
