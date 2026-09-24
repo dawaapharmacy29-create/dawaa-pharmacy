@@ -89,6 +89,33 @@ type OperationsHealth = {
   alerts?: SyncAlert[];
 };
 
+type SyncHealthV4Branch = {
+  branch: string;
+  provider: string;
+  connection_status: string;
+  data_status: string;
+  watermark_lag_minutes: number | null;
+  client_last_seen_at: string | null;
+  endpoint_last_success_at: string | null;
+  watermark_complete_through: string | null;
+};
+
+type SyncHealthV4 = {
+  sync_status: string;
+  last_ingested_at: string | null;
+  last_punch_time: string | null;
+  client_last_seen_at: string | null;
+  endpoint_last_request_at: string | null;
+  endpoint_last_success_at: string | null;
+  watermark_complete_through: string | null;
+  watermark_reported_at: string | null;
+  events_last_24h: number;
+  events_last_hour: number;
+  mapped_events: number;
+  unmapped_events: number;
+  branch_breakdown: SyncHealthV4Branch[];
+};
+
 type BiometricEvent = {
   id: string;
   provider: string | null;
@@ -202,6 +229,7 @@ function intelMeta(status: string) {
 
 export default function AttendanceSyncCommandCenter({ branches, defaultBranch = 'الكل' }: Props) {
   const [health, setHealth] = useState<OperationsHealth | null>(null);
+  const [syncHealthV4, setSyncHealthV4] = useState<SyncHealthV4 | null>(null);
   const [events, setEvents] = useState<BiometricEvent[]>([]);
   const [intel, setIntel] = useState<DailyIntelRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -240,12 +268,20 @@ export default function AttendanceSyncCommandCenter({ branches, defaultBranch = 
   const loadOverview = useCallback(async () => {
     setLoading(true);
     try {
-      const { data, error: e } = await supabase.rpc('attendance_biometric_operations_v3');
-      if (e) throw e;
-      setHealth((data || {}) as OperationsHealth);
+      const [operationsResult, syncHealthResult] = await Promise.all([
+        supabase.rpc('attendance_biometric_operations_v3'),
+        supabase.rpc('attendance_sync_health_v4', {
+          p_start: cycleStartFor(today),
+          p_end: today,
+        }),
+      ]);
+      if (operationsResult.error) throw operationsResult.error;
+      if (syncHealthResult.error) throw syncHealthResult.error;
+      setHealth((operationsResult.data || {}) as OperationsHealth);
+      setSyncHealthV4((syncHealthResult.data || {}) as SyncHealthV4);
     } catch (e) { setError(e instanceof Error ? e.message : 'تعذر تحميل حالة البصمة'); }
     finally { setLoading(false); }
-  }, []);
+  }, [today]);
 
   const loadIntel = useCallback(async () => {
     setIntelLoading(true);
@@ -286,8 +322,14 @@ export default function AttendanceSyncCommandCenter({ branches, defaultBranch = 
   }, [loadOverview, loadIntel]);
   useEffect(() => { setPage(0); }, [branch, eventEnd, eventStart, mapping, search]);
 
-  const meta = statusMeta(health?.status);
+  const meta = statusMeta(syncHealthV4?.sync_status || health?.status);
   const StatusIcon = meta.icon;
+  const v4WatermarkLag = useMemo(() => {
+    const values = (syncHealthV4?.branch_breakdown || [])
+      .map((row) => row.watermark_lag_minutes)
+      .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+    return values.length ? Math.max(...values) : null;
+  }, [syncHealthV4]);
 
   return <div className="space-y-5">
     <section className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-5 shadow-sm">
@@ -299,11 +341,11 @@ export default function AttendanceSyncCommandCenter({ branches, defaultBranch = 
     </section>
 
     <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-8">
-      <Metric icon={Wifi} label="الاتصال" value={meta.label} hint={`تأخير ${formatLagMinutes(health?.lag_minutes)}`} tone={health?.status === 'healthy' ? 'ok' : 'warn'}/>
-      <Metric icon={Clock} label="آخر اتصال" value={formatDateTime(health?.latest_activity_at)} hint={clients.find(c => c.status === 'healthy')?.name || '-'}/>
-      <Metric icon={Fingerprint} label="آخر بصمة" value={formatDateTime(health?.latest_punch_time)} hint="وقت الجهاز"/>
-      <Metric icon={Server} label="آخر رفع" value={formatDateTime(health?.latest_ingested_at)} hint="وصول Supabase"/>
-      <Metric icon={Gauge} label="اكتمال المزامنة" value={formatDateTime(health?.latest_complete_through)} hint={`فجوة ${formatLagMinutes(watermark?.coverage_lag_minutes)}`}/>
+      <Metric icon={Wifi} label="الاتصال" value={meta.label} hint="Heartbeat مستقل عن وجود بصمات جديدة" tone={syncHealthV4?.sync_status === 'healthy' ? 'ok' : 'warn'}/>
+      <Metric icon={Clock} label="آخر اتصال" value={formatDateTime(syncHealthV4?.endpoint_last_success_at || syncHealthV4?.client_last_seen_at || health?.latest_activity_at)} hint={clients.find(c => c.status === 'healthy')?.name || '-'}/>
+      <Metric icon={Fingerprint} label="آخر بصمة" value={formatDateTime(syncHealthV4?.last_punch_time || health?.latest_punch_time)} hint="وقت الجهاز"/>
+      <Metric icon={Server} label="آخر رفع" value={formatDateTime(syncHealthV4?.last_ingested_at || health?.latest_ingested_at)} hint="وصول Supabase"/>
+      <Metric icon={Gauge} label="اكتمال المزامنة" value={formatDateTime(syncHealthV4?.watermark_complete_through || health?.latest_complete_through)} hint={`فجوة ${formatLagMinutes(v4WatermarkLag ?? watermark?.coverage_lag_minutes)}`}/>
       <Metric icon={Activity} label="بصمات اليوم" value={Number(health?.events_today || 0).toLocaleString('ar-EG')} hint={`${Number(health?.events_last_hour || 0)} آخر ساعة`}/>
       <Metric icon={CheckCircle2} label="نسبة الربط" value={`${mappedRatio}%`} hint={`${Number(health?.unmapped_24h || 0)} غير مربوط`} tone={Number(health?.unmapped_24h || 0) ? 'warn' : 'ok'}/>
       <Metric icon={Users} label="موظفون نشطون" value={Number(health?.distinct_staff_24h || 0).toLocaleString('ar-EG')} hint="خلال 24 ساعة"/>
