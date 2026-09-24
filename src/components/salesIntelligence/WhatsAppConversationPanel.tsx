@@ -97,8 +97,8 @@ export function WhatsAppConversationPanel({ messages, customerName, customerCode
         <MoreVertical size={19} className="text-[#aebac1]" />
       </div>
 
-      <div className="border-b border-white/5 bg-[#111b21] px-3 py-1.5 text-center text-[10px] text-[#8696a0]" dir="rtl">
-        المحادثة الأصلية كاملة • الجزء الحالي مميز بوضوح، والرسائل خارج حدوده باهتة فقط للحفاظ على السياق
+      <div className="border-b border-white/5 bg-[#111b21] px-3 py-1.5 text-center text-[10px] text-[#aebac1]" dir="rtl">
+        المحادثة الأصلية كاملة • كل الرسائل ظاهرة بوضوح، ورسائل الجزء الحالي فقط عليها تمييز أخضر خفيف
       </div>
 
       <div
@@ -127,7 +127,7 @@ export function WhatsAppConversationPanel({ messages, customerName, customerCode
             return (
               <div key={message.id}>
                 {separator}
-                <div className={inside ? 'my-2 text-center' : 'my-2 text-center opacity-35'}>
+                <div className="my-2 text-center">
                   <span className="inline-block max-w-[90%] rounded-lg bg-[#182229] px-3 py-1.5 text-[10px] leading-5 text-[#8696a0]" dir="rtl">
                     {message.text || `[${message.kind}]`}
                   </span>
@@ -141,13 +141,13 @@ export function WhatsAppConversationPanel({ messages, customerName, customerCode
           return (
             <div key={message.id}>
               {separator}
-              <div className={`flex ${outbound ? 'justify-end' : 'justify-start'} ${sameSender ? 'mt-0.5' : 'mt-2'} ${inside ? '' : 'opacity-30'}`}>
+              <div className={`flex ${outbound ? 'justify-end' : 'justify-start'} ${sameSender ? 'mt-0.5' : 'mt-2'}`}>
                 <div
                   className={`relative max-w-[88%] px-2.5 pb-1.5 pt-1.5 text-[13px] leading-[1.45rem] text-[#e9edef] shadow-sm sm:max-w-[72%] ${
                     outbound
                       ? `bg-[#005c4b] ${sameSender ? 'rounded-lg' : 'rounded-lg rounded-tr-sm'}`
                       : `bg-[#202c33] ${sameSender ? 'rounded-lg' : 'rounded-lg rounded-tl-sm'}`
-                  }`}
+                  } ${inside ? 'ring-1 ring-[#00a884]/80' : ''}`}
                   dir="rtl"
                 >
                   {!sameSender && sender ? <div className="mb-0.5 text-[10px] font-semibold text-[#53bdeb]">{sender}</div> : null}
@@ -158,7 +158,7 @@ export function WhatsAppConversationPanel({ messages, customerName, customerCode
                     <span>{clock(message.timestamp)}</span>
                     {outbound ? <CheckCheck size={13} className="text-[#53bdeb]" /> : null}
                   </div>
-                  {inside && !sameSender ? (
+                  {!sameSender ? (
                     <span className={`absolute top-0 h-2.5 w-2.5 rotate-45 ${outbound ? '-right-1 bg-[#005c4b]' : '-left-1 bg-[#202c33]'}`} aria-hidden />
                   ) : null}
                 </div>

@@ -409,11 +409,43 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
         }
       }
 
-      const displayIdentity = resolveCustomerDisplayIdentity({
+      // The export itself often carries a concatenated identity such as "محمد الكموني17777".
+      // Resolve that first; if the source/customer_id snapshot still lacks a phone, use the
+      // resolved Dawaa customer code as a deterministic display-only lookup into customers.
+      let displayIdentity = resolveCustomerDisplayIdentity({
         sourceName: customerName,
         sourceCode: customerCode,
         sourcePhone: customerPhone,
       });
+
+      if (!displayIdentity.phone && displayIdentity.code) {
+        const { data: byCustomerCode } = await supabaseClient
+          .from('customers')
+          .select('name, customer_name, customer_code, code, phone, customer_phone, mobile, whatsapp')
+          .eq('customer_code', displayIdentity.code)
+          .limit(2);
+        let matchedCustomer = Array.isArray(byCustomerCode) && byCustomerCode.length === 1 ? byCustomerCode[0] : null;
+
+        if (!matchedCustomer) {
+          const { data: byLegacyCode } = await supabaseClient
+            .from('customers')
+            .select('name, customer_name, customer_code, code, phone, customer_phone, mobile, whatsapp')
+            .eq('code', displayIdentity.code)
+            .limit(2);
+          matchedCustomer = Array.isArray(byLegacyCode) && byLegacyCode.length === 1 ? byLegacyCode[0] : null;
+        }
+
+        if (matchedCustomer) {
+          displayIdentity = resolveCustomerDisplayIdentity({
+            sourceName: displayIdentity.name,
+            sourceCode: displayIdentity.code,
+            sourcePhone: displayIdentity.phone,
+            fallbackName: matchedCustomer.name ?? matchedCustomer.customer_name ?? null,
+            fallbackCode: matchedCustomer.customer_code ?? matchedCustomer.code ?? null,
+            fallbackPhone: matchedCustomer.customer_phone ?? matchedCustomer.phone ?? matchedCustomer.mobile ?? matchedCustomer.whatsapp ?? null,
+          });
+        }
+      }
 
       conversation = {
         id: conversationRow.id,

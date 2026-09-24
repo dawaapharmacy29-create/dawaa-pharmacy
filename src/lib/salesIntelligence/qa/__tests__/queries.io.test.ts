@@ -46,6 +46,23 @@ describe('fetchQaCaseList (I/O wrapper)', () => {
 });
 
 describe('fetchQaCaseDetail (I/O wrapper)', () => {
+  it('can enrich a source identity from the customers table when the exported name carries the code', async () => {
+    const client = fakeSupabase({
+      sales_intelligence_cases: { data: { case_id: 'case-1', conversation_id: 'conv-1', customer_id: null, customer_phone: null }, error: null },
+      sales_intelligence_current_case_analyses: { data: { analysis_id: 'a1', case_id: 'case-1', attribution_level: 'unknown', integrity_evaluation_scope: 'insufficient', needs_human_review: false }, error: null },
+      sales_intelligence_current_attributions: { data: null, error: null },
+      sales_intelligence_basket_invoice_matches: { data: null, error: null },
+      sales_intelligence_current_policy_evaluations: { data: null, error: null },
+      whatsapp_review_sources: { data: { id: 'conv-1', raw_text: '[9:00 AM] محمد الكموني17777: مساء الخير', branch: 'فرع شكري', conversation_started_at: '2026-09-24T06:00:00.000Z', conversation_ended_at: '2026-09-24T06:05:00.000Z', customer_id: null, customer_name: 'محمد الكموني17777', customer_code: null, customer_phone: null }, error: null },
+      customers: { data: [{ name: 'م محمد الكموني vip %', customer_code: '17777', phone: '01000365139' }], error: null },
+    });
+    const result = await fetchQaCaseDetail(client, 'case-1');
+    expect(result?.conversation?.customerName).toBe('محمد الكموني');
+    expect(result?.conversation?.customerCode).toBe('17777');
+    expect(result?.conversation?.customerPhone).toBe('01000365139');
+    expect(client.from).toHaveBeenCalledWith('customers');
+  });
+
   it('returns null when no current analysis exists for the case id (never throws)', async () => {
     const client = fakeSupabase({
       sales_intelligence_cases: { data: null, error: null },
