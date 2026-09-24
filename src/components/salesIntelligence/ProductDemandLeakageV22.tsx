@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { BarChart3, Boxes, CircleAlert, RefreshCw, TrendingUp } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { runProductDemandBackfillV22 } from '@/lib/whatsappProductDemandBackfillV22';
 
 type DemandRow = {
   cycle_start: string;
@@ -54,6 +55,8 @@ export default function ProductDemandLeakageV22() {
   const [unresolved, setUnresolved] = useState<UnresolvedRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [backfillRunning, setBackfillRunning] = useState(false);
+  const [backfillMessage, setBackfillMessage] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -76,6 +79,37 @@ export default function ProductDemandLeakageV22() {
   }
 
   useEffect(() => { void load(); }, []);
+
+  async function previewBackfill() {
+    setBackfillRunning(true);
+    setBackfillMessage(null);
+    try {
+      const result = await runProductDemandBackfillV22({ limit: 20, dryRun: true });
+      setBackfillMessage(
+        `معاينة آمنة: ${result.scanned} محادثة • ${result.canonicalProducts} صنف مرتبط بالكتالوج • ${result.unresolvedProducts} عبارة غير محسومة • أخطاء ${result.failed}`
+      );
+    } catch (cause) {
+      setBackfillMessage(cause instanceof Error ? cause.message : 'تعذرت معاينة إعادة التحليل.');
+    } finally {
+      setBackfillRunning(false);
+    }
+  }
+
+  async function executeBackfill() {
+    setBackfillRunning(true);
+    setBackfillMessage(null);
+    try {
+      const result = await runProductDemandBackfillV22({ limit: 20, dryRun: false });
+      setBackfillMessage(
+        `تمت إعادة التحليل: ${result.written} محادثة • ${result.canonicalProducts} صنف مرتبط بالكتالوج • ${result.unresolvedProducts} عبارة غير محسومة • أخطاء ${result.failed}`
+      );
+      await load();
+    } catch (cause) {
+      setBackfillMessage(cause instanceof Error ? cause.message : 'تعذر تنفيذ إعادة التحليل.');
+    } finally {
+      setBackfillRunning(false);
+    }
+  }
 
   const latestCycle = useMemo(() => {
     const values = [...demand, ...leakage, ...unresolved].map((row) => row.cycle_start).filter(Boolean).sort().reverse();
@@ -103,12 +137,22 @@ export default function ProductDemandLeakageV22() {
           </div>
           {latestCycle ? <div className="dawaa-muted mt-1 text-[11px]">الدورة: {latestCycle} → {cycleDemand[0]?.cycle_end || cycleLeakage[0]?.cycle_end || '—'}</div> : null}
         </div>
-        <button type="button" onClick={() => void load()} disabled={loading} className="dawaa-button dawaa-button--secondary text-xs">
-          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> تحديث
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => void previewBackfill()} disabled={backfillRunning} className="dawaa-button dawaa-button--ghost text-xs">
+            معاينة إعادة تحليل ٢٠ محادثة
+          </button>
+          <button type="button" onClick={() => void executeBackfill()} disabled={backfillRunning} className="dawaa-button dawaa-button--secondary text-xs">
+            {backfillRunning ? <RefreshCw size={14} className="animate-spin" /> : null}
+            إعادة تحليل ٢٠ محادثة
+          </button>
+          <button type="button" onClick={() => void load()} disabled={loading} className="dawaa-button dawaa-button--secondary text-xs">
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> تحديث
+          </button>
+        </div>
       </div>
 
       {error ? <div className="dawaa-alert dawaa-alert--danger mt-3 text-xs">{error}</div> : null}
+      {backfillMessage ? <div className="dawaa-alert dawaa-alert--info mt-3 text-xs">{backfillMessage}</div> : null}
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-2xl border border-[var(--dawaa-theme-border)] p-3">
