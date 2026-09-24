@@ -2002,14 +2002,15 @@ export default function Invoices() {
                     داخل Sheet: <b>{invoiceItemsParseResult.detectedSheets.join('، ')}</b>.
                   </div>
                   <div>
-                    بعد حفظ الفواتير سيتم حفظ البنود وربطها برقم الفاتورة + الفرع، ثم استخدامها
-                    في مطابقة الصنف والكمية داخل Sales Intelligence.
+                    بعد حفظ الفواتير سيتم حفظ البنود وربطها بالفاتورة والمنتج بشكل canonical قدر
+                    الإمكان. هذه البنود Evidence للتحليل؛ لا تتحول إلى بيع مثبت إلا بعد اجتياز
+                    Sales Intelligence لقواعد إسناد الفاتورة ومطابقة السلة.
                   </div>
                   {invoiceItemsImportResult ? (
                     <div className="font-bold text-emerald-300">
                       حُفظ: {invoiceItemsImportResult.saved.toLocaleString('ar-EG')} • فشل:{' '}
-                      {invoiceItemsImportResult.failed.toLocaleString('ar-EG')} • ربط Product Proof:{' '}
-                      {invoiceItemsImportResult.reconciledProductConversions.toLocaleString('ar-EG')}
+                      {invoiceItemsImportResult.failed.toLocaleString('ar-EG')} • بنود متاحة للتحليل:{' '}
+                      {invoiceItemsImportResult.canonicalEvidenceRows.toLocaleString('ar-EG')}
                     </div>
                   ) : null}
                 </div>
