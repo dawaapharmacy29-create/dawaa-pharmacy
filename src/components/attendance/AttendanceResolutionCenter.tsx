@@ -402,6 +402,13 @@ export default function AttendanceResolutionCenter({
     }
   }, [bulkDecision, commonBulkDecisions]);
 
+  useEffect(() => {
+    setSelectedRowIds(new Set());
+    setBulkDecision('');
+    setBulkNote('');
+    setBulkMultiplier('');
+  }, [branch, categoryTab, end, lane, missingPunchTab, showFormer, start]);
+
   const totals = useMemo(() => ({
     total: visibleRows.length,
     manager: visibleRows.filter((row) => row.queue_lane === 'manager').length,
@@ -991,7 +998,7 @@ export default function AttendanceResolutionCenter({
             </tr>
           </thead>
           <tbody>
-            {!directoryLoading && visibleRows.map((row) => {
+            {!directoryLoading && displayRows.map((row) => {
               const meta = laneMeta(row.queue_lane);
               return (
                 <tr key={row.id} className={`border-b border-[var(--dawaa-theme-border)]/60 last:border-0 ${selectedRowIds.has(row.id) ? 'bg-[var(--dawaa-theme-primary-soft)]/30' : ''}`}>
