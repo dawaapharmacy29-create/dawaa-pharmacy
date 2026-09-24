@@ -45,6 +45,7 @@ import {
   fetchInvoiceItemEvidenceProvider,
   snapshotInvoiceItemEvidence,
 } from '../invoiceItemEvidenceRepository';
+import { fetchPharmacyProductIndex } from '../pharmacyProductCatalogRepository';
 
 // ---------------------------------------------------------------------------
 // Input contract
@@ -447,6 +448,7 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
   const candidateInvoicesEvaluated = Array.from(candidatesByGroupKey.values()).reduce((sum, rows) => sum + rows.length, 0);
   const allCandidateInvoices = Array.from(candidatesByGroupKey.values()).flat();
   const itemEvidenceProvider = await fetchInvoiceItemEvidenceProvider(supabaseClient, allCandidateInvoices);
+  const productIndex = await fetchPharmacyProductIndex(supabaseClient);
 
   // Step 3: PASS 1 — run the pure pipeline per conversation against its group's shared candidate
   // pool with no competing-selection input, to learn each case's own selectedInvoiceId.
@@ -483,6 +485,7 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
       competingSelections: [],
       resolveInvoiceCandidates: (context) => conversationToGroupCandidates(conversation, context),
       itemEvidenceProvider,
+      productIndex,
     };
     const result = runSalesIntelligencePipeline(pipelineInput);
     pass1ByConversation.set(conversation.conversationId, result.caseAnalyses);
@@ -526,6 +529,7 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
           return denied?.size ? rows.filter((row) => !denied.has(invoiceRowLookupId(row))) : rows;
         },
         itemEvidenceProvider,
+        productIndex,
       };
       analyses.push(...runSalesIntelligencePipeline(pipelineInput).caseAnalyses);
     }
