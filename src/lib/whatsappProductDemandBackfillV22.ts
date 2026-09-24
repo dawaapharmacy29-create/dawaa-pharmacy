@@ -8,6 +8,10 @@ import {
 } from '@/lib/whatsappOperationalIntelligenceV6';
 import { enrichWhatsAppOperationalJourneysV7 } from '@/lib/whatsappProductJourneyV7';
 import { syncWhatsAppEvidenceLedgerV17 } from '@/lib/whatsappEvidenceLedgerV17';
+import {
+  collectPriorCanonicalProductCodesV22,
+  findDroppedPriorCanonicalCodesV22,
+} from '@/lib/whatsappProductDemandBackfillQualityGateV22';
 
 export interface ProductDemandBackfillOptionsV22 {
   limit?: number;
@@ -169,8 +173,11 @@ export async function runProductDemandBackfillV22(
         .in('analysis_version', ['product-demand-v22', 'product-demand-v22.1'])
         .not('product_id', 'is', null);
       if (priorError) throw priorError;
-      const priorCanonicalProductCodes = Array.from(new Set((priorRows || []).map((row: any) => String(row.product_code || '')).filter(Boolean)));
-      const droppedPriorCanonicalCodes = priorCanonicalProductCodes.filter((code) => !productCodes.includes(code));
+      const priorCanonicalProductCodes = collectPriorCanonicalProductCodesV22(priorRows || []);
+      const droppedPriorCanonicalCodes = findDroppedPriorCanonicalCodesV22(
+        priorCanonicalProductCodes,
+        productCodes
+      );
 
       if (droppedPriorCanonicalCodes.length) {
         rows.push({
@@ -259,6 +266,10 @@ export async function runProductDemandBackfillV22(
         canonicalProducts: 0,
         unresolvedProducts: 0,
         productCodes: [],
+        canonicalProductNames: [],
+        unresolvedExamples: [],
+        priorCanonicalProductCodes: [],
+        droppedPriorCanonicalCodes: [],
       });
     }
   }
