@@ -181,7 +181,7 @@ function leakageFor(
     return { code: 'stock_unavailable', reason: 'الصنف غير متوفر ولم يظهر عرض بديل واضح.' };
   }
   if (stages.has('unavailable') && stages.has('alternative_offered') && !stages.has('accepted') && !stages.has('rejected')) {
-    return { code: 'no_alternative', reason: 'تم عرض بديل بعد عدم توفر الصنف لكن لم يظهر حسم من العميل.' };
+    return { code: 'recommendation_pending', reason: 'تم عرض بديل بعد عدم توفر الصنف لكن لم يظهر قرار نهائي من العميل.' };
   }
   if (PRICE_OBJECTION_RX.test(inboundText)) {
     return { code: 'price_objection', reason: 'ظهر اعتراض صريح من العميل على السعر.' };
@@ -239,7 +239,7 @@ export function buildWhatsAppProductJourneyV7(
     }
 
     const available = outbound.filter((m) => AVAILABLE_RX.test(m.text) && !UNAVAILABLE_RX.test(m.text));
-    const unavailable = messages.filter((m) => UNAVAILABLE_RX.test(m.text));
+    const unavailable = outbound.filter((m) => UNAVAILABLE_RX.test(m.text));
     const alternative = outbound.filter((m) => ALTERNATIVE_RX.test(m.text));
     const accepted = customerDecisionAfterProductContext(session, product, ACCEPT_RX);
     const rejected = customerDecisionAfterProductContext(session, product, REJECT_RX);

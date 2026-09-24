@@ -250,7 +250,9 @@ function extractProducts(session: WhatsAppConversationSession): WhatsAppProductS
     if (!plausibleProductPhrase(rawName)) continue;
 
     let status: WhatsAppProductSignal['status'] = isRecommendation ? 'recommended' : isRequest ? 'requested' : 'mentioned';
-    if (/(مش موجود|غير متوفر|ناقص)/i.test(message.text)) status = 'unavailable';
+    // Stock unavailability is a pharmacy-side fact. An inbound question like "مش موجود عندكم؟"
+    // must stay a customer request/inquiry and never become stock_unavailable on its own.
+    if (message.direction === 'outbound' && /(مش موجود|غير متوفر|ناقص)/i.test(message.text)) status = 'unavailable';
     found.push({ rawName, normalizedName: normalize(rawName), quantity: quantityFrom(message.text), status, sourceDirection: message.direction, evidenceMessageIds: [message.id], confidence: isRecommendation ? 82 : isRequest ? 80 : 64 });
   }
   const merged = new Map<string, WhatsAppProductSignal>();

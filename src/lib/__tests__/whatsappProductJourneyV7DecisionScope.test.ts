@@ -141,4 +141,42 @@ describe('WhatsApp Product Journey V7 — scoped customer decisions', () => {
     expect(journey.closedInChat).toBe(true);
     expect(journey.nextAction).toMatch(/الفاتورة|فاتورة/);
   });
+  it('does not treat the customer asking "مش موجود عندكم؟" as proven stock unavailability', () => {
+    const messages = [
+      msg('m1', 0, 'inbound', 'Isis teenderm gel مش موجود عندكم؟'),
+      msg('m2', 1, 'outbound', 'هراجع لحضرتك يا فندم'),
+    ];
+    const result = buildWhatsAppProductJourneyV7(session(messages), operational('m1'));
+    const journey = result.journeys[0];
+
+    expect(journey.events.map((e) => e.stage)).not.toContain('unavailable');
+    expect(journey.leakageCode).not.toBe('stock_unavailable');
+  });
+
+  it('records stock unavailability only when the pharmacy states it', () => {
+    const messages = [
+      msg('m1', 0, 'inbound', 'Isis teenderm gel موجود؟'),
+      msg('m2', 1, 'outbound', 'للأسف مش موجود حاليا يا فندم'),
+    ];
+    const result = buildWhatsAppProductJourneyV7(session(messages), operational('m1'));
+    const journey = result.journeys[0];
+
+    expect(journey.events.map((e) => e.stage)).toContain('unavailable');
+    expect(journey.currentStage).toBe('unavailable');
+    expect(journey.leakageCode).toBe('stock_unavailable');
+  });
+
+  it('marks an offered alternative with no customer decision as recommendation_pending, not no_alternative', () => {
+    const messages = [
+      msg('m1', 0, 'inbound', 'Isis teenderm gel موجود؟'),
+      msg('m2', 1, 'outbound', 'مش موجود حاليا لكن ممكن أرشح لحضرتك بديل مناسب'),
+    ];
+    const result = buildWhatsAppProductJourneyV7(session(messages), operational('m1'));
+    const journey = result.journeys[0];
+
+    expect(journey.events.map((e) => e.stage)).toContain('unavailable');
+    expect(journey.events.map((e) => e.stage)).toContain('alternative_offered');
+    expect(journey.leakageCode).toBe('recommendation_pending');
+  });
+
 });
