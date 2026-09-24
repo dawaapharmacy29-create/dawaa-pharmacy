@@ -800,7 +800,7 @@ export default function Invoices() {
           );
         } else {
           toast.success(
-            `تم حفظ ${itemImport.saved.toLocaleString('ar-EG')} بند B-Connect • مربوط بفاتورة: ${itemImport.linkedInvoiceRows.toLocaleString('ar-EG')} • مربوط بمنتج: ${itemImport.productLinkedRows.toLocaleString('ar-EG')}`
+            `تم حفظ ${itemImport.saved.toLocaleString('ar-EG')} بند B-Connect • فواتير مرتبطة: ${itemImport.linkedInvoices.toLocaleString('ar-EG')} • بنود مرتبطة: ${itemImport.linkedInvoiceRows.toLocaleString('ar-EG')} • مربوط بمنتج: ${itemImport.productLinkedRows.toLocaleString('ar-EG')}`
           );
         }
 
@@ -810,7 +810,7 @@ export default function Invoices() {
           currentUserProfile.name,
           'استيراد تفاصيل أصناف B-Connect',
           'الفواتير',
-          `ملف ${fileName} - بنود ${itemImport.saved} - مربوط بفاتورة ${itemImport.linkedInvoiceRows} - مربوط بمنتج ${itemImport.productLinkedRows} - غامض ${itemImport.ambiguousInvoiceRows} - بدون Header ${itemImport.unmatchedInvoiceRows}`,
+          `ملف ${fileName} - بنود ${itemImport.saved} - فواتير مرتبطة ${itemImport.linkedInvoices} - بنود مرتبطة ${itemImport.linkedInvoiceRows} - مربوط بمنتج ${itemImport.productLinkedRows} - منتج غير محلول ${itemImport.productUnresolvedRows} - غامض ${itemImport.ambiguousInvoiceRows} - تعارض فرع ${itemImport.branchConflictRows} - بدون Header ${itemImport.unmatchedInvoiceRows}`,
           'كل الفروع'
         );
         return;
@@ -860,7 +860,8 @@ export default function Invoices() {
         if (itemImport.saved > 0) {
           toast.success(
             `تم حفظ ${itemImport.saved.toLocaleString('ar-EG')} بند صنف` +
-              ` • مربوط بفاتورة: ${itemImport.linkedInvoiceRows.toLocaleString('ar-EG')}` +
+              ` • فواتير مرتبطة: ${itemImport.linkedInvoices.toLocaleString('ar-EG')}` +
+              ` • بنود مرتبطة: ${itemImport.linkedInvoiceRows.toLocaleString('ar-EG')}` +
               ` • مربوط بمنتج: ${itemImport.productLinkedRows.toLocaleString('ar-EG')}` +
               ` • مطابق ماليًا: ${itemImport.financialMatchedInvoices.toLocaleString('ar-EG')}` +
               ` • فرق مالي: ${itemImport.financialMismatchInvoices.toLocaleString('ar-EG')}` +
@@ -2069,7 +2070,8 @@ export default function Invoices() {
                     <div className="font-bold text-emerald-300">
                       حُفظ: {invoiceItemsImportResult.saved.toLocaleString('ar-EG')} • فشل:{' '}
                       {invoiceItemsImportResult.failed.toLocaleString('ar-EG')} • بنود متاحة للتحليل:{' '}
-                      {invoiceItemsImportResult.canonicalEvidenceRows.toLocaleString('ar-EG')} • مربوط بفاتورة:{' '}
+                      {invoiceItemsImportResult.canonicalEvidenceRows.toLocaleString('ar-EG')} • فواتير مرتبطة:{' '}
+                      {invoiceItemsImportResult.linkedInvoices.toLocaleString('ar-EG')} • بنود مرتبطة:{' '}
                       {invoiceItemsImportResult.linkedInvoiceRows.toLocaleString('ar-EG')} • مربوط بمنتج:{' '}
                       {invoiceItemsImportResult.productLinkedRows.toLocaleString('ar-EG')} • مطابق ماليًا:{' '}
                       {invoiceItemsImportResult.financialMatchedInvoices.toLocaleString('ar-EG')} • فرق مالي:{' '}
@@ -2237,9 +2239,14 @@ export default function Invoices() {
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             <StatTile value={invoiceItemsImportResult.saved} label="بنود محفوظة" color="text-emerald-300" />
-            <StatTile value={invoiceItemsImportResult.linkedInvoiceRows} label="مرتبطة بفاتورة" color="text-cyan-300" />
-            <StatTile value={invoiceItemsImportResult.productLinkedRows} label="مرتبطة بمنتج" color="text-violet-300" />
+            <StatTile value={invoiceItemsImportResult.linkedInvoices} label="فواتير مرتبطة" color="text-cyan-300" />
+            <StatTile value={invoiceItemsImportResult.linkedInvoiceRows} label="بنود مرتبطة بفواتير" color="text-cyan-300" />
+            <StatTile value={invoiceItemsImportResult.productLinkedRows} label="بنود مرتبطة بمنتج" color="text-violet-300" />
+            <StatTile value={invoiceItemsImportResult.productUnresolvedRows} label="منتج غير محلول" color="text-amber-300" />
+            <StatTile value={invoiceItemsImportResult.fullReturnRows} label="مرتجع كامل" color="text-rose-300" />
+            <StatTile value={invoiceItemsImportResult.partialReturnRows} label="مرتجع جزئي" color="text-amber-300" />
             <StatTile value={invoiceItemsImportResult.ambiguousInvoiceRows} label="ربط غامض" color="text-amber-300" />
+            <StatTile value={invoiceItemsImportResult.branchConflictRows} label="تعارض فرع" color="text-rose-300" />
             <StatTile value={invoiceItemsImportResult.unmatchedInvoiceRows} label="بدون Header" color="text-rose-300" />
             <StatTile value={invoiceItemsImportResult.financialMismatchInvoices} label="فرق صافي B-Connect / Header" color="text-amber-300" />
           </div>
