@@ -30,10 +30,14 @@ import {
   saleProofSourceLabelFor,
   saleProofStateBadge,
   unknownProofReason,
+  ruleIdLabelFor,
+  pipelineWarningLabelFor,
+  productMatchLabelFor,
+  attributionLevelLabelFor,
 } from '@/lib/salesIntelligence/qa/presentation';
 
 /** Exact wording the Final Pilot Readiness spec requires wherever item-level invoice evidence is unavailable — never a paraphrase, so a reviewer never mistakes header-only evaluation for item-level proof. */
-const ITEM_EVIDENCE_UNAVAILABLE_TEXT = 'بيانات أصناف الفاتورة غير متاحة حاليًا — التقييم الحالي Header-level فقط';
+const ITEM_EVIDENCE_UNAVAILABLE_TEXT = 'بيانات أصناف الفاتورة غير متاحة حاليًا — التقييم الحالي يعتمد على بيانات رأس الفاتورة فقط';
 
 function Section({ title, children, id }: { title: string; children: React.ReactNode; id?: string }) {
   return (
@@ -128,7 +132,7 @@ export default function SalesIntelligenceQACaseDetail() {
         </div>
       </section>
 
-      {/* 1. WhatsApp-style full source conversation */}
+      {/* 1. Full source conversation */}
       <Section title="١. المحادثة الأصلية — عرض واقعي كامل">
         {!conversation ? (
           <div className="dawaa-empty-state py-6 text-center">لا يوجد نص محادثة مرتبط بهذه الحالة.</div>
@@ -176,7 +180,7 @@ export default function SalesIntelligenceQACaseDetail() {
           <div className="dawaa-alert dawaa-alert--success mt-3 text-xs">المحادثة لم تُقسّم إلى أكثر من حالة محفوظة.</div>
         )}
         <Evidence>
-          <div>ثقة تصنيف المحادثة: {analysis.evidence_snapshot?.conversationCaseConfidence?.level ?? '—'} (نسبة {analysis.evidence_snapshot?.conversationCaseConfidence?.score ?? '—'})</div>
+          <div>ثقة تصنيف المحادثة: {attributionLevelLabelFor(analysis.evidence_snapshot?.conversationCaseConfidence?.level ?? 'unknown')} (الدرجة {analysis.evidence_snapshot?.conversationCaseConfidence?.score ?? '—'})</div>
           {analysis.evidence_snapshot?.conversationCaseConfidence?.ruleIds?.length ? (
             <div className="mt-1">القواعد: {analysis.evidence_snapshot.conversationCaseConfidence.ruleIds.join('، ')}</div>
           ) : null}
@@ -187,10 +191,9 @@ export default function SalesIntelligenceQACaseDetail() {
       </Section>
 
       {/* 3. Basket understanding (live, conversation-only re-derivation) */}
-      <Section title="٣. فهم السلة (Live)">
+      <Section title="٣. فهم السلة — التحليل الحالي">
         <div className="dawaa-alert dawaa-alert--info text-xs">
-          ملاحظة معروفة وموثّقة: هذا القسم يعتمد على محرك السلة الحالي المستخدم فعليًا داخل الـpipeline
-          (caseBasketEngine) — وليس على basketReconstructionV2 الأحدث والأكثر دقة (I.B.3/I.B.3.1/I.B.4).
+          ملاحظة: هذا القسم يعرض ناتج محرك السلة المستخدم حاليًا في مسار التحليل، مع إبقاء أي نتائج غير محسومة واضحة للمراجع دون افتراضات.
           هذا قيد معروف، وليس خطأ إخفاء.
         </div>
         {!activeBasket || !basketItems.length ? (
@@ -245,7 +248,7 @@ export default function SalesIntelligenceQACaseDetail() {
                     <td className="p-2">{match.price == null ? '—' : `${match.price} ج.م`}</td>
                     <td className="p-2">
                       <span className={match.score >= 68 ? 'dawaa-badge dawaa-badge--success' : 'dawaa-badge dawaa-badge--warning'}>
-                        {match.label} • {match.score}%
+                        {productMatchLabelFor(match.label)} • {match.score}%
                       </span>
                     </td>
                   </tr>
@@ -259,8 +262,7 @@ export default function SalesIntelligenceQACaseDetail() {
       {/* 4. Quantity / references / unresolved signals (NEW) */}
       <Section title="٤. الكمية والإشارات غير المحسومة">
         <div className="dawaa-muted text-xs">
-          يعرض هذا القسم أصناف السلة (Live) التي لم تصل لحالة "مؤكد" أو التي لم تُحسم كميتها بعد — نفس بيانات
-          محرك السلة الحالي أعلاه (caseBasketEngine)، دون أي منطق جديد.
+          يعرض هذا القسم أصناف السلة التي لم تصل إلى حالة «مؤكد» أو التي لم تُحسم كميتها بعد، اعتمادًا على نفس نتائج محرك السلة الحالي دون إضافة استنتاجات جديدة.
         </div>
         {!activeBasket || !unresolvedItems.length ? (
           <div className="dawaa-alert dawaa-alert--success mt-2 text-xs">لا توجد إشارات كمية/مرجعية غير محسومة في السلة الحالية.</div>
@@ -344,22 +346,22 @@ export default function SalesIntelligenceQACaseDetail() {
                 </ul>
               ) : <div>لا توجد أدلة إسناد أولية مسجّلة.</div>}
               {attribution.contradictions?.length ? (
-                <div className="mt-2 text-amber-300">تناقضات: {attribution.contradictions.join('، ')}</div>
+                <div className="mt-2 text-amber-300">تناقضات: {attribution.contradictions.map(reviewReasonLabelFor).join('، ')}</div>
               ) : null}
-              {attribution.rule_ids?.length ? <div className="mt-2 dawaa-muted">القواعد: {attribution.rule_ids.join('، ')}</div> : null}
+              {attribution.rule_ids?.length ? <div className="mt-2 dawaa-muted">قواعد التحليل: {attribution.rule_ids.map(ruleIdLabelFor).join('، ')}</div> : null}
             </Evidence>
           </>
         )}
       </Section>
 
       {/* 7. Sale Proof State (NEW) — always from PERSISTED rows via deriveSaleProofStateFromPersisted(), never liveEvidence. */}
-      <Section title="٧. إثبات البيع (Sale Proof State)">
+      <Section title="٧. حالة إثبات البيع">
         <div className="flex flex-wrap items-center gap-3">
           {saleProofStateBadge(saleProof.state)}
           <span className="dawaa-muted text-xs">مصدر الإثبات: {saleProofSourceLabelFor(saleProof.proofSource)}</span>
         </div>
         <div className="mt-2 grid gap-2 sm:grid-cols-3">
-          <Field label="فاتورة موثوقة (trustedInvoiceId)؟" value={saleProof.trustedInvoiceId ? 'نعم' : 'لا'} />
+          <Field label="هل توجد فاتورة موثوقة مباشرة؟" value={saleProof.trustedInvoiceId ? 'نعم' : 'لا'} />
           <Field label="الفاتورة المختارة" value={saleProof.selectedInvoiceNumber || 'لا توجد'} />
           <Field label="نطاق أدلة الفاتورة" value={integrityScopeBadge(saleProof.invoiceEvidenceScope)} />
           <Field label="أدلة الأصناف؟" value={saleProof.itemEvidenceReady ? 'متاحة' : 'غير متاحة'} />
@@ -392,7 +394,7 @@ export default function SalesIntelligenceQACaseDetail() {
 
         {saleProof.ruleIds.length ? (
           <Evidence>
-            <div className="dawaa-muted">القواعد: {saleProof.ruleIds.join('، ')}</div>
+            <div className="dawaa-muted">قواعد التحليل: {saleProof.ruleIds.map(ruleIdLabelFor).join('، ')}</div>
           </Evidence>
         ) : null}
       </Section>
