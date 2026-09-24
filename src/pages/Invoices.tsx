@@ -862,6 +862,8 @@ export default function Invoices() {
             `تم حفظ ${itemImport.saved.toLocaleString('ar-EG')} بند صنف` +
               ` • مربوط بفاتورة: ${itemImport.linkedInvoiceRows.toLocaleString('ar-EG')}` +
               ` • مربوط بمنتج: ${itemImport.productLinkedRows.toLocaleString('ar-EG')}` +
+              ` • مطابق ماليًا: ${itemImport.financialMatchedInvoices.toLocaleString('ar-EG')}` +
+              ` • فرق مالي: ${itemImport.financialMismatchInvoices.toLocaleString('ar-EG')}` +
               (itemImport.ambiguousInvoiceRows
                 ? ` • يحتاج مراجعة ربط فاتورة: ${itemImport.ambiguousInvoiceRows.toLocaleString('ar-EG')}`
                 : '') +
@@ -2069,7 +2071,9 @@ export default function Invoices() {
                       {invoiceItemsImportResult.failed.toLocaleString('ar-EG')} • بنود متاحة للتحليل:{' '}
                       {invoiceItemsImportResult.canonicalEvidenceRows.toLocaleString('ar-EG')} • مربوط بفاتورة:{' '}
                       {invoiceItemsImportResult.linkedInvoiceRows.toLocaleString('ar-EG')} • مربوط بمنتج:{' '}
-                      {invoiceItemsImportResult.productLinkedRows.toLocaleString('ar-EG')}
+                      {invoiceItemsImportResult.productLinkedRows.toLocaleString('ar-EG')} • مطابق ماليًا:{' '}
+                      {invoiceItemsImportResult.financialMatchedInvoices.toLocaleString('ar-EG')} • فرق مالي:{' '}
+                      {invoiceItemsImportResult.financialMismatchInvoices.toLocaleString('ar-EG')}
                     </div>
                   ) : null}
                 </div>
@@ -2237,6 +2241,7 @@ export default function Invoices() {
             <StatTile value={invoiceItemsImportResult.productLinkedRows} label="مرتبطة بمنتج" color="text-violet-300" />
             <StatTile value={invoiceItemsImportResult.ambiguousInvoiceRows} label="ربط غامض" color="text-amber-300" />
             <StatTile value={invoiceItemsImportResult.unmatchedInvoiceRows} label="بدون Header" color="text-rose-300" />
+            <StatTile value={invoiceItemsImportResult.financialMismatchInvoices} label="فرق صافي B-Connect / Header" color="text-amber-300" />
           </div>
           <button onClick={handleReset} className="dawaa-button dawaa-button--secondary">
             استيراد ملف آخر

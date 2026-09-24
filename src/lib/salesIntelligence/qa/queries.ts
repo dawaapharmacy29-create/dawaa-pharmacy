@@ -406,6 +406,7 @@ export interface QaCaseDetailBundle {
     productCode: string | null;
     productName: string;
     quantity: number | null;
+    effectiveQuantity: number | null;
     unitName: string | null;
     unitPrice: number | null;
     itemDiscountAmount: number | null;
@@ -428,6 +429,10 @@ export interface QaCaseDetailBundle {
     matchedOfferId: string | null;
     matchedOfferTitle: string | null;
     pricingNeedsReview: boolean;
+    bconnectInvoiceNetAmount: number | null;
+    headerInvoiceNetAmount: number | null;
+    financialNetDifference: number | null;
+    financialNetMatch: boolean | null;
   }>;
   catalogProductMatches: Array<{
     sourceMessageId: string;
@@ -849,7 +854,7 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
         .limit(500),
       supabaseClient
         .from('sales_invoices')
-        .select('id,invoice_number,invoice_no,branch,branch_name,invoice_datetime,sale_date,seller_name,normalized_seller_name,staff_id,staff_name')
+        .select('id,invoice_number,invoice_no,branch,branch_name,invoice_datetime,sale_date,seller_name,normalized_seller_name,staff_id,staff_name,net_amount')
         .eq('id', selectedInvoiceId)
         .maybeSingle(),
     ]);
@@ -905,12 +910,25 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
       const pricing = derivePricingExecutionAssessment(
         {
           quantity: row.quantity == null ? null : Number(row.quantity),
+          returnedQuantity: meta.returned_quantity == null ? null : Number(meta.returned_quantity),
+          effectiveQuantity:
+            meta.effective_quantity == null
+              ? (
+                  row.quantity == null
+                    ? null
+                    : Math.max(0, Number(row.quantity) - Math.max(0, Number(meta.returned_quantity ?? 0)))
+                )
+              : Number(meta.effective_quantity),
           unitPrice: row.unit_price == null ? null : Number(row.unit_price),
           itemDiscountAmount: meta.item_discount_amount == null ? null : Number(meta.item_discount_amount),
           itemDiscountPercent: meta.item_discount_percent == null ? null : Number(meta.item_discount_percent),
           grossLineAmount: meta.gross_line_amount == null ? null : Number(meta.gross_line_amount),
           netLineAmount: meta.net_line_amount == null ? (row.line_total == null ? null : Number(row.line_total)) : Number(meta.net_line_amount),
           invoiceDiscountAmount: meta.invoice_discount_amount == null ? null : Number(meta.invoice_discount_amount),
+          allocatedInvoiceDiscountAmount:
+            meta.allocated_invoice_discount_amount == null
+              ? null
+              : Number(meta.allocated_invoice_discount_amount),
         },
         lineOffers
       );
@@ -921,7 +939,7 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
       ) ?? null;
       const quotedPrice = compareQuotedAndActualUnitPrice(
         quoted?.unitPrice ?? null,
-        row.unit_price == null ? null : Number(row.unit_price)
+        pricing.effectiveUnitPrice
       );
 
       invoiceItemFacts.push({
@@ -933,6 +951,14 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
         productCode: row.product_code == null ? null : String(row.product_code),
         productName: String(row.product_name ?? product?.name ?? ''),
         quantity: row.quantity == null ? null : Number(row.quantity),
+        effectiveQuantity:
+          meta.effective_quantity == null
+            ? (
+                row.quantity == null
+                  ? null
+                  : Math.max(0, Number(row.quantity) - Math.max(0, Number(meta.returned_quantity ?? 0)))
+              )
+            : Number(meta.effective_quantity),
         unitName: meta.unit_name == null ? null : String(meta.unit_name),
         unitPrice: row.unit_price == null ? null : Number(row.unit_price),
         itemDiscountAmount: meta.item_discount_amount == null ? null : Number(meta.item_discount_amount),
@@ -958,6 +984,18 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
         matchedOfferId: pricing.matchedOfferId,
         matchedOfferTitle: pricing.matchedOfferTitle,
         pricingNeedsReview: pricing.needsHumanReview,
+        bconnectInvoiceNetAmount:
+          meta.invoice_net_amount == null ? null : Number(meta.invoice_net_amount),
+        headerInvoiceNetAmount:
+          invoiceHeader?.net_amount == null ? null : Number(invoiceHeader.net_amount),
+        financialNetDifference:
+          meta.invoice_net_amount == null || invoiceHeader?.net_amount == null
+            ? null
+            : Number((Number(meta.invoice_net_amount) - Number(invoiceHeader.net_amount)).toFixed(2)),
+        financialNetMatch:
+          meta.invoice_net_amount == null || invoiceHeader?.net_amount == null
+            ? null
+            : Math.abs(Number(meta.invoice_net_amount) - Number(invoiceHeader.net_amount)) <= 0.02,
       });
     }
   }
@@ -992,7 +1030,7 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
       productId: item.productId,
       productCode: item.productCode,
       productName: item.productName,
-      quantity: item.quantity,
+      quantity: item.effectiveQuantity,
       netLineAmount: item.netLineAmount,
       staffId: item.staffId,
       staffName: item.staffName,

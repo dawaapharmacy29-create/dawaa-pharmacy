@@ -52,6 +52,9 @@ export interface SalesInvoiceItemsImportResultV21 {
   ambiguousInvoiceRows: number;
   unmatchedInvoiceRows: number;
   productLinkedRows: number;
+  financialMatchedInvoices: number;
+  financialMismatchInvoices: number;
+  financialComparisonUnavailableInvoices: number;
   /** Deprecated legacy counter. V17 is never promoted automatically anymore. */
   reconciledProductConversions: number;
 }
@@ -333,7 +336,7 @@ export function parseSalesInvoiceItemsV21(buffer: ArrayBuffer, fallbackBranch: s
   for (const row of rows) {
     const key = [
       row.invoiceNumber,
-      isoDay(row.invoiceDate),
+      cairoInvoiceDayV21(row.invoiceDate),
       normalizeCustomerCode(row.customerCode),
     ].join('|');
     const bucket = rowsByInvoice.get(key) ?? [];
@@ -387,10 +390,20 @@ function normalizeBranch(value: unknown) {
   return v;
 }
 
-function isoDay(value: string | null | undefined) {
+export function cairoInvoiceDayV21(value: string | null | undefined) {
   if (!value) return '';
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? String(value).slice(0, 10) : date.toISOString().slice(0, 10);
+  if (Number.isNaN(date.getTime())) return String(value).slice(0, 10);
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Africa/Cairo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const map = Object.fromEntries(
+    parts.filter((part) => part.type !== 'literal').map((part) => [part.type, part.value])
+  ) as Record<string, string>;
+  return `${map.year}-${map.month}-${map.day}`;
 }
 
 function chunk<T>(values: T[], size = 100): T[][] {
@@ -423,6 +436,9 @@ export async function importSalesInvoiceItemsV21(
       ambiguousInvoiceRows: 0,
       unmatchedInvoiceRows: 0,
       productLinkedRows: 0,
+      financialMatchedInvoices: 0,
+      financialMismatchInvoices: 0,
+      financialComparisonUnavailableInvoices: 0,
       reconciledProductConversions: 0,
     };
   }
@@ -453,7 +469,7 @@ export async function importSalesInvoiceItemsV21(
     for (const field of ['invoice_number', 'invoice_no'] as const) {
       const { data, error } = await supabase
         .from('sales_invoices')
-        .select('id,invoice_number,invoice_no,branch,branch_name,invoice_datetime,invoice_date,sale_date,customer_id,customer_code,customer_name,seller_name,normalized_seller_name,staff_id,staff_name')
+        .select('id,invoice_number,invoice_no,branch,branch_name,invoice_datetime,invoice_date,sale_date,customer_id,customer_code,customer_name,seller_name,normalized_seller_name,staff_id,staff_name,net_amount,gross_amount,discount_amount')
         .in(field, group)
         .limit(5000);
       if (error) throw error;
@@ -473,13 +489,13 @@ export async function importSalesInvoiceItemsV21(
   const payload: any[] = [];
   for (const row of rows) {
     const itemBranch = row.branch ? normalizeBranch(row.branch) : '';
-    const itemDay = isoDay(row.invoiceDate);
+    const itemDay = cairoInvoiceDayV21(row.invoiceDate);
     const itemCustomerCode = normalizeCustomerCode(row.customerCode);
     const headerCandidates = (invoiceHeadersByNumber.get(row.invoiceNumber) ?? []).filter((invoice) => {
       const invoiceBranch = normalizeBranch(invoice.branch_name || invoice.branch);
       if (itemBranch && invoiceBranch !== itemBranch) return false;
       if (itemDay) {
-        const invoiceDay = isoDay(invoice.invoice_datetime || invoice.invoice_date || invoice.sale_date);
+        const invoiceDay = cairoInvoiceDayV21(invoice.invoice_datetime || invoice.invoice_date || invoice.sale_date);
         if (invoiceDay !== itemDay) return false;
       }
       const headerCustomerCode = normalizeCustomerCode(invoice.customer_code);
@@ -567,6 +583,17 @@ export async function importSalesInvoiceItemsV21(
           invoice_type: row.invoiceType,
           invoice_items_count: row.invoiceItemsCount,
           invoice_net_amount: row.invoiceNetAmount,
+          header_net_amount: uniqueHeader?.net_amount == null ? null : Number(uniqueHeader.net_amount),
+          financial_net_difference:
+            row.invoiceNetAmount == null || uniqueHeader?.net_amount == null
+              ? null
+              : Number((row.invoiceNetAmount - Number(uniqueHeader.net_amount)).toFixed(2)),
+          financial_net_match:
+            row.invoiceNetAmount == null || uniqueHeader?.net_amount == null
+              ? null
+              : Math.abs(row.invoiceNetAmount - Number(uniqueHeader.net_amount)) <= 0.02,
+          financial_truth_source: 'bconnect_items_export',
+          header_identity_source: 'sales_invoices',
           invoice_discount_percent: row.invoiceDiscountPercent,
           invoice_discount_amount: row.invoiceDiscountAmount,
           invoice_extra_fees: row.invoiceExtraFees,
@@ -626,6 +653,16 @@ export async function importSalesInvoiceItemsV21(
     (row) => !row.invoice_id && row.raw_data?.__dawaa_commercial?.invoice_link_status !== 'ambiguous'
   ).length;
   const productLinkedRows = persistablePayload.filter((row) => row.product_id).length;
+  const financeByInvoice = new Map<string, boolean | null>();
+  for (const row of persistablePayload) {
+    const invoiceId = String(row.invoice_id || '');
+    if (!invoiceId || financeByInvoice.has(invoiceId)) continue;
+    const value = row.raw_data?.__dawaa_commercial?.financial_net_match;
+    financeByInvoice.set(invoiceId, value === true ? true : value === false ? false : null);
+  }
+  const financialMatchedInvoices = Array.from(financeByInvoice.values()).filter((value) => value === true).length;
+  const financialMismatchInvoices = Array.from(financeByInvoice.values()).filter((value) => value === false).length;
+  const financialComparisonUnavailableInvoices = Array.from(financeByInvoice.values()).filter((value) => value == null).length;
 
   return {
     parsed: rows.length,
@@ -636,6 +673,9 @@ export async function importSalesInvoiceItemsV21(
     ambiguousInvoiceRows,
     unmatchedInvoiceRows,
     productLinkedRows,
+    financialMatchedInvoices,
+    financialMismatchInvoices,
+    financialComparisonUnavailableInvoices,
     reconciledProductConversions: 0,
   };
 }

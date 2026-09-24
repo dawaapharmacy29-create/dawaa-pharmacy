@@ -605,8 +605,28 @@ export default function SalesIntelligenceQACaseDetail() {
               <Field label="فروق سعر تحتاج مراجعة" value={priceMismatchRows.length} />
             </div>
             <div className="dawaa-alert dawaa-alert--info mb-3 text-xs leading-6">
-              في تصدير B-Connect، «سعر بيع» هو إجمالي قيمة السطر قبل المرتجع وخصم الفاتورة، وليس سعر الوحدة. سعر الوحدة النهائي أدناه مشتق من صافي السطر بعد المرتجع والتسوية. سعر الكتالوج الحالي مرجع معلوماتي فقط.
+              في تصدير B-Connect، «سعر بيع» هو إجمالي قيمة السطر قبل المرتجع وخصم الفاتورة، وليس سعر الوحدة. سعر الوحدة النهائي أدناه مشتق من صافي السطر بعد المرتجع والتسوية. <strong>B-Connect هو المرجع المالي</strong>، بينما رأس الفاتورة في التطبيق يُستخدم لهوية الفرع والدكتور والعميل والوقت. سعر الكتالوج الحالي مرجع معلوماتي فقط.
             </div>
+            {invoiceItemFacts.length ? (
+              <div className="mb-3 grid gap-2 sm:grid-cols-4">
+                <Field
+                  label="صافي B-Connect"
+                  value={invoiceItemFacts[0].bconnectInvoiceNetAmount == null ? 'غير متاح' : `${invoiceItemFacts[0].bconnectInvoiceNetAmount.toFixed(2)} ج.م`}
+                />
+                <Field
+                  label="صافي Header القديم"
+                  value={invoiceItemFacts[0].headerInvoiceNetAmount == null ? 'غير متاح' : `${invoiceItemFacts[0].headerInvoiceNetAmount.toFixed(2)} ج.م`}
+                />
+                <Field
+                  label="فرق القيمة"
+                  value={invoiceItemFacts[0].financialNetDifference == null ? 'غير متاح' : `${invoiceItemFacts[0].financialNetDifference.toFixed(2)} ج.م`}
+                />
+                <Field
+                  label="تطابق مالي"
+                  value={invoiceItemFacts[0].financialNetMatch == null ? 'غير متاح' : invoiceItemFacts[0].financialNetMatch ? 'مطابق' : 'مختلف — لا يمنع ربط الهوية'}
+                />
+              </div>
+            ) : null}
             <div className="overflow-x-auto">
               <table className="min-w-full text-xs">
                 <thead>

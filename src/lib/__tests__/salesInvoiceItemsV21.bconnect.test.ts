@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as XLSX from 'xlsx';
-import { parseSalesInvoiceItemsV21 } from '@/lib/salesInvoiceItemsV21';
+import { cairoInvoiceDayV21, parseSalesInvoiceItemsV21 } from '@/lib/salesInvoiceItemsV21';
 
 const headers = ['فاتورة','نوع','كود','عميل','عددأصناف','صافى الفاتورة','خصم نسبة','خصم قيمة','مصاريف','م','ك.صنف','صنف','صلاحية','كمية','وحدة','مرتجع','سعر بيع','خصم صنف','خصم صنف%','تاريخ'];
 
@@ -49,4 +49,10 @@ describe('B-Connect sales invoice item parser', () => {
     expect(parsed.rows[1].effectiveQuantity).toBe(1);
     expect(parsed.rows[1].netLineAmount).toBeCloseTo(29, 6);
   });
+
+  it('compares invoice days in Cairo, not UTC, for after-midnight B-Connect invoices', () => {
+    expect(cairoInvoiceDayV21('2026-09-05T21:12:00.000Z')).toBe('2026-09-06');
+    expect(cairoInvoiceDayV21('2026-09-20T21:08:00.000Z')).toBe('2026-09-21');
+  });
+
 });
