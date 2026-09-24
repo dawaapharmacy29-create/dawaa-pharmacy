@@ -146,12 +146,9 @@ export async function runProductDemandBackfillV22(
           productDemandVersion: 'product-demand-v22',
           productDemandBackfilledAt: new Date().toISOString(),
         };
-        const { error: updateError } = await supabase
-          .from('whatsapp_review_sources')
-          .update({ analysis_json: nextAnalysis, updated_at: new Date().toISOString() })
-          .eq('id', source.id);
-        if (updateError) throw updateError;
 
+        // Persist downstream artifacts first. The source is marked V22 only after BOTH writes
+        // succeed, so a partial failure can never masquerade as a completed backfill.
         await syncWhatsAppOperationalActionsV6(operational, {
           sourceId: source.id,
           branch: source.branch,
@@ -170,6 +167,12 @@ export async function runProductDemandBackfillV22(
           analysisVersion: 'product-demand-v22',
           participantRoles: nextAnalysis.participantRoles,
         });
+
+        const { error: updateError } = await supabase
+          .from('whatsapp_review_sources')
+          .update({ analysis_json: nextAnalysis, updated_at: new Date().toISOString() })
+          .eq('id', source.id);
+        if (updateError) throw updateError;
       }
 
       rows.push({
