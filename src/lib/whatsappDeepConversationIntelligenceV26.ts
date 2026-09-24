@@ -30,6 +30,7 @@ export type LostReasonCode =
   | 'no_cross_sell'
   | 'slow_response'
   | 'unanswered_customer'
+  | 'customer_no_reply_after_offer'
   | 'unknown';
 
 export type MedicalHardGate = {
@@ -78,11 +79,15 @@ const CONSULTATION_RX = /(اعراض|أعراض|جرعة|استخدام|ينفع
 const OBJECTION_RX = /(غالي|سعره عالي|مش مناسب|مش عايز|مش عاوز|هفكر|خليني اشوف|مش مقتنع|أرخص|ارخص)/i;
 const UPSELL_RX = /(تحب|ممكن نضيف|نضيف|معاه|كمان|عرض|باكدج|حجم اكبر|حجم أكبر|لو محتاج)/i;
 
+export type CommercialClosingResponsibilityV27 = 'pharmacy' | 'customer' | 'inventory' | 'unknown';
+
 export type CommercialFrictionFactsV26 = {
   stockout: boolean;
   alternativeOffered: boolean;
   priceObjection: boolean;
   chatClosed: boolean;
+  closingResponsibility: CommercialClosingResponsibilityV27;
+  closingEvidence: string | null;
 };
 
 export function detectCommercialFrictionFactsV26(
@@ -91,15 +96,50 @@ export function detectCommercialFrictionFactsV26(
   const outbound = messages.filter((message) => message.direction === 'outbound').map((message) => String(message.text || '')).join('\n');
   const inbound = messages.filter((message) => message.direction === 'inbound').map((message) => String(message.text || '')).join('\n');
   const all = messages.map((message) => String(message.text || '')).join('\n');
+  const stockout = /(غير متوفر|مش موجود|ناقص|خلص)/i.test(outbound);
+  const alternativeOffered = /(بديل|نرشح|ارشح|أرشح|بداله|بدلها)/i.test(outbound);
+  const priceObjection = /(غالي|سعره عالي|أرخص|ارخص|مش مناسب|هفكر)/i.test(inbound);
+  const chatClosed = /(تم تأكيد|تم التاكيد|الأوردر اتأكد|الاوردر اتاكد|جاري الارسال|جاري الإرسال|فاتورة|فاتوره|الإجمالي|الاجمالي)/i.test(all);
+
+  const AVAILABILITY_OR_OFFER_RX = /(موجود|متوفر|متاح|بديل|نرشح|ارشح|أرشح|بداله|بدلها)/i;
+  const CUSTOMER_ACCEPT_RX = /(^|\s)(تمام|ماشي|موافق|اوكي|أوكي|خلاص|ابعت|ابعته|ابعتي|هات|هاته|هاخده|هاخدها)(\s|$)/i;
+  const CUSTOMER_REQUEST_RX = /(عايز|عاوز|محتاج|متوفر|موجود|سعر|بكام|ابعت|ابعث|طلب|اوردر|أوردر)/i;
+
+  let closingResponsibility: CommercialClosingResponsibilityV27 = 'unknown';
+  let closingEvidence: string | null = null;
+
+  if (!chatClosed && stockout) {
+    closingResponsibility = 'inventory';
+    closingEvidence = 'العائق المثبت هو عدم توافر الصنف من رد الصيدلية.';
+  } else if (!chatClosed) {
+    for (let index = 0; index < messages.length; index += 1) {
+      const message = messages[index];
+      if (message.direction !== 'outbound' || !AVAILABILITY_OR_OFFER_RX.test(String(message.text || ''))) continue;
+      const later = messages.slice(index + 1, index + 5);
+      const accepted = later.find((row) => row.direction === 'inbound' && CUSTOMER_ACCEPT_RX.test(String(row.text || '')));
+      if (accepted) {
+        closingResponsibility = 'pharmacy';
+        closingEvidence = 'العميل وافق بعد عرض/تأكيد الصيدلية ولم يظهر تأكيد نهائي للأوردر.';
+        break;
+      }
+      const laterInbound = messages.slice(index + 1).find((row) => row.direction === 'inbound');
+      if (!laterInbound && messages.slice(0, index).some((row) => row.direction === 'inbound' && CUSTOMER_REQUEST_RX.test(String(row.text || '')))) {
+        closingResponsibility = 'customer';
+        closingEvidence = 'الصيدلية قدمت ردًا تجاريًا ولم يظهر رد لاحق من العميل.';
+      }
+    }
+  }
 
   return {
     // Stock state must come from the pharmacy side. A customer asking "مش موجود؟" is not evidence
     // that stock is actually unavailable.
-    stockout: /(غير متوفر|مش موجود|ناقص|خلص)/i.test(outbound),
-    alternativeOffered: /(بديل|نرشح|ارشح|أرشح|بداله|بدلها)/i.test(outbound),
-    priceObjection: /(غالي|سعره عالي|أرخص|ارخص|مش مناسب|هفكر)/i.test(inbound),
+    stockout,
+    alternativeOffered,
+    priceObjection,
     // Conversation closure only; this is intentionally NOT named/provided as invoice-proven sale.
-    chatClosed: /(تم تأكيد|تم التاكيد|الأوردر اتأكد|الاوردر اتاكد|جاري الارسال|جاري الإرسال|فاتورة|فاتوره|الإجمالي|الاجمالي)/i.test(all),
+    chatClosed,
+    closingResponsibility,
+    closingEvidence,
   };
 }
 
@@ -126,11 +166,13 @@ export function deriveLostReasonCodes(input: {
   salesEligible?: boolean;
   p90ResponseSeconds?: number | null;
   unanswered?: number;
+  closingResponsibility?: CommercialClosingResponsibilityV27;
 }) {
   const reasons: LostReasonCode[] = [];
   if (input.stockout && !input.alternativeOffered) reasons.push('stockout_dead_end');
   if (input.priceObjection && !input.sold && !input.alternativeOffered) reasons.push('price_objection_unhandled');
-  if (input.salesEligible && !input.sold) reasons.push('no_close');
+  if (input.salesEligible && !input.sold && (input.closingResponsibility == null || input.closingResponsibility === 'pharmacy')) reasons.push('no_close');
+  if (input.salesEligible && !input.sold && input.closingResponsibility === 'customer') reasons.push('customer_no_reply_after_offer');
   if (input.followupPromised && !input.followupCompleted) reasons.push('no_followup');
   if (input.sold && !input.upsellDetected) reasons.push('no_cross_sell');
   if ((input.p90ResponseSeconds || 0) > 600) reasons.push('slow_response');

@@ -16,6 +16,7 @@ const labelForReason: Record<string, string> = {
   no_close: 'فرصة بيع بدون إغلاق',
   no_followup: 'وعد متابعة لم يُستكمل',
   no_cross_sell: 'بيع تم بدون فرصة تكميلية واضحة',
+  customer_no_reply_after_offer: 'الصيدلية ردت والعميل لم يحسم',
   slow_response: 'تأخير مرتفع في الرد',
   unanswered_customer: 'رسالة عميل بدون رد',
   unknown: 'لا يوجد سبب فقد مؤكد',
@@ -55,14 +56,16 @@ export default function WhatsAppCaseDecisionPanelV26({ session }: { session: Wha
       salesEligible,
       p90ResponseSeconds: response.p90Seconds,
       unanswered: response.unanswered,
+      closingResponsibility: friction.closingResponsibility,
     });
     const humanReviewReasons = [
       ...(medical.blocked ? medical.reasons.map((x) => `مراجعة صيدلي: ${x}`) : []),
       ...(response.unanswered > 0 ? ['يوجد رسالة عميل بدون رد'] : []),
-      ...(lostReasons.includes('price_objection_unhandled') ? ['اعتراض سعر يحتاج مراجعة التعامل معه'] : []),
-      ...(lostReasons.includes('stockout_dead_end') ? ['نقص بدون بديل يحتاج مراجعة'] : []),
+      ...(lostReasons.includes('price_objection_unhandled') ? ['اعتراض سعر يحتاج مراجعة التعامل معه — لا يعني خطأ موظف تلقائيًا'] : []),
+      ...(lostReasons.includes('stockout_dead_end') ? ['نقص بدون بديل يحتاج مراجعة تشغيلية — لا يُنسب تلقائيًا للدكتور'] : []),
+      ...(lostReasons.includes('no_close') && friction.closingResponsibility === 'pharmacy' ? ['العميل وافق ولم يظهر تأكيد نهائي للأوردر — راجع مرحلة الإغلاق'] : []),
     ];
-    return { signals, response, journey, medical, lostReasons, humanReviewReasons };
+    return { signals, response, journey, medical, friction, lostReasons, humanReviewReasons };
   }, [session]);
 
   return (

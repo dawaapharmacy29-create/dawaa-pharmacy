@@ -106,4 +106,53 @@ describe('whatsappDeepConversationIntelligenceV26', () => {
     expect(facts.chatClosed).toBe(true);
   });
 
+  it('attributes accepted-but-unconfirmed order closure to pharmacy', () => {
+    const facts = detectCommercialFrictionFactsV26([
+      { direction: 'inbound', text: 'عايز Isis teenderm gel' },
+      { direction: 'outbound', text: 'موجود يا فندم' },
+      { direction: 'inbound', text: 'تمام ابعته' },
+    ]);
+    expect(facts.closingResponsibility).toBe('pharmacy');
+
+    const reasons = deriveLostReasonCodes({
+      salesEligible: true,
+      sold: false,
+      closingResponsibility: facts.closingResponsibility,
+    });
+    expect(reasons).toContain('no_close');
+  });
+
+  it('does not blame pharmacy for no-close when customer disappears after an offer', () => {
+    const facts = detectCommercialFrictionFactsV26([
+      { direction: 'inbound', text: 'عايز Isis teenderm gel' },
+      { direction: 'outbound', text: 'موجود يا فندم والسعر 250 جنيه' },
+    ]);
+    expect(facts.closingResponsibility).toBe('customer');
+
+    const reasons = deriveLostReasonCodes({
+      salesEligible: true,
+      sold: false,
+      closingResponsibility: facts.closingResponsibility,
+    });
+    expect(reasons).not.toContain('no_close');
+    expect(reasons).toContain('customer_no_reply_after_offer');
+  });
+
+  it('does not treat inventory stockout as a doctor closing failure', () => {
+    const facts = detectCommercialFrictionFactsV26([
+      { direction: 'inbound', text: 'الصنف موجود؟' },
+      { direction: 'outbound', text: 'للأسف مش موجود حاليا' },
+    ]);
+    expect(facts.closingResponsibility).toBe('inventory');
+
+    const reasons = deriveLostReasonCodes({
+      stockout: true,
+      salesEligible: true,
+      sold: false,
+      closingResponsibility: facts.closingResponsibility,
+    });
+    expect(reasons).toContain('stockout_dead_end');
+    expect(reasons).not.toContain('no_close');
+  });
+
 });
