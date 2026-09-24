@@ -27,6 +27,7 @@ import type { SalesIntelligenceCaseAnalysis } from '../types';
 import type { SaleProofAssessment } from '../saleProofState';
 import type { QaCaseListRow, QaListFilters } from './types';
 import { rankProductCandidates } from '../../productMatching';
+import { selectCanonicalReviewSourceIds } from '../sourceSnapshotLineage';
 
 const MAX_LIST_ROWS = 2000;
 
@@ -72,9 +73,15 @@ interface RawCaseIdentityRow {
 
 interface RawConversationIdentityRow {
   id: string;
+  source_filename?: string | null;
+  customer_id?: string | null;
   customer_name?: string | null;
   customer_code?: string | null;
   customer_phone?: string | null;
+  conversation_started_at?: string | null;
+  conversation_ended_at?: string | null;
+  message_count?: number | null;
+  created_at?: string | null;
 }
 
 interface RawMatchRow {
@@ -106,6 +113,7 @@ export function mergeCaseListRows(
   const caseByCaseId = new Map(cases.map((row) => [row.case_id, row]));
   const conversationById = new Map(conversations.map((row) => [row.id, row]));
   const caseCountByConversationId = new Map<string, number>();
+  const canonicalConversationIds = selectCanonicalReviewSourceIds(conversations);
   const currentCaseIds = new Set(analyses.map((row) => row.case_id));
   for (const row of cases) {
     if (!currentCaseIds.has(row.case_id)) continue;
@@ -113,7 +121,13 @@ export function mergeCaseListRows(
     if (!id) continue;
     caseCountByConversationId.set(id, (caseCountByConversationId.get(id) ?? 0) + 1);
   }
-  return analyses.map((analysis) => {
+  return analyses
+    .filter((analysis) => {
+      const caseIdentity = caseByCaseId.get(analysis.case_id) ?? null;
+      const conversationId = caseIdentity?.conversation_id ?? null;
+      return !conversationId || canonicalConversationIds.has(conversationId);
+    })
+    .map((analysis) => {
     const attribution = attributionByAnalysisId.get(analysis.analysis_id) ?? null;
     const match = matchByAnalysisId.get(analysis.analysis_id) ?? null;
     const caseIdentity = caseByCaseId.get(analysis.case_id) ?? null;
@@ -268,7 +282,7 @@ export async function fetchQaCaseList(supabaseClient: any): Promise<QaCaseListRo
       .limit(MAX_LIST_ROWS),
     supabaseClient
       .from('whatsapp_review_sources')
-      .select('id, customer_name, customer_code, customer_phone')
+      .select('id, source_filename, customer_id, customer_name, customer_code, customer_phone, conversation_started_at, conversation_ended_at, message_count, created_at')
       .limit(MAX_LIST_ROWS),
   ]);
   if (analysesError) throw analysesError;

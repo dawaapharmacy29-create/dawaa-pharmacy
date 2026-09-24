@@ -62,6 +62,55 @@ describe('mergeCaseListRows', () => {
     expect(rows[0].customerCode).toBe('17777');
   });
 
+  it('hides a partial WhatsApp snapshot when a fuller snapshot of the same customer/file contains it', () => {
+    const analyses = [
+      baseAnalysis,
+      { ...baseAnalysis, analysis_id: 'a2', case_id: 'case-2' },
+    ];
+    const cases = [
+      { case_id: 'case-1', conversation_id: 'partial', customer_phone: '01000000000' },
+      { case_id: 'case-2', conversation_id: 'full', customer_phone: '01000000000' },
+    ];
+    const conversations = [
+      {
+        id: 'partial',
+        source_filename: 'customer.zip',
+        customer_code: 'C100',
+        customer_phone: '01000000000',
+        conversation_started_at: '2026-09-15T06:46:45.000Z',
+        conversation_ended_at: '2026-09-15T06:47:59.000Z',
+        message_count: 9,
+        created_at: '2026-09-16T12:00:00.000Z',
+      },
+      {
+        id: 'full',
+        source_filename: 'customer.zip',
+        customer_code: 'C100',
+        customer_phone: '01000000000',
+        conversation_started_at: '2026-09-15T06:46:45.000Z',
+        conversation_ended_at: '2026-09-15T17:07:51.000Z',
+        message_count: 43,
+        created_at: '2026-09-21T05:00:00.000Z',
+      },
+    ];
+    const rows = mergeCaseListRows(analyses, [], [], cases, conversations);
+    expect(rows.map((row) => row.caseId)).toEqual(['case-2']);
+  });
+
+  it('keeps non-overlapping snapshots from the same customer/file as independent sources', () => {
+    const analyses = [baseAnalysis, { ...baseAnalysis, analysis_id: 'a2', case_id: 'case-2' }];
+    const cases = [
+      { case_id: 'case-1', conversation_id: 'day1' },
+      { case_id: 'case-2', conversation_id: 'day2' },
+    ];
+    const conversations = [
+      { id: 'day1', source_filename: 'customer.zip', customer_code: 'C100', conversation_started_at: '2026-09-12T06:00:00.000Z', conversation_ended_at: '2026-09-12T10:00:00.000Z', message_count: 20 },
+      { id: 'day2', source_filename: 'customer.zip', customer_code: 'C100', conversation_started_at: '2026-09-15T06:00:00.000Z', conversation_ended_at: '2026-09-15T10:00:00.000Z', message_count: 20 },
+    ];
+    const rows = mergeCaseListRows(analyses, [], [], cases, conversations);
+    expect(rows.map((row) => row.caseId).sort()).toEqual(['case-1', 'case-2']);
+  });
+
   it('handles a case analysis with no matching attribution row (defensive)', () => {
     const rows = mergeCaseListRows([baseAnalysis], []);
     expect(rows[0].selectedInvoiceNumber).toBeNull();

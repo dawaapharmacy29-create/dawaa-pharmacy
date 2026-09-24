@@ -80,6 +80,7 @@ for (const ext of ['.ts', '.tsx']) {
 
 const { runBatchPersistence } = require(path.join(root, 'src/lib/salesIntelligence/persistence/batchPersistenceService.ts'));
 const { reviewSourceRowToBatchConversation } = require(path.join(root, 'src/lib/salesIntelligence/persistence/reviewSourceBatchAdapter.ts'));
+const { selectCanonicalReviewSourceIds } = require(path.join(root, 'src/lib/salesIntelligence/sourceSnapshotLineage.ts'));
 
 const supabase = createClient(supabaseUrl, serviceRoleKey, {
   auth: { persistSession: false, autoRefreshToken: false },
@@ -113,7 +114,11 @@ async function fetchReviewSources() {
   const select = [
     'id',
     'raw_text',
+    'source_filename',
     'conversation_started_at',
+    'conversation_ended_at',
+    'message_count',
+    'created_at',
     'customer_id',
     'customer_phone',
     'customer_name',
@@ -200,9 +205,13 @@ function summarize(result, sourceCount) {
   console.log(`Scope: ${allSources ? 'ALL whatsapp_review_sources' : 'existing Sales Intelligence conversations only'}`);
 
   const rows = await fetchReviewSources();
-  const conversations = rows
+  const canonicalIds = selectCanonicalReviewSourceIds(rows);
+  const canonicalRows = rows.filter((row) => canonicalIds.has(row.id));
+  const conversations = canonicalRows
     .filter((row) => typeof row.raw_text === 'string' && row.raw_text.trim().length > 0)
     .map(reviewSourceRowToBatchConversation);
+
+  console.log(`Snapshot lineage: ${rows.length} source rows -> ${canonicalRows.length} canonical source rows`);
 
   if (!conversations.length) {
     console.log('No eligible conversations found.');
