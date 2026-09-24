@@ -5,12 +5,17 @@ import {
   approveAttendanceResolution,
   getAttendanceCaseDiagnosticV1,
   getAttendanceDiagnosticSummaryV1,
+  getMissingPunchContextV1,
   listAttendanceExceptionInbox,
+  listStaffMissingPunchHistoryV1,
   materializeAttendanceRange,
+  resolveMissingPunchIncidentV1,
   type AttendanceCaseDiagnosticV1,
   type AttendanceDiagnosticSummaryV1,
   type AttendanceExceptionLane,
   type AttendanceExceptionRow,
+  type MissingPunchContextV1,
+  type MissingPunchHistoryRowV1,
 } from '@/lib/attendance/attendanceResolutionService';
 import EmployeeProfileDrawer from '@/components/attendance/EmployeeProfileDrawer';
 import AttendanceCorrectionReviewPanel from '@/components/attendance/AttendanceCorrectionReviewPanel';
@@ -50,6 +55,23 @@ function fmt(value?: string | null) {
     dateStyle: 'short',
     timeStyle: 'short',
   });
+}
+
+function toCairoDateTimeLocal(value?: string | null) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Africa/Cairo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date);
+  const get = (type: string) => parts.find((part) => part.type === type)?.value || '';
+  return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}`;
 }
 
 function laneMeta(lane: AttendanceExceptionLane) {
@@ -114,6 +136,7 @@ export default function AttendanceResolutionCenter({
   const [lane, setLane] = useState<'all' | AttendanceExceptionLane>(initialTriage);
   const [rows, setRows] = useState<AttendanceExceptionRow[]>([]);
   const [diagnosticSummary, setDiagnosticSummary] = useState<AttendanceDiagnosticSummaryV1 | null>(null);
+  const [categoryTab, setCategoryTab] = useState<'all' | 'absence' | 'early_leave' | 'missing_punch' | 'system'>('all');
   const [showFormer, setShowFormer] = useState(false);
   const { data: staffDirectory = [], isLoading: directoryLoading, isError: directoryError } = useStaffDirectory();
   const [loading, setLoading] = useState(false);
@@ -136,6 +159,11 @@ export default function AttendanceResolutionCenter({
   const [diagnostic, setDiagnostic] = useState<AttendanceCaseDiagnosticV1 | null>(null);
   const [diagnosticLoading, setDiagnosticLoading] = useState(false);
   const [diagnosticError, setDiagnosticError] = useState(false);
+  const [missingPunchContext, setMissingPunchContext] = useState<MissingPunchContextV1 | null>(null);
+  const [missingPunchHistory, setMissingPunchHistory] = useState<MissingPunchHistoryRowV1[]>([]);
+  const [missingPunchLoading, setMissingPunchLoading] = useState(false);
+  const [manualPunchAt, setManualPunchAt] = useState('');
+  const [applyMissingPunchPenalty, setApplyMissingPunchPenalty] = useState(false);
   const [hours, setHours] = useState('');
   const [approving, setApproving] = useState(false);
 
@@ -154,7 +182,7 @@ export default function AttendanceResolutionCenter({
           start,
           end,
           branch,
-          lane,
+          lane: 'all',
           limit: 1000,
         }),
         getAttendanceDiagnosticSummaryV1({ start, end, branch }),
@@ -185,6 +213,52 @@ export default function AttendanceResolutionCenter({
       .then((result) => { if (active) setDiagnostic(result); })
       .catch(() => { if (active) setDiagnosticError(true); })
       .finally(() => { if (active) setDiagnosticLoading(false); });
+    return () => { active = false; };
+  }, [selected]);
+
+  useEffect(() => {
+    const missingType = selected?.resolution_status === 'missing_checkin'
+      ? 'check_in'
+      : selected?.resolution_status === 'missing_checkout'
+        ? 'check_out'
+        : null;
+    if (!selected || !missingType) {
+      setMissingPunchContext(null);
+      setMissingPunchHistory([]);
+      setMissingPunchLoading(false);
+      setManualPunchAt('');
+      setApplyMissingPunchPenalty(false);
+      return;
+    }
+
+    let active = true;
+    setMissingPunchLoading(true);
+    setApplyMissingPunchPenalty(false);
+    const suggested = missingType === 'check_in'
+      ? selected.scheduled_start_at
+      : selected.scheduled_end_at;
+    setManualPunchAt(toCairoDateTimeLocal(suggested));
+
+    void Promise.all([
+      getMissingPunchContextV1({
+        staffId: selected.staff_id,
+        date: selected.attendance_date,
+        missingType,
+      }),
+      listStaffMissingPunchHistoryV1(selected.staff_id, 20),
+    ])
+      .then(([context, history]) => {
+        if (!active) return;
+        setMissingPunchContext(context);
+        setMissingPunchHistory(history);
+      })
+      .catch(() => {
+        if (!active) return;
+        setMissingPunchContext(null);
+        setMissingPunchHistory([]);
+      })
+      .finally(() => { if (active) setMissingPunchLoading(false); });
+
     return () => { active = false; };
   }, [selected]);
 
@@ -252,7 +326,22 @@ export default function AttendanceResolutionCenter({
     .filter((person) => person.source === 'staff' && person.id && !person.active)
     .map((person) => person.id)), [staffDirectory]);
   const formerRows = rows.filter((row) => formerIds.has(row.staff_id));
-  const visibleRows = showFormer ? rows : rows.filter((row) => !formerIds.has(row.staff_id));
+  const baseRows = showFormer ? rows : rows.filter((row) => !formerIds.has(row.staff_id));
+  const tabCounts = useMemo(() => ({
+    all: baseRows.length,
+    absence: baseRows.filter((row) => row.issue_group === 'absence' || row.resolution_status === 'absence_review').length,
+    earlyLeave: baseRows.filter((row) => row.issue_group === 'early_leave' || row.resolution_status === 'early_leave_review').length,
+    missingPunch: baseRows.filter((row) => row.issue_group === 'missing_punch' || row.resolution_status?.startsWith('missing_')).length,
+    system: baseRows.filter((row) => row.queue_lane === 'system').length,
+  }), [baseRows]);
+  const visibleRows = baseRows.filter((row) => lane === 'all' || row.queue_lane === lane);
+  const displayRows = visibleRows.filter((row) => {
+    if (categoryTab === 'absence') return row.issue_group === 'absence' || row.resolution_status === 'absence_review';
+    if (categoryTab === 'early_leave') return row.issue_group === 'early_leave' || row.resolution_status === 'early_leave_review';
+    if (categoryTab === 'missing_punch') return row.issue_group === 'missing_punch' || row.resolution_status?.startsWith('missing_');
+    if (categoryTab === 'system') return row.queue_lane === 'system';
+    return true;
+  });
   const totals = useMemo(() => ({
     total: visibleRows.length,
     manager: visibleRows.filter((row) => row.queue_lane === 'manager').length,
