@@ -4,6 +4,7 @@ import type { WhatsAppConversationSession } from '@/lib/whatsappConversationPars
 import { extractConversationSignals } from '@/lib/whatsappConversationSignals';
 import {
   deriveLostReasonCodes,
+  detectCommercialFrictionFactsV26,
   detectDeepJourneyStages,
   evaluateMedicalHardGate,
   summarizeResponseMetrics,
@@ -37,22 +38,17 @@ export default function WhatsAppCaseDecisionPanelV26({ session }: { session: Wha
     })));
     const journey = detectDeepJourneyStages(session.messages);
     const medical = evaluateMedicalHardGate(session.messages);
-    const all = session.messages.map((m) => m.text || '').join('\n');
     const outbound = session.messages.filter((m) => m.direction === 'outbound').map((m) => m.text || '').join('\n');
-    const inbound = session.messages.filter((m) => m.direction === 'inbound').map((m) => m.text || '').join('\n');
-    const sold = /(تم تأكيد|تم التاكيد|الأوردر اتأكد|الاوردر اتاكد|جاري الارسال|جاري الإرسال|فاتورة|فاتوره|الإجمالي|الاجمالي)/i.test(all);
-    const stockout = /(غير متوفر|مش موجود|ناقص|خلص)/i.test(all);
-    const alternativeOffered = /(بديل|نرشح|ارشح|أرشح|بداله|بدلها)/i.test(outbound);
-    const priceObjection = /(غالي|سعره عالي|أرخص|ارخص|مش مناسب|هفكر)/i.test(inbound);
+    const friction = detectCommercialFrictionFactsV26(session.messages);
     const followupPromised = /(هتابع|هرجع|هبلغ|هتواصل|اول ما|أول ما|هنوفره)/i.test(outbound);
     const followupCompleted = followupPromised && session.messages.slice().reverse().some((m) => m.direction === 'outbound' && /(تم|اتوفر|توفر|رجعنا|متاح|موجود)/i.test(m.text || ''));
     const upsellDetected = journey.some((x) => x.stage === 'upsell' && x.detected);
     const salesEligible = /(عايز|عاوز|محتاج|متوفر|سعر|بكام|ابعت|ابعث|طلب|اوردر|أوردر)/i.test(inbound);
     const lostReasons = deriveLostReasonCodes({
-      stockout,
-      alternativeOffered,
-      priceObjection,
-      sold,
+      stockout: friction.stockout,
+      alternativeOffered: friction.alternativeOffered,
+      priceObjection: friction.priceObjection,
+      sold: friction.chatClosed,
       followupPromised,
       followupCompleted,
       upsellDetected,

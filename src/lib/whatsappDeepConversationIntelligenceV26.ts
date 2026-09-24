@@ -78,6 +78,31 @@ const CONSULTATION_RX = /(اعراض|أعراض|جرعة|استخدام|ينفع
 const OBJECTION_RX = /(غالي|سعره عالي|مش مناسب|مش عايز|مش عاوز|هفكر|خليني اشوف|مش مقتنع|أرخص|ارخص)/i;
 const UPSELL_RX = /(تحب|ممكن نضيف|نضيف|معاه|كمان|عرض|باكدج|حجم اكبر|حجم أكبر|لو محتاج)/i;
 
+export type CommercialFrictionFactsV26 = {
+  stockout: boolean;
+  alternativeOffered: boolean;
+  priceObjection: boolean;
+  chatClosed: boolean;
+};
+
+export function detectCommercialFrictionFactsV26(
+  messages: Array<{ text?: string | null; direction?: string | null }>
+): CommercialFrictionFactsV26 {
+  const outbound = messages.filter((message) => message.direction === 'outbound').map((message) => String(message.text || '')).join('\n');
+  const inbound = messages.filter((message) => message.direction === 'inbound').map((message) => String(message.text || '')).join('\n');
+  const all = messages.map((message) => String(message.text || '')).join('\n');
+
+  return {
+    // Stock state must come from the pharmacy side. A customer asking "مش موجود؟" is not evidence
+    // that stock is actually unavailable.
+    stockout: /(غير متوفر|مش موجود|ناقص|خلص)/i.test(outbound),
+    alternativeOffered: /(بديل|نرشح|ارشح|أرشح|بداله|بدلها)/i.test(outbound),
+    priceObjection: /(غالي|سعره عالي|أرخص|ارخص|مش مناسب|هفكر)/i.test(inbound),
+    // Conversation closure only; this is intentionally NOT named/provided as invoice-proven sale.
+    chatClosed: /(تم تأكيد|تم التاكيد|الأوردر اتأكد|الاوردر اتاكد|جاري الارسال|جاري الإرسال|فاتورة|فاتوره|الإجمالي|الاجمالي)/i.test(all),
+  };
+}
+
 export function detectDeepJourneyStages(messages: Array<{ id: string; text?: string | null; direction?: string | null }>): DeepJourneySignal[] {
   const scan = (rx: RegExp, direction?: string) => messages.filter((m) => (!direction || m.direction === direction) && rx.test(String(m.text || '')));
   const consultation = scan(CONSULTATION_RX);

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   classifySampleQuality,
   deriveLostReasonCodes,
+  detectCommercialFrictionFactsV26,
   detectDeepJourneyStages,
   evaluateMedicalHardGate,
   summarizeResponseMetrics,
@@ -73,4 +74,36 @@ describe('whatsappDeepConversationIntelligenceV26', () => {
     expect(result).toContain('slow_response');
     expect(result).toContain('unanswered_customer');
   });
+  it('does not infer stockout from a customer availability question', () => {
+    const facts = detectCommercialFrictionFactsV26([
+      { direction: 'inbound', text: 'الصنف مش موجود عندكم؟' },
+      { direction: 'outbound', text: 'هراجع لحضرتك يا فندم' },
+    ]);
+    expect(facts.stockout).toBe(false);
+  });
+
+  it('detects stockout only from pharmacy-side evidence', () => {
+    const facts = detectCommercialFrictionFactsV26([
+      { direction: 'inbound', text: 'الصنف موجود؟' },
+      { direction: 'outbound', text: 'للأسف مش موجود حاليا' },
+    ]);
+    expect(facts.stockout).toBe(true);
+  });
+
+  it('keeps price objection customer-side and alternative offer pharmacy-side', () => {
+    const facts = detectCommercialFrictionFactsV26([
+      { direction: 'outbound', text: 'ممكن أرشح لحضرتك بديل' },
+      { direction: 'inbound', text: 'السعر غالي شوية' },
+    ]);
+    expect(facts.alternativeOffered).toBe(true);
+    expect(facts.priceObjection).toBe(true);
+  });
+
+  it('labels chat closure separately from invoice-proven sale semantics', () => {
+    const facts = detectCommercialFrictionFactsV26([
+      { direction: 'outbound', text: 'تم تأكيد الأوردر وجاري الإرسال' },
+    ]);
+    expect(facts.chatClosed).toBe(true);
+  });
+
 });
