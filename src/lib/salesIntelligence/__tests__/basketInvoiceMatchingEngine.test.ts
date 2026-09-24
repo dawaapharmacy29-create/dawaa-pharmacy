@@ -176,6 +176,25 @@ describe('Basket <-> Invoice Matching Engine (Sales Intelligence Phase E) — Go
     expect(m.quantityMatch).toBe('exact');
   });
 
+  it('7c. fully returned invoice lines are excluded from positive item and quantity matches', () => {
+    const m = deriveBasketInvoiceMatch(
+      baseInput({
+        itemsByBasketId: { 'basket:1': [item('فيتامين د', 2)] },
+        itemEvidenceProvider: {
+          getItemsForInvoice: () => [{
+            productNameRaw: 'فيتامين د',
+            quantity: 0,
+            returnedQuantity: 2,
+            lineTotal: 0,
+          }],
+        },
+      })
+    );
+    expect(m.itemMatch).toBe('mismatch');
+    expect(m.quantityMatch).toBe('insufficient_data');
+    expect(m.overallMatch).not.toBe('exact');
+  });
+
   it('8. a basket item missing from the invoice is reported as missing_item, never guessed silently', () => {
     const m = deriveBasketInvoiceMatch(
       baseInput({
