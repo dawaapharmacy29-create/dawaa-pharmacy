@@ -110,6 +110,8 @@ export const CROSS_SCRIPT_SEED: ReadonlyMap<string, string> = new Map([
   ['فليكس لايكس', 'flexilax'],
   ['جاست ريج', 'gast reg'],
   ['جاست ريج امبول', 'gast reg'],
+  ['سولو فريش', 'solofresh'],
+  ['سولوفريش', 'solofresh'],
   ['كوجي سان', 'koji san'],
   ['مينوكسديل', 'minoxidil'],
   ['المينوكسديل', 'minoxidil'],
