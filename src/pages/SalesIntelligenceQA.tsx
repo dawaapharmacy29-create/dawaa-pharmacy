@@ -10,6 +10,7 @@ import { supabase } from '@/lib/supabase';
 import { formatDateTime } from '@/lib/utils';
 import { fetchQaBranchOptions, fetchQaCaseList, filterCaseListRows } from '@/lib/salesIntelligence/qa/queries';
 import { DEFAULT_QA_LIST_FILTERS, type QaCaseListRow, type QaListFilters } from '@/lib/salesIntelligence/qa/types';
+import ProductDemandLeakageV22 from '@/components/salesIntelligence/ProductDemandLeakageV22';
 import {
   attributionLevelBadge,
   branchLabelFor,
@@ -96,6 +97,8 @@ export default function SalesIntelligenceQA() {
       </div>
 
       {error ? <div className="dawaa-alert dawaa-alert--danger text-sm font-bold">{error}</div> : null}
+
+      <ProductDemandLeakageV22 />
 
       <section className="dawaa-card grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <label className="relative xl:col-span-2">
