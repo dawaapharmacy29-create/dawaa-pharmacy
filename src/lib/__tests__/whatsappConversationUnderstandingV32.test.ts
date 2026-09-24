@@ -123,3 +123,29 @@ describe('conversation case classification certainty', () => {
     expect(cases[0].confidence.ruleIds).toContain('case.classification.explicit_commercial_journey');
   });
 });
+
+
+describe('product reference safety against welcome templates', () => {
+  it('does not resolve "ده" to a pharmacy welcome/service template', () => {
+    const raw = `[9/15/26, 9:30:55 PM] محمد الكموني17777: [Forwarded] Isis teenderm gel for sensitive skin بديل الغسول
+[9/15/26, 9:31:20 PM] You: أهلا وسهلا بحضرتك ✨ نورتنا في صيدليات دواء 💚 خدمة التوصيل متاحة على مدار 24 ساعة
+[9/15/26, 9:32:10 PM] محمد الكموني17777: موجود عندكم الغسول ده`;
+    const session = oneSession(raw);
+    const understanding = buildConversationUnderstandingV32(session);
+    const refSignal = understanding.signals.find((s) => s.type === 'product_reference' && s.messageId === understanding.messages[2].id);
+    expect(refSignal).toBeDefined();
+    expect(refSignal?.extractedValue).toBe('unknown');
+    expect(refSignal?.ruleId).toBe('reference.unknown');
+  });
+
+  it('still resolves a product reference to a genuine product offer', () => {
+    const raw = `[9/15/26, 9:30:55 PM] Customer: محتاج غسول للبشرة الحساسة
+[9/15/26, 9:31:20 PM] You: متوفر ISIS Teen Derm Gel Sensitive 250ml
+[9/15/26, 9:32:10 PM] Customer: ابعتلي ده`;
+    const session = oneSession(raw);
+    const understanding = buildConversationUnderstandingV32(session);
+    const refSignal = understanding.signals.find((s) => s.type === 'product_reference' && s.messageId === understanding.messages[2].id);
+    expect(refSignal?.extractedValue).toBe(understanding.messages[1].id);
+    expect(refSignal?.ruleId).toBe('reference.resolved_to_prior_offer');
+  });
+});
