@@ -40,6 +40,7 @@ import {
   mapPolicyEvaluationRowContent,
 } from './mappers';
 import { BRANCH_IDENTITY_MAPPING_VERSION, ENGINE_VERSIONS } from './versions';
+import { mergeDeniedInvoiceMaps, resolveExclusiveInvoiceClaims } from '../invoiceClaimResolution';
 
 // ---------------------------------------------------------------------------
 // Input contract
@@ -476,44 +477,59 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
     pass1ByConversation.set(conversation.conversationId, result.caseAnalyses);
   }
 
-  // Step 4: resolve competing-case relationships across the FULL batch BEFORE persistence
-  // (instruction #12 steps 8-9 — never persist pass-1 attribution and later "fix" it silently).
-  const competingSelections: Array<{ caseId: string; invoiceId: string }> = [];
-  for (const analyses of pass1ByConversation.values()) {
-    for (const analysis of analyses) {
-      if (analysis.attribution.selectedInvoiceId) {
-        competingSelections.push({ caseId: analysis.caseId, invoiceId: analysis.attribution.selectedInvoiceId });
-      }
+  // Step 4: resolve one-invoice-to-many-case claims across the FULL batch before persistence.
+  // A clearly stronger claim gets exclusive use of that invoice; genuine ties remain unresolved.
+  // Iterate because removing one invoice from a losing case can expose its next-best candidate.
+  const deniedInvoiceIdsByCase = new Map<string, Set<string>>();
+  let workingAnalyses = Array.from(pass1ByConversation.values()).flat();
+
+  const rerunForResolution = (
+    competingSelections: Array<{ caseId: string; invoiceId: string }> = []
+  ): SalesIntelligenceCaseAnalysis[] => {
+    const analyses: SalesIntelligenceCaseAnalysis[] = [];
+    for (const conversation of effectiveConversations) {
+      const pipelineInput: SalesIntelligencePipelineInput = {
+        conversationId: conversation.conversationId,
+        rawWhatsAppExportText: conversation.rawWhatsAppExportText,
+        trustedConversationStartedAt: conversation.trustedConversationStartedAt ?? null,
+        sourceCaseIdV22: conversation.sourceCaseIdV22,
+        customerIdHint: conversation.customerIdHint,
+        customerPhoneHint: conversation.customerPhoneHint,
+        branchIdHint: conversation.branchIdHint,
+        branchNameRawHint: conversation.branchNameRawHint,
+        knownStaffIds: conversation.knownStaffIds,
+        legacyMatchedInvoiceId: conversation.legacyMatchedInvoiceId,
+        legacyMatchedInvoiceNumber: conversation.legacyMatchedInvoiceNumber,
+        trustedInvoiceId: conversation.trustedInvoiceId,
+        trustedInvoiceNumber: conversation.trustedInvoiceNumber,
+        invoiceCancelledOrReturned: conversation.invoiceCancelledOrReturned,
+        invoiceStatusHint: conversation.invoiceStatusHint,
+        sessionSplitGapMinutes: conversation.sessionSplitGapMinutes,
+        protocolPolicyEffectiveAt: conversation.protocolPolicyEffectiveAt,
+        competingSelections,
+        resolveInvoiceCandidates: (context) => {
+          const denied = deniedInvoiceIdsByCase.get(context.caseId);
+          const rows = conversationToGroupCandidates(conversation, context);
+          return denied?.size ? rows.filter((row) => !denied.has(invoiceRowLookupId(row))) : rows;
+        },
+      };
+      analyses.push(...runSalesIntelligencePipeline(pipelineInput).caseAnalyses);
     }
+    return analyses;
+  };
+
+  for (let iteration = 0; iteration < 5; iteration += 1) {
+    const resolution = resolveExclusiveInvoiceClaims(workingAnalyses);
+    const addedDenials = mergeDeniedInvoiceMaps(deniedInvoiceIdsByCase, resolution.deniedInvoiceIdsByCase);
+    if (addedDenials === 0) break;
+    workingAnalyses = rerunForResolution([]);
   }
 
-  // Step 5: PASS 2 — final run, with the full batch's competing selections visible to every case.
-  const caseAnalyses: SalesIntelligenceCaseAnalysis[] = [];
-  for (const conversation of effectiveConversations) {
-    const pipelineInput: SalesIntelligencePipelineInput = {
-      conversationId: conversation.conversationId,
-      rawWhatsAppExportText: conversation.rawWhatsAppExportText,
-      trustedConversationStartedAt: conversation.trustedConversationStartedAt ?? null,
-      sourceCaseIdV22: conversation.sourceCaseIdV22,
-      customerIdHint: conversation.customerIdHint,
-      customerPhoneHint: conversation.customerPhoneHint,
-      branchIdHint: conversation.branchIdHint,
-      branchNameRawHint: conversation.branchNameRawHint,
-      knownStaffIds: conversation.knownStaffIds,
-      legacyMatchedInvoiceId: conversation.legacyMatchedInvoiceId,
-      legacyMatchedInvoiceNumber: conversation.legacyMatchedInvoiceNumber,
-      trustedInvoiceId: conversation.trustedInvoiceId,
-      trustedInvoiceNumber: conversation.trustedInvoiceNumber,
-      invoiceCancelledOrReturned: conversation.invoiceCancelledOrReturned,
-      invoiceStatusHint: conversation.invoiceStatusHint,
-      sessionSplitGapMinutes: conversation.sessionSplitGapMinutes,
-      protocolPolicyEffectiveAt: conversation.protocolPolicyEffectiveAt,
-      competingSelections,
-      resolveInvoiceCandidates: (context) => conversationToGroupCandidates(conversation, context),
-    };
-    const result = runSalesIntelligencePipeline(pipelineInput);
-    caseAnalyses.push(...result.caseAnalyses);
-  }
+  // Any duplicate claims still present now are real unresolved ties, not cases with a clearly
+  // stronger winner. Pass only those ties to Phase D so they remain human-reviewable/non-official.
+  const finalResolution = resolveExclusiveInvoiceClaims(workingAnalyses);
+  const competingSelections = finalResolution.unresolvedCompetingSelections;
+  const caseAnalyses = rerunForResolution(competingSelections);
 
   const purePipelineComputeMs = Date.now() - pureComputeStart;
 
