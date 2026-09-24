@@ -18,7 +18,7 @@
 // than paginating server-side, deliberately kept small per CLAUDE.md's standing constraint against
 // unbounded high-volume reads.
 import { parseWhatsAppExport, type WhatsAppParsedMessage } from '../../whatsappConversationParser';
-import { deriveCasesOnly, runSalesIntelligencePipeline } from '../salesIntelligencePipeline';
+import { deriveCasesOnly, deriveSegmentedCases, runSalesIntelligencePipeline } from '../salesIntelligencePipeline';
 import { buildInvoiceCandidateQuery, fetchInvoiceCandidates } from '../invoiceCandidateRetrieval';
 import { deriveSaleProofState } from '../saleProofState';
 import { deriveCanonicalSalesOutcome } from '../canonicalSalesOutcomeEngine';
@@ -35,7 +35,12 @@ import { rankProductCandidates } from '../../productMatching';
 import { resolveReviewSourceSnapshotLineage, selectCanonicalReviewSourceIds } from '../sourceSnapshotLineage';
 import { fetchInvoiceItemEvidenceProvider } from '../invoiceItemEvidenceRepository';
 import { fetchPharmacyProductIndex } from '../pharmacyProductCatalogRepository';
-import { derivePricingExecutionAssessment } from '../salesPricingExecutionV1';
+import {
+  compareQuotedAndActualUnitPrice,
+  derivePricingExecutionAssessment,
+} from '../salesPricingExecutionV1';
+import { buildConversationEntityGraphV2 } from '../basketV2/conversationEntityGraphV2';
+import { reconstructBasketV2 } from '../basketV2/basketReconstructionV2';
 
 const MAX_LIST_ROWS = 2000;
 
@@ -379,6 +384,14 @@ export interface QaCaseDetailBundle {
   saleProof: SaleProofAssessment;
   /** Current canonical commercial outcome derived from current proof + commercial state. */
   salesOutcome: CanonicalSalesOutcomeAssessment;
+  quotedBasketV2Items: Array<{
+    productId: string;
+    productCode: string | null;
+    productName: string | null;
+    quantity: number | null;
+    unitPrice: number | null;
+    lineTotal: number | null;
+  }>;
   invoiceItemFacts: Array<{
     id: string;
     invoiceId: string | null;
@@ -401,6 +414,11 @@ export interface QaCaseDetailBundle {
     catalogCurrentPrice: number | null;
     pricingStatus: string;
     effectiveUnitPrice: number | null;
+    quotedUnitPrice: number | null;
+    quotedLineTotal: number | null;
+    quotedPriceStatus: string;
+    quotedPriceDifference: number | null;
+    quotedPriceDifferencePercent: number | null;
     matchedOfferId: string | null;
     matchedOfferTitle: string | null;
     pricingNeedsReview: boolean;
@@ -449,6 +467,7 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
   let transcript: WhatsAppParsedMessage[] = [];
   let liveEvidence: SalesIntelligenceCaseAnalysis | null = null;
   let liveSaleProof: SaleProofAssessment | null = null;
+  let quotedBasketV2Items: QaCaseDetailBundle['quotedBasketV2Items'] = [];
   let sourceSnapshot: QaCaseDetailBundle['sourceSnapshot'] = { isCanonical: true, canonicalSourceId: null };
 
   if (caseRow?.conversation_id) {
@@ -609,6 +628,33 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
           freshCandidates
         );
         const productIndex = await fetchPharmacyProductIndex(supabaseClient);
+
+        const segmentedForPrice = deriveSegmentedCases(baseInput);
+        const priceSegment = segmentedForPrice.cases.find(
+          (entry) => entry.conversationCase.caseId === caseId
+        ) ?? null;
+        if (priceSegment) {
+          const graph = buildConversationEntityGraphV2(
+            caseId,
+            priceSegment.scopedMessages,
+            { productIndex }
+          );
+          const timestamps = new Map(
+            priceSegment.scopedMessages.map((message) => [
+              message.id,
+              message.timestamp.toISOString(),
+            ])
+          );
+          const basketV2 = reconstructBasketV2(graph, timestamps).currentBasket;
+          quotedBasketV2Items = basketV2.items.map((item) => ({
+            productId: item.canonicalProductId,
+            productCode: item.canonicalProductCode,
+            productName: item.canonicalName,
+            quantity: item.currentQuantity,
+            unitPrice: item.unitPrice,
+            lineTotal: item.lineTotal,
+          }));
+        }
 
         const runLivePipeline = (
           competingSelections: Array<{ caseId: string; invoiceId: string }> = []
@@ -859,6 +905,15 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
         lineOffers
       );
 
+      const quoted = quotedBasketV2Items.find((item) =>
+        (row.product_id && item.productId === String(row.product_id)) ||
+        (row.product_code && item.productCode === String(row.product_code))
+      ) ?? null;
+      const quotedPrice = compareQuotedAndActualUnitPrice(
+        quoted?.unitPrice ?? null,
+        row.unit_price == null ? null : Number(row.unit_price)
+      );
+
       invoiceItemFacts.push({
         id: String(row.id),
         invoiceId: row.invoice_id == null ? null : String(row.invoice_id),
@@ -881,6 +936,11 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
         catalogCurrentPrice: product?.price == null ? null : Number(product.price),
         pricingStatus: pricing.status,
         effectiveUnitPrice: pricing.effectiveUnitPrice,
+        quotedUnitPrice: quoted?.unitPrice ?? null,
+        quotedLineTotal: quoted?.lineTotal ?? null,
+        quotedPriceStatus: quotedPrice.status,
+        quotedPriceDifference: quotedPrice.absoluteDifference,
+        quotedPriceDifferencePercent: quotedPrice.relativeDifferencePercent,
         matchedOfferId: pricing.matchedOfferId,
         matchedOfferTitle: pricing.matchedOfferTitle,
         pricingNeedsReview: pricing.needsHumanReview,
@@ -898,6 +958,7 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
     liveSaleProof,
     saleProof,
     salesOutcome,
+    quotedBasketV2Items,
     invoiceItemFacts,
     catalogProductMatches,
   };

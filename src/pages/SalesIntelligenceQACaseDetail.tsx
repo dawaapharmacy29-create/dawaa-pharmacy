@@ -98,6 +98,17 @@ function pricingStatusLabel(status: string) {
   return labels[status] || status;
 }
 
+function quotedPriceStatusLabel(status: string) {
+  const labels: Record<string, string> = {
+    exact: 'السعر مطابق',
+    near_match: 'فرق بسيط',
+    mismatch_review: 'فرق سعر يحتاج مراجعة',
+    not_quoted: 'لم يُذكر سعر واضح',
+    insufficient_data: 'بيانات غير كافية',
+  };
+  return labels[status] || status;
+}
+
 export default function SalesIntelligenceQACaseDetail() {
   const { caseId: rawCaseId } = useParams<{ caseId: string }>();
   const caseId = rawCaseId ? decodeURIComponent(rawCaseId) : '';
@@ -193,6 +204,12 @@ export default function SalesIntelligenceQACaseDetail() {
   const historical = liveEvidence?.historicalClosure ?? null;
   const basketKnownQuantities = basketItems.filter((item) => item.quantity != null).length;
   const currentSalesOutcome = salesOutcome;
+  const priceQuotedRows = invoiceItemFacts.filter((item) => item.quotedUnitPrice != null);
+  const priceExactRows = priceQuotedRows.filter((item) => item.quotedPriceStatus === 'exact' || item.quotedPriceStatus === 'near_match');
+  const priceMismatchRows = priceQuotedRows.filter((item) => item.quotedPriceStatus === 'mismatch_review');
+  const quotedPriceAccuracyPercent = priceQuotedRows.length
+    ? Math.round((priceExactRows.length / priceQuotedRows.length) * 100)
+    : null;
 
   return (
     <div className="space-y-5" dir="rtl">
@@ -568,6 +585,12 @@ export default function SalesIntelligenceQACaseDetail() {
           </div>
         ) : (
           <>
+            <div className="mb-3 grid gap-2 sm:grid-cols-4">
+              <Field label="أصناف الفاتورة" value={invoiceItemFacts.length} />
+              <Field label="أصناف لها سعر مذكور بالمحادثة" value={priceQuotedRows.length} />
+              <Field label="دقة الأسعار المذكورة" value={quotedPriceAccuracyPercent == null ? 'غير متاحة' : `${quotedPriceAccuracyPercent}٪`} />
+              <Field label="فروق سعر تحتاج مراجعة" value={priceMismatchRows.length} />
+            </div>
             <div className="dawaa-alert dawaa-alert--info mb-3 text-xs leading-6">
               سعر الكتالوج الحالي يظهر كمرجع معلوماتي فقط، ولا يُستخدم للحكم على سعر تاريخي. تقييم الخصم يعتمد على ملف B-Connect والعروض السارية وقت الفاتورة.
             </div>
@@ -575,7 +598,7 @@ export default function SalesIntelligenceQACaseDetail() {
               <table className="min-w-full text-xs">
                 <thead>
                   <tr className="dawaa-muted border-b border-[var(--dawaa-theme-border)] text-right">
-                    {['الصنف', 'الكود', 'الكمية', 'سعر البيع', 'خصم الصنف', 'صافي البند', 'مرتجع', 'الدكتور المنفذ', 'حالة السعر/العرض'].map((h) => <th key={h} className="p-2">{h}</th>)}
+                    {['الصنف', 'الكود', 'الكمية', 'السعر في المحادثة', 'سعر البيع الفعلي', 'الفرق', 'دقة السعر', 'خصم الصنف', 'صافي البند', 'مرتجع', 'الدكتور المنفذ', 'حالة العرض/الخصم'].map((h) => <th key={h} className="p-2">{h}</th>)}
                   </tr>
                 </thead>
                 <tbody>
@@ -584,7 +607,16 @@ export default function SalesIntelligenceQACaseDetail() {
                       <td className="p-2 font-bold">{item.productName || '—'}</td>
                       <td className="p-2 font-mono">{item.productCode || '—'}</td>
                       <td className="p-2">{item.quantity ?? '—'}{item.unitName ? ` ${item.unitName}` : ''}</td>
+                      <td className="p-2">{item.quotedUnitPrice == null ? '—' : `${item.quotedUnitPrice.toFixed(2)} ج.م`}</td>
                       <td className="p-2">{item.unitPrice == null ? '—' : `${item.unitPrice.toFixed(2)} ج.م`}</td>
+                      <td className="p-2">
+                        {item.quotedPriceDifference == null ? '—' : `${item.quotedPriceDifference.toFixed(2)} ج.م`}
+                      </td>
+                      <td className="p-2">
+                        <span className={item.quotedPriceStatus === 'mismatch_review' ? 'dawaa-badge dawaa-badge--warning' : item.quotedPriceStatus === 'exact' || item.quotedPriceStatus === 'near_match' ? 'dawaa-badge dawaa-badge--success' : 'dawaa-badge'}>
+                          {quotedPriceStatusLabel(item.quotedPriceStatus)}
+                        </span>
+                      </td>
                       <td className="p-2">
                         {item.itemDiscountAmount ? `${item.itemDiscountAmount.toFixed(2)} ج.م` : item.itemDiscountPercent ? `${item.itemDiscountPercent}%` : '0'}
                       </td>

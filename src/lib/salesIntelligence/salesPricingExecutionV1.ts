@@ -76,3 +76,83 @@ export function derivePricingExecutionAssessment(
   }
   return { status: 'insufficient_data', effectiveUnitPrice: null, matchedOfferId: null, matchedOfferTitle: null, needsHumanReview: true };
 }
+
+
+export type QuotedPriceMatchStatus =
+  | 'exact'
+  | 'near_match'
+  | 'mismatch_review'
+  | 'not_quoted'
+  | 'insufficient_data';
+
+export interface QuotedPriceMatchAssessment {
+  status: QuotedPriceMatchStatus;
+  quotedUnitPrice: number | null;
+  actualUnitPrice: number | null;
+  absoluteDifference: number | null;
+  relativeDifferencePercent: number | null;
+  needsHumanReview: boolean;
+}
+
+export function compareQuotedAndActualUnitPrice(
+  quotedUnitPrice: number | null | undefined,
+  actualUnitPrice: number | null | undefined
+): QuotedPriceMatchAssessment {
+  const quoted = numeric(quotedUnitPrice);
+  const actual = numeric(actualUnitPrice);
+
+  if (quoted == null) {
+    return {
+      status: 'not_quoted',
+      quotedUnitPrice: null,
+      actualUnitPrice: actual,
+      absoluteDifference: null,
+      relativeDifferencePercent: null,
+      needsHumanReview: false,
+    };
+  }
+  if (actual == null) {
+    return {
+      status: 'insufficient_data',
+      quotedUnitPrice: quoted,
+      actualUnitPrice: null,
+      absoluteDifference: null,
+      relativeDifferencePercent: null,
+      needsHumanReview: true,
+    };
+  }
+
+  const absoluteDifference = Math.abs(actual - quoted);
+  const relativeDifferencePercent = quoted === 0 ? null : (absoluteDifference / Math.abs(quoted)) * 100;
+
+  if (absoluteDifference <= 0.5) {
+    return {
+      status: 'exact',
+      quotedUnitPrice: quoted,
+      actualUnitPrice: actual,
+      absoluteDifference,
+      relativeDifferencePercent,
+      needsHumanReview: false,
+    };
+  }
+
+  if (absoluteDifference <= 2 || (relativeDifferencePercent != null && relativeDifferencePercent <= 0.5)) {
+    return {
+      status: 'near_match',
+      quotedUnitPrice: quoted,
+      actualUnitPrice: actual,
+      absoluteDifference,
+      relativeDifferencePercent,
+      needsHumanReview: false,
+    };
+  }
+
+  return {
+    status: 'mismatch_review',
+    quotedUnitPrice: quoted,
+    actualUnitPrice: actual,
+    absoluteDifference,
+    relativeDifferencePercent,
+    needsHumanReview: true,
+  };
+}

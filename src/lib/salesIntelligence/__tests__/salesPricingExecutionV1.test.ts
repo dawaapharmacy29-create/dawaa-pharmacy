@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { derivePricingExecutionAssessment } from '@/lib/salesIntelligence/salesPricingExecutionV1';
+import {
+  compareQuotedAndActualUnitPrice,
+  derivePricingExecutionAssessment,
+} from '@/lib/salesIntelligence/salesPricingExecutionV1';
 
 describe('salesPricingExecutionV1', () => {
   it('recognizes an active offer when the effective unit price matches the final offer price', () => {
@@ -51,6 +54,22 @@ describe('salesPricingExecutionV1', () => {
       []
     );
     expect(result.status).toBe('no_discount_observed');
+    expect(result.needsHumanReview).toBe(false);
+  });
+  it('compares a quoted item price against the actual B-Connect unit price', () => {
+    const exact = compareQuotedAndActualUnitPrice(675, 675);
+    expect(exact.status).toBe('exact');
+    expect(exact.needsHumanReview).toBe(false);
+
+    const mismatch = compareQuotedAndActualUnitPrice(650, 675);
+    expect(mismatch.status).toBe('mismatch_review');
+    expect(mismatch.absoluteDifference).toBe(25);
+    expect(mismatch.needsHumanReview).toBe(true);
+  });
+
+  it('does not penalize an item when no item-level price was quoted in the conversation', () => {
+    const result = compareQuotedAndActualUnitPrice(null, 675);
+    expect(result.status).toBe('not_quoted');
     expect(result.needsHumanReview).toBe(false);
   });
 });
