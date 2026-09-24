@@ -26,7 +26,7 @@ export interface ProductDemandBackfillSourceResultV22 {
 }
 
 export interface ProductDemandBackfillResultV22 {
-  version: 'product-demand-backfill-v22';
+  version: 'product-demand-backfill-v22.1';
   dryRun: boolean;
   scanned: number;
   ready: number;
@@ -222,7 +222,7 @@ export async function runProductDemandBackfillV22(
   }
 
   return {
-    version: 'product-demand-backfill-v22',
+    version: 'product-demand-backfill-v22.1',
     dryRun,
     scanned: rows.length,
     ready: rows.filter((row) => row.status === 'ready').length,
