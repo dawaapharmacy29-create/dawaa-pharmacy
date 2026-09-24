@@ -450,14 +450,22 @@ export async function importSalesInvoiceItemsV21(
       invoiceLinkReason = `multiple_header_candidates:${headerCandidates.length}`;
     }
 
-    const identityBase = [
-      row.invoiceNumber,
-      itemBranch,
-      row.invoiceDate || '',
-      row.lineNo ?? '',
-      row.productCode || '',
-      normalize(row.productName),
-    ].join('|');
+    const stableProductIdentity = row.productCode || normalize(row.productName);
+    const identityBase = uniqueHeader?.id
+      ? [
+          'invoice-id',
+          String(uniqueHeader.id),
+          row.lineNo ?? '',
+          stableProductIdentity,
+        ].join('|')
+      : [
+          'invoice-fallback',
+          row.invoiceNumber,
+          itemBranch,
+          itemDay || row.invoiceDate || '',
+          row.lineNo ?? '',
+          stableProductIdentity,
+        ].join('|');
 
     payload.push({
       item_identity: await sha256(identityBase),

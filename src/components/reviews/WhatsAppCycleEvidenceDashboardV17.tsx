@@ -172,6 +172,12 @@ export default function WhatsAppCycleEvidenceDashboardV17({ mode }: { mode: Mode
         </div>
       ) : null}
 
+      {mode === 'doctors' && commercialData && commercialData.offerReferenceCount === 0 ? (
+        <div className="mt-4 rounded-xl border border-amber-400/20 bg-amber-500/5 p-3 text-xs leading-6 text-amber-100">
+          لا يوجد مرجع عروض رسمي محمّل للأصناف في هذه الدورة. لذلك أي خصم يظهر كحالة تحتاج مراجعة اعتماد، ولا يتم اعتباره مخالفة أو عرضًا منفذًا تلقائيًا.
+        </div>
+      ) : null}
+
       {mode === 'doctors' && commercialData ? (
         <div className="mt-4 grid gap-2 sm:grid-cols-4">
           <K label="بنود B-Connect" value={commercialData.lineCount} />

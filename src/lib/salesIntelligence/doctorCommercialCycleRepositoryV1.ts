@@ -7,20 +7,63 @@ type AnyRow = Record<string, any>;
 const PAGE_SIZE = 1000;
 const MAX_ROWS = 50000;
 
-async function pagedSelect(
-  table: string,
-  columns: string,
-  apply: (query: any) => any
-): Promise<AnyRow[]> {
+function cairoWallClockToIso(date: string, endOfDay = false): string {
+  const [year, month, day] = date.split('-').map(Number);
+  const hour = endOfDay ? 23 : 0;
+  const minute = endOfDay ? 59 : 0;
+  const second = endOfDay ? 59 : 0;
+  const desiredWallAsUtc = Date.UTC(year, month - 1, day, hour, minute, second);
+
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Africa/Cairo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  });
+  const offsetAt = (instantMs: number) => {
+    const parts = Object.fromEntries(
+      formatter.formatToParts(new Date(instantMs))
+        .filter((part) => part.type !== 'literal')
+        .map((part) => [part.type, part.value])
+    ) as Record<string, string>;
+    return Date.UTC(
+      Number(parts.year),
+      Number(parts.month) - 1,
+      Number(parts.day),
+      Number(parts.hour),
+      Number(parts.minute),
+      Number(parts.second)
+    ) - instantMs;
+  };
+  let offset = offsetAt(desiredWallAsUtc);
+  let result = desiredWallAsUtc - offset;
+  const correctedOffset = offsetAt(result);
+  if (correctedOffset !== offset) result = desiredWallAsUtc - correctedOffset;
+  return new Date(result).toISOString();
+}
+
+function normalizeBranch(value: unknown) {
+  return String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/^فرع\s+/, '')
+    .replace(/\s+/g, ' ');
+}
+
+async function fetchInvoiceItemsForCycle(fromIso: string, toIso: string): Promise<AnyRow[]> {
   const rows: AnyRow[] = [];
   for (let from = 0; from < MAX_ROWS; from += PAGE_SIZE) {
-    const query = apply(
-      supabase
-        .from(table)
-        .select(columns)
-        .range(from, from + PAGE_SIZE - 1)
-    );
-    const { data, error } = await query;
+    const { data, error } = await supabase
+      .from('sales_invoice_items_v21')
+      .select('id,invoice_id,invoice_number,invoice_date,product_id,product_code,product_name,quantity,unit_price,line_total,raw_data')
+      .gte('invoice_date', fromIso)
+      .lte('invoice_date', toIso)
+      .order('invoice_date', { ascending: true })
+      .range(from, from + PAGE_SIZE - 1);
     if (error) throw error;
     const batch = data ?? [];
     rows.push(...batch);
@@ -42,20 +85,17 @@ export interface DoctorCommercialCycleDataV1 {
   linkedInvoiceLineCount: number;
   unmatchedInvoiceLineCount: number;
   needsReviewLineCount: number;
+  offerReferenceCount: number;
 }
 
 export async function fetchDoctorCommercialCycleDataV1(
   cycleStart: string,
   cycleEnd: string
 ): Promise<DoctorCommercialCycleDataV1> {
-  const fromIso = `${cycleStart}T00:00:00`;
-  const toIso = `${cycleEnd}T23:59:59`;
+  const fromIso = cairoWallClockToIso(cycleStart, false);
+  const toIso = cairoWallClockToIso(cycleEnd, true);
 
-  const items = await pagedSelect(
-    'sales_invoice_items_v21',
-    'id,invoice_id,invoice_number,invoice_date,product_id,product_code,product_name,quantity,unit_price,line_total,raw_data',
-    (query) => query.gte('invoice_date', fromIso).lte('invoice_date', toIso).order('invoice_date', { ascending: true })
-  );
+  const items = await fetchInvoiceItemsForCycle(fromIso, toIso);
 
   const invoiceIds = Array.from(new Set(items.map((row) => String(row.invoice_id ?? '')).filter(Boolean)));
   const headers: AnyRow[] = [];
@@ -92,13 +132,13 @@ export async function fetchDoctorCommercialCycleDataV1(
     else unmatchedInvoiceLineCount += 1;
 
     const meta = row.raw_data?.__dawaa_commercial ?? {};
-    const branch = String(header?.branch_name ?? header?.branch ?? '').trim();
+    const branch = normalizeBranch(header?.branch_name ?? header?.branch);
     const saleDay = String(header?.invoice_datetime ?? header?.sale_date ?? row.invoice_date ?? '').slice(0, 10);
     const lineOffers = offers
       .filter((offer) => {
         if (String(offer.item_code ?? '') !== String(row.product_code ?? '')) return false;
         if (offer.active === false) return false;
-        const offerBranch = String(offer.branch ?? '').trim();
+        const offerBranch = normalizeBranch(offer.branch);
         if (offerBranch && branch && offerBranch !== branch) return false;
         const start = String(offer.start_date ?? '').slice(0, 10);
         const end = String(offer.end_date ?? '').slice(0, 10);
@@ -151,5 +191,6 @@ export async function fetchDoctorCommercialCycleDataV1(
     linkedInvoiceLineCount,
     unmatchedInvoiceLineCount,
     needsReviewLineCount,
+    offerReferenceCount: offers.length,
   };
 }
