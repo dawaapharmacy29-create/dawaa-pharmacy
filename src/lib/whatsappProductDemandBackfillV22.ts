@@ -56,7 +56,7 @@ type SourceRow = {
   analysis_json: Record<string, any> | null;
 };
 
-function chooseBestSession(
+function buildProductDemandSession(
   sessions: WhatsAppConversationSession[],
   startedAt: string | null,
   endedAt: string | null
@@ -66,21 +66,30 @@ function chooseBestSession(
 
   const start = startedAt ? new Date(startedAt).getTime() : NaN;
   const end = endedAt ? new Date(endedAt).getTime() : NaN;
-
-  const scored = sessions.map((session) => {
-    const s = session.startedAt.getTime();
-    const e = session.endedAt.getTime();
-    const overlap = Number.isFinite(start) && Number.isFinite(end)
-      ? Math.max(0, Math.min(e, end) - Math.max(s, start))
-      : 0;
-    const startDistance = Number.isFinite(start) ? Math.abs(s - start) : 0;
-    return { session, overlap, startDistance };
-  }).sort((a, b) => {
-    if (b.overlap !== a.overlap) return b.overlap - a.overlap;
-    return a.startDistance - b.startDistance;
+  const relevant = sessions.filter((session) => {
+    if (!Number.isFinite(start) || !Number.isFinite(end)) return true;
+    return session.endedAt.getTime() >= start && session.startedAt.getTime() <= end;
   });
+  const selected = relevant.length ? relevant : sessions;
+  const messages = selected.flatMap((session) => session.messages)
+    .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+  if (!messages.length) return null;
 
-  return scored[0]?.session ?? null;
+  const participants = Array.from(new Set(selected.flatMap((session) => session.participants)));
+  const outboundStaffNames = Array.from(new Set(selected.flatMap((session) => session.outboundStaffNames)));
+  return {
+    id: selected.map((session) => session.id).join('+'),
+    startedAt: messages[0].timestamp,
+    endedAt: messages[messages.length - 1].timestamp,
+    messages,
+    participants,
+    outboundStaffNames,
+    customerName: selected.find((session) => session.customerName)?.customerName ?? null,
+    mediaCount: selected.reduce((sum, session) => sum + Number(session.mediaCount || 0), 0),
+    missingMediaCount: selected.reduce((sum, session) => sum + Number(session.missingMediaCount || 0), 0),
+    replyCount: selected.reduce((sum, session) => sum + Number(session.replyCount || 0), 0),
+    forwardedCount: selected.reduce((sum, session) => sum + Number(session.forwardedCount || 0), 0),
+  } satisfies WhatsAppConversationSession;
 }
 
 async function loadSources(options: ProductDemandBackfillOptionsV22): Promise<SourceRow[]> {
@@ -133,7 +142,7 @@ export async function runProductDemandBackfillV22(
       const parsed = parseWhatsAppExport(raw, {
         trustedConversationStartedAt: source.conversation_started_at || undefined,
       });
-      const session = chooseBestSession(
+      const session = buildProductDemandSession(
         splitWhatsAppSessions(parsed, 120),
         source.conversation_started_at,
         source.conversation_ended_at
