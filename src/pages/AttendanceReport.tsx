@@ -86,7 +86,25 @@ type SyncHealth = {
   mapped_ratio?: number;
   events_last_hour?: number;
   events_last_7d?: number;
-  branch_breakdown?: Array<{ branch: string; events: number; mapped: number; unmapped: number; last_ingested_at: string | null }>;
+  branch_breakdown?: Array<{
+    branch: string;
+    provider?: string | null;
+    events: number;
+    mapped: number;
+    unmapped: number;
+    mapped_ratio?: number;
+    last_ingested_at: string | null;
+    last_punch_time?: string | null;
+    client_last_seen_at?: string | null;
+    endpoint_last_request_at?: string | null;
+    endpoint_last_success_at?: string | null;
+    active_clients?: number;
+    watermark_complete_through?: string | null;
+    watermark_reported_at?: string | null;
+    watermark_lag_minutes?: number | null;
+    connection_status?: 'healthy' | 'delayed' | 'stale' | 'offline' | 'never_connected' | string;
+    data_status?: 'current_report' | 'bridge_live_no_new_watermark' | 'watermark_stale' | 'unknown' | string;
+  }>;
   checked_at?: string | null;
 };
 
@@ -399,7 +417,7 @@ export default function AttendanceReport() {
       const today = cairoDate();
       const cycle = attendanceCycleBounds(today);
       const [healthResult, unmappedResult] = await Promise.all([
-        supabase.rpc('attendance_sync_health_v3', { p_start: cycle.start, p_end: today }),
+        supabase.rpc('attendance_sync_health_v4', { p_start: cycle.start, p_end: today }),
         supabase.rpc('list_unmapped_biometric_staff_v2', { p_start: cycle.start, p_end: today, p_limit: 100 }),
       ]);
       if (healthResult.error) throw healthResult.error;
@@ -485,7 +503,7 @@ export default function AttendanceReport() {
     if (!mappingTarget || !selectedCandidate) return;
     setMappingBusy(true);
     try {
-      const { data, error: mappingError } = await supabase.rpc('assign_biometric_staff_mapping_v1', { p_provider: mappingTarget.provider, p_biometric_user_id: mappingTarget.biometric_user_id, p_staff_account_id: selectedCandidate.staff_account_id });
+      const { data, error: mappingError } = await supabase.rpc('assign_biometric_staff_mapping_v3', { p_provider: mappingTarget.provider, p_biometric_user_id: mappingTarget.biometric_user_id, p_staff_id: selectedCandidate.staff_id });
       if (mappingError) throw mappingError;
       const result = (data || {}) as Record<string, unknown>;
       toast.success(`تم ربط كود ${mappingTarget.biometric_user_id} بـ ${selectedCandidate.staff_name} ومعالجة ${Number(result.attendance_events_processed || 0)} بصمة وإعادة بناء ${Number(result.attendance_days_rebuilt || 0)} يوم`);
@@ -724,7 +742,20 @@ function SyncHealthPanel({ health }: { health: SyncHealth }) {
     </div>
     <div className="grid gap-3 md:grid-cols-4"><Metric label="بصمات الدورة الحالية" value={raw} icon={Fingerprint} color="text-[var(--dawaa-status-info-text)] bg-[var(--dawaa-status-info-bg)] border-[var(--dawaa-status-info-border)]" /><Metric label="مربوطة في الدورة" value={mapped} icon={UserCheck} color="text-[var(--dawaa-status-success-text)] bg-[var(--dawaa-status-success-bg)] border-[var(--dawaa-status-success-border)]" /><Metric label="غير مربوطة في الدورة" value={unmapped} icon={AlertTriangle} color="text-[var(--dawaa-status-warning-text)] bg-[var(--dawaa-status-warning-bg)] border-[var(--dawaa-status-warning-border)]" /><Metric label="أكواد نشطة تحتاج ربط" value={unmappedCodes} icon={Users} color="text-[var(--dawaa-status-warning-text)] bg-[var(--dawaa-status-warning-bg)] border-[var(--dawaa-status-warning-border)]" /></div>
     <div className="grid gap-4 lg:grid-cols-3"><Panel title="حالة الاتصال" icon={ShieldAlert}><Info label="عملاء API النشطون" value={Number(health.active_clients || 0)} /><Info label="آخر اتصال للعميل" value={formatDateTime(health.client_last_seen_at)} /><Info label="آخر دفعة وصلت" value={formatDateTime(health.last_ingested_at)} /><Info label="آخر وقت بصمة" value={formatDateTime(health.last_punch_time)} /></Panel><Panel title="جودة الربط" icon={UserCheck}><Info label="نسبة الربط" value={ratio.toFixed(1) + '%'} /><Info label="غير مربوط آخر 24 ساعة" value={Number(health.unmapped_last_24h || 0).toLocaleString('ar-EG')} /><Info label="آخر ساعة" value={Number(health.events_last_hour || 0).toLocaleString('ar-EG')} /><Info label="آخر 7 أيام" value={Number(health.events_last_7d || 0).toLocaleString('ar-EG')} /></Panel><Panel title="استمرارية المزامنة" icon={RefreshCw}><Info label="آخر Watermark مكتمل" value={formatDateTime(health.watermark_complete_through)} /><Info label="تأخير Watermark" value={health.watermark_lag_minutes == null ? 'غير مسجل' : Math.round(Number(health.watermark_lag_minutes)) + ' دقيقة'} /><Info label="عدد المزودين" value={Number(health.provider_count || 0)} /><Info label="آخر فحص للوحة" value={formatDateTime(health.checked_at)} /></Panel></div>
-    {!!health.branch_breakdown?.length && <Panel title="المزامنة حسب الفرع — الدورة الحالية" icon={Users}><div className="grid gap-2 md:grid-cols-2">{health.branch_breakdown.map((b) => <div key={b.branch} className="rounded-xl border border-[var(--dawaa-theme-border)] dawaa-surface-soft p-3"><div className="font-black text-[var(--dawaa-theme-heading)]">{b.branch}</div><div className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">{Number(b.events).toLocaleString('ar-EG')} بصمة · {Number(b.mapped).toLocaleString('ar-EG')} مربوطة · {Number(b.unmapped).toLocaleString('ar-EG')} غير مربوطة</div><div className="mt-1 text-[11px] text-[var(--dawaa-theme-muted)]">آخر وصول: {formatDateTime(b.last_ingested_at)}</div></div>)}</div></Panel>}
+    {!!health.branch_breakdown?.length && <Panel title="المزامنة حسب الفرع — الدورة الحالية" icon={Users}><div className="grid gap-2 md:grid-cols-2">{health.branch_breakdown.map((b) => {
+      const connectionLabel = b.connection_status === 'healthy' ? 'متصل الآن' : b.connection_status === 'delayed' ? 'اتصال متأخر' : b.connection_status === 'stale' ? 'اتصال قديم' : b.connection_status === 'offline' ? 'غير متصل' : 'غير معروف';
+      const dataLabel = b.data_status === 'bridge_live_no_new_watermark' ? 'الـBridge حي — لا Watermark جديد' : b.data_status === 'current_report' ? 'Watermark حديث' : b.data_status === 'watermark_stale' ? 'Watermark قديم' : 'Watermark غير معروف';
+      return <div key={b.branch} className="rounded-xl border border-[var(--dawaa-theme-border)] dawaa-surface-soft p-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="font-black text-[var(--dawaa-theme-heading)]">{b.branch}</div>
+          <span className="rounded-full border border-[var(--dawaa-theme-border)] px-2 py-0.5 text-[10px] font-black text-[var(--dawaa-theme-muted)]">{connectionLabel}</span>
+        </div>
+        <div className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">{Number(b.events).toLocaleString('ar-EG')} بصمة · {Number(b.mapped).toLocaleString('ar-EG')} مربوطة · {Number(b.unmapped).toLocaleString('ar-EG')} غير مربوطة</div>
+        <div className="mt-1 text-[11px] text-[var(--dawaa-theme-muted)]">آخر اتصال Bridge: {formatDateTime(b.endpoint_last_success_at || b.client_last_seen_at)}</div>
+        <div className="mt-1 text-[11px] text-[var(--dawaa-theme-muted)]">آخر بصمة: {formatDateTime(b.last_punch_time || b.last_ingested_at)}</div>
+        <div className="mt-1 text-[11px] text-[var(--dawaa-theme-muted)]">{dataLabel}{b.watermark_lag_minutes == null ? '' : ` · تأخير Watermark ${Math.round(Number(b.watermark_lag_minutes))} د`}</div>
+      </div>;
+    })}</div></Panel>}
     <Panel title="الأرشيف التاريخي قبل الدورة الحالية" icon={Clock}>
       <div className="grid gap-2 sm:grid-cols-3">
         <Info label="بصمات محفوظة" value={historicalRaw.toLocaleString('ar-EG')} />
