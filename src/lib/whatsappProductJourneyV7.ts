@@ -109,6 +109,35 @@ function event(stage: WhatsAppProductJourneyStage, messages: WhatsAppParsedMessa
   return { stage, messageIds: unique(messages.map((m) => m.id)).slice(0, 12), confidence, note };
 }
 
+function customerDecisionAfterProductContext(
+  session: WhatsAppConversationSession,
+  product: WhatsAppProductSignal,
+  decisionRx: RegExp
+) {
+  const evidenceIndexes = session.messages
+    .map((message, index) => product.evidenceMessageIds.includes(message.id) ? index : -1)
+    .filter((index) => index >= 0);
+  if (!evidenceIndexes.length) return [];
+
+  const firstEvidenceIndex = Math.min(...evidenceIndexes);
+  const productAnchorIndex = session.messages.findIndex((message, index) =>
+    index >= firstEvidenceIndex &&
+    message.direction === 'outbound' &&
+    (
+      product.evidenceMessageIds.includes(message.id) ||
+      AVAILABLE_RX.test(message.text) ||
+      ALTERNATIVE_RX.test(message.text)
+    )
+  );
+  if (productAnchorIndex < 0) return [];
+
+  // A short bounded decision window avoids attaching a later generic "تمام" from another topic
+  // to this product. The product journey can still be closed by explicit order/invoice evidence.
+  return session.messages
+    .slice(productAnchorIndex + 1, productAnchorIndex + 5)
+    .filter((message) => message.direction === 'inbound' && decisionRx.test(message.text));
+}
+
 function currentStage(events: WhatsAppProductJourneyEventV7[], followupCandidate: boolean): WhatsAppProductJourneyStage {
   const stages = new Set(events.map((e) => e.stage));
   if (stages.has('order_confirmed')) return 'awaiting_invoice';
@@ -209,8 +238,8 @@ export function buildWhatsAppProductJourneyV7(
     const available = outbound.filter((m) => AVAILABLE_RX.test(m.text) && !UNAVAILABLE_RX.test(m.text));
     const unavailable = messages.filter((m) => UNAVAILABLE_RX.test(m.text));
     const alternative = outbound.filter((m) => ALTERNATIVE_RX.test(m.text));
-    const accepted = inbound.filter((m) => ACCEPT_RX.test(m.text));
-    const rejected = inbound.filter((m) => REJECT_RX.test(m.text));
+    const accepted = customerDecisionAfterProductContext(session, product, ACCEPT_RX);
+    const rejected = customerDecisionAfterProductContext(session, product, REJECT_RX);
     const closed = messages.filter((m) => CLOSE_RX.test(m.text));
 
     if (available.length) events.push(event('availability_confirmed', available, 84, 'تم تأكيد توفر الصنف/الطلب في المحادثة.'));
