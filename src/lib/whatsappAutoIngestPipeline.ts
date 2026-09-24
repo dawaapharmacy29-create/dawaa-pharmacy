@@ -431,7 +431,7 @@ async function persistOperationalJourneyIntelligence(
   const nextAnalysis = {
     ...(sourceRow?.analysis_json || {}),
     operational: JSON.parse(JSON.stringify(operational)),
-    productDemandVersion: 'product-demand-v22',
+    productDemandVersion: 'product-demand-v22.1',
   };
   const { error: sourceUpdateError } = await supabase
     .from('whatsapp_review_sources')
@@ -457,7 +457,7 @@ async function persistOperationalJourneyIntelligence(
   await syncWhatsAppEvidenceLedgerV17(session, {
     sourceId,
     operational,
-    analysisVersion: 'product-demand-v22',
+    analysisVersion: 'product-demand-v22.1',
     participantRoles: nextAnalysis.participantRoles,
   });
 
