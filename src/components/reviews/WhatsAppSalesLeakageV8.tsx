@@ -64,7 +64,7 @@ export default function WhatsAppSalesLeakageV8({ onOpenSource }: { onOpenSource?
 
   useEffect(() => { void load(); }, []);
 
-  const leakageRows = useMemo(() => rows.filter((row) => Boolean(row.leakage_reason) && row.invoice_match_status !== 'verified'), [rows]);
+  const leakageRows = useMemo(() => rows.filter((row) => Boolean(row.leakage_reason)), [rows]);
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return leakageRows.filter((row) => {
@@ -85,7 +85,7 @@ export default function WhatsAppSalesLeakageV8({ onOpenSource }: { onOpenSource?
 
   return <section className="dawaa-card dawaa-card--raised p-5" dir="rtl">
     <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-      <div><div className="flex items-center gap-2 text-xs font-black text-amber-200"><AlertTriangle size={16}/> Sales Leakage V8</div><h2 className="mt-1 text-xl font-black text-white">فين فرص البيع بتقف؟</h2><p className="mt-2 max-w-3xl text-sm leading-7 text-slate-400">يعرض فقط الفرص غير المؤكدة بفاتورة، مع العميل والدكتور والصنف والسبب والخطوة التالية. لا يعتبر أي حالة خسارة نهائية إلا بعد المراجعة.</p></div>
+      <div><div className="flex items-center gap-2 text-xs font-black text-amber-200"><AlertTriangle size={16}/> Sales Leakage V8</div><h2 className="mt-1 text-xl font-black text-white">فين فرص البيع بتقف؟</h2><p className="mt-2 max-w-3xl text-sm leading-7 text-slate-400">يعرض فرص البيع المتوقفة كما سجلها Product Journey. حالة invoice_match_status القديمة لا تُخفي الفرصة لأنها مطابقة آلية Legacy وليست Sale Proof رسميًا.</p></div>
       <button onClick={() => void load()} disabled={loading} className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-black text-white disabled:opacity-50"><RefreshCw size={15} className={loading?'animate-spin':''}/> تحديث</button>
     </div>
 
