@@ -280,6 +280,7 @@ const testFiles = [
   'src/lib/__tests__/whatsappProductDemandBackfillQualityGateV22.test.ts',
   'src/lib/__tests__/whatsappDirectProductIntentV22.test.ts',
   'src/lib/__tests__/whatsappProductJourneyV7DecisionScope.test.ts',
+  'src/lib/__tests__/whatsappCaseLostReasonV23.test.ts',
   'src/lib/salesIntelligence/__tests__/conversationCaseEngine.test.ts',
   'src/lib/salesIntelligence/__tests__/caseBasketEngine.test.ts',
   'src/lib/salesIntelligence/__tests__/commercialConfirmationEngine.test.ts',
