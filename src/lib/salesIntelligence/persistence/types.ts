@@ -197,6 +197,24 @@ export interface SalesIntelligenceCaseAnalysisRow extends CaseAnalysisProvenance
     evidenceCompleteness: Record<string, boolean | EvidenceLevel>;
     historicalClosureEvidence: EvidenceRef[];
     protocolApplicabilityRuleIds: string[];
+    canonicalSalesOutcome: {
+      caseId: string;
+      outcome:
+        | 'sale_proven'
+        | 'order_confirmed_unproven'
+        | 'customer_confirmed_unproven'
+        | 'open_opportunity'
+        | 'customer_rejected'
+        | 'information_only'
+        | 'needs_review'
+        | 'unknown';
+      saleProofState: 'proven' | 'strongly_supported' | 'weakly_supported' | 'unknown' | 'contradicted';
+      isSaleCountable: boolean;
+      isRevenueCountable: boolean;
+      isOrderConfirmed: boolean;
+      needsHumanReview: boolean;
+      reasonCodes: string[];
+    };
   };
 }
 
@@ -584,7 +602,10 @@ export const REPROCESSING_MATRIX: Record<ReprocessingTrigger, ReprocessingScope>
   customer_identity_merge: 'attribution_only',
   branch_mapping_changed: 'attribution_only',
   invoice_candidates_updated: 'attribution_only',
-  invoice_item_data_appeared: 'matching_integrity_only',
+  // Line items now participate in BOTH invoice attribution and basket matching. Re-evaluate
+  // attribution first; the normal dependent pass then recomputes matching/integrity against the
+  // potentially changed selected invoice.
+  invoice_item_data_appeared: 'attribution_only',
   semantic_pipeline_version_changed: 'full_semantic_reanalysis',
   policy_effective_date_changed: 'policy_evaluation_only',
   protocol_policy_version_changed: 'full_semantic_reanalysis',
