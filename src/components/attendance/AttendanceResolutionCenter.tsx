@@ -250,8 +250,8 @@ export default function AttendanceResolutionCenter({
       return;
     }
     const decision = decisionsFor(selected).find((item) => item.id === reason);
-    if (!decision || (['custom', 'outside_work'].includes(decision.id) && !note.trim()) || (decision.financial && !note.trim())) {
-      toast.warning('اختر نوع القرار واكتب التفاصيل عند إثبات عمل خارج الفرع أو اقتراح خصم أو اختيار سبب آخر.');
+    if (!decision || (['custom', 'outside_work'].includes(decision.id) && !note.trim())) {
+      toast.warning('اختر نوع القرار، واكتب التفاصيل فقط عند إثبات عمل خارج الفرع أو اختيار سبب آخر.');
       return;
     }
     if (decision.id === 'annual_leave') {
