@@ -227,6 +227,41 @@ export async function resolveAnnualLeaveFromAttendanceV1(args: {
   return data as AnnualLeaveAttendanceDecisionV1;
 }
 
+export async function approveAttendanceFullDayTimeOffV1(args: {
+  staffId: string;
+  date: string;
+  requestKind: 'sick_leave' | 'exceptional_leave' | 'approved_absence';
+  note?: string | null;
+}): Promise<{
+  success: boolean;
+  request_id: string;
+  request_kind: TimeOffKind;
+  request_label: string;
+  request_status: TimeOffStatus;
+  attendance_status: string | null;
+  resolution_status: string | null;
+  date: string;
+}> {
+  const { data, error } = await supabase.rpc('approve_attendance_full_day_timeoff_v1', {
+    p_staff_id: args.staffId,
+    p_date: args.date,
+    p_request_kind: args.requestKind,
+    p_note: args.note || null,
+  });
+  if (error) throw new Error(error.message);
+  return data as {
+    success: boolean;
+    request_id: string;
+    request_kind: TimeOffKind;
+    request_label: string;
+    request_status: TimeOffStatus;
+    attendance_status: string | null;
+    resolution_status: string | null;
+    date: string;
+  };
+}
+
+
 export async function configureAnnualLeaveEntitlementV1(args: {
   staffId: string;
   year: number;
