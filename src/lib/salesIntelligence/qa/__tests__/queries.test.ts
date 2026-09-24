@@ -50,6 +50,18 @@ describe('mergeCaseListRows', () => {
     });
   });
 
+  it('splits an attached customer code from the WhatsApp source name in list rows', () => {
+    const rows = mergeCaseListRows(
+      [baseAnalysis],
+      [baseAttribution],
+      [],
+      [{ case_id: 'case-1', conversation_id: 'conv-1' }],
+      [{ id: 'conv-1', customer_name: 'محمد الكموني17777', customer_code: null, customer_phone: null }]
+    );
+    expect(rows[0].customerName).toBe('محمد الكموني');
+    expect(rows[0].customerCode).toBe('17777');
+  });
+
   it('handles a case analysis with no matching attribution row (defensive)', () => {
     const rows = mergeCaseListRows([baseAnalysis], []);
     expect(rows[0].selectedInvoiceNumber).toBeNull();

@@ -20,6 +20,7 @@
 import { parseWhatsAppExport, type WhatsAppParsedMessage } from '../../whatsappConversationParser';
 import { runSalesIntelligencePipeline } from '../salesIntelligencePipeline';
 import { deriveSaleProofStateFromPersisted } from './saleProofProjection';
+import { resolveCustomerDisplayIdentity } from './customerDisplayIdentity';
 import type { SalesIntelligenceCaseAnalysis } from '../types';
 import type { SaleProofAssessment } from '../saleProofState';
 import type { QaCaseListRow, QaListFilters } from './types';
@@ -113,14 +114,20 @@ export function mergeCaseListRows(
     const caseIdentity = caseByCaseId.get(analysis.case_id) ?? null;
     const conversationId = caseIdentity?.conversation_id ?? null;
     const conversationIdentity = conversationId ? conversationById.get(conversationId) ?? null : null;
+    const displayIdentity = resolveCustomerDisplayIdentity({
+      sourceName: conversationIdentity?.customer_name ?? null,
+      sourceCode: conversationIdentity?.customer_code ?? null,
+      sourcePhone: conversationIdentity?.customer_phone ?? null,
+      fallbackPhone: caseIdentity?.customer_phone ?? null,
+    });
     const proof: SaleProofAssessment = deriveSaleProofStateFromPersisted(analysis.case_id, analysis, attribution, match);
     return {
       caseId: analysis.case_id,
       analysisId: analysis.analysis_id,
       conversationId,
-      customerName: conversationIdentity?.customer_name ?? null,
-      customerCode: conversationIdentity?.customer_code ?? null,
-      customerPhone: conversationIdentity?.customer_phone ?? caseIdentity?.customer_phone ?? null,
+      customerName: displayIdentity.name,
+      customerCode: displayIdentity.code,
+      customerPhone: displayIdentity.phone,
       conversationCaseCount: conversationId ? (caseCountByConversationId.get(conversationId) ?? 1) : 1,
       branchNameRaw: analysis.identity_branch_name_raw,
       caseStartedAt: analysis.case_started_at,
@@ -402,6 +409,12 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
         }
       }
 
+      const displayIdentity = resolveCustomerDisplayIdentity({
+        sourceName: customerName,
+        sourceCode: customerCode,
+        sourcePhone: customerPhone,
+      });
+
       conversation = {
         id: conversationRow.id,
         rawText: conversationRow.raw_text,
@@ -409,9 +422,9 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
         startedAt: conversationRow.conversation_started_at,
         endedAt: conversationRow.conversation_ended_at,
         customerId: conversationRow.customer_id ?? caseRow?.customer_id ?? null,
-        customerName,
-        customerCode,
-        customerPhone,
+        customerName: displayIdentity.name,
+        customerCode: displayIdentity.code,
+        customerPhone: displayIdentity.phone,
       };
 
       const { data: siblingCaseRows } = await supabaseClient

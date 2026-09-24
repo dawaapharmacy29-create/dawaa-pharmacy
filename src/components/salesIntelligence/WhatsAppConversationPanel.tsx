@@ -1,6 +1,5 @@
 import type { WhatsAppParsedMessage } from '@/lib/whatsappConversationParser';
-import { Building2, CheckCheck, FileText, Forward, Hash, Image as ImageIcon, Mic, Phone, UserRound, Video } from 'lucide-react';
-import { formatDateTime } from '@/lib/utils';
+import { ArrowLeft, CheckCheck, FileText, Forward, Image as ImageIcon, Mic, MoreVertical, Paperclip, Phone, Search, UserRound, Video } from 'lucide-react';
 
 interface Props {
   messages: WhatsAppParsedMessage[];
@@ -20,110 +19,159 @@ function inCaseWindow(message: WhatsAppParsedMessage, start: string | null, end:
   return ts >= from && ts <= to;
 }
 
-function MediaPlaceholder({ message }: { message: WhatsAppParsedMessage }) {
-  if (!message.mediaPlaceholder && !['image', 'voice', 'video', 'document'].includes(message.kind)) return null;
-  const label =
-    message.kind === 'image' ? 'صورة' :
-    message.kind === 'voice' ? 'رسالة صوتية' :
-    message.kind === 'video' ? 'فيديو' : 'ملف';
-  const Icon =
-    message.kind === 'image' ? ImageIcon :
-    message.kind === 'voice' ? Mic :
-    message.kind === 'video' ? Video : FileText;
+function clock(value: Date): string {
+  try {
+    return new Intl.DateTimeFormat('ar-EG', { hour: 'numeric', minute: '2-digit' }).format(value);
+  } catch {
+    return '';
+  }
+}
+
+function dayKey(value: Date): string {
+  try {
+    return new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(value);
+  } catch {
+    return '';
+  }
+}
+
+function dayLabel(value: Date): string {
+  try {
+    return new Intl.DateTimeFormat('ar-EG', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(value);
+  } catch {
+    return '';
+  }
+}
+
+function cleanSender(sender: string | null | undefined): string | null {
+  const value = String(sender ?? '').trim();
+  if (!value || /^(you|me|صيدليات? دواء)$/i.test(value)) return null;
+  return value;
+}
+
+function MediaContent({ message }: { message: WhatsAppParsedMessage }) {
+  const isMedia = message.mediaPlaceholder || ['image', 'voice', 'video', 'document'].includes(message.kind);
+  if (!isMedia) return null;
+
+  if (message.mediaAvailable && message.mediaObjectUrl) {
+    if (message.kind === 'image') {
+      return <img src={message.mediaObjectUrl} alt={message.mediaFileName || 'صورة من المحادثة'} className="mb-1 max-h-72 w-full rounded-lg object-cover" />;
+    }
+    if (message.kind === 'voice') {
+      return <audio controls src={message.mediaObjectUrl} className="mb-1 w-[260px] max-w-full" />;
+    }
+    if (message.kind === 'video') {
+      return <video controls src={message.mediaObjectUrl} className="mb-1 max-h-72 w-full rounded-lg" />;
+    }
+  }
+
+  const label = message.kind === 'image' ? 'صورة' : message.kind === 'voice' ? 'رسالة صوتية' : message.kind === 'video' ? 'فيديو' : 'مستند';
+  const Icon = message.kind === 'image' ? ImageIcon : message.kind === 'voice' ? Mic : message.kind === 'video' ? Video : FileText;
   return (
-    <div className="mb-2 flex min-w-[180px] items-center gap-3 rounded-xl border border-black/10 bg-black/5 p-3">
-      <span className="flex h-9 w-9 items-center justify-center rounded-full bg-black/10"><Icon size={18} /></span>
-      <div>
-        <div className="font-bold">{label}</div>
-        <div className="text-[10px] opacity-70">
-          {message.mediaAvailable === false ? 'الملف غير متاح في المصدر' : message.mediaFileName || 'مرفق من المحادثة'}
-        </div>
+    <div className="mb-1 flex min-w-[190px] items-center gap-3 rounded-lg bg-black/10 p-3">
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-black/15"><Icon size={19} /></span>
+      <div className="min-w-0">
+        <div className="font-semibold">{label}</div>
+        <div className="truncate text-[10px] opacity-65">{message.mediaFileName || (message.mediaAvailable === false ? 'الملف غير متاح في التصدير' : 'مرفق من المحادثة')}</div>
       </div>
     </div>
   );
 }
 
-export function WhatsAppConversationPanel({
-  messages,
-  customerName,
-  customerCode,
-  customerPhone,
-  branch,
-  caseStartedAt,
-  caseEndedAt,
-}: Props) {
+export function WhatsAppConversationPanel({ messages, customerName, customerCode, customerPhone, branch, caseStartedAt, caseEndedAt }: Props) {
+  let previousDay = '';
+  let previousDirection: WhatsAppParsedMessage['direction'] | null = null;
+
   return (
-    <div className="overflow-hidden rounded-2xl border border-[var(--dawaa-theme-border)] bg-[#0b141a] shadow-sm" dir="rtl">
-      <div className="border-b border-white/10 bg-[#202c33] px-4 py-3 text-white">
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#00a884] text-white">
-            <UserRound size={21} />
-          </span>
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-black">{customerName || 'عميل غير مسمى'}</div>
-            <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-white/70">
-              <span className="inline-flex items-center gap-1"><Hash size={11} /> {customerCode || 'كود غير متاح'}</span>
-              <span className="inline-flex items-center gap-1"><Phone size={11} /> {customerPhone || 'رقم غير متاح'}</span>
-              <span className="inline-flex items-center gap-1"><Building2 size={11} /> {branch || 'فرع غير محدد'}</span>
-            </div>
-          </div>
-          <div className="rounded-xl bg-white/5 px-3 py-2 text-left text-[10px] text-white/70">
-            <div>الحالة الحالية</div>
-            <div className="mt-1 text-white">{caseStartedAt ? formatDateTime(caseStartedAt) : '—'}</div>
-            <div>{caseEndedAt ? formatDateTime(caseEndedAt) : 'مستمرة'}</div>
-          </div>
+    <div className="overflow-hidden rounded-xl border border-black/30 bg-[#0b141a] shadow-xl" dir="ltr">
+      {/* WhatsApp-like top bar. Display metadata is reviewer context; no business logic is inferred here. */}
+      <div className="flex items-center gap-3 border-b border-white/5 bg-[#202c33] px-3 py-2.5 text-[#e9edef]" dir="rtl">
+        <ArrowLeft size={20} className="text-[#aebac1]" />
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#6a7175] text-white"><UserRound size={21} /></span>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[14px] font-semibold">{customerName || 'عميل غير مسمى'}{customerCode ? <span className="mr-1.5 font-normal text-[#aebac1]">#{customerCode}</span> : null}</div>
+          <div className="truncate text-[11px] text-[#8696a0]">{customerPhone || 'رقم غير متاح'}{branch ? ` • ${branch}` : ''}</div>
         </div>
+        <Search size={18} className="text-[#aebac1]" />
+        <Phone size={18} className="text-[#aebac1]" />
+        <MoreVertical size={19} className="text-[#aebac1]" />
+      </div>
+
+      <div className="border-b border-white/5 bg-[#111b21] px-3 py-1.5 text-center text-[10px] text-[#8696a0]" dir="rtl">
+        المحادثة الأصلية كاملة • الجزء الحالي مميز بوضوح، والرسائل خارج حدوده باهتة فقط للحفاظ على السياق
       </div>
 
       <div
-        className="max-h-[680px] space-y-1.5 overflow-y-auto px-3 py-4 sm:px-6"
+        className="max-h-[720px] overflow-y-auto px-3 py-3 sm:px-8"
         style={{
           backgroundColor: '#0b141a',
-          backgroundImage: 'radial-gradient(rgba(255,255,255,.025) 1px, transparent 1px)',
-          backgroundSize: '18px 18px',
+          backgroundImage: 'radial-gradient(rgba(255,255,255,.022) 1px, transparent 1px)',
+          backgroundSize: '16px 16px',
         }}
       >
-        <div className="mx-auto mb-4 w-fit rounded-lg bg-[#182229] px-3 py-1.5 text-[10px] text-white/65">
-          الرسائل الباهتة خارج حدود الحالة الحالية، لكنها معروضة للحفاظ على سياق المحادثة كاملًا.
-        </div>
-
         {messages.length ? messages.map((message) => {
           const inside = inCaseWindow(message, caseStartedAt, caseEndedAt);
+          const key = dayKey(message.timestamp);
+          const showDay = key !== previousDay;
+          const sameSender = !showDay && previousDirection === message.direction;
+          previousDay = key;
+          previousDirection = message.direction;
+
+          const separator = showDay ? (
+            <div key={`${message.id}-day`} className="my-3 flex justify-center" dir="rtl">
+              <span className="rounded-lg bg-[#182229] px-3 py-1.5 text-[10px] font-medium text-[#8696a0] shadow">{dayLabel(message.timestamp)}</span>
+            </div>
+          ) : null;
+
           if (message.direction === 'system') {
             return (
-              <div key={message.id} className={inside ? 'py-1 text-center' : 'py-1 text-center opacity-35'}>
-                <span className="inline-block max-w-[86%] rounded-lg bg-[#182229] px-3 py-1.5 text-[10px] leading-5 text-white/65">
-                  {message.text || `[${message.kind}]`}
-                </span>
+              <div key={message.id}>
+                {separator}
+                <div className={inside ? 'my-2 text-center' : 'my-2 text-center opacity-35'}>
+                  <span className="inline-block max-w-[90%] rounded-lg bg-[#182229] px-3 py-1.5 text-[10px] leading-5 text-[#8696a0]" dir="rtl">
+                    {message.text || `[${message.kind}]`}
+                  </span>
+                </div>
               </div>
             );
           }
 
           const outbound = message.direction === 'outbound';
+          const sender = cleanSender(message.sender);
           return (
-            <div key={message.id} className={`flex ${outbound ? 'justify-start' : 'justify-end'} ${inside ? '' : 'opacity-35'}`}>
-              <div
-                className={`relative max-w-[88%] rounded-2xl px-3 py-2 text-[13px] leading-6 shadow-sm sm:max-w-[72%] ${
-                  outbound ? 'rounded-tr-md bg-[#005c4b] text-white' : 'rounded-tl-md bg-[#202c33] text-white'
-                }`}
-              >
-                <div className="mb-1 flex items-center gap-2 text-[10px] font-bold text-white/65">
-                  <span>{outbound ? (message.sender || 'صيدليات دواء') : (customerName || message.sender || 'العميل')}</span>
-                  {message.forwarded ? <span className="inline-flex items-center gap-1 font-normal"><Forward size={10} /> مُعاد توجيهها</span> : null}
-                  {inside ? <span className="rounded-full bg-white/10 px-1.5 py-0.5 font-normal">داخل الحالة</span> : null}
-                </div>
-                <MediaPlaceholder message={message} />
-                {message.text ? <div className="whitespace-pre-wrap break-words">{message.text}</div> : null}
-                <div className="mt-1 flex items-center justify-end gap-1 text-[9px] text-white/55">
-                  <span>{formatDateTime(message.timestamp)}</span>
-                  {outbound ? <CheckCheck size={13} className="text-sky-300" /> : null}
+            <div key={message.id}>
+              {separator}
+              <div className={`flex ${outbound ? 'justify-end' : 'justify-start'} ${sameSender ? 'mt-0.5' : 'mt-2'} ${inside ? '' : 'opacity-30'}`}>
+                <div
+                  className={`relative max-w-[88%] px-2.5 pb-1.5 pt-1.5 text-[13px] leading-[1.45rem] text-[#e9edef] shadow-sm sm:max-w-[72%] ${
+                    outbound
+                      ? `bg-[#005c4b] ${sameSender ? 'rounded-lg' : 'rounded-lg rounded-tr-sm'}`
+                      : `bg-[#202c33] ${sameSender ? 'rounded-lg' : 'rounded-lg rounded-tl-sm'}`
+                  }`}
+                  dir="rtl"
+                >
+                  {!sameSender && sender ? <div className="mb-0.5 text-[10px] font-semibold text-[#53bdeb]">{sender}</div> : null}
+                  {message.forwarded ? <div className="mb-0.5 flex items-center gap-1 text-[10px] italic text-[#8696a0]"><Forward size={10} /> تمت إعادة التوجيه</div> : null}
+                  <MediaContent message={message} />
+                  {message.text ? <div className="whitespace-pre-wrap break-words">{message.text}</div> : null}
+                  <div className="mt-[-2px] flex items-center justify-end gap-1 pr-2 text-[9px] leading-none text-[#8696a0]">
+                    <span>{clock(message.timestamp)}</span>
+                    {outbound ? <CheckCheck size={13} className="text-[#53bdeb]" /> : null}
+                  </div>
+                  {inside && !sameSender ? (
+                    <span className={`absolute top-0 h-2.5 w-2.5 rotate-45 ${outbound ? '-right-1 bg-[#005c4b]' : '-left-1 bg-[#202c33]'}`} aria-hidden />
+                  ) : null}
                 </div>
               </div>
             </div>
           );
-        }) : (
-          <div className="py-14 text-center text-sm text-white/55">تعذّر تحليل رسائل هذه المحادثة من المصدر.</div>
-        )}
+        }) : <div className="py-16 text-center text-sm text-[#8696a0]" dir="rtl">تعذّر تحليل رسائل هذه المحادثة من المصدر.</div>}
+      </div>
+
+      <div className="flex items-center gap-2 border-t border-white/5 bg-[#202c33] px-3 py-2 text-[#8696a0]">
+        <Paperclip size={19} />
+        <div className="flex-1 rounded-full bg-[#2a3942] px-4 py-2 text-right text-xs" dir="rtl">عرض للقراءة فقط — لا يمكن الإرسال من شاشة المراجعة</div>
+        <Mic size={19} />
       </div>
     </div>
   );
