@@ -9,6 +9,7 @@ const attendanceService = path.join(root, 'src/lib/attendance/attendanceBreakdow
 const timeOffService = path.join(root, 'src/lib/timeOffService.ts');
 const crossBranchPanel = path.join(root, 'src/components/attendance/CrossBranchPunchesPanel.tsx');
 const crossBranchV2 = path.join(root, 'supabase/migrations/20260924124000_cross_branch_schedule_truth_v2.sql');
+const payrollPage = path.join(root, 'src/pages/PayrollManagement.tsx');
 
 function fail(message) {
   console.error('[hr-canonical-hardening] ' + message);
@@ -29,6 +30,7 @@ const attendance = read(attendanceService);
 const timeOff = read(timeOffService);
 const crossBranchUi = read(crossBranchPanel);
 const crossBranchSql = read(crossBranchV2);
+const payrollPageText = read(payrollPage);
 
 assertContains(migration, 'return public.decide_overtime_approval_v3(p_id,p_decision,p_note);', 'V1 overtime compatibility wrapper');
 assertContains(migration, 'dawaa_can_manage_payroll_staff_v1(v_target_username)', 'branch-scoped overtime authorization');
@@ -45,6 +47,8 @@ assertContains(timeOff, "supabase.rpc('decide_staff_time_off_request_v3'", 'fron
 assertContains(crossBranchUi, "supabase.rpc('list_cross_branch_biometric_events_v2'", 'cross-branch UI canonical diagnostic path');
 assertContains(crossBranchSql, "attendance_schedule_for_date_v1", 'cross-branch schedule-day resolver');
 assertContains(crossBranchSql, "expected_branch", 'cross-branch expected branch contract');
+assertContains(payrollPageText, 'PayrollAttendanceSafetyGate', 'canonical payroll safety gate UI');
+if (/attendanceReadiness[^\n]{0,120}readyForPayroll/.test(payrollPageText)) fail('legacy biometric readiness must not gate financial payroll actions');
 
 function walk(dir, out = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
