@@ -58,8 +58,12 @@ function sameProduct(
   journey: WhatsAppProductJourneyV7,
   line: RecommendationInvoiceLineV1
 ) {
-  if (journey.productId && line.productId && journey.productId === line.productId) return true;
-  if (journey.productCode && line.productCode && journey.productCode === line.productCode) return true;
+  if (journey.productId && line.productId) {
+    return journey.productId === line.productId;
+  }
+  if (journey.productCode && line.productCode) {
+    return journey.productCode === line.productCode;
+  }
   return false;
 }
 
@@ -92,8 +96,10 @@ export function deriveRecommendationConversionFactsV1(input: {
       const matchingLines = input.invoiceLines.filter(
         (line) =>
           sameProduct(journey, line) &&
-          (line.quantity == null || Number(line.quantity) > 0) &&
-          (line.netLineAmount == null || Number(line.netLineAmount) > 0)
+          line.quantity != null &&
+          Number(line.quantity) > 0 &&
+          line.netLineAmount != null &&
+          Number(line.netLineAmount) > 0
       );
       const invoiceContainsProduct = matchingLines.length > 0;
       const soldQuantity = invoiceContainsProduct
@@ -198,8 +204,10 @@ export function derivePersistedRecommendationConversionFactsV1(input: {
       const matchingLines = input.invoiceLines.filter(
         (line) =>
           sameProduct(journey, line) &&
-          (line.quantity == null || Number(line.quantity) > 0) &&
-          (line.netLineAmount == null || Number(line.netLineAmount) > 0)
+          line.quantity != null &&
+          Number(line.quantity) > 0 &&
+          line.netLineAmount != null &&
+          Number(line.netLineAmount) > 0
       );
       const invoiceContainsProduct = matchingLines.length > 0;
       const soldQuantity = invoiceContainsProduct
