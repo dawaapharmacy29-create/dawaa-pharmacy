@@ -1,0 +1,232 @@
+#!/usr/bin/env node
+'use strict';
+
+/**
+ * Sales Intelligence maintenance backfill runner.
+ *
+ * SAFETY CONTRACT
+ * - Defaults to DRY RUN. No writes without --apply.
+ * - Requires SUPABASE_SERVICE_ROLE_KEY only because the canonical engine writer RPCs are
+ *   intentionally service-role-only. This script never weakens those grants.
+ * - Default scope is ONLY conversations already represented in sales_intelligence_cases.
+ *   Use --all-sources explicitly to broaden the scope.
+ * - Uses the exact production batch pipeline + review-source adapter; no duplicate scoring logic.
+ */
+
+const fs = require('fs');
+const path = require('path');
+const Module = require('module');
+const ts = require('typescript');
+const { createClient } = require('@supabase/supabase-js');
+
+const root = path.resolve(__dirname, '..');
+const apply = process.argv.includes('--apply');
+const allSources = process.argv.includes('--all-sources');
+const jsonOutput = process.argv.includes('--json');
+
+const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+if (!supabaseUrl) {
+  console.error('Missing SUPABASE_URL (or VITE_SUPABASE_URL).');
+  process.exit(2);
+}
+if (!serviceRoleKey) {
+  console.error('Missing SUPABASE_SERVICE_ROLE_KEY. This runner never uses an anon key for writes.');
+  process.exit(2);
+}
+
+globalThis.__VITE_IMPORT_META_ENV__ = {
+  DEV: false,
+  PROD: true,
+  MODE: 'maintenance',
+  VITE_SUPABASE_URL: supabaseUrl,
+  VITE_SUPABASE_ANON_KEY: '',
+};
+
+const originalLoad = Module._load;
+const originalResolve = Module._resolveFilename;
+
+Module._resolveFilename = function patchedResolve(request, parent, isMain, options) {
+  if (request.startsWith('@/')) {
+    const target = path.join(root, 'src', request.slice(2));
+    for (const ext of ['.ts', '.tsx', '.js', '.jsx']) {
+      const candidate = target + ext;
+      if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) return candidate;
+    }
+    if (fs.existsSync(target) && fs.statSync(target).isFile()) return target;
+  }
+  return originalResolve.call(this, request, parent, isMain, options);
+};
+
+for (const ext of ['.ts', '.tsx']) {
+  require.extensions[ext] = function compileTypeScript(module, filename) {
+    const source = fs
+      .readFileSync(filename, 'utf8')
+      .replaceAll('import.meta.env', 'globalThis.__VITE_IMPORT_META_ENV__');
+    const output = ts.transpileModule(source, {
+      compilerOptions: {
+        module: ts.ModuleKind.CommonJS,
+        target: ts.ScriptTarget.ES2022,
+        jsx: ts.JsxEmit.ReactJSX,
+        esModuleInterop: true,
+        allowSyntheticDefaultImports: true,
+      },
+      fileName: filename,
+    }).outputText;
+    module._compile(output, filename);
+  };
+}
+
+const { runBatchPersistence } = require(path.join(root, 'src/lib/salesIntelligence/persistence/batchPersistenceService.ts'));
+const { reviewSourceRowToBatchConversation } = require(path.join(root, 'src/lib/salesIntelligence/persistence/reviewSourceBatchAdapter.ts'));
+
+const supabase = createClient(supabaseUrl, serviceRoleKey, {
+  auth: { persistSession: false, autoRefreshToken: false },
+});
+
+function chunks(values, size) {
+  const out = [];
+  for (let i = 0; i < values.length; i += size) out.push(values.slice(i, i + size));
+  return out;
+}
+
+async function fetchCurrentConversationIds() {
+  const ids = new Set();
+  let from = 0;
+  const pageSize = 1000;
+  while (true) {
+    const { data, error } = await supabase
+      .from('sales_intelligence_cases')
+      .select('conversation_id')
+      .range(from, from + pageSize - 1);
+    if (error) throw error;
+    const rows = data || [];
+    for (const row of rows) if (row.conversation_id) ids.add(String(row.conversation_id));
+    if (rows.length < pageSize) break;
+    from += pageSize;
+  }
+  return [...ids];
+}
+
+async function fetchReviewSources() {
+  const select = [
+    'id',
+    'raw_text',
+    'conversation_started_at',
+    'customer_id',
+    'customer_phone',
+    'customer_name',
+    'customer_code',
+    'branch',
+    'matched_invoice_id',
+    'matched_invoice_number',
+    'invoice_match_status',
+    'reviewer_confirmed',
+    'reviewer_id',
+  ].join(',');
+
+  if (allSources) {
+    const rows = [];
+    let from = 0;
+    const pageSize = 500;
+    while (true) {
+      const { data, error } = await supabase
+        .from('whatsapp_review_sources')
+        .select(select)
+        .not('raw_text', 'is', null)
+        .range(from, from + pageSize - 1);
+      if (error) throw error;
+      rows.push(...(data || []));
+      if ((data || []).length < pageSize) break;
+      from += pageSize;
+    }
+    return rows;
+  }
+
+  const ids = await fetchCurrentConversationIds();
+  const rows = [];
+  for (const group of chunks(ids, 100)) {
+    const { data, error } = await supabase
+      .from('whatsapp_review_sources')
+      .select(select)
+      .in('id', group);
+    if (error) throw error;
+    rows.push(...(data || []));
+  }
+  return rows;
+}
+
+function summarize(result, sourceCount) {
+  const plan = result.plan;
+  const outcomes = result.caseOutcomes || [];
+  return {
+    mode: result.dryRun ? 'dry-run' : 'apply',
+    scope: allSources ? 'all-review-sources' : 'existing-sales-intelligence-conversations',
+    sourceConversations: sourceCount,
+    derivedCases: result.caseAnalyses.length,
+    customerGroups: result.performance.customerGroups,
+    candidateInvoiceFetches: result.performance.candidateInvoiceFetches,
+    candidateInvoicesEvaluated: result.performance.candidateInvoicesEvaluated,
+    plan: {
+      casesToInsert: plan.casesToInsert.length,
+      casesToUpdateCanonicalIdentity: plan.casesToUpdateCanonicalIdentity.length,
+      casesUnchanged: plan.casesUnchanged.length,
+      analysesToInsert: plan.analysesToInsert.length,
+      analysesToSupersede: plan.analysesToSupersede.length,
+      analysesNoOp: plan.analysesNoOp.length,
+      attributionsToInsert: plan.attributionsToInsert.length,
+      attributionsNoOp: plan.attributionsNoOp.length,
+      matchesToInsert: plan.matchesToInsert.length,
+      matchesNoOp: plan.matchesNoOp.length,
+      policyEvaluationsToInsert: plan.policyEvaluationsToInsert.length,
+      policyEvaluationsNoOp: plan.policyEvaluationsNoOp.length,
+      conflicts: plan.conflicts.length,
+      warnings: plan.warnings.length,
+    },
+    apply: result.dryRun
+      ? null
+      : {
+          attempted: outcomes.length,
+          succeeded: outcomes.filter((x) => x.success).length,
+          failed: outcomes.filter((x) => !x.success).length,
+          failures: outcomes.filter((x) => !x.success).map((x) => ({ caseId: x.caseId, error: x.error })),
+        },
+  };
+}
+
+(async () => {
+  console.log(`Sales Intelligence backfill: ${apply ? 'APPLY' : 'DRY RUN'}`);
+  console.log(`Scope: ${allSources ? 'ALL whatsapp_review_sources' : 'existing Sales Intelligence conversations only'}`);
+
+  const rows = await fetchReviewSources();
+  const conversations = rows
+    .filter((row) => typeof row.raw_text === 'string' && row.raw_text.trim().length > 0)
+    .map(reviewSourceRowToBatchConversation);
+
+  if (!conversations.length) {
+    console.log('No eligible conversations found.');
+    return;
+  }
+
+  const result = await runBatchPersistence(supabase, {
+    conversations,
+    dryRun: !apply,
+  });
+  const summary = summarize(result, conversations.length);
+
+  if (jsonOutput) {
+    console.log(JSON.stringify(summary, null, 2));
+  } else {
+    console.log('\nSummary');
+    console.log(JSON.stringify(summary, null, 2));
+    if (!apply) {
+      console.log('\nNo writes were performed. Re-run with --apply only after reviewing this plan.');
+    }
+  }
+
+  if (apply && summary.apply && summary.apply.failed > 0) process.exitCode = 1;
+})().catch((error) => {
+  console.error(error instanceof Error ? error.stack || error.message : String(error));
+  process.exit(1);
+});
