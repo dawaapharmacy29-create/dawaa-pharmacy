@@ -87,6 +87,8 @@ export default function ProductDemandLeakageV22() {
   const [backfillStatus, setBackfillStatus] = useState<BackfillStatus | null>(null);
   const [backfillRunning, setBackfillRunning] = useState(false);
   const [backfillMessage, setBackfillMessage] = useState<string | null>(null);
+  const [previewSourceIds, setPreviewSourceIds] = useState<string[]>([]);
+  const [previewHasFailures, setPreviewHasFailures] = useState(false);
   const [branchFilter, setBranchFilter] = useState<'all' | string>('all');
   const [cycleFilter, setCycleFilter] = useState<string>('latest');
   const [details, setDetails] = useState<DetailRow[]>([]);
@@ -120,12 +122,18 @@ export default function ProductDemandLeakageV22() {
   async function previewBackfill() {
     setBackfillRunning(true);
     setBackfillMessage(null);
+    setPreviewSourceIds([]);
+    setPreviewHasFailures(false);
     try {
       const result = await runProductDemandBackfillV22({ limit: 20, dryRun: true });
+      const ids = result.rows.filter((row) => row.status === 'ready').map((row) => row.sourceId);
+      setPreviewSourceIds(ids);
+      setPreviewHasFailures(result.failed > 0);
       setBackfillMessage(
-        `معاينة آمنة: ${result.scanned} محادثة • ${result.canonicalProducts} صنف مرتبط بالكتالوج • ${result.unresolvedProducts} عبارة غير محسومة • أخطاء ${result.failed}`
+        `معاينة آمنة V22.1: ${result.scanned} محادثة • ${result.canonicalProducts} صنف مرتبط بالكتالوج • ${result.unresolvedProducts} عبارة غير محسومة • أخطاء ${result.failed}. ${result.failed ? 'لن يُسمح بالتنفيذ قبل مراجعة الأخطاء.' : 'الدفعة ثابتة وجاهزة للتنفيذ.'}`
       );
     } catch (cause) {
+      setPreviewHasFailures(true);
       setBackfillMessage(cause instanceof Error ? cause.message : 'تعذرت معاينة إعادة التحليل.');
     } finally {
       setBackfillRunning(false);
@@ -133,13 +141,26 @@ export default function ProductDemandLeakageV22() {
   }
 
   async function executeBackfill() {
+    if (!previewSourceIds.length) {
+      setBackfillMessage('لازم تعمل معاينة آمنة أولًا؛ التنفيذ لا يعمل على دفعة غير مُراجعة.');
+      return;
+    }
+    if (previewHasFailures) {
+      setBackfillMessage('تم إيقاف التنفيذ لأن المعاينة تحتوي على أخطاء. راجع الأخطاء قبل الكتابة.');
+      return;
+    }
     setBackfillRunning(true);
     setBackfillMessage(null);
     try {
-      const result = await runProductDemandBackfillV22({ limit: 20, dryRun: false });
+      const lockedSourceIds = [...previewSourceIds];
+      const result = await runProductDemandBackfillV22({ sourceIds: lockedSourceIds, dryRun: false, force: true });
+      const unexpected = result.rows.filter((row) => !lockedSourceIds.includes(row.sourceId));
+      if (unexpected.length) throw new Error('تم إيقاف الدفعة: نتيجة التنفيذ احتوت على مصدر خارج الدفعة التي تمت معاينتها.');
       setBackfillMessage(
-        `تمت إعادة التحليل: ${result.written} محادثة • ${result.canonicalProducts} صنف مرتبط بالكتالوج • ${result.unresolvedProducts} عبارة غير محسومة • أخطاء ${result.failed}`
+        `تم تنفيذ نفس الدفعة المعاينة V22.1: ${result.written} محادثة • ${result.canonicalProducts} صنف مرتبط بالكتالوج • ${result.unresolvedProducts} عبارة غير محسومة • أخطاء ${result.failed}`
       );
+      setPreviewSourceIds([]);
+      setPreviewHasFailures(false);
       await load();
     } catch (cause) {
       setBackfillMessage(cause instanceof Error ? cause.message : 'تعذر تنفيذ إعادة التحليل.');
@@ -217,9 +238,9 @@ export default function ProductDemandLeakageV22() {
           <button type="button" onClick={() => void previewBackfill()} disabled={backfillRunning} className="dawaa-button dawaa-button--ghost text-xs">
             معاينة إعادة تحليل ٢٠ محادثة
           </button>
-          <button type="button" onClick={() => void executeBackfill()} disabled={backfillRunning} className="dawaa-button dawaa-button--secondary text-xs">
+          <button type="button" onClick={() => void executeBackfill()} disabled={backfillRunning || !previewSourceIds.length || previewHasFailures} className="dawaa-button dawaa-button--secondary text-xs">
             {backfillRunning ? <RefreshCw size={14} className="animate-spin" /> : null}
-            إعادة تحليل ٢٠ محادثة
+            تنفيذ نفس الدفعة المعاينة
           </button>
           <button type="button" onClick={() => void load()} disabled={loading} className="dawaa-button dawaa-button--secondary text-xs">
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> تحديث
@@ -257,7 +278,7 @@ export default function ProductDemandLeakageV22() {
             <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.max(0, Math.min(100, Number(backfillStatus.completion_percent || 0)))}%` }} />
           </div>
           <div className="dawaa-muted mt-2 text-[11px]">
-            قابل للتحليل: {Number(backfillStatus.analyzable_sources || 0).toLocaleString('ar-EG')} • تم V22: {Number(backfillStatus.analyzed_v22 || 0).toLocaleString('ar-EG')} • متبقي: {Number(backfillStatus.remaining_sources || 0).toLocaleString('ar-EG')}
+            قابل للتحليل: {Number(backfillStatus.analyzable_sources || 0).toLocaleString('ar-EG')} • تم V22.1: {Number(backfillStatus.analyzed_v22 || 0).toLocaleString('ar-EG')} • متبقي: {Number(backfillStatus.remaining_sources || 0).toLocaleString('ar-EG')}
           </div>
         </div>
       ) : null}
