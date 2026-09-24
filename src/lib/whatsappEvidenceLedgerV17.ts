@@ -160,7 +160,7 @@ export async function syncWhatsAppEvidenceLedgerV17(session: WhatsAppConversatio
 
   if (context.operational.followupPlan?.required) addFact('needs_followup', 'journey:needs-followup', 88, 'journey', context.operational.followupPlan);
   if (context.operational.operationalOutcome === 'unresolved_request') addFact('order_failed', 'journey:unresolved-request', Math.max(80, context.operational.outcomeConfidence || 0), 'journey', { outcome: context.operational.operationalOutcome });
-  if (source.invoice_match_status === 'verified') addFact('verified_sale', `invoice:${source.matched_invoice_id || source.matched_invoice_number || 'verified'}`, Number(source.invoice_match_confidence || 95), 'invoice', { invoiceId: source.matched_invoice_id, invoiceNumber: source.matched_invoice_number, invoiceValue: source.matched_invoice_value }, { fact_at: source.conversation_ended_at || source.conversation_started_at });
+  // invoice_match_status='verified' is an automated statistical matcher result, not invoice-specific trusted proof.\n  // Never emit verified_sale from this legacy source. Canonical Sale Proof is owned by Sales Intelligence.
 
   if (facts.length) {
     const { error } = await supabase.from('whatsapp_evidence_facts_v17').upsert(facts, { onConflict: 'source_id,fact_key', ignoreDuplicates: false });
@@ -196,7 +196,7 @@ export async function syncWhatsAppEvidenceLedgerV17(session: WhatsAppConversatio
       current_stage: currentStage,
       status: currentStage === 'rejected' ? 'lost' : 'open',
       confidence: Math.max(0, Math.min(100, Math.round(Number(product.confidence || 0)))),
-      sale_verified_scope: source.invoice_match_status === 'verified' ? 'conversation' : 'none',
+      sale_verified_scope: 'none',
       matched_invoice_id: source.invoice_match_status === 'verified' ? String(source.matched_invoice_id || '') || null : null,
       matched_invoice_number: source.invoice_match_status === 'verified' ? source.matched_invoice_number || null : null,
       matched_invoice_value: source.invoice_match_status === 'verified' ? source.matched_invoice_value || null : null,
