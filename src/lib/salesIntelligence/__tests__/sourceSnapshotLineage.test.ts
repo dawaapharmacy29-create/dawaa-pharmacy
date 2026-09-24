@@ -55,4 +55,20 @@ describe('Sales Intelligence source snapshot lineage', () => {
     expect(ids.has('partial')).toBe(true);
     expect(ids.has('other')).toBe(true);
   });
+  it('collapses a contained snapshot when one row lacks customer_id but customer_code matches', () => {
+    const partialWithoutId = { ...partial, customer_id: null };
+    const fullWithId = { ...full, customer_id: 'cust-4250' };
+    const result = resolveReviewSourceSnapshotLineage(partialWithoutId, [partialWithoutId, fullWithId]);
+    expect(result.isCanonical).toBe(false);
+    expect(result.canonicalSourceId).toBe('full');
+  });
+
+  it('never collapses rows with two conflicting canonical customer_ids even if customer_code matches', () => {
+    const a = { ...partial, customer_id: 'cust-a' };
+    const b = { ...full, customer_id: 'cust-b' };
+    const ids = selectCanonicalReviewSourceIds([a, b]);
+    expect(ids.has('partial')).toBe(true);
+    expect(ids.has('full')).toBe(true);
+  });
+
 });
