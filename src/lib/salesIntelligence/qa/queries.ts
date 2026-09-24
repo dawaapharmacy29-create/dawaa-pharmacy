@@ -104,7 +104,9 @@ export function mergeCaseListRows(
   const caseByCaseId = new Map(cases.map((row) => [row.case_id, row]));
   const conversationById = new Map(conversations.map((row) => [row.id, row]));
   const caseCountByConversationId = new Map<string, number>();
+  const currentCaseIds = new Set(analyses.map((row) => row.case_id));
   for (const row of cases) {
+    if (!currentCaseIds.has(row.case_id)) continue;
     const id = row.conversation_id ?? null;
     if (!id) continue;
     caseCountByConversationId.set(id, (caseCountByConversationId.get(id) ?? 0) + 1);
@@ -476,12 +478,26 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
         .eq('conversation_id', conversationRow.id)
         .order('case_started_at', { ascending: true })
         .limit(MAX_LIST_ROWS);
-      siblingCases = (siblingCaseRows ?? []).map((row: any) => ({
-        caseId: row.case_id,
-        startedAt: row.case_started_at ?? null,
-        endedAt: row.case_ended_at ?? null,
-        isCurrent: row.case_id === caseId,
-      }));
+
+      const siblingIds = (siblingCaseRows ?? []).map((row: any) => row.case_id);
+      let activeSiblingIds = new Set<string>();
+      if (siblingIds.length) {
+        const { data: currentSiblingAnalyses } = await supabaseClient
+          .from('sales_intelligence_case_analyses')
+          .select('case_id')
+          .in('case_id', siblingIds)
+          .eq('is_current', true);
+        activeSiblingIds = new Set((currentSiblingAnalyses ?? []).map((row: any) => row.case_id));
+      }
+
+      siblingCases = (siblingCaseRows ?? [])
+        .filter((row: any) => activeSiblingIds.has(row.case_id))
+        .map((row: any) => ({
+          caseId: row.case_id,
+          startedAt: row.case_started_at ?? null,
+          endedAt: row.case_ended_at ?? null,
+          isCurrent: row.case_id === caseId,
+        }));
 
       transcript = parseWhatsAppExport(conversationRow.raw_text);
       try {
