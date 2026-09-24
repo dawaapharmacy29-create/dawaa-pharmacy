@@ -103,3 +103,5 @@ console.log('  - cross-branch diagnostics compare punch branch against same-day 
 console.log('  - missing-punch occurrences are serialized per cycle and deductions require financial permission');
 
 // vercel-preview-retry-marker: no-op preview retrigger after build-rate-limit
+
+// vercel-preview-retry-marker-2: no-op retrigger 2026-09-24T16:24:00.000Z
