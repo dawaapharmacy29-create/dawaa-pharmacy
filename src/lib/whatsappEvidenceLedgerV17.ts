@@ -167,7 +167,10 @@ export async function syncWhatsAppEvidenceLedgerV17(session: WhatsAppConversatio
     if (error) throw error;
   }
 
-  const opportunities = journeys.filter((p: any) => p.saleIntent || (p.events || []).some((e: any) => ['requested','recommended','alternative_offered','accepted','order_confirmed'].includes(e.stage))).map((product: any) => {
+  const opportunityJourneys = context.analysisVersion === 'product-demand-v22'
+    ? journeys.filter((p: any) => Boolean(p.productId && p.productCode))
+    : journeys;
+  const opportunities = opportunityJourneys.filter((p: any) => p.saleIntent || (p.events || []).some((e: any) => ['requested','recommended','alternative_offered','accepted','order_confirmed'].includes(e.stage))).map((product: any) => {
     const pkey = `product:${normalizeKey(product.productCode || product.productName)}`;
     const currentStage = mapOpportunityStage(product.currentStage);
     return {
