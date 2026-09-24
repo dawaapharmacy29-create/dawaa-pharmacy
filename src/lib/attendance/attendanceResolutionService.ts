@@ -276,6 +276,7 @@ export type MissingPunchContextV1 = {
   remaining_free_before: number;
   penalty_eligible: boolean;
   penalty_amount: number;
+  can_apply_deduction: boolean;
   existing_incident_id: string | null;
   manual_punch_id: string | null;
   deduction_transaction_id: string | null;
