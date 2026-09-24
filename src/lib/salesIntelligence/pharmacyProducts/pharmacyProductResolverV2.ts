@@ -122,6 +122,7 @@ export const CROSS_SCRIPT_SEED: ReadonlyMap<string, string> = new Map([
   ['نيروفيت', 'neurovit'],
   ['نيورفيت', 'neurovit'],
   ['دوليبران', 'doliprane'],
+  ['دليبران', 'doliprane'],
   ['ديفارول', 'devarol'],
   ['مارنيز', 'marnys'],
   ['اورلي', 'orly'],
