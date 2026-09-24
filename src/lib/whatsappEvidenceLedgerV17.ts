@@ -198,7 +198,13 @@ export async function syncWhatsAppEvidenceLedgerV17(session: WhatsAppConversatio
       matched_invoice_value: source.invoice_match_status === 'verified' ? source.matched_invoice_value || null : null,
       leakage_reason: product.leakageReason || null,
       next_action: product.nextAction || null,
-      evidence_json: { events: product.events || [], note: source.invoice_match_status === 'verified' ? 'الفاتورة تثبت بيعًا مرتبطًا بالمحادثة فقط؛ لا تثبت هذا الصنف بعينه دون مطابقة بنود الفاتورة.' : null },
+      evidence_json: {
+        events: product.events || [],
+        leakageCode: product.leakageCode || null,
+        note: source.invoice_match_status === 'verified'
+          ? 'الفاتورة تثبت بيعًا مرتبطًا بالمحادثة فقط؛ لا تثبت هذا الصنف بعينه دون مطابقة بنود الفاتورة.'
+          : null
+      },
       analysis_version: context.analysisVersion || source.analysis_version || 'whatsapp-evidence-v17',
       updated_at: new Date().toISOString(),
     };
