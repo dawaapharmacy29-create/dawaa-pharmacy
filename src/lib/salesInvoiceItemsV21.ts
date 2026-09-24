@@ -210,20 +210,26 @@ export async function importSalesInvoiceItemsV21(
   // must match too. If more than one header remains, leave invoice_id null rather than guessing.
   const invoiceHeadersByNumber = new Map<string, any[]>();
   const invoiceNumbers = Array.from(new Set(rows.map((row) => text(row.invoiceNumber)).filter(Boolean)));
+  const invoiceHeaderRowsById = new Map<string, any>();
   for (const group of chunk(invoiceNumbers)) {
-    const { data, error } = await supabase
-      .from('sales_invoices')
-      .select('id,invoice_number,invoice_no,branch,branch_name,invoice_datetime,invoice_date,sale_date,customer_id')
-      .in('invoice_number', group)
-      .limit(5000);
-    if (error) throw error;
-    for (const row of data ?? []) {
-      const number = text(row.invoice_number || row.invoice_no);
-      if (!number) continue;
-      const bucket = invoiceHeadersByNumber.get(number) ?? [];
-      bucket.push(row);
-      invoiceHeadersByNumber.set(number, bucket);
+    for (const field of ['invoice_number', 'invoice_no'] as const) {
+      const { data, error } = await supabase
+        .from('sales_invoices')
+        .select('id,invoice_number,invoice_no,branch,branch_name,invoice_datetime,invoice_date,sale_date,customer_id')
+        .in(field, group)
+        .limit(5000);
+      if (error) throw error;
+      for (const row of data ?? []) {
+        if (row.id) invoiceHeaderRowsById.set(String(row.id), row);
+      }
     }
+  }
+  for (const row of invoiceHeaderRowsById.values()) {
+    const number = text(row.invoice_number || row.invoice_no);
+    if (!number) continue;
+    const bucket = invoiceHeadersByNumber.get(number) ?? [];
+    bucket.push(row);
+    invoiceHeadersByNumber.set(number, bucket);
   }
 
   const payload: any[] = [];
