@@ -624,6 +624,7 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
     // (a brand-new case can never have an existing dependent row).
     const effectiveAnalysisId = analysisPlan.currentAnalysisId;
 
+    const activeItems = analysis.activeBasket ? (analysis.itemsByBasketId[analysis.activeBasket.basketId] ?? []) : [];
     const attributionItemSnapshot = snapshotInvoiceItemEvidence(
       itemEvidenceProvider,
       analysis.invoiceCandidateIds
@@ -662,7 +663,6 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
     if (currentAttributionRowId) plan.attributionsNoOp.push(planAttributionEntry);
     else plan.attributionsToInsert.push(planAttributionEntry);
 
-    const activeItems = analysis.activeBasket ? (analysis.itemsByBasketId[analysis.activeBasket.basketId] ?? []) : [];
     const selectedInvoiceItemSnapshot = analysis.basketInvoiceMatch.invoiceId
       ? snapshotInvoiceItemEvidence(itemEvidenceProvider, [analysis.basketInvoiceMatch.invoiceId])
       : [];
@@ -788,6 +788,12 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
             customerPhone: conversationCase.customerPhone,
             candidateInvoiceIds: analysis.invoiceCandidateIds,
             branchNameRaw: conversationCase.branchNameRaw,
+            activeBasketItems: activeItems.map((item) => ({
+              productNameRaw: item.productNameRaw,
+              productId: item.productId,
+              quantity: item.quantity,
+            })),
+            invoiceItemEvidenceSnapshot: attributionItemSnapshot,
           },
           mapAttributionRowContent(analysis)
         );
@@ -796,8 +802,13 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
           outcome.analysis.analysisId,
           analysis.caseId,
           outcome.attribution.attributionRowId,
-          activeItems.map((item) => ({ productNameRaw: item.productNameRaw, quantity: item.quantity })),
-          mapBasketInvoiceMatchRowContent(analysis)
+          activeItems.map((item) => ({
+            productNameRaw: item.productNameRaw,
+            productId: item.productId,
+            quantity: item.quantity,
+          })),
+          mapBasketInvoiceMatchRowContent(analysis),
+          selectedInvoiceItemSnapshot
         );
         outcome.policyEvaluation = await persistPolicyEvaluation(
           supabaseClient,
