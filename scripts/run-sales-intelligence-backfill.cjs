@@ -173,6 +173,12 @@ function summarize(result, sourceCount) {
     customerGroups: result.performance.customerGroups,
     candidateInvoiceFetches: result.performance.candidateInvoiceFetches,
     candidateInvoicesEvaluated: result.performance.candidateInvoicesEvaluated,
+    invoiceResolution: {
+      exclusiveInvoicesResolved: result.performance.exclusiveInvoicesResolved,
+      invoiceClaimsDenied: result.performance.invoiceClaimsDenied,
+      unresolvedInvoiceCompetitions: result.performance.unresolvedInvoiceCompetitions,
+      iterations: result.performance.invoiceResolutionIterations,
+    },
     plan: {
       casesToInsert: plan.casesToInsert.length,
       casesToUpdateCanonicalIdentity: plan.casesToUpdateCanonicalIdentity.length,

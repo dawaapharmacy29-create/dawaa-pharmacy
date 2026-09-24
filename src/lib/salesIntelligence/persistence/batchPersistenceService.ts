@@ -164,6 +164,10 @@ export interface PerformanceMetrics {
   candidateInvoiceFetches: number;
   previousTheoreticalFetchCount: number;
   candidateInvoicesEvaluated: number;
+  exclusiveInvoicesResolved: number;
+  invoiceClaimsDenied: number;
+  unresolvedInvoiceCompetitions: number;
+  invoiceResolutionIterations: number;
   purePipelineComputeMs: number;
   persistencePlanningMs: number;
 }
@@ -481,6 +485,8 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
   // A clearly stronger claim gets exclusive use of that invoice; genuine ties remain unresolved.
   // Iterate because removing one invoice from a losing case can expose its next-best candidate.
   const deniedInvoiceIdsByCase = new Map<string, Set<string>>();
+  const resolvedInvoiceIds = new Set<string>();
+  let invoiceResolutionIterations = 0;
   let workingAnalyses = Array.from(pass1ByConversation.values()).flat();
 
   const rerunForResolution = (
@@ -520,8 +526,10 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
 
   for (let iteration = 0; iteration < 5; iteration += 1) {
     const resolution = resolveExclusiveInvoiceClaims(workingAnalyses);
+    for (const winner of resolution.resolvedWinners) resolvedInvoiceIds.add(winner.invoiceId);
     const addedDenials = mergeDeniedInvoiceMaps(deniedInvoiceIdsByCase, resolution.deniedInvoiceIdsByCase);
     if (addedDenials === 0) break;
+    invoiceResolutionIterations += 1;
     workingAnalyses = rerunForResolution([]);
   }
 
@@ -791,6 +799,10 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
       candidateInvoiceFetches,
       previousTheoreticalFetchCount,
       candidateInvoicesEvaluated,
+      exclusiveInvoicesResolved: resolvedInvoiceIds.size,
+      invoiceClaimsDenied: Array.from(deniedInvoiceIdsByCase.values()).reduce((sum, ids) => sum + ids.size, 0),
+      unresolvedInvoiceCompetitions: new Set(finalResolution.unresolvedCompetingSelections.map((item) => item.invoiceId)).size,
+      invoiceResolutionIterations,
       purePipelineComputeMs,
       persistencePlanningMs,
     },
