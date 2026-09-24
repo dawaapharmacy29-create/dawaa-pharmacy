@@ -93,6 +93,27 @@ function msg(
   };
 }
 
+function buildMultiStaffSession(): WhatsAppConversationSession {
+  const messages = [
+    msg('m1', '2026-09-01T10:00:00', 'inbound', 'محتاج صنف'),
+    msg('m2', '2026-09-01T10:10:00', 'outbound', 'مع حضرتك د أحمد من صيدليات دواء'),
+    msg('m3', '2026-09-01T10:15:00', 'outbound', 'مع حضرتك د محمد من صيدليات دواء وهكمل مع حضرتك'),
+  ];
+  return {
+    id: 'session-multi',
+    startedAt: messages[0].timestamp,
+    endedAt: messages[messages.length - 1].timestamp,
+    messages,
+    participants: ['عميل تجريبي', 'You'],
+    outboundStaffNames: ['أحمد', 'محمد'],
+    customerName: 'عميل تجريبي',
+    mediaCount: 0,
+    missingMediaCount: 0,
+    replyCount: 0,
+    forwardedCount: 0,
+  };
+}
+
 function buildSession(): WhatsAppConversationSession {
   const messages = [
     msg('m1', '2026-09-01T10:00:00', 'inbound', 'محتاج استفسار عن دواء الضغط'),
@@ -205,4 +226,27 @@ describe('persistAutomaticWhatsAppReview', () => {
     expect(outcome.status).toBe('skipped_no_staff');
     expect(persistPointsTransactionMock).not.toHaveBeenCalled();
   });
+  it('skips automatic review when multiple staff identities appear in one session', async () => {
+    persistPointsTransactionMock.mockResolvedValue({ error: null, id: 'txn-ambiguous' });
+
+    const { persistAutomaticWhatsAppReview } =
+      await import('@/lib/whatsappAutomaticReviewPersistence');
+    const outcome = await persistAutomaticWhatsAppReview({
+      sourceId: 'source-multi-staff',
+      session: buildMultiStaffSession(),
+      branch: 'الفرع الرئيسي',
+      customerId: null,
+      customerCode: null,
+      customerName: 'عميل تجريبي',
+      customerPhone: null,
+      staffName: 'أحمد',
+      reviewCycle: CYCLE,
+    });
+
+    expect(outcome.status).toBe('skipped_ambiguous_staff');
+    expect(outcome.error).toMatch(/أكثر من هوية موظف|تقييم بشري/);
+    expect(resolveStaffNameToStaffIdMock).not.toHaveBeenCalled();
+    expect(persistPointsTransactionMock).not.toHaveBeenCalled();
+  });
+
 });
