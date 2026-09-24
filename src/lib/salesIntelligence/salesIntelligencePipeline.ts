@@ -28,6 +28,8 @@ import {
 import { deriveBasketInvoiceMatch, resolveActiveBasket, type DocumentedAdjustment } from './basketInvoiceMatchingEngine';
 import { deriveSalesIntegrityAssessment } from './salesIntegrityEngine';
 import { deriveHistoricalCommercialClosureAssessment } from './historicalCommercialClosureEngine';
+import { deriveSaleProofState } from './saleProofState';
+import { deriveCanonicalSalesOutcome } from './canonicalSalesOutcomeEngine';
 import type { InvoiceLike } from '../invoices/invoiceCore';
 import type { InvoiceCandidateQueryContext } from './invoiceCandidateRetrieval';
 import type {
@@ -371,6 +373,20 @@ function analyzeOneCase(
     ])
   );
 
+  const saleProof = deriveSaleProofState({
+    attribution,
+    basketInvoiceMatch,
+    integrityAssessment,
+  });
+  const salesOutcome = deriveCanonicalSalesOutcome({
+    caseId: conversationCase.caseId,
+    caseType: conversationCase.caseType,
+    commercialConfirmation,
+    saleProof,
+    hasMeaningfulBasketItems,
+    needsHumanReview,
+  });
+
   let status: PipelineStatus;
   if (isGenuinelyInformationOnly) {
     status = 'analyzed';
@@ -398,6 +414,7 @@ function analyzeOneCase(
     attribution,
     basketInvoiceMatch,
     integrityAssessment,
+    salesOutcome,
     evidenceCompleteness,
     status,
     pipelineWarnings,
