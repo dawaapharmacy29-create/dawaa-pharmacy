@@ -14,7 +14,14 @@ import {
   attachInvoiceVerificationToQueue,
   hashWhatsAppSession,
 } from '@/lib/whatsappReviewPersistenceV4';
-import { verifySessionAgainstInvoices } from '@/lib/whatsappUnifiedIntelligenceV4';
+import { buildUnifiedConversationIntelligence, verifySessionAgainstInvoices } from '@/lib/whatsappUnifiedIntelligenceV4';
+import {
+  buildWhatsAppOperationalIntelligenceV6,
+  enrichWhatsAppOperationalProductsV6,
+  syncWhatsAppOperationalActionsV6,
+} from '@/lib/whatsappOperationalIntelligenceV6';
+import { enrichWhatsAppOperationalJourneysV7 } from '@/lib/whatsappProductJourneyV7';
+import { syncWhatsAppEvidenceLedgerV17 } from '@/lib/whatsappEvidenceLedgerV17';
 import { persistAutomaticWhatsAppReview } from '@/lib/whatsappAutomaticReviewPersistence';
 import { getCycleForDate } from '@/lib/pharmacy-cycle';
 
@@ -113,6 +120,28 @@ function normalizedName(value: unknown) {
     .trim();
 }
 
+function customerCodeFromSession(session: WhatsAppConversationSession) {
+  const candidates = [
+    session.customerName,
+    ...session.messages.filter((message) => message.direction === 'inbound').map((message) => message.sender),
+  ];
+  for (const candidate of candidates) {
+    const raw = String(candidate ?? '')
+      .replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)))
+      .trim();
+    const match = raw.match(/(?:^|[^0-9])(\d{2,9})\s*\)?\s*$/);
+    if (!match) continue;
+    const digits = match[1];
+    if (digits.length >= 10 || /^01[0125]\d{8}$/.test(digits)) continue;
+    return digits.replace(/\.0+$/, '');
+  }
+  return null;
+}
+
+function customerDisplayNameWithoutCode(value: unknown) {
+  return normalizedName(String(value ?? '').replace(/[٠-٩0-9]{2,9}\s*\)?\s*$/, '')) || null;
+}
+
 function mapCustomerIdentity(
   row: CustomerRow,
   fallbackName: string | null,
@@ -140,7 +169,9 @@ function mapCustomerIdentity(
 async function resolveCustomerIdentity(
   session: WhatsAppConversationSession
 ): Promise<CustomerIdentity> {
-  const fallbackName = normalizedName(session.customerName) || null;
+  const rawFallbackName = normalizedName(session.customerName) || null;
+  const code = customerCodeFromSession(session);
+  const fallbackName = customerDisplayNameWithoutCode(rawFallbackName) || rawFallbackName;
   const phone = phoneFromSession(session);
 
   if (phone) {
@@ -165,6 +196,27 @@ async function resolveCustomerIdentity(
     if (error) throw error;
     const matches = (data || []) as CustomerRow[];
     if (matches.length === 1) return mapCustomerIdentity(matches[0], fallbackName, phone, 'phone');
+  }
+
+  if (code) {
+    const { data, error } = await supabase
+      .from('customers')
+      .select(CUSTOMER_SELECT)
+      .eq('is_duplicate', false)
+      .eq('customer_code', code)
+      .limit(3);
+    if (error) throw error;
+    let matches = (data || []) as CustomerRow[];
+    if (matches.length > 1 && fallbackName) {
+      const normalizedFallback = normalizedName(fallbackName).toLowerCase();
+      const nameMatches = matches.filter((row) =>
+        [row.display_name, row.name, row.customer_name]
+          .map((value) => normalizedName(value).toLowerCase())
+          .some((value) => value && (value.includes(normalizedFallback) || normalizedFallback.includes(value)))
+      );
+      if (nameMatches.length === 1) matches = nameMatches;
+    }
+    if (matches.length === 1) return mapCustomerIdentity(matches[0], fallbackName, phone, 'name');
   }
 
   if (fallbackName && fallbackName.length >= 3) {
@@ -359,6 +411,59 @@ async function saveFollowupSignals(
   return { created: rows.length, duplicate };
 }
 
+async function persistOperationalJourneyIntelligence(
+  session: WhatsAppConversationSession,
+  sourceId: string,
+  identity: CustomerIdentity
+) {
+  const base = buildUnifiedConversationIntelligence(session);
+  const initial = buildWhatsAppOperationalIntelligenceV6(session, base);
+  const productResolved = await enrichWhatsAppOperationalProductsV6(initial);
+  const operational = enrichWhatsAppOperationalJourneysV7(session, productResolved);
+
+  const { data: sourceRow, error: sourceReadError } = await supabase
+    .from('whatsapp_review_sources')
+    .select('analysis_json,analysis_version,staff_id,staff_name,created_by')
+    .eq('id', sourceId)
+    .single();
+  if (sourceReadError) throw sourceReadError;
+
+  const nextAnalysis = {
+    ...(sourceRow?.analysis_json || {}),
+    operational: JSON.parse(JSON.stringify(operational)),
+    productDemandVersion: 'product-demand-v22',
+  };
+  const { error: sourceUpdateError } = await supabase
+    .from('whatsapp_review_sources')
+    .update({
+      analysis_json: nextAnalysis,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', sourceId);
+  if (sourceUpdateError) throw sourceUpdateError;
+
+  await syncWhatsAppOperationalActionsV6(operational, {
+    sourceId,
+    branch: identity.branch,
+    customerId: identity.customerId,
+    customerCode: identity.customerCode,
+    customerName: identity.customerName,
+    customerPhone: identity.customerPhone,
+    staffId: sourceRow?.staff_id || null,
+    staffName: sourceRow?.staff_name || session.outboundStaffNames[0] || null,
+    createdBy: sourceRow?.created_by || null,
+  });
+
+  await syncWhatsAppEvidenceLedgerV17(session, {
+    sourceId,
+    operational,
+    analysisVersion: 'product-demand-v22',
+    participantRoles: nextAnalysis.participantRoles,
+  });
+
+  return operational;
+}
+
 export async function ingestWhatsAppExportFile(file: File): Promise<IngestOneFileResult> {
   const result: IngestOneFileResult = {
     fileName: file.name,
@@ -443,6 +548,16 @@ export async function ingestWhatsAppExportFile(file: File): Promise<IngestOneFil
         result.invoicesProbable += 1;
       else if (invoiceStatus === 'not_found') result.invoicesNotFound += 1;
       else result.invoiceChecksSkipped += 1;
+
+      try {
+        await persistOperationalJourneyIntelligence(session, saved.sourceId, identity);
+      } catch (operationalError) {
+        result.errors.push(
+          operationalError instanceof Error
+            ? `تحليل طلبات وأصناف واتساب: ${operationalError.message}`
+            : 'تعذر تحديث تحليل طلبات وأصناف واتساب'
+        );
+      }
 
       const followups = await saveFollowupSignals(session, source.sourceFileName, identity);
       result.followupsCreated += followups.created;
