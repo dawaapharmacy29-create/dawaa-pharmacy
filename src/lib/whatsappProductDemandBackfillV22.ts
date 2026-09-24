@@ -25,6 +25,8 @@ export interface ProductDemandBackfillSourceResultV22 {
   productCodes: string[];
   canonicalProductNames: string[];
   unresolvedExamples: string[];
+  priorCanonicalProductCodes: string[];
+  droppedPriorCanonicalCodes: string[];
 }
 
 export interface ProductDemandBackfillResultV22 {
@@ -135,7 +137,7 @@ export async function runProductDemandBackfillV22(
     try {
       const raw = String(source.raw_text || '').trim();
       if (!raw) {
-        rows.push({ sourceId: source.id, status: 'skipped', reason: 'النص الأصلي للمحادثة غير متاح.', canonicalProducts: 0, unresolvedProducts: 0, productCodes: [], canonicalProductNames: [], unresolvedExamples: [] });
+        rows.push({ sourceId: source.id, status: 'skipped', reason: 'النص الأصلي للمحادثة غير متاح.', canonicalProducts: 0, unresolvedProducts: 0, productCodes: [], canonicalProductNames: [], unresolvedExamples: [], priorCanonicalProductCodes: [], droppedPriorCanonicalCodes: [] });
         continue;
       }
 
@@ -148,7 +150,7 @@ export async function runProductDemandBackfillV22(
         source.conversation_ended_at
       );
       if (!session) {
-        rows.push({ sourceId: source.id, status: 'skipped', reason: 'تعذر تكوين جلسة محادثة صالحة للتحليل.', canonicalProducts: 0, unresolvedProducts: 0, productCodes: [], canonicalProductNames: [], unresolvedExamples: [] });
+        rows.push({ sourceId: source.id, status: 'skipped', reason: 'تعذر تكوين جلسة محادثة صالحة للتحليل.', canonicalProducts: 0, unresolvedProducts: 0, productCodes: [], canonicalProductNames: [], unresolvedExamples: [], priorCanonicalProductCodes: [], droppedPriorCanonicalCodes: [] });
         continue;
       }
 
@@ -160,6 +162,31 @@ export async function runProductDemandBackfillV22(
       const canonical = operational.products.filter((product) => Boolean(product.productId && product.productCode));
       const unresolved = operational.products.filter((product) => !product.productId);
       const productCodes = Array.from(new Set(canonical.map((product) => String(product.productCode)).filter(Boolean)));
+      const { data: priorRows, error: priorError } = await supabase
+        .from('whatsapp_sales_opportunities_v17')
+        .select('product_code,product_id,analysis_version')
+        .eq('root_source_id', source.id)
+        .in('analysis_version', ['product-demand-v22', 'product-demand-v22.1'])
+        .not('product_id', 'is', null);
+      if (priorError) throw priorError;
+      const priorCanonicalProductCodes = Array.from(new Set((priorRows || []).map((row: any) => String(row.product_code || '')).filter(Boolean)));
+      const droppedPriorCanonicalCodes = priorCanonicalProductCodes.filter((code) => !productCodes.includes(code));
+
+      if (droppedPriorCanonicalCodes.length) {
+        rows.push({
+          sourceId: source.id,
+          status: 'failed',
+          reason: 'تم إيقاف الحالة لأن التحليل الجديد أسقط صنفًا كان مرتبطًا سابقًا بالكتالوج: ' + droppedPriorCanonicalCodes.join('، '),
+          canonicalProducts: canonical.length,
+          unresolvedProducts: unresolved.length,
+          productCodes,
+          canonicalProductNames: Array.from(new Set(canonical.map((product) => String(product.canonicalName || product.rawName)).filter(Boolean))).slice(0, 12),
+          unresolvedExamples: Array.from(new Set(unresolved.map((product) => String(product.rawName || '').trim()).filter(Boolean))).slice(0, 12),
+          priorCanonicalProductCodes,
+          droppedPriorCanonicalCodes,
+        });
+        continue;
+      }
 
       if (!dryRun) {
         const nextAnalysis = {
@@ -221,6 +248,8 @@ export async function runProductDemandBackfillV22(
         productCodes,
         canonicalProductNames: Array.from(new Set(canonical.map((product) => String(product.canonicalName || product.rawName)).filter(Boolean))).slice(0, 12),
         unresolvedExamples: Array.from(new Set(unresolved.map((product) => String(product.rawName || '').trim()).filter(Boolean))).slice(0, 12),
+        priorCanonicalProductCodes,
+        droppedPriorCanonicalCodes,
       });
     } catch (error) {
       rows.push({
