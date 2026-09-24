@@ -262,6 +262,85 @@ export async function getAttendanceDiagnosticSummaryV1(args: {
   return data as AttendanceDiagnosticSummaryV1;
 }
 
+
+export type MissingPunchContextV1 = {
+  staff_id: string;
+  staff_name: string;
+  branch: string | null;
+  attendance_date: string;
+  missing_type: 'check_in' | 'check_out';
+  month_cycle: string;
+  allowance_limit: number;
+  used_before: number;
+  occurrence_no: number;
+  remaining_free_before: number;
+  penalty_eligible: boolean;
+  penalty_amount: number;
+  existing_incident_id: string | null;
+  manual_punch_id: string | null;
+  deduction_transaction_id: string | null;
+};
+
+export async function getMissingPunchContextV1(args: {
+  staffId: string;
+  date: string;
+  missingType: 'check_in' | 'check_out';
+}): Promise<MissingPunchContextV1> {
+  const { data, error } = await supabase.rpc('missing_punch_context_v1', {
+    p_staff_id: args.staffId,
+    p_date: args.date,
+    p_missing_type: args.missingType,
+  });
+  if (error) throw new Error(error.message);
+  return data as MissingPunchContextV1;
+}
+
+export async function resolveMissingPunchIncidentV1(args: {
+  staffId: string;
+  date: string;
+  missingType: 'check_in' | 'check_out';
+  recordedAt?: string | null;
+  reason?: string | null;
+  applyDeduction?: boolean;
+}): Promise<Record<string, unknown>> {
+  const { data, error } = await supabase.rpc('resolve_missing_punch_incident_v1', {
+    p_staff_id: args.staffId,
+    p_date: args.date,
+    p_missing_type: args.missingType,
+    p_recorded_at: args.recordedAt || null,
+    p_reason: args.reason || null,
+    p_apply_deduction: Boolean(args.applyDeduction),
+  });
+  if (error) throw new Error(error.message);
+  return (data || {}) as Record<string, unknown>;
+}
+
+export type MissingPunchHistoryRowV1 = {
+  id: string;
+  attendance_date: string;
+  missing_type: 'check_in' | 'check_out';
+  month_cycle: string;
+  occurrence_no: number;
+  penalty_eligible: boolean;
+  penalty_amount: number;
+  manual_punch_id: string | null;
+  deduction_transaction_id: string | null;
+  reason: string | null;
+  created_at: string;
+};
+
+export async function listStaffMissingPunchHistoryV1(
+  staffId: string,
+  limit = 50
+): Promise<MissingPunchHistoryRowV1[]> {
+  const { data, error } = await supabase.rpc('list_staff_missing_punch_history_v1', {
+    p_staff_id: staffId,
+    p_limit: limit,
+  });
+  if (error) throw new Error(error.message);
+  return (data || []) as MissingPunchHistoryRowV1[];
+}
+
 export type AttendancePolicyCatalog = {
   policies: Array<Record<string, unknown>>;
   assignments: Array<Record<string, unknown>>;
