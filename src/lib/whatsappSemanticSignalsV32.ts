@@ -136,6 +136,27 @@ const PROMISE_RX = /هبعت(?:لك|لحضرتك)?|هيوصل|هجهز(?:لك|ل
 const PRODUCT_REFERENCE_RX =
   /(?<![\p{L}\p{N}])(?:ده|دي|دول|منه|منها)(?![\p{L}\p{N}])|واحد\s*من\s*(?:ده|دا)|الاتنين|نفس\s*اللي\s*فات|اللي\s*حضرتك\s*قولت?\s*عليه|البديل\s*ده|(?<![\p{L}\p{N}])التاني(?![\p{L}\p{N}])/iu;
 
+// A reference such as "الغسول ده" must never resolve to a welcome/service-template message just
+// because that message happened to be the nearest previous staff turn. These templates contain no
+// product offer at all and previously caused false basket items such as the entire welcome text.
+const STAFF_NON_PRODUCT_TEMPLATE_RX =
+  /أهلا\s*وسهلا|نورت(?:نا|ينا)|صيدليات\s*دواء|خدمة\s*التوصيل|على\s*مدار\s*24\s*ساعة|مع\s*حضرتك|تحت\s*أمر\s*حضرتك|تشرفنا\s*بخدمت/i;
+
+function isPlausibleStaffProductOffer(message: NormalizedConversationMessageV32): boolean {
+  if (message.role !== 'staff' || !message.isMeaningful) return false;
+  const text = message.text.trim();
+  if (!text || STAFF_NON_PRODUCT_TEMPLATE_RX.test(text)) return false;
+  if (WEAK_IMPLICIT_RX.test(text) || classifyConfirmationStrength(text) !== 'none') return false;
+
+  // Structural product/offer evidence only. When this is absent, unresolved is safer than binding
+  // a pronoun to arbitrary staff prose.
+  return (
+    PRICE_RX.test(text) ||
+    /متوفر|موجود|بديل|ترشيح|أنسب|افضل|أفضل|سعر|عبوة|علبة|شريط|كبسول|قرص|جل|كريم|شامبو|غسول|سيرم|لوشن|spray|cream|gel|shampoo|serum|lotion/i.test(text) ||
+    /[A-Za-z]{3,}/.test(text)
+  );
+}
+
 export function isGreetingOnly(text: string): boolean {
   return GREETING_ONLY_RX.test((text || '').trim());
 }
@@ -418,9 +439,7 @@ export function resolveReference(
   index: number
 ): NormalizedConversationMessageV32 | null {
   const { before } = contextWindowV32(messages, index, 4, 0);
-  const candidateOffers = before.filter(
-    (m) => m.role === 'staff' && !WEAK_IMPLICIT_RX.test(m.text.trim()) && classifyConfirmationStrength(m.text) === 'none'
-  );
+  const candidateOffers = before.filter(isPlausibleStaffProductOffer);
   if (candidateOffers.length === 0) return null;
   // Ambiguous only when two DIFFERENT offers both sit right at the edge of the window with no
   // customer message between them narrowing it down further.
