@@ -22,6 +22,18 @@ export interface WhatsAppProductJourneyEventV7 {
   note: string;
 }
 
+export type WhatsAppLeakageCodeV8 =
+  | 'stock_unavailable'
+  | 'no_alternative'
+  | 'price_objection'
+  | 'response_delay'
+  | 'closing_gap'
+  | 'customer_no_reply'
+  | 'recommendation_pending'
+  | 'delivery_issue'
+  | 'customer_rejected'
+  | 'unknown';
+
 export interface WhatsAppProductJourneyV7 {
   productName: string;
   productCode: string | null;
@@ -33,6 +45,7 @@ export interface WhatsAppProductJourneyV7 {
   closedInChat: boolean;
   followupCandidate: boolean;
   leakageReason: string | null;
+  leakageCode?: WhatsAppLeakageCodeV8 | null;
   nextAction: string;
   confidence: number;
 }
@@ -58,6 +71,9 @@ const ALTERNATIVE_RX = /(بديل|بداله|بدلها|نرشح|ارشح|أرش
 const ACCEPT_RX = /(^|\s)(تمام|ماشي|موافق|اوكي|أوكي|خلاص|ابعت|ابعته|ابعتي|هات|هاته|هاخده|هاخدها|هجربه|هجربها|تمام كده|تمام كدا)(\s|$)/i;
 const REJECT_RX = /(لا شكرا|مش عايز|مش عاوز|مش محتاج|غالي|مش مناسب|مش هاخد|مش هطلب|بلاش)/i;
 const CLOSE_RX = /(تم تأكيد|تم التاكيد|الأوردر اتأكد|الاوردر اتاكد|أكدنا الطلب|اكدنا الطلب|جاري الارسال|جاري الإرسال|خرج لحضرتك|الإجمالي|الاجمالي|فاتوره|فاتورة)/i;
+const PRICE_OBJECTION_RX = /(غالي|غالية|السعر عالي|السعر غالي|كتير عليا|كتير جدًا|مش مناسب.*السعر|السعر مش مناسب)/i;
+const DELIVERY_PROBLEM_RX = /(المندوب.*متأخر|التوصيل.*متأخر|ماوصلش|موصلش|لسه مجاش)/i;
+const MAX_HEALTHY_RESPONSE_MINUTES = 10;
 
 const normalize = (value: unknown) => String(value ?? '')
   .trim().toLowerCase()
@@ -107,15 +123,59 @@ function currentStage(events: WhatsAppProductJourneyEventV7[], followupCandidate
   return 'mentioned';
 }
 
-function leakageFor(events: WhatsAppProductJourneyEventV7[], product: WhatsAppProductSignal) {
-  const stages = new Set(events.map((e) => e.stage));
-  if (stages.has('order_confirmed') || stages.has('accepted') || stages.has('rejected')) return null;
-  if (stages.has('unavailable') && !stages.has('alternative_offered')) return 'الصنف غير متوفر ولم يظهر عرض بديل واضح.';
-  if (stages.has('alternative_offered') && !stages.has('accepted') && !stages.has('rejected')) return 'تم عرض بديل/ترشيح ولم يظهر حسم قبول العميل.';
-  if (stages.has('availability_confirmed') && !stages.has('order_confirmed')) return 'تم تأكيد التوفر لكن لم يظهر إغلاق أو تأكيد للأوردر.';
-  if (stages.has('recommended') && !stages.has('accepted') && !stages.has('rejected')) return 'تم ترشيح صنف ولم يظهر رد حاسم من العميل.';
-  if (product.status === 'requested') return 'طلب العميل لم يظهر له إغلاق واضح.';
+function firstResponseDelayMinutes(messages: WhatsAppParsedMessage[]) {
+  for (let i = 0; i < messages.length; i += 1) {
+    if (messages[i].direction !== 'inbound') continue;
+    const reply = messages.slice(i + 1).find((m) => m.direction === 'outbound');
+    if (!reply) continue;
+    return Math.max(0, (reply.timestamp.getTime() - messages[i].timestamp.getTime()) / 60000);
+  }
   return null;
+}
+
+function leakageFor(
+  events: WhatsAppProductJourneyEventV7[],
+  product: WhatsAppProductSignal,
+  messages: WhatsAppParsedMessage[]
+): { code: WhatsAppLeakageCodeV8 | null; reason: string | null } {
+  const stages = new Set(events.map((e) => e.stage));
+  if (stages.has('order_confirmed') || stages.has('accepted')) return { code: null, reason: null };
+
+  const inboundText = messages.filter((m) => m.direction === 'inbound').map((m) => m.text).join('\n');
+  const allText = messages.map((m) => m.text).join('\n');
+  const delay = firstResponseDelayMinutes(messages);
+
+  if (stages.has('unavailable') && !stages.has('alternative_offered')) {
+    return { code: 'stock_unavailable', reason: 'الصنف غير متوفر ولم يظهر عرض بديل واضح.' };
+  }
+  if (stages.has('unavailable') && stages.has('alternative_offered') && !stages.has('accepted') && !stages.has('rejected')) {
+    return { code: 'no_alternative', reason: 'تم عرض بديل بعد عدم توفر الصنف لكن لم يظهر حسم من العميل.' };
+  }
+  if (PRICE_OBJECTION_RX.test(inboundText)) {
+    return { code: 'price_objection', reason: 'ظهر اعتراض صريح من العميل على السعر.' };
+  }
+  if (delay != null && delay > MAX_HEALTHY_RESPONSE_MINUTES) {
+    return { code: 'response_delay', reason: `تأخر أول رد مفيد على طلب العميل قرابة ${Math.round(delay)} دقيقة.` };
+  }
+  if (DELIVERY_PROBLEM_RX.test(allText)) {
+    return { code: 'delivery_issue', reason: 'ظهرت مشكلة في التنفيذ أو التوصيل أثرت على رحلة الطلب.' };
+  }
+  if (stages.has('rejected')) {
+    return { code: 'customer_rejected', reason: 'العميل رفض الصنف أو الترشيح بشكل صريح.' };
+  }
+  if (stages.has('alternative_offered') || stages.has('recommended')) {
+    return { code: 'recommendation_pending', reason: 'تم عرض بديل أو ترشيح ولم يظهر قرار نهائي من العميل.' };
+  }
+  if (stages.has('availability_confirmed') && !stages.has('order_confirmed')) {
+    return { code: 'closing_gap', reason: 'الصنف كان متاحًا وظهرت نية شراء، لكن لم يظهر إغلاق واضح للعملية البيعية.' };
+  }
+  if (messages.some((m) => m.direction === 'outbound') && !messages.slice().reverse().some((m) => m.direction === 'inbound')) {
+    return { code: 'customer_no_reply', reason: 'لم يظهر رد من العميل بعد آخر تواصل من الصيدلية.' };
+  }
+  if (product.status === 'requested') {
+    return { code: 'unknown', reason: 'طلب العميل لم يصل إلى نتيجة بيع أو رفض واضحة، والسبب غير محسوم من الأدلة الحالية.' };
+  }
+  return { code: null, reason: null };
 }
 
 function nextActionFor(events: WhatsAppProductJourneyEventV7[], leakage: string | null, followupCandidate: boolean) {
@@ -170,7 +230,8 @@ export function buildWhatsAppProductJourneyV7(
     if (closed.length) events.push(event('order_confirmed', closed, 91, 'ظهر إغلاق/تأكيد للأوردر داخل المحادثة.'));
 
     const followupCandidate = Boolean(matchingRecommendation?.accepted === true);
-    const leakageReason = leakageFor(events, product);
+    const leakage = leakageFor(events, product, messages);
+    const leakageReason = leakage.reason;
     const stage = currentStage(events, followupCandidate);
     const confidence = Math.round(Math.min(98, Math.max(product.confidence, ...events.map((e) => e.confidence), 55)));
 
@@ -185,6 +246,7 @@ export function buildWhatsAppProductJourneyV7(
       closedInChat: events.some((e) => e.stage === 'order_confirmed'),
       followupCandidate,
       leakageReason,
+      leakageCode: leakage.code,
       nextAction: nextActionFor(events, leakageReason, followupCandidate),
       confidence,
     } satisfies WhatsAppProductJourneyV7;
