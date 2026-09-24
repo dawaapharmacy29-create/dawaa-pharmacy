@@ -30,6 +30,10 @@ import { deriveSalesIntegrityAssessment } from './salesIntegrityEngine';
 import { deriveHistoricalCommercialClosureAssessment } from './historicalCommercialClosureEngine';
 import { deriveSaleProofState } from './saleProofState';
 import { deriveCanonicalSalesOutcome } from './canonicalSalesOutcomeEngine';
+import {
+  resolveProductMention,
+  type PharmacyProductIndex,
+} from './pharmacyProducts/pharmacyProductResolverV2';
 import type { InvoiceLike } from '../invoices/invoiceCore';
 import type { InvoiceCandidateQueryContext } from './invoiceCandidateRetrieval';
 import type {
@@ -71,6 +75,8 @@ export interface SalesIntelligencePipelineInput {
    */
   resolveInvoiceCandidates: (context: InvoiceCandidateQueryContext) => InvoiceLike[];
   itemEvidenceProvider?: InvoiceItemEvidenceProvider;
+  /** Optional canonical pharmacy catalog index. Used only to enrich basket item identity. */
+  productIndex?: PharmacyProductIndex;
   documentedAdjustments?: DocumentedAdjustment[];
   invoiceCancelledOrReturned?: boolean;
   /** Caller-CONFIRMED only — never inferred here from ambiguous free-text status columns (mirrors Phase F's own field). */
@@ -165,6 +171,39 @@ function computeOverallEvidenceLevel(completeness: Omit<EvidenceCompleteness, 'o
   return 'insufficient';
 }
 
+function enrichBasketProductIdentities(
+  itemsByBasketId: Record<string, CaseBasketItem[]>,
+  productIndex?: PharmacyProductIndex
+): Record<string, CaseBasketItem[]> {
+  if (!productIndex) return itemsByBasketId;
+
+  return Object.fromEntries(
+    Object.entries(itemsByBasketId).map(([basketId, items]) => [
+      basketId,
+      items.map((item) => {
+        if (item.productId || item.resolutionStatus === 'contradicted' || item.resolutionStatus === 'missing') {
+          return item;
+        }
+
+        const resolution = resolveProductMention(item.productNameRaw, productIndex);
+        const selected = resolution.selected;
+        if (!selected || !['proven', 'strongly_inferred'].includes(selected.confidence)) {
+          return item;
+        }
+
+        return {
+          ...item,
+          productId: selected.product.productId,
+          // Exact code is canonical proof. Exact canonical name / approved alias remains
+          // partially proven even though we can safely carry the canonical id forward.
+          resolutionStatus:
+            selected.confidence === 'proven' ? 'proven' : 'partially_proven',
+        };
+      }),
+    ])
+  );
+}
+
 function analyzeOneCase(
   conversationCase: ConversationCase,
   scopedMessages: NormalizedConversationMessageV32[],
@@ -172,8 +211,14 @@ function analyzeOneCase(
 ): SalesIntelligenceCaseAnalysis {
   const pipelineWarnings: string[] = [];
 
-  const { baskets, itemsByBasketId, summaryEvents, customerConfirmationEvents, staffFinalConfirmationEvents } =
-    buildCaseBaskets(conversationCase.caseId, scopedMessages);
+  const {
+    baskets,
+    itemsByBasketId: rawItemsByBasketId,
+    summaryEvents,
+    customerConfirmationEvents,
+    staffFinalConfirmationEvents,
+  } = buildCaseBaskets(conversationCase.caseId, scopedMessages);
+  const itemsByBasketId = enrichBasketProductIdentities(rawItemsByBasketId, input.productIndex);
 
   const activeBasketResolution = resolveActiveBasket(baskets);
   const activeBasket = activeBasketResolution.outcome === 'selected' ? activeBasketResolution.basket : null;
@@ -322,7 +367,14 @@ function analyzeOneCase(
   if (conversationCase.needsHumanReview) failureReasons.push('case_segmentation_uncertain');
   if (!conversationCase.customerId && !conversationCase.customerPhone) failureReasons.push('customer_identity_unresolved');
   if (!evidenceCompleteness.basketDetected) failureReasons.push('basket_not_detected');
-  if (activeItems.some((item) => item.resolutionStatus === 'unknown' || item.resolutionStatus === 'contradicted')) {
+  if (
+    activeItems.some(
+      (item) =>
+        item.resolutionStatus === 'unknown' ||
+        item.resolutionStatus === 'contradicted' ||
+        (Boolean(input.productIndex) && !item.productId)
+    )
+  ) {
     failureReasons.push('product_identity_unresolved');
   }
   if (activeItems.some((item) => item.quantity == null)) failureReasons.push('quantity_unknown');
