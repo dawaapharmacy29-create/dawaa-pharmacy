@@ -49,9 +49,14 @@ export interface SalesInvoiceItemsImportResultV21 {
   /** Rows now available to canonical Sales Intelligence as real line-item evidence. */
   canonicalEvidenceRows: number;
   linkedInvoiceRows: number;
+  linkedInvoices: number;
   ambiguousInvoiceRows: number;
   unmatchedInvoiceRows: number;
+  branchConflictRows: number;
   productLinkedRows: number;
+  productUnresolvedRows: number;
+  fullReturnRows: number;
+  partialReturnRows: number;
   financialMatchedInvoices: number;
   financialMismatchInvoices: number;
   financialComparisonUnavailableInvoices: number;
@@ -433,9 +438,14 @@ export async function importSalesInvoiceItemsV21(
       failed: 0,
       canonicalEvidenceRows: 0,
       linkedInvoiceRows: 0,
+      linkedInvoices: 0,
       ambiguousInvoiceRows: 0,
       unmatchedInvoiceRows: 0,
+      branchConflictRows: 0,
       productLinkedRows: 0,
+      productUnresolvedRows: 0,
+      fullReturnRows: 0,
+      partialReturnRows: 0,
       financialMatchedInvoices: 0,
       financialMismatchInvoices: 0,
       financialComparisonUnavailableInvoices: 0,
@@ -491,7 +501,8 @@ export async function importSalesInvoiceItemsV21(
     const itemBranch = row.branch ? normalizeBranch(row.branch) : '';
     const itemDay = cairoInvoiceDayV21(row.invoiceDate);
     const itemCustomerCode = normalizeCustomerCode(row.customerCode);
-    const headerCandidates = (invoiceHeadersByNumber.get(row.invoiceNumber) ?? []).filter((invoice) => {
+    const numberCandidates = invoiceHeadersByNumber.get(row.invoiceNumber) ?? [];
+    const headerCandidates = numberCandidates.filter((invoice) => {
       const invoiceBranch = normalizeBranch(invoice.branch_name || invoice.branch);
       if (itemBranch && invoiceBranch !== itemBranch) return false;
       if (itemDay) {
@@ -540,6 +551,14 @@ export async function importSalesInvoiceItemsV21(
     } else if (headerCandidates.length > 1) {
       invoiceLinkStatus = 'ambiguous';
       invoiceLinkReason = `multiple_header_candidates:${headerCandidates.length}`;
+    } else if (numberCandidates.length > 0 && itemBranch) {
+      const branchMatches = numberCandidates.filter(
+        (invoice) => normalizeBranch(invoice.branch_name || invoice.branch) === itemBranch
+      );
+      if (branchMatches.length === 0) {
+        invoiceLinkStatus = 'branch_conflict';
+        invoiceLinkReason = `invoice_number_found_but_branch_conflicts:${numberCandidates.length}`;
+      }
     }
 
     const stableProductIdentity = row.productCode || normalize(row.productName);
@@ -652,7 +671,22 @@ export async function importSalesInvoiceItemsV21(
   const unmatchedInvoiceRows = payload.filter(
     (row) => !row.invoice_id && row.raw_data?.__dawaa_commercial?.invoice_link_status !== 'ambiguous'
   ).length;
+  const linkedInvoices = new Set(
+    persistablePayload.map((row) => String(row.invoice_id || '')).filter(Boolean)
+  ).size;
   const productLinkedRows = persistablePayload.filter((row) => row.product_id).length;
+  const productUnresolvedRows = persistablePayload.filter((row) => !row.product_id).length;
+  const branchConflictRows = payload.filter(
+    (row) => row.raw_data?.__dawaa_commercial?.invoice_link_status === 'branch_conflict'
+  ).length;
+  const fullReturnRows = persistablePayload.filter((row) => {
+    const meta = row.raw_data?.__dawaa_commercial ?? {};
+    return Number(meta.returned_quantity ?? 0) > 0 && Number(meta.effective_quantity ?? row.quantity ?? 0) <= 0;
+  }).length;
+  const partialReturnRows = persistablePayload.filter((row) => {
+    const meta = row.raw_data?.__dawaa_commercial ?? {};
+    return Number(meta.returned_quantity ?? 0) > 0 && Number(meta.effective_quantity ?? row.quantity ?? 0) > 0;
+  }).length;
   const financeByInvoice = new Map<string, boolean | null>();
   for (const row of persistablePayload) {
     const invoiceId = String(row.invoice_id || '');
@@ -670,9 +704,14 @@ export async function importSalesInvoiceItemsV21(
     failed,
     canonicalEvidenceRows: saved,
     linkedInvoiceRows,
+    linkedInvoices,
     ambiguousInvoiceRows,
     unmatchedInvoiceRows,
+    branchConflictRows,
     productLinkedRows,
+    productUnresolvedRows,
+    fullReturnRows,
+    partialReturnRows,
     financialMatchedInvoices,
     financialMismatchInvoices,
     financialComparisonUnavailableInvoices,
