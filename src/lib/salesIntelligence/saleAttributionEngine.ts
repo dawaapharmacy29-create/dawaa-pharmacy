@@ -366,10 +366,15 @@ function classifyProductEvidence(
     return { productMatch: 'unavailable', quantityMatch: 'unavailable' };
   }
 
-  const invoiceByProductId = new Map(
-    items.filter((i) => i.productId).map((i) => [String(i.productId), i])
+  const sellableItems = items.filter(
+    (item) => item.quantity != null && Number(item.quantity) > 0
   );
-  const invoiceByName = new Map(items.map((i) => [normalizeProductNameForMatch(i.productNameRaw), i]));
+  const invoiceByProductId = new Map(
+    sellableItems.filter((i) => i.productId).map((i) => [String(i.productId), i])
+  );
+  const invoiceByName = new Map(
+    sellableItems.map((i) => [normalizeProductNameForMatch(i.productNameRaw), i])
+  );
 
   const matchedPairs = ctx.activeBasketItems
     .map((basketItem) => {
