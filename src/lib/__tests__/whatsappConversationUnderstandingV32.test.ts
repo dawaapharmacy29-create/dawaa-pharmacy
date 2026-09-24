@@ -100,3 +100,26 @@ describe('V32 fulfillment continuity across silence', () => {
     expect(understanding.interactions).toHaveLength(2);
   });
 });
+
+
+describe('conversation case classification certainty', () => {
+  it('reaches 100% only for an explicit commercial journey, without proving the sale itself', () => {
+    const raw = `[9/15/26, 9:30:55 PM] Customer: Isis teenderm gel for sensitive skin
+[9/15/26, 9:35:06 PM] You: تحب نبعته لحضرتك؟
+[9/15/26, 9:42:30 PM] Customer: اه ابعته
+[9/15/26, 9:42:57 PM] You: من عنيا لحضرتك مسافة الطريق`;
+    const understanding = buildConversationUnderstandingV32(oneSession(raw));
+    const cases = deriveConversationCases({
+      understanding,
+      conversationId: 'conv-explicit',
+      customerIdHint: 'customer-1',
+      customerPhoneHint: '01000000000',
+      branchNameRawHint: 'فرع شكري',
+    });
+    expect(cases).toHaveLength(1);
+    expect(cases[0].caseType).toBe('sales_opportunity');
+    expect(cases[0].confidence.level).toBe('proven');
+    expect(cases[0].confidence.score).toBe(1);
+    expect(cases[0].confidence.ruleIds).toContain('case.classification.explicit_commercial_journey');
+  });
+});
