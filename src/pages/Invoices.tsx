@@ -808,9 +808,14 @@ export default function Invoices() {
 
         if (itemImport.saved > 0) {
           toast.success(
-            `تم حفظ ${itemImport.saved.toLocaleString('ar-EG')} بند صنف من تفاصيل الفواتير` +
-              (itemImport.reconciledProductConversions
-                ? ` وربط ${itemImport.reconciledProductConversions.toLocaleString('ar-EG')} فرصة واتساب ببند فاتورة فعلي`
+            `تم حفظ ${itemImport.saved.toLocaleString('ar-EG')} بند صنف` +
+              ` • مربوط بفاتورة: ${itemImport.linkedInvoiceRows.toLocaleString('ar-EG')}` +
+              ` • مربوط بمنتج: ${itemImport.productLinkedRows.toLocaleString('ar-EG')}` +
+              (itemImport.ambiguousInvoiceRows
+                ? ` • يحتاج مراجعة ربط فاتورة: ${itemImport.ambiguousInvoiceRows.toLocaleString('ar-EG')}`
+                : '') +
+              (itemImport.unmatchedInvoiceRows
+                ? ` • بدون Header مطابق: ${itemImport.unmatchedInvoiceRows.toLocaleString('ar-EG')}`
                 : '')
           );
         }
@@ -2010,7 +2015,9 @@ export default function Invoices() {
                     <div className="font-bold text-emerald-300">
                       حُفظ: {invoiceItemsImportResult.saved.toLocaleString('ar-EG')} • فشل:{' '}
                       {invoiceItemsImportResult.failed.toLocaleString('ar-EG')} • بنود متاحة للتحليل:{' '}
-                      {invoiceItemsImportResult.canonicalEvidenceRows.toLocaleString('ar-EG')}
+                      {invoiceItemsImportResult.canonicalEvidenceRows.toLocaleString('ar-EG')} • مربوط بفاتورة:{' '}
+                      {invoiceItemsImportResult.linkedInvoiceRows.toLocaleString('ar-EG')} • مربوط بمنتج:{' '}
+                      {invoiceItemsImportResult.productLinkedRows.toLocaleString('ar-EG')}
                     </div>
                   ) : null}
                 </div>

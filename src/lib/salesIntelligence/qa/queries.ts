@@ -35,6 +35,7 @@ import { rankProductCandidates } from '../../productMatching';
 import { resolveReviewSourceSnapshotLineage, selectCanonicalReviewSourceIds } from '../sourceSnapshotLineage';
 import { fetchInvoiceItemEvidenceProvider } from '../invoiceItemEvidenceRepository';
 import { fetchPharmacyProductIndex } from '../pharmacyProductCatalogRepository';
+import { derivePricingExecutionAssessment } from '../salesPricingExecutionV1';
 
 const MAX_LIST_ROWS = 2000;
 
@@ -378,6 +379,32 @@ export interface QaCaseDetailBundle {
   saleProof: SaleProofAssessment;
   /** Current canonical commercial outcome derived from current proof + commercial state. */
   salesOutcome: CanonicalSalesOutcomeAssessment;
+  invoiceItemFacts: Array<{
+    id: string;
+    invoiceId: string | null;
+    invoiceNumber: string;
+    lineNo: number | null;
+    productId: string | null;
+    productCode: string | null;
+    productName: string;
+    quantity: number | null;
+    unitName: string | null;
+    unitPrice: number | null;
+    itemDiscountAmount: number | null;
+    itemDiscountPercent: number | null;
+    grossLineAmount: number | null;
+    netLineAmount: number | null;
+    returnedQuantity: number | null;
+    sellerName: string | null;
+    staffId: string | null;
+    staffName: string | null;
+    catalogCurrentPrice: number | null;
+    pricingStatus: string;
+    effectiveUnitPrice: number | null;
+    matchedOfferId: string | null;
+    matchedOfferTitle: string | null;
+    pricingNeedsReview: boolean;
+  }>;
   catalogProductMatches: Array<{
     sourceMessageId: string;
     rawPhrase: string;
@@ -753,6 +780,114 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
     });
   }
 
+  const invoiceItemFacts: QaCaseDetailBundle['invoiceItemFacts'] = [];
+  const selectedInvoiceId = liveEvidence?.attribution.selectedInvoiceId ?? attributionRow?.selected_invoice_id ?? null;
+
+  if (selectedInvoiceId) {
+    const [{ data: itemRows }, { data: invoiceHeader }] = await Promise.all([
+      supabaseClient
+        .from('sales_invoice_items_v21')
+        .select('id,invoice_id,invoice_number,line_no,product_id,product_code,product_name,quantity,unit_price,line_total,raw_data')
+        .eq('invoice_id', selectedInvoiceId)
+        .order('line_no', { ascending: true })
+        .limit(500),
+      supabaseClient
+        .from('sales_invoices')
+        .select('id,invoice_number,invoice_no,branch,branch_name,invoice_datetime,sale_date,seller_name,normalized_seller_name,staff_id,staff_name')
+        .eq('id', selectedInvoiceId)
+        .maybeSingle(),
+    ]);
+
+    const productCodes = Array.from(new Set((itemRows ?? []).map((row: any) => String(row.product_code ?? '').trim()).filter(Boolean)));
+    const productIds = Array.from(new Set((itemRows ?? []).map((row: any) => String(row.product_id ?? '').trim()).filter(Boolean)));
+    const productsByKey = new Map<string, any>();
+
+    if (productCodes.length) {
+      const { data } = await supabaseClient.from('products').select('id,product_code,name,price').in('product_code', productCodes).limit(1000);
+      for (const product of data ?? []) {
+        if (product.id) productsByKey.set(`id:${product.id}`, product);
+        if (product.product_code) productsByKey.set(`code:${product.product_code}`, product);
+      }
+    }
+    if (productIds.length) {
+      const { data } = await supabaseClient.from('products').select('id,product_code,name,price').in('id', productIds).limit(1000);
+      for (const product of data ?? []) {
+        if (product.id) productsByKey.set(`id:${product.id}`, product);
+        if (product.product_code) productsByKey.set(`code:${product.product_code}`, product);
+      }
+    }
+
+    const saleDay = String(invoiceHeader?.invoice_datetime ?? invoiceHeader?.sale_date ?? '').slice(0, 10);
+    const branch = String(invoiceHeader?.branch_name ?? invoiceHeader?.branch ?? '').trim();
+    let offers: any[] = [];
+
+    if (productCodes.length && saleDay) {
+      const { data } = await supabaseClient
+        .from('offers')
+        .select('id,title,branch,item_code,final_price,start_date,end_date,status,active')
+        .in('item_code', productCodes)
+        .lte('start_date', saleDay)
+        .gte('end_date', saleDay)
+        .limit(1000);
+      offers = (data ?? []).filter((offer: any) => {
+        if (offer.active === false) return false;
+        const offerBranch = String(offer.branch ?? '').trim();
+        return !offerBranch || !branch || offerBranch === branch;
+      });
+    }
+
+    for (const row of itemRows ?? []) {
+      const meta = row.raw_data?.__dawaa_commercial ?? {};
+      const product = productsByKey.get(`id:${row.product_id}`) ?? productsByKey.get(`code:${row.product_code}`) ?? null;
+      const lineOffers = offers
+        .filter((offer: any) => String(offer.item_code ?? '') === String(row.product_code ?? ''))
+        .map((offer: any) => ({
+          id: String(offer.id),
+          title: offer.title == null ? null : String(offer.title),
+          finalPrice: offer.final_price == null ? null : Number(offer.final_price),
+        }));
+      const pricing = derivePricingExecutionAssessment(
+        {
+          quantity: row.quantity == null ? null : Number(row.quantity),
+          unitPrice: row.unit_price == null ? null : Number(row.unit_price),
+          itemDiscountAmount: meta.item_discount_amount == null ? null : Number(meta.item_discount_amount),
+          itemDiscountPercent: meta.item_discount_percent == null ? null : Number(meta.item_discount_percent),
+          grossLineAmount: meta.gross_line_amount == null ? null : Number(meta.gross_line_amount),
+          netLineAmount: meta.net_line_amount == null ? (row.line_total == null ? null : Number(row.line_total)) : Number(meta.net_line_amount),
+          invoiceDiscountAmount: meta.invoice_discount_amount == null ? null : Number(meta.invoice_discount_amount),
+        },
+        lineOffers
+      );
+
+      invoiceItemFacts.push({
+        id: String(row.id),
+        invoiceId: row.invoice_id == null ? null : String(row.invoice_id),
+        invoiceNumber: String(row.invoice_number ?? ''),
+        lineNo: row.line_no == null ? null : Number(row.line_no),
+        productId: row.product_id == null ? null : String(row.product_id),
+        productCode: row.product_code == null ? null : String(row.product_code),
+        productName: String(row.product_name ?? product?.name ?? ''),
+        quantity: row.quantity == null ? null : Number(row.quantity),
+        unitName: meta.unit_name == null ? null : String(meta.unit_name),
+        unitPrice: row.unit_price == null ? null : Number(row.unit_price),
+        itemDiscountAmount: meta.item_discount_amount == null ? null : Number(meta.item_discount_amount),
+        itemDiscountPercent: meta.item_discount_percent == null ? null : Number(meta.item_discount_percent),
+        grossLineAmount: meta.gross_line_amount == null ? null : Number(meta.gross_line_amount),
+        netLineAmount: meta.net_line_amount == null ? (row.line_total == null ? null : Number(row.line_total)) : Number(meta.net_line_amount),
+        returnedQuantity: meta.returned_quantity == null ? null : Number(meta.returned_quantity),
+        sellerName: invoiceHeader?.seller_name ?? invoiceHeader?.normalized_seller_name ?? null,
+        staffId: invoiceHeader?.staff_id == null ? null : String(invoiceHeader.staff_id),
+        staffName: invoiceHeader?.staff_name ?? invoiceHeader?.seller_name ?? null,
+        catalogCurrentPrice: product?.price == null ? null : Number(product.price),
+        pricingStatus: pricing.status,
+        effectiveUnitPrice: pricing.effectiveUnitPrice,
+        matchedOfferId: pricing.matchedOfferId,
+        matchedOfferTitle: pricing.matchedOfferTitle,
+        pricingNeedsReview: pricing.needsHumanReview,
+      });
+    }
+  }
+
   return {
     persisted: { caseRow: caseRow ?? null, analysisRow, attributionRow: attributionRow ?? null, matchRow: matchRow ?? null, policyEvaluationRow: policyEvaluationRow ?? null },
     conversation,
@@ -763,6 +898,7 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
     liveSaleProof,
     saleProof,
     salesOutcome,
+    invoiceItemFacts,
     catalogProductMatches,
   };
 }

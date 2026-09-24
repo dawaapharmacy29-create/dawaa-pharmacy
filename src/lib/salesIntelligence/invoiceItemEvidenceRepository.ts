@@ -13,7 +13,9 @@ interface SalesInvoiceItemRow {
   product_code?: string | null;
   product_name?: string | null;
   quantity?: number | string | null;
+  unit_price?: number | string | null;
   line_total?: number | string | null;
+  raw_data?: Record<string, any> | null;
 }
 
 function clean(value: unknown): string {
@@ -80,11 +82,20 @@ export function buildInvoiceItemEvidenceProvider(
     if (!productName) continue;
 
     const bucket = itemsByInvoiceId.get(resolvedId) ?? [];
+    const meta = row.raw_data?.__dawaa_commercial ?? {};
     bucket.push({
       productNameRaw: productName,
       productId: clean(row.product_id) || null,
       productCode: clean(row.product_code) || null,
       quantity: numberOrNull(row.quantity),
+      unitName: clean(meta.unit_name) || null,
+      expiryRaw: clean(meta.expiry_raw) || null,
+      returnedQuantity: numberOrNull(meta.returned_quantity),
+      unitPrice: numberOrNull(row.unit_price),
+      itemDiscountAmount: numberOrNull(meta.item_discount_amount),
+      itemDiscountPercent: numberOrNull(meta.item_discount_percent),
+      grossLineAmount: numberOrNull(meta.gross_line_amount),
+      netLineAmount: numberOrNull(meta.net_line_amount) ?? numberOrNull(row.line_total),
       lineTotal: numberOrNull(row.line_total),
     });
     itemsByInvoiceId.set(resolvedId, bucket);
@@ -118,7 +129,7 @@ export async function fetchInvoiceItemEvidenceProvider(
   for (const group of chunks(ids, 100)) {
     const { data, error } = await supabaseClient
       .from('sales_invoice_items_v21')
-      .select('id,invoice_id,invoice_number,branch,product_id,product_code,product_name,quantity,line_total')
+      .select('id,invoice_id,invoice_number,branch,product_id,product_code,product_name,quantity,unit_price,line_total,raw_data')
       .in('invoice_id', group)
       .limit(5000);
     if (error) throw error;
@@ -130,7 +141,7 @@ export async function fetchInvoiceItemEvidenceProvider(
   for (const group of chunks(numbers, 100)) {
     const { data, error } = await supabaseClient
       .from('sales_invoice_items_v21')
-      .select('id,invoice_id,invoice_number,branch,product_id,product_code,product_name,quantity,line_total')
+      .select('id,invoice_id,invoice_number,branch,product_id,product_code,product_name,quantity,unit_price,line_total,raw_data')
       .in('invoice_number', group)
       .limit(5000);
     if (error) throw error;
@@ -156,6 +167,14 @@ export function snapshotInvoiceItemEvidence(
           productId: item.productId ?? null,
           productCode: item.productCode ?? null,
           quantity: item.quantity,
+          unitName: item.unitName ?? null,
+          expiryRaw: item.expiryRaw ?? null,
+          returnedQuantity: item.returnedQuantity ?? null,
+          unitPrice: item.unitPrice ?? null,
+          itemDiscountAmount: item.itemDiscountAmount ?? null,
+          itemDiscountPercent: item.itemDiscountPercent ?? null,
+          grossLineAmount: item.grossLineAmount ?? null,
+          netLineAmount: item.netLineAmount ?? null,
           lineTotal: item.lineTotal,
         }))
         .sort((a, b) =>

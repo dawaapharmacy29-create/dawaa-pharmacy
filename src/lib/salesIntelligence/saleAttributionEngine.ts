@@ -112,6 +112,14 @@ export interface InvoiceItemRecordForAttribution {
   /** Pharmacy/business product code — useful audit evidence, but not interchangeable with products.id. */
   productCode?: string | null;
   quantity: number | null;
+  unitName?: string | null;
+  expiryRaw?: string | null;
+  returnedQuantity?: number | null;
+  unitPrice?: number | null;
+  itemDiscountAmount?: number | null;
+  itemDiscountPercent?: number | null;
+  grossLineAmount?: number | null;
+  netLineAmount?: number | null;
   lineTotal: number | null;
 }
 

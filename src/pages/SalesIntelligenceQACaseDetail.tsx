@@ -86,6 +86,18 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
+function pricingStatusLabel(status: string) {
+  const labels: Record<string, string> = {
+    no_discount_observed: 'لا يوجد خصم ظاهر',
+    authorized_offer_match: 'عرض ساري منفذ بالسعر الصحيح',
+    offer_price_mismatch_review: 'عرض ساري لكن سعر التنفيذ يحتاج مراجعة',
+    discount_needs_review: 'خصم يحتاج مراجعة الاعتماد',
+    invoice_discount_review: 'خصم عام على الفاتورة يحتاج مراجعة',
+    insufficient_data: 'بيانات السعر غير كافية',
+  };
+  return labels[status] || status;
+}
+
 export default function SalesIntelligenceQACaseDetail() {
   const { caseId: rawCaseId } = useParams<{ caseId: string }>();
   const caseId = rawCaseId ? decodeURIComponent(rawCaseId) : '';
@@ -118,7 +130,7 @@ export default function SalesIntelligenceQACaseDetail() {
     return <div className="dawaa-empty-state py-16 text-center" dir="rtl">لم يتم العثور على هذه الحالة.</div>;
   }
 
-  const { persisted, conversation, sourceSnapshot, siblingCases, transcript, liveEvidence, saleProof, salesOutcome, catalogProductMatches } = bundle;
+  const { persisted, conversation, sourceSnapshot, siblingCases, transcript, liveEvidence, saleProof, salesOutcome, invoiceItemFacts, catalogProductMatches } = bundle;
   const persistedAnalysis = persisted.analysisRow;
   const persistedAttribution = persisted.attributionRow;
   const persistedMatch = persisted.matchRow;
@@ -543,6 +555,54 @@ export default function SalesIntelligenceQACaseDetail() {
               ) : null}
               {attribution.rule_ids?.length ? <div className="mt-2 dawaa-muted">قواعد التحليل: {attribution.rule_ids.map(ruleIdLabelFor).join('، ')}</div> : null}
             </Evidence>
+          </>
+        )}
+      </Section>
+
+      <Section title="٦.ب. تفاصيل البيع الفعلية من B-Connect">
+        {!attribution?.selected_invoice_id ? (
+          <div className="dawaa-empty-state py-4 text-center">لا توجد فاتورة مختارة لعرض تفاصيل أصنافها.</div>
+        ) : !invoiceItemFacts.length ? (
+          <div className="dawaa-alert dawaa-alert--warning text-xs leading-6">
+            الفاتورة موجودة، لكن بنود B-Connect لم تُستورد لهذه الفاتورة بعد. لذلك لا يمكن الحكم على الصنف أو الكمية أو السعر أو تنفيذ العرض من هذه الحالة.
+          </div>
+        ) : (
+          <>
+            <div className="dawaa-alert dawaa-alert--info mb-3 text-xs leading-6">
+              سعر الكتالوج الحالي يظهر كمرجع معلوماتي فقط، ولا يُستخدم للحكم على سعر تاريخي. تقييم الخصم يعتمد على ملف B-Connect والعروض السارية وقت الفاتورة.
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-xs">
+                <thead>
+                  <tr className="dawaa-muted border-b border-[var(--dawaa-theme-border)] text-right">
+                    {['الصنف', 'الكود', 'الكمية', 'سعر البيع', 'خصم الصنف', 'صافي البند', 'مرتجع', 'الدكتور المنفذ', 'حالة السعر/العرض'].map((h) => <th key={h} className="p-2">{h}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {invoiceItemFacts.map((item) => (
+                    <tr key={item.id} className="border-b border-[var(--dawaa-theme-border)]/60">
+                      <td className="p-2 font-bold">{item.productName || '—'}</td>
+                      <td className="p-2 font-mono">{item.productCode || '—'}</td>
+                      <td className="p-2">{item.quantity ?? '—'}{item.unitName ? ` ${item.unitName}` : ''}</td>
+                      <td className="p-2">{item.unitPrice == null ? '—' : `${item.unitPrice.toFixed(2)} ج.م`}</td>
+                      <td className="p-2">
+                        {item.itemDiscountAmount ? `${item.itemDiscountAmount.toFixed(2)} ج.م` : item.itemDiscountPercent ? `${item.itemDiscountPercent}%` : '0'}
+                      </td>
+                      <td className="p-2">{item.netLineAmount == null ? '—' : `${item.netLineAmount.toFixed(2)} ج.م`}</td>
+                      <td className="p-2">{item.returnedQuantity ?? 0}</td>
+                      <td className="p-2">{item.staffName || item.sellerName || 'غير متاح'}</td>
+                      <td className="max-w-[320px] p-2">
+                        <span className={item.pricingNeedsReview ? 'dawaa-badge dawaa-badge--warning' : 'dawaa-badge dawaa-badge--success'}>
+                          {pricingStatusLabel(item.pricingStatus)}
+                        </span>
+                        {item.matchedOfferTitle ? <div className="mt-1 text-emerald-300">العرض: {item.matchedOfferTitle}</div> : null}
+                        {item.catalogCurrentPrice != null ? <div className="dawaa-muted mt-1">سعر الكتالوج الحالي: {item.catalogCurrentPrice.toFixed(2)} ج.م</div> : null}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </>
         )}
       </Section>
