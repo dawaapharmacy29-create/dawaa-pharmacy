@@ -61,8 +61,32 @@ type UnresolvedRow = {
   cycle_start: string;
   cycle_end: string;
   branch: string | null;
+  unresolved_type: string;
   unresolved_mentions: number;
   conversations_affected: number;
+};
+
+const STAGE_LABELS: Record<string, string> = {
+  detected: 'تم الرصد',
+  requested: 'طلب العميل',
+  available: 'الصنف متوفر',
+  unavailable: 'الصنف غير متوفر',
+  alternative_offered: 'تم عرض بديل',
+  recommended: 'تم ترشيح صنف',
+  accepted: 'العميل وافق',
+  rejected: 'العميل رفض',
+  order_confirmed: 'تم تأكيد الطلب',
+  awaiting_invoice: 'بانتظار إثبات الفاتورة',
+  verified_sale: 'بيع موثق',
+  needs_followup: 'يحتاج متابعة',
+};
+
+const UNRESOLVED_LABELS: Record<string, string> = {
+  reference_or_media: 'مرجع لصورة أو رسالة سابقة',
+  contextual_product_reference: 'وصف سياقي يحتاج تحديد الصنف',
+  category_need: 'احتياج عام أو فئة وليس اسم صنف',
+  named_product_unresolved: 'اسم صنف لم يُطابق بالكتالوج بعد',
+  noise: 'نص غير متعلق بصنف',
 };
 
 const LEAK_LABELS: Record<string, string> = {
@@ -222,7 +246,8 @@ export default function ProductDemandLeakageV22() {
     customers: cycleDemand.reduce((sum, row) => sum + Number(row.unique_customers || 0), 0),
     accepted: cycleDemand.reduce((sum, row) => sum + Number(row.accepted_or_later_count || 0), 0),
     unresolved: cycleUnresolved.reduce((sum, row) => sum + Number(row.unresolved_mentions || 0), 0),
-  }), [cycleDemand, cycleUnresolved]);
+    leakage: cycleLeakage.reduce((sum, row) => sum + Number(row.cases_count || 0), 0),
+  }), [cycleDemand, cycleLeakage, cycleUnresolved]);
 
   return (
     <section className="dawaa-card" dir="rtl">
@@ -303,6 +328,24 @@ export default function ProductDemandLeakageV22() {
         </div>
       </div>
 
+      {cycleUnresolved.length ? (
+        <div className="mt-4 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4">
+          <div className="font-black">العبارات غير المحسومة — لماذا لم تتحول لصنف؟</div>
+          <div className="dawaa-muted mt-1 text-xs">
+            هذه العبارات لا تدخل ترتيب أكثر الأصناف طلبًا حتى يتم ربطها بصنف حقيقي من الكتالوج.
+          </div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            {cycleUnresolved.map((row) => (
+              <div key={(row.branch || '') + ':' + row.unresolved_type} className="rounded-xl border border-amber-500/20 bg-black/5 p-3 text-xs">
+                <div className="font-bold">{UNRESOLVED_LABELS[row.unresolved_type] || row.unresolved_type}</div>
+                <div className="mt-1 text-lg font-black">{Number(row.unresolved_mentions || 0).toLocaleString('ar-EG')}</div>
+                <div className="dawaa-muted">{row.conversations_affected} محادثة • {row.branch || 'كل الفروع'}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       <div className="mt-4 grid gap-4 xl:grid-cols-2">
         <div className="rounded-2xl border border-[var(--dawaa-theme-border)] p-4">
           <div className="mb-3 flex items-center gap-2 font-black"><Boxes size={16} /> أكثر الأصناف سؤالًا في الدورة</div>
@@ -330,6 +373,7 @@ export default function ProductDemandLeakageV22() {
                 <div>
                   <div className="font-bold">{LEAK_LABELS[row.leakage_code] || row.leakage_code}</div>
                   <div className="dawaa-muted">{row.branch || 'كل الفروع'} • {row.unique_products} أصناف • {row.unique_customers} عملاء</div>
+                  <div className="dawaa-muted mt-0.5">النسبة من أسباب الفقد: {totals.leakage ? Math.round((Number(row.cases_count || 0) / totals.leakage) * 100).toLocaleString('ar-EG') : '٠'}٪</div>
                 </div>
                 <div className="dawaa-badge dawaa-badge--warning">{Number(row.cases_count).toLocaleString('ar-EG')} حالة</div>
               </button>
@@ -355,7 +399,7 @@ export default function ProductDemandLeakageV22() {
                     <td className="p-2"><b>{row.customer_name || 'غير معروف'}</b><div className="dawaa-muted">{row.customer_code || '—'} • {row.customer_phone || '—'}</div></td>
                     <td className="p-2">{row.branch || '—'}</td>
                     <td className="p-2">{row.product_name || 'غير محسوم'}{row.product_code ? <div className="dawaa-muted">كود {row.product_code}</div> : null}</td>
-                    <td className="p-2">{row.current_stage}</td>
+                    <td className="p-2">{STAGE_LABELS[row.current_stage] || row.current_stage}</td>
                     <td className="p-2">{row.attributed_staff_name || 'غير منسوب'}</td>
                     <td className="p-2">{row.matched_invoice_number || '—'}</td>
                     <td className="max-w-[320px] p-2">{row.leakage_reason || '—'}</td>
