@@ -189,7 +189,8 @@ function cleanProductPhrase(raw: string) {
   if (value.length < 2) return '';
   if (/^(?:حاجه|حاجة|دواء|دوا|علاج|صنف|منتج|ده|دي|دول|منه|منها|علبه|علبة|شريط|باكيت|كيس|امبول|أمبول)$/i.test(value)) return '';
   if (/^(?:واحد|واحده|واحدة)\s+من\s+(?:ده|دا|دي)$/i.test(value)) return '';
-  if (/^(?:اشوف|أشوف)\s+شكل|^يطلع\s+منه/i.test(value)) return '';
+  if (/^(?:اشوف|أشوف)\s+شكل|^يطلع\s+منه|^اعرف\s+مكان|^يجيلي\s+عند|^بعد\s+اذنك$|^استشاره\s+صغيره|^استشارة\s+صغيرة|^لحضرتك\s+الاسكرينه|^هم\s+تحويل|^بالظبط$|^عليه$|^شكله$|^يهم$|^يكون\s+فيه$/i.test(value)) return '';
+  if (/^(?:نفس\s+)?(?:ده|دا|دي|العلبه\s+دي|العلبة\s+دي)$/i.test(value)) return '';
   if (GENERIC_NON_PRODUCT_RX.test(value) || SERVICE_SENTENCE_RX.test(value)) return '';
   return value;
 }
@@ -203,8 +204,14 @@ function plausibleProductPhrase(value: string) {
 function extractAfterTrigger(message: WhatsAppParsedMessage, rx: RegExp) {
   const match = message.text.match(rx);
   if (!match || match.index == null) return '';
-  const tail = message.text.slice(match.index + match[0].length).trim();
-  return cleanProductPhrase(tail);
+  const tail = cleanProductPhrase(message.text.slice(match.index + match[0].length).trim());
+  if (tail) return tail;
+
+  // Availability/price questions often put the trigger at the END:
+  // "بامبرز ... مقاس ٤ موجود؟" / "قطرة ... بكام؟".
+  // In that structure the product phrase is before the trigger, not after it.
+  const head = cleanProductPhrase(message.text.slice(0, match.index).trim());
+  return head;
 }
 
 function quantityFrom(textValue: string) {
