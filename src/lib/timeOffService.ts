@@ -181,40 +181,31 @@ export async function getAnnualLeaveBalanceV1(staffId: string, year: number): Pr
 export interface AnnualLeaveAttendancePreviewV1 {
   staff_id: string;
   date: string;
-  year: number;
-  month: number;
-  configured: boolean;
-  balance: number | null;
-  used_year: number;
-  used_month: number;
-  reserved: number;
-  existing_approved_request_id: string | null;
-  already_approved_for_date: boolean;
-  after_approval_used_year: number;
-  after_approval_used_month: number;
-  after_approval_balance: number | null;
-  policy_version: string;
+  year_used: number;
+  year_balance: number | null;
+  balance_configured: boolean;
+  policy_entitlement_days: number | null;
+  calendar_month_used: number;
+  cycle_used: number;
+  cycle_start: string;
+  cycle_end: string;
+  existing_request_id: string | null;
+  existing_request_status: TimeOffStatus | null;
 }
 
 export interface AnnualLeaveAttendanceDecisionV1 {
-  success: boolean;
   request_id: string;
   request_status: TimeOffStatus;
-  created_request: boolean;
-  staff_id: string;
-  staff_name: string;
-  branch: string | null;
-  date: string;
-  preview_before: AnnualLeaveAttendancePreviewV1;
-  summary_after: AnnualLeaveAttendancePreviewV1;
-  attendance_materialization: Record<string, unknown>;
+  attendance_status: string | null;
+  resolution_status: string | null;
+  preview: AnnualLeaveAttendancePreviewV1;
 }
 
 export async function getAnnualLeaveAttendancePreviewV1(
   staffId: string,
   date: string
 ): Promise<AnnualLeaveAttendancePreviewV1> {
-  const { data, error } = await supabase.rpc('annual_leave_attendance_preview_v1', {
+  const { data, error } = await supabase.rpc('attendance_annual_leave_preview_v1', {
     p_staff_id: staffId,
     p_date: date,
   });
@@ -227,7 +218,7 @@ export async function resolveAnnualLeaveFromAttendanceV1(args: {
   date: string;
   note?: string | null;
 }): Promise<AnnualLeaveAttendanceDecisionV1> {
-  const { data, error } = await supabase.rpc('resolve_annual_leave_from_attendance_v1', {
+  const { data, error } = await supabase.rpc('approve_attendance_annual_leave_v1', {
     p_staff_id: args.staffId,
     p_date: args.date,
     p_note: args.note || null,
@@ -235,7 +226,6 @@ export async function resolveAnnualLeaveFromAttendanceV1(args: {
   if (error) throw new Error(error.message);
   return data as AnnualLeaveAttendanceDecisionV1;
 }
-
 
 export async function configureAnnualLeaveEntitlementV1(args: {
   staffId: string;
