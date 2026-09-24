@@ -1,14 +1,17 @@
 import type {
   CanonicalSalesOutcomeAssessment,
   CaseType,
-  CommercialConfirmationAssessment,
+  CommercialConfirmationState,
 } from './types';
 import type { SaleProofAssessment } from './saleProofState';
 
 export interface CanonicalSalesOutcomeInput {
   caseId: string;
   caseType: CaseType;
-  commercialConfirmation: CommercialConfirmationAssessment;
+  commercialConfirmation: {
+    currentState: CommercialConfirmationState;
+    customerConfirmed: boolean;
+  };
   saleProof: SaleProofAssessment;
   hasMeaningfulBasketItems: boolean;
   needsHumanReview: boolean;
