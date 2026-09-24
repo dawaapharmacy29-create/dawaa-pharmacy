@@ -810,6 +810,36 @@ export interface CaseOutcome {
   lossReason: string | null;
 }
 
+/**
+ * Canonical V2 outcome used by the new Sales Intelligence pipeline.
+ * Deliberately separate from the legacy SalesOutcome/CaseOutcome vocabulary above so old
+ * Product Journey/Recovery screens cannot accidentally reinterpret a statistical invoice match
+ * as a proven sale.
+ */
+export type CanonicalSalesOutcome =
+  | 'sale_proven'
+  | 'order_confirmed_unproven'
+  | 'customer_confirmed_unproven'
+  | 'open_opportunity'
+  | 'customer_rejected'
+  | 'information_only'
+  | 'needs_review'
+  | 'unknown';
+
+export interface CanonicalSalesOutcomeAssessment {
+  caseId: string;
+  outcome: CanonicalSalesOutcome;
+  saleProofState: 'proven' | 'strongly_supported' | 'weakly_supported' | 'unknown' | 'contradicted';
+  /** True ONLY for sale_proven. Safe source for official sale-count metrics. */
+  isSaleCountable: boolean;
+  /** True ONLY for sale_proven. Safe source for official revenue metrics. */
+  isRevenueCountable: boolean;
+  /** Conversation-side fact: the order was fully confirmed; never means the sale was proven. */
+  isOrderConfirmed: boolean;
+  needsHumanReview: boolean;
+  reasonCodes: string[];
+}
+
 // ---------------------------------------------------------------------------
 // Phase 10 — Doctor Contribution Model
 // ---------------------------------------------------------------------------
@@ -925,6 +955,8 @@ export interface SalesIntelligenceCaseAnalysis {
   attribution: SaleAttributionAssessment;
   basketInvoiceMatch: BasketInvoiceMatch;
   integrityAssessment: SalesIntegrityAssessment;
+  /** Canonical case-level commercial outcome. Only sale_proven is countable as a sale/revenue. */
+  salesOutcome: CanonicalSalesOutcomeAssessment;
   evidenceCompleteness: EvidenceCompleteness;
   status: PipelineStatus;
   /** Pipeline-level observations (e.g. an active-basket conflict) — distinct from any engine's own humanReviewReasons. */
