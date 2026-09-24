@@ -10,6 +10,7 @@ import {
 } from '@/lib/attendance/attendanceResolutionService';
 import EmployeeProfileDrawer from '@/components/attendance/EmployeeProfileDrawer';
 import AttendanceCorrectionReviewPanel from '@/components/attendance/AttendanceCorrectionReviewPanel';
+import { listStaffTimeOffRequests, type StaffTimeOffRequest, type TimeOffKind } from '@/lib/timeOffService';
 
 function cairoDate(offsetDays = 0) {
   const date = new Date();
@@ -48,12 +49,37 @@ function laneMeta(lane: AttendanceExceptionLane) {
   };
 }
 
-const REVIEW_REASONS: Record<string, string[]> = {
-  absence: ['إجازة معتمدة بعد مراجعة الطلب', 'مأمورية أو عمل خارج الفرع مثبت', 'غياب مؤكد بعد مراجعة المدير'],
-  missing_punch: ['نسيان بصمة الدخول بعد التحقق', 'نسيان بصمة الخروج بعد التحقق', 'عطل جهاز البصمة مثبت', 'تم التحقق من سجل الفرع والمدير'],
-  schedule: ['جدول العمل مختلف عن المسجل', 'تغيير وردية بموافقة المدير', 'عمل بفرع آخر مثبت'],
-};
-const COMMON_REASONS = ['تم التحقق من مدير الفرع', 'تعديل وردية معتمد', 'عمل بفرع آخر مثبت', 'عطل جهاز البصمة مثبت', 'إجازة معتمدة', 'بصمة مكررة أو خاطئة'];
+type Decision = { id: string; label: string; requestKind?: TimeOffKind; financial?: boolean; schedule?: boolean };
+const ABSENCE_DECISIONS: Decision[] = [
+  { id: 'annual_leave', label: 'إجازة سنوية', requestKind: 'annual_leave' },
+  { id: 'sick_leave', label: 'إجازة مرضية', requestKind: 'sick_leave' },
+  { id: 'exceptional_leave', label: 'إجازة عارضة', requestKind: 'exceptional_leave' },
+  { id: 'approved_absence', label: 'غياب بإذن', requestKind: 'approved_absence' },
+  { id: 'shift_swap', label: 'تغيير يوم الراحة هذا الأسبوع', requestKind: 'shift_swap', schedule: true },
+  { id: 'absence_deduction', label: 'غياب أو إجازة بخصم — اقتراح للمراجعة المالية', financial: true },
+  { id: 'outside_work', label: 'مأمورية أو عمل خارج الفرع مثبت' },
+  { id: 'custom', label: 'سبب آخر (اكتب التفاصيل)' },
+];
+const PUNCH_DECISIONS: Decision[] = [
+  { id: 'forgot_in', label: 'نسيان بصمة الدخول بعد التحقق' },
+  { id: 'forgot_out', label: 'نسيان بصمة الخروج بعد التحقق' },
+  { id: 'device_fault', label: 'عطل جهاز البصمة مثبت' },
+  { id: 'cross_branch', label: 'عمل بفرع آخر مثبت' },
+  { id: 'custom', label: 'سبب آخر (اكتب التفاصيل)' },
+];
+const TIME_DECISIONS: Decision[] = [
+  { id: 'permission', label: 'تأخير أو انصراف مبكر بإذن', requestKind: 'permission' },
+  { id: 'time_deduction', label: 'تأخير أو انصراف مبكر مع إحالة الخصم للمراجعة المالية', financial: true },
+  { id: 'shift_swap', label: 'تغيير موعد الشيفت المعتمد', requestKind: 'shift_swap', schedule: true },
+  { id: 'schedule_error', label: 'تصحيح جدول العمل', schedule: true },
+  { id: 'custom', label: 'سبب آخر (اكتب التفاصيل)' },
+];
+
+function decisionsFor(row: AttendanceExceptionRow): Decision[] {
+  if (row.issue_group === 'absence' || row.resolution_status === 'absence_review') return ABSENCE_DECISIONS;
+  if (row.issue_group === 'missing_punch' || row.resolution_status?.startsWith('missing_')) return PUNCH_DECISIONS;
+  return TIME_DECISIONS;
+}
 
 export default function AttendanceResolutionCenter({
   defaultBranch = 'الكل',
@@ -75,6 +101,10 @@ export default function AttendanceResolutionCenter({
   const [profileStaffId, setProfileStaffId] = useState<string | null>(null);
   const [note, setNote] = useState('');
   const [reason, setReason] = useState('');
+  const [multiplier, setMultiplier] = useState('');
+  const [approvedRequests, setApprovedRequests] = useState<StaffTimeOffRequest[]>([]);
+  const [requestsLoading, setRequestsLoading] = useState(false);
+  const [requestsError, setRequestsError] = useState(false);
   const [hours, setHours] = useState('');
   const [approving, setApproving] = useState(false);
 
@@ -105,6 +135,19 @@ export default function AttendanceResolutionCenter({
 
   useEffect(() => { void load(); }, [load]);
 
+  useEffect(() => {
+    if (!selected) { setApprovedRequests([]); return; }
+    let active = true;
+    setRequestsLoading(true);
+    setRequestsError(false);
+    setApprovedRequests([]);
+    void listStaffTimeOffRequests({ staffId: selected.staff_id, from: selected.attendance_date, to: selected.attendance_date, status: 'approved', limit: 100 })
+      .then((requests) => { if (active) setApprovedRequests(requests.filter((request) => request.staff_id === selected.staff_id && request.start_date <= selected.attendance_date && request.end_date >= selected.attendance_date)); })
+      .catch(() => { if (active) setRequestsError(true); })
+      .finally(() => { if (active) setRequestsLoading(false); });
+    return () => { active = false; };
+  }, [selected]);
+
   const totals = useMemo(() => ({
     total: rows.length,
     manager: rows.filter((row) => row.queue_lane === 'manager').length,
@@ -132,11 +175,34 @@ export default function AttendanceResolutionCenter({
       toast.warning('هذه مشكلة نظام وليست قرار موظف. أصلح السبب النظامي أولًا.');
       return;
     }
-    const decisionNote = [reason, note.trim()].filter(Boolean).join(' — ');
-    if (!decisionNote) {
-      toast.warning('اختر سبب القرار أو اكتبه حتى يظل الاعتماد قابلًا للمراجعة.');
+    const decision = decisionsFor(selected).find((item) => item.id === reason);
+    if (!decision || (['custom', 'outside_work'].includes(decision.id) && !note.trim()) || (decision.financial && !note.trim())) {
+      toast.warning('اختر نوع القرار واكتب التفاصيل عند إثبات عمل خارج الفرع أو اقتراح خصم أو اختيار سبب آخر.');
       return;
     }
+    const linkedRequest = decision.requestKind && approvedRequests.find((request) => request.request_kind === decision.requestKind);
+    if (decision.requestKind && (requestsLoading || requestsError || !linkedRequest)) {
+      toast.error('سجّل الطلب واعتمده في صفحة الإجازات والغياب أولًا، ثم راجع اليوم مجددًا.');
+      return;
+    }
+    if (decision.requestKind && decision.requestKind !== 'permission') {
+      toast.warning('الطلب معتمد. حدّث حقيقة الحضور أولًا ليُحتسب بنوع الإجازة الصحيح بدل اعتماد صفر ساعات من هذه الشاشة.');
+      return;
+    }
+    if (decision.schedule) {
+      toast.warning('راجع تعديل الجدول أو يوم الراحة وأعد تحديث حقيقة الحضور قبل اعتماد اليوم.');
+      return;
+    }
+    if (decision.financial && !['1', '2', '4'].includes(multiplier)) {
+      toast.warning('حدد معامل الخصم المقترح للمراجعة المالية.');
+      return;
+    }
+    const decisionNote = [
+      `تصنيف مراجعة الحضور: ${decision.label}`,
+      linkedRequest ? `طلب معتمد: ${linkedRequest.id}` : '',
+      decision.financial ? `معامل الخصم المقترح: ×${multiplier} (للمراجعة المالية فقط؛ لم يطبق خصم)` : '',
+      note.trim() ? `تفاصيل المدير: ${note.trim()}` : '',
+    ].filter(Boolean).join(' | ');
     const parsedHours = hours.trim() === '' ? null : Number(hours);
     if (parsedHours != null && (!Number.isFinite(parsedHours) || parsedHours < 0 || parsedHours > 18)) {
       toast.error('ساعات الاستحقاق يجب أن تكون بين 0 و18 ساعة.');
@@ -151,10 +217,13 @@ export default function AttendanceResolutionCenter({
         payrollEligibleHours: parsedHours,
         note: decisionNote,
       });
-      toast.success('تم اعتماد قرار الحضور وحفظ السبب في سجل المراجعة.');
+      toast.success(decision.financial
+        ? 'تم توثيق الحضور واقتراح معامل الخصم. لم يُطبق أي خصم مالي.'
+        : 'تم اعتماد قرار الحضور وحفظ السبب في سجل المراجعة.');
       setSelected(null);
       setNote('');
       setReason('');
+      setMultiplier('');
       setHours('');
       await load();
     } catch (error) {
@@ -266,7 +335,7 @@ export default function AttendanceResolutionCenter({
                   <td className="p-3 font-black">{row.candidate_hours == null ? '-' : row.candidate_hours.toFixed(2)}</td>
                   <td className="p-3">
                     {row.queue_lane === 'manager'
-                      ? <button onClick={() => { setSelected(row); setHours(row.candidate_hours == null ? '' : String(row.candidate_hours)); setNote(''); setReason(''); }} className="btn-secondary text-xs">اتخاذ قرار</button>
+                      ? <button onClick={() => { setSelected(row); setHours(row.candidate_hours == null ? '' : String(row.candidate_hours)); setNote(''); setReason(''); setMultiplier(''); }} className="btn-secondary text-xs">اتخاذ قرار</button>
                       : <span className="rounded-full border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] px-2 py-1 text-[11px] font-black text-[var(--dawaa-status-info-text)]">إصلاح نظامي</span>}
                   </td>
                 </tr>
@@ -302,20 +371,34 @@ export default function AttendanceResolutionCenter({
               <input value={hours} onChange={(e) => setHours(e.target.value)} type="number" min="0" max="18" step="0.01" className="input-dark mt-1 w-full" />
             </label>
             <label className="mt-3 block text-xs font-black text-[var(--dawaa-theme-muted)]">
-              سبب شائع (اختياري)
+              نوع القرار
               <select value={reason} onChange={(e) => setReason(e.target.value)} className="input-dark mt-1 w-full">
-                <option value="">اختر سببًا أو اكتب سببًا آخر</option>
-                {[...new Set([...(REVIEW_REASONS[selected.issue_group] || []), ...COMMON_REASONS])].map((item) => <option key={item} value={item}>{item}</option>)}
+                <option value="">اختر بعد مراجعة الدليل</option>
+                {decisionsFor(selected).map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
               </select>
             </label>
+            {(() => {
+              const decision = decisionsFor(selected).find((item) => item.id === reason);
+              const linked = decision?.requestKind && approvedRequests.find((request) => request.request_kind === decision.requestKind);
+              return <>
+                {decision?.requestKind && <div className="mt-3 text-xs font-bold text-[var(--dawaa-theme-muted)]">
+                  {requestsLoading ? 'جارٍ التحقق من الطلب المعتمد...' : requestsError ? 'تعذر التحقق من سجل الإجازات. أعد فتح القرار.' : linked ? `الطلب المعتمد المرتبط: ${linked.request_label || linked.request_kind} (${linked.id}). ${decision.requestKind === 'permission' ? 'راجع ساعات اليوم قبل الاعتماد.' : 'اضغط تحديث حقيقة الحضور من أعلى الصفحة بعد إغلاق القرار.'}` : <>لا يوجد طلب معتمد من هذا النوع لهذا اليوم. <a className="underline" href="/time-off">افتح الإجازات والغياب</a> لتسجيله واعتماده أولًا.</>}
+                </div>}
+                {decision?.schedule && <p className="mt-3 text-xs font-bold text-[var(--dawaa-status-warning-text)]">راجع تغيير الراحة أو الشيفت في الجدول ثم حدّث حقيقة الحضور؛ لا يُعتمد من هذه الشاشة مباشرة.</p>}
+                {decision?.financial && <label className="mt-3 block text-xs font-black text-[var(--dawaa-theme-muted)]">معامل الخصم المقترح للمراجعة المالية
+                  <select value={multiplier} onChange={(e) => setMultiplier(e.target.value)} className="input-dark mt-1 w-full"><option value="">اختر المعامل</option><option value="1">×1</option><option value="2">×2</option><option value="4">×4</option></select>
+                  <span className="mt-1 block font-normal">الغياب: المعامل المقترح لليوم. التأخير: المعامل المقترح لمدة التأخير. اختيار «إجازة بخصم» هنا لا ينشئ طلب إجازة؛ سجّلها في الإجازات والغياب إن كانت إجازة رسمية. لا يُحسب مبلغ ولا يُسجل خصم تلقائيًا؛ راجعه في الجزاءات والرواتب.</span>
+                </label>}
+              </>;
+            })()}
             <label className="mt-3 block text-xs font-black text-[var(--dawaa-theme-muted)]">
-              تفاصيل أو سبب آخر (اختياري مع اختيار سبب)
+              تفاصيل التحقق أو سبب آخر
               <textarea value={note} onChange={(e) => setNote(e.target.value)} className="input-dark mt-1 min-h-24 w-full" placeholder="اكتب تفاصيل التحقق أو سببًا غير موجود في القائمة..." />
             </label>
             <p className="mt-2 text-xs text-[var(--dawaa-theme-muted)]">اختر السبب بعد التحقق من الدليل؛ الساعات تُراجع منفصلة ولا تُحدد تلقائيًا من السبب.</p>
             <div className="mt-4 flex gap-2">
-              <button onClick={() => void approveSelected()} disabled={approving} className="btn-primary flex-1">اعتماد موثق</button>
-              <button onClick={() => { setSelected(null); setNote(''); setReason(''); setHours(''); }} className="btn-secondary">إلغاء</button>
+              <button onClick={() => void approveSelected()} disabled={approving} className="btn-primary flex-1">{decisionsFor(selected).find((item) => item.id === reason)?.financial ? 'اعتماد الحضور وتوثيق اقتراح الخصم' : 'اعتماد موثق'}</button>
+              <button onClick={() => { setSelected(null); setNote(''); setReason(''); setMultiplier(''); setHours(''); }} className="btn-secondary">إلغاء</button>
             </div>
           </div>
         </div>
