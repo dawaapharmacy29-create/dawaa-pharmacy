@@ -179,6 +179,21 @@ export async function runProductDemandBackfillV22(
           participantRoles: nextAnalysis.participantRoles,
         });
 
+        const canonicalProductIds = Array.from(new Set(
+          (operational.productJourney?.journeys || [])
+            .map((journey: any) => journey.productId)
+            .filter(Boolean)
+            .map(String)
+        ));
+        let staleQuery = supabase
+          .from('whatsapp_sales_opportunities_v17')
+          .delete()
+          .eq('root_source_id', source.id)
+          .eq('analysis_version', 'product-demand-v22');
+        if (canonicalProductIds.length) staleQuery = staleQuery.not('product_id', 'in', '(' + canonicalProductIds.join(',') + ')');
+        const { error: staleError } = await staleQuery;
+        if (staleError) throw staleError;
+
         const { error: updateError } = await supabase
           .from('whatsapp_review_sources')
           .update({ analysis_json: nextAnalysis, updated_at: new Date().toISOString() })
