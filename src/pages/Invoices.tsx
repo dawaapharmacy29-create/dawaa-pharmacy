@@ -63,6 +63,12 @@ import {
   type RawInvoiceRow,
 } from '@/lib/invoiceImporter';
 import {
+  importSalesInvoiceItemsV21,
+  parseSalesInvoiceItemsV21,
+  type SalesInvoiceItemsImportResultV21,
+  type SalesInvoiceItemsParseResultV21,
+} from '@/lib/salesInvoiceItemsV21';
+import {
   applyCustomerPhoneUpdate,
   CUSTOMER_PHONE_CONFIRMATION,
   parseCustomerPhoneFile,
@@ -554,6 +560,10 @@ export default function Invoices() {
   const [branchMismatchWarning, setBranchMismatchWarning] = useState<string | null>(null);
   const [branchMismatchAcknowledged, setBranchMismatchAcknowledged] = useState(false);
   const [importSummary, setImportSummary] = useState<ImportSummary | null>(null);
+  const [invoiceItemsParseResult, setInvoiceItemsParseResult] =
+    useState<SalesInvoiceItemsParseResultV21 | null>(null);
+  const [invoiceItemsImportResult, setInvoiceItemsImportResult] =
+    useState<SalesInvoiceItemsImportResultV21 | null>(null);
   const [progress, setProgress] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [managedInvoices, setManagedInvoices] = useState<ManagedInvoiceRow[]>([]);
@@ -713,6 +723,8 @@ export default function Invoices() {
       setStep('parsing');
       setParseResult(null);
       setImportSummary(null);
+      setInvoiceItemsParseResult(null);
+      setInvoiceItemsImportResult(null);
       setProgress(0);
 
       try {
@@ -721,7 +733,12 @@ export default function Invoices() {
           importKind === 'sales'
             ? parseInvoiceFile(buffer, file.name, branch)
             : parseCustomerFile(buffer, file.name);
+        const itemResult =
+          importKind === 'sales'
+            ? parseSalesInvoiceItemsV21(buffer, branch)
+            : null;
 
+        setInvoiceItemsParseResult(itemResult);
         setParseResult(result);
         setStep('preview');
 
@@ -781,6 +798,28 @@ export default function Invoices() {
       setImportSummary(summary);
 
       const branchMismatch = (summary.errors || []).find((error) => error.field === 'الفرع');
+      if (importKind === 'sales' && !branchMismatch && invoiceItemsParseResult?.rows.length) {
+        const itemImport = await importSalesInvoiceItemsV21(invoiceItemsParseResult.rows, {
+          sourceFile: fileName,
+          importBatch: batch,
+          createdBy: String(user?.name || user?.id || ''),
+        });
+        setInvoiceItemsImportResult(itemImport);
+
+        if (itemImport.saved > 0) {
+          toast.success(
+            `تم حفظ ${itemImport.saved.toLocaleString('ar-EG')} بند صنف من تفاصيل الفواتير` +
+              (itemImport.reconciledProductConversions
+                ? ` وربط ${itemImport.reconciledProductConversions.toLocaleString('ar-EG')} فرصة واتساب ببند فاتورة فعلي`
+                : '')
+          );
+        }
+        if (itemImport.failed > 0) {
+          toast.warning(
+            `تعذر حفظ ${itemImport.failed.toLocaleString('ar-EG')} بند صنف. الفواتير الأساسية لم تتأثر.`
+          );
+        }
+      }
       if (branchMismatch) {
         toast.error(branchMismatch.message, { duration: 15000 });
       }
@@ -857,6 +896,8 @@ export default function Invoices() {
     setFileName('');
     setParseResult(null);
     setImportSummary(null);
+    setInvoiceItemsParseResult(null);
+    setInvoiceItemsImportResult(null);
     setProgress(0);
     setSummaryRefreshPhase('idle');
     setPhoneUpdateParseResult(null);
@@ -1942,6 +1983,47 @@ export default function Invoices() {
               </button>
             )}
           </div>
+
+          {importKind === 'sales' && invoiceItemsParseResult ? (
+            <div
+              className={`rounded-2xl border p-4 ${
+                invoiceItemsParseResult.rows.length
+                  ? 'border-emerald-400/25 bg-emerald-500/5'
+                  : 'border-amber-400/25 bg-amber-500/5'
+              }`}
+            >
+              <div className="font-black text-[var(--dawaa-theme-heading)]">
+                تفاصيل أصناف الفواتير
+              </div>
+              {invoiceItemsParseResult.rows.length ? (
+                <div className="mt-2 space-y-1 text-xs leading-6 text-[var(--dawaa-theme-text)]">
+                  <div>
+                    تم اكتشاف <b>{invoiceItemsParseResult.rows.length.toLocaleString('ar-EG')}</b> بند صنف
+                    داخل Sheet: <b>{invoiceItemsParseResult.detectedSheets.join('، ')}</b>.
+                  </div>
+                  <div>
+                    بعد حفظ الفواتير سيتم حفظ البنود وربطها برقم الفاتورة + الفرع، ثم استخدامها
+                    في مطابقة الصنف والكمية داخل Sales Intelligence.
+                  </div>
+                  {invoiceItemsImportResult ? (
+                    <div className="font-bold text-emerald-300">
+                      حُفظ: {invoiceItemsImportResult.saved.toLocaleString('ar-EG')} • فشل:{' '}
+                      {invoiceItemsImportResult.failed.toLocaleString('ar-EG')} • ربط Product Proof:{' '}
+                      {invoiceItemsImportResult.reconciledProductConversions.toLocaleString('ar-EG')}
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="mt-2 text-xs leading-6 text-amber-200">
+                  الملف الحالي يحتوي ملخص الفواتير فقط، ولا يحتوي أعمدة اسم/كود الصنف + الكمية.
+                  سيتم استيراد الفواتير، لكن لا يمكن إثبات الصنف داخل الفاتورة من هذا الملف.
+                  {invoiceItemsParseResult.warnings.length
+                    ? ` — ${invoiceItemsParseResult.warnings.join(' ')}`
+                    : ''}
+                </div>
+              )}
+            </div>
+          ) : null}
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <StatTile value={validCount + errorCount} label="إجمالي الصفوف" color="text-[var(--dawaa-theme-heading)]" />
