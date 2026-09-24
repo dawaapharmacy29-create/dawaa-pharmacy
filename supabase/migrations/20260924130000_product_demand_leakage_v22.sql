@@ -110,3 +110,53 @@ select
     1
   ) as completion_percent
 from public.whatsapp_review_sources;
+
+
+create or replace view public.whatsapp_product_demand_detail_v22 as
+select
+  o.id as opportunity_id,
+  o.root_source_id as source_id,
+  o.branch,
+  dawaa_cycle_start_26(coalesce(o.opened_at::date, o.created_at::date)) as cycle_start,
+  dawaa_cycle_end_25(coalesce(o.opened_at::date, o.created_at::date)) as cycle_end,
+  o.customer_id,
+  o.customer_code,
+  o.customer_name,
+  o.customer_phone,
+  o.attributed_staff_id,
+  o.attributed_staff_name,
+  o.product_id,
+  o.product_code,
+  o.product_name,
+  o.quantity,
+  o.current_stage,
+  o.status,
+  o.confidence,
+  o.sale_verified_scope,
+  o.matched_invoice_id,
+  o.matched_invoice_number,
+  o.matched_invoice_value,
+  o.leakage_reason,
+  nullif(o.evidence_json->>'leakageCode','') as leakage_code,
+  o.opened_at,
+  o.last_stage_at,
+  o.updated_at
+from public.whatsapp_sales_opportunities_v17 o
+where o.analysis_version='product-demand-v22';
+
+create or replace view public.whatsapp_product_demand_cycle_summary_v22 as
+select
+  cycle_start,
+  cycle_end,
+  count(*) as opportunities,
+  count(distinct product_id) filter (where product_id is not null) as canonical_products,
+  count(distinct customer_id) filter (where customer_id is not null) as unique_customers,
+  count(*) filter (where product_id is null) as unresolved_mentions,
+  count(*) filter (where current_stage='unavailable') as unavailable_cases,
+  count(*) filter (where leakage_code='price_objection') as price_objections,
+  count(*) filter (where leakage_code='response_delay') as response_delay_cases,
+  count(*) filter (where leakage_code='closing_gap') as closing_gap_cases,
+  count(*) filter (where current_stage in ('accepted','order_confirmed','awaiting_invoice','verified_sale','needs_followup')) as accepted_or_later_count
+from public.whatsapp_product_demand_detail_v22
+group by cycle_start,cycle_end
+order by cycle_start desc;
