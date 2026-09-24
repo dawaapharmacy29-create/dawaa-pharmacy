@@ -117,6 +117,8 @@ const TIME_DECISIONS: Decision[] = [
 
 function decisionsFor(row: AttendanceExceptionRow): Decision[] {
   if (row.issue_group === 'absence' || row.resolution_status === 'absence_review') return ABSENCE_DECISIONS;
+  if (row.resolution_status === 'missing_checkin') return PUNCH_DECISIONS.filter((item) => item.id !== 'forgot_out');
+  if (row.resolution_status === 'missing_checkout') return PUNCH_DECISIONS.filter((item) => item.id !== 'forgot_in');
   if (row.issue_group === 'missing_punch' || row.resolution_status?.startsWith('missing_')) return PUNCH_DECISIONS;
   return TIME_DECISIONS;
 }
@@ -137,6 +139,7 @@ export default function AttendanceResolutionCenter({
   const [rows, setRows] = useState<AttendanceExceptionRow[]>([]);
   const [diagnosticSummary, setDiagnosticSummary] = useState<AttendanceDiagnosticSummaryV1 | null>(null);
   const [categoryTab, setCategoryTab] = useState<'all' | 'absence' | 'early_leave' | 'missing_punch' | 'system'>('all');
+  const [missingPunchTab, setMissingPunchTab] = useState<'all' | 'check_in' | 'check_out'>('all');
   const [showFormer, setShowFormer] = useState(false);
   const { data: staffDirectory = [], isLoading: directoryLoading, isError: directoryError } = useStaffDirectory();
   const [loading, setLoading] = useState(false);
@@ -332,13 +335,19 @@ export default function AttendanceResolutionCenter({
     absence: baseRows.filter((row) => row.issue_group === 'absence' || row.resolution_status === 'absence_review').length,
     earlyLeave: baseRows.filter((row) => row.issue_group === 'early_leave' || row.resolution_status === 'early_leave_review').length,
     missingPunch: baseRows.filter((row) => row.issue_group === 'missing_punch' || row.resolution_status?.startsWith('missing_')).length,
+    missingCheckIn: baseRows.filter((row) => row.resolution_status === 'missing_checkin').length,
+    missingCheckOut: baseRows.filter((row) => row.resolution_status === 'missing_checkout').length,
     system: baseRows.filter((row) => row.queue_lane === 'system').length,
   }), [baseRows]);
   const visibleRows = baseRows.filter((row) => lane === 'all' || row.queue_lane === lane);
   const displayRows = visibleRows.filter((row) => {
     if (categoryTab === 'absence') return row.issue_group === 'absence' || row.resolution_status === 'absence_review';
     if (categoryTab === 'early_leave') return row.issue_group === 'early_leave' || row.resolution_status === 'early_leave_review';
-    if (categoryTab === 'missing_punch') return row.issue_group === 'missing_punch' || row.resolution_status?.startsWith('missing_');
+    if (categoryTab === 'missing_punch') {
+      if (missingPunchTab === 'check_in') return row.resolution_status === 'missing_checkin';
+      if (missingPunchTab === 'check_out') return row.resolution_status === 'missing_checkout';
+      return row.issue_group === 'missing_punch' || row.resolution_status?.startsWith('missing_');
+    }
     if (categoryTab === 'system') return row.queue_lane === 'system';
     return true;
   });
@@ -687,6 +696,26 @@ export default function AttendanceResolutionCenter({
             </button>
           ))}
         </div>
+        {categoryTab === 'missing_punch' && (
+          <div className="mt-3 flex flex-wrap gap-2 border-t border-[var(--dawaa-theme-border)] pt-3">
+            {[
+              { id: 'all', label: 'كل البصمات المفقودة', count: tabCounts.missingPunch },
+              { id: 'check_in', label: 'دخول بدون بصمة', count: tabCounts.missingCheckIn },
+              { id: 'check_out', label: 'خروج بدون بصمة', count: tabCounts.missingCheckOut },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setMissingPunchTab(tab.id as typeof missingPunchTab)}
+                className={`rounded-lg border px-3 py-1.5 text-[11px] font-black ${missingPunchTab === tab.id
+                  ? 'border-[var(--dawaa-theme-primary)] text-[var(--dawaa-theme-primary-strong)]'
+                  : 'border-[var(--dawaa-theme-border)] text-[var(--dawaa-theme-muted)]'}`}
+              >
+                {tab.label} <span className="ms-1">({tab.count.toLocaleString('ar-EG')})</span>
+              </button>
+            ))}
+          </div>
+        )}
         <p className="mt-2 text-[11px] font-bold text-[var(--dawaa-theme-muted)]">
           الأرقام تمثل عدد الحالات في الفترة والفرع المحددين. اختر التاب لمراجعة المسار يوميًا.
         </p>
@@ -789,7 +818,7 @@ export default function AttendanceResolutionCenter({
       </section>
 
       <section className="rounded-2xl border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] p-4 text-xs font-bold text-[var(--dawaa-status-info-text)]">
-        الخصومات والجزاءات لم تعد جزءًا من صندوق مراجعة الحضور. الحضور يثبت الحقيقة التشغيلية فقط؛ الأثر المالي يمر من الرواتب/الجزاءات بعد الاعتماد.
+        الحضور يثبت الحقيقة التشغيلية أولًا. الخصومات العامة تمر من مسار الرواتب/الجزاءات؛ والاستثناء الوحيد هنا هو خصم نسيان البصمة الثابت 50ج بعد تجاوز مرتين السماح، لأنه مرتبط مباشرة بسجل الواقعة وممنوع تكراره لنفس البصمة.
       </section>
 
       {selected && (
