@@ -48,6 +48,7 @@ export interface WhatsAppProductSignal {
   productId?: string | null;
   productCode?: string | null;
   canonicalName?: string | null;
+  catalogConfidence?: 'proven' | 'strongly_inferred' | 'weakly_inferred' | 'unknown';
 }
 
 export interface WhatsAppRecommendationSignal {
@@ -406,6 +407,7 @@ async function resolveProduct(product: WhatsAppProductSignal) {
     productId: selected.product.productId,
     productCode: selected.product.productCode,
     canonicalName: selected.product.canonicalName,
+    catalogConfidence: selected.confidence,
     confidence: Math.min(
       98,
       Math.max(
@@ -418,9 +420,74 @@ async function resolveProduct(product: WhatsAppProductSignal) {
   };
 }
 
-export async function enrichWhatsAppOperationalProductsV6(model: WhatsAppOperationalIntelligenceV6) {
+function candidateFragmentsFromMessage(textValue: string) {
+  const base = textValue
+    .replace(/^\s*\[Forwarded\]\s*/i, ' ')
+    .replace(/<[^>]+omitted>/gi, ' ')
+    .replace(/https?:\/\/\S+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!base) return [];
+
+  const fragments = [base];
+  // Conservative commercial separators. Each fragment still has to resolve strongly/proven
+  // against the pharmacy catalog; weak/fuzzy-only matches are rejected.
+  for (const part of base.split(/\s+(?:مع|و(?=[\p{L}\p{N}]))\s+/iu)) {
+    const cleaned = cleanProductPhrase(part);
+    if (cleaned && cleaned.length >= 3) fragments.push(cleaned);
+  }
+  return uniq(fragments.map((value) => value.trim()).filter((value) => value.length >= 3)).slice(0, 8);
+}
+
+async function discoverStrongCatalogMentions(session: WhatsAppConversationSession) {
+  const discovered: WhatsAppProductSignal[] = [];
+  for (const message of session.messages) {
+    if (message.direction === 'system' || message.kind !== 'text') continue;
+    if (message.text.length > 260) continue;
+
+    for (const rawName of candidateFragmentsFromMessage(message.text)) {
+      const seed: WhatsAppProductSignal = {
+        rawName,
+        normalizedName: normalize(rawName),
+        quantity: quantityFrom(message.text),
+        status: message.direction === 'outbound' ? 'recommended' : 'requested',
+        sourceDirection: message.direction,
+        evidenceMessageIds: [message.id],
+        confidence: 72,
+      };
+      const resolved = await resolveProduct(seed);
+      if (!resolved.productId || !resolved.productCode) continue;
+      if (!['proven', 'strongly_inferred'].includes(String(resolved.catalogConfidence || ''))) continue;
+      discovered.push(resolved);
+    }
+  }
+
+  const byProduct = new Map<string, WhatsAppProductSignal>();
+  for (const product of discovered) {
+    const key = String(product.productId);
+    const previous = byProduct.get(key);
+    if (!previous || product.confidence > previous.confidence) byProduct.set(key, product);
+    else previous.evidenceMessageIds = uniq([...previous.evidenceMessageIds, ...product.evidenceMessageIds]);
+  }
+  return [...byProduct.values()].slice(0, 12);
+}
+
+export async function enrichWhatsAppOperationalProductsV6(
+  model: WhatsAppOperationalIntelligenceV6,
+  session?: WhatsAppConversationSession
+) {
   const resolvedProducts = await Promise.all(model.products.map(resolveProduct));
-  const products = resolvedProducts.filter((product) =>
+  const discovered = session ? await discoverStrongCatalogMentions(session) : [];
+  const merged = new Map<string, WhatsAppProductSignal>();
+
+  for (const product of [...resolvedProducts, ...discovered]) {
+    const key = product.productId ? 'id:' + product.productId : 'text:' + product.normalizedName;
+    const previous = merged.get(key);
+    if (!previous || product.confidence > previous.confidence) merged.set(key, product);
+    else previous.evidenceMessageIds = uniq([...previous.evidenceMessageIds, ...product.evidenceMessageIds]);
+  }
+
+  const products = [...merged.values()].filter((product) =>
     Boolean(product.productId) ||
     (
       product.sourceDirection === 'inbound' &&
@@ -428,16 +495,21 @@ export async function enrichWhatsAppOperationalProductsV6(model: WhatsAppOperati
       plausibleProductPhrase(product.rawName)
     )
   );
-  const byRaw = new Map(products.map((p) => [p.normalizedName, p]));
+
   const customerRequests = model.customerRequests.map((r) => {
-    const linked = products.find((p) => p.rawName === r.productName);
+    const linked = products.find((p) =>
+      p.rawName === r.productName ||
+      p.evidenceMessageIds.some((id) => r.evidenceMessageIds.includes(id))
+    );
     return { ...r, productName: linked?.canonicalName || r.productName };
   });
   const recommendations = model.recommendations.map((r) => {
-    const linked = products.find((p) => p.rawName === r.productName);
+    const linked = products.find((p) =>
+      p.rawName === r.productName ||
+      p.evidenceMessageIds.some((id) => r.evidenceMessageIds.includes(id))
+    );
     return { ...r, productName: linked?.canonicalName || r.productName };
   });
-  void byRaw;
   return { ...model, products, customerRequests, recommendations };
 }
 
