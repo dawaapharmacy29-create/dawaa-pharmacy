@@ -10,7 +10,7 @@ import {
 } from '@/lib/attendance/attendanceResolutionService';
 import EmployeeProfileDrawer from '@/components/attendance/EmployeeProfileDrawer';
 import AttendanceCorrectionReviewPanel from '@/components/attendance/AttendanceCorrectionReviewPanel';
-import { listStaffTimeOffRequests, type StaffTimeOffRequest, type TimeOffKind } from '@/lib/timeOffService';
+import {\n  getAnnualLeaveAttendancePreviewV1,\n  listStaffTimeOffRequests,\n  resolveAnnualLeaveFromAttendanceV1,\n  type AnnualLeaveAttendancePreviewV1,\n  type StaffTimeOffRequest,\n  type TimeOffKind,\n} from '@/lib/timeOffService';
 import { useStaffDirectory } from '@/hooks/useStaffDirectory';
 
 function cairoDate(offsetDays = 0) {
@@ -151,6 +151,24 @@ export default function AttendanceResolutionCenter({
     return () => { active = false; };
   }, [selected]);
 
+  useEffect(() => {
+    if (!selected || reason !== 'annual_leave') {
+      setAnnualLeavePreview(null);
+      setAnnualLeavePreviewLoading(false);
+      setAnnualLeavePreviewError(false);
+      return;
+    }
+    let active = true;
+    setAnnualLeavePreviewLoading(true);
+    setAnnualLeavePreviewError(false);
+    setAnnualLeavePreview(null);
+    void getAnnualLeaveAttendancePreviewV1(selected.staff_id, selected.attendance_date)
+      .then((preview) => { if (active) setAnnualLeavePreview(preview); })
+      .catch(() => { if (active) setAnnualLeavePreviewError(true); })
+      .finally(() => { if (active) setAnnualLeavePreviewLoading(false); });
+    return () => { active = false; };
+  }, [reason, selected]);
+
   const formerIds = useMemo(() => new Set(staffDirectory
     .filter((person) => person.source === 'staff' && person.id && !person.active)
     .map((person) => person.id)), [staffDirectory]);
@@ -188,6 +206,46 @@ export default function AttendanceResolutionCenter({
       toast.warning('اختر نوع القرار واكتب التفاصيل عند إثبات عمل خارج الفرع أو اقتراح خصم أو اختيار سبب آخر.');
       return;
     }
+    if (decision.id === 'annual_leave') {
+      if (annualLeavePreviewLoading || annualLeavePreviewError) {
+        toast.error('تعذر التأكد من رصيد الإجازة السنوية. أعد فتح القرار وحاول مرة أخرى.');
+        return;
+      }
+      setApproving(true);
+      try {
+        const result = await resolveAnnualLeaveFromAttendanceV1({
+          staffId: selected.staff_id,
+          date: selected.attendance_date,
+          note: note.trim() || null,
+        });
+        const summary = result.summary_after;
+        toast.success(
+          `تم اعتماد الإجازة السنوية وتسجيلها في السجل. المستخدم في ${summary.year}: ${summary.used_year} يوم · المستخدم هذا الشهر: ${summary.used_month} يوم`
+        );
+        setSelected(null);
+        setNote('');
+        setReason('');
+        setMultiplier('');
+        setHours('');
+        setAnnualLeavePreview(null);
+        await load();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'تعذر اعتماد الإجازة السنوية';
+        if (message.includes('annual_leave_not_configured') || message.includes('annual_leave_policy_not_configured')) {
+          toast.error('لا يمكن اعتماد الإجازة السنوية قبل تفعيل رصيد الموظف.');
+        } else if (message.includes('annual_leave_insufficient_balance')) {
+          toast.error('رصيد الإجازة السنوية لا يكفي لاعتماد هذا اليوم.');
+        } else if (message.includes('overlapping_approved_full_day_timeoff')) {
+          toast.error('يوجد بالفعل إجازة أو غياب معتمد متداخل مع هذا اليوم.');
+        } else {
+          toast.error(message);
+        }
+      } finally {
+        setApproving(false);
+      }
+      return;
+    }
+
     const linkedRequest = decision.requestKind && approvedRequests.find((request) => request.request_kind === decision.requestKind);
     if (decision.requestKind && (requestsLoading || requestsError || !linkedRequest)) {
       toast.error('سجّل الطلب واعتمده في صفحة الإجازات والغياب أولًا، ثم راجع اليوم مجددًا.');
@@ -398,7 +456,14 @@ export default function AttendanceResolutionCenter({
               const decision = decisionsFor(selected).find((item) => item.id === reason);
               const linked = decision?.requestKind && approvedRequests.find((request) => request.request_kind === decision.requestKind);
               return <>
-                {decision?.requestKind && <div className="mt-3 text-xs font-bold text-[var(--dawaa-theme-muted)]">
+                {decision?.id === 'annual_leave' && <div className="mt-3 rounded-xl border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] p-3 text-xs font-bold text-[var(--dawaa-status-info-text)]">
+                  {annualLeavePreviewLoading ? 'جارٍ حساب استهلاك الإجازة السنوية...' : annualLeavePreviewError ? 'تعذر تحميل ملخص الرصيد. أغلق القرار وافتحه مرة أخرى.' : annualLeavePreview ? (
+                    annualLeavePreview.already_approved_for_date
+                      ? <>هذا اليوم مسجل بالفعل كإجازة سنوية. المستخدم في {annualLeavePreview.year}: <b>{annualLeavePreview.used_year}</b> يوم · المستخدم هذا الشهر: <b>{annualLeavePreview.used_month}</b> يوم{annualLeavePreview.balance != null ? <> · المتبقي: <b>{annualLeavePreview.balance}</b> يوم</> : null}.</>
+                      : <>بعد اعتماد هذا اليوم: المستخدم في {annualLeavePreview.year} يصبح <b>{annualLeavePreview.after_approval_used_year}</b> يوم، وفي نفس الشهر <b>{annualLeavePreview.after_approval_used_month}</b> يوم{annualLeavePreview.after_approval_balance != null ? <>، والمتبقي <b>{annualLeavePreview.after_approval_balance}</b> يوم</> : null}.</>
+                  ) : 'جارٍ تجهيز ملخص الإجازة السنوية...'}
+                </div>}
+                {decision?.requestKind && decision.id !== 'annual_leave' && <div className="mt-3 text-xs font-bold text-[var(--dawaa-theme-muted)]">
                   {requestsLoading ? 'جارٍ التحقق من الطلب المعتمد...' : requestsError ? 'تعذر التحقق من سجل الإجازات. أعد فتح القرار.' : linked ? `الطلب المعتمد المرتبط: ${linked.request_label || linked.request_kind} (${linked.id}). ${decision.requestKind === 'permission' ? 'راجع ساعات اليوم قبل الاعتماد.' : 'اضغط تحديث حقيقة الحضور من أعلى الصفحة بعد إغلاق القرار.'}` : <>لا يوجد طلب معتمد من هذا النوع لهذا اليوم. <a className="underline" href="/time-off">افتح الإجازات والغياب</a> لتسجيله واعتماده أولًا.</>}
                 </div>}
                 {decision?.schedule && <p className="mt-3 text-xs font-bold text-[var(--dawaa-status-warning-text)]">راجع تغيير الراحة أو الشيفت في الجدول ثم حدّث حقيقة الحضور؛ لا يُعتمد من هذه الشاشة مباشرة.</p>}
@@ -414,7 +479,7 @@ export default function AttendanceResolutionCenter({
             </label>
             <p className="mt-2 text-xs text-[var(--dawaa-theme-muted)]">اختر السبب بعد التحقق من الدليل؛ الساعات تُراجع منفصلة ولا تُحدد تلقائيًا من السبب.</p>
             <div className="mt-4 flex gap-2">
-              <button onClick={() => void approveSelected()} disabled={approving} className="btn-primary flex-1">{decisionsFor(selected).find((item) => item.id === reason)?.financial ? 'اعتماد الحضور وتوثيق اقتراح الخصم' : 'اعتماد موثق'}</button>
+              <button onClick={() => void approveSelected()} disabled={approving || (reason === 'annual_leave' && annualLeavePreviewLoading)} className="btn-primary flex-1">{reason === 'annual_leave' ? 'اعتماد الإجازة السنوية وتسجيلها' : decisionsFor(selected).find((item) => item.id === reason)?.financial ? 'اعتماد الحضور وتوثيق اقتراح الخصم' : 'اعتماد موثق'}</button>
               <button onClick={() => { setSelected(null); setNote(''); setReason(''); setMultiplier(''); setHours(''); }} className="btn-secondary">إلغاء</button>
             </div>
           </div>
