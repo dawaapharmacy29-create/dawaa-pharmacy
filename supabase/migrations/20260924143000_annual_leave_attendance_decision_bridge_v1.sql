@@ -168,7 +168,7 @@ begin
   end if;
 
   -- Rebuild attendance truth only after the canonical leave approval exists.
-  v_materialized := public.materialize_attendance_range_v2(
+  v_materialized := public.dawaa_materialize_attendance_range_internal_v2(
     p_date,
     p_date,
     nullif(trim(coalesce(v_staff.branch,'')), '')
