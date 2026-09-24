@@ -74,6 +74,27 @@ function expect(actual) {
     toEqual(expected) {
       if (!deepEqual(actual, expected)) throw new Error(`Expected ${JSON.stringify(actual)} to equal ${JSON.stringify(expected)}`);
     },
+    toMatchObject(expected) {
+      if (actual == null || typeof actual !== 'object' || expected == null || typeof expected !== 'object') {
+        throw new Error('Expected both actual and expected to be objects for toMatchObject()');
+      }
+      const matches = (a, e) => Object.keys(e).every((key) => {
+        const expectedValue = e[key];
+        const actualValue = a?.[key];
+        if (
+          expectedValue &&
+          typeof expectedValue === 'object' &&
+          !Array.isArray(expectedValue) &&
+          !(expectedValue[ARRAY_CONTAINING])
+        ) {
+          return actualValue != null && typeof actualValue === 'object' && matches(actualValue, expectedValue);
+        }
+        return deepEqual(actualValue, expectedValue);
+      });
+      if (!matches(actual, expected)) {
+        throw new Error(`Expected ${JSON.stringify(actual)} to match object ${JSON.stringify(expected)}`);
+      }
+    },
     toBeDefined() {
       if (actual === undefined) throw new Error('Expected value to be defined');
     },
@@ -290,6 +311,7 @@ const testFiles = [
   'src/lib/salesIntelligence/__tests__/sourceSnapshotLineage.test.ts',
   'src/lib/salesIntelligence/__tests__/trustedInvoiceEvidenceBridge.test.ts',
   'src/lib/salesIntelligence/qa/__tests__/saleProofProjection.test.ts',
+  'src/lib/salesIntelligence/qa/__tests__/queries.test.ts',
   'src/lib/salesIntelligence/__tests__/basketInvoiceMatchingEngine.test.ts',
   'src/lib/salesIntelligence/__tests__/salesIntegrityEngine.test.ts',
   'src/lib/salesIntelligence/__tests__/salesIntelligencePipeline.test.ts',
