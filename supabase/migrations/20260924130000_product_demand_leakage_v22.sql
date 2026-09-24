@@ -73,12 +73,11 @@ with base as (
         when leakage_reason ilike '%لم يظهر رد%' then 'customer_no_reply'
         when current_stage = 'rejected' or status = 'lost' then 'customer_rejected'
         when current_stage in ('alternative_offered','recommended') then 'recommendation_pending'
-        else 'unknown'
+        else null
       end
     ) as leakage_code
   from public.whatsapp_sales_opportunities_v17
   where analysis_version='product-demand-v22'
-    and (status <> 'won' or sale_verified_scope <> 'product')
 )
 select
   cycle_start,cycle_end,branch,leakage_code,
