@@ -118,7 +118,7 @@ export default function SalesIntelligenceQACaseDetail() {
     return <div className="dawaa-empty-state py-16 text-center" dir="rtl">لم يتم العثور على هذه الحالة.</div>;
   }
 
-  const { persisted, conversation, sourceSnapshot, siblingCases, transcript, liveEvidence, saleProof, catalogProductMatches } = bundle;
+  const { persisted, conversation, sourceSnapshot, siblingCases, transcript, liveEvidence, saleProof, salesOutcome, catalogProductMatches } = bundle;
   const persistedAnalysis = persisted.analysisRow;
   const persistedAttribution = persisted.attributionRow;
   const persistedMatch = persisted.matchRow;
@@ -140,7 +140,6 @@ export default function SalesIntelligenceQACaseDetail() {
       ...(persistedAnalysis.evidence_snapshot || {}),
       conversationCaseConfidence: liveEvidence.conversationCase.confidence,
       evidenceCompleteness: liveEvidence.evidenceCompleteness,
-      canonicalSalesOutcome: liveEvidence.salesOutcome,
     },
   } : persistedAnalysis;
   const attribution = liveEvidence ? {
@@ -181,7 +180,7 @@ export default function SalesIntelligenceQACaseDetail() {
   const commercial = liveEvidence?.commercialConfirmation ?? null;
   const historical = liveEvidence?.historicalClosure ?? null;
   const basketKnownQuantities = basketItems.filter((item) => item.quantity != null).length;
-  const salesOutcome = liveEvidence?.salesOutcome ?? analysis.evidence_snapshot?.canonicalSalesOutcome ?? null;
+  const currentSalesOutcome = salesOutcome;
 
   return (
     <div className="space-y-5" dir="rtl">
@@ -206,7 +205,7 @@ export default function SalesIntelligenceQACaseDetail() {
           <Field label="رقم الهاتف" value={<span className="inline-flex items-center gap-2"><Phone size={16} /> {conversation?.customerPhone || 'غير متاح'}</span>} />
           <Field label="الفرع" value={<span className="inline-flex items-center gap-2"><Building2 size={16} /> {branchLabelFor(conversation?.branch ?? analysis.identity_branch_name_raw)}</span>} />
           <Field label="نوع الحالة" value={caseTypeLabelFor(analysis.case_type)} />
-          <Field label="العملية البيعية" value={salesOutcomeLabel(salesOutcome?.outcome)} />
+          <Field label="العملية البيعية" value={salesOutcomeLabel(currentSalesOutcome?.outcome)} />
           <Field label="إثبات البيع" value={saleProofStateBadge(saleProof.state)} />
           <Field label="مستوى الإسناد" value={attributionLevelBadge(attribution?.attribution_level ?? analysis.attribution_level)} />
           <Field label="تقسيم المصدر" value={<span className="inline-flex items-center gap-2"><Layers3 size={16} /> {siblingCases.length > 1 ? `${siblingCases.length} أجزاء` : 'جزء واحد'}</span>} />
@@ -258,7 +257,7 @@ export default function SalesIntelligenceQACaseDetail() {
 
           <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] p-4">
             <div className="dawaa-muted text-xs">القرار الشرائي</div>
-            <div className="dawaa-heading mt-2 font-black">{salesOutcomeLabel(salesOutcome?.outcome)}</div>
+            <div className="dawaa-heading mt-2 font-black">{salesOutcomeLabel(currentSalesOutcome?.outcome)}</div>
             <div className="dawaa-body mt-1 text-xs text-[var(--dawaa-theme-muted)]">
               حالة تأكيد الطلب: {commercialConfirmationStateLabelFor(commercial?.currentState ?? analysis.commercial_confirmation_state)}
             </div>
@@ -285,8 +284,8 @@ export default function SalesIntelligenceQACaseDetail() {
             <div className="dawaa-body mt-2 text-xs leading-6">
               تغطية الأدلة المتاحة: {evidenceCoveragePercent}٪<br />
               {evidenceLevelLabelFor(String(completeness.overallEvidenceLevel ?? analysis.overall_evidence_level))}<br />
-              بيع قابل للعد رسميًا: {salesOutcome?.isSaleCountable ? 'نعم' : 'لا'}<br />
-              إيراد قابل للعد رسميًا: {salesOutcome?.isRevenueCountable ? 'نعم' : 'لا'}<br />
+              بيع قابل للعد رسميًا: {currentSalesOutcome?.isSaleCountable ? 'نعم' : 'لا'}<br />
+              إيراد قابل للعد رسميًا: {currentSalesOutcome?.isRevenueCountable ? 'نعم' : 'لا'}<br />
               مراجعة بشرية: {analysis.needs_human_review ? 'مطلوبة' : 'غير مطلوبة'}
             </div>
           </div>
