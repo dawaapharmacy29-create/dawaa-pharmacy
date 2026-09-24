@@ -92,6 +92,7 @@ export function mapCaseAnalysisRowContent(analysis: SalesIntelligenceCaseAnalysi
       },
       evidenceCompleteness: analysis.evidenceCompleteness as unknown as Record<string, boolean | EvidenceLevel>,
       historicalClosureEvidence: analysis.historicalClosure.confidence.evidence,
+      canonicalSalesOutcome: analysis.salesOutcome,
       // No dedicated applicability-rule-id field exists on OrderConfirmationProtocolAssessment —
       // applicability is DERIVED from historicalClosure + commercialConfirmation (see
       // salesIntelligencePipeline.ts's own data-flow comment: "historicalClosure is computed
