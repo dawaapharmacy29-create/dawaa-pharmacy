@@ -27,7 +27,7 @@ import type { SalesIntelligenceCaseAnalysis } from '../types';
 import type { SaleProofAssessment } from '../saleProofState';
 import type { QaCaseListRow, QaListFilters } from './types';
 import { rankProductCandidates } from '../../productMatching';
-import { selectCanonicalReviewSourceIds } from '../sourceSnapshotLineage';
+import { resolveReviewSourceSnapshotLineage, selectCanonicalReviewSourceIds } from '../sourceSnapshotLineage';
 
 const MAX_LIST_ROWS = 2000;
 
@@ -339,6 +339,11 @@ export interface QaCaseDetailBundle {
     customerCode: string | null;
     customerPhone: string | null;
   } | null;
+  /** Snapshot-lineage status. Old contained exports remain readable for audit, never current truth. */
+  sourceSnapshot: {
+    isCanonical: boolean;
+    canonicalSourceId: string | null;
+  };
   /** All persisted case slices belonging to the same raw conversation, for honest segmentation navigation. */
   siblingCases: Array<{
     caseId: string;
@@ -408,11 +413,12 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
   let transcript: WhatsAppParsedMessage[] = [];
   let liveEvidence: SalesIntelligenceCaseAnalysis | null = null;
   let liveSaleProof: SaleProofAssessment | null = null;
+  let sourceSnapshot: QaCaseDetailBundle['sourceSnapshot'] = { isCanonical: true, canonicalSourceId: null };
 
   if (caseRow?.conversation_id) {
     const { data: conversationRow } = await supabaseClient
       .from('whatsapp_review_sources')
-      .select('id, raw_text, branch, conversation_started_at, conversation_ended_at, customer_id, customer_name, customer_code, customer_phone')
+      .select('id, raw_text, source_filename, branch, conversation_started_at, conversation_ended_at, customer_id, customer_name, customer_code, customer_phone, message_count, created_at')
       .eq('id', caseRow.conversation_id)
       .maybeSingle();
     if (conversationRow?.raw_text) {
@@ -484,6 +490,21 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
         customerCode: displayIdentity.code,
         customerPhone: displayIdentity.phone,
       };
+
+      if (conversationRow.source_filename) {
+        const { data: relatedSnapshots } = await supabaseClient
+          .from('whatsapp_review_sources')
+          .select('id, source_filename, customer_id, customer_name, customer_code, customer_phone, conversation_started_at, conversation_ended_at, message_count, created_at')
+          .eq('source_filename', conversationRow.source_filename)
+          .limit(MAX_LIST_ROWS);
+        const lineage = resolveReviewSourceSnapshotLineage(conversationRow, relatedSnapshots ?? [conversationRow]);
+        sourceSnapshot = {
+          isCanonical: lineage.isCanonical,
+          canonicalSourceId: lineage.canonicalSourceId,
+        };
+      } else {
+        sourceSnapshot = { isCanonical: true, canonicalSourceId: conversationRow.id };
+      }
 
       const { data: siblingCaseRows } = await supabaseClient
         .from('sales_intelligence_cases')
@@ -632,6 +653,7 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
   return {
     persisted: { caseRow: caseRow ?? null, analysisRow, attributionRow: attributionRow ?? null, matchRow: matchRow ?? null, policyEvaluationRow: policyEvaluationRow ?? null },
     conversation,
+    sourceSnapshot,
     siblingCases,
     transcript,
     liveEvidence,

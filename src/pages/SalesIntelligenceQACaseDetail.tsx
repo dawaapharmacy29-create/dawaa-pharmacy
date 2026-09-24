@@ -104,7 +104,7 @@ export default function SalesIntelligenceQACaseDetail() {
     return <div className="dawaa-empty-state py-16 text-center" dir="rtl">لم يتم العثور على هذه الحالة.</div>;
   }
 
-  const { persisted, conversation, siblingCases, transcript, liveEvidence, saleProof, catalogProductMatches } = bundle;
+  const { persisted, conversation, sourceSnapshot, siblingCases, transcript, liveEvidence, saleProof, catalogProductMatches } = bundle;
   const persistedAnalysis = persisted.analysisRow;
   const persistedAttribution = persisted.attributionRow;
   const persistedMatch = persisted.matchRow;
@@ -175,6 +175,13 @@ export default function SalesIntelligenceQACaseDetail() {
         </button>
         <div className="dawaa-muted max-w-full truncate font-mono text-xs" title={caseId}>{caseId}</div>
       </div>
+
+      {!sourceSnapshot.isCanonical ? (
+        <div className="dawaa-alert dawaa-alert--warning text-sm leading-7">
+          هذه الحالة مبنية على لقطة واتساب أقدم تم احتواؤها لاحقًا داخل نسخة أشمل من نفس المحادثة. تُعرض هنا للـAudit فقط ولا ينبغي اعتمادها كالحالة الحالية.
+          {sourceSnapshot.canonicalSourceId ? <span className="ms-1 font-mono text-xs">المصدر الأحدث: {sourceSnapshot.canonicalSourceId}</span> : null}
+        </div>
+      ) : null}
 
       <section className="dawaa-card">
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">

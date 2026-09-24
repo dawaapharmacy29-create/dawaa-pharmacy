@@ -99,3 +99,33 @@ export function isSupersededReviewSourceSnapshot(
 ): boolean {
   return !selectCanonicalReviewSourceIds(allRows).has(row.id);
 }
+
+
+export interface ReviewSourceSnapshotResolution {
+  isCanonical: boolean;
+  canonicalSourceId: string;
+}
+
+export function resolveReviewSourceSnapshotLineage(
+  row: ReviewSourceSnapshotLike,
+  allRows: ReviewSourceSnapshotLike[]
+): ReviewSourceSnapshotResolution {
+  const sameGroup = allRows.filter((candidate) => groupKey(candidate) === groupKey(row));
+  if (sameGroup.length === 0) return { isCanonical: true, canonicalSourceId: row.id };
+
+  const canonicalIds = selectCanonicalReviewSourceIds(sameGroup);
+  if (canonicalIds.has(row.id)) return { isCanonical: true, canonicalSourceId: row.id };
+
+  const containingCanonical = sameGroup
+    .filter((candidate) => canonicalIds.has(candidate.id) && contains(candidate, row))
+    .sort((a, b) => {
+      const countDiff = Number(b.message_count ?? 0) - Number(a.message_count ?? 0);
+      if (countDiff !== 0) return countDiff;
+      return (timeMs(b.created_at) ?? 0) - (timeMs(a.created_at) ?? 0);
+    })[0];
+
+  return {
+    isCanonical: false,
+    canonicalSourceId: containingCanonical?.id ?? row.id,
+  };
+}
