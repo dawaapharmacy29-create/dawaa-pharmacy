@@ -182,9 +182,9 @@ function classifyTotalMatch(
 
 // ---------------------------------------------------------------------------
 // Phase E.1: product-identity-basis-aware item/quantity matching.
-//   - canonical_id: basketItem.productId equals an invoice item's productCode — the only basis
-//     that can ever be `proven`. Forward-looking: neither side populates these today (Phase B has
-//     no catalog-resolution step, sales_invoice_items_v21 is empty) — see the Phase E.1 report.
+//   - canonical_id: basketItem.productId equals invoiceItem.productId (both products.id UUIDs) —
+//     the only identity basis that can ever be `proven`. product_code is audit/business identity,
+//     never compared directly to a products.id UUID.
 //   - normalized_name: matched only via normalizeProductNameForMatch() text equality — real,
 //     useful evidence, but capped at `strongly_inferred`, never `proven` (never claim identity
 //     certainty from text alone).
@@ -240,12 +240,13 @@ function classifyItemsAndQuantities(
     group.push(i);
     invoiceGroupsByName.set(key, group);
   });
-  const invoiceGroupsByCode = new Map<string, InvoiceItemRecordForAttribution[]>();
+  const invoiceGroupsByProductId = new Map<string, InvoiceItemRecordForAttribution[]>();
   invoiceItems.forEach((i) => {
-    if (!i.productCode) return;
-    const group = invoiceGroupsByCode.get(i.productCode) ?? [];
+    if (!i.productId) return;
+    const key = String(i.productId);
+    const group = invoiceGroupsByProductId.get(key) ?? [];
     group.push(i);
-    invoiceGroupsByCode.set(i.productCode, group);
+    invoiceGroupsByProductId.set(key, group);
   });
 
   const differences: BasketInvoiceDifference[] = [];
@@ -279,15 +280,17 @@ function classifyItemsAndQuantities(
       return;
     }
 
-    // Canonical id/code match first — the only path to a proven identity match.
-    const codeCandidates = item.productId ? invoiceGroupsByCode.get(item.productId) ?? [] : [];
-    if (codeCandidates.length === 1) {
-      const invoiceItem = codeCandidates[0];
+    // Canonical products.id match first — the only path to a proven identity match.
+    const canonicalCandidates = item.productId
+      ? invoiceGroupsByProductId.get(String(item.productId)) ?? []
+      : [];
+    if (canonicalCandidates.length === 1) {
+      const invoiceItem = canonicalCandidates[0];
       matchedPairs.push({ basketItem: item, invoiceItem, basis: 'canonical_id' });
       claimedInvoiceKeys.add(normalizeProductNameForMatch(invoiceItem.productNameRaw));
       return;
     }
-    if (codeCandidates.length > 1) {
+    if (canonicalCandidates.length > 1) {
       ambiguousCount += 1;
       humanReviewReasons.push('ambiguous_product_alias');
       return;
