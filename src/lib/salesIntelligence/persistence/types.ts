@@ -567,6 +567,7 @@ export type ReprocessingTrigger =
   | 'branch_mapping_changed'
   | 'invoice_candidates_updated'
   | 'invoice_item_data_appeared'
+  | 'product_catalog_changed'
   | 'semantic_pipeline_version_changed'
   | 'policy_effective_date_changed'
   | 'protocol_policy_version_changed';
@@ -588,6 +589,10 @@ export const REPROCESSING_MATRIX: Record<ReprocessingTrigger, ReprocessingScope>
   // attribution first; the normal dependent pass then recomputes matching/integrity against the
   // potentially changed selected invoice.
   invoice_item_data_appeared: 'attribution_only',
+  // Product-catalog updates can change the canonical productId attached to an existing basket
+  // phrase without changing the raw WhatsApp text. Attribution/matching hashes already include
+  // the resolved basket product ids, so a targeted evaluation rerun is sufficient.
+  product_catalog_changed: 'attribution_only',
   semantic_pipeline_version_changed: 'full_semantic_reanalysis',
   policy_effective_date_changed: 'policy_evaluation_only',
   protocol_policy_version_changed: 'full_semantic_reanalysis',
