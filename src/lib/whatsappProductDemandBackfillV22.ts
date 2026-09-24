@@ -102,6 +102,17 @@ async function loadSources(options: ProductDemandBackfillOptionsV22): Promise<So
   return filtered.slice(0, limit);
 }
 
+function backfillErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === 'object') {
+    const row = error as Record<string, unknown>;
+    const message = [row.message, row.details, row.hint, row.code].filter(Boolean).map(String).join(' | ');
+    if (message) return message;
+    try { return JSON.stringify(row); } catch { return 'خطأ غير معروف أثناء إعادة التحليل.'; }
+  }
+  return String(error || 'خطأ غير معروف أثناء إعادة التحليل.');
+}
+
 export async function runProductDemandBackfillV22(
   options: ProductDemandBackfillOptionsV22 = {}
 ): Promise<ProductDemandBackfillResultV22> {
@@ -187,7 +198,7 @@ export async function runProductDemandBackfillV22(
       rows.push({
         sourceId: source.id,
         status: 'failed',
-        reason: error instanceof Error ? error.message : 'خطأ غير معروف أثناء إعادة التحليل.',
+        reason: backfillErrorMessage(error),
         canonicalProducts: 0,
         unresolvedProducts: 0,
         productCodes: [],
