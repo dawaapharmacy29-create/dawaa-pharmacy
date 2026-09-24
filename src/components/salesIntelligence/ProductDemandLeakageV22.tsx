@@ -28,6 +28,13 @@ type LeakageRow = {
   unique_products: number;
 };
 
+type BackfillStatus = {
+  analyzable_sources: number;
+  analyzed_v22: number;
+  remaining_sources: number;
+  completion_percent: number | string | null;
+};
+
 type UnresolvedRow = {
   cycle_start: string;
   cycle_end: string;
@@ -55,6 +62,7 @@ export default function ProductDemandLeakageV22() {
   const [unresolved, setUnresolved] = useState<UnresolvedRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [backfillStatus, setBackfillStatus] = useState<BackfillStatus | null>(null);
   const [backfillRunning, setBackfillRunning] = useState(false);
   const [backfillMessage, setBackfillMessage] = useState<string | null>(null);
   const [branchFilter, setBranchFilter] = useState<'all' | string>('all');
@@ -63,15 +71,17 @@ export default function ProductDemandLeakageV22() {
     setLoading(true);
     setError(null);
     try {
-      const [{ data: d, error: de }, { data: l, error: le }, { data: u, error: ue }] = await Promise.all([
+      const [{ data: d, error: de }, { data: l, error: le }, { data: u, error: ue }, { data: bs, error: bse }] = await Promise.all([
         supabase.from('whatsapp_product_demand_monthly_v22').select('*').order('cycle_start', { ascending: false }).order('inquiry_opportunities', { ascending: false }).limit(200),
         supabase.from('whatsapp_sales_leakage_monthly_v22').select('*').order('cycle_start', { ascending: false }).order('cases_count', { ascending: false }).limit(200),
         supabase.from('whatsapp_product_demand_unresolved_v22').select('*').order('cycle_start', { ascending: false }).limit(100),
+        supabase.from('whatsapp_product_demand_backfill_status_v22').select('*').maybeSingle(),
       ]);
-      if (de || le || ue) throw de || le || ue;
+      if (de || le || ue || bse) throw de || le || ue || bse;
       setDemand((d || []) as DemandRow[]);
       setLeakage((l || []) as LeakageRow[]);
       setUnresolved((u || []) as UnresolvedRow[]);
+      setBackfillStatus((bs || null) as BackfillStatus | null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'تعذر تحميل تحليل الطلب على الأصناف وأسباب فقد البيع.');
     } finally {
@@ -177,6 +187,21 @@ export default function ProductDemandLeakageV22() {
           </button>
         ))}
       </div>
+
+      {backfillStatus ? (
+        <div className="mt-4 rounded-2xl border border-[var(--dawaa-theme-border)] p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+            <div className="font-black">تقدم إعادة تحليل المحادثات التاريخية</div>
+            <div className="dawaa-badge dawaa-badge--info">{Number(backfillStatus.completion_percent || 0).toLocaleString('ar-EG')}٪</div>
+          </div>
+          <div className="mt-2 h-2 overflow-hidden rounded-full bg-black/10">
+            <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.max(0, Math.min(100, Number(backfillStatus.completion_percent || 0)))}%` }} />
+          </div>
+          <div className="dawaa-muted mt-2 text-[11px]">
+            قابل للتحليل: {Number(backfillStatus.analyzable_sources || 0).toLocaleString('ar-EG')} • تم V22: {Number(backfillStatus.analyzed_v22 || 0).toLocaleString('ar-EG')} • متبقي: {Number(backfillStatus.remaining_sources || 0).toLocaleString('ar-EG')}
+          </div>
+        </div>
+      ) : null}
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-2xl border border-[var(--dawaa-theme-border)] p-3">
