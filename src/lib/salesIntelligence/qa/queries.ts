@@ -1036,7 +1036,9 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
       staffName: item.staffName,
     })),
     invoiceEvidenceLevel:
-      attributionRow?.selected_invoice_id && attributionRow?.is_official_for_staff_evaluation
+      attributionRow?.selected_invoice_id &&
+      attributionRow?.attribution_level === 'proven' &&
+      attributionRow?.is_official_for_staff_evaluation
         ? 'official'
         : attributionRow?.selected_invoice_id
           ? 'candidate'
