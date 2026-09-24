@@ -8,7 +8,9 @@ type CrossBranchPunch = {
   staff_name: string;
   role: string | null;
   home_branch: string;
+  expected_branch: string;
   punch_branch: string;
+  expected_source: string;
   biometric_user_id: string | null;
   punch_time: string;
   punch_type: string | null;
@@ -74,7 +76,7 @@ export default function CrossBranchPunchesPanel({
     setLoading(true);
     setError(null);
     try {
-      const { data, error: rpcError } = await supabase.rpc('list_cross_branch_biometric_events_v1', {
+      const { data, error: rpcError } = await supabase.rpc('list_cross_branch_biometric_events_v2', {
         p_start: start,
         p_end: end,
         p_branch: branch === 'الكل' ? null : branch,
@@ -95,7 +97,7 @@ export default function CrossBranchPunchesPanel({
     const q = search.trim().toLocaleLowerCase('ar');
     if (!q) return rows;
     return rows.filter((row) =>
-      [row.staff_name, row.role, row.home_branch, row.punch_branch, row.biometric_user_id, row.device_id]
+      [row.staff_name, row.role, row.home_branch, row.expected_branch, row.punch_branch, row.expected_source, row.biometric_user_id, row.device_id]
         .some((value) => String(value || '').toLocaleLowerCase('ar').includes(q))
     );
   }, [rows, search]);
@@ -104,7 +106,7 @@ export default function CrossBranchPunchesPanel({
   const routes = useMemo(() => {
     const map = new Map<string, number>();
     for (const row of rows) {
-      const key = `${row.home_branch} ← ${row.punch_branch}`;
+      const key = `${row.expected_branch} ← ${row.punch_branch}`;
       map.set(key, (map.get(key) || 0) + 1);
     }
     return Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
@@ -119,7 +121,7 @@ export default function CrossBranchPunchesPanel({
             <h2 className="text-lg font-black text-[var(--dawaa-theme-heading)]">البصمات بين الفروع</h2>
           </div>
           <p className="mt-1 max-w-3xl text-xs font-bold text-[var(--dawaa-theme-muted)]">
-            الموظف يُحتسب حضوره طبيعيًا حتى لو بصم على جهاز فرع مختلف. هذه الشاشة رقابية فقط: تُظهر فرعه الأساسي ومكان البصمة الحقيقي ولا تعتبر الاختلاف خطأ أو خصمًا.
+            الموظف يُحتسب حضوره طبيعيًا حتى لو بصم على جهاز فرع مختلف. هذه الشاشة رقابية فقط: تقارن مكان البصمة بالفرع المتوقع حسب جدول نفس اليوم، مع إظهار الفرع الأساسي للمعلومة، ولا تعتبر الاختلاف خطأ أو خصمًا.
           </p>
         </div>
         <button onClick={() => void load()} className="btn-secondary">
@@ -146,7 +148,7 @@ export default function CrossBranchPunchesPanel({
           <input type="date" value={end} onChange={(e) => setEnd(e.target.value)} className="input-dark mt-1 w-full" />
         </label>
         <label className="text-xs font-black text-[var(--dawaa-theme-muted)]">
-          فرع الموظف الأساسي
+          الفرع المتوقع حسب الجدول
           <select value={branch} onChange={(e) => setBranch(e.target.value)} className="input-dark mt-1 w-full">
             <option value="الكل">الكل</option>
             <option value="فرع الشامي">فرع الشامي</option>
@@ -175,6 +177,7 @@ export default function CrossBranchPunchesPanel({
         <thead><tr className="text-right">
           <th className="p-3">الموظف</th>
           <th className="p-3">فرعه الأساسي</th>
+          <th className="p-3">الفرع المتوقع</th>
           <th className="p-3">بصم في</th>
           <th className="p-3">الوقت</th>
           <th className="p-3">نوع الجهاز</th>
@@ -187,14 +190,18 @@ export default function CrossBranchPunchesPanel({
               <button onClick={() => setProfileStaffId(row.staff_id)} className="font-black text-[var(--dawaa-theme-heading)] hover:underline">{row.staff_name}</button>
               <div className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">{row.role || '-'}</div>
             </td>
-            <td className="p-3 font-bold">{row.home_branch}</td>
+            <td className="p-3 font-bold">{row.home_branch || '-'}</td>
+            <td className="p-3">
+              <div className="font-black text-[var(--dawaa-theme-heading)]">{row.expected_branch || '-'}</div>
+              <div className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">{row.expected_source === 'staff_current_fallback' ? 'Fallback: الفرع الحالي' : 'حسب جدول اليوم'}</div>
+            </td>
             <td className="p-3"><span className="inline-flex items-center gap-1 rounded-full border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] px-2 py-1 text-xs font-black text-[var(--dawaa-status-info-text)]"><MapPin size={12}/>{row.punch_branch}</span></td>
             <td className="p-3 font-bold">{fmt(row.punch_time)}</td>
             <td className="p-3">{typeLabel(row.punch_type)}</td>
             <td className="p-3 font-black">{row.biometric_user_id || '-'}</td>
             <td className="p-3"><div className="font-bold">{row.device_id || '-'}</div><div className="text-[10px] text-[var(--dawaa-theme-muted)]">{row.provider || '-'}</div></td>
           </tr>)}
-          {!loading && !visible.length && <tr><td colSpan={7} className="p-8 text-center font-bold text-[var(--dawaa-theme-muted)]">لا توجد بصمات بين الفروع في الفترة/الفلتر المحدد.</td></tr>}
+          {!loading && !visible.length && <tr><td colSpan={8} className="p-8 text-center font-bold text-[var(--dawaa-theme-muted)]">لا توجد بصمات بين الفروع في الفترة/الفلتر المحدد.</td></tr>}
         </tbody>
       </table>
     </section>
