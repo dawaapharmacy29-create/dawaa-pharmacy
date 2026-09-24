@@ -692,4 +692,18 @@ describe('Protocol Applicability + Historical Closure (Sales Intelligence Phase 
     expect(a.historicalClosure.closureLevel).toBe('weakly_inferred');
     expect(a.protocolAssessment.applicability).not.toBe('applicable');
   });
+  it('anchors text-export timestamps to persisted conversation_started_at so server timezone cannot shift Egypt-local chat time', () => {
+    const raw = `[9/15/26, 9:46:45 AM] Customer: محتاج علبه
+[9/15/26, 9:47:41 AM] You: جاري الارسال`;
+    const result = runSalesIntelligencePipeline(baseInput({
+      conversationId: 'timeline-case',
+      rawWhatsAppExportText: raw,
+      trustedConversationStartedAt: '2026-09-15T06:46:45.000Z',
+      customerIdHint: 'cust-timeline',
+      resolveInvoiceCandidates: () => [],
+    }));
+    expect(result.caseAnalyses[0].conversationCase.startedAt).toBe('2026-09-15T06:46:45.000Z');
+    expect(result.caseAnalyses[0].conversationCase.endedAt).toBe('2026-09-15T06:47:41.000Z');
+  });
+
 });

@@ -8,11 +8,11 @@
 export const PIPELINE_VERSION = 'sales-intelligence-v1';
 
 export const ENGINE_VERSIONS = {
-  caseSegmentation: 'case-segmentation-v3',
+  caseSegmentation: 'case-segmentation-v4-trusted-timeline',
   historicalClosure: 'historical-closure-v1',
   commercialConfirmation: 'commercial-confirmation-v1',
   protocolApplicability: 'protocol-applicability-v1',
-  attribution: 'attribution-v1',
+  attribution: 'attribution-v2-case-interval-time',
   matching: 'matching-v1',
   policyEvaluation: 'policy-evaluation-v1',
 } as const;

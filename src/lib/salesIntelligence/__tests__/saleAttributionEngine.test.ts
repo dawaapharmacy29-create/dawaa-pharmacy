@@ -35,6 +35,7 @@ function baseCase(overrides: Partial<CaseAttributionContext> = {}): CaseAttribut
     customerId: null,
     customerPhone: null,
     branchNameRaw: null,
+    caseStartedAt: '2026-09-15T09:00:00.000Z',
     caseEndedAt: '2026-09-15T09:10:00.000Z',
     commercialConfirmation: COMPLETE_CONFIRMATION,
     activeAnnouncedTotal: null,
@@ -551,4 +552,45 @@ describe('Sale Attribution Engine (Sales Intelligence Phase D) — Golden Cases'
       expect(assess.selectedInvoiceId).toBe('inv-new-total');
     });
   });
+  it('rejects a statistical invoice that clearly predates the case start, even with exact identity and legacy support', () => {
+    const ctx = baseCase({
+      customerId: 'cust-1',
+      customerPhone: '01015438338',
+      branchNameRaw: 'فرع شكري',
+      legacyMatchedInvoiceId: 'inv-old',
+      caseStartedAt: '2026-09-15T18:14:37.000Z',
+      caseEndedAt: '2026-09-15T18:46:43.000Z',
+    });
+    const assess = deriveSaleAttributionAssessment(ctx, [{
+      id: 'inv-old',
+      invoice_number: '72865',
+      customer_id: 'cust-1',
+      customer_phone: '01015438338',
+      branch: 'فرع شكري',
+      invoice_datetime: '2026-09-15T06:49:00.000Z',
+      net_amount: 108,
+    }]);
+    expect(assess.selectedInvoiceId).toBeNull();
+    expect(assess.attributionLevel).toBe('unknown');
+    expect(assess.contradictions).toContain('temporal_inversion');
+    expect(assess.isOfficialForStaffEvaluation).toBe(false);
+  });
+
+  it('treats an invoice created during the case interval as chronologically valid', () => {
+    const ctx = baseCase({
+      customerId: 'cust-1',
+      caseStartedAt: '2026-09-15T06:46:45.000Z',
+      caseEndedAt: '2026-09-15T06:47:59.000Z',
+    });
+    const candidate = buildAttributionCandidate(ctx, {
+      id: 'inv-during',
+      customer_id: 'cust-1',
+      invoice_datetime: '2026-09-15T06:47:20.000Z',
+      net_amount: 108,
+    });
+    expect(candidate.timeDistanceMinutes).toBe(0);
+    expect(candidate.timeMatchStrength).toBe('very_strong');
+    expect(candidate.disqualifiers).not.toContain('temporal_inversion_invoice_predates_case');
+  });
+
 });

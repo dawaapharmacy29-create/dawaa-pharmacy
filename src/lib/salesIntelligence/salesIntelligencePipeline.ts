@@ -234,8 +234,9 @@ function analyzeOneCase(
     customerId: conversationCase.customerId,
     customerPhone: conversationCase.customerPhone,
     branchNameRaw: conversationCase.branchNameRaw,
-    // Same rule as candidateContext above — the case's own segmented endedAt, never the coarse
-    // whole-thread conversation_ended_at.
+    // Same rule as candidateContext above — this exact segmented case interval, never coarse
+    // whole-thread timestamps.
+    caseStartedAt: conversationCase.startedAt,
     caseEndedAt: conversationCase.endedAt,
     commercialConfirmation,
     activeAnnouncedTotal: activeBasket?.announcedTotal ?? null,

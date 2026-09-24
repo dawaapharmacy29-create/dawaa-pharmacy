@@ -140,7 +140,8 @@ export interface CaseAttributionContext {
   customerPhone: string | null;
   /** Free-text branch label as recorded on the case — compared via normalizeBranchName, same as invoices. */
   branchNameRaw: string | null;
-  /** Anchor for time-distance — the case's own ConversationCase.endedAt (already reflects the last meaningful activity, including any final confirmation). */
+  /** Start/end of this exact segmented case. Invoice timing is compared against the INTERVAL, not just its end. */
+  caseStartedAt?: string | null;
   caseEndedAt: string | null;
   commercialConfirmation: CommercialConfirmationAssessment;
   /** The CURRENT (latest) basket version's own AnnouncedTotal only — NEVER a superseded version's total. */
@@ -285,17 +286,28 @@ function classifyTime(
   ctx: CaseAttributionContext,
   row: InvoiceLike
 ): { timeDistanceMinutes: number | null; timeMatchStrength: TimeMatchStrength; temporalInversion: boolean } {
-  if (!ctx.caseEndedAt) return { timeDistanceMinutes: null, timeMatchStrength: 'unknown', temporalInversion: false };
   const { iso: invoiceIso, precise } = getInvoiceDateTimeForAttribution(row);
   if (!invoiceIso) return { timeDistanceMinutes: null, timeMatchStrength: 'unknown', temporalInversion: false };
 
-  const caseMs = new Date(ctx.caseEndedAt).getTime();
   const invoiceMs = new Date(invoiceIso).getTime();
-  if (!Number.isFinite(caseMs) || !Number.isFinite(invoiceMs)) {
+  const startMs = ctx.caseStartedAt ? new Date(ctx.caseStartedAt).getTime() : NaN;
+  const endMsRaw = ctx.caseEndedAt ? new Date(ctx.caseEndedAt).getTime() : NaN;
+  const hasStart = Number.isFinite(startMs);
+  const hasEnd = Number.isFinite(endMsRaw);
+  if (!Number.isFinite(invoiceMs) || (!hasStart && !hasEnd)) {
     return { timeDistanceMinutes: null, timeMatchStrength: 'unknown', temporalInversion: false };
   }
 
-  const diffMinutes = (invoiceMs - caseMs) / 60000;
+  // Compare to the CASE INTERVAL. An invoice created while the conversation is still ongoing is
+  // chronologically valid and has distance 0. A real inversion exists only when the invoice
+  // predates the case START beyond the small clock-skew grace period.
+  const effectiveStartMs = hasStart ? startMs : endMsRaw;
+  const effectiveEndMs = hasEnd ? Math.max(endMsRaw, effectiveStartMs) : effectiveStartMs;
+  let diffMinutes: number;
+  if (invoiceMs < effectiveStartMs) diffMinutes = (invoiceMs - effectiveStartMs) / 60000;
+  else if (invoiceMs <= effectiveEndMs) diffMinutes = 0;
+  else diffMinutes = (invoiceMs - effectiveEndMs) / 60000;
+
   const absMinutes = Math.abs(diffMinutes);
   const temporalInversion = diffMinutes < -TIME_MATCH_BANDS.temporalInversionGraceMinutes;
 
@@ -303,7 +315,6 @@ function classifyTime(
   if (temporalInversion) {
     strength = 'very_weak';
   } else if (!precise) {
-    // Day-only precision can never claim better than 'weak' — the real time-of-day is unknown.
     strength = absMinutes <= TIME_MATCH_BANDS.weakMaxMinutes ? 'weak' : 'very_weak';
   } else if (absMinutes <= TIME_MATCH_BANDS.veryStrongMaxMinutes) {
     strength = 'very_strong';
@@ -795,8 +806,46 @@ export function deriveSaleAttributionAssessment(
 
   const legacyEvidenceUsed = candidates.some((c) => c.legacyEvidenceMatch);
   const directLinked = candidates.find((c) => c.directInvoiceLink) ?? null;
-  const top = directLinked ?? candidates[0];
-  const second = candidates.find((c) => c !== top) ?? null;
+
+  // A statistical/legacy candidate that clearly predates THIS case's start is not a selectable
+  // invoice for that case. Keep it visible as rejected evidence, but never display it as the
+  // case's selected invoice. A separately trusted direct link remains visible for audit and is
+  // handled by the canonical SaleProof contradiction rules.
+  const selectableCandidates = directLinked
+    ? [directLinked, ...candidates.filter((c) => c !== directLinked && !c.disqualifiers.includes('temporal_inversion_invoice_predates_case'))]
+    : candidates.filter((c) => !c.disqualifiers.includes('temporal_inversion_invoice_predates_case'));
+
+  if (selectableCandidates.length === 0) {
+    const rejectedTop = candidates[0];
+    return {
+      caseId: ctx.caseId,
+      commercialConfirmationState,
+      candidateCount: candidates.length,
+      selectedInvoiceId: null,
+      selectedInvoiceNumber: null,
+      selectedCandidate: null,
+      alternativeCandidates: candidates,
+      attributionLevel: 'unknown',
+      confidence: {
+        level: 'unknown',
+        score: 0,
+        ruleIds: ['attribution.assessment.no_temporally_valid_candidates'],
+        evidence: rejectedTop?.confidenceAssessment.evidence ?? [],
+      },
+      primaryEvidence: rejectedTop?.evidence ?? [],
+      contradictions: ['temporal_inversion'],
+      needsHumanReview: true,
+      humanReviewReasons: ['invoice_predates_case_start'],
+      isOfficialForStaffEvaluation: false,
+      legacyEvidenceUsed,
+      ruleIds: ['attribution.assessment.no_temporally_valid_candidates'],
+      hasAttributedInvoice: false,
+      competingCaseIds: [],
+    };
+  }
+
+  const top = directLinked ?? selectableCandidates[0];
+  const second = selectableCandidates.find((c) => c !== top) ?? null;
 
   const contradictions: string[] = [];
   const humanReviewReasons: string[] = [];

@@ -499,11 +499,14 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
           isCurrent: row.case_id === caseId,
         }));
 
-      transcript = parseWhatsAppExport(conversationRow.raw_text);
+      transcript = parseWhatsAppExport(conversationRow.raw_text, {
+        trustedConversationStartedAt: conversationRow.conversation_started_at ?? null,
+      });
       try {
         const result = runSalesIntelligencePipeline({
           conversationId: conversationRow.id,
           rawWhatsAppExportText: conversationRow.raw_text,
+          trustedConversationStartedAt: conversationRow.conversation_started_at ?? null,
           customerIdHint: conversationRow.customer_id,
           customerPhoneHint: conversationRow.customer_phone,
           branchNameRawHint: conversationRow.branch,
