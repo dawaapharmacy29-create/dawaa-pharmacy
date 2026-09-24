@@ -512,6 +512,10 @@ export default function AttendanceResolutionCenter({
         toast.warning('أول مرتين نسيان بصمة في الدورة سماح، ولا يمكن تنفيذ خصم 50 جنيه قبل الواقعة الثالثة.');
         return;
       }
+      if (applyMissingPunchPenalty && !missingPunchContext.can_apply_deduction) {
+        toast.error('تنفيذ خصم 50 جنيه يحتاج صلاحية مالية معتمدة.');
+        return;
+      }
 
       const manualIso = new Date(manualPunchAt).toISOString();
       setApproving(true);
@@ -930,7 +934,7 @@ export default function AttendanceResolutionCenter({
                         <input
                           type="checkbox"
                           checked={applyMissingPunchPenalty}
-                          disabled={!missingPunchContext.penalty_eligible || Boolean(missingPunchContext.deduction_transaction_id)}
+                          disabled={!missingPunchContext.penalty_eligible || !missingPunchContext.can_apply_deduction || Boolean(missingPunchContext.deduction_transaction_id)}
                           onChange={(e) => setApplyMissingPunchPenalty(e.target.checked)}
                         />
                         <span>
@@ -938,9 +942,11 @@ export default function AttendanceResolutionCenter({
                           <span className="mt-1 block font-normal">
                             {missingPunchContext.deduction_transaction_id
                               ? 'الخصم مسجل بالفعل لهذه الواقعة ولن يتكرر.'
-                              : missingPunchContext.penalty_eligible
-                                ? 'متاح لأن الموظف تجاوز مرتين السماح في الدورة الحالية.'
-                                : 'غير متاح حاليًا لأن الموظف ما زال داخل مرتين السماح.'}
+                              : !missingPunchContext.penalty_eligible
+                                ? 'غير متاح حاليًا لأن الموظف ما زال داخل مرتين السماح.'
+                                : missingPunchContext.can_apply_deduction
+                                  ? 'متاح لأن الموظف تجاوز مرتين السماح ولديك صلاحية مالية للتنفيذ.'
+                                  : 'الموظف تجاوز مرتين السماح، لكن تنفيذ الخصم يحتاج صلاحية مالية معتمدة.'}
                           </span>
                         </span>
                       </label>
