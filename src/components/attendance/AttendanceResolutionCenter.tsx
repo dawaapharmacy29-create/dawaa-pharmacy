@@ -266,9 +266,9 @@ export default function AttendanceResolutionCenter({
           date: selected.attendance_date,
           note: note.trim() || null,
         });
-        const summary = result.summary_after;
+        const summary = result.preview;
         toast.success(
-          `تم اعتماد الإجازة السنوية وتسجيلها في السجل. المستخدم في ${summary.year}: ${summary.used_year} يوم · المستخدم هذا الشهر: ${summary.used_month} يوم`
+          `تم اعتماد الإجازة السنوية وتسجيلها في السجل. المستخدم سنويًا: ${summary.year_used} يوم · المستخدم هذا الشهر: ${summary.calendar_month_used} يوم`
         );
         setSelected(null);
         setNote('');
@@ -279,7 +279,7 @@ export default function AttendanceResolutionCenter({
         await load();
       } catch (error) {
         const message = error instanceof Error ? error.message : 'تعذر اعتماد الإجازة السنوية';
-        if (message.includes('annual_leave_not_configured') || message.includes('annual_leave_policy_not_configured')) {
+        if (message.includes('annual_leave_not_configured') || message.includes('annual_leave_policy_not_configured') || message.includes('annual_leave_entitlement_not_configured')) {
           toast.error('لا يمكن اعتماد الإجازة السنوية قبل تفعيل رصيد الموظف.');
         } else if (message.includes('annual_leave_insufficient_balance')) {
           toast.error('رصيد الإجازة السنوية لا يكفي لاعتماد هذا اليوم.');
@@ -552,9 +552,9 @@ export default function AttendanceResolutionCenter({
               return <>
                 {decision?.id === 'annual_leave' && <div className="mt-3 rounded-xl border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] p-3 text-xs font-bold text-[var(--dawaa-status-info-text)]">
                   {annualLeavePreviewLoading ? 'جارٍ حساب استهلاك الإجازة السنوية...' : annualLeavePreviewError ? 'تعذر تحميل ملخص الرصيد. أغلق القرار وافتحه مرة أخرى.' : annualLeavePreview ? (
-                    annualLeavePreview.already_approved_for_date
-                      ? <>هذا اليوم مسجل بالفعل كإجازة سنوية. المستخدم في {annualLeavePreview.year}: <b>{annualLeavePreview.used_year}</b> يوم · المستخدم هذا الشهر: <b>{annualLeavePreview.used_month}</b> يوم{annualLeavePreview.balance != null ? <> · المتبقي: <b>{annualLeavePreview.balance}</b> يوم</> : null}.</>
-                      : <>بعد اعتماد هذا اليوم: المستخدم في {annualLeavePreview.year} يصبح <b>{annualLeavePreview.after_approval_used_year}</b> يوم، وفي نفس الشهر <b>{annualLeavePreview.after_approval_used_month}</b> يوم{annualLeavePreview.after_approval_balance != null ? <>، والمتبقي <b>{annualLeavePreview.after_approval_balance}</b> يوم</> : null}.</>
+                    annualLeavePreview.existing_request_status === 'approved'
+                      ? <>هذا اليوم مسجل بالفعل كإجازة سنوية. المستخدم سنويًا: <b>{annualLeavePreview.year_used}</b> يوم · المستخدم هذا الشهر: <b>{annualLeavePreview.calendar_month_used}</b> يوم{annualLeavePreview.year_balance != null ? <> · المتبقي: <b>{annualLeavePreview.year_balance}</b> يوم</> : null}.</>
+                      : <>قبل اعتماد هذا اليوم: المستخدم سنويًا <b>{annualLeavePreview.year_used}</b> يوم، وفي نفس الشهر <b>{annualLeavePreview.calendar_month_used}</b> يوم{annualLeavePreview.year_balance != null ? <>، والمتبقي الحالي <b>{annualLeavePreview.year_balance}</b> يوم</> : null}. بعد الاعتماد سيزيد الاستهلاك يومًا واحدًا. <span className="block mt-1 font-normal">دورة 26→25 الحالية: {annualLeavePreview.cycle_used} يوم مستخدم.</span></>
                   ) : 'جارٍ تجهيز ملخص الإجازة السنوية...'}
                 </div>}
                 {decision?.id === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review') && (
