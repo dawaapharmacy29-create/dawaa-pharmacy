@@ -1,6 +1,7 @@
 import { REVIEW_CRITERIA, type ReviewCriterionKey } from '@/lib/conversationReviews';
 import { extractIntroducedStaffName, type WhatsAppConversationSession } from '@/lib/whatsappConversationParser';
 import { extractConversationSignals } from '@/lib/whatsappConversationSignals';
+import { detectCommercialFrictionFactsV26 } from '@/lib/whatsappDeepConversationIntelligenceV26';
 
 export type ReviewSuggestionStatus = 'assessed' | 'not_applicable' | 'review_required';
 
@@ -115,6 +116,7 @@ export function buildOfficialReviewSuggestion(
   const outboundText = outbound.map((message) => message.text).join('\n');
   const allText = session.messages.map((message) => message.text).join('\n');
   const textConfidence = signals.deterministicConfidence;
+  const commercialFriction = detectCommercialFrictionFactsV26(session.messages);
   const items: WhatsAppReviewCriterionSuggestion[] = [];
 
   const firstInbound = inbound[0];
@@ -187,18 +189,26 @@ export function buildOfficialReviewSuggestion(
   items.push(suggestion('consultation_quality', 'review_required', null, 30, 'جودة الاستشارة تحتاج فهم الحالة الطبية ومحتوى النص/الصوت/الصور.'));
   items.push(suggestion('dosage_explanation', 'review_required', null, 30, 'شرح الجرعات يحتاج تحليل طبي دقيق ولا يعتمد على كلمات مفتاحية فقط.'));
 
-  const unavailable = findMessage(session, /مش موجود|مش متوفر|ناقص|هطلبه|هنوفر|بديل/i);
+  const unavailable = findMessage(session, /مش موجود|مش متوفر|ناقص|هطلبه|هنوفر|بديل/i, 'outbound');
   items.push(
     unavailable
-      ? suggestion('unavailable_items', 'review_required', null, 65, 'تم رصد إشارة لصنف غير متوفر/بديل، ويجب مراجعة جودة البديل أو التسجيل.', [unavailable.id])
-      : suggestion('unavailable_items', 'not_applicable', null, 78, 'لم يتم رصد حالة نقص/بديل واضحة في النص.')
+      ? suggestion('unavailable_items', 'review_required', null, 65, 'تم رصد إشارة من الصيدلية لصنف غير متوفر/بديل، ويجب مراجعة جودة البديل أو التسجيل.', [unavailable.id])
+      : suggestion('unavailable_items', 'not_applicable', null, 88, 'لم يتم رصد دليل من الصيدلية على نقص/بديل؛ سؤال العميل وحده لا يثبت عدم التوفر.')
   );
 
-  items.push(
-    signals.saleIntentDetected
-      ? suggestion('sales_closing', 'review_required', null, 55, 'توجد نية بيع، لكن جودة إغلاق الطلب تحتاج التحقق من اكتمال الطلب/الفاتورة.')
-      : suggestion('sales_closing', 'review_required', null, 45, 'لم يتم تأكيد وجود أو غياب فرصة بيع بشكل كافٍ للحكم الآلي.')
-  );
+  if (!signals.saleIntentDetected) {
+    items.push(suggestion('sales_closing', 'not_applicable', null, 85, 'لا توجد فرصة بيع مثبتة تجعل بند إغلاق البيع منطبقًا.'));
+  } else if (commercialFriction.closingResponsibility === 'customer') {
+    items.push(suggestion('sales_closing', 'not_applicable', null, 92, 'الصيدلية قدمت ردًا تجاريًا ولم يظهر رد لاحق من العميل؛ لا يُحتسب ذلك كفشل إغلاق على الموظف.'));
+  } else if (commercialFriction.closingResponsibility === 'inventory') {
+    items.push(suggestion('sales_closing', 'not_applicable', null, 94, 'العائق المثبت هو عدم توافر المخزون، وليس تقصيرًا مثبتًا في إغلاق البيع من الموظف.'));
+  } else if (commercialFriction.closingResponsibility === 'pharmacy') {
+    items.push(suggestion('sales_closing', 'review_required', null, 78, 'العميل أبدى قبولًا ولم يظهر تأكيد نهائي للأوردر؛ يحتاج مراجعة بشرية قبل أي خصم.'));
+  } else if (commercialFriction.chatClosed) {
+    items.push(suggestion('sales_closing', 'review_required', null, 75, 'ظهر إغلاق للمحادثة/الأوردر، لكن جودة الإغلاق وربطه بالفاتورة تحتاج مراجعة قبل الاعتماد.'));
+  } else {
+    items.push(suggestion('sales_closing', 'review_required', null, 50, 'توجد نية بيع لكن مسؤولية عدم الإغلاق غير محسومة من الدليل الحالي.'));
+  }
 
   items.push(
     signals.saleIntentDetected

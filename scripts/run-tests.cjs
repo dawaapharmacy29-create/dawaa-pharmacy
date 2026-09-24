@@ -257,6 +257,7 @@ const testFiles = [
   'src/lib/__tests__/whatsappConversationTimingV28.test.ts',
   'src/lib/__tests__/whatsappCustomerCaseEngineV22.test.ts',
   'src/lib/__tests__/whatsappDeepConversationIntelligenceV26.test.ts',
+  'src/lib/__tests__/whatsappReviewResponsibilityGuard.test.ts',
   'src/lib/__tests__/whatsappDelayAttributionV29.test.ts',
   'src/lib/__tests__/whatsappEvaluationConversationV31.test.ts',
   'src/lib/__tests__/whatsappExportCustomerHint.test.ts',
