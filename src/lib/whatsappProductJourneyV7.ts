@@ -168,7 +168,10 @@ function leakageFor(
   messages: WhatsAppParsedMessage[]
 ): { code: WhatsAppLeakageCodeV8 | null; reason: string | null } {
   const stages = new Set(events.map((e) => e.stage));
-  if (stages.has('order_confirmed') || stages.has('accepted')) return { code: null, reason: null };
+  if (stages.has('order_confirmed')) return { code: null, reason: null };
+  if (stages.has('accepted')) {
+    return { code: 'closing_gap', reason: 'العميل وافق على الصنف/الطلب لكن لم يظهر تأكيد نهائي للأوردر من الصيدلية.' };
+  }
 
   const inboundText = messages.filter((m) => m.direction === 'inbound').map((m) => m.text).join('\n');
   const allText = messages.map((m) => m.text).join('\n');
@@ -286,13 +289,14 @@ export function buildWhatsAppProductJourneyV7(
   const dominantLeakageReason = reasons.length
     ? [...new Set(reasons)].sort((a, b) => reasons.filter((r) => r === b).length - reasons.filter((r) => r === a).length)[0]
     : null;
-  const unresolvedProducts = journeys.filter((j) => ['unresolved','availability_confirmed','alternative_offered','recommended'].includes(j.currentStage)).length;
+  const unresolvedProducts = journeys.filter((j) => ['unresolved','availability_confirmed','alternative_offered','recommended','accepted'].includes(j.currentStage)).length;
   const followupProducts = journeys.filter((j) => j.followupCandidate).length;
   const chatClosedProducts = journeys.filter((j) => j.closedInChat).length;
 
   let nextBestCommercialAction = 'لا توجد فرصة بيع غير محسومة مثبتة من الأصناف المستخرجة.';
   if (journeys.some((j) => j.currentStage === 'unavailable' && j.leakageReason)) nextBestCommercialAction = 'ابدأ بالأصناف غير المتوفرة التي لم يُعرض لها بديل وسجّل طلب توفير عند الحاجة.';
   else if (journeys.some((j) => j.currentStage === 'alternative_offered')) nextBestCommercialAction = 'راجع البدائل المعروضة التي لم يحسمها العميل وتابع قبولها.';
+  else if (journeys.some((j) => j.currentStage === 'accepted')) nextBestCommercialAction = 'راجع الطلبات التي وافق عليها العميل ولم يظهر لها تأكيد أوردر نهائي من الصيدلية.';
   else if (journeys.some((j) => j.currentStage === 'availability_confirmed')) nextBestCommercialAction = 'راجع الأصناف المتوفرة التي لم يتحول تأكيد توفرها إلى إغلاق أوردر.';
   else if (chatClosedProducts > 0) nextBestCommercialAction = 'طابق الأوردرات المغلقة مع الفواتير اليومية قبل احتساب التحويل البيعي.';
   else if (followupProducts > 0) nextBestCommercialAction = 'حوّل الترشيحات المقبولة إلى متابعات بعد الاستخدام.';

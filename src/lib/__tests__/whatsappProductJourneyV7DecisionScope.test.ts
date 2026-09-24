@@ -91,6 +91,9 @@ describe('WhatsApp Product Journey V7 — scoped customer decisions', () => {
     expect(journey.events.map((e) => e.stage)).toContain('accepted');
     expect(journey.currentStage).toBe('accepted');
     expect(journey.closedInChat).toBe(false);
+    expect(journey.leakageCode).toBe('closing_gap');
+    expect(result.unresolvedProducts).toBe(1);
+    expect(result.nextBestCommercialAction).toMatch(/تأكيد أوردر|تأكيد.*أوردر/);
   });
 
   it('does not count a generic acknowledgement before availability as acceptance', () => {
