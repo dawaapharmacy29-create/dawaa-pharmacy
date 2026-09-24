@@ -28,6 +28,7 @@ import type { SaleProofAssessment } from '../saleProofState';
 import type { QaCaseListRow, QaListFilters } from './types';
 import { rankProductCandidates } from '../../productMatching';
 import { resolveReviewSourceSnapshotLineage, selectCanonicalReviewSourceIds } from '../sourceSnapshotLineage';
+import { fetchInvoiceItemEvidenceProvider } from '../invoiceItemEvidenceRepository';
 
 const MAX_LIST_ROWS = 2000;
 
@@ -568,12 +569,18 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
           }));
         }
 
+        const itemEvidenceProvider = await fetchInvoiceItemEvidenceProvider(
+          supabaseClient,
+          freshCandidates
+        );
+
         const runLivePipeline = (
           competingSelections: Array<{ caseId: string; invoiceId: string }> = []
         ) => runSalesIntelligencePipeline({
           ...baseInput,
           competingSelections,
           resolveInvoiceCandidates: (context) => context.caseId === caseId ? freshCandidates : [],
+          itemEvidenceProvider,
         });
 
         let result = runLivePipeline([]);
