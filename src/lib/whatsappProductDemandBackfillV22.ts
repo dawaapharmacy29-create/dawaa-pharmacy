@@ -98,7 +98,7 @@ async function loadSources(options: ProductDemandBackfillOptionsV22): Promise<So
   const rows = (data || []) as SourceRow[];
   const filtered = options.force || options.sourceIds?.length
     ? rows
-    : rows.filter((row) => row.analysis_json?.productDemandVersion !== 'product-demand-v22');
+    : rows.filter((row) => row.analysis_json?.productDemandVersion !== 'product-demand-v22.1');
   return filtered.slice(0, limit);
 }
 
@@ -154,7 +154,7 @@ export async function runProductDemandBackfillV22(
         const nextAnalysis = {
           ...(source.analysis_json || {}),
           operational: JSON.parse(JSON.stringify(operational)),
-          productDemandVersion: 'product-demand-v22',
+          productDemandVersion: 'product-demand-v22.1',
           productDemandBackfilledAt: new Date().toISOString(),
         };
 
@@ -175,7 +175,7 @@ export async function runProductDemandBackfillV22(
         await syncWhatsAppEvidenceLedgerV17(session, {
           sourceId: source.id,
           operational,
-          analysisVersion: 'product-demand-v22',
+          analysisVersion: 'product-demand-v22.1',
           participantRoles: nextAnalysis.participantRoles,
         });
 
@@ -189,7 +189,7 @@ export async function runProductDemandBackfillV22(
           .from('whatsapp_sales_opportunities_v17')
           .delete()
           .eq('root_source_id', source.id)
-          .eq('analysis_version', 'product-demand-v22');
+          .eq('analysis_version', 'product-demand-v22.1');
         if (canonicalProductIds.length) staleQuery = staleQuery.not('product_id', 'in', '(' + canonicalProductIds.join(',') + ')');
         const { error: staleError } = await staleQuery;
         if (staleError) throw staleError;
