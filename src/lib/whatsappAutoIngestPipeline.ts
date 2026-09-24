@@ -260,7 +260,8 @@ async function saveSessionReview(
   if (existing?.id) return { sourceId: String(existing.id), duplicate: true as const };
 
   const summary = buildSmartConversationReviewSummary(session);
-  const staffName = session.outboundStaffNames[0] || null;
+  const staffName =
+    session.outboundStaffNames.length === 1 ? session.outboundStaffNames[0] : null;
 
   const { data, error } = await supabase
     .from('whatsapp_review_sources')
@@ -389,7 +390,8 @@ async function saveFollowupSignals(
     source_file_name: sourceFileName,
     conversation_session_id: session.id,
     branch: identity.branch,
-    doctor_name: session.outboundStaffNames[0] || null,
+    doctor_name:
+      session.outboundStaffNames.length === 1 ? session.outboundStaffNames[0] : null,
     customer_name: identity.customerName || session.customerName || 'غير معروف',
     customer_phone: identity.customerPhone,
     signal_type: signal.signalType,
@@ -450,7 +452,9 @@ async function persistOperationalJourneyIntelligence(
     customerName: identity.customerName,
     customerPhone: identity.customerPhone,
     staffId: sourceRow?.staff_id || null,
-    staffName: sourceRow?.staff_name || session.outboundStaffNames[0] || null,
+    staffName:
+      sourceRow?.staff_name ||
+      (session.outboundStaffNames.length === 1 ? session.outboundStaffNames[0] : null),
     createdBy: sourceRow?.created_by || null,
   });
 
