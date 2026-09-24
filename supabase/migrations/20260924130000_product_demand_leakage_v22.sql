@@ -89,3 +89,24 @@ select
 from base
 where leakage_code is not null
 group by cycle_start,cycle_end,branch,leakage_code;
+
+
+create or replace view public.whatsapp_product_demand_backfill_status_v22 as
+select
+  count(*) filter (where raw_text is not null and length(trim(raw_text)) > 0) as analyzable_sources,
+  count(*) filter (
+    where raw_text is not null and length(trim(raw_text)) > 0
+      and coalesce(analysis_json->>'productDemandVersion','') = 'product-demand-v22'
+  ) as analyzed_v22,
+  count(*) filter (
+    where raw_text is not null and length(trim(raw_text)) > 0
+      and coalesce(analysis_json->>'productDemandVersion','') <> 'product-demand-v22'
+  ) as remaining_sources,
+  round(
+    100.0 * count(*) filter (
+      where raw_text is not null and length(trim(raw_text)) > 0
+        and coalesce(analysis_json->>'productDemandVersion','') = 'product-demand-v22'
+    ) / nullif(count(*) filter (where raw_text is not null and length(trim(raw_text)) > 0),0),
+    1
+  ) as completion_percent
+from public.whatsapp_review_sources;
