@@ -125,6 +125,23 @@ function deriveCaseForInteraction(
   const humanReviewReasons: string[] = [];
   let level: ConfidenceLevel = hasRequest ? (hasCommercialSignal ? 'strongly_inferred' : 'weakly_inferred') : 'proven';
 
+  // Classification certainty can be 100% only when the conversation itself contains a complete,
+  // explicit commercial journey: a real request + product/commercial evidence + explicit customer
+  // acceptance + substantive confirmation/fulfillment intent, with no rejection conflict. This
+  // proves the CASE TYPE (sales opportunity), not the SALE itself and never upgrades SaleProof.
+  const explicitCommercialJourney =
+    hasRequest &&
+    hasCommercialSignal &&
+    acceptanceSignals.length > 0 &&
+    confirmationSignals.length > 0 &&
+    rejectionSignals.length === 0;
+
+  if (explicitCommercialJourney) {
+    level = 'proven';
+    score = 1;
+    ruleIds.push('case.classification.explicit_commercial_journey');
+  }
+
   if (hasUnresolvedMultipleRequests(messages, requestMessages)) {
     needsHumanReview = true;
     humanReviewReasons.push('possible_unsegmented_multiple_requests');
