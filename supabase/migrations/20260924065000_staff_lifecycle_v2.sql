@@ -250,7 +250,7 @@ begin
       if v_item.projection_applied_at is null then
         update public.hr_staff_lifecycle_changes_v2 set projection_applied_at=now() where id=v_item.id;
         perform public.add_staff_employment_event_v1(
-          v_item.staff_id,'lifecycle_active',v_item.effective_from,'تفعيل الموظف',v_item.reason,
+          v_item.staff_id,'status_change',v_item.effective_from,'تفعيل الموظف',v_item.reason,
           jsonb_build_object('status',v_item.previous_staff_status,'active',v_item.previous_active),
           jsonb_build_object('status','نشط','active',true,'visible_in_schedule',true),
           'hr_lifecycle_v2',v_item.id::text);
@@ -264,7 +264,7 @@ begin
       if v_item.projection_applied_at is null then
         update public.hr_staff_lifecycle_changes_v2 set projection_applied_at=now() where id=v_item.id;
         perform public.add_staff_employment_event_v1(
-          v_item.staff_id,'lifecycle_leaving',v_item.effective_from,'بدء فترة مغادرة الموظف',v_item.reason,
+          v_item.staff_id,'status_change',v_item.effective_from,'بدء فترة مغادرة الموظف',v_item.reason,
           jsonb_build_object('status',v_item.previous_staff_status,'active',v_item.previous_active),
           jsonb_build_object('status','قيد المغادرة','last_working_date',v_item.last_working_date,'separation_kind',v_item.separation_kind),
           'hr_lifecycle_v2',v_item.id::text||':leaving');
@@ -289,7 +289,7 @@ begin
       if v_item.offboarding_applied_at is null then
         update public.hr_staff_lifecycle_changes_v2 set offboarding_applied_at=now() where id=v_item.id;
         perform public.add_staff_employment_event_v1(
-          v_item.staff_id,'lifecycle_archived',
+          v_item.staff_id,'status_change',
           case when v_item.target_state='leaving' then v_item.last_working_date+1 else v_item.effective_from end,
           'أرشفة الموظف وإنهاء الظهور التشغيلي',v_item.reason,
           jsonb_build_object('status',v_item.current_status,'active',v_item.current_active,'visible_in_schedule',v_item.current_visible),
