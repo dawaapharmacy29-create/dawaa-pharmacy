@@ -48,6 +48,13 @@ function laneMeta(lane: AttendanceExceptionLane) {
   };
 }
 
+const REVIEW_REASONS: Record<string, string[]> = {
+  absence: ['إجازة معتمدة بعد مراجعة الطلب', 'مأمورية أو عمل خارج الفرع مثبت', 'غياب مؤكد بعد مراجعة المدير'],
+  missing_punch: ['نسيان بصمة الدخول بعد التحقق', 'نسيان بصمة الخروج بعد التحقق', 'عطل جهاز البصمة مثبت', 'تم التحقق من سجل الفرع والمدير'],
+  schedule: ['جدول العمل مختلف عن المسجل', 'تغيير وردية بموافقة المدير', 'عمل بفرع آخر مثبت'],
+};
+const COMMON_REASONS = ['تم التحقق من مدير الفرع', 'تعديل وردية معتمد', 'عمل بفرع آخر مثبت', 'عطل جهاز البصمة مثبت', 'إجازة معتمدة', 'بصمة مكررة أو خاطئة'];
+
 export default function AttendanceResolutionCenter({
   defaultBranch = 'الكل',
   initialDate = null,
@@ -67,6 +74,7 @@ export default function AttendanceResolutionCenter({
   const [selected, setSelected] = useState<AttendanceExceptionRow | null>(null);
   const [profileStaffId, setProfileStaffId] = useState<string | null>(null);
   const [note, setNote] = useState('');
+  const [reason, setReason] = useState('');
   const [hours, setHours] = useState('');
   const [approving, setApproving] = useState(false);
 
@@ -124,8 +132,9 @@ export default function AttendanceResolutionCenter({
       toast.warning('هذه مشكلة نظام وليست قرار موظف. أصلح السبب النظامي أولًا.');
       return;
     }
-    if (!note.trim()) {
-      toast.warning('اكتب سبب القرار حتى يظل الاعتماد قابلًا للمراجعة.');
+    const decisionNote = [reason, note.trim()].filter(Boolean).join(' — ');
+    if (!decisionNote) {
+      toast.warning('اختر سبب القرار أو اكتبه حتى يظل الاعتماد قابلًا للمراجعة.');
       return;
     }
     const parsedHours = hours.trim() === '' ? null : Number(hours);
@@ -140,11 +149,12 @@ export default function AttendanceResolutionCenter({
         staffId: selected.staff_id,
         date: selected.attendance_date,
         payrollEligibleHours: parsedHours,
-        note: note.trim(),
+        note: decisionNote,
       });
       toast.success('تم اعتماد قرار الحضور وحفظ السبب في سجل المراجعة.');
       setSelected(null);
       setNote('');
+      setReason('');
       setHours('');
       await load();
     } catch (error) {
@@ -256,7 +266,7 @@ export default function AttendanceResolutionCenter({
                   <td className="p-3 font-black">{row.candidate_hours == null ? '-' : row.candidate_hours.toFixed(2)}</td>
                   <td className="p-3">
                     {row.queue_lane === 'manager'
-                      ? <button onClick={() => { setSelected(row); setHours(row.candidate_hours == null ? '' : String(row.candidate_hours)); setNote(''); }} className="btn-secondary text-xs">اتخاذ قرار</button>
+                      ? <button onClick={() => { setSelected(row); setHours(row.candidate_hours == null ? '' : String(row.candidate_hours)); setNote(''); setReason(''); }} className="btn-secondary text-xs">اتخاذ قرار</button>
                       : <span className="rounded-full border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] px-2 py-1 text-[11px] font-black text-[var(--dawaa-status-info-text)]">إصلاح نظامي</span>}
                   </td>
                 </tr>
@@ -292,12 +302,20 @@ export default function AttendanceResolutionCenter({
               <input value={hours} onChange={(e) => setHours(e.target.value)} type="number" min="0" max="18" step="0.01" className="input-dark mt-1 w-full" />
             </label>
             <label className="mt-3 block text-xs font-black text-[var(--dawaa-theme-muted)]">
-              سبب القرار
-              <textarea value={note} onChange={(e) => setNote(e.target.value)} className="input-dark mt-1 min-h-24 w-full" placeholder="مثال: تم التحقق من مدير الفرع وسجل البصمات..." />
+              سبب شائع (اختياري)
+              <select value={reason} onChange={(e) => setReason(e.target.value)} className="input-dark mt-1 w-full">
+                <option value="">اختر سببًا أو اكتب سببًا آخر</option>
+                {[...new Set([...(REVIEW_REASONS[selected.issue_group] || []), ...COMMON_REASONS])].map((item) => <option key={item} value={item}>{item}</option>)}
+              </select>
             </label>
+            <label className="mt-3 block text-xs font-black text-[var(--dawaa-theme-muted)]">
+              تفاصيل أو سبب آخر (اختياري مع اختيار سبب)
+              <textarea value={note} onChange={(e) => setNote(e.target.value)} className="input-dark mt-1 min-h-24 w-full" placeholder="اكتب تفاصيل التحقق أو سببًا غير موجود في القائمة..." />
+            </label>
+            <p className="mt-2 text-xs text-[var(--dawaa-theme-muted)]">اختر السبب بعد التحقق من الدليل؛ الساعات تُراجع منفصلة ولا تُحدد تلقائيًا من السبب.</p>
             <div className="mt-4 flex gap-2">
               <button onClick={() => void approveSelected()} disabled={approving} className="btn-primary flex-1">اعتماد موثق</button>
-              <button onClick={() => { setSelected(null); setNote(''); setHours(''); }} className="btn-secondary">إلغاء</button>
+              <button onClick={() => { setSelected(null); setNote(''); setReason(''); setHours(''); }} className="btn-secondary">إلغاء</button>
             </div>
           </div>
         </div>
