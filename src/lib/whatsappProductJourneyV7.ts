@@ -34,6 +34,14 @@ export type WhatsAppLeakageCodeV8 =
   | 'customer_rejected'
   | 'unknown';
 
+export type WhatsAppLeakageResponsibilityV8 =
+  | 'pharmacy'
+  | 'customer'
+  | 'inventory'
+  | 'process'
+  | 'mixed'
+  | 'unknown';
+
 export interface WhatsAppProductJourneyV7 {
   productName: string;
   productCode: string | null;
@@ -46,6 +54,8 @@ export interface WhatsAppProductJourneyV7 {
   followupCandidate: boolean;
   leakageReason: string | null;
   leakageCode?: WhatsAppLeakageCodeV8 | null;
+  leakageResponsibility?: WhatsAppLeakageResponsibilityV8;
+  responsibilityNote?: string | null;
   nextAction: string;
   confidence: number;
 }
@@ -152,17 +162,73 @@ function currentStage(events: WhatsAppProductJourneyEventV7[], followupCandidate
   return 'mentioned';
 }
 
-function firstResponseDelayMinutes(messages: WhatsAppParsedMessage[]) {
-  for (let i = 0; i < messages.length; i += 1) {
-    if (messages[i].direction !== 'inbound') continue;
-    const reply = messages.slice(i + 1).find((m) => m.direction === 'outbound');
-    if (!reply) continue;
-    return Math.max(0, (reply.timestamp.getTime() - messages[i].timestamp.getTime()) / 60000);
+function productResponseDelayMinutes(
+  session: WhatsAppConversationSession,
+  product: WhatsAppProductSignal
+) {
+  const evidenceIndexes = session.messages
+    .map((message, index) =>
+      product.evidenceMessageIds.includes(message.id) && message.direction === 'inbound' ? index : -1
+    )
+    .filter((index) => index >= 0);
+  if (!evidenceIndexes.length) return null;
+
+  const requestIndex = Math.min(...evidenceIndexes);
+  const request = session.messages[requestIndex];
+  const reply = session.messages.slice(requestIndex + 1).find((message) => message.direction === 'outbound');
+  if (!reply) return null;
+  return Math.max(0, (reply.timestamp.getTime() - request.timestamp.getTime()) / 60000);
+}
+
+function customerStayedSilentAfterPharmacyAction(
+  session: WhatsAppConversationSession,
+  product: WhatsAppProductSignal
+) {
+  const evidenceIndexes = session.messages
+    .map((message, index) => product.evidenceMessageIds.includes(message.id) ? index : -1)
+    .filter((index) => index >= 0);
+  if (!evidenceIndexes.length) return false;
+
+  const firstEvidenceIndex = Math.min(...evidenceIndexes);
+  let lastRelevantOutboundIndex = -1;
+  for (let index = firstEvidenceIndex; index < session.messages.length; index += 1) {
+    const message = session.messages[index];
+    if (
+      message.direction === 'outbound' &&
+      (AVAILABLE_RX.test(message.text) || ALTERNATIVE_RX.test(message.text) || product.evidenceMessageIds.includes(message.id))
+    ) {
+      lastRelevantOutboundIndex = index;
+    }
   }
-  return null;
+  if (lastRelevantOutboundIndex < 0) return false;
+  return !session.messages.slice(lastRelevantOutboundIndex + 1).some((message) => message.direction === 'inbound');
+}
+
+function responsibilityForLeakage(code: WhatsAppLeakageCodeV8 | null): {
+  responsibility: WhatsAppLeakageResponsibilityV8;
+  note: string | null;
+} {
+  switch (code) {
+    case 'closing_gap':
+    case 'response_delay':
+      return { responsibility: 'pharmacy', note: 'يوجد إجراء تشغيلي مطلوب من الصيدلية قبل اعتبار الفرصة محسومة.' };
+    case 'customer_no_reply':
+    case 'customer_rejected':
+    case 'price_objection':
+      return { responsibility: 'customer', note: 'السبب الأساسي الظاهر من الأدلة مرتبط بقرار/استجابة العميل، وليس خطأ موظف مثبتًا.' };
+    case 'stock_unavailable':
+      return { responsibility: 'inventory', note: 'العائق المثبت هو توافر المخزون؛ لا يُنسب تلقائيًا لموظف بعينه.' };
+    case 'delivery_issue':
+      return { responsibility: 'process', note: 'المشكلة تشغيلية في التنفيذ/التوصيل وتحتاج تحديد المسؤولية يدويًا.' };
+    case 'recommendation_pending':
+      return { responsibility: 'mixed', note: 'تم عرض بديل/ترشيح لكن القرار النهائي لم يُحسم؛ لا توجد مسؤولية فردية مثبتة.' };
+    default:
+      return { responsibility: 'unknown', note: null };
+  }
 }
 
 function leakageFor(
+  session: WhatsAppConversationSession,
   events: WhatsAppProductJourneyEventV7[],
   product: WhatsAppProductSignal,
   messages: WhatsAppParsedMessage[]
@@ -175,7 +241,8 @@ function leakageFor(
 
   const inboundText = messages.filter((m) => m.direction === 'inbound').map((m) => m.text).join('\n');
   const allText = messages.map((m) => m.text).join('\n');
-  const delay = firstResponseDelayMinutes(messages);
+  const delay = productResponseDelayMinutes(session, product);
+  const customerSilent = customerStayedSilentAfterPharmacyAction(session, product);
 
   if (stages.has('unavailable') && !stages.has('alternative_offered')) {
     return { code: 'stock_unavailable', reason: 'الصنف غير متوفر ولم يظهر عرض بديل واضح.' };
@@ -198,11 +265,11 @@ function leakageFor(
   if (stages.has('alternative_offered') || stages.has('recommended')) {
     return { code: 'recommendation_pending', reason: 'تم عرض بديل أو ترشيح ولم يظهر قرار نهائي من العميل.' };
   }
+  if (customerSilent && (stages.has('availability_confirmed') || stages.has('alternative_offered'))) {
+    return { code: 'customer_no_reply', reason: 'الصيدلية ردت على طلب الصنف ولم يظهر رد لاحق من العميل.' };
+  }
   if (stages.has('availability_confirmed') && !stages.has('order_confirmed')) {
     return { code: 'closing_gap', reason: 'الصنف كان متاحًا وظهرت نية شراء، لكن لم يظهر إغلاق واضح للعملية البيعية.' };
-  }
-  if (messages.some((m) => m.direction === 'outbound') && !messages.slice().reverse().some((m) => m.direction === 'inbound')) {
-    return { code: 'customer_no_reply', reason: 'لم يظهر رد من العميل بعد آخر تواصل من الصيدلية.' };
   }
   if (product.status === 'requested') {
     return { code: 'unknown', reason: 'طلب العميل لم يصل إلى نتيجة بيع أو رفض واضحة، والسبب غير محسوم من الأدلة الحالية.' };
@@ -262,7 +329,8 @@ export function buildWhatsAppProductJourneyV7(
     if (closed.length) events.push(event('order_confirmed', closed, 91, 'ظهر إغلاق/تأكيد للأوردر داخل المحادثة.'));
 
     const followupCandidate = Boolean(matchingRecommendation?.accepted === true);
-    const leakage = leakageFor(events, product, messages);
+    const leakage = leakageFor(session, events, product, messages);
+    const responsibility = responsibilityForLeakage(leakage.code);
     const leakageReason = leakage.reason;
     const stage = currentStage(events, followupCandidate);
     const confidence = Math.round(Math.min(98, Math.max(product.confidence, ...events.map((e) => e.confidence), 55)));
@@ -279,6 +347,8 @@ export function buildWhatsAppProductJourneyV7(
       followupCandidate,
       leakageReason,
       leakageCode: leakage.code,
+      leakageResponsibility: responsibility.responsibility,
+      responsibilityNote: responsibility.note,
       nextAction: nextActionFor(events, leakageReason, followupCandidate),
       confidence,
     } satisfies WhatsAppProductJourneyV7;

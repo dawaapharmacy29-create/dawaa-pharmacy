@@ -179,4 +179,64 @@ describe('WhatsApp Product Journey V7 — scoped customer decisions', () => {
     expect(journey.leakageCode).toBe('recommendation_pending');
   });
 
+  it('attributes customer silence after availability to the customer, not pharmacy closing', () => {
+    const messages = [
+      msg('m1', 0, 'inbound', 'Isis teenderm gel موجود؟'),
+      msg('m2', 1, 'outbound', 'موجود يا فندم والسعر 250 جنيه'),
+    ];
+    const result = buildWhatsAppProductJourneyV7(session(messages), operational('m1'));
+    const journey = result.journeys[0];
+
+    expect(journey.leakageCode).toBe('customer_no_reply');
+    expect(journey.leakageResponsibility).toBe('customer');
+  });
+
+  it('attributes accepted-but-not-confirmed closing gap to pharmacy action', () => {
+    const messages = [
+      msg('m1', 0, 'inbound', 'Isis teenderm gel'),
+      msg('m2', 1, 'outbound', 'موجود يا فندم'),
+      msg('m3', 2, 'inbound', 'ابعته'),
+    ];
+    const result = buildWhatsAppProductJourneyV7(session(messages), operational('m1'));
+    const journey = result.journeys[0];
+
+    expect(journey.leakageCode).toBe('closing_gap');
+    expect(journey.leakageResponsibility).toBe('pharmacy');
+  });
+
+  it('measures response delay from the actual product request, not an older unrelated inbound message', () => {
+    const messages = [
+      msg('m0', 0, 'inbound', 'مساء الخير'),
+      msg('m0r', 20, 'outbound', 'مساء النور'),
+      msg('m1', 21, 'inbound', 'Isis teenderm gel موجود؟'),
+      msg('m2', 22, 'outbound', 'موجود يا فندم'),
+    ];
+    const result = buildWhatsAppProductJourneyV7(session(messages), operational('m1'));
+    const journey = result.journeys[0];
+
+    expect(journey.leakageCode).not.toBe('response_delay');
+  });
+
+  it('attributes a real delayed response to the pharmacy', () => {
+    const messages = [
+      msg('m1', 0, 'inbound', 'Isis teenderm gel موجود؟'),
+      msg('m2', 15, 'outbound', 'موجود يا فندم'),
+      msg('m3', 16, 'inbound', 'تمام شكرا'),
+    ];
+    const result = buildWhatsAppProductJourneyV7(session(messages), operational('m1'));
+    const journey = result.journeys[0];
+
+    expect(journey.leakageCode).toBe('response_delay');
+    expect(journey.leakageResponsibility).toBe('pharmacy');
+  });
+
+  it('attributes stockout to inventory rather than an individual employee', () => {
+    const messages = [
+      msg('m1', 0, 'inbound', 'Isis teenderm gel موجود؟'),
+      msg('m2', 1, 'outbound', 'للأسف مش موجود حاليا'),
+    ];
+    const result = buildWhatsAppProductJourneyV7(session(messages), operational('m1'));
+    expect(result.journeys[0].leakageResponsibility).toBe('inventory');
+  });
+
 });
