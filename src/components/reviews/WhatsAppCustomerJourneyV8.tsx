@@ -45,7 +45,7 @@ const intentLabel: Record<string,string> = {
   complaint:'شكوى', doctor_recommendation:'ترشيح دكتور', delivery_issue:'مشكلة توصيل', followup_response:'رد متابعة', general_service:'خدمة عامة', other:'أخرى'
 };
 const outcomeLabel: Record<string,string> = {
-  completed_sale:'بيع مؤكد', probable_sale:'بيع محتمل', no_sale:'بدون بيع', needs_followup:'تحتاج متابعة', unresolved_request:'طلب غير محسوم',
+  completed_sale:'بيع غير مثبت رسميًا', probable_sale:'بيع محتمل', no_sale:'بدون بيع', needs_followup:'تحتاج متابعة', unresolved_request:'طلب غير محسوم',
   complaint_resolved:'شكوى محلولة', complaint_unresolved:'شكوى مفتوحة', consultation_only:'استشارة فقط', checkin_complete:'اطمئنان مكتمل', unknown:'غير محسومة'
 };
 
@@ -108,7 +108,7 @@ export default function WhatsAppCustomerJourneyV8({ customerCode, customerName }
     const complaintOpen = sources.some((s) => s.analysis_json?.operational?.operationalOutcome === 'complaint_unresolved');
     const unresolvedRequest = sources.some((s) => s.analysis_json?.operational?.operationalOutcome === 'unresolved_request');
     const acceptedRecommendation = sources.some((s) => Array.isArray(s.analysis_json?.operational?.recommendations) && s.analysis_json.operational.recommendations.some((r:any) => r.accepted === true));
-    const verifiedSales = sources.filter((s) => s.invoice_match_status === 'verified');
+    const verifiedSales: SourceRow[] = []; // Legacy invoice matcher is not canonical sale proof.
     const revenue = verifiedSales.reduce((sum,s) => sum + Number(s.matched_invoice_value || 0),0);
     let next = 'لا يوجد إجراء عاجل مثبت حاليًا.';
     if (complaintOpen) next = 'الأولوية: متابعة الشكوى المفتوحة والتأكد من حلها ورضا العميل.';
@@ -144,12 +144,12 @@ export default function WhatsAppCustomerJourneyV8({ customerCode, customerName }
     <div className="mt-4 space-y-2">
       {sources.map((s,index) => {
         const op = s.analysis_json?.operational || {};
-        const isSale = s.invoice_match_status === 'verified';
+        const isSale = false; // Never infer a sale from the legacy statistical matcher.
         const linkedActions = actions.filter((a) => a.source_id === s.id);
         return <div key={s.id} className="rounded-2xl border border-slate-800 bg-slate-950/35 p-3">
           <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
             <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2 text-sm"><span className="font-black text-white">{index+1}. {intentLabel[op.primaryIntent] || op.primaryIntent || 'محادثة'}</span><span className="text-slate-500">→</span><span className={isSale?'text-emerald-300':'text-cyan-300'}>{isSale ? 'بيع مؤكد' : outcomeLabel[op.operationalOutcome] || op.operationalOutcome || 'غير محسومة'}</span></div>
+              <div className="flex flex-wrap items-center gap-2 text-sm"><span className="font-black text-white">{index+1}. {intentLabel[op.primaryIntent] || op.primaryIntent || 'محادثة'}</span><span className="text-slate-500">→</span><span className={isSale?'text-emerald-300':'text-cyan-300'}>{isSale ? 'بيع غير مثبت رسميًا' : outcomeLabel[op.operationalOutcome] || op.operationalOutcome || 'غير محسومة'}</span></div>
               <div className="mt-1 text-xs text-slate-500">{formatDate(s.conversation_started_at)} • {s.staff_name || 'الدكتور غير محدد'} • {s.branch || '—'}</div>
               {op.nextBestAction ? <div className="mt-2 text-xs leading-6 text-slate-300">{op.nextBestAction}</div> : null}
               {linkedActions.length ? <div className="mt-2 flex flex-wrap gap-1">{linkedActions.map((a) => <span key={a.id} className={`rounded-lg px-2 py-1 text-[10px] font-bold ${a.status==='created'?'bg-emerald-500/10 text-emerald-200':'bg-amber-500/10 text-amber-200'}`}>{a.product_name ? `${a.product_name} • ` : ''}{a.action_type} • {a.status}</span>)}</div> : null}
