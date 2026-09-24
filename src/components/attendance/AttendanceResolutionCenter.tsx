@@ -57,6 +57,15 @@ function fmt(value?: string | null) {
   });
 }
 
+function arabicWeekday(value: string) {
+  const date = new Date(`${value}T12:00:00Z`);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat('ar-EG', {
+    timeZone: 'Africa/Cairo',
+    weekday: 'long',
+  }).format(date);
+}
+
 function toCairoDateTimeLocal(value?: string | null) {
   if (!value) return '';
   const date = new Date(value);
@@ -115,6 +124,19 @@ const TIME_DECISIONS: Decision[] = [
   { id: 'custom', label: 'سبب آخر (اكتب التفاصيل)' },
 ];
 
+const BULK_SAFE_DECISION_IDS = new Set([
+  'annual_leave',
+  'sick_leave',
+  'exceptional_leave',
+  'approved_absence',
+  'absence_deduction',
+  'outside_work',
+  'custom',
+  'device_fault',
+  'cross_branch',
+  'time_deduction',
+]);
+
 function decisionsFor(row: AttendanceExceptionRow): Decision[] {
   if (row.issue_group === 'absence' || row.resolution_status === 'absence_review') return ABSENCE_DECISIONS;
   if (row.resolution_status === 'missing_checkin') return PUNCH_DECISIONS.filter((item) => item.id !== 'forgot_out');
@@ -169,6 +191,11 @@ export default function AttendanceResolutionCenter({
   const [applyMissingPunchPenalty, setApplyMissingPunchPenalty] = useState(false);
   const [hours, setHours] = useState('');
   const [approving, setApproving] = useState(false);
+  const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(() => new Set());
+  const [bulkDecision, setBulkDecision] = useState('');
+  const [bulkNote, setBulkNote] = useState('');
+  const [bulkMultiplier, setBulkMultiplier] = useState('');
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   useEffect(() => {
     setLane(initialTriage);
@@ -351,6 +378,30 @@ export default function AttendanceResolutionCenter({
     if (categoryTab === 'system') return row.queue_lane === 'system';
     return true;
   });
+  const selectedRows = useMemo(
+    () => displayRows.filter((row) => selectedRowIds.has(row.id) && row.queue_lane === 'manager'),
+    [displayRows, selectedRowIds]
+  );
+  const selectableRows = useMemo(
+    () => displayRows.filter((row) => row.queue_lane === 'manager'),
+    [displayRows]
+  );
+  const allVisibleSelected = selectableRows.length > 0 && selectableRows.every((row) => selectedRowIds.has(row.id));
+  const commonBulkDecisions = useMemo(() => {
+    if (!selectedRows.length) return [] as Decision[];
+    const first = decisionsFor(selectedRows[0]).filter((decision) => BULK_SAFE_DECISION_IDS.has(decision.id));
+    return first.filter((decision) =>
+      selectedRows.every((row) => decisionsFor(row).some((candidate) => candidate.id === decision.id))
+    );
+  }, [selectedRows]);
+
+  useEffect(() => {
+    if (bulkDecision && !commonBulkDecisions.some((decision) => decision.id === bulkDecision)) {
+      setBulkDecision('');
+      setBulkMultiplier('');
+    }
+  }, [bulkDecision, commonBulkDecisions]);
+
   const totals = useMemo(() => ({
     total: visibleRows.length,
     manager: visibleRows.filter((row) => row.queue_lane === 'manager').length,
@@ -612,6 +663,86 @@ export default function AttendanceResolutionCenter({
     }
   }
 
+  async function approveBulkSelected() {
+    if (!selectedRows.length) {
+      toast.warning('حدد حالة واحدة على الأقل تحتاج قرار مدير.');
+      return;
+    }
+    const decision = commonBulkDecisions.find((item) => item.id === bulkDecision);
+    if (!decision) {
+      toast.warning('اختر قرارًا جماعيًا متاحًا لكل الحالات المحددة.');
+      return;
+    }
+    if (['custom', 'outside_work'].includes(decision.id) && !bulkNote.trim()) {
+      toast.warning('اكتب ملاحظة موحدة توضح سبب القرار للحالات المحددة.');
+      return;
+    }
+    if (decision.financial && !['1', '2', '4'].includes(bulkMultiplier)) {
+      toast.warning('حدد معامل الخصم المقترح قبل التنفيذ الجماعي.');
+      return;
+    }
+    if (!window.confirm(`سيتم تطبيق "${decision.label}" على ${selectedRows.length.toLocaleString('ar-EG')} حالة. كل حالة ستخضع لنفس فحوصات الصلاحية والسياسات. هل تريد المتابعة؟`)) {
+      return;
+    }
+
+    setBulkBusy(true);
+    let successCount = 0;
+    const failedIds = new Set<string>();
+    const failedNames: string[] = [];
+
+    for (const row of selectedRows) {
+      try {
+        if (decision.id === 'annual_leave') {
+          await resolveAnnualLeaveFromAttendanceV1({
+            staffId: row.staff_id,
+            date: row.attendance_date,
+            note: bulkNote.trim() || null,
+          });
+        } else if (['sick_leave', 'exceptional_leave', 'approved_absence'].includes(decision.id)) {
+          await approveAttendanceFullDayTimeOffV1({
+            staffId: row.staff_id,
+            date: row.attendance_date,
+            requestKind: decision.id as 'sick_leave' | 'exceptional_leave' | 'approved_absence',
+            note: bulkNote.trim() || null,
+          });
+        } else {
+          const decisionNote = [
+            `تصنيف مراجعة الحضور: ${decision.label}`,
+            decision.financial ? `معامل الخصم المقترح: ×${bulkMultiplier} (للمراجعة المالية فقط؛ لم يطبق خصم)` : '',
+            bulkNote.trim() ? `تفاصيل المدير: ${bulkNote.trim()}` : '',
+            `اعتماد جماعي موثق — ${arabicWeekday(row.attendance_date)} ${row.attendance_date}`,
+          ].filter(Boolean).join(' | ');
+
+          await approveAttendanceResolution({
+            staffId: row.staff_id,
+            date: row.attendance_date,
+            payrollEligibleHours: row.candidate_hours == null ? null : Number(row.candidate_hours),
+            note: decisionNote,
+          });
+        }
+        successCount += 1;
+      } catch (error) {
+        failedIds.add(row.id);
+        failedNames.push(row.staff_name);
+        console.warn('[attendance bulk approval] failed', row.id, error);
+      }
+    }
+
+    setSelectedRowIds(failedIds);
+    if (!failedIds.size) {
+      setBulkDecision('');
+      setBulkNote('');
+      setBulkMultiplier('');
+      toast.success(`تم اعتماد ${successCount.toLocaleString('ar-EG')} حالة بنجاح.`);
+    } else {
+      toast.warning(
+        `تم اعتماد ${successCount.toLocaleString('ar-EG')} حالة، وتعذر اعتماد ${failedIds.size.toLocaleString('ar-EG')} حالة. الحالات غير المعتمدة ما زالت محددة للمراجعة: ${failedNames.slice(0, 3).join('، ')}${failedNames.length > 3 ? '…' : ''}`
+      );
+    }
+    await load();
+    setBulkBusy(false);
+  }
+
   const currentLaneMeta = lane === 'system' ? laneMeta('system') : laneMeta('manager');
 
   return (
@@ -757,10 +888,98 @@ export default function AttendanceResolutionCenter({
 
       <AttendanceCorrectionReviewPanel branch={branch} />
 
+      <section className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-3 shadow-sm">
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-end">
+          <label className="flex items-center gap-2 text-xs font-black text-[var(--dawaa-theme-heading)]">
+            <input
+              type="checkbox"
+              checked={allVisibleSelected}
+              disabled={!selectableRows.length || bulkBusy}
+              onChange={(event) => {
+                setSelectedRowIds((current) => {
+                  const next = new Set(current);
+                  for (const row of selectableRows) {
+                    if (event.target.checked) next.add(row.id);
+                    else next.delete(row.id);
+                  }
+                  return next;
+                });
+              }}
+            />
+            تحديد كل الحالات الظاهرة التي تحتاج قرار مدير
+          </label>
+
+          <div className="text-xs font-bold text-[var(--dawaa-theme-muted)]">
+            المحدد: <b className="text-[var(--dawaa-theme-heading)]">{selectedRows.length.toLocaleString('ar-EG')}</b>
+          </div>
+
+          <label className="min-w-[260px] text-xs font-black text-[var(--dawaa-theme-muted)]">
+            القرار الجماعي
+            <select
+              value={bulkDecision}
+              disabled={!selectedRows.length || bulkBusy}
+              onChange={(event) => {
+                setBulkDecision(event.target.value);
+                setBulkMultiplier('');
+              }}
+              className="input-dark mt-1 w-full"
+            >
+              <option value="">اختر قرارًا مشتركًا للحالات المحددة</option>
+              {commonBulkDecisions.map((decision) => (
+                <option key={decision.id} value={decision.id}>{decision.label}</option>
+              ))}
+            </select>
+          </label>
+
+          {commonBulkDecisions.find((decision) => decision.id === bulkDecision)?.financial && (
+            <label className="text-xs font-black text-[var(--dawaa-theme-muted)]">
+              معامل الخصم المقترح
+              <select value={bulkMultiplier} onChange={(event) => setBulkMultiplier(event.target.value)} className="input-dark mt-1 block">
+                <option value="">اختر</option>
+                <option value="1">×1</option>
+                <option value="2">×2</option>
+                <option value="4">×4</option>
+              </select>
+            </label>
+          )}
+
+          <label className="min-w-[260px] flex-1 text-xs font-black text-[var(--dawaa-theme-muted)]">
+            ملاحظة موحدة
+            <input
+              value={bulkNote}
+              disabled={!selectedRows.length || bulkBusy}
+              onChange={(event) => setBulkNote(event.target.value)}
+              placeholder="اختياري — إجباري للسبب الآخر أو العمل خارج الفرع"
+              className="input-dark mt-1 w-full"
+            />
+          </label>
+
+          <button
+            type="button"
+            disabled={!selectedRows.length || !bulkDecision || bulkBusy}
+            onClick={() => void approveBulkSelected()}
+            className="btn-primary whitespace-nowrap"
+          >
+            <CheckCircle2 size={16} className={bulkBusy ? 'animate-pulse' : ''} />
+            اعتماد المحدد ({selectedRows.length.toLocaleString('ar-EG')})
+          </button>
+        </div>
+
+        {!!selectedRows.length && !commonBulkDecisions.length && (
+          <p className="mt-2 text-xs font-bold text-[var(--dawaa-status-warning-text)]">
+            الحالات المحددة لا تشترك في قرار جماعي آمن. اختر حالات من نفس النوع، أو راجعها فرديًا.
+          </p>
+        )}
+        <p className="mt-2 text-[10px] font-bold text-[var(--dawaa-theme-muted)]">
+          نسيان البصمة وتغيير يوم الراحة/الجدول لا يتمان جماعيًا لأن كل حالة تحتاج وقتًا أو اختيارًا فرديًا. أي حالة تفشل في الفحص تظل محددة للمراجعة.
+        </p>
+      </section>
+
       <section className="overflow-x-auto rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface shadow-sm">
         <table className="min-w-[1050px] w-full text-sm">
           <thead className="border-b border-[var(--dawaa-theme-border)] text-[var(--dawaa-theme-muted)]">
             <tr>
+              <th className="w-12 p-3 text-center">اختيار</th>
               <th className="p-3 text-right">الموظف</th>
               <th className="p-3 text-right">اليوم</th>
               <th className="p-3 text-right">نوع الحالة</th>
@@ -775,7 +994,23 @@ export default function AttendanceResolutionCenter({
             {!directoryLoading && visibleRows.map((row) => {
               const meta = laneMeta(row.queue_lane);
               return (
-                <tr key={row.id} className="border-b border-[var(--dawaa-theme-border)]/60 last:border-0">
+                <tr key={row.id} className={`border-b border-[var(--dawaa-theme-border)]/60 last:border-0 ${selectedRowIds.has(row.id) ? 'bg-[var(--dawaa-theme-primary-soft)]/30' : ''}`}>
+                  <td className="p-3 text-center">
+                    <input
+                      type="checkbox"
+                      checked={selectedRowIds.has(row.id)}
+                      disabled={row.queue_lane !== 'manager' || bulkBusy}
+                      aria-label={`اختيار حالة ${row.staff_name} بتاريخ ${row.attendance_date}`}
+                      onChange={(event) => {
+                        setSelectedRowIds((current) => {
+                          const next = new Set(current);
+                          if (event.target.checked) next.add(row.id);
+                          else next.delete(row.id);
+                          return next;
+                        });
+                      }}
+                    />
+                  </td>
                   <td className="p-3">
                     <button onClick={() => setProfileStaffId(row.staff_id)} className="text-right font-black text-[var(--dawaa-theme-heading)] hover:underline hover:text-[var(--dawaa-theme-primary-strong)]">
                       {row.staff_name}
@@ -783,7 +1018,10 @@ export default function AttendanceResolutionCenter({
                     <div className="text-xs text-[var(--dawaa-theme-muted)]">{row.branch || '-'}</div>
                     {formerIds.has(row.staff_id) && <div className="text-xs text-[var(--dawaa-status-warning-text)]">موظف سابق — راجع تاريخ آخر يوم عمل</div>}
                   </td>
-                  <td className="p-3 font-bold">{row.attendance_date}</td>
+                  <td className="p-3">
+                    <div className="font-black">{row.attendance_date}</div>
+                    <div className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">{arabicWeekday(row.attendance_date)}</div>
+                  </td>
                   <td className="p-3">
                     <div className="font-black text-[var(--dawaa-theme-heading)]">{row.issue_label}</div>
                     <div className="mt-1 text-[10px] font-bold text-[var(--dawaa-theme-muted)]">{row.issue_group}</div>
@@ -811,12 +1049,12 @@ export default function AttendanceResolutionCenter({
             })}
             {!displayRows.length && !loading && !directoryLoading && (
               <tr>
-                <td colSpan={8} className="p-8 text-center font-bold text-[var(--dawaa-theme-muted)]">
+                <td colSpan={9} className="p-8 text-center font-bold text-[var(--dawaa-theme-muted)]">
                   لا توجد حالات في هذا المسار خلال الفترة المحددة.
                 </td>
               </tr>
             )}
-            {directoryLoading && <tr><td colSpan={8} className="p-8 text-center">جارٍ التحقق من حالة الموظفين...</td></tr>}
+            {directoryLoading && <tr><td colSpan={9} className="p-8 text-center">جارٍ التحقق من حالة الموظفين...</td></tr>}
           </tbody>
         </table>
       </section>
