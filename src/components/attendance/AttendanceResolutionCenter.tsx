@@ -18,6 +18,11 @@ import {
   type StaffTimeOffRequest,
   type TimeOffKind,
 } from '@/lib/timeOffService';
+import {
+  getWeeklyOffSwapPreviewV1,
+  resolveWeeklyOffSwapFromAttendanceV1,
+  type WeeklyOffSwapPreviewV1,
+} from '@/lib/hr/canonicalScheduleService';
 import { useStaffDirectory } from '@/hooks/useStaffDirectory';
 
 function cairoDate(offsetDays = 0) {
@@ -118,6 +123,10 @@ export default function AttendanceResolutionCenter({
   const [annualLeavePreview, setAnnualLeavePreview] = useState<AnnualLeaveAttendancePreviewV1 | null>(null);
   const [annualLeavePreviewLoading, setAnnualLeavePreviewLoading] = useState(false);
   const [annualLeavePreviewError, setAnnualLeavePreviewError] = useState(false);
+  const [weeklyOffSwapPreview, setWeeklyOffSwapPreview] = useState<WeeklyOffSwapPreviewV1 | null>(null);
+  const [weeklyOffSwapLoading, setWeeklyOffSwapLoading] = useState(false);
+  const [weeklyOffSwapError, setWeeklyOffSwapError] = useState(false);
+  const [swapWithDate, setSwapWithDate] = useState('');
   const [hours, setHours] = useState('');
   const [approving, setApproving] = useState(false);
 
@@ -176,6 +185,35 @@ export default function AttendanceResolutionCenter({
       .then((preview) => { if (active) setAnnualLeavePreview(preview); })
       .catch(() => { if (active) setAnnualLeavePreviewError(true); })
       .finally(() => { if (active) setAnnualLeavePreviewLoading(false); });
+    return () => { active = false; };
+  }, [reason, selected]);
+
+  useEffect(() => {
+    const isWeeklyOffSwap = Boolean(
+      selected
+      && reason === 'shift_swap'
+      && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review')
+    );
+    if (!selected || !isWeeklyOffSwap) {
+      setWeeklyOffSwapPreview(null);
+      setWeeklyOffSwapLoading(false);
+      setWeeklyOffSwapError(false);
+      setSwapWithDate('');
+      return;
+    }
+    let active = true;
+    setWeeklyOffSwapLoading(true);
+    setWeeklyOffSwapError(false);
+    setWeeklyOffSwapPreview(null);
+    setSwapWithDate('');
+    void getWeeklyOffSwapPreviewV1(selected.staff_id, selected.attendance_date)
+      .then((preview) => {
+        if (!active) return;
+        setWeeklyOffSwapPreview(preview);
+        if (preview.off_day_candidates.length === 1) setSwapWithDate(preview.off_day_candidates[0].date);
+      })
+      .catch(() => { if (active) setWeeklyOffSwapError(true); })
+      .finally(() => { if (active) setWeeklyOffSwapLoading(false); });
     return () => { active = false; };
   }, [reason, selected]);
 
@@ -247,6 +285,52 @@ export default function AttendanceResolutionCenter({
           toast.error('رصيد الإجازة السنوية لا يكفي لاعتماد هذا اليوم.');
         } else if (message.includes('overlapping_approved_full_day_timeoff')) {
           toast.error('يوجد بالفعل إجازة أو غياب معتمد متداخل مع هذا اليوم.');
+        } else {
+          toast.error(message);
+        }
+      } finally {
+        setApproving(false);
+      }
+      return;
+    }
+
+    const isWeeklyOffSwap = decision.id === 'shift_swap'
+      && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review');
+    if (isWeeklyOffSwap) {
+      if (weeklyOffSwapLoading || weeklyOffSwapError || !weeklyOffSwapPreview) {
+        toast.error('تعذر تحميل أيام الراحة لهذا الأسبوع. أغلق القرار وافتحه مرة أخرى.');
+        return;
+      }
+      if (!swapWithDate) {
+        toast.warning('اختر يوم الراحة الأصلي الذي سيتم تبديله مع يوم الغياب الحالي.');
+        return;
+      }
+      setApproving(true);
+      try {
+        await resolveWeeklyOffSwapFromAttendanceV1({
+          staffId: selected.staff_id,
+          date: selected.attendance_date,
+          swapWithDate,
+          note: note.trim() || null,
+        });
+        const target = weeklyOffSwapPreview.off_day_candidates.find((item) => item.date === swapWithDate);
+        toast.success(`تم تغيير يوم الراحة: ${selected.attendance_date} أصبح راحة، و${target?.day_name || swapWithDate} أصبح يوم عمل، وتم تحديث حقيقة الحضور.`);
+        setSelected(null);
+        setNote('');
+        setReason('');
+        setMultiplier('');
+        setHours('');
+        setSwapWithDate('');
+        setWeeklyOffSwapPreview(null);
+        await load();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'تعذر تغيير يوم الراحة';
+        if (message.includes('target_must_be_existing_off_day')) {
+          toast.error('اليوم المختار لم يعد يوم الراحة المعتمد. أعد فتح القرار لتحديث الجدول.');
+        } else if (message.includes('existing_override_conflict')) {
+          toast.error('يوجد أكثر من تعديل جدول متعارض على أحد اليومين ويحتاج مراجعة الجدول أولًا.');
+        } else if (message.includes('conflicts_with_approved_time_off')) {
+          toast.error('أحد اليومين عليه إجازة أو غياب معتمد بالفعل، لذلك لا يمكن تبديل الراحة قبل مراجعة التعارض.');
         } else {
           toast.error(message);
         }
@@ -473,10 +557,29 @@ export default function AttendanceResolutionCenter({
                       : <>بعد اعتماد هذا اليوم: المستخدم في {annualLeavePreview.year} يصبح <b>{annualLeavePreview.after_approval_used_year}</b> يوم، وفي نفس الشهر <b>{annualLeavePreview.after_approval_used_month}</b> يوم{annualLeavePreview.after_approval_balance != null ? <>، والمتبقي <b>{annualLeavePreview.after_approval_balance}</b> يوم</> : null}.</>
                   ) : 'جارٍ تجهيز ملخص الإجازة السنوية...'}
                 </div>}
-                {decision?.requestKind && decision.id !== 'annual_leave' && <div className="mt-3 text-xs font-bold text-[var(--dawaa-theme-muted)]">
+                {decision?.id === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review') && (
+                  <div className="mt-3 rounded-xl border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] p-3 text-xs font-bold text-[var(--dawaa-status-info-text)]">
+                    {weeklyOffSwapLoading ? 'جارٍ تحميل يوم الراحة المعتمد لهذا الأسبوع...' : weeklyOffSwapError ? 'تعذر قراءة جدول الأسبوع. أغلق القرار وافتحه مرة أخرى.' : weeklyOffSwapPreview ? (
+                      weeklyOffSwapPreview.off_day_candidates.length ? <>
+                        <div>يوم الغياب الحالي <b>{selected.attendance_date}</b> سيتحول إلى يوم راحة.</div>
+                        <label className="mt-2 block">
+                          اختر يوم الراحة الأصلي الذي سيصبح يوم عمل
+                          <select value={swapWithDate} onChange={(e) => setSwapWithDate(e.target.value)} className="input-dark mt-1 w-full">
+                            <option value="">اختر يوم الراحة</option>
+                            {weeklyOffSwapPreview.off_day_candidates.map((item) => (
+                              <option key={item.date} value={item.date}>{item.day_name} — {item.date}</option>
+                            ))}
+                          </select>
+                        </label>
+                        {swapWithDate && <div className="mt-2 font-normal">سيتم نقل نفس مواعيد شيفت {selected.attendance_date} إلى يوم الراحة المختار، مع تسجيل Date Override لليومين وتحديث الحضور تلقائيًا.</div>}
+                      </> : 'لم أجد يوم راحة معتمدًا آخر داخل نفس الأسبوع يمكن التبديل معه.'
+                    ) : 'جارٍ تجهيز بيانات الأسبوع...'}
+                  </div>
+                )}
+                {decision?.requestKind && decision.id !== 'annual_leave' && !(decision.id === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review')) && <div className="mt-3 text-xs font-bold text-[var(--dawaa-theme-muted)]">
                   {requestsLoading ? 'جارٍ التحقق من الطلب المعتمد...' : requestsError ? 'تعذر التحقق من سجل الإجازات. أعد فتح القرار.' : linked ? `الطلب المعتمد المرتبط: ${linked.request_label || linked.request_kind} (${linked.id}). ${decision.requestKind === 'permission' ? 'راجع ساعات اليوم قبل الاعتماد.' : 'اضغط تحديث حقيقة الحضور من أعلى الصفحة بعد إغلاق القرار.'}` : <>لا يوجد طلب معتمد من هذا النوع لهذا اليوم. <a className="underline" href="/time-off">افتح الإجازات والغياب</a> لتسجيله واعتماده أولًا.</>}
                 </div>}
-                {decision?.schedule && <p className="mt-3 text-xs font-bold text-[var(--dawaa-status-warning-text)]">راجع تغيير الراحة أو الشيفت في الجدول ثم حدّث حقيقة الحضور؛ لا يُعتمد من هذه الشاشة مباشرة.</p>}
+                {decision?.schedule && !(decision.id === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review')) && <p className="mt-3 text-xs font-bold text-[var(--dawaa-status-warning-text)]">راجع تغيير الراحة أو الشيفت في الجدول ثم حدّث حقيقة الحضور؛ لا يُعتمد من هذه الشاشة مباشرة.</p>}
                 {decision?.financial && <label className="mt-3 block text-xs font-black text-[var(--dawaa-theme-muted)]">معامل الخصم المقترح للمراجعة المالية
                   <select value={multiplier} onChange={(e) => setMultiplier(e.target.value)} className="input-dark mt-1 w-full"><option value="">اختر المعامل</option><option value="1">×1</option><option value="2">×2</option><option value="4">×4</option></select>
                   <span className="mt-1 block font-normal">الغياب: المعامل المقترح لليوم. التأخير: المعامل المقترح لمدة التأخير. اختيار «إجازة بخصم» هنا لا ينشئ طلب إجازة؛ سجّلها في الإجازات والغياب إن كانت إجازة رسمية. لا يُحسب مبلغ ولا يُسجل خصم تلقائيًا؛ راجعه في الجزاءات والرواتب.</span>
@@ -489,8 +592,20 @@ export default function AttendanceResolutionCenter({
             </label>
             <p className="mt-2 text-xs text-[var(--dawaa-theme-muted)]">اختر السبب بعد التحقق من الدليل؛ الساعات تُراجع منفصلة ولا تُحدد تلقائيًا من السبب.</p>
             <div className="mt-4 flex gap-2">
-              <button onClick={() => void approveSelected()} disabled={approving || (reason === 'annual_leave' && annualLeavePreviewLoading)} className="btn-primary flex-1">{reason === 'annual_leave' ? 'اعتماد الإجازة السنوية وتسجيلها' : decisionsFor(selected).find((item) => item.id === reason)?.financial ? 'اعتماد الحضور وتوثيق اقتراح الخصم' : 'اعتماد موثق'}</button>
-              <button onClick={() => { setSelected(null); setNote(''); setReason(''); setMultiplier(''); setHours(''); }} className="btn-secondary">إلغاء</button>
+              <button
+                onClick={() => void approveSelected()}
+                disabled={approving || (reason === 'annual_leave' && annualLeavePreviewLoading) || (reason === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review') && weeklyOffSwapLoading)}
+                className="btn-primary flex-1"
+              >
+                {reason === 'annual_leave'
+                  ? 'اعتماد الإجازة السنوية وتسجيلها'
+                  : reason === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review')
+                    ? 'اعتماد تغيير يوم الراحة'
+                    : decisionsFor(selected).find((item) => item.id === reason)?.financial
+                      ? 'اعتماد الحضور وتوثيق اقتراح الخصم'
+                      : 'اعتماد موثق'}
+              </button>
+              <button onClick={() => { setSelected(null); setNote(''); setReason(''); setMultiplier(''); setHours(''); setSwapWithDate(''); setWeeklyOffSwapPreview(null); }} className="btn-secondary">إلغاء</button>
             </div>
           </div>
         </div>
