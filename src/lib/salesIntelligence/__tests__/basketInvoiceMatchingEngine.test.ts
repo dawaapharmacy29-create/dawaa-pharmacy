@@ -45,12 +45,17 @@ function basket(version: number, amount: number | null, status: CaseBasket['stat
   };
 }
 
-function item(productNameRaw: string, quantity: number | null, resolutionStatus: CaseBasketItem['resolutionStatus'] = 'proven'): CaseBasketItem {
+function item(
+  productNameRaw: string,
+  quantity: number | null,
+  resolutionStatus: CaseBasketItem['resolutionStatus'] = 'proven',
+  productId: string | null = null
+): CaseBasketItem {
   return {
     itemId: `item:${productNameRaw}`,
     basketId: 'basket:1',
     productNameRaw,
-    productId: null,
+    productId,
     quantity,
     unit: null,
     unitPrice: null,
@@ -150,6 +155,25 @@ describe('Basket <-> Invoice Matching Engine (Sales Intelligence Phase E) — Go
     expect(m.itemMatch).toBe('exact');
     expect(m.quantityMatch).toBe('exact');
     expect(m.overallMatch).toBe('exact');
+  });
+
+  it('7b. canonical products.id matches even when basket and invoice display names differ', () => {
+    const m = deriveBasketInvoiceMatch(
+      baseInput({
+        itemsByBasketId: { 'basket:1': [item('فيتامين د المكتوب في الشات', 2, 'proven', 'product-uuid-1')] },
+        itemEvidenceProvider: {
+          getItemsForInvoice: () => [{
+            productNameRaw: 'Vitamin D3 1000 IU',
+            productId: 'product-uuid-1',
+            productCode: 'P100',
+            quantity: 2,
+            lineTotal: 180,
+          }],
+        },
+      })
+    );
+    expect(m.itemMatch).toBe('exact');
+    expect(m.quantityMatch).toBe('exact');
   });
 
   it('8. a basket item missing from the invoice is reported as missing_item, never guessed silently', () => {
