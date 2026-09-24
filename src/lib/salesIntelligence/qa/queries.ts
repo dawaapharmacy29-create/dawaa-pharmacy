@@ -623,15 +623,50 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
   const persistedSaleProof = deriveSaleProofStateFromPersisted(caseId, analysisRow, attributionRow ?? null, matchRow ?? null);
   const saleProof = liveSaleProof ?? persistedSaleProof;
 
-  // Read-only catalog matching for reviewer visibility. This does NOT mutate Basket/SaleProof.
+  // Read-only catalog matching for reviewer visibility. Scope STRICTLY to the current Case.
+  // Prefer the active basket's own source messages/items; only fall back to messages inside this
+  // case interval when the legacy basket engine produced no item. Never scan the whole WhatsApp
+  // thread, otherwise a product mentioned in another morning/evening interaction leaks here.
   const catalogProductMatches: QaCaseDetailBundle['catalogProductMatches'] = [];
   const seenProductIds = new Set<string>();
-  const productBearingMessages = transcript
-    .filter((message) => message.direction === 'inbound' && /[A-Za-z]{3,}/.test(message.text))
+  const activeBasketItems = liveEvidence?.activeBasket
+    ? (liveEvidence.itemsByBasketId[liveEvidence.activeBasket.basketId] ?? [])
+    : [];
+  const basketPhrases = activeBasketItems
+    .map((item) => ({
+      sourceMessageId: item.sourceMessageId,
+      rawPhrase: String(item.productNameRaw || '').replace(/^\s*\[Forwarded\]\s*/i, '').trim(),
+    }))
+    .filter((item) => item.rawPhrase.length > 1);
+
+  const caseStartMs = new Date(
+    liveEvidence?.conversationCase.startedAt ?? analysisRow.case_started_at
+  ).getTime();
+  const caseEndMs = new Date(
+    liveEvidence?.conversationCase.endedAt ?? analysisRow.case_ended_at ?? analysisRow.case_started_at
+  ).getTime();
+  const fallbackPhrases = transcript
+    .filter((message) => {
+      const ts = message.timestamp.getTime();
+      return (
+        message.direction === 'inbound' &&
+        Number.isFinite(caseStartMs) &&
+        Number.isFinite(caseEndMs) &&
+        ts >= caseStartMs &&
+        ts <= caseEndMs &&
+        message.text.trim().length > 1
+      );
+    })
+    .map((message) => ({
+      sourceMessageId: message.sourceMessageId,
+      rawPhrase: message.text.replace(/^\s*\[Forwarded\]\s*/i, '').trim(),
+    }))
     .slice(0, 8);
 
+  const productBearingMessages = basketPhrases.length ? basketPhrases : fallbackPhrases;
+
   for (const message of productBearingMessages) {
-    const rawPhrase = message.text.replace(/^\s*\[Forwarded\]\s*/i, '').trim();
+    const rawPhrase = message.rawPhrase;
     const tokens = rawPhrase
       .toLowerCase()
       .replace(/[^a-z0-9\u0600-\u06ff\s]/gi, ' ')
