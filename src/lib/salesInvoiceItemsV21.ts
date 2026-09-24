@@ -27,6 +27,9 @@ export interface SalesInvoiceItemsImportResultV21 {
   parsed: number;
   saved: number;
   failed: number;
+  /** Rows now available to canonical Sales Intelligence as real line-item evidence. */
+  canonicalEvidenceRows: number;
+  /** Deprecated legacy counter. V17 is never promoted automatically anymore. */
   reconciledProductConversions: number;
 }
 
@@ -149,6 +152,25 @@ export function parseSalesInvoiceItemsV21(buffer: ArrayBuffer, fallbackBranch: s
   return { rows, detectedSheets, warnings };
 }
 
+function normalizeBranch(value: unknown) {
+  const v = normalize(value);
+  if (/شكري|shokry|shoukry/.test(v)) return 'فرع شكري';
+  if (/شامي|الشامي|shamy|shami/.test(v)) return 'فرع الشامي';
+  return v;
+}
+
+function isoDay(value: string | null | undefined) {
+  if (!value) return '';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value).slice(0, 10) : date.toISOString().slice(0, 10);
+}
+
+function chunk<T>(values: T[], size = 100): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < values.length; i += size) out.push(values.slice(i, i + size));
+  return out;
+}
+
 async function sha256(value: string) {
   if (typeof crypto !== 'undefined' && crypto.subtle && typeof TextEncoder !== 'undefined') {
     const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
@@ -162,6 +184,120 @@ async function sha256(value: string) {
 export async function importSalesInvoiceItemsV21(
   rows: RawSalesInvoiceItemV21[],
   params: { sourceFile?: string | null; importBatch?: string | null; createdBy?: string | null },
+): Promise<SalesInvoiceItemsImportResultV21> {
+  if (!rows.length) {
+    return { parsed: 0, saved: 0, failed: 0, canonicalEvidenceRows: 0, reconciledProductConversions: 0 };
+  }
+
+  // Resolve product ids by the pharmacy's globally-unique product_code. Name-only rows remain
+  // usable as strongly-inferred text evidence, but are never assigned a product id by guessing.
+  const productIdByCode = new Map<string, string>();
+  const productCodes = Array.from(new Set(rows.map((row) => text(row.productCode)).filter(Boolean)));
+  for (const group of chunk(productCodes)) {
+    const { data, error } = await supabase
+      .from('products')
+      .select('id,product_code')
+      .in('product_code', group)
+      .limit(5000);
+    if (error) throw error;
+    for (const row of data ?? []) {
+      if (row.product_code && row.id) productIdByCode.set(String(row.product_code).trim(), String(row.id));
+    }
+  }
+
+  // Resolve invoice ids after the invoice-header import has succeeded. Invoice numbers can repeat,
+  // so number alone is never enough: branch must match, and when the item file has a date the day
+  // must match too. If more than one header remains, leave invoice_id null rather than guessing.
+  const invoiceHeadersByNumber = new Map<string, any[]>();
+  const invoiceNumbers = Array.from(new Set(rows.map((row) => text(row.invoiceNumber)).filter(Boolean)));
+  for (const group of chunk(invoiceNumbers)) {
+    const { data, error } = await supabase
+      .from('sales_invoices')
+      .select('id,invoice_number,invoice_no,branch,branch_name,invoice_datetime,invoice_date,sale_date,customer_id')
+      .in('invoice_number', group)
+      .limit(5000);
+    if (error) throw error;
+    for (const row of data ?? []) {
+      const number = text(row.invoice_number || row.invoice_no);
+      if (!number) continue;
+      const bucket = invoiceHeadersByNumber.get(number) ?? [];
+      bucket.push(row);
+      invoiceHeadersByNumber.set(number, bucket);
+    }
+  }
+
+  const payload: any[] = [];
+  for (const row of rows) {
+    const itemBranch = normalizeBranch(row.branch);
+    const itemDay = isoDay(row.invoiceDate);
+    const headerCandidates = (invoiceHeadersByNumber.get(row.invoiceNumber) ?? []).filter((invoice) => {
+      const invoiceBranch = normalizeBranch(invoice.branch_name || invoice.branch);
+      if (invoiceBranch !== itemBranch) return false;
+      if (!itemDay) return true;
+      const invoiceDay = isoDay(invoice.invoice_datetime || invoice.invoice_date || invoice.sale_date);
+      return invoiceDay === itemDay;
+    });
+    const uniqueHeader = headerCandidates.length === 1 ? headerCandidates[0] : null;
+
+    const identityBase = [
+      row.invoiceNumber,
+      itemBranch,
+      row.invoiceDate || '',
+      row.lineNo ?? '',
+      row.productCode || '',
+      normalize(row.productName),
+    ].join('|');
+
+    payload.push({
+      item_identity: await sha256(identityBase),
+      invoice_id: uniqueHeader?.id ? String(uniqueHeader.id) : null,
+      invoice_number: row.invoiceNumber,
+      branch: row.branch,
+      invoice_date: row.invoiceDate,
+      customer_id: uniqueHeader?.customer_id || null,
+      customer_code: row.customerCode,
+      line_no: row.lineNo,
+      product_id: row.productCode ? productIdByCode.get(row.productCode) ?? null : null,
+      product_code: row.productCode,
+      product_name: row.productName,
+      quantity: row.quantity,
+      unit_price: row.unitPrice,
+      line_total: row.lineTotal,
+      source_file: params.sourceFile || null,
+      import_batch: params.importBatch || null,
+      raw_data: row.raw,
+      created_by: params.createdBy || null,
+      updated_at: new Date().toISOString(),
+    });
+  }
+
+  let saved = 0;
+  let failed = 0;
+  for (let start = 0; start < payload.length; start += 300) {
+    const batch = payload.slice(start, start + 300);
+    const { data, error } = await supabase
+      .from('sales_invoice_items_v21')
+      .upsert(batch, { onConflict: 'item_identity', ignoreDuplicates: false })
+      .select('id');
+    if (error) {
+      failed += batch.length;
+      console.warn('[sales-items-v21] batch upsert failed', error);
+      continue;
+    }
+    saved += data?.length || batch.length;
+  }
+
+  // IMPORTANT: Do NOT call dawaa_reconcile_whatsapp_product_conversion_v21 here. That legacy RPC
+  // promotes V17 opportunities using the old statistical invoice matcher. Real line items now feed
+  // Sales Intelligence through invoiceItemEvidenceRepository instead.
+  return {
+    parsed: rows.length,
+    saved,
+    failed,
+    canonicalEvidenceRows: saved,
+    reconciledProductConversions: 0,
+  };
+},
 ): Promise<SalesInvoiceItemsImportResultV21> {
   if (!rows.length) return { parsed: 0, saved: 0, failed: 0, reconciledProductConversions: 0 };
 
