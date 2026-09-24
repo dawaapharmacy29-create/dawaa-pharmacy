@@ -107,13 +107,9 @@ const UNKNOWN_BRANCH_LABEL = normalizeBranchName('');
 
 export interface InvoiceItemRecordForAttribution {
   productNameRaw: string;
-  /**
-   * sales_invoice_items_v21.product_code — present in the real schema (see the Phase D
-   * investigation) but not populated by any resolution path today, since CaseBasketItem.productId
-   * (Phase B) has no catalog-resolution step yet either. Kept optional and forward-looking: Phase
-   * E.1's product-identity matcher uses it for a canonical_id match WHEN a caller populates it,
-   * but this is currently unreachable in production — see basketInvoiceMatchingEngine.ts.
-   */
+  /** products.id resolved during invoice-line import. This is the canonical product identity. */
+  productId?: string | null;
+  /** Pharmacy/business product code — useful audit evidence, but not interchangeable with products.id. */
   productCode?: string | null;
   quantity: number | null;
   lineTotal: number | null;
@@ -148,8 +144,8 @@ export interface CaseAttributionContext {
   activeAnnouncedTotal: AnnouncedTotal | null;
   /** Sum of the current basket's item line totals, when computable; null when unit prices aren't populated (the common case today) — never guessed. */
   activeBasketValue: number | null;
-  /** Product names from the CURRENT basket version's items only. */
-  activeBasketItems: Array<{ productNameRaw: string; quantity: number | null }>;
+  /** Product identity from the CURRENT basket version only. productId is canonical products.id when resolved. */
+  activeBasketItems: Array<{ productNameRaw: string; productId?: string | null; quantity: number | null }>;
   /** Known contributing staff ids for this case (Phase B StaffContribution.staffId) — conservative, may be empty. */
   knownStaffIds: string[];
   /** From the Phase B legacy V17 adapter's own matched-invoice fields — evidence only, never trusted as canonical. */
@@ -362,18 +358,32 @@ function classifyProductEvidence(
     return { productMatch: 'unavailable', quantityMatch: 'unavailable' };
   }
 
-  const invoiceByKey = new Map(items.map((i) => [normalizeProductNameForMatch(i.productNameRaw), i]));
-  const matchedBasketItems = ctx.activeBasketItems.filter((b) =>
-    invoiceByKey.has(normalizeProductNameForMatch(b.productNameRaw))
+  const invoiceByProductId = new Map(
+    items.filter((i) => i.productId).map((i) => [String(i.productId), i])
   );
-  const productMatch: ProductEvidenceAvailability = matchedBasketItems.length > 0 ? 'available_match' : 'available_mismatch';
+  const invoiceByName = new Map(items.map((i) => [normalizeProductNameForMatch(i.productNameRaw), i]));
+
+  const matchedPairs = ctx.activeBasketItems
+    .map((basketItem) => {
+      const canonical = basketItem.productId ? invoiceByProductId.get(String(basketItem.productId)) : null;
+      const byName = canonical ?? invoiceByName.get(normalizeProductNameForMatch(basketItem.productNameRaw));
+      return byName ? { basketItem, invoiceItem: byName } : null;
+    })
+    .filter(Boolean) as Array<{
+      basketItem: { productNameRaw: string; productId?: string | null; quantity: number | null };
+      invoiceItem: InvoiceItemRecordForAttribution;
+    }>;
+
+  const productMatch: ProductEvidenceAvailability =
+    matchedPairs.length > 0 ? 'available_match' : 'available_mismatch';
 
   let quantityMatch: ProductEvidenceAvailability = 'unavailable';
-  if (matchedBasketItems.length > 0) {
-    const allQuantitiesAgree = matchedBasketItems.every((b) => {
-      const invoiceItem = invoiceByKey.get(normalizeProductNameForMatch(b.productNameRaw));
-      return b.quantity == null || invoiceItem?.quantity == null || b.quantity === invoiceItem.quantity;
-    });
+  if (matchedPairs.length > 0) {
+    const allQuantitiesAgree = matchedPairs.every(({ basketItem, invoiceItem }) =>
+      basketItem.quantity == null ||
+      invoiceItem.quantity == null ||
+      basketItem.quantity === invoiceItem.quantity
+    );
     quantityMatch = allQuantitiesAgree ? 'available_match' : 'available_mismatch';
   }
 
