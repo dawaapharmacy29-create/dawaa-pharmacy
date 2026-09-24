@@ -234,6 +234,34 @@ export async function getAttendanceCaseDiagnosticV1(
   return data as AttendanceCaseDiagnosticV1;
 }
 
+
+export type AttendanceDiagnosticSummaryV1 = {
+  total_cases: number;
+  manager_cases: number;
+  system_cases: number;
+  causes: Array<{
+    code: string;
+    label: string;
+    owner: 'manager' | 'system' | string;
+    cases: number;
+  }>;
+  generated_at: string;
+};
+
+export async function getAttendanceDiagnosticSummaryV1(args: {
+  start: string;
+  end: string;
+  branch?: string | null;
+}): Promise<AttendanceDiagnosticSummaryV1> {
+  const { data, error } = await supabase.rpc('attendance_diagnostic_summary_v1', {
+    p_start: args.start,
+    p_end: args.end,
+    p_branch: args.branch && args.branch !== 'الكل' ? args.branch : null,
+  });
+  if (error) throw new Error(error.message);
+  return data as AttendanceDiagnosticSummaryV1;
+}
+
 export type AttendancePolicyCatalog = {
   policies: Array<Record<string, unknown>>;
   assignments: Array<Record<string, unknown>>;
