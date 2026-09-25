@@ -16,6 +16,7 @@ import {
 import { supabase } from '@/lib/supabase';
 import type { QaCaseListRow } from '@/lib/salesIntelligence/qa/types';
 import { dateFallsInCycleV1, nextDayYmdV1, type SalesIntelligenceCycleScopeV1 } from '@/lib/salesIntelligence/dashboardScopeV1';
+import SalesIntelligenceOpportunityCenterV1 from '@/components/salesIntelligence/SalesIntelligenceOpportunityCenterV1';
 
 type StaffTruthRow = {
   case_id: string;
@@ -251,6 +252,8 @@ export default function SalesIntelligenceManagementOverviewV1({
           {truthError ? <div className="dawaa-alert dawaa-alert--warning mt-3 text-xs">{truthError}</div> : null}
         </div>
       </section>
+
+      <SalesIntelligenceOpportunityCenterV1 cycle={cycle} branch={branch} />
 
       <section className="dawaa-card">
         <div className="flex items-center justify-between gap-3">

@@ -247,7 +247,32 @@ export default function SalesIntelligenceStaffPerformanceV1({
         ) : !filtered.length ? (
           <div className="dawaa-empty-state py-12 text-center">لا توجد مبيعات رسمية قابلة للنسب في النطاق الحالي.</div>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          <div className="divide-y divide-[var(--dawaa-theme-border)] sm:hidden">
+            {filtered.map((row) => {
+              const conversion = row.opportunities ? Math.round((row.acceptedOrLater / row.opportunities) * 100) : null;
+              return (
+                <div key={row.key} className="p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="dawaa-heading font-black">{row.name}</div>
+                      <div className="dawaa-muted mt-1 text-[11px]">{[row.role, row.branch].filter(Boolean).join(' • ') || 'بيانات الموظف غير مكتملة'}</div>
+                    </div>
+                    <div className="text-left">
+                      <div className="font-black">{row.officialSales.toLocaleString('ar-EG')} بيع</div>
+                      <div className="dawaa-muted mt-1 text-xs">{money(row.officialRevenue)}</div>
+                    </div>
+                  </div>
+                  <div className="mt-3 grid grid-cols-3 gap-2 text-center text-[11px]">
+                    <div className="rounded-xl bg-[var(--dawaa-theme-soft)] p-2"><div className="dawaa-muted">أدلة أصناف</div><div className="mt-1 font-black">{row.itemEvidenceSales.toLocaleString('ar-EG')}</div></div>
+                    <div className="rounded-xl bg-[var(--dawaa-theme-soft)] p-2"><div className="dawaa-muted">فرص</div><div className="mt-1 font-black">{row.opportunities ? row.opportunities.toLocaleString('ar-EG') : '—'}</div></div>
+                    <div className="rounded-xl bg-[var(--dawaa-theme-soft)] p-2"><div className="dawaa-muted">قبول</div><div className="mt-1 font-black">{conversion == null ? '—' : `${conversion}%`}</div></div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="hidden overflow-x-auto sm:block">
             <table className="min-w-full text-sm">
               <thead>
                 <tr className="dawaa-muted border-b border-[var(--dawaa-theme-border)] text-right">
@@ -277,6 +302,7 @@ export default function SalesIntelligenceStaffPerformanceV1({
               </tbody>
             </table>
           </div>
+          </>
         )}
       </section>
 

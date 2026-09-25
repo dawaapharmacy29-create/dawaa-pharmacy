@@ -335,7 +335,32 @@ export default function SalesIntelligenceQA() {
             ) : !filteredRows.length ? (
               <div className="dawaa-empty-state py-16 text-center">لا توجد حالات مطابقة للفلاتر الحالية.</div>
             ) : (
-              <div className="overflow-x-auto">
+              <>
+              <div className="divide-y divide-[var(--dawaa-theme-border)] sm:hidden">
+                {filteredRows.map((row) => (
+                  <button
+                    key={row.caseId}
+                    type="button"
+                    onClick={() => navigate(`/sales-intelligence/qa/${encodeURIComponent(row.caseId)}`)}
+                    className="block w-full p-4 text-right hover:bg-[var(--dawaa-theme-soft)]"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="dawaa-heading font-black">{row.customerName || 'عميل غير مسمى'}</div>
+                        <div className="dawaa-muted mt-1 text-[11px]">{branchLabelFor(row.branchNameRaw)} • {caseTypeLabelFor(row.caseType)}</div>
+                      </div>
+                      <div>{saleProofStateBadge(row.saleProofState)}</div>
+                    </div>
+                    <div className="mt-3 grid grid-cols-3 gap-2 text-center text-[10px]">
+                      <div className="rounded-xl bg-[var(--dawaa-theme-soft)] p-2"><div className="dawaa-muted">الفاتورة</div><div className="mt-1 font-black">{row.selectedInvoiceNumber || '—'}</div></div>
+                      <div className="rounded-xl bg-[var(--dawaa-theme-soft)] p-2"><div className="dawaa-muted">أدلة الأصناف</div><div className="mt-1 font-black">{row.itemEvidenceReady ? 'متاحة' : 'غير متاحة'}</div></div>
+                      <div className="rounded-xl bg-[var(--dawaa-theme-soft)] p-2"><div className="dawaa-muted">مراجعة</div><div className="mt-1 font-black">{row.needsHumanReview ? 'نعم' : 'لا'}</div></div>
+                    </div>
+                    {row.needsHumanReview ? <div className="dawaa-muted mt-2 line-clamp-2 text-[10px]">{reviewReasonsSummary(row.humanReviewReasons)}</div> : null}
+                  </button>
+                ))}
+              </div>
+              <div className="hidden overflow-x-auto sm:block">
                 <table className="min-w-full text-sm">
                   <thead>
                     <tr className="dawaa-muted border-b border-[var(--dawaa-theme-border)] text-right">
@@ -400,6 +425,7 @@ export default function SalesIntelligenceQA() {
                   </tbody>
                 </table>
               </div>
+              </>
             )}
           </section>
 
