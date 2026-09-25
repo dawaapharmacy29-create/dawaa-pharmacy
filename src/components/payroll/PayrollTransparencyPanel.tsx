@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, FileCheck2, RefreshCw } from 'lucide-react';
+import { AlertTriangle, Download, FileCheck2, RefreshCw } from 'lucide-react';
 import {
   getEmployeePayrollStatementV1,
   type EmployeePayrollStatementV1,
 } from '@/lib/payroll/payrollStatementService';
+import { buildEmployeePayrollStatementPdf } from '@/lib/payroll/employeePayrollStatementPdf';
 
 type Tab = 'summary' | 'attendance' | 'time_off' | 'overtime' | 'transactions' | 'statement' | 'kpi';
 
@@ -46,6 +47,7 @@ export default function PayrollTransparencyPanel(props: { staffId: string; month
   const [statement, setStatement] = useState<EmployeePayrollStatementV1 | null>(null);
   const [tab, setTab] = useState<Tab>('summary');
   const [loading, setLoading] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
   const [error, setError] = useState('');
 
   async function load() {
@@ -245,9 +247,30 @@ export default function PayrollTransparencyPanel(props: { staffId: string; month
       {tab === 'statement' && financial && (
         <div className="mt-4 space-y-4">
           <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-4">
-            <div className="text-base font-black text-[var(--dawaa-theme-heading)]">كشف راتب الموظف — معاينة شفافة</div>
-            <div className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">
-              {data.staff.name} · {data.cycle.start} → {data.cycle.end}
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="text-base font-black text-[var(--dawaa-theme-heading)]">كشف راتب الموظف — معاينة شفافة</div>
+                <div className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">
+                  {data.staff.name} · {data.cycle.start} → {data.cycle.end}
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={exportingPdf}
+                onClick={async () => {
+                  setExportingPdf(true);
+                  try {
+                    const result = await buildEmployeePayrollStatementPdf(props.staffId, props.monthCycle);
+                    result.pdf.save(result.fileName);
+                  } finally {
+                    setExportingPdf(false);
+                  }
+                }}
+                className="btn-secondary !py-1.5 text-xs"
+              >
+                <Download size={14} />
+                {exportingPdf ? 'جاري تجهيز PDF…' : 'معاينة PDF'}
+              </button>
             </div>
             <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
               <Stat label="ساعات أساسي" value={duration(engine.base_payable_hours)} hint={'× ' + money(engine.true_hourly_rate)} />

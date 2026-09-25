@@ -8,6 +8,7 @@ const page = fs.readFileSync(path.join(root, 'src/pages/PayrollManagement.tsx'),
 const financialService = fs.readFileSync(path.join(root, 'src/lib/payroll/payrollFinancialCompositionService.ts'), 'utf8');
 const kpiService = fs.readFileSync(path.join(root, 'src/lib/payroll/payrollKpiContextService.ts'), 'utf8');
 const statementService = fs.readFileSync(path.join(root, 'src/lib/payroll/payrollStatementService.ts'), 'utf8');
+const statementPdf = fs.readFileSync(path.join(root, 'src/lib/payroll/employeePayrollStatementPdf.ts'), 'utf8');
 
 function assertContains(text, needle, label) {
   if (!text.includes(needle)) {
@@ -27,6 +28,9 @@ assertContains(statementService, 'employee_payroll_statement_v1', 'single statem
 assertContains(panel, 'اتحسب / لم يتحسب', 'statement inclusion disclosure');
 assertContains(panel, 'رصيد الإجازة السنوية', 'annual leave balance disclosure');
 assertContains(panel, 'مبيعات الموظف خلال دورة الراتب', 'canonical employee sales KPI');
+assertContains(statementPdf, 'employee_payroll_statement_v1', 'statement PDF canonical source');
+assertContains(statementPdf, 'معاينة - غير نهائي', 'preview watermark');
+assertContains(panel, 'معاينة PDF', 'statement PDF preview action');
 assertContains(kpiService, 'branch_breakdown', 'employee sales KPI typing');
 if (page.includes("+ num(components?.monthlyIncentiveComponent)\n      + num(components?.listIncentiveComponent)\n      + num(automatedTruth?.automatedTotal)")) {
   console.error('[payroll-transparency] performance incentive double-count regression');
