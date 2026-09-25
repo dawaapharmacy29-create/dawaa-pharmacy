@@ -1,6 +1,7 @@
 import * as XLSX from 'xlsx';
 import { supabase } from '@/lib/supabase';
 import { normalizeBranchName } from '@/lib/branch';
+import { readInvoiceRecordsByInvoiceNumbers } from '@/lib/readModels/invoiceRecordReadModel';
 
 export interface RawSalesInvoiceItemV21 {
   sheetName: string;
@@ -474,16 +475,9 @@ export async function importSalesInvoiceItemsV21(
   const invoiceNumbers = Array.from(new Set(rows.map((row) => text(row.invoiceNumber)).filter(Boolean)));
   const invoiceHeaderRowsById = new Map<string, any>();
   for (const group of chunk(invoiceNumbers)) {
-    for (const field of ['invoice_number', 'invoice_no'] as const) {
-      const { data, error } = await supabase
-        .from('sales_invoices')
-        .select('id,invoice_number,invoice_no,branch,branch_name,invoice_datetime,invoice_date,sale_date,customer_id,customer_code,customer_name,seller_name,normalized_seller_name,staff_id,staff_name,net_amount,gross_amount,discount_amount')
-        .in(field, group)
-        .limit(5000);
-      if (error) throw error;
-      for (const row of data ?? []) {
-        if (row.id) invoiceHeaderRowsById.set(String(row.id), row);
-      }
+    const headers = await readInvoiceRecordsByInvoiceNumbers(group, supabase);
+    for (const row of headers) {
+      if (row.id) invoiceHeaderRowsById.set(String(row.id), row);
     }
   }
   for (const row of invoiceHeaderRowsById.values()) {
