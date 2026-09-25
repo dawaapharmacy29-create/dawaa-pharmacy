@@ -1,0 +1,76 @@
+name: Sales Intelligence Canonical Sync
+
+# Server-side eventual-consistency bridge for new WhatsApp imports.
+# Scheduled workflows run from the default branch only. There is deliberately NO push trigger:
+# merging code never writes Production by itself. Each run is idempotent and preflighted.
+on:
+  schedule:
+    - cron: "23 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sales-intelligence-canonical-sync-production
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      SUPABASE_URL: https://jkjqeqkshllustwlzzbf.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+
+      - name: Require server credential
+        shell: bash
+        run: |
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || {
+            echo "::error::Missing SUPABASE_SERVICE_ROLE_KEY"
+            exit 1
+          }
+
+      - name: Ground-truth regression before writes
+        run: npm run sales-intelligence:v23:ground-truth:dry-run -- --json
+
+      - name: Canonical preflight
+        run: npm run sales-intelligence:backfill:all-known-branch:dry-run -- --json
+
+      - name: Apply canonical Sales Intelligence
+        run: npm run sales-intelligence:backfill:all-known-branch:apply -- --json
+
+      - name: Verify canonical idempotency
+        run: npm run sales-intelligence:backfill:all-known-branch:dry-run -- --json
+
+      - name: Product-demand preflight
+        run: npm run product-demand:v22:backfill:dry-run
+
+      - name: Apply Product Demand
+        run: npm run product-demand:v22:backfill:apply
+
+      - name: Verify Product Demand idempotency
+        run: npm run product-demand:v22:backfill:dry-run
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Sales Intelligence canonical sync"
+            echo "- Trigger: scheduled/default-branch or explicit manual dispatch only."
+            echo "- New WhatsApp sources with a known branch are discovered automatically."
+            echo "- Ground truth and dry-run run before writes."
+            echo "- Writers are versioned/idempotent."
+            echo "- Ambiguous invoice or staff attribution remains QA-only."
+          } >> "$GITHUB_STEP_SUMMARY"
