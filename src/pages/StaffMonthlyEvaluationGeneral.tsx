@@ -401,12 +401,14 @@ export default function StaffMonthlyEvaluation() {
         sent_at: nextStatus === 'sent' ? new Date().toISOString() : null,
       };
 
-      const { data, error } = await supabase.rpc('save_staff_monthly_evaluation_safe', {
+      const { data, error } = await supabase.rpc('save_staff_monthly_evaluation_v2', {
         p_actor_id: user.id,
         p_payload: payload,
       });
       if (error) throw error;
-      setEvaluationId(String(data || evaluationId || ''));
+      const saveResult = (data || {}) as Record<string, unknown>;
+      const savedEvaluationId = String(saveResult.evaluation_id || evaluationId || '');
+      setEvaluationId(savedEvaluationId);
       setStatus(nextStatus);
 
       // مخالفات حرجة جديدة (لسه متسجلتش في المرة اللي فاتت) بتاخد خصم نقاط حقيقي
@@ -424,7 +426,7 @@ export default function StaffMonthlyEvaluation() {
             reason: `مخالفة حرجة في التقييم الشهري: ${gateInfo.label}`,
             description: `دورة ${cycleRange.displayLabel}. خصم ثابت مرتبط بدرجة خطورة هذه المخالفة: ${penaltyPoints} نقطة.`,
             source: 'monthly_evaluation_critical_gate',
-            sourceId: String(data || evaluationId || ''),
+            sourceId: savedEvaluationId,
             ruleCode: `EVAL-GATE-${String(gate).toUpperCase()}`,
             monthCycle: cycleLabel,
             branch: selected.branch || branch,
@@ -436,24 +438,14 @@ export default function StaffMonthlyEvaluation() {
         toast.success(`تم تسجيل خصم نقاط فعلي لـ${newlyActivatedGates.length} مخالفة حرجة في حساب الموظف.`);
       }
 
-      // نسبة التقييم النهائية تُضرب في حافز النقاط الكامل (مش تضيف/تخصم نقاط
-      // صغيرة زي قبل كده) — مرة واحدة بس، أول لحظة يتحول فيها التقييم من
-      // مسودة/جديد لحالة "مُرسَل". تعديل تقييم مُرسَل بالفعل مايكررش أو
-      // يحدّث النسبة تلقائيًا، عشان منغيرش حافز دورة اتقفلت فعلًا.
-      const isFirstFinalization = nextStatus === 'sent' && !previouslySent;
-      if (isFirstFinalization) {
-        const { error: multiplierError } = await supabase
-          .from('staff_evaluation_incentive_multipliers')
-          .upsert({
-            staff_id: selected.id,
-            month_cycle: cycleLabel,
-            multiplier_pct: overallScore,
-            source_evaluation_id: String(data || evaluationId || ''),
-            updated_at: new Date().toISOString(),
-          }, { onConflict: 'staff_id,month_cycle' });
-        if (multiplierError) throw multiplierError;
+      // السيرفر يثبت multiplier مع أول إرسال داخل نفس Transaction.
+      if (saveResult.multiplier_applied === true) {
         setPreviouslySent(true);
-        toast.success(`تم ضرب نسبة التقييم (${overallScore}%) في حافز النقاط لهذه الدورة.`);
+        toast.success(`تم تثبيت نسبة التقييم (${overallScore}%) على حافز النقاط لهذه الدورة.`);
+      } else if (nextStatus === 'sent' && saveResult.multiplier_reason === 'existing_multiplier_preserved') {
+        setPreviouslySent(true);
+      } else if (nextStatus === 'sent' && saveResult.multiplier_reason === 'payroll_finalized_immutable') {
+        toast.warning('تم حفظ التقييم، لكن دورة الراتب مقفلة ماليًا ولن يتم تغيير الحافز المجمد.');
       }
 
       if (nextStatus === 'sent') {
@@ -463,7 +455,7 @@ export default function StaffMonthlyEvaluation() {
           message: `تقييم دورة ${cycleRange.displayLabel}: ${overallScore}/100 - ${grade}. الحافز المالي = حافز النقاط × نسبة التقييم.`,
           type: 'staff_monthly_evaluation',
           entityType: 'staff_monthly_evaluation',
-          entityId: String(data || evaluationId || ''),
+          entityId: savedEvaluationId,
           actionUrl: '/staff-dashboard',
         }).catch(() => null);
       }

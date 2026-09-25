@@ -78,6 +78,10 @@ for (const file of files) {
 }
 
 const protectedTables = [
+  "from('staff_evaluation_incentive_multipliers').insert",
+  "from('staff_evaluation_incentive_multipliers').update",
+  "from('staff_evaluation_incentive_multipliers').upsert",
+  "from('staff_evaluation_incentive_multipliers').delete",
   "from('staff_payroll_monthly_v13').insert",
   "from('staff_payroll_monthly_v13').update",
   "from('employee_transactions').insert",
@@ -126,6 +130,14 @@ for (const required of [
   'list_staff_payroll_manual_entries_v1',
 ]) {
   if (!manualService.includes(required)) fail('manual ledger service missing ' + required);
+}
+
+const monthlyEvaluationPage = read(path.join(srcRoot, 'pages/StaffMonthlyEvaluationGeneral.tsx'));
+if (!monthlyEvaluationPage.includes("save_staff_monthly_evaluation_v2")) {
+  fail('monthly evaluation must use the atomic V2 evaluation + multiplier command.');
+}
+if (monthlyEvaluationPage.includes('staff_evaluation_incentive_multipliers')) {
+  fail('monthly evaluation must not mutate incentive multipliers directly.');
 }
 
 const attendanceOps = read(path.join(srcRoot, 'lib/attendance/attendanceOperationsService.ts'));

@@ -19,6 +19,7 @@ declare
   v_missing_cycle integer:=0;
   v_missing_source integer:=0;
   v_missing_points integer:=0;
+  v_sent_eval_missing_multiplier integer:=0;
   v_config jsonb:='{}'::jsonb;
   v_cutover jsonb:='{}'::jsonb;
   v_status text:='healthy';
@@ -54,7 +55,8 @@ begin
       'attendance_deduction_review_decide_v1',
       'attendance_deduction_adjust_v1',
       'payroll_cycle_finalization_overview_v1',
-      'employee_payroll_financial_composition_v1'
+      'employee_payroll_financial_composition_v1',
+      'record_employee_points_transaction_v3'
     ])
     and has_function_privilege('authenticated',p.oid,'EXECUTE');
 
@@ -103,7 +105,21 @@ begin
   from public.employee_transactions et
   where et.status in ('active','approved','pending');
 
-  v_config:=public.payroll_cycle_finalization_overview_v2(v_bounds.month_cycle,null,200);
+  select count(*)::integer
+  into v_sent_eval_missing_multiplier
+  from public.staff_monthly_manager_evaluations e
+  left join public.staff_evaluation_incentive_multipliers m
+    on m.staff_id=e.staff_id
+   and m.month_cycle=to_char(e.evaluation_month,'YYYY-MM')
+  where (e.sent_at is not null or e.status='sent')
+    and m.staff_id is null
+    and not exists(
+      select 1 from public.payroll_finalized_snapshots_v2 f
+      where f.staff_id=e.staff_id
+        and f.month_cycle=to_char(e.evaluation_month,'YYYY-MM')
+    );
+
+    v_config:=public.payroll_cycle_finalization_overview_v2(v_bounds.month_cycle,null,200);
   v_cutover:=public.attendance_policy_v3_cutover_readiness_v1(v_bounds.cycle_start,v_bounds.cycle_end);
 
   if v_legacy_exposed>0
@@ -114,7 +130,8 @@ begin
      or v_duplicate_points>0
      or v_missing_cycle>0
      or v_missing_source>0
-     or v_missing_points>0 then
+     or v_missing_points>0
+     or v_sent_eval_missing_multiplier>0 then
     v_status:='critical';
   elsif coalesce((v_config->>'unconfigured_priority_count')::integer,0)>0
         or coalesce((v_cutover->>'ready_for_v3_cutover')::boolean,false) is not true then
@@ -139,7 +156,8 @@ begin
       'duplicate_active_points_events',v_duplicate_points,
       'transactions_missing_cycle',v_missing_cycle,
       'transactions_missing_source',v_missing_source,
-      'transactions_missing_points',v_missing_points
+      'transactions_missing_points',v_missing_points,
+      'sent_evaluations_missing_multiplier',v_sent_eval_missing_multiplier
     ),
     'compensation_configuration',jsonb_build_object(
       'scope_staff_count',coalesce((v_config->>'scope_staff_count')::integer,0),
