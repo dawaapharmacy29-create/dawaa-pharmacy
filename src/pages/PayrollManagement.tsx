@@ -213,7 +213,6 @@ export default function PayrollManagement() {
     if (!monthly) return 0;
     if (monthlyFrozen && monthly.net_salary != null) return num(monthly.net_salary);
     return num(components?.baseSalaryComponent)
-      + num(components?.monthlyIncentiveComponent)
       + num(components?.listIncentiveComponent)
       + num(automatedTruth?.automatedTotal)
       + num(monthly.overtime_hours) * num(components?.overtimeHourRate)
@@ -221,6 +220,8 @@ export default function PayrollManagement() {
       + num(monthly.manual_adjustment)
       - totalDeductions;
   }, [monthly, monthlyFrozen, components, automatedTruth, totalDeductions]);
+  // monthlyIncentiveComponent is the performance incentive and is already included
+  // in automatedTruth.automatedTotal. Do not add it twice in preview calculations.
 
   const saveProfile = async () => {
     if (!selected) return;
