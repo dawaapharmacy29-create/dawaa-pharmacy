@@ -145,6 +145,7 @@ begin
      or v_ledger_direct_write_exposure>0 then
     v_status:='critical';
   elsif coalesce((v_config->>'unconfigured_priority_count')::integer,0)>0
+        or coalesce((v_config->>'identity_priority_count')::integer,0)>0
         or coalesce((v_cutover->>'ready_for_v3_cutover')::boolean,false) is not true then
     v_status:='warning';
   end if;
@@ -170,6 +171,12 @@ begin
       'transactions_missing_source',v_missing_source,
       'transactions_missing_points',v_missing_points,
       'sent_evaluations_missing_multiplier',v_sent_eval_missing_multiplier
+    ),
+    'payroll_identity',jsonb_build_object(
+      'scope_staff_count',coalesce((v_config->>'scope_staff_count')::integer,0),
+      'identified_staff_count',coalesce((v_config->>'identified_staff_count')::integer,0),
+      'identity_gap_count',coalesce((v_config->>'identity_gap_count')::integer,0),
+      'priority_review_count',coalesce((v_config->>'identity_priority_count')::integer,0)
     ),
     'compensation_configuration',jsonb_build_object(
       'scope_staff_count',coalesce((v_config->>'scope_staff_count')::integer,0),

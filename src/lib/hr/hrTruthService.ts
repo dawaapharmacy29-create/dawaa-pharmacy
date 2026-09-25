@@ -89,6 +89,12 @@ export type HRCanonicalArchitectureHealthV1 = {
     transactions_missing_points: number;
     sent_evaluations_missing_multiplier: number;
   };
+  payroll_identity: {
+    scope_staff_count: number;
+    identified_staff_count: number;
+    identity_gap_count: number;
+    priority_review_count: number;
+  };
   compensation_configuration: {
     scope_staff_count: number;
     configured_staff_count: number;

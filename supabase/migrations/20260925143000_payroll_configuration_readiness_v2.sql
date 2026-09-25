@@ -31,7 +31,57 @@ begin
     raise exception 'not_authorized_for_payroll_cycle_overview' using errcode='42501';
   end if;
 
-  with scoped_staff as (
+  with identity_scope as (
+    select
+      s.id as staff_id,
+      s.name as staff_name,
+      s.role,
+      s.branch,
+      (
+        select count(*)::integer
+        from public.staff_accounts a
+        where a.staff_id=s.id::text
+      ) as account_count,
+      (
+        select count(*)::integer
+        from public.staff_accounts a
+        where a.staff_id=s.id::text
+          and coalesce(a.active,false)
+          and coalesce(a.can_login,false)
+      ) as active_login_account_count,
+      exists(
+        select 1 from public.employee_compensation_profiles cp
+        where cp.staff_id=s.id::text and coalesce(cp.active,true)
+      ) as has_profile,
+      (
+        select count(*)::integer
+        from public.employee_transactions et
+        where et.staff_id=s.id
+          and et.month_cycle=p_month_cycle
+          and et.status in ('active','approved','pending')
+      ) as incentive_transactions,
+      (
+        select count(*)::integer
+        from public.staff_payroll_monthly_v13 pm
+        where pm.staff_id=s.id
+      ) as payroll_history_rows
+    from public.staff s
+    where coalesce(s.active,s.is_active,true)
+      and coalesce(s.status,'active') not in ('inactive','deleted','disabled')
+      and public.dawaa_can_read_staff_attendance_log(s.id,s.branch)
+      and (
+        p_branch is null or trim(p_branch)='' or p_branch='الكل'
+        or trim(coalesce(s.branch,''))=trim(p_branch)
+      )
+  ),
+  identity_gaps as (
+    select i.*,
+      case when i.account_count=0 then 'missing_account' else 'disabled_account' end as identity_state,
+      (i.has_profile or i.incentive_transactions>0 or i.payroll_history_rows>0) as priority_review
+    from identity_scope i
+    where i.active_login_account_count=0
+  ),
+  scoped_staff as (
     select distinct on (s.id)
       s.id as staff_id,
       s.name as staff_name,
@@ -107,7 +157,10 @@ begin
     'schema','payroll_cycle_finalization_overview_v2',
     'month_cycle',p_month_cycle,
     'branch',nullif(trim(coalesce(p_branch,'')),''),
-    'scope_staff_count',(select count(*) from profile_state),
+    'scope_staff_count',(select count(*) from identity_scope),
+    'identified_staff_count',(select count(*) from profile_state),
+    'identity_gap_count',(select count(*) from identity_gaps),
+    'identity_priority_count',(select count(*) from identity_gaps where priority_review),
     'configured_staff_count',(select count(*) from configured),
     'unconfigured_staff_count',(select count(*) from unconfigured),
     'unconfigured_priority_count',(select count(*) from unconfigured where priority_review),
@@ -130,6 +183,22 @@ begin
         'policy_validation',coalesce(gate->'policy_validation','{}'::jsonb)
       ) order by staff_name)
       from limited
+    ),'[]'::jsonb),
+    'identity_queue',coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'staff_id',staff_id,
+        'staff_name',staff_name,
+        'role',role,
+        'branch',branch,
+        'identity_state',identity_state,
+        'priority_review',priority_review,
+        'account_count',account_count,
+        'active_login_account_count',active_login_account_count,
+        'has_profile',has_profile,
+        'incentive_transactions',incentive_transactions,
+        'payroll_history_rows',payroll_history_rows
+      ) order by priority_review desc,branch,role,staff_name)
+      from identity_gaps
     ),'[]'::jsonb),
     'configuration_queue',coalesce((
       select jsonb_agg(jsonb_build_object(

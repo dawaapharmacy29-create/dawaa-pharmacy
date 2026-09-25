@@ -35,6 +35,8 @@ const readinessUi = fs.readFileSync(path.join(root, 'src/components/attendance/P
 assertContains(readinessUi, 'خطة إغلاق الـBlockers', 'actionable payroll readiness plan');
 assertContains(readinessUi, 'row.blockers.slice', 'per-employee blocker reasons');
 assertContains(readinessUi, 'onOpenStaffCompensation', 'compensation remediation action');
+assertContains(readinessUi, 'Payroll Identity Queue', 'missing/disabled payroll identity disclosure');
+assertContains(readinessUi, '/staff-accounts', 'payroll identity remediation route');
 assertContains(statementMigration, 'deterministic_without_generated_at_v1', 'deterministic snapshot fingerprint schema');
 assertContains(statementMigration, 'dawaa_jsonb_strip_generated_at_v1', 'volatile timestamp stripping');
 assertContains(statementMigration, "'employee_statement',v_statement", 'employee statement frozen into snapshot');

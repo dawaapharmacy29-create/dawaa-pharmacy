@@ -99,23 +99,71 @@ export default function PayrollCycleReadinessOverview({
         </button>
       </div>
 
-      <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
         <Summary label="نطاق الرواتب" value={data.scope_staff_count ?? data.staff_count} />
         <Summary label="Profiles موجودة" value={data.configured_staff_count ?? data.staff_count} good={(data.unconfigured_priority_count ?? 0) === 0} />
-        <Summary label="تحتاج مراجعة إعداد" value={data.unconfigured_priority_count ?? 0} warn={(data.unconfigured_priority_count ?? 0) > 0} />
+        <Summary
+          label="هوية Payroll تحتاج مراجعة"
+          value={data.identity_priority_count ?? 0}
+          warn={(data.identity_priority_count ?? 0) > 0}
+        />
+        <Summary label="تحتاج مراجعة تعويضات" value={data.unconfigured_priority_count ?? 0} warn={(data.unconfigured_priority_count ?? 0) > 0} />
         <Summary label="جاهز للإقفال" value={data.ready_count} good />
         <Summary label="Blocked" value={data.blocked_count} warn={data.blocked_count > 0} />
       </div>
 
       <div className={`mt-3 rounded-2xl border p-3 text-xs font-black ${
-        data.ready_count === data.staff_count && (data.unconfigured_priority_count ?? 0) === 0
+        data.ready_count === data.staff_count
+          && (data.unconfigured_priority_count ?? 0) === 0
+          && (data.identity_priority_count ?? 0) === 0
           ? 'border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] text-[var(--dawaa-status-success-text)]'
           : 'border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)]'
       }`}>
-        {data.ready_count === data.staff_count && (data.unconfigured_priority_count ?? 0) === 0
+        {data.ready_count === data.staff_count
+          && (data.unconfigured_priority_count ?? 0) === 0
+          && (data.identity_priority_count ?? 0) === 0
           ? 'الدورة جاهزة للمراجعة النهائية قبل الإقفال.'
           : `لا يتم Finalize قبل إغلاق الـBlockers. الجاهز حاليًا: ${data.ready_count.toLocaleString('ar-EG')} من ${data.staff_count.toLocaleString('ar-EG')} ملف مهيأ.`}
       </div>
+
+      {!!data.identity_queue?.length && (
+        <div className="mt-3 rounded-2xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-3">
+          <div className="flex items-center gap-2 text-xs font-black text-[var(--dawaa-status-warning-text)]">
+            <UserCog size={14} /> Payroll Identity Queue
+          </div>
+          <p className="mt-1 text-[10px] font-bold text-[var(--dawaa-theme-muted)]">
+            الموظف النشط لا يختفي من الجاهزية لو حسابه ناقص أو Disabled. لا يتم إنشاء أو تفعيل أي حساب تلقائيًا.
+          </p>
+          <div className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+            {data.identity_queue.slice(0, 24).map((row) => (
+              <div key={row.staff_id} className="rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <div className="text-[11px] font-black text-[var(--dawaa-theme-heading)]">{row.staff_name}</div>
+                    <div className="mt-0.5 text-[10px] font-bold text-[var(--dawaa-theme-muted)]">{row.branch || '-'} · {row.role || '-'}</div>
+                  </div>
+                  {row.priority_review && (
+                    <span className="rounded-full border border-[var(--dawaa-status-warning-border)] px-2 py-0.5 text-[9px] font-black text-[var(--dawaa-status-warning-text)]">Priority</span>
+                  )}
+                </div>
+                <div className="mt-2 text-[10px] font-bold text-[var(--dawaa-theme-muted)]">
+                  {row.identity_state === 'missing_account' ? 'لا يوجد Staff Account' : 'الحساب موجود لكنه غير نشط/غير مسموح له بالدخول'}
+                </div>
+                {(row.incentive_transactions > 0 || row.payroll_history_rows > 0 || row.has_profile) && (
+                  <div className="mt-1 text-[9px] font-bold text-[var(--dawaa-status-warning-text)]">
+                    {row.has_profile ? 'Compensation Profile موجود' : ''}
+                    {row.incentive_transactions > 0 ? ` · حركات مالية: ${row.incentive_transactions.toLocaleString('ar-EG')}` : ''}
+                    {row.payroll_history_rows > 0 ? ` · تاريخ Payroll: ${row.payroll_history_rows.toLocaleString('ar-EG')}` : ''}
+                  </div>
+                )}
+                <a href="/staff-accounts" className="mt-2 inline-flex items-center gap-1 text-[10px] font-black text-[var(--dawaa-status-info-text)]">
+                  مراجعة حساب الموظف <ChevronLeft size={11} />
+                </a>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {!!data.configuration_queue?.length && (
         <div className="mt-3 rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-3">

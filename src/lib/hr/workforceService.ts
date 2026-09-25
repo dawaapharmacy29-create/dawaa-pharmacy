@@ -588,6 +588,22 @@ export type PayrollCycleFinalizationOverview = {
     affected_staff: number;
   }>;
   scope_staff_count?: number;
+  identified_staff_count?: number;
+  identity_gap_count?: number;
+  identity_priority_count?: number;
+  identity_queue?: Array<{
+    staff_id: string;
+    staff_name: string;
+    role: string | null;
+    branch: string | null;
+    identity_state: 'missing_account' | 'disabled_account';
+    priority_review: boolean;
+    account_count: number;
+    active_login_account_count: number;
+    has_profile: boolean;
+    incentive_transactions: number;
+    payroll_history_rows: number;
+  }>;
   configured_staff_count?: number;
   unconfigured_staff_count?: number;
   unconfigured_priority_count?: number;

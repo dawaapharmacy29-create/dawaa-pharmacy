@@ -214,8 +214,10 @@ export default function HRDataQuality() {
           />
           <QualityCard
             title="إعدادات تعويض تحتاج مراجعة"
-            value={architectureAvailable && architecture ? architecture.compensation_configuration.priority_review_count : 'غير متاح'}
-            description="Profiles ناقصة ولها نشاط مالي/حوافز؛ لا تشمل الموظفين غير المهيئين بدون نشاط تلقائيًا."
+            value={architectureAvailable && architecture
+              ? architecture.compensation_configuration.priority_review_count + architecture.payroll_identity.priority_review_count
+              : 'غير متاح'}
+            description="Compensation أو Payroll Identity ناقصة ولها نشاط فعلي؛ الحالات بدون نشاط لا تعتبر خطأ تلقائيًا."
             href="/staff-payroll"
             icon={WalletCards}
             healthy={!!architecture && architecture.compensation_configuration.priority_review_count === 0}
