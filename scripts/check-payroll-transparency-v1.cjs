@@ -35,6 +35,7 @@ assertContains(statementPdf, '/dawaa-logo-full.jpeg', 'Dawaa logo in statement h
 assertContains(statementPdf, 'الدخول / الخروج', 'attendance punch transparency');
 assertContains(statementPdf, 'الإجازات والأذونات خلال الدورة', 'time off detail table');
 assertContains(statementPdf, 'الحوافز والخصومات والنقاط', 'employee-visible transaction audit');
+assertContains(statementPdf, 'التسويات المالية اليدوية', 'manual payroll ledger disclosure');
 assertContains(panel, 'معاينة PDF', 'statement PDF preview action');
 assertContains(kpiService, 'branch_breakdown', 'employee sales KPI typing');
 if (page.includes("+ num(components?.monthlyIncentiveComponent)\n      + num(components?.listIncentiveComponent)\n      + num(automatedTruth?.automatedTotal)")) {

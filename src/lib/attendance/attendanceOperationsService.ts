@@ -105,3 +105,32 @@ export async function applyConfirmedBiometricBatch() {
   if (error) throw new Error(error.message);
   return (data || {}) as { applied?: number; already_mapped?: number };
 }
+
+
+export type AttendancePolicyV3CutoverReadiness = {
+  schema: 'attendance_policy_v3_cutover_readiness_v1';
+  start_date: string;
+  end_date: string;
+  total_days: number;
+  effective_status_changes: number;
+  candidate_changes: number;
+  unresolved_policy_days: number;
+  v3_materialized_days: number;
+  v3_pending_days: number;
+  materialization_pct: number;
+  ready_for_v3_cutover: boolean;
+  cutover_rule: string;
+  generated_at: string;
+};
+
+export async function getAttendancePolicyV3CutoverReadiness(
+  start?: string | null,
+  end?: string | null
+): Promise<AttendancePolicyV3CutoverReadiness> {
+  const { data, error } = await supabase.rpc('attendance_policy_v3_cutover_readiness_v1', {
+    p_start: start || null,
+    p_end: end || null,
+  });
+  if (error) throw new Error(error.message);
+  return data as AttendancePolicyV3CutoverReadiness;
+}

@@ -97,4 +97,9 @@ for (const required of [
   if (!manualService.includes(required)) fail('manual ledger service missing ' + required);
 }
 
+const attendanceOps = read(path.join(srcRoot, 'lib/attendance/attendanceOperationsService.ts'));
+if (!attendanceOps.includes('attendance_policy_v3_cutover_readiness_v1')) {
+  fail('attendance operations must expose explicit V3 cutover readiness.');
+}
+
 console.log('[hr-domain-boundary] OK');

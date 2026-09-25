@@ -210,6 +210,24 @@ function buildPages(data: EmployeePayrollStatementV1) {
 
   pages.push(pageShell('تفاصيل الأوفر تايم', 'ما تم اعتماده وما بقي معلقًا أو تم رفضه', overtimeBody, preview, 'Overtime'));
 
+  const manualLedgerEntries = data.financial.manual_ledger?.entries || [];
+  if (manualLedgerEntries.length) {
+    const manualRows = manualLedgerEntries.map((raw) => {
+      const e = raw as Record<string, unknown>;
+      const signed = num(e.signed_amount);
+      return '<tr><td>' + esc(e.created_at ? new Date(String(e.created_at)).toLocaleDateString('ar-EG') : '-') + '</td><td>' +
+        esc(String(e.entry_kind || '-')) + '</td><td>' + esc(String(e.category || '-')) + '</td><td><b>' +
+        esc((signed > 0 ? '+' : '') + money(signed)) + '</b></td><td>' + esc(String(e.reason || '-')) +
+        '</td><td>' + esc(String(e.created_by_name || '-')) + '</td></tr>';
+    }).join('');
+
+    const manualBody =
+      '<div style="font-size:9px;color:#6b7a82;margin-bottom:10px">كل حركة يدوية محفوظة كسطر immutable؛ التصحيح يتم بعكس الحركة وليس بتعديل التاريخ.</div>' +
+      table(manualRows, ['التاريخ', 'النوع', 'الفئة', 'القيمة', 'السبب', 'سجلها']);
+
+    pages.push(pageShell('التسويات المالية اليدوية', 'سجل Manual Ledger داخل نفس دورة الراتب', manualBody, preview, 'Manual Ledger'));
+  }
+
   const visibleTransactions = data.transactions.items.filter((t) => t.employee_visible !== false);
   const transactionChunks: typeof visibleTransactions[] = [];
   for (let i = 0; i < visibleTransactions.length; i += 14) transactionChunks.push(visibleTransactions.slice(i, i + 14));
