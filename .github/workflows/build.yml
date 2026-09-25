@@ -86,9 +86,6 @@ jobs:
           path: whatsapp-operational-reanalysis-plan.json
           if-no-files-found: error
           retention-days: 7
-      # One-time bootstrap path: never writes on the first PR run. A deliberate manual
-      # re-run of this exact job (run_attempt > 1) on the dedicated feature branch may apply
-      # the already-verified patch plan. Remove this PR re-run clause immediately after bootstrap.
       - name: Apply operational reanalysis
-        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.whatsapp_operational_reanalysis == 'apply') || (github.event_name == 'pull_request' && github.head_ref == 'feature/whatsapp-sales-intelligence-v1' && github.run_attempt > 1) }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.whatsapp_operational_reanalysis == 'apply' }}
         run: npm run whatsapp:operational-reanalysis:apply
