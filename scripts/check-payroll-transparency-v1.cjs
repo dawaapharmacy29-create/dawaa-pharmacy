@@ -61,6 +61,14 @@ assertContains(statementPdf, 'الإجازات والأذونات خلال ال�
 assertContains(statementPdf, 'الحوافز والخصومات والنقاط', 'employee-visible transaction audit');
 assertContains(statementPdf, 'التسويات المالية اليدوية', 'manual payroll ledger disclosure');
 assertContains(statementPdf, 'Fingerprint', 'employee statement transparency: Fingerprint');
+assertContains(statementPdf, 'requireFinalized', 'final PDF frozen guard option');
+assertContains(statementPdf, "statement_mode !== 'finalized_snapshot_v2'", 'final PDF statement mode guard');
+assertContains(statementPdf, 'data.financial.frozen !== true', 'final PDF frozen data guard');
+assertContains(page, '{ requireFinalized: true }', 'finalized history PDF must require frozen statement');
+if (page.includes('listFinalizedPayrollSnapshots(person.staffId, 24).catch(() => [])')) {
+  console.error('[payroll-transparency] finalized payroll history errors must not be swallowed silently.');
+  process.exit(1);
+}
 assertContains(statementPdf, 'مرجع الاعتماد:', 'employee statement transparency: مرجع الاعتماد:');
 assertContains(statementPdf, 'ساعات الأساسي المحتسبة', 'employee statement transparency: ساعات الأساسي المحتسبة');
 assertContains(statementPdf, 'الساعات الفعلية', 'employee statement transparency: الساعات الفعلية');
