@@ -1,0 +1,51 @@
+name: Sales Intelligence item-evidence dry run
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/whatsapp-sales-intelligence-v1
+    paths:
+      - "scripts/run-sales-intelligence-backfill.cjs"
+      - "src/lib/salesIntelligence/**"
+      - "package.json"
+      - ".github/workflows/sales-intelligence-item-refresh-dry-run.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sales-intelligence-item-refresh-dry-run
+  cancel-in-progress: true
+
+jobs:
+  dry-run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SUPABASE_URL: https://jkjqeqkshllustwlzzbf.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify service-role secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || {
+            echo "::error::Missing repository secret SUPABASE_SERVICE_ROLE_KEY"
+            exit 1
+          }
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+
+      - name: Run targeted item-evidence dry run
+        run: npm run sales-intelligence:backfill:item-ready:dry-run -- --json
