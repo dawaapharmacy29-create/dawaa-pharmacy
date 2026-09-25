@@ -191,6 +191,7 @@ export default function AttendanceResolutionCenter({
   const [applyMissingPunchPenalty, setApplyMissingPunchPenalty] = useState(false);
   const [hours, setHours] = useState('');
   const [approving, setApproving] = useState(false);
+  const [showDecisionEvidence, setShowDecisionEvidence] = useState(false);
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(() => new Set());
   const [bulkDecision, setBulkDecision] = useState('');
   const [bulkNote, setBulkNote] = useState('');
@@ -229,6 +230,7 @@ export default function AttendanceResolutionCenter({
   useEffect(() => { void load(); }, [load]);
 
   useEffect(() => {
+    setShowDecisionEvidence(false);
     if (!selected) {
       setDiagnostic(null);
       setDiagnosticLoading(false);
@@ -1071,16 +1073,63 @@ export default function AttendanceResolutionCenter({
       </section>
 
       {selected && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-5 shadow-2xl">
-            <h3 className="text-lg font-black text-[var(--dawaa-theme-heading)]">قرار حضور — {selected.staff_name}</h3>
-            <p className="mt-1 text-sm font-bold text-[var(--dawaa-theme-muted)]">
-              {selected.issue_label} · {selected.attendance_date}
-            </p>
-            <div className="mt-3 rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-3 text-xs font-bold text-[var(--dawaa-status-warning-text)]">
-              هذا اعتماد لحقيقة الحضور، وليس قرار خصم أو جزاء مالي.
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3">
+          <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface shadow-2xl">
+            <div className="sticky top-0 z-10 border-b border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-lg font-black text-[var(--dawaa-theme-heading)]">قرار حضور — {selected.staff_name}</h3>
+                  <p className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">
+                    {arabicWeekday(selected.attendance_date)} · {selected.attendance_date} · {selected.branch || '-'}
+                  </p>
+                </div>
+                <span className="rounded-full border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-3 py-1 text-[10px] font-black text-[var(--dawaa-status-warning-text)]">
+                  {selected.issue_label}
+                </span>
+              </div>
+
+              <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                <div className="rounded-lg border border-[var(--dawaa-theme-border)] p-2">
+                  <div className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">الشيفت</div>
+                  <div className="mt-1 font-black">{fmt(selected.scheduled_start_at)} → {fmt(selected.scheduled_end_at)}</div>
+                </div>
+                <div className="rounded-lg border border-[var(--dawaa-theme-border)] p-2">
+                  <div className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">الدخول</div>
+                  <div className="mt-1 font-black">{fmt(selected.first_in)}</div>
+                </div>
+                <div className="rounded-lg border border-[var(--dawaa-theme-border)] p-2">
+                  <div className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">الخروج</div>
+                  <div className="mt-1 font-black">{fmt(selected.last_out)}</div>
+                </div>
+                <div className="rounded-lg border border-[var(--dawaa-theme-border)] p-2">
+                  <div className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">ساعات مرشحة</div>
+                  <div className="mt-1 font-black">{selected.candidate_hours == null ? '-' : selected.candidate_hours.toFixed(2)}</div>
+                </div>
+              </div>
             </div>
-            <div className="mt-4 rounded-2xl border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] p-4">
+
+            <div className="p-4">
+              <div className="rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-2.5 text-[11px] font-bold text-[var(--dawaa-status-warning-text)]">
+                هذا اعتماد لحقيقة الحضور، وليس خصمًا ماليًا تلقائيًا.
+              </div>
+
+              <label className="mt-3 block text-xs font-black text-[var(--dawaa-theme-muted)]">
+                نوع القرار
+                <select value={reason} onChange={(e) => setReason(e.target.value)} className="input-dark mt-1 w-full">
+                  <option value="">اختر القرار بعد مراجعة الحالة</option>
+                  {decisionsFor(selected).map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+                </select>
+              </label>
+
+              <button
+                type="button"
+                onClick={() => setShowDecisionEvidence((current) => !current)}
+                className="btn-secondary mt-3 w-full justify-between !py-2 text-xs"
+              >
+                <span>{showDecisionEvidence ? 'إخفاء الأدلة والتشخيص' : 'عرض الأدلة والتشخيص'}</span>
+                <span>{diagnosticLoading ? 'جارٍ التحليل…' : diagnostic ? `ثقة ${diagnostic.confidence}%` : ''}</span>
+              </button>
+            {showDecisionEvidence && <div className="mt-3 rounded-2xl border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] p-4">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
                   <div className="text-xs font-black text-[var(--dawaa-status-info-text)]">التشخيص الذكي للحالة</div>
@@ -1129,19 +1178,14 @@ export default function AttendanceResolutionCenter({
                   </div>
                 </div>
               </>}
-            </div>
+            </div>}
 
-            <label className="mt-4 block text-xs font-black text-[var(--dawaa-theme-muted)]">
-              ساعات الاستحقاق للمرتب
-              <input value={hours} onChange={(e) => setHours(e.target.value)} type="number" min="0" max="18" step="0.01" className="input-dark mt-1 w-full" />
-            </label>
-            <label className="mt-3 block text-xs font-black text-[var(--dawaa-theme-muted)]">
-              نوع القرار
-              <select value={reason} onChange={(e) => setReason(e.target.value)} className="input-dark mt-1 w-full">
-                <option value="">اختر بعد مراجعة الدليل</option>
-                {decisionsFor(selected).map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-              </select>
-            </label>
+            {reason && !['annual_leave', 'sick_leave', 'exceptional_leave', 'approved_absence', 'shift_swap', 'forgot_in', 'forgot_out'].includes(reason) && (
+              <label className="mt-3 block text-xs font-black text-[var(--dawaa-theme-muted)]">
+                ساعات الاستحقاق للمرتب
+                <input value={hours} onChange={(e) => setHours(e.target.value)} type="number" min="0" max="18" step="0.01" className="input-dark mt-1 w-full" />
+              </label>
+            )}
             {(() => {
               const decision = decisionsFor(selected).find((item) => item.id === reason);
               const linked = decision?.requestKind && approvedRequests.find((request) => request.request_kind === decision.requestKind);
@@ -1254,11 +1298,12 @@ export default function AttendanceResolutionCenter({
               </>;
             })()}
             <label className="mt-3 block text-xs font-black text-[var(--dawaa-theme-muted)]">
-              تفاصيل التحقق أو سبب آخر
-              <textarea value={note} onChange={(e) => setNote(e.target.value)} className="input-dark mt-1 min-h-24 w-full" placeholder="اكتب تفاصيل التحقق أو سببًا غير موجود في القائمة..." />
+              ملاحظة القرار
+              <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} className="input-dark mt-1 w-full resize-none" placeholder="اختياري — مطلوب فقط عند الحاجة لتوثيق سبب إضافي..." />
             </label>
-            <p className="mt-2 text-xs text-[var(--dawaa-theme-muted)]">اختر السبب بعد التحقق من الدليل؛ الساعات تُراجع منفصلة ولا تُحدد تلقائيًا من السبب.</p>
-            <div className="mt-4 flex gap-2">
+            <p className="mt-2 text-[10px] text-[var(--dawaa-theme-muted)]">الأدلة محفوظة في السجل ويمكن فتحها عند الحاجة بدون إطالة نافذة القرار.</p>
+            </div>
+            <div className="sticky bottom-0 flex gap-2 border-t border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-4">
               <button
                 onClick={() => void approveSelected()}
                 disabled={selected.queue_lane !== 'manager' || approving || (reason === 'annual_leave' && annualLeavePreviewLoading) || (reason === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review') && weeklyOffSwapLoading)}
@@ -1278,7 +1323,7 @@ export default function AttendanceResolutionCenter({
                           ? 'اعتماد الحضور وتوثيق اقتراح الخصم'
                           : 'اعتماد موثق'}
               </button>
-              <button onClick={() => { setSelected(null); setNote(''); setReason(''); setMultiplier(''); setHours(''); setSwapWithDate(''); setWeeklyOffSwapPreview(null); setManualPunchAt(''); setApplyMissingPunchPenalty(false); setMissingPunchContext(null); setMissingPunchHistory([]); }} className="btn-secondary">إلغاء</button>
+              <button onClick={() => { setSelected(null); setNote(''); setReason(''); setMultiplier(''); setHours(''); setSwapWithDate(''); setWeeklyOffSwapPreview(null); setManualPunchAt(''); setApplyMissingPunchPenalty(false); setMissingPunchContext(null); setMissingPunchHistory([]); setShowDecisionEvidence(false); }} className="btn-secondary">إلغاء</button>
             </div>
           </div>
         </div>
