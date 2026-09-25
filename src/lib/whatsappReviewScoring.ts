@@ -196,12 +196,12 @@ export function buildOfficialReviewSuggestion(
       : suggestion('unavailable_items', 'not_applicable', null, 88, 'لم يتم رصد دليل من الصيدلية على نقص/بديل؛ سؤال العميل وحده لا يثبت عدم التوفر.')
   );
 
-  if (!signals.saleIntentDetected) {
-    items.push(suggestion('sales_closing', 'not_applicable', null, 85, 'لا توجد فرصة بيع مثبتة تجعل بند إغلاق البيع منطبقًا.'));
-  } else if (commercialFriction.closingResponsibility === 'customer') {
+  if (commercialFriction.closingResponsibility === 'customer') {
     items.push(suggestion('sales_closing', 'not_applicable', null, 92, 'الصيدلية قدمت ردًا تجاريًا ولم يظهر رد لاحق من العميل؛ لا يُحتسب ذلك كفشل إغلاق على الموظف.'));
   } else if (commercialFriction.closingResponsibility === 'inventory') {
     items.push(suggestion('sales_closing', 'not_applicable', null, 94, 'العائق المثبت هو عدم توافر المخزون، وليس تقصيرًا مثبتًا في إغلاق البيع من الموظف.'));
+  } else if (!signals.saleIntentDetected) {
+    items.push(suggestion('sales_closing', 'not_applicable', null, 85, 'لا توجد فرصة بيع مثبتة تجعل بند إغلاق البيع منطبقًا.'));
   } else if (commercialFriction.closingResponsibility === 'pharmacy') {
     items.push(suggestion('sales_closing', 'review_required', null, 78, 'العميل أبدى قبولًا ولم يظهر تأكيد نهائي للأوردر؛ يحتاج مراجعة بشرية قبل أي خصم.'));
   } else if (commercialFriction.chatClosed) {

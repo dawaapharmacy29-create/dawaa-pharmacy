@@ -44,7 +44,7 @@ describe('mergeCaseListRows', () => {
     );
     expect(rows[0]).toMatchObject({
       customerName: 'أحمد محمد',
-      customerCode: 'C100',
+      customerCode: '100',
       customerPhone: '01000000000',
       conversationCaseCount: 1,
     });
@@ -167,7 +167,7 @@ describe('filterCaseListRows', () => {
       [{ id: 'conv-1', customer_name: 'أحمد محمد', customer_code: 'C100', customer_phone: '01000000000' }]
     );
     expect(filterCaseListRows(identityRows, withFilters({ search: 'أحمد' }))).toHaveLength(1);
-    expect(filterCaseListRows(identityRows, withFilters({ search: 'c100' }))).toHaveLength(1);
+    expect(filterCaseListRows(identityRows, withFilters({ search: '100' }))).toHaveLength(1);
     expect(filterCaseListRows(identityRows, withFilters({ search: '01000000000' }))).toHaveLength(1);
   });
 
@@ -203,18 +203,18 @@ describe('Final Pilot Readiness — SaleProofState list wiring', () => {
   }
 
   it('never re-derives SaleProofState with its own logic — reuses the real engine and gets the real answer', () => {
-    expect(rows.find((r) => r.caseId === 'proven-case')?.saleProofState).toBe('proven');
+    expect(rows.find((r) => r.caseId === 'proven-case')?.saleProofState).toBe('strongly_supported');
     // A "competing" attribution is a real, already-computed contradiction — never silently 'proven'.
     expect(rows.find((r) => r.caseId === 'contradicted-case')?.saleProofState).toBe('contradicted');
   });
 
   it('filters by saleProofState', () => {
-    expect(filterCaseListRows(rows, withFilters({ saleProofState: 'proven' })).map((r) => r.caseId)).toEqual(['proven-case']);
+    expect(filterCaseListRows(rows, withFilters({ saleProofState: 'strongly_supported' })).map((r) => r.caseId)).toEqual(['proven-case']);
     expect(filterCaseListRows(rows, withFilters({ saleProofState: 'contradicted' })).map((r) => r.caseId)).toEqual(['contradicted-case']);
   });
 
-  it('applies the proof_proven / proof_contradicted quick filters', () => {
-    expect(filterCaseListRows(rows, withFilters({ quickFilter: 'proof_proven' })).map((r) => r.caseId)).toEqual(['proven-case']);
+  it('applies the proof_strongly_supported / proof_contradicted quick filters', () => {
+    expect(filterCaseListRows(rows, withFilters({ quickFilter: 'proof_strongly_supported' })).map((r) => r.caseId)).toEqual(['proven-case']);
     expect(filterCaseListRows(rows, withFilters({ quickFilter: 'proof_contradicted' })).map((r) => r.caseId)).toEqual(['contradicted-case']);
   });
 

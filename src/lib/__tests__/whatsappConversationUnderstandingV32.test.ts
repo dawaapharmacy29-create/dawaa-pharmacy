@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseWhatsAppExport, splitWhatsAppSessions } from '@/lib/whatsappConversationParser';
 import { buildConversationUnderstandingV32 } from '@/lib/whatsappConversationUnderstandingV32';
+import { deriveConversationCases } from '@/lib/salesIntelligence/conversationCaseEngine';
 
 function oneSession(raw: string) {
   const sessions = splitWhatsAppSessions(parseWhatsAppExport(raw), 120);

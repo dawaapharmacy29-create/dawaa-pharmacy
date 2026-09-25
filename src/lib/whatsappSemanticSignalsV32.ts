@@ -152,7 +152,7 @@ function isPlausibleStaffProductOffer(message: NormalizedConversationMessageV32)
   // a pronoun to arbitrary staff prose.
   return (
     PRICE_RX.test(text) ||
-    /متوفر|موجود|بديل|ترشيح|أنسب|افضل|أفضل|سعر|عبوة|علبة|شريط|كبسول|قرص|جل|كريم|شامبو|غسول|سيرم|لوشن|spray|cream|gel|shampoo|serum|lotion/i.test(text) ||
+    /متوفر|موجود|عندنا|بديل|ترشيح|أنسب|افضل|أفضل|سعر|عبوة|علبة|شريط|كبسول|قرص|جل|كريم|شامبو|غسول|سيرم|سيروم|لوشن|spray|cream|gel|shampoo|serum|lotion/i.test(text) ||
     /[A-Za-z]{3,}/.test(text)
   );
 }

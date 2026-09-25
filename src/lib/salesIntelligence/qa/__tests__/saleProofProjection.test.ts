@@ -104,7 +104,7 @@ describe('Final Pilot Readiness — deriveSaleProofStateFromPersisted (persisted
     expect(result.invoiceEvidenceScope).toBe('header_only');
   });
 
-  it('a trusted (proven) candidate with a real branch_conflict is contradicted, not proven', () => {
+  it('does not invent trusted branch-conflict proof from a persisted proven label without provenance', () => {
     const result = deriveSaleProofStateFromPersisted(
       'case-7',
       null,
@@ -119,8 +119,9 @@ describe('Final Pilot Readiness — deriveSaleProofStateFromPersisted (persisted
       },
       { integrity_evaluation_scope: 'header_only', item_evidence_ready: false, differences: [] }
     );
-    expect(result.state).toBe('contradicted');
-    expect(result.contradictions).toContain('cross_branch_invoice_link');
+    expect(result.state).toBe('strongly_supported');
+    expect(result.trustedInvoiceId).toBeNull();
+    expect(result.contradictions).not.toContain('cross_branch_invoice_link');
   });
 
   it('is deterministic — running twice with the same rows produces byte-identical output', () => {

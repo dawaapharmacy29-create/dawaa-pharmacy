@@ -235,14 +235,17 @@ function leakageFor(
 ): { code: WhatsAppLeakageCodeV8 | null; reason: string | null } {
   const stages = new Set(events.map((e) => e.stage));
   if (stages.has('order_confirmed')) return { code: null, reason: null };
-  if (stages.has('accepted')) {
-    return { code: 'closing_gap', reason: 'العميل وافق على الصنف/الطلب لكن لم يظهر تأكيد نهائي للأوردر من الصيدلية.' };
-  }
 
   const inboundText = messages.filter((m) => m.direction === 'inbound').map((m) => m.text).join('\n');
   const allText = messages.map((m) => m.text).join('\n');
   const delay = productResponseDelayMinutes(session, product);
   const customerSilent = customerStayedSilentAfterPharmacyAction(session, product);
+
+  // A measured operational delay is causal evidence and should not be hidden by a later
+  // generic "accepted but not confirmed" closing gap.
+  if (stages.has('accepted')) {
+    return { code: 'closing_gap', reason: 'العميل وافق على الصنف/الطلب لكن لم يظهر تأكيد نهائي للأوردر من الصيدلية.' };
+  }
 
   if (stages.has('unavailable') && !stages.has('alternative_offered')) {
     return { code: 'stock_unavailable', reason: 'الصنف غير متوفر ولم يظهر عرض بديل واضح.' };

@@ -492,12 +492,12 @@ describe('Basket <-> Invoice Matching Engine (Sales Intelligence Phase E) — Go
   });
 
   describe('Product identity confidence audit (Phase E.1 §4)', () => {
-    it('a canonical productId/productCode match is proven', () => {
+    it('a canonical productId match is proven', () => {
       const basketItemWithId: CaseBasketItem = { ...item('فيتامين د', 2), productId: 'PROD-001' };
       const m = deriveBasketInvoiceMatch(
         baseInput({
           itemsByBasketId: { 'basket:1': [basketItemWithId] },
-          itemEvidenceProvider: { getItemsForInvoice: () => [{ productNameRaw: 'اسم مختلف تمامًا', productCode: 'PROD-001', quantity: 2, lineTotal: 180 }] },
+          itemEvidenceProvider: { getItemsForInvoice: () => [{ productNameRaw: 'اسم مختلف تمامًا', productId: 'PROD-001', productCode: 'CODE-001', quantity: 2, lineTotal: 180 }] },
         })
       );
       const qtyDiffs = m.differences.filter((d) => d.type === 'quantity_mismatch');
