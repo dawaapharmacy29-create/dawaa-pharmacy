@@ -138,7 +138,14 @@ export default function PayrollManagement() {
       const cycleLabel = payrollMonth.slice(0, 7);
       const [canonicalProfile, finalizedHistory, legacyHistory, truth, readiness, canonicalComponents] = await Promise.all([
         fetchCompensationProfile(person.staffId).catch(() => null),
-        person.staffId ? listFinalizedPayrollSnapshots(person.staffId, 24).catch(() => []) : Promise.resolve([]),
+        person.staffId
+          ? listFinalizedPayrollSnapshots(person.staffId, 24)
+              .then((rows) => ({ rows, error: null as string | null }))
+              .catch((error) => ({
+                rows: [] as FinalizedPayrollSnapshotHistoryRow[],
+                error: error instanceof Error ? error.message : 'تعذر تحميل سجل الرواتب النهائي',
+              }))
+          : Promise.resolve({ rows: [] as FinalizedPayrollSnapshotHistoryRow[], error: null as string | null }),
         listLegacyPaidPayrollHistory(person.username, 24).catch(() => []),
         person.staffId ? fetchPayrollIncentiveTruth(person.staffId, cycleLabel).catch(() => []) : Promise.resolve([]),
         person.staffId ? fetchAttendancePayrollReadiness(person.staffId, cycleLabel).catch(() => null) : Promise.resolve(null),
@@ -158,7 +165,10 @@ export default function PayrollManagement() {
         overtimeHourRate: num(canonicalProfile.overtime_hour_rate),
         monthlyIncentiveBase: num(canonicalProfile.monthly_incentive_base),
       } : emptyProfile());
-      const finalizedRows = (finalizedHistory as FinalizedHistoryRow[]).map((row) => ({
+      if (finalizedHistory.error) {
+        toast.warning(`تعذر تحميل سجل الدورات النهائية: ${finalizedHistory.error}`);
+      }
+      const finalizedRows = (finalizedHistory.rows as FinalizedHistoryRow[]).map((row) => ({
         ...row,
         history_source: 'finalized_v2' as const,
       }));
@@ -241,7 +251,7 @@ export default function PayrollManagement() {
     try {
       const cycleLabel = payrollMonth.slice(0, 7);
       const result = source === 'finalized_v2'
-        ? await buildEmployeePayrollStatementPdf(selected.staffId, cycleLabel)
+        ? await buildEmployeePayrollStatementPdf(selected.staffId, cycleLabel, { requireFinalized: true })
         : await buildPaidStatementPdf(selected.staffId, cycleLabel);
       result.pdf.save(result.fileName);
     } catch (error) {
