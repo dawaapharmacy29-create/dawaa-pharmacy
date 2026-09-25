@@ -21,6 +21,8 @@ import EmployeeProfileDrawer from '@/components/attendance/EmployeeProfileDrawer
 import AttendanceCorrectionReviewPanel from '@/components/attendance/AttendanceCorrectionReviewPanel';
 import {
   approveAttendanceFullDayTimeOffV1,
+  createStaffTimeOffRequest,
+  decideStaffTimeOffRequest,
   getAnnualLeaveAttendancePreviewV1,
   listStaffTimeOffRequests,
   resolveAnnualLeaveFromAttendanceV1,
@@ -619,9 +621,52 @@ export default function AttendanceResolutionCenter({
       return;
     }
 
-    const linkedRequest = decision.requestKind && approvedRequests.find((request) => request.request_kind === decision.requestKind);
+    let linkedRequest = decision.requestKind && approvedRequests.find((request) => request.request_kind === decision.requestKind);
+
+    if (decision.requestKind === 'permission' && !linkedRequest) {
+      if (requestsLoading) {
+        toast.warning('جاري التحقق من الأذونات المعتمدة لهذا اليوم. حاول مرة أخرى بعد لحظات.');
+        return;
+      }
+      if (requestsError) {
+        toast.error('تعذر التحقق من سجل الأذونات الحالي. أعد فتح القرار حتى نتجنب تسجيل إذن مكرر.');
+        return;
+      }
+
+      const earlyMinutes = Math.max(0, Number(selected.early_leave_minutes || 0));
+      const lateMinutes = Math.max(0, Number(selected.late_minutes || 0));
+      const permissionMinutes = Math.max(1, earlyMinutes || lateMinutes);
+      const permissionLabel = earlyMinutes > 0 ? 'إذن انصراف مبكر' : 'إذن تأخير';
+      const permissionReason = note.trim()
+        || `اعتماد مباشر من صندوق مراجعة الحضور — ${permissionMinutes} دقيقة`;
+
+      try {
+        const created = await createStaffTimeOffRequest({
+          staffId: selected.staff_id,
+          kind: 'permission',
+          label: permissionLabel,
+          startDate: selected.attendance_date,
+          durationMinutes: permissionMinutes,
+          reason: permissionReason,
+        });
+        linkedRequest = await decideStaffTimeOffRequest(
+          created.id,
+          'approved',
+          `اعتماد مباشر من قرار الحضور: ${permissionLabel}`
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'تعذر تسجيل الإذن واعتماده';
+        if (message.includes('time_off_preflight_blocked') || message.includes('overlapping')) {
+          toast.error('يوجد تعارض مع إذن أو إجازة معتمدة في نفس الفترة. راجع سجل الإجازات والأذونات.');
+        } else {
+          toast.error(message);
+        }
+        return;
+      }
+    }
+
     if (decision.requestKind && (requestsLoading || requestsError || !linkedRequest)) {
-      toast.error('سجّل الطلب واعتمده في صفحة الإجازات والغياب أولًا، ثم راجع اليوم مجددًا.');
+      toast.error('لا يوجد طلب معتمد مطابق لهذا القرار. راجع سجل الإجازات والغياب ثم أعد المحاولة.');
       return;
     }
     if (decision.requestKind && decision.requestKind !== 'permission') {
