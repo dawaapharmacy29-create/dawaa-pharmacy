@@ -136,8 +136,10 @@ export async function persistAutomaticWhatsAppReview(
   }
 
   const payload = {
-    reviewer_name: SYSTEM_REVIEWER_NAME,
-    reviewer_role: SYSTEM_REVIEWER_ROLE,
+    // Automatic reviews are system-authored. Human reviewer identity must stay null;
+    // SYSTEM_REVIEWER_NAME/SYSTEM_REVIEWER_ROLE are reserved for audit/points provenance only.
+    reviewer_name: null,
+    reviewer_role: null,
     staff_id: staffRow.id,
     staff_name: staffRow.name,
     staff_role: staffRow.role || null,
