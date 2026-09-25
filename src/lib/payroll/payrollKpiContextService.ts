@@ -11,8 +11,24 @@ export type EmployeePayrollKpiContextV1 = {
   branch_target: Record<string, unknown>;
   branch_kpis: Record<string, unknown>;
   employee_sales_kpi: {
-    available: boolean;
-    reason: string;
+    schema?: 'employee_sales_kpi_v1';
+    available?: boolean;
+    reason?: string;
+    staff_id?: string;
+    staff_name?: string;
+    start_date?: string;
+    end_date?: string;
+    sales_total?: number;
+    invoices_count?: number;
+    avg_invoice?: number;
+    identity_rule?: string;
+    matched_identities?: string[];
+    branch_breakdown?: Array<{
+      branch: string;
+      sales_total: number;
+      invoices_count: number;
+      avg_invoice: number;
+    }>;
   };
   financial_rule: string;
   generated_at: string;

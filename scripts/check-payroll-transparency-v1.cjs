@@ -26,6 +26,8 @@ assertContains(panel, 'الأداء وKPIs', 'payroll KPI tab');
 assertContains(statementService, 'employee_payroll_statement_v1', 'single statement RPC');
 assertContains(panel, 'اتحسب / لم يتحسب', 'statement inclusion disclosure');
 assertContains(panel, 'رصيد الإجازة السنوية', 'annual leave balance disclosure');
+assertContains(panel, 'مبيعات الموظف خلال دورة الراتب', 'canonical employee sales KPI');
+assertContains(kpiService, 'branch_breakdown', 'employee sales KPI typing');
 if (page.includes("+ num(components?.monthlyIncentiveComponent)\n      + num(components?.listIncentiveComponent)\n      + num(automatedTruth?.automatedTotal)")) {
   console.error('[payroll-transparency] performance incentive double-count regression');
   process.exit(1);

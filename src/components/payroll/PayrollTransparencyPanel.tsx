@@ -372,9 +372,45 @@ export default function PayrollTransparencyPanel(props: { staffId: string; month
             </div>
           </div>
 
-          {!kpi.employee_sales_kpi.available && (
+          {kpi.employee_sales_kpi.schema === 'employee_sales_kpi_v1' ? (
+            <div className="rounded-2xl border border-[var(--dawaa-theme-border)] p-4">
+              <div className="text-sm font-black text-[var(--dawaa-theme-heading)]">مبيعات الموظف خلال دورة الراتب</div>
+              <div className="mt-3 grid gap-2 text-xs sm:grid-cols-3">
+                <Stat label="إجمالي المبيعات" value={money(kpi.employee_sales_kpi.sales_total)} />
+                <Stat label="عدد الفواتير" value={num(kpi.employee_sales_kpi.invoices_count).toLocaleString('ar-EG')} />
+                <Stat label="متوسط الفاتورة" value={money(kpi.employee_sales_kpi.avg_invoice)} />
+              </div>
+              {!!kpi.employee_sales_kpi.branch_breakdown?.length && (
+                <div className="mt-3 overflow-x-auto">
+                  <table className="w-full min-w-[520px] text-right text-xs">
+                    <thead>
+                      <tr className="border-b border-[var(--dawaa-theme-border)] text-[var(--dawaa-theme-muted)]">
+                        <th className="p-2">الفرع</th>
+                        <th className="p-2">المبيعات</th>
+                        <th className="p-2">الفواتير</th>
+                        <th className="p-2">متوسط الفاتورة</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {kpi.employee_sales_kpi.branch_breakdown.map((row) => (
+                        <tr key={row.branch} className="border-b border-[var(--dawaa-theme-border)]/50">
+                          <td className="p-2 font-black">{row.branch}</td>
+                          <td className="p-2">{money(row.sales_total)}</td>
+                          <td className="p-2">{num(row.invoices_count).toLocaleString('ar-EG')}</td>
+                          <td className="p-2">{money(row.avg_invoice)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <div className="mt-2 text-[10px] font-bold text-[var(--dawaa-theme-muted)]">
+                المطابقة تعتمد على هوية الموظف الأساسية والـaliases النشطة المسجلة له، وليس الاسم الخام فقط.
+              </div>
+            </div>
+          ) : (
             <div className="rounded-xl border border-amber-400/30 bg-amber-400/5 p-3 text-[11px] font-bold text-amber-100">
-              مبيعات الموظف الفردية لم تُضف بعد إلى كشف الراتب لأننا لم نربطها بعقد Canonical واحد حتى الآن. لن نعرض رقمًا قد يتغير بسبب اختلاف أسماء البائع أو الـaliases.
+              تعذر تحميل مبيعات الموظف الفردية من العقد الموثوق لهذه الدورة.
             </div>
           )}
           <div className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">
