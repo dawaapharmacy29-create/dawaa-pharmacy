@@ -5,12 +5,13 @@
 // read-only contract this page and its data layer honor.
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, Search, ShieldCheck } from 'lucide-react';
+import { BarChart3, LayoutDashboard, ListChecks, RefreshCw, Search, ShieldCheck } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { formatDateTime } from '@/lib/utils';
 import { fetchQaBranchOptions, fetchQaCaseList, filterCaseListRows } from '@/lib/salesIntelligence/qa/queries';
 import { DEFAULT_QA_LIST_FILTERS, type QaCaseListRow, type QaListFilters } from '@/lib/salesIntelligence/qa/types';
 import ProductDemandLeakageV22 from '@/components/salesIntelligence/ProductDemandLeakageV22';
+import SalesIntelligenceManagementOverviewV1 from '@/components/salesIntelligence/SalesIntelligenceManagementOverviewV1';
 import {
   attributionLevelBadge,
   branchLabelFor,
@@ -49,6 +50,7 @@ export default function SalesIntelligenceQA() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filters, setFilters] = useState<QaListFilters>(DEFAULT_QA_LIST_FILTERS);
+  const [activeSection, setActiveSection] = useState<'overview' | 'demand' | 'qa'>('overview');
 
   useEffect(() => {
     let cancelled = false;
@@ -98,8 +100,39 @@ export default function SalesIntelligenceQA() {
 
       {error ? <div className="dawaa-alert dawaa-alert--danger text-sm font-bold">{error}</div> : null}
 
-      <ProductDemandLeakageV22 />
+      <section className="dawaa-card p-2">
+        <div className="grid gap-2 sm:grid-cols-3">
+          {[
+            ['overview', 'الملخص التنفيذي', LayoutDashboard, 'قرار الإدارة والأرقام الرسمية'],
+            ['demand', 'الطلب وفقد البيع', BarChart3, 'الأصناف والفرص والتسرب'],
+            ['qa', 'مراجعة الحالات', ListChecks, 'QA الفني والتفاصيل الدقيقة'],
+          ].map(([key, label, Icon, hint]) => {
+            const active = activeSection === key;
+            return (
+              <button
+                key={String(key)}
+                type="button"
+                onClick={() => setActiveSection(key as 'overview' | 'demand' | 'qa')}
+                className={active
+                  ? 'rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] p-3 text-right'
+                  : 'rounded-2xl border border-transparent p-3 text-right hover:bg-[var(--dawaa-theme-soft)]'}
+              >
+                <div className="flex items-center gap-2 font-black">
+                  <Icon size={17} />
+                  {label}
+                </div>
+                <div className="dawaa-muted mt-1 text-[11px]">{hint}</div>
+              </button>
+            );
+          })}
+        </div>
+      </section>
 
+      {activeSection === 'overview' ? <SalesIntelligenceManagementOverviewV1 rows={rows} /> : null}
+      {activeSection === 'demand' ? <ProductDemandLeakageV22 /> : null}
+
+      {activeSection === 'qa' ? (
+      <>
       <section className="dawaa-card grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <label className="relative xl:col-span-2">
           <Search className="dawaa-muted absolute right-3 top-1/2 -translate-y-1/2" size={16} />
@@ -274,6 +307,8 @@ export default function SalesIntelligenceQA() {
       </section>
 
       <div className="dawaa-muted text-xs">{filteredRows.length.toLocaleString('ar-EG')} من أصل {rows.length.toLocaleString('ar-EG')} حالة</div>
+      </>
+      ) : null}
     </div>
   );
 }
