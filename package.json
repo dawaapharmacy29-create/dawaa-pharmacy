@@ -33,8 +33,8 @@
     "product-demand:v22:backfill:apply": "node scripts/run-product-demand-v22-backfill.cjs --apply --json",
     "product-demand:v23:ground-truth:dry-run": "node scripts/run-product-demand-v22-backfill.cjs --ground-truth --json",
     "sales-intelligence:v23:ground-truth:dry-run": "node scripts/run-sales-intelligence-backfill.cjs --ground-truth --json",
-    "whatsapp:operational-reanalysis:dry-run": "npx --no-install tsx scripts/run-whatsapp-operational-reanalysis.ts --json",
-    "whatsapp:operational-reanalysis:apply": "npx --no-install tsx scripts/run-whatsapp-operational-reanalysis.ts --apply --json"
+    "whatsapp:operational-reanalysis:dry-run": "npx --no-install vite-node scripts/run-whatsapp-operational-reanalysis.ts -- --json",
+    "whatsapp:operational-reanalysis:apply": "npx --no-install vite-node scripts/run-whatsapp-operational-reanalysis.ts -- --apply --json"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",
