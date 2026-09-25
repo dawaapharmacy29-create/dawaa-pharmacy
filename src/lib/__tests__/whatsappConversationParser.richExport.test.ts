@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   detectWhatsAppExportFormat,
   parseWhatsAppExport,
+  serializeWhatsAppSessionRawText,
   splitWhatsAppSessions,
 } from '@/lib/whatsappConversationParser';
 
@@ -93,6 +94,19 @@ describe('I.B.4 — trusted time-only timeline across midnight', () => {
     expect(messages[0].timestamp.toISOString()).toBe('2026-09-15T20:59:00.000Z');
     expect(messages[1].timestamp.toISOString()).toBe('2026-09-15T21:01:00.000Z');
     expect(messages[1].timestamp.getTime()).toBeGreaterThan(messages[0].timestamp.getTime());
+  });
+});
+
+describe('canonical session raw-text serialization', () => {
+  it('preserves the imported message transcript for persistence and future re-analysis', () => {
+    const raw = `[9/15/26, 9:30:55 PM] محمد الكموني17777: محتاج الغسول
+[9/15/26, 9:31:05 PM] You: موجود باذن الله`;
+    const sessions = splitWhatsAppSessions(parseWhatsAppExport(raw), 120);
+    expect(sessions).toHaveLength(1);
+    const serialized = serializeWhatsAppSessionRawText(sessions[0]);
+    expect(serialized).toContain('محمد الكموني17777: محتاج الغسول');
+    expect(serialized).toContain('You: موجود باذن الله');
+    expect(serialized.trim().length).toBeGreaterThan(0);
   });
 });
 
