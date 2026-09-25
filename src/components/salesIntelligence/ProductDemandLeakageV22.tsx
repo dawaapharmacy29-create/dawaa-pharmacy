@@ -31,7 +31,7 @@ type LeakageRow = {
 
 type BackfillStatus = {
   analyzable_sources: number;
-  analyzed_v22: number;
+  analyzed_truth_v23: number;
   remaining_sources: number;
   completion_percent: number | string | null;
 };
@@ -74,7 +74,7 @@ async function loadCanonicalBackfillStatusV22(): Promise<BackfillStatus | null> 
   ).length;
   return {
     analyzable_sources: canonical.length,
-    analyzed_v22: analyzed,
+    analyzed_truth_v23: analyzed,
     remaining_sources: Math.max(0, canonical.length - analyzed),
     completion_percent: canonical.length ? Math.round((analyzed / canonical.length) * 1000) / 10 : 0,
   };
@@ -202,7 +202,7 @@ export default function ProductDemandLeakageV22({ cycleStart, branch }: { cycleS
       setPreviewRows(result.rows);
       setPreviewHasFailures(result.failed > 0);
       setBackfillMessage(
-        `معاينة آمنة V22.1: ${result.scanned} محادثة • ${result.canonicalProducts} صنف مرتبط بالكتالوج • ${result.unresolvedProducts} عبارة غير محسومة • أخطاء ${result.failed}. ${result.failed ? 'لن يُسمح بالتنفيذ قبل مراجعة الأخطاء.' : 'الدفعة ثابتة وجاهزة للتنفيذ.'}`
+        `معاينة آمنة Truth V23.1: ${result.scanned} محادثة • ${result.canonicalProducts} صنف مرتبط بالكتالوج • ${result.unresolvedProducts} عبارة غير محسومة • أخطاء ${result.failed}. ${result.failed ? 'لن يُسمح بالتنفيذ قبل مراجعة الأخطاء.' : 'الدفعة ثابتة وجاهزة للتنفيذ.'}`
       );
     } catch (cause) {
       setPreviewHasFailures(true);
@@ -339,7 +339,7 @@ export default function ProductDemandLeakageV22({ cycleStart, branch }: { cycleS
                 <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.max(0, Math.min(100, Number(backfillStatus.completion_percent || 0)))}%` }} />
               </div>
               <div className="dawaa-muted mt-2 text-[11px]">
-                قابل للتحليل: {Number(backfillStatus.analyzable_sources || 0).toLocaleString('ar-EG')} • تم V22.1: {Number(backfillStatus.analyzed_v22 || 0).toLocaleString('ar-EG')} • متبقي: {Number(backfillStatus.remaining_sources || 0).toLocaleString('ar-EG')}
+                قابل للتحليل: {Number(backfillStatus.analyzable_sources || 0).toLocaleString('ar-EG')} • تم Truth V23.1: {Number(backfillStatus.analyzed_truth_v23 || 0).toLocaleString('ar-EG')} • متبقي: {Number(backfillStatus.remaining_sources || 0).toLocaleString('ar-EG')}
               </div>
             </div>
           ) : null}
@@ -354,7 +354,7 @@ export default function ProductDemandLeakageV22({ cycleStart, branch }: { cycleS
             <table className="min-w-full text-xs">
               <thead>
                 <tr className="border-b border-[var(--dawaa-theme-border)] text-right">
-                  {['المصدر','الحالة','أصناف مرتبطة','أمثلة الأصناف','عبارات غير محسومة'].map((h) => <th key={h} className="p-2">{h}</th>)}
+                  {['المصدر','الحالة','أصناف مرتبطة','تغيير الحقيقة','أمثلة الأصناف','عبارات غير محسومة'].map((h) => <th key={h} className="p-2">{h}</th>)}
                 </tr>
               </thead>
               <tbody>
@@ -363,6 +363,20 @@ export default function ProductDemandLeakageV22({ cycleStart, branch }: { cycleS
                     <td className="p-2 font-mono text-[10px]">{row.sourceId.slice(0, 8)}…</td>
                     <td className="p-2">{row.status === 'ready' ? 'جاهزة' : row.status === 'failed' ? 'خطأ' : row.status}</td>
                     <td className="p-2">{row.canonicalProducts}</td>
+                    <td className="max-w-[430px] p-2">
+                      {row.productTruthChanges?.length
+                        ? row.productTruthChanges.slice(0, 4).map((change) => (
+                            <div key={String(change.productId || change.productCode || change.productName)} className="mb-1">
+                              <div className="font-bold">{change.productName || change.productCode || 'صنف'}</div>
+                              <div className="dawaa-muted text-[10px]">
+                                {(change.beforeStage || '—')} / {(change.beforeInvoiceNumber || 'بدون فاتورة')}
+                                {' → '}
+                                {change.afterStage} / {(change.afterInvoiceNumber || 'بدون فاتورة')}
+                              </div>
+                            </div>
+                          ))
+                        : '—'}
+                    </td>
                     <td className="max-w-[360px] p-2">
                       {row.canonicalProductNames.length ? row.canonicalProductNames.join('، ') : '—'}
                     </td>
