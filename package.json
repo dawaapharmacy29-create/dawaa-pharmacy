@@ -26,7 +26,11 @@
     "sales-intelligence:backfill:dry-run": "node scripts/run-sales-intelligence-backfill.cjs",
     "sales-intelligence:backfill:apply": "node scripts/run-sales-intelligence-backfill.cjs --apply",
     "sales-intelligence:backfill:item-ready:dry-run": "node scripts/run-sales-intelligence-backfill.cjs --item-ready-only",
-    "sales-intelligence:backfill:item-ready:apply": "node scripts/run-sales-intelligence-backfill.cjs --item-ready-only --apply"
+    "sales-intelligence:backfill:item-ready:apply": "node scripts/run-sales-intelligence-backfill.cjs --item-ready-only --apply",
+    "sales-intelligence:backfill:all-known-branch:dry-run": "node scripts/run-sales-intelligence-backfill.cjs --all-sources --known-branch-only",
+    "sales-intelligence:backfill:all-known-branch:apply": "node scripts/run-sales-intelligence-backfill.cjs --all-sources --known-branch-only --apply",
+    "product-demand:v22:backfill:dry-run": "node scripts/run-product-demand-v22-backfill.cjs --json",
+    "product-demand:v22:backfill:apply": "node scripts/run-product-demand-v22-backfill.cjs --apply --json"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",
