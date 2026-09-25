@@ -30,6 +30,10 @@ assertContains(panel, 'رصيد الإجازة السنوية', 'annual leave ba
 assertContains(panel, 'مبيعات الموظف خلال دورة الراتب', 'canonical employee sales KPI');
 assertContains(statementPdf, 'employee_payroll_statement_v1', 'statement PDF canonical source');
 assertContains(statementPdf, 'معاينة - غير نهائي', 'preview watermark');
+assertContains(statementPdf, '/dawaa-logo-full.jpeg', 'Dawaa logo in statement header');
+assertContains(statementPdf, 'الدخول / الخروج', 'attendance punch transparency');
+assertContains(statementPdf, 'الإجازات والأذونات خلال الدورة', 'time off detail table');
+assertContains(statementPdf, 'الحوافز والخصومات والنقاط', 'employee-visible transaction audit');
 assertContains(panel, 'معاينة PDF', 'statement PDF preview action');
 assertContains(kpiService, 'branch_breakdown', 'employee sales KPI typing');
 if (page.includes("+ num(components?.monthlyIncentiveComponent)\n      + num(components?.listIncentiveComponent)\n      + num(automatedTruth?.automatedTotal)")) {
