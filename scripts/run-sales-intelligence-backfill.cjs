@@ -122,9 +122,8 @@ async function fetchItemEvidenceReadinessSnapshot() {
   const pageSize = 1000;
   while (true) {
     const { data, error } = await supabase
-      .from('sales_intelligence_attributions')
+      .from('sales_intelligence_current_attributions')
       .select('case_id,selected_invoice_id,is_official_for_staff_evaluation')
-      .eq('is_current_evaluation', true)
       .range(from, from + pageSize - 1);
     if (error) throw error;
     attributions.push(...(data || []));
