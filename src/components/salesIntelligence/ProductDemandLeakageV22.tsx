@@ -120,6 +120,7 @@ export default function ProductDemandLeakageV22() {
   const [detailsTitle, setDetailsTitle] = useState<string | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [showOperations, setShowOperations] = useState(false);
+  const [insightView, setInsightView] = useState<'products' | 'leakage' | 'quality'>('products');
 
   async function load() {
     setLoading(true);
@@ -380,7 +381,27 @@ export default function ProductDemandLeakageV22() {
         </div>
       </div>
 
-      {cycleUnresolved.length ? (
+      <div className="mt-4 grid gap-2 sm:grid-cols-3">
+        {([
+          { key: 'products', label: 'الأصناف المطلوبة', hint: 'الطلب والقبول' },
+          { key: 'leakage', label: 'أسباب فقد البيع', hint: 'أين تضيع الفرص؟' },
+          { key: 'quality', label: 'جودة البيانات', hint: 'غير المحسوم والتغطية' },
+        ] as const).map((item) => (
+          <button
+            key={item.key}
+            type="button"
+            onClick={() => setInsightView(item.key)}
+            className={insightView === item.key
+              ? 'rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] p-3 text-right'
+              : 'rounded-xl border border-transparent p-3 text-right hover:bg-[var(--dawaa-theme-soft)]'}
+          >
+            <div className="font-black text-sm">{item.label}</div>
+            <div className="dawaa-muted mt-1 text-[10px]">{item.hint}</div>
+          </button>
+        ))}
+      </div>
+
+      {insightView === 'quality' && cycleUnresolved.length ? (
         <div className="mt-4 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4">
           <div className="font-black">العبارات غير المحسومة — لماذا لم تتحول لصنف؟</div>
           <div className="dawaa-muted mt-1 text-xs">
@@ -398,8 +419,14 @@ export default function ProductDemandLeakageV22() {
         </div>
       ) : null}
 
+      {insightView === 'quality' && !cycleUnresolved.length ? (
+        <div className="dawaa-empty-state mt-4 py-8 text-center text-xs">لا توجد عبارات منتجات غير محسومة ضمن الفلاتر الحالية.</div>
+      ) : null}
+
+      {insightView !== 'quality' ? (
       <div className="mt-4 grid gap-4 xl:grid-cols-2">
-        <div className="rounded-2xl border border-[var(--dawaa-theme-border)] p-4">
+        {insightView === 'products' ? (
+        <div className="rounded-2xl border border-[var(--dawaa-theme-border)] p-4 xl:col-span-2">
           <div className="mb-3 flex items-center gap-2 font-black"><Boxes size={16} /> أكثر الأصناف سؤالًا في الدورة</div>
           {!cycleDemand.length ? <div className="dawaa-empty-state py-6 text-center text-xs">لا توجد أصناف مرتبطة بالكتالوج من التحليل الجديد في هذه الدورة حتى الآن.</div> :
             cycleDemand.slice(0, 12).map((row, index) => (
@@ -416,8 +443,10 @@ export default function ProductDemandLeakageV22() {
               </button>
             ))}
         </div>
+        ) : null}
 
-        <div className="rounded-2xl border border-[var(--dawaa-theme-border)] p-4">
+        {insightView === 'leakage' ? (
+        <div className="rounded-2xl border border-[var(--dawaa-theme-border)] p-4 xl:col-span-2">
           <div className="mb-3 flex items-center gap-2 font-black"><CircleAlert size={16} /> أسباب عدم اكتمال البيع</div>
           {!cycleLeakage.length ? <div className="dawaa-empty-state py-6 text-center text-xs">لا توجد أسباب فقد بيع مؤكدة من التحليل الجديد في هذه الدورة حتى الآن.</div> :
             cycleLeakage.slice(0, 12).map((row) => (
@@ -431,7 +460,9 @@ export default function ProductDemandLeakageV22() {
               </button>
             ))}
         </div>
+        ) : null}
       </div>
+      ) : null}
 
       {detailsTitle ? (
         <div className="mt-4 rounded-2xl border border-[var(--dawaa-theme-border)] p-4">
