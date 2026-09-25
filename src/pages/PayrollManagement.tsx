@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import {
   Activity, AlertTriangle, Banknote, CalendarClock, ClipboardList,
-  LockKeyhole, PackageCheck, RefreshCw, Search, ShieldCheck, TrendingDown,
+  LockKeyhole, PackageCheck, RefreshCw, Save, Search, ShieldCheck, TrendingDown,
   Trophy, User, WalletCards,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
@@ -13,6 +13,10 @@ import { formatCurrency } from '@/lib/utils';
 import { getCurrentCycle, formatCycleDate } from '@/lib/pharmacy-cycle';
 import { cairoToday } from '@/lib/attendance/period';
 import { buildPaidStatementPdf } from '@/lib/payroll/paidStatementPdf';
+import {
+  listLegacyPaidPayrollHistory,
+  type LegacyPaidPayrollHistoryRow,
+} from '@/lib/payroll/payrollLegacyHistoryService';
 import { fetchPayrollIncentiveTruth, type PayrollIncentiveTruth } from '@/lib/incentives/payrollIncentiveTruthService';
 import {
   fetchAttendancePayrollReadiness,
@@ -33,6 +37,10 @@ import {
 const surface = { background: 'var(--dawaa-theme-surface)', borderColor: 'var(--dawaa-theme-border)' };
 const surfaceSoft = { background: 'var(--dawaa-theme-bg-soft)', borderColor: 'var(--dawaa-theme-border)' };
 const mutedText = { color: 'var(--dawaa-theme-muted)' };
+const STATUS_OPTIONS = [
+  { key: 'approved', label: 'معتمد تاريخيًا' },
+  { key: 'paid', label: 'مدفوع' },
+];
 
 type Row = Record<string, unknown>;
 type StaffRow = { id: string; staffId: string; username: string; name: string; branch: string; role: string; active: boolean };
@@ -45,31 +53,7 @@ type CompensationProfileState = {
   overtimeHourRate: number;
   monthlyIncentiveBase: number;
 };
-type MonthlyRow = {
-  id?: string;
-  staff_username: string;
-  payroll_month: string;
-  worked_hours: number;
-  overtime_hours: number;
-  incentives_total: number;
-  manual_adjustment: number;
-  expiry_shortage_deduction: number;
-  branch_general_deduction: number;
-  individual_deduction: number;
-  other_deduction: number;
-  deductions_total: number;
-  base_salary_component?: number;
-  monthly_incentive_component?: number;
-  list_incentive_component?: number;
-  overtime_component?: number;
-  target_bonus?: number;
-  net_salary?: number | null;
-  salary_engine_version?: number | null;
-  status: string;
-  notes: string;
-  freeze_version?: number | null;
-  approved_by_name?: string | null;
-};
+type MonthlyRow = LegacyPaidPayrollHistoryRow;
 
 function num(v: unknown) {
   const n = Number(v ?? 0);
@@ -88,24 +72,6 @@ function emptyProfile(): CompensationProfileState {
   };
 }
 
-function emptyMonthly(username: string, month: string): MonthlyRow {
-  return {
-    staff_username: username,
-    payroll_month: month,
-    worked_hours: 0,
-    overtime_hours: 0,
-    incentives_total: 0,
-    manual_adjustment: 0,
-    expiry_shortage_deduction: 0,
-    branch_general_deduction: 0,
-    individual_deduction: 0,
-    other_deduction: 0,
-    deductions_total: 0,
-    status: 'draft',
-    notes: '',
-  };
-}
-
 export default function PayrollManagement() {
   const { user } = useAuth();
   const allBranches = canViewAllBranches(user);
@@ -118,7 +84,6 @@ export default function PayrollManagement() {
   const [selected, setSelected] = useState<StaffRow | null>(null);
   const [workspaceTab, setWorkspaceTab] = useState<'overview' | 'compensation' | 'adjustments' | 'incentives' | 'history'>('overview');
   const [profile, setProfile] = useState<CompensationProfileState>(emptyProfile());
-  const [monthly, setMonthly] = useState<MonthlyRow | null>(null);
   const [components, setComponents] = useState<PayrollComponents | null>(null);
   const [automatedTruth, setAutomatedTruth] = useState<PayrollIncentiveTruth | null>(null);
   const [attendanceReadiness, setAttendanceReadiness] = useState<AttendancePayrollReadiness | null>(null);
@@ -163,10 +128,9 @@ export default function PayrollManagement() {
     setLoading(true);
     try {
       const cycleLabel = payrollMonth.slice(0, 7);
-      const [canonicalProfile, currentResult, historyResult, truth, readiness, canonicalComponents] = await Promise.all([
+      const [canonicalProfile, legacyHistory, truth, readiness, canonicalComponents] = await Promise.all([
         fetchCompensationProfile(person.staffId).catch(() => null),
-        supabase.from('staff_payroll_monthly_v13').select('*').eq('staff_username', person.username).eq('payroll_month', payrollMonth).maybeSingle(),
-        supabase.from('staff_payroll_monthly_v13').select('*').eq('staff_username', person.username).order('payroll_month', { ascending: false }).limit(6),
+        listLegacyPaidPayrollHistory(person.username, 12).catch(() => []),
         person.staffId ? fetchPayrollIncentiveTruth(person.staffId, cycleLabel).catch(() => []) : Promise.resolve([]),
         person.staffId ? fetchAttendancePayrollReadiness(person.staffId, cycleLabel).catch(() => null) : Promise.resolve(null),
         person.staffId ? fetchPayrollComponents(person.staffId, cycleLabel).catch(() => null) : Promise.resolve(null),
@@ -185,8 +149,7 @@ export default function PayrollManagement() {
         overtimeHourRate: num(canonicalProfile.overtime_hour_rate),
         monthlyIncentiveBase: num(canonicalProfile.monthly_incentive_base),
       } : emptyProfile());
-      setMonthly((currentResult.data as MonthlyRow) || emptyMonthly(person.username, payrollMonth));
-      setHistory(((historyResult.data || []) as MonthlyRow[]).filter(Boolean));
+      setHistory((legacyHistory as MonthlyRow[]).filter(Boolean));
       setAutomatedTruth((truth || []).filter(Boolean)[0] || null);
       setAttendanceReadiness(readiness);
       setComponents(canonicalComponents);
@@ -202,8 +165,6 @@ export default function PayrollManagement() {
   useEffect(() => {
     setWorkspaceTab('overview');
   }, [selected?.staffId]);
-
-  const monthlyFrozen = monthly?.status === 'approved' || monthly?.status === 'paid';
 
   const saveProfile = async () => {
     if (!selected) return;

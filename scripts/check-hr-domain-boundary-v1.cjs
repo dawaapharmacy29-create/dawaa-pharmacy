@@ -85,11 +85,18 @@ for (const file of files) {
 }
 
 const payrollPage = read(path.join(srcRoot, 'pages/PayrollManagement.tsx'));
+const legacyPayrollHistory = read(path.join(srcRoot, 'lib/payroll/payrollLegacyHistoryService.ts'));
 if (payrollPage.includes('netSalaryPreview') || payrollPage.includes('overtimeValue')) {
   fail('PayrollManagement must not calculate payroll net/overtime locally.');
 }
 if (!payrollPage.includes('<PayrollManualEntriesPanel')) {
   fail('PayrollManagement must use the canonical manual-entry ledger.');
+}
+if (payrollPage.includes('staff_payroll_monthly_v13')) {
+  fail('PayrollManagement must not read V13 directly; legacy history is isolated behind payrollLegacyHistoryService.');
+}
+if (!legacyPayrollHistory.includes("in('status', ['approved', 'paid'])")) {
+  fail('V13 compatibility reader must be restricted to approved/paid historical rows.');
 }
 
 const manualService = read(path.join(srcRoot, 'lib/payroll/payrollManualLedgerService.ts'));
