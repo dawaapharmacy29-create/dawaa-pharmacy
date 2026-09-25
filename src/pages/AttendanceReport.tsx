@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, CalendarClock, CheckCircle2, Clock, ClipboardCheck, Filter, Fingerprint, LayoutDashboard, LocateFixed, LogIn, LogOut, MapPin, RefreshCw, Search, ShieldAlert, Timer, UserCheck, Users, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { useSearchParams } from 'react-router-dom';
-import { isSupabaseConfigured, supabase } from '@/lib/supabase';
+import { isSupabaseConfigured } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -12,6 +12,19 @@ import { canSeeAllBranches } from '@/lib/security/permissionScopes';
 import { canManageBiometricOperations } from '@/lib/core/permissionSystem';
 import { listPendingOvertime } from '@/lib/attendance/attendanceBreakdownService';
 import { listStaffTimeOffRequests } from '@/lib/timeOffService';
+import {
+  applyConfirmedBiometricBatch,
+  assignBiometricStaffMapping,
+  getAttendanceDailyCommand,
+  getAttendanceDailyIntelligence,
+  getAttendanceDashboardDailySummary,
+  getAttendanceReviewTriage,
+  getAttendanceSyncHealth,
+  getBiometricCrossSourceCandidates,
+  listPendingAttendanceDeductions,
+  listUnmappedBiometricStaff,
+  searchBiometricMappingCandidates,
+} from '@/lib/attendance/attendanceOperationsService';
 import { lazy, Suspense } from 'react';
 const AttendanceSyncCommandCenter = lazy(() => import('@/components/attendance/AttendanceSyncCommandCenter'));
 const AttendanceResolutionCenter = lazy(() => import('@/components/attendance/AttendanceResolutionCenter'));
@@ -363,17 +376,14 @@ export default function AttendanceReport() {
     try {
       const branchArg = effectiveBranch === 'الكل' ? null : effectiveBranch;
       const [dailyResult, intelResult] = await Promise.all([
-        supabase.rpc('attendance_daily_command_v1', { p_date: dailyDate, p_branch: branchArg }),
-        supabase.rpc('attendance_daily_intelligence_v2', { p_date: dailyDate, p_branch: branchArg }),
+        getAttendanceDailyCommand(dailyDate, branchArg),
+        getAttendanceDailyIntelligence(dailyDate, branchArg).catch((intelError) => {
+          console.warn('[attendance] intelligence preload failed', intelError);
+          return null;
+        }),
       ]);
-      if (dailyResult.error) throw dailyResult.error;
-      setDailyRows((dailyResult.data || []) as DailyCommandRow[]);
-      if (intelResult.error) {
-        console.warn('[attendance] intelligence preload failed', intelResult.error);
-        setDailyIntel(null);
-      } else {
-        setDailyIntel((intelResult.data || []) as any[]);
-      }
+      setDailyRows(dailyResult as DailyCommandRow[]);
+      setDailyIntel(intelResult as any[] | null);
     } catch (e) { setError(e instanceof Error ? e.message : 'تعذر تحميل مركز الحضور اليومي'); } finally { setLoadingDaily(false); }
   }, [dailyDate, effectiveBranch]);
 
@@ -383,13 +393,10 @@ export default function AttendanceReport() {
     setDashboardSummaryAvailable(false);
     setDashboardSummaryError(false);
     try {
-      const { data, error: summaryError } = await supabase.rpc('attendance_dashboard_daily_summary_v1', {
-        p_date: dailyDate,
-        p_branch: effectiveBranch === 'الكل' ? null : effectiveBranch,
-      });
-      if (summaryError) throw summaryError;
-      if (!data || typeof data !== 'object') throw new Error('ملخص الحضور غير متاح');
-      const row = data as Record<string, unknown>;
+      const row = await getAttendanceDashboardDailySummary(
+        dailyDate,
+        effectiveBranch === 'الكل' ? null : effectiveBranch
+      );
       const fields = ['staff', 'on_time', 'late', 'missing', 'issues'];
       if (fields.some((field) => row[field] == null || !Number.isFinite(Number(row[field])))) {
         throw new Error('ملخص الحضور غير مكتمل');
@@ -417,13 +424,11 @@ export default function AttendanceReport() {
       const today = cairoDate();
       const cycle = attendanceCycleBounds(today);
       const [healthResult, unmappedResult] = await Promise.all([
-        supabase.rpc('attendance_sync_health_v4', { p_start: cycle.start, p_end: today }),
-        supabase.rpc('list_unmapped_biometric_staff_v2', { p_start: cycle.start, p_end: today, p_limit: 100 }),
+        getAttendanceSyncHealth(cycle.start, today),
+        listUnmappedBiometricStaff(cycle.start, today, 100),
       ]);
-      if (healthResult.error) throw healthResult.error;
-      if (unmappedResult.error) throw unmappedResult.error;
-      setSyncHealth((healthResult.data || {}) as SyncHealth);
-      setUnmappedRows((unmappedResult.data || []) as UnmappedBiometric[]);
+      setSyncHealth(healthResult as SyncHealth);
+      setUnmappedRows(unmappedResult as UnmappedBiometric[]);
     } catch (e) { setError(e instanceof Error ? e.message : 'تعذر تحميل حالة مزامنة البصمة'); } finally { setLoadingSync(false); }
   }, [canViewSyncHealth]);
 
@@ -435,19 +440,15 @@ export default function AttendanceReport() {
       const cycle = attendanceCycleBounds(today);
       const [triageResult, deductionResult, overtimeResult, timeOffResult] = await Promise.allSettled([
         isOperationalManager
-          ? supabase.rpc('attendance_review_triage_v1', {
-              p_start: cycle.start,
-              p_end: today,
-              p_branch: effectiveBranch === 'الكل' ? null : effectiveBranch,
-            })
+          ? getAttendanceReviewTriage(cycle.start, today, effectiveBranch === 'الكل' ? null : effectiveBranch)
           : Promise.resolve(null),
-        isOperationalManager ? supabase.rpc('attendance_deduction_pending_review_v1') : Promise.resolve(null),
+        isOperationalManager ? listPendingAttendanceDeductions() : Promise.resolve(null),
         isOperationalManager ? listPendingOvertime(effectiveBranch === 'الكل' ? null : effectiveBranch) : Promise.resolve(null),
         canViewTimeOff ? listStaffTimeOffRequests({ status: 'pending', limit: 200 }) : Promise.resolve(null),
       ]);
 
-      const triage = triageResult.status === 'fulfilled' && triageResult.value && !triageResult.value.error && triageResult.value.data
-        ? (triageResult.value.data as Record<string, unknown>)
+      const triage = triageResult.status === 'fulfilled' && triageResult.value
+        ? triageResult.value as Record<string, unknown>
         : null;
 
       setApprovalsSummary({
@@ -477,9 +478,8 @@ export default function AttendanceReport() {
     if (q.length < 2) { toast.warning('اكتب حرفين على الأقل من اسم الموظف'); return; }
     setMappingBusy(true);
     try {
-      const { data, error: candidateError } = await supabase.rpc('list_biometric_mapping_staff_candidates_v1', { p_search: q, p_limit: 30 });
-      if (candidateError) throw candidateError;
-      setCandidates((data || []) as StaffCandidate[]);
+      const data = await searchBiometricMappingCandidates(q, 30);
+      setCandidates(data as StaffCandidate[]);
     } catch (e) { toast.error(e instanceof Error ? e.message : 'تعذر البحث عن الموظف'); }
     finally { setMappingBusy(false); }
   }, [candidateSearch, mappingTarget]);
@@ -488,14 +488,15 @@ export default function AttendanceReport() {
     if (!mappingTarget) { setCrossSourceCandidates(null); return; }
     let current = true;
     setCrossSourceCandidates(null);
-    void supabase.rpc('biometric_cross_source_candidate_v1', {
-      p_provider: mappingTarget.provider,
-      p_biometric_user_id: mappingTarget.biometric_user_id,
-    }).then(({ data, error: candidateError }) => {
-      if (!current) return;
-      if (candidateError) { console.warn('[attendance] cross-source candidates unavailable', candidateError); return; }
-      setCrossSourceCandidates((data || []) as CrossSourceCandidate[]);
-    });
+    void getBiometricCrossSourceCandidates(mappingTarget.provider, mappingTarget.biometric_user_id)
+      .then((data) => {
+        if (!current) return;
+        setCrossSourceCandidates(data as CrossSourceCandidate[]);
+      })
+      .catch((candidateError) => {
+        if (!current) return;
+        console.warn('[attendance] cross-source candidates unavailable', candidateError);
+      });
     return () => { current = false; };
   }, [mappingTarget]);
 
@@ -503,9 +504,11 @@ export default function AttendanceReport() {
     if (!mappingTarget || !selectedCandidate) return;
     setMappingBusy(true);
     try {
-      const { data, error: mappingError } = await supabase.rpc('assign_biometric_staff_mapping_v3', { p_provider: mappingTarget.provider, p_biometric_user_id: mappingTarget.biometric_user_id, p_staff_id: selectedCandidate.staff_id });
-      if (mappingError) throw mappingError;
-      const result = (data || {}) as Record<string, unknown>;
+      const result = await assignBiometricStaffMapping(
+        mappingTarget.provider,
+        mappingTarget.biometric_user_id,
+        selectedCandidate.staff_id
+      );
       toast.success(`تم ربط كود ${mappingTarget.biometric_user_id} بـ ${selectedCandidate.staff_name} ومعالجة ${Number(result.attendance_events_processed || 0)} بصمة وإعادة بناء ${Number(result.attendance_days_rebuilt || 0)} يوم`);
       setMappingTarget(null); setCandidateSearch(''); setCandidates([]); setSelectedCandidate(null);
       await Promise.all([loadSyncHealth(), loadDaily(), loadApprovalsSummary()]);
@@ -517,10 +520,8 @@ export default function AttendanceReport() {
     if (!window.confirm('اعتماد ٢١ ربطًا مؤكّدًا بالأسماء والفرع من القائمة التي راجعها صاحب العمل؟ سيتم إعادة معالجة أيام الحضور المتأثرة. الأكواد غير المعروفة والسجلات المؤرشفة خارج هذه الدفعة.')) return;
     setBatchMappingBusy(true);
     try {
-      const { data, error: batchError } = await supabase.rpc('apply_confirmed_biometric_batch_v1');
-      if (batchError) throw batchError;
-      const result = data as { applied?: number; already_mapped?: number } | null;
-      toast.success(`تم ربط ${result?.applied ?? 0} كود مؤكد. كان ${result?.already_mapped ?? 0} مربوطًا بالفعل.`);
+      const result = await applyConfirmedBiometricBatch();
+      toast.success(`تم ربط ${result.applied ?? 0} كود مؤكد. كان ${result.already_mapped ?? 0} مربوطًا بالفعل.`);
       await Promise.all([loadSyncHealth(), loadDaily(), loadApprovalsSummary()]);
     } catch (e) { toast.error(e instanceof Error ? e.message : 'تعذر اعتماد دفعة الربط؛ لم يتم تطبيقها'); }
     finally { setBatchMappingBusy(false); }
