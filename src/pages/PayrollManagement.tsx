@@ -13,6 +13,7 @@ import { getCurrentCycle, formatCycleDate } from '@/lib/pharmacy-cycle';
 import { cairoToday } from '@/lib/attendance/period';
 import { listActiveHRStaffDirectory } from '@/lib/hr/staffDirectoryService';
 import { buildPaidStatementPdf } from '@/lib/payroll/paidStatementPdf';
+import { buildEmployeePayrollStatementPdf } from '@/lib/payroll/employeePayrollStatementPdf';
 import {
   listLegacyPaidPayrollHistory,
   type LegacyPaidPayrollHistoryRow,
@@ -58,7 +59,9 @@ type CompensationProfileState = {
   monthlyIncentiveBase: number;
 };
 type MonthlyRow = LegacyPaidPayrollHistoryRow & {
-  history_source?: 'legacy_v13';
+  history_source?: 'legacy_v13' | 'finalized_v2';
+  snapshot_fingerprint?: string | null;
+  finalized_at?: string | null;
 };
 type FinalizedHistoryRow = FinalizedPayrollSnapshotHistoryRow & {
   history_source: 'finalized_v2';
@@ -170,8 +173,11 @@ export default function PayrollManagement() {
           id: row.id,
           staff_username: row.staff_username,
           payroll_month: row.month_cycle,
-          deductions_total: 0,
-          net_salary: null,
+          deductions_total: num(row.payload?.financial_composition?.adjustments?.deductions_total),
+          net_salary: num(
+            row.payload?.financial_composition?.display_net_salary
+              ?? row.payload?.financial_composition?.preview_net_salary
+          ),
           status: 'finalized_v2',
           approved_by_name: row.finalized_by_name,
           freeze_version: 2,
@@ -232,7 +238,21 @@ export default function PayrollManagement() {
 
   async function decideChange(id:string,approve:boolean){if(!selected)return;setSaving(true);try{await decideCompensationChange(id,approve,'');setCompensationChanges(await listCompensationChanges(selected.staffId));await loadPerson(selected,month);toast.success(approve?'تم اعتماد التعديل وتطبيقه':'تم رفض الطلب')}catch(e){toast.error(e instanceof Error?e.message:'تعذر اتخاذ القرار')}finally{setSaving(false)}}
 
-  async function exportFinalStatement(payrollMonth:string){if(!selected?.staffId)return;setExportingStatement(true);try{const {pdf,fileName}=await buildPaidStatementPdf(selected.staffId,payrollMonth.slice(0,7));pdf.save(fileName)}catch(e){toast.error(e instanceof Error?e.message:'تعذر إصدار كشف الراتب النهائي')}finally{setExportingStatement(false)}}
+  async function exportFinalStatement(payrollMonth: string, source: 'finalized_v2' | 'legacy_v13' = 'legacy_v13') {
+    if (!selected?.staffId) return;
+    setExportingStatement(true);
+    try {
+      const cycleLabel = payrollMonth.slice(0, 7);
+      const result = source === 'finalized_v2'
+        ? await buildEmployeePayrollStatementPdf(selected.staffId, cycleLabel)
+        : await buildPaidStatementPdf(selected.staffId, cycleLabel);
+      result.pdf.save(result.fileName);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'تعذر إصدار كشف الراتب النهائي');
+    } finally {
+      setExportingStatement(false);
+    }
+  }
 
   const filteredStaff = staff.filter((s) => !search.trim() || s.name.includes(search.trim()) || s.username.includes(search.trim()));
   return (
@@ -373,8 +393,8 @@ export default function PayrollManagement() {
 
             {history.length ? <div className={workspaceTab === 'history' ? 'rounded-3xl border p-5' : 'hidden'} style={surface}>
               <div className="flex items-center gap-2 font-black text-teal-200"><ClipboardList size={18} /> آخر الدورات</div>
-              <p className="mt-2 text-xs" style={mutedText}>يمكن تنزيل كشف PDF فقط لدورة مدفوعة ولها نسخة اعتماد مالية كاملة. المراجعة والـStaging لا يصدران ككشف نهائي.</p>
-              <div className="mt-3 space-y-2">{history.map((h: any) => <div key={`${h.history_source || 'legacy'}-${h.payroll_month}`} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3 text-sm" style={surfaceSoft}><span className="font-black text-white">{h.payroll_month?.slice(0, 7)}</span>{h.history_source === 'finalized_v2' ? <span className="text-[11px] font-bold text-emerald-300">Final Snapshot V2</span> : <><span className="flex items-center gap-1 text-emerald-300"><Trophy size={13} /> {formatCurrency(num(h.net_salary))}</span><span className="flex items-center gap-1 text-rose-300"><TrendingDown size={13} /> {formatCurrency(num(h.deductions_total))}</span></>}<span className="rounded-full px-3 py-1 text-xs font-black text-teal-200" style={surface}>{STATUS_OPTIONS.find((s) => s.key === h.status)?.label || h.status}</span>{(h.history_source === 'finalized_v2' || h.status === 'paid')&&<button className="btn-secondary" disabled={exportingStatement} onClick={()=>void exportFinalStatement(h.payroll_month)}>كشف PDF النهائي</button>}</div>)}</div>
+              <p className="mt-2 text-xs" style={mutedText}>Final Snapshot V2 يستخدم كشف الشفافية الجديد الكامل. الدورات القديمة المدفوعة تظل متاحة من أرشيف V13.</p>
+              <div className="mt-3 space-y-2">{history.map((h) => <div key={`${h.history_source || 'legacy_v13'}-${h.payroll_month}`} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3 text-sm" style={surfaceSoft}><div><span className="font-black text-white">{h.payroll_month?.slice(0, 7)}</span><div className="mt-1 text-[10px]" style={mutedText}>{h.history_source === 'finalized_v2' ? 'Final Snapshot V2' : 'Legacy Payroll Archive'}</div></div><span className="flex items-center gap-1 text-emerald-300"><Trophy size={13} /> {formatCurrency(num(h.net_salary))}</span><span className="flex items-center gap-1 text-rose-300"><TrendingDown size={13} /> {formatCurrency(num(h.deductions_total))}</span><span className="rounded-full px-3 py-1 text-xs font-black text-teal-200" style={surface}>{STATUS_OPTIONS.find((s) => s.key === h.status)?.label || h.status}</span>{(h.history_source === 'finalized_v2' || h.status === 'paid')&&<button className="btn-secondary" disabled={exportingStatement} onClick={()=>void exportFinalStatement(h.payroll_month,h.history_source === 'finalized_v2' ? 'finalized_v2' : 'legacy_v13')}>كشف PDF النهائي</button>}</div>)}</div>
             </div> : null}
           </div>
         )}

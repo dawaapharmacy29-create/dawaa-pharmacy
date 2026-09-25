@@ -13,6 +13,14 @@ export type FinalizedPayrollSnapshotHistoryRow = {
   snapshot_fingerprint: string;
   finalized_at: string;
   finalized_by_name: string | null;
+  payload?: {
+    financial_composition?: {
+      display_net_salary?: number | null;
+      preview_net_salary?: number | null;
+      adjustments?: { deductions_total?: number | null };
+    };
+    employee_statement?: Record<string, unknown>;
+  } | null;
 };
 
 export async function listFinalizedPayrollSnapshots(

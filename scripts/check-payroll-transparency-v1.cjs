@@ -5,6 +5,8 @@ const root = path.resolve(__dirname, '..');
 const service = fs.readFileSync(path.join(root, 'src/lib/payroll/payrollTransparencyService.ts'), 'utf8');
 const panel = fs.readFileSync(path.join(root, 'src/components/payroll/PayrollTransparencyPanel.tsx'), 'utf8');
 const page = fs.readFileSync(path.join(root, 'src/pages/PayrollManagement.tsx'), 'utf8');
+assertContains(page, 'buildEmployeePayrollStatementPdf', 'finalized V2 employee statement PDF export');
+assertContains(page, "source === 'finalized_v2'", 'source-aware finalized V2 PDF export');
 const financialService = fs.readFileSync(path.join(root, 'src/lib/payroll/payrollFinancialCompositionService.ts'), 'utf8');
 const kpiService = fs.readFileSync(path.join(root, 'src/lib/payroll/payrollKpiContextService.ts'), 'utf8');
 const statementService = fs.readFileSync(path.join(root, 'src/lib/payroll/payrollStatementService.ts'), 'utf8');
