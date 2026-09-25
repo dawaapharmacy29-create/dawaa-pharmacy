@@ -210,6 +210,15 @@ export default function PayrollManagement() {
       <PayrollCycleReadinessOverview
         monthCycle={month.slice(0, 7)}
         branch={allBranches ? null : ownBranch || null}
+        onOpenStaffCompensation={(staffId) => {
+          const person = staff.find((item) => item.staffId === staffId);
+          if (!person) {
+            toast.warning('الموظف غير موجود داخل نطاق الرواتب الحالي.');
+            return;
+          }
+          setSelected(person);
+          setWorkspaceTab('compensation');
+        }}
       />
 
       <div className="grid gap-4 lg:grid-cols-[280px_1fr]">

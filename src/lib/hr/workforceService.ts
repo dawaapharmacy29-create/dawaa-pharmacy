@@ -574,6 +574,7 @@ export type PayrollCycleFinalizationOverview = {
     staff_id: string;
     staff_name: string;
     branch: string | null;
+    role?: string | null;
     ready: boolean;
     blocker_count: number;
     warning_count: number;

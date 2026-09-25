@@ -31,6 +31,10 @@ assertContains(panel, 'كشف راتب الموظف — معاينة شفافة'
 assertContains(kpiService, 'employee_payroll_kpi_context_v1', 'payroll KPI context RPC');
 assertContains(panel, 'الأداء وKPIs', 'payroll KPI tab');
 assertContains(statementService, 'employee_payroll_statement_v1', 'single statement RPC');
+const readinessUi = fs.readFileSync(path.join(root, 'src/components/attendance/PayrollCycleReadinessOverview.tsx'), 'utf8');
+assertContains(readinessUi, 'خطة إغلاق الـBlockers', 'actionable payroll readiness plan');
+assertContains(readinessUi, 'row.blockers.slice', 'per-employee blocker reasons');
+assertContains(readinessUi, 'onOpenStaffCompensation', 'compensation remediation action');
 assertContains(statementMigration, 'deterministic_without_generated_at_v1', 'deterministic snapshot fingerprint schema');
 assertContains(statementMigration, 'dawaa_jsonb_strip_generated_at_v1', 'volatile timestamp stripping');
 assertContains(statementMigration, "'employee_statement',v_statement", 'employee statement frozen into snapshot');
