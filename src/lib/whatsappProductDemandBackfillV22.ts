@@ -208,7 +208,7 @@ async function processProductDemandSourceV22(
     const productCodes = Array.from(new Set(canonical.map((product) => String(product.productCode)).filter(Boolean)));
     const { data: priorRows, error: priorError } = await supabase
       .from('whatsapp_sales_opportunities_v17')
-      .select('product_code,product_id,product_name,current_stage,matched_invoice_number,leakage_code,analysis_version')
+      .select('product_code,product_id,product_name,current_stage,matched_invoice_number,evidence_json,analysis_version')
       .eq('root_source_id', source.id)
       .in('analysis_version', ['product-demand-v22', 'product-demand-v22.1'])
       .not('product_id', 'is', null);
@@ -255,7 +255,7 @@ async function processProductDemandSourceV22(
         productName: truth.productName,
         beforeStage: prior?.current_stage || null,
         beforeInvoiceNumber: prior?.matched_invoice_number || null,
-        beforeLeakageCode: prior?.leakage_code || null,
+        beforeLeakageCode: prior?.evidence_json?.leakageCode || null,
         afterStage: truth.currentStage,
         afterInvoiceNumber: truth.matchedInvoiceNumber,
         afterInvoiceValue: truth.matchedInvoiceValue,
