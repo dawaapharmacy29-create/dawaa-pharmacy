@@ -41,6 +41,13 @@ const forbiddenLegacy = [
   'get_staff_attendance_detail_v2',
   'list_cross_branch_biometric_events_v1',
   'list_unmapped_biometric_staff_v1',
+  'attendance_request_time_off_v1',
+  'attendance_branch_review_time_off_v1',
+  'attendance_gm_review_time_off_v1',
+  'attendance_branch_time_off_queue_v1',
+  'attendance_gm_time_off_queue_v1',
+  'attendance_my_time_off_requests_v1',
+  'attendance_cancel_time_off_request_v1',
 ];
 
 for (const file of files) {
