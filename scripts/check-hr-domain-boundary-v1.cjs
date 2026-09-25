@@ -48,6 +48,10 @@ const forbiddenLegacy = [
   'attendance_gm_time_off_queue_v1',
   'attendance_my_time_off_requests_v1',
   'attendance_cancel_time_off_request_v1',
+  'dawaa_sync_attendance_points_deduction_v1',
+  'attendance_deduction_pending_review_v1',
+  'attendance_deduction_review_decide_v1',
+  'attendance_deduction_adjust_v1',
 ];
 
 for (const file of files) {

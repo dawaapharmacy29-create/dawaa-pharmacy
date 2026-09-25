@@ -365,3 +365,34 @@ export async function resolveAttendancePolicy(staffId: string, date: string): Pr
   if (error) throw new Error(error.message);
   return (data || {}) as Record<string, unknown>;
 }
+
+
+export async function decideAttendanceDeductionV2(
+  transactionId: string,
+  decision: 'approve' | 'reject',
+  note?: string | null
+): Promise<Record<string, unknown>> {
+  const { data, error } = await supabase.rpc('attendance_deduction_review_decide_v2', {
+    p_transaction_id: transactionId,
+    p_decision: decision,
+    p_note: note || null,
+  });
+  if (error) throw new Error(error.message);
+  return (data || {}) as Record<string, unknown>;
+}
+
+export async function adjustAttendanceDeductionV2(args: {
+  transactionId: string;
+  newPoints?: number | null;
+  multiplier?: number | null;
+  reason: string;
+}): Promise<Record<string, unknown>> {
+  const { data, error } = await supabase.rpc('attendance_deduction_adjust_v2', {
+    p_transaction_id: args.transactionId,
+    p_new_points: args.newPoints ?? null,
+    p_multiplier: args.multiplier ?? null,
+    p_reason: args.reason,
+  });
+  if (error) throw new Error(error.message);
+  return (data || {}) as Record<string, unknown>;
+}

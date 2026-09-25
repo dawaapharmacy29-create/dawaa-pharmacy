@@ -67,7 +67,7 @@ export async function getAttendanceReviewTriage(start: string, end: string, bran
 }
 
 export async function listPendingAttendanceDeductions() {
-  const { data, error } = await supabase.rpc('attendance_deduction_pending_review_v1');
+  const { data, error } = await supabase.rpc('attendance_deduction_pending_review_v2');
   if (error) throw new Error(error.message);
   return (data || []) as Array<Record<string, unknown>>;
 }
