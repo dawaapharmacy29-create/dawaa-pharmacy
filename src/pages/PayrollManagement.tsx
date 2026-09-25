@@ -116,6 +116,7 @@ export default function PayrollManagement() {
   const [staff, setStaff] = useState<StaffRow[]>([]);
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<StaffRow | null>(null);
+  const [workspaceTab, setWorkspaceTab] = useState<'overview' | 'compensation' | 'adjustments' | 'incentives' | 'history'>('overview');
   const [profile, setProfile] = useState<CompensationProfileState>(emptyProfile());
   const [monthly, setMonthly] = useState<MonthlyRow | null>(null);
   const [components, setComponents] = useState<PayrollComponents | null>(null);
@@ -197,6 +198,10 @@ export default function PayrollManagement() {
   useEffect(() => {
     if (selected) void loadPerson(selected, month);
   }, [selected, month, loadPerson]);
+
+  useEffect(() => {
+    setWorkspaceTab('overview');
+  }, [selected?.staffId]);
 
   const monthlyFrozen = monthly?.status === 'approved' || monthly?.status === 'paid';
   const monthlyPaid = monthly?.status === 'paid';
@@ -305,9 +310,42 @@ export default function PayrollManagement() {
           <div className="flex items-center justify-center rounded-3xl border p-10" style={surface}><RefreshCw className="animate-spin text-teal-300" /></div>
         ) : (
           <div className="space-y-4">
-            <PayrollAttendanceSafetyGate staffId={selected.staffId} monthCycle={month.slice(0, 7)} />
-            <PayrollTransparencyPanel staffId={selected.staffId} monthCycle={month.slice(0, 7)} />
-            <div className="rounded-3xl border p-5" style={surface}>
+            <div className="sticky top-2 z-20 rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-3 shadow-lg">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="me-auto">
+                  <div className="text-sm font-black text-white">{selected.name}</div>
+                  <div className="text-[10px]" style={mutedText}>{selected.branch} · {selected.role || 'موظف'}</div>
+                </div>
+                <label className="text-[10px] font-bold" style={mutedText}>
+                  دورة الراتب
+                  <input type="month" className="input ms-2 !py-1 text-xs" value={month.slice(0, 7)} onChange={(e) => setMonth(`${e.target.value}-01`)} />
+                </label>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {([
+                  ['overview', 'الملخص والشفافية'],
+                  ['compensation', 'التعويضات'],
+                  ['adjustments', 'التسويات والخصومات'],
+                  ['incentives', 'الحوافز'],
+                  ['history', 'سجل الدورات'],
+                ] as const).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setWorkspaceTab(id)}
+                    className={`rounded-xl border px-3 py-2 text-xs font-black transition ${workspaceTab === id ? 'border-teal-400/50 bg-teal-400/10 text-teal-200' : 'border-[var(--dawaa-theme-border)] text-[var(--dawaa-theme-muted)]'}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className={workspaceTab === 'overview' ? 'space-y-4' : 'hidden'}>
+              <PayrollAttendanceSafetyGate staffId={selected.staffId} monthCycle={month.slice(0, 7)} />
+              <PayrollTransparencyPanel staffId={selected.staffId} monthCycle={month.slice(0, 7)} />
+            </div>
+            <div className={workspaceTab === 'compensation' ? 'rounded-3xl border p-5' : 'hidden'} style={surface}>
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2 font-black text-teal-200"><WalletCards size={18} /> ملف التعويضات الموحد — {selected.name}</div>
                 <span className="rounded-full border border-amber-400/30 bg-amber-400/5 px-3 py-1 text-[11px] font-black text-amber-200">الحافز الربع سنوي مؤرشف مؤقتًا ولا يدخل الحساب</span>
@@ -347,14 +385,13 @@ export default function PayrollManagement() {
               <div className="mt-4"><h3 className="font-bold">طلبات التعويضات وسجل الاعتماد</h3>{compensationError&&<p role="alert" className="text-red-400">{compensationError}</p>}{compensationChanges.map(change=><div key={change.id} className="mt-2 rounded-xl border p-3 text-xs" style={surfaceSoft}><div>{change.state==='pending'?'قيد الاعتماد':change.state==='approved'?'معتمد':'مرفوض'} · يسري من {change.effective_from} · {change.reason}</div><div className="mt-1">طريقة الحساب: {String(change.proposed.salary_calculation_mode)} · الأساسي الثابت: {String(change.proposed.monthly_base_salary)} · قيمة الساعة الشهرية: {String(change.proposed.monthly_hour_unit_value)} · ساعات اليوم: {String(change.proposed.contracted_daily_hours)} · الحافز الشهري: {String(change.proposed.monthly_incentive_base)} · سعر الإضافي: {String(change.proposed.overtime_hour_rate)}</div>{change.state==='pending'&&user?.role==='general_manager'&&change.requested_by!==user.id&&<div className="mt-2 flex gap-2"><button className="btn-primary" disabled={saving} onClick={()=>void decideChange(change.id,true)}>اعتماد وتطبيق</button><button className="btn-secondary" disabled={saving} onClick={()=>void decideChange(change.id,false)}>رفض</button></div>}</div>)}</div>
             </div>
 
-            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
+            <div className={workspaceTab === 'adjustments' ? 'grid gap-2 sm:grid-cols-2 xl:grid-cols-6' : 'hidden'}>
               {summaryCards.map(([label, value], index) => <div key={label} className="rounded-2xl border p-3" style={surface}><div className="text-[11px]" style={mutedText}>{label}</div><div className={`mt-1 font-black ${index === 5 ? 'text-teal-200' : index === 4 ? 'text-rose-300' : 'text-white'}`}>{formatCurrency(value)}</div></div>)}
             </div>
 
-            <div className="rounded-3xl border p-5" style={surface}>
+            <div className={workspaceTab === 'adjustments' ? 'rounded-3xl border p-5' : 'hidden'} style={surface}>
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-2 font-black text-teal-200"><CalendarClock size={18} /> كشف الدورة</div>
-                <input type="month" className="input" value={month.slice(0, 7)} onChange={(e) => setMonth(`${e.target.value}-01`)} />
+                <div className="flex items-center gap-2 font-black text-teal-200"><CalendarClock size={18} /> التسويات والخصومات — {month.slice(0, 7)}</div>
               </div>
 
               {monthlyFrozen ? <div className="mt-4 flex items-start gap-2 rounded-2xl border border-amber-400/30 bg-amber-400/5 p-3 text-xs text-amber-200"><LockKeyhole size={16} /><b>{monthlyPaid ? 'الكشف مدفوع ومقفول نهائيًا.' : `الكشف معتمد ومجمد Snapshot v${monthly?.freeze_version || monthly?.salary_engine_version || 17}.`}</b></div> : null}
@@ -389,7 +426,7 @@ export default function PayrollManagement() {
               </div>
             </div>
 
-            <div className="rounded-3xl border p-5" style={surface}>
+            <div className={workspaceTab === 'incentives' ? 'rounded-3xl border p-5' : 'hidden'} style={surface}>
               <div className="flex items-center gap-2 font-black text-teal-200"><PackageCheck size={18} /> تفاصيل لستة أصناف الحوافز</div>
               <p className="mt-1 text-xs" style={mutedText}>كل صنف يظهر بالكمية المباعة وقيمة الحافز للوحدة وإجمالي استحقاق الدكتور. الإجمالي يدخل الراتب آليًا.</p>
               <div className="mt-3 overflow-x-auto">
@@ -397,12 +434,12 @@ export default function PayrollManagement() {
               </div>
             </div>
 
-            {automatedTruth ? <div className="rounded-3xl border p-5" style={surface}>
+            {automatedTruth ? <div className={workspaceTab === 'incentives' ? 'rounded-3xl border p-5' : 'hidden'} style={surface}>
               <div className="flex items-center gap-2 font-black text-teal-200"><Trophy size={18} /> الحوافز الآلية</div>
               <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4"><div>التارجت: <b>{formatCurrency(automatedTruth.targetBonus)}</b></div><div>الأداء: <b>{formatCurrency(automatedTruth.performanceIncentive)}</b></div><div>متابعة العملاء: <b>{formatCurrency(automatedTruth.followupThresholdBonus)}</b></div><div>طلبات العملاء: <b>{formatCurrency(automatedTruth.customerRequestThresholdBonus)}</b></div><div>نجم الفرع: <b>{formatCurrency(automatedTruth.branchStarBonus)}</b></div><div>الإجمالي الآلي: <b className="text-emerald-300">{formatCurrency(automatedTruth.automatedTotal)}</b></div></div>
             </div> : null}
 
-            {history.length ? <div className="rounded-3xl border p-5" style={surface}>
+            {history.length ? <div className={workspaceTab === 'history' ? 'rounded-3xl border p-5' : 'hidden'} style={surface}>
               <div className="flex items-center gap-2 font-black text-teal-200"><ClipboardList size={18} /> آخر الدورات</div>
               <p className="mt-2 text-xs" style={mutedText}>يمكن تنزيل كشف PDF فقط لدورة مدفوعة ولها نسخة اعتماد مالية كاملة. المراجعة والـStaging لا يصدران ككشف نهائي.</p>
               <div className="mt-3 space-y-2">{history.map((h) => <div key={h.payroll_month} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3 text-sm" style={surfaceSoft}><span className="font-black text-white">{h.payroll_month?.slice(0, 7)}</span><span className="flex items-center gap-1 text-emerald-300"><Trophy size={13} /> {formatCurrency(num(h.net_salary))}</span><span className="flex items-center gap-1 text-rose-300"><TrendingDown size={13} /> {formatCurrency(num(h.deductions_total))}</span><span className="rounded-full px-3 py-1 text-xs font-black text-teal-200" style={surface}>{STATUS_OPTIONS.find((s) => s.key === h.status)?.label || h.status}</span>{h.status==='paid'&&<button className="btn-secondary" disabled={exportingStatement} onClick={()=>void exportPaidStatement(h.payroll_month)}>كشف PDF المدفوع</button>}</div>)}</div>
