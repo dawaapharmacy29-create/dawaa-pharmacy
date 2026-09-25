@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   BarChart3,
+  CalendarDays,
   Columns3,
   LayoutDashboard,
   ListChecks,
@@ -17,6 +18,7 @@ import { supabase } from '@/lib/supabase';
 import { formatDateTime } from '@/lib/utils';
 import { fetchQaBranchOptions, fetchQaCaseList, filterCaseListRows } from '@/lib/salesIntelligence/qa/queries';
 import { DEFAULT_QA_LIST_FILTERS, type QaCaseListRow, type QaListFilters } from '@/lib/salesIntelligence/qa/types';
+import { buildRecentPharmacyCyclesV1, dateFallsInCycleV1, previousPharmacyCycleV1 } from '@/lib/salesIntelligence/dashboardScopeV1';
 import ProductDemandLeakageV22 from '@/components/salesIntelligence/ProductDemandLeakageV22';
 import SalesIntelligenceManagementOverviewV1 from '@/components/salesIntelligence/SalesIntelligenceManagementOverviewV1';
 import SalesIntelligenceStaffPerformanceV1 from '@/components/salesIntelligence/SalesIntelligenceStaffPerformanceV1';
@@ -55,6 +57,9 @@ export default function SalesIntelligenceQA() {
   const [activeSection, setActiveSection] = useState<WorkspaceSection>('overview');
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [showTechnicalColumns, setShowTechnicalColumns] = useState(false);
+  const cycleOptions = useMemo(() => buildRecentPharmacyCyclesV1(new Date(), 8), []);
+  const [cycleKey, setCycleKey] = useState(cycleOptions[0]?.key || '');
+  const [branchScope, setBranchScope] = useState('all');
 
   async function load() {
     setLoading(true);
@@ -95,7 +100,36 @@ export default function SalesIntelligenceQA() {
     return () => { cancelled = true; };
   }, []);
 
-  const filteredRows = useMemo(() => filterCaseListRows(rows, filters), [rows, filters]);
+  const selectedCycle = useMemo(
+    () => cycleOptions.find((cycle) => cycle.key === cycleKey) || cycleOptions[0],
+    [cycleKey, cycleOptions]
+  );
+  const previousCycle = useMemo(
+    () => selectedCycle ? previousPharmacyCycleV1(selectedCycle) : null,
+    [selectedCycle]
+  );
+  const scopedRows = useMemo(
+    () => selectedCycle
+      ? rows.filter((row) =>
+          dateFallsInCycleV1(row.caseStartedAt, selectedCycle) &&
+          (branchScope === 'all' || row.branchNameRaw === branchScope)
+        )
+      : rows,
+    [branchScope, rows, selectedCycle]
+  );
+  const previousScopedRows = useMemo(
+    () => previousCycle
+      ? rows.filter((row) =>
+          dateFallsInCycleV1(row.caseStartedAt, previousCycle) &&
+          (branchScope === 'all' || row.branchNameRaw === branchScope)
+        )
+      : [],
+    [branchScope, previousCycle, rows]
+  );
+  const filteredRows = useMemo(
+    () => filterCaseListRows(scopedRows, { ...filters, branch: 'all' }),
+    [filters, scopedRows]
+  );
 
   function toggleQuickFilter(key: QaListFilters['quickFilter']) {
     setFilters((current) => ({ ...current, quickFilter: current.quickFilter === key ? 'none' : key }));
@@ -154,9 +188,42 @@ export default function SalesIntelligenceQA() {
         </div>
       </section>
 
-      {activeSection === 'overview' ? <SalesIntelligenceManagementOverviewV1 rows={rows} /> : null}
-      {activeSection === 'demand' ? <ProductDemandLeakageV22 /> : null}
-      {activeSection === 'staff' ? <SalesIntelligenceStaffPerformanceV1 /> : null}
+      <section className="dawaa-card">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="grid flex-1 gap-3 md:grid-cols-[260px_1fr]">
+            <label className="block">
+              <span className="dawaa-muted mb-1 flex items-center gap-1 text-[11px] font-bold"><CalendarDays size={13} /> دورة العمل</span>
+              <select className="dawaa-select w-full" value={cycleKey} onChange={(event) => setCycleKey(event.target.value)}>
+                {cycleOptions.map((cycle) => <option key={cycle.key} value={cycle.key}>{cycle.label}</option>)}
+              </select>
+            </label>
+            <div>
+              <div className="dawaa-muted mb-1 text-[11px] font-bold">الفرع</div>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => setBranchScope('all')} className={branchScope === 'all' ? 'dawaa-badge dawaa-badge--info px-3 py-2' : 'dawaa-button dawaa-button--ghost text-xs'}>كل الفروع</button>
+                {branches.map((name) => (
+                  <button key={name} type="button" onClick={() => setBranchScope(name)} className={branchScope === name ? 'dawaa-badge dawaa-badge--info px-3 py-2' : 'dawaa-button dawaa-button--ghost text-xs'}>{name}</button>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="dawaa-muted text-[11px]">
+            {scopedRows.length.toLocaleString('ar-EG')} حالة في النطاق الحالي
+          </div>
+        </div>
+      </section>
+
+      {selectedCycle && activeSection === 'overview' ? (
+        <SalesIntelligenceManagementOverviewV1
+          rows={scopedRows}
+          previousRows={previousScopedRows}
+          cycle={selectedCycle}
+          previousCycle={previousCycle}
+          branch={branchScope}
+        />
+      ) : null}
+      {selectedCycle && activeSection === 'demand' ? <ProductDemandLeakageV22 cycleStart={selectedCycle.start} branch={branchScope} /> : null}
+      {selectedCycle && activeSection === 'staff' ? <SalesIntelligenceStaffPerformanceV1 cycle={selectedCycle} branch={branchScope} /> : null}
 
       {activeSection === 'qa' ? (
         <div className="space-y-4">
@@ -175,10 +242,9 @@ export default function SalesIntelligenceQA() {
                   placeholder="بحث بالعميل أو الكود أو الهاتف أو رقم الفاتورة..."
                 />
               </label>
-              <select className="dawaa-select" value={filters.branch} onChange={(event) => setFilters((current) => ({ ...current, branch: event.target.value }))}>
-                <option value="all">كل الفروع</option>
-                {branches.map((name) => <option key={name} value={name}>{name}</option>)}
-              </select>
+              <div className="dawaa-input flex items-center text-sm">
+                الفرع: <b className="mr-1">{branchScope === 'all' ? 'كل الفروع' : branchScope}</b>
+              </div>
               <select className="dawaa-select" value={filters.saleProofState} onChange={(event) => setFilters((current) => ({ ...current, saleProofState: event.target.value as QaListFilters['saleProofState'] }))}>
                 <option value="all">كل حالات إثبات البيع</option>
                 <option value="proven">{saleProofStateLabelFor('proven')}</option>
@@ -337,7 +403,7 @@ export default function SalesIntelligenceQA() {
             )}
           </section>
 
-          <div className="dawaa-muted text-xs">{filteredRows.length.toLocaleString('ar-EG')} من أصل {rows.length.toLocaleString('ar-EG')} حالة</div>
+          <div className="dawaa-muted text-xs">{filteredRows.length.toLocaleString('ar-EG')} من أصل {scopedRows.length.toLocaleString('ar-EG')} حالة في النطاق الحالي</div>
         </div>
       ) : null}
     </div>

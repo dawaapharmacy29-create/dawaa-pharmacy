@@ -102,7 +102,7 @@ const LEAK_LABELS: Record<string, string> = {
   unknown: 'سبب غير محسوم',
 };
 
-export default function ProductDemandLeakageV22() {
+export default function ProductDemandLeakageV22({ cycleStart, branch }: { cycleStart: string; branch: string }) {
   const [demand, setDemand] = useState<DemandRow[]>([]);
   const [leakage, setLeakage] = useState<LeakageRow[]>([]);
   const [unresolved, setUnresolved] = useState<UnresolvedRow[]>([]);
@@ -114,8 +114,6 @@ export default function ProductDemandLeakageV22() {
   const [previewSourceIds, setPreviewSourceIds] = useState<string[]>([]);
   const [previewHasFailures, setPreviewHasFailures] = useState(false);
   const [previewRows, setPreviewRows] = useState<ProductDemandBackfillSourceResultV22[]>([]);
-  const [branchFilter, setBranchFilter] = useState<'all' | string>('all');
-  const [cycleFilter, setCycleFilter] = useState<string>('latest');
   const [details, setDetails] = useState<DetailRow[]>([]);
   const [detailsTitle, setDetailsTitle] = useState<string | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
@@ -199,17 +197,8 @@ export default function ProductDemandLeakageV22() {
     }
   }
 
-  const cycles = useMemo(
-    () => Array.from(new Set([...demand, ...leakage, ...unresolved].map((row) => row.cycle_start).filter(Boolean))).sort().reverse(),
-    [demand, leakage, unresolved]
-  );
-  const latestCycle = cycles[0] || null;
-  const selectedCycle = cycleFilter === 'latest' ? latestCycle : cycleFilter;
-
-  const branches = useMemo(
-    () => Array.from(new Set([...demand, ...leakage, ...unresolved].map((row) => row.branch).filter(Boolean))) as string[],
-    [demand, leakage, unresolved]
-  );
+  const selectedCycle = cycleStart;
+  const branchFilter = branch;
   const cycleDemand = useMemo(
     () => demand.filter((r) => (!selectedCycle || r.cycle_start === selectedCycle) && (branchFilter === 'all' || r.branch === branchFilter)),
     [demand, selectedCycle, branchFilter]
@@ -263,7 +252,7 @@ export default function ProductDemandLeakageV22() {
           <div className="dawaa-muted mt-1 text-xs">
             يحتسب فقط الأصناف المرتبطة فعليًا بسجل الأصناف. العبارات غير المحسومة تُراقب منفصلة ولا تدخل ترتيب أكثر الأصناف طلبًا.
           </div>
-          {selectedCycle ? <div className="dawaa-muted mt-1 text-[11px]">الدورة: {selectedCycle} → {cycleDemand[0]?.cycle_end || cycleLeakage[0]?.cycle_end || '—'}</div> : null}
+          <div className="dawaa-muted mt-1 text-[11px]">الدورة: {selectedCycle} → {cycleDemand[0]?.cycle_end || cycleLeakage[0]?.cycle_end || '—'} • {branchFilter === 'all' ? 'كل الفروع' : branchFilter}</div>
         </div>
         <div className="flex flex-wrap gap-2">
           <button type="button" onClick={() => setShowOperations((value) => !value)} className="dawaa-button dawaa-button--ghost text-xs">
@@ -343,23 +332,6 @@ export default function ProductDemandLeakageV22() {
           </div>
         </div>
       ) : null}
-
-      <div className="mt-3 flex flex-wrap items-center gap-3">
-        <label className="flex items-center gap-2 text-xs">
-          <span className="dawaa-muted">الدورة:</span>
-          <select className="dawaa-input py-1 text-xs" value={cycleFilter} onChange={(event) => setCycleFilter(event.target.value)}>
-            <option value="latest">أحدث دورة</option>
-            {cycles.map((cycle) => <option key={cycle} value={cycle}>{cycle}</option>)}
-          </select>
-        </label>
-        <span className="dawaa-muted text-xs">الفرع:</span>
-        <button type="button" onClick={() => setBranchFilter('all')} className={branchFilter === 'all' ? 'dawaa-badge dawaa-badge--info' : 'dawaa-button dawaa-button--ghost text-xs'}>كل الفروع</button>
-        {branches.map((branch) => (
-          <button key={branch} type="button" onClick={() => setBranchFilter(branch)} className={branchFilter === branch ? 'dawaa-badge dawaa-badge--info' : 'dawaa-button dawaa-button--ghost text-xs'}>
-            {branch}
-          </button>
-        ))}
-      </div>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-2xl border border-[var(--dawaa-theme-border)] p-3">
