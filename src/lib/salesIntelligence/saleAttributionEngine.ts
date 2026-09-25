@@ -11,9 +11,9 @@
 // as `Record<string, unknown>`, so this module follows the same `InvoiceLike` convention already
 // used by src/lib/invoices/invoiceCore.ts, and reuses that file's own amount/branch/date helpers
 // rather than re-deriving them) and an `InvoiceItemEvidenceProvider` for line-item evidence
-// (sales_invoice_items_v21 has 0 rows as of the Phase D schema investigation — the provider
-// abstraction lets product/quantity evidence stay honestly 'unavailable' rather than faked from
-// the header total).
+// (sales_invoice_items_v21 is now populated for a subset of invoices; the provider abstraction
+// keeps product/quantity evidence explicit and honestly 'unavailable' for invoices without imported
+// line items rather than faking evidence from the header total).
 import {
   getInvoiceAmount,
   getInvoiceBranch,
@@ -127,7 +127,7 @@ export interface InvoiceItemEvidenceProvider {
   getItemsForInvoice(invoiceId: string, invoiceNumber: string | null): InvoiceItemRecordForAttribution[] | 'unavailable';
 }
 
-/** The honest default — sales_invoice_items_v21 has 0 rows as of the Phase D investigation. */
+/** Honest fallback for callers that did not preload invoice-line evidence. */
 export const unavailableInvoiceItemEvidenceProvider: InvoiceItemEvidenceProvider = {
   getItemsForInvoice: () => 'unavailable',
 };
