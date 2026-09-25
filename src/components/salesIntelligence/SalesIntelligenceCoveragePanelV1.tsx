@@ -30,14 +30,16 @@ export default function SalesIntelligenceCoveragePanelV1() {
   const [cases, setCases] = useState<CaseRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [coverageError, setCoverageError] = useState<string | null>(null);
+  const [policyReady, setPolicyReady] = useState<boolean | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
       setLoading(true);
-      const [sourceResult, caseResult] = await Promise.all([
+      const [sourceResult, caseResult, policyResult] = await Promise.all([
         supabase.from('whatsapp_review_sources').select('id,branch,source_filename,customer_id,customer_code,customer_phone,customer_name,conversation_started_at,conversation_ended_at,message_count,created_at,analysis_json').limit(2000),
         supabase.from('sales_intelligence_cases').select('conversation_id,branch_name_raw').limit(5000),
+        supabase.from('sales_intelligence_policy_config').select('policy_config_id').eq('is_current', true).eq('enabled', true).limit(1),
       ]);
       if (cancelled) return;
       if (sourceResult.error || caseResult.error) {
@@ -49,6 +51,7 @@ export default function SalesIntelligenceCoveragePanelV1() {
         setSources((sourceResult.data || []) as SourceRow[]);
         setCases((caseResult.data || []) as CaseRow[]);
       }
+      setPolicyReady(policyResult.error ? null : (policyResult.data || []).length > 0);
       setLoading(false);
     }
     void load();
@@ -129,7 +132,8 @@ export default function SalesIntelligenceCoveragePanelV1() {
         })}
       </div>
 
-      <div className="mt-4 rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] p-4">
+      <div className="mt-4 grid gap-3 lg:grid-cols-2">
+      <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] p-4">
         <div className="flex items-center gap-2 font-black text-sm"><PackageSearch size={16} />تغطية Product Demand V22</div>
         <>
           <div className="mt-3 h-2 overflow-hidden rounded-full bg-black/10">
@@ -141,7 +145,24 @@ export default function SalesIntelligenceCoveragePanelV1() {
         </>
       </div>
 
-      {(coveredSources < totalSources || remainingV22 > 0) ? (
+      <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] p-4">
+        <div className="flex items-center gap-2 font-black text-sm"><Activity size={16} />Governance / Policy Evaluation</div>
+        <div className="mt-3">
+          {policyReady === true ? (
+            <span className="dawaa-badge dawaa-badge--success">Policy Config فعّال</span>
+          ) : policyReady === false ? (
+            <span className="dawaa-badge dawaa-badge--warning">لا يوجد Policy Config فعّال</span>
+          ) : (
+            <span className="dawaa-badge dawaa-badge--warning">تعذر التحقق من Policy Config</span>
+          )}
+        </div>
+        <div className="dawaa-muted mt-2 text-[11px] leading-5">
+          غياب الـPolicy Config لا يوقف ربط الفواتير أو Staff Truth، لكنه يعني أن طبقة Policy Evaluation ليست مكتملة بعد.
+        </div>
+      </div>
+      </div>
+
+      {(coveredSources < totalSources || remainingV22 > 0 || policyReady === false) ? (
         <div className="dawaa-muted mt-3 flex items-start gap-2 text-[10px] leading-5">
           <CircleAlert size={13} className="mt-0.5 shrink-0" />
           المقارنات بين الفروع أو تحليلات فقد البيع يجب قراءتها مع نسبة التغطية أعلاه؛ اكتمال الـDashboard لا يعني اكتمال المصدر.
