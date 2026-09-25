@@ -21,6 +21,7 @@ declare
   v_has_multiplier boolean:=false;
   v_finalized boolean:=false;
   v_multiplier_applied boolean:=false;
+  v_inserted_count bigint:=0;
 begin
   if p_actor_id is null or p_payload is null then
     raise exception 'invalid_monthly_evaluation_v2_input' using errcode='22023';
@@ -77,7 +78,8 @@ begin
     )
     on conflict(staff_id,month_cycle) do nothing;
 
-    get diagnostics v_multiplier_applied = row_count;
+    get diagnostics v_inserted_count = row_count;
+    v_multiplier_applied:=v_inserted_count>0;
   end if;
 
   return jsonb_build_object(
