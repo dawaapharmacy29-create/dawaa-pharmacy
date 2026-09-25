@@ -323,8 +323,15 @@ function buildPages(data: EmployeePayrollStatementV1) {
   return pages;
 }
 
-export async function buildEmployeePayrollStatementPdf(staffId: string, monthCycle: string) {
+export async function buildEmployeePayrollStatementPdf(
+  staffId: string,
+  monthCycle: string,
+  options: { requireFinalized?: boolean } = {}
+) {
   const data = await getEmployeePayrollStatementV1(staffId, monthCycle);
+  if (options.requireFinalized && (data.statement_mode !== 'finalized_snapshot_v2' || data.financial.frozen !== true)) {
+    throw new Error('finalized_payroll_statement_not_frozen');
+  }
   const host = document.createElement('div');
   host.style.cssText = 'position:fixed;left:-12000px;top:0;width:794px;background:#fff';
   host.dir = 'rtl';
