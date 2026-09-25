@@ -1,9 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
-const viteEnv = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env;
-const nodeEnv = typeof process !== 'undefined' ? process.env : undefined;
-const supabaseUrl = viteEnv?.VITE_SUPABASE_URL || nodeEnv?.VITE_SUPABASE_URL || '';
-const supabaseAnonKey = viteEnv?.VITE_SUPABASE_ANON_KEY || nodeEnv?.VITE_SUPABASE_ANON_KEY || '';
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const hasSupabaseConfig = Boolean(supabaseUrl && supabaseAnonKey);
 const AUTH_STORAGE_KEY = 'dawaa_auth_user_v2';
 
