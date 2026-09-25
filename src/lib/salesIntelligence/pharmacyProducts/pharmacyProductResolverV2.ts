@@ -22,6 +22,7 @@ export type ProductMatchBasis =
   | 'exact_canonical_name'
   | 'approved_alias'
   | 'cross_script_equivalent'
+  | 'dominant_name_token_match'
   | 'strength_form_token_match'
   | 'cautious_fuzzy'
   | 'unresolved';
@@ -142,6 +143,8 @@ function confidenceForBasis(basis: ProductMatchBasis): ConfidenceLevel {
       return 'strongly_inferred';
     case 'approved_alias':
       return 'strongly_inferred'; // gated on human approval already having happened — see productAliasCandidate.ts
+    case 'dominant_name_token_match':
+      return 'strongly_inferred';
     case 'cross_script_equivalent':
       return 'weakly_inferred'; // seed table is unvetted heuristic, not a proven identity link
     case 'strength_form_token_match':
@@ -217,6 +220,82 @@ function tokenOverlapScore(a: string, b: string): number {
   return overlap / Math.max(tokensA.size, tokensB.size);
 }
 
+const NAME_MATCH_STOPWORDS = new Set([
+  'a', 'an', 'the', 'for', 'of', 'with', 'to', 'by', 'and',
+  'من', 'في', 'مع', 'على', 'الي', 'الى',
+]);
+
+const NAME_QUANTITY_TOKENS = new Set([
+  'mg', 'ml', 'gm', 'g', 'mcg', 'iu',
+  'tab', 'tabs', 'tablet', 'tablets',
+  'cap', 'caps', 'capsule', 'capsules',
+  'pcs', 'piece', 'pieces',
+]);
+
+function meaningfulNameTokens(normalized: string): string[] {
+  return normalized
+    .split(' ')
+    .map((token) => token.trim())
+    .filter((token) =>
+      token.length > 1 &&
+      !/^[0-9]+(?:\.[0-9]+)?$/.test(token) &&
+      !NAME_MATCH_STOPWORDS.has(token) &&
+      !NAME_QUANTITY_TOKENS.has(token)
+    );
+}
+
+function expandJoinedPhraseTokens(phraseTokens: string[], productTokens: string[]): string[] {
+  const productSet = new Set(productTokens);
+  const expanded: string[] = [];
+
+  for (const token of phraseTokens) {
+    if (productSet.has(token)) {
+      expanded.push(token);
+      continue;
+    }
+
+    let split: [string, string] | null = null;
+    for (let i = 0; i < productTokens.length - 1; i += 1) {
+      const left = productTokens[i];
+      const right = productTokens[i + 1];
+      if (left.length < 3 || right.length < 3) continue;
+      if (left + right === token) {
+        split = [left, right];
+        break;
+      }
+    }
+
+    if (split) expanded.push(...split);
+    else expanded.push(token);
+  }
+
+  return expanded;
+}
+
+function dominantNameTokenScore(phraseNormalized: string, productNormalized: string): number {
+  const productTokens = meaningfulNameTokens(productNormalized);
+  if (productTokens.length < 3) return 0;
+
+  const phraseTokens = expandJoinedPhraseTokens(
+    meaningfulNameTokens(phraseNormalized),
+    productTokens
+  );
+  if (phraseTokens.length < 3) return 0;
+
+  const productSet = new Set(productTokens);
+  const phraseUnique = Array.from(new Set(phraseTokens));
+  const productUnique = Array.from(new Set(productTokens));
+  const matched = phraseUnique.filter((token) => productSet.has(token)).length;
+
+  if (matched < 3) return 0;
+
+  const phraseCoverage = matched / phraseUnique.length;
+  const productCoverage = matched / productUnique.length;
+
+  if (phraseCoverage < 0.75 || productCoverage < 0.8) return 0;
+  return Math.min(phraseCoverage, productCoverage);
+}
+
 export function resolveProductMention(
   phrase: string,
   index: PharmacyProductIndex,
@@ -282,7 +361,31 @@ export function resolveProductMention(
     }
   }
 
-  // 6. Strength/form/bare-number-aware token match — fires whenever the phrase carries ANY
+  // 6. Dominant-name token match. Strong but intentionally strict:
+  // >=3 meaningful name tokens, >=75% phrase coverage and >=80% catalog-name coverage.
+  // Joined customer spellings such as "teenderm" may expand to adjacent catalog tokens
+  // "teen derm". Strength/form/bare-number contradictions remain hard rejections.
+  for (const product of index.catalog) {
+    if (!allowed(product)) continue;
+    if (!strengthsCompatible(normalized.strengths, product.strengths)) continue;
+    if (!dosageFormsCompatible(normalized.dosageForms, product.dosageForms)) continue;
+    if (!bareNumbersCompatible(phraseBareNumbers, product)) continue;
+
+    const score = Math.max(
+      0,
+      ...product.normalizedNames.map((name) => dominantNameTokenScore(normalized.normalized, name))
+    );
+    if (score >= 0.75) {
+      addCandidate(
+        product,
+        'dominant_name_token_match',
+        score,
+        `تغطية قوية لاسم المنتج (${(score * 100).toFixed(0)}%) مع توافق الشكل/القوة/الأرقام`
+      );
+    }
+  }
+
+  // 7. Strength/form/bare-number-aware token match — fires whenever the phrase carries ANY
   // quantity signal (a unit-bearing strength, a dosage form, or even just a bare number like the
   // "20" in "Zurcal 20"), matched against catalog entries that share a token AND are compatible.
   if (normalized.strengths.length > 0 || normalized.dosageForms.length > 0 || phraseBareNumbers.length > 0) {
@@ -299,7 +402,7 @@ export function resolveProductMention(
     }
   }
 
-  // 7. Cautious fuzzy — token overlap only, still gated by strength/form/bare-number compatibility
+  // 8. Cautious fuzzy — token overlap only, still gated by strength/form/bare-number compatibility
   // so "Zurcal 20" can never fuzzy-match "Zurcal 40". NEVER reaches above weakly_inferred (enforced
   // by confidenceForBasis, not just by this stage's own score).
   if (candidateMap.size === 0) {

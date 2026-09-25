@@ -16,6 +16,7 @@ const ROWS: RawProductRow[] = [
   { id: 'p-antinal-cap', name: 'ANTINAL 24 CAP', product_code: '56822', normalized_name: 'antinal 24 cap', category: null, price: 60, source: 'catalog_import' },
   { id: 'p-antinal-susp', name: 'ANTINAL SUSP', product_code: '4608', normalized_name: 'antinal susp', category: null, price: 45, source: 'catalog_import' },
   { id: 'p-flexilax', name: 'Flexilax 30 tabs', product_code: '68114', normalized_name: 'flexilax 30 tabs', category: null, price: 55, source: 'catalog_import' },
+  { id: 'p-teenderm-sensitive', name: 'ISIS TEEN DERM GEL SENSITIVE 250ML', product_code: '70271', normalized_name: 'isis teen derm gel sensitive 250ml', category: null, price: 420, source: 'catalog_import' },
 ];
 
 const CATALOG = catalogFrom(ROWS);
@@ -46,6 +47,13 @@ describe('resolveProductMention — match basis hierarchy', () => {
   it('5. resolves via the cross-script seed table (Arabic -> Latin catalog token)', () => {
     const result = resolveProductMention('عايز فليكسيلاكس', INDEX);
     expect(result.candidates.some((c) => c.product.productId === 'p-flexilax' && c.basis === 'cross_script_equivalent')).toBe(true);
+  });
+
+  it('6. strongly resolves a joined brand spelling when the dominant catalog name is uniquely covered', () => {
+    const result = resolveProductMention('Isis teenderm gel for sensitive skin', INDEX);
+    expect(result.selected?.product.productId).toBe('p-teenderm-sensitive');
+    expect(result.selected?.basis).toBe('dominant_name_token_match');
+    expect(result.selected?.confidence).toBe('strongly_inferred');
   });
 
   it('8. reports unresolved for a phrase matching nothing in the catalog', () => {
