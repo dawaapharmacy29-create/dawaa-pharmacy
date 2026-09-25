@@ -1,11 +1,8 @@
 name: Sales Intelligence item-evidence apply once
 
+# Automatic trigger removed after the successful one-time refresh.
 on:
-  push:
-    branches:
-      - feature/whatsapp-sales-intelligence-v1
-    paths:
-      - ".github/workflows/sales-intelligence-item-refresh-apply-once.yml"
+  workflow_dispatch:
 
 permissions:
   contents: read
