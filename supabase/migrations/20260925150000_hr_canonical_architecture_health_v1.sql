@@ -20,6 +20,7 @@ declare
   v_missing_source integer:=0;
   v_missing_points integer:=0;
   v_sent_eval_missing_multiplier integer:=0;
+  v_ledger_direct_write_exposure integer:=0;
   v_config jsonb:='{}'::jsonb;
   v_cutover jsonb:='{}'::jsonb;
   v_status text:='healthy';
@@ -105,7 +106,16 @@ begin
   from public.employee_transactions et
   where et.status in ('active','approved','pending');
 
-  select count(*)::integer
+  select
+    (case when has_table_privilege('authenticated','public.employee_transactions','INSERT') then 1 else 0 end)
+    +(case when has_table_privilege('authenticated','public.employee_transactions','UPDATE') then 1 else 0 end)
+    +(case when has_table_privilege('authenticated','public.employee_transactions','DELETE') then 1 else 0 end)
+    +(case when has_table_privilege('anon','public.employee_transactions','INSERT') then 1 else 0 end)
+    +(case when has_table_privilege('anon','public.employee_transactions','UPDATE') then 1 else 0 end)
+    +(case when has_table_privilege('anon','public.employee_transactions','DELETE') then 1 else 0 end)
+  into v_ledger_direct_write_exposure;
+
+    select count(*)::integer
   into v_sent_eval_missing_multiplier
   from public.staff_monthly_manager_evaluations e
   left join public.staff_evaluation_incentive_multipliers m
@@ -131,7 +141,8 @@ begin
      or v_missing_cycle>0
      or v_missing_source>0
      or v_missing_points>0
-     or v_sent_eval_missing_multiplier>0 then
+     or v_sent_eval_missing_multiplier>0
+     or v_ledger_direct_write_exposure>0 then
     v_status:='critical';
   elsif coalesce((v_config->>'unconfigured_priority_count')::integer,0)>0
         or coalesce((v_cutover->>'ready_for_v3_cutover')::boolean,false) is not true then
@@ -145,6 +156,7 @@ begin
     'cycle_start',v_bounds.cycle_start,
     'cycle_end',v_bounds.cycle_end,
     'legacy_api_exposure',v_legacy_exposed,
+    'employee_ledger_direct_write_exposure',v_ledger_direct_write_exposure,
     'attendance_points_cron',jsonb_build_object(
       'v1_jobs',v_points_v1_cron,
       'v2_jobs',v_points_v2_cron,

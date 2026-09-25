@@ -18,6 +18,10 @@ const POINTS_COMMAND_V4_MIGRATION = path.join(
   ROOT,
   'supabase/migrations/20260925152000_points_command_overlap_guard_v4.sql'
 );
+const EMPLOYEE_LEDGER_LOCKDOWN_MIGRATION = path.join(
+  ROOT,
+  'supabase/migrations/20260925154500_employee_transactions_command_lockdown_v1.sql'
+);
 
 // Transitional direct writers that still exist today. Keep shrinking this set as
 // lifecycle mutations move behind canonical authorization-aware RPCs. New direct
@@ -192,6 +196,22 @@ for (const forbidden of [
 ]) {
   if (forbidden.test(pointsPersistence)) {
     console.error('\nEmployee points command boundary failed: legacy client persistence fallback returned.');
+    process.exit(1);
+  }
+}
+
+if (!fs.existsSync(EMPLOYEE_LEDGER_LOCKDOWN_MIGRATION)) {
+  console.error('\nEmployee transaction write boundary failed: command-only table lockdown migration is missing.');
+  process.exit(1);
+}
+const ledgerLockdownMigration = fs.readFileSync(EMPLOYEE_LEDGER_LOCKDOWN_MIGRATION, 'utf8').toLowerCase();
+for (const token of [
+  'revoke insert,update,delete on table public.employee_transactions',
+  'drop policy if exists employee_transactions_insert_source_authorized',
+  'drop policy if exists employee_transactions_update_source_authorized',
+]) {
+  if (!ledgerLockdownMigration.includes(token.toLowerCase())) {
+    console.error(`\nEmployee transaction write boundary failed: lockdown migration missing ${token}.`);
     process.exit(1);
   }
 }
