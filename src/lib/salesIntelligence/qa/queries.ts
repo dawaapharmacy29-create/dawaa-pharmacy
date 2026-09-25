@@ -1037,9 +1037,13 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
         grossLineAmount: meta.gross_line_amount == null ? null : Number(meta.gross_line_amount),
         netLineAmount: meta.net_line_amount == null ? (row.line_total == null ? null : Number(row.line_total)) : Number(meta.net_line_amount),
         returnedQuantity: meta.returned_quantity == null ? null : Number(meta.returned_quantity),
-        sellerName: invoiceHeader?.seller_name ?? invoiceHeader?.normalized_seller_name ?? null,
+        sellerName: invoiceHeader?.seller_name == null && invoiceHeader?.normalized_seller_name == null
+          ? null
+          : String(invoiceHeader?.seller_name ?? invoiceHeader?.normalized_seller_name),
         staffId: invoiceHeader?.staff_id == null ? null : String(invoiceHeader.staff_id),
-        staffName: invoiceHeader?.staff_name ?? invoiceHeader?.seller_name ?? null,
+        staffName: invoiceHeader?.staff_name == null && invoiceHeader?.seller_name == null
+          ? null
+          : String(invoiceHeader?.staff_name ?? invoiceHeader?.seller_name),
         catalogCurrentPrice: product?.price == null ? null : Number(product.price),
         pricingStatus: pricing.status,
         effectiveUnitPrice: pricing.effectiveUnitPrice,
