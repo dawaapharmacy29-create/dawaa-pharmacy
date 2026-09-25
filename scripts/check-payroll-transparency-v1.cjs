@@ -9,6 +9,7 @@ const financialService = fs.readFileSync(path.join(root, 'src/lib/payroll/payrol
 const kpiService = fs.readFileSync(path.join(root, 'src/lib/payroll/payrollKpiContextService.ts'), 'utf8');
 const statementService = fs.readFileSync(path.join(root, 'src/lib/payroll/payrollStatementService.ts'), 'utf8');
 const statementPdf = fs.readFileSync(path.join(root, 'src/lib/payroll/employeePayrollStatementPdf.ts'), 'utf8');
+const statementMigration = fs.readFileSync(path.join(root, 'supabase/migrations/20260925155000_employee_payroll_statement_v1.sql'), 'utf8');
 const incentiveTruthService = fs.readFileSync(path.join(root, 'src/lib/incentives/payrollIncentiveTruthService.ts'), 'utf8');
 
 function assertContains(text, needle, label) {
@@ -30,6 +31,10 @@ assertContains(panel, 'كشف راتب الموظف — معاينة شفافة'
 assertContains(kpiService, 'employee_payroll_kpi_context_v1', 'payroll KPI context RPC');
 assertContains(panel, 'الأداء وKPIs', 'payroll KPI tab');
 assertContains(statementService, 'employee_payroll_statement_v1', 'single statement RPC');
+assertContains(statementMigration, 'deterministic_without_generated_at_v1', 'deterministic snapshot fingerprint schema');
+assertContains(statementMigration, 'dawaa_jsonb_strip_generated_at_v1', 'volatile timestamp stripping');
+assertContains(statementMigration, "'employee_statement',v_statement", 'employee statement frozen into snapshot');
+assertContains(statementMigration, "'statement_mode','finalized_snapshot_v2'", 'finalized statement replay');
 assertContains(panel, 'اتحسب / لم يتحسب', 'statement inclusion disclosure');
 assertContains(panel, 'رصيد الإجازة السنوية', 'annual leave balance disclosure');
 assertContains(panel, 'مبيعات الموظف خلال دورة الراتب', 'canonical employee sales KPI');
