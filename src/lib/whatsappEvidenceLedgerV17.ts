@@ -3,6 +3,7 @@ import type { WhatsAppConversationSession } from './whatsappConversationParser';
 import type { WhatsAppOperationalIntelligenceV6 } from './whatsappOperationalIntelligenceV6';
 import { selectVerifiedProductInvoiceV23 } from './salesIntelligence/productInvoiceVerificationV23';
 import { fetchInvoiceItemEvidenceProvider } from './salesIntelligence/invoiceItemEvidenceRepository';
+import { readInvoiceRecordsByCustomerWindow } from './readModels/invoiceRecordReadModel';
 
 export interface WhatsAppEvidenceLedgerContextV17 {
   sourceId: string;
@@ -101,22 +102,16 @@ export async function resolveProductInvoiceVerificationV23(source: any, product:
   const queryStart = new Date((Number.isFinite(startMs) ? startMs : Date.now()) - 10 * 60 * 1000).toISOString();
   const queryEnd = new Date((Number.isFinite(endMs) ? endMs : Date.now()) + 36 * 60 * 60 * 1000).toISOString();
 
-  let invoiceQuery = supabase
-    .from('sales_invoices')
-    .select('id,invoice_number,invoice_datetime,close_datetime,net_total,total_amount,net_amount,amount,branch,customer_id,customer_code')
-    .gte('invoice_datetime', queryStart)
-    .lte('invoice_datetime', queryEnd)
-    .limit(100);
-
-  if (source.customer_code) invoiceQuery = invoiceQuery.eq('customer_code', source.customer_code);
-  else if (source.customer_id) invoiceQuery = invoiceQuery.eq('customer_id', source.customer_id);
-  else return null;
-
-  if (source.branch) invoiceQuery = invoiceQuery.eq('branch', source.branch);
-
-  const { data: invoices, error: invoiceError } = await invoiceQuery;
-  if (invoiceError) throw invoiceError;
-  if (!invoices?.length) return null;
+  const invoices = await readInvoiceRecordsByCustomerWindow({
+    queryStartIso: queryStart,
+    queryEndIso: queryEnd,
+    customerCode: source.customer_code || null,
+    customerId: source.customer_id || null,
+    branch: source.branch || null,
+    limit: 100,
+    client: supabase,
+  });
+  if (!invoices.length) return null;
 
   const itemEvidenceProvider = await fetchInvoiceItemEvidenceProvider(supabase, invoices as any[]);
   const effectiveItems = (invoices as any[]).flatMap((invoice) => {
