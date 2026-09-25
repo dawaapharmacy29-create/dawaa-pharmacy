@@ -63,7 +63,7 @@ if (!failures.length) {
   }
 
   for (const rpc of [
-    'get_attendance_resolution_queue_v2',
+    'get_attendance_resolution_queue_v3',
     'materialize_attendance_range_v3',
     'approve_attendance_day_resolution_v2',
     'get_attendance_impact_ledger_v2',
