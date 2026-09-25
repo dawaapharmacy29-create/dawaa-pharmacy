@@ -147,6 +147,14 @@ if (monthlyEvaluationPage.includes('staff_evaluation_incentive_multipliers')) {
   fail('monthly evaluation must not mutate incentive multipliers directly.');
 }
 
+const doctorDashboard = read(path.join(srcRoot, 'pages/DoctorDashboardStable.tsx'));
+if (!doctorDashboard.includes('getStaffPointsDashboardV3')) {
+  fail('DoctorDashboardStable must use Points Truth V3 for current-cycle incentive.');
+}
+if (doctorDashboard.includes('TABLES.employeeTransactions') || doctorDashboard.includes('employee_compensation_profiles')) {
+  fail('DoctorDashboardStable must not rebuild current-cycle incentive from raw ledger/profile reads.');
+}
+
 const attendanceOps = read(path.join(srcRoot, 'lib/attendance/attendanceOperationsService.ts'));
 if (!attendanceOps.includes('attendance_policy_v3_cutover_readiness_v1')) {
   fail('attendance operations must expose explicit V3 cutover readiness.');

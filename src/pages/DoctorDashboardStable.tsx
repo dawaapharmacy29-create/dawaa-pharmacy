@@ -13,12 +13,8 @@ import { getCurrentCycle, formatCycleDate } from '@/lib/pharmacy-cycle';
 import { formatCurrency } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
 import { buildPaidStatementPdf } from '@/lib/payroll/paidStatementPdf';
-import { TABLES } from '@/lib/supabaseTables';
-import {
-  calculateMonthlyIncentive,
-  monthlyIncentiveInputsFromProfile,
-} from '@/lib/incentives/incentiveRulesEngine';
 import { monthCycleFromDate, reviewerDisplayName } from '@/lib/conversationReviews';
+import { getStaffPointsDashboardV3 } from '@/lib/staff/staffPointsDashboardService';
 import { calculateTargetAchievementBonus } from '@/lib/incentives/targetAchievementBonus';
 import { normalizeBranchName } from '@/lib/branch';
 import { loadSalesAnalyticsSummary, type SalesAnalyticsSummary } from '@/lib/salesAnalyticsSummaryService';
@@ -427,48 +423,24 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
       : [];
     setPayrollRows(statements); setManualPayrollRows([]);
 
-    // النقاط والحافز الحي — بيتحسب مباشرة من employee_transactions (نفس مصدر كل
-    // الأتمتة اللي بنيت الجلسة دي)، عشان الدكتور يشوف موقفه الفعلي في الدورة
-    // الحالية قبل ما تتقفل وتتعتمد رسميًا، مش ينتظر لحد آخر الشهر.
+    // النقاط والحافز الحي من Points Truth V3 نفسها التي تعتمد عليها شاشات الإدارة.
+    // لا يوجد حساب محلي موازي من employee_transactions أو compensation profile.
     if (staffId) {
       try {
         const cycle = monthCycleFromDate(new Date());
-        const [txResult, profileResult] = await Promise.all([
-          supabase
-            .from(TABLES.employeeTransactions)
-            .select('points_delta, status')
-            .eq('staff_id', staffId)
-            .eq('month_cycle', cycle)
-            .eq('status', 'active'),
-          supabase
-            .from('employee_compensation_profiles')
-            .select('monthly_incentive_base, point_value')
-            .eq('staff_id', staffId)
-            .maybeSingle(),
-        ]);
-        const rows = txResult.data || [];
-        const rewardPoints = rows.filter((r) => Number(r.points_delta) > 0).reduce((s, r) => s + Number(r.points_delta), 0);
-        const deductionPoints = rows.filter((r) => Number(r.points_delta) < 0).reduce((s, r) => s + Math.abs(Number(r.points_delta)), 0);
-        const { targetPoints, maxIncentiveEgp } = monthlyIncentiveInputsFromProfile(profileResult.data);
-        const calc = calculateMonthlyIncentive({
-          startingPoints: targetPoints,
-          approvedDeductionPoints: deductionPoints,
-          approvedExceptionalRewardPoints: rewardPoints,
-          maxIncentiveEgp,
-        });
+        const truth = await getStaffPointsDashboardV3(staffId, cycle);
         setLiveIncentive({
-          cycle,
-          rewardPoints,
-          deductionPoints,
-          finalPoints: calc.finalPoints,
-          targetPoints,
-          maxIncentiveEgp,
-          incentiveValue: calc.monthlyIncentiveValue,
-          transactionCount: rows.length,
+          cycle: truth.month_cycle || cycle,
+          rewardPoints: truth.reward_points,
+          deductionPoints: truth.deduction_points,
+          finalPoints: truth.final_points,
+          targetPoints: truth.target_points,
+          maxIncentiveEgp: Number(truth.max_incentive_egp || 0),
+          incentiveValue: Number(truth.points_incentive_egp || 0),
+          transactionCount: (truth.source_breakdown || []).reduce((sum, item) => sum + Number(item.events || 0), 0),
         });
 
-        // تفاصيل دقيقة: من أين تأتي كل نقطة بالظبط، مش رقم مجمّع بس — عشان
-        // الدكتور يعرف لحظيًا مشكلته الفعلية وإيه المطلوب يحسّنه.
+        // تفاصيل المحاور تظل من الـbreakdown المخصص، بينما الإجمالي والنقاط من Truth V3.
         const { data: breakdownData } = await supabase.rpc('get_doctor_incentive_breakdown', {
           p_doctor_id: staffId,
         });
