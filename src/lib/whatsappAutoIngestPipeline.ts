@@ -27,6 +27,11 @@ import { persistAutomaticWhatsAppReview } from '@/lib/whatsappAutomaticReviewPer
 import { getCycleForDate } from '@/lib/pharmacy-cycle';
 import { resolveWhatsAppParticipantRolesV15, type WhatsAppParticipantRoleModelV15 } from '@/lib/whatsappParticipantRoleResolverV15';
 import { resolveConversationBranchHint, type BranchHintResult } from '@/lib/whatsappConversationBranchHint';
+import {
+  attachWhatsAppMediaToMessagesV21,
+  revokeWhatsAppMediaObjectUrlsV21,
+  syncWhatsAppMediaForSourceV21,
+} from '@/lib/whatsappMediaV21';
 
 type CustomerIdentity = {
   customerId: string | null;
@@ -504,7 +509,9 @@ export async function ingestWhatsAppExportFile(file: File): Promise<IngestOneFil
   };
 
   const source = await readWhatsAppExportFile(file);
-  const messages = parseWhatsAppExport(source.text);
+  const parsedMessages = parseWhatsAppExport(source.text);
+  const mediaAttachment = attachWhatsAppMediaToMessagesV21(parsedMessages, source.mediaFiles || []);
+  const messages = mediaAttachment.messages;
   if (!messages.length) {
     result.errors.push('لم يتم التعرف على رسائل WhatsApp داخل الملف.');
     return result;
@@ -532,6 +539,28 @@ export async function ingestWhatsAppExportFile(file: File): Promise<IngestOneFil
       );
       if (saved.duplicate) result.sessionsDuplicate += 1;
       else result.sessionsSaved += 1;
+
+      if (source.mediaFiles?.length) {
+        try {
+          const mediaSync = await syncWhatsAppMediaForSourceV21(
+            saved.sourceId,
+            session,
+            source.mediaFiles,
+            null
+          );
+          if (mediaSync.failed > 0) {
+            result.errors.push(
+              `مرفقات واتساب: فشل حفظ ${mediaSync.failed} من ${mediaSync.linked} مرفق مرتبط في الجلسة ${saved.sourceId}.`
+            );
+          }
+        } catch (mediaError) {
+          result.errors.push(
+            mediaError instanceof Error
+              ? `مرفقات واتساب: ${mediaError.message}`
+              : 'تعذر حفظ مرفقات WhatsApp لهذه الجلسة.'
+          );
+        }
+      }
 
       if (!saved.duplicate) {
         try {
@@ -605,5 +634,6 @@ export async function ingestWhatsAppExportFile(file: File): Promise<IngestOneFil
     }
   }
 
+  revokeWhatsAppMediaObjectUrlsV21(messages);
   return result;
 }
