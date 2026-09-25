@@ -14,6 +14,10 @@ const TRANSITION_MIGRATION = path.join(
   ROOT,
   'supabase/migrations/20260827011500_retire_legacy_rules_and_guard_point_transitions_v4.sql'
 );
+const POINTS_COMMAND_V4_MIGRATION = path.join(
+  ROOT,
+  'supabase/migrations/20260925152000_points_command_overlap_guard_v4.sql'
+);
 
 // Transitional direct writers that still exist today. Keep shrinking this set as
 // lifecycle mutations move behind canonical authorization-aware RPCs. New direct
@@ -150,12 +154,37 @@ if (staleStaffDeltaBaseline.length || unexpectedStaffDeltaCallers.length) {
   process.exit(1);
 }
 
-// V3 is now deployed and merged. The application must fail closed when the canonical
-// command is unavailable instead of silently writing through an older client path.
+// V4 is the application write boundary. Same-event overlap protection belongs on
+// the server command, not in a client-side ledger read.
 const pointsPersistence = fs.readFileSync(POINTS_PERSISTENCE, 'utf8');
-if (!/\.rpc\(\s*['"]record_employee_points_transaction_v3['"]/.test(pointsPersistence)) {
-  console.error('\nEmployee points command boundary failed: pointsPersistence must use record_employee_points_transaction_v3.');
+if (!/\.rpc\(\s*['"]record_employee_points_transaction_v4['"]/.test(pointsPersistence)) {
+  console.error('\nEmployee points command boundary failed: pointsPersistence must use record_employee_points_transaction_v4.');
   process.exit(1);
+}
+if (/record_employee_points_transaction_v3/.test(pointsPersistence)) {
+  console.error('\nEmployee points command boundary failed: application still references V3 compatibility command.');
+  process.exit(1);
+}
+if (/\.from\(\s*(?:TABLES\.employeeTransactions|['"]employee_transactions['"])\s*\)/.test(pointsPersistence)) {
+  console.error('\nEmployee points command boundary failed: pointsPersistence must not read the ledger to enforce overlap rules.');
+  process.exit(1);
+}
+if (!fs.existsSync(POINTS_COMMAND_V4_MIGRATION)) {
+  console.error('\nEmployee points command boundary failed: V4 overlap-guard migration is missing.');
+  process.exit(1);
+}
+const pointsCommandV4Migration = fs.readFileSync(POINTS_COMMAND_V4_MIGRATION, 'utf8');
+for (const token of [
+  'record_employee_points_transaction_v4',
+  'dawaa_points_same_event_conflicts_v1',
+  'overlapping_points_deduction',
+  'record_employee_points_transaction_v3',
+  'from public,anon,authenticated',
+]) {
+  if (!pointsCommandV4Migration.toLowerCase().includes(token.toLowerCase())) {
+    console.error(`\nEmployee points command boundary failed: V4 migration missing ${token}.`);
+    process.exit(1);
+  }
 }
 for (const forbidden of [
   /createEmployeeTransaction\s*\(/,
@@ -223,4 +252,4 @@ if (!/\.rpc\(\s*['"]review_point_appeal_v1['"]/.test(appealPage)) {
   process.exit(1);
 }
 
-console.log('[employee-transaction-write-boundary] PASS: canonical V3 write and V4 lifecycle commands are fail-closed; direct ledger/snapshot writers match the exact transitional baselines.');
+console.log('[employee-transaction-write-boundary] PASS: canonical V4 write/overlap and V4 lifecycle commands are fail-closed; direct ledger/snapshot writers match the exact transitional baselines.');
