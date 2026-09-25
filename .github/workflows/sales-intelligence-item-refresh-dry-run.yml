@@ -29,23 +29,38 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Verify service-role secret
+      - name: Detect service-role secret
+        id: service_role
         shell: bash
         run: |
-          set -euo pipefail
-          test -n "$SUPABASE_SERVICE_ROLE_KEY" || {
-            echo "::error::Missing repository secret SUPABASE_SERVICE_ROLE_KEY"
-            exit 1
-          }
+          if [ -n "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::SUPABASE_SERVICE_ROLE_KEY is not configured; targeted dry-run is skipped."
+          fi
 
       - name: Setup Node
+        if: steps.service_role.outputs.available == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: npm
 
       - name: Install dependencies
+        if: steps.service_role.outputs.available == 'true'
         run: npm ci --legacy-peer-deps --no-audit --no-fund
 
       - name: Run targeted item-evidence dry run
+        if: steps.service_role.outputs.available == 'true'
         run: npm run sales-intelligence:backfill:item-ready:dry-run -- --json
+
+      - name: Write skip summary
+        if: steps.service_role.outputs.available != 'true'
+        run: |
+          {
+            echo "## Sales Intelligence item refresh dry-run"
+            echo "- Status: skipped"
+            echo "- Reason: repository secret SUPABASE_SERVICE_ROLE_KEY is not configured"
+            echo "- Database writes: none"
+          } >> "$GITHUB_STEP_SUMMARY"
