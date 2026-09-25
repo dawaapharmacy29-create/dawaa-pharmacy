@@ -154,7 +154,7 @@ export default function SalesIntelligenceQACaseDetail() {
     return <div className="dawaa-empty-state py-16 text-center" dir="rtl">لم يتم العثور على هذه الحالة.</div>;
   }
 
-  const { persisted, conversation, sourceSnapshot, siblingCases, transcript, liveEvidence, saleProof, salesOutcome, recommendationConversions, invoiceItemFacts, catalogProductMatches } = bundle;
+  const { persisted, conversation, sourceSnapshot, siblingCases, transcript, liveEvidence, saleProof, salesOutcome, recommendationConversions, invoiceStaffTruth, invoiceItemFacts, catalogProductMatches } = bundle;
   const persistedAnalysis = persisted.analysisRow;
   const persistedAttribution = persisted.attributionRow;
   const persistedMatch = persisted.matchRow;
@@ -317,6 +317,31 @@ export default function SalesIntelligenceQACaseDetail() {
               مستوى الإسناد: {attributionLevelLabelFor(attribution?.attribution_level ?? analysis.attribution_level)}<br />
               ثقة الإسناد: {attributionConfidencePercent == null ? 'غير متاحة' : attributionConfidencePercent + '٪'}<br />
               عدد المرشحين: {attribution?.candidate_count ?? 0} • حالات منافسة: {attribution?.competing_case_ids?.length ?? 0}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] p-4">
+            <div className="dawaa-muted text-xs">الدكتور الحقيقي على فاتورة B-Connect</div>
+            <div className="dawaa-heading mt-2 font-black">
+              {invoiceStaffTruth?.canonicalStaffName || invoiceStaffTruth?.invoiceStaffNameRaw || 'غير محسوم'}
+            </div>
+            <div className="dawaa-body mt-2 text-xs leading-6">
+              {invoiceStaffTruth ? (
+                <>
+                  حالة الربط: {
+                    invoiceStaffTruth.resolutionStatus === 'resolved_by_staff_id' ? 'مؤكد من Staff ID' :
+                    invoiceStaffTruth.resolutionStatus === 'resolved_by_unique_name' ? 'تطابق اسم وحيد' :
+                    invoiceStaffTruth.resolutionStatus === 'ambiguous_name' ? 'الاسم يطابق أكثر من موظف — ممنوع التخمين' :
+                    invoiceStaffTruth.resolutionStatus === 'missing_invoice_staff' ? 'الفاتورة لا تحتوي موظفًا' :
+                    'غير محسوم'
+                  }<br />
+                  {invoiceStaffTruth.canonicalStaffRole ? <>الدور: {invoiceStaffTruth.canonicalStaffRole}<br /></> : null}
+                  {invoiceStaffTruth.canonicalStaffBranch ? <>فرع الموظف: {invoiceStaffTruth.canonicalStaffBranch}<br /></> : null}
+                  أدلة الأصناف على الفاتورة: {invoiceStaffTruth.itemEvidenceAvailable ? 'متاحة' : 'غير متاحة'}
+                </>
+              ) : (
+                <>لا يوجد Staff Attribution رسمي لهذه الحالة حتى الآن.</>
+              )}
             </div>
           </div>
 
