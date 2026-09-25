@@ -190,6 +190,54 @@ const CONVERSATION_REVIEW_POINT_SOURCES = [
   'conversation_sales_reviews',
 ] as const;
 
+export interface ConversationReviewLinkedPointRow {
+  staff_id?: string | null;
+  source?: string | null;
+  status?: string | null;
+  points_delta?: number | string | null;
+  month_cycle?: string | null;
+  branch?: string | null;
+}
+
+export interface ConversationReviewPointsReconciliationPlan {
+  cancellations: Array<{
+    staffId: string;
+    source: string;
+    monthCycle: string;
+    branch: string;
+    signedImpact: number;
+  }>;
+  replacementSource: 'whatsapp_automatic_review' | 'conversation_evaluation';
+  replacementSignedImpact: number;
+}
+
+export function buildConversationReviewPointsReconciliationPlan(
+  linkedRows: ConversationReviewLinkedPointRow[],
+  automaticReview: boolean,
+  signedImpact: number
+): ConversationReviewPointsReconciliationPlan {
+  const cancellations = (linkedRows || []).flatMap((row) => {
+    const staffId = String(row.staff_id || '').trim();
+    const source = String(row.source || '').trim();
+    const monthCycle = String(row.month_cycle || '').trim();
+    if (!staffId || !source || !monthCycle) return [];
+    const parsedDelta = Number(row.points_delta || 0);
+    return [{
+      staffId,
+      source,
+      monthCycle,
+      branch: String(row.branch || ''),
+      signedImpact: Number.isFinite(parsedDelta) ? parsedDelta : 0,
+    }];
+  });
+
+  return {
+    cancellations,
+    replacementSource: automaticReview ? 'whatsapp_automatic_review' : 'conversation_evaluation',
+    replacementSignedImpact: Number.isFinite(Number(signedImpact)) ? Number(signedImpact) : 0,
+  };
+}
+
 export interface ReconcileConversationReviewPointsInput {
   reviewId: string;
   nextStaffId: string;
@@ -235,23 +283,23 @@ export async function reconcileConversationReviewPointsAfterManagerEdit(
     return { error: linkedError.message };
   }
 
-  for (const row of linkedRows || []) {
-    const staffId = String(row.staff_id || '').trim();
-    const source = String(row.source || '').trim();
-    const monthCycle = String(row.month_cycle || '').trim();
-    if (!staffId || !source || !monthCycle) continue;
+  const plan = buildConversationReviewPointsReconciliationPlan(
+    (linkedRows || []) as ConversationReviewLinkedPointRow[],
+    input.automaticReview,
+    input.signedImpact
+  );
 
-    const existingDelta = Number(row.points_delta || 0);
+  for (const cancellation of plan.cancellations) {
     const { error: cancelError } = await supabase.rpc('record_employee_points_transaction_v3', {
-      p_staff_id: staffId,
-      p_signed_points: existingDelta,
+      p_staff_id: cancellation.staffId,
+      p_signed_points: cancellation.signedImpact,
       p_reason: 'إلغاء أثر سابق بعد تعديل تقييم محادثة',
       p_description: `تم إلغاء الحركة السابقة المرتبطة بالتقييم ${input.reviewId} قبل تسجيل النسخة المعدلة. ${input.note}`,
-      p_source: source,
+      p_source: cancellation.source,
       p_source_id: input.reviewId,
       p_rule_code: null,
-      p_month_cycle: monthCycle,
-      p_branch: String(row.branch || ''),
+      p_month_cycle: cancellation.monthCycle,
+      p_branch: cancellation.branch,
       p_status: 'cancelled',
       p_category: null,
       p_metadata: {
@@ -271,26 +319,25 @@ export async function reconcileConversationReviewPointsAfterManagerEdit(
     }
   }
 
-  if (input.signedImpact === 0) return { error: null };
+  if (plan.replacementSignedImpact === 0) return { error: null };
 
-  const source = input.automaticReview ? 'whatsapp_automatic_review' : 'conversation_evaluation';
   return persistPointsTransaction({
     employeeId: input.nextStaffId,
     employeeName: input.nextStaffName,
     branch: input.nextBranch,
     branchId: input.nextBranchId ?? null,
-    operation: input.signedImpact > 0 ? 'bonus' : 'deduction',
+    operation: plan.replacementSignedImpact > 0 ? 'bonus' : 'deduction',
     rule: null,
-    pointsToStore: Math.abs(input.signedImpact),
-    basePoints: Math.abs(input.signedImpact),
-    finalPoints: Math.abs(input.signedImpact),
+    pointsToStore: Math.abs(plan.replacementSignedImpact),
+    basePoints: Math.abs(plan.replacementSignedImpact),
+    finalPoints: Math.abs(plan.replacementSignedImpact),
     userNote: input.note,
     createdByName: input.actorName,
     createdById: input.actorId,
     createdByRole: input.actorRole,
     status: 'approved',
     cycle: input.cycle,
-    source,
+    source: plan.replacementSource,
     sourceModule: 'conversation_evaluation',
     sourceRecordId: input.reviewId,
     description: `الأثر النهائي بعد تعديل إداري لتقييم المحادثة ${input.reviewId}`,
