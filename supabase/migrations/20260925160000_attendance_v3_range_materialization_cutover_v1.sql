@@ -153,6 +153,8 @@ declare
   v_open_legacy integer:=0;
   v_approved_frozen_legacy integer:=0;
   v_approved_v3 integer:=0;
+  v_inactive_archive_open_legacy integer:=0;
+  v_active_out_of_scope_open_legacy integer:=0;
 begin
   if not public.dawaa_current_actor_can(array['manage_payroll','manage_attendance','manage_hr']) then
     raise exception 'not_authorized_for_attendance_cutover_readiness' using errcode='42501';
@@ -170,13 +172,18 @@ begin
     raise exception 'invalid_attendance_cutover_range' using errcode='22023';
   end if;
 
+  -- Engine readiness follows the exact operational scope of the V3 range materializer:
+  -- active staff assigned to Shamy/Shokry. Approved historical rows stay frozen.
   with compared as (
     select
       a.id,a.status,a.resolution_version,
       public.dawaa_build_attendance_day_resolution_v2(a.staff_id,a.attendance_date) v2,
       public.dawaa_build_attendance_day_resolution_v3(a.staff_id,a.attendance_date) v3
     from public.attendance_daily_summary a
+    join public.staff s on s.id=a.staff_id
     where a.attendance_date between v_start and v_end
+      and coalesce(s.active,false)=true
+      and s.branch in ('فرع الشامي','فرع شكري')
   )
   select
     count(*)::integer,
@@ -193,10 +200,26 @@ begin
     v_open,v_open_v3,v_open_legacy,v_approved_frozen_legacy,v_approved_v3
   from compared;
 
+  select
+    count(*) filter(
+      where coalesce(s.active,false)=false
+    )::integer,
+    count(*) filter(
+      where coalesce(s.active,false)=true
+        and coalesce(s.branch,'') not in ('فرع الشامي','فرع شكري')
+    )::integer
+  into v_inactive_archive_open_legacy,v_active_out_of_scope_open_legacy
+  from public.attendance_daily_summary a
+  left join public.staff s on s.id=a.staff_id
+  where a.attendance_date between v_start and v_end
+    and coalesce(a.status,'')<>'approved'
+    and coalesce(a.resolution_version,0)<3;
+
   return jsonb_build_object(
     'schema','attendance_policy_v3_cutover_readiness_v2',
     'start_date',v_start,
     'end_date',v_end,
+    'operational_scope','active staff in فرع الشامي / فرع شكري',
     'total_days',v_total,
     'effective_status_changes',v_effective,
     'candidate_changes',v_candidate,
@@ -206,6 +229,8 @@ begin
     'open_legacy_days',v_open_legacy,
     'approved_frozen_legacy_days',v_approved_frozen_legacy,
     'approved_v3_days',v_approved_v3,
+    'inactive_archive_open_legacy_days',v_inactive_archive_open_legacy,
+    'active_out_of_scope_open_legacy_days',v_active_out_of_scope_open_legacy,
     'materialization_pct',case when v_open>0 then round(v_open_v3::numeric/v_open*100,2) else 100 end,
     'ready_for_v3_cutover',
       v_effective=0
@@ -213,7 +238,7 @@ begin
       and v_unresolved=0
       and v_open_legacy=0,
     'operational_review_pending',v_open_v3,
-    'cutover_rule','all open attendance rows use V3; approved historical truth is immutable',
+    'cutover_rule','all operational open attendance rows use V3; approved historical truth is immutable; inactive/out-of-scope rows are reported separately',
     'generated_at',now()
   );
 end;
