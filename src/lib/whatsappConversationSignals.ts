@@ -39,7 +39,17 @@ const CLOSING = [/تتشرف بخدمة حضرتك/i, /تحت امر حضرتك/
 const SALE = [/عاوز/i, /محتاج/i, /ابعت/i, /الأوردر/i, /الاوردر/i, /شريط/i, /علبة/i, /قطرة/i, /سرنج/i];
 const DELIVERY = [/مندوب/i, /توصيل/i, /عنوان/i, /خرج لحضرتك/i, /الارسال/i];
 const FOLLOWUP_PROMISE = [/هكلمه/i, /هرجع/i, /هتابع/i, /هطلب/i, /هجيب مندوب/i, /حالا/i];
-const COMPLAINT = [/تأخير/i, /التاخير/i, /متأخر/i, /مشكلة/i, /شكوى/i, /تستعجل/i, /استعجل/i, /لسه/i];
+const COMPLAINT = [
+  /تأخير/i,
+  /التاخير/i,
+  /متأخر/i,
+  /مشكلة/i,
+  /شكوى/i,
+  /تستعجل/i,
+  /استعجل/i,
+  /لسه\s+(?:مجاش|ماوصلش|موصلش|محدش\s+رد|محدش\s+كلمني)/i,
+  /ماوصلش|موصلش|محدش\s+رد|غلط|وحش|سيء/i,
+];
 const APOLOGY = [/متاسف/i, /آسف/i, /بنعتذر/i, /نعتذر/i];
 const NUDGE = [/تمام\??/i, /بعد اذنك/i, /لو سمحت/i, /تستعجل/i, /^\.\.$/i];
 
@@ -73,28 +83,47 @@ export function extractConversationSignals(session: WhatsAppConversationSession)
 
   const responseWaits: ResponseWaitEvidence[] = [];
   let unansweredInboundCount = 0;
-  for (let i = 0; i < session.messages.length; i += 1) {
+
+  // Measure one operational wait per inbound burst, not one wait per individual customer message.
+  // Example: a customer sends 4 short messages before the pharmacist replies once — that is one
+  // response cycle, not four independent delays and not four unanswered messages.
+  let i = 0;
+  while (i < session.messages.length) {
     const message = session.messages[i];
-    if (message.direction !== 'inbound') continue;
-    const nextOutbound = session.messages.slice(i + 1).find((m) => m.direction === 'outbound');
+    if (message.direction !== 'inbound') {
+      i += 1;
+      continue;
+    }
+
+    const burst: WhatsAppParsedMessage[] = [message];
+    let j = i + 1;
+    while (j < session.messages.length && session.messages[j].direction === 'inbound') {
+      burst.push(session.messages[j]);
+      j += 1;
+    }
+
+    const nextOutbound = session.messages.slice(j).find((m) => m.direction === 'outbound') || null;
+    const firstInboundInBurst = burst[0];
     if (!nextOutbound) {
       unansweredInboundCount += 1;
       responseWaits.push({
-        inboundMessageId: message.id,
+        inboundMessageId: firstInboundInBurst.id,
         outboundMessageId: null,
         seconds: null,
-        inboundText: message.text,
+        inboundText: burst.map((m) => m.text).join('\n'),
         outboundText: null,
       });
-      continue;
+    } else {
+      responseWaits.push({
+        inboundMessageId: firstInboundInBurst.id,
+        outboundMessageId: nextOutbound.id,
+        seconds: secondsBetween(firstInboundInBurst.timestamp, nextOutbound.timestamp),
+        inboundText: burst.map((m) => m.text).join('\n'),
+        outboundText: nextOutbound.text,
+      });
     }
-    responseWaits.push({
-      inboundMessageId: message.id,
-      outboundMessageId: nextOutbound.id,
-      seconds: secondsBetween(message.timestamp, nextOutbound.timestamp),
-      inboundText: message.text,
-      outboundText: nextOutbound.text,
-    });
+
+    i = j;
   }
 
   const measuredWaits = responseWaits
