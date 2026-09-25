@@ -1,13 +1,9 @@
 name: Sales Intelligence known-branch + Product Demand apply once v1
-# One-time production backfill. This workflow only auto-runs when THIS file itself is added/changed.
-# All writers are versioned/idempotent; unresolved attribution conflicts remain QA-only.
+# Production writer: manual dispatch only. Merging or editing this workflow must never write to Production.
+# Writers remain versioned/idempotent; unresolved attribution conflicts remain QA-only.
 
 on:
-  push:
-    branches:
-      - feature/whatsapp-sales-intelligence-v1
-    paths:
-      - ".github/workflows/sales-intelligence-known-branch-product-demand-apply-once-v1.yml"
+  workflow_dispatch:
 
 permissions:
   contents: read
