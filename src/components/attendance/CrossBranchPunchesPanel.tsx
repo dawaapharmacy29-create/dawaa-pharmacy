@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowLeftRight, MapPin, RefreshCw, Search } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { listCrossBranchBiometricEvents } from '@/lib/attendance/attendanceOperationsService';
 import EmployeeProfileDrawer from '@/components/attendance/EmployeeProfileDrawer';
 
 type CrossBranchPunch = {
@@ -76,13 +76,12 @@ export default function CrossBranchPunchesPanel({
     setLoading(true);
     setError(null);
     try {
-      const { data, error: rpcError } = await supabase.rpc('list_cross_branch_biometric_events_v2', {
-        p_start: start,
-        p_end: end,
-        p_branch: branch === 'الكل' ? null : branch,
-        p_limit: 1000,
+      const data = await listCrossBranchBiometricEvents({
+        start,
+        end,
+        branch: branch === 'الكل' ? null : branch,
+        limit: 1000,
       });
-      if (rpcError) throw rpcError;
       setRows((data || []) as CrossBranchPunch[]);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'تعذر تحميل البصمات بين الفروع');

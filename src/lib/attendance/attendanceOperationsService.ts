@@ -141,3 +141,42 @@ export async function getAttendanceBiometricOperations(): Promise<Record<string,
   if (error) throw new Error(error.message);
   return (data || {}) as Record<string, unknown>;
 }
+
+
+export async function listBiometricEventLog(args: {
+  start: string;
+  end: string;
+  branch?: string | null;
+  mappingStatus?: string | null;
+  search?: string | null;
+  limit?: number;
+  offset?: number;
+}): Promise<Array<Record<string, unknown>>> {
+  const { data, error } = await supabase.rpc('list_biometric_event_log_v2', {
+    p_start: args.start,
+    p_end: args.end,
+    p_branch: args.branch || null,
+    p_mapping_status: args.mappingStatus || null,
+    p_search: args.search || '',
+    p_limit: args.limit ?? 50,
+    p_offset: args.offset ?? 0,
+  });
+  if (error) throw new Error(error.message);
+  return (data || []) as Array<Record<string, unknown>>;
+}
+
+export async function listCrossBranchBiometricEvents(args: {
+  start: string;
+  end: string;
+  branch?: string | null;
+  limit?: number;
+}): Promise<Array<Record<string, unknown>>> {
+  const { data, error } = await supabase.rpc('list_cross_branch_biometric_events_v2', {
+    p_start: args.start,
+    p_end: args.end,
+    p_branch: args.branch || null,
+    p_limit: args.limit ?? 1000,
+  });
+  if (error) throw new Error(error.message);
+  return (data || []) as Array<Record<string, unknown>>;
+}

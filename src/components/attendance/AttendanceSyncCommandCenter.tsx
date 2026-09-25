@@ -18,7 +18,12 @@ import {
   WifiOff,
   XCircle,
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import {
+  getAttendanceBiometricOperations,
+  getAttendanceDailyIntelligence,
+  getAttendanceSyncHealth,
+  listBiometricEventLog,
+} from '@/lib/attendance/attendanceOperationsService';
 import { cn } from '@/lib/utils';
 
 type ClientHealth = {
@@ -269,16 +274,11 @@ export default function AttendanceSyncCommandCenter({ branches, defaultBranch = 
     setLoading(true);
     try {
       const [operationsResult, syncHealthResult] = await Promise.all([
-        supabase.rpc('attendance_biometric_operations_v3'),
-        supabase.rpc('attendance_sync_health_v4', {
-          p_start: cycleStartFor(today),
-          p_end: today,
-        }),
+        getAttendanceBiometricOperations(),
+        getAttendanceSyncHealth(cycleStartFor(today), today),
       ]);
-      if (operationsResult.error) throw operationsResult.error;
-      if (syncHealthResult.error) throw syncHealthResult.error;
-      setHealth((operationsResult.data || {}) as OperationsHealth);
-      setSyncHealthV4((syncHealthResult.data || {}) as SyncHealthV4);
+      setHealth((operationsResult || {}) as OperationsHealth);
+      setSyncHealthV4((syncHealthResult || {}) as SyncHealthV4);
     } catch (e) { setError(e instanceof Error ? e.message : 'تعذر تحميل حالة البصمة'); }
     finally { setLoading(false); }
   }, [today]);
@@ -286,8 +286,7 @@ export default function AttendanceSyncCommandCenter({ branches, defaultBranch = 
   const loadIntel = useCallback(async () => {
     setIntelLoading(true);
     try {
-      const { data, error: e } = await supabase.rpc('attendance_daily_intelligence_v2', { p_date: intelDate, p_branch: branch === 'الكل' ? null : branch });
-      if (e) throw e;
+      const data = await getAttendanceDailyIntelligence(intelDate, branch === 'الكل' ? null : branch);
       setIntel((data || []) as DailyIntelRow[]);
     } catch (e) { setError(e instanceof Error ? e.message : 'تعذر تحميل التحليل الذكي للبصمات'); }
     finally { setIntelLoading(false); }
@@ -296,14 +295,15 @@ export default function AttendanceSyncCommandCenter({ branches, defaultBranch = 
   const loadEvents = useCallback(async () => {
     setEventsLoading(true);
     try {
-      const { data, error: e } = await supabase.rpc('list_biometric_event_log_v2', {
-        p_start: eventStart,
-        p_end: eventEnd,
-        p_branch: branch === 'الكل' ? null : branch,
-        p_mapping_status: mapping === 'all' ? null : mapping,
-        p_search: search.trim(), p_limit: PAGE_SIZE, p_offset: page * PAGE_SIZE,
+      const data = await listBiometricEventLog({
+        start: eventStart,
+        end: eventEnd,
+        branch: branch === 'الكل' ? null : branch,
+        mappingStatus: mapping === 'all' ? null : mapping,
+        search: search.trim(),
+        limit: PAGE_SIZE,
+        offset: page * PAGE_SIZE,
       });
-      if (e) throw e;
       setEvents((data || []) as BiometricEvent[]);
     } catch (e) { setError(e instanceof Error ? e.message : 'تعذر تحميل سجل البصمات الخام'); }
     finally { setEventsLoading(false); }

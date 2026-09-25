@@ -8,6 +8,7 @@ const systemCutover = path.join(root, 'supabase/migrations/20260924122000_overti
 const attendanceService = path.join(root, 'src/lib/attendance/attendanceBreakdownService.ts');
 const timeOffService = path.join(root, 'src/lib/timeOffService.ts');
 const crossBranchPanel = path.join(root, 'src/components/attendance/CrossBranchPunchesPanel.tsx');
+const attendanceOperationsService = path.join(root, 'src/lib/attendance/attendanceOperationsService.ts');
 const crossBranchV2 = path.join(root, 'supabase/migrations/20260924124000_cross_branch_schedule_truth_v2.sql');
 const payrollPage = path.join(root, 'src/pages/PayrollManagement.tsx');
 const diagnosticGuard = path.join(root, 'supabase/migrations/20260924125000_attendance_diagnostic_actor_guard_v1.sql');
@@ -35,6 +36,7 @@ const systemCutoverSql = read(systemCutover);
 const attendance = read(attendanceService);
 const timeOff = read(timeOffService);
 const crossBranchUi = read(crossBranchPanel);
+const attendanceOperationsServiceText = read(attendanceOperationsService);
 const crossBranchSql = read(crossBranchV2);
 const payrollPageText = read(payrollPage);
 const diagnosticGuardSql = read(diagnosticGuard);
@@ -56,7 +58,8 @@ assertContains(systemCutoverSql, 'return public.dawaa_sync_attendance_overtime_r
 assertContains(systemCutoverSql, 'from public,anon,authenticated;', 'system RPC grant tightening');
 assertContains(attendance, "supabase.rpc('decide_overtime_approval_v3'", 'frontend overtime decision path');
 assertContains(timeOff, "supabase.rpc('decide_staff_time_off_request_v3'", 'frontend time-off decision path');
-assertContains(crossBranchUi, "supabase.rpc('list_cross_branch_biometric_events_v2'", 'cross-branch UI canonical diagnostic path');
+assertContains(crossBranchUi, 'listCrossBranchBiometricEvents', 'cross-branch UI domain service path');
+assertContains(attendanceOperationsServiceText, "supabase.rpc('list_cross_branch_biometric_events_v2'", 'cross-branch canonical diagnostic RPC');
 assertContains(crossBranchSql, "attendance_schedule_for_date_v1", 'cross-branch schedule-day resolver');
 assertContains(crossBranchSql, "expected_branch", 'cross-branch expected branch contract');
 assertContains(payrollPageText, 'PayrollAttendanceSafetyGate', 'canonical payroll safety gate UI');
@@ -68,7 +71,8 @@ assertContains(missingPunchGuardSql, "dawaa_current_actor_can(array['create_dedu
 assertContains(missingPunchCapabilitySql, "'can_apply_deduction',v_can_apply_deduction", 'missing punch capability contract');
 assertContains(attendanceResolutionServiceText, 'can_apply_deduction: boolean', 'missing punch capability type');
 assertContains(attendanceResolutionCenterText, '!missingPunchContext.can_apply_deduction', 'missing punch UI financial gate');
-assertContains(attendanceSyncCommandCenterText, "supabase.rpc('attendance_sync_health_v4'", 'heartbeat-aware biometric sync health');
+assertContains(attendanceSyncCommandCenterText, 'getAttendanceSyncHealth', 'heartbeat-aware biometric sync service path');
+assertContains(attendanceOperationsServiceText, "supabase.rpc('attendance_sync_health_v4'", 'heartbeat-aware biometric sync canonical RPC');
 assertContains(attendanceSyncCommandCenterText, 'Heartbeat مستقل عن وجود بصمات جديدة', 'heartbeat UI contract');
 
 function walk(dir, out = []) {

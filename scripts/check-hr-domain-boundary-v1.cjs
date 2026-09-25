@@ -29,6 +29,14 @@ const hrQualityPage = path.join(srcRoot, 'pages/HRDataQuality.tsx');
 if (read(hrQualityPage).includes('supabase.rpc(')) {
   fail('HRDataQuality must use domain services; direct RPC calls are forbidden.');
 }
+const syncCommandCenter = path.join(srcRoot, 'components/attendance/AttendanceSyncCommandCenter.tsx');
+if (read(syncCommandCenter).includes('supabase.rpc(')) {
+  fail('AttendanceSyncCommandCenter must use attendanceOperationsService; direct RPC calls are forbidden.');
+}
+const crossBranchPanel = path.join(srcRoot, 'components/attendance/CrossBranchPunchesPanel.tsx');
+if (read(crossBranchPanel).includes('supabase.rpc(')) {
+  fail('CrossBranchPunchesPanel must use attendanceOperationsService; direct RPC calls are forbidden.');
+}
 
 const forbiddenLegacy = [
   'save_staff_payroll_monthly_v14',
