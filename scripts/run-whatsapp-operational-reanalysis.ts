@@ -48,11 +48,14 @@ async function rebuild(row: SourceRow) {
   const messages = parseWhatsAppExport(rawText, {
     trustedConversationStartedAt: row.conversation_started_at,
   });
-  const sessions = splitWhatsAppSessions(messages, 120);
+  // Re-analysis preserves the already-persisted source boundary. Older whatsapp_export rows can
+  // intentionally span gaps >120 minutes; splitting them again would silently change the unit
+  // that was originally reviewed. The 120-minute split remains an IMPORT concern only.
+  const sessions = splitWhatsAppSessions(messages, Number.MAX_SAFE_INTEGER);
   if (sessions.length !== 1) {
     return {
-      status: 'skipped_session_shape' as const,
-      detail: `expected_one_session_found_${sessions.length}`,
+      status: 'skipped_source_shape' as const,
+      detail: `expected_one_persisted_source_found_${sessions.length}`,
     };
   }
 
@@ -137,7 +140,7 @@ async function main() {
     planned: count('planned'),
     updated: count('updated'),
     skippedMissingRaw: count('skipped_missing_raw'),
-    skippedSessionShape: count('skipped_session_shape'),
+    skippedSourceShape: count('skipped_source_shape'),
     failed: count('failed'),
   };
 
