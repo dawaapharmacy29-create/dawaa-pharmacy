@@ -60,6 +60,12 @@ export interface WhatsAppConversationSession {
   forwardedCount?: number;
 }
 
+export function serializeWhatsAppSessionRawText(session: WhatsAppConversationSession): string {
+  return session.messages
+    .map((message) => message.raw || `${message.rawTimestamp} ${message.sender}: ${message.text}`)
+    .join('\n');
+}
+
 type ParsedPrefix = {
   day: number;
   month: number;
