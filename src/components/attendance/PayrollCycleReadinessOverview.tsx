@@ -63,7 +63,7 @@ export default function PayrollCycleReadinessOverview({
     return 80;
   };
 
-  const blockerGroups = data.top_blockers
+  const blockerGroups = (data?.top_blockers ?? [])
     .map((item) => ({ ...item, action: blockerAction(item.code) }))
     .sort((a, b) => blockerPriority(a.code) - blockerPriority(b.code) || b.affected_staff - a.affected_staff);
 
