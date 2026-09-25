@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { BadgeCheck, CircleAlert, PackageCheck, ReceiptText, Search, UsersRound } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { dateFallsInCycleV1, nextDayYmdV1, previousDayYmdV1, type SalesIntelligenceCycleScopeV1 } from '@/lib/salesIntelligence/dashboardScopeV1';
+import { readStaffDirectory, type StaffDirectoryReadRow } from '@/lib/staff/staffDirectoryReadModel';
 
 type StaffTruthRow = {
   case_id: string;
@@ -15,14 +16,6 @@ type StaffTruthRow = {
   staff_resolution_status: string;
   is_staff_resolved: boolean;
   item_evidence_available: boolean;
-};
-
-type StaffDirectoryRow = {
-  id: string;
-  name: string;
-  role: string | null;
-  branch: string | null;
-  is_active: boolean | null;
 };
 
 type OpportunityRow = {
@@ -106,7 +99,7 @@ export default function SalesIntelligenceStaffPerformanceV1({
 }) {
   const [truthRows, setTruthRows] = useState<StaffTruthRow[]>([]);
   const [opportunities, setOpportunities] = useState<OpportunityRow[]>([]);
-  const [staffDirectory, setStaffDirectory] = useState<StaffDirectoryRow[]>([]);
+  const [staffDirectory, setStaffDirectory] = useState<StaffDirectoryReadRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
@@ -138,7 +131,12 @@ export default function SalesIntelligenceStaffPerformanceV1({
       const [truthResult, opportunityResult, staffResult] = await Promise.all([
         truthQuery,
         opportunityQuery,
-        supabase.from('staff').select('id,name,role,branch,is_active').limit(2000),
+        readStaffDirectory(2000)
+          .then((data) => ({ data, error: null as Error | null }))
+          .catch((cause) => ({
+            data: [] as StaffDirectoryReadRow[],
+            error: cause instanceof Error ? cause : new Error(String(cause)),
+          })),
       ]);
       if (cancelled) return;
 
@@ -148,7 +146,7 @@ export default function SalesIntelligenceStaffPerformanceV1({
         partialErrors.push(`دليل الموظفين: ${staffResult.error.message}`);
         setStaffDirectory([]);
       } else {
-        setStaffDirectory((staffResult.data || []) as StaffDirectoryRow[]);
+        setStaffDirectory(staffResult.data);
       }
 
       if (truthResult.error) {
