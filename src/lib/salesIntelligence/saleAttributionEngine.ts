@@ -207,9 +207,19 @@ function getInvoiceStaffId(row: InvoiceLike): string | null {
 }
 
 function isDraftLikeZeroInvoice(row: InvoiceLike): boolean {
-  const amount = getInvoiceAmount(row);
+  const explicitAmountValue = firstValue(row, [
+    'net_amount',
+    'net_total',
+    'total_amount',
+    'amount',
+    'gross_amount',
+    'discounted_amount',
+  ]);
+  if (explicitAmountValue == null) return false;
+  const amount = Number(explicitAmountValue);
+  if (!Number.isFinite(amount)) return false;
   const closeValue = firstValue(row, ['close_datetime', 'close_time']);
-  return amount != null && amount <= 0 && !closeValue;
+  return amount <= 0 && !closeValue;
 }
 
 /**
