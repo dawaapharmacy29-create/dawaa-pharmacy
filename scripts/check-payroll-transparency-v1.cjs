@@ -28,7 +28,8 @@ assertContains(statementService, 'employee_payroll_statement_v1', 'single statem
 assertContains(panel, 'اتحسب / لم يتحسب', 'statement inclusion disclosure');
 assertContains(panel, 'رصيد الإجازة السنوية', 'annual leave balance disclosure');
 assertContains(panel, 'مبيعات الموظف خلال دورة الراتب', 'canonical employee sales KPI');
-assertContains(statementPdf, 'employee_payroll_statement_v1', 'statement PDF canonical source');
+assertContains(statementPdf, "getEmployeePayrollStatementV1", 'statement PDF canonical service');
+assertContains(statementService, 'employee_payroll_statement_v1', 'statement service canonical RPC');
 assertContains(statementPdf, 'معاينة - غير نهائي', 'preview watermark');
 assertContains(statementPdf, '/dawaa-logo-full.jpeg', 'Dawaa logo in statement header');
 assertContains(statementPdf, 'الدخول / الخروج', 'attendance punch transparency');

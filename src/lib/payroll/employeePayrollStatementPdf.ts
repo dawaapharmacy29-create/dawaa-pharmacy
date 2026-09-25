@@ -22,7 +22,7 @@ const cairoTime = (value?: string | null) => {
   if (Number.isNaN(d.getTime())) return '-';
   return d.toLocaleTimeString('ar-EG', { timeZone: 'Africa/Cairo', hour: '2-digit', minute: '2-digit' });
 };
-const statusLabel = (value?: string | null) => ({
+const STATUS_LABELS: Record<string, string> = {
   approved: 'معتمد',
   pending: 'معلق',
   pending_review: 'يحتاج مراجعة',
@@ -34,7 +34,8 @@ const statusLabel = (value?: string | null) => ({
   approved_time_off: 'إجازة/إذن معتمد',
   absence_review: 'غياب',
   worked_on_off: 'عمل يوم راحة',
-}[String(value || '')] || String(value || '-'));
+};
+const statusLabel = (value?: string | null) => STATUS_LABELS[String(value || '')] || String(value || '-');
 
 function pageShell(title: string, subtitle: string, body: string, preview: boolean, pageCode: string) {
   const watermark = preview
