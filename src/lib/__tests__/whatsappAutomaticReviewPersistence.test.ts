@@ -7,6 +7,7 @@ import type {
 const persistPointsTransactionMock = vi.fn();
 const resolveStaffNameToStaffIdMock = vi.fn();
 const appendWhatsAppReviewAuditMock = vi.fn();
+let insertedReviewPayload: Record<string, unknown> | null = null;
 
 vi.mock('@/lib/pointsPersistence', () => ({
   persistPointsTransaction: (...args: unknown[]) => persistPointsTransactionMock(...args),
@@ -38,7 +39,8 @@ function makeSupabaseMock() {
           return chain;
         },
         eq: () => chain,
-        insert: () => {
+        insert: (payload: Record<string, unknown>) => {
+          if (table === 'conversation_sales_reviews') insertedReviewPayload = payload;
           mode = 'insert';
           return chain;
         },
@@ -152,7 +154,32 @@ describe('persistAutomaticWhatsAppReview', () => {
     persistPointsTransactionMock.mockReset();
     resolveStaffNameToStaffIdMock.mockReset();
     appendWhatsAppReviewAuditMock.mockReset();
+    insertedReviewPayload = null;
     resolveStaffNameToStaffIdMock.mockResolvedValue('staff-1');
+  });
+
+  it('stores automatic reviews without a human reviewer identity', async () => {
+    persistPointsTransactionMock.mockResolvedValue({ error: null });
+
+    const { persistAutomaticWhatsAppReview } =
+      await import('@/lib/whatsappAutomaticReviewPersistence');
+    const result = await persistAutomaticWhatsAppReview({
+      sourceId: 'source-auto-reviewer-truth',
+      session: buildSession(),
+      branch: 'الفرع الرئيسي',
+      customerId: null,
+      customerCode: null,
+      customerName: 'عميل تجريبي',
+      customerPhone: null,
+      staffName: 'د أحمد',
+      reviewCycle: CYCLE,
+    });
+
+    expect(result.status).toBe('saved');
+    expect(insertedReviewPayload).not.toBeNull();
+    expect(insertedReviewPayload?.reviewer_name).toBeNull();
+    expect(insertedReviewPayload?.reviewer_role).toBeNull();
+    expect(insertedReviewPayload).not.toHaveProperty('reviewer_id');
   });
 
   it('reports pointsError and pointsRecorded=false when the approved RPC fails, instead of pretending success', async () => {
