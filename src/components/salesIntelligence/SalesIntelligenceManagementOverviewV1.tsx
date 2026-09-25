@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import type { QaCaseListRow } from '@/lib/salesIntelligence/qa/types';
-import { dateFallsInCycleV1, nextDayYmdV1, previousDayYmdV1, type SalesIntelligenceCycleScopeV1 } from '@/lib/salesIntelligence/dashboardScopeV1';
+import { dateFallsInCycleV1, type SalesIntelligenceCycleScopeV1 } from '@/lib/salesIntelligence/dashboardScopeV1';
 import SalesIntelligenceOpportunityCenterV1 from '@/components/salesIntelligence/SalesIntelligenceOpportunityCenterV1';
 import SalesIntelligenceCoveragePanelV1 from '@/components/salesIntelligence/SalesIntelligenceCoveragePanelV1';
 
@@ -134,12 +134,10 @@ export default function SalesIntelligenceManagementOverviewV1({
     let cancelled = false;
     async function load() {
       setTruthLoading(true);
-      const rangeStart = previousCycle?.start || cycle.start;
       const { data, error } = await supabase
         .from('sales_intelligence_invoice_staff_truth_v1')
         .select('case_id,invoice_datetime,invoice_branch,invoice_amount,canonical_staff_id,canonical_staff_name,staff_resolution_status,is_staff_resolved,item_evidence_available')
-        .gte('invoice_datetime', `${previousDayYmdV1(rangeStart)}T00:00:00Z`)
-        .lt('invoice_datetime', `${nextDayYmdV1(cycle.end)}T00:00:00Z`)
+        .order('invoice_datetime', { ascending: false })
         .limit(2000);
       if (cancelled) return;
       if (error) {
@@ -153,7 +151,7 @@ export default function SalesIntelligenceManagementOverviewV1({
     }
     void load();
     return () => { cancelled = true; };
-  }, [cycle.end, cycle.start, previousCycle?.start]);
+  }, []);
 
   const truthFor = (target: SalesIntelligenceCycleScopeV1 | null) => {
     if (!target) return [];
@@ -165,6 +163,12 @@ export default function SalesIntelligenceManagementOverviewV1({
 
   const currentTruth = useMemo(() => truthFor(cycle), [branch, cycle, staffTruth]);
   const previousTruth = useMemo(() => truthFor(previousCycle), [branch, previousCycle, staffTruth]);
+
+  const currentCaseIds = useMemo(() => new Set(rows.map((row) => row.caseId)), [rows]);
+  const currentCaseTruth = useMemo(
+    () => staffTruth.filter((row) => currentCaseIds.has(row.case_id)),
+    [currentCaseIds, staffTruth]
+  );
 
   const summarize = (sourceRows: QaCaseListRow[], truthRows: StaffTruthRow[]) => {
     const total = sourceRows.length;
@@ -183,6 +187,7 @@ export default function SalesIntelligenceManagementOverviewV1({
 
   const metrics = useMemo(() => summarize(rows, currentTruth), [currentTruth, rows]);
   const previous = useMemo(() => summarize(previousRows, previousTruth), [previousRows, previousTruth]);
+  const currentCaseOfficialSales = currentCaseTruth.length;
 
   const actions = useMemo(() => {
     const items: Array<{ title: string; detail: string; severity: 'warning' | 'info' }> = [];
@@ -318,7 +323,7 @@ export default function SalesIntelligenceManagementOverviewV1({
             ['كل الحالات', metrics.total, '100٪'],
             ['فاتورة مختارة', metrics.withInvoice, pct(metrics.withInvoice, metrics.total)],
             ['بيع مؤكد', metrics.proven, pct(metrics.proven, metrics.total)],
-            ['رسمي للموظف', metrics.officialSales, pct(metrics.officialSales, metrics.total)],
+            ['بيع رسمي من نفس الحالات', currentCaseOfficialSales, pct(currentCaseOfficialSales, metrics.total)],
           ].map(([label, value, ratio]) => (
             <div key={String(label)} className="rounded-2xl border border-[var(--dawaa-theme-border)] p-3">
               <div className="dawaa-muted text-[11px]">{label}</div>
