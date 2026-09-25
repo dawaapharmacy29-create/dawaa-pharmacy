@@ -32,6 +32,7 @@ import {
   revokeWhatsAppMediaObjectUrlsV21,
   syncWhatsAppMediaForSourceV21,
 } from '@/lib/whatsappMediaV21';
+import { extractCustomerHintFromExportFileName } from '@/lib/whatsappExportCustomerHint';
 
 type CustomerIdentity = {
   customerId: string | null;
@@ -39,7 +40,9 @@ type CustomerIdentity = {
   customerName: string | null;
   customerPhone: string | null;
   branch: string | null;
-  matchedBy: 'phone' | 'name' | 'none';
+  matchedBy: 'phone' | 'code' | 'name' | 'none';
+  resolutionStatus: 'resolved' | 'unresolved' | 'ambiguous';
+  resolutionReason: string;
 };
 
 type CustomerRow = {
@@ -154,7 +157,7 @@ function mapCustomerIdentity(
   row: CustomerRow,
   fallbackName: string | null,
   fallbackPhone: string | null,
-  matchedBy: 'phone' | 'name'
+  matchedBy: 'phone' | 'code' | 'name'
 ): CustomerIdentity {
   return {
     customerId: row.id,
@@ -171,16 +174,31 @@ function mapCustomerIdentity(
       fallbackPhone,
     branch: row.effective_branch || row.branch || null,
     matchedBy,
+    resolutionStatus: 'resolved',
+    resolutionReason: `unique_${matchedBy}_match`,
   };
 }
 
 async function resolveCustomerIdentity(
-  session: WhatsAppConversationSession
+  session: WhatsAppConversationSession,
+  sourceFileName: string
 ): Promise<CustomerIdentity> {
-  const rawFallbackName = normalizedName(session.customerName) || null;
-  const code = customerCodeFromSession(session);
-  const fallbackName = customerDisplayNameWithoutCode(rawFallbackName) || rawFallbackName;
+  const fileHint = extractCustomerHintFromExportFileName(sourceFileName);
+  const sessionName = normalizedName(session.customerName) || null;
+  const fallbackName =
+    customerDisplayNameWithoutCode(sessionName) ||
+    fileHint.nameHint ||
+    sessionName;
+  const sessionCode = customerCodeFromSession(session);
+  const hintedCode = fileHint.codeHint;
+  const codeConflict = Boolean(sessionCode && hintedCode && sessionCode !== hintedCode);
+  const code = codeConflict ? null : (sessionCode || hintedCode);
   const phone = phoneFromSession(session);
+  const ambiguityReasons: string[] = [];
+
+  if (codeConflict) {
+    ambiguityReasons.push(`customer_code_conflict:session=${sessionCode},file=${hintedCode}`);
+  }
 
   if (phone) {
     const phoneTail = phone.slice(-10);
@@ -200,10 +218,11 @@ async function resolveCustomerIdentity(
           `phone_alt.eq.${phone}`,
         ].join(',')
       )
-      .limit(3);
+      .limit(5);
     if (error) throw error;
     const matches = (data || []) as CustomerRow[];
     if (matches.length === 1) return mapCustomerIdentity(matches[0], fallbackName, phone, 'phone');
+    if (matches.length > 1) ambiguityReasons.push(`duplicate_phone:${phone}:${matches.length}`);
   }
 
   if (code) {
@@ -212,7 +231,7 @@ async function resolveCustomerIdentity(
       .select(CUSTOMER_SELECT)
       .eq('is_duplicate', false)
       .eq('customer_code', code)
-      .limit(3);
+      .limit(5);
     if (error) throw error;
     let matches = (data || []) as CustomerRow[];
     if (matches.length > 1 && fallbackName) {
@@ -224,7 +243,8 @@ async function resolveCustomerIdentity(
       );
       if (nameMatches.length === 1) matches = nameMatches;
     }
-    if (matches.length === 1) return mapCustomerIdentity(matches[0], fallbackName, phone, 'name');
+    if (matches.length === 1) return mapCustomerIdentity(matches[0], fallbackName, phone, 'code');
+    if (matches.length > 1) ambiguityReasons.push(`duplicate_customer_code:${code}:${matches.length}`);
   }
 
   if (fallbackName && fallbackName.length >= 3) {
@@ -234,21 +254,26 @@ async function resolveCustomerIdentity(
         .select(CUSTOMER_SELECT)
         .eq('is_duplicate', false)
         .ilike(column, fallbackName)
-        .limit(2);
+        .limit(3);
       if (error) throw error;
       const matches = (data || []) as CustomerRow[];
       if (matches.length === 1) return mapCustomerIdentity(matches[0], fallbackName, phone, 'name');
-      if (matches.length > 1) break;
+      if (matches.length > 1) {
+        ambiguityReasons.push(`duplicate_name:${column}:${matches.length}`);
+        break;
+      }
     }
   }
 
   return {
     customerId: null,
-    customerCode: null,
+    customerCode: code,
     customerName: fallbackName,
     customerPhone: phone,
     branch: null,
     matchedBy: 'none',
+    resolutionStatus: ambiguityReasons.length ? 'ambiguous' : 'unresolved',
+    resolutionReason: ambiguityReasons.join('|') || 'no_unique_customer_match',
   };
 }
 
@@ -292,7 +317,10 @@ async function saveSessionReview(
       parser_version: 'whatsapp-auto-ingest-v3',
       analysis_version: 'smart-summary-v1',
       analysis_status: 'analyzed',
-      review_status: summary.confidence < 60 ? 'needs_context' : 'ready_quick',
+      review_status:
+        identity.resolutionStatus !== 'resolved' || summary.confidence < 60
+          ? 'needs_context'
+          : 'ready_quick',
       priority: summary.outcome === 'sale_intent' ? 'important' : 'normal',
       analysis_confidence: summary.confidence,
       commercial_eligible: summary.outcome === 'sale_intent',
@@ -303,6 +331,8 @@ async function saveSessionReview(
         ...JSON.parse(JSON.stringify(summary)),
         customerIdentity: {
           matchedBy: identity.matchedBy,
+          resolutionStatus: identity.resolutionStatus,
+          resolutionReason: identity.resolutionReason,
           customerId: identity.customerId,
           customerCode: identity.customerCode,
           customerPhone: identity.customerPhone,
@@ -522,7 +552,7 @@ export async function ingestWhatsAppExportFile(file: File): Promise<IngestOneFil
 
   for (const session of sessions) {
     try {
-      const identity = await resolveCustomerIdentity(session);
+      const identity = await resolveCustomerIdentity(session, source.sourceFileName);
       if (identity.matchedBy !== 'none') result.customersMatched += 1;
 
       const participantRoles = await resolveWhatsAppParticipantRolesV15(session);
