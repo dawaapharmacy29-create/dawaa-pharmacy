@@ -16,12 +16,12 @@ where id='2b17106c-fb69-4b4e-ad83-f5aa41303c86'
 update public.whatsapp_review_sources
 set
   invoice_match_status='probable',
-  matched_invoice_id='recovery20260821_shokry_68466',
+  matched_invoice_id=null,
   matched_invoice_number='68466',
   matched_invoice_date='2026-08-20 08:27:00+00',
   matched_invoice_value=410,
   invoice_match_confidence=0.7636363636363637,
-  invoice_match_reason='الفاتورة تمت أثناء المحادثة وفي نفس دقيقة رسالة تم الإرسال ونفس العميل والفرع؛ فرق القيمة يمنع الاعتماد كـ verified.',
+  invoice_match_reason='الفاتورة 68466 تمت أثناء المحادثة وفي نفس دقيقة رسالة تم الإرسال ونفس العميل والفرع؛ معرفها التاريخي نصي وغير قابل للتخزين في matched_invoice_id UUID، وفرق القيمة يمنع الاعتماد كـ verified.',
   updated_at=now()
 where id='44999fee-c39e-4e40-a66c-b21223775d51'
   and invoice_match_status='pending';
