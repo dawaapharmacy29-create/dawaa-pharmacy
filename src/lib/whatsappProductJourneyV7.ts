@@ -243,6 +243,9 @@ function leakageFor(
 
   // A measured operational delay is causal evidence and should not be hidden by a later
   // generic "accepted but not confirmed" closing gap.
+  if (delay != null && delay > MAX_HEALTHY_RESPONSE_MINUTES) {
+    return { code: 'response_delay', reason: `تأخر أول رد مفيد على طلب العميل قرابة ${Math.round(delay)} دقيقة.` };
+  }
   if (stages.has('accepted')) {
     return { code: 'closing_gap', reason: 'العميل وافق على الصنف/الطلب لكن لم يظهر تأكيد نهائي للأوردر من الصيدلية.' };
   }
@@ -255,9 +258,6 @@ function leakageFor(
   }
   if (PRICE_OBJECTION_RX.test(inboundText)) {
     return { code: 'price_objection', reason: 'ظهر اعتراض صريح من العميل على السعر.' };
-  }
-  if (delay != null && delay > MAX_HEALTHY_RESPONSE_MINUTES) {
-    return { code: 'response_delay', reason: `تأخر أول رد مفيد على طلب العميل قرابة ${Math.round(delay)} دقيقة.` };
   }
   if (DELIVERY_PROBLEM_RX.test(allText)) {
     return { code: 'delivery_issue', reason: 'ظهرت مشكلة في التنفيذ أو التوصيل أثرت على رحلة الطلب.' };

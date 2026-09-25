@@ -433,7 +433,7 @@ describe('Sale Attribution Engine (Sales Intelligence Phase D) — Golden Cases'
       expect(assess.isOfficialForStaffEvaluation).toBe(true);
     });
 
-    it('35b. identity + branch + legacy after many hours stays statistical but is never official without transaction corroboration', () => {
+    it('35b. identity + branch + legacy after many hours stays review-only and is not selected without transaction corroboration', () => {
       const ctx = baseCase({
         customerId: 'cust-1',
         customerPhone: '01012345678',
@@ -450,10 +450,12 @@ describe('Sale Attribution Engine (Sales Intelligence Phase D) — Golden Cases'
         invoice_datetime: '2026-09-11T08:32:00.000Z',
         net_amount: 60,
       }]);
-      expect(assess.attributionLevel).toBe('strongly_inferred');
+      expect(assess.selectedInvoiceId).toBeNull();
+      expect(assess.attributionLevel).toBe('unknown');
       expect(assess.isOfficialForStaffEvaluation).toBe(false);
       expect(assess.needsHumanReview).toBe(true);
       expect(assess.humanReviewReasons).toContain('statistical_invoice_lacks_transactional_corroboration');
+      expect(assess.alternativeCandidates).toHaveLength(1);
     });
 
     it('35c. a close identity-linked invoice can still be official without an announced total', () => {

@@ -844,15 +844,10 @@ export function deriveSaleAttributionAssessment(
     if (candidate.timeMatchStrength === 'very_strong' || candidate.timeMatchStrength === 'strong' || candidate.timeMatchStrength === 'moderate') {
       return true;
     }
-    // A weak/very-weak temporal relation normally stays alternative-only. One conservative
-    // exception: identity + non-conflicting branch + an existing V17 invoice link may keep the
-    // invoice selected as a statistical hypothesis for reviewer visibility. The official gate
-    // below still rejects it without independent transactional corroboration.
-    const legacyReviewCandidate =
-      candidate.legacyEvidenceMatch &&
-      (candidate.customerIdMatch || candidate.phoneMatch) &&
-      candidate.branchMatch !== 'mismatch';
-    return hasIndependentTransactionalCorroboration(candidate) || legacyReviewCandidate;
+    // A weak/very-weak temporal relation stays alternative-only. Identity/branch/legacy
+    // similarity may support review, but cannot make the invoice the selected transaction without
+    // an independent transactional signal (amount/item/quantity/staff evidence).
+    return hasIndependentTransactionalCorroboration(candidate);
   };
 
   // Direct trusted links stay visible even when contradictory (audit + human review). Statistical
