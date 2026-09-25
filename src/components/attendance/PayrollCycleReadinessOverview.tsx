@@ -44,17 +44,31 @@ export default function PayrollCycleReadinessOverview({
     if (code === 'attendance_eligibility') return { label: 'راجع جاهزية الحضور', href: '/attendance-report?tab=resolution', kind: 'attendance' as const };
     if (code === 'financial_drift') return { label: 'راجع اختلاف Attendance Truth', href: '/hr-data-quality', kind: 'drift' as const };
     if (code === 'policy_validation') return { label: 'راجع سياسة الحضور', href: '/hr-data-quality', kind: 'drift' as const };
-    if (code === 'schedule_not_ready' || code === 'schedule_gap') return { label: 'راجع الجداول والمناوبات', href: '/hr-schedules', kind: 'schedule' as const };
+    if (code === 'schedule_not_ready' || code === 'schedule_gap') return { label: 'راجع الجداول والمناوبات', href: '/schedule', kind: 'schedule' as const };
     if (code === 'no_hourly_rate_configured' || code === 'compensation_not_ready') {
       return { label: 'أكمل ملف التعويضات', href: null, kind: 'compensation' as const };
     }
     return { label: 'راجع سبب الحجب', href: '/hr-data-quality', kind: 'other' as const };
   };
 
-  const blockerGroups = data.top_blockers.map((item) => ({
-    ...item,
-    action: blockerAction(item.code),
-  }));
+  const blockerPriority = (code: string) => {
+    if (code === 'no_hourly_rate_configured' || code === 'compensation_not_ready') return 10;
+    if (code === 'attendance_pending') return 20;
+    if (code === 'overtime_pending') return 30;
+    if (code === 'financial_drift') return 40;
+    if (code === 'schedule_not_ready' || code === 'schedule_gap') return 50;
+    if (code === 'attendance_eligibility') return 60;
+    if (code === 'policy_validation') return 70;
+    if (code === 'cycle_open') return 100;
+    return 80;
+  };
+
+  const blockerGroups = data.top_blockers
+    .map((item) => ({ ...item, action: blockerAction(item.code) }))
+    .sort((a, b) => blockerPriority(a.code) - blockerPriority(b.code) || b.affected_staff - a.affected_staff);
+
+  const primaryBlockerFor = (row: PayrollCycleFinalizationOverview['rows'][number]) =>
+    [...row.blockers].sort((a, b) => blockerPriority(a.code) - blockerPriority(b.code))[0] || null;
 
   if (!data) {
     return (
@@ -87,10 +101,20 @@ export default function PayrollCycleReadinessOverview({
 
       <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
         <Summary label="نطاق الرواتب" value={data.scope_staff_count ?? data.staff_count} />
-        <Summary label="Profiles مهيأة" value={data.configured_staff_count ?? data.staff_count} good={(data.unconfigured_staff_count ?? 0) === 0} />
+        <Summary label="Profiles موجودة" value={data.configured_staff_count ?? data.staff_count} good={(data.unconfigured_priority_count ?? 0) === 0} />
         <Summary label="تحتاج مراجعة إعداد" value={data.unconfigured_priority_count ?? 0} warn={(data.unconfigured_priority_count ?? 0) > 0} />
         <Summary label="جاهز للإقفال" value={data.ready_count} good />
         <Summary label="Blocked" value={data.blocked_count} warn={data.blocked_count > 0} />
+      </div>
+
+      <div className={`mt-3 rounded-2xl border p-3 text-xs font-black ${
+        data.ready_count === data.staff_count && (data.unconfigured_priority_count ?? 0) === 0
+          ? 'border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] text-[var(--dawaa-status-success-text)]'
+          : 'border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)]'
+      }`}>
+        {data.ready_count === data.staff_count && (data.unconfigured_priority_count ?? 0) === 0
+          ? 'الدورة جاهزة للمراجعة النهائية قبل الإقفال.'
+          : `لا يتم Finalize قبل إغلاق الـBlockers. الجاهز حاليًا: ${data.ready_count.toLocaleString('ar-EG')} من ${data.staff_count.toLocaleString('ar-EG')} ملف مهيأ.`}
       </div>
 
       {!!data.configuration_queue?.length && (
@@ -206,7 +230,7 @@ export default function PayrollCycleReadinessOverview({
                 <td className="p-2">{row.policy_validation.effective_status_changes.toLocaleString('ar-EG')}</td>
                 <td className="p-2">
                   {!row.ready && (() => {
-                    const primary = row.blockers[0];
+                    const primary = primaryBlockerFor(row);
                     if (!primary) return null;
                     const action = blockerAction(primary.code);
                     if (action.kind === 'compensation') {
