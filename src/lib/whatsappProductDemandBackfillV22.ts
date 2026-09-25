@@ -115,7 +115,6 @@ async function loadSources(options: ProductDemandBackfillOptionsV22): Promise<So
     const { data, error } = await supabase
       .from('whatsapp_review_sources')
       .select('id,source_filename,raw_text,conversation_started_at,conversation_ended_at,branch,customer_id,customer_code,customer_name,customer_phone,staff_id,staff_name,created_by,message_count,created_at,analysis_json')
-      .not('raw_text', 'is', null)
       .order('conversation_started_at', { ascending: false })
       .range(from, from + pageSize - 1);
     if (error) throw error;
@@ -125,7 +124,9 @@ async function loadSources(options: ProductDemandBackfillOptionsV22): Promise<So
   }
 
   const canonicalIds = selectCanonicalReviewSourceIds(rows);
-  let canonicalRows = rows.filter((row) => canonicalIds.has(row.id));
+  let canonicalRows = rows.filter(
+    (row) => canonicalIds.has(row.id) && typeof row.raw_text === 'string' && row.raw_text.trim().length > 0
+  );
 
   if (options.sourceIds?.length) {
     const requested = new Set(options.sourceIds);

@@ -59,22 +59,22 @@ export default function SalesIntelligenceCoveragePanelV1() {
     return () => { cancelled = true; };
   }, []);
 
-  const analyzableSources = useMemo(
-    () => sources.filter((row) => typeof row.raw_text === 'string' && row.raw_text.trim().length > 0),
-    [sources]
+  const canonicalSources = useMemo(() => {
+    const canonicalIds = selectCanonicalReviewSourceIds(sources);
+    return sources.filter((row) => canonicalIds.has(row.id));
+  }, [sources]);
+
+  const analyzableCanonicalSources = useMemo(
+    () => canonicalSources.filter((row) => typeof row.raw_text === 'string' && row.raw_text.trim().length > 0),
+    [canonicalSources]
   );
 
-  const canonicalSources = useMemo(() => {
-    const canonicalIds = selectCanonicalReviewSourceIds(analyzableSources);
-    return analyzableSources.filter((row) => canonicalIds.has(row.id));
-  }, [analyzableSources]);
-
-  const sourcesWithoutRawText = sources.length - analyzableSources.length;
+  const sourcesWithoutRawText = canonicalSources.length - analyzableCanonicalSources.length;
 
   const coverage = useMemo(() => {
     const coveredIds = new Set(cases.map((row) => row.conversation_id).filter(Boolean));
     const map = new Map<string, BranchCoverage>();
-    for (const source of canonicalSources) {
+    for (const source of analyzableCanonicalSources) {
       const key = source.branch || 'بدون فرع';
       const current = map.get(key) || { branch: key, sources: 0, covered: 0, uncovered: 0 };
       current.sources += 1;
@@ -83,17 +83,17 @@ export default function SalesIntelligenceCoveragePanelV1() {
       map.set(key, current);
     }
     return Array.from(map.values()).sort((a, b) => b.sources - a.sources || a.branch.localeCompare(b.branch, 'ar'));
-  }, [canonicalSources, cases]);
+  }, [analyzableCanonicalSources, cases]);
 
-  const totalSources = canonicalSources.length;
-  const analyzedV22 = canonicalSources.filter((row) => row.analysis_json?.productDemandVersion === 'product-demand-v22.1').length;
+  const totalSources = analyzableCanonicalSources.length;
+  const analyzedV22 = analyzableCanonicalSources.filter((row) => row.analysis_json?.productDemandVersion === 'product-demand-v22.1').length;
   const remainingV22 = Math.max(0, totalSources - analyzedV22);
   const v22Completion = totalSources ? Math.round((analyzedV22 / totalSources) * 1000) / 10 : 0;
 
   const coveredSources = useMemo(() => {
     const coveredIds = new Set(cases.map((row) => row.conversation_id).filter(Boolean));
-    return canonicalSources.filter((row) => coveredIds.has(row.id)).length;
-  }, [canonicalSources, cases]);
+    return analyzableCanonicalSources.filter((row) => coveredIds.has(row.id)).length;
+  }, [analyzableCanonicalSources, cases]);
 
   if (loading) {
     return <section className="dawaa-card"><div className="dawaa-muted py-6 text-center text-xs">جاري فحص تغطية مصادر ذكاء المبيعات...</div></section>;

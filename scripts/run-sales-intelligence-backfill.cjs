@@ -207,7 +207,6 @@ async function fetchReviewSources(itemReadiness = null) {
       const { data, error } = await supabase
         .from('whatsapp_review_sources')
         .select(select)
-        .not('raw_text', 'is', null)
         .range(from, from + pageSize - 1);
       if (error) throw error;
       rows.push(...(data || []));

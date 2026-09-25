@@ -59,7 +59,6 @@ async function loadCanonicalBackfillStatusV22(): Promise<BackfillStatus | null> 
     const { data, error } = await supabase
       .from('whatsapp_review_sources')
       .select('id,source_filename,customer_id,customer_code,customer_phone,customer_name,conversation_started_at,conversation_ended_at,message_count,created_at,raw_text,analysis_json')
-      .not('raw_text', 'is', null)
       .range(from, from + pageSize - 1);
     if (error) return null;
     rows.push(...((data || []) as BackfillSourceStatusRow[]));
@@ -67,7 +66,9 @@ async function loadCanonicalBackfillStatusV22(): Promise<BackfillStatus | null> 
     from += pageSize;
   }
   const canonicalIds = selectCanonicalReviewSourceIds(rows);
-  const canonical = rows.filter((row) => canonicalIds.has(row.id) && String(row.raw_text || '').trim().length > 0);
+  const canonical = rows.filter(
+    (row) => canonicalIds.has(row.id) && String(row.raw_text || '').trim().length > 0
+  );
   const analyzed = canonical.filter((row) => row.analysis_json?.productDemandVersion === 'product-demand-v22.1').length;
   return {
     analyzable_sources: canonical.length,

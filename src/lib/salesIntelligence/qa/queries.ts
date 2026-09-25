@@ -695,10 +695,9 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
         let result = runLivePipeline([]);
         let targetAnalysis = result.caseAnalyses.find((a) => a.caseId === caseId) ?? null;
 
-        // Until the full maintenance backfill has replaced stale historical snapshots, the QA
-        // detail must not silently present an invoice as uncontested when a CURRENT persisted case
-        // still claims the same invoice. Feed those claims back into the canonical attribution
-        // engine, which already converts competition into human-review + non-official evidence.
+        // Competing invoice claims must come from CURRENT CANONICAL source snapshots only.
+        // Historical/superseded snapshots stay readable for audit but must never create a false
+        // invoice competition against the canonical conversation.
         const provisionalInvoiceId = targetAnalysis?.attribution.selectedInvoiceId ?? null;
         if (provisionalInvoiceId) {
           const { data: persistedCompetingClaims } = await supabaseClient
@@ -708,8 +707,68 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
             .neq('case_id', caseId)
             .limit(MAX_LIST_ROWS);
 
+          const competingCaseIds = Array.from(new Set(
+            (persistedCompetingClaims ?? [])
+              .map((row: any) => row.case_id ? String(row.case_id) : null)
+              .filter(Boolean)
+          )) as string[];
+
+          const canonicalCompetingCaseIds = new Set<string>();
+          if (competingCaseIds.length) {
+            const { data: competingCases } = await supabaseClient
+              .from('sales_intelligence_cases')
+              .select('case_id, conversation_id')
+              .in('case_id', competingCaseIds)
+              .limit(MAX_LIST_ROWS);
+
+            const conversationIds = Array.from(new Set(
+              (competingCases ?? [])
+                .map((row: any) => row.conversation_id ? String(row.conversation_id) : null)
+                .filter(Boolean)
+            )) as string[];
+
+            let lineageRows: RawConversationIdentityRow[] = [];
+            if (conversationIds.length) {
+              const { data: directSourceRows } = await supabaseClient
+                .from('whatsapp_review_sources')
+                .select('id, source_filename, customer_id, customer_name, customer_code, customer_phone, conversation_started_at, conversation_ended_at, message_count, created_at')
+                .in('id', conversationIds)
+                .limit(MAX_LIST_ROWS);
+
+              const sourceFilenames = Array.from(new Set(
+                (directSourceRows ?? [])
+                  .map((row: any) => row.source_filename ? String(row.source_filename) : null)
+                  .filter(Boolean)
+              )) as string[];
+
+              if (sourceFilenames.length) {
+                const { data: familyRows } = await supabaseClient
+                  .from('whatsapp_review_sources')
+                  .select('id, source_filename, customer_id, customer_name, customer_code, customer_phone, conversation_started_at, conversation_ended_at, message_count, created_at')
+                  .in('source_filename', sourceFilenames)
+                  .limit(MAX_LIST_ROWS);
+                lineageRows = (familyRows ?? directSourceRows ?? []) as RawConversationIdentityRow[];
+              } else {
+                lineageRows = (directSourceRows ?? []) as RawConversationIdentityRow[];
+              }
+            }
+
+            const canonicalConversationIds = selectCanonicalReviewSourceIds(lineageRows);
+            for (const row of competingCases ?? []) {
+              if (!row.case_id) continue;
+              const competingConversationId = row.conversation_id ? String(row.conversation_id) : null;
+              if (!competingConversationId || canonicalConversationIds.has(competingConversationId)) {
+                canonicalCompetingCaseIds.add(String(row.case_id));
+              }
+            }
+          }
+
           const competingSelections = (persistedCompetingClaims ?? [])
-            .filter((row: any) => row.case_id && row.selected_invoice_id)
+            .filter((row: any) =>
+              row.case_id &&
+              row.selected_invoice_id &&
+              canonicalCompetingCaseIds.has(String(row.case_id))
+            )
             .map((row: any) => ({
               caseId: String(row.case_id),
               invoiceId: String(row.selected_invoice_id),
