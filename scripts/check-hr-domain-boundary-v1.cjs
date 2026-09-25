@@ -156,6 +156,18 @@ if (doctorDashboard.includes('TABLES.employeeTransactions') || doctorDashboard.i
   fail('DoctorDashboardStable must not rebuild current-cycle incentive from raw ledger/profile reads.');
 }
 
+const hrTruthService = read(path.join(srcRoot, 'lib/hr/hrTruthService.ts'));
+for (const legacyField of ['v3_materialized_days', 'v3_pending_days']) {
+  if (attendanceOps.includes(legacyField) || hrTruthService.includes(legacyField)) {
+    fail('V3 readiness frontend contract still references retired field ' + legacyField);
+  }
+}
+for (const requiredField of ['open_legacy_days', 'operational_review_pending', 'approved_frozen_legacy_days']) {
+  if (!attendanceOps.includes(requiredField) || !hrTruthService.includes(requiredField)) {
+    fail('V3 readiness frontend contract missing ' + requiredField);
+  }
+}
+
 const attendanceOps = read(path.join(srcRoot, 'lib/attendance/attendanceOperationsService.ts'));
 if (!attendanceOps.includes('attendance_policy_v3_cutover_readiness_v1')) {
   fail('attendance operations must expose explicit V3 cutover readiness.');
