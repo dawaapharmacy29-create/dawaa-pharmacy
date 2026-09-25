@@ -402,7 +402,6 @@ export default function StaffMonthlyEvaluation() {
       };
 
       const { data, error } = await supabase.rpc('save_staff_monthly_evaluation_v2', {
-        p_actor_id: user.id,
         p_payload: payload,
       });
       if (error) throw error;

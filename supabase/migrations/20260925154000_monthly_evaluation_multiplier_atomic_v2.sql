@@ -2,7 +2,6 @@
 -- Saves the evaluation and its first financial multiplier in one server transaction.
 
 create or replace function public.save_staff_monthly_evaluation_v2(
-  p_actor_id uuid,
   p_payload jsonb
 )
 returns jsonb
@@ -11,6 +10,7 @@ security definer
 set search_path to 'public','pg_catalog'
 as $function$
 declare
+  v_actor_id uuid;
   v_staff_id uuid;
   v_month date;
   v_month_cycle text;
@@ -23,8 +23,13 @@ declare
   v_multiplier_applied boolean:=false;
   v_inserted_count bigint:=0;
 begin
-  if p_actor_id is null or p_payload is null then
+  if p_payload is null then
     raise exception 'invalid_monthly_evaluation_v2_input' using errcode='22023';
+  end if;
+
+  v_actor_id:=public.dawaa_current_staff_account_id_strict();
+  if v_actor_id is null then
+    raise exception 'active_staff_actor_required' using errcode='42501';
   end if;
 
   v_staff_id:=(p_payload->>'staff_id')::uuid;
@@ -56,7 +61,7 @@ begin
   ) into v_finalized;
 
   -- Existing V1 function remains the authorization/scope authority for the evaluation.
-  v_id:=public.save_staff_monthly_evaluation_safe(p_actor_id,p_payload);
+  v_id:=public.save_staff_monthly_evaluation_safe(v_actor_id,p_payload);
 
   if v_status='sent' and not v_has_multiplier then
     if v_finalized then
@@ -100,9 +105,9 @@ begin
 end;
 $function$;
 
-revoke execute on function public.save_staff_monthly_evaluation_v2(uuid,jsonb)
+revoke execute on function public.save_staff_monthly_evaluation_v2(jsonb)
   from public,anon;
-grant execute on function public.save_staff_monthly_evaluation_v2(uuid,jsonb)
+grant execute on function public.save_staff_monthly_evaluation_v2(jsonb)
   to authenticated,service_role;
 
 -- Backfill sent evaluations that never received a multiplier under the old split UI flow.
@@ -136,5 +141,5 @@ on conflict(staff_id,month_cycle) do nothing;
 revoke insert,update,delete on table public.staff_evaluation_incentive_multipliers
   from public,anon,authenticated;
 
-comment on function public.save_staff_monthly_evaluation_v2(uuid,jsonb)
+comment on function public.save_staff_monthly_evaluation_v2(jsonb)
   is 'Canonical monthly evaluation command: evaluation save + first incentive multiplier are atomic; finalized payroll is immutable.';
