@@ -17,6 +17,10 @@ import {
   listLegacyPaidPayrollHistory,
   type LegacyPaidPayrollHistoryRow,
 } from '@/lib/payroll/payrollLegacyHistoryService';
+import {
+  listFinalizedPayrollSnapshots,
+  type FinalizedPayrollSnapshotHistoryRow,
+} from '@/lib/payroll/payrollFinalizedSnapshotService';
 import { fetchPayrollIncentiveTruth, type PayrollIncentiveTruth } from '@/lib/incentives/payrollIncentiveTruthService';
 import {
   fetchAttendancePayrollReadiness,
@@ -40,6 +44,7 @@ const mutedText = { color: 'var(--dawaa-theme-muted)' };
 const STATUS_OPTIONS = [
   { key: 'approved', label: 'معتمد تاريخيًا' },
   { key: 'paid', label: 'مدفوع' },
+  { key: 'finalized_v2', label: 'نهائي مجمد' },
 ];
 
 type StaffRow = { id: string; staffId: string; username: string; name: string; branch: string; role: string; active: boolean };
@@ -52,7 +57,12 @@ type CompensationProfileState = {
   overtimeHourRate: number;
   monthlyIncentiveBase: number;
 };
-type MonthlyRow = LegacyPaidPayrollHistoryRow;
+type MonthlyRow = LegacyPaidPayrollHistoryRow & {
+  history_source?: 'legacy_v13';
+};
+type FinalizedHistoryRow = FinalizedPayrollSnapshotHistoryRow & {
+  history_source: 'finalized_v2';
+};
 
 function num(v: unknown) {
   const n = Number(v ?? 0);
@@ -123,9 +133,10 @@ export default function PayrollManagement() {
     setLoading(true);
     try {
       const cycleLabel = payrollMonth.slice(0, 7);
-      const [canonicalProfile, legacyHistory, truth, readiness, canonicalComponents] = await Promise.all([
+      const [canonicalProfile, finalizedHistory, legacyHistory, truth, readiness, canonicalComponents] = await Promise.all([
         fetchCompensationProfile(person.staffId).catch(() => null),
-        listLegacyPaidPayrollHistory(person.username, 12).catch(() => []),
+        person.staffId ? listFinalizedPayrollSnapshots(person.staffId, 24).catch(() => []) : Promise.resolve([]),
+        listLegacyPaidPayrollHistory(person.username, 24).catch(() => []),
         person.staffId ? fetchPayrollIncentiveTruth(person.staffId, cycleLabel).catch(() => []) : Promise.resolve([]),
         person.staffId ? fetchAttendancePayrollReadiness(person.staffId, cycleLabel).catch(() => null) : Promise.resolve(null),
         person.staffId ? fetchPayrollComponents(person.staffId, cycleLabel).catch(() => null) : Promise.resolve(null),
@@ -144,7 +155,32 @@ export default function PayrollManagement() {
         overtimeHourRate: num(canonicalProfile.overtime_hour_rate),
         monthlyIncentiveBase: num(canonicalProfile.monthly_incentive_base),
       } : emptyProfile());
-      setHistory((legacyHistory as MonthlyRow[]).filter(Boolean));
+      const finalizedRows = (finalizedHistory as FinalizedHistoryRow[]).map((row) => ({
+        ...row,
+        history_source: 'finalized_v2' as const,
+      }));
+      const finalizedCycles = new Set(finalizedRows.map((row) => row.month_cycle.slice(0, 7)));
+      const legacyRows = (legacyHistory as MonthlyRow[])
+        .filter(Boolean)
+        .filter((row) => !finalizedCycles.has(String(row.payroll_month || '').slice(0, 7)))
+        .map((row) => ({ ...row, history_source: 'legacy_v13' as const }));
+
+      setHistory([
+        ...finalizedRows.map((row) => ({
+          id: row.id,
+          staff_username: row.staff_username,
+          payroll_month: row.month_cycle,
+          deductions_total: 0,
+          net_salary: null,
+          status: 'finalized_v2',
+          approved_by_name: row.finalized_by_name,
+          freeze_version: 2,
+          history_source: 'finalized_v2' as const,
+          snapshot_fingerprint: row.snapshot_fingerprint,
+          finalized_at: row.finalized_at,
+        } as MonthlyRow & { snapshot_fingerprint?: string; finalized_at?: string })),
+        ...legacyRows,
+      ].sort((a, b) => String(b.payroll_month).localeCompare(String(a.payroll_month))));
       setAutomatedTruth((truth || []).filter(Boolean)[0] || null);
       setAttendanceReadiness(readiness);
       setComponents(canonicalComponents);
@@ -196,7 +232,7 @@ export default function PayrollManagement() {
 
   async function decideChange(id:string,approve:boolean){if(!selected)return;setSaving(true);try{await decideCompensationChange(id,approve,'');setCompensationChanges(await listCompensationChanges(selected.staffId));await loadPerson(selected,month);toast.success(approve?'تم اعتماد التعديل وتطبيقه':'تم رفض الطلب')}catch(e){toast.error(e instanceof Error?e.message:'تعذر اتخاذ القرار')}finally{setSaving(false)}}
 
-  async function exportPaidStatement(payrollMonth:string){if(!selected?.staffId)return;setExportingStatement(true);try{const {pdf,fileName}=await buildPaidStatementPdf(selected.staffId,payrollMonth.slice(0,7));pdf.save(fileName)}catch(e){toast.error(e instanceof Error?e.message:'تعذر إصدار كشف الراتب المدفوع')}finally{setExportingStatement(false)}}
+  async function exportFinalStatement(payrollMonth:string){if(!selected?.staffId)return;setExportingStatement(true);try{const {pdf,fileName}=await buildPaidStatementPdf(selected.staffId,payrollMonth.slice(0,7));pdf.save(fileName)}catch(e){toast.error(e instanceof Error?e.message:'تعذر إصدار كشف الراتب النهائي')}finally{setExportingStatement(false)}}
 
   const filteredStaff = staff.filter((s) => !search.trim() || s.name.includes(search.trim()) || s.username.includes(search.trim()));
   return (
@@ -338,7 +374,7 @@ export default function PayrollManagement() {
             {history.length ? <div className={workspaceTab === 'history' ? 'rounded-3xl border p-5' : 'hidden'} style={surface}>
               <div className="flex items-center gap-2 font-black text-teal-200"><ClipboardList size={18} /> آخر الدورات</div>
               <p className="mt-2 text-xs" style={mutedText}>يمكن تنزيل كشف PDF فقط لدورة مدفوعة ولها نسخة اعتماد مالية كاملة. المراجعة والـStaging لا يصدران ككشف نهائي.</p>
-              <div className="mt-3 space-y-2">{history.map((h) => <div key={h.payroll_month} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3 text-sm" style={surfaceSoft}><span className="font-black text-white">{h.payroll_month?.slice(0, 7)}</span><span className="flex items-center gap-1 text-emerald-300"><Trophy size={13} /> {formatCurrency(num(h.net_salary))}</span><span className="flex items-center gap-1 text-rose-300"><TrendingDown size={13} /> {formatCurrency(num(h.deductions_total))}</span><span className="rounded-full px-3 py-1 text-xs font-black text-teal-200" style={surface}>{STATUS_OPTIONS.find((s) => s.key === h.status)?.label || h.status}</span>{h.status==='paid'&&<button className="btn-secondary" disabled={exportingStatement} onClick={()=>void exportPaidStatement(h.payroll_month)}>كشف PDF المدفوع</button>}</div>)}</div>
+              <div className="mt-3 space-y-2">{history.map((h: any) => <div key={`${h.history_source || 'legacy'}-${h.payroll_month}`} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3 text-sm" style={surfaceSoft}><span className="font-black text-white">{h.payroll_month?.slice(0, 7)}</span>{h.history_source === 'finalized_v2' ? <span className="text-[11px] font-bold text-emerald-300">Final Snapshot V2</span> : <><span className="flex items-center gap-1 text-emerald-300"><Trophy size={13} /> {formatCurrency(num(h.net_salary))}</span><span className="flex items-center gap-1 text-rose-300"><TrendingDown size={13} /> {formatCurrency(num(h.deductions_total))}</span></>}<span className="rounded-full px-3 py-1 text-xs font-black text-teal-200" style={surface}>{STATUS_OPTIONS.find((s) => s.key === h.status)?.label || h.status}</span>{(h.history_source === 'finalized_v2' || h.status === 'paid')&&<button className="btn-secondary" disabled={exportingStatement} onClick={()=>void exportFinalStatement(h.payroll_month)}>كشف PDF النهائي</button>}</div>)}</div>
             </div> : null}
           </div>
         )}

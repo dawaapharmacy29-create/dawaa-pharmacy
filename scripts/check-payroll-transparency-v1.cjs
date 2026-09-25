@@ -8,6 +8,7 @@ const page = fs.readFileSync(path.join(root, 'src/pages/PayrollManagement.tsx'),
 const financialService = fs.readFileSync(path.join(root, 'src/lib/payroll/payrollFinancialCompositionService.ts'), 'utf8');
 const kpiService = fs.readFileSync(path.join(root, 'src/lib/payroll/payrollKpiContextService.ts'), 'utf8');
 const statementService = fs.readFileSync(path.join(root, 'src/lib/payroll/payrollStatementService.ts'), 'utf8');
+const finalizedSnapshotService = fs.readFileSync(path.join(root, 'src/lib/payroll/payrollFinalizedSnapshotService.ts'), 'utf8');
 const statementPdf = fs.readFileSync(path.join(root, 'src/lib/payroll/employeePayrollStatementPdf.ts'), 'utf8');
 const statementMigration = fs.readFileSync(path.join(root, 'supabase/migrations/20260925155000_employee_payroll_statement_v1.sql'), 'utf8');
 const incentiveTruthService = fs.readFileSync(path.join(root, 'src/lib/incentives/payrollIncentiveTruthService.ts'), 'utf8');
@@ -31,6 +32,7 @@ assertContains(panel, 'كشف راتب الموظف — معاينة شفافة'
 assertContains(kpiService, 'employee_payroll_kpi_context_v1', 'payroll KPI context RPC');
 assertContains(panel, 'الأداء وKPIs', 'payroll KPI tab');
 assertContains(statementService, 'employee_payroll_statement_v1', 'single statement RPC');
+assertContains(finalizedSnapshotService, 'list_payroll_finalized_snapshots_v2', 'finalized payroll history reader');
 const readinessUi = fs.readFileSync(path.join(root, 'src/components/attendance/PayrollCycleReadinessOverview.tsx'), 'utf8');
 assertContains(readinessUi, 'خطة إغلاق الـBlockers', 'actionable payroll readiness plan');
 assertContains(readinessUi, 'row.blockers.slice', 'per-employee blocker reasons');
