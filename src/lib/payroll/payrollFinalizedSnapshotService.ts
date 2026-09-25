@@ -11,23 +11,17 @@ export type FinalizedPayrollSnapshotHistoryRow = {
   cycle_start: string;
   cycle_end: string;
   snapshot_fingerprint: string;
+  net_salary: number;
+  deductions_total: number;
   finalized_at: string;
   finalized_by_name: string | null;
-  payload?: {
-    financial_composition?: {
-      display_net_salary?: number | null;
-      preview_net_salary?: number | null;
-      adjustments?: { deductions_total?: number | null };
-    };
-    employee_statement?: Record<string, unknown>;
-  } | null;
 };
 
 export async function listFinalizedPayrollSnapshots(
   staffId: string,
   limit = 24
 ): Promise<FinalizedPayrollSnapshotHistoryRow[]> {
-  const { data, error } = await supabase.rpc('list_payroll_finalized_snapshots_v2', {
+  const { data, error } = await supabase.rpc('list_payroll_finalized_snapshot_history_v3', {
     p_staff_id: staffId,
     p_month_cycle: null,
     p_limit: Math.max(1, Math.min(limit, 60)),

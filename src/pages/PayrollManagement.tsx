@@ -173,11 +173,8 @@ export default function PayrollManagement() {
           id: row.id,
           staff_username: row.staff_username,
           payroll_month: row.month_cycle,
-          deductions_total: num(row.payload?.financial_composition?.adjustments?.deductions_total),
-          net_salary: num(
-            row.payload?.financial_composition?.display_net_salary
-              ?? row.payload?.financial_composition?.preview_net_salary
-          ),
+          deductions_total: num(row.deductions_total),
+          net_salary: num(row.net_salary),
           status: 'finalized_v2',
           approved_by_name: row.finalized_by_name,
           freeze_version: 2,

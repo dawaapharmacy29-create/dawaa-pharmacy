@@ -34,7 +34,11 @@ assertContains(panel, 'كشف راتب الموظف — معاينة شفافة'
 assertContains(kpiService, 'employee_payroll_kpi_context_v1', 'payroll KPI context RPC');
 assertContains(panel, 'الأداء وKPIs', 'payroll KPI tab');
 assertContains(statementService, 'employee_payroll_statement_v1', 'single statement RPC');
-assertContains(finalizedSnapshotService, 'list_payroll_finalized_snapshots_v2', 'finalized payroll history reader');
+assertContains(finalizedSnapshotService, 'list_payroll_finalized_snapshot_history_v3', 'lightweight finalized payroll history reader');
+if (finalizedSnapshotService.includes('list_payroll_finalized_snapshots_v2')) {
+  console.error('[payroll-transparency] history UI must not fetch full finalized snapshot payloads.');
+  process.exit(1);
+}
 const readinessUi = fs.readFileSync(path.join(root, 'src/components/attendance/PayrollCycleReadinessOverview.tsx'), 'utf8');
 assertContains(readinessUi, 'خطة إغلاق الـBlockers', 'actionable payroll readiness plan');
 assertContains(readinessUi, 'row.blockers.slice', 'per-employee blocker reasons');
