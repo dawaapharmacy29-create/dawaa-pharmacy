@@ -175,11 +175,11 @@ export async function readCustomerInvoices(
     }
   }
 
-  const rows = [...rowsByKey.entries()]
+  const rows: CustomerInvoiceReadRow[] = [...rowsByKey.entries()]
     .map(([key, row]) => ({
-      ...row,
+      ...(row as CustomerInvoiceReadRow),
       __matched_identity_strategies: [...(strategiesByKey.get(key) || new Set<CustomerInvoiceMatch>())],
-    }))
+    }) as CustomerInvoiceReadRow)
     .sort((a, b) =>
       customerIdentityText(b.invoice_date || b.sale_date).localeCompare(
         customerIdentityText(a.invoice_date || a.sale_date)
