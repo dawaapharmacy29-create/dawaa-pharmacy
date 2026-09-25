@@ -336,9 +336,12 @@ function extractInvoiceHints(session: WhatsAppConversationSession) {
   return { invoiceNumbers, money };
 }
 
-function invoiceCandidate(row: CustomerInvoiceReadRow, session: WhatsAppConversationSession, lookup: InvoiceLookup, identityStrategies: string[]): InvoiceCandidate {
+function invoiceCandidate(row: CustomerInvoiceReadRow, session: WhatsAppConversationSession, lookup: InvoiceLookup, fallbackIdentityStrategies: string[]): InvoiceCandidate {
   const reasons: string[] = [];
   let score = 0;
+  const rowIdentityStrategies = Array.isArray(row.__matched_identity_strategies)
+    ? row.__matched_identity_strategies.map(String)
+    : fallbackIdentityStrategies;
   const date = rowDate(row);
   const branch = rowBranch(row);
   const number = rowInvoiceNumber(row);
@@ -350,17 +353,25 @@ function invoiceCandidate(row: CustomerInvoiceReadRow, session: WhatsAppConversa
     if (deltaDays >= -0.25 && deltaDays <= 1.5) { score += 42; reasons.push('الفاتورة في نفس يوم/قرب وقت المحادثة'); }
     else if (deltaDays > 1.5 && deltaDays <= 3) { score += 25; reasons.push('الفاتورة خلال 3 أيام'); }
     else if (Math.abs(deltaDays) <= 7) { score += 8; reasons.push('الفاتورة خلال أسبوع'); }
-    else score -= 20;
+    else { score -= 60; reasons.push('الفاتورة خارج نافذة 7 أيام'); }
   }
   if (lookup.branch && branch && normalizeBranch(lookup.branch) === normalizeBranch(branch)) { score += 18; reasons.push('نفس الفرع'); }
   else if (lookup.branch && branch) { score -= 12; reasons.push('الفرع مختلف'); }
   if (number && hints.invoiceNumbers.includes(number)) { score += 40; reasons.push('رقم الفاتورة مذكور بالشات'); }
   if (amount != null && hints.money.some((x) => Math.abs(x - amount) <= Math.max(2, amount * .01))) { score += 18; reasons.push('القيمة قريبة من مبلغ مذكور بالشات'); }
-  if (identityStrategies.includes('code')) { score += 24; reasons.push('تطابق كود العميل'); }
-  if (identityStrategies.includes('customer_id')) { score += 24; reasons.push('تطابق معرف العميل'); }
-  if (identityStrategies.includes('phone')) { score += 22; reasons.push('تطابق الهاتف'); }
-  if (identityStrategies.includes('phone_tail')) { score += 14; reasons.push('تطابق آخر أرقام الهاتف'); }
-  if (identityStrategies.includes('name')) { score += 6; reasons.push('تطابق الاسم فقط'); }
+  const identityScore = rowIdentityStrategies.includes('customer_id') || rowIdentityStrategies.includes('code')
+    ? 24
+    : rowIdentityStrategies.includes('phone')
+      ? 22
+      : rowIdentityStrategies.includes('phone_tail')
+        ? 14
+        : rowIdentityStrategies.includes('name')
+          ? 6
+          : 0;
+  if (identityScore > 0) {
+    score += identityScore;
+    reasons.push(`هوية العميل: ${rowIdentityStrategies.join('+')}`);
+  }
   return {
     invoiceId: String(row.id || '').trim() || null,
     invoiceNumber: number,
@@ -373,7 +384,7 @@ function invoiceCandidate(row: CustomerInvoiceReadRow, session: WhatsAppConversa
     score,
     confidence: Math.max(0, Math.min(.99, score / 110)),
     reasons,
-    matchedIdentityStrategies: identityStrategies,
+    matchedIdentityStrategies: rowIdentityStrategies,
   };
 }
 
@@ -389,6 +400,24 @@ export async function verifySessionAgainstInvoices(session: WhatsAppConversation
   const candidates = result.rows.map((row) => invoiceCandidate(row, session, lookup, result.matchedStrategies)).filter((x) => x.score > 0).sort((a, b) => b.score - a.score).slice(0, 8);
   const best = candidates[0] || null;
   if (!best) return { status: 'not_found', bestCandidate: null, candidates, verificationConfidence: .75, revenue: null, reason: 'لم توجد فاتورة مرتبطة بقوة كافية.', warnings: result.warnings };
+  const runnerUp = candidates.find((candidate) => candidate.invoiceId !== best.invoiceId) || null;
+  const explicitInvoiceHint = best.reasons.includes('رقم الفاتورة مذكور بالشات');
+  const ambiguousTop = Boolean(
+    runnerUp &&
+    !explicitInvoiceHint &&
+    Math.abs(best.score - runnerUp.score) <= 8
+  );
+  if (ambiguousTop) {
+    return {
+      status: 'needs_review',
+      bestCandidate: best,
+      candidates,
+      verificationConfidence: Math.min(best.confidence, .6),
+      revenue: best.amount,
+      reason: 'يوجد أكثر من فاتورة قريبة جدًا في قوة التطابق؛ يلزم اختيار بشري قبل الاعتماد.',
+      warnings: [...result.warnings, 'ambiguous_top_invoice_candidates'],
+    };
+  }
   if (best.confidence >= .82) return { status: 'verified', bestCandidate: best, candidates, verificationConfidence: best.confidence, revenue: best.amount, reason: 'تطابق قوي بين هوية العميل وتوقيت/سياق المحادثة والفاتورة.', warnings: result.warnings };
   if (best.confidence >= .62) return { status: 'probable', bestCandidate: best, candidates, verificationConfidence: best.confidence, revenue: best.amount, reason: 'تطابق مرجح يحتاج مراجعة بشرية.', warnings: result.warnings };
   return { status: 'needs_review', bestCandidate: best, candidates, verificationConfidence: best.confidence, revenue: best.amount, reason: 'يوجد مرشح فاتورة لكن قوة التطابق غير كافية.', warnings: result.warnings };
