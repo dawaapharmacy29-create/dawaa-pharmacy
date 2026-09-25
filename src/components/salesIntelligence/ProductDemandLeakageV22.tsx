@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { BarChart3, Boxes, CircleAlert, RefreshCw, TrendingUp } from 'lucide-react';
+import { BarChart3, Boxes, CircleAlert, RefreshCw, Settings2, TrendingUp } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { runProductDemandBackfillV22, type ProductDemandBackfillSourceResultV22 } from '@/lib/whatsappProductDemandBackfillV22';
 
@@ -119,6 +119,7 @@ export default function ProductDemandLeakageV22() {
   const [details, setDetails] = useState<DetailRow[]>([]);
   const [detailsTitle, setDetailsTitle] = useState<string | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
+  const [showOperations, setShowOperations] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -264,12 +265,9 @@ export default function ProductDemandLeakageV22() {
           {selectedCycle ? <div className="dawaa-muted mt-1 text-[11px]">الدورة: {selectedCycle} → {cycleDemand[0]?.cycle_end || cycleLeakage[0]?.cycle_end || '—'}</div> : null}
         </div>
         <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={() => void previewBackfill()} disabled={backfillRunning} className="dawaa-button dawaa-button--ghost text-xs">
-            معاينة إعادة تحليل ٢٠ محادثة
-          </button>
-          <button type="button" onClick={() => void executeBackfill()} disabled={backfillRunning || !previewSourceIds.length || previewHasFailures} className="dawaa-button dawaa-button--secondary text-xs">
-            {backfillRunning ? <RefreshCw size={14} className="animate-spin" /> : null}
-            تنفيذ نفس الدفعة المعاينة
+          <button type="button" onClick={() => setShowOperations((value) => !value)} className="dawaa-button dawaa-button--ghost text-xs">
+            <Settings2 size={14} />
+            {showOperations ? 'إخفاء أدوات التشغيل' : 'إدارة إعادة التحليل'}
           </button>
           <button type="button" onClick={() => void load()} disabled={loading} className="dawaa-button dawaa-button--secondary text-xs">
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> تحديث
@@ -278,9 +276,42 @@ export default function ProductDemandLeakageV22() {
       </div>
 
       {error ? <div className="dawaa-alert dawaa-alert--danger mt-3 text-xs">{error}</div> : null}
-      {backfillMessage ? <div className="dawaa-alert dawaa-alert--info mt-3 text-xs">{backfillMessage}</div> : null}
+      {showOperations ? (
+        <div className="mt-3 rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="font-black text-sm">أدوات تشغيل وإعادة تحليل البيانات</div>
+              <div className="dawaa-muted mt-1 text-[11px]">منطقة تشغيلية منفصلة عن مؤشرات الإدارة. المعاينة إلزامية قبل أي تنفيذ.</div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={() => void previewBackfill()} disabled={backfillRunning} className="dawaa-button dawaa-button--ghost text-xs">
+                معاينة ٢٠ محادثة
+              </button>
+              <button type="button" onClick={() => void executeBackfill()} disabled={backfillRunning || !previewSourceIds.length || previewHasFailures} className="dawaa-button dawaa-button--secondary text-xs">
+                {backfillRunning ? <RefreshCw size={14} className="animate-spin" /> : null}
+                تنفيذ الدفعة المعاينة
+              </button>
+            </div>
+          </div>
+          {backfillMessage ? <div className="dawaa-alert dawaa-alert--info mt-3 text-xs">{backfillMessage}</div> : null}
+          {backfillStatus ? (
+            <div className="mt-3 rounded-xl border border-[var(--dawaa-theme-border)] p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                <div className="font-black">تقدم إعادة تحليل المحادثات التاريخية</div>
+                <div className="dawaa-badge dawaa-badge--info">{Number(backfillStatus.completion_percent || 0).toLocaleString('ar-EG')}٪</div>
+              </div>
+              <div className="mt-2 h-2 overflow-hidden rounded-full bg-black/10">
+                <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.max(0, Math.min(100, Number(backfillStatus.completion_percent || 0)))}%` }} />
+              </div>
+              <div className="dawaa-muted mt-2 text-[11px]">
+                قابل للتحليل: {Number(backfillStatus.analyzable_sources || 0).toLocaleString('ar-EG')} • تم V22.1: {Number(backfillStatus.analyzed_v22 || 0).toLocaleString('ar-EG')} • متبقي: {Number(backfillStatus.remaining_sources || 0).toLocaleString('ar-EG')}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
-      {previewRows.length ? (
+      {showOperations && previewRows.length ? (
         <div className="mt-3 rounded-2xl border border-[var(--dawaa-theme-border)] p-4">
           <div className="font-black text-sm">مراجعة الدفعة قبل التنفيذ</div>
           <div className="dawaa-muted mt-1 text-xs">لن يتم تنفيذ غير هذه المحادثات نفسها. راجع الأصناف المحسومة والعبارات غير المحسومة قبل الضغط على التنفيذ.</div>
@@ -328,21 +359,6 @@ export default function ProductDemandLeakageV22() {
           </button>
         ))}
       </div>
-
-      {backfillStatus ? (
-        <div className="mt-4 rounded-2xl border border-[var(--dawaa-theme-border)] p-4">
-          <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-            <div className="font-black">تقدم إعادة تحليل المحادثات التاريخية</div>
-            <div className="dawaa-badge dawaa-badge--info">{Number(backfillStatus.completion_percent || 0).toLocaleString('ar-EG')}٪</div>
-          </div>
-          <div className="mt-2 h-2 overflow-hidden rounded-full bg-black/10">
-            <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.max(0, Math.min(100, Number(backfillStatus.completion_percent || 0)))}%` }} />
-          </div>
-          <div className="dawaa-muted mt-2 text-[11px]">
-            قابل للتحليل: {Number(backfillStatus.analyzable_sources || 0).toLocaleString('ar-EG')} • تم V22.1: {Number(backfillStatus.analyzed_v22 || 0).toLocaleString('ar-EG')} • متبقي: {Number(backfillStatus.remaining_sources || 0).toLocaleString('ar-EG')}
-          </div>
-        </div>
-      ) : null}
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-2xl border border-[var(--dawaa-theme-border)] p-3">
