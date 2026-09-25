@@ -339,6 +339,26 @@ export default function PayrollManagement() {
 
             <div className={workspaceTab === 'overview' ? 'space-y-4' : 'hidden'}>
               <PayrollAttendanceSafetyGate staffId={selected.staffId} monthCycle={month.slice(0, 7)} />
+              <div className="rounded-3xl border p-4" style={surface}>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2 text-sm font-black text-teal-200"><ShieldCheck size={16} /> جاهزية البصمة للرواتب</div>
+                    <div className="mt-1 text-[10px]" style={mutedText}>قراءة تشخيصية من سجل البصمة؛ لا تُعدّل الراتب أو ساعات الأساسي تلقائيًا.</div>
+                  </div>
+                  <span className={`rounded-full border px-3 py-1 text-[10px] font-black ${attendanceReadiness?.readyForPayroll ? 'border-emerald-400/30 text-emerald-300' : 'border-amber-400/30 text-amber-200'}`}>
+                    {attendanceReadiness?.readyForPayroll ? 'جاهزة للمراجعة' : attendanceReadiness ? 'تحتاج مراجعة' : 'لا توجد بيانات'}
+                  </span>
+                </div>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4 text-xs">
+                  <div className="rounded-xl border p-3" style={surfaceSoft}><div style={mutedText}>ساعات البصمة المرشحة</div><div className="mt-1 text-lg font-black text-white">{num(attendanceReadiness?.candidateWorkedHours).toLocaleString('ar-EG')} ساعة</div></div>
+                  <div className="rounded-xl border p-3" style={surfaceSoft}><div style={mutedText}>البصمات المقبولة</div><div className="mt-1 text-lg font-black text-white">{num(attendanceReadiness?.acceptedPunches).toLocaleString('ar-EG')}</div></div>
+                  <div className="rounded-xl border p-3" style={surfaceSoft}><div style={mutedText}>تحتاج مراجعة</div><div className="mt-1 text-lg font-black text-white">{num(attendanceReadiness?.manualReviewPunches).toLocaleString('ar-EG')}</div></div>
+                  <div className="rounded-xl border p-3" style={surfaceSoft}><div style={mutedText}>شيفتات مزدوجة صحيحة</div><div className="mt-1 text-lg font-black text-white">{num(attendanceReadiness?.pairedShifts).toLocaleString('ar-EG')}</div></div>
+                </div>
+                <div className="mt-3 rounded-xl border border-amber-400/20 bg-amber-400/5 p-3 text-[10px] font-bold text-amber-100">
+                  ساعات البصمة للعرض والمراجعة فقط؛ لا تضرب في قيمة الساعة الشهرية ولا تُنسخ تلقائيًا إلى الأساسي. حساب الأساسي يظل من Compensation Profile وPayroll Engine المعتمد.
+                </div>
+              </div>
               <PayrollTransparencyPanel staffId={selected.staffId} monthCycle={month.slice(0, 7)} />
             </div>
             <div className={workspaceTab === 'compensation' ? 'rounded-3xl border p-5' : 'hidden'} style={surface}>
