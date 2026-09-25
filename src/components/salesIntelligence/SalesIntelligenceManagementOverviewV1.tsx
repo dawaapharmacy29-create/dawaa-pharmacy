@@ -7,7 +7,6 @@ import {
   FileCheck2,
   MessageSquareMore,
   Minus,
-  PackageCheck,
   ReceiptText,
   ShieldCheck,
   Sparkles,

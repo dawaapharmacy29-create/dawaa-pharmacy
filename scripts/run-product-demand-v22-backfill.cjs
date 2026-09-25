@@ -81,13 +81,15 @@ const { runProductDemandBackfillV22 } = require(
   console.log(`Product Demand V22.1 backfill: ${apply ? 'APPLY' : 'DRY RUN'}`);
 
   const result = await runProductDemandBackfillV22({
-    limit: 100,
+    limit: 500,
     dryRun: !apply,
   });
 
   const summary = {
     mode: result.dryRun ? 'dry-run' : 'apply',
     version: result.version,
+    eligibleSources: result.eligibleSources,
+    truncated: result.truncated,
     scanned: result.scanned,
     ready: result.ready,
     written: result.written,
@@ -107,6 +109,10 @@ const { runProductDemandBackfillV22 } = require(
   if (jsonOutput) console.log(JSON.stringify(summary, null, 2));
   else console.log(summary);
 
+  if (result.truncated) {
+    console.error('Backfill scope exceeded the maintenance runner limit; refusing to treat this run as complete.');
+    process.exitCode = 1;
+  }
   if (result.failed > 0) process.exitCode = 1;
 })().catch((error) => {
   console.error(error instanceof Error ? error.stack || error.message : String(error));

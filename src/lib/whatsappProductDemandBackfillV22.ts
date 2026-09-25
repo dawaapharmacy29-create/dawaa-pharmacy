@@ -37,6 +37,8 @@ export interface ProductDemandBackfillSourceResultV22 {
 export interface ProductDemandBackfillResultV22 {
   version: 'product-demand-backfill-v22.1';
   dryRun: boolean;
+  eligibleSources: number;
+  truncated: boolean;
   scanned: number;
   ready: number;
   written: number;
@@ -102,8 +104,8 @@ function buildProductDemandSession(
   } satisfies WhatsAppConversationSession;
 }
 
-async function loadSources(options: ProductDemandBackfillOptionsV22): Promise<SourceRow[]> {
-  const limit = Math.max(1, Math.min(100, options.limit ?? 20));
+async function loadSources(options: ProductDemandBackfillOptionsV22): Promise<{ rows: SourceRow[]; eligibleSources: number; truncated: boolean }> {
+  const limit = Math.max(1, Math.min(500, options.limit ?? 20));
   const rows: SourceRow[] = [];
   const pageSize = 500;
   let from = 0;
@@ -137,7 +139,11 @@ async function loadSources(options: ProductDemandBackfillOptionsV22): Promise<So
     ? canonicalRows
     : canonicalRows.filter((row) => row.analysis_json?.productDemandVersion !== 'product-demand-v22.1');
 
-  return filtered.slice(0, limit);
+  return {
+    rows: filtered.slice(0, limit),
+    eligibleSources: filtered.length,
+    truncated: filtered.length > limit,
+  };
 }
 
 function backfillErrorMessage(error: unknown) {
@@ -155,7 +161,8 @@ export async function runProductDemandBackfillV22(
   options: ProductDemandBackfillOptionsV22 = {}
 ): Promise<ProductDemandBackfillResultV22> {
   const dryRun = options.dryRun !== false;
-  const sources = await loadSources(options);
+  const loaded = await loadSources(options);
+  const sources = loaded.rows;
   const rows: ProductDemandBackfillSourceResultV22[] = [];
 
   for (const source of sources) {
@@ -298,6 +305,8 @@ export async function runProductDemandBackfillV22(
   return {
     version: 'product-demand-backfill-v22.1',
     dryRun,
+    eligibleSources: loaded.eligibleSources,
+    truncated: loaded.truncated,
     scanned: rows.length,
     ready: rows.filter((row) => row.status === 'ready').length,
     written: rows.filter((row) => row.status === 'written').length,
