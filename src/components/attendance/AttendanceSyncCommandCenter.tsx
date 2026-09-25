@@ -277,8 +277,8 @@ export default function AttendanceSyncCommandCenter({ branches, defaultBranch = 
         getAttendanceBiometricOperations(),
         getAttendanceSyncHealth(cycleStartFor(today), today),
       ]);
-      setHealth((operationsResult || {}) as OperationsHealth);
-      setSyncHealthV4((syncHealthResult || {}) as SyncHealthV4);
+      setHealth((operationsResult || {}) as unknown as OperationsHealth);
+      setSyncHealthV4((syncHealthResult || {}) as unknown as SyncHealthV4);
     } catch (e) { setError(e instanceof Error ? e.message : 'تعذر تحميل حالة البصمة'); }
     finally { setLoading(false); }
   }, [today]);
@@ -287,7 +287,7 @@ export default function AttendanceSyncCommandCenter({ branches, defaultBranch = 
     setIntelLoading(true);
     try {
       const data = await getAttendanceDailyIntelligence(intelDate, branch === 'الكل' ? null : branch);
-      setIntel((data || []) as DailyIntelRow[]);
+      setIntel((data || []) as unknown as DailyIntelRow[]);
     } catch (e) { setError(e instanceof Error ? e.message : 'تعذر تحميل التحليل الذكي للبصمات'); }
     finally { setIntelLoading(false); }
   }, [branch, intelDate]);
@@ -304,7 +304,7 @@ export default function AttendanceSyncCommandCenter({ branches, defaultBranch = 
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
       });
-      setEvents((data || []) as BiometricEvent[]);
+      setEvents((data || []) as unknown as BiometricEvent[]);
     } catch (e) { setError(e instanceof Error ? e.message : 'تعذر تحميل سجل البصمات الخام'); }
     finally { setEventsLoading(false); }
   }, [branch, eventEnd, eventStart, mapping, page, search]);

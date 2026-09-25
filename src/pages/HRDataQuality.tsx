@@ -188,8 +188,10 @@ export default function HRDataQuality() {
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <QualityCard
             title="Legacy API exposure"
-            value={architectureAvailable && architecture ? architecture.legacy_api_exposure : 'غير متاح'}
-            description="يجب أن يكون صفرًا؛ أي قيمة تعني أن مسارًا قديمًا ما زال متاحًا للتطبيق."
+            value={architectureAvailable && architecture
+              ? architecture.legacy_api_exposure + architecture.employee_ledger_direct_write_exposure
+              : 'غير متاح'}
+            description="Legacy API + أي صلاحية كتابة مباشرة على Employee Ledger. المطلوب صفر."
             href="/hr-data-quality"
             icon={ShieldCheck}
             healthy={!!architecture && architecture.legacy_api_exposure === 0}
@@ -200,8 +202,9 @@ export default function HRDataQuality() {
               ? architecture.integrity.approved_stale_overtime
                 + architecture.integrity.approved_timeoff_truth_mismatch
                 + architecture.integrity.duplicate_active_points_events
+                + architecture.integrity.sent_evaluations_missing_multiplier
               : 'غير متاح'}
-            description="Stale OT + تعارض إجازة/Attendance Truth + تكرار أحداث النقاط."
+            description="Stale OT + تعارض الإجازة + تكرار النقاط + تقييم مرسل بدون multiplier مالي."
             href="/staff-payroll"
             icon={WalletCards}
             healthy={!!architecture

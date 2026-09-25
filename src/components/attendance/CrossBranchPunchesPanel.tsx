@@ -82,7 +82,7 @@ export default function CrossBranchPunchesPanel({
         branch: branch === 'الكل' ? null : branch,
         limit: 1000,
       });
-      setRows((data || []) as CrossBranchPunch[]);
+      setRows((data || []) as unknown as CrossBranchPunch[]);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'تعذر تحميل البصمات بين الفروع');
     } finally {

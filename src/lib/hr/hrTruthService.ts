@@ -74,6 +74,7 @@ export type HRCanonicalArchitectureHealthV1 = {
   cycle_start: string;
   cycle_end: string;
   legacy_api_exposure: number;
+  employee_ledger_direct_write_exposure: number;
   attendance_points_cron: {
     v1_jobs: number;
     v2_jobs: number;
@@ -86,6 +87,7 @@ export type HRCanonicalArchitectureHealthV1 = {
     transactions_missing_cycle: number;
     transactions_missing_source: number;
     transactions_missing_points: number;
+    sent_evaluations_missing_multiplier: number;
   };
   compensation_configuration: {
     scope_staff_count: number;

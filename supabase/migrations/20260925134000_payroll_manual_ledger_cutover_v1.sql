@@ -92,6 +92,15 @@ begin
     raise exception 'not_authorized_for_payroll_manual_entry' using errcode='42501';
   end if;
 
+  select * into v_actor
+  from public.staff_accounts sa
+  where sa.id=public.dawaa_current_staff_account_id_strict()
+    and coalesce(sa.active,false)=true
+    and coalesce(sa.can_login,false)=true;
+  if not found or not public.dawaa_current_actor_can(array['manage_payroll']) then
+    raise exception 'not_authorized_for_payroll_manual_entry_list' using errcode='42501';
+  end if;
+
   select sa.username into v_username
   from public.staff_accounts sa
   where sa.staff_id=p_staff_id::text
@@ -208,6 +217,7 @@ security definer
 set search_path to 'public','pg_catalog'
 as $function$
 declare
+  v_actor public.staff_accounts%rowtype;
   v_username text;
 begin
   if p_staff_id is null or coalesce(trim(p_month_cycle),'') !~ '^\d{4}-(0[1-9]|1[0-2])$' then
