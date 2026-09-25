@@ -282,4 +282,4 @@ if (!/\.rpc\(\s*['"]review_point_appeal_v1['"]/.test(appealPage)) {
   process.exit(1);
 }
 
-console.log('[employee-transaction-write-boundary] PASS: canonical V4 write/overlap and V4 lifecycle commands are fail-closed; direct ledger/snapshot writers match the exact transitional baselines.');
+console.log('[employee-transaction-write-boundary] PASS: canonical V4 write/overlap and V4 lifecycle commands are fail-closed; application direct employee ledger writers are zero.');

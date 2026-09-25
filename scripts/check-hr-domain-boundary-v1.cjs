@@ -131,6 +131,13 @@ for (const required of [
 ]) {
   if (!manualService.includes(required)) fail('manual ledger service missing ' + required);
 }
+const manualLedgerMigration = read(path.join(root, 'supabase/migrations/20260925134000_payroll_manual_ledger_cutover_v1.sql'));
+for (const required of [
+  'not_authorized_for_payroll_manual_entry_list',
+  'finalized_payroll_cycle_is_immutable',
+]) {
+  if (!manualLedgerMigration.includes(required)) fail('manual ledger migration missing protection ' + required);
+}
 
 const monthlyEvaluationPage = read(path.join(srcRoot, 'pages/StaffMonthlyEvaluationGeneral.tsx'));
 if (!monthlyEvaluationPage.includes("save_staff_monthly_evaluation_v2")) {
