@@ -48,8 +48,8 @@
 //                           case out of `unknown` here, by construction, not by a runtime check.
 //
 // Absence of data is never a contradiction: a null/unknown branch, an unresolved identity, or
-// item/quantity evidence being unavailable (sales_invoice_items_v21 = 0 rows, unchanged since
-// I.C.0/I.C.1) all surface as `unknown`/`weakly_supported`/`itemEvidenceReady: false` — never as
+// item/quantity evidence being unavailable for a specific invoice all surface as
+// `unknown`/`weakly_supported`/`itemEvidenceReady: false` — never as
 // `contradicted`. Only an ACTIVELY DETECTED conflicting fact does that.
 import type {
   BasketInvoiceMatch,
@@ -94,7 +94,7 @@ export interface SaleProofAssessment {
   selectedInvoiceId: string | null;
   /** Display/logging only — mirrors attribution.selectedInvoiceNumber verbatim; NEVER unique on its own (I.C.0/I.C.1) — never used as an identity key. */
   selectedInvoiceNumber: string | null;
-  /** Mirrors basketInvoiceMatch.integrityEvaluationScope verbatim — never re-derived. 'header_only' today because sales_invoice_items_v21 = 0 rows (I.C.0/I.C.1). */
+  /** Mirrors basketInvoiceMatch.integrityEvaluationScope verbatim — never re-derived. It is item-aware only when imported invoice-line evidence exists for the selected invoice. */
   invoiceEvidenceScope: IntegrityEvaluationScope;
   /** Mirrors basketInvoiceMatch.itemEvidenceReady verbatim. Always false in Production today — never inferred from product text or the invoice total. */
   itemEvidenceReady: boolean;
