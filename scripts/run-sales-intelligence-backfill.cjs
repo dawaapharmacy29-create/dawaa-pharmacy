@@ -24,7 +24,14 @@ const apply = process.argv.includes('--apply');
 const allSources = process.argv.includes('--all-sources');
 const knownBranchOnly = process.argv.includes('--known-branch-only');
 const itemReadyOnly = process.argv.includes('--item-ready-only');
+const groundTruth = process.argv.includes('--ground-truth');
 const jsonOutput = process.argv.includes('--json');
+
+const GROUND_TRUTH = {
+  sourceId: 'f09471e8-64f4-45d1-859c-17ba97b19259',
+  caseId: 'f09471e8-64f4-45d1-859c-17ba97b19259:interaction:0:session:0',
+  expectedInvoiceNumber: '72368',
+};
 
 if (allSources && itemReadyOnly) {
   console.error('--all-sources and --item-ready-only are mutually exclusive.');
@@ -32,6 +39,14 @@ if (allSources && itemReadyOnly) {
 }
 if (knownBranchOnly && !allSources) {
   console.error('--known-branch-only is only valid together with --all-sources.');
+  process.exit(2);
+}
+if (groundTruth && apply) {
+  console.error('--ground-truth is a read-only regression gate and cannot be combined with --apply.');
+  process.exit(2);
+}
+if (groundTruth && (allSources || itemReadyOnly || knownBranchOnly)) {
+  console.error('--ground-truth uses its own fixed source scope and cannot be combined with other scope flags.');
   process.exit(2);
 }
 
@@ -199,7 +214,7 @@ async function fetchReviewSources(itemReadiness = null) {
     'reviewer_id',
   ].join(',');
 
-  if (allSources) {
+  if (allSources || groundTruth) {
     const rows = [];
     let from = 0;
     const pageSize = 500;
@@ -234,11 +249,13 @@ async function fetchReviewSources(itemReadiness = null) {
 function summarize(result, sourceCount, readinessBefore, readinessAfter = null) {
   const plan = result.plan;
   const outcomes = result.caseOutcomes || [];
-  const scope = allSources
-    ? (knownBranchOnly ? 'all-canonical-review-sources-with-known-branch' : 'all-review-sources')
-    : itemReadyOnly
-      ? 'existing-cases-whose-selected-invoice-now-has-item-evidence'
-      : 'existing-sales-intelligence-conversations';
+  const scope = groundTruth
+    ? 'truth-v2-ground-truth'
+    : allSources
+      ? (knownBranchOnly ? 'all-canonical-review-sources-with-known-branch' : 'all-review-sources')
+      : itemReadyOnly
+        ? 'existing-cases-whose-selected-invoice-now-has-item-evidence'
+        : 'existing-sales-intelligence-conversations';
   return {
     mode: result.dryRun ? 'dry-run' : 'apply',
     scope,
@@ -294,11 +311,13 @@ function summarize(result, sourceCount, readinessBefore, readinessAfter = null) 
   console.log(`Sales Intelligence backfill: ${apply ? 'APPLY' : 'DRY RUN'}`);
   console.log(
     `Scope: ${
-      allSources
-        ? (knownBranchOnly ? 'ALL whatsapp_review_sources WITH KNOWN BRANCH ONLY' : 'ALL whatsapp_review_sources')
-        : itemReadyOnly
-          ? 'existing cases whose currently selected invoice now has item evidence'
-          : 'existing Sales Intelligence conversations only'
+      groundTruth
+        ? 'TRUTH V2 GROUND TRUTH — real source/case regression'
+        : allSources
+          ? (knownBranchOnly ? 'ALL whatsapp_review_sources WITH KNOWN BRANCH ONLY' : 'ALL whatsapp_review_sources')
+          : itemReadyOnly
+            ? 'existing cases whose currently selected invoice now has item evidence'
+            : 'existing Sales Intelligence conversations only'
     }`
   );
 
@@ -313,9 +332,11 @@ function summarize(result, sourceCount, readinessBefore, readinessAfter = null) 
   const rows = await fetchReviewSources(readinessBefore);
   const canonicalIds = selectCanonicalReviewSourceIds(rows);
   const allCanonicalRows = rows.filter((row) => canonicalIds.has(row.id));
-  const canonicalRows = knownBranchOnly
-    ? allCanonicalRows.filter((row) => typeof row.branch === 'string' && row.branch.trim().length > 0)
-    : allCanonicalRows;
+  const canonicalRows = groundTruth
+    ? allCanonicalRows.filter((row) => String(row.id) === GROUND_TRUTH.sourceId)
+    : knownBranchOnly
+      ? allCanonicalRows.filter((row) => typeof row.branch === 'string' && row.branch.trim().length > 0)
+      : allCanonicalRows;
   const conversations = canonicalRows
     .filter((row) => typeof row.raw_text === 'string' && row.raw_text.trim().length > 0)
     .map(reviewSourceRowToBatchConversation);
@@ -330,12 +351,47 @@ function summarize(result, sourceCount, readinessBefore, readinessAfter = null) 
     return;
   }
 
+  let groundTruthBefore = null;
+  if (groundTruth) {
+    const { data } = await supabase
+      .from('sales_intelligence_current_attributions')
+      .select('case_id,selected_invoice_number,attribution_level,is_official_for_staff_evaluation')
+      .eq('case_id', GROUND_TRUTH.caseId)
+      .maybeSingle();
+    groundTruthBefore = data || null;
+  }
+
   const result = await runBatchPersistence(supabase, {
     conversations,
     dryRun: !apply,
   });
   const readinessAfter = apply ? await fetchItemEvidenceReadinessSnapshot() : null;
   const summary = summarize(result, conversations.length, readinessBefore, readinessAfter);
+
+  if (groundTruth) {
+    const target = result.caseAnalyses.find((row) => row.caseId === GROUND_TRUTH.caseId) || null;
+    const actualInvoiceNumber = target?.attribution?.selectedInvoiceNumber || null;
+    summary.groundTruth = {
+      sourceId: GROUND_TRUTH.sourceId,
+      caseId: GROUND_TRUTH.caseId,
+      before: groundTruthBefore,
+      expectedInvoiceNumber: GROUND_TRUTH.expectedInvoiceNumber,
+      proposedInvoiceNumber: actualInvoiceNumber,
+      proposedAttributionLevel: target?.attribution?.attributionLevel || null,
+      proposedHumanReviewReasons: target?.attribution?.humanReviewReasons || [],
+      passed: actualInvoiceNumber === GROUND_TRUTH.expectedInvoiceNumber,
+    };
+    if (!summary.groundTruth.passed) {
+      console.error(
+        `GROUND TRUTH REGRESSION FAILED: case ${GROUND_TRUTH.caseId} proposed ${actualInvoiceNumber || 'null'}, expected ${GROUND_TRUTH.expectedInvoiceNumber}`
+      );
+      process.exitCode = 1;
+    } else {
+      console.log(
+        `GROUND TRUTH REGRESSION PASSED: draft invoice 72367 is rejected; proposed final invoice ${GROUND_TRUTH.expectedInvoiceNumber}.`
+      );
+    }
+  }
 
   if (jsonOutput) {
     console.log(JSON.stringify(summary, null, 2));

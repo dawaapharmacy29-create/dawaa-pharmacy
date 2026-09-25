@@ -71,6 +71,10 @@ jobs:
             echo "::warning::SUPABASE_SERVICE_ROLE_KEY is not configured; database dry-runs are skipped."
           fi
 
+      - name: Sales Intelligence Truth V2 ground-truth regression
+        if: steps.service_role.outputs.available == 'true'
+        run: npm run sales-intelligence:v23:ground-truth:dry-run
+
       - name: Sales Intelligence known-branch all-source dry run
         if: steps.service_role.outputs.available == 'true'
         run: npm run sales-intelligence:backfill:all-known-branch:dry-run -- --json
