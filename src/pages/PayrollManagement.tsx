@@ -345,8 +345,8 @@ export default function PayrollManagement() {
                     <div className="flex items-center gap-2 text-sm font-black text-teal-200"><ShieldCheck size={16} /> جاهزية البصمة للرواتب</div>
                     <div className="mt-1 text-[10px]" style={mutedText}>قراءة تشخيصية من سجل البصمة؛ لا تُعدّل الراتب أو ساعات الأساسي تلقائيًا.</div>
                   </div>
-                  <span className={`rounded-full border px-3 py-1 text-[10px] font-black ${attendanceReadiness?.readyForPayroll ? 'border-emerald-400/30 text-emerald-300' : 'border-amber-400/30 text-amber-200'}`}>
-                    {attendanceReadiness?.readyForPayroll ? 'جاهزة للمراجعة' : attendanceReadiness ? 'تحتاج مراجعة' : 'لا توجد بيانات'}
+                  <span className={`rounded-full border px-3 py-1 text-[10px] font-black ${attendanceReadiness?.status === 'ready' ? 'border-emerald-400/30 text-emerald-300' : 'border-amber-400/30 text-amber-200'}`}>
+                    {attendanceReadiness?.status === 'ready' ? 'جاهزة للمراجعة' : attendanceReadiness ? 'تحتاج مراجعة' : 'لا توجد بيانات'}
                   </span>
                 </div>
                 <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4 text-xs">
