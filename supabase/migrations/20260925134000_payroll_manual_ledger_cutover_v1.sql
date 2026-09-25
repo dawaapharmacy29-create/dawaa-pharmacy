@@ -211,22 +211,7 @@ declare
   v_actor public.staff_accounts%rowtype;
   v_username text;
 begin
-  if p_staff_id is null or coalesce(trim(p_month_cycle),'') !~ '^\d{4}-(0[1-9]|1[0-2])  select sa.username into v_username
-  from public.staff_accounts sa
-  where sa.staff_id=p_staff_id::text
-  order by coalesce(sa.active,true) desc,sa.created_at desc nulls last
-  limit 1;
-  if v_username is null or not public.dawaa_can_manage_payroll_staff_v1(v_username) then
-    raise exception 'not_authorized_for_payroll_staff' using errcode='42501';
-  end if;
-  return query
-  select e.*
-  from public.staff_payroll_manual_entries_v1 e
-  where e.staff_id=p_staff_id and e.month_cycle=p_month_cycle
-  order by e.created_at desc,e.id desc
-  limit greatest(1,least(coalesce(p_limit,200),500));
-end;
- then
+  if p_staff_id is null or coalesce(trim(p_month_cycle),'') !~ '^\d{4}-(0[1-9]|1[0-2])$' then
     raise exception 'invalid_payroll_manual_entry_list_input' using errcode='22023';
   end if;
 
@@ -238,18 +223,22 @@ end;
   if not found or not public.dawaa_current_actor_can(array['manage_payroll']) then
     raise exception 'not_authorized_for_payroll_manual_entry_list' using errcode='42501';
   end if;
+
   select sa.username into v_username
   from public.staff_accounts sa
   where sa.staff_id=p_staff_id::text
   order by coalesce(sa.active,true) desc,sa.created_at desc nulls last
   limit 1;
+
   if v_username is null or not public.dawaa_can_manage_payroll_staff_v1(v_username) then
     raise exception 'not_authorized_for_payroll_staff' using errcode='42501';
   end if;
+
   return query
   select e.*
   from public.staff_payroll_manual_entries_v1 e
-  where e.staff_id=p_staff_id and e.month_cycle=p_month_cycle
+  where e.staff_id=p_staff_id
+    and e.month_cycle=p_month_cycle
   order by e.created_at desc,e.id desc
   limit greatest(1,least(coalesce(p_limit,200),500));
 end;
