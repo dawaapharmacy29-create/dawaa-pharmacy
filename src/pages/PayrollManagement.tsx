@@ -20,6 +20,7 @@ import {
 } from '@/lib/payroll/attendancePayrollReadinessService';
 import PayrollAttendanceSafetyGate from '@/components/attendance/PayrollAttendanceSafetyGate';
 import PayrollCycleReadinessOverview from '@/components/attendance/PayrollCycleReadinessOverview';
+import PayrollTransparencyPanel from '@/components/payroll/PayrollTransparencyPanel';
 import {
   fetchCompensationProfile,
   fetchPayrollComponents,
@@ -304,6 +305,7 @@ export default function PayrollManagement() {
         ) : (
           <div className="space-y-4">
             <PayrollAttendanceSafetyGate staffId={selected.staffId} monthCycle={month.slice(0, 7)} />
+            <PayrollTransparencyPanel staffId={selected.staffId} monthCycle={month.slice(0, 7)} />
             <div className="rounded-3xl border p-5" style={surface}>
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2 font-black text-teal-200"><WalletCards size={18} /> ملف التعويضات الموحد — {selected.name}</div>
