@@ -74,6 +74,7 @@ export default function SalesIntelligenceOpportunityCenterV1({
   const [unresolved, setUnresolved] = useState<UnresolvedRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [sourceEmpty, setSourceEmpty] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -112,6 +113,12 @@ export default function SalesIntelligenceOpportunityCenterV1({
 
       if (cancelled) return;
 
+      const failures = [
+        demandResult.error ? `الطلب: ${demandResult.error.message}` : null,
+        leakageResult.error ? `فقد البيع: ${leakageResult.error.message}` : null,
+        unresolvedResult.error ? `جودة الربط: ${unresolvedResult.error.message}` : null,
+      ].filter(Boolean) as string[];
+
       const demandRows = demandResult.error ? [] : ((demandResult.data || []) as DemandRow[]);
       const leakageRows = leakageResult.error ? [] : ((leakageResult.data || []) as LeakageRow[]);
       const unresolvedRows = unresolvedResult.error ? [] : ((unresolvedResult.data || []) as UnresolvedRow[]);
@@ -119,7 +126,8 @@ export default function SalesIntelligenceOpportunityCenterV1({
       setDemand(demandRows);
       setLeakage(leakageRows);
       setUnresolved(unresolvedRows);
-      setSourceEmpty(!demandRows.length && !leakageRows.length && !unresolvedRows.length);
+      setLoadError(failures.length ? failures.join(' • ') : null);
+      setSourceEmpty(!failures.length && !demandRows.length && !leakageRows.length && !unresolvedRows.length);
       setLoading(false);
     }
 
@@ -153,6 +161,16 @@ export default function SalesIntelligenceOpportunityCenterV1({
 
   if (loading) {
     return <section className="dawaa-card"><div className="dawaa-muted py-8 text-center text-sm">جاري تجهيز أولويات الفرص وفقد البيع...</div></section>;
+  }
+
+  if (loadError) {
+    return (
+      <section className="dawaa-card">
+        <div className="dawaa-alert dawaa-alert--warning text-xs leading-6">
+          تعذر تحميل جزء من Opportunity Center، لذلك لن تُعرض الأرقام الناقصة كأنها أصفار حقيقية: {loadError}
+        </div>
+      </section>
+    );
   }
 
   if (sourceEmpty) {

@@ -142,10 +142,17 @@ export default function SalesIntelligenceStaffPerformanceV1({
       ]);
       if (cancelled) return;
 
-      setStaffDirectory(staffResult.error ? [] : ((staffResult.data || []) as StaffDirectoryRow[]));
+      const partialErrors: string[] = [];
+
+      if (staffResult.error) {
+        partialErrors.push(`دليل الموظفين: ${staffResult.error.message}`);
+        setStaffDirectory([]);
+      } else {
+        setStaffDirectory((staffResult.data || []) as StaffDirectoryRow[]);
+      }
 
       if (truthResult.error) {
-        setError(truthResult.error.message);
+        partialErrors.push(`المبيعات الرسمية: ${truthResult.error.message}`);
         setTruthRows([]);
       } else {
         setTruthRows(
@@ -156,12 +163,14 @@ export default function SalesIntelligenceStaffPerformanceV1({
         );
       }
 
-      if (!opportunityResult.error) {
-        setOpportunities((opportunityResult.data || []) as OpportunityRow[]);
-      } else {
+      if (opportunityResult.error) {
+        partialErrors.push(`فرص Product Demand: ${opportunityResult.error.message}`);
         setOpportunities([]);
+      } else {
+        setOpportunities((opportunityResult.data || []) as OpportunityRow[]);
       }
 
+      setError(partialErrors.length ? partialErrors.join(' • ') : null);
       setLoading(false);
     }
 
