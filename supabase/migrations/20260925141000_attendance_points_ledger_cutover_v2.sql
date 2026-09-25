@@ -575,6 +575,12 @@ $function$;
 
 revoke execute on function public.dawaa_sync_attendance_points_deduction_v1(text) from public,anon,authenticated;
 revoke execute on function public.dawaa_sync_attendance_points_deduction_v2(text) from public,anon,authenticated;
+revoke execute on function public.attendance_deduction_pending_review_v1() from public,anon,authenticated;
+revoke execute on function public.attendance_deduction_review_decide_v1(uuid,text,text) from public,anon,authenticated;
+revoke execute on function public.attendance_deduction_adjust_v1(uuid,numeric,numeric,text) from public,anon,authenticated;
+grant execute on function public.attendance_deduction_pending_review_v1() to service_role;
+grant execute on function public.attendance_deduction_review_decide_v1(uuid,text,text) to service_role;
+grant execute on function public.attendance_deduction_adjust_v1(uuid,numeric,numeric,text) to service_role;
 
 do $block$
 declare

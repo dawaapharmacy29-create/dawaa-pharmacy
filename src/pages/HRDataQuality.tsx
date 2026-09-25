@@ -11,15 +11,20 @@ import {
   Users,
   WalletCards,
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { normalizeBranchName } from '@/lib/branch';
 import { canSeeAllBranches } from '@/lib/security/permissionScopes';
 import { canManageBiometricOperations } from '@/lib/core/permissionSystem';
 import {
+  getHRCanonicalArchitectureHealthV1,
   getHRTruthQualitySnapshotV2,
+  type HRCanonicalArchitectureHealthV1,
   type HRTruthQualitySnapshotV2,
 } from '@/lib/hr/hrTruthService';
+import {
+  getAttendanceBiometricOperations,
+  getAttendanceReviewTriage,
+} from '@/lib/attendance/attendanceOperationsService';
 
 function cairoToday() {
   return new Intl.DateTimeFormat('en-CA', {
@@ -89,6 +94,8 @@ export default function HRDataQuality() {
   const [opsAvailable, setOpsAvailable] = useState(false);
   const [truthAvailable, setTruthAvailable] = useState(false);
   const [truth, setTruth] = useState<HRTruthQualitySnapshotV2 | null>(null);
+  const [architecture, setArchitecture] = useState<HRCanonicalArchitectureHealthV1 | null>(null);
+  const [architectureAvailable, setArchitectureAvailable] = useState(false);
   const [stats, setStats] = useState({
     scheduleIssues: 0,
     systemInterpretation: 0,
@@ -102,22 +109,25 @@ export default function HRDataQuality() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [triageResult, opsResult, truthResult] = await Promise.allSettled([
-        supabase.rpc('attendance_review_triage_v1', { p_start: start, p_end: today, p_branch: branch }),
-        canManageBiometrics ? supabase.rpc('attendance_biometric_operations_v3') : Promise.resolve(null),
+      const [triageResult, opsResult, truthResult, architectureResult] = await Promise.allSettled([
+        getAttendanceReviewTriage(start, today, branch),
+        canManageBiometrics ? getAttendanceBiometricOperations() : Promise.resolve(null),
         getHRTruthQualitySnapshotV2({ date: today, branch }),
+        getHRCanonicalArchitectureHealthV1(),
       ]);
 
-      const triageOk = triageResult.status === 'fulfilled' && !triageResult.value.error && !!triageResult.value.data;
-      const opsOk = opsResult.status === 'fulfilled' && !!opsResult.value && !opsResult.value.error && !!opsResult.value.data;
+      const triageOk = triageResult.status === 'fulfilled' && !!triageResult.value;
+      const opsOk = opsResult.status === 'fulfilled' && !!opsResult.value;
       const truthOk = truthResult.status === 'fulfilled';
+      const architectureOk = architectureResult.status === 'fulfilled';
 
       setTriageAvailable(triageOk);
       setOpsAvailable(opsOk);
       setTruthAvailable(truthOk);
+      setArchitectureAvailable(architectureOk);
 
-      const triage = triageOk ? (triageResult.value.data as Record<string, unknown>) : {};
-      const ops = opsOk ? (opsResult.value.data as Record<string, any>) : {};
+      const triage = triageOk ? (triageResult.value as Record<string, unknown>) : {};
+      const ops = opsOk ? (opsResult.value as Record<string, any>) : {};
 
       setStats({
         scheduleIssues: Number(triage.schedule_issues || 0),
@@ -130,6 +140,7 @@ export default function HRDataQuality() {
       });
 
       setTruth(truthOk ? truthResult.value : null);
+      setArchitecture(architectureOk ? architectureResult.value : null);
     } finally {
       setLoading(false);
     }
@@ -166,6 +177,69 @@ export default function HRDataQuality() {
           بعض مصادر الجودة غير متاحة الآن. لا نعرض صفرًا وهميًا؛ المصدر غير المتاح يظل غير متاح حتى تتم مراجعته.
         </div>
       )}
+
+      <section>
+        <div className="mb-2">
+          <h2 className="text-lg font-black text-[var(--dawaa-theme-heading)]">صحة المعمارية Canonical</h2>
+          <p className="text-xs font-bold text-[var(--dawaa-theme-muted)]">
+            يراقب إن المسارات القديمة مقفولة وإن البصمة والحوافز والإجازات والرواتب ما زالت تعتمد نفس مصادر الحقيقة.
+          </p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <QualityCard
+            title="Legacy API exposure"
+            value={architectureAvailable && architecture ? architecture.legacy_api_exposure : 'غير متاح'}
+            description="يجب أن يكون صفرًا؛ أي قيمة تعني أن مسارًا قديمًا ما زال متاحًا للتطبيق."
+            href="/hr-data-quality"
+            icon={ShieldCheck}
+            healthy={!!architecture && architecture.legacy_api_exposure === 0}
+          />
+          <QualityCard
+            title="مشاكل سلامة مالية"
+            value={architectureAvailable && architecture
+              ? architecture.integrity.approved_stale_overtime
+                + architecture.integrity.approved_timeoff_truth_mismatch
+                + architecture.integrity.duplicate_active_points_events
+              : 'غير متاح'}
+            description="Stale OT + تعارض إجازة/Attendance Truth + تكرار أحداث النقاط."
+            href="/staff-payroll"
+            icon={WalletCards}
+            healthy={!!architecture
+              && architecture.integrity.approved_stale_overtime === 0
+              && architecture.integrity.approved_timeoff_truth_mismatch === 0
+              && architecture.integrity.duplicate_active_points_events === 0}
+          />
+          <QualityCard
+            title="إعدادات تعويض تحتاج مراجعة"
+            value={architectureAvailable && architecture ? architecture.compensation_configuration.priority_review_count : 'غير متاح'}
+            description="Profiles ناقصة ولها نشاط مالي/حوافز؛ لا تشمل الموظفين غير المهيئين بدون نشاط تلقائيًا."
+            href="/staff-payroll"
+            icon={WalletCards}
+            healthy={!!architecture && architecture.compensation_configuration.priority_review_count === 0}
+          />
+          <QualityCard
+            title="جاهزية Attendance V3"
+            value={architectureAvailable && architecture
+              ? `${architecture.attendance_v3_cutover.materialization_pct.toLocaleString('ar-EG')}%`
+              : 'غير متاح'}
+            description={architecture?.attendance_v3_cutover.ready_for_v3_cutover
+              ? 'جاهز لإزالة طبقة V2/V3 الانتقالية.'
+              : `Pending V3: ${architecture?.attendance_v3_cutover.v3_pending_days ?? 0} · لا يتم Cutover قبل اكتمال الشروط.`}
+            href="/attendance-report?tab=resolution"
+            icon={ShieldCheck}
+            healthy={!!architecture?.attendance_v3_cutover.ready_for_v3_cutover}
+          />
+        </div>
+        {architecture && (
+          <div className={`mt-3 rounded-2xl border p-3 text-xs font-black ${
+            architecture.status === 'healthy'
+              ? 'border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] text-[var(--dawaa-status-success-text)]'
+              : 'border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)]'
+          }`}>
+            Architecture status: {architecture.status === 'healthy' ? 'Healthy' : architecture.status === 'critical' ? 'Critical — يحتاج تدخل' : 'Warning — يوجد Cutover/إعداد لم يكتمل'}
+          </div>
+        )}
+      </section>
 
       <section>
         <div className="mb-2">

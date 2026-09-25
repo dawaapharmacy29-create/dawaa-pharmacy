@@ -134,3 +134,10 @@ export async function getAttendancePolicyV3CutoverReadiness(
   if (error) throw new Error(error.message);
   return data as AttendancePolicyV3CutoverReadiness;
 }
+
+
+export async function getAttendanceBiometricOperations(): Promise<Record<string, unknown>> {
+  const { data, error } = await supabase.rpc('attendance_biometric_operations_v3');
+  if (error) throw new Error(error.message);
+  return (data || {}) as Record<string, unknown>;
+}

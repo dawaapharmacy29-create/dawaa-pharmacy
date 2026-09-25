@@ -65,3 +65,48 @@ export async function getHREmployeeCore360V2(staffId: string, date?: string | nu
   if (error) throw new Error(error.message);
   return data as HREmployeeCore360V2;
 }
+
+
+export type HRCanonicalArchitectureHealthV1 = {
+  schema: 'hr_canonical_architecture_health_v1';
+  status: 'healthy' | 'warning' | 'critical';
+  month_cycle: string;
+  cycle_start: string;
+  cycle_end: string;
+  legacy_api_exposure: number;
+  attendance_points_cron: {
+    v1_jobs: number;
+    v2_jobs: number;
+    healthy: boolean;
+  };
+  integrity: {
+    approved_stale_overtime: number;
+    approved_timeoff_truth_mismatch: number;
+    duplicate_active_points_events: number;
+    transactions_missing_cycle: number;
+    transactions_missing_source: number;
+    transactions_missing_points: number;
+  };
+  compensation_configuration: {
+    scope_staff_count: number;
+    configured_staff_count: number;
+    unconfigured_staff_count: number;
+    priority_review_count: number;
+  };
+  attendance_v3_cutover: {
+    total_days: number;
+    effective_status_changes: number;
+    unresolved_policy_days: number;
+    v3_materialized_days: number;
+    v3_pending_days: number;
+    materialization_pct: number;
+    ready_for_v3_cutover: boolean;
+  };
+  generated_at: string;
+};
+
+export async function getHRCanonicalArchitectureHealthV1(): Promise<HRCanonicalArchitectureHealthV1> {
+  const { data, error } = await supabase.rpc('hr_canonical_architecture_health_v1');
+  if (error) throw new Error(error.message);
+  return data as HRCanonicalArchitectureHealthV1;
+}

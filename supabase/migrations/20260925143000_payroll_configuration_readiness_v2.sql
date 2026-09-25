@@ -176,5 +176,10 @@ as $function$
   select public.payroll_cycle_finalization_overview_v2(p_month_cycle,p_branch,p_limit);
 $function$;
 
+revoke execute on function public.payroll_cycle_finalization_overview_v1(text,text,integer)
+  from public,anon,authenticated;
+grant execute on function public.payroll_cycle_finalization_overview_v1(text,text,integer)
+  to service_role;
+
 comment on function public.payroll_cycle_finalization_overview_v1(text,text,integer)
   is 'COMPATIBILITY WRAPPER: canonical payroll cycle readiness is V2.';

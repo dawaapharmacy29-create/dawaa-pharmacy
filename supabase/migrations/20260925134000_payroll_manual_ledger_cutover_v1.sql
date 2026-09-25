@@ -423,6 +423,11 @@ as $function$
   select public.employee_payroll_financial_composition_v2(p_staff_id,p_month_cycle);
 $function$;
 
+revoke execute on function public.employee_payroll_financial_composition_v1(uuid,text)
+  from public,anon,authenticated;
+grant execute on function public.employee_payroll_financial_composition_v1(uuid,text)
+  to service_role;
+
 create or replace function public.payroll_final_snapshot_preview_v1(
   p_staff_id uuid,
   p_month_cycle text
