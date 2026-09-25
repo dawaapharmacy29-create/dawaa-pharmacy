@@ -11,10 +11,10 @@
 // NEVER assigns staff fault. A BasketInvoiceDifference is a fact about WHAT differs, never WHO is
 // responsible — no staff id, no blame language, anywhere in this module's output.
 //
-// Pure functions only — no Supabase calls. sales_invoice_items_v21 has 0 rows in the live schema
-// (see the Phase E ingestion-path investigation) — item/quantity matching is designed fully, but
-// in production today an InvoiceItemEvidenceProvider honestly returns 'unavailable', never a
-// guessed missing/extra item.
+// Pure functions only — no Supabase calls. sales_invoice_items_v21 is populated for a substantial
+// subset of real invoices. Item/quantity matching runs only when the provider returns real imported
+// line evidence for the selected invoice; invoices without imported lines remain honestly
+// 'unavailable', never a guessed missing/extra item.
 import { getInvoiceAmount, type InvoiceLike } from '../invoices/invoiceCore';
 import {
   normalizeProductNameForMatch,
