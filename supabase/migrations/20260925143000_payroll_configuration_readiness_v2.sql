@@ -157,6 +157,8 @@ begin
 end;
 $function$;
 
+revoke execute on function public.payroll_cycle_finalization_overview_v2(text,text,integer)
+  from public,anon;
 grant execute on function public.payroll_cycle_finalization_overview_v2(text,text,integer)
   to authenticated,service_role;
 

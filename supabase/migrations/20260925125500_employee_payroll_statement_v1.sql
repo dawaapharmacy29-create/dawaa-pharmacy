@@ -26,7 +26,7 @@ begin
   end if;
 
   v_transparency:=public.employee_payroll_transparency_v1(p_staff_id,p_month_cycle);
-  v_financial:=public.employee_payroll_financial_composition_v1(p_staff_id,p_month_cycle);
+  v_financial:=public.employee_payroll_financial_composition_v2(p_staff_id,p_month_cycle);
   v_kpi:=public.employee_payroll_kpi_context_v1(p_staff_id,p_month_cycle);
 
   select cycle_start,cycle_end

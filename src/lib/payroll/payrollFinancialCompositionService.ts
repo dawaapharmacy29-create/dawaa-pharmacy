@@ -1,11 +1,11 @@
 import { supabase } from '@/lib/supabase';
 
 export type EmployeePayrollFinancialCompositionV1 = {
-  schema: 'employee_payroll_financial_composition_v1';
+  schema: 'employee_payroll_financial_composition_v1' | 'employee_payroll_financial_composition_v2';
   staff_id: string;
   month_cycle: string;
   ready_for_finalization: boolean;
-  source_mode: 'frozen_v13_snapshot' | 'canonical_plus_legacy_manual_adjustments' | 'canonical_only_no_manual_adjustment_row';
+  source_mode: 'frozen_v13_snapshot' | 'canonical_plus_legacy_manual_adjustments' | 'canonical_only_no_manual_adjustment_row' | 'frozen_legacy_snapshot' | 'canonical_manual_ledger_v1';
   earnings: {
     base_salary: number;
     automated_incentives_total: number;
@@ -26,6 +26,12 @@ export type EmployeePayrollFinancialCompositionV1 = {
     individual_deduction: number;
     other_deduction: number;
   };
+  manual_ledger?: {
+    entries: Array<Record<string, unknown>>;
+    earnings_total: number;
+    deductions_total: number;
+    adjustments_total: number;
+  };
   preview_net_salary: number;
   frozen: boolean;
   frozen_net_salary: number | null;
@@ -39,11 +45,11 @@ export type EmployeePayrollFinancialCompositionV1 = {
   generated_at: string;
 };
 
-export async function getEmployeePayrollFinancialCompositionV1(
+export async function getEmployeePayrollFinancialComposition(
   staffId: string,
   monthCycle: string
 ): Promise<EmployeePayrollFinancialCompositionV1> {
-  const { data, error } = await supabase.rpc('employee_payroll_financial_composition_v1', {
+  const { data, error } = await supabase.rpc('employee_payroll_financial_composition_v2', {
     p_staff_id: staffId,
     p_month_cycle: monthCycle,
   });
@@ -55,3 +61,5 @@ export async function getEmployeePayrollFinancialCompositionV1(
 
   return data as EmployeePayrollFinancialCompositionV1;
 }
+
+export const getEmployeePayrollFinancialCompositionV1 = getEmployeePayrollFinancialComposition;

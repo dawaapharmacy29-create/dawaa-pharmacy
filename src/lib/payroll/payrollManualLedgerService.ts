@@ -1,7 +1,7 @@
 import { supabase } from '@/lib/supabase';
 
 export type PayrollManualEntryKind = 'earning' | 'deduction' | 'adjustment';
-export type PayrollManualEntryCategory = 'attendance' | 'incentive' | 'deduction' | 'salary' | 'other';
+export type PayrollManualEntryCategory = 'attendance' | 'incentive' | 'expiry_shortage' | 'branch_general' | 'individual' | 'deduction' | 'salary' | 'other';
 
 export type PayrollManualEntry = {
   id: string;

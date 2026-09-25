@@ -388,7 +388,7 @@ begin
   if p_decision not in ('approve','reject') then
     raise exception 'invalid_attendance_deduction_decision' using errcode='22023';
   end if;
-  if not public.dawaa_can_manage_biometric_mapping_v1() then
+  if not public.dawaa_current_actor_can(array['manage_points','manage_payroll']) then
     raise exception 'not_authorized_for_attendance_deduction_review' using errcode='42501';
   end if;
 
@@ -466,7 +466,7 @@ declare
   v_point_rate numeric;
   v_new_amount numeric;
 begin
-  if not public.dawaa_can_manage_biometric_mapping_v1() then
+  if not public.dawaa_current_actor_can(array['manage_points','manage_payroll']) then
     raise exception 'not_authorized_for_attendance_deduction_adjustment' using errcode='42501';
   end if;
   if length(trim(coalesce(p_reason,'')))<3 then
@@ -521,6 +521,9 @@ begin
 end;
 $function$;
 
+revoke execute on function public.attendance_deduction_pending_review_v2() from public,anon;
+revoke execute on function public.attendance_deduction_review_decide_v2(uuid,text,text) from public,anon;
+revoke execute on function public.attendance_deduction_adjust_v2(uuid,numeric,numeric,text) from public,anon;
 grant execute on function public.attendance_deduction_pending_review_v2() to authenticated,service_role;
 grant execute on function public.attendance_deduction_review_decide_v2(uuid,text,text) to authenticated,service_role;
 grant execute on function public.attendance_deduction_adjust_v2(uuid,numeric,numeric,text) to authenticated,service_role;

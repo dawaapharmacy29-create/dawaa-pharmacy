@@ -9,7 +9,7 @@ import {
   type PayrollManualEntryCategory,
   type PayrollManualEntryKind,
 } from '@/lib/payroll/payrollManualLedgerService';
-import { getEmployeePayrollFinancialCompositionV1 } from '@/lib/payroll/payrollFinancialCompositionService';
+import { getEmployeePayrollFinancialComposition } from '@/lib/payroll/payrollFinancialCompositionService';
 
 const money = (value: unknown) => {
   const n = Number(value ?? 0);
@@ -25,7 +25,10 @@ const KIND_LABELS: Record<PayrollManualEntryKind, string> = {
 const CATEGORY_LABELS: Record<PayrollManualEntryCategory, string> = {
   attendance: 'الحضور',
   incentive: 'الحوافز',
-  deduction: 'الجزاءات/الخصومات',
+  expiry_shortage: 'عجز / نير إكسبير / إكسبير',
+  branch_general: 'خصم عام على الفرع',
+  individual: 'خصم فردي',
+  deduction: 'جزاء/خصم آخر',
   salary: 'الراتب',
   other: 'أخرى',
 };
@@ -45,7 +48,7 @@ export default function PayrollManualEntriesPanel({ staffId, monthCycle }: { sta
     try {
       const [entries, composition] = await Promise.all([
         listPayrollManualEntries(staffId, monthCycle),
-        getEmployeePayrollFinancialCompositionV1(staffId, monthCycle),
+        getEmployeePayrollFinancialComposition(staffId, monthCycle),
       ]);
       setRows(entries);
       setFinancial(composition as unknown as Record<string, any>);

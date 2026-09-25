@@ -7,7 +7,7 @@ create table if not exists public.staff_payroll_manual_entries_v1 (
   staff_id uuid not null references public.staff(id),
   month_cycle text not null check (month_cycle ~ '^\d{4}-(0[1-9]|1[0-2])$'),
   entry_kind text not null check (entry_kind in ('earning','deduction','adjustment')),
-  category text not null check (category in ('attendance','incentive','deduction','salary','other')),
+  category text not null check (category in ('attendance','incentive','expiry_shortage','branch_general','individual','deduction','salary','other')),
   amount numeric not null check (amount <> 0 and abs(amount) <= 100000),
   signed_amount numeric not null,
   reason text not null,
@@ -73,7 +73,7 @@ begin
   if v_kind not in ('earning','deduction','adjustment') then
     raise exception 'invalid_payroll_manual_entry_kind' using errcode='22023';
   end if;
-  if v_category not in ('attendance','incentive','deduction','salary','other') then
+  if v_category not in ('attendance','incentive','expiry_shortage','branch_general','individual','deduction','salary','other') then
     raise exception 'invalid_payroll_manual_entry_category' using errcode='22023';
   end if;
   if coalesce(p_amount,0)=0 or abs(p_amount)>100000 then
@@ -266,6 +266,10 @@ declare
   v_overtime numeric:=0;
   v_manual_earnings numeric:=0;
   v_manual_deductions numeric:=0;
+  v_expiry_shortage_deduction numeric:=0;
+  v_branch_general_deduction numeric:=0;
+  v_individual_deduction numeric:=0;
+  v_other_deduction numeric:=0;
   v_manual_adjustment numeric:=0;
   v_preview_net numeric:=0;
   v_frozen boolean:=false;
@@ -324,19 +328,33 @@ begin
   if v_frozen then
     -- Historical compatibility only: preserve already-frozen legacy payroll exactly.
     v_manual_earnings:=coalesce(v_legacy.incentives_total,0);
-    v_manual_deductions:=coalesce(v_legacy.expiry_shortage_deduction,0)
-      +coalesce(v_legacy.branch_general_deduction,0)
-      +coalesce(v_legacy.individual_deduction,0)
-      +coalesce(v_legacy.other_deduction,0);
+    v_expiry_shortage_deduction:=coalesce(v_legacy.expiry_shortage_deduction,0);
+    v_branch_general_deduction:=coalesce(v_legacy.branch_general_deduction,0);
+    v_individual_deduction:=coalesce(v_legacy.individual_deduction,0);
+    v_other_deduction:=coalesce(v_legacy.other_deduction,0);
+    v_manual_deductions:=v_expiry_shortage_deduction
+      +v_branch_general_deduction
+      +v_individual_deduction
+      +v_other_deduction;
     v_manual_adjustment:=coalesce(v_legacy.manual_adjustment,0);
     v_final_net:=v_legacy.net_salary;
   else
     select
       coalesce(sum(e.signed_amount) filter(where e.entry_kind='earning'),0),
       coalesce(-sum(e.signed_amount) filter(where e.entry_kind='deduction'),0),
+      coalesce(-sum(e.signed_amount) filter(where e.entry_kind='deduction' and e.category='expiry_shortage'),0),
+      coalesce(-sum(e.signed_amount) filter(where e.entry_kind='deduction' and e.category='branch_general'),0),
+      coalesce(-sum(e.signed_amount) filter(where e.entry_kind='deduction' and e.category='individual'),0),
+      coalesce(-sum(e.signed_amount) filter(
+        where e.entry_kind='deduction'
+          and e.category not in ('expiry_shortage','branch_general','individual')
+      ),0),
       coalesce(sum(e.signed_amount) filter(where e.entry_kind='adjustment'),0),
       coalesce(jsonb_agg(to_jsonb(e) order by e.created_at,e.id),'[]'::jsonb)
-    into v_manual_earnings,v_manual_deductions,v_manual_adjustment,v_entries
+    into v_manual_earnings,v_manual_deductions,
+         v_expiry_shortage_deduction,v_branch_general_deduction,
+         v_individual_deduction,v_other_deduction,
+         v_manual_adjustment,v_entries
     from public.staff_payroll_manual_entries_v1 e
     where e.staff_id=p_staff_id and e.month_cycle=p_month_cycle;
   end if;
@@ -365,7 +383,11 @@ begin
     ),
     'adjustments',jsonb_build_object(
       'manual_adjustment',v_manual_adjustment,
-      'deductions_total',v_manual_deductions
+      'deductions_total',v_manual_deductions,
+      'expiry_shortage_deduction',v_expiry_shortage_deduction,
+      'branch_general_deduction',v_branch_general_deduction,
+      'individual_deduction',v_individual_deduction,
+      'other_deduction',v_other_deduction
     ),
     'manual_ledger',jsonb_build_object(
       'entries',v_entries,
