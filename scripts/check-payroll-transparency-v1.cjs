@@ -20,7 +20,11 @@ function assertContains(text, needle, label) {
 assertContains(service, "employee_payroll_transparency_v1", 'canonical transparency RPC');
 assertContains(panel, 'شفافية دورة الراتب V1', 'transparency panel');
 assertContains(page, '<PayrollTransparencyPanel', 'payroll page integration');
-assertContains(financialService, 'employee_payroll_financial_composition_v1', 'financial composition RPC');
+assertContains(financialService, 'employee_payroll_financial_composition_v2', 'canonical financial composition RPC');
+if (financialService.includes('employee_payroll_financial_composition_v1')) {
+  console.error('[payroll-transparency] frontend must not depend on financial composition V1 compatibility');
+  process.exit(1);
+}
 assertContains(panel, 'كشف راتب الموظف — معاينة شفافة', 'employee statement preview');
 assertContains(kpiService, 'employee_payroll_kpi_context_v1', 'payroll KPI context RPC');
 assertContains(panel, 'الأداء وKPIs', 'payroll KPI tab');

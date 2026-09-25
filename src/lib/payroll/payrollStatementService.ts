@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import type { EmployeePayrollTransparencyV1 } from '@/lib/payroll/payrollTransparencyService';
-import type { EmployeePayrollFinancialCompositionV1 } from '@/lib/payroll/payrollFinancialCompositionService';
+import type { EmployeePayrollFinancialCompositionV2 } from '@/lib/payroll/payrollFinancialCompositionService';
 import type { EmployeePayrollKpiContextV1 } from '@/lib/payroll/payrollKpiContextService';
 
 export type AnnualLeaveBalanceStatement = {
@@ -20,7 +20,7 @@ export type EmployeePayrollStatementV1 = Omit<EmployeePayrollTransparencyV1, 'sc
     cycle_spans_years: boolean;
     balances: AnnualLeaveBalanceStatement[];
   };
-  financial: EmployeePayrollFinancialCompositionV1;
+  financial: EmployeePayrollFinancialCompositionV2;
   kpi: EmployeePayrollKpiContextV1;
   statement_rules: {
     attendance: string;

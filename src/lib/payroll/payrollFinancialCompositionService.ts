@@ -1,7 +1,7 @@
 import { supabase } from '@/lib/supabase';
 
-export type EmployeePayrollFinancialCompositionV1 = {
-  schema: 'employee_payroll_financial_composition_v1' | 'employee_payroll_financial_composition_v2';
+export type EmployeePayrollFinancialCompositionV2 = {
+  schema: 'employee_payroll_financial_composition_v2';
   staff_id: string;
   month_cycle: string;
   ready_for_finalization: boolean;
@@ -48,7 +48,7 @@ export type EmployeePayrollFinancialCompositionV1 = {
 export async function getEmployeePayrollFinancialComposition(
   staffId: string,
   monthCycle: string
-): Promise<EmployeePayrollFinancialCompositionV1> {
+): Promise<EmployeePayrollFinancialCompositionV2> {
   const { data, error } = await supabase.rpc('employee_payroll_financial_composition_v2', {
     p_staff_id: staffId,
     p_month_cycle: monthCycle,
@@ -59,7 +59,7 @@ export async function getEmployeePayrollFinancialComposition(
     throw new Error('payroll_financial_composition_unavailable');
   }
 
-  return data as EmployeePayrollFinancialCompositionV1;
+  return data as EmployeePayrollFinancialCompositionV2;
 }
 
-export const getEmployeePayrollFinancialCompositionV1 = getEmployeePayrollFinancialComposition;
+export const getEmployeePayrollFinancialCompositionV2 = getEmployeePayrollFinancialComposition;
