@@ -22,11 +22,16 @@ const { createClient } = require('@supabase/supabase-js');
 const root = path.resolve(__dirname, '..');
 const apply = process.argv.includes('--apply');
 const allSources = process.argv.includes('--all-sources');
+const knownBranchOnly = process.argv.includes('--known-branch-only');
 const itemReadyOnly = process.argv.includes('--item-ready-only');
 const jsonOutput = process.argv.includes('--json');
 
 if (allSources && itemReadyOnly) {
   console.error('--all-sources and --item-ready-only are mutually exclusive.');
+  process.exit(2);
+}
+if (knownBranchOnly && !allSources) {
+  console.error('--known-branch-only is only valid together with --all-sources.');
   process.exit(2);
 }
 
@@ -209,7 +214,9 @@ async function fetchReviewSources(itemReadiness = null) {
       if ((data || []).length < pageSize) break;
       from += pageSize;
     }
-    return rows;
+    return knownBranchOnly
+      ? rows.filter((row) => typeof row.branch === 'string' && row.branch.trim().length > 0)
+      : rows;
   }
 
   const ids = itemReadyOnly
@@ -231,7 +238,7 @@ function summarize(result, sourceCount, readinessBefore, readinessAfter = null) 
   const plan = result.plan;
   const outcomes = result.caseOutcomes || [];
   const scope = allSources
-    ? 'all-review-sources'
+    ? (knownBranchOnly ? 'all-canonical-review-sources-with-known-branch' : 'all-review-sources')
     : itemReadyOnly
       ? 'existing-cases-whose-selected-invoice-now-has-item-evidence'
       : 'existing-sales-intelligence-conversations';
@@ -291,7 +298,7 @@ function summarize(result, sourceCount, readinessBefore, readinessAfter = null) 
   console.log(
     `Scope: ${
       allSources
-        ? 'ALL whatsapp_review_sources'
+        ? (knownBranchOnly ? 'ALL whatsapp_review_sources WITH KNOWN BRANCH ONLY' : 'ALL whatsapp_review_sources')
         : itemReadyOnly
           ? 'existing cases whose currently selected invoice now has item evidence'
           : 'existing Sales Intelligence conversations only'
