@@ -321,8 +321,9 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryS
 }
 
 function AppRoutes() {
+  const location = useLocation();
   return (
-    <Routes>
+    <Routes location={location} key={location.pathname}>
       <Route path="/login" element={routeSuspense(<Login />, 'تسجيل الدخول')} />
       <Route
         path="/"
