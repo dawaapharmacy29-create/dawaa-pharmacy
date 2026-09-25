@@ -64,11 +64,34 @@ export default function PayrollCycleReadinessOverview({
         </button>
       </div>
 
-      <div className="mt-3 grid gap-2 sm:grid-cols-3">
-        <Summary label="إجمالي الموظفين" value={data.staff_count} />
-        <Summary label="جاهز" value={data.ready_count} good />
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+        <Summary label="نطاق الرواتب" value={data.scope_staff_count ?? data.staff_count} />
+        <Summary label="Profiles مهيأة" value={data.configured_staff_count ?? data.staff_count} good={(data.unconfigured_staff_count ?? 0) === 0} />
+        <Summary label="تحتاج مراجعة إعداد" value={data.unconfigured_priority_count ?? 0} warn={(data.unconfigured_priority_count ?? 0) > 0} />
+        <Summary label="جاهز للإقفال" value={data.ready_count} good />
         <Summary label="Blocked" value={data.blocked_count} warn={data.blocked_count > 0} />
       </div>
+
+      {!!data.configuration_queue?.length && (
+        <div className="mt-3 rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-3">
+          <div className="text-xs font-black text-[var(--dawaa-theme-heading)]">Configuration Queue — ملفات التعويضات غير المهيأة</div>
+          <p className="mt-1 text-[10px] font-bold text-[var(--dawaa-theme-muted)]">
+            عدم وجود Profile ليس خصمًا ولا خطأ تلقائيًا. الأولوية للحالات التي لديها نشاط حوافز أو تاريخ Payroll.
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {data.configuration_queue.slice(0, 20).map((row) => (
+              <span
+                key={row.staff_id}
+                className={`rounded-full border px-2 py-1 text-[10px] font-bold ${row.priority_review
+                  ? 'border-[var(--dawaa-status-warning-border)] text-[var(--dawaa-status-warning-text)]'
+                  : 'border-[var(--dawaa-theme-border)] text-[var(--dawaa-theme-muted)]'}`}
+              >
+                {row.staff_name} · {row.role || '-'}{row.priority_review ? ' · يحتاج إعداد' : ''}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {!!data.top_blockers.length && (
         <div className="mt-3 rounded-2xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-3">

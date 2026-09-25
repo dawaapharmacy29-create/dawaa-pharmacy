@@ -586,6 +586,20 @@ export type PayrollCycleFinalizationOverview = {
     label: string;
     affected_staff: number;
   }>;
+  scope_staff_count?: number;
+  configured_staff_count?: number;
+  unconfigured_staff_count?: number;
+  unconfigured_priority_count?: number;
+  configuration_queue?: Array<{
+    staff_id: string;
+    staff_name: string;
+    role: string | null;
+    branch: string | null;
+    configuration_state: 'missing_with_incentive_activity' | 'missing_with_payroll_history' | 'missing_no_activity';
+    priority_review: boolean;
+    incentive_transactions: number;
+    payroll_history_rows: number;
+  }>;
   generated_at: string;
 };
 
@@ -594,7 +608,7 @@ export async function getPayrollCycleFinalizationOverview(args: {
   branch?: string | null;
   limit?: number;
 }): Promise<PayrollCycleFinalizationOverview> {
-  const { data, error } = await supabase.rpc('payroll_cycle_finalization_overview_v1', {
+  const { data, error } = await supabase.rpc('payroll_cycle_finalization_overview_v2', {
     p_month_cycle: args.monthCycle,
     p_branch: args.branch || null,
     p_limit: args.limit ?? 100,
