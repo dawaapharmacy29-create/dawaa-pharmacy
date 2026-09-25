@@ -108,6 +108,31 @@ describe('WhatsApp V4 invoice verification safety', () => {
     expect(result.warnings).toContain('ambiguous_top_invoice_candidates');
   });
 
+  it('treats an invoice created during a long conversation as the strongest timing evidence', async () => {
+    readCustomerInvoicesMock.mockResolvedValue({
+      rows: [
+        invoice({ id: 'during', invoice_number: '68466', invoice_date: '2026-08-20T08:27:00.000Z' }),
+        invoice({ id: 'later', invoice_number: '68812', invoice_date: '2026-08-22T08:10:00.000Z' }),
+      ],
+      matchedBy: 'customer_id',
+      matchedStrategies: ['customer_id'],
+      source: 'sales_invoices_adapter',
+      warnings: [],
+    });
+
+    const longSession = session(`[8/19/26, 8:37:51 PM] Customer: محتاج المنتج
+[8/20/26, 8:09:54 PM] You: موجود يا فندم`);
+
+    const result = await verifySessionAgainstInvoices(longSession, {
+      customerId: 'customer-1',
+      customerCode: '4250',
+      branch: 'فرع شكري',
+    });
+
+    expect(result.bestCandidate?.invoiceId).toBe('during');
+    expect(result.bestCandidate?.reasons).toContain('الفاتورة تمت أثناء المحادثة');
+  });
+
   it('does not keep a customer invoice as a candidate when it is outside the seven-day window', async () => {
     readCustomerInvoicesMock.mockResolvedValue({
       rows: [invoice({ invoice_date: '2026-10-01T09:30:00.000Z' })],
