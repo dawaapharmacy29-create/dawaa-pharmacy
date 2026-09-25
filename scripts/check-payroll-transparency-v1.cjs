@@ -9,6 +9,7 @@ const financialService = fs.readFileSync(path.join(root, 'src/lib/payroll/payrol
 const kpiService = fs.readFileSync(path.join(root, 'src/lib/payroll/payrollKpiContextService.ts'), 'utf8');
 const statementService = fs.readFileSync(path.join(root, 'src/lib/payroll/payrollStatementService.ts'), 'utf8');
 const statementPdf = fs.readFileSync(path.join(root, 'src/lib/payroll/employeePayrollStatementPdf.ts'), 'utf8');
+const incentiveTruthService = fs.readFileSync(path.join(root, 'src/lib/incentives/payrollIncentiveTruthService.ts'), 'utf8');
 
 function assertContains(text, needle, label) {
   if (!text.includes(needle)) {
@@ -42,6 +43,10 @@ assertContains(statementPdf, 'الحوافز والخصومات والنقاط',
 assertContains(statementPdf, 'التسويات المالية اليدوية', 'manual payroll ledger disclosure');
 assertContains(panel, 'معاينة PDF', 'statement PDF preview action');
 assertContains(kpiService, 'branch_breakdown', 'employee sales KPI typing');
+if (incentiveTruthService.includes('const automatedTotal = grossAutomatedTotal - performanceIncentive')) {
+  console.error('[payroll-transparency] incentive truth must expose the canonical server total without client-side subtraction');
+  process.exit(1);
+}
 if (page.includes("+ num(components?.monthlyIncentiveComponent)\n      + num(components?.listIncentiveComponent)\n      + num(automatedTruth?.automatedTotal)")) {
   console.error('[payroll-transparency] performance incentive double-count regression');
   process.exit(1);
