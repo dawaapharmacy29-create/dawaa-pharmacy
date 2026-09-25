@@ -6,6 +6,7 @@ const files = {
   schema: 'supabase/migrations/20260906171000_attendance_resolution_v2_schema.sql',
   builder: 'supabase/migrations/20260906171200_attendance_resolution_v2_builder.sql',
   materialization: 'supabase/migrations/20260906171400_attendance_resolution_v2_materialization.sql',
+  attendanceV3Cutover: 'supabase/migrations/20260925160000_attendance_v3_range_materialization_cutover_v1.sql',
   service: 'src/lib/attendance/attendanceResolutionService.ts',
   center: 'src/components/attendance/AttendanceResolutionCenter.tsx',
   page: 'src/pages/AttendanceReport.tsx',
@@ -19,6 +20,7 @@ if (!failures.length) {
   const schema = fs.readFileSync(files.schema, 'utf8');
   const builder = fs.readFileSync(files.builder, 'utf8');
   const materialization = fs.readFileSync(files.materialization, 'utf8');
+  const attendanceV3Cutover = fs.readFileSync(files.attendanceV3Cutover, 'utf8');
   const service = fs.readFileSync(files.service, 'utf8');
   const center = fs.readFileSync(files.center, 'utf8');
   const page = fs.readFileSync(files.page, 'utf8');
@@ -62,11 +64,26 @@ if (!failures.length) {
 
   for (const rpc of [
     'get_attendance_resolution_queue_v2',
-    'materialize_attendance_range_v2',
+    'materialize_attendance_range_v3',
     'approve_attendance_day_resolution_v2',
     'get_attendance_impact_ledger_v2',
   ]) {
     if (!service.includes(rpc)) failures.push(`Attendance resolution service missing RPC ${rpc}.`);
+  }
+
+  for (const token of [
+    'dawaa_materialize_attendance_range_internal_v3',
+    'materialize_attendance_range_v3',
+    'approved historical Attendance Truth remains immutable',
+    'open_legacy_days',
+  ]) {
+    if (!attendanceV3Cutover.includes(token)) failures.push(`Attendance V3 cutover missing ${token}.`);
+  }
+  if (!service.includes('materialize_attendance_range_v3')) {
+    failures.push('Attendance resolution service must use materialize_attendance_range_v3.');
+  }
+  if (service.includes("materialize_attendance_range_v2")) {
+    failures.push('Attendance resolution service still references V2 range materialization.');
   }
 
   if (/\.from\(['"]attendance_daily_summary['"]\)|\.from\(['"]attendance_impact_ledger['"]\)/.test(center)) {

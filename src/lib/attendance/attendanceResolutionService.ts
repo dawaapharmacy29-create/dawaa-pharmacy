@@ -73,7 +73,7 @@ export async function materializeAttendanceRange(args: {
   end: string;
   branch?: string | null;
 }): Promise<Record<string, unknown>> {
-  const { data, error } = await supabase.rpc('materialize_attendance_range_v2', {
+  const { data, error } = await supabase.rpc('materialize_attendance_range_v3', {
     p_start: args.start,
     p_end: args.end,
     p_branch: args.branch && args.branch !== 'الكل' ? args.branch : null,

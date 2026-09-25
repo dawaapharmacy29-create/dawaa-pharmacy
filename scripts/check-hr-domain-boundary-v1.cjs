@@ -66,6 +66,7 @@ const forbiddenLegacy = [
   'attendance_deduction_adjust_v1',
   'payroll_cycle_finalization_overview_v1',
   'record_employee_points_transaction_v3',
+  'materialize_attendance_range_v2',
 ];
 
 for (const file of files) {
