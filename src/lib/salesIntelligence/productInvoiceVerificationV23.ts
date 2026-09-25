@@ -93,6 +93,9 @@ function productEvidenceKind(
   product: ProductInvoiceVerificationProductV23,
   item: ProductInvoiceVerificationItemV23
 ): ProductInvoiceVerificationMatchV23['productEvidence'] | null {
+  const effectiveQuantity = numeric(item.quantity);
+  if (effectiveQuantity != null && effectiveQuantity <= 0) return null;
+
   const productId = clean(product.productId);
   const productCode = clean(product.productCode);
   if (productId && clean(item.product_id) === productId) return 'product_id';

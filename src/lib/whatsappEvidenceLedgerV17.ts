@@ -2,6 +2,7 @@ import { supabase } from '@/lib/supabase';
 import type { WhatsAppConversationSession } from './whatsappConversationParser';
 import type { WhatsAppOperationalIntelligenceV6 } from './whatsappOperationalIntelligenceV6';
 import { selectVerifiedProductInvoiceV23 } from './salesIntelligence/productInvoiceVerificationV23';
+import { fetchInvoiceItemEvidenceProvider } from './salesIntelligence/invoiceItemEvidenceRepository';
 
 export interface WhatsAppEvidenceLedgerContextV17 {
   sourceId: string;
@@ -117,13 +118,22 @@ export async function resolveProductInvoiceVerificationV23(source: any, product:
   if (invoiceError) throw invoiceError;
   if (!invoices?.length) return null;
 
-  const invoiceIds = invoices.map((row: any) => String(row.id)).filter(Boolean);
-  const { data: items, error: itemError } = await supabase
-    .from('sales_invoice_items_v21')
-    .select('invoice_id,invoice_number,product_id,product_code,product_name,quantity,line_total')
-    .in('invoice_id', invoiceIds)
-    .limit(5000);
-  if (itemError) throw itemError;
+  const itemEvidenceProvider = await fetchInvoiceItemEvidenceProvider(supabase, invoices as any[]);
+  const effectiveItems = (invoices as any[]).flatMap((invoice) => {
+    const invoiceId = String(invoice.id || '').trim();
+    if (!invoiceId) return [];
+    const rows = itemEvidenceProvider.getItemsForInvoice(invoiceId, null);
+    if (rows === 'unavailable') return [];
+    return rows.map((item) => ({
+      invoice_id: invoiceId,
+      invoice_number: invoice.invoice_number || null,
+      product_id: item.productId || null,
+      product_code: item.productCode || null,
+      product_name: item.productNameRaw || null,
+      quantity: item.quantity,
+      line_total: item.netLineAmount ?? item.lineTotal ?? null,
+    }));
+  });
 
   return selectVerifiedProductInvoiceV23({
     product: {
@@ -134,7 +144,7 @@ export async function resolveProductInvoiceVerificationV23(source: any, product:
     openedAt,
     lastStageAt,
     invoices: invoices as any[],
-    items: (items || []) as any[],
+    items: effectiveItems,
   });
 }
 

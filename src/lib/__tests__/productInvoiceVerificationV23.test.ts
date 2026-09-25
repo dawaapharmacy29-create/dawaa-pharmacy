@@ -60,6 +60,35 @@ describe('productInvoiceVerificationV23', () => {
     expect(match).toBeNull();
   });
 
+  it('does not verify a fully returned product whose effective quantity is zero', () => {
+    const match = selectVerifiedProductInvoiceV23({
+      product: { productId: 'returned-product', productCode: 'ret-1', productName: 'Returned Product' },
+      openedAt: '2026-09-12T06:01:00Z',
+      lastStageAt: '2026-09-12T06:26:00Z',
+      invoices: [
+        {
+          id: 'returned-invoice',
+          invoice_number: 'R-1',
+          invoice_datetime: '2026-09-12T06:10:00Z',
+          close_datetime: '2026-09-12T06:30:00Z',
+          net_total: 200,
+        },
+      ],
+      items: [
+        {
+          invoice_id: 'returned-invoice',
+          product_id: 'returned-product',
+          product_code: 'ret-1',
+          product_name: 'Returned Product',
+          quantity: 0,
+          line_total: 0,
+        },
+      ],
+    });
+
+    expect(match).toBeNull();
+  });
+
   it('does not attach a nearby invoice when the requested product is absent from invoice items', () => {
     const match = selectVerifiedProductInvoiceV23({
       product: { productId: 'gast-reg', productCode: '40049', productName: 'GAST-REG 50MG 3AMP' },
