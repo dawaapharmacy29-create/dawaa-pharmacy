@@ -35,6 +35,7 @@ import { rankProductCandidates } from '../../productMatching';
 import { resolveReviewSourceSnapshotLineage, selectCanonicalReviewSourceIds } from '../sourceSnapshotLineage';
 import { fetchInvoiceItemEvidenceProvider } from '../invoiceItemEvidenceRepository';
 import { fetchPharmacyProductIndex } from '../pharmacyProductCatalogRepository';
+import { readInvoiceRecordById } from '../../readModels/invoiceRecordReadModel';
 import {
   compareQuotedAndActualUnitPrice,
   derivePricingExecutionAssessment,
@@ -922,11 +923,7 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
         .eq('invoice_id', selectedInvoiceId)
         .order('line_no', { ascending: true })
         .limit(500),
-      supabaseClient
-        .from('sales_invoices')
-        .select('id,invoice_number,invoice_no,branch,branch_name,invoice_datetime,sale_date,seller_name,normalized_seller_name,staff_id,staff_name,net_amount')
-        .eq('id', selectedInvoiceId)
-        .maybeSingle(),
+      readInvoiceRecordById(selectedInvoiceId, supabaseClient).then((data) => ({ data })),
     ]);
 
     const productCodes = Array.from(new Set((itemRows ?? []).map((row: any) => String(row.product_code ?? '').trim()).filter(Boolean)));
