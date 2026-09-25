@@ -373,7 +373,8 @@ export function buildWhatsAppOperationalIntelligenceV6(session: WhatsAppConversa
   const officialScoringEligible = evaluationCoverage >= 65 && base.confidence >= 70 && !missingStaff && missingMediaCount === 0;
 
   let nextBestAction = 'مراجعة بشرية سريعة ثم إغلاق الجلسة.';
-  if (operationalOutcome === 'complaint_unresolved') nextBestAction = 'تصعيد فوري لخدمة العملاء ومتابعة حل الشكوى.';
+  if (fulfillmentFailure) nextBestAction = 'تصعيد تعثر التنفيذ ومتابعة إرسال الطلب أو حسمه مع العميل فورًا.';
+  else if (operationalOutcome === 'complaint_unresolved') nextBestAction = 'تصعيد فوري لخدمة العملاء ومتابعة حل الشكوى.';
   else if (requests.some((r) => r.unresolved)) nextBestAction = 'تسجيل طلب العميل وربطه بالصنف ثم متابعة التوفر/الإغلاق.';
   else if (acceptedRecommendation) nextBestAction = 'إنشاء متابعة لخدمة العملاء على الترشيح بعد الاستخدام.';
   else if (operationalOutcome === 'probable_sale') nextBestAction = 'مطابقة الفاتورة؛ لا يُعتبر البيع مؤكدًا إلا بعد تطابق فاتورة فعلية.';
@@ -387,7 +388,9 @@ export function buildWhatsAppOperationalIntelligenceV6(session: WhatsAppConversa
     nextBestAction, officialScoringEligible, intentConfidence, outcomeConfidence,
     evidence: {
       request: evidenceFor(session, REQUEST_RX, 85), recommendation: evidenceFor(session, RECOMMEND_RX, 88),
-      complaint: evidenceFromMessages(complaintRows, 95), checkin: evidenceFor(session, CHECKIN_OUT_RX, 94),
+      complaint: evidenceFromMessages(complaintRows, 95),
+      deliveryFailure: evidenceFromMessages(fulfillmentFailures, 96),
+      checkin: evidenceFor(session, CHECKIN_OUT_RX, 94),
       saleClose: evidenceFor(session, CLOSE_RX, 88), customerState: evidenceFor(session, state === 'worse' ? WORSE_RX : IMPROVED_RX, state === 'unknown' ? 0 : 88),
     },
   };

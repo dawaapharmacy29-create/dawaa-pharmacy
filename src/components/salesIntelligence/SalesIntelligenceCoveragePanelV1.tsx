@@ -86,9 +86,11 @@ export default function SalesIntelligenceCoveragePanelV1() {
   }, [analyzableCanonicalSources, cases]);
 
   const totalSources = analyzableCanonicalSources.length;
-  const analyzedV22 = analyzableCanonicalSources.filter((row) => row.analysis_json?.productDemandVersion === 'product-demand-v22.1').length;
-  const remainingV22 = Math.max(0, totalSources - analyzedV22);
-  const v22Completion = totalSources ? Math.round((analyzedV22 / totalSources) * 1000) / 10 : 0;
+  const truthVerifiedSources = analyzableCanonicalSources.filter(
+    (row) => row.analysis_json?.productDemandTruthVersion === 'product-invoice-truth-v23.1'
+  ).length;
+  const remainingTruthSources = Math.max(0, totalSources - truthVerifiedSources);
+  const truthCompletion = totalSources ? Math.round((truthVerifiedSources / totalSources) * 1000) / 10 : 0;
 
   const coveredSources = useMemo(() => {
     const coveredIds = new Set(cases.map((row) => row.conversation_id).filter(Boolean));
@@ -145,13 +147,13 @@ export default function SalesIntelligenceCoveragePanelV1() {
 
       <div className="mt-4 grid gap-3 lg:grid-cols-2">
       <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] p-4">
-        <div className="flex items-center gap-2 font-black text-sm"><PackageSearch size={16} />تغطية Product Demand V22</div>
+        <div className="flex items-center gap-2 font-black text-sm"><PackageSearch size={16} />تغطية Product Demand Truth V23</div>
         <>
           <div className="mt-3 h-2 overflow-hidden rounded-full bg-black/10">
-            <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.max(0, Math.min(100, v22Completion))}%` }} />
+            <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.max(0, Math.min(100, truthCompletion))}%` }} />
           </div>
           <div className="dawaa-muted mt-2 text-[11px]">
-            Canonical قابل للتحليل: {totalSources.toLocaleString('ar-EG')} • تم V22: {analyzedV22.toLocaleString('ar-EG')} • متبقي: {remainingV22.toLocaleString('ar-EG')}
+            Canonical قابل للتحليل: {totalSources.toLocaleString('ar-EG')} • تم Truth V23: {truthVerifiedSources.toLocaleString('ar-EG')} • متبقي: {remainingTruthSources.toLocaleString('ar-EG')}
           </div>
         </>
       </div>
@@ -173,10 +175,10 @@ export default function SalesIntelligenceCoveragePanelV1() {
       </div>
       </div>
 
-      {(coveredSources < totalSources || remainingV22 > 0 || policyReady === false) ? (
+      {(coveredSources < totalSources || remainingTruthSources > 0 || policyReady === false) ? (
         <div className="dawaa-muted mt-3 flex items-start gap-2 text-[10px] leading-5">
           <CircleAlert size={13} className="mt-0.5 shrink-0" />
-          المقارنات بين الفروع أو تحليلات فقد البيع يجب قراءتها مع نسبة التغطية أعلاه؛ اكتمال الـDashboard لا يعني اكتمال المصدر.
+          المقارنات وفقد البيع يجب قراءتها مع نسبة Truth V23 أعلاه؛ Processing القديم لا يعني أن Product→Invoice verification الجديدة اكتملت.
         </div>
       ) : (
         <div className="dawaa-muted mt-3 flex items-center gap-2 text-[10px]"><Activity size={13} />مصادر التحليل مكتملة التغطية.</div>

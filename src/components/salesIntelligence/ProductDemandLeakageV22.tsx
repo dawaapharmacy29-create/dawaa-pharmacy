@@ -69,7 +69,9 @@ async function loadCanonicalBackfillStatusV22(): Promise<BackfillStatus | null> 
   const canonical = rows.filter(
     (row) => canonicalIds.has(row.id) && String(row.raw_text || '').trim().length > 0
   );
-  const analyzed = canonical.filter((row) => row.analysis_json?.productDemandVersion === 'product-demand-v22.1').length;
+  const analyzed = canonical.filter(
+    (row) => row.analysis_json?.productDemandTruthVersion === 'product-invoice-truth-v23.1'
+  ).length;
   return {
     analyzable_sources: canonical.length,
     analyzed_v22: analyzed,

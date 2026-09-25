@@ -76,6 +76,8 @@ describe('Sales Intelligence Truth Engine V2 ground truth rules', () => {
     expect(result.followupPlan.priority).toBe('urgent');
     expect(result.followupPlan.reason || '').toMatch(/تعثر.*تنفيذ|تعثر.*توصيل/);
     expect(result.evidence.complaint.messageIds).toHaveLength(0);
+    expect(result.evidence.deliveryFailure.messageIds.length).toBeGreaterThan(0);
+    expect(result.nextBestAction).toMatch(/تعثر.*تنفيذ|إرسال الطلب|حسمه/);
   });
 
   it('merges a deictic "الغسول ده" reference into the preceding canonical product instead of creating a duplicate product', () => {
