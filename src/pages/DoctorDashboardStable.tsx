@@ -359,25 +359,22 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
       return;
     }
     let cancelled = false;
-    const endExclusive = new Date(cycle.end.getTime() + 86400000);
     supabase
-      .from('sales_intelligence_invoice_staff_truth_v1')
-      .select('invoice_amount,item_evidence_available,invoice_datetime')
-      .eq('canonical_staff_id', staffId)
-      .gte('invoice_datetime', formatCycleDate(cycle.start))
-      .lt('invoice_datetime', formatCycleDate(endExclusive))
-      .limit(1000)
+      .rpc('get_my_official_whatsapp_sales_v1', {
+        p_start: formatCycleDate(cycle.start),
+        p_end: formatCycleDate(cycle.end),
+      })
       .then(({ data, error: queryError }) => {
         if (cancelled) return;
-        if (queryError) {
+        if (queryError || !data || typeof data !== 'object') {
           setOfficialWhatsAppSales(null);
           return;
         }
-        const rows = data || [];
+        const row = data as Record<string, unknown>;
         setOfficialWhatsAppSales({
-          salesCount: rows.length,
-          revenue: rows.reduce((sum, row) => sum + number(row.invoice_amount), 0),
-          itemEvidenceCount: rows.filter((row) => Boolean(row.item_evidence_available)).length,
+          salesCount: number(row.sales_count),
+          revenue: number(row.revenue),
+          itemEvidenceCount: number(row.item_evidence_count),
         });
       })
       .catch(() => {
