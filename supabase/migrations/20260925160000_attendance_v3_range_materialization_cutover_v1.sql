@@ -120,12 +120,16 @@ revoke execute on function public.dawaa_materialize_attendance_day_internal_v2(u
   from public,anon,authenticated;
 revoke execute on function public.dawaa_materialize_attendance_range_internal_v3(date,date,text)
   from public,anon,authenticated;
+revoke execute on function public.dawaa_materialize_attendance_day_internal_v3(uuid,date)
+  from public,anon,authenticated;
 
 grant execute on function public.materialize_attendance_range_v3(date,date,text)
   to authenticated,service_role;
 grant execute on function public.materialize_attendance_range_v2(date,date,text)
   to authenticated,service_role;
 grant execute on function public.dawaa_materialize_attendance_range_internal_v3(date,date,text)
+  to service_role;
+grant execute on function public.dawaa_materialize_attendance_day_internal_v3(uuid,date)
   to service_role;
 
 comment on function public.materialize_attendance_range_v2(date,date,text)
