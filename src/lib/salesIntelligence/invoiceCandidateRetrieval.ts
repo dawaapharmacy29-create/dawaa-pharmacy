@@ -1,7 +1,7 @@
 // Sales Intelligence Phase G — Invoice Candidate Retrieval Boundary.
 //
-// Deliberately split from salesIntelligencePipeline.ts's pure orchestration: this is the ONLY
-// place in the Sales Intelligence engine suite that touches Supabase. buildInvoiceCandidateQuery()
+// Deliberately split from salesIntelligencePipeline.ts's pure orchestration. All invoice-table I/O
+// is delegated to the approved invoiceRecordReadModel boundary. buildInvoiceCandidateQuery()
 // is a pure, deterministic, testable function; fetchInvoiceCandidates() is the thin I/O boundary
 // around it. Neither function scores, ranks, or selects an invoice — that is Phase D's job alone
 // (deriveSaleAttributionAssessment). This module only narrows "which invoices are even worth
@@ -9,6 +9,7 @@
 // never becomes a full-table scan.
 import { normalizeEgyptianCustomerPhone, isValidEgyptianCustomerMobile } from '../customers/customerIdentity';
 import { getInvoiceId, type InvoiceLike } from '../invoices/invoiceCore';
+import { readInvoiceRecordsByIdentityWindow } from '../readModels/invoiceRecordReadModel';
 
 /**
  * Real-data-informed window (read-only investigation, Supabase project jkjqeqkshllustwlzzbf,
@@ -109,16 +110,14 @@ export async function fetchInvoiceCandidates(supabaseClient: any, query: Invoice
     column: 'customer_id' | 'customer_phone' | 'whatsapp_phone',
     value: string
   ): Promise<InvoiceLike[]> {
-    const { data, error } = await supabaseClient
-      .from('sales_invoices')
-      .select('*')
-      .gte('invoice_datetime', query.windowStartIso)
-      .lte('invoice_datetime', query.windowEndIso)
-      .eq(column, value)
-      .limit(query.limit);
-
-    if (error) throw error;
-    return (data ?? []) as InvoiceLike[];
+    return (await readInvoiceRecordsByIdentityWindow({
+      column,
+      value,
+      windowStartIso: query.windowStartIso,
+      windowEndIso: query.windowEndIso,
+      limit: query.limit,
+      client: supabaseClient,
+    })) as InvoiceLike[];
   }
 
   const lookups: Array<Promise<InvoiceLike[]>> = [];
