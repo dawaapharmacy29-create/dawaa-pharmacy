@@ -22,6 +22,8 @@ export interface ProductInvoiceVerificationItemV23 {
   product_code?: string | null;
   product_name?: string | null;
   quantity?: number | string | null;
+  returned_quantity?: number | string | null;
+  effective_quantity?: number | string | null;
   line_total?: number | string | null;
 }
 
@@ -93,7 +95,11 @@ function productEvidenceKind(
   product: ProductInvoiceVerificationProductV23,
   item: ProductInvoiceVerificationItemV23
 ): ProductInvoiceVerificationMatchV23['productEvidence'] | null {
-  const effectiveQuantity = numeric(item.quantity);
+  const originalQuantity = numeric(item.quantity);
+  const returnedQuantity = numeric(item.returned_quantity) ?? 0;
+  const effectiveQuantity =
+    numeric(item.effective_quantity) ??
+    (originalQuantity == null ? null : Math.max(0, originalQuantity - Math.max(0, returnedQuantity)));
   if (effectiveQuantity != null && effectiveQuantity <= 0) return null;
 
   const productId = clean(product.productId);
