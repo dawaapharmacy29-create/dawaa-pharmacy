@@ -141,8 +141,8 @@ function invoiceRowLookupId(row: InvoiceLike): string {
 // ---------------------------------------------------------------------------
 // Evidence completeness — a fixed, documented ratio over a set of CORE signals, never a
 // free-floating guess. Item-level and fulfillment evidence are deliberately EXCLUDED from the
-// core ratio: both are known to be universally unavailable in production today (Phase E/F
-// precedent — sales_invoice_items_v21 has 0 rows, no fulfillment source exists), so including them
+// core ratio: invoice-item evidence is available only for invoices whose lines were imported,
+// while fulfillment evidence still has no authoritative source; including either as a mandatory
 // would put a permanent ceiling on every real case regardless of how well everything else was
 // evidenced. Their absence stays fully visible via their own EvidenceCompleteness fields and via
 // SalesIntegrityAssessment.canEvaluateItemIntegrity/canEvaluateFulfillmentIntegrity.
