@@ -1,3 +1,4 @@
+import { writeFileSync } from 'node:fs';
 import { supabase } from '../src/lib/supabase';
 import { parseWhatsAppExport, splitWhatsAppSessions } from '../src/lib/whatsappConversationParser';
 import { buildUnifiedConversationIntelligence } from '../src/lib/whatsappUnifiedIntelligenceV4';
@@ -22,6 +23,8 @@ const apply = args.has('--apply');
 const json = args.has('--json');
 const sourceIdArg = process.argv.find((arg) => arg.startsWith('--source-id='));
 const sourceId = sourceIdArg ? sourceIdArg.slice('--source-id='.length).trim() : null;
+const outputFileArg = process.argv.find((arg) => arg.startsWith('--output-file='));
+const outputFile = outputFileArg ? outputFileArg.slice('--output-file='.length).trim() : null;
 
 const ANALYSIS_LOGIC_VERSION = 'whatsapp-analysis-v5-directional-burst';
 
@@ -83,6 +86,12 @@ async function rebuild(row: SourceRow) {
       products: operational.products.length,
       requests: operational.customerRequests.length,
       recommendations: operational.recommendations.length,
+      patch: {
+        operational: nextAnalysis.operational,
+        participantRoles: nextAnalysis.participantRoles,
+        branchHint: nextAnalysis.branchHint,
+        conversationAnalysisLogicVersion: ANALYSIS_LOGIC_VERSION,
+      },
     };
   }
 
@@ -132,8 +141,11 @@ async function main() {
     failed: count('failed'),
   };
 
+  const payload = { summary, results };
+  if (outputFile) writeFileSync(outputFile, JSON.stringify(payload, null, 2) + '\n', 'utf8');
+
   if (json) {
-    process.stdout.write(JSON.stringify({ summary, results }, null, 2) + '\n');
+    process.stdout.write(JSON.stringify(payload, null, 2) + '\n');
   } else {
     console.log(summary);
     for (const row of results.filter((item) => item.status === 'failed' || String(item.status).startsWith('skipped_'))) {
