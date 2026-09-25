@@ -15,15 +15,9 @@ type SourceRow = {
   conversation_ended_at: string | null;
   message_count: number | null;
   created_at: string | null;
+  analysis_json: Record<string, any> | null;
 };
 type CaseRow = { conversation_id: string; branch_name_raw: string | null };
-type DemandStatus = {
-  analyzable_sources: number | string | null;
-  analyzed_v22: number | string | null;
-  remaining_sources: number | string | null;
-  completion_percent: number | string | null;
-};
-
 type BranchCoverage = {
   branch: string;
   sources: number;
@@ -31,15 +25,9 @@ type BranchCoverage = {
   uncovered: number;
 };
 
-function number(value: unknown): number {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
 export default function SalesIntelligenceCoveragePanelV1() {
   const [sources, setSources] = useState<SourceRow[]>([]);
   const [cases, setCases] = useState<CaseRow[]>([]);
-  const [demandStatus, setDemandStatus] = useState<DemandStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [coverageError, setCoverageError] = useState<string | null>(null);
 
@@ -47,10 +35,9 @@ export default function SalesIntelligenceCoveragePanelV1() {
     let cancelled = false;
     async function load() {
       setLoading(true);
-      const [sourceResult, caseResult, demandResult] = await Promise.all([
-        supabase.from('whatsapp_review_sources').select('id,branch,source_filename,customer_id,customer_code,customer_phone,customer_name,conversation_started_at,conversation_ended_at,message_count,created_at').limit(2000),
+      const [sourceResult, caseResult] = await Promise.all([
+        supabase.from('whatsapp_review_sources').select('id,branch,source_filename,customer_id,customer_code,customer_phone,customer_name,conversation_started_at,conversation_ended_at,message_count,created_at,analysis_json').limit(2000),
         supabase.from('sales_intelligence_cases').select('conversation_id,branch_name_raw').limit(5000),
-        supabase.from('whatsapp_product_demand_backfill_status_v22').select('*').maybeSingle(),
       ]);
       if (cancelled) return;
       if (sourceResult.error || caseResult.error) {
@@ -62,7 +49,6 @@ export default function SalesIntelligenceCoveragePanelV1() {
         setSources((sourceResult.data || []) as SourceRow[]);
         setCases((caseResult.data || []) as CaseRow[]);
       }
-      setDemandStatus(demandResult.error ? null : ((demandResult.data || null) as DemandStatus | null));
       setLoading(false);
     }
     void load();
@@ -89,6 +75,10 @@ export default function SalesIntelligenceCoveragePanelV1() {
   }, [canonicalSources, cases]);
 
   const totalSources = canonicalSources.length;
+  const analyzedV22 = canonicalSources.filter((row) => row.analysis_json?.productDemandVersion === 'product-demand-v22.1').length;
+  const remainingV22 = Math.max(0, totalSources - analyzedV22);
+  const v22Completion = totalSources ? Math.round((analyzedV22 / totalSources) * 1000) / 10 : 0;
+
   const coveredSources = useMemo(() => {
     const coveredIds = new Set(cases.map((row) => row.conversation_id).filter(Boolean));
     return canonicalSources.filter((row) => coveredIds.has(row.id)).length;
@@ -141,21 +131,17 @@ export default function SalesIntelligenceCoveragePanelV1() {
 
       <div className="mt-4 rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] p-4">
         <div className="flex items-center gap-2 font-black text-sm"><PackageSearch size={16} />تغطية Product Demand V22</div>
-        {demandStatus ? (
-          <>
-            <div className="mt-3 h-2 overflow-hidden rounded-full bg-black/10">
-              <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.max(0, Math.min(100, number(demandStatus.completion_percent)))}%` }} />
-            </div>
-            <div className="dawaa-muted mt-2 text-[11px]">
-              قابل للتحليل: {number(demandStatus.analyzable_sources).toLocaleString('ar-EG')} • تم V22: {number(demandStatus.analyzed_v22).toLocaleString('ar-EG')} • متبقي: {number(demandStatus.remaining_sources).toLocaleString('ar-EG')}
-            </div>
-          </>
-        ) : (
-          <div className="dawaa-muted mt-2 text-xs">تعذر قراءة حالة Backfill الخاصة بـProduct Demand.</div>
-        )}
+        <>
+          <div className="mt-3 h-2 overflow-hidden rounded-full bg-black/10">
+            <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.max(0, Math.min(100, v22Completion))}%` }} />
+          </div>
+          <div className="dawaa-muted mt-2 text-[11px]">
+            Canonical قابل للتحليل: {totalSources.toLocaleString('ar-EG')} • تم V22: {analyzedV22.toLocaleString('ar-EG')} • متبقي: {remainingV22.toLocaleString('ar-EG')}
+          </div>
+        </>
       </div>
 
-      {(coveredSources < totalSources || number(demandStatus?.remaining_sources) > 0) ? (
+      {(coveredSources < totalSources || remainingV22 > 0) ? (
         <div className="dawaa-muted mt-3 flex items-start gap-2 text-[10px] leading-5">
           <CircleAlert size={13} className="mt-0.5 shrink-0" />
           المقارنات بين الفروع أو تحليلات فقد البيع يجب قراءتها مع نسبة التغطية أعلاه؛ اكتمال الـDashboard لا يعني اكتمال المصدر.
