@@ -17,6 +17,14 @@ type StaffTruthRow = {
   item_evidence_available: boolean;
 };
 
+type StaffDirectoryRow = {
+  id: string;
+  name: string;
+  role: string | null;
+  branch: string | null;
+  is_active: boolean | null;
+};
+
 type OpportunityRow = {
   attributed_staff_id: string | null;
   attributed_staff_name: string | null;
@@ -98,6 +106,7 @@ export default function SalesIntelligenceStaffPerformanceV1({
 }) {
   const [truthRows, setTruthRows] = useState<StaffTruthRow[]>([]);
   const [opportunities, setOpportunities] = useState<OpportunityRow[]>([]);
+  const [staffDirectory, setStaffDirectory] = useState<StaffDirectoryRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
@@ -126,8 +135,14 @@ export default function SalesIntelligenceStaffPerformanceV1({
         opportunityQuery = opportunityQuery.eq('branch', branch);
       }
 
-      const [truthResult, opportunityResult] = await Promise.all([truthQuery, opportunityQuery]);
+      const [truthResult, opportunityResult, staffResult] = await Promise.all([
+        truthQuery,
+        opportunityQuery,
+        supabase.from('staff').select('id,name,role,branch,is_active').limit(2000),
+      ]);
       if (cancelled) return;
+
+      setStaffDirectory(staffResult.error ? [] : ((staffResult.data || []) as StaffDirectoryRow[]));
 
       if (truthResult.error) {
         setError(truthResult.error.message);
@@ -156,6 +171,22 @@ export default function SalesIntelligenceStaffPerformanceV1({
 
   const staffRows = useMemo(() => {
     const map = new Map<string, StaffRow>();
+
+    for (const staff of staffDirectory) {
+      if (!staff.id || !staff.name) continue;
+      map.set(staff.id, {
+        key: staff.id,
+        name: staff.name,
+        role: staff.role,
+        branch: staff.branch,
+        officialSales: 0,
+        officialRevenue: 0,
+        itemEvidenceSales: 0,
+        opportunities: 0,
+        acceptedOrLater: 0,
+        leakageCases: 0,
+      });
+    }
 
     for (const row of truthRows) {
       if (!row.is_staff_resolved || !row.canonical_staff_id || !row.canonical_staff_name) continue;
@@ -199,12 +230,15 @@ export default function SalesIntelligenceStaffPerformanceV1({
       if (opportunity.leakage_code) current.leakageCases += 1;
     }
 
-    return Array.from(map.values()).sort((a, b) =>
-      b.officialSales - a.officialSales ||
-      b.officialRevenue - a.officialRevenue ||
-      a.name.localeCompare(b.name, 'ar')
-    );
-  }, [opportunities, truthRows]);
+    return Array.from(map.values())
+      .filter((row) => row.officialSales > 0 || row.opportunities > 0)
+      .sort((a, b) =>
+        b.officialSales - a.officialSales ||
+        b.officialRevenue - a.officialRevenue ||
+        b.opportunities - a.opportunities ||
+        a.name.localeCompare(b.name, 'ar')
+      );
+  }, [opportunities, staffDirectory, truthRows]);
 
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
