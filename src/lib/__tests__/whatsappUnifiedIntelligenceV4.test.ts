@@ -42,6 +42,38 @@ describe('WhatsApp Review V4 unified intelligence', () => {
     expect(buildUnifiedConversationIntelligence(session).outcome).toBe('sold');
   });
 
+  it('does not treat a customer availability question as pharmacy-confirmed availability', () => {
+    const s = oneSession(`[9/15/26, 9:00:00 AM] Customer: المنتج متوفر؟
+[9/15/26, 9:01:00 AM] You: لحظة أشوفه لحضرتك`);
+    const result = buildUnifiedConversationIntelligence(s);
+    expect(result.journeyStages.find((x) => x.key === 'need')?.detected).toBe(true);
+    expect(result.journeyStages.find((x) => x.key === 'availability')?.detected).toBe(false);
+  });
+
+  it('does not classify a generic thank-you as customer acceptance', () => {
+    const s = oneSession(`[9/15/26, 9:00:00 AM] Customer: المنتج متوفر؟
+[9/15/26, 9:01:00 AM] You: متوفر يا فندم
+[9/15/26, 9:02:00 AM] Customer: شكرا جدا
+[9/15/26, 9:03:00 AM] You: تحت أمر حضرتك في أي وقت`);
+    const result = buildUnifiedConversationIntelligence(s);
+    expect(result.outcome).not.toBe('sold');
+  });
+
+  it('requires an outbound pharmacy close before chat outcome can be sold', () => {
+    const s = oneSession(`[9/15/26, 9:00:00 AM] Customer: عايز فاتورة للطلب
+[9/15/26, 9:01:00 AM] You: حاضر يا فندم بشوف لحضرتك`);
+    const result = buildUnifiedConversationIntelligence(s);
+    expect(result.journeyStages.find((x) => x.key === 'closing')?.detected).toBe(false);
+    expect(result.outcome).not.toBe('sold');
+  });
+
+  it('does not mark stockout leakage from a customer question alone', () => {
+    const s = oneSession(`[9/15/26, 9:00:00 AM] Customer: هو المنتج مش موجود؟
+[9/15/26, 9:01:00 AM] You: لحظة أتأكد لحضرتك`);
+    const result = buildUnifiedConversationIntelligence(s);
+    expect(result.lostSales.some((x) => x.summary.includes('نقص/عدم توفر'))).toBe(false);
+  });
+
   it('creates a portfolio summary for batch review', () => {
     const raw = `[9/15/26, 9:00:00 AM] Customer: فيتامين د متوفر؟\n[9/15/26, 9:01:00 AM] You: مع حضرتك د هبة من صيدليات دواء. متوفر\n[9/15/26, 9:02:00 AM] Customer: تمام ابعته\n[9/15/26, 9:03:00 AM] You: تم تأكيد الطلب\n[9/15/26, 12:30:00 PM] Customer: منتج تاني موجود؟\n[9/15/26, 12:31:00 PM] You: لا مش موجود`;
     const sessions = splitWhatsAppSessions(parseWhatsAppExport(raw), 120);
