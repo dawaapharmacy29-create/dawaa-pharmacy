@@ -24,6 +24,8 @@ import { enrichWhatsAppOperationalJourneysV7 } from '@/lib/whatsappProductJourne
 import { syncWhatsAppEvidenceLedgerV17 } from '@/lib/whatsappEvidenceLedgerV17';
 import { persistAutomaticWhatsAppReview } from '@/lib/whatsappAutomaticReviewPersistence';
 import { getCycleForDate } from '@/lib/pharmacy-cycle';
+import { resolveWhatsAppParticipantRolesV15, type WhatsAppParticipantRoleModelV15 } from '@/lib/whatsappParticipantRoleResolverV15';
+import { resolveConversationBranchHint, type BranchHintResult } from '@/lib/whatsappConversationBranchHint';
 
 type CustomerIdentity = {
   customerId: string | null;
@@ -248,7 +250,9 @@ async function saveSessionReview(
   session: WhatsAppConversationSession,
   sourceFileName: string,
   innerFileName: string | null,
-  identity: CustomerIdentity
+  identity: CustomerIdentity,
+  conversationBranch: string | null,
+  branchHint: BranchHintResult
 ) {
   const sourceHash = await hashWhatsAppSession(session);
   const { data: existing, error: existingError } = await supabase
@@ -270,7 +274,7 @@ async function saveSessionReview(
       source_type: 'whatsapp_export_auto',
       source_filename: sourceFileName,
       inner_filename: innerFileName,
-      branch: identity.branch,
+      branch: conversationBranch,
       customer_id: identity.customerId,
       customer_code: identity.customerCode,
       customer_name: identity.customerName || session.customerName,
@@ -295,8 +299,10 @@ async function saveSessionReview(
           customerId: identity.customerId,
           customerCode: identity.customerCode,
           customerPhone: identity.customerPhone,
-          branch: identity.branch,
+          customerRegisteredBranch: identity.branch,
+          conversationBranch,
         },
+        branchResolution: branchHint,
       },
     })
     .select('id')
@@ -319,14 +325,15 @@ async function saveSessionReview(
 async function verifySessionSale(
   session: WhatsAppConversationSession,
   sourceId: string,
-  identity: CustomerIdentity
+  identity: CustomerIdentity,
+  conversationBranch: string | null
 ) {
   const verification = await verifySessionAgainstInvoices(session, {
     customerId: identity.customerId,
     customerCode: identity.customerCode,
     customerPhone: identity.customerPhone,
     customerName: identity.customerName,
-    branch: identity.branch,
+    branch: conversationBranch,
   });
   await attachInvoiceVerificationToQueue(sourceId, verification);
   return verification.status;
@@ -351,7 +358,8 @@ function followupKey(
 async function saveFollowupSignals(
   session: WhatsAppConversationSession,
   sourceFileName: string,
-  identity: CustomerIdentity
+  identity: CustomerIdentity,
+  conversationBranch: string | null
 ) {
   const signals = detectFollowupSignals(session);
   if (!signals.length) return { created: 0, duplicate: 0 };
@@ -389,7 +397,7 @@ async function saveFollowupSignals(
   const rows = freshSignals.map((signal) => ({
     source_file_name: sourceFileName,
     conversation_session_id: session.id,
-    branch: identity.branch,
+    branch: conversationBranch,
     doctor_name:
       session.outboundStaffNames.length === 1 ? session.outboundStaffNames[0] : null,
     customer_name: identity.customerName || session.customerName || 'غير معروف',
@@ -416,7 +424,10 @@ async function saveFollowupSignals(
 async function persistOperationalJourneyIntelligence(
   session: WhatsAppConversationSession,
   sourceId: string,
-  identity: CustomerIdentity
+  identity: CustomerIdentity,
+  conversationBranch: string | null,
+  participantRoles: WhatsAppParticipantRoleModelV15,
+  branchHint: BranchHintResult
 ) {
   const base = buildUnifiedConversationIntelligence(session);
   const initial = buildWhatsAppOperationalIntelligenceV6(session, base);
@@ -433,11 +444,14 @@ async function persistOperationalJourneyIntelligence(
   const nextAnalysis = {
     ...(sourceRow?.analysis_json || {}),
     operational: JSON.parse(JSON.stringify(operational)),
+    participantRoles: JSON.parse(JSON.stringify(participantRoles)),
+    branchHint: JSON.parse(JSON.stringify(branchHint)),
     productDemandVersion: 'product-demand-v22.1',
   };
   const { error: sourceUpdateError } = await supabase
     .from('whatsapp_review_sources')
     .update({
+      branch: conversationBranch,
       analysis_json: nextAnalysis,
       updated_at: new Date().toISOString(),
     })
@@ -446,7 +460,7 @@ async function persistOperationalJourneyIntelligence(
 
   await syncWhatsAppOperationalActionsV6(operational, {
     sourceId,
-    branch: identity.branch,
+    branch: conversationBranch,
     customerId: identity.customerId,
     customerCode: identity.customerCode,
     customerName: identity.customerName,
@@ -462,7 +476,7 @@ async function persistOperationalJourneyIntelligence(
     sourceId,
     operational,
     analysisVersion: 'product-demand-v22.1',
-    participantRoles: nextAnalysis.participantRoles,
+    participantRoles,
   });
 
   return operational;
@@ -502,11 +516,17 @@ export async function ingestWhatsAppExportFile(file: File): Promise<IngestOneFil
       const identity = await resolveCustomerIdentity(session);
       if (identity.matchedBy !== 'none') result.customersMatched += 1;
 
+      const participantRoles = await resolveWhatsAppParticipantRolesV15(session);
+      const branchHint = await resolveConversationBranchHint(session, participantRoles, null);
+      const conversationBranch = branchHint.value;
+
       const saved = await saveSessionReview(
         session,
         source.sourceFileName,
         source.innerFileName || null,
-        identity
+        identity,
+        conversationBranch,
+        branchHint
       );
       if (saved.duplicate) result.sessionsDuplicate += 1;
       else result.sessionsSaved += 1;
@@ -516,7 +536,7 @@ export async function ingestWhatsAppExportFile(file: File): Promise<IngestOneFil
           const autoReview = await persistAutomaticWhatsAppReview({
             sourceId: saved.sourceId,
             session,
-            branch: identity.branch,
+            branch: conversationBranch,
             customerId: identity.customerId,
             customerCode: identity.customerCode,
             customerName: identity.customerName,
@@ -546,7 +566,7 @@ export async function ingestWhatsAppExportFile(file: File): Promise<IngestOneFil
         }
       }
 
-      const invoiceStatus = await verifySessionSale(session, saved.sourceId, identity);
+      const invoiceStatus = await verifySessionSale(session, saved.sourceId, identity, conversationBranch);
       if (invoiceStatus === 'verified') result.invoicesVerified += 1;
       else if (invoiceStatus === 'probable' || invoiceStatus === 'needs_review')
         result.invoicesProbable += 1;
@@ -554,7 +574,14 @@ export async function ingestWhatsAppExportFile(file: File): Promise<IngestOneFil
       else result.invoiceChecksSkipped += 1;
 
       try {
-        await persistOperationalJourneyIntelligence(session, saved.sourceId, identity);
+        await persistOperationalJourneyIntelligence(
+          session,
+          saved.sourceId,
+          identity,
+          conversationBranch,
+          participantRoles,
+          branchHint
+        );
       } catch (operationalError) {
         result.errors.push(
           operationalError instanceof Error
