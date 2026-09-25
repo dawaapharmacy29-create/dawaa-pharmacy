@@ -13,6 +13,7 @@ type StaffTruthRow = {
   canonical_staff_name: string | null;
   canonical_staff_role: string | null;
   canonical_staff_branch: string | null;
+  canonical_staff_is_active: boolean | null;
   staff_resolution_status: string;
   is_staff_resolved: boolean;
   item_evidence_available: boolean;
@@ -112,7 +113,7 @@ export default function SalesIntelligenceStaffPerformanceV1({
 
       let truthQuery = supabase
         .from('sales_intelligence_invoice_staff_truth_v1')
-        .select('case_id,invoice_datetime,invoice_branch,invoice_amount,canonical_staff_id,canonical_staff_name,canonical_staff_role,canonical_staff_branch,staff_resolution_status,is_staff_resolved,item_evidence_available')
+        .select('case_id,invoice_datetime,invoice_branch,invoice_amount,canonical_staff_id,canonical_staff_name,canonical_staff_role,canonical_staff_branch,canonical_staff_is_active,staff_resolution_status,is_staff_resolved,item_evidence_available')
         .gte('invoice_datetime', `${previousDayYmdV1(cycle.start)}T00:00:00Z`)
         .lt('invoice_datetime', `${nextDayYmdV1(cycle.end)}T00:00:00Z`)
         .limit(2000);
@@ -196,7 +197,7 @@ export default function SalesIntelligenceStaffPerformanceV1({
     }
 
     for (const row of truthRows) {
-      if (!row.is_staff_resolved || !row.canonical_staff_id || !row.canonical_staff_name) continue;
+      if (!row.is_staff_resolved || row.canonical_staff_is_active !== true || !row.canonical_staff_id || !row.canonical_staff_name) continue;
       const key = row.canonical_staff_id;
       const current = map.get(key) || {
         key,
@@ -256,7 +257,9 @@ export default function SalesIntelligenceStaffPerformanceV1({
     );
   }, [search, staffRows]);
 
-  const unresolvedOfficial = truthRows.filter((row) => !row.is_staff_resolved).length;
+  const unresolvedOfficial = truthRows.filter(
+    (row) => !row.is_staff_resolved || row.canonical_staff_is_active !== true
+  ).length;
   const totalRevenue = staffRows.reduce((sum, row) => sum + row.officialRevenue, 0);
   const totalSales = staffRows.reduce((sum, row) => sum + row.officialSales, 0);
   const itemEvidenceSales = staffRows.reduce((sum, row) => sum + row.itemEvidenceSales, 0);
