@@ -19,6 +19,8 @@ export interface ProductDemandBackfillOptionsV22 {
   dryRun?: boolean;
   sourceIds?: string[];
   force?: boolean;
+  dryRunConcurrency?: number;
+  onProgress?: (processed: number, total: number) => void;
 }
 
 export interface ProductDemandBackfillSourceResultV22 {
@@ -157,127 +159,55 @@ function backfillErrorMessage(error: unknown) {
   return String(error || 'خطأ غير معروف أثناء إعادة التحليل.');
 }
 
-export async function runProductDemandBackfillV22(
-  options: ProductDemandBackfillOptionsV22 = {}
-): Promise<ProductDemandBackfillResultV22> {
-  const dryRun = options.dryRun !== false;
-  const loaded = await loadSources(options);
-  const sources = loaded.rows;
-  const rows: ProductDemandBackfillSourceResultV22[] = [];
+async function processProductDemandSourceV22(
+  source: SourceRow,
+  dryRun: boolean
+): Promise<ProductDemandBackfillSourceResultV22> {
+  try {
+    const raw = String(source.raw_text || '').trim();
+    if (!raw) {
+      return { sourceId: source.id, status: 'skipped', reason: 'النص الأصلي للمحادثة غير متاح.', canonicalProducts: 0, unresolvedProducts: 0, productCodes: [], canonicalProductNames: [], unresolvedExamples: [], priorCanonicalProductCodes: [], droppedPriorCanonicalCodes: [] };
+    }
 
-  for (const source of sources) {
-    try {
-      const raw = String(source.raw_text || '').trim();
-      if (!raw) {
-        rows.push({ sourceId: source.id, status: 'skipped', reason: 'النص الأصلي للمحادثة غير متاح.', canonicalProducts: 0, unresolvedProducts: 0, productCodes: [], canonicalProductNames: [], unresolvedExamples: [], priorCanonicalProductCodes: [], droppedPriorCanonicalCodes: [] });
-        continue;
-      }
+    const parsed = parseWhatsAppExport(raw, {
+      trustedConversationStartedAt: source.conversation_started_at || undefined,
+    });
+    const session = buildProductDemandSession(
+      splitWhatsAppSessions(parsed, 120),
+      source.conversation_started_at,
+      source.conversation_ended_at
+    );
+    if (!session) {
+      return { sourceId: source.id, status: 'skipped', reason: 'تعذر تكوين جلسة محادثة صالحة للتحليل.', canonicalProducts: 0, unresolvedProducts: 0, productCodes: [], canonicalProductNames: [], unresolvedExamples: [], priorCanonicalProductCodes: [], droppedPriorCanonicalCodes: [] };
+    }
 
-      const parsed = parseWhatsAppExport(raw, {
-        trustedConversationStartedAt: source.conversation_started_at || undefined,
-      });
-      const session = buildProductDemandSession(
-        splitWhatsAppSessions(parsed, 120),
-        source.conversation_started_at,
-        source.conversation_ended_at
-      );
-      if (!session) {
-        rows.push({ sourceId: source.id, status: 'skipped', reason: 'تعذر تكوين جلسة محادثة صالحة للتحليل.', canonicalProducts: 0, unresolvedProducts: 0, productCodes: [], canonicalProductNames: [], unresolvedExamples: [], priorCanonicalProductCodes: [], droppedPriorCanonicalCodes: [] });
-        continue;
-      }
+    const base = buildUnifiedConversationIntelligence(session);
+    const operational0 = buildWhatsAppOperationalIntelligenceV6(session, base);
+    const operational1 = await enrichWhatsAppOperationalProductsV6(operational0, session);
+    const operational = enrichWhatsAppOperationalJourneysV7(session, operational1);
 
-      const base = buildUnifiedConversationIntelligence(session);
-      const operational0 = buildWhatsAppOperationalIntelligenceV6(session, base);
-      const operational1 = await enrichWhatsAppOperationalProductsV6(operational0, session);
-      const operational = enrichWhatsAppOperationalJourneysV7(session, operational1);
+    const canonical = operational.products.filter((product) => Boolean(product.productId && product.productCode));
+    const unresolved = operational.products.filter((product) => !product.productId);
+    const productCodes = Array.from(new Set(canonical.map((product) => String(product.productCode)).filter(Boolean)));
+    const { data: priorRows, error: priorError } = await supabase
+      .from('whatsapp_sales_opportunities_v17')
+      .select('product_code,product_id,analysis_version')
+      .eq('root_source_id', source.id)
+      .in('analysis_version', ['product-demand-v22', 'product-demand-v22.1'])
+      .not('product_id', 'is', null);
+    if (priorError) throw priorError;
 
-      const canonical = operational.products.filter((product) => Boolean(product.productId && product.productCode));
-      const unresolved = operational.products.filter((product) => !product.productId);
-      const productCodes = Array.from(new Set(canonical.map((product) => String(product.productCode)).filter(Boolean)));
-      const { data: priorRows, error: priorError } = await supabase
-        .from('whatsapp_sales_opportunities_v17')
-        .select('product_code,product_id,analysis_version')
-        .eq('root_source_id', source.id)
-        .in('analysis_version', ['product-demand-v22', 'product-demand-v22.1'])
-        .not('product_id', 'is', null);
-      if (priorError) throw priorError;
-      const priorCanonicalProductCodes = collectPriorCanonicalProductCodesV22(priorRows || []);
-      const droppedPriorCanonicalCodes = findDroppedPriorCanonicalCodesV22(
-        priorCanonicalProductCodes,
-        productCodes
-      );
+    const priorCanonicalProductCodes = collectPriorCanonicalProductCodesV22(priorRows || []);
+    const droppedPriorCanonicalCodes = findDroppedPriorCanonicalCodesV22(
+      priorCanonicalProductCodes,
+      productCodes
+    );
 
-      if (droppedPriorCanonicalCodes.length) {
-        rows.push({
-          sourceId: source.id,
-          status: 'failed',
-          reason: 'تم إيقاف الحالة لأن التحليل الجديد أسقط صنفًا كان مرتبطًا سابقًا بالكتالوج: ' + droppedPriorCanonicalCodes.join('، '),
-          canonicalProducts: canonical.length,
-          unresolvedProducts: unresolved.length,
-          productCodes,
-          canonicalProductNames: Array.from(new Set(canonical.map((product) => String(product.canonicalName || product.rawName)).filter(Boolean))).slice(0, 12),
-          unresolvedExamples: Array.from(new Set(unresolved.map((product) => String(product.rawName || '').trim()).filter(Boolean))).slice(0, 12),
-          priorCanonicalProductCodes,
-          droppedPriorCanonicalCodes,
-        });
-        continue;
-      }
-
-      if (!dryRun) {
-        const nextAnalysis = {
-          ...(source.analysis_json || {}),
-          operational: JSON.parse(JSON.stringify(operational)),
-          productDemandVersion: 'product-demand-v22.1',
-          productDemandBackfilledAt: new Date().toISOString(),
-        };
-
-        // Persist downstream artifacts first. The source is marked V22 only after BOTH writes
-        // succeed, so a partial failure can never masquerade as a completed backfill.
-        await syncWhatsAppOperationalActionsV6(operational, {
-          sourceId: source.id,
-          branch: source.branch,
-          customerId: source.customer_id,
-          customerCode: source.customer_code,
-          customerName: source.customer_name,
-          customerPhone: source.customer_phone,
-          staffId: source.staff_id,
-          staffName: source.staff_name,
-          createdBy: source.created_by,
-        });
-
-        await syncWhatsAppEvidenceLedgerV17(session, {
-          sourceId: source.id,
-          operational,
-          analysisVersion: 'product-demand-v22.1',
-          participantRoles: source.analysis_json?.participantRoles,
-        });
-
-        const canonicalProductIds = Array.from(new Set(
-          (operational.productJourney?.journeys || [])
-            .map((journey: any) => journey.productId)
-            .filter(Boolean)
-            .map(String)
-        ));
-        let staleQuery = supabase
-          .from('whatsapp_sales_opportunities_v17')
-          .delete()
-          .eq('root_source_id', source.id)
-          .eq('analysis_version', 'product-demand-v22.1');
-        if (canonicalProductIds.length) staleQuery = staleQuery.not('product_id', 'in', '(' + canonicalProductIds.join(',') + ')');
-        const { error: staleError } = await staleQuery;
-        if (staleError) throw staleError;
-
-        const { error: updateError } = await supabase
-          .from('whatsapp_review_sources')
-          .update({ analysis_json: nextAnalysis, updated_at: new Date().toISOString() })
-          .eq('id', source.id);
-        if (updateError) throw updateError;
-      }
-
-      rows.push({
+    if (droppedPriorCanonicalCodes.length) {
+      return {
         sourceId: source.id,
-        status: dryRun ? 'ready' : 'written',
-        reason: null,
+        status: 'failed',
+        reason: 'تم إيقاف الحالة لأن التحليل الجديد أسقط صنفًا كان مرتبطًا سابقًا بالكتالوج: ' + droppedPriorCanonicalCodes.join('، '),
         canonicalProducts: canonical.length,
         unresolvedProducts: unresolved.length,
         productCodes,
@@ -285,20 +215,127 @@ export async function runProductDemandBackfillV22(
         unresolvedExamples: Array.from(new Set(unresolved.map((product) => String(product.rawName || '').trim()).filter(Boolean))).slice(0, 12),
         priorCanonicalProductCodes,
         droppedPriorCanonicalCodes,
-      });
-    } catch (error) {
-      rows.push({
+      };
+    }
+
+    if (!dryRun) {
+      const nextAnalysis = {
+        ...(source.analysis_json || {}),
+        operational: JSON.parse(JSON.stringify(operational)),
+        productDemandVersion: 'product-demand-v22.1',
+        productDemandBackfilledAt: new Date().toISOString(),
+      };
+
+      await syncWhatsAppOperationalActionsV6(operational, {
         sourceId: source.id,
-        status: 'failed',
-        reason: backfillErrorMessage(error),
-        canonicalProducts: 0,
-        unresolvedProducts: 0,
-        productCodes: [],
-        canonicalProductNames: [],
-        unresolvedExamples: [],
-        priorCanonicalProductCodes: [],
-        droppedPriorCanonicalCodes: [],
+        branch: source.branch,
+        customerId: source.customer_id,
+        customerCode: source.customer_code,
+        customerName: source.customer_name,
+        customerPhone: source.customer_phone,
+        staffId: source.staff_id,
+        staffName: source.staff_name,
+        createdBy: source.created_by,
       });
+
+      await syncWhatsAppEvidenceLedgerV17(session, {
+        sourceId: source.id,
+        operational,
+        analysisVersion: 'product-demand-v22.1',
+        participantRoles: source.analysis_json?.participantRoles,
+      });
+
+      const canonicalProductIds = Array.from(new Set(
+        (operational.productJourney?.journeys || [])
+          .map((journey: any) => journey.productId)
+          .filter(Boolean)
+          .map(String)
+      ));
+      let staleQuery = supabase
+        .from('whatsapp_sales_opportunities_v17')
+        .delete()
+        .eq('root_source_id', source.id)
+        .eq('analysis_version', 'product-demand-v22.1');
+      if (canonicalProductIds.length) staleQuery = staleQuery.not('product_id', 'in', '(' + canonicalProductIds.join(',') + ')');
+      const { error: staleError } = await staleQuery;
+      if (staleError) throw staleError;
+
+      const { error: updateError } = await supabase
+        .from('whatsapp_review_sources')
+        .update({ analysis_json: nextAnalysis, updated_at: new Date().toISOString() })
+        .eq('id', source.id);
+      if (updateError) throw updateError;
+    }
+
+    return {
+      sourceId: source.id,
+      status: dryRun ? 'ready' : 'written',
+      reason: null,
+      canonicalProducts: canonical.length,
+      unresolvedProducts: unresolved.length,
+      productCodes,
+      canonicalProductNames: Array.from(new Set(canonical.map((product) => String(product.canonicalName || product.rawName)).filter(Boolean))).slice(0, 12),
+      unresolvedExamples: Array.from(new Set(unresolved.map((product) => String(product.rawName || '').trim()).filter(Boolean))).slice(0, 12),
+      priorCanonicalProductCodes,
+      droppedPriorCanonicalCodes,
+    };
+  } catch (error) {
+    return {
+      sourceId: source.id,
+      status: 'failed',
+      reason: backfillErrorMessage(error),
+      canonicalProducts: 0,
+      unresolvedProducts: 0,
+      productCodes: [],
+      canonicalProductNames: [],
+      unresolvedExamples: [],
+      priorCanonicalProductCodes: [],
+      droppedPriorCanonicalCodes: [],
+    };
+  }
+}
+
+async function mapProductDemandDryRunWithConcurrency(
+  sources: SourceRow[],
+  concurrency: number,
+  onProgress?: (processed: number, total: number) => void
+): Promise<ProductDemandBackfillSourceResultV22[]> {
+  if (!sources.length) return [];
+  const results = new Array<ProductDemandBackfillSourceResultV22>(sources.length);
+  let cursor = 0;
+  let processed = 0;
+  const workerCount = Math.max(1, Math.min(concurrency, sources.length));
+
+  async function worker() {
+    while (true) {
+      const index = cursor;
+      cursor += 1;
+      if (index >= sources.length) return;
+      results[index] = await processProductDemandSourceV22(sources[index], true);
+      processed += 1;
+      onProgress?.(processed, sources.length);
+    }
+  }
+
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return results;
+}
+
+export async function runProductDemandBackfillV22(
+  options: ProductDemandBackfillOptionsV22 = {}
+): Promise<ProductDemandBackfillResultV22> {
+  const dryRun = options.dryRun !== false;
+  const loaded = await loadSources(options);
+  const sources = loaded.rows;
+  let rows: ProductDemandBackfillSourceResultV22[] = [];
+
+  if (dryRun) {
+    const concurrency = Math.max(1, Math.min(8, options.dryRunConcurrency ?? 4));
+    rows = await mapProductDemandDryRunWithConcurrency(sources, concurrency, options.onProgress);
+  } else {
+    for (const source of sources) {
+      rows.push(await processProductDemandSourceV22(source, false));
+      options.onProgress?.(rows.length, sources.length);
     }
   }
 

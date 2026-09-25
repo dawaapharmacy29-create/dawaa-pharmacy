@@ -80,9 +80,17 @@ const { runProductDemandBackfillV22 } = require(
 (async () => {
   console.log(`Product Demand V22.1 backfill: ${apply ? 'APPLY' : 'DRY RUN'}`);
 
+  let lastLogged = 0;
   const result = await runProductDemandBackfillV22({
     limit: 500,
     dryRun: !apply,
+    dryRunConcurrency: apply ? 1 : 4,
+    onProgress(processed, total) {
+      if (processed === total || processed - lastLogged >= 5) {
+        lastLogged = processed;
+        console.log(`Progress: ${processed}/${total}`);
+      }
+    },
   });
 
   const summary = {
