@@ -24,7 +24,9 @@
     "vercel:install": "npm ci --legacy-peer-deps --no-audit --no-fund",
     "verify": "npm run doctor && npm run test && npm run typecheck && npm run build && npm run perf:budget",
     "sales-intelligence:backfill:dry-run": "node scripts/run-sales-intelligence-backfill.cjs",
-    "sales-intelligence:backfill:apply": "node scripts/run-sales-intelligence-backfill.cjs --apply"
+    "sales-intelligence:backfill:apply": "node scripts/run-sales-intelligence-backfill.cjs --apply",
+    "sales-intelligence:backfill:item-ready:dry-run": "node scripts/run-sales-intelligence-backfill.cjs --item-ready-only",
+    "sales-intelligence:backfill:item-ready:apply": "node scripts/run-sales-intelligence-backfill.cjs --item-ready-only --apply"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",
