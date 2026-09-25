@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { BarChart3, Boxes, CircleAlert, RefreshCw, Settings2, TrendingUp } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { selectCanonicalReviewSourceIds } from '@/lib/salesIntelligence/sourceSnapshotLineage';
 import { runProductDemandBackfillV22, type ProductDemandBackfillSourceResultV22 } from '@/lib/whatsappProductDemandBackfillV22';
 
 type DemandRow = {
@@ -34,6 +35,47 @@ type BackfillStatus = {
   remaining_sources: number;
   completion_percent: number | string | null;
 };
+
+type BackfillSourceStatusRow = {
+  id: string;
+  source_filename: string | null;
+  customer_id: string | null;
+  customer_code: string | null;
+  customer_phone: string | null;
+  customer_name: string | null;
+  conversation_started_at: string | null;
+  conversation_ended_at: string | null;
+  message_count: number | null;
+  created_at: string | null;
+  raw_text: string | null;
+  analysis_json: Record<string, any> | null;
+};
+
+async function loadCanonicalBackfillStatusV22(): Promise<BackfillStatus | null> {
+  const rows: BackfillSourceStatusRow[] = [];
+  const pageSize = 500;
+  let from = 0;
+  while (true) {
+    const { data, error } = await supabase
+      .from('whatsapp_review_sources')
+      .select('id,source_filename,customer_id,customer_code,customer_phone,customer_name,conversation_started_at,conversation_ended_at,message_count,created_at,raw_text,analysis_json')
+      .not('raw_text', 'is', null)
+      .range(from, from + pageSize - 1);
+    if (error) return null;
+    rows.push(...((data || []) as BackfillSourceStatusRow[]));
+    if ((data || []).length < pageSize) break;
+    from += pageSize;
+  }
+  const canonicalIds = selectCanonicalReviewSourceIds(rows);
+  const canonical = rows.filter((row) => canonicalIds.has(row.id) && String(row.raw_text || '').trim().length > 0);
+  const analyzed = canonical.filter((row) => row.analysis_json?.productDemandVersion === 'product-demand-v22.1').length;
+  return {
+    analyzable_sources: canonical.length,
+    analyzed_v22: analyzed,
+    remaining_sources: Math.max(0, canonical.length - analyzed),
+    completion_percent: canonical.length ? Math.round((analyzed / canonical.length) * 1000) / 10 : 0,
+  };
+}
 
 type DetailRow = {
   opportunity_id: string;
@@ -124,17 +166,17 @@ export default function ProductDemandLeakageV22({ cycleStart, branch }: { cycleS
     setLoading(true);
     setError(null);
     try {
-      const [{ data: d, error: de }, { data: l, error: le }, { data: u, error: ue }, { data: bs, error: bse }] = await Promise.all([
+      const [{ data: d, error: de }, { data: l, error: le }, { data: u, error: ue }, canonicalStatus] = await Promise.all([
         supabase.from('whatsapp_product_demand_monthly_v22').select('*').order('cycle_start', { ascending: false }).order('inquiry_opportunities', { ascending: false }).limit(200),
         supabase.from('whatsapp_sales_leakage_monthly_v22').select('*').order('cycle_start', { ascending: false }).order('cases_count', { ascending: false }).limit(200),
         supabase.from('whatsapp_product_demand_unresolved_v22').select('*').order('cycle_start', { ascending: false }).limit(100),
-        supabase.from('whatsapp_product_demand_backfill_status_v22').select('*').maybeSingle(),
+        loadCanonicalBackfillStatusV22(),
       ]);
-      if (de || le || ue || bse) throw de || le || ue || bse;
+      if (de || le || ue) throw de || le || ue;
       setDemand((d || []) as DemandRow[]);
       setLeakage((l || []) as LeakageRow[]);
       setUnresolved((u || []) as UnresolvedRow[]);
-      setBackfillStatus((bs || null) as BackfillStatus | null);
+      setBackfillStatus(canonicalStatus);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'تعذر تحميل تحليل الطلب على الأصناف وأسباب فقد البيع.');
     } finally {

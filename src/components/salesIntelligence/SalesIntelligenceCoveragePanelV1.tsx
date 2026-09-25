@@ -1,8 +1,21 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Activity, CircleAlert, Database, GitBranch, PackageSearch } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { selectCanonicalReviewSourceIds } from '@/lib/salesIntelligence/sourceSnapshotLineage';
 
-type SourceRow = { id: string; branch: string | null };
+type SourceRow = {
+  id: string;
+  branch: string | null;
+  source_filename: string | null;
+  customer_id: string | null;
+  customer_code: string | null;
+  customer_phone: string | null;
+  customer_name: string | null;
+  conversation_started_at: string | null;
+  conversation_ended_at: string | null;
+  message_count: number | null;
+  created_at: string | null;
+};
 type CaseRow = { conversation_id: string; branch_name_raw: string | null };
 type DemandStatus = {
   analyzable_sources: number | string | null;
@@ -35,7 +48,7 @@ export default function SalesIntelligenceCoveragePanelV1() {
     async function load() {
       setLoading(true);
       const [sourceResult, caseResult, demandResult] = await Promise.all([
-        supabase.from('whatsapp_review_sources').select('id,branch').limit(2000),
+        supabase.from('whatsapp_review_sources').select('id,branch,source_filename,customer_id,customer_code,customer_phone,customer_name,conversation_started_at,conversation_ended_at,message_count,created_at').limit(2000),
         supabase.from('sales_intelligence_cases').select('conversation_id,branch_name_raw').limit(5000),
         supabase.from('whatsapp_product_demand_backfill_status_v22').select('*').maybeSingle(),
       ]);
@@ -56,10 +69,15 @@ export default function SalesIntelligenceCoveragePanelV1() {
     return () => { cancelled = true; };
   }, []);
 
+  const canonicalSources = useMemo(() => {
+    const canonicalIds = selectCanonicalReviewSourceIds(sources);
+    return sources.filter((row) => canonicalIds.has(row.id));
+  }, [sources]);
+
   const coverage = useMemo(() => {
     const coveredIds = new Set(cases.map((row) => row.conversation_id).filter(Boolean));
     const map = new Map<string, BranchCoverage>();
-    for (const source of sources) {
+    for (const source of canonicalSources) {
       const key = source.branch || 'بدون فرع';
       const current = map.get(key) || { branch: key, sources: 0, covered: 0, uncovered: 0 };
       current.sources += 1;
@@ -68,13 +86,13 @@ export default function SalesIntelligenceCoveragePanelV1() {
       map.set(key, current);
     }
     return Array.from(map.values()).sort((a, b) => b.sources - a.sources || a.branch.localeCompare(b.branch, 'ar'));
-  }, [cases, sources]);
+  }, [canonicalSources, cases]);
 
-  const totalSources = sources.length;
+  const totalSources = canonicalSources.length;
   const coveredSources = useMemo(() => {
     const coveredIds = new Set(cases.map((row) => row.conversation_id).filter(Boolean));
-    return sources.filter((row) => coveredIds.has(row.id)).length;
-  }, [cases, sources]);
+    return canonicalSources.filter((row) => coveredIds.has(row.id)).length;
+  }, [canonicalSources, cases]);
 
   if (loading) {
     return <section className="dawaa-card"><div className="dawaa-muted py-6 text-center text-xs">جاري فحص تغطية مصادر ذكاء المبيعات...</div></section>;
@@ -95,7 +113,7 @@ export default function SalesIntelligenceCoveragePanelV1() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2 font-black"><Database size={18} />تغطية البيانات</div>
-          <div className="dawaa-muted mt-1 text-xs">تعرض الفرق بين مصادر واتساب الموجودة فعليًا وما دخل الـSales Intelligence والـProduct Demand.</div>
+          <div className="dawaa-muted mt-1 text-xs">تعرض الفرق بين مصادر واتساب الـcanonical الحالية وما دخل الـSales Intelligence والـProduct Demand، بدون احتساب snapshots القديمة كمصادر ناقصة.</div>
         </div>
         <div className={coveredSources === totalSources && totalSources ? 'dawaa-badge dawaa-badge--success' : 'dawaa-badge dawaa-badge--warning'}>
           {coveredSources.toLocaleString('ar-EG')} / {totalSources.toLocaleString('ar-EG')} مصدر داخل Sales Intelligence

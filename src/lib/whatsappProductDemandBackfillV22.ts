@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { selectCanonicalReviewSourceIds } from '@/lib/salesIntelligence/sourceSnapshotLineage';
 import { parseWhatsAppExport, splitWhatsAppSessions, type WhatsAppConversationSession } from '@/lib/whatsappConversationParser';
 import { buildUnifiedConversationIntelligence } from '@/lib/whatsappUnifiedIntelligenceV4';
 import {
@@ -48,6 +49,7 @@ export interface ProductDemandBackfillResultV22 {
 
 type SourceRow = {
   id: string;
+  source_filename: string | null;
   raw_text: string | null;
   conversation_started_at: string | null;
   conversation_ended_at: string | null;
@@ -59,6 +61,8 @@ type SourceRow = {
   staff_id: string | null;
   staff_name: string | null;
   created_by: string | null;
+  message_count: number | null;
+  created_at: string | null;
   analysis_json: Record<string, any> | null;
 };
 
@@ -100,22 +104,38 @@ function buildProductDemandSession(
 
 async function loadSources(options: ProductDemandBackfillOptionsV22): Promise<SourceRow[]> {
   const limit = Math.max(1, Math.min(100, options.limit ?? 20));
-  // Pull a wider candidate window, then skip rows already backfilled. This avoids repeatedly
-  // rewriting the same 20 conversations while keeping the query compatible with old JSON rows.
-  let query = supabase
-    .from('whatsapp_review_sources')
-    .select('id,raw_text,conversation_started_at,conversation_ended_at,branch,customer_id,customer_code,customer_name,customer_phone,staff_id,staff_name,created_by,analysis_json')
-    .not('raw_text', 'is', null)
-    .order('conversation_started_at', { ascending: false })
-    .limit(Math.min(300, limit * 5));
+  const rows: SourceRow[] = [];
+  const pageSize = 500;
+  let from = 0;
 
-  if (options.sourceIds?.length) query = query.in('id', options.sourceIds);
-  const { data, error } = await query;
-  if (error) throw error;
-  const rows = (data || []) as SourceRow[];
+  // Product Demand must use the SAME canonical source lineage as Sales Intelligence.
+  // Fetch the complete source set first; otherwise an older partial snapshot can look canonical
+  // simply because its fuller replacement fell outside a small "latest N" query window.
+  while (true) {
+    const { data, error } = await supabase
+      .from('whatsapp_review_sources')
+      .select('id,source_filename,raw_text,conversation_started_at,conversation_ended_at,branch,customer_id,customer_code,customer_name,customer_phone,staff_id,staff_name,created_by,message_count,created_at,analysis_json')
+      .not('raw_text', 'is', null)
+      .order('conversation_started_at', { ascending: false })
+      .range(from, from + pageSize - 1);
+    if (error) throw error;
+    rows.push(...((data || []) as SourceRow[]));
+    if ((data || []).length < pageSize) break;
+    from += pageSize;
+  }
+
+  const canonicalIds = selectCanonicalReviewSourceIds(rows);
+  let canonicalRows = rows.filter((row) => canonicalIds.has(row.id));
+
+  if (options.sourceIds?.length) {
+    const requested = new Set(options.sourceIds);
+    canonicalRows = canonicalRows.filter((row) => requested.has(row.id));
+  }
+
   const filtered = options.force || options.sourceIds?.length
-    ? rows
-    : rows.filter((row) => row.analysis_json?.productDemandVersion !== 'product-demand-v22.1');
+    ? canonicalRows
+    : canonicalRows.filter((row) => row.analysis_json?.productDemandVersion !== 'product-demand-v22.1');
+
   return filtered.slice(0, limit);
 }
 
