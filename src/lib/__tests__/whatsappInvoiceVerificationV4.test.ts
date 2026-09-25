@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const readCustomerInvoicesMock = vi.fn();
+const { readCustomerInvoicesMock } = vi.hoisted(() => ({
+  readCustomerInvoicesMock: vi.fn(),
+}));
 
 vi.mock('@/lib/readModels/customerInvoiceReadModel', () => ({
   readCustomerInvoices: readCustomerInvoicesMock,
