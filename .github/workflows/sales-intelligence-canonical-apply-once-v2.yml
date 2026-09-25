@@ -1,15 +1,9 @@
 name: Sales Intelligence canonical apply once v2
 
-# Self-gating one-time writer. It only auto-runs when THIS v2 workflow file is introduced/changed.
-# Normal integration CI is intentionally skipped on the matching [apply-v2] commit to avoid
-# running two expensive database dry-runs concurrently.
+# Production writer: manual dispatch only. Merging or editing this workflow must never write to Production.
 
 on:
-  push:
-    branches:
-      - feature/whatsapp-sales-intelligence-v1
-    paths:
-      - ".github/workflows/sales-intelligence-canonical-apply-once-v2.yml"
+  workflow_dispatch:
 
 permissions:
   contents: read
