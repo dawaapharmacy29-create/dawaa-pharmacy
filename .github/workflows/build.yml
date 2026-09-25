@@ -74,10 +74,10 @@ jobs:
             exit 1
           }
       - name: Verify TS runtime
-        run: npx --no-install tsx --version
+        run: npx --no-install vite-node --version
       - name: Dry-run operational reanalysis
         if: ${{ github.event_name == 'pull_request' || inputs.whatsapp_operational_reanalysis == 'dry-run' }}
-        run: npx --no-install tsx scripts/run-whatsapp-operational-reanalysis.ts --json --output-file=whatsapp-operational-reanalysis-plan.json
+        run: npx --no-install vite-node scripts/run-whatsapp-operational-reanalysis.ts -- --json --output-file=whatsapp-operational-reanalysis-plan.json
       - name: Upload dry-run plan
         if: ${{ github.event_name == 'pull_request' || inputs.whatsapp_operational_reanalysis == 'dry-run' }}
         uses: actions/upload-artifact@v4
