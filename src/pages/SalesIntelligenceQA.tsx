@@ -102,17 +102,17 @@ export default function SalesIntelligenceQA() {
 
       <section className="dawaa-card p-2">
         <div className="grid gap-2 sm:grid-cols-3">
-          {[
-            ['overview', 'الملخص التنفيذي', LayoutDashboard, 'قرار الإدارة والأرقام الرسمية'],
-            ['demand', 'الطلب وفقد البيع', BarChart3, 'الأصناف والفرص والتسرب'],
-            ['qa', 'مراجعة الحالات', ListChecks, 'QA الفني والتفاصيل الدقيقة'],
-          ].map(([key, label, Icon, hint]) => {
+          {([
+            { key: 'overview', label: 'الملخص التنفيذي', Icon: LayoutDashboard, hint: 'قرار الإدارة والأرقام الرسمية' },
+            { key: 'demand', label: 'الطلب وفقد البيع', Icon: BarChart3, hint: 'الأصناف والفرص والتسرب' },
+            { key: 'qa', label: 'مراجعة الحالات', Icon: ListChecks, hint: 'QA الفني والتفاصيل الدقيقة' },
+          ] as const).map(({ key, label, Icon, hint }) => {
             const active = activeSection === key;
             return (
               <button
                 key={String(key)}
                 type="button"
-                onClick={() => setActiveSection(key as 'overview' | 'demand' | 'qa')}
+                onClick={() => setActiveSection(key)}
                 className={active
                   ? 'rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] p-3 text-right'
                   : 'rounded-2xl border border-transparent p-3 text-right hover:bg-[var(--dawaa-theme-soft)]'}
