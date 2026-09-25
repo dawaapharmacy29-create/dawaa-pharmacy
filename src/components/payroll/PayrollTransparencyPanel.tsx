@@ -1,17 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, FileCheck2, RefreshCw } from 'lucide-react';
 import {
-  getEmployeePayrollTransparencyV1,
-  type EmployeePayrollTransparencyV1,
-} from '@/lib/payroll/payrollTransparencyService';
-import {
-  getEmployeePayrollFinancialCompositionV1,
-  type EmployeePayrollFinancialCompositionV1,
-} from '@/lib/payroll/payrollFinancialCompositionService';
-import {
-  getEmployeePayrollKpiContextV1,
-  type EmployeePayrollKpiContextV1,
-} from '@/lib/payroll/payrollKpiContextService';
+  getEmployeePayrollStatementV1,
+  type EmployeePayrollStatementV1,
+} from '@/lib/payroll/payrollStatementService';
 
 type Tab = 'summary' | 'attendance' | 'time_off' | 'overtime' | 'transactions' | 'statement' | 'kpi';
 
@@ -51,9 +43,7 @@ function Stat(props: { label: string; value: string | number; hint?: string }) {
 }
 
 export default function PayrollTransparencyPanel(props: { staffId: string; monthCycle: string }) {
-  const [data, setData] = useState<EmployeePayrollTransparencyV1 | null>(null);
-  const [financial, setFinancial] = useState<EmployeePayrollFinancialCompositionV1 | null>(null);
-  const [kpi, setKpi] = useState<EmployeePayrollKpiContextV1 | null>(null);
+  const [statement, setStatement] = useState<EmployeePayrollStatementV1 | null>(null);
   const [tab, setTab] = useState<Tab>('summary');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -63,18 +53,9 @@ export default function PayrollTransparencyPanel(props: { staffId: string; month
     setLoading(true);
     setError('');
     try {
-      const [transparencyResult, financialResult, kpiResult] = await Promise.all([
-        getEmployeePayrollTransparencyV1(props.staffId, props.monthCycle),
-        getEmployeePayrollFinancialCompositionV1(props.staffId, props.monthCycle),
-        getEmployeePayrollKpiContextV1(props.staffId, props.monthCycle),
-      ]);
-      setData(transparencyResult);
-      setFinancial(financialResult);
-      setKpi(kpiResult);
+      setStatement(await getEmployeePayrollStatementV1(props.staffId, props.monthCycle));
     } catch (e) {
-      setData(null);
-      setFinancial(null);
-      setKpi(null);
+      setStatement(null);
       setError(e instanceof Error ? e.message : 'تعذر تحميل شفافية الدورة');
     } finally {
       setLoading(false);
@@ -84,11 +65,11 @@ export default function PayrollTransparencyPanel(props: { staffId: string; month
   useEffect(() => { void load(); }, [props.staffId, props.monthCycle]);
 
   const approvedTimeOff = useMemo(
-    () => data?.time_off.requests.filter((row) => row.status === 'approved').length || 0,
-    [data]
+    () => statement?.time_off.requests.filter((row) => row.status === 'approved').length || 0,
+    [statement]
   );
 
-  if (loading && !data) {
+  if (loading && !statement) {
     return <div className="flex items-center justify-center rounded-3xl border p-8"><RefreshCw className="animate-spin text-teal-300" /></div>;
   }
 
@@ -101,16 +82,19 @@ export default function PayrollTransparencyPanel(props: { staffId: string; month
     );
   }
 
-  if (!data) return null;
+  if (!statement) return null;
 
+  const data = statement;
+  const financial = statement.financial;
+  const kpi = statement.kpi;
   const engine = data.payroll_engine;
   const attendance = data.attendance.summary;
   const overtime = data.overtime.summary;
   const missing = data.missing_punch.summary;
   const transactions = data.transactions.summary;
   const incentives = data.incentives;
-  const earnings = financial?.earnings;
-  const adjustments = financial?.adjustments;
+  const earnings = financial.earnings;
+  const adjustments = financial.adjustments;
 
   const tabs: Array<[Tab, string]> = [
     ['summary', 'ملخص الدورة'],
@@ -177,7 +161,7 @@ export default function PayrollTransparencyPanel(props: { staffId: string; month
             <Stat label="خروج مبكر" value={num(attendance.early_leave_minutes).toLocaleString('ar-EG') + ' دقيقة'} />
             <Stat label="نسيان بصمة" value={num(missing.incidents).toLocaleString('ar-EG')} hint={'خصم فعلي: ' + money(missing.deduction_amount)} />
           </div>
-          {financial && (
+          {(
             <div className="rounded-2xl border border-teal-400/20 bg-teal-400/5 p-3">
               <div className="text-xs font-black text-teal-200">المعادلة المالية الحالية — بدون تكرار الحوافز</div>
               <div className="mt-2 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
@@ -292,6 +276,39 @@ export default function PayrollTransparencyPanel(props: { staffId: string; month
                 <div className="flex justify-between"><span>خصم فردي</span><b>{money(financial.adjustments.individual_deduction)}</b></div>
                 <div className="flex justify-between"><span>خصومات أخرى</span><b>{money(financial.adjustments.other_deduction)}</b></div>
                 <div className="flex justify-between"><span>تسوية يدوية (+/-)</span><b>{money(financial.adjustments.manual_adjustment)}</b></div>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-[var(--dawaa-theme-border)] p-4 text-xs">
+            <div className="font-black text-[var(--dawaa-theme-heading)]">رصيد الإجازة السنوية</div>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              {data.annual_leave.balances.map((balance) => (
+                <div key={balance.year} className="rounded-xl bg-[var(--dawaa-theme-bg-soft)] p-3">
+                  <div className="font-black">{balance.year}</div>
+                  {balance.configured ? (
+                    <div className="mt-1 space-y-1">
+                      <div>المتبقي: <b>{num(balance.balance).toLocaleString('ar-EG')} يوم</b></div>
+                      <div>المستخدم: <b>{num(balance.used).toLocaleString('ar-EG')} يوم</b></div>
+                      <div>المحجوز: <b>{num(balance.reserved).toLocaleString('ar-EG')} يوم</b></div>
+                    </div>
+                  ) : <div className="mt-1 text-amber-200">الرصيد غير مُهيأ</div>}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-[var(--dawaa-theme-border)] p-4 text-xs">
+            <div className="font-black text-[var(--dawaa-theme-heading)]">اتحسب / لم يتحسب</div>
+            <div className="mt-2 space-y-2">
+              <div className="rounded-xl bg-emerald-400/5 p-3">
+                <b className="text-emerald-200">اتحسب:</b> Attendance Truth المعتمد فقط · الأساسي {duration(engine.base_payable_hours)} · Overtime معتمد {duration(overtime.approved_hours)}.
+              </div>
+              <div className="rounded-xl bg-amber-400/5 p-3">
+                <b className="text-amber-200">لم يتحسب بعد:</b> Overtime معلق {duration(overtime.pending_hours)} · حركات مالية معلقة {num(transactions.pending_rows).toLocaleString('ar-EG')}.
+              </div>
+              <div className="rounded-xl bg-slate-400/5 p-3">
+                <b>لم يتحسب:</b> Overtime مرفوض {duration(overtime.rejected_hours)} · نقاط الأداء غير المالية لا تخصم جنيهات إلا بعد تحويلها لحافز/خصم مالي معتمد.
               </div>
             </div>
           </div>
