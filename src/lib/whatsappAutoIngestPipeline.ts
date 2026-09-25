@@ -590,7 +590,12 @@ export async function ingestWhatsAppExportFile(file: File): Promise<IngestOneFil
         );
       }
 
-      const followups = await saveFollowupSignals(session, source.sourceFileName, identity);
+      const followups = await saveFollowupSignals(
+        session,
+        source.sourceFileName,
+        identity,
+        conversationBranch
+      );
       result.followupsCreated += followups.created;
       result.followupsDuplicate += followups.duplicate;
     } catch (e) {
