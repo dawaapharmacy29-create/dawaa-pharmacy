@@ -44,6 +44,7 @@ const GROUPS: NavGroup[] = [
     { path: '/hr-workforce', icon: Crown, label: 'مركز الموارد البشرية' },
     { path: '/team', icon: Users, label: 'دليل الموظفين', permission: 'view_team', excludeRoles: ['customer_service_manager'] },
     { path: '/hr-staff-milestones', icon: ClipboardCheck, label: 'ملف الموظف الوظيفي' },
+    { path: '/staff-payroll', icon: WalletCards, label: 'إدارة الرواتب والحوافز', permission: 'manage_payroll' },
     { path: '/schedule', icon: Calendar, label: 'الجداول والمناوبات', permission: 'view_schedule' },
     { path: '/time-off', icon: Calendar, label: 'الإجازات والغياب', permission: 'view_attendance_leaves' },
     { path: '/my-attendance', icon: UserCheck, label: 'حضوري' },
@@ -63,8 +64,7 @@ const GROUPS: NavGroup[] = [
     { path: '/hr-settings', icon: ShieldCheck, label: 'إعدادات الموارد البشرية' },
   ]},
 
-  { title: 'الرواتب والأداء', icon: WalletCards, items: [
-    { path: '/staff-payroll', icon: WalletCards, label: 'الرواتب والجاهزية', permission: 'manage_payroll' },
+  { title: 'الأداء والحوافز', icon: Star, items: [
     { path: '/employee-kpi', icon: BarChart3, label: 'مؤشرات الموظفين' },
     { path: '/staff-monthly-evaluation', icon: Star, label: 'التقييم الشهري' },
     { path: '/monthly-incentive-report', icon: Wallet, label: 'الحوافز الشهرية' },
