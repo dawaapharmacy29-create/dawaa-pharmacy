@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { readInvoiceRecordsByIds } from '@/lib/readModels/invoiceRecordReadModel';
 import { derivePricingExecutionAssessment } from './salesPricingExecutionV1';
 import { summarizeStaffCommercialPerformanceV1, type StaffCommercialSummaryV1 } from './staffCommercialAnalyticsV1';
 
@@ -100,12 +101,7 @@ export async function fetchDoctorCommercialCycleDataV1(
   const invoiceIds = Array.from(new Set(items.map((row) => String(row.invoice_id ?? '')).filter(Boolean)));
   const headers: AnyRow[] = [];
   for (const ids of chunks(invoiceIds, 500)) {
-    const { data, error } = await supabase
-      .from('sales_invoices')
-      .select('id,invoice_number,invoice_no,branch,branch_name,invoice_datetime,sale_date,seller_name,normalized_seller_name,staff_id,staff_name')
-      .in('id', ids);
-    if (error) throw error;
-    headers.push(...(data ?? []));
+    headers.push(...(await readInvoiceRecordsByIds(ids, supabase)));
   }
   const headerById = new Map(headers.map((row) => [String(row.id), row]));
 
