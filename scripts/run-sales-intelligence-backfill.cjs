@@ -214,9 +214,7 @@ async function fetchReviewSources(itemReadiness = null) {
       if ((data || []).length < pageSize) break;
       from += pageSize;
     }
-    return knownBranchOnly
-      ? rows.filter((row) => typeof row.branch === 'string' && row.branch.trim().length > 0)
-      : rows;
+    return rows;
   }
 
   const ids = itemReadyOnly
@@ -315,12 +313,18 @@ function summarize(result, sourceCount, readinessBefore, readinessAfter = null) 
 
   const rows = await fetchReviewSources(readinessBefore);
   const canonicalIds = selectCanonicalReviewSourceIds(rows);
-  const canonicalRows = rows.filter((row) => canonicalIds.has(row.id));
+  const allCanonicalRows = rows.filter((row) => canonicalIds.has(row.id));
+  const canonicalRows = knownBranchOnly
+    ? allCanonicalRows.filter((row) => typeof row.branch === 'string' && row.branch.trim().length > 0)
+    : allCanonicalRows;
   const conversations = canonicalRows
     .filter((row) => typeof row.raw_text === 'string' && row.raw_text.trim().length > 0)
     .map(reviewSourceRowToBatchConversation);
 
-  console.log(`Snapshot lineage: ${rows.length} source rows -> ${canonicalRows.length} canonical source rows`);
+  console.log(
+    `Snapshot lineage: ${rows.length} source rows -> ${allCanonicalRows.length} canonical source rows` +
+    (knownBranchOnly ? ` -> ${canonicalRows.length} canonical rows with known branch` : '')
+  );
 
   if (!conversations.length) {
     console.log('No eligible conversations found.');

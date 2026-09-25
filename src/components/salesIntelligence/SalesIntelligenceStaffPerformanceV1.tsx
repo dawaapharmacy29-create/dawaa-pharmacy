@@ -195,7 +195,7 @@ export default function SalesIntelligenceStaffPerformanceV1({
       const current = byId || byUniqueName;
       if (!current) continue;
       current.opportunities += 1;
-      if (['accepted', 'order_confirmed', 'verified_sale'].includes(opportunity.current_stage)) current.acceptedOrLater += 1;
+      if (['accepted', 'order_confirmed', 'awaiting_invoice', 'verified_sale', 'needs_followup'].includes(opportunity.current_stage)) current.acceptedOrLater += 1;
       if (opportunity.leakage_code) current.leakageCases += 1;
     }
 
