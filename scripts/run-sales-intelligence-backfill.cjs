@@ -273,6 +273,8 @@ function summarize(result, sourceCount, readinessBefore, readinessAfter = null) 
       policyEvaluationsNoOp: plan.policyEvaluationsNoOp.length,
       conflicts: plan.conflicts.length,
       warnings: plan.warnings.length,
+      conflictDetails: plan.conflicts.map(({ caseId, kind, detail }) => ({ caseId, kind, detail })),
+      warningDetails: plan.warnings.map(({ caseId, kind, detail }) => ({ caseId, kind, detail })),
     },
     apply: result.dryRun
       ? null
