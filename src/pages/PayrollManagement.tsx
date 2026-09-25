@@ -6,12 +6,12 @@ import {
   Trophy, User, WalletCards,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
-import { supabase } from '@/lib/supabase';
 import { canViewAllBranches } from '@/lib/security/userDataScope';
 import { normalizeBranchName } from '@/lib/branch';
 import { formatCurrency } from '@/lib/utils';
 import { getCurrentCycle, formatCycleDate } from '@/lib/pharmacy-cycle';
 import { cairoToday } from '@/lib/attendance/period';
+import { listActiveHRStaffDirectory } from '@/lib/hr/staffDirectoryService';
 import { buildPaidStatementPdf } from '@/lib/payroll/paidStatementPdf';
 import {
   listLegacyPaidPayrollHistory,
@@ -42,7 +42,6 @@ const STATUS_OPTIONS = [
   { key: 'paid', label: 'مدفوع' },
 ];
 
-type Row = Record<string, unknown>;
 type StaffRow = { id: string; staffId: string; username: string; name: string; branch: string; role: string; active: boolean };
 type CompensationProfileState = {
   salaryCalculationMode: 'legacy_fixed' | 'monthly_hour_unit' | 'attendance_hours_v1';
@@ -99,27 +98,23 @@ export default function PayrollManagement() {
   useEffect(()=>{let active=true;setCompensationChanges([]);setCompensationError('');if(selected?.staffId)listCompensationChanges(selected.staffId).then(r=>{if(active)setCompensationChanges(r)}).catch(e=>{if(active)setCompensationError(e.message)});return()=>{active=false}},[selected?.staffId]);
 
   const loadStaff = useCallback(async () => {
-    const { data, error } = await supabase.rpc('get_staff_accounts_directory', {
-      p_roles: null,
-      p_branch: !allBranches && ownBranch ? ownBranch : null,
-    });
-    if (error) {
-      setStaff([]);
-      toast.error(error.message || 'تعذر تحميل دليل الموظفين');
-      return;
-    }
-    const rows = ((data || []) as Row[]).filter(Boolean);
-    setStaff(rows
-      .filter((r: any) => r.active !== false && r.username)
-      .map((r: any) => ({
-        id: String(r.account_id || r.staff_id || ''),
-        staffId: String(r.staff_id || ''),
-        username: String(r.username || ''),
-        name: String(r.name || r.username || ''),
-        branch: String(r.branch || ''),
-        role: String(r.role || ''),
-        active: r.active !== false,
+    try {
+      const rows = await listActiveHRStaffDirectory({
+        branch: !allBranches && ownBranch ? ownBranch : null,
+      });
+      setStaff(rows.map((row) => ({
+        id: String(row.account_id || row.staff_id || ''),
+        staffId: String(row.staff_id || ''),
+        username: String(row.username || ''),
+        name: String(row.name || row.username || ''),
+        branch: String(row.branch || ''),
+        role: String(row.role || ''),
+        active: row.active !== false,
       })));
+    } catch (error) {
+      setStaff([]);
+      toast.error(error instanceof Error ? error.message : 'تعذر تحميل دليل الموظفين');
+    }
   }, [allBranches, ownBranch]);
 
   useEffect(() => { void loadStaff(); }, [loadStaff]);

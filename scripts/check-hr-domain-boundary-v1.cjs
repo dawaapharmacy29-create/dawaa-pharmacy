@@ -93,6 +93,9 @@ for (const file of files) {
 }
 
 const payrollPage = read(path.join(srcRoot, 'pages/PayrollManagement.tsx'));
+if (payrollPage.includes('supabase.rpc(') || payrollPage.includes('supabase.from(')) {
+  fail('PayrollManagement must use HR/payroll domain services; direct Supabase access is forbidden.');
+}
 const legacyPayrollHistory = read(path.join(srcRoot, 'lib/payroll/payrollLegacyHistoryService.ts'));
 if (payrollPage.includes('netSalaryPreview') || payrollPage.includes('overtimeValue')) {
   fail('PayrollManagement must not calculate payroll net/overtime locally.');
