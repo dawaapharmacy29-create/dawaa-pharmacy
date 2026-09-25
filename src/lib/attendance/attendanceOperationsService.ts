@@ -108,15 +108,22 @@ export async function applyConfirmedBiometricBatch() {
 
 
 export type AttendancePolicyV3CutoverReadiness = {
-  schema: 'attendance_policy_v3_cutover_readiness_v1';
+  schema: 'attendance_policy_v3_cutover_readiness_v2';
   start_date: string;
   end_date: string;
+  operational_scope: string;
   total_days: number;
   effective_status_changes: number;
   candidate_changes: number;
   unresolved_policy_days: number;
-  v3_materialized_days: number;
-  v3_pending_days: number;
+  open_days: number;
+  open_v3_days: number;
+  open_legacy_days: number;
+  approved_frozen_legacy_days: number;
+  approved_v3_days: number;
+  inactive_archive_open_legacy_days: number;
+  active_out_of_scope_open_legacy_days: number;
+  operational_review_pending: number;
   materialization_pct: number;
   ready_for_v3_cutover: boolean;
   cutover_rule: string;

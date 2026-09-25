@@ -226,12 +226,20 @@ export default function HRDataQuality() {
               ? `${architecture.attendance_v3_cutover.materialization_pct.toLocaleString('ar-EG')}%`
               : 'غير متاح'}
             description={architecture?.attendance_v3_cutover.ready_for_v3_cutover
-              ? 'جاهز لإزالة طبقة V2/V3 الانتقالية.'
-              : `Pending V3: ${architecture?.attendance_v3_cutover.v3_pending_days ?? 0} · لا يتم Cutover قبل اكتمال الشروط.`}
+              ? `المسار التشغيلي V3 جاهز · ${architecture.attendance_v3_cutover.operational_review_pending.toLocaleString('ar-EG')} حالة مراجعة مفتوحة لا تمنع الـCutover.`
+              : `Open legacy تشغيلي: ${architecture?.attendance_v3_cutover.open_legacy_days ?? 0} · مراجعات مفتوحة: ${architecture?.attendance_v3_cutover.operational_review_pending ?? 0}.`}
             href="/attendance-report?tab=resolution"
             icon={ShieldCheck}
             healthy={!!architecture?.attendance_v3_cutover.ready_for_v3_cutover}
           />
+          {architectureAvailable && architecture && (
+            <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface-soft p-3 text-xs font-bold text-[var(--dawaa-theme-muted)]">
+              V3 operational scope: {architecture.attendance_v3_cutover.operational_scope} ·
+              Approved legacy frozen: {architecture.attendance_v3_cutover.approved_frozen_legacy_days.toLocaleString('ar-EG')} ·
+              Archive inactive: {architecture.attendance_v3_cutover.inactive_archive_open_legacy_days.toLocaleString('ar-EG')} ·
+              Active out-of-scope: {architecture.attendance_v3_cutover.active_out_of_scope_open_legacy_days.toLocaleString('ar-EG')}
+            </div>
+          )}
         </div>
         {architecture && (
           <div className={`mt-3 rounded-2xl border p-3 text-xs font-black ${
