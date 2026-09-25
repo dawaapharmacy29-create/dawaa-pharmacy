@@ -6,6 +6,16 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      whatsapp_operational_reanalysis:
+        description: "WhatsApp operational snapshot refresh (no invoice/followup/review writes)"
+        required: false
+        default: "none"
+        type: choice
+        options:
+          - "none"
+          - "dry-run"
+          - "apply"
 
 jobs:
   build:
@@ -37,3 +47,37 @@ jobs:
           if-no-files-found: ignore
       - name: Build
         run: npm run build
+
+  whatsapp-operational-reanalysis:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.whatsapp_operational_reanalysis != 'none' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      VITE_SUPABASE_URL: https://jkjqeqkshllustwlzzbf.supabase.co
+      # Server-side only in this job. The shared client reads VITE_* from process.env under Node.
+      VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - name: Require server credential
+        shell: bash
+        run: |
+          test -n "$VITE_SUPABASE_ANON_KEY" || {
+            echo "::error::Missing SUPABASE_SERVICE_ROLE_KEY"
+            exit 1
+          }
+      - name: Verify TS runtime
+        run: npx --no-install tsx --version
+      - name: Dry-run operational reanalysis
+        if: ${{ inputs.whatsapp_operational_reanalysis == 'dry-run' }}
+        run: npm run whatsapp:operational-reanalysis:dry-run
+      - name: Apply operational reanalysis
+        if: ${{ inputs.whatsapp_operational_reanalysis == 'apply' }}
+        run: npm run whatsapp:operational-reanalysis:apply
