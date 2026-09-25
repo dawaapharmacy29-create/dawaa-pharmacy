@@ -249,7 +249,7 @@ export async function runProductDemandBackfillV22(
           sourceId: source.id,
           operational,
           analysisVersion: 'product-demand-v22.1',
-          participantRoles: nextAnalysis.participantRoles,
+          participantRoles: source.analysis_json?.participantRoles,
         });
 
         const canonicalProductIds = Array.from(new Set(

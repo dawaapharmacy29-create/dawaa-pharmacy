@@ -900,7 +900,7 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
     if (!best || best.score < 20 || !best.product.id || seenProductIds.has(String(best.product.id))) continue;
     seenProductIds.add(String(best.product.id));
     catalogProductMatches.push({
-      sourceMessageId: message.id,
+      sourceMessageId: message.sourceMessageId,
       rawPhrase,
       productId: String(best.product.id),
       productCode: String(best.product.product_code ?? ''),

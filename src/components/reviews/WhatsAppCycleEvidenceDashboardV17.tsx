@@ -75,7 +75,7 @@ export default function WhatsAppCycleEvidenceDashboardV17({ mode }: { mode: Mode
   const current = useMemo(() => {
     if (mode !== 'doctors') return rows;
 
-    const merged = rows.map((row) => {
+    const merged: AnyRow[] = rows.map((row): AnyRow => {
       const commercial = commercialData?.summaries.find((summary) => {
         if (row.staff_id && summary.staffId) return String(row.staff_id) === String(summary.staffId);
         return String(row.staff_name || '').trim() === String(summary.staffName || '').trim();

@@ -328,9 +328,19 @@ export function buildWhatsAppOperationalIntelligenceV6(session: WhatsAppConversa
   else if (operationalOutcome === 'checkin_complete') { followupRequired = false; followupReason = null; dueInDays = null; followupEvidence = ids(session.messages, IMPROVED_RX); }
 
   const missingStaff = session.messages.some((m) => m.direction === 'outbound') && session.outboundStaffNames.length === 0;
-  const intentConfidence = Math.min(intents.confidence, Math.max(45, base.evaluationCoverage + 15));
-  const outcomeConfidence = Math.min(close || rejected || recovered || state !== 'unknown' ? 92 : 76, Math.max(40, base.evaluationCoverage + 18));
-  const officialScoringEligible = base.evaluationCoverage >= 65 && base.confidence >= 70 && !missingStaff && base.mediaEvidence.missingContent === 0;
+  const messageCount = session.messages.length;
+  const missingMediaCount = Number(
+    session.missingMediaCount ??
+    session.messages.filter((m) => m.mediaPlaceholder && !m.mediaAvailable).length
+  );
+  const evaluationCoverage = Math.max(0, Math.min(100,
+    (messageCount >= 15 ? 92 : messageCount >= 10 ? 84 : messageCount >= 6 ? 72 : messageCount >= 4 ? 58 : messageCount >= 2 ? 38 : 24)
+    - (session.outboundStaffNames.length ? 0 : 8)
+    - Math.min(30, missingMediaCount * 8)
+  ));
+  const intentConfidence = Math.min(intents.confidence, Math.max(45, evaluationCoverage + 15));
+  const outcomeConfidence = Math.min(close || rejected || recovered || state !== 'unknown' ? 92 : 76, Math.max(40, evaluationCoverage + 18));
+  const officialScoringEligible = evaluationCoverage >= 65 && base.confidence >= 70 && !missingStaff && missingMediaCount === 0;
 
   let nextBestAction = 'مراجعة بشرية سريعة ثم إغلاق الجلسة.';
   if (operationalOutcome === 'complaint_unresolved') nextBestAction = 'تصعيد فوري لخدمة العملاء ومتابعة حل الشكوى.';
@@ -511,7 +521,7 @@ async function discoverStrongCatalogMentions(session: WhatsAppConversationSessio
 export async function enrichWhatsAppOperationalProductsV6(
   model: WhatsAppOperationalIntelligenceV6,
   session?: WhatsAppConversationSession
-) {
+): Promise<WhatsAppOperationalIntelligenceV6> {
   const resolvedProducts = await Promise.all(model.products.map(resolveProduct));
   const discovered = session ? await discoverStrongCatalogMentions(session) : [];
   const merged = new Map<string, WhatsAppProductSignal>();

@@ -39,6 +39,7 @@ export default function WhatsAppCaseDecisionPanelV26({ session }: { session: Wha
     })));
     const journey = detectDeepJourneyStages(session.messages);
     const medical = evaluateMedicalHardGate(session.messages);
+    const inbound = session.messages.filter((m) => m.direction === 'inbound').map((m) => m.text || '').join('\n');
     const outbound = session.messages.filter((m) => m.direction === 'outbound').map((m) => m.text || '').join('\n');
     const friction = detectCommercialFrictionFactsV26(session.messages);
     const followupPromised = /(هتابع|هرجع|هبلغ|هتواصل|اول ما|أول ما|هنوفره)/i.test(outbound);
