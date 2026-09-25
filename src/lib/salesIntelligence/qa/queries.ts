@@ -434,6 +434,17 @@ export interface QaCaseDetailBundle {
     financialNetDifference: number | null;
     financialNetMatch: boolean | null;
   }>;
+  /** Official B-Connect invoice staff identity. Null when the attribution is not official or no invoice exists. */
+  invoiceStaffTruth: {
+    invoiceStaffIdRaw: string | null;
+    invoiceStaffNameRaw: string | null;
+    canonicalStaffId: string | null;
+    canonicalStaffName: string | null;
+    canonicalStaffRole: string | null;
+    canonicalStaffBranch: string | null;
+    resolutionStatus: 'resolved_by_staff_id' | 'resolved_by_unique_name' | 'ambiguous_name' | 'missing_invoice_staff' | 'unresolved';
+    itemEvidenceAvailable: boolean;
+  } | null;
   catalogProductMatches: Array<{
     sourceMessageId: string;
     rawPhrase: string;
@@ -1000,6 +1011,26 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
     }
   }
 
+  let invoiceStaffTruth: QaCaseDetailBundle['invoiceStaffTruth'] = null;
+  const { data: invoiceStaffTruthRow, error: invoiceStaffTruthError } = await supabaseClient
+    .from('sales_intelligence_invoice_staff_truth_v1')
+    .select('invoice_staff_id_raw,invoice_staff_name_raw,canonical_staff_id,canonical_staff_name,canonical_staff_role,canonical_staff_branch,staff_resolution_status,item_evidence_available')
+    .eq('case_id', caseId)
+    .maybeSingle();
+  if (invoiceStaffTruthError) throw invoiceStaffTruthError;
+  if (invoiceStaffTruthRow) {
+    invoiceStaffTruth = {
+      invoiceStaffIdRaw: invoiceStaffTruthRow.invoice_staff_id_raw ?? null,
+      invoiceStaffNameRaw: invoiceStaffTruthRow.invoice_staff_name_raw ?? null,
+      canonicalStaffId: invoiceStaffTruthRow.canonical_staff_id ?? null,
+      canonicalStaffName: invoiceStaffTruthRow.canonical_staff_name ?? null,
+      canonicalStaffRole: invoiceStaffTruthRow.canonical_staff_role ?? null,
+      canonicalStaffBranch: invoiceStaffTruthRow.canonical_staff_branch ?? null,
+      resolutionStatus: invoiceStaffTruthRow.staff_resolution_status,
+      itemEvidenceAvailable: Boolean(invoiceStaffTruthRow.item_evidence_available),
+    };
+  }
+
   const rawJourneySummary = sourceAnalysisJson?.operational?.productJourney ?? null;
   const scopedJourneySummary = rawJourneySummary && Array.isArray(rawJourneySummary.journeys)
     ? {
@@ -1057,6 +1088,7 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
     salesOutcome,
     quotedBasketV2Items,
     recommendationConversions,
+    invoiceStaffTruth,
     invoiceItemFacts,
     catalogProductMatches,
   };
