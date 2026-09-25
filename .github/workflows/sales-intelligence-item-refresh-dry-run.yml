@@ -1,4 +1,5 @@
 name: Sales Intelligence item-evidence dry run
+# Secret-ready rerun marker: run latest branch head after repository secret configuration.
 
 on:
   workflow_dispatch:
