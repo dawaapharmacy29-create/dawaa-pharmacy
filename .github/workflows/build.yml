@@ -49,7 +49,7 @@ jobs:
         run: npm run build
 
   whatsapp-operational-reanalysis:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.whatsapp_operational_reanalysis != 'none' }}
+    if: ${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.whatsapp_operational_reanalysis != 'none') }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -76,8 +76,16 @@ jobs:
       - name: Verify TS runtime
         run: npx --no-install tsx --version
       - name: Dry-run operational reanalysis
-        if: ${{ inputs.whatsapp_operational_reanalysis == 'dry-run' }}
-        run: npm run whatsapp:operational-reanalysis:dry-run
+        if: ${{ github.event_name == 'pull_request' || inputs.whatsapp_operational_reanalysis == 'dry-run' }}
+        run: npx --no-install tsx scripts/run-whatsapp-operational-reanalysis.ts --json --output-file=whatsapp-operational-reanalysis-plan.json
+      - name: Upload dry-run plan
+        if: ${{ github.event_name == 'pull_request' || inputs.whatsapp_operational_reanalysis == 'dry-run' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: whatsapp-operational-reanalysis-plan
+          path: whatsapp-operational-reanalysis-plan.json
+          if-no-files-found: error
+          retention-days: 7
       - name: Apply operational reanalysis
         if: ${{ inputs.whatsapp_operational_reanalysis == 'apply' }}
         run: npm run whatsapp:operational-reanalysis:apply
