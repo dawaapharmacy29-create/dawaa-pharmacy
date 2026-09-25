@@ -121,7 +121,7 @@ const FOLLOWUP_RX = /(هتابع|هرجع|هكلم|هطلب|اول ما يتوف
 const COMPLAINT_RX = /(شكوى|مشكله|مشكلة|متاخر|متأخر|محدش رد|غلط|سيء|وحش|لسه مجاش|ماوصلش|موصلش)/i;
 const NEGATED_COMPLAINT_RX = /(مفيش\s+مشكله|مفيش\s+مشكلة|مافيش\s+مشكله|مافيش\s+مشكلة|لا\s+توجد\s+مشكله|لا\s+توجد\s+مشكلة|مش\s+مشكله|مش\s+مشكلة)/i;
 const RECOVERY_RX = /(بنعتذر|نعتذر|متاسف|متأسف|حق حضرتك|هنحل|تم الحل|هعوض|هنعوض|تم التصحيح)/i;
-const CUSTOMER_ACCEPT_RX = /(تمام|موافق|اوكي|أوكي|ابعت|ابعته|هات|خلاص|ماشي|اشكرك|شكرا|شكرًا)/i;
+const CUSTOMER_ACCEPT_RX = /(تمام|موافق|اوكي|أوكي|ابعت|ابعته|ابعتها|هات|هاته|خلاص|ماشي|يلا|توكلنا)/i;
 const CUSTOMER_REJECT_RX = /(مش عايز|مش عاوز|لا شكرا|غالي|مش مناسب|خلاص مش محتاج|مش هطلب)/i;
 const MEDICAL_RX = /(جرعه|جرعة|حامل|حمل|رضاع|ضغط|سكر|حساسي|اعراض|أعراض|مضاد حيوي|حقن|مونجارو|اوزمبيك|أوزمبيك|انسولين|إنسولين)/i;
 const HIGH_RISK_RX = /(جرعه طفل|جرعة طفل|حامل|حمل|رضاع|تفاعل دوائي|حساسيه شديده|حساسية شديدة|مضاد حيوي بدون روشته|حقن بدون روشته)/i;
@@ -157,9 +157,9 @@ function analyzeJourney(session: WhatsAppConversationSession) {
   const journeyStages: JourneyStage[] = [
     stage('opening', 'افتتاح المحادثة', signals.greetingDetected, signals.greetingDetected ? 95 : 70, signals.greetingDetected ? 'تم اكتشاف ترحيب/تعريف واضح.' : 'لم يظهر ترحيب واضح في النص.', evidence(session.messages, /(اهلا|أهلا|السلام عليكم|مع حضرتك|صيدليات دواء)/i)),
     stage('need', 'فهم احتياج العميل', has(inbound, NEED_RX), has(inbound, NEED_RX) ? 90 : 55, has(inbound, NEED_RX) ? 'العميل عبّر عن احتياج أو طلب واضح.' : 'لم يتم إثبات احتياج واضح من النص وحده.', evidence(session.messages, NEED_RX)),
-    stage('availability', 'التحقق من التوفر', has(all, AVAILABILITY_RX), has(all, AVAILABILITY_RX) ? 88 : 50, has(all, AVAILABILITY_RX) ? 'يوجد نقاش متعلق بالتوفر/النواقص.' : 'لا يوجد دليل نصي كافٍ على التحقق من التوفر.', evidence(session.messages, AVAILABILITY_RX)),
+    stage('availability', 'التحقق من التوفر', has(out, AVAILABILITY_RX), has(out, AVAILABILITY_RX) ? 88 : 50, has(out, AVAILABILITY_RX) ? 'يوجد رد من الصيدلية متعلق بالتوفر/النواقص.' : 'لا يوجد رد صريح من الصيدلية يثبت التوفر أو عدمه.', evidence(session.messages.filter((m) => m.direction === 'outbound'), AVAILABILITY_RX)),
     stage('alternative', 'عرض بديل/ترشيح', has(out, ALTERNATIVE_RX), has(out, ALTERNATIVE_RX) ? 90 : 55, has(out, ALTERNATIVE_RX) ? 'تم اكتشاف عرض بديل أو ترشيح.' : 'لم يظهر عرض بديل واضح.', evidence(session.messages, ALTERNATIVE_RX)),
-    stage('closing', 'إغلاق البيع', has(all, SALE_CLOSE_RX), has(all, SALE_CLOSE_RX) ? 92 : 58, has(all, SALE_CLOSE_RX) ? 'يوجد دليل نصي على تأكيد/إغلاق الطلب.' : 'لا يوجد تأكيد بيع كافٍ من النص فقط.', evidence(session.messages, SALE_CLOSE_RX)),
+    stage('closing', 'إغلاق البيع', has(out, SALE_CLOSE_RX), has(out, SALE_CLOSE_RX) ? 92 : 58, has(out, SALE_CLOSE_RX) ? 'يوجد رد من الصيدلية يثبت تأكيد/إغلاق الطلب.' : 'لا يوجد تأكيد إغلاق من الصيدلية داخل النص.', evidence(session.messages.filter((m) => m.direction === 'outbound'), SALE_CLOSE_RX)),
     stage('delivery', 'تنسيق التوصيل', has(all, DELIVERY_RX), has(all, DELIVERY_RX) ? 92 : 50, has(all, DELIVERY_RX) ? 'تم اكتشاف تنسيق توصيل/عنوان/مندوب.' : 'مسار التوصيل غير مثبت.', evidence(session.messages, DELIVERY_RX)),
     stage('followup', 'المتابعة', has(out, FOLLOWUP_RX), has(out, FOLLOWUP_RX) ? 90 : 55, has(out, FOLLOWUP_RX) ? 'يوجد وعد متابعة أو رجوع للعميل.' : 'لا يوجد وعد متابعة واضح.', evidence(session.messages, FOLLOWUP_RX)),
     stage('complaint_recovery', 'احتواء الشكوى', hasComplaint, hasComplaint ? (has(out, RECOVERY_RX) ? 94 : 78) : 45, hasComplaint ? (has(out, RECOVERY_RX) ? 'تم اكتشاف شكوى مع محاولة احتواء/تصحيح.' : 'تم اكتشاف شكوى بدون دليل كافٍ على احتوائها.') : 'لا توجد شكوى واضحة.', complaintIds),
@@ -167,14 +167,18 @@ function analyzeJourney(session: WhatsAppConversationSession) {
 
   const lostSales: LostSaleSignal[] = [];
   const customerAsked = has(inbound, NEED_RX);
-  const explicitClose = has(all, SALE_CLOSE_RX);
+  const explicitClose = has(out, SALE_CLOSE_RX);
   const rejected = has(inbound, CUSTOMER_REJECT_RX);
   const alternative = has(out, ALTERNATIVE_RX);
   if (customerAsked && !explicitClose && !rejected) {
     lostSales.push({ severity: 'high', summary: 'فرصة بيع بدأت ولم يظهر لها إغلاق واضح أو رفض صريح.', evidenceMessageIds: evidence(session.messages, NEED_RX) });
   }
-  if (has(all, /(غير متوفر|مش موجود|ناقص)/i) && !alternative) {
-    lostSales.push({ severity: 'high', summary: 'نقص/عدم توفر بدون بديل واضح؛ فرصة بيع ضائعة محتملة.', evidenceMessageIds: evidence(session.messages, /(غير متوفر|مش موجود|ناقص)/i) });
+  if (has(out, /(غير متوفر|مش موجود|ناقص)/i) && !alternative) {
+    lostSales.push({
+      severity: 'high',
+      summary: 'الصيدلية أكدت نقص/عدم توفر بدون بديل واضح؛ فرصة بيع ضائعة محتملة.',
+      evidenceMessageIds: evidence(session.messages.filter((m) => m.direction === 'outbound'), /(غير متوفر|مش موجود|ناقص)/i),
+    });
   }
   if (signals.repeatedCustomerNudgeDetected || signals.waitsOver10Minutes > 0) {
     lostSales.push({ severity: 'medium', summary: 'تأخير أو تكرار نداء العميل قد يكون أثّر على إتمام البيع.', evidenceMessageIds: signals.responseWaits.filter((x) => (x.seconds || 0) > 600).flatMap((x) => [x.inboundMessageId, ...(x.outboundMessageId ? [x.outboundMessageId] : [])]) });
@@ -225,8 +229,8 @@ function scoreCommercial(session: WhatsAppConversationSession, lostSales: LostSa
   const out = outboundText(session);
   let score = has(all, NEED_RX) ? 55 : 0;
   if (has(out, ALTERNATIVE_RX)) score += 15;
-  if (has(all, SALE_CLOSE_RX)) score += 20;
-  if (has(all, DELIVERY_RX)) score += 5;
+  if (has(out, SALE_CLOSE_RX)) score += 20;
+  if (has(out, DELIVERY_RX)) score += 5;
   if (outcome === 'sold') score += 10;
   if (lostSales.some((x) => x.severity === 'high')) score -= 25;
   if (lostSales.some((x) => x.severity === 'medium')) score -= 10;
