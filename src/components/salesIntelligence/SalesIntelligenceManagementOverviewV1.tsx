@@ -188,24 +188,74 @@ export default function SalesIntelligenceManagementOverviewV1({
     if (metrics.unresolvedStaff) items.push({ title: 'حسم الموظف على الفواتير الرسمية', detail: `${metrics.unresolvedStaff.toLocaleString('ar-EG')} بيع رسمي لم يُنسب لموظف بصورة آمنة.`, severity: 'warning' });
     if (metrics.contradicted) items.push({ title: 'مراجعة الحالات المتناقضة', detail: `${metrics.contradicted.toLocaleString('ar-EG')} حالة بها تعارض في إثبات البيع أو الإسناد.`, severity: 'warning' });
     if (metrics.needsReview) items.push({ title: 'طابور المراجعة البشرية', detail: `${metrics.needsReview.toLocaleString('ar-EG')} حالة تحتاج مراجعة بشرية قبل الاستخدام التشغيلي.`, severity: 'info' });
+
+    const currentInvoiceRate = metrics.total ? (metrics.withInvoice / metrics.total) * 100 : 0;
+    const previousInvoiceRate = previous.total ? (previous.withInvoice / previous.total) * 100 : 0;
+    if (previous.total && previousInvoiceRate - currentInvoiceRate >= 10) {
+      items.push({
+        title: 'انخفاض ربط الحالات بالفواتير',
+        detail: `نسبة الربط الحالية ${Math.round(currentInvoiceRate).toLocaleString('ar-EG')}٪ مقابل ${Math.round(previousInvoiceRate).toLocaleString('ar-EG')}٪ في الدورة السابقة.`,
+        severity: 'warning',
+      });
+    }
+
+    if (metrics.needsReview > previous.needsReview && previous.total) {
+      items.push({
+        title: 'زيادة طابور المراجعة',
+        detail: `المراجعات الحالية زادت من ${previous.needsReview.toLocaleString('ar-EG')} إلى ${metrics.needsReview.toLocaleString('ar-EG')} حالة.`,
+        severity: 'info',
+      });
+    }
+
     const invoiceWithoutItems = Math.max(0, metrics.withInvoice - metrics.itemReady);
     if (invoiceWithoutItems) items.push({ title: 'استكمال أدلة الأصناف', detail: `${invoiceWithoutItems.toLocaleString('ar-EG')} حالة مرتبطة بفاتورة لكن أدلة الأصناف ليست جاهزة بعد.`, severity: 'info' });
     return items.slice(0, 4);
   }, [metrics]);
 
-  const branches = useMemo(() => {
-    const map = new Map<string, { cases: number; invoices: number; review: number; proven: number }>();
+  const branchComparisons = useMemo(() => {
+    const map = new Map<string, {
+      currentCases: number;
+      currentInvoices: number;
+      currentReview: number;
+      currentProven: number;
+      previousCases: number;
+      previousInvoices: number;
+      previousReview: number;
+    }>();
+
+    const ensure = (key: string) => {
+      const found = map.get(key);
+      if (found) return found;
+      const created = {
+        currentCases: 0,
+        currentInvoices: 0,
+        currentReview: 0,
+        currentProven: 0,
+        previousCases: 0,
+        previousInvoices: 0,
+        previousReview: 0,
+      };
+      map.set(key, created);
+      return created;
+    };
+
     for (const row of rows) {
-      const key = row.branchNameRaw || 'غير محدد';
-      const current = map.get(key) || { cases: 0, invoices: 0, review: 0, proven: 0 };
-      current.cases += 1;
-      if (row.selectedInvoiceId) current.invoices += 1;
-      if (row.needsHumanReview) current.review += 1;
-      if (row.saleProofState === 'proven') current.proven += 1;
-      map.set(key, current);
+      const current = ensure(row.branchNameRaw || 'غير محدد');
+      current.currentCases += 1;
+      if (row.selectedInvoiceId) current.currentInvoices += 1;
+      if (row.needsHumanReview) current.currentReview += 1;
+      if (row.saleProofState === 'proven') current.currentProven += 1;
     }
-    return Array.from(map.entries()).sort((a, b) => b[1].cases - a[1].cases);
-  }, [rows]);
+
+    for (const row of previousRows) {
+      const previousBranch = ensure(row.branchNameRaw || 'غير محدد');
+      previousBranch.previousCases += 1;
+      if (row.selectedInvoiceId) previousBranch.previousInvoices += 1;
+      if (row.needsHumanReview) previousBranch.previousReview += 1;
+    }
+
+    return Array.from(map.entries()).sort((a, b) => b[1].currentCases - a[1].currentCases);
+  }, [previousRows, rows]);
 
   return (
     <div className="space-y-5" dir="rtl">
@@ -284,15 +334,24 @@ export default function SalesIntelligenceManagementOverviewV1({
 
       <section className="dawaa-card overflow-hidden p-0">
         <div className="flex items-center gap-2 border-b border-[var(--dawaa-theme-border)] p-4 font-black"><ShieldCheck size={18} />صحة البيانات حسب الفرع</div>
-        {!branches.length ? <div className="dawaa-muted p-6 text-center text-sm">لا توجد بيانات فروع.</div> : (
+        {!branchComparisons.length ? <div className="dawaa-muted p-6 text-center text-sm">لا توجد بيانات فروع.</div> : (
           <div className="grid md:grid-cols-2">
-            {branches.map(([branchName, summary]) => (
+            {branchComparisons.map(([branchName, summary]) => (
               <div key={branchName} className="border-b border-[var(--dawaa-theme-border)] p-4 md:border-l">
-                <div className="flex items-center justify-between gap-3"><div className="dawaa-heading font-black">{branchName}</div><div className="dawaa-muted text-xs">{summary.cases.toLocaleString('ar-EG')} حالة</div></div>
+                <div className="flex items-center justify-between gap-3"><div className="dawaa-heading font-black">{branchName}</div><div className="dawaa-muted text-xs">{summary.currentCases.toLocaleString('ar-EG')} حالة</div></div>
                 <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
-                  <div className="rounded-xl bg-[var(--dawaa-theme-soft)] p-2"><div className="dawaa-muted">فاتورة</div><div className="mt-1 font-black">{summary.invoices.toLocaleString('ar-EG')}</div></div>
-                  <div className="rounded-xl bg-[var(--dawaa-theme-soft)] p-2"><div className="dawaa-muted">بيع مؤكد</div><div className="mt-1 font-black">{summary.proven.toLocaleString('ar-EG')}</div></div>
-                  <div className="rounded-xl bg-[var(--dawaa-theme-soft)] p-2"><div className="dawaa-muted">مراجعة</div><div className="mt-1 font-black">{summary.review.toLocaleString('ar-EG')}</div></div>
+                  <div className="rounded-xl bg-[var(--dawaa-theme-soft)] p-2">
+                    <div className="dawaa-muted">ربط فاتورة</div>
+                    <div className="mt-1 font-black">{summary.currentInvoices.toLocaleString('ar-EG')}</div>
+                    <div className="dawaa-muted mt-1 text-[9px]">
+                      {summary.currentCases ? Math.round((summary.currentInvoices / summary.currentCases) * 100).toLocaleString('ar-EG') : '0'}٪
+                    </div>
+                  </div>
+                  <div className="rounded-xl bg-[var(--dawaa-theme-soft)] p-2"><div className="dawaa-muted">بيع مؤكد</div><div className="mt-1 font-black">{summary.currentProven.toLocaleString('ar-EG')}</div></div>
+                  <div className="rounded-xl bg-[var(--dawaa-theme-soft)] p-2"><div className="dawaa-muted">مراجعة</div><div className="mt-1 font-black">{summary.currentReview.toLocaleString('ar-EG')}</div></div>
+                </div>
+                <div className="dawaa-muted mt-2 text-[10px]">
+                  الدورة السابقة: {summary.previousCases.toLocaleString('ar-EG')} حالة • {summary.previousInvoices.toLocaleString('ar-EG')} فاتورة • {summary.previousReview.toLocaleString('ar-EG')} مراجعة
                 </div>
               </div>
             ))}
