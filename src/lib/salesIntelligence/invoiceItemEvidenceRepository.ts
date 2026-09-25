@@ -40,6 +40,58 @@ function candidateKey(number: string, branch: string | null | undefined): string
   return `${number}|${normalizeBranchName(branch || '')}`;
 }
 
+function sameOrNull<T>(values: Array<T | null | undefined>): T | null {
+  const present = values.filter((value): value is T => value != null);
+  if (!present.length) return null;
+  return present.every((value) => value === present[0]) ? present[0] : null;
+}
+
+function sumNullable(values: Array<number | null | undefined>): number | null {
+  const present = values.filter((value): value is number => value != null && Number.isFinite(value));
+  return present.length ? present.reduce((sum, value) => sum + value, 0) : null;
+}
+
+function aggregateInvoiceItems(items: InvoiceItemRecordForAttribution[]): InvoiceItemRecordForAttribution[] {
+  const grouped = new Map<string, InvoiceItemRecordForAttribution[]>();
+  const passthrough: InvoiceItemRecordForAttribution[] = [];
+
+  for (const item of items) {
+    const key = item.productId
+      ? `id:${item.productId}`
+      : item.productCode
+        ? `code:${item.productCode}`
+        : '';
+    if (!key) {
+      passthrough.push(item);
+      continue;
+    }
+    const bucket = grouped.get(key) ?? [];
+    bucket.push(item);
+    grouped.set(key, bucket);
+  }
+
+  const aggregated = Array.from(grouped.values()).map((bucket) => {
+    if (bucket.length === 1) return bucket[0];
+    return {
+      productNameRaw: bucket[0].productNameRaw,
+      productId: sameOrNull(bucket.map((item) => item.productId ?? null)),
+      productCode: sameOrNull(bucket.map((item) => item.productCode ?? null)),
+      quantity: sumNullable(bucket.map((item) => item.quantity)),
+      unitName: sameOrNull(bucket.map((item) => item.unitName ?? null)),
+      expiryRaw: sameOrNull(bucket.map((item) => item.expiryRaw ?? null)),
+      returnedQuantity: sumNullable(bucket.map((item) => item.returnedQuantity)),
+      unitPrice: sameOrNull(bucket.map((item) => item.unitPrice ?? null)),
+      itemDiscountAmount: sumNullable(bucket.map((item) => item.itemDiscountAmount)),
+      itemDiscountPercent: sameOrNull(bucket.map((item) => item.itemDiscountPercent ?? null)),
+      grossLineAmount: sumNullable(bucket.map((item) => item.grossLineAmount)),
+      netLineAmount: sumNullable(bucket.map((item) => item.netLineAmount)),
+      lineTotal: sumNullable(bucket.map((item) => item.lineTotal)),
+    } satisfies InvoiceItemRecordForAttribution;
+  });
+
+  return [...aggregated, ...passthrough];
+}
+
 function chunks<T>(rows: T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < rows.length; i += size) out.push(rows.slice(i, i + size));
@@ -110,7 +162,7 @@ export function buildInvoiceItemEvidenceProvider(
   return {
     getItemsForInvoice(id: string) {
       const rows = itemsByInvoiceId.get(clean(id));
-      return rows && rows.length ? rows : 'unavailable';
+      return rows && rows.length ? aggregateInvoiceItems(rows) : 'unavailable';
     },
   };
 }
