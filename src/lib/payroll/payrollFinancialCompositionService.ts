@@ -5,7 +5,13 @@ export type EmployeePayrollFinancialCompositionV2 = {
   staff_id: string;
   month_cycle: string;
   ready_for_finalization: boolean;
-  source_mode: 'frozen_v13_snapshot' | 'canonical_plus_legacy_manual_adjustments' | 'canonical_only_no_manual_adjustment_row' | 'frozen_legacy_snapshot' | 'canonical_manual_ledger_v1';
+  source_mode:
+    | 'frozen_v13_snapshot'
+    | 'canonical_plus_legacy_manual_adjustments'
+    | 'canonical_only_no_manual_adjustment_row'
+    | 'frozen_legacy_snapshot'
+    | 'canonical_manual_ledger_v1'
+    | 'finalized_snapshot_v2';
   earnings: {
     base_salary: number;
     automated_incentives_total: number;
@@ -36,6 +42,9 @@ export type EmployeePayrollFinancialCompositionV2 = {
   frozen: boolean;
   frozen_net_salary: number | null;
   display_net_salary: number;
+  final_snapshot_id?: string | null;
+  snapshot_fingerprint?: string | null;
+  finalized_at?: string | null;
   double_count_guard: {
     monthly_incentive_component_reference_only: number;
     rule: string;
