@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import {
   Activity, AlertTriangle, Banknote, CalendarClock, ClipboardList,
-  LockKeyhole, PackageCheck, RefreshCw, Save, Search, ShieldCheck, TrendingDown,
+  LockKeyhole, PackageCheck, RefreshCw, Search, ShieldCheck, TrendingDown,
   Trophy, User, WalletCards,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
@@ -33,7 +33,6 @@ import {
 const surface = { background: 'var(--dawaa-theme-surface)', borderColor: 'var(--dawaa-theme-border)' };
 const surfaceSoft = { background: 'var(--dawaa-theme-bg-soft)', borderColor: 'var(--dawaa-theme-border)' };
 const mutedText = { color: 'var(--dawaa-theme-muted)' };
-const STATUS_OPTIONS = [{ key: 'draft', label: 'مسودة' }, { key: 'approved', label: 'معتمد' }, { key: 'paid', label: 'مدفوع' }];
 
 type Row = Record<string, unknown>;
 type StaffRow = { id: string; staffId: string; username: string; name: string; branch: string; role: string; active: boolean };
@@ -205,29 +204,6 @@ export default function PayrollManagement() {
   }, [selected?.staffId]);
 
   const monthlyFrozen = monthly?.status === 'approved' || monthly?.status === 'paid';
-  const monthlyPaid = monthly?.status === 'paid';
-  const totalDeductions = useMemo(() => {
-    if (!monthly) return 0;
-    return num(monthly.expiry_shortage_deduction)
-      + num(monthly.branch_general_deduction)
-      + num(monthly.individual_deduction)
-      + num(monthly.other_deduction);
-  }, [monthly]);
-
-  const overtimeValue = num(monthly?.overtime_hours) * num(components?.overtimeHourRate);
-  const netSalaryPreview = useMemo(() => {
-    if (!monthly) return 0;
-    if (monthlyFrozen && monthly.net_salary != null) return num(monthly.net_salary);
-    return num(components?.baseSalaryComponent)
-      + num(components?.listIncentiveComponent)
-      + num(automatedTruth?.automatedTotal)
-      + num(monthly.overtime_hours) * num(components?.overtimeHourRate)
-      + num(monthly.incentives_total)
-      + num(monthly.manual_adjustment)
-      - totalDeductions;
-  }, [monthly, monthlyFrozen, components, automatedTruth, totalDeductions]);
-  // monthlyIncentiveComponent is the performance incentive and is already included
-  // in automatedTruth.automatedTotal. Do not add it twice in preview calculations.
 
   const saveProfile = async () => {
     if (!selected) return;
@@ -267,15 +243,6 @@ export default function PayrollManagement() {
   async function exportPaidStatement(payrollMonth:string){if(!selected?.staffId)return;setExportingStatement(true);try{const {pdf,fileName}=await buildPaidStatementPdf(selected.staffId,payrollMonth.slice(0,7));pdf.save(fileName)}catch(e){toast.error(e instanceof Error?e.message:'تعذر إصدار كشف الراتب المدفوع')}finally{setExportingStatement(false)}}
 
   const filteredStaff = staff.filter((s) => !search.trim() || s.name.includes(search.trim()) || s.username.includes(search.trim()));
-  const summaryCards = [
-    ['الراتب الأساسي', num(monthlyFrozen ? monthly?.base_salary_component : components?.baseSalaryComponent)],
-    ['الحافز الشهري', num(monthlyFrozen ? monthly?.monthly_incentive_component : components?.monthlyIncentiveComponent)],
-    ['حافز التارجت', num(monthlyFrozen ? monthly?.target_bonus : automatedTruth?.targetBonus)],
-    ['حافز اللستة', num(monthlyFrozen ? monthly?.list_incentive_component : components?.listIncentiveComponent)],
-    ['إجمالي الخصومات', monthlyFrozen ? num(monthly?.deductions_total) : totalDeductions],
-    ['صافي الراتب', netSalaryPreview],
-  ] as const;
-
   return (
     <div className="space-y-5 p-4 md:p-6" dir="rtl">
       <div className="rounded-3xl border p-5" style={surface}>
