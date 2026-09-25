@@ -126,6 +126,20 @@ describe('WhatsApp Product Journey V7 — scoped customer decisions', () => {
     expect(journey.events.map((e) => e.stage)).not.toContain('accepted');
   });
 
+  it('does not let a customer invoice question close the product journey', () => {
+    const messages = [
+      msg('m1', 0, 'inbound', 'Isis teenderm gel موجود؟'),
+      msg('m2', 1, 'outbound', 'موجود يا فندم'),
+      msg('m3', 2, 'inbound', 'تمام والفاتورة كام؟'),
+      msg('m4', 3, 'outbound', 'لحظة أحسبه لحضرتك'),
+    ];
+    const result = buildWhatsAppProductJourneyV7(session(messages), operational('m1'));
+    const journey = result.journeys[0];
+
+    expect(journey.events.map((e) => e.stage)).not.toContain('order_confirmed');
+    expect(journey.closedInChat).toBe(false);
+  });
+
   it('keeps chat closure as awaiting invoice, never as a proven sale', () => {
     const messages = [
       msg('m1', 0, 'inbound', 'Isis teenderm gel'),
