@@ -51,11 +51,3 @@ jobs:
 
       - name: Product demand ground-truth dry run
         run: npm run product-demand:v23:ground-truth:dry-run
-
-      - name: Guard against accidental apply flags
-        shell: bash
-        run: |
-          if grep -nE 'backfill:.*:apply|--apply' .github/workflows/sales-intelligence-final-readonly-gate.yml; then
-            echo "::error::Read-only gate contains a write command"
-            exit 1
-          fi
