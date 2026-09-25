@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import type { WhatsAppConversationSession } from './whatsappConversationParser';
 import type { WhatsAppOperationalIntelligenceV6 } from './whatsappOperationalIntelligenceV6';
+import { selectVerifiedProductInvoiceV23 } from './salesIntelligence/productInvoiceVerificationV23';
 
 export interface WhatsAppEvidenceLedgerContextV17 {
   sourceId: string;
@@ -75,6 +76,133 @@ function normalizeKey(value: unknown) {
   return String(value ?? '').trim().toLowerCase().replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '').slice(0, 100) || 'unknown';
 }
 
+export function productEventWindowV23(session: WhatsAppConversationSession, product: any, fallbackStart: string | null, fallbackEnd: string | null) {
+  const ids = new Set<string>();
+  for (const event of Array.isArray(product?.events) ? product.events : []) {
+    for (const id of Array.isArray(event?.messageIds) ? event.messageIds : []) ids.add(String(id));
+  }
+  const timestamps = session.messages
+    .filter((message) => ids.has(String(message.id)))
+    .map((message) => message.timestamp?.toISOString?.())
+    .filter(Boolean) as string[];
+  timestamps.sort();
+  return {
+    openedAt: timestamps[0] || fallbackStart || new Date().toISOString(),
+    lastStageAt: timestamps[timestamps.length - 1] || fallbackEnd || fallbackStart || new Date().toISOString(),
+  };
+}
+
+export async function resolveProductInvoiceVerificationV23(source: any, product: any, openedAt: string, lastStageAt: string) {
+  if (!product?.productId && !product?.productCode && !product?.productName) return null;
+
+  const startMs = new Date(openedAt).getTime();
+  const endMs = new Date(lastStageAt).getTime();
+  const queryStart = new Date((Number.isFinite(startMs) ? startMs : Date.now()) - 10 * 60 * 1000).toISOString();
+  const queryEnd = new Date((Number.isFinite(endMs) ? endMs : Date.now()) + 36 * 60 * 60 * 1000).toISOString();
+
+  let invoiceQuery = supabase
+    .from('sales_invoices')
+    .select('id,invoice_number,invoice_datetime,close_datetime,net_total,total_amount,net_amount,amount,branch,customer_id,customer_code')
+    .gte('invoice_datetime', queryStart)
+    .lte('invoice_datetime', queryEnd)
+    .limit(100);
+
+  if (source.customer_code) invoiceQuery = invoiceQuery.eq('customer_code', source.customer_code);
+  else if (source.customer_id) invoiceQuery = invoiceQuery.eq('customer_id', source.customer_id);
+  else return null;
+
+  if (source.branch) invoiceQuery = invoiceQuery.eq('branch', source.branch);
+
+  const { data: invoices, error: invoiceError } = await invoiceQuery;
+  if (invoiceError) throw invoiceError;
+  if (!invoices?.length) return null;
+
+  const invoiceIds = invoices.map((row: any) => String(row.id)).filter(Boolean);
+  const { data: items, error: itemError } = await supabase
+    .from('sales_invoice_items_v21')
+    .select('invoice_id,invoice_number,product_id,product_code,product_name,quantity,line_total')
+    .in('invoice_id', invoiceIds)
+    .limit(5000);
+  if (itemError) throw itemError;
+
+  return selectVerifiedProductInvoiceV23({
+    product: {
+      productId: product.productId || null,
+      productCode: product.productCode || null,
+      productName: product.productName || null,
+    },
+    openedAt,
+    lastStageAt,
+    invoices: invoices as any[],
+    items: (items || []) as any[],
+  });
+}
+
+export interface ProductOpportunityTruthPlanV23 {
+  productId: string | null;
+  productCode: string | null;
+  productName: string | null;
+  openedAt: string;
+  lastStageAt: string;
+  currentStage: string;
+  status: string;
+  saleVerifiedScope: 'product_invoice_item' | 'none';
+  matchedInvoiceId: string | null;
+  matchedInvoiceNumber: string | null;
+  matchedInvoiceValue: number | null;
+  leakageCode: string | null;
+  leakageReason: string | null;
+  nextAction: string | null;
+  verification: null | {
+    evidence: string;
+    finalPaid: boolean;
+    timeDistanceMinutes: number | null;
+  };
+}
+
+export async function planProductOpportunityTruthV23(
+  session: WhatsAppConversationSession,
+  source: any,
+  product: any
+): Promise<ProductOpportunityTruthPlanV23> {
+  const window = productEventWindowV23(
+    session,
+    product,
+    source.conversation_started_at || null,
+    source.conversation_ended_at || null
+  );
+  const productInvoice = await resolveProductInvoiceVerificationV23(
+    source,
+    product,
+    window.openedAt,
+    window.lastStageAt
+  );
+  const currentStage = productInvoice ? 'verified_sale' : mapOpportunityStage(product.currentStage);
+  return {
+    productId: product.productId || null,
+    productCode: product.productCode || null,
+    productName: product.productName || null,
+    openedAt: window.openedAt,
+    lastStageAt: window.lastStageAt,
+    currentStage,
+    status: productInvoice ? 'won' : currentStage === 'rejected' ? 'lost' : 'open',
+    saleVerifiedScope: productInvoice ? 'product_invoice_item' : 'none',
+    matchedInvoiceId: productInvoice?.invoiceId || null,
+    matchedInvoiceNumber: productInvoice?.invoiceNumber || null,
+    matchedInvoiceValue: productInvoice?.invoiceValue ?? null,
+    leakageCode: productInvoice ? null : product.leakageCode || null,
+    leakageReason: productInvoice ? null : product.leakageReason || null,
+    nextAction: productInvoice ? null : product.nextAction || null,
+    verification: productInvoice
+      ? {
+          evidence: productInvoice.productEvidence,
+          finalPaid: productInvoice.finalPaid,
+          timeDistanceMinutes: productInvoice.timeDistanceMinutes,
+        }
+      : null,
+  };
+}
+
 export async function syncWhatsAppEvidenceLedgerV17(session: WhatsAppConversationSession, context: WhatsAppEvidenceLedgerContextV17) {
   const { data: source, error: sourceError } = await supabase
     .from('whatsapp_review_sources')
@@ -119,7 +247,19 @@ export async function syncWhatsAppEvidenceLedgerV17(session: WhatsAppConversatio
   const outboundText = session.messages.filter((m) => m.direction === 'outbound').map((m) => m.text || '').join('\n');
   if (GREETING_RX.test(outboundText)) addFact('greeting', 'service:greeting', 88, 'message', messageEvidence(session, GREETING_RX));
   if (DELAY_RX.test(allText)) addFact(context.operational.primaryIntent === 'delivery_issue' ? 'delivery_delay' : 'response_delay', 'service:delay', 82, 'message', messageEvidence(session, DELAY_RX));
-  if (COMPLAINT_RX.test(allText) || context.operational.primaryIntent === 'complaint') addFact('complaint', 'service:complaint', Math.max(82, context.operational.intentConfidence || 0), 'message', messageEvidence(session, COMPLAINT_RX));
+  const complaintEvidenceIds = context.operational.evidence?.complaint?.messageIds || [];
+  if (complaintEvidenceIds.length || context.operational.primaryIntent === 'complaint') {
+    addFact(
+      'complaint',
+      'service:complaint',
+      Math.max(82, context.operational.intentConfidence || 0),
+      'message',
+      {
+        messageIds: complaintEvidenceIds,
+        quote: context.operational.evidence?.complaint?.quote || '',
+      }
+    );
+  }
   if (APOLOGY_RX.test(outboundText)) addFact('apology', 'service:apology', 91, 'message', messageEvidence(session, APOLOGY_RX));
   if (ADDRESS_RX.test(allText)) addFact('address_confirmed', 'order:address-mentioned', 68, 'message', messageEvidence(session, ADDRESS_RX));
   if (MEDIA_RX.test(allText)) addFact('media_missing_context', 'context:media-reference', 98, 'media', messageEvidence(session, MEDIA_RX));
@@ -171,10 +311,34 @@ export async function syncWhatsAppEvidenceLedgerV17(session: WhatsAppConversatio
   const opportunityJourneys = isCanonicalProductDemandRun
     ? journeys.filter((p: any) => Boolean(p.productId && p.productCode))
     : journeys;
-  const opportunities = opportunityJourneys.filter((p: any) => p.saleIntent || (p.events || []).some((e: any) => ['requested','recommended','alternative_offered','accepted','order_confirmed'].includes(e.stage))).map((product: any) => {
+  const opportunityCandidates = opportunityJourneys.filter(
+    (p: any) => p.saleIntent || (p.events || []).some((e: any) => ['requested','recommended','alternative_offered','accepted','order_confirmed'].includes(e.stage))
+  );
+
+  const opportunities: any[] = [];
+  for (const product of opportunityCandidates) {
     const pkey = `product:${normalizeKey(product.productCode || product.productName)}`;
-    const currentStage = mapOpportunityStage(product.currentStage);
-    return {
+    const truth = isCanonicalProductDemandRun
+      ? await planProductOpportunityTruthV23(session, source, product)
+      : {
+          productId: product.productId || null,
+          productCode: product.productCode || null,
+          productName: product.productName || null,
+          openedAt: source.conversation_started_at || new Date().toISOString(),
+          lastStageAt: source.conversation_ended_at || source.conversation_started_at || new Date().toISOString(),
+          currentStage: mapOpportunityStage(product.currentStage),
+          status: mapOpportunityStage(product.currentStage) === 'rejected' ? 'lost' : 'open',
+          saleVerifiedScope: 'none',
+          matchedInvoiceId: null,
+          matchedInvoiceNumber: null,
+          matchedInvoiceValue: null,
+          leakageCode: product.leakageCode || null,
+          leakageReason: product.leakageReason || null,
+          nextAction: product.nextAction || null,
+          verification: null,
+        };
+
+    opportunities.push({
       root_source_id: context.sourceId,
       story_id: storyId,
       journey_id: journeyId,
@@ -191,28 +355,31 @@ export async function syncWhatsAppEvidenceLedgerV17(session: WhatsAppConversatio
       product_code: product.productCode || null,
       product_name: product.productName || null,
       quantity: product.quantity ?? null,
-      opened_at: source.conversation_started_at || new Date().toISOString(),
-      last_stage_at: source.conversation_ended_at || source.conversation_started_at || new Date().toISOString(),
-      current_stage: currentStage,
-      status: currentStage === 'rejected' ? 'lost' : 'open',
-      confidence: Math.max(0, Math.min(100, Math.round(Number(product.confidence || 0)))),
-      sale_verified_scope: 'none',
-      matched_invoice_id: source.invoice_match_status === 'verified' ? String(source.matched_invoice_id || '') || null : null,
-      matched_invoice_number: source.invoice_match_status === 'verified' ? source.matched_invoice_number || null : null,
-      matched_invoice_value: source.invoice_match_status === 'verified' ? source.matched_invoice_value || null : null,
-      leakage_reason: product.leakageReason || null,
-      next_action: product.nextAction || null,
+      opened_at: truth.openedAt,
+      last_stage_at: truth.lastStageAt,
+      current_stage: truth.currentStage,
+      status: truth.status,
+      confidence: truth.saleVerifiedScope === 'product_invoice_item'
+        ? Math.max(96, Math.max(0, Math.min(100, Math.round(Number(product.confidence || 0)))))
+        : Math.max(0, Math.min(100, Math.round(Number(product.confidence || 0)))),
+      sale_verified_scope: truth.saleVerifiedScope,
+      matched_invoice_id: truth.matchedInvoiceId,
+      matched_invoice_number: truth.matchedInvoiceNumber,
+      matched_invoice_value: truth.matchedInvoiceValue,
+      leakage_reason: truth.leakageReason,
+      next_action: truth.nextAction,
       evidence_json: {
         events: product.events || [],
-        leakageCode: product.leakageCode || null,
-        note: source.invoice_match_status === 'verified'
-          ? 'الفاتورة تثبت بيعًا مرتبطًا بالمحادثة فقط؛ لا تثبت هذا الصنف بعينه دون مطابقة بنود الفاتورة.'
-          : null
+        leakageCode: truth.leakageCode,
+        productInvoiceVerification: truth.verification,
+        note: truth.saleVerifiedScope === 'product_invoice_item'
+          ? 'بيع الصنف موثق من نفس العميل والفرع وبند الفاتورة نفسه؛ لا يعتمد على matched_invoice_id العام للمحادثة.'
+          : 'لا توجد فاتورة تحتوي هذا الصنف داخل نافذة الطلب؛ matched_invoice_id العام للمحادثة لا يثبت بيع الصنف.'
       },
       analysis_version: context.analysisVersion || source.analysis_version || 'whatsapp-evidence-v17',
       updated_at: new Date().toISOString(),
-    };
-  });
+    });
+  }
 
   if (opportunities.length) {
     const { error } = await supabase.from('whatsapp_sales_opportunities_v17').upsert(opportunities, { onConflict: 'root_source_id,opportunity_key', ignoreDuplicates: false });

@@ -206,6 +206,12 @@ function getInvoiceStaffId(row: InvoiceLike): string | null {
   return cleanText(firstValue(row, ['staff_id'])) || null;
 }
 
+function isDraftLikeZeroInvoice(row: InvoiceLike): boolean {
+  const amount = getInvoiceAmount(row);
+  const closeValue = firstValue(row, ['close_datetime', 'close_time']);
+  return amount != null && amount <= 0 && !closeValue;
+}
+
 /**
  * Canonical timestamp for attribution: `invoice_datetime`/`close_datetime` carry real
  * time-of-day; `sale_date`/`invoice_date`/`date` are day-only (always identical to each other on
@@ -735,6 +741,10 @@ export function buildAttributionCandidate(
     productMatch,
   });
 
+  if (isDraftLikeZeroInvoice(row)) {
+    disqualifiers.push('draft_zero_invoice');
+  }
+
   const hasIdentitySignal = identity.customerIdMatch || identity.phoneMatch;
   // A trusted direct link always wins outright — hard evidence, never a statistical estimate
   // (Phase D §4/§13: "Do NOT call statistical matching proven").
@@ -841,6 +851,7 @@ export function deriveSaleAttributionAssessment(
 
   const isStatisticallySelectable = (candidate: SaleAttributionCandidate): boolean => {
     if (candidate.disqualifiers.includes('temporal_inversion_invoice_predates_case')) return false;
+    if (candidate.disqualifiers.includes('draft_zero_invoice')) return false;
     if (candidate.timeMatchStrength === 'very_strong' || candidate.timeMatchStrength === 'strong' || candidate.timeMatchStrength === 'moderate') {
       return true;
     }
@@ -860,12 +871,17 @@ export function deriveSaleAttributionAssessment(
   if (selectableCandidates.length === 0) {
     const rejectedTop = candidates[0];
     const temporalInversion = rejectedTop?.disqualifiers.includes('temporal_inversion_invoice_predates_case') ?? false;
+    const draftZero = rejectedTop?.disqualifiers.includes('draft_zero_invoice') ?? false;
     const reason = temporalInversion
       ? 'invoice_predates_case_start'
-      : 'statistical_invoice_lacks_transactional_corroboration';
+      : draftZero
+        ? 'draft_zero_invoice_not_transaction_truth'
+        : 'statistical_invoice_lacks_transactional_corroboration';
     const ruleId = temporalInversion
       ? 'attribution.assessment.no_temporally_valid_candidates'
-      : 'attribution.assessment.no_selectable_transaction_link';
+      : draftZero
+        ? 'attribution.assessment.draft_zero_invoice_rejected'
+        : 'attribution.assessment.no_selectable_transaction_link';
     return {
       caseId: ctx.caseId,
       commercialConfirmationState,

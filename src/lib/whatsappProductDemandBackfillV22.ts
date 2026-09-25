@@ -8,7 +8,7 @@ import {
   syncWhatsAppOperationalActionsV6,
 } from '@/lib/whatsappOperationalIntelligenceV6';
 import { enrichWhatsAppOperationalJourneysV7 } from '@/lib/whatsappProductJourneyV7';
-import { syncWhatsAppEvidenceLedgerV17 } from '@/lib/whatsappEvidenceLedgerV17';
+import { planProductOpportunityTruthV23, syncWhatsAppEvidenceLedgerV17 } from '@/lib/whatsappEvidenceLedgerV17';
 import {
   collectPriorCanonicalProductCodesV22,
   findDroppedPriorCanonicalCodesV22,
@@ -23,6 +23,22 @@ export interface ProductDemandBackfillOptionsV22 {
   onProgress?: (processed: number, total: number) => void;
 }
 
+export interface ProductTruthChangeV23 {
+  productId: string | null;
+  productCode: string | null;
+  productName: string | null;
+  beforeStage: string | null;
+  beforeInvoiceNumber: string | null;
+  beforeLeakageCode: string | null;
+  afterStage: string;
+  afterInvoiceNumber: string | null;
+  afterInvoiceValue: number | null;
+  afterLeakageCode: string | null;
+  saleVerifiedScope: string;
+  productEvidence: string | null;
+  timeDistanceMinutes: number | null;
+}
+
 export interface ProductDemandBackfillSourceResultV22 {
   sourceId: string;
   status: 'ready' | 'written' | 'skipped' | 'failed';
@@ -34,6 +50,7 @@ export interface ProductDemandBackfillSourceResultV22 {
   unresolvedExamples: string[];
   priorCanonicalProductCodes: string[];
   droppedPriorCanonicalCodes: string[];
+  productTruthChanges?: ProductTruthChangeV23[];
 }
 
 export interface ProductDemandBackfillResultV22 {
@@ -139,7 +156,7 @@ async function loadSources(options: ProductDemandBackfillOptionsV22): Promise<{ 
 
   const filtered = options.force || options.sourceIds?.length
     ? canonicalRows
-    : canonicalRows.filter((row) => row.analysis_json?.productDemandVersion !== 'product-demand-v22.1');
+    : canonicalRows.filter((row) => row.analysis_json?.productDemandTruthVersion !== 'product-invoice-truth-v23.1');
 
   return {
     rows: filtered.slice(0, limit),
@@ -191,7 +208,7 @@ async function processProductDemandSourceV22(
     const productCodes = Array.from(new Set(canonical.map((product) => String(product.productCode)).filter(Boolean)));
     const { data: priorRows, error: priorError } = await supabase
       .from('whatsapp_sales_opportunities_v17')
-      .select('product_code,product_id,analysis_version')
+      .select('product_code,product_id,product_name,current_stage,matched_invoice_number,leakage_code,analysis_version')
       .eq('root_source_id', source.id)
       .in('analysis_version', ['product-demand-v22', 'product-demand-v22.1'])
       .not('product_id', 'is', null);
@@ -218,11 +235,43 @@ async function processProductDemandSourceV22(
       };
     }
 
+
+    const priorByProduct = new Map<string, any>();
+    for (const row of priorRows || []) {
+      const key = String((row as any).product_id || (row as any).product_code || '').trim();
+      if (key) priorByProduct.set(key, row);
+    }
+
+    const productTruthChanges: ProductTruthChangeV23[] = [];
+    const canonicalJourneys = (operational.productJourney?.journeys || []).filter(
+      (journey: any) => Boolean(journey.productId && journey.productCode)
+    );
+    for (const journey of canonicalJourneys) {
+      const truth = await planProductOpportunityTruthV23(session, source, journey);
+      const prior = priorByProduct.get(String(journey.productId || journey.productCode || '').trim()) || null;
+      productTruthChanges.push({
+        productId: truth.productId,
+        productCode: truth.productCode,
+        productName: truth.productName,
+        beforeStage: prior?.current_stage || null,
+        beforeInvoiceNumber: prior?.matched_invoice_number || null,
+        beforeLeakageCode: prior?.leakage_code || null,
+        afterStage: truth.currentStage,
+        afterInvoiceNumber: truth.matchedInvoiceNumber,
+        afterInvoiceValue: truth.matchedInvoiceValue,
+        afterLeakageCode: truth.leakageCode,
+        saleVerifiedScope: truth.saleVerifiedScope,
+        productEvidence: truth.verification?.evidence || null,
+        timeDistanceMinutes: truth.verification?.timeDistanceMinutes ?? null,
+      });
+    }
+
     if (!dryRun) {
       const nextAnalysis = {
         ...(source.analysis_json || {}),
         operational: JSON.parse(JSON.stringify(operational)),
         productDemandVersion: 'product-demand-v22.1',
+        productDemandTruthVersion: 'product-invoice-truth-v23.1',
         productDemandBackfilledAt: new Date().toISOString(),
       };
 
@@ -278,6 +327,7 @@ async function processProductDemandSourceV22(
       unresolvedExamples: Array.from(new Set(unresolved.map((product) => String(product.rawName || '').trim()).filter(Boolean))).slice(0, 12),
       priorCanonicalProductCodes,
       droppedPriorCanonicalCodes,
+      productTruthChanges,
     };
   } catch (error) {
     return {

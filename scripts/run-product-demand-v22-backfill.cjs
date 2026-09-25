@@ -19,6 +19,21 @@ const ts = require('typescript');
 const root = path.resolve(__dirname, '..');
 const apply = process.argv.includes('--apply');
 const jsonOutput = process.argv.includes('--json');
+const groundTruth = process.argv.includes('--ground-truth');
+
+const GROUND_TRUTH_SOURCE_IDS = [
+  '9a59338b-f1ca-4b68-bd3b-c081fee914a8', // محمد الكموني — ISIS
+  '2524fc3e-1b2d-421b-91cb-50a39403540b', // اليماني — Flexilax
+  '66fe13b7-7ebc-48a9-8180-033bfb34cd4b', // اليماني — GAST-REG unavailable
+  'e9e231ad-48b4-427c-9b5a-be6d2c09b566', // مونزا — Solofresh
+];
+
+const GROUND_TRUTH_EXPECTATIONS = [
+  { sourceId: GROUND_TRUTH_SOURCE_IDS[0], productCode: '70271', stage: 'verified_sale', invoiceNumber: '73006', leakageCode: null },
+  { sourceId: GROUND_TRUTH_SOURCE_IDS[1], productCode: '68114', stage: 'verified_sale', invoiceNumber: '70655', leakageCode: null },
+  { sourceId: GROUND_TRUTH_SOURCE_IDS[2], productCode: '40049', stage: 'unavailable', invoiceNumber: null, leakageCode: 'stock_unavailable' },
+  { sourceId: GROUND_TRUTH_SOURCE_IDS[3], productCode: '66682', stage: 'verified_sale', invoiceNumber: '72743', leakageCode: null },
+];
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -28,6 +43,10 @@ if (!supabaseUrl) {
 }
 if (!serviceRoleKey) {
   console.error('Missing SUPABASE_SERVICE_ROLE_KEY.');
+  process.exit(2);
+}
+if (groundTruth && apply) {
+  console.error('--ground-truth is a read-only regression gate and cannot be combined with --apply.');
   process.exit(2);
 }
 
@@ -84,6 +103,7 @@ const { runProductDemandBackfillV22 } = require(
   const result = await runProductDemandBackfillV22({
     limit: 500,
     dryRun: !apply,
+    sourceIds: groundTruth ? GROUND_TRUTH_SOURCE_IDS : undefined,
     dryRunConcurrency: apply ? 1 : 4,
     onProgress(processed, total) {
       if (processed === total || processed - lastLogged >= 5) {
@@ -105,6 +125,9 @@ const { runProductDemandBackfillV22 } = require(
     failed: result.failed,
     canonicalProducts: result.canonicalProducts,
     unresolvedProducts: result.unresolvedProducts,
+    truthChanges: result.rows.flatMap((row) =>
+      (row.productTruthChanges || []).map((change) => ({ sourceId: row.sourceId, ...change }))
+    ),
     failures: result.rows
       .filter((row) => row.status === 'failed')
       .map((row) => ({
@@ -113,6 +136,37 @@ const { runProductDemandBackfillV22 } = require(
         droppedPriorCanonicalCodes: row.droppedPriorCanonicalCodes,
       })),
   };
+
+  if (groundTruth) {
+    const changes = summary.truthChanges;
+    const failures = [];
+    for (const expected of GROUND_TRUTH_EXPECTATIONS) {
+      const actual = changes.find((row) =>
+        row.sourceId === expected.sourceId &&
+        String(row.productCode || '') === expected.productCode
+      );
+      if (!actual) {
+        failures.push(`Missing product truth result for ${expected.sourceId} / ${expected.productCode}`);
+        continue;
+      }
+      if (actual.afterStage !== expected.stage) {
+        failures.push(`${expected.productCode}: stage ${actual.afterStage} != ${expected.stage}`);
+      }
+      if ((actual.afterInvoiceNumber || null) !== expected.invoiceNumber) {
+        failures.push(`${expected.productCode}: invoice ${actual.afterInvoiceNumber || 'null'} != ${expected.invoiceNumber || 'null'}`);
+      }
+      if ((actual.afterLeakageCode || null) !== expected.leakageCode) {
+        failures.push(`${expected.productCode}: leakage ${actual.afterLeakageCode || 'null'} != ${expected.leakageCode || 'null'}`);
+      }
+    }
+    if (failures.length) {
+      console.error('GROUND TRUTH REGRESSION FAILED');
+      for (const failure of failures) console.error(' - ' + failure);
+      process.exitCode = 1;
+    } else {
+      console.log('GROUND TRUTH REGRESSION PASSED: ISIS, Flexilax, GAST-REG, Solofresh.');
+    }
+  }
 
   if (jsonOutput) console.log(JSON.stringify(summary, null, 2));
   else console.log(summary);

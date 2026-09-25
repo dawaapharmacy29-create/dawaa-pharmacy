@@ -127,6 +127,8 @@ const RECOMMEND_RX = /(ارشح|أرشح|نرشح|ترشيح|انصح|أنصح|�
 const ACCEPT_RX = /(^|\s)(تمام|ماشي|موافق|اوكي|أوكي|خلاص|ابعت|ابعته|ابعتي|هات|هاته|هاخده|هاخدها|هجربه|هجربها|تمام كده|تمام كدا)(\s|$)/i;
 const REJECT_RX = /(لا شكرا|مش عايز|مش عاوز|مش محتاج|غالي|مش مناسب|مش هاخد|مش هطلب|بلاش)/i;
 const COMPLAINT_RX = /(شكوي|شكوى|مشكله|مشكلة|متاخر|متأخر|محدش رد|غلط|سيء|وحش|ماوصلش|موصلش|لسه مجاش|اتضايقت|زعلت)/i;
+const NEGATED_COMPLAINT_RX = /(مفيش\s+مشكله|مفيش\s+مشكلة|مافيش\s+مشكله|مافيش\s+مشكلة|لا\s+توجد\s+مشكله|لا\s+توجد\s+مشكلة|مش\s+مشكله|مش\s+مشكلة)/i;
+const FULFILLMENT_FAILURE_RX = /(التاخير\s+الكبير|التأخير\s+الكبير|المندوب[^\n]{0,80}(?:مجاش|ماجاش|مجالبيش|ماوصلش|موصلش)|كان\s+المفروض[^\n]{0,100}(?:لكن|بس)[^\n]{0,100}(?:مجاش|ماجاش|مجالبيش|ماوصلش|موصلش)|لو\s+حضرتك[^\n]{0,40}(?:تحبي|تحب)[^\n]{0,40}نبعت\s+(?:الاوردر|الأوردر)|نبعت\s+(?:الاوردر|الأوردر))/i;
 const RECOVERY_RX = /(بنعتذر|نعتذر|متاسف|متأسف|اسفين|آسفين|تم الحل|هنحل|هنراجع|هنعوض|تم التصحيح)/i;
 const DELIVERY_RX = /(توصيل|مندوب|العنوان|وصل|ماوصلش|موصلش|خرج لحضرتك|جاري الارسال|جاري الإرسال)/i;
 const MEDICAL_RX = /(اعراض|أعراض|جرعه|جرعة|كحه|كحة|حراره|حرارة|اسهال|إسهال|وجع|الم|ألم|التهاب|حامل|رضاع|ضغط|سكر|حساسي|ينفع|استخدم|اخد|آخد|طفل|طفله|طفلة)/i;
@@ -142,6 +144,26 @@ function evidenceFor(session: WhatsAppConversationSession, rx: RegExp, confidenc
   return { messageIds: matches.map((m) => m.id).slice(0, 10), quote: matches[0]?.text?.slice(0, 180) || '', confidence };
 }
 
+function complaintMessages(session: WhatsAppConversationSession) {
+  return session.messages.filter((message) =>
+    message.direction === 'inbound' &&
+    COMPLAINT_RX.test(message.text || '') &&
+    !NEGATED_COMPLAINT_RX.test(message.text || '')
+  );
+}
+
+function fulfillmentFailureMessages(session: WhatsAppConversationSession) {
+  return session.messages.filter((message) => FULFILLMENT_FAILURE_RX.test(message.text || ''));
+}
+
+function evidenceFromMessages(messages: WhatsAppParsedMessage[], confidence: number): WhatsAppEvidence {
+  return {
+    messageIds: messages.map((message) => message.id).slice(0, 10),
+    quote: messages[0]?.text?.slice(0, 180) || '',
+    confidence,
+  };
+}
+
 function firstMeaningful(session: WhatsAppConversationSession) {
   return session.messages.find((m) => m.direction !== 'system' && m.text.trim().length > 0) || null;
 }
@@ -152,8 +174,11 @@ function classifyIntents(session: WhatsAppConversationSession) {
   const all = `${inbound}\n${outbound}`;
   const scored: Array<[WhatsAppPrimaryIntent, number]> = [];
   const add = (intent: WhatsAppPrimaryIntent, score: number) => scored.push([intent, score]);
-  if (has(all, COMPLAINT_RX)) add('complaint', 98);
-  if (has(all, DELIVERY_RX) && has(all, /(ماوصلش|موصلش|مندوب|توصيل|العنوان)/i)) add('delivery_issue', has(all, /(ماوصلش|موصلش|متاخر|متأخر)/i) ? 96 : 72);
+  const complaintRows = complaintMessages(session);
+  const fulfillmentFailures = fulfillmentFailureMessages(session);
+  if (complaintRows.length) add('complaint', 98);
+  if (fulfillmentFailures.length) add('delivery_issue', 99);
+  else if (has(all, DELIVERY_RX) && has(all, /(ماوصلش|موصلش|مندوب|توصيل|العنوان)/i)) add('delivery_issue', has(all, /(ماوصلش|موصلش|متاخر|متأخر)/i) ? 96 : 72);
   if (has(outbound, CHECKIN_OUT_RX)) add('proactive_checkin', 96);
   if (has(inbound, REQUEST_RX)) add('customer_request', 91);
   if (has(inbound, PRODUCT_INQUIRY_RX)) add('product_inquiry', 84);
@@ -298,7 +323,10 @@ export function buildWhatsAppOperationalIntelligenceV6(session: WhatsAppConversa
   const acceptedRecommendation = recs.some((r) => r.accepted === true);
   const rejected = has(inbound, REJECT_RX);
   const close = has(all, CLOSE_RX);
-  const complaint = has(all, COMPLAINT_RX);
+  const complaintRows = complaintMessages(session);
+  const complaint = complaintRows.length > 0;
+  const fulfillmentFailures = fulfillmentFailureMessages(session);
+  const fulfillmentFailure = fulfillmentFailures.length > 0;
   const recovered = has(outbound, RECOVERY_RX);
   const state: WhatsAppOperationalIntelligenceV6['customerState'] = has(inbound, IMPROVED_RX) ? 'improved' : has(inbound, WORSE_RX) ? 'worse' : 'unknown';
 
@@ -307,7 +335,8 @@ export function buildWhatsAppOperationalIntelligenceV6(session: WhatsAppConversa
     .map((p) => ({ productName: p.rawName, quantity: p.quantity, urgency: has(all, URGENT_RX) ? 'urgent' : 'normal', unresolved: !close && !rejected, evidenceMessageIds: p.evidenceMessageIds, confidence: p.confidence }));
 
   let operationalOutcome: WhatsAppOperationalOutcome = 'unknown';
-  if (complaint) operationalOutcome = recovered ? 'complaint_resolved' : 'complaint_unresolved';
+  if (fulfillmentFailure) operationalOutcome = 'unresolved_request';
+  else if (complaint) operationalOutcome = recovered ? 'complaint_resolved' : 'complaint_unresolved';
   else if (intents.primary === 'proactive_checkin' || intents.primary === 'followup_response') operationalOutcome = state === 'improved' ? 'checkin_complete' : state === 'worse' ? 'needs_followup' : 'unknown';
   else if (rejected) operationalOutcome = 'no_sale';
   else if (close && (intents.primary === 'customer_request' || base.commercialEligible || acceptedRecommendation)) operationalOutcome = 'probable_sale';
@@ -321,7 +350,8 @@ export function buildWhatsAppOperationalIntelligenceV6(session: WhatsAppConversa
   let dueInDays: number | null = null;
   let priority: WhatsAppFollowupPlan['priority'] = base.priority === 'urgent' ? 'urgent' : base.priority === 'important' ? 'important' : 'normal';
   let followupEvidence: string[] = [];
-  if (operationalOutcome === 'complaint_unresolved') { followupRequired = true; followupReason = 'شكوى لم يظهر لها حل نهائي واضح.'; dueInDays = 0; priority = 'urgent'; followupEvidence = ids(session.messages, COMPLAINT_RX); }
+  if (operationalOutcome === 'complaint_unresolved') { followupRequired = true; followupReason = 'شكوى لم يظهر لها حل نهائي واضح.'; dueInDays = 0; priority = 'urgent'; followupEvidence = complaintRows.map((message) => message.id).slice(0, 10); }
+  else if (fulfillmentFailure) { followupRequired = true; followupReason = 'تعثر تنفيذ/توصيل مثبت من المحادثة ولم يظهر إتمام نهائي للطلب.'; dueInDays = 0; priority = 'urgent'; followupEvidence = fulfillmentFailures.map((message) => message.id).slice(0, 10); }
   else if (operationalOutcome === 'unresolved_request') { followupRequired = true; followupReason = 'طلب عميل لم يظهر له إغلاق بيع أو رفض صريح.'; dueInDays = 1; priority = has(all, URGENT_RX) ? 'urgent' : 'important'; followupEvidence = requests.flatMap((r) => r.evidenceMessageIds); }
   else if (acceptedRecommendation) { followupRequired = true; followupReason = 'العميل وافق على ترشيح من الدكتور ويستحق متابعة النتيجة بعد الاستخدام.'; dueInDays = 3; priority = 'important'; followupEvidence = recs.filter((r) => r.accepted).flatMap((r) => r.evidenceMessageIds); }
   else if (state === 'worse') { followupRequired = true; followupReason = 'العميل أفاد بعدم التحسن/تدهور الحالة ويحتاج متابعة.'; dueInDays = 0; priority = 'important'; followupEvidence = ids(session.messages, WORSE_RX); }
@@ -357,7 +387,7 @@ export function buildWhatsAppOperationalIntelligenceV6(session: WhatsAppConversa
     nextBestAction, officialScoringEligible, intentConfidence, outcomeConfidence,
     evidence: {
       request: evidenceFor(session, REQUEST_RX, 85), recommendation: evidenceFor(session, RECOMMEND_RX, 88),
-      complaint: evidenceFor(session, COMPLAINT_RX, 95), checkin: evidenceFor(session, CHECKIN_OUT_RX, 94),
+      complaint: evidenceFromMessages(complaintRows, 95), checkin: evidenceFor(session, CHECKIN_OUT_RX, 94),
       saleClose: evidenceFor(session, CLOSE_RX, 88), customerState: evidenceFor(session, state === 'worse' ? WORSE_RX : IMPROVED_RX, state === 'unknown' ? 0 : 88),
     },
   };
@@ -518,6 +548,56 @@ async function discoverStrongCatalogMentions(session: WhatsAppConversationSessio
   return [...byProduct.values()].slice(0, 12);
 }
 
+function isDeicticProductReference(value: string) {
+  const normalized = normalize(value);
+  return /(?:^|\s)(?:ده|دا|دي|دول)(?:\s|$)/i.test(normalized) ||
+    /^(?:واحد|واحده|واحدة)\s+من\s+(?:ده|دا|دي)$/i.test(normalized) ||
+    /^(?:نفس|زي)\s+(?:ده|دا|دي)$/i.test(normalized) ||
+    /^(?:الغسول|العلبه|العلبة|الصنف|المنتج)\s+(?:ده|دا|دي)$/i.test(normalized);
+}
+
+export function mergeDeicticProductReferences(
+  products: WhatsAppProductSignal[],
+  session?: WhatsAppConversationSession
+) {
+  if (!session) return products;
+
+  const messageIndex = new Map(session.messages.map((message, index) => [String(message.id), index]));
+  const canonical = products.filter((product) => Boolean(product.productId && product.productCode));
+  const suppressed = new Set<WhatsAppProductSignal>();
+
+  for (const reference of products) {
+    if (reference.productId || !isDeicticProductReference(reference.rawName)) continue;
+    const refIndexes = reference.evidenceMessageIds
+      .map((id) => messageIndex.get(String(id)))
+      .filter((index): index is number => typeof index === 'number');
+    if (!refIndexes.length) continue;
+
+    const refIndex = Math.min(...refIndexes);
+    const candidates = canonical
+      .map((product) => {
+        const indexes = product.evidenceMessageIds
+          .map((id) => messageIndex.get(String(id)))
+          .filter((index): index is number => typeof index === 'number' && index <= refIndex);
+        if (!indexes.length) return null;
+        const closest = Math.max(...indexes);
+        return { product, distance: refIndex - closest };
+      })
+      .filter((row): row is { product: WhatsAppProductSignal; distance: number } => Boolean(row))
+      .filter((row) => row.distance <= 4)
+      .sort((a, b) => a.distance - b.distance || b.product.confidence - a.product.confidence);
+
+    const target = candidates[0]?.product;
+    if (!target) continue;
+    target.evidenceMessageIds = uniq([...target.evidenceMessageIds, ...reference.evidenceMessageIds]);
+    target.confidence = Math.max(target.confidence, reference.confidence);
+    if (target.quantity == null && reference.quantity != null) target.quantity = reference.quantity;
+    suppressed.add(reference);
+  }
+
+  return products.filter((product) => !suppressed.has(product));
+}
+
 export async function enrichWhatsAppOperationalProductsV6(
   model: WhatsAppOperationalIntelligenceV6,
   session?: WhatsAppConversationSession
@@ -533,22 +613,39 @@ export async function enrichWhatsAppOperationalProductsV6(
     else previous.evidenceMessageIds = uniq([...previous.evidenceMessageIds, ...product.evidenceMessageIds]);
   }
 
-  const products = [...merged.values()].filter((product) =>
-    Boolean(product.productId) ||
-    (
-      product.sourceDirection === 'inbound' &&
-      ['requested', 'unavailable'].includes(product.status) &&
-      plausibleProductPhrase(product.rawName)
-    )
+  const products = mergeDeicticProductReferences(
+    [...merged.values()].filter((product) =>
+      Boolean(product.productId) ||
+      (
+        product.sourceDirection === 'inbound' &&
+        ['requested', 'unavailable'].includes(product.status) &&
+        plausibleProductPhrase(product.rawName)
+      )
+    ),
+    session
   );
 
-  const customerRequests = model.customerRequests.map((r) => {
-    const linked = products.find((p) =>
-      p.rawName === r.productName ||
-      p.evidenceMessageIds.some((id) => r.evidenceMessageIds.includes(id))
+  const customerRequests = model.customerRequests
+    .map((r) => {
+      const linked = products.find((p) =>
+        p.rawName === r.productName ||
+        p.evidenceMessageIds.some((id) => r.evidenceMessageIds.includes(id))
+      );
+      return linked
+        ? {
+            ...r,
+            productName: linked.canonicalName || linked.rawName,
+            evidenceMessageIds: uniq([...r.evidenceMessageIds, ...linked.evidenceMessageIds]),
+            confidence: Math.max(r.confidence, linked.confidence),
+          }
+        : r;
+    })
+    .filter((request, index, rows) =>
+      rows.findIndex((row) =>
+        normalize(row.productName || '') === normalize(request.productName || '') &&
+        row.evidenceMessageIds.some((id) => request.evidenceMessageIds.includes(id))
+      ) === index
     );
-    return { ...r, productName: linked?.canonicalName || r.productName };
-  });
 
   // Strong catalog discovery can recover a direct product request that the trigger-based
   // extractor could not see (for example a short forwarded product name). Promote ONLY products

@@ -119,6 +119,7 @@ const SALE_CLOSE_RX = /(تم تأكيد|تأكيد الطلب|الاوردر ا�
 const DELIVERY_RX = /(توصيل|مندوب|العنوان|خرج لحضرتك|جاري الارسال|جاري الإرسال)/i;
 const FOLLOWUP_RX = /(هتابع|هرجع|هكلم|هطلب|اول ما يتوفر|أول ما يتوفر|هبلغ حضرتك|هتواصل)/i;
 const COMPLAINT_RX = /(شكوى|مشكله|مشكلة|متاخر|متأخر|محدش رد|غلط|سيء|وحش|لسه مجاش|ماوصلش|موصلش)/i;
+const NEGATED_COMPLAINT_RX = /(مفيش\s+مشكله|مفيش\s+مشكلة|مافيش\s+مشكله|مافيش\s+مشكلة|لا\s+توجد\s+مشكله|لا\s+توجد\s+مشكلة|مش\s+مشكله|مش\s+مشكلة)/i;
 const RECOVERY_RX = /(بنعتذر|نعتذر|متاسف|متأسف|حق حضرتك|هنحل|تم الحل|هعوض|هنعوض|تم التصحيح)/i;
 const CUSTOMER_ACCEPT_RX = /(تمام|موافق|اوكي|أوكي|ابعت|ابعته|هات|خلاص|ماشي|اشكرك|شكرا|شكرًا)/i;
 const CUSTOMER_REJECT_RX = /(مش عايز|مش عاوز|لا شكرا|غالي|مش مناسب|خلاص مش محتاج|مش هطلب)/i;
@@ -130,6 +131,17 @@ function evidence(messages: WhatsAppParsedMessage[], rx: RegExp) {
   return idsFor(messages, rx).slice(0, 8);
 }
 
+function complaintEvidence(messages: WhatsAppParsedMessage[]) {
+  return messages
+    .filter((message) =>
+      message.direction === 'inbound' &&
+      COMPLAINT_RX.test(message.text || '') &&
+      !NEGATED_COMPLAINT_RX.test(message.text || '')
+    )
+    .map((message) => message.id)
+    .slice(0, 8);
+}
+
 function stage(key: JourneyStage['key'], label: string, detected: boolean, confidence: number, reason: string, messageIds: string[]): JourneyStage {
   return { key, label, detected, confidence: clamp(confidence, 0, 100), reason, evidenceMessageIds: messageIds };
 }
@@ -139,6 +151,8 @@ function analyzeJourney(session: WhatsAppConversationSession) {
   const out = outboundText(session);
   const inbound = inboundText(session);
   const signals = extractConversationSignals(session);
+  const complaintIds = complaintEvidence(session.messages);
+  const hasComplaint = complaintIds.length > 0;
 
   const journeyStages: JourneyStage[] = [
     stage('opening', 'افتتاح المحادثة', signals.greetingDetected, signals.greetingDetected ? 95 : 70, signals.greetingDetected ? 'تم اكتشاف ترحيب/تعريف واضح.' : 'لم يظهر ترحيب واضح في النص.', evidence(session.messages, /(اهلا|أهلا|السلام عليكم|مع حضرتك|صيدليات دواء)/i)),
@@ -148,7 +162,7 @@ function analyzeJourney(session: WhatsAppConversationSession) {
     stage('closing', 'إغلاق البيع', has(all, SALE_CLOSE_RX), has(all, SALE_CLOSE_RX) ? 92 : 58, has(all, SALE_CLOSE_RX) ? 'يوجد دليل نصي على تأكيد/إغلاق الطلب.' : 'لا يوجد تأكيد بيع كافٍ من النص فقط.', evidence(session.messages, SALE_CLOSE_RX)),
     stage('delivery', 'تنسيق التوصيل', has(all, DELIVERY_RX), has(all, DELIVERY_RX) ? 92 : 50, has(all, DELIVERY_RX) ? 'تم اكتشاف تنسيق توصيل/عنوان/مندوب.' : 'مسار التوصيل غير مثبت.', evidence(session.messages, DELIVERY_RX)),
     stage('followup', 'المتابعة', has(out, FOLLOWUP_RX), has(out, FOLLOWUP_RX) ? 90 : 55, has(out, FOLLOWUP_RX) ? 'يوجد وعد متابعة أو رجوع للعميل.' : 'لا يوجد وعد متابعة واضح.', evidence(session.messages, FOLLOWUP_RX)),
-    stage('complaint_recovery', 'احتواء الشكوى', has(all, COMPLAINT_RX), has(all, COMPLAINT_RX) ? (has(out, RECOVERY_RX) ? 94 : 78) : 45, has(all, COMPLAINT_RX) ? (has(out, RECOVERY_RX) ? 'تم اكتشاف شكوى مع محاولة احتواء/تصحيح.' : 'تم اكتشاف شكوى بدون دليل كافٍ على احتوائها.') : 'لا توجد شكوى واضحة.', evidence(session.messages, COMPLAINT_RX)),
+    stage('complaint_recovery', 'احتواء الشكوى', hasComplaint, hasComplaint ? (has(out, RECOVERY_RX) ? 94 : 78) : 45, hasComplaint ? (has(out, RECOVERY_RX) ? 'تم اكتشاف شكوى مع محاولة احتواء/تصحيح.' : 'تم اكتشاف شكوى بدون دليل كافٍ على احتوائها.') : 'لا توجد شكوى واضحة.', complaintIds),
   ];
 
   const lostSales: LostSaleSignal[] = [];
@@ -167,7 +181,7 @@ function analyzeJourney(session: WhatsAppConversationSession) {
   }
 
   let outcome: UnifiedOutcome = 'unknown';
-  if (has(all, COMPLAINT_RX)) outcome = has(out, RECOVERY_RX) ? 'complaint_resolved' : 'complaint_unresolved';
+  if (hasComplaint) outcome = has(out, RECOVERY_RX) ? 'complaint_resolved' : 'complaint_unresolved';
   else if (explicitClose && (has(inbound, CUSTOMER_ACCEPT_RX) || has(out, SALE_CLOSE_RX))) outcome = 'sold';
   else if (rejected) outcome = 'not_sold';
   else if (customerAsked || has(out, FOLLOWUP_RX) || signals.unansweredInboundCount > 0) outcome = 'needs_followup';
