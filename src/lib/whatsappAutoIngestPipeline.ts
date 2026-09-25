@@ -2,6 +2,7 @@ import { supabase } from '@/lib/supabase';
 import { readWhatsAppExportFile } from '@/lib/whatsappExportFileReader';
 import {
   parseWhatsAppExport,
+  serializeWhatsAppSessionRawText,
   splitWhatsAppSessions,
   type WhatsAppConversationSession,
 } from '@/lib/whatsappConversationParser';
@@ -292,6 +293,7 @@ async function saveSessionReview(
       commercial_eligible: summary.outcome === 'sale_intent',
       followup_required: summary.flags.length > 0,
       suggested_followup_reason: summary.flags.join('، ') || null,
+      raw_text: serializeWhatsAppSessionRawText(session),
       analysis_json: {
         ...JSON.parse(JSON.stringify(summary)),
         customerIdentity: {
