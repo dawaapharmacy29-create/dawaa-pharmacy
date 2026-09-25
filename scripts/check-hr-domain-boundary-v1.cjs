@@ -111,6 +111,14 @@ if (!legacyPayrollHistory.includes("in('status', ['approved', 'paid'])")) {
   fail('V13 compatibility reader must be restricted to approved/paid historical rows.');
 }
 
+const employeeTransactionService = read(path.join(srcRoot, 'services/employeeTransactionService.ts'));
+if (!employeeTransactionService.includes('recordEmployeePointEvent') || !employeeTransactionService.includes('record_employee_points_transaction_v4')) {
+  fail('employeeTransactionService must create point events through the canonical V4 command.');
+}
+if (/\.(?:insert|update|upsert|delete)\s*\(/.test(employeeTransactionService)) {
+  fail('employeeTransactionService must not mutate employee_transactions directly.');
+}
+
 const manualService = read(path.join(srcRoot, 'lib/payroll/payrollManualLedgerService.ts'));
 for (const required of [
   'create_staff_payroll_manual_entry_v1',

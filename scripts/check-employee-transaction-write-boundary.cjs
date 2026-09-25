@@ -22,9 +22,7 @@ const POINTS_COMMAND_V4_MIGRATION = path.join(
 // Transitional direct writers that still exist today. Keep shrinking this set as
 // lifecycle mutations move behind canonical authorization-aware RPCs. New direct
 // writers are forbidden.
-const BASELINED_DIRECT_WRITERS = new Set([
-  'src/services/employeeTransactionService.ts',
-]);
+const BASELINED_DIRECT_WRITERS = new Set();
 
 // `staff.points` is a transitional mutable snapshot, not the canonical ledger.
 // Any new direct writer is a hard architecture regression.
@@ -205,6 +203,18 @@ if (!fs.existsSync(TRANSITION_MIGRATION)) {
   process.exit(1);
 }
 const transactionService = fs.readFileSync(EMPLOYEE_TRANSACTION_SERVICE, 'utf8');
+if (!/\.rpc\(\s*['"]record_employee_points_transaction_v4['"]/.test(transactionService)) {
+  console.error('\nEmployee transaction service boundary failed: point event creation must use record_employee_points_transaction_v4.');
+  process.exit(1);
+}
+if (/export async function (?:createEmployeeTransaction|createEmployeeTransactions|updateEmployeeTransaction)\b/.test(transactionService)) {
+  console.error('\nEmployee transaction service boundary failed: legacy generic direct-write APIs returned.');
+  process.exit(1);
+}
+if (/\.(?:insert|update|upsert|delete)\s*\(/.test(transactionService)) {
+  console.error('\nEmployee transaction service boundary failed: direct employee ledger mutation returned.');
+  process.exit(1);
+}
 const transitionFunction = transactionService.match(/export async function transitionEmployeeTransaction[\s\S]*?\n}\n/)?.[0] || '';
 if (!/\.rpc\(\s*['"]transition_employee_points_transaction_v4['"]/.test(transitionFunction)) {
   console.error('\nEmployee points transition boundary failed: lifecycle transition must use transition_employee_points_transaction_v4.');

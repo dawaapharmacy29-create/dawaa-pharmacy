@@ -1,9 +1,9 @@
 import { supabase } from '@/lib/supabase';
 import { logSupabaseError } from '@/lib/supabaseError';
-import { TABLES } from '@/lib/supabaseTables';
 import { createStaffNotification } from '@/lib/staffNotificationService';
 
 export type EmployeeTransactionType = 'penalty' | 'reward';
+export type EmployeeTransactionLifecycleStatus = 'pending' | 'active' | 'cancelled';
 
 export interface EmployeeTransaction {
   id: string;
@@ -23,23 +23,21 @@ export interface EmployeeTransaction {
   status?: string | null;
 }
 
-export interface EmployeeTransactionInput {
-  staff_id: string;
+export interface EmployeePointEventInput {
+  staffId: string;
   type: EmployeeTransactionType;
-  points?: number | null;
-  amount?: number | null;
-  points_delta?: number | null;
+  points: number;
   reason: string;
   description?: string | null;
-  source?: string | null;
-  source_id?: string | null;
-  created_by?: string | null;
-  month_cycle?: string | null;
+  source: string;
+  sourceId?: string | null;
+  ruleCode: string;
+  monthCycle: string;
   branch?: string | null;
-  status?: string | null;
+  status?: EmployeeTransactionLifecycleStatus;
+  category?: string | null;
+  managerOverride?: boolean;
 }
-
-export type EmployeeTransactionLifecycleStatus = 'pending' | 'active' | 'cancelled';
 
 export function transactionDelta(row: Pick<EmployeeTransaction, 'type' | 'points_delta'>) {
   const value = Number(row.points_delta || 0);
@@ -65,10 +63,10 @@ function logEmployeeTransactionsError(error: {
   });
 }
 
-async function notifyTransaction(input: EmployeeTransactionInput, id?: string | null) {
+async function notifyTransaction(input: EmployeePointEventInput, id?: string | null) {
   const isReward = input.type === 'reward';
   await createStaffNotification({
-    recipientStaffId: input.staff_id,
+    recipientStaffId: input.staffId,
     type: isReward ? 'reward' : 'penalty',
     title: isReward ? 'مكافأة جديدة' : 'خصم مسجل على حسابك',
     message: input.reason || (isReward ? 'تم تسجيل مكافأة جديدة لك.' : 'تم تسجيل خصم على حسابك.'),
@@ -79,60 +77,38 @@ async function notifyTransaction(input: EmployeeTransactionInput, id?: string | 
   }).catch(() => null);
 }
 
-export async function createEmployeeTransaction(input: EmployeeTransactionInput) {
-  const payload = {
-    ...input,
-    points: input.points ?? Math.abs(Number(input.points_delta ?? 0)),
-  };
-  const result = await supabase
-    .from(TABLES.employeeTransactions)
-    .insert(payload)
-    .select('id')
-    .single();
-  if (!result.error) {
-    if (input.staff_id) void notifyTransaction(input, result.data?.id as string | undefined);
-    return result;
-  }
+export async function recordEmployeePointEvent(input: EmployeePointEventInput) {
+  const signedPoints = input.type === 'penalty'
+    ? -Math.abs(Number(input.points || 0))
+    : Math.abs(Number(input.points || 0));
 
-  if (result.error.message.toLowerCase().includes('points')) {
-    const { points: _points, ...withoutPoints } = payload;
-    const retry = await supabase
-      .from(TABLES.employeeTransactions)
-      .insert(withoutPoints)
-      .select('id')
-      .single();
-    if (retry.error) {
-      logEmployeeTransactionsError(retry.error);
-      logSupabaseError('create employee transaction', retry.error);
-    } else if (input.staff_id) {
-      void notifyTransaction(input, retry.data?.id as string | undefined);
-    }
-    return retry;
-  }
+  const result = await supabase.rpc('record_employee_points_transaction_v4', {
+    p_staff_id: input.staffId,
+    p_signed_points: signedPoints,
+    p_reason: input.reason,
+    p_description: input.description || null,
+    p_source: input.source,
+    p_source_id: input.sourceId || null,
+    p_rule_code: input.ruleCode,
+    p_month_cycle: input.monthCycle,
+    p_branch: input.branch || null,
+    p_status: input.status || 'active',
+    p_category: input.category || null,
+    p_metadata: {
+      engine_version: 4,
+      service: 'employeeTransactionService',
+    },
+    p_manager_override: input.managerOverride === true,
+  });
 
-  logEmployeeTransactionsError(result.error);
-  logSupabaseError('create employee transaction', result.error);
-  return result;
-}
-
-export async function createEmployeeTransactions(inputs: EmployeeTransactionInput[]) {
-  if (!inputs.length) return { data: [], error: null };
-  const payloads = inputs.map((input) => ({
-    ...input,
-    points: input.points ?? Math.abs(Number(input.points_delta ?? 0)),
-  }));
-  const result = await supabase
-    .from(TABLES.employeeTransactions)
-    .insert(payloads)
-    .select('id');
   if (result.error) {
     logEmployeeTransactionsError(result.error);
-    logSupabaseError('create employee transactions', result.error);
+    logSupabaseError('record employee point event v4', result.error);
     return result;
   }
-  inputs.forEach((input, index) => {
-    if (input.staff_id) void notifyTransaction(input, result.data?.[index]?.id as string | undefined);
-  });
+
+  const row = (result.data || {}) as Record<string, unknown>;
+  if (input.staffId) void notifyTransaction(input, row.id ? String(row.id) : undefined);
   return result;
 }
 
@@ -153,24 +129,9 @@ export async function transitionEmployeeTransaction(
   return result;
 }
 
-export async function updateEmployeeTransaction(
-  id: string,
-  changes: Partial<EmployeeTransactionInput>
-) {
-  const result = await supabase
-    .from(TABLES.employeeTransactions)
-    .update({ ...changes, updated_at: new Date().toISOString() })
-    .eq('id', id);
-  if (result.error) {
-    logEmployeeTransactionsError(result.error);
-    logSupabaseError('update employee transaction', result.error);
-  }
-  return result;
-}
-
 export async function fetchEmployeeTransactionsForStaff(staffId: string) {
   const result = await supabase
-    .from(TABLES.employeeTransactions)
+    .from('employee_transactions')
     .select('*')
     .eq('staff_id', staffId)
     .order('created_at', { ascending: false });

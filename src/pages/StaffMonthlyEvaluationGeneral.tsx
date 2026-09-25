@@ -29,7 +29,7 @@ import {
   CRITICAL_GATE_POINT_PENALTY,
   type CriticalGateType,
 } from '@/lib/evaluations/incentiveTiers';
-import { createEmployeeTransaction } from '@/services/employeeTransactionService';
+import { recordEmployeePointEvent } from '@/services/employeeTransactionService';
 import { buildStaffMonthlyEvaluationPdf } from '@/lib/evaluations/staffMonthlyEvaluationPdf';
 import { Panel, SectionTitle, KpiCard, MiniBox, EmptyState } from '@/components/dashboard/DashboardPrimitives';
 
@@ -417,18 +417,19 @@ export default function StaffMonthlyEvaluation() {
         for (const gate of newlyActivatedGates) {
           const gateInfo = CRITICAL_GATE_CAPS[gate];
           const penaltyPoints = CRITICAL_GATE_POINT_PENALTY[gate];
-          await createEmployeeTransaction({
-            staff_id: selected.id,
+          await recordEmployeePointEvent({
+            staffId: selected.id,
             type: 'penalty',
-            points_delta: -penaltyPoints,
+            points: penaltyPoints,
             reason: `مخالفة حرجة في التقييم الشهري: ${gateInfo.label}`,
             description: `دورة ${cycleRange.displayLabel}. خصم ثابت مرتبط بدرجة خطورة هذه المخالفة: ${penaltyPoints} نقطة.`,
             source: 'monthly_evaluation_critical_gate',
-            source_id: String(data || evaluationId || ''),
-            created_by: user.id,
-            month_cycle: cycleLabel,
+            sourceId: String(data || evaluationId || ''),
+            ruleCode: `EVAL-GATE-${String(gate).toUpperCase()}`,
+            monthCycle: cycleLabel,
             branch: selected.branch || branch,
             status: 'active',
+            category: 'monthly_evaluation',
           });
         }
         setSavedActiveGates(activeGates);
