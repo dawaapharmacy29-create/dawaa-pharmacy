@@ -8,8 +8,12 @@ import {
   getEmployeePayrollFinancialCompositionV1,
   type EmployeePayrollFinancialCompositionV1,
 } from '@/lib/payroll/payrollFinancialCompositionService';
+import {
+  getEmployeePayrollKpiContextV1,
+  type EmployeePayrollKpiContextV1,
+} from '@/lib/payroll/payrollKpiContextService';
 
-type Tab = 'summary' | 'attendance' | 'time_off' | 'overtime' | 'transactions' | 'statement';
+type Tab = 'summary' | 'attendance' | 'time_off' | 'overtime' | 'transactions' | 'statement' | 'kpi';
 
 function num(value: unknown) {
   const parsed = Number(value ?? 0);
@@ -49,6 +53,7 @@ function Stat(props: { label: string; value: string | number; hint?: string }) {
 export default function PayrollTransparencyPanel(props: { staffId: string; monthCycle: string }) {
   const [data, setData] = useState<EmployeePayrollTransparencyV1 | null>(null);
   const [financial, setFinancial] = useState<EmployeePayrollFinancialCompositionV1 | null>(null);
+  const [kpi, setKpi] = useState<EmployeePayrollKpiContextV1 | null>(null);
   const [tab, setTab] = useState<Tab>('summary');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -58,15 +63,18 @@ export default function PayrollTransparencyPanel(props: { staffId: string; month
     setLoading(true);
     setError('');
     try {
-      const [transparencyResult, financialResult] = await Promise.all([
+      const [transparencyResult, financialResult, kpiResult] = await Promise.all([
         getEmployeePayrollTransparencyV1(props.staffId, props.monthCycle),
         getEmployeePayrollFinancialCompositionV1(props.staffId, props.monthCycle),
+        getEmployeePayrollKpiContextV1(props.staffId, props.monthCycle),
       ]);
       setData(transparencyResult);
       setFinancial(financialResult);
+      setKpi(kpiResult);
     } catch (e) {
       setData(null);
       setFinancial(null);
+      setKpi(null);
       setError(e instanceof Error ? e.message : 'تعذر تحميل شفافية الدورة');
     } finally {
       setLoading(false);
@@ -111,6 +119,7 @@ export default function PayrollTransparencyPanel(props: { staffId: string; month
     ['overtime', 'الأوفر تايم'],
     ['transactions', 'الحوافز والخصومات'],
     ['statement', 'كشف الموظف'],
+    ['kpi', 'الأداء وKPIs'],
   ];
 
   return (
@@ -302,6 +311,57 @@ export default function PayrollTransparencyPanel(props: { staffId: string; month
             <div className="mt-3 rounded-xl bg-[var(--dawaa-theme-bg-soft)] p-3 text-[10px] font-bold text-[var(--dawaa-theme-muted)]">
               هذه معاينة قبل PDF النهائي. نقاط الأداء غير المالية تظهر في تبويب الحوافز والخصومات ولا تُعامل كخصم نقدي إلا إذا نتج عنها Amount مالي فعلي.
             </div>
+          </div>
+        </div>
+      )}
+
+      {tab === 'kpi' && kpi && (
+        <div className="mt-4 space-y-4">
+          <div className="grid gap-3 lg:grid-cols-2">
+            <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-4">
+              <div className="text-sm font-black text-[var(--dawaa-theme-heading)]">أداء الموظف</div>
+              <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
+                <div>نقاط مكافآت: <b>{num(kpi.staff_performance.reward_points).toLocaleString('ar-EG')}</b></div>
+                <div>نقاط خصم: <b>{num(kpi.staff_performance.deduction_points).toLocaleString('ar-EG')}</b></div>
+                <div>صافي النقاط: <b>{num(kpi.staff_performance.final_points).toLocaleString('ar-EG')}</b></div>
+                <div>نسبة التقدم: <b>{num(kpi.staff_performance.progress_pct).toLocaleString('ar-EG')}%</b></div>
+                <div>حافز النقاط: <b>{money(kpi.staff_performance.points_incentive_egp)}</b></div>
+                <div>حافز نهائي: <b>{money(kpi.staff_performance.final_incentive_egp)}</b></div>
+                <div>مكافآت معلقة: <b>{num(kpi.staff_performance.pending_reward_points).toLocaleString('ar-EG')}</b></div>
+                <div>خصومات نقاط معلقة: <b>{num(kpi.staff_performance.pending_deduction_points).toLocaleString('ar-EG')}</b></div>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-4">
+              <div className="text-sm font-black text-[var(--dawaa-theme-heading)]">أداء الفرع</div>
+              <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
+                <div>التارجت: <b>{money(kpi.branch_target.target_amount)}</b></div>
+                <div>المبيعات: <b>{money(kpi.branch_target.sales_total)}</b></div>
+                <div>تحقيق التارجت: <b>{num(kpi.branch_target.achievement_percent).toLocaleString('ar-EG')}%</b></div>
+                <div>عدد الفواتير: <b>{num(kpi.branch_target.invoices_count).toLocaleString('ar-EG')}</b></div>
+                <div>متوسط يومي: <b>{money(kpi.branch_target.avg_daily_sales)}</b></div>
+                <div>المتبقي: <b>{money(kpi.branch_target.remaining_amount)}</b></div>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-[var(--dawaa-theme-border)] p-4">
+            <div className="text-sm font-black text-[var(--dawaa-theme-heading)]">مؤشرات الفرع خلال دورة الراتب</div>
+            <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
+              <div>صافي المبيعات: <b>{money(kpi.branch_kpis.sales_net_total)}</b></div>
+              <div>عدد الفواتير: <b>{num(kpi.branch_kpis.invoices_count).toLocaleString('ar-EG')}</b></div>
+              <div>متوسط الفاتورة: <b>{money(kpi.branch_kpis.avg_invoice)}</b></div>
+              <div>العملاء: <b>{num(kpi.branch_kpis.unique_customers).toLocaleString('ar-EG')}</b></div>
+            </div>
+          </div>
+
+          {!kpi.employee_sales_kpi.available && (
+            <div className="rounded-xl border border-amber-400/30 bg-amber-400/5 p-3 text-[11px] font-bold text-amber-100">
+              مبيعات الموظف الفردية لم تُضف بعد إلى كشف الراتب لأننا لم نربطها بعقد Canonical واحد حتى الآن. لن نعرض رقمًا قد يتغير بسبب اختلاف أسماء البائع أو الـaliases.
+            </div>
+          )}
+          <div className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">
+            مؤشرات الأداء سياق للشفافية. التأثير المالي يدخل الراتب فقط من خلال Incentive Truth المعتمدة.
           </div>
         </div>
       )}

@@ -6,6 +6,7 @@ const service = fs.readFileSync(path.join(root, 'src/lib/payroll/payrollTranspar
 const panel = fs.readFileSync(path.join(root, 'src/components/payroll/PayrollTransparencyPanel.tsx'), 'utf8');
 const page = fs.readFileSync(path.join(root, 'src/pages/PayrollManagement.tsx'), 'utf8');
 const financialService = fs.readFileSync(path.join(root, 'src/lib/payroll/payrollFinancialCompositionService.ts'), 'utf8');
+const kpiService = fs.readFileSync(path.join(root, 'src/lib/payroll/payrollKpiContextService.ts'), 'utf8');
 
 function assertContains(text, needle, label) {
   if (!text.includes(needle)) {
@@ -19,6 +20,8 @@ assertContains(panel, 'شفافية دورة الراتب V1', 'transparency pan
 assertContains(page, '<PayrollTransparencyPanel', 'payroll page integration');
 assertContains(financialService, 'employee_payroll_financial_composition_v1', 'financial composition RPC');
 assertContains(panel, 'كشف راتب الموظف — معاينة شفافة', 'employee statement preview');
+assertContains(kpiService, 'employee_payroll_kpi_context_v1', 'payroll KPI context RPC');
+assertContains(panel, 'الأداء وKPIs', 'payroll KPI tab');
 if (page.includes("+ num(components?.monthlyIncentiveComponent)\n      + num(components?.listIncentiveComponent)\n      + num(automatedTruth?.automatedTotal)")) {
   console.error('[payroll-transparency] performance incentive double-count regression');
   process.exit(1);
