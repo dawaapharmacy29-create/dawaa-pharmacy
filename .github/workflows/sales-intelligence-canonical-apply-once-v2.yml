@@ -1,0 +1,86 @@
+name: Sales Intelligence canonical apply once v2
+
+# Self-gating one-time writer. It only auto-runs when THIS v2 workflow file is introduced/changed.
+# Normal integration CI is intentionally skipped on the matching [apply-v2] commit to avoid
+# running two expensive database dry-runs concurrently.
+
+on:
+  push:
+    branches:
+      - feature/whatsapp-sales-intelligence-v1
+    paths:
+      - ".github/workflows/sales-intelligence-canonical-apply-once-v2.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sales-intelligence-canonical-apply-once-v2
+  cancel-in-progress: false
+
+jobs:
+  verify-and-apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      SUPABASE_URL: https://jkjqeqkshllustwlzzbf.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+
+      - name: TypeScript
+        run: npm run typecheck
+
+      - name: Full test suite
+        run: npm test
+
+      - name: Production build
+        run: npm run build
+
+      - name: Require service-role secret
+        shell: bash
+        run: |
+          if [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            echo "::error::Missing SUPABASE_SERVICE_ROLE_KEY."
+            exit 1
+          fi
+
+      - name: Preflight Sales Intelligence known-branch canonical sources
+        run: npm run sales-intelligence:backfill:all-known-branch:dry-run -- --json
+
+      - name: Apply Sales Intelligence known-branch canonical sources
+        run: npm run sales-intelligence:backfill:all-known-branch:apply -- --json
+
+      - name: Verify Sales Intelligence idempotency after apply
+        run: npm run sales-intelligence:backfill:all-known-branch:dry-run -- --json
+
+      - name: Preflight Product Demand V22.1 canonical sources
+        run: npm run product-demand:v22:backfill:dry-run
+
+      - name: Apply Product Demand V22.1 canonical sources
+        run: npm run product-demand:v22:backfill:apply
+
+      - name: Verify Product Demand completion
+        run: npm run product-demand:v22:backfill:dry-run
+
+      - name: Final safety summary
+        if: always()
+        run: |
+          {
+            echo "## Canonical Sales Intelligence apply v2"
+            echo "- Code was typechecked, tested, and production-built before writes."
+            echo "- Invoice candidate identities are queried independently (no phone OR scan)."
+            echo "- Branch-null review sources remain excluded from Sales Intelligence apply."
+            echo "- Ambiguous/competing invoice claims remain QA-only."
+            echo "- Product Demand writes canonical snapshots only; apply is sequential."
+          } >> "$GITHUB_STEP_SUMMARY"

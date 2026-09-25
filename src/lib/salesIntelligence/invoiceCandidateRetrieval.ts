@@ -8,7 +8,7 @@
 // asking Phase D about" using conservative, always-bounded constraints, so a case-level lookup
 // never becomes a full-table scan.
 import { normalizeEgyptianCustomerPhone, isValidEgyptianCustomerMobile } from '../customers/customerIdentity';
-import type { InvoiceLike } from '../invoices/invoiceCore';
+import { getInvoiceId, type InvoiceLike } from '../invoices/invoiceCore';
 
 /**
  * Real-data-informed window (read-only investigation, Supabase project jkjqeqkshllustwlzzbf,
@@ -101,26 +101,56 @@ export function buildInvoiceCandidateQuery(context: InvoiceCandidateQueryContext
 export async function fetchInvoiceCandidates(supabaseClient: any, query: InvoiceCandidateQuery): Promise<InvoiceLike[]> {
   if (!query.customerId && !query.customerPhoneNormalized) return [];
 
-  let builder = supabaseClient
-    .from('sales_invoices')
-    .select('*')
-    .gte('invoice_datetime', query.windowStartIso)
-    .lte('invoice_datetime', query.windowEndIso)
-    .limit(query.limit);
+  // Keep each identity lookup index-friendly. A single PostgREST OR across customer_phone and
+  // whatsapp_phone has repeatedly hit PostgreSQL statement_timeout on the production invoice
+  // table even with bounded dates. These independent lookups preserve the same identity surface,
+  // then merge duplicate invoices before Phase D scores anything.
+  async function fetchByIdentity(
+    column: 'customer_id' | 'customer_phone' | 'whatsapp_phone',
+    value: string
+  ): Promise<InvoiceLike[]> {
+    const { data, error } = await supabaseClient
+      .from('sales_invoices')
+      .select('*')
+      .gte('invoice_datetime', query.windowStartIso)
+      .lte('invoice_datetime', query.windowEndIso)
+      .eq(column, value)
+      .limit(query.limit);
 
-  if (query.customerId && query.customerPhoneNormalized) {
-    builder = builder.or(
-      `customer_id.eq.${query.customerId},customer_phone.eq.${query.customerPhoneNormalized},whatsapp_phone.eq.${query.customerPhoneNormalized}`
-    );
-  } else if (query.customerId) {
-    builder = builder.eq('customer_id', query.customerId);
-  } else if (query.customerPhoneNormalized) {
-    builder = builder.or(
-      `customer_phone.eq.${query.customerPhoneNormalized},whatsapp_phone.eq.${query.customerPhoneNormalized}`
-    );
+    if (error) throw error;
+    return (data ?? []) as InvoiceLike[];
   }
 
-  const { data, error } = await builder;
-  if (error) throw error;
-  return (data ?? []) as InvoiceLike[];
+  const lookups: Array<Promise<InvoiceLike[]>> = [];
+  if (query.customerId) {
+    lookups.push(fetchByIdentity('customer_id', query.customerId));
+  }
+  if (query.customerPhoneNormalized) {
+    lookups.push(fetchByIdentity('customer_phone', query.customerPhoneNormalized));
+    lookups.push(fetchByIdentity('whatsapp_phone', query.customerPhoneNormalized));
+  }
+
+  const resultSets = await Promise.all(lookups);
+  const merged = new Map<string, InvoiceLike>();
+  let fallbackIndex = 0;
+
+  // Identity priority only matters in the pathological case where the merged candidate pool
+  // exceeds the global hard cap: customer_id first, then customer_phone, then whatsapp_phone.
+  for (const rows of resultSets) {
+    for (const row of rows) {
+      const record = row as Record<string, unknown>;
+      const rawId = String(record.id ?? '').trim();
+      const invoiceId = getInvoiceId(row);
+      const invoiceDatetime = String(record.invoice_datetime ?? '').trim();
+      const branch = String(record.branch ?? record.branch_name ?? '').trim();
+      const stableKey = rawId
+        || (invoiceId ? `${invoiceId}|${invoiceDatetime}|${branch}` : '')
+        || `fallback:${fallbackIndex++}`;
+
+      if (!merged.has(stableKey)) merged.set(stableKey, row);
+      if (merged.size >= query.limit) return Array.from(merged.values());
+    }
+  }
+
+  return Array.from(merged.values());
 }
