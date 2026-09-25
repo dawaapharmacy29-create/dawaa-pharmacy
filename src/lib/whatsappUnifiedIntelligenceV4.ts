@@ -349,11 +349,23 @@ function invoiceCandidate(row: CustomerInvoiceReadRow, session: WhatsAppConversa
   const hints = extractInvoiceHints(session);
   const invoiceTs = date ? new Date(date).getTime() : NaN;
   if (Number.isFinite(invoiceTs)) {
-    const deltaDays = (invoiceTs - session.endedAt.getTime()) / DAY_MS;
-    if (deltaDays >= -0.25 && deltaDays <= 1.5) { score += 42; reasons.push('الفاتورة في نفس يوم/قرب وقت المحادثة'); }
-    else if (deltaDays > 1.5 && deltaDays <= 3) { score += 25; reasons.push('الفاتورة خلال 3 أيام'); }
-    else if (Math.abs(deltaDays) <= 7) { score += 8; reasons.push('الفاتورة خلال أسبوع'); }
-    else { score -= 60; reasons.push('الفاتورة خارج نافذة 7 أيام'); }
+    const startTs = session.startedAt.getTime();
+    const endTs = session.endedAt.getTime();
+    const beforeStartDays = (startTs - invoiceTs) / DAY_MS;
+    const afterEndDays = (invoiceTs - endTs) / DAY_MS;
+    if (invoiceTs >= startTs - 0.25 * DAY_MS && invoiceTs <= endTs + 1.5 * DAY_MS) {
+      score += 42;
+      reasons.push(invoiceTs >= startTs && invoiceTs <= endTs ? 'الفاتورة تمت أثناء المحادثة' : 'الفاتورة في نفس يوم/قرب وقت المحادثة');
+    } else if (afterEndDays > 1.5 && afterEndDays <= 3) {
+      score += 25;
+      reasons.push('الفاتورة خلال 3 أيام بعد المحادثة');
+    } else if ((beforeStartDays >= 0 && beforeStartDays <= 7) || (afterEndDays >= 0 && afterEndDays <= 7)) {
+      score += 8;
+      reasons.push('الفاتورة داخل نافذة أسبوع من المحادثة');
+    } else {
+      score -= 60;
+      reasons.push('الفاتورة خارج نافذة 7 أيام');
+    }
   }
   if (lookup.branch && branch && normalizeBranch(lookup.branch) === normalizeBranch(branch)) { score += 18; reasons.push('نفس الفرع'); }
   else if (lookup.branch && branch) { score -= 12; reasons.push('الفرع مختلف'); }
