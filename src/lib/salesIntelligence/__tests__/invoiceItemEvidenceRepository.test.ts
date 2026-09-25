@@ -69,6 +69,48 @@ describe('Invoice item evidence repository', () => {
     expect(provider.getItemsForInvoice('inv-b', '100')).toBe('unavailable');
   });
 
+  it('aggregates duplicate invoice lines with the same exact product code before matching', () => {
+    const provider = buildInvoiceItemEvidenceProvider(
+      [{ id: 'inv-1', invoice_number: '35205', branch: 'فرع الشامي' }] as any[],
+      [
+        {
+          invoice_id: 'inv-1', invoice_number: '35205', branch: 'فرع الشامي',
+          product_code: '83183', product_name: 'be bem 4 58 piece', quantity: 1,
+          unit_price: 363, line_total: 362.82,
+        },
+        {
+          invoice_id: 'inv-1', invoice_number: '35205', branch: 'فرع الشامي',
+          product_code: '83183', product_name: 'be bem 4 58 piece', quantity: 1,
+          unit_price: 363, line_total: 362.82,
+        },
+      ]
+    );
+    const items = provider.getItemsForInvoice('inv-1', '35205');
+    expect(items).not.toBe('unavailable');
+    if (items === 'unavailable') return;
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      productCode: '83183',
+      quantity: 2,
+      unitPrice: 363,
+    });
+    expect(items[0].lineTotal).toBeCloseTo(725.64, 2);
+  });
+
+  it('does not merge same-name lines when neither canonical product id nor product code exists', () => {
+    const provider = buildInvoiceItemEvidenceProvider(
+      [{ id: 'inv-1', invoice_number: '100', branch: 'فرع شكري' }] as any[],
+      [
+        { invoice_id: 'inv-1', invoice_number: '100', branch: 'فرع شكري', product_name: 'Unknown Product', quantity: 1, line_total: 10 },
+        { invoice_id: 'inv-1', invoice_number: '100', branch: 'فرع شكري', product_name: 'Unknown Product', quantity: 1, line_total: 10 },
+      ]
+    );
+    const items = provider.getItemsForInvoice('inv-1', '100');
+    expect(items).not.toBe('unavailable');
+    if (items === 'unavailable') return;
+    expect(items).toHaveLength(2);
+  });
+
   it('returns unavailable, not an empty array, when no line-item evidence exists', () => {
     const provider = buildInvoiceItemEvidenceProvider(
       [{ id: 'inv-1', invoice_number: '100', branch: 'فرع شكري' }] as any[],
