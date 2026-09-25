@@ -21,6 +21,7 @@ import {
 import PayrollAttendanceSafetyGate from '@/components/attendance/PayrollAttendanceSafetyGate';
 import PayrollCycleReadinessOverview from '@/components/attendance/PayrollCycleReadinessOverview';
 import PayrollTransparencyPanel from '@/components/payroll/PayrollTransparencyPanel';
+import PayrollManualEntriesPanel from '@/components/payroll/PayrollManualEntriesPanel';
 import {
   fetchCompensationProfile,
   fetchPayrollComponents,
@@ -385,45 +386,8 @@ export default function PayrollManagement() {
               <div className="mt-4"><h3 className="font-bold">طلبات التعويضات وسجل الاعتماد</h3>{compensationError&&<p role="alert" className="text-red-400">{compensationError}</p>}{compensationChanges.map(change=><div key={change.id} className="mt-2 rounded-xl border p-3 text-xs" style={surfaceSoft}><div>{change.state==='pending'?'قيد الاعتماد':change.state==='approved'?'معتمد':'مرفوض'} · يسري من {change.effective_from} · {change.reason}</div><div className="mt-1">طريقة الحساب: {String(change.proposed.salary_calculation_mode)} · الأساسي الثابت: {String(change.proposed.monthly_base_salary)} · قيمة الساعة الشهرية: {String(change.proposed.monthly_hour_unit_value)} · ساعات اليوم: {String(change.proposed.contracted_daily_hours)} · الحافز الشهري: {String(change.proposed.monthly_incentive_base)} · سعر الإضافي: {String(change.proposed.overtime_hour_rate)}</div>{change.state==='pending'&&user?.role==='general_manager'&&change.requested_by!==user.id&&<div className="mt-2 flex gap-2"><button className="btn-primary" disabled={saving} onClick={()=>void decideChange(change.id,true)}>اعتماد وتطبيق</button><button className="btn-secondary" disabled={saving} onClick={()=>void decideChange(change.id,false)}>رفض</button></div>}</div>)}</div>
             </div>
 
-            <div className={workspaceTab === 'adjustments' ? 'grid gap-2 sm:grid-cols-2 xl:grid-cols-6' : 'hidden'}>
-              {summaryCards.map(([label, value], index) => <div key={label} className="rounded-2xl border p-3" style={surface}><div className="text-[11px]" style={mutedText}>{label}</div><div className={`mt-1 font-black ${index === 5 ? 'text-teal-200' : index === 4 ? 'text-rose-300' : 'text-white'}`}>{formatCurrency(value)}</div></div>)}
-            </div>
-
-            <div className={workspaceTab === 'adjustments' ? 'rounded-3xl border p-5' : 'hidden'} style={surface}>
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-2 font-black text-teal-200"><CalendarClock size={18} /> التسويات والخصومات — {month.slice(0, 7)}</div>
-              </div>
-
-              {monthlyFrozen ? <div className="mt-4 flex items-start gap-2 rounded-2xl border border-amber-400/30 bg-amber-400/5 p-3 text-xs text-amber-200"><LockKeyhole size={16} /><b>{monthlyPaid ? 'الكشف مدفوع ومقفول نهائيًا.' : `الكشف معتمد ومجمد Snapshot v${monthly?.freeze_version || monthly?.salary_engine_version || 17}.`}</b></div> : null}
-
-              <div className="mt-4 rounded-2xl border p-4" style={surfaceSoft}>
-                <div className="flex items-start gap-2">
-                  {attendanceReadiness?.status === 'ready' ? <ShieldCheck size={18} className="text-emerald-300" /> : attendanceReadiness?.status === 'needs_review' ? <AlertTriangle size={18} className="text-amber-300" /> : <Activity size={18} className="text-slate-400" />}
-                  <div><div className="text-xs font-black text-teal-200">جاهزية البصمة</div><div className="mt-1 text-[11px]" style={mutedText}>البصمة تراقب الحضور والغياب والمراجعة؛ لا تضرب في قيمة الساعة الشهرية لتكوين الراتب الأساسي.</div></div>
-                </div>
-                <div className="mt-3 grid gap-2 text-xs sm:grid-cols-3"><div>أحداث البصمة: <b>{attendanceReadiness?.rawBiometricEvents ?? 0}</b></div><div>شيفتات مكتملة: <b>{attendanceReadiness?.pairedShifts ?? 0}</b></div><div>ساعات مرشحة: <b className="text-teal-200">{attendanceReadiness?.candidateWorkedHours ?? 0} ساعة</b></div></div>
-              </div>
-
-              <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                <label className="text-xs font-bold" style={mutedText}>ساعات العمل من المراجعة<input disabled={monthlyFrozen} type="number" className="input mt-1 w-full" value={monthly?.worked_hours ?? 0} onChange={(e) => setMonthly((m) => m && ({ ...m, worked_hours: num(e.target.value) }))} /></label>
-                <label className="text-xs font-bold" style={mutedText}>ساعات إضافية<input disabled={monthlyFrozen} type="number" className="input mt-1 w-full" value={monthly?.overtime_hours ?? 0} onChange={(e) => setMonthly((m) => m && ({ ...m, overtime_hours: num(e.target.value) }))} /><span className="mt-1 block text-[10px] text-teal-300">قيمة الإضافي الحالية: {formatCurrency(overtimeValue)}</span></label>
-                <label className="text-xs font-bold" style={mutedText}>حوافز يدوية أخرى<input disabled={monthlyFrozen} type="number" className="input mt-1 w-full" value={monthly?.incentives_total ?? 0} onChange={(e) => setMonthly((m) => m && ({ ...m, incentives_total: num(e.target.value) }))} /><span className="mt-1 block text-[10px] text-amber-300">لا تدخل التارجت أو اللستة أو النقاط هنا؛ كلها آلية.</span></label>
-                <label className="text-xs font-bold" style={mutedText}>خصم عجز / نير إكسبير / إكسبير<input disabled={monthlyFrozen} type="number" className="input mt-1 w-full" value={monthly?.expiry_shortage_deduction ?? 0} onChange={(e) => setMonthly((m) => m && ({ ...m, expiry_shortage_deduction: num(e.target.value) }))} /></label>
-                <label className="text-xs font-bold" style={mutedText}>خصم عام على الفرع<input disabled={monthlyFrozen} type="number" className="input mt-1 w-full" value={monthly?.branch_general_deduction ?? 0} onChange={(e) => setMonthly((m) => m && ({ ...m, branch_general_deduction: num(e.target.value) }))} /></label>
-                <label className="text-xs font-bold" style={mutedText}>خصم فردي<input disabled={monthlyFrozen} type="number" className="input mt-1 w-full" value={monthly?.individual_deduction ?? 0} onChange={(e) => setMonthly((m) => m && ({ ...m, individual_deduction: num(e.target.value) }))} /></label>
-                <label className="text-xs font-bold" style={mutedText}>خصومات أخرى<input disabled={monthlyFrozen} type="number" className="input mt-1 w-full" value={monthly?.other_deduction ?? 0} onChange={(e) => setMonthly((m) => m && ({ ...m, other_deduction: num(e.target.value) }))} /></label>
-                <label className="text-xs font-bold" style={mutedText}>تسوية يدوية (+/-)<input disabled={monthlyFrozen} type="number" className="input mt-1 w-full" value={monthly?.manual_adjustment ?? 0} onChange={(e) => setMonthly((m) => m && ({ ...m, manual_adjustment: num(e.target.value) }))} /></label>
-                <div className="rounded-xl border p-3 text-xs" style={surfaceSoft}>
-                  <div style={mutedText}>حالة الإقفال المالي</div>
-                  <div className="mt-1 font-black text-amber-200">تُحدد من Finalization Gate</div>
-                  <div className="mt-1 text-[10px]" style={mutedText}>مسار V13/V17 القديم مقفول ولا يُستخدم للاعتماد.</div>
-                </div>
-              </div>
-
-              <div className="mt-4 flex items-center justify-between rounded-2xl border p-4" style={surfaceSoft}><span className="font-black text-white">{monthlyFrozen ? 'صافي الراتب المجمد' : 'صافي الراتب المتوقع'}</span><span className="text-xl font-black text-teal-200">{formatCurrency(netSalaryPreview)}</span></div>
-              <div className="mt-4 rounded-2xl border border-amber-400/30 bg-amber-400/5 p-3 text-xs font-bold text-amber-100">
-                اعتماد/دفع الكشف القديم V13/V17 متوقف عمدًا. الصفحة الآن تعرض Preview فقط، والاعتماد المالي النهائي سيتم من المسار الجديد بعد نجاح Finalization Gate.
-              </div>
+            <div className={workspaceTab === 'adjustments' ? 'block' : 'hidden'}>
+              <PayrollManualEntriesPanel staffId={selected.staffId} monthCycle={month.slice(0, 7)} />
             </div>
 
             <div className={workspaceTab === 'incentives' ? 'rounded-3xl border p-5' : 'hidden'} style={surface}>
