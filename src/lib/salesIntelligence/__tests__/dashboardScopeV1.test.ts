@@ -2,7 +2,9 @@ import {
   buildRecentPharmacyCyclesV1,
   dateFallsInCycleV1,
   pharmacyCycleForDateV1,
+  previousDayYmdV1,
   previousPharmacyCycleV1,
+  cairoTodayYmdV1,
 } from '@/lib/salesIntelligence/dashboardScopeV1';
 
 describe('dashboardScopeV1 pharmacy cycle', () => {
@@ -37,12 +39,17 @@ describe('dashboardScopeV1 pharmacy cycle', () => {
     });
   });
 
-  it('checks inclusive cycle boundaries', () => {
+  it('checks inclusive cycle boundaries in Cairo local time', () => {
     const cycle = pharmacyCycleForDateV1('2026-09-25');
-    expect(dateFallsInCycleV1('2026-08-26T00:00:00Z', cycle)).toBe(true);
-    expect(dateFallsInCycleV1('2026-09-25T23:59:59Z', cycle)).toBe(true);
-    expect(dateFallsInCycleV1('2026-08-25T23:59:59Z', cycle)).toBe(false);
-    expect(dateFallsInCycleV1('2026-09-26T00:00:00Z', cycle)).toBe(false);
+    expect(dateFallsInCycleV1('2026-08-25T22:30:00Z', cycle)).toBe(true);
+    expect(dateFallsInCycleV1('2026-09-25T20:59:59Z', cycle)).toBe(true);
+    expect(dateFallsInCycleV1('2026-08-25T19:00:00Z', cycle)).toBe(false);
+    expect(dateFallsInCycleV1('2026-09-25T22:00:00Z', cycle)).toBe(false);
+  });
+
+  it('provides safe UTC query padding helpers around Cairo-local cycle dates', () => {
+    expect(previousDayYmdV1('2026-08-26')).toBe('2026-08-25');
+    expect(cairoTodayYmdV1(new Date('2026-09-25T09:20:00Z'))).toBe('2026-09-25');
   });
 
   it('builds consecutive recent cycles', () => {

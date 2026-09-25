@@ -15,8 +15,9 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import type { QaCaseListRow } from '@/lib/salesIntelligence/qa/types';
-import { dateFallsInCycleV1, nextDayYmdV1, type SalesIntelligenceCycleScopeV1 } from '@/lib/salesIntelligence/dashboardScopeV1';
+import { dateFallsInCycleV1, nextDayYmdV1, previousDayYmdV1, type SalesIntelligenceCycleScopeV1 } from '@/lib/salesIntelligence/dashboardScopeV1';
 import SalesIntelligenceOpportunityCenterV1 from '@/components/salesIntelligence/SalesIntelligenceOpportunityCenterV1';
+import SalesIntelligenceCoveragePanelV1 from '@/components/salesIntelligence/SalesIntelligenceCoveragePanelV1';
 
 type StaffTruthRow = {
   case_id: string;
@@ -137,8 +138,8 @@ export default function SalesIntelligenceManagementOverviewV1({
       const { data, error } = await supabase
         .from('sales_intelligence_invoice_staff_truth_v1')
         .select('case_id,invoice_datetime,invoice_branch,invoice_amount,canonical_staff_id,canonical_staff_name,staff_resolution_status,is_staff_resolved,item_evidence_available')
-        .gte('invoice_datetime', `${rangeStart}T00:00:00Z`)
-        .lt('invoice_datetime', `${nextDayYmdV1(cycle.end)}T23:59:59Z`)
+        .gte('invoice_datetime', `${previousDayYmdV1(rangeStart)}T00:00:00Z`)
+        .lt('invoice_datetime', `${nextDayYmdV1(cycle.end)}T00:00:00Z`)
         .limit(2000);
       if (cancelled) return;
       if (error) {
@@ -302,6 +303,8 @@ export default function SalesIntelligenceManagementOverviewV1({
           {truthError ? <div className="dawaa-alert dawaa-alert--warning mt-3 text-xs">{truthError}</div> : null}
         </div>
       </section>
+
+      <SalesIntelligenceCoveragePanelV1 />
 
       <SalesIntelligenceOpportunityCenterV1 cycle={cycle} branch={branch} />
 

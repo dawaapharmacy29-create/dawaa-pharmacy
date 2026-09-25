@@ -18,7 +18,7 @@ import { supabase } from '@/lib/supabase';
 import { formatDateTime } from '@/lib/utils';
 import { fetchQaBranchOptions, fetchQaCaseList, filterCaseListRows } from '@/lib/salesIntelligence/qa/queries';
 import { DEFAULT_QA_LIST_FILTERS, type QaCaseListRow, type QaListFilters } from '@/lib/salesIntelligence/qa/types';
-import { buildRecentPharmacyCyclesV1, dateFallsInCycleV1, previousPharmacyCycleV1 } from '@/lib/salesIntelligence/dashboardScopeV1';
+import { buildRecentPharmacyCyclesV1, cairoTodayYmdV1, dateFallsInCycleV1, previousPharmacyCycleV1 } from '@/lib/salesIntelligence/dashboardScopeV1';
 import ProductDemandLeakageV22 from '@/components/salesIntelligence/ProductDemandLeakageV22';
 import SalesIntelligenceManagementOverviewV1 from '@/components/salesIntelligence/SalesIntelligenceManagementOverviewV1';
 import SalesIntelligenceStaffPerformanceV1 from '@/components/salesIntelligence/SalesIntelligenceStaffPerformanceV1';
@@ -47,6 +47,17 @@ const QUICK_FILTERS: Array<{ key: QaListFilters['quickFilter']; label: string }>
 
 type WorkspaceSection = 'overview' | 'demand' | 'staff' | 'qa';
 
+async function fetchSalesIntelligenceBranchOptions(): Promise<string[]> {
+  const [qaBranches, sourceResult] = await Promise.all([
+    fetchQaBranchOptions(supabase),
+    supabase.from('whatsapp_review_sources').select('branch').not('branch', 'is', null).limit(2000),
+  ]);
+  const sourceBranches = sourceResult.error
+    ? []
+    : (sourceResult.data || []).map((row: any) => String(row.branch || '').trim()).filter(Boolean);
+  return Array.from(new Set([...qaBranches, ...sourceBranches])).sort((a, b) => a.localeCompare(b, 'ar'));
+}
+
 export default function SalesIntelligenceQA() {
   const navigate = useNavigate();
   const [rows, setRows] = useState<QaCaseListRow[]>([]);
@@ -57,7 +68,7 @@ export default function SalesIntelligenceQA() {
   const [activeSection, setActiveSection] = useState<WorkspaceSection>('overview');
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [showTechnicalColumns, setShowTechnicalColumns] = useState(false);
-  const cycleOptions = useMemo(() => buildRecentPharmacyCyclesV1(new Date(), 8), []);
+  const cycleOptions = useMemo(() => buildRecentPharmacyCyclesV1(cairoTodayYmdV1(), 8), []);
   const [cycleKey, setCycleKey] = useState(cycleOptions[0]?.key || '');
   const [branchScope, setBranchScope] = useState('all');
 
@@ -67,7 +78,7 @@ export default function SalesIntelligenceQA() {
     try {
       const [list, branchOptions] = await Promise.all([
         fetchQaCaseList(supabase),
-        fetchQaBranchOptions(supabase),
+        fetchSalesIntelligenceBranchOptions(),
       ]);
       setRows(list);
       setBranches(branchOptions);
@@ -85,7 +96,7 @@ export default function SalesIntelligenceQA() {
       try {
         const [list, branchOptions] = await Promise.all([
           fetchQaCaseList(supabase),
-          fetchQaBranchOptions(supabase),
+          fetchSalesIntelligenceBranchOptions(),
         ]);
         if (cancelled) return;
         setRows(list);

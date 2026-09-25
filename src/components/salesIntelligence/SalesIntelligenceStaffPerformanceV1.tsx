@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { BadgeCheck, CircleAlert, PackageCheck, ReceiptText, Search, UsersRound } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import { dateFallsInCycleV1, nextDayYmdV1, type SalesIntelligenceCycleScopeV1 } from '@/lib/salesIntelligence/dashboardScopeV1';
+import { dateFallsInCycleV1, nextDayYmdV1, previousDayYmdV1, type SalesIntelligenceCycleScopeV1 } from '@/lib/salesIntelligence/dashboardScopeV1';
 
 type StaffTruthRow = {
   case_id: string;
@@ -111,8 +111,8 @@ export default function SalesIntelligenceStaffPerformanceV1({
       let truthQuery = supabase
         .from('sales_intelligence_invoice_staff_truth_v1')
         .select('case_id,invoice_datetime,invoice_branch,invoice_amount,canonical_staff_id,canonical_staff_name,canonical_staff_role,canonical_staff_branch,staff_resolution_status,is_staff_resolved,item_evidence_available')
-        .gte('invoice_datetime', `${cycle.start}T00:00:00Z`)
-        .lt('invoice_datetime', `${nextDayYmdV1(cycle.end)}T23:59:59Z`)
+        .gte('invoice_datetime', `${previousDayYmdV1(cycle.start)}T00:00:00Z`)
+        .lt('invoice_datetime', `${nextDayYmdV1(cycle.end)}T00:00:00Z`)
         .limit(2000);
 
       let opportunityQuery = supabase
@@ -178,12 +178,21 @@ export default function SalesIntelligenceStaffPerformanceV1({
       map.set(key, current);
     }
 
+    const rowsByNormalizedName = new Map<string, StaffRow[]>();
+    for (const row of map.values()) {
+      const key = row.name.trim().toLocaleLowerCase('ar-EG');
+      const list = rowsByNormalizedName.get(key) || [];
+      list.push(row);
+      rowsByNormalizedName.set(key, list);
+    }
+
     for (const opportunity of opportunities) {
       const name = String(opportunity.attributed_staff_name || '').trim();
-      if (!name) continue;
+      if (!name && !opportunity.attributed_staff_id) continue;
       const byId = opportunity.attributed_staff_id ? map.get(opportunity.attributed_staff_id) : null;
-      const byName = Array.from(map.values()).find((row) => row.name.trim() === name);
-      const current = byId || byName;
+      const nameMatches = name ? (rowsByNormalizedName.get(name.toLocaleLowerCase('ar-EG')) || []) : [];
+      const byUniqueName = nameMatches.length === 1 ? nameMatches[0] : null;
+      const current = byId || byUniqueName;
       if (!current) continue;
       current.opportunities += 1;
       if (['accepted', 'order_confirmed', 'verified_sale'].includes(opportunity.current_stage)) current.acceptedOrLater += 1;

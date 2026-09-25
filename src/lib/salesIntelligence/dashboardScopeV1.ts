@@ -14,15 +14,23 @@ function ymd(year: number, monthIndex: number, day: number): string {
 }
 
 function addMonths(year: number, monthIndex: number, delta: number): { year: number; monthIndex: number } {
-  const date = new Date(year, monthIndex + delta, 1);
-  return { year: date.getFullYear(), monthIndex: date.getMonth() };
+  const date = new Date(Date.UTC(year, monthIndex + delta, 1));
+  return { year: date.getUTCFullYear(), monthIndex: date.getUTCMonth() };
+}
+
+function cairoDateKey(value: Date): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Africa/Cairo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(value);
 }
 
 export function pharmacyCycleForDateV1(input: Date | string): SalesIntelligenceCycleScopeV1 {
-  const date = typeof input === 'string' ? new Date(`${input.slice(0, 10)}T12:00:00`) : input;
-  const year = date.getFullYear();
-  const monthIndex = date.getMonth();
-  const day = date.getDate();
+  const dayKey = typeof input === 'string' ? input.slice(0, 10) : cairoDateKey(input);
+  const [year, month, day] = dayKey.split('-').map(Number);
+  const monthIndex = month - 1;
 
   const startMonth = day >= 26
     ? { year, monthIndex }
@@ -40,13 +48,11 @@ export function pharmacyCycleForDateV1(input: Date | string): SalesIntelligenceC
 }
 
 export function previousPharmacyCycleV1(scope: SalesIntelligenceCycleScopeV1): SalesIntelligenceCycleScopeV1 {
-  const anchor = new Date(`${scope.start}T12:00:00`);
-  anchor.setDate(anchor.getDate() - 1);
-  return pharmacyCycleForDateV1(anchor);
+  return pharmacyCycleForDateV1(previousDayYmdV1(scope.start));
 }
 
 export function buildRecentPharmacyCyclesV1(
-  anchor: Date = new Date(),
+  anchor: Date | string = new Date(),
   count = 6
 ): SalesIntelligenceCycleScopeV1[] {
   const cycles: SalesIntelligenceCycleScopeV1[] = [];
@@ -63,12 +69,27 @@ export function dateFallsInCycleV1(
   scope: SalesIntelligenceCycleScopeV1
 ): boolean {
   if (!value) return false;
-  const day = value.slice(0, 10);
+  let day = value.slice(0, 10);
+  if (value.length > 10) {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) day = cairoDateKey(parsed);
+  }
   return day >= scope.start && day <= scope.end;
 }
 
 export function nextDayYmdV1(value: string): string {
-  const date = new Date(`${value}T12:00:00`);
-  date.setDate(date.getDate() + 1);
-  return ymd(date.getFullYear(), date.getMonth(), date.getDate());
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + 1));
+  return ymd(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+}
+
+
+export function previousDayYmdV1(value: string): string {
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day - 1));
+  return ymd(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+}
+
+export function cairoTodayYmdV1(now: Date = new Date()): string {
+  return cairoDateKey(now);
 }
