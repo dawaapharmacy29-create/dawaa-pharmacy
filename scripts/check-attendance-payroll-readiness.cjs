@@ -4,6 +4,8 @@ const fs = require('node:fs');
 const migrationPath = 'supabase/migrations/20260830214000_attendance_payroll_readiness_v1.sql';
 const servicePath = 'src/lib/payroll/attendancePayrollReadinessService.ts';
 const payrollPagePath = 'src/pages/PayrollManagement.tsx';
+const payrollSafetyGatePath = 'src/components/attendance/PayrollAttendanceSafetyGate.tsx';
+const payrollComponentsPath = 'src/lib/payroll/payrollCompensationService.ts';
 const failures = [];
 
 if (!fs.existsSync(migrationPath)) {
@@ -54,17 +56,48 @@ if (!fs.existsSync(payrollPagePath)) {
   failures.push(`Missing payroll page: ${payrollPagePath}`);
 } else {
   const page = fs.readFileSync(payrollPagePath, 'utf8');
-  for (const token of ['fetchAttendancePayrollReadiness', 'candidateWorkedHours']) {
-    if (!page.includes(token)) failures.push(`Payroll page missing readiness token: ${token}`);
+
+  if (!page.includes('PayrollAttendanceSafetyGate')) {
+    failures.push('Payroll page must expose the canonical Payroll Attendance Safety Gate.');
   }
-  if (!/جاهزية البصمة(?: للرواتب)?/.test(page)) {
-    failures.push('Payroll page must expose biometric payroll-readiness status to the operator.');
+  if (!page.includes('PayrollTransparencyPanel')) {
+    failures.push('Payroll page must expose the canonical payroll transparency panel.');
   }
-  if (!page.includes('لا تضرب في قيمة الساعة الشهرية')) {
-    failures.push('Payroll page must explicitly keep fingerprint hours separate from the monthly-hour-unit base salary formula.');
+  if (/candidateWorkedHours|candidate_worked_hours/.test(page)) {
+    failures.push('Payroll page must not calculate or copy candidate fingerprint hours locally.');
   }
-  if (/candidateWorkedHours[\s\S]{0,180}setMonthly/.test(page)) {
-    failures.push('Payroll page must not automatically copy candidate fingerprint hours into the payroll row.');
+  if (/setMonthly\s*\(/.test(page)) {
+    failures.push('Payroll page must not mutate a legacy monthly payroll row.');
+  }
+}
+
+if (!fs.existsSync(payrollSafetyGatePath)) {
+  failures.push(`Missing payroll safety gate: ${payrollSafetyGatePath}`);
+} else {
+  const gate = fs.readFileSync(payrollSafetyGatePath, 'utf8');
+  for (const token of [
+    'getPayrollFinalizationGate',
+    'getPayrollFinalSnapshotPreview',
+    'stagePayrollFinalSnapshot',
+    'comparePayrollStagedSnapshot',
+    'finalizePayrollSnapshotV2',
+  ]) {
+    if (!gate.includes(token)) failures.push(`Payroll safety gate missing canonical token: ${token}`);
+  }
+  if (/get_attendance_payroll_readiness_v1/.test(gate)) {
+    failures.push('Financial finalization gate must not use the legacy biometric readiness reader as its ready flag.');
+  }
+}
+
+if (!fs.existsSync(payrollComponentsPath)) {
+  failures.push(`Missing payroll compensation service: ${payrollComponentsPath}`);
+} else {
+  const compensation = fs.readFileSync(payrollComponentsPath, 'utf8');
+  if (!compensation.includes("get_payroll_components_v17")) {
+    failures.push('Payroll compensation service must use the canonical payroll components RPC.');
+  }
+  if (/candidate_worked_hours|candidateWorkedHours/.test(compensation)) {
+    failures.push('Compensation service must not substitute biometric candidate hours for canonical payroll components.');
   }
 }
 
@@ -74,4 +107,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log('[attendance-payroll-readiness] PASS: fingerprint promotion is canonical, trigger-only, payroll readiness remains read-only, and base salary uses the independent compensation formula.');
+console.log('[attendance-payroll-readiness] PASS: biometric readiness is diagnostic-only; financial finalization uses the canonical safety gate/snapshot contract and payroll components remain independent.');
