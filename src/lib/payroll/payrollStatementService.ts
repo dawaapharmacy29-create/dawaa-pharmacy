@@ -14,8 +14,15 @@ export type AnnualLeaveBalanceStatement = {
   reason?: string;
 };
 
-export type EmployeePayrollStatementV1 = Omit<EmployeePayrollTransparencyV1, 'schema' | 'generated_at'> & {
+export type EmployeePayrollStatementV1 = Omit<EmployeePayrollTransparencyV1, 'schema' | 'generated_at' | 'finalization'> & {
   schema: 'employee_payroll_statement_v1';
+  statement_mode?: 'live_preview' | 'finalized_snapshot_v2';
+  finalization: EmployeePayrollTransparencyV1['finalization'] & {
+    finalized?: boolean;
+    snapshot_id?: string | null;
+    snapshot_fingerprint?: string | null;
+    finalized_at?: string | null;
+  };
   annual_leave: {
     cycle_spans_years: boolean;
     balances: AnnualLeaveBalanceStatement[];
@@ -29,6 +36,7 @@ export type EmployeePayrollStatementV1 = Omit<EmployeePayrollTransparencyV1, 'sc
     missing_punch: string;
     annual_leave: string;
     net_salary: string;
+    finalization?: string;
   };
   generated_at: string;
 };

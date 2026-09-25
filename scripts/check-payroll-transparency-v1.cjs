@@ -52,6 +52,10 @@ assertContains(statementPdf, 'الدخول / الخروج', 'attendance punch tr
 assertContains(statementPdf, 'الإجازات والأذونات خلال الدورة', 'time off detail table');
 assertContains(statementPdf, 'الحوافز والخصومات والنقاط', 'employee-visible transaction audit');
 assertContains(statementPdf, 'التسويات المالية اليدوية', 'manual payroll ledger disclosure');
+assertContains(statementPdf, 'Fingerprint', 'employee statement transparency: Fingerprint');
+assertContains(statementPdf, 'مرجع الاعتماد:', 'employee statement transparency: مرجع الاعتماد:');
+assertContains(statementPdf, 'ساعات الأساسي المحتسبة', 'employee statement transparency: ساعات الأساسي المحتسبة');
+assertContains(statementPdf, 'الساعات الفعلية', 'employee statement transparency: الساعات الفعلية');
 assertContains(panel, 'معاينة PDF', 'statement PDF preview action');
 assertContains(kpiService, 'branch_breakdown', 'employee sales KPI typing');
 if (incentiveTruthService.includes('const automatedTotal = grossAutomatedTotal - performanceIncentive')) {

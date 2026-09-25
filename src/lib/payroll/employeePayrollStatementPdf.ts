@@ -22,6 +22,20 @@ const cairoTime = (value?: string | null) => {
   if (Number.isNaN(d.getTime())) return '-';
   return d.toLocaleTimeString('ar-EG', { timeZone: 'Africa/Cairo', hour: '2-digit', minute: '2-digit' });
 };
+const cairoDateTime = (value?: string | null) => {
+  if (!value) return '-';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '-';
+  return d.toLocaleString('ar-EG', {
+    timeZone: 'Africa/Cairo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
+const shortFingerprint = (value?: string | null) => value ? String(value).slice(0, 12) + '…' : '-';
 const STATUS_LABELS: Record<string, string> = {
   approved: 'معتمد',
   pending: 'معلق',
@@ -77,6 +91,14 @@ function buildPages(data: EmployeePayrollStatementV1) {
   const overtime = data.overtime.summary;
   const attendance = data.attendance.summary;
   const preview = !financial.frozen;
+  const actualWorkedHours = num(engine.actual_worked_hours);
+  const basePayableHours = num(engine.base_payable_hours);
+  const hoursOutsideBase = Math.max(0, actualWorkedHours - basePayableHours);
+  const statementStatus = financial.frozen
+    ? 'نهائي مجمد'
+    : data.finalization.ready
+      ? 'جاهز للمراجعة النهائية'
+      : 'معاينة قيد المراجعة';
   const pages: string[] = [];
 
   const earningsTotal =
@@ -86,11 +108,19 @@ function buildPages(data: EmployeePayrollStatementV1) {
     num(financial.earnings.approved_overtime) +
     num(financial.earnings.manual_other_incentives);
 
+  const auditRef = financial.frozen
+    ? '<div style="margin-top:8px;border:1px solid #d9e4e5;background:#f9fbfb;border-radius:10px;padding:8px;font-size:8px;color:#5f7079;line-height:1.7">' +
+        '<b style="color:#102235">مرجع الاعتماد:</b> Snapshot ' + esc(data.finalization.snapshot_id || '-') +
+        ' · Fingerprint ' + esc(shortFingerprint(data.finalization.snapshot_fingerprint || financial.snapshot_fingerprint)) +
+        ' · أُقفل في ' + esc(cairoDateTime(data.finalization.finalized_at || financial.finalized_at)) +
+      '</div>'
+    : '';
+
   const identity =
-    '<div style="display:flex;justify-content:space-between;gap:16px;margin-bottom:14px;font-size:10px;line-height:1.8">' +
+    '<div style="display:flex;justify-content:space-between;gap:16px;margin-bottom:8px;font-size:10px;line-height:1.8">' +
       '<div><b>الموظف:</b> ' + esc(data.staff.name) + '<br/><b>الفرع:</b> ' + esc(data.staff.branch || '-') + '</div>' +
-      '<div><b>الدورة:</b> ' + esc(data.cycle.start) + ' - ' + esc(data.cycle.end) + '<br/><b>حالة الكشف:</b> ' + esc(financial.frozen ? 'مجمد/نهائي' : data.finalization.ready ? 'جاهز للإقفال' : 'قيد المراجعة') + '</div>' +
-    '</div>';
+      '<div><b>الدورة:</b> ' + esc(data.cycle.start) + ' - ' + esc(data.cycle.end) + '<br/><b>حالة الكشف:</b> ' + esc(statementStatus) + '</div>' +
+    '</div>' + auditRef;
 
   const netHero =
     '<div style="display:grid;grid-template-columns:1.3fr .7fr;gap:10px;margin-bottom:14px">' +
@@ -160,8 +190,13 @@ function buildPages(data: EmployeePayrollStatementV1) {
     }).join('');
 
     const summary =
+      '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-bottom:8px">' +
+        card('الساعات الفعلية', durationHours(actualWorkedHours), 'إجمالي الحضور الفعلي خلال الدورة') +
+        card('ساعات الأساسي المحتسبة', durationHours(basePayableHours), 'بعد تطبيق الجدول وAttendance Truth') +
+        card('سعر الساعة الفعلي', money(engine.true_hourly_rate), 'السعر المستخدم في حساب الأساسي') +
+      '</div>' +
       '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-bottom:12px">' +
-        card('أيام العمل', num(attendance.worked_days).toLocaleString('ar-EG')) +
+        card('فرق عن ساعات الأساسي', durationHours(hoursOutsideBase), 'قد يشمل OT؛ راجع صفحة الأوفر تايم') +
         card('إجازات/أذونات', num(attendance.approved_time_off_days).toLocaleString('ar-EG')) +
         card('إجمالي التأخير', mins(attendance.late_minutes).toLocaleString('ar-EG') + ' دقيقة') +
         card('الخروج المبكر', mins(attendance.early_leave_minutes).toLocaleString('ar-EG') + ' دقيقة') +
