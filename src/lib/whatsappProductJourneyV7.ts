@@ -363,7 +363,10 @@ export function buildWhatsAppProductJourneyV7(
       requestBelongsToProduct &&
       /مسار\s+توفير|تجهيز|عند\s+الجاهزي|اول\s+ما|أول\s+ما/i.test(operational.followupPlan.reason || '');
     const followupCandidate = recommendationFollowup || explicitFulfillmentFollowup;
-    const leakage = explicitFulfillmentFollowup
+    const stockUnavailableWithoutAlternative =
+      events.some((e) => e.stage === 'unavailable') &&
+      !events.some((e) => e.stage === 'alternative_offered');
+    const leakage = explicitFulfillmentFollowup && !stockUnavailableWithoutAlternative
       ? { code: null as WhatsAppLeakageCodeV8 | null, reason: null as string | null }
       : leakageFor(session, events, product, messages);
     const responsibility = responsibilityForLeakage(leakage.code);
