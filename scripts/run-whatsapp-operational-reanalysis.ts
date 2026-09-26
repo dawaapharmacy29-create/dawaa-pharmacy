@@ -66,6 +66,47 @@ function inferRelationshipToPrevious(
   const currentResumesPromise = currentMeaningful.slice(0, 12).some((message) =>
     /(?:المخزن|المكتب)[^\n]{0,100}(?:يفتح|يشتغل)|(?:اول ما|أول ما)[^\n]{0,100}(?:يفتح|يشتغل)[^\n]{0,100}(?:هبعت|ابعت)|\[Forwarded\]\s*<image omitted>/i.test(message.text)
   );
+  const previousAvailabilityFollowup = previousMeaningful.some((message) =>
+    message.direction === 'outbound' &&
+    /(?:هنتواصل|هتواصل|هبلغ)[^\n]{0,120}(?:اول ما|أول ما)[^\n]{0,120}(?:نوفر|يوصل|يجهز)|(?:اول ما|أول ما)[^\n]{0,120}(?:نوفر|يوصل|يجهز)[^\n]{0,120}(?:هنتواصل|هتواصل|هبلغ)/i.test(message.text)
+  );
+  const currentFulfillmentUpdate = currentMeaningful.slice(0, 12).some((message) =>
+    message.direction === 'outbound' &&
+    /(?:جاري الارسال|جاري الإرسال|موجوده|موجودة|متوفره|متوفرة|نوفرها|جاهزه|جاهزة)/i.test(message.text)
+  );
+  const previousScheduledTomorrow = previousMeaningful.some((message) =>
+    message.direction === 'inbound' && /(?:بكره|بكرة|غدا|غدًا)/i.test(message.text)
+  );
+  const currentOrderReadyPickup = currentMeaningful.slice(0, 12).some((message) =>
+    message.direction === 'inbound' &&
+    /(?:الاوردر|الأوردر)[^\n]{0,60}(?:جاهز|استلم|استلمه)|(?:جاهز|جاهزة)[^\n]{0,60}(?:استلم|الاوردر|الأوردر)/i.test(message.text)
+  );
+
+  if (
+    previousAvailabilityFollowup &&
+    currentFulfillmentUpdate &&
+    gapHours > 2 &&
+    gapHours <= 12
+  ) {
+    return {
+      relationshipToPrevious: 'continuation' as const,
+      continuationOfSessionIndex: 1,
+      relationshipReason: 'availability_followup_resumed_with_fulfillment_update',
+    };
+  }
+
+  if (
+    previousScheduledTomorrow &&
+    currentOrderReadyPickup &&
+    gapHours > 2 &&
+    gapHours <= 24
+  ) {
+    return {
+      relationshipToPrevious: 'continuation' as const,
+      continuationOfSessionIndex: 1,
+      relationshipReason: 'scheduled_next_day_order_followup',
+    };
+  }
 
   if (
     previousPromisedFollowup &&
