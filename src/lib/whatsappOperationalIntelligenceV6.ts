@@ -138,7 +138,9 @@ const uniq = <T,>(rows: T[]) => [...new Set(rows)];
 
 const REQUEST_RX = /(هحتاجه|هحتاجها|هاخده|هاخدها|عايزه|عاوزه|محتاجه|عايزين|محتاجين|عايز|عاوز|محتاج|ممكن|ابعت|ابعث|هات|اطلب|أطلب|متوفر|موجود عندكم|عندكم)/i;
 const CUSTOMER_REQUEST_INTENT_RX = /(هحتاجه|هحتاجها|هاخده|هاخدها|عايزه|عاوزه|محتاجه|عايزين|محتاجين|عايز|عاوز|محتاج|ابعت|ابعث|هات|اطلب|أطلب|متوفر|موجود عندكم|عندكم|ممكن\s+(?:ابعت|ابعث|هات|اطلب|توصيل|الدليفري|المندوب)|الدليفري\s+يجيلي|التوصيل)/i;
-const PRODUCT_INQUIRY_RX = /(بكام|سعر|متوفر|متاح|موجود|عندكم|فيه|في من|العبوه|العبوة|تركيز|كام قرص|كام شريط)/i;
+const PRODUCT_INQUIRY_RX = /(بكام|سعر|متوفر|متاح|موجود|عندكم|فيه|في من|العبوه|العبوة|تركيز|كام قرص|كام شريط|توضيح\s+عن\s+(?:ال)?منتج|استعماله\s+ازاي|استخدامه\s+ازاي|بيستخدم\s+ازاي)/i;
+const INFO_ONLY_PRODUCT_INQUIRY_RX = /(توضيح\s+عن\s+(?:ال)?منتج|استعماله\s+ازاي|استخدامه\s+ازاي|بيستخدم\s+ازاي)/i;
+const POSITIVE_SERVICE_FEEDBACK_RX = /(كله\s+تمام|كل\s+حاجه\s+تمام|كل\s+حاجة\s+تمام|خدمه[^\n]{0,80}ذوق|خدمة[^\n]{0,80}ذوق|ربنا\s+يباركلكم|عند\s+حسن\s+ظن)/i;
 const RECOMMEND_RX = /(ارشح|أرشح|نرشح|ترشيح|انصح|أنصح|ممكن تستخدم|ممكن تاخد|ممكن تاخدي|الافضل|الأفضل|بديل|بداله|بدلها)/i;
 const RECOMMENDATION_REQUEST_RX = /(ترشحلي|ترشحلى|رشحلي|رشحلى|اقترحلي|اقترحلى|إقترحلي|إقترحلى|ايه\s+افضل|ايه\s+أفضل|أفضل\s+(?:فيتامين|منتج)|افضل\s+(?:فيتامين|منتج))/i;
 const ACCEPT_RX = /(^|\s)(تمام|ماشي|موافق|اوكي|أوكي|خلاص|ابعت|ابعته|ابعتي|هات|هاته|هاخده|هاخدها|هجربه|هجربها|تمام كده|تمام كدا)(\s|$)/i;
@@ -149,7 +151,7 @@ const FULFILLMENT_FAILURE_RX = /(التاخير\s+الكبير|التأخير\s+
 const RECOVERY_RX = /(بنعتذر|نعتذر|متاسف|متأسف|اسفين|آسفين|تم الحل|هنحل|هنراجع|هنعوض|تم التصحيح)/i;
 const DELIVERY_RX = /(توصيل|مندوب|العنوان|وصل|ماوصلش|موصلش|خرج لحضرتك|جاري الارسال|جاري الإرسال)/i;
 const MEDICAL_RX = /(اعراض|أعراض|جرعه|جرعة|كحه|كحة|حراره|حرارة|اسهال|إسهال|وجع|التهاب|حامل|رضاع|ضغط|سكر|حساسي|ينفع|استخدم|اخد|آخد|طفل|طفله|طفلة)|(?<![\p{L}\p{N}])(?:الم|ألم)(?![\p{L}\p{N}])/iu;
-const CHECKIN_OUT_RX = /(حابين نطمن|حبيت اطمن|حبيت أطمن|بنطمن|نطمن علي|نطمن على|اخبار حضرتك|أخبار حضرتك|بقيت|بقت|عامل ايه|عامله ايه|الدوا جاب نتيجه|العلاج جاب نتيجه)/i;
+const CHECKIN_OUT_RX = /(حابين نطمن|حابه اطمن|حابة اطمن|حابه أطمن|حابة أطمن|حبيت اطمن|حبيت أطمن|بنطمن|نطمن علي|نطمن على|اخبار حضرتك|أخبار حضرتك|بقيت|بقت|عامل ايه|عامله ايه|الدوا جاب نتيجه|العلاج جاب نتيجه)/i;
 const IMPROVED_RX = /(احسن|أحسن|كويس|كويسه|كويسة|الحمدلله|الحمد لله|اتحسن|اتحسنت|تحسن|خف|خفت|تمام دلوقتي|بقيت كويس|بقيت\s+(?:افضل|أفضل))/i;
 const WORSE_RX = /(لسه تعبان|لسه تعبانه|اسوء|أسوأ|زادت|زاد الوجع|مفيش تحسن|مافيش تحسن|زي ما هو|زي ماهو)/i;
 const FOLLOWUP_PROMISE_RX = /(هتابع|هتواصل|هبلغ|هرجع|هنرجع|اول ما|أول ما|لما يتوفر|هنوفره|هطلبه|هطلبها)/i;
@@ -271,7 +273,8 @@ function extractProducts(session: WhatsAppConversationSession): WhatsAppProductS
   const found: WhatsAppProductSignal[] = [];
   for (const message of session.messages) {
     if (message.direction === 'system' || message.kind !== 'text') continue;
-    const isRequest = message.direction === 'inbound' && REQUEST_RX.test(message.text);
+    const infoOnlyInquiry = message.direction === 'inbound' && INFO_ONLY_PRODUCT_INQUIRY_RX.test(message.text);
+    const isRequest = message.direction === 'inbound' && REQUEST_RX.test(message.text) && !infoOnlyInquiry;
     const isRecommendation = message.direction === 'outbound' && RECOMMEND_RX.test(message.text);
     const typedNamedProduct = message.direction === 'inbound' ? message.text.trim().match(PRODUCT_TYPE_NAMED_RX) : null;
     if (message.direction === 'inbound' && ANAPHORIC_COMMIT_RX.test(message.text)) continue;
@@ -284,6 +287,7 @@ function extractProducts(session: WhatsAppConversationSession): WhatsAppProductS
     const trigger = isRecommendation ? RECOMMEND_RX : isRequest ? REQUEST_RX : PRODUCT_INQUIRY_RX.test(message.text) ? PRODUCT_INQUIRY_RX : null;
     if (!trigger && !typedNamedProduct) continue;
     let rawName = typedNamedProduct?.[1]?.trim() || (trigger ? extractAfterTrigger(message, trigger) : '');
+    if (infoOnlyInquiry && /(?:ال)?منتج\s+(?:ده|دا|دي|هذا|هذه)/i.test(message.text)) rawName = '';
     let explicitNamedRecommendation = false;
     if (isRecommendation) {
       const explicitNamedProduct = message.text.match(/(?:اسمه|اسمها)\s+([A-Za-z][A-Za-z0-9.+-]*(?:\s+[A-Za-z][A-Za-z0-9.+-]*){0,3})/i);
@@ -398,7 +402,8 @@ export function buildWhatsAppOperationalIntelligenceV6(session: WhatsAppConversa
   const fulfillmentFailures = fulfillmentFailureMessages(session);
   const fulfillmentFailure = fulfillmentFailures.length > 0;
   const recovered = has(outbound, RECOVERY_RX);
-  const state: WhatsAppOperationalIntelligenceV6['customerState'] = has(inbound, IMPROVED_RX) ? 'improved' : has(inbound, WORSE_RX) ? 'worse' : 'unknown';
+  const positiveCheckinFeedback = intents.primary === 'proactive_checkin' && has(inbound, POSITIVE_SERVICE_FEEDBACK_RX);
+  const state: WhatsAppOperationalIntelligenceV6['customerState'] = positiveCheckinFeedback ? 'improved' : has(inbound, IMPROVED_RX) ? 'improved' : has(inbound, WORSE_RX) ? 'worse' : 'unknown';
 
   const requests: WhatsAppRequestSignal[] = products
     .filter((p) => ['requested','unavailable'].includes(p.status) && p.sourceDirection === 'inbound')
