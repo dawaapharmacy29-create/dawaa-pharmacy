@@ -266,8 +266,11 @@ function leakageFor(
   if (stages.has('rejected')) {
     return { code: 'customer_rejected', reason: 'العميل رفض الصنف أو الترشيح بشكل صريح.' };
   }
-  if (stages.has('alternative_offered') || stages.has('recommended')) {
-    return { code: 'recommendation_pending', reason: 'تم عرض بديل أو ترشيح ولم يظهر قرار نهائي من العميل.' };
+  if (stages.has('alternative_offered')) {
+    return { code: 'recommendation_pending', reason: 'تم عرض بديل ولم يظهر قرار نهائي من العميل.' };
+  }
+  if (stages.has('recommended')) {
+    return { code: 'recommendation_pending', reason: 'تم تقديم ترشيح ولم يظهر قرار نهائي من العميل.' };
   }
   if (customerSilent && (stages.has('availability_confirmed') || stages.has('alternative_offered'))) {
     return { code: 'customer_no_reply', reason: 'الصيدلية ردت على طلب الصنف ولم يظهر رد لاحق من العميل.' };
