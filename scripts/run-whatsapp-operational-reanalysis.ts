@@ -59,6 +59,26 @@ function inferRelationshipToPrevious(
   const previousEndedInbound = lastPrevious?.direction === 'inbound';
   const anaphoricReply = Boolean(firstCurrent && /(?:واحد\s+منهم|اي\s+واحد\s+منهم|أي\s+واحد\s+منهم|الاتنين|الإتنين|منهم|ده|دي|عادي)/i.test(firstCurrent.text));
   const noFreshOpening = Boolean(firstCurrent && !/(اهلا|أهلا|السلام عليكم|صباح الخير|مساء الخير|مع حضرتك)/i.test(firstCurrent.text));
+  const previousPromisedFollowup = previousMeaningful.some((message) =>
+    message.direction === 'outbound' &&
+    /(?:بكرا|غدا|غدًا)[^\n]{0,100}(?:هبعت|ابعت|هصور|الصور)|(?:اول ما|أول ما)[^\n]{0,100}(?:يفتح|يشتغل)[^\n]{0,100}(?:هبعت|ابعت)/i.test(message.text)
+  );
+  const currentResumesPromise = currentMeaningful.slice(0, 12).some((message) =>
+    /(?:المخزن|المكتب)[^\n]{0,100}(?:يفتح|يشتغل)|(?:اول ما|أول ما)[^\n]{0,100}(?:يفتح|يشتغل)[^\n]{0,100}(?:هبعت|ابعت)|\[Forwarded\]\s*<image omitted>/i.test(message.text)
+  );
+
+  if (
+    previousPromisedFollowup &&
+    currentResumesPromise &&
+    gapHours > 2 &&
+    gapHours <= 18
+  ) {
+    return {
+      relationshipToPrevious: 'continuation' as const,
+      continuationOfSessionIndex: 1,
+      relationshipReason: 'promised_followup_resumed_next_session',
+    };
+  }
 
   if (
     shortOutboundTail &&
