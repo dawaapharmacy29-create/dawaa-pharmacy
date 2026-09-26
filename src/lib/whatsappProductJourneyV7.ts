@@ -313,7 +313,12 @@ export function buildWhatsAppProductJourneyV7(
     const alternative = outbound.filter((m) => ALTERNATIVE_RX.test(m.text));
     const accepted = customerDecisionAfterProductContext(session, product, ACCEPT_RX);
     const rejected = customerDecisionAfterProductContext(session, product, REJECT_RX);
-    const closed = messages.filter((m) => m.direction === 'outbound' && CLOSE_RX.test(m.text));
+    const firstProductEvidenceIndex = session.messages.findIndex((m) => product.evidenceMessageIds.includes(m.id));
+    const closeScope =
+      product.status === 'requested' && firstProductEvidenceIndex >= 0
+        ? session.messages.slice(firstProductEvidenceIndex + 1)
+        : messages;
+    const closed = closeScope.filter((m) => m.direction === 'outbound' && CLOSE_RX.test(m.text));
 
     if (available.length) events.push(event('availability_confirmed', available, 84, 'تم تأكيد توفر الصنف/الطلب في المحادثة.'));
     if (unavailable.length || product.status === 'unavailable') events.push(event('unavailable', unavailable.length ? unavailable : messages.filter((m) => product.evidenceMessageIds.includes(m.id)), 90, 'ظهر أن الصنف غير متوفر/ناقص.'));
