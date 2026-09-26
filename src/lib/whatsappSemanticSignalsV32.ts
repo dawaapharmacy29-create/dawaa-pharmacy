@@ -157,6 +157,30 @@ function isPlausibleStaffProductOffer(message: NormalizedConversationMessageV32)
   );
 }
 
+// Customer exports often start with the product itself (sometimes as a forwarded English name),
+// then the next message says "موجود عندكم الغسول ده؟". That is a real antecedent even though it
+// was not written by staff. Keep this deliberately narrow: require an explicit product-like
+// mention and reject generic request/reference-only wording so we never bind "ده" to arbitrary chat.
+function isPlausibleCustomerProductMention(message: NormalizedConversationMessageV32): boolean {
+  if (message.role !== 'customer' || !message.isMeaningful) return false;
+  const text = message.text.trim();
+  if (!text) return false;
+  if (GREETING_ONLY_RX.test(text) || THANKS_CLOSING_ONLY_RX.test(text) || ACCEPTANCE_RX.test(text) || REJECTION_RX.test(text)) return false;
+
+  const strippedForwarded = text.replace(/^\s*\[?forwarded\]?\s*/i, '').trim();
+  if (!strippedForwarded) return false;
+
+  // Reference-only/request wording is not an antecedent by itself.
+  const withoutReference = strippedForwarded.replace(PRODUCT_REFERENCE_RX, '').trim();
+  if (!withoutReference || /^(?:موجود|متوفر|عندكم|عايز|عاوز|محتاج|ابعت|هات)\b/i.test(withoutReference)) return false;
+
+  return (
+    /[A-Za-z]{3,}/.test(strippedForwarded) ||
+    /\b\d+(?:\.\d+)?\s*(?:mg|mcg|gm|g|ml|%)\b/i.test(strippedForwarded) ||
+    /جل|كريم|شامبو|غسول|سيرم|سيروم|لوشن|بخاخ|قطره|قطرة|امبول|أمبول|كبسول|قرص|مرهم|spray|cream|gel|shampoo|serum|lotion|drops?|amp(?:oule)?/i.test(strippedForwarded)
+  );
+}
+
 export function isGreetingOnly(text: string): boolean {
   return GREETING_ONLY_RX.test((text || '').trim());
 }
@@ -439,17 +463,23 @@ export function resolveReference(
   index: number
 ): NormalizedConversationMessageV32 | null {
   const { before } = contextWindowV32(messages, index, 4, 0);
-  const candidateOffers = before.filter(isPlausibleStaffProductOffer);
-  if (candidateOffers.length === 0) return null;
-  // Ambiguous only when two DIFFERENT offers both sit right at the edge of the window with no
-  // customer message between them narrowing it down further.
-  if (candidateOffers.length >= 2) {
-    const last = candidateOffers[candidateOffers.length - 1];
-    const secondLast = candidateOffers[candidateOffers.length - 2];
+  const candidates = before.filter(
+    (message) => isPlausibleStaffProductOffer(message) || isPlausibleCustomerProductMention(message)
+  );
+  if (candidates.length === 0) return null;
+
+  // Prefer the nearest explicit/product-like antecedent regardless of speaker. This covers the
+  // common export pattern: customer forwards a product name, then asks "موجود عندكم ... ده؟".
+  // Stay conservative when two distinct product-like mentions are effectively simultaneous.
+  if (candidates.length >= 2) {
+    const last = candidates[candidates.length - 1];
+    const secondLast = candidates[candidates.length - 2];
     const gapMs = last.timestamp.getTime() - secondLast.timestamp.getTime();
-    if (gapMs < 2 * 60 * 1000) return null; // two offers within 2 minutes of each other: ambiguous, report unknown
+    const normalizedLast = last.text.trim().toLowerCase();
+    const normalizedSecond = secondLast.text.trim().toLowerCase();
+    if (gapMs < 2 * 60 * 1000 && normalizedLast !== normalizedSecond) return null;
   }
-  return candidateOffers[candidateOffers.length - 1];
+  return candidates[candidates.length - 1];
 }
 
 export function extractPhoneSignals(messages: NormalizedConversationMessageV32[]): ConversationSemanticSignalV32[] {
