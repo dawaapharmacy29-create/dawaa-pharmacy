@@ -152,6 +152,9 @@ function customerDecisionAfterProductContext(
 function currentStage(events: WhatsAppProductJourneyEventV7[], followupCandidate: boolean): WhatsAppProductJourneyStage {
   const stages = new Set(events.map((e) => e.stage));
   if (stages.has('order_confirmed')) return 'awaiting_invoice';
+  // Stock truth outranks workflow intent: a follow-up can be required precisely because the
+  // product is unavailable, but that must not erase the unavailable stage itself.
+  if (stages.has('unavailable') && !stages.has('alternative_offered')) return 'unavailable';
   if (followupCandidate) return 'needs_followup';
   if (stages.has('rejected')) return 'rejected';
   if (stages.has('accepted')) return 'accepted';
@@ -358,7 +361,10 @@ export function buildWhatsAppProductJourneyV7(
         request.evidenceMessageIds.some((id) => product.evidenceMessageIds.includes(id))
       );
     const followupCandidate = recommendationFollowup || operationalRequestFollowup;
-    const leakage = operationalRequestFollowup
+    const stockUnavailableWithoutAlternative =
+      events.some((e) => e.stage === 'unavailable') &&
+      !events.some((e) => e.stage === 'alternative_offered');
+    const leakage = operationalRequestFollowup && !stockUnavailableWithoutAlternative
       ? { code: null as WhatsAppLeakageCodeV8 | null, reason: null as string | null }
       : leakageFor(session, events, product, messages);
     const responsibility = responsibilityForLeakage(leakage.code);
