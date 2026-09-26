@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseWhatsAppExport, splitWhatsAppSessions } from '@/lib/whatsappConversationParser';
 import { buildUnifiedConversationIntelligence, summarizePortfolio } from '@/lib/whatsappUnifiedIntelligenceV4';
+import { buildWhatsAppOperationalIntelligenceV6 } from '@/lib/whatsappOperationalIntelligenceV6';
 
 function oneSession(raw: string) {
   const messages = parseWhatsAppExport(raw);
@@ -101,6 +102,20 @@ describe('WhatsApp Review V4 unified intelligence', () => {
     expect(result.outcome).toBe('unknown');
     expect(result.followupRequired).toBe(false);
     expect(result.medicalSafetyFlags).toHaveLength(0);
+  });
+
+  it('keeps delivery-now context non-urgent and does not invent a product name from generic eye-drop wording', () => {
+    const s = oneSession(`[1/2/26, 7:22:07 PM] Customer: حضرتك انا دلوقتي في مكان اسمه استتش ممكن الدليفري يجيلي فيه بالقطره
+[1/2/26, 7:24:30 PM] You: اهلا ب حضرتك يا فندم
+[1/2/26, 7:24:57 PM] You: حضرتك تؤمر بحاجه تانيه معاه؟
+[1/2/26, 7:26:10 PM] You: تم الارسال`);
+    const base = buildUnifiedConversationIntelligence(s);
+    const operational = buildWhatsAppOperationalIntelligenceV6(s, base);
+    expect(operational.primaryIntent).toBe('customer_request');
+    expect(operational.operationalOutcome).toBe('probable_sale');
+    expect(operational.products).toHaveLength(0);
+    expect(operational.customerRequests).toHaveLength(0);
+    expect(operational.followupPlan.priority).not.toBe('urgent');
   });
 
   it('creates a portfolio summary for batch review', () => {
