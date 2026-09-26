@@ -140,7 +140,7 @@ const ids = (messages: WhatsAppParsedMessage[], rx: RegExp) => messages.filter((
 const uniq = <T,>(rows: T[]) => [...new Set(rows)];
 
 const REQUEST_RX = /(هحتاجه|هحتاجها|هاخده|هاخدها|عايزه|عاوزه|محتاجه|عايزين|محتاجين|عايز|عاوز|محتاج|ممكن|ابعت|ابعث|هات|اطلب|أطلب|متوفر|موجود عندكم|عندكم)/i;
-const CUSTOMER_REQUEST_INTENT_RX = /(هحتاجه|هحتاجها|هاخده|هاخدها|عايزه|عاوزه|محتاجه|عايزين|محتاجين|عايز|عاوز|محتاج|ابعت|ابعث|هات|اطلب|أطلب|متوفر|موجود عندكم|عندكم|ممكن\s+(?:ابعت|ابعث|هات|اطلب|توصيل|الدليفري|المندوب)|الدليفري\s+يجيلي|التوصيل)/i;
+const CUSTOMER_REQUEST_INTENT_RX = /(هحتاجه|هحتاجها|هاخده|هاخدها|عايزه|عاوزه|محتاجه|عايزين|محتاجين|عايز|عاوز|محتاج|ابعت|ابعث|ابعته|ابعتي|تبعتها|تبعته|هات|اطلب|أطلب|متوفر|موجود عندكم|عندكم|ممكن\s+(?:ابعت|ابعث|هات|اطلب|توصيل|الدليفري|المندوب)|الدليفري\s+يجيلي|التوصيل)/i;
 const PRODUCT_INQUIRY_RX = /(بكام|سعر|متوفر|متاح|موجود|عندكم|فيه|في من|العبوه|العبوة|تركيز|كام قرص|كام شريط|توضيح\s+عن\s+(?:ال)?منتج|استعماله\s+ازاي|استخدامه\s+ازاي|بيستخدم\s+ازاي)/i;
 const INFO_ONLY_PRODUCT_INQUIRY_RX = /(توضيح\s+عن\s+(?:ال)?منتج|استعماله\s+ازاي|استخدامه\s+ازاي|بيستخدم\s+ازاي)/i;
 const POSITIVE_SERVICE_FEEDBACK_RX = /(كله\s+تمام|كل\s+حاجه\s+تمام|كل\s+حاجة\s+تمام|خدمه[^\n]{0,80}ذوق|خدمة[^\n]{0,80}ذوق|ربنا\s+يباركلكم|عند\s+حسن\s+ظن)/i;
@@ -202,6 +202,15 @@ function proactiveCheckinMessages(session: WhatsAppConversationSession) {
   );
 }
 
+function directCustomerRequestMessages(session: WhatsAppConversationSession) {
+  return byDirection(session, 'inbound').filter((message) =>
+    CUSTOMER_REQUEST_INTENT_RX.test(message.text) &&
+    !GENERIC_NEED_REQUEST_RX.test(message.text.trim()) &&
+    !INFO_ONLY_PRODUCT_INQUIRY_RX.test(message.text) &&
+    !PAYMENT_SERVICE_RX.test(message.text)
+  );
+}
+
 function classifyIntents(session: WhatsAppConversationSession) {
   const inbound = text(byDirection(session, 'inbound'));
   const outbound = text(byDirection(session, 'outbound'));
@@ -213,7 +222,7 @@ function classifyIntents(session: WhatsAppConversationSession) {
   if (complaintRows.length) add('complaint', 98);
   if (fulfillmentFailures.length) add('delivery_issue', 99);
   if (proactiveCheckinMessages(session).length) add('proactive_checkin', 96);
-  if (has(inbound, CUSTOMER_REQUEST_INTENT_RX) && !has(inbound, GENERIC_NEED_REQUEST_RX)) add('customer_request', 91);
+  if (directCustomerRequestMessages(session).length) add('customer_request', 91);
   if (has(inbound, PRODUCT_INQUIRY_RX)) add('product_inquiry', 84);
   if (has(outbound, RECOMMEND_RX)) add('doctor_recommendation', 92);
   if (has(inbound, RECOMMENDATION_REQUEST_RX)) add('doctor_recommendation', 94);
