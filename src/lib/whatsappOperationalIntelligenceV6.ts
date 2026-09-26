@@ -487,6 +487,7 @@ export function buildWhatsAppOperationalIntelligenceV6(session: WhatsAppConversa
   else if (intents.primary === 'proactive_checkin' || intents.primary === 'followup_response') operationalOutcome = state === 'improved' ? 'checkin_complete' : state === 'worse' ? 'needs_followup' : 'unknown';
   else if (rejected) operationalOutcome = 'no_sale';
   else if (close && (intents.primary === 'customer_request' || base.commercialEligible || acceptedRecommendation)) operationalOutcome = 'probable_sale';
+  else if (requests.some((r) => r.unresolved) && has(outbound, FOLLOWUP_PROMISE_RX)) operationalOutcome = 'needs_followup';
   else if (requests.some((r) => r.unresolved)) operationalOutcome = 'unresolved_request';
   else if (acceptedRecommendation) operationalOutcome = 'needs_followup';
   else if (intents.primary === 'medical_consultation') operationalOutcome = 'consultation_only';
@@ -499,6 +500,7 @@ export function buildWhatsAppOperationalIntelligenceV6(session: WhatsAppConversa
   let followupEvidence: string[] = [];
   if (operationalOutcome === 'complaint_unresolved') { followupRequired = true; followupReason = 'شكوى لم يظهر لها حل نهائي واضح.'; dueInDays = 0; priority = 'urgent'; followupEvidence = complaintRows.map((message) => message.id).slice(0, 10); }
   else if (fulfillmentFailure) { followupRequired = true; followupReason = 'تعثر تنفيذ/توصيل مثبت من المحادثة ولم يظهر إتمام نهائي للطلب.'; dueInDays = 0; priority = 'urgent'; followupEvidence = fulfillmentFailures.map((message) => message.id).slice(0, 10); }
+  else if (operationalOutcome === 'needs_followup' && requests.some((r) => r.unresolved) && has(outbound, FOLLOWUP_PROMISE_RX)) { followupRequired = true; followupReason = 'الطلب في مسار توفير/تجهيز والصيدلية وعدت بالتواصل عند الجاهزية.'; dueInDays = 1; priority = 'important'; followupEvidence = uniq([...requests.flatMap((r) => r.evidenceMessageIds), ...ids(byDirection(session, 'outbound'), FOLLOWUP_PROMISE_RX)]); }
   else if (operationalOutcome === 'unresolved_request') { followupRequired = true; followupReason = 'طلب عميل لم يظهر له إغلاق بيع أو رفض صريح.'; dueInDays = 1; priority = has(all, URGENT_RX) ? 'urgent' : 'important'; followupEvidence = requests.flatMap((r) => r.evidenceMessageIds); }
   else if (acceptedRecommendation) { followupRequired = true; followupReason = 'العميل وافق على ترشيح من الدكتور ويستحق متابعة النتيجة بعد الاستخدام.'; dueInDays = 3; priority = 'important'; followupEvidence = recs.filter((r) => r.accepted).flatMap((r) => r.evidenceMessageIds); }
   else if (has(outbound, FOLLOWUP_PROMISE_RX) && !close) { followupRequired = true; followupReason = 'الصيدلية وعدت العميل بإرسال صور/معلومة لاحقًا ولم يظهر التنفيذ داخل نفس الجلسة.'; dueInDays = 1; priority = 'important'; followupEvidence = ids(byDirection(session, 'outbound'), FOLLOWUP_PROMISE_RX); }
