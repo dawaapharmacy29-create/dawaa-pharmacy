@@ -71,14 +71,17 @@ export default async function handler(req: any, res: any) {
     'reviewer_id',
   ].join(',');
 
-  const { data: source, error: sourceError } = await service
+  const { data: sourceData, error: sourceError } = await service
     .from('whatsapp_review_sources')
     .select(select)
     .eq('id', sourceId)
     .maybeSingle();
 
   if (sourceError) return json(res, 500, { error: 'source_lookup_failed', detail: sourceError.message });
-  if (!source?.raw_text) return json(res, 404, { error: 'source_not_found_or_empty' });
+  const source = sourceData as Record<string, unknown> | null;
+  if (!source || typeof source.raw_text !== 'string' || !source.raw_text.trim()) {
+    return json(res, 404, { error: 'source_not_found_or_empty' });
+  }
 
   try {
     const conversation = reviewSourceRowToBatchConversation(source as any);
