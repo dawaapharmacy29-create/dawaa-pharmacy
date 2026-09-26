@@ -127,7 +127,7 @@ describe('conversation case classification certainty', () => {
 
 
 describe('product reference safety against welcome templates', () => {
-  it('does not resolve "ده" to a pharmacy welcome/service template', () => {
+  it('resolves "الغسول ده" to the prior explicit customer product mention, never to the pharmacy welcome template', () => {
     const raw = `[9/15/26, 9:30:55 PM] محمد الكموني17777: [Forwarded] Isis teenderm gel for sensitive skin بديل الغسول
 [9/15/26, 9:31:20 PM] You: أهلا وسهلا بحضرتك ✨ نورتنا في صيدليات دواء 💚 خدمة التوصيل متاحة على مدار 24 ساعة
 [9/15/26, 9:32:10 PM] محمد الكموني17777: موجود عندكم الغسول ده`;
@@ -135,8 +135,9 @@ describe('product reference safety against welcome templates', () => {
     const understanding = buildConversationUnderstandingV32(session);
     const refSignal = understanding.signals.find((s) => s.type === 'product_reference' && s.messageId === understanding.messages[2].id);
     expect(refSignal).toBeDefined();
-    expect(refSignal?.extractedValue).toBe('unknown');
-    expect(refSignal?.ruleId).toBe('reference.unknown');
+    expect(refSignal?.extractedValue).toBe(understanding.messages[0].id);
+    expect(refSignal?.relatedMessageIds).toEqual([understanding.messages[0].id]);
+    expect(refSignal?.ruleId).toBe('reference.resolved_to_prior_offer');
   });
 
   it('still resolves a product reference to a genuine product offer', () => {
