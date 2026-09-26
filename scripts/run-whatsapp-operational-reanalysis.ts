@@ -5,6 +5,7 @@ import { buildUnifiedConversationIntelligence } from '../src/lib/whatsappUnified
 import {
   buildWhatsAppOperationalIntelligenceV6,
   enrichWhatsAppOperationalProductsV6,
+  type WhatsAppMultiSessionOperationalV1,
 } from '../src/lib/whatsappOperationalIntelligenceV6';
 import { enrichWhatsAppOperationalJourneysV7 } from '../src/lib/whatsappProductJourneyV7';
 import { resolveWhatsAppParticipantRolesV15 } from '../src/lib/whatsappParticipantRoleResolverV15';
@@ -41,6 +42,31 @@ async function loadSources(): Promise<SourceRow[]> {
   return (data || []) as SourceRow[];
 }
 
+async function buildMultiSessionOperational(row: SourceRow, sessions: ReturnType<typeof splitWhatsAppSessions>): Promise<WhatsAppMultiSessionOperationalV1> {
+  const built = [];
+  for (let index = 0; index < sessions.length; index += 1) {
+    const session = sessions[index];
+    const base = buildUnifiedConversationIntelligence(session);
+    const initial = buildWhatsAppOperationalIntelligenceV6(session, base);
+    const productResolved = await enrichWhatsAppOperationalProductsV6(initial);
+    const operational = enrichWhatsAppOperationalJourneysV7(session, productResolved);
+
+    built.push({
+      sessionIndex: index + 1,
+      startedAt: session.startedAt.toISOString(),
+      endedAt: session.endedAt.toISOString(),
+      messageCount: session.messages.length,
+      operational: JSON.parse(JSON.stringify(operational)),
+    });
+  }
+
+  return {
+    version: 'whatsapp-multi-session-operational-v1',
+    sessionCount: built.length,
+    sessions: built,
+  };
+}
+
 async function rebuild(row: SourceRow) {
   const rawText = String(row.raw_text || '').trim();
   if (!rawText) return { status: 'skipped_missing_raw' as const };
@@ -53,10 +79,12 @@ async function rebuild(row: SourceRow) {
   // Keep those rows untouched for a dedicated legacy multi-session repair phase.
   const sessions = splitWhatsAppSessions(messages, 120);
   if (sessions.length !== 1) {
+    const multiSessionOperational = await buildMultiSessionOperational(row, sessions);
     return {
       status: 'skipped_multi_session_legacy' as const,
       detail: `legacy_source_contains_${sessions.length}_sessions`,
       sessionCount: sessions.length,
+      multiSessionOperational,
     };
   }
 
