@@ -183,6 +183,32 @@ describe('WhatsApp Review V4 unified intelligence', () => {
     expect(operational.operationalOutcome).toBe('unknown');
   });
 
+  it('treats a customer-requested vitamin recommendation with image options as unnamed recommendations, not a sale', async () => {
+    const s = oneSession(`[4/17/26, 1:55:08 PM] Customer: ممكن اعرف مكان الصيدليه
+[4/17/26, 1:55:57 PM] Customer: وهستاذنك ترشحلي افضل فيتامين للشعر او للجسم كله بس اهمهم الشعر
+[4/17/26, 2:20:00 PM] You: هقترح على حضرتك افضل الانواع اللي في الصيدليه وهصورهم لحضرتك
+[4/17/26, 2:50:46 PM] You: <image omitted> دا يا فندم ب1950 دا نوع مستورد كورس علاج 3 شهور كل يوم كبسوله
+[4/17/26, 2:52:01 PM] You: <image omitted> دا كمان مستورد العبوه ٦٠ كبسوله ب ١٢٠٠
+[4/17/26, 2:52:28 PM] You: <image omitted> دا كمان نوع مستورد ب ٥٩٠
+[4/17/26, 2:57:21 PM] Customer: ده يكفي ٣ شهور
+[4/17/26, 2:57:43 PM] Customer: ولا كل شهر ٢٠٠٠ج😂🤦‍♂️
+[4/17/26, 3:01:01 PM] You: اه يا فندم يكفي 3 شهور لو حضرتك اخدتي كبسوله مره واحده في اليوم
+[4/17/26, 3:13:01 PM] You: حضرتك عندك استفسار عن اي حاجه فيهم او حابب نوفر لحضرؤتك حاجه منهم
+[4/17/26, 3:13:17 PM] You: او حتى اقترح انواع تانيه بفئات سعريه اققل؟`);
+    const base = buildUnifiedConversationIntelligence(s);
+    const withProducts = await enrichWhatsAppOperationalProductsV6(
+      buildWhatsAppOperationalIntelligenceV6(s, base),
+      s
+    );
+    const operational = enrichWhatsAppOperationalJourneysV7(s, withProducts);
+    expect(operational.primaryIntent).toBe('doctor_recommendation');
+    expect(operational.operationalOutcome).toBe('unknown');
+    expect(operational.products).toHaveLength(0);
+    expect(operational.recommendations.filter((r) => r.productName == null)).toHaveLength(3);
+    expect(operational.followupPlan.required).toBe(false);
+    expect(operational.evidence.saleClose.messageIds).toHaveLength(0);
+  });
+
   it('creates a portfolio summary for batch review', () => {
     const raw = `[9/15/26, 9:00:00 AM] Customer: فيتامين د متوفر؟\n[9/15/26, 9:01:00 AM] You: مع حضرتك د هبة من صيدليات دواء. متوفر\n[9/15/26, 9:02:00 AM] Customer: تمام ابعته\n[9/15/26, 9:03:00 AM] You: تم تأكيد الطلب\n[9/15/26, 12:30:00 PM] Customer: منتج تاني موجود؟\n[9/15/26, 12:31:00 PM] You: لا مش موجود`;
     const sessions = splitWhatsAppSessions(parseWhatsAppExport(raw), 120);
