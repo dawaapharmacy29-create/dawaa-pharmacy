@@ -140,6 +140,7 @@ const REQUEST_RX = /(هحتاجه|هحتاجها|هاخده|هاخدها|عاي�
 const CUSTOMER_REQUEST_INTENT_RX = /(هحتاجه|هحتاجها|هاخده|هاخدها|عايزه|عاوزه|محتاجه|عايزين|محتاجين|عايز|عاوز|محتاج|ابعت|ابعث|هات|اطلب|أطلب|متوفر|موجود عندكم|عندكم|ممكن\s+(?:ابعت|ابعث|هات|اطلب|توصيل|الدليفري|المندوب)|الدليفري\s+يجيلي|التوصيل)/i;
 const PRODUCT_INQUIRY_RX = /(بكام|سعر|متوفر|متاح|موجود|عندكم|فيه|في من|العبوه|العبوة|تركيز|كام قرص|كام شريط)/i;
 const RECOMMEND_RX = /(ارشح|أرشح|نرشح|ترشيح|انصح|أنصح|ممكن تستخدم|ممكن تاخد|ممكن تاخدي|الافضل|الأفضل|بديل|بداله|بدلها)/i;
+const RECOMMENDATION_REQUEST_RX = /(ترشحلي|ترشحلى|رشحلي|رشحلى|اقترحلي|اقترحلى|إقترحلي|إقترحلى|ايه\s+افضل|ايه\s+أفضل|أفضل\s+(?:فيتامين|منتج)|افضل\s+(?:فيتامين|منتج))/i;
 const ACCEPT_RX = /(^|\s)(تمام|ماشي|موافق|اوكي|أوكي|خلاص|ابعت|ابعته|ابعتي|هات|هاته|هاخده|هاخدها|هجربه|هجربها|تمام كده|تمام كدا)(\s|$)/i;
 const REJECT_RX = /(لا شكرا|مش عايز|مش عاوز|مش محتاج|غالي|مش مناسب|مش هاخد|مش هطلب|بلاش)/i;
 const COMPLAINT_RX = /(شكوي|شكوى|مشكله|مشكلة|متاخر|متأخر|محدش رد|غلط|سيء|وحش|ماوصلش|موصلش|لسه مجاش|اتضايقت|زعلت)/i;
@@ -200,6 +201,7 @@ function classifyIntents(session: WhatsAppConversationSession) {
   if (has(inbound, CUSTOMER_REQUEST_INTENT_RX)) add('customer_request', 91);
   if (has(inbound, PRODUCT_INQUIRY_RX)) add('product_inquiry', 84);
   if (has(outbound, RECOMMEND_RX)) add('doctor_recommendation', 92);
+  if (has(inbound, RECOMMENDATION_REQUEST_RX)) add('doctor_recommendation', 94);
   if (has(all, MEDICAL_RX)) add('medical_consultation', 78);
   if (!has(outbound, CHECKIN_OUT_RX) && has(inbound, IMPROVED_RX) && session.messages.length <= 8) add('followup_response', 86);
   if (!scored.length) add('general_service', 55);
@@ -347,7 +349,18 @@ function extractProducts(session: WhatsAppConversationSession): WhatsAppProductS
 
 function recommendations(session: WhatsAppConversationSession, products: WhatsAppProductSignal[]): WhatsAppRecommendationSignal[] {
   const outbound = byDirection(session, 'outbound');
-  const recMessages = outbound.filter((m) => RECOMMEND_RX.test(m.text));
+  const inbound = text(byDirection(session, 'inbound'));
+  const requestedRecommendation = RECOMMENDATION_REQUEST_RX.test(inbound);
+  const mediaRecommendationMessages = requestedRecommendation
+    ? outbound.filter((m) =>
+        Boolean(m.mediaPlaceholder || m.kind === 'image') &&
+        /(\b\d{2,5}\b|كبسول|كبسوله|كبسولة|عبوه|عبوة|كورس|مستورد)/i.test(m.text)
+      )
+    : [];
+  const recMessages = uniq([
+    ...outbound.filter((m) => RECOMMEND_RX.test(m.text)),
+    ...mediaRecommendationMessages,
+  ]);
   return recMessages.map((message) => {
     const product = products.find((p) => p.status === 'recommended' && p.evidenceMessageIds.includes(message.id));
     const index = session.messages.findIndex((m) => m.id === message.id);
