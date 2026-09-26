@@ -145,7 +145,10 @@ const PRODUCT_INQUIRY_RX = /(بكام|سعر|متوفر|متاح|موجود|عن
 const INFO_ONLY_PRODUCT_INQUIRY_RX = /(توضيح\s+عن\s+(?:ال)?منتج|استعماله\s+ازاي|استخدامه\s+ازاي|بيستخدم\s+ازاي)/i;
 const POSITIVE_SERVICE_FEEDBACK_RX = /(كله\s+تمام|كل\s+حاجه\s+تمام|كل\s+حاجة\s+تمام|خدمه[^\n]{0,80}ذوق|خدمة[^\n]{0,80}ذوق|ربنا\s+يباركلكم|عند\s+حسن\s+ظن)/i;
 const RECOMMEND_RX = /(ارشح|أرشح|نرشح|ترشيح|انصح|أنصح|ممكن تستخدم|ممكن تاخد|ممكن تاخدي|الافضل|الأفضل|بديل|بداله|بدلها)/i;
-const RECOMMENDATION_REQUEST_RX = /(ترشحلي|ترشحلى|رشحلي|رشحلى|اقترحلي|اقترحلى|إقترحلي|إقترحلى|ايه\s+افضل|ايه\s+أفضل|أفضل\s+(?:فيتامين|منتج)|افضل\s+(?:فيتامين|منتج))/i;
+const RECOMMENDATION_REQUEST_RX = /(ترشحلي|ترشحلى|رشحلي|رشحلى|اقترحلي|اقترحلى|إقترحلي|إقترحلى|ايه\s+افضل|ايه\s+أفضل|أفضل\s+(?:فيتامين|منتج)|افضل\s+(?:فيتامين|منتج)|محتاج\s+(?:حاجه|حاجة)\s+(?:كويسه|كويسة)\s+ل)/i;
+const GENERIC_NEED_REQUEST_RX = /^(?:محتاج|عايز|عاوز)\s+(?:حاجه|حاجة)\s+(?:كويسه|كويسة)\s+ل/i;
+const PAYMENT_SERVICE_RX = /(رقم\s+تحويل|تحويل\s+كاش|ابعت\s+كام|ابعث\s+كام|احول\s+كام|أحول\s+كام)/i;
+const PRODUCT_SELECTION_PROMPT_RX = /(هتاخد\s+ايه|هتاخدي\s+ايه|تحب\s+ايه|تحبي\s+ايه|تختار\s+ايه|تختاري\s+ايه)/i;
 const ACCEPT_RX = /(^|\s)(تمام|ماشي|موافق|اوكي|أوكي|خلاص|ابعت|ابعته|ابعتي|هات|هاته|هاخده|هاخدها|هجربه|هجربها|تمام كده|تمام كدا)(\s|$)/i;
 const REJECT_RX = /(لا شكرا|مش عايز|مش عاوز|مش محتاج|غالي|مش مناسب|مش هاخد|مش هطلب|بلاش)/i;
 const COMPLAINT_RX = /(شكوي|شكوى|مشكله|مشكلة|متاخر|متأخر|محدش رد|غلط|سيء|وحش|ماوصلش|موصلش|لسه مجاش|اتضايقت|زعلت)/i;
@@ -155,7 +158,7 @@ const RECOVERY_RX = /(بنعتذر|نعتذر|متاسف|متأسف|اسفين|�
 const DELIVERY_RX = /(توصيل|مندوب|العنوان|وصل|ماوصلش|موصلش|خرج لحضرتك|جاري الارسال|جاري الإرسال)/i;
 const MEDICAL_RX = /(اعراض|أعراض|جرعه|جرعة|كحه|كحة|حراره|حرارة|اسهال|إسهال|وجع|التهاب|حامل|رضاع|ضغط|سكر|حساسي|ينفع|استخدم|اخد|آخد|طفل|طفله|طفلة)|(?<![\p{L}\p{N}])(?:الم|ألم)(?![\p{L}\p{N}])/iu;
 const CHECKIN_OUT_RX = /(حابين نطمن|حابه اطمن|حابة اطمن|حابه أطمن|حابة أطمن|حبيت اطمن|حبيت أطمن|بنطمن|نطمن علي|نطمن على|اخبار حضرتك|أخبار حضرتك|بقيت|بقت|عامل ايه|عامله ايه|الدوا جاب نتيجه|العلاج جاب نتيجه)/i;
-const IMPROVED_RX = /(احسن|أحسن|كويس|كويسه|كويسة|الحمدلله|الحمد لله|اتحسن|اتحسنت|تحسن|خف|خفت|تمام دلوقتي|بقيت كويس|بقيت\s+(?:افضل|أفضل))/i;
+const IMPROVED_RX = /(احسن|أحسن|اتحسن|اتحسنت|تحسن|خف|خفت|تمام دلوقتي|بقيت كويس|بقيت\s+كويسه|بقيت\s+كويسة|بقيت\s+(?:افضل|أفضل))/i;
 const WORSE_RX = /(لسه تعبان|لسه تعبانه|اسوء|أسوأ|زادت|زاد الوجع|مفيش تحسن|مافيش تحسن|زي ما هو|زي ماهو)/i;
 const FOLLOWUP_PROMISE_RX = /(هتابع|هتواصل|هبلغ|هرجع|هنرجع|اول ما|أول ما|لما يتوفر|هنوفره|هطلبه|هطلبها)/i;
 const CLOSE_RX = /(تم تأكيد|تم التاكيد|الأوردر اتأكد|الاوردر اتاكد|تم الارسال|تم الإرسال|جاري الارسال|جاري الإرسال|خرج لحضرتك|فاتوره|فاتورة|الاجمالي|الإجمالي)/i;
@@ -192,6 +195,13 @@ function firstMeaningful(session: WhatsAppConversationSession) {
   return session.messages.find((m) => m.direction !== 'system' && m.text.trim().length > 0) || null;
 }
 
+function proactiveCheckinMessages(session: WhatsAppConversationSession) {
+  return byDirection(session, 'outbound').filter((message) =>
+    CHECKIN_OUT_RX.test(message.text) &&
+    !/(اوردر|أوردر|طلب|جاهز|توصيل|مندوب|العنوان|ارسال|إرسال)/i.test(message.text)
+  );
+}
+
 function classifyIntents(session: WhatsAppConversationSession) {
   const inbound = text(byDirection(session, 'inbound'));
   const outbound = text(byDirection(session, 'outbound'));
@@ -203,13 +213,13 @@ function classifyIntents(session: WhatsAppConversationSession) {
   if (complaintRows.length) add('complaint', 98);
   if (fulfillmentFailures.length) add('delivery_issue', 99);
   else if (has(all, DELIVERY_RX) && has(all, /(ماوصلش|موصلش|مندوب|توصيل|العنوان)/i)) add('delivery_issue', has(all, /(ماوصلش|موصلش|متاخر|متأخر)/i) ? 96 : 72);
-  if (has(outbound, CHECKIN_OUT_RX)) add('proactive_checkin', 96);
+  if (proactiveCheckinMessages(session).length) add('proactive_checkin', 96);
   if (has(inbound, CUSTOMER_REQUEST_INTENT_RX)) add('customer_request', 91);
   if (has(inbound, PRODUCT_INQUIRY_RX)) add('product_inquiry', 84);
   if (has(outbound, RECOMMEND_RX)) add('doctor_recommendation', 92);
   if (has(inbound, RECOMMENDATION_REQUEST_RX)) add('doctor_recommendation', 94);
   if (has(all, MEDICAL_RX)) add('medical_consultation', 78);
-  if (!has(outbound, CHECKIN_OUT_RX) && has(inbound, IMPROVED_RX) && session.messages.length <= 8) add('followup_response', 86);
+  if (!proactiveCheckinMessages(session).length && has(inbound, IMPROVED_RX) && session.messages.length <= 8) add('followup_response', 86);
   if (!scored.length) add('general_service', 55);
   scored.sort((a, b) => b[1] - a[1]);
   return { primary: scored[0][0], confidence: scored[0][1], secondary: uniq(scored.slice(1).filter(([,s]) => s >= 70).map(([i]) => i)) };
@@ -277,9 +287,21 @@ function extractProducts(session: WhatsAppConversationSession): WhatsAppProductS
   for (const message of session.messages) {
     if (message.direction === 'system' || message.kind !== 'text') continue;
     const infoOnlyInquiry = message.direction === 'inbound' && INFO_ONLY_PRODUCT_INQUIRY_RX.test(message.text);
-    const isRequest = message.direction === 'inbound' && REQUEST_RX.test(message.text) && !infoOnlyInquiry;
+    const genericNeedRequest = message.direction === 'inbound' && GENERIC_NEED_REQUEST_RX.test(message.text.trim());
+    const paymentServiceMessage = message.direction === 'inbound' && PAYMENT_SERVICE_RX.test(message.text);
+    const messageIndex = session.messages.findIndex((row) => row.id === message.id);
+    const previous = messageIndex > 0 ? session.messages[messageIndex - 1] : null;
+    const shortSelection =
+      message.direction === 'inbound' &&
+      previous?.direction === 'outbound' &&
+      PRODUCT_SELECTION_PROMPT_RX.test(previous.text) &&
+      /^\s*[\p{L}\p{N}][\p{L}\p{N} .+-]{1,40}\s*$/u.test(message.text) &&
+      !PAYMENT_SERVICE_RX.test(message.text);
+    const isRequest = message.direction === 'inbound' && REQUEST_RX.test(message.text) && !infoOnlyInquiry && !genericNeedRequest && !paymentServiceMessage;
     const isRecommendation = message.direction === 'outbound' && RECOMMEND_RX.test(message.text);
-    const typedNamedProduct = message.direction === 'inbound' ? message.text.trim().match(PRODUCT_TYPE_NAMED_RX) : null;
+    const typedNamedProduct = message.direction === 'inbound'
+      ? (message.text.trim().match(PRODUCT_TYPE_NAMED_RX) || (shortSelection ? [message.text, message.text.trim()] : null))
+      : null;
     if (message.direction === 'inbound' && ANAPHORIC_COMMIT_RX.test(message.text)) continue;
     if (
       message.direction === 'inbound' &&
@@ -319,7 +341,7 @@ function extractProducts(session: WhatsAppConversationSession): WhatsAppProductS
     }
     if (!plausibleProductPhrase(rawName)) continue;
 
-    let status: WhatsAppProductSignal['status'] = isRecommendation ? 'recommended' : isRequest ? 'requested' : 'mentioned';
+    let status: WhatsAppProductSignal['status'] = isRecommendation ? 'recommended' : (isRequest || shortSelection) ? 'requested' : 'mentioned';
     // Stock unavailability is a pharmacy-side fact. An inbound question like "مش موجود عندكم؟"
     // must stay a customer request/inquiry and never become stock_unavailable on its own.
     if (message.direction === 'outbound' && /(مش موجود|غير متوفر|ناقص)/i.test(message.text)) status = 'unavailable';
@@ -468,7 +490,7 @@ export function buildWhatsAppOperationalIntelligenceV6(session: WhatsAppConversa
       request: evidenceFor({ ...session, messages: byDirection(session, 'inbound') }, CUSTOMER_REQUEST_INTENT_RX, 85), recommendation: evidenceFor(session, RECOMMEND_RX, 88),
       complaint: evidenceFromMessages(complaintRows, 95),
       deliveryFailure: evidenceFromMessages(fulfillmentFailures, 96),
-      checkin: evidenceFor(session, CHECKIN_OUT_RX, 94),
+      checkin: evidenceFromMessages(proactiveCheckinMessages(session), 94),
       saleClose: evidenceFor(session, CLOSE_RX, 88),
       stockUnavailable: evidenceFor({ ...session, messages: byDirection(session, 'outbound') }, /(مش موجود|غير موجود|غير متوفر(?:ه|ة)?|مش متوفر(?:ه|ة)?|ناقص|مش متاح|خلص|مش عندنا)/i, 92),
       alternativeOffered: evidenceFor({ ...session, messages: byDirection(session, 'outbound') }, /(بديل|بداله|بدلها|ممكن بدل|نرشح|ارشح|أرشح|حاجه\s+زيها|حاجة\s+زيها|حاحه\s+زيها|حاحة\s+زيها)/i, 88),
