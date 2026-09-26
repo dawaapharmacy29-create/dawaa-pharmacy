@@ -373,7 +373,7 @@ function extractProducts(session: WhatsAppConversationSession): WhatsAppProductS
     const evidenceIndex = session.messages.findIndex((message) => product.evidenceMessageIds.includes(message.id));
     if (evidenceIndex < 0) continue;
     const nearbyOutbound = session.messages
-      .slice(evidenceIndex + 1, evidenceIndex + 6)
+      .slice(evidenceIndex + 1, evidenceIndex + 9)
       .filter((message) => message.direction === 'outbound' && message.kind === 'text');
     for (const message of nearbyOutbound) {
       const match = message.text.trim().match(/^(.{2,60}?)(?:\s+(?:يفندم|يافندم|يا\s+فندم)|\s+ب[٠-٩0-9])/i);
