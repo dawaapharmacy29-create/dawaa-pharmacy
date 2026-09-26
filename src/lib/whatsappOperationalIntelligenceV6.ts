@@ -213,7 +213,7 @@ function classifyIntents(session: WhatsAppConversationSession) {
   if (complaintRows.length) add('complaint', 98);
   if (fulfillmentFailures.length) add('delivery_issue', 99);
   if (proactiveCheckinMessages(session).length) add('proactive_checkin', 96);
-  if (has(inbound, CUSTOMER_REQUEST_INTENT_RX)) add('customer_request', 91);
+  if (has(inbound, CUSTOMER_REQUEST_INTENT_RX) && !has(inbound, GENERIC_NEED_REQUEST_RX)) add('customer_request', 91);
   if (has(inbound, PRODUCT_INQUIRY_RX)) add('product_inquiry', 84);
   if (has(outbound, RECOMMEND_RX)) add('doctor_recommendation', 92);
   if (has(inbound, RECOMMENDATION_REQUEST_RX)) add('doctor_recommendation', 94);
