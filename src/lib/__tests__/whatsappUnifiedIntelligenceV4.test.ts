@@ -85,6 +85,24 @@ describe('WhatsApp Review V4 unified intelligence', () => {
     expect(result.journeyStages.find((x) => x.key === 'closing')?.detected).toBe(true);
   });
 
+  it('keeps an answered price inquiry informational and does not infer medical intent from الماسك', () => {
+    const s = oneSession(`[12/22/25, 2:08:06 PM] Customer: مجموعه كلاري بكام
+[12/22/25, 2:09:22 PM] You: دقايق اشوف لحضرتك سعرها
+[12/22/25, 2:13:55 PM] You: البلسم ٣٢٠
+الشامبو العادي ٣٠٠
+شامبو القشره ٣٢٠
+سيروم التساقط ٣٥٠
+بوستر شوت التساقط ٤٥٠
+ليف ان كريم ٣٠٠
+الماسك ٣٦٠
+[12/22/25, 2:14:26 PM] You: في حال ان حضرتك محتاجه منتجين او اكتر هيكون عليهم خصم ان شاء الله
+[12/22/25, 2:20:20 PM] You: المجموعة كامله يفندم هيكون سعرها ٢١٥٠ ان شاء الله`);
+    const result = buildUnifiedConversationIntelligence(s);
+    expect(result.outcome).toBe('unknown');
+    expect(result.followupRequired).toBe(false);
+    expect(result.medicalSafetyFlags).toHaveLength(0);
+  });
+
   it('creates a portfolio summary for batch review', () => {
     const raw = `[9/15/26, 9:00:00 AM] Customer: فيتامين د متوفر؟\n[9/15/26, 9:01:00 AM] You: مع حضرتك د هبة من صيدليات دواء. متوفر\n[9/15/26, 9:02:00 AM] Customer: تمام ابعته\n[9/15/26, 9:03:00 AM] You: تم تأكيد الطلب\n[9/15/26, 12:30:00 PM] Customer: منتج تاني موجود؟\n[9/15/26, 12:31:00 PM] You: لا مش موجود`;
     const sessions = splitWhatsAppSessions(parseWhatsAppExport(raw), 120);
