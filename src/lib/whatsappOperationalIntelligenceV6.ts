@@ -144,7 +144,7 @@ const CUSTOMER_REQUEST_INTENT_RX = /(هحتاجه|هحتاجها|هاخده|ها
 const PRODUCT_INQUIRY_RX = /(بكام|سعر|متوفر|متاح|موجود|عندكم|فيه|في من|العبوه|العبوة|تركيز|كام قرص|كام شريط|توضيح\s+عن\s+(?:ال)?منتج|استعماله\s+ازاي|استخدامه\s+ازاي|بيستخدم\s+ازاي)/i;
 const INFO_ONLY_PRODUCT_INQUIRY_RX = /(توضيح\s+عن\s+(?:ال)?منتج|استعماله\s+ازاي|استخدامه\s+ازاي|بيستخدم\s+ازاي)/i;
 const POSITIVE_SERVICE_FEEDBACK_RX = /(كله\s+تمام|كل\s+حاجه\s+تمام|كل\s+حاجة\s+تمام|خدمه[^\n]{0,80}ذوق|خدمة[^\n]{0,80}ذوق|ربنا\s+يباركلكم|عند\s+حسن\s+ظن)/i;
-const RECOMMEND_RX = /(ارشح|أرشح|نرشح|ترشيح|انصح|أنصح|ممكن تستخدم|ممكن تاخد|ممكن تاخدي|الافضل|الأفضل|بديل|بداله|بدلها)/i;
+const RECOMMEND_RX = /(ارشح|أرشح|نرشح|ترشيح|انصح|أنصح|ممكن تستخدم|ممكن تاخد|ممكن تاخدي|ممكن ناخد|الافضل|الأفضل|بديل|بداله|بدلها)/i;
 const RECOMMENDATION_REQUEST_RX = /(ترشحلي|ترشحلى|رشحلي|رشحلى|اقترحلي|اقترحلى|إقترحلي|إقترحلى|ايه\s+افضل|ايه\s+أفضل|أفضل\s+(?:فيتامين|منتج)|افضل\s+(?:فيتامين|منتج)|محتاج\s+(?:حاجه|حاجة)\s+(?:كويسه|كويسة)\s+ل)/i;
 const GENERIC_NEED_REQUEST_RX = /^(?:محتاج|عايز|عاوز)\s+(?:حاجه|حاجة)\s+(?:كويسه|كويسة)\s+ل/i;
 const PAYMENT_SERVICE_RX = /(رقم\s+تحويل|تحويل\s+كاش|ابعت\s+كام|ابعث\s+كام|احول\s+كام|أحول\s+كام)/i;
@@ -212,7 +212,6 @@ function classifyIntents(session: WhatsAppConversationSession) {
   const fulfillmentFailures = fulfillmentFailureMessages(session);
   if (complaintRows.length) add('complaint', 98);
   if (fulfillmentFailures.length) add('delivery_issue', 99);
-  else if (has(all, DELIVERY_RX) && has(all, /(ماوصلش|موصلش|مندوب|توصيل|العنوان)/i)) add('delivery_issue', has(all, /(ماوصلش|موصلش|متاخر|متأخر)/i) ? 96 : 72);
   if (proactiveCheckinMessages(session).length) add('proactive_checkin', 96);
   if (has(inbound, CUSTOMER_REQUEST_INTENT_RX)) add('customer_request', 91);
   if (has(inbound, PRODUCT_INQUIRY_RX)) add('product_inquiry', 84);
@@ -319,7 +318,10 @@ function extractProducts(session: WhatsAppConversationSession): WhatsAppProductS
       if (explicitNamedProduct?.[1]) {
         rawName = explicitNamedProduct[1].trim();
         explicitNamedRecommendation = true;
-      } else if (/(?:حاجه|حاجة|حاحه|حاحة)\s+زيها/i.test(message.text)) {
+      } else if (
+        /(?:حاجه|حاجة|حاحه|حاحة)\s+زيها/i.test(message.text) ||
+        /(?:شكولاته|شوكولاته|شيكولاته|شيكولاتة|شوكولاتة)[^\n]{0,40}(?:او|أو)[^\n]{0,40}عسل/i.test(message.text)
+      ) {
         rawName = '';
       }
     }
