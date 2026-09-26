@@ -74,6 +74,17 @@ describe('WhatsApp Review V4 unified intelligence', () => {
     expect(result.lostSales.some((x) => x.summary.includes('نقص/عدم توفر'))).toBe(false);
   });
 
+  it('treats an anaphoric customer commitment plus sent-order message as a closed request', () => {
+    const s = oneSession(`[12/22/25, 8:54:31 AM] Customer: كريم كوريغا متاح
+[12/22/25, 8:57:44 AM] You: متاح
+[12/22/25, 9:00:51 AM] Customer: هحتاجه علي العنوان سوق الحدادين
+[12/22/25, 9:14:17 AM] You: تم الارسال
+نتشرف ب خدمة حضرتك ٢٤ ساعه 🌸🌸`);
+    const result = buildUnifiedConversationIntelligence(s);
+    expect(result.outcome).toBe('sold');
+    expect(result.journeyStages.find((x) => x.key === 'closing')?.detected).toBe(true);
+  });
+
   it('creates a portfolio summary for batch review', () => {
     const raw = `[9/15/26, 9:00:00 AM] Customer: فيتامين د متوفر؟\n[9/15/26, 9:01:00 AM] You: مع حضرتك د هبة من صيدليات دواء. متوفر\n[9/15/26, 9:02:00 AM] Customer: تمام ابعته\n[9/15/26, 9:03:00 AM] You: تم تأكيد الطلب\n[9/15/26, 12:30:00 PM] Customer: منتج تاني موجود؟\n[9/15/26, 12:31:00 PM] You: لا مش موجود`;
     const sessions = splitWhatsAppSessions(parseWhatsAppExport(raw), 120);
