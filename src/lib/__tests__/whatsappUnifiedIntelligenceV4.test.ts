@@ -227,6 +227,31 @@ describe('WhatsApp Review V4 unified intelligence', () => {
     expect(operational.customerRequests).toHaveLength(0);
   });
 
+  it('keeps proactive service checkin positive while treating image usage question as non-commercial inquiry', async () => {
+    const s = oneSession(`[4/27/26, 5:53:55 PM] You: كنت حابه اطمن على حضرتك ان شاء الله تكون بخير وافضل حال واسأل حضرتك عن خدماتنا هل كل حاجه ماشية بشكل يرضي حضرتك
+[4/27/26, 6:21:37 PM] Customer: لا والله كله تمام من خدمه وأسلوب وأشخاص ذوق في كل تعامل بصراحه ربنا يباركلكم ويحفظكم
+[4/27/26, 7:54:33 PM] Customer: <image omitted>
+[4/27/26, 7:54:49 PM] Customer: ممكن بعد اذنك توضيح عن المنتج ده
+[4/27/26, 7:55:11 PM] Customer: واستعماله ازاي
+[4/27/26, 7:58:41 PM] You: عباره عن لوشن مطلف للجلد
+[4/27/26, 8:09:57 PM] You: حضرتك تقدر تستخدمه كأنه كريم مرطب
+[4/27/26, 8:10:26 PM] Customer: ولا الاتنين مع بعض`);
+    const base = buildUnifiedConversationIntelligence(s);
+    const withProducts = await enrichWhatsAppOperationalProductsV6(
+      buildWhatsAppOperationalIntelligenceV6(s, base),
+      s
+    );
+    const operational = enrichWhatsAppOperationalJourneysV7(s, withProducts);
+    expect(operational.primaryIntent).toBe('proactive_checkin');
+    expect(operational.secondaryIntents).toContain('product_inquiry');
+    expect(operational.customerState).toBe('improved');
+    expect(operational.operationalOutcome).toBe('checkin_complete');
+    expect(operational.products).toHaveLength(0);
+    expect(operational.customerRequests).toHaveLength(0);
+    expect(operational.followupPlan.required).toBe(false);
+    expect(operational.productJourney.saleLeakageCount).toBe(0);
+  });
+
   it('creates a portfolio summary for batch review', () => {
     const raw = `[9/15/26, 9:00:00 AM] Customer: فيتامين د متوفر؟\n[9/15/26, 9:01:00 AM] You: مع حضرتك د هبة من صيدليات دواء. متوفر\n[9/15/26, 9:02:00 AM] Customer: تمام ابعته\n[9/15/26, 9:03:00 AM] You: تم تأكيد الطلب\n[9/15/26, 12:30:00 PM] Customer: منتج تاني موجود؟\n[9/15/26, 12:31:00 PM] You: لا مش موجود`;
     const sessions = splitWhatsAppSessions(parseWhatsAppExport(raw), 120);
