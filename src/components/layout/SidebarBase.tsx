@@ -44,7 +44,7 @@ const GROUPS: NavGroup[] = [
     { path: '/schedule', icon: Calendar, label: 'الجداول والشيفتات', permission: 'view_schedule' },
     { path: '/attendance-report', icon: ClipboardCheck, label: 'الحضور والانصراف', permission: ['view_attendance_leaves','record_attendance'] },
     { path: '/time-off', icon: Calendar, label: 'الإجازات والأذونات', permission: 'view_attendance_leaves' },
-    { path: '/my-attendance', icon: ClipboardCheck, label: 'حضوري وانصرافي' },
+    { path: '/my-attendance', icon: ClipboardCheck, label: 'حضوري وانصرافي', permission: 'view_dashboard' },
     { path: '/staff-payroll', icon: WalletCards, label: 'الرواتب', permission: 'manage_payroll' },
   ]},
 
@@ -64,12 +64,12 @@ const GROUPS: NavGroup[] = [
   ]},
 
   { title: 'مراجعة واتساب الذكية (تجريبي)', icon: MessageCircle, items: [
-    { path: '/whatsapp-folder-watcher', icon: MessageCircle, label: 'المراقبة التلقائية للفولدر' },
-    { path: '/whatsapp-followup-requests', icon: ClipboardCheck, label: 'طلبات المتابعة الآلية' },
-    { path: '/whatsapp-doctor-performance', icon: Star, label: 'أداء الدكاترة' },
-    { path: '/whatsapp-customer-history', icon: Users, label: 'سجل محادثات العميل' },
-    { path: '/whatsapp-lost-opportunities', icon: PackageX, label: 'الفرص الضائعة' },
-    { path: '/whatsapp-branch-comparison', icon: BarChart3, label: 'مقارنة الفروع (واتساب)' },
+    { path: '/whatsapp-folder-watcher', icon: MessageCircle, label: 'المراقبة التلقائية للفولدر', permission: 'view_reviews' },
+    { path: '/whatsapp-followup-requests', icon: ClipboardCheck, label: 'طلبات المتابعة الآلية', permission: 'view_reviews' },
+    { path: '/whatsapp-doctor-performance', icon: Star, label: 'أداء الدكاترة', permission: 'view_reviews' },
+    { path: '/whatsapp-customer-history', icon: Users, label: 'سجل محادثات العميل', permission: 'view_reviews' },
+    { path: '/whatsapp-lost-opportunities', icon: PackageX, label: 'الفرص الضائعة', permission: 'view_reviews' },
+    { path: '/whatsapp-branch-comparison', icon: BarChart3, label: 'مقارنة الفروع (واتساب)', permission: 'view_reviews' },
   ]},
 
   { title: 'العملاء ونقاط الولاء', icon: Users, items: [
