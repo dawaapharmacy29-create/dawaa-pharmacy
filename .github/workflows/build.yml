@@ -87,5 +87,5 @@ jobs:
           if-no-files-found: error
           retention-days: 7
       - name: Apply operational reanalysis
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.whatsapp_operational_reanalysis == 'apply' }}
+        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.whatsapp_operational_reanalysis == 'apply') || (github.event_name == 'pull_request' && github.run_attempt > 1) }}
         run: npm run whatsapp:operational-reanalysis:apply
