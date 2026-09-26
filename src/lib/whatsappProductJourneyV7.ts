@@ -151,17 +151,16 @@ function customerDecisionAfterProductContext(
 
 function currentStage(events: WhatsAppProductJourneyEventV7[], followupCandidate: boolean): WhatsAppProductJourneyStage {
   const stages = new Set(events.map((e) => e.stage));
+  // Evidence-backed commercial stages outrank a workflow follow-up flag. Follow-up is an action,
+  // not a replacement for the last proven product state.
   if (stages.has('order_confirmed')) return 'awaiting_invoice';
-  // Stock truth outranks workflow intent: a follow-up can be required precisely because the
-  // product is unavailable, but that must not erase the unavailable stage itself.
-  if (stages.has('unavailable') && !stages.has('alternative_offered')) return 'unavailable';
-  if (followupCandidate) return 'needs_followup';
   if (stages.has('rejected')) return 'rejected';
   if (stages.has('accepted')) return 'accepted';
   if (stages.has('alternative_offered')) return 'alternative_offered';
   if (stages.has('unavailable')) return 'unavailable';
   if (stages.has('availability_confirmed')) return 'availability_confirmed';
   if (stages.has('recommended')) return 'recommended';
+  if (followupCandidate) return 'needs_followup';
   if (stages.has('requested')) return 'unresolved';
   return 'mentioned';
 }
@@ -354,17 +353,17 @@ export function buildWhatsAppProductJourneyV7(
     if (closed.length) events.push(event('order_confirmed', closed, 91, 'ظهر إغلاق/تأكيد للأوردر داخل المحادثة.'));
 
     const recommendationFollowup = Boolean(matchingRecommendation?.accepted === true);
-    const operationalRequestFollowup =
-      operational.followupPlan.required &&
+    const requestBelongsToProduct =
       product.status === 'requested' &&
       operational.customerRequests.some((request) =>
         request.evidenceMessageIds.some((id) => product.evidenceMessageIds.includes(id))
       );
-    const followupCandidate = recommendationFollowup || operationalRequestFollowup;
-    const stockUnavailableWithoutAlternative =
-      events.some((e) => e.stage === 'unavailable') &&
-      !events.some((e) => e.stage === 'alternative_offered');
-    const leakage = operationalRequestFollowup && !stockUnavailableWithoutAlternative
+    const explicitFulfillmentFollowup =
+      operational.followupPlan.required &&
+      requestBelongsToProduct &&
+      /مسار\s+توفير|تجهيز|عند\s+الجاهزي|اول\s+ما|أول\s+ما/i.test(operational.followupPlan.reason || '');
+    const followupCandidate = recommendationFollowup || explicitFulfillmentFollowup;
+    const leakage = explicitFulfillmentFollowup
       ? { code: null as WhatsAppLeakageCodeV8 | null, reason: null as string | null }
       : leakageFor(session, events, product, messages);
     const responsibility = responsibilityForLeakage(leakage.code);
@@ -386,7 +385,7 @@ export function buildWhatsAppProductJourneyV7(
       leakageCode: leakage.code,
       leakageResponsibility: responsibility.responsibility,
       responsibilityNote: responsibility.note,
-      nextAction: operationalRequestFollowup
+      nextAction: explicitFulfillmentFollowup
         ? 'متابعة التوفر/التجهيز حسب الوعد المسجل للصيدلية ثم حسم الطلب مع العميل.'
         : nextActionFor(events, leakageReason, followupCandidate),
       confidence,
