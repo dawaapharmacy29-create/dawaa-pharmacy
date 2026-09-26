@@ -1,6 +1,64 @@
 import { createClient } from '@supabase/supabase-js';
-import { runBatchPersistence } from '../src/lib/salesIntelligence/persistence/batchPersistenceService';
-import { reviewSourceRowToBatchConversation } from '../src/lib/salesIntelligence/persistence/reviewSourceBatchAdapter';
+import fs from 'node:fs';
+import path from 'node:path';
+import Module, { createRequire } from 'node:module';
+import ts from 'typescript';
+
+const nodeRequire = createRequire(import.meta.url);
+const root = process.cwd();
+
+let runtimeLoaded = false;
+let runBatchPersistence: any;
+let reviewSourceRowToBatchConversation: any;
+
+function ensureSalesIntelligenceRuntime() {
+  if (runtimeLoaded) return;
+
+  const moduleAny = Module as any;
+  const originalResolve = moduleAny._resolveFilename;
+  moduleAny._resolveFilename = function patchedResolve(request: string, parent: unknown, isMain: boolean, options: unknown) {
+    if (request.startsWith('@/')) {
+      const target = path.join(root, 'src', request.slice(2));
+      for (const ext of ['.ts', '.tsx', '.js', '.jsx']) {
+        const candidate = target + ext;
+        if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) return candidate;
+      }
+      if (fs.existsSync(target) && fs.statSync(target).isFile()) return target;
+    }
+    return originalResolve.call(this, request, parent, isMain, options);
+  };
+
+  for (const ext of ['.ts', '.tsx']) {
+    (nodeRequire as any).extensions[ext] = function compileTypeScript(mod: any, filename: string) {
+      const source = fs
+        .readFileSync(filename, 'utf8')
+        .replaceAll('import.meta.env', 'globalThis.__VITE_IMPORT_META_ENV__');
+      const output = ts.transpileModule(source, {
+        compilerOptions: {
+          module: ts.ModuleKind.CommonJS,
+          target: ts.ScriptTarget.ES2022,
+          jsx: ts.JsxEmit.ReactJSX,
+          esModuleInterop: true,
+          allowSyntheticDefaultImports: true,
+        },
+        fileName: filename,
+      }).outputText;
+      mod._compile(output, filename);
+    };
+  }
+
+  globalThis.__VITE_IMPORT_META_ENV__ = {
+    DEV: false,
+    PROD: true,
+    MODE: 'maintenance',
+    VITE_SUPABASE_URL: process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '',
+    VITE_SUPABASE_ANON_KEY: '',
+  };
+
+  ({ runBatchPersistence } = nodeRequire(path.join(root, 'src/lib/salesIntelligence/persistence/batchPersistenceService.ts')));
+  ({ reviewSourceRowToBatchConversation } = nodeRequire(path.join(root, 'src/lib/salesIntelligence/persistence/reviewSourceBatchAdapter.ts')));
+  runtimeLoaded = true;
+}
 
 const ALLOWED_ROLES = new Set(['general_manager', 'admin', 'executive_manager', 'branches_manager']);
 
@@ -84,6 +142,7 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
+    ensureSalesIntelligenceRuntime();
     const conversation = reviewSourceRowToBatchConversation(source as any);
     const result = await runBatchPersistence(service, {
       conversations: [conversation],
