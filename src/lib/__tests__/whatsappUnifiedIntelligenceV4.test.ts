@@ -256,6 +256,7 @@ describe('WhatsApp Review V4 unified intelligence', () => {
     const s = oneSession(`[5/6/26, 10:48:31 PM] Customer: محتاج حاجه كويسه لزياده رغبه المرأه
 [5/6/26, 10:50:46 PM] Customer: تمام ينفع ادويه
 [5/6/26, 11:08:29 PM] You: في اقراص ونقط ولبان و عسل و شوكولاته
+[5/6/26, 11:08:39 PM] You: حضرتك تحب ايه؟
 [5/6/26, 11:09:01 PM] Customer: افضل حاجه ايه
 [5/6/26, 11:13:53 PM] You: ممكن ناخد الشكولاته او العسل
 [5/6/26, 11:14:04 PM] You: سعرهم 200 باذن الله`);
@@ -294,8 +295,31 @@ describe('WhatsApp Review V4 unified intelligence', () => {
     expect(operational.secondaryIntents).not.toContain('delivery_issue');
     expect(operational.products.some((p) => p.rawName === 'الشيكولاته' && p.status === 'requested')).toBe(true);
     expect(operational.products.some((p) => /تحويل\s+كاش/.test(p.rawName))).toBe(false);
+    expect(operational.evidence.request.quote).toBe('الشيكولاته');
     expect(operational.operationalOutcome).toBe('probable_sale');
     expect(operational.followupPlan.required).toBe(false);
+  });
+
+  it('keeps a recommendation session as service followup when pharmacy explicitly promises images tomorrow', async () => {
+    const s = oneSession(`[5/6/26, 10:48:31 PM] Customer: محتاج حاجه كويسه لزياده رغبه المرأه
+[5/6/26, 11:08:39 PM] You: حضرتك تحب ايه؟
+[5/6/26, 11:09:01 PM] Customer: افضل حاجه ايه
+[5/6/26, 11:13:53 PM] You: ممكن ناخد الشكولاته او العسل
+[5/6/26, 11:20:27 PM] Customer: اخر طلب هستأذنك تصورهم
+[5/6/26, 11:21:29 PM] You: باذن الله الصور بكرا لان المكتب الخاص بتوفير المنتجات ده قفل حاليا
+[5/6/26, 11:21:38 PM] You: بكرا باذن الله هبعت لحضرتك الصور`);
+    const base = buildUnifiedConversationIntelligence(s);
+    const operational = await enrichWhatsAppOperationalProductsV6(
+      buildWhatsAppOperationalIntelligenceV6(s, base),
+      s
+    );
+    expect(operational.primaryIntent).toBe('doctor_recommendation');
+    expect(operational.secondaryIntents).not.toContain('doctor_recommendation');
+    expect(operational.products).toHaveLength(0);
+    expect(operational.customerRequests).toHaveLength(0);
+    expect(operational.operationalOutcome).toBe('needs_followup');
+    expect(operational.followupPlan.required).toBe(true);
+    expect(operational.followupPlan.reason).toContain('إرسال صور');
   });
 
   it('creates a portfolio summary for batch review', () => {
