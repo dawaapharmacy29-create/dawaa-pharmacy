@@ -280,9 +280,13 @@ function extractProducts(session: WhatsAppConversationSession): WhatsAppProductS
     const trigger = isRecommendation ? RECOMMEND_RX : isRequest ? REQUEST_RX : PRODUCT_INQUIRY_RX.test(message.text) ? PRODUCT_INQUIRY_RX : null;
     if (!trigger) continue;
     let rawName = extractAfterTrigger(message, trigger);
+    let explicitNamedRecommendation = false;
     if (isRecommendation) {
       const explicitNamedProduct = message.text.match(/(?:اسمه|اسمها)\s+([A-Za-z][A-Za-z0-9.+-]*(?:\s+[A-Za-z][A-Za-z0-9.+-]*){0,3})/i);
-      if (explicitNamedProduct?.[1]) rawName = explicitNamedProduct[1].trim();
+      if (explicitNamedProduct?.[1]) {
+        rawName = explicitNamedProduct[1].trim();
+        explicitNamedRecommendation = true;
+      }
     }
     if (!rawName) continue;
 
@@ -306,7 +310,7 @@ function extractProducts(session: WhatsAppConversationSession): WhatsAppProductS
     // Stock unavailability is a pharmacy-side fact. An inbound question like "مش موجود عندكم؟"
     // must stay a customer request/inquiry and never become stock_unavailable on its own.
     if (message.direction === 'outbound' && /(مش موجود|غير متوفر|ناقص)/i.test(message.text)) status = 'unavailable';
-    found.push({ rawName, normalizedName: normalize(rawName), quantity: quantityFrom(message.text), status, sourceDirection: message.direction, evidenceMessageIds: [message.id], confidence: isRecommendation ? 82 : isRequest ? 80 : 64 });
+    found.push({ rawName, normalizedName: normalize(rawName), quantity: quantityFrom(message.text), status, sourceDirection: message.direction, evidenceMessageIds: [message.id], confidence: explicitNamedRecommendation ? 92 : isRecommendation ? 82 : isRequest ? 80 : 64 });
   }
   // Resolve a short customer pronoun commitment (e.g. "هحتاجه") back to the
   // most recent explicit inbound product mention in the same session.
@@ -671,6 +675,12 @@ export async function enrichWhatsAppOperationalProductsV6(
       (
         product.sourceDirection === 'inbound' &&
         ['requested', 'unavailable'].includes(product.status) &&
+        plausibleProductPhrase(product.rawName)
+      ) ||
+      (
+        product.sourceDirection === 'outbound' &&
+        product.status === 'recommended' &&
+        product.confidence >= 90 &&
         plausibleProductPhrase(product.rawName)
       )
     ),
