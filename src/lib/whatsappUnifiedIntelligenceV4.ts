@@ -186,11 +186,11 @@ function analyzeJourney(session: WhatsAppConversationSession) {
   if (customerPurchaseIntent && !explicitClose && !rejected) {
     lostSales.push({ severity: 'high', summary: 'فرصة بيع بدأت ولم يظهر لها إغلاق واضح أو رفض صريح.', evidenceMessageIds: evidence(session.messages, NEED_RX) });
   }
-  if (has(out, /(غير متوفر|مش موجود|ناقص)/i) && !alternative) {
+  if (has(out, /(غير متوفر(?:ه|ة)?|مش متوفر(?:ه|ة)?|مش موجود|ناقص)/i) && !alternative) {
     lostSales.push({
       severity: 'high',
       summary: 'الصيدلية أكدت نقص/عدم توفر بدون بديل واضح؛ فرصة بيع ضائعة محتملة.',
-      evidenceMessageIds: evidence(session.messages.filter((m) => m.direction === 'outbound'), /(غير متوفر|مش موجود|ناقص)/i),
+      evidenceMessageIds: evidence(session.messages.filter((m) => m.direction === 'outbound'), /(غير متوفر(?:ه|ة)?|مش متوفر(?:ه|ة)?|مش موجود|ناقص)/i),
     });
   }
   if (signals.repeatedCustomerNudgeDetected || signals.waitsOver10Minutes > 0) {
