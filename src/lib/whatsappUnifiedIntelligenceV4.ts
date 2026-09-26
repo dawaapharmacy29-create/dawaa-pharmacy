@@ -127,6 +127,13 @@ const CUSTOMER_REJECT_RX = /(مش عايز|مش عاوز|لا شكرا|غالي|
 const MEDICAL_RX = /(جرعه|جرعة|حامل|حمل|رضاع|ضغط|سكر|حساسي|اعراض|أعراض|مضاد حيوي|حقن|مونجارو|اوزمبيك|أوزمبيك|انسولين|إنسولين)/i;
 const HIGH_RISK_RX = /(جرعه طفل|جرعة طفل|حامل|حمل|رضاع|تفاعل دوائي|حساسيه شديده|حساسية شديدة|مضاد حيوي بدون روشته|حقن بدون روشته)/i;
 const CAUTION_RX = /(استشاره الطبيب|استشارة الطبيب|الدكتور المعالج|لو عندك حساسيه|لو عندك حساسية|لو حامل|لو مرض مزمن|الجرعه حسب|الجرعة حسب)/i;
+const TERMINAL_GRATITUDE_RX = /^(?:الف\s+شكر|ألف\s+شكر|شكرا|شكراً|متشكر|متشكرة|تسلم|تسلمي|جزاك\s+الله\s+خير)[\s🌷🌸❤️❤🙏🏻🙏]*$/i;
+
+function terminalGratitudeUnanswered(session: WhatsAppConversationSession) {
+  const meaningful = session.messages.filter((m) => m.direction !== 'system' && m.text.trim().length > 0);
+  const last = meaningful[meaningful.length - 1];
+  return Boolean(last?.direction === 'inbound' && TERMINAL_GRATITUDE_RX.test(last.text.trim()));
+}
 
 function evidence(messages: WhatsAppParsedMessage[], rx: RegExp) {
   return idsFor(messages, rx).slice(0, 8);
@@ -172,6 +179,10 @@ function analyzeJourney(session: WhatsAppConversationSession) {
   const explicitClose = has(out, SALE_CLOSE_RX);
   const rejected = has(inbound, CUSTOMER_REJECT_RX);
   const alternative = has(out, ALTERNATIVE_RX);
+  const effectiveUnansweredInboundCount = Math.max(
+    0,
+    signals.unansweredInboundCount - (terminalGratitudeUnanswered(session) ? 1 : 0)
+  );
   if (customerPurchaseIntent && !explicitClose && !rejected) {
     lostSales.push({ severity: 'high', summary: 'فرصة بيع بدأت ولم يظهر لها إغلاق واضح أو رفض صريح.', evidenceMessageIds: evidence(session.messages, NEED_RX) });
   }
@@ -190,7 +201,7 @@ function analyzeJourney(session: WhatsAppConversationSession) {
   if (hasComplaint) outcome = has(out, RECOVERY_RX) ? 'complaint_resolved' : 'complaint_unresolved';
   else if (explicitClose && (has(inbound, CUSTOMER_ACCEPT_RX) || has(out, SALE_CLOSE_RX))) outcome = 'sold';
   else if (rejected) outcome = 'not_sold';
-  else if (customerPurchaseIntent || has(out, FOLLOWUP_RX) || signals.unansweredInboundCount > 0) outcome = 'needs_followup';
+  else if (customerPurchaseIntent || has(out, FOLLOWUP_RX) || effectiveUnansweredInboundCount > 0) outcome = 'needs_followup';
 
   return { journeyStages, lostSales, outcome };
 }
@@ -247,14 +258,18 @@ export function buildUnifiedConversationIntelligence(session: WhatsAppConversati
   const commercialScore = scoreCommercial(session, lostSales, outcome);
   const commercialEligible = signals.saleIntentDetected || journeyStages.some((x) => ['need', 'availability', 'alternative', 'closing'].includes(x.key) && x.detected);
   const chatSuggestedSold = outcome === 'sold';
+  const effectiveUnansweredInboundCount = Math.max(
+    0,
+    signals.unansweredInboundCount - (terminalGratitudeUnanswered(session) ? 1 : 0)
+  );
   // نقص/عدم توفر بدون بديل (lostSales.severity==='high') هي بالظبط نفس حالة
   // "stockout_recovery" في whatsappConversationEvaluationV2.ts - لازم تتابع، حتى لو
   // outcome نفسه فضل 'unknown' لأن العميل ما استخدمش كلمة NEED_RX المعروفة (زي "موجود؟"
   // بدل "متوفر؟"). عدم التوفر بدون بديل يستاهل متابعة سواء اتصنف كـneeds_followup أو لأ.
-  const followupRequired = outcome === 'needs_followup' || outcome === 'complaint_unresolved' || signals.unansweredInboundCount > 0 || (signals.followupPromiseDetected && !signals.closingDetected) || lostSales.some((x) => x.severity === 'high');
+  const followupRequired = outcome === 'needs_followup' || outcome === 'complaint_unresolved' || effectiveUnansweredInboundCount > 0 || (signals.followupPromiseDetected && !signals.closingDetected) || lostSales.some((x) => x.severity === 'high');
   const suggestedFollowupReason = outcome === 'complaint_unresolved'
     ? 'شكوى لم يظهر لها حل واضح.'
-    : signals.unansweredInboundCount > 0
+    : effectiveUnansweredInboundCount > 0
       ? 'يوجد رسالة من العميل بدون رد لاحق ظاهر.'
       : signals.followupPromiseDetected && !signals.closingDetected
         ? 'تم وعد العميل بالرجوع ولم يظهر إغلاق واضح داخل الجلسة.'
@@ -264,7 +279,7 @@ export function buildUnifiedConversationIntelligence(session: WhatsAppConversati
 
   const highMedical = medicalSafetyFlags.some((x) => x.severity === 'high');
   const highLostSale = lostSales.some((x) => x.severity === 'high');
-  const priority: UnifiedPriority = highMedical || highLostSale || outcome === 'complaint_unresolved' || signals.unansweredInboundCount > 1
+  const priority: UnifiedPriority = highMedical || highLostSale || outcome === 'complaint_unresolved' || effectiveUnansweredInboundCount > 1
     ? 'urgent'
     : followupRequired || medicalSafetyFlags.some((x) => x.severity === 'medium') || lostSales.length > 0
       ? 'important'
@@ -285,7 +300,7 @@ export function buildUnifiedConversationIntelligence(session: WhatsAppConversati
     ...lostSales.map((x) => x.summary),
     ...medicalSafetyFlags.filter((x) => x.severity !== 'info').map((x) => x.summary),
     ...(signals.waitsOver10Minutes > 0 ? [`${signals.waitsOver10Minutes} انتظار أطول من 10 دقائق`] : []),
-    ...(signals.unansweredInboundCount > 0 ? [`${signals.unansweredInboundCount} رسالة عميل بلا رد لاحق ظاهر`] : []),
+    ...(effectiveUnansweredInboundCount > 0 ? [`${effectiveUnansweredInboundCount} رسالة عميل بلا رد لاحق ظاهر`] : []),
   ]);
 
   const outcomeLabel: Record<UnifiedOutcome, string> = {
