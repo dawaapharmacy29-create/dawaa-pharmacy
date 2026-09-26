@@ -29,5 +29,11 @@
         }
       ]
     }
-  ]
+  ],
+  "functions": {
+    "api/sales-intelligence-refresh-source.ts": {
+      "includeFiles": "src/lib/**",
+      "maxDuration": 60
+    }
+  }
 }
