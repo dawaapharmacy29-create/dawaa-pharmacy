@@ -370,7 +370,7 @@ export function buildWhatsAppOperationalIntelligenceV6(session: WhatsAppConversa
 
   const requests: WhatsAppRequestSignal[] = products
     .filter((p) => ['requested','unavailable'].includes(p.status) && p.sourceDirection === 'inbound')
-    .map((p) => ({ productName: p.rawName, quantity: p.quantity, urgency: has(all, URGENT_RX) ? 'urgent' : 'normal', unresolved: !close && !rejected, evidenceMessageIds: p.evidenceMessageIds, confidence: p.confidence }));
+    .map((p) => ({ productName: p.rawName, quantity: p.quantity, urgency: has(inbound, URGENT_RX) ? 'urgent' : 'normal', unresolved: !close && !rejected, evidenceMessageIds: p.evidenceMessageIds, confidence: p.confidence }));
 
   let operationalOutcome: WhatsAppOperationalOutcome = 'unknown';
   if (fulfillmentFailure) operationalOutcome = 'unresolved_request';
@@ -425,7 +425,7 @@ export function buildWhatsAppOperationalIntelligenceV6(session: WhatsAppConversa
     followupPlan: { required: followupRequired, reason: followupReason, ownerRole: followupRequired ? 'team_dawaa_alpha' : null, dueInDays, priority, evidenceMessageIds: uniq(followupEvidence) },
     nextBestAction, officialScoringEligible, intentConfidence, outcomeConfidence,
     evidence: {
-      request: evidenceFor(session, REQUEST_RX, 85), recommendation: evidenceFor(session, RECOMMEND_RX, 88),
+      request: evidenceFor({ ...session, messages: byDirection(session, 'inbound') }, REQUEST_RX, 85), recommendation: evidenceFor(session, RECOMMEND_RX, 88),
       complaint: evidenceFromMessages(complaintRows, 95),
       deliveryFailure: evidenceFromMessages(fulfillmentFailures, 96),
       checkin: evidenceFor(session, CHECKIN_OUT_RX, 94),
