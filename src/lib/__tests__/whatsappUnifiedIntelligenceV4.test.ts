@@ -209,6 +209,24 @@ describe('WhatsApp Review V4 unified intelligence', () => {
     expect(operational.evidence.saleClose.messageIds).toHaveLength(0);
   });
 
+  it('extracts a named deodorant product mention without turning usage inquiry into purchase intent', async () => {
+    const s = oneSession(`[4/17/26, 6:15:20 PM] Customer: مزيل فانتمورا
+[4/17/26, 6:15:20 PM] Customer: متاح للبشره بردو
+[4/17/26, 6:26:20 PM] You: لا يا فندم دا مزيل عرق هيتسخدم بس في منطقه تحت الابط
+[4/17/26, 6:26:28 PM] Customer: تمام
+[4/17/26, 6:26:32 PM] You: نتشرف ب خدمة حضرتك ٢٤ ساعه 🌸🌸`);
+    const base = buildUnifiedConversationIntelligence(s);
+    const operational = await enrichWhatsAppOperationalProductsV6(
+      buildWhatsAppOperationalIntelligenceV6(s, base),
+      s
+    );
+    expect(operational.primaryIntent).toBe('product_inquiry');
+    expect(operational.operationalOutcome).toBe('unknown');
+    expect(operational.followupPlan.required).toBe(false);
+    expect(operational.products.some((p) => p.rawName === 'فانتمورا' && p.status === 'mentioned')).toBe(true);
+    expect(operational.customerRequests).toHaveLength(0);
+  });
+
   it('creates a portfolio summary for batch review', () => {
     const raw = `[9/15/26, 9:00:00 AM] Customer: فيتامين د متوفر؟\n[9/15/26, 9:01:00 AM] You: مع حضرتك د هبة من صيدليات دواء. متوفر\n[9/15/26, 9:02:00 AM] Customer: تمام ابعته\n[9/15/26, 9:03:00 AM] You: تم تأكيد الطلب\n[9/15/26, 12:30:00 PM] Customer: منتج تاني موجود؟\n[9/15/26, 12:31:00 PM] You: لا مش موجود`;
     const sessions = splitWhatsAppSessions(parseWhatsAppExport(raw), 120);
