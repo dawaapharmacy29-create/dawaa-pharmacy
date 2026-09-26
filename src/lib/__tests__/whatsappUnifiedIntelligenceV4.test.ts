@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { parseWhatsAppExport, splitWhatsAppSessions } from '@/lib/whatsappConversationParser';
 import { buildUnifiedConversationIntelligence, summarizePortfolio } from '@/lib/whatsappUnifiedIntelligenceV4';
 import { buildWhatsAppOperationalIntelligenceV6, enrichWhatsAppOperationalProductsV6 } from '@/lib/whatsappOperationalIntelligenceV6';
+import { enrichWhatsAppOperationalJourneysV7 } from '@/lib/whatsappProductJourneyV7';
 
 function oneSession(raw: string) {
   const messages = parseWhatsAppExport(raw);
@@ -137,6 +138,24 @@ describe('WhatsApp Review V4 unified intelligence', () => {
     expect(operational.customerState).toBe('unknown');
     expect(operational.operationalOutcome).toBe('unknown');
     expect(operational.products.some((p) => p.rawName.toLowerCase() === 'limitless chromax' && p.status === 'recommended')).toBe(true);
+  });
+
+  it('keeps an initial named recommendation distinct from an alternative offer', async () => {
+    const s = oneSession(`[1/5/26, 7:46:51 AM] Customer: افضل منتج لتخسيس ايه
+[1/5/26, 7:48:45 AM] Customer: وفي ضغط
+[1/5/26, 7:50:42 AM] You: ممكن ارشح لحضرتك منتج اكياس اسمه limitless chromax كويس جدا وبيسد الشهيه
+[1/5/26, 7:51:25 AM] Customer: طب ممكن شكله
+[1/5/26, 7:51:27 AM] Customer: وسعره
+[1/5/26, 7:52:51 AM] You: 375 باذن الله`);
+    const base = buildUnifiedConversationIntelligence(s);
+    const withProducts = await enrichWhatsAppOperationalProductsV6(
+      buildWhatsAppOperationalIntelligenceV6(s, base),
+      s
+    );
+    const operational = enrichWhatsAppOperationalJourneysV7(s, withProducts);
+    const journey = operational.productJourney.journeys.find((j) => j.productName.toLowerCase() === 'limitless chromax');
+    expect(journey?.events.some((e) => e.stage === 'recommended')).toBe(true);
+    expect(journey?.events.some((e) => e.stage === 'alternative_offered')).toBe(false);
   });
 
   it('creates a portfolio summary for batch review', () => {
