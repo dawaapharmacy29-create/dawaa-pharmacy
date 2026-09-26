@@ -252,6 +252,52 @@ describe('WhatsApp Review V4 unified intelligence', () => {
     expect(operational.productJourney.saleLeakageCount).toBe(0);
   });
 
+  it('treats generic sensitive-need wording as recommendation request without inventing a product', async () => {
+    const s = oneSession(`[5/6/26, 10:48:31 PM] Customer: محتاج حاجه كويسه لزياده رغبه المرأه
+[5/6/26, 10:50:46 PM] Customer: تمام ينفع ادويه
+[5/6/26, 11:08:29 PM] You: في اقراص ونقط ولبان و عسل و شوكولاته
+[5/6/26, 11:09:01 PM] Customer: افضل حاجه ايه
+[5/6/26, 11:13:53 PM] You: ممكن ناخد الشكولاته او العسل
+[5/6/26, 11:14:04 PM] You: سعرهم 200 باذن الله`);
+    const base = buildUnifiedConversationIntelligence(s);
+    const operational = await enrichWhatsAppOperationalProductsV6(
+      buildWhatsAppOperationalIntelligenceV6(s, base),
+      s
+    );
+    expect(operational.primaryIntent).toBe('doctor_recommendation');
+    expect(operational.customerState).toBe('unknown');
+    expect(operational.products).toHaveLength(0);
+    expect(operational.customerRequests).toHaveLength(0);
+    expect(operational.recommendations.some((r) => r.productName == null)).toBe(true);
+    expect(operational.operationalOutcome).toBe('unknown');
+  });
+
+  it('recovers chosen product after payment prompt without treating payment or routine delivery as a product or issue', async () => {
+    const s = oneSession(`[5/7/26, 10:21:27 AM] Customer: في رقم تحويل كاش ابعت عليه
+[5/7/26, 10:21:56 AM] You: ايوة يا فندم
+[5/7/26, 10:21:58 AM] You: 01028308235
+[5/7/26, 10:22:07 AM] Customer: ابعت كام بالظبط
+[5/7/26, 10:22:21 AM] You: حضرتك هتاخد ايه
+[5/7/26, 10:22:28 AM] Customer: الشيكولاته
+[5/7/26, 10:22:42 AM] You: 210
+[5/7/26, 10:33:15 AM] Customer: هستأذنك تبعتها علي العنوان
+[5/7/26, 10:34:07 AM] You: عنيا اول ما توصل هبعتها لحضرتك علطول ان شاء الله
+[5/7/26, 2:30:49 PM] You: صباح الخير يا فندم اخبار حضرتك ايه هو اوردر حضرتك جاهز بمجرد ما حضرتك توصل
+[5/7/26, 4:00:16 PM] You: تم الارسال`);
+    const base = buildUnifiedConversationIntelligence(s);
+    const withProducts = await enrichWhatsAppOperationalProductsV6(
+      buildWhatsAppOperationalIntelligenceV6(s, base),
+      s
+    );
+    const operational = enrichWhatsAppOperationalJourneysV7(s, withProducts);
+    expect(operational.primaryIntent).toBe('customer_request');
+    expect(operational.secondaryIntents).not.toContain('delivery_issue');
+    expect(operational.products.some((p) => p.rawName === 'الشيكولاته' && p.status === 'requested')).toBe(true);
+    expect(operational.products.some((p) => /تحويل\s+كاش/.test(p.rawName))).toBe(false);
+    expect(operational.operationalOutcome).toBe('probable_sale');
+    expect(operational.followupPlan.required).toBe(false);
+  });
+
   it('creates a portfolio summary for batch review', () => {
     const raw = `[9/15/26, 9:00:00 AM] Customer: فيتامين د متوفر؟\n[9/15/26, 9:01:00 AM] You: مع حضرتك د هبة من صيدليات دواء. متوفر\n[9/15/26, 9:02:00 AM] Customer: تمام ابعته\n[9/15/26, 9:03:00 AM] You: تم تأكيد الطلب\n[9/15/26, 12:30:00 PM] Customer: منتج تاني موجود؟\n[9/15/26, 12:31:00 PM] You: لا مش موجود`;
     const sessions = splitWhatsAppSessions(parseWhatsAppExport(raw), 120);
