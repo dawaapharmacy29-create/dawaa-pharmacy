@@ -77,7 +77,8 @@ export interface WhatsAppProductJourneySummaryV7 {
 
 const AVAILABLE_RX = /(موجود|متوفر|متاح|عندنا|موجود عندنا|متوفر عندنا)/i;
 const UNAVAILABLE_RX = /(مش موجود|غير موجود|غير متوفر|ناقص|مش متاح|خلص|مش عندنا)/i;
-const ALTERNATIVE_RX = /(بديل|بداله|بدلها|نرشح|ارشح|أرشح|ممكن بدل|ممكن تستخدم|ممكن تاخد|ممكن تاخدي)/i;
+const ALTERNATIVE_RX = /(بديل|بداله|بدلها|ممكن بدل)/i;
+const RECOMMENDATION_RX = /(نرشح|ارشح|أرشح|ممكن تستخدم|ممكن تاخد|ممكن تاخدي)/i;
 const ACCEPT_RX = /(^|\s)(تمام|ماشي|موافق|اوكي|أوكي|خلاص|ابعت|ابعته|ابعتي|هات|هاته|هاخده|هاخدها|هجربه|هجربها|تمام كده|تمام كدا)(\s|$)/i;
 const REJECT_RX = /(لا شكرا|مش عايز|مش عاوز|مش محتاج|غالي|مش مناسب|مش هاخد|مش هطلب|بلاش)/i;
 const CLOSE_RX = /(تم تأكيد|تم التاكيد|الأوردر اتأكد|الاوردر اتاكد|أكدنا الطلب|اكدنا الطلب|تم الارسال|تم الإرسال|جاري الارسال|جاري الإرسال|خرج لحضرتك|الإجمالي|الاجمالي|فاتوره|فاتورة)/i;
@@ -310,7 +311,12 @@ export function buildWhatsAppProductJourneyV7(
 
     const available = outbound.filter((m) => AVAILABLE_RX.test(m.text) && !UNAVAILABLE_RX.test(m.text));
     const unavailable = outbound.filter((m) => UNAVAILABLE_RX.test(m.text));
-    const alternative = outbound.filter((m) => ALTERNATIVE_RX.test(m.text));
+    const explicitAlternative = outbound.filter((m) => ALTERNATIVE_RX.test(m.text));
+    const recommendationAfterUnavailable =
+      unavailable.length > 0
+        ? outbound.filter((m) => RECOMMENDATION_RX.test(m.text))
+        : [];
+    const alternative = unique([...explicitAlternative, ...recommendationAfterUnavailable]);
     const accepted = customerDecisionAfterProductContext(session, product, ACCEPT_RX);
     const rejected = customerDecisionAfterProductContext(session, product, REJECT_RX);
     const firstProductEvidenceIndex = session.messages.findIndex((m) => product.evidenceMessageIds.includes(m.id));
