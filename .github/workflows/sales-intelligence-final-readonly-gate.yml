@@ -46,6 +46,9 @@ jobs:
       - name: Ground-truth regression — read only
         run: npm run sales-intelligence:v23:ground-truth:dry-run -- --json
 
+      - name: Targeted six-source attribution refresh dry run — read only
+        run: node scripts/run-sales-intelligence-backfill.cjs --source-ids="fd505a4d-3d37-4b59-8478-b2f26bb031c7,44999fee-c39e-4e40-a66c-b21223775d51,f09471e8-64f4-45d1-859c-17ba97b19259,ace3b141-8c66-4bed-80f9-ee4eda07dc5a,e9e231ad-48b4-427c-9b5a-be6d2c09b566,a9fb4582-2b39-4e93-810a-05f337734e0f" --json
+
       - name: Canonical known-branch dry run — read only
         run: npm run sales-intelligence:backfill:all-known-branch:dry-run -- --json
 
