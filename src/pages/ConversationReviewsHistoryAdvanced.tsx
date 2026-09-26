@@ -146,7 +146,7 @@ export default function ConversationReviewsHistoryAdvanced() {
     setError('');
     try {
       const all: ReviewRow[] = [];
-      const PAGE = 1000;
+      const PAGE = 500;
       for (let from = 0; from < 10000; from += PAGE) {
         const { data, error: queryError } = await supabase
           .from('conversation_sales_reviews')
@@ -156,9 +156,13 @@ export default function ConversationReviewsHistoryAdvanced() {
         if (queryError) throw queryError;
         const batch = (data || []) as ReviewRow[];
         all.push(...batch);
+
+        // افتح السجل من أول دفعة بدل انتظار تحميل التاريخ كله.
+        setRows(all.filter((row) => canSeeBranch(user, row.branch)));
+        if (from === 0) setLoading(false);
+
         if (batch.length < PAGE) break;
       }
-      setRows(all.filter((row) => canSeeBranch(user, row.branch)));
       setUpdatedAt(new Date());
     } catch (err) {
       const message =
