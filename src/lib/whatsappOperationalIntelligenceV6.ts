@@ -137,6 +137,7 @@ const ids = (messages: WhatsAppParsedMessage[], rx: RegExp) => messages.filter((
 const uniq = <T,>(rows: T[]) => [...new Set(rows)];
 
 const REQUEST_RX = /(هحتاجه|هحتاجها|هاخده|هاخدها|عايزه|عاوزه|محتاجه|عايزين|محتاجين|عايز|عاوز|محتاج|ممكن|ابعت|ابعث|هات|اطلب|أطلب|متوفر|موجود عندكم|عندكم)/i;
+const CUSTOMER_REQUEST_INTENT_RX = /(هحتاجه|هحتاجها|هاخده|هاخدها|عايزه|عاوزه|محتاجه|عايزين|محتاجين|عايز|عاوز|محتاج|ابعت|ابعث|هات|اطلب|أطلب|متوفر|موجود عندكم|عندكم|ممكن\s+(?:ابعت|ابعث|هات|اطلب|توصيل|الدليفري|المندوب)|الدليفري\s+يجيلي|التوصيل)/i;
 const PRODUCT_INQUIRY_RX = /(بكام|سعر|متوفر|متاح|موجود|عندكم|فيه|في من|العبوه|العبوة|تركيز|كام قرص|كام شريط)/i;
 const RECOMMEND_RX = /(ارشح|أرشح|نرشح|ترشيح|انصح|أنصح|ممكن تستخدم|ممكن تاخد|ممكن تاخدي|الافضل|الأفضل|بديل|بداله|بدلها)/i;
 const ACCEPT_RX = /(^|\s)(تمام|ماشي|موافق|اوكي|أوكي|خلاص|ابعت|ابعته|ابعتي|هات|هاته|هاخده|هاخدها|هجربه|هجربها|تمام كده|تمام كدا)(\s|$)/i;
@@ -148,7 +149,7 @@ const RECOVERY_RX = /(بنعتذر|نعتذر|متاسف|متأسف|اسفين|�
 const DELIVERY_RX = /(توصيل|مندوب|العنوان|وصل|ماوصلش|موصلش|خرج لحضرتك|جاري الارسال|جاري الإرسال)/i;
 const MEDICAL_RX = /(اعراض|أعراض|جرعه|جرعة|كحه|كحة|حراره|حرارة|اسهال|إسهال|وجع|التهاب|حامل|رضاع|ضغط|سكر|حساسي|ينفع|استخدم|اخد|آخد|طفل|طفله|طفلة)|(?<![\p{L}\p{N}])(?:الم|ألم)(?![\p{L}\p{N}])/iu;
 const CHECKIN_OUT_RX = /(حابين نطمن|حبيت اطمن|حبيت أطمن|بنطمن|نطمن علي|نطمن على|اخبار حضرتك|أخبار حضرتك|بقيت|بقت|عامل ايه|عامله ايه|الدوا جاب نتيجه|العلاج جاب نتيجه)/i;
-const IMPROVED_RX = /(احسن|أحسن|افضل|أفضل|كويس|كويسه|كويسة|الحمدلله|الحمد لله|اتحسن|اتحسنت|تحسن|خف|خفت|تمام دلوقتي|بقيت كويس)/i;
+const IMPROVED_RX = /(احسن|أحسن|كويس|كويسه|كويسة|الحمدلله|الحمد لله|اتحسن|اتحسنت|تحسن|خف|خفت|تمام دلوقتي|بقيت كويس|بقيت\s+(?:افضل|أفضل))/i;
 const WORSE_RX = /(لسه تعبان|لسه تعبانه|اسوء|أسوأ|زادت|زاد الوجع|مفيش تحسن|مافيش تحسن|زي ما هو|زي ماهو)/i;
 const FOLLOWUP_PROMISE_RX = /(هتابع|هتواصل|هبلغ|هرجع|هنرجع|اول ما|أول ما|لما يتوفر|هنوفره|هطلبه|هطلبها)/i;
 const CLOSE_RX = /(تم تأكيد|تم التاكيد|الأوردر اتأكد|الاوردر اتاكد|تم الارسال|تم الإرسال|جاري الارسال|جاري الإرسال|خرج لحضرتك|فاتوره|فاتورة|الاجمالي|الإجمالي)/i;
@@ -196,7 +197,7 @@ function classifyIntents(session: WhatsAppConversationSession) {
   if (fulfillmentFailures.length) add('delivery_issue', 99);
   else if (has(all, DELIVERY_RX) && has(all, /(ماوصلش|موصلش|مندوب|توصيل|العنوان)/i)) add('delivery_issue', has(all, /(ماوصلش|موصلش|متاخر|متأخر)/i) ? 96 : 72);
   if (has(outbound, CHECKIN_OUT_RX)) add('proactive_checkin', 96);
-  if (has(inbound, REQUEST_RX)) add('customer_request', 91);
+  if (has(inbound, CUSTOMER_REQUEST_INTENT_RX)) add('customer_request', 91);
   if (has(inbound, PRODUCT_INQUIRY_RX)) add('product_inquiry', 84);
   if (has(outbound, RECOMMEND_RX)) add('doctor_recommendation', 92);
   if (has(all, MEDICAL_RX)) add('medical_consultation', 78);
@@ -279,6 +280,10 @@ function extractProducts(session: WhatsAppConversationSession): WhatsAppProductS
     const trigger = isRecommendation ? RECOMMEND_RX : isRequest ? REQUEST_RX : PRODUCT_INQUIRY_RX.test(message.text) ? PRODUCT_INQUIRY_RX : null;
     if (!trigger) continue;
     let rawName = extractAfterTrigger(message, trigger);
+    if (isRecommendation) {
+      const explicitNamedProduct = message.text.match(/(?:اسمه|اسمها)\s+([A-Za-z][A-Za-z0-9.+-]*(?:\s+[A-Za-z][A-Za-z0-9.+-]*){0,3})/i);
+      if (explicitNamedProduct?.[1]) rawName = explicitNamedProduct[1].trim();
+    }
     if (!rawName) continue;
 
     if (message.direction === 'inbound' && isRequest) {
