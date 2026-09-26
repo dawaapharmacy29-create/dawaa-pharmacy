@@ -42,6 +42,10 @@ async function loadSources(): Promise<SourceRow[]> {
 }
 
 async function rebuild(row: SourceRow) {
+  if (row.analysis_json?.conversationAnalysisLogicVersion === ANALYSIS_LOGIC_VERSION) {
+    return { status: 'skipped_already_current' as const };
+  }
+
   const rawText = String(row.raw_text || '').trim();
   if (!rawText) return { status: 'skipped_missing_raw' as const };
 
@@ -142,6 +146,7 @@ async function main() {
     updated: count('updated'),
     skippedMissingRaw: count('skipped_missing_raw'),
     skippedMultiSessionLegacy: count('skipped_multi_session_legacy'),
+    skippedAlreadyCurrent: count('skipped_already_current'),
     failed: count('failed'),
   };
 
