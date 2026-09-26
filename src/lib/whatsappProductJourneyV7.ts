@@ -345,8 +345,17 @@ export function buildWhatsAppProductJourneyV7(
     }
     if (closed.length) events.push(event('order_confirmed', closed, 91, 'ظهر إغلاق/تأكيد للأوردر داخل المحادثة.'));
 
-    const followupCandidate = Boolean(matchingRecommendation?.accepted === true);
-    const leakage = leakageFor(session, events, product, messages);
+    const recommendationFollowup = Boolean(matchingRecommendation?.accepted === true);
+    const operationalRequestFollowup =
+      operational.followupPlan.required &&
+      product.status === 'requested' &&
+      operational.customerRequests.some((request) =>
+        request.evidenceMessageIds.some((id) => product.evidenceMessageIds.includes(id))
+      );
+    const followupCandidate = recommendationFollowup || operationalRequestFollowup;
+    const leakage = operationalRequestFollowup
+      ? { code: null as WhatsAppLeakageCodeV8 | null, reason: null as string | null }
+      : leakageFor(session, events, product, messages);
     const responsibility = responsibilityForLeakage(leakage.code);
     const leakageReason = leakage.reason;
     const stage = currentStage(events, followupCandidate);
@@ -366,7 +375,9 @@ export function buildWhatsAppProductJourneyV7(
       leakageCode: leakage.code,
       leakageResponsibility: responsibility.responsibility,
       responsibilityNote: responsibility.note,
-      nextAction: nextActionFor(events, leakageReason, followupCandidate),
+      nextAction: operationalRequestFollowup
+        ? 'متابعة التوفر/التجهيز حسب الوعد المسجل للصيدلية ثم حسم الطلب مع العميل.'
+        : nextActionFor(events, leakageReason, followupCandidate),
       confidence,
     } satisfies WhatsAppProductJourneyV7;
   });
