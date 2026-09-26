@@ -113,6 +113,7 @@ const clamp = (n: number, min = 0, max = 100) => Math.max(min, Math.min(max, n))
 const unique = <T,>(items: T[]) => [...new Set(items)];
 
 const NEED_RX = /(عايز|عاوز|محتاج|ممكن|بدور|روشته|روشتة|وصفه|وصفة|متوفر|بكام|سعر|دواء|كريم|شامبو|فيتامين|مصل|حقنه|حقنة)/i;
+const PURCHASE_INTENT_RX = /(هحتاجه|هحتاجها|هاخده|هاخدها|عايز|عاوز|محتاج|ابعت|ابعث|ابعته|ابعتي|هات|هاته|اطلب|أطلب|روشته|روشتة|وصفه|وصفة)/i;
 const AVAILABILITY_RX = /(متوفر|موجود|متاح|ناقص|مش موجود|غير متوفر|هنوفر|هطلبه|هطلبها)/i;
 const ALTERNATIVE_RX = /(بديل|نرشح|ارشح|ترشيح|بداله|بديل مناسب|نفس الماده|نفس المادة)/i;
 const SALE_CLOSE_RX = /(تم تأكيد|تأكيد الطلب|الاوردر اتاكد|الأوردر اتأكد|تم الارسال|تم الإرسال|جاري الارسال|جاري الإرسال|هيتم التوصيل|خرج لحضرتك|الإجمالي|الاجمالي|فاتوره|فاتورة)/i;
@@ -167,10 +168,11 @@ function analyzeJourney(session: WhatsAppConversationSession) {
 
   const lostSales: LostSaleSignal[] = [];
   const customerAsked = has(inbound, NEED_RX);
+  const customerPurchaseIntent = has(inbound, PURCHASE_INTENT_RX);
   const explicitClose = has(out, SALE_CLOSE_RX);
   const rejected = has(inbound, CUSTOMER_REJECT_RX);
   const alternative = has(out, ALTERNATIVE_RX);
-  if (customerAsked && !explicitClose && !rejected) {
+  if (customerPurchaseIntent && !explicitClose && !rejected) {
     lostSales.push({ severity: 'high', summary: 'فرصة بيع بدأت ولم يظهر لها إغلاق واضح أو رفض صريح.', evidenceMessageIds: evidence(session.messages, NEED_RX) });
   }
   if (has(out, /(غير متوفر|مش موجود|ناقص)/i) && !alternative) {
@@ -188,7 +190,7 @@ function analyzeJourney(session: WhatsAppConversationSession) {
   if (hasComplaint) outcome = has(out, RECOVERY_RX) ? 'complaint_resolved' : 'complaint_unresolved';
   else if (explicitClose && (has(inbound, CUSTOMER_ACCEPT_RX) || has(out, SALE_CLOSE_RX))) outcome = 'sold';
   else if (rejected) outcome = 'not_sold';
-  else if (customerAsked || has(out, FOLLOWUP_RX) || signals.unansweredInboundCount > 0) outcome = 'needs_followup';
+  else if (customerPurchaseIntent || has(out, FOLLOWUP_RX) || signals.unansweredInboundCount > 0) outcome = 'needs_followup';
 
   return { journeyStages, lostSales, outcome };
 }
