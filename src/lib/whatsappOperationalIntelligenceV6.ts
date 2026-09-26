@@ -156,6 +156,7 @@ const FOLLOWUP_PROMISE_RX = /(هتابع|هتواصل|هبلغ|هرجع|هنرج
 const CLOSE_RX = /(تم تأكيد|تم التاكيد|الأوردر اتأكد|الاوردر اتاكد|تم الارسال|تم الإرسال|جاري الارسال|جاري الإرسال|خرج لحضرتك|فاتوره|فاتورة|الاجمالي|الإجمالي)/i;
 const URGENT_RX = /(ضروري|عاجل|حالاً|حالا|مستعجل|مستعجله)/i;
 const ANAPHORIC_COMMIT_RX = /(^|\s)(هحتاجه|هحتاجها|هاخده|هاخدها)(\s|$)/i;
+const PRODUCT_TYPE_NAMED_RX = /^(?:مزيل)\s+([\p{L}\p{N}][\p{L}\p{N} .+-]{1,60})$/iu;
 
 function evidenceFor(session: WhatsAppConversationSession, rx: RegExp, confidence: number): WhatsAppEvidence {
   const matches = session.messages.filter((m) => rx.test(m.text));
@@ -272,6 +273,7 @@ function extractProducts(session: WhatsAppConversationSession): WhatsAppProductS
     if (message.direction === 'system' || message.kind !== 'text') continue;
     const isRequest = message.direction === 'inbound' && REQUEST_RX.test(message.text);
     const isRecommendation = message.direction === 'outbound' && RECOMMEND_RX.test(message.text);
+    const typedNamedProduct = message.direction === 'inbound' ? message.text.trim().match(PRODUCT_TYPE_NAMED_RX) : null;
     if (message.direction === 'inbound' && ANAPHORIC_COMMIT_RX.test(message.text)) continue;
     if (
       message.direction === 'inbound' &&
@@ -280,8 +282,8 @@ function extractProducts(session: WhatsAppConversationSession): WhatsAppProductS
       !/(?:اسم|نوع|ماركه|ماركة)\s+(?:ال)?قطر[هة]/i.test(message.text)
     ) continue;
     const trigger = isRecommendation ? RECOMMEND_RX : isRequest ? REQUEST_RX : PRODUCT_INQUIRY_RX.test(message.text) ? PRODUCT_INQUIRY_RX : null;
-    if (!trigger) continue;
-    let rawName = extractAfterTrigger(message, trigger);
+    if (!trigger && !typedNamedProduct) continue;
+    let rawName = typedNamedProduct?.[1]?.trim() || (trigger ? extractAfterTrigger(message, trigger) : '');
     let explicitNamedRecommendation = false;
     if (isRecommendation) {
       const explicitNamedProduct = message.text.match(/(?:اسمه|اسمها)\s+([A-Za-z][A-Za-z0-9.+-]*(?:\s+[A-Za-z][A-Za-z0-9.+-]*){0,3})/i);
