@@ -78,7 +78,7 @@ export default async function handler(req: any, res: any) {
     .maybeSingle();
 
   if (sourceError) return json(res, 500, { error: 'source_lookup_failed', detail: sourceError.message });
-  const source = sourceData as Record<string, unknown> | null;
+  const source = sourceData as unknown as Record<string, unknown> | null;
   if (!source || typeof source.raw_text !== 'string' || !source.raw_text.trim()) {
     return json(res, 404, { error: 'source_not_found_or_empty' });
   }
