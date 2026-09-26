@@ -117,6 +117,7 @@ function matchesScore(score: number, preset: ScorePreset) {
 export default function ConversationReviewsHistoryAdvanced() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const userScopeKey = `${user?.id || ''}|${user?.role || ''}|${user?.branch || ''}`;
   const [rows, setRows] = useState<ReviewRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -176,7 +177,9 @@ export default function ConversationReviewsHistoryAdvanced() {
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  // لا نربط التحميل بـ user object كامل لأن مرجعه قد يتغير أثناء refresh للحساب
+  // فيعيد تشغيل الاستعلامات باستمرار. الهوية/الدور/الفرع هي scope الفعلي المطلوب هنا.
+  }, [userScopeKey]);
 
   useEffect(() => { void load(); }, [load]);
 
