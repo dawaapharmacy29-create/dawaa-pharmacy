@@ -115,6 +115,9 @@ export interface WhatsAppMultiSessionOperationalSessionV1 {
   startedAt: string;
   endedAt: string;
   messageCount: number;
+  relationshipToPrevious?: 'independent' | 'continuation';
+  continuationOfSessionIndex?: number | null;
+  relationshipReason?: string | null;
   operational: WhatsAppOperationalIntelligenceV6;
 }
 
