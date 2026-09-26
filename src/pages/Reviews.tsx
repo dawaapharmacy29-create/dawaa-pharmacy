@@ -528,19 +528,10 @@ export default function Reviews() {
     };
   }, [searchParams, selectedReviewId]);
 
-  const closeSelectedReviewRef = useRef(closeSelectedReview);
-  useEffect(() => {
-    closeSelectedReviewRef.current = closeSelectedReview;
-  }, [closeSelectedReview]);
-  useEffect(() => {
-    // مقصود نستخدم مصفوفة تبعيات فاضية هنا: عايزين النداء ده يحصل مرة واحدة
-    // بس لما الصفحة تتقفل فعليًا (unmount)، مش كل مرة closeSelectedReview
-    // يتغير مرجعها لأي سبب أثناء إعادة الرندر العادية.
-    return () => {
-      closeSelectedReviewRef.current();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // لا نغيّر الـURL أثناء unmount. الانتقال من نموذج التقييم إلى سجل التقييمات
+  // يعمل unmount لهذا الكومبوننت، وأي setSearchParams هنا قد يعيد query قديمة
+  // (مثل mode=new) فوق section=history ويعيد المستخدم للنموذج بعد ومضة قصيرة.
+  // state المحلي يُزال تلقائيًا مع unmount، لذلك لا يوجد cleanup مطلوب هنا.
   const [managerSaving, setManagerSaving] = useState(false);
   const [managerForm, setManagerForm] = useState({
     score: '100',
