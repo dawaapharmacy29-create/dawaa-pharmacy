@@ -29,6 +29,59 @@ const outputFile = outputFileArg ? outputFileArg.slice('--output-file='.length).
 
 const ANALYSIS_LOGIC_VERSION = 'whatsapp-analysis-v5-directional-burst';
 
+function inferRelationshipToPrevious(
+  previous: ReturnType<typeof splitWhatsAppSessions>[number] | null,
+  current: ReturnType<typeof splitWhatsAppSessions>[number]
+) {
+  if (!previous) {
+    return {
+      relationshipToPrevious: 'independent' as const,
+      continuationOfSessionIndex: null,
+      relationshipReason: null,
+    };
+  }
+
+  const currentMeaningful = current.messages.filter((message) =>
+    message.direction !== 'system' && message.text.trim().length > 0
+  );
+  const previousMeaningful = previous.messages.filter((message) =>
+    message.direction !== 'system' && message.text.trim().length > 0
+  );
+  const lastPrevious = previousMeaningful[previousMeaningful.length - 1];
+  const firstCurrent = currentMeaningful[0];
+  const gapHours = (current.startedAt.getTime() - previous.endedAt.getTime()) / 3_600_000;
+
+  const shortOutboundTail =
+    currentMeaningful.length <= 2 &&
+    currentMeaningful.length > 0 &&
+    currentMeaningful.every((message) => message.direction === 'outbound');
+
+  const previousEndedInbound = lastPrevious?.direction === 'inbound';
+  const anaphoricReply = Boolean(firstCurrent && /(?:واحد\s+منهم|اي\s+واحد\s+منهم|أي\s+واحد\s+منهم|الاتنين|الإتنين|منهم|ده|دي|عادي)/i.test(firstCurrent.text));
+  const noFreshOpening = Boolean(firstCurrent && !/(اهلا|أهلا|السلام عليكم|صباح الخير|مساء الخير|مع حضرتك)/i.test(firstCurrent.text));
+
+  if (
+    shortOutboundTail &&
+    previousEndedInbound &&
+    anaphoricReply &&
+    noFreshOpening &&
+    gapHours > 2 &&
+    gapHours <= 12
+  ) {
+    return {
+      relationshipToPrevious: 'continuation' as const,
+      continuationOfSessionIndex: 1,
+      relationshipReason: 'outbound_only_anaphoric_reply_after_previous_inbound_question',
+    };
+  }
+
+  return {
+    relationshipToPrevious: 'independent' as const,
+    continuationOfSessionIndex: null,
+    relationshipReason: null,
+  };
+}
+
 async function loadSources(): Promise<SourceRow[]> {
   let query = supabase
     .from('whatsapp_review_sources')
@@ -51,11 +104,15 @@ async function buildMultiSessionOperational(row: SourceRow, sessions: ReturnType
     const productResolved = await enrichWhatsAppOperationalProductsV6(initial);
     const operational = enrichWhatsAppOperationalJourneysV7(session, productResolved);
 
+    const relationship = inferRelationshipToPrevious(index > 0 ? sessions[index - 1] : null, session);
     built.push({
       sessionIndex: index + 1,
       startedAt: session.startedAt.toISOString(),
       endedAt: session.endedAt.toISOString(),
       messageCount: session.messages.length,
+      ...relationship,
+      continuationOfSessionIndex:
+        relationship.relationshipToPrevious === 'continuation' ? index : null,
       operational: JSON.parse(JSON.stringify(operational)),
     });
   }
