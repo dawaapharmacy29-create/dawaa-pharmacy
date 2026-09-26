@@ -316,7 +316,7 @@ function extractProducts(session: WhatsAppConversationSession): WhatsAppProductS
     // Stock unavailability is a pharmacy-side fact. An inbound question like "مش موجود عندكم؟"
     // must stay a customer request/inquiry and never become stock_unavailable on its own.
     if (message.direction === 'outbound' && /(مش موجود|غير متوفر|ناقص)/i.test(message.text)) status = 'unavailable';
-    found.push({ rawName, normalizedName: normalize(rawName), quantity: quantityFrom(message.text), status, sourceDirection: message.direction, evidenceMessageIds: [message.id], confidence: explicitNamedRecommendation ? 92 : isRecommendation ? 82 : isRequest ? 80 : 64 });
+    found.push({ rawName, normalizedName: normalize(rawName), quantity: quantityFrom(message.text), status, sourceDirection: message.direction, evidenceMessageIds: [message.id], confidence: explicitNamedRecommendation ? 92 : typedNamedProduct ? 90 : isRecommendation ? 82 : isRequest ? 80 : 64 });
   }
   // Resolve a short customer pronoun commitment (e.g. "هحتاجه") back to the
   // most recent explicit inbound product mention in the same session.
@@ -694,7 +694,10 @@ export async function enrichWhatsAppOperationalProductsV6(
       Boolean(product.productId) ||
       (
         product.sourceDirection === 'inbound' &&
-        ['requested', 'unavailable'].includes(product.status) &&
+        (
+          ['requested', 'unavailable'].includes(product.status) ||
+          (product.status === 'mentioned' && product.confidence >= 90)
+        ) &&
         plausibleProductPhrase(product.rawName)
       ) ||
       (
