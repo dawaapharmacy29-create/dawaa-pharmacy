@@ -274,7 +274,7 @@ function extractProducts(session: WhatsAppConversationSession): WhatsAppProductS
       message.direction === 'inbound' &&
       /(?:الدليفري|التوصيل|المندوب)/i.test(message.text) &&
       /(?:بالقطره|بالقطرة|بقطره|بقطرة)/i.test(message.text) &&
-      !/(?:اسم|اسمه|اسمها|نوع|ماركه|ماركة)/i.test(message.text)
+      !/(?:اسم|نوع|ماركه|ماركة)\s+(?:ال)?قطر[هة]/i.test(message.text)
     ) continue;
     const trigger = isRecommendation ? RECOMMEND_RX : isRequest ? REQUEST_RX : PRODUCT_INQUIRY_RX.test(message.text) ? PRODUCT_INQUIRY_RX : null;
     if (!trigger) continue;
