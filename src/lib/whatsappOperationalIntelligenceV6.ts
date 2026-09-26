@@ -447,7 +447,7 @@ export function buildWhatsAppOperationalIntelligenceV6(session: WhatsAppConversa
       deliveryFailure: evidenceFromMessages(fulfillmentFailures, 96),
       checkin: evidenceFor(session, CHECKIN_OUT_RX, 94),
       saleClose: evidenceFor(session, CLOSE_RX, 88),
-      stockUnavailable: evidenceFor({ ...session, messages: byDirection(session, 'outbound') }, /(مش موجود|غير موجود|غير متوفر|ناقص|مش متاح|خلص|مش عندنا)/i, 92),
+      stockUnavailable: evidenceFor({ ...session, messages: byDirection(session, 'outbound') }, /(مش موجود|غير موجود|غير متوفر(?:ه|ة)?|مش متوفر(?:ه|ة)?|ناقص|مش متاح|خلص|مش عندنا)/i, 92),
       alternativeOffered: evidenceFor({ ...session, messages: byDirection(session, 'outbound') }, /(بديل|بداله|بدلها|ممكن بدل|نرشح|ارشح|أرشح|حاجه\s+زيها|حاجة\s+زيها|حاحه\s+زيها|حاحة\s+زيها)/i, 88),
       customerState: evidenceFor(session, state === 'worse' ? WORSE_RX : IMPROVED_RX, state === 'unknown' ? 0 : 88),
     },
