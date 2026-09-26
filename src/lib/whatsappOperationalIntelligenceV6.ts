@@ -805,7 +805,12 @@ export async function enrichWhatsAppOperationalProductsV6(
         ? {
             ...r,
             productName: linked.canonicalName || linked.rawName,
-            evidenceMessageIds: uniq([...r.evidenceMessageIds, ...linked.evidenceMessageIds]),
+            evidenceMessageIds: uniq([
+              ...r.evidenceMessageIds,
+              ...linked.evidenceMessageIds.filter((id) =>
+                session?.messages.some((message) => message.id === id && message.direction === 'inbound')
+              ),
+            ]),
             confidence: Math.max(r.confidence, linked.confidence),
           }
         : r;
