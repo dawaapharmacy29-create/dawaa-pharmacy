@@ -158,6 +158,31 @@ describe('WhatsApp Review V4 unified intelligence', () => {
     expect(journey?.events.some((e) => e.stage === 'alternative_offered')).toBe(false);
   });
 
+  it('keeps image-only stockout and alternative as evidence without inventing product or followup from terminal gratitude', async () => {
+    const s = oneSession(`[1/5/26, 2:26:30 PM] Customer: دي موجوده
+[1/5/26, 2:26:38 PM] Customer: <image omitted>
+[1/5/26, 2:32:56 PM] You: ثواني اشوفه لحضرتك
+[1/5/26, 3:03:42 PM] You: للاسف يا فندم مش متوفره
+[1/5/26, 3:04:20 PM] You: هي صنف مستورد مش بينزل مصر
+[1/5/26, 3:04:44 PM] You: لو حضرتك تحب ممكن ارشح ل حضرتك حاحة زيها
+[1/5/26, 3:06:29 PM] Customer: زي
+[1/5/26, 3:08:19 PM] You: <image omitted>
+[1/5/26, 3:27:55 PM] You: تحت امر حضرتك في اي وقت يا فندم
+[1/5/26, 3:28:16 PM] Customer: الف شكر 🌷`);
+    const base = buildUnifiedConversationIntelligence(s);
+    const withProducts = await enrichWhatsAppOperationalProductsV6(
+      buildWhatsAppOperationalIntelligenceV6(s, base),
+      s
+    );
+    const operational = enrichWhatsAppOperationalJourneysV7(s, withProducts);
+    expect(operational.products).toHaveLength(0);
+    expect(operational.recommendations.some((r) => r.productName == null)).toBe(true);
+    expect(operational.evidence.stockUnavailable.messageIds.length).toBeGreaterThan(0);
+    expect(operational.evidence.alternativeOffered.messageIds.length).toBeGreaterThan(0);
+    expect(operational.followupPlan.required).toBe(false);
+    expect(operational.operationalOutcome).toBe('unknown');
+  });
+
   it('creates a portfolio summary for batch review', () => {
     const raw = `[9/15/26, 9:00:00 AM] Customer: فيتامين د متوفر؟\n[9/15/26, 9:01:00 AM] You: مع حضرتك د هبة من صيدليات دواء. متوفر\n[9/15/26, 9:02:00 AM] Customer: تمام ابعته\n[9/15/26, 9:03:00 AM] You: تم تأكيد الطلب\n[9/15/26, 12:30:00 PM] Customer: منتج تاني موجود؟\n[9/15/26, 12:31:00 PM] You: لا مش موجود`;
     const sessions = splitWhatsAppSessions(parseWhatsAppExport(raw), 120);
