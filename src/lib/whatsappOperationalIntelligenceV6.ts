@@ -140,7 +140,7 @@ const ids = (messages: WhatsAppParsedMessage[], rx: RegExp) => messages.filter((
 const uniq = <T,>(rows: T[]) => [...new Set(rows)];
 
 const REQUEST_RX = /(هحتاجه|هحتاجها|هاخده|هاخدها|عايزه|عاوزه|محتاجه|عايزين|محتاجين|عايز|عاوز|محتاج|ممكن|ابعت|ابعث|هات|اطلب|أطلب|متوفر|موجود عندكم|عندكم)/i;
-const CUSTOMER_REQUEST_INTENT_RX = /(هحتاجه|هحتاجها|هاخده|هاخدها|عايزه|عاوزه|محتاجه|عايزين|محتاجين|عايز|عاوز|محتاج|ابعت|ابعث|ابعته|ابعتي|تبعتها|تبعته|هات|اطلب|أطلب|متوفر|موجود عندكم|عندكم|ممكن\s+(?:ابعت|ابعث|هات|اطلب|توصيل|الدليفري|المندوب)|الدليفري\s+يجيلي|التوصيل)/i;
+const CUSTOMER_REQUEST_INTENT_RX = /(هحتاجه|هحتاجها|هاخده|هاخدها|عايزه|عاوزه|محتاجه|عايزين|محتاجين|عايز|عاوز|محتاج|ابعت|ابعث|ابعته|ابعتي|ابعتيها|تبعتها|تبعته|تبعتيها|هات|اطلب|أطلب|متوفر|موجود عندكم|عندكم|ممكن\s+(?:ابعت|ابعث|هات|اطلب|توصيل|الدليفري|المندوب)|الدليفري\s+يجيلي|التوصيل)/i;
 const PRODUCT_INQUIRY_RX = /(بكام|سعر|متوفر|متاح|موجود|عندكم|فيه|في من|العبوه|العبوة|تركيز|كام قرص|كام شريط|توضيح\s+عن\s+(?:ال)?منتج|استعماله\s+ازاي|استخدامه\s+ازاي|بيستخدم\s+ازاي)/i;
 const INFO_ONLY_PRODUCT_INQUIRY_RX = /(توضيح\s+عن\s+(?:ال)?منتج|استعماله\s+ازاي|استخدامه\s+ازاي|بيستخدم\s+ازاي)/i;
 const POSITIVE_SERVICE_FEEDBACK_RX = /(كله\s+تمام|كل\s+حاجه\s+تمام|كل\s+حاجة\s+تمام|خدمه[^\n]{0,80}ذوق|خدمة[^\n]{0,80}ذوق|ربنا\s+يباركلكم|عند\s+حسن\s+ظن)/i;
@@ -163,7 +163,7 @@ const WORSE_RX = /(لسه تعبان|لسه تعبانه|اسوء|أسوأ|زا�
 const FOLLOWUP_PROMISE_RX = /(هتابع|هتواصل|هنتواصل|هبلغ|هرجع|هنرجع|اول ما|أول ما|لما يتوفر|هنوفره|هطلبه|هطلبها|بكرا[^\n]{0,80}(?:هبعت|ابعت|هصور)|غدا[^\n]{0,80}(?:هبعت|ابعت|هصور))/i;
 const CLOSE_RX = /(تم تأكيد|تم التاكيد|الأوردر اتأكد|الاوردر اتاكد|تم الارسال|تم الإرسال|خرج لحضرتك|فاتوره|فاتورة|الاجمالي|الإجمالي)/i;
 const URGENT_RX = /(ضروري|عاجل|حالاً|حالا|مستعجل|مستعجله)/i;
-const ANAPHORIC_COMMIT_RX = /(^|\s)(هحتاجه|هحتاجها|هاخده|هاخدها)(\s|$)/i;
+const ANAPHORIC_COMMIT_RX = /(^|\s)(هحتاجه|هحتاجها|هاخده|هاخدها|ابعته|ابعتيها|ابعتهالي|تبعتها|تبعتيها)(\s|$)/i;
 const PRODUCT_TYPE_NAMED_RX = /^(?:مزيل)\s+([\p{L}\p{N}][\p{L}\p{N} .+-]{1,60})$/iu;
 
 function evidenceFor(session: WhatsAppConversationSession, rx: RegExp, confidence: number): WhatsAppEvidence {
@@ -365,7 +365,36 @@ function extractProducts(session: WhatsAppConversationSession): WhatsAppProductS
     if (message.direction === 'outbound' && /(مش موجود|غير متوفر|ناقص)/i.test(message.text)) status = 'unavailable';
     found.push({ rawName, normalizedName: normalize(rawName), quantity: quantityFrom(message.text), status, sourceDirection: message.direction, evidenceMessageIds: [message.id], confidence: explicitNamedRecommendation ? 92 : typedNamedProduct ? 90 : isRecommendation ? 82 : isRequest ? 80 : 64 });
   }
-  // Resolve a short customer pronoun commitment (e.g. "هحتاجه") back to the
+  // A short inbound inquiry may use a shortened product name, while the pharmacy
+  // immediately expands it in the reply with a price (e.g. "الديرما" -> "الديرما رول").
+  // Refine only from a nearby outbound phrase that contains the original normalized name.
+  for (const product of found) {
+    if (product.sourceDirection !== 'inbound') continue;
+    const evidenceIndex = session.messages.findIndex((message) => product.evidenceMessageIds.includes(message.id));
+    if (evidenceIndex < 0) continue;
+    const nearbyOutbound = session.messages
+      .slice(evidenceIndex + 1, evidenceIndex + 6)
+      .filter((message) => message.direction === 'outbound' && message.kind === 'text');
+    for (const message of nearbyOutbound) {
+      const match = message.text.trim().match(/^(.{2,60}?)(?:\s+(?:يفندم|يافندم|يا\s+فندم)|\s+ب[٠-٩0-9])/i);
+      const candidate = match?.[1] ? cleanProductPhrase(match[1]) : '';
+      if (!candidate) continue;
+      const normalizedCandidate = normalize(candidate);
+      if (
+        normalizedCandidate.includes(product.normalizedName) &&
+        normalizedCandidate !== product.normalizedName &&
+        candidate.split(/\s+/).length <= 4
+      ) {
+        product.rawName = candidate;
+        product.normalizedName = normalizedCandidate;
+        product.confidence = Math.max(product.confidence, 88);
+        product.evidenceMessageIds = uniq([...product.evidenceMessageIds, message.id]);
+        break;
+      }
+    }
+  }
+
+  // Resolve a short customer pronoun commitment (e.g. "هحتاجه" / "تبعتيها") back to the
   // most recent explicit inbound product mention in the same session.
   for (let index = 0; index < session.messages.length; index += 1) {
     const message = session.messages[index];
