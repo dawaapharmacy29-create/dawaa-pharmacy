@@ -306,7 +306,12 @@ export function buildWhatsAppProductJourneyV7(
     const events: WhatsAppProductJourneyEventV7[] = [];
 
     if (product.status === 'requested' || (product.sourceDirection === 'inbound' && product.status !== 'mentioned')) {
-      events.push(event('requested', session.messages.filter((m) => product.evidenceMessageIds.includes(m.id)), Math.max(75, product.confidence), 'العميل طلب/استفسر عن الصنف.'));
+      events.push(event(
+        'requested',
+        session.messages.filter((m) => product.evidenceMessageIds.includes(m.id) && m.direction === 'inbound'),
+        Math.max(75, product.confidence),
+        'العميل طلب/استفسر عن الصنف.'
+      ));
     }
     if (product.status === 'recommended') {
       events.push(event('recommended', session.messages.filter((m) => product.evidenceMessageIds.includes(m.id)), Math.max(78, product.confidence), 'الصنف ظهر كترشيح من الصيدلية.'));
@@ -397,7 +402,7 @@ export function buildWhatsAppProductJourneyV7(
   else if (journeys.some((j) => j.currentStage === 'accepted')) nextBestCommercialAction = 'راجع الطلبات التي وافق عليها العميل ولم يظهر لها تأكيد أوردر نهائي من الصيدلية.';
   else if (journeys.some((j) => j.currentStage === 'availability_confirmed')) nextBestCommercialAction = 'راجع الأصناف المتوفرة التي لم يتحول تأكيد توفرها إلى إغلاق أوردر.';
   else if (chatClosedProducts > 0) nextBestCommercialAction = 'طابق الأوردرات المغلقة مع الفواتير اليومية قبل احتساب التحويل البيعي.';
-  else if (followupProducts > 0) nextBestCommercialAction = 'حوّل الترشيحات المقبولة إلى متابعات بعد الاستخدام.';
+  else if (followupProducts > 0) nextBestCommercialAction = 'تابع الطلبات أو الترشيحات المفتوحة حسب خطة المتابعة المسجلة.';
 
   return {
     version: 'whatsapp-product-journey-v7',
