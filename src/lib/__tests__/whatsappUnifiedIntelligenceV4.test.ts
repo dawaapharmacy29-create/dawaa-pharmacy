@@ -357,6 +357,12 @@ describe('WhatsApp Review V4 unified intelligence', () => {
     );
     expect(operational.products.some((p) => p.rawName === 'الديرما رول' && p.status === 'requested')).toBe(true);
     expect(operational.customerRequests.some((r) => r.productName === 'الديرما رول')).toBe(true);
+    expect(operational.customerRequests.flatMap((r) => r.evidenceMessageIds).every((id) =>
+      s.messages.some((message) => message.id === id && message.direction === 'inbound')
+    )).toBe(true);
+    expect(operational.evidence.request.messageIds.every((id) =>
+      s.messages.some((message) => message.id === id && message.direction === 'inbound')
+    )).toBe(true);
     expect(operational.operationalOutcome).toBe('needs_followup');
   });
 
