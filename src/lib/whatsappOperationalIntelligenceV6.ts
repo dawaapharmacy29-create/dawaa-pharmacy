@@ -496,11 +496,17 @@ export function buildWhatsAppOperationalIntelligenceV6(session: WhatsAppConversa
   else if (intents.primary === 'proactive_checkin' || intents.primary === 'followup_response') operationalOutcome = state === 'improved' ? 'checkin_complete' : state === 'worse' ? 'needs_followup' : 'unknown';
   else if (rejected) operationalOutcome = 'no_sale';
   else if (close && (intents.primary === 'customer_request' || base.commercialEligible || acceptedRecommendation)) operationalOutcome = 'probable_sale';
+  else if (
+    intents.primary === 'customer_request' &&
+    has(inbound, PAYMENT_SERVICE_RX) &&
+    has(inbound, ANAPHORIC_COMMIT_RX)
+  ) operationalOutcome = 'probable_sale';
   else if (requests.some((r) => r.unresolved) && has(outbound, FOLLOWUP_PROMISE_RX)) operationalOutcome = 'needs_followup';
   else if (requests.some((r) => r.unresolved)) operationalOutcome = 'unresolved_request';
   else if (acceptedRecommendation) operationalOutcome = 'needs_followup';
   else if (intents.primary === 'medical_consultation') operationalOutcome = 'consultation_only';
-  else if (base.followupRequired || has(outbound, FOLLOWUP_PROMISE_RX)) operationalOutcome = 'needs_followup';
+  else if (has(outbound, FOLLOWUP_PROMISE_RX)) operationalOutcome = 'needs_followup';
+  else if (base.followupRequired && intents.primary !== 'doctor_recommendation') operationalOutcome = 'needs_followup';
 
   let followupRequired = base.followupRequired;
   let followupReason: string | null = base.suggestedFollowupReason || null;
