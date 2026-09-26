@@ -136,8 +136,8 @@ const has = (value: string, rx: RegExp) => rx.test(value);
 const ids = (messages: WhatsAppParsedMessage[], rx: RegExp) => messages.filter((m) => rx.test(m.text)).map((m) => m.id).slice(0, 10);
 const uniq = <T,>(rows: T[]) => [...new Set(rows)];
 
-const REQUEST_RX = /(عايزه|عاوزه|محتاجه|عايزين|محتاجين|عايز|عاوز|محتاج|ممكن|ابعت|ابعث|هات|اطلب|أطلب|متوفر|موجود عندكم|عندكم)/i;
-const PRODUCT_INQUIRY_RX = /(بكام|سعر|متوفر|موجود|عندكم|فيه|في من|العبوه|العبوة|تركيز|كام قرص|كام شريط)/i;
+const REQUEST_RX = /(هحتاجه|هحتاجها|هاخده|هاخدها|عايزه|عاوزه|محتاجه|عايزين|محتاجين|عايز|عاوز|محتاج|ممكن|ابعت|ابعث|هات|اطلب|أطلب|متوفر|موجود عندكم|عندكم)/i;
+const PRODUCT_INQUIRY_RX = /(بكام|سعر|متوفر|متاح|موجود|عندكم|فيه|في من|العبوه|العبوة|تركيز|كام قرص|كام شريط)/i;
 const RECOMMEND_RX = /(ارشح|أرشح|نرشح|ترشيح|انصح|أنصح|ممكن تستخدم|ممكن تاخد|ممكن تاخدي|الافضل|الأفضل|بديل|بداله|بدلها)/i;
 const ACCEPT_RX = /(^|\s)(تمام|ماشي|موافق|اوكي|أوكي|خلاص|ابعت|ابعته|ابعتي|هات|هاته|هاخده|هاخدها|هجربه|هجربها|تمام كده|تمام كدا)(\s|$)/i;
 const REJECT_RX = /(لا شكرا|مش عايز|مش عاوز|مش محتاج|غالي|مش مناسب|مش هاخد|مش هطلب|بلاش)/i;
@@ -151,7 +151,7 @@ const CHECKIN_OUT_RX = /(حابين نطمن|حبيت اطمن|حبيت أطمن
 const IMPROVED_RX = /(احسن|أحسن|افضل|أفضل|كويس|كويسه|كويسة|الحمدلله|الحمد لله|اتحسن|اتحسنت|تحسن|خف|خفت|تمام دلوقتي|بقيت كويس)/i;
 const WORSE_RX = /(لسه تعبان|لسه تعبانه|اسوء|أسوأ|زادت|زاد الوجع|مفيش تحسن|مافيش تحسن|زي ما هو|زي ماهو)/i;
 const FOLLOWUP_PROMISE_RX = /(هتابع|هتواصل|هبلغ|هرجع|هنرجع|اول ما|أول ما|لما يتوفر|هنوفره|هطلبه|هطلبها)/i;
-const CLOSE_RX = /(تم تأكيد|تم التاكيد|الأوردر اتأكد|الاوردر اتاكد|جاري الارسال|جاري الإرسال|خرج لحضرتك|فاتوره|فاتورة|الاجمالي|الإجمالي)/i;
+const CLOSE_RX = /(تم تأكيد|تم التاكيد|الأوردر اتأكد|الاوردر اتاكد|تم الارسال|تم الإرسال|جاري الارسال|جاري الإرسال|خرج لحضرتك|فاتوره|فاتورة|الاجمالي|الإجمالي)/i;
 const URGENT_RX = /(ضروري|عاجل|حالاً|حالا|دلوقتي|مستعجل|مستعجله)/i;
 
 function evidenceFor(session: WhatsAppConversationSession, rx: RegExp, confidence: number): WhatsAppEvidence {
@@ -295,6 +295,27 @@ function extractProducts(session: WhatsAppConversationSession): WhatsAppProductS
     if (message.direction === 'outbound' && /(مش موجود|غير متوفر|ناقص)/i.test(message.text)) status = 'unavailable';
     found.push({ rawName, normalizedName: normalize(rawName), quantity: quantityFrom(message.text), status, sourceDirection: message.direction, evidenceMessageIds: [message.id], confidence: isRecommendation ? 82 : isRequest ? 80 : 64 });
   }
+  // Resolve a short customer pronoun commitment (e.g. "هحتاجه") back to the
+  // most recent explicit inbound product mention in the same session.
+  for (let index = 0; index < session.messages.length; index += 1) {
+    const message = session.messages[index];
+    if (
+      message.direction !== 'inbound' ||
+      !/(^|\s)(هحتاجه|هحتاجها|هاخده|هاخدها)(\s|$)/i.test(message.text)
+    ) continue;
+
+    const previousProduct = [...found].reverse().find((item) => {
+      if (item.sourceDirection !== 'inbound') return false;
+      const evidenceIndex = session.messages.findIndex((row) => item.evidenceMessageIds.includes(row.id));
+      return evidenceIndex >= 0 && evidenceIndex < index;
+    });
+    if (previousProduct) {
+      previousProduct.status = 'requested';
+      previousProduct.confidence = Math.max(previousProduct.confidence, 88);
+      previousProduct.evidenceMessageIds = uniq([...previousProduct.evidenceMessageIds, message.id]);
+    }
+  }
+
   const merged = new Map<string, WhatsAppProductSignal>();
   for (const item of found) {
     const key = item.normalizedName;
