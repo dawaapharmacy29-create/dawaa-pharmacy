@@ -153,6 +153,7 @@ const WORSE_RX = /(لسه تعبان|لسه تعبانه|اسوء|أسوأ|زا�
 const FOLLOWUP_PROMISE_RX = /(هتابع|هتواصل|هبلغ|هرجع|هنرجع|اول ما|أول ما|لما يتوفر|هنوفره|هطلبه|هطلبها)/i;
 const CLOSE_RX = /(تم تأكيد|تم التاكيد|الأوردر اتأكد|الاوردر اتاكد|تم الارسال|تم الإرسال|جاري الارسال|جاري الإرسال|خرج لحضرتك|فاتوره|فاتورة|الاجمالي|الإجمالي)/i;
 const URGENT_RX = /(ضروري|عاجل|حالاً|حالا|دلوقتي|مستعجل|مستعجله)/i;
+const ANAPHORIC_COMMIT_RX = /(^|\s)(هحتاجه|هحتاجها|هاخده|هاخدها)(\s|$)/i;
 
 function evidenceFor(session: WhatsAppConversationSession, rx: RegExp, confidence: number): WhatsAppEvidence {
   const matches = session.messages.filter((m) => rx.test(m.text));
@@ -268,6 +269,7 @@ function extractProducts(session: WhatsAppConversationSession): WhatsAppProductS
     if (message.direction === 'system' || message.kind !== 'text') continue;
     const isRequest = message.direction === 'inbound' && REQUEST_RX.test(message.text);
     const isRecommendation = message.direction === 'outbound' && RECOMMEND_RX.test(message.text);
+    if (message.direction === 'inbound' && ANAPHORIC_COMMIT_RX.test(message.text)) continue;
     const trigger = isRecommendation ? RECOMMEND_RX : isRequest ? REQUEST_RX : PRODUCT_INQUIRY_RX.test(message.text) ? PRODUCT_INQUIRY_RX : null;
     if (!trigger) continue;
     let rawName = extractAfterTrigger(message, trigger);
@@ -301,7 +303,7 @@ function extractProducts(session: WhatsAppConversationSession): WhatsAppProductS
     const message = session.messages[index];
     if (
       message.direction !== 'inbound' ||
-      !/(^|\s)(هحتاجه|هحتاجها|هاخده|هاخدها)(\s|$)/i.test(message.text)
+      !ANAPHORIC_COMMIT_RX.test(message.text)
     ) continue;
 
     const previousProduct = [...found].reverse().find((item) => {
