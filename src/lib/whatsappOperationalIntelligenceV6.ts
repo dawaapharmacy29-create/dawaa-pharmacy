@@ -109,6 +109,21 @@ export interface WhatsAppOperationalContext {
   createdBy?: string | null;
 }
 
+
+export interface WhatsAppMultiSessionOperationalSessionV1 {
+  sessionIndex: number;
+  startedAt: string;
+  endedAt: string;
+  messageCount: number;
+  operational: WhatsAppOperationalIntelligenceV6;
+}
+
+export interface WhatsAppMultiSessionOperationalV1 {
+  version: 'whatsapp-multi-session-operational-v1';
+  sessionCount: number;
+  sessions: WhatsAppMultiSessionOperationalSessionV1[];
+}
+
 const normalize = (value: unknown) => String(value ?? '')
   .trim().toLowerCase()
   .replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه')
