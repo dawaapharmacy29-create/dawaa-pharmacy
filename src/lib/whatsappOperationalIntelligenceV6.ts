@@ -160,7 +160,7 @@ const MEDICAL_RX = /(اعراض|أعراض|جرعه|جرعة|كحه|كحة|حر�
 const CHECKIN_OUT_RX = /(حابين نطمن|حابه اطمن|حابة اطمن|حابه أطمن|حابة أطمن|حبيت اطمن|حبيت أطمن|بنطمن|نطمن علي|نطمن على|اخبار حضرتك|أخبار حضرتك|بقيت|بقت|عامل ايه|عامله ايه|الدوا جاب نتيجه|العلاج جاب نتيجه)/i;
 const IMPROVED_RX = /(احسن|أحسن|اتحسن|اتحسنت|تحسن|خف|خفت|تمام دلوقتي|بقيت كويس|بقيت\s+كويسه|بقيت\s+كويسة|بقيت\s+(?:افضل|أفضل))/i;
 const WORSE_RX = /(لسه تعبان|لسه تعبانه|اسوء|أسوأ|زادت|زاد الوجع|مفيش تحسن|مافيش تحسن|زي ما هو|زي ماهو)/i;
-const FOLLOWUP_PROMISE_RX = /(هتابع|هتواصل|هبلغ|هرجع|هنرجع|اول ما|أول ما|لما يتوفر|هنوفره|هطلبه|هطلبها)/i;
+const FOLLOWUP_PROMISE_RX = /(هتابع|هتواصل|هبلغ|هرجع|هنرجع|اول ما|أول ما|لما يتوفر|هنوفره|هطلبه|هطلبها|بكرا[^\n]{0,80}(?:هبعت|ابعت|هصور)|غدا[^\n]{0,80}(?:هبعت|ابعت|هصور))/i;
 const CLOSE_RX = /(تم تأكيد|تم التاكيد|الأوردر اتأكد|الاوردر اتاكد|تم الارسال|تم الإرسال|جاري الارسال|جاري الإرسال|خرج لحضرتك|فاتوره|فاتورة|الاجمالي|الإجمالي)/i;
 const URGENT_RX = /(ضروري|عاجل|حالاً|حالا|مستعجل|مستعجله)/i;
 const ANAPHORIC_COMMIT_RX = /(^|\s)(هحتاجه|هحتاجها|هاخده|هاخدها)(\s|$)/i;
@@ -221,7 +221,12 @@ function classifyIntents(session: WhatsAppConversationSession) {
   if (!proactiveCheckinMessages(session).length && has(inbound, IMPROVED_RX) && session.messages.length <= 8) add('followup_response', 86);
   if (!scored.length) add('general_service', 55);
   scored.sort((a, b) => b[1] - a[1]);
-  return { primary: scored[0][0], confidence: scored[0][1], secondary: uniq(scored.slice(1).filter(([,s]) => s >= 70).map(([i]) => i)) };
+  const primary = scored[0][0];
+  return {
+    primary,
+    confidence: scored[0][1],
+    secondary: uniq(scored.slice(1).filter(([,s]) => s >= 70).map(([i]) => i)).filter((intent) => intent !== primary),
+  };
 }
 
 const GENERIC_NON_PRODUCT_RX =
@@ -295,7 +300,9 @@ function extractProducts(session: WhatsAppConversationSession): WhatsAppProductS
       previous?.direction === 'outbound' &&
       PRODUCT_SELECTION_PROMPT_RX.test(previous.text) &&
       /^\s*[\p{L}\p{N}][\p{L}\p{N} .+-]{1,40}\s*$/u.test(message.text) &&
-      !PAYMENT_SERVICE_RX.test(message.text);
+      !PAYMENT_SERVICE_RX.test(message.text) &&
+      !RECOMMENDATION_REQUEST_RX.test(message.text) &&
+      !/^(?:افضل|أفضل)\s+(?:حاجه|حاجة)\s+(?:ايه|إيه)$/i.test(message.text.trim());
     const isRequest = message.direction === 'inbound' && REQUEST_RX.test(message.text) && !infoOnlyInquiry && !genericNeedRequest && !paymentServiceMessage;
     const isRecommendation = message.direction === 'outbound' && RECOMMEND_RX.test(message.text);
     const typedNamedProduct = message.direction === 'inbound'
@@ -456,6 +463,7 @@ export function buildWhatsAppOperationalIntelligenceV6(session: WhatsAppConversa
   else if (fulfillmentFailure) { followupRequired = true; followupReason = 'تعثر تنفيذ/توصيل مثبت من المحادثة ولم يظهر إتمام نهائي للطلب.'; dueInDays = 0; priority = 'urgent'; followupEvidence = fulfillmentFailures.map((message) => message.id).slice(0, 10); }
   else if (operationalOutcome === 'unresolved_request') { followupRequired = true; followupReason = 'طلب عميل لم يظهر له إغلاق بيع أو رفض صريح.'; dueInDays = 1; priority = has(all, URGENT_RX) ? 'urgent' : 'important'; followupEvidence = requests.flatMap((r) => r.evidenceMessageIds); }
   else if (acceptedRecommendation) { followupRequired = true; followupReason = 'العميل وافق على ترشيح من الدكتور ويستحق متابعة النتيجة بعد الاستخدام.'; dueInDays = 3; priority = 'important'; followupEvidence = recs.filter((r) => r.accepted).flatMap((r) => r.evidenceMessageIds); }
+  else if (has(outbound, FOLLOWUP_PROMISE_RX) && !close) { followupRequired = true; followupReason = 'الصيدلية وعدت العميل بإرسال صور/معلومة لاحقًا ولم يظهر التنفيذ داخل نفس الجلسة.'; dueInDays = 1; priority = 'important'; followupEvidence = ids(byDirection(session, 'outbound'), FOLLOWUP_PROMISE_RX); }
   else if (state === 'worse') { followupRequired = true; followupReason = 'العميل أفاد بعدم التحسن/تدهور الحالة ويحتاج متابعة.'; dueInDays = 0; priority = 'important'; followupEvidence = ids(session.messages, WORSE_RX); }
   else if (operationalOutcome === 'checkin_complete') { followupRequired = false; followupReason = null; dueInDays = null; followupEvidence = ids(session.messages, IMPROVED_RX); }
 
@@ -489,7 +497,10 @@ export function buildWhatsAppOperationalIntelligenceV6(session: WhatsAppConversa
     followupPlan: { required: followupRequired, reason: followupReason, ownerRole: followupRequired ? 'team_dawaa_alpha' : null, dueInDays, priority, evidenceMessageIds: uniq(followupEvidence) },
     nextBestAction, officialScoringEligible, intentConfidence, outcomeConfidence,
     evidence: {
-      request: evidenceFor({ ...session, messages: byDirection(session, 'inbound') }, CUSTOMER_REQUEST_INTENT_RX, 85), recommendation: evidenceFor(session, RECOMMEND_RX, 88),
+      request: evidenceFromMessages(
+        session.messages.filter((message) => requests.some((request) => request.evidenceMessageIds.includes(message.id))),
+        requests.length ? 90 : 0
+      ), recommendation: evidenceFor(session, RECOMMEND_RX, 88),
       complaint: evidenceFromMessages(complaintRows, 95),
       deliveryFailure: evidenceFromMessages(fulfillmentFailures, 96),
       checkin: evidenceFromMessages(proactiveCheckinMessages(session), 94),
