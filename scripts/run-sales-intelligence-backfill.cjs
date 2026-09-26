@@ -26,6 +26,13 @@ const knownBranchOnly = process.argv.includes('--known-branch-only');
 const itemReadyOnly = process.argv.includes('--item-ready-only');
 const groundTruth = process.argv.includes('--ground-truth');
 const jsonOutput = process.argv.includes('--json');
+const sourceIdsArg = process.argv.find((arg) => arg.startsWith('--source-ids='));
+const sourceIds = new Set(
+  String(sourceIdsArg?.slice('--source-ids='.length) ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean)
+);
 
 const GROUND_TRUTH = {
   sourceId: 'f09471e8-64f4-45d1-859c-17ba97b19259',
@@ -45,7 +52,7 @@ if (groundTruth && apply) {
   console.error('--ground-truth is a read-only regression gate and cannot be combined with --apply.');
   process.exit(2);
 }
-if (groundTruth && (allSources || itemReadyOnly || knownBranchOnly)) {
+if (groundTruth && (allSources || itemReadyOnly || knownBranchOnly || sourceIds.size > 0)) {
   console.error('--ground-truth uses its own fixed source scope and cannot be combined with other scope flags.');
   process.exit(2);
 }
@@ -214,6 +221,19 @@ async function fetchReviewSources(itemReadiness = null) {
     'reviewer_id',
   ].join(',');
 
+  if (sourceIds.size > 0) {
+    const rows = [];
+    for (const group of chunks([...sourceIds], 100)) {
+      const { data, error } = await supabase
+        .from('whatsapp_review_sources')
+        .select(select)
+        .in('id', group);
+      if (error) throw error;
+      rows.push(...(data || []));
+    }
+    return rows;
+  }
+
   if (allSources || groundTruth) {
     const rows = [];
     let from = 0;
@@ -253,6 +273,8 @@ function summarize(result, sourceCount, readinessBefore, readinessAfter = null) 
     ? 'truth-v2-ground-truth'
     : allSources
       ? (knownBranchOnly ? 'all-canonical-review-sources-with-known-branch' : 'all-review-sources')
+      : sourceIds.size > 0
+      ? 'targeted-source-ids'
       : itemReadyOnly
         ? 'existing-cases-whose-selected-invoice-now-has-item-evidence'
         : 'existing-sales-intelligence-conversations';
@@ -315,6 +337,8 @@ function summarize(result, sourceCount, readinessBefore, readinessAfter = null) 
         ? 'TRUTH V2 GROUND TRUTH — real source/case regression'
         : allSources
           ? (knownBranchOnly ? 'ALL whatsapp_review_sources WITH KNOWN BRANCH ONLY' : 'ALL whatsapp_review_sources')
+          : sourceIds.size > 0
+          ? `TARGETED source ids (${sourceIds.size})`
           : itemReadyOnly
             ? 'existing cases whose currently selected invoice now has item evidence'
             : 'existing Sales Intelligence conversations only'
