@@ -479,7 +479,16 @@ export function buildWhatsAppOperationalIntelligenceV6(session: WhatsAppConversa
 
   const requests: WhatsAppRequestSignal[] = products
     .filter((p) => ['requested','unavailable'].includes(p.status) && p.sourceDirection === 'inbound')
-    .map((p) => ({ productName: p.rawName, quantity: p.quantity, urgency: has(inbound, URGENT_RX) ? 'urgent' : 'normal', unresolved: !close && !rejected, evidenceMessageIds: p.evidenceMessageIds, confidence: p.confidence }));
+    .map((p) => ({
+      productName: p.rawName,
+      quantity: p.quantity,
+      urgency: has(inbound, URGENT_RX) ? 'urgent' : 'normal',
+      unresolved: !close && !rejected,
+      evidenceMessageIds: p.evidenceMessageIds.filter((id) =>
+        session.messages.some((message) => message.id === id && message.direction === 'inbound')
+      ),
+      confidence: p.confidence,
+    }));
 
   let operationalOutcome: WhatsAppOperationalOutcome = 'unknown';
   if (fulfillmentFailure) operationalOutcome = 'unresolved_request';
