@@ -11,6 +11,10 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
+      "source": "/api/sales-intelligence-refresh-source",
+      "destination": "/api/sales-intelligence-refresh-source.ts"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
