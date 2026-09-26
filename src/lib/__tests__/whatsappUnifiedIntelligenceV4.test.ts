@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseWhatsAppExport, splitWhatsAppSessions } from '@/lib/whatsappConversationParser';
 import { buildUnifiedConversationIntelligence, summarizePortfolio } from '@/lib/whatsappUnifiedIntelligenceV4';
-import { buildWhatsAppOperationalIntelligenceV6 } from '@/lib/whatsappOperationalIntelligenceV6';
+import { buildWhatsAppOperationalIntelligenceV6, enrichWhatsAppOperationalProductsV6 } from '@/lib/whatsappOperationalIntelligenceV6';
 
 function oneSession(raw: string) {
   const messages = parseWhatsAppExport(raw);
@@ -118,7 +118,7 @@ describe('WhatsApp Review V4 unified intelligence', () => {
     expect(operational.followupPlan.priority).not.toBe('urgent');
   });
 
-  it('captures a named recommendation without treating best-product wording or image request as recovery or purchase intent', () => {
+  it('captures a named recommendation without treating best-product wording or image request as recovery or purchase intent', async () => {
     const s = oneSession(`[1/5/26, 7:46:51 AM] Customer: افضل منتج لتخسيس ايه
 [1/5/26, 7:48:34 AM] Customer: ٣٤
 [1/5/26, 7:48:45 AM] Customer: وفي ضغط
@@ -127,7 +127,10 @@ describe('WhatsApp Review V4 unified intelligence', () => {
 [1/5/26, 7:51:27 AM] Customer: وسعره
 [1/5/26, 7:52:51 AM] You: 375 باذن الله`);
     const base = buildUnifiedConversationIntelligence(s);
-    const operational = buildWhatsAppOperationalIntelligenceV6(s, base);
+    const operational = await enrichWhatsAppOperationalProductsV6(
+      buildWhatsAppOperationalIntelligenceV6(s, base),
+      s
+    );
     expect(operational.primaryIntent).toBe('doctor_recommendation');
     expect(operational.secondaryIntents).toContain('medical_consultation');
     expect(operational.secondaryIntents).not.toContain('customer_request');
