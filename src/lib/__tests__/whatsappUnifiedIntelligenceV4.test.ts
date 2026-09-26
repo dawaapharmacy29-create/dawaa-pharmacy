@@ -322,6 +322,57 @@ describe('WhatsApp Review V4 unified intelligence', () => {
     expect(operational.followupPlan.reason).toContain('إرسال صور');
   });
 
+  it('treats a stock-arrival promise as active fulfillment followup without sale leakage', async () => {
+    const s = oneSession(`[5/13/26, 10:01:12 AM] Customer: محتاج العسل ده
+[5/13/26, 10:12:26 AM] You: طلبته لحضرتك هيوصل اليوم ان شاء الله
+[5/13/26, 10:18:29 AM] Customer: ولما يجهز هستأذنك تعرفيني علشان ابقه منتظره
+[5/13/26, 11:04:17 AM] You: مفيش مشكله اول ميصل هنتواصل مع حضرتك.`);
+    const base = buildUnifiedConversationIntelligence(s);
+    const withProducts = await enrichWhatsAppOperationalProductsV6(
+      buildWhatsAppOperationalIntelligenceV6(s, base),
+      s
+    );
+    const operational = enrichWhatsAppOperationalJourneysV7(s, withProducts);
+    expect(operational.operationalOutcome).toBe('needs_followup');
+    expect(operational.followupPlan.required).toBe(true);
+    expect(operational.followupPlan.reason).toContain('مسار توفير/تجهيز');
+    expect(operational.productJourney.saleLeakageCount).toBe(0);
+    expect(operational.productJourney.journeys[0]?.currentStage).toBe('needs_followup');
+  });
+
+  it('refines derma to derma roll and resolves a later send-it request to the same product', async () => {
+    const s = oneSession(`[5/15/26, 9:01:00 AM] Customer: سعر الديرما كام
+[5/15/26, 9:01:46 AM] You: وعليكم السلام ورحمه الله وبركاته
+[5/15/26, 9:02:12 AM] You: اهلا ب حضرتك ي فندم مع حضرتك د هدى من صيدليات دواء
+[5/15/26, 9:02:23 AM] Customer: صباح الخير يا دكتوره
+[5/15/26, 9:02:26 AM] You: لحظة واحده هشوفه لحضرتك يا فندم
+[5/15/26, 9:02:31 AM] Customer: تمام
+[5/15/26, 9:03:17 AM] You: الديرما رول يفندم ب٢٥٠ حضرتك
+[5/15/26, 9:12:06 AM] Customer: هستأذنك تبعتيها
+[5/15/26, 9:48:36 AM] You: هنتواصل مع حضرتك اول ما نوفرها وهنشوف الوقت والمكان المناسب لحضرتك`);
+    const base = buildUnifiedConversationIntelligence(s);
+    const operational = await enrichWhatsAppOperationalProductsV6(
+      buildWhatsAppOperationalIntelligenceV6(s, base),
+      s
+    );
+    expect(operational.products.some((p) => p.rawName === 'الديرما رول' && p.status === 'requested')).toBe(true);
+    expect(operational.customerRequests.some((r) => r.productName === 'الديرما رول')).toBe(true);
+    expect(operational.operationalOutcome).toBe('needs_followup');
+  });
+
+  it('does not treat sending intent as a confirmed sale when customer schedules tomorrow instead', async () => {
+    const s = oneSession(`[5/15/26, 2:44:33 PM] You: جاري الارسال
+[5/15/26, 2:45:45 PM] Customer: إرسال ايه
+[5/15/26, 2:46:31 PM] You: الديرما موجوده
+[5/15/26, 2:46:38 PM] You: ابعتها لحضرتك ؟
+[5/15/26, 2:46:41 PM] You: ولا بكره ؟
+[5/15/26, 2:46:46 PM] Customer: بكره ان شاء الله`);
+    const base = buildUnifiedConversationIntelligence(s);
+    const operational = buildWhatsAppOperationalIntelligenceV6(s, base);
+    expect(operational.operationalOutcome).not.toBe('probable_sale');
+    expect(operational.evidence.saleClose.messageIds).toHaveLength(0);
+  });
+
   it('creates a portfolio summary for batch review', () => {
     const raw = `[9/15/26, 9:00:00 AM] Customer: فيتامين د متوفر؟\n[9/15/26, 9:01:00 AM] You: مع حضرتك د هبة من صيدليات دواء. متوفر\n[9/15/26, 9:02:00 AM] Customer: تمام ابعته\n[9/15/26, 9:03:00 AM] You: تم تأكيد الطلب\n[9/15/26, 12:30:00 PM] Customer: منتج تاني موجود؟\n[9/15/26, 12:31:00 PM] You: لا مش موجود`;
     const sessions = splitWhatsAppSessions(parseWhatsAppExport(raw), 120);
