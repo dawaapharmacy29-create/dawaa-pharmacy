@@ -118,6 +118,24 @@ describe('WhatsApp Review V4 unified intelligence', () => {
     expect(operational.followupPlan.priority).not.toBe('urgent');
   });
 
+  it('captures a named recommendation without treating best-product wording or image request as recovery or purchase intent', () => {
+    const s = oneSession(`[1/5/26, 7:46:51 AM] Customer: افضل منتج لتخسيس ايه
+[1/5/26, 7:48:34 AM] Customer: ٣٤
+[1/5/26, 7:48:45 AM] Customer: وفي ضغط
+[1/5/26, 7:50:42 AM] You: ممكن ارشح لحضرتك منتج اكياس اسمه limitless chromax كويس جدا وبيسد الشهيه لو عملنا معاه نظام غذائي هتكون نتيجته كويسه جدا
+[1/5/26, 7:51:25 AM] Customer: طب ممكن شكله
+[1/5/26, 7:51:27 AM] Customer: وسعره
+[1/5/26, 7:52:51 AM] You: 375 باذن الله`);
+    const base = buildUnifiedConversationIntelligence(s);
+    const operational = buildWhatsAppOperationalIntelligenceV6(s, base);
+    expect(operational.primaryIntent).toBe('doctor_recommendation');
+    expect(operational.secondaryIntents).toContain('medical_consultation');
+    expect(operational.secondaryIntents).not.toContain('customer_request');
+    expect(operational.customerState).toBe('unknown');
+    expect(operational.operationalOutcome).toBe('unknown');
+    expect(operational.products.some((p) => p.rawName.toLowerCase() === 'limitless chromax' && p.status === 'recommended')).toBe(true);
+  });
+
   it('creates a portfolio summary for batch review', () => {
     const raw = `[9/15/26, 9:00:00 AM] Customer: فيتامين د متوفر؟\n[9/15/26, 9:01:00 AM] You: مع حضرتك د هبة من صيدليات دواء. متوفر\n[9/15/26, 9:02:00 AM] Customer: تمام ابعته\n[9/15/26, 9:03:00 AM] You: تم تأكيد الطلب\n[9/15/26, 12:30:00 PM] Customer: منتج تاني موجود؟\n[9/15/26, 12:31:00 PM] You: لا مش موجود`;
     const sessions = splitWhatsAppSessions(parseWhatsAppExport(raw), 120);
