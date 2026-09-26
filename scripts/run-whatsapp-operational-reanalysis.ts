@@ -166,6 +166,10 @@ async function buildMultiSessionOperational(row: SourceRow, sessions: ReturnType
     const operational = enrichWhatsAppOperationalJourneysV7(session, productResolved);
 
     const relationship = inferRelationshipToPrevious(index > 0 ? sessions[index - 1] : null, session);
+    const storedOperational = JSON.parse(JSON.stringify(operational));
+    if (relationship.relationshipToPrevious === 'continuation') {
+      storedOperational.officialScoringEligible = false;
+    }
     built.push({
       sessionIndex: index + 1,
       startedAt: session.startedAt.toISOString(),
@@ -174,7 +178,7 @@ async function buildMultiSessionOperational(row: SourceRow, sessions: ReturnType
       ...relationship,
       continuationOfSessionIndex:
         relationship.relationshipToPrevious === 'continuation' ? index : null,
-      operational: JSON.parse(JSON.stringify(operational)),
+      operational: storedOperational,
     });
   }
 
