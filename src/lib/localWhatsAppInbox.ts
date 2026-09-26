@@ -1,6 +1,7 @@
 const DB_NAME = 'dawaa-local-whatsapp-inbox';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE = 'directory_handles';
+const HISTORY_STORE = 'analysis_history';
 const HANDLE_KEY = 'whatsapp_exports';
 const LEDGER_KEY = 'dawaa.whatsapp.localInbox.processed.v1';
 const FAILED_KEY = 'dawaa.whatsapp.localInbox.failed.v1';
@@ -36,6 +37,10 @@ function openDb(): Promise<IDBDatabase> {
     request.onupgradeneeded = () => {
       const db = request.result;
       if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'id' });
+      if (!db.objectStoreNames.contains(HISTORY_STORE)) {
+        const history = db.createObjectStore(HISTORY_STORE, { keyPath: 'key' });
+        history.createIndex('savedAt', 'savedAt');
+      }
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error || new Error('تعذر فتح مخزن إعدادات الفولدر المحلي'));
@@ -183,4 +188,76 @@ export async function getNewestUnprocessedWhatsAppExport(handle: any): Promise<L
   const candidates = await getUnprocessedWhatsAppExports(handle, 25);
   if (!candidates.length) return null;
   return [...candidates].sort((a, b) => b.lastModified - a.lastModified || b.size - a.size || a.name.localeCompare(b.name))[0] || null;
+}
+
+
+export interface LocalWhatsAppAnalysisHistoryRow<T = unknown> {
+  key: string;
+  fileName: string;
+  savedAt: number;
+  payload: T;
+}
+
+export async function saveLocalWhatsAppAnalysisHistory<T>(
+  key: string,
+  fileName: string,
+  payload: T
+) {
+  if (typeof indexedDB === 'undefined') return;
+  const db = await openDb();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(HISTORY_STORE, 'readwrite');
+      tx.objectStore(HISTORY_STORE).put({
+        key,
+        fileName,
+        savedAt: Date.now(),
+        payload,
+      } satisfies LocalWhatsAppAnalysisHistoryRow<T>);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error || new Error('تعذر حفظ سجل تحليل واتساب المحلي'));
+      tx.onabort = () => reject(tx.error || new Error('تعذر حفظ سجل تحليل واتساب المحلي'));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+export async function loadLocalWhatsAppAnalysisHistory<T>(limit = 30): Promise<LocalWhatsAppAnalysisHistoryRow<T>[]> {
+  if (typeof indexedDB === 'undefined') return [];
+  const db = await openDb();
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(HISTORY_STORE, 'readonly');
+      const store = tx.objectStore(HISTORY_STORE);
+      const request = store.getAll();
+      request.onsuccess = () => {
+        const rows = (request.result || []) as LocalWhatsAppAnalysisHistoryRow<T>[];
+        resolve(
+          rows
+            .sort((a, b) => Number(b.savedAt || 0) - Number(a.savedAt || 0))
+            .slice(0, Math.max(1, Math.min(100, limit)))
+        );
+      };
+      request.onerror = () => reject(request.error || new Error('تعذر استرجاع سجل تحليل واتساب المحلي'));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+export async function clearLocalWhatsAppAnalysisHistory() {
+  if (typeof indexedDB === 'undefined') return;
+  const db = await openDb();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(HISTORY_STORE, 'readwrite');
+      tx.objectStore(HISTORY_STORE).clear();
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error || new Error('تعذر مسح سجل التحليل المحلي'));
+      tx.onabort = () => reject(tx.error || new Error('تعذر مسح سجل التحليل المحلي'));
+    });
+  } finally {
+    db.close();
+  }
 }

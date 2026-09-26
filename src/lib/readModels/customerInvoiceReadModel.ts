@@ -131,13 +131,24 @@ export async function readCustomerInvoices(
 
   const matchedStrategies: CustomerInvoiceMatch[] = [];
   const rowsByKey = new Map<string, CustomerInvoiceReadRow>();
+  const strategiesByKey = new Map<string, Set<CustomerInvoiceMatch>>();
+
+  const addRows = (rows: CustomerInvoiceReadRow[], strategy: CustomerInvoiceMatch) => {
+    for (const row of rows) {
+      const key = invoiceKey(row);
+      rowsByKey.set(key, row);
+      const set = strategiesByKey.get(key) || new Set<CustomerInvoiceMatch>();
+      set.add(strategy);
+      strategiesByKey.set(key, set);
+    }
+  };
 
   await Promise.all(
     exactAttempts.map(async (attempt) => {
       try {
         const rows = dedupe(await attempt.run());
         if (rows.length) matchedStrategies.push(attempt.label);
-        for (const row of rows) rowsByKey.set(invoiceKey(row), row);
+        addRows(rows, attempt.label);
       } catch (error) {
         warnings.push(`${attempt.label}: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -148,7 +159,7 @@ export async function readCustomerInvoices(
     try {
       const rows = dedupe(await queryIlike('customer_phone', `%${tail}`));
       if (rows.length) matchedStrategies.push('phone_tail');
-      for (const row of rows) rowsByKey.set(invoiceKey(row), row);
+      addRows(rows, 'phone_tail');
     } catch (error) {
       warnings.push(`phone_tail: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -158,17 +169,22 @@ export async function readCustomerInvoices(
     try {
       const rows = dedupe(await queryIlike('customer_name', `%${name}%`));
       if (rows.length) matchedStrategies.push('name');
-      for (const row of rows) rowsByKey.set(invoiceKey(row), row);
+      addRows(rows, 'name');
     } catch (error) {
       warnings.push(`name: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
-  const rows = [...rowsByKey.values()].sort((a, b) =>
-    customerIdentityText(b.invoice_date || b.sale_date).localeCompare(
-      customerIdentityText(a.invoice_date || a.sale_date)
-    )
-  );
+  const rows: CustomerInvoiceReadRow[] = [...rowsByKey.entries()]
+    .map(([key, row]) => ({
+      ...(row as CustomerInvoiceReadRow),
+      __matched_identity_strategies: [...(strategiesByKey.get(key) || new Set<CustomerInvoiceMatch>())],
+    }) as CustomerInvoiceReadRow)
+    .sort((a, b) =>
+      customerIdentityText(b.invoice_date || b.sale_date).localeCompare(
+        customerIdentityText(a.invoice_date || a.sale_date)
+      )
+    );
   const uniqueStrategies = [...new Set(matchedStrategies)];
 
   return {

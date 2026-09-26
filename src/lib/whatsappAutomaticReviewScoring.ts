@@ -88,9 +88,8 @@ function detectSuspicions(session: WhatsAppConversationSession): SevereSuspicion
 
 /**
  * يبني حالة تقييم كاملة (كل بنود REVIEW_CRITERIA) من إشارات المحادثة الآلية.
- * أي بند ما اتقدرش يتحسم من نص المحادثة (review_required) بياخد نفس القيمة
- * الافتراضية الآمنة المستخدمة في شاشة المراجعة البشرية (defaultReviewState)
- * بدل ما يفضل بلا قيمة، مع تسجيل ثقة منخفضة في trace عشان يبان للمراجع.
+ * أي بند ما اتقدرش يتحسم من نص المحادثة (review_required) يُستبعد من نقاط التقييم
+ * الآلي بدل ما ياخد قيمة افتراضية كاملة. يظل ظاهرًا للمراجع البشري مع trace منخفض الثقة.
  */
 export function buildAutomaticWhatsAppReview(
   session: WhatsAppConversationSession,
@@ -124,11 +123,13 @@ export function buildAutomaticWhatsAppReview(
         confidence: item.confidence,
         reason: item.reason,
       });
-    } else if (item.status === 'not_applicable') {
+    } else if (item.status === 'not_applicable' || item.status === 'review_required') {
       state[criterion.key] = {
         applies: false,
         choice: criterion.defaultChoice,
-        notes: `آلي: ${item.reason}`,
+        notes: item.status === 'review_required'
+          ? `آلي: يحتاج مراجعة بشرية ولم تُحتسب له نقاط — ${item.reason}`
+          : `آلي: ${item.reason}`,
       };
       trace.push({
         key: criterion.key,

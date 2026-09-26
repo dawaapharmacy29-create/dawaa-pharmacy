@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import type { WhatsAppCustomerCaseEngineV22 } from './whatsappCustomerCaseEngineV22';
 import type { JourneySessionSourceV15 } from './whatsappCustomerJourneyPersistenceV15';
+import { deriveProposedCaseLostReasonV23 } from './whatsappCaseLostReasonV23';
 
 export interface SyncWhatsAppCustomerCasesV22Context {
   branch?: string | null;
@@ -44,9 +45,7 @@ const RECOMMENDATION_RX = /(ارشح|أرشح|نرشح|ترشيح|بديل|ان�
 const CONFIRMATION_RX = /(تم تأكيد|تم التاكيد|الأوردر اتأكد|الاوردر اتاكد|جاري الارسال|جاري الإرسال|خرج لحضرتك|اتعملت الفاتور)/i;
 const COMPLAINT_RX = /(شكوى|شكوي|مشكلة|مشكله|اتضايقت|زعلت|مش راضي|محدش رد|التأخير|التاخير|ماوصلش|موصلش)/i;
 const RECOVERY_RX = /(بنعتذر|نعتذر|متابعة|متابعه|حابين نطمن|حبيت اطمن|حبيت أطمن|تقييم الخدمة|تقييم الخدمه|رأي حضرتك|راي حضرتك)/i;
-const UNAVAILABLE_RX = /(غير متوفر|مش متوفر|ناقص|ناقصة|نفد|مش موجود)/i;
 const DELIVERY_FAILURE_RX = /(مندوب|دليفري|توصيل|ماوصلش|موصلش|محدش جه|ماجاش|مجاش|اتأخر|اتاخرت|التأخير|التاخير)/i;
-const PRICE_RX = /(غالي|غالية|السعر عالي|السعر غالي|كتير عليا|كتير علي|أرخص|ارخص)/i;
 
 function participantStaffFromAnalysis(analysis: any): ParticipantStaff[] {
   const rows = analysis?.participantRoles?.staff;
@@ -73,10 +72,17 @@ function pickOwner(source: SourceRow, preferredRoles: string[]): ParticipantStaf
 }
 
 function proposedLostReason(caseItem: any, sourceRows: SourceRow[]) {
+  const canonical = deriveProposedCaseLostReasonV23(
+    caseItem,
+    sourceRows.map((row) => ({
+      rawText: row.raw_text || null,
+      analysisJson: row.analysis_json || null,
+    }))
+  );
+  if (canonical.reason) return canonical;
+
   const text = sourceRows.map((row) => String(row.raw_text || '')).join('\n');
-  if (UNAVAILABLE_RX.test(text)) return { reason: 'unavailable', confidence: 88 };
   if (caseItem.failure && DELIVERY_FAILURE_RX.test(text)) return { reason: 'delivery_or_fulfillment_failure', confidence: 84 };
-  if (PRICE_RX.test(text)) return { reason: 'price_objection', confidence: 78 };
   if ((caseItem.state === 'recovery' || caseItem.state === 'awaiting_customer') && Number(caseItem.recoveryAttempts || 0) >= 2) {
     return { reason: 'no_response_after_followup', confidence: 76 };
   }

@@ -113,21 +113,41 @@ const clamp = (n: number, min = 0, max = 100) => Math.max(min, Math.min(max, n))
 const unique = <T,>(items: T[]) => [...new Set(items)];
 
 const NEED_RX = /(عايز|عاوز|محتاج|ممكن|بدور|روشته|روشتة|وصفه|وصفة|متوفر|بكام|سعر|دواء|كريم|شامبو|فيتامين|مصل|حقنه|حقنة)/i;
+const PURCHASE_INTENT_RX = /(هحتاجه|هحتاجها|هاخده|هاخدها|عايز|عاوز|محتاج|ابعت|ابعث|ابعته|ابعتي|هات|هاته|اطلب|أطلب|روشته|روشتة|وصفه|وصفة)/i;
 const AVAILABILITY_RX = /(متوفر|موجود|متاح|ناقص|مش موجود|غير متوفر|هنوفر|هطلبه|هطلبها)/i;
 const ALTERNATIVE_RX = /(بديل|نرشح|ارشح|ترشيح|بداله|بديل مناسب|نفس الماده|نفس المادة)/i;
-const SALE_CLOSE_RX = /(تم تأكيد|تأكيد الطلب|الاوردر اتاكد|الأوردر اتأكد|جاري الارسال|جاري الإرسال|هيتم التوصيل|خرج لحضرتك|الإجمالي|الاجمالي|فاتوره|فاتورة)/i;
+const SALE_CLOSE_RX = /(تم تأكيد|تأكيد الطلب|الاوردر اتاكد|الأوردر اتأكد|تم الارسال|تم الإرسال|خرج لحضرتك|الإجمالي|الاجمالي|فاتوره|فاتورة)/i;
 const DELIVERY_RX = /(توصيل|مندوب|العنوان|خرج لحضرتك|جاري الارسال|جاري الإرسال)/i;
-const FOLLOWUP_RX = /(هتابع|هرجع|هكلم|هطلب|اول ما يتوفر|أول ما يتوفر|هبلغ حضرتك|هتواصل)/i;
+const FOLLOWUP_RX = /(هتابع|هرجع|هكلم|هطلب|اول ما يتوفر|أول ما يتوفر|اول ما يوصل|أول ما يوصل|هبلغ حضرتك|هتواصل|هنتواصل)/i;
 const COMPLAINT_RX = /(شكوى|مشكله|مشكلة|متاخر|متأخر|محدش رد|غلط|سيء|وحش|لسه مجاش|ماوصلش|موصلش)/i;
+const NEGATED_COMPLAINT_RX = /(مفيش\s+مشكله|مفيش\s+مشكلة|مافيش\s+مشكله|مافيش\s+مشكلة|لا\s+توجد\s+مشكله|لا\s+توجد\s+مشكلة|مش\s+مشكله|مش\s+مشكلة)/i;
 const RECOVERY_RX = /(بنعتذر|نعتذر|متاسف|متأسف|حق حضرتك|هنحل|تم الحل|هعوض|هنعوض|تم التصحيح)/i;
-const CUSTOMER_ACCEPT_RX = /(تمام|موافق|اوكي|أوكي|ابعت|ابعته|هات|خلاص|ماشي|اشكرك|شكرا|شكرًا)/i;
+const CUSTOMER_ACCEPT_RX = /(تمام|موافق|اوكي|أوكي|ابعت|ابعته|ابعتها|هات|هاته|خلاص|ماشي|يلا|توكلنا)/i;
 const CUSTOMER_REJECT_RX = /(مش عايز|مش عاوز|لا شكرا|غالي|مش مناسب|خلاص مش محتاج|مش هطلب)/i;
 const MEDICAL_RX = /(جرعه|جرعة|حامل|حمل|رضاع|ضغط|سكر|حساسي|اعراض|أعراض|مضاد حيوي|حقن|مونجارو|اوزمبيك|أوزمبيك|انسولين|إنسولين)/i;
 const HIGH_RISK_RX = /(جرعه طفل|جرعة طفل|حامل|حمل|رضاع|تفاعل دوائي|حساسيه شديده|حساسية شديدة|مضاد حيوي بدون روشته|حقن بدون روشته)/i;
 const CAUTION_RX = /(استشاره الطبيب|استشارة الطبيب|الدكتور المعالج|لو عندك حساسيه|لو عندك حساسية|لو حامل|لو مرض مزمن|الجرعه حسب|الجرعة حسب)/i;
+const TERMINAL_GRATITUDE_RX = /^(?:الف\s+شكر|ألف\s+شكر|شكرا|شكراً|متشكر|متشكرة|تسلم|تسلمي|جزاك\s+الله\s+خير)[\s🌷🌸❤️❤🙏🏻🙏]*$/i;
+
+function terminalGratitudeUnanswered(session: WhatsAppConversationSession) {
+  const meaningful = session.messages.filter((m) => m.direction !== 'system' && m.text.trim().length > 0);
+  const last = meaningful[meaningful.length - 1];
+  return Boolean(last?.direction === 'inbound' && TERMINAL_GRATITUDE_RX.test(last.text.trim()));
+}
 
 function evidence(messages: WhatsAppParsedMessage[], rx: RegExp) {
   return idsFor(messages, rx).slice(0, 8);
+}
+
+function complaintEvidence(messages: WhatsAppParsedMessage[]) {
+  return messages
+    .filter((message) =>
+      message.direction === 'inbound' &&
+      COMPLAINT_RX.test(message.text || '') &&
+      !NEGATED_COMPLAINT_RX.test(message.text || '')
+    )
+    .map((message) => message.id)
+    .slice(0, 8);
 }
 
 function stage(key: JourneyStage['key'], label: string, detected: boolean, confidence: number, reason: string, messageIds: string[]): JourneyStage {
@@ -139,38 +159,49 @@ function analyzeJourney(session: WhatsAppConversationSession) {
   const out = outboundText(session);
   const inbound = inboundText(session);
   const signals = extractConversationSignals(session);
+  const complaintIds = complaintEvidence(session.messages);
+  const hasComplaint = complaintIds.length > 0;
 
   const journeyStages: JourneyStage[] = [
     stage('opening', 'افتتاح المحادثة', signals.greetingDetected, signals.greetingDetected ? 95 : 70, signals.greetingDetected ? 'تم اكتشاف ترحيب/تعريف واضح.' : 'لم يظهر ترحيب واضح في النص.', evidence(session.messages, /(اهلا|أهلا|السلام عليكم|مع حضرتك|صيدليات دواء)/i)),
-    stage('need', 'فهم احتياج العميل', has(inbound, NEED_RX), has(inbound, NEED_RX) ? 90 : 55, has(inbound, NEED_RX) ? 'العميل عبّر عن احتياج أو طلب واضح.' : 'لم يتم إثبات احتياج واضح من النص وحده.', evidence(session.messages, NEED_RX)),
-    stage('availability', 'التحقق من التوفر', has(all, AVAILABILITY_RX), has(all, AVAILABILITY_RX) ? 88 : 50, has(all, AVAILABILITY_RX) ? 'يوجد نقاش متعلق بالتوفر/النواقص.' : 'لا يوجد دليل نصي كافٍ على التحقق من التوفر.', evidence(session.messages, AVAILABILITY_RX)),
+    stage('need', 'رصد احتياج العميل', has(inbound, NEED_RX), has(inbound, NEED_RX) ? 90 : 55, has(inbound, NEED_RX) ? 'العميل عبّر عن احتياج أو طلب واضح؛ هذا يثبت وجود الطلب ولا يثبت وحده أن الصيدلية فهمت كل تفاصيله.' : 'لم يتم إثبات احتياج واضح من النص وحده.', evidence(session.messages.filter((m) => m.direction === 'inbound'), NEED_RX)),
+    stage('availability', 'التحقق من التوفر', has(out, AVAILABILITY_RX), has(out, AVAILABILITY_RX) ? 88 : 50, has(out, AVAILABILITY_RX) ? 'يوجد رد من الصيدلية متعلق بالتوفر/النواقص.' : 'لا يوجد رد صريح من الصيدلية يثبت التوفر أو عدمه.', evidence(session.messages.filter((m) => m.direction === 'outbound'), AVAILABILITY_RX)),
     stage('alternative', 'عرض بديل/ترشيح', has(out, ALTERNATIVE_RX), has(out, ALTERNATIVE_RX) ? 90 : 55, has(out, ALTERNATIVE_RX) ? 'تم اكتشاف عرض بديل أو ترشيح.' : 'لم يظهر عرض بديل واضح.', evidence(session.messages, ALTERNATIVE_RX)),
-    stage('closing', 'إغلاق البيع', has(all, SALE_CLOSE_RX), has(all, SALE_CLOSE_RX) ? 92 : 58, has(all, SALE_CLOSE_RX) ? 'يوجد دليل نصي على تأكيد/إغلاق الطلب.' : 'لا يوجد تأكيد بيع كافٍ من النص فقط.', evidence(session.messages, SALE_CLOSE_RX)),
+    stage('closing', 'إغلاق البيع', has(out, SALE_CLOSE_RX), has(out, SALE_CLOSE_RX) ? 92 : 58, has(out, SALE_CLOSE_RX) ? 'يوجد رد من الصيدلية يثبت تأكيد/إغلاق الطلب.' : 'لا يوجد تأكيد إغلاق من الصيدلية داخل النص.', evidence(session.messages.filter((m) => m.direction === 'outbound'), SALE_CLOSE_RX)),
     stage('delivery', 'تنسيق التوصيل', has(all, DELIVERY_RX), has(all, DELIVERY_RX) ? 92 : 50, has(all, DELIVERY_RX) ? 'تم اكتشاف تنسيق توصيل/عنوان/مندوب.' : 'مسار التوصيل غير مثبت.', evidence(session.messages, DELIVERY_RX)),
     stage('followup', 'المتابعة', has(out, FOLLOWUP_RX), has(out, FOLLOWUP_RX) ? 90 : 55, has(out, FOLLOWUP_RX) ? 'يوجد وعد متابعة أو رجوع للعميل.' : 'لا يوجد وعد متابعة واضح.', evidence(session.messages, FOLLOWUP_RX)),
-    stage('complaint_recovery', 'احتواء الشكوى', has(all, COMPLAINT_RX), has(all, COMPLAINT_RX) ? (has(out, RECOVERY_RX) ? 94 : 78) : 45, has(all, COMPLAINT_RX) ? (has(out, RECOVERY_RX) ? 'تم اكتشاف شكوى مع محاولة احتواء/تصحيح.' : 'تم اكتشاف شكوى بدون دليل كافٍ على احتوائها.') : 'لا توجد شكوى واضحة.', evidence(session.messages, COMPLAINT_RX)),
+    stage('complaint_recovery', 'احتواء الشكوى', hasComplaint, hasComplaint ? (has(out, RECOVERY_RX) ? 94 : 78) : 45, hasComplaint ? (has(out, RECOVERY_RX) ? 'تم اكتشاف شكوى مع محاولة احتواء/تصحيح.' : 'تم اكتشاف شكوى بدون دليل كافٍ على احتوائها.') : 'لا توجد شكوى واضحة.', complaintIds),
   ];
 
   const lostSales: LostSaleSignal[] = [];
   const customerAsked = has(inbound, NEED_RX);
-  const explicitClose = has(all, SALE_CLOSE_RX);
+  const customerPurchaseIntent = has(inbound, PURCHASE_INTENT_RX);
+  const explicitClose = has(out, SALE_CLOSE_RX);
   const rejected = has(inbound, CUSTOMER_REJECT_RX);
   const alternative = has(out, ALTERNATIVE_RX);
-  if (customerAsked && !explicitClose && !rejected) {
+  const effectiveUnansweredInboundCount = Math.max(
+    0,
+    signals.unansweredInboundCount - (terminalGratitudeUnanswered(session) ? 1 : 0)
+  );
+  if (customerPurchaseIntent && !explicitClose && !rejected) {
     lostSales.push({ severity: 'high', summary: 'فرصة بيع بدأت ولم يظهر لها إغلاق واضح أو رفض صريح.', evidenceMessageIds: evidence(session.messages, NEED_RX) });
   }
-  if (has(all, /(غير متوفر|مش موجود|ناقص)/i) && !alternative) {
-    lostSales.push({ severity: 'high', summary: 'نقص/عدم توفر بدون بديل واضح؛ فرصة بيع ضائعة محتملة.', evidenceMessageIds: evidence(session.messages, /(غير متوفر|مش موجود|ناقص)/i) });
+  if (has(out, /(غير متوفر(?:ه|ة)?|مش متوفر(?:ه|ة)?|مش موجود|ناقص)/i) && !alternative) {
+    lostSales.push({
+      severity: 'high',
+      summary: 'الصيدلية أكدت نقص/عدم توفر بدون بديل واضح؛ فرصة بيع ضائعة محتملة.',
+      evidenceMessageIds: evidence(session.messages.filter((m) => m.direction === 'outbound'), /(غير متوفر(?:ه|ة)?|مش متوفر(?:ه|ة)?|مش موجود|ناقص)/i),
+    });
   }
   if (signals.repeatedCustomerNudgeDetected || signals.waitsOver10Minutes > 0) {
     lostSales.push({ severity: 'medium', summary: 'تأخير أو تكرار نداء العميل قد يكون أثّر على إتمام البيع.', evidenceMessageIds: signals.responseWaits.filter((x) => (x.seconds || 0) > 600).flatMap((x) => [x.inboundMessageId, ...(x.outboundMessageId ? [x.outboundMessageId] : [])]) });
   }
 
   let outcome: UnifiedOutcome = 'unknown';
-  if (has(all, COMPLAINT_RX)) outcome = has(out, RECOVERY_RX) ? 'complaint_resolved' : 'complaint_unresolved';
+  if (hasComplaint) outcome = has(out, RECOVERY_RX) ? 'complaint_resolved' : 'complaint_unresolved';
   else if (explicitClose && (has(inbound, CUSTOMER_ACCEPT_RX) || has(out, SALE_CLOSE_RX))) outcome = 'sold';
   else if (rejected) outcome = 'not_sold';
-  else if (customerAsked || has(out, FOLLOWUP_RX) || signals.unansweredInboundCount > 0) outcome = 'needs_followup';
+  else if (customerPurchaseIntent || has(out, FOLLOWUP_RX) || effectiveUnansweredInboundCount > 0) outcome = 'needs_followup';
 
   return { journeyStages, lostSales, outcome };
 }
@@ -211,8 +242,8 @@ function scoreCommercial(session: WhatsAppConversationSession, lostSales: LostSa
   const out = outboundText(session);
   let score = has(all, NEED_RX) ? 55 : 0;
   if (has(out, ALTERNATIVE_RX)) score += 15;
-  if (has(all, SALE_CLOSE_RX)) score += 20;
-  if (has(all, DELIVERY_RX)) score += 5;
+  if (has(out, SALE_CLOSE_RX)) score += 20;
+  if (has(out, DELIVERY_RX)) score += 5;
   if (outcome === 'sold') score += 10;
   if (lostSales.some((x) => x.severity === 'high')) score -= 25;
   if (lostSales.some((x) => x.severity === 'medium')) score -= 10;
@@ -227,10 +258,18 @@ export function buildUnifiedConversationIntelligence(session: WhatsAppConversati
   const commercialScore = scoreCommercial(session, lostSales, outcome);
   const commercialEligible = signals.saleIntentDetected || journeyStages.some((x) => ['need', 'availability', 'alternative', 'closing'].includes(x.key) && x.detected);
   const chatSuggestedSold = outcome === 'sold';
-  const followupRequired = outcome === 'needs_followup' || outcome === 'complaint_unresolved' || signals.unansweredInboundCount > 0 || (signals.followupPromiseDetected && !signals.closingDetected);
+  const effectiveUnansweredInboundCount = Math.max(
+    0,
+    signals.unansweredInboundCount - (terminalGratitudeUnanswered(session) ? 1 : 0)
+  );
+  // نقص/عدم توفر بدون بديل (lostSales.severity==='high') هي بالظبط نفس حالة
+  // "stockout_recovery" في whatsappConversationEvaluationV2.ts - لازم تتابع، حتى لو
+  // outcome نفسه فضل 'unknown' لأن العميل ما استخدمش كلمة NEED_RX المعروفة (زي "موجود؟"
+  // بدل "متوفر؟"). عدم التوفر بدون بديل يستاهل متابعة سواء اتصنف كـneeds_followup أو لأ.
+  const followupRequired = outcome === 'needs_followup' || outcome === 'complaint_unresolved' || effectiveUnansweredInboundCount > 0 || (signals.followupPromiseDetected && !signals.closingDetected) || lostSales.some((x) => x.severity === 'high');
   const suggestedFollowupReason = outcome === 'complaint_unresolved'
     ? 'شكوى لم يظهر لها حل واضح.'
-    : signals.unansweredInboundCount > 0
+    : effectiveUnansweredInboundCount > 0
       ? 'يوجد رسالة من العميل بدون رد لاحق ظاهر.'
       : signals.followupPromiseDetected && !signals.closingDetected
         ? 'تم وعد العميل بالرجوع ولم يظهر إغلاق واضح داخل الجلسة.'
@@ -240,7 +279,7 @@ export function buildUnifiedConversationIntelligence(session: WhatsAppConversati
 
   const highMedical = medicalSafetyFlags.some((x) => x.severity === 'high');
   const highLostSale = lostSales.some((x) => x.severity === 'high');
-  const priority: UnifiedPriority = highMedical || highLostSale || outcome === 'complaint_unresolved' || signals.unansweredInboundCount > 1
+  const priority: UnifiedPriority = highMedical || highLostSale || outcome === 'complaint_unresolved' || effectiveUnansweredInboundCount > 1
     ? 'urgent'
     : followupRequired || medicalSafetyFlags.some((x) => x.severity === 'medium') || lostSales.length > 0
       ? 'important'
@@ -261,7 +300,7 @@ export function buildUnifiedConversationIntelligence(session: WhatsAppConversati
     ...lostSales.map((x) => x.summary),
     ...medicalSafetyFlags.filter((x) => x.severity !== 'info').map((x) => x.summary),
     ...(signals.waitsOver10Minutes > 0 ? [`${signals.waitsOver10Minutes} انتظار أطول من 10 دقائق`] : []),
-    ...(signals.unansweredInboundCount > 0 ? [`${signals.unansweredInboundCount} رسالة عميل بلا رد لاحق ظاهر`] : []),
+    ...(effectiveUnansweredInboundCount > 0 ? [`${effectiveUnansweredInboundCount} رسالة عميل بلا رد لاحق ظاهر`] : []),
   ]);
 
   const outcomeLabel: Record<UnifiedOutcome, string> = {
@@ -318,9 +357,12 @@ function extractInvoiceHints(session: WhatsAppConversationSession) {
   return { invoiceNumbers, money };
 }
 
-function invoiceCandidate(row: CustomerInvoiceReadRow, session: WhatsAppConversationSession, lookup: InvoiceLookup, identityStrategies: string[]): InvoiceCandidate {
+function invoiceCandidate(row: CustomerInvoiceReadRow, session: WhatsAppConversationSession, lookup: InvoiceLookup, fallbackIdentityStrategies: string[]): InvoiceCandidate {
   const reasons: string[] = [];
   let score = 0;
+  const rowIdentityStrategies = Array.isArray(row.__matched_identity_strategies)
+    ? row.__matched_identity_strategies.map(String)
+    : fallbackIdentityStrategies;
   const date = rowDate(row);
   const branch = rowBranch(row);
   const number = rowInvoiceNumber(row);
@@ -328,21 +370,41 @@ function invoiceCandidate(row: CustomerInvoiceReadRow, session: WhatsAppConversa
   const hints = extractInvoiceHints(session);
   const invoiceTs = date ? new Date(date).getTime() : NaN;
   if (Number.isFinite(invoiceTs)) {
-    const deltaDays = (invoiceTs - session.endedAt.getTime()) / DAY_MS;
-    if (deltaDays >= -0.25 && deltaDays <= 1.5) { score += 42; reasons.push('الفاتورة في نفس يوم/قرب وقت المحادثة'); }
-    else if (deltaDays > 1.5 && deltaDays <= 3) { score += 25; reasons.push('الفاتورة خلال 3 أيام'); }
-    else if (Math.abs(deltaDays) <= 7) { score += 8; reasons.push('الفاتورة خلال أسبوع'); }
-    else score -= 20;
+    const startTs = session.startedAt.getTime();
+    const endTs = session.endedAt.getTime();
+    const beforeStartDays = (startTs - invoiceTs) / DAY_MS;
+    const afterEndDays = (invoiceTs - endTs) / DAY_MS;
+    if (invoiceTs >= startTs - 0.25 * DAY_MS && invoiceTs <= endTs + 1.5 * DAY_MS) {
+      score += 42;
+      reasons.push(invoiceTs >= startTs && invoiceTs <= endTs ? 'الفاتورة تمت أثناء المحادثة' : 'الفاتورة في نفس يوم/قرب وقت المحادثة');
+    } else if (afterEndDays > 1.5 && afterEndDays <= 3) {
+      score += 25;
+      reasons.push('الفاتورة خلال 3 أيام بعد المحادثة');
+    } else if ((beforeStartDays >= 0 && beforeStartDays <= 7) || (afterEndDays >= 0 && afterEndDays <= 7)) {
+      score += 8;
+      reasons.push('الفاتورة داخل نافذة أسبوع من المحادثة');
+    } else {
+      score -= 60;
+      reasons.push('الفاتورة خارج نافذة 7 أيام');
+    }
   }
   if (lookup.branch && branch && normalizeBranch(lookup.branch) === normalizeBranch(branch)) { score += 18; reasons.push('نفس الفرع'); }
   else if (lookup.branch && branch) { score -= 12; reasons.push('الفرع مختلف'); }
   if (number && hints.invoiceNumbers.includes(number)) { score += 40; reasons.push('رقم الفاتورة مذكور بالشات'); }
   if (amount != null && hints.money.some((x) => Math.abs(x - amount) <= Math.max(2, amount * .01))) { score += 18; reasons.push('القيمة قريبة من مبلغ مذكور بالشات'); }
-  if (identityStrategies.includes('code')) { score += 24; reasons.push('تطابق كود العميل'); }
-  if (identityStrategies.includes('customer_id')) { score += 24; reasons.push('تطابق معرف العميل'); }
-  if (identityStrategies.includes('phone')) { score += 22; reasons.push('تطابق الهاتف'); }
-  if (identityStrategies.includes('phone_tail')) { score += 14; reasons.push('تطابق آخر أرقام الهاتف'); }
-  if (identityStrategies.includes('name')) { score += 6; reasons.push('تطابق الاسم فقط'); }
+  const identityScore = rowIdentityStrategies.includes('customer_id') || rowIdentityStrategies.includes('code')
+    ? 24
+    : rowIdentityStrategies.includes('phone')
+      ? 22
+      : rowIdentityStrategies.includes('phone_tail')
+        ? 14
+        : rowIdentityStrategies.includes('name')
+          ? 6
+          : 0;
+  if (identityScore > 0) {
+    score += identityScore;
+    reasons.push(`هوية العميل: ${rowIdentityStrategies.join('+')}`);
+  }
   return {
     invoiceId: String(row.id || '').trim() || null,
     invoiceNumber: number,
@@ -355,7 +417,7 @@ function invoiceCandidate(row: CustomerInvoiceReadRow, session: WhatsAppConversa
     score,
     confidence: Math.max(0, Math.min(.99, score / 110)),
     reasons,
-    matchedIdentityStrategies: identityStrategies,
+    matchedIdentityStrategies: rowIdentityStrategies,
   };
 }
 
@@ -371,6 +433,24 @@ export async function verifySessionAgainstInvoices(session: WhatsAppConversation
   const candidates = result.rows.map((row) => invoiceCandidate(row, session, lookup, result.matchedStrategies)).filter((x) => x.score > 0).sort((a, b) => b.score - a.score).slice(0, 8);
   const best = candidates[0] || null;
   if (!best) return { status: 'not_found', bestCandidate: null, candidates, verificationConfidence: .75, revenue: null, reason: 'لم توجد فاتورة مرتبطة بقوة كافية.', warnings: result.warnings };
+  const runnerUp = candidates.find((candidate) => candidate.invoiceId !== best.invoiceId) || null;
+  const explicitInvoiceHint = best.reasons.includes('رقم الفاتورة مذكور بالشات');
+  const ambiguousTop = Boolean(
+    runnerUp &&
+    !explicitInvoiceHint &&
+    Math.abs(best.score - runnerUp.score) <= 8
+  );
+  if (ambiguousTop) {
+    return {
+      status: 'needs_review',
+      bestCandidate: best,
+      candidates,
+      verificationConfidence: Math.min(best.confidence, .6),
+      revenue: best.amount,
+      reason: 'يوجد أكثر من فاتورة قريبة جدًا في قوة التطابق؛ يلزم اختيار بشري قبل الاعتماد.',
+      warnings: [...result.warnings, 'ambiguous_top_invoice_candidates'],
+    };
+  }
   if (best.confidence >= .82) return { status: 'verified', bestCandidate: best, candidates, verificationConfidence: best.confidence, revenue: best.amount, reason: 'تطابق قوي بين هوية العميل وتوقيت/سياق المحادثة والفاتورة.', warnings: result.warnings };
   if (best.confidence >= .62) return { status: 'probable', bestCandidate: best, candidates, verificationConfidence: best.confidence, revenue: best.amount, reason: 'تطابق مرجح يحتاج مراجعة بشرية.', warnings: result.warnings };
   return { status: 'needs_review', bestCandidate: best, candidates, verificationConfidence: best.confidence, revenue: best.amount, reason: 'يوجد مرشح فاتورة لكن قوة التطابق غير كافية.', warnings: result.warnings };

@@ -6,7 +6,7 @@
   "packageManager": "npm@10.9.2",
   "scripts": {
     "dev": "node scripts/patch-customer-followup-excel-pro.cjs && node scripts/run-customer-monthly-tabs.cjs && vite --configLoader runner",
-    "prebuild": "node scripts/patch-customer-followup-excel-pro.cjs && node scripts/run-customer-monthly-tabs.cjs && node scripts/patch-reviews-history-v2.cjs && node scripts/patch-reviews-routing-stability.cjs && node scripts/patch-reviews-workspace-v3.cjs && node scripts/enforce-invoice-branch-guard.cjs && node scripts/check-sales-truth-separation.cjs && node scripts/check-customer-cashback-safe-advanced.cjs && node scripts/check-points-v3-migration-order.cjs && node scripts/check-cleaning-governance-architecture.cjs && node scripts/check-attendance-payroll-readiness.cjs && node scripts/check-attendance-resolution-architecture.cjs && node scripts/check-payroll-attendance-eligibility.cjs && node scripts/check-payroll-adjustment-ledger.cjs && node scripts/check-payroll-atomic-settlement.cjs",
+    "prebuild": "node scripts/patch-customer-followup-excel-pro.cjs && node scripts/run-customer-monthly-tabs.cjs && node scripts/enforce-invoice-branch-guard.cjs && node scripts/check-sales-truth-separation.cjs && node scripts/check-customer-cashback-safe-advanced.cjs && node scripts/check-points-v3-migration-order.cjs && node scripts/check-cleaning-governance-architecture.cjs && node scripts/check-attendance-payroll-readiness.cjs && node scripts/check-attendance-resolution-architecture.cjs && node scripts/check-payroll-attendance-eligibility.cjs && node scripts/check-payroll-adjustment-ledger.cjs && node scripts/check-payroll-atomic-settlement.cjs",
     "build": "vite build --configLoader runner",
     "perf:budget": "node scripts/check-runtime-performance-budget.cjs",
     "analyze": "ANALYZE=true vite build --configLoader runner",
@@ -20,8 +20,21 @@
     "test": "node scripts/run-tests.cjs",
     "check": "npm run doctor && npm run typecheck && npm run build && npm run perf:budget",
     "test:integration": "vitest run src/lib/staff/__tests__/staffPerformanceProfileService.integration.ts",
+    "benchmark:ib4": "vitest run src/lib/salesIntelligence/basketV2/__tests__/ib4LiveBenchmark.integration.test.ts",
     "vercel:install": "npm ci --legacy-peer-deps --no-audit --no-fund",
-    "verify": "npm run doctor && npm run test && npm run typecheck && npm run build && npm run perf:budget"
+    "verify": "npm run doctor && npm run test && npm run typecheck && npm run build && npm run perf:budget",
+    "sales-intelligence:backfill:dry-run": "node scripts/run-sales-intelligence-backfill.cjs",
+    "sales-intelligence:backfill:apply": "node scripts/run-sales-intelligence-backfill.cjs --apply",
+    "sales-intelligence:backfill:item-ready:dry-run": "node scripts/run-sales-intelligence-backfill.cjs --item-ready-only",
+    "sales-intelligence:backfill:item-ready:apply": "node scripts/run-sales-intelligence-backfill.cjs --item-ready-only --apply",
+    "sales-intelligence:backfill:all-known-branch:dry-run": "node scripts/run-sales-intelligence-backfill.cjs --all-sources --known-branch-only",
+    "sales-intelligence:backfill:all-known-branch:apply": "node scripts/run-sales-intelligence-backfill.cjs --all-sources --known-branch-only --apply",
+    "product-demand:v22:backfill:dry-run": "node scripts/run-product-demand-v22-backfill.cjs --json",
+    "product-demand:v22:backfill:apply": "node scripts/run-product-demand-v22-backfill.cjs --apply --json",
+    "product-demand:v23:ground-truth:dry-run": "node scripts/run-product-demand-v22-backfill.cjs --ground-truth --json",
+    "sales-intelligence:v23:ground-truth:dry-run": "node scripts/run-sales-intelligence-backfill.cjs --ground-truth --json",
+    "whatsapp:operational-reanalysis:dry-run": "npx --no-install vite-node scripts/run-whatsapp-operational-reanalysis.ts -- --json",
+    "whatsapp:operational-reanalysis:apply": "npx --no-install vite-node scripts/run-whatsapp-operational-reanalysis.ts -- --apply --json"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",

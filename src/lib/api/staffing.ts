@@ -377,7 +377,6 @@ async function deleteExceptionRowsByNameBranch(
 
 async function archiveMissingStaff(
   staffTable: string,
-  scheduleTable: string | null,
   exceptionTable: string | null,
   existing: ExistingStaffRow[],
   imported: ParsedStaffShifts[],
@@ -412,10 +411,7 @@ async function archiveMissingStaff(
     if (ok) archivedNames.push(staff.name);
   }
 
-  const archivedIds = missing.map((staff) => String(staff.id));
-  if (scheduleTable && archivedIds.length) {
-    await supabase.from(scheduleTable).delete().in('staff_id', archivedIds);
-  }
+  // لا نحذف جداول الموظف المؤرشفة: تاريخ الشيفت جزء من سجل الحضور والمرتبات.
   if (exceptionTable && missing.length) {
     await deleteExceptionRowsByNameBranch(
       exceptionTable,
@@ -424,14 +420,6 @@ async function archiveMissingStaff(
   }
 
   return archivedNames;
-}
-
-async function deleteExistingScheduleRows(table: string, staff: MatchedStaff[]) {
-  const ids = [...new Set(staff.map((item) => item.staffId))];
-  if (ids.length === 0) return;
-
-  const { error } = await supabase.from(table).delete().in('staff_id', ids);
-  if (error) throw error;
 }
 
 export async function saveScheduleImport(
@@ -460,10 +448,26 @@ export async function saveScheduleImport(
   const scheduleTable = await detectTable(['shift_schedules']);
   if (scheduleTable && matchedStaff.length > 0) {
     try {
-      await deleteExistingScheduleRows(scheduleTable, matchedStaff);
-      shiftsSaved = await insertFlexible(scheduleTable, scheduleRows(matchedStaff));
+      const effectiveFrom = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Africa/Cairo',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(new Date());
+
+      for (const item of matchedStaff) {
+        const rows = scheduleRows([item]);
+        const { error } = await supabase.rpc('replace_staff_shift_schedule_version_v1', {
+          p_staff_id: item.staffId,
+          p_rows: rows,
+          p_effective_from: effectiveFrom,
+          p_note: 'استيراد جدول حضور جديد مع حفظ النسخة السابقة',
+        });
+        if (error) throw error;
+        shiftsSaved += rows.length;
+      }
     } catch (error) {
-      skipped.push(`تعذر استبدال الشيفتات في shift_schedules: ${(error as Error).message}`);
+      skipped.push(`تعذر حفظ نسخة الشيفتات الجديدة: ${(error as Error).message}`);
     }
   } else if (!scheduleTable) {
     skipped.push('جدول shift_schedules غير موجود، لذلك لم يتم حفظ الشيفتات.');
@@ -488,7 +492,6 @@ export async function saveScheduleImport(
     try {
       archivedStaff = await archiveMissingStaff(
         staffTable,
-        scheduleTable,
         exceptionTable,
         existingStaff,
         savableStaff,

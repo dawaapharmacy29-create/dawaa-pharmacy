@@ -68,6 +68,7 @@ export async function loadShiftMembers(params: {
         .select('*')
         .eq('branch', branch)
         .eq('day_name', day)
+        .is('effective_to', null)
         .limit(200)
     ),
     listStaffTimeOffRequests({ from: params.date, to: params.date, status: 'approved', limit: 200 }),

@@ -1,0 +1,56 @@
+name: Sales Intelligence Final Read-only Gate
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sales-intelligence-final-readonly-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify-live-truth:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SUPABASE_URL: https://jkjqeqkshllustwlzzbf.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+
+      - name: Require read credential
+        shell: bash
+        run: |
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || {
+            echo "::error::Missing SUPABASE_SERVICE_ROLE_KEY"
+            exit 1
+          }
+
+      - name: WhatsApp and Sales Intelligence targeted tests
+        run: |
+          npx vitest run             src/lib/__tests__/whatsappAutomaticReviewPersistence.test.ts             src/lib/__tests__/whatsappConversationParser.richExport.test.ts             src/lib/__tests__/whatsappGoldenCaseIbrahimAlSayyad.test.ts             src/lib/salesIntelligence/__tests__/saleAttributionEngine.test.ts             src/lib/salesIntelligence/__tests__/saleProofState.test.ts             src/lib/salesIntelligence/persistence/__tests__/batchPersistenceService.test.ts
+
+      - name: Ground-truth regression — read only
+        run: npm run sales-intelligence:v23:ground-truth:dry-run -- --json
+
+      - name: Targeted six-source attribution refresh dry run — read only
+        run: node scripts/run-sales-intelligence-backfill.cjs --source-ids="fd505a4d-3d37-4b59-8478-b2f26bb031c7,44999fee-c39e-4e40-a66c-b21223775d51,f09471e8-64f4-45d1-859c-17ba97b19259,ace3b141-8c66-4bed-80f9-ee4eda07dc5a,e9e231ad-48b4-427c-9b5a-be6d2c09b566,a9fb4582-2b39-4e93-810a-05f337734e0f" --json
+
+      - name: Canonical known-branch dry run — read only
+        run: npm run sales-intelligence:backfill:all-known-branch:dry-run -- --json
+
+      - name: Product demand ground-truth dry run
+        run: npm run product-demand:v23:ground-truth:dry-run

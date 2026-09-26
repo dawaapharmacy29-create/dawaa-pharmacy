@@ -194,14 +194,14 @@ export async function fetchCurrentShiftPresence(): Promise<CurrentShiftPresence>
   // أغلب قاعدة بيانات الصيدلية الحالية لا تحتوي shift_date/date/start_time/end_time.
   // لذلك نقرأ أعمدة الجدول الأسبوعي الأساسية أولًا حتى لا يفشل الاستعلام كله بسبب عمود غير موجود.
   const byDay = await safeSelect<ShiftScheduleRow>('shift_schedules', BASIC_SHIFT_SELECT, (query) =>
-    query.eq('day_name', todayArabic).limit(1000)
+    query.eq('day_name', todayArabic).is('effective_to', null).limit(1000)
   );
 
   // دعم اختياري للجداول المستقبلية التي تحتوي تاريخ محدد لكل شيفت.
   const byDate = await safeSelect<ShiftScheduleRow>(
     'shift_schedules',
     DATED_SHIFT_SELECT,
-    (query) => query.or(`shift_date.eq.${todayStr},date.eq.${todayStr}`).limit(1000)
+    (query) => query.or(`shift_date.eq.${todayStr},date.eq.${todayStr}`).is('effective_to', null).limit(1000)
   );
 
   const rawSchedules = [...byDate, ...byDay].filter((row) => {

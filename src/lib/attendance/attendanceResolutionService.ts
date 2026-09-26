@@ -53,13 +53,15 @@ export async function listAttendanceResolutionQueue(args: {
   end: string;
   branch?: string | null;
   status?: string | null;
+  triage?: 'all' | 'manager' | 'system';
   limit?: number;
 }): Promise<AttendanceResolutionRow[]> {
-  const { data, error } = await supabase.rpc('get_attendance_resolution_queue_v2', {
+  const { data, error } = await supabase.rpc('get_attendance_resolution_queue_v3', {
     p_start: args.start,
     p_end: args.end,
     p_branch: args.branch && args.branch !== 'الكل' ? args.branch : null,
     p_status: args.status || null,
+    p_triage: args.triage || 'all',
     p_limit: args.limit ?? 300,
   });
   if (error) throw new Error(error.message);
@@ -110,4 +112,19 @@ export async function listAttendanceImpactLedger(args: {
   });
   if (error) throw new Error(error.message);
   return (data || []) as AttendanceImpactRow[];
+}
+
+
+export async function reopenAttendanceResolution(args: {
+  staffId: string;
+  date: string;
+  note: string;
+}): Promise<AttendanceResolutionRow> {
+  const { data, error } = await supabase.rpc('reopen_attendance_resolution_v1', {
+    p_staff_id: args.staffId,
+    p_attendance_date: args.date,
+    p_note: args.note,
+  });
+  if (error) throw new Error(error.message);
+  return data as AttendanceResolutionRow;
 }

@@ -1,0 +1,33 @@
+name: Sales Intelligence targeted source refresh
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sales-intelligence-targeted-source-refresh
+  cancel-in-progress: false
+
+jobs:
+  targeted-refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SUPABASE_URL: https://jkjqeqkshllustwlzzbf.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      TARGET_SOURCE_IDS: fd505a4d-3d37-4b59-8478-b2f26bb031c7,44999fee-c39e-4e40-a66c-b21223775d51,f09471e8-64f4-45d1-859c-17ba97b19259,ace3b141-8c66-4bed-80f9-ee4eda07dc5a,e9e231ad-48b4-427c-9b5a-be6d2c09b566,a9fb4582-2b39-4e93-810a-05f337734e0f
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - name: Targeted preflight
+        run: node scripts/run-sales-intelligence-backfill.cjs --source-ids="$TARGET_SOURCE_IDS" --json
+      - name: Targeted apply
+        run: node scripts/run-sales-intelligence-backfill.cjs --source-ids="$TARGET_SOURCE_IDS" --apply --json
+      - name: Targeted idempotency verification
+        run: node scripts/run-sales-intelligence-backfill.cjs --source-ids="$TARGET_SOURCE_IDS" --json

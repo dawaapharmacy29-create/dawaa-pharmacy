@@ -163,8 +163,8 @@ export default function WhatsAppDoctorCycleIntelligenceV8({ onOpenSource }: { on
 
   const detailStats = useMemo(() => ({
     customers: new Set(conversations.map((x) => x.customer_code || x.customer_name).filter(Boolean)).size,
-    verifiedSales: conversations.filter((x) => x.invoice_match_status === 'verified').length,
-    verifiedRevenue: conversations.reduce((sum, x) => sum + (x.invoice_match_status === 'verified' ? Number(x.matched_invoice_value || 0) : 0), 0),
+    verifiedSales: 0, // Legacy invoice_match_status is not canonical Sale Proof.
+    verifiedRevenue: 0, // Revenue cannot be confirmed from the legacy statistical matcher.
     pendingFollowups: conversations.filter((x) => x.followup_required).length,
     leakage: products.filter((x) => Boolean(x.leakage_reason)).length,
   }), [conversations, products]);
@@ -174,14 +174,14 @@ export default function WhatsAppDoctorCycleIntelligenceV8({ onOpenSource }: { on
       <div>
         <div className="flex items-center gap-2 text-xs font-black text-emerald-200"><Stethoscope size={16}/> تحليل أداء الدكاترة V8</div>
         <h2 className="mt-1 text-xl font-black text-white">الأداء التشغيلي والبيعي في سايكل 26→25</h2>
-        <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-400">يعتمد البيع والإيراد فقط على فواتير مؤكدة. اضغط على أي دكتور لفتح كل محادثاته وعملائه والأصناف والفرص المتوقفة في نفس السايكل.</p>
+        <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-400">بيانات البيع والإيراد في هذا القسم Legacy ولا تُعد إثباتًا رسميًا. الاعتماد النهائي للبيع والفاتورة يجب أن يأتي من Sales Intelligence canonical.</p>
       </div>
       <button onClick={() => void load()} disabled={loading} className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-black text-white disabled:opacity-50"><RefreshCw size={15} className={loading ? 'animate-spin' : ''}/> تحديث</button>
     </div>
 
     <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-      <Metric label="إيراد مؤكد مرتبط" value={money(totals.revenue)} />
-      <Metric label="محادثات بيع مؤكدة" value={totals.sales} />
+      <Metric label="إيراد Legacy تاريخي" value={money(totals.revenue)} />
+      <Metric label="بيعات Legacy تاريخية" value={totals.sales} />
       <Metric label="فرص تجارية" value={totals.opportunities} />
       <Metric label="فرص بيع متوقفة" value={totals.leakage} />
     </div>
@@ -193,7 +193,7 @@ export default function WhatsAppDoctorCycleIntelligenceV8({ onOpenSource }: { on
 
     <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-800">
       <table className="min-w-[1180px] w-full text-right text-sm">
-        <thead className="bg-slate-950/70 text-xs text-slate-400"><tr><th className="p-3">الدكتور</th><th className="p-3">الفرع</th><th className="p-3">المحادثات</th><th className="p-3">عملاء</th><th className="p-3">فرص تجارية</th><th className="p-3">بيع مؤكد</th><th className="p-3">Conversion</th><th className="p-3">الإيراد</th><th className="p-3">غير متوفر</th><th className="p-3">فقد بيع</th><th className="p-3">ترشيحات مقبولة</th><th className="p-3">متابعات</th><th className="p-3">شكاوى</th><th className="p-3">تفاصيل</th></tr></thead>
+        <thead className="bg-slate-950/70 text-xs text-slate-400"><tr><th className="p-3">الدكتور</th><th className="p-3">الفرع</th><th className="p-3">المحادثات</th><th className="p-3">عملاء</th><th className="p-3">فرص تجارية</th><th className="p-3">بيع Legacy</th><th className="p-3">Conversion</th><th className="p-3">إيراد Legacy</th><th className="p-3">غير متوفر</th><th className="p-3">فقد بيع</th><th className="p-3">ترشيحات مقبولة</th><th className="p-3">متابعات</th><th className="p-3">شكاوى</th><th className="p-3">تفاصيل</th></tr></thead>
         <tbody>{filtered.map((row) => <tr key={`${row.staff_id || row.staff_name}-${row.branch}-${row.cycle_start}`} className="border-t border-slate-800 bg-slate-950/25 text-slate-200 hover:bg-slate-900/45"><td className="p-3 font-black text-white">{row.staff_name || 'غير محدد'}</td><td className="p-3">{row.branch || '—'}</td><td className="p-3">{row.conversation_count}</td><td className="p-3">{row.customer_count}</td><td className="p-3">{row.commercial_conversations}</td><td className="p-3 text-emerald-300">{row.verified_sale_conversations}</td><td className="p-3"><span className="inline-flex items-center gap-1"><TrendingUp size={13}/>{Number(row.verified_conversion_rate || 0).toFixed(1)}%</span></td><td className="p-3 font-black text-emerald-300"><span className="inline-flex items-center gap-1"><BadgeDollarSign size={13}/>{money(row.verified_revenue)}</span></td><td className="p-3">{row.unavailable_product_count}</td><td className="p-3 text-amber-300">{row.sale_leakage_count}</td><td className="p-3">{row.accepted_product_count}</td><td className="p-3">{row.conversations_needing_followup}</td><td className="p-3 text-rose-300">{row.complaint_conversations}</td><td className="p-3"><button type="button" onClick={() => void loadDoctorDetail(row)} className="inline-flex items-center gap-1 rounded-lg border border-cyan-400/25 bg-cyan-500/10 px-2.5 py-1.5 text-xs font-black text-cyan-200">فتح <ChevronLeft size={13}/></button></td></tr>)}</tbody>
       </table>
       {!loading && filtered.length === 0 ? <div className="p-8 text-center text-sm text-slate-500">لا توجد بيانات كافية للدكاترة في السايكل الحالي حتى الآن.</div> : null}
@@ -215,7 +215,7 @@ export default function WhatsAppDoctorCycleIntelligenceV8({ onOpenSource }: { on
           <div className="max-h-[430px] space-y-2 overflow-y-auto">{conversations.map((item) => {
             const op = item.analysis_json?.operational;
             return <button type="button" key={item.id} onClick={() => onOpenSource?.(item.id)} className="w-full rounded-xl border border-slate-800 bg-slate-950/55 p-3 text-right hover:border-cyan-400/30">
-              <div className="flex items-start justify-between gap-2"><div><b className="text-white">{item.customer_name || 'عميل غير محدد'}</b>{item.customer_code ? <span className="mr-2 text-xs text-cyan-300">#{item.customer_code}</span> : null}<div className="mt-1 text-[11px] text-slate-500">{dateLabel(item.conversation_started_at)}</div></div><span className={`rounded-lg px-2 py-1 text-[10px] font-black ${item.invoice_match_status === 'verified' ? 'bg-emerald-500/10 text-emerald-200' : 'bg-slate-800 text-slate-300'}`}>{item.invoice_match_status === 'verified' ? `فاتورة ${money(item.matched_invoice_value)}` : 'بدون بيع مؤكد'}</span></div>
+              <div className="flex items-start justify-between gap-2"><div><b className="text-white">{item.customer_name || 'عميل غير محدد'}</b>{item.customer_code ? <span className="mr-2 text-xs text-cyan-300">#{item.customer_code}</span> : null}<div className="mt-1 text-[11px] text-slate-500">{dateLabel(item.conversation_started_at)}</div></div><span className={`rounded-lg px-2 py-1 text-[10px] font-black ${item.invoice_match_status === 'verified' ? 'bg-emerald-500/10 text-emerald-200' : 'bg-slate-800 text-slate-300'}`}>{item.invoice_match_status === 'verified' ? `مطابقة آلية ${money(item.matched_invoice_value)}` : 'لا توجد مطابقة قوية'}</span></div>
               <div className="mt-2 text-xs text-slate-300">{op?.primaryIntent || item.review_status || '—'}{item.followup_required ? <span className="text-amber-300"> • متابعة مطلوبة</span> : null}{item.matched_invoice_number ? <span className="text-emerald-300"> • #{item.matched_invoice_number}</span> : null}</div>
             </button>;
           })}{!conversations.length ? <div className="p-5 text-center text-xs text-slate-500">لا توجد محادثات مرتبطة بهذا الدكتور في السايكل.</div> : null}</div>
@@ -226,7 +226,7 @@ export default function WhatsAppDoctorCycleIntelligenceV8({ onOpenSource }: { on
           <div className="max-h-[430px] space-y-2 overflow-y-auto">{products.map((item, index) => <button type="button" key={`${item.source_id}-${item.product_name}-${index}`} onClick={() => onOpenSource?.(item.source_id)} className="w-full rounded-xl border border-slate-800 bg-slate-950/55 p-3 text-right hover:border-violet-400/30">
             <div className="flex items-start justify-between gap-2"><div><b className="text-white">{item.product_name || 'صنف غير محدد'}</b><div className="mt-1 text-[11px] text-slate-500">{item.customer_name || 'عميل غير محدد'}{item.customer_code ? ` • #${item.customer_code}` : ''}</div></div><span className="rounded-lg bg-violet-500/10 px-2 py-1 text-[10px] font-black text-violet-200">{item.current_stage || '—'}</span></div>
             {item.leakage_reason ? <div className="mt-2 flex items-start gap-1 text-xs text-amber-200"><CircleAlert size={13} className="mt-0.5 shrink-0"/>{item.leakage_reason}</div> : null}
-            <div className="mt-2 text-[11px] text-slate-400">{item.next_action || (item.invoice_match_status === 'verified' ? 'تم تأكيد البيع بالفاتورة.' : 'لا توجد خطوة تالية مثبتة.')}{item.matched_invoice_value ? <span className="text-emerald-300"> • {money(item.matched_invoice_value)}</span> : null}</div>
+            <div className="mt-2 text-[11px] text-slate-400">{item.next_action || (item.invoice_match_status === 'verified' ? 'توجد مطابقة فاتورة آلية Legacy؛ البيع غير مثبت رسميًا.' : 'لا توجد خطوة تالية مثبتة.')}{item.matched_invoice_value ? <span className="text-emerald-300"> • {money(item.matched_invoice_value)}</span> : null}</div>
           </button>)}{!products.length ? <div className="p-5 text-center text-xs text-slate-500">لا توجد رحلات أصناف مرتبطة بهذا الدكتور حتى الآن.</div> : null}</div>
         </div>
       </div>}

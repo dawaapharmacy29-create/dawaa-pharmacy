@@ -9,6 +9,16 @@ export type WhatsAppMessageKind =
   | 'unknown';
 export type WhatsAppExportSourceFormat = 'txt' | 'md';
 
+export interface WhatsAppParseOptions {
+  /**
+   * Optional TRUSTED conversation timestamp from persistence metadata. Only its calendar DATE is
+   * used, and only for markdown exports whose message lines contain time-of-day but omit the usual
+   * "## Month Day, Year" heading. Never pass import/created_at time here unless it is itself the
+   * persisted conversation_started_at for this exact source.
+   */
+  trustedConversationStartedAt?: string | Date | null;
+}
+
 export interface WhatsAppReplyContext {
   sender: string | null;
   text: string;
@@ -48,6 +58,12 @@ export interface WhatsAppConversationSession {
   missingMediaCount?: number;
   replyCount?: number;
   forwardedCount?: number;
+}
+
+export function serializeWhatsAppSessionRawText(session: WhatsAppConversationSession): string {
+  return session.messages
+    .map((message) => message.raw || `${message.rawTimestamp} ${message.sender}: ${message.text}`)
+    .join('\n');
 }
 
 type ParsedPrefix = {
@@ -309,6 +325,16 @@ function parseMarkdownDateHeading(line: string) {
   return { year: Number(match[3]), month, day: Number(match[2]) };
 }
 
+function parseMarkdownClockSeconds(raw: string): number | null {
+  const match = raw.trim().match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([APap][Mm])$/);
+  if (!match) return null;
+  let hour = Number(match[1]);
+  const meridiem = match[4].toLowerCase();
+  if (meridiem === 'pm' && hour < 12) hour += 12;
+  if (meridiem === 'am' && hour === 12) hour = 0;
+  return hour * 3600 + Number(match[2]) * 60 + Number(match[3] || 0);
+}
+
 function parseMarkdownTime(raw: string, date: { year: number; month: number; day: number }) {
   const match = raw.trim().match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([APap][Mm])$/);
   if (!match) return null;
@@ -346,10 +372,25 @@ function parseMarkdownReply(lines: string[]) {
   return { sender: null, text: combined.replace(/^_|_$/g, '') } satisfies WhatsAppReplyContext;
 }
 
-function parseMarkdownExport(text: string): WhatsAppParsedMessage[] {
+function trustedDateParts(value: string | Date | null | undefined): { year: number; month: number; day: number } | null {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  // Persistence timestamps are timestamptz. Use UTC calendar parts so server/browser local timezone
+  // never silently changes the trusted source date.
+  return { year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate() };
+}
+
+function parseMarkdownExport(text: string, trustedConversationStartedAt?: string | Date | null): WhatsAppParsedMessage[] {
   const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/);
   const messages: WhatsAppParsedMessage[] = [];
-  let currentDate: { year: number; month: number; day: number } | null = null;
+  let currentDate: { year: number; month: number; day: number } | null = trustedDateParts(trustedConversationStartedAt);
+  const trustedAnchor = trustedConversationStartedAt
+    ? (trustedConversationStartedAt instanceof Date ? trustedConversationStartedAt : new Date(trustedConversationStartedAt))
+    : null;
+  let usingTrustedTimeOnlyTimeline = Boolean(trustedAnchor && !Number.isNaN(trustedAnchor.getTime()));
+  let firstClockSeconds: number | null = null;
+  let previousAbsoluteClockSeconds: number | null = null;
   let current: {
     timestamp: Date;
     rawTimestamp: string;
@@ -390,6 +431,9 @@ function parseMarkdownExport(text: string): WhatsAppParsedMessage[] {
     if (dateHeading) {
       flush();
       currentDate = dateHeading;
+      usingTrustedTimeOnlyTimeline = false;
+      firstClockSeconds = null;
+      previousAbsoluteClockSeconds = null;
       continue;
     }
     if (!currentDate) continue;
@@ -399,7 +443,29 @@ function parseMarkdownExport(text: string): WhatsAppParsedMessage[] {
     );
     if (header) {
       flush();
-      const timestamp = parseMarkdownTime(header[1], currentDate);
+      let timestamp: Date | null = null;
+      if (usingTrustedTimeOnlyTimeline && trustedAnchor) {
+        const clockSeconds = parseMarkdownClockSeconds(header[1]);
+        if (clockSeconds != null) {
+          if (firstClockSeconds == null) {
+            firstClockSeconds = clockSeconds;
+            previousAbsoluteClockSeconds = clockSeconds;
+            // The persisted conversation_started_at is the trusted absolute timestamp of the first
+            // source message. This avoids a hidden server-timezone dependency (Vercel runs UTC,
+            // while these WhatsApp clocks are Egypt-local).
+            timestamp = new Date(trustedAnchor.getTime());
+          } else {
+            let absoluteClockSeconds = clockSeconds;
+            while (previousAbsoluteClockSeconds != null && absoluteClockSeconds < previousAbsoluteClockSeconds) {
+              absoluteClockSeconds += 24 * 3600;
+            }
+            previousAbsoluteClockSeconds = absoluteClockSeconds;
+            timestamp = new Date(trustedAnchor.getTime() + (absoluteClockSeconds - firstClockSeconds) * 1000);
+          }
+        }
+      } else {
+        timestamp = parseMarkdownTime(header[1], currentDate);
+      }
       if (!timestamp) continue;
       current = {
         timestamp,
@@ -424,15 +490,34 @@ function parseMarkdownExport(text: string): WhatsAppParsedMessage[] {
 
 export function detectWhatsAppExportFormat(text: string): WhatsAppExportSourceFormat {
   const head = text.slice(0, 5000);
-  if (/^# WhatsApp Chat Export:/m.test(head) || /^##\s+[A-Za-z]+\s+\d{1,2},\s+\d{4}$/m.test(head))
-    return 'md';
+  if (
+    /^# WhatsApp Chat Export:/m.test(head) ||
+    /^##\s+[A-Za-z]+\s+\d{1,2},\s+\d{4}$/m.test(head) ||
+    /^\[\d{1,2}:\d{2}(?::\d{2})?\s*[APap][Mm]\]\s+\*\*[^*]{1,100}:\*\*/m.test(head)
+  ) return 'md';
   return 'txt';
 }
 
-export function parseWhatsAppExport(text: string): WhatsAppParsedMessage[] {
-  return detectWhatsAppExportFormat(text) === 'md'
-    ? parseMarkdownExport(text)
-    : parseTextExport(text);
+function rebaseTextTimelineToTrustedStart(
+  messages: WhatsAppParsedMessage[],
+  trustedConversationStartedAt?: string | Date | null
+): WhatsAppParsedMessage[] {
+  if (!messages.length || !trustedConversationStartedAt) return messages;
+  const trusted = new Date(trustedConversationStartedAt);
+  if (Number.isNaN(trusted.getTime())) return messages;
+  const delta = trusted.getTime() - messages[0].timestamp.getTime();
+  if (!Number.isFinite(delta) || delta === 0) return messages;
+  return messages.map((message, index) => {
+    const timestamp = new Date(message.timestamp.getTime() + delta);
+    return { ...message, timestamp, id: messageId(index, timestamp, message.sender) };
+  });
+}
+
+export function parseWhatsAppExport(text: string, options: WhatsAppParseOptions = {}): WhatsAppParsedMessage[] {
+  if (detectWhatsAppExportFormat(text) === 'md') {
+    return parseMarkdownExport(text, options.trustedConversationStartedAt);
+  }
+  return rebaseTextTimelineToTrustedStart(parseTextExport(text), options.trustedConversationStartedAt);
 }
 
 export function extractIntroducedStaffName(message: WhatsAppParsedMessage): string | null {

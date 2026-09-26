@@ -182,6 +182,169 @@ export async function persistPointsTransaction(
   return { error: null, id: row.id ? String(row.id) : undefined };
 }
 
+
+const CONVERSATION_REVIEW_POINT_SOURCES = [
+  'whatsapp_automatic_review',
+  'conversation_evaluation',
+  'conversation_review',
+  'conversation_sales_reviews',
+] as const;
+
+export interface ConversationReviewLinkedPointRow {
+  staff_id?: string | null;
+  source?: string | null;
+  status?: string | null;
+  points_delta?: number | string | null;
+  month_cycle?: string | null;
+  branch?: string | null;
+}
+
+export interface ConversationReviewPointsReconciliationPlan {
+  cancellations: Array<{
+    staffId: string;
+    source: string;
+    monthCycle: string;
+    branch: string;
+    signedImpact: number;
+  }>;
+  replacementSource: 'whatsapp_automatic_review' | 'conversation_evaluation';
+  replacementSignedImpact: number;
+}
+
+export function buildConversationReviewPointsReconciliationPlan(
+  linkedRows: ConversationReviewLinkedPointRow[],
+  automaticReview: boolean,
+  signedImpact: number
+): ConversationReviewPointsReconciliationPlan {
+  const cancellations = (linkedRows || []).flatMap((row) => {
+    const staffId = String(row.staff_id || '').trim();
+    const source = String(row.source || '').trim();
+    const monthCycle = String(row.month_cycle || '').trim();
+    if (!staffId || !source || !monthCycle) return [];
+    const parsedDelta = Number(row.points_delta || 0);
+    return [{
+      staffId,
+      source,
+      monthCycle,
+      branch: String(row.branch || ''),
+      signedImpact: Number.isFinite(parsedDelta) ? parsedDelta : 0,
+    }];
+  });
+
+  return {
+    cancellations,
+    replacementSource: automaticReview ? 'whatsapp_automatic_review' : 'conversation_evaluation',
+    replacementSignedImpact: Number.isFinite(Number(signedImpact)) ? Number(signedImpact) : 0,
+  };
+}
+
+export interface ReconcileConversationReviewPointsInput {
+  reviewId: string;
+  nextStaffId: string;
+  nextStaffName: string;
+  nextBranch: string;
+  nextBranchId?: string | null;
+  signedImpact: number;
+  cycle: PharmacyCycle;
+  automaticReview: boolean;
+  actorName: string;
+  actorId: string;
+  actorRole: string;
+  note: string;
+}
+
+/**
+ * Reconcile the points ledger for a conversation review after a manager edit.
+ *
+ * The review id is the canonical event identity. Old implementations created separate
+ * manager-adjustment events (and even tried to pass synthetic non-UUID source ids to the V3 RPC),
+ * which could leave the original pending automatic-review transaction alive and later double-count
+ * the incentive. This routine first cancels every live transaction linked to the same review id,
+ * preserving each row's original cycle/source while cancelling it, then writes exactly one current
+ * approved transaction for the edited review when the resulting impact is non-zero.
+ *
+ * Manager edits are explicit human decisions, so the replacement transaction is approved.
+ */
+export async function reconcileConversationReviewPointsAfterManagerEdit(
+  input: ReconcileConversationReviewPointsInput
+): Promise<{ error: string | null; id?: string }> {
+  if (!input.reviewId) return { error: 'معرف تقييم المحادثة غير موجود.' };
+  if (!input.nextStaffId) return { error: 'الموظف الصحيح غير محدد بعد تعديل التقييم.' };
+
+  const { data: linkedRows, error: linkedError } = await supabase
+    .from(TABLES.employeeTransactions)
+    .select('staff_id,source,status,points_delta,month_cycle,branch')
+    .eq('source_id', input.reviewId)
+    .in('source', [...CONVERSATION_REVIEW_POINT_SOURCES])
+    .in('status', ['active', 'approved', 'pending']);
+
+  if (linkedError && !isIgnorableSchemaIssue(linkedError.message)) {
+    logSupabaseError('conversation review points reconciliation lookup', linkedError);
+    return { error: linkedError.message };
+  }
+
+  const plan = buildConversationReviewPointsReconciliationPlan(
+    (linkedRows || []) as ConversationReviewLinkedPointRow[],
+    input.automaticReview,
+    input.signedImpact
+  );
+
+  for (const cancellation of plan.cancellations) {
+    const { error: cancelError } = await supabase.rpc('record_employee_points_transaction_v3', {
+      p_staff_id: cancellation.staffId,
+      p_signed_points: cancellation.signedImpact,
+      p_reason: 'إلغاء أثر سابق بعد تعديل تقييم محادثة',
+      p_description: `تم إلغاء الحركة السابقة المرتبطة بالتقييم ${input.reviewId} قبل تسجيل النسخة المعدلة. ${input.note}`,
+      p_source: cancellation.source,
+      p_source_id: input.reviewId,
+      p_rule_code: null,
+      p_month_cycle: cancellation.monthCycle,
+      p_branch: cancellation.branch,
+      p_status: 'cancelled',
+      p_category: null,
+      p_metadata: {
+        engine_version: 3,
+        reconciliation: 'conversation_review_manager_edit_v1',
+        superseded_by_manager_edit: true,
+      },
+    });
+
+    if (cancelError) {
+      logSupabaseError('conversation review points cancellation', cancelError);
+      return {
+        error:
+          'تعذر إلغاء حركة النقاط السابقة المرتبطة بالتقييم قبل تسجيل التعديل. ' +
+          cancelError.message,
+      };
+    }
+  }
+
+  if (plan.replacementSignedImpact === 0) return { error: null };
+
+  return persistPointsTransaction({
+    employeeId: input.nextStaffId,
+    employeeName: input.nextStaffName,
+    branch: input.nextBranch,
+    branchId: input.nextBranchId ?? null,
+    operation: plan.replacementSignedImpact > 0 ? 'bonus' : 'deduction',
+    rule: null,
+    pointsToStore: Math.abs(plan.replacementSignedImpact),
+    basePoints: Math.abs(plan.replacementSignedImpact),
+    finalPoints: Math.abs(plan.replacementSignedImpact),
+    userNote: input.note,
+    createdByName: input.actorName,
+    createdById: input.actorId,
+    createdByRole: input.actorRole,
+    status: 'approved',
+    cycle: input.cycle,
+    source: plan.replacementSource,
+    sourceModule: 'conversation_evaluation',
+    sourceRecordId: input.reviewId,
+    description: `الأثر النهائي بعد تعديل إداري لتقييم المحادثة ${input.reviewId}`,
+    reasonLabel: 'أثر تقييم محادثة بعد مراجعة المدير',
+  });
+}
+
 export function approverHintFromRule(rule: EvaluationRuleDef | null): string | undefined {
   if (!rule?.allowed_approver_roles?.length) return undefined;
   return formatApproverList(rule.allowed_approver_roles);

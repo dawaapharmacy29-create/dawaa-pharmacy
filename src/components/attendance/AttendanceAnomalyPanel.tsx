@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, Fingerprint, RefreshCw, ShieldAlert, Sparkles } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { useMemo, useState } from 'react';
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, Fingerprint, MapPin, RefreshCw, ShieldAlert, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 type DailyCommandRow = {
@@ -34,6 +33,9 @@ type TimelineEvent = {
   duplicate_of: string | null;
   device_id: string | null;
   provider: string | null;
+  source_branch?: string | null;
+  home_branch?: string | null;
+  cross_branch?: boolean;
 };
 
 type DailyIntelRow = {
@@ -53,9 +55,9 @@ type DailyIntelRow = {
   timeline: TimelineEvent[];
 };
 
-type Props = { rows: DailyCommandRow[]; date: string; branch: string };
+type Props = { rows: DailyCommandRow[]; intel: DailyIntelRow[]; loading: boolean; onRefresh: () => void };
 type Severity = 'critical' | 'high' | 'medium' | 'info';
-type Filter = 'all' | 'critical' | 'review' | 'single' | 'corrected' | 'duplicate';
+type Filter = 'all' | 'critical' | 'review' | 'single' | 'corrected' | 'duplicate' | 'cross_branch';
 
 type Anomaly = {
   staffId: string;
@@ -159,6 +161,13 @@ function analyze(row: DailyCommandRow, item?: DailyIntelRow): Anomaly | null {
       reasons.push(`متوسط الثقة ${confidence}% ويستحق مراجعة عند وجود قرائن أخرى.`);
     }
 
+    const crossBranchEvents = (item.timeline || []).filter((e) => Boolean(e.cross_branch));
+    if (crossBranchEvents.length > 0) {
+      const branches = Array.from(new Set(crossBranchEvents.map((e) => e.source_branch).filter(Boolean)));
+      reasons.push(`بصم في فرع آخر: ${branches.join('، ')} — معلومة رقابية فقط ولا تمنع احتساب الحضور.`);
+      tags.push('cross_branch');
+    }
+
     const effective = (item.timeline || []).filter((e) => e.decision !== 'duplicate' && !e.duplicate_of && e.semantic_type);
     const hasIn = effective.some((e) => ['check_in', 'in'].includes(String(e.semantic_type)));
     const hasOut = effective.some((e) => ['check_out', 'out'].includes(String(e.semantic_type)));
@@ -183,32 +192,10 @@ function analyze(row: DailyCommandRow, item?: DailyIntelRow): Anomaly | null {
   return { staffId: row.staff_id, staffName: row.staff_name, branch: row.branch || '-', severity, score, title, reasons, tags: Array.from(new Set(tags)), item, row };
 }
 
-export default function AttendanceAnomalyPanel({ rows, date, branch }: Props) {
-  const [intel, setIntel] = useState<DailyIntelRow[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+export default function AttendanceAnomalyPanel({ rows, intel, loading, onRefresh }: Props) {
+  const [collapsed, setCollapsed] = useState(true);
   const [filter, setFilter] = useState<Filter>('all');
   const [expanded, setExpanded] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const { data, error: rpcError } = await supabase.rpc('attendance_daily_intelligence_v2', { p_date: date, p_branch: branch === 'الكل' ? null : branch });
-      if (rpcError) throw rpcError;
-      setIntel((data || []) as DailyIntelRow[]);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'تعذر تحميل رادار الحالات غير الطبيعية');
-    } finally {
-      setLoading(false);
-    }
-  }, [branch, date]);
-
-  useEffect(() => { void load(); }, [load]);
-  useEffect(() => {
-    const id = window.setInterval(() => void load(), 30_000);
-    return () => window.clearInterval(id);
-  }, [load]);
 
   const map = useMemo(() => new Map(intel.map((x) => [x.staff_id, x])), [intel]);
   const anomalies = useMemo(() => rows.map((row) => analyze(row, map.get(row.staff_id))).filter(Boolean).sort((a, b) => (b!.score - a!.score)) as Anomaly[], [rows, map]);
@@ -225,28 +212,29 @@ export default function AttendanceAnomalyPanel({ rows, date, branch }: Props) {
     single: anomalies.filter((a) => a.tags.includes('single')).length,
     corrected: anomalies.filter((a) => a.tags.includes('corrected')).length,
     duplicate: anomalies.filter((a) => a.tags.includes('duplicate')).length,
+    crossBranch: anomalies.filter((a) => a.tags.includes('cross_branch')).length,
   }), [anomalies]);
 
   return <section className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm">
     <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-      <div className="flex items-start gap-2"><ShieldAlert size={20} className="mt-0.5 text-[var(--dawaa-status-warning-text)]"/><div><h2 className="font-black text-[var(--dawaa-theme-heading)]">رادار الحالات غير الطبيعية</h2><p className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">يرتب الحالات التي تستحق انتباه المدير أولًا. لا يحذف الـRaw ولا ينشئ خصمًا تلقائيًا؛ هو طبقة تفسير ومراجعة قبل الاعتماد.</p></div></div>
-      <button onClick={() => void load()} className="btn-secondary"><RefreshCw size={15} className={loading ? 'animate-spin' : ''}/> تحديث الرادار</button>
+      <button onClick={() => setCollapsed((c) => !c)} className="flex flex-1 items-start gap-2 text-right"><ShieldAlert size={20} className="mt-0.5 text-[var(--dawaa-status-warning-text)]"/><div><h2 className="flex items-center gap-1.5 font-black text-[var(--dawaa-theme-heading)]">رادار الحالات غير الطبيعية {collapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}{anomalies.length > 0 && <span className="rounded-full border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-2 py-0.5 text-[11px] text-[var(--dawaa-status-warning-text)]">{anomalies.length} حالة تحتاج انتباه</span>}</h2><p className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">يرتب الحالات التي تستحق انتباه المدير أولًا. لا يحذف الـRaw ولا ينشئ خصمًا تلقائيًا؛ هو طبقة تفسير ومراجعة قبل الاعتماد.</p></div></button>
+      <button onClick={onRefresh} className="btn-secondary"><RefreshCw size={15} className={loading ? 'animate-spin' : ''}/> تحديث الرادار</button>
     </div>
 
-    <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
+    {!collapsed && <>
+    <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-7">
       <RadarMetric label="حرجة" value={totals.urgent} tone="bad" />
       <RadarMetric label="مهمة" value={totals.important} tone="warn" />
       <RadarMetric label="تحتاج مراجعة" value={totals.review} tone="warn" />
       <RadarMetric label="بصمة واحدة" value={totals.single} />
       <RadarMetric label="تصحيح ذكي" value={totals.corrected} />
       <RadarMetric label="تأكيدات مكررة" value={totals.duplicate} />
+      <RadarMetric label="بصم في فرع آخر" value={totals.crossBranch} />
     </div>
 
     <div className="mt-3 flex flex-wrap gap-2">
-      {([['all','الكل'],['critical','الأهم أولًا'],['review','تحتاج مراجعة'],['single','بصمة واحدة'],['corrected','تصحيح دخول/خروج'],['duplicate','تكرار سريع']] as Array<[Filter,string]>).map(([key,label]) => <button key={key} onClick={() => setFilter(key)} className={cn('rounded-full border px-3 py-1 text-[11px] font-black transition', filter === key ? 'border-[var(--dawaa-theme-primary)] bg-[var(--dawaa-theme-primary)] text-white' : 'border-[var(--dawaa-theme-border)] hover:bg-[var(--dawaa-theme-surface-2)]')}>{label}</button>)}
+      {([['all','الكل'],['critical','الأهم أولًا'],['review','تحتاج مراجعة'],['single','بصمة واحدة'],['corrected','تصحيح دخول/خروج'],['duplicate','تكرار سريع'],['cross_branch','بصم في فرع آخر']] as Array<[Filter,string]>).map(([key,label]) => <button key={key} onClick={() => setFilter(key)} className={cn('rounded-full border px-3 py-1 text-[11px] font-black transition', filter === key ? 'border-[var(--dawaa-theme-primary)] bg-[var(--dawaa-theme-primary)] text-white' : 'border-[var(--dawaa-theme-border)] hover:bg-[var(--dawaa-theme-surface-2)]')}>{label}</button>)}
     </div>
-
-    {error && <div className="mt-3 rounded-xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-3 text-xs font-black text-[var(--dawaa-status-danger-text)]">⚠️ {error}</div>}
 
     <div className="mt-4 space-y-2">
       {!loading && !filtered.length && <div className="rounded-xl border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] p-4 text-sm font-black text-[var(--dawaa-status-success-text)]"><CheckCircle2 size={17} className="ml-1 inline"/> لا توجد حالات ضمن الفلتر الحالي تحتاج تصعيدًا.</div>}
@@ -262,11 +250,12 @@ export default function AttendanceAnomalyPanel({ rows, date, branch }: Props) {
           <div className="mt-2 flex flex-wrap gap-1.5">{a.reasons.slice(0, 2).map((reason) => <span key={reason} className="rounded-lg border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] px-2 py-1 text-[11px] font-bold">{reason}</span>)}</div>
           {open && <div className="mt-3 rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-3">
             <div className="space-y-1 text-xs font-bold text-[var(--dawaa-theme-text)]">{a.reasons.map((reason) => <div key={reason} className="flex gap-2"><AlertTriangle size={13} className="mt-0.5 shrink-0 text-[var(--dawaa-status-warning-text)]"/><span>{reason}</span></div>)}</div>
-            {!!a.item?.timeline?.length && <div className="mt-3 overflow-x-auto"><table className="min-w-full text-[11px]"><thead><tr className="text-right"><th className="p-2">الوقت</th><th className="p-2">نوع البصمة</th><th className="p-2">الجهاز</th><th className="p-2">التفسير</th><th className="p-2">القرار</th><th className="p-2">الثقة</th></tr></thead><tbody>{a.item.timeline.map((event) => { const duplicate = event.decision === 'duplicate' || Boolean(event.duplicate_of); const corrected = !duplicate && event.raw_type && event.semantic_type && event.raw_type !== event.semantic_type; return <tr key={event.id} className="border-t border-[var(--dawaa-theme-divider)]"><td className="p-2 font-black">{formatTime(event.time)}</td><td className="p-2">{typeLabel(duplicate ? event.raw_type : event.semantic_type || event.raw_type)}</td><td className="p-2 text-[var(--dawaa-theme-muted)]">{event.device_id || '-'}</td><td className="p-2 max-w-[220px] whitespace-normal text-[var(--dawaa-theme-muted)]">{reasonLabel(event.reason)}</td><td className="p-2">{duplicate ? 'تأكيد مكرر' : corrected ? 'تصحيح ذكي' : 'محتسبة'}</td><td className="p-2">{pct(event.confidence) == null ? '-' : `${pct(event.confidence)}%`}</td></tr>; })}</tbody></table></div>}
+            {!!a.item?.timeline?.length && <div className="mt-3 overflow-x-auto"><table className="min-w-full text-[11px]"><thead><tr className="text-right"><th className="p-2">الوقت</th><th className="p-2">نوع البصمة</th><th className="p-2">الجهاز</th><th className="p-2">مكان البصمة</th><th className="p-2">التفسير</th><th className="p-2">القرار</th><th className="p-2">الثقة</th></tr></thead><tbody>{a.item.timeline.map((event) => { const duplicate = event.decision === 'duplicate' || Boolean(event.duplicate_of); const corrected = !duplicate && event.raw_type && event.semantic_type && event.raw_type !== event.semantic_type; return <tr key={event.id} className="border-t border-[var(--dawaa-theme-divider)]"><td className="p-2 font-black">{formatTime(event.time)}</td><td className="p-2">{typeLabel(duplicate ? event.raw_type : event.semantic_type || event.raw_type)}</td><td className="p-2 text-[var(--dawaa-theme-muted)]">{event.device_id || '-'}</td><td className="p-2">{event.cross_branch ? <span className="inline-flex items-center gap-1 rounded-full border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] px-2 py-0.5 font-black text-[var(--dawaa-status-info-text)]"><MapPin size={11}/>{event.source_branch || '-'}</span> : (event.source_branch || '-')}</td><td className="p-2 max-w-[220px] whitespace-normal text-[var(--dawaa-theme-muted)]">{reasonLabel(event.reason)}</td><td className="p-2">{duplicate ? 'تأكيد مكرر' : corrected ? 'تصحيح ذكي' : 'محتسبة'}</td><td className="p-2">{pct(event.confidence) == null ? '-' : `${pct(event.confidence)}%`}</td></tr>; })}</tbody></table></div>}
           </div>}
         </div>;
       })}
     </div>
+    </>}
   </section>;
 }
 

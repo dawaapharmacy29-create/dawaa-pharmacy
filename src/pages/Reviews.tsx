@@ -22,6 +22,7 @@ import {
   evaluateConversationReview,
   monthCycleFromDate,
   reviewerDisplayName,
+  isAutomaticReview,
   MAX_CONVERSATION_PENALTY,
   REVIEW_CRITERIA,
   SEVERE_ERRORS,
@@ -31,6 +32,7 @@ import {
   type SevereErrorKey,
   type SevereErrorsState,
 } from '@/lib/conversationReviews';
+import { evaluateSalesJourneyReviewV2 } from '@/lib/salesJourneyReviewV2';
 import { supabase } from '@/lib/supabase';
 import { useAuth, getCurrentUserProfile } from '@/hooks/useAuth';
 import { normalizeBranchName } from '@/lib/branch';
@@ -44,7 +46,7 @@ import {
 } from '@/lib/security/userDataScope';
 import { toast } from 'sonner';
 import { useSupabaseQuery, logActivity } from '@/hooks/useSupabaseQuery';
-import { persistPointsTransaction } from '@/lib/pointsPersistence';
+import { persistPointsTransaction, reconcileConversationReviewPointsAfterManagerEdit } from '@/lib/pointsPersistence';
 import { getCycleForDate } from '@/lib/pharmacy-cycle';
 import type { Customer } from '@/types/database';
 import type { CustomerMetric } from '@/lib/api/customers';
@@ -56,6 +58,12 @@ import { TABLES } from '@/lib/supabaseTables';
 import { notifyEmployee } from '@/lib/notificationService';
 import { usePendingFormNavigationGuard } from '@/hooks/useUnsavedChangesGuard';
 import { useDebounce } from '@/hooks/useDebounce';
+import {
+  clearPendingConversationReviewTransfer,
+  readPendingConversationReviewTransfer,
+  type ConversationReviewSnapshot,
+} from '@/lib/conversationReviewTranscript';
+import type { CustomerSearchResult } from '@/lib/customerSearch';
 
 interface StaffOpt {
   id: string;
@@ -416,11 +424,28 @@ export default function Reviews() {
   const historyOnlyMode = searchParams.get('section') === 'history';
   const [saving, setSaving] = useState(false);
   const saveInFlightRef = useRef(false);
+  // نسخة "المقترح وقت التعبئة" لبنود الـconfident اللي اتعمل لها prefill تلقائي — تُستخدم
+  // فقط لحساب humanModifiedCriteriaCount وقت الحفظ (كام بند غيّره المراجع عن اقتراح النظام)،
+  // مش لأي غرض آخر.
+  const smartPrefillBaselineRef = useRef<Partial<Record<ReviewCriterionKey, string>>>({});
   const [reviewState, setReviewState] = useState<ConversationReviewState>(defaultReviewState());
   const [severeErrors, setSevereErrors] = useState<SevereErrorsState>(defaultSevereErrors());
   const [custSearch, setCustSearch] = useState('');
   const [custHits, setCustHits] = useState<CustomerMetric[]>([]);
   const [repeatInfo, setRepeatInfo] = useState<{ count: number; multiplier: number } | null>(null);
+  const [smartSnapshot, setSmartSnapshot] = useState<ConversationReviewSnapshot | null>(null);
+  const [smartTransferApplied, setSmartTransferApplied] = useState(false);
+  // لو staffIdentity من الـWatcher جالها أكتر من مرشح محتمل (ambiguous) — ما نختارش تلقائيًا،
+  // نعرض القائمة ونستنى اختيار بشري صريح من staffOptions.
+  const [ambiguousStaffIdentity, setAmbiguousStaffIdentity] = useState<ConversationReviewSnapshot['staffIdentity'] | null>(null);
+  // نفس المنطق للعميل — لو الـresolver في الـWatcher رجع أكتر من مرشح محتمل.
+  const [ambiguousCustomerCandidates, setAmbiguousCustomerCandidates] = useState<CustomerSearchResult[] | null>(null);
+  // ID الرسائل اللي المراجع دوس "عرض الدليل" عليها لبند معين — تتعمل لها تمييز مؤقت
+  // (highlight) في عرض المحادثة، بدون ما تغيّر شكل "دليل" العام الدائم لكل المحادثة.
+  const [focusedEvidenceIds, setFocusedEvidenceIds] = useState<string[]>([]);
+  // قرار المراجع البشري الصريح على التقييم الذكي المقترح — audit field بس، مفيش نقاط أو
+  // حفظ رسمي مرتبط بيه مباشرة؛ الحفظ الفعلي لسه محتاج ضغط زر الحفظ الرئيسي.
+  const [humanDecision, setHumanDecision] = useState<'approved_as_is' | 'edited_then_approved' | 'rejected' | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [reviewHistory, setReviewHistory] = useState<ConversationReviewHistoryRow[]>([]);
@@ -503,19 +528,10 @@ export default function Reviews() {
     };
   }, [searchParams, selectedReviewId]);
 
-  const closeSelectedReviewRef = useRef(closeSelectedReview);
-  useEffect(() => {
-    closeSelectedReviewRef.current = closeSelectedReview;
-  }, [closeSelectedReview]);
-  useEffect(() => {
-    // مقصود نستخدم مصفوفة تبعيات فاضية هنا: عايزين النداء ده يحصل مرة واحدة
-    // بس لما الصفحة تتقفل فعليًا (unmount)، مش كل مرة closeSelectedReview
-    // يتغير مرجعها لأي سبب أثناء إعادة الرندر العادية.
-    return () => {
-      closeSelectedReviewRef.current();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // لا نغيّر الـURL أثناء unmount. الانتقال من نموذج التقييم إلى سجل التقييمات
+  // يعمل unmount لهذا الكومبوننت، وأي setSearchParams هنا قد يعيد query قديمة
+  // (مثل mode=new) فوق section=history ويعيد المستخدم للنموذج بعد ومضة قصيرة.
+  // state المحلي يُزال تلقائيًا مع unmount، لذلك لا يوجد cleanup مطلوب هنا.
   const [managerSaving, setManagerSaving] = useState(false);
   const [managerForm, setManagerForm] = useState({
     score: '100',
@@ -683,6 +699,173 @@ export default function Reviews() {
     targetBranch,
     reviewAllowedBranches,
   ]);
+  useEffect(() => {
+    if (smartTransferApplied || !draftRestored || !newOnlyMode || searchParams.get('fromSmart') !== '1') return;
+    const snapshot = readPendingConversationReviewTransfer();
+    if (!snapshot) {
+      setSmartTransferApplied(true);
+      return;
+    }
+
+    const identity = snapshot.staffIdentity;
+    // Legacy snapshots (من قبل staffIdentity contract) لسه محتاجين مطابقة بالاسم القديمة —
+    // مفيش داعي غيرها لو مفيش identity خالص جايه من الـWatcher.
+    const isLegacySnapshot = !identity;
+    let matchedStaff: (typeof staffOptions)[number] | undefined;
+    if (isLegacySnapshot) {
+      const normalizedTarget = normalizeArabicName(snapshot.staffName || '');
+      matchedStaff = staffOptions.find((item) => normalizeArabicName(item.name || '') === normalizedTarget);
+      // استنى تحميل قائمة الموظفين قبل ما نعتبر إن المطابقة فشلت (مسار legacy بس).
+      if (!matchedStaff && !staffOptions.length) return;
+    }
+
+    const firstScored =
+      snapshot.messages.find((message) => message.scope === 'scored') ||
+      snapshot.messages[0] ||
+      null;
+    const conversationDate = firstScored?.timestamp
+      ? (() => {
+          const d = new Date(firstScored.timestamp);
+          if (Number.isNaN(d.getTime())) return isoInputNow();
+          d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+          return d.toISOString().slice(0, 16);
+        })()
+      : isoInputNow();
+
+    const draft = snapshot.officialReviewDraft;
+    setSmartSnapshot(
+      draft
+        ? {
+            ...snapshot,
+            smartDraftGeneratedAt: new Date().toISOString(),
+            smartDraftVersion: draft.version,
+            smartSuggestedScore: draft.provisionalScore,
+          }
+        : snapshot
+    );
+    setHumanDecision(null);
+    smartPrefillBaselineRef.current = {};
+
+    // هوية العميل — لو مؤكدة (customerId حقيقي، مش ambiguous)، تُنقل مباشرة للفورم من غير
+    // أي إعادة بحث بالاسم. لو ambiguous، نعرض قائمة اختيار بشري (نفس منطق الموظف).
+    const customerResolution = snapshot.smartIntelligence?.customer || null;
+    const resolvedCustomer = customerResolution?.customer || null;
+    const customerFields = resolvedCustomer
+      ? {
+          customerId: resolvedCustomer.id,
+          customerCode: resolvedCustomer.code || '',
+          customerName: resolvedCustomer.name || snapshot.customerName || '',
+          customerPhone: resolvedCustomer.phone || '',
+        }
+      : { customerName: snapshot.customerName || '' };
+
+    const evaluationV2 = snapshot.smartIntelligence?.evaluationV2 || null;
+    const saleTransferFields = evaluationV2?.sale.outcome === 'invoice_verified_sale'
+      ? {
+          convertedToSale: 'yes' as const,
+          invoiceNo: evaluationV2.sale.invoiceNumber || '',
+          evaluationReason: 'عملية بيع مهمة',
+        }
+      : evaluationV2?.sale.outcome === 'order_confirmed'
+        ? {
+            convertedToSale: '' as const,
+            invoiceNo: '',
+            evaluationReason: 'متابعة جودة',
+          }
+        : {
+            convertedToSale: '' as const,
+            invoiceNo: '',
+            evaluationReason: 'متابعة جودة',
+          };
+    if (customerResolution?.strategy === 'ambiguous' && customerResolution.candidates.length) {
+      setAmbiguousCustomerCandidates(customerResolution.candidates);
+    } else {
+      setAmbiguousCustomerCandidates(null);
+    }
+
+    // Prefill تلقائي للبنود الواثقة فقط (status === 'confident') — أي بند محتاج مراجعة أو
+    // غير مدعوم بيفضل على الافتراضي، والمقترح بيتعرض جنبه للمراجع بدون ما يتفرض عليه.
+    // AI evaluates -> Human approves: الـprefill بيملأ الاختيار، لكن مفيش نقاط أو حفظ رسمي
+    // إلا لما المراجع نفسه يضغط حفظ.
+    if (draft) {
+      setReviewState((current) => {
+        const next = { ...current };
+        for (const criterion of draft.criteria) {
+          if (criterion.status === 'confident' && criterion.suggestedChoice) {
+            next[criterion.criterionKey] = {
+              applies: criterion.applies,
+              choice: criterion.suggestedChoice,
+              notes: `اقتراح تلقائي من التقييم الذكي (ثقة ${criterion.confidence}%)`,
+            };
+            smartPrefillBaselineRef.current[criterion.criterionKey] = criterion.suggestedChoice;
+          }
+        }
+        return next;
+      });
+    }
+
+    // المسار الجديد: هوية مؤكدة (staff_id حقيقي، مش ambiguous) — تُستخدم مباشرة، بدون أي
+    // إعادة تخمين بالاسم خالص.
+    if (identity && identity.staffId && !identity.ambiguous) {
+      if (identity.branch) setTargetBranch(normalizeBranchName(identity.branch));
+      setForm((current) => ({
+        ...current,
+        staffId: identity.staffId!,
+        ...customerFields,
+        ...saleTransferFields,
+        evaluationKind: 'واتساب',
+        conversationDate,
+      }));
+      setAmbiguousStaffIdentity(null);
+      clearPendingConversationReviewTransfer();
+      setSmartTransferApplied(true);
+      toast.success(`تم تجهيز Draft التقييم لـ ${identity.canonicalStaffName} (${identity.identitySource}) من المحادثة الذكية`);
+      return;
+    }
+
+    // هوية غامضة (أكتر من مرشح) — ما نختارش تلقائيًا، نعرض القائمة ونستنى اختيار بشري.
+    if (identity && identity.ambiguous) {
+      setForm((current) => ({
+        ...current,
+        ...customerFields,
+        ...saleTransferFields,
+        evaluationKind: 'واتساب',
+        conversationDate,
+      }));
+      setAmbiguousStaffIdentity(identity);
+      clearPendingConversationReviewTransfer();
+      setSmartTransferApplied(true);
+      toast.warning(`المسؤول غير محسوم — "${identity.displayName}" مطابق لأكتر من موظف، اختر يدويًا من القائمة`);
+      return;
+    }
+
+    // legacy fallback (بالاسم فقط) — نفس السلوك القديم بالظبط.
+    if (matchedStaff?.branch) setTargetBranch(normalizeBranchName(matchedStaff.branch));
+    setForm((current) => ({
+      ...current,
+      staffId: matchedStaff?.id || current.staffId,
+      ...customerFields,
+      evaluationKind: 'واتساب',
+      evaluationReason: 'متابعة جودة',
+      conversationDate,
+    }));
+    setAmbiguousStaffIdentity(null);
+    clearPendingConversationReviewTransfer();
+    setSmartTransferApplied(true);
+
+    if (matchedStaff) {
+      toast.success(`تم تجهيز Draft التقييم لـ ${matchedStaff.name} من المحادثة الذكية`);
+    } else {
+      toast.warning(`تم نقل المحادثة، لكن اسم المسؤول «${snapshot.staffName}» يحتاج اختيار يدوي من القائمة`);
+    }
+  }, [
+    draftRestored,
+    newOnlyMode,
+    searchParams,
+    smartTransferApplied,
+    staffOptions,
+  ]);
+
   const canEditReviews = checkPermission('edit_reviews');
   const canApproveReviews = checkPermission('approve_reviews');
   const selectedStaff = staffOptions.find((s) => s.id === form.staffId) || null;
@@ -708,6 +891,14 @@ export default function Reviews() {
   );
   const result = useMemo(() => {
     try {
+      if (smartSnapshot?.smartIntelligence?.evaluationV2) {
+        return evaluateSalesJourneyReviewV2(
+          reviewState,
+          severeErrors,
+          smartSnapshot.smartIntelligence.evaluationV2,
+          form.customerType
+        );
+      }
       return evaluateConversationReview(reviewState, severeErrors, form.customerType);
     } catch (err) {
       console.warn('[reviews] evaluateConversationReview failed', err);
@@ -739,7 +930,9 @@ export default function Reviews() {
         extraPenalties: [],
       } as any;
     }
-  }, [reviewState, severeErrors, form.customerType]);
+  }, [reviewState, severeErrors, form.customerType, smartSnapshot]);
+  const salesJourneyResult =
+    (result as any)?.scoringVersion === 'sales-journey-review-v2' ? (result as any) : null;
   const finalTraining = form.trainingRecommendationManual || result.trainingRecommendation;
   const conversationDate = form.conversationDate || isoInputNow();
   const reviewCycle = useMemo(
@@ -983,6 +1176,15 @@ export default function Reviews() {
     setSevereErrors((current) => ({ ...current, [key]: active }));
   };
 
+  const showCriterionEvidence = (messageIds: string[]) => {
+    setFocusedEvidenceIds(messageIds);
+    const firstId = messageIds[0];
+    if (!firstId) return;
+    window.setTimeout(() => {
+      document.getElementById(`smart-msg-${firstId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 0);
+  };
+
   const applyTiming = () => {
     const firstChoice = responseChoice(responseMinutes);
     const waitChoice = followupChoice(followupDelayMinutes, form.followUpPromised);
@@ -1102,6 +1304,29 @@ export default function Reviews() {
       setRepeatInfo({ count: previousCount, multiplier });
 
       const selectedChoices = reviewState;
+
+      // audit فقط: كام بند من البنود اللي عملها الـWatcher prefill تلقائي (confident) غيّره
+      // المراجع فعليًا قبل الحفظ، وإيه القرار النهائي — مفيش أثر على النقاط أو الحفظ نفسه.
+      const prefillBaseline = smartPrefillBaselineRef.current;
+      const humanModifiedCriteriaCount = Object.keys(prefillBaseline).reduce((count, key) => {
+        const criterionKey = key as ReviewCriterionKey;
+        const original = prefillBaseline[criterionKey];
+        const current = selectedChoices[criterionKey];
+        if (!current || original === undefined) return count;
+        return current.choice !== original ? count + 1 : count;
+      }, 0);
+      const finalHumanDecision: NonNullable<ConversationReviewSnapshot['humanDecision']> | null =
+        smartSnapshot?.officialReviewDraft
+          ? humanDecision ?? (humanModifiedCriteriaCount > 0 ? 'edited_then_approved' : 'approved_as_is')
+          : null;
+      const smartSnapshotForSave: ConversationReviewSnapshot | null = smartSnapshot
+        ? {
+            ...smartSnapshot,
+            humanDecision: finalHumanDecision,
+            humanModifiedCriteriaCount: smartSnapshot.officialReviewDraft ? humanModifiedCriteriaCount : null,
+          }
+        : null;
+
       const payload = {
         reviewer_id: asUuid(selectedReviewer.id || user?.id),
         reviewer_name: selectedReviewer.name || user?.name || null,
@@ -1159,6 +1384,17 @@ export default function Reviews() {
           criteria: selectedChoices,
           severe_errors: severeErrors,
           result: { ...result, doctorPointsImpact: repeatedDoctorImpact },
+          conversation_snapshot: smartSnapshotForSave,
+          smart_review_source: smartSnapshot
+            ? {
+                source: smartSnapshot.source,
+                source_file_name: smartSnapshot.sourceFileName,
+                session_id: smartSnapshot.sessionId,
+                decision: smartSnapshot.decision,
+                transferred_at: new Date().toISOString(),
+                human_confirmed: true,
+              }
+            : null,
         },
         review_items: result.reviewItems,
         first_customer_message_at: form.firstCustomerMessageAt
@@ -1400,6 +1636,9 @@ export default function Reviews() {
     setCustSearched(false);
     setRepeatInfo(null);
     setDraftSavedAt(null);
+    setHumanDecision(null);
+    setFocusedEvidenceIds([]);
+    smartPrefillBaselineRef.current = {};
     window.localStorage.removeItem(REVIEW_DRAFT_KEY);
     toast.success('تم فتح تقييم جديد');
   };
@@ -1579,90 +1818,24 @@ export default function Reviews() {
 
       await updateSafe('conversation_sales_reviews', editingReview.id, payload);
 
-      const previousStaffId = editingReview.staff_id || editingReview.doctor_id || '';
       const nextStaffId = editForm.staff_id;
-      const staffChanged = Boolean(previousStaffId && nextStaffId && previousStaffId !== nextStaffId);
-
-      const persistManagerAdjustment = async (args: {
-        employeeId: string;
-        employeeName: string;
-        branch: string;
-        branchId?: string | null;
-        signedDelta: number;
-        sourceKey: string;
-        note: string;
-      }) => {
-        if (!args.employeeId || args.signedDelta === 0) return null;
-        return persistPointsTransaction({
-          employeeId: args.employeeId,
-          employeeName: args.employeeName,
-          branch: args.branch,
-          branchId: args.branchId ?? null,
-          operation: 'admin_adjustment',
-          rule: null,
-          pointsToStore: Math.abs(args.signedDelta),
-          adminDeltaSigned: args.signedDelta,
-          userNote: args.note,
-          createdByName: user?.name || 'مدير عام',
-          createdById: user?.id || '',
-          createdByRole: user?.role || 'general_manager',
-          status: 'approved',
-          cycle,
-          source: 'conversation_evaluation_manager_edit',
-          sourceModule: 'conversation_evaluation',
-          sourceRecordId: args.sourceKey,
-          description: `مراجعة إدارية للتقييم ${editingReview.id}`,
-          reasonLabel: 'تسوية نقاط بعد تعديل تقييم محادثة',
-        });
-      };
-
-      if (staffChanged) {
-        const previousDoctor = mergeStaffChoices(staff).find((item) => item.id === previousStaffId);
-        const reverseOld = await persistManagerAdjustment({
-          employeeId: previousStaffId,
-          employeeName:
-            editingReview.staff_name || editingReview.doctor_name || previousDoctor?.name || 'موظف سابق',
-          branch: editingReview.branch || previousDoctor?.branch || '',
-          branchId: previousDoctor?.branch_id ?? null,
-          signedDelta: -oldImpact,
-          sourceKey: `${editingReview.id}:manager-reassign:reverse:${previousStaffId}:${oldImpact}`,
-          note: `عكس أثر التقييم من الموظف السابق بعد تصحيح صاحب المحادثة. الأثر السابق ${oldImpact}. ${editForm.manager_note.trim()}`,
-        });
-        if (reverseOld?.error) {
-          toast.error(`تم تعديل التقييم لكن تعذر عكس نقاط الموظف السابق: ${reverseOld.error}`);
-          return false;
-        }
-
-        const applyNew = await persistManagerAdjustment({
-          employeeId: nextStaffId,
-          employeeName: editForm.staff_name || selectedDoctor?.name || 'موظف',
-          branch: editForm.branch || selectedDoctor?.branch || '',
-          branchId: selectedDoctor?.branch_id ?? null,
-          signedDelta: impact,
-          sourceKey: `${editingReview.id}:manager-reassign:apply:${nextStaffId}:${impact}`,
-          note: `إسناد أثر التقييم للموظف الصحيح بعد تعديل المدير العام. الأثر الجديد ${impact}. ${editForm.manager_note.trim()}`,
-        });
-        if (applyNew?.error) {
-          toast.error(`تم تعديل التقييم وعكس نقاط الموظف السابق لكن تعذر إضافة الأثر للموظف الجديد: ${applyNew.error}`);
-          return false;
-        }
-      } else {
-        const delta = impact - oldImpact;
-        if (delta !== 0 && nextStaffId) {
-          const pointsResult = await persistManagerAdjustment({
-            employeeId: nextStaffId,
-            employeeName: editForm.staff_name || selectedDoctor?.name || 'موظف',
-            branch: editForm.branch || selectedDoctor?.branch || editingReview.branch || '',
-            branchId: selectedDoctor?.branch_id ?? null,
-            signedDelta: delta,
-            sourceKey: `${editingReview.id}:manager-reconcile:${oldImpact}:${impact}`,
-            note: `تسوية تلقائية بعد تعديل تقييم محادثة: ${oldImpact} ← ${impact}. ${editForm.manager_note.trim()}`,
-          });
-          if (pointsResult?.error) {
-            toast.error(`تم تعديل التقييم لكن تسوية النقاط لم تكتمل: ${pointsResult.error}`);
-            return false;
-          }
-        }
+      const pointsResult = await reconcileConversationReviewPointsAfterManagerEdit({
+        reviewId: editingReview.id,
+        nextStaffId,
+        nextStaffName: editForm.staff_name || selectedDoctor?.name || 'موظف',
+        nextBranch: editForm.branch || selectedDoctor?.branch || editingReview.branch || '',
+        nextBranchId: selectedDoctor?.branch_id ?? null,
+        signedImpact: impact,
+        cycle,
+        automaticReview: isAutomaticReview(editingReview),
+        actorName: user?.name || 'مدير عام',
+        actorId: user?.id || '',
+        actorRole: user?.role || 'general_manager',
+        note: `مراجعة إدارية للتقييم: ${oldImpact} ← ${impact}. ${editForm.manager_note.trim()}`,
+      });
+      if (pointsResult.error) {
+        toast.error(`تم تعديل التقييم لكن مزامنة حركة النقاط المرتبطة به لم تكتمل: ${pointsResult.error}`);
+        return false;
       }
 
       const actor = getCurrentUserProfile();
@@ -1862,6 +2035,235 @@ export default function Reviews() {
           </div>
         </div>
       </div>
+
+      {newOnlyMode && smartSnapshot ? (
+        <section className="overflow-hidden rounded-3xl border border-emerald-500/30 bg-[#0b141a] shadow-xl">
+          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-white/10 bg-[#202c33] p-4">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-lg font-black text-white">المحادثة المنقولة للمراجعة الرسمية</h2>
+                <span className="rounded-full bg-emerald-400 px-2 py-1 text-[10px] font-black text-slate-950">
+                  SMART DRAFT
+                </span>
+              </div>
+              <div className="mt-1 text-xs text-slate-300">
+                {smartSnapshot.staffName} • {smartSnapshot.customerName || 'عميل غير محدد'} • {smartSnapshot.messages.length} رسالة
+              </div>
+            </div>
+            <div className="text-left text-xs text-slate-400">
+              <div>قرار المحرك: <b className="text-white">{smartSnapshot.decision.value}</b></div>
+              <div className="mt-1">لا يتم اعتماد أي درجة إلا بعد مراجعتك وحفظ النموذج.</div>
+            </div>
+          </div>
+
+          {smartSnapshot.staffIdentity ? (
+            <div className={`border-b border-white/10 px-4 py-3 text-xs ${smartSnapshot.staffIdentity.staffId && !smartSnapshot.staffIdentity.ambiguous ? 'bg-emerald-950/20 text-emerald-100' : 'bg-rose-950/20 text-rose-100'}`}>
+              {smartSnapshot.staffIdentity.staffId && !smartSnapshot.staffIdentity.ambiguous ? (
+                <div>
+                  هوية الموظف: <span className="text-slate-300">{smartSnapshot.staffIdentity.displayName}</span>
+                  <span className="mx-1 text-emerald-400">→</span>
+                  <b>{smartSnapshot.staffIdentity.canonicalStaffName}</b>
+                  {' | '}{smartSnapshot.staffIdentity.role || '-'}{' | '}{smartSnapshot.staffIdentity.branch || 'فرع غير محدد'}{' | ثقة '}{smartSnapshot.staffIdentity.identityConfidence}%
+                  <span className="mr-2 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-black">{smartSnapshot.staffIdentity.identitySource}</span>
+                </div>
+              ) : (
+                <div className="font-bold">⚠ المسؤول غير محسوم — اختر يدويًا من قائمة "المسؤول" تحت قبل الحفظ.</div>
+              )}
+            </div>
+          ) : null}
+
+          {ambiguousStaffIdentity ? (
+            <div className="border-b border-white/10 bg-rose-950/10 px-4 py-3">
+              <div className="mb-2 text-xs font-black text-rose-200">مرشحون محتملون لـ "{ambiguousStaffIdentity.displayName}":</div>
+              <div className="flex flex-wrap gap-2">
+                {ambiguousStaffIdentity.candidates.map((c, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => {
+                      setForm((current) => ({ ...current, staffId: c.staffId }));
+                      if (c.branch) setTargetBranch(normalizeBranchName(c.branch));
+                      setAmbiguousStaffIdentity(null);
+                      toast.success(`تم اختيار ${c.canonicalStaffName} يدويًا`);
+                    }}
+                    className="rounded-xl border border-rose-700/50 bg-rose-950/30 px-3 py-2 text-right text-xs text-rose-100 hover:bg-rose-900/40"
+                  >
+                    <div className="font-black">{c.canonicalStaffName}</div>
+                    <div className="mt-0.5 text-rose-300">{c.role || '-'} • {c.branch || 'فرع غير محدد'} • ثقة {c.confidence}%</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {ambiguousCustomerCandidates ? (
+            <div className="border-b border-white/10 bg-rose-950/10 px-4 py-3">
+              <div className="mb-2 text-xs font-black text-rose-200">⚠ العميل غير محسوم — مرشحون محتملون:</div>
+              <div className="flex flex-wrap gap-2">
+                {ambiguousCustomerCandidates.map((c, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => {
+                      setForm((current) => ({ ...current, customerId: c.id, customerCode: c.code || '', customerName: c.name || '', customerPhone: c.phone || '' }));
+                      setAmbiguousCustomerCandidates(null);
+                      toast.success(`تم اختيار ${c.name} يدويًا`);
+                    }}
+                    className="rounded-xl border border-rose-700/50 bg-rose-950/30 px-3 py-2 text-right text-xs text-rose-100 hover:bg-rose-900/40"
+                  >
+                    <div className="font-black">{c.name}</div>
+                    <div className="mt-0.5 text-rose-300">كود {c.code || '-'} • {c.branch || 'فرع غير محدد'} • {c.phone || 'بدون هاتف'}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {smartSnapshot.officialReviewDraft ? (
+            <div className="border-b border-white/10 bg-violet-950/20 px-4 py-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="rounded-full bg-violet-500/20 px-2 py-1 text-[10px] font-black text-violet-200">تقييم ذكي مقترح</span>
+                <span className="text-[11px] text-slate-400">AI evaluates → Human approves — مفيش نقاط أو اعتماد قبل حفظك اليدوي للنموذج تحت</span>
+              </div>
+              {smartSnapshot.smartIntelligence?.evaluationV2 ? (
+                <>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-4">
+                    <div className="rounded-xl bg-black/15 p-2.5 text-xs"><div className="text-slate-500">جودة المحادثة</div><div className="mt-1 text-lg font-black text-white">{smartSnapshot.smartIntelligence.evaluationV2.qualityScore ?? '-'}</div></div>
+                    <div className="rounded-xl bg-black/15 p-2.5 text-xs"><div className="text-slate-500">تغطية الأدلة</div><div className="mt-1 text-lg font-black text-cyan-200">{smartSnapshot.smartIntelligence.evaluationV2.evidenceCoverage}%</div></div>
+                    <div className="rounded-xl bg-black/15 p-2.5 text-xs"><div className="text-slate-500">ثقة التحليل</div><div className="mt-1 text-lg font-black text-emerald-200">{smartSnapshot.smartIntelligence.evaluationV2.confidence}%</div></div>
+                    <div className="rounded-xl bg-black/15 p-2.5 text-xs"><div className="text-slate-500">نتيجة البيع</div><div className="mt-1 font-black text-white">{smartSnapshot.smartIntelligence.evaluationV2.sale.label}</div></div>
+                  </div>
+                  <div className="mt-2 text-[11px] text-slate-400">{smartSnapshot.smartIntelligence.evaluationV2.scoreDisplayLabel}</div>
+                </>
+              ) : (
+                <div className="mt-2 text-xs text-slate-200">
+                  الدرجة على البنود المثبتة فقط: <b className="text-white">{smartSnapshot.officialReviewDraft.provisionalScore ?? '-'}</b> ({smartSnapshot.officialReviewDraft.scoreLabel})
+                </div>
+              )}
+              <div className="mt-2 flex flex-wrap gap-4 text-xs text-slate-200">
+                <span className="text-emerald-300">بنود واثقة: {smartSnapshot.officialReviewDraft.confidentCriteriaCount}</span>
+                <span className="text-amber-300">تحتاج مراجعتك: {smartSnapshot.officialReviewDraft.needsReviewCriteriaCount}</span>
+              </div>
+              {smartSnapshot.officialReviewDraft.topPositives.length ? (
+                <div className="mt-2 text-xs text-emerald-200">
+                  <span className="font-black">أهم الإيجابيات: </span>
+                  {smartSnapshot.officialReviewDraft.topPositives.join(' • ')}
+                </div>
+              ) : null}
+              {smartSnapshot.officialReviewDraft.topConcerns.length ? (
+                <div className="mt-1 text-xs text-amber-200">
+                  <span className="font-black">أهم الملاحظات: </span>
+                  {smartSnapshot.officialReviewDraft.topConcerns.join(' • ')}
+                </div>
+              ) : null}
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setHumanDecision('approved_as_is')}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-bold transition-colors ${
+                    humanDecision === 'approved_as_is'
+                      ? 'bg-emerald-500 text-white'
+                      : 'bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/25'
+                  }`}
+                >
+                  اعتماد التقييم المقترح
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHumanDecision('edited_then_approved');
+                    document.getElementById('review-criteria-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  }}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-bold transition-colors ${
+                    humanDecision === 'edited_then_approved'
+                      ? 'bg-amber-500 text-white'
+                      : 'bg-amber-500/15 text-amber-200 hover:bg-amber-500/25'
+                  }`}
+                >
+                  تعديل ثم اعتماد
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHumanDecision('rejected');
+                    setReviewState(defaultReviewState());
+                  }}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-bold transition-colors ${
+                    humanDecision === 'rejected'
+                      ? 'bg-red-500 text-white'
+                      : 'bg-red-500/15 text-red-200 hover:bg-red-500/25'
+                  }`}
+                >
+                  رفض التقييم الذكي
+                </button>
+                {humanDecision && (
+                  <span className="text-[11px] text-slate-400">
+                    {humanDecision === 'approved_as_is' && 'تم اعتماد البنود الواثقة كما هي — لسه محتاج حفظك اليدوي تحت'}
+                    {humanDecision === 'edited_then_approved' && 'عدّل البنود اللي محتاجة مراجعة تحت، ثم احفظ'}
+                    {humanDecision === 'rejected' && 'تم رفض التقييم الذكي — البنود رجعت للوضع الافتراضي وابدأ التقييم يدويًا'}
+                  </span>
+                )}
+              </div>
+            </div>
+          ) : null}
+
+          {smartSnapshot.decision.reasons.length ? (
+            <div className="border-b border-white/10 bg-amber-950/20 px-4 py-3 text-xs leading-6 text-amber-100">
+              {smartSnapshot.decision.reasons.map((reason) => <div key={reason}>• {reason}</div>)}
+            </div>
+          ) : null}
+
+          <div
+            className="max-h-[52vh] overflow-y-auto p-4 md:p-5"
+            style={{
+              backgroundColor: '#0b141a',
+              backgroundImage:
+                'radial-gradient(circle at 25% 25%, rgba(255,255,255,.025) 0 1px, transparent 1px), radial-gradient(circle at 75% 75%, rgba(255,255,255,.018) 0 1px, transparent 1px)',
+              backgroundSize: '28px 28px',
+            }}
+          >
+            <div className="mx-auto max-w-3xl space-y-2">
+              {smartSnapshot.messages.map((message) => {
+                const inbound = message.direction === 'inbound';
+                const context = message.scope === 'context';
+                const focused = focusedEvidenceIds.includes(message.id);
+                return (
+                  <div
+                    key={message.id}
+                    id={`smart-msg-${message.id}`}
+                    className={`flex ${inbound ? 'justify-start' : 'justify-end'} ${context ? 'opacity-60' : ''}`}
+                  >
+                    <div className="flex max-w-[86%] flex-col md:max-w-[74%]">
+                      <div
+                        className={`rounded-2xl px-3.5 py-2.5 shadow-sm transition-shadow ${
+                          inbound
+                            ? 'rounded-tl-sm bg-[#202c33] text-slate-100'
+                            : 'rounded-tr-sm bg-[#005c4b] text-white'
+                        } ${message.evidence ? 'ring-2 ring-cyan-400/80 ring-offset-2 ring-offset-[#0b141a]' : ''} ${
+                          focused ? 'ring-4 ring-yellow-400 ring-offset-2 ring-offset-[#0b141a]' : ''
+                        }`}
+                      >
+                        <div className="mb-1 flex flex-wrap items-center gap-1.5 text-[10px] font-bold opacity-80">
+                          <span>{inbound ? 'العميل' : smartSnapshot.staffName}</span>
+                          {message.evidence ? <span className="rounded bg-cyan-400/15 px-1.5 py-0.5 text-cyan-100">دليل</span> : null}
+                          {context ? <span className="rounded bg-white/10 px-1.5 py-0.5">سياق فقط</span> : null}
+                        </div>
+                        <div className="whitespace-pre-wrap break-words text-sm leading-7">
+                          {message.text || `[${message.kind}]`}
+                        </div>
+                        <div className="mt-1 text-left text-[10px] opacity-60">
+                          {new Date(message.timestamp).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
+                        </div>
+                      </div>
+                      {context ? <div className="mt-1 text-[10px] text-slate-500">سياق فقط — لا يدخل في التقييم</div> : null}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+      ) : null}
 
       <section
         className={`${newOnlyMode || !historyOnlyMode ? 'hidden' : ''} stat-card border border-teal-500/20 bg-teal-500/5 space-y-4`}
@@ -2195,7 +2597,7 @@ export default function Reviews() {
         <>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <Metric
-              label="تقييم المحادثة"
+              label={salesJourneyResult ? 'تقييم رحلة البيع' : 'تقييم المحادثة'}
               value={`${result.finalScore}/100`}
               tone={result.finalScore >= 90 ? 'teal' : result.finalScore >= 70 ? 'amber' : 'red'}
             />
@@ -2215,6 +2617,69 @@ export default function Reviews() {
               tone="slate"
             />
           </div>
+
+          {salesJourneyResult ? (
+            <section className="stat-card space-y-3 border border-cyan-500/20 bg-cyan-500/5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-xs font-black text-cyan-300">SALES JOURNEY RUBRIC V2</div>
+                  <div className="mt-1 text-sm font-black text-white">التقييم مركز على تحويل الاحتياج إلى بيع، تنفيذ الأوردر، وزيادة فرص رجوع العميل.</div>
+                </div>
+                <div className="flex flex-wrap gap-2 text-[11px]">
+                  {salesJourneyResult.saleOutcomeLabel ? (
+                    <span className="rounded-full bg-emerald-500/10 px-3 py-1.5 font-black text-emerald-200">
+                      {salesJourneyResult.saleOutcomeLabel}
+                    </span>
+                  ) : null}
+                  <span className="rounded-full bg-slate-800 px-3 py-1.5 font-black text-slate-300">
+                    Legacy: {salesJourneyResult.legacyScore}/100
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+                {salesJourneyResult.salesJourneyAxes.map((axis: any) => (
+                  <div key={axis.key} className="rounded-xl border border-white/10 bg-black/10 p-3">
+                    <div className="text-[10px] font-bold text-slate-500">{axis.label}</div>
+                    <div className="mt-1 flex items-end gap-2">
+                      <div className={`text-2xl font-black ${
+                        axis.score == null
+                          ? 'text-slate-500'
+                          : axis.score >= 90
+                            ? 'text-emerald-300'
+                            : axis.score >= 75
+                              ? 'text-amber-300'
+                              : 'text-rose-300'
+                      }`}>
+                        {axis.score ?? '-'}
+                      </div>
+                      <div className="pb-1 text-[10px] text-slate-500">وزن {axis.weight}%</div>
+                    </div>
+                    <div className="mt-1 text-[10px] leading-5 text-slate-400">{axis.summary}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="grid gap-2 md:grid-cols-4 text-xs">
+                <div className="rounded-xl bg-black/10 p-3">
+                  <div className="text-slate-500">تحويل لبيع</div>
+                  <div className="mt-1 font-black text-white">{salesJourneyResult.growthSignals.convertedSale ? 'نعم' : 'غير مثبت'}</div>
+                </div>
+                <div className="rounded-xl bg-black/10 p-3">
+                  <div className="text-slate-500">بيع مؤكد بفاتورة</div>
+                  <div className="mt-1 font-black text-white">{salesJourneyResult.growthSignals.verifiedSale ? 'نعم' : 'لا'}</div>
+                </div>
+                <div className="rounded-xl bg-black/10 p-3">
+                  <div className="text-slate-500">اكتمال الأوردر</div>
+                  <div className="mt-1 font-black text-white">{salesJourneyResult.growthSignals.orderCompletenessScore ?? '-'}{salesJourneyResult.growthSignals.orderCompletenessScore != null ? '%' : ''}</div>
+                </div>
+                <div className="rounded-xl bg-black/10 p-3">
+                  <div className="text-slate-500">فرص المتابعة</div>
+                  <div className="mt-1 font-black text-white">{salesJourneyResult.growthSignals.followupOpportunities}</div>
+                </div>
+              </div>
+            </section>
+          ) : null}
 
           {canManageCoverage ? (
             <section className="stat-card space-y-3 border border-violet-500/20 bg-violet-500/5">
@@ -2592,9 +3057,12 @@ export default function Reviews() {
             </div>
           </section>
 
-          <section className="space-y-3">
+          <section id="review-criteria-section" className="space-y-3">
             {REVIEW_CRITERIA.map((criterion) => {
               const itemState = reviewState[criterion.key];
+              const suggestion = smartSnapshot?.officialReviewDraft?.criteria.find(
+                (c) => c.criterionKey === criterion.key
+              );
               return (
                 <div
                   key={criterion.key}
@@ -2622,6 +3090,42 @@ export default function Reviews() {
                       ينطبق
                     </label>
                   </div>
+                  {suggestion && (
+                    <div
+                      className={`mt-3 rounded-lg border px-3 py-2 text-xs ${
+                        suggestion.status === 'confident'
+                          ? 'border-emerald-500/25 bg-emerald-950/20 text-emerald-100'
+                          : suggestion.status === 'review_required'
+                            ? 'border-amber-500/25 bg-amber-950/20 text-amber-100'
+                            : 'border-slate-600/40 bg-slate-900/20 text-slate-400'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 flex-wrap font-bold">
+                        <span>اقتراح النظام الذكي:</span>
+                        <span>
+                          {suggestion.status === 'unsupported'
+                            ? 'لا يوجد أساس كافٍ للاقتراح'
+                            : `${suggestion.suggestedLabel} — ثقة ${suggestion.confidence}%`}
+                        </span>
+                        {suggestion.status === 'confident' && (
+                          <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px]">تم التعبئة تلقائيًا</span>
+                        )}
+                        {suggestion.status === 'review_required' && (
+                          <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px]">يحتاج مراجعتك</span>
+                        )}
+                      </div>
+                      <p className="mt-1 leading-relaxed opacity-90">{suggestion.reason}</p>
+                      {suggestion.evidenceMessageIds.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => showCriterionEvidence(suggestion.evidenceMessageIds)}
+                          className="mt-1 text-[11px] font-bold underline underline-offset-2 hover:opacity-80"
+                        >
+                          عرض الدليل ({suggestion.evidenceMessageIds.length})
+                        </button>
+                      )}
+                    </div>
+                  )}
                   {itemState.applies && (
                     <div className="grid md:grid-cols-2 gap-3 mt-4">
                       <select
@@ -2727,7 +3231,7 @@ export default function Reviews() {
 
             <div className="grid md:grid-cols-2 gap-3">
               <div className="rounded-2xl bg-[#16253f] border border-[#2d4063] p-5 text-center">
-                <div className="text-slate-300 text-sm">تقييم المحادثة</div>
+                <div className="text-slate-300 text-sm">{salesJourneyResult ? 'تقييم رحلة البيع' : 'تقييم المحادثة'}</div>
                 <div
                   className={`num text-5xl font-black mt-2 ${result.finalScore >= 90 ? 'text-teal-400' : result.finalScore >= 70 ? 'text-amber-400' : 'text-red-400'}`}
                 >

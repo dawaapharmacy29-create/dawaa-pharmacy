@@ -1,0 +1,47 @@
+name: Sales Intelligence item-evidence apply once
+
+# Automatic trigger removed after the successful one-time refresh.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sales-intelligence-item-refresh-apply
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      SUPABASE_URL: https://jkjqeqkshllustwlzzbf.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify service-role secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || {
+            echo "::error::Missing repository secret SUPABASE_SERVICE_ROLE_KEY"
+            exit 1
+          }
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+
+      - name: Preflight targeted dry run
+        run: npm run sales-intelligence:backfill:item-ready:dry-run -- --json
+
+      - name: Apply targeted item-evidence refresh
+        run: npm run sales-intelligence:backfill:item-ready:apply -- --json

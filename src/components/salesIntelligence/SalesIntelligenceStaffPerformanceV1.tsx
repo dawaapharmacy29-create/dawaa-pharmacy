@@ -1,0 +1,369 @@
+import { useEffect, useMemo, useState } from 'react';
+import { BadgeCheck, CircleAlert, PackageCheck, ReceiptText, Search, UsersRound } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
+import { dateFallsInCycleV1, nextDayYmdV1, previousDayYmdV1, type SalesIntelligenceCycleScopeV1 } from '@/lib/salesIntelligence/dashboardScopeV1';
+import { readStaffDirectory, type StaffDirectoryReadRow } from '@/lib/staff/staffDirectoryReadModel';
+
+type StaffTruthRow = {
+  case_id: string;
+  invoice_datetime: string | null;
+  invoice_branch: string | null;
+  invoice_amount: number | string | null;
+  canonical_staff_id: string | null;
+  canonical_staff_name: string | null;
+  canonical_staff_role: string | null;
+  canonical_staff_branch: string | null;
+  canonical_staff_is_active: boolean | null;
+  staff_resolution_status: string;
+  is_staff_resolved: boolean;
+  item_evidence_available: boolean;
+};
+
+type OpportunityRow = {
+  attributed_staff_id: string | null;
+  attributed_staff_name: string | null;
+  branch: string | null;
+  cycle_start: string;
+  current_stage: string;
+  leakage_code: string | null;
+};
+
+type StaffRow = {
+  key: string;
+  name: string;
+  role: string | null;
+  branch: string | null;
+  officialSales: number;
+  officialRevenue: number;
+  itemEvidenceSales: number;
+  opportunities: number;
+  acceptedOrLater: number;
+  leakageCases: number;
+};
+
+function number(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function money(value: number): string {
+  return new Intl.NumberFormat('ar-EG', {
+    style: 'currency',
+    currency: 'EGP',
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
+function cairoDateKey(value: string | null): string | null {
+  if (!value) return null;
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Africa/Cairo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date(value));
+  } catch {
+    return value.slice(0, 10);
+  }
+}
+
+function Metric({
+  label,
+  value,
+  hint,
+  icon: Icon,
+}: {
+  label: string;
+  value: string;
+  hint: string;
+  icon: typeof UsersRound;
+}) {
+  return (
+    <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] p-4">
+      <div className="flex items-center justify-between gap-3">
+        <div className="dawaa-muted text-xs font-bold">{label}</div>
+        <Icon size={18} className="dawaa-muted" />
+      </div>
+      <div className="dawaa-heading mt-2 text-2xl font-black">{value}</div>
+      <div className="dawaa-muted mt-1 text-[11px]">{hint}</div>
+    </div>
+  );
+}
+
+export default function SalesIntelligenceStaffPerformanceV1({
+  cycle,
+  branch,
+}: {
+  cycle: SalesIntelligenceCycleScopeV1;
+  branch: string;
+}) {
+  const [truthRows, setTruthRows] = useState<StaffTruthRow[]>([]);
+  const [opportunities, setOpportunities] = useState<OpportunityRow[]>([]);
+  const [staffDirectory, setStaffDirectory] = useState<StaffDirectoryReadRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      setError(null);
+
+      let truthQuery = supabase
+        .from('sales_intelligence_invoice_staff_truth_v1')
+        .select('case_id,invoice_datetime,invoice_branch,invoice_amount,canonical_staff_id,canonical_staff_name,canonical_staff_role,canonical_staff_branch,canonical_staff_is_active,staff_resolution_status,is_staff_resolved,item_evidence_available')
+        .gte('invoice_datetime', `${previousDayYmdV1(cycle.start)}T00:00:00Z`)
+        .lt('invoice_datetime', `${nextDayYmdV1(cycle.end)}T00:00:00Z`)
+        .limit(2000);
+
+      let opportunityQuery = supabase
+        .from('whatsapp_product_demand_detail_v22')
+        .select('attributed_staff_id,attributed_staff_name,branch,cycle_start,current_stage,leakage_code')
+        .eq('cycle_start', cycle.start)
+        .limit(3000);
+
+      if (branch !== 'all') {
+        truthQuery = truthQuery.eq('invoice_branch', branch);
+        opportunityQuery = opportunityQuery.eq('branch', branch);
+      }
+
+      const [truthResult, opportunityResult, staffResult] = await Promise.all([
+        truthQuery,
+        opportunityQuery,
+        readStaffDirectory(2000)
+          .then((data) => ({ data, error: null as Error | null }))
+          .catch((cause) => ({
+            data: [] as StaffDirectoryReadRow[],
+            error: cause instanceof Error ? cause : new Error(String(cause)),
+          })),
+      ]);
+      if (cancelled) return;
+
+      const partialErrors: string[] = [];
+
+      if (staffResult.error) {
+        partialErrors.push(`دليل الموظفين: ${staffResult.error.message}`);
+        setStaffDirectory([]);
+      } else {
+        setStaffDirectory(staffResult.data);
+      }
+
+      if (truthResult.error) {
+        partialErrors.push(`المبيعات الرسمية: ${truthResult.error.message}`);
+        setTruthRows([]);
+      } else {
+        setTruthRows(
+          ((truthResult.data || []) as StaffTruthRow[]).filter((row) =>
+            dateFallsInCycleV1(cairoDateKey(row.invoice_datetime), cycle) &&
+            (branch === 'all' || row.invoice_branch === branch)
+          )
+        );
+      }
+
+      if (opportunityResult.error) {
+        partialErrors.push(`فرص Product Demand: ${opportunityResult.error.message}`);
+        setOpportunities([]);
+      } else {
+        setOpportunities((opportunityResult.data || []) as OpportunityRow[]);
+      }
+
+      setError(partialErrors.length ? partialErrors.join(' • ') : null);
+      setLoading(false);
+    }
+
+    void load();
+    return () => { cancelled = true; };
+  }, [branch, cycle.end, cycle.start]);
+
+  const staffRows = useMemo(() => {
+    const map = new Map<string, StaffRow>();
+
+    for (const staff of staffDirectory) {
+      if (!staff.id || !staff.name) continue;
+      map.set(staff.id, {
+        key: staff.id,
+        name: staff.name,
+        role: staff.role,
+        branch: staff.branch,
+        officialSales: 0,
+        officialRevenue: 0,
+        itemEvidenceSales: 0,
+        opportunities: 0,
+        acceptedOrLater: 0,
+        leakageCases: 0,
+      });
+    }
+
+    for (const row of truthRows) {
+      if (!row.is_staff_resolved || row.canonical_staff_is_active !== true || !row.canonical_staff_id || !row.canonical_staff_name) continue;
+      const key = row.canonical_staff_id;
+      const current = map.get(key) || {
+        key,
+        name: row.canonical_staff_name,
+        role: row.canonical_staff_role,
+        branch: row.canonical_staff_branch,
+        officialSales: 0,
+        officialRevenue: 0,
+        itemEvidenceSales: 0,
+        opportunities: 0,
+        acceptedOrLater: 0,
+        leakageCases: 0,
+      };
+      current.officialSales += 1;
+      current.officialRevenue += number(row.invoice_amount);
+      if (row.item_evidence_available) current.itemEvidenceSales += 1;
+      map.set(key, current);
+    }
+
+    const rowsByNormalizedName = new Map<string, StaffRow[]>();
+    for (const row of map.values()) {
+      const key = row.name.trim().toLocaleLowerCase('ar-EG');
+      const list = rowsByNormalizedName.get(key) || [];
+      list.push(row);
+      rowsByNormalizedName.set(key, list);
+    }
+
+    for (const opportunity of opportunities) {
+      const name = String(opportunity.attributed_staff_name || '').trim();
+      if (!name && !opportunity.attributed_staff_id) continue;
+      const byId = opportunity.attributed_staff_id ? map.get(opportunity.attributed_staff_id) : null;
+      const nameMatches = name ? (rowsByNormalizedName.get(name.toLocaleLowerCase('ar-EG')) || []) : [];
+      const byUniqueName = nameMatches.length === 1 ? nameMatches[0] : null;
+      const current = byId || byUniqueName;
+      if (!current) continue;
+      current.opportunities += 1;
+      if (['accepted', 'order_confirmed', 'awaiting_invoice', 'verified_sale', 'needs_followup'].includes(opportunity.current_stage)) current.acceptedOrLater += 1;
+      if (opportunity.leakage_code) current.leakageCases += 1;
+    }
+
+    return Array.from(map.values())
+      .filter((row) => row.officialSales > 0 || row.opportunities > 0)
+      .sort((a, b) =>
+        b.officialSales - a.officialSales ||
+        b.officialRevenue - a.officialRevenue ||
+        b.opportunities - a.opportunities ||
+        a.name.localeCompare(b.name, 'ar')
+      );
+  }, [opportunities, staffDirectory, truthRows]);
+
+  const filtered = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    return staffRows.filter((row) =>
+      !needle ||
+      row.name.toLowerCase().includes(needle) ||
+      (row.role || '').toLowerCase().includes(needle)
+    );
+  }, [search, staffRows]);
+
+  const unresolvedOfficial = truthRows.filter(
+    (row) => !row.is_staff_resolved || row.canonical_staff_is_active !== true
+  ).length;
+  const totalRevenue = staffRows.reduce((sum, row) => sum + row.officialRevenue, 0);
+  const totalSales = staffRows.reduce((sum, row) => sum + row.officialSales, 0);
+  const itemEvidenceSales = staffRows.reduce((sum, row) => sum + row.itemEvidenceSales, 0);
+
+  return (
+    <div className="space-y-5" dir="rtl">
+      <section className="dawaa-card">
+        <div className="flex items-start gap-3">
+          <span className="dawaa-icon-tile h-10 w-10 shrink-0"><UsersRound size={19} /></span>
+          <div>
+            <div className="dawaa-heading text-lg font-black">أداء الفريق — المبيعات المنسوبة رسميًا</div>
+            <p className="dawaa-muted mt-1 max-w-3xl text-sm leading-6">
+              دورة {cycle.label} • {branch === 'all' ? 'كل الفروع' : branch}. الاسم الملتبس أو الفاتورة التي لا تحتوي موظفًا لا تدخل أرقام أي دكتور.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {error ? <div className="dawaa-alert dawaa-alert--warning text-xs">{error}</div> : null}
+
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <Metric icon={BadgeCheck} label="بيعات رسمية مرتبطة بموظف" value={loading ? '…' : totalSales.toLocaleString('ar-EG')} hint="لا تشمل الأسماء غير المحسومة" />
+        <Metric icon={ReceiptText} label="قيمة المبيعات الرسمية" value={loading ? '…' : money(totalRevenue)} hint="إجمالي قيمة الفواتير الرسمية" />
+        <Metric icon={PackageCheck} label="بيعات بأدلة أصناف" value={loading ? '…' : itemEvidenceSales.toLocaleString('ar-EG')} hint="يمكن مراجعة الصنف والكمية داخل الفاتورة" />
+        <Metric icon={CircleAlert} label="بيعات رسمية غير منسوبة" value={loading ? '…' : unresolvedOfficial.toLocaleString('ar-EG')} hint="تظل في QA ولا تدخل تقييم موظف" />
+      </section>
+
+      <section className="dawaa-card">
+        <label className="relative block">
+          <Search size={16} className="dawaa-muted absolute right-3 top-1/2 -translate-y-1/2" />
+          <input className="dawaa-input w-full pr-9" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="بحث باسم الدكتور أو الدور..." />
+        </label>
+      </section>
+
+      <section className="dawaa-card overflow-hidden p-0">
+        {loading ? (
+          <div className="dawaa-muted py-12 text-center">جاري تحميل أداء الفريق...</div>
+        ) : !filtered.length ? (
+          <div className="dawaa-empty-state py-12 text-center">لا توجد مبيعات رسمية قابلة للنسب في النطاق الحالي.</div>
+        ) : (
+          <>
+          <div className="divide-y divide-[var(--dawaa-theme-border)] sm:hidden">
+            {filtered.map((row) => {
+              const conversion = row.opportunities ? Math.round((row.acceptedOrLater / row.opportunities) * 100) : null;
+              return (
+                <div key={row.key} className="p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="dawaa-heading font-black">{row.name}</div>
+                      <div className="dawaa-muted mt-1 text-[11px]">{[row.role, row.branch].filter(Boolean).join(' • ') || 'بيانات الموظف غير مكتملة'}</div>
+                    </div>
+                    <div className="text-left">
+                      <div className="font-black">{row.officialSales.toLocaleString('ar-EG')} بيع</div>
+                      <div className="dawaa-muted mt-1 text-xs">{money(row.officialRevenue)}</div>
+                    </div>
+                  </div>
+                  <div className="mt-3 grid grid-cols-3 gap-2 text-center text-[11px]">
+                    <div className="rounded-xl bg-[var(--dawaa-theme-soft)] p-2"><div className="dawaa-muted">أدلة أصناف</div><div className="mt-1 font-black">{row.itemEvidenceSales.toLocaleString('ar-EG')}</div></div>
+                    <div className="rounded-xl bg-[var(--dawaa-theme-soft)] p-2"><div className="dawaa-muted">فرص</div><div className="mt-1 font-black">{row.opportunities ? row.opportunities.toLocaleString('ar-EG') : '—'}</div></div>
+                    <div className="rounded-xl bg-[var(--dawaa-theme-soft)] p-2"><div className="dawaa-muted">قبول</div><div className="mt-1 font-black">{conversion == null ? '—' : `${conversion}%`}</div></div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="hidden overflow-x-auto sm:block">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="dawaa-muted border-b border-[var(--dawaa-theme-border)] text-right">
+                  {['الموظف','الفرع','البيع الرسمي','قيمة البيع','بأدلة أصناف','فرص الأصناف','وصلت للقبول','فقد بيع'].map((heading) => <th key={heading} className="p-3">{heading}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((row) => {
+                  const conversion = row.opportunities ? Math.round((row.acceptedOrLater / row.opportunities) * 100) : null;
+                  return (
+                    <tr key={row.key} className="border-b border-[var(--dawaa-theme-border)]/60">
+                      <td className="p-3"><div className="dawaa-heading font-black">{row.name}</div><div className="dawaa-muted mt-1 text-[11px]">{row.role || 'الدور غير محدد'}</div></td>
+                      <td className="p-3">{row.branch || '—'}</td>
+                      <td className="p-3 font-black">{row.officialSales.toLocaleString('ar-EG')}</td>
+                      <td className="p-3 font-black">{money(row.officialRevenue)}</td>
+                      <td className="p-3">{row.itemEvidenceSales.toLocaleString('ar-EG')}</td>
+                      <td className="p-3">{row.opportunities ? row.opportunities.toLocaleString('ar-EG') : '—'}</td>
+                      <td className="p-3">
+                        {row.opportunities ? (
+                          <div><div className="font-black">{row.acceptedOrLater.toLocaleString('ar-EG')}</div><div className="dawaa-muted text-[10px]">{conversion}% من الفرص</div></div>
+                        ) : '—'}
+                      </td>
+                      <td className="p-3">{row.opportunities ? row.leakageCases.toLocaleString('ar-EG') : '—'}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          </>
+        )}
+      </section>
+
+      {!opportunities.length && !loading ? (
+        <div className="dawaa-muted text-[11px]">
+          تحليل فرص الأصناف للدورة الحالية غير مكتمل؛ المبيعات الرسمية تظل صحيحة، وستظهر أعمدة الفرص والقبول تلقائيًا مع اكتمال Product Demand.
+        </div>
+      ) : null}
+    </div>
+  );
+}

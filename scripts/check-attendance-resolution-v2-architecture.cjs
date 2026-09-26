@@ -60,8 +60,13 @@ if (!failures.length) {
     // Schema defaults and classification snapshots are allowed; application of non-zero values belongs to a later policy projection boundary.
   }
 
+  const queueRpcSupported =
+    service.includes('get_attendance_resolution_queue_v3') ||
+    service.includes('get_attendance_resolution_queue_v2');
+  if (!queueRpcSupported) {
+    failures.push('Attendance resolution service missing canonical queue RPC (v3 or v2 fallback).');
+  }
   for (const rpc of [
-    'get_attendance_resolution_queue_v2',
     'materialize_attendance_range_v2',
     'approve_attendance_day_resolution_v2',
     'get_attendance_impact_ledger_v2',

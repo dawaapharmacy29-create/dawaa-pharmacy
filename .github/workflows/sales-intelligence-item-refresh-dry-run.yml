@@ -1,0 +1,103 @@
+name: Sales Intelligence integration dry run
+# Runs once with the final branch push. All database checks are dry-run/read-only.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/whatsapp-sales-intelligence-v1
+    paths:
+      - "scripts/run-sales-intelligence-backfill.cjs"
+      - "scripts/run-product-demand-v22-backfill.cjs"
+      - "src/lib/salesIntelligence/**"
+      - "src/lib/whatsappProductDemandBackfillV22.ts"
+      - "src/lib/whatsappEvidenceLedgerV17.ts"
+      - "src/lib/whatsappOperationalIntelligenceV6.ts"
+      - "src/lib/whatsappUnifiedIntelligenceV4.ts"
+      - "src/lib/__tests__/productInvoiceVerificationV23.test.ts"
+      - "src/lib/__tests__/whatsappTruthEngineV2.test.ts"
+      - "src/lib/__tests__/salesAttributionDraftInvoiceV23.test.ts"
+      - "scripts/run-tests.cjs"
+      - "src/components/salesIntelligence/**"
+      - "src/pages/SalesIntelligenceQA.tsx"
+      - "package.json"
+      - ".github/workflows/sales-intelligence-item-refresh-dry-run.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sales-intelligence-integration-dry-run
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    if: github.event_name != 'push' || !contains(github.event.head_commit.message, '[apply-v2]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      SUPABASE_URL: https://jkjqeqkshllustwlzzbf.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+
+      - name: TypeScript
+        run: npm run typecheck
+
+      - name: Test suite
+        run: npm test
+
+      - name: Production build
+        run: npm run build
+
+      - name: Detect service-role secret
+        id: service_role
+        shell: bash
+        run: |
+          if [ -n "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::SUPABASE_SERVICE_ROLE_KEY is not configured; database dry-runs are skipped."
+          fi
+
+      - name: Sales Intelligence Truth V2 ground-truth regression
+        if: steps.service_role.outputs.available == 'true'
+        run: npm run sales-intelligence:v23:ground-truth:dry-run
+
+      - name: Sales Intelligence known-branch all-source dry run
+        if: steps.service_role.outputs.available == 'true'
+        run: npm run sales-intelligence:backfill:all-known-branch:dry-run -- --json
+
+      - name: Sales Intelligence item-evidence idempotency dry run
+        if: steps.service_role.outputs.available == 'true'
+        run: npm run sales-intelligence:backfill:item-ready:dry-run -- --json
+
+      - name: Truth Engine V2 ground-truth regression
+        if: steps.service_role.outputs.available == 'true'
+        run: npm run product-demand:v23:ground-truth:dry-run
+
+      - name: Product Demand V22.1 canonical dry run
+        if: steps.service_role.outputs.available == 'true'
+        run: npm run product-demand:v22:backfill:dry-run
+
+      - name: Write database-check skip summary
+        if: steps.service_role.outputs.available != 'true'
+        run: |
+          {
+            echo "## Sales Intelligence integration dry-run"
+            echo "- TypeScript/tests/build: executed above"
+            echo "- Database dry-runs: skipped"
+            echo "- Reason: repository secret SUPABASE_SERVICE_ROLE_KEY is not configured"
+            echo "- Database writes: none"
+          } >> "$GITHUB_STEP_SUMMARY"
