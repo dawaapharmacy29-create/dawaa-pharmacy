@@ -48,14 +48,15 @@ async function rebuild(row: SourceRow) {
   const messages = parseWhatsAppExport(rawText, {
     trustedConversationStartedAt: row.conversation_started_at,
   });
-  // Re-analysis preserves the already-persisted source boundary. Older whatsapp_export rows can
-  // intentionally span gaps >120 minutes; splitting them again would silently change the unit
-  // that was originally reviewed. The 120-minute split remains an IMPORT concern only.
-  const sessions = splitWhatsAppSessions(messages, Number.MAX_SAFE_INTEGER);
+  // Re-analysis must not merge multiple real conversations into one operational model.
+  // Legacy whatsapp-review-v4 rows can contain 2+ sessions inside one persisted source.
+  // Keep those rows untouched for a dedicated legacy multi-session repair phase.
+  const sessions = splitWhatsAppSessions(messages, 120);
   if (sessions.length !== 1) {
     return {
-      status: 'skipped_source_shape' as const,
-      detail: `expected_one_persisted_source_found_${sessions.length}`,
+      status: 'skipped_multi_session_legacy' as const,
+      detail: `legacy_source_contains_${sessions.length}_sessions`,
+      sessionCount: sessions.length,
     };
   }
 
@@ -140,7 +141,7 @@ async function main() {
     planned: count('planned'),
     updated: count('updated'),
     skippedMissingRaw: count('skipped_missing_raw'),
-    skippedSourceShape: count('skipped_source_shape'),
+    skippedMultiSessionLegacy: count('skipped_multi_session_legacy'),
     failed: count('failed'),
   };
 
