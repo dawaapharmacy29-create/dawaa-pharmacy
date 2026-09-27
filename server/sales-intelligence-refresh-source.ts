@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 const ALLOWED_ROLES = new Set(['general_manager', 'admin', 'executive_manager', 'branches_manager']);
 
@@ -26,14 +27,22 @@ export default async function handler(req: any, res: any) {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  const { data: userData, error: userError } = await service.auth.getUser(token);
-  const authUser = userData?.user;
-  if (userError || !authUser) return json(res, 401, { error: 'invalid_user_token' });
+  const tokenHash = createHash('sha256').update(token).digest('hex');
+  const { data: loginSession, error: sessionLookupError } = await service
+    .from('staff_login_sessions')
+    .select('id,staff_account_id,expires_at,revoked_at')
+    .eq('token_hash', tokenHash)
+    .maybeSingle();
+
+  if (sessionLookupError) return json(res, 500, { error: 'staff_session_lookup_failed' });
+  if (!loginSession || loginSession.revoked_at || new Date(loginSession.expires_at).getTime() <= Date.now()) {
+    return json(res, 401, { error: 'invalid_or_expired_staff_session' });
+  }
 
   const { data: staff, error: staffError } = await service
     .from('staff_accounts')
     .select('id,role,active,is_active,status,can_login')
-    .eq('auth_user_id', authUser.id)
+    .eq('id', loginSession.staff_account_id)
     .maybeSingle();
 
   if (staffError) return json(res, 500, { error: 'staff_lookup_failed' });
@@ -41,6 +50,11 @@ export default async function handler(req: any, res: any) {
   if (!staff || !active || !ALLOWED_ROLES.has(String(staff.role || ''))) {
     return json(res, 403, { error: 'not_authorized_for_sales_intelligence_refresh' });
   }
+
+  void service
+    .from('staff_login_sessions')
+    .update({ last_used_at: new Date().toISOString() })
+    .eq('id', loginSession.id);
 
   let body = req.body || {};
   if (typeof body === 'string') {
