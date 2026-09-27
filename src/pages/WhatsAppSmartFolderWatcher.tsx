@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ArrowLeft, CheckCircle2, ChevronDown, ChevronUp, FileText, FolderOpen, Image as ImageIcon, Loader2, Mic, RefreshCw, Search, Sparkles, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
+import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import {
   connectLocalWhatsAppFolder,
@@ -83,6 +84,7 @@ type FileRun = {
   cases: number;
   staffRuns: StaffRun[];
   errors: string[];
+  sourceIds?: string[];
 };
 
 const INTERVAL_MS = 60_000;
@@ -488,6 +490,7 @@ export default function WhatsAppSmartFolderWatcher() {
       cases: caseContexts.caseEngine.caseCount,
       staffRuns,
       errors: [],
+      sourceIds: Array.from(new Set(persistedSessionSources.map((row) => row.sourceId).filter(Boolean))),
     };
   }, [actorName, user?.id]);
 
@@ -505,10 +508,58 @@ export default function WhatsAppSmartFolderWatcher() {
       const processCandidate = async (candidate: (typeof candidates)[number]): Promise<FileRun> => {
         try {
           const result = await analyzeFile(candidate.file);
-          await saveLocalWhatsAppAnalysisHistory<FileRun>(candidate.key, candidate.name, result);
+
+          const canonicalErrors: string[] = [];
+          if (result.sourceIds?.length) {
+            try {
+              const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+              const accessToken = sessionData.session?.access_token || '';
+              if (sessionError || !accessToken) {
+                canonicalErrors.push('تعذر الحصول على جلسة الدخول لتحديث Sales Intelligence');
+              } else {
+                for (const sourceId of result.sourceIds) {
+                  try {
+                    const response = await fetch('/api/sales-intelligence-refresh-source', {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${accessToken}`,
+                      },
+                      body: JSON.stringify({ sourceId }),
+                    });
+                    if (!response.ok) {
+                      const payload = await response.json().catch(() => null);
+                      canonicalErrors.push(
+                        `Canonical ${sourceId.slice(0, 8)}: ${payload?.error || response.status}`
+                      );
+                    }
+                  } catch (refreshError) {
+                    canonicalErrors.push(
+                      `Canonical ${sourceId.slice(0, 8)}: ${refreshError instanceof Error ? refreshError.message : 'تعذر التحديث'}`
+                    );
+                  }
+                }
+              }
+            } catch (refreshSetupError) {
+              canonicalErrors.push(
+                refreshSetupError instanceof Error ? refreshSetupError.message : 'تعذر تحديث Sales Intelligence'
+              );
+            }
+          }
+
+          const finalizedResult: FileRun = canonicalErrors.length
+            ? { ...result, errors: [...result.errors, ...canonicalErrors] }
+            : result;
+
+          await saveLocalWhatsAppAnalysisHistory<FileRun>(candidate.key, candidate.name, finalizedResult);
           markLocalWhatsAppFileProcessed(candidate.key);
-          toast.success(`تم تحليل ${candidate.name}: ${result.sessions} جلسة → ${result.cases} حالة / ${result.staffRuns.length} مسؤول`);
-          return result;
+          if (canonicalErrors.length) {
+            console.warn('[whatsapp-watcher] canonical refresh failed after local analysis', canonicalErrors);
+            toast.warning(`تم تحليل ${candidate.name} محليًا، لكن تحديث Sales Intelligence يحتاج مراجعة`);
+          } else {
+            toast.success(`تم تحليل ${candidate.name}: ${result.sessions} جلسة → ${result.cases} حالة / ${result.staffRuns.length} مسؤول`);
+          }
+          return finalizedResult;
         } catch (error) {
           const reason = error instanceof Error ? error.message : 'خطأ غير معروف';
           markLocalWhatsAppFileFailed(candidate.key, reason);
