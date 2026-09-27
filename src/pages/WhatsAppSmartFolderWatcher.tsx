@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ArrowLeft, CheckCircle2, ChevronDown, ChevronUp, FileText, FolderOpen, Image as ImageIcon, Loader2, Mic, RefreshCw, Search, Sparkles, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '@/hooks/useAuth';
-import { supabase } from '@/lib/supabase';
+import { getStaffSessionToken, useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
 import {
   connectLocalWhatsAppFolder,
@@ -512,10 +511,9 @@ export default function WhatsAppSmartFolderWatcher() {
           const canonicalErrors: string[] = [];
           if (result.sourceIds?.length) {
             try {
-              const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-              const accessToken = sessionData.session?.access_token || '';
-              if (sessionError || !accessToken) {
-                canonicalErrors.push('تعذر الحصول على جلسة الدخول لتحديث Sales Intelligence');
+              const accessToken = getStaffSessionToken() || '';
+              if (!accessToken) {
+                canonicalErrors.push('جلسة الإدارة الحالية قديمة — سجل خروج ودخول مرة واحدة لتحديث Sales Intelligence');
               } else {
                 for (const sourceId of result.sourceIds) {
                   try {
