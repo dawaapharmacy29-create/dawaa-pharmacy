@@ -32,7 +32,6 @@
   ],
   "functions": {
     "api/sales-intelligence-refresh-source.js": {
-      "includeFiles": "src/lib/**",
       "maxDuration": 60
     }
   }
