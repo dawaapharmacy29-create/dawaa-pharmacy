@@ -515,19 +515,40 @@ export default function WhatsAppSmartFolderWatcher() {
               canonicalErrors.push('جلسة الإدارة الحالية قديمة — سجل خروج ودخول مرة واحدة لتحديث Sales Intelligence');
             } else {
               try {
-                const response = await fetch('/api/sales-intelligence-refresh-source', {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${accessToken}`,
-                  },
-                  body: JSON.stringify({ sourceFileName: result.fileName }),
-                });
-                if (!response.ok) {
+                let sourceOffset = 0;
+                let hasMore = true;
+                let safety = 0;
+                while (hasMore && safety < 30) {
+                  safety += 1;
+                  const response = await fetch('/api/sales-intelligence-refresh-source', {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      Authorization: `Bearer ${accessToken}`,
+                    },
+                    body: JSON.stringify({
+                      sourceFileName: result.fileName,
+                      sourceOffset,
+                      sourceLimit: 10,
+                    }),
+                  });
                   const payload = await response.json().catch(() => null);
-                  canonicalErrors.push(
-                    `Canonical ${result.fileName}: ${payload?.error || response.status}${payload?.detail ? ` — ${payload.detail}` : ''}`
-                  );
+                  if (!response.ok) {
+                    canonicalErrors.push(
+                      `Canonical ${result.fileName} [${sourceOffset}]: ${payload?.error || response.status}${payload?.detail ? ` — ${payload.detail}` : ''}`
+                    );
+                    break;
+                  }
+                  hasMore = Boolean(payload?.hasMore);
+                  const nextOffset = Number(payload?.nextOffset);
+                  if (hasMore && (!Number.isFinite(nextOffset) || nextOffset <= sourceOffset)) {
+                    canonicalErrors.push(`Canonical ${result.fileName}: توقف التحديث لأن مؤشر الدفعة التالية غير صالح`);
+                    break;
+                  }
+                  sourceOffset = Number.isFinite(nextOffset) ? nextOffset : sourceOffset + 10;
+                }
+                if (hasMore && safety >= 30) {
+                  canonicalErrors.push(`Canonical ${result.fileName}: تم إيقاف التحديث بعد الحد الآمن للدفعات`);
                 }
               } catch (refreshError) {
                 canonicalErrors.push(
