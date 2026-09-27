@@ -567,11 +567,13 @@ export default function WhatsAppSmartFolderWatcher() {
             : result;
 
           await saveLocalWhatsAppAnalysisHistory<FileRun>(candidate.key, candidate.name, finalizedResult);
-          markLocalWhatsAppFileProcessed(candidate.key);
           if (canonicalErrors.length) {
+            const reason = canonicalErrors.join(' | ').slice(0, 500);
+            markLocalWhatsAppFileFailed(candidate.key, reason);
             console.warn('[whatsapp-watcher] canonical refresh failed after local analysis', canonicalErrors);
-            toast.warning(`تم تحليل ${candidate.name} محليًا، لكن تحديث Sales Intelligence يحتاج مراجعة`);
+            toast.warning(`تم تحليل ${candidate.name} محليًا، وسيُعاد تلقائيًا لاستكمال Sales Intelligence`);
           } else {
+            markLocalWhatsAppFileProcessed(candidate.key);
             toast.success(`تم تحليل ${candidate.name}: ${result.sessions} جلسة → ${result.cases} حالة / ${result.staffRuns.length} مسؤول`);
           }
           return finalizedResult;
