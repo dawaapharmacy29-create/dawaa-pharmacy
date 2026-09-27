@@ -33,9 +33,11 @@ interface StaffAccountLoginRow {
   active: boolean;
   can_login?: boolean | null;
   permissions?: unknown;
+  session_token?: string | null;
 }
 
 const STORAGE_KEY = 'dawaa_auth_user_v2';
+const SESSION_TOKEN_KEY = 'dawaa_staff_session_v1';
 const listeners = new Set<() => void>();
 const ACCOUNT_REFRESH_TTL_MS = 5 * 60 * 1000;
 const ACCOUNT_REFRESH_TIMEOUT_MS = 3500;
@@ -336,7 +338,7 @@ async function loginWithStaffAccount(username: string, password: string): Promis
   const attemptLogin = async (): Promise<{ data: unknown; networkFailure: boolean }> => {
     try {
       const result = await withTimeout<SupabaseRpcResult<unknown>>(
-        supabase.rpc('staff_account_login', { p_username: username, p_password: password }),
+        supabase.rpc('staff_account_login_v2', { p_username: username, p_password: password }),
         15000,
         'staff_account_login'
       );
@@ -369,6 +371,12 @@ async function loginWithStaffAccount(username: string, password: string): Promis
     ? (data[0] as StaffAccountLoginRow | undefined)
     : (data as StaffAccountLoginRow | null);
   if (!row?.id || row.active === false || row.can_login === false) return null;
+
+  if (typeof window !== 'undefined' && row.session_token) {
+    try {
+      localStorage.setItem(SESSION_TOKEN_KEY, row.session_token);
+    } catch {}
+  }
 
   void withTimeout(
     supabase.rpc('set_current_user_context', { p_user_id: row.id }),
@@ -482,6 +490,9 @@ export function useAuth() {
 
   const logout = useCallback(async () => {
     if (currentUser) logAuthActivity(currentUser, 'logout', 'success');
+    if (typeof window !== 'undefined') {
+      try { localStorage.removeItem(SESSION_TOKEN_KEY); } catch {}
+    }
     setCurrentUser(null);
     lastAccountRefreshAt = 0;
     try {
@@ -558,4 +569,15 @@ export function getCurrentUserProfile() {
   if (!uuidRegex.test(currentUser.id))
     return { ...currentUser, id: '00000000-0000-0000-0000-000000000000' };
   return sanitizeUser(currentUser) || currentUser;
+}
+
+
+export function getStaffSessionToken(): string | null {
+  if (typeof window === 'undefined' || typeof localStorage === 'undefined') return null;
+  try {
+    const value = localStorage.getItem(SESSION_TOKEN_KEY);
+    return value?.trim() || null;
+  } catch {
+    return null;
+  }
 }
