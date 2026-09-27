@@ -601,7 +601,11 @@ export default function WhatsAppSmartFolderWatcher() {
       for (let index = 0; index < candidates.length; index += FILE_CONCURRENCY) {
         const batch = candidates.slice(index, index + FILE_CONCURRENCY);
         const results = await Promise.all(batch.map(processCandidate));
-        setRuns((current) => [...results.reverse(), ...current].slice(0, 30));
+        setRuns((current) => {
+          const next = [...results].reverse();
+          const refreshedNames = new Set(next.map((run) => run.fileName));
+          return [...next, ...current.filter((run) => !refreshedNames.has(run.fileName))].slice(0, 30);
+        });
         if (typeof window !== 'undefined' && index + FILE_CONCURRENCY < candidates.length) {
           await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
         }
