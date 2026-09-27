@@ -221,8 +221,8 @@ function tokenOverlapScore(a: string, b: string): number {
 }
 
 const NAME_MATCH_STOPWORDS = new Set([
-  'a', 'an', 'the', 'for', 'of', 'with', 'to', 'by', 'and',
-  'من', 'في', 'مع', 'على', 'الي', 'الى',
+  'a', 'an', 'the', 'for', 'of', 'with', 'to', 'by', 'and', 'forwarded',
+  'من', 'في', 'مع', 'على', 'الي', 'الى', 'بديل', 'غسول', 'الغسول',
 ]);
 
 const NAME_QUANTITY_TOKENS = new Set([
