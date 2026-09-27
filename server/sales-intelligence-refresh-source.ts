@@ -13,10 +13,13 @@ export default async function handler(req: any, res: any) {
     return json(res, 405, { error: 'method_not_allowed' });
   }
 
-  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+  const supabaseUrl =
+    process.env.SUPABASE_URL ||
+    process.env.VITE_SUPABASE_URL ||
+    'https://jkjqeqkshllustwlzzbf.supabase.co';
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!supabaseUrl || !serviceRoleKey) {
-    return json(res, 503, { error: 'server_configuration_missing' });
+  if (!serviceRoleKey) {
+    return json(res, 503, { error: 'missing_service_role_key' });
   }
 
   const authHeader = String(req.headers.authorization || '');
