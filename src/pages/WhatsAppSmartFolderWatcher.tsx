@@ -528,7 +528,7 @@ export default function WhatsAppSmartFolderWatcher() {
                     if (!response.ok) {
                       const payload = await response.json().catch(() => null);
                       canonicalErrors.push(
-                        `Canonical ${sourceId.slice(0, 8)}: ${payload?.error || response.status}`
+                        `Canonical ${sourceId.slice(0, 8)}: ${payload?.error || response.status}${payload?.detail ? ` — ${payload.detail}` : ''}`
                       );
                     }
                   } catch (refreshError) {
