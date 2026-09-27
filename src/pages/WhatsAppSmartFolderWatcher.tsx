@@ -509,40 +509,36 @@ export default function WhatsAppSmartFolderWatcher() {
           const result = await analyzeFile(candidate.file);
 
           const canonicalErrors: string[] = [];
-          if (result.sourceIds?.length) {
-            try {
-              const accessToken = getStaffSessionToken() || '';
-              if (!accessToken) {
-                canonicalErrors.push('جلسة الإدارة الحالية قديمة — سجل خروج ودخول مرة واحدة لتحديث Sales Intelligence');
-              } else {
-                for (const sourceId of result.sourceIds) {
-                  try {
-                    const response = await fetch('/api/sales-intelligence-refresh-source', {
-                      method: 'POST',
-                      headers: {
-                        'Content-Type': 'application/json',
-                        Authorization: `Bearer ${accessToken}`,
-                      },
-                      body: JSON.stringify({ sourceId }),
-                    });
-                    if (!response.ok) {
-                      const payload = await response.json().catch(() => null);
-                      canonicalErrors.push(
-                        `Canonical ${sourceId.slice(0, 8)}: ${payload?.error || response.status}${payload?.detail ? ` — ${payload.detail}` : ''}`
-                      );
-                    }
-                  } catch (refreshError) {
-                    canonicalErrors.push(
-                      `Canonical ${sourceId.slice(0, 8)}: ${refreshError instanceof Error ? refreshError.message : 'تعذر التحديث'}`
-                    );
-                  }
+          try {
+            const accessToken = getStaffSessionToken() || '';
+            if (!accessToken) {
+              canonicalErrors.push('جلسة الإدارة الحالية قديمة — سجل خروج ودخول مرة واحدة لتحديث Sales Intelligence');
+            } else {
+              try {
+                const response = await fetch('/api/sales-intelligence-refresh-source', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${accessToken}`,
+                  },
+                  body: JSON.stringify({ sourceFileName: result.fileName }),
+                });
+                if (!response.ok) {
+                  const payload = await response.json().catch(() => null);
+                  canonicalErrors.push(
+                    `Canonical ${result.fileName}: ${payload?.error || response.status}${payload?.detail ? ` — ${payload.detail}` : ''}`
+                  );
                 }
+              } catch (refreshError) {
+                canonicalErrors.push(
+                  `Canonical ${result.fileName}: ${refreshError instanceof Error ? refreshError.message : 'تعذر التحديث'}`
+                );
               }
-            } catch (refreshSetupError) {
-              canonicalErrors.push(
-                refreshSetupError instanceof Error ? refreshSetupError.message : 'تعذر تحديث Sales Intelligence'
-              );
             }
+          } catch (refreshSetupError) {
+            canonicalErrors.push(
+              refreshSetupError instanceof Error ? refreshSetupError.message : 'تعذر تحديث Sales Intelligence'
+            );
           }
 
           const finalizedResult: FileRun = canonicalErrors.length
