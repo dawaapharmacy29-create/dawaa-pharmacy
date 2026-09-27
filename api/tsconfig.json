@@ -9,6 +9,6 @@
     "target": "es2022",
     "types": ["node"]
   },
-  "include": ["./**/*.ts", "../src/lib/salesIntelligence/**/*.ts", "../src/lib/customers/**/*.ts", "../src/lib/invoices/**/*.ts"],
-  "exclude": ["../node_modules", "../dist", "../build", "../**/*.test.ts"]
+  "include": ["./**/*.ts"],
+  "exclude": ["../node_modules", "../dist", "../build", "../src", "../**/*.test.ts"]
 }
