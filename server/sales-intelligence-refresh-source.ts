@@ -183,6 +183,8 @@ export default async function handler(req: any, res: any) {
 
   const sourceId = String(body.sourceId || '').trim();
   const sourceFileName = String(body.sourceFileName || '').trim();
+  const sourceOffset = Math.max(0, Number(body.sourceOffset) || 0);
+  const requestedSourceLimit = Math.max(1, Math.min(10, Number(body.sourceLimit) || 10));
   const validSourceId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(sourceId);
 
   if (!validSourceId && !sourceFileName) {
@@ -199,13 +201,22 @@ export default async function handler(req: any, res: any) {
   ].join(',');
 
   let sourceRows: Record<string, unknown>[] = [];
+  let totalSourceCount: number | null = null;
   if (sourceFileName) {
+    const { count, error: countError } = await service
+      .from('whatsapp_review_sources')
+      .select('id', { count: 'exact', head: true })
+      .eq('source_filename', sourceFileName);
+    if (countError) return json(res, 500, { error: 'source_count_failed', detail: countError.message });
+    totalSourceCount = Number(count || 0);
+
     const { data, error } = await service
       .from('whatsapp_review_sources')
       .select(select)
       .eq('source_filename', sourceFileName)
       .order('conversation_started_at', { ascending: true, nullsFirst: true })
-      .limit(150);
+      .order('id', { ascending: true })
+      .range(sourceOffset, sourceOffset + requestedSourceLimit - 1);
     if (error) return json(res, 500, { error: 'source_lookup_failed', detail: error.message });
     sourceRows = (data || []) as unknown as Record<string, unknown>[];
   } else {
@@ -223,9 +234,6 @@ export default async function handler(req: any, res: any) {
   );
   if (!sources.length) {
     return json(res, 404, { error: 'source_not_found_or_empty' });
-  }
-  if (sourceRows.length >= 150) {
-    return json(res, 409, { error: 'source_file_batch_too_large', limit: 150 });
   }
 
   try {
@@ -269,6 +277,11 @@ export default async function handler(req: any, res: any) {
       sourceId: validSourceId ? sourceId : null,
       sourceFileName: sourceFileName || null,
       sourceCount: sources.length,
+      totalSourceCount,
+      sourceOffset: sourceFileName ? sourceOffset : null,
+      sourceLimit: sourceFileName ? requestedSourceLimit : null,
+      nextOffset: sourceFileName ? sourceOffset + sourceRows.length : null,
+      hasMore: sourceFileName ? sourceOffset + sourceRows.length < Number(totalSourceCount || 0) : false,
       actionReconciliation: { reconciledActions },
       derivedCases: result.caseAnalyses.map((row) => ({
         conversationId: row.conversationId,
