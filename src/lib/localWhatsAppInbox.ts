@@ -18,7 +18,7 @@ export interface LocalInboxCandidate {
   lastModified: number;
 }
 
-interface FailedInboxItem {
+export interface FailedInboxItem {
   key: string;
   failedAt: number;
   attempts: number;
@@ -160,6 +160,15 @@ export function resetLocalWhatsAppProcessedLedger() {
   localStorage.removeItem(LEDGER_KEY);
   localStorage.removeItem(FAILED_KEY);
 }
+
+export function getLocalWhatsAppFailedItems(): FailedInboxItem[] {
+  return readFailedLedger();
+}
+
+export function resetLocalWhatsAppFailedLedger() {
+  localStorage.removeItem(FAILED_KEY);
+}
+
 
 export async function getUnprocessedWhatsAppExports(handle: any, limit = 10): Promise<LocalInboxCandidate[]> {
   const permission = await queryLocalWhatsAppFolderPermission(handle, false);
