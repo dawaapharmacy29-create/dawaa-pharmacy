@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "node scripts/patch-customer-followup-excel-pro.cjs && node scripts/run-customer-monthly-tabs.cjs && vite --configLoader runner",
     "prebuild": "node scripts/patch-customer-followup-excel-pro.cjs && node scripts/run-customer-monthly-tabs.cjs && node scripts/enforce-invoice-branch-guard.cjs && node scripts/check-sales-truth-separation.cjs && node scripts/check-customer-cashback-safe-advanced.cjs && node scripts/check-points-v3-migration-order.cjs && node scripts/check-cleaning-governance-architecture.cjs && node scripts/check-attendance-payroll-readiness.cjs && node scripts/check-attendance-resolution-architecture.cjs && node scripts/check-payroll-attendance-eligibility.cjs && node scripts/check-payroll-adjustment-ledger.cjs && node scripts/check-payroll-atomic-settlement.cjs",
-    "build": "vite build --configLoader runner",
+    "build": "vite build --configLoader runner && node scripts/build-sales-intelligence-refresh-api.cjs",
     "perf:budget": "node scripts/check-runtime-performance-budget.cjs",
     "analyze": "ANALYZE=true vite build --configLoader runner",
     "preview": "vite preview",
