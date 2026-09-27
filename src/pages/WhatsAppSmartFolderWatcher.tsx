@@ -12,6 +12,8 @@ import {
   restoreLocalWhatsAppFolder,
   supportsLocalWhatsAppInbox,
   resetLocalWhatsAppProcessedLedger,
+  getLocalWhatsAppFailedItems,
+  resetLocalWhatsAppFailedLedger,
   loadLocalWhatsAppAnalysisHistory,
   saveLocalWhatsAppAnalysisHistory,
 } from '@/lib/localWhatsAppInbox';
@@ -205,6 +207,7 @@ export default function WhatsAppSmartFolderWatcher() {
   const [detailTab, setDetailTab] = useState<'overview' | 'conversation' | 'review'>('overview');
   const [expandedRuns, setExpandedRuns] = useState<Record<string, boolean>>({});
   const [runQuery, setRunQuery] = useState('');
+  const [failedInboxCount, setFailedInboxCount] = useState(0);
 
 
   const analyzeFile = useCallback(async (file: File): Promise<FileRun> => {
@@ -606,11 +609,13 @@ export default function WhatsAppSmartFolderWatcher() {
     } finally {
       scanningRef.current = false;
       setScanning(false);
+      setFailedInboxCount(getLocalWhatsAppFailedItems().length);
     }
   }, [analyzeFile]);
 
   useEffect(() => {
     void (async () => {
+      setFailedInboxCount(getLocalWhatsAppFailedItems().length);
       try {
         const history = await loadLocalWhatsAppAnalysisHistory<FileRun>(30);
         if (history.length) setRuns(history.map((row) => row.payload));
@@ -636,8 +641,22 @@ export default function WhatsAppSmartFolderWatcher() {
 
   async function reanalyzeExisting() {
     resetLocalWhatsAppProcessedLedger();
+    setFailedInboxCount(0);
     setRuns([]);
     toast.success('تمت إعادة تهيئة سجل الملفات — هنعيد تحليل الملفات الموجودة في الفولدر');
+    await scanOnce();
+  }
+
+  async function retryFailedOnly() {
+    if (scanning) return;
+    const failed = getLocalWhatsAppFailedItems();
+    if (!failed.length) {
+      toast.message('لا توجد ملفات متعطلة لإعادة المحاولة');
+      return;
+    }
+    resetLocalWhatsAppFailedLedger();
+    setFailedInboxCount(0);
+    toast.message(`إعادة محاولة ${failed.length} ملف متعطل`);
     await scanOnce();
   }
 
@@ -677,8 +696,8 @@ export default function WhatsAppSmartFolderWatcher() {
     const review = allStaff.length - clear - issues;
     const followups = allStaff.filter((item) => item.intelligence?.followup.detected).length;
     const opportunities = allStaff.reduce((sum, item) => sum + (item.intelligence?.salesOpportunities.length || 0), 0);
-    return { files: runs.length, staff: allStaff.length, clear, issues, review, followups, opportunities };
-  }, [runs]);
+    return { files: runs.length, staff: allStaff.length, clear, issues, review, followups, opportunities, failed: failedInboxCount };
+  }, [runs, failedInboxCount]);
 
   const filteredRuns = useMemo(() => {
     const query = runQuery.trim().toLowerCase();
@@ -762,11 +781,16 @@ export default function WhatsAppSmartFolderWatcher() {
               <button type="button" disabled={scanning} onClick={() => void reanalyzeExisting()} className="rounded-xl border border-cyan-700/60 bg-cyan-950/20 px-3 py-2 text-xs font-black text-cyan-100 disabled:opacity-50">
                 إعادة تحليل
               </button>
+              {failedInboxCount > 0 && (
+                <button type="button" disabled={scanning} onClick={() => void retryFailedOnly()} className="rounded-xl border border-rose-700/60 bg-rose-950/20 px-3 py-2 text-xs font-black text-rose-100 disabled:opacity-50">
+                  إعادة محاولة المتعطلة ({failedInboxCount})
+                </button>
+              )}
             </div>
           )}
         </div>
 
-        <div className="grid grid-cols-2 gap-px bg-slate-800 sm:grid-cols-4 lg:grid-cols-7">
+        <div className="grid grid-cols-2 gap-px bg-slate-800 sm:grid-cols-4 lg:grid-cols-8">
           {[
             ['ملفات', overview.files, 'text-white'],
             ['مسؤولون', overview.staff, 'text-white'],
@@ -775,6 +799,7 @@ export default function WhatsAppSmartFolderWatcher() {
             ['مراجعة', overview.review, 'text-rose-300'],
             ['متابعات', overview.followups, 'text-cyan-300'],
             ['فرص بيع', overview.opportunities, 'text-violet-300'],
+            ['متعطلة', overview.failed, overview.failed ? 'text-rose-300' : 'text-slate-400'],
           ].map(([label, value, tone]) => (
             <div key={String(label)} className="bg-[#111c2b] px-3 py-3 text-center">
               <div className="text-[10px] font-bold text-slate-500">{label}</div>
