@@ -233,9 +233,9 @@ export default async function handler(req: any, res: any) {
       import('../src/lib/salesIntelligence/persistence/batchPersistenceService'),
       import('../src/lib/salesIntelligence/persistence/reviewSourceBatchAdapter'),
     ]);
-    const conversation = reviewSourceRowToBatchConversation(source as any);
+    const conversations = sources.map((source) => reviewSourceRowToBatchConversation(source as any));
     const result = await runBatchPersistence(service, {
-      conversations: [conversation],
+      conversations,
       dryRun: false,
     });
 
@@ -244,22 +244,34 @@ export default async function handler(req: any, res: any) {
     if (failures.length) {
       return json(res, 500, {
         error: 'canonical_refresh_partial_failure',
-        sourceId,
+        sourceId: validSourceId ? sourceId : null,
+        sourceFileName: sourceFileName || null,
+        sourceCount: sources.length,
         failures: failures.map((row) => ({ caseId: row.caseId, error: row.error })),
       });
     }
 
-    const actionReconciliation = await reconcileSoldCustomerRequestActions(
-      service,
-      sourceId,
-      result.caseAnalyses as any[]
-    );
+    let reconciledActions = 0;
+    for (const source of sources) {
+      const id = String(source.id || '');
+      if (!id) continue;
+      const sourceAnalyses = result.caseAnalyses.filter((row) => row.conversationId === id);
+      const reconciliation = await reconcileSoldCustomerRequestActions(
+        service,
+        id,
+        sourceAnalyses as any[]
+      );
+      reconciledActions += reconciliation.reconciledActions;
+    }
 
     return json(res, 200, {
       ok: true,
-      sourceId,
-      actionReconciliation,
+      sourceId: validSourceId ? sourceId : null,
+      sourceFileName: sourceFileName || null,
+      sourceCount: sources.length,
+      actionReconciliation: { reconciledActions },
       derivedCases: result.caseAnalyses.map((row) => ({
+        conversationId: row.conversationId,
         caseId: row.caseId,
         status: row.status,
         customerId: row.conversationCase.customerId,
@@ -283,7 +295,8 @@ export default async function handler(req: any, res: any) {
     });
   } catch (error) {
     console.error('[sales-intelligence-refresh-source] canonical refresh failed', {
-      sourceId,
+      sourceId: validSourceId ? sourceId : null,
+      sourceFileName: sourceFileName || null,
       message: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : null,
     });
