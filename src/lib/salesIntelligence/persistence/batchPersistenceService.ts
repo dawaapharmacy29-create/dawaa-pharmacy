@@ -826,6 +826,50 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
     }
   }
 
+  if (!input.dryRun) {
+    const derivedCaseIdsByConversation = new Map<string, Set<string>>();
+    for (const analysis of caseAnalyses) {
+      const set = derivedCaseIdsByConversation.get(analysis.conversationId) ?? new Set<string>();
+      set.add(analysis.caseId);
+      derivedCaseIdsByConversation.set(analysis.conversationId, set);
+    }
+
+    const outcomeByCaseId = new Map(caseOutcomes.map((outcome) => [outcome.caseId, outcome]));
+
+    for (const conversation of effectiveConversations) {
+      const derivedCaseIds =
+        derivedCaseIdsByConversation.get(conversation.conversationId) ?? new Set<string>();
+
+      const allDerivedCasesSucceeded = Array.from(derivedCaseIds).every(
+        (caseId) => outcomeByCaseId.get(caseId)?.success === true
+      );
+      if (!allDerivedCasesSucceeded) continue;
+
+      const { data: existingCases, error: existingCasesError } = await supabaseClient
+        .from('sales_intelligence_cases')
+        .select('case_id')
+        .eq('conversation_id', conversation.conversationId);
+      if (existingCasesError) throw existingCasesError;
+
+      const staleCaseIds = (existingCases ?? [])
+        .map((row: { case_id?: string | null }) => String(row.case_id ?? '').trim())
+        .filter((caseId: string) => caseId && !derivedCaseIds.has(caseId));
+
+      if (!staleCaseIds.length) continue;
+
+      const { error: retireError } = await supabaseClient
+        .from('sales_intelligence_case_analyses')
+        .update({
+          is_current: false,
+          superseded_at: new Date().toISOString(),
+          superseded_by_analysis_id: null,
+        })
+        .in('case_id', staleCaseIds)
+        .eq('is_current', true);
+      if (retireError) throw retireError;
+    }
+  }
+
   const persistencePlanningMs = Date.now() - planningStart;
 
   return {
