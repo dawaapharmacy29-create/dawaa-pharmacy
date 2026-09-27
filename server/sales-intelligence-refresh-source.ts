@@ -135,6 +135,11 @@ export default async function handler(req: any, res: any) {
       },
     });
   } catch (error) {
+    console.error('[sales-intelligence-refresh-source] canonical refresh failed', {
+      sourceId,
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : null,
+    });
     return json(res, 500, {
       error: 'canonical_refresh_failed',
       detail: error instanceof Error ? error.message : String(error),
