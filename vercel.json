@@ -12,7 +12,7 @@
   "rewrites": [
     {
       "source": "/api/sales-intelligence-refresh-source",
-      "destination": "/api/sales-intelligence-refresh-source.cjs"
+      "destination": "/api/sales-intelligence-refresh-source.js"
     },
     {
       "source": "/(.*)",
@@ -31,7 +31,7 @@
     }
   ],
   "functions": {
-    "api/sales-intelligence-refresh-source.cjs": {
+    "api/sales-intelligence-refresh-source.js": {
       "includeFiles": "src/lib/**",
       "maxDuration": 60
     }
