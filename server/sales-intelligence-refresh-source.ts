@@ -1,7 +1,4 @@
 import { createClient } from '@supabase/supabase-js';
-import { runBatchPersistence } from '../src/lib/salesIntelligence/persistence/batchPersistenceService';
-import { reviewSourceRowToBatchConversation } from '../src/lib/salesIntelligence/persistence/reviewSourceBatchAdapter';
-
 const ALLOWED_ROLES = new Set(['general_manager', 'admin', 'executive_manager', 'branches_manager']);
 
 function json(res: any, status: number, body: unknown) {
@@ -75,6 +72,10 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
+    const [{ runBatchPersistence }, { reviewSourceRowToBatchConversation }] = await Promise.all([
+      import('../src/lib/salesIntelligence/persistence/batchPersistenceService'),
+      import('../src/lib/salesIntelligence/persistence/reviewSourceBatchAdapter'),
+    ]);
     const conversation = reviewSourceRowToBatchConversation(source as any);
     const result = await runBatchPersistence(service, {
       conversations: [conversation],
