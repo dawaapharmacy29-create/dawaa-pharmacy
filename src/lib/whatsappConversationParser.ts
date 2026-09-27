@@ -85,8 +85,6 @@ const STAFF_INTRO_PATTERNS = [
 ];
 const PHARMACY_TEXT_RX =
   /(صيدليات دواء|مع حضرتك|تحت امر حضرتك|تحت أمر حضرتك|تم تأكيد الطلب|جاري الارسال|جاري الإرسال)/i;
-const SYSTEM_RX =
-  /(messages and calls are end-to-end encrypted|created group|added you|changed the subject|security code changed)/i;
 const MEDIA_KIND_SET = new Set<WhatsAppMessageKind>(['image', 'voice', 'video', 'document']);
 
 function normalizeYear(raw: number) {
@@ -155,7 +153,7 @@ function timestampFromPrefix(prefix: ParsedPrefix) {
 
 function detectKind(text: string): WhatsAppMessageKind {
   const value = text.toLowerCase();
-  if (SYSTEM_RX.test(text)) return 'system';
+  if (/(messages and calls are end-to-end encrypted|created group|added you|changed the subject|security code changed)/i.test(text)) return 'system';
   if (
     /<voice message omitted>|audio omitted|صوت محذوف|\[voice message\]|\.(?:opus|ogg|mp3|m4a|wav)(?:\s|$|\))/i.test(
       text
