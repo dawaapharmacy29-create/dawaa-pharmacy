@@ -182,8 +182,14 @@ export default async function handler(req: any, res: any) {
   }
 
   const sourceId = String(body.sourceId || '').trim();
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(sourceId)) {
-    return json(res, 400, { error: 'invalid_source_id' });
+  const sourceFileName = String(body.sourceFileName || '').trim();
+  const validSourceId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(sourceId);
+
+  if (!validSourceId && !sourceFileName) {
+    return json(res, 400, { error: 'source_id_or_file_name_required' });
+  }
+  if (sourceFileName.length > 240) {
+    return json(res, 400, { error: 'source_file_name_too_long' });
   }
 
   const select = [
@@ -192,16 +198,34 @@ export default async function handler(req: any, res: any) {
     'branch','matched_invoice_id','matched_invoice_number','invoice_match_status','reviewer_confirmed','reviewer_id'
   ].join(',');
 
-  const { data: sourceData, error: sourceError } = await service
-    .from('whatsapp_review_sources')
-    .select(select)
-    .eq('id', sourceId)
-    .maybeSingle();
+  let sourceRows: Record<string, unknown>[] = [];
+  if (sourceFileName) {
+    const { data, error } = await service
+      .from('whatsapp_review_sources')
+      .select(select)
+      .eq('source_filename', sourceFileName)
+      .order('conversation_started_at', { ascending: true, nullsFirst: true })
+      .limit(150);
+    if (error) return json(res, 500, { error: 'source_lookup_failed', detail: error.message });
+    sourceRows = (data || []) as unknown as Record<string, unknown>[];
+  } else {
+    const { data, error } = await service
+      .from('whatsapp_review_sources')
+      .select(select)
+      .eq('id', sourceId)
+      .maybeSingle();
+    if (error) return json(res, 500, { error: 'source_lookup_failed', detail: error.message });
+    sourceRows = data ? [data as unknown as Record<string, unknown>] : [];
+  }
 
-  if (sourceError) return json(res, 500, { error: 'source_lookup_failed', detail: sourceError.message });
-  const source = sourceData as unknown as Record<string, unknown> | null;
-  if (!source || typeof source.raw_text !== 'string' || !source.raw_text.trim()) {
+  const sources = sourceRows.filter(
+    (row) => typeof row.raw_text === 'string' && String(row.raw_text).trim().length > 0
+  );
+  if (!sources.length) {
     return json(res, 404, { error: 'source_not_found_or_empty' });
+  }
+  if (sourceRows.length >= 150) {
+    return json(res, 409, { error: 'source_file_batch_too_large', limit: 150 });
   }
 
   try {
