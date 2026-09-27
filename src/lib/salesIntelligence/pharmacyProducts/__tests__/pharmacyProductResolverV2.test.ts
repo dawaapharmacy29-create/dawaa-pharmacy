@@ -56,6 +56,13 @@ describe('resolveProductMention — match basis hierarchy', () => {
     expect(result.selected?.confidence).toBe('strongly_inferred');
   });
 
+  it('6b. ignores forwarded and generic Arabic qualifier words in a real customer product phrase', () => {
+    const result = resolveProductMention('[Forwarded] Isis teenderm gel for sensitive skin بديل الغسول', INDEX);
+    expect(result.selected?.product.productId).toBe('p-teenderm-sensitive');
+    expect(result.selected?.basis).toBe('dominant_name_token_match');
+    expect(result.selected?.confidence).toBe('strongly_inferred');
+  });
+
   it('8. reports unresolved for a phrase matching nothing in the catalog', () => {
     const result = resolveProductMention('ActivatedBlackseed spray', INDEX);
     expect(result.selected).toBeNull();
