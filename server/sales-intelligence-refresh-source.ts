@@ -7,6 +7,122 @@ function json(res: any, status: number, body: unknown) {
   res.end(JSON.stringify(body));
 }
 
+async function reconcileSoldCustomerRequestActions(
+  service: any,
+  sourceId: string,
+  caseAnalyses: any[]
+) {
+  const { data: actions, error: actionsError } = await service
+    .from('whatsapp_conversation_actions')
+    .select('id,action_key,action_type,status,work_status,product_id,product_code,product_name,quantity,payload,confidence')
+    .eq('source_id', sourceId)
+    .eq('action_type', 'customer_request')
+    .in('status', ['proposed', 'ready', 'created']);
+
+  if (actionsError) throw actionsError;
+  if (!actions?.length) return { reconciledActions: 0 };
+
+  let reconciledActions = 0;
+  const reconciledIds = new Set<string>();
+
+  for (const analysis of caseAnalyses) {
+    const attribution = analysis?.attribution;
+    const match = analysis?.basketInvoiceMatch;
+    const invoiceId = String(attribution?.selectedInvoiceId || '').trim();
+    const invoiceNumber = String(attribution?.selectedInvoiceNumber || '').trim();
+    const attributionLevel = String(attribution?.attributionLevel || '');
+    const contradictions = Array.isArray(attribution?.contradictions) ? attribution.contradictions : [];
+
+    if (!invoiceId || !invoiceNumber) continue;
+    if (!['proven', 'strongly_inferred'].includes(attributionLevel)) continue;
+    if (contradictions.length > 0) continue;
+    if (match?.itemMatch !== 'exact' || match?.itemEvidenceReady !== true) continue;
+
+    const { data: invoiceItems, error: invoiceItemsError } = await service
+      .from('sales_invoice_items_v21')
+      .select('invoice_id,invoice_number,product_id,product_code,product_name,quantity,line_total')
+      .eq('invoice_id', invoiceId);
+
+    if (invoiceItemsError) throw invoiceItemsError;
+    if (!invoiceItems?.length) continue;
+
+    const invoiceValue = invoiceItems.reduce(
+      (sum: number, row: any) => sum + (Number(row.line_total) || 0),
+      0
+    );
+
+    for (const action of actions) {
+      if (reconciledIds.has(String(action.id))) continue;
+      if (!action.product_id) continue;
+
+      const matchingLines = invoiceItems.filter(
+        (row: any) => String(row.product_id || '') === String(action.product_id)
+      );
+      if (!matchingLines.length) continue;
+
+      const soldQuantity = matchingLines.reduce(
+        (sum: number, row: any) => sum + (Number(row.quantity) || 0),
+        0
+      );
+      const primaryLine = matchingLines[0];
+      const requestPrefix = String(action.action_key || '').match(/^(request:\d+:)/)?.[1] || null;
+      const relatedActions = actions.filter((candidate: any) => {
+        if (reconciledIds.has(String(candidate.id))) return false;
+        if (String(candidate.id) === String(action.id)) return true;
+        if (!requestPrefix) return false;
+        return (
+          String(candidate.action_key || '').startsWith(requestPrefix) &&
+          !candidate.product_id
+        );
+      });
+
+      for (const related of relatedActions) {
+        const nowIso = new Date().toISOString();
+        const payload =
+          related.payload && typeof related.payload === 'object' && !Array.isArray(related.payload)
+            ? related.payload
+            : {};
+
+        const canonicalSale = {
+          case_id: analysis.caseId,
+          invoice_id: invoiceId,
+          invoice_number: invoiceNumber,
+          product_id: String(primaryLine.product_id || action.product_id || ''),
+          product_code: String(primaryLine.product_code || action.product_code || ''),
+          product_name: String(primaryLine.product_name || action.product_name || ''),
+          sold_quantity: soldQuantity,
+          invoice_value: invoiceValue,
+          attribution_level: attributionLevel,
+          item_match: match.itemMatch,
+          verified_at: nowIso,
+        };
+
+        const { error: updateError } = await service
+          .from('whatsapp_conversation_actions')
+          .update({
+            status: 'dismissed',
+            work_status: 'completed',
+            outcome: 'sold',
+            outcome_note: 'تم إغلاق طلب العميل تلقائيًا بعد إثبات البيع وربطه بفاتورة فعلية.',
+            completed_at: nowIso,
+            target_table: 'sales_invoices',
+            target_id: invoiceId,
+            reason: 'تم إثبات بيع الطلب وربطه بفاتورة فعلية؛ لا يحتاج متابعة كطلب غير مغلق.',
+            payload: { ...payload, canonical_sale: canonicalSale },
+            updated_at: nowIso,
+          })
+          .eq('id', related.id);
+
+        if (updateError) throw updateError;
+        reconciledIds.add(String(related.id));
+        reconciledActions += 1;
+      }
+    }
+  }
+
+  return { reconciledActions };
+}
+
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
@@ -109,9 +225,16 @@ export default async function handler(req: any, res: any) {
       });
     }
 
+    const actionReconciliation = await reconcileSoldCustomerRequestActions(
+      service,
+      sourceId,
+      result.caseAnalyses as any[]
+    );
+
     return json(res, 200, {
       ok: true,
       sourceId,
+      actionReconciliation,
       derivedCases: result.caseAnalyses.map((row) => ({
         caseId: row.caseId,
         status: row.status,
