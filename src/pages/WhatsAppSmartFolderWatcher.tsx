@@ -606,6 +606,11 @@ export default function WhatsAppSmartFolderWatcher() {
           timingV28: caseTimingV28,
           delayAttributionV29,
           groundedSaleJourneyV33: keptRuns[0]?.snapshot.smartIntelligence?.groundedSaleJourneyV33 || null,
+          smartIntelligence: keptRuns[0]?.snapshot.smartIntelligence || null,
+          evaluationV2: keptRuns[0]?.snapshot.smartIntelligence?.evaluationV2 || null,
+          invoiceItems: keptRuns[0]?.snapshot.smartIntelligence?.invoiceItems || [],
+          requestedProducts: keptRuns[0]?.snapshot.smartIntelligence?.requestedProducts || [],
+          resolvedCustomer: customerContext.resolution,
         } as any;
         const persisted = await persistAnalyzedWhatsAppSession(session, persistenceIntelligence, {
           sourceFileName: file.name,
