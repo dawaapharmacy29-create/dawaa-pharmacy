@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseWhatsAppExport, splitWhatsAppSessions } from '@/lib/whatsappConversationParser';
 import { buildUnifiedConversationIntelligence } from '@/lib/whatsappUnifiedIntelligenceV4';
-import { buildWhatsAppOperationalIntelligenceV6 } from '@/lib/whatsappOperationalIntelligenceV6';
+import { buildWhatsAppOperationalIntelligenceV6, mergeDeicticProductReferences } from '@/lib/whatsappOperationalIntelligenceV6';
 
 function analyze(raw: string) {
   const sessions = splitWhatsAppSessions(parseWhatsAppExport(raw), 120);
@@ -56,5 +56,67 @@ describe('WhatsApp Operational Intelligence V6 product extraction', () => {
     expect(product).toBeTruthy();
     expect(product?.status).toBe('requested');
     expect(product?.quantity).toBe(1);
+  });
+
+  it('suppresses observed conversational fragments without suppressing real generic demand', () => {
+    const noise = analyze(`[9/27/26, 8:00:00 PM] Customer: ده الا
+[9/27/26, 8:01:00 PM] Customer: مينفعش من
+[9/27/26, 8:02:00 PM] Customer: حسابه
+[9/27/26, 8:03:00 PM] Customer: هبقا
+[9/27/26, 8:04:00 PM] Customer: بحولهم و
+[9/27/26, 8:05:00 PM] Customer: بس عشان انا مش مجبره
+[9/27/26, 8:06:00 PM] Customer: ي دكتور`);
+    expect(noise.products).toHaveLength(0);
+
+    const demand = analyze(`[9/27/26, 8:10:00 PM] Customer: عايزه فوار للحموضه
+[9/27/26, 8:11:00 PM] You: حاضر يا فندم`);
+    expect(demand.products.some((row) => /فوار للحموضه/.test(row.rawName))).toBe(true);
+  });
+
+  it('merges quantity-only anaphora into the previous product instead of creating a fake product', () => {
+    const model = analyze(`[9/27/26, 8:20:00 PM] Customer: عايزه فليكس لايكس
+[9/27/26, 8:21:00 PM] Customer: منهم شريطين
+[9/27/26, 8:22:00 PM] You: حاضر`);
+    expect(model.products).toHaveLength(1);
+    expect(model.products[0].rawName).toMatch(/فليكس لايكس/);
+    expect(model.products[0].quantity).toBe(2);
+  });
+
+  it('merges category deictic references into a nearby canonical product', () => {
+    const session = {
+      id: 's-deictic',
+      startedAt: new Date('2026-09-27T20:00:00Z'),
+      endedAt: new Date('2026-09-27T20:01:00Z'),
+      participants: ['Customer'],
+      outboundStaffNames: [],
+      customerName: 'Customer',
+      mediaCount: 0,
+      messages: [
+        {
+          id: 'm1', timestamp: new Date('2026-09-27T20:00:00Z'), rawTimestamp: '1',
+          sender: 'Customer', text: 'كوريغا', direction: 'inbound' as const, kind: 'text' as const,
+          forwarded: false, raw: 'كوريغا'
+        },
+        {
+          id: 'm2', timestamp: new Date('2026-09-27T20:01:00Z'), rawTimestamp: '2',
+          sender: 'Customer', text: 'العسل ده', direction: 'inbound' as const, kind: 'text' as const,
+          forwarded: false, raw: 'العسل ده'
+        },
+      ],
+    };
+    const products = mergeDeicticProductReferences([
+      {
+        rawName: 'كوريغا', normalizedName: 'كوريغا', quantity: null, status: 'requested' as const,
+        sourceDirection: 'inbound' as const, evidenceMessageIds: ['m1'], confidence: 92,
+        productId: 'p1', productCode: 'C1', canonicalName: 'Corega'
+      },
+      {
+        rawName: 'العسل ده', normalizedName: 'العسل ده', quantity: null, status: 'requested' as const,
+        sourceDirection: 'inbound' as const, evidenceMessageIds: ['m2'], confidence: 80
+      }
+    ], session);
+
+    expect(products).toHaveLength(1);
+    expect(products[0].evidenceMessageIds).toContain('m2');
   });
 });
