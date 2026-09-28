@@ -28,12 +28,25 @@ export interface SmartIntelligenceCustomerPurchaseHistory {
   lastPurchaseAt: string | null;
 }
 
+export interface SmartInvoiceItemEvidenceV32 {
+  id: string | null;
+  productId: string | null;
+  productCode: string | null;
+  productName: string;
+  quantity: number | null;
+  effectiveQuantity: number | null;
+  unitPrice: number | null;
+  lineTotal: number | null;
+}
+
 export interface SmartIntelligenceSnapshotV1 {
   version: 'smart-intelligence-snapshot-v1';
   generatedAt: string;
   journey: ConversationJourneyResult;
   staffEffort: StaffMessageEffort[];
   invoiceVerification: UnifiedInvoiceVerification;
+  /** تفاصيل أصناف الفاتورة المرتبطة من sales_invoice_items_v21 — مصدر حقيقة تجاري للعرض والمقارنة فقط. */
+  invoiceItems?: SmartInvoiceItemEvidenceV32[];
   /** مش متربط بعد — customer resolution wiring في صفحة الـWatcher لسه مش جزء من الخطوات المنفذة. */
   customer: WhatsAppResolvedCustomer | null;
   /** مش متربط بعد — نفس السبب. */
@@ -59,6 +72,7 @@ export function buildSmartIntelligenceSnapshotV1(args: {
   journey: ConversationJourneyResult;
   staffEffort: StaffMessageEffort[];
   invoiceVerification: UnifiedInvoiceVerification;
+  invoiceItems?: SmartInvoiceItemEvidenceV32[];
   customer?: WhatsAppResolvedCustomer | null;
   purchaseHistory?: SmartIntelligenceCustomerPurchaseHistory | null;
   branchHint?: BranchHintResult | null;
@@ -74,6 +88,7 @@ export function buildSmartIntelligenceSnapshotV1(args: {
     journey: args.journey,
     staffEffort: args.staffEffort,
     invoiceVerification: args.invoiceVerification,
+    invoiceItems: args.invoiceItems ?? [],
     customer: args.customer ?? null,
     purchaseHistory: args.purchaseHistory ?? null,
     branchHint: args.branchHint ?? null,
