@@ -158,6 +158,7 @@ export default function WhatsAppCustomerActionCenterV6({ onOpenSource }: { onOpe
   const [products, setProducts] = useState<CustomerProduct[]>([]);
   const [actions, setActions] = useState<CustomerAction[]>([]);
   const [canonicalCases, setCanonicalCases] = useState<CanonicalCaseRow[]>([]);
+  const [detailCanonicalCases, setDetailCanonicalCases] = useState<CanonicalCaseRow[]>([]);
 
   const load = async () => {
     setLoading(true);
@@ -221,9 +222,22 @@ export default function WhatsAppCustomerActionCenterV6({ onOpenSource }: { onOpe
       else if (row.customer_phone) productQuery = productQuery.eq('customer_phone', row.customer_phone);
       else productQuery = productQuery.eq('customer_name', row.customer_name || '');
 
-      const [sourceResult, productResult] = await Promise.all([sourceQuery, productQuery]);
+      let canonicalQuery = supabase
+        .from('whatsapp_customer_cases_v22')
+        .select('id,customer_id,customer_code,customer_name,customer_phone,branch,started_at,proposed_outcome,confirmed_outcome,verified_revenue,verified_invoice_id,verified_invoice_number')
+        .gte('started_at', `${row.cycle_start}T00:00:00+03:00`)
+        .lte('started_at', `${row.cycle_end}T23:59:59+03:00`)
+        .limit(250);
+      if (row.customer_id) canonicalQuery = canonicalQuery.eq('customer_id', row.customer_id);
+      else if (row.customer_code) canonicalQuery = canonicalQuery.eq('customer_code', row.customer_code);
+      else if (row.customer_phone) canonicalQuery = canonicalQuery.eq('customer_phone', row.customer_phone);
+      else canonicalQuery = canonicalQuery.eq('customer_name', row.customer_name || '');
+      if (row.branch) canonicalQuery = canonicalQuery.eq('branch', row.branch);
+
+      const [sourceResult, productResult, canonicalResult] = await Promise.all([sourceQuery, productQuery, canonicalQuery]);
       if (sourceResult.error) throw sourceResult.error;
       if (productResult.error) throw productResult.error;
+      if (canonicalResult.error) throw canonicalResult.error;
 
       const sourceIds = (sourceResult.data || []).map((x: any) => String(x.id));
       let actionData: any[] = [];
@@ -239,11 +253,13 @@ export default function WhatsAppCustomerActionCenterV6({ onOpenSource }: { onOpe
       setConversations((sourceResult.data || []) as CustomerConversation[]);
       setProducts((productResult.data || []) as CustomerProduct[]);
       setActions(actionData as CustomerAction[]);
+      setDetailCanonicalCases((canonicalResult.data || []) as CanonicalCaseRow[]);
     } catch (error) {
       console.error('[whatsapp-action-center-v8] customer 360 load failed', error);
       setConversations([]);
       setProducts([]);
       setActions([]);
+      setDetailCanonicalCases([]);
     } finally {
       setDetailLoading(false);
     }
@@ -299,12 +315,18 @@ export default function WhatsAppCustomerActionCenterV6({ onOpenSource }: { onOpe
   const over500Count = rows.filter((row) => rowTruth(row).canonicalOver500).length;
   const overdueCount = rows.filter((row) => rowTruth(row).hasOperationalAction && row.next_action_due_at && new Date(row.next_action_due_at).getTime() <= Date.now()).length;
 
-  const detailSummary = useMemo(() => ({
-    verifiedSales: 0, // Await canonical Sales Intelligence proof.
-    verifiedRevenue: 0, // Legacy statistical invoice matching is not verified revenue.
-    followups: actions.filter((x) => ['proposed', 'ready'].includes(x.status)).length,
-    leakage: products.filter((x) => Boolean(x.leakage_reason)).length,
-  }), [conversations, actions, products]);
+  const detailSummary = useMemo(() => {
+    const proven = detailCanonicalCases.filter((row) =>
+      (row.confirmed_outcome || row.proposed_outcome) === 'verified_sale' &&
+      Boolean(row.verified_invoice_id)
+    );
+    return {
+      verifiedSales: proven.length,
+      verifiedRevenue: proven.reduce((sum,row) => sum + Number(row.verified_revenue || 0),0),
+      followups: actions.filter((x) => ['proposed', 'ready'].includes(x.status)).length,
+      leakage: products.filter((x) => Boolean(x.leakage_reason)).length,
+    };
+  }, [detailCanonicalCases, actions, products]);
 
   return (
     <section className="dawaa-card dawaa-card--raised p-5" dir="rtl">
