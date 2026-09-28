@@ -878,12 +878,7 @@ export function mergeDeicticProductReferences(
   return products.filter((product) => !suppressed.has(product));
 }
 
-export async function enrichWhatsAppOperationalProductsV6(
-  model: WhatsAppOperationalIntelligenceV6,
-  session?: WhatsAppConversationSession
-): Promise<WhatsAppOperationalIntelligenceV6> {
-  const resolvedProducts = await Promise.all(model.products.map(resolveProduct));
-  const discovered = session ? await discoverStrongCatalogMentions(session) : [];
+export function mergeProductSignalsByTruthV34(products: WhatsAppProductSignal[]) {
   const merged = new Map<string, WhatsAppProductSignal>();
   const truthRank = (product: WhatsAppProductSignal) => {
     if (product.requestProven === true && product.mentionOrigin === 'customer_explicit') return 4;
@@ -892,7 +887,8 @@ export async function enrichWhatsAppOperationalProductsV6(
     return 1;
   };
 
-  for (const product of [...resolvedProducts, ...discovered]) {
+  for (const original of products) {
+    const product = { ...original, evidenceMessageIds: [...original.evidenceMessageIds] };
     const key = product.productId ? 'id:' + product.productId : 'text:' + product.normalizedName;
     const previous = merged.get(key);
     if (!previous) {
@@ -914,8 +910,19 @@ export async function enrichWhatsAppOperationalProductsV6(
     merged.set(key, winner);
   }
 
+  return [...merged.values()];
+}
+
+export async function enrichWhatsAppOperationalProductsV6(
+  model: WhatsAppOperationalIntelligenceV6,
+  session?: WhatsAppConversationSession
+): Promise<WhatsAppOperationalIntelligenceV6> {
+  const resolvedProducts = await Promise.all(model.products.map(resolveProduct));
+  const discovered = session ? await discoverStrongCatalogMentions(session) : [];
+  const mergedProducts = mergeProductSignalsByTruthV34([...resolvedProducts, ...discovered]);
+
   const products = mergeDeicticProductReferences(
-    [...merged.values()].filter((product) =>
+    mergedProducts.filter((product) =>
       Boolean(product.productId) ||
       (
         product.sourceDirection === 'inbound' &&
