@@ -1692,7 +1692,7 @@ export default function WhatsAppSmartFolderWatcher() {
                               </div>
                               <div className="flex flex-wrap gap-1.5 text-[9px]">
                                 <span className="rounded-full bg-black/15 px-2 py-1 text-slate-300">{groundedJourney.truthQuality.directMessageEvidenceCount} دليل رسالة</span>
-                                <span className={`rounded-full px-2 py-1 ${groundedJourney.truthQuality.invoiceVerified ? 'bg-emerald-500/10 text-emerald-300' : 'bg-slate-800 text-slate-500'}`}>{groundedJourney.truthQuality.invoiceVerified ? 'فاتورة Verified' : 'لا فاتورة Verified'}</span>
+                                <span className={`rounded-full px-2 py-1 ${groundedJourney.truthQuality.invoiceCandidateStrong ? 'bg-emerald-500/10 text-emerald-300' : 'bg-slate-800 text-slate-500'}`}>{groundedJourney.truthQuality.invoiceCandidateStrong ? 'مطابقة فاتورة قوية' : 'لا توجد مطابقة قوية'}</span>
                                 <span className={`rounded-full px-2 py-1 ${groundedJourney.truthQuality.customerResolved ? 'bg-emerald-500/10 text-emerald-300' : 'bg-slate-800 text-slate-500'}`}>{groundedJourney.truthQuality.customerResolved ? 'عميل مربوط' : 'هوية غير محسومة'}</span>
                               </div>
                             </div>
@@ -1720,12 +1720,34 @@ export default function WhatsAppSmartFolderWatcher() {
                               {invoice?.bestCandidate?.invoiceNumber || 'غير مرتبطة'}
                             </div>
                             <div className="mt-1 text-[10px] text-slate-400">
-                              {invoice?.revenue != null ? `${invoice.revenue} ج` : invoice?.status === 'verified' ? 'القيمة غير متاحة' : invoice?.reason || 'لا توجد فاتورة مؤكدة'}
+                              {invoice?.revenue != null ? `${invoice.revenue} ج` : invoice?.status === 'verified' ? 'القيمة غير متاحة' : invoice?.reason || 'لا توجد فاتورة مرشحة'}
                             </div>
                             {invoiceItemsTotal > 0 ? (
                               <div className={`mt-1 text-[9px] ${invoiceItemsDifference != null && invoiceItemsDifference > 0.05 ? 'text-amber-300' : 'text-emerald-300'}`}>
                                 مجموع البنود {invoiceItemsTotal.toFixed(2)} ج
                                 {invoiceItemsDifference != null ? (invoiceItemsDifference <= 0.05 ? ' · مطابق' : ` · فرق ${invoiceItemsDifference.toFixed(2)} ج`) : ''}
+                              </div>
+                            ) : null}
+
+                            {selected.canonicalSaleProofState === 'proven' ? (
+                              <div className="mt-2 rounded-lg border border-emerald-700/40 bg-emerald-950/20 px-2 py-1.5 text-[10px] font-black text-emerald-200">
+                                ✓ Sale Proof Canonical — Proven
+                              </div>
+                            ) : invoice?.bestCandidate?.invoiceId && selected.sourceId ? (
+                              <button
+                                type="button"
+                                disabled={confirmingInvoiceSourceId === selected.sourceId}
+                                onClick={() => void confirmSelectedInvoiceLink()}
+                                className="mt-2 w-full rounded-lg border border-cyan-700/50 bg-cyan-950/25 px-2 py-1.5 text-[10px] font-black text-cyan-100 transition hover:border-cyan-500 disabled:opacity-50"
+                              >
+                                {confirmingInvoiceSourceId === selected.sourceId
+                                  ? 'جاري اعتماد الربط وفحص Canonical...'
+                                  : `اعتماد ربط الفاتورة #${invoice.bestCandidate.invoiceNumber || ''}`}
+                              </button>
+                            ) : null}
+                            {invoice?.bestCandidate?.invoiceId && selected.canonicalSaleProofState && selected.canonicalSaleProofState !== 'proven' ? (
+                              <div className="mt-1 text-[9px] leading-4 text-amber-300">
+                                الربط اتراجع Canonical لكن لم يصل Proven بعد: {selected.canonicalSaleProofState}
                               </div>
                             ) : null}
                           </div>
