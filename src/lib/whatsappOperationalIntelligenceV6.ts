@@ -170,6 +170,10 @@ const ANAPHORIC_COMMIT_RX = /(^|\s)(هحتاجه|هحتاجها|هاخده|ها�
 const ANAPHORIC_QUANTITY_ONLY_RX =
   /^(?:منهم|منه|منها)\s+(?:(?:\d{1,3}|[٠-٩]{1,3})\s*)?(?:علبه|علبة|علب|شريط|شريطين|شرايط|عبوه|عبوة|عبوتين|عبوات|كيس|كيسين|اكياس|أكياس|حبه|حبة|حبتين|قطعه|قطعة|قطعتين|قطع)$/iu;
 const PRODUCT_TYPE_NAMED_RX = /^(?:مزيل)\s+([\p{L}\p{N}][\p{L}\p{N} .+-]{1,60})$/iu;
+const EXPLICIT_PRODUCT_FORM_MENTION_RX =
+  /(?:^|[\s،,:-])(?:علبه|علبة|عبوه|عبوة|شريط|شرايط|كريم|جل|شراب|بخاخ|بخاخه|بخاخة|قطره|قطرة|كبسول|كبسوله|كبسولة|اقراص|أقراص|قرص|امبول|أمبول|امبولات|أمبولات)\s+([A-Za-z\u0600-\u06FF][A-Za-z0-9\u0600-\u06FF.+-]*(?:\s+[A-Za-z\u0600-\u06FF][A-Za-z0-9\u0600-\u06FF.+-]*){0,3})/iu;
+const GENERIC_REFERENCE_PRODUCT_RX =
+  /^(?:ال)?(?:علبه|علبة|عبوه|عبوة|شريط|حاجات|الحاجات|حاجه|حاجة|منتج|صنف)\s+(?:ده|دا|دي|دول|هذه|هذا)$/iu;
 
 function evidenceFor(session: WhatsAppConversationSession, rx: RegExp, confidence: number): WhatsAppEvidence {
   const matches = session.messages.filter((m) => rx.test(m.text));
@@ -275,7 +279,7 @@ function replaceStandaloneToken(value: string, token: string) {
 
 function cleanProductPhrase(raw: string) {
   let value = raw.replace(/https?:\/\/\S+/g, ' ');
-  const removable = ['لو سمحت','من فضلك','يا فندم','حضرتك','عندكم','موجود','متوفر','بكام','كام','ممكن','لوسمحت'];
+  const removable = ['لو سمحت','من فضلك','يا فندم','يا دكتور','يادكتور','حضرتك','عندكم','موجود','متوفر','بكام','كام','ممكن','لوسمحت'];
   for (const token of removable) value = replaceStandaloneToken(value, token);
   value = value.replace(/[؟?!،,;:]/g, ' ').replace(/\s+/g, ' ').trim();
   const stop = value.search(/(?<![\p{L}\p{N}])(?:علشان|عشان|لان|لأن|بس|وكمان|و\s+كمان|لو|اذا|إذا)(?![\p{L}\p{N}])/iu);
@@ -288,7 +292,8 @@ function cleanProductPhrase(raw: string) {
   if (/^(?:حاجه|حاجة|دواء|دوا|علاج|صنف|منتج|ده|دي|دول|منه|منها|علبه|علبة|شريط|باكيت|كيس|امبول|أمبول)$/i.test(value)) return '';
   if (/^(?:واحد|واحده|واحدة)\s+من\s+(?:ده|دا|دي)$/i.test(value)) return '';
   if (/^(?:اشوف|أشوف)\s+شكل|^يطلع\s+منه|^اعرف\s+مكان|^يجيلي\s+عند|^بعد\s+اذنك$|^استشاره\s+صغيره|^استشارة\s+صغيرة|^لحضرتك\s+الاسكرينه|^هم\s+تحويل|^بالظبط$|^عليه$|^شكله$|^يهم$|^يكون\s+فيه$/i.test(value)) return '';
-  if (/^(?:نفس\s+)?(?:ده|دا|دي|العلبه\s+دي|العلبة\s+دي)$/i.test(value)) return '';
+  if (/^(?:نفس\s+)?(?:ده|دا|دي|العلبه\s+دي|العلبة\s+دي|العبوه\s+دي|العبوة\s+دي|الحاجات\s+دي|الحاجات\s+دول)$/i.test(value)) return '';
+  if (GENERIC_REFERENCE_PRODUCT_RX.test(value)) return '';
   if (
     GENERIC_NON_PRODUCT_RX.test(value) ||
     SERVICE_SENTENCE_RX.test(value) ||
@@ -350,6 +355,7 @@ function extractProducts(session: WhatsAppConversationSession): WhatsAppProductS
     const typedNamedProduct = message.direction === 'inbound'
       ? (message.text.trim().match(PRODUCT_TYPE_NAMED_RX) || (shortSelection ? [message.text, message.text.trim()] : null))
       : null;
+    const explicitFormMention = message.text.match(EXPLICIT_PRODUCT_FORM_MENTION_RX);
     if (message.direction === 'inbound' && ANAPHORIC_COMMIT_RX.test(message.text)) continue;
     if (
       message.direction === 'inbound' &&
@@ -358,8 +364,11 @@ function extractProducts(session: WhatsAppConversationSession): WhatsAppProductS
       !/(?:اسم|نوع|ماركه|ماركة)\s+(?:ال)?قطر[هة]/i.test(message.text)
     ) continue;
     const trigger = isRecommendation ? RECOMMEND_RX : isRequest ? REQUEST_RX : PRODUCT_INQUIRY_RX.test(message.text) ? PRODUCT_INQUIRY_RX : null;
-    if (!trigger && !typedNamedProduct) continue;
-    let rawName = typedNamedProduct?.[1]?.trim() || (trigger ? extractAfterTrigger(message, trigger) : '');
+    if (!trigger && !typedNamedProduct && !explicitFormMention) continue;
+    let rawName = typedNamedProduct?.[1]?.trim()
+      || (trigger ? extractAfterTrigger(message, trigger) : '')
+      || explicitFormMention?.[1]?.trim()
+      || '';
     if (infoOnlyInquiry && /(?:ال)?منتج\s+(?:ده|دا|دي|هذا|هذه)/i.test(message.text)) rawName = '';
     let explicitNamedRecommendation = false;
     if (isRecommendation) {
@@ -373,6 +382,10 @@ function extractProducts(session: WhatsAppConversationSession): WhatsAppProductS
       ) {
         rawName = '';
       }
+    }
+    if ((!rawName || !plausibleProductPhrase(rawName)) && explicitFormMention?.[1]) {
+      const explicitCandidate = cleanProductPhrase(explicitFormMention[1]);
+      if (plausibleProductPhrase(explicitCandidate)) rawName = explicitCandidate;
     }
     if (!rawName) continue;
 
@@ -396,7 +409,15 @@ function extractProducts(session: WhatsAppConversationSession): WhatsAppProductS
     // Stock unavailability is a pharmacy-side fact. An inbound question like "مش موجود عندكم؟"
     // must stay a customer request/inquiry and never become stock_unavailable on its own.
     if (message.direction === 'outbound' && /(مش موجود|غير متوفر|ناقص)/i.test(message.text)) status = 'unavailable';
-    found.push({ rawName, normalizedName: normalize(rawName), quantity: quantityFrom(message.text), status, sourceDirection: message.direction, evidenceMessageIds: [message.id], confidence: explicitNamedRecommendation ? 92 : typedNamedProduct ? 90 : isRecommendation ? 82 : isRequest ? 80 : 64 });
+    found.push({
+      rawName,
+      normalizedName: normalize(rawName),
+      quantity: quantityFrom(message.text),
+      status,
+      sourceDirection: message.direction,
+      evidenceMessageIds: [message.id],
+      confidence: explicitNamedRecommendation ? 92 : typedNamedProduct ? 90 : explicitFormMention ? 86 : isRecommendation ? 82 : isRequest ? 80 : 64,
+    });
   }
   // A short inbound inquiry may use a shortened product name, while the pharmacy
   // immediately expands it in the reply with a price (e.g. "الديرما" -> "الديرما رول").
