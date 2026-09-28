@@ -1353,23 +1353,39 @@ export default function WhatsAppSmartFolderWatcher() {
 
       {selected ? (
         <div className="fixed inset-0 z-[120] bg-slate-950/80 backdrop-blur-sm" onClick={() => setSelected(null)}>
-          <div className="mx-auto flex h-full max-w-6xl flex-col border-x border-slate-700 bg-[#111c2b] shadow-2xl" onClick={(event) => event.stopPropagation()}>
-            <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-700 bg-[#111c2b]/95 p-4 backdrop-blur">
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <div className="truncate text-xl font-black text-white">{selected.staffIdentity.canonicalStaffName || selected.staffName}</div>
-                  <span className={`rounded-full px-2 py-1 text-[10px] font-black ${selected.decision === 'clear' ? 'bg-emerald-500/15 text-emerald-200' : selected.decision === 'issue' ? 'bg-amber-500/15 text-amber-200' : 'bg-rose-500/15 text-rose-200'}`}>{decisionLabel(selected.decision)}</span>
+          <div className="mx-auto flex h-full max-w-7xl flex-col overflow-hidden border-x border-slate-700 bg-[#111c2b] shadow-2xl md:my-3 md:h-[calc(100%-1.5rem)] md:rounded-3xl md:border" onClick={(event) => event.stopPropagation()}>
+            <div className="shrink-0 border-b border-slate-700 bg-[#111c2b]/95 p-4 backdrop-blur">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="truncate text-xl font-black text-white">
+                      {selected.snapshot.smartIntelligence?.customer?.customer?.name || selected.customerName || 'عميل غير محدد'}
+                    </div>
+                    <span className={`rounded-full px-2.5 py-1 text-[10px] font-black ${selected.decision === 'clear' ? 'bg-emerald-500/15 text-emerald-200' : selected.decision === 'issue' ? 'bg-amber-500/15 text-amber-200' : 'bg-rose-500/15 text-rose-200'}`}>{decisionLabel(selected.decision)}</span>
+                    {selected.snapshot.smartIntelligence?.invoiceVerification?.status === 'verified' ? (
+                      <span className="rounded-full bg-emerald-500/10 px-2.5 py-1 text-[10px] font-black text-emerald-300">فاتورة مؤكدة</span>
+                    ) : selected.snapshot.smartIntelligence?.invoiceVerification?.status === 'probable' ? (
+                      <span className="rounded-full bg-amber-500/10 px-2.5 py-1 text-[10px] font-black text-amber-300">فاتورة مرشحة</span>
+                    ) : null}
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-400">
+                    <span>{selected.staffIdentity.canonicalStaffName || selected.staffName}</span>
+                    <span>·</span>
+                    <span>{roleLabel(selected.role)}</span>
+                    <span>·</span>
+                    <span>{selected.staffIdentity.branch || selected.branchHint.value || 'فرع غير محدد'}</span>
+                    {selected.snapshot.smartIntelligence?.customer?.customer?.code ? <><span>·</span><span>كود العميل {selected.snapshot.smartIntelligence.customer.customer.code}</span></> : null}
+                  </div>
                 </div>
-                <div className="mt-1 text-xs text-slate-400">{roleLabel(selected.role)} · {selected.staffIdentity.branch || selected.branchHint.value || 'فرع غير محدد'} · {selected.customerName || 'عميل غير محدد'}</div>
+                <button type="button" onClick={() => setSelected(null)} className="rounded-xl border border-slate-700 bg-slate-950/30 p-2 text-slate-300 transition hover:border-slate-500 hover:text-white"><X size={18} /></button>
               </div>
-              <button type="button" onClick={() => setSelected(null)} className="rounded-xl border border-slate-700 p-2 text-slate-300"><X size={18} /></button>
             </div>
 
             <div className="flex shrink-0 gap-1 border-b border-slate-800 bg-slate-950/20 px-3 pt-2">
               {[
-                ['overview', 'الخلاصة'],
-                ['conversation', `المحادثة (${selected.snapshot.messages.length})`],
-                ['review', 'التقييم المقترح'],
+                ['overview', 'الملخص التنفيذي'],
+                ['conversation', `المحادثة والأدلة (${selected.snapshot.messages.length})`],
+                ['review', 'تقييم الخدمة'],
               ].map(([key, label]) => (
                 <button key={key} type="button" onClick={() => setDetailTab(key as 'overview' | 'conversation' | 'review')} className={`rounded-t-xl px-4 py-2 text-xs font-black ${detailTab === key ? 'bg-cyan-500 text-slate-950' : 'text-slate-400 hover:text-white'}`}>{label}</button>
               ))}
