@@ -47,6 +47,30 @@ const ACCEPTED_NOT_VERIFIED = `[9/15/26, 9:00:00 AM] Customer: عايز شامب
 [9/15/26, 9:02:00 AM] Customer: تمام ابعته`;
 
 describe('SmartConversationEvaluationV2', () => {
+  it('does not ask again for saved customer phone/address when canonical customer data already knows them', () => {
+    const s = session(`[9/15/26, 9:00:00 AM] Customer: عايز فيتامين د
+[9/15/26, 9:01:00 AM] You: متوفر يا فندم
+[9/15/26, 9:02:00 AM] Customer: تمام ابعته
+[9/15/26, 9:03:00 AM] You: جاري الارسال`);
+    const result = buildSmartConversationEvaluationV2(s, {
+      invoiceVerification: noInvoice(),
+      knownOrderData: {
+        customerKnown: true,
+        phoneKnown: true,
+        addressKnown: true,
+        productKnown: true,
+        quantityKnown: false,
+      },
+    });
+
+    const phone = result.orderCompleteness.items.find((row) => row.key === 'phone');
+    const address = result.orderCompleteness.items.find((row) => row.key === 'address');
+    expect(phone?.status).toBe('confirmed');
+    expect(address?.status).toBe('confirmed');
+    expect(result.orderCompleteness.missingCritical).not.toContain('العنوان');
+  });
+
+
   it('distinguishes a verified sale from chat acceptance and keeps evidence coverage separate from quality score', () => {
     const session = oneSession(COMPLETE_SALE);
     const result = buildSmartConversationEvaluationV2(session, {
