@@ -12,16 +12,16 @@ import type { UnifiedConversationIntelligence } from '@/lib/whatsappUnifiedIntel
 import type { UnifiedInvoiceVerification } from '@/lib/whatsappUnifiedIntelligenceV4';
 import type { WhatsAppOperationalIntelligenceV6 } from '@/lib/whatsappOperationalIntelligenceV6';
 
-export type SaleState = 'chat_sale_signal' | 'probable_sale' | 'invoice_verified_sale' | 'no_verified_invoice';
+export type SaleState = 'chat_sale_signal' | 'probable_sale' | 'invoice_candidate_strong' | 'no_verified_invoice';
 
 export type ConversationJourneyType =
   | 'checkin_ack_only'
   | 'checkin_then_order'
   | 'checkin_then_consultation'
-  | 'checkin_then_verified_sale'
+  | 'checkin_then_invoice_candidate'
   | 'service_recovery_outreach'
   | 'service_recovery_then_request'
-  | 'service_recovery_then_verified_sale'
+  | 'service_recovery_then_invoice_candidate'
   | 'direct_customer_request'
   | 'other';
 
@@ -39,10 +39,10 @@ const JOURNEY_LABELS: Record<ConversationJourneyType, string> = {
   checkin_ack_only: 'خدمة عملاء بدأت متابعة والعميل رد فقط (اطمئنان بدون طلب)',
   checkin_then_order: 'خدمة عملاء بدأت متابعة، وبعدها العميل طلب صنف/كمّل أوردر',
   checkin_then_consultation: 'متابعة بدأت من الصيدلية ثم تحوّلت لاستشارة',
-  checkin_then_verified_sale: 'متابعة بدأت من الصيدلية ثم تحوّلت لعملية بيع مؤكدة بالفاتورة',
+  checkin_then_invoice_candidate: 'متابعة بدأت من الصيدلية ثم ظهرت مطابقة فاتورة قوية تحتاج اعتماد الربط',
   service_recovery_outreach: 'خدمة العملاء بدأت باعتذار/استعادة خدمة بسبب مشكلة أو تأخير سابق',
   service_recovery_then_request: 'اعتذار/استعادة خدمة ثم ظهر طلب جديد من العميل',
-  service_recovery_then_verified_sale: 'اعتذار/استعادة خدمة ثم تحولت المحادثة لبيع مؤكد',
+  service_recovery_then_invoice_candidate: 'اعتذار/استعادة خدمة ثم ظهرت مطابقة فاتورة قوية تحتاج اعتماد الربط',
   direct_customer_request: 'العميل بدأ المحادثة بطلب مباشر',
   other: 'نوع محادثة غير محسوم',
 };
@@ -52,7 +52,7 @@ const SERVICE_RECOVERY_RX = /(بنعتذر|نعتذر|متاسف|متأسف|اس
 const SALE_STATE_LABELS: Record<SaleState, string> = {
   chat_sale_signal: 'إشارة بيع من الشات فقط (غير مؤكدة)',
   probable_sale: 'بيع مرجّح (تطابق فاتورة غير قوي بما يكفي)',
-  invoice_verified_sale: 'بيع مؤكد بمطابقة فاتورة فعلية',
+  invoice_candidate_strong: 'مطابقة فاتورة قوية — ليست Sale Proof قبل اعتماد الربط',
   no_verified_invoice: 'لا يوجد بيع أو إشارة بيع',
 };
 
@@ -60,7 +60,7 @@ export function mapSaleState(
   base: Pick<UnifiedConversationIntelligence, 'commercialEligible' | 'chatSuggestedSold'>,
   invoiceVerification: Pick<UnifiedInvoiceVerification, 'status'>
 ): SaleState {
-  if (invoiceVerification.status === 'verified') return 'invoice_verified_sale';
+  if (invoiceVerification.status === 'verified') return 'invoice_candidate_strong';
   if (invoiceVerification.status === 'probable') return 'probable_sale';
   if (base.commercialEligible || base.chatSuggestedSold) return 'chat_sale_signal';
   return 'no_verified_invoice';
@@ -122,14 +122,14 @@ export function classifyConversationJourney(
     : false;
 
   let journeyType: ConversationJourneyType;
-  if (recoveryDetected && saleState === 'invoice_verified_sale') {
-    journeyType = 'service_recovery_then_verified_sale';
+  if (recoveryDetected && saleState === 'invoice_candidate_strong') {
+    journeyType = 'service_recovery_then_invoice_candidate';
   } else if (recoveryDetected && requestAfterRecovery) {
     journeyType = 'service_recovery_then_request';
   } else if (recoveryDetected) {
     journeyType = 'service_recovery_outreach';
-  } else if (checkinDetected && saleState === 'invoice_verified_sale') {
-    journeyType = 'checkin_then_verified_sale';
+  } else if (checkinDetected && saleState === 'invoice_candidate_strong') {
+    journeyType = 'checkin_then_invoice_candidate';
   } else if (checkinDetected && requestAfterCheckin) {
     journeyType = 'checkin_then_order';
   } else if (checkinDetected && consultationAfterCheckin) {
