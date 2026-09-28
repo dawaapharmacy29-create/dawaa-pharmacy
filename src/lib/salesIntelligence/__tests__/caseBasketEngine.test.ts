@@ -78,6 +78,49 @@ describe('Case Basket Engine (Sales Intelligence Phase B.2) — Golden Cases', (
       expect(items[0].resolutionStatus).toBe('unknown');
       expect(items[0].confidence.level).toBe('unknown');
     });
+
+
+    it('B5. Egyptian dual-unit wording captures two boxes from the customer request', () => {
+      const raw = `[9/27/26, 9:03:34 PM] Customer: لوسمحت كنت محتاجه علبتين لبن هيرو بيبي نيوتروني دفنس 3
+[9/27/26, 9:04:00 PM] You: تحت امر حضرتك`;
+      const { baskets, itemsByBasketId } = firstCaseWithBaskets(raw);
+      const items = itemsOf(itemsByBasketId, baskets[0].basketId);
+      expect(items.some((item: any) =>
+        item.quantity === 2 &&
+        item.unit === 'علبة' &&
+        item.productNameRaw.includes('لبن هيرو بيبي نيوتروني دفنس 3')
+      )).toBe(true);
+    });
+
+    it('B6. implicit singular box wording captures quantity one', () => {
+      const raw = `[9/27/26, 6:14:25 PM] Customer: السلام عليكم عايزه علبه لبن هيرو بيبي 2
+[9/27/26, 6:15:41 PM] You: تحت امر حضرتك عنيا`;
+      const { baskets, itemsByBasketId } = firstCaseWithBaskets(raw);
+      const items = itemsOf(itemsByBasketId, baskets[0].basketId);
+      expect(items.some((item: any) =>
+        item.quantity === 1 &&
+        item.unit === 'علبة' &&
+        item.productNameRaw.includes('لبن هيرو بيبي 2')
+      )).toBe(true);
+    });
+
+    it('B7. one staff recap can capture dual and singular items separately', () => {
+      const raw = `[9/28/26, 1:01:04 AM] Customer: خليهم علبتين كولونا
+[9/28/26, 1:02:11 AM] You: يعني حضرتك محتاج تكرر المحلول وعلبتين كولونا وعلبة جاسترو بيوتيك
+[9/28/26, 1:02:17 AM] You: تركيز 550 صح؟`;
+      const { baskets, itemsByBasketId } = firstCaseWithBaskets(raw);
+      const allItems = baskets.flatMap((basket) => itemsOf(itemsByBasketId, basket.basketId));
+      expect(allItems.some((item: any) => item.quantity === 2 && item.productNameRaw.includes('كولونا'))).toBe(true);
+      expect(allItems.some((item: any) => item.quantity === 1 && item.productNameRaw.includes('جاسترو بيوتيك'))).toBe(true);
+    });
+
+    it('B8. a price question containing box wording is not converted into a basket item', () => {
+      const raw = `[9/28/26, 3:10:57 AM] Customer: بكام العلبه من دا
+[9/28/26, 3:13:13 AM] You: بيكون فيها 3`;
+      const { baskets, itemsByBasketId } = firstCaseWithBaskets(raw);
+      const allItems = baskets.flatMap((basket) => itemsOf(itemsByBasketId, basket.basketId));
+      expect(allItems.some((item: any) => item.productNameRaw.includes('من دا'))).toBe(false);
+    });
   });
 
   describe('Confirmation and basket versioning', () => {
