@@ -234,8 +234,9 @@ export default function WhatsAppDoctorCycleIntelligenceV8({ onOpenSource }: { on
       verifiedSales: verifiedSales.length,
       verifiedRevenue,
       conversionRate: commercial.length ? Math.round((verifiedSales.length / commercial.length) * 1000) / 10 : null,
-      complaints: grounded.filter((row) => (row.journey?.complaintMessageIds || []).length).length,
-      delays: enriched.filter((row) => Number(row.staffCoaching?.slowResponseCount || 0) > 0 || row.delayPoints.length).length,
+      complaintCases: grounded.filter((row) => (row.journey?.complaintMessageIds || []).length).length,
+      complaintHandled: enriched.filter((row) => Number(row.staffCoaching?.complaintResponseCount || 0) > 0).length,
+      delays: enriched.filter((row) => Number(row.staffCoaching?.slowResponseCount || 0) > 0).length,
       best,
       improvement,
       repeatedStrengths,
@@ -248,7 +249,8 @@ export default function WhatsAppDoctorCycleIntelligenceV8({ onOpenSource }: { on
     verifiedSales: doctorInsights.verifiedSales,
     verifiedRevenue: doctorInsights.verifiedRevenue,
     conversionRate: doctorInsights.conversionRate,
-    complaints: doctorInsights.complaints,
+    complaintCases: doctorInsights.complaintCases,
+    complaintHandled: doctorInsights.complaintHandled,
     delays: doctorInsights.delays,
   }), [conversations, doctorInsights]);
 
@@ -288,13 +290,14 @@ export default function WhatsAppDoctorCycleIntelligenceV8({ onOpenSource }: { on
         <button onClick={() => setSelected(null)} className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-black text-slate-300">إغلاق التفاصيل</button>
       </div>
 
-      <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
+      <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-7">
         <Metric label="العملاء" value={detailStats.customers}/>
         <Metric label="بيع موثق" value={detailStats.verifiedSales}/>
         <Metric label="Conversion موثق" value={detailStats.conversionRate == null ? '—' : `${detailStats.conversionRate}%`}/>
         <Metric label="إيراد موثق" value={money(detailStats.verifiedRevenue)}/>
-        <Metric label="حالات شكوى" value={detailStats.complaints}/>
-        <Metric label="حالات تأخير" value={detailStats.delays}/>
+        <Metric label="Cases بها شكوى" value={detailStats.complaintCases}/>
+        <Metric label="شكاوى شارك في معالجتها" value={detailStats.complaintHandled}/>
+        <Metric label="تأخير في ردوده" value={detailStats.delays}/>
       </div>
 
       {detailLoading ? <div className="mt-4 p-6 text-center text-sm text-slate-400">جاري تحميل التفاصيل...</div> : <div className="mt-4 grid gap-4 xl:grid-cols-2">
@@ -416,7 +419,7 @@ export default function WhatsAppDoctorCycleIntelligenceV8({ onOpenSource }: { on
                   <div className="mt-2 space-y-1 text-[11px] leading-5 text-slate-300">
                     {gaps.slice(0, 3).map((gap) => <div key={gap}>• {gap}</div>)}
                     {delayPoints.slice(0, 2).map((point) => <div key={point} className="text-amber-200">⏱ {point}</div>)}
-                    {complaintPoints.slice(0, 1).map((point) => <div key={point} className="text-rose-200">شكوى: {point}</div>)}
+                    {complaintPoints.slice(0, 1).map((point) => <div key={point} className="text-rose-200">شكوى داخل الـCase: {point}</div>)}
                   </div>
                 </button>
               ))}
