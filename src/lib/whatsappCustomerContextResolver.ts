@@ -16,10 +16,18 @@ export interface CustomerPurchaseHistory {
   lastPurchaseAt: string | null;
 }
 
+export interface CustomerContactProfile {
+  phone: string | null;
+  whatsappPhone: string | null;
+  alternatePhone: string | null;
+  address: string | null;
+}
+
 export interface CustomerContextResult {
   resolution: WhatsAppResolvedCustomer;
   phoneCandidate: string | null;
   purchaseHistory: CustomerPurchaseHistory | null;
+  contactProfile: CustomerContactProfile | null;
 }
 
 const PHONE_CANDIDATE_RX = /\d[\d\s-]{9,14}\d/g;
@@ -33,6 +41,24 @@ export function extractPhoneCandidate(session: WhatsAppConversationSession): str
     }
   }
   return null;
+}
+
+async function fetchCustomerContactProfile(customerId: string): Promise<CustomerContactProfile> {
+  const { data, error } = await supabase
+    .from('customers')
+    .select('phone,whatsapp_phone,phone_alt,address')
+    .eq('id', customerId)
+    .maybeSingle();
+  if (error) {
+    console.warn('[whatsapp-customer-context] contact profile lookup failed', error);
+    return { phone: null, whatsappPhone: null, alternatePhone: null, address: null };
+  }
+  return {
+    phone: data?.phone ? String(data.phone).trim() : null,
+    whatsappPhone: data?.whatsapp_phone ? String(data.whatsapp_phone).trim() : null,
+    alternatePhone: data?.phone_alt ? String(data.phone_alt).trim() : null,
+    address: data?.address ? String(data.address).trim() : null,
+  };
 }
 
 async function fetchPurchaseHistory(customerId: string): Promise<CustomerPurchaseHistory> {
@@ -58,6 +84,12 @@ export async function resolveCustomerContext(
   const hintedIdentity = [hint?.customerNameHint, hint?.customerCodeHint].filter(Boolean).join(' ').trim();
   const fallbackIdentity = hintedIdentity || session.customerName;
   const resolution = await resolveWhatsAppCustomerIdentity(phoneCandidate || fallbackIdentity, branchHint);
-  const purchaseHistory = resolution.customer?.id ? await fetchPurchaseHistory(resolution.customer.id) : null;
-  return { resolution, phoneCandidate, purchaseHistory };
+  const customerId = resolution.customer?.id || null;
+  const [purchaseHistory, contactProfile] = customerId
+    ? await Promise.all([
+        fetchPurchaseHistory(customerId),
+        fetchCustomerContactProfile(customerId),
+      ])
+    : [null, null];
+  return { resolution, phoneCandidate, purchaseHistory, contactProfile };
 }
