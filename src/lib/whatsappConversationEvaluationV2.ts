@@ -184,7 +184,26 @@ const RECOVERY_ETA_RX = /(خلال\s+\d+|نص ساعه|نص ساعة|خلال س
 const RECOVERY_COMPENSATION_RX = /(هنعوض|نعوض حضرتك|تعويض|هدية|خصم|رضا حضرتك وثقتك)/i;
 const RECOVERY_REASSURANCE_RX = /(اطمن|أطمن|مهتمين|رضا حضرتك|ثقتك|حسن ظنك)/i;
 
-function scoreOpening(session: WhatsAppConversationSession): ComplianceDimensionV2 {
+function templateMatchCoverage(text: string, templates: string[] = []) {
+  const clean = (value: string) => normalize(value)
+    .replace(/\{\{?[^}]+\}?\}/g, ' ')
+    .replace(/\b(?:يا|حضرتك|فندم|دكتور|دكتوره|دكتورة|أ|ا)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const actual = clean(text);
+  if (!actual || !templates.length) return 0;
+  const actualTokens = new Set(actual.split(' ').filter((token) => token.length >= 3));
+  let best = 0;
+  for (const template of templates) {
+    const templateTokens = clean(template).split(' ').filter((token) => token.length >= 3);
+    if (!templateTokens.length) continue;
+    const matched = templateTokens.filter((token) => actualTokens.has(token)).length;
+    best = Math.max(best, matched / templateTokens.length);
+  }
+  return best;
+}
+
+function scoreOpening(session: WhatsAppConversationSession, officialTemplates: string[] = []): ComplianceDimensionV2 {
   const out = messages(session, 'outbound');
   if (!out.length) return { score: null, coverage: 0, status: 'needs_review', passed: [], missing: ['لا توجد رسالة صادرة قابلة للتقييم'], evidence: { messageIds: [], reason: 'لا توجد رسالة صادرة.', confidence: 20 } };
   const firstTwo = out.slice(0, 3);
@@ -195,7 +214,8 @@ function scoreOpening(session: WhatsAppConversationSession): ComplianceDimension
   const greetingFound = GREETING_RX.test(text);
   const pharmacyFound = PHARMACY_RX.test(text);
   const introFound = INTRO_RX.test(text);
-  const officialWelcome = greetingFound && pharmacyFound && introFound;
+  const officialTemplateCoverage = templateMatchCoverage(text, officialTemplates);
+  const officialWelcome = officialTemplateCoverage >= 0.52 || (greetingFound && pharmacyFound && introFound);
   if (greetingFound) passed.push('تحية مناسبة'); else missing.push('التحية');
   if (pharmacyFound) passed.push('ذكر صيدليات دواء'); else missing.push('اسم الصيدلية');
   if (introFound) passed.push('تعريف المسؤول بنفسه'); else missing.push('اسم/تعريف المسؤول');
@@ -215,11 +235,17 @@ function scoreOpening(session: WhatsAppConversationSession): ComplianceDimension
     status: score >= 90 ? 'strong' : score >= 50 ? 'partial' : 'weak',
     passed,
     missing,
-    evidence: { messageIds: ids(firstTwo), reason: `تم فحص أول ${firstTwo.length} رسالة صادرة لعناصر الافتتاح الرسمية.`, confidence: 94 },
+    evidence: {
+      messageIds: ids(firstTwo),
+      reason: officialTemplateCoverage >= 0.52
+        ? `تم التعرف على صيغة قريبة من قالب ترحيب رسمي معتمد بنسبة ${Math.round(officialTemplateCoverage * 100)}%.`
+        : `تم فحص أول ${firstTwo.length} رسالة صادرة لعناصر الافتتاح الرسمية.`,
+      confidence: officialTemplateCoverage >= 0.52 ? 97 : 94,
+    },
   };
 }
 
-function scoreClosing(session: WhatsAppConversationSession, orderConfirmed: boolean): ComplianceDimensionV2 {
+function scoreClosing(session: WhatsAppConversationSession, orderConfirmed: boolean, officialTemplates: string[] = []): ComplianceDimensionV2 {
   const out = messages(session, 'outbound');
   const tail = out.slice(-3);
   if (!tail.length) return { score: null, coverage: 0, status: 'needs_review', passed: [], missing: [], evidence: { messageIds: [], reason: 'لا توجد نهاية صادرة قابلة للفحص.', confidence: 20 } };
@@ -232,7 +258,10 @@ function scoreClosing(session: WhatsAppConversationSession, orderConfirmed: bool
   if (ANYTHING_ELSE_RX.test(text)) passed.push('عرض مساعدة إضافية');
   else if (!recoveryClosing) missing.push('عرض مساعدة إضافية');
 
-  if (CLOSING_RX.test(text)) {
+  const officialClosingCoverage = templateMatchCoverage(text, officialTemplates);
+  if (officialClosingCoverage >= 0.52) {
+    passed.push('ختام رسمي معتمد');
+  } else if (CLOSING_RX.test(text)) {
     passed.push('ختام مهذب');
   } else if (recoveryClosing && (RECOVERY_REASSURANCE_RX.test(text) || RECOVERY_OWNERSHIP_RX.test(text))) {
     passed.push('ختام استعادة خدمة محترم');
@@ -255,7 +284,15 @@ function scoreClosing(session: WhatsAppConversationSession, orderConfirmed: bool
     status: score >= 90 ? 'strong' : score >= 50 ? 'partial' : 'weak',
     passed,
     missing,
-    evidence: { messageIds: ids(tail), reason: customerEnded ? 'العميل أرسل آخر رسالة؛ تم خفض يقين الحكم على الختام.' : 'تم فحص آخر الرسائل الصادرة كنهاية فعلية للجلسة.', confidence: customerEnded ? 78 : 92 },
+    evidence: {
+      messageIds: ids(tail),
+      reason: officialClosingCoverage >= 0.52
+        ? `تم التعرف على صيغة قريبة من قالب ختامي رسمي معتمد بنسبة ${Math.round(officialClosingCoverage * 100)}%.`
+        : customerEnded
+          ? 'العميل أرسل آخر رسالة؛ تم خفض يقين الحكم على الختام.'
+          : 'تم فحص آخر الرسائل الصادرة كنهاية فعلية للجلسة.',
+      confidence: officialClosingCoverage >= 0.52 ? 97 : customerEnded ? 78 : 92,
+    },
   };
 }
 
@@ -437,12 +474,18 @@ export function buildSmartConversationEvaluationV2(
       productKnown?: boolean;
       quantityKnown?: boolean;
     };
+    officialWelcomeTemplates?: string[];
+    officialClosingTemplates?: string[];
   }
 ): SmartConversationEvaluationV2 {
   const sale = saleOutcome(session, options.invoiceVerification);
   const serviceRecovery = scoreServiceRecovery(session);
-  const opening = scoreOpening(session);
-  const closing = scoreClosing(session, ['order_confirmed', 'invoice_verified_sale', 'probable_sale'].includes(sale.outcome));
+  const opening = scoreOpening(session, options.officialWelcomeTemplates || []);
+  const closing = scoreClosing(
+    session,
+    ['order_confirmed', 'invoice_verified_sale', 'probable_sale'].includes(sale.outcome),
+    options.officialClosingTemplates || []
+  );
   const order = orderCompleteness(session, sale.outcome, options.knownOrderData);
   const salesOpps = options.salesOpportunities || [];
   const handled = salesOpps.filter((x) => x.handling === 'handled_well').length;
