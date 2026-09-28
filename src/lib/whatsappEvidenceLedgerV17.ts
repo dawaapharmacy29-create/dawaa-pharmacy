@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import type { WhatsAppConversationSession } from './whatsappConversationParser';
 import type { WhatsAppOperationalIntelligenceV6 } from './whatsappOperationalIntelligenceV6';
+import type { GroundedSaleJourneyV33 } from './whatsappGroundedSaleJourneyV33';
 import { selectVerifiedProductInvoiceV23 } from './salesIntelligence/productInvoiceVerificationV23';
 import { fetchInvoiceItemEvidenceProvider } from './salesIntelligence/invoiceItemEvidenceRepository';
 import { readInvoiceRecordsByCustomerWindow } from './readModels/invoiceRecordReadModel';
@@ -11,6 +12,7 @@ export interface WhatsAppEvidenceLedgerContextV17 {
   operational: WhatsAppOperationalIntelligenceV6 & { productJourney?: any };
   analysisVersion?: string | null;
   participantRoles?: any;
+  groundedSaleJourney?: GroundedSaleJourneyV33 | null;
 }
 
 type FactType =
@@ -18,7 +20,7 @@ type FactType =
   | 'stock_unavailable' | 'availability_confirmed' | 'alternative_offered' | 'recommendation' | 'recommendation_accepted'
   | 'recommendation_rejected' | 'order_confirmed' | 'order_failed' | 'delivery_delay' | 'complaint' | 'apology'
   | 'service_followup' | 'customer_replied' | 'customer_silent' | 'verified_sale' | 'media_missing_context'
-  | 'conversation_closed' | 'needs_followup';
+  | 'conversation_closed' | 'needs_followup' | 'sale_started' | 'sale_ended';
 
 const DELAY_RX = /(متاخر|متأخر|تأخير|تاخير|لسه مجاش|ماوصلش|موصلش|محدش رد)/i;
 const COMPLAINT_RX = /(شكوى|شكوي|مشكله|مشكلة|اتضايقت|زعلت|وحش|سيء|غلط)/i;
@@ -28,10 +30,18 @@ const ADDRESS_RX = /(العنوان|شارع|عماره|عمارة|برج|الد
 const MEDIA_RX = /(image omitted|video omitted|audio omitted|sticker omitted|document omitted|<attached:|\.jpg|\.jpeg|\.png|\.webp|\.opus|\.ogg|\.mp4|\.pdf)/i;
 
 function roleForStaff(participantRoles: any, staffName: string | null) {
-  const rows = Array.isArray(participantRoles?.participants) ? participantRoles.participants : Array.isArray(participantRoles) ? participantRoles : [];
+  const rows = Array.isArray(participantRoles?.staff)
+    ? participantRoles.staff
+    : Array.isArray(participantRoles?.participants)
+      ? participantRoles.participants
+      : Array.isArray(participantRoles)
+        ? participantRoles
+        : [];
   if (!staffName) return null;
   const normalized = staffName.trim().toLowerCase();
-  const match = rows.find((row: any) => String(row?.name || row?.sender || '').trim().toLowerCase() === normalized);
+  const match = rows.find((row: any) =>
+    String(row?.staffName || row?.name || row?.sender || '').trim().toLowerCase() === normalized
+  );
   return match?.role || match?.resolvedRole || null;
 }
 
@@ -301,6 +311,40 @@ export async function syncWhatsAppEvidenceLedgerV17(session: WhatsAppConversatio
       addFact(factType, `product:${pkey}:${event.stage}`, event.confidence || product.confidence || 70, 'journey', { messageIds: event.messageIds || [], note: event.note || null, stage: event.stage }, { product_id: product.productId || null, product_code: product.productCode || null, product_name: product.productName || null, quantity: product.quantity ?? null });
     }
     if (product.followupCandidate) addFact('needs_followup', `product:${pkey}:followup`, product.confidence || 75, 'journey', { nextAction: product.nextAction, leakageReason: product.leakageReason }, { product_id: product.productId || null, product_code: product.productCode || null, product_name: product.productName || null, quantity: product.quantity ?? null });
+  }
+
+  const grounded = context.groundedSaleJourney;
+  if (grounded?.commercial && grounded.saleWindow.startedAt) {
+    addFact(
+      'sale_started',
+      'sale:grounded-start',
+      grounded.confidence,
+      'grounded_journey',
+      {
+        messageId: grounded.saleWindow.startMessageId,
+        messageIds: grounded.saleWindow.startMessageId ? [grounded.saleWindow.startMessageId] : [],
+        outcome: grounded.outcome,
+        evidenceCoverage: grounded.evidenceCoverage,
+      },
+      { fact_at: grounded.saleWindow.startedAt }
+    );
+  }
+  if (grounded?.commercial && grounded.saleWindow.endedAt && grounded.saleWindow.endSource !== 'none') {
+    addFact(
+      'sale_ended',
+      'sale:grounded-end',
+      grounded.confidence,
+      grounded.saleWindow.endSource === 'invoice' ? 'invoice' : 'grounded_journey',
+      {
+        messageId: grounded.saleWindow.endMessageId,
+        messageIds: grounded.saleWindow.endMessageId ? [grounded.saleWindow.endMessageId] : [],
+        endSource: grounded.saleWindow.endSource,
+        outcome: grounded.outcome,
+        invoiceNumber: source.matched_invoice_number || null,
+        evidenceCoverage: grounded.evidenceCoverage,
+      },
+      { fact_at: grounded.saleWindow.endedAt }
+    );
   }
 
   if (context.operational.followupPlan?.required) addFact('needs_followup', 'journey:needs-followup', 88, 'journey', context.operational.followupPlan);
