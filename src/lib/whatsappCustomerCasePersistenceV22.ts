@@ -60,15 +60,80 @@ function participantStaffFromAnalysis(analysis: any): ParticipantStaff[] {
     .filter((row: ParticipantStaff) => row.staffName || row.accountId);
 }
 
-function pickOwner(source: SourceRow, preferredRoles: string[]): ParticipantStaff | null {
-  const rows = participantStaffFromAnalysis(source.analysis_json)
-    .filter((row) => row.accountId)
-    .sort((a, b) => {
-      const ar = preferredRoles.includes(String(a.role || '')) ? 1 : 0;
-      const br = preferredRoles.includes(String(b.role || '')) ? 1 : 0;
-      return br - ar || b.confidence - a.confidence;
-    });
-  return rows[0] || null;
+function participantStaffFromMessages(analysis: any, messageIds: string[]): ParticipantStaff[] {
+  if (!messageIds.length) return [];
+  const wanted = new Set(messageIds);
+  const rows = analysis?.participantRoles?.messages;
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .filter((row: any) => wanted.has(String(row?.messageId || '')) && row?.accountId)
+    .map((row: any) => ({
+      accountId: row?.accountId ? String(row.accountId) : null,
+      staffName: row?.staffName ? String(row.staffName) : null,
+      role: row?.role ? String(row.role) : null,
+      confidence: Number(row?.confidence || 0),
+    }))
+    .filter((row: ParticipantStaff) => row.accountId);
+}
+
+function rankOwners(rows: ParticipantStaff[], preferredRoles: string[]) {
+  return rows.slice().sort((a, b) => {
+    const ar = preferredRoles.includes(String(a.role || '')) ? 1 : 0;
+    const br = preferredRoles.includes(String(b.role || '')) ? 1 : 0;
+    return br - ar || b.confidence - a.confidence;
+  });
+}
+
+function pickOwner(source: SourceRow, preferredRoles: string[], evidenceMessageIds: string[] = []): ParticipantStaff | null {
+  const evidenceOwners = rankOwners(
+    participantStaffFromMessages(source.analysis_json, evidenceMessageIds),
+    preferredRoles,
+  );
+  if (evidenceOwners.length) return evidenceOwners[0];
+
+  return rankOwners(
+    participantStaffFromAnalysis(source.analysis_json).filter((row) => row.accountId),
+    preferredRoles,
+  )[0] || null;
+}
+
+function stageEvidenceMessageIds(source: SourceRow, stage: string) {
+  const operational = source.analysis_json?.operational || null;
+  const journeys = Array.isArray(operational?.productJourney?.journeys)
+    ? operational.productJourney.journeys
+    : [];
+  const journeyEvents = journeys.flatMap((journey: any) =>
+    Array.isArray(journey?.events) ? journey.events : []
+  );
+
+  if (stage === 'availability') {
+    return [...new Set(
+      journeyEvents
+        .filter((event: any) => ['availability_confirmed', 'unavailable'].includes(String(event?.stage || '')))
+        .flatMap((event: any) => Array.isArray(event?.messageIds) ? event.messageIds : [])
+        .map(String)
+    )];
+  }
+  if (stage === 'recommendation') {
+    return [...new Set(
+      (Array.isArray(operational?.recommendations) ? operational.recommendations : [])
+        .flatMap((row: any) => Array.isArray(row?.evidenceMessageIds) ? row.evidenceMessageIds : [])
+        .map(String)
+    )];
+  }
+  if (stage === 'confirmation') {
+    return [...new Set(
+      (Array.isArray(operational?.evidence?.saleClose?.messageIds) ? operational.evidence.saleClose.messageIds : [])
+        .map(String)
+    )];
+  }
+  if (stage === 'complaint' || stage === 'recovery') {
+    const recoveryEvidence = source.analysis_json?.smartIntelligence?.evaluationV2?.serviceRecovery?.evidenceMessageIds;
+    if (Array.isArray(recoveryEvidence)) return [...new Set(recoveryEvidence.map(String))];
+    const complaintEvidence = operational?.evidence?.complaint?.messageIds;
+    if (Array.isArray(complaintEvidence)) return [...new Set(complaintEvidence.map(String))];
+  }
+  return [];
 }
 
 function proposedLostReason(caseItem: any, sourceRows: SourceRow[]) {
@@ -102,22 +167,22 @@ function proposedOutcome(caseItem: any) {
 }
 
 function stageCandidates(caseItem: any, rows: SourceRow[]) {
-  const stages: Array<{ stage: string; source: SourceRow; preferred: string[] }> = [];
+  const stages: Array<{ stage: string; source: SourceRow; preferred: string[]; evidenceMessageIds: string[] }> = [];
   const sorted = [...rows].sort((a, b) => String(a.conversation_started_at || '').localeCompare(String(b.conversation_started_at || '')));
   const commercialPreferred = ['pharmacist', 'pharmacy_unknown', 'assistant', 'branch_manager'];
   const recoveryPreferred = ['customer_service', 'management', 'pharmacist'];
 
-  if (caseItem.orderIntent && sorted[0]) stages.push({ stage: 'intake', source: sorted[0], preferred: commercialPreferred });
+  if (caseItem.orderIntent && sorted[0]) stages.push({ stage: 'intake', source: sorted[0], preferred: commercialPreferred, evidenceMessageIds: [] });
   const availability = sorted.find((row) => AVAILABILITY_RX.test(String(row.raw_text || '')));
-  if (availability) stages.push({ stage: 'availability', source: availability, preferred: commercialPreferred });
+  if (availability) stages.push({ stage: 'availability', source: availability, preferred: commercialPreferred, evidenceMessageIds: stageEvidenceMessageIds(availability, 'availability') });
   const recommendation = sorted.find((row) => RECOMMENDATION_RX.test(String(row.raw_text || '')));
-  if (recommendation) stages.push({ stage: 'recommendation', source: recommendation, preferred: commercialPreferred });
+  if (recommendation) stages.push({ stage: 'recommendation', source: recommendation, preferred: commercialPreferred, evidenceMessageIds: stageEvidenceMessageIds(recommendation, 'recommendation') });
   const confirmation = [...sorted].reverse().find((row) => CONFIRMATION_RX.test(String(row.raw_text || '')));
-  if (confirmation) stages.push({ stage: 'confirmation', source: confirmation, preferred: commercialPreferred });
+  if (confirmation) stages.push({ stage: 'confirmation', source: confirmation, preferred: commercialPreferred, evidenceMessageIds: stageEvidenceMessageIds(confirmation, 'confirmation') });
   const complaint = sorted.find((row) => COMPLAINT_RX.test(String(row.raw_text || '')));
-  if (complaint) stages.push({ stage: 'complaint', source: complaint, preferred: recoveryPreferred });
+  if (complaint) stages.push({ stage: 'complaint', source: complaint, preferred: recoveryPreferred, evidenceMessageIds: stageEvidenceMessageIds(complaint, 'complaint') });
   const recovery = [...sorted].reverse().find((row) => RECOVERY_RX.test(String(row.raw_text || '')));
-  if (recovery) stages.push({ stage: 'recovery', source: recovery, preferred: recoveryPreferred });
+  if (recovery) stages.push({ stage: 'recovery', source: recovery, preferred: recoveryPreferred, evidenceMessageIds: stageEvidenceMessageIds(recovery, 'recovery') });
   return stages;
 }
 
@@ -254,9 +319,15 @@ export async function syncWhatsAppCustomerCasesV22(
       if (error) throw error;
 
       const ownershipRows = stageCandidates(caseItem, caseSources)
-        .map(({ stage, source, preferred }) => {
-          const owner = pickOwner(source, preferred);
+        .map(({ stage, source, preferred, evidenceMessageIds }) => {
+          const owner = pickOwner(source, preferred, evidenceMessageIds);
           if (!owner?.accountId) return null;
+          const ownerEvidenceMessageIds = evidenceMessageIds.filter((messageId) => {
+            const messageRole = source.analysis_json?.participantRoles?.messages?.find(
+              (row: any) => String(row?.messageId || '') === messageId
+            );
+            return String(messageRole?.accountId || '') === String(owner.accountId || '');
+          });
           return {
             case_id: savedCase.id,
             stage,
@@ -265,7 +336,7 @@ export async function syncWhatsAppCustomerCasesV22(
             owner_role: owner.role,
             ownership_confidence: owner.confidence,
             evidence_source_ids: [source.id],
-            evidence_message_ids: [],
+            evidence_message_ids: ownerEvidenceMessageIds,
             updated_at: new Date().toISOString(),
           };
         })
