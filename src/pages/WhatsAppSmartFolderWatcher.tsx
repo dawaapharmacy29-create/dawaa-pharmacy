@@ -135,11 +135,12 @@ async function loadOfficialConversationTemplates() {
     ].filter(Boolean);
 
     const closing = (quickReplyResult.data || [])
-      .filter((row: any) =>
-        /closing|ختام|تحت أمر حضرتك|تحت امرك|نتشرف بخدمة حضرتك|سعداء بخدمة حضرتك|شكرا لثقة حضرتك|شكراً لثقة حضرتك|في أي وقت/i.test(
-          [row.script_type, row.title, row.category, row.shortcut, row.message_body].filter(Boolean).join(' ')
-        )
-      )
+      .filter((row: any) => {
+        const meta = [row.script_type, row.title, row.category, row.shortcut].filter(Boolean).join(' ');
+        const full = [meta, row.message_body].filter(Boolean).join(' ');
+        if (/welcome|ترحيب|عميل جديد/i.test(meta)) return false;
+        return /closing|ختام|تحت أمر حضرتك|تحت امرك|نتشرف بخدمة حضرتك|سعداء بخدمة حضرتك|شكرا لثقة حضرتك|شكراً لثقة حضرتك/i.test(full);
+      })
       .map((row: any) => String(row.message_body || '').trim())
       .filter(Boolean);
 
@@ -1501,6 +1502,11 @@ export default function WhatsAppSmartFolderWatcher() {
                     const soldRequestedCount = productRows.filter((row) => row.kind === 'requested_and_sold').length;
                     const invoiceOnlyCount = productRows.filter((row) => row.kind === 'invoice_only').length;
                     const missingFromInvoiceCount = productRows.filter((row) => row.kind === 'requested_not_in_invoice').length;
+                    const invoiceItemsTotal = (selected.snapshot.smartIntelligence?.invoiceItems || [])
+                      .reduce((sum, row) => sum + (Number.isFinite(Number(row.lineTotal)) ? Number(row.lineTotal) : 0), 0);
+                    const invoiceItemsDifference = invoice?.revenue != null && invoiceItemsTotal > 0
+                      ? Math.abs(Number(invoice.revenue) - invoiceItemsTotal)
+                      : null;
                     const toneClass = truth.tone === 'emerald'
                       ? 'border-emerald-700/50 bg-emerald-950/15'
                       : truth.tone === 'amber'
@@ -1539,6 +1545,12 @@ export default function WhatsAppSmartFolderWatcher() {
                             <div className="mt-1 text-[10px] text-slate-400">
                               {invoice?.revenue != null ? `${invoice.revenue} ج` : invoice?.status === 'verified' ? 'القيمة غير متاحة' : invoice?.reason || 'لا توجد فاتورة مؤكدة'}
                             </div>
+                            {invoiceItemsTotal > 0 ? (
+                              <div className={`mt-1 text-[9px] ${invoiceItemsDifference != null && invoiceItemsDifference > 0.05 ? 'text-amber-300' : 'text-emerald-300'}`}>
+                                مجموع البنود {invoiceItemsTotal.toFixed(2)} ج
+                                {invoiceItemsDifference != null ? (invoiceItemsDifference <= 0.05 ? ' · مطابق' : ` · فرق ${invoiceItemsDifference.toFixed(2)} ج`) : ''}
+                              </div>
+                            ) : null}
                           </div>
 
                           <div className="rounded-xl border border-slate-800 bg-black/10 p-3">
