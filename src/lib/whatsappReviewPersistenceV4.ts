@@ -161,187 +161,49 @@ export async function archiveSupersededLegacyWhatsAppSourceV35(args: {
   actorId?: string | null;
   actorName?: string | null;
 }) {
-  const replacementIds = Array.from(new Set((args.replacementSourceIds || []).map((id) => String(id || '').trim()).filter(Boolean)));
+  const replacementIds = Array.from(
+    new Set((args.replacementSourceIds || []).map((id) => String(id || '').trim()).filter(Boolean))
+  );
   if (replacementIds.length < 2) {
     return { archived: 0, deletedCases: 0, skippedReason: 'replacement_sources_less_than_two' as const };
   }
 
-  const { data: candidates, error: candidateError } = await supabase
-    .from('whatsapp_review_sources')
-    .select('id,source_filename,conversation_started_at,conversation_ended_at,message_count,review_status,reviewer_confirmed,invoice_link_confirmed,invoice_link_confirmed_invoice_id,analysis_json')
-    .eq('source_filename', args.sourceFileName)
-    .eq('conversation_started_at', args.fullConversationStartedAt)
-    .eq('conversation_ended_at', args.fullConversationEndedAt)
-    .eq('message_count', args.fullMessageCount)
-    .neq('review_status', 'archived');
-  if (candidateError) throw candidateError;
+  const { data, error } = await supabase.rpc('dawaa_archive_superseded_whatsapp_source_v35', {
+    p_source_filename: args.sourceFileName,
+    p_full_started_at: args.fullConversationStartedAt,
+    p_full_ended_at: args.fullConversationEndedAt,
+    p_full_message_count: args.fullMessageCount,
+    p_replacement_source_ids: replacementIds,
+  });
+  if (error) throw error;
 
-  const legacy = (candidates || []).filter((row: any) => !replacementIds.includes(String(row.id || '')));
-  if (!legacy.length) {
-    return { archived: 0, deletedCases: 0, skippedReason: 'no_legacy_monolithic_source' as const };
-  }
-  if (legacy.length > 1) {
-    return { archived: 0, deletedCases: 0, skippedReason: 'multiple_legacy_candidates' as const };
-  }
+  const result = (data || {}) as {
+    archived?: number;
+    archivedSourceId?: string;
+    replacementSourceIds?: string[];
+    deletedCases?: number;
+    deletedDerived?: Record<string, number>;
+    skippedReason?: string | null;
+  };
 
-  const source = legacy[0] as any;
-  if (source.reviewer_confirmed || source.invoice_link_confirmed || source.invoice_link_confirmed_invoice_id) {
-    return { archived: 0, deletedCases: 0, skippedReason: 'legacy_source_has_human_confirmation' as const };
-  }
-
-  const { count: humanReviewCount, error: humanReviewError } = await supabase
-    .from('conversation_sales_reviews')
-    .select('id', { count: 'exact', head: true })
-    .eq('whatsapp_review_source_id', source.id);
-  if (humanReviewError) throw humanReviewError;
-  if (Number(humanReviewCount || 0) > 0) {
-    return { archived: 0, deletedCases: 0, skippedReason: 'legacy_source_has_official_review' as const };
-  }
-
-  const { data: actionRows, error: actionError } = await supabase
-    .from('whatsapp_conversation_actions')
-    .select('id,status,assigned_to_id,assigned_at,work_status,started_at,completed_at,outcome,outcome_note,followup_attempts,last_followup_at,recovered_invoice_id,recovered_at')
-    .eq('source_id', source.id);
-  if (actionError) throw actionError;
-  const workedAction = (actionRows || []).find((row: any) =>
-    row.assigned_to_id ||
-    row.assigned_at ||
-    (row.work_status && row.work_status !== 'unassigned') ||
-    row.started_at ||
-    row.completed_at ||
-    row.outcome ||
-    row.outcome_note ||
-    Number(row.followup_attempts || 0) > 0 ||
-    row.last_followup_at ||
-    row.recovered_invoice_id ||
-    row.recovered_at
-  );
-  if (workedAction) {
-    return { archived: 0, deletedCases: 0, skippedReason: 'legacy_source_has_worked_action' as const };
-  }
-
-  const { data: journeyRows, error: journeyError } = await supabase
-    .from('whatsapp_customer_journeys')
-    .select('id')
-    .eq('root_source_id', source.id);
-  if (journeyError) throw journeyError;
-  const journeyIds = (journeyRows || []).map((row: any) => String(row.id));
-
-  if (journeyIds.length) {
-    const { data: journeyLinks, error: journeyLinkError } = await supabase
-      .from('whatsapp_customer_journey_sessions')
-      .select('journey_id,source_id')
-      .in('journey_id', journeyIds);
-    if (journeyLinkError) throw journeyLinkError;
-    const sharedJourney = (journeyLinks || []).some((row: any) =>
-      String(row.source_id || '') !== String(source.id)
-    );
-    if (sharedJourney) {
-      return { archived: 0, deletedCases: 0, skippedReason: 'legacy_journey_shared_with_other_sources' as const };
+  if (result.archived && result.archivedSourceId) {
+    try {
+      await appendWhatsAppReviewAudit(
+        String(result.archivedSourceId),
+        'legacy_source_superseded',
+        null,
+        result,
+        args.actorId || null,
+        args.actorName || null,
+        null,
+        `Atomic V35 replacement by ${replacementIds.length} case-scoped sources`,
+      );
+    } catch (auditError) {
+      console.warn('[whatsapp-review-v35] superseded-source audit append failed after atomic replacement', auditError);
     }
   }
 
-  const { data: caseRows, error: caseError } = await supabase
-    .from('whatsapp_customer_cases_v22')
-    .select('id,confirmed_outcome,outcome_reviewed_by,outcome_reviewed_at,confirmed_lost_reason,verified_invoice_id,verified_revenue')
-    .or(`root_source_id.eq.${source.id},source_ids.cs.{${source.id}}`);
-  if (caseError) throw caseError;
-
-  const unsafeCase = (caseRows || []).find((row: any) =>
-    row.confirmed_outcome ||
-    row.outcome_reviewed_by ||
-    row.outcome_reviewed_at ||
-    row.confirmed_lost_reason ||
-    row.verified_invoice_id ||
-    row.verified_revenue != null
-  );
-  if (unsafeCase) {
-    return { archived: 0, deletedCases: 0, skippedReason: 'legacy_case_has_human_or_verified_state' as const };
-  }
-
-  let deletedCases = 0;
-  if ((caseRows || []).length) {
-    const ids = (caseRows || []).map((row: any) => row.id);
-    const { error: deleteError } = await supabase
-      .from('whatsapp_customer_cases_v22')
-      .delete()
-      .in('id', ids);
-    if (deleteError) throw deleteError;
-    deletedCases = ids.length;
-  }
-
-  const derivedDeletes: Array<{ table: string; column: string }> = [
-    { table: 'sales_intelligence_cases', column: 'conversation_id' },
-    { table: 'whatsapp_conversation_actions', column: 'source_id' },
-    { table: 'whatsapp_evidence_facts_v17', column: 'source_id' },
-    { table: 'whatsapp_response_turns_v18', column: 'source_id' },
-    { table: 'whatsapp_sales_opportunities_v17', column: 'root_source_id' },
-    { table: 'whatsapp_customer_story_events', column: 'source_id' },
-  ];
-  const deletedDerived: Record<string, number> = {};
-  for (const target of derivedDeletes) {
-    const { data: deletedRows, error: derivedDeleteError } = await supabase
-      .from(target.table)
-      .delete()
-      .eq(target.column, source.id)
-      .select('*');
-    if (derivedDeleteError) throw derivedDeleteError;
-    deletedDerived[target.table] = (deletedRows || []).length;
-  }
-
-  if (journeyIds.length) {
-    const { error: journeyDeleteError } = await supabase
-      .from('whatsapp_customer_journeys')
-      .delete()
-      .in('id', journeyIds);
-    if (journeyDeleteError) throw journeyDeleteError;
-    deletedDerived.whatsapp_customer_journeys = journeyIds.length;
-  }
-
-  const nowIso = new Date().toISOString();
-  const previousAnalysis =
-    source.analysis_json && typeof source.analysis_json === 'object' && !Array.isArray(source.analysis_json)
-      ? source.analysis_json
-      : {};
-  const patch = {
-    review_status: 'archived',
-    analysis_status: 'analyzed',
-    analysis_json: {
-      ...previousAnalysis,
-      supersededLegacySourceV35: {
-        archivedAt: nowIso,
-        replacementSourceIds: replacementIds,
-        reason: 'legacy_monolithic_source_replaced_by_case_scoped_sources',
-      },
-    },
-    updated_at: nowIso,
-  };
-
-  const { error: archiveError } = await supabase
-    .from('whatsapp_review_sources')
-    .update(patch)
-    .eq('id', source.id);
-  if (archiveError) throw archiveError;
-
-  await appendWhatsAppReviewAudit(
-    String(source.id),
-    'legacy_source_superseded',
-    source,
-    patch,
-    args.actorId || null,
-    args.actorName || null,
-    null,
-    `Replaced by ${replacementIds.length} case-scoped sources`,
-  );
-
-  return {
-    archived: 1,
-    deletedCases,
-    deletedDerived,
-    archivedSourceId: String(source.id),
-    replacementSourceIds: replacementIds,
-    skippedReason: null,
-  };
+  return result;
 }
 
 export async function attachInvoiceVerificationToQueue(
