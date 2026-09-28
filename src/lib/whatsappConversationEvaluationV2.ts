@@ -169,7 +169,7 @@ const PRICE_RX = /(\d+(?:[.,]\d+)?\s*(ج|جنيه)|الاجمالي|الإجما
 const ETA_RX = /(خلال\s+\d+|نص ساعه|نص ساعة|ساعه|ساعة|دقيقه|دقيقة|هيوصل|يوصل خلال)/i;
 const ALT_RX = /(بديل|بداله|بداله|نفس الماده|نفس المادة|نرشح|ارشح|أرشح)/i;
 const STOCKOUT_RX = /(مش موجود|غير متوفر|ناقص|معجز|مش متاح)/i;
-const CLOSING_RX = /(تحت امر حضرتك|تحت أمرك|في اي وقت|في أي وقت|تشرفنا|شكر.?ا لحضرتك|نتمني|نتمنى|يوم سعيد)/i;
+const CLOSING_RX = /(تحت امر حضرتك|تحت أمر حضرتك|تحت أمرك|في اي وقت|في أي وقت|تشرفنا|نتشرف بخدمة حضرتك|سعداء بخدمة حضرتك|شكرا لثقة حضرتك|شكرًا لثقة حضرتك|ثقة حضرتك غالية علينا|شكر.?ا لحضرتك|نتمني|نتمنى|يوم سعيد)/i;
 const ANYTHING_ELSE_RX = /(حاجه تاني|حاجة تانية|اي حاجه تاني|أي حاجة تانية|تحتاج حاجه|تحتاج حاجة)/i;
 const DELIVERY_RX = /(توصيل|مندوب|العنوان|جاري الارسال|جاري الإرسال|خرج لحضرتك|هيوصل)/i;
 const COMPLAINT_RX = /(شكوى|مشكله|مشكلة|متأخر|تاخير|تأخير|محدش رد|غلط|سيء|وحش|لسه مجاش|ماوصلش)/i;
@@ -187,18 +187,24 @@ const RECOVERY_REASSURANCE_RX = /(اطمن|أطمن|مهتمين|رضا حضرت
 function scoreOpening(session: WhatsAppConversationSession): ComplianceDimensionV2 {
   const out = messages(session, 'outbound');
   if (!out.length) return { score: null, coverage: 0, status: 'needs_review', passed: [], missing: ['لا توجد رسالة صادرة قابلة للتقييم'], evidence: { messageIds: [], reason: 'لا توجد رسالة صادرة.', confidence: 20 } };
-  const firstTwo = out.slice(0, 2);
+  const firstTwo = out.slice(0, 3);
   const text = firstTwo.map((m) => m.text).join(' ');
   const passed: string[] = [];
   const missing: string[] = [];
   const recoveryOpening = SERVICE_RECOVERY_RX.test(text);
-  if (GREETING_RX.test(text)) passed.push('تحية مناسبة'); else missing.push('التحية');
-  if (PHARMACY_RX.test(text)) passed.push('ذكر صيدليات دواء'); else missing.push('اسم الصيدلية');
-  if (INTRO_RX.test(text)) passed.push('تعريف المسؤول بنفسه'); else missing.push('اسم/تعريف المسؤول');
+  const greetingFound = GREETING_RX.test(text);
+  const pharmacyFound = PHARMACY_RX.test(text);
+  const introFound = INTRO_RX.test(text);
+  const officialWelcome = greetingFound && pharmacyFound && introFound;
+  if (greetingFound) passed.push('تحية مناسبة'); else missing.push('التحية');
+  if (pharmacyFound) passed.push('ذكر صيدليات دواء'); else missing.push('اسم الصيدلية');
+  if (introFound) passed.push('تعريف المسؤول بنفسه'); else missing.push('اسم/تعريف المسؤول');
   if (recoveryOpening) {
     if (RECOVERY_APOLOGY_RX.test(text)) passed.push('سبب التواصل/الاعتذار واضح'); else missing.push('سبب التواصل/الاعتذار');
   } else if (HELP_RX.test(text)) {
     passed.push('عرض المساعدة');
+  } else if (officialWelcome) {
+    passed.push('صيغة الترحيب الرسمية مكتملة');
   } else {
     missing.push('عرض المساعدة');
   }
