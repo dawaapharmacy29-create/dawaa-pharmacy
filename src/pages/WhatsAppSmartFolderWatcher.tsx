@@ -105,6 +105,56 @@ type FileRun = {
 
 const INTERVAL_MS = 60_000;
 
+let officialConversationTemplatesPromise: Promise<{ welcome: string[]; closing: string[] }> | null = null;
+
+async function loadOfficialConversationTemplates() {
+  if (officialConversationTemplatesPromise) return officialConversationTemplatesPromise;
+  officialConversationTemplatesPromise = (async () => {
+    const [welcomeResult, quickReplyResult] = await Promise.all([
+      supabase
+        .from('customer_welcome_message_templates')
+        .select('message_body,body,active,is_active')
+        .or('active.eq.true,is_active.eq.true')
+        .limit(100),
+      supabase
+        .from('quick_reply_scripts')
+        .select('message_body,script_type,title,category,shortcut,active')
+        .eq('active', true)
+        .limit(250),
+    ]);
+
+    const welcome = [
+      ...(welcomeResult.data || []).map((row: any) => String(row.message_body || row.body || '').trim()),
+      ...(quickReplyResult.data || [])
+        .filter((row: any) =>
+          /welcome|ترحيب|عميل جديد|توصية/i.test(
+            [row.script_type, row.title, row.category, row.shortcut].filter(Boolean).join(' ')
+          )
+        )
+        .map((row: any) => String(row.message_body || '').trim()),
+    ].filter(Boolean);
+
+    const closing = (quickReplyResult.data || [])
+      .filter((row: any) =>
+        /closing|ختام|تحت أمر حضرتك|تحت امرك|نتشرف بخدمة حضرتك|سعداء بخدمة حضرتك|شكرا لثقة حضرتك|شكراً لثقة حضرتك|في أي وقت/i.test(
+          [row.script_type, row.title, row.category, row.shortcut, row.message_body].filter(Boolean).join(' ')
+        )
+      )
+      .map((row: any) => String(row.message_body || '').trim())
+      .filter(Boolean);
+
+    return {
+      welcome: Array.from(new Set(welcome)),
+      closing: Array.from(new Set(closing)),
+    };
+  })().catch((error) => {
+    console.warn('[whatsapp-watcher] official templates lookup failed', error);
+    officialConversationTemplatesPromise = null;
+    return { welcome: [], closing: [] };
+  });
+  return officialConversationTemplatesPromise;
+}
+
 async function readInvoiceItemsForWhatsAppSnapshot(invoiceId: string | null | undefined): Promise<SmartInvoiceItemEvidenceV32[]> {
   if (!invoiceId) return [];
   const { data, error } = await supabase
@@ -309,6 +359,7 @@ export default function WhatsAppSmartFolderWatcher() {
 
   const analyzeFile = useCallback(async (file: File): Promise<FileRun> => {
     const analysisStartedAt = performance.now();
+    const officialTemplates = await loadOfficialConversationTemplates();
     const analyzedAtIso = new Date().toISOString();
     const read = await readWhatsAppExportFile(file);
     const messages = parseWhatsAppExport(read.text);
@@ -440,6 +491,8 @@ export default function WhatsAppSmartFolderWatcher() {
               operational.products.some((row) => row.quantity != null)
             ),
           },
+          officialWelcomeTemplates: officialTemplates.welcome,
+          officialClosingTemplates: officialTemplates.closing,
         });
 
         const officialReviewDraft = buildSmartOfficialReviewDraftV1(evaluationSession, session.customerName, {
