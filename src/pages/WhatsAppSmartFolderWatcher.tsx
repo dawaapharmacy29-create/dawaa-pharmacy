@@ -496,8 +496,17 @@ export default function WhatsAppSmartFolderWatcher() {
           consultationCommunication: result.intelligence?.consultationCommunication || null,
           knownOrderData: {
             customerKnown: Boolean(resolvedCustomer?.id),
-            phoneKnown: Boolean(resolvedCustomer?.phone || invoiceVerification.bestCandidate?.customerPhone),
-            addressKnown: Boolean(invoiceVerification.bestCandidate?.customerAddress),
+            phoneKnown: Boolean(
+              customerContext.contactProfile?.phone ||
+              customerContext.contactProfile?.whatsappPhone ||
+              customerContext.contactProfile?.alternatePhone ||
+              resolvedCustomer?.phone ||
+              invoiceVerification.bestCandidate?.customerPhone
+            ),
+            addressKnown: Boolean(
+              customerContext.contactProfile?.address ||
+              invoiceVerification.bestCandidate?.customerAddress
+            ),
             productKnown: Boolean(invoiceItems.length || operational.products.some((row) => ['requested', 'accepted', 'recommended', 'unavailable'].includes(row.status))),
             quantityKnown: Boolean(
               invoiceItems.some((row) => row.effectiveQuantity != null || row.quantity != null) ||
