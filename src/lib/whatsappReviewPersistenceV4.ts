@@ -152,6 +152,117 @@ export async function persistAnalyzedWhatsAppSession(
   return { id: String(data.id), duplicate: false, sourceHash, reviewStatus };
 }
 
+export async function archiveSupersededLegacyWhatsAppSourceV35(args: {
+  sourceFileName: string;
+  fullConversationStartedAt: string;
+  fullConversationEndedAt: string;
+  fullMessageCount: number;
+  replacementSourceIds: string[];
+  actorId?: string | null;
+  actorName?: string | null;
+}) {
+  const replacementIds = Array.from(new Set((args.replacementSourceIds || []).map((id) => String(id || '').trim()).filter(Boolean)));
+  if (replacementIds.length < 2) {
+    return { archived: 0, deletedCases: 0, skippedReason: 'replacement_sources_less_than_two' as const };
+  }
+
+  const { data: candidates, error: candidateError } = await supabase
+    .from('whatsapp_review_sources')
+    .select('id,source_filename,conversation_started_at,conversation_ended_at,message_count,review_status,reviewer_confirmed,invoice_link_confirmed,invoice_link_confirmed_invoice_id,analysis_json')
+    .eq('source_filename', args.sourceFileName)
+    .eq('conversation_started_at', args.fullConversationStartedAt)
+    .eq('conversation_ended_at', args.fullConversationEndedAt)
+    .eq('message_count', args.fullMessageCount)
+    .neq('review_status', 'archived');
+  if (candidateError) throw candidateError;
+
+  const legacy = (candidates || []).filter((row: any) => !replacementIds.includes(String(row.id || '')));
+  if (!legacy.length) {
+    return { archived: 0, deletedCases: 0, skippedReason: 'no_legacy_monolithic_source' as const };
+  }
+  if (legacy.length > 1) {
+    return { archived: 0, deletedCases: 0, skippedReason: 'multiple_legacy_candidates' as const };
+  }
+
+  const source = legacy[0] as any;
+  if (source.reviewer_confirmed || source.invoice_link_confirmed || source.invoice_link_confirmed_invoice_id) {
+    return { archived: 0, deletedCases: 0, skippedReason: 'legacy_source_has_human_confirmation' as const };
+  }
+
+  const { data: caseRows, error: caseError } = await supabase
+    .from('whatsapp_customer_cases_v22')
+    .select('id,confirmed_outcome,outcome_reviewed_by,outcome_reviewed_at,confirmed_lost_reason,verified_invoice_id,verified_revenue')
+    .or(`root_source_id.eq.${source.id},source_ids.cs.{${source.id}}`);
+  if (caseError) throw caseError;
+
+  const unsafeCase = (caseRows || []).find((row: any) =>
+    row.confirmed_outcome ||
+    row.outcome_reviewed_by ||
+    row.outcome_reviewed_at ||
+    row.confirmed_lost_reason ||
+    row.verified_invoice_id ||
+    row.verified_revenue != null
+  );
+  if (unsafeCase) {
+    return { archived: 0, deletedCases: 0, skippedReason: 'legacy_case_has_human_or_verified_state' as const };
+  }
+
+  let deletedCases = 0;
+  if ((caseRows || []).length) {
+    const ids = (caseRows || []).map((row: any) => row.id);
+    const { error: deleteError } = await supabase
+      .from('whatsapp_customer_cases_v22')
+      .delete()
+      .in('id', ids);
+    if (deleteError) throw deleteError;
+    deletedCases = ids.length;
+  }
+
+  const nowIso = new Date().toISOString();
+  const previousAnalysis =
+    source.analysis_json && typeof source.analysis_json === 'object' && !Array.isArray(source.analysis_json)
+      ? source.analysis_json
+      : {};
+  const patch = {
+    review_status: 'archived',
+    analysis_status: 'analyzed',
+    analysis_json: {
+      ...previousAnalysis,
+      supersededLegacySourceV35: {
+        archivedAt: nowIso,
+        replacementSourceIds: replacementIds,
+        reason: 'legacy_monolithic_source_replaced_by_case_scoped_sources',
+      },
+    },
+    updated_at: nowIso,
+  };
+
+  const { error: archiveError } = await supabase
+    .from('whatsapp_review_sources')
+    .update(patch)
+    .eq('id', source.id);
+  if (archiveError) throw archiveError;
+
+  await appendWhatsAppReviewAudit(
+    String(source.id),
+    'legacy_source_superseded',
+    source,
+    patch,
+    args.actorId || null,
+    args.actorName || null,
+    null,
+    `Replaced by ${replacementIds.length} case-scoped sources`,
+  );
+
+  return {
+    archived: 1,
+    deletedCases,
+    archivedSourceId: String(source.id),
+    replacementSourceIds: replacementIds,
+    skippedReason: null,
+  };
+}
+
 export async function attachInvoiceVerificationToQueue(
   sourceId: string,
   verification: UnifiedInvoiceVerification,
