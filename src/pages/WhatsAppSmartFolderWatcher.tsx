@@ -477,7 +477,7 @@ export default function WhatsAppSmartFolderWatcher() {
 
     // التحليل يتم على مستوى الـCase لا الـraw session. كده الـhandoff بين دكتورين
     // لا يخلق قصتين منفصلتين لنفس الأوردر، ومع ذلك كل دكتور يأخذ Scope رسائله فقط.
-    const CASE_CONCURRENCY = 2;
+    const CASE_CONCURRENCY = 4;
     for (let index = 0; index < analysisUnits.length; index += CASE_CONCURRENCY) {
       const batch = analysisUnits.slice(index, index + CASE_CONCURRENCY);
       const batchRuns = await Promise.all(batch.map(analyzeCase));
@@ -555,50 +555,91 @@ export default function WhatsAppSmartFolderWatcher() {
               canonicalErrors.push('جلسة الإدارة الحالية قديمة — سجل خروج ودخول مرة واحدة لتحديث Sales Intelligence');
             } else {
               try {
-                let sourceOffset = 0;
-                let hasMore = true;
-                let safety = 0;
-                while (hasMore && safety < 30) {
-                  safety += 1;
+                const refreshOneSource = async (sourceId: string) => {
                   const response = await fetch('/api/sales-intelligence-refresh-source', {
                     method: 'POST',
                     headers: {
                       'Content-Type': 'application/json',
                       Authorization: `Bearer ${accessToken}`,
                     },
-                    body: JSON.stringify({
-                      sourceFileName: result.fileName,
-                      sourceOffset,
-                      sourceLimit: 10,
-                    }),
+                    body: JSON.stringify({ sourceId }),
                   });
                   const payload = await response.json().catch(() => null);
                   if (!response.ok) {
                     const errorCode = String(payload?.error || response.status);
                     if (response.status === 401 && ['invalid_or_expired_staff_session', 'missing_user_token'].includes(errorCode)) {
                       authSessionInvalid = true;
-                      canonicalErrors.push('انتهت جلسة الإدارة — أعد تسجيل الدخول ثم اضغط إعادة محاولة المتعطلة');
                       if (!authSessionWarningShown) {
                         authSessionWarningShown = true;
                         toast.error('انتهت جلسة الإدارة. تم إيقاف فحص باقي الملفات حتى تسجل الدخول من جديد.');
                       }
-                    } else {
-                      canonicalErrors.push(
-                        `Canonical ${result.fileName} [${sourceOffset}]: ${errorCode}${payload?.detail ? ` — ${payload.detail}` : ''}`
-                      );
+                      throw new Error('انتهت جلسة الإدارة — أعد تسجيل الدخول ثم اضغط إعادة محاولة المتعطلة');
                     }
-                    break;
+                    throw new Error(`${errorCode}${payload?.detail ? ` — ${payload.detail}` : ''}`);
                   }
-                  hasMore = Boolean(payload?.hasMore);
-                  const nextOffset = Number(payload?.nextOffset);
-                  if (hasMore && (!Number.isFinite(nextOffset) || nextOffset <= sourceOffset)) {
-                    canonicalErrors.push(`Canonical ${result.fileName}: توقف التحديث لأن مؤشر الدفعة التالية غير صالح`);
-                    break;
+                };
+
+                const exactSourceIds = Array.from(new Set((result.sourceIds || []).filter(Boolean)));
+                if (exactSourceIds.length) {
+                  const CANONICAL_SOURCE_CONCURRENCY = 3;
+                  for (let sourceIndex = 0; sourceIndex < exactSourceIds.length; sourceIndex += CANONICAL_SOURCE_CONCURRENCY) {
+                    const sourceBatch = exactSourceIds.slice(sourceIndex, sourceIndex + CANONICAL_SOURCE_CONCURRENCY);
+                    const settled = await Promise.allSettled(sourceBatch.map(refreshOneSource));
+                    settled.forEach((item, itemIndex) => {
+                      if (item.status === 'rejected') {
+                        canonicalErrors.push(
+                          `Canonical ${result.fileName} [source ${sourceBatch[itemIndex]}]: ${item.reason instanceof Error ? item.reason.message : String(item.reason)}`
+                        );
+                      }
+                    });
+                    if (authSessionInvalid) break;
                   }
-                  sourceOffset = Number.isFinite(nextOffset) ? nextOffset : sourceOffset + 10;
-                }
-                if (hasMore && safety >= 30) {
-                  canonicalErrors.push(`Canonical ${result.fileName}: تم إيقاف التحديث بعد الحد الآمن للدفعات`);
+                } else {
+                  let sourceOffset = 0;
+                  let hasMore = true;
+                  let safety = 0;
+                  while (hasMore && safety < 30) {
+                    safety += 1;
+                    const response = await fetch('/api/sales-intelligence-refresh-source', {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${accessToken}`,
+                      },
+                      body: JSON.stringify({
+                        sourceFileName: result.fileName,
+                        sourceOffset,
+                        sourceLimit: 10,
+                      }),
+                    });
+                    const payload = await response.json().catch(() => null);
+                    if (!response.ok) {
+                      const errorCode = String(payload?.error || response.status);
+                      if (response.status === 401 && ['invalid_or_expired_staff_session', 'missing_user_token'].includes(errorCode)) {
+                        authSessionInvalid = true;
+                        canonicalErrors.push('انتهت جلسة الإدارة — أعد تسجيل الدخول ثم اضغط إعادة محاولة المتعطلة');
+                        if (!authSessionWarningShown) {
+                          authSessionWarningShown = true;
+                          toast.error('انتهت جلسة الإدارة. تم إيقاف فحص باقي الملفات حتى تسجل الدخول من جديد.');
+                        }
+                      } else {
+                        canonicalErrors.push(
+                          `Canonical ${result.fileName} [${sourceOffset}]: ${errorCode}${payload?.detail ? ` — ${payload.detail}` : ''}`
+                        );
+                      }
+                      break;
+                    }
+                    hasMore = Boolean(payload?.hasMore);
+                    const nextOffset = Number(payload?.nextOffset);
+                    if (hasMore && (!Number.isFinite(nextOffset) || nextOffset <= sourceOffset)) {
+                      canonicalErrors.push(`Canonical ${result.fileName}: توقف التحديث لأن مؤشر الدفعة التالية غير صالح`);
+                      break;
+                    }
+                    sourceOffset = Number.isFinite(nextOffset) ? nextOffset : sourceOffset + 10;
+                  }
+                  if (hasMore && safety >= 30) {
+                    canonicalErrors.push(`Canonical ${result.fileName}: تم إيقاف التحديث بعد الحد الآمن للدفعات`);
+                  }
                 }
               } catch (refreshError) {
                 canonicalErrors.push(
