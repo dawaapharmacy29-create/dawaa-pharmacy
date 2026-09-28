@@ -301,8 +301,8 @@ export default function WhatsAppDoctorCycleIntelligenceV8({
     </div>
 
     <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-      <Metric label="إيراد موثق" value={money(totals.revenue)} />
-      <Metric label="مبيعات موثقة" value={totals.sales} />
+      <Metric label="قيمة مطابقات آلية" value={money(totals.revenue)} />
+      <Metric label="مطابقات فاتورة آلية" value={totals.sales} />
       <Metric label="فرص تجارية" value={totals.opportunities} />
       <Metric label="فرص بيع متوقفة" value={totals.leakage} />
     </div>
@@ -314,7 +314,7 @@ export default function WhatsAppDoctorCycleIntelligenceV8({
 
     <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-800">
       <table className="min-w-[1180px] w-full text-right text-sm">
-        <thead className="bg-slate-950/70 text-xs text-slate-400"><tr><th className="p-3">الدكتور</th><th className="p-3">الفرع</th><th className="p-3">Cases</th><th className="p-3">فرص تجارية</th><th className="p-3">طلبات مؤكدة</th><th className="p-3">بيع موثق</th><th className="p-3">Conversion</th><th className="p-3">إيراد موثق</th><th className="p-3">ترشيحات</th><th className="p-3">فقد بيع</th><th className="p-3">تعثر/فشل</th><th className="p-3">شكاوى</th><th className="p-3">تفاصيل</th></tr></thead>
+        <thead className="bg-slate-950/70 text-xs text-slate-400"><tr><th className="p-3">الدكتور</th><th className="p-3">الفرع</th><th className="p-3">Cases</th><th className="p-3">فرص تجارية</th><th className="p-3">طلبات مؤكدة</th><th className="p-3">مطابقة آلية</th><th className="p-3">تحويل آلي</th><th className="p-3">قيمة مطابقات آلية</th><th className="p-3">ترشيحات</th><th className="p-3">فقد بيع</th><th className="p-3">تعثر/فشل</th><th className="p-3">شكاوى</th><th className="p-3">تفاصيل</th></tr></thead>
         <tbody>{filtered.map((row) => <tr key={`${row.owner_account_id || row.owner_name}-${row.branch}-${row.cycle_start}`} className="border-t border-slate-800 bg-slate-950/25 text-slate-200 hover:bg-slate-900/45"><td className="p-3 font-black text-white">{row.owner_name || 'غير محدد'}</td><td className="p-3">{row.branch || '—'}</td><td className="p-3">{row.handled_cases}</td><td className="p-3">{row.commercial_opportunities}</td><td className="p-3">{row.confirmed_orders}</td><td className="p-3 text-emerald-300">{row.verified_sales}</td><td className="p-3"><span className="inline-flex items-center gap-1"><TrendingUp size={13}/>{row.verified_conversion_rate == null ? '—' : `${Number(row.verified_conversion_rate).toFixed(1)}%`}</span></td><td className="p-3 font-black text-emerald-300"><span className="inline-flex items-center gap-1"><BadgeDollarSign size={13}/>{money(row.verified_revenue)}</span></td><td className="p-3">{row.recommendation_cases}</td><td className="p-3 text-amber-300">{row.lost_opportunities}</td><td className="p-3 text-amber-200">{row.cases_with_failure_signal}</td><td className="p-3 text-rose-300">{row.cases_with_complaint_signal}</td><td className="p-3"><button type="button" onClick={() => void loadDoctorDetail(row)} className="inline-flex items-center gap-1 rounded-lg border border-cyan-400/25 bg-cyan-500/10 px-2.5 py-1.5 text-xs font-black text-cyan-200">فتح <ChevronLeft size={13}/></button></td></tr>)}</tbody>
       </table>
       {!loading && filtered.length === 0 ? <div className="p-8 text-center text-sm text-slate-500">لا توجد بيانات كافية للدكاترة في السايكل الحالي حتى الآن.</div> : null}
@@ -328,9 +328,9 @@ export default function WhatsAppDoctorCycleIntelligenceV8({
 
       <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-7">
         <Metric label="العملاء" value={detailStats.customers}/>
-        <Metric label="بيع موثق" value={detailStats.verifiedSales}/>
-        <Metric label="Conversion موثق" value={detailStats.conversionRate == null ? '—' : `${detailStats.conversionRate}%`}/>
-        <Metric label="إيراد موثق" value={money(detailStats.verifiedRevenue)}/>
+        <Metric label="مطابقة آلية" value={detailStats.verifiedSales}/>
+        <Metric label="تحويل آلي موثق" value={detailStats.conversionRate == null ? '—' : `${detailStats.conversionRate}%`}/>
+        <Metric label="قيمة مطابقات آلية" value={money(detailStats.verifiedRevenue)}/>
         <Metric label="Cases بها شكوى" value={detailStats.complaintCases}/>
         <Metric label="شكاوى شارك في معالجتها" value={detailStats.complaintHandled}/>
         <Metric label="تأخير في ردوده" value={detailStats.delays}/>
