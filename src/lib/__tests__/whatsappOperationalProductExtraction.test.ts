@@ -171,6 +171,22 @@ describe('WhatsApp Operational Intelligence V6 product extraction', () => {
     expect(names.some((name) => /فوار للحموضه/.test(name))).toBe(true);
   });
 
+  it('does not turn lifestyle advice, dosage instructions, or recommendation placeholders into commercial recommendations', () => {
+    const advice = analyze(`[9/27/26, 8:20:00 PM] Customer: افضل برنامج للدايت ايه
+[9/27/26, 8:21:00 PM] You: حضرتك ممكن تستخدم نظام الصيام المتقطع
+[9/27/26, 8:22:00 PM] You: ممكن تاخدها قرص بعد الفطار او بعد الغدا
+[9/27/26, 8:23:00 PM] You: حضرتك تحب ارشح لك نوع كويس ؟`);
+    expect(advice.recommendations).toHaveLength(0);
+    expect(advice.products.some((row) => /الصيام المتقطع|قرص بعد الفطار|نوع كويس/.test(row.rawName))).toBe(false);
+  });
+
+  it('keeps a named pharmacy recommendation and customer acceptance as a real recommendation', () => {
+    const model = analyze(`[9/27/26, 8:20:00 PM] Customer: محتاج مالتي فيتامين كويس
+[9/27/26, 8:21:00 PM] You: ارشح لحضرتك شريط سنترم انرجي
+[9/27/26, 8:22:00 PM] Customer: تمام ابعته`);
+    expect(model.recommendations.some((row) => /سنترم انرجي/.test(row.productName || '') && row.accepted === true)).toBe(true);
+  });
+
   it('keeps explicit customer demand above a higher-confidence pharmacy mention for the same catalog product', () => {
     const merged = mergeProductSignalsByTruthV34([
       {
