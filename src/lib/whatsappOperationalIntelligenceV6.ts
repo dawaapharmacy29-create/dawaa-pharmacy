@@ -561,7 +561,14 @@ export function buildWhatsAppOperationalIntelligenceV6(session: WhatsAppConversa
   const recs = recommendations(session, products);
   const acceptedRecommendation = recs.some((r) => r.accepted === true);
   const rejected = has(inbound, REJECT_RX);
-  const close = has(all, CLOSE_RX);
+  const closeRows = session.messages.filter((message) => CLOSE_RX.test(message.text));
+  const lastCloseAt = closeRows.at(-1)?.timestamp.getTime() ?? null;
+  const deferredAfterClose = lastCloseAt != null && session.messages.some((message) =>
+    message.direction === 'inbound' &&
+    message.timestamp.getTime() > lastCloseAt &&
+    /(?:بكره|بكرة|غدا|غدًا|غداً|مش\s+دلوقتي|بعد\s+كده|بعد\s+كذا)/i.test(message.text)
+  );
+  const close = closeRows.length > 0 && !deferredAfterClose;
   const complaintRows = complaintMessages(session);
   const complaint = complaintRows.length > 0;
   const fulfillmentFailures = fulfillmentFailureMessages(session);
