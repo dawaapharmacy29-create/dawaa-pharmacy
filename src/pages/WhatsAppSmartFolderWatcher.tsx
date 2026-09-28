@@ -1838,7 +1838,33 @@ export default function WhatsAppSmartFolderWatcher() {
                     const protocol = protocolStatus(selected);
                     const invoice = selected.snapshot.smartIntelligence?.invoiceVerification;
                     const customer = selected.snapshot.smartIntelligence?.customer;
+                    const customerContact = selected.snapshot.smartIntelligence?.customerContact;
                     const evalV2 = selected.snapshot.smartIntelligence?.evaluationV2;
+                    const phoneItem = evalV2?.orderCompleteness.items.find((row) => row.key === 'phone');
+                    const addressItem = evalV2?.orderCompleteness.items.find((row) => row.key === 'address');
+                    const hasSavedPhone = Boolean(
+                      customerContact?.phone ||
+                      customerContact?.customerPhone ||
+                      customerContact?.mobile ||
+                      customerContact?.normalizedPhone ||
+                      customerContact?.whatsappPhone ||
+                      customerContact?.alternatePhone
+                    );
+                    const hasSavedAddress = Boolean(customerContact?.address);
+                    const phoneSource = hasSavedPhone
+                      ? 'من ملف العميل'
+                      : invoice?.bestCandidate?.customerPhone
+                        ? 'من الفاتورة'
+                        : phoneItem?.evidenceMessageIds?.length
+                          ? 'من المحادثة'
+                          : null;
+                    const addressSource = hasSavedAddress
+                      ? 'من ملف العميل'
+                      : invoice?.bestCandidate?.customerAddress
+                        ? 'من الفاتورة'
+                        : addressItem?.evidenceMessageIds?.length
+                          ? 'من المحادثة'
+                          : null;
                     const groundedJourney = selected.snapshot.smartIntelligence?.groundedSaleJourneyV33;
                     const productRows = productTruthRows(selected);
                     const nextDecision = nextDecisionLabel(selected);
@@ -1973,11 +1999,11 @@ export default function WhatsAppSmartFolderWatcher() {
                             </div>
                             {customer?.customer ? (
                               <div className="mt-1 flex flex-wrap gap-1.5 text-[9px]">
-                                <span className={`rounded-full px-1.5 py-0.5 ${customer.customer.phone ? 'bg-emerald-500/10 text-emerald-300' : 'bg-slate-800 text-slate-500'}`}>
-                                  {customer.customer.phone ? 'تليفون مسجل' : 'تليفون غير متاح'}
+                                <span className={`rounded-full px-1.5 py-0.5 ${phoneSource ? 'bg-emerald-500/10 text-emerald-300' : 'bg-slate-800 text-slate-500'}`}>
+                                  {phoneSource ? `تليفون معروف · ${phoneSource}` : 'تليفون غير متاح'}
                                 </span>
-                                <span className={`rounded-full px-1.5 py-0.5 ${invoice?.bestCandidate?.customerAddress ? 'bg-emerald-500/10 text-emerald-300' : 'bg-slate-800 text-slate-500'}`}>
-                                  {invoice?.bestCandidate?.customerAddress ? 'عنوان مسجل' : 'عنوان غير مثبت'}
+                                <span className={`rounded-full px-1.5 py-0.5 ${addressSource ? 'bg-emerald-500/10 text-emerald-300' : 'bg-slate-800 text-slate-500'}`}>
+                                  {addressSource ? `عنوان معروف · ${addressSource}` : 'عنوان غير مثبت'}
                                 </span>
                               </div>
                             ) : null}
