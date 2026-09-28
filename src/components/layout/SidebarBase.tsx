@@ -63,8 +63,7 @@ const GROUPS: NavGroup[] = [
     { path: '/sales-intelligence/qa', icon: ShieldCheck, label: 'مراجعة الحالات', permission: 'view_reviews' },
   ]},
 
-  { title: 'مراجعة واتساب الذكية (تجريبي)', icon: MessageCircle, items: [
-    { path: '/whatsapp-folder-watcher', icon: MessageCircle, label: 'المراقبة التلقائية للفولدر', permission: 'view_reviews' },
+  { title: 'مراجعة واتساب الذكية', icon: MessageCircle, items: [
     { path: '/whatsapp-followup-requests', icon: ClipboardCheck, label: 'طلبات المتابعة الآلية', permission: 'view_reviews' },
     { path: '/whatsapp-doctor-performance', icon: Star, label: 'أداء الدكاترة', permission: 'view_reviews' },
     { path: '/whatsapp-customer-history', icon: Users, label: 'سجل محادثات العميل', permission: 'view_reviews' },
