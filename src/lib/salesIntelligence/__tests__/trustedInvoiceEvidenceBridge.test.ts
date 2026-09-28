@@ -23,6 +23,48 @@ describe('Trusted invoice evidence bridge — invoice-specific provenance requir
     expect(result.ruleIds).toContain('trusted_invoice.ineligible.overall_review_confirmation_not_invoice_confirmation');
   });
 
+  it('promotes only a dedicated exact invoice-link confirmation into trusted evidence', () => {
+    const result = resolveTrustedInvoiceEvidenceFromReviewSource({
+      sourceId: 'source-manual-1',
+      matchedInvoiceId: 'inv-uuid-9',
+      matchedInvoiceNumber: '90009',
+      invoiceMatchStatus: 'verified',
+      reviewerConfirmed: false,
+      reviewerId: null,
+      branch: 'فرع شكري',
+      invoiceLinkConfirmed: true,
+      confirmedInvoiceId: 'inv-uuid-9',
+      confirmedInvoiceNumber: '90009',
+      confirmedBy: 'manager-1',
+      confirmedAt: '2026-09-28T12:00:00.000Z',
+    });
+
+    expect(result.trustedInvoiceId).toBe('inv-uuid-9');
+    expect(result.trustedInvoiceNumber).toBe('90009');
+    expect(result.evidenceType).toBe('manual_invoice_link_confirmation');
+    expect(result.confidence.level).toBe('proven');
+  });
+
+  it('rejects a dedicated confirmation when it points to a different invoice than the current exact match', () => {
+    const result = resolveTrustedInvoiceEvidenceFromReviewSource({
+      sourceId: 'source-manual-2',
+      matchedInvoiceId: 'inv-current',
+      matchedInvoiceNumber: '100',
+      invoiceMatchStatus: 'verified',
+      reviewerConfirmed: false,
+      reviewerId: null,
+      branch: 'فرع الشامي',
+      invoiceLinkConfirmed: true,
+      confirmedInvoiceId: 'inv-other',
+      confirmedInvoiceNumber: '101',
+      confirmedBy: 'manager-1',
+      confirmedAt: '2026-09-28T12:00:00.000Z',
+    });
+
+    expect(result.trustedInvoiceId).toBeNull();
+    expect(result.ruleIds).toContain('trusted_invoice.ineligible.confirmed_invoice_differs_from_current_match');
+  });
+
   it('keeps verified automatic matching without reviewer confirmation untrusted', () => {
     const result = resolveTrustedInvoiceEvidenceFromReviewSource({
       sourceId: 'source-2',
@@ -66,6 +108,24 @@ describe('Trusted invoice evidence bridge — invoice-specific provenance requir
     expect(input.legacyMatchedInvoiceNumber).toBe('32069');
     expect(input.trustedInvoiceId).toBeNull();
     expect(input.trustedInvoiceNumber).toBeNull();
+  });
+
+  it('adapter passes dedicated invoice confirmation as trusted evidence', () => {
+    const input = reviewSourceRowToBatchConversation({
+      id: 'row-confirmed',
+      raw_text: 'x',
+      conversation_started_at: '2026-09-15T06:46:45.000Z',
+      matched_invoice_id: 'inv-9',
+      matched_invoice_number: '90009',
+      invoice_match_status: 'verified',
+      invoice_link_confirmed: true,
+      invoice_link_confirmed_invoice_id: 'inv-9',
+      invoice_link_confirmed_invoice_number: '90009',
+      invoice_link_confirmed_by: 'manager-1',
+      invoice_link_confirmed_at: '2026-09-28T12:00:00.000Z',
+    });
+    expect(input.trustedInvoiceId).toBe('inv-9');
+    expect(input.trustedInvoiceNumber).toBe('90009');
   });
 });
 
