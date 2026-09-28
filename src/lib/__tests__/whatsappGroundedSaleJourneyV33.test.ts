@@ -5,9 +5,65 @@ import { buildWhatsAppOperationalIntelligenceV6 } from '@/lib/whatsappOperationa
 import { buildSmartConversationEvaluationV2 } from '@/lib/whatsappConversationEvaluationV2';
 import { buildConversationTimingV28 } from '@/lib/whatsappConversationTimingV28';
 import { buildGroundedSaleJourneyV33 } from '@/lib/whatsappGroundedSaleJourneyV33';
+import { buildConversationUnderstandingV32 } from '@/lib/whatsappConversationUnderstandingV32';
+import type { WhatsAppParticipantRoleModelV15 } from '@/lib/whatsappParticipantRoleResolverV15';
 
 function session(raw: string) {
   return splitWhatsAppSessions(parseWhatsAppExport(raw), 240)[0];
+}
+
+function noInvoice(): UnifiedInvoiceVerification {
+  return {
+    status: 'not_found',
+    bestCandidate: null,
+    candidates: [],
+    verificationConfidence: 0.75,
+    revenue: null,
+    reason: 'لا توجد فاتورة',
+    warnings: [],
+  };
+}
+
+function rolesFor(
+  s: ReturnType<typeof session>,
+  ownerByText: Array<{ text: RegExp; staffName: string }>
+): WhatsAppParticipantRoleModelV15 {
+  const messages = s.messages.map((message) => {
+    if (message.direction === 'inbound') {
+      return {
+        messageId: message.id,
+        sender: message.sender,
+        role: 'customer' as const,
+        accountId: null,
+        staffId: null,
+        staffName: null,
+        branch: null,
+        confidence: 98,
+        reason: 'test customer',
+      };
+    }
+    const owner = ownerByText.find((row) => row.text.test(message.text));
+    return {
+      messageId: message.id,
+      sender: message.sender,
+      role: 'pharmacist' as const,
+      accountId: owner ? `acc-${owner.staffName}` : 'acc-hiba',
+      staffId: owner ? `staff-${owner.staffName}` : 'staff-hiba',
+      staffName: owner?.staffName || 'هبة',
+      branch: 'فرع الشامي',
+      confidence: 99,
+      reason: 'test resolved staff',
+    };
+  });
+  const staff = Array.from(new Set(messages.map((row) => row.staffName).filter(Boolean))).map((staffName) => ({
+    accountId: `acc-${staffName}`,
+    staffId: `staff-${staffName}`,
+    staffName: String(staffName),
+    role: 'pharmacist' as const,
+    branch: 'فرع الشامي',
+    confidence: 99,
+  }));
+  return { version: 'whatsapp-participant-role-v15', messages, staff };
 }
 
 function verifiedInvoice(at = '2026-09-15T09:06:00.000Z'): UnifiedInvoiceVerification {
@@ -81,6 +137,63 @@ describe('GroundedSaleJourneyV33', () => {
     expect(journey.customerJourneyWindow.messageIds).toContain(complaintId);
     expect(journey.complaintMessageIds).toContain(complaintId);
     expect(journey.coaching.complaintPoints.length).toBeGreaterThan(0);
+  });
+
+  it('attributes a customer correction only to the staff message that was corrected', () => {
+    const s = session(`[9/15/26, 9:00:00 AM] Customer: عايز جل للبشرة
+[9/15/26, 9:01:00 AM] You: الكريم ده متوفر يا فندم
+[9/15/26, 9:02:00 AM] Customer: لا قصدي الجل مش الكريم
+[9/15/26, 9:03:00 AM] You: تمام فهمت حضرتك الجل، هراجع توفره`);
+    const invoice = noInvoice();
+    const roles = rolesFor(s, [
+      { text: /الكريم ده متوفر/, staffName: 'هبة' },
+      { text: /تمام فهمت/, staffName: 'ندى' },
+    ]);
+    const operational = buildWhatsAppOperationalIntelligenceV6(s, buildUnifiedConversationIntelligence(s));
+    const evaluation = buildSmartConversationEvaluationV2(s, { invoiceVerification: invoice });
+    const timing = buildConversationTimingV28(s, roles, invoice);
+    const understanding = buildConversationUnderstandingV32(s);
+    const journey = buildGroundedSaleJourneyV33({
+      session: s,
+      operational,
+      invoiceVerification: invoice,
+      evaluation,
+      timing,
+      participantRoles: roles,
+      understanding,
+    });
+
+    const hiba = journey.staffCoaching.find((row) => row.staffName === 'هبة');
+    const nada = journey.staffCoaching.find((row) => row.staffName === 'ندى');
+    expect(hiba?.findings.some((finding) => finding.type === 'understanding_correction' && finding.tone === 'improvement')).toBe(true);
+    expect(nada?.findings.some((finding) => finding.type === 'understanding_correction')).toBe(false);
+  });
+
+  it('scores complaint handling without claiming the doctor caused the complaint', () => {
+    const s = session(`[9/15/26, 9:00:00 AM] Customer: الطلب لسه ماوصلش وفيه تأخير ومشكلة
+[9/15/26, 9:02:00 AM] You: بنعتذر لحضرتك وهنتابع مع المندوب فورًا`);
+    const invoice = noInvoice();
+    const roles = rolesFor(s, [{ text: /بنعتذر/, staffName: 'هبة' }]);
+    const operational = buildWhatsAppOperationalIntelligenceV6(s, buildUnifiedConversationIntelligence(s));
+    const evaluation = buildSmartConversationEvaluationV2(s, { invoiceVerification: invoice });
+    const timing = buildConversationTimingV28(s, roles, invoice);
+    const understanding = buildConversationUnderstandingV32(s);
+    const journey = buildGroundedSaleJourneyV33({
+      session: s,
+      operational,
+      invoiceVerification: invoice,
+      evaluation,
+      timing,
+      participantRoles: roles,
+      understanding,
+    });
+
+    const finding = journey.staffCoaching
+      .find((row) => row.staffName === 'هبة')
+      ?.findings.find((row) => row.type === 'complaint_handling');
+    expect(finding).toBeTruthy();
+    expect(finding?.tone).toBe('strong');
+    expect(finding?.detail).toContain('الشكوى نفسها لا تُنسب للموظف');
   });
 
   it('does not invent a commercial journey when there is only a greeting', () => {
