@@ -349,7 +349,7 @@ export default function WhatsAppSmartFolderWatcher() {
   const [runs, setRuns] = useState<FileRun[]>([]);
   const [selected, setSelected] = useState<StaffRun | null>(null);
   const [conversationView, setConversationView] = useState<'whatsapp' | 'review'>('whatsapp');
-  const [conversationFocusMode, setConversationFocusMode] = useState<'focused' | 'full'>('focused');
+  const [conversationFocusMode, setConversationFocusMode] = useState<'focused' | 'sale' | 'full'>('focused');
   const [detailTab, setDetailTab] = useState<'overview' | 'conversation' | 'review'>('overview');
   const [expandedRuns, setExpandedRuns] = useState<Record<string, boolean>>({});
   const [runQuery, setRunQuery] = useState('');
@@ -1173,6 +1173,16 @@ export default function WhatsAppSmartFolderWatcher() {
       .trim();
   }
 
+  function messagesForConversationMode(item: StaffRun, mode: 'focused' | 'sale' | 'full') {
+    if (mode === 'focused') return item.snapshot.messages;
+    const full = item.snapshot.fullCaseMessages?.length ? item.snapshot.fullCaseMessages : item.snapshot.messages;
+    if (mode === 'sale') {
+      const ids = new Set(item.snapshot.smartIntelligence?.groundedSaleJourneyV33?.saleWindow.messageIds || []);
+      return ids.size ? full.filter((message) => ids.has(message.id)) : item.snapshot.messages;
+    }
+    return full;
+  }
+
   function nextDecisionLabel(item: StaffRun) {
     if (item.intelligence?.followup.detected) {
       return { label: 'متابعة العميل', detail: item.intelligence.followup.reason || 'يوجد سبب متابعة واضح في المحادثة.', cls: 'bg-cyan-500/10 text-cyan-200 border-cyan-800/40' };
@@ -1509,6 +1519,7 @@ export default function WhatsAppSmartFolderWatcher() {
                     const invoice = selected.snapshot.smartIntelligence?.invoiceVerification;
                     const customer = selected.snapshot.smartIntelligence?.customer;
                     const evalV2 = selected.snapshot.smartIntelligence?.evaluationV2;
+                    const groundedJourney = selected.snapshot.smartIntelligence?.groundedSaleJourneyV33;
                     const productRows = productTruthRows(selected);
                     const nextDecision = nextDecisionLabel(selected);
                     const soldRequestedCount = productRows.filter((row) => row.kind === 'requested_and_sold').length;
@@ -1668,6 +1679,60 @@ export default function WhatsAppSmartFolderWatcher() {
                       </section>
                     );
                   })()}
+
+                  {selected.snapshot.smartIntelligence?.groundedSaleJourneyV33 ? (() => {
+                    const journey = selected.snapshot.smartIntelligence.groundedSaleJourneyV33;
+                    return (
+                      <section className="rounded-2xl border border-cyan-800/40 bg-cyan-950/10 p-4">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <div className="text-[10px] font-black text-cyan-300">رحلة البيع الموثقة</div>
+                            <div className="mt-1 text-base font-black text-white">{journey.outcomeLabel}</div>
+                            <div className="mt-1 text-[11px] leading-5 text-slate-400">
+                              البداية: {journey.saleWindow.startedAt ? formatCairoDateTime(journey.saleWindow.startedAt) : 'غير مثبتة'}
+                              {' · '}
+                              النهاية: {journey.saleWindow.endedAt ? formatCairoDateTime(journey.saleWindow.endedAt) : 'غير مثبتة'}
+                              {' · '}
+                              ثقة {journey.confidence}% · تغطية أدلة {journey.evidenceCoverage}%
+                            </div>
+                          </div>
+                          <div className="rounded-xl border border-cyan-800/30 bg-black/10 px-3 py-2 text-center">
+                            <div className="text-[10px] text-slate-500">رسائل رحلة البيع</div>
+                            <div className="mt-1 text-lg font-black text-cyan-100">{journey.saleWindow.messageIds.length}</div>
+                          </div>
+                        </div>
+
+                        <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                          {journey.stages.map((stage) => (
+                            <button
+                              type="button"
+                              key={stage.key}
+                              onClick={() => {
+                                if (stage.evidenceMessageIds.length) {
+                                  setConversationFocusMode('sale');
+                                  setDetailTab('conversation');
+                                }
+                              }}
+                              className={`rounded-xl border p-3 text-right transition ${stage.detected ? 'border-emerald-800/35 bg-emerald-950/10 hover:border-emerald-600/50' : 'border-slate-800 bg-slate-950/20 opacity-60'}`}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-[10px] font-black text-slate-500">{stage.label}</span>
+                                <span className={`text-[9px] font-black ${stage.detected ? 'text-emerald-300' : 'text-slate-600'}`}>{stage.detected ? 'مثبت' : 'غير مثبت'}</span>
+                              </div>
+                              <div className="mt-1 text-xs font-black text-white">{stage.at ? formatCairoDateTime(stage.at) : '—'}</div>
+                              <div className="mt-1 line-clamp-2 text-[9px] leading-4 text-slate-500">{stage.reason}</div>
+                            </button>
+                          ))}
+                        </div>
+
+                        {journey.warnings.length ? (
+                          <div className="mt-3 rounded-xl border border-amber-800/30 bg-amber-950/10 p-3 text-[10px] leading-5 text-amber-100">
+                            {journey.warnings.map((warning) => <div key={warning}>• {warning}</div>)}
+                          </div>
+                        ) : null}
+                      </section>
+                    );
+                  })() : null}
 
                   <section className="rounded-2xl border border-violet-800/40 bg-violet-950/10 p-4">
                     <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1877,7 +1942,10 @@ export default function WhatsAppSmartFolderWatcher() {
                       {selected.snapshot.conversationFocusV30 ? (
                         <div className="inline-flex rounded-xl border border-violet-800/50 bg-violet-950/20 p-1 text-[11px] font-black">
                           <button type="button" onClick={() => setConversationFocusMode('focused')} className={`rounded-lg px-3 py-1.5 ${conversationFocusMode === 'focused' ? 'bg-violet-500 text-white' : 'text-slate-300'}`}>
-                            المحادثة المقيمة ({selected.snapshot.messages.length})
+                            تقييم المسؤول ({selected.snapshot.messages.length})
+                          </button>
+                          <button type="button" onClick={() => setConversationFocusMode('sale')} className={`rounded-lg px-3 py-1.5 ${conversationFocusMode === 'sale' ? 'bg-cyan-500 text-slate-950' : 'text-slate-300'}`}>
+                            رحلة البيع ({selected.snapshot.smartIntelligence?.groundedSaleJourneyV33?.saleWindow.messageIds.length || 0})
                           </button>
                           <button type="button" onClick={() => setConversationFocusMode('full')} className={`rounded-lg px-3 py-1.5 ${conversationFocusMode === 'full' ? 'bg-slate-700 text-white' : 'text-slate-300'}`}>
                             الرحلة كاملة ({selected.snapshot.fullCaseMessages?.length || selected.snapshot.conversationFocusV30.messageCount})
@@ -1893,7 +1961,7 @@ export default function WhatsAppSmartFolderWatcher() {
                   {conversationView === 'whatsapp' ? (
                     <div className="h-[62vh] overflow-y-auto p-4 md:p-5" style={{ backgroundColor: '#0b141a', backgroundImage: 'radial-gradient(circle at 25% 25%, rgba(255,255,255,.025) 0 1px, transparent 1px)', backgroundSize: '28px 28px' }}>
                       <div className="mx-auto max-w-3xl space-y-2" dir="rtl">
-                        {(conversationFocusMode === 'full' && selected.snapshot.fullCaseMessages?.length ? selected.snapshot.fullCaseMessages : selected.snapshot.messages).map((message) => {
+                        {messagesForConversationMode(selected, conversationFocusMode).map((message) => {
                           const inbound = message.direction === 'inbound';
                           const context = message.scope === 'context';
                           const focusLevel = message.focusLevel || (message.evidence ? 'primary' : context ? 'background' : 'supporting');
@@ -1937,7 +2005,7 @@ export default function WhatsAppSmartFolderWatcher() {
                     </div>
                   ) : (
                     <div className="h-[62vh] space-y-2 overflow-y-auto bg-slate-950/20 p-4">
-                      {(conversationFocusMode === 'full' && selected.snapshot.fullCaseMessages?.length ? selected.snapshot.fullCaseMessages : selected.snapshot.messages).map((message) => (
+                      {messagesForConversationMode(selected, conversationFocusMode).map((message) => (
                         <div key={message.id} className={`rounded-xl border p-3 ${message.evidence ? 'border-cyan-500/60 bg-cyan-950/20' : message.scope === 'context' ? 'border-dashed border-slate-700 bg-slate-950/20 opacity-70' : 'border-slate-800 bg-slate-950/35'}`}>
                           <div className="mb-1 flex flex-wrap justify-between gap-2 text-[11px] text-slate-500"><span>{message.direction === 'inbound' ? 'العميل' : selected.staffName}{message.scope === 'context' ? ' · سياق' : ''}{message.evidence ? ' · دليل' : ''}</span><span>{new Date(message.timestamp).toLocaleString('ar-EG')}</span></div>
                           <div className="text-slate-200">{messageBody(message.kind, message.text)}</div>
