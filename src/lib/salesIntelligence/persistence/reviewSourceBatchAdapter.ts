@@ -29,6 +29,11 @@ export interface WhatsAppReviewSourceBatchRow {
   invoice_match_status?: string | null;
   reviewer_confirmed?: boolean | null;
   reviewer_id?: string | null;
+  invoice_link_confirmed?: boolean | null;
+  invoice_link_confirmed_invoice_id?: string | null;
+  invoice_link_confirmed_invoice_number?: string | null;
+  invoice_link_confirmed_by?: string | null;
+  invoice_link_confirmed_at?: string | null;
 }
 
 /**
@@ -48,6 +53,11 @@ export function reviewSourceRowToBatchConversation(
     reviewerConfirmed: row.reviewer_confirmed ?? null,
     reviewerId: row.reviewer_id ?? null,
     branch: row.branch ?? null,
+    invoiceLinkConfirmed: row.invoice_link_confirmed ?? null,
+    confirmedInvoiceId: row.invoice_link_confirmed_invoice_id ?? null,
+    confirmedInvoiceNumber: row.invoice_link_confirmed_invoice_number ?? null,
+    confirmedBy: row.invoice_link_confirmed_by ?? null,
+    confirmedAt: row.invoice_link_confirmed_at ?? null,
   });
 
   return {
