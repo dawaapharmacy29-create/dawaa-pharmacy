@@ -97,6 +97,29 @@ describe('WhatsAppCustomerCaseEngineV22', () => {
     expect(result.cases.every((item) => item.state === 'confirmed_order')).toBe(true);
   });
 
+  it('keeps a delayed pharmacy closing with the old order but splits Mahmoud Saleh morning order as a new case', () => {
+    const rows = [
+      session('evening-order', [
+        msg('m1', '2026-09-27T17:25:35', 'inbound', 'لو سمحت يادكتور عايزه العلبه دي'),
+        msg('m2', '2026-09-27T17:32:03', 'outbound', 'جاري الارسال نتشرف بخدمة حضرتك ٢٤ ساعه'),
+      ]),
+      session('late-closing', [
+        msg('m3', '2026-09-27T20:16:21', 'outbound', 'صيدليات دواء تتشرف بخدمة حضرتك دائما الأقرب إليك ونهتم بصحتك دائمًا'),
+      ]),
+      session('morning-order', [
+        msg('m4', '2026-09-28T03:51:56', 'inbound', 'السلام عليكم لو سمحت يادكتور عايزه الحاجات دي'),
+        msg('m5', '2026-09-28T03:58:45', 'outbound', 'جاري الارسال نتشرف بخدمة حضرتك ٢٤ ساعه'),
+      ]),
+    ];
+
+    const result = buildWhatsAppCustomerCaseEngineV22(rows);
+    expect(result.caseCount).toBe(2);
+    expect(result.cases[0].sessionIds).toEqual(['evening-order', 'late-closing']);
+    expect(result.cases[1].sessionIds).toEqual(['morning-order']);
+    expect(result.cases[0].orderConfirmed).toBe(true);
+    expect(result.cases[1].orderConfirmed).toBe(true);
+  });
+
   it('keeps delivery complaint after a confirmed order inside the same case', () => {
     const rows = [
       session('s1', [
