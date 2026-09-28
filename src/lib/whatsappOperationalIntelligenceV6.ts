@@ -285,7 +285,7 @@ function cleanProductPhrase(raw: string) {
   const removable = ['لو سمحت','من فضلك','يا فندم','يا دكتور','يادكتور','حضرتك','عندكم','موجود','متوفر','بكام','كام','ممكن','لوسمحت'];
   for (const token of removable) value = replaceStandaloneToken(value, token);
   value = value.replace(/[؟?!،,;:]/g, ' ').replace(/\s+/g, ' ').trim();
-  const stop = value.search(/(?<![\p{L}\p{N}])(?:علشان|عشان|لان|لأن|بس|وكمان|و\s+كمان|لو|اذا|إذا)(?![\p{L}\p{N}])/iu);
+  const stop = value.search(/(?<![\p{L}\p{N}])(?:علشان|عشان|لان|لأن|بس|وكمان|و\s+كمان|لو|اذا|إذا|هجيبه|هجيبها|هجيبهالك|هجيبهاله|هنجيبه|هنجيبها|هطلبه|هطلبها|هنطلبه|هنطلبها|هوفره|هوفرها|هنوفره|هنوفرها|هبعته|هبعتها|هنبعته|هنبعتها)(?![\p{L}\p{N}])/iu);
   if (stop > 1) value = value.slice(0, stop).trim();
   value = value.split(/\s+/).filter(Boolean).slice(0, 10).join(' ').trim();
   value = value.replace(/^(?:عايزه|عاوزه|محتاجه|عايز|عاوز|محتاج|هات|ابعت|ابعث)\s+/i, '').trim();
