@@ -48,6 +48,7 @@ const SELECT = [
   'customer_id',
   'customer_code',
   'customer_phone',
+  'customer_address',
   'customer_name',
 ].join(',');
 
