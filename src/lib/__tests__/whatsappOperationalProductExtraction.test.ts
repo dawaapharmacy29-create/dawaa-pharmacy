@@ -137,6 +137,24 @@ describe('WhatsApp Operational Intelligence V6 product extraction', () => {
     expect(model.customerRequests.some((row) => /بون كير/i.test(row.productName || ''))).toBe(false);
   });
 
+  it('resolves a generic product reference to one explicit prior forwarded product', () => {
+    const model = analyze(`[9/15/26, 9:30:55 PM] Customer: [Forwarded] Isis teenderm gel for sensitive skin بديل الغسول
+[9/15/26, 9:31:16 PM] Customer: موجود عندكم الغسول ده
+[9/15/26, 9:32:09 PM] You: موجود باذن الله يافندم
+[9/15/26, 9:42:30 PM] Customer: اه ابعته`);
+    const requested = model.products.find((row) => row.status === 'requested');
+    expect(requested?.rawName.toLowerCase()).toBe('isis teenderm gel for sensitive skin');
+    expect(model.customerRequests.some((row) => row.productName.toLowerCase() === 'isis teenderm gel for sensitive skin')).toBe(true);
+    expect(model.products.some((row) => /الغسول ده/.test(row.rawName))).toBe(false);
+  });
+
+  it('does not guess an anaphoric product reference when multiple prior products are plausible', () => {
+    const model = analyze(`[9/15/26, 9:30:55 PM] Customer: [Forwarded] Alpha wash gel
+[9/15/26, 9:31:02 PM] Customer: [Forwarded] Beta skin cream
+[9/15/26, 9:31:16 PM] Customer: موجود عندكم المنتج ده`);
+    expect(model.products.some((row) => row.status === 'requested' && /Alpha wash gel|Beta skin cream/i.test(row.rawName))).toBe(false);
+  });
+
   it('merges quantity-only anaphora into the previous product instead of creating a fake product', () => {
     const model = analyze(`[9/27/26, 8:20:00 PM] Customer: عايزه فليكس لايكس
 [9/27/26, 8:21:00 PM] Customer: منهم شريطين
