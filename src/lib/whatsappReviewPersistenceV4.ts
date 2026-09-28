@@ -189,6 +189,36 @@ export async function archiveSupersededLegacyWhatsAppSourceV35(args: {
     return { archived: 0, deletedCases: 0, skippedReason: 'legacy_source_has_human_confirmation' as const };
   }
 
+  const { count: humanReviewCount, error: humanReviewError } = await supabase
+    .from('conversation_sales_reviews')
+    .select('id', { count: 'exact', head: true })
+    .eq('whatsapp_review_source_id', source.id);
+  if (humanReviewError) throw humanReviewError;
+  if (Number(humanReviewCount || 0) > 0) {
+    return { archived: 0, deletedCases: 0, skippedReason: 'legacy_source_has_official_review' as const };
+  }
+
+  const { data: journeyRows, error: journeyError } = await supabase
+    .from('whatsapp_customer_journeys')
+    .select('id')
+    .eq('root_source_id', source.id);
+  if (journeyError) throw journeyError;
+  const journeyIds = (journeyRows || []).map((row: any) => String(row.id));
+
+  if (journeyIds.length) {
+    const { data: journeyLinks, error: journeyLinkError } = await supabase
+      .from('whatsapp_customer_journey_sessions')
+      .select('journey_id,source_id')
+      .in('journey_id', journeyIds);
+    if (journeyLinkError) throw journeyLinkError;
+    const sharedJourney = (journeyLinks || []).some((row: any) =>
+      String(row.source_id || '') !== String(source.id)
+    );
+    if (sharedJourney) {
+      return { archived: 0, deletedCases: 0, skippedReason: 'legacy_journey_shared_with_other_sources' as const };
+    }
+  }
+
   const { data: caseRows, error: caseError } = await supabase
     .from('whatsapp_customer_cases_v22')
     .select('id,confirmed_outcome,outcome_reviewed_by,outcome_reviewed_at,confirmed_lost_reason,verified_invoice_id,verified_revenue')
@@ -216,6 +246,35 @@ export async function archiveSupersededLegacyWhatsAppSourceV35(args: {
       .in('id', ids);
     if (deleteError) throw deleteError;
     deletedCases = ids.length;
+  }
+
+  const derivedDeletes: Array<{ table: string; column: string }> = [
+    { table: 'sales_intelligence_cases', column: 'conversation_id' },
+    { table: 'whatsapp_conversation_actions', column: 'source_id' },
+    { table: 'whatsapp_evidence_facts_v17', column: 'source_id' },
+    { table: 'whatsapp_response_turns_v18', column: 'source_id' },
+    { table: 'whatsapp_review_media_v21', column: 'source_id' },
+    { table: 'whatsapp_sales_opportunities_v17', column: 'root_source_id' },
+    { table: 'whatsapp_customer_story_events', column: 'source_id' },
+  ];
+  const deletedDerived: Record<string, number> = {};
+  for (const target of derivedDeletes) {
+    const { data: deletedRows, error: derivedDeleteError } = await supabase
+      .from(target.table)
+      .delete()
+      .eq(target.column, source.id)
+      .select('id');
+    if (derivedDeleteError) throw derivedDeleteError;
+    deletedDerived[target.table] = (deletedRows || []).length;
+  }
+
+  if (journeyIds.length) {
+    const { error: journeyDeleteError } = await supabase
+      .from('whatsapp_customer_journeys')
+      .delete()
+      .in('id', journeyIds);
+    if (journeyDeleteError) throw journeyDeleteError;
+    deletedDerived.whatsapp_customer_journeys = journeyIds.length;
   }
 
   const nowIso = new Date().toISOString();
@@ -257,6 +316,7 @@ export async function archiveSupersededLegacyWhatsAppSourceV35(args: {
   return {
     archived: 1,
     deletedCases,
+    deletedDerived,
     archivedSourceId: String(source.id),
     replacementSourceIds: replacementIds,
     skippedReason: null,
