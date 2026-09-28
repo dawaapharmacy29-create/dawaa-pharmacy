@@ -15,6 +15,7 @@ export interface WhatsAppCaseSessionSignalV22 {
   apology: boolean;
   followup: boolean;
   feedback: boolean;
+  serviceClosing: boolean;
   recommendation: boolean;
   customerReplied: boolean;
   lastDirection: 'inbound' | 'outbound' | 'system';
@@ -74,6 +75,7 @@ const APOLOGY_RX = /(بنعتذر|نعتذر|متاسف|متأسف|آسفين|ا
 const FOLLOWUP_RX = /(حابين نطمن|حبيت اطمن|حبيت أطمن|متابعه|متابعة|بنطمن|نطمن|هتابع|هتواصل|اول ما|أول ما)/i;
 const FEEDBACK_RX = /(راضي عن الخدمه|راضي عن الخدمة|كانت الخدمه|كانت الخدمة|تقييم الخدمه|تقييم الخدمة|على مستوى رضا|رأي حضرتك|راي حضرتك)/i;
 const RECOMMEND_RX = /(ارشح|أرشح|نرشح|ترشيح|انصح|أنصح|بديل|ممكن تستخدم|ممكن تاخد|ممكن تاخدي)/i;
+const SERVICE_CLOSING_RX = /(تتشرف\s+بخدم[ةه]|تحت\s+امر\s+حضرتك|تحت\s+أمر\s+حضرتك|صيدليات\s+دواء\s+تتشرف|في\s+خدمتك\s+دائما|الأقرب\s+إليك|نهتم\s+بصحتك)/i;
 const MEDIA_KINDS = new Set(['image', 'voice', 'video', 'document']);
 
 function normalizeName(value: unknown) {
@@ -128,6 +130,7 @@ function signalForSession(session: WhatsAppConversationSession): WhatsAppCaseSes
     apology: APOLOGY_RX.test(outText),
     followup: FOLLOWUP_RX.test(outText),
     feedback: FEEDBACK_RX.test(outText),
+    serviceClosing: SERVICE_CLOSING_RX.test(outText) && !ORDER_RX.test(inText),
     recommendation: RECOMMEND_RX.test(outText),
     customerReplied: inbound.length > 0,
     lastDirection,
@@ -144,7 +147,7 @@ function hoursBetween(a: string, b: string) {
 }
 
 function isFollowupOnly(s: WhatsAppCaseSessionSignalV22) {
-  return !s.orderIntent && !s.recommendation && (s.followup || s.feedback || s.apology);
+  return !s.orderIntent && !s.recommendation && (s.followup || s.feedback || s.apology || s.serviceClosing);
 }
 
 function shouldAttach(caseRows: WhatsAppCaseSessionSignalV22[], next: WhatsAppCaseSessionSignalV22) {
