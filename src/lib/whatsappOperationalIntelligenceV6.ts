@@ -172,6 +172,12 @@ const URGENT_RX = /(ضروري|عاجل|حالاً|حالا|مستعجل|مست�
 const ANAPHORIC_COMMIT_RX = /(^|\s)(هحتاجه|هحتاجها|هاخده|هاخدها|ابعته|ابعتيها|ابعتهالي|تبعتها|تبعتيها)(\s|$)/i;
 const ANAPHORIC_QUANTITY_ONLY_RX =
   /^(?:منهم|منه|منها)\s+(?:(?:\d{1,3}|[٠-٩]{1,3})\s*)?(?:علبه|علبة|علب|شريط|شريطين|شرايط|عبوه|عبوة|عبوتين|عبوات|كيس|كيسين|اكياس|أكياس|حبه|حبة|حبتين|قطعه|قطعة|قطعتين|قطع)$/iu;
+
+// Packaging, quantity, billing, and connective fragments can sit next to a real product
+// in natural chat, but they are not product identities by themselves.
+// Keep this lexical-only: a real named product such as "شريط فليكس لايكس" still passes.
+const PACKAGING_TRANSACTION_FRAGMENT_RX =
+  /^(?:(?:و?لا|و?في|و?من|و?(?:على|علي)|و?مع|و?كل|و?بس|و?لما|و?لو|الحساب|حسابه|حسابها|الاجمالي|الإجمالي|السعر|سعره|سعرها|و?(?:ال)?(?:شريط|شريطين|شرايط|علبه|علبة|علبتين|علب|عبوه|عبوة|عبوتين|عبوات|كيس|كيسين|اكياس|أكياس|قرص|اقراص|أقراص|حبه|حبة|حبتين|قطعه|قطعة|قطعتين|قطع)|واحد|واحده|واحدة|اتنين|اثنين|\d{1,4}|[٠-٩]{1,4})\s*)+$/iu;
 const PRODUCT_TYPE_NAMED_RX = /^(?:مزيل)\s+([\p{L}\p{N}][\p{L}\p{N} .+-]{1,60})$/iu;
 const EXPLICIT_PRODUCT_FORM_MENTION_RX =
   /(?:^|[\s،,:-])(?:علبه|علبة|عبوه|عبوة|شريط|شرايط|كريم|جل|شراب|بخاخ|بخاخه|بخاخة|قطره|قطرة|كبسول|كبسوله|كبسولة|اقراص|أقراص|قرص|امبول|أمبول|امبولات|أمبولات)\s+([A-Za-z\u0600-\u06FF][A-Za-z0-9\u0600-\u06FF.+-]*(?:\s+[A-Za-z\u0600-\u06FF][A-Za-z0-9\u0600-\u06FF.+-]*){0,3})/iu;
@@ -312,7 +318,9 @@ function cleanProductPhrase(raw: string) {
     DOSAGE_INSTRUCTION_NON_PRODUCT_RX.test(value) ||
     DOSAGE_INSTRUCTION_NON_PRODUCT_RX.test(semanticValue) ||
     ANAPHORIC_QUANTITY_ONLY_RX.test(value) ||
-    ANAPHORIC_QUANTITY_ONLY_RX.test(semanticValue)
+    ANAPHORIC_QUANTITY_ONLY_RX.test(semanticValue) ||
+    PACKAGING_TRANSACTION_FRAGMENT_RX.test(value) ||
+    PACKAGING_TRANSACTION_FRAGMENT_RX.test(semanticValue)
   ) return '';
   return value;
 }
