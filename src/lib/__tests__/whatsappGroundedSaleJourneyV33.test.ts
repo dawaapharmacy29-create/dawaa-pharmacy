@@ -53,13 +53,14 @@ describe('GroundedSaleJourneyV33', () => {
     const timing = buildConversationTimingV28(s, null, invoice);
     const journey = buildGroundedSaleJourneyV33({ session: s, operational, invoiceVerification: invoice, evaluation, timing });
 
-    expect(journey.outcome).toBe('verified_sale');
+    expect(journey.outcome).toBe('invoice_candidate_strong');
+    expect(journey.truthQuality.invoiceCandidateStrong).toBe(true);
     expect(journey.saleWindow.startMessageId).toBe(s.messages.find((m) => /عايز فيتامين/.test(m.text))?.id);
     expect(journey.saleWindow.startedAt).toContain('09:02');
     expect(journey.stages.find((stage) => stage.key === 'order_confirmation')?.detected).toBe(true);
   });
 
-  it('ends the sale at the verified invoice and keeps a later complaint in the wider customer journey only', () => {
+  it('ends the chat sale window at explicit confirmation, never at a statistical invoice timestamp', () => {
     const s = session(`[9/15/26, 9:00:00 AM] Customer: عايز فيتامين د
 [9/15/26, 9:01:00 AM] You: متوفر
 [9/15/26, 9:03:00 AM] Customer: تمام ابعته
@@ -73,7 +74,8 @@ describe('GroundedSaleJourneyV33', () => {
     const journey = buildGroundedSaleJourneyV33({ session: s, operational, invoiceVerification: invoice, evaluation, timing });
 
     const complaintId = s.messages.find((m) => /لسه ماوصلش/.test(m.text))?.id;
-    expect(journey.saleWindow.endedAt).toBe('2026-09-15T09:06:00.000Z');
+    expect(journey.saleWindow.endedAt).toContain('09:04');
+    expect(journey.saleWindow.endSource).toBe('message');
     expect(complaintId).toBeTruthy();
     expect(journey.saleWindow.messageIds).not.toContain(complaintId);
     expect(journey.customerJourneyWindow.messageIds).toContain(complaintId);
