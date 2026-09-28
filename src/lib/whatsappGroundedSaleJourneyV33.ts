@@ -1,0 +1,445 @@
+import type { WhatsAppConversationSession, WhatsAppParsedMessage } from './whatsappConversationParser';
+import type { WhatsAppOperationalIntelligenceV6 } from './whatsappOperationalIntelligenceV6';
+import type { UnifiedInvoiceVerification } from './whatsappUnifiedIntelligenceV4';
+import type { SmartConversationEvaluationV2 } from './whatsappConversationEvaluationV2';
+import type { ConversationTimingV28 } from './whatsappConversationTimingV28';
+import type { WhatsAppParticipantRoleModelV15 } from './whatsappParticipantRoleResolverV15';
+
+export type GroundedSaleStageKeyV33 =
+  | 'request'
+  | 'first_response'
+  | 'product_identification'
+  | 'availability'
+  | 'recommendation'
+  | 'customer_acceptance'
+  | 'order_confirmation'
+  | 'invoice'
+  | 'delivery'
+  | 'complaint'
+  | 'recovery'
+  | 'closing';
+
+export interface GroundedSaleStageV33 {
+  key: GroundedSaleStageKeyV33;
+  label: string;
+  detected: boolean;
+  at: string | null;
+  confidence: number;
+  source: 'message' | 'invoice' | 'derived';
+  evidenceMessageIds: string[];
+  reason: string;
+}
+
+export interface GroundedSaleJourneyV33 {
+  version: 'whatsapp-grounded-sale-journey-v33';
+  grounded: true;
+  outcome: 'verified_sale' | 'chat_confirmed' | 'open_opportunity' | 'lost_or_blocked' | 'non_commercial' | 'needs_review';
+  outcomeLabel: string;
+  commercial: boolean;
+  saleWindow: {
+    startedAt: string | null;
+    endedAt: string | null;
+    startMessageId: string | null;
+    endMessageId: string | null;
+    endSource: 'message' | 'invoice' | 'none';
+    messageIds: string[];
+  };
+  customerJourneyWindow: {
+    startedAt: string | null;
+    endedAt: string | null;
+    messageIds: string[];
+  };
+  stages: GroundedSaleStageV33[];
+  evidenceMessageIds: string[];
+  complaintMessageIds: string[];
+  delayMessageIds: string[];
+  unresolvedMessageIds: string[];
+  staffContribution: Array<{
+    staffName: string;
+    role: string;
+    messageIds: string[];
+    firstMessageAt: string | null;
+    lastMessageAt: string | null;
+  }>;
+  coaching: {
+    strengths: string[];
+    gaps: string[];
+    complaintPoints: string[];
+    delayPoints: string[];
+    bestPracticeScore: number | null;
+    bestPracticeLabel: string;
+  };
+  evidenceCoverage: number;
+  confidence: number;
+  warnings: string[];
+}
+
+const normalize = (value: unknown) => String(value ?? '')
+  .trim().toLowerCase()
+  .replace(/[أإآ]/g, 'ا')
+  .replace(/ى/g, 'ي')
+  .replace(/ة/g, 'ه')
+  .replace(/[\u064B-\u065F]/g, '')
+  .replace(/\s+/g, ' ');
+
+const ACCEPT_RX = /(^|\s)(تمام|ماشي|موافق|اوكي|أوكي|خلاص|ابعت|ابعته|ابعتي|هات|هاته|هاخده|هاخدها|هجربه|هجربها|تمام كده|تمام كدا)(\s|$)/i;
+const CONFIRM_RX = /(نأكد مع حضرتك|ناكد مع حضرتك|تأكيد الأصناف|تاكيد الاصناف|نراجع مع حضرتك|حضرتك كده معانا|حضرتك كدا معانا|الأوردر كده|الاوردر كده|الأوردر كدا|الاوردر كدا|الطلب كده|الطلب كدا|تم تأكيد|تم التاكيد|تم التأكيد|تم تسجيل الطلب)/i;
+const AVAILABILITY_RX = /(متوفر|موجود|متاح|غير متوفر|مش موجود|ناقص|هنوفر|هطلبه|هطلبها)/i;
+const DELIVERY_RX = /(مندوب|توصيل|العنوان|جاري الارسال|جاري الإرسال|خرج لحضرتك|هيتم التوصيل|هيوصل)/i;
+const COMPLAINT_RX = /(شكوى|شكوي|مشكله|مشكلة|زعلت|اتضايقت|محدش رد|متاخر|متأخر|التأخير|التاخير|ماوصلش|موصلش|لسه مجاش|غلط|وحش|سيء)/i;
+const RECOVERY_RX = /(بنعتذر|نعتذر|متاسف|متأسف|اسفين|آسفين|هنراجع|هنتابع|بنتابع|هنحل|تم الحل|نعوض|تعويض|رضا حضرتك)/i;
+const CLOSING_RX = /(تحت امر حضرتك|تحت أمر حضرتك|تحت أمرك|نتشرف بخدمة حضرتك|سعداء بخدمة حضرتك|شكرا لثقة حضرتك|شكرًا لثقة حضرتك|في أي وقت|يوم سعيد)/i;
+const NEGATED_COMPLAINT_RX = /(مفيش\s+مشكله|مفيش\s+مشكلة|مافيش\s+مشكله|مافيش\s+مشكلة|لا\s+توجد\s+مشكله|لا\s+توجد\s+مشكلة|مش\s+مشكله|مش\s+مشكلة)/i;
+
+function uniq<T>(rows: T[]) { return [...new Set(rows)]; }
+function clamp(value: number, min = 0, max = 100) { return Math.max(min, Math.min(max, value)); }
+
+function messageMap(session: WhatsAppConversationSession) {
+  return new Map(session.messages.map((message) => [message.id, message]));
+}
+
+function idsFromOperational(operational: WhatsAppOperationalIntelligenceV6) {
+  return uniq([
+    ...(operational.evidence.request?.messageIds || []),
+    ...(operational.evidence.recommendation?.messageIds || []),
+    ...(operational.evidence.saleClose?.messageIds || []),
+    ...(operational.evidence.complaint?.messageIds || []),
+    ...operational.products.flatMap((row) => row.evidenceMessageIds || []),
+    ...operational.customerRequests.flatMap((row) => row.evidenceMessageIds || []),
+    ...operational.recommendations.flatMap((row) => row.evidenceMessageIds || []),
+  ]);
+}
+
+function firstByIds(session: WhatsAppConversationSession, ids: string[]) {
+  const set = new Set(ids);
+  return session.messages
+    .filter((message) => set.has(message.id))
+    .sort((a,b) => a.timestamp.getTime() - b.timestamp.getTime())[0] || null;
+}
+
+function lastByIds(session: WhatsAppConversationSession, ids: string[]) {
+  const set = new Set(ids);
+  const rows = session.messages
+    .filter((message) => set.has(message.id))
+    .sort((a,b) => a.timestamp.getTime() - b.timestamp.getTime());
+  return rows[rows.length - 1] || null;
+}
+
+function matching(session: WhatsAppConversationSession, rx: RegExp, direction?: 'inbound'|'outbound') {
+  return session.messages.filter((message) =>
+    message.direction !== 'system' &&
+    (!direction || message.direction === direction) &&
+    rx.test(String(message.text || ''))
+  );
+}
+
+function makeStage(
+  key: GroundedSaleStageKeyV33,
+  label: string,
+  rows: WhatsAppParsedMessage[],
+  reason: string,
+  confidence = 90
+): GroundedSaleStageV33 {
+  const first = rows[0] || null;
+  return {
+    key,
+    label,
+    detected: rows.length > 0,
+    at: first?.timestamp.toISOString() || null,
+    confidence: rows.length ? confidence : 0,
+    source: 'message',
+    evidenceMessageIds: rows.map((row) => row.id).slice(0, 12),
+    reason: rows.length ? reason : `لم يوجد دليل رسالة مباشر يثبت مرحلة «${label}».`,
+  };
+}
+
+function roleContribution(session: WhatsAppConversationSession, roles?: WhatsAppParticipantRoleModelV15 | null) {
+  const byId = new Map((roles?.messages || []).map((row) => [row.messageId, row]));
+  const groups = new Map<string, { staffName: string; role: string; rows: WhatsAppParsedMessage[] }>();
+  for (const message of session.messages) {
+    if (message.direction !== 'outbound') continue;
+    const role = byId.get(message.id);
+    const staffName = String(role?.staffName || message.sender || '').trim();
+    if (!staffName) continue;
+    const key = `${staffName}|${role?.role || 'pharmacy_unknown'}`;
+    const current = groups.get(key) || { staffName, role: role?.role || 'pharmacy_unknown', rows: [] };
+    current.rows.push(message);
+    groups.set(key, current);
+  }
+  return [...groups.values()].map((group) => ({
+    staffName: group.staffName,
+    role: group.role,
+    messageIds: group.rows.map((row) => row.id),
+    firstMessageAt: group.rows[0]?.timestamp.toISOString() || null,
+    lastMessageAt: group.rows[group.rows.length - 1]?.timestamp.toISOString() || null,
+  }));
+}
+
+function messageRange(session: WhatsAppConversationSession, start: WhatsAppParsedMessage | null, end: WhatsAppParsedMessage | null) {
+  if (!start) return [];
+  const startMs = start.timestamp.getTime();
+  const endMs = end?.timestamp.getTime() ?? Number.POSITIVE_INFINITY;
+  return session.messages
+    .filter((message) => message.direction !== 'system' && message.timestamp.getTime() >= startMs && message.timestamp.getTime() <= endMs)
+    .map((message) => message.id);
+}
+
+export function buildGroundedSaleJourneyV33(args: {
+  session: WhatsAppConversationSession;
+  operational: WhatsAppOperationalIntelligenceV6;
+  invoiceVerification: UnifiedInvoiceVerification;
+  evaluation: SmartConversationEvaluationV2;
+  timing: ConversationTimingV28;
+  participantRoles?: WhatsAppParticipantRoleModelV15 | null;
+}): GroundedSaleJourneyV33 {
+  const { session, operational, invoiceVerification, evaluation, timing, participantRoles } = args;
+  const byId = messageMap(session);
+
+  const requestIds = uniq([
+    ...(operational.evidence.request?.messageIds || []),
+    ...operational.customerRequests.flatMap((row) => row.evidenceMessageIds || []),
+    ...operational.products
+      .filter((row) => ['requested','accepted','unavailable'].includes(row.status))
+      .flatMap((row) => row.evidenceMessageIds || []),
+  ]);
+  const requestRows = session.messages
+    .filter((message) => requestIds.includes(message.id) && message.direction === 'inbound')
+    .sort((a,b) => a.timestamp.getTime() - b.timestamp.getTime());
+
+  const productRows = session.messages
+    .filter((message) => operational.products.some((row) => row.evidenceMessageIds?.includes(message.id)))
+    .sort((a,b) => a.timestamp.getTime() - b.timestamp.getTime());
+
+  const availabilityRows = matching(session, AVAILABILITY_RX, 'outbound');
+  const recommendationRows = session.messages
+    .filter((message) => operational.recommendations.some((row) => row.evidenceMessageIds?.includes(message.id)))
+    .sort((a,b) => a.timestamp.getTime() - b.timestamp.getTime());
+  const acceptanceRows = matching(session, ACCEPT_RX, 'inbound');
+  const confirmationRows = uniq([
+    ...evaluation.orderCompleteness.items
+      .filter((row) => row.key === 'explicit_confirmation' && row.status === 'confirmed')
+      .flatMap((row) => row.evidenceMessageIds),
+    ...matching(session, CONFIRM_RX, 'outbound').map((row) => row.id),
+  ]).map((id) => byId.get(id)).filter((row): row is WhatsAppParsedMessage => Boolean(row))
+    .sort((a,b) => a.timestamp.getTime() - b.timestamp.getTime());
+  const deliveryRows = matching(session, DELIVERY_RX);
+  const complaintRows = matching(session, COMPLAINT_RX, 'inbound')
+    .filter((message) => !NEGATED_COMPLAINT_RX.test(String(message.text || '')));
+  const recoveryRows = matching(session, RECOVERY_RX, 'outbound');
+  const closingRows = matching(session, CLOSING_RX, 'outbound');
+
+  const timingRequest = timing.orderTimeline.requestAt
+    ? session.messages.find((message) => message.timestamp.toISOString() === timing.orderTimeline.requestAt) || null
+    : null;
+  const startMessage = requestRows[0] || productRows.find((row) => row.direction === 'inbound') || timingRequest || null;
+
+  const saleRelevantIds = uniq([
+    ...requestIds,
+    ...productRows.map((row) => row.id),
+    ...availabilityRows.map((row) => row.id),
+    ...recommendationRows.map((row) => row.id),
+    ...acceptanceRows.map((row) => row.id),
+    ...confirmationRows.map((row) => row.id),
+    ...deliveryRows.map((row) => row.id),
+    ...closingRows.map((row) => row.id),
+  ]);
+  const lastSaleMessage = lastByIds(session, saleRelevantIds);
+
+  let outcome: GroundedSaleJourneyV33['outcome'] = 'non_commercial';
+  if (invoiceVerification.status === 'verified') outcome = 'verified_sale';
+  else if (evaluation.sale.outcome === 'order_confirmed') outcome = 'chat_confirmed';
+  else if (['customer_accepted','opportunity_detected','probable_sale'].includes(evaluation.sale.outcome)) outcome = 'open_opportunity';
+  else if (['stockout_blocked','customer_declined'].includes(evaluation.sale.outcome)) outcome = 'lost_or_blocked';
+  else if (operational.officialScoringEligible || operational.customerRequests.length || operational.products.some((row) => row.status === 'requested')) outcome = 'needs_review';
+
+  const invoiceAt = invoiceVerification.status === 'verified' && invoiceVerification.bestCandidate?.invoiceDate
+    ? new Date(invoiceVerification.bestCandidate.invoiceDate)
+    : null;
+  const saleEndMessage = confirmationRows[confirmationRows.length - 1] || lastSaleMessage;
+  const saleEndedAt = invoiceAt && Number.isFinite(invoiceAt.getTime())
+    ? invoiceAt.toISOString()
+    : saleEndMessage?.timestamp.toISOString() || null;
+  const saleEndSource: GroundedSaleJourneyV33['saleWindow']['endSource'] =
+    invoiceAt && Number.isFinite(invoiceAt.getTime()) ? 'invoice' : saleEndMessage ? 'message' : 'none';
+
+  const saleWindowIds = startMessage ? messageRange(session, startMessage, saleEndMessage) : [];
+  const lastJourneyEvent = [...complaintRows, ...recoveryRows, ...closingRows, ...deliveryRows, ...(saleEndMessage ? [saleEndMessage] : [])]
+    .sort((a,b) => a.timestamp.getTime() - b.timestamp.getTime()).at(-1) || saleEndMessage || startMessage;
+  const journeyIds = startMessage ? messageRange(session, startMessage, lastJourneyEvent || null) : [];
+
+  const firstResponseRow = startMessage
+    ? session.messages.find((message) => message.direction === 'outbound' && message.timestamp.getTime() >= startMessage.timestamp.getTime()) || null
+    : null;
+  const delayIds = uniq(
+    timing.responseTurns
+      .filter((turn) => turn.noResponse || (turn.responseLatencySeconds != null && turn.responseLatencySeconds > 600))
+      .flatMap((turn) => [...turn.inboundMessageIds, ...(turn.responseMessageId ? [turn.responseMessageId] : [])])
+  );
+  const unresolvedIds = uniq([
+    ...timing.responseTurns.filter((turn) => turn.noResponse).flatMap((turn) => turn.inboundMessageIds),
+    ...requestIds.filter((id) => !saleWindowIds.includes(id) && outcome !== 'verified_sale'),
+  ]);
+
+  const stages: GroundedSaleStageV33[] = [
+    makeStage('request', 'بداية الطلب', requestRows.length ? requestRows : (startMessage ? [startMessage] : []), 'أول رسالة عميل مرتبطة بطلب/صنف فعلي.', 96),
+    makeStage('first_response', 'أول رد', firstResponseRow ? [firstResponseRow] : [], 'أول رد من الصيدلية بعد بداية الطلب.', firstResponseRow ? 96 : 0),
+    makeStage('product_identification', 'تحديد الأصناف', productRows, 'رسائل مرتبطة بأصناف مستخرجة ومثبتة داخل المحادثة.', productRows.length ? 92 : 0),
+    makeStage('availability', 'التوفر/النواقص', availabilityRows, 'رد صريح متعلق بالتوفر أو النقص.', availabilityRows.length ? 90 : 0),
+    makeStage('recommendation', 'ترشيح/بديل', recommendationRows, 'رسائل مرتبطة بترشيح أو بديل.', recommendationRows.length ? 90 : 0),
+    makeStage('customer_acceptance', 'موافقة العميل', acceptanceRows, 'رد قبول من العميل داخل رحلة بيع قائمة.', acceptanceRows.length ? 82 : 0),
+    makeStage('order_confirmation', 'تأكيد الأصناف/الطلب', confirmationRows, 'تأكيد صريح من الصيدلية قبل إغلاق الطلب.', confirmationRows.length ? 95 : 0),
+    invoiceVerification.status === 'verified'
+      ? {
+          key: 'invoice',
+          label: 'الفاتورة',
+          detected: true,
+          at: invoiceVerification.bestCandidate?.invoiceDate || null,
+          confidence: Math.round(invoiceVerification.verificationConfidence * 100),
+          source: 'invoice',
+          evidenceMessageIds: [],
+          reason: `بيع مثبت بفاتورة ${invoiceVerification.bestCandidate?.invoiceNumber || 'مرتبطة'}.`,
+        }
+      : {
+          key: 'invoice',
+          label: 'الفاتورة',
+          detected: false,
+          at: null,
+          confidence: 0,
+          source: 'invoice',
+          evidenceMessageIds: [],
+          reason: 'لا توجد فاتورة Verified مرتبطة بقوة كافية.',
+        },
+    makeStage('delivery', 'التوصيل', deliveryRows, 'رسائل مرتبطة بالتوصيل/العنوان/المندوب.', deliveryRows.length ? 88 : 0),
+    makeStage('complaint', 'شكوى/مشكلة', complaintRows, 'شكوى أو مشكلة صريحة من العميل.', complaintRows.length ? 95 : 0),
+    makeStage('recovery', 'معالجة المشكلة', recoveryRows, 'اعتذار أو إجراء استعادة خدمة بعد مشكلة.', recoveryRows.length ? 92 : 0),
+    makeStage('closing', 'الختام', closingRows, 'رسالة ختامية صريحة من الصيدلية.', closingRows.length ? 90 : 0),
+  ];
+
+  const strengths: string[] = [];
+  const gaps: string[] = [];
+  const delayPoints: string[] = [];
+  const complaintPoints: string[] = [];
+
+  if (invoiceVerification.status === 'verified') strengths.push('حوّل المحادثة لبيع مثبت بفاتورة فعلية.');
+  if (evaluation.opening.score != null && evaluation.opening.score >= 85) strengths.push('افتتاح المحادثة واضح ومهني.');
+  if (timing.responseSummary.firstResponseSeconds != null && timing.responseSummary.firstResponseSeconds <= 300) strengths.push('الرد الأول تم خلال 5 دقائق.');
+  if (confirmationRows.length) strengths.push('تم تأكيد الأصناف/الطلب مع العميل قبل الإغلاق.');
+  if (evaluation.closing.score != null && evaluation.closing.score >= 85) strengths.push('الختام واضح ومهني.');
+  if (operational.recommendations.some((row) => row.accepted === true)) strengths.push('يوجد ترشيح/بديل قبله العميل.');
+
+  if (!confirmationRows.length && ['verified_sale','chat_confirmed','open_opportunity'].includes(outcome)) gaps.push('لم يظهر تأكيد واضح للأصناف والكميات مع العميل قبل الإغلاق.');
+  if (evaluation.opening.score != null && evaluation.opening.score < 70) gaps.push('الافتتاح يحتاج تحسين أو استكمال عناصر الترحيب الرسمي.');
+  if (evaluation.closing.score != null && evaluation.closing.score < 70) gaps.push('الختام يحتاج تحسين أو رسالة ختامية أوضح.');
+  if (timing.responseSummary.unansweredTurns > 0) gaps.push(`يوجد ${timing.responseSummary.unansweredTurns} Turn للعميل بدون رد واضح.`);
+  if (operational.products.some((row) => row.status === 'unavailable') && !operational.recommendations.length) gaps.push('ظهر نقص/عدم توفر بدون بديل واضح مثبت.');
+
+  if (delayIds.length) {
+    const slowTurns = timing.responseTurns.filter((turn) => turn.noResponse || (turn.responseLatencySeconds != null && turn.responseLatencySeconds > 600));
+    for (const turn of slowTurns.slice(0, 5)) {
+      delayPoints.push(
+        turn.noResponse
+          ? 'طلب/رسالة عميل لم يظهر لها رد داخل نطاق المحادثة.'
+          : `رد متأخر بحوالي ${Math.round((turn.responseLatencySeconds || 0) / 60)} دقيقة.`
+      );
+    }
+  }
+  if (complaintRows.length) {
+    complaintPoints.push(...complaintRows.slice(0, 5).map((row) => row.text.slice(0, 140)));
+    if (!recoveryRows.length) gaps.push('ظهرت شكوى بدون معالجة/احتواء واضح بعدها.');
+    else strengths.push('تم التعامل مع شكوى أو مشكلة بمحاولة استعادة خدمة.');
+  }
+
+  const bestPracticeParts: number[] = [];
+  if (evaluation.qualityScore != null) bestPracticeParts.push(evaluation.qualityScore);
+  if (timing.responseSummary.within5mRate != null) bestPracticeParts.push(timing.responseSummary.within5mRate);
+  if (invoiceVerification.status === 'verified') bestPracticeParts.push(100);
+  if (confirmationRows.length) bestPracticeParts.push(100);
+  if (evaluation.closing.score != null) bestPracticeParts.push(evaluation.closing.score);
+  let bestPracticeScore = bestPracticeParts.length
+    ? Math.round(bestPracticeParts.reduce((sum, value) => sum + value, 0) / bestPracticeParts.length)
+    : null;
+  if (bestPracticeScore != null) {
+    bestPracticeScore -= Math.min(25, timing.responseSummary.unansweredTurns * 10);
+    if (complaintRows.length && !recoveryRows.length) bestPracticeScore -= 15;
+    bestPracticeScore = clamp(bestPracticeScore);
+  }
+
+  const directEvidenceIds = uniq([
+    ...idsFromOperational(operational),
+    ...confirmationRows.map((row) => row.id),
+    ...complaintRows.map((row) => row.id),
+    ...recoveryRows.map((row) => row.id),
+    ...delayIds,
+    ...closingRows.map((row) => row.id),
+  ]);
+  const stageCount = stages.filter((stage) => stage.detected).length;
+  const evidenceCoverage = clamp(Math.round((stageCount / Math.max(1, stages.length)) * 100));
+  const confidence = clamp(Math.round(
+    (invoiceVerification.status === 'verified' ? 25 : 10) +
+    Math.min(35, directEvidenceIds.length * 3) +
+    Math.min(20, evidenceCoverage * 0.2) +
+    (startMessage ? 10 : 0) +
+    (saleEndSource !== 'none' ? 10 : 0)
+  ));
+
+  const warnings: string[] = [];
+  if (!startMessage && outcome !== 'non_commercial') warnings.push('لم يتم تحديد بداية بيع برسالة مباشرة؛ لا ينبغي تفسير الملف كاملًا كرحلة بيع.');
+  if (invoiceVerification.status === 'verified' && !productRows.length) warnings.push('البيع مثبت بالفاتورة لكن أصناف الطلب غير واضحة من نص المحادثة.');
+  if (session.missingMediaCount) warnings.push(`يوجد ${session.missingMediaCount} مرفق غير متاح؛ قد يحتوي على تفاصيل منتج/طلب.`);
+  if (participantRoles?.messages.some((row) => row.role === 'pharmacy_unknown' && row.confidence < 70)) warnings.push('بعض الرسائل الخارجة لم تُنسب لموظف محدد بثقة كافية.');
+
+  const outcomeLabel: Record<GroundedSaleJourneyV33['outcome'], string> = {
+    verified_sale: 'بيع مؤكد بفاتورة',
+    chat_confirmed: 'طلب مؤكد في المحادثة — الفاتورة غير مثبتة',
+    open_opportunity: 'فرصة بيع مفتوحة',
+    lost_or_blocked: 'بيع توقف/لم يكتمل',
+    non_commercial: 'لا توجد رحلة بيع مثبتة',
+    needs_review: 'رحلة تجارية تحتاج مراجعة',
+  };
+
+  return {
+    version: 'whatsapp-grounded-sale-journey-v33',
+    grounded: true,
+    outcome,
+    outcomeLabel: outcomeLabel[outcome],
+    commercial: outcome !== 'non_commercial',
+    saleWindow: {
+      startedAt: startMessage?.timestamp.toISOString() || null,
+      endedAt: saleEndedAt,
+      startMessageId: startMessage?.id || null,
+      endMessageId: saleEndMessage?.id || null,
+      endSource: saleEndSource,
+      messageIds: saleWindowIds,
+    },
+    customerJourneyWindow: {
+      startedAt: startMessage?.timestamp.toISOString() || session.startedAt.toISOString(),
+      endedAt: lastJourneyEvent?.timestamp.toISOString() || session.endedAt.toISOString(),
+      messageIds: journeyIds.length ? journeyIds : session.messages.filter((message) => message.direction !== 'system').map((message) => message.id),
+    },
+    stages,
+    evidenceMessageIds: directEvidenceIds,
+    complaintMessageIds: complaintRows.map((row) => row.id),
+    delayMessageIds: delayIds,
+    unresolvedMessageIds: unresolvedIds,
+    staffContribution: roleContribution(session, participantRoles),
+    coaching: {
+      strengths: uniq(strengths),
+      gaps: uniq(gaps),
+      complaintPoints: uniq(complaintPoints),
+      delayPoints: uniq(delayPoints),
+      bestPracticeScore,
+      bestPracticeLabel: bestPracticeScore == null
+        ? 'لا توجد أدلة كافية'
+        : bestPracticeScore >= 90
+          ? 'محادثة قوية جدًا ويمكن التعلم منها'
+          : bestPracticeScore >= 80
+            ? 'محادثة جيدة'
+            : bestPracticeScore >= 65
+              ? 'جيدة جزئيًا وتحتاج تحسينات محددة'
+              : 'تحتاج تدريب ومراجعة',
+    },
+    evidenceCoverage,
+    confidence,
+    warnings,
+  };
+}
