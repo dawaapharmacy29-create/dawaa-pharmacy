@@ -293,8 +293,13 @@ function extractAfterTrigger(message: WhatsAppParsedMessage, rx: RegExp) {
 }
 
 function quantityFrom(textValue: string) {
-  const match = textValue.match(/(?:عدد|عايز|عاوز|محتاج|هات|ابعت)?\s*(\d{1,3})\s*(?:علبه|علبة|علب|شريط|شرايط|قطعه|قطعة|عبوه|عبوة)?/i);
-  const value = match ? Number(match[1]) : NaN;
+  const normalizedDigits = textValue.replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)));
+
+  if (/(?:^|\s)(?:علبتين|شريطين|عبوتين|كيسين|حبتين|قطعتين)(?:\s|$)/i.test(normalizedDigits)) return 2;
+  if (/(?:^|\s)(?:علبه|علبة|شريط|عبوه|عبوة|كيس|حبه|حبة|قطعه|قطعة)(?:\s|$)/i.test(normalizedDigits)) return 1;
+
+  const explicit = normalizedDigits.match(/(?:^|\s)(\d{1,3})\s*(?:علبه|علبة|علب|شريط|شرايط|عبوه|عبوة|عبوات|كيس|اكياس|أكياس|حبه|حبة|حبوب|قطعه|قطعة|قطع)(?:\s|$)/i);
+  const value = explicit ? Number(explicit[1]) : NaN;
   return Number.isFinite(value) && value > 0 && value <= 100 ? value : null;
 }
 
