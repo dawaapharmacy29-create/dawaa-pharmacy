@@ -12,6 +12,7 @@ import {
   restoreLocalWhatsAppFolder,
   supportsLocalWhatsAppInbox,
   resetLocalWhatsAppProcessedLedger,
+  resetLocalWhatsAppProcessedKeys,
   getLocalWhatsAppFailedItems,
   resetLocalWhatsAppFailedLedger,
   loadLocalWhatsAppAnalysisHistory,
@@ -86,6 +87,11 @@ type StaffRun = {
 type FileRun = {
   fileName: string;
   at: string;
+  analyzedAtIso?: string;
+  conversationStartedAt?: string | null;
+  conversationEndedAt?: string | null;
+  analysisMs?: number;
+  inboxKey?: string;
   messages: number;
   sessions: number;
   cases: number;
@@ -95,6 +101,57 @@ type FileRun = {
 };
 
 const INTERVAL_MS = 60_000;
+
+function cairoDayKey(value: string | Date | null | undefined) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Africa/Cairo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return map.year && map.month && map.day ? `${map.year}-${map.month}-${map.day}` : null;
+}
+
+function runConversationStart(run: FileRun) {
+  if (run.conversationStartedAt) return run.conversationStartedAt;
+  const timestamps = run.staffRuns
+    .flatMap((item) => item.snapshot.fullCaseMessages || item.snapshot.messages || [])
+    .map((message) => message.timestamp)
+    .filter(Boolean)
+    .sort();
+  return timestamps[0] || null;
+}
+
+function runConversationEnd(run: FileRun) {
+  if (run.conversationEndedAt) return run.conversationEndedAt;
+  const timestamps = run.staffRuns
+    .flatMap((item) => item.snapshot.fullCaseMessages || item.snapshot.messages || [])
+    .map((message) => message.timestamp)
+    .filter(Boolean)
+    .sort();
+  return timestamps[timestamps.length - 1] || null;
+}
+
+function runAnalyzedAt(run: FileRun) {
+  return run.analyzedAtIso || run.staffRuns[0]?.snapshot.createdAt || null;
+}
+
+function formatCairoDateTime(value: string | Date | null | undefined) {
+  if (!value) return '—';
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return new Intl.DateTimeFormat('ar-EG', {
+    timeZone: 'Africa/Cairo',
+    day: 'numeric',
+    month: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(date);
+}
 
 function groupStaffRunsByCase(run: FileRun) {
   const groups = new Map<string, StaffRun[]>();
@@ -213,10 +270,14 @@ export default function WhatsAppSmartFolderWatcher() {
   const [detailTab, setDetailTab] = useState<'overview' | 'conversation' | 'review'>('overview');
   const [expandedRuns, setExpandedRuns] = useState<Record<string, boolean>>({});
   const [runQuery, setRunQuery] = useState('');
+  const [dayFilter, setDayFilter] = useState<'today' | 'yesterday' | 'all' | 'custom'>('today');
+  const [customDay, setCustomDay] = useState('');
   const [failedInboxCount, setFailedInboxCount] = useState(0);
 
 
   const analyzeFile = useCallback(async (file: File): Promise<FileRun> => {
+    const analysisStartedAt = performance.now();
+    const analyzedAtIso = new Date().toISOString();
     const read = await readWhatsAppExportFile(file);
     const messages = parseWhatsAppExport(read.text);
     if (!messages.length) throw new Error('لم يتم التعرف على رسائل WhatsApp داخل الملف');
@@ -521,6 +582,10 @@ export default function WhatsAppSmartFolderWatcher() {
         return {
       fileName: file.name,
       at: new Date().toLocaleString('ar-EG'),
+      analyzedAtIso,
+      conversationStartedAt: messages[0]?.timestamp?.toISOString?.() || null,
+      conversationEndedAt: messages[messages.length - 1]?.timestamp?.toISOString?.() || null,
+      analysisMs: Math.round(performance.now() - analysisStartedAt),
       messages: messages.length,
       sessions: rawSessions.length,
       cases: caseContexts.caseEngine.caseCount,
@@ -654,8 +719,8 @@ export default function WhatsAppSmartFolderWatcher() {
           }
 
           const finalizedResult: FileRun = canonicalErrors.length
-            ? { ...result, errors: [...result.errors, ...canonicalErrors] }
-            : result;
+            ? { ...result, inboxKey: candidate.key, errors: [...result.errors, ...canonicalErrors] }
+            : { ...result, inboxKey: candidate.key };
 
           await saveLocalWhatsAppAnalysisHistory<FileRun>(candidate.key, candidate.name, finalizedResult);
           if (canonicalErrors.length) {
@@ -674,6 +739,8 @@ export default function WhatsAppSmartFolderWatcher() {
           return {
             fileName: candidate.name,
             at: new Date().toLocaleString('ar-EG'),
+            analyzedAtIso: new Date().toISOString(),
+            inboxKey: candidate.key,
             messages: 0,
             sessions: 0,
             cases: 0,
