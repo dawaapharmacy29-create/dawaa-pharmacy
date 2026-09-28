@@ -638,6 +638,7 @@ export default function WhatsAppSmartFolderWatcher() {
             operational,
             analysisVersion: baseIntelligence.version,
             participantRoles: roles,
+            groundedSaleJourney: keptRuns[0]?.snapshot.smartIntelligence?.groundedSaleJourneyV33 || null,
           });
         } catch (evidencePersistError) {
           console.warn('[whatsapp-watcher] evidence ledger sync failed; source preserved', evidencePersistError);
