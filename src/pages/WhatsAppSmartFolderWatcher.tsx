@@ -1390,7 +1390,7 @@ export default function WhatsAppSmartFolderWatcher() {
     customerDemand.forEach((request, index) => {
       if (matchedDemandIndexes.has(index)) return;
       rows.push({
-        kind: 'customer_customer_requested_not_in_invoice' as const,
+        kind: 'customer_requested_not_in_invoice' as const,
         productName: request.canonicalName || request.rawName,
         invoiceQuantity: null,
         requestedQuantity: request.quantity,
@@ -1672,6 +1672,7 @@ export default function WhatsAppSmartFolderWatcher() {
                     const productRows = productTruthRows(selected);
                     const nextDecision = nextDecisionLabel(selected);
                     const soldRequestedCount = productRows.filter((row) => row.kind === 'customer_requested_in_invoice').length;
+                    const recommendedInInvoiceCount = productRows.filter((row) => row.kind === 'recommended_in_invoice').length;
                     const invoiceOnlyCount = productRows.filter((row) => row.kind === 'invoice_only').length;
                     const missingFromInvoiceCount = productRows.filter((row) => row.kind === 'customer_requested_not_in_invoice').length;
                     const invoiceItemsTotal = (selected.snapshot.smartIntelligence?.invoiceItems || [])
@@ -1868,17 +1869,27 @@ export default function WhatsAppSmartFolderWatcher() {
                             <div className="divide-y divide-slate-800">
                               {productRows.slice(0, 18).map((row, index) => {
                                 const badge = row.kind === 'customer_requested_in_invoice'
-                                  ? { label: 'طلبه وظهر بالفاتورة المرشحة', cls: 'bg-cyan-500/10 text-cyan-300' }
-                                  : row.kind === 'customer_requested_not_in_invoice'
-                                    ? { label: 'طلبه ولم يظهر بالفاتورة', cls: 'bg-amber-500/10 text-amber-300' }
-                                    : { label: 'ظهر في الفاتورة فقط', cls: 'bg-sky-500/10 text-sky-300' };
+                                  ? { label: 'طلبه العميل وظهر بالفاتورة المرشحة', cls: 'bg-cyan-500/10 text-cyan-300' }
+                                  : row.kind === 'recommended_in_invoice'
+                                    ? { label: 'ترشيح من الصيدلية وظهر بالفاتورة', cls: 'bg-violet-500/10 text-violet-300' }
+                                    : row.kind === 'customer_requested_not_in_invoice'
+                                      ? { label: 'طلبه العميل ولم يظهر بالفاتورة', cls: 'bg-amber-500/10 text-amber-300' }
+                                      : { label: 'ظهر في الفاتورة فقط', cls: 'bg-sky-500/10 text-sky-300' };
+                                const quantityStatus =
+                                  row.invoiceQuantity != null && row.requestedQuantity != null
+                                    ? Number(row.invoiceQuantity) === Number(row.requestedQuantity)
+                                      ? { label: 'الكمية مطابقة', cls: 'text-emerald-300' }
+                                      : { label: `اختلاف كمية: طلب ${row.requestedQuantity} / فاتورة ${row.invoiceQuantity}`, cls: 'text-amber-300' }
+                                    : row.requestedQuantity != null
+                                      ? { label: `كمية الطلب: ${row.requestedQuantity}`, cls: 'text-slate-400' }
+                                      : row.invoiceQuantity != null
+                                        ? { label: `كمية الفاتورة: ${row.invoiceQuantity}`, cls: 'text-slate-400' }
+                                        : { label: 'الكمية غير محسومة', cls: 'text-slate-500' };
                                 return (
                                   <div key={`${row.productName}-${index}`} className="grid gap-2 px-3 py-2.5 text-xs sm:grid-cols-[1fr_auto_auto_auto] sm:items-center">
                                     <div className="font-black text-white">{row.productName}</div>
                                     <span className={`w-fit rounded-full px-2 py-1 text-[10px] font-black ${badge.cls}`}>{badge.label}</span>
-                                    <div className="text-slate-400">
-                                      {row.invoiceQuantity != null ? `فاتورة: ${row.invoiceQuantity}` : row.requestedQuantity != null ? `طلب: ${row.requestedQuantity}` : 'كمية غير محددة'}
-                                    </div>
+                                    <div className={quantityStatus.cls}>{quantityStatus.label}</div>
                                     <div className="text-left font-bold text-slate-300">{row.lineTotal != null ? `${Number(row.lineTotal).toFixed(2)} ج` : '—'}</div>
                                   </div>
                                 );
