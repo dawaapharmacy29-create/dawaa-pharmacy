@@ -236,16 +236,16 @@ export default function WhatsAppDoctorCycleIntelligenceV8({ onOpenSource }: { on
   return <section className="dawaa-card dawaa-card--raised p-5" dir="rtl">
     <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
       <div>
-        <div className="flex items-center gap-2 text-xs font-black text-emerald-200"><Stethoscope size={16}/> تحليل أداء الدكاترة V8</div>
+        <div className="flex items-center gap-2 text-xs font-black text-emerald-200"><Stethoscope size={16}/> ذكاء أداء الدكاترة</div>
         <h2 className="mt-1 text-xl font-black text-white">الأداء التشغيلي والبيعي في سايكل 26→25</h2>
-        <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-400">بيانات البيع والإيراد في هذا القسم Legacy ولا تُعد إثباتًا رسميًا. الاعتماد النهائي للبيع والفاتورة يجب أن يأتي من Sales Intelligence canonical.</p>
+        <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-400">المؤشرات مبنية على ملكية مراحل الـCase، والبيع الموثق، ورسائل المحادثة الفعلية. افتح أي دكتور لرؤية أفضل محادثاته ونقاط التحسين والشكاوى والتأخير.</p>
       </div>
       <button onClick={() => void load()} disabled={loading} className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-black text-white disabled:opacity-50"><RefreshCw size={15} className={loading ? 'animate-spin' : ''}/> تحديث</button>
     </div>
 
     <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-      <Metric label="إيراد Legacy تاريخي" value={money(totals.revenue)} />
-      <Metric label="بيعات Legacy تاريخية" value={totals.sales} />
+      <Metric label="إيراد موثق" value={money(totals.revenue)} />
+      <Metric label="مبيعات موثقة" value={totals.sales} />
       <Metric label="فرص تجارية" value={totals.opportunities} />
       <Metric label="فرص بيع متوقفة" value={totals.leakage} />
     </div>
@@ -257,20 +257,25 @@ export default function WhatsAppDoctorCycleIntelligenceV8({ onOpenSource }: { on
 
     <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-800">
       <table className="min-w-[1180px] w-full text-right text-sm">
-        <thead className="bg-slate-950/70 text-xs text-slate-400"><tr><th className="p-3">الدكتور</th><th className="p-3">الفرع</th><th className="p-3">المحادثات</th><th className="p-3">عملاء</th><th className="p-3">فرص تجارية</th><th className="p-3">بيع Legacy</th><th className="p-3">Conversion</th><th className="p-3">إيراد Legacy</th><th className="p-3">غير متوفر</th><th className="p-3">فقد بيع</th><th className="p-3">ترشيحات مقبولة</th><th className="p-3">متابعات</th><th className="p-3">شكاوى</th><th className="p-3">تفاصيل</th></tr></thead>
-        <tbody>{filtered.map((row) => <tr key={`${row.owner_account_id || row.owner_name}-${row.branch}-${row.cycle_start}`} className="border-t border-slate-800 bg-slate-950/25 text-slate-200 hover:bg-slate-900/45"><td className="p-3 font-black text-white">{row.owner_name || 'غير محدد'}</td><td className="p-3">{row.branch || '—'}</td><td className="p-3">{row.handled_cases}</td><td className="p-3">{row.customer_count}</td><td className="p-3">{row.commercial_opportunities}</td><td className="p-3 text-emerald-300">{row.verified_sales}</td><td className="p-3"><span className="inline-flex items-center gap-1"><TrendingUp size={13}/>{Number(row.verified_conversion_rate || 0).toFixed(1)}%</span></td><td className="p-3 font-black text-emerald-300"><span className="inline-flex items-center gap-1"><BadgeDollarSign size={13}/>{money(row.verified_revenue)}</span></td><td className="p-3">{row.recommendation_cases}</td><td className="p-3 text-amber-300">{row.lost_opportunities}</td><td className="p-3">{row.confirmed_orders}</td><td className="p-3">{row.cases_with_failure_signal}</td><td className="p-3 text-rose-300">{row.cases_with_complaint_signal}</td><td className="p-3"><button type="button" onClick={() => void loadDoctorDetail(row)} className="inline-flex items-center gap-1 rounded-lg border border-cyan-400/25 bg-cyan-500/10 px-2.5 py-1.5 text-xs font-black text-cyan-200">فتح <ChevronLeft size={13}/></button></td></tr>)}</tbody>
+        <thead className="bg-slate-950/70 text-xs text-slate-400"><tr><th className="p-3">الدكتور</th><th className="p-3">الفرع</th><th className="p-3">Cases</th><th className="p-3">فرص تجارية</th><th className="p-3">طلبات مؤكدة</th><th className="p-3">بيع موثق</th><th className="p-3">Conversion</th><th className="p-3">إيراد موثق</th><th className="p-3">ترشيحات</th><th className="p-3">فقد بيع</th><th className="p-3">تعثر/فشل</th><th className="p-3">شكاوى</th><th className="p-3">تفاصيل</th></tr></thead>
+        <tbody>{filtered.map((row) => <tr key={`${row.owner_account_id || row.owner_name}-${row.branch}-${row.cycle_start}`} className="border-t border-slate-800 bg-slate-950/25 text-slate-200 hover:bg-slate-900/45"><td className="p-3 font-black text-white">{row.owner_name || 'غير محدد'}</td><td className="p-3">{row.branch || '—'}</td><td className="p-3">{row.handled_cases}</td><td className="p-3">{row.commercial_opportunities}</td><td className="p-3">{row.confirmed_orders}</td><td className="p-3 text-emerald-300">{row.verified_sales}</td><td className="p-3"><span className="inline-flex items-center gap-1"><TrendingUp size={13}/>{row.verified_conversion_rate == null ? '—' : `${Number(row.verified_conversion_rate).toFixed(1)}%`}</span></td><td className="p-3 font-black text-emerald-300"><span className="inline-flex items-center gap-1"><BadgeDollarSign size={13}/>{money(row.verified_revenue)}</span></td><td className="p-3">{row.recommendation_cases}</td><td className="p-3 text-amber-300">{row.lost_opportunities}</td><td className="p-3 text-amber-200">{row.cases_with_failure_signal}</td><td className="p-3 text-rose-300">{row.cases_with_complaint_signal}</td><td className="p-3"><button type="button" onClick={() => void loadDoctorDetail(row)} className="inline-flex items-center gap-1 rounded-lg border border-cyan-400/25 bg-cyan-500/10 px-2.5 py-1.5 text-xs font-black text-cyan-200">فتح <ChevronLeft size={13}/></button></td></tr>)}</tbody>
       </table>
       {!loading && filtered.length === 0 ? <div className="p-8 text-center text-sm text-slate-500">لا توجد بيانات كافية للدكاترة في السايكل الحالي حتى الآن.</div> : null}
     </div>
 
     {selected ? <div className="mt-5 rounded-2xl border border-cyan-400/20 bg-cyan-500/5 p-4">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div><div className="flex items-center gap-2 font-black text-white"><UserRound size={17}/> د. {selected.staff_name || 'غير محدد'} • {selected.branch || '—'}</div><div className="mt-1 text-xs text-slate-400">Drill-down السايكل {selected.cycle_start} → {selected.cycle_end}</div></div>
+        <div><div className="flex items-center gap-2 font-black text-white"><UserRound size={17}/> د. {selected.owner_name || 'غير محدد'} • {selected.branch || '—'}</div><div className="mt-1 text-xs text-slate-400">تحليل السايكل {selected.cycle_start} → {selected.cycle_end} حسب ملكية مراحل الـCase</div></div>
         <button onClick={() => setSelected(null)} className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-black text-slate-300">إغلاق التفاصيل</button>
       </div>
 
-      <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
-        <Metric label="العملاء" value={detailStats.customers}/><Metric label="بيع مؤكد" value={detailStats.verifiedSales}/><Metric label="إيراد مؤكد" value={money(detailStats.verifiedRevenue)}/><Metric label="متابعات مفتوحة" value={detailStats.pendingFollowups}/><Metric label="فرص متوقفة" value={detailStats.leakage}/>
+      <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
+        <Metric label="العملاء" value={detailStats.customers}/>
+        <Metric label="بيع موثق" value={detailStats.verifiedSales}/>
+        <Metric label="Conversion موثق" value={detailStats.conversionRate == null ? '—' : `${detailStats.conversionRate}%`}/>
+        <Metric label="إيراد موثق" value={money(detailStats.verifiedRevenue)}/>
+        <Metric label="حالات شكوى" value={detailStats.complaints}/>
+        <Metric label="حالات تأخير" value={detailStats.delays}/>
       </div>
 
       {detailLoading ? <div className="mt-4 p-6 text-center text-sm text-slate-400">جاري تحميل التفاصيل...</div> : <div className="mt-4 grid gap-4 xl:grid-cols-2">
