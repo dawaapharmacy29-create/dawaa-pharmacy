@@ -124,6 +124,158 @@ async function reconcileSoldCustomerRequestActions(
 }
 
 
+async function reconcileCanonicalCaseSaleProof(
+  service: any,
+  sourceId: string,
+  caseAnalyses: any[]
+) {
+  const proven = caseAnalyses.filter((analysis) =>
+    analysis?.salesOutcome?.outcome === 'sale_proven' &&
+    analysis?.salesOutcome?.isSaleCountable === true &&
+    analysis?.salesOutcome?.isRevenueCountable === true &&
+    analysis?.salesOutcome?.saleProofState === 'proven' &&
+    analysis?.attribution?.selectedInvoiceId
+  );
+
+  const { data: cases, error: caseLookupError } = await service
+    .from('whatsapp_customer_cases_v22')
+    .select('id,case_json,confirmed_outcome')
+    .contains('source_ids', [sourceId]);
+
+  if (caseLookupError) throw caseLookupError;
+  if (!cases?.length) return { reconciledCases: 0, provenCanonicalCases: proven.length };
+
+  // لا نستخدم strongly_supported/strongly_inferred كبيع.
+  // sale_proven وحده ناتج من trusted/direct invoice evidence داخل Canonical Engine.
+  if (!proven.length) {
+    let cleared = 0;
+    for (const row of cases) {
+      if (row.confirmed_outcome === 'verified_sale') continue;
+      const currentJson =
+        row.case_json && typeof row.case_json === 'object' && !Array.isArray(row.case_json)
+          ? row.case_json
+          : {};
+      const { error } = await service
+        .from('whatsapp_customer_cases_v22')
+        .update({
+          verified_revenue: null,
+          verified_invoice_id: null,
+          verified_invoice_number: null,
+          verified_sale_at: null,
+          case_json: {
+            ...currentJson,
+            canonicalSaleProof: {
+              state: 'not_proven',
+              source_id: sourceId,
+              checked_at: new Date().toISOString(),
+            },
+          },
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', row.id);
+      if (error) throw error;
+      cleared += 1;
+    }
+    return { reconciledCases: cleared, provenCanonicalCases: 0 };
+  }
+
+  // مصدر واحد عندنا يمثل Customer Case محفوظة؛ لو الـCanonical قسمها لأكثر من interaction
+  // نختار فقط sale_proven. ولو ظهر أكثر من بيع proven لنفس المصدر نمنع جمع الإيراد هنا
+  // ونتركه للمراجعة بدل تضخيم Conversion/Revenue.
+  const selected = proven.length === 1 ? proven[0] : null;
+  if (!selected) {
+    for (const row of cases) {
+      if (row.confirmed_outcome === 'verified_sale') continue;
+      const currentJson =
+        row.case_json && typeof row.case_json === 'object' && !Array.isArray(row.case_json)
+          ? row.case_json
+          : {};
+      const { error } = await service
+        .from('whatsapp_customer_cases_v22')
+        .update({
+          verified_revenue: null,
+          verified_invoice_id: null,
+          verified_invoice_number: null,
+          verified_sale_at: null,
+          needs_human_review: true,
+          case_json: {
+            ...currentJson,
+            canonicalSaleProof: {
+              state: 'multiple_proven_sales_same_source',
+              source_id: sourceId,
+              canonical_case_ids: proven.map((item) => item.caseId),
+              checked_at: new Date().toISOString(),
+            },
+          },
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', row.id);
+      if (error) throw error;
+    }
+    return { reconciledCases: cases.length, provenCanonicalCases: proven.length };
+  }
+
+  const invoiceId = String(selected.attribution.selectedInvoiceId || '').trim();
+  const invoiceNumber = String(selected.attribution.selectedInvoiceNumber || '').trim();
+  const { data: invoice, error: invoiceError } = await service
+    .from('sales_invoices')
+    .select('id,invoice_number,invoice_datetime,net_amount,total_amount,amount')
+    .eq('id', invoiceId)
+    .maybeSingle();
+  if (invoiceError) throw invoiceError;
+  if (!invoice) {
+    throw new Error(`canonical_proven_invoice_not_found:${invoiceId}`);
+  }
+
+  const revenue = Number(invoice.net_amount ?? invoice.total_amount ?? invoice.amount ?? 0);
+  let reconciledCases = 0;
+  for (const row of cases) {
+    const currentJson =
+      row.case_json && typeof row.case_json === 'object' && !Array.isArray(row.case_json)
+        ? row.case_json
+        : {};
+    const patch: Record<string, unknown> = {
+      proposed_outcome: 'verified_sale',
+      outcome_confidence: 100,
+      outcome_evidence: {
+        source: 'canonical_sales_intelligence',
+        source_id: sourceId,
+        canonical_case_id: selected.caseId,
+        sale_proof_state: selected.salesOutcome.saleProofState,
+        attribution_level: selected.attribution.attributionLevel,
+        selected_invoice_id: invoiceId,
+        selected_invoice_number: invoiceNumber || invoice.invoice_number || null,
+      },
+      verified_revenue: Number.isFinite(revenue) ? revenue : 0,
+      verified_invoice_id: invoiceId,
+      verified_invoice_number: invoiceNumber || invoice.invoice_number || null,
+      verified_sale_at: invoice.invoice_datetime || null,
+      case_json: {
+        ...currentJson,
+        canonicalSaleProof: {
+          state: 'proven',
+          source_id: sourceId,
+          canonical_case_id: selected.caseId,
+          invoice_id: invoiceId,
+          invoice_number: invoiceNumber || invoice.invoice_number || null,
+          checked_at: new Date().toISOString(),
+        },
+      },
+      updated_at: new Date().toISOString(),
+    };
+
+    // القرار البشري confirmed_outcome لا نكتبه فوقه؛ الـView أصلًا يفضله على proposed_outcome.
+    const { error } = await service
+      .from('whatsapp_customer_cases_v22')
+      .update(patch)
+      .eq('id', row.id);
+    if (error) throw error;
+    reconciledCases += 1;
+  }
+
+  return { reconciledCases, provenCanonicalCases: 1 };
+}
+
 async function enrichComplaintFollowupContext(
   service: any,
   source: Record<string, unknown>,
@@ -373,6 +525,8 @@ export default async function handler(req: any, res: any) {
     }
 
     let reconciledActions = 0;
+    let reconciledCases = 0;
+    let provenCanonicalCases = 0;
     for (const source of sources) {
       const id = String(source.id || '');
       if (!id) continue;
@@ -383,6 +537,13 @@ export default async function handler(req: any, res: any) {
         sourceAnalyses as any[]
       );
       reconciledActions += reconciliation.reconciledActions;
+      const caseReconciliation = await reconcileCanonicalCaseSaleProof(
+        service,
+        id,
+        sourceAnalyses as any[]
+      );
+      reconciledCases += caseReconciliation.reconciledCases;
+      provenCanonicalCases += caseReconciliation.provenCanonicalCases;
       await enrichComplaintFollowupContext(service, source, sourceAnalyses as any[]);
     }
 
@@ -397,6 +558,7 @@ export default async function handler(req: any, res: any) {
       nextOffset: sourceFileName ? sourceOffset + sourceRows.length : null,
       hasMore: sourceFileName ? sourceOffset + sourceRows.length < Number(totalSourceCount || 0) : false,
       actionReconciliation: { reconciledActions },
+      caseSaleProofReconciliation: { reconciledCases, provenCanonicalCases },
       derivedCases: result.caseAnalyses.map((row) => ({
         conversationId: row.conversationId,
         caseId: row.caseId,
