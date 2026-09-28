@@ -186,17 +186,29 @@ export default function WhatsAppDoctorCycleIntelligenceV8({ onOpenSource }: { on
   }), [filtered]);
 
   const doctorInsights = useMemo(() => {
+    const selectedName = String(selected?.owner_name || '').trim().toLowerCase();
     const enriched = conversations.map((item) => {
       const journey = item.analysis_json?.groundedSaleJourneyV33 || null;
-      const score = Number(journey?.coaching?.bestPracticeScore);
+      const staffCoaching = Array.isArray(journey?.staffCoaching)
+        ? journey.staffCoaching.find((coach: any) => String(coach?.staffName || '').trim().toLowerCase() === selectedName) || null
+        : null;
+      const scoreRaw = staffCoaching?.score ?? journey?.coaching?.bestPracticeScore;
+      const score = Number(scoreRaw);
       return {
         item,
         journey,
+        staffCoaching,
         score: Number.isFinite(score) ? score : null,
-        strengths: Array.isArray(journey?.coaching?.strengths) ? journey.coaching.strengths as string[] : [],
-        gaps: Array.isArray(journey?.coaching?.gaps) ? journey.coaching.gaps as string[] : [],
+        strengths: Array.isArray(staffCoaching?.strengths)
+          ? staffCoaching.strengths as string[]
+          : Array.isArray(journey?.coaching?.strengths) ? journey.coaching.strengths as string[] : [],
+        gaps: Array.isArray(staffCoaching?.gaps)
+          ? staffCoaching.gaps as string[]
+          : Array.isArray(journey?.coaching?.gaps) ? journey.coaching.gaps as string[] : [],
         complaintPoints: Array.isArray(journey?.coaching?.complaintPoints) ? journey.coaching.complaintPoints as string[] : [],
-        delayPoints: Array.isArray(journey?.coaching?.delayPoints) ? journey.coaching.delayPoints as string[] : [],
+        delayPoints: Number(staffCoaching?.slowResponseCount || 0) > 0
+          ? [`لديه ${Number(staffCoaching.slowResponseCount)} رد متأخر أكثر من 10 دقائق داخل نطاقه.`]
+          : Array.isArray(journey?.coaching?.delayPoints) ? journey.coaching.delayPoints as string[] : [],
       };
     });
     const grounded = enriched.filter((row) => row.journey);
@@ -211,18 +223,29 @@ export default function WhatsAppDoctorCycleIntelligenceV8({ onOpenSource }: { on
       .filter((row) => row.gaps.length || row.delayPoints.length || row.complaintPoints.length)
       .sort((a,b) => (a.score ?? 101) - (b.score ?? 101))
       .slice(0, 8);
+
+    const countText = (rows: string[]) => {
+      const map = new Map<string, number>();
+      rows.forEach((text) => map.set(text, (map.get(text) || 0) + 1));
+      return [...map.entries()].sort((a,b) => b[1] - a[1]);
+    };
+    const repeatedStrengths = countText(enriched.flatMap((row) => row.strengths)).slice(0, 4);
+    const repeatedGaps = countText(enriched.flatMap((row) => row.gaps)).slice(0, 4);
+
     return {
       enriched,
       commercialCount: commercial.length,
       verifiedSales: verifiedSales.length,
       verifiedRevenue,
       conversionRate: commercial.length ? Math.round((verifiedSales.length / commercial.length) * 1000) / 10 : null,
-      complaints: enriched.filter((row) => row.complaintPoints.length).length,
-      delays: enriched.filter((row) => row.delayPoints.length).length,
+      complaints: grounded.filter((row) => (row.journey?.complaintMessageIds || []).length).length,
+      delays: enriched.filter((row) => Number(row.staffCoaching?.slowResponseCount || 0) > 0 || row.delayPoints.length).length,
       best,
       improvement,
+      repeatedStrengths,
+      repeatedGaps,
     };
-  }, [conversations]);
+  }, [conversations, selected?.owner_name]);
 
   const detailStats = useMemo(() => ({
     customers: new Set(conversations.map((x) => x.customer_code || x.customer_name).filter(Boolean)).size,
@@ -314,6 +337,38 @@ export default function WhatsAppDoctorCycleIntelligenceV8({ onOpenSource }: { on
           </button>)}{!products.length ? <div className="p-5 text-center text-xs text-slate-500">لا توجد رحلات أصناف مرتبطة بهذا الدكتور حتى الآن.</div> : null}</div>
         </div>
       </div>}
+
+      {!detailLoading ? (
+        <section className="mt-4 rounded-2xl border border-violet-800/30 bg-violet-950/10 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="text-sm font-black text-violet-100">الملخص التدريبي للدكتور</div>
+              <div className="mt-1 text-[10px] text-slate-500">مستخرج من أكثر الأنماط تكرارًا في المحادثات المرتبطة بمراحل يمتلكها الدكتور فعليًا.</div>
+            </div>
+            <div className="text-left text-[10px] text-slate-500">
+              {doctorInsights.enriched.filter((row) => row.staffCoaching).length} محادثة فيها Coaching شخصي موثق
+            </div>
+          </div>
+          <div className="mt-3 grid gap-3 md:grid-cols-2">
+            <div className="rounded-xl bg-emerald-500/5 p-3">
+              <div className="text-[10px] font-black text-emerald-300">أقوى السلوكيات المتكررة</div>
+              <div className="mt-2 space-y-1 text-xs leading-5 text-slate-300">
+                {doctorInsights.repeatedStrengths.length
+                  ? doctorInsights.repeatedStrengths.map(([label, count]) => <div key={label}>✓ {label} <span className="text-[10px] text-slate-500">({count})</span></div>)
+                  : <div className="text-slate-500">لسه مفيش عدد كافٍ من المحادثات المعاد تحليلها لاستخراج نمط ثابت.</div>}
+              </div>
+            </div>
+            <div className="rounded-xl bg-amber-500/5 p-3">
+              <div className="text-[10px] font-black text-amber-300">أولوية التحسين القادمة</div>
+              <div className="mt-2 space-y-1 text-xs leading-5 text-slate-300">
+                {doctorInsights.repeatedGaps.length
+                  ? doctorInsights.repeatedGaps.map(([label, count]) => <div key={label}>• {label} <span className="text-[10px] text-slate-500">({count})</span></div>)
+                  : <div className="text-slate-500">لا توجد ملاحظة متكررة موثقة حتى الآن.</div>}
+              </div>
+            </div>
+          </div>
+        </section>
+      ) : null}
 
       {!detailLoading ? (
         <div className="mt-4 grid gap-4 xl:grid-cols-2">
