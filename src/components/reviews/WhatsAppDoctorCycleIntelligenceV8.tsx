@@ -86,7 +86,11 @@ function Metric({ label, value }: { label: string; value: string | number }) {
   return <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3 text-center"><div className="text-[11px] text-slate-500">{label}</div><div className="mt-1 text-lg font-black text-white">{value}</div></div>;
 }
 
-export default function WhatsAppDoctorCycleIntelligenceV8({ onOpenSource }: { onOpenSource?: (sourceId: string) => void }) {
+export default function WhatsAppDoctorCycleIntelligenceV8({
+  onOpenSource,
+}: {
+  onOpenSource?: (sourceId: string, evidenceMessageIds?: string[]) => void;
+}) {
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
@@ -415,7 +419,15 @@ export default function WhatsAppDoctorCycleIntelligenceV8({ onOpenSource }: { on
               {doctorInsights.best.map(({ item, journey, score, findings }) => {
                 const strongFindings = findings.filter((finding) => finding.tone === 'strong').slice(0, 3);
                 return (
-                  <button key={item.id} type="button" onClick={() => onOpenSource?.(item.id)} className="w-full rounded-xl border border-emerald-800/25 bg-black/10 p-3 text-right transition hover:border-emerald-500/40">
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => onOpenSource?.(
+                      item.id,
+                      Array.from(new Set(strongFindings.flatMap((finding) => finding.evidenceMessageIds)))
+                    )}
+                    className="w-full rounded-xl border border-emerald-800/25 bg-black/10 p-3 text-right transition hover:border-emerald-500/40"
+                  >
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="font-black text-white">{item.customer_name || 'عميل غير محدد'}</div>
@@ -451,7 +463,15 @@ export default function WhatsAppDoctorCycleIntelligenceV8({ onOpenSource }: { on
               {doctorInsights.improvement.map(({ item, journey, score, findings }) => {
                 const improvementFindings = findings.filter((finding) => finding.tone === 'improvement').slice(0, 4);
                 return (
-                  <button key={item.id} type="button" onClick={() => onOpenSource?.(item.id)} className="w-full rounded-xl border border-amber-800/25 bg-black/10 p-3 text-right transition hover:border-amber-500/40">
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => onOpenSource?.(
+                      item.id,
+                      Array.from(new Set(improvementFindings.flatMap((finding) => finding.evidenceMessageIds)))
+                    )}
+                    className="w-full rounded-xl border border-amber-800/25 bg-black/10 p-3 text-right transition hover:border-amber-500/40"
+                  >
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="font-black text-white">{item.customer_name || 'عميل غير محدد'}</div>
