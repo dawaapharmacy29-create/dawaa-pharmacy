@@ -590,8 +590,9 @@ function recommendations(session: WhatsAppConversationSession, products: WhatsAp
     if (!product && !mediaOnlyRecommendation && !contextualUnnamedRecommendation) return [];
 
     const laterInbound = session.messages.slice(index + 1).filter((m) => m.direction === 'inbound').slice(0, 3);
-    const acceptedMsg = laterInbound.find((m) => ACCEPT_RX.test(m.text));
-    const rejectedMsg = laterInbound.find((m) => REJECT_RX.test(m.text));
+    const canResolveProductDecision = Boolean(product || mediaOnlyRecommendation);
+    const acceptedMsg = canResolveProductDecision ? laterInbound.find((m) => ACCEPT_RX.test(m.text)) : undefined;
+    const rejectedMsg = canResolveProductDecision ? laterInbound.find((m) => REJECT_RX.test(m.text)) : undefined;
     const accepted = acceptedMsg ? true : rejectedMsg ? false : null;
     return [{
       productName: product?.rawName || null,
