@@ -571,11 +571,20 @@ function recommendations(session: WhatsAppConversationSession, products: WhatsAp
   return recMessages.flatMap((message) => {
     const product = products.find((p) => p.status === 'recommended' && p.evidenceMessageIds.includes(message.id));
     const mediaOnlyRecommendation = mediaRecommendationMessages.some((row) => row.id === message.id);
-    // Recommendation wording without a named/extracted product is consultation context,
-    // not a commercial product recommendation. Do not create follow-up/sale intent from it.
-    if (!product && !mediaOnlyRecommendation) return [];
-
     const index = session.messages.findIndex((m) => m.id === message.id);
+    const priorStockout = index > 0 && session.messages.slice(0, index).some((row) =>
+      row.direction === 'outbound' &&
+      /(مش موجود|غير موجود|غير متوفر(?:ه|ة)?|مش متوفر(?:ه|ة)?|ناقص|مش متاح|خلص|مش عندنا)/i.test(row.text)
+    );
+    const contextualUnnamedRecommendation =
+      requestedRecommendation ||
+      (priorStockout && RECOMMEND_RX.test(message.text));
+
+    // Keep unnamed commercial recommendation evidence when the customer explicitly asked for
+    // a recommendation or the pharmacy is offering an alternative after a proven stockout.
+    // Generic advice/dosage prose without either context remains consultation-only.
+    if (!product && !mediaOnlyRecommendation && !contextualUnnamedRecommendation) return [];
+
     const laterInbound = session.messages.slice(index + 1).filter((m) => m.direction === 'inbound').slice(0, 3);
     const acceptedMsg = laterInbound.find((m) => ACCEPT_RX.test(m.text));
     const rejectedMsg = laterInbound.find((m) => REJECT_RX.test(m.text));
