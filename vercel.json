@@ -3,7 +3,8 @@
   "framework": "vite",
   "git": {
     "deploymentEnabled": {
-      "whatsapp-review-integration-test": true
+      "whatsapp-review-integration-test": true,
+      "feature/whatsapp-sales-intelligence-v1": true
     }
   },
   "installCommand": "npm install -g npm@10.9.2 && npm ci --legacy-peer-deps --no-audit --no-fund",
