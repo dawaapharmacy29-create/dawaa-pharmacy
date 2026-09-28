@@ -52,7 +52,7 @@ import { buildConversationUnderstandingV32 } from '@/lib/whatsappConversationUnd
 import { syncWhatsAppResponseTurnsV18 } from '@/lib/whatsappResponseTurnsV18';
 import { syncWhatsAppEvidenceLedgerV17 } from '@/lib/whatsappEvidenceLedgerV17';
 import { syncWhatsAppOrderLifecycleV19 } from '@/lib/whatsappOrderLifecycleV19';
-import { persistAnalyzedWhatsAppSession, attachInvoiceVerificationToQueue, confirmWhatsAppInvoiceLinkV34 } from '@/lib/whatsappReviewPersistenceV4';
+import { persistAnalyzedWhatsAppSession, attachInvoiceVerificationToQueue, confirmWhatsAppInvoiceLinkV34, archiveSupersededLegacyWhatsAppSourceV35 } from '@/lib/whatsappReviewPersistenceV4';
 import { buildWhatsAppCustomerJourneyIntelligenceV15 } from '@/lib/whatsappCustomerJourneyIntelligenceV15';
 import { syncWhatsAppCustomerJourneyV15, type JourneySessionSourceV15 } from '@/lib/whatsappCustomerJourneyPersistenceV15';
 import { syncWhatsAppCustomerCasesV22 } from '@/lib/whatsappCustomerCasePersistenceV22';
@@ -732,11 +732,40 @@ export default function WhatsAppSmartFolderWatcher() {
             sessionIds: [context.mergedSession.id],
           })),
         };
-        await syncWhatsAppCustomerCasesV22(persistedCaseModel, {
+        const caseSync = await syncWhatsAppCustomerCasesV22(persistedCaseModel, {
           branch,
           createdBy: actorName,
           sessionSources: persistedSessionSources.filter((row) => sourceByMergedSession.has(row.sessionId)),
         });
+
+        const replacementSourceIds = Array.from(new Set(
+          persistedSessionSources.map((row) => row.sourceId).filter(Boolean)
+        ));
+        if (
+          caseContexts.caseEngine.caseCount > 1 &&
+          caseSync.failed === 0 &&
+          caseSync.saved === caseContexts.caseEngine.caseCount &&
+          replacementSourceIds.length >= 2
+        ) {
+          try {
+            const archiveResult = await archiveSupersededLegacyWhatsAppSourceV35({
+              sourceFileName: file.name,
+              fullConversationStartedAt: messages[0]?.timestamp?.toISOString?.() || '',
+              fullConversationEndedAt: messages[messages.length - 1]?.timestamp?.toISOString?.() || '',
+              fullMessageCount: messages.length,
+              replacementSourceIds,
+              actorId: String(user?.id || '') || null,
+              actorName,
+            });
+            if (archiveResult.archived) {
+              console.info('[whatsapp-watcher] archived superseded monolithic source', archiveResult);
+            } else if (archiveResult.skippedReason && archiveResult.skippedReason !== 'no_legacy_monolithic_source') {
+              console.warn('[whatsapp-watcher] legacy source cleanup skipped safely', archiveResult);
+            }
+          } catch (archiveError) {
+            console.warn('[whatsapp-watcher] legacy source cleanup failed; new case sources preserved', archiveError);
+          }
+        }
       } catch (syncError) {
         console.warn('[whatsapp-watcher] journey/case persistence failed; local capture remains available', syncError);
       }
