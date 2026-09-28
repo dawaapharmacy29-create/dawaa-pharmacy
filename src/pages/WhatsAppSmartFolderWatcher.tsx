@@ -1305,9 +1305,9 @@ export default function WhatsAppSmartFolderWatcher() {
                             <section key={caseGroup.caseId} className="overflow-hidden rounded-2xl border border-cyan-900/40 bg-cyan-950/5">
                               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 px-3 py-2.5">
                                 <div>
-                                  <div className="text-xs font-black text-cyan-200">حالة/رحلة {caseIndex + 1}: {caseGroup.summary}</div>
+                                  <div className="text-xs font-black text-cyan-200">{caseGroup.customerName || `رحلة عميل ${caseIndex + 1}`}</div>
                                   <div className="mt-1 text-[10px] text-slate-500">
-                                    {caseGroup.sessionCount} جلسة خام مرتبطة · {caseGroup.items.length} مسؤول · {caseGroup.customerName || 'عميل غير محدد'}
+                                    {caseGroup.summary} · {caseGroup.sessionCount} جلسة مرتبطة · {caseGroup.items.length} مسؤول
                                   </div>
                                 </div>
                                 {caseGroup.sessionCount > 1 ? (
@@ -1322,15 +1322,26 @@ export default function WhatsAppSmartFolderWatcher() {
                                     type="button"
                                     onClick={() => openDetails(item)}
                                     key={`${item.sessionId}-${item.staffName}-${item.role}-${index}`}
-                                    className="grid w-full items-center gap-2 rounded-xl border border-slate-800 bg-[#111c2b]/70 px-3 py-2.5 text-right transition hover:border-cyan-700/60 hover:bg-cyan-950/10 md:grid-cols-[1.2fr_.8fr_.7fr_.6fr_auto]"
+                                    className="grid w-full items-center gap-3 rounded-xl border border-slate-800 bg-[#111c2b]/70 px-3 py-3 text-right transition hover:border-cyan-700/60 hover:bg-cyan-950/10 md:grid-cols-[1.15fr_1.2fr_.9fr_auto]"
                                   >
                                     <div className="min-w-0">
                                       <div className="truncate text-sm font-black text-white">{item.staffIdentity.canonicalStaffName || item.staffName}</div>
-                                      <div className="truncate text-[10px] text-slate-500">{roleLabel(item.role)} · {item.staffIdentity.branch || item.branchHint.value || 'فرع غير محدد'}</div>
+                                      <div className="mt-0.5 truncate text-[10px] text-slate-500">{roleLabel(item.role)} · {item.staffIdentity.branch || item.branchHint.value || 'فرع غير محدد'}</div>
                                     </div>
-                                    <div className="truncate text-xs text-slate-300">{caseLabel(item)}</div>
-                                    <div className="text-xs text-slate-400">{item.intelligence?.salesOpportunities.length || 0} فرصة · {item.intelligence?.followup.detected ? 'متابعة' : 'بدون متابعة'}</div>
-                                    <div className="truncate text-[11px] text-slate-500">{item.customerName || 'عميل غير محدد'}</div>
+                                    <div className="min-w-0">
+                                      <div className="truncate text-xs font-black text-slate-200">{saleTruth(item).label}</div>
+                                      <div className="mt-0.5 truncate text-[10px] text-slate-500">{caseLabel(item)}</div>
+                                    </div>
+                                    <div className="min-w-0">
+                                      <div className="truncate text-xs text-slate-300">
+                                        {item.snapshot.smartIntelligence?.invoiceVerification?.bestCandidate?.invoiceNumber
+                                          ? `فاتورة ${item.snapshot.smartIntelligence.invoiceVerification.bestCandidate.invoiceNumber}`
+                                          : 'بدون فاتورة مؤكدة'}
+                                      </div>
+                                      <div className="mt-0.5 text-[10px] text-slate-500">
+                                        {item.intelligence?.followup.detected ? 'متابعة مطلوبة' : 'لا متابعة'} · {item.intelligence?.salesOpportunities.length || 0} فرصة
+                                      </div>
+                                    </div>
                                     <div className="flex items-center gap-2 justify-self-end">
                                       <span className={`rounded-full px-2.5 py-1 text-[10px] font-black ${item.decision === 'clear' ? 'bg-emerald-500/15 text-emerald-200' : item.decision === 'issue' ? 'bg-amber-500/15 text-amber-200' : 'bg-rose-500/15 text-rose-200'}`}>{decisionLabel(item.decision)}</span>
                                       <ArrowLeft size={14} className="text-cyan-300" />
