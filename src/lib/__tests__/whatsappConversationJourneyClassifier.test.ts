@@ -74,13 +74,13 @@ describe('classifyConversationJourney', () => {
     expect(result.journeyType).toBe('direct_customer_request');
   });
 
-  it('a check-in that leads to an invoice-verified sale -> checkin_then_verified_sale', () => {
+  it('a check-in with a strong statistical invoice match remains an invoice candidate', () => {
     const result = classify(
       `[9/15/26, 9:00:00 AM] You: عامل ايه حضرتك؟ حبينا نطمن عليك\n[9/15/26, 9:01:00 AM] Customer: الحمد لله كويس، عايز اطلب فيتامين د\n[9/15/26, 9:02:00 AM] You: تم تأكيد الطلب`,
       { ...NOT_APPLICABLE, status: 'verified' }
     );
-    expect(result.saleState).toBe('invoice_verified_sale');
-    expect(result.journeyType).toBe('checkin_then_verified_sale');
+    expect(result.saleState).toBe('invoice_candidate_strong');
+    expect(result.journeyType).toBe('checkin_then_invoice_candidate');
   });
 });
 
@@ -90,9 +90,9 @@ describe('mapSaleState', () => {
     expect(state).toBe('chat_sale_signal');
   });
 
-  it('a real matching invoice confirms the sale -> invoice_verified_sale', () => {
+  it('a strong statistical invoice match remains a candidate until an exact link is approved', () => {
     const state = mapSaleState({ commercialEligible: true, chatSuggestedSold: true }, { status: 'verified' });
-    expect(state).toBe('invoice_verified_sale');
+    expect(state).toBe('invoice_candidate_strong');
   });
 
   it('a weak invoice match is only probable, never treated as confirmed', () => {
@@ -107,7 +107,7 @@ describe('mapSaleState', () => {
 });
 
 describe('verifySessionAgainstInvoices end-to-end feeds mapSaleState correctly', () => {
-  it('a real matching invoice from readCustomerInvoices resolves to invoice_verified_sale', async () => {
+  it('a strong matcher result resolves to invoice_candidate_strong, not a proven sale', async () => {
     vi.resetModules();
     vi.doMock('@/lib/readModels/customerInvoiceReadModel', () => ({
       readCustomerInvoices: async () => ({
@@ -142,7 +142,7 @@ describe('verifySessionAgainstInvoices end-to-end feeds mapSaleState correctly',
       branch: 'الفرع الرئيسي',
     });
     expect(verification.status).toBe('verified');
-    expect(mapSaleState(base, verification)).toBe('invoice_verified_sale');
+    expect(mapSaleState(base, verification)).toBe('invoice_candidate_strong');
     vi.doUnmock('@/lib/readModels/customerInvoiceReadModel');
   });
 });
