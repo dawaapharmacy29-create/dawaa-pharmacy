@@ -785,18 +785,30 @@ async function discoverStrongCatalogMentions(session: WhatsAppConversationSessio
 
     for (const rawName of candidateFragmentsFromMessage(message.text)) {
       if (!plausibleProductPhrase(rawName) || isStandaloneConversationNoise(rawName)) continue;
+      const directCustomerDemand =
+        message.direction === 'inbound' && isDirectCommercialProductMessageV22(message);
+      const explicitRecommendation =
+        message.direction === 'outbound' && RECOMMEND_RX.test(message.text);
       const seed: WhatsAppProductSignal = {
         rawName,
         normalizedName: normalize(rawName),
         quantity: quantityFrom(message.text),
-        status: message.direction === 'outbound'
+        status: explicitRecommendation
           ? 'recommended'
-          : isDirectCommercialProductMessageV22(message)
+          : directCustomerDemand
             ? 'requested'
             : 'mentioned',
         sourceDirection: message.direction,
         evidenceMessageIds: [message.id],
         confidence: 72,
+        mentionOrigin: explicitRecommendation
+          ? 'recommendation'
+          : directCustomerDemand
+            ? 'customer_explicit'
+            : message.direction === 'outbound'
+              ? 'pharmacy_mention'
+              : 'contextual',
+        requestProven: directCustomerDemand,
       };
       const resolved = await resolveProduct(seed);
       if (!resolved.productId || !resolved.productCode) continue;
@@ -873,12 +885,33 @@ export async function enrichWhatsAppOperationalProductsV6(
   const resolvedProducts = await Promise.all(model.products.map(resolveProduct));
   const discovered = session ? await discoverStrongCatalogMentions(session) : [];
   const merged = new Map<string, WhatsAppProductSignal>();
+  const truthRank = (product: WhatsAppProductSignal) => {
+    if (product.requestProven === true && product.mentionOrigin === 'customer_explicit') return 4;
+    if (product.status === 'recommended' || product.mentionOrigin === 'recommendation') return 3;
+    if (product.mentionOrigin === 'pharmacy_mention') return 2;
+    return 1;
+  };
 
   for (const product of [...resolvedProducts, ...discovered]) {
     const key = product.productId ? 'id:' + product.productId : 'text:' + product.normalizedName;
     const previous = merged.get(key);
-    if (!previous || product.confidence > previous.confidence) merged.set(key, product);
-    else previous.evidenceMessageIds = uniq([...previous.evidenceMessageIds, ...product.evidenceMessageIds]);
+    if (!previous) {
+      merged.set(key, product);
+      continue;
+    }
+
+    const incomingWins =
+      truthRank(product) > truthRank(previous) ||
+      (truthRank(product) === truthRank(previous) && product.confidence > previous.confidence);
+    const winner = incomingWins ? product : previous;
+    const loser = incomingWins ? previous : product;
+    winner.evidenceMessageIds = uniq([...winner.evidenceMessageIds, ...loser.evidenceMessageIds]);
+    if (winner.quantity == null && loser.quantity != null) winner.quantity = loser.quantity;
+    if (winner.productId == null && loser.productId != null) winner.productId = loser.productId;
+    if (winner.productCode == null && loser.productCode != null) winner.productCode = loser.productCode;
+    if (winner.canonicalName == null && loser.canonicalName != null) winner.canonicalName = loser.canonicalName;
+    if (winner.catalogConfidence == null && loser.catalogConfidence != null) winner.catalogConfidence = loser.catalogConfidence;
+    merged.set(key, winner);
   }
 
   const products = mergeDeicticProductReferences(
@@ -894,8 +927,10 @@ export async function enrichWhatsAppOperationalProductsV6(
       ) ||
       (
         product.sourceDirection === 'outbound' &&
-        product.status === 'recommended' &&
-        product.confidence >= 90 &&
+        (
+          (product.status === 'recommended' && product.confidence >= 90) ||
+          (product.status === 'mentioned' && product.mentionOrigin === 'pharmacy_mention' && product.confidence >= 86)
+        ) &&
         plausibleProductPhrase(product.rawName)
       )
     ),
@@ -933,7 +968,12 @@ export async function enrichWhatsAppOperationalProductsV6(
   // extractor could not see (for example a short forwarded product name). Promote ONLY products
   // already classified as requested by the conservative direct-commercial guard above.
   for (const product of products) {
-    if (product.sourceDirection !== 'inbound' || product.status !== 'requested') continue;
+    if (
+      product.sourceDirection !== 'inbound' ||
+      product.status !== 'requested' ||
+      product.requestProven !== true ||
+      product.mentionOrigin !== 'customer_explicit'
+    ) continue;
     if (customerRequests.some((request) =>
       request.evidenceMessageIds.some((id) => product.evidenceMessageIds.includes(id))
     )) continue;
