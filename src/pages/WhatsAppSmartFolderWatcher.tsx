@@ -1130,12 +1130,20 @@ export default function WhatsAppSmartFolderWatcher() {
     const opening = evaluation?.opening;
     const closing = evaluation?.closing;
     const order = evaluation?.orderCompleteness;
+    const explicitConfirmation = order?.items.find((row) => row.key === 'explicit_confirmation');
+    const openingOfficial = /قالب ترحيب رسمي معتمد/.test(opening?.evidence.reason || '');
+    const closingOfficial = /قالب ختامي رسمي معتمد/.test(closing?.evidence.reason || '');
     return {
-      opening: opening?.score != null && opening.score >= 80 ? 'موجود' : opening?.score != null ? 'جزئي' : 'غير محسوم',
-      orderConfirmation: order?.applicable
-        ? (order.confirmedCount >= order.requiredCount ? 'مؤكد بالكامل' : `${order.confirmedCount}/${order.requiredCount} مؤكد`)
-        : 'غير منطبق/غير محسوم',
-      closing: closing?.score != null && closing.score >= 80 ? 'موجود' : closing?.score != null ? 'جزئي' : 'غير محسوم',
+      opening: openingOfficial ? 'رسمي معتمد' : opening?.score != null && opening.score >= 80 ? 'موجود' : opening?.score != null ? 'جزئي' : 'غير محسوم',
+      openingOfficial,
+      orderConfirmation: explicitConfirmation?.status === 'confirmed'
+        ? 'مؤكد مع العميل'
+        : explicitConfirmation?.status === 'missing'
+          ? 'غير ظاهر'
+          : 'غير منطبق/غير محسوم',
+      orderConfirmationConfirmed: explicitConfirmation?.status === 'confirmed',
+      closing: closingOfficial ? 'رسمي معتمد' : closing?.score != null && closing.score >= 80 ? 'موجود' : closing?.score != null ? 'جزئي' : 'غير محسوم',
+      closingOfficial,
     };
   }
 
@@ -1555,16 +1563,22 @@ export default function WhatsAppSmartFolderWatcher() {
                             ) : null}
                           </div>
 
-                          <div className="rounded-xl border border-slate-800 bg-black/10 p-3">
-                            <div className="text-[10px] font-black text-slate-500">تأكيد الطلب</div>
-                            <div className="mt-1 text-sm font-black text-white">{protocol.orderConfirmation}</div>
-                            <div className="mt-1 text-[10px] text-slate-400">مستقل عن حقيقة البيع: هل راجع الدكتور الأصناف/الكميات مع العميل وأخذ تأكيده قبل الإغلاق؟</div>
+                          <div className={`rounded-xl border p-3 ${protocol.orderConfirmationConfirmed ? 'border-emerald-800/40 bg-emerald-950/10' : 'border-amber-800/30 bg-amber-950/5'}`}>
+                            <div className="text-[10px] font-black text-slate-500">تأكيد الطلب مع العميل</div>
+                            <div className={`mt-1 text-sm font-black ${protocol.orderConfirmationConfirmed ? 'text-emerald-200' : 'text-amber-200'}`}>{protocol.orderConfirmation}</div>
+                            <div className="mt-1 text-[10px] text-slate-400">هل راجع الدكتور الأصناف والكميات مع العميل وأخذ تأكيده قبل الإغلاق؟ هذا مستقل عن وجود الفاتورة.</div>
                           </div>
 
                           <div className="rounded-xl border border-slate-800 bg-black/10 p-3">
                             <div className="text-[10px] font-black text-slate-500">بروتوكول المحادثة</div>
-                            <div className="mt-1 text-xs font-black text-white">ترحيب: {protocol.opening}</div>
-                            <div className="mt-1 text-xs font-black text-white">ختام: {protocol.closing}</div>
+                            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs font-black text-white">
+                              <span>ترحيب: {protocol.opening}</span>
+                              {protocol.openingOfficial ? <span className="rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[9px] text-emerald-300">قالب رسمي</span> : null}
+                            </div>
+                            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs font-black text-white">
+                              <span>ختام: {protocol.closing}</span>
+                              {protocol.closingOfficial ? <span className="rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[9px] text-emerald-300">قالب رسمي</span> : null}
+                            </div>
                           </div>
                         </div>
 
