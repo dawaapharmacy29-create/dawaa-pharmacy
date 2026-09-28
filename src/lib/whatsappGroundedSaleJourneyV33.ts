@@ -61,6 +61,23 @@ export interface GroundedSaleJourneyV33 {
     firstMessageAt: string | null;
     lastMessageAt: string | null;
   }>;
+  staffCoaching: Array<{
+    staffName: string;
+    role: string;
+    evidenceMessageIds: string[];
+    responseTurnCount: number;
+    medianResponseSeconds: number | null;
+    slowResponseCount: number;
+    confirmationCount: number;
+    recommendationCount: number;
+    recoveryCount: number;
+    closingCount: number;
+    complaintResponseCount: number;
+    strengths: string[];
+    gaps: string[];
+    score: number | null;
+    label: string;
+  }>;
   coaching: {
     strengths: string[];
     gaps: string[];
@@ -151,6 +168,19 @@ function makeStage(
     evidenceMessageIds: rows.map((row) => row.id).slice(0, 12),
     reason: rows.length ? reason : `لم يوجد دليل رسالة مباشر يثبت مرحلة «${label}».`,
   };
+}
+
+function normalizeStaffName(value: unknown) {
+  return normalize(value)
+    .replace(/^(?:د\s*[\/.-]?\s*|دكتور(?:ه|ة)?\s+)/i, '')
+    .trim();
+}
+
+function median(values: number[]) {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a,b) => a-b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : Math.round((sorted[mid - 1] + sorted[mid]) / 2);
 }
 
 function roleContribution(session: WhatsAppConversationSession, roles?: WhatsAppParticipantRoleModelV15 | null) {
@@ -409,6 +439,100 @@ export function buildGroundedSaleJourneyV33(args: {
   if (session.missingMediaCount) warnings.push(`يوجد ${session.missingMediaCount} مرفق غير متاح؛ قد يحتوي على تفاصيل منتج/طلب.`);
   if (participantRoles?.messages.some((row) => row.role === 'pharmacy_unknown' && row.confidence < 70)) warnings.push('بعض الرسائل الخارجة لم تُنسب لموظف محدد بثقة كافية.');
 
+  const roleByMessage = new Map((participantRoles?.messages || []).map((row) => [row.messageId, row]));
+  const contributions = roleContribution(session, participantRoles);
+  const staffCoaching = contributions.map((staff) => {
+    const key = normalizeStaffName(staff.staffName);
+    const owned = new Set(staff.messageIds);
+    const staffTurns = timing.responseTurns.filter((turn) =>
+      turn.responseMessageId &&
+      owned.has(turn.responseMessageId) &&
+      normalizeStaffName(turn.responderStaffName || '') === key
+    );
+    const latencies = staffTurns
+      .map((turn) => turn.responseLatencySeconds)
+      .filter((value): value is number => typeof value === 'number');
+    const confirmationCount = confirmationRows.filter((row) => owned.has(row.id)).length;
+    const recommendationCount = recommendationRows.filter((row) => owned.has(row.id)).length;
+    const recoveryCount = recoveryRows.filter((row) => owned.has(row.id)).length;
+    const closingCount = closingRows.filter((row) => owned.has(row.id)).length;
+
+    let complaintResponseCount = 0;
+    const complaintResponseIds: string[] = [];
+    for (const complaint of complaintRows) {
+      const response = session.messages.find((message) =>
+        message.direction === 'outbound' &&
+        message.timestamp.getTime() >= complaint.timestamp.getTime() &&
+        message.timestamp.getTime() - complaint.timestamp.getTime() <= 60 * 60 * 1000
+      );
+      if (response && owned.has(response.id)) {
+        complaintResponseCount += 1;
+        complaintResponseIds.push(response.id);
+      }
+    }
+
+    const strengths: string[] = [];
+    const gaps: string[] = [];
+    const medianResponseSeconds = median(latencies);
+    const slowResponseCount = latencies.filter((value) => value > 600).length;
+
+    if (latencies.length && latencies.every((value) => value <= 300)) strengths.push('ردوده المسجلة على Turns العملاء كانت خلال 5 دقائق.');
+    else if (slowResponseCount) gaps.push(`لديه ${slowResponseCount} رد متأخر أكثر من 10 دقائق داخل نطاقه.`);
+    if (confirmationCount) strengths.push('نفذ تأكيدًا واضحًا للأصناف/الطلب مع العميل.');
+    if (recommendationCount) strengths.push('قدّم ترشيحًا/بديلًا مثبتًا في المحادثة.');
+    if (recoveryCount) strengths.push('شارك في معالجة شكوى/تأخير بإجراء استعادة خدمة.');
+    if (closingCount) strengths.push('أنهى الجزء الخاص به بختام واضح.');
+    if (complaintResponseCount) strengths.push('رد على شكوى العميل داخل نطاق مسؤوليته.');
+
+    const staffCommercialMessages = staff.messageIds.filter((id) => saleWindowIds.includes(id));
+    if (staffCommercialMessages.length && !confirmationCount && ['verified_sale','chat_confirmed'].includes(outcome)) {
+      gaps.push('شارك في رحلة بيع مكتملة لكن لم يظهر في رسائله تأكيد صريح للأصناف مع العميل.');
+    }
+    if (staffCommercialMessages.length && !closingCount) {
+      gaps.push('لا يظهر ختام واضح في الجزء الذي تولاه من رحلة البيع.');
+    }
+
+    const scoreParts: number[] = [];
+    if (medianResponseSeconds != null) scoreParts.push(medianResponseSeconds <= 300 ? 100 : medianResponseSeconds <= 600 ? 80 : medianResponseSeconds <= 900 ? 60 : 40);
+    if (staffCommercialMessages.length) scoreParts.push(confirmationCount ? 100 : 55);
+    if (staffCommercialMessages.length) scoreParts.push(closingCount ? 100 : 65);
+    if (complaintResponseCount) scoreParts.push(recoveryCount ? 100 : 65);
+    if (recommendationCount) scoreParts.push(90);
+    let score = scoreParts.length ? Math.round(scoreParts.reduce((sum, value) => sum + value, 0) / scoreParts.length) : null;
+    if (score != null) score = clamp(score - Math.min(20, slowResponseCount * 8));
+
+    return {
+      staffName: staff.staffName,
+      role: staff.role,
+      evidenceMessageIds: uniq([
+        ...staffCommercialMessages,
+        ...complaintResponseIds,
+        ...confirmationRows.filter((row) => owned.has(row.id)).map((row) => row.id),
+        ...recoveryRows.filter((row) => owned.has(row.id)).map((row) => row.id),
+      ]),
+      responseTurnCount: staffTurns.length,
+      medianResponseSeconds,
+      slowResponseCount,
+      confirmationCount,
+      recommendationCount,
+      recoveryCount,
+      closingCount,
+      complaintResponseCount,
+      strengths: uniq(strengths),
+      gaps: uniq(gaps),
+      score,
+      label: score == null
+        ? 'لا توجد أدلة كافية للتقييم الشخصي'
+        : score >= 90
+          ? 'أداء قوي جدًا'
+          : score >= 80
+            ? 'أداء جيد'
+            : score >= 65
+              ? 'أداء مقبول مع نقاط تحسين'
+              : 'يحتاج مراجعة وتدريب',
+    };
+  });
+
   const outcomeLabel: Record<GroundedSaleJourneyV33['outcome'], string> = {
     verified_sale: 'بيع مؤكد بفاتورة',
     chat_confirmed: 'طلب مؤكد في المحادثة — الفاتورة غير مثبتة',
@@ -442,7 +566,8 @@ export function buildGroundedSaleJourneyV33(args: {
     complaintMessageIds: complaintRows.map((row) => row.id),
     delayMessageIds: delayIds,
     unresolvedMessageIds: unresolvedIds,
-    staffContribution: roleContribution(session, participantRoles),
+    staffContribution: contributions,
+    staffCoaching,
     coaching: {
       strengths: uniq(strengths),
       gaps: uniq(gaps),
