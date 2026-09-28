@@ -100,7 +100,7 @@ describe('whatsappSmartReviewPipeline', () => {
       expect(JSON.stringify(a.qualityGate)).not.toContain('journeyType');
     });
 
-    it('saleState is invoice_verified_sale only when a real invoiceVerification with status=verified is passed', () => {
+    it('saleState is invoice_candidate_strong when a statistical invoice verification is passed', () => {
       const notVerified = runSmartReviewPipeline(s, { staffName: 'شبل', role: 'pharmacist' });
       expect(notVerified.journeyCrossCheck.saleState).not.toBe('invoice_verified_sale');
 
@@ -114,9 +114,9 @@ describe('whatsappSmartReviewPipeline', () => {
       expect(withRealVerification.journeyCrossCheck.saleState).toBe('invoice_verified_sale');
     });
 
-    it('falls back to the legacy invoiceVerified/invoiceMatchAmbiguous booleans when no real invoiceVerification is passed (unmodified callers keep working)', () => {
+    it('legacy invoice booleans still produce only an invoice candidate, never a proven sale', () => {
       const result = runSmartReviewPipeline(s, { staffName: 'شبل', role: 'pharmacist', invoiceVerified: true });
-      expect(result.journeyCrossCheck.saleState).toBe('invoice_verified_sale');
+      expect(result.journeyCrossCheck.saleState).toBe('invoice_candidate_strong');
     });
   });
 });
