@@ -26,10 +26,10 @@ function roleByMessage(model?: WhatsAppParticipantRoleModelV15 | null) {
 }
 
 function nextInboundAfter(session: WhatsAppConversationSession, message: WhatsAppParsedMessage) {
-  const index = scopedSession.messages.findIndex((m) => m.id === message.id);
+  const index = session.messages.findIndex((m) => m.id === message.id);
   if (index < 0) return null;
-  for (let i = index + 1; i < scopedSession.messages.length; i += 1) {
-    const candidate = scopedSession.messages[i];
+  for (let i = index + 1; i < session.messages.length; i += 1) {
+    const candidate = session.messages[i];
     if (candidate.direction === 'system') continue;
     if (candidate.direction === 'outbound') continue;
     return candidate;
@@ -86,7 +86,7 @@ export async function syncWhatsAppOrderLifecycleV19(session: WhatsAppConversatio
     if (PROMISE_RX.test(message.text)) { promises.push(message); add('promise_made', `promise:${message.id}`, message, 86); }
     if (DELAY_NOTICE_RX.test(message.text)) {
       add('delay_notice', `delay-notice:${message.id}`, message, 94);
-      const reply = nextInboundAfter(session, message);
+      const reply = nextInboundAfter(scopedSession, message);
       if (reply && DELAY_ACCEPT_RX.test(reply.text) && (reply.timestamp.getTime() - message.timestamp.getTime()) <= 30 * 60 * 1000) {
         const replyRole = roles.get(reply.id);
         facts.push({
