@@ -103,6 +103,7 @@ describe('WhatsApp Operational Intelligence V6 product extraction', () => {
 
     const product = model.products.find((row) => /بون كير/i.test(row.rawName));
     expect(product).toBeTruthy();
+    expect(product?.rawName.trim()).toBe('بون كير');
     expect(product?.sourceDirection).toBe('outbound');
     expect(product?.status).toBe('mentioned');
     expect(product?.mentionOrigin).toBe('pharmacy_mention');
