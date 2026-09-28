@@ -441,7 +441,12 @@ export default function WhatsAppSmartFolderWatcher() {
       const invoiceVerification = await verifySessionAgainstInvoices(session, {
         customerId: resolvedCustomer?.id || null,
         customerCode: resolvedCustomer?.code || null,
-        customerPhone: resolvedCustomer?.phone || customerContext.phoneCandidate || null,
+        customerPhone: resolvedCustomer?.phone ||
+            customerContext.contactProfile?.phone ||
+            customerContext.contactProfile?.whatsappPhone ||
+            customerContext.contactProfile?.alternatePhone ||
+            customerContext.phoneCandidate ||
+            null,
         customerName: resolvedCustomer?.name || session.customerName,
         branch: resolvedCustomer?.branch || branchHint.value,
       });
@@ -648,7 +653,12 @@ export default function WhatsAppSmartFolderWatcher() {
           customerId: resolvedCustomer?.id || null,
           customerCode: resolvedCustomer?.code || fileCustomerHint.codeHint || null,
           customerName: resolvedCustomer?.name || fileCustomerHint.nameHint || session.customerName || null,
-          customerPhone: resolvedCustomer?.phone || customerContext.phoneCandidate || null,
+          customerPhone: resolvedCustomer?.phone ||
+            customerContext.contactProfile?.phone ||
+            customerContext.contactProfile?.whatsappPhone ||
+            customerContext.contactProfile?.alternatePhone ||
+            customerContext.phoneCandidate ||
+            null,
           staffId: singleResolvedStaff?.staffId || null,
           staffName: singleResolvedStaff?.canonicalStaffName || null,
           createdBy: actorName,
@@ -662,7 +672,12 @@ export default function WhatsAppSmartFolderWatcher() {
             customerId: resolvedCustomer?.id || null,
             customerCode: resolvedCustomer?.code || fileCustomerHint.codeHint || null,
             customerName: resolvedCustomer?.name || fileCustomerHint.nameHint || session.customerName || null,
-            customerPhone: resolvedCustomer?.phone || customerContext.phoneCandidate || null,
+            customerPhone: resolvedCustomer?.phone ||
+            customerContext.contactProfile?.phone ||
+            customerContext.contactProfile?.whatsappPhone ||
+            customerContext.contactProfile?.alternatePhone ||
+            customerContext.phoneCandidate ||
+            null,
             staffId: singleResolvedStaff?.staffId || null,
             staffName: singleResolvedStaff?.canonicalStaffName || null,
             createdBy: actorName,
