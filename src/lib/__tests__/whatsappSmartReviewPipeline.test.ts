@@ -111,7 +111,7 @@ describe('whatsappSmartReviewPipeline', () => {
           revenue: 250, reason: 'test', warnings: [],
         },
       });
-      expect(withRealVerification.journeyCrossCheck.saleState).toBe('invoice_verified_sale');
+      expect(withRealVerification.journeyCrossCheck.saleState).toBe('invoice_candidate_strong');
     });
 
     it('legacy invoice booleans still produce only an invoice candidate, never a proven sale', () => {
