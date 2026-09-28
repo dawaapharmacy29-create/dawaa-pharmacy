@@ -192,15 +192,23 @@ export function resetLocalWhatsAppFailedLedger() {
 }
 
 
-export async function getUnprocessedWhatsAppExports(handle: any, limit = 10): Promise<LocalInboxCandidate[]> {
+export async function getUnprocessedWhatsAppExports(
+  handle: any,
+  limit = 10,
+  onlyFileNames?: string[]
+): Promise<LocalInboxCandidate[]> {
   const permission = await queryLocalWhatsAppFolderPermission(handle, false);
   if (permission !== 'granted') return [];
   const processed = new Set(readStringLedger(LEDGER_KEY));
   const failed = new Map(readFailedLedger().map((item) => [item.key, item]));
+  const allowedNames = onlyFileNames?.length
+    ? new Set(onlyFileNames.map((name) => String(name || '').trim()).filter(Boolean))
+    : null;
   const now = Date.now();
   const candidates: LocalInboxCandidate[] = [];
   for await (const entry of handle.values()) {
     if (!entry || entry.kind !== 'file' || !isSupportedExportName(String(entry.name || ''))) continue;
+    if (allowedNames && !allowedNames.has(String(entry.name || '').trim())) continue;
     const file = await entry.getFile();
     const key = candidateKey(file);
     if (processed.has(key)) continue;
