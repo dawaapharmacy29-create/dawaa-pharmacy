@@ -48,12 +48,12 @@ const ACCEPTED_NOT_VERIFIED = `[9/15/26, 9:00:00 AM] Customer: عايز شامب
 
 describe('SmartConversationEvaluationV2', () => {
   it('does not ask again for saved customer phone/address when canonical customer data already knows them', () => {
-    const s = session(`[9/15/26, 9:00:00 AM] Customer: عايز فيتامين د
+    const s = oneSession(`[9/15/26, 9:00:00 AM] Customer: عايز فيتامين د
 [9/15/26, 9:01:00 AM] You: متوفر يا فندم
 [9/15/26, 9:02:00 AM] Customer: تمام ابعته
 [9/15/26, 9:03:00 AM] You: جاري الارسال`);
     const result = buildSmartConversationEvaluationV2(s, {
-      invoiceVerification: noInvoice(),
+      invoiceVerification: invoice('not_found'),
       knownOrderData: {
         customerKnown: true,
         phoneKnown: true,
