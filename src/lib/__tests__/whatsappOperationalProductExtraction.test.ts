@@ -191,6 +191,16 @@ describe('WhatsApp Operational Intelligence V6 product extraction', () => {
     expect(advice.products.some((row) => /الصيام المتقطع|قرص بعد الفطار|نوع كويس/.test(row.rawName))).toBe(false);
   });
 
+  it('keeps generic recommendation consent separate from product acceptance', () => {
+    const model = analyze(`[8/18/26, 8:21:33 AM] You: هو للاسف مش موجود عندي
+[8/18/26, 8:21:52 AM] You: بس ممكن ادور لحضرتك عليه او ارشح لحضرتك حاجه كويسة
+[8/18/26, 8:22:27 AM] Customer: تمام`);
+    const unnamed = model.recommendations.find((row) => row.productName == null);
+    expect(unnamed).toBeTruthy();
+    expect(unnamed?.accepted).toBeNull();
+    expect(model.followupPlan.reason || '').not.toMatch(/نتيجة ترشيح.*بعد الاستخدام/);
+  });
+
   it('keeps a named pharmacy recommendation and customer acceptance as a real recommendation', () => {
     const model = analyze(`[9/27/26, 8:20:00 PM] Customer: محتاج مالتي فيتامين كويس
 [9/27/26, 8:21:00 PM] You: ارشح لحضرتك شريط سنترم انرجي
