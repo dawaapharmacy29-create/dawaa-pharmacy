@@ -1589,7 +1589,47 @@ export default function WhatsAppSmartFolderWatcher() {
                           </div>
                         </div>
 
-                        <div className={`mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border px-3 py-2.5 ${nextDecision.cls}`}>
+                        {groundedJourney?.truthQuality ? (
+                          <div className={`mt-4 rounded-xl border px-3 py-2.5 ${
+                            groundedJourney.truthQuality.status === 'grounded'
+                              ? 'border-emerald-800/40 bg-emerald-950/10'
+                              : groundedJourney.truthQuality.status === 'partial'
+                                ? 'border-amber-800/40 bg-amber-950/10'
+                                : 'border-rose-800/40 bg-rose-950/10'
+                          }`}>
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div>
+                                <div className="text-[10px] font-black text-slate-500">جودة حقيقة التحليل</div>
+                                <div className={`mt-0.5 text-sm font-black ${
+                                  groundedJourney.truthQuality.status === 'grounded'
+                                    ? 'text-emerald-200'
+                                    : groundedJourney.truthQuality.status === 'partial'
+                                      ? 'text-amber-200'
+                                      : 'text-rose-200'
+                                }`}>
+                                  {groundedJourney.truthQuality.status === 'grounded'
+                                    ? 'موثقة بالأدلة'
+                                    : groundedJourney.truthQuality.status === 'partial'
+                                      ? 'موثقة جزئيًا'
+                                      : 'تحتاج مراجعة قبل الاعتماد'}
+                                </div>
+                              </div>
+                              <div className="flex flex-wrap gap-1.5 text-[9px]">
+                                <span className="rounded-full bg-black/15 px-2 py-1 text-slate-300">{groundedJourney.truthQuality.directMessageEvidenceCount} دليل رسالة</span>
+                                <span className={`rounded-full px-2 py-1 ${groundedJourney.truthQuality.invoiceVerified ? 'bg-emerald-500/10 text-emerald-300' : 'bg-slate-800 text-slate-500'}`}>{groundedJourney.truthQuality.invoiceVerified ? 'فاتورة Verified' : 'لا فاتورة Verified'}</span>
+                                <span className={`rounded-full px-2 py-1 ${groundedJourney.truthQuality.customerResolved ? 'bg-emerald-500/10 text-emerald-300' : 'bg-slate-800 text-slate-500'}`}>{groundedJourney.truthQuality.customerResolved ? 'عميل مربوط' : 'هوية غير محسومة'}</span>
+                              </div>
+                            </div>
+                            {groundedJourney.truthQuality.blockers.length || groundedJourney.truthQuality.caveats.length ? (
+                              <div className="mt-2 grid gap-1 text-[10px] leading-5">
+                                {groundedJourney.truthQuality.blockers.map((item) => <div key={item} className="text-rose-200">• مانع اعتماد: {item}</div>)}
+                                {groundedJourney.truthQuality.caveats.map((item) => <div key={item} className="text-amber-100">• تنبيه: {item}</div>)}
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : null}
+
+                        <div className={`mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border px-3 py-2.5 ${nextDecision.cls}`}>
                           <div>
                             <div className="text-[10px] font-black opacity-70">القرار المطلوب الآن</div>
                             <div className="mt-0.5 text-sm font-black">{nextDecision.label}</div>
