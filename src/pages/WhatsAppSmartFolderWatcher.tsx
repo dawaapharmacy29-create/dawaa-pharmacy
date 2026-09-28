@@ -47,6 +47,7 @@ import { buildConversationTimingV28 } from '@/lib/whatsappConversationTimingV28'
 import { buildDelayAttributionV29 } from '@/lib/whatsappDelayAttributionV29';
 import { buildConversationFocusV30 } from '@/lib/whatsappConversationFocusV30';
 import { buildEvaluationConversationV31 } from '@/lib/whatsappEvaluationConversationV31';
+import { buildGroundedSaleJourneyV33 } from '@/lib/whatsappGroundedSaleJourneyV33';
 import { syncWhatsAppResponseTurnsV18 } from '@/lib/whatsappResponseTurnsV18';
 import { persistAnalyzedWhatsAppSession, attachInvoiceVerificationToQueue } from '@/lib/whatsappReviewPersistenceV4';
 import { buildWhatsAppCustomerJourneyIntelligenceV15 } from '@/lib/whatsappCustomerJourneyIntelligenceV15';
@@ -496,6 +497,15 @@ export default function WhatsAppSmartFolderWatcher() {
           officialClosingTemplates: officialTemplates.closing,
         });
 
+        const groundedSaleJourneyV33 = buildGroundedSaleJourneyV33({
+          session,
+          operational,
+          invoiceVerification,
+          evaluation: evaluationV2,
+          timing: caseTimingV28,
+          participantRoles: roles,
+        });
+
         const officialReviewDraft = buildSmartOfficialReviewDraftV1(evaluationSession, session.customerName, {
           missingMediaMessageIds: result.qualityGate?.criticalMissingMediaMessageIds || [],
           journey: result.journeyCrossCheck,
@@ -535,6 +545,7 @@ export default function WhatsAppSmartFolderWatcher() {
             timingV28: caseTimingV28,
             staffTimingV28: focusedStaffTimingV28,
             delayAttributionV29,
+            groundedSaleJourneyV33,
           }),
         });
 
@@ -589,6 +600,7 @@ export default function WhatsAppSmartFolderWatcher() {
           },
           timingV28: caseTimingV28,
           delayAttributionV29,
+          groundedSaleJourneyV33: keptRuns[0]?.snapshot.smartIntelligence?.groundedSaleJourneyV33 || null,
         } as any;
         const persisted = await persistAnalyzedWhatsAppSession(session, persistenceIntelligence, {
           sourceFileName: file.name,
