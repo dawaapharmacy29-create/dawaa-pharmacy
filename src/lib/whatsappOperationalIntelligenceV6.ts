@@ -178,6 +178,12 @@ const ANAPHORIC_QUANTITY_ONLY_RX =
 // Keep this lexical-only: a real named product such as "شريط فليكس لايكس" still passes.
 const PACKAGING_TRANSACTION_FRAGMENT_RX =
   /^(?:(?:و?لا|و?في|و?من|و?(?:على|علي)|و?مع|و?كل|و?بس|و?لما|و?لو|الحساب|حسابه|حسابها|الاجمالي|الإجمالي|السعر|سعره|سعرها|و?(?:ال)?(?:شريط|شريطين|شرايط|علبه|علبة|علبتين|علب|عبوه|عبوة|عبوتين|عبوات|كيس|كيسين|اكياس|أكياس|قرص|اقراص|أقراص|حبه|حبة|حبتين|قطعه|قطعة|قطعتين|قطع)|واحد|واحده|واحدة|اتنين|اثنين|\d{1,4}|[٠-٩]{1,4})\s*)+$/iu;
+
+const PRODUCT_FORM_TOKEN_RX =
+  /(?:^|\s)(?:شريط|شريطين|شرايط|علبه|علبة|علبتين|علب|عبوه|عبوة|عبوتين|عبوات|كيس|كيسين|اكياس|أكياس|كريم|جل|مرهم|شراب|بخاخ|بخاخه|بخاخة|قطره|قطرة|كبسول|كبسوله|كبسولة|اقراص|أقراص|قرص|امبول|أمبول|امبولات|أمبولات|حقنه|حقنة|فوار|لبن)(?:\s|$)/iu;
+
+const SHORT_DEICTIC_OR_ADVICE_NOISE_RX =
+  /^(?:ي\s+القطر[هة]|ياخد\s+(?:ده|دا|دي)|تقدر\s+تمشي\s+عليها|ده\s+نوع\s+[^\n]{1,50}|(?:ال)?تخسيس|مساج|زبادي)$/iu;
 const PRODUCT_TYPE_NAMED_RX = /^(?:مزيل)\s+([\p{L}\p{N}][\p{L}\p{N} .+-]{1,60})$/iu;
 const EXPLICIT_PRODUCT_FORM_MENTION_RX =
   /(?:^|[\s،,:-])(?:علبه|علبة|عبوه|عبوة|شريط|شرايط|كريم|جل|شراب|بخاخ|بخاخه|بخاخة|قطره|قطرة|كبسول|كبسوله|كبسولة|اقراص|أقراص|قرص|امبول|أمبول|امبولات|أمبولات)\s+([A-Za-z\u0600-\u06FF][A-Za-z0-9\u0600-\u06FF.+-]*(?:\s+[A-Za-z\u0600-\u06FF][A-Za-z0-9\u0600-\u06FF.+-]*){0,3})/iu;
@@ -328,8 +334,17 @@ function cleanProductPhrase(raw: string) {
 function plausibleProductPhrase(value: string) {
   const cleaned = cleanProductPhrase(value);
   if (!cleaned || isStandaloneConversationNoise(cleaned)) return false;
-  if (cleaned.split(/\s+/).length > 9) return false;
-  return /[A-Za-z]{3,}|[\u0600-\u06ff]{3,}/.test(cleaned);
+  const tokens = cleaned.split(/\s+/).filter(Boolean);
+  if (tokens.length > 9) return false;
+  if (SHORT_DEICTIC_OR_ADVICE_NOISE_RX.test(cleaned)) return false;
+
+  const hasLatinName = /[A-Za-z]{3,}/.test(cleaned);
+  const hasProductForm = PRODUCT_FORM_TOKEN_RX.test(cleaned);
+  // Long Arabic-only fragments without a product-form anchor are usually explanation,
+  // symptom, benefit, or conversational prose rather than a product identity.
+  if (tokens.length >= 4 && !hasLatinName && !hasProductForm) return false;
+
+  return hasLatinName || /[\u0600-\u06ff]{3,}/.test(cleaned);
 }
 function extractAfterTrigger(message: WhatsAppParsedMessage, rx: RegExp) {
   const match = message.text.match(rx);
