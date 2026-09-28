@@ -160,6 +160,7 @@ const SALE_INTENT_RX = /(عايز|عاوز|محتاج|متوفر|موجود|بك
 const ACCEPT_RX = /(تمام|موافق|ماشي|خلاص|ابعت|ابعته|هات|اوكي|أوكي)/i;
 const DECLINE_RX = /(لا شكرا|مش عايز|مش عاوز|غالي|مش مناسب|خلاص مش محتاج|مش هطلب)/i;
 const ORDER_CONFIRM_RX = /(تم تأكيد|تاكيد الطلب|تأكيد الطلب|الاوردر اتاكد|الأوردر اتأكد|تم تسجيل الطلب|جاري الارسال|جاري الإرسال|خرج لحضرتك|هيتم التوصيل)/i;
+const EXPLICIT_CUSTOMER_CONFIRM_RX = /(نأكد مع حضرتك|ناكد مع حضرتك|تأكيد الأصناف|تاكيد الاصناف|نراجع مع حضرتك|حضرتك كده معانا|حضرتك كدا معانا|الأوردر كده|الاوردر كده|الأوردر كدا|الاوردر كدا|الطلب كده|الطلب كدا|تمام كده على|تمام كدا على)/i;
 const PRODUCT_RX = /(دواء|كريم|شامبو|غسول|قطره|قطرة|شراب|برشام|اقراص|أقراص|حقن|حقنه|فيتامين|مصل|صنف|منتج)/i;
 const QTY_RX = /(\b\d+\b\s*(علبه|علبة|شريط|زجاجه|زجاجة|قطعه|قطعة|واحد|اتنين|اثنين)|عدد\s*\d+|كميه|كمية)/i;
 const PHONE_RX = /(?:\+?20)?01[0125]\d{8}/;
@@ -219,7 +220,7 @@ function scoreClosing(session: WhatsAppConversationSession, orderConfirmed: bool
   const text = tail.map((m) => m.text).join(' ');
   const passed: string[] = [];
   const missing: string[] = [];
-  if (orderConfirmed && ORDER_CONFIRM_RX.test(text)) passed.push('تأكيد التنفيذ/الطلب'); else if (orderConfirmed) missing.push('إعادة تأكيد التنفيذ');
+  if (orderConfirmed && EXPLICIT_CUSTOMER_CONFIRM_RX.test(text)) passed.push('تأكيد الأصناف مع العميل'); else if (orderConfirmed) missing.push('تأكيد الأصناف مع العميل قبل الإغلاق');
   if (orderConfirmed && ETA_RX.test(text)) passed.push('توضيح الخطوة أو زمن التوصيل'); else if (orderConfirmed) missing.push('الخطوة التالية/موعد الوصول');
   const recoveryClosing = SERVICE_RECOVERY_RX.test(text);
   if (ANYTHING_ELSE_RX.test(text)) passed.push('عرض مساعدة إضافية');
@@ -309,20 +310,30 @@ function scoreServiceRecovery(session: WhatsAppConversationSession) {
   };
 }
 
-function orderCompleteness(session: WhatsAppConversationSession, saleOutcome: SaleOutcomeV2) {
+function orderCompleteness(
+  session: WhatsAppConversationSession,
+  saleOutcome: SaleOutcomeV2,
+  known?: {
+    customerKnown?: boolean;
+    phoneKnown?: boolean;
+    addressKnown?: boolean;
+    productKnown?: boolean;
+    quantityKnown?: boolean;
+  }
+) {
   const applicable = !['not_applicable', 'opportunity_detected', 'customer_declined'].includes(saleOutcome);
   const all = session.messages.map((m) => m.text).join(' ');
   const inboundText = messages(session, 'inbound').map((m) => m.text).join(' ');
   const items: OrderCompletenessItemV2[] = [
-    { key: 'customer', label: 'هوية العميل', status: session.customerName ? 'confirmed' : 'unknown', evidenceMessageIds: [] },
-    { key: 'phone', label: 'رقم الهاتف', status: PHONE_RX.test(all) ? 'confirmed' : applicable ? 'missing' : 'not_applicable', evidenceMessageIds: ids(matching(session, PHONE_RX)) },
-    { key: 'address', label: 'العنوان', status: ADDRESS_RX.test(all) ? 'confirmed' : DELIVERY_RX.test(all) ? 'missing' : 'not_applicable', evidenceMessageIds: ids(matching(session, ADDRESS_RX)) },
-    { key: 'product', label: 'الصنف/المنتج', status: PRODUCT_RX.test(all) ? 'confirmed' : applicable ? 'missing' : 'not_applicable', evidenceMessageIds: ids(matching(session, PRODUCT_RX)) },
-    { key: 'quantity', label: 'الكمية', status: QTY_RX.test(all) ? 'confirmed' : applicable ? 'missing' : 'unknown', evidenceMessageIds: ids(matching(session, QTY_RX)) },
+    { key: 'customer', label: 'هوية العميل', status: (session.customerName || known?.customerKnown) ? 'confirmed' : 'unknown', evidenceMessageIds: [] },
+    { key: 'phone', label: 'رقم الهاتف', status: (PHONE_RX.test(all) || known?.phoneKnown) ? 'confirmed' : applicable ? 'missing' : 'not_applicable', evidenceMessageIds: ids(matching(session, PHONE_RX)) },
+    { key: 'address', label: 'العنوان', status: (ADDRESS_RX.test(all) || known?.addressKnown) ? 'confirmed' : DELIVERY_RX.test(all) ? 'missing' : 'not_applicable', evidenceMessageIds: ids(matching(session, ADDRESS_RX)) },
+    { key: 'product', label: 'الصنف/المنتج', status: (PRODUCT_RX.test(all) || known?.productKnown) ? 'confirmed' : applicable ? 'missing' : 'not_applicable', evidenceMessageIds: ids(matching(session, PRODUCT_RX)) },
+    { key: 'quantity', label: 'الكمية', status: (QTY_RX.test(all) || known?.quantityKnown) ? 'confirmed' : applicable ? 'missing' : 'unknown', evidenceMessageIds: ids(matching(session, QTY_RX)) },
     { key: 'alternative_acceptance', label: 'موافقة العميل على البديل', status: ALT_RX.test(all) ? (ACCEPT_RX.test(inboundText) ? 'confirmed' : 'unknown') : 'not_applicable', evidenceMessageIds: ids(matching(session, ALT_RX)) },
     { key: 'price', label: 'السعر/الإجمالي', status: PRICE_RX.test(all) ? 'confirmed' : applicable ? 'unknown' : 'not_applicable', evidenceMessageIds: ids(matching(session, PRICE_RX)) },
     { key: 'delivery_eta', label: 'التوصيل/موعد الوصول', status: ETA_RX.test(all) ? 'confirmed' : DELIVERY_RX.test(all) ? 'missing' : 'not_applicable', evidenceMessageIds: ids(matching(session, ETA_RX)) },
-    { key: 'explicit_confirmation', label: 'تأكيد الطلب صراحة', status: ORDER_CONFIRM_RX.test(all) ? 'confirmed' : applicable ? 'missing' : 'not_applicable', evidenceMessageIds: ids(matching(session, ORDER_CONFIRM_RX)) },
+    { key: 'explicit_confirmation', label: 'تأكيد الدكتور للأصناف مع العميل', status: EXPLICIT_CUSTOMER_CONFIRM_RX.test(all) ? 'confirmed' : applicable ? 'missing' : 'not_applicable', evidenceMessageIds: ids(matching(session, EXPLICIT_CUSTOMER_CONFIRM_RX)) },
   ];
   const required = items.filter((x) => x.status !== 'not_applicable' && x.status !== 'unknown');
   const confirmed = required.filter((x) => x.status === 'confirmed');
@@ -413,13 +424,20 @@ export function buildSmartConversationEvaluationV2(
     purchaseHistory?: SmartIntelligenceCustomerPurchaseHistory | null;
     salesOpportunities?: Array<{ handling?: string; triggerMessageId?: string; reason?: string }>;
     consultationCommunication?: string | null;
+    knownOrderData?: {
+      customerKnown?: boolean;
+      phoneKnown?: boolean;
+      addressKnown?: boolean;
+      productKnown?: boolean;
+      quantityKnown?: boolean;
+    };
   }
 ): SmartConversationEvaluationV2 {
   const sale = saleOutcome(session, options.invoiceVerification);
   const serviceRecovery = scoreServiceRecovery(session);
   const opening = scoreOpening(session);
   const closing = scoreClosing(session, ['order_confirmed', 'invoice_verified_sale', 'probable_sale'].includes(sale.outcome));
-  const order = orderCompleteness(session, sale.outcome);
+  const order = orderCompleteness(session, sale.outcome, options.knownOrderData);
   const salesOpps = options.salesOpportunities || [];
   const handled = salesOpps.filter((x) => x.handling === 'handled_well').length;
   const missed = salesOpps.filter((x) => x.handling === 'missed').length;
