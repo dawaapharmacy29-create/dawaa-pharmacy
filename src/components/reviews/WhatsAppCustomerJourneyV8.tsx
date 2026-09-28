@@ -115,7 +115,7 @@ export default function WhatsAppCustomerJourneyV8({ customerCode, customerName }
     else if (openActions.length) next = openActions[0].reason || 'يوجد إجراء تشغيلي مفتوح يحتاج التنفيذ.';
     else if (unresolvedRequest) next = 'متابعة الطلب غير المحسوم وربطه بالصنف أو الفاتورة.';
     else if (acceptedRecommendation) next = 'متابعة نتيجة الترشيح بعد الاستخدام.';
-    else if (revenue > 500) next = 'متابعة رضا العميل بعد مشتريات مؤكدة تجاوزت 500 ج في السايكل.';
+    else if (revenue > 500) next = 'توجد مطابقات فاتورة آلية تتجاوز 500 ج؛ لا تُعامل كمبيعات مثبتة قبل Canonical Sale Proof.';
     return { openActions, complaintOpen, unresolvedRequest, acceptedRecommendation, verifiedSales, revenue, next };
   },[sources,actions]);
 
@@ -133,10 +133,10 @@ export default function WhatsAppCustomerJourneyV8({ customerCode, customerName }
 
     <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
       <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3"><div className="text-[11px] text-slate-500">المحادثات</div><div className="text-xl font-black text-white">{cycle?.conversation_count ?? sources.length}</div></div>
-      <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3"><div className="text-[11px] text-slate-500">فواتير مؤكدة</div><div className="text-xl font-black text-cyan-300">{cycle?.verified_invoice_count ?? model.verifiedSales.length}</div></div>
-      <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3"><div className="text-[11px] text-slate-500">إيراد مؤكد</div><div className="text-xl font-black text-emerald-300">{Number(cycle?.verified_revenue ?? model.revenue).toFixed(2)} ج</div></div>
+      <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3"><div className="text-[11px] text-slate-500">مطابقات فاتورة آلية</div><div className="text-xl font-black text-cyan-300">{cycle?.verified_invoice_count ?? model.verifiedSales.length}</div></div>
+      <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3"><div className="text-[11px] text-slate-500">قيمة المطابقات الآلية</div><div className="text-xl font-black text-emerald-300">{Number(cycle?.verified_revenue ?? model.revenue).toFixed(2)} ج</div></div>
       <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3"><div className="text-[11px] text-slate-500">إجراءات مفتوحة</div><div className="text-xl font-black text-amber-300">{model.openActions.length}</div></div>
-      <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3"><div className="text-[11px] text-slate-500">+500 ج</div><div className="text-xl font-black text-white">{(cycle?.verified_revenue_over_500 ?? model.revenue > 500) ? 'نعم' : 'لا'}</div></div>
+      <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3"><div className="text-[11px] text-slate-500">مطابقة آلية +500 ج</div><div className="text-xl font-black text-white">{(cycle?.verified_revenue_over_500 ?? model.revenue > 500) ? 'نعم' : 'لا'}</div></div>
     </div>
 
     <div className="mt-4 rounded-2xl border border-violet-400/20 bg-violet-500/10 p-4"><div className="text-sm font-black text-violet-100">الخطوة التالية على مستوى رحلة العميل</div><div className="mt-2 text-sm leading-7 text-violet-50">{model.next}</div></div>
