@@ -39,6 +39,16 @@ export interface SmartInvoiceItemEvidenceV32 {
   lineTotal: number | null;
 }
 
+export interface SmartRequestedProductEvidenceV32 {
+  rawName: string;
+  canonicalName?: string | null;
+  productId?: string | null;
+  productCode?: string | null;
+  quantity: number | null;
+  status: 'requested' | 'recommended' | 'accepted' | 'rejected' | 'unavailable' | 'mentioned';
+  confidence: number;
+}
+
 export interface SmartIntelligenceSnapshotV1 {
   version: 'smart-intelligence-snapshot-v1';
   generatedAt: string;
@@ -47,6 +57,8 @@ export interface SmartIntelligenceSnapshotV1 {
   invoiceVerification: UnifiedInvoiceVerification;
   /** تفاصيل أصناف الفاتورة المرتبطة من sales_invoice_items_v21 — مصدر حقيقة تجاري للعرض والمقارنة فقط. */
   invoiceItems?: SmartInvoiceItemEvidenceV32[];
+  /** الأصناف المستخرجة من نص المحادثة بعد تنظيف الضوضاء — تستخدم للمقارنة مع الفاتورة ولا تتغلب عليها. */
+  requestedProducts?: SmartRequestedProductEvidenceV32[];
   /** مش متربط بعد — customer resolution wiring في صفحة الـWatcher لسه مش جزء من الخطوات المنفذة. */
   customer: WhatsAppResolvedCustomer | null;
   /** مش متربط بعد — نفس السبب. */
@@ -73,6 +85,7 @@ export function buildSmartIntelligenceSnapshotV1(args: {
   staffEffort: StaffMessageEffort[];
   invoiceVerification: UnifiedInvoiceVerification;
   invoiceItems?: SmartInvoiceItemEvidenceV32[];
+  requestedProducts?: SmartRequestedProductEvidenceV32[];
   customer?: WhatsAppResolvedCustomer | null;
   purchaseHistory?: SmartIntelligenceCustomerPurchaseHistory | null;
   branchHint?: BranchHintResult | null;
@@ -89,6 +102,7 @@ export function buildSmartIntelligenceSnapshotV1(args: {
     staffEffort: args.staffEffort,
     invoiceVerification: args.invoiceVerification,
     invoiceItems: args.invoiceItems ?? [],
+    requestedProducts: args.requestedProducts ?? [],
     customer: args.customer ?? null,
     purchaseHistory: args.purchaseHistory ?? null,
     branchHint: args.branchHint ?? null,
