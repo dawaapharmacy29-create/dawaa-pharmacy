@@ -39,7 +39,6 @@ const CustomerImport = lazy(() => import('@/pages/CustomerImport'));
 const CustomerService = lazy(() => import('@/pages/SmartCustomerService'));
 const CustomerServiceClassic = lazy(() => import('@/pages/CustomerService'));
 const WhatsAppAutoFollowupRequests = lazy(() => import('@/pages/WhatsAppAutoFollowupRequests'));
-const WhatsAppFolderWatcher = lazy(() => import('@/pages/WhatsAppFolderWatcher'));
 const WhatsAppDoctorPerformance = lazy(() => import('@/pages/WhatsAppDoctorPerformance'));
 const WhatsAppCustomerHistory = lazy(() => import('@/pages/WhatsAppCustomerHistory'));
 const WhatsAppLostOpportunities = lazy(() => import('@/pages/WhatsAppLostOpportunities'));
@@ -479,8 +478,8 @@ function AppRoutes() {
       <Route
         path="/whatsapp-folder-watcher"
         element={
-          <ProtectedRoute>
-            {routeSuspense(<WhatsAppFolderWatcher />, 'المراقبة التلقائية للواتساب')}
+          <ProtectedRoute permission="view_reviews">
+            {routeSuspense(<WhatsAppSmartFolderWatcher />, 'التقاط واتساب تلقائيًا')}
           </ProtectedRoute>
         }
       />
