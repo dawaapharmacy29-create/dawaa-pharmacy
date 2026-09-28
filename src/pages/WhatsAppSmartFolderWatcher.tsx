@@ -48,6 +48,7 @@ import { buildDelayAttributionV29 } from '@/lib/whatsappDelayAttributionV29';
 import { buildConversationFocusV30 } from '@/lib/whatsappConversationFocusV30';
 import { buildEvaluationConversationV31 } from '@/lib/whatsappEvaluationConversationV31';
 import { buildGroundedSaleJourneyV33 } from '@/lib/whatsappGroundedSaleJourneyV33';
+import { buildConversationUnderstandingV32 } from '@/lib/whatsappConversationUnderstandingV32';
 import { syncWhatsAppResponseTurnsV18 } from '@/lib/whatsappResponseTurnsV18';
 import { syncWhatsAppEvidenceLedgerV17 } from '@/lib/whatsappEvidenceLedgerV17';
 import { syncWhatsAppOrderLifecycleV19 } from '@/lib/whatsappOrderLifecycleV19';
@@ -405,6 +406,7 @@ export default function WhatsAppSmartFolderWatcher() {
     const analyzeCase = async (caseContext: (typeof analysisUnits)[number]): Promise<StaffRun[]> => {
       const session = caseContext.mergedSession;
       const base = buildSmartConversationReviewResult(session);
+      const conversationUnderstandingV32 = buildConversationUnderstandingV32(session);
 
       // V15/V6 عندهم دلوقتي directory cache قصير العمر، فالجلسات المتتالية لا تعيد تحميل
       // مئات سجلات الموظفين والـaliases من Supabase كل مرة.
@@ -506,6 +508,7 @@ export default function WhatsAppSmartFolderWatcher() {
           evaluation: evaluationV2,
           timing: caseTimingV28,
           participantRoles: roles,
+          understanding: conversationUnderstandingV32,
         });
 
         const officialReviewDraft = buildSmartOfficialReviewDraftV1(evaluationSession, session.customerName, {
