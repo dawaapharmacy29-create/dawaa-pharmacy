@@ -854,6 +854,7 @@ export default function WhatsAppSmartFolderWatcher() {
           const result = await analyzeFile(candidate.file);
 
           const canonicalErrors: string[] = [];
+          const canonicalProofBySource = new Map<string, string>();
           try {
             const accessToken = getStaffSessionToken() || '';
             if (!accessToken) {
@@ -882,6 +883,14 @@ export default function WhatsAppSmartFolderWatcher() {
                     }
                     throw new Error(`${errorCode}${payload?.detail ? ` — ${payload.detail}` : ''}`);
                   }
+                  const proven = Array.isArray(payload?.derivedCases)
+                    ? payload.derivedCases.some((row: any) => row?.saleProofState === 'proven')
+                    : false;
+                  const state = proven
+                    ? 'proven'
+                    : String(payload?.derivedCases?.[0]?.saleProofState || 'not_proven');
+                  canonicalProofBySource.set(sourceId, state);
+                  return state;
                 };
 
                 const exactSourceIds = Array.from(new Set((result.sourceIds || []).filter(Boolean)));
@@ -958,9 +967,16 @@ export default function WhatsAppSmartFolderWatcher() {
             );
           }
 
+          const resultWithCanonicalProof: FileRun = {
+            ...result,
+            staffRuns: result.staffRuns.map((staffRun) => {
+              const state = staffRun.sourceId ? canonicalProofBySource.get(staffRun.sourceId) : null;
+              return state ? { ...staffRun, canonicalSaleProofState: state } : staffRun;
+            }),
+          };
           const finalizedResult: FileRun = canonicalErrors.length
-            ? { ...result, inboxKey: candidate.key, errors: [...result.errors, ...canonicalErrors] }
-            : { ...result, inboxKey: candidate.key };
+            ? { ...resultWithCanonicalProof, inboxKey: candidate.key, errors: [...result.errors, ...canonicalErrors] }
+            : { ...resultWithCanonicalProof, inboxKey: candidate.key };
 
           setRuns((current) => {
             const refreshedNames = new Set([finalizedResult.fileName]);
