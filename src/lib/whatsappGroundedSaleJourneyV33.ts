@@ -129,7 +129,8 @@ const normalize = (value: unknown) => String(value ?? '')
   .replace(/\s+/g, ' ');
 
 const ACCEPT_RX = /(^|\s)(تمام|ماشي|موافق|اوكي|أوكي|خلاص|ابعت|ابعته|ابعتي|هات|هاته|هاخده|هاخدها|هجربه|هجربها|تمام كده|تمام كدا)(\s|$)/i;
-const CONFIRM_RX = /(نأكد مع حضرتك|ناكد مع حضرتك|تأكيد الأصناف|تاكيد الاصناف|نراجع مع حضرتك|حضرتك كده معانا|حضرتك كدا معانا|الأوردر كده|الاوردر كده|الأوردر كدا|الاوردر كدا|الطلب كده|الطلب كدا|تم تأكيد|تم التاكيد|تم التأكيد|تم تسجيل الطلب)/i;
+const ITEM_CONFIRM_RX = /(نأكد مع حضرتك|ناكد مع حضرتك|تأكيد الأصناف|تاكيد الاصناف|نراجع مع حضرتك|حضرتك كده معانا|حضرتك كدا معانا|الأوردر كده|الاوردر كده|الأوردر كدا|الاوردر كدا|الطلب كده|الطلب كدا|تمام كده على|تمام كدا على)/i;
+const ORDER_REGISTERED_RX = /(تم تأكيد الطلب|تم التاكيد|تم التأكيد|تم تسجيل الطلب)/i;
 const AVAILABILITY_RX = /(متوفر|موجود|متاح|غير متوفر|مش موجود|ناقص|هنوفر|هطلبه|هطلبها)/i;
 const DELIVERY_RX = /(مندوب|توصيل|العنوان|جاري الارسال|جاري الإرسال|خرج لحضرتك|هيتم التوصيل|هيوصل)/i;
 const COMPLAINT_RX = /(شكوى|شكوي|مشكله|مشكلة|زعلت|اتضايقت|محدش رد|متاخر|متأخر|التأخير|التاخير|ماوصلش|موصلش|لسه مجاش|غلط|وحش|سيء)/i;
@@ -291,12 +292,14 @@ export function buildGroundedSaleJourneyV33(args: {
     .sort((a,b) => a.timestamp.getTime() - b.timestamp.getTime());
   let acceptanceRows = matching(session, ACCEPT_RX, 'inbound');
   const confirmationRows = uniq([
-    ...semanticConfirmationIds,
     ...evaluation.orderCompleteness.items
       .filter((row) => row.key === 'explicit_confirmation' && row.status === 'confirmed')
       .flatMap((row) => row.evidenceMessageIds),
-    ...matching(session, CONFIRM_RX, 'outbound').map((row) => row.id),
-  ]).map((id) => byId.get(id)).filter((row): row is WhatsAppParsedMessage => Boolean(row))
+    ...matching(session, ITEM_CONFIRM_RX, 'outbound').map((row) => row.id),
+  ]).map((id) => byId.get(id))
+    .filter((row): row is WhatsAppParsedMessage => Boolean(row) && row.direction === 'outbound')
+    .sort((a,b) => a.timestamp.getTime() - b.timestamp.getTime());
+  const orderRegisteredRows = matching(session, ORDER_REGISTERED_RX, 'outbound')
     .sort((a,b) => a.timestamp.getTime() - b.timestamp.getTime());
   let deliveryRows = matching(session, DELIVERY_RX);
   let complaintRows = matching(session, COMPLAINT_RX, 'inbound')
@@ -328,6 +331,7 @@ export function buildGroundedSaleJourneyV33(args: {
     ...recommendationRows.map((row) => row.id),
     ...acceptanceRows.map((row) => row.id),
     ...confirmationRows.map((row) => row.id),
+    ...orderRegisteredRows.map((row) => row.id),
     ...deliveryRows.map((row) => row.id),
   ]);
   const lastSaleMessage = lastByIds(session, saleRelevantIds);
@@ -340,6 +344,7 @@ export function buildGroundedSaleJourneyV33(args: {
   else if (operational.officialScoringEligible || operational.customerRequests.length || operational.products.some((row) => row.status === 'requested')) outcome = 'needs_review';
 
   const saleEndMessage = confirmationRows[confirmationRows.length - 1]
+    || orderRegisteredRows[orderRegisteredRows.length - 1]
     || deliveryRows[deliveryRows.length - 1]
     || acceptanceRows[acceptanceRows.length - 1]
     || lastSaleMessage;
@@ -372,7 +377,7 @@ export function buildGroundedSaleJourneyV33(args: {
     makeStage('availability', 'التوفر/النواقص', availabilityRows, 'رد صريح متعلق بالتوفر أو النقص.', availabilityRows.length ? 90 : 0),
     makeStage('recommendation', 'ترشيح/بديل', recommendationRows, 'رسائل مرتبطة بترشيح أو بديل.', recommendationRows.length ? 90 : 0),
     makeStage('customer_acceptance', 'موافقة العميل', acceptanceRows, 'رد قبول من العميل داخل رحلة بيع قائمة.', acceptanceRows.length ? 82 : 0),
-    makeStage('order_confirmation', 'تأكيد الأصناف/الطلب', confirmationRows, 'تأكيد صريح من الصيدلية قبل إغلاق الطلب.', confirmationRows.length ? 95 : 0),
+    makeStage('order_confirmation', 'تأكيد الأصناف مع العميل', confirmationRows, 'مراجعة/تأكيد صريح للأصناف أو الطلب مع العميل قبل الإغلاق؛ تسجيل الطلب أو جاري الإرسال وحدهما لا يكفيان.', confirmationRows.length ? 97 : 0),
     invoiceVerification.status === 'verified'
       ? {
           key: 'invoice',
