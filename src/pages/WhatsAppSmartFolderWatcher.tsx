@@ -1167,7 +1167,7 @@ export default function WhatsAppSmartFolderWatcher() {
     if (item.decision === 'issue') {
       return { label: 'مراجعة ملاحظة', detail: item.reasons[0] || 'يوجد بند يحتاج قرارًا بشريًا قبل الاعتماد.', cls: 'bg-amber-500/10 text-amber-200 border-amber-800/40' };
     }
-    if (item.decision === 'review') {
+    if (item.decision === 'detailed_review') {
       return { label: 'مراجعة بشرية', detail: item.reasons[0] || 'الأدلة غير كافية للاعتماد السريع.', cls: 'bg-rose-500/10 text-rose-200 border-rose-800/40' };
     }
     return { label: 'جاهز للمراجعة النهائية', detail: 'لا توجد ملاحظة مؤثرة ظاهرة؛ راجع الأدلة ثم اعتمد عند الاطمئنان.', cls: 'bg-emerald-500/10 text-emerald-200 border-emerald-800/40' };
