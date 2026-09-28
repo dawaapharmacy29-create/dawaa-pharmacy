@@ -190,6 +190,21 @@ const PRICE_LIST_FRAGMENT_RX =
 
 const DOSAGE_OR_PRICE_DESCRIPTION_RX =
   /^(?:(?:ال)?(?:شريط|علبه|علبة|عبوه|عبوة|امبول|أمبول|امبولين|أمبولين|قرص|اقراص|أقراص)\s*)?(?:\d+|[٠-٩]+)?\s*(?:قرص|اقراص|أقراص|امبول|أمبول|امبولين|أمبولين)?[^\n]{0,80}(?:هتاخد|هتاخدي|ناخد|تاخد|تاخدي|بعد\s+(?:الفطار|الافطار|الإفطار|الغدا|الغداء)|قبل\s+(?:الفطار|الافطار|الإفطار)|كل\s+اسبوعين|كل\s+شهر|سعر\s+(?:ال)?(?:قرص|شريط|علبه|علبة)|\d+\s*ج(?:نيه)?)(?:[^\n]{0,40})$/iu;
+
+const ANAPHORIC_PRODUCT_REFERENCE_RX =
+  /^(?:(?:موجود|متوفر)\s+(?:عندكم|عندكو|عندك)\s+)?(?:ال)?(?:غسول|كريم|شامبو|بلسم|سيروم|لوشن|قطر[هة]|منتج|صنف|دواء)\s+(?:ده|دا|دي|هذا|هذه)$/iu;
+
+const LATIN_PRODUCT_FORM_RX =
+  /\b(?:gel|cream|shampoo|serum|lotion|wash|cleanser|drops?|capsules?|caps?|tablets?|tabs?|spray|syrup)\b/i;
+
+function extractForwardedLatinProductName(value: string): string {
+  const cleaned = String(value || '').replace(/^\s*\[Forwarded\]\s*/i, '').trim();
+  if (!LATIN_PRODUCT_FORM_RX.test(cleaned)) return '';
+  const beforeArabicContext = cleaned.split(/\s+(?=بديل|موجود|متاح|للغسول|للكريم|للشعر|للبشر[هة])/iu)[0]?.trim() || '';
+  if (!beforeArabicContext || !/[A-Za-z]{3,}/.test(beforeArabicContext)) return '';
+  if (beforeArabicContext.split(/\s+/).length > 8) return '';
+  return beforeArabicContext;
+}
 const PRODUCT_TYPE_NAMED_RX = /^(?:مزيل)\s+([\p{L}\p{N}][\p{L}\p{N} .+-]{1,60})$/iu;
 const EXPLICIT_PRODUCT_FORM_MENTION_RX =
   /(?:^|[\s،,:-])(?:علبه|علبة|عبوه|عبوة|شريط|شرايط|كريم|جل|شراب|بخاخ|بخاخه|بخاخة|قطره|قطرة|كبسول|كبسوله|كبسولة|اقراص|أقراص|قرص|امبول|أمبول|امبولات|أمبولات)\s+([A-Za-z\u0600-\u06FF][A-Za-z0-9\u0600-\u06FF.+-]*(?:\s+[A-Za-z\u0600-\u06FF][A-Za-z0-9\u0600-\u06FF.+-]*){0,3})/iu;
@@ -401,6 +416,9 @@ function extractProducts(session: WhatsAppConversationSession): WhatsAppProductS
       ? (message.text.trim().match(PRODUCT_TYPE_NAMED_RX) || (shortSelection ? [message.text, message.text.trim()] : null))
       : null;
     const explicitFormMention = message.text.match(EXPLICIT_PRODUCT_FORM_MENTION_RX);
+    const forwardedLatinProduct = message.direction === 'inbound'
+      ? extractForwardedLatinProductName(message.text)
+      : '';
     if (message.direction === 'inbound' && ANAPHORIC_COMMIT_RX.test(message.text)) continue;
     if (
       message.direction === 'inbound' &&
@@ -409,8 +427,9 @@ function extractProducts(session: WhatsAppConversationSession): WhatsAppProductS
       !/(?:اسم|نوع|ماركه|ماركة)\s+(?:ال)?قطر[هة]/i.test(message.text)
     ) continue;
     const trigger = isRecommendation ? RECOMMEND_RX : isRequest ? REQUEST_RX : PRODUCT_INQUIRY_RX.test(message.text) ? PRODUCT_INQUIRY_RX : null;
-    if (!trigger && !typedNamedProduct && !explicitFormMention) continue;
+    if (!trigger && !typedNamedProduct && !explicitFormMention && !forwardedLatinProduct) continue;
     let rawName = typedNamedProduct?.[1]?.trim()
+      || forwardedLatinProduct
       || (trigger ? extractAfterTrigger(message, trigger) : '')
       || explicitFormMention?.[1]?.trim()
       || '';
@@ -472,7 +491,7 @@ function extractProducts(session: WhatsAppConversationSession): WhatsAppProductS
       status,
       sourceDirection: message.direction,
       evidenceMessageIds: [message.id],
-      confidence: explicitNamedRecommendation ? 92 : typedNamedProduct ? 90 : explicitFormMention ? 86 : isRecommendation ? 82 : isRequest ? 80 : 64,
+      confidence: explicitNamedRecommendation ? 92 : typedNamedProduct ? 90 : forwardedLatinProduct ? 90 : explicitFormMention ? 86 : isRecommendation ? 82 : isRequest ? 80 : 64,
       mentionOrigin,
       requestProven: mentionOrigin === 'customer_explicit' && status === 'requested',
     });
@@ -504,6 +523,32 @@ function extractProducts(session: WhatsAppConversationSession): WhatsAppProductS
         break;
       }
     }
+  }
+
+  // Resolve a generic product reference ("الغسول ده", "الكريم ده") to one nearby,
+  // explicit inbound product identity. Never guess when more than one candidate is plausible.
+  for (const product of found) {
+    if (product.sourceDirection !== 'inbound' || !ANAPHORIC_PRODUCT_REFERENCE_RX.test(product.rawName.trim())) continue;
+    const evidenceIndex = session.messages.findIndex((message) => product.evidenceMessageIds.includes(message.id));
+    if (evidenceIndex < 0) continue;
+
+    const candidates = found.filter((candidate) => {
+      if (candidate === product || candidate.sourceDirection !== 'inbound') return false;
+      if (ANAPHORIC_PRODUCT_REFERENCE_RX.test(candidate.rawName.trim())) return false;
+      const candidateIndex = session.messages.findIndex((message) => candidate.evidenceMessageIds.includes(message.id));
+      return candidateIndex >= 0 && candidateIndex < evidenceIndex && evidenceIndex - candidateIndex <= 6;
+    });
+    const uniqueCandidates = [...new Map(candidates.map((candidate) => [candidate.normalizedName, candidate])).values()];
+    if (uniqueCandidates.length !== 1) continue;
+
+    const resolved = uniqueCandidates[0];
+    product.rawName = resolved.rawName;
+    product.normalizedName = resolved.normalizedName;
+    product.status = 'requested';
+    product.mentionOrigin = 'customer_explicit';
+    product.requestProven = true;
+    product.confidence = Math.max(product.confidence, resolved.confidence, 92);
+    product.evidenceMessageIds = uniq([...resolved.evidenceMessageIds, ...product.evidenceMessageIds]);
   }
 
   // Quantity-only anaphora such as "منهم شريطين" belongs to the most recent
