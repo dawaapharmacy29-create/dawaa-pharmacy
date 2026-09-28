@@ -85,7 +85,7 @@ export interface GroundedSaleJourneyV33 {
     closingCount: number;
     complaintResponseCount: number;
     findings: Array<{
-      type: 'response_delay' | 'understanding_correction' | 'correction_recovery' | 'order_confirmation' | 'closing' | 'complaint_handling' | 'handoff';
+      type: 'opening' | 'response_delay' | 'understanding_correction' | 'correction_recovery' | 'order_confirmation' | 'closing' | 'complaint_handling' | 'handoff';
       tone: 'strong' | 'improvement' | 'context';
       title: string;
       detail: string;
@@ -508,6 +508,62 @@ export function buildGroundedSaleJourneyV33(args: {
     const strengths: string[] = [];
     const gaps: string[] = [];
     const findings: GroundedSaleJourneyV33['staffCoaching'][number]['findings'] = [];
+
+    const firstOutbound = session.messages.find((message) => message.direction === 'outbound') || null;
+    const lastOutbound = [...session.messages].reverse().find((message) => message.direction === 'outbound') || null;
+    const ownsOpening = Boolean(firstOutbound && owned.has(firstOutbound.id));
+    const ownsClosing = Boolean(lastOutbound && owned.has(lastOutbound.id));
+    const openingEvidenceOwned = evaluation.opening.evidence.messageIds.filter((id) => owned.has(id));
+    const closingEvidenceOwned = evaluation.closing.evidence.messageIds.filter((id) => owned.has(id));
+    const officialWelcomeMatched = evaluation.opening.evidence.reason.includes('قالب ترحيب رسمي معتمد');
+    const officialClosingMatched = evaluation.closing.passed.includes('ختام رسمي معتمد');
+
+    if (ownsOpening && officialWelcomeMatched) {
+      strengths.push('استخدم صيغة ترحيب رسمية معتمدة.');
+      findings.push({
+        type: 'opening',
+        tone: 'strong',
+        title: 'ترحيب رسمي معتمد',
+        detail: evaluation.opening.evidence.reason,
+        evidenceMessageIds: openingEvidenceOwned.length ? openingEvidenceOwned : [firstOutbound!.id],
+        attributionConfidence: evaluation.opening.evidence.confidence,
+      });
+    } else if (ownsOpening && evaluation.opening.missing.length) {
+      const missingOpening = evaluation.opening.missing.slice(0, 3).join('، ');
+      gaps.push(`الافتتاح ناقص: ${missingOpening}.`);
+      findings.push({
+        type: 'opening',
+        tone: 'improvement',
+        title: 'الترحيب الرسمي غير مكتمل',
+        detail: `العناصر الناقصة في أول تواصل: ${missingOpening}.`,
+        evidenceMessageIds: openingEvidenceOwned.length ? openingEvidenceOwned : [firstOutbound!.id],
+        attributionConfidence: evaluation.opening.evidence.confidence,
+      });
+    }
+
+    if (ownsClosing && officialClosingMatched) {
+      strengths.push('استخدم صيغة ختام رسمية معتمدة.');
+      findings.push({
+        type: 'closing',
+        tone: 'strong',
+        title: 'ختام رسمي معتمد',
+        detail: evaluation.closing.evidence.reason,
+        evidenceMessageIds: closingEvidenceOwned.length ? closingEvidenceOwned : [lastOutbound!.id],
+        attributionConfidence: evaluation.closing.evidence.confidence,
+      });
+    } else if (ownsClosing && evaluation.closing.missing.length) {
+      const missingClosing = evaluation.closing.missing.slice(0, 3).join('، ');
+      gaps.push(`الختام ناقص: ${missingClosing}.`);
+      findings.push({
+        type: 'closing',
+        tone: 'improvement',
+        title: 'الختام الرسمي غير مكتمل',
+        detail: `العناصر الناقصة في نهاية التواصل: ${missingClosing}.`,
+        evidenceMessageIds: closingEvidenceOwned.length ? closingEvidenceOwned : [lastOutbound!.id],
+        attributionConfidence: evaluation.closing.evidence.confidence,
+      });
+    }
+
     const medianResponseSeconds = median(latencies);
     const slowTurns = staffTurns.filter((turn) =>
       typeof turn.responseLatencySeconds === 'number' && turn.responseLatencySeconds > 600
@@ -596,14 +652,16 @@ export function buildGroundedSaleJourneyV33(args: {
     if (recoveryCount) strengths.push('شارك في معالجة شكوى/تأخير بإجراء استعادة خدمة.');
     if (closingCount) {
       strengths.push('أنهى الجزء الخاص به بختام واضح.');
-      findings.push({
-        type: 'closing',
-        tone: 'strong',
-        title: 'ختام واضح',
-        detail: 'ظهر ختام خدمة واضح في رسالة من هذا الموظف.',
-        evidenceMessageIds: closingRows.filter((row) => owned.has(row.id)).map((row) => row.id),
-        attributionConfidence: 95,
-      });
+      if (!findings.some((finding) => finding.type === 'closing' && finding.tone === 'strong')) {
+        findings.push({
+          type: 'closing',
+          tone: 'strong',
+          title: 'ختام واضح',
+          detail: 'ظهر ختام خدمة واضح في رسالة من هذا الموظف.',
+          evidenceMessageIds: closingRows.filter((row) => owned.has(row.id)).map((row) => row.id),
+          attributionConfidence: 95,
+        });
+      }
     }
     if (complaintResponseCount) strengths.push('رد على شكوى العميل داخل نطاق مسؤوليته.');
 
@@ -640,14 +698,16 @@ export function buildGroundedSaleJourneyV33(args: {
     }
     if (staffCommercialMessages.length && !closingCount) {
       gaps.push('لا يظهر ختام واضح في الجزء الذي تولاه من رحلة البيع.');
-      findings.push({
-        type: 'closing',
-        tone: 'improvement',
-        title: 'الختام غير ظاهر في الجزء الذي تولاه',
-        detail: 'يوجد نشاط تجاري من الموظف، لكن لا توجد رسالة ختام مثبتة باسمه داخل نطاق الرحلة.',
-        evidenceMessageIds: staffCommercialMessages.slice(-8),
-        attributionConfidence: 86,
-      });
+      if (!findings.some((finding) => finding.type === 'closing' && finding.tone === 'improvement')) {
+        findings.push({
+          type: 'closing',
+          tone: 'improvement',
+          title: 'الختام غير ظاهر في الجزء الذي تولاه',
+          detail: 'يوجد نشاط تجاري من الموظف، لكن لا توجد رسالة ختام مثبتة باسمه داخل نطاق الرحلة.',
+          evidenceMessageIds: staffCommercialMessages.slice(-8),
+          attributionConfidence: 86,
+        });
+      }
     }
 
     if (contributions.length > 1 && staff.messageIds.length) {
