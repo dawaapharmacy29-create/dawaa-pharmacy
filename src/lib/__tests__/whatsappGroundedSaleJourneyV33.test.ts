@@ -139,6 +139,89 @@ describe('GroundedSaleJourneyV33', () => {
     expect(journey.coaching.complaintPoints.length).toBeGreaterThan(0);
   });
 
+  it('counts explicit doctor item review as real order confirmation', () => {
+    const s = session(`[9/15/26, 9:00:00 AM] Customer: عايز فيتامين د
+[9/15/26, 9:01:00 AM] You: متوفر يا فندم
+[9/15/26, 9:02:00 AM] You: حضرتك كده معانا فيتامين د عدد 1 تمام؟
+[9/15/26, 9:02:30 AM] Customer: تمام
+[9/15/26, 9:03:00 AM] You: جاري الارسال`);
+    const invoice = noInvoice();
+    const roles = rolesFor(s, [{ text: /.*/, staffName: 'هبة' }]);
+    const operational = buildWhatsAppOperationalIntelligenceV6(s, buildUnifiedConversationIntelligence(s));
+    const evaluation = buildSmartConversationEvaluationV2(s, { invoiceVerification: invoice });
+    const timing = buildConversationTimingV28(s, roles, invoice);
+    const understanding = buildConversationUnderstandingV32(s);
+    const journey = buildGroundedSaleJourneyV33({
+      session: s,
+      operational,
+      invoiceVerification: invoice,
+      evaluation,
+      timing,
+      participantRoles: roles,
+      understanding,
+    });
+
+    const stage = journey.stages.find((row) => row.key === 'order_confirmation');
+    const coach = journey.staffCoaching.find((row) => row.staffName === 'هبة');
+    expect(stage?.detected).toBe(true);
+    expect(stage?.evidenceMessageIds.some((id) => s.messages.find((m) => m.id === id)?.text.includes('حضرتك كده معانا'))).toBe(true);
+    expect(coach?.confirmationCount).toBeGreaterThan(0);
+  });
+
+  it('does not count order registration or dispatch as item confirmation', () => {
+    const s = session(`[9/15/26, 9:00:00 AM] Customer: عايز فيتامين د
+[9/15/26, 9:01:00 AM] You: متوفر يا فندم
+[9/15/26, 9:02:00 AM] Customer: تمام ابعته
+[9/15/26, 9:03:00 AM] You: تم تأكيد الطلب
+[9/15/26, 9:04:00 AM] You: جاري الارسال`);
+    const invoice = noInvoice();
+    const roles = rolesFor(s, [{ text: /.*/, staffName: 'هبة' }]);
+    const operational = buildWhatsAppOperationalIntelligenceV6(s, buildUnifiedConversationIntelligence(s));
+    const evaluation = buildSmartConversationEvaluationV2(s, { invoiceVerification: invoice });
+    const timing = buildConversationTimingV28(s, roles, invoice);
+    const understanding = buildConversationUnderstandingV32(s);
+    const journey = buildGroundedSaleJourneyV33({
+      session: s,
+      operational,
+      invoiceVerification: invoice,
+      evaluation,
+      timing,
+      participantRoles: roles,
+      understanding,
+    });
+
+    const stage = journey.stages.find((row) => row.key === 'order_confirmation');
+    const coach = journey.staffCoaching.find((row) => row.staffName === 'هبة');
+    expect(stage?.detected).toBe(false);
+    expect(coach?.confirmationCount).toBe(0);
+    expect(coach?.findings.some((finding) => finding.type === 'order_confirmation' && finding.tone === 'strong')).toBe(false);
+  });
+
+  it('keeps customer acceptance separate from doctor item confirmation', () => {
+    const s = session(`[9/15/26, 9:00:00 AM] Customer: عايز فيتامين د
+[9/15/26, 9:01:00 AM] You: متوفر يا فندم
+[9/15/26, 9:02:00 AM] Customer: تمام
+[9/15/26, 9:03:00 AM] You: جاري الارسال`);
+    const invoice = noInvoice();
+    const roles = rolesFor(s, [{ text: /.*/, staffName: 'هبة' }]);
+    const operational = buildWhatsAppOperationalIntelligenceV6(s, buildUnifiedConversationIntelligence(s));
+    const evaluation = buildSmartConversationEvaluationV2(s, { invoiceVerification: invoice });
+    const timing = buildConversationTimingV28(s, roles, invoice);
+    const understanding = buildConversationUnderstandingV32(s);
+    const journey = buildGroundedSaleJourneyV33({
+      session: s,
+      operational,
+      invoiceVerification: invoice,
+      evaluation,
+      timing,
+      participantRoles: roles,
+      understanding,
+    });
+
+    expect(journey.stages.find((row) => row.key === 'customer_acceptance')?.detected).toBe(true);
+    expect(journey.stages.find((row) => row.key === 'order_confirmation')?.detected).toBe(false);
+  });
+
   it('attributes official welcome and closing only to the staff who owns those edge messages', () => {
     const s = session(`[9/15/26, 9:00:00 AM] Customer: السلام عليكم
 [9/15/26, 9:00:30 AM] You: أهلًا وسهلًا بحضرتك نورتنا في صيدليات دواء مع حضرتك د هبة
