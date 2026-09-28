@@ -4,6 +4,8 @@ import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import WhatsAppCycleEvidenceDashboardV17 from '@/components/reviews/WhatsAppCycleEvidenceDashboardV17';
+import WhatsAppDoctorCycleIntelligenceV8 from '@/components/reviews/WhatsAppDoctorCycleIntelligenceV8';
+import { parseWhatsAppExport } from '@/lib/whatsappConversationParser';
 
 type QueueRow = {
   id: string;
@@ -80,6 +82,7 @@ export default function WhatsAppReviewQueueV4() {
   const [status, setStatus] = useState('pending');
   const [priority, setPriority] = useState('all');
   const [activeView, setActiveView] = useState<'queue' | 'doctors'>('queue');
+  const [focusedEvidenceIds, setFocusedEvidenceIds] = useState<string[]>([]);
 
   const load = async () => {
     setLoading(true);
@@ -115,6 +118,27 @@ export default function WhatsAppReviewQueueV4() {
   }, [rows, search, branch, status, priority]);
 
   const selected = filtered.find((row) => row.id === selectedId) || filtered[0] || null;
+  const transcriptMessages = useMemo(
+    () => selected?.raw_text
+      ? parseWhatsAppExport(selected.raw_text, {
+          trustedConversationStartedAt: selected.conversation_started_at,
+        }).filter((message) => message.direction !== 'system')
+      : [],
+    [selected?.id, selected?.raw_text, selected?.conversation_started_at]
+  );
+  const focusedEvidenceSet = useMemo(() => new Set(focusedEvidenceIds), [focusedEvidenceIds]);
+
+  const openDoctorEvidence = (sourceId: string, evidenceMessageIds: string[] = []) => {
+    setStatus('all');
+    setSearch('');
+    setFocusedEvidenceIds(Array.from(new Set(evidenceMessageIds)));
+    setSelectedId(sourceId);
+    setActiveView('queue');
+    window.setTimeout(() => {
+      document.getElementById('whatsapp-review-evidence-transcript')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 60);
+  };
+
   const stats = useMemo(() => ({
     total: filtered.length,
     urgent: filtered.filter((row) => row.priority === 'urgent').length,
@@ -219,7 +243,45 @@ export default function WhatsAppReviewQueueV4() {
 
             <section className="dawaa-card dawaa-card--soft p-4"><div className="font-black text-white">رحلة المحادثة</div><div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">{journeyStages.map((stage: any) => <div key={stage.key} className={`rounded-xl border p-3 ${stage.detected ? 'border-emerald-400/20 bg-emerald-500/8' : 'border-slate-800 bg-slate-950/30 opacity-60'}`}><div className="text-sm font-black text-white">{stage.label}</div><div className="mt-1 text-xs leading-5 text-slate-400">{stage.reason}</div></div>)}</div></section>
 
-            <section className="dawaa-card dawaa-card--soft p-4"><div className="flex items-center gap-2 font-black text-white"><FileText size={17}/>النص الأصلي</div><pre className="mt-3 max-h-[420px] overflow-auto whitespace-pre-wrap rounded-xl border border-slate-800 bg-slate-950/60 p-4 text-xs leading-6 text-slate-300">{selected.raw_text || 'لا يوجد نص محفوظ.'}</pre></section>
+            <section id="whatsapp-review-evidence-transcript" className="dawaa-card dawaa-card--soft p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2 font-black text-white"><FileText size={17}/>المحادثة ورسائل الدليل</div>
+                {focusedEvidenceIds.length ? (
+                  <div className="rounded-full bg-amber-500/10 px-2.5 py-1 text-[10px] font-black text-amber-200">
+                    {focusedEvidenceIds.length} رسالة دليل محددة
+                  </div>
+                ) : null}
+              </div>
+              {transcriptMessages.length ? (
+                <div className="mt-3 max-h-[560px] space-y-2 overflow-y-auto rounded-xl border border-slate-800 bg-slate-950/45 p-3">
+                  {transcriptMessages.map((message) => {
+                    const focused = focusedEvidenceSet.has(message.id);
+                    return (
+                      <div
+                        key={message.id}
+                        className={`rounded-xl border p-3 transition ${
+                          focused
+                            ? 'border-amber-400/60 bg-amber-500/10 ring-1 ring-amber-400/20'
+                            : message.direction === 'inbound'
+                              ? 'border-slate-800 bg-slate-900/70'
+                              : 'border-cyan-900/40 bg-cyan-950/20'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-3 text-[10px]">
+                          <span className={focused ? 'font-black text-amber-200' : 'font-black text-slate-400'}>
+                            {focused ? 'دليل التحليل · ' : ''}{message.sender || (message.direction === 'inbound' ? 'العميل' : 'الصيدلية')}
+                          </span>
+                          <span className="text-slate-600">{formatDate(message.timestamp.toISOString())}</span>
+                        </div>
+                        <div className="mt-1 whitespace-pre-wrap text-xs leading-6 text-slate-200">{message.text || '—'}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <pre className="mt-3 max-h-[420px] overflow-auto whitespace-pre-wrap rounded-xl border border-slate-800 bg-slate-950/60 p-4 text-xs leading-6 text-slate-300">{selected.raw_text || 'لا يوجد نص محفوظ.'}</pre>
+              )}
+            </section>
 
             <section className="rounded-2xl border border-cyan-400/20 bg-cyan-500/5 p-4 text-xs leading-6 text-cyan-100"><CheckCircle2 size={16} className="ml-2 inline"/>المستخدم الحالي: {String(user?.name || user?.username || 'غير محدد')}. زر الاعتماد النهائي سيظهر بعد إنشاء التقييم الرسمي وربطه بهذه الجلسة؛ لن يتم اعتماد Queue بدون سجل تقييم رسمي.</section>
           </>}
@@ -227,7 +289,10 @@ export default function WhatsAppReviewQueueV4() {
       </div>
         </>
       ) : (
-        <WhatsAppCycleEvidenceDashboardV17 mode="doctors" />
+        <div className="space-y-5">
+          <WhatsAppDoctorCycleIntelligenceV8 onOpenSource={openDoctorEvidence} />
+          <WhatsAppCycleEvidenceDashboardV17 mode="doctors" />
+        </div>
       )}
     </div>
   );
