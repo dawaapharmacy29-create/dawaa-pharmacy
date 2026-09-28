@@ -82,6 +82,15 @@ describe('WhatsApp Operational Intelligence V6 product extraction', () => {
     expect(model.primaryIntent).toBe('doctor_recommendation');
   });
 
+  it('treats جاري الارسال as operational closure without requiring follow-up', () => {
+    const model = analyze(`[9/28/26, 6:51:56 AM] Customer: لو سمحت يادكتور عايزه الحاجات دي
+[9/28/26, 6:54:34 AM] Customer: ايوه
+[9/28/26, 6:58:45 AM] You: جاري الارسال
+نتشرف ب خدمة حضرتك ٢٤ ساعه 🌸🌸`);
+    expect(model.operationalOutcome).toBe('probable_sale');
+    expect(model.followupPlan.required).toBe(false);
+  });
+
   it('does not treat the official 24-hour delivery welcome as a product', () => {
     const model = analyze(`[9/28/26, 6:52:06 AM] You: أهلًا وسهلًا بحضرتك✨
 نورتنا في صيدليات دواء 💚
