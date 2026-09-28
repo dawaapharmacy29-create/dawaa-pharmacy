@@ -1884,11 +1884,26 @@ export default function WhatsAppSmartFolderWatcher() {
                     <div className="truncate text-xl font-black text-white">
                       {selected.snapshot.smartIntelligence?.customer?.customer?.name || selected.customerName || 'عميل غير محدد'}
                     </div>
-                    <span className={`rounded-full px-2.5 py-1 text-[10px] font-black ${selected.decision === 'clear' ? 'bg-emerald-500/15 text-emerald-200' : selected.decision === 'issue' ? 'bg-amber-500/15 text-amber-200' : 'bg-rose-500/15 text-rose-200'}`}>{decisionLabel(selected.decision)}</span>
-                    {selected.snapshot.smartIntelligence?.invoiceVerification?.status === 'verified' ? (
-                      <span className="rounded-full bg-amber-500/10 px-2.5 py-1 text-[10px] font-black text-amber-300">مطابقة فاتورة قوية</span>
-                    ) : selected.snapshot.smartIntelligence?.invoiceVerification?.status === 'probable' ? (
-                      <span className="rounded-full bg-amber-500/10 px-2.5 py-1 text-[10px] font-black text-amber-300">فاتورة مرشحة</span>
+                    <span className="rounded-full border border-cyan-700/40 bg-cyan-950/30 px-2.5 py-1 text-[10px] font-black text-cyan-100">
+                      {saleTruth(selected).label}
+                    </span>
+                    {selected.snapshot.smartIntelligence?.groundedSaleJourneyV33?.truthQuality ? (
+                      <span className={`rounded-full px-2.5 py-1 text-[10px] font-black ${
+                        selected.snapshot.smartIntelligence.groundedSaleJourneyV33.truthQuality.status === 'grounded'
+                          ? 'bg-emerald-500/15 text-emerald-200'
+                          : selected.snapshot.smartIntelligence.groundedSaleJourneyV33.truthQuality.status === 'partial'
+                            ? 'bg-amber-500/15 text-amber-200'
+                            : 'bg-rose-500/15 text-rose-200'
+                      }`}>
+                        {selected.snapshot.smartIntelligence.groundedSaleJourneyV33.truthQuality.status === 'grounded'
+                          ? 'حقيقة موثقة'
+                          : selected.snapshot.smartIntelligence.groundedSaleJourneyV33.truthQuality.status === 'partial'
+                            ? 'حقيقة جزئية'
+                            : 'تحتاج مراجعة'}
+                      </span>
+                    ) : null}
+                    {selected.actions.followup ? (
+                      <span className="rounded-full bg-violet-500/15 px-2.5 py-1 text-[10px] font-black text-violet-200">متابعة مطلوبة</span>
                     ) : null}
                   </div>
                   <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-400">
@@ -1904,7 +1919,7 @@ export default function WhatsAppSmartFolderWatcher() {
               </div>
             </div>
 
-            <div className="flex shrink-0 gap-1 border-b border-slate-800 bg-slate-950/20 px-3 pt-2">
+            <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-slate-800 bg-slate-950/20 px-3 pt-2">
               {[
                 ['overview', 'الملخص التنفيذي'],
                 ['conversation', `المحادثة والأدلة (${selected.snapshot.messages.length})`],
