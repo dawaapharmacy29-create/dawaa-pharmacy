@@ -97,7 +97,11 @@ function pickOwner(source: SourceRow, preferredRoles: string[], evidenceMessageI
   )[0] || null;
 }
 
-function stageEvidenceMessageIds(source: SourceRow, stage: string) {
+function uniqueStringIds(values: unknown[]): string[] {
+  return [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))];
+}
+
+function stageEvidenceMessageIds(source: SourceRow, stage: string): string[] {
   const operational = source.analysis_json?.operational || null;
   const journeys = Array.isArray(operational?.productJourney?.journeys)
     ? operational.productJourney.journeys
@@ -107,31 +111,28 @@ function stageEvidenceMessageIds(source: SourceRow, stage: string) {
   );
 
   if (stage === 'availability') {
-    return [...new Set(
+    return uniqueStringIds(
       journeyEvents
         .filter((event: any) => ['availability_confirmed', 'unavailable'].includes(String(event?.stage || '')))
         .flatMap((event: any) => Array.isArray(event?.messageIds) ? event.messageIds : [])
-        .map(String)
-    )];
+    );
   }
   if (stage === 'recommendation') {
-    return [...new Set(
+    return uniqueStringIds(
       (Array.isArray(operational?.recommendations) ? operational.recommendations : [])
         .flatMap((row: any) => Array.isArray(row?.evidenceMessageIds) ? row.evidenceMessageIds : [])
-        .map(String)
-    )];
+    );
   }
   if (stage === 'confirmation') {
-    return [...new Set(
-      (Array.isArray(operational?.evidence?.saleClose?.messageIds) ? operational.evidence.saleClose.messageIds : [])
-        .map(String)
-    )];
+    return uniqueStringIds(
+      Array.isArray(operational?.evidence?.saleClose?.messageIds) ? operational.evidence.saleClose.messageIds : []
+    );
   }
   if (stage === 'complaint' || stage === 'recovery') {
     const recoveryEvidence = source.analysis_json?.smartIntelligence?.evaluationV2?.serviceRecovery?.evidenceMessageIds;
-    if (Array.isArray(recoveryEvidence)) return [...new Set(recoveryEvidence.map(String))];
+    if (Array.isArray(recoveryEvidence)) return uniqueStringIds(recoveryEvidence);
     const complaintEvidence = operational?.evidence?.complaint?.messageIds;
-    if (Array.isArray(complaintEvidence)) return [...new Set(complaintEvidence.map(String))];
+    if (Array.isArray(complaintEvidence)) return uniqueStringIds(complaintEvidence);
   }
   return [];
 }
