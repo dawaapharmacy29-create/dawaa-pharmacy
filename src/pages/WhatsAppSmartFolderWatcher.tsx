@@ -25,6 +25,12 @@ import type { SmartStaffRole } from '@/lib/whatsappSmartReviewOwnership';
 import { resolveWhatsAppParticipantRolesV15 } from '@/lib/whatsappParticipantRoleResolverV15';
 import { groupOutboundBursts, computeStaffBurstEffort } from '@/lib/whatsappOutboundMessageBursts';
 import { buildUnifiedConversationIntelligence, verifySessionAgainstInvoices } from '@/lib/whatsappUnifiedIntelligenceV4';
+import {
+  buildWhatsAppOperationalIntelligenceV6,
+  enrichWhatsAppOperationalProductsV6,
+  syncWhatsAppOperationalActionsV6,
+} from '@/lib/whatsappOperationalIntelligenceV6';
+import { enrichWhatsAppOperationalJourneysV7 } from '@/lib/whatsappProductJourneyV7';
 import { buildSmartIntelligenceSnapshotV1 } from '@/lib/whatsappSmartIntelligenceSnapshot';
 import { resolveConversationBranchHint, type BranchHintResult } from '@/lib/whatsappConversationBranchHint';
 import { resolveStaffIdentity, type ResolvedStaffIdentity } from '@/lib/whatsappStaffIdentityResolver';
@@ -260,6 +266,19 @@ export default function WhatsAppSmartFolderWatcher() {
       const customerContext = await getCustomerContext(session, branchHint.value);
       const resolvedCustomer = customerContext.resolution.customer;
 
+      // Operational/Product Journey هو مصدر حقيقة الأصناف داخل WhatsApp Review.
+      // نحافظ على fallback نصي حتى لو catalog lookup فشل مؤقتًا؛ كده اسم الصنف الخام
+      // والطلب/الترشيح لا يختفوا من analysis_json أو من شاشة التقييم.
+      const baseIntelligence = buildUnifiedConversationIntelligence(session);
+      const baseOperational = buildWhatsAppOperationalIntelligenceV6(session, baseIntelligence);
+      let operational = enrichWhatsAppOperationalJourneysV7(session, baseOperational);
+      try {
+        const enrichedOperational = await enrichWhatsAppOperationalProductsV6(baseOperational, session);
+        operational = enrichWhatsAppOperationalJourneysV7(session, enrichedOperational);
+      } catch (productEnrichmentError) {
+        console.warn('[whatsapp-watcher] product catalog enrichment failed; raw operational products preserved', productEnrichmentError);
+      }
+
       // التحقق من الفاتورة يظل per-session لأن التوقيت وسياق الجلسة جزء من المطابقة؛
       // لذلك لا نكاشه بشكل قد يخلط بيع Session بآخر.
       const invoiceVerification = await verifySessionAgainstInvoices(session, {
@@ -392,9 +411,9 @@ export default function WhatsAppSmartFolderWatcher() {
         const singleResolvedStaff = keptRuns.length === 1 && keptRuns[0].staffIdentity.staffId && !keptRuns[0].staffIdentity.ambiguous
           ? keptRuns[0].staffIdentity
           : null;
-        const baseIntelligence = buildUnifiedConversationIntelligence(session);
         const persistenceIntelligence = {
           ...baseIntelligence,
+          operational,
           participantRoles: roles,
           contextOnly: false,
           caseContext: {
@@ -419,6 +438,21 @@ export default function WhatsAppSmartFolderWatcher() {
           createdBy: actorName,
         });
         await attachInvoiceVerificationToQueue(persisted.id, invoiceVerification, String(user?.id || '') || null, actorName);
+        try {
+          await syncWhatsAppOperationalActionsV6(operational, {
+            sourceId: persisted.id,
+            branch: resolvedCustomer?.branch || branchHint.value || null,
+            customerId: resolvedCustomer?.id || null,
+            customerCode: resolvedCustomer?.code || fileCustomerHint.codeHint || null,
+            customerName: resolvedCustomer?.name || fileCustomerHint.nameHint || session.customerName || null,
+            customerPhone: resolvedCustomer?.phone || customerContext.phoneCandidate || null,
+            staffId: singleResolvedStaff?.staffId || null,
+            staffName: singleResolvedStaff?.canonicalStaffName || null,
+            createdBy: actorName,
+          });
+        } catch (operationalActionError) {
+          console.warn('[whatsapp-watcher] operational action sync failed; source/product analysis preserved', operationalActionError);
+        }
         try {
           await syncWhatsAppResponseTurnsV18(session, {
             sourceId: persisted.id,
