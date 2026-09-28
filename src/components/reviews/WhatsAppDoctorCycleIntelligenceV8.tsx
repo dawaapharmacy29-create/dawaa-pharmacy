@@ -106,25 +106,52 @@ export default function WhatsAppDoctorCycleIntelligenceV8({ onOpenSource }: { on
     setSelected(row);
     setDetailLoading(true);
     try {
+      let ownershipQuery = supabase
+        .from('whatsapp_case_stage_ownership_v23')
+        .select('evidence_source_ids,owner_account_id,owner_name,owner_role')
+        .in('owner_role', ['pharmacist', 'pharmacy_unknown'])
+        .limit(1000);
+      ownershipQuery = row.owner_account_id
+        ? ownershipQuery.eq('owner_account_id', row.owner_account_id)
+        : ownershipQuery.eq('owner_name', row.owner_name || '');
+
+      const ownershipResult = await ownershipQuery;
+      if (ownershipResult.error) throw ownershipResult.error;
+      const sourceIds = Array.from(new Set(
+        (ownershipResult.data || []).flatMap((item: any) => Array.isArray(item.evidence_source_ids) ? item.evidence_source_ids : [])
+      )).filter(Boolean) as string[];
+
       let sourceQuery = supabase
         .from('whatsapp_review_sources')
         .select('id,customer_name,customer_code,conversation_started_at,review_status,followup_required,invoice_match_status,matched_invoice_number,matched_invoice_value,analysis_json')
         .gte('conversation_started_at', `${row.cycle_start}T00:00:00`)
         .lte('conversation_started_at', `${row.cycle_end}T23:59:59`)
-        .eq('branch', row.branch || '')
         .order('conversation_started_at', { ascending: false })
-        .limit(250);
-      sourceQuery = row.owner_account_id ? sourceQuery.eq('staff_id', row.owner_account_id) : sourceQuery.eq('staff_name', row.owner_name || '');
+        .limit(400);
+      if (row.branch) sourceQuery = sourceQuery.eq('branch', row.branch);
+      if (sourceIds.length) {
+        sourceQuery = sourceQuery.in('id', sourceIds.slice(0, 400));
+      } else {
+        sourceQuery = row.owner_account_id
+          ? sourceQuery.eq('staff_id', row.owner_account_id)
+          : sourceQuery.eq('staff_name', row.owner_name || '');
+      }
 
       let productQuery = supabase
         .from('whatsapp_product_journey_detail_v1')
         .select('source_id,customer_name,customer_code,product_name,current_stage,sale_intent,closed_in_chat,followup_candidate,leakage_reason,next_action,invoice_match_status,matched_invoice_number,matched_invoice_value,confidence')
         .eq('cycle_start', row.cycle_start)
         .eq('cycle_end', row.cycle_end)
-        .eq('branch', row.branch || '')
         .order('conversation_started_at', { ascending: false })
-        .limit(300);
-      productQuery = row.owner_account_id ? productQuery.eq('staff_id', row.owner_account_id) : productQuery.eq('staff_name', row.owner_name || '');
+        .limit(500);
+      if (row.branch) productQuery = productQuery.eq('branch', row.branch);
+      if (sourceIds.length) {
+        productQuery = productQuery.in('source_id', sourceIds.slice(0, 400));
+      } else {
+        productQuery = row.owner_account_id
+          ? productQuery.eq('staff_id', row.owner_account_id)
+          : productQuery.eq('staff_name', row.owner_name || '');
+      }
 
       const [sourceResult, productResult] = await Promise.all([sourceQuery, productQuery]);
       if (sourceResult.error) throw sourceResult.error;
@@ -132,7 +159,7 @@ export default function WhatsAppDoctorCycleIntelligenceV8({ onOpenSource }: { on
       setConversations((sourceResult.data || []) as ConversationRow[]);
       setProducts((productResult.data || []) as ProductRow[]);
     } catch (error) {
-      console.error('[whatsapp-doctor-cycle-v8] detail load failed', error);
+      console.error('[whatsapp-doctor-cycle-v33] detail load failed', error);
       setConversations([]);
       setProducts([]);
     } finally {
@@ -158,13 +185,53 @@ export default function WhatsAppDoctorCycleIntelligenceV8({ onOpenSource }: { on
     leakage: filtered.reduce((sum, row) => sum + Number(row.lost_opportunities || 0), 0),
   }), [filtered]);
 
+  const doctorInsights = useMemo(() => {
+    const enriched = conversations.map((item) => {
+      const journey = item.analysis_json?.groundedSaleJourneyV33 || null;
+      const score = Number(journey?.coaching?.bestPracticeScore);
+      return {
+        item,
+        journey,
+        score: Number.isFinite(score) ? score : null,
+        strengths: Array.isArray(journey?.coaching?.strengths) ? journey.coaching.strengths as string[] : [],
+        gaps: Array.isArray(journey?.coaching?.gaps) ? journey.coaching.gaps as string[] : [],
+        complaintPoints: Array.isArray(journey?.coaching?.complaintPoints) ? journey.coaching.complaintPoints as string[] : [],
+        delayPoints: Array.isArray(journey?.coaching?.delayPoints) ? journey.coaching.delayPoints as string[] : [],
+      };
+    });
+    const grounded = enriched.filter((row) => row.journey);
+    const commercial = grounded.filter((row) => row.journey?.commercial);
+    const verifiedSales = grounded.filter((row) => row.journey?.outcome === 'verified_sale');
+    const verifiedRevenue = verifiedSales.reduce((sum, row) => sum + Number(row.item.matched_invoice_value || 0), 0);
+    const best = enriched
+      .filter((row) => row.score != null && row.strengths.length)
+      .sort((a,b) => (b.score || 0) - (a.score || 0))
+      .slice(0, 5);
+    const improvement = enriched
+      .filter((row) => row.gaps.length || row.delayPoints.length || row.complaintPoints.length)
+      .sort((a,b) => (a.score ?? 101) - (b.score ?? 101))
+      .slice(0, 8);
+    return {
+      enriched,
+      commercialCount: commercial.length,
+      verifiedSales: verifiedSales.length,
+      verifiedRevenue,
+      conversionRate: commercial.length ? Math.round((verifiedSales.length / commercial.length) * 1000) / 10 : null,
+      complaints: enriched.filter((row) => row.complaintPoints.length).length,
+      delays: enriched.filter((row) => row.delayPoints.length).length,
+      best,
+      improvement,
+    };
+  }, [conversations]);
+
   const detailStats = useMemo(() => ({
     customers: new Set(conversations.map((x) => x.customer_code || x.customer_name).filter(Boolean)).size,
-    verifiedSales: 0, // Legacy invoice_match_status is not canonical Sale Proof.
-    verifiedRevenue: 0, // Revenue cannot be confirmed from the legacy statistical matcher.
-    pendingFollowups: conversations.filter((x) => x.followup_required).length,
-    leakage: products.filter((x) => Boolean(x.leakage_reason)).length,
-  }), [conversations, products]);
+    verifiedSales: doctorInsights.verifiedSales,
+    verifiedRevenue: doctorInsights.verifiedRevenue,
+    conversionRate: doctorInsights.conversionRate,
+    complaints: doctorInsights.complaints,
+    delays: doctorInsights.delays,
+  }), [conversations, doctorInsights]);
 
   return <section className="dawaa-card dawaa-card--raised p-5" dir="rtl">
     <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
