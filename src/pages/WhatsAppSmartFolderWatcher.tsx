@@ -660,6 +660,7 @@ export default function WhatsAppSmartFolderWatcher() {
             sourceId: persisted.id,
             participantRoles: roles,
             contextOnly: false,
+            groundedSaleJourney: keptRuns[0]?.snapshot.smartIntelligence?.groundedSaleJourneyV33 || null,
           });
         } catch (lifecyclePersistError) {
           console.warn('[whatsapp-watcher] order lifecycle sync failed; source preserved', lifecyclePersistError);
