@@ -1134,7 +1134,10 @@ export default function WhatsAppSmartFolderWatcher() {
   }
 
   function openOfficialReview(item: StaffRun) {
-    writePendingConversationReviewTransfer(item.snapshot);
+    writePendingConversationReviewTransfer({
+      ...item.snapshot,
+      canonicalSaleProofState: item.canonicalSaleProofState || null,
+    });
     navigate('/reviews?mode=new&fromSmart=1');
   }
 
