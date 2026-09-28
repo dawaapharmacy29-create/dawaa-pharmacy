@@ -64,6 +64,8 @@ export interface InvoiceCandidate {
   sellerName: string | null;
   customerCode: string | null;
   customerName: string | null;
+  customerPhone: string | null;
+  customerAddress: string | null;
   amount: number | null;
   score: number;
   confidence: number;
@@ -413,6 +415,8 @@ function invoiceCandidate(row: CustomerInvoiceReadRow, session: WhatsAppConversa
     sellerName: String(row.seller_name || row.normalized_seller_name || row.staff_name || '').trim() || null,
     customerCode: String(row.customer_code || '').trim() || null,
     customerName: String(row.customer_name || '').trim() || null,
+    customerPhone: String(row.customer_phone || '').trim() || null,
+    customerAddress: String(row.customer_address || '').trim() || null,
     amount,
     score,
     confidence: Math.max(0, Math.min(.99, score / 110)),
