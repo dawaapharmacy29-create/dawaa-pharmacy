@@ -238,7 +238,7 @@ export default function WhatsAppCustomerActionCenterV6({ onOpenSource }: { onOpe
       <div className="mt-4 grid gap-2 sm:grid-cols-3">
         <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 p-3"><div className="text-xs text-amber-200">محتاجين إجراء</div><div className="mt-1 text-2xl font-black text-white">{actionCount}</div></div>
         <div className="rounded-2xl border border-rose-400/20 bg-rose-500/10 p-3"><div className="text-xs text-rose-200">مستحقين الآن</div><div className="mt-1 text-2xl font-black text-white">{overdueCount}</div></div>
-        <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-3"><div className="text-xs text-emerald-200">تجاوزوا 500 ج مبيعات مؤكدة</div><div className="mt-1 text-2xl font-black text-white">{over500Count}</div></div>
+        <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-3"><div className="text-xs text-emerald-200">تجاوزوا 500 ج في مطابقات فاتورة آلية</div><div className="mt-1 text-2xl font-black text-white">{over500Count}</div></div>
       </div>
 
       <div className="mt-4 flex flex-col gap-2 lg:flex-row">
@@ -267,7 +267,7 @@ export default function WhatsAppCustomerActionCenterV6({ onOpenSource }: { onOpe
               </div>
               <div className="shrink-0 text-left">
                 <div className="text-lg font-black text-emerald-300">{formatMoney(row.verified_revenue)}</div>
-                <div className="text-[11px] text-slate-500">{row.verified_invoice_count || 0} فاتورة مؤكدة • {row.conversation_count || 0} محادثة</div>
+                <div className="text-[11px] text-slate-500">{row.verified_invoice_count || 0} مطابقة فاتورة آلية • {row.conversation_count || 0} محادثة</div>
                 <div className="mt-2 flex flex-wrap justify-end gap-2">
                   <button onClick={() => void openCustomer360(row)} className="rounded-lg border border-violet-400/20 bg-violet-500/10 px-3 py-1.5 text-xs font-black text-violet-200">Customer 360</button>
                   {row.next_source_id && onOpenSource ? <button onClick={() => onOpenSource(row.next_source_id!)} className="rounded-lg border border-cyan-400/20 bg-cyan-500/10 px-3 py-1.5 text-xs font-black text-cyan-200">فتح المحادثة</button> : null}
