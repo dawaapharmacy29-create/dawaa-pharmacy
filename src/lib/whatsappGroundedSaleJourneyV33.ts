@@ -84,6 +84,14 @@ export interface GroundedSaleJourneyV33 {
     recoveryCount: number;
     closingCount: number;
     complaintResponseCount: number;
+    findings: Array<{
+      type: 'response_delay' | 'understanding_correction' | 'correction_recovery' | 'order_confirmation' | 'closing' | 'complaint_handling' | 'handoff';
+      tone: 'strong' | 'improvement' | 'context';
+      title: string;
+      detail: string;
+      evidenceMessageIds: string[];
+      attributionConfidence: number;
+    }>;
     strengths: string[];
     gaps: string[];
     score: number | null;
@@ -499,23 +507,164 @@ export function buildGroundedSaleJourneyV33(args: {
 
     const strengths: string[] = [];
     const gaps: string[] = [];
+    const findings: GroundedSaleJourneyV33['staffCoaching'][number]['findings'] = [];
     const medianResponseSeconds = median(latencies);
-    const slowResponseCount = latencies.filter((value) => value > 600).length;
+    const slowTurns = staffTurns.filter((turn) =>
+      typeof turn.responseLatencySeconds === 'number' && turn.responseLatencySeconds > 600
+    );
+    const slowResponseCount = slowTurns.length;
 
-    if (latencies.length && latencies.every((value) => value <= 300)) strengths.push('ردوده المسجلة على Turns العملاء كانت خلال 5 دقائق.');
-    else if (slowResponseCount) gaps.push(`لديه ${slowResponseCount} رد متأخر أكثر من 10 دقائق داخل نطاقه.`);
-    if (confirmationCount) strengths.push('نفذ تأكيدًا واضحًا للأصناف/الطلب مع العميل.');
+    for (const turn of slowTurns.slice(0, 5)) {
+      findings.push({
+        type: 'response_delay',
+        tone: 'improvement',
+        title: 'رد متأخر على العميل',
+        detail: `الرد المسجل اتأخر حوالي ${Math.round((turn.responseLatencySeconds || 0) / 60)} دقيقة.`,
+        evidenceMessageIds: uniq([
+          ...turn.inboundMessageIds,
+          ...(turn.responseMessageId ? [turn.responseMessageId] : []),
+        ]),
+        attributionConfidence: 96,
+      });
+    }
+
+    const correctionSignals = (understanding?.signals || []).filter((signal) =>
+      signal.type === 'correction' &&
+      signal.confidence >= 0.6 &&
+      (signal.relatedMessageIds || []).some((id) => owned.has(id))
+    );
+    for (const correction of correctionSignals.slice(0, 4)) {
+      const correctedStaffIds = (correction.relatedMessageIds || []).filter((id) => owned.has(id));
+      findings.push({
+        type: 'understanding_correction',
+        tone: 'improvement',
+        title: 'العميل صحح فهمًا/معلومة',
+        detail: 'العميل صحح رسالة سابقة لهذا الموظف؛ راجع الرسالة المصححة والتصحيح نفسه قبل تقييم فهم الطلب.',
+        evidenceMessageIds: uniq([...correctedStaffIds, correction.messageId]),
+        attributionConfidence: Math.round(correction.confidence * 100),
+      });
+
+      const correctionMessage = byId.get(correction.messageId);
+      if (correctionMessage) {
+        const laterOwnedResponse = session.messages.find((message) =>
+          owned.has(message.id) &&
+          message.direction === 'outbound' &&
+          message.timestamp.getTime() > correctionMessage.timestamp.getTime() &&
+          message.timestamp.getTime() - correctionMessage.timestamp.getTime() <= 10 * 60 * 1000
+        );
+        if (laterOwnedResponse) {
+          findings.push({
+            type: 'correction_recovery',
+            tone: 'context',
+            title: 'استجابة بعد تصحيح العميل',
+            detail: 'ظهر رد من نفس الموظف بعد تصحيح العميل. وجود الرد مثبت، أما جودة التصحيح نفسه فتُراجع من النص.',
+            evidenceMessageIds: [correction.messageId, laterOwnedResponse.id],
+            attributionConfidence: 92,
+          });
+        }
+      }
+    }
+
+    if (latencies.length && latencies.every((value) => value <= 300)) {
+      strengths.push('ردوده المسجلة على Turns العملاء كانت خلال 5 دقائق.');
+      findings.push({
+        type: 'response_delay',
+        tone: 'strong',
+        title: 'سرعة رد جيدة',
+        detail: 'كل Turns العملاء المنسوبة لهذا الموظف في هذه المحادثة تم الرد عليها خلال 5 دقائق.',
+        evidenceMessageIds: uniq(staffTurns.flatMap((turn) => [
+          ...turn.inboundMessageIds,
+          ...(turn.responseMessageId ? [turn.responseMessageId] : []),
+        ])).slice(0, 12),
+        attributionConfidence: 96,
+      });
+    } else if (slowResponseCount) {
+      gaps.push(`لديه ${slowResponseCount} رد متأخر أكثر من 10 دقائق داخل نطاقه.`);
+    }
+    if (confirmationCount) {
+      strengths.push('نفذ تأكيدًا واضحًا للأصناف/الطلب مع العميل.');
+      findings.push({
+        type: 'order_confirmation',
+        tone: 'strong',
+        title: 'تأكيد واضح للطلب',
+        detail: 'ظهر تأكيد صريح/سياقي قوي للطلب في رسالة يملكها هذا الموظف.',
+        evidenceMessageIds: confirmationRows.filter((row) => owned.has(row.id)).map((row) => row.id),
+        attributionConfidence: 96,
+      });
+    }
     if (recommendationCount) strengths.push('قدّم ترشيحًا/بديلًا مثبتًا في المحادثة.');
     if (recoveryCount) strengths.push('شارك في معالجة شكوى/تأخير بإجراء استعادة خدمة.');
-    if (closingCount) strengths.push('أنهى الجزء الخاص به بختام واضح.');
+    if (closingCount) {
+      strengths.push('أنهى الجزء الخاص به بختام واضح.');
+      findings.push({
+        type: 'closing',
+        tone: 'strong',
+        title: 'ختام واضح',
+        detail: 'ظهر ختام خدمة واضح في رسالة من هذا الموظف.',
+        evidenceMessageIds: closingRows.filter((row) => owned.has(row.id)).map((row) => row.id),
+        attributionConfidence: 95,
+      });
+    }
     if (complaintResponseCount) strengths.push('رد على شكوى العميل داخل نطاق مسؤوليته.');
+
+    for (const complaint of complaintRows) {
+      const complaintIndex = session.messages.findIndex((message) => message.id === complaint.id);
+      const nextOutbound = complaintIndex >= 0
+        ? session.messages.slice(complaintIndex + 1).find((message) => message.direction === 'outbound')
+        : null;
+      if (!nextOutbound || !owned.has(nextOutbound.id)) continue;
+      const handledWithRecovery = recoveryRows.some((row) => owned.has(row.id) && row.timestamp.getTime() >= complaint.timestamp.getTime());
+      findings.push({
+        type: 'complaint_handling',
+        tone: handledWithRecovery ? 'strong' : 'context',
+        title: handledWithRecovery ? 'تعامل مع الشكوى بإجراء استعادة' : 'رد على شكوى العميل',
+        detail: handledWithRecovery
+          ? 'الشكوى نفسها لا تُنسب للموظف؛ المثبت أنه رد عليها وظهر إجراء احتواء/استعادة خدمة في رسائله.'
+          : 'الشكوى نفسها لا تُنسب للموظف؛ المثبت فقط أنه صاحب أول رد بعدها، ويحتاج نص الرد للمراجعة.',
+        evidenceMessageIds: uniq([complaint.id, nextOutbound.id, ...recoveryRows.filter((row) => owned.has(row.id)).map((row) => row.id)]).slice(0, 8),
+        attributionConfidence: 94,
+      });
+    }
 
     const staffCommercialMessages = staff.messageIds.filter((id) => saleWindowIds.includes(id));
     if (staffCommercialMessages.length && !confirmationCount && ['invoice_candidate_strong','chat_confirmed'].includes(outcome)) {
       gaps.push('شارك في رحلة بيع مكتملة لكن لم يظهر في رسائله تأكيد صريح للأصناف مع العميل.');
+      findings.push({
+        type: 'order_confirmation',
+        tone: 'improvement',
+        title: 'تأكيد الطلب غير ظاهر في رسائله',
+        detail: 'شارك في رحلة بيع وصلت للإغلاق/مرشح فاتورة قوي، لكن لا يوجد تأكيد طلب مثبت في الرسائل المنسوبة له.',
+        evidenceMessageIds: staffCommercialMessages.slice(0, 10),
+        attributionConfidence: 88,
+      });
     }
     if (staffCommercialMessages.length && !closingCount) {
       gaps.push('لا يظهر ختام واضح في الجزء الذي تولاه من رحلة البيع.');
+      findings.push({
+        type: 'closing',
+        tone: 'improvement',
+        title: 'الختام غير ظاهر في الجزء الذي تولاه',
+        detail: 'يوجد نشاط تجاري من الموظف، لكن لا توجد رسالة ختام مثبتة باسمه داخل نطاق الرحلة.',
+        evidenceMessageIds: staffCommercialMessages.slice(-8),
+        attributionConfidence: 86,
+      });
+    }
+
+    if (contributions.length > 1 && staff.messageIds.length) {
+      const firstOwnedIndex = session.messages.findIndex((message) => owned.has(message.id));
+      const previousOutbound = firstOwnedIndex > 0
+        ? [...session.messages.slice(0, firstOwnedIndex)].reverse().find((message) => message.direction === 'outbound' && !owned.has(message.id))
+        : null;
+      if (previousOutbound) {
+        findings.push({
+          type: 'handoff',
+          tone: 'context',
+          title: 'استلام المحادثة بعد موظف آخر',
+          detail: 'هذه نقطة Handoff موثقة وليست خطأ تلقائيًا. راجع استمرارية السياق بين الرسالتين عند الحاجة.',
+          evidenceMessageIds: [previousOutbound.id, staff.messageIds[0]],
+          attributionConfidence: 90,
+        });
+      }
     }
 
     const scoreParts: number[] = [];
@@ -544,6 +693,7 @@ export function buildGroundedSaleJourneyV33(args: {
       recoveryCount,
       closingCount,
       complaintResponseCount,
+      findings,
       strengths: uniq(strengths),
       gaps: uniq(gaps),
       score,
