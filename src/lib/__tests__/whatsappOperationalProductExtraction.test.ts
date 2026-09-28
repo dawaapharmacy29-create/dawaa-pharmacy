@@ -171,6 +171,17 @@ describe('WhatsApp Operational Intelligence V6 product extraction', () => {
     expect(names.some((name) => /فوار للحموضه/.test(name))).toBe(true);
   });
 
+  it('rejects duration tails, price-list fragments, and generic recommendation placeholders as products', () => {
+    const model = analyze(`[6/10/26, 9:23:11 AM] You: الحقنه ب 58 فيها امبولين هتاخد كل اسبوعين امبول يعني شهر
+[6/10/26, 9:23:12 AM] You: يعني شهر
+[6/10/26, 9:23:27 AM] You: البلسم ٣٢٠ الشامبو العادي ٣٠٠ الماسك ٣٦٠
+[6/10/26, 9:23:40 AM] You: ارشح لحضرتك حاجه كويسة
+[6/10/26, 9:24:00 AM] Customer: محتاج كريم كوريغا`);
+    const names = model.products.map((row) => row.rawName);
+    expect(names.some((name) => /يعني شهر|٣٠٠ الماسك ٣٦٠|لحضرتك حاجه كويسة/.test(name))).toBe(false);
+    expect(names.some((name) => /كريم كوريغا/.test(name))).toBe(true);
+  });
+
   it('does not turn lifestyle advice, dosage instructions, or recommendation placeholders into commercial recommendations', () => {
     const advice = analyze(`[9/27/26, 8:20:00 PM] Customer: افضل برنامج للدايت ايه
 [9/27/26, 8:21:00 PM] You: حضرتك ممكن تستخدم نظام الصيام المتقطع
