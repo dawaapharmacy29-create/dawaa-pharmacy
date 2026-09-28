@@ -140,7 +140,7 @@ async function loadOfficialConversationTemplates() {
           )
         )
         .map((row: any) => String(row.message_body || '').trim()),
-    ].filter(Boolean);
+    ].filter((value): value is string => Boolean(value));
 
     const closing = (quickReplyResult.data || [])
       .filter((row: any) => {
@@ -150,7 +150,7 @@ async function loadOfficialConversationTemplates() {
         return /closing|ختام|تحت أمر حضرتك|تحت امرك|نتشرف بخدمة حضرتك|سعداء بخدمة حضرتك|شكرا لثقة حضرتك|شكراً لثقة حضرتك/i.test(full);
       })
       .map((row: any) => String(row.message_body || '').trim())
-      .filter(Boolean);
+      .filter((value): value is string => Boolean(value));
 
     return {
       welcome: Array.from(new Set(welcome)),
@@ -1425,7 +1425,22 @@ export default function WhatsAppSmartFolderWatcher() {
     return { label: 'جاهز للمراجعة النهائية', detail: 'لا توجد ملاحظة مؤثرة ظاهرة؛ راجع الأدلة ثم اعتمد عند الاطمئنان.', cls: 'bg-emerald-500/10 text-emerald-200 border-emerald-800/40' };
   }
 
-  function productTruthRows(item: StaffRun) {
+  type ProductTruthRow = {
+    kind:
+      | 'invoice_service'
+      | 'customer_requested_in_invoice'
+      | 'recommended_in_invoice'
+      | 'pharmacy_mentioned_in_invoice'
+      | 'invoice_only'
+      | 'customer_requested_not_in_invoice';
+    productName: string;
+    invoiceQuantity: number | null;
+    requestedQuantity: number | null;
+    lineTotal: number | null;
+    sourceLineCount: number;
+  };
+
+  function productTruthRows(item: StaffRun): ProductTruthRow[] {
     const smart = item.snapshot.smartIntelligence;
     const rawInvoiceItems = smart?.invoiceItems || [];
     const productSignals = smart?.requestedProducts || [];
@@ -1523,7 +1538,7 @@ export default function WhatsAppSmartFolderWatcher() {
     const matchedRecommendationIndexes = new Set<number>();
     const matchedMentionIndexes = new Set<number>();
 
-    const rows = groupedInvoiceItems.map((invoiceItem) => {
+    const rows: ProductTruthRow[] = groupedInvoiceItems.map((invoiceItem): ProductTruthRow => {
       if (invoiceItem.serviceLine) {
         return {
           kind: 'invoice_service' as const,
