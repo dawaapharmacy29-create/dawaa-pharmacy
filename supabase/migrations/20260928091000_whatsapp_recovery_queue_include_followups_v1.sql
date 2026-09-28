@@ -47,7 +47,6 @@ select
   a.last_followup_at,
   a.sla_due_at,
   a.sla_breached_at,
-  a.payload as action_payload,
   case
     when a.work_status not in ('completed','cancelled','failed')
       and coalesce(a.next_followup_at, a.sla_due_at, a.due_at) < now()
@@ -56,7 +55,8 @@ select
   greatest(
     0::numeric,
     extract(epoch from (now() - coalesce(a.next_followup_at, a.sla_due_at, a.due_at))) / 3600.0
-  ) as overdue_hours
+  ) as overdue_hours,
+  a.payload as action_payload
 from public.whatsapp_recovery_work_queue_v1 q
 join public.whatsapp_conversation_actions a on a.id = q.action_id
 where
