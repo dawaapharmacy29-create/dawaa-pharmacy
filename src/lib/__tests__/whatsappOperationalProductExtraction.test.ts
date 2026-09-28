@@ -55,6 +55,8 @@ describe('WhatsApp Operational Intelligence V6 product extraction', () => {
     const product = model.products.find((row) => /هيرو بيبي 2/.test(row.rawName));
     expect(product).toBeTruthy();
     expect(product?.status).toBe('requested');
+    expect(product?.mentionOrigin).toBe('customer_explicit');
+    expect(product?.requestProven).toBe(true);
     expect(product?.quantity).toBe(1);
   });
 
@@ -103,6 +105,8 @@ describe('WhatsApp Operational Intelligence V6 product extraction', () => {
     expect(product).toBeTruthy();
     expect(product?.sourceDirection).toBe('outbound');
     expect(product?.status).toBe('mentioned');
+    expect(product?.mentionOrigin).toBe('pharmacy_mention');
+    expect(product?.requestProven).toBe(false);
     expect(model.customerRequests.some((row) => /بون كير/i.test(row.productName || ''))).toBe(false);
   });
 
