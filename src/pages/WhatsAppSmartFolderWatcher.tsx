@@ -1291,6 +1291,15 @@ export default function WhatsAppSmartFolderWatcher() {
     const smart = item.snapshot.smartIntelligence;
     const invoice = smart?.invoiceVerification;
     const evaluation = smart?.evaluationV2;
+    if (item.canonicalSaleProofState === 'proven') {
+      return {
+        label: 'بيع مثبت Canonical',
+        detail: invoice?.bestCandidate?.invoiceNumber
+          ? `فاتورة #${invoice.bestCandidate.invoiceNumber}${invoice.revenue != null ? ` · ${invoice.revenue} ج` : ''} · تم اعتماد الربط وإثبات البيع رسميًا`
+          : 'تم اعتماد ربط الفاتورة ووصل Canonical Sale Proof إلى proven.',
+        tone: 'emerald',
+      };
+    }
     if (invoice?.status === 'verified') {
       return {
         label: 'مطابقة فاتورة قوية — تحتاج اعتماد الربط',
