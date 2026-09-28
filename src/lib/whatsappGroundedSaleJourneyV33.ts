@@ -99,6 +99,16 @@ export interface GroundedSaleJourneyV33 {
   };
   evidenceCoverage: number;
   confidence: number;
+  truthQuality: {
+    status: 'grounded' | 'partial' | 'review_required';
+    decisionReady: boolean;
+    directMessageEvidenceCount: number;
+    invoiceVerified: boolean;
+    customerResolved: boolean;
+    invoiceItemCount: number;
+    blockers: string[];
+    caveats: string[];
+  };
   warnings: string[];
 }
 
@@ -233,8 +243,12 @@ export function buildGroundedSaleJourneyV33(args: {
   timing: ConversationTimingV28;
   participantRoles?: WhatsAppParticipantRoleModelV15 | null;
   understanding?: ConversationUnderstandingV32 | null;
+  customerResolved?: boolean;
+  customerAmbiguous?: boolean;
+  invoiceItemCount?: number;
 }): GroundedSaleJourneyV33 {
   const { session, operational, invoiceVerification, evaluation, timing, participantRoles, understanding } = args;
+  const invoiceItemCount = Math.max(0, Number(args.invoiceItemCount || 0));
   const byId = messageMap(session);
 
   const semanticRequestIds = (understanding?.signals || [])
@@ -464,7 +478,6 @@ export function buildGroundedSaleJourneyV33(args: {
   if (session.missingMediaCount) warnings.push(`يوجد ${session.missingMediaCount} مرفق غير متاح؛ قد يحتوي على تفاصيل منتج/طلب.`);
   if (participantRoles?.messages.some((row) => row.role === 'pharmacy_unknown' && row.confidence < 70)) warnings.push('بعض الرسائل الخارجة لم تُنسب لموظف محدد بثقة كافية.');
 
-  const roleByMessage = new Map((participantRoles?.messages || []).map((row) => [row.messageId, row]));
   const contributions = roleContribution(session, participantRoles);
   const staffCoaching = contributions.map((staff) => {
     const key = normalizeStaffName(staff.staffName);
@@ -558,6 +571,37 @@ export function buildGroundedSaleJourneyV33(args: {
     };
   });
 
+  const blockers: string[] = [];
+  const caveats: string[] = [];
+  if (outcome !== 'non_commercial' && !startMessage) {
+    blockers.push('بداية رحلة البيع غير مثبتة برسالة عميل ذات معنى.');
+  }
+  if (args.customerAmbiguous) {
+    blockers.push('هوية العميل لها أكثر من مرشح ولا يجوز اختيار أحدهم تلقائيًا.');
+  }
+  if (session.missingMediaCount > 0 && !productRows.length && outcome !== 'non_commercial') {
+    blockers.push('تفاصيل الطلب قد تكون داخل ميديا غير متاحة ولا يوجد دليل صنف نصي بديل.');
+  } else if (session.missingMediaCount > 0) {
+    caveats.push(`يوجد ${session.missingMediaCount} مرفق غير متاح؛ محتوى المرفق نفسه غير محسوم.`);
+  }
+  if (invoiceVerification.status === 'verified' && invoiceItemCount === 0) {
+    caveats.push('الفاتورة مؤكدة لكن Line Items غير متاحة؛ حقيقة البيع مؤكدة ومطابقة الأصناف جزئية.');
+  }
+  if (correctionMessageIds.length) {
+    caveats.push('يوجد تصحيح من العميل؛ يجب مراجعة الرسالة المصححة عند تقييم فهم الطلب.');
+  }
+  const unknownStaffEvidence = participantRoles?.messages.filter(
+    (row) => row.role === 'pharmacy_unknown' && row.confidence < 70
+  ).length || 0;
+  if (unknownStaffEvidence) {
+    caveats.push(`يوجد ${unknownStaffEvidence} رسالة صادرة بهوية موظف غير محسومة.`);
+  }
+  if (outcome !== 'non_commercial' && directEvidenceIds.length < 2) {
+    caveats.push('الأدلة المباشرة قليلة؛ الاستنتاجات السلوكية تحتاج مراجعة بشرية.');
+  }
+  const truthStatus: GroundedSaleJourneyV33['truthQuality']['status'] =
+    blockers.length ? 'review_required' : caveats.length ? 'partial' : 'grounded';
+
   const outcomeLabel: Record<GroundedSaleJourneyV33['outcome'], string> = {
     verified_sale: 'بيع مؤكد بفاتورة',
     chat_confirmed: 'طلب مؤكد في المحادثة — الفاتورة غير مثبتة',
@@ -621,6 +665,16 @@ export function buildGroundedSaleJourneyV33(args: {
     },
     evidenceCoverage,
     confidence,
-    warnings,
+    truthQuality: {
+      status: truthStatus,
+      decisionReady: blockers.length === 0,
+      directMessageEvidenceCount: directEvidenceIds.length,
+      invoiceVerified: invoiceVerification.status === 'verified',
+      customerResolved: Boolean(args.customerResolved),
+      invoiceItemCount,
+      blockers: uniq(blockers),
+      caveats: uniq(caveats),
+    },
+    warnings: uniq([...warnings, ...blockers, ...caveats]),
   };
 }
