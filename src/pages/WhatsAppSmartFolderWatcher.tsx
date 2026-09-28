@@ -597,8 +597,14 @@ export default function WhatsAppSmartFolderWatcher() {
         const singleResolvedStaff = keptRuns.length === 1 && keptRuns[0].staffIdentity.staffId && !keptRuns[0].staffIdentity.ambiguous
           ? keptRuns[0].staffIdentity
           : null;
+        const persistedGroundedJourney = keptRuns[0]?.snapshot.smartIntelligence?.groundedSaleJourneyV33 || null;
+        const groundedBlocksApproval = Boolean(
+          persistedGroundedJourney && !persistedGroundedJourney.truthQuality.decisionReady
+        );
         const persistenceIntelligence = {
           ...baseIntelligence,
+          requiresHumanApproval: baseIntelligence.requiresHumanApproval || groundedBlocksApproval,
+          priority: groundedBlocksApproval && baseIntelligence.priority === 'normal' ? 'important' : baseIntelligence.priority,
           operational,
           participantRoles: roles,
           contextOnly: false,
@@ -611,7 +617,7 @@ export default function WhatsAppSmartFolderWatcher() {
           },
           timingV28: caseTimingV28,
           delayAttributionV29,
-          groundedSaleJourneyV33: keptRuns[0]?.snapshot.smartIntelligence?.groundedSaleJourneyV33 || null,
+          groundedSaleJourneyV33: persistedGroundedJourney,
           smartIntelligence: keptRuns[0]?.snapshot.smartIntelligence || null,
           evaluationV2: keptRuns[0]?.snapshot.smartIntelligence?.evaluationV2 || null,
           invoiceItems: keptRuns[0]?.snapshot.smartIntelligence?.invoiceItems || [],
@@ -652,7 +658,7 @@ export default function WhatsAppSmartFolderWatcher() {
             operational,
             analysisVersion: baseIntelligence.version,
             participantRoles: roles,
-            groundedSaleJourney: keptRuns[0]?.snapshot.smartIntelligence?.groundedSaleJourneyV33 || null,
+            groundedSaleJourney: persistedGroundedJourney,
           });
         } catch (evidencePersistError) {
           console.warn('[whatsapp-watcher] evidence ledger sync failed; source preserved', evidencePersistError);
@@ -671,7 +677,7 @@ export default function WhatsAppSmartFolderWatcher() {
             sourceId: persisted.id,
             participantRoles: roles,
             contextOnly: false,
-            groundedSaleJourney: keptRuns[0]?.snapshot.smartIntelligence?.groundedSaleJourneyV33 || null,
+            groundedSaleJourney: persistedGroundedJourney,
           });
         } catch (lifecyclePersistError) {
           console.warn('[whatsapp-watcher] order lifecycle sync failed; source preserved', lifecyclePersistError);
