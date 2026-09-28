@@ -33,7 +33,7 @@ function cairoDate() {
 
 function labelStage(value: string | null) {
   const labels: Record<string,string> = {
-    requested:'طلب', available:'متوفر', unavailable:'غير متوفر', alternative_offered:'تم عرض بديل', recommended:'ترشيح', accepted:'العميل وافق', rejected:'العميل رفض', closed_in_chat:'تم إغلاق الأوردر في الشات', invoice_verified:'فاتورة مؤكدة', followup:'متابعة'
+    requested:'طلب', available:'متوفر', unavailable:'غير متوفر', alternative_offered:'تم عرض بديل', recommended:'ترشيح', accepted:'العميل وافق', rejected:'العميل رفض', closed_in_chat:'تم إغلاق الأوردر في الشات', invoice_verified:'مطابقة فاتورة Legacy', followup:'متابعة'
   };
   return value ? labels[value] || value : 'غير محدد';
 }
