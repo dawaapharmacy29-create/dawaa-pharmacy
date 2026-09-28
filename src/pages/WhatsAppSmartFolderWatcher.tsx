@@ -1178,8 +1178,13 @@ export default function WhatsAppSmartFolderWatcher() {
     const clear = allStaff.filter((item) => item.decision === 'clear').length;
     const issues = allStaff.filter((item) => item.decision === 'issue').length;
     const review = allStaff.length - clear - issues;
-    const followups = allStaff.filter((item) => item.intelligence?.followup.detected).length;
-    const opportunities = allStaff.reduce((sum, item) => sum + (item.intelligence?.salesOpportunities.length || 0), 0);
+    const followups = allStaff.filter((item) =>
+      Boolean(item.actions.followup || item.snapshot.smartIntelligence?.evaluationV2?.followups?.length)
+    ).length;
+    const opportunities = allStaff.reduce((sum, item) => {
+      const canonical = item.snapshot.smartIntelligence?.evaluationV2?.opportunities?.detected;
+      return sum + (typeof canonical === 'number' ? canonical : (item.intelligence?.salesOpportunities.length || 0));
+    }, 0);
     return {
       files: filteredRuns.length,
       staff: allStaff.length,
