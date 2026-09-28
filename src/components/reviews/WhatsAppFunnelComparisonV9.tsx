@@ -42,9 +42,8 @@ function funnel(scope: Scope) {
     ['فرصة/طلب', 'opportunity'],
     ['توفر/بديل/ترشيح', 'offer'],
     ['قبول العميل', 'accepted'],
-    ['تأكيد الأوردر', 'closed'],
-    ['فاتورة مؤكدة', 'verified'],
-    ['متابعة بعد البيع', 'followup'],
+    ['إغلاق الأوردر في الشات', 'closed'],
+    ['متابعة بعد الإغلاق', 'followup'],
   ] as const;
   const values = stages.map(([label, key]) => ({ label, value: scope.rows.filter((r) => stageFlags(r)[key]).length }));
   return values.map((item, index) => ({
