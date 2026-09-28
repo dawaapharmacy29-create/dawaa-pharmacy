@@ -198,6 +198,28 @@ export async function archiveSupersededLegacyWhatsAppSourceV35(args: {
     return { archived: 0, deletedCases: 0, skippedReason: 'legacy_source_has_official_review' as const };
   }
 
+  const { data: actionRows, error: actionError } = await supabase
+    .from('whatsapp_conversation_actions')
+    .select('id,status,assigned_to_id,assigned_at,work_status,started_at,completed_at,outcome,outcome_note,followup_attempts,last_followup_at,recovered_invoice_id,recovered_at')
+    .eq('source_id', source.id);
+  if (actionError) throw actionError;
+  const workedAction = (actionRows || []).find((row: any) =>
+    row.assigned_to_id ||
+    row.assigned_at ||
+    (row.work_status && row.work_status !== 'unassigned') ||
+    row.started_at ||
+    row.completed_at ||
+    row.outcome ||
+    row.outcome_note ||
+    Number(row.followup_attempts || 0) > 0 ||
+    row.last_followup_at ||
+    row.recovered_invoice_id ||
+    row.recovered_at
+  );
+  if (workedAction) {
+    return { archived: 0, deletedCases: 0, skippedReason: 'legacy_source_has_worked_action' as const };
+  }
+
   const { data: journeyRows, error: journeyError } = await supabase
     .from('whatsapp_customer_journeys')
     .select('id')
