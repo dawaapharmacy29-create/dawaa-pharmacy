@@ -354,7 +354,7 @@ export function buildGroundedSaleJourneyV33(args: {
   );
   const unresolvedIds = uniq([
     ...timing.responseTurns.filter((turn) => turn.noResponse).flatMap((turn) => turn.inboundMessageIds),
-    ...requestIds.filter((id) => !saleWindowIds.includes(id) && outcome !== 'verified_sale'),
+    ...requestIds.filter((id) => !saleWindowIds.includes(id) && outcome !== 'invoice_candidate_strong'),
   ]);
 
   const stages: GroundedSaleStageV33[] = [
