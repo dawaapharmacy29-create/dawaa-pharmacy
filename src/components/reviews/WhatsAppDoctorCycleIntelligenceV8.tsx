@@ -223,8 +223,10 @@ export default function WhatsAppDoctorCycleIntelligenceV8({ onOpenSource }: { on
     });
     const grounded = enriched.filter((row) => row.journey);
     const commercial = grounded.filter((row) => row.journey?.commercial);
-    const verifiedSales = grounded.filter((row) => row.journey?.outcome === 'verified_sale');
-    const verifiedRevenue = verifiedSales.reduce((sum, row) => sum + Number(row.item.matched_invoice_value || 0), 0);
+    // Official sale/revenue metrics come from whatsapp_case_doctor_kpis_v23 only.
+    // Grounded Journey explains the conversation but never proves the financial sale.
+    const verifiedSales: typeof grounded = [];
+    const verifiedRevenue = 0;
     const best = enriched
       .filter((row) => row.score != null && row.strengths.length)
       .sort((a,b) => (b.score || 0) - (a.score || 0))
@@ -320,7 +322,7 @@ export default function WhatsAppDoctorCycleIntelligenceV8({ onOpenSource }: { on
           <div className="max-h-[430px] space-y-2 overflow-y-auto">{conversations.map((item) => {
             const op = item.analysis_json?.operational;
             const journey = item.analysis_json?.groundedSaleJourneyV33;
-            const verified = journey?.outcome === 'verified_sale';
+            const verified = false;
             return <button type="button" key={item.id} onClick={() => onOpenSource?.(item.id)} className="w-full rounded-xl border border-slate-800 bg-slate-950/55 p-3 text-right hover:border-cyan-400/30">
               <div className="flex items-start justify-between gap-2">
                 <div>
