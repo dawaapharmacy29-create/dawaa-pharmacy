@@ -168,6 +168,8 @@ const IMPROVED_RX = /(احسن|أحسن|اتحسن|اتحسنت|تحسن|خف|خ
 const WORSE_RX = /(لسه تعبان|لسه تعبانه|اسوء|أسوأ|زادت|زاد الوجع|مفيش تحسن|مافيش تحسن|زي ما هو|زي ماهو)/i;
 const FOLLOWUP_PROMISE_RX = /(هتابع|هتواصل|هنتواصل|هبلغ|هرجع|هنرجع|اول ما|أول ما|لما يتوفر|هنوفره|هطلبه|هطلبها|بكرا[^\n]{0,80}(?:هبعت|ابعت|هصور)|غدا[^\n]{0,80}(?:هبعت|ابعت|هصور))/i;
 const CLOSE_RX = /(تم تأكيد|تم التاكيد|الأوردر اتأكد|الاوردر اتاكد|جاري الارسال|جاري الإرسال|تم الارسال|تم الإرسال|خرج لحضرتك|فاتوره|فاتورة|الاجمالي|الإجمالي)/i;
+const DELIVERY_DISPATCH_CLOSE_RX =
+  /(?:المندوب[^\n]{0,50}(?:في\s+الطريق|على\s+وصول|علي\s+وصول)|(?:مساف[هة]|مسافة)\s+الطريق[^\n]{0,70}(?:عند\s+حضرتك|يوصل)|زمانه\s+(?:على|علي)\s+وصول|الاوردر[^\n]{0,50}(?:في\s+الطريق|على\s+وصول|علي\s+وصول))/i;
 const URGENT_RX = /(ضروري|عاجل|حالاً|حالا|مستعجل|مستعجله)/i;
 const ANAPHORIC_COMMIT_RX = /(^|\s)(هحتاجه|هحتاجها|هاخده|هاخدها|ابعته|ابعتيها|ابعتهالي|تبعتها|تبعتيها)(\s|$)/i;
 const ANAPHORIC_QUANTITY_ONLY_RX =
@@ -661,9 +663,16 @@ export function buildWhatsAppOperationalIntelligenceV6(session: WhatsAppConversa
   const recs = recommendations(session, products);
   const acceptedRecommendation = recs.some((r) => r.accepted === true);
   const rejected = has(inbound, REJECT_RX);
-  const closeRows = session.messages.filter((message) =>
-    message.direction === 'outbound' && CLOSE_RX.test(message.text)
-  );
+  const closeRows = session.messages.filter((message, index) => {
+    if (message.direction !== 'outbound') return false;
+    if (CLOSE_RX.test(message.text)) return true;
+    if (!DELIVERY_DISPATCH_CLOSE_RX.test(message.text)) return false;
+    const priorCustomerCommit = session.messages.slice(0, index).some((row) =>
+      row.direction === 'inbound' &&
+      (ACCEPT_RX.test(row.text) || ANAPHORIC_COMMIT_RX.test(row.text))
+    );
+    return priorCustomerCommit;
+  });
   const lastCloseAt = closeRows.at(-1)?.timestamp.getTime() ?? null;
   const deferredAfterClose = lastCloseAt != null && session.messages.some((message) =>
     message.direction === 'inbound' &&
