@@ -229,10 +229,10 @@ export async function syncWhatsAppCustomerCasesV22(
         proposed_lost_reason: lost.reason,
         lost_reason_confidence: lost.confidence,
         commercial_opportunity: commercialOpportunity,
-        verified_revenue: null,
-        verified_invoice_id: null,
-        verified_invoice_number: null,
-        verified_sale_at: null,
+        // Canonical sale-proof fields are intentionally omitted here.
+        // On insert they use DB defaults (null); on reanalysis an existing proven proof
+        // stays intact until Sales Intelligence reconciliation explicitly proves or clears it.
+        // This prevents a transient refresh failure from erasing previously trusted truth.
         case_json: {
           ...caseItem,
           canonicalStaff: staffRows,
