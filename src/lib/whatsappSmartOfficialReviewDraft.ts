@@ -305,32 +305,24 @@ export function buildSmartOfficialReviewDraftV1(
       const score = evalV2.orderCompleteness.score;
       const explicitConfirmation = evalV2.orderCompleteness.items.find((item) => item.key === 'explicit_confirmation');
       const hasExplicitItemConfirmation = explicitConfirmation?.status === 'confirmed';
-      const choice = !hasExplicitItemConfirmation
-        ? 'important_missing'
-        : evalV2.orderCompleteness.missingCritical.length
-          ? 'important_missing'
-          : score >= 90
-            ? 'full'
-            : score >= 70
-              ? 'minor_missing'
-              : 'many_missing';
+      // معيار "تأكيد الطلب" هنا يقيس مراجعة الأصناف مع العميل تحديدًا.
+      // بيانات الهوية/العنوان/باقي اكتمال الأوردر لها تنبيهات مستقلة ولا تخفّض هذا البند.
+      const choice = hasExplicitItemConfirmation
+        ? 'full'
+        : 'important_missing';
       set('order_confirmation', {
         applies: true,
         suggestedChoice: choice,
         suggestedLabel: hasExplicitItemConfirmation
-          ? choice === 'full'
-            ? 'أكد الأصناف والبيانات المطلوبة مع العميل'
-            : choice === 'minor_missing'
-              ? 'أكد الأصناف مع وجود بند بسيط ناقص'
-              : 'أكد الأصناف لكن ما زالت بيانات مهمة ناقصة'
+          ? 'أكد الأصناف مع العميل بوضوح'
           : 'لم يظهر تأكيد الدكتور للأصناف مع العميل',
         confidence: hasExplicitItemConfirmation
           ? Math.max(90, explicitConfirmation?.evidenceMessageIds?.length ? 94 : 90)
           : 92,
         status: 'confident',
         reason: hasExplicitItemConfirmation
-          ? `تأكيد الأصناف مع العميل مثبت برسالة مباشرة. اكتمال باقي بيانات الأوردر: ${evalV2.orderCompleteness.confirmedCount}/${evalV2.orderCompleteness.requiredCount}${evalV2.orderCompleteness.missingCritical.length ? `؛ الناقص المهم: ${evalV2.orderCompleteness.missingCritical.join('، ')}` : ''}.`
-          : `لا توجد رسالة من الدكتور تراجع/تؤكد الأصناف مع العميل قبل الإغلاق. «تم تأكيد الطلب» أو «جاري الإرسال» يثبتان التنفيذ فقط ولا يُحسبان تأكيد أصناف. اكتمال باقي البيانات: ${evalV2.orderCompleteness.confirmedCount}/${evalV2.orderCompleteness.requiredCount}.`,
+          ? `تأكيد الأصناف مع العميل مثبت برسالة مباشرة. ${evalV2.orderCompleteness.missingCritical.length ? `يوجد نقص منفصل في بيانات الأوردر: ${evalV2.orderCompleteness.missingCritical.join('، ')}؛ لا يؤثر على درجة بند تأكيد الأصناف.` : 'لا يوجد تعارض مع هذا البند.'}`
+          : `لا توجد رسالة من الدكتور تراجع/تؤكد الأصناف مع العميل قبل الإغلاق. «تم تأكيد الطلب» أو «جاري الإرسال» يثبتان التنفيذ فقط ولا يُحسبان تأكيد أصناف.`,
         evidenceMessageIds: hasExplicitItemConfirmation
           ? (explicitConfirmation?.evidenceMessageIds || []).slice(0, 12)
           : evalV2.orderCompleteness.items
