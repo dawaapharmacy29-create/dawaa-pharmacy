@@ -251,7 +251,7 @@ function classifyIntents(session: WhatsAppConversationSession) {
 }
 
 const GENERIC_NON_PRODUCT_RX =
-  /^(?:ان شاء الله|إن شاء الله|تصوريها|صوريها|صورها|ي الرقم|الرقم|حاضر|تمام|ماشي|اه|ايوه|لا|شكرا|شكراً|لحظه|لحظة|دقيقه|دقيقة|يا ?دكتور|يادكتور|الحاجات (?:دي|ده|دا)|العلاج (?:دي|ده|دا)|لكم حاجه زي (?:كدا|كده)|لكم حاجة زي (?:كدا|كده)|ا ?واحد[هة]|واحد[هة])$/i;
+  /^(?:ان شاء الله|إن شاء الله|تصوريها|صوريها|صورها|ي الرقم|الرقم|حاضر|تمام|ماشي|اه|ايوه|لا|شكرا|شكراً|لحظه|لحظة|دقيقه|دقيقة|يا ?دكتور|يادكتور|الحاجات (?:دي|ده|دا)|العلاج (?:دي|ده|دا)|لكم حاجه زي (?:كدا|كده)|لكم حاجة زي (?:كدا|كده)|ا ?واحد[هة]|واحد[هة]|(?:علي|على) مدار (?:٢٤|24) ساع[هة]|(?:٢٤|24) ساع[هة])$/i;
 const SERVICE_SENTENCE_RX =
   /(?:تحت أمر|صيدليات دواء|خدمة التوصيل|الشركة المنتجة|هنحاول نوفر|هبلغ حضرتك|تصرفهوله|يقلل الاعراض|اهتمامكم|اهتمامك|حد من التمريض|مالتمريض|من التمريض|التمريض)/i;
 const NON_PRODUCT_CONVERSATION_FRAGMENT_RX =
@@ -390,6 +390,9 @@ function extractProducts(session: WhatsAppConversationSession): WhatsAppProductS
       const explicitCandidate = cleanProductPhrase(explicitFormMention[1]);
       if (plausibleProductPhrase(explicitCandidate)) rawName = explicitCandidate;
     }
+    if (!rawName) continue;
+
+    rawName = cleanProductPhrase(rawName);
     if (!rawName) continue;
 
     if (message.direction === 'inbound' && isRequest) {
