@@ -974,7 +974,17 @@ export default function WhatsAppSmartFolderWatcher() {
     const review = allStaff.length - clear - issues;
     const followups = allStaff.filter((item) => item.intelligence?.followup.detected).length;
     const opportunities = allStaff.reduce((sum, item) => sum + (item.intelligence?.salesOpportunities.length || 0), 0);
-    return { files: filteredRuns.length, staff: allStaff.length, clear, issues, review, followups, opportunities, failed: failedInboxCount };
+    return {
+      files: filteredRuns.length,
+      staff: allStaff.length,
+      clear,
+      issues,
+      review,
+      actionNeeded: issues + review,
+      followups,
+      opportunities,
+      failed: failedInboxCount,
+    };
   }, [filteredRuns, failedInboxCount]);
 
   function runKey(run: FileRun, index: number) {
@@ -1152,7 +1162,7 @@ export default function WhatsAppSmartFolderWatcher() {
           <div>
             <div className="flex items-center gap-2 text-xs font-black text-cyan-300"><Sparkles size={14} /> SMART REVIEW</div>
             <h1 className="mt-1 text-xl font-black text-white md:text-2xl">مركز مراجعة محادثات واتساب</h1>
-            <p className="mt-1 text-xs text-slate-400">الملفات تتحلل تلقائيًا، وافتح فقط الحالات التي تحتاج قرارًا أو اعتمادًا.</p>
+            <p className="mt-1 text-xs text-slate-400">ابدأ بالحالات التي تحتاج تدخلًا، وافتح كل حالة لترى البيع والفاتورة والأصناف والعميل وجودة المحادثة في ملخص واحد.</p>
           </div>
           {!supportsLocalWhatsAppInbox() ? (
             <div className="rounded-xl border border-amber-700/50 bg-amber-950/20 px-3 py-2 text-xs text-amber-100">استخدم Chrome أو Edge لربط فولدر محلي.</div>
@@ -1177,20 +1187,21 @@ export default function WhatsAppSmartFolderWatcher() {
           )}
         </div>
 
-        <div className="grid grid-cols-2 gap-px bg-slate-800 sm:grid-cols-4 lg:grid-cols-8">
+        <div className="grid gap-2 border-t border-slate-800 bg-slate-950/10 p-3 sm:grid-cols-2 lg:grid-cols-6">
           {[
-            ['ملفات', overview.files, 'text-white'],
-            ['مسؤولون', overview.staff, 'text-white'],
-            ['سليمة', overview.clear, 'text-emerald-300'],
-            ['ملاحظات', overview.issues, 'text-amber-300'],
-            ['مراجعة', overview.review, 'text-rose-300'],
-            ['متابعات', overview.followups, 'text-cyan-300'],
-            ['فرص بيع', overview.opportunities, 'text-violet-300'],
-            ['متعطلة', overview.failed, overview.failed ? 'text-rose-300' : 'text-slate-400'],
-          ].map(([label, value, tone]) => (
-            <div key={String(label)} className="bg-[#111c2b] px-3 py-3 text-center">
-              <div className="text-[10px] font-bold text-slate-500">{label}</div>
-              <div className={`mt-1 text-lg font-black ${tone}`}>{value}</div>
+            ['الملفات المحللة', overview.files, 'text-white', 'كل الملفات داخل الفلتر الحالي'],
+            ['تحتاج تدخل', overview.actionNeeded, overview.actionNeeded ? 'text-rose-300' : 'text-emerald-300', 'مراجعة أو ملاحظة قبل الاعتماد'],
+            ['سليمة', overview.clear, 'text-emerald-300', 'لا يظهر فيها تدخل مؤثر'],
+            ['متابعات', overview.followups, 'text-cyan-300', 'حالات تحتاج تواصل لاحق'],
+            ['فرص بيع', overview.opportunities, 'text-violet-300', 'فرص تجارية مرصودة'],
+            ['أخطاء', overview.failed, overview.failed ? 'text-rose-300' : 'text-slate-400', 'ملفات تعطل تحليلها'],
+          ].map(([label, value, tone, helper]) => (
+            <div key={String(label)} className="rounded-2xl border border-slate-800 bg-[#111c2b] px-3 py-3">
+              <div className="flex items-end justify-between gap-2">
+                <div className="text-[10px] font-black text-slate-500">{label}</div>
+                <div className={`text-xl font-black ${tone}`}>{value}</div>
+              </div>
+              <div className="mt-1 text-[9px] leading-4 text-slate-600">{helper}</div>
             </div>
           ))}
         </div>
