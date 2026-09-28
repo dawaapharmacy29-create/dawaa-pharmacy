@@ -1370,6 +1370,10 @@ export default function WhatsAppSmartFolderWatcher() {
                     const invoice = selected.snapshot.smartIntelligence?.invoiceVerification;
                     const customer = selected.snapshot.smartIntelligence?.customer;
                     const evalV2 = selected.snapshot.smartIntelligence?.evaluationV2;
+                    const productRows = productTruthRows(selected);
+                    const soldRequestedCount = productRows.filter((row) => row.kind === 'requested_and_sold').length;
+                    const invoiceOnlyCount = productRows.filter((row) => row.kind === 'invoice_only').length;
+                    const missingFromInvoiceCount = productRows.filter((row) => row.kind === 'requested_not_in_invoice').length;
                     const toneClass = truth.tone === 'emerald'
                       ? 'border-emerald-700/50 bg-emerald-950/15'
                       : truth.tone === 'amber'
@@ -1439,9 +1443,11 @@ export default function WhatsAppSmartFolderWatcher() {
                           <div className="rounded-xl bg-black/10 p-3">
                             <div className="text-[10px] font-black text-slate-500">الأصناف</div>
                             <div className="mt-1 text-xs leading-5 text-slate-300">
-                              {invoice?.status === 'verified'
-                                ? 'الفاتورة مؤكدة؛ سيتم اعتبار أصناف الفاتورة مصدر الحقيقة التجاري عند توفر تفاصيل البنود.'
-                                : 'لا توجد فاتورة مؤكدة تكفي وحدها لحسم الأصناف المباعة.'}
+                              {productRows.length
+                                ? `${productRows.length} صف مرتبط · ${soldRequestedCount} طلبه واتبع · ${invoiceOnlyCount} بالفاتورة فقط · ${missingFromInvoiceCount} طلبه ولم يظهر بالفاتورة`
+                                : invoice?.status === 'verified'
+                                  ? 'الفاتورة مؤكدة لكن تفاصيل الأصناف غير متاحة لهذه الفاتورة حتى الآن.'
+                                  : 'لا توجد فاتورة مؤكدة تكفي لحسم الأصناف المباعة.'}
                             </div>
                           </div>
                           <div className="rounded-xl bg-black/10 p-3">
@@ -1451,6 +1457,35 @@ export default function WhatsAppSmartFolderWatcher() {
                             </div>
                           </div>
                         </div>
+
+                        {productRows.length ? (
+                          <div className="mt-3 overflow-hidden rounded-xl border border-slate-800 bg-black/10">
+                            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 px-3 py-2">
+                              <div className="text-xs font-black text-white">مطابقة طلب العميل مع أصناف الفاتورة</div>
+                              <div className="text-[10px] text-slate-500">الفاتورة هي مصدر حقيقة البيع؛ نص المحادثة يفسّر ما طلبه العميل.</div>
+                            </div>
+                            <div className="divide-y divide-slate-800">
+                              {productRows.slice(0, 18).map((row, index) => {
+                                const badge = row.kind === 'requested_and_sold'
+                                  ? { label: 'طلبه واتبع', cls: 'bg-emerald-500/10 text-emerald-300' }
+                                  : row.kind === 'requested_not_in_invoice'
+                                    ? { label: 'طلبه ولم يظهر بالفاتورة', cls: 'bg-amber-500/10 text-amber-300' }
+                                    : { label: 'ظهر في الفاتورة فقط', cls: 'bg-sky-500/10 text-sky-300' };
+                                return (
+                                  <div key={`${row.productName}-${index}`} className="grid gap-2 px-3 py-2.5 text-xs sm:grid-cols-[1fr_auto_auto_auto] sm:items-center">
+                                    <div className="font-black text-white">{row.productName}</div>
+                                    <span className={`w-fit rounded-full px-2 py-1 text-[10px] font-black ${badge.cls}`}>{badge.label}</span>
+                                    <div className="text-slate-400">
+                                      {row.invoiceQuantity != null ? `فاتورة: ${row.invoiceQuantity}` : row.requestedQuantity != null ? `طلب: ${row.requestedQuantity}` : 'كمية غير محددة'}
+                                    </div>
+                                    <div className="text-left font-bold text-slate-300">{row.lineTotal != null ? `${Number(row.lineTotal).toFixed(2)} ج` : '—'}</div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            {productRows.length > 18 ? <div className="border-t border-slate-800 px-3 py-2 text-[10px] text-slate-500">+ {productRows.length - 18} صنف إضافي</div> : null}
+                          </div>
+                        ) : null}
                       </section>
                     );
                   })()}
