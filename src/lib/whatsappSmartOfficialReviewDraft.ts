@@ -250,17 +250,34 @@ export function buildSmartOfficialReviewDraftV1(
     }
 
         // إغلاق البيع لا يعتبر "تم" من مجرد كلمة موافقة؛ نعتمد على مراحل البيع المتدرجة.
-    if (evalV2.sale.outcome === 'invoice_verified_sale' || evalV2.sale.outcome === 'order_confirmed') {
+    if (evalV2.sale.outcome === 'order_confirmed') {
       set('sales_closing', {
         applies: true,
         suggestedChoice: 'clear_order',
         suggestedLabel: 'قاد المحادثة لطلب واضح باحتراف',
-        confidence: evalV2.sale.outcome === 'invoice_verified_sale' ? Math.max(95, evalV2.sale.confidence) : Math.max(88, evalV2.sale.confidence),
+        confidence: Math.max(88, evalV2.sale.confidence),
         status: 'confident',
-        reason: evalV2.sale.outcome === 'invoice_verified_sale'
-          ? `تم إثبات البيع بفاتورة${evalV2.sale.invoiceNumber ? ` رقم ${evalV2.sale.invoiceNumber}` : ''}.`
-          : 'تم رصد تأكيد واضح للطلب داخل المحادثة، مع بقاء الفاتورة غير مؤكدة.',
+        reason: 'تم رصد تأكيد واضح للطلب داخل المحادثة؛ إثبات البيع المالي منفصل ويحتاج Canonical Sale Proof.',
         evidenceMessageIds: evalV2.sale.evidenceMessageIds,
+      });
+    } else if (evalV2.sale.outcome === 'invoice_verified_sale') {
+      const explicitConfirmation = evalV2.orderCompleteness.items.find((row) => row.key === 'explicit_confirmation');
+      const hasExplicitConfirmation = explicitConfirmation?.status === 'confirmed';
+      set('sales_closing', {
+        applies: true,
+        suggestedChoice: hasExplicitConfirmation ? 'clear_order' : null,
+        suggestedLabel: hasExplicitConfirmation
+          ? 'الطلب مؤكد في الرسائل ويوجد مرشح فاتورة قوي'
+          : 'مطابقة فاتورة قوية — راجع إغلاق الطلب',
+        confidence: hasExplicitConfirmation ? 88 : Math.min(79, evalV2.sale.confidence),
+        status: hasExplicitConfirmation ? 'confident' : 'review_required',
+        reason: hasExplicitConfirmation
+          ? 'تأكيد الطلب مثبت من الرسائل. توجد مطابقة فاتورة قوية لكنها لا تُعد Sale Proof قبل اعتماد الربط Canonical.'
+          : 'توجد مطابقة فاتورة قوية إحصائيًا، لكن لا يجوز استخدامها وحدها لإثبات إغلاق البيع أو تقييم الدكتور إيجابيًا.',
+        evidenceMessageIds: Array.from(new Set([
+          ...evalV2.sale.evidenceMessageIds,
+          ...(explicitConfirmation?.evidenceMessageIds || []),
+        ])),
       });
     } else if (evalV2.sale.outcome === 'customer_accepted') {
       set('sales_closing', {
