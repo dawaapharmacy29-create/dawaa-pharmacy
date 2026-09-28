@@ -39,4 +39,22 @@ describe('WhatsApp Operational Intelligence V6 product extraction', () => {
     expect(names).not.toContain('العلاج دا');
     expect(names.some((name) => /اهتمامكم|التمريض/.test(name))).toBe(false);
   });
+
+  it('blocks standalone greetings from product discovery', () => {
+    const model = analyze(`[9/27/26, 8:00:00 PM] Customer: السلام عليكم يادكتور
+[9/27/26, 8:01:00 PM] Customer: مساء الخير يا دكتور
+[9/27/26, 8:02:00 PM] Customer: شكرا حضرتك
+[9/27/26, 8:03:00 PM] Customer: الحمد لله بخير`);
+    const names = model.products.map((row) => row.rawName);
+    expect(names.some((name) => /السلام|مساء الخير|شكرا|الحمد/.test(name))).toBe(false);
+  });
+
+  it('keeps a real commercial request even when it starts with a greeting', () => {
+    const model = analyze(`[9/27/26, 8:00:00 PM] Customer: السلام عليكم عايزه علبه لبن هيرو بيبي 2
+[9/27/26, 8:01:00 PM] You: تحت امر حضرتك`);
+    const product = model.products.find((row) => /هيرو بيبي 2/.test(row.rawName));
+    expect(product).toBeTruthy();
+    expect(product?.status).toBe('requested');
+    expect(product?.quantity).toBe(1);
+  });
 });
