@@ -48,6 +48,11 @@ export interface SmartRequestedProductEvidenceV32 {
   quantity: number | null;
   status: 'requested' | 'recommended' | 'accepted' | 'rejected' | 'unavailable' | 'mentioned';
   confidence: number;
+  sourceDirection?: 'inbound' | 'outbound' | 'system';
+  mentionOrigin?: 'customer_explicit' | 'pharmacy_mention' | 'recommendation' | 'contextual';
+  requestProven?: boolean;
+  evidenceMessageIds?: string[];
+  catalogConfidence?: 'proven' | 'strongly_inferred' | 'weakly_inferred' | 'unknown';
 }
 
 export interface SmartIntelligenceSnapshotV1 {
