@@ -21,6 +21,7 @@ import type { SmartConversationEvaluationV2 } from './whatsappConversationEvalua
 import type { ConversationTimingV28 } from './whatsappConversationTimingV28';
 import type { DelayAttributionV29 } from './whatsappDelayAttributionV29';
 import type { GroundedSaleJourneyV33 } from './whatsappGroundedSaleJourneyV33';
+import type { CustomerContactProfile } from './whatsappCustomerContextResolver';
 
 export interface SmartIntelligenceCustomerPurchaseHistory {
   totalPurchases: number | null;
@@ -67,7 +68,8 @@ export interface SmartIntelligenceSnapshotV1 {
   requestedProducts?: SmartRequestedProductEvidenceV32[];
   /** مش متربط بعد — customer resolution wiring في صفحة الـWatcher لسه مش جزء من الخطوات المنفذة. */
   customer: WhatsAppResolvedCustomer | null;
-  /** مش متربط بعد — نفس السبب. */
+  /** بيانات اتصال موثقة من سجل customers بعد حسم customer_id. */
+  customerContact?: CustomerContactProfile | null;
   purchaseHistory: SmartIntelligenceCustomerPurchaseHistory | null;
   /** الـhierarchy جاهزة (whatsappConversationBranchHint.ts) بس مش متربطة بالـsnapshot لسه. */
   branchHint: BranchHintResult | null;
@@ -95,6 +97,7 @@ export function buildSmartIntelligenceSnapshotV1(args: {
   invoiceItems?: SmartInvoiceItemEvidenceV32[];
   requestedProducts?: SmartRequestedProductEvidenceV32[];
   customer?: WhatsAppResolvedCustomer | null;
+  customerContact?: CustomerContactProfile | null;
   purchaseHistory?: SmartIntelligenceCustomerPurchaseHistory | null;
   branchHint?: BranchHintResult | null;
   bestMessageSignals?: BestMessageAggregate[];
@@ -113,6 +116,7 @@ export function buildSmartIntelligenceSnapshotV1(args: {
     invoiceItems: args.invoiceItems ?? [],
     requestedProducts: args.requestedProducts ?? [],
     customer: args.customer ?? null,
+    customerContact: args.customerContact ?? null,
     purchaseHistory: args.purchaseHistory ?? null,
     branchHint: args.branchHint ?? null,
     bestMessageSignals: args.bestMessageSignals ?? [],
