@@ -575,6 +575,7 @@ export default function WhatsAppSmartFolderWatcher() {
             requestedProducts: operational.products,
             branchHint,
             customer: customerContext.resolution,
+            customerContact: customerContext.contactProfile,
             purchaseHistory: customerContext.purchaseHistory,
             evaluationV2,
             timingV28: caseTimingV28,
@@ -652,6 +653,7 @@ export default function WhatsAppSmartFolderWatcher() {
           invoiceItems: keptRuns[0]?.snapshot.smartIntelligence?.invoiceItems || [],
           requestedProducts: keptRuns[0]?.snapshot.smartIntelligence?.requestedProducts || [],
           resolvedCustomer: customerContext.resolution,
+          resolvedCustomerContact: customerContext.contactProfile,
         } as any;
         const persisted = await persistAnalyzedWhatsAppSession(session, persistenceIntelligence, {
           sourceFileName: file.name,
