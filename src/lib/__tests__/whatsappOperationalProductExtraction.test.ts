@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { parseWhatsAppExport, splitWhatsAppSessions } from '@/lib/whatsappConversationParser';
 import { buildUnifiedConversationIntelligence } from '@/lib/whatsappUnifiedIntelligenceV4';
 import { buildWhatsAppOperationalIntelligenceV6, mergeDeicticProductReferences, mergeProductSignalsByTruthV34 } from '@/lib/whatsappOperationalIntelligenceV6';
+import { enrichWhatsAppOperationalJourneysV7 } from '@/lib/whatsappProductJourneyV7';
 
 function analyze(raw: string) {
   const sessions = splitWhatsAppSessions(parseWhatsAppExport(raw), 120);
@@ -9,6 +10,15 @@ function analyze(raw: string) {
   const session = sessions[0];
   const base = buildUnifiedConversationIntelligence(session);
   return buildWhatsAppOperationalIntelligenceV6(session, base);
+}
+
+function analyzeWithJourney(raw: string) {
+  const sessions = splitWhatsAppSessions(parseWhatsAppExport(raw), 120);
+  expect(sessions.length).toBeGreaterThan(0);
+  const session = sessions[0];
+  const base = buildUnifiedConversationIntelligence(session);
+  const operational = buildWhatsAppOperationalIntelligenceV6(session, base);
+  return enrichWhatsAppOperationalJourneysV7(session, operational);
 }
 
 describe('WhatsApp Operational Intelligence V6 product extraction', () => {
@@ -188,6 +198,22 @@ describe('WhatsApp Operational Intelligence V6 product extraction', () => {
     expect(model.operationalOutcome).toBe('probable_sale');
     expect(model.followupPlan.required).toBe(false);
     expect(model.evidence.saleClose.messageIds.length).toBeGreaterThan(0);
+  });
+
+  it('keeps operational close and product journey close consistent for dispatched orders', () => {
+    const model = analyzeWithJourney(`[9/15/26, 9:30:55 PM] Customer: [Forwarded] Isis teenderm gel for sensitive skin بديل الغسول
+[9/15/26, 9:31:16 PM] Customer: موجود عندكم الغسول ده
+[9/15/26, 9:32:09 PM] You: موجود باذن الله يافندم
+[9/15/26, 9:35:06 PM] You: تحب نبعته لحضرتك باذن الله ؟
+[9/15/26, 9:42:30 PM] Customer: اه ابعته
+[9/15/26, 9:42:57 PM] You: من عنيا لحضرتك مسافة الطريق ويكون عند حضرتك
+[9/15/26, 10:28:58 PM] You: اه يا فندم المندوب في الطريق لحضرتك`);
+    const journey = model.productJourney.journeys.find((row) => /isis teenderm/i.test(row.productName));
+    expect(model.operationalOutcome).toBe('probable_sale');
+    expect(journey?.closedInChat).toBe(true);
+    expect(journey?.currentStage).toBe('awaiting_invoice');
+    expect(journey?.leakageCode ?? null).toBeNull();
+    expect(journey?.leakageReason ?? null).toBeNull();
   });
 
   it('does not treat generic delivery talk as a close without a prior customer commitment', () => {
