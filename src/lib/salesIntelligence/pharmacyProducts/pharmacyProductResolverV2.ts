@@ -132,6 +132,13 @@ export const CROSS_SCRIPT_SEED: ReadonlyMap<string, string> = new Map([
   ['حياه', 'hayah'],
   ['ديرما رول', 'derma roller'],
   ['الديرما رول', 'derma roller'],
+  ['لبن هيرو بيبي', 'hero baby milk'],
+  ['هيرو بيبي', 'hero baby'],
+  ['نيوتروني دفنس', 'nutradefense'],
+  ['نيوترا دفنس', 'nutradefense'],
+  ['كولونا', 'colona'],
+  ['جاسترو بيوتيك', 'gastrobiotic'],
+  ['جاستروبيوتك', 'gastrobiotic'],
 ]);
 
 function confidenceForBasis(basis: ProductMatchBasis): ConfidenceLevel {
