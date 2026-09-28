@@ -462,7 +462,9 @@ export default async function handler(req: any, res: any) {
   const select = [
     'id','raw_text','source_filename','conversation_started_at','conversation_ended_at',
     'message_count','created_at','customer_id','customer_phone','customer_name','customer_code',
-    'branch','matched_invoice_id','matched_invoice_number','invoice_match_status','reviewer_confirmed','reviewer_id'
+    'branch','matched_invoice_id','matched_invoice_number','invoice_match_status','reviewer_confirmed','reviewer_id',
+    'invoice_link_confirmed','invoice_link_confirmed_invoice_id','invoice_link_confirmed_invoice_number',
+    'invoice_link_confirmed_by','invoice_link_confirmed_at'
   ].join(',');
 
   let sourceRows: Record<string, unknown>[] = [];
