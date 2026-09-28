@@ -1152,6 +1152,19 @@ export default function WhatsAppSmartFolderWatcher() {
       .trim();
   }
 
+  function nextDecisionLabel(item: StaffRun) {
+    if (item.intelligence?.followup.detected) {
+      return { label: 'متابعة العميل', detail: item.intelligence.followup.reason || 'يوجد سبب متابعة واضح في المحادثة.', cls: 'bg-cyan-500/10 text-cyan-200 border-cyan-800/40' };
+    }
+    if (item.decision === 'issue') {
+      return { label: 'مراجعة ملاحظة', detail: item.reasons[0] || 'يوجد بند يحتاج قرارًا بشريًا قبل الاعتماد.', cls: 'bg-amber-500/10 text-amber-200 border-amber-800/40' };
+    }
+    if (item.decision === 'review') {
+      return { label: 'مراجعة بشرية', detail: item.reasons[0] || 'الأدلة غير كافية للاعتماد السريع.', cls: 'bg-rose-500/10 text-rose-200 border-rose-800/40' };
+    }
+    return { label: 'جاهز للمراجعة النهائية', detail: 'لا توجد ملاحظة مؤثرة ظاهرة؛ راجع الأدلة ثم اعتمد عند الاطمئنان.', cls: 'bg-emerald-500/10 text-emerald-200 border-emerald-800/40' };
+  }
+
   function productTruthRows(item: StaffRun) {
     const smart = item.snapshot.smartIntelligence;
     const invoiceItems = smart?.invoiceItems || [];
@@ -1476,6 +1489,7 @@ export default function WhatsAppSmartFolderWatcher() {
                     const customer = selected.snapshot.smartIntelligence?.customer;
                     const evalV2 = selected.snapshot.smartIntelligence?.evaluationV2;
                     const productRows = productTruthRows(selected);
+                    const nextDecision = nextDecisionLabel(selected);
                     const soldRequestedCount = productRows.filter((row) => row.kind === 'requested_and_sold').length;
                     const invoiceOnlyCount = productRows.filter((row) => row.kind === 'invoice_only').length;
                     const missingFromInvoiceCount = productRows.filter((row) => row.kind === 'requested_not_in_invoice').length;
@@ -1500,7 +1514,15 @@ export default function WhatsAppSmartFolderWatcher() {
                           </div>
                         </div>
 
-                        <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                        <div className={`mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border px-3 py-2.5 ${nextDecision.cls}`}>
+                          <div>
+                            <div className="text-[10px] font-black opacity-70">القرار المطلوب الآن</div>
+                            <div className="mt-0.5 text-sm font-black">{nextDecision.label}</div>
+                          </div>
+                          <div className="max-w-2xl text-[10px] leading-5 opacity-80">{nextDecision.detail}</div>
+                        </div>
+
+                        <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
                           <div className="rounded-xl border border-slate-800 bg-black/10 p-3">
                             <div className="text-[10px] font-black text-slate-500">الفاتورة</div>
                             <div className="mt-1 text-sm font-black text-white">
@@ -1709,9 +1731,9 @@ export default function WhatsAppSmartFolderWatcher() {
                     </section>
                   ) : null}
 
-                                    <section className="grid gap-3 lg:grid-cols-2">
+                  <section className="grid gap-3 lg:grid-cols-2">
                     <div className={`rounded-2xl border p-4 ${selected.staffIdentity.ambiguous ? 'border-rose-800/60 bg-rose-950/20' : selected.staffIdentity.staffId ? 'border-emerald-800/50 bg-emerald-950/10' : 'border-amber-800/50 bg-amber-950/10'}`}>
-                      <div className="text-[10px] font-black text-slate-500">هوية المسؤول</div>
+                      <div className="text-[10px] font-black text-slate-500">ربط المسؤول</div>
                       {selected.staffIdentity.staffId && !selected.staffIdentity.ambiguous ? (
                         <div className="mt-2 text-sm text-emerald-100">
                           <span className="text-slate-400">{selected.staffIdentity.displayName}</span><span className="mx-2 text-emerald-400">→</span><b>{selected.staffIdentity.canonicalStaffName}</b>
@@ -1723,7 +1745,7 @@ export default function WhatsAppSmartFolderWatcher() {
                     </div>
 
                     <div className="rounded-2xl border border-slate-800 bg-slate-950/20 p-4">
-                      <div className="text-[10px] font-black text-slate-500">هوية العميل</div>
+                      <div className="text-[10px] font-black text-slate-500">ربط العميل</div>
                       {selected.snapshot.smartIntelligence?.customer?.customer ? (
                         <div className="mt-2 text-sm text-cyan-100">
                           <b>{selected.snapshot.smartIntelligence.customer.customer.name}</b>
