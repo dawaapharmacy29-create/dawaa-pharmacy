@@ -760,23 +760,23 @@ export default function Reviews() {
       : { customerName: snapshot.customerName || '' };
 
     const evaluationV2 = snapshot.smartIntelligence?.evaluationV2 || null;
-    const saleTransferFields = evaluationV2?.sale.outcome === 'invoice_verified_sale'
+    const invoiceCandidateNumber =
+      evaluationV2?.sale.invoiceNumber ||
+      snapshot.smartIntelligence?.invoiceVerification?.bestCandidate?.invoiceNumber ||
+      '';
+    const saleTransferFields = snapshot.canonicalSaleProofState === 'proven'
       ? {
           convertedToSale: 'yes' as const,
-          invoiceNo: evaluationV2.sale.invoiceNumber || '',
+          invoiceNo: invoiceCandidateNumber,
           evaluationReason: 'عملية بيع مهمة',
         }
-      : evaluationV2?.sale.outcome === 'order_confirmed'
-        ? {
-            convertedToSale: '' as const,
-            invoiceNo: '',
-            evaluationReason: 'متابعة جودة',
-          }
-        : {
-            convertedToSale: '' as const,
-            invoiceNo: '',
-            evaluationReason: 'متابعة جودة',
-          };
+      : {
+          // Statistical/legacy invoice verification never pre-fills an official sale.
+          // A non-proven case stays unresolved for the human reviewer.
+          convertedToSale: '' as const,
+          invoiceNo: invoiceCandidateNumber,
+          evaluationReason: 'متابعة جودة',
+        };
     if (customerResolution?.strategy === 'ambiguous' && customerResolution.candidates.length) {
       setAmbiguousCustomerCandidates(customerResolution.candidates);
     } else {
