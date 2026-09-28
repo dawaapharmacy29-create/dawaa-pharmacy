@@ -509,6 +509,9 @@ export default function WhatsAppSmartFolderWatcher() {
           timing: caseTimingV28,
           participantRoles: roles,
           understanding: conversationUnderstandingV32,
+          customerResolved: Boolean(resolvedCustomer?.id),
+          customerAmbiguous: customerContext.resolution.strategy === 'ambiguous',
+          invoiceItemCount: invoiceItems.length,
         });
 
         const officialReviewDraft = buildSmartOfficialReviewDraftV1(evaluationSession, session.customerName, {
@@ -570,8 +573,11 @@ export default function WhatsAppSmartFolderWatcher() {
           staffName: staff.staffName,
           role: staff.role,
           decision: result.decision.decision,
-          safe: result.decision.safeToQuickApprove,
-          reasons: result.decision.reasons,
+          safe: result.decision.safeToQuickApprove && groundedSaleJourneyV33.truthQuality.decisionReady,
+          reasons: Array.from(new Set([
+            ...result.decision.reasons,
+            ...groundedSaleJourneyV33.truthQuality.blockers,
+          ])),
           criteria: result.decision.affectedCriteria,
           intelligence: result.intelligence,
           journeyCrossCheck: result.journeyCrossCheck,
