@@ -80,6 +80,32 @@ describe('WhatsApp Operational Intelligence V6 product extraction', () => {
     expect(model.primaryIntent).toBe('doctor_recommendation');
   });
 
+  it('does not invent products from Mahmoud Saleh image-reference requests and greetings', () => {
+    const model = analyze(`[9/27/26, 8:25:21 PM] الحاج محمود صالح ٢٤٩٠: اهلا بيكي حبيبتي الحمد لله كله تمام
+[9/27/26, 8:25:35 PM] الحاج محمود صالح ٢٤٩٠: لو سمحت يادكتور عايزه العلبه دي
+[9/27/26, 8:25:49 PM] الحاج محمود صالح ٢٤٩٠: <image omitted>
+[9/28/26, 6:51:56 AM] الحاج محمود صالح ٢٤٩٠: السلام عليكم
+لو سمحت يادكتور عايزه الحاجات دي
+[9/28/26, 6:51:59 AM] الحاج محمود صالح ٢٤٩٠: <image omitted>
+[9/28/26, 6:52:05 AM] You: وعليكم السلام ورحمه الله وبركاته`);
+
+    expect(model.products.some((row) => /السلام|دكتور|العلبه دي|العلبة دي|الحاجات دي/.test(row.rawName))).toBe(false);
+    expect(model.customerRequests).toHaveLength(0);
+  });
+
+  it('keeps an explicit outbound fulfillment product as a mention, never a fabricated customer request', () => {
+    const model = analyze(`[9/28/26, 6:51:56 AM] Customer: لو سمحت يادكتور عايزه الحاجات دي
+[9/28/26, 6:51:59 AM] Customer: <image omitted>
+[9/28/26, 6:55:01 AM] You: معلش بس في شريط بون كير هجيبه من الفرع التاني بس وييجي لحضرتك
+[9/28/26, 6:58:45 AM] You: جاري الارسال`);
+
+    const product = model.products.find((row) => /بون كير/i.test(row.rawName));
+    expect(product).toBeTruthy();
+    expect(product?.sourceDirection).toBe('outbound');
+    expect(product?.status).toBe('mentioned');
+    expect(model.customerRequests.some((row) => /بون كير/i.test(row.productName || ''))).toBe(false);
+  });
+
   it('merges quantity-only anaphora into the previous product instead of creating a fake product', () => {
     const model = analyze(`[9/27/26, 8:20:00 PM] Customer: عايزه فليكس لايكس
 [9/27/26, 8:21:00 PM] Customer: منهم شريطين
