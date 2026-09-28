@@ -183,7 +183,10 @@ const PRODUCT_FORM_TOKEN_RX =
   /(?:^|\s)(?:شريط|شريطين|شرايط|علبه|علبة|علبتين|علب|عبوه|عبوة|عبوتين|عبوات|كيس|كيسين|اكياس|أكياس|كريم|جل|مرهم|شراب|بخاخ|بخاخه|بخاخة|قطره|قطرة|كبسول|كبسوله|كبسولة|اقراص|أقراص|قرص|امبول|أمبول|امبولات|أمبولات|حقنه|حقنة|فوار|لبن)(?:\s|$)/iu;
 
 const SHORT_DEICTIC_OR_ADVICE_NOISE_RX =
-  /^(?:ي\s+القطر[هة]|ياخد\s+(?:ده|دا|دي)|تقدر\s+تمشي\s+عليها|ده\s+نوع\s+[^\n]{1,50}|(?:ال)?تخسيس|مساج|زبادي)$/iu;
+  /^(?:ي\s+القطر[هة]|ياخد\s+(?:ده|دا|دي)|تقدر\s+تمشي\s+عليها|ده\s+نوع\s+[^\n]{1,50}|(?:ال)?تخسيس|مساج|زبادي|كامل|لحضرتك|لك\s+نوع\s+(?:كويس|كويسه|كويسة)|نظام\s+الصيام\s+المتقطع)$/iu;
+
+const DOSAGE_OR_PRICE_DESCRIPTION_RX =
+  /^(?:(?:ال)?(?:شريط|علبه|علبة|عبوه|عبوة|امبول|أمبول|امبولين|أمبولين|قرص|اقراص|أقراص)\s*)?(?:\d+|[٠-٩]+)?\s*(?:قرص|اقراص|أقراص|امبول|أمبول|امبولين|أمبولين)?[^\n]{0,80}(?:هتاخد|هتاخدي|ناخد|تاخد|تاخدي|بعد\s+(?:الفطار|الافطار|الإفطار|الغدا|الغداء)|قبل\s+(?:الفطار|الافطار|الإفطار)|كل\s+اسبوعين|كل\s+شهر|سعر\s+(?:ال)?(?:قرص|شريط|علبه|علبة)|\d+\s*ج(?:نيه)?)(?:[^\n]{0,40})$/iu;
 const PRODUCT_TYPE_NAMED_RX = /^(?:مزيل)\s+([\p{L}\p{N}][\p{L}\p{N} .+-]{1,60})$/iu;
 const EXPLICIT_PRODUCT_FORM_MENTION_RX =
   /(?:^|[\s،,:-])(?:علبه|علبة|عبوه|عبوة|شريط|شرايط|كريم|جل|شراب|بخاخ|بخاخه|بخاخة|قطره|قطرة|كبسول|كبسوله|كبسولة|اقراص|أقراص|قرص|امبول|أمبول|امبولات|أمبولات)\s+([A-Za-z\u0600-\u06FF][A-Za-z0-9\u0600-\u06FF.+-]*(?:\s+[A-Za-z\u0600-\u06FF][A-Za-z0-9\u0600-\u06FF.+-]*){0,3})/iu;
@@ -337,6 +340,7 @@ function plausibleProductPhrase(value: string) {
   const tokens = cleaned.split(/\s+/).filter(Boolean);
   if (tokens.length > 9) return false;
   if (SHORT_DEICTIC_OR_ADVICE_NOISE_RX.test(cleaned)) return false;
+  if (DOSAGE_OR_PRICE_DESCRIPTION_RX.test(cleaned)) return false;
 
   const hasLatinName = /[A-Za-z]{3,}/.test(cleaned);
   const hasProductForm = PRODUCT_FORM_TOKEN_RX.test(cleaned);
@@ -564,21 +568,26 @@ function recommendations(session: WhatsAppConversationSession, products: WhatsAp
     ...outbound.filter((m) => RECOMMEND_RX.test(m.text)),
     ...mediaRecommendationMessages,
   ]);
-  return recMessages.map((message) => {
+  return recMessages.flatMap((message) => {
     const product = products.find((p) => p.status === 'recommended' && p.evidenceMessageIds.includes(message.id));
+    const mediaOnlyRecommendation = mediaRecommendationMessages.some((row) => row.id === message.id);
+    // Recommendation wording without a named/extracted product is consultation context,
+    // not a commercial product recommendation. Do not create follow-up/sale intent from it.
+    if (!product && !mediaOnlyRecommendation) return [];
+
     const index = session.messages.findIndex((m) => m.id === message.id);
     const laterInbound = session.messages.slice(index + 1).filter((m) => m.direction === 'inbound').slice(0, 3);
     const acceptedMsg = laterInbound.find((m) => ACCEPT_RX.test(m.text));
     const rejectedMsg = laterInbound.find((m) => REJECT_RX.test(m.text));
     const accepted = acceptedMsg ? true : rejectedMsg ? false : null;
-    return {
+    return [{
       productName: product?.rawName || null,
       accepted,
       rejected: Boolean(rejectedMsg),
       doctorName: session.outboundStaffNames[0] || null,
       evidenceMessageIds: uniq([message.id, ...(acceptedMsg ? [acceptedMsg.id] : []), ...(rejectedMsg ? [rejectedMsg.id] : [])]),
       confidence: acceptedMsg || rejectedMsg ? 90 : 72,
-    };
+    }];
   });
 }
 
