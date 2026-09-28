@@ -81,6 +81,38 @@ describe('WhatsAppCustomerCaseEngineV22', () => {
     expect(result.cases[1].state).toBe('confirmed_order');
   });
 
+  it('splits a strong new order a few hours after a clean confirmed order', () => {
+    const rows = [
+      session('s1', [
+        msg('m1', '2026-09-01T09:00:00', 'inbound', 'عايز فيتامين د'),
+        msg('m2', '2026-09-01T09:10:00', 'outbound', 'تم تأكيد الطلب وجاري الإرسال'),
+      ]),
+      session('s2', [
+        msg('m3', '2026-09-01T13:00:00', 'inbound', 'محتاج شامبو للشعر'),
+        msg('m4', '2026-09-01T13:05:00', 'outbound', 'تم تأكيد الطلب'),
+      ]),
+    ];
+    const result = buildWhatsAppCustomerCaseEngineV22(rows);
+    expect(result.caseCount).toBe(2);
+    expect(result.cases.every((item) => item.state === 'confirmed_order')).toBe(true);
+  });
+
+  it('keeps delivery complaint after a confirmed order inside the same case', () => {
+    const rows = [
+      session('s1', [
+        msg('m1', '2026-09-01T09:00:00', 'inbound', 'عايز فيتامين د'),
+        msg('m2', '2026-09-01T09:10:00', 'outbound', 'تم تأكيد الطلب وجاري الإرسال'),
+      ]),
+      session('s2', [
+        msg('m3', '2026-09-01T13:00:00', 'inbound', 'الطلب لسه ماوصلش وفيه تأخير'),
+        msg('m4', '2026-09-01T13:05:00', 'outbound', 'بنعتذر لحضرتك وهنتابع مع المندوب'),
+      ]),
+    ];
+    const result = buildWhatsAppCustomerCaseEngineV22(rows);
+    expect(result.caseCount).toBe(1);
+    expect(result.cases[0].complaint).toBe(true);
+  });
+
   it('tracks missing media without pretending the content was understood', () => {
     const rows = [
       session('s1', [
