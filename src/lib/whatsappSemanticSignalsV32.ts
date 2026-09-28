@@ -172,7 +172,7 @@ function isPlausibleCustomerProductMention(message: NormalizedConversationMessag
 
   // Reference-only/request wording is not an antecedent by itself.
   const withoutReference = strippedForwarded.replace(PRODUCT_REFERENCE_RX, '').trim();
-  if (!withoutReference || /^(?:موجود|متوفر|عندكم|عايز|عاوز|محتاج|ابعت|هات)\b/i.test(withoutReference)) return false;
+  if (!withoutReference || /^(?:موجود|متوفر|عندكم|عايز|عاوز|محتاج|ابعت|هات)(?:\s|$)/iu.test(withoutReference)) return false;
 
   return (
     /[A-Za-z]{3,}/.test(strippedForwarded) ||
