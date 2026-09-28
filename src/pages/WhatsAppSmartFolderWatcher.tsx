@@ -1371,8 +1371,63 @@ export default function WhatsAppSmartFolderWatcher() {
 
   function productTruthRows(item: StaffRun) {
     const smart = item.snapshot.smartIntelligence;
-    const invoiceItems = smart?.invoiceItems || [];
+    const rawInvoiceItems = smart?.invoiceItems || [];
     const productSignals = smart?.requestedProducts || [];
+
+    const isServiceLine = (row: { productName?: string | null }) =>
+      /(توصيل\s*منزلي|خدمة\s*توصيل|رسوم\s*توصيل|delivery\s*(?:fee|service)?)/i.test(String(row.productName || ''));
+
+    const groupedInvoiceItems = (() => {
+      const grouped = new Map<string, {
+        productId: string | null;
+        productCode: string | null;
+        productName: string;
+        quantity: number | null;
+        effectiveQuantity: number | null;
+        lineTotal: number | null;
+        serviceLine: boolean;
+        sourceLineCount: number;
+      }>();
+
+      for (const row of rawInvoiceItems) {
+        const key = row.productId
+          ? `id:${row.productId}`
+          : row.productCode
+            ? `code:${normalizeProductForCompare(row.productCode)}`
+            : `name:${normalizeProductForCompare(row.productName)}`;
+        const previous = grouped.get(key);
+        const quantityValue = row.quantity == null ? null : Number(row.quantity);
+        const effectiveValue = row.effectiveQuantity == null ? quantityValue : Number(row.effectiveQuantity);
+        const lineTotalValue = row.lineTotal == null ? null : Number(row.lineTotal);
+        if (!previous) {
+          grouped.set(key, {
+            productId: row.productId || null,
+            productCode: row.productCode || null,
+            productName: row.productName,
+            quantity: Number.isFinite(quantityValue as number) ? quantityValue : null,
+            effectiveQuantity: Number.isFinite(effectiveValue as number) ? effectiveValue : null,
+            lineTotal: Number.isFinite(lineTotalValue as number) ? lineTotalValue : null,
+            serviceLine: isServiceLine(row),
+            sourceLineCount: 1,
+          });
+          continue;
+        }
+        previous.quantity =
+          previous.quantity == null && quantityValue == null
+            ? null
+            : Number(previous.quantity || 0) + (Number.isFinite(quantityValue as number) ? Number(quantityValue) : 0);
+        previous.effectiveQuantity =
+          previous.effectiveQuantity == null && effectiveValue == null
+            ? null
+            : Number(previous.effectiveQuantity || 0) + (Number.isFinite(effectiveValue as number) ? Number(effectiveValue) : 0);
+        previous.lineTotal =
+          previous.lineTotal == null && lineTotalValue == null
+            ? null
+            : Number(previous.lineTotal || 0) + (Number.isFinite(lineTotalValue as number) ? Number(lineTotalValue) : 0);
+        previous.sourceLineCount += 1;
+      }
+      return [...grouped.values()];
+    })();
 
     const customerDemand = productSignals.filter((row) =>
       row.sourceDirection === 'inbound' &&
@@ -1381,6 +1436,9 @@ export default function WhatsAppSmartFolderWatcher() {
     );
     const recommendations = productSignals.filter((row) =>
       row.status === 'recommended' || row.mentionOrigin === 'recommendation'
+    );
+    const pharmacyMentions = productSignals.filter((row) =>
+      row.mentionOrigin === 'pharmacy_mention' && row.status === 'mentioned'
     );
 
     const keysForSignal = (row: any) => [
@@ -1407,8 +1465,20 @@ export default function WhatsAppSmartFolderWatcher() {
 
     const matchedDemandIndexes = new Set<number>();
     const matchedRecommendationIndexes = new Set<number>();
+    const matchedMentionIndexes = new Set<number>();
 
-    const rows = invoiceItems.map((invoiceItem) => {
+    const rows = groupedInvoiceItems.map((invoiceItem) => {
+      if (invoiceItem.serviceLine) {
+        return {
+          kind: 'invoice_service' as const,
+          productName: invoiceItem.productName,
+          invoiceQuantity: invoiceItem.effectiveQuantity ?? invoiceItem.quantity,
+          requestedQuantity: null,
+          lineTotal: invoiceItem.lineTotal,
+          sourceLineCount: invoiceItem.sourceLineCount,
+        };
+      }
+
       const demandIndex = customerDemand.findIndex((signal, index) =>
         !matchedDemandIndexes.has(index) && matchesInvoiceItem(invoiceItem, signal)
       );
@@ -1420,6 +1490,7 @@ export default function WhatsAppSmartFolderWatcher() {
           invoiceQuantity: invoiceItem.effectiveQuantity ?? invoiceItem.quantity,
           requestedQuantity: customerDemand[demandIndex].quantity,
           lineTotal: invoiceItem.lineTotal,
+          sourceLineCount: invoiceItem.sourceLineCount,
         };
       }
 
@@ -1434,6 +1505,22 @@ export default function WhatsAppSmartFolderWatcher() {
           invoiceQuantity: invoiceItem.effectiveQuantity ?? invoiceItem.quantity,
           requestedQuantity: recommendations[recommendationIndex].quantity,
           lineTotal: invoiceItem.lineTotal,
+          sourceLineCount: invoiceItem.sourceLineCount,
+        };
+      }
+
+      const mentionIndex = pharmacyMentions.findIndex((signal, index) =>
+        !matchedMentionIndexes.has(index) && matchesInvoiceItem(invoiceItem, signal)
+      );
+      if (mentionIndex >= 0) {
+        matchedMentionIndexes.add(mentionIndex);
+        return {
+          kind: 'pharmacy_mentioned_in_invoice' as const,
+          productName: invoiceItem.productName,
+          invoiceQuantity: invoiceItem.effectiveQuantity ?? invoiceItem.quantity,
+          requestedQuantity: pharmacyMentions[mentionIndex].quantity,
+          lineTotal: invoiceItem.lineTotal,
+          sourceLineCount: invoiceItem.sourceLineCount,
         };
       }
 
@@ -1443,6 +1530,7 @@ export default function WhatsAppSmartFolderWatcher() {
         invoiceQuantity: invoiceItem.effectiveQuantity ?? invoiceItem.quantity,
         requestedQuantity: null,
         lineTotal: invoiceItem.lineTotal,
+        sourceLineCount: invoiceItem.sourceLineCount,
       };
     });
 
@@ -1454,6 +1542,7 @@ export default function WhatsAppSmartFolderWatcher() {
         invoiceQuantity: null,
         requestedQuantity: request.quantity,
         lineTotal: null,
+        sourceLineCount: 0,
       });
     });
 
@@ -1741,7 +1830,9 @@ export default function WhatsAppSmartFolderWatcher() {
                     const nextDecision = nextDecisionLabel(selected);
                     const soldRequestedCount = productRows.filter((row) => row.kind === 'customer_requested_in_invoice').length;
                     const recommendedInInvoiceCount = productRows.filter((row) => row.kind === 'recommended_in_invoice').length;
+                    const pharmacyMentionedInInvoiceCount = productRows.filter((row) => row.kind === 'pharmacy_mentioned_in_invoice').length;
                     const invoiceOnlyCount = productRows.filter((row) => row.kind === 'invoice_only').length;
+                    const serviceLineCount = productRows.filter((row) => row.kind === 'invoice_service').length;
                     const missingFromInvoiceCount = productRows.filter((row) => row.kind === 'customer_requested_not_in_invoice').length;
                     const invoiceItemsTotal = (selected.snapshot.smartIntelligence?.invoiceItems || [])
                       .reduce((sum, row) => sum + (Number.isFinite(Number(row.lineTotal)) ? Number(row.lineTotal) : 0), 0);
@@ -1940,9 +2031,13 @@ export default function WhatsAppSmartFolderWatcher() {
                                   ? { label: 'طلبه العميل وظهر بالفاتورة المرشحة', cls: 'bg-cyan-500/10 text-cyan-300' }
                                   : row.kind === 'recommended_in_invoice'
                                     ? { label: 'ترشيح من الصيدلية وظهر بالفاتورة', cls: 'bg-violet-500/10 text-violet-300' }
-                                    : row.kind === 'customer_requested_not_in_invoice'
-                                      ? { label: 'طلبه العميل ولم يظهر بالفاتورة', cls: 'bg-amber-500/10 text-amber-300' }
-                                      : { label: 'ظهر في الفاتورة فقط', cls: 'bg-sky-500/10 text-sky-300' };
+                                    : row.kind === 'pharmacy_mentioned_in_invoice'
+                                      ? { label: 'ذكرته الصيدلية وظهر بالفاتورة', cls: 'bg-indigo-500/10 text-indigo-300' }
+                                      : row.kind === 'invoice_service'
+                                        ? { label: 'خدمة/رسوم بالفاتورة', cls: 'bg-slate-700/50 text-slate-300' }
+                                        : row.kind === 'customer_requested_not_in_invoice'
+                                          ? { label: 'طلبه العميل ولم يظهر بالفاتورة', cls: 'bg-amber-500/10 text-amber-300' }
+                                          : { label: 'ظهر في الفاتورة فقط', cls: 'bg-sky-500/10 text-sky-300' };
                                 const quantityStatus =
                                   row.invoiceQuantity != null && row.requestedQuantity != null
                                     ? Number(row.invoiceQuantity) === Number(row.requestedQuantity)
@@ -1955,7 +2050,10 @@ export default function WhatsAppSmartFolderWatcher() {
                                         : { label: 'الكمية غير محسومة', cls: 'text-slate-500' };
                                 return (
                                   <div key={`${row.productName}-${index}`} className="grid gap-2 px-3 py-2.5 text-xs sm:grid-cols-[1fr_auto_auto_auto] sm:items-center">
-                                    <div className="font-black text-white">{row.productName}</div>
+                                    <div className="font-black text-white">
+                                      {row.productName}
+                                      {row.sourceLineCount > 1 ? <span className="mr-1 text-[9px] font-normal text-slate-500">({row.sourceLineCount} سطور مجمعة)</span> : null}
+                                    </div>
                                     <span className={`w-fit rounded-full px-2 py-1 text-[10px] font-black ${badge.cls}`}>{badge.label}</span>
                                     <div className={quantityStatus.cls}>{quantityStatus.label}</div>
                                     <div className="text-left font-bold text-slate-300">{row.lineTotal != null ? `${Number(row.lineTotal).toFixed(2)} ج` : '—'}</div>
