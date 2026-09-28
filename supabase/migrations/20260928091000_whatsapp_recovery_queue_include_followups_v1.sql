@@ -47,6 +47,7 @@ select
   a.last_followup_at,
   a.sla_due_at,
   a.sla_breached_at,
+  a.payload as action_payload,
   case
     when a.work_status not in ('completed','cancelled','failed')
       and coalesce(a.next_followup_at, a.sla_due_at, a.due_at) < now()
