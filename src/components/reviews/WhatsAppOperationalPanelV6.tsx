@@ -26,7 +26,7 @@ const intentLabels: Record<string,string> = {
   complaint:'شكوى', doctor_recommendation:'ترشيح من دكتور', delivery_issue:'مشكلة توصيل', followup_response:'رد على متابعة', general_service:'خدمة عامة', other:'أخرى'
 };
 const outcomeLabels: Record<string,string> = {
-  completed_sale:'بيع مؤكد بالفاتورة', probable_sale:'بيع محتمل — ينتظر الفاتورة', no_sale:'لم يتم البيع', needs_followup:'تحتاج متابعة',
+  completed_sale:'إغلاق بيع ظاهر — الإثبات المالي منفصل', probable_sale:'بيع محتمل — يحتاج إثبات مالي', no_sale:'لم يتم البيع', needs_followup:'تحتاج متابعة',
   unresolved_request:'طلب غير محسوم', complaint_resolved:'شكوى تم احتواؤها', complaint_unresolved:'شكوى غير محسومة', consultation_only:'استشارة فقط', checkin_complete:'متابعة اطمئنان مكتملة', unknown:'غير محسومة'
 };
 const actionLabels: Record<string,string> = { customer_request:'تسجيل طلب عميل', customer_followup:'متابعة عميل', recommendation_followup:'متابعة ترشيح', complaint_followup:'متابعة شكوى', invoice_recheck:'إعادة مطابقة فاتورة', manual_review:'مراجعة بشرية' };
@@ -69,7 +69,7 @@ export default function WhatsAppOperationalPanelV6({ source }: { source: Source 
 
   return <section className="dawaa-card dawaa-card--raised space-y-4 p-5">
     <div className="flex flex-wrap items-start justify-between gap-3">
-      <div><div className="flex items-center gap-2 font-black text-white"><Sparkles size={18}/> الذكاء التشغيلي V6</div><div className="mt-1 text-xs text-slate-400">يفصل بين نوع المحادثة، نتيجتها، الطلبات، الترشيحات، المتابعة والبيع المؤكد بالفاتورة.</div></div>
+      <div><div className="flex items-center gap-2 font-black text-white"><Sparkles size={18}/> الذكاء التشغيلي V6</div><div className="mt-1 text-xs text-slate-400">يفصل بين نوع المحادثة، الطلبات، الترشيحات والمتابعة. إثبات البيع المالي يعتمد على Canonical Sale Proof بشكل منفصل.</div></div>
       <button onClick={() => void load()} className="rounded-lg border border-slate-700 p-2 text-slate-300"><RefreshCw size={15} className={loading?'animate-spin':''}/></button>
     </div>
 
@@ -100,6 +100,6 @@ export default function WhatsAppOperationalPanelV6({ source }: { source: Source 
       <div className="rounded-2xl border border-slate-800 p-4"><div className="flex items-center gap-2 font-black text-white"><ShoppingCart size={16}/> قيمة العميل في سايكل 26→25</div>{currentCycle?<><div className="mt-3 grid grid-cols-2 gap-2 text-center"><div className="rounded-xl bg-slate-950/50 p-2"><div className="text-xs text-slate-500">مبيعات مؤكدة مرتبطة</div><div className="text-lg font-black text-emerald-300">{Number(currentCycle.verified_revenue||0).toFixed(2)} ج</div></div><div className="rounded-xl bg-slate-950/50 p-2"><div className="text-xs text-slate-500">فواتير مؤكدة</div><div className="text-lg font-black text-cyan-300">{currentCycle.verified_invoice_count}</div></div></div><div className="mt-2 flex flex-wrap gap-2"><Badge tone={currentCycle.verified_revenue_over_500?'green':'slate'}>{currentCycle.verified_revenue_over_500?'تجاوز 500 ج في السايكل':'أقل من/يساوي 500 ج'}</Badge>{currentCycle.needs_customer_service_action?<Badge tone="amber">يحتاج إجراء خدمة عملاء</Badge>:<Badge tone="green">لا يوجد إجراء معلق</Badge>}</div><div className="mt-2 text-[11px] text-slate-500">{currentCycle.cycle_start} → {currentCycle.cycle_end} • {currentCycle.conversation_count} محادثة</div></>:<div className="mt-3 text-sm text-slate-500">لا توجد بيانات سايكل مرتبطة بهذا العميل حتى الآن.</div>}</div>
     </div>
 
-    {source.invoice_match_status === 'verified' ? <div className="flex items-center gap-2 rounded-xl border border-cyan-400/25 bg-cyan-500/10 p-3 text-sm text-cyan-100"><CheckCircle2 size={16}/> توجد مطابقة فاتورة آلية Legacy {source.matched_invoice_number || 'مرشحة'} بقيمة {Number(source.matched_invoice_value||0).toFixed(2)} ج — لا تثبت البيع رسميًا.</div> : operational.operationalOutcome === 'probable_sale' ? <div className="flex items-center gap-2 rounded-xl border border-amber-400/25 bg-amber-500/10 p-3 text-sm text-amber-100"><AlertTriangle size={16}/> يوجد إغلاق بيع ظاهر في المحادثة، لكن لا نحسبه بيعًا رسميًا قبل مطابقة الفاتورة.</div> : null}
+    {source.invoice_match_status === 'verified' ? <div className="flex items-center gap-2 rounded-xl border border-cyan-400/25 bg-cyan-500/10 p-3 text-sm text-cyan-100"><CheckCircle2 size={16}/> توجد مطابقة فاتورة آلية Legacy {source.matched_invoice_number || 'مرشحة'} بقيمة {Number(source.matched_invoice_value||0).toFixed(2)} ج — لا تثبت البيع رسميًا.</div> : operational.operationalOutcome === 'probable_sale' ? <div className="flex items-center gap-2 rounded-xl border border-amber-400/25 bg-amber-500/10 p-3 text-sm text-amber-100"><AlertTriangle size={16}/> يوجد إغلاق بيع ظاهر في المحادثة، لكنه لا يُحسب بيعًا رسميًا إلا بعد اعتماد ربط الفاتورة ووصول Canonical Sale Proof إلى proven.</div> : null}
   </section>;
 }
