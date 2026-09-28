@@ -4,6 +4,7 @@ import type { WhatsAppConversationSession, WhatsAppParsedMessage } from '@/lib/w
 const CUSTOMERS = [
   { id: 'c1', name: 'أحمد الشامي', customer_code: 'C1', phone: '01011111111', branch: 'فرع الشامي', segment: 'vip', total_purchases: 12, total_spent: 4500, avg_monthly: 375, last_purchase: '2026-09-01' },
   { id: 'c2', name: 'أحمد الشامي', customer_code: 'C2', phone: '01022222222', branch: 'فرع شكري', segment: 'regular', total_purchases: 3, total_spent: 600, avg_monthly: 50, last_purchase: '2026-08-15' },
+  { id: 'c3', name: 'اليماني حسين حسن', customer_code: '4250', phone: '01033333333', branch: 'فرع شكري', segment: 'regular', total_purchases: 8, total_spent: 2200, avg_monthly: 220, last_purchase: '2026-09-10' },
 ];
 
 vi.mock('@/lib/supabase', () => ({
@@ -94,5 +95,35 @@ describe('resolveCustomerContext', () => {
     const result = await resolveCustomerContext(s, 'فرع الشامي');
     expect(result.resolution.customer?.id).toBe('c1');
     expect(result.purchaseHistory).toEqual({ totalPurchases: 12, totalSpent: 4500, avgMonthly: 375, lastPurchaseAt: '2026-09-01' });
+  });
+
+  it('keeps an explicit customer code stronger than an unrelated phone mentioned in the chat', async () => {
+    const { resolveCustomerContext } = await import('@/lib/whatsappCustomerContextResolver');
+    const s = session(
+      [msg('m1', '2026-09-01T10:00:00', 'inbound', 'ممكن تبعت على رقم 01022222222')],
+      'اليماني حسين حسن 4250',
+    );
+    const result = await resolveCustomerContext(s, 'فرع شكري', {
+      customerNameHint: 'اليماني حسين حسن',
+      customerCodeHint: '4250',
+    });
+    expect(result.resolution.strategy).toBe('ambiguous');
+    expect(result.resolution.customer).toBeNull();
+    expect(result.resolution.reason).toMatch(/تعارض/);
+    expect(result.resolution.candidates.map((row) => row.id).sort()).toEqual(['c2', 'c3']);
+  });
+
+  it('uses the explicit customer code when a mentioned phone corroborates the same customer', async () => {
+    const { resolveCustomerContext } = await import('@/lib/whatsappCustomerContextResolver');
+    const s = session(
+      [msg('m1', '2026-09-01T10:00:00', 'inbound', 'رقمي 01033333333')],
+      'اليماني حسين حسن 4250',
+    );
+    const result = await resolveCustomerContext(s, 'فرع شكري', {
+      customerNameHint: 'اليماني حسين حسن',
+      customerCodeHint: '4250',
+    });
+    expect(result.resolution.strategy).toBe('code_exact');
+    expect(result.resolution.customer?.id).toBe('c3');
   });
 });
