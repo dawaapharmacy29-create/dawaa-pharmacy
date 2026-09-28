@@ -147,6 +147,24 @@ describe('WhatsApp Operational Intelligence V6 product extraction', () => {
     expect(model.customerRequests.some((row) => /بون كير/i.test(row.productName || ''))).toBe(false);
   });
 
+  it('grounds a warehouse lookup follow-up in the pharmacy promise, not terminal acknowledgement', () => {
+    const raw = `[8/29/26, 2:03:35 PM] Customer: في حاجه اسمها مارجو
+[8/29/26, 2:03:57 PM] You: لحظة واحده هشوفه لحضرتك يا فندم
+[8/29/26, 4:04:51 PM] You: هو مش عندى فى الصيدلية وهشوفه لحضرتك فى المخازن
+[8/29/26, 4:42:54 PM] Customer: ماشي تمام`;
+    const sessions = splitWhatsAppSessions(parseWhatsAppExport(raw), 120);
+    const session = sessions[0];
+    const base = buildUnifiedConversationIntelligence(session);
+    const model = buildWhatsAppOperationalIntelligenceV6(session, base);
+    expect(model.operationalOutcome).toBe('needs_followup');
+    expect(model.followupPlan.required).toBe(true);
+    expect(model.followupPlan.reason).toMatch(/فحص التوفر/);
+    const promiseMessage = session.messages.find((row) => /المخازن/.test(row.text));
+    const terminalAck = session.messages.find((row) => /ماشي تمام/.test(row.text));
+    expect(model.followupPlan.evidenceMessageIds).toContain(promiseMessage?.id);
+    expect(model.followupPlan.evidenceMessageIds).not.toContain(terminalAck?.id);
+  });
+
   it('keeps a real unanswered customer message as evidence-backed follow-up', () => {
     const model = analyze(`[8/11/26, 1:24:48 PM] Customer: محتاج اعرف الصنف ده هيتوفر امتى
 [8/11/26, 1:25:10 PM] You: هشوف لحضرتك
