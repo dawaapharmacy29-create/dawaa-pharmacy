@@ -253,7 +253,6 @@ export async function archiveSupersededLegacyWhatsAppSourceV35(args: {
     { table: 'whatsapp_conversation_actions', column: 'source_id' },
     { table: 'whatsapp_evidence_facts_v17', column: 'source_id' },
     { table: 'whatsapp_response_turns_v18', column: 'source_id' },
-    { table: 'whatsapp_review_media_v21', column: 'source_id' },
     { table: 'whatsapp_sales_opportunities_v17', column: 'root_source_id' },
     { table: 'whatsapp_customer_story_events', column: 'source_id' },
   ];
@@ -263,7 +262,7 @@ export async function archiveSupersededLegacyWhatsAppSourceV35(args: {
       .from(target.table)
       .delete()
       .eq(target.column, source.id)
-      .select('id');
+      .select('*');
     if (derivedDeleteError) throw derivedDeleteError;
     deletedDerived[target.table] = (deletedRows || []).length;
   }
