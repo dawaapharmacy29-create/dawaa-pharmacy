@@ -137,6 +137,22 @@ describe('WhatsApp Operational Intelligence V6 product extraction', () => {
     expect(model.customerRequests.some((row) => /بون كير/i.test(row.productName || ''))).toBe(false);
   });
 
+  it('keeps a real unanswered customer message as evidence-backed follow-up', () => {
+    const model = analyze(`[8/11/26, 1:24:48 PM] Customer: محتاج اعرف الصنف ده هيتوفر امتى
+[8/11/26, 1:25:10 PM] You: هشوف لحضرتك
+[8/11/26, 1:40:00 PM] Customer: طيب عرفت ميعاده؟`);
+    expect(model.followupPlan.required).toBe(true);
+    expect(model.followupPlan.reason).toMatch(/لم يظهر بعدها رد/);
+    expect(model.followupPlan.evidenceMessageIds.length).toBeGreaterThan(0);
+  });
+
+  it('does not open follow-up from terminal thanks or acknowledgement alone', () => {
+    const model = analyze(`[8/11/26, 1:24:48 PM] Customer: محتاج اعرف السعر
+[8/11/26, 1:25:10 PM] You: 100 جنيه يا فندم
+[8/11/26, 1:25:20 PM] Customer: تمام شكرا`);
+    expect(model.followupPlan.required).toBe(false);
+  });
+
   it('keeps stockout alternatives as an evidence-backed recovery follow-up', () => {
     const model = analyze(`[8/11/26, 1:36:06 PM] Customer: <image omitted>
 [8/11/26, 1:37:00 PM] You: لحظة واحده هشوفه لحضرتك يا فندم
