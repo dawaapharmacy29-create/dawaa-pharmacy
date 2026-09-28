@@ -459,6 +459,7 @@ export default function WhatsAppSmartFolderWatcher() {
             staffEffort: outboundBurstMetrics,
             invoiceVerification,
             invoiceItems,
+            requestedProducts: operational.products,
             branchHint,
             customer: customerContext.resolution,
             purchaseHistory: customerContext.purchaseHistory,
@@ -1059,6 +1060,75 @@ export default function WhatsAppSmartFolderWatcher() {
         : 'غير منطبق/غير محسوم',
       closing: closing?.score != null && closing.score >= 80 ? 'موجود' : closing?.score != null ? 'جزئي' : 'غير محسوم',
     };
+  }
+
+  function normalizeProductForCompare(value: string | null | undefined) {
+    return String(value || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[أإآ]/g, 'ا')
+      .replace(/ى/g, 'ي')
+      .replace(/ة/g, 'ه')
+      .replace(/[\u064B-\u065F]/g, '')
+      .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function productTruthRows(item: StaffRun) {
+    const smart = item.snapshot.smartIntelligence;
+    const invoiceItems = smart?.invoiceItems || [];
+    const requested = (smart?.requestedProducts || []).filter((row) =>
+      ['requested', 'accepted', 'unavailable', 'recommended'].includes(row.status)
+    );
+
+    const matchedRequestIndexes = new Set<number>();
+    const rows = invoiceItems.map((invoiceItem) => {
+      const invoiceKeys = [
+        invoiceItem.productName,
+        invoiceItem.productCode,
+      ].map(normalizeProductForCompare).filter(Boolean);
+      let matchIndex = -1;
+      for (let index = 0; index < requested.length; index += 1) {
+        const request = requested[index];
+        const requestKeys = [
+          request.canonicalName,
+          request.rawName,
+          request.productCode,
+        ].map(normalizeProductForCompare).filter(Boolean);
+        const exactIdMatch = Boolean(invoiceItem.productId && request.productId && invoiceItem.productId === request.productId);
+        const exactCodeMatch = Boolean(invoiceItem.productCode && request.productCode && normalizeProductForCompare(invoiceItem.productCode) === normalizeProductForCompare(request.productCode));
+        const textMatch = invoiceKeys.some((left) => requestKeys.some((right) =>
+          left === right || (left.length >= 4 && right.length >= 4 && (left.includes(right) || right.includes(left)))
+        ));
+        if (exactIdMatch || exactCodeMatch || textMatch) {
+          matchIndex = index;
+          break;
+        }
+      }
+      if (matchIndex >= 0) matchedRequestIndexes.add(matchIndex);
+      return {
+        kind: matchIndex >= 0 ? 'requested_and_sold' as const : 'invoice_only' as const,
+        productName: invoiceItem.productName,
+        invoiceQuantity: invoiceItem.effectiveQuantity ?? invoiceItem.quantity,
+        requestedQuantity: matchIndex >= 0 ? requested[matchIndex].quantity : null,
+        lineTotal: invoiceItem.lineTotal,
+      };
+    });
+
+    requested.forEach((request, index) => {
+      if (matchedRequestIndexes.has(index)) return;
+      if (!['requested', 'accepted', 'unavailable'].includes(request.status)) return;
+      rows.push({
+        kind: 'requested_not_in_invoice' as const,
+        productName: request.canonicalName || request.rawName,
+        invoiceQuantity: null,
+        requestedQuantity: request.quantity,
+        lineTotal: null,
+      });
+    });
+
+    return rows;
   }
 
   return (
