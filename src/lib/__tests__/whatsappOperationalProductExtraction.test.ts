@@ -137,6 +137,26 @@ describe('WhatsApp Operational Intelligence V6 product extraction', () => {
     expect(model.customerRequests.some((row) => /بون كير/i.test(row.productName || ''))).toBe(false);
   });
 
+  it('closes an accepted order when delivery dispatch is explicitly underway', () => {
+    const model = analyze(`[9/15/26, 9:30:55 PM] Customer: [Forwarded] Isis teenderm gel for sensitive skin بديل الغسول
+[9/15/26, 9:31:16 PM] Customer: موجود عندكم الغسول ده
+[9/15/26, 9:32:09 PM] You: موجود باذن الله يافندم
+[9/15/26, 9:35:06 PM] You: تحب نبعته لحضرتك باذن الله ؟
+[9/15/26, 9:42:30 PM] Customer: اه ابعته
+[9/15/26, 9:42:57 PM] You: من عنيا لحضرتك مسافة الطريق ويكون عند حضرتك
+[9/15/26, 10:28:58 PM] You: اه يا فندم المندوب في الطريق لحضرتك`);
+    expect(model.operationalOutcome).toBe('probable_sale');
+    expect(model.followupPlan.required).toBe(false);
+    expect(model.evidence.saleClose.messageIds.length).toBeGreaterThan(0);
+  });
+
+  it('does not treat generic delivery talk as a close without a prior customer commitment', () => {
+    const model = analyze(`[9/15/26, 9:30:55 PM] Customer: التوصيل بياخد وقت قد ايه
+[9/15/26, 9:31:20 PM] You: المندوب بيكون في الطريق حسب المنطقة`);
+    expect(model.operationalOutcome).not.toBe('probable_sale');
+    expect(model.evidence.saleClose.messageIds).toHaveLength(0);
+  });
+
   it('resolves a generic product reference to one explicit prior forwarded product', () => {
     const model = analyze(`[9/15/26, 9:30:55 PM] Customer: [Forwarded] Isis teenderm gel for sensitive skin بديل الغسول
 [9/15/26, 9:31:16 PM] Customer: موجود عندكم الغسول ده
