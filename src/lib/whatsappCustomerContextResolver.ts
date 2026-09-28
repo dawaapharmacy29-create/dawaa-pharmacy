@@ -97,7 +97,70 @@ export async function resolveCustomerContext(
   const phoneCandidate = extractPhoneCandidate(session);
   const hintedIdentity = [hint?.customerNameHint, hint?.customerCodeHint].filter(Boolean).join(' ').trim();
   const fallbackIdentity = hintedIdentity || session.customerName;
-  const resolution = await resolveWhatsAppCustomerIdentity(phoneCandidate || fallbackIdentity, branchHint);
+
+  const identityResolution = await resolveWhatsAppCustomerIdentity(fallbackIdentity, branchHint);
+  const phoneResolution = phoneCandidate
+    ? await resolveWhatsAppCustomerIdentity(phoneCandidate, branchHint)
+    : null;
+
+  const uniqueCandidates = (rows: Array<NonNullable<WhatsAppResolvedCustomer['customer']>>) => {
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    return [...byId.values()];
+  };
+
+  let resolution = identityResolution;
+  const explicitCodeHint = Boolean(String(hint?.customerCodeHint || '').trim());
+  const identityCustomer = identityResolution.customer;
+  const phoneCustomer = phoneResolution?.customer || null;
+
+  if (explicitCodeHint && identityResolution.strategy === 'code_exact' && identityCustomer) {
+    if (phoneResolution?.strategy === 'phone_exact' && phoneCustomer && phoneCustomer.id !== identityCustomer.id) {
+      resolution = {
+        customer: null,
+        confidence: 0.5,
+        strategy: 'ambiguous',
+        reason: 'تعارض بين كود العميل الصريح ورقم هاتف مذكور داخل المحادثة؛ لا يتم اختيار عميل تلقائيًا.',
+        candidates: uniqueCandidates([identityCustomer, phoneCustomer]),
+      };
+    }
+    // Otherwise the explicit customer code remains the strongest identity evidence.
+  } else if (phoneResolution?.strategy === 'phone_exact' && phoneCustomer) {
+    if (identityResolution.strategy === 'ambiguous' && identityResolution.candidates.length) {
+      const candidateMatch = identityResolution.candidates.some((row) => row.id === phoneCustomer.id);
+      if (candidateMatch) {
+        resolution = {
+          ...phoneResolution,
+          confidence: Math.max(phoneResolution.confidence, 0.99),
+          reason: 'رقم الهاتف حسم هوية كانت غامضة بين نفس مرشحي الاسم/الكود.',
+        };
+      } else if (explicitCodeHint) {
+        resolution = {
+          customer: null,
+          confidence: 0.5,
+          strategy: 'ambiguous',
+          reason: 'رقم الهاتف لا يطابق أي مرشح للكود الصريح؛ يحتاج الربط لمراجعة بشرية.',
+          candidates: uniqueCandidates([...identityResolution.candidates, phoneCustomer]),
+        };
+      } else {
+        resolution = phoneResolution;
+      }
+    } else if (
+      identityCustomer &&
+      identityCustomer.id !== phoneCustomer.id &&
+      ['code_exact', 'name_exact_branch', 'name_exact'].includes(identityResolution.strategy)
+    ) {
+      resolution = {
+        customer: null,
+        confidence: 0.5,
+        strategy: 'ambiguous',
+        reason: 'تعارض بين هوية العميل من الاسم/الكود ورقم الهاتف المذكور؛ لا يتم التخمين.',
+        candidates: uniqueCandidates([identityCustomer, phoneCustomer]),
+      };
+    } else {
+      resolution = phoneResolution;
+    }
+  }
+
   const customerId = resolution.customer?.id || null;
   const [purchaseHistory, contactProfile] = customerId
     ? await Promise.all([
