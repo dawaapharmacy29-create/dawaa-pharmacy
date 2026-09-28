@@ -507,6 +507,9 @@ export default function WhatsAppSmartFolderWatcher() {
         return;
       }
 
+      let authSessionInvalid = false;
+      let authSessionWarningShown = false;
+
       const processCandidate = async (candidate: (typeof candidates)[number]): Promise<FileRun> => {
         try {
           const result = await analyzeFile(candidate.file);
@@ -537,9 +540,19 @@ export default function WhatsAppSmartFolderWatcher() {
                   });
                   const payload = await response.json().catch(() => null);
                   if (!response.ok) {
-                    canonicalErrors.push(
-                      `Canonical ${result.fileName} [${sourceOffset}]: ${payload?.error || response.status}${payload?.detail ? ` — ${payload.detail}` : ''}`
-                    );
+                    const errorCode = String(payload?.error || response.status);
+                    if (response.status === 401 && ['invalid_or_expired_staff_session', 'missing_user_token'].includes(errorCode)) {
+                      authSessionInvalid = true;
+                      canonicalErrors.push('انتهت جلسة الإدارة — أعد تسجيل الدخول ثم اضغط إعادة محاولة المتعطلة');
+                      if (!authSessionWarningShown) {
+                        authSessionWarningShown = true;
+                        toast.error('انتهت جلسة الإدارة. تم إيقاف فحص باقي الملفات حتى تسجل الدخول من جديد.');
+                      }
+                    } else {
+                      canonicalErrors.push(
+                        `Canonical ${result.fileName} [${sourceOffset}]: ${errorCode}${payload?.detail ? ` — ${payload.detail}` : ''}`
+                      );
+                    }
                     break;
                   }
                   hasMore = Boolean(payload?.hasMore);
@@ -606,6 +619,7 @@ export default function WhatsAppSmartFolderWatcher() {
           const refreshedNames = new Set(next.map((run) => run.fileName));
           return [...next, ...current.filter((run) => !refreshedNames.has(run.fileName))].slice(0, 30);
         });
+        if (authSessionInvalid) break;
         if (typeof window !== 'undefined' && index + FILE_CONCURRENCY < candidates.length) {
           await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
         }
