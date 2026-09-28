@@ -1311,12 +1311,17 @@ export default function WhatsAppSmartFolderWatcher() {
   }
 
   function caseLabel(item: StaffRun) {
-    const evaluation = item.snapshot.smartIntelligence?.evaluationV2;
+    const smart = item.snapshot.smartIntelligence;
+    const evaluation = smart?.evaluationV2;
+    const grounded = smart?.groundedSaleJourneyV33;
     if (evaluation?.serviceRecovery.detected) {
       return evaluation.serviceRecovery.issueType === 'order_delay'
         ? 'اعتذار/متابعة تأخير أوردر'
         : 'استعادة خدمة';
     }
+    if (grounded?.complaintMessageIds?.length) return 'شكوى/استعادة خدمة';
+    if (evaluation?.followups?.length && grounded?.outcome === 'open_opportunity') return 'فرصة متابعة مفتوحة';
+    if (grounded?.commercial) return grounded.outcomeLabel || 'رحلة بيع';
     return intentLabel(item.intelligence?.primaryIntent);
   }
 
@@ -1421,8 +1426,22 @@ export default function WhatsAppSmartFolderWatcher() {
   }
 
   function nextDecisionLabel(item: StaffRun) {
-    if (item.intelligence?.followup.detected) {
-      return { label: 'متابعة العميل', detail: item.intelligence.followup.reason || 'يوجد سبب متابعة واضح في المحادثة.', cls: 'bg-cyan-500/10 text-cyan-200 border-cyan-800/40' };
+    const smart = item.snapshot.smartIntelligence;
+    const grounded = smart?.groundedSaleJourneyV33;
+    const canonicalFollowup = smart?.evaluationV2?.followups?.[0];
+    if (item.actions.followup || canonicalFollowup) {
+      return {
+        label: 'متابعة العميل',
+        detail: item.actions.followup?.reason || canonicalFollowup?.reason || canonicalFollowup?.label || 'يوجد سبب متابعة موثق في المحادثة.',
+        cls: 'bg-cyan-500/10 text-cyan-200 border-cyan-800/40'
+      };
+    }
+    if (grounded && !grounded.truthQuality.decisionReady) {
+      return {
+        label: 'مراجعة الأدلة',
+        detail: grounded.truthQuality.blockers[0] || grounded.warnings[0] || 'الحقيقة غير مكتملة بما يكفي للاعتماد السريع.',
+        cls: 'bg-rose-500/10 text-rose-200 border-rose-800/40'
+      };
     }
     if (item.decision === 'issue') {
       return { label: 'مراجعة ملاحظة', detail: item.reasons[0] || 'يوجد بند يحتاج قرارًا بشريًا قبل الاعتماد.', cls: 'bg-amber-500/10 text-amber-200 border-amber-800/40' };
@@ -1430,7 +1449,7 @@ export default function WhatsAppSmartFolderWatcher() {
     if (item.decision === 'detailed_review') {
       return { label: 'مراجعة بشرية', detail: item.reasons[0] || 'الأدلة غير كافية للاعتماد السريع.', cls: 'bg-rose-500/10 text-rose-200 border-rose-800/40' };
     }
-    return { label: 'جاهز للمراجعة النهائية', detail: 'لا توجد ملاحظة مؤثرة ظاهرة؛ راجع الأدلة ثم اعتمد عند الاطمئنان.', cls: 'bg-emerald-500/10 text-emerald-200 border-emerald-800/40' };
+    return { label: 'جاهز للمراجعة النهائية', detail: 'الحقيقة الأساسية مكتملة؛ راجع الأدلة ثم اعتمد عند الاطمئنان.', cls: 'bg-emerald-500/10 text-emerald-200 border-emerald-800/40' };
   }
 
   type ProductTruthRow = {
@@ -1832,7 +1851,7 @@ export default function WhatsAppSmartFolderWatcher() {
                                           : 'بدون فاتورة مؤكدة'}
                                       </div>
                                       <div className="mt-0.5 text-[10px] text-slate-500">
-                                        {item.intelligence?.followup.detected ? 'متابعة مطلوبة' : 'لا متابعة'} · {item.intelligence?.salesOpportunities.length || 0} فرصة
+                                        {item.actions.followup ? 'متابعة مطلوبة' : 'لا متابعة'} · {item.snapshot.smartIntelligence?.evaluationV2?.opportunities?.detected ?? item.intelligence?.salesOpportunities.length ?? 0} فرصة
                                       </div>
                                     </div>
                                     <div className="flex items-center gap-2 justify-self-end">
