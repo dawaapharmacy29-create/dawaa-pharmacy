@@ -399,10 +399,10 @@ export async function syncWhatsAppEvidenceLedgerV17(session: WhatsAppConversatio
   const opportunities: any[] = [];
   for (const product of opportunityCandidates) {
     const pkey = `product:${normalizeKey(product.productCode || product.productName)}`;
-    const opportunityEvidenceIds = Array.from(new Set(
+    const opportunityEvidenceIds: string[] = Array.from(new Set<string>(
       (Array.isArray(product?.events) ? product.events : [])
         .flatMap((event: any) => Array.isArray(event?.messageIds) ? event.messageIds : [])
-        .map(String)
+        .map((value: unknown) => String(value))
     ));
     const opportunityStaff = resolveEvidenceStaffV23(
       context.participantRoles || source.analysis_json?.participantRoles,
