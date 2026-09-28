@@ -489,6 +489,13 @@ async function persistOperationalJourneyIntelligence(
     .from('whatsapp_review_sources')
     .update({
       branch: conversationBranch,
+      analysis_version: operational.version,
+      analysis_status: operational.officialScoringEligible ? 'analyzed' : 'needs_review',
+      priority: operational.followupPlan.priority,
+      followup_required: operational.followupPlan.required,
+      suggested_followup_reason: operational.followupPlan.reason,
+      analysis_confidence: Math.max(operational.intentConfidence, operational.outcomeConfidence),
+      chat_suggested_sold: operational.operationalOutcome === 'probable_sale',
       analysis_json: nextAnalysis,
       updated_at: new Date().toISOString(),
     })
