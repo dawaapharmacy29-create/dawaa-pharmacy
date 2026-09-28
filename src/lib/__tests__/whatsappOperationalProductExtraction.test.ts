@@ -158,6 +158,19 @@ describe('WhatsApp Operational Intelligence V6 product extraction', () => {
     expect(names.some((name) => /فليكس لايكس/.test(name))).toBe(true);
   });
 
+  it('rejects long Arabic explanation and symptom prose as product identities', () => {
+    const model = analyze(`[9/27/26, 8:20:00 PM] You: هتخليك تخس وانت الحركة
+[9/27/26, 8:21:00 PM] Customer: هو في وجع في عيني ف
+[9/27/26, 8:22:00 PM] You: ده نوع فرنسي فعال
+[9/27/26, 8:23:00 PM] You: تقدر تمشي عليها
+[9/27/26, 8:24:00 PM] Customer: محتاج حقنه فيتامين د
+[9/27/26, 8:25:00 PM] Customer: عايزه فوار للحموضه`);
+    const names = model.products.map((row) => row.rawName);
+    expect(names.some((name) => /هتخليك تخس|وجع في عيني|نوع فرنسي فعال|تمشي عليها/.test(name))).toBe(false);
+    expect(names.some((name) => /حقنه فيتامين د/.test(name))).toBe(true);
+    expect(names.some((name) => /فوار للحموضه/.test(name))).toBe(true);
+  });
+
   it('keeps explicit customer demand above a higher-confidence pharmacy mention for the same catalog product', () => {
     const merged = mergeProductSignalsByTruthV34([
       {
