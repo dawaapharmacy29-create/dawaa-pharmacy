@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ArrowLeft, CheckCircle2, ChevronDown, ChevronUp, FileText, FolderOpen, Image as ImageIcon, Loader2, Mic, RefreshCw, Search, Sparkles, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { getStaffSessionToken, useAuth } from '@/hooks/useAuth';
+import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import {
   connectLocalWhatsAppFolder,
@@ -34,7 +35,7 @@ import {
   syncWhatsAppOperationalActionsV6,
 } from '@/lib/whatsappOperationalIntelligenceV6';
 import { enrichWhatsAppOperationalJourneysV7 } from '@/lib/whatsappProductJourneyV7';
-import { buildSmartIntelligenceSnapshotV1 } from '@/lib/whatsappSmartIntelligenceSnapshot';
+import { buildSmartIntelligenceSnapshotV1, type SmartInvoiceItemEvidenceV32 } from '@/lib/whatsappSmartIntelligenceSnapshot';
 import { resolveConversationBranchHint, type BranchHintResult } from '@/lib/whatsappConversationBranchHint';
 import { resolveStaffIdentity, type ResolvedStaffIdentity } from '@/lib/whatsappStaffIdentityResolver';
 import { buildSmartOfficialReviewDraftV1 } from '@/lib/whatsappSmartOfficialReviewDraft';
@@ -103,6 +104,34 @@ type FileRun = {
 };
 
 const INTERVAL_MS = 60_000;
+
+async function readInvoiceItemsForWhatsAppSnapshot(invoiceId: string | null | undefined): Promise<SmartInvoiceItemEvidenceV32[]> {
+  if (!invoiceId) return [];
+  const { data, error } = await supabase
+    .from('sales_invoice_items_v21')
+    .select('id,product_id,product_code,product_name,quantity,unit_price,line_total,raw_data,line_no')
+    .eq('invoice_id', invoiceId)
+    .order('line_no', { ascending: true })
+    .limit(250);
+
+  if (error) {
+    console.warn('[whatsapp-watcher] invoice items lookup failed', { invoiceId, error: error.message });
+    return [];
+  }
+
+  return (data || []).map((row: any) => ({
+    id: String(row.id || '').trim() || null,
+    productId: String(row.product_id || '').trim() || null,
+    productCode: String(row.product_code || '').trim() || null,
+    productName: String(row.product_name || '').trim() || 'صنف غير مسمى',
+    quantity: row.quantity == null ? null : Number(row.quantity),
+    effectiveQuantity: row.raw_data?.__dawaa_commercial?.effective_quantity == null
+      ? (row.quantity == null ? null : Number(row.quantity))
+      : Number(row.raw_data.__dawaa_commercial.effective_quantity),
+    unitPrice: row.unit_price == null ? null : Number(row.unit_price),
+    lineTotal: row.line_total == null ? null : Number(row.line_total),
+  }));
+}
 
 function cairoDayKey(value: string | Date | null | undefined) {
   if (!value) return null;
@@ -352,6 +381,7 @@ export default function WhatsAppSmartFolderWatcher() {
         customerName: resolvedCustomer?.name || session.customerName,
         branch: resolvedCustomer?.branch || branchHint.value,
       });
+      const invoiceItems = await readInvoiceItemsForWhatsAppSnapshot(invoiceVerification.bestCandidate?.invoiceId);
 
       const caseTimingV28 = buildConversationTimingV28(session, roles, invoiceVerification);
       const delayAttributionV29 = buildDelayAttributionV29(session, caseTimingV28, roles);
@@ -428,6 +458,7 @@ export default function WhatsAppSmartFolderWatcher() {
             journey: result.journeyCrossCheck,
             staffEffort: outboundBurstMetrics,
             invoiceVerification,
+            invoiceItems,
             branchHint,
             customer: customerContext.resolution,
             purchaseHistory: customerContext.purchaseHistory,
