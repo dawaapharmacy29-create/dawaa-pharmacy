@@ -177,6 +177,8 @@ const EXPLICIT_PRODUCT_FORM_MENTION_RX =
   /(?:^|[\s،,:-])(?:علبه|علبة|عبوه|عبوة|شريط|شرايط|كريم|جل|شراب|بخاخ|بخاخه|بخاخة|قطره|قطرة|كبسول|كبسوله|كبسولة|اقراص|أقراص|قرص|امبول|أمبول|امبولات|أمبولات)\s+([A-Za-z\u0600-\u06FF][A-Za-z0-9\u0600-\u06FF.+-]*(?:\s+[A-Za-z\u0600-\u06FF][A-Za-z0-9\u0600-\u06FF.+-]*){0,3})/iu;
 const GENERIC_REFERENCE_PRODUCT_RX =
   /^(?:ال)?(?:علبه|علبة|عبوه|عبوة|شريط|حاجات|الحاجات|حاجه|حاجة|منتج|صنف)\s+(?:ده|دا|دي|دول|هذه|هذا)$/iu;
+const GENERIC_PRODUCT_CATEGORY_LIST_RX =
+  /^(?:و?\s*)?(?:اقراص|أقراص|نقط|لبان|عسل|شوكولاته|شوكولاتة|شيكولاته|شيكولاتة|شكولاته|شكولاتة)(?:\s*(?:و|او|أو)\s*(?:اقراص|أقراص|نقط|لبان|عسل|شوكولاته|شوكولاتة|شيكولاته|شيكولاتة|شكولاته|شكولاتة)){1,6}$/iu;
 
 function evidenceFor(session: WhatsAppConversationSession, rx: RegExp, confidence: number): WhatsAppEvidence {
   const matches = session.messages.filter((m) => rx.test(m.text));
@@ -296,7 +298,7 @@ function cleanProductPhrase(raw: string) {
   if (/^(?:واحد|واحده|واحدة)\s+من\s+(?:ده|دا|دي)$/i.test(value)) return '';
   if (/^(?:اشوف|أشوف)\s+شكل|^يطلع\s+منه|^اعرف\s+مكان|^يجيلي\s+عند|^بعد\s+اذنك$|^استشاره\s+صغيره|^استشارة\s+صغيرة|^لحضرتك\s+الاسكرينه|^هم\s+تحويل|^بالظبط$|^عليه$|^شكله$|^يهم$|^يكون\s+فيه$/i.test(value)) return '';
   if (/^(?:نفس\s+)?(?:ده|دا|دي|العلبه\s+دي|العلبة\s+دي|العبوه\s+دي|العبوة\s+دي|الحاجات\s+دي|الحاجات\s+دول)$/i.test(value)) return '';
-  if (GENERIC_REFERENCE_PRODUCT_RX.test(value)) return '';
+  if (GENERIC_REFERENCE_PRODUCT_RX.test(value) || GENERIC_PRODUCT_CATEGORY_LIST_RX.test(value)) return '';
   if (
     GENERIC_NON_PRODUCT_RX.test(value) ||
     SERVICE_SENTENCE_RX.test(value) ||
@@ -381,7 +383,7 @@ function extractProducts(session: WhatsAppConversationSession): WhatsAppProductS
         explicitNamedRecommendation = true;
       } else if (
         /(?:حاجه|حاجة|حاحه|حاحة)\s+زيها/i.test(message.text) ||
-        /(?:شكولاته|شوكولاته|شيكولاته|شيكولاتة|شوكولاتة)[^\n]{0,40}(?:او|أو)[^\n]{0,40}عسل/i.test(message.text)
+        /(?:ال)?(?:شكولاته|شوكولاته|شيكولاته|شيكولاتة|شوكولاتة)[^\n]{0,40}(?:او|أو)[^\n]{0,40}(?:ال)?عسل/i.test(message.text)
       ) {
         rawName = '';
       }
