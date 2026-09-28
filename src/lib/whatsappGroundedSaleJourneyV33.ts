@@ -210,11 +210,11 @@ export function buildGroundedSaleJourneyV33(args: {
     .filter((message) => operational.products.some((row) => row.evidenceMessageIds?.includes(message.id)))
     .sort((a,b) => a.timestamp.getTime() - b.timestamp.getTime());
 
-  const availabilityRows = matching(session, AVAILABILITY_RX, 'outbound');
-  const recommendationRows = session.messages
+  let availabilityRows = matching(session, AVAILABILITY_RX, 'outbound');
+  let recommendationRows = session.messages
     .filter((message) => operational.recommendations.some((row) => row.evidenceMessageIds?.includes(message.id)))
     .sort((a,b) => a.timestamp.getTime() - b.timestamp.getTime());
-  const acceptanceRows = matching(session, ACCEPT_RX, 'inbound');
+  let acceptanceRows = matching(session, ACCEPT_RX, 'inbound');
   const confirmationRows = uniq([
     ...evaluation.orderCompleteness.items
       .filter((row) => row.key === 'explicit_confirmation' && row.status === 'confirmed')
@@ -222,16 +222,28 @@ export function buildGroundedSaleJourneyV33(args: {
     ...matching(session, CONFIRM_RX, 'outbound').map((row) => row.id),
   ]).map((id) => byId.get(id)).filter((row): row is WhatsAppParsedMessage => Boolean(row))
     .sort((a,b) => a.timestamp.getTime() - b.timestamp.getTime());
-  const deliveryRows = matching(session, DELIVERY_RX);
-  const complaintRows = matching(session, COMPLAINT_RX, 'inbound')
+  let deliveryRows = matching(session, DELIVERY_RX);
+  let complaintRows = matching(session, COMPLAINT_RX, 'inbound')
     .filter((message) => !NEGATED_COMPLAINT_RX.test(String(message.text || '')));
-  const recoveryRows = matching(session, RECOVERY_RX, 'outbound');
-  const closingRows = matching(session, CLOSING_RX, 'outbound');
+  let recoveryRows = matching(session, RECOVERY_RX, 'outbound');
+  let closingRows = matching(session, CLOSING_RX, 'outbound');
 
   const timingRequest = timing.orderTimeline.requestAt
     ? session.messages.find((message) => message.timestamp.toISOString() === timing.orderTimeline.requestAt) || null
     : null;
   const startMessage = requestRows[0] || productRows.find((row) => row.direction === 'inbound') || timingRequest || null;
+
+  if (startMessage) {
+    const startsAt = startMessage.timestamp.getTime();
+    const afterStart = (row: WhatsAppParsedMessage) => row.timestamp.getTime() >= startsAt;
+    availabilityRows = availabilityRows.filter(afterStart);
+    recommendationRows = recommendationRows.filter(afterStart);
+    acceptanceRows = acceptanceRows.filter(afterStart);
+    deliveryRows = deliveryRows.filter(afterStart);
+    complaintRows = complaintRows.filter(afterStart);
+    recoveryRows = recoveryRows.filter(afterStart);
+    closingRows = closingRows.filter(afterStart);
+  }
 
   const saleRelevantIds = uniq([
     ...requestIds,
@@ -241,7 +253,6 @@ export function buildGroundedSaleJourneyV33(args: {
     ...acceptanceRows.map((row) => row.id),
     ...confirmationRows.map((row) => row.id),
     ...deliveryRows.map((row) => row.id),
-    ...closingRows.map((row) => row.id),
   ]);
   const lastSaleMessage = lastByIds(session, saleRelevantIds);
 
@@ -255,7 +266,17 @@ export function buildGroundedSaleJourneyV33(args: {
   const invoiceAt = invoiceVerification.status === 'verified' && invoiceVerification.bestCandidate?.invoiceDate
     ? new Date(invoiceVerification.bestCandidate.invoiceDate)
     : null;
-  const saleEndMessage = confirmationRows[confirmationRows.length - 1] || lastSaleMessage;
+  const lastMessageBeforeInvoice = invoiceAt && Number.isFinite(invoiceAt.getTime())
+    ? session.messages
+        .filter((message) => message.direction !== 'system' && message.timestamp.getTime() <= invoiceAt.getTime())
+        .sort((a,b) => a.timestamp.getTime() - b.timestamp.getTime())
+        .at(-1) || null
+    : null;
+  const saleEndMessage = confirmationRows[confirmationRows.length - 1]
+    || lastMessageBeforeInvoice
+    || deliveryRows[deliveryRows.length - 1]
+    || acceptanceRows[acceptanceRows.length - 1]
+    || lastSaleMessage;
   const saleEndedAt = invoiceAt && Number.isFinite(invoiceAt.getTime())
     ? invoiceAt.toISOString()
     : saleEndMessage?.timestamp.toISOString() || null;
