@@ -68,6 +68,20 @@ function dateLabel(value: string | null) {
   return d.toLocaleString('ar-EG', { dateStyle: 'medium', timeStyle: 'short' });
 }
 
+function normalizeDoctorName(value: unknown) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^(?:د\s*[\/.-]?\s*|دكتور(?:ه|ة)?\s+)/i, '')
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ى/g, 'ي')
+    .replace(/ة/g, 'ه')
+    .replace(/[\u064B-\u065F]/g, '')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function Metric({ label, value }: { label: string; value: string | number }) {
   return <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3 text-center"><div className="text-[11px] text-slate-500">{label}</div><div className="mt-1 text-lg font-black text-white">{value}</div></div>;
 }
@@ -186,11 +200,11 @@ export default function WhatsAppDoctorCycleIntelligenceV8({ onOpenSource }: { on
   }), [filtered]);
 
   const doctorInsights = useMemo(() => {
-    const selectedName = String(selected?.owner_name || '').trim().toLowerCase();
+    const selectedName = normalizeDoctorName(selected?.owner_name);
     const enriched = conversations.map((item) => {
       const journey = item.analysis_json?.groundedSaleJourneyV33 || null;
       const staffCoaching = Array.isArray(journey?.staffCoaching)
-        ? journey.staffCoaching.find((coach: any) => String(coach?.staffName || '').trim().toLowerCase() === selectedName) || null
+        ? journey.staffCoaching.find((coach: any) => normalizeDoctorName(coach?.staffName) === selectedName) || null
         : null;
       const scoreRaw = staffCoaching?.score;
       const score = Number(scoreRaw);
@@ -246,13 +260,13 @@ export default function WhatsAppDoctorCycleIntelligenceV8({ onOpenSource }: { on
 
   const detailStats = useMemo(() => ({
     customers: new Set(conversations.map((x) => x.customer_code || x.customer_name).filter(Boolean)).size,
-    verifiedSales: doctorInsights.verifiedSales,
-    verifiedRevenue: doctorInsights.verifiedRevenue,
-    conversionRate: doctorInsights.conversionRate,
+    verifiedSales: Number(selected?.verified_sales || 0),
+    verifiedRevenue: Number(selected?.verified_revenue || 0),
+    conversionRate: selected?.verified_conversion_rate == null ? null : Number(selected.verified_conversion_rate),
     complaintCases: doctorInsights.complaintCases,
     complaintHandled: doctorInsights.complaintHandled,
     delays: doctorInsights.delays,
-  }), [conversations, doctorInsights]);
+  }), [conversations, doctorInsights, selected]);
 
   return <section className="dawaa-card dawaa-card--raised p-5" dir="rtl">
     <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
