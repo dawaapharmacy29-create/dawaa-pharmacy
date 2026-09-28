@@ -127,6 +127,20 @@ export default function WhatsAppReviewQueueV4() {
     [selected?.id, selected?.raw_text, selected?.conversation_started_at]
   );
   const focusedEvidenceSet = useMemo(() => new Set(focusedEvidenceIds), [focusedEvidenceIds]);
+  const focusedEvidenceFingerprints = useMemo(() => {
+    const fingerprints = new Set<string>();
+    for (const id of focusedEvidenceIds) {
+      const match = String(id || '').match(/^(\d+)-\d+-(.+)$/);
+      if (!match) continue;
+      fingerprints.add(`${match[1]}|${match[2]}`);
+    }
+    return fingerprints;
+  }, [focusedEvidenceIds]);
+
+  const isFocusedEvidenceMessage = (message: { id: string; timestamp: Date; sender: string }) => {
+    if (focusedEvidenceSet.has(message.id)) return true;
+    return focusedEvidenceFingerprints.has(`${message.timestamp.getTime()}|${message.sender}`);
+  };
 
   const openDoctorEvidence = (sourceId: string, evidenceMessageIds: string[] = []) => {
     setStatus('all');
@@ -255,7 +269,7 @@ export default function WhatsAppReviewQueueV4() {
               {transcriptMessages.length ? (
                 <div className="mt-3 max-h-[560px] space-y-2 overflow-y-auto rounded-xl border border-slate-800 bg-slate-950/45 p-3">
                   {transcriptMessages.map((message) => {
-                    const focused = focusedEvidenceSet.has(message.id);
+                    const focused = isFocusedEvidenceMessage(message);
                     return (
                       <div
                         key={message.id}
