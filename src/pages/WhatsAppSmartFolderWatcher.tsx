@@ -2001,10 +2001,18 @@ export default function WhatsAppSmartFolderWatcher() {
                             <div className="text-[10px] font-black text-slate-500">الأصناف</div>
                             <div className="mt-1 text-xs leading-5 text-slate-300">
                               {productRows.length
-                                ? `${productRows.length} صف مرتبط · ${soldRequestedCount} طلبه واتبع · ${invoiceOnlyCount} بالفاتورة فقط · ${missingFromInvoiceCount} طلبه ولم يظهر بالفاتورة`
+                                ? [
+                                    `${productRows.filter((row) => row.kind !== 'invoice_service').length} صنف مجمع`,
+                                    soldRequestedCount ? `${soldRequestedCount} طلبه العميل وظهر بالفاتورة` : null,
+                                    recommendedInInvoiceCount ? `${recommendedInInvoiceCount} ترشيح وظهر بالفاتورة` : null,
+                                    pharmacyMentionedInInvoiceCount ? `${pharmacyMentionedInInvoiceCount} ذكرته الصيدلية وظهر بالفاتورة` : null,
+                                    invoiceOnlyCount ? `${invoiceOnlyCount} بالفاتورة فقط` : null,
+                                    missingFromInvoiceCount ? `${missingFromInvoiceCount} طلبه العميل ولم يظهر بالفاتورة` : null,
+                                    serviceLineCount ? `${serviceLineCount} خدمة/رسوم` : null,
+                                  ].filter(Boolean).join(' · ')
                                 : invoice?.status === 'verified'
-                                  ? 'الفاتورة مؤكدة لكن تفاصيل الأصناف غير متاحة لهذه الفاتورة حتى الآن.'
-                                  : 'لا توجد فاتورة مؤكدة تكفي لحسم الأصناف المباعة.'}
+                                  ? 'توجد مطابقة فاتورة قوية لكن تفاصيل الأصناف لم تُحمّل لهذه الحالة بعد.'
+                                  : 'لا توجد فاتورة مرشحة قوية تسمح بمقارنة الأصناف حتى الآن.'}
                             </div>
                           </div>
                           <div className="rounded-xl bg-black/10 p-3">
@@ -2021,7 +2029,7 @@ export default function WhatsAppSmartFolderWatcher() {
                               <div className="text-xs font-black text-white">مطابقة طلب العميل مع أصناف الفاتورة</div>
                               <div className="text-[10px] text-slate-500">
                                 {invoice?.status === 'verified'
-                                  ? 'الفاتورة المؤكدة هي مصدر حقيقة البيع؛ نص المحادثة يفسّر ما طلبه العميل.'
+                                  ? 'هذه مطابقة فاتورة آلية قوية وليست Sale Proof نهائيًا قبل اعتماد الربط؛ نص المحادثة يفسّر مصدر كل صنف.'
                                   : 'الفاتورة مرشحة وليست حقيقة نهائية بعد؛ المقارنة للمعاينة وتحتاج مراجعة.'}
                               </div>
                             </div>
