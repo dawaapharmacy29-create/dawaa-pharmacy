@@ -142,7 +142,7 @@ async function loadOfficialConversationTemplates() {
         .map((row: any) => String(row.message_body || '').trim()),
     ].filter((value): value is string => Boolean(value));
 
-    const closing = (quickReplyResult.data || [])
+    const closing: string[] = ((quickReplyResult.data || []) as any[])
       .filter((row: any) => {
         const meta = [row.script_type, row.title, row.category, row.shortcut].filter(Boolean).join(' ');
         const full = [meta, row.message_body].filter(Boolean).join(' ');
@@ -153,8 +153,8 @@ async function loadOfficialConversationTemplates() {
       .filter((value): value is string => Boolean(value));
 
     return {
-      welcome: Array.from(new Set(welcome)),
-      closing: Array.from(new Set(closing)),
+      welcome: Array.from(new Set<string>(welcome)),
+      closing: Array.from(new Set<string>(closing)),
     };
   })().catch((error) => {
     console.warn('[whatsapp-watcher] official templates lookup failed', error);
