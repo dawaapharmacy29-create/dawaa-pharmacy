@@ -145,6 +145,41 @@ async function reconcileCanonicalCaseSaleProof(
   if (caseLookupError) throw caseLookupError;
   if (!cases?.length) return { reconciledCases: 0, provenCanonicalCases: proven.length };
 
+  // Source واحدة مرتبطة بأكثر من V22 Case = التوزيع نفسه غير محسوم.
+  // ممنوع نسخ نفس Sale Proof لكل الـCases لأن ده يضاعف Conversion/Revenue.
+  if (cases.length !== 1) {
+    for (const row of cases) {
+      if (row.confirmed_outcome === 'verified_sale') continue;
+      const currentJson =
+        row.case_json && typeof row.case_json === 'object' && !Array.isArray(row.case_json)
+          ? row.case_json
+          : {};
+      const { error } = await service
+        .from('whatsapp_customer_cases_v22')
+        .update({
+          verified_revenue: null,
+          verified_invoice_id: null,
+          verified_invoice_number: null,
+          verified_sale_at: null,
+          needs_human_review: true,
+          case_json: {
+            ...currentJson,
+            canonicalSaleProof: {
+              state: 'multiple_v22_cases_same_source',
+              source_id: sourceId,
+              v22_case_count: cases.length,
+              canonical_case_ids: proven.map((item) => item.caseId),
+              checked_at: new Date().toISOString(),
+            },
+          },
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', row.id);
+      if (error) throw error;
+    }
+    return { reconciledCases: cases.length, provenCanonicalCases: proven.length };
+  }
+
   // لا نستخدم strongly_supported/strongly_inferred كبيع.
   // sale_proven وحده ناتج من trusted/direct invoice evidence داخل Canonical Engine.
   if (!proven.length) {
