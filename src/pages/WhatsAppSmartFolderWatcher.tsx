@@ -443,6 +443,9 @@ export default function WhatsAppSmartFolderWatcher() {
         customerCode: resolvedCustomer?.code || null,
         customerPhone: resolvedCustomer?.phone ||
             customerContext.contactProfile?.phone ||
+            customerContext.contactProfile?.customerPhone ||
+            customerContext.contactProfile?.mobile ||
+            customerContext.contactProfile?.normalizedPhone ||
             customerContext.contactProfile?.whatsappPhone ||
             customerContext.contactProfile?.alternatePhone ||
             customerContext.phoneCandidate ||
@@ -503,6 +506,9 @@ export default function WhatsAppSmartFolderWatcher() {
             customerKnown: Boolean(resolvedCustomer?.id),
             phoneKnown: Boolean(
               customerContext.contactProfile?.phone ||
+              customerContext.contactProfile?.customerPhone ||
+              customerContext.contactProfile?.mobile ||
+              customerContext.contactProfile?.normalizedPhone ||
               customerContext.contactProfile?.whatsappPhone ||
               customerContext.contactProfile?.alternatePhone ||
               resolvedCustomer?.phone ||
@@ -655,6 +661,9 @@ export default function WhatsAppSmartFolderWatcher() {
           customerName: resolvedCustomer?.name || fileCustomerHint.nameHint || session.customerName || null,
           customerPhone: resolvedCustomer?.phone ||
             customerContext.contactProfile?.phone ||
+            customerContext.contactProfile?.customerPhone ||
+            customerContext.contactProfile?.mobile ||
+            customerContext.contactProfile?.normalizedPhone ||
             customerContext.contactProfile?.whatsappPhone ||
             customerContext.contactProfile?.alternatePhone ||
             customerContext.phoneCandidate ||
@@ -674,6 +683,9 @@ export default function WhatsAppSmartFolderWatcher() {
             customerName: resolvedCustomer?.name || fileCustomerHint.nameHint || session.customerName || null,
             customerPhone: resolvedCustomer?.phone ||
             customerContext.contactProfile?.phone ||
+            customerContext.contactProfile?.customerPhone ||
+            customerContext.contactProfile?.mobile ||
+            customerContext.contactProfile?.normalizedPhone ||
             customerContext.contactProfile?.whatsappPhone ||
             customerContext.contactProfile?.alternatePhone ||
             customerContext.phoneCandidate ||
