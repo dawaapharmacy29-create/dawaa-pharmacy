@@ -239,4 +239,4 @@ revoke all on function public.dawaa_archive_superseded_whatsapp_source_v35(
 
 grant execute on function public.dawaa_archive_superseded_whatsapp_source_v35(
   text,timestamptz,timestamptz,integer,uuid[]
-) to authenticated;
+) to anon, authenticated;
