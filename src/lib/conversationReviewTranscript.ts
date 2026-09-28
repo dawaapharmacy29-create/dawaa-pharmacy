@@ -79,6 +79,12 @@ export interface ConversationReviewSnapshot {
    * conversation_snapshot في Reviews.tsx). Optional عشان أي snapshot قديم يفضل صالح.
    */
   smartIntelligence?: SmartIntelligenceSnapshotV1;
+  /**
+   * Canonical sale-proof state resolved after Sales Intelligence refresh.
+   * Only "proven" may prefill an official review as converted-to-sale.
+   * Statistical invoice verification remains review context only.
+   */
+  canonicalSaleProofState?: string | null;
   conversationFocusV30?: ConversationFocusV30;
   /**
    * حقول تدقيق (Audit) لقرار الاعتماد البشري على SmartOfficialReviewDraftV1 — تتسجل في
