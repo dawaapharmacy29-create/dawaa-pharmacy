@@ -39,7 +39,7 @@
 // treat the number alone as a safe identity key.
 import type { ConfidenceAssessment } from './types';
 
-export type TrustedInvoiceEvidenceType = 'none';
+export type TrustedInvoiceEvidenceType = 'none' | 'manual_invoice_link_confirmation';
 
 export interface ReviewSourceInvoiceEvidenceInput {
   /** whatsapp_review_sources.id — kept only for evidence traceability. */
@@ -59,6 +59,12 @@ export interface ReviewSourceInvoiceEvidenceInput {
   reviewerId: string | null;
   /** whatsapp_review_sources.branch — carried through for display/logging only, never an identity key. */
   branch: string | null;
+  /** Dedicated invoice-link confirmation fields. These confirm the exact invoice, not the overall review. */
+  invoiceLinkConfirmed?: boolean | null;
+  confirmedInvoiceId?: string | null;
+  confirmedInvoiceNumber?: string | null;
+  confirmedBy?: string | null;
+  confirmedAt?: string | null;
 }
 
 export interface TrustedInvoiceEvidenceResult {
@@ -86,12 +92,50 @@ export function resolveTrustedInvoiceEvidenceFromReviewSource(
   input: ReviewSourceInvoiceEvidenceInput
 ): TrustedInvoiceEvidenceResult {
   const reviewerConfirmed = input.reviewerConfirmed === true;
+  const invoiceLinkConfirmed = input.invoiceLinkConfirmed === true;
+  const confirmedInvoiceId = String(input.confirmedInvoiceId || '').trim();
+  const confirmedBy = String(input.confirmedBy || '').trim();
+  const confirmedAt = String(input.confirmedAt || '').trim();
+  const confirmedInvoiceNumber = String(input.confirmedInvoiceNumber || '').trim() || null;
+  const matchedInvoiceId = String(input.matchedInvoiceId || '').trim();
+
+  if (
+    invoiceLinkConfirmed &&
+    confirmedInvoiceId &&
+    confirmedBy &&
+    confirmedAt &&
+    (!matchedInvoiceId || matchedInvoiceId === confirmedInvoiceId)
+  ) {
+    const ruleIds = [
+      'trusted_invoice.eligible.manual_invoice_link_confirmation',
+      'trusted_invoice.rule.exact_invoice_id_confirmed',
+      'trusted_invoice.rule.confirmed_by_present',
+      'trusted_invoice.rule.confirmed_at_present',
+    ];
+    return {
+      trustedInvoiceId: confirmedInvoiceId,
+      trustedInvoiceNumber: confirmedInvoiceNumber,
+      trustedInvoiceBranch: input.branch || null,
+      source: 'whatsapp_review_sources',
+      evidenceType: 'manual_invoice_link_confirmation',
+      reviewerConfirmed,
+      ruleIds,
+      confidence: { level: 'proven', score: 1, ruleIds, evidence: [] },
+    };
+  }
 
   const ruleIds = [
     'trusted_invoice.ineligible.no_invoice_specific_confirmation_source',
   ];
 
   if (!input.matchedInvoiceId) ruleIds.push('trusted_invoice.ineligible.no_matched_invoice');
+  if (!invoiceLinkConfirmed) ruleIds.push('trusted_invoice.ineligible.invoice_link_not_confirmed');
+  if (invoiceLinkConfirmed && !confirmedInvoiceId) ruleIds.push('trusted_invoice.ineligible.confirmed_invoice_id_missing');
+  if (invoiceLinkConfirmed && !confirmedBy) ruleIds.push('trusted_invoice.ineligible.confirmed_by_missing');
+  if (invoiceLinkConfirmed && !confirmedAt) ruleIds.push('trusted_invoice.ineligible.confirmed_at_missing');
+  if (invoiceLinkConfirmed && confirmedInvoiceId && matchedInvoiceId && confirmedInvoiceId !== matchedInvoiceId) {
+    ruleIds.push('trusted_invoice.ineligible.confirmed_invoice_differs_from_current_match');
+  }
   if (input.invoiceMatchStatus !== 'verified') ruleIds.push('trusted_invoice.ineligible.match_status_not_verified');
   if (!reviewerConfirmed) {
     ruleIds.push('trusted_invoice.ineligible.reviewer_not_confirmed');
