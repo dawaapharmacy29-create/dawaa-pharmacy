@@ -381,7 +381,11 @@ export default function WhatsAppSmartFolderWatcher() {
         customerName: resolvedCustomer?.name || session.customerName,
         branch: resolvedCustomer?.branch || branchHint.value,
       });
-      const invoiceItems = await readInvoiceItemsForWhatsAppSnapshot(invoiceVerification.bestCandidate?.invoiceId);
+      const invoiceItems = await readInvoiceItemsForWhatsAppSnapshot(
+        ['verified', 'probable'].includes(invoiceVerification.status)
+          ? invoiceVerification.bestCandidate?.invoiceId
+          : null
+      );
 
       const caseTimingV28 = buildConversationTimingV28(session, roles, invoiceVerification);
       const delayAttributionV29 = buildDelayAttributionV29(session, caseTimingV28, roles);
@@ -1472,7 +1476,11 @@ export default function WhatsAppSmartFolderWatcher() {
                           <div className="mt-3 overflow-hidden rounded-xl border border-slate-800 bg-black/10">
                             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 px-3 py-2">
                               <div className="text-xs font-black text-white">مطابقة طلب العميل مع أصناف الفاتورة</div>
-                              <div className="text-[10px] text-slate-500">الفاتورة هي مصدر حقيقة البيع؛ نص المحادثة يفسّر ما طلبه العميل.</div>
+                              <div className="text-[10px] text-slate-500">
+                                {invoice?.status === 'verified'
+                                  ? 'الفاتورة المؤكدة هي مصدر حقيقة البيع؛ نص المحادثة يفسّر ما طلبه العميل.'
+                                  : 'الفاتورة مرشحة وليست حقيقة نهائية بعد؛ المقارنة للمعاينة وتحتاج مراجعة.'}
+                              </div>
                             </div>
                             <div className="divide-y divide-slate-800">
                               {productRows.slice(0, 18).map((row, index) => {
