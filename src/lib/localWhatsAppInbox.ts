@@ -161,6 +161,15 @@ export function resetLocalWhatsAppProcessedLedger() {
   localStorage.removeItem(FAILED_KEY);
 }
 
+export function resetLocalWhatsAppProcessedKeys(keys: string[]) {
+  if (!keys.length) return;
+  const target = new Set(keys);
+  const processed = readStringLedger(LEDGER_KEY).filter((item) => !target.has(item));
+  localStorage.setItem(LEDGER_KEY, JSON.stringify(processed));
+  const failed = readFailedLedger().filter((item) => !target.has(item.key));
+  localStorage.setItem(FAILED_KEY, JSON.stringify(failed));
+}
+
 export function getLocalWhatsAppFailedItems(): FailedInboxItem[] {
   return readFailedLedger();
 }
@@ -189,7 +198,7 @@ export async function getUnprocessedWhatsAppExports(handle: any, limit = 10): Pr
     }
     candidates.push({ file, key, name: file.name, size: file.size, lastModified: file.lastModified });
   }
-  candidates.sort((a, b) => a.lastModified - b.lastModified || a.name.localeCompare(b.name));
+  candidates.sort((a, b) => b.lastModified - a.lastModified || a.name.localeCompare(b.name));
   return candidates.slice(0, Math.max(1, Math.min(25, limit)));
 }
 
