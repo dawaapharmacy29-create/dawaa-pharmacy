@@ -78,6 +78,25 @@ export async function persistAnalyzedWhatsAppSession(
     .maybeSingle();
   if (existingError && existingError.code !== 'PGRST116') throw existingError;
   if (existing?.id) {
+    const { error: refreshError } = await supabase
+      .from('whatsapp_review_sources')
+      .update({
+        analysis_version: intelligence.version,
+        analysis_status: intelligence.requiresHumanApproval ? 'needs_review' : 'analyzed',
+        priority: intelligence.priority,
+        analysis_confidence: intelligence.confidence,
+        service_score: intelligence.serviceScore,
+        commercial_score: intelligence.commercialScore,
+        commercial_eligible: intelligence.commercialEligible,
+        chat_suggested_sold: intelligence.chatSuggestedSold,
+        followup_required: intelligence.followupRequired,
+        suggested_followup_reason: intelligence.suggestedFollowupReason,
+        analysis_json: serializeIntelligence(intelligence),
+        raw_text: rawText,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', existing.id);
+    if (refreshError) throw refreshError;
     return { id: String(existing.id), duplicate: true, sourceHash, reviewStatus: (existing.review_status || reviewStatus) as ReviewQueueStatus };
   }
 
