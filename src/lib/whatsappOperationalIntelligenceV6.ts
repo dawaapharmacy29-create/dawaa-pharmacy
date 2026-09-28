@@ -151,10 +151,13 @@ const PAYMENT_SERVICE_RX = /(رقم\s+تحويل|تحويل\s+كاش|ابعت\s+
 const PRODUCT_SELECTION_PROMPT_RX = /(هتاخد\s+ايه|هتاخدي\s+ايه|تحب\s+ايه|تحبي\s+ايه|تختار\s+ايه|تختاري\s+ايه)/i;
 const ACCEPT_RX = /(^|\s)(تمام|ماشي|موافق|اوكي|أوكي|خلاص|ابعت|ابعته|ابعتي|هات|هاته|هاخده|هاخدها|هجربه|هجربها|تمام كده|تمام كدا)(\s|$)/i;
 const REJECT_RX = /(لا شكرا|مش عايز|مش عاوز|مش محتاج|غالي|مش مناسب|مش هاخد|مش هطلب|بلاش)/i;
-const COMPLAINT_RX = /(شكوي|شكوى|مشكله|مشكلة|متاخر|متأخر|محدش رد|غلط|سيء|وحش|ماوصلش|موصلش|لسه مجاش|اتضايقت|زعلت)/i;
+const COMPLAINT_RX = /(شكوي|شكوى|مشكله|مشكلة|متاخر|متأخر|محدش رد|غلط|سيء|وحش|ماوصلش|موصلش|لسه مجاش|اتضايقت|زعلت|الطريق[هة][^\n]{0,50}(?:سخيف|وحش|سيئ|غير\s*لائق)|اسلوب[^\n]{0,50}(?:سخيف|وحش|سيئ|غير\s*لائق)|قليل\s*الذوق|مش\s*ذوق|اتكلم[^\n]{0,40}وحش|بيتكلم[^\n]{0,70}(?:سخيف|وحش|سيئ))/i;
 const NEGATED_COMPLAINT_RX = /(مفيش\s+مشكله|مفيش\s+مشكلة|مافيش\s+مشكله|مافيش\s+مشكلة|لا\s+توجد\s+مشكله|لا\s+توجد\s+مشكلة|مش\s+مشكله|مش\s+مشكلة)/i;
 const FULFILLMENT_FAILURE_RX = /(التاخير\s+الكبير|التأخير\s+الكبير|المندوب[^\n]{0,80}(?:مجاش|ماجاش|مجالبيش|ماوصلش|موصلش)|كان\s+المفروض[^\n]{0,100}(?:لكن|بس)[^\n]{0,100}(?:مجاش|ماجاش|مجالبيش|ماوصلش|موصلش)|لو\s+حضرتك[^\n]{0,40}(?:تحبي|تحب)[^\n]{0,40}نبعت\s+(?:الاوردر|الأوردر)|نبعت\s+(?:الاوردر|الأوردر))/i;
 const RECOVERY_RX = /(بنعتذر|نعتذر|متاسف|متأسف|اسفين|آسفين|تم الحل|هنحل|هنراجع|هنعوض|تم التصحيح)/i;
+const COMPLAINT_RESOLUTION_ACK_RX =
+  /(حصل\s*خير|ولا\s*يهمك|خلاص\s*تمام|تمام\s*كده|تمام\s*كدا|الموضوع\s*اتحل|تم\s*الحل|شكرا[^\n]{0,30}(?:اتحل|تمام)|مفيش\s*مشكله\s*دلوقتي|مافيش\s*مشكلة\s*دلوقتي)/i;
+
 const DELIVERY_RX = /(توصيل|مندوب|العنوان|وصل|ماوصلش|موصلش|خرج لحضرتك|جاري الارسال|جاري الإرسال)/i;
 const MEDICAL_RX = /(اعراض|أعراض|جرعه|جرعة|كحه|كحة|حراره|حرارة|اسهال|إسهال|وجع|التهاب|حامل|رضاع|ضغط|سكر|حساسي|ينفع|استخدم|اخد|آخد|طفل|طفله|طفلة)|(?<![\p{L}\p{N}])(?:الم|ألم)(?![\p{L}\p{N}])/iu;
 const CHECKIN_OUT_RX = /(حابين نطمن|حابه اطمن|حابة اطمن|حابه أطمن|حابة أطمن|حبيت اطمن|حبيت أطمن|بنطمن|نطمن علي|نطمن على|اخبار حضرتك|أخبار حضرتك|بقيت|بقت|عامل ايه|عامله ايه|الدوا جاب نتيجه|العلاج جاب نتيجه)/i;
@@ -474,6 +477,7 @@ export function buildWhatsAppOperationalIntelligenceV6(session: WhatsAppConversa
   const fulfillmentFailures = fulfillmentFailureMessages(session);
   const fulfillmentFailure = fulfillmentFailures.length > 0;
   const recovered = has(outbound, RECOVERY_RX);
+  const customerAcknowledgedResolution = complaint && has(inbound, COMPLAINT_RESOLUTION_ACK_RX);
   const positiveCheckinFeedback = intents.primary === 'proactive_checkin' && has(inbound, POSITIVE_SERVICE_FEEDBACK_RX);
   const state: WhatsAppOperationalIntelligenceV6['customerState'] = positiveCheckinFeedback ? 'improved' : has(inbound, IMPROVED_RX) ? 'improved' : has(inbound, WORSE_RX) ? 'worse' : 'unknown';
 
@@ -492,7 +496,7 @@ export function buildWhatsAppOperationalIntelligenceV6(session: WhatsAppConversa
 
   let operationalOutcome: WhatsAppOperationalOutcome = 'unknown';
   if (fulfillmentFailure) operationalOutcome = 'unresolved_request';
-  else if (complaint) operationalOutcome = recovered ? 'complaint_resolved' : 'complaint_unresolved';
+  else if (complaint) operationalOutcome = recovered && customerAcknowledgedResolution ? 'complaint_resolved' : 'complaint_unresolved';
   else if (intents.primary === 'proactive_checkin' || intents.primary === 'followup_response') operationalOutcome = state === 'improved' ? 'checkin_complete' : state === 'worse' ? 'needs_followup' : 'unknown';
   else if (rejected) operationalOutcome = 'no_sale';
   else if (close && (intents.primary === 'customer_request' || base.commercialEligible || acceptedRecommendation)) operationalOutcome = 'probable_sale';
@@ -550,7 +554,7 @@ export function buildWhatsAppOperationalIntelligenceV6(session: WhatsAppConversa
   return {
     version: 'whatsapp-operational-v6', primaryIntent: intents.primary, secondaryIntents: intents.secondary, initiator,
     operationalOutcome, customerState: state, products, customerRequests: requests, recommendations: recs,
-    followupPlan: { required: followupRequired, reason: followupReason, ownerRole: followupRequired ? 'team_dawaa_alpha' : null, dueInDays, priority, evidenceMessageIds: uniq(followupEvidence) },
+    followupPlan: { required: followupRequired, reason: followupReason, ownerRole: followupRequired ? (complaint ? 'customer_service' : 'team_dawaa_alpha') : null, dueInDays, priority, evidenceMessageIds: uniq(followupEvidence) },
     nextBestAction, officialScoringEligible, intentConfidence, outcomeConfidence,
     evidence: {
       request: evidenceFromMessages(
@@ -916,7 +920,13 @@ export async function syncWhatsAppOperationalActionsV6(model: WhatsAppOperationa
     actions.push({ action_key: `recommendation-followup:${i}:${normalize(rec.productName || 'unknown')}`, action_type: 'recommendation_followup', status: context.customerCode ? 'ready' : 'proposed', confidence: rec.confidence, auto_eligible: Boolean(context.customerCode && rec.confidence >= 85), product_id: product?.productId || null, product_code: product?.productCode || null, product_name: product?.canonicalName || rec.productName, due_at: dueIso(model.followupPlan.dueInDays ?? 3), reason: 'العميل وافق على ترشيح من الدكتور؛ متابعة النتيجة بعد الاستخدام.', evidence: rec.evidenceMessageIds, payload: rec });
   }
   if (model.operationalOutcome === 'complaint_unresolved') {
-    actions.push({ action_key: 'complaint-followup', action_type: 'complaint_followup', status: context.customerCode ? 'ready' : 'proposed', confidence: model.outcomeConfidence, auto_eligible: Boolean(context.customerCode), due_at: dueIso(0), reason: 'شكوى غير محسومة تحتاج تدخل خدمة العملاء.', evidence: model.evidence.complaint.messageIds, payload: { nextBestAction: model.nextBestAction } });
+    actions.push({ action_key: 'complaint-followup', action_type: 'complaint_followup', status: context.customerCode ? 'ready' : 'proposed', confidence: model.outcomeConfidence, auto_eligible: Boolean(context.customerCode), due_at: dueIso(0), reason: 'شكوى غير محسومة تحتاج تدخل خدمة العملاء.', evidence: model.evidence.complaint.messageIds, payload: {
+      nextBestAction: model.nextBestAction,
+      ownerRole: 'customer_service',
+      followupPlan: model.followupPlan,
+      complaintEvidence: model.evidence.complaint,
+      recoveryAttemptDetected: model.evidence.complaint.messageIds.length > 0
+    } });
   } else if (model.followupPlan.required && !accepted.length && !model.customerRequests.some((r) => r.unresolved)) {
     actions.push({ action_key: 'customer-followup', action_type: 'customer_followup', status: context.customerCode ? 'ready' : 'proposed', confidence: model.outcomeConfidence, auto_eligible: Boolean(context.customerCode && model.outcomeConfidence >= 80), due_at: dueIso(model.followupPlan.dueInDays ?? 1), reason: model.followupPlan.reason, evidence: model.followupPlan.evidenceMessageIds, payload: model.followupPlan });
   }
