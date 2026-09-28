@@ -10,6 +10,7 @@ import {
 import { enrichWhatsAppOperationalJourneysV7 } from '../src/lib/whatsappProductJourneyV7';
 import { resolveWhatsAppParticipantRolesV15 } from '../src/lib/whatsappParticipantRoleResolverV15';
 import { resolveConversationBranchHint } from '../src/lib/whatsappConversationBranchHint';
+import { buildWhatsAppCaseContextsV27 } from '../src/lib/whatsappCaseContextV27';
 
 type SourceRow = {
   id: string;
@@ -202,10 +203,25 @@ async function rebuild(row: SourceRow) {
   const sessions = splitWhatsAppSessions(messages, 120);
   if (sessions.length !== 1) {
     const multiSessionOperational = await buildMultiSessionOperational(row, sessions);
+    const caseContexts = buildWhatsAppCaseContextsV27(sessions);
     return {
       status: 'skipped_multi_session_legacy' as const,
       detail: `legacy_source_contains_${sessions.length}_sessions`,
       sessionCount: sessions.length,
+      caseDryRun: {
+        caseCount: caseContexts.caseEngine.caseCount,
+        cases: caseContexts.contexts.map((context) => ({
+          caseId: context.caseItem.id,
+          startedAt: context.caseItem.startedAt,
+          endedAt: context.caseItem.lastEventAt,
+          state: context.caseItem.state,
+          orderIntent: context.caseItem.orderIntent,
+          orderConfirmed: context.caseItem.orderConfirmed,
+          sessionCount: context.caseItem.sessionIds.length,
+          staffNames: context.caseItem.staffNames,
+          summary: context.caseItem.summary,
+        })),
+      },
       multiSessionOperational,
     };
   }
