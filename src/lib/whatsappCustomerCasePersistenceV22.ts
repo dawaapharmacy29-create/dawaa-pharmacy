@@ -89,8 +89,10 @@ function proposedLostReason(caseItem: any, sourceRows: SourceRow[]) {
   return { reason: null, confidence: null };
 }
 
-function proposedOutcome(caseItem: any, verifiedInvoice: SourceRow | null) {
-  if (verifiedInvoice?.matched_invoice_id) return { outcome: 'verified_sale', confidence: 100 };
+function proposedOutcome(caseItem: any) {
+  // مهم: legacy invoice_match_status لا يثبت البيع رسميًا.
+  // الترقية إلى verified_sale تتم فقط بعد Canonical Sales Intelligence
+  // عندما salesOutcome.outcome === 'sale_proven'.
   if (caseItem.orderConfirmed) return { outcome: 'order_confirmed_waiting_invoice', confidence: 92 };
   if (caseItem.customerReengaged) return { outcome: 'customer_reengaged', confidence: 90 };
   if (caseItem.failure || caseItem.complaint || caseItem.state === 'recovery') return { outcome: 'followup_needed', confidence: 88 };
@@ -183,10 +185,7 @@ export async function syncWhatsAppCustomerCasesV22(
       const staffAccountIds = [...new Set(staffRows.map((x) => x.accountId).filter((x): x is string => Boolean(x)))];
       const staffNames = [...new Set(staffRows.map((x) => String(x.staffName)))];
 
-      const verifiedInvoice = caseSources
-        .filter((row) => String(row.invoice_match_status || '').toLowerCase() === 'verified' && row.matched_invoice_id)
-        .sort((a, b) => Number(b.invoice_match_confidence || 0) - Number(a.invoice_match_confidence || 0))[0] || null;
-      const outcome = proposedOutcome(caseItem, verifiedInvoice);
+      const outcome = proposedOutcome(caseItem);
       const lost = proposedLostReason(caseItem, caseSources);
       const commercialOpportunity = Boolean(caseItem.orderIntent || caseItem.recommendation);
 
@@ -230,11 +229,19 @@ export async function syncWhatsAppCustomerCasesV22(
         proposed_lost_reason: lost.reason,
         lost_reason_confidence: lost.confidence,
         commercial_opportunity: commercialOpportunity,
-        verified_revenue: verifiedInvoice?.matched_invoice_value != null ? Number(verifiedInvoice.matched_invoice_value) : null,
-        verified_invoice_id: verifiedInvoice?.matched_invoice_id || null,
-        verified_invoice_number: verifiedInvoice?.matched_invoice_number || null,
-        verified_sale_at: verifiedInvoice?.matched_invoice_date || null,
-        case_json: { ...caseItem, canonicalStaff: staffRows, v23: { proposedOutcome: outcome, proposedLostReason: lost } },
+        verified_revenue: null,
+        verified_invoice_id: null,
+        verified_invoice_number: null,
+        verified_sale_at: null,
+        case_json: {
+          ...caseItem,
+          canonicalStaff: staffRows,
+          v23: {
+            proposedOutcome: outcome,
+            proposedLostReason: lost,
+            saleProofSource: 'canonical_sales_intelligence_only',
+          },
+        },
         created_by: context.createdBy || null,
         updated_at: new Date().toISOString(),
       };
