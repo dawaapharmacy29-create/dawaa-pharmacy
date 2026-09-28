@@ -75,6 +75,8 @@ type StaffRun = {
   canonicalSaleProofState?: string | null;
   caseId: string;
   caseSummary: string;
+  caseStartedAt: string;
+  caseEndedAt: string;
   caseSessionCount: number;
   caseStaffNames: string[];
   customerName: string | null;
@@ -253,6 +255,8 @@ function groupStaffRunsByCase(run: FileRun) {
     caseId,
     items,
     summary: items[0]?.caseSummary || 'رحلة عميل',
+    startedAt: items[0]?.caseStartedAt || '',
+    endedAt: items[0]?.caseEndedAt || '',
     sessionCount: items[0]?.caseSessionCount || 1,
     customerName: items[0]?.customerName || null,
   }));
@@ -570,6 +574,8 @@ export default function WhatsAppSmartFolderWatcher() {
           sessionId: session.id,
           caseId: caseContext.caseItem.id,
           caseSummary: caseContext.caseItem.summary,
+          caseStartedAt: caseContext.caseItem.startedAt,
+          caseEndedAt: caseContext.caseItem.lastEventAt,
           caseSessionCount: caseContext.caseItem.sessionIds.length,
           caseStaffNames: caseContext.caseItem.staffNames,
           customerName: session.customerName || null,
@@ -1595,6 +1601,15 @@ export default function WhatsAppSmartFolderWatcher() {
                                   <div className="mt-1 text-[10px] text-slate-500">
                                     {caseGroup.summary} · {caseGroup.sessionCount} جلسة مرتبطة · {caseGroup.items.length} مسؤول
                                   </div>
+                                  {caseGroup.startedAt && caseGroup.endedAt ? (
+                                    <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-cyan-300/80">
+                                      <span>من {new Date(caseGroup.startedAt).toLocaleString('ar-EG', { dateStyle: 'short', timeStyle: 'short' })}</span>
+                                      <span>إلى {new Date(caseGroup.endedAt).toLocaleString('ar-EG', { dateStyle: 'short', timeStyle: 'short' })}</span>
+                                      <span>
+                                        مدة الرحلة {timingDuration(Math.max(0, Math.round((new Date(caseGroup.endedAt).getTime() - new Date(caseGroup.startedAt).getTime()) / 1000)))}
+                                      </span>
+                                    </div>
+                                  ) : null}
                                 </div>
                                 {caseGroup.sessionCount > 1 ? (
                                   <span className="rounded-full bg-violet-500/10 px-2.5 py-1 text-[10px] font-black text-violet-200">
