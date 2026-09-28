@@ -4,6 +4,7 @@ import type { UnifiedInvoiceVerification } from './whatsappUnifiedIntelligenceV4
 import type { SmartConversationEvaluationV2 } from './whatsappConversationEvaluationV2';
 import type { ConversationTimingV28 } from './whatsappConversationTimingV28';
 import type { WhatsAppParticipantRoleModelV15 } from './whatsappParticipantRoleResolverV15';
+import type { ConversationUnderstandingV32 } from './whatsappConversationUnderstandingV32';
 
 export type GroundedSaleStageKeyV33 =
   | 'request'
@@ -54,6 +55,16 @@ export interface GroundedSaleJourneyV33 {
   complaintMessageIds: string[];
   delayMessageIds: string[];
   unresolvedMessageIds: string[];
+  correctionMessageIds: string[];
+  understanding: {
+    interactionCount: number;
+    meaningfulMessageCount: number;
+    ignoredMessageCount: number;
+    semanticSignalCount: number;
+    requestSignalCount: number;
+    confirmationSignalCount: number;
+    correctionSignalCount: number;
+  };
   staffContribution: Array<{
     staffName: string;
     role: string;
@@ -221,12 +232,24 @@ export function buildGroundedSaleJourneyV33(args: {
   evaluation: SmartConversationEvaluationV2;
   timing: ConversationTimingV28;
   participantRoles?: WhatsAppParticipantRoleModelV15 | null;
+  understanding?: ConversationUnderstandingV32 | null;
 }): GroundedSaleJourneyV33 {
-  const { session, operational, invoiceVerification, evaluation, timing, participantRoles } = args;
+  const { session, operational, invoiceVerification, evaluation, timing, participantRoles, understanding } = args;
   const byId = messageMap(session);
+
+  const semanticRequestIds = (understanding?.signals || [])
+    .filter((signal) => signal.type === 'request' && signal.confidence >= 0.8)
+    .map((signal) => signal.messageId);
+  const semanticConfirmationIds = (understanding?.signals || [])
+    .filter((signal) => signal.type === 'confirmation' && signal.confidence >= 0.7)
+    .map((signal) => signal.messageId);
+  const correctionMessageIds = (understanding?.signals || [])
+    .filter((signal) => signal.type === 'correction' && signal.confidence >= 0.6)
+    .map((signal) => signal.messageId);
 
   const requestIds = uniq([
     ...(operational.evidence.request?.messageIds || []),
+    ...semanticRequestIds,
     ...operational.customerRequests.flatMap((row) => row.evidenceMessageIds || []),
     ...operational.products
       .filter((row) => ['requested','accepted','unavailable'].includes(row.status))
@@ -246,6 +269,7 @@ export function buildGroundedSaleJourneyV33(args: {
     .sort((a,b) => a.timestamp.getTime() - b.timestamp.getTime());
   let acceptanceRows = matching(session, ACCEPT_RX, 'inbound');
   const confirmationRows = uniq([
+    ...semanticConfirmationIds,
     ...evaluation.orderCompleteness.items
       .filter((row) => row.key === 'explicit_confirmation' && row.status === 'confirmed')
       .flatMap((row) => row.evidenceMessageIds),
@@ -383,6 +407,7 @@ export function buildGroundedSaleJourneyV33(args: {
   if (evaluation.closing.score != null && evaluation.closing.score < 70) gaps.push('الختام يحتاج تحسين أو رسالة ختامية أوضح.');
   if (timing.responseSummary.unansweredTurns > 0) gaps.push(`يوجد ${timing.responseSummary.unansweredTurns} Turn للعميل بدون رد واضح.`);
   if (operational.products.some((row) => row.status === 'unavailable') && !operational.recommendations.length) gaps.push('ظهر نقص/عدم توفر بدون بديل واضح مثبت.');
+  if (correctionMessageIds.length) gaps.push('العميل صحح معلومة/فهمًا سابقًا؛ راجع الرسالة التي سبقت التصحيح للتأكد من فهم الطلب.');
 
   if (delayIds.length) {
     const slowTurns = timing.responseTurns.filter((turn) => turn.noResponse || (turn.responseLatencySeconds != null && turn.responseLatencySeconds > 600));
@@ -566,6 +591,16 @@ export function buildGroundedSaleJourneyV33(args: {
     complaintMessageIds: complaintRows.map((row) => row.id),
     delayMessageIds: delayIds,
     unresolvedMessageIds: unresolvedIds,
+    correctionMessageIds: uniq(correctionMessageIds),
+    understanding: {
+      interactionCount: understanding?.interactions.length || 0,
+      meaningfulMessageCount: understanding?.messages.filter((message) => message.isMeaningful).length || 0,
+      ignoredMessageCount: understanding?.messages.filter((message) => !message.isMeaningful).length || 0,
+      semanticSignalCount: understanding?.signals.length || 0,
+      requestSignalCount: (understanding?.signals || []).filter((signal) => signal.type === 'request').length,
+      confirmationSignalCount: (understanding?.signals || []).filter((signal) => signal.type === 'confirmation' && signal.confidence >= 0.7).length,
+      correctionSignalCount: correctionMessageIds.length,
+    },
     staffContribution: contributions,
     staffCoaching,
     coaching: {
