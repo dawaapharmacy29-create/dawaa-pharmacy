@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { readInvoiceRecordById } from '@/lib/readModels/invoiceRecordReadModel';
 import type { WhatsAppConversationSession } from './whatsappConversationParser';
 import type { UnifiedConversationIntelligence, UnifiedInvoiceVerification } from './whatsappUnifiedIntelligenceV4';
 
@@ -249,12 +250,7 @@ export async function confirmWhatsAppInvoiceLinkV34(
     .single();
   if (sourceError) throw sourceError;
 
-  const { data: invoice, error: invoiceError } = await supabase
-    .from('sales_invoices')
-    .select('id,invoice_number,invoice_datetime,customer_id,customer_code,customer_name,branch,net_amount,total_amount,amount')
-    .eq('id', cleanInvoiceId)
-    .maybeSingle();
-  if (invoiceError) throw invoiceError;
+  const invoice = await readInvoiceRecordById(cleanInvoiceId);
   if (!invoice) throw new Error('invoice_not_found');
 
   const sourceCustomerId = String(source.customer_id || '').trim();
