@@ -34,7 +34,7 @@ export interface GroundedSaleStageV33 {
 export interface GroundedSaleJourneyV33 {
   version: 'whatsapp-grounded-sale-journey-v33';
   grounded: true;
-  outcome: 'verified_sale' | 'chat_confirmed' | 'open_opportunity' | 'lost_or_blocked' | 'non_commercial' | 'needs_review';
+  outcome: 'invoice_candidate_strong' | 'chat_confirmed' | 'open_opportunity' | 'lost_or_blocked' | 'non_commercial' | 'needs_review';
   outcomeLabel: string;
   commercial: boolean;
   saleWindow: {
@@ -103,7 +103,7 @@ export interface GroundedSaleJourneyV33 {
     status: 'grounded' | 'partial' | 'review_required';
     decisionReady: boolean;
     directMessageEvidenceCount: number;
-    invoiceVerified: boolean;
+    invoiceCandidateStrong: boolean;
     customerResolved: boolean;
     invoiceItemCount: number;
     blockers: string[];
@@ -325,31 +325,19 @@ export function buildGroundedSaleJourneyV33(args: {
   const lastSaleMessage = lastByIds(session, saleRelevantIds);
 
   let outcome: GroundedSaleJourneyV33['outcome'] = 'non_commercial';
-  if (invoiceVerification.status === 'verified') outcome = 'verified_sale';
+  if (invoiceVerification.status === 'verified') outcome = 'invoice_candidate_strong';
   else if (evaluation.sale.outcome === 'order_confirmed') outcome = 'chat_confirmed';
   else if (['customer_accepted','opportunity_detected','probable_sale'].includes(evaluation.sale.outcome)) outcome = 'open_opportunity';
   else if (['stockout_blocked','customer_declined'].includes(evaluation.sale.outcome)) outcome = 'lost_or_blocked';
   else if (operational.officialScoringEligible || operational.customerRequests.length || operational.products.some((row) => row.status === 'requested')) outcome = 'needs_review';
 
-  const invoiceAt = invoiceVerification.status === 'verified' && invoiceVerification.bestCandidate?.invoiceDate
-    ? new Date(invoiceVerification.bestCandidate.invoiceDate)
-    : null;
-  const lastMessageBeforeInvoice = invoiceAt && Number.isFinite(invoiceAt.getTime())
-    ? session.messages
-        .filter((message) => message.direction !== 'system' && message.timestamp.getTime() <= invoiceAt.getTime())
-        .sort((a,b) => a.timestamp.getTime() - b.timestamp.getTime())
-        .at(-1) || null
-    : null;
   const saleEndMessage = confirmationRows[confirmationRows.length - 1]
-    || lastMessageBeforeInvoice
     || deliveryRows[deliveryRows.length - 1]
     || acceptanceRows[acceptanceRows.length - 1]
     || lastSaleMessage;
-  const saleEndedAt = invoiceAt && Number.isFinite(invoiceAt.getTime())
-    ? invoiceAt.toISOString()
-    : saleEndMessage?.timestamp.toISOString() || null;
+  const saleEndedAt = saleEndMessage?.timestamp.toISOString() || null;
   const saleEndSource: GroundedSaleJourneyV33['saleWindow']['endSource'] =
-    invoiceAt && Number.isFinite(invoiceAt.getTime()) ? 'invoice' : saleEndMessage ? 'message' : 'none';
+    saleEndMessage ? 'message' : 'none';
 
   const saleWindowIds = startMessage ? messageRange(session, startMessage, saleEndMessage) : [];
   const lastJourneyEvent = [...complaintRows, ...recoveryRows, ...closingRows, ...deliveryRows, ...(saleEndMessage ? [saleEndMessage] : [])]
@@ -386,7 +374,7 @@ export function buildGroundedSaleJourneyV33(args: {
           confidence: Math.round(invoiceVerification.verificationConfidence * 100),
           source: 'invoice',
           evidenceMessageIds: [],
-          reason: `بيع مثبت بفاتورة ${invoiceVerification.bestCandidate?.invoiceNumber || 'مرتبطة'}.`,
+          reason: `مطابقة فاتورة قوية ${invoiceVerification.bestCandidate?.invoiceNumber || 'مرتبطة'} — لا تُعد Sale Proof قبل اعتماد الربط Canonical.`,
         }
       : {
           key: 'invoice',
@@ -409,14 +397,14 @@ export function buildGroundedSaleJourneyV33(args: {
   const delayPoints: string[] = [];
   const complaintPoints: string[] = [];
 
-  if (invoiceVerification.status === 'verified') strengths.push('حوّل المحادثة لبيع مثبت بفاتورة فعلية.');
+  if (invoiceVerification.status === 'verified') strengths.push('يوجد تطابق فاتورة قوي يمكن مراجعته واعتماد ربطه يدويًا.');
   if (evaluation.opening.score != null && evaluation.opening.score >= 85) strengths.push('افتتاح المحادثة واضح ومهني.');
   if (timing.responseSummary.firstResponseSeconds != null && timing.responseSummary.firstResponseSeconds <= 300) strengths.push('الرد الأول تم خلال 5 دقائق.');
   if (confirmationRows.length) strengths.push('تم تأكيد الأصناف/الطلب مع العميل قبل الإغلاق.');
   if (evaluation.closing.score != null && evaluation.closing.score >= 85) strengths.push('الختام واضح ومهني.');
   if (operational.recommendations.some((row) => row.accepted === true)) strengths.push('يوجد ترشيح/بديل قبله العميل.');
 
-  if (!confirmationRows.length && ['verified_sale','chat_confirmed','open_opportunity'].includes(outcome)) gaps.push('لم يظهر تأكيد واضح للأصناف والكميات مع العميل قبل الإغلاق.');
+  if (!confirmationRows.length && ['invoice_candidate_strong','chat_confirmed','open_opportunity'].includes(outcome)) gaps.push('لم يظهر تأكيد واضح للأصناف والكميات مع العميل قبل الإغلاق.');
   if (evaluation.opening.score != null && evaluation.opening.score < 70) gaps.push('الافتتاح يحتاج تحسين أو استكمال عناصر الترحيب الرسمي.');
   if (evaluation.closing.score != null && evaluation.closing.score < 70) gaps.push('الختام يحتاج تحسين أو رسالة ختامية أوضح.');
   if (timing.responseSummary.unansweredTurns > 0) gaps.push(`يوجد ${timing.responseSummary.unansweredTurns} Turn للعميل بدون رد واضح.`);
@@ -442,7 +430,7 @@ export function buildGroundedSaleJourneyV33(args: {
   const bestPracticeParts: number[] = [];
   if (evaluation.qualityScore != null) bestPracticeParts.push(evaluation.qualityScore);
   if (timing.responseSummary.within5mRate != null) bestPracticeParts.push(timing.responseSummary.within5mRate);
-  if (invoiceVerification.status === 'verified') bestPracticeParts.push(100);
+  if (invoiceVerification.status === 'verified') bestPracticeParts.push(85);
   if (confirmationRows.length) bestPracticeParts.push(100);
   if (evaluation.closing.score != null) bestPracticeParts.push(evaluation.closing.score);
   let bestPracticeScore = bestPracticeParts.length
@@ -523,7 +511,7 @@ export function buildGroundedSaleJourneyV33(args: {
     if (complaintResponseCount) strengths.push('رد على شكوى العميل داخل نطاق مسؤوليته.');
 
     const staffCommercialMessages = staff.messageIds.filter((id) => saleWindowIds.includes(id));
-    if (staffCommercialMessages.length && !confirmationCount && ['verified_sale','chat_confirmed'].includes(outcome)) {
+    if (staffCommercialMessages.length && !confirmationCount && ['invoice_candidate_strong','chat_confirmed'].includes(outcome)) {
       gaps.push('شارك في رحلة بيع مكتملة لكن لم يظهر في رسائله تأكيد صريح للأصناف مع العميل.');
     }
     if (staffCommercialMessages.length && !closingCount) {
@@ -603,7 +591,7 @@ export function buildGroundedSaleJourneyV33(args: {
     blockers.length ? 'review_required' : caveats.length ? 'partial' : 'grounded';
 
   const outcomeLabel: Record<GroundedSaleJourneyV33['outcome'], string> = {
-    verified_sale: 'بيع مؤكد بفاتورة',
+    invoice_candidate_strong: 'مطابقة فاتورة قوية — تحتاج اعتماد الربط',
     chat_confirmed: 'طلب مؤكد في المحادثة — الفاتورة غير مثبتة',
     open_opportunity: 'فرصة بيع مفتوحة',
     lost_or_blocked: 'بيع توقف/لم يكتمل',
@@ -669,7 +657,7 @@ export function buildGroundedSaleJourneyV33(args: {
       status: truthStatus,
       decisionReady: blockers.length === 0,
       directMessageEvidenceCount: directEvidenceIds.length,
-      invoiceVerified: invoiceVerification.status === 'verified',
+      invoiceCandidateStrong: invoiceVerification.status === 'verified',
       customerResolved: Boolean(args.customerResolved),
       invoiceItemCount,
       blockers: uniq(blockers),
