@@ -41,7 +41,9 @@ const SESSION_TOKEN_KEY = 'dawaa_staff_session_v1';
 const listeners = new Set<() => void>();
 const ACCOUNT_REFRESH_TTL_MS = 5 * 60 * 1000;
 const ACCOUNT_REFRESH_TIMEOUT_MS = 3500;
+const STAFF_SESSION_HEARTBEAT_MS = 20 * 60 * 1000;
 let lastAccountRefreshAt = 0;
+let lastStaffSessionHeartbeatAt = 0;
 let accountRefreshPromise: Promise<User | null> | null = null;
 
 const DOCTOR_WORKSPACE_PERMISSIONS = [
@@ -314,6 +316,26 @@ async function resolveCurrentStaffAccount(user: User): Promise<User | null> {
   return sanitizeUser(user);
 }
 
+async function refreshStaffLoginSession(): Promise<boolean> {
+  if (!isSupabaseConfigured || typeof window === 'undefined') return false;
+  const token = getStaffSessionToken();
+  if (!token) return false;
+  try {
+    const { data, error } = await withTimeout<SupabaseRpcResult<boolean>>(
+      supabase.rpc('refresh_staff_login_session_v1', { p_session_token: token }),
+      3500,
+      'refresh_staff_login_session_v1'
+    );
+    if (error) return false;
+    const ok = data === true;
+    if (ok) lastStaffSessionHeartbeatAt = Date.now();
+    return ok;
+  } catch (error) {
+    if (import.meta.env.DEV) console.warn('[Dawaa auth] staff session heartbeat skipped', error);
+    return false;
+  }
+}
+
 function refreshCurrentStaffAccount(user: User): Promise<User | null> {
   const now = Date.now();
   if (now - lastAccountRefreshAt < ACCOUNT_REFRESH_TTL_MS)
@@ -458,22 +480,53 @@ export function useAuth() {
     if (!user) return;
     const TIMEOUT = 12 * 60 * 60 * 1000;
     let timerId: number | undefined;
+    let heartbeatInFlight = false;
+
+    const maybeHeartbeat = () => {
+      if (heartbeatInFlight) return;
+      if (Date.now() - lastStaffSessionHeartbeatAt < STAFF_SESSION_HEARTBEAT_MS) return;
+      heartbeatInFlight = true;
+      void refreshStaffLoginSession()
+        .then((ok) => {
+          if (!ok && Date.now() - lastStaffSessionHeartbeatAt >= TIMEOUT) {
+            try { localStorage.removeItem(SESSION_TOKEN_KEY); } catch {}
+            setCurrentUser(null);
+          }
+        })
+        .finally(() => {
+          heartbeatInFlight = false;
+        });
+    };
+
     const reset = () => {
       if (timerId) window.clearTimeout(timerId);
-      timerId = window.setTimeout(() => setCurrentUser(null), TIMEOUT);
+      timerId = window.setTimeout(() => {
+        try { localStorage.removeItem(SESSION_TOKEN_KEY); } catch {}
+        setCurrentUser(null);
+      }, TIMEOUT);
+      maybeHeartbeat();
     };
+
+    const onVisibility = () => {
+      if (!document.hidden) reset();
+    };
+
     const events: Array<keyof WindowEventMap> = [
       'mousemove',
       'keydown',
       'click',
       'scroll',
       'touchstart',
+      'focus',
     ];
     events.forEach((eventName) => window.addEventListener(eventName, reset, { passive: true }));
+    document.addEventListener('visibilitychange', onVisibility);
     reset();
+
     return () => {
       if (timerId) window.clearTimeout(timerId);
       events.forEach((eventName) => window.removeEventListener(eventName, reset));
+      document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [user?.id]);
 
@@ -481,6 +534,7 @@ export function useAuth() {
     const accountUser = await loginWithStaffAccount(username, password);
     if (accountUser) {
       lastAccountRefreshAt = Date.now();
+      lastStaffSessionHeartbeatAt = Date.now();
       setCurrentUser(accountUser);
       logAuthActivity(accountUser, 'login', 'success');
       return true;
@@ -495,6 +549,7 @@ export function useAuth() {
     }
     setCurrentUser(null);
     lastAccountRefreshAt = 0;
+    lastStaffSessionHeartbeatAt = 0;
     try {
       await withTimeout(
         supabase.rpc('set_current_user_context', { p_user_id: null }),
