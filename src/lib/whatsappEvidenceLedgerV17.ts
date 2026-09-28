@@ -45,6 +45,29 @@ function roleForStaff(participantRoles: any, staffName: string | null) {
   return match?.role || match?.resolvedRole || null;
 }
 
+export function resolveEvidenceStaffV23(participantRoles: any, messageIds: string[]) {
+  if (!messageIds.length) return null;
+  const wanted = new Set(messageIds.map(String));
+  const messages = Array.isArray(participantRoles?.messages) ? participantRoles.messages : [];
+  const candidates = messages
+    .filter((row: any) =>
+      wanted.has(String(row?.messageId || '')) &&
+      row?.staffId &&
+      row?.staffName &&
+      String(row?.role || '') !== 'customer'
+    )
+    .sort((a: any, b: any) => Number(b?.confidence || 0) - Number(a?.confidence || 0));
+  if (!candidates.length) return null;
+  const row = candidates[0];
+  return {
+    staffId: String(row.staffId),
+    staffName: String(row.staffName),
+    role: row.role ? String(row.role) : null,
+    accountId: row.accountId ? String(row.accountId) : null,
+    confidence: Number(row.confidence || 0),
+  };
+}
+
 function lastOutboundIndex(session: WhatsAppConversationSession) {
   for (let i = session.messages.length - 1; i >= 0; i -= 1) if (session.messages[i].direction === 'outbound') return i;
   return -1;
@@ -296,7 +319,16 @@ export async function syncWhatsAppEvidenceLedgerV17(session: WhatsAppConversatio
 
   for (const rec of context.operational.recommendations || []) {
     const key = `recommendation:${normalizeKey(rec.productName || rec.evidenceMessageIds?.[0])}`;
-    addFact('recommendation', key, rec.confidence || 75, 'message', { messageIds: rec.evidenceMessageIds || [], doctorName: rec.doctorName || null }, { product_name: rec.productName || null });
+    const evidenceStaff = resolveEvidenceStaffV23(
+      context.participantRoles || source.analysis_json?.participantRoles,
+      rec.evidenceMessageIds || []
+    );
+    addFact('recommendation', key, rec.confidence || 75, 'message', {
+      messageIds: rec.evidenceMessageIds || [],
+      doctorName: evidenceStaff?.staffName || rec.doctorName || null,
+      staffId: evidenceStaff?.staffId || null,
+      staffRole: evidenceStaff?.role || null,
+    }, { product_name: rec.productName || null });
     if (rec.accepted === true) addFact('recommendation_accepted', `${key}:accepted`, Math.max(88, rec.confidence || 0), 'message', { messageIds: rec.evidenceMessageIds || [] }, { product_name: rec.productName || null });
     if (rec.accepted === false || rec.rejected) addFact('recommendation_rejected', `${key}:rejected`, Math.max(88, rec.confidence || 0), 'message', { messageIds: rec.evidenceMessageIds || [] }, { product_name: rec.productName || null });
   }
@@ -367,6 +399,15 @@ export async function syncWhatsAppEvidenceLedgerV17(session: WhatsAppConversatio
   const opportunities: any[] = [];
   for (const product of opportunityCandidates) {
     const pkey = `product:${normalizeKey(product.productCode || product.productName)}`;
+    const opportunityEvidenceIds = Array.from(new Set(
+      (Array.isArray(product?.events) ? product.events : [])
+        .flatMap((event: any) => Array.isArray(event?.messageIds) ? event.messageIds : [])
+        .map(String)
+    ));
+    const opportunityStaff = resolveEvidenceStaffV23(
+      context.participantRoles || source.analysis_json?.participantRoles,
+      opportunityEvidenceIds
+    );
     const truth = isCanonicalProductDemandRun
       ? await planProductOpportunityTruthV23(session, source, product)
       : {
@@ -397,9 +438,9 @@ export async function syncWhatsAppEvidenceLedgerV17(session: WhatsAppConversatio
       customer_code: source.customer_code || null,
       customer_name: source.customer_name || null,
       customer_phone: source.customer_phone || null,
-      attributed_staff_id: source.staff_id || null,
-      attributed_staff_name: source.staff_name || null,
-      attributed_staff_role: staffRole,
+      attributed_staff_id: opportunityStaff?.staffId || source.staff_id || null,
+      attributed_staff_name: opportunityStaff?.staffName || source.staff_name || null,
+      attributed_staff_role: opportunityStaff?.role || staffRole,
       product_id: product.productId || null,
       product_code: product.productCode || null,
       product_name: product.productName || null,
