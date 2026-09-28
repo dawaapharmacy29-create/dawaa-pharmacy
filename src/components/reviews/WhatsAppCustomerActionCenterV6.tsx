@@ -171,9 +171,9 @@ export default function WhatsAppCustomerActionCenterV6({ onOpenSource }: { onOpe
           .select('*')
           .lte('cycle_start', today)
           .gte('cycle_end', today)
-          .order('action_priority_rank', { ascending: true })
-          .order('verified_revenue', { ascending: false })
-          .limit(250),
+          // Legacy action_priority_rank contains a historical +500 invoice-match rule.
+          // Load rows as data only; canonical prioritization happens client-side below.
+          .limit(1000),
         supabase
           .from('whatsapp_customer_cases_v22')
           .select('id,customer_id,customer_code,customer_name,customer_phone,branch,started_at,proposed_outcome,confirmed_outcome,verified_revenue,verified_invoice_id,verified_invoice_number')
@@ -300,7 +300,7 @@ export default function WhatsAppCustomerActionCenterV6({ onOpenSource }: { onOpe
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return rows.filter((row) => {
+    const selected = rows.filter((row) => {
       const truth = rowTruth(row);
       if (branch !== 'all' && row.branch !== branch) return false;
       if (mode === 'action' && !truth.needsEffectiveAction) return false;
@@ -308,6 +308,24 @@ export default function WhatsAppCustomerActionCenterV6({ onOpenSource }: { onOpe
       if (!q) return true;
       return [row.customer_name, row.customer_code, row.customer_phone, row.next_action_product, row.next_action_reason]
         .some((value) => String(value || '').toLowerCase().includes(q));
+    });
+
+    const actionRank = (row: ActionCenterRow) => {
+      if (row.next_action_type === 'complaint_followup') return 1;
+      if (row.next_action_due_at && new Date(row.next_action_due_at).getTime() <= Date.now()) return 2;
+      if (row.next_action_type === 'customer_request') return 3;
+      if (row.next_action_type === 'recommendation_followup') return 4;
+      if (row.next_action_type === 'customer_followup') return 5;
+      if (rowTruth(row).canonicalOver500) return 6;
+      return 7;
+    };
+
+    return selected.sort((a,b) => {
+      const rank = actionRank(a) - actionRank(b);
+      if (rank) return rank;
+      const revenue = rowTruth(b).revenue - rowTruth(a).revenue;
+      if (revenue) return revenue;
+      return String(b.last_conversation_at || '').localeCompare(String(a.last_conversation_at || ''));
     });
   }, [rows, branch, mode, search, canonicalByCustomer]);
 
