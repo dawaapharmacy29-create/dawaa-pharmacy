@@ -215,6 +215,14 @@ export default function WhatsAppDoctorCycleIntelligenceV8({ onOpenSource }: { on
         score: Number.isFinite(score) ? score : null,
         strengths: Array.isArray(staffCoaching?.strengths) ? staffCoaching.strengths as string[] : [],
         gaps: Array.isArray(staffCoaching?.gaps) ? staffCoaching.gaps as string[] : [],
+        findings: Array.isArray(staffCoaching?.findings) ? staffCoaching.findings as Array<{
+          type: string;
+          tone: 'strong' | 'improvement' | 'context';
+          title: string;
+          detail: string;
+          evidenceMessageIds: string[];
+          attributionConfidence: number;
+        }> : [],
         complaintPoints: Array.isArray(journey?.coaching?.complaintPoints) ? journey.coaching.complaintPoints as string[] : [],
         delayPoints: Number(staffCoaching?.slowResponseCount || 0) > 0
           ? [`لديه ${Number(staffCoaching.slowResponseCount)} رد متأخر أكثر من 10 دقائق داخل نطاقه.`]
@@ -228,12 +236,16 @@ export default function WhatsAppDoctorCycleIntelligenceV8({ onOpenSource }: { on
     const verifiedSales: typeof grounded = [];
     const verifiedRevenue = 0;
     const best = enriched
-      .filter((row) => row.score != null && row.strengths.length)
+      .filter((row) => row.score != null && row.findings.some((finding) => finding.tone === 'strong'))
       .sort((a,b) => (b.score || 0) - (a.score || 0))
       .slice(0, 5);
     const improvement = enriched
-      .filter((row) => row.gaps.length || row.delayPoints.length || row.complaintPoints.length)
-      .sort((a,b) => (a.score ?? 101) - (b.score ?? 101))
+      .filter((row) => row.findings.some((finding) => finding.tone === 'improvement'))
+      .sort((a,b) => {
+        const aCount = a.findings.filter((finding) => finding.tone === 'improvement').length;
+        const bCount = b.findings.filter((finding) => finding.tone === 'improvement').length;
+        return bCount - aCount || (a.score ?? 101) - (b.score ?? 101);
+      })
       .slice(0, 8);
 
     const countText = (rows: string[]) => {
@@ -241,8 +253,12 @@ export default function WhatsAppDoctorCycleIntelligenceV8({ onOpenSource }: { on
       rows.forEach((text) => map.set(text, (map.get(text) || 0) + 1));
       return [...map.entries()].sort((a,b) => b[1] - a[1]);
     };
-    const repeatedStrengths = countText(enriched.flatMap((row) => row.strengths)).slice(0, 4);
-    const repeatedGaps = countText(enriched.flatMap((row) => row.gaps)).slice(0, 4);
+    const repeatedStrengths = countText(enriched.flatMap((row) =>
+      row.findings.filter((finding) => finding.tone === 'strong').map((finding) => finding.title)
+    )).slice(0, 4);
+    const repeatedGaps = countText(enriched.flatMap((row) =>
+      row.findings.filter((finding) => finding.tone === 'improvement').map((finding) => finding.title)
+    )).slice(0, 4);
 
     return {
       enriched,
@@ -396,20 +412,29 @@ export default function WhatsAppDoctorCycleIntelligenceV8({ onOpenSource }: { on
               <span className="rounded-full bg-emerald-500/10 px-2.5 py-1 text-[10px] font-black text-emerald-300">{doctorInsights.best.length}</span>
             </div>
             <div className="mt-3 space-y-2">
-              {doctorInsights.best.map(({ item, journey, score, strengths }) => (
-                <button key={item.id} type="button" onClick={() => onOpenSource?.(item.id)} className="w-full rounded-xl border border-emerald-800/25 bg-black/10 p-3 text-right transition hover:border-emerald-500/40">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="font-black text-white">{item.customer_name || 'عميل غير محدد'}</div>
-                      <div className="mt-1 text-[10px] text-slate-500">{dateLabel(item.conversation_started_at)} · {journey?.outcomeLabel || '—'}</div>
+              {doctorInsights.best.map(({ item, journey, score, findings }) => {
+                const strongFindings = findings.filter((finding) => finding.tone === 'strong').slice(0, 3);
+                return (
+                  <button key={item.id} type="button" onClick={() => onOpenSource?.(item.id)} className="w-full rounded-xl border border-emerald-800/25 bg-black/10 p-3 text-right transition hover:border-emerald-500/40">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="font-black text-white">{item.customer_name || 'عميل غير محدد'}</div>
+                        <div className="mt-1 text-[10px] text-slate-500">{dateLabel(item.conversation_started_at)} · {journey?.outcomeLabel || '—'}</div>
+                      </div>
+                      <div className="rounded-lg bg-emerald-500/10 px-2.5 py-1 text-sm font-black text-emerald-300">{score ?? '—'}</div>
                     </div>
-                    <div className="rounded-lg bg-emerald-500/10 px-2.5 py-1 text-sm font-black text-emerald-300">{score ?? '—'}</div>
-                  </div>
-                  <div className="mt-2 space-y-1 text-[11px] leading-5 text-slate-300">
-                    {strengths.slice(0, 3).map((strength) => <div key={strength}>✓ {strength}</div>)}
-                  </div>
-                </button>
-              ))}
+                    <div className="mt-2 space-y-2 text-[11px] leading-5 text-slate-300">
+                      {strongFindings.map((finding) => (
+                        <div key={`${finding.type}-${finding.title}`} className="rounded-lg bg-emerald-500/5 p-2">
+                          <div className="font-black text-emerald-200">✓ {finding.title}</div>
+                          <div className="text-slate-400">{finding.detail}</div>
+                          <div className="mt-0.5 text-[9px] text-slate-600">دليل: {finding.evidenceMessageIds.length} رسالة · ثقة النسبة {finding.attributionConfidence}%</div>
+                        </div>
+                      ))}
+                    </div>
+                  </button>
+                );
+              })}
               {!doctorInsights.best.length ? <div className="rounded-xl border border-dashed border-slate-800 p-4 text-xs text-slate-500">لا توجد محادثات أعيد تحليلها بالـGrounded Journey كفاية لاختيار أمثلة قوية بعد.</div> : null}
             </div>
           </section>
@@ -423,22 +448,29 @@ export default function WhatsAppDoctorCycleIntelligenceV8({ onOpenSource }: { on
               <span className="rounded-full bg-amber-500/10 px-2.5 py-1 text-[10px] font-black text-amber-300">{doctorInsights.improvement.length}</span>
             </div>
             <div className="mt-3 space-y-2">
-              {doctorInsights.improvement.map(({ item, journey, score, gaps, delayPoints, complaintPoints }) => (
-                <button key={item.id} type="button" onClick={() => onOpenSource?.(item.id)} className="w-full rounded-xl border border-amber-800/25 bg-black/10 p-3 text-right transition hover:border-amber-500/40">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="font-black text-white">{item.customer_name || 'عميل غير محدد'}</div>
-                      <div className="mt-1 text-[10px] text-slate-500">{dateLabel(item.conversation_started_at)} · {journey?.outcomeLabel || '—'}</div>
+              {doctorInsights.improvement.map(({ item, journey, score, findings }) => {
+                const improvementFindings = findings.filter((finding) => finding.tone === 'improvement').slice(0, 4);
+                return (
+                  <button key={item.id} type="button" onClick={() => onOpenSource?.(item.id)} className="w-full rounded-xl border border-amber-800/25 bg-black/10 p-3 text-right transition hover:border-amber-500/40">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="font-black text-white">{item.customer_name || 'عميل غير محدد'}</div>
+                        <div className="mt-1 text-[10px] text-slate-500">{dateLabel(item.conversation_started_at)} · {journey?.outcomeLabel || '—'}</div>
+                      </div>
+                      <div className="rounded-lg bg-amber-500/10 px-2.5 py-1 text-sm font-black text-amber-300">{score ?? '—'}</div>
                     </div>
-                    <div className="rounded-lg bg-amber-500/10 px-2.5 py-1 text-sm font-black text-amber-300">{score ?? '—'}</div>
-                  </div>
-                  <div className="mt-2 space-y-1 text-[11px] leading-5 text-slate-300">
-                    {gaps.slice(0, 3).map((gap) => <div key={gap}>• {gap}</div>)}
-                    {delayPoints.slice(0, 2).map((point) => <div key={point} className="text-amber-200">⏱ {point}</div>)}
-                    {complaintPoints.slice(0, 1).map((point) => <div key={point} className="text-rose-200">شكوى داخل الـCase: {point}</div>)}
-                  </div>
-                </button>
-              ))}
+                    <div className="mt-2 space-y-2 text-[11px] leading-5">
+                      {improvementFindings.map((finding) => (
+                        <div key={`${finding.type}-${finding.title}`} className="rounded-lg bg-amber-500/5 p-2">
+                          <div className="font-black text-amber-200">• {finding.title}</div>
+                          <div className="text-slate-300">{finding.detail}</div>
+                          <div className="mt-0.5 text-[9px] text-slate-600">دليل: {finding.evidenceMessageIds.length} رسالة · ثقة النسبة {finding.attributionConfidence}%</div>
+                        </div>
+                      ))}
+                    </div>
+                  </button>
+                );
+              })}
               {!doctorInsights.improvement.length ? <div className="rounded-xl border border-dashed border-slate-800 p-4 text-xs text-slate-500">لا توجد نقاط تحسين موثقة كفاية في المحادثات المعاد تحليلها.</div> : null}
             </div>
           </section>
