@@ -920,7 +920,7 @@ export async function syncWhatsAppOperationalActionsV6(model: WhatsAppOperationa
     actions.push({ action_key: `recommendation-followup:${i}:${normalize(rec.productName || 'unknown')}`, action_type: 'recommendation_followup', status: context.customerCode ? 'ready' : 'proposed', confidence: rec.confidence, auto_eligible: Boolean(context.customerCode && rec.confidence >= 85), product_id: product?.productId || null, product_code: product?.productCode || null, product_name: product?.canonicalName || rec.productName, due_at: dueIso(model.followupPlan.dueInDays ?? 3), reason: 'العميل وافق على ترشيح من الدكتور؛ متابعة النتيجة بعد الاستخدام.', evidence: rec.evidenceMessageIds, payload: rec });
   }
   if (model.operationalOutcome === 'complaint_unresolved') {
-    actions.push({ action_key: 'complaint-followup', action_type: 'complaint_followup', status: context.customerCode ? 'ready' : 'proposed', confidence: model.outcomeConfidence, auto_eligible: Boolean(context.customerCode), due_at: dueIso(0), reason: 'شكوى غير محسومة تحتاج تدخل خدمة العملاء.', evidence: model.evidence.complaint.messageIds, payload: {
+    actions.push({ action_key: 'complaint-followup', action_type: 'complaint_followup', status: context.customerCode ? 'ready' : 'proposed', confidence: model.outcomeConfidence, auto_eligible: Boolean(context.customerCode), due_at: dueIso(0), reason: 'شكوى خدمة/توصيل غير محسومة: خدمة العملاء تتواصل اليوم للاعتذار، مراجعة ما حدث، والتأكد من رضا العميل قبل إغلاق الحالة.', evidence: model.evidence.complaint.messageIds, payload: {
       nextBestAction: model.nextBestAction,
       ownerRole: 'customer_service',
       followupPlan: model.followupPlan,
