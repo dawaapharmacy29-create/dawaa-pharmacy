@@ -45,7 +45,7 @@ export default function WhatsAppCycleEvidenceDashboardV17({ mode }: { mode: Mode
     async function load() {
       setLoading(true); setError(null);
       const view = mode === 'doctors'
-        ? 'whatsapp_doctor_cycle_performance_v17'
+        ? 'whatsapp_case_doctor_kpis_v23'
         : mode === 'customers'
           ? 'whatsapp_customer_cycle_performance_v17'
           : 'whatsapp_customer_service_cycle_performance_v17';
@@ -76,13 +76,18 @@ export default function WhatsAppCycleEvidenceDashboardV17({ mode }: { mode: Mode
     if (mode !== 'doctors') return rows;
 
     const merged: AnyRow[] = rows.map((row): AnyRow => {
+      const normalized = {
+        ...row,
+        staff_id: row.owner_account_id || row.staff_id || null,
+        staff_name: row.owner_name || row.staff_name || null,
+      };
       const commercial = commercialData?.summaries.find((summary) => {
-        if (row.staff_id && summary.staffId) return String(row.staff_id) === String(summary.staffId);
-        return String(row.staff_name || '').trim() === String(summary.staffName || '').trim();
+        if (normalized.staff_id && summary.staffId) return String(normalized.staff_id) === String(summary.staffId);
+        return String(normalized.staff_name || '').trim() === String(summary.staffName || '').trim();
       }) ?? null;
       return {
-        ...row,
-        responseTiming: responseRows.find((timing) => sameIdentity(row, timing)) || null,
+        ...normalized,
+        responseTiming: responseRows.find((timing) => sameIdentity(normalized, timing)) || null,
         commercialActual: commercial,
       };
     });
@@ -97,15 +102,16 @@ export default function WhatsAppCycleEvidenceDashboardV17({ mode }: { mode: Mode
         staff_id: commercial.staffId,
         staff_name: commercial.staffName,
         branch: null,
-        conversation_count: 0,
-        commercial_conversations: 0,
-        verified_invoice_count: 0,
+        handled_cases: 0,
+        commercial_opportunities: 0,
+        confirmed_orders: 0,
+        verified_sales: 0,
+        verified_conversion_rate: null,
         verified_revenue: 0,
-        customer_requests: 0,
-        request_registration_rate: null,
-        recommendation_acceptance_rate: null,
-        delay_signals: 0,
-        failed_order_signals: 0,
+        recommendation_cases: 0,
+        lost_opportunities: 0,
+        cases_with_failure_signal: 0,
+        cases_with_complaint_signal: 0,
         responseTiming: null,
         commercialActual: commercial,
       });
@@ -122,7 +128,7 @@ export default function WhatsAppCycleEvidenceDashboardV17({ mode }: { mode: Mode
 
   const totals = useMemo(() => {
     if (mode === 'doctors') return {
-      first: current.reduce((s, r) => s + Number(r.conversation_count || 0), 0),
+      first: current.reduce((s, r) => s + Number(r.handled_cases || 0), 0),
       second: commercialData?.summaries.reduce((s, r) => s + Number(r.lineCount || 0), 0) ?? 0,
       third: commercialData?.summaries.reduce((s, r) => s + Number(r.invoiceCount || 0), 0) ?? 0,
       money: commercialData?.summaries.reduce((s, r) => s + Number(r.netSales || 0), 0) ?? 0,
@@ -141,9 +147,9 @@ export default function WhatsAppCycleEvidenceDashboardV17({ mode }: { mode: Mode
     };
   }, [current, commercialData, mode]);
 
-  const title = mode === 'doctors' ? 'أداء الدكاترة الموثق V18' : mode === 'customers' ? 'سايكل العميل الموثق V17' : 'أداء متابعة خدمة العملاء V18';
+  const title = mode === 'doctors' ? 'أداء الدكاترة الموثق حسب الـCase' : mode === 'customers' ? 'سايكل العميل الموثق V17' : 'أداء متابعة خدمة العملاء V18';
   const subtitle = mode === 'doctors'
-    ? 'Conversion بالفاتورة + طلبات وترشيحات موثقة + زمن رد محسوب من الـTurns الفعلية للرسائل.'
+    ? 'Conversion موثق حسب ملكية مراحل الـCase + تنفيذ B-Connect + زمن رد من الـTurns الفعلية، بدون خلط مساهمة أكثر من دكتور.'
     : mode === 'customers'
       ? 'رحلة العميل خلال 26→25: المحادثات، الطلبات المفتوحة، الاسترجاع، والمبيعات المؤكدة.'
       : 'المهام والـSLA والاسترجاع، مع احتساب كل فاتورة مسترجعة مرة واحدة فقط مهما تعددت المهام.';
@@ -208,13 +214,14 @@ function DoctorRow({ row }: { row: AnyRow }) {
   const c = row.commercialActual;
   return <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
     <div className="flex flex-wrap items-center justify-between gap-2"><div className="font-black text-white">{row.staff_name || 'دكتور غير محدد'}</div><div className="text-[10px] text-slate-500">{row.branch || '—'}</div></div>
-    <div className="mt-2 grid gap-2 text-xs sm:grid-cols-2 xl:grid-cols-6">
-      <K label="Conversion واتساب (قديم)" value={fmtPct(row.verified_conversation_conversion_rate)} />
-      <K label="إيراد مؤكد" value={fmtMoney(row.verified_revenue)} />
-      <K label="طلبات" value={row.customer_requests || 0} />
-      <K label="تسجيل الطلب" value={fmtPct(row.request_registration_rate)} />
-      <K label="قبول الترشيح بالمحادثة" value={fmtPct(row.recommendation_acceptance_rate)} />
-      <K label="تأخير/فشل" value={`${Number(row.delay_signals || 0) + Number(row.failed_order_signals || 0)}`} />
+    <div className="mt-2 grid gap-2 text-xs sm:grid-cols-2 xl:grid-cols-7">
+      <K label="Cases تعامل معها" value={row.handled_cases || 0} />
+      <K label="فرص تجارية" value={row.commercial_opportunities || 0} />
+      <K label="طلبات مؤكدة" value={row.confirmed_orders || 0} />
+      <K label="بيع موثق" value={row.verified_sales || 0} />
+      <K label="Conversion موثق" value={fmtPct(row.verified_conversion_rate)} />
+      <K label="فقد بيع" value={row.lost_opportunities || 0} />
+      <K label="تعثر/شكوى" value={`${Number(row.cases_with_failure_signal || 0)} / ${Number(row.cases_with_complaint_signal || 0)}`} />
     </div>
     <div className="mt-3 rounded-xl border border-emerald-400/10 bg-emerald-500/5 p-2.5">
       <div className="text-[10px] font-black text-emerald-100">المبيعات الفعلية من B-Connect</div>
