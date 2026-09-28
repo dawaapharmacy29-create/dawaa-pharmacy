@@ -1226,17 +1226,34 @@ export default function WhatsAppSmartFolderWatcher() {
         ? payload.derivedCases.some((row: any) => row?.saleProofState === 'proven')
         : false;
 
-      setRuns((current) => current.map((run) => ({
+      const canonicalSaleProofState = proven
+        ? 'proven'
+        : String(payload?.derivedCases?.[0]?.saleProofState || 'not_proven');
+      const nextRuns = runs.map((run) => ({
         ...run,
         staffRuns: run.staffRuns.map((staffRun) =>
           staffRun.sourceId === sourceId
-            ? { ...staffRun, canonicalSaleProofState: proven ? 'proven' : String(payload?.derivedCases?.[0]?.saleProofState || 'not_proven') }
+            ? { ...staffRun, canonicalSaleProofState }
             : staffRun
         ),
-      })));
+      }));
+      setRuns(nextRuns);
       setSelected((current) => current && current.sourceId === sourceId
-        ? { ...current, canonicalSaleProofState: proven ? 'proven' : String(payload?.derivedCases?.[0]?.saleProofState || 'not_proven') }
+        ? { ...current, canonicalSaleProofState }
         : current);
+
+      const changedRun = nextRuns.find((run) => run.staffRuns.some((staffRun) => staffRun.sourceId === sourceId));
+      if (changedRun?.inboxKey) {
+        try {
+          await saveLocalWhatsAppAnalysisHistory<FileRun>(
+            changedRun.inboxKey,
+            changedRun.fileName,
+            changedRun
+          );
+        } catch (historyError) {
+          console.warn('[whatsapp-watcher] canonical proof state history save failed', historyError);
+        }
+      }
 
       if (proven) {
         toast.success(`تم اعتماد ربط الفاتورة ${confirmed.invoiceNumber || ''} وأصبحت Sale Proof Canonical.`);
