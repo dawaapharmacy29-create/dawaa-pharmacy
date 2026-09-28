@@ -136,7 +136,7 @@ describe('SalesJourneyReviewV2', () => {
     expect(result.finalScore).toBeLessThan(result.legacyScore);
   });
 
-  it('marks verified sale and order completeness as growth signals', () => {
+  it('does not promote a statistical invoice match to verified-sale growth signal', () => {
     const state = defaultReviewState();
     state.sales_closing = { applies: true, choice: 'clear_order' };
     state.order_confirmation = { applies: true, choice: 'full' };
@@ -147,8 +147,8 @@ describe('SalesJourneyReviewV2', () => {
       evaluation()
     );
 
-    expect(result.growthSignals.convertedSale).toBe(true);
-    expect(result.growthSignals.verifiedSale).toBe(true);
+    expect(result.growthSignals.convertedSale).toBe(false);
+    expect(result.growthSignals.verifiedSale).toBe(false);
     expect(result.growthSignals.orderCompletenessScore).toBe(100);
     expect(result.saleOutcomeLabel).toBe('بيع مؤكد بالفاتورة');
   });
