@@ -50,6 +50,9 @@ export interface WhatsAppProductSignal {
   productCode?: string | null;
   canonicalName?: string | null;
   catalogConfidence?: 'proven' | 'strongly_inferred' | 'weakly_inferred' | 'unknown';
+  /** Provenance of the product mention. "customer_explicit" is the only direct demand proof. */
+  mentionOrigin?: 'customer_explicit' | 'pharmacy_mention' | 'recommendation' | 'contextual';
+  requestProven?: boolean;
 }
 
 export interface WhatsAppRecommendationSignal {
@@ -409,6 +412,14 @@ function extractProducts(session: WhatsAppConversationSession): WhatsAppProductS
     // Stock unavailability is a pharmacy-side fact. An inbound question like "مش موجود عندكم؟"
     // must stay a customer request/inquiry and never become stock_unavailable on its own.
     if (message.direction === 'outbound' && /(مش موجود|غير متوفر|ناقص)/i.test(message.text)) status = 'unavailable';
+    const mentionOrigin: NonNullable<WhatsAppProductSignal['mentionOrigin']> =
+      isRecommendation
+        ? 'recommendation'
+        : message.direction === 'inbound' && (isRequest || shortSelection || Boolean(typedNamedProduct))
+          ? 'customer_explicit'
+          : message.direction === 'outbound'
+            ? 'pharmacy_mention'
+            : 'contextual';
     found.push({
       rawName,
       normalizedName: normalize(rawName),
@@ -417,6 +428,8 @@ function extractProducts(session: WhatsAppConversationSession): WhatsAppProductS
       sourceDirection: message.direction,
       evidenceMessageIds: [message.id],
       confidence: explicitNamedRecommendation ? 92 : typedNamedProduct ? 90 : explicitFormMention ? 86 : isRecommendation ? 82 : isRequest ? 80 : 64,
+      mentionOrigin,
+      requestProven: mentionOrigin === 'customer_explicit' && status === 'requested',
     });
   }
   // A short inbound inquiry may use a shortened product name, while the pharmacy
@@ -483,6 +496,8 @@ function extractProducts(session: WhatsAppConversationSession): WhatsAppProductS
     });
     if (previousProduct) {
       previousProduct.status = 'requested';
+      previousProduct.mentionOrigin = 'customer_explicit';
+      previousProduct.requestProven = true;
       previousProduct.confidence = Math.max(previousProduct.confidence, 88);
       previousProduct.evidenceMessageIds = uniq([...previousProduct.evidenceMessageIds, message.id]);
     }
@@ -552,7 +567,7 @@ export function buildWhatsAppOperationalIntelligenceV6(session: WhatsAppConversa
   const state: WhatsAppOperationalIntelligenceV6['customerState'] = positiveCheckinFeedback ? 'improved' : has(inbound, IMPROVED_RX) ? 'improved' : has(inbound, WORSE_RX) ? 'worse' : 'unknown';
 
   const requests: WhatsAppRequestSignal[] = products
-    .filter((p) => ['requested','unavailable'].includes(p.status) && p.sourceDirection === 'inbound')
+    .filter((p) => p.status === 'requested' && p.sourceDirection === 'inbound' && p.requestProven !== false)
     .map((p) => ({
       productName: p.rawName,
       quantity: p.quantity,
