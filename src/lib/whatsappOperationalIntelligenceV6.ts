@@ -248,6 +248,22 @@ const SERVICE_SENTENCE_RX =
 const DOSAGE_FOLLOWUP_RX =
   /^(?:\s*)(?:امبول|أمبول|امبولات|أمبولات|شريط|شرايط|علبه|علبة|علب|كريم|جل|شراب|بخاخ|بخاخه|قطره|قطرة|كبسول|كبسوله|كبسولة|اقراص|أقراص|قرص)(?:\s+.*)?$/i;
 
+const STANDALONE_CONVERSATION_NOISE_RX =
+  /^(?:(?:السلام\s+عليكم|وعليكم\s+السلام)(?:\s+ورحمه\s+الله(?:\s+وبركاته)?)?|(?:صباح|مساء)\s+(?:الخير|النور)|اهلا|أهلا|مرحبا|شكرا|شكراً|متشكر|متشكره|تسلم|تسلمي|تمام|ماشي|حاضر)(?:\s+(?:يا\s*)?(?:دكتور|دكتوره|دكتورة|فندم|حضرتك))?[.!؟\s]*$/iu;
+
+function isStandaloneConversationNoise(value: string) {
+  const normalized = String(value || '')
+    .trim()
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ى/g, 'ي')
+    .replace(/ة/g, 'ه')
+    .replace(/[\u064B-\u065F]/g, '')
+    .replace(/\s+/g, ' ');
+  if (!normalized) return true;
+  if (STANDALONE_CONVERSATION_NOISE_RX.test(normalized)) return true;
+  return /^(?:يا\s*)?(?:دكتور|دكتوره|فندم)$|^(?:الحمد\s*لله|الحمدلله)(?:\s+(?:تمام|كويس|بخير))?$/iu.test(normalized);
+}
+
 function replaceStandaloneToken(value: string, token: string) {
   const escaped = token.replace(/[.*+?^$()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
   return value.replace(new RegExp('(?<![\\p{L}\\p{N}])' + escaped + '(?![\\p{L}\\p{N}])', 'giu'), ' ');
@@ -275,7 +291,7 @@ function cleanProductPhrase(raw: string) {
 
 function plausibleProductPhrase(value: string) {
   const cleaned = cleanProductPhrase(value);
-  if (!cleaned) return false;
+  if (!cleaned || isStandaloneConversationNoise(cleaned)) return false;
   if (cleaned.split(/\s+/).length > 9) return false;
   return /[A-Za-z]{3,}|[\u0600-\u06ff]{3,}/.test(cleaned);
 }
@@ -675,7 +691,7 @@ function candidateFragmentsFromMessage(textValue: string) {
     .trim();
   if (!base) return [];
 
-  const fragments = [base];
+  const fragments = isStandaloneConversationNoise(base) ? [] : [base];
 
   const forwardedNamedProduct = base.match(/^(.{3,120}?)\s+(?:بديل\s+(?:الغسول|الصنف|المنتج)|لو\s+(?:موجود|متوفر))/i);
   if (forwardedNamedProduct?.[1]) {
@@ -704,6 +720,7 @@ async function discoverStrongCatalogMentions(session: WhatsAppConversationSessio
     if (message.text.length > 260) continue;
 
     for (const rawName of candidateFragmentsFromMessage(message.text)) {
+      if (!plausibleProductPhrase(rawName) || isStandaloneConversationNoise(rawName)) continue;
       const seed: WhatsAppProductSignal = {
         rawName,
         normalizedName: normalize(rawName),
