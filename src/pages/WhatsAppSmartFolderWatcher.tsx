@@ -552,6 +552,23 @@ export default function WhatsAppSmartFolderWatcher() {
         const focusedScoredIds = result.scope.inScopeMessageIds.filter((id) => includedIds.has(id));
         const focusedContextIds = evaluationConversationV31.includedMessageIds.filter((id) => !focusedScoredIds.includes(id));
 
+        const smartIntelligence = buildSmartIntelligenceSnapshotV1({
+          journey: result.journeyCrossCheck,
+          staffEffort: outboundBurstMetrics,
+          invoiceVerification,
+          invoiceItems,
+          requestedProducts: operational.products,
+          branchHint,
+          customer: customerContext.resolution,
+          customerContact: customerContext.contactProfile,
+          purchaseHistory: customerContext.purchaseHistory,
+          evaluationV2,
+          timingV28: caseTimingV28,
+          staffTimingV28: focusedStaffTimingV28,
+          delayAttributionV29,
+          groundedSaleJourneyV33,
+        });
+
         const snapshot = buildConversationReviewSnapshot({
           session: evaluationSession,
           displayMessages: evaluationSession.messages,
@@ -567,26 +584,12 @@ export default function WhatsAppSmartFolderWatcher() {
           staffIdentity,
           officialReviewDraft,
           conversationFocusV30,
-          smartIntelligence: buildSmartIntelligenceSnapshotV1({
-            journey: result.journeyCrossCheck,
-            staffEffort: outboundBurstMetrics,
-            invoiceVerification,
-            invoiceItems,
-            requestedProducts: operational.products,
-            branchHint,
-            customer: customerContext.resolution,
-            customerContact: customerContext.contactProfile,
-            purchaseHistory: customerContext.purchaseHistory,
-            evaluationV2,
-            timingV28: caseTimingV28,
-            staffTimingV28: focusedStaffTimingV28,
-            delayAttributionV29,
-            groundedSaleJourneyV33,
-          }),
+          smartIntelligence,
         });
 
         const actions = buildSmartReviewActionPlan({
           intelligence: result.intelligence,
+          smartIntelligence,
           staffName: staff.staffName,
           fallbackCustomerName: session.customerName || null,
         });
