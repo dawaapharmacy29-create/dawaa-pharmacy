@@ -258,12 +258,12 @@ export function evaluateSalesJourneyReviewV2(
       ? `${weakest.label}: ${weakest.score}%`
       : legacy.mainNegativeReason);
 
-  const verifiedSale = evaluation?.sale.outcome === 'invoice_verified_sale';
+  // Canonical verified sale is intentionally NOT inferred from EvaluationV2.
+  // EvaluationV2 only sees conversation + statistical invoice matching.
+  const verifiedSale = false;
   const convertedSale = Boolean(
     evaluation &&
-      ['invoice_verified_sale', 'order_confirmed', 'probable_sale'].includes(
-        evaluation.sale.outcome
-      )
+      ['order_confirmed'].includes(evaluation.sale.outcome)
   );
 
   return {
@@ -310,8 +310,8 @@ export function evaluateSalesJourneyReviewV2(
     },
     // keep explicit references so TS sees these derived axes as intentional context
     mainPositiveReason:
-      verifiedSale && (conversion?.score ?? 0) >= 90
-        ? 'تم تحويل احتياج العميل إلى بيع مؤكد مع إغلاق قوي.'
+      convertedSale && (conversion?.score ?? 0) >= 90
+        ? 'تم تحويل احتياج العميل إلى طلب مؤكد داخل المحادثة مع إغلاق قوي؛ إثبات البيع المالي منفصل.'
         : retention && (retention.score ?? 0) >= 90
           ? 'المحادثة حافظت على العميل وخلقت خطوة متابعة واضحة.'
           : legacy.mainPositiveReason,
