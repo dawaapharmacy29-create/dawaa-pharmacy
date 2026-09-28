@@ -634,10 +634,13 @@ export default function WhatsAppSmartFolderWatcher() {
         const groundedBlocksApproval = Boolean(
           persistedGroundedJourney && !persistedGroundedJourney.truthQuality.decisionReady
         );
+        const canonicalFollowup = keptRuns.map((run) => run.actions.followup).find(Boolean) || null;
         const persistenceIntelligence = {
           ...baseIntelligence,
           requiresHumanApproval: baseIntelligence.requiresHumanApproval || groundedBlocksApproval,
           priority: groundedBlocksApproval && baseIntelligence.priority === 'normal' ? 'important' : baseIntelligence.priority,
+          followupRequired: Boolean(canonicalFollowup),
+          suggestedFollowupReason: canonicalFollowup?.reason || null,
           operational,
           participantRoles: roles,
           contextOnly: false,
