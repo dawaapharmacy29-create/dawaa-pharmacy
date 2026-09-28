@@ -73,6 +73,13 @@ describe('WhatsApp Operational Intelligence V6 product extraction', () => {
     expect(demand.products.some((row) => /فوار للحموضه/.test(row.rawName))).toBe(true);
   });
 
+  it('classifies a generic need as recommendation intent instead of inventing a product', () => {
+    const model = analyze(`[9/27/26, 8:12:00 PM] Customer: محتاج حاجه للارهاق والخمول
+[9/27/26, 8:13:00 PM] You: ممكن نراجع السبب ونرشح المناسب`);
+    expect(model.products).toHaveLength(0);
+    expect(model.primaryIntent).toBe('doctor_recommendation');
+  });
+
   it('merges quantity-only anaphora into the previous product instead of creating a fake product', () => {
     const model = analyze(`[9/27/26, 8:20:00 PM] Customer: عايزه فليكس لايكس
 [9/27/26, 8:21:00 PM] Customer: منهم شريطين
