@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import {
   connectLocalWhatsAppFolder,
   getUnprocessedWhatsAppExports,
+  findLocalWhatsAppExportFileNames,
   markLocalWhatsAppFileFailed,
   markLocalWhatsAppFileProcessed,
   queryLocalWhatsAppFolderPermission,
@@ -845,14 +846,22 @@ export default function WhatsAppSmartFolderWatcher() {
 
   async function reanalyzeVisibleRuns() {
     if (scanning) return;
-    const names = Array.from(new Set(filteredRuns.map((run) => run.fileName).filter(Boolean)));
+    let names = Array.from(new Set(filteredRuns.map((run) => run.fileName).filter(Boolean)));
+
+    if (!names.length && runQuery.trim() && handleRef.current) {
+      names = await findLocalWhatsAppExportFileNames(handleRef.current, runQuery.trim(), 20);
+    }
+
     if (!names.length) {
-      toast.message('لا توجد ملفات ظاهرة لإعادة تحليلها');
+      toast.message(runQuery.trim()
+        ? 'لم أجد ملفًا مطابقًا للاسم داخل فولدر واتساب'
+        : 'لا توجد ملفات ظاهرة لإعادة تحليلها');
       return;
     }
+
     resetLocalWhatsAppProcessedFileNames(names);
     setReanalyzingNames(new Set(names));
-    toast.message(`إعادة تحليل ${names.length} ملف ظاهر فقط`);
+    toast.message(`إعادة تحليل ${names.length} ملف مطابق فقط`);
     await scanOnce(names);
     setReanalyzingNames(new Set());
   }
@@ -1055,7 +1064,7 @@ export default function WhatsAppSmartFolderWatcher() {
               />
               <button
                 type="button"
-                disabled={scanning || !filteredRuns.length}
+                disabled={scanning || (!filteredRuns.length && !runQuery.trim())}
                 onClick={() => void reanalyzeVisibleRuns()}
                 className="rounded-lg border border-violet-700/60 bg-violet-950/20 px-2.5 py-1.5 text-[10px] font-black text-violet-200 disabled:opacity-40"
               >
@@ -1076,7 +1085,11 @@ export default function WhatsAppSmartFolderWatcher() {
 
         {!filteredRuns.length ? (
           <div className="p-8 text-center text-sm text-slate-400">
-            {runs.length ? 'لا توجد نتائج مطابقة للبحث.' : 'لسه مفيش ملفات محللة. لو الملفات موجودة استخدم «إعادة تحليل».'}
+            {runs.length
+              ? 'لا توجد نتائج مطابقة للبحث.'
+              : runQuery.trim()
+                ? 'السجل المحلي فارغ، لكن يمكنك الضغط على «إعادة تحليل الظاهر فقط» للبحث عن الملف داخل الفولدر وإعادة تحليله فقط.'
+                : 'لسه مفيش ملفات محللة. اكتب اسم العميل أو الملف في البحث ثم استخدم «إعادة تحليل الظاهر فقط» لإعادة ملف محدد بأمان.'}
           </div>
         ) : (
           <div className="divide-y divide-slate-800">
