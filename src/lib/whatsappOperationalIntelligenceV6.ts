@@ -261,7 +261,7 @@ const NON_PRODUCT_CONVERSATION_FRAGMENT_RX =
 const DOSAGE_FOLLOWUP_RX =
   /^(?:\s*)(?:امبول|أمبول|امبولات|أمبولات|شريط|شرايط|علبه|علبة|علب|كريم|جل|شراب|بخاخ|بخاخه|قطره|قطرة|كبسول|كبسوله|كبسولة|اقراص|أقراص|قرص)(?:\s+.*)?$/i;
 const DOSAGE_INSTRUCTION_NON_PRODUCT_RX =
-  /^(?:(?:يوميا|يوميًا|كل\s+يوم|مره|مرة|مرتين|\d+\s*مرات?|[٠-٩]+\s*مرات?)\s+)?(?:قبل|بعد)\s+(?:ال)?(?:افطار|الإفطار|الفطار|غدا|الغدا|الغداء|عشا|العشا|العشاء|اكل|الأكل)(?:\s+(?:يا\s*)?(?:فندم|دكتور|دكتوره|دكتورة|حضرتك))?$/iu;
+  /^(?:(?:يوميا|يوميًا|كل\s+يوم|مره|مرة|مرتين|\d+\s*مرات?|[٠-٩]+\s*مرات?)\s+)?(?:قبل|بعد)\s+(?:ال)?(?:افطار|الإفطار|الفطار|غدا|الغدا|الغداء|عشا|العشا|العشاء|اكل|الأكل)(?:\s+(?:يا\s*)?(?:فندم|دكتور|دكتوره|دكتورة|حضرتك)?)?$/iu;
 
 const STANDALONE_CONVERSATION_NOISE_RX =
   /^(?:(?:السلام\s+عليكم|وعليكم\s+السلام)(?:\s+ورحمه\s+الله(?:\s+وبركاته)?)?|(?:صباح|مساء)\s+(?:الخير|النور)|اهلا|أهلا|مرحبا|شكرا|شكراً|متشكر|متشكره|تسلم|تسلمي|تمام|ماشي|حاضر)(?:\s+(?:يا\s*)?(?:دكتور|دكتوره|دكتورة|فندم|حضرتك))?[.!؟\s]*$/iu;
@@ -300,13 +300,19 @@ function cleanProductPhrase(raw: string) {
   if (/^(?:واحد|واحده|واحدة)\s+من\s+(?:ده|دا|دي)$/i.test(value)) return '';
   if (/^(?:اشوف|أشوف)\s+شكل|^يطلع\s+منه|^اعرف\s+مكان|^يجيلي\s+عند|^بعد\s+اذنك$|^استشاره\s+صغيره|^استشارة\s+صغيرة|^لحضرتك\s+الاسكرينه|^هم\s+تحويل|^بالظبط$|^عليه$|^شكله$|^يهم$|^يكون\s+فيه$/i.test(value)) return '';
   if (/^(?:نفس\s+)?(?:ده|دا|دي|العلبه\s+دي|العلبة\s+دي|العبوه\s+دي|العبوة\s+دي|الحاجات\s+دي|الحاجات\s+دول)$/i.test(value)) return '';
+  const semanticValue = value.replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
   if (GENERIC_REFERENCE_PRODUCT_RX.test(value) || GENERIC_PRODUCT_CATEGORY_LIST_RX.test(value)) return '';
   if (
     GENERIC_NON_PRODUCT_RX.test(value) ||
+    GENERIC_NON_PRODUCT_RX.test(semanticValue) ||
     SERVICE_SENTENCE_RX.test(value) ||
+    SERVICE_SENTENCE_RX.test(semanticValue) ||
     NON_PRODUCT_CONVERSATION_FRAGMENT_RX.test(value) ||
+    NON_PRODUCT_CONVERSATION_FRAGMENT_RX.test(semanticValue) ||
     DOSAGE_INSTRUCTION_NON_PRODUCT_RX.test(value) ||
-    ANAPHORIC_QUANTITY_ONLY_RX.test(value)
+    DOSAGE_INSTRUCTION_NON_PRODUCT_RX.test(semanticValue) ||
+    ANAPHORIC_QUANTITY_ONLY_RX.test(value) ||
+    ANAPHORIC_QUANTITY_ONLY_RX.test(semanticValue)
   ) return '';
   return value;
 }
