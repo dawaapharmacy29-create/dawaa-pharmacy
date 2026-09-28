@@ -3,6 +3,8 @@ import { parseWhatsAppExport, splitWhatsAppSessions } from '@/lib/whatsappConver
 import { buildSmartOfficialReviewDraftV1, conflictsWithJourney } from '@/lib/whatsappSmartOfficialReviewDraft';
 import { buildOfficialReviewSuggestion } from '@/lib/whatsappReviewScoring';
 import type { ConversationJourneyResult } from '@/lib/whatsappConversationJourneyClassifier';
+import { buildUnifiedConversationIntelligence, type UnifiedInvoiceVerification } from '@/lib/whatsappUnifiedIntelligenceV4';
+import { buildSmartConversationEvaluationV2 } from '@/lib/whatsappConversationEvaluationV2';
 
 function oneSession(raw: string) {
   const sessions = splitWhatsAppSessions(parseWhatsAppExport(raw), 120);
@@ -11,6 +13,27 @@ function oneSession(raw: string) {
 }
 
 const SOLD_SESSION_RAW = `[9/15/26, 9:00:00 AM] Customer: صباح الخير، فيتامين د متوفر وبكام؟\n[9/15/26, 9:01:00 AM] You: صباح النور، مع حضرتك د هبة من صيدليات دواء. متوفر بسعر 250 جنيه\n[9/15/26, 9:02:00 AM] You: تحب نضيفه على أوردر حضرتك؟\n[9/15/26, 9:03:00 AM] Customer: تمام ابعته\n[9/15/26, 9:04:00 AM] You: تم تأكيد الطلب وهيتم التوصيل، تحت أمر حضرتك في أي وقت`;
+
+function noInvoice(): UnifiedInvoiceVerification {
+  return {
+    status: 'not_found',
+    bestCandidate: null,
+    candidates: [],
+    verificationConfidence: 0.75,
+    revenue: null,
+    reason: 'لا توجد فاتورة',
+    warnings: [],
+  };
+}
+
+function evaluationFor(raw: string) {
+  const session = oneSession(raw);
+  const intelligence = buildUnifiedConversationIntelligence(session);
+  const evaluationV2 = buildSmartConversationEvaluationV2(session, {
+    invoiceVerification: noInvoice(),
+  });
+  return { session, intelligence, evaluationV2 };
+}
 
 function noSaleJourney(): ConversationJourneyResult {
   return {
@@ -37,6 +60,32 @@ describe('buildSmartOfficialReviewDraftV1', () => {
       expect(draft.criteria[i].suggestedChoice).toBe(raw.items[i].selectedOption);
       expect(draft.criteria[i].sourceEngine).toBe('whatsapp-review-scoring-v1');
     }
+  });
+
+  it('gives full order confirmation only when the doctor explicitly reviews the items with the customer', () => {
+    const explicit = evaluationFor(`[9/15/26, 9:00:00 AM] Customer: عايز فيتامين د
+[9/15/26, 9:01:00 AM] You: حضرتك كده معانا فيتامين د عدد 1 تمام؟
+[9/15/26, 9:01:30 AM] Customer: تمام
+[9/15/26, 9:02:00 AM] You: جاري الارسال`);
+    const explicitDraft = buildSmartOfficialReviewDraftV1(explicit.session, explicit.session.customerName, {
+      evaluationV2: explicit.evaluationV2,
+    });
+    const explicitCriterion = explicitDraft.criteria.find((row) => row.criterionKey === 'order_confirmation');
+    expect(explicitCriterion?.suggestedChoice).toBe('full');
+    expect(explicitCriterion?.suggestedLabel).toContain('أكد الأصناف');
+
+    const executionOnly = evaluationFor(`[9/15/26, 9:00:00 AM] Customer: عايز فيتامين د
+[9/15/26, 9:01:00 AM] You: متوفر يا فندم
+[9/15/26, 9:02:00 AM] Customer: تمام ابعته
+[9/15/26, 9:03:00 AM] You: تم تأكيد الطلب
+[9/15/26, 9:04:00 AM] You: جاري الارسال`);
+    const executionDraft = buildSmartOfficialReviewDraftV1(executionOnly.session, executionOnly.session.customerName, {
+      evaluationV2: executionOnly.evaluationV2,
+    });
+    const executionCriterion = executionDraft.criteria.find((row) => row.criterionKey === 'order_confirmation');
+    expect(executionCriterion?.suggestedChoice).toBe('important_missing');
+    expect(executionCriterion?.suggestedLabel).toContain('لم يظهر تأكيد الدكتور للأصناف');
+    expect(executionCriterion?.reason).toContain('جاري الإرسال');
   });
 
   it('never auto-applies a severe error, by construction', () => {
