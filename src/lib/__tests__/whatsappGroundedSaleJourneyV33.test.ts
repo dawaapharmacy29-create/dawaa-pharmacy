@@ -139,6 +139,45 @@ describe('GroundedSaleJourneyV33', () => {
     expect(journey.coaching.complaintPoints.length).toBeGreaterThan(0);
   });
 
+  it('attributes official welcome and closing only to the staff who owns those edge messages', () => {
+    const s = session(`[9/15/26, 9:00:00 AM] Customer: السلام عليكم
+[9/15/26, 9:00:30 AM] You: أهلًا وسهلًا بحضرتك نورتنا في صيدليات دواء مع حضرتك د هبة
+[9/15/26, 9:01:00 AM] Customer: عايز فيتامين د
+[9/15/26, 9:02:00 AM] You: متوفر يا فندم
+[9/15/26, 9:03:00 AM] Customer: تمام ابعته
+[9/15/26, 9:04:00 AM] You: جاري الارسال نتشرف بخدمة حضرتك ٢٤ ساعة`);
+    const invoice = noInvoice();
+    const roles = rolesFor(s, [
+      { text: /أهلًا وسهلًا/, staffName: 'هبة' },
+      { text: /متوفر|جاري الارسال/, staffName: 'ندى' },
+    ]);
+    const operational = buildWhatsAppOperationalIntelligenceV6(s, buildUnifiedConversationIntelligence(s));
+    const evaluation = buildSmartConversationEvaluationV2(s, {
+      invoiceVerification: invoice,
+      officialWelcomeTemplates: ['أهلًا وسهلًا بحضرتك نورتنا في صيدليات دواء مع حضرتك د هبة'],
+      officialClosingTemplates: ['جاري الارسال نتشرف بخدمة حضرتك ٢٤ ساعة'],
+    });
+    const timing = buildConversationTimingV28(s, roles, invoice);
+    const understanding = buildConversationUnderstandingV32(s);
+    const journey = buildGroundedSaleJourneyV33({
+      session: s,
+      operational,
+      invoiceVerification: invoice,
+      evaluation,
+      timing,
+      participantRoles: roles,
+      understanding,
+    });
+
+    const hiba = journey.staffCoaching.find((row) => row.staffName === 'هبة');
+    const nada = journey.staffCoaching.find((row) => row.staffName === 'ندى');
+
+    expect(hiba?.findings.some((finding) => finding.type === 'opening' && finding.title === 'ترحيب رسمي معتمد')).toBe(true);
+    expect(hiba?.findings.some((finding) => finding.type === 'closing' && finding.title === 'ختام رسمي معتمد')).toBe(false);
+    expect(nada?.findings.some((finding) => finding.type === 'closing' && finding.title === 'ختام رسمي معتمد')).toBe(true);
+    expect(nada?.findings.some((finding) => finding.type === 'opening' && finding.tone === 'improvement')).toBe(false);
+  });
+
   it('attributes a customer correction only to the staff message that was corrected', () => {
     const s = session(`[9/15/26, 9:00:00 AM] Customer: عايز جل للبشرة
 [9/15/26, 9:01:00 AM] You: الكريم ده متوفر يا فندم
