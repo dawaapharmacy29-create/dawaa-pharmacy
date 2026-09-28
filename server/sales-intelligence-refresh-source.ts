@@ -275,10 +275,18 @@ export default async function handler(req: any, res: any) {
     return json(res, 403, { error: 'not_authorized_for_sales_intelligence_refresh' });
   }
 
-  void service
+  const sessionRefreshAt = new Date();
+  const sessionRefreshExpiry = new Date(sessionRefreshAt.getTime() + 12 * 60 * 60 * 1000);
+  const { error: sessionRefreshError } = await service
     .from('staff_login_sessions')
-    .update({ last_used_at: new Date().toISOString() })
+    .update({
+      last_used_at: sessionRefreshAt.toISOString(),
+      expires_at: sessionRefreshExpiry.toISOString(),
+    })
     .eq('id', loginSession.id);
+  if (sessionRefreshError) {
+    console.warn('[sales-intelligence-refresh-source] staff session sliding refresh failed', sessionRefreshError.message);
+  }
 
   let body = req.body || {};
   if (typeof body === 'string') {
