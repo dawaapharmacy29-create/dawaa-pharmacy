@@ -426,6 +426,16 @@ export default function WhatsAppSmartFolderWatcher() {
           purchaseHistory: customerContext.purchaseHistory,
           salesOpportunities: result.intelligence?.salesOpportunities || [],
           consultationCommunication: result.intelligence?.consultationCommunication || null,
+          knownOrderData: {
+            customerKnown: Boolean(resolvedCustomer?.id),
+            phoneKnown: Boolean(resolvedCustomer?.phone || invoiceVerification.bestCandidate?.customerPhone),
+            addressKnown: Boolean(invoiceVerification.bestCandidate?.customerAddress),
+            productKnown: Boolean(invoiceItems.length || operational.products.some((row) => ['requested', 'accepted', 'recommended', 'unavailable'].includes(row.status))),
+            quantityKnown: Boolean(
+              invoiceItems.some((row) => row.effectiveQuantity != null || row.quantity != null) ||
+              operational.products.some((row) => row.quantity != null)
+            ),
+          },
         });
 
         const officialReviewDraft = buildSmartOfficialReviewDraftV1(evaluationSession, session.customerName, {
