@@ -64,8 +64,8 @@ export interface InvoiceCandidate {
   sellerName: string | null;
   customerCode: string | null;
   customerName: string | null;
-  customerPhone: string | null;
-  customerAddress: string | null;
+  customerPhone?: string | null;
+  customerAddress?: string | null;
   amount: number | null;
   score: number;
   confidence: number;
