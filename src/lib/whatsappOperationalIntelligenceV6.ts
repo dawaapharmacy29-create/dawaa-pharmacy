@@ -570,7 +570,9 @@ export function buildWhatsAppOperationalIntelligenceV6(session: WhatsAppConversa
   const recs = recommendations(session, products);
   const acceptedRecommendation = recs.some((r) => r.accepted === true);
   const rejected = has(inbound, REJECT_RX);
-  const closeRows = session.messages.filter((message) => CLOSE_RX.test(message.text));
+  const closeRows = session.messages.filter((message) =>
+    message.direction === 'outbound' && CLOSE_RX.test(message.text)
+  );
   const lastCloseAt = closeRows.at(-1)?.timestamp.getTime() ?? null;
   const deferredAfterClose = lastCloseAt != null && session.messages.some((message) =>
     message.direction === 'inbound' &&
@@ -670,7 +672,7 @@ export function buildWhatsAppOperationalIntelligenceV6(session: WhatsAppConversa
       complaint: evidenceFromMessages(complaintRows, 95),
       deliveryFailure: evidenceFromMessages(fulfillmentFailures, 96),
       checkin: evidenceFromMessages(proactiveCheckinMessages(session), 94),
-      saleClose: evidenceFor(session, CLOSE_RX, 88),
+      saleClose: evidenceFromMessages(close ? closeRows : [], close ? 88 : 0),
       stockUnavailable: evidenceFor({ ...session, messages: byDirection(session, 'outbound') }, /(مش موجود|غير موجود|غير متوفر(?:ه|ة)?|مش متوفر(?:ه|ة)?|ناقص|مش متاح|خلص|مش عندنا)/i, 92),
       alternativeOffered: evidenceFor({ ...session, messages: byDirection(session, 'outbound') }, /(بديل|بداله|بدلها|ممكن بدل|نرشح|ارشح|أرشح|حاجه\s+زيها|حاجة\s+زيها|حاحه\s+زيها|حاحة\s+زيها)/i, 88),
       customerState: positiveCheckinFeedback
