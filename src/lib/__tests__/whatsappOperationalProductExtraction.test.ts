@@ -82,6 +82,23 @@ describe('WhatsApp Operational Intelligence V6 product extraction', () => {
     expect(model.primaryIntent).toBe('doctor_recommendation');
   });
 
+  it('does not treat the official 24-hour delivery welcome as a product', () => {
+    const model = analyze(`[9/28/26, 6:52:06 AM] You: أهلًا وسهلًا بحضرتك✨
+نورتنا في صيدليات دواء 💚
+مع حضرتك د شبل
+خدمة التوصيل متاحة على مدار ٢٤ ساعة 🚗`);
+    expect(model.products).toHaveLength(0);
+  });
+
+  it('trims fulfillment wording after an explicit outbound product mention', () => {
+    const model = analyze(`[9/28/26, 6:55:01 AM] You: معلش بس في شريط بون كير هجيبه من الفرع التاني بس وييجي لحضرتك`);
+    const product = model.products.find((row) => /بون كير/i.test(row.rawName));
+    expect(product).toBeTruthy();
+    expect(product?.rawName).toBe('بون كير');
+    expect(product?.mentionOrigin).toBe('pharmacy_mention');
+    expect(product?.requestProven).toBe(false);
+  });
+
   it('does not invent products from Mahmoud Saleh image-reference requests and greetings', () => {
     const model = analyze(`[9/27/26, 8:25:21 PM] الحاج محمود صالح ٢٤٩٠: اهلا بيكي حبيبتي الحمد لله كله تمام
 [9/27/26, 8:25:35 PM] الحاج محمود صالح ٢٤٩٠: لو سمحت يادكتور عايزه العلبه دي
