@@ -13,6 +13,7 @@ import {
   supportsLocalWhatsAppInbox,
   resetLocalWhatsAppProcessedLedger,
   resetLocalWhatsAppProcessedKeys,
+  resetLocalWhatsAppProcessedFileNames,
   getLocalWhatsAppFailedItems,
   resetLocalWhatsAppFailedLedger,
   loadLocalWhatsAppAnalysisHistory,
@@ -820,6 +821,19 @@ export default function WhatsAppSmartFolderWatcher() {
     await scanOnce();
   }
 
+  async function reanalyzeVisibleRuns() {
+    if (scanning) return;
+    const names = Array.from(new Set(filteredRuns.map((run) => run.fileName).filter(Boolean)));
+    if (!names.length) {
+      toast.message('لا توجد ملفات ظاهرة لإعادة تحليلها');
+      return;
+    }
+    resetLocalWhatsAppProcessedFileNames(names);
+    setRuns((current) => current.filter((run) => !names.includes(run.fileName)));
+    toast.message(`إعادة تحليل ${names.length} ملف ظاهر فقط`);
+    await scanOnce();
+  }
+
   async function connect() {
     try {
       const handle = await connectLocalWhatsAppFolder();
@@ -861,15 +875,29 @@ export default function WhatsAppSmartFolderWatcher() {
 
   const filteredRuns = useMemo(() => {
     const query = runQuery.trim().toLowerCase();
-    if (!query) return runs;
-    return runs.filter((run) =>
-      run.fileName.toLowerCase().includes(query) ||
-      run.staffRuns.some((item) =>
-        item.staffName.toLowerCase().includes(query) ||
-        String(item.customerName || '').toLowerCase().includes(query)
-      )
-    );
-  }, [runs, runQuery]);
+    const todayKey = cairoDayKey(new Date());
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayKey = cairoDayKey(yesterday);
+    const targetDay =
+      dayFilter === 'today' ? todayKey :
+      dayFilter === 'yesterday' ? yesterdayKey :
+      dayFilter === 'custom' ? customDay || null :
+      null;
+
+    return runs.filter((run) => {
+      const conversationDay = cairoDayKey(runConversationStart(run));
+      if (targetDay && conversationDay !== targetDay) return false;
+      if (!query) return true;
+      return (
+        run.fileName.toLowerCase().includes(query) ||
+        run.staffRuns.some((item) =>
+          item.staffName.toLowerCase().includes(query) ||
+          String(item.customerName || '').toLowerCase().includes(query)
+        )
+      );
+    });
+  }, [runs, runQuery, dayFilter, customDay]);
 
   function runKey(run: FileRun, index: number) {
     return `${run.fileName}-${run.at}-${index}`;
@@ -972,8 +1000,46 @@ export default function WhatsAppSmartFolderWatcher() {
 
       <section className="dawaa-card overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 p-3">
-          <div className="font-black text-white">الملفات المحللة</div>
-          <div className="relative w-full sm:w-80">
+          <div>
+            <div className="font-black text-white">الملفات المحللة</div>
+            <div className="mt-1 text-[10px] text-slate-500">الفلتر يعتمد على تاريخ المحادثة، وليس وقت رفع الملف.</div>
+          </div>
+          <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto">
+            <div className="flex flex-wrap gap-1">
+              {[
+                ['today','اليوم'],
+                ['yesterday','أمس'],
+                ['all','كل الأيام'],
+              ].map(([value,label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setDayFilter(value as 'today' | 'yesterday' | 'all')}
+                  className={`rounded-lg border px-2.5 py-1.5 text-[10px] font-black ${dayFilter===value ? 'border-cyan-500 bg-cyan-500/15 text-cyan-200' : 'border-slate-700 bg-slate-900 text-slate-400'}`}
+                >
+                  {label}
+                </button>
+              ))}
+              <input
+                type="date"
+                value={customDay}
+                onChange={(event) => {
+                  setCustomDay(event.target.value);
+                  if (event.target.value) setDayFilter('custom');
+                }}
+                className="rounded-lg border border-slate-700 bg-slate-950/50 px-2 py-1.5 text-[10px] text-slate-300 outline-none focus:border-cyan-600"
+                title="اختيار يوم محدد"
+              />
+              <button
+                type="button"
+                disabled={scanning || !filteredRuns.length}
+                onClick={() => void reanalyzeVisibleRuns()}
+                className="rounded-lg border border-violet-700/60 bg-violet-950/20 px-2.5 py-1.5 text-[10px] font-black text-violet-200 disabled:opacity-40"
+              >
+                إعادة تحليل الظاهر فقط
+              </button>
+            </div>
+            <div className="relative w-full sm:w-80">
             <Search size={15} className="absolute right-3 top-2.5 text-slate-500" />
             <input
               value={runQuery}
@@ -981,6 +1047,7 @@ export default function WhatsAppSmartFolderWatcher() {
               placeholder="ابحث باسم الملف أو الدكتور أو العميل"
               className="w-full rounded-xl border border-slate-700 bg-slate-950/40 py-2 pr-9 pl-3 text-xs text-white outline-none focus:border-cyan-600"
             />
+            </div>
           </div>
         </div>
 
@@ -1001,8 +1068,13 @@ export default function WhatsAppSmartFolderWatcher() {
                   <button type="button" onClick={() => toggleRun(run, runIndex)} className="flex w-full items-center justify-between gap-3 px-4 py-3 text-right transition hover:bg-slate-950/25">
                     <div className="min-w-0 flex-1">
                       <div className="truncate font-black text-white">{run.fileName}</div>
-                      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-500">
-                        <span>{run.at}</span><span>{run.messages} رسالة</span><span>{run.sessions} جلسة خام</span><span>{run.cases ?? run.sessions} حالة/رحلة</span><span>{run.staffRuns.length} مسؤول</span>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
+                        <span className="font-bold text-slate-400">المحادثة: {formatCairoDateTime(runConversationStart(run))}</span>
+                        <span>آخر تحليل: {formatCairoDateTime(runAnalyzedAt(run))}</span>
+                        {cairoDayKey(runConversationStart(run))===cairoDayKey(new Date()) ? <span className="rounded-full bg-cyan-500/10 px-2 py-0.5 text-[10px] font-black text-cyan-300">محادثة اليوم</span> : <span className="rounded-full bg-slate-700/40 px-2 py-0.5 text-[10px] font-bold text-slate-400">محادثة قديمة</span>}
+                        {cairoDayKey(runAnalyzedAt(run))===cairoDayKey(new Date()) ? <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-black text-emerald-300">تحليل اليوم</span> : <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-300">تحليل قديم</span>}
+                        {run.analysisMs ? <span>زمن التحليل: {(run.analysisMs/1000).toFixed(1)} ث</span> : null}
+                        <span>{run.messages} رسالة</span><span>{run.sessions} جلسة خام</span><span>{run.cases ?? run.sessions} حالة/رحلة</span><span>{run.staffRuns.length} مسؤول</span>
                       </div>
                     </div>
                     <div className="hidden flex-wrap items-center gap-1.5 sm:flex">
