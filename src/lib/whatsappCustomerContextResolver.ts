@@ -18,6 +18,9 @@ export interface CustomerPurchaseHistory {
 
 export interface CustomerContactProfile {
   phone: string | null;
+  customerPhone: string | null;
+  mobile: string | null;
+  normalizedPhone: string | null;
   whatsappPhone: string | null;
   alternatePhone: string | null;
   address: string | null;
@@ -46,15 +49,26 @@ export function extractPhoneCandidate(session: WhatsAppConversationSession): str
 async function fetchCustomerContactProfile(customerId: string): Promise<CustomerContactProfile> {
   const { data, error } = await supabase
     .from('customers')
-    .select('phone,whatsapp_phone,phone_alt,address')
+    .select('phone,customer_phone,mobile,normalized_phone,whatsapp_phone,phone_alt,address')
     .eq('id', customerId)
     .maybeSingle();
   if (error) {
     console.warn('[whatsapp-customer-context] contact profile lookup failed', error);
-    return { phone: null, whatsappPhone: null, alternatePhone: null, address: null };
+    return {
+      phone: null,
+      customerPhone: null,
+      mobile: null,
+      normalizedPhone: null,
+      whatsappPhone: null,
+      alternatePhone: null,
+      address: null,
+    };
   }
   return {
     phone: data?.phone ? String(data.phone).trim() : null,
+    customerPhone: data?.customer_phone ? String(data.customer_phone).trim() : null,
+    mobile: data?.mobile ? String(data.mobile).trim() : null,
+    normalizedPhone: data?.normalized_phone ? String(data.normalized_phone).trim() : null,
     whatsappPhone: data?.whatsapp_phone ? String(data.whatsapp_phone).trim() : null,
     alternatePhone: data?.phone_alt ? String(data.phone_alt).trim() : null,
     address: data?.address ? String(data.address).trim() : null,
