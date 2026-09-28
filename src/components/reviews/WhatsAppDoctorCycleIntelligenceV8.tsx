@@ -3,26 +3,22 @@ import { BadgeDollarSign, ChevronLeft, CircleAlert, FileText, PackageSearch, Ref
 import { supabase } from '@/lib/supabase';
 
 type Row = {
-  staff_id: string | null;
-  staff_name: string | null;
+  owner_account_id: string | null;
+  owner_name: string | null;
+  owner_role: string | null;
   branch: string | null;
   cycle_start: string;
   cycle_end: string;
-  conversation_count: number;
-  customer_count: number;
-  commercial_conversations: number;
-  verified_sale_conversations: number;
-  conversations_needing_followup: number;
-  complaint_conversations: number;
-  verified_invoice_count: number;
+  handled_cases: number;
+  commercial_opportunities: number;
+  recommendation_cases: number;
+  confirmed_orders: number;
+  verified_sales: number;
+  verified_conversion_rate: number | null;
   verified_revenue: number;
-  verified_conversion_rate: number;
-  product_journey_count: number;
-  sale_leakage_count: number;
-  chat_closed_product_count: number;
-  recommendation_followup_count: number;
-  accepted_product_count: number;
-  unavailable_product_count: number;
+  lost_opportunities: number;
+  cases_with_failure_signal: number;
+  cases_with_complaint_signal: number;
 };
 
 type ConversationRow = {
@@ -91,10 +87,11 @@ export default function WhatsAppDoctorCycleIntelligenceV8({ onOpenSource }: { on
     try {
       const today = cairoDate();
       const { data, error } = await supabase
-        .from('whatsapp_doctor_cycle_intelligence_v1')
+        .from('whatsapp_case_doctor_kpis_v23')
         .select('*')
         .lte('cycle_start', today)
         .gte('cycle_end', today)
+        .in('owner_role', ['pharmacist', 'pharmacy_unknown'])
         .order('verified_revenue', { ascending: false });
       if (error) throw error;
       setRows((data || []) as Row[]);
@@ -117,7 +114,7 @@ export default function WhatsAppDoctorCycleIntelligenceV8({ onOpenSource }: { on
         .eq('branch', row.branch || '')
         .order('conversation_started_at', { ascending: false })
         .limit(250);
-      sourceQuery = row.staff_id ? sourceQuery.eq('staff_id', row.staff_id) : sourceQuery.eq('staff_name', row.staff_name || '');
+      sourceQuery = row.owner_account_id ? sourceQuery.eq('staff_id', row.owner_account_id) : sourceQuery.eq('staff_name', row.owner_name || '');
 
       let productQuery = supabase
         .from('whatsapp_product_journey_detail_v1')
@@ -127,7 +124,7 @@ export default function WhatsAppDoctorCycleIntelligenceV8({ onOpenSource }: { on
         .eq('branch', row.branch || '')
         .order('conversation_started_at', { ascending: false })
         .limit(300);
-      productQuery = row.staff_id ? productQuery.eq('staff_id', row.staff_id) : productQuery.eq('staff_name', row.staff_name || '');
+      productQuery = row.owner_account_id ? productQuery.eq('staff_id', row.owner_account_id) : productQuery.eq('staff_name', row.owner_name || '');
 
       const [sourceResult, productResult] = await Promise.all([sourceQuery, productQuery]);
       if (sourceResult.error) throw sourceResult.error;
@@ -150,15 +147,15 @@ export default function WhatsAppDoctorCycleIntelligenceV8({ onOpenSource }: { on
     return rows.filter((row) => {
       if (branch !== 'all' && row.branch !== branch) return false;
       if (!q) return true;
-      return String(row.staff_name || '').toLowerCase().includes(q);
+      return String(row.owner_name || '').toLowerCase().includes(q);
     });
   }, [rows, search, branch]);
 
   const totals = useMemo(() => ({
     revenue: filtered.reduce((sum, row) => sum + Number(row.verified_revenue || 0), 0),
-    sales: filtered.reduce((sum, row) => sum + Number(row.verified_sale_conversations || 0), 0),
-    opportunities: filtered.reduce((sum, row) => sum + Number(row.commercial_conversations || 0), 0),
-    leakage: filtered.reduce((sum, row) => sum + Number(row.sale_leakage_count || 0), 0),
+    sales: filtered.reduce((sum, row) => sum + Number(row.verified_sales || 0), 0),
+    opportunities: filtered.reduce((sum, row) => sum + Number(row.commercial_opportunities || 0), 0),
+    leakage: filtered.reduce((sum, row) => sum + Number(row.lost_opportunities || 0), 0),
   }), [filtered]);
 
   const detailStats = useMemo(() => ({
@@ -194,7 +191,7 @@ export default function WhatsAppDoctorCycleIntelligenceV8({ onOpenSource }: { on
     <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-800">
       <table className="min-w-[1180px] w-full text-right text-sm">
         <thead className="bg-slate-950/70 text-xs text-slate-400"><tr><th className="p-3">الدكتور</th><th className="p-3">الفرع</th><th className="p-3">المحادثات</th><th className="p-3">عملاء</th><th className="p-3">فرص تجارية</th><th className="p-3">بيع Legacy</th><th className="p-3">Conversion</th><th className="p-3">إيراد Legacy</th><th className="p-3">غير متوفر</th><th className="p-3">فقد بيع</th><th className="p-3">ترشيحات مقبولة</th><th className="p-3">متابعات</th><th className="p-3">شكاوى</th><th className="p-3">تفاصيل</th></tr></thead>
-        <tbody>{filtered.map((row) => <tr key={`${row.staff_id || row.staff_name}-${row.branch}-${row.cycle_start}`} className="border-t border-slate-800 bg-slate-950/25 text-slate-200 hover:bg-slate-900/45"><td className="p-3 font-black text-white">{row.staff_name || 'غير محدد'}</td><td className="p-3">{row.branch || '—'}</td><td className="p-3">{row.conversation_count}</td><td className="p-3">{row.customer_count}</td><td className="p-3">{row.commercial_conversations}</td><td className="p-3 text-emerald-300">{row.verified_sale_conversations}</td><td className="p-3"><span className="inline-flex items-center gap-1"><TrendingUp size={13}/>{Number(row.verified_conversion_rate || 0).toFixed(1)}%</span></td><td className="p-3 font-black text-emerald-300"><span className="inline-flex items-center gap-1"><BadgeDollarSign size={13}/>{money(row.verified_revenue)}</span></td><td className="p-3">{row.unavailable_product_count}</td><td className="p-3 text-amber-300">{row.sale_leakage_count}</td><td className="p-3">{row.accepted_product_count}</td><td className="p-3">{row.conversations_needing_followup}</td><td className="p-3 text-rose-300">{row.complaint_conversations}</td><td className="p-3"><button type="button" onClick={() => void loadDoctorDetail(row)} className="inline-flex items-center gap-1 rounded-lg border border-cyan-400/25 bg-cyan-500/10 px-2.5 py-1.5 text-xs font-black text-cyan-200">فتح <ChevronLeft size={13}/></button></td></tr>)}</tbody>
+        <tbody>{filtered.map((row) => <tr key={`${row.owner_account_id || row.owner_name}-${row.branch}-${row.cycle_start}`} className="border-t border-slate-800 bg-slate-950/25 text-slate-200 hover:bg-slate-900/45"><td className="p-3 font-black text-white">{row.owner_name || 'غير محدد'}</td><td className="p-3">{row.branch || '—'}</td><td className="p-3">{row.handled_cases}</td><td className="p-3">{row.customer_count}</td><td className="p-3">{row.commercial_opportunities}</td><td className="p-3 text-emerald-300">{row.verified_sales}</td><td className="p-3"><span className="inline-flex items-center gap-1"><TrendingUp size={13}/>{Number(row.verified_conversion_rate || 0).toFixed(1)}%</span></td><td className="p-3 font-black text-emerald-300"><span className="inline-flex items-center gap-1"><BadgeDollarSign size={13}/>{money(row.verified_revenue)}</span></td><td className="p-3">{row.recommendation_cases}</td><td className="p-3 text-amber-300">{row.lost_opportunities}</td><td className="p-3">{row.confirmed_orders}</td><td className="p-3">{row.cases_with_failure_signal}</td><td className="p-3 text-rose-300">{row.cases_with_complaint_signal}</td><td className="p-3"><button type="button" onClick={() => void loadDoctorDetail(row)} className="inline-flex items-center gap-1 rounded-lg border border-cyan-400/25 bg-cyan-500/10 px-2.5 py-1.5 text-xs font-black text-cyan-200">فتح <ChevronLeft size={13}/></button></td></tr>)}</tbody>
       </table>
       {!loading && filtered.length === 0 ? <div className="p-8 text-center text-sm text-slate-500">لا توجد بيانات كافية للدكاترة في السايكل الحالي حتى الآن.</div> : null}
     </div>
