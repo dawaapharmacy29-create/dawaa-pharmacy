@@ -1540,10 +1540,11 @@ export default function WhatsAppSmartFolderWatcher() {
 
                   <section className="rounded-2xl border border-sky-800/40 bg-sky-950/10 p-4">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="rounded-full bg-sky-500/15 px-2 py-0.5 text-[10px] font-black text-sky-200">Cross-check</span>
+                      <span className="rounded-full bg-sky-500/15 px-2 py-0.5 text-[10px] font-black text-sky-200">تحقق تشخيصي إضافي</span>
                       <b className="text-sm text-white">{selected.journeyCrossCheck.journeyLabel}</b>
                     </div>
                     <div className="mt-1 text-xs text-slate-400">{selected.journeyCrossCheck.saleStateLabel}</div>
+                    <div className="mt-1 text-[10px] text-slate-500">للتفسير والمراجعة فقط؛ لا يتقدم على حقيقة الفاتورة أو ملخص القرار بالأعلى.</div>
                   </section>
                 </div>
               ) : null}
@@ -1699,10 +1700,12 @@ export default function WhatsAppSmartFolderWatcher() {
 
                                             <section className="grid gap-3 lg:grid-cols-2">
                         <div className="rounded-2xl border border-emerald-800/30 bg-emerald-950/10 p-4">
-                          <div className="text-xs font-black text-emerald-200">نتيجة البيع</div>
-                          <div className="mt-1 text-base font-black text-white">{selected.snapshot.smartIntelligence.evaluationV2.sale.label}</div>
-                          <div className="mt-1 text-xs leading-6 text-slate-400">{selected.snapshot.smartIntelligence.evaluationV2.sale.reason}</div>
-                          {selected.snapshot.smartIntelligence.evaluationV2.sale.invoiceNumber ? <div className="mt-2 text-xs text-emerald-300">فاتورة {selected.snapshot.smartIntelligence.evaluationV2.sale.invoiceNumber}{selected.snapshot.smartIntelligence.evaluationV2.sale.revenue != null ? ` · ${selected.snapshot.smartIntelligence.evaluationV2.sale.revenue} ج` : ''}</div> : null}
+                          <div className="text-xs font-black text-emerald-200">حقيقة البيع والتنفيذ</div>
+                          <div className="mt-1 text-base font-black text-white">{saleTruth(selected).label}</div>
+                          <div className="mt-1 text-xs leading-6 text-slate-400">{saleTruth(selected).detail}</div>
+                          <div className="mt-2 text-[10px] leading-5 text-slate-500">
+                            الفاتورة تحسم حقيقة البيع عند التطابق القوي، أما تأكيد الدكتور للأصناف مع العميل فيُقيَّم كخطوة خدمة مستقلة ولا يلغي البيع المثبت.
+                          </div>
                         </div>
                         <div className="rounded-2xl border border-sky-800/30 bg-sky-950/10 p-4">
                           <div className="text-xs font-black text-sky-200">اكتمال الأوردر</div>
