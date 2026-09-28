@@ -1,4 +1,5 @@
 import type { SmartDeepConversationAnalysis } from './whatsappSmartConversationIntelligence';
+import type { SmartIntelligenceSnapshotV1, SmartRequestedProductEvidenceV32 } from './whatsappSmartIntelligenceSnapshot';
 
 export interface SmartCustomerRequestActionProposal {
   kind: 'customer_request';
@@ -48,43 +49,85 @@ function followupReasonLabel(reason: SmartDeepConversationAnalysis['followup']['
   return 'متابعة مقترحة من تحليل المحادثة';
 }
 
+function canonicalCustomer(snapshot?: SmartIntelligenceSnapshotV1 | null) {
+  const customer = snapshot?.customer?.customer || null;
+  const contact = snapshot?.customerContact || null;
+  return {
+    name: customer?.name || null,
+    code: customer?.code || null,
+    phone:
+      customer?.phone ||
+      contact?.phone ||
+      contact?.customerPhone ||
+      contact?.mobile ||
+      contact?.normalizedPhone ||
+      contact?.whatsappPhone ||
+      contact?.alternatePhone ||
+      null,
+  };
+}
+
+function canonicalRequestProduct(snapshot?: SmartIntelligenceSnapshotV1 | null): SmartRequestedProductEvidenceV32 | null {
+  const products = snapshot?.requestedProducts || [];
+  return products.find((row) => row.requestProven && ['requested', 'unavailable', 'accepted'].includes(row.status))
+    || products.find((row) => row.status === 'unavailable' && row.sourceDirection === 'inbound')
+    || null;
+}
+
 export function buildSmartReviewActionPlan(args: {
   intelligence: SmartDeepConversationAnalysis | null;
+  smartIntelligence?: SmartIntelligenceSnapshotV1 | null;
   staffName?: string | null;
   fallbackCustomerName?: string | null;
 }): SmartReviewActionPlan {
   const deep = args.intelligence;
-  if (!deep) return { customerRequest: null, followup: null };
+  const smart = args.smartIntelligence || null;
+  if (!deep && !smart) return { customerRequest: null, followup: null };
 
-  const request = deep.customerRequest;
-  const customerRequest: SmartCustomerRequestActionProposal | null = request.detected || deep.unavailableItem.detected
+  const legacyRequest = deep?.customerRequest || null;
+  const canonicalIdentity = canonicalCustomer(smart);
+  const canonicalProduct = canonicalRequestProduct(smart);
+  const canonicalFollowup = smart?.evaluationV2?.followups?.[0] || null;
+
+  const hasCustomerRequest = Boolean(
+    canonicalProduct ||
+    legacyRequest?.detected ||
+    deep?.unavailableItem.detected
+  );
+
+  const customerRequest: SmartCustomerRequestActionProposal | null = hasCustomerRequest
     ? {
         kind: 'customer_request',
-        customerName: request.customerName || args.fallbackCustomerName || null,
-        customerCode: request.customerCode,
-        customerPhone: request.customerPhone,
-        productName: request.productName,
-        quantity: parseQuantity(request.quantity),
-        concentration: request.concentration,
+        customerName: canonicalIdentity.name || legacyRequest?.customerName || args.fallbackCustomerName || null,
+        customerCode: canonicalIdentity.code || legacyRequest?.customerCode || null,
+        customerPhone: canonicalIdentity.phone || legacyRequest?.customerPhone || null,
+        productName: canonicalProduct?.canonicalName || canonicalProduct?.rawName || legacyRequest?.productName || null,
+        quantity: canonicalProduct?.quantity ?? parseQuantity(legacyRequest?.quantity || null),
+        concentration: legacyRequest?.concentration || null,
         staffName: args.staffName || null,
         evidenceMessageIds: Array.from(new Set([
-          ...request.evidenceMessageIds,
-          ...deep.unavailableItem.evidenceMessageIds,
+          ...(canonicalProduct?.evidenceMessageIds || []),
+          ...(legacyRequest?.evidenceMessageIds || []),
+          ...(deep?.unavailableItem.evidenceMessageIds || []),
         ])),
-        // Even a high-confidence text extraction must be bound to canonical customer/product ids by the user.
+        // Action creation still requires a human confirmation; canonical facts only prefill it safely.
         needsConfirmation: true,
       }
     : null;
 
-  const followup: SmartFollowupActionProposal | null = deep.followup.detected
+  const hasFollowup = Boolean(canonicalFollowup || deep?.followup.detected);
+  const followup: SmartFollowupActionProposal | null = hasFollowup
     ? {
         kind: 'followup',
-        customerName: request.customerName || args.fallbackCustomerName || null,
-        customerCode: request.customerCode,
-        customerPhone: request.customerPhone,
-        reason: followupReasonLabel(deep.followup.reason),
+        customerName: canonicalIdentity.name || legacyRequest?.customerName || args.fallbackCustomerName || null,
+        customerCode: canonicalIdentity.code || legacyRequest?.customerCode || null,
+        customerPhone: canonicalIdentity.phone || legacyRequest?.customerPhone || null,
+        reason: canonicalFollowup?.reason || canonicalFollowup?.label || followupReasonLabel(deep?.followup.reason || null),
         staffName: args.staffName || null,
-        evidenceMessageIds: deep.followup.evidenceMessageIds.slice(),
+        evidenceMessageIds: Array.from(new Set([
+          ...(canonicalFollowup?.evidenceMessageIds || []),
+          ...(deep?.followup.evidenceMessageIds || []),
+        ])),
         needsConfirmation: true,
       }
     : null;
