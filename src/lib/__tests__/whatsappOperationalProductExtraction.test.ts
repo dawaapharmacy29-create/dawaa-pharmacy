@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseWhatsAppExport, splitWhatsAppSessions } from '@/lib/whatsappConversationParser';
 import { buildUnifiedConversationIntelligence } from '@/lib/whatsappUnifiedIntelligenceV4';
-import { buildWhatsAppOperationalIntelligenceV6, mergeDeicticProductReferences } from '@/lib/whatsappOperationalIntelligenceV6';
+import { buildWhatsAppOperationalIntelligenceV6, mergeDeicticProductReferences, mergeProductSignalsByTruthV34 } from '@/lib/whatsappOperationalIntelligenceV6';
 
 function analyze(raw: string) {
   const sessions = splitWhatsAppSessions(parseWhatsAppExport(raw), 120);
@@ -117,6 +117,69 @@ describe('WhatsApp Operational Intelligence V6 product extraction', () => {
     expect(model.products).toHaveLength(1);
     expect(model.products[0].rawName).toMatch(/فليكس لايكس/);
     expect(model.products[0].quantity).toBe(2);
+  });
+
+  it('keeps explicit customer demand above a higher-confidence pharmacy mention for the same catalog product', () => {
+    const merged = mergeProductSignalsByTruthV34([
+      {
+        rawName: 'Bon Care',
+        normalizedName: 'bon care',
+        quantity: 1,
+        status: 'requested',
+        sourceDirection: 'inbound',
+        evidenceMessageIds: ['customer-request'],
+        confidence: 86,
+        productId: 'p-bon',
+        productCode: 'BON1',
+        canonicalName: 'Bon Care',
+        catalogConfidence: 'strongly_inferred',
+        mentionOrigin: 'customer_explicit',
+        requestProven: true,
+      },
+      {
+        rawName: 'Bon Care',
+        normalizedName: 'bon care',
+        quantity: null,
+        status: 'mentioned',
+        sourceDirection: 'outbound',
+        evidenceMessageIds: ['pharmacy-mention'],
+        confidence: 98,
+        productId: 'p-bon',
+        productCode: 'BON1',
+        canonicalName: 'Bon Care',
+        catalogConfidence: 'proven',
+        mentionOrigin: 'pharmacy_mention',
+        requestProven: false,
+      },
+    ]);
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0].status).toBe('requested');
+    expect(merged[0].mentionOrigin).toBe('customer_explicit');
+    expect(merged[0].requestProven).toBe(true);
+    expect(merged[0].evidenceMessageIds).toEqual(expect.arrayContaining(['customer-request', 'pharmacy-mention']));
+  });
+
+  it('does not promote a pharmacy-only product mention into customer demand during semantic merge', () => {
+    const merged = mergeProductSignalsByTruthV34([
+      {
+        rawName: 'Bon Care',
+        normalizedName: 'bon care',
+        quantity: null,
+        status: 'mentioned',
+        sourceDirection: 'outbound',
+        evidenceMessageIds: ['m1'],
+        confidence: 98,
+        productId: 'p-bon',
+        productCode: 'BON1',
+        canonicalName: 'Bon Care',
+        catalogConfidence: 'proven',
+        mentionOrigin: 'pharmacy_mention',
+        requestProven: false,
+      },
+    ]);
+    expect(merged[0].status).toBe('mentioned');
+    expect(merged[0].requestProven).toBe(false);
   });
 
   it('merges category deictic references into a nearby canonical product', () => {
