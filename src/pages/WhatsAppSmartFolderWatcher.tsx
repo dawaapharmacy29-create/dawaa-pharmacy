@@ -978,6 +978,58 @@ export default function WhatsAppSmartFolderWatcher() {
     return value;
   }
 
+  function saleTruth(item: StaffRun) {
+    const smart = item.snapshot.smartIntelligence;
+    const invoice = smart?.invoiceVerification;
+    const evaluation = smart?.evaluationV2;
+    if (invoice?.status === 'verified') {
+      return {
+        label: 'بيع مؤكد بالفاتورة',
+        detail: invoice.bestCandidate?.invoiceNumber
+          ? `فاتورة ${invoice.bestCandidate.invoiceNumber}${invoice.revenue != null ? ` · ${invoice.revenue} ج` : ''}`
+          : (invoice.reason || 'تم إثبات البيع من الفاتورة المرتبطة.'),
+        tone: 'emerald',
+      };
+    }
+    if (invoice?.status === 'probable') {
+      return {
+        label: 'بيع مرجح — الفاتورة تحتاج مراجعة',
+        detail: invoice.bestCandidate?.invoiceNumber
+          ? `فاتورة مرشحة ${invoice.bestCandidate.invoiceNumber}${invoice.revenue != null ? ` · ${invoice.revenue} ج` : ''}`
+          : invoice.reason,
+        tone: 'amber',
+      };
+    }
+    if (evaluation?.sale?.outcome === 'order_confirmed') {
+      return { label: 'الطلب مؤكد في المحادثة', detail: evaluation.sale.reason, tone: 'cyan' };
+    }
+    if (evaluation?.sale?.outcome === 'customer_accepted') {
+      return { label: 'العميل وافق — التنفيذ غير مثبت', detail: evaluation.sale.reason, tone: 'amber' };
+    }
+    if (evaluation?.sale?.outcome === 'invoice_verified_sale') {
+      return { label: 'بيع مؤكد بالفاتورة', detail: evaluation.sale.reason, tone: 'emerald' };
+    }
+    return {
+      label: evaluation?.sale?.label || 'البيع غير محسوم',
+      detail: evaluation?.sale?.reason || invoice?.reason || 'لا يوجد دليل كافٍ لحسم نتيجة البيع.',
+      tone: 'slate',
+    };
+  }
+
+  function protocolStatus(item: StaffRun) {
+    const evaluation = item.snapshot.smartIntelligence?.evaluationV2;
+    const opening = evaluation?.opening;
+    const closing = evaluation?.closing;
+    const order = evaluation?.orderCompleteness;
+    return {
+      opening: opening?.score != null && opening.score >= 80 ? 'موجود' : opening?.score != null ? 'جزئي' : 'غير محسوم',
+      orderConfirmation: order?.applicable
+        ? (order.confirmedCount >= order.requiredCount ? 'مؤكد بالكامل' : `${order.confirmedCount}/${order.requiredCount} مؤكد`)
+        : 'غير منطبق/غير محسوم',
+      closing: closing?.score != null && closing.score >= 80 ? 'موجود' : closing?.score != null ? 'جزئي' : 'غير محسوم',
+    };
+  }
+
   return (
     <div dir="rtl" className="mx-auto max-w-7xl space-y-4 p-3 md:p-5">
       <section className="dawaa-card dawaa-card--raised overflow-hidden">
@@ -1211,6 +1263,97 @@ export default function WhatsAppSmartFolderWatcher() {
             <div className="min-h-0 flex-1 overflow-y-auto p-4">
               {detailTab === 'overview' ? (
                 <div className="space-y-3">
+                  {(() => {
+                    const truth = saleTruth(selected);
+                    const protocol = protocolStatus(selected);
+                    const invoice = selected.snapshot.smartIntelligence?.invoiceVerification;
+                    const customer = selected.snapshot.smartIntelligence?.customer;
+                    const evalV2 = selected.snapshot.smartIntelligence?.evaluationV2;
+                    const toneClass = truth.tone === 'emerald'
+                      ? 'border-emerald-700/50 bg-emerald-950/15'
+                      : truth.tone === 'amber'
+                        ? 'border-amber-700/50 bg-amber-950/15'
+                        : truth.tone === 'cyan'
+                          ? 'border-cyan-700/50 bg-cyan-950/15'
+                          : 'border-slate-700 bg-slate-950/20';
+                    return (
+                      <section className={`rounded-2xl border p-4 ${toneClass}`}>
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="text-[10px] font-black text-slate-400">الخلاصة التنفيذية</div>
+                            <div className="mt-1 text-lg font-black text-white">{truth.label}</div>
+                            <div className="mt-1 text-xs leading-6 text-slate-300">{truth.detail}</div>
+                          </div>
+                          <div className="rounded-xl bg-black/15 px-3 py-2 text-center">
+                            <div className="text-[10px] text-slate-500">حالة المراجعة</div>
+                            <div className="mt-1 text-xs font-black text-white">{decisionLabel(selected.decision)}</div>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                          <div className="rounded-xl border border-slate-800 bg-black/10 p-3">
+                            <div className="text-[10px] font-black text-slate-500">الفاتورة</div>
+                            <div className="mt-1 text-sm font-black text-white">
+                              {invoice?.bestCandidate?.invoiceNumber || 'غير مرتبطة'}
+                            </div>
+                            <div className="mt-1 text-[10px] text-slate-400">
+                              {invoice?.revenue != null ? `${invoice.revenue} ج` : invoice?.status === 'verified' ? 'القيمة غير متاحة' : invoice?.reason || 'لا توجد فاتورة مؤكدة'}
+                            </div>
+                          </div>
+
+                          <div className="rounded-xl border border-slate-800 bg-black/10 p-3">
+                            <div className="text-[10px] font-black text-slate-500">العميل</div>
+                            <div className="mt-1 text-sm font-black text-white">
+                              {customer?.customer?.name || selected.customerName || 'غير محدد'}
+                            </div>
+                            <div className="mt-1 text-[10px] text-slate-400">
+                              {customer?.customer
+                                ? `مربوط بسجل العميل · كود ${customer.customer.code || '—'}`
+                                : 'الاسم موجود لكن الربط بسجل العميل غير محسوم'}
+                            </div>
+                          </div>
+
+                          <div className="rounded-xl border border-slate-800 bg-black/10 p-3">
+                            <div className="text-[10px] font-black text-slate-500">تأكيد الطلب</div>
+                            <div className="mt-1 text-sm font-black text-white">{protocol.orderConfirmation}</div>
+                            <div className="mt-1 text-[10px] text-slate-400">هل راجع الدكتور الأصناف/البيانات مع العميل قبل الإغلاق؟</div>
+                          </div>
+
+                          <div className="rounded-xl border border-slate-800 bg-black/10 p-3">
+                            <div className="text-[10px] font-black text-slate-500">بروتوكول المحادثة</div>
+                            <div className="mt-1 text-xs font-black text-white">ترحيب: {protocol.opening}</div>
+                            <div className="mt-1 text-xs font-black text-white">ختام: {protocol.closing}</div>
+                          </div>
+                        </div>
+
+                        <div className="mt-3 grid gap-2 lg:grid-cols-3">
+                          <div className="rounded-xl bg-black/10 p-3">
+                            <div className="text-[10px] font-black text-slate-500">فهم الطلب</div>
+                            <div className="mt-1 text-xs leading-5 text-slate-300">
+                              {evalV2?.orderCompleteness?.applicable
+                                ? `تم إثبات ${evalV2.orderCompleteness.confirmedCount} من ${evalV2.orderCompleteness.requiredCount} عنصر مطلوب للتنفيذ.`
+                                : 'لا توجد عناصر طلب كافية للحكم الكامل على اكتمال الطلب.'}
+                            </div>
+                          </div>
+                          <div className="rounded-xl bg-black/10 p-3">
+                            <div className="text-[10px] font-black text-slate-500">الأصناف</div>
+                            <div className="mt-1 text-xs leading-5 text-slate-300">
+                              {invoice?.status === 'verified'
+                                ? 'الفاتورة مؤكدة؛ سيتم اعتبار أصناف الفاتورة مصدر الحقيقة التجاري عند توفر تفاصيل البنود.'
+                                : 'لا توجد فاتورة مؤكدة تكفي وحدها لحسم الأصناف المباعة.'}
+                            </div>
+                          </div>
+                          <div className="rounded-xl bg-black/10 p-3">
+                            <div className="text-[10px] font-black text-slate-500">ما يحتاج مراجعة؟</div>
+                            <div className="mt-1 text-xs leading-5 text-slate-300">
+                              {selected.reasons.length ? selected.reasons.slice(0, 2).join(' · ') : 'لا توجد ملاحظات مؤثرة غير محسومة.'}
+                            </div>
+                          </div>
+                        </div>
+                      </section>
+                    );
+                  })()}
+
                   <section className="rounded-2xl border border-violet-800/40 bg-violet-950/10 p-4">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
