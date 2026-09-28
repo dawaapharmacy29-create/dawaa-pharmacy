@@ -254,10 +254,10 @@ export function buildSmartOfficialReviewDraftV1(
       set('sales_closing', {
         applies: true,
         suggestedChoice: 'clear_order',
-        suggestedLabel: 'قاد المحادثة لطلب واضح باحتراف',
-        confidence: Math.max(88, evalV2.sale.confidence),
+        suggestedLabel: 'الطلب تحرك للتنفيذ داخل المحادثة',
+        confidence: Math.max(84, evalV2.sale.confidence),
         status: 'confident',
-        reason: 'تم رصد تأكيد واضح للطلب داخل المحادثة؛ إثبات البيع المالي منفصل ويحتاج Canonical Sale Proof.',
+        reason: 'ظهر تسجيل/تنفيذ واضح للطلب داخل المحادثة. هذا يثبت تحرك الأوردر للتنفيذ، لكنه لا يثبت أن الدكتور راجع الأصناف مع العميل؛ بند تأكيد الأصناف يُقيَّم بشكل مستقل.',
         evidenceMessageIds: evalV2.sale.evidenceMessageIds,
       });
     } else if (evalV2.sale.outcome === 'invoice_verified_sale') {
@@ -303,27 +303,40 @@ export function buildSmartOfficialReviewDraftV1(
 
     if (evalV2.orderCompleteness.applicable && evalV2.orderCompleteness.score != null) {
       const score = evalV2.orderCompleteness.score;
-      const choice = evalV2.orderCompleteness.missingCritical.length
+      const explicitConfirmation = evalV2.orderCompleteness.items.find((item) => item.key === 'explicit_confirmation');
+      const hasExplicitItemConfirmation = explicitConfirmation?.status === 'confirmed';
+      const choice = !hasExplicitItemConfirmation
         ? 'important_missing'
-        : score >= 90
-          ? 'full'
-          : score >= 70
-            ? 'minor_missing'
-            : 'many_missing';
+        : evalV2.orderCompleteness.missingCritical.length
+          ? 'important_missing'
+          : score >= 90
+            ? 'full'
+            : score >= 70
+              ? 'minor_missing'
+              : 'many_missing';
       set('order_confirmation', {
         applies: true,
         suggestedChoice: choice,
-        suggestedLabel: choice === 'full'
-          ? 'أكد كل البيانات المطلوبة'
-          : choice === 'minor_missing'
-            ? 'ناقص بند بسيط'
-            : choice === 'many_missing'
-              ? 'ناقص أكثر من بند'
-              : 'لم يؤكد بيانات مهمة',
-        confidence: 88,
+        suggestedLabel: hasExplicitItemConfirmation
+          ? choice === 'full'
+            ? 'أكد الأصناف والبيانات المطلوبة مع العميل'
+            : choice === 'minor_missing'
+              ? 'أكد الأصناف مع وجود بند بسيط ناقص'
+              : 'أكد الأصناف لكن ما زالت بيانات مهمة ناقصة'
+          : 'لم يظهر تأكيد الدكتور للأصناف مع العميل',
+        confidence: hasExplicitItemConfirmation
+          ? Math.max(90, explicitConfirmation?.evidenceMessageIds?.length ? 94 : 90)
+          : 92,
         status: 'confident',
-        reason: `اكتمال بيانات الأوردر: ${evalV2.orderCompleteness.confirmedCount}/${evalV2.orderCompleteness.requiredCount}${evalV2.orderCompleteness.missingCritical.length ? `؛ الناقص المهم: ${evalV2.orderCompleteness.missingCritical.join('، ')}` : ''}.`,
-        evidenceMessageIds: evalV2.orderCompleteness.items.flatMap((item) => item.evidenceMessageIds).slice(0, 12),
+        reason: hasExplicitItemConfirmation
+          ? `تأكيد الأصناف مع العميل مثبت برسالة مباشرة. اكتمال باقي بيانات الأوردر: ${evalV2.orderCompleteness.confirmedCount}/${evalV2.orderCompleteness.requiredCount}${evalV2.orderCompleteness.missingCritical.length ? `؛ الناقص المهم: ${evalV2.orderCompleteness.missingCritical.join('، ')}` : ''}.`
+          : `لا توجد رسالة من الدكتور تراجع/تؤكد الأصناف مع العميل قبل الإغلاق. «تم تأكيد الطلب» أو «جاري الإرسال» يثبتان التنفيذ فقط ولا يُحسبان تأكيد أصناف. اكتمال باقي البيانات: ${evalV2.orderCompleteness.confirmedCount}/${evalV2.orderCompleteness.requiredCount}.`,
+        evidenceMessageIds: hasExplicitItemConfirmation
+          ? (explicitConfirmation?.evidenceMessageIds || []).slice(0, 12)
+          : evalV2.orderCompleteness.items
+              .filter((item) => item.key !== 'explicit_confirmation')
+              .flatMap((item) => item.evidenceMessageIds)
+              .slice(0, 12),
       });
     }
 
