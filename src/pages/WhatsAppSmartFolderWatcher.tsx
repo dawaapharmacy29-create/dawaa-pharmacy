@@ -49,6 +49,8 @@ import { buildConversationFocusV30 } from '@/lib/whatsappConversationFocusV30';
 import { buildEvaluationConversationV31 } from '@/lib/whatsappEvaluationConversationV31';
 import { buildGroundedSaleJourneyV33 } from '@/lib/whatsappGroundedSaleJourneyV33';
 import { syncWhatsAppResponseTurnsV18 } from '@/lib/whatsappResponseTurnsV18';
+import { syncWhatsAppEvidenceLedgerV17 } from '@/lib/whatsappEvidenceLedgerV17';
+import { syncWhatsAppOrderLifecycleV19 } from '@/lib/whatsappOrderLifecycleV19';
 import { persistAnalyzedWhatsAppSession, attachInvoiceVerificationToQueue } from '@/lib/whatsappReviewPersistenceV4';
 import { buildWhatsAppCustomerJourneyIntelligenceV15 } from '@/lib/whatsappCustomerJourneyIntelligenceV15';
 import { syncWhatsAppCustomerJourneyV15, type JourneySessionSourceV15 } from '@/lib/whatsappCustomerJourneyPersistenceV15';
@@ -630,6 +632,17 @@ export default function WhatsAppSmartFolderWatcher() {
           console.warn('[whatsapp-watcher] operational action sync failed; source/product analysis preserved', operationalActionError);
         }
         try {
+          await syncWhatsAppEvidenceLedgerV17(session, {
+            sourceId: persisted.id,
+            contextOnly: false,
+            operational,
+            analysisVersion: baseIntelligence.version,
+            participantRoles: roles,
+          });
+        } catch (evidencePersistError) {
+          console.warn('[whatsapp-watcher] evidence ledger sync failed; source preserved', evidencePersistError);
+        }
+        try {
           await syncWhatsAppResponseTurnsV18(session, {
             sourceId: persisted.id,
             participantRoles: roles,
@@ -637,6 +650,15 @@ export default function WhatsAppSmartFolderWatcher() {
           });
         } catch (timingPersistError) {
           console.warn('[whatsapp-watcher] response timing sync failed; source preserved', timingPersistError);
+        }
+        try {
+          await syncWhatsAppOrderLifecycleV19(session, {
+            sourceId: persisted.id,
+            participantRoles: roles,
+            contextOnly: false,
+          });
+        } catch (lifecyclePersistError) {
+          console.warn('[whatsapp-watcher] order lifecycle sync failed; source preserved', lifecyclePersistError);
         }
         persistedSessionSources.push({
           sessionId: session.id,
