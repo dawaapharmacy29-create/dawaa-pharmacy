@@ -55,6 +55,8 @@ describe('SmartConversationEvaluationV2', () => {
       consultationCommunication: 'not_applicable',
     });
     expect(result.sale.outcome).toBe('invoice_verified_sale');
+    expect(result.sale.label).toContain('مطابقة فاتورة قوية');
+    expect(result.sale.reason).toContain('لا تُعد Sale Proof');
     expect(result.sale.invoiceNumber).toBe('12345');
     expect(result.sale.revenue).toBe(250);
     expect(result.qualityScore).not.toBeNull();
