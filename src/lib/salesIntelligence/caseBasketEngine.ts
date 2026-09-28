@@ -125,7 +125,7 @@ interface DraftItem {
 }
 
 const NATURAL_UNIT_ITEM_RX =
-  /(علبتين|علبة|علبه|شريطين|شريط|عبوتين|عبوة|عبوه|كيسين|كيس|حبتين|حبة|حبه)\s+(.+?)(?=(?:\s+(?:و|مع)\s+(?:علبتين|علبة|علبه|شريطين|شريط|عبوتين|عبوة|عبوه|كيسين|كيس|حبتين|حبة|حبه)\s+)|[,،]|$)/gi;
+  /(علبتين|علبة|علبه|شريطين|شريط|عبوتين|عبوة|عبوه|كيسين|كيس|حبتين|حبة|حبه)\s+(.+?)(?=(?:\s+(?:و\s*|مع\s+)(?:علبتين|علبة|علبه|شريطين|شريط|عبوتين|عبوة|عبوه|كيسين|كيس|حبتين|حبة|حبه)\s+)|[,،]|$)/gi;
 const NATURAL_UNIT_QTY: Record<string, { quantity: number; unit: string }> = {
   علبتين: { quantity: 2, unit: 'علبة' },
   علبة: { quantity: 1, unit: 'علبة' },
@@ -193,6 +193,16 @@ function parseSummaryItems(message: NormalizedConversationMessageV32): DraftItem
       ]),
       resolutionStatus: 'proven',
     });
+  }
+
+  // Staff recaps in real chats often use natural Egyptian forms:
+  // "علبتين كولونا وعلبة جاسترو". Add those too, while letting an explicit
+  // "2 علبة ..." win when both parsers see the same product.
+  const explicitKeys = new Set(items.map((item) => normalizeProductKey(item.productNameRaw)));
+  for (const natural of extractNaturalUnitItems(message)) {
+    const key = normalizeProductKey(natural.productNameRaw);
+    if (!key || explicitKeys.has(key)) continue;
+    items.push(natural);
   }
   return items;
 }
