@@ -260,6 +260,8 @@ const NON_PRODUCT_CONVERSATION_FRAGMENT_RX =
   /^(?:ده\s+الا|مينفعش(?:\s+من)?|الا\s+لسه\s+بعته|مطلعش\s+الا|حسابه|هبقا|م\s+ان\s+شاء\s+الله|هستأذنك\s+تجهزيهم(?:\s+و)?|بحولهم(?:\s+و)?|بس\s+عشان\b.*|(?:حاجه|حاجة)\s+(?:كويسه|كويسة)|ي\s+دكتور)$/iu;
 const DOSAGE_FOLLOWUP_RX =
   /^(?:\s*)(?:امبول|أمبول|امبولات|أمبولات|شريط|شرايط|علبه|علبة|علب|كريم|جل|شراب|بخاخ|بخاخه|قطره|قطرة|كبسول|كبسوله|كبسولة|اقراص|أقراص|قرص)(?:\s+.*)?$/i;
+const DOSAGE_INSTRUCTION_NON_PRODUCT_RX =
+  /^(?:(?:يوميا|يوميًا|كل\s+يوم|مره|مرة|مرتين|\d+\s*مرات?|[٠-٩]+\s*مرات?)\s+)?(?:قبل|بعد)\s+(?:ال)?(?:افطار|الإفطار|الفطار|غدا|الغدا|الغداء|عشا|العشا|العشاء|اكل|الأكل)(?:\s+(?:يا\s*)?(?:فندم|دكتور|دكتوره|دكتورة|حضرتك))?$/iu;
 
 const STANDALONE_CONVERSATION_NOISE_RX =
   /^(?:(?:السلام\s+عليكم|وعليكم\s+السلام)(?:\s+ورحمه\s+الله(?:\s+وبركاته)?)?|(?:صباح|مساء)\s+(?:الخير|النور)|اهلا|أهلا|مرحبا|شكرا|شكراً|متشكر|متشكره|تسلم|تسلمي|تمام|ماشي|حاضر)(?:\s+(?:يا\s*)?(?:دكتور|دكتوره|دكتورة|فندم|حضرتك))?[.!؟\s]*$/iu;
@@ -303,6 +305,7 @@ function cleanProductPhrase(raw: string) {
     GENERIC_NON_PRODUCT_RX.test(value) ||
     SERVICE_SENTENCE_RX.test(value) ||
     NON_PRODUCT_CONVERSATION_FRAGMENT_RX.test(value) ||
+    DOSAGE_INSTRUCTION_NON_PRODUCT_RX.test(value) ||
     ANAPHORIC_QUANTITY_ONLY_RX.test(value)
   ) return '';
   return value;
