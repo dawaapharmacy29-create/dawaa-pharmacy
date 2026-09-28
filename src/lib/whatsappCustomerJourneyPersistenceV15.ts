@@ -102,38 +102,70 @@ export async function syncWhatsAppCustomerJourneyV15(
   const recoveryAction = model.actions.find((action) => action.key === 'journey-recovery-followup');
   if (recoveryAction) {
     const actionKey = model.unresolvedComplaint ? 'complaint-followup' : 'customer-followup';
-    const { error: actionError } = await supabase
+    const journeyRecoveryPayload = {
+      journey_id: journey.id,
+      journey_key: journeyKey,
+      journey_version: model.version,
+      keep_open_until: recoveryAction.keepOpenUntil,
+      recovery_attempts: model.recoveryAttempts,
+      customer_state: model.customerState,
+      summary: model.summary,
+    };
+
+    // Operational V6 may already have created the same canonical action key.
+    // In that case Customer Journey enriches the existing action with journey context
+    // instead of overwriting its reason/evidence/status based purely on execution order.
+    const { data: existingAction, error: existingActionError } = await supabase
       .from('whatsapp_conversation_actions')
-      .upsert({
-        source_id: journey.root_source_id,
-        action_key: actionKey,
-        action_type: recoveryAction.type,
-        status: journey.customer_code ? 'ready' : 'proposed',
-        confidence: model.customerRisk === 'critical' ? 96 : model.customerRisk === 'high' ? 90 : 80,
-        auto_eligible: Boolean(journey.customer_code),
-        branch: context.branch || root.branch || null,
-        customer_id: root.customer_id || null,
-        customer_code: root.customer_code || null,
-        customer_name: root.customer_name || null,
-        customer_phone: root.customer_phone || null,
-        staff_id: root.staff_id || null,
-        staff_name: root.staff_name || null,
-        due_at: dueInHours(recoveryAction.dueInHours),
-        reason: recoveryAction.reason,
-        evidence: recoveryAction.evidenceSessionIds,
-        payload: {
-          journey_id: journey.id,
-          journey_key: journeyKey,
-          journey_version: model.version,
-          keep_open_until: recoveryAction.keepOpenUntil,
-          recovery_attempts: model.recoveryAttempts,
-          customer_state: model.customerState,
-          summary: model.summary,
-        },
-        created_by: context.createdBy || null,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'source_id,action_key', ignoreDuplicates: false });
-    if (actionError) throw actionError;
+      .select('id,payload')
+      .eq('source_id', journey.root_source_id)
+      .eq('action_key', actionKey)
+      .maybeSingle();
+    if (existingActionError) throw existingActionError;
+
+    if (existingAction?.id) {
+      const existingPayload = existingAction.payload && typeof existingAction.payload === 'object'
+        ? existingAction.payload
+        : {};
+      const { error: enrichError } = await supabase
+        .from('whatsapp_conversation_actions')
+        .update({
+          payload: {
+            ...existingPayload,
+            journey_recovery: journeyRecoveryPayload,
+          },
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', existingAction.id);
+      if (enrichError) throw enrichError;
+    } else {
+      const { error: actionError } = await supabase
+        .from('whatsapp_conversation_actions')
+        .upsert({
+          source_id: journey.root_source_id,
+          action_key: actionKey,
+          action_type: recoveryAction.type,
+          status: journey.customer_code ? 'ready' : 'proposed',
+          confidence: model.customerRisk === 'critical' ? 96 : model.customerRisk === 'high' ? 90 : 80,
+          auto_eligible: Boolean(journey.customer_code),
+          branch: context.branch || root.branch || null,
+          customer_id: root.customer_id || null,
+          customer_code: root.customer_code || null,
+          customer_name: root.customer_name || null,
+          customer_phone: root.customer_phone || null,
+          staff_id: root.staff_id || null,
+          staff_name: root.staff_name || null,
+          due_at: dueInHours(recoveryAction.dueInHours),
+          reason: recoveryAction.reason,
+          evidence: recoveryAction.evidenceSessionIds,
+          payload: {
+            journey_recovery: journeyRecoveryPayload,
+          },
+          created_by: context.createdBy || null,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'source_id,action_key', ignoreDuplicates: false });
+      if (actionError) throw actionError;
+    }
   }
 
   const story = await syncPersistentCustomerStoryV16({
