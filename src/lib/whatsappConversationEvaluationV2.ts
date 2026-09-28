@@ -406,7 +406,13 @@ function saleOutcome(session: WhatsAppConversationSession, invoice: UnifiedInvoi
     ...matching(session, ORDER_CONFIRM_RX),
     ...matching(session, STOCKOUT_RX),
   ]);
-  if (invoice.status === 'verified') return { outcome: 'invoice_verified_sale' as const, label: 'بيع مؤكد بالفاتورة', confidence: Math.round(invoice.verificationConfidence * 100), reason: invoice.reason, evidenceMessageIds: evidence };
+  if (invoice.status === 'verified') return {
+    outcome: 'invoice_verified_sale' as const,
+    label: 'مطابقة فاتورة قوية — تحتاج اعتماد الربط',
+    confidence: Math.round(invoice.verificationConfidence * 100),
+    reason: `${invoice.reason} هذه المطابقة إحصائية ولا تُعد Sale Proof قبل اعتماد ربط الفاتورة Canonical.`,
+    evidenceMessageIds: evidence,
+  };
   if (invoice.status === 'probable') return { outcome: 'probable_sale' as const, label: 'بيع مرجح — يحتاج مراجعة', confidence: Math.round(invoice.verificationConfidence * 100), reason: invoice.reason, evidenceMessageIds: evidence };
   if (declined) return { outcome: 'customer_declined' as const, label: 'العميل تراجع/رفض', confidence: 88, reason: 'تم رصد رفض أو تراجع واضح من العميل.', evidenceMessageIds: evidence };
   if (confirmed) return { outcome: 'order_confirmed' as const, label: 'طلب مؤكد من الشات — لم تؤكد الفاتورة', confidence: invoice.status === 'not_found' ? 82 : 75, reason: 'يوجد تأكيد تنفيذ/طلب في المحادثة لكن لا توجد فاتورة مؤكدة.', evidenceMessageIds: evidence };
@@ -504,7 +510,7 @@ export function buildSmartConversationEvaluationV2(
   const altRescued = stockoutDetected && altOffered && customerAcceptedAlternative && ['order_confirmed', 'invoice_verified_sale', 'probable_sale'].includes(sale.outcome) ? 1 : 0;
   const crossSell = matching(session, CROSS_SELL_RX, 'outbound');
   const opportunityScore = salesOpps.length ? clamp(Math.round(((handled + altRescued) / Math.max(1, salesOpps.length)) * 100) - missed * 20) : null;
-  const saleScore = sale.outcome === 'invoice_verified_sale' ? 100
+  const saleScore = sale.outcome === 'invoice_verified_sale' ? 85
     : sale.outcome === 'order_confirmed' ? 90
       : sale.outcome === 'probable_sale' ? 85
         : sale.outcome === 'customer_accepted' ? 70
@@ -564,6 +570,7 @@ export function buildSmartConversationEvaluationV2(
   if (!serviceRecovery.detected && order.missingCritical.length) warnings.push(`بيانات أوردر مهمة غير مثبتة: ${order.missingCritical.join('، ')}.`);
   if (serviceRecovery.detected && serviceRecovery.missing.length) warnings.push(`استعادة الخدمة ينقصها: ${serviceRecovery.missing.join('، ')}.`);
   if (sale.outcome === 'customer_accepted' && options.invoiceVerification.status === 'not_found') warnings.push('موافقة العميل لا تعني بيعًا مكتملًا بدون دليل تنفيذ/فاتورة.');
+  if (sale.outcome === 'invoice_verified_sale') warnings.push('مطابقة الفاتورة قوية لكنها ليست بيعًا مثبتًا رسميًا قبل اعتماد ربط الفاتورة ووصول Canonical Sale Proof إلى proven.');
 
   return {
     version: 'smart-conversation-evaluation-v2',
