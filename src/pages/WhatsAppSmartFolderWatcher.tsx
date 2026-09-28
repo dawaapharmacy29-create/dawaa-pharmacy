@@ -274,6 +274,7 @@ export default function WhatsAppSmartFolderWatcher() {
   const [dayFilter, setDayFilter] = useState<'today' | 'yesterday' | 'all' | 'custom'>('all');
   const [customDay, setCustomDay] = useState('');
   const [failedInboxCount, setFailedInboxCount] = useState(0);
+  const [reanalyzingNames, setReanalyzingNames] = useState<Set<string>>(new Set());
 
 
   const analyzeFile = useCallback(async (file: File): Promise<FileRun> => {
@@ -596,12 +597,16 @@ export default function WhatsAppSmartFolderWatcher() {
     };
   }, [actorName, user?.id]);
 
-  const scanOnce = useCallback(async () => {
+  const scanOnce = useCallback(async (targetFileNames?: string[]) => {
     if (!handleRef.current || scanningRef.current) return;
     scanningRef.current = true;
     setScanning(true);
     try {
-      const candidates = await getUnprocessedWhatsAppExports(handleRef.current, 10);
+      const candidates = await getUnprocessedWhatsAppExports(
+        handleRef.current,
+        targetFileNames?.length ? Math.min(25, targetFileNames.length) : 10,
+        targetFileNames
+      );
       if (!candidates.length) {
         toast.message('لا توجد ملفات جديدة في الفولدر');
         return;
@@ -723,6 +728,17 @@ export default function WhatsAppSmartFolderWatcher() {
             ? { ...result, inboxKey: candidate.key, errors: [...result.errors, ...canonicalErrors] }
             : { ...result, inboxKey: candidate.key };
 
+          setRuns((current) => {
+            const refreshedNames = new Set([finalizedResult.fileName]);
+            return [finalizedResult, ...current.filter((run) => !refreshedNames.has(run.fileName))].slice(0, 30);
+          });
+          setReanalyzingNames((current) => {
+            if (!current.has(candidate.name)) return current;
+            const next = new Set(current);
+            next.delete(candidate.name);
+            return next;
+          });
+
           await saveLocalWhatsAppAnalysisHistory<FileRun>(candidate.key, candidate.name, finalizedResult);
           if (canonicalErrors.length) {
             const reason = canonicalErrors.join(' | ').slice(0, 500);
@@ -737,7 +753,7 @@ export default function WhatsAppSmartFolderWatcher() {
         } catch (error) {
           const reason = error instanceof Error ? error.message : 'خطأ غير معروف';
           markLocalWhatsAppFileFailed(candidate.key, reason);
-          return {
+          const failedRun: FileRun = {
             fileName: candidate.name,
             at: new Date().toLocaleString('ar-EG'),
             analyzedAtIso: new Date().toISOString(),
@@ -748,20 +764,26 @@ export default function WhatsAppSmartFolderWatcher() {
             staffRuns: [],
             errors: [reason],
           };
+          setRuns((current) => [
+            failedRun,
+            ...current.filter((run) => run.fileName !== failedRun.fileName),
+          ].slice(0, 30));
+          setReanalyzingNames((current) => {
+            if (!current.has(candidate.name)) return current;
+            const next = new Set(current);
+            next.delete(candidate.name);
+            return next;
+          });
+          return failedRun;
         }
       };
 
-      // ملفان فقط بالتوازي: يختصر زمن إعادة تحليل فولدر كامل، مع سقف محافظ لطلبات
-      // قاعدة البيانات. تحديث الواجهة مرة لكل batch بدل rerender بعد كل ملف.
+      // ملفان فقط بالتوازي: يختصر زمن التحليل بدون ضغط زائد على قاعدة البيانات.
+      // كل ملف يحدث الواجهة فور انتهائه داخل processCandidate بدل انتظار باقي الدفعة.
       const FILE_CONCURRENCY = 2;
       for (let index = 0; index < candidates.length; index += FILE_CONCURRENCY) {
         const batch = candidates.slice(index, index + FILE_CONCURRENCY);
-        const results = await Promise.all(batch.map(processCandidate));
-        setRuns((current) => {
-          const next = [...results].reverse();
-          const refreshedNames = new Set(next.map((run) => run.fileName));
-          return [...next, ...current.filter((run) => !refreshedNames.has(run.fileName))].slice(0, 30);
-        });
+        await Promise.all(batch.map(processCandidate));
         if (authSessionInvalid) break;
         if (typeof window !== 'undefined' && index + FILE_CONCURRENCY < candidates.length) {
           await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
@@ -829,9 +851,10 @@ export default function WhatsAppSmartFolderWatcher() {
       return;
     }
     resetLocalWhatsAppProcessedFileNames(names);
-    setRuns((current) => current.filter((run) => !names.includes(run.fileName)));
+    setReanalyzingNames(new Set(names));
     toast.message(`إعادة تحليل ${names.length} ملف ظاهر فقط`);
-    await scanOnce();
+    await scanOnce(names);
+    setReanalyzingNames(new Set());
   }
 
   async function connect() {
@@ -1067,7 +1090,14 @@ export default function WhatsAppSmartFolderWatcher() {
                 <article key={key}>
                   <button type="button" onClick={() => toggleRun(run, runIndex)} className="flex w-full items-center justify-between gap-3 px-4 py-3 text-right transition hover:bg-slate-950/25">
                     <div className="min-w-0 flex-1">
-                      <div className="truncate font-black text-white">{run.fileName}</div>
+                      <div className="flex min-w-0 flex-wrap items-center gap-2">
+                        <div className="truncate font-black text-white">{run.fileName}</div>
+                        {reanalyzingNames.has(run.fileName) ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-violet-500/10 px-2 py-0.5 text-[10px] font-black text-violet-200">
+                            <Loader2 size={10} className="animate-spin" /> جاري إعادة التحليل
+                          </span>
+                        ) : null}
+                      </div>
                       <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
                         <span className="font-bold text-slate-400">المحادثة: {formatCairoDateTime(runConversationStart(run))}</span>
                         <span>آخر تحليل: {formatCairoDateTime(runAnalyzedAt(run))}</span>
