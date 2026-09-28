@@ -1430,12 +1430,22 @@ export default function WhatsAppSmartFolderWatcher() {
                                 ? `مربوط بسجل العميل · كود ${customer.customer.code || '—'}`
                                 : 'الاسم موجود لكن الربط بسجل العميل غير محسوم'}
                             </div>
+                            {customer?.customer ? (
+                              <div className="mt-1 flex flex-wrap gap-1.5 text-[9px]">
+                                <span className={`rounded-full px-1.5 py-0.5 ${customer.customer.phone ? 'bg-emerald-500/10 text-emerald-300' : 'bg-slate-800 text-slate-500'}`}>
+                                  {customer.customer.phone ? 'تليفون مسجل' : 'تليفون غير متاح'}
+                                </span>
+                                <span className={`rounded-full px-1.5 py-0.5 ${invoice?.bestCandidate?.customerAddress ? 'bg-emerald-500/10 text-emerald-300' : 'bg-slate-800 text-slate-500'}`}>
+                                  {invoice?.bestCandidate?.customerAddress ? 'عنوان مسجل' : 'عنوان غير مثبت'}
+                                </span>
+                              </div>
+                            ) : null}
                           </div>
 
                           <div className="rounded-xl border border-slate-800 bg-black/10 p-3">
                             <div className="text-[10px] font-black text-slate-500">تأكيد الطلب</div>
                             <div className="mt-1 text-sm font-black text-white">{protocol.orderConfirmation}</div>
-                            <div className="mt-1 text-[10px] text-slate-400">هل راجع الدكتور الأصناف/البيانات مع العميل قبل الإغلاق؟</div>
+                            <div className="mt-1 text-[10px] text-slate-400">مستقل عن حقيقة البيع: هل راجع الدكتور الأصناف/الكميات مع العميل وأخذ تأكيده قبل الإغلاق؟</div>
                           </div>
 
                           <div className="rounded-xl border border-slate-800 bg-black/10 p-3">
