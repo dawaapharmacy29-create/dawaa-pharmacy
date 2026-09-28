@@ -95,7 +95,7 @@ export function normalizeProductKey(name: string): string {
 
 export function stripRequestPrefix(text: string): string {
   return text
-    .replace(/^\s*(?:عايز|عاوز|محتاج|ممكن|هات[ي]?|ابعت(?:لي|يلي)?)\s*/i, '')
+    .replace(/^\s*(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?|ممكن|هات[ي]?|ابعت(?:لي|يلي)?)\s*/i, '')
     .trim()
     .replace(/^[,،]+|[,،]+$/g, '')
     .trim();
@@ -122,6 +122,56 @@ interface DraftItem {
   sourceMessageId: string;
   confidence: ConfidenceAssessment;
   resolutionStatus: ItemResolutionStatus;
+}
+
+const NATURAL_UNIT_ITEM_RX =
+  /(علبتين|علبة|علبه|شريطين|شريط|عبوتين|عبوة|عبوه|كيسين|كيس|حبتين|حبة|حبه)\s+(.+?)(?=(?:\s+(?:و|مع)\s+(?:علبتين|علبة|علبه|شريطين|شريط|عبوتين|عبوة|عبوه|كيسين|كيس|حبتين|حبة|حبه)\s+)|[,،]|$)/gi;
+const NATURAL_UNIT_QTY: Record<string, { quantity: number; unit: string }> = {
+  علبتين: { quantity: 2, unit: 'علبة' },
+  علبة: { quantity: 1, unit: 'علبة' },
+  علبه: { quantity: 1, unit: 'علبة' },
+  شريطين: { quantity: 2, unit: 'شريط' },
+  شريط: { quantity: 1, unit: 'شريط' },
+  عبوتين: { quantity: 2, unit: 'عبوة' },
+  عبوة: { quantity: 1, unit: 'عبوة' },
+  عبوه: { quantity: 1, unit: 'عبوة' },
+  كيسين: { quantity: 2, unit: 'كيس' },
+  كيس: { quantity: 1, unit: 'كيس' },
+  حبتين: { quantity: 2, unit: 'حبة' },
+  حبة: { quantity: 1, unit: 'حبة' },
+  حبه: { quantity: 1, unit: 'حبة' },
+};
+const PRICE_INQUIRY_RX = /بكام|عامل\s*كام|سعر(?:ه|ها)?|كام\s*(?:جنيه|العلبة|العلبه)|فيها\s*كام/i;
+const STAFF_RECAP_CONTEXT_RX = /يعني\s*حضرتك|حضرتك\s*محتاج|تكرر|كرر|تأمر|تحت\s*امر/i;
+
+function extractNaturalUnitItems(message: NormalizedConversationMessageV32): DraftItem[] {
+  if (!message.isMeaningful || /<(?:image|audio|voice message) omitted>/i.test(message.text)) return [];
+  if (message.role === 'customer' && PRICE_INQUIRY_RX.test(message.text)) return [];
+  if (message.role === 'staff' && !STAFF_RECAP_CONTEXT_RX.test(message.text)) return [];
+
+  const items: DraftItem[] = [];
+  for (const match of message.text.matchAll(NATURAL_UNIT_ITEM_RX)) {
+    const quantityInfo = NATURAL_UNIT_QTY[match[1]];
+    if (!quantityInfo) continue;
+    const productNameRaw = match[2]
+      .trim()
+      .replace(/^(?:من\s+فضلك|لو\s*سمحت|ان\s*شاء\s*الله)\s*/i, '')
+      .replace(/\s+(?:صح|مظبوط|ان\s*شاء\s*الله)\??$/i, '')
+      .trim();
+    if (!productNameRaw || productNameRaw.length < 2 || PRICE_INQUIRY_RX.test(productNameRaw)) continue;
+    items.push({
+      productNameRaw,
+      productId: null,
+      quantity: quantityInfo.quantity,
+      unit: quantityInfo.unit,
+      sourceMessageId: message.id,
+      confidence: assessment('strongly_inferred', 0.8, 'basket.item.natural_arabic_unit_form', [
+        refFor(message, `صياغة طلب عربية طبيعية بكمية ضمنية/مثنى: "${match[0].trim()}".`),
+      ]),
+      resolutionStatus: 'proven',
+    });
+  }
+  return items;
 }
 
 /** Items explicitly parsed out of ONE consolidated staff summary message (multi-item, per-line). */
@@ -160,6 +210,11 @@ function extractDraftItemsFromScope(
   restrictToIds?: Set<string>
 ): DraftItem[] {
   const items: DraftItem[] = [];
+  const scopedMessages = restrictToIds
+    ? allMessages.filter((message) => restrictToIds.has(message.id))
+    : allMessages;
+  scopedMessages.forEach((message) => items.push(...extractNaturalUnitItems(message)));
+
   const quantitySignals = extractQuantitySignals(allMessages).filter(
     (s) => !restrictToIds || restrictToIds.has(s.messageId)
   );
