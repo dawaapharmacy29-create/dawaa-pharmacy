@@ -1150,11 +1150,11 @@ export default function WhatsAppSmartFolderWatcher() {
     const evaluation = smart?.evaluationV2;
     if (invoice?.status === 'verified') {
       return {
-        label: 'بيع مؤكد بالفاتورة',
+        label: 'مطابقة فاتورة قوية — تحتاج اعتماد الربط',
         detail: invoice.bestCandidate?.invoiceNumber
-          ? `فاتورة ${invoice.bestCandidate.invoiceNumber}${invoice.revenue != null ? ` · ${invoice.revenue} ج` : ''}`
-          : (invoice.reason || 'تم إثبات البيع من الفاتورة المرتبطة.'),
-        tone: 'emerald',
+          ? `فاتورة مرشحة ${invoice.bestCandidate.invoiceNumber}${invoice.revenue != null ? ` · ${invoice.revenue} ج` : ''}`
+          : (invoice.reason || 'المطابقة قوية إحصائيًا لكنها ليست Sale Proof قبل اعتماد الربط.'),
+        tone: 'amber',
       };
     }
     if (invoice?.status === 'probable') {
@@ -1173,7 +1173,7 @@ export default function WhatsAppSmartFolderWatcher() {
       return { label: 'العميل وافق — التنفيذ غير مثبت', detail: evaluation.sale.reason, tone: 'amber' };
     }
     if (evaluation?.sale?.outcome === 'invoice_verified_sale') {
-      return { label: 'بيع مؤكد بالفاتورة', detail: evaluation.sale.reason, tone: 'emerald' };
+      return { label: 'مطابقة فاتورة من التحليل القديم — تحتاج اعتماد الربط', detail: evaluation.sale.reason, tone: 'amber' };
     }
     return {
       label: evaluation?.sale?.label || 'البيع غير محسوم',
@@ -1526,7 +1526,7 @@ export default function WhatsAppSmartFolderWatcher() {
                     </div>
                     <span className={`rounded-full px-2.5 py-1 text-[10px] font-black ${selected.decision === 'clear' ? 'bg-emerald-500/15 text-emerald-200' : selected.decision === 'issue' ? 'bg-amber-500/15 text-amber-200' : 'bg-rose-500/15 text-rose-200'}`}>{decisionLabel(selected.decision)}</span>
                     {selected.snapshot.smartIntelligence?.invoiceVerification?.status === 'verified' ? (
-                      <span className="rounded-full bg-emerald-500/10 px-2.5 py-1 text-[10px] font-black text-emerald-300">فاتورة مؤكدة</span>
+                      <span className="rounded-full bg-amber-500/10 px-2.5 py-1 text-[10px] font-black text-amber-300">مطابقة فاتورة قوية</span>
                     ) : selected.snapshot.smartIntelligence?.invoiceVerification?.status === 'probable' ? (
                       <span className="rounded-full bg-amber-500/10 px-2.5 py-1 text-[10px] font-black text-amber-300">فاتورة مرشحة</span>
                     ) : null}
@@ -1741,7 +1741,7 @@ export default function WhatsAppSmartFolderWatcher() {
                             <div className="divide-y divide-slate-800">
                               {productRows.slice(0, 18).map((row, index) => {
                                 const badge = row.kind === 'requested_and_sold'
-                                  ? { label: 'طلبه واتبع', cls: 'bg-emerald-500/10 text-emerald-300' }
+                                  ? { label: 'طلبه وظهر بالفاتورة المرشحة', cls: 'bg-cyan-500/10 text-cyan-300' }
                                   : row.kind === 'requested_not_in_invoice'
                                     ? { label: 'طلبه ولم يظهر بالفاتورة', cls: 'bg-amber-500/10 text-amber-300' }
                                     : { label: 'ظهر في الفاتورة فقط', cls: 'bg-sky-500/10 text-sky-300' };
