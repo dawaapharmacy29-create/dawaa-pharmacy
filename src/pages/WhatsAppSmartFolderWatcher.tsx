@@ -1537,7 +1537,7 @@ export default function WhatsAppSmartFolderWatcher() {
                   <section className="rounded-2xl border border-violet-800/40 bg-violet-950/10 p-4">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
-                        <div className="text-[10px] font-black text-violet-300">CASE CONTEXT V27</div>
+                        <div className="text-[10px] font-black text-violet-300">سياق رحلة العميل</div>
                         <div className="mt-1 text-sm font-black text-white">{selected.caseSummary}</div>
                         <div className="mt-1 text-[11px] leading-5 text-slate-400">
                           التقييم اتبنى على رحلة واحدة تضم {selected.caseSessionCount} جلسة خام، مع فصل مسؤولية كل موظف حسب رسائله الفعلية.
@@ -1554,8 +1554,8 @@ export default function WhatsAppSmartFolderWatcher() {
                     <section className="rounded-2xl border border-cyan-800/40 bg-cyan-950/10 p-4">
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
-                          <div className="text-[10px] font-black text-cyan-300">TIMING INTELLIGENCE V28</div>
-                          <div className="mt-1 text-sm font-black text-white">زمن الرد ومسار الأوردر عبر الرحلة كاملة</div>
+                          <div className="text-[10px] font-black text-cyan-300">الزمن ومسار التنفيذ</div>
+                          <div className="mt-1 text-sm font-black text-white">من طلب العميل حتى الرد والتأكيد والتنفيذ</div>
                           <div className="mt-1 text-[11px] text-slate-400">
                             {selected.snapshot.smartIntelligence.timingV28.episodes.length} مرحلة زمنية · {selected.snapshot.smartIntelligence.timingV28.handoff.responderCount} مسؤول رد · {selected.snapshot.smartIntelligence.timingV28.handoff.handoffCount} handoff
                           </div>
@@ -1597,7 +1597,7 @@ export default function WhatsAppSmartFolderWatcher() {
                     <section className="rounded-2xl border border-amber-700/40 bg-amber-950/10 p-4">
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
-                          <div className="text-[10px] font-black text-amber-300">DELAY ATTRIBUTION V29</div>
+                          <div className="text-[10px] font-black text-amber-300">تحليل سبب التأخير</div>
                           <div className="mt-1 text-sm font-black text-white">{selected.snapshot.smartIntelligence.delayAttributionV29.label}</div>
                           <div className="mt-1 text-[11px] text-slate-400">
                             المسؤولية التشغيلية: {
@@ -1672,16 +1672,16 @@ export default function WhatsAppSmartFolderWatcher() {
                     <div className="rounded-xl border border-slate-800 bg-slate-950/30 p-3"><div className="text-[10px] text-slate-500">النية</div><div className="mt-1 text-sm font-black text-white">{caseLabel(selected)}</div></div>
                     <div className="rounded-xl border border-slate-800 bg-slate-950/30 p-3"><div className="text-[10px] text-slate-500">فرص البيع</div><div className="mt-1 text-sm font-black text-white">{selected.intelligence?.salesOpportunities.length || 0}</div></div>
                     <div className="rounded-xl border border-slate-800 bg-slate-950/30 p-3"><div className="text-[10px] text-slate-500">الاستشارة</div><div className="mt-1 text-sm font-black text-white">{consultationLabel(selected.intelligence?.consultationCommunication)}</div></div>
-                    <div className="rounded-xl border border-slate-800 bg-slate-950/30 p-3"><div className="text-[10px] text-slate-500">الاعتماد السريع</div><div className="mt-1 text-sm font-black text-white">{selected.safe ? 'ممكن بعد مراجعة' : 'غير مسموح'}</div></div>
+                    <div className="rounded-xl border border-slate-800 bg-slate-950/30 p-3"><div className="text-[10px] text-slate-500">جاهزية الاعتماد</div><div className="mt-1 text-sm font-black text-white">{selected.safe ? 'ممكن بعد مراجعة' : 'غير مسموح'}</div></div>
                   </section>
 
                   {selected.snapshot.smartIntelligence?.evaluationV2 ? (
                     <section className="rounded-2xl border border-cyan-800/40 bg-cyan-950/10 p-4">
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
-                          <div className="text-[10px] font-black text-cyan-300">CONVERSATION OUTCOME V2</div>
-                          <div className="mt-1 text-base font-black text-white">{selected.snapshot.smartIntelligence.evaluationV2.sale.label}</div>
-                          <div className="mt-1 text-xs leading-6 text-slate-400">{selected.snapshot.smartIntelligence.evaluationV2.sale.reason}</div>
+                          <div className="text-[10px] font-black text-cyan-300">جودة المحادثة</div>
+                          <div className="mt-1 text-base font-black text-white">تقييم جودة التعامل مع المحادثة</div>
+                          <div className="mt-1 text-xs leading-6 text-slate-400">البيع والفاتورة محسومان في الملخص التنفيذي بالأعلى؛ هنا التركيز على جودة الخدمة، اكتمال الطلب، وسلامة الإغلاق.</div>
                         </div>
                         <div className="grid grid-cols-3 gap-2 text-center text-[10px]">
                           <div className="rounded-xl bg-black/15 px-3 py-2"><div className="text-slate-500">جودة</div><b className="text-white">{selected.snapshot.smartIntelligence.evaluationV2.qualityScore ?? '-'}</b></div>
@@ -1720,7 +1720,7 @@ export default function WhatsAppSmartFolderWatcher() {
 
                   <section className="rounded-2xl border border-sky-800/40 bg-sky-950/10 p-4">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="rounded-full bg-sky-500/15 px-2 py-0.5 text-[10px] font-black text-sky-200">تحقق تشخيصي إضافي</span>
+                      <span className="rounded-full bg-sky-500/15 px-2 py-0.5 text-[10px] font-black text-sky-200">مراجعة تشخيصية</span>
                       <b className="text-sm text-white">{selected.journeyCrossCheck.journeyLabel}</b>
                     </div>
                     <div className="mt-1 text-xs text-slate-400">{selected.journeyCrossCheck.saleStateLabel}</div>
