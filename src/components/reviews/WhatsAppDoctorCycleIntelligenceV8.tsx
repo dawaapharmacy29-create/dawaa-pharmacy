@@ -192,23 +192,19 @@ export default function WhatsAppDoctorCycleIntelligenceV8({ onOpenSource }: { on
       const staffCoaching = Array.isArray(journey?.staffCoaching)
         ? journey.staffCoaching.find((coach: any) => String(coach?.staffName || '').trim().toLowerCase() === selectedName) || null
         : null;
-      const scoreRaw = staffCoaching?.score ?? journey?.coaching?.bestPracticeScore;
+      const scoreRaw = staffCoaching?.score;
       const score = Number(scoreRaw);
       return {
         item,
         journey,
         staffCoaching,
         score: Number.isFinite(score) ? score : null,
-        strengths: Array.isArray(staffCoaching?.strengths)
-          ? staffCoaching.strengths as string[]
-          : Array.isArray(journey?.coaching?.strengths) ? journey.coaching.strengths as string[] : [],
-        gaps: Array.isArray(staffCoaching?.gaps)
-          ? staffCoaching.gaps as string[]
-          : Array.isArray(journey?.coaching?.gaps) ? journey.coaching.gaps as string[] : [],
+        strengths: Array.isArray(staffCoaching?.strengths) ? staffCoaching.strengths as string[] : [],
+        gaps: Array.isArray(staffCoaching?.gaps) ? staffCoaching.gaps as string[] : [],
         complaintPoints: Array.isArray(journey?.coaching?.complaintPoints) ? journey.coaching.complaintPoints as string[] : [],
         delayPoints: Number(staffCoaching?.slowResponseCount || 0) > 0
           ? [`لديه ${Number(staffCoaching.slowResponseCount)} رد متأخر أكثر من 10 دقائق داخل نطاقه.`]
-          : Array.isArray(journey?.coaching?.delayPoints) ? journey.coaching.delayPoints as string[] : [],
+          : [],
       };
     });
     const grounded = enriched.filter((row) => row.journey);
