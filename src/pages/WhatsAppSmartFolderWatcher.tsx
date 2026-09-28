@@ -1944,13 +1944,25 @@ export default function WhatsAppSmartFolderWatcher() {
                       </section>
 
                       <section className="grid gap-2 md:grid-cols-5">
-                        {selected.snapshot.smartIntelligence.evaluationV2.axes.map((axis) => (
-                          <div key={axis.key} className="rounded-xl border border-slate-800 bg-slate-950/25 p-3">
-                            <div className="text-[10px] font-bold text-slate-500">{axis.label}</div>
-                            <div className="mt-1 text-xl font-black text-white">{axis.score ?? '-'}</div>
-                            <div className="mt-1 text-[10px] text-slate-500">تغطية {axis.coverage}%</div>
-                          </div>
-                        ))}
+                        {selected.snapshot.smartIntelligence.evaluationV2.axes.map((axis) => {
+                          const scoreTone = axis.score == null
+                            ? 'text-slate-500'
+                            : axis.score >= 85
+                              ? 'text-emerald-300'
+                              : axis.score >= 65
+                                ? 'text-cyan-200'
+                                : 'text-amber-300';
+                          return (
+                            <div key={axis.key} className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
+                              <div className="text-[10px] font-black text-slate-500">{axis.label}</div>
+                              <div className={`mt-1 text-2xl font-black ${scoreTone}`}>{axis.score ?? '—'}</div>
+                              <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-800">
+                                <div className="h-full rounded-full bg-current opacity-70" style={{ width: `${Math.max(0, Math.min(100, axis.score || 0))}%` }} />
+                              </div>
+                              <div className="mt-2 text-[9px] text-slate-600">تغطية الأدلة {axis.coverage}%</div>
+                            </div>
+                          );
+                        })}
                       </section>
 
                       {selected.snapshot.smartIntelligence.evaluationV2.serviceRecovery.detected ? (
@@ -2004,7 +2016,9 @@ export default function WhatsAppSmartFolderWatcher() {
                           {selected.snapshot.smartIntelligence.evaluationV2.orderCompleteness.applicable ? (
                             <div className="mt-2 flex flex-wrap gap-1.5">
                               {selected.snapshot.smartIntelligence.evaluationV2.orderCompleteness.items.filter((item) => item.status !== 'not_applicable').map((item) => (
-                                <span key={item.key} className={`rounded-full px-2 py-1 text-[10px] font-black ${item.status === 'confirmed' ? 'bg-emerald-500/10 text-emerald-300' : item.status === 'missing' ? 'bg-rose-500/10 text-rose-300' : 'bg-slate-800 text-slate-400'}`}>{item.label}</span>
+                                <span key={item.key} className={`rounded-full px-2 py-1 text-[10px] font-black ${item.status === 'confirmed' ? 'bg-emerald-500/10 text-emerald-300' : item.status === 'missing' ? 'bg-rose-500/10 text-rose-300' : 'bg-slate-800 text-slate-400'}`}>
+                                  {item.status === 'confirmed' ? '✓ ' : item.status === 'missing' ? 'ناقص: ' : ''}{item.label}
+                                </span>
                               ))}
                             </div>
                           ) : null}
@@ -2013,10 +2027,18 @@ export default function WhatsAppSmartFolderWatcher() {
 
                       <section className="grid gap-3 lg:grid-cols-2">
                         <div className="rounded-2xl border border-slate-800 p-4">
-                          <div className="text-xs font-black text-white">الافتتاح والختام</div>
+                          <div className="text-xs font-black text-white">الترحيب والختام</div>
                           <div className="mt-3 grid grid-cols-2 gap-2">
-                            <div className="rounded-xl bg-slate-950/30 p-3"><div className="text-[10px] text-slate-500">الافتتاح</div><b className="text-white">{selected.snapshot.smartIntelligence.evaluationV2.opening.score ?? '-'}</b><div className="mt-1 text-[10px] text-slate-500">{selected.snapshot.smartIntelligence.evaluationV2.opening.missing.length ? `ناقص: ${selected.snapshot.smartIntelligence.evaluationV2.opening.missing.join('، ')}` : 'مكتمل'}</div></div>
-                            <div className="rounded-xl bg-slate-950/30 p-3"><div className="text-[10px] text-slate-500">الختام</div><b className="text-white">{selected.snapshot.smartIntelligence.evaluationV2.closing.score ?? '-'}</b><div className="mt-1 text-[10px] text-slate-500">{selected.snapshot.smartIntelligence.evaluationV2.closing.missing.length ? `ناقص: ${selected.snapshot.smartIntelligence.evaluationV2.closing.missing.join('، ')}` : 'مكتمل'}</div></div>
+                            <div className="rounded-xl bg-slate-950/30 p-3">
+                              <div className="flex items-center justify-between gap-2"><span className="text-[10px] text-slate-500">الترحيب</span><b className="text-white">{selected.snapshot.smartIntelligence.evaluationV2.opening.score ?? '—'}</b></div>
+                              <div className="mt-1 text-[10px] leading-5 text-slate-500">{selected.snapshot.smartIntelligence.evaluationV2.opening.missing.length ? `ناقص: ${selected.snapshot.smartIntelligence.evaluationV2.opening.missing.join('، ')}` : 'مكتمل'}</div>
+                              <div className="mt-1 text-[9px] leading-4 text-slate-600">{selected.snapshot.smartIntelligence.evaluationV2.opening.evidence.reason}</div>
+                            </div>
+                            <div className="rounded-xl bg-slate-950/30 p-3">
+                              <div className="flex items-center justify-between gap-2"><span className="text-[10px] text-slate-500">الختام</span><b className="text-white">{selected.snapshot.smartIntelligence.evaluationV2.closing.score ?? '—'}</b></div>
+                              <div className="mt-1 text-[10px] leading-5 text-slate-500">{selected.snapshot.smartIntelligence.evaluationV2.closing.missing.length ? `ناقص: ${selected.snapshot.smartIntelligence.evaluationV2.closing.missing.join('، ')}` : 'مكتمل'}</div>
+                              <div className="mt-1 text-[9px] leading-4 text-slate-600">{selected.snapshot.smartIntelligence.evaluationV2.closing.evidence.reason}</div>
+                            </div>
                           </div>
                         </div>
                         <div className="rounded-2xl border border-cyan-800/30 bg-cyan-950/10 p-4">
@@ -2049,10 +2071,10 @@ export default function WhatsAppSmartFolderWatcher() {
 
             <div className="shrink-0 border-t border-slate-700 bg-[#111c2b]/95 p-3 backdrop-blur">
               <div className="flex flex-wrap items-center gap-2">
-                <button type="button" onClick={() => openOfficialReview(selected)} className="inline-flex items-center gap-2 rounded-xl bg-cyan-500 px-4 py-2.5 text-sm font-black text-slate-950"><FileText size={16} /> فتح Draft التقييم الرسمي</button>
-                {selected.actions.followup ? <button type="button" onClick={() => openFollowup(selected)} className="rounded-xl border border-emerald-700/60 bg-emerald-950/30 px-3 py-2.5 text-xs font-black text-emerald-100">فتح متابعة</button> : null}
-                {selected.actions.customerRequest ? <button type="button" onClick={() => openCustomerRequest(selected)} className="rounded-xl border border-amber-700/60 bg-amber-950/30 px-3 py-2.5 text-xs font-black text-amber-100">تسجيل طلب</button> : null}
-                <span className="mr-auto hidden text-[10px] text-slate-500 md:inline">لا نقاط ولا حفظ رسمي قبل الاعتماد البشري.</span>
+                <button type="button" onClick={() => openOfficialReview(selected)} className="inline-flex items-center gap-2 rounded-xl bg-cyan-500 px-4 py-2.5 text-sm font-black text-slate-950 transition hover:bg-cyan-400"><FileText size={16} /> مراجعة واعتماد التقييم</button>
+                {selected.actions.followup ? <button type="button" onClick={() => openFollowup(selected)} className="rounded-xl border border-emerald-700/60 bg-emerald-950/30 px-3 py-2.5 text-xs font-black text-emerald-100 transition hover:bg-emerald-900/40">فتح متابعة العميل</button> : null}
+                {selected.actions.customerRequest ? <button type="button" onClick={() => openCustomerRequest(selected)} className="rounded-xl border border-amber-700/60 bg-amber-950/30 px-3 py-2.5 text-xs font-black text-amber-100 transition hover:bg-amber-900/30">تسجيل الطلب المطلوب</button> : null}
+                <span className="mr-auto hidden text-[10px] text-slate-500 md:inline">التحليل يساعد على القرار؛ النقاط والحفظ الرسمي لا يتمان قبل الاعتماد البشري.</span>
               </div>
             </div>
           </div>
