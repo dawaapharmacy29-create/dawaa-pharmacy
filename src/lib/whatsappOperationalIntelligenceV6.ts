@@ -167,6 +167,8 @@ const FOLLOWUP_PROMISE_RX = /(هتابع|هتواصل|هنتواصل|هبلغ|ه
 const CLOSE_RX = /(تم تأكيد|تم التاكيد|الأوردر اتأكد|الاوردر اتاكد|تم الارسال|تم الإرسال|خرج لحضرتك|فاتوره|فاتورة|الاجمالي|الإجمالي)/i;
 const URGENT_RX = /(ضروري|عاجل|حالاً|حالا|مستعجل|مستعجله)/i;
 const ANAPHORIC_COMMIT_RX = /(^|\s)(هحتاجه|هحتاجها|هاخده|هاخدها|ابعته|ابعتيها|ابعتهالي|تبعتها|تبعتيها)(\s|$)/i;
+const ANAPHORIC_QUANTITY_ONLY_RX =
+  /^(?:منهم|منه|منها)\s+(?:(?:\d{1,3}|[٠-٩]{1,3})\s*)?(?:علبه|علبة|علب|شريط|شريطين|شرايط|عبوه|عبوة|عبوتين|عبوات|كيس|كيسين|اكياس|أكياس|حبه|حبة|حبتين|قطعه|قطعة|قطعتين|قطع)$/iu;
 const PRODUCT_TYPE_NAMED_RX = /^(?:مزيل)\s+([\p{L}\p{N}][\p{L}\p{N} .+-]{1,60})$/iu;
 
 function evidenceFor(session: WhatsAppConversationSession, rx: RegExp, confidence: number): WhatsAppEvidence {
@@ -245,6 +247,8 @@ const GENERIC_NON_PRODUCT_RX =
   /^(?:ان شاء الله|إن شاء الله|تصوريها|صوريها|صورها|ي الرقم|الرقم|حاضر|تمام|ماشي|اه|ايوه|لا|شكرا|شكراً|لحظه|لحظة|دقيقه|دقيقة|يا ?دكتور|يادكتور|الحاجات (?:دي|ده|دا)|العلاج (?:دي|ده|دا)|لكم حاجه زي (?:كدا|كده)|لكم حاجة زي (?:كدا|كده)|ا ?واحد[هة]|واحد[هة])$/i;
 const SERVICE_SENTENCE_RX =
   /(?:تحت أمر|صيدليات دواء|خدمة التوصيل|الشركة المنتجة|هنحاول نوفر|هبلغ حضرتك|تصرفهوله|يقلل الاعراض|اهتمامكم|اهتمامك|حد من التمريض|مالتمريض|من التمريض|التمريض)/i;
+const NON_PRODUCT_CONVERSATION_FRAGMENT_RX =
+  /^(?:ده\s+الا|مينفعش(?:\s+من)?|الا\s+لسه\s+بعته|مطلعش\s+الا|حسابه|هبقا|م\s+ان\s+شاء\s+الله|هستأذنك\s+تجهزيهم(?:\s+و)?|بحولهم(?:\s+و)?|بس\s+عشان\b.*|(?:حاجه|حاجة)\s+(?:كويسه|كويسة)|ي\s+دكتور)$/iu;
 const DOSAGE_FOLLOWUP_RX =
   /^(?:\s*)(?:امبول|أمبول|امبولات|أمبولات|شريط|شرايط|علبه|علبة|علب|كريم|جل|شراب|بخاخ|بخاخه|قطره|قطرة|كبسول|كبسوله|كبسولة|اقراص|أقراص|قرص)(?:\s+.*)?$/i;
 
@@ -285,7 +289,12 @@ function cleanProductPhrase(raw: string) {
   if (/^(?:واحد|واحده|واحدة)\s+من\s+(?:ده|دا|دي)$/i.test(value)) return '';
   if (/^(?:اشوف|أشوف)\s+شكل|^يطلع\s+منه|^اعرف\s+مكان|^يجيلي\s+عند|^بعد\s+اذنك$|^استشاره\s+صغيره|^استشارة\s+صغيرة|^لحضرتك\s+الاسكرينه|^هم\s+تحويل|^بالظبط$|^عليه$|^شكله$|^يهم$|^يكون\s+فيه$/i.test(value)) return '';
   if (/^(?:نفس\s+)?(?:ده|دا|دي|العلبه\s+دي|العلبة\s+دي)$/i.test(value)) return '';
-  if (GENERIC_NON_PRODUCT_RX.test(value) || SERVICE_SENTENCE_RX.test(value)) return '';
+  if (
+    GENERIC_NON_PRODUCT_RX.test(value) ||
+    SERVICE_SENTENCE_RX.test(value) ||
+    NON_PRODUCT_CONVERSATION_FRAGMENT_RX.test(value) ||
+    ANAPHORIC_QUANTITY_ONLY_RX.test(value)
+  ) return '';
   return value;
 }
 
@@ -416,6 +425,25 @@ function extractProducts(session: WhatsAppConversationSession): WhatsAppProductS
         break;
       }
     }
+  }
+
+  // Quantity-only anaphora such as "منهم شريطين" belongs to the most recent
+  // explicit inbound product instead of becoming a fake product of its own.
+  for (let index = 0; index < session.messages.length; index += 1) {
+    const message = session.messages[index];
+    if (message.direction !== 'inbound' || !ANAPHORIC_QUANTITY_ONLY_RX.test(message.text.trim())) continue;
+    const quantity = quantityFrom(message.text);
+    if (quantity == null) continue;
+
+    const previousProduct = [...found].reverse().find((item) => {
+      if (item.sourceDirection !== 'inbound') return false;
+      const evidenceIndex = session.messages.findIndex((row) => item.evidenceMessageIds.includes(row.id));
+      return evidenceIndex >= 0 && evidenceIndex < index;
+    });
+    if (!previousProduct) continue;
+    previousProduct.quantity = quantity;
+    previousProduct.confidence = Math.max(previousProduct.confidence, 88);
+    previousProduct.evidenceMessageIds = uniq([...previousProduct.evidenceMessageIds, message.id]);
   }
 
   // Resolve a short customer pronoun commitment (e.g. "هحتاجه" / "تبعتيها") back to the
@@ -756,7 +784,8 @@ function isDeicticProductReference(value: string) {
   return /(?:^|\s)(?:ده|دا|دي|دول)(?:\s|$)/i.test(normalized) ||
     /^(?:واحد|واحده|واحدة)\s+من\s+(?:ده|دا|دي)$/i.test(normalized) ||
     /^(?:نفس|زي)\s+(?:ده|دا|دي)$/i.test(normalized) ||
-    /^(?:الغسول|العلبه|العلبة|الصنف|المنتج)\s+(?:ده|دا|دي)$/i.test(normalized);
+    /^(?:الغسول|العسل|القطره|القطرة|الكريم|الجل|الشراب|العلبه|العلبة|الصنف|المنتج)\s+(?:ده|دا|دي)$/i.test(normalized) ||
+    /^(?:ياخد|تاخد|اخد)\s+(?:ده|دا|دي)$/i.test(normalized);
 }
 
 export function mergeDeicticProductReferences(
