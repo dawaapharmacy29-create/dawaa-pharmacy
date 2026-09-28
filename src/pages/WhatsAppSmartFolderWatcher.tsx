@@ -52,7 +52,7 @@ import { buildConversationUnderstandingV32 } from '@/lib/whatsappConversationUnd
 import { syncWhatsAppResponseTurnsV18 } from '@/lib/whatsappResponseTurnsV18';
 import { syncWhatsAppEvidenceLedgerV17 } from '@/lib/whatsappEvidenceLedgerV17';
 import { syncWhatsAppOrderLifecycleV19 } from '@/lib/whatsappOrderLifecycleV19';
-import { persistAnalyzedWhatsAppSession, attachInvoiceVerificationToQueue } from '@/lib/whatsappReviewPersistenceV4';
+import { persistAnalyzedWhatsAppSession, attachInvoiceVerificationToQueue, confirmWhatsAppInvoiceLinkV34 } from '@/lib/whatsappReviewPersistenceV4';
 import { buildWhatsAppCustomerJourneyIntelligenceV15 } from '@/lib/whatsappCustomerJourneyIntelligenceV15';
 import { syncWhatsAppCustomerJourneyV15, type JourneySessionSourceV15 } from '@/lib/whatsappCustomerJourneyPersistenceV15';
 import { syncWhatsAppCustomerCasesV22 } from '@/lib/whatsappCustomerCasePersistenceV22';
@@ -71,6 +71,8 @@ import {
 
 type StaffRun = {
   sessionId: string;
+  sourceId?: string | null;
+  canonicalSaleProofState?: string | null;
   caseId: string;
   caseSummary: string;
   caseSessionCount: number;
@@ -360,6 +362,7 @@ export default function WhatsAppSmartFolderWatcher() {
   const [customDay, setCustomDay] = useState('');
   const [failedInboxCount, setFailedInboxCount] = useState(0);
   const [reanalyzingNames, setReanalyzingNames] = useState<Set<string>>(new Set());
+  const [confirmingInvoiceSourceId, setConfirmingInvoiceSourceId] = useState<string | null>(null);
 
 
   const analyzeFile = useCallback(async (file: File): Promise<FileRun> => {
@@ -635,6 +638,7 @@ export default function WhatsAppSmartFolderWatcher() {
           staffName: singleResolvedStaff?.canonicalStaffName || null,
           createdBy: actorName,
         });
+        for (const run of keptRuns) run.sourceId = persisted.id;
         await attachInvoiceVerificationToQueue(persisted.id, invoiceVerification, String(user?.id || '') || null, actorName);
         try {
           await syncWhatsAppOperationalActionsV6(operational, {
@@ -1111,6 +1115,72 @@ export default function WhatsAppSmartFolderWatcher() {
     setDetailTab('overview');
     setConversationView('whatsapp');
     setConversationFocusMode('focused');
+  }
+
+  async function confirmSelectedInvoiceLink() {
+    const item = selected;
+    const sourceId = String(item?.sourceId || '').trim();
+    const invoiceId = String(item?.snapshot.smartIntelligence?.invoiceVerification?.bestCandidate?.invoiceId || '').trim();
+    if (!item || !sourceId || !invoiceId) {
+      toast.error('لا يوجد Source/Invoice محدد يمكن اعتماده لهذه الحالة.');
+      return;
+    }
+    setConfirmingInvoiceSourceId(sourceId);
+    try {
+      const confirmed = await confirmWhatsAppInvoiceLinkV34(
+        sourceId,
+        invoiceId,
+        String(user?.id || '') || null,
+        actorName,
+      );
+
+      const accessToken = getStaffSessionToken() || '';
+      if (!accessToken) throw new Error('admin_session_required_for_canonical_refresh');
+      const response = await fetch('/api/sales-intelligence-refresh-source', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ sourceId }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(String(payload?.detail || payload?.error || 'canonical_refresh_failed'));
+      }
+
+      const proven = Array.isArray(payload?.derivedCases)
+        ? payload.derivedCases.some((row: any) => row?.saleProofState === 'proven')
+        : false;
+
+      setRuns((current) => current.map((run) => ({
+        ...run,
+        staffRuns: run.staffRuns.map((staffRun) =>
+          staffRun.sourceId === sourceId
+            ? { ...staffRun, canonicalSaleProofState: proven ? 'proven' : String(payload?.derivedCases?.[0]?.saleProofState || 'not_proven') }
+            : staffRun
+        ),
+      })));
+      setSelected((current) => current && current.sourceId === sourceId
+        ? { ...current, canonicalSaleProofState: proven ? 'proven' : String(payload?.derivedCases?.[0]?.saleProofState || 'not_proven') }
+        : current);
+
+      if (proven) {
+        toast.success(`تم اعتماد ربط الفاتورة ${confirmed.invoiceNumber || ''} وأصبحت Sale Proof Canonical.`);
+      } else {
+        toast.warning('تم حفظ اعتماد ربط الفاتورة، لكن الـCanonical لم يعتبر البيع Proven بسبب تعارض/نقص آخر يحتاج مراجعة.');
+      }
+    } catch (error) {
+      console.error('[whatsapp-watcher] invoice link confirmation failed', error);
+      const message = error instanceof Error ? error.message : String(error);
+      toast.error(
+        message === 'invoice_customer_identity_conflict' || message === 'invoice_customer_code_conflict'
+          ? 'تم منع الاعتماد: الفاتورة مرتبطة بعميل مختلف عن العميل في المحادثة.'
+          : `تعذر اعتماد ربط الفاتورة: ${message}`
+      );
+    } finally {
+      setConfirmingInvoiceSourceId(null);
+    }
   }
 
   function intentLabel(value?: string | null) {
