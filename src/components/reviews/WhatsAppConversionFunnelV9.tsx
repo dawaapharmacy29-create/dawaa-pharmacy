@@ -22,15 +22,14 @@ type JourneyRow = {
 
 type Scope = 'all' | 'branch' | 'doctor';
 
-type StageKey = 'opportunity' | 'available_or_alternative' | 'accepted' | 'chat_closed' | 'invoice_verified' | 'followup';
+type StageKey = 'opportunity' | 'available_or_alternative' | 'accepted' | 'chat_closed' | 'followup';
 
 const stageLabel: Record<StageKey, string> = {
   opportunity: 'طلب/فرصة',
   available_or_alternative: 'توفر/بديل/ترشيح',
   accepted: 'قبول العميل',
-  chat_closed: 'تأكيد الأوردر',
-  invoice_verified: 'فاتورة مؤكدة',
-  followup: 'متابعة بعد البيع',
+  chat_closed: 'إغلاق الأوردر في الشات',
+  followup: 'متابعة بعد الإغلاق',
 };
 
 function cairoDate() {
@@ -45,13 +44,11 @@ function normalizeStage(value: string | null) {
 
 function reached(row: JourneyRow, stage: StageKey) {
   const current = normalizeStage(row.current_stage);
-  const verified = false; // Legacy auto-match is not canonical Sale Proof.
   if (stage === 'opportunity') return row.sale_intent !== false;
   if (stage === 'available_or_alternative') return !/(requested|mentioned|unavailable_only)/.test(current) || /(available|alternative|recommended|accepted|closed|invoice|followup)/.test(current);
-  if (stage === 'accepted') return /(accepted|closed|invoice|followup)/.test(current) || row.closed_in_chat === true || verified;
-  if (stage === 'chat_closed') return row.closed_in_chat === true || /(closed|invoice|followup)/.test(current) || verified;
-  if (stage === 'invoice_verified') return verified;
-  return verified && row.followup_candidate === true;
+  if (stage === 'accepted') return /(accepted|closed|invoice|followup)/.test(current) || row.closed_in_chat === true;
+  if (stage === 'chat_closed') return row.closed_in_chat === true || /(closed|invoice|followup)/.test(current);
+  return row.followup_candidate === true;
 }
 
 export default function WhatsAppConversionFunnelV9({ onOpenSource }: { onOpenSource?: (sourceId: string) => void }) {
@@ -98,7 +95,7 @@ export default function WhatsAppConversionFunnelV9({ onOpenSource }: { onOpenSou
   }, [rows, branch, doctor, search, scope]);
 
   const stages = useMemo(() => {
-    const keys: StageKey[] = ['opportunity','available_or_alternative','accepted','chat_closed','invoice_verified','followup'];
+    const keys: StageKey[] = ['opportunity','available_or_alternative','accepted','chat_closed','followup'];
     const counts = keys.map((key) => ({ key, count: filtered.filter((row) => reached(row,key)).length }));
     return counts.map((item, index) => {
       const prev = index === 0 ? item.count : counts[index - 1].count;
@@ -116,7 +113,7 @@ export default function WhatsAppConversionFunnelV9({ onOpenSource }: { onOpenSou
       <div>
         <div className="flex items-center gap-2 text-xs font-black text-fuchsia-200"><Activity size={16}/> Conversion Funnel V9</div>
         <h2 className="mt-1 text-xl font-black text-white">من أول الطلب لحد الفاتورة والمتابعة</h2>
-        <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-400">يقيس انتقال فرص البيع بين المراحل، ويحدد أكبر نقطة تسريب. البيع النهائي لا يُحسب إلا بالفاتورة المؤكدة.</p>
+        <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-400">يقيس مراحل Product Journey القديمة حتى إغلاق الشات والمتابعة. البيع المالي الرسمي وConversion الموثق يُعرضان من Case Ownership/Canonical V23 وليس من هذه الشاشة.</p>
       </div>
       <button onClick={() => void load()} disabled={loading} className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-black text-white disabled:opacity-50"><RefreshCw size={15} className={loading?'animate-spin':''}/> تحديث</button>
     </div>
