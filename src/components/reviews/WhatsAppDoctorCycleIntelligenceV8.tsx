@@ -283,9 +283,24 @@ export default function WhatsAppDoctorCycleIntelligenceV8({ onOpenSource }: { on
           <div className="mb-3 flex items-center gap-2 font-black text-white"><FileText size={16}/> المحادثات والفواتير</div>
           <div className="max-h-[430px] space-y-2 overflow-y-auto">{conversations.map((item) => {
             const op = item.analysis_json?.operational;
+            const journey = item.analysis_json?.groundedSaleJourneyV33;
+            const verified = journey?.outcome === 'verified_sale';
             return <button type="button" key={item.id} onClick={() => onOpenSource?.(item.id)} className="w-full rounded-xl border border-slate-800 bg-slate-950/55 p-3 text-right hover:border-cyan-400/30">
-              <div className="flex items-start justify-between gap-2"><div><b className="text-white">{item.customer_name || 'عميل غير محدد'}</b>{item.customer_code ? <span className="mr-2 text-xs text-cyan-300">#{item.customer_code}</span> : null}<div className="mt-1 text-[11px] text-slate-500">{dateLabel(item.conversation_started_at)}</div></div><span className={`rounded-lg px-2 py-1 text-[10px] font-black ${item.invoice_match_status === 'verified' ? 'bg-emerald-500/10 text-emerald-200' : 'bg-slate-800 text-slate-300'}`}>{item.invoice_match_status === 'verified' ? `مطابقة آلية ${money(item.matched_invoice_value)}` : 'لا توجد مطابقة قوية'}</span></div>
-              <div className="mt-2 text-xs text-slate-300">{op?.primaryIntent || item.review_status || '—'}{item.followup_required ? <span className="text-amber-300"> • متابعة مطلوبة</span> : null}{item.matched_invoice_number ? <span className="text-emerald-300"> • #{item.matched_invoice_number}</span> : null}</div>
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <b className="text-white">{item.customer_name || 'عميل غير محدد'}</b>
+                  {item.customer_code ? <span className="mr-2 text-xs text-cyan-300">#{item.customer_code}</span> : null}
+                  <div className="mt-1 text-[11px] text-slate-500">{dateLabel(item.conversation_started_at)}</div>
+                </div>
+                <span className={`rounded-lg px-2 py-1 text-[10px] font-black ${verified ? 'bg-emerald-500/10 text-emerald-200' : journey?.commercial ? 'bg-amber-500/10 text-amber-200' : 'bg-slate-800 text-slate-300'}`}>
+                  {journey?.outcomeLabel || 'تحليل قديم — يحتاج إعادة تحليل'}
+                </span>
+              </div>
+              <div className="mt-2 text-xs text-slate-300">
+                {op?.primaryIntent || item.review_status || '—'}
+                {journey?.coaching?.bestPracticeScore != null ? <span className="text-cyan-300"> • جودة {journey.coaching.bestPracticeScore}/100</span> : null}
+                {item.matched_invoice_number && verified ? <span className="text-emerald-300"> • فاتورة #{item.matched_invoice_number}</span> : null}
+              </div>
             </button>;
           })}{!conversations.length ? <div className="p-5 text-center text-xs text-slate-500">لا توجد محادثات مرتبطة بهذا الدكتور في السايكل.</div> : null}</div>
         </div>
@@ -299,6 +314,66 @@ export default function WhatsAppDoctorCycleIntelligenceV8({ onOpenSource }: { on
           </button>)}{!products.length ? <div className="p-5 text-center text-xs text-slate-500">لا توجد رحلات أصناف مرتبطة بهذا الدكتور حتى الآن.</div> : null}</div>
         </div>
       </div>}
+
+      {!detailLoading ? (
+        <div className="mt-4 grid gap-4 xl:grid-cols-2">
+          <section className="rounded-2xl border border-emerald-800/30 bg-emerald-950/10 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-black text-emerald-100">أفضل محادثات للتعلم منها</div>
+                <div className="mt-1 text-[10px] text-slate-500">مرتبة حسب جودة الخدمة + سرعة الرد + تأكيد الطلب + البيع الموثق عند وجوده.</div>
+              </div>
+              <span className="rounded-full bg-emerald-500/10 px-2.5 py-1 text-[10px] font-black text-emerald-300">{doctorInsights.best.length}</span>
+            </div>
+            <div className="mt-3 space-y-2">
+              {doctorInsights.best.map(({ item, journey, score, strengths }) => (
+                <button key={item.id} type="button" onClick={() => onOpenSource?.(item.id)} className="w-full rounded-xl border border-emerald-800/25 bg-black/10 p-3 text-right transition hover:border-emerald-500/40">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="font-black text-white">{item.customer_name || 'عميل غير محدد'}</div>
+                      <div className="mt-1 text-[10px] text-slate-500">{dateLabel(item.conversation_started_at)} · {journey?.outcomeLabel || '—'}</div>
+                    </div>
+                    <div className="rounded-lg bg-emerald-500/10 px-2.5 py-1 text-sm font-black text-emerald-300">{score ?? '—'}</div>
+                  </div>
+                  <div className="mt-2 space-y-1 text-[11px] leading-5 text-slate-300">
+                    {strengths.slice(0, 3).map((strength) => <div key={strength}>✓ {strength}</div>)}
+                  </div>
+                </button>
+              ))}
+              {!doctorInsights.best.length ? <div className="rounded-xl border border-dashed border-slate-800 p-4 text-xs text-slate-500">لا توجد محادثات أعيد تحليلها بالـGrounded Journey كفاية لاختيار أمثلة قوية بعد.</div> : null}
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-amber-800/30 bg-amber-950/10 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-black text-amber-100">أهم فرص التحسين</div>
+                <div className="mt-1 text-[10px] text-slate-500">كل ملاحظة مرتبطة بالمحادثة نفسها؛ لا يتم إنشاء خصم أو حكم رسمي من هنا تلقائيًا.</div>
+              </div>
+              <span className="rounded-full bg-amber-500/10 px-2.5 py-1 text-[10px] font-black text-amber-300">{doctorInsights.improvement.length}</span>
+            </div>
+            <div className="mt-3 space-y-2">
+              {doctorInsights.improvement.map(({ item, journey, score, gaps, delayPoints, complaintPoints }) => (
+                <button key={item.id} type="button" onClick={() => onOpenSource?.(item.id)} className="w-full rounded-xl border border-amber-800/25 bg-black/10 p-3 text-right transition hover:border-amber-500/40">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="font-black text-white">{item.customer_name || 'عميل غير محدد'}</div>
+                      <div className="mt-1 text-[10px] text-slate-500">{dateLabel(item.conversation_started_at)} · {journey?.outcomeLabel || '—'}</div>
+                    </div>
+                    <div className="rounded-lg bg-amber-500/10 px-2.5 py-1 text-sm font-black text-amber-300">{score ?? '—'}</div>
+                  </div>
+                  <div className="mt-2 space-y-1 text-[11px] leading-5 text-slate-300">
+                    {gaps.slice(0, 3).map((gap) => <div key={gap}>• {gap}</div>)}
+                    {delayPoints.slice(0, 2).map((point) => <div key={point} className="text-amber-200">⏱ {point}</div>)}
+                    {complaintPoints.slice(0, 1).map((point) => <div key={point} className="text-rose-200">شكوى: {point}</div>)}
+                  </div>
+                </button>
+              ))}
+              {!doctorInsights.improvement.length ? <div className="rounded-xl border border-dashed border-slate-800 p-4 text-xs text-slate-500">لا توجد نقاط تحسين موثقة كفاية في المحادثات المعاد تحليلها.</div> : null}
+            </div>
+          </section>
+        </div>
+      ) : null}
     </div> : null}
   </section>;
 }
