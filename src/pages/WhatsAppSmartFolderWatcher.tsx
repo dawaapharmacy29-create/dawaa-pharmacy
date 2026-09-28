@@ -271,7 +271,7 @@ export default function WhatsAppSmartFolderWatcher() {
   const [detailTab, setDetailTab] = useState<'overview' | 'conversation' | 'review'>('overview');
   const [expandedRuns, setExpandedRuns] = useState<Record<string, boolean>>({});
   const [runQuery, setRunQuery] = useState('');
-  const [dayFilter, setDayFilter] = useState<'today' | 'yesterday' | 'all' | 'custom'>('today');
+  const [dayFilter, setDayFilter] = useState<'today' | 'yesterday' | 'all' | 'custom'>('all');
   const [customDay, setCustomDay] = useState('');
   const [failedInboxCount, setFailedInboxCount] = useState(0);
 
@@ -863,16 +863,6 @@ export default function WhatsAppSmartFolderWatcher() {
     navigate('/customer-service?quickFollowup=1');
   }
 
-  const overview = useMemo(() => {
-    const allStaff = runs.flatMap((run) => run.staffRuns);
-    const clear = allStaff.filter((item) => item.decision === 'clear').length;
-    const issues = allStaff.filter((item) => item.decision === 'issue').length;
-    const review = allStaff.length - clear - issues;
-    const followups = allStaff.filter((item) => item.intelligence?.followup.detected).length;
-    const opportunities = allStaff.reduce((sum, item) => sum + (item.intelligence?.salesOpportunities.length || 0), 0);
-    return { files: runs.length, staff: allStaff.length, clear, issues, review, followups, opportunities, failed: failedInboxCount };
-  }, [runs, failedInboxCount]);
-
   const filteredRuns = useMemo(() => {
     const query = runQuery.trim().toLowerCase();
     const todayKey = cairoDayKey(new Date());
@@ -898,6 +888,16 @@ export default function WhatsAppSmartFolderWatcher() {
       );
     });
   }, [runs, runQuery, dayFilter, customDay]);
+
+  const overview = useMemo(() => {
+    const allStaff = filteredRuns.flatMap((run) => run.staffRuns);
+    const clear = allStaff.filter((item) => item.decision === 'clear').length;
+    const issues = allStaff.filter((item) => item.decision === 'issue').length;
+    const review = allStaff.length - clear - issues;
+    const followups = allStaff.filter((item) => item.intelligence?.followup.detected).length;
+    const opportunities = allStaff.reduce((sum, item) => sum + (item.intelligence?.salesOpportunities.length || 0), 0);
+    return { files: filteredRuns.length, staff: allStaff.length, clear, issues, review, followups, opportunities, failed: failedInboxCount };
+  }, [filteredRuns, failedInboxCount]);
 
   function runKey(run: FileRun, index: number) {
     return `${run.fileName}-${run.at}-${index}`;
@@ -1002,7 +1002,7 @@ export default function WhatsAppSmartFolderWatcher() {
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 p-3">
           <div>
             <div className="font-black text-white">الملفات المحللة</div>
-            <div className="mt-1 text-[10px] text-slate-500">الفلتر يعتمد على تاريخ المحادثة، وليس وقت رفع الملف.</div>
+            <div className="mt-1 text-[10px] text-slate-500">الفلتر يعتمد على تاريخ المحادثة، وليس وقت رفع الملف. المعروض {filteredRuns.length} من إجمالي {runs.length} ملف.</div>
           </div>
           <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto">
             <div className="flex flex-wrap gap-1">
