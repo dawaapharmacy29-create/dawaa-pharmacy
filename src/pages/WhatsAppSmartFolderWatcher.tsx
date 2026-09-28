@@ -1837,29 +1837,46 @@ export default function WhatsAppSmartFolderWatcher() {
                                     type="button"
                                     onClick={() => openDetails(item)}
                                     key={`${item.sessionId}-${item.staffName}-${item.role}-${index}`}
-                                    className="grid w-full items-center gap-3 rounded-xl border border-slate-800 bg-[#111c2b]/70 px-3 py-3 text-right transition hover:border-cyan-700/60 hover:bg-cyan-950/10 md:grid-cols-[1.15fr_1.2fr_.9fr_auto]"
+                                    className="w-full rounded-2xl border border-slate-800 bg-[#111c2b]/75 px-3.5 py-3 text-right transition hover:-translate-y-0.5 hover:border-cyan-700/60 hover:bg-cyan-950/10 hover:shadow-lg hover:shadow-cyan-950/10"
                                   >
-                                    <div className="min-w-0">
-                                      <div className="truncate text-sm font-black text-white">{item.staffIdentity.canonicalStaffName || item.staffName}</div>
-                                      <div className="mt-0.5 truncate text-[10px] text-slate-500">{roleLabel(item.role)} · {item.staffIdentity.branch || item.branchHint.value || 'فرع غير محدد'}</div>
+                                    <div className="flex items-start justify-between gap-3">
+                                      <div className="min-w-0">
+                                        <div className="flex flex-wrap items-center gap-2">
+                                          <div className="truncate text-sm font-black text-white">{item.staffIdentity.canonicalStaffName || item.staffName}</div>
+                                          <span className="rounded-full border border-slate-700 bg-slate-900/70 px-2 py-0.5 text-[9px] font-black text-slate-300">{roleLabel(item.role)}</span>
+                                          <span className="rounded-full border border-cyan-900/50 bg-cyan-950/20 px-2 py-0.5 text-[9px] font-black text-cyan-200">{item.staffIdentity.branch || item.branchHint.value || 'فرع غير محدد'}</span>
+                                        </div>
+                                        <div className="mt-1.5 text-sm font-black text-slate-100">{saleTruth(item).label}</div>
+                                        <div className="mt-0.5 text-[10px] text-slate-500">{caseLabel(item)}</div>
+                                      </div>
+                                      <div className="flex shrink-0 items-center gap-2">
+                                        <span className={`rounded-full px-2.5 py-1 text-[10px] font-black ${item.decision === 'clear' ? 'bg-emerald-500/15 text-emerald-200' : item.decision === 'issue' ? 'bg-amber-500/15 text-amber-200' : 'bg-rose-500/15 text-rose-200'}`}>{decisionLabel(item.decision)}</span>
+                                        <ArrowLeft size={14} className="text-cyan-300" />
+                                      </div>
                                     </div>
-                                    <div className="min-w-0">
-                                      <div className="truncate text-xs font-black text-slate-200">{saleTruth(item).label}</div>
-                                      <div className="mt-0.5 truncate text-[10px] text-slate-500">{caseLabel(item)}</div>
-                                    </div>
-                                    <div className="min-w-0">
-                                      <div className="truncate text-xs text-slate-300">
+                                    <div className="mt-3 flex flex-wrap gap-1.5 text-[9px] font-black">
+                                      <span className={`rounded-full px-2 py-1 ${item.snapshot.smartIntelligence?.invoiceVerification?.bestCandidate?.invoiceNumber ? 'bg-sky-500/10 text-sky-200' : 'bg-slate-800 text-slate-500'}`}>
                                         {item.snapshot.smartIntelligence?.invoiceVerification?.bestCandidate?.invoiceNumber
-                                          ? `فاتورة ${item.snapshot.smartIntelligence.invoiceVerification.bestCandidate.invoiceNumber}`
-                                          : 'بدون فاتورة مؤكدة'}
-                                      </div>
-                                      <div className="mt-0.5 text-[10px] text-slate-500">
-                                        {item.actions.followup ? 'متابعة مطلوبة' : 'لا متابعة'} · {item.snapshot.smartIntelligence?.evaluationV2?.opportunities?.detected ?? item.intelligence?.salesOpportunities.length ?? 0} فرصة
-                                      </div>
-                                    </div>
-                                    <div className="flex items-center gap-2 justify-self-end">
-                                      <span className={`rounded-full px-2.5 py-1 text-[10px] font-black ${item.decision === 'clear' ? 'bg-emerald-500/15 text-emerald-200' : item.decision === 'issue' ? 'bg-amber-500/15 text-amber-200' : 'bg-rose-500/15 text-rose-200'}`}>{decisionLabel(item.decision)}</span>
-                                      <ArrowLeft size={14} className="text-cyan-300" />
+                                          ? `فاتورة #${item.snapshot.smartIntelligence.invoiceVerification.bestCandidate.invoiceNumber}`
+                                          : 'لا توجد فاتورة مؤكدة'}
+                                      </span>
+                                      {item.actions.followup ? <span className="rounded-full bg-violet-500/10 px-2 py-1 text-violet-200">متابعة مطلوبة</span> : null}
+                                      {(item.snapshot.smartIntelligence?.evaluationV2?.opportunities?.detected ?? item.intelligence?.salesOpportunities.length ?? 0) > 0 ? (
+                                        <span className="rounded-full bg-amber-500/10 px-2 py-1 text-amber-200">
+                                          {item.snapshot.smartIntelligence?.evaluationV2?.opportunities?.detected ?? item.intelligence?.salesOpportunities.length ?? 0} فرصة
+                                        </span>
+                                      ) : null}
+                                      {item.snapshot.smartIntelligence?.groundedSaleJourneyV33?.truthQuality ? (
+                                        <span className={`rounded-full px-2 py-1 ${
+                                          item.snapshot.smartIntelligence.groundedSaleJourneyV33.truthQuality.status === 'grounded'
+                                            ? 'bg-emerald-500/10 text-emerald-200'
+                                            : item.snapshot.smartIntelligence.groundedSaleJourneyV33.truthQuality.status === 'partial'
+                                              ? 'bg-amber-500/10 text-amber-200'
+                                              : 'bg-rose-500/10 text-rose-200'
+                                        }`}>
+                                          {item.snapshot.smartIntelligence.groundedSaleJourneyV33.truthQuality.status === 'grounded' ? 'موثقة' : item.snapshot.smartIntelligence.groundedSaleJourneyV33.truthQuality.status === 'partial' ? 'جزئية' : 'تحتاج مراجعة'}
+                                        </span>
+                                      ) : null}
                                     </div>
                                   </button>
                                 ))}
@@ -2199,14 +2216,23 @@ export default function WhatsAppSmartFolderWatcher() {
                                         ? { label: `كمية الفاتورة: ${row.invoiceQuantity}`, cls: 'text-slate-400' }
                                         : { label: 'الكمية غير محسومة', cls: 'text-slate-500' };
                                 return (
-                                  <div key={`${row.productName}-${index}`} className="grid gap-2 px-3 py-2.5 text-xs sm:grid-cols-[1fr_auto_auto_auto] sm:items-center">
-                                    <div className="font-black text-white">
-                                      {row.productName}
-                                      {row.sourceLineCount > 1 ? <span className="mr-1 text-[9px] font-normal text-slate-500">({row.sourceLineCount} سطور مجمعة)</span> : null}
+                                  <div key={`${row.productName}-${index}`} className="px-3 py-3 text-xs transition hover:bg-white/[0.02]">
+                                    <div className="flex flex-wrap items-start justify-between gap-2">
+                                      <div className="min-w-0">
+                                        <div className="font-black text-white">
+                                          {row.productName}
+                                          {row.sourceLineCount > 1 ? <span className="mr-1 text-[9px] font-normal text-slate-500">({row.sourceLineCount} سطور مجمعة)</span> : null}
+                                        </div>
+                                        <div className="mt-1 flex flex-wrap gap-1.5">
+                                          <span className={`w-fit rounded-full px-2 py-1 text-[9px] font-black ${badge.cls}`}>{badge.label}</span>
+                                          <span className={`rounded-full bg-slate-900/60 px-2 py-1 text-[9px] font-bold ${quantityStatus.cls}`}>{quantityStatus.label}</span>
+                                        </div>
+                                      </div>
+                                      <div className="shrink-0 text-left">
+                                        <div className="text-[9px] text-slate-500">قيمة البند</div>
+                                        <div className="mt-0.5 text-sm font-black text-slate-200">{row.lineTotal != null ? `${Number(row.lineTotal).toFixed(2)} ج` : '—'}</div>
+                                      </div>
                                     </div>
-                                    <span className={`w-fit rounded-full px-2 py-1 text-[10px] font-black ${badge.cls}`}>{badge.label}</span>
-                                    <div className={quantityStatus.cls}>{quantityStatus.label}</div>
-                                    <div className="text-left font-bold text-slate-300">{row.lineTotal != null ? `${Number(row.lineTotal).toFixed(2)} ج` : '—'}</div>
                                   </div>
                                 );
                               })}
@@ -2498,6 +2524,16 @@ export default function WhatsAppSmartFolderWatcher() {
                   </div>
                   {conversationView === 'whatsapp' ? (
                     <div className="h-[62vh] overflow-y-auto p-4 md:p-5" style={{ backgroundColor: '#0b141a', backgroundImage: 'radial-gradient(circle at 25% 25%, rgba(255,255,255,.025) 0 1px, transparent 1px)', backgroundSize: '28px 28px' }}>
+                      <div className="sticky top-0 z-10 mx-auto mb-4 flex max-w-3xl flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-700/70 bg-[#111b21]/95 px-3 py-2 text-[10px] shadow-lg backdrop-blur">
+                        <div className="font-black text-slate-200">
+                          {conversationFocusMode === 'focused' ? 'رسائل التقييم الفعلية' : conversationFocusMode === 'sale' ? 'رسائل رحلة البيع فقط' : 'الرحلة الكاملة'}
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          <span className="rounded-full bg-violet-500/10 px-2 py-1 font-black text-violet-200">{messagesForConversationMode(selected, conversationFocusMode).filter((m) => (m.focusLevel || (m.evidence ? 'primary' : m.scope === 'context' ? 'background' : 'supporting')) === 'primary').length} محوري</span>
+                          <span className="rounded-full bg-cyan-500/10 px-2 py-1 font-black text-cyan-200">{messagesForConversationMode(selected, conversationFocusMode).filter((m) => m.evidence).length} دليل</span>
+                          <span className="rounded-full bg-slate-800 px-2 py-1 font-black text-slate-400">{messagesForConversationMode(selected, conversationFocusMode).length} رسالة</span>
+                        </div>
+                      </div>
                       <div className="mx-auto max-w-3xl space-y-2" dir="rtl">
                         {messagesForConversationMode(selected, conversationFocusMode).map((message) => {
                           const inbound = message.direction === 'inbound';
