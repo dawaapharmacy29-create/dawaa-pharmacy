@@ -123,6 +123,111 @@ async function reconcileSoldCustomerRequestActions(
   return { reconciledActions };
 }
 
+
+async function enrichComplaintFollowupContext(
+  service: any,
+  source: Record<string, unknown>,
+  caseAnalyses: any[]
+) {
+  const sourceId = String(source.id || '');
+  if (!sourceId) return { enrichedComplaintActions: 0 };
+
+  const { data: actions, error: actionError } = await service
+    .from('whatsapp_conversation_actions')
+    .select('id,status,action_type,payload')
+    .eq('source_id', sourceId)
+    .eq('action_type', 'complaint_followup')
+    .in('status', ['proposed', 'ready', 'created']);
+  if (actionError) throw actionError;
+  if (!actions?.length) return { enrichedComplaintActions: 0 };
+
+  let invoiceId = '';
+  let linkageBasis = '';
+  for (const analysis of caseAnalyses) {
+    const attribution = analysis?.attribution;
+    const level = String(attribution?.attributionLevel || '');
+    const selected = String(attribution?.selectedInvoiceId || '').trim();
+    if (selected && ['proven', 'strongly_inferred'].includes(level)) {
+      invoiceId = selected;
+      linkageBasis = `canonical_${level}`;
+      break;
+    }
+  }
+
+  let invoice: any = null;
+  if (invoiceId) {
+    const { data, error } = await service
+      .from('sales_invoices')
+      .select('id,invoice_number,invoice_datetime,branch,customer_id,customer_code,delivery_staff,staff_name,seller_name')
+      .eq('id', invoiceId)
+      .maybeSingle();
+    if (error) throw error;
+    invoice = data;
+  }
+
+  if (!invoice) {
+    const customerId = String(source.customer_id || '').trim();
+    const customerCode = String(source.customer_code || '').trim();
+    const startedAt = source.conversation_started_at ? new Date(String(source.conversation_started_at)) : null;
+    const endedAt = source.conversation_ended_at ? new Date(String(source.conversation_ended_at)) : startedAt;
+    if ((customerId || customerCode) && startedAt && !Number.isNaN(startedAt.getTime())) {
+      const from = new Date(startedAt.getTime() - 2 * 3600_000).toISOString();
+      const to = new Date((endedAt && !Number.isNaN(endedAt.getTime()) ? endedAt.getTime() : startedAt.getTime()) + 6 * 3600_000).toISOString();
+      let query = service
+        .from('sales_invoices')
+        .select('id,invoice_number,invoice_datetime,branch,customer_id,customer_code,delivery_staff,staff_name,seller_name')
+        .gte('invoice_datetime', from)
+        .lte('invoice_datetime', to)
+        .limit(20);
+      query = customerId ? query.eq('customer_id', customerId) : query.eq('customer_code', customerCode);
+      const { data, error } = await query;
+      if (error) throw error;
+      const rows = data || [];
+      if (rows.length) {
+        const anchor = startedAt.getTime();
+        invoice = [...rows].sort((a: any, b: any) => {
+          const ad = Math.abs(new Date(String(a.invoice_datetime || 0)).getTime() - anchor);
+          const bd = Math.abs(new Date(String(b.invoice_datetime || 0)).getTime() - anchor);
+          return ad - bd;
+        })[0];
+        linkageBasis = 'customer_time_match';
+      }
+    }
+  }
+
+  if (!invoice) return { enrichedComplaintActions: 0 };
+
+  let updated = 0;
+  for (const action of actions) {
+    const existingPayload =
+      action.payload && typeof action.payload === 'object' && !Array.isArray(action.payload)
+        ? action.payload
+        : {};
+    const deliveryContext = {
+      invoice_id: String(invoice.id || ''),
+      invoice_number: String(invoice.invoice_number || ''),
+      invoice_datetime: invoice.invoice_datetime || null,
+      branch: invoice.branch || null,
+      delivery_staff: invoice.delivery_staff || null,
+      sale_staff: invoice.staff_name || invoice.seller_name || null,
+      linkage_basis: linkageBasis,
+      review_required: true,
+      responsibility_status: 'context_only_not_fault_assignment',
+      linked_at: new Date().toISOString(),
+    };
+    const { error } = await service
+      .from('whatsapp_conversation_actions')
+      .update({
+        payload: { ...existingPayload, delivery_context: deliveryContext },
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', action.id);
+    if (error) throw error;
+    updated += 1;
+  }
+  return { enrichedComplaintActions: updated };
+}
+
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
@@ -270,6 +375,7 @@ export default async function handler(req: any, res: any) {
         sourceAnalyses as any[]
       );
       reconciledActions += reconciliation.reconciledActions;
+      await enrichComplaintFollowupContext(service, source, sourceAnalyses as any[]);
     }
 
     return json(res, 200, {
