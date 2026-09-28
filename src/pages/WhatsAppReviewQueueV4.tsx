@@ -142,6 +142,11 @@ export default function WhatsAppReviewQueueV4() {
     return focusedEvidenceFingerprints.has(`${message.timestamp.getTime()}|${message.sender}`);
   };
 
+  const matchedFocusedEvidenceCount = useMemo(
+    () => transcriptMessages.filter((message) => isFocusedEvidenceMessage(message)).length,
+    [transcriptMessages, focusedEvidenceSet, focusedEvidenceFingerprints]
+  );
+
   const openDoctorEvidence = (sourceId: string, evidenceMessageIds: string[] = []) => {
     setStatus('all');
     setSearch('');
@@ -261,8 +266,15 @@ export default function WhatsAppReviewQueueV4() {
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2 font-black text-white"><FileText size={17}/>المحادثة ورسائل الدليل</div>
                 {focusedEvidenceIds.length ? (
-                  <div className="rounded-full bg-amber-500/10 px-2.5 py-1 text-[10px] font-black text-amber-200">
-                    {focusedEvidenceIds.length} رسالة دليل محددة
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="rounded-full bg-amber-500/10 px-2.5 py-1 text-[10px] font-black text-amber-200">
+                      {matchedFocusedEvidenceCount}/{focusedEvidenceIds.length} رسالة دليل اتطابقت
+                    </div>
+                    {matchedFocusedEvidenceCount < focusedEvidenceIds.length ? (
+                      <div className="rounded-full bg-rose-500/10 px-2.5 py-1 text-[10px] font-black text-rose-200">
+                        {focusedEvidenceIds.length - matchedFocusedEvidenceCount} دليل لم يُطابق — يحتاج مراجعة
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
               </div>
