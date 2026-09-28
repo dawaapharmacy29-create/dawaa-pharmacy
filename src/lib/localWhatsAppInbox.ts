@@ -170,6 +170,19 @@ export function resetLocalWhatsAppProcessedKeys(keys: string[]) {
   localStorage.setItem(FAILED_KEY, JSON.stringify(failed));
 }
 
+export function resetLocalWhatsAppProcessedFileNames(fileNames: string[]) {
+  const names = new Set(fileNames.map((name) => String(name || '').trim()).filter(Boolean));
+  if (!names.size) return;
+  const matchesName = (key: string) => {
+    const name = key.split('|', 1)[0] || '';
+    return names.has(name);
+  };
+  const processed = readStringLedger(LEDGER_KEY).filter((item) => !matchesName(item));
+  localStorage.setItem(LEDGER_KEY, JSON.stringify(processed));
+  const failed = readFailedLedger().filter((item) => !matchesName(item.key));
+  localStorage.setItem(FAILED_KEY, JSON.stringify(failed));
+}
+
 export function getLocalWhatsAppFailedItems(): FailedInboxItem[] {
   return readFailedLedger();
 }
