@@ -1313,49 +1313,84 @@ export default function WhatsAppSmartFolderWatcher() {
   function productTruthRows(item: StaffRun) {
     const smart = item.snapshot.smartIntelligence;
     const invoiceItems = smart?.invoiceItems || [];
-    const requested = (smart?.requestedProducts || []).filter((row) =>
-      ['requested', 'accepted', 'unavailable', 'recommended'].includes(row.status)
+    const productSignals = smart?.requestedProducts || [];
+
+    const customerDemand = productSignals.filter((row) =>
+      row.sourceDirection === 'inbound' &&
+      row.requestProven === true &&
+      ['requested', 'accepted', 'unavailable'].includes(row.status)
+    );
+    const recommendations = productSignals.filter((row) =>
+      row.status === 'recommended' || row.mentionOrigin === 'recommendation'
     );
 
-    const matchedRequestIndexes = new Set<number>();
+    const keysForSignal = (row: any) => [
+      row.canonicalName,
+      row.rawName,
+      row.productCode,
+    ].map(normalizeProductForCompare).filter(Boolean);
+
+    const matchesInvoiceItem = (invoiceItem: any, signal: any) => {
+      const invoiceKeys = [invoiceItem.productName, invoiceItem.productCode]
+        .map(normalizeProductForCompare).filter(Boolean);
+      const signalKeys = keysForSignal(signal);
+      const exactIdMatch = Boolean(invoiceItem.productId && signal.productId && invoiceItem.productId === signal.productId);
+      const exactCodeMatch = Boolean(
+        invoiceItem.productCode &&
+        signal.productCode &&
+        normalizeProductForCompare(invoiceItem.productCode) === normalizeProductForCompare(signal.productCode)
+      );
+      const textMatch = invoiceKeys.some((left) => signalKeys.some((right) =>
+        left === right || (left.length >= 4 && right.length >= 4 && (left.includes(right) || right.includes(left)))
+      ));
+      return exactIdMatch || exactCodeMatch || textMatch;
+    };
+
+    const matchedDemandIndexes = new Set<number>();
+    const matchedRecommendationIndexes = new Set<number>();
+
     const rows = invoiceItems.map((invoiceItem) => {
-      const invoiceKeys = [
-        invoiceItem.productName,
-        invoiceItem.productCode,
-      ].map(normalizeProductForCompare).filter(Boolean);
-      let matchIndex = -1;
-      for (let index = 0; index < requested.length; index += 1) {
-        const request = requested[index];
-        const requestKeys = [
-          request.canonicalName,
-          request.rawName,
-          request.productCode,
-        ].map(normalizeProductForCompare).filter(Boolean);
-        const exactIdMatch = Boolean(invoiceItem.productId && request.productId && invoiceItem.productId === request.productId);
-        const exactCodeMatch = Boolean(invoiceItem.productCode && request.productCode && normalizeProductForCompare(invoiceItem.productCode) === normalizeProductForCompare(request.productCode));
-        const textMatch = invoiceKeys.some((left) => requestKeys.some((right) =>
-          left === right || (left.length >= 4 && right.length >= 4 && (left.includes(right) || right.includes(left)))
-        ));
-        if (exactIdMatch || exactCodeMatch || textMatch) {
-          matchIndex = index;
-          break;
-        }
+      const demandIndex = customerDemand.findIndex((signal, index) =>
+        !matchedDemandIndexes.has(index) && matchesInvoiceItem(invoiceItem, signal)
+      );
+      if (demandIndex >= 0) {
+        matchedDemandIndexes.add(demandIndex);
+        return {
+          kind: 'customer_requested_in_invoice' as const,
+          productName: invoiceItem.productName,
+          invoiceQuantity: invoiceItem.effectiveQuantity ?? invoiceItem.quantity,
+          requestedQuantity: customerDemand[demandIndex].quantity,
+          lineTotal: invoiceItem.lineTotal,
+        };
       }
-      if (matchIndex >= 0) matchedRequestIndexes.add(matchIndex);
+
+      const recommendationIndex = recommendations.findIndex((signal, index) =>
+        !matchedRecommendationIndexes.has(index) && matchesInvoiceItem(invoiceItem, signal)
+      );
+      if (recommendationIndex >= 0) {
+        matchedRecommendationIndexes.add(recommendationIndex);
+        return {
+          kind: 'recommended_in_invoice' as const,
+          productName: invoiceItem.productName,
+          invoiceQuantity: invoiceItem.effectiveQuantity ?? invoiceItem.quantity,
+          requestedQuantity: recommendations[recommendationIndex].quantity,
+          lineTotal: invoiceItem.lineTotal,
+        };
+      }
+
       return {
-        kind: matchIndex >= 0 ? 'requested_and_sold' as const : 'invoice_only' as const,
+        kind: 'invoice_only' as const,
         productName: invoiceItem.productName,
         invoiceQuantity: invoiceItem.effectiveQuantity ?? invoiceItem.quantity,
-        requestedQuantity: matchIndex >= 0 ? requested[matchIndex].quantity : null,
+        requestedQuantity: null,
         lineTotal: invoiceItem.lineTotal,
       };
     });
 
-    requested.forEach((request, index) => {
-      if (matchedRequestIndexes.has(index)) return;
-      if (!['requested', 'accepted', 'unavailable'].includes(request.status)) return;
+    customerDemand.forEach((request, index) => {
+      if (matchedDemandIndexes.has(index)) return;
       rows.push({
-        kind: 'requested_not_in_invoice' as const,
+        kind: 'customer_customer_requested_not_in_invoice' as const,
         productName: request.canonicalName || request.rawName,
         invoiceQuantity: null,
         requestedQuantity: request.quantity,
@@ -1636,9 +1671,9 @@ export default function WhatsAppSmartFolderWatcher() {
                     const groundedJourney = selected.snapshot.smartIntelligence?.groundedSaleJourneyV33;
                     const productRows = productTruthRows(selected);
                     const nextDecision = nextDecisionLabel(selected);
-                    const soldRequestedCount = productRows.filter((row) => row.kind === 'requested_and_sold').length;
+                    const soldRequestedCount = productRows.filter((row) => row.kind === 'customer_requested_in_invoice').length;
                     const invoiceOnlyCount = productRows.filter((row) => row.kind === 'invoice_only').length;
-                    const missingFromInvoiceCount = productRows.filter((row) => row.kind === 'requested_not_in_invoice').length;
+                    const missingFromInvoiceCount = productRows.filter((row) => row.kind === 'customer_requested_not_in_invoice').length;
                     const invoiceItemsTotal = (selected.snapshot.smartIntelligence?.invoiceItems || [])
                       .reduce((sum, row) => sum + (Number.isFinite(Number(row.lineTotal)) ? Number(row.lineTotal) : 0), 0);
                     const invoiceItemsDifference = invoice?.revenue != null && invoiceItemsTotal > 0
@@ -1832,9 +1867,9 @@ export default function WhatsAppSmartFolderWatcher() {
                             </div>
                             <div className="divide-y divide-slate-800">
                               {productRows.slice(0, 18).map((row, index) => {
-                                const badge = row.kind === 'requested_and_sold'
+                                const badge = row.kind === 'customer_requested_in_invoice'
                                   ? { label: 'طلبه وظهر بالفاتورة المرشحة', cls: 'bg-cyan-500/10 text-cyan-300' }
-                                  : row.kind === 'requested_not_in_invoice'
+                                  : row.kind === 'customer_requested_not_in_invoice'
                                     ? { label: 'طلبه ولم يظهر بالفاتورة', cls: 'bg-amber-500/10 text-amber-300' }
                                     : { label: 'ظهر في الفاتورة فقط', cls: 'bg-sky-500/10 text-sky-300' };
                                 return (
