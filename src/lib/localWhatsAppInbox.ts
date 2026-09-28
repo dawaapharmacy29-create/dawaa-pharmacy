@@ -229,6 +229,28 @@ export async function getNewestUnprocessedWhatsAppExport(handle: any): Promise<L
   return [...candidates].sort((a, b) => b.lastModified - a.lastModified || b.size - a.size || a.name.localeCompare(b.name))[0] || null;
 }
 
+export async function findLocalWhatsAppExportFileNames(
+  handle: any,
+  query: string,
+  limit = 20
+): Promise<string[]> {
+  const permission = await queryLocalWhatsAppFolderPermission(handle, false);
+  if (permission !== 'granted') return [];
+  const needle = String(query || '').trim().toLowerCase();
+  if (!needle) return [];
+
+  const names: string[] = [];
+  for await (const entry of handle.values()) {
+    if (!entry || entry.kind !== 'file') continue;
+    const name = String(entry.name || '').trim();
+    if (!isSupportedExportName(name)) continue;
+    if (!name.toLowerCase().includes(needle)) continue;
+    names.push(name);
+    if (names.length >= Math.max(1, Math.min(50, limit))) break;
+  }
+  return names.sort((a, b) => a.localeCompare(b));
+}
+
 
 export interface LocalWhatsAppAnalysisHistoryRow<T = unknown> {
   key: string;
