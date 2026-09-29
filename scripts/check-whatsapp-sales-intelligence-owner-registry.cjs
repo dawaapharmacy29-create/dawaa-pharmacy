@@ -129,11 +129,7 @@ for (const relativePath of canonicalCoreFiles) {
     }
   }
   for (const legacyTable of evidenceOnlyTables) {
-    const escaped = legacyTable.replace(/[.*+?^${}()|[\]\\]/g, '\\  for (const legacyTable of evidenceOnlyTables) {
-    if (content.includes(legacyTable)) {
-      fail(relativePath + ' reads/references evidence-only operational table ' + legacyTable);
-    }
-  }');
+    const escaped = legacyTable.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const directRead = new RegExp("\\.from\\(\\s*['\\\"]" + escaped + "['\\\"]\\s*\\)");
     if (directRead.test(content)) {
       fail(relativePath + ' directly reads evidence-only operational table ' + legacyTable);
