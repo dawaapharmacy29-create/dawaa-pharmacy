@@ -23,7 +23,20 @@ import type { CanonicalCustomerIdentity } from './customers/canonicalCustomerIde
 export const FOLLOWUP_IDENTITY_VERSION = 'fu1';
 const EPISODE_GAP_MINUTES = 120;
 
-function normalizeKeyPart(value: unknown): string {
+/** Stable timestamp tokens embedded in WhatsApp message ids (epoch-ms prefix). */
+export function followupEvidenceTimestampKeys(value: unknown): string[] {
+  const rows = Array.isArray(value) ? value : [];
+  return Array.from(
+    new Set(
+      rows
+        .map((item) => /^([0-9]{13})(?:-|$)/.exec(String(item ?? '').trim())?.[1] || '')
+        .filter(Boolean)
+    )
+  ).sort();
+}
+
+
+export function normalizeFollowupKeyPart(value: unknown): string {
   return String(value ?? '')
     .replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)))
     .replace(/[أإآ]/g, 'ا')
@@ -46,9 +59,9 @@ export function followupCustomerAnchor(
   if (identity?.status === 'resolved' && identity.customerId)
     return `customer:${identity.customerId}`;
   if (identity?.normalizedPhone) return `phone:${identity.normalizedPhone}`;
-  if (identity?.customerCode) return `code:${normalizeKeyPart(identity.customerCode)}`;
+  if (identity?.customerCode) return `code:${normalizeFollowupKeyPart(identity.customerCode)}`;
   const hint = extractCustomerHintFromExportFileName(sourceFileName);
-  return `export:${normalizeKeyPart([hint.nameHint, hint.codeHint].filter(Boolean).join(' ') || sourceFileName)}`;
+  return `export:${normalizeFollowupKeyPart([hint.nameHint, hint.codeHint].filter(Boolean).join(' ') || sourceFileName)}`;
 }
 
 /**
@@ -83,8 +96,8 @@ export function buildFollowupIdentity(input: {
     FOLLOWUP_IDENTITY_VERSION,
     input.customerAnchor,
     episode,
-    normalizeKeyPart(input.followupType),
-    normalizeKeyPart(input.reasonKey) || '-',
+    normalizeFollowupKeyPart(input.followupType),
+    normalizeFollowupKeyPart(input.reasonKey) || '-',
   ].join('|');
 }
 
