@@ -6,8 +6,6 @@ import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { normalizeBranchName } from '@/lib/branch';
-import { canViewAllBranches } from '@/lib/security/userDataScope';
-import { readAttendanceRange } from '@/lib/readModels/attendanceReadModel';
 import {
   evaluationProfileForRole,
   type StaffEvaluationSectionV3,
@@ -17,6 +15,10 @@ import {
   getStaffPointsDashboardV3,
   type StaffPointsDashboardV3,
 } from '@/lib/staff/staffPointsDashboardService';
+import {
+  loadEmployeeMonthlyEvidence,
+  type EmployeeMonthlyEvidence,
+} from '@/lib/staff/employeeMonthlyEvidenceService';
 import {
   currentEvaluationCycleLabel,
   evaluationCycleRangeFromLabel,
@@ -80,11 +82,6 @@ const METRIC_LABELS: Record<keyof Omit<Metrics, 'engine_version'>, string> = {
   present_days: 'أيام حضور فعلي',
 };
 
-function safeNumber(value: unknown) {
-  const number = Number(value || 0);
-  return Number.isFinite(number) ? number : 0;
-}
-
 function gradeFor(score: number) {
   if (score >= 90) return 'ممتاز';
   if (score >= 80) return 'جيد جدًا';
@@ -141,6 +138,13 @@ export default function StaffMonthlyEvaluation() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sections, setSections] = useState<StaffEvaluationSectionV3[]>([]);
   const [metrics, setMetrics] = useState<Metrics>(EMPTY_METRICS);
+  const [evidenceReady, setEvidenceReady] = useState(false);
+  const [evidenceHealth, setEvidenceHealth] = useState<EmployeeMonthlyEvidence['health']>({
+    reviews: 'unavailable',
+    followups: 'unavailable',
+    attendance: 'unavailable',
+  });
+  const [evidenceErrors, setEvidenceErrors] = useState<Record<string, string>>({});
   const [pointsTruth, setPointsTruth] = useState<StaffPointsDashboardV3 | null>(null);
   const [settledStatement, setSettledStatement] = useState<{ points_closing: number; incentive_amount: number } | null>(null);
   const [activeGates, setActiveGates] = useState<CriticalGateType[]>([]);
@@ -219,32 +223,15 @@ export default function StaffMonthlyEvaluation() {
       try {
         const { startDate, endDate, endDateExclusive } = evaluationCycleDateKeys(cycleLabel);
         const cycleKeyDate = `${cycleLabel}-01`;
-        const [savedResult, reviewResult, followupResult, attendanceResult, pointsResult, statementResult] = await Promise.all([
+        const [savedResult, evidenceResult, pointsResult, statementResult] = await Promise.all([
           supabase.rpc('get_staff_monthly_evaluation_safe', {
             p_actor_id: user.id,
             p_staff_id: selectedId,
             p_month: cycleKeyDate,
           }),
-          supabase
-            .from('conversation_sales_reviews')
-            .select('total_score,final_score,doctor_points_impact,point_impact,created_at')
-            .eq('staff_id', selectedId)
-            .gte('created_at', startDate)
-            .lt('created_at', endDateExclusive)
-            .limit(500),
-          supabase
-            .from('daily_followups')
-            .select('status,followup_status,completed_at,created_at,assigned_staff_id,requested_by_staff_id')
-            .or(`assigned_staff_id.eq.${selectedId},requested_by_staff_id.eq.${selectedId}`)
-            .gte('created_at', startDate)
-            .lt('created_at', endDateExclusive)
-            .limit(1000),
-          readAttendanceRange({ staffId: selectedId, startDate, endDateExclusive, limit: 100 }),
+          loadEmployeeMonthlyEvidence({ staffId: selectedId, startDate, endDateExclusive }),
           getStaffPointsDashboardV3(selectedId, cycleLabel).catch(() => null),
-          // Points Truth بيحسب أي دورة (حتى القديمة) بسعر وتارجت اليوم، مش
-          // سعر الدورة وقتها — لو الدورة دي اتقفلت رسميًا في كشف حوافز
-          // (employee_monthly_statements)، الكشف ده هو الرقم الصحيح المعتمد
-          // ولازم ياخد الأولوية على أي حساب حي ممكن يبقى غلط تاريخيًا.
+          // Historical closed statements remain the frozen source if one exists.
           supabase
             .from('employee_monthly_statements')
             .select('points_closing,incentive_amount')
@@ -255,33 +242,11 @@ export default function StaffMonthlyEvaluation() {
         ]);
 
         if (savedResult.error) throw savedResult.error;
-        if (attendanceResult.status === 'unavailable') throw new Error(attendanceResult.error);
 
-        const reviewRows = reviewResult.data || [];
-        const followupRows = followupResult.data || [];
-        const attendanceRows = attendanceResult.rows;
-        const reviewAverage = reviewRows.length
-          ? reviewRows.reduce((sum: number, row: Record<string, unknown>) => sum + safeNumber(row.final_score || row.total_score), 0) / reviewRows.length
-          : 0;
-        const completedFollowups = followupRows.filter((row: Record<string, unknown>) =>
-          row.completed_at || /completed|مكتمل|تم/.test(String(row.status || row.followup_status || ''))
-        ).length;
-        const impacts = reviewRows.map((row: Record<string, unknown>) => safeNumber(row.doctor_points_impact ?? row.point_impact));
-        const positive = impacts.filter((value) => value > 0).reduce((sum, value) => sum + value, 0);
-        const negative = impacts.filter((value) => value < 0).reduce((sum, value) => sum + Math.abs(value), 0);
-        const presentDays = attendanceRows.filter((row: Record<string, unknown>) => /present|حاضر|late|متأخر/i.test(String(row.status || ''))).length;
-
-        setMetrics({
-          review_count: reviewRows.length,
-          review_average: Math.round(reviewAverage * 10) / 10,
-          completed_followups: completedFollowups,
-          followup_count: followupRows.length,
-          conversation_positive_points: positive,
-          conversation_negative_points: negative,
-          attendance_days: attendanceRows.length,
-          present_days: presentDays,
-          engine_version: 3,
-        });
+        setMetrics(evidenceResult.metrics);
+        setEvidenceReady(evidenceResult.ready);
+        setEvidenceHealth(evidenceResult.health);
+        setEvidenceErrors(evidenceResult.errors);
         setPointsTruth(pointsResult);
         setSettledStatement(statementResult.data || null);
 
@@ -370,6 +335,15 @@ export default function StaffMonthlyEvaluation() {
       toast.error('لا يمكنك اعتماد أو تعديل تقييمك الشهري لنفسك.');
       return;
     }
+    if (nextStatus === 'sent' && !evidenceReady) {
+      const missing = [
+        evidenceHealth.reviews === 'unavailable' ? 'مراجعات المحادثات' : '',
+        evidenceHealth.followups === 'unavailable' ? 'المتابعات' : '',
+        evidenceHealth.attendance === 'unavailable' ? 'الحضور' : '',
+      ].filter(Boolean).join('، ');
+      toast.error(`لا يمكن الاعتماد النهائي لأن مصادر الأدلة غير مكتملة: ${missing || 'مصدر غير متاح'}.`);
+      return;
+    }
     if (nextStatus === 'sent' && !cycleClosed) {
       toast.error(`الدورة ما زالت جارية حتى ${cycleRange.displayLabel.split('–')[1]?.trim() || 'يوم 25'}. يمكنك حفظ مسودة فقط ثم الاعتماد بعد إقفال الدورة.`);
       return;
@@ -395,7 +369,9 @@ export default function StaffMonthlyEvaluation() {
         sections,
         metrics_snapshot: {
           ...metrics,
-          evaluation_engine_version: 3,
+          evaluation_engine_version: 4,
+          evidence_ready: evidenceReady,
+          evidence_health: evidenceHealth,
           canonical_role: profile.role,
           evaluation_cycle_label: cycleLabel,
           active_critical_gates: activeGates,
@@ -641,7 +617,7 @@ export default function StaffMonthlyEvaluation() {
               <Panel className="p-4">
                 <SectionTitle
                   title="مخالفات حرجة تحدّ من الحافز"
-                  subtitle="تفعيل أي مخالفة هنا يسجّل خصم نقاط حقيقي في حساب الموظف عند الحفظ، مستقل عن درجة التقييم"
+                  subtitle="تفعيل أي مخالفة هنا يسجّل خصم نقاط حقيقي فقط عند الاعتماد النهائي، مستقل عن درجة التقييم"
                   icon={<ShieldAlert size={18} />}
                 />
                 <div className="grid gap-2 sm:grid-cols-2">
@@ -667,13 +643,39 @@ export default function StaffMonthlyEvaluation() {
                 </div>
                 {isGatedByCriticalViolation ? (
                   <p className="mt-3 text-xs font-bold" style={{ color: 'var(--dawaa-status-danger-text)' }}>
-                    فيه مخالفة حرجة مفعّلة — عند الحفظ هيتسجل خصم النقاط الموضح فوق فعليًا في حساب الموظف، بغض النظر عن نتيجة التقييم بالأعلى.
+                    فيه مخالفة حرجة مفعّلة — عند الاعتماد النهائي هيتسجل خصم النقاط الموضح فوق فعليًا في حساب الموظف، بغض النظر عن نتيجة التقييم بالأعلى.
                   </p>
                 ) : null}
               </Panel>
 
               <Panel className="p-4">
-                <SectionTitle title="بيانات تشغيلية مساعدة للتقييم" icon={<Search size={18} />} />
+                <SectionTitle
+                  title="أدلة الدورة"
+                  subtitle={evidenceReady ? 'المحادثات والمتابعات والحضور متاحة' : 'مصدر واحد أو أكثر غير متاح — الاعتماد النهائي متوقف'}
+                  icon={<Search size={18} />}
+                />
+                <div className="mb-3 flex flex-wrap gap-2 text-xs font-black">
+                  {([
+                    ['المحادثات', evidenceHealth.reviews],
+                    ['المتابعات', evidenceHealth.followups],
+                    ['الحضور', evidenceHealth.attendance],
+                  ] as const).map(([label, sourceStatus]) => (
+                    <span
+                      key={label}
+                      className="rounded-full border px-3 py-1"
+                      style={sourceStatus === 'available'
+                        ? { borderColor: 'var(--dawaa-status-success-border)', background: 'var(--dawaa-status-success-soft)', color: 'var(--dawaa-status-success-text)' }
+                        : { borderColor: 'var(--dawaa-status-danger-border)', background: 'var(--dawaa-status-danger-bg)', color: 'var(--dawaa-status-danger-text)' }}
+                    >
+                      {label}: {sourceStatus === 'available' ? 'جاهز' : 'غير متاح'}
+                    </span>
+                  ))}
+                </div>
+                {!evidenceReady && Object.keys(evidenceErrors).length ? (
+                  <div className="mb-3 rounded-xl border p-2 text-xs font-bold" style={{ borderColor: 'var(--dawaa-status-danger-border)', background: 'var(--dawaa-status-danger-bg)', color: 'var(--dawaa-status-danger-text)' }}>
+                    لا تعتمد التقييم قبل عودة مصادر الأدلة. التفاصيل محفوظة للمراجعة الفنية ولا يتم تحويلها إلى أصفار حقيقية.
+                  </div>
+                ) : null}
                 <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                   {(Object.keys(METRIC_LABELS) as (keyof typeof METRIC_LABELS)[]).map((key) => (
                     <MiniBox key={key} label={METRIC_LABELS[key]} value={String(metrics[key])} tone="cyan" />
@@ -684,7 +686,7 @@ export default function StaffMonthlyEvaluation() {
               <Panel className="p-4" style={{ background: 'var(--dawaa-status-warning-bg)', borderColor: 'var(--dawaa-status-warning-border)' }}>
                 <h2 className="font-black" style={{ color: 'var(--dawaa-status-warning-text)' }}>معادلة الحافز النهائي</h2>
                 <p className="mt-2 text-sm leading-7" style={{ color: 'var(--dawaa-theme-text)' }}>
-                  الحافز النهائي = حافز النقاط الكامل (من Points Truth — مفيش سقف عليه، بيتراكم من الأداء اليومي الحقيقي) × نسبة التقييم الشهري. يعني لو نتيجة التقييم أقل من 100%، الحافز الفعلي بيقل بنفس النسبة حتى لو النقاط عالية جدًا. كارت &quot;حافز الأداء المركزي&quot; فوق بيوري المعاينة الحية بنفس المعادلة أول بأول وأنت بتقيّم؛ النسبة بتتثبّت رسميًا في حساب الموظف لحظة الاعتماد النهائي (إرسال) بس، ومش بتتكرر لو اتعدّل تقييم مُرسَل بالفعل.
+                  حافز الأداء يُقرأ من مصدر النقاط المركزي وفق إعدادات الموظف والدورة، ثم تُطبَّق عليه نسبة التقييم الشهري عند الاعتماد النهائي. قبل إقفال الدورة يظهر الرقم كمعاينة فقط؛ وبعد الاعتماد تُزامَن النسبة على الخادم. إذا أُعيد اعتماد التقييم قبل تجميد الراتب، تتحدث النسبة، أما بعد تجميد الراتب فلا يُعاد فتح الأثر المالي من شاشة التقييم.
                 </p>
               </Panel>
 
