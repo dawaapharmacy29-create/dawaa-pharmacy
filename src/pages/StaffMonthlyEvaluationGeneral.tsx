@@ -107,6 +107,14 @@ function safeNumber(value: unknown) {
   return Number.isFinite(number) ? number : 0;
 }
 
+function appendUniqueLine(current: string, line: string) {
+  const normalized = line.trim();
+  if (!normalized) return current;
+  const lines = current.split('\n').map((item) => item.trim()).filter(Boolean);
+  if (lines.includes(normalized)) return current;
+  return [...lines, normalized].join('\n');
+}
+
 function normalizeSavedSections(
   saved: unknown,
   fallback: StaffEvaluationSectionV3[]
@@ -486,6 +494,15 @@ export default function StaffMonthlyEvaluation() {
     && completedSections === sections.length
     && weakSectionsMissingNotes.length === 0
     && !criticalGateMissingReason;
+  const ratedSections = sections.filter((item) => item.score > 0);
+  const strongestSections = [...ratedSections]
+    .filter((item) => item.score >= 4)
+    .sort((a, b) => b.score - a.score || b.weight - a.weight)
+    .slice(0, 3);
+  const developmentSections = [...ratedSections]
+    .filter((item) => item.score <= 3)
+    .sort((a, b) => a.score - b.score || b.weight - a.weight)
+    .slice(0, 3);
 
   // الرقم المالي المعروض يأتي فقط من الحقيقة المالية على الخادم أو من كشف مقفول.
   // لا نحسب مبلغًا نهائيًا داخل صفحة التقييم.
@@ -857,6 +874,50 @@ export default function StaffMonthlyEvaluation() {
               ) : null}
 
               {activeStep === 4 ? (
+                <>
+                  <Panel className="p-4">
+                    <SectionTitle
+                      title="الخلاصة من درجات المحاور"
+                      subtitle="اقتراحات مبنية على درجات هذا التقييم فقط؛ المدير يقرر ما يضيفه للتقرير."
+                      icon={<Star size={18} />}
+                    />
+                    <div className="grid gap-3 lg:grid-cols-2">
+                      <div className="rounded-2xl border p-3" style={{ borderColor: 'var(--dawaa-status-success-border)', background: 'var(--dawaa-status-success-bg)' }}>
+                        <div className="text-xs font-black" style={{ color: 'var(--dawaa-status-success-text)' }}>أقوى المحاور</div>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {strongestSections.length ? strongestSections.map((item) => (
+                            <button
+                              key={item.key}
+                              type="button"
+                              disabled={!canEdit}
+                              onClick={() => setStrengthsText((current) => appendUniqueLine(current, item.title))}
+                              className="rounded-xl border px-3 py-2 text-xs font-black disabled:cursor-default"
+                              style={{ borderColor: 'var(--dawaa-status-success-border)', color: 'var(--dawaa-status-success-text)', background: 'var(--dawaa-theme-surface)' }}
+                            >
+                              + {item.title} · {item.score}/5
+                            </button>
+                          )) : <span className="text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>لا يوجد محور 4–5 نجوم حتى الآن.</span>}
+                        </div>
+                      </div>
+                      <div className="rounded-2xl border p-3" style={{ borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-status-warning-bg)' }}>
+                        <div className="text-xs font-black" style={{ color: 'var(--dawaa-status-warning-text)' }}>محاور التطوير</div>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {developmentSections.length ? developmentSections.map((item) => (
+                            <button
+                              key={item.key}
+                              type="button"
+                              disabled={!canEdit}
+                              onClick={() => setDevelopmentText((current) => appendUniqueLine(current, item.title))}
+                              className="rounded-xl border px-3 py-2 text-xs font-black disabled:cursor-default"
+                              style={{ borderColor: 'var(--dawaa-status-warning-border)', color: 'var(--dawaa-status-warning-text)', background: 'var(--dawaa-theme-surface)' }}
+                            >
+                              + {item.title} · {item.score}/5
+                            </button>
+                          )) : <span className="text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>لا يوجد محور 1–3 نجوم حتى الآن.</span>}
+                        </div>
+                      </div>
+                    </div>
+                  </Panel>
               <section className="grid gap-3 lg:grid-cols-3">
                 <Panel className="p-4">
                   <h3 className="font-black" style={{ color: 'var(--dawaa-status-success-text)' }}>نقاط القوة</h3>
@@ -888,6 +949,7 @@ export default function StaffMonthlyEvaluation() {
                     ) : null}
                 </Panel>
               </section>
+                </>
               ) : null}
 
               {activeStep === 5 ? (
@@ -903,9 +965,15 @@ export default function StaffMonthlyEvaluation() {
                         ? approvalBlockers.map((item) => <div key={item}>• {item}</div>)
                         : <div>كل مصادر الأدلة متاحة، وكل المحاور تم تقييمها، والدورة مقفولة.</div>}
                     </div>
-                    {pointsTruth?.profile_configured ? (
+                    <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                      <MiniBox label="الدرجة النهائية" value={evaluationNotStarted ? '—' : `${overallScore}/100`} tone={overallScore >= 80 ? 'green' : overallScore >= 60 ? 'amber' : 'red'} />
+                      <MiniBox label="حالة الأدلة" value={evidenceReady ? 'مكتملة' : 'ناقصة'} tone={evidenceReady ? 'green' : 'red'} />
+                      <MiniBox label="المخالفات الحرجة" value={activeGates.length ? String(activeGates.length) : '0'} tone={activeGates.length ? 'red' : 'green'} />
+                      <MiniBox label="نسبة الأثر" value={`${effectiveEvaluationMultiplierPct}%`} tone={isGatedByCriticalViolation ? 'amber' : 'cyan'} />
+                    </div>
+                    {canonicalIncentive != null ? (
                       <div className="mt-3 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
-                        نسبة الأثر التي سيعتمدها الخادم: {effectiveEvaluationMultiplierPct}%{isGatedByCriticalViolation ? ` بعد تطبيق سقف المخالفة ${activeGateCapPercent}%` : ''}.
+                        الحافز المعروض حاليًا من المصدر المالي المركزي: {canonicalIncentive.toLocaleString('ar-EG')} جنيه. الاعتماد لا يعيد حسابه داخل الصفحة.
                       </div>
                     ) : null}
                   </Panel>
