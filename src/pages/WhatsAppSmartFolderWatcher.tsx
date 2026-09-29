@@ -22,7 +22,7 @@ import {
   saveLocalWhatsAppAnalysisHistory,
 } from '@/lib/localWhatsAppInbox';
 import { readWhatsAppExportFile } from '@/lib/whatsappExportFileReader';
-import { parseWhatsAppExport, splitWhatsAppSessions } from '@/lib/whatsappConversationParser';
+import { parseWhatsAppExport } from '@/lib/whatsappConversationParser';
 import { buildSmartConversationReviewResult } from '@/lib/whatsappSmartReviewResult';
 import { runSmartReviewPipeline, type SmartReviewPipelineResult } from '@/lib/whatsappSmartReviewPipeline';
 import type { SmartStaffRole } from '@/lib/whatsappSmartReviewOwnership';
@@ -41,8 +41,6 @@ import { resolveStaffIdentity, type ResolvedStaffIdentity } from '@/lib/whatsapp
 import { buildSmartOfficialReviewDraftV1 } from '@/lib/whatsappSmartOfficialReviewDraft';
 import { buildSmartConversationEvaluationV2 } from '@/lib/whatsappConversationEvaluationV2';
 import { extractPhoneCandidate, resolveCustomerContext } from '@/lib/whatsappCustomerContextResolver';
-import { extractCustomerHintFromExportFileName } from '@/lib/whatsappExportCustomerHint';
-import { buildWhatsAppCaseContextsV27 } from '@/lib/whatsappCaseContextV27';
 import { buildConversationTimingV28 } from '@/lib/whatsappConversationTimingV28';
 import { buildDelayAttributionV29 } from '@/lib/whatsappDelayAttributionV29';
 import { buildConversationFocusV30 } from '@/lib/whatsappConversationFocusV30';
@@ -53,10 +51,11 @@ import { syncWhatsAppResponseTurnsV18 } from '@/lib/whatsappResponseTurnsV18';
 import { syncWhatsAppEvidenceLedgerV17 } from '@/lib/whatsappEvidenceLedgerV17';
 import { syncWhatsAppOrderLifecycleV19 } from '@/lib/whatsappOrderLifecycleV19';
 import { persistAnalyzedWhatsAppSession, attachInvoiceVerificationToQueue, confirmWhatsAppInvoiceLinkV34, archiveSupersededLegacyWhatsAppSourceV35 } from '@/lib/whatsappReviewPersistenceV4';
-import { buildWhatsAppCustomerJourneyIntelligenceV15 } from '@/lib/whatsappCustomerJourneyIntelligenceV15';
-import { syncWhatsAppCustomerJourneyV15, type JourneySessionSourceV15 } from '@/lib/whatsappCustomerJourneyPersistenceV15';
-import { syncWhatsAppCustomerCasesV22 } from '@/lib/whatsappCustomerCasePersistenceV22';
-import { syncWatcherCaseGraph, type WatcherCaseGraphSyncResult } from '@/lib/whatsappWatcherCaseGraphSync';
+import type { JourneySessionSourceV15 } from '@/lib/whatsappCustomerJourneyPersistenceV15';
+import { syncCanonicalCaseGraphForFile, type WatcherCaseGraphSyncResult } from '@/lib/whatsappWatcherCaseGraphSync';
+import { segmentWhatsAppExportCanonical } from '@/lib/whatsappCanonicalSegmentation';
+import { CANONICAL_SOURCE_GATE_CODES } from '@/lib/salesIntelligence/persistence/canonicalSourceGate';
+import { requestCanonicalSalesIntelligenceRefresh, type SalesIntelligenceStageStatus } from '@/lib/salesIntelligence/refresh/refreshClient';
 import type { SmartQuickDecisionResult } from '@/lib/whatsappSmartReviewDecision';
 import {
   buildConversationReviewSnapshot,
@@ -113,23 +112,16 @@ type FileRun = {
   pipeline?: WatcherPipelineStatus;
 };
 
-type WatcherSalesIntelligenceStageStatus = {
-  status: 'allowed' | 'blocked' | 'failed';
-  reason: string | null;
-  saleProofState: string | null;
-};
 
 type WatcherPipelineStatus = {
   sources: { saved: number; failed: number; errors: string[] };
   caseGraph: WatcherCaseGraphSyncResult;
-  salesIntelligence?: Record<string, WatcherSalesIntelligenceStageStatus>;
+  salesIntelligence?: Record<string, SalesIntelligenceStageStatus>;
 };
 
 // Refresh-source rejects non-canonical input explicitly. A non-canonical (archived/superseded)
 // source is a legitimate skip; a canonical source without its Customer Case V22 is a broken chain.
-// Codes come from src/lib/salesIntelligence/persistence/canonicalSourceGate.ts.
-const SALES_INTELLIGENCE_BLOCKED_NON_CANONICAL = 'blocked_non_canonical_source';
-const isSalesIntelligenceBlockedCode = (code: string) => code.startsWith('blocked_');
+const SALES_INTELLIGENCE_BLOCKED_NON_CANONICAL = CANONICAL_SOURCE_GATE_CODES.nonCanonical;
 
 const INTERVAL_MS = 60_000;
 
@@ -398,18 +390,11 @@ export default function WhatsAppSmartFolderWatcher() {
     const read = await readWhatsAppExportFile(file);
     const messages = parseWhatsAppExport(read.text);
     if (!messages.length) throw new Error('لم يتم التعرف على رسائل WhatsApp داخل الملف');
-    const fileCustomerHint = extractCustomerHintFromExportFileName(file.name);
-    const rawSessions = splitWhatsAppSessions(messages, 120).map((session) => ({
-      ...session,
-      // اسم الملف عندنا جزء من workflow التصدير وبيحمل اسم العميل. بنستخدمه كـhint
-      // وليس كـID مؤكد؛ الـresolver يظل هو اللي يحسم العميل الحقيقي من الهاتف/الكود/الاسم/الفرع.
-      customerName: fileCustomerHint.nameHint || session.customerName,
-    }));
-
-    // مهم: الـ120 دقيقة بقت Boundary للـraw sessions فقط، وليست Boundary لرحلة العميل.
-    // Case Context V27 يجمع الجلسات المرتبطة بنفس الطلب/الشكوى/recovery قبل تقييم الأفراد.
-    // مثال إبراهيم الصياد: رد دكتور أولًا ثم دكتور آخر بعد ساعة بسبب تأخير الأوردر = Case واحدة.
-    const caseContexts = buildWhatsAppCaseContextsV27(rawSessions);
+    const segmentation = segmentWhatsAppExportCanonical(messages, file.name);
+    const fileCustomerHint = segmentation.fileCustomerHint;
+    // Canonical Segmentation Contract (shared with automatic ingest): raw 120-minute sessions are
+    // joined into case units by Case Context V27; one persisted source per case unit.
+    const caseContexts = segmentation.caseContexts;
     const analysisUnits = caseContexts.contexts;
     const staffRuns: StaffRun[] = [];
     const persistedSessionSources: JourneySessionSourceV15[] = [];
@@ -791,32 +776,13 @@ export default function WhatsAppSmartFolderWatcher() {
     // Journey V15 and Customer Case V22 are separate stages: a journey failure never blocks the
     // canonical Customer Case write, and a case failure is returned in the file result.
     const branch = persistedBranchHints.find(Boolean) || null;
-    const persistedCaseModel = {
-      ...caseContexts.caseEngine,
-      cases: caseContexts.contexts.map((context) => ({
-        ...context.caseItem,
-        sessionIds: [context.mergedSession.id],
-      })),
-    };
-    const caseGraph = await syncWatcherCaseGraph(
-      {
-        syncJourney: () => syncWhatsAppCustomerJourneyV15(
-          buildWhatsAppCustomerJourneyIntelligenceV15(analysisUnits.map((context) => context.mergedSession)),
-          {
-            sourceFileName: file.name,
-            branch,
-            createdBy: actorName,
-            sessionSources: persistedSessionSources,
-          },
-        ),
-        syncCustomerCases: () => syncWhatsAppCustomerCasesV22(persistedCaseModel, {
-          branch,
-          createdBy: actorName,
-          sessionSources: persistedSessionSources,
-        }),
-      },
-      { persistedSourceCount: persistedSessionSources.length, expectedCaseCount: persistedCaseModel.cases.length },
-    );
+    const caseGraph = await syncCanonicalCaseGraphForFile({
+      sourceFileName: file.name,
+      caseContexts,
+      sessionSources: persistedSessionSources,
+      branch,
+      createdBy: actorName,
+    });
 
     const replacementSourceIds = Array.from(new Set(
       persistedSessionSources.map((row) => row.sourceId).filter(Boolean)
@@ -863,7 +829,7 @@ export default function WhatsAppSmartFolderWatcher() {
       conversationEndedAt: messages[messages.length - 1]?.timestamp?.toISOString?.() || null,
       analysisMs: Math.round(performance.now() - analysisStartedAt),
       messages: messages.length,
-      sessions: rawSessions.length,
+      sessions: segmentation.rawSessionCount,
       cases: caseContexts.caseEngine.caseCount,
       staffRuns,
       errors: pipelineErrors,
@@ -899,70 +865,30 @@ export default function WhatsAppSmartFolderWatcher() {
 
           const canonicalErrors: string[] = [];
           const canonicalProofBySource = new Map<string, string>();
-          const salesIntelligenceBySource: Record<string, WatcherSalesIntelligenceStageStatus> = {};
+          const salesIntelligenceBySource: Record<string, SalesIntelligenceStageStatus> = {};
           try {
             const accessToken = getStaffSessionToken() || '';
             if (!accessToken) {
               canonicalErrors.push('جلسة الإدارة الحالية قديمة — سجل خروج ودخول مرة واحدة لتحديث Sales Intelligence');
             } else {
               try {
-                const refreshOneSource = async (sourceId: string) => {
-                  const response = await fetch('/api/sales-intelligence-refresh-source', {
-                    method: 'POST',
-                    headers: {
-                      'Content-Type': 'application/json',
-                      Authorization: `Bearer ${accessToken}`,
-                    },
-                    body: JSON.stringify({ sourceId }),
-                  });
-                  const payload = await response.json().catch(() => null);
-                  if (!response.ok) {
-                    const errorCode = String(payload?.error || response.status);
-                    if (errorCode === SALES_INTELLIGENCE_BLOCKED_NON_CANONICAL) {
-                      // Archived/superseded input is refused by design: not analyzed, not a failure.
-                      salesIntelligenceBySource[sourceId] = { status: 'blocked', reason: String(payload?.reason || errorCode), saleProofState: null };
-                      return 'blocked';
-                    }
-                    salesIntelligenceBySource[sourceId] = {
-                      status: isSalesIntelligenceBlockedCode(errorCode) ? 'blocked' : 'failed',
-                      reason: String(payload?.reason || errorCode),
-                      saleProofState: null,
-                    };
-                    if (response.status === 401 && ['invalid_or_expired_staff_session', 'missing_user_token'].includes(errorCode)) {
-                      authSessionInvalid = true;
-                      if (!authSessionWarningShown) {
-                        authSessionWarningShown = true;
-                        toast.error('انتهت جلسة الإدارة. تم إيقاف فحص باقي الملفات حتى تسجل الدخول من جديد.');
-                      }
-                      throw new Error('انتهت جلسة الإدارة — أعد تسجيل الدخول ثم اضغط إعادة محاولة المتعطلة');
-                    }
-                    throw new Error(`${errorCode}${payload?.detail ? ` — ${payload.detail}` : ''}`);
-                  }
-                  const proven = Array.isArray(payload?.derivedCases)
-                    ? payload.derivedCases.some((row: any) => row?.saleProofState === 'proven')
-                    : false;
-                  const state = proven
-                    ? 'proven'
-                    : String(payload?.derivedCases?.[0]?.saleProofState || 'not_proven');
-                  canonicalProofBySource.set(sourceId, state);
-                  salesIntelligenceBySource[sourceId] = { status: 'allowed', reason: null, saleProofState: state };
-                  return state;
-                };
-
                 const exactSourceIds = Array.from(new Set((result.sourceIds || []).filter(Boolean)));
                 if (exactSourceIds.length) {
-                  const CANONICAL_SOURCE_CONCURRENCY = 3;
-                  for (let sourceIndex = 0; sourceIndex < exactSourceIds.length; sourceIndex += CANONICAL_SOURCE_CONCURRENCY) {
-                    const sourceBatch = exactSourceIds.slice(sourceIndex, sourceIndex + CANONICAL_SOURCE_CONCURRENCY);
-                    const settled = await Promise.allSettled(sourceBatch.map(refreshOneSource));
-                    settled.forEach((item, itemIndex) => {
-                      if (item.status === 'rejected') {
-                        canonicalErrors.push(
-                          `Canonical ${result.fileName} [source ${sourceBatch[itemIndex]}]: ${item.reason instanceof Error ? item.reason.message : String(item.reason)}`
-                        );
-                      }
-                    });
-                    if (authSessionInvalid) break;
+                  const refresh = await requestCanonicalSalesIntelligenceRefresh({ sourceIds: exactSourceIds, accessToken });
+                  Object.assign(salesIntelligenceBySource, refresh.bySource);
+                  for (const [sourceId, stage] of Object.entries(refresh.bySource)) {
+                    if (stage.status === 'allowed' && stage.saleProofState) canonicalProofBySource.set(sourceId, stage.saleProofState);
+                  }
+                  for (const failure of refresh.errors) {
+                    canonicalErrors.push(`Canonical ${result.fileName} [source ${failure.sourceId}]: ${failure.message}`);
+                  }
+                  if (refresh.authInvalid) {
+                    authSessionInvalid = true;
+                    canonicalErrors.push('انتهت جلسة الإدارة — أعد تسجيل الدخول ثم اضغط إعادة محاولة المتعطلة');
+                    if (!authSessionWarningShown) {
+                      authSessionWarningShown = true;
+                      toast.error('انتهت جلسة الإدارة. تم إيقاف فحص باقي الملفات حتى تسجل الدخول من جديد.');
+                    }
                   }
                 } else {
                   let sourceOffset = 0;
@@ -1307,26 +1233,13 @@ export default function WhatsAppSmartFolderWatcher() {
 
       const accessToken = getStaffSessionToken() || '';
       if (!accessToken) throw new Error('admin_session_required_for_canonical_refresh');
-      const response = await fetch('/api/sales-intelligence-refresh-source', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ sourceId }),
-      });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(String(payload?.detail || payload?.error || 'canonical_refresh_failed'));
+      const refresh = await requestCanonicalSalesIntelligenceRefresh({ sourceIds: [sourceId], accessToken });
+      const stage = refresh.bySource[sourceId];
+      if (!stage || stage.status !== 'allowed') {
+        throw new Error(String(refresh.errors[0]?.message || stage?.reason || 'canonical_refresh_failed'));
       }
-
-      const proven = Array.isArray(payload?.derivedCases)
-        ? payload.derivedCases.some((row: any) => row?.saleProofState === 'proven')
-        : false;
-
-      const canonicalSaleProofState = proven
-        ? 'proven'
-        : String(payload?.derivedCases?.[0]?.saleProofState || 'not_proven');
+      const canonicalSaleProofState = stage.saleProofState || 'not_proven';
+      const proven = canonicalSaleProofState === 'proven';
       const nextRuns = runs.map((run) => ({
         ...run,
         staffRuns: run.staffRuns.map((staffRun) =>

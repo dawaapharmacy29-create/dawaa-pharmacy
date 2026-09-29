@@ -3,7 +3,6 @@ import { readWhatsAppExportFile } from '@/lib/whatsappExportFileReader';
 import {
   parseWhatsAppExport,
   serializeWhatsAppSessionRawText,
-  splitWhatsAppSessions,
   type WhatsAppConversationSession,
 } from '@/lib/whatsappConversationParser';
 import { buildSmartConversationReviewSummary } from '@/lib/whatsappSmartReviewSummary';
@@ -33,6 +32,13 @@ import {
   syncWhatsAppMediaForSourceV21,
 } from '@/lib/whatsappMediaV21';
 import { extractCustomerHintFromExportFileName } from '@/lib/whatsappExportCustomerHint';
+import { segmentWhatsAppExportCanonical } from '@/lib/whatsappCanonicalSegmentation';
+import { syncCanonicalCaseGraphForFile, type WatcherCaseGraphSyncResult } from '@/lib/whatsappWatcherCaseGraphSync';
+import type { JourneySessionSourceV15 } from '@/lib/whatsappCustomerJourneyPersistenceV15';
+import {
+  requestCanonicalSalesIntelligenceRefresh,
+  type SalesIntelligenceStageStatus,
+} from '@/lib/salesIntelligence/refresh/refreshClient';
 
 type CustomerIdentity = {
   customerId: string | null;
@@ -77,6 +83,9 @@ export interface IngestOneFileResult {
   autoReviewsCreated: number;
   autoReviewsSkipped: number;
   autoReviewsPointsFailed: number;
+  /** Canonical chain status: case units persisted, Journey V15 + Customer Case V22, Sales Intelligence. */
+  caseGraph: WatcherCaseGraphSyncResult | null;
+  salesIntelligence: Record<string, SalesIntelligenceStageStatus>;
   errors: string[];
 }
 
@@ -526,7 +535,10 @@ async function persistOperationalJourneyIntelligence(
   return operational;
 }
 
-export async function ingestWhatsAppExportFile(file: File): Promise<IngestOneFileResult> {
+export async function ingestWhatsAppExportFile(
+  file: File,
+  options: { accessToken?: string | null; createdBy?: string | null } = {}
+): Promise<IngestOneFileResult> {
   const result: IngestOneFileResult = {
     fileName: file.name,
     sessionsFound: 0,
@@ -542,6 +554,8 @@ export async function ingestWhatsAppExportFile(file: File): Promise<IngestOneFil
     autoReviewsCreated: 0,
     autoReviewsSkipped: 0,
     autoReviewsPointsFailed: 0,
+    caseGraph: null,
+    salesIntelligence: {},
     errors: [],
   };
 
@@ -554,10 +568,16 @@ export async function ingestWhatsAppExportFile(file: File): Promise<IngestOneFil
     return result;
   }
 
-  const sessions = splitWhatsAppSessions(messages, 120);
-  result.sessionsFound = sessions.length;
+  // Canonical Segmentation Contract: the same case units (and therefore the same source hashes and
+  // ids) as the Smart Watcher. Raw 120-minute sessions are never persisted as sources on their own.
+  const segmentation = segmentWhatsAppExportCanonical(messages, source.sourceFileName);
+  const caseContexts = segmentation.caseContexts;
+  result.sessionsFound = caseContexts.contexts.length;
+  const sessionSources: JourneySessionSourceV15[] = [];
+  let firstBranch: string | null = null;
 
-  for (const session of sessions) {
+  for (const context of caseContexts.contexts) {
+    const session = context.mergedSession;
     try {
       const identity = await resolveCustomerIdentity(session, source.sourceFileName);
       if (identity.matchedBy !== 'none') result.customersMatched += 1;
@@ -576,6 +596,8 @@ export async function ingestWhatsAppExportFile(file: File): Promise<IngestOneFil
       );
       if (saved.duplicate) result.sessionsDuplicate += 1;
       else result.sessionsSaved += 1;
+      sessionSources.push({ sessionId: session.id, sourceId: saved.sourceId, contextOnly: false });
+      if (!firstBranch && conversationBranch) firstBranch = conversationBranch;
 
       if (source.mediaFiles?.length) {
         try {
@@ -668,6 +690,35 @@ export async function ingestWhatsAppExportFile(file: File): Promise<IngestOneFil
       result.followupsDuplicate += followups.duplicate;
     } catch (e) {
       result.errors.push(e instanceof Error ? e.message : 'خطأ غير معروف أثناء معالجة جلسة محادثة');
+    }
+  }
+
+  // Customer Case V22 (+ Journey V15) through the same implementation as the Smart Watcher.
+  result.caseGraph = await syncCanonicalCaseGraphForFile({
+    sourceFileName: source.sourceFileName,
+    caseContexts,
+    sessionSources,
+    branch: firstBranch,
+    createdBy: options.createdBy ?? null,
+  });
+  if (result.caseGraph.journey.status === 'failed') {
+    result.errors.push(`Journey sync failed — ${result.caseGraph.journey.error}`);
+  }
+  if (!['saved', 'skipped'].includes(result.caseGraph.customerCase.status)) {
+    result.errors.push(
+      `Customer Case V22 ${result.caseGraph.customerCase.status} (${result.caseGraph.customerCase.saved}/${result.caseGraph.customerCase.expected}) — ${result.caseGraph.customerCase.errors.join(' | ')}`
+    );
+  }
+
+  // Sales Intelligence through the same transport and Canonical Source Gate as the Smart Watcher.
+  const sourceIds = Array.from(new Set(sessionSources.map((row) => row.sourceId)));
+  if (sourceIds.length) {
+    if (!options.accessToken) {
+      result.errors.push('Sales Intelligence: جلسة الإدارة غير متاحة — لم يتم تحديث التحليل الرسمي لهذه المصادر');
+    } else {
+      const refresh = await requestCanonicalSalesIntelligenceRefresh({ sourceIds, accessToken: options.accessToken });
+      result.salesIntelligence = refresh.bySource;
+      for (const failure of refresh.errors) result.errors.push(`Sales Intelligence [${failure.sourceId}]: ${failure.message}`);
     }
   }
 

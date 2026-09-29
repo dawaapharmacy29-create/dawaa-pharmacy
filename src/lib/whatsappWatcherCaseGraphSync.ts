@@ -1,4 +1,13 @@
-import type { SyncWhatsAppCustomerCasesV22Result } from './whatsappCustomerCasePersistenceV22';
+import {
+  syncWhatsAppCustomerCasesV22,
+  type SyncWhatsAppCustomerCasesV22Result,
+} from './whatsappCustomerCasePersistenceV22';
+import type { WhatsAppCaseContextEngineV27 } from './whatsappCaseContextV27';
+import { buildWhatsAppCustomerJourneyIntelligenceV15 } from './whatsappCustomerJourneyIntelligenceV15';
+import {
+  syncWhatsAppCustomerJourneyV15,
+  type JourneySessionSourceV15,
+} from './whatsappCustomerJourneyPersistenceV15';
 
 // Canonical chain written by the watcher for one analyzed export file:
 //   Active Canonical Source -> Customer Case V22 -> (server) Sales Intelligence Case -> Canonical Outcome/Proof
@@ -89,4 +98,49 @@ export async function syncWatcherCaseGraph(
   }
 
   return { journey, customerCase };
+}
+
+/**
+ * Canonical case-graph write for one segmented export, shared by every ingestion path
+ * (Smart Watcher and automatic folder ingest). One V22 case per case context, keyed by its
+ * persisted source; Journey V15 is linked independently.
+ */
+export async function syncCanonicalCaseGraphForFile(input: {
+  sourceFileName: string;
+  caseContexts: WhatsAppCaseContextEngineV27;
+  sessionSources: JourneySessionSourceV15[];
+  branch: string | null;
+  createdBy: string | null;
+}): Promise<WatcherCaseGraphSyncResult> {
+  const contexts = input.caseContexts.contexts;
+  const caseModel = {
+    ...input.caseContexts.caseEngine,
+    cases: contexts.map((context) => ({
+      ...context.caseItem,
+      sessionIds: [context.mergedSession.id],
+    })),
+  };
+  return syncWatcherCaseGraph(
+    {
+      syncJourney: () =>
+        syncWhatsAppCustomerJourneyV15(
+          buildWhatsAppCustomerJourneyIntelligenceV15(
+            contexts.map((context) => context.mergedSession)
+          ),
+          {
+            sourceFileName: input.sourceFileName,
+            branch: input.branch,
+            createdBy: input.createdBy,
+            sessionSources: input.sessionSources,
+          }
+        ),
+      syncCustomerCases: () =>
+        syncWhatsAppCustomerCasesV22(caseModel, {
+          branch: input.branch,
+          createdBy: input.createdBy,
+          sessionSources: input.sessionSources,
+        }),
+    },
+    { persistedSourceCount: input.sessionSources.length, expectedCaseCount: caseModel.cases.length }
+  );
 }
