@@ -63,10 +63,10 @@ function cleanFileBaseName(name: string) {
 export function inferIdentityFromFileName(name: string): FileIdentity {
   const base = cleanFileBaseName(name);
   if (!base) return { customerName: null, customerCode: null };
-  const codeMatch = base.match(/(?:^|[\s_\-])([0-9٠-٩]{2,8})(?:$|[\s_\-])/);
+  const codeMatch = base.match(/(?:^|[\s_-])([0-9٠-٩]{2,8})(?:$|[\s_-])/);
   const customerCode = codeMatch?.[1] || null;
   let customerName = base
-    .replace(/[\-_]+/g, ' ')
+    .replace(/[-_]+/g, ' ')
     .replace(/\b[0-9٠-٩]{2,8}\b/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
