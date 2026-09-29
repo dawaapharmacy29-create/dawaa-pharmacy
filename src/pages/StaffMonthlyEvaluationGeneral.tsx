@@ -1056,55 +1056,75 @@ export default function StaffMonthlyEvaluation() {
               ) : null}
 
               {activeStep === 5 ? (
-                <>
+                <section className="space-y-3">
                   <Panel className="p-4" style={approvalReady
                     ? { background: 'var(--dawaa-status-success-bg)', borderColor: 'var(--dawaa-status-success-border)' }
                     : { background: 'var(--dawaa-status-warning-bg)', borderColor: 'var(--dawaa-status-warning-border)' }}>
-                    <h3 className="font-black" style={{ color: approvalReady ? 'var(--dawaa-status-success-text)' : 'var(--dawaa-status-warning-text)' }}>
-                      {approvalReady ? 'جاهز للمراجعة النهائية' : 'الاعتماد غير جاهز بعد'}
-                    </h3>
-                    <div className="mt-2 text-sm font-bold" style={{ color: 'var(--dawaa-theme-text)' }}>
-                      {approvalBlockers.length
-                        ? approvalBlockers.map((item) => <div key={item}>• {item}</div>)
-                        : <div>كل مصادر الأدلة متاحة، وكل المحاور تم تقييمها، والدورة مقفولة.</div>}
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <h3 className="text-base font-black" style={{ color: approvalReady ? 'var(--dawaa-status-success-text)' : 'var(--dawaa-status-warning-text)' }}>
+                          {approvalReady ? 'جاهز للاعتماد' : 'غير جاهز للاعتماد'}
+                        </h3>
+                        <div className="mt-1 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                          {requiresPostCycleReapproval ? 'اعتماد سابق يحتاج مراجعة بعد إقفال الدورة' : status === 'sent' ? 'التقييم معتمد ومُرسل' : 'التقييم ما زال مسودة'}
+                        </div>
+                      </div>
+                      <span
+                        className="rounded-full border px-3 py-1 text-xs font-black"
+                        style={approvalReady
+                          ? { borderColor: 'var(--dawaa-status-success-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-status-success-text)' }
+                          : { borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-status-warning-text)' }}
+                      >
+                        {approvalReady ? 'جاهز' : `${approvalBlockers.length} ملاحظة`}
+                      </span>
                     </div>
-                    <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-                      <MiniBox label="الدرجة النهائية" value={evaluationNotStarted ? '—' : `${overallScore}/100`} tone={overallScore >= 80 ? 'green' : overallScore >= 60 ? 'amber' : 'red'} />
-                      <MiniBox label="حالة الأدلة" value={evidenceReady ? 'مكتملة' : 'ناقصة'} tone={evidenceReady ? 'green' : 'red'} />
-                      <MiniBox label="المخالفات الحرجة" value={activeGates.length ? String(activeGates.length) : '0'} tone={activeGates.length ? 'red' : 'green'} />
-                      <MiniBox label="نسبة الأثر" value={`${effectiveEvaluationMultiplierPct}%`} tone={isGatedByCriticalViolation ? 'amber' : 'cyan'} />
+
+                    {approvalBlockers.length ? (
+                      <div className="mt-3 rounded-xl border px-3 py-2 text-xs font-bold" style={{ borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-theme-text)' }}>
+                        {approvalBlockers.map((item) => <div key={item}>• {item}</div>)}
+                      </div>
+                    ) : null}
+
+                    <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                      <MiniBox label="الدرجة" value={evaluationNotStarted ? '—' : `${overallScore}/100`} tone={overallScore >= 80 ? 'green' : overallScore >= 60 ? 'amber' : 'red'} />
+                      <MiniBox label="مخالفات حرجة" value={activeGates.length ? String(activeGates.length) : '0'} tone={activeGates.length ? 'red' : 'green'} />
+                      <MiniBox label="الحافز المركزي" value={canonicalIncentive == null ? 'غير محدد' : `${canonicalIncentive.toLocaleString('ar-EG')} ج`} tone={canonicalIncentive == null ? 'amber' : 'green'} />
                     </div>
-                    {canonicalIncentive != null ? (
-                      <div className="mt-3 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
-                        الحافز المعروض حاليًا من المصدر المالي المركزي: {canonicalIncentive.toLocaleString('ar-EG')} جنيه. الاعتماد لا يعيد حسابه داخل الصفحة.
+
+                    {canEdit ? (
+                      <div className="mt-4 flex flex-wrap justify-end gap-2 border-t pt-3" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
+                        <button type="button" disabled={exportingPdf} onClick={() => void handleExportPdf()} className="btn-secondary inline-flex items-center gap-2">
+                          {exportingPdf ? <Loader2 size={16} className="animate-spin" /> : <FileDown size={16} />} PDF
+                        </button>
+                        {!['sent', 'approved'].includes(status) ? (
+                          <button type="button" disabled={saving} onClick={() => void save('draft')} className="btn-secondary inline-flex items-center gap-2">
+                            <Save size={16} /> حفظ مسودة
+                          </button>
+                        ) : null}
+                        <button type="button" disabled={saving || !approvalReady} onClick={() => void save('sent')} className="btn-primary inline-flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-60">
+                          {saving ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                          {!cycleClosed ? 'بعد إقفال الدورة' : !evidenceReady ? 'الأدلة ناقصة' : completedSections !== sections.length ? 'أكمل التقييم' : requiresPostCycleReapproval ? 'إعادة اعتماد' : previouslySent ? 'تحديث الاعتماد' : 'اعتماد وإرسال'}
+                        </button>
                       </div>
                     ) : null}
                   </Panel>
 
                   {user?.id && selected ? (
-                    <MonthlyEvaluationAuditTrailV5
-                      actorId={user.id}
-                      staffId={selected.id}
-                      cycleLabel={cycleLabel}
-                      refreshKey={auditRefreshKey}
-                    />
+                    <details className="rounded-2xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}>
+                      <summary className="cursor-pointer text-xs font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>
+                        سجل المراجعة والاعتمادات
+                      </summary>
+                      <div className="mt-3">
+                        <MonthlyEvaluationAuditTrailV5
+                          actorId={user.id}
+                          staffId={selected.id}
+                          cycleLabel={cycleLabel}
+                          refreshKey={auditRefreshKey}
+                        />
+                      </div>
+                    </details>
                   ) : null}
-
-              <Panel className="flex flex-wrap items-center justify-between gap-3 p-4">
-                <div className="flex items-center gap-2 text-sm font-bold" style={{ color: 'var(--dawaa-theme-text)' }}>
-                  <CheckCircle2 style={{ color: 'var(--dawaa-theme-primary-strong)' }} size={18} /> الحالة: {requiresPostCycleReapproval ? 'اعتماد مبكر — يحتاج إعادة اعتماد' : status === 'sent' ? 'معتمد ومُرسل' : 'مسودة'} · المحرك: V5
-                </div>
-                {canEdit ? (
-                  <div className="flex flex-wrap gap-2">
-                    <button type="button" disabled={exportingPdf} onClick={() => void handleExportPdf()} className="btn-secondary inline-flex items-center gap-2">{exportingPdf ? <Loader2 size={16} className="animate-spin" /> : <FileDown size={16} />} تصدير PDF</button>
-                    {!['sent', 'approved'].includes(status) ? (
-                      <button type="button" disabled={saving} onClick={() => void save('draft')} className="btn-secondary inline-flex items-center gap-2"><Save size={16} /> حفظ مسودة</button>
-                    ) : null}
-                    <button type="button" disabled={saving || !approvalReady} onClick={() => void save('sent')} className="btn-primary inline-flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-60">{saving ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />} {!cycleClosed ? 'الاعتماد بعد إقفال الدورة' : !evidenceReady ? 'الأدلة غير مكتملة' : completedSections !== sections.length ? 'أكمل كل المحاور' : requiresPostCycleReapproval ? 'إعادة اعتماد الدورة' : previouslySent ? 'تحديث واعتماد' : 'اعتماد وإرسال'}</button>
-                  </div>
-                ) : null}
-              </Panel>
-                </>
+                </section>
               ) : null}
             </>
           ) : (
