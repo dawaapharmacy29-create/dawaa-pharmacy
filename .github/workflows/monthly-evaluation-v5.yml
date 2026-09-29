@@ -39,6 +39,8 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - name: V5 architecture guard
+        run: node scripts/check-monthly-evaluation-v5-architecture.cjs
       - name: TypeScript — reject new errors
         shell: bash
         run: |
