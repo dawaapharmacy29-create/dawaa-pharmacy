@@ -31,6 +31,11 @@ import {
 } from '@/lib/evaluations/managerEvaluationService';
 import { ManagerLiveIncentiveCard } from '@/components/evaluations/ManagerLiveIncentiveCard';
 import { ManagerMonthlyPerformanceReport } from '@/components/evaluations/ManagerMonthlyPerformanceReport';
+import {
+  evaluationCycleRangeFromLabel,
+  isEvaluationCycleClosed,
+  latestClosedEvaluationCycleLabel,
+} from '@/lib/evaluations/monthlyEvaluationCycle';
 
 const EVALUATOR_ROLES_BY_TYPE: Record<EvaluationType, string[]> = {
   branch_manager: ['general_manager', 'executive_manager', 'branches_manager'],
@@ -210,13 +215,17 @@ export default function WeeklyManagerEvaluation() {
   );
 
   const [periodStart, setPeriodStart] = useState(() =>
-    isMonthlyIncentiveEvaluation ? incentiveCycleBounds(new Date()).start : weekBoundsOf(new Date()).start
+    isMonthlyIncentiveEvaluation
+      ? formatDate(evaluationCycleRangeFromLabel(latestClosedEvaluationCycleLabel()).start)
+      : weekBoundsOf(new Date()).start
   );
   const [selectedBranch, setSelectedBranch] = useState<'فرع شكري' | 'فرع الشامي'>('فرع شكري');
   const periodEnd = useMemo(() => {
     if (isMonthlyIncentiveEvaluation) return incentiveCycleBounds(new Date(`${periodStart}T12:00:00`)).end;
     return weekBoundsOf(new Date(`${periodStart}T12:00:00`)).end;
   }, [isMonthlyIncentiveEvaluation, periodStart]);
+  const monthlyCycleLabel = isMonthlyIncentiveEvaluation ? periodEnd.slice(0, 7) : '';
+  const monthlyCycleClosed = !isMonthlyIncentiveEvaluation || isEvaluationCycleClosed(monthlyCycleLabel);
 
   const [currentMetrics, setCurrentMetrics] = useState<WeeklyAutoMetrics | null>(null);
   const [previousMetrics, setPreviousMetrics] = useState<WeeklyAutoMetrics | null>(null);
@@ -235,7 +244,11 @@ export default function WeeklyManagerEvaluation() {
   const criteria = EVALUATION_CRITERIA[evaluationType];
 
   useEffect(() => {
-    setPeriodStart(isMonthlyIncentiveEvaluation ? incentiveCycleBounds(new Date()).start : weekBoundsOf(new Date()).start);
+    setPeriodStart(
+      isMonthlyIncentiveEvaluation
+        ? formatDate(evaluationCycleRangeFromLabel(latestClosedEvaluationCycleLabel()).start)
+        : weekBoundsOf(new Date()).start
+    );
   }, [isMonthlyIncentiveEvaluation, evaluationType]);
 
   useEffect(() => {
@@ -368,6 +381,10 @@ export default function WeeklyManagerEvaluation() {
   };
 
   const handleSave = async (status: 'draft' | 'submitted') => {
+    if (status === 'submitted' && isMonthlyIncentiveEvaluation && !monthlyCycleClosed) {
+      setError('الدورة ما زالت جارية. احفظها كمسودة، والاعتماد النهائي يفتح بعد نهاية يوم 25.');
+      return;
+    }
     const issues = collectValidationIssues(status);
     setValidationIssues(issues);
 
@@ -381,7 +398,9 @@ export default function WeeklyManagerEvaluation() {
     }
 
     const effectiveStatus: 'draft' | 'submitted' =
-      status === 'submitted' && missingManualCriteria.length > 0 ? 'draft' : status;
+      status === 'submitted' && (missingManualCriteria.length > 0 || missingSystemCriteria.length > 0)
+        ? 'draft'
+        : status;
 
     setSaving(true);
     setError('');
@@ -502,6 +521,11 @@ export default function WeeklyManagerEvaluation() {
           setPeriodStart(isMonthlyIncentiveEvaluation ? incentiveCycleBounds(chosen).start : weekBoundsOf(chosen).start);
         }} />
         <span className="flex items-center text-xs text-[var(--dawaa-theme-muted)]">{isMonthlyIncentiveEvaluation ? 'دورة الحافز' : 'الأسبوع'}: {periodStart} إلى {periodEnd}</span>
+        {isMonthlyIncentiveEvaluation ? (
+          <span className={`flex items-center rounded-full border px-3 py-1 text-xs font-black ${monthlyCycleClosed ? 'border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] text-[var(--dawaa-status-success-text)]' : 'border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)]'}`}>
+            {monthlyCycleClosed ? 'الدورة مكتملة — الاعتماد متاح' : 'الدورة جارية — مسودة فقط'}
+          </span>
+        ) : null}
       </div>
 
       {!subjectsLoading && subjectChoices.length === 0 && <p className="text-sm text-[var(--dawaa-status-warning-text)]">لا يوجد موظف نشط وصالح للتقييم في هذا المسار.</p>}
@@ -566,7 +590,7 @@ export default function WeeklyManagerEvaluation() {
 
           <div className="flex flex-wrap gap-2">
             <button type="button" disabled={saving} onClick={() => handleSave('draft')} className="flex items-center gap-2 rounded-xl border border-[var(--dawaa-theme-border)] px-5 py-2 font-black text-[var(--dawaa-theme-heading)] disabled:opacity-50"><Save className="h-4 w-4" /> حفظ كمسودة</button>
-            <button type="button" disabled={saving} onClick={() => handleSave('submitted')} className="flex items-center gap-2 rounded-xl bg-[var(--dawaa-theme-primary)] px-5 py-2 font-black text-[var(--dawaa-theme-primary-text)] disabled:opacity-50"><Send className="h-4 w-4" /> {saving ? 'جارٍ الحفظ...' : isMonthlyIncentiveEvaluation ? 'حفظ واعتماد تقييم الدورة' : 'حفظ واعتماد التقييم'}</button>
+            <button type="button" disabled={saving || (isMonthlyIncentiveEvaluation && !monthlyCycleClosed)} onClick={() => handleSave('submitted')} className="flex items-center gap-2 rounded-xl bg-[var(--dawaa-theme-primary)] px-5 py-2 font-black text-[var(--dawaa-theme-primary-text)] disabled:cursor-not-allowed disabled:opacity-50"><Send className="h-4 w-4" /> {saving ? 'جارٍ الحفظ...' : isMonthlyIncentiveEvaluation ? (monthlyCycleClosed ? 'حفظ واعتماد تقييم الدورة' : 'الاعتماد بعد إقفال الدورة') : 'حفظ واعتماد التقييم'}</button>
           </div>
 
           <div className="stat-card space-y-3">
