@@ -702,10 +702,17 @@ export default function StaffMonthlyEvaluation() {
             <Panel className="p-10 text-center"><Loader2 className="mx-auto animate-spin" style={{ color: 'var(--dawaa-theme-muted)' }} /> <span style={{ color: 'var(--dawaa-theme-muted)' }}>جاري التحميل...</span></Panel>
           ) : selected ? (
             <>
-              <Panel className="p-4" style={{ background: 'var(--dawaa-theme-accent-soft)', borderColor: 'var(--dawaa-theme-accent-border)' }}>
-                <div className="font-black" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>{profile.label}: {profile.mission}</div>
-                <div className="mt-2 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>المحاور التالية خاصة بالدور: {selected.job_title || selected.role || 'غير محدد'}.</div>
-              </Panel>
+              <div
+                className="flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold"
+                style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-theme-muted)' }}
+              >
+                <span className="font-black" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>
+                  {selected.job_title || selected.role || 'غير محدد'}
+                </span>
+                <span>·</span>
+                <span>{profile.label}</span>
+                <span className="hidden md:inline">· {profile.mission}</span>
+              </div>
 
               <MonthlyEvaluationWorkflowV5
                 activeStep={activeStep}
