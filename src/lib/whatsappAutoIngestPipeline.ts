@@ -31,7 +31,12 @@ import {
   revokeWhatsAppMediaObjectUrlsV21,
   syncWhatsAppMediaForSourceV21,
 } from '@/lib/whatsappMediaV21';
-import { extractCustomerHintFromExportFileName } from '@/lib/whatsappExportCustomerHint';
+import {
+  extractCustomerIdentityEvidence,
+  resolveCanonicalCustomerIdentities,
+  type CanonicalCustomerIdentity,
+  type CanonicalCustomerIdentityStatus,
+} from '@/lib/customers/canonicalCustomerIdentityResolver';
 import { segmentWhatsAppExportCanonical } from '@/lib/whatsappCanonicalSegmentation';
 import { syncCanonicalCaseGraphForFile, type WatcherCaseGraphSyncResult } from '@/lib/whatsappWatcherCaseGraphSync';
 import type { JourneySessionSourceV15 } from '@/lib/whatsappCustomerJourneyPersistenceV15';
@@ -46,26 +51,10 @@ type CustomerIdentity = {
   customerName: string | null;
   customerPhone: string | null;
   branch: string | null;
-  matchedBy: 'phone' | 'code' | 'name' | 'none';
-  resolutionStatus: 'resolved' | 'unresolved' | 'ambiguous';
+  matchedBy: 'phone' | 'code' | 'id' | 'none';
+  resolutionStatus: CanonicalCustomerIdentityStatus;
   resolutionReason: string;
-};
-
-type CustomerRow = {
-  id: string;
-  customer_code: string | null;
-  display_name: string | null;
-  name: string | null;
-  customer_name: string | null;
-  normalized_phone: string | null;
-  phone: string | null;
-  customer_phone: string | null;
-  whatsapp_phone: string | null;
-  mobile: string | null;
-  whatsapp: string | null;
-  phone_alt: string | null;
-  effective_branch: string | null;
-  branch: string | null;
+  canonical: CanonicalCustomerIdentity;
 };
 
 export interface IngestOneFileResult {
@@ -89,200 +78,25 @@ export interface IngestOneFileResult {
   errors: string[];
 }
 
-const CUSTOMER_SELECT = [
-  'id',
-  'customer_code',
-  'display_name',
-  'name',
-  'customer_name',
-  'normalized_phone',
-  'phone',
-  'customer_phone',
-  'whatsapp_phone',
-  'mobile',
-  'whatsapp',
-  'phone_alt',
-  'effective_branch',
-  'branch',
-].join(',');
-
-function normalizeDigits(value: string) {
-  return value
-    .replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)))
-    .replace(/[^\d]/g, '');
-}
-
-function normalizeEgyptPhone(value: unknown) {
-  let digits = normalizeDigits(String(value ?? ''));
-  if (digits.startsWith('0020')) digits = `0${digits.slice(4)}`;
-  else if (/^20[1]\d{9}$/.test(digits)) digits = `0${digits.slice(2)}`;
-  if (/^01\d{9}$/.test(digits)) return digits;
-  return null;
-}
-
-function phoneFromSession(session: WhatsAppConversationSession) {
-  const candidates = [
-    session.customerName,
-    ...session.messages
-      .filter((message) => message.direction === 'inbound')
-      .map((message) => message.sender),
-  ];
-  for (const candidate of candidates) {
-    const phone = normalizeEgyptPhone(candidate);
-    if (phone) return phone;
-  }
-  return null;
-}
-
-function normalizedName(value: unknown) {
-  return String(value ?? '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function customerCodeFromSession(session: WhatsAppConversationSession) {
-  const candidates = [
-    session.customerName,
-    ...session.messages.filter((message) => message.direction === 'inbound').map((message) => message.sender),
-  ];
-  for (const candidate of candidates) {
-    const raw = String(candidate ?? '')
-      .replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)))
-      .trim();
-    const match = raw.match(/(?:^|[^0-9])(\d{2,9})\s*\)?\s*$/);
-    if (!match) continue;
-    const digits = match[1];
-    if (digits.length >= 10 || /^01[0125]\d{8}$/.test(digits)) continue;
-    return digits.replace(/\.0+$/, '');
-  }
-  return null;
-}
-
-function customerDisplayNameWithoutCode(value: unknown) {
-  return normalizedName(String(value ?? '').replace(/[٠-٩0-9]{2,9}\s*\)?\s*$/, '')) || null;
-}
-
-function mapCustomerIdentity(
-  row: CustomerRow,
-  fallbackName: string | null,
-  fallbackPhone: string | null,
-  matchedBy: 'phone' | 'code' | 'name'
-): CustomerIdentity {
+/** Maps the Canonical Customer Identity (shared resolver) to this pipeline's persistence shape. */
+function toIngestCustomerIdentity(identity: CanonicalCustomerIdentity): CustomerIdentity {
+  const resolved = identity.status === 'resolved';
   return {
-    customerId: row.id,
-    customerCode: row.customer_code,
-    customerName: row.display_name || row.name || row.customer_name || fallbackName,
-    customerPhone:
-      normalizeEgyptPhone(row.normalized_phone) ||
-      normalizeEgyptPhone(row.phone) ||
-      normalizeEgyptPhone(row.customer_phone) ||
-      normalizeEgyptPhone(row.whatsapp_phone) ||
-      normalizeEgyptPhone(row.mobile) ||
-      normalizeEgyptPhone(row.whatsapp) ||
-      normalizeEgyptPhone(row.phone_alt) ||
-      fallbackPhone,
-    branch: row.effective_branch || row.branch || null,
-    matchedBy,
-    resolutionStatus: 'resolved',
-    resolutionReason: `unique_${matchedBy}_match`,
-  };
-}
-
-async function resolveCustomerIdentity(
-  session: WhatsAppConversationSession,
-  sourceFileName: string
-): Promise<CustomerIdentity> {
-  const fileHint = extractCustomerHintFromExportFileName(sourceFileName);
-  const sessionName = normalizedName(session.customerName) || null;
-  const fallbackName =
-    customerDisplayNameWithoutCode(sessionName) ||
-    fileHint.nameHint ||
-    sessionName;
-  const sessionCode = customerCodeFromSession(session);
-  const hintedCode = fileHint.codeHint;
-  const codeConflict = Boolean(sessionCode && hintedCode && sessionCode !== hintedCode);
-  const code = codeConflict ? null : (sessionCode || hintedCode);
-  const phone = phoneFromSession(session);
-  const ambiguityReasons: string[] = [];
-
-  if (codeConflict) {
-    ambiguityReasons.push(`customer_code_conflict:session=${sessionCode},file=${hintedCode}`);
-  }
-
-  if (phone) {
-    const phoneTail = phone.slice(-10);
-    const { data, error } = await supabase
-      .from('customers')
-      .select(CUSTOMER_SELECT)
-      .eq('is_duplicate', false)
-      .or(
-        [
-          `normalized_phone.eq.${phone}`,
-          `normalized_phone.ilike.%${phoneTail}`,
-          `phone.eq.${phone}`,
-          `customer_phone.eq.${phone}`,
-          `whatsapp_phone.eq.${phone}`,
-          `mobile.eq.${phone}`,
-          `whatsapp.eq.${phone}`,
-          `phone_alt.eq.${phone}`,
-        ].join(',')
-      )
-      .limit(5);
-    if (error) throw error;
-    const matches = (data || []) as CustomerRow[];
-    if (matches.length === 1) return mapCustomerIdentity(matches[0], fallbackName, phone, 'phone');
-    if (matches.length > 1) ambiguityReasons.push(`duplicate_phone:${phone}:${matches.length}`);
-  }
-
-  if (code) {
-    const { data, error } = await supabase
-      .from('customers')
-      .select(CUSTOMER_SELECT)
-      .eq('is_duplicate', false)
-      .eq('customer_code', code)
-      .limit(5);
-    if (error) throw error;
-    let matches = (data || []) as CustomerRow[];
-    if (matches.length > 1 && fallbackName) {
-      const normalizedFallback = normalizedName(fallbackName).toLowerCase();
-      const nameMatches = matches.filter((row) =>
-        [row.display_name, row.name, row.customer_name]
-          .map((value) => normalizedName(value).toLowerCase())
-          .some((value) => value && (value.includes(normalizedFallback) || normalizedFallback.includes(value)))
-      );
-      if (nameMatches.length === 1) matches = nameMatches;
-    }
-    if (matches.length === 1) return mapCustomerIdentity(matches[0], fallbackName, phone, 'code');
-    if (matches.length > 1) ambiguityReasons.push(`duplicate_customer_code:${code}:${matches.length}`);
-  }
-
-  if (fallbackName && fallbackName.length >= 3) {
-    for (const column of ['display_name', 'name', 'customer_name'] as const) {
-      const { data, error } = await supabase
-        .from('customers')
-        .select(CUSTOMER_SELECT)
-        .eq('is_duplicate', false)
-        .ilike(column, fallbackName)
-        .limit(3);
-      if (error) throw error;
-      const matches = (data || []) as CustomerRow[];
-      if (matches.length === 1) return mapCustomerIdentity(matches[0], fallbackName, phone, 'name');
-      if (matches.length > 1) {
-        ambiguityReasons.push(`duplicate_name:${column}:${matches.length}`);
-        break;
-      }
-    }
-  }
-
-  return {
-    customerId: null,
-    customerCode: code,
-    customerName: fallbackName,
-    customerPhone: phone,
-    branch: null,
-    matchedBy: 'none',
-    resolutionStatus: ambiguityReasons.length ? 'ambiguous' : 'unresolved',
-    resolutionReason: ambiguityReasons.join('|') || 'no_unique_customer_match',
+    customerId: resolved ? identity.customerId : null,
+    customerCode: identity.customerCode,
+    customerName: identity.customerName,
+    customerPhone: identity.normalizedPhone,
+    branch: identity.branch,
+    matchedBy: !resolved
+      ? 'none'
+      : identity.resolvedBy === 'customer_code'
+        ? 'code'
+        : identity.resolvedBy === 'contact_phone' || identity.resolvedBy === 'mentioned_phone'
+          ? 'phone'
+          : 'id',
+    resolutionStatus: identity.status,
+    resolutionReason: identity.reason,
+    canonical: identity,
   };
 }
 
@@ -348,6 +162,7 @@ async function saveSessionReview(
           customerRegisteredBranch: identity.branch,
           conversationBranch,
         },
+        canonicalCustomerIdentity: identity.canonical,
         branchResolution: branchHint,
       },
     })
@@ -575,11 +390,21 @@ export async function ingestWhatsAppExportFile(
   result.sessionsFound = caseContexts.contexts.length;
   const sessionSources: JourneySessionSourceV15[] = [];
   let firstBranch: string | null = null;
+  // Canonical Customer Identity: one bounded batch for every case unit (same resolver as the
+  // Smart Watcher and Sales Intelligence). A lookup failure fails the file visibly.
+  const identities = (
+    await resolveCanonicalCustomerIdentities(
+      supabase,
+      caseContexts.contexts.map((context) => extractCustomerIdentityEvidence(context.mergedSession, source.sourceFileName))
+    )
+  ).map(toIngestCustomerIdentity);
+  let contextIndex = -1;
 
   for (const context of caseContexts.contexts) {
     const session = context.mergedSession;
+    contextIndex += 1;
     try {
-      const identity = await resolveCustomerIdentity(session, source.sourceFileName);
+      const identity = identities[contextIndex];
       if (identity.matchedBy !== 'none') result.customersMatched += 1;
 
       const participantRoles = await resolveWhatsAppParticipantRolesV15(session);

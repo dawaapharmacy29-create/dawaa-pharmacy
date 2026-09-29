@@ -36,11 +36,10 @@ function normalizeEgyptianCustomerPhone(value) {
 function isValidEgyptianCustomerMobile(value) {
   return /^01[0125]\d{8}$/.test(normalizeEgyptianCustomerPhone(value));
 }
-function normalizeCustomerDisplayIdentityName(value) {
-  return customerIdentityText(value).replace(/\++/g, " ").replace(/\(\s*p\s*\d+\s*\)/gi, " ").replace(/\(\s*\d+\s*%\s*\)/g, " ").replace(/\bش\s*\d+\b/gi, " ").replace(/[|*_]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
-}
-function normalizeCustomerIdentityName(value) {
-  return normalizeCustomerDisplayIdentityName(value).replace(/[أإآ]/g, "\u0627").replace(/ة/g, "\u0647").replace(/ى/g, "\u064A");
+function isCustomerIdentityUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    customerIdentityText(value)
+  );
 }
 function normalizeDawaaCustomerCode(value) {
   return normalizeCustomerCode(value).replace(/\.0+$/, "");
@@ -4337,21 +4336,21 @@ function analyzeOneCase(conversationCase, scopedMessages, input) {
     trustedInvoiceNumber: input.trustedInvoiceNumber ?? null
   };
   const itemEvidenceProvider = input.itemEvidenceProvider ?? unavailableInvoiceItemEvidenceProvider;
-  const attribution = deriveSaleAttributionAssessment(
+  const rawAttribution = deriveSaleAttributionAssessment(
     attributionCtx,
     invoiceCandidates,
     itemEvidenceProvider,
     input.competingSelections ?? []
   );
-  const invoiceRow = attribution.selectedInvoiceId ? invoiceCandidates.find((row) => invoiceRowLookupId(row) === attribution.selectedInvoiceId) ?? null : null;
-  if (attribution.selectedInvoiceId && !invoiceRow) {
+  const invoiceRow = rawAttribution.selectedInvoiceId ? invoiceCandidates.find((row) => invoiceRowLookupId(row) === rawAttribution.selectedInvoiceId) ?? null : null;
+  if (rawAttribution.selectedInvoiceId && !invoiceRow) {
     pipelineWarnings.push("selected_invoice_row_not_found_in_candidate_pool");
   }
   const basketInvoiceMatch = deriveBasketInvoiceMatch({
     caseId: conversationCase.caseId,
     baskets,
     itemsByBasketId,
-    attribution,
+    attribution: rawAttribution,
     invoiceRow,
     itemEvidenceProvider,
     documentedAdjustments: input.documentedAdjustments,
@@ -4361,7 +4360,7 @@ function analyzeOneCase(conversationCase, scopedMessages, input) {
     caseId: conversationCase.caseId,
     commercialConfirmation,
     protocolAssessment,
-    attribution,
+    attribution: rawAttribution,
     basketInvoiceMatch,
     invoiceStatusHint: input.invoiceStatusHint ?? null,
     knownStaffIds: input.knownStaffIds,
@@ -4381,7 +4380,7 @@ function analyzeOneCase(conversationCase, scopedMessages, input) {
     customerConfirmationDetected: commercialConfirmation.customerConfirmed,
     staffConfirmationDetected: commercialConfirmation.staffConfirmed,
     invoiceCandidatesAvailable: invoiceCandidates.length > 0,
-    invoiceAttributed: attribution.hasAttributedInvoice,
+    invoiceAttributed: rawAttribution.hasAttributedInvoice,
     invoiceItemsAvailable: basketInvoiceMatch.itemEvidenceReady,
     // Always false today — no fulfillment/delivery evidence source exists yet. A staff message
     // like "جاري الإرسال" is staff INTENT/confirmation (already captured as staffConfirmationDetected
@@ -4410,27 +4409,44 @@ function analyzeOneCase(conversationCase, scopedMessages, input) {
   if (commercialConfirmation.currentState === "commercial_confirmation_complete" && invoiceCandidates.length === 0) {
     failureReasons.push("invoice_candidate_missing");
   }
-  if (attribution.contradictions.includes("ambiguous_multiple_candidates")) failureReasons.push("invoice_candidates_ambiguous");
-  if (attribution.hasAttributedInvoice && !basketInvoiceMatch.itemEvidenceReady) failureReasons.push("invoice_items_unavailable");
+  if (rawAttribution.contradictions.includes("ambiguous_multiple_candidates")) failureReasons.push("invoice_candidates_ambiguous");
+  if (rawAttribution.hasAttributedInvoice && !basketInvoiceMatch.itemEvidenceReady) failureReasons.push("invoice_items_unavailable");
   if (commercialConfirmation.staffConfirmed && (input.knownStaffIds ?? []).length === 0) failureReasons.push("staff_identity_unresolved");
   if (!conversationCase.endedAt) failureReasons.push("conversation_timestamp_quality_issue");
   const isGenuinelyInformationOnly = conversationCase.caseType === "information_only" && !evidenceCompleteness.basketDetected;
-  const needsHumanReview = conversationCase.needsHumanReview || commercialConfirmation.needsHumanReview || attribution.needsHumanReview || basketInvoiceMatch.needsHumanReview || !isGenuinelyInformationOnly && integrityAssessment.needsHumanReview || activeBasketResolution.outcome === "needs_human_review";
+  const needsHumanReview = conversationCase.needsHumanReview || commercialConfirmation.needsHumanReview || rawAttribution.needsHumanReview || basketInvoiceMatch.needsHumanReview || !isGenuinelyInformationOnly && integrityAssessment.needsHumanReview || activeBasketResolution.outcome === "needs_human_review";
   const humanReviewReasons = Array.from(
     /* @__PURE__ */ new Set([
       ...conversationCase.humanReviewReasons,
       ...commercialConfirmation.humanReviewReasons,
-      ...attribution.humanReviewReasons,
+      ...rawAttribution.humanReviewReasons,
       ...basketInvoiceMatch.humanReviewReasons,
       ...isGenuinelyInformationOnly ? [] : integrityAssessment.humanReviewReasons,
       ...activeBasketResolution.outcome === "needs_human_review" ? ["active_basket_conflict"] : []
     ])
   );
-  const saleProof = deriveSaleProofState({
-    attribution,
+  const derivedSaleProof = deriveSaleProofState({
+    attribution: rawAttribution,
     basketInvoiceMatch,
     integrityAssessment
   });
+  const identityStatus = input.customerIdentityStatus;
+  const identityBlocked = identityStatus !== void 0 && identityStatus !== "resolved";
+  const identityReason = `customer_identity_${identityStatus}`;
+  const attribution = identityBlocked ? {
+    ...rawAttribution,
+    isOfficialForStaffEvaluation: false,
+    humanReviewReasons: Array.from(/* @__PURE__ */ new Set([...rawAttribution.humanReviewReasons, identityReason]))
+  } : rawAttribution;
+  const saleProof = identityBlocked && derivedSaleProof.state === "proven" ? {
+    ...derivedSaleProof,
+    state: identityStatus === "contradicted" ? "contradicted" : "strongly_supported",
+    trustedInvoiceId: null,
+    contradictions: identityStatus === "contradicted" ? Array.from(/* @__PURE__ */ new Set([...derivedSaleProof.contradictions, "customer_identity_contradicted"])) : derivedSaleProof.contradictions,
+    ruleIds: Array.from(/* @__PURE__ */ new Set([...derivedSaleProof.ruleIds, "sale_proof.customer_identity_not_resolved"])),
+    needsHumanReview: true
+  } : derivedSaleProof;
+  if (identityBlocked && !humanReviewReasons.includes(identityReason)) humanReviewReasons.push(identityReason);
   const salesOutcome = deriveCanonicalSalesOutcome({
     caseId: conversationCase.caseId,
     caseType: conversationCase.caseType,
@@ -5293,6 +5309,251 @@ async function fetchPharmacyProductIndex(supabaseClient, options = {}) {
   }
 }
 
+// src/lib/customers/canonicalCustomerIdentityResolver.ts
+var EVIDENCE_CONFIDENCE = {
+  customer_id: 1,
+  customer_code: 0.99,
+  contact_phone: 0.97,
+  mentioned_phone: 0.9,
+  historical_link: 0.95
+};
+function uniq(values) {
+  return Array.from(new Set(values.map((value) => String(value ?? "").trim()).filter(Boolean)));
+}
+function validPhones(values) {
+  return uniq(values.map((value) => normalizeEgyptianCustomerPhone(value))).filter(
+    (phone) => isValidEgyptianCustomerMobile(phone)
+  );
+}
+function canonicalId(id, candidates) {
+  const row = candidates.byId.get(id);
+  const alias = candidates.aliasToCanonical.get(id);
+  if (alias) return alias;
+  if (!row || row.isDuplicate) return null;
+  return row.id;
+}
+function matchIds(kind, value, rows, candidates) {
+  const ids = uniq(rows.map((row) => canonicalId(row.id, candidates)));
+  return {
+    kind,
+    value,
+    customerIds: ids,
+    result: ids.length === 1 ? "match" : ids.length > 1 ? "ambiguous" : "none"
+  };
+}
+function resolveCanonicalCustomerIdentity(evidence, candidates) {
+  const rows = [...candidates.byId.values()];
+  const results = [];
+  if (evidence.customerId && isCustomerIdentityUuid(evidence.customerId)) {
+    results.push(
+      matchIds(
+        "customer_id",
+        evidence.customerId,
+        rows.filter((row) => row.id === evidence.customerId),
+        candidates
+      )
+    );
+  }
+  const codes = uniq(evidence.customerCodes.map((code) => normalizeDawaaCustomerCode(code)));
+  for (const code of codes) {
+    results.push(
+      matchIds(
+        "customer_code",
+        code,
+        rows.filter((row) => row.customerCode === code),
+        candidates
+      )
+    );
+  }
+  const phoneKind = evidence.contactPhones.length ? "contact_phone" : "mentioned_phone";
+  const phones = evidence.contactPhones.length ? evidence.contactPhones : evidence.mentionedPhones;
+  for (const phone of phones) {
+    results.push(
+      matchIds(
+        phoneKind,
+        phone,
+        rows.filter((row) => row.phones.includes(phone)),
+        candidates
+      )
+    );
+  }
+  if (evidence.trustedHistoricalCustomerId && isCustomerIdentityUuid(evidence.trustedHistoricalCustomerId)) {
+    results.push(
+      matchIds(
+        "historical_link",
+        evidence.trustedHistoricalCustomerId,
+        rows.filter((row) => row.id === evidence.trustedHistoricalCustomerId),
+        candidates
+      )
+    );
+  }
+  const contactPhone = evidence.contactPhones[0] ?? null;
+  const unresolvedBase = (status, reason, candidateIds) => ({
+    status,
+    customerId: null,
+    customerCode: codes.length === 1 ? codes[0] : null,
+    normalizedPhone: contactPhone,
+    customerName: evidence.displayName ?? null,
+    branch: null,
+    resolvedBy: null,
+    reason,
+    confidence: 0,
+    evidence: results,
+    candidates: candidateIds.map((id) => {
+      const row = candidates.byId.get(id);
+      return { id, customerCode: row?.customerCode ?? null, name: row?.name ?? null };
+    })
+  });
+  if (codes.length > 1) {
+    return unresolvedBase(
+      "contradicted",
+      `customer_code_conflict:${codes.join("|")}`,
+      uniq(results.flatMap((r) => r.customerIds))
+    );
+  }
+  const matched = results.filter((row) => row.result === "match");
+  const matchedIds = uniq(matched.flatMap((row) => row.customerIds));
+  if (matchedIds.length > 1) {
+    return unresolvedBase(
+      "contradicted",
+      `identity_evidence_conflict:${matched.map((row) => `${row.kind}=${row.customerIds[0]}`).join("|")}`,
+      matchedIds
+    );
+  }
+  if (matchedIds.length === 1) {
+    const id = matchedIds[0];
+    const conflicting = results.find(
+      (row2) => row2.result === "ambiguous" && !row2.customerIds.includes(id)
+    );
+    if (conflicting) {
+      return unresolvedBase(
+        "contradicted",
+        `${conflicting.kind}_points_to_other_customers:${conflicting.value}`,
+        uniq([id, ...conflicting.customerIds])
+      );
+    }
+    const by = matched[0];
+    const row = candidates.byId.get(id);
+    return {
+      status: "resolved",
+      customerId: id,
+      customerCode: row?.customerCode ?? (codes[0] || null),
+      normalizedPhone: row?.phones[0] ?? contactPhone,
+      customerName: row?.name ?? evidence.displayName ?? null,
+      branch: row?.branch ?? null,
+      resolvedBy: by.kind,
+      reason: `unique_${by.kind}_match`,
+      confidence: EVIDENCE_CONFIDENCE[by.kind],
+      evidence: results,
+      candidates: [{ id, customerCode: row?.customerCode ?? null, name: row?.name ?? null }]
+    };
+  }
+  const ambiguous = results.filter((row) => row.result === "ambiguous");
+  if (ambiguous.length) {
+    return unresolvedBase(
+      "ambiguous",
+      `identity_ambiguous:${ambiguous.map((row) => `${row.kind}=${row.value}`).join("|")}`,
+      uniq(ambiguous.flatMap((row) => row.customerIds))
+    );
+  }
+  return unresolvedBase(
+    "unresolved",
+    results.length ? "no_matching_customer" : "no_identity_evidence",
+    []
+  );
+}
+var CHUNK = 40;
+var CUSTOMER_COLUMNS = "id,customer_code,effective_customer_code,code,name,display_name,customer_name,branch,effective_branch,is_duplicate,normalized_phone,phone,customer_phone,mobile,whatsapp_phone,whatsapp,phone_alt";
+function toCandidate(row) {
+  return {
+    id: String(row.id),
+    customerCode: normalizeDawaaCustomerCode(row.effective_customer_code) || normalizeDawaaCustomerCode(row.customer_code) || normalizeDawaaCustomerCode(row.code) || null,
+    phones: validPhones([
+      row.normalized_phone,
+      row.phone,
+      row.customer_phone,
+      row.mobile,
+      row.whatsapp_phone,
+      row.whatsapp,
+      row.phone_alt
+    ]),
+    name: String(row.display_name || row.name || row.customer_name || "").trim() || null,
+    branch: String(row.effective_branch || row.branch || "").trim() || null,
+    isDuplicate: Boolean(row.is_duplicate)
+  };
+}
+function chunks2(values) {
+  const out = [];
+  for (let index = 0; index < values.length; index += CHUNK)
+    out.push(values.slice(index, index + CHUNK));
+  return out;
+}
+async function loadCustomerIdentityCandidates(client, evidences) {
+  const ids = uniq(
+    evidences.flatMap((e) => [e.customerId, e.trustedHistoricalCustomerId]).filter((id) => isCustomerIdentityUuid(id))
+  );
+  const codes = uniq(
+    evidences.flatMap((e) => e.customerCodes.map((code) => normalizeDawaaCustomerCode(code)))
+  );
+  const phones = uniq(evidences.flatMap((e) => [...e.contactPhones, ...e.mentionedPhones]));
+  const byId = /* @__PURE__ */ new Map();
+  const add = (rows) => {
+    for (const row of rows || []) byId.set(String(row.id), toCandidate(row));
+  };
+  const run = async (label, query) => {
+    const { data, error } = await query;
+    if (error) throw new Error(`customer_identity_${label}_lookup_failed: ${error.message}`);
+    add(data);
+  };
+  for (const chunk of chunks2(ids)) {
+    await run("id", client.from("customers").select(CUSTOMER_COLUMNS).in("id", chunk));
+  }
+  for (const chunk of chunks2(codes)) {
+    const list = chunk.join(",");
+    await run(
+      "code",
+      client.from("customers").select(CUSTOMER_COLUMNS).or(`effective_customer_code.in.(${list}),customer_code.in.(${list}),code.in.(${list})`).limit(500)
+    );
+  }
+  for (const chunk of chunks2(phones)) {
+    const list = chunk.join(",");
+    await run(
+      "phone",
+      client.from("customers").select(CUSTOMER_COLUMNS).or(
+        [
+          "normalized_phone",
+          "phone",
+          "customer_phone",
+          "mobile",
+          "whatsapp_phone",
+          "whatsapp",
+          "phone_alt"
+        ].map((column) => `${column}.in.(${list})`).join(",")
+      ).limit(500)
+    );
+  }
+  const aliasToCanonical = /* @__PURE__ */ new Map();
+  const duplicateIds = [...byId.values()].filter((row) => row.isDuplicate).map((row) => row.id);
+  for (const chunk of chunks2(duplicateIds)) {
+    const { data, error } = await client.from("customer_aliases").select("alias_customer_id,canonical_customer_id").in("alias_customer_id", chunk);
+    if (error) throw new Error(`customer_identity_alias_lookup_failed: ${error.message}`);
+    for (const row of data || []) {
+      if (row.alias_customer_id && row.canonical_customer_id) {
+        aliasToCanonical.set(String(row.alias_customer_id), String(row.canonical_customer_id));
+      }
+    }
+  }
+  const missingCanonical = uniq([...aliasToCanonical.values()]).filter((id) => !byId.has(id));
+  for (const chunk of chunks2(missingCanonical)) {
+    await run("alias_canonical", client.from("customers").select(CUSTOMER_COLUMNS).in("id", chunk));
+  }
+  return { byId, aliasToCanonical };
+}
+async function resolveCanonicalCustomerIdentities(client, evidences) {
+  const candidates = await loadCustomerIdentityCandidates(client, evidences);
+  return evidences.map((evidence) => resolveCanonicalCustomerIdentity(evidence, candidates));
+}
+
 // src/lib/salesIntelligence/persistence/batchPersistenceService.ts
 function canonicalCustomerKey(conversationCase) {
   if (conversationCase.customerId) return { key: `id:${conversationCase.customerId}`, customerId: conversationCase.customerId, phone: null };
@@ -5374,54 +5635,33 @@ async function planAnalysis(supabaseClient, caseId, semanticSourceHash) {
     isNoOp
   };
 }
-async function enrichConversationIdentityHints(supabaseClient, conversations) {
-  const cache = /* @__PURE__ */ new Map();
-  for (const conversation of conversations) {
-    if (conversation.customerIdHint || isValidEgyptianCustomerMobile(conversation.customerPhoneHint ?? "")) continue;
+async function resolveConversationCustomerIdentities(supabaseClient, conversations) {
+  const evidences = conversations.map((conversation) => {
+    const phone = normalizeEgyptianCustomerPhone(conversation.customerPhoneHint ?? "");
     const code = normalizeDawaaCustomerCode(conversation.customerCodeHint);
-    if (!code || cache.has(code)) continue;
-    const [{ data: primaryRows, error: primaryError }, { data: legacyRows, error: legacyError }] = await Promise.all([
-      supabaseClient.from("customers").select("id, name, customer_name, customer_code, code, phone, customer_phone, mobile, whatsapp").eq("customer_code", code).limit(5),
-      supabaseClient.from("customers").select("id, name, customer_name, customer_code, code, phone, customer_phone, mobile, whatsapp").eq("code", code).limit(5)
-    ]);
-    if (primaryError) throw primaryError;
-    if (legacyError) throw legacyError;
-    const byId = /* @__PURE__ */ new Map();
-    for (const row2 of [...primaryRows ?? [], ...legacyRows ?? []]) if (row2?.id) byId.set(String(row2.id), row2);
-    let rows = Array.from(byId.values());
-    if (rows.length > 1 && conversation.customerNameHint) {
-      const sourceName = normalizeCustomerIdentityName(conversation.customerNameHint).replace(/\d+\s*$/, "").trim();
-      const matches = rows.filter((row2) => {
-        const candidate = normalizeCustomerIdentityName(row2.name ?? row2.customer_name ?? "");
-        return candidate.includes(sourceName) || sourceName.includes(candidate);
-      });
-      if (matches.length === 1) rows = matches;
-    }
-    if (rows.length !== 1) {
-      cache.set(code, null);
-      continue;
-    }
-    const row = rows[0];
-    const normalizedPhone = normalizeEgyptianCustomerPhone(row.customer_phone ?? row.phone ?? row.mobile ?? row.whatsapp ?? "");
-    cache.set(code, {
-      customerId: String(row.id),
-      phone: isValidEgyptianCustomerMobile(normalizedPhone) ? normalizedPhone : null
-    });
-  }
-  return conversations.map((conversation) => {
-    const code = normalizeDawaaCustomerCode(conversation.customerCodeHint);
-    const resolved = code ? cache.get(code) ?? null : null;
-    if (!resolved) return conversation;
+    return {
+      customerId: conversation.customerIdHint ?? null,
+      customerCodes: code ? [code] : [],
+      contactPhones: isValidEgyptianCustomerMobile(phone) ? [phone] : [],
+      mentionedPhones: [],
+      displayName: conversation.customerNameHint ?? null
+    };
+  });
+  const identities = await resolveCanonicalCustomerIdentities(supabaseClient, evidences);
+  return conversations.map((conversation, index) => {
+    const identity = identities[index];
+    const resolved = identity.status === "resolved";
     return {
       ...conversation,
-      customerIdHint: conversation.customerIdHint ?? resolved.customerId,
-      customerPhoneHint: conversation.customerPhoneHint ?? resolved.phone
+      customerIdHint: resolved ? identity.customerId : null,
+      customerPhoneHint: resolved ? identity.normalizedPhone ?? conversation.customerPhoneHint ?? null : conversation.customerPhoneHint ?? null,
+      customerIdentityStatus: identity.status
     };
   });
 }
 async function runBatchPersistence(supabaseClient, input) {
   const pureComputeStart = Date.now();
-  const effectiveConversations = await enrichConversationIdentityHints(supabaseClient, input.conversations);
+  const effectiveConversations = await resolveConversationCustomerIdentities(supabaseClient, input.conversations);
   const segmented = [];
   let previousTheoreticalFetchCount = 0;
   for (const conversation of effectiveConversations) {
@@ -5469,6 +5709,7 @@ async function runBatchPersistence(supabaseClient, input) {
       sourceCaseIdV22: conversation.sourceCaseIdV22,
       customerIdHint: conversation.customerIdHint,
       customerPhoneHint: conversation.customerPhoneHint,
+      customerIdentityStatus: conversation.customerIdentityStatus,
       branchIdHint: conversation.branchIdHint,
       branchNameRawHint: conversation.branchNameRawHint,
       knownStaffIds: conversation.knownStaffIds,
@@ -5502,6 +5743,7 @@ async function runBatchPersistence(supabaseClient, input) {
         sourceCaseIdV22: conversation.sourceCaseIdV22,
         customerIdHint: conversation.customerIdHint,
         customerPhoneHint: conversation.customerPhoneHint,
+        customerIdentityStatus: conversation.customerIdentityStatus,
         branchIdHint: conversation.branchIdHint,
         branchNameRawHint: conversation.branchNameRawHint,
         knownStaffIds: conversation.knownStaffIds,

@@ -1,9 +1,12 @@
+// RETIRED as an identity decision path (STEP 2.7). The single customer identity definition is
+// src/lib/customers/canonicalCustomerIdentityResolver.ts (no name-based resolution). Only the
+// WhatsAppResolvedCustomer type is still consumed (as the watcher's display shape).
 import { normalizeArabicText, normalizePhone, searchCustomers, type CustomerSearchResult } from '@/lib/customerSearch';
 
 export type WhatsAppResolvedCustomer = {
   customer: CustomerSearchResult | null;
   confidence: number;
-  strategy: 'code_exact' | 'phone_exact' | 'name_exact_branch' | 'name_exact' | 'strong_name_candidates' | 'none' | 'ambiguous';
+  strategy: 'code_exact' | 'phone_exact' | 'customer_id_exact' | 'historical_link' | 'name_exact_branch' | 'name_exact' | 'strong_name_candidates' | 'none' | 'ambiguous' | 'contradicted';
   reason: string;
   candidates: CustomerSearchResult[];
 };

@@ -165,3 +165,48 @@ describe('Sale attribution still supports a future dedicated trusted-invoice sou
     expect(analysis.attribution.selectedCandidate?.directInvoiceLink).toBe(true);
   });
 });
+
+describe('Customer identity gate — identity !== resolved -> no Sale Proof, no official attribution', () => {
+  const raw = `[9/15/26, 9:00:00 AM] Customer: عايز 2 علبة فيتامين د
+[9/15/26, 9:01:00 AM] You: إجمالي الحساب 180 جنيه
+[9/15/26, 9:02:00 AM] Customer: ايوه تمام
+[9/15/26, 9:03:00 AM] You: تم تأكيد الطلب وجاري الإرسال`;
+  const run = (customerIdentityStatus?: SalesIntelligencePipelineInput['customerIdentityStatus']) =>
+    runSalesIntelligencePipeline({
+      conversationId: 'conv-identity-gate',
+      rawWhatsAppExportText: raw,
+      trustedConversationStartedAt: '2026-09-15T06:00:00.000Z',
+      customerIdHint: 'cust-1',
+      customerIdentityStatus,
+      trustedInvoiceId: 'trusted-invoice-1',
+      trustedInvoiceNumber: '90001',
+      resolveInvoiceCandidates: () => [{
+        id: 'trusted-invoice-1',
+        invoice_number: '90001',
+        customer_id: 'cust-1',
+        invoice_datetime: '2026-09-15T06:05:00.000Z',
+        net_amount: 180,
+      }],
+    }).caseAnalyses[0];
+
+  it('a resolved identity keeps the trusted-invoice proof', () => {
+    const analysis = run('resolved');
+    expect(analysis.salesOutcome.saleProofState).toBe('proven');
+    expect(analysis.salesOutcome.outcome).toBe('sale_proven');
+  });
+
+  it.each(['unresolved', 'ambiguous'] as const)('%s identity caps the proof at strongly_supported', (status) => {
+    const analysis = run(status);
+    expect(analysis.salesOutcome.saleProofState).toBe('strongly_supported');
+    expect(analysis.salesOutcome.outcome).not.toBe('sale_proven');
+    expect(analysis.salesOutcome.isRevenueCountable).toBe(false);
+    expect(analysis.attribution.isOfficialForStaffEvaluation).toBe(false);
+    expect(analysis.humanReviewReasons).toContain(`customer_identity_${status}`);
+  });
+
+  it('contradicted identity is a contradiction', () => {
+    const analysis = run('contradicted');
+    expect(analysis.salesOutcome.saleProofState).toBe('contradicted');
+    expect(analysis.attribution.isOfficialForStaffEvaluation).toBe(false);
+  });
+});

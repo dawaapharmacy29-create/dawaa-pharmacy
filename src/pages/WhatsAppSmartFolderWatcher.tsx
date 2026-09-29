@@ -40,7 +40,11 @@ import { resolveConversationBranchHint, type BranchHintResult } from '@/lib/what
 import { resolveStaffIdentity, type ResolvedStaffIdentity } from '@/lib/whatsappStaffIdentityResolver';
 import { buildSmartOfficialReviewDraftV1 } from '@/lib/whatsappSmartOfficialReviewDraft';
 import { buildSmartConversationEvaluationV2 } from '@/lib/whatsappConversationEvaluationV2';
-import { extractPhoneCandidate, resolveCustomerContext } from '@/lib/whatsappCustomerContextResolver';
+import { customerContextFromCanonicalIdentity } from '@/lib/whatsappCustomerContextResolver';
+import {
+  extractCustomerIdentityEvidence,
+  resolveCanonicalCustomerIdentities,
+} from '@/lib/customers/canonicalCustomerIdentityResolver';
 import { buildConversationTimingV28 } from '@/lib/whatsappConversationTimingV28';
 import { buildDelayAttributionV29 } from '@/lib/whatsappDelayAttributionV29';
 import { buildConversationFocusV30 } from '@/lib/whatsappConversationFocusV30';
@@ -401,22 +405,19 @@ export default function WhatsAppSmartFolderWatcher() {
     const persistedBranchHints: string[] = [];
     const sourcePersistErrors: string[] = [];
 
-    // نفس ملف التصدير غالبًا يحتوي أكثر من Session لنفس العميل. قبل التحسين كنا بنكرر
-    // customer search + purchase-history query لكل Session. الكاش هنا محلي للتحليل فقط
-    // (لا يغيّر أي مصدر حقيقة) ويعيد استخدام نفس Promise حتى لو جلستين شغالين بالتوازي.
-    const customerContextCache = new Map<string, ReturnType<typeof resolveCustomerContext>>();
-    const getCustomerContext = (session: (typeof analysisUnits)[number]['mergedSession'], branch: string | null) => {
-      const identity = extractPhoneCandidate(session) || session.customerName || 'unknown';
-      const key = `${identity.trim().toLowerCase()}|${String(branch || '').trim().toLowerCase()}`;
-      const existing = customerContextCache.get(key);
-      if (existing) return existing;
-      const request = resolveCustomerContext(session, branch, {
-        customerNameHint: fileCustomerHint.nameHint,
-        customerCodeHint: fileCustomerHint.codeHint,
-      });
-      customerContextCache.set(key, request);
-      return request;
-    };
+    // Canonical Customer Identity (shared with automatic ingest and Sales Intelligence): one batch
+    // resolution for every case unit of the file (bounded queries, no per-case search), then
+    // read-only display context per resolved customer. A lookup failure fails the file visibly.
+    const canonicalIdentities = await resolveCanonicalCustomerIdentities(
+      supabase,
+      analysisUnits.map((unit) => extractCustomerIdentityEvidence(unit.mergedSession, file.name))
+    );
+    const identityBySession = new Map(
+      analysisUnits.map((unit, index) => [unit.mergedSession.id, canonicalIdentities[index]])
+    );
+    const customerProfileCache = new Map();
+    const getCustomerContext = (session: (typeof analysisUnits)[number]['mergedSession']) =>
+      customerContextFromCanonicalIdentity(identityBySession.get(session.id)!, customerProfileCache);
 
     const analyzeCase = async (caseContext: (typeof analysisUnits)[number]): Promise<StaffRun[]> => {
       const session = caseContext.mergedSession;
@@ -428,7 +429,7 @@ export default function WhatsAppSmartFolderWatcher() {
       const roles = await resolveWhatsAppParticipantRolesV15(session);
       const outboundBurstMetrics = computeStaffBurstEffort(groupOutboundBursts(session, roles));
       const branchHint = await resolveConversationBranchHint(session, roles, null);
-      const customerContext = await getCustomerContext(session, branchHint.value);
+      const customerContext = await getCustomerContext(session);
       const resolvedCustomer = customerContext.resolution.customer;
 
       // Operational/Product Journey هو مصدر حقيقة الأصناف داخل WhatsApp Review.
@@ -545,7 +546,7 @@ export default function WhatsAppSmartFolderWatcher() {
           participantRoles: roles,
           understanding: conversationUnderstandingV32,
           customerResolved: Boolean(resolvedCustomer?.id),
-          customerAmbiguous: customerContext.resolution.strategy === 'ambiguous',
+          customerAmbiguous: ['ambiguous', 'contradicted'].includes(customerContext.resolution.strategy),
           invoiceItemCount: invoiceItems.length,
         });
 
@@ -668,6 +669,7 @@ export default function WhatsAppSmartFolderWatcher() {
           requestedProducts: keptRuns[0]?.snapshot.smartIntelligence?.requestedProducts || [],
           resolvedCustomer: customerContext.resolution,
           resolvedCustomerContact: customerContext.contactProfile,
+          canonicalCustomerIdentity: customerContext.identity,
         } as any;
         const persisted = await persistAnalyzedWhatsAppSession(session, persistenceIntelligence, {
           sourceFileName: file.name,

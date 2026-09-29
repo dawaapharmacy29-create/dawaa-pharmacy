@@ -55,6 +55,11 @@ export interface SalesIntelligencePipelineInput {
   sourceCaseIdV22?: string | null;
   customerIdHint?: string | null;
   customerPhoneHint?: string | null;
+  /**
+   * Canonical Customer Identity status (canonicalCustomerIdentityResolver). When provided and not
+   * 'resolved', the case can never be Sale Proof `proven` nor official staff attribution.
+   */
+  customerIdentityStatus?: 'resolved' | 'unresolved' | 'ambiguous' | 'contradicted';
   branchIdHint?: string | null;
   branchNameRawHint?: string | null;
   /** Known contributing staff ids for this conversation (Phase B StaffContribution.staffId) — conservative, may be empty. */
@@ -301,17 +306,17 @@ function analyzeOneCase(
   };
 
   const itemEvidenceProvider = input.itemEvidenceProvider ?? unavailableInvoiceItemEvidenceProvider;
-  const attribution = deriveSaleAttributionAssessment(
+  const rawAttribution = deriveSaleAttributionAssessment(
     attributionCtx,
     invoiceCandidates,
     itemEvidenceProvider,
     input.competingSelections ?? []
   );
 
-  const invoiceRow = attribution.selectedInvoiceId
-    ? (invoiceCandidates.find((row) => invoiceRowLookupId(row) === attribution.selectedInvoiceId) ?? null)
+  const invoiceRow = rawAttribution.selectedInvoiceId
+    ? (invoiceCandidates.find((row) => invoiceRowLookupId(row) === rawAttribution.selectedInvoiceId) ?? null)
     : null;
-  if (attribution.selectedInvoiceId && !invoiceRow) {
+  if (rawAttribution.selectedInvoiceId && !invoiceRow) {
     pipelineWarnings.push('selected_invoice_row_not_found_in_candidate_pool');
   }
 
@@ -319,7 +324,7 @@ function analyzeOneCase(
     caseId: conversationCase.caseId,
     baskets,
     itemsByBasketId,
-    attribution,
+    attribution: rawAttribution,
     invoiceRow,
     itemEvidenceProvider,
     documentedAdjustments: input.documentedAdjustments,
@@ -330,7 +335,7 @@ function analyzeOneCase(
     caseId: conversationCase.caseId,
     commercialConfirmation,
     protocolAssessment,
-    attribution,
+    attribution: rawAttribution,
     basketInvoiceMatch,
     invoiceStatusHint: input.invoiceStatusHint ?? null,
     knownStaffIds: input.knownStaffIds,
@@ -351,7 +356,7 @@ function analyzeOneCase(
     customerConfirmationDetected: commercialConfirmation.customerConfirmed,
     staffConfirmationDetected: commercialConfirmation.staffConfirmed,
     invoiceCandidatesAvailable: invoiceCandidates.length > 0,
-    invoiceAttributed: attribution.hasAttributedInvoice,
+    invoiceAttributed: rawAttribution.hasAttributedInvoice,
     invoiceItemsAvailable: basketInvoiceMatch.itemEvidenceReady,
     // Always false today — no fulfillment/delivery evidence source exists yet. A staff message
     // like "جاري الإرسال" is staff INTENT/confirmation (already captured as staffConfirmationDetected
@@ -391,8 +396,8 @@ function analyzeOneCase(
   if (commercialConfirmation.currentState === 'commercial_confirmation_complete' && invoiceCandidates.length === 0) {
     failureReasons.push('invoice_candidate_missing');
   }
-  if (attribution.contradictions.includes('ambiguous_multiple_candidates')) failureReasons.push('invoice_candidates_ambiguous');
-  if (attribution.hasAttributedInvoice && !basketInvoiceMatch.itemEvidenceReady) failureReasons.push('invoice_items_unavailable');
+  if (rawAttribution.contradictions.includes('ambiguous_multiple_candidates')) failureReasons.push('invoice_candidates_ambiguous');
+  if (rawAttribution.hasAttributedInvoice && !basketInvoiceMatch.itemEvidenceReady) failureReasons.push('invoice_items_unavailable');
   if (commercialConfirmation.staffConfirmed && (input.knownStaffIds ?? []).length === 0) failureReasons.push('staff_identity_unresolved');
   if (!conversationCase.endedAt) failureReasons.push('conversation_timestamp_quality_issue');
 
@@ -409,7 +414,7 @@ function analyzeOneCase(
   const needsHumanReview =
     conversationCase.needsHumanReview ||
     commercialConfirmation.needsHumanReview ||
-    attribution.needsHumanReview ||
+    rawAttribution.needsHumanReview ||
     basketInvoiceMatch.needsHumanReview ||
     (!isGenuinelyInformationOnly && integrityAssessment.needsHumanReview) ||
     activeBasketResolution.outcome === 'needs_human_review';
@@ -418,18 +423,46 @@ function analyzeOneCase(
     new Set([
       ...conversationCase.humanReviewReasons,
       ...commercialConfirmation.humanReviewReasons,
-      ...attribution.humanReviewReasons,
+      ...rawAttribution.humanReviewReasons,
       ...basketInvoiceMatch.humanReviewReasons,
       ...(isGenuinelyInformationOnly ? [] : integrityAssessment.humanReviewReasons),
       ...(activeBasketResolution.outcome === 'needs_human_review' ? ['active_basket_conflict'] : []),
     ])
   );
 
-  const saleProof = deriveSaleProofState({
-    attribution,
+  const derivedSaleProof = deriveSaleProofState({
+    attribution: rawAttribution,
     basketInvoiceMatch,
     integrityAssessment,
   });
+  // Customer identity gate: identity !== resolved -> no Sale Proof, no official attribution.
+  // Missing/ambiguous identity is absence of evidence (capped at strongly_supported); a
+  // contradicted identity is a real contradiction.
+  const identityStatus = input.customerIdentityStatus;
+  const identityBlocked = identityStatus !== undefined && identityStatus !== 'resolved';
+  const identityReason = `customer_identity_${identityStatus}`;
+  const attribution = identityBlocked
+    ? {
+        ...rawAttribution,
+        isOfficialForStaffEvaluation: false,
+        humanReviewReasons: Array.from(new Set([...rawAttribution.humanReviewReasons, identityReason])),
+      }
+    : rawAttribution;
+  const saleProof =
+    identityBlocked && derivedSaleProof.state === 'proven'
+      ? {
+          ...derivedSaleProof,
+          state: identityStatus === 'contradicted' ? ('contradicted' as const) : ('strongly_supported' as const),
+          trustedInvoiceId: null,
+          contradictions:
+            identityStatus === 'contradicted'
+              ? Array.from(new Set([...derivedSaleProof.contradictions, 'customer_identity_contradicted']))
+              : derivedSaleProof.contradictions,
+          ruleIds: Array.from(new Set([...derivedSaleProof.ruleIds, 'sale_proof.customer_identity_not_resolved'])),
+          needsHumanReview: true,
+        }
+      : derivedSaleProof;
+  if (identityBlocked && !humanReviewReasons.includes(identityReason)) humanReviewReasons.push(identityReason);
   const salesOutcome = deriveCanonicalSalesOutcome({
     caseId: conversationCase.caseId,
     caseType: conversationCase.caseType,

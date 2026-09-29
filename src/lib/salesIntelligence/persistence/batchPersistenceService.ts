@@ -11,7 +11,6 @@
 import {
   normalizeEgyptianCustomerPhone,
   isValidEgyptianCustomerMobile,
-  normalizeCustomerIdentityName,
   normalizeDawaaCustomerCode,
 } from '../../customers/customerIdentity';
 import { parseInvoiceDateTime, type InvoiceLike } from '../../invoices/invoiceCore';
@@ -46,6 +45,10 @@ import {
   snapshotInvoiceItemEvidence,
 } from '../invoiceItemEvidenceRepository';
 import { fetchPharmacyProductIndex } from '../pharmacyProductCatalogRepository';
+import {
+  resolveCanonicalCustomerIdentities,
+  type CanonicalCustomerIdentityStatus,
+} from '../../customers/canonicalCustomerIdentityResolver';
 
 // ---------------------------------------------------------------------------
 // Input contract
@@ -62,6 +65,8 @@ export interface BatchConversationInput {
   customerPhoneHint?: string | null;
   customerNameHint?: string | null;
   customerCodeHint?: string | null;
+  /** Set by resolveConversationCustomerIdentities (Canonical Customer Identity Resolver). */
+  customerIdentityStatus?: CanonicalCustomerIdentityStatus;
   branchIdHint?: string | null;
   branchNameRawHint?: string | null;
   knownStaffIds?: string[];
@@ -339,66 +344,36 @@ async function planAnalysis(
 }
 
 // ---------------------------------------------------------------------------
-// Missing identity enrichment: WhatsApp source labels can carry a Dawaa code even when the source
-// row has no customer_id/phone. Resolve only a UNIQUE real customers row before invoice retrieval;
-// duplicate codes remain unresolved rather than guessed.
+// Customer identity: the Canonical Customer Identity Resolver (shared with the Smart Watcher and
+// automatic ingest) resolves every conversation of the batch with ONE bounded candidate load.
+// Only a `resolved` identity feeds customerIdHint; the status is passed to the pipeline, which
+// refuses Sale Proof `proven` and official attribution for any other status.
 // ---------------------------------------------------------------------------
 
-async function enrichConversationIdentityHints(
+async function resolveConversationCustomerIdentities(
   supabaseClient: any,
   conversations: BatchConversationInput[]
 ): Promise<BatchConversationInput[]> {
-  const cache = new Map<string, { customerId: string; phone: string | null } | null>();
-
-  for (const conversation of conversations) {
-    if (conversation.customerIdHint || isValidEgyptianCustomerMobile(conversation.customerPhoneHint ?? '')) continue;
+  const evidences = conversations.map((conversation) => {
+    const phone = normalizeEgyptianCustomerPhone(conversation.customerPhoneHint ?? '');
     const code = normalizeDawaaCustomerCode(conversation.customerCodeHint);
-    if (!code || cache.has(code)) continue;
-
-    const [{ data: primaryRows, error: primaryError }, { data: legacyRows, error: legacyError }] = await Promise.all([
-      supabaseClient.from('customers')
-        .select('id, name, customer_name, customer_code, code, phone, customer_phone, mobile, whatsapp')
-        .eq('customer_code', code).limit(5),
-      supabaseClient.from('customers')
-        .select('id, name, customer_name, customer_code, code, phone, customer_phone, mobile, whatsapp')
-        .eq('code', code).limit(5),
-    ]);
-    if (primaryError) throw primaryError;
-    if (legacyError) throw legacyError;
-
-    const byId = new Map<string, any>();
-    for (const row of [...(primaryRows ?? []), ...(legacyRows ?? [])]) if (row?.id) byId.set(String(row.id), row);
-    let rows = Array.from(byId.values());
-
-    if (rows.length > 1 && conversation.customerNameHint) {
-      const sourceName = normalizeCustomerIdentityName(conversation.customerNameHint).replace(/\d+\s*$/, '').trim();
-      const matches = rows.filter((row) => {
-        const candidate = normalizeCustomerIdentityName(row.name ?? row.customer_name ?? '');
-        return candidate.includes(sourceName) || sourceName.includes(candidate);
-      });
-      if (matches.length === 1) rows = matches;
-    }
-
-    if (rows.length !== 1) {
-      cache.set(code, null);
-      continue;
-    }
-    const row = rows[0];
-    const normalizedPhone = normalizeEgyptianCustomerPhone(row.customer_phone ?? row.phone ?? row.mobile ?? row.whatsapp ?? '');
-    cache.set(code, {
-      customerId: String(row.id),
-      phone: isValidEgyptianCustomerMobile(normalizedPhone) ? normalizedPhone : null,
-    });
-  }
-
-  return conversations.map((conversation) => {
-    const code = normalizeDawaaCustomerCode(conversation.customerCodeHint);
-    const resolved = code ? cache.get(code) ?? null : null;
-    if (!resolved) return conversation;
+    return {
+      customerId: conversation.customerIdHint ?? null,
+      customerCodes: code ? [code] : [],
+      contactPhones: isValidEgyptianCustomerMobile(phone) ? [phone] : [],
+      mentionedPhones: [],
+      displayName: conversation.customerNameHint ?? null,
+    };
+  });
+  const identities = await resolveCanonicalCustomerIdentities(supabaseClient, evidences);
+  return conversations.map((conversation, index) => {
+    const identity = identities[index];
+    const resolved = identity.status === 'resolved';
     return {
       ...conversation,
-      customerIdHint: conversation.customerIdHint ?? resolved.customerId,
-      customerPhoneHint: conversation.customerPhoneHint ?? resolved.phone,
+      customerIdHint: resolved ? identity.customerId : null,
+      customerPhoneHint: resolved ? identity.normalizedPhone ?? conversation.customerPhoneHint ?? null : conversation.customerPhoneHint ?? null,
+      customerIdentityStatus: identity.status,
     };
   });
 }
@@ -409,7 +384,7 @@ async function enrichConversationIdentityHints(
 
 export async function runBatchPersistence(supabaseClient: any, input: RunBatchPersistenceInput): Promise<RunBatchPersistenceResult> {
   const pureComputeStart = Date.now();
-  const effectiveConversations = await enrichConversationIdentityHints(supabaseClient, input.conversations);
+  const effectiveConversations = await resolveConversationCustomerIdentities(supabaseClient, input.conversations);
 
   // Step 1: segment every conversation (cheap, pure, no I/O) — needed to group by customer BEFORE
   // any invoice fetch (instruction #12 steps 1-4).
@@ -471,6 +446,7 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
       sourceCaseIdV22: conversation.sourceCaseIdV22,
       customerIdHint: conversation.customerIdHint,
       customerPhoneHint: conversation.customerPhoneHint,
+      customerIdentityStatus: conversation.customerIdentityStatus,
       branchIdHint: conversation.branchIdHint,
       branchNameRawHint: conversation.branchNameRawHint,
       knownStaffIds: conversation.knownStaffIds,
@@ -511,6 +487,7 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
         sourceCaseIdV22: conversation.sourceCaseIdV22,
         customerIdHint: conversation.customerIdHint,
         customerPhoneHint: conversation.customerPhoneHint,
+        customerIdentityStatus: conversation.customerIdentityStatus,
         branchIdHint: conversation.branchIdHint,
         branchNameRawHint: conversation.branchNameRawHint,
         knownStaffIds: conversation.knownStaffIds,

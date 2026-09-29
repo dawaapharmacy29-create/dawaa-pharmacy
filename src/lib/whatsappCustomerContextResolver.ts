@@ -1,13 +1,10 @@
-// حل هوية العميل الحقيقية (customer_id) لمحادثة واتساب — قراءة فقط، بدون resolver جديد.
-// بيعيد استخدام whatsappCustomerResolverV4.ts (نفس محرك customerSearch.ts المعتمد في باقي
-// التطبيق) بأفضل هوية متاحة بالترتيب: phone (لو اتلاقى رقم مصري صالح داخل نص المحادثة) >
-// اسم العميل > branchHint لفك تعارض الأسماء المتكررة. لو العميل ambiguous، الـresolver
-// نفسه بيرجع customer:null + candidates — من غير أي اختيار تلقائي، وده بيتنقل زي ما هو
-// من غير أي "تحسين" أو تخمين إضافي هنا.
+// Customer context for a WhatsApp case unit — built ONLY from the Canonical Customer Identity
+// (src/lib/customers/canonicalCustomerIdentityResolver.ts), the single identity definition shared
+// with automatic ingest and Sales Intelligence. This module adds read-only display context
+// (contact profile, purchase history) for a RESOLVED customer; it never resolves identity itself.
 import { supabase } from '@/lib/supabase';
-import type { WhatsAppConversationSession } from '@/lib/whatsappConversationParser';
-import { resolveWhatsAppCustomerIdentity, type WhatsAppResolvedCustomer } from '@/lib/whatsappCustomerResolverV4';
-import { isValidEgyptianCustomerMobile, normalizeEgyptianCustomerPhone } from '@/lib/customers/customerIdentity';
+import type { WhatsAppResolvedCustomer } from '@/lib/whatsappCustomerResolverV4';
+import type { CanonicalCustomerIdentity } from '@/lib/customers/canonicalCustomerIdentityResolver';
 
 export interface CustomerPurchaseHistory {
   totalPurchases: number | null;
@@ -28,22 +25,11 @@ export interface CustomerContactProfile {
 
 export interface CustomerContextResult {
   resolution: WhatsAppResolvedCustomer;
+  identity: CanonicalCustomerIdentity;
+  /** Contact phone evidence of the conversation (never a phone merely mentioned in text). */
   phoneCandidate: string | null;
   purchaseHistory: CustomerPurchaseHistory | null;
   contactProfile: CustomerContactProfile | null;
-}
-
-const PHONE_CANDIDATE_RX = /\d[\d\s-]{9,14}\d/g;
-
-/** بحث نصي بسيط عن رقم موبايل مصري صالح مذكور صراحة في المحادثة — best-effort، مش مصدر مؤكد. */
-export function extractPhoneCandidate(session: WhatsAppConversationSession): string | null {
-  for (const message of session.messages) {
-    const matches = message.text.match(PHONE_CANDIDATE_RX) || [];
-    for (const candidate of matches) {
-      if (isValidEgyptianCustomerMobile(candidate)) return normalizeEgyptianCustomerPhone(candidate);
-    }
-  }
-  return null;
 }
 
 async function fetchCustomerContactProfile(customerId: string): Promise<CustomerContactProfile> {
@@ -89,84 +75,83 @@ async function fetchPurchaseHistory(customerId: string): Promise<CustomerPurchas
   };
 }
 
-export async function resolveCustomerContext(
-  session: WhatsAppConversationSession,
-  branchHint: string | null,
-  hint?: { customerNameHint?: string | null; customerCodeHint?: string | null }
-): Promise<CustomerContextResult> {
-  const phoneCandidate = extractPhoneCandidate(session);
-  const hintedIdentity = [hint?.customerNameHint, hint?.customerCodeHint].filter(Boolean).join(' ').trim();
-  const fallbackIdentity = hintedIdentity || session.customerName;
-
-  const identityResolution = await resolveWhatsAppCustomerIdentity(fallbackIdentity, branchHint);
-  const phoneResolution = phoneCandidate
-    ? await resolveWhatsAppCustomerIdentity(phoneCandidate, branchHint)
-    : null;
-
-  const uniqueCandidates = (rows: Array<NonNullable<WhatsAppResolvedCustomer['customer']>>) => {
-    const byId = new Map(rows.map((row) => [row.id, row]));
-    return [...byId.values()];
-  };
-
-  let resolution = identityResolution;
-  const explicitCodeHint = Boolean(String(hint?.customerCodeHint || '').trim());
-  const identityCustomer = identityResolution.customer;
-  const phoneCustomer = phoneResolution?.customer || null;
-
-  if (explicitCodeHint && identityResolution.strategy === 'code_exact' && identityCustomer) {
-    if (phoneResolution?.strategy === 'phone_exact' && phoneCustomer && phoneCustomer.id !== identityCustomer.id) {
-      resolution = {
-        customer: null,
-        confidence: 0.5,
-        strategy: 'ambiguous',
-        reason: 'تعارض بين كود العميل الصريح ورقم هاتف مذكور داخل المحادثة؛ لا يتم اختيار عميل تلقائيًا.',
-        candidates: uniqueCandidates([identityCustomer, phoneCustomer]),
-      };
-    }
-    // Otherwise the explicit customer code remains the strongest identity evidence.
-  } else if (phoneResolution?.strategy === 'phone_exact' && phoneCustomer) {
-    if (identityResolution.strategy === 'ambiguous' && identityResolution.candidates.length) {
-      const candidateMatch = identityResolution.candidates.some((row) => row.id === phoneCustomer.id);
-      if (candidateMatch) {
-        resolution = {
-          ...phoneResolution,
-          confidence: Math.max(phoneResolution.confidence, 0.99),
-          reason: 'رقم الهاتف حسم هوية كانت غامضة بين نفس مرشحي الاسم/الكود.',
-        };
-      } else if (explicitCodeHint) {
-        resolution = {
-          customer: null,
-          confidence: 0.5,
-          strategy: 'ambiguous',
-          reason: 'رقم الهاتف لا يطابق أي مرشح للكود الصريح؛ يحتاج الربط لمراجعة بشرية.',
-          candidates: uniqueCandidates([...identityResolution.candidates, phoneCustomer]),
-        };
-      } else {
-        resolution = phoneResolution;
-      }
-    } else if (
-      identityCustomer &&
-      identityCustomer.id !== phoneCustomer.id &&
-      ['code_exact', 'name_exact_branch', 'name_exact'].includes(identityResolution.strategy)
-    ) {
-      resolution = {
-        customer: null,
-        confidence: 0.5,
-        strategy: 'ambiguous',
-        reason: 'تعارض بين هوية العميل من الاسم/الكود ورقم الهاتف المذكور؛ لا يتم التخمين.',
-        candidates: uniqueCandidates([identityCustomer, phoneCustomer]),
-      };
-    } else {
-      resolution = phoneResolution;
-    }
+/** Maps the canonical identity to the resolver shape the watcher's review snapshot consumes. */
+export function toWhatsAppResolvedCustomer(
+  identity: CanonicalCustomerIdentity
+): WhatsAppResolvedCustomer {
+  const candidates = identity.candidates.map((row) => ({
+    id: row.id,
+    name: row.name || '',
+    code: row.customerCode || '',
+    phone: '',
+    branch: '',
+    category: '',
+  }));
+  if (identity.status === 'resolved' && identity.customerId) {
+    return {
+      customer: {
+        id: identity.customerId,
+        name: identity.customerName || '',
+        code: identity.customerCode || '',
+        phone: identity.normalizedPhone || '',
+        branch: identity.branch || '',
+        category: '',
+      },
+      confidence: identity.confidence,
+      strategy:
+        identity.resolvedBy === 'customer_code'
+          ? 'code_exact'
+          : identity.resolvedBy === 'contact_phone' || identity.resolvedBy === 'mentioned_phone'
+            ? 'phone_exact'
+            : identity.resolvedBy === 'historical_link'
+              ? 'historical_link'
+              : 'customer_id_exact',
+      reason: identity.reason,
+      candidates,
+    };
   }
+  return {
+    customer: null,
+    confidence: 0,
+    strategy:
+      identity.status === 'contradicted'
+        ? 'contradicted'
+        : identity.status === 'ambiguous'
+          ? 'ambiguous'
+          : 'none',
+    reason: identity.reason,
+    candidates,
+  };
+}
 
-  const customerId = resolution.customer?.id || null;
-  const [purchaseHistory, contactProfile] = customerId
-    ? await Promise.all([
+/**
+ * Builds the watcher's customer context from an already-resolved canonical identity.
+ * Contact profile / purchase history are read only for a resolved customer (cache per customer id).
+ */
+export async function customerContextFromCanonicalIdentity(
+  identity: CanonicalCustomerIdentity,
+  cache: Map<string, Promise<[CustomerPurchaseHistory, CustomerContactProfile]>> = new Map()
+): Promise<CustomerContextResult> {
+  const resolution = toWhatsAppResolvedCustomer(identity);
+  const customerId = identity.status === 'resolved' ? identity.customerId : null;
+  let purchaseHistory: CustomerPurchaseHistory | null = null;
+  let contactProfile: CustomerContactProfile | null = null;
+  if (customerId) {
+    let request = cache.get(customerId);
+    if (!request) {
+      request = Promise.all([
         fetchPurchaseHistory(customerId),
         fetchCustomerContactProfile(customerId),
-      ])
-    : [null, null];
-  return { resolution, phoneCandidate, purchaseHistory, contactProfile };
+      ]);
+      cache.set(customerId, request);
+    }
+    [purchaseHistory, contactProfile] = await request;
+  }
+  return {
+    resolution,
+    identity,
+    phoneCandidate: identity.normalizedPhone,
+    purchaseHistory,
+    contactProfile,
+  };
 }
