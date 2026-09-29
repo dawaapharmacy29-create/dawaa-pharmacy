@@ -1195,18 +1195,23 @@ export default function StaffMonthlyEvaluation() {
                   onClick={() => setActiveStep((Math.max(1, activeStep - 1)) as MonthlyEvaluationStep)}
                   className="btn-secondary disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  السابق
+                  {activeStep === 2 ? 'السابق: البيانات'
+                    : activeStep === 3 ? 'السابق: التقييم'
+                      : activeStep === 4 ? 'السابق: النقاط'
+                        : activeStep === 5 ? 'السابق: الخلاصة'
+                          : 'السابق'}
                 </button>
-                <div className="text-xs font-black" style={{ color: 'var(--dawaa-theme-muted)' }}>
-                  خطوة {activeStep} من 5
-                </div>
                 <button
                   type="button"
                   disabled={activeStep === 5}
                   onClick={() => setActiveStep((Math.min(5, activeStep + 1)) as MonthlyEvaluationStep)}
                   className="btn-primary disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  التالي
+                  {activeStep === 1 ? 'التالي: التقييم'
+                    : activeStep === 2 ? 'التالي: النقاط'
+                      : activeStep === 3 ? 'التالي: الخلاصة'
+                        : activeStep === 4 ? 'التالي: الاعتماد'
+                          : 'التالي'}
                 </button>
               </Panel>
             </>
