@@ -409,6 +409,182 @@ describe('Stable Follow-up Identity — idempotency', () => {
   });
 });
 
+
+describe('Legacy NULL follow-up adoption — STEP 2.8 K', () => {
+  it('adopts one deterministic legacy auto-followup instead of inserting a duplicate', async () => {
+    const unit = session('canonical-case', MORNING);
+    await saveFollowupSignals(unit, FILE, ingestIdentity(), null);
+    expect(queue()).toHaveLength(1);
+    queue()[0].followup_identity = null;
+
+    const second = await saveFollowupSignals(unit, FILE, ingestIdentity(), null);
+    expect(queue()).toHaveLength(1);
+    expect(queue()[0].followup_identity).toMatch(/^fu1\|/);
+    expect(second).toMatchObject({
+      created: 0,
+      duplicate: 1,
+      legacyAdopted: 1,
+      legacyAmbiguous: 0,
+    });
+  });
+
+  it('does not guess when two legacy auto-followups match the same deterministic identity', async () => {
+    const unit = session('canonical-case', MORNING);
+    await saveFollowupSignals(unit, FILE, ingestIdentity(), null);
+    const original = queue()[0];
+    original.followup_identity = null;
+    queue().push({ ...original, id: 'legacy-copy' });
+
+    const result = await saveFollowupSignals(unit, FILE, ingestIdentity(), null);
+    expect(queue()).toHaveLength(2);
+    expect(queue().every((row) => row.followup_identity == null)).toBe(true);
+    expect(result).toMatchObject({ created: 0, legacyAdopted: 0, legacyAmbiguous: 1 });
+  });
+
+  it('does not adopt a legacy auto-followup for another reason or another customer', async () => {
+    const unit = session('canonical-case', MORNING);
+    await saveFollowupSignals(unit, FILE, ingestIdentity(), null);
+    queue()[0].followup_identity = null;
+    queue()[0].requested_product_name = 'سبب مختلف';
+    await saveFollowupSignals(unit, FILE, ingestIdentity(), null);
+    expect(queue()).toHaveLength(2);
+
+    db.reset();
+    await saveFollowupSignals(unit, FILE, ingestIdentity(), null);
+    queue()[0].followup_identity = null;
+    queue()[0].customer_id = 'cust-other';
+    await saveFollowupSignals(unit, FILE, ingestIdentity(), null);
+    expect(queue()).toHaveLength(2);
+  });
+
+  it('keeps a closed historical follow-up separate from a genuine later episode', async () => {
+    const morning = session('morning', MORNING);
+    await saveFollowupSignals(morning, FILE, ingestIdentity(), null);
+    queue()[0].followup_identity = null;
+    queue()[0].status = 'مغلق';
+
+    await saveFollowupSignals(session('evening', EVENING), FILE, ingestIdentity(), null);
+    expect(queue()).toHaveLength(2);
+    expect(queue().some((row) => row.status === 'مغلق')).toBe(true);
+  });
+
+  it('is idempotent after lazy adoption', async () => {
+    const unit = session('canonical-case', MORNING);
+    await saveFollowupSignals(unit, FILE, ingestIdentity(), null);
+    queue()[0].followup_identity = null;
+    await saveFollowupSignals(unit, FILE, ingestIdentity(), null);
+    const third = await saveFollowupSignals(unit, FILE, ingestIdentity(), null);
+    expect(queue()).toHaveLength(1);
+    expect(third).toMatchObject({ created: 0, duplicate: 1, legacyAdopted: 0 });
+  });
+
+  it('adopts one deterministic legacy conversation action and preserves its workflow state', async () => {
+    const unit = session('canonical-case', MORNING);
+    await syncAction('legacy-source', unit);
+    const legacy = actions()[0];
+    legacy.followup_identity = null;
+    legacy.status = 'in_progress';
+    legacy.assigned_to = 'cs-1';
+    db.tables.whatsapp_review_sources = [
+      {
+        id: 'legacy-source',
+        conversation_started_at: '2026-01-02T09:00:00.000Z',
+        conversation_ended_at: '2026-01-02T09:05:00.000Z',
+      },
+    ];
+
+    await syncAction('canonical-source', session('reimport', MORNING));
+    expect(actions()).toHaveLength(1);
+    expect(actions()[0]).toMatchObject({
+      source_id: 'legacy-source',
+      status: 'in_progress',
+      assigned_to: 'cs-1',
+    });
+    expect(actions()[0].followup_identity).toMatch(/^fu1\|/);
+  });
+
+  it('fails closed when multiple legacy actions match one new identity', async () => {
+    const unit = session('canonical-case', MORNING);
+    await syncAction('legacy-a', unit);
+    const first = actions()[0];
+    first.followup_identity = null;
+    actions().push({ ...first, id: 'legacy-b-row', source_id: 'legacy-b' });
+    db.tables.whatsapp_review_sources = [
+      {
+        id: 'legacy-a',
+        conversation_started_at: '2026-01-02T09:00:00.000Z',
+        conversation_ended_at: '2026-01-02T09:05:00.000Z',
+      },
+      {
+        id: 'legacy-b',
+        conversation_started_at: '2026-01-02T09:00:00.000Z',
+        conversation_ended_at: '2026-01-02T09:05:00.000Z',
+      },
+    ];
+
+    const result = await syncAction('canonical-source', unit);
+    expect(actions()).toHaveLength(2);
+    expect(actions().every((row) => row.followup_identity == null)).toBe(true);
+    expect(result).toContainEqual(
+      expect.objectContaining({ status: 'legacy_identity_ambiguous' })
+    );
+  });
+});
+
+describe('Evidence-free manual-review identity — STEP 2.8 L', () => {
+  const manualModel = () => {
+    const value = model([]);
+    value.officialScoringEligible = false;
+    value.primaryIntent = 'general_service';
+    return value;
+  };
+
+  const syncManual = (
+    sourceId: string,
+    unit: WhatsAppConversationSession,
+    caseStartedAt?: string
+  ) =>
+    syncWhatsAppOperationalActionsV6(manualModel(), {
+      sourceId,
+      customerId: 'cust-1',
+      customerCode: '4250',
+      followupIdentity: {
+        customerAnchor: anchor,
+        session: unit,
+        caseStartedAt: caseStartedAt ?? null,
+      },
+    });
+
+  it('coarse and fine imports share one manual-review task when the canonical case anchor is the same', async () => {
+    const coarse = session('coarse', [...MORNING, ...EVENING]);
+    const fine = session('fine', MORNING);
+    await syncManual('coarse-source', coarse, '2026-01-02T09:00:00.000Z');
+    await syncManual('fine-source', fine, '2026-01-02T09:00:00.000Z');
+    expect(actions()).toHaveLength(1);
+  });
+
+  it('a later genuine canonical case gets a new manual-review task', async () => {
+    await syncManual('morning-source', session('morning', MORNING), '2026-01-02T09:00:00.000Z');
+    await syncManual('evening-source', session('evening', EVENING), '2026-01-02T18:00:00.000Z');
+    expect(actions()).toHaveLength(2);
+  });
+
+  it('fails closed instead of deriving manual-review identity from session/source when no stable anchor exists', async () => {
+    const unit = session('arbitrary-import-session', MORNING);
+    const direct = operationalActionFollowupIdentity(
+      { customerAnchor: anchor, session: unit },
+      { action_type: 'manual_review', evidence: [] }
+    );
+    expect(direct).toBeNull();
+
+    const result = await syncManual('source-without-case-anchor', unit);
+    expect(actions()).toHaveLength(0);
+    expect(result).toContainEqual(
+      expect.objectContaining({ status: 'followup_identity_unresolved' })
+    );
+  });
+});
+
 describe('Stable Follow-up Identity — key rules', () => {
   it('ignores the import/session instance and moves only with a new episode', () => {
     const morningStart = episodeStartedAt([...MORNING, ...EVENING], MORNING[2].timestamp);
