@@ -1,3 +1,4 @@
+/* eslint-disable no-misleading-character-class */
 // V32 Phase C.3 / C.2 — Order Confirmation criterion, evidence-contract implementation.
 // Context-aware checklist: an item's status can be 'proven' from trusted order/invoice
 // context even when it is absent from the chat text (e.g. an address already on file) —
