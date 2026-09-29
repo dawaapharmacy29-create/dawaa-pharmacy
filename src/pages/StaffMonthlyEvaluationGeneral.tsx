@@ -451,7 +451,7 @@ export default function StaffMonthlyEvaluation() {
         try {
           await createStaffNotification({
             recipientStaffId: selected.id,
-            type: 'monthly_evaluation',
+            type: 'monthly_evaluation_ready',
             title: 'تم اعتماد تقييمك الشهري',
             message: `تم اعتماد تقييم دورة ${cycleRange.displayLabel} بدرجة ${Number(saveResult.overall_score ?? overallScore)}/100. يمكنك مراجعة التفاصيل من صفحة التقييم الشهري.`,
             priority: 'normal',
