@@ -25,21 +25,50 @@ const db = vi.hoisted(() => {
     const filters: Array<(row: any) => boolean> = [];
     let pending: any[] | null = null;
     let failure: any = null;
-    const result = () =>
-      failure
-        ? { data: null, error: failure }
-        : {
-            data: pending ?? table(name).filter((row) => filters.every((f) => f(row))),
-            error: null,
-          };
+    let updatePayload: Record<string, any> | null = null;
+    let limitCount: number | null = null;
+    const matched = () => {
+      const rows = table(name).filter((row) => filters.every((f) => f(row)));
+      return limitCount == null ? rows : rows.slice(0, limitCount);
+    };
+    const result = () => {
+      if (failure) return { data: null, error: failure };
+      if (updatePayload) {
+        const written: any[] = [];
+        for (const target of matched()) {
+          const candidate = { ...target, ...updatePayload };
+          if (uniqueViolation(name, candidate, target.id)) {
+            return { data: null, error: { code: '23505', message: 'duplicate key' } };
+          }
+          Object.assign(target, updatePayload);
+          written.push(target);
+        }
+        updatePayload = null;
+        pending = written;
+      }
+      return { data: pending ?? matched(), error: null };
+    };
     const chain: any = {
       select: () => chain,
       eq: (column: string, value: unknown) => {
         filters.push((row) => row[column] === value);
         return chain;
       },
+      is: (column: string, value: unknown) => {
+        filters.push((row) => row[column] === value);
+        return chain;
+      },
       in: (column: string, values: unknown[]) => {
         filters.push((row) => values.includes(row[column]));
+        return chain;
+      },
+      limit: (value: number) => {
+        limitCount = value;
+        return chain;
+      },
+      update: (payload: Record<string, any>) => {
+        calls.push(`${name}:update`);
+        updatePayload = payload;
         return chain;
       },
       insert: (rows: any[]) => {
@@ -80,7 +109,7 @@ const db = vi.hoisted(() => {
         return chain;
       },
       then: (resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) => {
-        if (pending === null && !failure) calls.push(`${name}:read`);
+        if (pending === null && !failure && !updatePayload) calls.push(`${name}:read`);
         return Promise.resolve(result()).then(resolve, reject);
       },
     };
@@ -109,6 +138,7 @@ import {
   buildFollowupIdentity,
   episodeStartedAt,
   followupCustomerAnchor,
+  operationalActionFollowupIdentity,
 } from '../whatsappFollowupIdentity';
 import type {
   WhatsAppConversationSession,
@@ -259,7 +289,12 @@ describe('Stable Follow-up Identity — idempotency', () => {
     await syncAction('source-a-reimport', again);
 
     expect(queue()).toHaveLength(1);
-    expect(second).toEqual({ created: 0, duplicate: 1 });
+    expect(second).toEqual({
+      created: 0,
+      duplicate: 1,
+      legacyAdopted: 0,
+      legacyAmbiguous: 0,
+    });
     expect(actions()).toHaveLength(1);
   });
 
@@ -365,7 +400,7 @@ describe('Stable Follow-up Identity — idempotency', () => {
     const actionReads = db.calls.filter(
       (call) => call === 'whatsapp_conversation_actions:read'
     ).length;
-    expect(actionReads).toBe(4); // two lookups per sync call, independent of the number of actions
+    expect(actionReads).toBe(6); // three bounded action lookups per sync call, independent of action count
     expect(
       db.calls.filter(
         (call) => call.startsWith('whatsapp_conversation_actions:') && !call.endsWith(':read')
@@ -393,11 +428,14 @@ describe('Stable Follow-up Identity — key rules', () => {
     expect(key(morningStart)).not.toBe(key(eveningStart));
   });
 
-  it('anchors only a resolved identity to the customer; unresolved falls back to export evidence, never a guess', () => {
-    expect(followupCustomerAnchor(identity('resolved'), FILE)).toBe('customer:cust-1');
+  it('anchors unresolved identities to the canonical case, never filename or ambiguous customer evidence', () => {
+    expect(followupCustomerAnchor(identity('resolved'), 'case-1')).toBe('customer:cust-1');
     for (const status of ['unresolved', 'ambiguous', 'contradicted'] as const) {
-      expect(followupCustomerAnchor(identity(status), FILE)).toMatch(/^export:/);
+      expect(followupCustomerAnchor(identity(status), 'case-1')).toBe('case:case-1');
     }
+    expect(() => followupCustomerAnchor(identity('unresolved'), null)).toThrow(
+      'followup_customer_anchor_unresolved'
+    );
   });
 
   it('V48 declares unique deterministic keys and leaves existing rows untouched', () => {
