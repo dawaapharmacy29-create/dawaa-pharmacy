@@ -1,3 +1,4 @@
+/* eslint-disable no-misleading-character-class */
 import { supabase } from '@/lib/supabase';
 import type { WhatsAppConversationSession, WhatsAppParsedMessage } from './whatsappConversationParser';
 import type { UnifiedConversationIntelligence } from './whatsappUnifiedIntelligenceV4';
@@ -1395,7 +1396,7 @@ async function syncActionsWithStableIdentity(rows: any[], context: WhatsAppOpera
   const ambiguousLegacy: any[] = [];
 
   for (const row of candidates) {
-    let owner = ownerByIdentity.get(row.followup_identity);
+    const owner = ownerByIdentity.get(row.followup_identity);
     const sameSource = sameSourceByKey.get(row.action_key);
     if (sameSource) {
       // Same source + action_key is deterministic: adopt the stable identity while preserving
