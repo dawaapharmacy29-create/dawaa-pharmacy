@@ -34,6 +34,7 @@ const SALES_INTELLIGENCE_INVOICE_SELECT = [
   'normalized_seller_name',
   'staff_id',
   'staff_name',
+  'delivery_staff',
 ].join(',');
 
 export async function readInvoiceRecordById(
