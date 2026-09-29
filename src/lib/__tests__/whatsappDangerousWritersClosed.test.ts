@@ -216,14 +216,21 @@ describe('3. manual reanalysis rewrites canonical analytical sources only', () =
 
 describe('4. legacy invoice status can never produce official sale truth', () => {
   const doc = read('docs/architecture/legacy/whatsapp-invoice-evidence-v17-trigger.md');
-  const planned = doc.slice(doc.indexOf('## Planned replacement'));
+  const v50 = read(
+    'supabase/migrations/20260929155727_whatsapp_legacy_invoice_evidence_only_v50.sql'
+  );
+  const v50Function = v50.slice(
+    v50.indexOf('create or replace function public.dawaa_sync_whatsapp_invoice_evidence_v17()'),
+    v50.indexOf('drop trigger if exists trg_whatsapp_invoice_evidence_v17')
+  );
 
   it('no repository migration derives official_eligible=true from invoice_match_status', () => {
     const offenders = fs
       .readdirSync(path.join(root, 'supabase/migrations'))
       .filter((file) => file.endsWith('.sql'))
       .filter((file) => {
-        const sql = read(`supabase/migrations/${file}`).toLowerCase();
+        // Executable SQL only: comments may describe the retired legacy behaviour.
+        const sql = read(`supabase/migrations/${file}`).replace(/--.*$/gm, '').toLowerCase();
         return (
           sql.includes('invoice_match_status') &&
           /official_eligible\s*=\s*true|'confirmed'\s*,\s*true\s*,\s*now\(\)/.test(sql)
@@ -232,18 +239,28 @@ describe('4. legacy invoice status can never produce official sale truth', () =>
     expect(offenders).toEqual([]);
   });
 
-  it('the recorded live definition is the legacy truth path being replaced', () => {
-    const current = doc.slice(
-      doc.indexOf('## Current definition'),
-      doc.indexOf('## Planned replacement')
-    );
+  it('the recorded pre-V50 definition is the legacy truth path that was replaced', () => {
+    const current = doc.slice(doc.indexOf('## Current definition'), doc.indexOf('## Replacement'));
     expect(current).toMatch(/official_eligible=true/);
   });
 
-  it('the planned replacement is evidence-only and scoped to invoice columns', () => {
-    expect(planned).not.toMatch(/official_eligible\s*=\s*true/);
-    expect(planned).toMatch(/'proposed',false,now\(\)/);
-    expect(planned).not.toMatch(/sale_verified_scope='conversation'/);
-    expect(planned).toMatch(/AFTER UPDATE OF invoice_match_status/);
+  it('V50 makes the legacy trigger evidence-only', () => {
+    expect(v50Function).toMatch(/'proposed', false, now\(\)/);
+    expect(v50Function).not.toMatch(/official_eligible\s*=\s*true|'confirmed'/);
+    expect(v50Function).not.toMatch(/sale_verified_scope\s*=\s*'conversation',/);
+  });
+
+  it('V50 fires only when a legacy invoice column value actually changes', () => {
+    expect(v50).toMatch(/after update of invoice_match_status/);
+    expect(v50).toMatch(/old\.invoice_match_status is distinct from new\.invoice_match_status/);
+  });
+
+  it('V50 demotion is fail-closed, idempotent and never deletes', () => {
+    expect(v50).toMatch(/v50_unexpected_legacy_invoice_trigger_definition/);
+    expect(v50).toMatch(/v50_expected_one_legacy_official_fact_found_%/);
+    expect(v50).toMatch(/v50_legacy_fact_is_backed_by_canonical_sale_proof/);
+    expect(v50).toMatch(/legacyTruthCorrectionV50/);
+    expect(v50).toMatch(/return; -- already applied/);
+    expect(v50).not.toMatch(/^\s*delete\s/im);
   });
 });
