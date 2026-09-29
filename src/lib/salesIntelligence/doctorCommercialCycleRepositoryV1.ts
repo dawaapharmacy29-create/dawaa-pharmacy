@@ -40,7 +40,7 @@ function cairoWallClockToIso(date: string, endOfDay = false): string {
       Number(parts.second)
     ) - instantMs;
   };
-  let offset = offsetAt(desiredWallAsUtc);
+  const offset = offsetAt(desiredWallAsUtc);
   let result = desiredWallAsUtc - offset;
   const correctedOffset = offsetAt(result);
   if (correctedOffset !== offset) result = desiredWallAsUtc - correctedOffset;
