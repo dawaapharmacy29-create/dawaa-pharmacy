@@ -369,6 +369,14 @@ export default function StaffMonthlyEvaluation() {
       toast.error('يجب تقييم كل المحاور قبل الاعتماد النهائي');
       return;
     }
+    if (nextStatus === 'sent' && sections.some((item) => item.score > 0 && item.score <= 2 && !item.notes.trim())) {
+      toast.error('أي محور بدرجة 1 أو 2 نجمة يحتاج سببًا مكتوبًا قبل الاعتماد.');
+      return;
+    }
+    if (nextStatus === 'sent' && activeGates.length > 0 && !managerNotes.trim()) {
+      toast.error('المخالفة الحرجة تحتاج ملاحظة مدير توضح سبب القرار قبل الاعتماد.');
+      return;
+    }
 
     setSaving(true);
     try {
@@ -455,6 +463,8 @@ export default function StaffMonthlyEvaluation() {
 
   const filteredStaff = staff.filter((item) => item.name.includes(search));
   const completedSections = sections.filter((item) => item.score > 0).length;
+  const weakSectionsMissingNotes = sections.filter((item) => item.score > 0 && item.score <= 2 && !item.notes.trim());
+  const criticalGateMissingReason = activeGates.length > 0 && !managerNotes.trim();
   const staffSummary = {
     total: staff.length,
     notStarted: staff.filter((item) => !item.evaluation_status || item.evaluation_status === 'not_started').length,
@@ -466,8 +476,16 @@ export default function StaffMonthlyEvaluation() {
     !cycleClosed ? 'الدورة لم تُقفل بعد' : '',
     !evidenceReady ? 'مصدر أو أكثر من أدلة الدورة غير متاح' : '',
     completedSections !== sections.length ? `باقي ${Math.max(0, sections.length - completedSections)} محور بدون تقييم` : '',
+    weakSectionsMissingNotes.length ? `${weakSectionsMissingNotes.length} محور بدرجة ضعيفة يحتاج سبب مكتوب` : '',
+    criticalGateMissingReason ? 'المخالفة الحرجة تحتاج سببًا مكتوبًا في ملاحظات المدير' : '',
   ].filter(Boolean);
-  const approvalReady = cycleClosed && evidenceReady && sections.length > 0 && completedSections === sections.length;
+  const approvalReady =
+    cycleClosed
+    && evidenceReady
+    && sections.length > 0
+    && completedSections === sections.length
+    && weakSectionsMissingNotes.length === 0
+    && !criticalGateMissingReason;
 
   // الرقم المالي المعروض يأتي فقط من الحقيقة المالية على الخادم أو من كشف مقفول.
   // لا نحسب مبلغًا نهائيًا داخل صفحة التقييم.
@@ -819,10 +837,19 @@ export default function StaffMonthlyEvaluation() {
                         value={item.notes}
                         onChange={(event) => updateSection(item.key, { notes: event.target.value })}
                         rows={2}
-                        placeholder="ملاحظة واضحة على هذا المحور"
+                        placeholder={item.score > 0 && item.score <= 2 ? 'مطلوب: اكتب السبب أو الواقعة التي تبرر الدرجة الضعيفة' : 'ملاحظة واضحة على هذا المحور'}
                         className="mt-3 w-full rounded-xl border p-2.5 text-sm disabled:opacity-70"
-                        style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-theme-text)' }}
+                        style={{
+                          borderColor: item.score > 0 && item.score <= 2 && !item.notes.trim() ? 'var(--dawaa-status-danger-border)' : 'var(--dawaa-theme-border)',
+                          background: item.score > 0 && item.score <= 2 && !item.notes.trim() ? 'var(--dawaa-status-danger-bg)' : 'var(--dawaa-theme-surface)',
+                          color: 'var(--dawaa-theme-text)',
+                        }}
                       />
+                      {item.score > 0 && item.score <= 2 && !item.notes.trim() ? (
+                        <p className="mt-2 text-xs font-black" style={{ color: 'var(--dawaa-status-danger-text)' }}>
+                          الدرجة 1–2 نجمة لازم يكون لها سبب مكتوب قبل الاعتماد النهائي.
+                        </p>
+                      ) : null}
                     </Panel>
                   );
                 })}
@@ -841,7 +868,24 @@ export default function StaffMonthlyEvaluation() {
                 </Panel>
                 <Panel className="p-4">
                   <h3 className="font-black" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>ملاحظات المدير</h3>
-                  <textarea disabled={!canEdit} rows={6} value={managerNotes} onChange={(event) => setManagerNotes(event.target.value)} className="mt-3 w-full rounded-xl border p-2.5 text-sm disabled:opacity-70" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-theme-text)' }} />
+                  <textarea
+                      disabled={!canEdit}
+                      rows={6}
+                      value={managerNotes}
+                      onChange={(event) => setManagerNotes(event.target.value)}
+                      placeholder={activeGates.length ? 'مطلوب: وضّح سبب المخالفة الحرجة والواقعة المرتبطة بها' : 'ملاحظات ختامية مختصرة وقابلة للتنفيذ'}
+                      className="mt-3 w-full rounded-xl border p-2.5 text-sm disabled:opacity-70"
+                      style={{
+                        borderColor: criticalGateMissingReason ? 'var(--dawaa-status-danger-border)' : 'var(--dawaa-theme-border)',
+                        background: criticalGateMissingReason ? 'var(--dawaa-status-danger-bg)' : 'var(--dawaa-theme-surface)',
+                        color: 'var(--dawaa-theme-text)',
+                      }}
+                    />
+                    {criticalGateMissingReason ? (
+                      <p className="mt-2 text-xs font-black" style={{ color: 'var(--dawaa-status-danger-text)' }}>
+                        لا يمكن اعتماد مخالفة حرجة بدون سبب واضح في ملاحظات المدير.
+                      </p>
+                    ) : null}
                 </Panel>
               </section>
               ) : null}
