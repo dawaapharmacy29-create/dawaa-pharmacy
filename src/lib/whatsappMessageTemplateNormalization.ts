@@ -45,7 +45,7 @@ export function buildMessageTemplateKey(rawText: string, customerName?: string |
     displayText = replaceWholeWord(displayText, trimmedName, '{{name}}');
   }
 
-  let normalized = displayText
+  const normalized = displayText
     .replace(EMOJI_RX, '')
     .replace(/[!]{2,}/g, '!')
     .replace(/[؟?]{2,}/g, '؟')
