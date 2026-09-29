@@ -73,20 +73,20 @@ export default function WhatsAppRecoveryCycleKpisV12() {
 
   return <section className="dawaa-card dawaa-card--raised p-5" dir="rtl">
     <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-      <div><div className="flex items-center gap-2 text-xs font-black text-cyan-200"><BarChart3 size={16}/> Recovery KPI V12</div><h2 className="mt-1 text-xl font-black text-white">نتائج استرجاع العملاء — {cycleLabel}</h2><p className="mt-2 text-sm text-slate-400">الأرقام محسوبة من قاعدة البيانات على كامل الدورة، وليست محدودة بعدد الصفوف الظاهر في الصفحة. الإيراد هنا فواتير مؤكدة فقط.</p></div>
+      <div><div className="flex items-center gap-2 text-xs font-black text-cyan-200"><BarChart3 size={16}/> Recovery KPI V12</div><h2 className="mt-1 text-xl font-black text-white">نتائج استرجاع العملاء — {cycleLabel}</h2><p className="mt-2 text-sm text-slate-400">الأرقام محسوبة من قاعدة البيانات على كامل الدورة، وليست محدودة بعدد الصفوف الظاهر في الصفحة. الإيراد والبيع المسترجع هنا لا يُحتسبان إلا من المسار Canonical المثبت.</p></div>
       <button onClick={()=>void load()} disabled={loading} className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-black text-white disabled:opacity-50"><RefreshCw size={15} className={loading?'animate-spin':''}/> تحديث</button>
     </div>
 
     <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
       {[
-        ['كل المهام',totals.total],['مفتوحة',totals.open],['متأخرة',totals.overdue],['نسبة الإكمال',pct(totals.completion)],['التزام SLA',pct(totals.sla)],['إيراد مؤكد',money(totals.revenue)]
+        ['كل المهام',totals.total],['مفتوحة',totals.open],['متأخرة',totals.overdue],['نسبة الإكمال',pct(totals.completion)],['التزام SLA',pct(totals.sla)],['إيراد مسترجع Canonical',money(totals.revenue)]
       ].map(([label,value])=><div key={String(label)} className={`rounded-xl border p-3 ${label==='متأخرة'&&Number(value)>0?'border-rose-400/30 bg-rose-500/5':'border-slate-800'}`}><div className="text-[11px] text-slate-500">{label}</div><div className="mt-1 text-lg font-black text-white">{value}</div></div>)}
     </div>
 
-    <div className="mt-4 flex flex-wrap gap-3 text-xs text-slate-400"><span>مبيعات مسترجعة مؤكدة: <b className="text-emerald-300">{totals.verifiedSales}</b></span><span>محاولات متابعة: <b className="text-cyan-300">{totals.attempts}</b></span></div>
+    <div className="mt-4 flex flex-wrap gap-3 text-xs text-slate-400"><span>مبيعات مسترجعة Canonical: <b className="text-emerald-300">{totals.verifiedSales}</b></span><span>محاولات متابعة: <b className="text-cyan-300">{totals.attempts}</b></span></div>
 
     <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-800">
-      <table className="w-full min-w-[900px] text-right text-xs"><thead className="bg-slate-950/60 text-slate-500"><tr><th className="p-3">المسئول</th><th className="p-3">مهام</th><th className="p-3">مفتوحة</th><th className="p-3">متأخرة</th><th className="p-3">مكتملة</th><th className="p-3">الإكمال</th><th className="p-3">SLA</th><th className="p-3">متوسط الإغلاق</th><th className="p-3">بيع مؤكد</th><th className="p-3">إيراد مؤكد</th></tr></thead><tbody>
+      <table className="w-full min-w-[900px] text-right text-xs"><thead className="bg-slate-950/60 text-slate-500"><tr><th className="p-3">المسئول</th><th className="p-3">مهام</th><th className="p-3">مفتوحة</th><th className="p-3">متأخرة</th><th className="p-3">مكتملة</th><th className="p-3">الإكمال</th><th className="p-3">SLA</th><th className="p-3">متوسط الإغلاق</th><th className="p-3">بيع مسترجع Canonical</th><th className="p-3">إيراد مسترجع Canonical</th></tr></thead><tbody>
         {rows.map((r)=><tr key={r.assigned_to_id || 'unassigned'} className="border-t border-slate-800"><td className="p-3 font-black text-white">{r.assigned_to_name}</td><td className="p-3 text-slate-300">{r.total_tasks}</td><td className="p-3 text-slate-300">{r.open_tasks}</td><td className={`p-3 ${r.overdue_tasks?'text-rose-300':'text-slate-300'}`}>{r.overdue_tasks}</td><td className="p-3 text-slate-300">{r.completed_tasks}</td><td className="p-3 text-cyan-300">{pct(r.completion_rate)}</td><td className="p-3 text-cyan-300">{r.sla_eligible_completed ? pct(r.sla_hit_rate) : '—'}</td><td className="p-3 text-slate-300">{r.avg_completion_hours == null ? '—' : `${Number(r.avg_completion_hours).toLocaleString('ar-EG',{maximumFractionDigits:1})} س`}</td><td className="p-3 text-emerald-300">{r.verified_recovered_sales}</td><td className="p-3 font-black text-emerald-300">{money(r.recovered_revenue)}</td></tr>)}
         {!loading&&!rows.length?<tr><td colSpan={10} className="p-8 text-center text-slate-500">لا توجد مهام استرجاع في الدورة الحالية حتى الآن.</td></tr>:null}
       </tbody></table>
