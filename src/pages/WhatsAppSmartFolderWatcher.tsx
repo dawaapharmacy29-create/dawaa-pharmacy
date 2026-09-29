@@ -1546,6 +1546,25 @@ export default function WhatsAppSmartFolderWatcher() {
     sourceLineCount: number;
   };
 
+  function productTruthPresentation(kind: ProductTruthRow['kind']) {
+    if (kind === 'customer_requested_in_invoice') {
+      return { label: 'طلب العميل · ظهر بالفاتورة', shortLabel: 'طلب العميل', cls: 'bg-cyan-500/10 text-cyan-300', border: 'border-cyan-800/30' };
+    }
+    if (kind === 'customer_requested_not_in_invoice') {
+      return { label: 'طلب العميل · غير ظاهر بالفاتورة', shortLabel: 'ناقص من الفاتورة', cls: 'bg-amber-500/10 text-amber-300', border: 'border-amber-800/30' };
+    }
+    if (kind === 'recommended_in_invoice') {
+      return { label: 'ترشيح الصيدلية · ظهر بالفاتورة', shortLabel: 'ترشيح', cls: 'bg-violet-500/10 text-violet-300', border: 'border-violet-800/30' };
+    }
+    if (kind === 'pharmacy_mentioned_in_invoice') {
+      return { label: 'ذكرته الصيدلية · ظهر بالفاتورة', shortLabel: 'ذكر الصيدلية', cls: 'bg-indigo-500/10 text-indigo-300', border: 'border-indigo-800/30' };
+    }
+    if (kind === 'invoice_service') {
+      return { label: 'خدمة/رسوم بالفاتورة', shortLabel: 'خدمة/رسوم', cls: 'bg-slate-700/50 text-slate-300', border: 'border-slate-700' };
+    }
+    return { label: 'ظهر في الفاتورة فقط', shortLabel: 'فاتورة فقط', cls: 'bg-sky-500/10 text-sky-300', border: 'border-sky-800/30' };
+  }
+
   function productTruthRows(item: StaffRun): ProductTruthRow[] {
     const smart = item.snapshot.smartIntelligence;
     const rawInvoiceItems = smart?.invoiceItems || [];
@@ -2263,19 +2282,33 @@ export default function WhatsAppSmartFolderWatcher() {
                                   : 'الفاتورة مرشحة وليست حقيقة نهائية بعد؛ المقارنة للمعاينة وتحتاج مراجعة.'}
                               </div>
                             </div>
+                            <div className="grid grid-cols-2 gap-2 border-b border-slate-800 bg-slate-950/20 p-3 sm:grid-cols-4">
+                              <div className="rounded-xl border border-cyan-800/30 bg-cyan-950/10 p-2.5">
+                                <div className="text-[9px] font-black text-cyan-300/70">طلب العميل + الفاتورة</div>
+                                <div className="mt-1 text-lg font-black text-cyan-100">{soldRequestedCount}</div>
+                              </div>
+                              <div className="rounded-xl border border-amber-800/30 bg-amber-950/10 p-2.5">
+                                <div className="text-[9px] font-black text-amber-300/70">طلب ناقص من الفاتورة</div>
+                                <div className="mt-1 text-lg font-black text-amber-100">{missingFromInvoiceCount}</div>
+                              </div>
+                              <div className="rounded-xl border border-violet-800/30 bg-violet-950/10 p-2.5">
+                                <div className="text-[9px] font-black text-violet-300/70">ترشيح ظهر بالفاتورة</div>
+                                <div className="mt-1 text-lg font-black text-violet-100">{recommendedInInvoiceCount}</div>
+                              </div>
+                              <div className="rounded-xl border border-sky-800/30 bg-sky-950/10 p-2.5">
+                                <div className="text-[9px] font-black text-sky-300/70">فاتورة فقط</div>
+                                <div className="mt-1 text-lg font-black text-sky-100">{invoiceOnlyCount}</div>
+                              </div>
+                            </div>
+                            {(pharmacyMentionedInInvoiceCount || serviceLineCount) ? (
+                              <div className="flex flex-wrap gap-1.5 border-b border-slate-800 px-3 py-2 text-[9px] font-black">
+                                {pharmacyMentionedInInvoiceCount ? <span className="rounded-full bg-indigo-500/10 px-2 py-1 text-indigo-300">{pharmacyMentionedInInvoiceCount} ذكر للصيدلية ظهر بالفاتورة</span> : null}
+                                {serviceLineCount ? <span className="rounded-full bg-slate-800 px-2 py-1 text-slate-400">{serviceLineCount} خدمة/رسوم</span> : null}
+                              </div>
+                            ) : null}
                             <div className="divide-y divide-slate-800">
                               {productRows.slice(0, 18).map((row, index) => {
-                                const badge = row.kind === 'customer_requested_in_invoice'
-                                  ? { label: 'طلبه العميل وظهر بالفاتورة المرشحة', cls: 'bg-cyan-500/10 text-cyan-300' }
-                                  : row.kind === 'recommended_in_invoice'
-                                    ? { label: 'ترشيح من الصيدلية وظهر بالفاتورة', cls: 'bg-violet-500/10 text-violet-300' }
-                                    : row.kind === 'pharmacy_mentioned_in_invoice'
-                                      ? { label: 'ذكرته الصيدلية وظهر بالفاتورة', cls: 'bg-indigo-500/10 text-indigo-300' }
-                                      : row.kind === 'invoice_service'
-                                        ? { label: 'خدمة/رسوم بالفاتورة', cls: 'bg-slate-700/50 text-slate-300' }
-                                        : row.kind === 'customer_requested_not_in_invoice'
-                                          ? { label: 'طلبه العميل ولم يظهر بالفاتورة', cls: 'bg-amber-500/10 text-amber-300' }
-                                          : { label: 'ظهر في الفاتورة فقط', cls: 'bg-sky-500/10 text-sky-300' };
+                                const badge = productTruthPresentation(row.kind);
                                 const quantityStatus =
                                   row.invoiceQuantity != null && row.requestedQuantity != null
                                     ? Number(row.invoiceQuantity) === Number(row.requestedQuantity)
@@ -2287,7 +2320,7 @@ export default function WhatsAppSmartFolderWatcher() {
                                         ? { label: `كمية الفاتورة: ${row.invoiceQuantity}`, cls: 'text-slate-400' }
                                         : { label: 'الكمية غير محسومة', cls: 'text-slate-500' };
                                 return (
-                                  <div key={`${row.productName}-${index}`} className="px-3 py-3 text-xs transition hover:bg-white/[0.02]">
+                                  <div key={`${row.productName}-${index}`} className={`border-r-2 px-3 py-3 text-xs transition hover:bg-white/[0.02] ${badge.border}`}>
                                     <div className="flex flex-wrap items-start justify-between gap-2">
                                       <div className="min-w-0">
                                         <div className="font-black text-white">
@@ -2338,26 +2371,45 @@ export default function WhatsAppSmartFolderWatcher() {
                         </div>
 
                         <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-                          {journey.stages.map((stage) => (
-                            <button
-                              type="button"
-                              key={stage.key}
-                              onClick={() => {
-                                if (stage.evidenceMessageIds.length) {
-                                  setConversationFocusMode('sale');
-                                  setDetailTab('conversation');
-                                }
-                              }}
-                              className={`rounded-xl border p-3 text-right transition ${stage.detected ? 'border-emerald-800/35 bg-emerald-950/10 hover:border-emerald-600/50' : 'border-slate-800 bg-slate-950/20 opacity-60'}`}
-                            >
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="text-[10px] font-black text-slate-500">{stage.label}</span>
-                                <span className={`text-[9px] font-black ${stage.detected ? 'text-emerald-300' : 'text-slate-600'}`}>{stage.detected ? 'مثبت' : 'غير مثبت'}</span>
-                              </div>
-                              <div className="mt-1 text-xs font-black text-white">{stage.at ? formatCairoDateTime(stage.at) : '—'}</div>
-                              <div className="mt-1 line-clamp-2 text-[9px] leading-4 text-slate-500">{stage.reason}</div>
-                            </button>
-                          ))}
+                          {journey.stages.map((stage, stageIndex) => {
+                            const hasEvidence = stage.evidenceMessageIds.length > 0;
+                            return (
+                              <button
+                                type="button"
+                                key={stage.key}
+                                disabled={!hasEvidence}
+                                onClick={() => {
+                                  if (hasEvidence) {
+                                    setConversationFocusMode('sale');
+                                    setDetailTab('conversation');
+                                  }
+                                }}
+                                className={`rounded-xl border p-3 text-right transition ${
+                                  stage.detected
+                                    ? hasEvidence
+                                      ? 'border-emerald-800/35 bg-emerald-950/10 hover:border-emerald-600/50 hover:bg-emerald-950/20'
+                                      : 'border-emerald-900/25 bg-emerald-950/5'
+                                    : 'border-slate-800 bg-slate-950/20 opacity-60'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="flex items-center gap-2">
+                                    <span className={`grid h-5 w-5 place-items-center rounded-full text-[9px] font-black ${stage.detected ? 'bg-emerald-500/15 text-emerald-200' : 'bg-slate-800 text-slate-500'}`}>{stageIndex + 1}</span>
+                                    <span className="text-[10px] font-black text-slate-400">{stage.label}</span>
+                                  </div>
+                                  <span className={`text-[9px] font-black ${stage.detected ? 'text-emerald-300' : 'text-slate-600'}`}>{stage.detected ? 'مثبت' : 'غير مثبت'}</span>
+                                </div>
+                                <div className="mt-2 text-xs font-black text-white">{stage.at ? formatCairoDateTime(stage.at) : '—'}</div>
+                                <div className="mt-1 line-clamp-2 text-[9px] leading-4 text-slate-500">{stage.reason}</div>
+                                <div className="mt-2 flex items-center justify-between gap-2 text-[9px] font-black">
+                                  <span className={hasEvidence ? 'text-cyan-300' : 'text-slate-600'}>
+                                    {stage.evidenceMessageIds.length} دليل
+                                  </span>
+                                  {hasEvidence ? <span className="text-cyan-300">عرض الدليل ←</span> : <span className="text-slate-600">لا دليل مباشر</span>}
+                                </div>
+                              </button>
+                            );
+                          })}
                         </div>
 
                         {journey.warnings.length ? (
