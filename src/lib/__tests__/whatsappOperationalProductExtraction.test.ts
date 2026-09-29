@@ -85,6 +85,27 @@ describe('WhatsApp Operational Intelligence V6 product extraction', () => {
     expect(demand.products.some((row) => /فوار للحموضه/.test(row.rawName))).toBe(true);
   });
 
+  it('closes a proactive service checkin from positive service feedback without inventing health improvement', () => {
+    const model = analyze(`[6/1/26, 11:05:08 PM] You: كنا حابين نطمن على حضرتك ونتأكد ان كل خدمات الصيدليه ماشيه بشكل يرضي حضرتك
+[6/1/26, 11:05:34 PM] Customer: نحمد الله على كل شيء
+[6/1/26, 11:05:51 PM] Customer: وخدمات الصيدليه ما شاء الله اللهم بارك
+[6/1/26, 11:06:12 PM] You: الحمدلله يا فندم`);
+    expect(model.primaryIntent).toBe('proactive_checkin');
+    expect(model.operationalOutcome).toBe('checkin_complete');
+    expect(model.customerState).toBe('unknown');
+    expect(model.followupPlan.required).toBe(false);
+  });
+
+  it('closes a proactive checkin from a positive emoji acknowledgement without inferring health state', () => {
+    const model = analyze(`[9/14/26, 6:10:10 PM] You: حابين نطمن على حضرتك وعلى صحة حضرتك ونتمنى تمام الشفاء
+[9/14/26, 6:16:08 PM] Customer: 👍🙏🙏
+[9/14/26, 6:47:10 PM] You: نتشرف دايما بخدمة حضرتك`);
+    expect(model.primaryIntent).toBe('proactive_checkin');
+    expect(model.operationalOutcome).toBe('checkin_complete');
+    expect(model.customerState).toBe('unknown');
+    expect(model.followupPlan.required).toBe(false);
+  });
+
   it('classifies a generic need as recommendation intent instead of inventing a product', () => {
     const model = analyze(`[9/27/26, 8:12:00 PM] Customer: محتاج حاجه للارهاق والخمول
 [9/27/26, 8:13:00 PM] You: ممكن نراجع السبب ونرشح المناسب`);
