@@ -28,10 +28,8 @@ import {
 } from '@/lib/evaluations/monthlyEvaluationCycle';
 import {
   CRITICAL_GATE_CAPS,
-  CRITICAL_GATE_POINT_PENALTY,
   type CriticalGateType,
 } from '@/lib/evaluations/incentiveTiers';
-import { recordEmployeePointEvent } from '@/services/employeeTransactionService';
 import { buildStaffMonthlyEvaluationPdf } from '@/lib/evaluations/staffMonthlyEvaluationPdf';
 import { Panel, SectionTitle, KpiCard, MiniBox, EmptyState } from '@/components/dashboard/DashboardPrimitives';
 
@@ -148,7 +146,6 @@ export default function StaffMonthlyEvaluation() {
   const [pointsTruth, setPointsTruth] = useState<StaffPointsDashboardV3 | null>(null);
   const [settledStatement, setSettledStatement] = useState<{ points_closing: number; incentive_amount: number } | null>(null);
   const [activeGates, setActiveGates] = useState<CriticalGateType[]>([]);
-  const [savedActiveGates, setSavedActiveGates] = useState<CriticalGateType[]>([]);
   const [strengthsText, setStrengthsText] = useState('');
   const [developmentText, setDevelopmentText] = useState('');
   const [managerNotes, setManagerNotes] = useState('');
@@ -191,6 +188,10 @@ export default function StaffMonthlyEvaluation() {
   // الرقم الحقيقي بيدّي انطباع غلط بوجود تضارب/عدم اتساق، فاتشال بالكامل
   // بدل ما نحاول نوضحه بالتسمية بس.
   const isGatedByCriticalViolation = activeGates.length > 0;
+  const activeGateCapPercent = activeGates.length
+    ? Math.min(...activeGates.map((gate) => CRITICAL_GATE_CAPS[gate].capPercent))
+    : 100;
+  const effectiveEvaluationMultiplierPct = Math.min(overallScore, activeGateCapPercent);
 
   useEffect(() => {
     const loadStaff = async () => {
@@ -271,7 +272,6 @@ export default function StaffMonthlyEvaluation() {
           const savedGates = snapshot && Array.isArray(snapshot.active_critical_gates) ? (snapshot.active_critical_gates as string[]) : [];
           const validSavedGates = savedGates.filter((gate): gate is CriticalGateType => gate in CRITICAL_GATE_CAPS);
           setActiveGates(validSavedGates);
-          setSavedActiveGates(validSavedGates);
         } else {
           setEvaluationId(null);
           setSections(freshSections);
@@ -282,7 +282,6 @@ export default function StaffMonthlyEvaluation() {
           setSentAtIso('');
           setPreviouslySent(false);
           setActiveGates([]);
-          setSavedActiveGates([]);
         }
       } catch (cause) {
         toast.error(cause instanceof Error ? cause.message : 'تعذر تحميل التقييم');
@@ -407,38 +406,11 @@ export default function StaffMonthlyEvaluation() {
       setEvaluationId(savedEvaluationId);
       setStatus(nextStatus);
 
-      // مخالفات حرجة جديدة (لسه متسجلتش في المرة اللي فاتت) بتاخد خصم نقاط حقيقي
-      // في الـLedger المركزي، مش مجرد علامة بصرية. لا نكرر الخصم لمخالفة كانت
-      // مفعّلة أصلاً من قبل عند نفس التقييم.
-      const newlyActivatedGates = activeGates.filter((gate) => !savedActiveGates.includes(gate));
-      if (nextStatus === 'sent' && newlyActivatedGates.length) {
-        for (const gate of newlyActivatedGates) {
-          const gateInfo = CRITICAL_GATE_CAPS[gate];
-          const penaltyPoints = CRITICAL_GATE_POINT_PENALTY[gate];
-          await recordEmployeePointEvent({
-            staffId: selected.id,
-            type: 'penalty',
-            points: penaltyPoints,
-            reason: `مخالفة حرجة في التقييم الشهري: ${gateInfo.label}`,
-            description: `دورة ${cycleRange.displayLabel}. خصم ثابت مرتبط بدرجة خطورة هذه المخالفة: ${penaltyPoints} نقطة.`,
-            source: 'monthly_evaluation_critical_gate',
-            sourceId: savedEvaluationId,
-            ruleCode: `EVAL-GATE-${String(gate).toUpperCase()}`,
-            monthCycle: cycleLabel,
-            branch: selected.branch || branch,
-            status: 'active',
-            category: 'monthly_evaluation',
-          });
-        }
-        setSavedActiveGates(activeGates);
-        toast.success(`تم تسجيل خصم نقاط فعلي لـ${newlyActivatedGates.length} مخالفة حرجة في حساب الموظف.`);
-      }
-
       // السيرفر هو مصدر الحقيقة: يعتمد التقييم ويزامن معامل الحافز في نفس العملية.
       if (nextStatus === 'sent' && saveResult.multiplier_applied === true) {
         setPreviouslySent(true);
         setSentAtIso(String(saveResult.sent_at || new Date().toISOString()));
-        toast.success(`تم اعتماد التقييم ومزامنة نسبته (${overallScore}%) مع حافز الدورة.`);
+        toast.success(`تم اعتماد التقييم ومزامنة نسبة الحافز الفعلية (${Number(saveResult.multiplier_pct ?? effectiveEvaluationMultiplierPct)}%) مع الدورة.`);
       }
 
       toast.success(nextStatus === 'sent' ? 'تم إرسال التقييم للموظف' : 'تم حفظ التقييم');
@@ -450,16 +422,16 @@ export default function StaffMonthlyEvaluation() {
   }
 
   const filteredStaff = staff.filter((item) => item.name.includes(search));
-  // لو التقييم لسه مسودة (مبعتش)، الكارت الرئيسي لازم يوري المعاينة الحية
-  // المتوقعة (حافز النقاط × نسبة التقييم الحالية) مباشرة، مش الرقم الخام
-  // قبل الضرب — عشان المدير يشوف الرقم الحقيقي المتوقع من أول ما يقيّم،
-  // مش بعد الإرسال بس. بعد الإرسال فعليًا، القيمة الراجعة من الخادم بالفعل
-  // شايلة الضرب الصحيح المحفوظ، فبنعرضها زي ما هي.
-  const rawIncentive = settledStatement ? Number(settledStatement.incentive_amount) : pointsTruth?.final_incentive_egp;
-  const canonicalIncentive =
-    !settledStatement && !previouslySent && !evaluationNotStarted && rawIncentive != null
-      ? Math.round((rawIncentive * overallScore) / 100)
-      : rawIncentive;
+  // المعاينة المالية تبنى من الحافز الأساسي قبل multiplier، ثم نطبق
+  // أقل قيمة بين درجة التقييم وسقف أي Critical Gate. Bonus المنافسة مستقل.
+  const canonicalIncentive = settledStatement
+    ? Number(settledStatement.incentive_amount)
+    : pointsTruth
+      ? Math.round(
+          (Number(pointsTruth.points_incentive_egp || 0) * effectiveEvaluationMultiplierPct) / 100
+          + Number(pointsTruth.competition_bonus_egp || 0)
+        )
+      : null;
 
   return (
     <div className="min-h-screen space-y-4 p-4" dir="rtl" style={{ background: 'var(--dawaa-theme-bg)' }}>
@@ -617,33 +589,32 @@ export default function StaffMonthlyEvaluation() {
               <Panel className="p-4">
                 <SectionTitle
                   title="مخالفات حرجة تحدّ من الحافز"
-                  subtitle="تفعيل أي مخالفة هنا يسجّل خصم نقاط حقيقي فقط عند الاعتماد النهائي، مستقل عن درجة التقييم"
+                  subtitle="الـCritical Gate لا يخصم نقاطًا ثابتة؛ بل يضع سقفًا مباشرًا ودقيقًا على نسبة حافز الأداء"
                   icon={<ShieldAlert size={18} />}
                 />
                 <div className="grid gap-2 sm:grid-cols-2">
                   {(Object.entries(CRITICAL_GATE_CAPS) as [CriticalGateType, typeof CRITICAL_GATE_CAPS[CriticalGateType]][]).map(([key, gate]) => {
                     const active = activeGates.includes(key);
-                    const alreadySaved = savedActiveGates.includes(key);
                     return (
                       <button
                         key={key}
                         type="button"
-                        disabled={!canEdit || alreadySaved}
+                        disabled={!canEdit}
                         onClick={() => toggleGate(key)}
                         className="flex items-center justify-between gap-2 rounded-xl border p-3 text-right text-xs font-black disabled:cursor-default"
                         style={active
                           ? { borderColor: 'var(--dawaa-status-danger-border)', background: 'var(--dawaa-status-danger-bg)', color: 'var(--dawaa-status-danger-text)' }
                           : { borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-theme-text)' }}
                       >
-                        <span>{gate.label}{alreadySaved ? ' — مسجّلة بالفعل' : ''}</span>
-                        <span>خصم {CRITICAL_GATE_POINT_PENALTY[key]} نقطة</span>
+                        <span>{gate.label}</span>
+                        <span>{gate.blocksFully ? 'إيقاف حافز الأداء' : `سقف ${gate.capPercent}%`}</span>
                       </button>
                     );
                   })}
                 </div>
                 {isGatedByCriticalViolation ? (
                   <p className="mt-3 text-xs font-bold" style={{ color: 'var(--dawaa-status-danger-text)' }}>
-                    فيه مخالفة حرجة مفعّلة — عند الاعتماد النهائي هيتسجل خصم النقاط الموضح فوق فعليًا في حساب الموظف، بغض النظر عن نتيجة التقييم بالأعلى.
+                    نسبة التقييم = {overallScore}%، وسقف المخالفة = {activeGateCapPercent}%، لذلك النسبة المالية الفعلية لهذه الدورة = {effectiveEvaluationMultiplierPct}%.
                   </p>
                 ) : null}
               </Panel>
@@ -686,7 +657,7 @@ export default function StaffMonthlyEvaluation() {
               <Panel className="p-4" style={{ background: 'var(--dawaa-status-warning-bg)', borderColor: 'var(--dawaa-status-warning-border)' }}>
                 <h2 className="font-black" style={{ color: 'var(--dawaa-status-warning-text)' }}>معادلة الحافز النهائي</h2>
                 <p className="mt-2 text-sm leading-7" style={{ color: 'var(--dawaa-theme-text)' }}>
-                  حافز الأداء يُقرأ من مصدر النقاط المركزي وفق إعدادات الموظف والدورة، ثم تُطبَّق عليه نسبة التقييم الشهري عند الاعتماد النهائي. قبل إقفال الدورة يظهر الرقم كمعاينة فقط؛ وبعد الاعتماد تُزامَن النسبة على الخادم. إذا أُعيد اعتماد التقييم قبل تجميد الراتب، تتحدث النسبة، أما بعد تجميد الراتب فلا يُعاد فتح الأثر المالي من شاشة التقييم.
+                  حافز الأداء يُقرأ من مصدر النقاط المركزي وفق إعدادات الموظف والدورة، ثم تُطبَّق عليه نسبة التقييم الشهرية. إذا وُجدت مخالفة حرجة، تُستخدم النسبة الأقل بين درجة التقييم وسقف المخالفة؛ لذلك لا توجد خصومات نقاط تقريبية أو عقوبة مزدوجة. قبل إقفال الدورة يظهر الرقم كمعاينة فقط، وبعد الاعتماد تُزامَن النسبة على الخادم. بعد تجميد الراتب لا يُعاد فتح الأثر المالي من شاشة التقييم.
                 </p>
               </Panel>
 
