@@ -251,7 +251,7 @@ export default function StaffMonthlyEvaluation() {
         const { startDate, endDate, endDateExclusive } = evaluationCycleDateKeys(cycleLabel);
         const cycleKeyDate = `${cycleLabel}-01`;
         const [savedResult, evidenceResult, pointsResult, statementResult] = await Promise.all([
-          supabase.rpc('get_staff_monthly_evaluation_safe', {
+          supabase.rpc('get_staff_monthly_evaluation_v5', {
             p_actor_id: user.id,
             p_staff_id: selectedId,
             p_month: cycleKeyDate,
