@@ -895,59 +895,12 @@ export default function WhatsAppSmartFolderWatcher() {
                     }
                   }
                 } else {
-                  let sourceOffset = 0;
-                  let hasMore = true;
-                  let safety = 0;
-                  while (hasMore && safety < 30) {
-                    safety += 1;
-                    const response = await fetch('/api/sales-intelligence-refresh-source', {
-                      method: 'POST',
-                      headers: {
-                        'Content-Type': 'application/json',
-                        Authorization: `Bearer ${accessToken}`,
-                      },
-                      body: JSON.stringify({
-                        sourceFileName: result.fileName,
-                        sourceOffset,
-                        sourceLimit: 10,
-                      }),
-                    });
-                    const payload = await response.json().catch(() => null);
-                    if (!response.ok) {
-                      const errorCode = String(payload?.error || response.status);
-                      if (response.status === 401 && ['invalid_or_expired_staff_session', 'missing_user_token'].includes(errorCode)) {
-                        authSessionInvalid = true;
-                        canonicalErrors.push('انتهت جلسة الإدارة — أعد تسجيل الدخول ثم اضغط إعادة محاولة المتعطلة');
-                        if (!authSessionWarningShown) {
-                          authSessionWarningShown = true;
-                          toast.error('انتهت جلسة الإدارة. تم إيقاف فحص باقي الملفات حتى تسجل الدخول من جديد.');
-                        }
-                      } else {
-                        canonicalErrors.push(
-                          `Canonical ${result.fileName} [${sourceOffset}]: ${errorCode}${payload?.detail ? ` — ${payload.detail}` : ''}`
-                        );
-                      }
-                      break;
-                    }
-                    for (const blocked of Array.isArray(payload?.blockedSources) ? payload.blockedSources : []) {
-                      const blockedSourceId = String(blocked?.sourceId || '');
-                      if (!blockedSourceId) continue;
-                      salesIntelligenceBySource[blockedSourceId] = { status: 'blocked', reason: String(blocked?.reason || blocked?.error || ''), saleProofState: null };
-                      if (blocked?.error !== SALES_INTELLIGENCE_BLOCKED_NON_CANONICAL) {
-                        canonicalErrors.push(`Canonical ${result.fileName} [source ${blockedSourceId}]: ${blocked?.error} — ${blocked?.reason}`);
-                      }
-                    }
-                    hasMore = Boolean(payload?.hasMore);
-                    const nextOffset = Number(payload?.nextOffset);
-                    if (hasMore && (!Number.isFinite(nextOffset) || nextOffset <= sourceOffset)) {
-                      canonicalErrors.push(`Canonical ${result.fileName}: توقف التحديث لأن مؤشر الدفعة التالية غير صالح`);
-                      break;
-                    }
-                    sourceOffset = Number.isFinite(nextOffset) ? nextOffset : sourceOffset + 10;
-                  }
-                  if (hasMore && safety >= 30) {
-                    canonicalErrors.push(`Canonical ${result.fileName}: تم إيقاف التحديث بعد الحد الآمن للدفعات`);
-                  }
+                  // Fail closed: filename is provenance/display metadata only, never Canonical Source identity.
+                  // If persistence did not return exact source ids, do not ask the server to rediscover rows by
+                  // filename because another import/segmentation may share that name.
+                  canonicalErrors.push(
+                    `Canonical ${result.fileName}: canonical_source_ids_missing_after_persistence`
+                  );
                 }
               } catch (refreshError) {
                 canonicalErrors.push(
