@@ -1,3 +1,4 @@
+/* eslint-disable no-useless-escape */
 import { supabase } from '@/lib/supabase';
 import type { WhatsAppConversationSession, WhatsAppParsedMessage } from './whatsappConversationParser';
 
