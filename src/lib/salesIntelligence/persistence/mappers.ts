@@ -99,6 +99,7 @@ export function mapCaseAnalysisRowContent(analysis: SalesIntelligenceCaseAnalysi
       // actually explain an applicability verdict are historicalClosure's own ruleIds. Documented
       // choice, not a guess.
       protocolApplicabilityRuleIds: analysis.historicalClosure.ruleIds,
+      canonicalSalesOutcome: analysis.salesOutcome,
     },
   };
 }
