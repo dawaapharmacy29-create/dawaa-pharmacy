@@ -153,6 +153,7 @@ export default function StaffMonthlyEvaluation() {
   const [staff, setStaff] = useState<StaffRow[]>([]);
   const [selectedId, setSelectedId] = useState('');
   const [search, setSearch] = useState('');
+  const [staffStatusFilter, setStaffStatusFilter] = useState<'all' | 'not_started' | 'draft' | 'approved' | 'needs_reapproval'>('all');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeStep, setActiveStep] = useState<MonthlyEvaluationStep>(1);
   const [auditRefreshKey, setAuditRefreshKey] = useState(0);
@@ -491,7 +492,15 @@ export default function StaffMonthlyEvaluation() {
     }
   }
 
-  const filteredStaff = staff.filter((item) => item.name.includes(search));
+  const filteredStaff = staff.filter((item) => {
+    const matchesSearch = item.name.includes(search);
+    const matchesStatus = staffStatusFilter === 'all'
+      || (staffStatusFilter === 'not_started' && (!item.evaluation_status || item.evaluation_status === 'not_started'))
+      || (staffStatusFilter === 'draft' && item.evaluation_status === 'draft')
+      || (staffStatusFilter === 'approved' && ['sent', 'approved'].includes(String(item.evaluation_status || '')))
+      || (staffStatusFilter === 'needs_reapproval' && item.evaluation_status === 'needs_reapproval');
+    return matchesSearch && matchesStatus;
+  });
   const completedSections = sections.filter((item) => item.score > 0).length;
   const weakSectionsMissingNotes = sections.filter((item) => item.score > 0 && item.score <= 2 && !item.notes.trim());
   const criticalGateMissingReason = activeGates.length > 0 && !managerNotes.trim();
@@ -646,6 +655,28 @@ export default function StaffMonthlyEvaluation() {
                 className="w-full rounded-xl border py-2 pr-9 pl-3 text-sm font-bold"
                 style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-theme-text)' }}
               />
+            </div>
+
+            <div className="mt-2 flex gap-1 overflow-x-auto pb-1">
+              {([
+                ['all', 'الكل'],
+                ['not_started', 'لم يبدأ'],
+                ['draft', 'مسودة'],
+                ['approved', 'معتمد'],
+                ['needs_reapproval', 'إعادة اعتماد'],
+              ] as const).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setStaffStatusFilter(value)}
+                  className="shrink-0 rounded-lg border px-2 py-1 text-[10px] font-black"
+                  style={staffStatusFilter === value
+                    ? { borderColor: 'var(--dawaa-theme-accent-border)', background: 'var(--dawaa-theme-accent-soft)', color: 'var(--dawaa-theme-primary-strong)' }
+                    : { borderColor: 'var(--dawaa-theme-border)', color: 'var(--dawaa-theme-muted)' }}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
 
             <div className="mt-2 max-h-[72vh] space-y-1.5 overflow-y-auto">
