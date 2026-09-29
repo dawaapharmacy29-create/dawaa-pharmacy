@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Clock3, History, Search, ShoppingBag, UserRound } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { loadOperationalSourceIds } from '@/lib/whatsappOperationalSourceOwner';
 
 type StoryEvent = {
   event_type?: string | null;
+  /** false: historical evidence from a non-operational source (never current truth). */
+  operational?: boolean | null;
   event_at?: string | null;
   title?: string | null;
   detail?: string | null;
@@ -26,6 +29,8 @@ type StorySession = {
   followup_required?: boolean | null;
   suggested_followup_reason?: string | null;
   analysis_json?: Record<string, any> | null;
+  /** Owned by the canonical operational owner; otherwise historical evidence only. */
+  operational?: boolean;
 };
 
 type StoryRow = {
@@ -156,7 +161,13 @@ export default function WhatsAppCustomerStory360V16({ onOpenSource }: { onOpenSo
           .in('id', sourceIds)
           .order('conversation_started_at', { ascending: false });
         if (sourceError) throw sourceError;
-        if (alive) setSessions((sourceRows || []) as StorySession[]);
+        // Historical evidence stays visible; only operational sessions count as current story.
+        const operationalIds = await loadOperationalSourceIds(supabase, sourceIds as string[]);
+        const withOwnership = ((sourceRows || []) as StorySession[]).map((row) => ({
+          ...row,
+          operational: operationalIds.has(String(row.id)),
+        }));
+        if (alive) setSessions(withOwnership);
       } catch (error) {
         console.warn('[whatsapp-story-360] session history load failed', error);
         if (alive) setSessions([]);
@@ -167,6 +178,7 @@ export default function WhatsAppCustomerStory360V16({ onOpenSource }: { onOpenSo
     return () => { alive = false; };
   }, [selected?.id]);
 
+  const currentSessions = sessions.filter((row) => row.operational);
   const recoveryCount = rows.filter((x) => x.status === 'recovery').length;
   const recoveredCount = rows.filter((x) => x.status === 'recovered').length;
   const criticalCount = rows.filter((x) => x.risk_level === 'critical').length;
@@ -215,9 +227,9 @@ export default function WhatsAppCustomerStory360V16({ onOpenSource }: { onOpenSo
                 <div className="text-[10px] text-slate-500">Story → Journey → Source، بدون ربط بالاسم فقط</div>
               </div>
               <div className="mt-3 grid gap-2 sm:grid-cols-3 text-center text-xs">
-                <div className="rounded-xl border border-slate-800 p-2"><b className="block text-lg text-white">{sessions.length}</b>جلسة مرتبطة</div>
-                <div className="rounded-xl border border-slate-800 p-2"><b className="block text-lg text-cyan-200">{sessions.filter((row) => row.commercial_eligible).length}</b>جلسات بها نية تجارية</div>
-                <div className="rounded-xl border border-slate-800 p-2"><b className="block text-lg text-amber-200">{sessions.filter((row) => row.followup_required).length}</b>جلسات تحتاج متابعة</div>
+                <div className="rounded-xl border border-slate-800 p-2"><b className="block text-lg text-white">{currentSessions.length}</b>جلسة Canonical حالية{sessions.length > currentSessions.length ? <span className="block text-[10px] text-slate-500">+{sessions.length - currentSessions.length} دليل تاريخي</span> : null}</div>
+                <div className="rounded-xl border border-slate-800 p-2"><b className="block text-lg text-cyan-200">{currentSessions.filter((row) => row.commercial_eligible).length}</b>جلسات بها نية تجارية</div>
+                <div className="rounded-xl border border-slate-800 p-2"><b className="block text-lg text-amber-200">{currentSessions.filter((row) => row.followup_required).length}</b>جلسات تحتاج متابعة</div>
               </div>
               {sessionsLoading ? <div className="mt-3 py-5 text-center text-xs text-slate-500">جاري تحميل الجلسات...</div> : (
                 <div className="mt-3 max-h-[340px] space-y-2 overflow-y-auto">
@@ -233,6 +245,7 @@ export default function WhatsAppCustomerStory360V16({ onOpenSource }: { onOpenSo
                         {onOpenSource ? <button type="button" onClick={() => onOpenSource(session.id)} className="rounded-lg border border-violet-400/20 px-2 py-1 text-[10px] font-black text-violet-200 hover:bg-violet-500/10">فتح المحادثة</button> : null}
                       </div>
                       <div className="mt-2 flex flex-wrap gap-2 text-[10px]">
+                        {!session.operational ? <span className="rounded-full bg-slate-700/40 px-2 py-1 text-slate-300">دليل تاريخي — غير Canonical حاليًا</span> : null}
                         {session.commercial_eligible ? <span className="rounded-full bg-cyan-500/10 px-2 py-1 text-cyan-200">نية تجارية</span> : null}
                         {session.followup_required ? <span className="rounded-full bg-amber-500/10 px-2 py-1 text-amber-200">تحتاج متابعة</span> : null}
                         {primaryType ? <span className="rounded-full bg-slate-800 px-2 py-1 text-slate-300">{primaryType}</span> : null}
@@ -249,7 +262,7 @@ export default function WhatsAppCustomerStory360V16({ onOpenSource }: { onOpenSo
             <div className="rounded-2xl border border-slate-800 bg-slate-950/25 p-4">
               <div className="flex items-center gap-2 font-black text-white"><Clock3 size={17}/>Timeline القصة</div>
               <div className="mt-3 space-y-2">
-                {(selected.recent_events || []).map((event, index) => <div key={`${event.event_type}-${event.event_at}-${index}`} className={`rounded-xl border p-3 ${eventTone(event.event_type)}`}><div className="flex flex-wrap items-start justify-between gap-2"><div><div className="font-black text-white">{event.title || event.event_type || 'حدث'}</div><div className="mt-1 text-xs leading-6 text-slate-300">{event.detail || '—'}</div></div><div className="text-[10px] text-slate-500">{formatDate(event.event_at)}</div></div><div className="mt-2 flex flex-wrap gap-2 text-[10px] text-slate-400">{event.product_name ? <span>الصنف: <b className="text-cyan-200">{event.product_name}</b></span> : null}{event.invoice_number ? <span>فاتورة: <b className="text-emerald-200">{event.invoice_number}</b></span> : null}{event.invoice_value ? <span>{Number(event.invoice_value).toFixed(2)} ج</span> : null}{event.source_id && onOpenSource ? <button type="button" onClick={() => onOpenSource(event.source_id!)} className="rounded-lg border border-violet-400/20 px-2 py-0.5 font-black text-violet-200 hover:bg-violet-500/10">فتح المحادثة</button> : null}</div></div>)}
+                {(selected.recent_events || []).map((event, index) => <div key={`${event.event_type}-${event.event_at}-${index}`} className={`rounded-xl border p-3 ${eventTone(event.event_type)}`}><div className="flex flex-wrap items-start justify-between gap-2"><div><div className="font-black text-white">{event.title || event.event_type || 'حدث'}</div><div className="mt-1 text-xs leading-6 text-slate-300">{event.detail || '—'}</div></div><div className="text-[10px] text-slate-500">{formatDate(event.event_at)}</div></div><div className="mt-2 flex flex-wrap gap-2 text-[10px] text-slate-400">{event.operational === false ? <span className="rounded-full bg-slate-700/40 px-2 py-0.5 text-slate-300">دليل تاريخي — غير Canonical حاليًا</span> : null}{event.product_name ? <span>الصنف: <b className="text-cyan-200">{event.product_name}</b></span> : null}{event.invoice_number ? <span>فاتورة: <b className="text-emerald-200">{event.invoice_number}</b></span> : null}{event.invoice_value ? <span>{Number(event.invoice_value).toFixed(2)} ج</span> : null}{event.source_id && onOpenSource ? <button type="button" onClick={() => onOpenSource(event.source_id!)} className="rounded-lg border border-violet-400/20 px-2 py-0.5 font-black text-violet-200 hover:bg-violet-500/10">فتح المحادثة</button> : null}</div></div>)}
                 {!selected.recent_events?.length ? <div className="py-6 text-center text-xs text-slate-500">لا توجد أحداث في القصة بعد.</div> : null}
               </div>
             </div>

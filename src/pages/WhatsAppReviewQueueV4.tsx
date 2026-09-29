@@ -6,6 +6,7 @@ import { useAuth } from '@/hooks/useAuth';
 import WhatsAppCycleEvidenceDashboardV17 from '@/components/reviews/WhatsAppCycleEvidenceDashboardV17';
 import WhatsAppDoctorCycleIntelligenceV8 from '@/components/reviews/WhatsAppDoctorCycleIntelligenceV8';
 import { parseWhatsAppExport } from '@/lib/whatsappConversationParser';
+import { loadOperationalSourceIds } from '@/lib/whatsappOperationalSourceOwner';
 
 type QueueRow = {
   id: string;
@@ -34,6 +35,8 @@ type QueueRow = {
   raw_text: string | null;
   source_filename: string | null;
   created_at: string | null;
+  /** Admitted by the canonical operational owner; otherwise historical evidence only. */
+  operational?: boolean;
 };
 
 const statusLabel: Record<string, string> = {
@@ -93,7 +96,15 @@ export default function WhatsAppReviewQueueV4() {
         .order('created_at', { ascending: false })
         .limit(500);
       if (error) throw error;
-      setRows((data || []) as QueueRow[]);
+      // Pending work is canonical-only. Owner lookup failure fails closed (nothing is pending).
+      let operationalIds = new Set<string>();
+      try {
+        operationalIds = await loadOperationalSourceIds(supabase, (data || []).map((row: any) => String(row.id)));
+      } catch (ownerError) {
+        toast.error('تعذر التحقق من المصادر Canonical؛ لن تظهر مراجعات معلقة حتى يعود التحقق.');
+        console.warn('[whatsapp-review-queue] operational owner lookup failed', ownerError);
+      }
+      setRows(((data || []) as QueueRow[]).map((row) => ({ ...row, operational: operationalIds.has(String(row.id)) })));
       setSelectedId((current) => current && (data || []).some((row: any) => row.id === current) ? current : String((data || [])[0]?.id || ''));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'تعذر تحميل قائمة مراجعة واتساب');
@@ -109,7 +120,7 @@ export default function WhatsAppReviewQueueV4() {
     return rows.filter((row) => {
       if (branch !== 'all' && row.branch !== branch) return false;
       if (priority !== 'all' && row.priority !== priority) return false;
-      if (status === 'pending' && !['new', 'ready_quick', 'ready_detailed', 'needs_context'].includes(row.review_status)) return false;
+      if (status === 'pending' && (!row.operational || !['new', 'ready_quick', 'ready_detailed', 'needs_context'].includes(row.review_status))) return false;
       if (status !== 'all' && status !== 'pending' && row.review_status !== status) return false;
       if (!q) return true;
       return [row.customer_name, row.customer_code, row.customer_phone, row.staff_name, row.source_filename]
@@ -241,7 +252,7 @@ export default function WhatsAppReviewQueueV4() {
           {filtered.map((row) => (
             <button key={row.id} onClick={() => setSelectedId(row.id)} className={`w-full rounded-2xl border p-3 text-right ${selected?.id === row.id ? 'border-violet-400/50 bg-violet-500/10' : 'border-slate-800 bg-slate-950/35 hover:border-slate-600'}`}>
               <div className="flex items-start justify-between gap-2"><div className="min-w-0"><div className="truncate font-black text-white">{row.customer_name || 'عميل غير محدد'}</div><div className="mt-1 text-[11px] text-slate-400">{row.staff_name || 'الدكتور غير محدد'} • {row.branch || 'فرع غير محدد'}</div></div><span className={`rounded-lg px-2 py-1 text-[10px] font-black ${row.priority === 'urgent' ? 'bg-rose-500/15 text-rose-200' : row.priority === 'important' ? 'bg-amber-500/15 text-amber-200' : 'bg-emerald-500/10 text-emerald-200'}`}>{row.priority === 'urgent' ? 'عاجلة' : row.priority === 'important' ? 'مهمة' : 'عادية'}</span></div>
-              <div className="mt-2 flex flex-wrap gap-1 text-[10px] text-slate-300"><span>{statusLabel[row.review_status] || row.review_status}</span>{row.followup_required ? <span className="text-violet-300">• متابعة</span> : null}<span className="text-cyan-300">• {invoiceLabel[row.invoice_match_status || 'pending'] || row.invoice_match_status}</span></div>
+              <div className="mt-2 flex flex-wrap gap-1 text-[10px] text-slate-300"><span>{statusLabel[row.review_status] || row.review_status}</span>{!row.operational ? <span className="text-slate-400">• دليل تاريخي</span> : null}{row.followup_required ? <span className="text-violet-300">• متابعة</span> : null}<span className="text-cyan-300">• {invoiceLabel[row.invoice_match_status || 'pending'] || row.invoice_match_status}</span></div>
               <div className="mt-2 text-[10px] text-slate-500">{formatDate(row.conversation_started_at)}</div>
             </button>
           ))}

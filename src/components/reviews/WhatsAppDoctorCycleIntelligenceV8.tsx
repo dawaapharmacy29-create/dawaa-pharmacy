@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { BadgeDollarSign, ChevronLeft, CircleAlert, FileText, PackageSearch, RefreshCw, Search, Stethoscope, TrendingUp, UserRound } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { loadOperationalSourceIds } from '@/lib/whatsappOperationalSourceOwner';
 
 type Row = {
   owner_account_id: string | null;
@@ -149,9 +150,13 @@ export default function WhatsAppDoctorCycleIntelligenceV8({
 
       const ownershipResult = await ownershipQuery;
       if (ownershipResult.error) throw ownershipResult.error;
-      const sourceIds = Array.from(new Set(
+      const ownedSourceIds = Array.from(new Set(
         (ownershipResult.data || []).flatMap((item: any) => Array.isArray(item.evidence_source_ids) ? item.evidence_source_ids : [])
       )).filter(Boolean) as string[];
+      // Canonical-only: the doctor's evidence is the V22 stage-owned sources that the operational
+      // owner admits. There is no staff-name fallback; no canonical source means nothing to show.
+      const sourceIds = Array.from(await loadOperationalSourceIds(supabase, ownedSourceIds)).slice(0, 400);
+      const emptyResult = Promise.resolve({ data: [] as any[], error: null });
 
       let sourceQuery = supabase
         .from('whatsapp_review_sources')
@@ -161,13 +166,7 @@ export default function WhatsAppDoctorCycleIntelligenceV8({
         .order('conversation_started_at', { ascending: false })
         .limit(400);
       if (row.branch) sourceQuery = sourceQuery.eq('branch', row.branch);
-      if (sourceIds.length) {
-        sourceQuery = sourceQuery.in('id', sourceIds.slice(0, 400));
-      } else {
-        sourceQuery = row.owner_account_id
-          ? sourceQuery.eq('staff_id', row.owner_account_id)
-          : sourceQuery.eq('staff_name', row.owner_name || '');
-      }
+      sourceQuery = sourceQuery.in('id', sourceIds);
 
       let productQuery = supabase
         .from('whatsapp_product_journey_detail_v1')
@@ -177,13 +176,7 @@ export default function WhatsAppDoctorCycleIntelligenceV8({
         .order('conversation_started_at', { ascending: false })
         .limit(500);
       if (row.branch) productQuery = productQuery.eq('branch', row.branch);
-      if (sourceIds.length) {
-        productQuery = productQuery.in('source_id', sourceIds.slice(0, 400));
-      } else {
-        productQuery = row.owner_account_id
-          ? productQuery.eq('staff_id', row.owner_account_id)
-          : productQuery.eq('staff_name', row.owner_name || '');
-      }
+      productQuery = productQuery.in('source_id', sourceIds);
 
       let canonicalQuery = supabase
         .from('whatsapp_customer_cases_v22')
@@ -193,7 +186,11 @@ export default function WhatsAppDoctorCycleIntelligenceV8({
         .limit(600);
       if (row.branch) canonicalQuery = canonicalQuery.eq('branch', row.branch);
 
-      const [sourceResult, productResult, canonicalResult] = await Promise.all([sourceQuery, productQuery, canonicalQuery]);
+      const [sourceResult, productResult, canonicalResult] = await Promise.all([
+        sourceIds.length ? sourceQuery : emptyResult,
+        sourceIds.length ? productQuery : emptyResult,
+        canonicalQuery,
+      ]);
       if (sourceResult.error) throw sourceResult.error;
       if (productResult.error) throw productResult.error;
       if (canonicalResult.error) throw canonicalResult.error;
