@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ArrowLeft, CheckCircle2, ChevronDown, ChevronUp, FileText, FolderOpen, Image as ImageIcon, Loader2, Mic, RefreshCw, Search, Sparkles, X } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { getStaffSessionToken, useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
@@ -349,6 +349,8 @@ function messageBody(kind: string, text: string) {
 
 export default function WhatsAppSmartFolderWatcher() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const requestedSourceId = String(searchParams.get('source') || '').trim();
   const { user } = useAuth();
   const actorName = String(user?.name || user?.username || user?.id || 'system');
   const handleRef = useRef<any>(null);
@@ -1057,7 +1059,16 @@ export default function WhatsAppSmartFolderWatcher() {
       setFailedInboxCount(getLocalWhatsAppFailedItems().length);
       try {
         const history = await loadLocalWhatsAppAnalysisHistory<FileRun>(30);
-        if (history.length) setRuns(history.map((row) => row.payload));
+        if (history.length) {
+          const restoredRuns = history.map((row) => row.payload);
+          setRuns(restoredRuns);
+          if (requestedSourceId) {
+            const requested = restoredRuns
+              .flatMap((run) => run.staffRuns || [])
+              .find((staffRun) => String(staffRun.sourceId || '').trim() === requestedSourceId);
+            if (requested) openDetails(requested);
+          }
+        }
       } catch (error) {
         console.warn('[whatsapp-watcher] failed to restore local analysis history', error);
       }
@@ -1068,7 +1079,7 @@ export default function WhatsAppSmartFolderWatcher() {
       handleRef.current = handle;
       setConnected(true);
     })();
-  }, []);
+  }, [requestedSourceId]);
 
   useEffect(() => {
     if (!connected) return;
