@@ -2752,12 +2752,45 @@ export default function WhatsAppSmartFolderWatcher() {
                     </div>
                   ) : (
                     <div className="h-[62vh] space-y-2 overflow-y-auto bg-slate-950/20 p-4">
-                      {messagesForConversationMode(selected, conversationFocusMode).map((message) => (
-                        <div key={message.id} className={`rounded-xl border p-3 ${message.evidence ? 'border-cyan-500/60 bg-cyan-950/20' : message.scope === 'context' ? 'border-dashed border-slate-700 bg-slate-950/20 opacity-70' : 'border-slate-800 bg-slate-950/35'}`}>
-                          <div className="mb-1 flex flex-wrap justify-between gap-2 text-[11px] text-slate-500"><span>{message.direction === 'inbound' ? 'العميل' : selected.staffName}{message.scope === 'context' ? ' · سياق' : ''}{message.evidence ? ' · دليل' : ''}</span><span>{new Date(message.timestamp).toLocaleString('ar-EG')}</span></div>
-                          <div className="text-slate-200">{messageBody(message.kind, message.text)}</div>
-                        </div>
-                      ))}
+                      {messagesForConversationMode(selected, conversationFocusMode).map((message) => {
+                        const evidenceLabels = messageEvidenceLabels(selected, message.id);
+                        const context = message.scope === 'context';
+                        const focusLevel = message.focusLevel || (message.evidence ? 'primary' : context ? 'background' : 'supporting');
+                        const hasTypedEvidence = evidenceLabels.length > 0;
+                        return (
+                          <div
+                            key={message.id}
+                            className={`rounded-xl border p-3 transition ${
+                              hasTypedEvidence || message.evidence
+                                ? 'border-cyan-500/60 bg-cyan-950/20'
+                                : context
+                                  ? 'border-dashed border-slate-700 bg-slate-950/20 opacity-70'
+                                  : 'border-slate-800 bg-slate-950/35'
+                            }`}
+                          >
+                            <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
+                              <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-black">
+                                <span className="text-slate-300">{message.direction === 'inbound' ? 'العميل' : message.sender || selected.staffName}</span>
+                                {evidenceLabels.map((label) => (
+                                  <span key={label} className="rounded-full bg-cyan-500/10 px-2 py-1 text-cyan-200">{label}</span>
+                                ))}
+                                {message.evidence && !hasTypedEvidence ? <span className="rounded-full bg-cyan-500/10 px-2 py-1 text-cyan-200">دليل</span> : null}
+                                <span className={`rounded-full px-2 py-1 ${
+                                  focusLevel === 'primary'
+                                    ? 'bg-violet-500/10 text-violet-200'
+                                    : focusLevel === 'supporting'
+                                      ? 'bg-sky-500/10 text-sky-200'
+                                      : 'bg-slate-800 text-slate-500'
+                                }`}>
+                                  {focusLevel === 'primary' ? 'محوري' : focusLevel === 'supporting' ? 'مساند' : 'خلفية'}
+                                </span>
+                              </div>
+                              <span className="text-[10px] text-slate-600">{new Date(message.timestamp).toLocaleString('ar-EG')}</span>
+                            </div>
+                            <div className="text-sm leading-6 text-slate-200">{messageBody(message.kind, message.text)}</div>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </section>
