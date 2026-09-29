@@ -188,7 +188,7 @@ function cairoWallClockToIso(
     return localAsUtc - instantMs;
   };
 
-  let offset = offsetAt(desiredWallAsUtc);
+  const offset = offsetAt(desiredWallAsUtc);
   let result = desiredWallAsUtc - offset;
   const correctedOffset = offsetAt(result);
   if (correctedOffset !== offset) result = desiredWallAsUtc - correctedOffset;
@@ -221,7 +221,7 @@ function excelDateToIso(value: unknown): string | null {
     );
   }
   const raw = text(value);
-  const egyptian = raw.match(/^(\d{1,4})[\/-](\d{1,2})[\/-](\d{1,4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  const egyptian = raw.match(/^(\d{1,4})[/-](\d{1,2})[/-](\d{1,4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
   if (egyptian) {
     const a = Number(egyptian[1]);
     const b = Number(egyptian[2]);
