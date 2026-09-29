@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { BarChart3, MessageCircle, Star, TrendingUp, Users } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useEmployeeTransactions } from '@/hooks/useEmployeeTransactions';
@@ -72,6 +72,7 @@ type DoctorAggregate = {
 
 export default function WhatsappAnalytics() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { user } = useAuth();
   const cycle = getCurrentCycle();
   const [startDate, setStartDate] = useState(formatCycleDate(cycle.start));
@@ -83,7 +84,17 @@ export default function WhatsappAnalytics() {
     : allowedBranches[0] || normalizeBranchName(user?.branch || '') || ALL_BRANCHES;
   const [branch, setBranch] = useState(defaultBranch);
   const [doctor, setDoctor] = useState('الكل');
-  const [workspacePanel, setWorkspacePanel] = useState<'none' | 'cases' | 'customers' | 'opportunities' | 'followups'>('none');
+  const [workspacePanel, setWorkspacePanel] = useState<'none' | 'cases' | 'customers' | 'opportunities' | 'followups'>(() => {
+    const panel = searchParams.get('panel');
+    return panel === 'cases' || panel === 'customers' || panel === 'opportunities' || panel === 'followups' ? panel : 'none';
+  });
+
+  useEffect(() => {
+    const panel = searchParams.get('panel');
+    if (panel === 'cases' || panel === 'customers' || panel === 'opportunities' || panel === 'followups') {
+      setWorkspacePanel(panel);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     if (!canAllBranches) {
