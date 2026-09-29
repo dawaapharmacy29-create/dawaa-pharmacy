@@ -62,85 +62,79 @@ export default function MonthlyEvaluationWorkflowV5({
 
   return (
     <Panel className="overflow-hidden p-0">
-      <div className="border-b p-4" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <div className="text-base font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>
-              رحلة التقييم الشهرية
-            </div>
-            <div className="mt-1 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
-              امشِ بالترتيب: راجع البيانات، قيّم المحاور، راجع النقاط والمخالفات، اكتب الخلاصة، ثم اعتمد.
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-2 text-[11px] font-black">
-            <span className="rounded-full border px-3 py-1" style={{ borderColor: 'var(--dawaa-theme-border)', color: 'var(--dawaa-theme-text)' }}>
-              إجمالي {summary.total}
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2.5" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
+        <div className="text-sm font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>
+          خطوات التقييم
+        </div>
+        <div className="flex flex-wrap gap-1.5 text-[10px] font-black">
+          <span className="rounded-full border px-2.5 py-1" style={{ borderColor: 'var(--dawaa-theme-border)', color: 'var(--dawaa-theme-text)' }}>
+            {summary.total} موظف
+          </span>
+          {summary.draft > 0 ? (
+            <span className="rounded-full border px-2.5 py-1" style={{ borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-status-warning-bg)', color: 'var(--dawaa-status-warning-text)' }}>
+              {summary.draft} مسودة
             </span>
-            <span className="rounded-full border px-3 py-1" style={{ borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-status-warning-bg)', color: 'var(--dawaa-status-warning-text)' }}>
-              مسودة {summary.draft}
+          ) : null}
+          {summary.needsReapproval > 0 ? (
+            <span className="rounded-full border px-2.5 py-1" style={{ borderColor: 'var(--dawaa-status-danger-border)', background: 'var(--dawaa-status-danger-bg)', color: 'var(--dawaa-status-danger-text)' }}>
+              {summary.needsReapproval} إعادة اعتماد
             </span>
-            <span className="rounded-full border px-3 py-1" style={{ borderColor: 'var(--dawaa-status-success-border)', background: 'var(--dawaa-status-success-bg)', color: 'var(--dawaa-status-success-text)' }}>
-              معتمد {summary.approved}
-            </span>
-            {summary.needsReapproval > 0 ? (
-              <span className="rounded-full border px-3 py-1" style={{ borderColor: 'var(--dawaa-status-danger-border)', background: 'var(--dawaa-status-danger-bg)', color: 'var(--dawaa-status-danger-text)' }}>
-                إعادة اعتماد {summary.needsReapproval}
-              </span>
-            ) : null}
-          </div>
+          ) : null}
         </div>
       </div>
 
-      <div className="grid gap-2 p-3 sm:grid-cols-2 xl:grid-cols-5">
-        {STEPS.map((step) => {
-          const Icon = step.icon;
-          const active = activeStep === step.id;
-          const ready = stepReady[step.id];
-          const warning = step.id === 3 && hasCriticalGate;
-          return (
-            <button
-              key={step.id}
-              type="button"
-              onClick={() => onStepChange(step.id)}
-              className="rounded-2xl border p-3 text-right transition"
-              style={active
-                ? { borderColor: 'var(--dawaa-theme-accent-border)', background: 'var(--dawaa-theme-accent-soft)' }
-                : { borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}
-            >
-              <div className="flex items-center justify-between gap-2">
+      <div className="overflow-x-auto">
+        <div className="flex min-w-max gap-1.5 p-2">
+          {STEPS.map((step) => {
+            const Icon = step.icon;
+            const active = activeStep === step.id;
+            const ready = stepReady[step.id];
+            const warning = step.id === 3 && hasCriticalGate;
+            return (
+              <button
+                key={step.id}
+                type="button"
+                onClick={() => onStepChange(step.id)}
+                className="flex min-w-[150px] items-center gap-2 rounded-xl border px-3 py-2 text-right transition"
+                style={active
+                  ? { borderColor: 'var(--dawaa-theme-accent-border)', background: 'var(--dawaa-theme-accent-soft)' }
+                  : { borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}
+              >
                 <span
-                  className="flex h-8 w-8 items-center justify-center rounded-xl"
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg"
                   style={{ background: active ? 'var(--dawaa-theme-primary)' : 'var(--dawaa-theme-soft)', color: active ? 'var(--dawaa-theme-primary-text)' : 'var(--dawaa-theme-primary-strong)' }}
                 >
-                  <Icon size={16} />
+                  <Icon size={14} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[11px] font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>
+                    {step.id}. {step.short}
+                  </span>
+                  <span className="mt-0.5 block text-[10px] font-bold" style={{ color: warning ? 'var(--dawaa-status-danger-text)' : 'var(--dawaa-theme-muted)' }}>
+                    {step.id === 1
+                      ? evidenceReady ? 'البيانات جاهزة' : 'راجع البيانات'
+                      : step.id === 2
+                        ? `${completedSections}/${totalSections}`
+                        : step.id === 3
+                          ? warning ? 'مخالفة حرجة' : 'النقاط'
+                          : step.id === 4
+                            ? 'الخلاصة'
+                            : !cycleClosed
+                              ? 'بعد يوم 25'
+                              : approvalReady
+                                ? 'جاهز'
+                                : 'ناقص'}
+                  </span>
                 </span>
                 {ready ? (
-                  <CheckCircle2 size={17} style={{ color: 'var(--dawaa-status-success-text)' }} />
+                  <CheckCircle2 size={15} style={{ color: 'var(--dawaa-status-success-text)' }} />
                 ) : (
-                  <Circle size={17} style={{ color: 'var(--dawaa-theme-muted)' }} />
+                  <Circle size={15} style={{ color: 'var(--dawaa-theme-muted)' }} />
                 )}
-              </div>
-              <div className="mt-2 text-xs font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>
-                {step.id}. {step.title}
-              </div>
-              <div className="mt-1 text-[11px] font-bold" style={{ color: warning ? 'var(--dawaa-status-danger-text)' : 'var(--dawaa-theme-muted)' }}>
-                {step.id === 1
-                  ? evidenceReady ? 'المصادر جاهزة' : 'راجع المصادر الناقصة'
-                  : step.id === 2
-                    ? `${completedSections}/${totalSections} محاور مكتملة`
-                    : step.id === 3
-                      ? warning ? 'توجد مخالفة حرجة' : 'لا توجد قيود حرجة'
-                      : step.id === 4
-                        ? 'نقاط القوة وخطة التحسين'
-                        : !cycleClosed
-                          ? 'يفتح بعد يوم 25'
-                          : approvalReady
-                            ? 'جاهز للمراجعة النهائية'
-                            : 'يوجد عناصر ناقصة'}
-              </div>
-            </button>
-          );
-        })}
+              </button>
+            );
+          })}
+        </div>
       </div>
     </Panel>
   );
