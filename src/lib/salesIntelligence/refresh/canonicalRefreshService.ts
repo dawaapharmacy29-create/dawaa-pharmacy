@@ -12,6 +12,10 @@
 import { runBatchPersistence } from '../persistence/batchPersistenceService';
 import { reviewSourceRowToBatchConversation } from '../persistence/reviewSourceBatchAdapter';
 import {
+  readInvoiceRecordById,
+  readInvoiceRecordsByCustomerWindow,
+} from '../../readModels/invoiceRecordReadModel';
+import {
   evaluateCanonicalSourceGate,
   loadCanonicalSourceGateContext,
   type CanonicalSourceGateDecision,
@@ -439,15 +443,7 @@ async function enrichComplaintFollowupContext(
 
   let invoice: any = null;
   if (invoiceId) {
-    const { data, error } = await service
-      .from('sales_invoices')
-      .select(
-        'id,invoice_number,invoice_datetime,branch,customer_id,customer_code,delivery_staff,staff_name,seller_name'
-      )
-      .eq('id', invoiceId)
-      .maybeSingle();
-    if (error) throw error;
-    invoice = data;
+    invoice = await readInvoiceRecordById(invoiceId, service);
   }
 
   if (!invoice) {
@@ -465,20 +461,13 @@ async function enrichComplaintFollowupContext(
         (endedAt && !Number.isNaN(endedAt.getTime()) ? endedAt.getTime() : startedAt.getTime()) +
           6 * 3600_000
       ).toISOString();
-      let query = service
-        .from('sales_invoices')
-        .select(
-          'id,invoice_number,invoice_datetime,branch,customer_id,customer_code,delivery_staff,staff_name,seller_name'
-        )
-        .gte('invoice_datetime', from)
-        .lte('invoice_datetime', to)
-        .limit(20);
-      query = customerId
-        ? query.eq('customer_id', customerId)
-        : query.eq('customer_code', customerCode);
-      const { data, error } = await query;
-      if (error) throw error;
-      const rows = data || [];
+      const rows = await readInvoiceRecordsByCustomerWindow({
+        queryStartIso: from,
+        queryEndIso: to,
+        ...(customerId ? { customerId } : { customerCode }),
+        limit: 20,
+        client: service,
+      });
       if (rows.length) {
         const anchor = startedAt.getTime();
         invoice = [...rows].sort((a: any, b: any) => {
