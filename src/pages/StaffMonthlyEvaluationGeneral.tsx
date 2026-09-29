@@ -448,6 +448,27 @@ export default function StaffMonthlyEvaluation() {
         setSentAtIso(serverSentAt || new Date().toISOString());
         const refreshedPoints = await getStaffPointsDashboardV3(selected.id, cycleLabel).catch(() => null);
         if (refreshedPoints) setPointsTruth(refreshedPoints);
+        try {
+          await createStaffNotification({
+            recipientStaffId: selected.id,
+            type: 'monthly_evaluation',
+            title: 'تم اعتماد تقييمك الشهري',
+            message: `تم اعتماد تقييم دورة ${cycleRange.displayLabel} بدرجة ${Number(saveResult.overall_score ?? overallScore)}/100. يمكنك مراجعة التفاصيل من صفحة التقييم الشهري.`,
+            priority: 'normal',
+            entityType: 'staff_monthly_evaluation',
+            entityId: savedEvaluationId || undefined,
+            actionUrl: '/staff-monthly-evaluation',
+            metadata: {
+              cycleLabel,
+              overallScore: Number(saveResult.overall_score ?? overallScore),
+              grade: String(saveResult.grade || grade),
+              evaluatorName: user.name || 'المدير',
+            },
+            stateKey: serverSentAt || String(saveResult.action || 'approved'),
+          });
+        } catch {
+          toast.warning('تم اعتماد التقييم، لكن تعذر إنشاء إشعار الموظف. التقييم نفسه محفوظ ومعتمد.');
+        }
         toast.success(`تم اعتماد التقييم على الخادم بنسبة أثر ${Number(saveResult.multiplier_pct ?? effectiveEvaluationMultiplierPct)}%.`);
       }
 
