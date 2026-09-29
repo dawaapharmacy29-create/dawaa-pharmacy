@@ -51,6 +51,19 @@ type ProductRow = {
   confidence: number | null;
 };
 
+type DoctorCanonicalCaseRow = {
+  id: string;
+  root_source_id: string | null;
+  source_ids: string[] | null;
+  started_at: string | null;
+  branch: string | null;
+  proposed_outcome: string | null;
+  confirmed_outcome: string | null;
+  verified_revenue: number | null;
+  verified_invoice_id: string | null;
+  verified_invoice_number: string | null;
+};
+
 function cairoDate() {
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
   const get = (type: string) => parts.find((p) => p.type === type)?.value || '';
@@ -99,6 +112,7 @@ export default function WhatsAppDoctorCycleIntelligenceV8({
   const [detailLoading, setDetailLoading] = useState(false);
   const [conversations, setConversations] = useState<ConversationRow[]>([]);
   const [products, setProducts] = useState<ProductRow[]>([]);
+  const [detailCanonicalCases, setDetailCanonicalCases] = useState<DoctorCanonicalCaseRow[]>([]);
 
   const load = async () => {
     setLoading(true);
@@ -171,21 +185,41 @@ export default function WhatsAppDoctorCycleIntelligenceV8({
           : productQuery.eq('staff_name', row.owner_name || '');
       }
 
-      const [sourceResult, productResult] = await Promise.all([sourceQuery, productQuery]);
+      let canonicalQuery = supabase
+        .from('whatsapp_customer_cases_v22')
+        .select('id,root_source_id,source_ids,started_at,branch,proposed_outcome,confirmed_outcome,verified_revenue,verified_invoice_id,verified_invoice_number')
+        .gte('started_at', `${row.cycle_start}T00:00:00+03:00`)
+        .lte('started_at', `${row.cycle_end}T23:59:59+03:00`)
+        .limit(600);
+      if (row.branch) canonicalQuery = canonicalQuery.eq('branch', row.branch);
+
+      const [sourceResult, productResult, canonicalResult] = await Promise.all([sourceQuery, productQuery, canonicalQuery]);
       if (sourceResult.error) throw sourceResult.error;
       if (productResult.error) throw productResult.error;
+      if (canonicalResult.error) throw canonicalResult.error;
       setConversations((sourceResult.data || []) as ConversationRow[]);
       setProducts((productResult.data || []) as ProductRow[]);
+      setDetailCanonicalCases((canonicalResult.data || []) as DoctorCanonicalCaseRow[]);
     } catch (error) {
       console.error('[whatsapp-doctor-cycle-v33] detail load failed', error);
       setConversations([]);
       setProducts([]);
+      setDetailCanonicalCases([]);
     } finally {
       setDetailLoading(false);
     }
   };
 
   useEffect(() => { void load(); }, []);
+
+  const doctorCaseBySource = useMemo(() => {
+    const map = new Map<string, DoctorCanonicalCaseRow>();
+    for (const item of detailCanonicalCases) {
+      if (item.root_source_id) map.set(item.root_source_id, item);
+      for (const sourceId of item.source_ids || []) map.set(sourceId, item);
+    }
+    return map;
+  }, [detailCanonicalCases]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -342,23 +376,46 @@ export default function WhatsAppDoctorCycleIntelligenceV8({
           <div className="max-h-[430px] space-y-2 overflow-y-auto">{conversations.map((item) => {
             const op = item.analysis_json?.operational;
             const journey = item.analysis_json?.groundedSaleJourneyV33;
-            const verified = false;
-            return <button type="button" key={item.id} onClick={() => onOpenSource?.(item.id)} className="w-full rounded-xl border border-slate-800 bg-slate-950/55 p-3 text-right hover:border-cyan-400/30">
+            const canonicalCase = doctorCaseBySource.get(item.id) || null;
+            const effectiveOutcome = canonicalCase?.confirmed_outcome || canonicalCase?.proposed_outcome || null;
+            const verified = effectiveOutcome === 'verified_sale' && Boolean(canonicalCase?.verified_invoice_id);
+            return <button type="button" key={item.id} onClick={() => onOpenSource?.(item.id)} className="w-full rounded-xl border border-slate-800 bg-slate-950/55 p-3 text-right transition hover:border-cyan-400/30">
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <b className="text-white">{item.customer_name || 'عميل غير محدد'}</b>
                   {item.customer_code ? <span className="mr-2 text-xs text-cyan-300">#{item.customer_code}</span> : null}
                   <div className="mt-1 text-[11px] text-slate-500">{dateLabel(item.conversation_started_at)}</div>
                 </div>
-                <span className={`rounded-lg px-2 py-1 text-[10px] font-black ${verified ? 'bg-emerald-500/10 text-emerald-200' : journey?.commercial ? 'bg-amber-500/10 text-amber-200' : 'bg-slate-800 text-slate-300'}`}>
-                  {journey?.outcomeLabel || 'تحليل قديم — يحتاج إعادة تحليل'}
+                <span className={`rounded-lg px-2 py-1 text-[10px] font-black ${
+                  verified
+                    ? 'bg-emerald-500/10 text-emerald-200'
+                    : canonicalCase
+                      ? 'bg-cyan-500/10 text-cyan-200'
+                      : journey?.commercial
+                        ? 'bg-amber-500/10 text-amber-200'
+                        : 'bg-slate-800 text-slate-300'
+                }`}>
+                  {verified
+                    ? 'بيع Canonical مثبت'
+                    : canonicalCase
+                      ? `Case Canonical · ${effectiveOutcome || 'غير محسوم'}`
+                      : journey?.outcomeLabel || 'لا توجد Case Canonical مرتبطة'}
                 </span>
               </div>
               <div className="mt-2 text-xs text-slate-300">
                 {op?.primaryIntent || item.review_status || '—'}
                 {journey?.coaching?.bestPracticeScore != null ? <span className="text-cyan-300"> • جودة {journey.coaching.bestPracticeScore}/100</span> : null}
-                {item.matched_invoice_number && verified ? <span className="text-emerald-300"> • فاتورة #{item.matched_invoice_number}</span> : null}
               </div>
+              {verified ? (
+                <div className="mt-2 flex flex-wrap gap-2 text-[10px] font-black">
+                  {canonicalCase?.verified_invoice_number ? <span className="rounded-full bg-emerald-500/10 px-2 py-1 text-emerald-300">فاتورة #{canonicalCase.verified_invoice_number}</span> : null}
+                  <span className="rounded-full bg-emerald-500/10 px-2 py-1 text-emerald-300">{money(canonicalCase?.verified_revenue)}</span>
+                </div>
+              ) : item.invoice_match_status === 'verified' ? (
+                <div className="mt-2 text-[10px] leading-5 text-slate-500">
+                  مطابقة فاتورة آلية Legacy {item.matched_invoice_number ? `#${item.matched_invoice_number}` : ''}{item.matched_invoice_value != null ? ` · ${money(item.matched_invoice_value)}` : ''} — ليست Sale Proof.
+                </div>
+              ) : null}
             </button>;
           })}{!conversations.length ? <div className="p-5 text-center text-xs text-slate-500">لا توجد محادثات مرتبطة بهذا الدكتور في السايكل.</div> : null}</div>
         </div>
@@ -411,7 +468,7 @@ export default function WhatsAppDoctorCycleIntelligenceV8({
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="text-sm font-black text-emerald-100">أفضل محادثات للتعلم منها</div>
-                <div className="mt-1 text-[10px] text-slate-500">مرتبة حسب جودة الخدمة + سرعة الرد + تأكيد الطلب + البيع الموثق عند وجوده.</div>
+                <div className="mt-1 text-[10px] text-slate-500">مختارة من المحادثات ذات السلوكيات القوية الموثقة؛ البيع Canonical يظهر كمعلومة إضافية عند وجوده.</div>
               </div>
               <span className="rounded-full bg-emerald-500/10 px-2.5 py-1 text-[10px] font-black text-emerald-300">{doctorInsights.best.length}</span>
             </div>
