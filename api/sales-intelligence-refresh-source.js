@@ -179,11 +179,40 @@ export default async function handler(req, res) {
 
     const outcomes = result.caseOutcomes || [];
     const failures = outcomes.filter((row) => !row.success);
-    if (failures.length) {
+
+    // Reconcile ONLY fully-persisted cases whose in-memory canonical verdict is sale_proven.
+    // The RPC re-reads the persisted analysis/attribution/match and is the authority for the V22 write;
+    // this filter only avoids unnecessary RPC calls for non-sale cases.
+    const successfulCaseIds = new Set(outcomes.filter((row) => row.success).map((row) => row.caseId));
+    const provenCaseIds = result.caseAnalyses
+      .filter((row) =>
+        successfulCaseIds.has(row.caseId) &&
+        row.salesOutcome?.outcome === 'sale_proven' &&
+        row.salesOutcome?.saleProofState === 'proven'
+      )
+      .map((row) => row.caseId);
+
+    const canonicalReconciliation = [];
+    for (const salesCaseId of provenCaseIds) {
+      const { data: reconcileData, error: reconcileError } = await service.rpc(
+        'dawaa_reconcile_sales_intelligence_case_v22_v1',
+        { p_sales_case_id: salesCaseId }
+      );
+      canonicalReconciliation.push({
+        caseId: salesCaseId,
+        ...(reconcileError
+          ? { ok: false, status: 'rpc_error', error: reconcileError.message }
+          : (reconcileData || { ok: false, status: 'empty_reconcile_result' })),
+      });
+    }
+
+    const reconciliationTransportFailures = canonicalReconciliation.filter((row) => row.status === 'rpc_error');
+    if (failures.length || reconciliationTransportFailures.length) {
       return json(res, 500, {
-        error: 'canonical_refresh_partial_failure',
+        error: failures.length ? 'canonical_refresh_partial_failure' : 'canonical_reconciliation_failure',
         sourceId,
         failures: failures.map((row) => ({ caseId: row.caseId, error: row.error })),
+        canonicalReconciliation,
       });
     }
 
@@ -193,6 +222,7 @@ export default async function handler(req, res) {
       sourceCaseIdV22,
       caseIdentityStatus: caseIds.length === 1 ? 'linked' : caseIds.length === 0 ? 'missing' : 'ambiguous',
       caseIdentityCandidates: caseIds,
+      canonicalReconciliation,
       derivedCases: result.caseAnalyses.map((row) => ({
         caseId: row.caseId,
         status: row.status,
