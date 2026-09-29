@@ -41,6 +41,11 @@ import { segmentWhatsAppExportCanonical } from '@/lib/whatsappCanonicalSegmentat
 import { syncCanonicalCaseGraphForFile, type WatcherCaseGraphSyncResult } from '@/lib/whatsappWatcherCaseGraphSync';
 import type { JourneySessionSourceV15 } from '@/lib/whatsappCustomerJourneyPersistenceV15';
 import {
+  buildFollowupIdentity,
+  episodeStartedAt,
+  followupCustomerAnchor,
+} from '@/lib/whatsappFollowupIdentity';
+import {
   requestCanonicalSalesIntelligenceRefresh,
   type SalesIntelligenceStageStatus,
 } from '@/lib/salesIntelligence/refresh/refreshClient';
@@ -200,23 +205,7 @@ async function verifySessionSale(
   return verification.status;
 }
 
-function followupKey(
-  signalType: string,
-  evidenceTimestamp: string | Date | null,
-  evidenceQuote: string
-) {
-  const timestamp = evidenceTimestamp
-    ? (evidenceTimestamp instanceof Date
-        ? evidenceTimestamp
-        : new Date(evidenceTimestamp)
-      ).toISOString()
-    : '';
-  return `${signalType}|${timestamp}|${String(evidenceQuote || '')
-    .replace(/\s+/g, ' ')
-    .trim()}`;
-}
-
-async function saveFollowupSignals(
+export async function saveFollowupSignals(
   session: WhatsAppConversationSession,
   sourceFileName: string,
   identity: CustomerIdentity,
@@ -225,37 +214,41 @@ async function saveFollowupSignals(
   const signals = detectFollowupSignals(session);
   if (!signals.length) return { created: 0, duplicate: 0 };
 
+  // Stable Follow-up Identity: same customer + episode + signal + reason -> same follow-up,
+  // regardless of session/source instance, segmentation or ingestion path.
+  const customerAnchor = followupCustomerAnchor(identity.canonical, sourceFileName);
+  const identityOf = (signal: DetectedFollowupSignal) =>
+    buildFollowupIdentity({
+      customerAnchor,
+      episodeStartedAt: episodeStartedAt(session.messages, new Date(signal.evidenceTimestamp)),
+      followupType: `signal:${signal.signalType}`,
+      reasonKey: signal.requestedProductName || null,
+    });
+  const identities = signals.map(identityOf);
+
   const { data: existing, error: existingError } = await supabase
     .from('whatsapp_auto_followup_requests')
-    .select('signal_type,evidence_timestamp,evidence_quote')
-    .eq('conversation_session_id', session.id);
+    .select('followup_identity')
+    .in('followup_identity', Array.from(new Set(identities)));
   if (existingError) throw existingError;
 
-  const existingKeys = new Set(
-    (existing || []).map((row) =>
-      followupKey(
-        String(row.signal_type || ''),
-        row.evidence_timestamp ? String(row.evidence_timestamp) : null,
-        String(row.evidence_quote || '')
-      )
-    )
-  );
-
-  const freshSignals: DetectedFollowupSignal[] = [];
+  const existingKeys = new Set((existing || []).map((row) => String(row.followup_identity || '')));
+  const freshSignals: Array<{ signal: DetectedFollowupSignal; followupIdentity: string }> = [];
   let duplicate = 0;
-  for (const signal of signals) {
-    const key = followupKey(signal.signalType, signal.evidenceTimestamp, signal.evidenceQuote);
+  signals.forEach((signal, index) => {
+    const key = identities[index];
     if (existingKeys.has(key)) {
       duplicate += 1;
-      continue;
+      return;
     }
     existingKeys.add(key);
-    freshSignals.push(signal);
-  }
+    freshSignals.push({ signal, followupIdentity: key });
+  });
 
   if (!freshSignals.length) return { created: 0, duplicate };
 
-  const rows = freshSignals.map((signal) => ({
+  const rows = freshSignals.map(({ signal, followupIdentity }) => ({
+    followup_identity: followupIdentity,
     source_file_name: sourceFileName,
     conversation_session_id: session.id,
     branch: conversationBranch,
@@ -292,7 +285,8 @@ async function persistOperationalJourneyIntelligence(
   identity: CustomerIdentity,
   conversationBranch: string | null,
   participantRoles: WhatsAppParticipantRoleModelV15,
-  branchHint: BranchHintResult
+  branchHint: BranchHintResult,
+  sourceFileName: string
 ) {
   const base = buildUnifiedConversationIntelligence(session);
   const initial = buildWhatsAppOperationalIntelligenceV6(session, base);
@@ -342,6 +336,10 @@ async function persistOperationalJourneyIntelligence(
       sourceRow?.staff_name ||
       (session.outboundStaffNames.length === 1 ? session.outboundStaffNames[0] : null),
     createdBy: sourceRow?.created_by || null,
+    followupIdentity: {
+      customerAnchor: followupCustomerAnchor(identity.canonical, sourceFileName),
+      session,
+    },
   });
 
   await syncWhatsAppEvidenceLedgerV17(session, {
@@ -499,7 +497,8 @@ export async function ingestWhatsAppExportFile(
           identity,
           conversationBranch,
           participantRoles,
-          branchHint
+          branchHint,
+          source.sourceFileName
         );
       } catch (operationalError) {
         result.errors.push(

@@ -41,6 +41,7 @@ import { resolveStaffIdentity, type ResolvedStaffIdentity } from '@/lib/whatsapp
 import { buildSmartOfficialReviewDraftV1 } from '@/lib/whatsappSmartOfficialReviewDraft';
 import { buildSmartConversationEvaluationV2 } from '@/lib/whatsappConversationEvaluationV2';
 import { customerContextFromCanonicalIdentity } from '@/lib/whatsappCustomerContextResolver';
+import { followupCustomerAnchor } from '@/lib/whatsappFollowupIdentity';
 import {
   extractCustomerIdentityEvidence,
   resolveCanonicalCustomerIdentities,
@@ -711,6 +712,7 @@ export default function WhatsAppSmartFolderWatcher() {
             staffId: singleResolvedStaff?.staffId || null,
             staffName: singleResolvedStaff?.canonicalStaffName || null,
             createdBy: actorName,
+            followupIdentity: { customerAnchor: followupCustomerAnchor(customerContext.identity, file.name), session },
           });
         } catch (operationalActionError) {
           console.warn('[whatsapp-watcher] operational action sync failed; source/product analysis preserved', operationalActionError);

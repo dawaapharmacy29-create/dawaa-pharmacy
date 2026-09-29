@@ -5,6 +5,7 @@ import { buildCanonicalProduct, countNormalizedNames, type RawProductRow } from 
 import { normalizePharmacyText } from './salesIntelligence/pharmacyProducts/pharmacyNormalization';
 import { buildPharmacyProductIndex, resolveProductMention, CROSS_SCRIPT_SEED } from './salesIntelligence/pharmacyProducts/pharmacyProductResolverV2';
 import { isDirectCommercialProductMessageV22 } from './whatsappDirectProductIntentV22';
+import { operationalActionFollowupIdentity, type FollowupIdentityContext } from './whatsappFollowupIdentity';
 
 export type WhatsAppPrimaryIntent =
   | 'customer_request'
@@ -110,6 +111,8 @@ export interface WhatsAppOperationalContext {
   staffId?: string | null;
   staffName?: string | null;
   createdBy?: string | null;
+  /** Stable Follow-up Identity context (whatsappFollowupIdentity.ts). Canonical writers pass it. */
+  followupIdentity?: FollowupIdentityContext;
 }
 
 
@@ -1280,7 +1283,87 @@ export async function syncWhatsAppOperationalActionsV6(model: WhatsAppOperationa
     created_by: context.createdBy || null,
     updated_at: new Date().toISOString(),
   }));
-  const { data, error } = await supabase.from('whatsapp_conversation_actions').upsert(rows, { onConflict: 'source_id,action_key', ignoreDuplicates: false }).select('id,action_key,action_type,status,target_table,target_id');
-  if (error) throw error;
-  return data || [];
+  if (!context.followupIdentity) {
+    const { data, error } = await supabase.from('whatsapp_conversation_actions').upsert(rows, { onConflict: 'source_id,action_key', ignoreDuplicates: false }).select('id,action_key,action_type,status,target_table,target_id');
+    if (error) throw error;
+    return data || [];
+  }
+  return syncActionsWithStableIdentity(rows, context);
+}
+
+const ACTION_RETURN_COLUMNS = 'id,action_key,action_type,status,target_table,target_id';
+
+/**
+ * Idempotent action write keyed by the Stable Follow-up Identity:
+ *   - same source + action_key (re-analysis of the same source): refreshed as before;
+ *   - same identity on another source (re-import / other segmentation / other ingestion path):
+ *     the existing task is reused — only its evidence is refreshed, its workflow state
+ *     (status, work_status, assignment, outcome, due dates) is never reset;
+ *   - new identity: inserted.
+ * Bounded: two lookups and at most three writes per call, whatever the number of actions.
+ */
+async function syncActionsWithStableIdentity(rows: any[], context: WhatsAppOperationalContext) {
+  const identityContext = context.followupIdentity as FollowupIdentityContext;
+  const byIdentity = new Map<string, any>();
+  for (const row of rows) {
+    const followupIdentity = operationalActionFollowupIdentity(identityContext, row);
+    if (!byIdentity.has(followupIdentity)) byIdentity.set(followupIdentity, { ...row, followup_identity: followupIdentity });
+  }
+  const candidates = [...byIdentity.values()];
+  const identities = candidates.map((row) => row.followup_identity);
+
+  const [{ data: byIdentityRows, error: identityError }, { data: sameSourceRows, error: sourceError }] = await Promise.all([
+    supabase.from('whatsapp_conversation_actions').select('id,source_id,action_key,action_type,followup_identity').in('followup_identity', identities),
+    supabase.from('whatsapp_conversation_actions').select('id,source_id,action_key,action_type,followup_identity').eq('source_id', context.sourceId).in('action_key', candidates.map((row) => row.action_key)),
+  ]);
+  if (identityError) throw identityError;
+  if (sourceError) throw sourceError;
+
+  const ownerByIdentity = new Map<string, any>(((byIdentityRows || []) as any[]).map((row: any) => [String(row.followup_identity), row]));
+  const sameSourceByKey = new Map<string, any>(((sameSourceRows || []) as any[]).map((row: any) => [String(row.action_key), row]));
+
+  const refreshSameSource: any[] = [];
+  const refreshEvidenceOnly: any[] = [];
+  const inserts: any[] = [];
+  for (const row of candidates) {
+    const owner = ownerByIdentity.get(row.followup_identity);
+    const sameSource = sameSourceByKey.get(row.action_key);
+    if (sameSource) {
+      // Keep the identity only when no other task already owns it (legacy duplicates stay as they are).
+      refreshSameSource.push(owner && owner.id !== sameSource.id ? { ...row, followup_identity: sameSource.followup_identity ?? null } : row);
+    } else if (owner) {
+      refreshEvidenceOnly.push({
+        id: owner.id,
+        source_id: owner.source_id,
+        action_key: owner.action_key,
+        action_type: owner.action_type,
+        followup_identity: owner.followup_identity,
+        evidence: row.evidence,
+        payload: row.payload,
+        reason: row.reason,
+        confidence: row.confidence,
+        updated_at: row.updated_at,
+      });
+    } else {
+      inserts.push(row);
+    }
+  }
+
+  const results: any[] = [];
+  if (refreshSameSource.length) {
+    const { data, error } = await supabase.from('whatsapp_conversation_actions').upsert(refreshSameSource, { onConflict: 'source_id,action_key', ignoreDuplicates: false }).select(ACTION_RETURN_COLUMNS);
+    if (error) throw error;
+    results.push(...(data || []));
+  }
+  if (refreshEvidenceOnly.length) {
+    const { data, error } = await supabase.from('whatsapp_conversation_actions').upsert(refreshEvidenceOnly, { onConflict: 'id', ignoreDuplicates: false }).select(ACTION_RETURN_COLUMNS);
+    if (error) throw error;
+    results.push(...(data || []));
+  }
+  if (inserts.length) {
+    const { data, error } = await supabase.from('whatsapp_conversation_actions').insert(inserts).select(ACTION_RETURN_COLUMNS);
+    if (error) throw error;
+    results.push(...(data || []));
+  }
+  return results;
 }
