@@ -56,7 +56,7 @@ async function loadCanonicalBackfillStatusV22(): Promise<BackfillStatus | null> 
   const rows: BackfillSourceStatusRow[] = [];
   const pageSize = 500;
   let from = 0;
-  while (true) {
+  for (;;) {
     const { data, error } = await supabase
       .from('whatsapp_review_sources')
       .select('id,source_filename,customer_id,customer_code,customer_phone,customer_name,conversation_started_at,conversation_ended_at,message_count,created_at,raw_text,analysis_json,review_status')
