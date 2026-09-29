@@ -156,6 +156,15 @@ describe('Canonical Segmentation Contract', () => {
     expect(await hashes(a)).toEqual(await hashes(b));
   });
 
+  it('does not use the export filename as canonical source identity', async () => {
+    const messages = parseWhatsAppExport(EXPORT);
+    const a = segmentWhatsAppExportCanonical(messages, FILE);
+    const b = segmentWhatsAppExportCanonical(messages, 'renamed-export-copy.zip');
+    const hashes = async (seg: typeof a) =>
+      Promise.all(seg.caseContexts.contexts.map((ctx) => hashWhatsAppSession(ctx.mergedSession)));
+    expect(await hashes(a)).toEqual(await hashes(b));
+  });
+
   it('partitions the messages: every message belongs to exactly one case unit', () => {
     const messages = parseWhatsAppExport(EXPORT);
     const seg = segmentWhatsAppExportCanonical(messages, FILE);
@@ -307,6 +316,12 @@ describe('no ingestion path bypasses the shared canonical steps', () => {
       expect(code).not.toMatch(/JSON\.stringify\(\{\s*sourceId\s*\}\)/);
     }
   );
+
+  it('Smart Watcher fails closed instead of rediscovering canonical sources by filename', () => {
+    const code = read('src/pages/WhatsAppSmartFolderWatcher.tsx');
+    expect(code).toContain('canonical_source_ids_missing_after_persistence');
+    expect(code).not.toContain('sourceFileName: result.fileName');
+  });
 });
 
 describe('shared case graph sync', () => {
