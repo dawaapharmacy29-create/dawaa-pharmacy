@@ -1,3 +1,4 @@
+/* eslint-disable no-misleading-character-class */
 // V32 Phase C.2 — Understanding Customer Request criterion, evidence-contract implementation.
 // V32.2: built on top of the shared semantic signal layer (whatsappSemanticSignalsV32.ts)
 // instead of ad hoc regex, and distinguishes HOW understanding was reached (direct vs. a good
