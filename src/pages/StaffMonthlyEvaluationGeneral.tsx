@@ -787,40 +787,49 @@ export default function StaffMonthlyEvaluation() {
               ) : null}
 
               {activeStep === 1 ? (
-              <Panel className="p-4">
-                <SectionTitle
-                  title="أدلة الدورة"
-                  subtitle={evidenceReady ? 'المحادثات والمتابعات والحضور متاحة' : 'مصدر واحد أو أكثر غير متاح — الاعتماد النهائي متوقف'}
-                  icon={<Search size={18} />}
-                />
-                <div className="mb-3 flex flex-wrap gap-2 text-xs font-black">
-                  {([
-                    ['المحادثات', evidenceHealth.reviews],
-                    ['المتابعات', evidenceHealth.followups],
-                    ['الحضور', evidenceHealth.attendance],
-                  ] as const).map(([label, sourceStatus]) => (
-                    <span
-                      key={label}
-                      className="rounded-full border px-3 py-1"
-                      style={sourceStatus === 'available'
-                        ? { borderColor: 'var(--dawaa-status-success-border)', background: 'var(--dawaa-status-success-bg)', color: 'var(--dawaa-status-success-text)' }
-                        : { borderColor: 'var(--dawaa-status-danger-border)', background: 'var(--dawaa-status-danger-bg)', color: 'var(--dawaa-status-danger-text)' }}
-                    >
-                      {label}: {sourceStatus === 'available' ? 'جاهز' : 'غير متاح'}
+                <Panel className="p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>مصادر التقييم</div>
+                      <div className="mt-1 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                        راجع فقط إن المصادر الأساسية جاهزة قبل بدء التقييم.
+                      </div>
+                    </div>
+                    <span className="text-xs font-black" style={{ color: evidenceReady ? 'var(--dawaa-status-success-text)' : 'var(--dawaa-status-danger-text)' }}>
+                      {evidenceReady ? '3/3 جاهزة' : 'يوجد مصدر ناقص'}
                     </span>
-                  ))}
-                </div>
-                {!evidenceReady && Object.keys(evidenceErrors).length ? (
-                  <div className="mb-3 rounded-xl border p-2 text-xs font-bold" style={{ borderColor: 'var(--dawaa-status-danger-border)', background: 'var(--dawaa-status-danger-bg)', color: 'var(--dawaa-status-danger-text)' }}>
-                    لا تعتمد التقييم قبل عودة مصادر الأدلة. التفاصيل محفوظة للمراجعة الفنية ولا يتم تحويلها إلى أصفار حقيقية.
                   </div>
-                ) : null}
-                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                  {(Object.keys(METRIC_LABELS) as (keyof typeof METRIC_LABELS)[]).map((key) => (
-                    <MiniBox key={key} label={METRIC_LABELS[key]} value={String(metrics[key])} tone="cyan" />
-                  ))}
-                </div>
-              </Panel>
+
+                  <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                    {([
+                      ['المحادثات', evidenceHealth.reviews],
+                      ['المتابعات', evidenceHealth.followups],
+                      ['الحضور', evidenceHealth.attendance],
+                    ] as const).map(([label, sourceStatus]) => {
+                      const available = sourceStatus === 'available';
+                      return (
+                        <div
+                          key={label}
+                          className="flex items-center justify-between rounded-xl border px-3 py-2.5"
+                          style={available
+                            ? { borderColor: 'var(--dawaa-status-success-border)', background: 'var(--dawaa-status-success-bg)' }
+                            : { borderColor: 'var(--dawaa-status-danger-border)', background: 'var(--dawaa-status-danger-bg)' }}
+                        >
+                          <span className="text-xs font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>{label}</span>
+                          <span className="text-[11px] font-black" style={{ color: available ? 'var(--dawaa-status-success-text)' : 'var(--dawaa-status-danger-text)' }}>
+                            {available ? 'جاهز' : 'غير متاح'}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {!evidenceReady && Object.keys(evidenceErrors).length ? (
+                    <div className="mt-3 rounded-xl border p-2.5 text-xs font-bold" style={{ borderColor: 'var(--dawaa-status-danger-border)', background: 'var(--dawaa-status-danger-bg)', color: 'var(--dawaa-status-danger-text)' }}>
+                      الاعتماد النهائي متوقف حتى يعود المصدر الناقص.
+                    </div>
+                  ) : null}
+                </Panel>
               ) : null}
 
               {activeStep === 3 ? (
