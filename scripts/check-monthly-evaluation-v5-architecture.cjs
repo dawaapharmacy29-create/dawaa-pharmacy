@@ -1,0 +1,79 @@
+const fs = require('fs');
+
+const failures = [];
+
+function read(path) {
+  if (!fs.existsSync(path)) {
+    failures.push(`Missing required file: ${path}`);
+    return '';
+  }
+  return fs.readFileSync(path, 'utf8');
+}
+
+const page = read('src/pages/StaffMonthlyEvaluationGeneral.tsx');
+const workflow = read('src/components/evaluations/MonthlyEvaluationWorkflowV5.tsx');
+const audit = read('src/components/evaluations/MonthlyEvaluationAuditTrailV5.tsx');
+const profiles = read('src/lib/evaluations/staffEvaluationProfilesV3.ts');
+const backend = [
+  read('supabase/migrations/20260929153000_monthly_evaluation_command_center_v5.sql'),
+  read('supabase/migrations/20260929154500_monthly_evaluation_v5_hardening.sql'),
+  read('supabase/migrations/20260929160000_monthly_evaluation_v5_read_api.sql'),
+  read('supabase/migrations/20260929161000_monthly_evaluation_v5_draft_fix.sql'),
+].join('\n');
+
+for (const rpc of [
+  'list_staff_for_monthly_evaluation_v5',
+  'get_staff_monthly_evaluation_v5',
+  'save_staff_monthly_evaluation_v5',
+]) {
+  if (!page.includes(rpc)) failures.push(`Monthly evaluation page must use canonical V5 RPC: ${rpc}`);
+}
+
+for (const legacy of [
+  'save_staff_monthly_evaluation_v3',
+  "rpc('get_staff_monthly_evaluation_safe'",
+  "rpc('list_staff_for_monthly_evaluation_safe'",
+]) {
+  if (page.includes(legacy)) failures.push(`Monthly evaluation page still references legacy API: ${legacy}`);
+}
+
+if (!page.includes('MonthlyEvaluationWorkflowV5')) failures.push('V5 workflow stepper is not wired into the page.');
+if (!page.includes('MonthlyEvaluationAuditTrailV5')) failures.push('V5 audit trail is not wired into the page.');
+if (!page.includes("type: 'monthly_evaluation_ready'")) failures.push('Final approval must notify the employee through the canonical notification domain.');
+if (!page.includes('weakSectionsMissingNotes')) failures.push('Weak-score rationale guard is missing from the client.');
+if (!page.includes('criticalGateMissingReason')) failures.push('Critical-gate rationale guard is missing from the client.');
+
+if (/points_incentive_egp\s*\*\s*effectiveEvaluationMultiplierPct/.test(page)) {
+  failures.push('Client-side final incentive recomputation is forbidden; read the canonical server financial truth.');
+}
+if (!page.includes('pointsTruth?.final_incentive_egp')) {
+  failures.push('Page must read final incentive from the canonical points truth.');
+}
+
+for (const step of ['بيانات الدورة', 'تقييم المحاور', 'النقاط والمخالفات', 'الخلاصة والتطوير', 'المراجعة والاعتماد']) {
+  if (!workflow.includes(step)) failures.push(`Workflow is missing step: ${step}`);
+}
+
+if (!audit.includes('get_staff_monthly_evaluation_audit_v5')) failures.push('Audit component must read the V5 audit API.');
+if (!profiles.includes('DEFAULT_RUBRIC')) failures.push('Every evaluation profile must have a five-star rubric fallback.');
+
+for (const token of [
+  'staff_monthly_evaluation_audit',
+  'list_staff_for_monthly_evaluation_v5',
+  'get_staff_monthly_evaluation_v5',
+  'save_staff_monthly_evaluation_v5',
+  "Africa/Cairo",
+  'between 0 and 5',
+  'يجب تقييم كل المحاور قبل الاعتماد النهائي',
+  '1 أو 2 نجمة',
+]) {
+  if (!backend.includes(token)) failures.push(`V5 backend contract is missing: ${token}`);
+}
+
+if (failures.length) {
+  console.error('Monthly Evaluation V5 architecture check failed:');
+  for (const failure of failures) console.error(`- ${failure}`);
+  process.exit(1);
+}
+
+console.log('Monthly Evaluation V5 architecture check passed.');
