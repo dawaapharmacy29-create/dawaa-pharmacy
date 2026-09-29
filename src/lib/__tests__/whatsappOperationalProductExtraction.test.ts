@@ -205,6 +205,19 @@ describe('WhatsApp Operational Intelligence V6 product extraction', () => {
     }
   });
 
+  it('creates an evidence-backed recovery followup after stockout alternatives with no customer decision', () => {
+    const model = analyze(`[8/11/26, 3:27:41 PM] You: للأسف يا فندم دورت لحضرتك عليه فى كل مكان مش متوفر نفس الشكل
+[8/11/26, 3:28:18 PM] You: موجود المغربى والهندى ونتايجهم ممتازة جدا
+[8/11/26, 3:39:12 PM] You: المغربى ب ٦٣٠ ج الهندى ب ٥٢٥ ج
+[8/11/26, 3:39:31 PM] You: دى أسعارهم لو تحب تطلب منهم يا فندم`);
+    expect(model.operationalOutcome).toBe('needs_followup');
+    expect(model.followupPlan.required).toBe(true);
+    expect(model.followupPlan.reason).toMatch(/الصنف الأصلي غير متوفر.*تم عرض بدائل/);
+    expect(model.followupPlan.evidenceMessageIds.length).toBeGreaterThan(0);
+    expect(model.evidence.stockUnavailable.messageIds.length).toBeGreaterThan(0);
+    expect(model.evidence.alternativeOffered.messageIds.length).toBeGreaterThan(0);
+  });
+
   it('closes an accepted order when delivery dispatch is explicitly underway', () => {
     const model = analyze(`[9/15/26, 9:30:55 PM] Customer: [Forwarded] Isis teenderm gel for sensitive skin بديل الغسول
 [9/15/26, 9:31:16 PM] Customer: موجود عندكم الغسول ده
