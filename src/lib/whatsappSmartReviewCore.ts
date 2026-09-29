@@ -1,3 +1,4 @@
+/* eslint-disable no-misleading-character-class */
 import type { WhatsAppConversationSession, WhatsAppParsedMessage } from './whatsappConversationParser';
 
 export type SmartConversationStage =
