@@ -118,6 +118,16 @@ begin
       end
     )
   loop
+    if v_gate not in (
+      'unexplained_cash_shortage',
+      'data_manipulation',
+      'ignored_serious_complaint',
+      'unescalated_critical_issue',
+      'repeated_negligence'
+    ) then
+      raise exception 'invalid_monthly_evaluation_critical_gate:%',v_gate using errcode='22023';
+    end if;
+
     v_gate_cap := least(
       v_gate_cap,
       case v_gate
@@ -126,12 +136,8 @@ begin
         when 'ignored_serious_complaint' then 40
         when 'unescalated_critical_issue' then 60
         when 'repeated_negligence' then 70
-        else 101
       end
     );
-    if v_gate_cap=101 then
-      raise exception 'invalid_monthly_evaluation_critical_gate:%',v_gate using errcode='22023';
-    end if;
   end loop;
 
   v_effective_multiplier := least(v_score,v_gate_cap);
