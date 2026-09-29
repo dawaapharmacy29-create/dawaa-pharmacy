@@ -44,6 +44,7 @@ import {
   buildFollowupIdentity,
   episodeStartedAt,
   followupCustomerAnchor,
+  normalizeFollowupKeyPart,
 } from '@/lib/whatsappFollowupIdentity';
 import {
   requestCanonicalSalesIntelligenceRefresh,
@@ -226,26 +227,93 @@ export async function saveFollowupSignals(
     });
   const identities = signals.map(identityOf);
 
-  const { data: existing, error: existingError } = await supabase
+  const exactLookup = supabase
     .from('whatsapp_auto_followup_requests')
     .select('followup_identity')
     .in('followup_identity', Array.from(new Set(identities)));
+  const legacyLookup =
+    identity.resolutionStatus === 'resolved' && identity.customerId
+      ? supabase
+          .from('whatsapp_auto_followup_requests')
+          .select('id,customer_id,signal_type,requested_product_name,evidence_timestamp,followup_identity')
+          .eq('customer_id', identity.customerId)
+          .is('followup_identity', null)
+          .in('signal_type', Array.from(new Set(signals.map((signal) => signal.signalType))))
+          .limit(100)
+      : Promise.resolve({ data: [], error: null });
+
+  const [
+    { data: existing, error: existingError },
+    { data: legacyRows, error: legacyError },
+  ] = await Promise.all([exactLookup, legacyLookup]);
   if (existingError) throw existingError;
+  if (legacyError) throw legacyError;
 
   const existingKeys = new Set((existing || []).map((row) => String(row.followup_identity || '')));
   const freshSignals: Array<{ signal: DetectedFollowupSignal; followupIdentity: string }> = [];
   let duplicate = 0;
-  signals.forEach((signal, index) => {
+  let legacyAdopted = 0;
+  let legacyAmbiguous = 0;
+
+  for (let index = 0; index < signals.length; index += 1) {
+    const signal = signals[index];
     const key = identities[index];
     if (existingKeys.has(key)) {
       duplicate += 1;
-      return;
+      continue;
     }
+
+    const signalAt = new Date(signal.evidenceTimestamp);
+    const episodeStart = episodeStartedAt(session.messages, signalAt).getTime();
+    const reasonKey = normalizeFollowupKeyPart(signal.requestedProductName || '');
+    const deterministicLegacy = (legacyRows || []).filter((row: any) => {
+      if (String(row.signal_type || '') !== signal.signalType) return false;
+      if (normalizeFollowupKeyPart(row.requested_product_name || '') !== reasonKey) return false;
+      if (!row.evidence_timestamp) return false;
+      const legacyAt = new Date(String(row.evidence_timestamp));
+      if (Number.isNaN(legacyAt.getTime())) return false;
+      if (
+        legacyAt.getTime() < session.startedAt.getTime() ||
+        legacyAt.getTime() > session.endedAt.getTime()
+      )
+        return false;
+      return episodeStartedAt(session.messages, legacyAt).getTime() === episodeStart;
+    });
+
+    if (deterministicLegacy.length === 1) {
+      const legacyId = String(deterministicLegacy[0].id || '');
+      const { data: adopted, error: adoptError } = await supabase
+        .from('whatsapp_auto_followup_requests')
+        .update({ followup_identity: key })
+        .eq('id', legacyId)
+        .is('followup_identity', null)
+        .select('id');
+      if (adoptError) {
+        if (adoptError.code === '23505') {
+          duplicate += 1;
+          existingKeys.add(key);
+          continue;
+        }
+        throw adoptError;
+      }
+      if ((adopted || []).length) {
+        legacyAdopted += 1;
+        duplicate += 1;
+        existingKeys.add(key);
+        continue;
+      }
+    } else if (deterministicLegacy.length > 1) {
+      // Fail closed: more than one historical NULL row is not a deterministic adoption.
+      legacyAmbiguous += 1;
+      continue;
+    }
+
     existingKeys.add(key);
     freshSignals.push({ signal, followupIdentity: key });
-  });
+  }
 
-  if (!freshSignals.length) return { created: 0, duplicate };
+  if (!freshSignals.length)
+    return { created: 0, duplicate, legacyAdopted, legacyAmbiguous };
 
   const rows = freshSignals.map(({ signal, followupIdentity }) => ({
     followup_identity: followupIdentity,
@@ -276,7 +344,7 @@ export async function saveFollowupSignals(
     if (error.code === '23505') return { created: 0, duplicate: duplicate + rows.length };
     throw error;
   }
-  return { created: rows.length, duplicate };
+  return { created: rows.length, duplicate, legacyAdopted, legacyAmbiguous };
 }
 
 async function persistOperationalJourneyIntelligence(
