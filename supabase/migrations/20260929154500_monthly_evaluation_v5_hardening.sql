@@ -45,7 +45,7 @@ begin
     case
       when e.id is null then 'not_started'
       when e.status in ('sent','approved')
-        and (e.sent_at is null or e.sent_at::date <= v_cycle_end) then 'needs_reapproval'
+        and (e.sent_at is null or (e.sent_at at time zone 'Africa/Cairo')::date <= v_cycle_end) then 'needs_reapproval'
       else e.status
     end,
     case when e.id is null then null else e.overall_score end,
@@ -77,7 +77,7 @@ begin
     case
       when e.id is null then 0
       when e.status='draft' then 1
-      when e.status in ('sent','approved') and (e.sent_at is null or e.sent_at::date <= v_cycle_end) then 2
+      when e.status in ('sent','approved') and (e.sent_at is null or (e.sent_at at time zone 'Africa/Cairo')::date <= v_cycle_end) then 2
       else 3
     end,
     s.name;
