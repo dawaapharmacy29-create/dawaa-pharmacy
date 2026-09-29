@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Award, CheckCircle2, ChevronDown, FileDown, Loader2, Save, Search, Send, ShieldAlert, Star, UserCheck,
+  CheckCircle2, ChevronDown, FileDown, Loader2, Save, Search, Send, Star, UserCheck,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
@@ -32,7 +32,7 @@ import {
 } from '@/lib/evaluations/incentiveTiers';
 import { buildStaffMonthlyEvaluationPdf } from '@/lib/evaluations/staffMonthlyEvaluationPdf';
 import { createStaffNotification } from '@/lib/staffNotificationService';
-import { Panel, SectionTitle, KpiCard, MiniBox, EmptyState } from '@/components/dashboard/DashboardPrimitives';
+import { Panel, MiniBox, EmptyState } from '@/components/dashboard/DashboardPrimitives';
 import MonthlyEvaluationWorkflowV5, { type MonthlyEvaluationStep } from '@/components/evaluations/MonthlyEvaluationWorkflowV5';
 import MonthlyEvaluationAuditTrailV5 from '@/components/evaluations/MonthlyEvaluationAuditTrailV5';
 
@@ -504,13 +504,6 @@ export default function StaffMonthlyEvaluation() {
   const completedSections = sections.filter((item) => item.score > 0).length;
   const weakSectionsMissingNotes = sections.filter((item) => item.score > 0 && item.score <= 2 && !item.notes.trim());
   const criticalGateMissingReason = activeGates.length > 0 && !managerNotes.trim();
-  const staffSummary = {
-    total: staff.length,
-    notStarted: staff.filter((item) => !item.evaluation_status || item.evaluation_status === 'not_started').length,
-    draft: staff.filter((item) => item.evaluation_status === 'draft').length,
-    approved: staff.filter((item) => ['sent', 'approved'].includes(String(item.evaluation_status || ''))).length,
-    needsReapproval: staff.filter((item) => item.evaluation_status === 'needs_reapproval').length,
-  };
   const approvalBlockers = [
     !cycleClosed ? 'الدورة لم تُقفل بعد' : '',
     !evidenceReady ? 'مصدر أو أكثر من أدلة الدورة غير متاح' : '',
@@ -756,7 +749,6 @@ export default function StaffMonthlyEvaluation() {
                 approvalReady={approvalReady}
                 status={status}
                 requiresPostCycleReapproval={requiresPostCycleReapproval}
-                summary={staffSummary}
               />
 
               {activeStep === 1 ? (
