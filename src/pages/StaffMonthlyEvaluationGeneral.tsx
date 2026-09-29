@@ -595,65 +595,80 @@ export default function StaffMonthlyEvaluation() {
         ) : null}
       </Panel>
 
-      <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
-        <aside className="rounded-3xl border p-4 xl:sticky xl:top-4 xl:h-fit" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}>
+      <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
+        <aside className="rounded-3xl border p-3 xl:sticky xl:top-4 xl:h-fit" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}>
           <button
             type="button"
             onClick={() => setSidebarOpen((value) => !value)}
             className="flex w-full items-center justify-between gap-2 text-sm font-black xl:hidden"
             style={{ color: 'var(--dawaa-theme-heading)' }}
           >
-            <span>اختيار الموظف {selected ? `— ${selected.name}` : ''}</span>
+            <span>{selected ? selected.name : 'اختيار الموظف'}</span>
             <ChevronDown className={sidebarOpen ? 'rotate-180 transition-transform' : 'transition-transform'} size={16} />
           </button>
+
           <div className={`${sidebarOpen ? 'block' : 'hidden'} xl:block`}>
+            <div className="mb-2 hidden items-center justify-between xl:flex">
+              <div className="text-sm font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>الموظفون</div>
+              <div className="text-[11px] font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>{filteredStaff.length} موظف</div>
+            </div>
+
             <div className="relative mt-3 xl:mt-0">
-              <Search className="absolute right-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--dawaa-theme-muted)' }} size={17} />
+              <Search className="absolute right-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--dawaa-theme-muted)' }} size={16} />
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="بحث باسم الموظف"
-                className="w-full rounded-2xl border py-2.5 pr-10 pl-3 text-sm font-bold"
+                placeholder="ابحث بالاسم"
+                className="w-full rounded-xl border py-2 pr-9 pl-3 text-sm font-bold"
                 style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-theme-text)' }}
               />
             </div>
-            <div className="mt-3 max-h-[70vh] space-y-2 overflow-y-auto">
-              {filteredStaff.map((item) => (
-                <button
-                  key={item.id}
-                  onClick={() => { setSelectedId(item.id); setSidebarOpen(false); }}
-                  className="w-full rounded-2xl border p-3 text-right"
-                  style={selectedId === item.id
-                    ? { borderColor: 'var(--dawaa-theme-accent-border)', background: 'var(--dawaa-theme-accent-soft)' }
-                    : { borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>{item.name}</div>
-                    <span
-                      className="rounded-full border px-2 py-0.5 text-[10px] font-black"
-                      style={item.evaluation_status === 'needs_reapproval'
-                        ? { borderColor: 'var(--dawaa-status-danger-border)', background: 'var(--dawaa-status-danger-bg)', color: 'var(--dawaa-status-danger-text)' }
-                        : ['sent', 'approved'].includes(String(item.evaluation_status || ''))
-                          ? { borderColor: 'var(--dawaa-status-success-border)', background: 'var(--dawaa-status-success-bg)', color: 'var(--dawaa-status-success-text)' }
-                          : item.evaluation_status === 'draft'
-                            ? { borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-status-warning-bg)', color: 'var(--dawaa-status-warning-text)' }
-                            : { borderColor: 'var(--dawaa-theme-border)', color: 'var(--dawaa-theme-muted)' }}
-                    >
-                      {item.evaluation_status === 'needs_reapproval'
-                        ? 'إعادة اعتماد'
-                        : ['sent', 'approved'].includes(String(item.evaluation_status || ''))
-                          ? 'معتمد'
-                          : item.evaluation_status === 'draft'
-                            ? 'مسودة'
-                            : 'لم يبدأ'}
-                    </span>
-                  </div>
-                  <div className="mt-1 text-xs" style={{ color: 'var(--dawaa-theme-muted)' }}>
-                    {item.role} · {item.branch}
-                    {item.evaluation_score != null ? ` · ${item.evaluation_score}/100` : ''}
-                  </div>
-                </button>
-              ))}
+
+            <div className="mt-2 max-h-[72vh] space-y-1.5 overflow-y-auto">
+              {filteredStaff.map((item) => {
+                const statusLabel = item.evaluation_status === 'needs_reapproval'
+                  ? 'إعادة اعتماد'
+                  : ['sent', 'approved'].includes(String(item.evaluation_status || ''))
+                    ? 'معتمد'
+                    : item.evaluation_status === 'draft'
+                      ? 'مسودة'
+                      : 'لم يبدأ';
+                const statusColor = item.evaluation_status === 'needs_reapproval'
+                  ? 'var(--dawaa-status-danger-text)'
+                  : ['sent', 'approved'].includes(String(item.evaluation_status || ''))
+                    ? 'var(--dawaa-status-success-text)'
+                    : item.evaluation_status === 'draft'
+                      ? 'var(--dawaa-status-warning-text)'
+                      : 'var(--dawaa-theme-muted)';
+
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => { setSelectedId(item.id); setSidebarOpen(false); }}
+                    className="w-full rounded-xl border px-3 py-2.5 text-right transition"
+                    style={selectedId === item.id
+                      ? { borderColor: 'var(--dawaa-theme-accent-border)', background: 'var(--dawaa-theme-accent-soft)' }
+                      : { borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: statusColor }} />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>{item.name}</div>
+                        <div className="mt-0.5 truncate text-[11px] font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                          {item.role}
+                          {item.evaluation_score != null ? ` · ${item.evaluation_score}/100` : ''}
+                        </div>
+                      </div>
+                      <span className="shrink-0 text-[10px] font-black" style={{ color: statusColor }}>{statusLabel}</span>
+                    </div>
+                  </button>
+                );
+              })}
+              {!filteredStaff.length ? (
+                <div className="rounded-xl border border-dashed p-4 text-center text-xs font-bold" style={{ borderColor: 'var(--dawaa-theme-border)', color: 'var(--dawaa-theme-muted)' }}>
+                  لا يوجد موظف مطابق للبحث.
+                </div>
+              ) : null}
             </div>
           </div>
         </aside>
