@@ -14,6 +14,7 @@ import WhatsAppCaseKpisV23 from '@/components/reviews/WhatsAppCaseKpisV23';
 import WhatsAppCustomerCasesV22 from '@/components/reviews/WhatsAppCustomerCasesV22';
 import WhatsAppCustomerStory360V16 from '@/components/reviews/WhatsAppCustomerStory360V16';
 import WhatsAppRecoverableOpportunitiesV10 from '@/components/reviews/WhatsAppRecoverableOpportunitiesV10';
+import WhatsAppLostOpportunityAnalyticsV24 from '@/components/reviews/WhatsAppLostOpportunityAnalyticsV24';
 import WhatsAppRecoveryWorkQueueV11 from '@/components/reviews/WhatsAppRecoveryWorkQueueV11';
 import WhatsAppRecoveryCycleKpisV12 from '@/components/reviews/WhatsAppRecoveryCycleKpisV12';
 import {
@@ -306,7 +307,12 @@ export default function WhatsappAnalytics() {
           </div>
           {workspacePanel === 'cases' ? <WhatsAppCustomerCasesV22 onOpenSource={(sourceId) => navigate(`/whatsapp-smart-folder-watcher?source=${encodeURIComponent(sourceId)}`)} /> : null}
           {workspacePanel === 'customers' ? <WhatsAppCustomerStory360V16 onOpenSource={(sourceId) => navigate(`/whatsapp-smart-folder-watcher?source=${encodeURIComponent(sourceId)}`)} /> : null}
-          {workspacePanel === 'opportunities' ? <WhatsAppRecoverableOpportunitiesV10 onOpenSource={(sourceId) => navigate(`/whatsapp-smart-folder-watcher?source=${encodeURIComponent(sourceId)}`)} /> : null}
+          {workspacePanel === 'opportunities' ? (
+            <>
+              <WhatsAppLostOpportunityAnalyticsV24 onOpenSource={(sourceId) => navigate(`/whatsapp-smart-folder-watcher?source=${encodeURIComponent(sourceId)}`)} />
+              <WhatsAppRecoverableOpportunitiesV10 onOpenSource={(sourceId) => navigate(`/whatsapp-smart-folder-watcher?source=${encodeURIComponent(sourceId)}`)} />
+            </>
+          ) : null}
           {workspacePanel === 'followups' ? (
             <>
               <WhatsAppRecoveryCycleKpisV12 />
