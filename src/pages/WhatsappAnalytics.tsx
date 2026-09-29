@@ -10,6 +10,7 @@ import { normalizeBranchName } from '@/lib/branch';
 import { formatCycleDate, getCurrentCycle } from '@/lib/pharmacy-cycle';
 import { formatCurrency } from '@/lib/utils';
 import { getInvoiceKey } from '@/lib/dawaa2027';
+import WhatsAppCaseKpisV23 from '@/components/reviews/WhatsAppCaseKpisV23';
 import {
   buildStaffIdentityMap,
   resolvePrimaryStaffForDoctor,
@@ -283,6 +284,11 @@ export default function WhatsappAnalytics() {
             <div className="mt-1 text-xs leading-5 text-slate-400">{item.detail}</div>
           </button>
         ))}
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <WhatsAppCaseKpisV23 mode="doctors" />
+        <WhatsAppCaseKpisV23 mode="service" />
       </div>
 
       <div className="rounded-2xl border border-[#2d4063] bg-[#1B2B4B] p-4">
