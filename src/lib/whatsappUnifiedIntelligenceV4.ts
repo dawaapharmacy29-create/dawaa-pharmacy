@@ -1,3 +1,4 @@
+/* eslint-disable no-misleading-character-class */
 import { readCustomerInvoices, type CustomerInvoiceReadRow } from '@/lib/readModels/customerInvoiceReadModel';
 import type { WhatsAppConversationSession, WhatsAppParsedMessage } from './whatsappConversationParser';
 import { extractConversationSignals } from './whatsappConversationSignals';
