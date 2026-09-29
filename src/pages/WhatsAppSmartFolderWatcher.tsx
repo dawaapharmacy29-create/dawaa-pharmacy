@@ -2612,6 +2612,38 @@ export default function WhatsAppSmartFolderWatcher() {
                         </div>
                       </section>
 
+                      <section className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                        <div className="rounded-2xl border border-emerald-800/35 bg-emerald-950/10 p-3.5">
+                          <div className="text-[10px] font-black text-emerald-300/70">أقوى نقطة</div>
+                          <div className="mt-1 text-sm font-black text-emerald-100">
+                            {selected.snapshot.smartIntelligence.evaluationV2.strongestAxis || 'غير محسومة بالأدلة'}
+                          </div>
+                        </div>
+                        <div className="rounded-2xl border border-amber-800/35 bg-amber-950/10 p-3.5">
+                          <div className="text-[10px] font-black text-amber-300/70">أهم نقطة تحسين</div>
+                          <div className="mt-1 text-sm font-black text-amber-100">
+                            {selected.snapshot.smartIntelligence.evaluationV2.weakestAxis || 'لا توجد نقطة ضعف مؤكدة'}
+                          </div>
+                        </div>
+                        <div className={`rounded-2xl border p-3.5 ${nextDecisionLabel(selected).cls}`}>
+                          <div className="text-[10px] font-black opacity-70">القرار التالي</div>
+                          <div className="mt-1 text-sm font-black">{nextDecisionLabel(selected).label}</div>
+                          <div className="mt-1 line-clamp-2 text-[10px] leading-5 opacity-75">{nextDecisionLabel(selected).detail}</div>
+                        </div>
+                        <div className={`rounded-2xl border p-3.5 ${
+                          selected.snapshot.smartIntelligence.evaluationV2.warnings.length
+                            ? 'border-rose-800/35 bg-rose-950/10 text-rose-100'
+                            : 'border-slate-800 bg-slate-950/25 text-slate-300'
+                        }`}>
+                          <div className="text-[10px] font-black opacity-70">تحذيرات الأدلة</div>
+                          <div className="mt-1 text-xs font-bold leading-5">
+                            {selected.snapshot.smartIntelligence.evaluationV2.warnings.length
+                              ? selected.snapshot.smartIntelligence.evaluationV2.warnings.slice(0, 2).join(' • ')
+                              : 'لا توجد تحذيرات مؤثرة على القراءة الحالية.'}
+                          </div>
+                        </div>
+                      </section>
+
                       <section className="grid gap-2 md:grid-cols-5">
                         {selected.snapshot.smartIntelligence.evaluationV2.axes.map((axis) => {
                           const scoreTone = axis.score == null
@@ -2676,7 +2708,7 @@ export default function WhatsAppSmartFolderWatcher() {
                           <div className="mt-1 text-base font-black text-white">{saleTruth(selected).label}</div>
                           <div className="mt-1 text-xs leading-6 text-slate-400">{saleTruth(selected).detail}</div>
                           <div className="mt-2 text-[10px] leading-5 text-slate-500">
-                            الفاتورة تحسم حقيقة البيع عند التطابق القوي، أما تأكيد الدكتور للأصناف مع العميل فيُقيَّم كخطوة خدمة مستقلة ولا يلغي البيع المثبت.
+                            مطابقة الفاتورة الآلية — حتى لو كانت قوية — تظل مرشحًا للمراجعة ولا تثبت البيع وحدها. البيع الرسمي لا يُحسب إلا عند Canonical Sale Proof، بينما تأكيد الدكتور للأصناف مع العميل يُقيَّم كخطوة خدمة مستقلة.
                           </div>
                         </div>
                         <div className="rounded-2xl border border-sky-800/30 bg-sky-950/10 p-4">
