@@ -158,6 +158,8 @@ const ACCEPT_RX = /(^|\s)(تمام|ماشي|موافق|اوكي|أوكي|خلا�
 const REJECT_RX = /(لا شكرا|مش عايز|مش عاوز|مش محتاج|غالي|مش مناسب|مش هاخد|مش هطلب|بلاش)/i;
 const EXTERNAL_RESOLUTION_RX =
   /(?:^|\s)(?:خلاص\s+)?(?:لقيته|لقيتها|لقيتهم|جبته|جبتها|اشتريته|اشتريتها)(?:\s|$)/i;
+const STOCK_UNAVAILABLE_RX =
+  /(مش\s+موجود|غير\s+موجود|غير\s+متوفر(?:ه|ة)?|مش\s+متوفر(?:ه|ة)?|ناقص|غير\s+متاح(?:ه|ة)?|مش\s+متاح(?:ه|ة)?|خلص|مش\s+عندنا)/i;
 const COMPLAINT_RX = /(شكوي|شكوى|مشكله|مشكلة|متاخر|متأخر|محدش رد|غلط|سيء|وحش|ماوصلش|موصلش|لسه مجاش|اتضايقت|زعلت|الطريق[هة][^\n]{0,50}(?:سخيف|وحش|سيئ|غير\s*لائق)|اسلوب[^\n]{0,50}(?:سخيف|وحش|سيئ|غير\s*لائق)|قليل\s*الذوق|مش\s*ذوق|اتكلم[^\n]{0,40}وحش|بيتكلم[^\n]{0,70}(?:سخيف|وحش|سيئ))/i;
 const NEGATED_COMPLAINT_RX = /(مفيش\s+مشكله|مفيش\s+مشكلة|مافيش\s+مشكله|مافيش\s+مشكلة|لا\s+توجد\s+مشكله|لا\s+توجد\s+مشكلة|مش\s+مشكله|مش\s+مشكلة)/i;
 const FULFILLMENT_FAILURE_RX = /(التاخير\s+الكبير|التأخير\s+الكبير|المندوب[^\n]{0,80}(?:مجاش|ماجاش|مجالبيش|ماوصلش|موصلش)|كان\s+المفروض[^\n]{0,100}(?:لكن|بس)[^\n]{0,100}(?:مجاش|ماجاش|مجالبيش|ماوصلش|موصلش)|لو\s+حضرتك[^\n]{0,40}(?:تحبي|تحب)[^\n]{0,40}نبعت\s+(?:الاوردر|الأوردر)|نبعت\s+(?:الاوردر|الأوردر))/i;
@@ -629,7 +631,7 @@ function recommendations(session: WhatsAppConversationSession, products: WhatsAp
     const index = session.messages.findIndex((m) => m.id === message.id);
     const priorStockout = index > 0 && session.messages.slice(0, index).some((row) =>
       row.direction === 'outbound' &&
-      /(مش موجود|غير موجود|غير متوفر(?:ه|ة)?|مش متوفر(?:ه|ة)?|ناقص|مش متاح|خلص|مش عندنا)/i.test(row.text)
+      STOCK_UNAVAILABLE_RX.test(row.text)
     );
     const contextualUnnamedRecommendation =
       requestedRecommendation ||
@@ -688,7 +690,7 @@ export function buildWhatsAppOperationalIntelligenceV6(session: WhatsAppConversa
   const complaint = complaintRows.length > 0;
   const outboundMessages = byDirection(session, 'outbound');
   const stockUnavailableRows = outboundMessages.filter((message) =>
-    /(مش موجود|غير موجود|غير متوفر(?:ه|ة)?|مش متوفر(?:ه|ة)?|ناقص|مش متاح|خلص|مش عندنا)/i.test(message.text)
+    STOCK_UNAVAILABLE_RX.test(message.text)
   );
   const alternativeOfferRows = outboundMessages.filter((message) => {
     if (/(بديل|بداله|بدلها|ممكن بدل|نرشح|ارشح|أرشح|حاجه\s+زيها|حاجة\s+زيها|حاحه\s+زيها|حاحة\s+زيها)/i.test(message.text)) return true;
