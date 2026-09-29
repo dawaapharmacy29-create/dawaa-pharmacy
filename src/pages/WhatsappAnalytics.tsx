@@ -15,6 +15,7 @@ import WhatsAppCustomerCasesV22 from '@/components/reviews/WhatsAppCustomerCases
 import WhatsAppCustomerStory360V16 from '@/components/reviews/WhatsAppCustomerStory360V16';
 import WhatsAppRecoverableOpportunitiesV10 from '@/components/reviews/WhatsAppRecoverableOpportunitiesV10';
 import WhatsAppRecoveryWorkQueueV11 from '@/components/reviews/WhatsAppRecoveryWorkQueueV11';
+import WhatsAppRecoveryCycleKpisV12 from '@/components/reviews/WhatsAppRecoveryCycleKpisV12';
 import {
   buildStaffIdentityMap,
   resolvePrimaryStaffForDoctor,
@@ -295,7 +296,12 @@ export default function WhatsappAnalytics() {
           {workspacePanel === 'cases' ? <WhatsAppCustomerCasesV22 onOpenSource={() => navigate('/whatsapp-smart-folder-watcher')} /> : null}
           {workspacePanel === 'customers' ? <WhatsAppCustomerStory360V16 onOpenSource={() => navigate('/whatsapp-smart-folder-watcher')} /> : null}
           {workspacePanel === 'opportunities' ? <WhatsAppRecoverableOpportunitiesV10 onOpenSource={() => navigate('/whatsapp-smart-folder-watcher')} /> : null}
-          {workspacePanel === 'followups' ? <WhatsAppRecoveryWorkQueueV11 onOpenSource={() => navigate('/whatsapp-smart-folder-watcher')} /> : null}
+          {workspacePanel === 'followups' ? (
+            <>
+              <WhatsAppRecoveryCycleKpisV12 />
+              <WhatsAppRecoveryWorkQueueV11 onOpenSource={() => navigate('/whatsapp-smart-folder-watcher')} />
+            </>
+          ) : null}
         </div>
       )}
 
