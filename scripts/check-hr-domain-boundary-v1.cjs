@@ -133,8 +133,11 @@ for (const required of [
 }
 
 const monthlyEvaluationPage = read(path.join(srcRoot, 'pages/StaffMonthlyEvaluationGeneral.tsx'));
-if (!monthlyEvaluationPage.includes("save_staff_monthly_evaluation_v2")) {
-  fail('monthly evaluation must use the atomic V2 evaluation + multiplier command.');
+if (
+  !monthlyEvaluationPage.includes("save_staff_monthly_evaluation_v2")
+  && !monthlyEvaluationPage.includes("save_staff_monthly_evaluation_v5")
+) {
+  fail('monthly evaluation must use an approved atomic evaluation + multiplier command (V2 or V5).');
 }
 if (monthlyEvaluationPage.includes('staff_evaluation_incentive_multipliers')) {
   fail('monthly evaluation must not mutate incentive multipliers directly.');
