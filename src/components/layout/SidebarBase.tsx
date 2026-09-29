@@ -66,7 +66,6 @@ const GROUPS: NavGroup[] = [
   { title: 'مراجعة واتساب الذكية', icon: MessageCircle, items: [
     { path: '/whatsapp-followup-requests', icon: ClipboardCheck, label: 'طلبات المتابعة الآلية', permission: 'view_reviews' },
     { path: '/whatsapp-doctor-performance', icon: Star, label: 'أداء الدكاترة', permission: 'view_reviews' },
-    { path: '/whatsapp-customer-history', icon: Users, label: 'سجل محادثات العميل', permission: 'view_reviews' },
     { path: '/whatsapp-lost-opportunities', icon: PackageX, label: 'الفرص الضائعة', permission: 'view_reviews' },
     { path: '/whatsapp-branch-comparison', icon: BarChart3, label: 'مقارنة الفروع (واتساب)', permission: 'view_reviews' },
   ]},
