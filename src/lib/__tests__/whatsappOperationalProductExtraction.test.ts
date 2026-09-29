@@ -245,6 +245,19 @@ describe('WhatsApp Operational Intelligence V6 product extraction', () => {
     expect(model.evidence.externalResolution.messageIds).toHaveLength(0);
   });
 
+  it('treats supplier/company search promises as followup commitments', () => {
+    const model = analyze(`[6/28/26, 10:09:33 AM] Customer: <image omitted>
+[6/28/26, 10:09:36 AM] Customer: ده موجود
+[6/28/26, 10:10:39 AM] You: هشوفه لحضرتك
+[6/28/26, 10:20:13 AM] You: لو حضرتك تحب ارشح لك حاجه افضل منه
+[6/28/26, 10:22:00 AM] You: هشوفه لحضرتك في الشركات
+[6/28/26, 10:23:38 AM] Customer: تمام`);
+    expect(model.operationalOutcome).toBe('needs_followup');
+    expect(model.followupPlan.required).toBe(true);
+    expect(model.followupPlan.reason).toMatch(/وعدت العميل بفحص التوفر/);
+    expect(model.followupPlan.evidenceMessageIds.length).toBeGreaterThan(0);
+  });
+
   it('creates an evidence-backed recovery followup after stockout alternatives with no customer decision', () => {
     const model = analyze(`[8/11/26, 3:27:41 PM] You: للأسف يا فندم دورت لحضرتك عليه فى كل مكان مش متوفر نفس الشكل
 [8/11/26, 3:28:18 PM] You: موجود المغربى والهندى ونتايجهم ممتازة جدا
