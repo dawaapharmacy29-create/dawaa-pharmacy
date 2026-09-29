@@ -479,16 +479,16 @@ export default function StaffMonthlyEvaluation() {
           <div className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-black" style={{ borderColor: 'var(--dawaa-theme-accent-border)', background: 'var(--dawaa-theme-accent-soft)', color: 'var(--dawaa-theme-primary-strong)' }}>
             فترة الدورة: {cycleRange.displayLabel}
           </div>
-          <div className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-black" style={{ borderColor: cycleClosed ? 'var(--dawaa-status-success-border)' : 'var(--dawaa-status-warning-border)', background: cycleClosed ? 'var(--dawaa-status-success-soft)' : 'var(--dawaa-status-warning-soft)', color: cycleClosed ? 'var(--dawaa-status-success-text)' : 'var(--dawaa-status-warning-text)' }}>
+          <div className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-black" style={{ borderColor: cycleClosed ? 'var(--dawaa-status-success-border)' : 'var(--dawaa-status-warning-border)', background: cycleClosed ? 'var(--dawaa-status-success-bg)' : 'var(--dawaa-status-warning-bg)', color: cycleClosed ? 'var(--dawaa-status-success-text)' : 'var(--dawaa-status-warning-text)' }}>
             {cycleClosed ? 'الدورة مكتملة — متاحة للاعتماد' : 'الدورة جارية — مسودة فقط'}
           </div>
         </div>
         {!cycleClosed ? (
-          <div className="mt-3 rounded-2xl border p-3 text-sm font-bold" style={{ borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-status-warning-soft)', color: 'var(--dawaa-status-warning-text)' }}>
+          <div className="mt-3 rounded-2xl border p-3 text-sm font-bold" style={{ borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-status-warning-bg)', color: 'var(--dawaa-status-warning-text)' }}>
             البيانات ما زالت تتغير حتى نهاية يوم 25. يمكنك متابعة الأداء وحفظ التقييم كمسودة، لكن الاعتماد النهائي يفتح بعد إقفال الدورة.
           </div>
         ) : requiresPostCycleReapproval ? (
-          <div className="mt-3 rounded-2xl border p-3 text-sm font-bold" style={{ borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-status-warning-soft)', color: 'var(--dawaa-status-warning-text)' }}>
+          <div className="mt-3 rounded-2xl border p-3 text-sm font-bold" style={{ borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-status-warning-bg)', color: 'var(--dawaa-status-warning-text)' }}>
             هذا التقييم أُرسل قبل اكتمال الدورة. راجعه الآن بعد الإقفال ثم اضغط «إعادة اعتماد الدورة» حتى يتزامن أثره المالي مع البيانات المكتملة.
           </div>
         ) : null}
@@ -635,7 +635,7 @@ export default function StaffMonthlyEvaluation() {
                       key={label}
                       className="rounded-full border px-3 py-1"
                       style={sourceStatus === 'available'
-                        ? { borderColor: 'var(--dawaa-status-success-border)', background: 'var(--dawaa-status-success-soft)', color: 'var(--dawaa-status-success-text)' }
+                        ? { borderColor: 'var(--dawaa-status-success-border)', background: 'var(--dawaa-status-success-bg)', color: 'var(--dawaa-status-success-text)' }
                         : { borderColor: 'var(--dawaa-status-danger-border)', background: 'var(--dawaa-status-danger-bg)', color: 'var(--dawaa-status-danger-text)' }}
                     >
                       {label}: {sourceStatus === 'available' ? 'جاهز' : 'غير متاح'}
