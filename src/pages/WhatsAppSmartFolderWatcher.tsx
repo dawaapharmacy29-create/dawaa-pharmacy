@@ -2181,22 +2181,32 @@ export default function WhatsAppSmartFolderWatcher() {
                           <div className="max-w-2xl text-[10px] leading-5 opacity-80">{nextDecision.detail}</div>
                         </div>
 
-                        <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-                          <div className="rounded-xl border border-slate-800 bg-black/10 p-3">
-                            <div className="text-[10px] font-black text-slate-500">الفاتورة</div>
-                            <div className="mt-1 text-sm font-black text-white">
-                              {invoice?.bestCandidate?.invoiceNumber || 'غير مرتبطة'}
-                            </div>
-                            <div className="mt-1 text-[10px] text-slate-400">
-                              {invoice?.revenue != null ? `${invoice.revenue} ج` : invoice?.status === 'verified' ? 'القيمة غير متاحة' : invoice?.reason || 'لا توجد فاتورة مرشحة'}
-                            </div>
-                            {invoiceItemsTotal > 0 ? (
-                              <div className={`mt-1 text-[9px] ${invoiceItemsDifference != null && invoiceItemsDifference > 0.05 ? 'text-amber-300' : 'text-emerald-300'}`}>
-                                مجموع البنود {invoiceItemsTotal.toFixed(2)} ج
-                                {invoiceItemsDifference != null ? (invoiceItemsDifference <= 0.05 ? ' · مطابق' : ` · فرق ${invoiceItemsDifference.toFixed(2)} ج`) : ''}
+                        <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
+                          <div className="rounded-xl border border-sky-800/35 bg-sky-950/10 p-3 xl:col-span-2">
+                            <div className="flex flex-wrap items-start justify-between gap-2">
+                              <div>
+                                <div className="text-[10px] font-black text-sky-300/70">الفاتورة والبيع</div>
+                                <div className="mt-1 text-sm font-black text-white">
+                                  {invoice?.bestCandidate?.invoiceNumber ? `فاتورة #${invoice.bestCandidate.invoiceNumber}` : 'لا توجد فاتورة مرتبطة'}
+                                </div>
                               </div>
-                            ) : null}
-
+                              <span className={`rounded-full px-2 py-1 text-[9px] font-black ${invoiceTruthBadge(selected).cls}`}>{invoiceTruthBadge(selected).label}</span>
+                            </div>
+                            <div className="mt-2 flex flex-wrap items-end justify-between gap-2">
+                              <div>
+                                <div className="text-[9px] text-slate-500">قيمة الفاتورة</div>
+                                <div className="mt-0.5 text-lg font-black text-sky-100">{invoice?.revenue != null ? `${invoice.revenue} ج` : '—'}</div>
+                              </div>
+                              {invoiceItemsTotal > 0 ? (
+                                <div className="text-left">
+                                  <div className="text-[9px] text-slate-500">مجموع البنود</div>
+                                  <div className={`mt-0.5 text-xs font-black ${invoiceItemsDifference != null && invoiceItemsDifference > 0.05 ? 'text-amber-300' : 'text-emerald-300'}`}>
+                                    {invoiceItemsTotal.toFixed(2)} ج
+                                    {invoiceItemsDifference != null ? (invoiceItemsDifference <= 0.05 ? ' · مطابق' : ` · فرق ${invoiceItemsDifference.toFixed(2)} ج`) : ''}
+                                  </div>
+                                </div>
+                              ) : null}
+                            </div>
                             {selected.canonicalSaleProofState === 'proven' ? (
                               <div className="mt-2 rounded-lg border border-emerald-700/40 bg-emerald-950/20 px-2 py-1.5 text-[10px] font-black text-emerald-200">
                                 ✓ Sale Proof Canonical — Proven
@@ -2212,7 +2222,9 @@ export default function WhatsAppSmartFolderWatcher() {
                                   ? 'جاري اعتماد الربط وفحص Canonical...'
                                   : `اعتماد ربط الفاتورة #${invoice.bestCandidate.invoiceNumber || ''}`}
                               </button>
-                            ) : null}
+                            ) : (
+                              <div className="mt-2 text-[9px] leading-4 text-slate-500">{invoice?.reason || 'لا توجد فاتورة مرشحة قوية لهذه الحالة.'}</div>
+                            )}
                             {invoice?.bestCandidate?.invoiceId && selected.canonicalSaleProofState && selected.canonicalSaleProofState !== 'proven' ? (
                               <div className="mt-1 text-[9px] leading-4 text-amber-300">
                                 الربط اتراجع Canonical لكن لم يصل Proven بعد: {selected.canonicalSaleProofState}
@@ -2220,43 +2232,50 @@ export default function WhatsAppSmartFolderWatcher() {
                             ) : null}
                           </div>
 
-                          <div className="rounded-xl border border-slate-800 bg-black/10 p-3">
-                            <div className="text-[10px] font-black text-slate-500">العميل</div>
+                          <div className="rounded-xl border border-violet-800/35 bg-violet-950/10 p-3 xl:col-span-2">
+                            <div className="text-[10px] font-black text-violet-300/70">هوية العميل</div>
                             <div className="mt-1 text-sm font-black text-white">
-                              {customer?.customer?.name || selected.customerName || 'غير محدد'}
+                              {customer?.customer?.name || selected.customerName || 'عميل غير محدد'}
                             </div>
                             <div className="mt-1 text-[10px] text-slate-400">
                               {customer?.customer
                                 ? `مربوط بسجل العميل · كود ${customer.customer.code || '—'}`
                                 : 'الاسم موجود لكن الربط بسجل العميل غير محسوم'}
                             </div>
-                            {customer?.customer ? (
-                              <div className="mt-1 flex flex-wrap gap-1.5 text-[9px]">
-                                <span className={`rounded-full px-1.5 py-0.5 ${phoneSource ? 'bg-emerald-500/10 text-emerald-300' : 'bg-slate-800 text-slate-500'}`}>
-                                  {phoneSource ? `تليفون معروف · ${phoneSource}` : 'تليفون غير متاح'}
-                                </span>
-                                <span className={`rounded-full px-1.5 py-0.5 ${addressSource ? 'bg-emerald-500/10 text-emerald-300' : 'bg-slate-800 text-slate-500'}`}>
-                                  {addressSource ? `عنوان معروف · ${addressSource}` : 'عنوان غير مثبت'}
-                                </span>
+                            <div className="mt-2 flex flex-wrap gap-1.5 text-[9px] font-black">
+                              <span className={`rounded-full px-2 py-1 ${customer?.customer ? 'bg-emerald-500/10 text-emerald-300' : 'bg-amber-500/10 text-amber-300'}`}>
+                                {customer?.customer ? 'هوية مربوطة' : 'تحتاج مراجعة الهوية'}
+                              </span>
+                              <span className={`rounded-full px-2 py-1 ${phoneSource ? 'bg-emerald-500/10 text-emerald-300' : 'bg-slate-800 text-slate-500'}`}>
+                                {phoneSource ? `تليفون · ${phoneSource}` : 'تليفون غير متاح'}
+                              </span>
+                              <span className={`rounded-full px-2 py-1 ${addressSource ? 'bg-emerald-500/10 text-emerald-300' : 'bg-slate-800 text-slate-500'}`}>
+                                {addressSource ? `عنوان · ${addressSource}` : 'عنوان غير مثبت'}
+                              </span>
+                            </div>
+                            {!customer?.customer && customer?.reason ? <div className="mt-2 text-[9px] leading-4 text-amber-200">{customer.reason}</div> : null}
+                          </div>
+
+                          <div className={`rounded-xl border p-3 ${protocol.orderConfirmationConfirmed ? 'border-emerald-800/40 bg-emerald-950/10' : 'border-amber-800/30 bg-amber-950/5'}`}>
+                            <div className="text-[10px] font-black text-slate-500">اكتمال الطلب</div>
+                            <div className={`mt-1 text-lg font-black ${protocol.orderConfirmationConfirmed ? 'text-emerald-200' : 'text-amber-200'}`}>
+                              {evalV2?.orderCompleteness?.applicable
+                                ? `${evalV2.orderCompleteness.confirmedCount}/${evalV2.orderCompleteness.requiredCount}`
+                                : 'غير منطبق'}
+                            </div>
+                            <div className="mt-1 text-[10px] font-black text-slate-300">{protocol.orderConfirmation}</div>
+                            {evalV2?.orderCompleteness?.missingCritical?.length ? (
+                              <div className="mt-2 flex flex-wrap gap-1">
+                                {evalV2.orderCompleteness.missingCritical.slice(0, 3).map((item) => <span key={item} className="rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[9px] text-amber-300">{item}</span>)}
                               </div>
                             ) : null}
                           </div>
 
-                          <div className={`rounded-xl border p-3 ${protocol.orderConfirmationConfirmed ? 'border-emerald-800/40 bg-emerald-950/10' : 'border-amber-800/30 bg-amber-950/5'}`}>
-                            <div className="text-[10px] font-black text-slate-500">تأكيد الطلب مع العميل</div>
-                            <div className={`mt-1 text-sm font-black ${protocol.orderConfirmationConfirmed ? 'text-emerald-200' : 'text-amber-200'}`}>{protocol.orderConfirmation}</div>
-                            <div className="mt-1 text-[10px] text-slate-400">هل راجع الدكتور الأصناف والكميات مع العميل وأخذ تأكيده قبل الإغلاق؟ هذا مستقل عن وجود الفاتورة.</div>
-                          </div>
-
                           <div className="rounded-xl border border-slate-800 bg-black/10 p-3">
                             <div className="text-[10px] font-black text-slate-500">بروتوكول المحادثة</div>
-                            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs font-black text-white">
-                              <span>ترحيب: {protocol.opening}</span>
-                              {protocol.openingOfficial ? <span className="rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[9px] text-emerald-300">قالب رسمي</span> : null}
-                            </div>
-                            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs font-black text-white">
-                              <span>ختام: {protocol.closing}</span>
-                              {protocol.closingOfficial ? <span className="rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[9px] text-emerald-300">قالب رسمي</span> : null}
+                            <div className="mt-2 space-y-2 text-[10px]">
+                              <div className="flex items-center justify-between gap-2"><span className="text-slate-500">الترحيب</span><span className={`rounded-full px-2 py-1 font-black ${protocol.openingOfficial ? 'bg-emerald-500/10 text-emerald-300' : 'bg-slate-800 text-slate-300'}`}>{protocol.opening}</span></div>
+                              <div className="flex items-center justify-between gap-2"><span className="text-slate-500">الختام</span><span className={`rounded-full px-2 py-1 font-black ${protocol.closingOfficial ? 'bg-emerald-500/10 text-emerald-300' : 'bg-slate-800 text-slate-300'}`}>{protocol.closing}</span></div>
                             </div>
                           </div>
                         </div>
