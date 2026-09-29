@@ -63,6 +63,7 @@ type CustomerProduct = {
 
 type CustomerAction = {
   id: string;
+  source_id: string;
   action_type: string;
   status: string;
   product_name: string | null;
@@ -73,6 +74,8 @@ type CustomerAction = {
 
 type CanonicalCaseRow = {
   id: string;
+  root_source_id?: string | null;
+  source_ids?: string[] | null;
   customer_id: string | null;
   customer_code: string | null;
   customer_name: string | null;
@@ -252,7 +255,7 @@ export default function WhatsAppCustomerActionCenterV6({ onOpenSource }: { onOpe
           .limit(1000),
         supabase
           .from('whatsapp_customer_cases_v22')
-          .select('id,customer_id,customer_code,customer_name,customer_phone,branch,started_at,proposed_outcome,confirmed_outcome,verified_revenue,verified_invoice_id,verified_invoice_number')
+          .select('id,root_source_id,source_ids,customer_id,customer_code,customer_name,customer_phone,branch,started_at,proposed_outcome,confirmed_outcome,verified_revenue,verified_invoice_id,verified_invoice_number')
           .gte('started_at', `${bounds.start}T00:00:00+03:00`)
           .lte('started_at', `${bounds.end}T23:59:59+03:00`)
           .limit(500),
@@ -323,7 +326,7 @@ export default function WhatsAppCustomerActionCenterV6({ onOpenSource }: { onOpe
 
       let canonicalQuery = supabase
         .from('whatsapp_customer_cases_v22')
-        .select('id,customer_id,customer_code,customer_name,customer_phone,branch,started_at,proposed_outcome,confirmed_outcome,verified_revenue,verified_invoice_id,verified_invoice_number')
+        .select('id,root_source_id,source_ids,customer_id,customer_code,customer_name,customer_phone,branch,started_at,proposed_outcome,confirmed_outcome,verified_revenue,verified_invoice_id,verified_invoice_number')
         .gte('started_at', `${row.cycle_start}T00:00:00+03:00`)
         .lte('started_at', `${row.cycle_end}T23:59:59+03:00`)
         .limit(250);
@@ -343,7 +346,7 @@ export default function WhatsAppCustomerActionCenterV6({ onOpenSource }: { onOpe
       if (sourceIds.length) {
         const actionResult = await supabase
           .from('whatsapp_conversation_actions')
-          .select('id,action_type,status,product_name,due_at,reason,confidence')
+          .select('id,source_id,action_type,status,product_name,due_at,reason,confidence')
           .in('source_id', sourceIds)
           .order('due_at', { ascending: true, nullsFirst: false });
         if (!actionResult.error) actionData = actionResult.data || [];
@@ -554,6 +557,35 @@ export default function WhatsAppCustomerActionCenterV6({ onOpenSource }: { onOpe
     };
   }, [detailCanonicalCases, actions, products]);
 
+  const detailCaseBySource = useMemo(() => {
+    const map = new Map<string, CanonicalCaseRow>();
+    for (const item of detailCanonicalCases) {
+      if (item.root_source_id) map.set(item.root_source_id, item);
+      for (const sourceId of item.source_ids || []) map.set(sourceId, item);
+    }
+    return map;
+  }, [detailCanonicalCases]);
+
+  const activeActionsBySource = useMemo(() => {
+    const map = new Map<string, CustomerAction[]>();
+    for (const action of actions) {
+      if (!['proposed', 'ready'].includes(action.status) || !action.source_id) continue;
+      const current = map.get(action.source_id) || [];
+      current.push(action);
+      map.set(action.source_id, current);
+    }
+    for (const list of map.values()) {
+      list.sort((left, right) => {
+        const priority = actionPriority(left) - actionPriority(right);
+        if (priority) return priority;
+        const leftDue = left.due_at ? new Date(left.due_at).getTime() : Number.POSITIVE_INFINITY;
+        const rightDue = right.due_at ? new Date(right.due_at).getTime() : Number.POSITIVE_INFINITY;
+        return leftDue - rightDue;
+      });
+    }
+    return map;
+  }, [actions]);
+
   return (
     <section className="dawaa-card dawaa-card--raised p-5" dir="rtl">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
@@ -624,13 +656,83 @@ export default function WhatsAppCustomerActionCenterV6({ onOpenSource }: { onOpe
           <div className="rounded-xl bg-slate-950/45 p-3 text-center"><div className="text-[11px] text-slate-500">بيع مثبت رسميًا</div><div className="mt-1 text-lg font-black text-emerald-300">{detailSummary.verifiedSales}</div></div>
           <div className="rounded-xl bg-slate-950/45 p-3 text-center"><div className="text-[11px] text-slate-500">إيراد مثبت رسميًا</div><div className="mt-1 text-lg font-black text-emerald-300">{formatMoney(detailSummary.verifiedRevenue)}</div></div>
           <div className="rounded-xl bg-slate-950/45 p-3 text-center"><div className="text-[11px] text-slate-500">إجراءات مفتوحة</div><div className="mt-1 text-lg font-black text-amber-300">{detailSummary.followups}</div></div>
-          <div className="rounded-xl bg-slate-950/45 p-3 text-center"><div className="text-[11px] text-slate-500">فرص متوقفة</div><div className="mt-1 text-lg font-black text-rose-300">{detailSummary.leakage}</div></div>
+          <div className="rounded-xl bg-slate-950/45 p-3 text-center"><div className="text-[11px] text-slate-500">إشارات تعثر تشخيصية</div><div className="mt-1 text-lg font-black text-rose-300">{detailSummary.leakage}</div></div>
         </div>
 
         {detailLoading ? <div className="p-8 text-center text-sm text-slate-400">جاري تحميل رحلة العميل...</div> : <div className="mt-4 grid gap-4 xl:grid-cols-3">
-          <div className="rounded-2xl border border-slate-800 bg-slate-950/35 p-3"><div className="mb-3 flex items-center gap-2 font-black text-white"><FileText size={15}/> المحادثات</div><div className="max-h-[380px] space-y-2 overflow-y-auto">{conversations.map((item) => <button key={item.id} onClick={() => onOpenSource?.(item.id)} className="w-full rounded-xl border border-slate-800 p-3 text-right hover:border-cyan-400/30"><div className="flex justify-between gap-2"><b className="text-white">{item.staff_name || 'الدكتور غير محدد'}</b><span className="text-[10px] text-slate-500">{formatDate(item.conversation_started_at)}</span></div><div className="mt-2 text-xs text-slate-300">{item.analysis_json?.operational?.primaryIntent || item.review_status || '—'}{item.followup_required ? <span className="text-amber-300"> • متابعة</span> : null}</div>{item.invoice_match_status === 'verified' ? <div className="mt-1 text-xs text-cyan-300">مطابقة فاتورة آلية Legacy {item.matched_invoice_number || ''} • {formatMoney(item.matched_invoice_value)} — غير مثبتة رسميًا</div> : null}</button>)}{!conversations.length ? <div className="p-5 text-center text-xs text-slate-500">لا توجد محادثات مرتبطة في السايكل.</div> : null}</div></div>
+          <div className="rounded-2xl border border-slate-800 bg-slate-950/35 p-3">
+            <div className="mb-3 flex items-center gap-2 font-black text-white"><FileText size={15}/> المحادثات</div>
+            <div className="max-h-[380px] space-y-2 overflow-y-auto">
+              {conversations.map((item) => {
+                const canonicalCase = detailCaseBySource.get(item.id) || null;
+                const effectiveOutcome = canonicalCase?.confirmed_outcome || canonicalCase?.proposed_outcome || null;
+                const canonicalSale = effectiveOutcome === 'verified_sale' && Boolean(canonicalCase?.verified_invoice_id);
+                const activeForSource = activeActionsBySource.get(item.id) || [];
+                const nextAction = activeForSource[0] || null;
+                return (
+                  <button key={item.id} onClick={() => onOpenSource?.(item.id)} className="w-full rounded-xl border border-slate-800 p-3 text-right transition hover:border-cyan-400/30">
+                    <div className="flex justify-between gap-2">
+                      <b className="text-white">{item.staff_name || 'الدكتور غير محدد'}</b>
+                      <span className="text-[10px] text-slate-500">{formatDate(item.conversation_started_at)}</span>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] font-black">
+                      <span className="rounded-full bg-slate-800 px-2 py-1 text-slate-300">{item.analysis_json?.operational?.primaryIntent || item.review_status || 'حالة غير محددة'}</span>
+                      {canonicalSale ? (
+                        <span className="rounded-full bg-emerald-500/10 px-2 py-1 text-emerald-300">بيع Canonical مثبت{canonicalCase?.verified_invoice_number ? ` · #${canonicalCase.verified_invoice_number}` : ''}</span>
+                      ) : canonicalCase ? (
+                        <span className="rounded-full bg-cyan-500/10 px-2 py-1 text-cyan-200">Case Canonical · {effectiveOutcome || 'غير محسوم'}</span>
+                      ) : (
+                        <span className="rounded-full bg-slate-800 px-2 py-1 text-slate-500">لا توجد Case Canonical مرتبطة</span>
+                      )}
+                      {activeForSource.length ? <span className="rounded-full bg-amber-500/10 px-2 py-1 text-amber-300">{activeForSource.length} إجراء مفتوح</span> : null}
+                    </div>
+                    {nextAction ? (
+                      <div className="mt-2 rounded-lg border border-amber-800/30 bg-amber-950/10 px-2.5 py-2 text-[11px] leading-5 text-amber-100">
+                        <b>{actionTypeLabel[nextAction.action_type] || nextAction.action_type}</b>{nextAction.reason ? ` · ${nextAction.reason}` : ''}{nextAction.due_at ? ` · ${dueLabel(nextAction.due_at)}` : ''}
+                      </div>
+                    ) : null}
+                    {!canonicalSale && item.invoice_match_status === 'verified' ? (
+                      <div className="mt-2 text-[10px] text-slate-500">مطابقة فاتورة آلية Legacy {item.matched_invoice_number || ''} · {formatMoney(item.matched_invoice_value)} — ليست Sale Proof.</div>
+                    ) : null}
+                  </button>
+                );
+              })}
+              {!conversations.length ? <div className="p-5 text-center text-xs text-slate-500">لا توجد محادثات مرتبطة في السايكل.</div> : null}
+            </div>
+          </div>
 
-          <div className="rounded-2xl border border-slate-800 bg-slate-950/35 p-3"><div className="mb-3 flex items-center gap-2 font-black text-white"><PackageSearch size={15}/> الأصناف والفرص</div><div className="max-h-[380px] space-y-2 overflow-y-auto">{products.map((item, i) => <button key={`${item.source_id}-${i}`} onClick={() => onOpenSource?.(item.source_id)} className="w-full rounded-xl border border-slate-800 p-3 text-right hover:border-violet-400/30"><div className="flex justify-between gap-2"><b className="text-white">{item.product_name || 'صنف غير محدد'}</b><span className="text-[10px] text-violet-300">{item.current_stage || '—'}</span></div><div className="mt-1 text-[11px] text-slate-500">{item.staff_name || 'الدكتور غير محدد'}</div>{item.leakage_reason ? <div className="mt-2 text-xs text-amber-200">{item.leakage_reason}</div> : null}<div className="mt-1 text-[11px] text-slate-400">{item.next_action || (item.invoice_match_status === 'verified' ? 'توجد مطابقة فاتورة آلية Legacy؛ البيع غير مثبت رسميًا.' : 'لا توجد خطوة تالية مثبتة.')}</div></button>)}{!products.length ? <div className="p-5 text-center text-xs text-slate-500">لا توجد رحلات أصناف مرتبطة بالعميل.</div> : null}</div></div>
+          <div className="rounded-2xl border border-slate-800 bg-slate-950/35 p-3">
+            <div className="mb-3 flex items-center gap-2 font-black text-white"><PackageSearch size={15}/> الأصناف والفرص</div>
+            <div className="max-h-[380px] space-y-2 overflow-y-auto">
+              {products.map((item, i) => {
+                const activeForSource = activeActionsBySource.get(item.source_id) || [];
+                const productAction = activeForSource.find((action) =>
+                  action.product_name && item.product_name &&
+                  action.product_name.trim().toLowerCase() === item.product_name.trim().toLowerCase()
+                ) || activeForSource[0] || null;
+                return (
+                  <button key={`${item.source_id}-${i}`} onClick={() => onOpenSource?.(item.source_id)} className="w-full rounded-xl border border-slate-800 p-3 text-right transition hover:border-violet-400/30">
+                    <div className="flex justify-between gap-2">
+                      <b className="text-white">{item.product_name || 'صنف غير محدد'}</b>
+                      <span className="text-[10px] text-violet-300">{item.current_stage || '—'}</span>
+                    </div>
+                    <div className="mt-1 text-[11px] text-slate-500">{item.staff_name || 'الدكتور غير محدد'}</div>
+                    {item.leakage_reason ? <div className="mt-2 text-xs text-amber-200">إشارة تعثر: {item.leakage_reason}</div> : null}
+                    {productAction ? (
+                      <div className="mt-2 rounded-lg border border-violet-800/30 bg-violet-950/10 px-2.5 py-2 text-[11px] leading-5 text-violet-100">
+                        <b>إجراء Canonical:</b> {actionTypeLabel[productAction.action_type] || productAction.action_type}{productAction.reason ? ` · ${productAction.reason}` : ''}
+                      </div>
+                    ) : item.next_action ? (
+                      <div className="mt-2 text-[10px] leading-5 text-slate-500">تشخيص Product Journey: {item.next_action} — لا يوجد Action Canonical مفتوح على نفس المحادثة.</div>
+                    ) : (
+                      <div className="mt-2 text-[10px] text-slate-600">لا يوجد إجراء Canonical مفتوح لهذا الصنف.</div>
+                    )}
+                  </button>
+                );
+              })}
+              {!products.length ? <div className="p-5 text-center text-xs text-slate-500">لا توجد رحلات أصناف مرتبطة بالعميل.</div> : null}
+            </div>
+          </div>
 
           <div className="rounded-2xl border border-slate-800 bg-slate-950/35 p-3"><div className="mb-3 flex items-center gap-2 font-black text-white"><CheckCircle2 size={15}/> الإجراءات والمتابعات</div><div className="max-h-[380px] space-y-2 overflow-y-auto">{actions.map((item) => <div key={item.id} className="rounded-xl border border-slate-800 p-3"><div className="flex justify-between gap-2"><b className="text-white">{actionTypeLabel[item.action_type] || item.action_type}</b><span className="text-[10px] text-slate-500">{item.status}</span></div><div className="mt-1 text-xs text-slate-300">{item.reason || '—'}</div>{item.product_name ? <div className="mt-1 text-[11px] text-cyan-300">{item.product_name}</div> : null}{item.due_at ? <div className="mt-1 text-[11px] text-amber-300">{dueLabel(item.due_at)}</div> : null}</div>)}{!actions.length ? <div className="p-5 text-center text-xs text-slate-500">لا توجد إجراءات تشغيلية مرتبطة بالعميل.</div> : null}</div></div>
         </div>}
