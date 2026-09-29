@@ -305,6 +305,9 @@ export default function WhatsappAnalytics() {
       </div>
 
       <div className="rounded-2xl border border-[#2d4063] bg-[#1B2B4B] p-4">
+        <div className="mb-3 rounded-xl border border-amber-400/15 bg-amber-500/5 px-3 py-2 text-xs leading-5 text-amber-100">
+          القسم التالي هو طبقة مراجعة الجودة التاريخية. درجات الجودة والنقاط مفيدة، لكن أي ربط فاتورة هنا للمرجعية فقط ولا يتقدم على Customer Case + Canonical Sale Proof المعروضين بالأعلى.
+        </div>
         <div className="grid gap-3 md:grid-cols-4">
           <label className="text-xs text-slate-300 space-y-1">
             <span>من</span>
@@ -371,7 +374,7 @@ export default function WhatsappAnalytics() {
             <Metric icon={Users} label="أفضل أداء" value={topDoctor || '—'} />
             <Metric
               icon={TrendingUp}
-              label="مبيعات مرتبطة"
+              label="ربط فواتير للمراجعات"
               value={invoicesLoading ? 'جاري التحميل…' : linkedInvoiceSales != null ? formatCurrency(linkedInvoiceSales) : '—'}
             />
             <Metric
@@ -397,7 +400,7 @@ export default function WhatsappAnalytics() {
                       <th>متوسط الدرجة</th>
                       <th>ممتازة</th>
                       <th>ضعيفة</th>
-                      <th>مبيعات مولدة</th>
+                      <th>مبيعات مسجلة بالمراجعة</th>
                       <th>نقاط</th>
                       <th>توصية تدريب</th>
                     </tr>
