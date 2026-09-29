@@ -10,7 +10,10 @@
  *   intentionally service-role-only. This script never weakens those grants.
  * - Default scope is ONLY conversations already represented in sales_intelligence_cases.
  *   Use --all-sources explicitly to broaden the scope.
- * - Uses the exact production batch pipeline + review-source adapter; no duplicate scoring logic.
+ * - Writes ONLY through runCanonicalSalesIntelligenceBackfill (canonicalRefreshService.ts): the same
+ *   Canonical Source Gate, exactly-one Customer Case V22 identity and single proof writer (V44 RPC)
+ *   as the HTTP refresh transport. Archived / superseded / missing-V22 / ambiguous sources are
+ *   reported as blocked and never written. This script must not call runBatchPersistence directly.
  */
 
 const fs = require('fs');
@@ -111,8 +114,10 @@ for (const ext of ['.ts', '.tsx']) {
   };
 }
 
-const { runBatchPersistence } = require(path.join(root, 'src/lib/salesIntelligence/persistence/batchPersistenceService.ts'));
-const { reviewSourceRowToBatchConversation } = require(path.join(root, 'src/lib/salesIntelligence/persistence/reviewSourceBatchAdapter.ts'));
+const {
+  CANONICAL_REFRESH_SOURCE_COLUMNS,
+  runCanonicalSalesIntelligenceBackfill,
+} = require(path.join(root, 'src/lib/salesIntelligence/refresh/canonicalRefreshService.ts'));
 const { selectCanonicalReviewSourceIds } = require(path.join(root, 'src/lib/salesIntelligence/sourceSnapshotLineage.ts'));
 
 const supabase = createClient(supabaseUrl, serviceRoleKey, {
@@ -201,25 +206,7 @@ async function fetchItemEvidenceReadinessSnapshot() {
 }
 
 async function fetchReviewSources(itemReadiness = null) {
-  const select = [
-    'id',
-    'raw_text',
-    'source_filename',
-    'conversation_started_at',
-    'conversation_ended_at',
-    'message_count',
-    'created_at',
-    'customer_id',
-    'customer_phone',
-    'customer_name',
-    'customer_code',
-    'branch',
-    'matched_invoice_id',
-    'matched_invoice_number',
-    'invoice_match_status',
-    'reviewer_confirmed',
-    'reviewer_id',
-  ].join(',');
+  const select = CANONICAL_REFRESH_SOURCE_COLUMNS;
 
   if (sourceIds.size > 0) {
     const rows = [];
@@ -267,6 +254,7 @@ async function fetchReviewSources(itemReadiness = null) {
 }
 
 function summarize(result, sourceCount, readinessBefore, readinessAfter = null) {
+  // result is the batch result of the canonical service (apply) or its read-only preview (dry-run).
   const plan = result.plan;
   const outcomes = result.caseOutcomes || [];
   const scope = groundTruth
@@ -279,7 +267,7 @@ function summarize(result, sourceCount, readinessBefore, readinessAfter = null) 
         ? 'existing-cases-whose-selected-invoice-now-has-item-evidence'
         : 'existing-sales-intelligence-conversations';
   return {
-    mode: result.dryRun ? 'dry-run' : 'apply',
+    mode: apply ? 'apply' : 'dry-run',
     scope,
     itemEvidenceRefresh: {
       before: readinessBefore,
@@ -318,7 +306,7 @@ function summarize(result, sourceCount, readinessBefore, readinessAfter = null) 
       conflictDetails: plan.conflicts.map(({ caseId, kind, detail }) => ({ caseId, kind, detail })),
       warningDetails: plan.warnings.map(({ caseId, kind, detail }) => ({ caseId, kind, detail })),
     },
-    apply: result.dryRun
+    apply: !apply
       ? null
       : {
           attempted: outcomes.length,
@@ -354,23 +342,22 @@ function summarize(result, sourceCount, readinessBefore, readinessAfter = null) 
   }
 
   const rows = await fetchReviewSources(readinessBefore);
-  const canonicalIds = selectCanonicalReviewSourceIds(rows);
-  const allCanonicalRows = rows.filter((row) => canonicalIds.has(row.id));
-  const canonicalRows = groundTruth
-    ? allCanonicalRows.filter((row) => String(row.id) === GROUND_TRUTH.sourceId)
+  // Write scope: every scoped row goes to the Canonical Source Gate (which supersedes the legacy
+  // snapshot-lineage selection for writers). Lineage is kept only for the read-only preview.
+  const scopedRows = groundTruth
+    ? rows.filter((row) => String(row.id) === GROUND_TRUTH.sourceId)
     : knownBranchOnly
-      ? allCanonicalRows.filter((row) => typeof row.branch === 'string' && row.branch.trim().length > 0)
-      : allCanonicalRows;
-  const conversations = canonicalRows
-    .filter((row) => typeof row.raw_text === 'string' && row.raw_text.trim().length > 0)
-    .map(reviewSourceRowToBatchConversation);
+      ? rows.filter((row) => typeof row.branch === 'string' && row.branch.trim().length > 0)
+      : rows;
+  const canonicalIds = selectCanonicalReviewSourceIds(rows);
+  const previewRows = scopedRows.filter((row) => canonicalIds.has(row.id));
 
   console.log(
-    `Snapshot lineage: ${rows.length} source rows -> ${allCanonicalRows.length} canonical source rows` +
-    (knownBranchOnly ? ` -> ${canonicalRows.length} canonical rows with known branch` : '')
+    `Snapshot lineage (read-only preview): ${rows.length} source rows -> ${previewRows.length} preview rows` +
+    (knownBranchOnly ? ' (known branch only)' : '')
   );
 
-  if (!conversations.length) {
+  if (!scopedRows.some((row) => typeof row.raw_text === 'string' && row.raw_text.trim().length > 0)) {
     console.log('No eligible conversations found.');
     return;
   }
@@ -385,12 +372,33 @@ function summarize(result, sourceCount, readinessBefore, readinessAfter = null) 
     groundTruthBefore = data || null;
   }
 
-  const result = await runBatchPersistence(supabase, {
-    conversations,
-    dryRun: !apply,
+  const backfill = await runCanonicalSalesIntelligenceBackfill(supabase, {
+    rows: scopedRows,
+    apply,
+    previewRows,
   });
+  console.log(
+    `Canonical Source Gate: ${backfill.gate.admittedSourceIds.length} admitted, ` +
+    `${backfill.gate.blockedSources.length} blocked (never written)`
+  );
+  const result = apply ? backfill.refresh && backfill.refresh.batch : backfill.preview;
+  if (!result) {
+    console.log(JSON.stringify({ mode: backfill.mode, canonicalSourceGate: backfill.gate, refreshStatus: backfill.refresh && backfill.refresh.status }, null, 2));
+    console.log('No conversations admitted by the Canonical Source Gate.');
+    return;
+  }
+  const conversations = { length: apply ? backfill.gate.admittedSourceIds.length : previewRows.length };
   const readinessAfter = apply ? await fetchItemEvidenceReadinessSnapshot() : null;
   const summary = summarize(result, conversations.length, readinessBefore, readinessAfter);
+  summary.canonicalSourceGate = {
+    admitted: backfill.gate.admittedSourceIds.length,
+    blocked: backfill.gate.blockedSources,
+  };
+  if (backfill.refresh) {
+    summary.refreshStatus = backfill.refresh.status;
+    summary.canonicalReconciliation = backfill.refresh.canonicalReconciliation;
+    if (backfill.refresh.status !== 'ok') process.exitCode = 1;
+  }
 
   if (groundTruth) {
     const target = result.caseAnalyses.find((row) => row.caseId === GROUND_TRUTH.caseId) || null;

@@ -152,29 +152,31 @@ export async function loadCanonicalSourceGateContext(
   const fileNames = Array.from(
     new Set(sources.map((row) => String(row.source_filename || '')).filter(Boolean))
   );
-  const starts = sources
-    .map((row) => time(row.conversation_started_at))
-    .filter((x): x is number => x !== null);
-  const ends = sources
-    .map((row) => time(row.conversation_ended_at))
-    .filter((x): x is number => x !== null);
-
+  // One bounded sibling query per export file, scoped to that file's batch time window.
   let siblings: CanonicalGateSourceRow[] = [];
-  if (fileNames.length && starts.length && ends.length) {
+  for (const fileName of fileNames) {
+    const fileRows = sources.filter((row) => String(row.source_filename || '') === fileName);
+    const fileStarts = fileRows
+      .map((row) => time(row.conversation_started_at))
+      .filter((x): x is number => x !== null);
+    const fileEnds = fileRows
+      .map((row) => time(row.conversation_ended_at))
+      .filter((x): x is number => x !== null);
+    if (!fileStarts.length || !fileEnds.length) continue;
     const { data, error } = (await service
       .from('whatsapp_review_sources')
       .select(
         'id,review_status,source_filename,conversation_started_at,conversation_ended_at,raw_text'
       )
-      .in('source_filename', fileNames)
-      .gte('conversation_started_at', new Date(Math.min(...starts)).toISOString())
-      .lte('conversation_ended_at', new Date(Math.max(...ends)).toISOString())
+      .eq('source_filename', fileName)
+      .gte('conversation_started_at', new Date(Math.min(...fileStarts)).toISOString())
+      .lte('conversation_ended_at', new Date(Math.max(...fileEnds)).toISOString())
       .or('review_status.is.null,review_status.neq.archived')
       .limit(SIBLING_LIMIT)) as QueryResult<CanonicalGateSourceRow>;
     if (error) throw new Error(`canonical_source_gate_sibling_lookup_failed: ${error.message}`);
-    siblings = (data || []).map((row) => ({ ...row, id: String(row.id) }));
-    if (siblings.length >= SIBLING_LIMIT)
+    if ((data || []).length >= SIBLING_LIMIT)
       throw new Error('canonical_source_gate_sibling_lookup_unbounded');
+    siblings = siblings.concat((data || []).map((row) => ({ ...row, id: String(row.id) })));
   }
 
   const lookupIds = new Set(sources.map((row) => String(row.id)));

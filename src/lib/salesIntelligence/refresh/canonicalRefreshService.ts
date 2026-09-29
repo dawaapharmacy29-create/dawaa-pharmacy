@@ -226,6 +226,69 @@ export async function runCanonicalSalesIntelligenceRefresh(
   };
 }
 
+export interface CanonicalBackfillResult {
+  mode: 'apply' | 'dry-run';
+  /** What the Canonical Source Gate admits/refuses for the scoped rows (= what apply may write). */
+  gate: { admittedSourceIds: string[]; blockedSources: BlockedSource[] };
+  refresh: CanonicalRefreshResult | null;
+  /** Dry-run only: read-only analysis over the legacy preview rows. Never persisted. */
+  preview: Awaited<ReturnType<typeof runBatchPersistence>> | null;
+}
+
+/**
+ * Maintenance backfill entry point. `apply` writes only through runCanonicalSalesIntelligenceRefresh
+ * (same gate, same V22 identity, same single proof writer as the HTTP transport).
+ * Dry-run never writes: it reports the gate decisions and analyzes `previewRows` read-only.
+ * previewRows is a temporary compatibility input for existing read-only regression fixtures that
+ * still reference superseded sources; it can never reach a writer.
+ */
+export async function runCanonicalSalesIntelligenceBackfill(
+  service: any,
+  input: {
+    rows: Record<string, unknown>[];
+    apply: boolean;
+    previewRows?: Record<string, unknown>[];
+  }
+): Promise<CanonicalBackfillResult> {
+  if (input.apply) {
+    const refresh = await runCanonicalSalesIntelligenceRefresh(service, {
+      sources: input.rows,
+      dryRun: false,
+    });
+    return {
+      mode: 'apply',
+      gate: {
+        admittedSourceIds: refresh.admittedSourceIds,
+        blockedSources: refresh.blockedSources,
+      },
+      refresh,
+      preview: null,
+    };
+  }
+
+  const rows = input.rows.filter(
+    (row) => typeof row.raw_text === 'string' && String(row.raw_text).trim().length > 0
+  );
+  const gateContext = await loadCanonicalSourceGateContext(service, rows as any[]);
+  const decisions = rows.map((row) => evaluateCanonicalSourceGate(row as any, gateContext));
+  const gate = {
+    admittedSourceIds: decisions.filter((d) => d.allowed).map((d) => d.sourceId),
+    blockedSources: decisions
+      .filter((d): d is Extract<CanonicalSourceGateDecision, { allowed: false }> => !d.allowed)
+      .map(toBlocked),
+  };
+  const previewRows = (input.previewRows ?? input.rows).filter(
+    (row) => typeof row.raw_text === 'string' && String(row.raw_text).trim().length > 0
+  );
+  const preview = previewRows.length
+    ? await runBatchPersistence(service, {
+        conversations: previewRows.map((row) => reviewSourceRowToBatchConversation(row as any)),
+        dryRun: true,
+      })
+    : null;
+  return { mode: 'dry-run', gate, refresh: null, preview };
+}
+
 async function reconcileSoldCustomerRequestActions(
   service: any,
   sourceId: string,

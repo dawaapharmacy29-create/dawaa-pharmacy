@@ -153,6 +153,7 @@ function mockService(options: {
     const chain: any = {
       select: () => chain,
       in: () => chain,
+      eq: () => chain,
       gte: () => chain,
       lte: () => chain,
       or: () => (table === 'whatsapp_customer_cases_v22' ? Promise.resolve(result) : chain),
