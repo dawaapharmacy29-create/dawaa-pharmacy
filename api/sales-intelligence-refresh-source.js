@@ -287,11 +287,28 @@ var SALES_INTELLIGENCE_INVOICE_SELECT = [
   "seller_name",
   "normalized_seller_name",
   "staff_id",
-  "staff_name"
+  "staff_name",
+  "delivery_staff"
 ].join(",");
+async function readInvoiceRecordById(invoiceId2, client = supabase) {
+  const { data, error } = await client.from("sales_invoices").select(SALES_INTELLIGENCE_INVOICE_SELECT).eq("id", invoiceId2).maybeSingle();
+  if (error) throw error;
+  return data ?? null;
+}
 async function readInvoiceRecordsByIdentityWindow(args) {
   const client = args.client || supabase;
   const { data, error } = await client.from("sales_invoices").select(SALES_INTELLIGENCE_INVOICE_SELECT).gte("invoice_datetime", args.windowStartIso).lte("invoice_datetime", args.windowEndIso).eq(args.column, args.value).limit(args.limit);
+  if (error) throw error;
+  return data || [];
+}
+async function readInvoiceRecordsByCustomerWindow(args) {
+  const client = args.client || supabase;
+  let query = client.from("sales_invoices").select(SALES_INTELLIGENCE_INVOICE_SELECT).gte("invoice_datetime", args.queryStartIso).lte("invoice_datetime", args.queryEndIso).limit(args.limit ?? 100);
+  if (args.customerCode) query = query.eq("customer_code", args.customerCode);
+  else if (args.customerId) query = query.eq("customer_id", args.customerId);
+  else return [];
+  if (args.branch) query = query.eq("branch", args.branch);
+  const { data, error } = await query;
   if (error) throw error;
   return data || [];
 }
@@ -6502,11 +6519,7 @@ async function enrichComplaintFollowupContext(service, source, caseAnalyses) {
   }
   let invoice = null;
   if (invoiceId2) {
-    const { data, error } = await service.from("sales_invoices").select(
-      "id,invoice_number,invoice_datetime,branch,customer_id,customer_code,delivery_staff,staff_name,seller_name"
-    ).eq("id", invoiceId2).maybeSingle();
-    if (error) throw error;
-    invoice = data;
+    invoice = await readInvoiceRecordById(invoiceId2, service);
   }
   if (!invoice) {
     const customerId = String(source.customer_id || "").trim();
@@ -6518,13 +6531,13 @@ async function enrichComplaintFollowupContext(service, source, caseAnalyses) {
       const to = new Date(
         (endedAt && !Number.isNaN(endedAt.getTime()) ? endedAt.getTime() : startedAt.getTime()) + 6 * 36e5
       ).toISOString();
-      let query = service.from("sales_invoices").select(
-        "id,invoice_number,invoice_datetime,branch,customer_id,customer_code,delivery_staff,staff_name,seller_name"
-      ).gte("invoice_datetime", from).lte("invoice_datetime", to).limit(20);
-      query = customerId ? query.eq("customer_id", customerId) : query.eq("customer_code", customerCode);
-      const { data, error } = await query;
-      if (error) throw error;
-      const rows = data || [];
+      const rows = await readInvoiceRecordsByCustomerWindow({
+        queryStartIso: from,
+        queryEndIso: to,
+        ...customerId ? { customerId } : { customerCode },
+        limit: 20,
+        client: service
+      });
       if (rows.length) {
         const anchor = startedAt.getTime();
         invoice = [...rows].sort((a, b) => {
