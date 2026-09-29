@@ -30,6 +30,34 @@ const outputFile = outputFileArg ? outputFileArg.slice('--output-file='.length).
 
 const ANALYSIS_LOGIC_VERSION = 'whatsapp-analysis-v5-directional-burst';
 
+function serializeError(error: unknown) {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      stack: error.stack || null,
+    };
+  }
+  if (error && typeof error === 'object') {
+    const value = error as Record<string, unknown>;
+    return {
+      name: String(value.name || 'Error'),
+      message: String(value.message || value.error_description || value.details || 'Unknown object rejection'),
+      code: value.code == null ? null : String(value.code),
+      details: value.details == null ? null : String(value.details),
+      hint: value.hint == null ? null : String(value.hint),
+    };
+  }
+  return {
+    name: 'Error',
+    message: String(error),
+  };
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function inferRelationshipToPrevious(
   previous: ReturnType<typeof splitWhatsAppSessions>[number] | null,
   current: ReturnType<typeof splitWhatsAppSessions>[number]
@@ -145,16 +173,24 @@ function inferRelationshipToPrevious(
 }
 
 async function loadSources(): Promise<SourceRow[]> {
-  let query = supabase
-    .from('whatsapp_review_sources')
-    .select('id,raw_text,branch,conversation_started_at,analysis_json')
-    .order('conversation_started_at', { ascending: true })
-    .limit(1000);
+  let lastError: unknown = null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    let query = supabase
+      .from('whatsapp_review_sources')
+      .select('id,raw_text,branch,conversation_started_at,analysis_json')
+      .order('conversation_started_at', { ascending: true })
+      .limit(1000);
 
-  if (sourceId) query = query.eq('id', sourceId);
-  const { data, error } = await query;
-  if (error) throw error;
-  return (data || []) as SourceRow[];
+    if (sourceId) query = query.eq('id', sourceId);
+    const { data, error } = await query;
+    if (!error) return (data || []) as SourceRow[];
+
+    lastError = error;
+    if (attempt < 3) await sleep(500 * attempt);
+  }
+
+  const details = serializeError(lastError);
+  throw new Error(`loadSources_failed: ${JSON.stringify(details)}`);
 }
 
 async function buildMultiSessionOperational(row: SourceRow, sessions: ReturnType<typeof splitWhatsAppSessions>): Promise<WhatsAppMultiSessionOperationalV1> {
@@ -298,7 +334,7 @@ async function main() {
       results.push({
         sourceId: row.id,
         status: 'failed',
-        error: error instanceof Error ? error.message : String(error),
+        error: serializeError(error),
       });
     }
   }
@@ -331,4 +367,11 @@ async function main() {
   if (summary.failed > 0) process.exitCode = 1;
 }
 
-void main();
+void main().catch((error) => {
+  const fatal = {
+    stage: 'fatal',
+    error: serializeError(error),
+  };
+  console.error(JSON.stringify(fatal, null, 2));
+  process.exitCode = 1;
+});
