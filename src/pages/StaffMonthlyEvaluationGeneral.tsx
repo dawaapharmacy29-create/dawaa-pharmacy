@@ -1126,6 +1126,27 @@ export default function StaffMonthlyEvaluation() {
                   ) : null}
                 </section>
               ) : null}
+              <Panel className="flex items-center justify-between gap-3 p-3">
+                <button
+                  type="button"
+                  disabled={activeStep === 1}
+                  onClick={() => setActiveStep((Math.max(1, activeStep - 1)) as MonthlyEvaluationStep)}
+                  className="btn-secondary disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  السابق
+                </button>
+                <div className="text-xs font-black" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                  خطوة {activeStep} من 5
+                </div>
+                <button
+                  type="button"
+                  disabled={activeStep === 5}
+                  onClick={() => setActiveStep((Math.min(5, activeStep + 1)) as MonthlyEvaluationStep)}
+                  className="btn-primary disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  التالي
+                </button>
+              </Panel>
             </>
           ) : (
             <EmptyState label="اختر موظفًا لعرض تقييمه." />
