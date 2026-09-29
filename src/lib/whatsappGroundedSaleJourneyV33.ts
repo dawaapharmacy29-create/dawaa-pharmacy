@@ -1,3 +1,4 @@
+/* eslint-disable no-useless-escape */
 import type { WhatsAppConversationSession, WhatsAppParsedMessage } from './whatsappConversationParser';
 import type { WhatsAppOperationalIntelligenceV6 } from './whatsappOperationalIntelligenceV6';
 import type { UnifiedInvoiceVerification } from './whatsappUnifiedIntelligenceV4';
