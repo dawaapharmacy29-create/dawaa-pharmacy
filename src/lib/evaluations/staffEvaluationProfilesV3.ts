@@ -20,10 +20,26 @@ export type StaffEvaluationProfileV3 = {
 
 type Seed = [key: string, title: string, description: string, weight: number, rubric?: [string, string, string, string, string]];
 
+const DEFAULT_RUBRIC: [string, string, string, string, string] = [
+  'تقصير واضح أو أخطاء متكررة موثقة، والنتيجة أقل بكثير من المطلوب.',
+  'أقل من المطلوب بشكل ملحوظ ويحتاج متابعة وتصحيح وخطة واضحة.',
+  'أداء مقبول يحقق الأساسيات، مع فرص تحسين محددة.',
+  'أداء قوي وثابت يتجاوز المطلوب في أغلب مواقف الدورة.',
+  'أداء متميز ومستمر مع أثر واضح ويمكن الاستشهاد به كنموذج للفريق.',
+];
+
 function sections(rows: Seed[]): StaffEvaluationSectionV3[] {
   const total = rows.reduce((sum, row) => sum + row[3], 0);
   if (total !== 100) throw new Error(`Evaluation profile weights must total 100, received ${total}`);
-  return rows.map(([key, title, description, weight, rubric]) => ({ key, title, description, weight, score: 0, notes: '', rubric }));
+  return rows.map(([key, title, description, weight, rubric]) => ({
+    key,
+    title,
+    description,
+    weight,
+    score: 0,
+    notes: '',
+    rubric: rubric || DEFAULT_RUBRIC,
+  }));
 }
 
 const COMMON_DEVELOPMENT: Seed = ['development', 'التعلم والتحسن', 'تقبل الملاحظات، تنفيذ خطة التطوير، وعدم تكرار الأخطاء.', 10];
