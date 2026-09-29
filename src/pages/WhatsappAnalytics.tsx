@@ -293,13 +293,13 @@ export default function WhatsappAnalytics() {
               إغلاق النافذة
             </button>
           </div>
-          {workspacePanel === 'cases' ? <WhatsAppCustomerCasesV22 onOpenSource={() => navigate('/whatsapp-smart-folder-watcher')} /> : null}
-          {workspacePanel === 'customers' ? <WhatsAppCustomerStory360V16 onOpenSource={() => navigate('/whatsapp-smart-folder-watcher')} /> : null}
-          {workspacePanel === 'opportunities' ? <WhatsAppRecoverableOpportunitiesV10 onOpenSource={() => navigate('/whatsapp-smart-folder-watcher')} /> : null}
+          {workspacePanel === 'cases' ? <WhatsAppCustomerCasesV22 onOpenSource={(sourceId) => navigate(`/whatsapp-smart-folder-watcher?source=${encodeURIComponent(sourceId)}`)} /> : null}
+          {workspacePanel === 'customers' ? <WhatsAppCustomerStory360V16 onOpenSource={(sourceId) => navigate(`/whatsapp-smart-folder-watcher?source=${encodeURIComponent(sourceId)}`)} /> : null}
+          {workspacePanel === 'opportunities' ? <WhatsAppRecoverableOpportunitiesV10 onOpenSource={(sourceId) => navigate(`/whatsapp-smart-folder-watcher?source=${encodeURIComponent(sourceId)}`)} /> : null}
           {workspacePanel === 'followups' ? (
             <>
               <WhatsAppRecoveryCycleKpisV12 />
-              <WhatsAppRecoveryWorkQueueV11 onOpenSource={() => navigate('/whatsapp-smart-folder-watcher')} />
+              <WhatsAppRecoveryWorkQueueV11 onOpenSource={(sourceId) => navigate(`/whatsapp-smart-folder-watcher?source=${encodeURIComponent(sourceId)}`)} />
             </>
           ) : null}
         </div>
