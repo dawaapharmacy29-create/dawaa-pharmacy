@@ -55,6 +55,7 @@ export default function WhatsAppRecoveryCycleKpisV12() {
     const completed = rows.reduce((s,r)=>s+Number(r.completed_tasks||0),0);
     const slaEligible = rows.reduce((s,r)=>s+Number(r.sla_eligible_completed||0),0);
     const slaHit = rows.reduce((s,r)=>s+Number(r.sla_hit_tasks||0),0);
+    const reportedSales = rows.reduce((s,r)=>s+Number(r.sold_outcomes||0),0);
     const verifiedSales = rows.reduce((s,r)=>s+Number(r.verified_recovered_sales||0),0);
     return {
       total,
@@ -63,6 +64,7 @@ export default function WhatsAppRecoveryCycleKpisV12() {
       completed,
       completion:total ? completed/total*100 : 0,
       sla:slaEligible ? slaHit/slaEligible*100 : 0,
+      reportedSales,
       verifiedSales,
       revenue:rows.reduce((s,r)=>s+Number(r.recovered_revenue||0),0),
       attempts:rows.reduce((s,r)=>s+Number(r.followup_attempts||0),0),
@@ -83,12 +85,12 @@ export default function WhatsAppRecoveryCycleKpisV12() {
       ].map(([label,value])=><div key={String(label)} className={`rounded-xl border p-3 ${label==='متأخرة'&&Number(value)>0?'border-rose-400/30 bg-rose-500/5':'border-slate-800'}`}><div className="text-[11px] text-slate-500">{label}</div><div className="mt-1 text-lg font-black text-white">{value}</div></div>)}
     </div>
 
-    <div className="mt-4 flex flex-wrap gap-3 text-xs text-slate-400"><span>مبيعات مسترجعة Canonical: <b className="text-emerald-300">{totals.verifiedSales}</b></span><span>محاولات متابعة: <b className="text-cyan-300">{totals.attempts}</b></span></div>
+    <div className="mt-4 flex flex-wrap gap-3 text-xs text-slate-400"><span>إفادات بيع من المتابعة: <b className="text-amber-300">{totals.reportedSales}</b></span><span>مبيعات مسترجعة Canonical: <b className="text-emerald-300">{totals.verifiedSales}</b></span><span>محاولات متابعة: <b className="text-cyan-300">{totals.attempts}</b></span></div>
 
     <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-800">
-      <table className="w-full min-w-[900px] text-right text-xs"><thead className="bg-slate-950/60 text-slate-500"><tr><th className="p-3">المسئول</th><th className="p-3">مهام</th><th className="p-3">مفتوحة</th><th className="p-3">متأخرة</th><th className="p-3">مكتملة</th><th className="p-3">الإكمال</th><th className="p-3">SLA</th><th className="p-3">متوسط الإغلاق</th><th className="p-3">بيع مسترجع Canonical</th><th className="p-3">إيراد مسترجع Canonical</th></tr></thead><tbody>
-        {rows.map((r)=><tr key={r.assigned_to_id || 'unassigned'} className="border-t border-slate-800"><td className="p-3 font-black text-white">{r.assigned_to_name}</td><td className="p-3 text-slate-300">{r.total_tasks}</td><td className="p-3 text-slate-300">{r.open_tasks}</td><td className={`p-3 ${r.overdue_tasks?'text-rose-300':'text-slate-300'}`}>{r.overdue_tasks}</td><td className="p-3 text-slate-300">{r.completed_tasks}</td><td className="p-3 text-cyan-300">{pct(r.completion_rate)}</td><td className="p-3 text-cyan-300">{r.sla_eligible_completed ? pct(r.sla_hit_rate) : '—'}</td><td className="p-3 text-slate-300">{r.avg_completion_hours == null ? '—' : `${Number(r.avg_completion_hours).toLocaleString('ar-EG',{maximumFractionDigits:1})} س`}</td><td className="p-3 text-emerald-300">{r.verified_recovered_sales}</td><td className="p-3 font-black text-emerald-300">{money(r.recovered_revenue)}</td></tr>)}
-        {!loading&&!rows.length?<tr><td colSpan={10} className="p-8 text-center text-slate-500">لا توجد مهام استرجاع في الدورة الحالية حتى الآن.</td></tr>:null}
+      <table className="w-full min-w-[900px] text-right text-xs"><thead className="bg-slate-950/60 text-slate-500"><tr><th className="p-3">المسئول</th><th className="p-3">مهام</th><th className="p-3">مفتوحة</th><th className="p-3">متأخرة</th><th className="p-3">مكتملة</th><th className="p-3">الإكمال</th><th className="p-3">SLA</th><th className="p-3">متوسط الإغلاق</th><th className="p-3">إفادة بيع متابعة</th><th className="p-3">بيع مسترجع Canonical</th><th className="p-3">إيراد مسترجع Canonical</th></tr></thead><tbody>
+        {rows.map((r)=><tr key={r.assigned_to_id || 'unassigned'} className="border-t border-slate-800"><td className="p-3 font-black text-white">{r.assigned_to_name}</td><td className="p-3 text-slate-300">{r.total_tasks}</td><td className="p-3 text-slate-300">{r.open_tasks}</td><td className={`p-3 ${r.overdue_tasks?'text-rose-300':'text-slate-300'}`}>{r.overdue_tasks}</td><td className="p-3 text-slate-300">{r.completed_tasks}</td><td className="p-3 text-cyan-300">{pct(r.completion_rate)}</td><td className="p-3 text-cyan-300">{r.sla_eligible_completed ? pct(r.sla_hit_rate) : '—'}</td><td className="p-3 text-slate-300">{r.avg_completion_hours == null ? '—' : `${Number(r.avg_completion_hours).toLocaleString('ar-EG',{maximumFractionDigits:1})} س`}</td><td className="p-3 text-amber-300">{r.sold_outcomes}</td><td className="p-3 text-emerald-300">{r.verified_recovered_sales}</td><td className="p-3 font-black text-emerald-300">{money(r.recovered_revenue)}</td></tr>)}
+        {!loading&&!rows.length?<tr><td colSpan={11} className="p-8 text-center text-slate-500">لا توجد مهام استرجاع في الدورة الحالية حتى الآن.</td></tr>:null}
       </tbody></table>
     </div>
   </section>;
