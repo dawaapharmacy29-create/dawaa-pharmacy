@@ -6,10 +6,12 @@ import { useAuth } from '@/hooks/useAuth';
 import { getStaffPointsDashboardV3, type StaffPointsDashboardV3 } from '@/lib/staff/staffPointsDashboardService';
 import {
   currentEvaluationCycleLabel,
-  previousEvaluationCycleLabel,
+  evaluationCycleDateKeys,
   evaluationCycleRangeFromLabel,
-  evaluationCycleQueryBounds,
+  isEvaluationCycleClosed,
+  latestClosedEvaluationCycleLabel,
 } from '@/lib/evaluations/monthlyEvaluationCycle';
+import { loadEmployeeMonthlyEvidence } from '@/lib/staff/employeeMonthlyEvidenceService';
 import { Panel, SectionTitle, KpiCard, MiniBox } from '@/components/dashboard/DashboardPrimitives';
 
 type DoctorRow = { id: string; name: string; role?: string | null; branch?: string | null; status?: string | null };
@@ -54,8 +56,11 @@ function savedSections(value: unknown) {
 
 export default function CustomerServiceDoctorEvaluation() {
   const { user } = useAuth();
-  const [cycleLabel, setCycleLabel] = useState(() => currentEvaluationCycleLabel());
+  const [cycleLabel, setCycleLabel] = useState(() => latestClosedEvaluationCycleLabel());
   const cycleRange = useMemo(() => evaluationCycleRangeFromLabel(cycleLabel), [cycleLabel]);
+  const cycleClosed = useMemo(() => isEvaluationCycleClosed(cycleLabel), [cycleLabel]);
+  const activeCycleLabel = currentEvaluationCycleLabel();
+  const latestClosedCycleLabel = latestClosedEvaluationCycleLabel();
   const [doctors, setDoctors] = useState<DoctorRow[]>([]);
   const [selectedId, setSelectedId] = useState('');
   const [search, setSearch] = useState('');
@@ -63,6 +68,8 @@ export default function CustomerServiceDoctorEvaluation() {
   const [notes, setNotes] = useState('');
   const [status, setStatus] = useState('draft');
   const [metrics, setMetrics] = useState<Metrics>(EMPTY_METRICS);
+  const [evidenceReady, setEvidenceReady] = useState(false);
+  const [evidenceErrors, setEvidenceErrors] = useState<Record<string, string>>({});
   const [points, setPoints] = useState<StaffPointsDashboardV3 | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -90,13 +97,12 @@ export default function CustomerServiceDoctorEvaluation() {
     if (!user?.id || !selectedId) return;
     const load = async () => {
       setLoading(true);
-      const { startDate, endDateExclusive } = evaluationCycleQueryBounds(cycleLabel);
+      const { startDate, endDateExclusive } = evaluationCycleDateKeys(cycleLabel);
       const cycleKeyDate = `${cycleLabel}-01`;
-      const [savedResult, pointsResult, reviewsResult, followupsResult] = await Promise.all([
+      const [savedResult, pointsResult, evidence] = await Promise.all([
         supabase.rpc('get_doctor_customer_service_evaluation_safe', { p_actor_id: user.id, p_doctor_id: selectedId, p_month: cycleKeyDate }),
         getStaffPointsDashboardV3(selectedId, cycleLabel).catch(() => null),
-        supabase.from('conversation_sales_reviews').select('total_score,final_score').eq('staff_id', selectedId).gte('created_at', startDate).lt('created_at', endDateExclusive).limit(500),
-        supabase.from('daily_followups').select('status,followup_status,completed_at').or(`assigned_staff_id.eq.${selectedId},requested_by_staff_id.eq.${selectedId}`).gte('created_at', startDate).lt('created_at', endDateExclusive).limit(1000),
+        loadEmployeeMonthlyEvidence({ staffId: selectedId, startDate, endDateExclusive }),
       ]);
       if (savedResult.error) toast.error(savedResult.error.message);
       const saved = savedResult.data as Record<string, unknown> | null;
@@ -104,11 +110,17 @@ export default function CustomerServiceDoctorEvaluation() {
       setNotes(String(saved?.notes || ''));
       setStatus(String(saved?.status || 'draft'));
       setPoints(pointsResult);
-      const reviewRows = reviewsResult.data || [];
-      const followupRows = followupsResult.data || [];
-      const avg = reviewRows.length ? reviewRows.reduce((sum, row) => sum + n(row.final_score ?? row.total_score), 0) / reviewRows.length : 0;
-      const completed = followupRows.filter((row) => row.completed_at || /completed|مكتمل|تم/i.test(String(row.status || row.followup_status || ''))).length;
-      setMetrics({ review_count: reviewRows.length, review_average: Math.round(avg * 10) / 10, followup_count: followupRows.length, completed_followups: completed });
+      setEvidenceReady(evidence.health.reviews === 'available' && evidence.health.followups === 'available');
+      setEvidenceErrors({
+        ...(evidence.errors.reviews ? { reviews: evidence.errors.reviews } : {}),
+        ...(evidence.errors.followups ? { followups: evidence.errors.followups } : {}),
+      });
+      setMetrics({
+        review_count: evidence.metrics.review_count,
+        review_average: evidence.metrics.review_average,
+        followup_count: evidence.metrics.followup_count,
+        completed_followups: evidence.metrics.completed_followups,
+      });
       setLoading(false);
     };
     void load();
@@ -120,7 +132,18 @@ export default function CustomerServiceDoctorEvaluation() {
 
   async function save(nextStatus: 'draft' | 'sent') {
     if (!user?.id || !selected) return;
-    if (sections.some((item) => item.score < 1)) { toast.error('يجب تقييم كل محاور خدمة العملاء قبل الإرسال.'); return; }
+    if (nextStatus === 'sent' && !cycleClosed) {
+      toast.error('الدورة ما زالت جارية. احفظ التقييم كمسودة، والاعتماد النهائي يفتح بعد نهاية يوم 25.');
+      return;
+    }
+    if (nextStatus === 'sent' && !evidenceReady) {
+      toast.error('لا يمكن اعتماد التقييم لأن بيانات المحادثات أو المتابعات غير متاحة حاليًا.');
+      return;
+    }
+    if (nextStatus === 'sent' && sections.some((item) => item.score < 1)) {
+      toast.error('يجب تقييم كل محاور خدمة العملاء قبل الاعتماد النهائي.');
+      return;
+    }
     setSaving(true);
     const { error } = await supabase.rpc('save_doctor_customer_service_evaluation_safe', {
       p_actor_id: user.id,
@@ -128,7 +151,7 @@ export default function CustomerServiceDoctorEvaluation() {
         doctor_id: selected.id,
         evaluation_month: `${cycleLabel}-01`,
         sections,
-        metrics_snapshot: metrics,
+        metrics_snapshot: { ...metrics, evidence_ready: evidenceReady, evidence_errors: Object.keys(evidenceErrors) },
         overall_score: overallScore,
         notes,
         status: nextStatus,
@@ -150,33 +173,38 @@ export default function CustomerServiceDoctorEvaluation() {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="flex items-center gap-2 text-2xl font-black" style={{ color: 'var(--dawaa-theme-heading)' }}><Users style={{ color: 'var(--dawaa-theme-primary-strong)' }} /> تقييم خدمة العملاء للدكاترة</h1>
-            <p className="mt-2 max-w-3xl text-sm font-bold" style={{ color: 'var(--dawaa-theme-text)' }}>تقييم مستقل من جانب خدمة العملاء لدكاترة الفرع فقط. عند الإرسال يتحول إلى نقاط داخل Points V3، ولا ينشئ مبلغ حافز منفصل.</p>
+            <p className="mt-2 max-w-3xl text-sm font-bold" style={{ color: 'var(--dawaa-theme-text)' }}>تقييم مستقل من جانب خدمة العملاء لدكاترة الفرع فقط. عند الاعتماد بعد إقفال الدورة يتحول أثره إلى نقاط عبر مسار النقاط المركزي V4، ولا ينشئ مبلغ حافز منفصل.</p>
           </div>
           <div className="flex overflow-hidden rounded-2xl border" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
             <button
               type="button"
-              onClick={() => setCycleLabel(previousEvaluationCycleLabel(currentEvaluationCycleLabel()))}
+              onClick={() => setCycleLabel(latestClosedCycleLabel)}
               className="px-3 py-2 text-xs font-black"
-              style={cycleLabel === previousEvaluationCycleLabel(currentEvaluationCycleLabel())
+              style={cycleLabel === latestClosedCycleLabel
                 ? { background: 'var(--dawaa-theme-primary)', color: 'var(--dawaa-theme-primary-text)' }
                 : { color: 'var(--dawaa-theme-muted)' }}
             >
-              الدورة السابقة
+              آخر دورة مكتملة
             </button>
             <button
               type="button"
-              onClick={() => setCycleLabel(currentEvaluationCycleLabel())}
+              onClick={() => setCycleLabel(activeCycleLabel)}
               className="px-3 py-2 text-xs font-black"
-              style={cycleLabel === currentEvaluationCycleLabel()
+              style={cycleLabel === activeCycleLabel
                 ? { background: 'var(--dawaa-theme-primary)', color: 'var(--dawaa-theme-primary-text)' }
                 : { color: 'var(--dawaa-theme-muted)' }}
             >
-              الدورة الحالية
+              الدورة الجارية
             </button>
           </div>
         </div>
-        <div className="mt-3 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-black" style={{ borderColor: 'var(--dawaa-theme-accent-border)', background: 'var(--dawaa-theme-accent-soft)', color: 'var(--dawaa-theme-primary-strong)' }}>
-          فترة الدورة: {cycleRange.displayLabel}
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <div className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-black" style={{ borderColor: 'var(--dawaa-theme-accent-border)', background: 'var(--dawaa-theme-accent-soft)', color: 'var(--dawaa-theme-primary-strong)' }}>
+            فترة الدورة: {cycleRange.displayLabel}
+          </div>
+          <div className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-black ${cycleClosed ? 'border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] text-[var(--dawaa-status-success-text)]' : 'border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)]'}`}>
+            {cycleClosed ? 'الدورة مكتملة — الاعتماد متاح' : 'الدورة جارية — مسودة فقط'}
+          </div>
         </div>
       </Panel>
 
@@ -213,7 +241,12 @@ export default function CustomerServiceDoctorEvaluation() {
             </section>
 
             <Panel className="p-4">
-              <SectionTitle title="مؤشرات مساعدة من خدمة العملاء" />
+              <SectionTitle title="مؤشرات مساعدة من خدمة العملاء" subtitle={evidenceReady ? 'المحادثات والمتابعات متاحة' : 'مصدر بيانات غير متاح — الاعتماد النهائي متوقف'} />
+              {!evidenceReady ? (
+                <div className="mb-3 rounded-xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-3 text-xs font-bold text-[var(--dawaa-status-danger-text)]">
+                  تعطل المصدر لا يتحول إلى صفر في التقييم. يمكنك حفظ مسودة فقط لحين عودة البيانات.
+                </div>
+              ) : null}
               <div className="grid gap-2 sm:grid-cols-4">
                 <MiniBox label="محادثات مقيمة" value={String(metrics.review_count)} tone="cyan" />
                 <MiniBox label="متوسط المحادثات" value={`${metrics.review_average}%`} tone="cyan" />
@@ -256,7 +289,7 @@ export default function CustomerServiceDoctorEvaluation() {
               <div className="flex items-center gap-2 text-sm font-bold" style={{ color: 'var(--dawaa-theme-text)' }}><CheckCircle2 style={{ color: 'var(--dawaa-theme-primary-strong)' }} size={18} /> الحالة: {status}</div>
               <div className="flex gap-2">
                 <button type="button" disabled={saving} onClick={() => void save('draft')} className="btn-secondary inline-flex items-center gap-2"><Save size={16} /> حفظ مسودة</button>
-                <button type="button" disabled={saving} onClick={() => void save('sent')} className="btn-primary inline-flex items-center gap-2">{saving ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />} اعتماد وإرسال للنقاط</button>
+                <button type="button" disabled={saving || !cycleClosed || !evidenceReady} onClick={() => void save('sent')} className="btn-primary inline-flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-60">{saving ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />} {cycleClosed ? 'اعتماد وإرسال للنقاط' : 'الاعتماد بعد إقفال الدورة'}</button>
               </div>
             </Panel>
           </> : <div className="rounded-3xl border border-dashed p-10 text-center" style={{ borderColor: 'var(--dawaa-theme-border)', color: 'var(--dawaa-theme-muted)' }}>لا يوجد دكاترة متاحون داخل نطاق الفرع.</div>}
