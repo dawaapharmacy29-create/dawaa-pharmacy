@@ -62,24 +62,9 @@ export default function MonthlyEvaluationWorkflowV5({
 
   return (
     <Panel className="overflow-hidden p-0">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2.5" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
+      <div className="border-b px-3 py-2.5" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
         <div className="text-sm font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>
           خطوات التقييم
-        </div>
-        <div className="flex flex-wrap gap-1.5 text-[10px] font-black">
-          <span className="rounded-full border px-2.5 py-1" style={{ borderColor: 'var(--dawaa-theme-border)', color: 'var(--dawaa-theme-text)' }}>
-            {summary.total} موظف
-          </span>
-          {summary.draft > 0 ? (
-            <span className="rounded-full border px-2.5 py-1" style={{ borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-status-warning-bg)', color: 'var(--dawaa-status-warning-text)' }}>
-              {summary.draft} مسودة
-            </span>
-          ) : null}
-          {summary.needsReapproval > 0 ? (
-            <span className="rounded-full border px-2.5 py-1" style={{ borderColor: 'var(--dawaa-status-danger-border)', background: 'var(--dawaa-status-danger-bg)', color: 'var(--dawaa-status-danger-text)' }}>
-              {summary.needsReapproval} إعادة اعتماد
-            </span>
-          ) : null}
         </div>
       </div>
 
