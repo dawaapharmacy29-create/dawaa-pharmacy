@@ -7,8 +7,6 @@ export type FollowupScriptContext = {
   result?: string | null;
   branch?: string | null;
   lastPurchase?: string | null;
-  // إشارات ملف العميل — من customer_flags + التصنيف والحالة، عشان السكريبت
-  // يتخصص فعليًا لكل عميل مش يفضل نص عام واحد للجميع.
   profileTags?: string[];
   segment?: string | null;
   customerStatus?: string | null;
@@ -34,13 +32,12 @@ function cleanName(value: unknown) {
     .trim();
 }
 
-function customerGreeting(value: string) {
+function displayCustomerName(value: string) {
   const cleaned = cleanName(value);
-  if (!cleaned || /^(?:غير محدد|عميل|بدون اسم|مجهول)$/i.test(cleaned)) return 'يا فندم';
+  if (!cleaned || /^(?:غير محدد|عميل|بدون اسم|مجهول)$/i.test(cleaned)) return '';
   const parts = cleaned.split(/\s+/).filter(Boolean);
   if (parts.length > 1 && parts[0].length === 1) parts.shift();
-  const displayName = parts.slice(0, 2).join(' ');
-  return displayName ? `يا أستاذ ${displayName}` : 'يا فندم';
+  return parts.slice(0, 2).join(' ');
 }
 
 function validPersonName(value?: string | null) {
@@ -50,318 +47,361 @@ function validPersonName(value?: string | null) {
     : '';
 }
 
-function publicReason(value?: string | null) {
-  const reason = String(value || '')
-    .replace(/\[بدون رقم صحيح\]|المصدر\s*:[^\n|]+/gi, '')
-    .replace(/طريقة مفضلة\s*:[^|·]+/gi, '')
-    .replace(/ملاحظة شخصية\s*:[^|·]+/gi, '')
-    .replace(/طلب من\s*:?\s*د\/?\s*[^|·]+/gi, '')
-    .replace(/[|]+/g, ' · ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  const looksInternal =
-    !reason ||
-    /طلب متابعة|متابعة العميل|عميل مهم|مهم جدًا|مهم جدا|يجب متابعته|متابعته كويس|أولوية|استثنائي|غير مصنف|doctor[_ -]?request/i.test(
-      reason
-    );
-  return looksInternal ? '' : reason.replace(/^(?:بخصوص|بسبب)\s*/i, '').trim();
-}
-
 function agentLabel(value: string) {
-  const agent = validPersonName(value);
-  return agent ? `د/ ${agent.replace(/^د\/?\s*/i, '')}` : 'فريق خدمة العملاء';
+  const raw = String(value || '').trim();
+  const name = validPersonName(raw);
+  if (!name) return 'فريق خدمة العملاء';
+  const doctor = /^(?:د\/?|دكتور(?:ة)?)\s*/i.test(raw);
+  return (doctor ? 'د/ ' : '') + name;
 }
 
 function brandedIntro(context: FollowupScriptContext) {
-  return `أهلًا بحضرتك ${customerGreeting(context.customerName)}، مع حضرتك ${agentLabel(context.agentName)} من خدمة عملاء صيدليات دواء.`;
-}
-
-function naturalOpening(context: FollowupScriptContext) {
-  return `${brandedIntro(context)} حبيت أطمن على حضرتك وأتأكد إن آخر تعامل ليك معانا كان كويس، وإن مفيش أي استفسار أو حاجة نقدر نساعد حضرتك فيها.`;
+  const customer = displayCustomerName(context.customerName);
+  const greeting = customer ? 'أهلًا بحضرتك ' + customer : 'أهلًا بحضرتك';
+  return greeting + '، مع حضرتك ' + agentLabel(context.agentName) + ' من خدمة عملاء صيدليات دواء.';
 }
 
 function respectfulClose() {
-  return 'شكرًا جدًا لوقت حضرتك، وتشرفنا بالكلام معاك. سجلت ملاحظات حضرتك، وصيدليات دواء تحت أمر حضرتك في أي وقت.';
+  return 'شكرًا جدًا لوقت حضرتك. صيدليات دواء تحت أمر حضرتك في أي وقت.';
 }
 
-// ============================================================================
-// إشارات ملف العميل — تحويل تصنيفات customer_flags لسؤال/جملة فعلية تتقال
-// في المكالمة، بدل ما تفضل مجرد "علامة" الموظف شايفها وميستخدمهاش عمليًا.
-// ============================================================================
+function internalSignal(context: FollowupScriptContext) {
+  return [
+    context.source,
+    context.reason,
+    context.result,
+    context.customerStatus,
+    context.segment,
+  ]
+    .filter(Boolean)
+    .join(' ');
+}
 
-type ProfileHint = { question: string; whatsappLine: string };
+function isBereavement(text: string) {
+  return /وفاة|توف(?:ى|ي)|البقاء لله|فقد(?:ت|نا|ان)|قدر الله وما شاء فعل/i.test(text);
+}
+
+function isComplaint(text: string) {
+  return /شكوى|غاضب|تأخير|مشكلة|تصعيد|استرجاع مبلغ|refund|complaint/i.test(text);
+}
+
+function isPostPurchase(text: string) {
+  return /yesterday|أمس|بعد الشراء|بعد الطلب|فاتورة|طلب وصل|post.?purchase/i.test(text);
+}
+
+function isInternalDoctorRequest(text: string, doctorName?: string | null) {
+  return /doctor|طلب دكتور|طلب متابعة|doctor[_ -]?request/i.test(text) || Boolean(validPersonName(doctorName));
+}
+
+function isAtRisk(text: string) {
+  return /at_risk|مهدد|متوقف|قلل|انخفاض|استرجاع عميل|inactive|غير نشط/i.test(text);
+}
+
+function isTravelRelated(text: string) {
+  return /سفر|مسافر|مسافرة|راجع من سفر|عودة من سفر|travel/i.test(text);
+}
+
+type ProfileHint = { question: string };
 
 const PROFILE_HINTS: Record<string, ProfileHint> = {
   monthly_treatment: {
-    question: 'إيه ميعاد آخر مرة جددت فيها علاجك الشهري؟ عشان نطمن إنه ميتأخرش عليك المرة الجاية.',
-    whatsappLine: 'وحابين نفكرك بميعاد تجديد علاجك الشهري قبل ما يخلص عندك، عشان ميتقطعش.',
+    question: 'هل تحب نرتب متابعة دورية مع حضرتك في ميعاد مناسب؟',
   },
   cosmetics_interest: {
-    question: 'حابب نعرفك على أحدث منتجات الكوزمو والعناية اللي وصلتنا؟',
-    whatsappLine: 'وصلنا منتجات عناية وكوزمو جديدة حسينا إنها هتعجب حضرتك، حابين نبعتلك تفاصيلها؟',
+    question: 'هل في نوع من الطلبات تحب نتابع توافره لحضرتك بشكل دوري؟',
   },
   supplements_interest: {
-    question: 'المكملات اللي بتاخدها لسه مستمر عليها؟ محتاج نجهزلك كمية جديدة؟',
-    whatsappLine: 'لو المكملات قربت تخلص عندك، قولنا نجهزها لحضرتك من دلوقتي.',
+    question: 'هل تحب نرتب مع حضرتك متابعة بسيطة للطلبات المتكررة؟',
   },
   has_children: {
-    question: 'الأطفال محتاجين أي حاجة (فيتامينات، لقاحات، منتجات عناية) نجهزها لحضرتك؟',
-    whatsappLine: 'لو الأطفال محتاجين أي حاجة، إحنا جاهزين نجهزها ونوصلها لحضرتك بسرعة.',
+    question: 'هل في طلبات دورية للبيت تحب نرتب متابعتها مع حضرتك؟',
   },
   mother_customer: {
-    question: 'تحبي نجهز طلب شهري ثابت لاحتياجات البيت عشان يوصلك أول بأول من غير ما تتعبي تفتكري؟',
-    whatsappLine: 'تحبي نظبطلك طلب شهري ثابت لاحتياجات البيت يوصلك تلقائي كل شهر؟',
+    question: 'هل في مواعيد أو طلبات دورية تحب نساعدك في تنظيم متابعتها؟',
   },
   elderly_in_house: {
-    question: 'هل احتياجات كبار السن في البيت بتوصل بانتظام، وهل التوصيل مناسب لظروفهم؟',
-    whatsappLine: 'لو حابب نظبط ميعاد توصيل ثابت ومريح لكبار السن في البيت، إحنا جاهزين.',
+    question: 'هل في ميعاد توصيل أو متابعة دورية تحب نثبته لحضرتك؟',
   },
 };
 
-function activeProfileHints(tags?: string[]): ProfileHint[] {
-  if (!tags || !tags.length) return [];
-  const seen = new Set<string>();
-  const hints: ProfileHint[] = [];
+function applyProfileHints(pack: ScriptPack, tags?: string[]): ScriptPack {
+  if (!tags || !tags.length) return pack;
+
   for (const tag of tags) {
     const hint = PROFILE_HINTS[tag];
-    if (hint && !seen.has(tag)) {
-      seen.add(tag);
-      hints.push(hint);
+    if (hint && !pack.questions.includes(hint.question)) {
+      return {
+        ...pack,
+        questions: [...pack.questions, hint.question].slice(0, 4),
+      };
     }
   }
-  return hints.slice(0, 2); // أهم إشارتين بس، عشان المكالمة متتقلش بأسئلة كتير
+
+  return pack;
 }
 
-function applyProfileHints(pack: ScriptPack, tags?: string[]): ScriptPack {
-  const hints = activeProfileHints(tags);
-  if (!hints.length) return pack;
+function bereavementScript(context: FollowupScriptContext): ScriptPack {
+  const opening =
+    brandedIntro(context) +
+    ' قدر الله وما شاء فعل. خالص تعازينا لحضرتكم، وربنا يصبركم ويجبر خاطركم.';
   return {
-    ...pack,
-    questions: [...pack.questions, ...hints.map((h) => h.question)],
-    whatsapp: `${pack.whatsapp}\n\n${hints.map((h) => h.whatsappLine).join(' ')}`,
+    title: 'تعزية ومساندة',
+    objective: 'التواصل الإنساني فقط، بدون أي بيع أو اقتراحات أو ضغط للمتابعة.',
+    opening,
+    questions: [],
+    objections: [],
+    closing: 'إحنا تحت أمر حضرتك في أي وقت، وربنا يصبركم ويجبر خاطركم.',
+    nextStep:
+      'أوقف أي متابعة تجارية مؤقتًا، وسجّل إن الحالة تحتاج احترام الخصوصية وعدم الضغط.',
+    whatsapp: opening + '\n\nإحنا تحت أمر حضرتك في أي وقت.',
+  };
+}
+
+function complaintScript(context: FollowupScriptContext): ScriptPack {
+  const opening =
+    brandedIntro(context) +
+    ' حبيت أطمن على حضرتك وأسمع ملاحظتك بنفسي، عشان نراجع التفاصيل ونتابعها بشكل واضح.';
+  return {
+    title: 'احتواء ملاحظة أو شكوى',
+    objective: 'الاستماع الكامل وتحديد خطوة واضحة وموعد رجوع، بدون افتراض سبب الخطأ.',
+    opening,
+    questions: [
+      'ممكن حضرتك تحكيلي اللي حصل من البداية؟',
+      'إيه النقطة الأهم اللي تحب نركز عليها في المتابعة؟',
+      'تحب نرجع لحضرتك بإجابة أو إجراء في ميعاد معين؟',
+    ],
+    objections: [
+      {
+        objection: 'اتكلمت قبل كده ولسه الموضوع مفتوح',
+        response:
+          'فاهم حضرتك. هراجع اللي اتسجل وأرجع لحضرتك بخطوة واضحة وموعد محدد بدل ما يفضل الموضوع مفتوح.',
+      },
+      {
+        objection: 'مش حابب أكمل التعامل',
+        response:
+          'أكيد نحترم قرار حضرتك. هنسجل ده، ولو في نقطة مفتوحة تخص التجربة الحالية هنقفلها مع حضرتك من غير أي ضغط.',
+      },
+    ],
+    closing:
+      'شكرًا لوقت حضرتك وثقتك في إنك شاركتنا ملاحظتك. هنراجع التفاصيل ونرجع لحضرتك في الموعد المتفق عليه.',
+    nextStep: 'سجّل الملاحظة، المسؤول، والخطوة التالية بموعد محدد قبل إنهاء التواصل.',
+    whatsapp:
+      opening +
+      '\n\nلو مناسب لحضرتك ابعتلنا ملاحظتك هنا، وإحنا هنراجعها ونتابعها مع حضرتك.',
+  };
+}
+
+function postPurchaseScript(context: FollowupScriptContext): ScriptPack {
+  const opening =
+    brandedIntro(context) +
+    ' حبيت أطمن إن آخر طلب وصل لحضرتك كويس وإن تجربة الطلب كانت مريحة.';
+  return {
+    title: 'اطمئنان بعد الطلب',
+    objective: 'التأكد من جودة التجربة ومعالجة أي ملاحظة بدون ذكر تفاصيل حساسة أو أصناف.',
+    opening,
+    questions: [
+      'كل حاجة وصلت بالشكل المتوقع لحضرتك؟',
+      'في أي ملاحظة على الطلب أو التوصيل تحب نراجعها؟',
+      'لو عند حضرتك استفسار عن الاستخدام، تحب أوصل حضرتك بالصيدلي؟',
+    ],
+    objections: [
+      {
+        objection: 'في ملاحظة على الطلب',
+        response:
+          'تمام، سجلت ملاحظتك. هراجع التفاصيل مع الفرع ونرجع لحضرتك بخطوة واضحة.',
+      },
+      {
+        objection: 'كل حاجة تمام',
+        response: 'الحمد لله، ده أهم حاجة عندنا. شكرًا جدًا لوقتك وثقتك.',
+      },
+    ],
+    closing: respectfulClose(),
+    nextStep: 'سجّل النتيجة وأي نقطة تحتاج مراجعة من الفرع أو الصيدلي بدون تفاصيل زائدة.',
+    whatsapp:
+      opening +
+      '\n\nلو في أي ملاحظة أو استفسار، ابعتلنا هنا في الوقت المناسب لحضرتك. تحت أمر حضرتك.',
+  };
+}
+
+function generalCheckinScript(context: FollowupScriptContext): ScriptPack {
+  const opening =
+    brandedIntro(context) +
+    ' حبيت أطمن على حضرتك وأتأكد إن آخر تعامل معانا كان مريح، وإن مفيش أي ملاحظة نقدر نتابعها مع حضرتك.';
+  return {
+    title: 'اطمئنان على العميل',
+    objective: 'متابعة دافئة ومختصرة بدون كشف سبب داخلي أو دفع العميل للشراء.',
+    opening,
+    questions: [
+      'هل آخر تعامل لحضرتك معانا كان مريح؟',
+      'هل في أي ملاحظة أو استفسار تحب نتابعه مع حضرتك؟',
+      'هل في وقت معين تفضّل نتواصل فيه لو احتجنا نرجع لحضرتك؟',
+    ],
+    objections: [
+      {
+        objection: 'مش محتاج حاجة دلوقتي',
+        response:
+          'تمام يا فندم، إحنا بس حبينا نطمن على حضرتك. شكرًا لوقتك، وتحت أمر حضرتك في أي وقت.',
+      },
+      {
+        objection: 'الوقت غير مناسب',
+        response: 'أكيد يا فندم. قولنا بس الوقت الأنسب لحضرتك وهنلتزم بيه.',
+      },
+    ],
+    closing: respectfulClose(),
+    nextStep: 'سجّل النتيجة أو الوقت المناسب للرجوع، بدون ذكر سبب المتابعة الداخلي للعميل.',
+    whatsapp:
+      opening +
+      '\n\nتقدر ترد في الوقت المناسب لحضرتك، وصيدليات دواء تحت أمر حضرتك.',
+  };
+}
+
+function atRiskScript(context: FollowupScriptContext): ScriptPack {
+  const opening =
+    brandedIntro(context) +
+    ' حبيت أطمن على حضرتك وأتأكد إن تجربتك معانا مريحة، ولو في أي ملاحظة نقدر نتابعها مع حضرتك.';
+  return {
+    title: 'متابعة اهتمام واستعادة الثقة',
+    objective: 'فهم أي سبب لضعف التفاعل بدون إخبار العميل بأنه قلّل التعامل أو توقف.',
+    opening,
+    questions: [
+      'هل في أي نقطة في الخدمة تحب نراجعها أو نحسنها مع حضرتك؟',
+      'هل في طلب متكرر بتحب نساعدك في متابعته أو تجهيزه في وقت مناسب؟',
+      'إيه الطريقة الأسهل لحضرتك في التواصل معانا بعد كده؟',
+    ],
+    objections: [
+      {
+        objection: 'مش محتاج حاجة حاليًا',
+        response:
+          'تمام جدًا. إحنا بس حبينا نطمن على حضرتك ونأكد إننا موجودين وقت ما تحتاجنا.',
+      },
+      {
+        objection: 'في ملاحظة على الخدمة',
+        response:
+          'شكرًا إن حضرتك قلتلنا. هسجل الملاحظة بوضوح ونحدد خطوة عملية لمتابعتها.',
+      },
+    ],
+    closing: respectfulClose(),
+    nextStep: 'سجّل سبب الملاحظة إن وُجد، وحدد إجراء واحد فقط وموعد متابعة مناسب.',
+    whatsapp:
+      opening +
+      '\n\nيسعدنا نسمع رأي حضرتك، وتحت أمر حضرتك في أي وقت.',
+  };
+}
+
+function travelSafeScript(context: FollowupScriptContext): ScriptPack {
+  const opening =
+    brandedIntro(context) +
+    ' حبيت أطمن على حضرتك ونشكرك على ثقتك وتعاملك مع صيدليات دواء.';
+  return {
+    title: 'متابعة تقدير واطمئنان',
+    objective: 'الحفاظ على التواصل باحترام بدون ذكر أي تفاصيل خاصة بالسفر أو مكانه.',
+    opening,
+    questions: [
+      'هل في أي ملاحظة أو استفسار تحب نساعدك فيه؟',
+      'تحب نتواصل مع حضرتك في وقت معين لو في متابعة لاحقة؟',
+    ],
+    objections: [
+      {
+        objection: 'مش محتاج متابعة',
+        response:
+          'تمام يا فندم، شكرًا لوقتك وثقتك. مش هنضغط على حضرتك، وإحنا تحت أمرك في أي وقت.',
+      },
+    ],
+    closing: respectfulClose(),
+    nextStep: 'احترم رغبة العميل، ولا تذكر دولة أو مكان السفر أو أي تفاصيل شخصية غير لازمة.',
+    whatsapp:
+      opening +
+      '\n\nسعداء بتعاملك معانا، وصيدليات دواء تحت أمر حضرتك في أي وقت.',
   };
 }
 
 function buildFollowupScriptCore(context: FollowupScriptContext): ScriptPack {
-  const intro = brandedIntro(context);
-  const reason = publicReason(context.reason);
-  const text = `${context.source || ''} ${context.reason || ''} ${context.result || ''}`;
-  const subject = reason ? ` بخصوص ${reason}` : '';
+  const text = internalSignal(context);
 
-  if (/شكوى|غاضب|تأخير|مشكلة|تصعيد/i.test(text)) {
-    const opening = `${intro} حبيت أطمن على حضرتك وأسمع منك بنفسي علشان أتأكد إن تجربتك معانا كويسة. ولو في أي حاجة ضايقت حضرتك، يهمني أعرف التفاصيل بهدوء ونساعدك بشكل يرضيك.`;
-    return {
-      title: 'احتواء شكوى واسترجاع رضا العميل',
-      objective: 'الاستماع الكامل، الاعتذار بوضوح، وتحديد حل ومسؤول وموعد متابعة.',
-      opening,
-      questions: [
-        'ممكن حضرتك تحكيلي اللي حصل من البداية؟',
-        'إيه أكتر نقطة ضايقت حضرتك أو أثرت على تجربتك؟',
-        'إيه الحل اللي يرضي حضرتك ونقدر نبدأ فيه فورًا؟',
-      ],
-      objections: [
-        {
-          objection: 'أنا اشتكيت قبل كده ومحدش حل',
-          response:
-            'مع حضرتك حق تزعل. أنا هراجع كل التفاصيل دلوقتي، وهحدد لحضرتك خطوة واضحة وموعد رجوع محدد بدل ما نسيب الموضوع مفتوح.',
-        },
-        {
-          objection: 'مش عايز أتعامل تاني',
-          response:
-            'أتفهم قرار حضرتك تمامًا ومش هضغط عليك. يهمني بس أصلح الخطأ وأضمن إن حق حضرتك وصل كامل.',
-        },
-      ],
-      closing: respectfulClose(),
-      nextStep: 'سجّل المشكلة، الحل المطلوب، المسؤول، وموعد الرجوع للعميل قبل إنهاء المكالمة.',
-      whatsapp: `${opening}\n\nممكن تبعتلنا التفاصيل هنا في الوقت المناسب لحضرتك، وإحنا هنتابعها باهتمام.\n\n${respectfulClose()}`,
-    };
-  }
+  if (isBereavement(text)) return bereavementScript(context);
+  if (isComplaint(text)) return complaintScript(context);
+  if (isTravelRelated(text)) return travelSafeScript(context);
+  if (isPostPurchase(text)) return postPurchaseScript(context);
+  if (isAtRisk(text)) return atRiskScript(context);
+  if (isInternalDoctorRequest(text, context.doctorName)) return generalCheckinScript(context);
 
-  if (/doctor|طلب دكتور|طلب متابعة/i.test(text) || validPersonName(context.doctorName)) {
-    const opening = naturalOpening(context);
-    return {
-      title: 'اطمئنان عام على العميل',
-      objective: 'الاطمئنان الطبيعي على تجربة العميل وفهم أي احتياج بدون كشف أي تفاصيل داخلية.',
-      opening,
-      questions: [
-        'هل آخر تعامل لحضرتك معانا كان كويس وكل حاجة تمت بالشكل المطلوب؟',
-        'هل في أي استفسار أو ملاحظة نقدر نساعد حضرتك فيها؟',
-        'هل في حاجة تحب نتابعها لحضرتك أو نرجعلك بخصوصها في وقت مناسب؟',
-      ],
-      objections: [
-        {
-          objection: 'مش محتاج حاجة',
-          response:
-            'تمام يا فندم، إحنا بس حبينا نطمن على حضرتك. شكرًا جدًا لوقتك، وإحنا تحت أمرك في أي وقت.',
-        },
-        {
-          objection: 'الوقت غير مناسب',
-          response: 'أكيد يا فندم، ولا يهم حضرتك. إمتى يكون وقت مناسب نتواصل فيه من غير ما نعطلك؟',
-        },
-      ],
-      closing: respectfulClose(),
-      nextStep:
-        'سجّل ملاحظات العميل وأي احتياج أو موعد مناسب للرجوع له، بدون إظهار سبب التواصل الداخلي.',
-      whatsapp: `${opening}\n\nتقدر ترد في الوقت المناسب لحضرتك، وصيدليات دواء تحت أمرك دائمًا.`,
-    };
-  }
-
-  if (/مهدد|متوقف|قلل|استرجاع/i.test(text)) {
-    const opening = `${intro} حبيت أطمن على حضرتك وأعرف هل آخر تجربة ليك معانا كانت كويسة، وهل في أي حاجة نقدر نحسنها أو نساعدك فيها.`;
-    return {
-      title: 'اطمئنان واهتمام بعميل مهم',
-      objective: 'اكتشاف أي مشكلة واستعادة الثقة بدون ذكر انخفاض التعامل أو الضغط على العميل.',
-      opening,
-      questions: [
-        'هل واجهت حضرتك مشكلة في التوافر أو التوصيل أو طريقة التعامل؟',
-        'هل في أصناف شهرية بيكون صعب تلاقيها أو تحب نتابع توافرها؟',
-        'إيه أهم حاجة لو حسّناها تخلي تجربتك أفضل مع صيدليات دواء؟',
-      ],
-      objections: [
-        {
-          objection: 'الأسعار أعلى',
-          response:
-            'شكرًا إن حضرتك وضحت. نقدر نراجع البدائل والعروض المتاحة، والأهم ما نغيرش أي دواء إلا بعد التأكد إنه مناسب لحالتك.',
-        },
-        {
-          objection: 'الصنف مش بيكون موجود',
-          response:
-            'حق حضرتك. هسجل الأصناف المتكررة وننسق مع الفرع لتجهيزها أو إبلاغ حضرتك أول ما تتوفر.',
-        },
-      ],
-      closing: respectfulClose(),
-      nextStep: 'صنّف سبب الملاحظة وحدد إجراء واحد قابل للقياس وموعد متابعة.',
-      whatsapp: `${opening}\n\nيسعدنا جدًا نسمع ملاحظات حضرتك ونساعدك في أي احتياج.`,
-    };
-  }
-
-  if (/أمس|بعد الشراء|فاتورة|طلب/i.test(text)) {
-    const opening = `${intro} حبيت أطمن على حضرتك وأتأكد إن آخر طلب أو تعامل معانا كان كويس، وإن كل الأصناف وصلت سليمة وطريقة استخدامها واضحة لحضرتك.`;
-    return {
-      title: 'اطمئنان بعد الشراء',
-      objective: 'التأكد من اكتمال الطلب وسلامة التجربة ومعالجة أي نقص فورًا.',
-      opening,
-      questions: [
-        'هل الطلب وصل كامل وبالحالة المطلوبة؟',
-        'هل في صنف محتاج شرح استخدام أو استفسار عنه؟',
-        'هل في أي ملاحظة على التوصيل أو التعامل نقدر نحسنها؟',
-      ],
-      objections: [
-        {
-          objection: 'في صنف ناقص أو بديل غير مناسب',
-          response:
-            'بنعتذر لحضرتك عن ده. هسجل الصنف بدقة ونراجع الاستكمال أو البديل المناسب مع الفرع فورًا.',
-        },
-        {
-          objection: 'مش محتاج حاجة',
-          response:
-            'تمام يا فندم، إحنا بس كنا حابين نطمن إن كل حاجة وصلت بشكل مناسب. شكرًا جدًا لوقتك.',
-        },
-      ],
-      closing: respectfulClose(),
-      nextStep: 'سجّل اكتمال الطلب وأي نقص أو استفسار دوائي يحتاج رجوعًا للصيدلي.',
-      whatsapp: `${opening}\n\nرأيك يهمنا جدًا، وصيدليات دواء تحت أمرك في أي وقت.`,
-    };
-  }
-
-  const opening = naturalOpening(context);
-  return {
-    title: 'اطمئنان واهتمام بالعميل',
-    objective: 'فهم الاحتياج الحالي وتقديم مساعدة مناسبة دون كشف أي سبب داخلي للتواصل.',
-    opening,
-    questions: [
-      'هل آخر تعامل لحضرتك معانا كان كويس؟',
-      'هل في أي استفسار أو ملاحظة نقدر نساعد حضرتك فيها؟',
-      'هل في حاجة تحب نجهزها أو نتابع توافرها لحضرتك؟',
-    ],
-    objections: [
-      {
-        objection: 'الوقت غير مناسب',
-        response: 'أكيد يا فندم، إمتى يكون أنسب وقت نتواصل مع حضرتك؟',
-      },
-      {
-        objection: 'مش محتاج حاليًا',
-        response: 'تمام جدًا، شكرًا لوقت حضرتك. إحنا موجودين وقت ما تحتاجنا من غير أي ضغط.',
-      },
-    ],
-    closing: respectfulClose(),
-    nextStep: 'اختر نتيجة واضحة: مكتمل، موعد لاحق، احتياج، شكوى، أو تصعيد للمسؤول.',
-    whatsapp: `${opening}\n\nتقدر ترد في الوقت المناسب لحضرتك، وصيدليات دواء تحت أمرك دائمًا.`,
-  };
+  return generalCheckinScript(context);
 }
 
 export function buildFollowupScript(context: FollowupScriptContext): ScriptPack {
-  const core = buildFollowupScriptCore(context);
-  return applyProfileHints(core, context.profileTags);
+  return applyProfileHints(buildFollowupScriptCore(context), context.profileTags);
 }
 
-// ============================================================================
-// رسالة ترحيب لعميل جديد — سيناريو منفصل تمامًا عن المتابعة، لأن الهدف مختلف:
-// تعريف بالصيدلية + كسر الجليد + فهم الاحتياج الأساسي، مش اطمئنان بعد تعامل.
-// ============================================================================
 export function buildWelcomeMessageScript(context: FollowupScriptContext): ScriptPack {
-  const greeting = customerGreeting(context.customerName);
-  const opening = `أهلًا وسهلًا بحضرتك ${greeting} في صيدليات دواء 🌿 معاك ${agentLabel(context.agentName)}، وحبينا نرحب بحضرتك بيننا ونكون تحت أمرك في أي وقت.`;
+  const opening =
+    brandedIntro(context) +
+    ' تشرفنا بتعاملك مع صيدليات دواء، وحبينا نرحب بحضرتك ونأكد إن فريقنا تحت أمر حضرتك لأي طلب أو استفسار.';
   const core: ScriptPack = {
     title: 'ترحيب بعميل جديد',
-    objective: 'كسر الجليد، تعريف العميل إزاي يتواصل معانا بسهولة، وفهم أول احتياج ليه.',
+    objective: 'ترحيب بسيط، تعريف بطريقة التواصل، وفهم التفضيل بدون ضغط بيعي.',
     opening,
     questions: [
-      'حابب تعرف حضرتك إن عندنا خدمة توصيل وتقدر تطلب من غير ما تتعب نفسك بالنزول؟',
-      'في احتياج معين حضرتك عايز نجهزه لحضرتك دلوقتي أو بشكل دوري؟',
-      'هل حضرتك تفضل نتواصل معاك واتساب ولا مكالمة في المرات الجاية؟',
+      'لو احتجنا نتواصل مع حضرتك بعد كده، تفضّل واتساب ولا مكالمة؟',
+      'هل تحب نبعث لحضرتك طريقة الطلب والتوصيل بشكل مختصر؟',
     ],
     objections: [
       {
-        objection: 'أنا عادة باشتري من مكان تاني',
-        response:
-          'تشرفنا إن حضرتك جربتنا المرة دي، وهنكون سعداء نبقى خيار حضرتك الأساسي — وأي حاجة محتاجها إحنا جاهزين نجهزها بسرعة وبجودة.',
-      },
-      {
         objection: 'مش محتاج حاجة دلوقتي',
         response:
-          'تمام يا فندم، وده طبيعي جدًا. خدت رقم حضرتك عشان لو احتجت أي حاجة في أي وقت تلاقينا على بعد رسالة أو مكالمة واحدة.',
+          'تمام جدًا يا فندم. تشرفنا بتعاملك معانا، وإحنا تحت أمر حضرتك وقت ما تحتاجنا.',
+      },
+      {
+        objection: 'أفضل مايبقاش في رسائل كتير',
+        response:
+          'أكيد، هنحترم ده تمامًا ونتواصل فقط وقت الحاجة أو حسب تفضيل حضرتك.',
       },
     ],
-    closing: 'يسعدنا جدًا وجود حضرتك معانا، وصيدليات دواء تحت أمرك دايمًا 🌿',
-    nextStep: 'سجّل أول احتياج أو تفضيل تواصل ذكره العميل، عشان نبني عليه أول متابعة فعلية.',
-    whatsapp: `${opening}\n\nمعاك خدمة توصيل سريع، ولو احتجت أي دواء أو منتج في أي وقت إحنا هنا. تحت أمر حضرتك 🌿`,
+    closing: 'تشرفنا بحضرتك، وصيدليات دواء تحت أمر حضرتك دائمًا.',
+    nextStep: 'سجّل وسيلة التواصل المفضلة وأي تفضيل واضح ذكره العميل.',
+    whatsapp:
+      opening +
+      '\n\nلو احتجت أي مساعدة، ابعتلنا هنا في الوقت المناسب لحضرتك. تحت أمر حضرتك.',
   };
   return applyProfileHints(core, context.profileTags);
 }
 
-// ============================================================================
-// تعامل خاص مع عميل مهم جدًا / VIP — نفس منطق الاطمئنان لكن بلهجة أرقى واهتمام
-// أوضح بالتفاصيل الشخصية، لأن الخطأ هنا (فقدان عميل مهم) تكلفته أعلى بكتير.
-// ============================================================================
 export function buildVipCareScript(context: FollowupScriptContext): ScriptPack {
-  const intro = brandedIntro(context);
-  const opening = `${intro} حضرتك من أهم عملاء صيدليات دواء، وحبينا نطمن على حضرتك شخصيًا ونتأكد إن كل تعامل ليك معانا بيوصل لمستوى تستحقه.`;
+  const text = internalSignal(context);
+  if (isBereavement(text)) return bereavementScript(context);
+  if (isComplaint(text)) return complaintScript(context);
+  if (isTravelRelated(text)) return travelSafeScript(context);
+  if (isPostPurchase(text)) return postPurchaseScript(context);
+
+  const opening =
+    brandedIntro(context) +
+    ' بنقدّر جدًا ثقة حضرتك وتعاملك المستمر معانا، وحبينا نطمن إن تجربتك مع صيدليات دواء مريحة.';
   const core: ScriptPack = {
-    title: 'رعاية خاصة لعميل مهم جدًا',
-    objective: 'إشعار العميل بمكانته الحقيقية، ومعالجة أي احتياج بأولوية فورية.',
+    title: 'رعاية خاصة لعميل مهم',
+    objective: 'تقدير العميل ومتابعته باهتمام أعلى بدون مبالغة أو كشف تصنيفه الداخلي.',
     opening,
     questions: [
-      'هل في أي حاجة حصلت مؤخرًا حسيت إنها أقل من مستوى تعاملنا المعتاد معاك؟',
-      'إيه اللي ممكن نظبطه لحضرتك عشان تجربتك تبقى أسهل ومريحة أكتر (ميعاد توصيل ثابت، تجهيز مسبق، خط تواصل مباشر)؟',
-      'هل حضرتك عايز حد معين يكون مسؤول عن متابعتك بشكل شخصي؟',
+      'هل في أي ملاحظة مؤخراً تحب نراجعها مع حضرتك؟',
+      'هل في طريقة معينة تخلي التعامل معانا أسهل وأريح لحضرتك؟',
+      'تحب يكون في ميعاد أو وسيلة تواصل ثابتة للمتابعات المهمة؟',
     ],
     objections: [
       {
-        objection: 'محتاج رد أسرع من العادي',
+        objection: 'محتاج رد أسرع',
         response:
-          'حق حضرتك تمامًا، ومكانتك تستاهل أولوية فعلية مش كلام بس. هفتح لحضرتك خط متابعة مباشر ونتأكد إن أي طلب بتاعك بياخد أولوية.',
+          'وصلت ملاحظتك، وهسجلها كأولوية في المتابعة عشان يكون الرجوع لحضرتك أسرع وواضح.',
       },
       {
-        objection: 'حاسس إن الاهتمام قل عن الأول',
+        objection: 'الاهتمام قل',
         response:
-          'بشكرك جدًا إنك قلتلي كده صراحة. هراجع تعاملاتك الأخيرة بنفسي وهرجعلك بخطوة واضحة، مش وعد عام.',
+          'شكرًا إن حضرتك قلتلنا. هراجع آخر المتابعات ونحدد خطوة واضحة نرجعلك بيها.',
       },
     ],
-    closing: 'وجود حضرتك معانا شرف لصيدليات دواء، وهفضل شخصيًا متابع أي احتياج ليك.',
-    nextStep:
-      'وثّق أي التزام شخصي بالاسم والتاريخ، وحدد مين المسؤول عن متابعته — عميل VIP مش بيتسجّل "ملاحظة عامة".',
-    whatsapp: `${opening}\n\nلو محتاج أي حاجة في أي وقت، ابعتلي هنا مباشرة وهتابعها بنفسي أولًا بأول.`,
+    closing:
+      'شكرًا جدًا على ثقة حضرتك المستمرة. صيدليات دواء تحت أمر حضرتك في أي وقت.',
+    nextStep: 'وثّق أي التزام بموعد ومسؤول واضح، بدون إظهار تصنيف VIP للعميل.',
+    whatsapp:
+      opening +
+      '\n\nلو في أي ملاحظة أو حاجة تحب نتابعها، ابعتلنا هنا في الوقت المناسب لحضرتك.',
   };
   return applyProfileHints(core, context.profileTags);
 }
@@ -373,9 +413,10 @@ export function followupPriorityScore(input: {
   createdAt?: string | null;
   nextDate?: string | null;
 }) {
-  const text = `${input.source || ''} ${input.priority || ''} ${input.reason || ''}`;
+  const text = (input.source || '') + ' ' + (input.priority || '') + ' ' + (input.reason || '');
   let score = 0;
   const reasons: string[] = [];
+
   if (/شكوى|تصعيد|غاضب|عاجل/i.test(text)) {
     score += 100;
     reasons.push('شكوى أو حالة عاجلة');
@@ -396,10 +437,12 @@ export function followupPriorityScore(input: {
     score += 45;
     reasons.push('عميل مهم');
   }
+
   const ageHours = input.createdAt
     ? Math.max(0, (Date.now() - new Date(input.createdAt).getTime()) / 3600000)
     : 0;
   score += Math.min(30, Math.floor(ageHours / 4));
   if (ageHours >= 24) reasons.push('منتظرة منذ أكثر من يوم');
+
   return { score, label: reasons.slice(0, 2).join(' · ') || 'متابعة دورية' };
 }
