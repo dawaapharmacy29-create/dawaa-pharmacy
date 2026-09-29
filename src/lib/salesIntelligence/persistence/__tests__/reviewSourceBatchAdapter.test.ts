@@ -19,6 +19,23 @@ describe('I.B.4 — whatsapp_review_sources -> batch input adapter', () => {
     expect(input.branchNameRawHint).toBe('فرع الشامي');
   });
 
+  it('carries the resolved Customer Case V22 pointer without inventing one', () => {
+    const linked = reviewSourceRowToBatchConversation({
+      id: '2b17106c-fb69-4b4e-ad83-f5aa41303c86',
+      raw_text: '[4:27 PM] **Customer:** ابعت الطلب',
+      conversation_started_at: '2026-09-15T13:27:00+00:00',
+      source_case_id_v22: '9b4cd4fb-0493-4d12-a7aa-2e1b66b70c75',
+    });
+    const unlinked = reviewSourceRowToBatchConversation({
+      id: 'source-without-v22-case',
+      raw_text: '[4:27 PM] **Customer:** استفسار',
+      conversation_started_at: '2026-09-15T13:27:00+00:00',
+    });
+
+    expect(linked.sourceCaseIdV22).toBe('9b4cd4fb-0493-4d12-a7aa-2e1b66b70c75');
+    expect(unlinked.sourceCaseIdV22).toBeNull();
+  });
+
   it('never substitutes another timestamp when conversation_started_at is missing', () => {
     const input = reviewSourceRowToBatchConversation({
       id: 'source-without-date',
