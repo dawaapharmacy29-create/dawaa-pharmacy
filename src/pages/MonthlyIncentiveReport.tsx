@@ -5,8 +5,8 @@ import { normalizeRole } from '@/lib/core/permissionSystem';
 import { supabase } from '@/lib/supabase';
 import {
   currentEvaluationCycleLabel,
-  previousEvaluationCycleLabel,
   evaluationCycleRangeFromLabel,
+  latestClosedEvaluationCycleLabel,
 } from '@/lib/evaluations/monthlyEvaluationCycle';
 import { fetchEmployeeTransactionsForStaff } from '@/services/employeeTransactionService';
 import { Panel, SectionTitle, KpiCard, MiniBox, EmptyState } from '@/components/dashboard/DashboardPrimitives';
@@ -23,8 +23,14 @@ type StaffPointsSummaryRow = {
   final_points: number;
   progress_pct: number;
   points_incentive_egp: number | null;
+  evaluation_multiplier_pct: number | null;
+  competition_bonus_egp: number | null;
+  final_incentive_egp: number | null;
   max_incentive_egp: number | null;
   profile_configured: boolean;
+  evaluation_status: string | null;
+  evaluation_score: number | null;
+  payroll_finalized: boolean;
 };
 
 type SourceBreakdownRow = {
@@ -36,7 +42,7 @@ type SourceBreakdownRow = {
 const SOURCE_LABELS: Record<string, string> = {
   conversation_evaluation: 'تقييم المحادثات',
   doctor_customer_service_evaluation: 'تقييم خدمة العملاء للدكتور',
-  monthly_evaluation_critical_gate: 'مخالفة حرجة في التقييم الشهري',
+  monthly_evaluation_critical_gate: 'مخالفة حرجة — أثر نقاط قديم قبل V4',
   followup_logged: 'تسجيل طلب متابعة',
   followup_completed: 'إتمام متابعة من خدمة العملاء',
   followup_purchase: 'شراء العميل بعد المتابعة',
@@ -63,8 +69,10 @@ export default function MonthlyIncentiveReport() {
   const role = normalizeRole(user?.role);
   const canView = ALLOWED_ROLES.includes(role);
 
-  const [cycleLabel, setCycleLabel] = useState(() => currentEvaluationCycleLabel());
+  const [cycleLabel, setCycleLabel] = useState(() => latestClosedEvaluationCycleLabel());
   const cycleRange = useMemo(() => evaluationCycleRangeFromLabel(cycleLabel), [cycleLabel]);
+  const activeCycleLabel = currentEvaluationCycleLabel();
+  const latestClosedCycleLabel = latestClosedEvaluationCycleLabel();
   const [branchFilter, setBranchFilter] = useState<'الكل' | 'فرع الشامي' | 'فرع شكري'>('الكل');
   const [rows, setRows] = useState<StaffPointsSummaryRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -78,7 +86,7 @@ export default function MonthlyIncentiveReport() {
     setLoading(true);
     setError('');
     void supabase
-      .rpc('get_staff_points_manager_summary_v3', {
+      .rpc('get_staff_points_manager_summary_v4', {
         p_month_cycle: cycleLabel,
         p_branch: branchFilter === 'الكل' ? null : branchFilter,
       })
@@ -123,11 +131,17 @@ export default function MonthlyIncentiveReport() {
     );
   }
 
-  const totalIncentive = rows.reduce((sum, row) => sum + Number(row.points_incentive_egp || 0), 0);
+  const rawPointsIncentiveTotal = rows.reduce((sum, row) => sum + Number(row.points_incentive_egp || 0), 0);
+  const approvedFinalTotal = rows.reduce(
+    (sum, row) => sum + (row.evaluation_multiplier_pct == null ? 0 : Number(row.final_incentive_egp || 0)),
+    0
+  );
   const configuredCount = rows.filter((row) => row.profile_configured).length;
   const missingProfileCount = rows.length - configuredCount;
-  const avgProgress = rows.length ? Math.round(rows.reduce((sum, row) => sum + Number(row.progress_pct || 0), 0) / rows.length) : 0;
-  const sortedRows = [...rows].sort((a, b) => Number(b.points_incentive_egp || 0) - Number(a.points_incentive_egp || 0));
+  const pendingEvaluationCount = rows.filter((row) => row.profile_configured && row.evaluation_multiplier_pct == null).length;
+  const sortedRows = [...rows].sort(
+    (a, b) => Number(b.final_incentive_egp ?? b.points_incentive_egp ?? 0) - Number(a.final_incentive_egp ?? a.points_incentive_egp ?? 0)
+  );
 
   return (
     <div dir="rtl" className="min-h-screen space-y-4 p-4" style={{ background: 'var(--dawaa-theme-bg)' }}>
@@ -138,30 +152,30 @@ export default function MonthlyIncentiveReport() {
               <Wallet style={{ color: 'var(--dawaa-theme-primary-strong)' }} /> التقرير الشهري للحوافز والنقاط
             </h1>
             <p className="mt-2 max-w-3xl text-sm font-bold" style={{ color: 'var(--dawaa-theme-text)' }}>
-              الحافز = صافي النقاط الحقيقية هذه الدورة (محادثات، طلبات عملاء، متابعات، رواكد...) × سعر النقطة، من غير سقف أعلى. هذا التقرير يعرض القيم الحية لحظة بلحظة.
+              التقرير يفصل بوضوح بين حافز النقاط قبل التقييم، نسبة التقييم الشهري المعتمدة، والبونص، ثم الحافز بعد التقييم. لو التقييم غير معتمد لن نعرض الرقم الخام على أنه حافز نهائي.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex overflow-hidden rounded-2xl border" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
               <button
                 type="button"
-                onClick={() => setCycleLabel(previousEvaluationCycleLabel(currentEvaluationCycleLabel()))}
+                onClick={() => setCycleLabel(latestClosedCycleLabel)}
                 className="px-3 py-2 text-xs font-black"
-                style={cycleLabel === previousEvaluationCycleLabel(currentEvaluationCycleLabel())
+                style={cycleLabel === latestClosedCycleLabel
                   ? { background: 'var(--dawaa-theme-primary)', color: 'var(--dawaa-theme-primary-text)' }
                   : { color: 'var(--dawaa-theme-muted)' }}
               >
-                الدورة السابقة
+                آخر دورة مكتملة
               </button>
               <button
                 type="button"
-                onClick={() => setCycleLabel(currentEvaluationCycleLabel())}
+                onClick={() => setCycleLabel(activeCycleLabel)}
                 className="px-3 py-2 text-xs font-black"
-                style={cycleLabel === currentEvaluationCycleLabel()
+                style={cycleLabel === activeCycleLabel
                   ? { background: 'var(--dawaa-theme-primary)', color: 'var(--dawaa-theme-primary-text)' }
                   : { color: 'var(--dawaa-theme-muted)' }}
               >
-                الدورة الحالية
+                الدورة الجارية
               </button>
             </div>
             <select value={branchFilter} onChange={(event) => setBranchFilter(event.target.value as typeof branchFilter)} className="input-dark w-auto">
@@ -187,10 +201,10 @@ export default function MonthlyIncentiveReport() {
       ) : (
         <>
           <section className="grid gap-3 md:grid-cols-4">
-            <KpiCard title="إجمالي الحافز المتوقع" value={`${Math.round(totalIncentive).toLocaleString('ar-EG')} جنيه`} subtitle={`عبر ${rows.length} موظف`} icon={<DollarSign size={20} />} tone="green" />
-            <KpiCard title="متوسط نسبة الإنجاز" value={`${avgProgress}%`} subtitle="مقارنة بالمرجع التقريبي لكل فئة" icon={<TrendingUp size={20} />} tone={avgProgress >= 80 ? 'green' : avgProgress >= 40 ? 'amber' : 'red'} />
-            <KpiCard title="عدد الموظفين" value={String(rows.length)} subtitle={`${configuredCount} بملف تعويض مكتمل`} icon={<Users size={20} />} tone="cyan" />
-            <KpiCard title="بدون ملف تعويض" value={String(missingProfileCount)} subtitle={missingProfileCount ? 'مفيش مبلغ مالي محسوب لهم' : 'كل الملفات مكتملة'} icon={<Wallet size={20} />} tone={missingProfileCount ? 'red' : 'green'} />
+            <KpiCard title="حافز النقاط قبل التقييم" value={`${Math.round(rawPointsIncentiveTotal).toLocaleString('ar-EG')} جنيه`} subtitle="ليس رقم الصرف النهائي" icon={<TrendingUp size={20} />} tone="cyan" />
+            <KpiCard title="بعد تقييم معتمد" value={`${Math.round(approvedFinalTotal).toLocaleString('ar-EG')} جنيه`} subtitle="فقط الصفوف التي لها multiplier معتمد" icon={<DollarSign size={20} />} tone="green" />
+            <KpiCard title="في انتظار التقييم" value={String(pendingEvaluationCount)} subtitle="لن يظهر لهم رقم نهائي مؤكد" icon={<Users size={20} />} tone={pendingEvaluationCount ? 'amber' : 'green'} />
+            <KpiCard title="بدون ملف تعويض" value={String(missingProfileCount)} subtitle={missingProfileCount ? 'لا يوجد مبلغ مالي محسوب لهم' : `${configuredCount} ملف مالي مكتمل`} icon={<Wallet size={20} />} tone={missingProfileCount ? 'red' : 'green'} />
           </section>
 
           <Panel className="p-4">
@@ -199,7 +213,7 @@ export default function MonthlyIncentiveReport() {
               <EmptyState label="مفيش موظفين مطابقين لهذا الفلتر." />
             ) : (
               <div className="overflow-x-auto rounded-2xl border" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
-                <table className="w-full min-w-[820px] text-sm">
+                <table className="w-full min-w-[1080px] text-sm">
                   <thead>
                     <tr className="text-right text-xs" style={{ color: 'var(--dawaa-theme-muted)' }}>
                       <th className="p-2 font-bold">الموظف</th>
@@ -207,7 +221,9 @@ export default function MonthlyIncentiveReport() {
                       <th className="p-2 font-bold">خصومات</th>
                       <th className="p-2 font-bold">الصافي</th>
                       <th className="p-2 font-bold">نسبة الإنجاز</th>
-                      <th className="p-2 font-bold">الحافز</th>
+                      <th className="p-2 font-bold">قبل التقييم</th>
+                      <th className="p-2 font-bold">نسبة التقييم</th>
+                      <th className="p-2 font-bold">بعد التقييم</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -223,25 +239,44 @@ export default function MonthlyIncentiveReport() {
                               <ChevronDown size={14} className={expandedId === row.staff_id ? 'rotate-180 transition-transform' : 'transition-transform'} style={{ color: 'var(--dawaa-theme-muted)' }} />
                               {row.staff_name}
                             </div>
-                            <div className="mr-5 text-[11px]" style={{ color: 'var(--dawaa-theme-muted)' }}>{roleLabel(row.staff_role)} · {row.branch || '—'}</div>
+                            <div className="mr-5 flex flex-wrap items-center gap-1 text-[11px]" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                              <span>{roleLabel(row.staff_role)} · {row.branch || '—'}</span>
+                              {row.payroll_finalized ? <span className="rounded-full border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] px-1.5 py-0.5 text-[var(--dawaa-status-success-text)]">راتب مجمّد</span> : null}
+                            </div>
                           </td>
                           <td className="p-2 font-bold" style={{ color: 'var(--dawaa-status-success-text)' }}>+{row.reward_points}</td>
                           <td className="p-2 font-bold" style={{ color: 'var(--dawaa-status-danger-text)' }}>-{row.deduction_points}</td>
                           <td className="p-2 font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>{row.final_points}</td>
                           <td className="p-2 font-bold" style={{ color: row.progress_pct >= 80 ? 'var(--dawaa-status-success-text)' : row.progress_pct >= 40 ? 'var(--dawaa-status-warning-text)' : 'var(--dawaa-status-danger-text)' }}>{Math.round(row.progress_pct)}%</td>
-                          <td className="p-2 font-black" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>
+                          <td className="p-2 font-bold" style={{ color: 'var(--dawaa-theme-text)' }}>
                             {row.profile_configured && row.points_incentive_egp != null ? `${Math.round(row.points_incentive_egp).toLocaleString('ar-EG')} ج` : 'غير محدد'}
+                          </td>
+                          <td className="p-2 font-black" style={{ color: row.evaluation_multiplier_pct == null ? 'var(--dawaa-status-warning-text)' : 'var(--dawaa-theme-primary-strong)' }}>
+                            {row.evaluation_multiplier_pct == null ? 'في انتظار الاعتماد' : `${row.evaluation_multiplier_pct}%`}
+                          </td>
+                          <td className="p-2 font-black" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>
+                            {!row.profile_configured
+                              ? 'غير محدد'
+                              : row.evaluation_multiplier_pct == null
+                                ? 'غير نهائي'
+                                : `${Math.round(Number(row.final_incentive_egp || 0)).toLocaleString('ar-EG')} ج`}
                           </td>
                         </tr>
                         {expandedId === row.staff_id ? (
                           <tr style={{ borderColor: 'var(--dawaa-theme-border)' }} className="border-t">
-                            <td colSpan={6} className="p-3" style={{ background: 'var(--dawaa-theme-soft)' }}>
+                            <td colSpan={8} className="p-3" style={{ background: 'var(--dawaa-theme-soft)' }}>
                               {breakdownLoading && !breakdown[row.staff_id] ? (
                                 <div className="flex items-center gap-2 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}><Loader2 size={14} className="animate-spin" /> جاري تحميل التفاصيل...</div>
                               ) : (breakdown[row.staff_id] || []).length === 0 ? (
                                 <p className="text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>مفيش أي معاملة نقاط مسجّلة لهذا الموظف في هذه الدورة حتى الآن.</p>
                               ) : (
-                                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                                <div className="space-y-3">
+                                  <div className="grid gap-2 sm:grid-cols-3">
+                                    <MiniBox label="درجة التقييم" value={row.evaluation_score == null ? '—' : `${row.evaluation_score}/100`} tone="cyan" />
+                                    <MiniBox label="بونص المنافسة" value={row.competition_bonus_egp == null ? '—' : `${Math.round(row.competition_bonus_egp).toLocaleString('ar-EG')} ج`} tone="green" />
+                                    <MiniBox label="حالة التقييم" value={row.evaluation_multiplier_pct == null ? 'في انتظار اعتماد نهائي' : row.evaluation_status || 'معتمد ماليًا'} tone={row.evaluation_multiplier_pct == null ? 'amber' : 'green'} />
+                                  </div>
+                                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                                   {(breakdown[row.staff_id] || []).map((item) => (
                                     <MiniBox
                                       key={item.source}
@@ -250,6 +285,7 @@ export default function MonthlyIncentiveReport() {
                                       tone={item.points >= 0 ? 'green' : 'red'}
                                     />
                                   ))}
+                                  </div>
                                 </div>
                               )}
                             </td>
