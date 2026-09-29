@@ -1,3 +1,4 @@
+/* eslint-disable no-misleading-character-class, no-useless-escape */
 // V32 Phase C.2 — shared semantic signal layer.
 //
 // FAILURE TAXONOMY (from reviewing V32.1's Golden Cases + the real Ibrahim Al-Sayyad
