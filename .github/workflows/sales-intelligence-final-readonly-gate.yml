@@ -42,6 +42,9 @@ jobs:
       - name: Refresh transport is generated from the canonical implementation
         run: node scripts/build-sales-intelligence-refresh-api.cjs --check
 
+      - name: WhatsApp / Sales Intelligence owner registry
+        run: node scripts/check-whatsapp-sales-intelligence-owner-registry.cjs
+
       - name: Story recovery canonical truth guard — read only
         run: node scripts/check-whatsapp-story-truth-v39.cjs
 
