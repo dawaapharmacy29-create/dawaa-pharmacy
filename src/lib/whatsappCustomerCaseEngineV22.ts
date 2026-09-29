@@ -1,3 +1,4 @@
+/* eslint-disable no-useless-escape */
 import type { WhatsAppConversationSession, WhatsAppParsedMessage } from './whatsappConversationParser';
 
 export type WhatsAppCaseTypeV22 = 'order' | 'complaint' | 'recommendation' | 'followup' | 'mixed';
