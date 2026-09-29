@@ -866,65 +866,79 @@ export default function StaffMonthlyEvaluation() {
               ) : null}
 
               {activeStep === 2 ? (
-              <section className="space-y-3">
-                {sections.map((item) => {
-                  const earned = sectionPoints(item);
-                  return (
-                    <Panel key={item.key} className="p-4">
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div className="max-w-3xl">
-                          <h3 className="font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>
-                            {item.title} <span className="text-xs" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>الوزن: {item.weight}</span>
-                          </h3>
-                          <p className="mt-1 text-xs leading-6" style={{ color: 'var(--dawaa-theme-muted)' }}>{item.description}</p>
-                        </div>
-                        <div className="min-w-[230px]">
-                          <div className="flex justify-end gap-1">
-                            {[1, 2, 3, 4, 5].map((score) => (
-                              <button type="button" aria-label={`اختيار ${score} نجوم`} disabled={!canEdit} key={score} onClick={() => updateSection(item.key, { score })} className="rounded-lg p-1 transition disabled:cursor-default">
-                                <Star className={score <= item.score ? 'fill-current' : ''} style={{ color: score <= item.score ? 'var(--dawaa-status-warning-text)' : 'var(--dawaa-theme-border)' }} size={27} />
-                              </button>
-                            ))}
+                <section className="space-y-2">
+                  {sections.map((item) => {
+                    const earned = sectionPoints(item);
+                    const selectedRubric = item.score > 0 && item.rubric ? item.rubric[item.score - 1] : null;
+                    const weakNeedsNote = item.score > 0 && item.score <= 2 && !item.notes.trim();
+
+                    return (
+                      <Panel key={item.key} className="p-3">
+                        <div className="flex flex-wrap items-start gap-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h3 className="text-sm font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>{item.title}</h3>
+                              <span className="text-[10px] font-black" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>{item.weight} نقطة</span>
+                            </div>
+                            <p className="mt-1 text-[11px] leading-5" style={{ color: 'var(--dawaa-theme-muted)' }}>{item.description}</p>
                           </div>
-                          <div className="mt-2 rounded-xl border px-3 py-2 text-center text-sm font-black" style={{ borderColor: 'var(--dawaa-theme-accent-border)', background: 'var(--dawaa-theme-accent-soft)', color: 'var(--dawaa-theme-primary-strong)' }}>
-                            {item.score ? `${item.score} نجوم — ${starMeaning(item.score)} — ${earned} من ${item.weight}` : `لم يتم التقييم — 0 من ${item.weight}`}
+
+                          <div className="shrink-0">
+                            <div className="flex gap-0.5">
+                              {[1, 2, 3, 4, 5].map((score) => (
+                                <button
+                                  type="button"
+                                  aria-label={`اختيار ${score} نجوم`}
+                                  disabled={!canEdit}
+                                  key={score}
+                                  onClick={() => updateSection(item.key, { score })}
+                                  className="rounded-md p-0.5 transition disabled:cursor-default"
+                                >
+                                  <Star
+                                    className={score <= item.score ? 'fill-current' : ''}
+                                    style={{ color: score <= item.score ? 'var(--dawaa-status-warning-text)' : 'var(--dawaa-theme-border)' }}
+                                    size={22}
+                                  />
+                                </button>
+                              ))}
+                            </div>
+                            <div className="mt-1 text-left text-[10px] font-black" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>
+                              {item.score ? `${earned}/${item.weight}` : 'بدون تقييم'}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                      {item.rubric ? (
-                        <div className="mt-3 rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-soft)' }}>
-                          <p className="mb-2 text-[11px] font-black" style={{ color: 'var(--dawaa-theme-muted)' }}>معيار الدرجة على هذا المحور:</p>
-                          <ul className="space-y-1 text-xs" style={{ color: 'var(--dawaa-theme-text)' }}>
-                            {item.rubric.map((line, index) => (
-                              <li key={index} className={item.score === index + 1 ? 'font-black' : ''} style={item.score === index + 1 ? { color: 'var(--dawaa-theme-primary-strong)' } : undefined}>
-                                {index + 1} نجوم — {line}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      ) : null}
-                      <textarea
-                        disabled={!canEdit}
-                        value={item.notes}
-                        onChange={(event) => updateSection(item.key, { notes: event.target.value })}
-                        rows={2}
-                        placeholder={item.score > 0 && item.score <= 2 ? 'مطلوب: اكتب السبب أو الواقعة التي تبرر الدرجة الضعيفة' : 'ملاحظة واضحة على هذا المحور'}
-                        className="mt-3 w-full rounded-xl border p-2.5 text-sm disabled:opacity-70"
-                        style={{
-                          borderColor: item.score > 0 && item.score <= 2 && !item.notes.trim() ? 'var(--dawaa-status-danger-border)' : 'var(--dawaa-theme-border)',
-                          background: item.score > 0 && item.score <= 2 && !item.notes.trim() ? 'var(--dawaa-status-danger-bg)' : 'var(--dawaa-theme-surface)',
-                          color: 'var(--dawaa-theme-text)',
-                        }}
-                      />
-                      {item.score > 0 && item.score <= 2 && !item.notes.trim() ? (
-                        <p className="mt-2 text-xs font-black" style={{ color: 'var(--dawaa-status-danger-text)' }}>
-                          الدرجة 1–2 نجمة لازم يكون لها سبب مكتوب قبل الاعتماد النهائي.
-                        </p>
-                      ) : null}
-                    </Panel>
-                  );
-                })}
-              </section>
+
+                        {item.score ? (
+                          <div
+                            className="mt-2 rounded-lg border px-2.5 py-2 text-xs font-bold"
+                            style={{
+                              borderColor: weakNeedsNote ? 'var(--dawaa-status-danger-border)' : 'var(--dawaa-theme-border)',
+                              background: weakNeedsNote ? 'var(--dawaa-status-danger-bg)' : 'var(--dawaa-theme-soft)',
+                              color: weakNeedsNote ? 'var(--dawaa-status-danger-text)' : 'var(--dawaa-theme-text)',
+                            }}
+                          >
+                            <span className="font-black">{item.score}/5 — {starMeaning(item.score)}</span>
+                            {selectedRubric ? <span> · {selectedRubric}</span> : null}
+                          </div>
+                        ) : null}
+
+                        <textarea
+                          disabled={!canEdit}
+                          value={item.notes}
+                          onChange={(event) => updateSection(item.key, { notes: event.target.value })}
+                          rows={1}
+                          placeholder={item.score > 0 && item.score <= 2 ? 'مطلوب سبب واضح للدرجة الضعيفة' : 'ملاحظة اختيارية'}
+                          className="mt-2 w-full rounded-lg border px-2.5 py-2 text-xs disabled:opacity-70"
+                          style={{
+                            borderColor: weakNeedsNote ? 'var(--dawaa-status-danger-border)' : 'var(--dawaa-theme-border)',
+                            background: weakNeedsNote ? 'var(--dawaa-status-danger-bg)' : 'var(--dawaa-theme-surface)',
+                            color: 'var(--dawaa-theme-text)',
+                          }}
+                        />
+                      </Panel>
+                    );
+                  })}
+                </section>
               ) : null}
 
               {activeStep === 4 ? (
