@@ -536,61 +536,85 @@ export default function StaffMonthlyEvaluation() {
 
   return (
     <div className="min-h-screen space-y-4 p-4" dir="rtl" style={{ background: 'var(--dawaa-theme-bg)' }}>
-      <Panel className="p-5">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h1 className="flex items-center gap-2 text-2xl font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>
-              <UserCheck style={{ color: 'var(--dawaa-theme-primary-strong)' }} /> التقييم الشهري للموظفين
-            </h1>
-            <p className="mt-2 max-w-3xl text-sm font-bold" style={{ color: 'var(--dawaa-theme-text)' }}>
-              رحلة شهرية واضحة من مراجعة البيانات إلى الاعتماد. الدرجة، الأدلة، المخالفات، والنقاط تُعرض من مصادرها بدون خلط، والمبلغ المالي النهائي يُقرأ فقط من المصدر المركزي للحوافز.
-            </p>
+      <Panel className="p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl" style={{ background: 'var(--dawaa-theme-accent-soft)', color: 'var(--dawaa-theme-primary-strong)' }}>
+              <UserCheck size={20} />
+            </span>
+            <div className="min-w-0">
+              <h1 className="truncate text-lg font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>
+                التقييم الشهري
+              </h1>
+              <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                <span>{cycleRange.displayLabel}</span>
+                <span>·</span>
+                <span>{branch}</span>
+                {selected ? (
+                  <>
+                    <span>·</span>
+                    <span>{selected.name}</span>
+                  </>
+                ) : null}
+              </div>
+            </div>
           </div>
+
           <div className="flex flex-wrap items-center gap-2">
-            <div className="flex overflow-hidden rounded-2xl border" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
+            <span
+              className="rounded-full border px-3 py-1 text-xs font-black"
+              style={cycleClosed
+                ? { borderColor: 'var(--dawaa-status-success-border)', background: 'var(--dawaa-status-success-bg)', color: 'var(--dawaa-status-success-text)' }
+                : { borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-status-warning-bg)', color: 'var(--dawaa-status-warning-text)' }}
+            >
+              {cycleClosed ? 'دورة مكتملة' : 'دورة جارية'}
+            </span>
+
+            <div className="flex overflow-hidden rounded-xl border" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
               <button
                 type="button"
                 onClick={() => setCycleLabel(latestClosedCycleLabel)}
-                className="px-3 py-2 text-xs font-black"
+                className="px-3 py-2 text-[11px] font-black"
                 style={cycleLabel === latestClosedCycleLabel
                   ? { background: 'var(--dawaa-theme-primary)', color: 'var(--dawaa-theme-primary-text)' }
                   : { color: 'var(--dawaa-theme-muted)' }}
               >
-                آخر دورة مكتملة
+                المكتملة
               </button>
               <button
                 type="button"
                 onClick={() => setCycleLabel(activeCycleLabel)}
-                className="px-3 py-2 text-xs font-black"
+                className="px-3 py-2 text-[11px] font-black"
                 style={cycleLabel === activeCycleLabel
                   ? { background: 'var(--dawaa-theme-primary)', color: 'var(--dawaa-theme-primary-text)' }
                   : { color: 'var(--dawaa-theme-muted)' }}
               >
-                الدورة الجارية
+                الجارية
               </button>
             </div>
+
             {globalScope ? (
-              <select value={branch} onChange={(event) => setBranch(event.target.value)} className="rounded-2xl border px-3 py-2 text-sm font-black" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-theme-text)' }}>
-                <option>فرع الشامي</option><option>فرع شكري</option>
+              <select
+                value={branch}
+                onChange={(event) => setBranch(event.target.value)}
+                className="rounded-xl border px-3 py-2 text-xs font-black"
+                style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-theme-text)' }}
+              >
+                <option>فرع الشامي</option>
+                <option>فرع شكري</option>
               </select>
             ) : null}
           </div>
         </div>
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <div className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-black" style={{ borderColor: 'var(--dawaa-theme-accent-border)', background: 'var(--dawaa-theme-accent-soft)', color: 'var(--dawaa-theme-primary-strong)' }}>
-            فترة الدورة: {cycleRange.displayLabel}
-          </div>
-          <div className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-black" style={{ borderColor: cycleClosed ? 'var(--dawaa-status-success-border)' : 'var(--dawaa-status-warning-border)', background: cycleClosed ? 'var(--dawaa-status-success-bg)' : 'var(--dawaa-status-warning-bg)', color: cycleClosed ? 'var(--dawaa-status-success-text)' : 'var(--dawaa-status-warning-text)' }}>
-            {cycleClosed ? 'الدورة مكتملة — متاحة للاعتماد' : 'الدورة جارية — مسودة فقط'}
-          </div>
-        </div>
-        {!cycleClosed ? (
-          <div className="mt-3 rounded-2xl border p-3 text-sm font-bold" style={{ borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-status-warning-bg)', color: 'var(--dawaa-status-warning-text)' }}>
-            البيانات ما زالت تتغير حتى نهاية يوم 25. يمكنك متابعة الأداء وحفظ التقييم كمسودة، لكن الاعتماد النهائي يفتح بعد إقفال الدورة.
-          </div>
-        ) : requiresPostCycleReapproval ? (
-          <div className="mt-3 rounded-2xl border p-3 text-sm font-bold" style={{ borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-status-warning-bg)', color: 'var(--dawaa-status-warning-text)' }}>
-            هذا التقييم أُرسل قبل اكتمال الدورة. راجعه الآن بعد الإقفال ثم اضغط «إعادة اعتماد الدورة» حتى يتزامن أثره المالي مع البيانات المكتملة.
+
+        {!cycleClosed || requiresPostCycleReapproval ? (
+          <div
+            className="mt-3 rounded-xl border px-3 py-2 text-xs font-bold"
+            style={{ borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-status-warning-bg)', color: 'var(--dawaa-status-warning-text)' }}
+          >
+            {!cycleClosed
+              ? 'الدورة ما زالت جارية: الحفظ كمسودة متاح، والاعتماد النهائي بعد يوم 25.'
+              : 'هذا التقييم يحتاج إعادة اعتماد بعد اكتمال الدورة.'}
           </div>
         ) : null}
       </Panel>
