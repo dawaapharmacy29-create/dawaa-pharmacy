@@ -17,6 +17,8 @@ import type { BatchConversationInput } from './batchPersistenceService';
 export interface WhatsAppReviewSourceBatchRow {
   id: string;
   raw_text: string | null;
+  /** Canonical Customer Case V22 pointer resolved by the server orchestrator; null when absent/ambiguous. */
+  source_case_id_v22?: string | null;
   conversation_started_at: string | null;
   customer_id?: string | null;
   customer_phone?: string | null;
@@ -62,6 +64,7 @@ export function reviewSourceRowToBatchConversation(
 
   return {
     conversationId: row.id,
+    sourceCaseIdV22: row.source_case_id_v22 ?? null,
     rawWhatsAppExportText: row.raw_text ?? '',
     trustedConversationStartedAt: row.conversation_started_at ?? null,
     customerIdHint: row.customer_id ?? null,
