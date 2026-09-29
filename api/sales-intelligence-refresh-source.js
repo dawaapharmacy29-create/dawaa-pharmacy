@@ -146,7 +146,32 @@ export default async function handler(req, res) {
 
   try {
     ensureSalesIntelligenceRuntime();
-    const conversation = reviewSourceRowToBatchConversation(source);
+
+    const [{ data: rootCases, error: rootCaseError }, { data: memberCases, error: memberCaseError }] = await Promise.all([
+      service
+        .from('whatsapp_customer_cases_v22')
+        .select('id')
+        .eq('root_source_id', sourceId)
+        .limit(3),
+      service
+        .from('whatsapp_customer_cases_v22')
+        .select('id')
+        .contains('source_ids', [sourceId])
+        .limit(3),
+    ]);
+    if (rootCaseError || memberCaseError) {
+      return json(res, 500, {
+        error: 'canonical_case_identity_lookup_failed',
+        detail: rootCaseError?.message || memberCaseError?.message || 'unknown_case_lookup_error',
+      });
+    }
+    const caseIds = Array.from(new Set([...(rootCases || []), ...(memberCases || [])].map((row) => String(row.id || '')).filter(Boolean)));
+    const sourceCaseIdV22 = caseIds.length === 1 ? caseIds[0] : null;
+
+    const conversation = reviewSourceRowToBatchConversation({
+      ...source,
+      source_case_id_v22: sourceCaseIdV22,
+    });
     const result = await runBatchPersistence(service, {
       conversations: [conversation],
       dryRun: false,
@@ -165,6 +190,9 @@ export default async function handler(req, res) {
     return json(res, 200, {
       ok: true,
       sourceId,
+      sourceCaseIdV22,
+      caseIdentityStatus: caseIds.length === 1 ? 'linked' : caseIds.length === 0 ? 'missing' : 'ambiguous',
+      caseIdentityCandidates: caseIds,
       derivedCases: result.caseAnalyses.map((row) => ({
         caseId: row.caseId,
         status: row.status,
