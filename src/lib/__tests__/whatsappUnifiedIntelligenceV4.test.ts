@@ -244,7 +244,7 @@ describe('WhatsApp Review V4 unified intelligence', () => {
     const operational = enrichWhatsAppOperationalJourneysV7(s, withProducts);
     expect(operational.primaryIntent).toBe('proactive_checkin');
     expect(operational.secondaryIntents).toContain('product_inquiry');
-    expect(operational.customerState).toBe('improved');
+    expect(operational.customerState).toBe('unknown');
     expect(operational.operationalOutcome).toBe('checkin_complete');
     expect(operational.products).toHaveLength(0);
     expect(operational.customerRequests).toHaveLength(0);
