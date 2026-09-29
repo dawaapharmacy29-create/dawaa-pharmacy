@@ -21,7 +21,13 @@ export type EvaluationCycleRange = {
 };
 
 function toIsoDate(date: Date) {
-  return date.toISOString().slice(0, 10);
+  // Keep the pharmacy cycle in local calendar dates. Using toISOString() here
+  // shifts Cairo midnight back to the previous UTC day and silently turns the
+  // 26 → 25 cycle into 25 → 24 for date-only database filters.
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 export function currentEvaluationCycleLabel(referenceDate: Date = new Date()) {
@@ -43,7 +49,24 @@ export function evaluationCycleRangeFromLabel(label: string): EvaluationCycleRan
   return { label, start, end, endExclusive, displayLabel };
 }
 
-export function evaluationCycleQueryBounds(label: string) {
+export function evaluationCycleDateKeys(label: string) {
   const range = evaluationCycleRangeFromLabel(label);
-  return { startDate: toIsoDate(range.start), endDateExclusive: toIsoDate(range.endExclusive) };
+  return {
+    startDate: toIsoDate(range.start),
+    endDate: toIsoDate(range.end),
+    endDateExclusive: toIsoDate(range.endExclusive),
+  };
+}
+
+export function evaluationCycleQueryBounds(label: string) {
+  const { startDate, endDateExclusive } = evaluationCycleDateKeys(label);
+  return { startDate, endDateExclusive };
+}
+
+export function isEvaluationCycleClosed(label: string, referenceDate: Date = new Date()) {
+  return referenceDate.getTime() > evaluationCycleRangeFromLabel(label).end.getTime();
+}
+
+export function latestClosedEvaluationCycleLabel(referenceDate: Date = new Date()) {
+  return previousEvaluationCycleLabel(currentEvaluationCycleLabel(referenceDate));
 }
