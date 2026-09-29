@@ -55,5 +55,5 @@ jobs:
             fi
             echo "::warning::TypeScript has inherited AttendanceResolutionCenter errors on the parent branch; no new evaluation errors were found."
           fi
-      - name: Production build
-        run: npm run build
+      - name: Vite production bundle
+        run: npx vite build --configLoader runner
