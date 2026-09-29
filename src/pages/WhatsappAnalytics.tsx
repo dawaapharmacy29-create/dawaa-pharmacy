@@ -11,6 +11,10 @@ import { formatCycleDate, getCurrentCycle } from '@/lib/pharmacy-cycle';
 import { formatCurrency } from '@/lib/utils';
 import { getInvoiceKey } from '@/lib/dawaa2027';
 import WhatsAppCaseKpisV23 from '@/components/reviews/WhatsAppCaseKpisV23';
+import WhatsAppCustomerCasesV22 from '@/components/reviews/WhatsAppCustomerCasesV22';
+import WhatsAppCustomerStory360V16 from '@/components/reviews/WhatsAppCustomerStory360V16';
+import WhatsAppRecoverableOpportunitiesV10 from '@/components/reviews/WhatsAppRecoverableOpportunitiesV10';
+import WhatsAppRecoveryWorkQueueV11 from '@/components/reviews/WhatsAppRecoveryWorkQueueV11';
 import {
   buildStaffIdentityMap,
   resolvePrimaryStaffForDoctor,
@@ -78,6 +82,7 @@ export default function WhatsappAnalytics() {
     : allowedBranches[0] || normalizeBranchName(user?.branch || '') || ALL_BRANCHES;
   const [branch, setBranch] = useState(defaultBranch);
   const [doctor, setDoctor] = useState('الكل');
+  const [workspacePanel, setWorkspacePanel] = useState<'none' | 'cases' | 'customers' | 'opportunities' | 'followups'>('none');
 
   useEffect(() => {
     if (!canAllBranches) {
@@ -251,40 +256,48 @@ export default function WhatsappAnalytics() {
         </p>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
         {[
-          {
-            title: 'الحالة الكاملة',
-            detail: 'العميل + المحادثة + الفاتورة + البنود والأصناف',
-            path: '/whatsapp-smart-folder-watcher',
-          },
-          {
-            title: 'سجل العملاء',
-            detail: 'رحلة العميل والتعاملات السابقة والمتابعات',
-            path: '/whatsapp-customer-history',
-          },
-          {
-            title: 'فرص المبيعات',
-            detail: 'الفرص الضائعة والتعثر وأسباب الفقد',
-            path: '/whatsapp-lost-opportunities',
-          },
-          {
-            title: 'فرص المتابعة',
-            detail: 'طلبات المتابعة الآلية والحالات التي تحتاج تدخل',
-            path: '/whatsapp-followup-requests',
-          },
-        ].map((item) => (
-          <button
-            key={item.path}
-            type="button"
-            onClick={() => navigate(item.path)}
-            className="rounded-2xl border border-[#2d4063] bg-[#1B2B4B] p-4 text-right transition hover:border-teal-400/40 hover:bg-[#20345a]"
-          >
-            <div className="font-black text-white">{item.title}</div>
-            <div className="mt-1 text-xs leading-5 text-slate-400">{item.detail}</div>
-          </button>
-        ))}
+          { key: 'detail', title: 'الحالة الكاملة', detail: 'العميل + المحادثة + الفاتورة + البنود والأصناف' },
+          { key: 'cases', title: 'Cases Canonical', detail: 'الحالات والنتيجة التجارية بمصدر الدليل' },
+          { key: 'customers', title: 'Customer Story 360', detail: 'قصة العميل والشراء والاسترجاع المثبت' },
+          { key: 'opportunities', title: 'فرص الاسترجاع', detail: 'فرص البيع المفتوحة التي تحتاج تدخل' },
+          { key: 'followups', title: 'طابور المتابعات', detail: 'مهام Recovery والإسناد وSLA والنتائج' },
+        ].map((item) => {
+          const active = item.key !== 'detail' && workspacePanel === item.key;
+          return (
+            <button
+              key={item.key}
+              type="button"
+              onClick={() => item.key === 'detail'
+                ? navigate('/whatsapp-smart-folder-watcher')
+                : setWorkspacePanel(item.key as 'cases' | 'customers' | 'opportunities' | 'followups')}
+              className={`rounded-2xl border p-4 text-right transition ${active ? 'border-teal-400/50 bg-teal-500/10' : 'border-[#2d4063] bg-[#1B2B4B] hover:border-teal-400/40 hover:bg-[#20345a]'}`}
+            >
+              <div className="font-black text-white">{item.title}</div>
+              <div className="mt-1 text-xs leading-5 text-slate-400">{item.detail}</div>
+            </button>
+          );
+        })}
       </div>
+
+      {workspacePanel !== 'none' && (
+        <div className="space-y-4">
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => setWorkspacePanel('none')}
+              className="rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-1.5 text-xs font-black text-slate-300"
+            >
+              إغلاق النافذة
+            </button>
+          </div>
+          {workspacePanel === 'cases' ? <WhatsAppCustomerCasesV22 onOpenSource={() => navigate('/whatsapp-smart-folder-watcher')} /> : null}
+          {workspacePanel === 'customers' ? <WhatsAppCustomerStory360V16 onOpenSource={() => navigate('/whatsapp-smart-folder-watcher')} /> : null}
+          {workspacePanel === 'opportunities' ? <WhatsAppRecoverableOpportunitiesV10 onOpenSource={() => navigate('/whatsapp-smart-folder-watcher')} /> : null}
+          {workspacePanel === 'followups' ? <WhatsAppRecoveryWorkQueueV11 onOpenSource={() => navigate('/whatsapp-smart-folder-watcher')} /> : null}
+        </div>
+      )}
 
       <div className="grid gap-4 xl:grid-cols-2">
         <WhatsAppCaseKpisV23 mode="doctors" />
