@@ -45,7 +45,7 @@ type StoryRow = {
 const statusLabel: Record<string, string> = {
   active: 'نشط',
   recovery: 'تحت الاسترجاع',
-  recovered: 'تم استرجاعه',
+  recovered: 'مسترجع Canonical',
   dormant: 'خامل',
   closed: 'مغلق',
 };
@@ -114,14 +114,14 @@ export default function WhatsAppCustomerStory360V16({ onOpenSource }: { onOpenSo
         </div>
         <div className="grid grid-cols-3 gap-2 text-center text-xs">
           <div className="rounded-xl border border-amber-400/20 bg-amber-500/8 px-3 py-2"><b className="block text-lg text-amber-200">{recoveryCount}</b><span className="text-slate-400">تحت الاسترجاع</span></div>
-          <div className="rounded-xl border border-emerald-400/20 bg-emerald-500/8 px-3 py-2"><b className="block text-lg text-emerald-200">{recoveredCount}</b><span className="text-slate-400">تم استرجاعهم</span></div>
+          <div className="rounded-xl border border-emerald-400/20 bg-emerald-500/8 px-3 py-2"><b className="block text-lg text-emerald-200">{recoveredCount}</b><span className="text-slate-400">مسترجع Canonical</span></div>
           <div className="rounded-xl border border-rose-400/20 bg-rose-500/8 px-3 py-2"><b className="block text-lg text-rose-200">{criticalCount}</b><span className="text-slate-400">خطر حرج</span></div>
         </div>
       </div>
 
       <div className="mt-4 grid gap-2 md:grid-cols-[1fr_190px]">
         <div className="relative"><Search className="absolute right-3 top-2.5 text-slate-500" size={16}/><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ابحث بالاسم أو الكود أو الهاتف أو الفرع..." className="w-full rounded-xl border border-slate-700 bg-slate-950 py-2 pr-9 pl-3 text-sm text-white outline-none focus:border-violet-400"/></div>
-        <select value={status} onChange={(e) => setStatus(e.target.value)} className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"><option value="all">كل الحالات</option><option value="recovery">تحت الاسترجاع</option><option value="recovered">تم استرجاعه</option><option value="active">نشط</option><option value="dormant">خامل</option><option value="closed">مغلق</option></select>
+        <select value={status} onChange={(e) => setStatus(e.target.value)} className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"><option value="all">كل الحالات</option><option value="recovery">تحت الاسترجاع</option><option value="recovered">مسترجع Canonical</option><option value="active">نشط</option><option value="dormant">خامل</option><option value="closed">مغلق</option></select>
       </div>
 
       {loading ? <div className="mt-5 p-8 text-center text-sm text-slate-500">جاري تحميل قصص العملاء...</div> : !filtered.length ? <div className="mt-5 rounded-2xl border border-dashed border-slate-700 p-8 text-center text-sm text-slate-500">لا توجد Customer Stories بعد. أول Export جديد بهوية عميل مؤكدة سيبدأ بناء القصة تلقائيًا.</div> : (
