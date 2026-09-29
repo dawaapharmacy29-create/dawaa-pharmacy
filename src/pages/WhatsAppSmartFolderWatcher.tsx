@@ -56,6 +56,7 @@ import { persistAnalyzedWhatsAppSession, attachInvoiceVerificationToQueue, confi
 import { buildWhatsAppCustomerJourneyIntelligenceV15 } from '@/lib/whatsappCustomerJourneyIntelligenceV15';
 import { syncWhatsAppCustomerJourneyV15, type JourneySessionSourceV15 } from '@/lib/whatsappCustomerJourneyPersistenceV15';
 import { syncWhatsAppCustomerCasesV22 } from '@/lib/whatsappCustomerCasePersistenceV22';
+import { syncWatcherCaseGraph, type WatcherCaseGraphSyncResult } from '@/lib/whatsappWatcherCaseGraphSync';
 import type { SmartQuickDecisionResult } from '@/lib/whatsappSmartReviewDecision';
 import {
   buildConversationReviewSnapshot,
@@ -109,7 +110,25 @@ type FileRun = {
   staffRuns: StaffRun[];
   errors: string[];
   sourceIds?: string[];
+  pipeline?: WatcherPipelineStatus;
 };
+
+type WatcherSalesIntelligenceStageStatus = {
+  status: 'allowed' | 'blocked' | 'failed';
+  reason: string | null;
+  saleProofState: string | null;
+};
+
+type WatcherPipelineStatus = {
+  sources: { saved: number; failed: number; errors: string[] };
+  caseGraph: WatcherCaseGraphSyncResult;
+  salesIntelligence?: Record<string, WatcherSalesIntelligenceStageStatus>;
+};
+
+// Refresh-source rejects non-canonical input explicitly. A non-canonical (archived/superseded)
+// source is a legitimate skip; a canonical source without its Customer Case V22 is a broken chain.
+const SALES_INTELLIGENCE_BLOCKED_NON_CANONICAL = 'blocked_non_canonical_source';
+const SALES_INTELLIGENCE_BLOCKED_MISSING_CASE = 'blocked_missing_canonical_case';
 
 const INTERVAL_MS = 60_000;
 
@@ -394,6 +413,7 @@ export default function WhatsAppSmartFolderWatcher() {
     const staffRuns: StaffRun[] = [];
     const persistedSessionSources: JourneySessionSourceV15[] = [];
     const persistedBranchHints: string[] = [];
+    const sourcePersistErrors: string[] = [];
 
     // نفس ملف التصدير غالبًا يحتوي أكثر من Session لنفس العميل. قبل التحسين كنا بنكرر
     // customer search + purchase-history query لكل Session. الكاش هنا محلي للتحليل فقط
@@ -746,6 +766,9 @@ export default function WhatsAppSmartFolderWatcher() {
         if (resolvedCustomer?.branch || branchHint.value) persistedBranchHints.push(String(resolvedCustomer?.branch || branchHint.value));
       } catch (persistError) {
         console.warn('[whatsapp-watcher] persistent case source sync failed; local analysis preserved', persistError);
+        sourcePersistErrors.push(
+          `${caseContext.caseItem.id}: ${persistError instanceof Error ? persistError.message : String((persistError as any)?.message ?? persistError)}`
+        );
       }
 
       return keptRuns;
@@ -764,64 +787,72 @@ export default function WhatsAppSmartFolderWatcher() {
       }
     }
 
-    if (persistedSessionSources.length) {
-      try {
-        const mergedSessions = analysisUnits.map((context) => context.mergedSession);
-        const journeyModel = buildWhatsAppCustomerJourneyIntelligenceV15(mergedSessions);
-        const branch = persistedBranchHints.find(Boolean) || null;
-        await syncWhatsAppCustomerJourneyV15(journeyModel, {
-          sourceFileName: file.name,
+    // Journey V15 and Customer Case V22 are separate stages: a journey failure never blocks the
+    // canonical Customer Case write, and a case failure is returned in the file result.
+    const branch = persistedBranchHints.find(Boolean) || null;
+    const persistedCaseModel = {
+      ...caseContexts.caseEngine,
+      cases: caseContexts.contexts.map((context) => ({
+        ...context.caseItem,
+        sessionIds: [context.mergedSession.id],
+      })),
+    };
+    const caseGraph = await syncWatcherCaseGraph(
+      {
+        syncJourney: () => syncWhatsAppCustomerJourneyV15(
+          buildWhatsAppCustomerJourneyIntelligenceV15(analysisUnits.map((context) => context.mergedSession)),
+          {
+            sourceFileName: file.name,
+            branch,
+            createdBy: actorName,
+            sessionSources: persistedSessionSources,
+          },
+        ),
+        syncCustomerCases: () => syncWhatsAppCustomerCasesV22(persistedCaseModel, {
           branch,
           createdBy: actorName,
           sessionSources: persistedSessionSources,
-        });
+        }),
+      },
+      { persistedSourceCount: persistedSessionSources.length, expectedCaseCount: persistedCaseModel.cases.length },
+    );
 
-        const sourceByMergedSession = new Map(persistedSessionSources.map((row) => [row.sessionId, row.sourceId]));
-        const persistedCaseModel = {
-          ...caseContexts.caseEngine,
-          cases: caseContexts.contexts.map((context) => ({
-            ...context.caseItem,
-            sessionIds: [context.mergedSession.id],
-          })),
-        };
-        const caseSync = await syncWhatsAppCustomerCasesV22(persistedCaseModel, {
-          branch,
-          createdBy: actorName,
-          sessionSources: persistedSessionSources.filter((row) => sourceByMergedSession.has(row.sessionId)),
+    const replacementSourceIds = Array.from(new Set(
+      persistedSessionSources.map((row) => row.sourceId).filter(Boolean)
+    ));
+    if (
+      caseContexts.caseEngine.caseCount > 1 &&
+      caseGraph.customerCase.status === 'saved' &&
+      caseGraph.customerCase.saved === caseContexts.caseEngine.caseCount &&
+      replacementSourceIds.length >= 2
+    ) {
+      try {
+        const archiveResult = await archiveSupersededLegacyWhatsAppSourceV35({
+          sourceFileName: file.name,
+          fullConversationStartedAt: messages[0]?.timestamp?.toISOString?.() || '',
+          fullConversationEndedAt: messages[messages.length - 1]?.timestamp?.toISOString?.() || '',
+          fullMessageCount: messages.length,
+          replacementSourceIds,
+          actorId: String(user?.id || '') || null,
+          actorName,
         });
-
-        const replacementSourceIds = Array.from(new Set(
-          persistedSessionSources.map((row) => row.sourceId).filter(Boolean)
-        ));
-        if (
-          caseContexts.caseEngine.caseCount > 1 &&
-          caseSync.failed === 0 &&
-          caseSync.saved === caseContexts.caseEngine.caseCount &&
-          replacementSourceIds.length >= 2
-        ) {
-          try {
-            const archiveResult = await archiveSupersededLegacyWhatsAppSourceV35({
-              sourceFileName: file.name,
-              fullConversationStartedAt: messages[0]?.timestamp?.toISOString?.() || '',
-              fullConversationEndedAt: messages[messages.length - 1]?.timestamp?.toISOString?.() || '',
-              fullMessageCount: messages.length,
-              replacementSourceIds,
-              actorId: String(user?.id || '') || null,
-              actorName,
-            });
-            if (archiveResult.archived) {
-              console.info('[whatsapp-watcher] archived superseded monolithic source', archiveResult);
-            } else if (archiveResult.skippedReason && archiveResult.skippedReason !== 'no_legacy_monolithic_source') {
-              console.warn('[whatsapp-watcher] legacy source cleanup skipped safely', archiveResult);
-            }
-          } catch (archiveError) {
-            console.warn('[whatsapp-watcher] legacy source cleanup failed; new case sources preserved', archiveError);
-          }
+        if (archiveResult.archived) {
+          console.info('[whatsapp-watcher] archived superseded monolithic source', archiveResult);
+        } else if (archiveResult.skippedReason && archiveResult.skippedReason !== 'no_legacy_monolithic_source') {
+          console.warn('[whatsapp-watcher] legacy source cleanup skipped safely', archiveResult);
         }
-      } catch (syncError) {
-        console.warn('[whatsapp-watcher] journey/case persistence failed; local capture remains available', syncError);
+      } catch (archiveError) {
+        console.warn('[whatsapp-watcher] legacy source cleanup failed; new case sources preserved', archiveError);
       }
     }
+
+    const pipelineErrors = [
+      ...sourcePersistErrors.map((error) => `Source not saved — ${error}`),
+      ...(caseGraph.journey.status === 'failed' ? [`Journey sync failed — ${caseGraph.journey.error}`] : []),
+      ...(caseGraph.customerCase.status === 'saved' || caseGraph.customerCase.status === 'skipped'
+        ? []
+        : [`Customer Case V22 ${caseGraph.customerCase.status} (${caseGraph.customerCase.saved}/${caseGraph.customerCase.expected}) — ${caseGraph.customerCase.errors.join(' | ')}`]),
+    ];
 
         return {
       fileName: file.name,
@@ -834,8 +865,12 @@ export default function WhatsAppSmartFolderWatcher() {
       sessions: rawSessions.length,
       cases: caseContexts.caseEngine.caseCount,
       staffRuns,
-      errors: [],
+      errors: pipelineErrors,
       sourceIds: Array.from(new Set(persistedSessionSources.map((row) => row.sourceId).filter(Boolean))),
+      pipeline: {
+        sources: { saved: persistedSessionSources.length, failed: sourcePersistErrors.length, errors: sourcePersistErrors },
+        caseGraph,
+      },
     };
   }, [actorName, user?.id]);
 
@@ -863,6 +898,7 @@ export default function WhatsAppSmartFolderWatcher() {
 
           const canonicalErrors: string[] = [];
           const canonicalProofBySource = new Map<string, string>();
+          const salesIntelligenceBySource: Record<string, WatcherSalesIntelligenceStageStatus> = {};
           try {
             const accessToken = getStaffSessionToken() || '';
             if (!accessToken) {
@@ -881,6 +917,16 @@ export default function WhatsAppSmartFolderWatcher() {
                   const payload = await response.json().catch(() => null);
                   if (!response.ok) {
                     const errorCode = String(payload?.error || response.status);
+                    if (errorCode === SALES_INTELLIGENCE_BLOCKED_NON_CANONICAL) {
+                      // Archived/superseded input is refused by design: not analyzed, not a failure.
+                      salesIntelligenceBySource[sourceId] = { status: 'blocked', reason: String(payload?.reason || errorCode), saleProofState: null };
+                      return 'blocked';
+                    }
+                    salesIntelligenceBySource[sourceId] = {
+                      status: errorCode === SALES_INTELLIGENCE_BLOCKED_MISSING_CASE ? 'blocked' : 'failed',
+                      reason: String(payload?.reason || errorCode),
+                      saleProofState: null,
+                    };
                     if (response.status === 401 && ['invalid_or_expired_staff_session', 'missing_user_token'].includes(errorCode)) {
                       authSessionInvalid = true;
                       if (!authSessionWarningShown) {
@@ -898,6 +944,7 @@ export default function WhatsAppSmartFolderWatcher() {
                     ? 'proven'
                     : String(payload?.derivedCases?.[0]?.saleProofState || 'not_proven');
                   canonicalProofBySource.set(sourceId, state);
+                  salesIntelligenceBySource[sourceId] = { status: 'allowed', reason: null, saleProofState: state };
                   return state;
                 };
 
@@ -977,6 +1024,7 @@ export default function WhatsAppSmartFolderWatcher() {
 
           const resultWithCanonicalProof: FileRun = {
             ...result,
+            pipeline: result.pipeline ? { ...result.pipeline, salesIntelligence: salesIntelligenceBySource } : result.pipeline,
             staffRuns: result.staffRuns.map((staffRun) => {
               const state = staffRun.sourceId ? canonicalProofBySource.get(staffRun.sourceId) : null;
               return state ? { ...staffRun, canonicalSaleProofState: state } : staffRun;
@@ -998,11 +1046,11 @@ export default function WhatsAppSmartFolderWatcher() {
           });
 
           await saveLocalWhatsAppAnalysisHistory<FileRun>(candidate.key, candidate.name, finalizedResult);
-          if (canonicalErrors.length) {
-            const reason = canonicalErrors.join(' | ').slice(0, 500);
+          if (finalizedResult.errors.length) {
+            const reason = finalizedResult.errors.join(' | ').slice(0, 500);
             markLocalWhatsAppFileFailed(candidate.key, reason);
-            console.warn('[whatsapp-watcher] canonical refresh failed after local analysis', canonicalErrors);
-            toast.warning(`تم تحليل ${candidate.name} محليًا، وسيُعاد تلقائيًا لاستكمال Sales Intelligence`);
+            console.warn('[whatsapp-watcher] canonical chain incomplete after local analysis', finalizedResult.errors);
+            toast.warning(`تم تحليل ${candidate.name} محليًا لكن سلسلة الحفظ الرسمية غير مكتملة، وسيُعاد تلقائيًا`);
           } else {
             markLocalWhatsAppFileProcessed(candidate.key);
             toast.success(`تم تحليل ${candidate.name}: ${result.sessions} جلسة → ${result.cases} حالة / ${result.staffRuns.length} مسؤول`);

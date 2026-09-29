@@ -13,6 +13,7 @@ export interface SyncWhatsAppCustomerCasesV22Result {
   saved: number;
   skipped: number;
   failed: number;
+  failures: Array<{ caseId: string; message: string }>;
 }
 
 type ParticipantStaff = {
@@ -192,7 +193,7 @@ export async function syncWhatsAppCustomerCasesV22(
   context: SyncWhatsAppCustomerCasesV22Context,
 ): Promise<SyncWhatsAppCustomerCasesV22Result> {
   const sourceBySession = new Map(context.sessionSources.map((x) => [x.sessionId, x.sourceId]));
-  const result: SyncWhatsAppCustomerCasesV22Result = { saved: 0, skipped: 0, failed: 0 };
+  const result: SyncWhatsAppCustomerCasesV22Result = { saved: 0, skipped: 0, failed: 0, failures: [] };
   const allSourceIds = [...new Set(context.sessionSources.map((x) => x.sourceId).filter(Boolean))];
 
   const sourceMap = new Map<string, SourceRow>();
@@ -353,6 +354,12 @@ export async function syncWhatsAppCustomerCasesV22(
     } catch (error) {
       console.warn('[whatsapp-case-v22] failed to persist case', caseItem.id, error);
       result.failed += 1;
+      result.failures.push({
+        caseId: String(caseItem.id),
+        message: error instanceof Error
+          ? error.message
+          : String((error as { message?: unknown } | null)?.message ?? error),
+      });
     }
   }
 
