@@ -1,3 +1,4 @@
+/* eslint-disable no-misleading-character-class */
 // V32 — additive, parallel evidence layer. Does NOT replace or touch any existing
 // whatsappSmart*/whatsappCase*/whatsapp*V2x engine. Read-once, facts-only, no scoring.
 // See conversation history for the full V32 scope agreement (Phase A/B/C only).
