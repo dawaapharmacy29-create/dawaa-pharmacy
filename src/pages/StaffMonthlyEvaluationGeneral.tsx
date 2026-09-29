@@ -750,40 +750,51 @@ export default function StaffMonthlyEvaluation() {
               ) : null}
 
               {activeStep === 3 ? (
-                <>
-              <Panel className="p-4">
-                <SectionTitle
-                  title="مخالفات حرجة تحدّ من الحافز"
-                  subtitle="الـCritical Gate لا يخصم نقاطًا ثابتة؛ بل يضع سقفًا مباشرًا ودقيقًا على نسبة حافز الأداء"
-                  icon={<ShieldAlert size={18} />}
-                />
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {(Object.entries(CRITICAL_GATE_CAPS) as [CriticalGateType, typeof CRITICAL_GATE_CAPS[CriticalGateType]][]).map(([key, gate]) => {
-                    const active = activeGates.includes(key);
-                    return (
-                      <button
-                        key={key}
-                        type="button"
-                        disabled={!canEdit}
-                        onClick={() => toggleGate(key)}
-                        className="flex items-center justify-between gap-2 rounded-xl border p-3 text-right text-xs font-black disabled:cursor-default"
-                        style={active
-                          ? { borderColor: 'var(--dawaa-status-danger-border)', background: 'var(--dawaa-status-danger-bg)', color: 'var(--dawaa-status-danger-text)' }
-                          : { borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-theme-text)' }}
-                      >
-                        <span>{gate.label}</span>
-                        <span>{gate.blocksFully ? 'إيقاف حافز الأداء' : `سقف ${gate.capPercent}%`}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-                {isGatedByCriticalViolation ? (
-                  <p className="mt-3 text-xs font-bold" style={{ color: 'var(--dawaa-status-danger-text)' }}>
-                    نسبة التقييم = {overallScore}%، وسقف المخالفة = {activeGateCapPercent}%، لذلك النسبة المالية الفعلية لهذه الدورة = {effectiveEvaluationMultiplierPct}%.
-                  </p>
-                ) : null}
-              </Panel>
-                </>
+                <Panel className="p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>المخالفات الحرجة</div>
+                      <div className="mt-1 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                        فعّل فقط المخالفة المؤكدة لأنها تؤثر مباشرة على سقف الحافز.
+                      </div>
+                    </div>
+                    <span
+                      className="rounded-full border px-3 py-1 text-xs font-black"
+                      style={isGatedByCriticalViolation
+                        ? { borderColor: 'var(--dawaa-status-danger-border)', background: 'var(--dawaa-status-danger-bg)', color: 'var(--dawaa-status-danger-text)' }
+                        : { borderColor: 'var(--dawaa-status-success-border)', background: 'var(--dawaa-status-success-bg)', color: 'var(--dawaa-status-success-text)' }}
+                    >
+                      {isGatedByCriticalViolation ? `${activeGates.length} مفعلة` : 'لا توجد مخالفة'}
+                    </span>
+                  </div>
+
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    {(Object.entries(CRITICAL_GATE_CAPS) as [CriticalGateType, typeof CRITICAL_GATE_CAPS[CriticalGateType]][]).map(([key, gate]) => {
+                      const active = activeGates.includes(key);
+                      return (
+                        <button
+                          key={key}
+                          type="button"
+                          disabled={!canEdit}
+                          onClick={() => toggleGate(key)}
+                          className="flex items-center justify-between gap-2 rounded-xl border px-3 py-2.5 text-right text-xs font-black disabled:cursor-default"
+                          style={active
+                            ? { borderColor: 'var(--dawaa-status-danger-border)', background: 'var(--dawaa-status-danger-bg)', color: 'var(--dawaa-status-danger-text)' }
+                            : { borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-theme-text)' }}
+                        >
+                          <span>{gate.label}</span>
+                          <span>{active ? (gate.blocksFully ? 'إيقاف الحافز' : `سقف ${gate.capPercent}%`) : 'غير مفعلة'}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {isGatedByCriticalViolation ? (
+                    <div className="mt-3 rounded-xl border px-3 py-2 text-xs font-black" style={{ borderColor: 'var(--dawaa-status-danger-border)', background: 'var(--dawaa-status-danger-bg)', color: 'var(--dawaa-status-danger-text)' }}>
+                      السقف الفعلي للحافز: {effectiveEvaluationMultiplierPct}%
+                    </div>
+                  ) : null}
+                </Panel>
               ) : null}
 
               {activeStep === 1 ? (
@@ -833,36 +844,36 @@ export default function StaffMonthlyEvaluation() {
               ) : null}
 
               {activeStep === 3 ? (
-                <>
-              <Panel className="p-4" style={{ background: 'var(--dawaa-status-warning-bg)', borderColor: 'var(--dawaa-status-warning-border)' }}>
-                <h2 className="font-black" style={{ color: 'var(--dawaa-status-warning-text)' }}>الأثر المالي للتقييم</h2>
-                <p className="mt-2 text-sm leading-7" style={{ color: 'var(--dawaa-theme-text)' }}>
-                  الصفحة لا تحسب قيمة نهائية بنفسها. عند الاعتماد، الخادم يثبت درجة التقييم وسقف أي مخالفة حرجة ثم يحدّث معامل الحافز؛ وبعدها نعيد قراءة المبلغ من المصدر المالي المركزي. كده الرقم الظاهر هنا والرواتب يعتمدوا على نفس الحقيقة.
-                </p>
-              </Panel>
-
-              <Panel className="p-4">
-                <SectionTitle
-                  title="تفصيل مصادر النقاط"
-                  subtitle="مصدر كل زيادة أو خصم في الدورة كما هو مسجل في دفتر النقاط المركزي"
-                  icon={<Award size={18} />}
-                />
-                {pointsTruth?.source_breakdown?.length ? (
-                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                    {pointsTruth.source_breakdown.map((source) => (
-                      <MiniBox
-                        key={source.source}
-                        label={source.source}
-                        value={`${source.points > 0 ? '+' : ''}${source.points} نقطة · ${source.events} حدث`}
-                        tone={source.points < 0 ? 'amber' : 'cyan'}
-                      />
-                    ))}
+                <Panel className="p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>ملخص النقاط</div>
+                      <div className="mt-1 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                        الزيادات والخصومات المسجلة فعليًا خلال الدورة.
+                      </div>
+                    </div>
+                    <span className="text-xs font-black" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>
+                      {pointsTruth ? `${pointsTruth.final_points} نقطة` : '—'}
+                    </span>
                   </div>
-                ) : (
-                  <div className="text-sm font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>لا توجد حركات نقاط مسجلة لهذه الدورة.</div>
-                )}
-              </Panel>
-                </>
+
+                  {pointsTruth?.source_breakdown?.length ? (
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                      {pointsTruth.source_breakdown.map((source) => (
+                        <MiniBox
+                          key={source.source}
+                          label={source.source}
+                          value={`${source.points > 0 ? '+' : ''}${source.points} · ${source.events} حدث`}
+                          tone={source.points < 0 ? 'amber' : 'cyan'}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="mt-3 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                      لا توجد حركات نقاط مسجلة لهذه الدورة.
+                    </div>
+                  )}
+                </Panel>
               ) : null}
 
               {activeStep === 2 ? (
