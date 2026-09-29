@@ -263,6 +263,10 @@ async function saveFollowupSignals(
       session.outboundStaffNames.length === 1 ? session.outboundStaffNames[0] : null,
     customer_name: identity.customerName || session.customerName || 'غير معروف',
     customer_phone: identity.customerPhone,
+    // Canonical Customer Identity decided; the DB trigger no longer guesses (V47).
+    customer_id: identity.resolutionStatus === 'resolved' ? identity.customerId : null,
+    customer_code: identity.resolutionStatus === 'resolved' ? identity.customerCode : null,
+    customer_identity_status: identity.resolutionStatus,
     signal_type: signal.signalType,
     signal_type_label: signal.signalTypeLabel,
     evidence_quote: signal.evidenceQuote,

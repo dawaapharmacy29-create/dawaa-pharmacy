@@ -373,3 +373,13 @@ describe('source file uses no second identity definition', () => {
 });
 
 vi.mock('@/lib/supabase', () => ({ supabase: { from: () => ({}) } }));
+
+describe('follow-up requests carry the canonical identity decision (V47 trigger never guesses)', () => {
+  it('automatic ingest writes customer_identity_status and a customer only when resolved', async () => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const code = fs.readFileSync(path.resolve(__dirname, '../../..', 'src/lib/whatsappAutoIngestPipeline.ts'), 'utf8');
+    expect(code).toMatch(/customer_identity_status:\s*identity\.resolutionStatus/);
+    expect(code).toMatch(/customer_id:\s*identity\.resolutionStatus === 'resolved' \? identity\.customerId : null/);
+  });
+});
