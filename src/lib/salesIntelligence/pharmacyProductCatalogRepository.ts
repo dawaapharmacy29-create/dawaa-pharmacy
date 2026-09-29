@@ -16,7 +16,7 @@ async function fetchAllProductRows(supabaseClient: any): Promise<RawProductRow[]
   const pageSize = 1000;
   let from = 0;
 
-  while (true) {
+  for (;;) {
     const { data, error } = await supabaseClient
       .from('products')
       .select('id,name,product_code,normalized_name,category,price,source')
