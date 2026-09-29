@@ -51,6 +51,9 @@ jobs:
       - name: WhatsApp operational source owner parity (DB view vs TS gate) — read only
         run: npx --no-install vite-node scripts/check-whatsapp-operational-source-owner-parity.ts
 
+      - name: Canonical review points eligibility — read only
+        run: node scripts/check-whatsapp-canonical-review-points-v53.cjs
+
       - name: WhatsApp and Sales Intelligence targeted tests
         run: |
           npx vitest run             src/lib/__tests__/whatsappAutomaticReviewPersistence.test.ts             src/lib/__tests__/whatsappConversationParser.richExport.test.ts             src/lib/__tests__/whatsappGoldenCaseIbrahimAlSayyad.test.ts             src/lib/salesIntelligence/__tests__/saleAttributionEngine.test.ts             src/lib/salesIntelligence/__tests__/saleProofState.test.ts             src/lib/salesIntelligence/persistence/__tests__/batchPersistenceService.test.ts             src/lib/salesIntelligence/persistence/__tests__/canonicalSourceGate.test.ts             src/lib/salesIntelligence/persistence/__tests__/refreshSourceCanonicalGate.test.ts             src/lib/__tests__/whatsappWatcherCaseGraphSync.test.ts             src/lib/salesIntelligence/refresh/__tests__/canonicalBackfill.test.ts             src/lib/__tests__/whatsappCanonicalIngestion.test.ts             src/lib/salesIntelligence/persistence/__tests__/canonicalAnalyticalSourceResolver.test.ts             src/lib/salesIntelligence/qa/__tests__/queries.test.ts             src/lib/__tests__/whatsappCustomerContextResolver.test.ts             src/lib/salesIntelligence/__tests__/trustedInvoiceEvidenceBridge.test.ts             src/lib/__tests__/whatsappFollowupIdempotency.test.ts             src/lib/__tests__/whatsappDangerousWritersClosed.test.ts             src/lib/__tests__/whatsappOperationalSourceGate.test.ts             src/lib/__tests__/whatsappCanonicalReviewGate.test.ts
