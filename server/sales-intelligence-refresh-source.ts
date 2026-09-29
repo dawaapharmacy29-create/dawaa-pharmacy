@@ -499,7 +499,7 @@ export default async function handler(req: any, res: any) {
     'message_count','created_at','customer_id','customer_phone','customer_name','customer_code',
     'branch','matched_invoice_id','matched_invoice_number','invoice_match_status','reviewer_confirmed','reviewer_id',
     'invoice_link_confirmed','invoice_link_confirmed_invoice_id','invoice_link_confirmed_invoice_number',
-    'invoice_link_confirmed_by','invoice_link_confirmed_at'
+    'invoice_link_confirmed_by','invoice_link_confirmed_at','review_status'
   ].join(',');
 
   let sourceRows: Record<string, unknown>[] = [];
@@ -539,15 +539,68 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const [{ runBatchPersistence }, { reviewSourceRowToBatchConversation }] = await Promise.all([
+    const [{ runBatchPersistence }, { reviewSourceRowToBatchConversation }, gateModule] = await Promise.all([
       import('../src/lib/salesIntelligence/persistence/batchPersistenceService'),
       import('../src/lib/salesIntelligence/persistence/reviewSourceBatchAdapter'),
+      import('../src/lib/salesIntelligence/persistence/canonicalSourceGate'),
     ]);
-    const conversations = sources.map((source) => reviewSourceRowToBatchConversation(source as any));
-    const result = await runBatchPersistence(service, {
-      conversations,
-      dryRun: false,
-    });
+
+    // Canonical Source Gate: only an active canonical source owned by exactly one Customer Case V22
+    // may produce a Sales Intelligence case. One batched context load for the whole page.
+    let gateContext;
+    try {
+      gateContext = await gateModule.loadCanonicalSourceGateContext(service, sources as any[]);
+    } catch (gateError) {
+      return json(res, 500, {
+        error: 'canonical_source_gate_lookup_failed',
+        detail: gateError instanceof Error ? gateError.message : String(gateError),
+      });
+    }
+    const gateDecisions = sources.map((source) => gateModule.evaluateCanonicalSourceGate(source as any, gateContext));
+    const blockedSources = gateDecisions
+      .filter((decision) => !decision.allowed)
+      .map((decision: any) => ({
+        sourceId: decision.sourceId,
+        error: decision.code,
+        reason: decision.reason,
+        v22CaseIds: decision.v22CaseIds,
+        supersedingSourceIds: decision.supersedingSourceIds,
+      }));
+    if (!sourceFileName && blockedSources.length) {
+      return json(res, 409, blockedSources[0]);
+    }
+    const v22CaseIdBySource = new Map(
+      gateDecisions.filter((decision) => decision.allowed).map((decision: any) => [decision.sourceId, decision.v22CaseId])
+    );
+    const admittedSources = sources.filter((source) => v22CaseIdBySource.has(String(source.id || '')));
+
+    const conversations = admittedSources.map((source) =>
+      reviewSourceRowToBatchConversation({
+        ...(source as any),
+        source_case_id_v22: v22CaseIdBySource.get(String(source.id || '')) || null,
+      })
+    );
+    const result = conversations.length
+      ? await runBatchPersistence(service, {
+          conversations,
+          dryRun: false,
+        })
+      : null;
+    if (!result) {
+      return json(res, 200, {
+        ok: true,
+        sourceId: validSourceId ? sourceId : null,
+        sourceFileName: sourceFileName || null,
+        sourceCount: 0,
+        totalSourceCount,
+        sourceOffset: sourceFileName ? sourceOffset : null,
+        sourceLimit: sourceFileName ? requestedSourceLimit : null,
+        nextOffset: sourceFileName ? sourceOffset + sourceRows.length : null,
+        hasMore: sourceFileName ? sourceOffset + sourceRows.length < Number(totalSourceCount || 0) : false,
+        blockedSources,
+        derivedCases: [],
+      });
+    }
 
     const outcomes = result.caseOutcomes || [];
     const failures = outcomes.filter((row) => !row.success);
@@ -556,7 +609,8 @@ export default async function handler(req: any, res: any) {
         error: 'canonical_refresh_partial_failure',
         sourceId: validSourceId ? sourceId : null,
         sourceFileName: sourceFileName || null,
-        sourceCount: sources.length,
+        sourceCount: admittedSources.length,
+        blockedSources,
         failures: failures.map((row) => ({ caseId: row.caseId, error: row.error })),
       });
     }
@@ -564,7 +618,7 @@ export default async function handler(req: any, res: any) {
     let reconciledActions = 0;
     let reconciledCases = 0;
     let provenCanonicalCases = 0;
-    for (const source of sources) {
+    for (const source of admittedSources) {
       const id = String(source.id || '');
       if (!id) continue;
       const sourceAnalyses = result.caseAnalyses.filter((row) => row.conversationId === id);
@@ -588,12 +642,13 @@ export default async function handler(req: any, res: any) {
       ok: true,
       sourceId: validSourceId ? sourceId : null,
       sourceFileName: sourceFileName || null,
-      sourceCount: sources.length,
+      sourceCount: admittedSources.length,
       totalSourceCount,
       sourceOffset: sourceFileName ? sourceOffset : null,
       sourceLimit: sourceFileName ? requestedSourceLimit : null,
       nextOffset: sourceFileName ? sourceOffset + sourceRows.length : null,
       hasMore: sourceFileName ? sourceOffset + sourceRows.length < Number(totalSourceCount || 0) : false,
+      blockedSources,
       actionReconciliation: { reconciledActions },
       caseSaleProofReconciliation: { reconciledCases, provenCanonicalCases },
       derivedCases: result.caseAnalyses.map((row) => ({

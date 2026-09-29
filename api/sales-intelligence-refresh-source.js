@@ -12,6 +12,8 @@ const root = process.cwd();
 let runtimeLoaded = false;
 let runBatchPersistence;
 let reviewSourceRowToBatchConversation;
+let loadCanonicalSourceGateContext;
+let evaluateCanonicalSourceGate;
 
 function json(res, status, body) {
   res.status(status).setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -63,6 +65,7 @@ function ensureSalesIntelligenceRuntime() {
 
   ({ runBatchPersistence } = require(path.join(root, 'src/lib/salesIntelligence/persistence/batchPersistenceService.ts')));
   ({ reviewSourceRowToBatchConversation } = require(path.join(root, 'src/lib/salesIntelligence/persistence/reviewSourceBatchAdapter.ts')));
+  ({ loadCanonicalSourceGateContext, evaluateCanonicalSourceGate } = require(path.join(root, 'src/lib/salesIntelligence/persistence/canonicalSourceGate.ts')));
   runtimeLoaded = true;
 }
 
@@ -131,6 +134,7 @@ export default async function handler(req, res) {
     'invoice_match_status',
     'reviewer_confirmed',
     'reviewer_id',
+    'review_status',
   ].join(',');
 
   const { data: source, error: sourceError } = await service
@@ -147,26 +151,27 @@ export default async function handler(req, res) {
   try {
     ensureSalesIntelligenceRuntime();
 
-    const [{ data: rootCases, error: rootCaseError }, { data: memberCases, error: memberCaseError }] = await Promise.all([
-      service
-        .from('whatsapp_customer_cases_v22')
-        .select('id')
-        .eq('root_source_id', sourceId)
-        .limit(3),
-      service
-        .from('whatsapp_customer_cases_v22')
-        .select('id')
-        .contains('source_ids', [sourceId])
-        .limit(3),
-    ]);
-    if (rootCaseError || memberCaseError) {
+    // Canonical Source Gate: only an active canonical source owned by exactly one Customer Case V22
+    // may produce a Sales Intelligence case. Everything else is refused explicitly, never guessed.
+    let gate;
+    try {
+      gate = evaluateCanonicalSourceGate(source, await loadCanonicalSourceGateContext(service, [source]));
+    } catch (gateError) {
       return json(res, 500, {
-        error: 'canonical_case_identity_lookup_failed',
-        detail: rootCaseError?.message || memberCaseError?.message || 'unknown_case_lookup_error',
+        error: 'canonical_source_gate_lookup_failed',
+        detail: gateError instanceof Error ? gateError.message : String(gateError),
       });
     }
-    const caseIds = Array.from(new Set([...(rootCases || []), ...(memberCases || [])].map((row) => String(row.id || '')).filter(Boolean)));
-    const sourceCaseIdV22 = caseIds.length === 1 ? caseIds[0] : null;
+    if (!gate.allowed) {
+      return json(res, 409, {
+        error: gate.code,
+        reason: gate.reason,
+        sourceId,
+        v22CaseIds: gate.v22CaseIds,
+        supersedingSourceIds: gate.supersedingSourceIds,
+      });
+    }
+    const sourceCaseIdV22 = gate.v22CaseId;
 
     const conversation = reviewSourceRowToBatchConversation({
       ...source,
@@ -220,8 +225,8 @@ export default async function handler(req, res) {
       ok: true,
       sourceId,
       sourceCaseIdV22,
-      caseIdentityStatus: caseIds.length === 1 ? 'linked' : caseIds.length === 0 ? 'missing' : 'ambiguous',
-      caseIdentityCandidates: caseIds,
+      caseIdentityStatus: 'linked',
+      canonicalSourceGate: 'allowed',
       canonicalReconciliation,
       derivedCases: result.caseAnalyses.map((row) => ({
         caseId: row.caseId,

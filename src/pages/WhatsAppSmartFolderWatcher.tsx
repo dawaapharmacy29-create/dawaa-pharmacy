@@ -127,8 +127,9 @@ type WatcherPipelineStatus = {
 
 // Refresh-source rejects non-canonical input explicitly. A non-canonical (archived/superseded)
 // source is a legitimate skip; a canonical source without its Customer Case V22 is a broken chain.
+// Codes come from src/lib/salesIntelligence/persistence/canonicalSourceGate.ts.
 const SALES_INTELLIGENCE_BLOCKED_NON_CANONICAL = 'blocked_non_canonical_source';
-const SALES_INTELLIGENCE_BLOCKED_MISSING_CASE = 'blocked_missing_canonical_case';
+const isSalesIntelligenceBlockedCode = (code: string) => code.startsWith('blocked_');
 
 const INTERVAL_MS = 60_000;
 
@@ -923,7 +924,7 @@ export default function WhatsAppSmartFolderWatcher() {
                       return 'blocked';
                     }
                     salesIntelligenceBySource[sourceId] = {
-                      status: errorCode === SALES_INTELLIGENCE_BLOCKED_MISSING_CASE ? 'blocked' : 'failed',
+                      status: isSalesIntelligenceBlockedCode(errorCode) ? 'blocked' : 'failed',
                       reason: String(payload?.reason || errorCode),
                       saleProofState: null,
                     };
@@ -997,6 +998,14 @@ export default function WhatsAppSmartFolderWatcher() {
                         );
                       }
                       break;
+                    }
+                    for (const blocked of Array.isArray(payload?.blockedSources) ? payload.blockedSources : []) {
+                      const blockedSourceId = String(blocked?.sourceId || '');
+                      if (!blockedSourceId) continue;
+                      salesIntelligenceBySource[blockedSourceId] = { status: 'blocked', reason: String(blocked?.reason || blocked?.error || ''), saleProofState: null };
+                      if (blocked?.error !== SALES_INTELLIGENCE_BLOCKED_NON_CANONICAL) {
+                        canonicalErrors.push(`Canonical ${result.fileName} [source ${blockedSourceId}]: ${blocked?.error} — ${blocked?.reason}`);
+                      }
                     }
                     hasMore = Boolean(payload?.hasMore);
                     const nextOffset = Number(payload?.nextOffset);
