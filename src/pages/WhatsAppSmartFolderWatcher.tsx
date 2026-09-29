@@ -712,7 +712,11 @@ export default function WhatsAppSmartFolderWatcher() {
             staffId: singleResolvedStaff?.staffId || null,
             staffName: singleResolvedStaff?.canonicalStaffName || null,
             createdBy: actorName,
-            followupIdentity: { customerAnchor: followupCustomerAnchor(customerContext.identity, file.name), session },
+            followupIdentity: {
+              customerAnchor: followupCustomerAnchor(customerContext.identity, caseContext.caseItem.id),
+              session,
+              caseStartedAt: caseContext.caseItem.startedAt,
+            },
           });
         } catch (operationalActionError) {
           console.warn('[whatsapp-watcher] operational action sync failed; source/product analysis preserved', operationalActionError);
