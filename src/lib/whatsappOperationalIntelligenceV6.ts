@@ -146,7 +146,9 @@ const REQUEST_RX = /(هحتاجه|هحتاجها|هاخده|هاخدها|عاي�
 const CUSTOMER_REQUEST_INTENT_RX = /(هحتاجه|هحتاجها|هاخده|هاخدها|عايزه|عاوزه|محتاجه|عايزين|محتاجين|عايز|عاوز|محتاج|ابعت|ابعث|ابعته|ابعتي|ابعتيها|تبعتها|تبعته|تبعتيها|هات|اطلب|أطلب|متوفر|موجود عندكم|عندكم|ممكن\s+(?:ابعت|ابعث|هات|اطلب|توصيل|الدليفري|المندوب)|الدليفري\s+يجيلي|التوصيل)/i;
 const PRODUCT_INQUIRY_RX = /(بكام|سعر|متوفر|متاح|موجود|عندكم|فيه|في من|العبوه|العبوة|تركيز|كام قرص|كام شريط|توضيح\s+عن\s+(?:ال)?منتج|استعماله\s+ازاي|استخدامه\s+ازاي|بيستخدم\s+ازاي)/i;
 const INFO_ONLY_PRODUCT_INQUIRY_RX = /(توضيح\s+عن\s+(?:ال)?منتج|استعماله\s+ازاي|استخدامه\s+ازاي|بيستخدم\s+ازاي)/i;
-const POSITIVE_SERVICE_FEEDBACK_RX = /(كله\s+تمام|كل\s+حاجه\s+تمام|كل\s+حاجة\s+تمام|خدمه[^\n]{0,80}ذوق|خدمة[^\n]{0,80}ذوق|ربنا\s+يباركلكم|عند\s+حسن\s+ظن)/i;
+const POSITIVE_SERVICE_FEEDBACK_RX =
+  /(كله\s+تمام|كل\s+حاجه\s+تمام|كل\s+حاجة\s+تمام|خدمه[^\n]{0,80}(?:ذوق|ممتاز|كويس|ما\s*شاء\s*الله|اللهم\s+بارك)|خدمة[^\n]{0,80}(?:ذوق|ممتاز|كويس|ما\s*شاء\s*الله|اللهم\s+بارك)|خدمات\s+الصيدلي(?:ه|ة)[^\n]{0,80}(?:ما\s*شاء\s*الله|اللهم\s+بارك|ممتاز|كويس)|ربنا\s+يباركلكم|عند\s+حسن\s+ظن)/i;
+const POSITIVE_CHECKIN_ACK_RX = /^[\s👍🙏❤❤️🌷🌸🤍]+$/u;
 const RECOMMEND_RX = /(ارشح|أرشح|نرشح|ترشيح|انصح|أنصح|ممكن تستخدم|ممكن تاخد|ممكن تاخدي|ممكن ناخد|الافضل|الأفضل|بديل|بداله|بدلها)/i;
 const RECOMMENDATION_REQUEST_RX = /(ترشحلي|ترشحلى|رشحلي|رشحلى|اقترحلي|اقترحلى|إقترحلي|إقترحلى|ايه\s+افضل|ايه\s+أفضل|أفضل\s+(?:فيتامين|منتج)|افضل\s+(?:فيتامين|منتج)|(?:محتاج|محتاجه|عايز|عايزه|عاوز|عاوزه)\s+(?:حاجه|حاجة)(?:\s+(?:كويسه|كويسة))?\s+ل)/i;
 const GENERIC_NEED_REQUEST_RX = /^(?:محتاج|محتاجه|عايز|عايزه|عاوز|عاوزه)\s+(?:حاجه|حاجة)(?:\s+(?:كويسه|كويسة))?\s+ل/i;
@@ -716,8 +718,13 @@ export function buildWhatsAppOperationalIntelligenceV6(session: WhatsAppConversa
   const fulfillmentFailure = fulfillmentFailures.length > 0;
   const recovered = has(outbound, RECOVERY_RX);
   const customerAcknowledgedResolution = complaint && has(inbound, COMPLAINT_RESOLUTION_ACK_RX);
-  const positiveCheckinFeedback = intents.primary === 'proactive_checkin' && has(inbound, POSITIVE_SERVICE_FEEDBACK_RX);
-  const state: WhatsAppOperationalIntelligenceV6['customerState'] = positiveCheckinFeedback ? 'improved' : has(inbound, IMPROVED_RX) ? 'improved' : has(inbound, WORSE_RX) ? 'worse' : 'unknown';
+  const positiveCheckinFeedback =
+    intents.primary === 'proactive_checkin' &&
+    (has(inbound, POSITIVE_SERVICE_FEEDBACK_RX) || has(inbound, POSITIVE_CHECKIN_ACK_RX));
+  const state: WhatsAppOperationalIntelligenceV6['customerState'] =
+    has(inbound, IMPROVED_RX) ? 'improved' :
+    has(inbound, WORSE_RX) ? 'worse' :
+    'unknown';
   const unansweredInboundRows = session.messages.filter((message, index) => {
     if (message.direction !== 'inbound' || message.kind !== 'text') return false;
     if (isStandaloneConversationNoise(message.text)) return false;
@@ -745,7 +752,7 @@ export function buildWhatsAppOperationalIntelligenceV6(session: WhatsAppConversa
   let operationalOutcome: WhatsAppOperationalOutcome = 'unknown';
   if (fulfillmentFailure) operationalOutcome = 'unresolved_request';
   else if (complaint) operationalOutcome = recovered && customerAcknowledgedResolution ? 'complaint_resolved' : 'complaint_unresolved';
-  else if (intents.primary === 'proactive_checkin' || intents.primary === 'followup_response') operationalOutcome = state === 'improved' ? 'checkin_complete' : state === 'worse' ? 'needs_followup' : 'unknown';
+  else if (intents.primary === 'proactive_checkin' || intents.primary === 'followup_response') operationalOutcome = (state === 'improved' || positiveCheckinFeedback) ? 'checkin_complete' : state === 'worse' ? 'needs_followup' : 'unknown';
   else if (rejected) operationalOutcome = 'no_sale';
   else if (close && (intents.primary === 'customer_request' || base.commercialEligible || acceptedRecommendation)) operationalOutcome = 'probable_sale';
   else if (
@@ -826,9 +833,11 @@ export function buildWhatsAppOperationalIntelligenceV6(session: WhatsAppConversa
       saleClose: evidenceFromMessages(close ? closeRows : [], close ? 88 : 0),
       stockUnavailable: evidenceFromMessages(stockUnavailableRows, 92),
       alternativeOffered: evidenceFromMessages(alternativeOfferRows, 88),
-      customerState: positiveCheckinFeedback
-        ? evidenceFor({ ...session, messages: byDirection(session, 'inbound') }, POSITIVE_SERVICE_FEEDBACK_RX, 90)
-        : evidenceFor({ ...session, messages: byDirection(session, 'inbound') }, state === 'worse' ? WORSE_RX : IMPROVED_RX, state === 'unknown' ? 0 : 88),
+      customerState: evidenceFor(
+        { ...session, messages: byDirection(session, 'inbound') },
+        state === 'worse' ? WORSE_RX : IMPROVED_RX,
+        state === 'unknown' ? 0 : 88
+      ),
     },
   };
 }
