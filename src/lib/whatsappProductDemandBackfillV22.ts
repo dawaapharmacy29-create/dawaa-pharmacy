@@ -132,7 +132,7 @@ async function loadSources(options: ProductDemandBackfillOptionsV22): Promise<{ 
 
   // Product Demand must use the SAME Canonical Analytical Source definition as Sales Intelligence.
   // Fetch the complete source set first so supersession between sources of one export is visible.
-  while (true) {
+  for (;;) {
     const { data, error } = await supabase
       .from('whatsapp_review_sources')
       .select('id,source_filename,raw_text,conversation_started_at,conversation_ended_at,branch,customer_id,customer_code,customer_name,customer_phone,staff_id,staff_name,created_by,message_count,created_at,analysis_json,review_status')
@@ -357,7 +357,7 @@ async function mapProductDemandDryRunWithConcurrency(
   const workerCount = Math.max(1, Math.min(concurrency, sources.length));
 
   async function worker() {
-    while (true) {
+    for (;;) {
       const index = cursor;
       cursor += 1;
       if (index >= sources.length) return;
