@@ -11,13 +11,12 @@
 // A genuinely new episode (a later raw session after a >120-minute silence) or a different reason
 // yields a new identity, so a new follow-up is allowed.
 //
-// Customer anchor comes from the Canonical Customer Identity (resolved customer id; otherwise the
-// contact phone, the export code, or the normalized export customer hint) — never a guessed customer.
+// Customer anchor comes from the Canonical Customer Identity (resolved customer id, phone or code).
+// When unresolved, the deterministic canonical case-unit id is used; filename is metadata only.
 import type {
   WhatsAppConversationSession,
   WhatsAppParsedMessage,
 } from './whatsappConversationParser';
-import { extractCustomerHintFromExportFileName } from './whatsappExportCustomerHint';
 import type { CanonicalCustomerIdentity } from './customers/canonicalCustomerIdentityResolver';
 
 export const FOLLOWUP_IDENTITY_VERSION = 'fu1';
@@ -48,20 +47,25 @@ export function normalizeFollowupKeyPart(value: unknown): string {
     .replace(/\s+/g, '-');
 }
 
-/** Customer anchor from the canonical identity; unresolved identities fall back to evidence, never a guess. */
+/**
+ * Customer anchor from canonical identity evidence only.
+ * Filename is never an identity fallback. When the customer is unresolved, callers must provide
+ * the deterministic canonical case-unit id so unrelated exports cannot collapse into one task.
+ */
 export function followupCustomerAnchor(
   identity: Pick<
     CanonicalCustomerIdentity,
     'status' | 'customerId' | 'normalizedPhone' | 'customerCode'
   > | null,
-  sourceFileName: string
+  canonicalCaseAnchor?: string | null
 ): string {
   if (identity?.status === 'resolved' && identity.customerId)
     return `customer:${identity.customerId}`;
   if (identity?.normalizedPhone) return `phone:${identity.normalizedPhone}`;
   if (identity?.customerCode) return `code:${normalizeFollowupKeyPart(identity.customerCode)}`;
-  const hint = extractCustomerHintFromExportFileName(sourceFileName);
-  return `export:${normalizeFollowupKeyPart([hint.nameHint, hint.codeHint].filter(Boolean).join(' ') || sourceFileName)}`;
+  const caseAnchor = normalizeFollowupKeyPart(canonicalCaseAnchor || '');
+  if (caseAnchor) return `case:${caseAnchor}`;
+  throw new Error('followup_customer_anchor_unresolved');
 }
 
 /**
@@ -101,34 +105,47 @@ export function buildFollowupIdentity(input: {
   ].join('|');
 }
 
-/** Evidence time of a follow-up: its evidence messages, else the case unit start. */
+/** Evidence time of a follow-up. Empty-evidence actions use the canonical case start when supplied. */
 export function followupEvidenceAt(
   session: WhatsAppConversationSession,
-  evidenceMessageIds: unknown
-): Date {
+  evidenceMessageIds: unknown,
+  canonicalCaseStartedAt?: string | Date | null
+): Date | null {
   const ids = new Set((Array.isArray(evidenceMessageIds) ? evidenceMessageIds : []).map(String));
   const times = session.messages
     .filter((message) => ids.has(String(message.id)))
     .map((message) => message.timestamp.getTime());
-  return times.length ? new Date(Math.min(...times)) : session.startedAt;
+  if (times.length) return new Date(Math.min(...times));
+  if (canonicalCaseStartedAt) {
+    const stable = canonicalCaseStartedAt instanceof Date
+      ? canonicalCaseStartedAt
+      : new Date(canonicalCaseStartedAt);
+    if (!Number.isNaN(stable.getTime())) return stable;
+  }
+  return null;
 }
 
 export interface FollowupIdentityContext {
   customerAnchor: string;
   session: WhatsAppConversationSession;
+  /** Stable V22/case-unit start. Required for evidence-free manual-review identity. */
+  caseStartedAt?: string | Date | null;
 }
 
 /** Identity for an operational action row (customer_request, *_followup, manual_review). */
 export function operationalActionFollowupIdentity(
   context: FollowupIdentityContext,
   action: { action_type: string; product_name?: string | null; evidence?: unknown }
-): string {
+): string | null {
+  const evidenceAt = followupEvidenceAt(
+    context.session,
+    action.evidence,
+    context.caseStartedAt
+  );
+  if (!evidenceAt) return null;
   return buildFollowupIdentity({
     customerAnchor: context.customerAnchor,
-    episodeStartedAt: episodeStartedAt(
-      context.session.messages,
-      followupEvidenceAt(context.session, action.evidence)
-    ),
+    episodeStartedAt: episodeStartedAt(context.session.messages, evidenceAt),
     followupType: action.action_type,
     reasonKey: action.product_name ?? null,
   });
