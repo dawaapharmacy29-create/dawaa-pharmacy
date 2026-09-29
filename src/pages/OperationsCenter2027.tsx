@@ -187,7 +187,7 @@ export default function OperationsCenter2027() {
     ensureNotificationLoaded,
     markAsRead,
     handleNotificationClick,
-  } = useNotifications();
+  } = useNotifications({ scope: 'center' });
 
   const { data: tasks, refetch: refetchTasks } = useSupabaseQuery<TaskRow>({
     table: 'tasks',

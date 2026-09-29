@@ -20,8 +20,11 @@ type NotificationRuntimeState = {
   ownerKey: string | null;
   generation: number;
   refreshPromise: Promise<AppNotification[]> | null;
+  refreshLimit: number;
   lastRefreshAt: number;
+  loadedLimit: number;
   subscribers: number;
+  centerSubscribers: number;
   rows: AppNotification[];
   available: boolean;
   loading: boolean;
@@ -35,8 +38,11 @@ const notificationRuntime = ((globalThis as typeof globalThis & {
   ownerKey: null,
   generation: 0,
   refreshPromise: null,
+  refreshLimit: 0,
   lastRefreshAt: 0,
+  loadedLimit: 0,
   subscribers: 0,
+  centerSubscribers: 0,
   rows: [],
   available: true,
   loading: true,
@@ -46,9 +52,28 @@ const notificationRuntime = ((globalThis as typeof globalThis & {
 // Keep hot-reload sessions compatible when the runtime shape gains fields.
 notificationRuntime.ownerKey ??= null;
 notificationRuntime.generation ??= 0;
+notificationRuntime.refreshLimit ??= 0;
+notificationRuntime.loadedLimit ??= 0;
+notificationRuntime.centerSubscribers ??= 0;
 
 const NOTIFICATION_CACHE_TTL_MS = 30_000;
 const NOTIFICATION_POLL_INTERVAL_MS = 120_000;
+// A background tab refreshes at most every 10 minutes (desktop alerts use a 15-minute
+// freshness window); returning to the tab refreshes immediately.
+const NOTIFICATION_HIDDEN_POLL_INTERVAL_MS = 600_000;
+// notification_events_v2 applies RLS and correlated checks per scanned row, so the row
+// window drives the cost of every read. The header tray shows 10 decision rows; only the
+// full notification center (Operations Center, staff detail) needs the 500-row window.
+export const HEADER_NOTIFICATION_WINDOW = 100;
+export const CENTER_NOTIFICATION_WINDOW = 500;
+
+export type NotificationScope = 'header' | 'center';
+
+function requiredNotificationWindow() {
+  return notificationRuntime.centerSubscribers > 0
+    ? CENTER_NOTIFICATION_WINDOW
+    : HEADER_NOTIFICATION_WINDOW;
+}
 
 export type NotificationSettings = {
   customerService: boolean;
@@ -169,7 +194,7 @@ function burstDedupeKey(notification: AppNotification) {
     .join('|');
 }
 
-export function useNotifications() {
+export function useNotifications({ scope = 'header' }: { scope?: NotificationScope } = {}) {
   const navigate = useNavigate();
   const navigationGuard = useOptionalNavigationGuard();
   const { user } = useAuth();
@@ -188,6 +213,7 @@ export function useNotifications() {
       notificationRuntime.refreshPromise = null;
       notificationRuntime.rows = [];
       notificationRuntime.lastRefreshAt = 0;
+      notificationRuntime.loadedLimit = 0;
       notificationRuntime.available = true;
       notificationRuntime.loading = false;
       if (mountedRef.current) {
@@ -207,6 +233,7 @@ export function useNotifications() {
       notificationRuntime.refreshPromise = null;
       notificationRuntime.rows = [];
       notificationRuntime.lastRefreshAt = 0;
+      notificationRuntime.loadedLimit = 0;
       notificationRuntime.available = true;
       notificationRuntime.loading = true;
       if (mountedRef.current) {
@@ -224,8 +251,10 @@ export function useNotifications() {
       return;
     }
 
+    const limit = requiredNotificationWindow();
     const cacheIsFresh =
       !force &&
+      notificationRuntime.loadedLimit >= limit &&
       notificationRuntime.lastRefreshAt > 0 &&
       Date.now() - notificationRuntime.lastRefreshAt < NOTIFICATION_CACHE_TTL_MS;
     if (cacheIsFresh) {
@@ -238,7 +267,13 @@ export function useNotifications() {
     }
 
     if (notificationRuntime.refreshPromise) {
+      const inFlightLimit = notificationRuntime.refreshLimit;
       const sharedRows = await notificationRuntime.refreshPromise;
+      // A header-window read in flight cannot satisfy a center that just mounted.
+      if (inFlightLimit < limit && notificationRuntime.loadedLimit < limit) {
+        await refreshNotifications(true);
+        return;
+      }
       if (mountedRef.current) {
         setRows(sharedRows);
         setAvailable(notificationRuntime.available);
@@ -248,11 +283,10 @@ export function useNotifications() {
     }
 
     const refreshGeneration = notificationRuntime.generation;
+    notificationRuntime.refreshLimit = limit;
     notificationRuntime.refreshPromise = (async () => {
       try {
-        // 500 keeps the operational center complete across a busy multi-branch week
-        // without loading the entire historical audit log on every refresh.
-        const result = await getRecentNotifications({ limit: 500 });
+        const result = await getRecentNotifications({ limit });
         const unique = new Map<string, AppNotification>();
         for (const item of result) {
           const normalized = { ...item, route: notificationRoute(item) };
@@ -269,6 +303,7 @@ export function useNotifications() {
         notificationRuntime.rows = resolvedRows;
         notificationRuntime.available = true;
         notificationRuntime.lastRefreshAt = Date.now();
+        notificationRuntime.loadedLimit = limit;
         return resolvedRows;
       } catch (error) {
         console.warn('[notifications] canonical read source unavailable', error);
@@ -316,6 +351,7 @@ export function useNotifications() {
   useEffect(() => {
     mountedRef.current = true;
     notificationRuntime.subscribers += 1;
+    if (scope === 'center') notificationRuntime.centerSubscribers += 1;
     if (notificationRuntime.rows.length > 0 || notificationRuntime.lastRefreshAt > 0) {
       setRows(notificationRuntime.rows);
       setAvailable(notificationRuntime.available);
@@ -333,10 +369,13 @@ export function useNotifications() {
 
     if (notificationRuntime.subscribers === 1) {
       if (notificationRuntime.timer) window.clearInterval(notificationRuntime.timer);
-      notificationRuntime.timer = window.setInterval(
-        () => void refreshNotifications(true),
-        NOTIFICATION_POLL_INTERVAL_MS
-      );
+      notificationRuntime.timer = window.setInterval(() => {
+        if (
+          document.visibilityState === 'hidden' &&
+          Date.now() - notificationRuntime.lastRefreshAt < NOTIFICATION_HIDDEN_POLL_INTERVAL_MS
+        ) return;
+        void refreshNotifications(true);
+      }, NOTIFICATION_POLL_INTERVAL_MS);
 
       // Intentionally no table-wide Realtime subscription here.
       // notification_events_v2 is an expensive read model; refreshing the full inbox
@@ -349,6 +388,9 @@ export function useNotifications() {
     return () => {
       mountedRef.current = false;
       notificationRuntime.subscribers = Math.max(0, notificationRuntime.subscribers - 1);
+      if (scope === 'center') {
+        notificationRuntime.centerSubscribers = Math.max(0, notificationRuntime.centerSubscribers - 1);
+      }
       window.removeEventListener('dawaa:notification-settings', onSettings);
       document.removeEventListener('visibilitychange', onVisibility);
 
@@ -367,7 +409,7 @@ export function useNotifications() {
         }
       }
     };
-  }, [refreshNotifications]);
+  }, [refreshNotifications, scope]);
 
   const allNotifications = useMemo(() => {
     if (!ownerKey) return [];
