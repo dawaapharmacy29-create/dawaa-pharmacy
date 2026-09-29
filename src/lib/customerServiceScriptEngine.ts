@@ -369,6 +369,8 @@ export function buildVipCareScript(context: FollowupScriptContext): ScriptPack {
   const text = internalSignal(context);
   if (isBereavement(text)) return bereavementScript(context);
   if (isComplaint(text)) return complaintScript(context);
+  if (isTravelRelated(text)) return travelSafeScript(context);
+  if (isPostPurchase(text)) return postPurchaseScript(context);
 
   const opening =
     brandedIntro(context) +
