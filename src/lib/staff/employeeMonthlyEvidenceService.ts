@@ -1,13 +1,26 @@
 import { supabase } from '@/lib/supabase';
 import { readAttendanceRange } from '@/lib/readModels/attendanceReadModel';
 
+export type EmployeeMonthlyEvidenceMetrics = {
+  review_count: number;
+  review_average: number;
+  completed_followups: number;
+  followup_count: number;
+  conversation_positive_points: number;
+  conversation_negative_points: number;
+  attendance_days: number;
+  present_days: number;
+  engine_version: number;
+};
+
 export type EmployeeMonthlyEvidence = {
-  metrics: Record<string, number>;
+  metrics: EmployeeMonthlyEvidenceMetrics;
   health: {
     reviews: 'available' | 'unavailable';
     followups: 'available' | 'unavailable';
     attendance: 'available' | 'unavailable';
   };
+  ready: boolean;
   errors: Record<string, string>;
 };
 
@@ -16,6 +29,13 @@ function safeNumber(value: unknown) {
   return Number.isFinite(number) ? number : 0;
 }
 
+/**
+ * Canonical evidence reader for the monthly staff evaluation.
+ *
+ * Important: an unavailable source is NOT the same as a genuine zero. Callers
+ * must check the ready flag before finalizing an evaluation so a transient query
+ * failure cannot silently become a bad monthly score/evidence snapshot.
+ */
 export async function loadEmployeeMonthlyEvidence(args: {
   staffId: string;
   startDate: string;
@@ -48,20 +68,24 @@ export async function loadEmployeeMonthlyEvidence(args: {
 
   const reviewRows = reviewResult.error ? [] : reviewResult.data || [];
   if (reviewResult.error) errors.reviews = reviewResult.error.message;
+
   const followupRows = followupResult.error ? [] : followupResult.data || [];
   if (followupResult.error) errors.followups = followupResult.error.message;
+
   const attendanceRows = attendanceResult.status === 'available' ? attendanceResult.rows : [];
   if (attendanceResult.status === 'unavailable') errors.attendance = attendanceResult.error;
 
   const reviewAverage = reviewRows.length
-    ? reviewRows.reduce((sum, row) => sum + safeNumber(row.final_score || row.total_score), 0) /
+    ? reviewRows.reduce((sum, row) => sum + safeNumber(row.final_score ?? row.total_score), 0) /
       reviewRows.length
     : 0;
+
   const completedFollowups = followupRows.filter(
     (row) =>
       row.completed_at ||
-      /completed|مكتمل|تم/.test(String(row.status || row.followup_status || ''))
+      /completed|مكتمل|تم/i.test(String(row.status || row.followup_status || ''))
   ).length;
+
   const reviewImpacts = reviewRows.map((row) =>
     safeNumber(row.doctor_points_impact ?? row.point_impact)
   );
@@ -71,9 +95,16 @@ export async function loadEmployeeMonthlyEvidence(args: {
   const negativePoints = reviewImpacts
     .filter((value) => value < 0)
     .reduce((sum, value) => sum + Math.abs(value), 0);
+
   const presentDays = attendanceRows.filter((row) =>
     /present|حاضر|late|متأخر/i.test(String(row.status || ''))
   ).length;
+
+  const health = {
+    reviews: reviewResult.error ? 'unavailable' as const : 'available' as const,
+    followups: followupResult.error ? 'unavailable' as const : 'available' as const,
+    attendance: attendanceResult.status,
+  };
 
   return {
     metrics: {
@@ -81,16 +112,17 @@ export async function loadEmployeeMonthlyEvidence(args: {
       review_average: Math.round(reviewAverage * 10) / 10,
       completed_followups: completedFollowups,
       followup_count: followupRows.length,
-      positive_points: positivePoints,
-      negative_points: negativePoints,
+      conversation_positive_points: positivePoints,
+      conversation_negative_points: negativePoints,
       attendance_days: attendanceRows.length,
       present_days: presentDays,
+      engine_version: 4,
     },
-    health: {
-      reviews: reviewResult.error ? 'unavailable' : 'available',
-      followups: followupResult.error ? 'unavailable' : 'available',
-      attendance: attendanceResult.status,
-    },
+    health,
+    ready:
+      health.reviews === 'available' &&
+      health.followups === 'available' &&
+      health.attendance === 'available',
     errors,
   };
 }
