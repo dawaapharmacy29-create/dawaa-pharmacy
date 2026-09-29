@@ -1465,6 +1465,45 @@ export default function WhatsAppSmartFolderWatcher() {
     return [...labels].slice(0, 3);
   }
 
+  function invoiceTruthBadge(item: StaffRun) {
+    const invoice = item.snapshot.smartIntelligence?.invoiceVerification;
+    const invoiceNumber = invoice?.bestCandidate?.invoiceNumber;
+    if (item.canonicalSaleProofState === 'proven') {
+      return {
+        label: invoiceNumber ? `فاتورة مثبتة #${invoiceNumber}` : 'فاتورة مثبتة Canonical',
+        cls: 'border border-emerald-800/40 bg-emerald-500/10 text-emerald-200',
+      };
+    }
+    if (invoice?.status === 'verified') {
+      return {
+        label: invoiceNumber ? `مطابقة قوية #${invoiceNumber}` : 'مطابقة فاتورة قوية',
+        cls: 'border border-amber-800/40 bg-amber-500/10 text-amber-200',
+      };
+    }
+    if (invoice?.status === 'probable') {
+      return {
+        label: invoiceNumber ? `فاتورة مرشحة #${invoiceNumber}` : 'فاتورة مرشحة',
+        cls: 'border border-amber-900/40 bg-amber-950/20 text-amber-300',
+      };
+    }
+    return {
+      label: 'لا توجد مطابقة فاتورة',
+      cls: 'border border-slate-700 bg-slate-900/70 text-slate-500',
+    };
+  }
+
+  function truthQualityBadge(item: StaffRun) {
+    const quality = item.snapshot.smartIntelligence?.groundedSaleJourneyV33?.truthQuality;
+    if (!quality) return null;
+    if (quality.status === 'grounded') {
+      return { label: 'حقيقة موثقة', cls: 'bg-emerald-500/10 text-emerald-200', evidenceCount: quality.directMessageEvidenceCount };
+    }
+    if (quality.status === 'partial') {
+      return { label: 'حقيقة جزئية', cls: 'bg-amber-500/10 text-amber-200', evidenceCount: quality.directMessageEvidenceCount };
+    }
+    return { label: 'تحتاج مراجعة', cls: 'bg-rose-500/10 text-rose-200', evidenceCount: quality.directMessageEvidenceCount };
+  }
+
   function nextDecisionLabel(item: StaffRun) {
     const smart = item.snapshot.smartIntelligence;
     const grounded = smart?.groundedSaleJourneyV33;
@@ -1874,7 +1913,7 @@ export default function WhatsAppSmartFolderWatcher() {
                                     type="button"
                                     onClick={() => openDetails(item)}
                                     key={`${item.sessionId}-${item.staffName}-${item.role}-${index}`}
-                                    className="w-full rounded-2xl border border-slate-800 bg-[#111c2b]/75 px-3.5 py-3 text-right transition hover:-translate-y-0.5 hover:border-cyan-700/60 hover:bg-cyan-950/10 hover:shadow-lg hover:shadow-cyan-950/10"
+                                    className="group w-full rounded-2xl border border-slate-800 bg-[#111c2b]/75 px-3.5 py-3 text-right transition hover:-translate-y-0.5 hover:border-cyan-700/60 hover:bg-cyan-950/10 hover:shadow-lg hover:shadow-cyan-950/10"
                                   >
                                     <div className="flex items-start justify-between gap-3">
                                       <div className="min-w-0">
@@ -1887,31 +1926,26 @@ export default function WhatsAppSmartFolderWatcher() {
                                         <div className="mt-0.5 text-[10px] text-slate-500">{caseLabel(item)}</div>
                                       </div>
                                       <div className="flex shrink-0 items-center gap-2">
-                                        <span className={`rounded-full px-2.5 py-1 text-[10px] font-black ${item.decision === 'clear' ? 'bg-emerald-500/15 text-emerald-200' : item.decision === 'issue' ? 'bg-amber-500/15 text-amber-200' : 'bg-rose-500/15 text-rose-200'}`}>{decisionLabel(item.decision)}</span>
-                                        <ArrowLeft size={14} className="text-cyan-300" />
+                                        <span className={`max-w-[180px] rounded-full border px-2.5 py-1 text-[10px] font-black ${nextDecisionLabel(item).cls}`}>
+                                          {nextDecisionLabel(item).label}
+                                        </span>
+                                        <ArrowLeft size={14} className="text-cyan-300 transition group-hover:-translate-x-0.5" />
                                       </div>
                                     </div>
                                     <div className="mt-3 flex flex-wrap gap-1.5 text-[9px] font-black">
-                                      <span className={`rounded-full px-2 py-1 ${item.snapshot.smartIntelligence?.invoiceVerification?.bestCandidate?.invoiceNumber ? 'bg-sky-500/10 text-sky-200' : 'bg-slate-800 text-slate-500'}`}>
-                                        {item.snapshot.smartIntelligence?.invoiceVerification?.bestCandidate?.invoiceNumber
-                                          ? `فاتورة #${item.snapshot.smartIntelligence.invoiceVerification.bestCandidate.invoiceNumber}`
-                                          : 'لا توجد فاتورة مؤكدة'}
-                                      </span>
-                                      {item.actions.followup ? <span className="rounded-full bg-violet-500/10 px-2 py-1 text-violet-200">متابعة مطلوبة</span> : null}
+                                      <span className={`rounded-full px-2 py-1 ${invoiceTruthBadge(item).cls}`}>{invoiceTruthBadge(item).label}</span>
+                                      {item.actions.followup || item.snapshot.smartIntelligence?.evaluationV2?.followups?.length ? (
+                                        <span className="rounded-full bg-violet-500/10 px-2 py-1 text-violet-200">متابعة موثقة</span>
+                                      ) : null}
                                       {(item.snapshot.smartIntelligence?.evaluationV2?.opportunities?.detected ?? item.intelligence?.salesOpportunities.length ?? 0) > 0 ? (
                                         <span className="rounded-full bg-amber-500/10 px-2 py-1 text-amber-200">
                                           {item.snapshot.smartIntelligence?.evaluationV2?.opportunities?.detected ?? item.intelligence?.salesOpportunities.length ?? 0} فرصة
                                         </span>
                                       ) : null}
-                                      {item.snapshot.smartIntelligence?.groundedSaleJourneyV33?.truthQuality ? (
-                                        <span className={`rounded-full px-2 py-1 ${
-                                          item.snapshot.smartIntelligence.groundedSaleJourneyV33.truthQuality.status === 'grounded'
-                                            ? 'bg-emerald-500/10 text-emerald-200'
-                                            : item.snapshot.smartIntelligence.groundedSaleJourneyV33.truthQuality.status === 'partial'
-                                              ? 'bg-amber-500/10 text-amber-200'
-                                              : 'bg-rose-500/10 text-rose-200'
-                                        }`}>
-                                          {item.snapshot.smartIntelligence.groundedSaleJourneyV33.truthQuality.status === 'grounded' ? 'موثقة' : item.snapshot.smartIntelligence.groundedSaleJourneyV33.truthQuality.status === 'partial' ? 'جزئية' : 'تحتاج مراجعة'}
+                                      {truthQualityBadge(item) ? (
+                                        <span className={`rounded-full px-2 py-1 ${truthQualityBadge(item)!.cls}`}>
+                                          {truthQualityBadge(item)!.label}
+                                          {truthQualityBadge(item)!.evidenceCount ? ` · ${truthQualityBadge(item)!.evidenceCount} دليل` : ''}
                                         </span>
                                       ) : null}
                                     </div>
@@ -1936,7 +1970,7 @@ export default function WhatsAppSmartFolderWatcher() {
           <div className="mx-auto flex h-full max-w-7xl flex-col overflow-hidden border-x border-slate-700 bg-[#111c2b] shadow-2xl md:my-3 md:h-[calc(100%-1.5rem)] md:rounded-3xl md:border" onClick={(event) => event.stopPropagation()}>
             <div className="shrink-0 border-b border-slate-700 bg-[#111c2b]/95 p-4 backdrop-blur">
               <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="truncate text-xl font-black text-white">
                       {selected.snapshot.smartIntelligence?.customer?.customer?.name || selected.customerName || 'عميل غير محدد'}
@@ -1944,24 +1978,15 @@ export default function WhatsAppSmartFolderWatcher() {
                     <span className="rounded-full border border-cyan-700/40 bg-cyan-950/30 px-2.5 py-1 text-[10px] font-black text-cyan-100">
                       {saleTruth(selected).label}
                     </span>
-                    {selected.snapshot.smartIntelligence?.groundedSaleJourneyV33?.truthQuality ? (
-                      <span className={`rounded-full px-2.5 py-1 text-[10px] font-black ${
-                        selected.snapshot.smartIntelligence.groundedSaleJourneyV33.truthQuality.status === 'grounded'
-                          ? 'bg-emerald-500/15 text-emerald-200'
-                          : selected.snapshot.smartIntelligence.groundedSaleJourneyV33.truthQuality.status === 'partial'
-                            ? 'bg-amber-500/15 text-amber-200'
-                            : 'bg-rose-500/15 text-rose-200'
-                      }`}>
-                        {selected.snapshot.smartIntelligence.groundedSaleJourneyV33.truthQuality.status === 'grounded'
-                          ? 'حقيقة موثقة'
-                          : selected.snapshot.smartIntelligence.groundedSaleJourneyV33.truthQuality.status === 'partial'
-                            ? 'حقيقة جزئية'
-                            : 'تحتاج مراجعة'}
+                    {truthQualityBadge(selected) ? (
+                      <span className={`rounded-full px-2.5 py-1 text-[10px] font-black ${truthQualityBadge(selected)!.cls}`}>
+                        {truthQualityBadge(selected)!.label}
+                        {truthQualityBadge(selected)!.evidenceCount ? ` · ${truthQualityBadge(selected)!.evidenceCount} دليل` : ''}
                       </span>
                     ) : null}
-                    {selected.actions.followup ? (
-                      <span className="rounded-full bg-violet-500/15 px-2.5 py-1 text-[10px] font-black text-violet-200">متابعة مطلوبة</span>
-                    ) : null}
+                    <span className={`rounded-full border px-2.5 py-1 text-[10px] font-black ${nextDecisionLabel(selected).cls}`}>
+                      {nextDecisionLabel(selected).label}
+                    </span>
                   </div>
                   <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-400">
                     <span>{selected.staffIdentity.canonicalStaffName || selected.staffName}</span>
@@ -1970,6 +1995,15 @@ export default function WhatsAppSmartFolderWatcher() {
                     <span>·</span>
                     <span>{selected.staffIdentity.branch || selected.branchHint.value || 'فرع غير محدد'}</span>
                     {selected.snapshot.smartIntelligence?.customer?.customer?.code ? <><span>·</span><span>كود العميل {selected.snapshot.smartIntelligence.customer.customer.code}</span></> : null}
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-1.5 text-[9px] font-black">
+                    <span className={`rounded-full px-2 py-1 ${invoiceTruthBadge(selected).cls}`}>{invoiceTruthBadge(selected).label}</span>
+                    {selected.actions.followup || selected.snapshot.smartIntelligence?.evaluationV2?.followups?.length ? (
+                      <span className="rounded-full bg-violet-500/10 px-2 py-1 text-violet-200">متابعة موثقة</span>
+                    ) : null}
+                    <span className="rounded-full bg-slate-900/70 px-2 py-1 text-slate-400">
+                      {selected.snapshot.messages.length} رسالة تقييم
+                    </span>
                   </div>
                 </div>
                 <button type="button" onClick={() => setSelected(null)} className="rounded-xl border border-slate-700 bg-slate-950/30 p-2 text-slate-300 transition hover:border-slate-500 hover:text-white"><X size={18} /></button>
