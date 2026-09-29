@@ -69,11 +69,13 @@ function sourceLabel(source: CaseRow['outcome_source']) {
   return 'تحليل مبدئي';
 }
 
+function hasCanonicalProofState(row: CaseRow) {
+  return Boolean(row.verified_invoice_id)
+    && String(row.case_json?.canonicalSaleProof?.state || '') === 'proven';
+}
+
 function hasCanonicalSaleProof(row: CaseRow) {
-  const proofState = String(row.case_json?.canonicalSaleProof?.state || '');
-  return row.effective_outcome === 'verified_sale'
-    && Boolean(row.verified_invoice_id)
-    && (row.confirmed_outcome === 'verified_sale' || proofState === 'proven');
+  return row.effective_outcome === 'verified_sale' && hasCanonicalProofState(row);
 }
 
 export default function WhatsAppCustomerCasesV22({ onOpenSource }: { onOpenSource?: (sourceId: string) => void }) {
@@ -114,6 +116,10 @@ export default function WhatsAppCustomerCasesV22({ onOpenSource }: { onOpenSourc
   };
 
   const saveReview = async (row: CaseRow) => {
+    if (draftOutcome === 'verified_sale' && !hasCanonicalProofState(row)) {
+      toast.error('لا يمكن اعتماد بيع مؤكد قبل اكتمال Sale Proof Canonical على الـCase.');
+      return;
+    }
     setSaving(true);
     try {
       const { error } = await supabase.rpc('dawaa_review_whatsapp_case_v23', {
@@ -182,7 +188,7 @@ export default function WhatsAppCustomerCasesV22({ onOpenSource }: { onOpenSourc
 
             <div className="mt-2 flex justify-end"><button type="button" onClick={() => reviewingId === row.id ? setReviewingId(null) : openReview(row)} className="rounded-lg border border-violet-400/25 bg-violet-500/5 px-3 py-1.5 text-[11px] font-black text-violet-100">{reviewingId === row.id ? 'إغلاق المراجعة' : 'مراجعة النتيجة'}</button></div>
             {reviewingId === row.id ? <div className="mt-2 grid gap-2 rounded-2xl border border-violet-400/20 bg-slate-950/45 p-3 md:grid-cols-2">
-              <label className="text-[11px] text-slate-400">النتيجة المعتمدة<select value={draftOutcome} onChange={(e) => setDraftOutcome(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-xs text-white">{Object.entries(outcomeLabel).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+              <label className="text-[11px] text-slate-400">النتيجة المعتمدة<select value={draftOutcome} onChange={(e) => setDraftOutcome(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-xs text-white">{Object.entries(outcomeLabel).filter(([value]) => value !== 'verified_sale' || hasCanonicalProofState(row)).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select>{!hasCanonicalProofState(row) ? <div className="mt-1 text-[10px] text-amber-300">«بيع مؤكد» يظهر فقط بعد اكتمال Sale Proof Canonical.</div> : null}</label>
               <label className="text-[11px] text-slate-400">سبب الفقد/التعثر<select value={draftLostReason} onChange={(e) => setDraftLostReason(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-xs text-white"><option value="">بدون سبب معتمد</option>{Object.entries(lostReasonLabel).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></label>
               <label className="text-[11px] text-slate-400">مراجعة المسؤولية<select value={draftResponsibility} onChange={(e) => setDraftResponsibility(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-xs text-white">{Object.entries(responsibilityLabel).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></label>
               <label className="text-[11px] text-slate-400">ملاحظة المراجع<input value={draftNote} onChange={(e) => setDraftNote(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-xs text-white" placeholder="اختياري — لماذا تم اعتماد النتيجة؟" /></label>
