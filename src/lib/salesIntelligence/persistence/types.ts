@@ -22,6 +22,7 @@ import type {
   AttributionEvidenceItem,
   CaseStatus,
   CaseType,
+  CanonicalSalesOutcomeAssessment,
   CommercialConfirmationState,
   ConfidenceLevel,
   DifferenceExplanationKind,
@@ -197,6 +198,8 @@ export interface SalesIntelligenceCaseAnalysisRow extends CaseAnalysisProvenance
     evidenceCompleteness: Record<string, boolean | EvidenceLevel>;
     historicalClosureEvidence: EvidenceRef[];
     protocolApplicabilityRuleIds: string[];
+    /** Durable canonical commercial verdict produced by the same analysis run; never re-derived by readers. */
+    canonicalSalesOutcome: CanonicalSalesOutcomeAssessment;
   };
 }
 
