@@ -1986,7 +1986,7 @@ export default function WhatsAppSmartFolderWatcher() {
 
       {selected ? (
         <div className="fixed inset-0 z-[120] bg-slate-950/80 backdrop-blur-sm" onClick={() => setSelected(null)}>
-          <div className="mx-auto flex h-full max-w-7xl flex-col overflow-hidden border-x border-slate-700 bg-[#111c2b] shadow-2xl md:my-3 md:h-[calc(100%-1.5rem)] md:rounded-3xl md:border" onClick={(event) => event.stopPropagation()}>
+          <div className="mx-auto flex h-full max-w-[1480px] flex-col overflow-hidden border-x border-slate-700 bg-[#111c2b] shadow-2xl md:my-2 md:h-[calc(100%-1rem)] md:rounded-3xl md:border" onClick={(event) => event.stopPropagation()}>
             <div className="shrink-0 border-b border-slate-700 bg-[#111c2b]/95 p-4 backdrop-blur">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
@@ -2030,13 +2030,37 @@ export default function WhatsAppSmartFolderWatcher() {
             </div>
 
             <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-slate-800 bg-slate-950/20 px-3 pt-2">
-              {[
-                ['overview', 'الملخص التنفيذي'],
-                ['conversation', `المحادثة والأدلة (${selected.snapshot.messages.length})`],
-                ['review', 'تقييم الخدمة'],
-              ].map(([key, label]) => (
-                <button key={key} type="button" onClick={() => setDetailTab(key as 'overview' | 'conversation' | 'review')} className={`rounded-t-xl px-4 py-2 text-xs font-black ${detailTab === key ? 'bg-cyan-500 text-slate-950' : 'text-slate-400 hover:text-white'}`}>{label}</button>
-              ))}
+              <button
+                type="button"
+                onClick={() => setDetailTab('overview')}
+                className={`min-w-fit rounded-t-xl px-4 py-2 text-right transition ${detailTab === 'overview' ? 'bg-cyan-500 text-slate-950' : 'text-slate-400 hover:bg-slate-800/60 hover:text-white'}`}
+              >
+                <div className="text-xs font-black">الملخص التنفيذي</div>
+                <div className={`mt-0.5 text-[9px] ${detailTab === 'overview' ? 'text-slate-800' : 'text-slate-600'}`}>{nextDecisionLabel(selected).label}</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setDetailTab('conversation')}
+                className={`min-w-fit rounded-t-xl px-4 py-2 text-right transition ${detailTab === 'conversation' ? 'bg-cyan-500 text-slate-950' : 'text-slate-400 hover:bg-slate-800/60 hover:text-white'}`}
+              >
+                <div className="text-xs font-black">المحادثة والأدلة</div>
+                <div className={`mt-0.5 text-[9px] ${detailTab === 'conversation' ? 'text-slate-800' : 'text-slate-600'}`}>
+                  {selected.snapshot.messages.length} رسالة · {selected.snapshot.messages.filter((message) => message.evidence || messageEvidenceLabels(selected, message.id).length > 0).length} دليل
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setDetailTab('review')}
+                className={`min-w-fit rounded-t-xl px-4 py-2 text-right transition ${detailTab === 'review' ? 'bg-cyan-500 text-slate-950' : 'text-slate-400 hover:bg-slate-800/60 hover:text-white'}`}
+              >
+                <div className="text-xs font-black">تقييم الخدمة</div>
+                <div className={`mt-0.5 text-[9px] ${detailTab === 'review' ? 'text-slate-800' : 'text-slate-600'}`}>
+                  {selected.snapshot.smartIntelligence?.evaluationV2?.qualityScore != null
+                    ? `${selected.snapshot.smartIntelligence.evaluationV2.qualityScore}/100`
+                    : 'درجة غير محسومة'}
+                  {selected.snapshot.officialReviewDraft ? ` · ${selected.snapshot.officialReviewDraft.needsReviewCriteriaCount} بند مراجعة` : ''}
+                </div>
+              </button>
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto p-4">
@@ -2936,12 +2960,19 @@ export default function WhatsAppSmartFolderWatcher() {
             </div>
 
             <div className="shrink-0 border-t border-slate-700 bg-[#111c2b]/95 p-3 backdrop-blur">
-              <div className="flex flex-wrap items-center gap-2">
-                <button type="button" onClick={() => openOfficialReview(selected)} className="inline-flex items-center gap-2 rounded-xl bg-cyan-500 px-4 py-2.5 text-sm font-black text-slate-950 transition hover:bg-cyan-400"><FileText size={16} /> مراجعة واعتماد التقييم</button>
-                {selected.actions.followup ? <button type="button" onClick={() => openFollowup(selected)} className="rounded-xl border border-emerald-700/60 bg-emerald-950/30 px-3 py-2.5 text-xs font-black text-emerald-100 transition hover:bg-emerald-900/40">فتح متابعة العميل</button> : null}
-                {selected.actions.customerRequest ? <button type="button" onClick={() => openCustomerRequest(selected)} className="rounded-xl border border-amber-700/60 bg-amber-950/30 px-3 py-2.5 text-xs font-black text-amber-100 transition hover:bg-amber-900/30">تسجيل الطلب المطلوب</button> : null}
-                <span className="mr-auto hidden text-[10px] text-slate-500 md:inline">التحليل يساعد على القرار؛ النقاط والحفظ الرسمي لا يتمان قبل الاعتماد البشري.</span>
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+                <div className={`min-w-0 flex-1 rounded-xl border px-3 py-2 ${nextDecisionLabel(selected).cls}`}>
+                  <div className="text-[9px] font-black opacity-70">القرار التالي</div>
+                  <div className="mt-0.5 text-xs font-black">{nextDecisionLabel(selected).label}</div>
+                  <div className="mt-0.5 line-clamp-1 text-[10px] leading-5 opacity-75">{nextDecisionLabel(selected).detail}</div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button type="button" onClick={() => openOfficialReview(selected)} className="inline-flex items-center gap-2 rounded-xl bg-cyan-500 px-4 py-2.5 text-sm font-black text-slate-950 transition hover:bg-cyan-400"><FileText size={16} /> مراجعة واعتماد التقييم</button>
+                  {selected.actions.followup ? <button type="button" onClick={() => openFollowup(selected)} className="rounded-xl border border-emerald-700/60 bg-emerald-950/30 px-3 py-2.5 text-xs font-black text-emerald-100 transition hover:bg-emerald-900/40">فتح متابعة العميل</button> : null}
+                  {selected.actions.customerRequest ? <button type="button" onClick={() => openCustomerRequest(selected)} className="rounded-xl border border-amber-700/60 bg-amber-950/30 px-3 py-2.5 text-xs font-black text-amber-100 transition hover:bg-amber-900/30">تسجيل الطلب المطلوب</button> : null}
+                </div>
               </div>
+              <div className="mt-2 text-[9px] text-slate-600">التحليل يساعد على القرار؛ النقاط والحفظ الرسمي لا يتمان قبل الاعتماد البشري.</div>
             </div>
           </div>
         </div>
