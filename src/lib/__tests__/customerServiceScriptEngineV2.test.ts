@@ -101,6 +101,23 @@ describe('customerServiceScriptEngine V2 communication policy', () => {
     expect(pack.whatsapp).toContain('بنقدّر جدًا ثقة حضرتك');
   });
 
+  it('keeps VIP cases scenario-aware when the followup is travel-related or post-purchase', () => {
+    const travelPack = buildVipCareScript({
+      ...base,
+      segment: 'مهم جدًا',
+      reason: 'مسافرة إلى الإمارات',
+    });
+    const purchasePack = buildVipCareScript({
+      ...base,
+      segment: 'مهم جدًا',
+      source: 'yesterday',
+    });
+
+    expect(travelPack.title).toBe('متابعة تقدير واطمئنان');
+    expect(travelPack.whatsapp).not.toMatch(/سفر|الإمارات/i);
+    expect(purchasePack.title).toBe('اطمئنان بعد الطلب');
+  });
+
   it('keeps the welcome message short, warm, and non-pushy', () => {
     const pack = buildWelcomeMessageScript(base);
 
