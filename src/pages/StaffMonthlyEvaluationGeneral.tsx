@@ -699,45 +699,53 @@ export default function StaffMonthlyEvaluation() {
 
               {activeStep === 1 ? (
                 <>
-              <section className="grid gap-3 md:grid-cols-3">
-                <KpiCard title="نتيجة التقييم" value={evaluationNotStarted ? '—' : `${overallScore}/100`} subtitle={grade} icon={<Star size={20} />} tone={evaluationNotStarted ? 'cyan' : overallScore >= 80 ? 'green' : overallScore >= 60 ? 'amber' : 'red'} />
-                <KpiCard
-                  title="النقاط الحالية"
-                  value={settledStatement ? `${settledStatement.points_closing}` : pointsTruth ? `${pointsTruth.final_points} / ${pointsTruth.target_points}` : '—'}
-                  subtitle={settledStatement ? 'من كشف الحوافز المقفول لهذه الدورة' : 'دورة الحافز الحالية (تقدير حي)'}
-                  icon={<Award size={20} />}
-                  tone="cyan"
-                />
-                <KpiCard
-                  title="حافز الأداء المركزي"
-                  value={canonicalIncentive == null ? 'غير محدد' : `${canonicalIncentive.toLocaleString('ar-EG')} جنيه`}
-                  subtitle={
-                    settledStatement
-                      ? 'رقم رسمي من كشف مقفول — دورة سابقة'
-                      : previouslySent
-                        ? 'الرقم الحالي من المصدر المالي المركزي بعد آخر اعتماد'
-                        : 'الرقم الحالي من المصدر المالي المركزي؛ المسودة لا تغيّره قبل الاعتماد'
-                  }
-                  icon={<CheckCircle2 size={20} />}
-                  tone="green"
-                />
-              </section>
+                  <Panel className="p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>جاهزية بيانات الدورة</div>
+                        <div className="mt-1 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                          {evidenceReady ? 'كل مصادر التقييم الأساسية متاحة.' : 'يوجد مصدر ناقص ويجب مراجعته قبل الاعتماد.'}
+                        </div>
+                      </div>
+                      <span
+                        className="rounded-full border px-3 py-1 text-xs font-black"
+                        style={evidenceReady
+                          ? { borderColor: 'var(--dawaa-status-success-border)', background: 'var(--dawaa-status-success-bg)', color: 'var(--dawaa-status-success-text)' }
+                          : { borderColor: 'var(--dawaa-status-danger-border)', background: 'var(--dawaa-status-danger-bg)', color: 'var(--dawaa-status-danger-text)' }}
+                      >
+                        {evidenceReady ? 'جاهزة' : 'تحتاج مراجعة'}
+                      </span>
+                    </div>
 
-              {!settledStatement && pointsTruth && cycleLabel !== currentEvaluationCycleLabel() ? (
-                <Panel className="p-3" style={{ background: 'var(--dawaa-status-warning-bg)', borderColor: 'var(--dawaa-status-warning-border)' }}>
-                  <p className="text-xs font-bold" style={{ color: 'var(--dawaa-status-warning-text)' }}>
-                    الدورة دي لسه من غير كشف حوافز مقفول — الرقم المعروض تقدير حي بمعدل النقطة الحالي، ومش بالضرورة نفس المعدل اللي كان فعليًا وقت الدورة دي لو اتغيّر بعدها.
-                  </p>
-                </Panel>
-              ) : null}
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      <MiniBox
+                        label="النقاط الحالية"
+                        value={settledStatement ? `${settledStatement.points_closing}` : pointsTruth ? `${pointsTruth.final_points} / ${pointsTruth.target_points}` : '—'}
+                        tone="cyan"
+                      />
+                      <MiniBox
+                        label="حافز الأداء المركزي"
+                        value={canonicalIncentive == null ? 'غير محدد' : `${canonicalIncentive.toLocaleString('ar-EG')} جنيه`}
+                        tone={canonicalIncentive == null ? 'amber' : 'green'}
+                      />
+                    </div>
+                  </Panel>
 
-              {!pointsTruth?.profile_configured ? (
-                <Panel className="p-4" style={{ background: 'var(--dawaa-status-warning-bg)', borderColor: 'var(--dawaa-status-warning-border)' }}>
-                  <p className="text-sm font-bold" style={{ color: 'var(--dawaa-status-warning-text)' }}>
-                    الملف المالي لهذا الموظف غير مكتمل؛ التقييم يظل متاحًا لكن لا تعرض الصفحة مبلغًا ماليًا غير موثوق.
-                  </p>
-                </Panel>
-              ) : null}
+                  {!settledStatement && pointsTruth && cycleLabel !== currentEvaluationCycleLabel() ? (
+                    <Panel className="p-3" style={{ background: 'var(--dawaa-status-warning-bg)', borderColor: 'var(--dawaa-status-warning-border)' }}>
+                      <p className="text-xs font-bold" style={{ color: 'var(--dawaa-status-warning-text)' }}>
+                        الحافز المعروض تقدير حي لأن كشف هذه الدورة لم يُقفل بعد.
+                      </p>
+                    </Panel>
+                  ) : null}
+
+                  {!pointsTruth?.profile_configured ? (
+                    <Panel className="p-3" style={{ background: 'var(--dawaa-status-warning-bg)', borderColor: 'var(--dawaa-status-warning-border)' }}>
+                      <p className="text-xs font-bold" style={{ color: 'var(--dawaa-status-warning-text)' }}>
+                        الملف المالي غير مكتمل، لذلك لا نعرض مبلغًا ماليًا غير موثوق.
+                      </p>
+                    </Panel>
+                  ) : null}
                 </>
               ) : null}
 
