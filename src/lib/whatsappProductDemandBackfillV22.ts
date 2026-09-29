@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import { selectCanonicalReviewSourceIds } from '@/lib/salesIntelligence/sourceSnapshotLineage';
+import { loadCanonicalAnalyticalSources } from '@/lib/salesIntelligence/persistence/canonicalSourceGate';
 import { parseWhatsAppExport, splitWhatsAppSessions, type WhatsAppConversationSession } from '@/lib/whatsappConversationParser';
 import { buildUnifiedConversationIntelligence } from '@/lib/whatsappUnifiedIntelligenceV4';
 import {
@@ -85,6 +85,7 @@ type SourceRow = {
   message_count: number | null;
   created_at: string | null;
   analysis_json: Record<string, any> | null;
+  review_status?: string | null;
 };
 
 function buildProductDemandSession(
@@ -129,13 +130,12 @@ async function loadSources(options: ProductDemandBackfillOptionsV22): Promise<{ 
   const pageSize = 500;
   let from = 0;
 
-  // Product Demand must use the SAME canonical source lineage as Sales Intelligence.
-  // Fetch the complete source set first; otherwise an older partial snapshot can look canonical
-  // simply because its fuller replacement fell outside a small "latest N" query window.
+  // Product Demand must use the SAME Canonical Analytical Source definition as Sales Intelligence.
+  // Fetch the complete source set first so supersession between sources of one export is visible.
   while (true) {
     const { data, error } = await supabase
       .from('whatsapp_review_sources')
-      .select('id,source_filename,raw_text,conversation_started_at,conversation_ended_at,branch,customer_id,customer_code,customer_name,customer_phone,staff_id,staff_name,created_by,message_count,created_at,analysis_json')
+      .select('id,source_filename,raw_text,conversation_started_at,conversation_ended_at,branch,customer_id,customer_code,customer_name,customer_phone,staff_id,staff_name,created_by,message_count,created_at,analysis_json,review_status')
       .order('conversation_started_at', { ascending: false })
       .range(from, from + pageSize - 1);
     if (error) throw error;
@@ -144,7 +144,7 @@ async function loadSources(options: ProductDemandBackfillOptionsV22): Promise<{ 
     from += pageSize;
   }
 
-  const canonicalIds = selectCanonicalReviewSourceIds(rows);
+  const { canonicalIds } = await loadCanonicalAnalyticalSources(supabase, rows);
   let canonicalRows = rows.filter(
     (row) => canonicalIds.has(row.id) && typeof row.raw_text === 'string' && row.raw_text.trim().length > 0
   );

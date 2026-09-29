@@ -32,7 +32,7 @@ import type {
 import type { SaleProofAssessment } from '../saleProofState';
 import type { QaCaseListRow, QaListFilters } from './types';
 import { rankProductCandidates } from '../../productMatching';
-import { resolveReviewSourceSnapshotLineage, selectCanonicalReviewSourceIds } from '../sourceSnapshotLineage';
+import { loadCanonicalAnalyticalSources } from '../persistence/canonicalSourceGate';
 import { fetchInvoiceItemEvidenceProvider } from '../invoiceItemEvidenceRepository';
 import { fetchPharmacyProductIndex } from '../pharmacyProductCatalogRepository';
 import { readInvoiceRecordById } from '../../readModels/invoiceRecordReadModel';
@@ -100,6 +100,7 @@ interface RawConversationIdentityRow {
   conversation_ended_at?: string | null;
   message_count?: number | null;
   created_at?: string | null;
+  review_status?: string | null;
 }
 
 interface RawMatchRow {
@@ -124,14 +125,15 @@ export function mergeCaseListRows(
   attributions: RawAttributionRow[],
   matches: RawMatchRow[] = [],
   cases: RawCaseIdentityRow[] = [],
-  conversations: RawConversationIdentityRow[] = []
+  conversations: RawConversationIdentityRow[] = [],
+  /** Canonical Analytical Source ids (loadCanonicalAnalyticalSources). Omitted = no source filter. */
+  canonicalConversationIds?: ReadonlySet<string>
 ): QaCaseListRow[] {
   const attributionByAnalysisId = new Map(attributions.map((row) => [row.analysis_id, row]));
   const matchByAnalysisId = new Map(matches.map((row) => [row.analysis_id, row]));
   const caseByCaseId = new Map(cases.map((row) => [row.case_id, row]));
   const conversationById = new Map(conversations.map((row) => [row.id, row]));
   const caseCountByConversationId = new Map<string, number>();
-  const canonicalConversationIds = selectCanonicalReviewSourceIds(conversations);
   const currentCaseIds = new Set(analyses.map((row) => row.case_id));
   for (const row of cases) {
     if (!currentCaseIds.has(row.case_id)) continue;
@@ -143,7 +145,7 @@ export function mergeCaseListRows(
     .filter((analysis) => {
       const caseIdentity = caseByCaseId.get(analysis.case_id) ?? null;
       const conversationId = caseIdentity?.conversation_id ?? null;
-      return !conversationId || canonicalConversationIds.has(conversationId);
+      return !conversationId || !canonicalConversationIds || canonicalConversationIds.has(conversationId);
     })
     .map((analysis) => {
     const attribution = attributionByAnalysisId.get(analysis.analysis_id) ?? null;
@@ -300,7 +302,7 @@ export async function fetchQaCaseList(supabaseClient: any): Promise<QaCaseListRo
       .limit(MAX_LIST_ROWS),
     supabaseClient
       .from('whatsapp_review_sources')
-      .select('id, source_filename, customer_id, customer_name, customer_code, customer_phone, conversation_started_at, conversation_ended_at, message_count, created_at')
+      .select('id, source_filename, customer_id, customer_name, customer_code, customer_phone, conversation_started_at, conversation_ended_at, message_count, created_at, review_status')
       .limit(MAX_LIST_ROWS),
   ]);
   if (analysesError) throw analysesError;
@@ -308,12 +310,15 @@ export async function fetchQaCaseList(supabaseClient: any): Promise<QaCaseListRo
   if (matchesError) throw matchesError;
   if (casesError) throw casesError;
   if (conversationsError) throw conversationsError;
+  const conversationRows = (conversations ?? []) as RawConversationIdentityRow[];
+  const { canonicalIds } = await loadCanonicalAnalyticalSources(supabaseClient, conversationRows);
   return mergeCaseListRows(
     (analyses ?? []) as RawCaseAnalysisRow[],
     (attributions ?? []) as RawAttributionRow[],
     (matches ?? []) as RawMatchRow[],
     (cases ?? []) as RawCaseIdentityRow[],
-    (conversations ?? []) as RawConversationIdentityRow[]
+    conversationRows,
+    canonicalIds
   );
 }
 
@@ -498,7 +503,7 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
   if (caseRow?.conversation_id) {
     const { data: conversationRow } = await supabaseClient
       .from('whatsapp_review_sources')
-      .select('id, raw_text, source_filename, branch, conversation_started_at, conversation_ended_at, customer_id, customer_name, customer_code, customer_phone, message_count, created_at, analysis_json')
+      .select('id, raw_text, source_filename, branch, conversation_started_at, conversation_ended_at, customer_id, customer_name, customer_code, customer_phone, message_count, created_at, analysis_json, review_status')
       .eq('id', caseRow.conversation_id)
       .maybeSingle();
     if (conversationRow?.raw_text) {
@@ -575,16 +580,27 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
       if (conversationRow.source_filename) {
         const { data: relatedSnapshots } = await supabaseClient
           .from('whatsapp_review_sources')
-          .select('id, source_filename, customer_id, customer_name, customer_code, customer_phone, conversation_started_at, conversation_ended_at, message_count, created_at')
+          .select('id, source_filename, customer_id, customer_name, customer_code, customer_phone, conversation_started_at, conversation_ended_at, message_count, created_at, review_status')
           .eq('source_filename', conversationRow.source_filename)
           .limit(MAX_LIST_ROWS);
-        const lineage = resolveReviewSourceSnapshotLineage(conversationRow, relatedSnapshots ?? [conversationRow]);
+        const familyRows = (relatedSnapshots ?? []).some((row: any) => String(row.id) === String(conversationRow.id))
+          ? relatedSnapshots
+          : [...(relatedSnapshots ?? []), conversationRow];
+        const resolution = await loadCanonicalAnalyticalSources(supabaseClient, familyRows as any[]);
+        const decision: any = resolution.decisions.get(String(conversationRow.id));
         sourceSnapshot = {
-          isCanonical: lineage.isCanonical,
-          canonicalSourceId: lineage.canonicalSourceId,
+          isCanonical: Boolean(decision?.allowed),
+          canonicalSourceId: decision?.allowed
+            ? String(conversationRow.id)
+            : decision?.supersedingSourceIds?.[0] ?? null,
         };
       } else {
-        sourceSnapshot = { isCanonical: true, canonicalSourceId: conversationRow.id };
+        const resolution = await loadCanonicalAnalyticalSources(supabaseClient, [conversationRow as any]);
+        const decision: any = resolution.decisions.get(String(conversationRow.id));
+        sourceSnapshot = {
+          isCanonical: Boolean(decision?.allowed),
+          canonicalSourceId: decision?.allowed ? String(conversationRow.id) : null,
+        };
       }
 
       const { data: siblingCaseRows } = await supabaseClient
@@ -732,7 +748,7 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
             if (conversationIds.length) {
               const { data: directSourceRows } = await supabaseClient
                 .from('whatsapp_review_sources')
-                .select('id, source_filename, customer_id, customer_name, customer_code, customer_phone, conversation_started_at, conversation_ended_at, message_count, created_at')
+                .select('id, source_filename, customer_id, customer_name, customer_code, customer_phone, conversation_started_at, conversation_ended_at, message_count, created_at, review_status')
                 .in('id', conversationIds)
                 .limit(MAX_LIST_ROWS);
 
@@ -745,7 +761,7 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
               if (sourceFilenames.length) {
                 const { data: familyRows } = await supabaseClient
                   .from('whatsapp_review_sources')
-                  .select('id, source_filename, customer_id, customer_name, customer_code, customer_phone, conversation_started_at, conversation_ended_at, message_count, created_at')
+                  .select('id, source_filename, customer_id, customer_name, customer_code, customer_phone, conversation_started_at, conversation_ended_at, message_count, created_at, review_status')
                   .in('source_filename', sourceFilenames)
                   .limit(MAX_LIST_ROWS);
                 lineageRows = (familyRows ?? directSourceRows ?? []) as RawConversationIdentityRow[];
@@ -754,7 +770,10 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
               }
             }
 
-            const canonicalConversationIds = selectCanonicalReviewSourceIds(lineageRows);
+            const { canonicalIds: canonicalConversationIds } = await loadCanonicalAnalyticalSources(
+              supabaseClient,
+              lineageRows
+            );
             for (const row of competingCases ?? []) {
               if (!row.case_id) continue;
               const competingConversationId = row.conversation_id ? String(row.conversation_id) : null;

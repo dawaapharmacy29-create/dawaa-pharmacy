@@ -9,6 +9,9 @@ function fakeSupabase(tableData: Record<string, any>) {
       select: vi.fn(() => builder),
       eq: vi.fn(() => builder),
       order: vi.fn(() => builder),
+      in: vi.fn(() => builder),
+      // Customer Case V22 ownership lookup of the Canonical Analytical Source resolver.
+      or: vi.fn(() => Promise.resolve(payload)),
       limit: vi.fn(() => Promise.resolve(payload)),
       maybeSingle: vi.fn(() => Promise.resolve(payload)),
     };

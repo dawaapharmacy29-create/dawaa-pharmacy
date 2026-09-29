@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { BarChart3, Boxes, CircleAlert, RefreshCw, Settings2, TrendingUp } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import { selectCanonicalReviewSourceIds } from '@/lib/salesIntelligence/sourceSnapshotLineage';
+import { loadCanonicalAnalyticalSources } from '@/lib/salesIntelligence/persistence/canonicalSourceGate';
 import { runProductDemandBackfillV22, type ProductDemandBackfillSourceResultV22 } from '@/lib/whatsappProductDemandBackfillV22';
 
 type DemandRow = {
@@ -49,6 +49,7 @@ type BackfillSourceStatusRow = {
   created_at: string | null;
   raw_text: string | null;
   analysis_json: Record<string, any> | null;
+  review_status?: string | null;
 };
 
 async function loadCanonicalBackfillStatusV22(): Promise<BackfillStatus | null> {
@@ -58,14 +59,20 @@ async function loadCanonicalBackfillStatusV22(): Promise<BackfillStatus | null> 
   while (true) {
     const { data, error } = await supabase
       .from('whatsapp_review_sources')
-      .select('id,source_filename,customer_id,customer_code,customer_phone,customer_name,conversation_started_at,conversation_ended_at,message_count,created_at,raw_text,analysis_json')
+      .select('id,source_filename,customer_id,customer_code,customer_phone,customer_name,conversation_started_at,conversation_ended_at,message_count,created_at,raw_text,analysis_json,review_status')
       .range(from, from + pageSize - 1);
     if (error) return null;
     rows.push(...((data || []) as BackfillSourceStatusRow[]));
     if ((data || []).length < pageSize) break;
     from += pageSize;
   }
-  const canonicalIds = selectCanonicalReviewSourceIds(rows);
+  // Same Canonical Analytical Source definition as Sales Intelligence (V22-owned, not superseded).
+  let canonicalIds: Set<string>;
+  try {
+    canonicalIds = (await loadCanonicalAnalyticalSources(supabase, rows)).canonicalIds;
+  } catch {
+    return null;
+  }
   const canonical = rows.filter(
     (row) => canonicalIds.has(row.id) && String(row.raw_text || '').trim().length > 0
   );

@@ -5999,8 +5999,12 @@ async function loadCanonicalSourceGateContext(service, sources) {
   for (const source of sources) {
     for (const id of containedSiblingIds(source, siblings)) lookupIds.add(id);
   }
+  const v22CaseIdsBySource = await loadV22CaseOwnership(service, Array.from(lookupIds));
+  return { siblings, v22CaseIdsBySource };
+}
+async function loadV22CaseOwnership(service, sourceIds) {
   const v22CaseIdsBySource = /* @__PURE__ */ new Map();
-  const ids = Array.from(lookupIds);
+  const ids = Array.from(new Set(sourceIds.map(String).filter(Boolean)));
   for (let index = 0; index < ids.length; index += V22_ID_CHUNK) {
     const chunk = ids.slice(index, index + V22_ID_CHUNK);
     const { data, error } = await service.from("whatsapp_customer_cases_v22").select("id,root_source_id,source_ids").or(
@@ -6021,7 +6025,7 @@ async function loadCanonicalSourceGateContext(service, sources) {
       }
     }
   }
-  return { siblings, v22CaseIdsBySource };
+  return v22CaseIdsBySource;
 }
 
 // src/lib/salesIntelligence/refresh/canonicalRefreshService.ts

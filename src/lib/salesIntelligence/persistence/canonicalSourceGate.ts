@@ -184,8 +184,17 @@ export async function loadCanonicalSourceGateContext(
     for (const id of containedSiblingIds(source, siblings)) lookupIds.add(id);
   }
 
+  const v22CaseIdsBySource = await loadV22CaseOwnership(service, Array.from(lookupIds));
+  return { siblings, v22CaseIdsBySource };
+}
+
+/** Customer Case V22 ids owning each source id (root_source_id or source_ids). Chunked, fail closed. */
+export async function loadV22CaseOwnership(
+  service: any,
+  sourceIds: string[]
+): Promise<Map<string, string[]>> {
   const v22CaseIdsBySource = new Map<string, string[]>();
-  const ids = Array.from(lookupIds);
+  const ids = Array.from(new Set(sourceIds.map(String).filter(Boolean)));
   for (let index = 0; index < ids.length; index += V22_ID_CHUNK) {
     const chunk = ids.slice(index, index + V22_ID_CHUNK);
     const { data, error } = (await service
@@ -213,6 +222,91 @@ export async function loadCanonicalSourceGateContext(
       }
     }
   }
+  return v22CaseIdsBySource;
+}
 
-  return { siblings, v22CaseIdsBySource };
+// ---------------------------------------------------------------------------------------------
+// Canonical Analytical Source Resolver — the single definition used by every reader and writer.
+//
+//   Canonical analytical source: may be analyzed and counted (sales, opportunities, demand,
+//     coverage, doctor performance, customer journey). Exactly the sources the Canonical Source
+//     Gate admits: active, not superseded by finer V22-owned sources, owned by exactly one V22 case.
+//   Historical/raw snapshot: every other source row (archived, coarse re-segmentation, snapshot
+//     without V22, ambiguous identity). Kept for archive/trace, never counted.
+//
+// Readers pass the rows they already loaded (the sibling set for supersession). raw_text is
+// fetched lazily and only for pairs that can actually supersede each other, so a reader does not
+// have to load every conversation's text. Replaces the retired snapshot-lineage selector ("fuller snapshot wins"), which contradicted the gate.
+// ---------------------------------------------------------------------------------------------
+
+export interface CanonicalAnalyticalResolution {
+  canonicalIds: Set<string>;
+  decisions: Map<string, CanonicalSourceGateDecision>;
+}
+
+/** Pure: resolve with a known V22 ownership map; `rows` are also the supersession siblings. */
+export function resolveCanonicalAnalyticalSources(
+  rows: CanonicalGateSourceRow[],
+  v22CaseIdsBySource: Map<string, string[]>
+): CanonicalAnalyticalResolution {
+  const siblings = rows.map((row) => ({ ...row, id: String(row.id) }));
+  const decisions = new Map<string, CanonicalSourceGateDecision>();
+  const canonicalIds = new Set<string>();
+  for (const row of siblings) {
+    const decision = evaluateCanonicalSourceGate(row, { siblings, v22CaseIdsBySource });
+    decisions.set(row.id, decision);
+    if (decision.allowed) canonicalIds.add(row.id);
+  }
+  return { canonicalIds, decisions };
+}
+
+/** Loads V22 ownership (and raw_text only where supersession is possible), then resolves. */
+export async function loadCanonicalAnalyticalSources(
+  service: any,
+  rows: CanonicalGateSourceRow[]
+): Promise<CanonicalAnalyticalResolution> {
+  const normalized = rows.map((row) => ({ ...row, id: String(row.id) }));
+  const ownership = await loadV22CaseOwnership(
+    service,
+    normalized.map((row) => row.id)
+  );
+  const owned = normalized.filter((row) => (ownership.get(row.id) || []).length > 0);
+
+  // Only a V22-owned outer source can be superseded, and only by a V22-owned inner source of the
+  // same export inside its window. Those are the only rows whose text is needed.
+  const needText = new Set<string>();
+  for (const outer of owned) {
+    const start = time(outer.conversation_started_at);
+    const end = time(outer.conversation_ended_at);
+    if (!outer.source_filename || start === null || end === null) continue;
+    for (const inner of owned) {
+      if (inner.id === outer.id || inner.source_filename !== outer.source_filename) continue;
+      const innerStart = time(inner.conversation_started_at);
+      const innerEnd = time(inner.conversation_ended_at);
+      if (innerStart === null || innerEnd === null || innerStart < start || innerEnd > end)
+        continue;
+      needText.add(outer.id);
+      needText.add(inner.id);
+    }
+  }
+  const missingText = normalized.filter(
+    (row) => needText.has(row.id) && typeof row.raw_text !== 'string'
+  );
+  if (missingText.length) {
+    const textById = new Map<string, string>();
+    const ids = missingText.map((row) => row.id);
+    for (let index = 0; index < ids.length; index += V22_ID_CHUNK) {
+      const { data, error } = (await service
+        .from('whatsapp_review_sources')
+        .select('id,raw_text')
+        .in('id', ids.slice(index, index + V22_ID_CHUNK))) as QueryResult<{
+        id: string;
+        raw_text: string | null;
+      }>;
+      if (error) throw new Error(`canonical_source_resolver_text_lookup_failed: ${error.message}`);
+      for (const row of data || []) textById.set(String(row.id), String(row.raw_text || ''));
+    }
+    for (const row of normalized) if (textById.has(row.id)) row.raw_text = textById.get(row.id);
+  }
+  return resolveCanonicalAnalyticalSources(normalized, ownership);
 }

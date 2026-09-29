@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Activity, CircleAlert, Database, GitBranch, PackageSearch } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import { selectCanonicalReviewSourceIds } from '@/lib/salesIntelligence/sourceSnapshotLineage';
+import { loadCanonicalAnalyticalSources } from '@/lib/salesIntelligence/persistence/canonicalSourceGate';
 
 type SourceRow = {
   id: string;
@@ -17,6 +17,7 @@ type SourceRow = {
   created_at: string | null;
   raw_text: string | null;
   analysis_json: Record<string, any> | null;
+  review_status?: string | null;
 };
 type CaseRow = { conversation_id: string; branch_name_raw: string | null };
 type BranchCoverage = {
@@ -32,13 +33,14 @@ export default function SalesIntelligenceCoveragePanelV1() {
   const [loading, setLoading] = useState(true);
   const [coverageError, setCoverageError] = useState<string | null>(null);
   const [policyReady, setPolicyReady] = useState<boolean | null>(null);
+  const [canonicalIds, setCanonicalIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
       setLoading(true);
       const [sourceResult, caseResult, policyResult] = await Promise.all([
-        supabase.from('whatsapp_review_sources').select('id,branch,source_filename,customer_id,customer_code,customer_phone,customer_name,conversation_started_at,conversation_ended_at,message_count,created_at,raw_text,analysis_json').limit(2000),
+        supabase.from('whatsapp_review_sources').select('id,branch,source_filename,customer_id,customer_code,customer_phone,customer_name,conversation_started_at,conversation_ended_at,message_count,created_at,raw_text,analysis_json,review_status').limit(2000),
         supabase.from('sales_intelligence_cases').select('conversation_id,branch_name_raw').limit(5000),
         supabase.from('sales_intelligence_policy_config').select('policy_config_id').eq('is_current', true).eq('enabled', true).limit(1),
       ]);
@@ -48,9 +50,22 @@ export default function SalesIntelligenceCoveragePanelV1() {
         setSources([]);
         setCases([]);
       } else {
-        setCoverageError(null);
-        setSources((sourceResult.data || []) as SourceRow[]);
-        setCases((caseResult.data || []) as CaseRow[]);
+        const rows = (sourceResult.data || []) as SourceRow[];
+        try {
+          // Single Canonical Analytical Source definition (same rule as the Sales Intelligence gate).
+          const resolution = await loadCanonicalAnalyticalSources(supabase, rows);
+          if (cancelled) return;
+          setCanonicalIds(resolution.canonicalIds);
+          setCoverageError(null);
+          setSources(rows);
+          setCases((caseResult.data || []) as CaseRow[]);
+        } catch (resolutionError) {
+          if (cancelled) return;
+          setCoverageError(resolutionError instanceof Error ? resolutionError.message : 'تعذر تحديد المصادر الرسمية للتحليل.');
+          setCanonicalIds(new Set());
+          setSources([]);
+          setCases([]);
+        }
       }
       setPolicyReady(policyResult.error ? null : (policyResult.data || []).length > 0);
       setLoading(false);
@@ -59,10 +74,10 @@ export default function SalesIntelligenceCoveragePanelV1() {
     return () => { cancelled = true; };
   }, []);
 
-  const canonicalSources = useMemo(() => {
-    const canonicalIds = selectCanonicalReviewSourceIds(sources);
-    return sources.filter((row) => canonicalIds.has(row.id));
-  }, [sources]);
+  const canonicalSources = useMemo(
+    () => sources.filter((row) => canonicalIds.has(row.id)),
+    [sources, canonicalIds]
+  );
 
   const analyzableCanonicalSources = useMemo(
     () => canonicalSources.filter((row) => typeof row.raw_text === 'string' && row.raw_text.trim().length > 0),

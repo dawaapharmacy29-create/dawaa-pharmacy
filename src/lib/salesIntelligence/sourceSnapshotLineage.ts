@@ -1,3 +1,10 @@
+// RETIRED as a canonical-source definition (STEP 2.6). The single Canonical Analytical Source
+// definition is src/lib/salesIntelligence/persistence/canonicalSourceGate.ts
+// (loadCanonicalAnalyticalSources / evaluateCanonicalSourceGate). This "fuller snapshot wins"
+// selector contradicted it and must not be used by any reader or writer. Its only remaining user
+// is the read-only dry-run preview of scripts/run-sales-intelligence-backfill.cjs, kept until the
+// regression fixtures that reference superseded sources are updated (STEP 3); it never writes.
+//
 // Sales Intelligence review-source snapshot lineage.
 //
 // A single WhatsApp export filename can be ingested repeatedly as the same chat grows. That

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { mergeCaseListRows, filterCaseListRows } from '../queries';
+import { resolveCanonicalAnalyticalSources } from '../../persistence/canonicalSourceGate';
 import { DEFAULT_QA_LIST_FILTERS, type QaListFilters } from '../types';
 
 const baseAnalysis = {
@@ -40,7 +41,14 @@ describe('mergeCaseListRows', () => {
       [baseAttribution],
       [],
       [{ case_id: 'case-1', conversation_id: 'conv-1', customer_phone: '01000000000' }],
-      [{ id: 'conv-1', customer_name: 'أحمد محمد', customer_code: 'C100', customer_phone: '01000000000' }]
+      [
+        {
+          id: 'conv-1',
+          customer_name: 'أحمد محمد',
+          customer_code: 'C100',
+          customer_phone: '01000000000',
+        },
+      ]
     );
     expect(rows[0]).toMatchObject({
       customerName: 'أحمد محمد',
@@ -56,17 +64,21 @@ describe('mergeCaseListRows', () => {
       [baseAttribution],
       [],
       [{ case_id: 'case-1', conversation_id: 'conv-1' }],
-      [{ id: 'conv-1', customer_name: 'محمد الكموني17777', customer_code: null, customer_phone: null }]
+      [
+        {
+          id: 'conv-1',
+          customer_name: 'محمد الكموني17777',
+          customer_code: null,
+          customer_phone: null,
+        },
+      ]
     );
     expect(rows[0].customerName).toBe('محمد الكموني');
     expect(rows[0].customerCode).toBe('17777');
   });
 
-  it('hides a partial WhatsApp snapshot when a fuller snapshot of the same customer/file contains it', () => {
-    const analyses = [
-      baseAnalysis,
-      { ...baseAnalysis, analysis_id: 'a2', case_id: 'case-2' },
-    ];
+  it('hides a coarse snapshot whose messages are owned by a finer V22 source (single canonical definition)', () => {
+    const analyses = [baseAnalysis, { ...baseAnalysis, analysis_id: 'a2', case_id: 'case-2' }];
     const cases = [
       { case_id: 'case-1', conversation_id: 'partial', customer_phone: '01000000000' },
       { case_id: 'case-2', conversation_id: 'full', customer_phone: '01000000000' },
@@ -81,6 +93,7 @@ describe('mergeCaseListRows', () => {
         conversation_ended_at: '2026-09-15T06:47:59.000Z',
         message_count: 9,
         created_at: '2026-09-16T12:00:00.000Z',
+        raw_text: 'a: hello',
       },
       {
         id: 'full',
@@ -91,10 +104,17 @@ describe('mergeCaseListRows', () => {
         conversation_ended_at: '2026-09-15T17:07:51.000Z',
         message_count: 43,
         created_at: '2026-09-21T05:00:00.000Z',
+        raw_text: 'a: hello\nb: later',
       },
     ];
-    const rows = mergeCaseListRows(analyses, [], [], cases, conversations);
-    expect(rows.map((row) => row.caseId)).toEqual(['case-2']);
+    // Only the fine source is owned by a Customer Case V22; the fuller re-import is a historical
+    // snapshot, never analytical truth (the former "fuller wins" lineage rule is retired).
+    const { canonicalIds } = resolveCanonicalAnalyticalSources(
+      conversations,
+      new Map([['partial', ['v22-1']]])
+    );
+    const rows = mergeCaseListRows(analyses, [], [], cases, conversations, canonicalIds);
+    expect(rows.map((row) => row.caseId)).toEqual(['case-1']);
   });
 
   it('keeps non-overlapping snapshots from the same customer/file as independent sources', () => {
@@ -104,10 +124,31 @@ describe('mergeCaseListRows', () => {
       { case_id: 'case-2', conversation_id: 'day2' },
     ];
     const conversations = [
-      { id: 'day1', source_filename: 'customer.zip', customer_code: 'C100', conversation_started_at: '2026-09-12T06:00:00.000Z', conversation_ended_at: '2026-09-12T10:00:00.000Z', message_count: 20 },
-      { id: 'day2', source_filename: 'customer.zip', customer_code: 'C100', conversation_started_at: '2026-09-15T06:00:00.000Z', conversation_ended_at: '2026-09-15T10:00:00.000Z', message_count: 20 },
+      {
+        id: 'day1',
+        source_filename: 'customer.zip',
+        customer_code: 'C100',
+        conversation_started_at: '2026-09-12T06:00:00.000Z',
+        conversation_ended_at: '2026-09-12T10:00:00.000Z',
+        message_count: 20,
+      },
+      {
+        id: 'day2',
+        source_filename: 'customer.zip',
+        customer_code: 'C100',
+        conversation_started_at: '2026-09-15T06:00:00.000Z',
+        conversation_ended_at: '2026-09-15T10:00:00.000Z',
+        message_count: 20,
+      },
     ];
-    const rows = mergeCaseListRows(analyses, [], [], cases, conversations);
+    const { canonicalIds } = resolveCanonicalAnalyticalSources(
+      conversations,
+      new Map([
+        ['day1', ['v22-1']],
+        ['day2', ['v22-2']],
+      ])
+    );
+    const rows = mergeCaseListRows(analyses, [], [], cases, conversations, canonicalIds);
     expect(rows.map((row) => row.caseId).sort()).toEqual(['case-1', 'case-2']);
   });
 
@@ -122,7 +163,17 @@ describe('filterCaseListRows', () => {
   const rows = mergeCaseListRows(
     [
       baseAnalysis,
-      { ...baseAnalysis, analysis_id: 'a2', case_id: 'case-2', case_type: 'information_only', historical_closure_level: 'unknown', protocol_applicability: 'not_reached', attribution_level: 'unknown', needs_human_review: false, human_review_reasons: ['no_basket_state_for_case'] },
+      {
+        ...baseAnalysis,
+        analysis_id: 'a2',
+        case_id: 'case-2',
+        case_type: 'information_only',
+        historical_closure_level: 'unknown',
+        protocol_applicability: 'not_reached',
+        attribution_level: 'unknown',
+        needs_human_review: false,
+        human_review_reasons: ['no_basket_state_for_case'],
+      },
     ],
     [baseAttribution, { analysis_id: 'a2', selected_invoice_number: null, competing_case_ids: [] }]
   );
@@ -141,21 +192,33 @@ describe('filterCaseListRows', () => {
   });
 
   it('filters by needs human review', () => {
-    expect(filterCaseListRows(rows, withFilters({ needsHumanReview: 'yes' })).map((r) => r.caseId)).toEqual(['case-1']);
-    expect(filterCaseListRows(rows, withFilters({ needsHumanReview: 'no' })).map((r) => r.caseId)).toEqual(['case-2']);
+    expect(
+      filterCaseListRows(rows, withFilters({ needsHumanReview: 'yes' })).map((r) => r.caseId)
+    ).toEqual(['case-1']);
+    expect(
+      filterCaseListRows(rows, withFilters({ needsHumanReview: 'no' })).map((r) => r.caseId)
+    ).toEqual(['case-2']);
   });
 
   it('filters by invoice status', () => {
-    expect(filterCaseListRows(rows, withFilters({ invoiceStatus: 'has_invoice' })).map((r) => r.caseId)).toEqual(['case-1']);
-    expect(filterCaseListRows(rows, withFilters({ invoiceStatus: 'no_invoice' })).map((r) => r.caseId)).toEqual(['case-2']);
+    expect(
+      filterCaseListRows(rows, withFilters({ invoiceStatus: 'has_invoice' })).map((r) => r.caseId)
+    ).toEqual(['case-1']);
+    expect(
+      filterCaseListRows(rows, withFilters({ invoiceStatus: 'no_invoice' })).map((r) => r.caseId)
+    ).toEqual(['case-2']);
   });
 
   it('searches by case id', () => {
-    expect(filterCaseListRows(rows, withFilters({ search: 'case-2' })).map((r) => r.caseId)).toEqual(['case-2']);
+    expect(
+      filterCaseListRows(rows, withFilters({ search: 'case-2' })).map((r) => r.caseId)
+    ).toEqual(['case-2']);
   });
 
   it('searches by invoice number', () => {
-    expect(filterCaseListRows(rows, withFilters({ search: '12345' })).map((r) => r.caseId)).toEqual(['case-1']);
+    expect(filterCaseListRows(rows, withFilters({ search: '12345' })).map((r) => r.caseId)).toEqual(
+      ['case-1']
+    );
   });
 
   it('searches by customer name/code/phone when reviewer-facing identity is present', () => {
@@ -164,39 +227,82 @@ describe('filterCaseListRows', () => {
       [baseAttribution],
       [],
       [{ case_id: 'case-1', conversation_id: 'conv-1', customer_phone: '01000000000' }],
-      [{ id: 'conv-1', customer_name: 'أحمد محمد', customer_code: 'C100', customer_phone: '01000000000' }]
+      [
+        {
+          id: 'conv-1',
+          customer_name: 'أحمد محمد',
+          customer_code: 'C100',
+          customer_phone: '01000000000',
+        },
+      ]
     );
     expect(filterCaseListRows(identityRows, withFilters({ search: 'أحمد' }))).toHaveLength(1);
     expect(filterCaseListRows(identityRows, withFilters({ search: '100' }))).toHaveLength(1);
-    expect(filterCaseListRows(identityRows, withFilters({ search: '01000000000' }))).toHaveLength(1);
+    expect(filterCaseListRows(identityRows, withFilters({ search: '01000000000' }))).toHaveLength(
+      1
+    );
   });
 
   it('applies the "unknown cases" quick filter across all three dimensions', () => {
-    expect(filterCaseListRows(rows, withFilters({ quickFilter: 'unknown_cases' })).map((r) => r.caseId)).toEqual(['case-2']);
+    expect(
+      filterCaseListRows(rows, withFilters({ quickFilter: 'unknown_cases' })).map((r) => r.caseId)
+    ).toEqual(['case-2']);
   });
 
   it('applies the "no basket" quick filter via the no_basket_state_for_case reason', () => {
-    expect(filterCaseListRows(rows, withFilters({ quickFilter: 'no_basket' })).map((r) => r.caseId)).toEqual(['case-2']);
+    expect(
+      filterCaseListRows(rows, withFilters({ quickFilter: 'no_basket' })).map((r) => r.caseId)
+    ).toEqual(['case-2']);
   });
 
   it('applies the "competing attribution" quick filter', () => {
-    expect(filterCaseListRows(rows, withFilters({ quickFilter: 'competing_attribution' })).map((r) => r.caseId)).toEqual(['case-1']);
+    expect(
+      filterCaseListRows(rows, withFilters({ quickFilter: 'competing_attribution' })).map(
+        (r) => r.caseId
+      )
+    ).toEqual(['case-1']);
   });
 
   it('combines a base filter and the search box (AND semantics)', () => {
-    const result = filterCaseListRows(rows, withFilters({ caseType: 'sales_opportunity', search: 'case-2' }));
+    const result = filterCaseListRows(
+      rows,
+      withFilters({ caseType: 'sales_opportunity', search: 'case-2' })
+    );
     expect(result).toHaveLength(0);
   });
 });
 
 describe('Final Pilot Readiness — SaleProofState list wiring', () => {
   const proven = { ...baseAnalysis, analysis_id: 'p1', case_id: 'proven-case' };
-  const provenAttribution = { analysis_id: 'p1', attribution_level: 'proven', selected_invoice_id: 'inv-p1', selected_invoice_number: '999', competing_case_ids: [], candidate_count: 1, identity_conflict: 'none', branch_conflict: false, is_official_for_staff_evaluation: true };
+  const provenAttribution = {
+    analysis_id: 'p1',
+    attribution_level: 'proven',
+    selected_invoice_id: 'inv-p1',
+    selected_invoice_number: '999',
+    competing_case_ids: [],
+    candidate_count: 1,
+    identity_conflict: 'none',
+    branch_conflict: false,
+    is_official_for_staff_evaluation: true,
+  };
 
   const contradicted = { ...baseAnalysis, analysis_id: 'c1', case_id: 'contradicted-case' };
-  const contradictedAttribution = { analysis_id: 'c1', attribution_level: 'proven', selected_invoice_id: 'inv-c1', selected_invoice_number: '888', competing_case_ids: ['other'], candidate_count: 2, identity_conflict: 'none', branch_conflict: false, is_official_for_staff_evaluation: true };
+  const contradictedAttribution = {
+    analysis_id: 'c1',
+    attribution_level: 'proven',
+    selected_invoice_id: 'inv-c1',
+    selected_invoice_number: '888',
+    competing_case_ids: ['other'],
+    candidate_count: 2,
+    identity_conflict: 'none',
+    branch_conflict: false,
+    is_official_for_staff_evaluation: true,
+  };
 
-  const rows = mergeCaseListRows([proven, contradicted], [provenAttribution, contradictedAttribution]);
+  const rows = mergeCaseListRows(
+    [proven, contradicted],
+    [provenAttribution, contradictedAttribution]
+  );
 
   function withFilters(overrides: Partial<QaListFilters>): QaListFilters {
     return { ...DEFAULT_QA_LIST_FILTERS, ...overrides };
@@ -209,17 +315,35 @@ describe('Final Pilot Readiness — SaleProofState list wiring', () => {
   });
 
   it('filters by saleProofState', () => {
-    expect(filterCaseListRows(rows, withFilters({ saleProofState: 'strongly_supported' })).map((r) => r.caseId)).toEqual(['proven-case']);
-    expect(filterCaseListRows(rows, withFilters({ saleProofState: 'contradicted' })).map((r) => r.caseId)).toEqual(['contradicted-case']);
+    expect(
+      filterCaseListRows(rows, withFilters({ saleProofState: 'strongly_supported' })).map(
+        (r) => r.caseId
+      )
+    ).toEqual(['proven-case']);
+    expect(
+      filterCaseListRows(rows, withFilters({ saleProofState: 'contradicted' })).map((r) => r.caseId)
+    ).toEqual(['contradicted-case']);
   });
 
   it('applies the proof_strongly_supported / proof_contradicted quick filters', () => {
-    expect(filterCaseListRows(rows, withFilters({ quickFilter: 'proof_strongly_supported' })).map((r) => r.caseId)).toEqual(['proven-case']);
-    expect(filterCaseListRows(rows, withFilters({ quickFilter: 'proof_contradicted' })).map((r) => r.caseId)).toEqual(['contradicted-case']);
+    expect(
+      filterCaseListRows(rows, withFilters({ quickFilter: 'proof_strongly_supported' })).map(
+        (r) => r.caseId
+      )
+    ).toEqual(['proven-case']);
+    expect(
+      filterCaseListRows(rows, withFilters({ quickFilter: 'proof_contradicted' })).map(
+        (r) => r.caseId
+      )
+    ).toEqual(['contradicted-case']);
   });
 
   it('applies the has_invoice / no_invoice quick filters', () => {
-    expect(filterCaseListRows(rows, withFilters({ quickFilter: 'has_invoice' })).map((r) => r.caseId).sort()).toEqual(['contradicted-case', 'proven-case']);
+    expect(
+      filterCaseListRows(rows, withFilters({ quickFilter: 'has_invoice' }))
+        .map((r) => r.caseId)
+        .sort()
+    ).toEqual(['contradicted-case', 'proven-case']);
     expect(filterCaseListRows(rows, withFilters({ quickFilter: 'no_invoice' }))).toHaveLength(0);
   });
 });
