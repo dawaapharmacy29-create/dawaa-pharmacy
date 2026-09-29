@@ -953,82 +953,106 @@ export default function StaffMonthlyEvaluation() {
               ) : null}
 
               {activeStep === 4 ? (
-                <>
-                  <Panel className="p-4">
-                    <SectionTitle
-                      title="الخلاصة من درجات المحاور"
-                      subtitle="اقتراحات مبنية على درجات هذا التقييم فقط؛ المدير يقرر ما يضيفه للتقرير."
-                      icon={<Star size={18} />}
-                    />
-                    <div className="grid gap-3 lg:grid-cols-2">
-                      <div className="rounded-2xl border p-3" style={{ borderColor: 'var(--dawaa-status-success-border)', background: 'var(--dawaa-status-success-bg)' }}>
-                        <div className="text-xs font-black" style={{ color: 'var(--dawaa-status-success-text)' }}>أقوى المحاور</div>
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          {strongestSections.length ? strongestSections.map((item) => (
-                            <button
-                              key={item.key}
-                              type="button"
-                              disabled={!canEdit}
-                              onClick={() => setStrengthsText((current) => appendUniqueLine(current, item.title))}
-                              className="rounded-xl border px-3 py-2 text-xs font-black disabled:cursor-default"
-                              style={{ borderColor: 'var(--dawaa-status-success-border)', color: 'var(--dawaa-status-success-text)', background: 'var(--dawaa-theme-surface)' }}
-                            >
-                              + {item.title} · {item.score}/5
-                            </button>
-                          )) : <span className="text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>لا يوجد محور 4–5 نجوم حتى الآن.</span>}
-                        </div>
-                      </div>
-                      <div className="rounded-2xl border p-3" style={{ borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-status-warning-bg)' }}>
-                        <div className="text-xs font-black" style={{ color: 'var(--dawaa-status-warning-text)' }}>محاور التطوير</div>
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          {developmentSections.length ? developmentSections.map((item) => (
-                            <button
-                              key={item.key}
-                              type="button"
-                              disabled={!canEdit}
-                              onClick={() => setDevelopmentText((current) => appendUniqueLine(current, item.title))}
-                              className="rounded-xl border px-3 py-2 text-xs font-black disabled:cursor-default"
-                              style={{ borderColor: 'var(--dawaa-status-warning-border)', color: 'var(--dawaa-status-warning-text)', background: 'var(--dawaa-theme-surface)' }}
-                            >
-                              + {item.title} · {item.score}/5
-                            </button>
-                          )) : <span className="text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>لا يوجد محور 1–3 نجوم حتى الآن.</span>}
-                        </div>
+                <Panel className="p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>الخلاصة والتطوير</div>
+                      <div className="mt-1 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                        استخدم الاقتراحات الجاهزة ثم عدّل النص باختصار.
                       </div>
                     </div>
-                  </Panel>
-              <section className="grid gap-3 lg:grid-cols-3">
-                <Panel className="p-4">
-                  <h3 className="font-black" style={{ color: 'var(--dawaa-status-success-text)' }}>نقاط القوة</h3>
-                  <textarea disabled={!canEdit} rows={6} value={strengthsText} onChange={(event) => setStrengthsText(event.target.value)} placeholder="كل نقطة في سطر" className="mt-3 w-full rounded-xl border p-2.5 text-sm disabled:opacity-70" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-theme-text)' }} />
+                  </div>
+
+                  <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                    <div>
+                      <div className="text-[11px] font-black" style={{ color: 'var(--dawaa-status-success-text)' }}>اقتراحات نقاط القوة</div>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {strongestSections.length ? strongestSections.map((item) => (
+                          <button
+                            key={item.key}
+                            type="button"
+                            disabled={!canEdit}
+                            onClick={() => setStrengthsText((current) => appendUniqueLine(current, item.title))}
+                            className="rounded-lg border px-2.5 py-1.5 text-[11px] font-black disabled:cursor-default"
+                            style={{ borderColor: 'var(--dawaa-status-success-border)', color: 'var(--dawaa-status-success-text)', background: 'var(--dawaa-theme-surface)' }}
+                          >
+                            + {item.title}
+                          </button>
+                        )) : <span className="text-[11px] font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>لا توجد اقتراحات بعد.</span>}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="text-[11px] font-black" style={{ color: 'var(--dawaa-status-warning-text)' }}>اقتراحات التطوير</div>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {developmentSections.length ? developmentSections.map((item) => (
+                          <button
+                            key={item.key}
+                            type="button"
+                            disabled={!canEdit}
+                            onClick={() => setDevelopmentText((current) => appendUniqueLine(current, item.title))}
+                            className="rounded-lg border px-2.5 py-1.5 text-[11px] font-black disabled:cursor-default"
+                            style={{ borderColor: 'var(--dawaa-status-warning-border)', color: 'var(--dawaa-status-warning-text)', background: 'var(--dawaa-theme-surface)' }}
+                          >
+                            + {item.title}
+                          </button>
+                        )) : <span className="text-[11px] font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>لا توجد اقتراحات بعد.</span>}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid gap-3 lg:grid-cols-3">
+                    <label className="block">
+                      <span className="text-xs font-black" style={{ color: 'var(--dawaa-status-success-text)' }}>نقاط القوة</span>
+                      <textarea
+                        disabled={!canEdit}
+                        rows={4}
+                        value={strengthsText}
+                        onChange={(event) => setStrengthsText(event.target.value)}
+                        placeholder="أهم نقاط القوة"
+                        className="mt-2 w-full rounded-xl border p-2.5 text-sm disabled:opacity-70"
+                        style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-theme-text)' }}
+                      />
+                    </label>
+
+                    <label className="block">
+                      <span className="text-xs font-black" style={{ color: 'var(--dawaa-status-warning-text)' }}>خطة التطوير</span>
+                      <textarea
+                        disabled={!canEdit}
+                        rows={4}
+                        value={developmentText}
+                        onChange={(event) => setDevelopmentText(event.target.value)}
+                        placeholder="خطوات تطوير محددة"
+                        className="mt-2 w-full rounded-xl border p-2.5 text-sm disabled:opacity-70"
+                        style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-theme-text)' }}
+                      />
+                    </label>
+
+                    <label className="block">
+                      <span className="text-xs font-black" style={{ color: criticalGateMissingReason ? 'var(--dawaa-status-danger-text)' : 'var(--dawaa-theme-primary-strong)' }}>
+                        ملاحظات المدير
+                      </span>
+                      <textarea
+                        disabled={!canEdit}
+                        rows={4}
+                        value={managerNotes}
+                        onChange={(event) => setManagerNotes(event.target.value)}
+                        placeholder={activeGates.length ? 'مطلوب سبب واضح للمخالفة الحرجة' : 'ملاحظة ختامية مختصرة'}
+                        className="mt-2 w-full rounded-xl border p-2.5 text-sm disabled:opacity-70"
+                        style={{
+                          borderColor: criticalGateMissingReason ? 'var(--dawaa-status-danger-border)' : 'var(--dawaa-theme-border)',
+                          background: criticalGateMissingReason ? 'var(--dawaa-status-danger-bg)' : 'var(--dawaa-theme-surface)',
+                          color: 'var(--dawaa-theme-text)',
+                        }}
+                      />
+                      {criticalGateMissingReason ? (
+                        <span className="mt-1 block text-[11px] font-black" style={{ color: 'var(--dawaa-status-danger-text)' }}>
+                          سبب المخالفة مطلوب قبل الاعتماد.
+                        </span>
+                      ) : null}
+                    </label>
+                  </div>
                 </Panel>
-                <Panel className="p-4">
-                  <h3 className="font-black" style={{ color: 'var(--dawaa-status-warning-text)' }}>خطة التطوير</h3>
-                  <textarea disabled={!canEdit} rows={6} value={developmentText} onChange={(event) => setDevelopmentText(event.target.value)} placeholder="كل خطوة تطوير في سطر" className="mt-3 w-full rounded-xl border p-2.5 text-sm disabled:opacity-70" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-theme-text)' }} />
-                </Panel>
-                <Panel className="p-4">
-                  <h3 className="font-black" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>ملاحظات المدير</h3>
-                  <textarea
-                      disabled={!canEdit}
-                      rows={6}
-                      value={managerNotes}
-                      onChange={(event) => setManagerNotes(event.target.value)}
-                      placeholder={activeGates.length ? 'مطلوب: وضّح سبب المخالفة الحرجة والواقعة المرتبطة بها' : 'ملاحظات ختامية مختصرة وقابلة للتنفيذ'}
-                      className="mt-3 w-full rounded-xl border p-2.5 text-sm disabled:opacity-70"
-                      style={{
-                        borderColor: criticalGateMissingReason ? 'var(--dawaa-status-danger-border)' : 'var(--dawaa-theme-border)',
-                        background: criticalGateMissingReason ? 'var(--dawaa-status-danger-bg)' : 'var(--dawaa-theme-surface)',
-                        color: 'var(--dawaa-theme-text)',
-                      }}
-                    />
-                    {criticalGateMissingReason ? (
-                      <p className="mt-2 text-xs font-black" style={{ color: 'var(--dawaa-status-danger-text)' }}>
-                        لا يمكن اعتماد مخالفة حرجة بدون سبب واضح في ملاحظات المدير.
-                      </p>
-                    ) : null}
-                </Panel>
-              </section>
-                </>
               ) : null}
 
               {activeStep === 5 ? (
