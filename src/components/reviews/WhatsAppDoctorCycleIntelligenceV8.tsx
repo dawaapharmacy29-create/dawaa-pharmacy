@@ -86,7 +86,7 @@ function normalizeDoctorName(value: unknown) {
   return String(value || '')
     .trim()
     .toLowerCase()
-    .replace(/^(?:د\s*[\/.-]?\s*|دكتور(?:ه|ة)?\s+)/i, '')
+    .replace(/^(?:د\s*[/.-]?\s*|دكتور(?:ه|ة)?\s+)/i, '')
     .replace(/[أإآ]/g, 'ا')
     .replace(/ى/g, 'ي')
     .replace(/ة/g, 'ه')
