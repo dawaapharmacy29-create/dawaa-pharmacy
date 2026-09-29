@@ -7,6 +7,7 @@ import type {
 const persistPointsTransactionMock = vi.fn();
 const resolveStaffNameToStaffIdMock = vi.fn();
 const appendWhatsAppReviewAuditMock = vi.fn();
+let insertedReviewPayload: Record<string, unknown> | null = null;
 
 vi.mock('@/lib/pointsPersistence', () => ({
   persistPointsTransaction: (...args: unknown[]) => persistPointsTransactionMock(...args),
@@ -38,7 +39,8 @@ function makeSupabaseMock() {
           return chain;
         },
         eq: () => chain,
-        insert: () => {
+        insert: (payload: Record<string, unknown>) => {
+          if (table === 'conversation_sales_reviews') insertedReviewPayload = payload;
           mode = 'insert';
           return chain;
         },
@@ -93,6 +95,27 @@ function msg(
   };
 }
 
+function buildMultiStaffSession(): WhatsAppConversationSession {
+  const messages = [
+    msg('m1', '2026-09-01T10:00:00', 'inbound', 'محتاج صنف'),
+    msg('m2', '2026-09-01T10:10:00', 'outbound', 'مع حضرتك د أحمد من صيدليات دواء'),
+    msg('m3', '2026-09-01T10:15:00', 'outbound', 'مع حضرتك د محمد من صيدليات دواء وهكمل مع حضرتك'),
+  ];
+  return {
+    id: 'session-multi',
+    startedAt: messages[0].timestamp,
+    endedAt: messages[messages.length - 1].timestamp,
+    messages,
+    participants: ['عميل تجريبي', 'You'],
+    outboundStaffNames: ['أحمد', 'محمد'],
+    customerName: 'عميل تجريبي',
+    mediaCount: 0,
+    missingMediaCount: 0,
+    replyCount: 0,
+    forwardedCount: 0,
+  };
+}
+
 function buildSession(): WhatsAppConversationSession {
   const messages = [
     msg('m1', '2026-09-01T10:00:00', 'inbound', 'محتاج استفسار عن دواء الضغط'),
@@ -131,7 +154,32 @@ describe('persistAutomaticWhatsAppReview', () => {
     persistPointsTransactionMock.mockReset();
     resolveStaffNameToStaffIdMock.mockReset();
     appendWhatsAppReviewAuditMock.mockReset();
+    insertedReviewPayload = null;
     resolveStaffNameToStaffIdMock.mockResolvedValue('staff-1');
+  });
+
+  it('stores automatic reviews without a human reviewer identity', async () => {
+    persistPointsTransactionMock.mockResolvedValue({ error: null });
+
+    const { persistAutomaticWhatsAppReview } =
+      await import('@/lib/whatsappAutomaticReviewPersistence');
+    const result = await persistAutomaticWhatsAppReview({
+      sourceId: 'source-auto-reviewer-truth',
+      session: buildSession(),
+      branch: 'الفرع الرئيسي',
+      customerId: null,
+      customerCode: null,
+      customerName: 'عميل تجريبي',
+      customerPhone: null,
+      staffName: 'د أحمد',
+      reviewCycle: CYCLE,
+    });
+
+    expect(result.status).toBe('saved');
+    expect(insertedReviewPayload).not.toBeNull();
+    expect(insertedReviewPayload?.reviewer_name).toBeNull();
+    expect(insertedReviewPayload?.reviewer_role).toBeNull();
+    expect(insertedReviewPayload).not.toHaveProperty('reviewer_id');
   });
 
   it('reports pointsError and pointsRecorded=false when the approved RPC fails, instead of pretending success', async () => {
@@ -205,4 +253,27 @@ describe('persistAutomaticWhatsAppReview', () => {
     expect(outcome.status).toBe('skipped_no_staff');
     expect(persistPointsTransactionMock).not.toHaveBeenCalled();
   });
+  it('skips automatic review when multiple staff identities appear in one session', async () => {
+    persistPointsTransactionMock.mockResolvedValue({ error: null, id: 'txn-ambiguous' });
+
+    const { persistAutomaticWhatsAppReview } =
+      await import('@/lib/whatsappAutomaticReviewPersistence');
+    const outcome = await persistAutomaticWhatsAppReview({
+      sourceId: 'source-multi-staff',
+      session: buildMultiStaffSession(),
+      branch: 'الفرع الرئيسي',
+      customerId: null,
+      customerCode: null,
+      customerName: 'عميل تجريبي',
+      customerPhone: null,
+      staffName: 'أحمد',
+      reviewCycle: CYCLE,
+    });
+
+    expect(outcome.status).toBe('skipped_ambiguous_staff');
+    expect(outcome.error).toMatch(/أكثر من هوية موظف|تقييم بشري/);
+    expect(resolveStaffNameToStaffIdMock).not.toHaveBeenCalled();
+    expect(persistPointsTransactionMock).not.toHaveBeenCalled();
+  });
+
 });

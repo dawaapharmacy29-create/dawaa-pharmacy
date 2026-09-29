@@ -23,6 +23,7 @@ export interface AutomaticReviewSourceContext {
 export type AutomaticReviewPersistStatus =
   | 'saved'
   | 'skipped_no_staff'
+  | 'skipped_ambiguous_staff'
   | 'skipped_existing'
   | 'failed';
 
@@ -87,6 +88,22 @@ export async function persistAutomaticWhatsAppReview(
     return outcome({ status: 'skipped_existing', reviewId: String(existingReview.id) });
   }
 
+  const introducedStaffNames = [...new Set(
+    (ctx.session.outboundStaffNames || [])
+      .map((name) => String(name || '').trim().replace(/\s+/g, ' '))
+      .filter(Boolean)
+  )];
+
+  // Automatic scoring must never guess which doctor owns the session when more than one
+  // introduced staff identity appears. This is especially important for first-response speed:
+  // attributing the session to outboundStaffNames[0] could penalize the wrong doctor.
+  if (introducedStaffNames.length > 1) {
+    return outcome({
+      status: 'skipped_ambiguous_staff',
+      error: `توجد أكثر من هوية موظف في نفس الجلسة: ${introducedStaffNames.join('، ')}. يلزم تقييم بشري لتحديد المسؤول.`,
+    });
+  }
+
   const staffId = ctx.staffName ? await resolveStaffNameToStaffId(ctx.staffName) : null;
   if (!staffId) {
     return outcome({ status: 'skipped_no_staff' });
@@ -119,8 +136,10 @@ export async function persistAutomaticWhatsAppReview(
   }
 
   const payload = {
-    reviewer_name: SYSTEM_REVIEWER_NAME,
-    reviewer_role: SYSTEM_REVIEWER_ROLE,
+    // Automatic reviews are system-authored. Human reviewer identity must stay null;
+    // SYSTEM_REVIEWER_NAME/SYSTEM_REVIEWER_ROLE are reserved for audit/points provenance only.
+    reviewer_name: null,
+    reviewer_role: null,
     staff_id: staffRow.id,
     staff_name: staffRow.name,
     staff_role: staffRow.role || null,

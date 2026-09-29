@@ -169,6 +169,7 @@ export default function CustomerServiceStaffPerformancePanel() {
   const [month, setMonth] = useState(() => localIso().slice(0, 7));
   const [branch, setBranch] = useState(() => managerView ? 'كل الفروع' : userBranch);
   const [rows, setRows] = useState<Row[]>([]);
+  const [activeAlphaStaff, setActiveAlphaStaff] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
 
@@ -189,9 +190,20 @@ export default function CustomerServiceStaffPerformancePanel() {
         .limit(10000);
       if (!managerView && userBranch) query = query.eq('branch', userBranch);
       else if (branch !== 'كل الفروع') query = query.eq('branch', branch);
-      const { data, error } = await query;
+      const [{ data, error }, { data: rosterData, error: rosterError }] = await Promise.all([
+        query,
+        supabase
+          .from('staff_accounts')
+          .select('id,staff_id,staff_name,name,username,role,active,is_active,status,can_login,visible_in_admin')
+          .eq('role', 'team_dawaa_alpha')
+          .eq('active', true)
+          .eq('is_active', true)
+          .eq('status', 'active')
+      ]);
       if (error) throw error;
+      if (rosterError) throw rosterError;
       setRows((data || []) as Row[]);
+      setActiveAlphaStaff((rosterData || []) as Row[]);
     } catch (error) {
       toast.error(`تعذر تحميل أداء خدمة العملاء: ${(error as Error).message}`);
     } finally {
@@ -211,11 +223,34 @@ export default function CustomerServiceStaffPerformancePanel() {
   });
 
   const staff = useMemo<StaffMetrics[]>(() => {
+    const activeIds = new Set<string>();
+    const activeNames = new Set<string>();
+    for (const member of activeAlphaStaff) {
+      [member.id, member.staff_id].map(text).filter(Boolean).forEach((id) => activeIds.add(id));
+      [member.staff_name, member.name, member.username]
+        .map(norm)
+        .filter(Boolean)
+        .forEach((name) => activeNames.add(name));
+    }
+
     const groups = new Map<string, { names: string[]; rows: Row[]; branches: Set<string> }>();
     for (const row of rows) {
       const name = performerName(row);
       const normalized = norm(name);
       if (!normalized || normalized === 'غير محدد') continue;
+
+      const rowIds = [
+        row.handled_by_staff_id,
+        row.assigned_to_staff_id,
+        row.assigned_staff_id,
+        row.staff_id,
+        row.created_by,
+      ].map(text).filter(Boolean);
+      const belongsToCurrentAlphaTeam =
+        rowIds.some((id) => activeIds.has(id)) ||
+        activeNames.has(normalized);
+      if (!belongsToCurrentAlphaTeam) continue;
+
       const key = performerKey(row);
       const group = groups.get(key) || { names: [], rows: [], branches: new Set<string>() };
       group.names.push(name);
@@ -316,7 +351,7 @@ export default function CustomerServiceStaffPerformancePanel() {
         daily,
       };
     }).sort((a, b) => b.executed - a.executed || b.score - a.score);
-  }, [rows]);
+  }, [rows, activeAlphaStaff]);
 
   const summary = useMemo(() => ({
     total: staff.reduce((sum, item) => sum + item.total, 0),

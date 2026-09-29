@@ -40,12 +40,25 @@ type ActionRow = {
   reason: string | null;
 };
 
+type CanonicalCaseRow = {
+  id: string;
+  root_source_id: string | null;
+  started_at: string | null;
+  proposed_outcome: string | null;
+  confirmed_outcome: string | null;
+  verified_revenue: number | null;
+  verified_invoice_id: string | null;
+  verified_invoice_number: string | null;
+  verified_sale_at: string | null;
+  outcome_evidence: any;
+};
+
 const intentLabel: Record<string,string> = {
   customer_request:'طلب عميل', product_inquiry:'استفسار صنف', medical_consultation:'استشارة دوائية', proactive_checkin:'اطمئنان من الصيدلية',
   complaint:'شكوى', doctor_recommendation:'ترشيح دكتور', delivery_issue:'مشكلة توصيل', followup_response:'رد متابعة', general_service:'خدمة عامة', other:'أخرى'
 };
 const outcomeLabel: Record<string,string> = {
-  completed_sale:'بيع مؤكد', probable_sale:'بيع محتمل', no_sale:'بدون بيع', needs_followup:'تحتاج متابعة', unresolved_request:'طلب غير محسوم',
+  completed_sale:'بيع غير مثبت رسميًا', probable_sale:'بيع محتمل', no_sale:'بدون بيع', needs_followup:'تحتاج متابعة', unresolved_request:'طلب غير محسوم',
   complaint_resolved:'شكوى محلولة', complaint_unresolved:'شكوى مفتوحة', consultation_only:'استشارة فقط', checkin_complete:'اطمئنان مكتمل', unknown:'غير محسومة'
 };
 
@@ -72,6 +85,7 @@ export default function WhatsAppCustomerJourneyV8({ customerCode, customerName }
   const [sources,setSources] = useState<SourceRow[]>([]);
   const [actions,setActions] = useState<ActionRow[]>([]);
   const [cycle,setCycle] = useState<CycleRow | null>(null);
+  const [canonicalCases,setCanonicalCases] = useState<CanonicalCaseRow[]>([]);
   const [loading,setLoading] = useState(false);
 
   const load = async () => {
@@ -79,7 +93,7 @@ export default function WhatsAppCustomerJourneyV8({ customerCode, customerName }
     setLoading(true);
     try {
       const bounds = currentCycleBounds();
-      const [s,a,c] = await Promise.all([
+      const [s,a,c,cc] = await Promise.all([
         supabase.from('whatsapp_review_sources')
           .select('id,branch,staff_name,conversation_started_at,conversation_ended_at,review_status,priority,invoice_match_status,matched_invoice_number,matched_invoice_value,followup_required,suggested_followup_reason,analysis_json')
           .eq('customer_code',customerCode)
@@ -94,10 +108,18 @@ export default function WhatsAppCustomerJourneyV8({ customerCode, customerName }
           .limit(100),
         supabase.from('whatsapp_customer_cycle_intelligence_v1')
           .select('*').eq('customer_code',customerCode).eq('cycle_start',bounds.start).maybeSingle(),
+        supabase.from('whatsapp_customer_cases_v22')
+          .select('id,root_source_id,started_at,proposed_outcome,confirmed_outcome,verified_revenue,verified_invoice_id,verified_invoice_number,verified_sale_at,outcome_evidence')
+          .eq('customer_code',customerCode)
+          .gte('started_at',`${bounds.start}T00:00:00+03:00`)
+          .lte('started_at',`${bounds.end}T23:59:59+03:00`)
+          .order('started_at',{ascending:true})
+          .limit(100),
       ]);
       if (!s.error) setSources((s.data || []) as SourceRow[]);
       if (!a.error) setActions((a.data || []) as ActionRow[]);
       if (!c.error) setCycle((c.data || null) as CycleRow | null);
+      if (!cc.error) setCanonicalCases((cc.data || []) as CanonicalCaseRow[]);
     } finally { setLoading(false); }
   };
 
@@ -108,16 +130,21 @@ export default function WhatsAppCustomerJourneyV8({ customerCode, customerName }
     const complaintOpen = sources.some((s) => s.analysis_json?.operational?.operationalOutcome === 'complaint_unresolved');
     const unresolvedRequest = sources.some((s) => s.analysis_json?.operational?.operationalOutcome === 'unresolved_request');
     const acceptedRecommendation = sources.some((s) => Array.isArray(s.analysis_json?.operational?.recommendations) && s.analysis_json.operational.recommendations.some((r:any) => r.accepted === true));
-    const verifiedSales = sources.filter((s) => s.invoice_match_status === 'verified');
-    const revenue = verifiedSales.reduce((sum,s) => sum + Number(s.matched_invoice_value || 0),0);
+    const canonicalSales = canonicalCases.filter((row) =>
+      (row.confirmed_outcome || row.proposed_outcome) === 'verified_sale' &&
+      Boolean(row.verified_invoice_id)
+    );
+    const canonicalRevenue = canonicalSales.reduce((sum,row) => sum + Number(row.verified_revenue || 0),0);
+    const automatedMatchValue = Number(cycle?.verified_revenue || 0);
     let next = 'لا يوجد إجراء عاجل مثبت حاليًا.';
     if (complaintOpen) next = 'الأولوية: متابعة الشكوى المفتوحة والتأكد من حلها ورضا العميل.';
     else if (openActions.length) next = openActions[0].reason || 'يوجد إجراء تشغيلي مفتوح يحتاج التنفيذ.';
     else if (unresolvedRequest) next = 'متابعة الطلب غير المحسوم وربطه بالصنف أو الفاتورة.';
     else if (acceptedRecommendation) next = 'متابعة نتيجة الترشيح بعد الاستخدام.';
-    else if (revenue > 500) next = 'متابعة رضا العميل بعد مشتريات مؤكدة تجاوزت 500 ج في السايكل.';
-    return { openActions, complaintOpen, unresolvedRequest, acceptedRecommendation, verifiedSales, revenue, next };
-  },[sources,actions]);
+    else if (canonicalRevenue > 500) next = 'العميل تجاوز 500 ج من مبيعات Canonical مثبتة في السايكل؛ مناسب لمتابعة رضا وجودة الخدمة.';
+    else if (automatedMatchValue > 500) next = 'توجد مطابقات فاتورة آلية تتجاوز 500 ج؛ لا تُعامل كمبيعات مثبتة قبل Canonical Sale Proof.';
+    return { openActions, complaintOpen, unresolvedRequest, acceptedRecommendation, canonicalSales, canonicalRevenue, automatedMatchValue, next };
+  },[sources,actions,canonicalCases,cycle]);
 
   if (!customerCode) return null;
 
@@ -131,12 +158,13 @@ export default function WhatsAppCustomerJourneyV8({ customerCode, customerName }
       <button onClick={() => void load()} className="rounded-lg border border-slate-700 p-2 text-slate-300"><RefreshCw size={15} className={loading?'animate-spin':''}/></button>
     </div>
 
-    <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+    <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
       <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3"><div className="text-[11px] text-slate-500">المحادثات</div><div className="text-xl font-black text-white">{cycle?.conversation_count ?? sources.length}</div></div>
-      <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3"><div className="text-[11px] text-slate-500">فواتير مؤكدة</div><div className="text-xl font-black text-cyan-300">{cycle?.verified_invoice_count ?? model.verifiedSales.length}</div></div>
-      <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3"><div className="text-[11px] text-slate-500">إيراد مؤكد</div><div className="text-xl font-black text-emerald-300">{Number(cycle?.verified_revenue ?? model.revenue).toFixed(2)} ج</div></div>
+      <div className="rounded-xl border border-emerald-800/40 bg-emerald-950/15 p-3"><div className="text-[11px] text-emerald-300/70">بيع Canonical مثبت</div><div className="text-xl font-black text-emerald-200">{model.canonicalSales.length}</div></div>
+      <div className="rounded-xl border border-emerald-800/40 bg-emerald-950/15 p-3"><div className="text-[11px] text-emerald-300/70">إيراد Canonical</div><div className="text-xl font-black text-emerald-200">{model.canonicalRevenue.toFixed(2)} ج</div></div>
+      <div className="rounded-xl border border-cyan-900/40 bg-cyan-950/10 p-3"><div className="text-[11px] text-slate-500">مطابقات فاتورة آلية</div><div className="text-xl font-black text-cyan-300">{cycle?.verified_invoice_count ?? 0}</div></div>
+      <div className="rounded-xl border border-cyan-900/40 bg-cyan-950/10 p-3"><div className="text-[11px] text-slate-500">قيمة المطابقات الآلية</div><div className="text-xl font-black text-cyan-200">{model.automatedMatchValue.toFixed(2)} ج</div></div>
       <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3"><div className="text-[11px] text-slate-500">إجراءات مفتوحة</div><div className="text-xl font-black text-amber-300">{model.openActions.length}</div></div>
-      <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3"><div className="text-[11px] text-slate-500">+500 ج</div><div className="text-xl font-black text-white">{(cycle?.verified_revenue_over_500 ?? model.revenue > 500) ? 'نعم' : 'لا'}</div></div>
     </div>
 
     <div className="mt-4 rounded-2xl border border-violet-400/20 bg-violet-500/10 p-4"><div className="text-sm font-black text-violet-100">الخطوة التالية على مستوى رحلة العميل</div><div className="mt-2 text-sm leading-7 text-violet-50">{model.next}</div></div>
@@ -144,12 +172,12 @@ export default function WhatsAppCustomerJourneyV8({ customerCode, customerName }
     <div className="mt-4 space-y-2">
       {sources.map((s,index) => {
         const op = s.analysis_json?.operational || {};
-        const isSale = s.invoice_match_status === 'verified';
+        const isSale = false; // Never infer a sale from the legacy statistical matcher.
         const linkedActions = actions.filter((a) => a.source_id === s.id);
         return <div key={s.id} className="rounded-2xl border border-slate-800 bg-slate-950/35 p-3">
           <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
             <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2 text-sm"><span className="font-black text-white">{index+1}. {intentLabel[op.primaryIntent] || op.primaryIntent || 'محادثة'}</span><span className="text-slate-500">→</span><span className={isSale?'text-emerald-300':'text-cyan-300'}>{isSale ? 'بيع مؤكد' : outcomeLabel[op.operationalOutcome] || op.operationalOutcome || 'غير محسومة'}</span></div>
+              <div className="flex flex-wrap items-center gap-2 text-sm"><span className="font-black text-white">{index+1}. {intentLabel[op.primaryIntent] || op.primaryIntent || 'محادثة'}</span><span className="text-slate-500">→</span><span className={isSale?'text-emerald-300':'text-cyan-300'}>{isSale ? 'بيع غير مثبت رسميًا' : outcomeLabel[op.operationalOutcome] || op.operationalOutcome || 'غير محسومة'}</span></div>
               <div className="mt-1 text-xs text-slate-500">{formatDate(s.conversation_started_at)} • {s.staff_name || 'الدكتور غير محدد'} • {s.branch || '—'}</div>
               {op.nextBestAction ? <div className="mt-2 text-xs leading-6 text-slate-300">{op.nextBestAction}</div> : null}
               {linkedActions.length ? <div className="mt-2 flex flex-wrap gap-1">{linkedActions.map((a) => <span key={a.id} className={`rounded-lg px-2 py-1 text-[10px] font-bold ${a.status==='created'?'bg-emerald-500/10 text-emerald-200':'bg-amber-500/10 text-amber-200'}`}>{a.product_name ? `${a.product_name} • ` : ''}{a.action_type} • {a.status}</span>)}</div> : null}

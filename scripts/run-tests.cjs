@@ -42,7 +42,14 @@ function afterEach(fn) {
   currentSuite?.afterEach.push(fn);
 }
 
+const ARRAY_CONTAINING = Symbol('arrayContaining');
+
 function deepEqual(a, b) {
+  if (b && typeof b === 'object' && b[ARRAY_CONTAINING]) {
+    if (!Array.isArray(a)) return false;
+    return b.expected.every((expectedItem) => a.some((item) => deepEqual(item, expectedItem)));
+  }
+  if (a && typeof a === 'object' && a[ARRAY_CONTAINING]) return deepEqual(b, a);
   if (Object.is(a, b)) return true;
   if (typeof a !== typeof b) return false;
   if (a === null || b === null) return false;
@@ -66,6 +73,27 @@ function expect(actual) {
     },
     toEqual(expected) {
       if (!deepEqual(actual, expected)) throw new Error(`Expected ${JSON.stringify(actual)} to equal ${JSON.stringify(expected)}`);
+    },
+    toMatchObject(expected) {
+      if (actual == null || typeof actual !== 'object' || expected == null || typeof expected !== 'object') {
+        throw new Error('Expected both actual and expected to be objects for toMatchObject()');
+      }
+      const matches = (a, e) => Object.keys(e).every((key) => {
+        const expectedValue = e[key];
+        const actualValue = a?.[key];
+        if (
+          expectedValue &&
+          typeof expectedValue === 'object' &&
+          !Array.isArray(expectedValue) &&
+          !(expectedValue[ARRAY_CONTAINING])
+        ) {
+          return actualValue != null && typeof actualValue === 'object' && matches(actualValue, expectedValue);
+        }
+        return deepEqual(actualValue, expectedValue);
+      });
+      if (!matches(actual, expected)) {
+        throw new Error(`Expected ${JSON.stringify(actual)} to match object ${JSON.stringify(expected)}`);
+      }
     },
     toBeDefined() {
       if (actual === undefined) throw new Error('Expected value to be defined');
@@ -106,6 +134,25 @@ function expect(actual) {
     toBeLessThanOrEqual(value) {
       if (!(actual <= value)) throw new Error(`Expected ${actual} to be <= ${value}`);
     },
+    toBeUndefined() {
+      if (actual !== undefined) throw new Error(`Expected ${actual} to be undefined`);
+    },
+    toBeCloseTo(value, precision = 2) {
+      const diff = Math.abs(actual - value);
+      if (diff >= Math.pow(10, -precision) / 2) throw new Error(`Expected ${actual} to be close to ${value}`);
+    },
+    toThrow(match) {
+      if (typeof actual !== 'function') throw new Error('Expected value to be a function for toThrow()');
+      let threw = false;
+      let error;
+      try { actual(); } catch (err) { threw = true; error = err; }
+      if (!threw) throw new Error('Expected function to throw');
+      if (match) {
+        const re = match instanceof RegExp ? match : new RegExp(String(match));
+        const message = error instanceof Error ? error.message : String(error);
+        if (!re.test(message)) throw new Error(`Expected thrown error to match ${match}, got: ${message}`);
+      }
+    },
   };
   return {
     ...api,
@@ -129,9 +176,19 @@ function expect(actual) {
         const re = pattern instanceof RegExp ? pattern : new RegExp(pattern);
         if (re.test(String(actual))) throw new Error(`Expected ${actual} not to match ${pattern}`);
       },
+      toThrow() {
+        if (typeof actual !== 'function') throw new Error('Expected value to be a function for not.toThrow()');
+        let threw = false;
+        try { actual(); } catch { threw = true; }
+        if (threw) throw new Error('Expected function not to throw');
+      },
     },
   };
 }
+
+expect.arrayContaining = function arrayContaining(expectedItems) {
+  return { [ARRAY_CONTAINING]: true, expected: expectedItems };
+};
 
 const originalLoad = Module._load;
 const originalResolve = Module._resolveFilename;
@@ -144,10 +201,14 @@ Module._load = function patchedLoad(request, parent, isMain) {
 Module._resolveFilename = function patchedResolve(request, parent, isMain, options) {
   if (request.startsWith('@/')) {
     const target = path.join(root, 'src', request.slice(2));
-    for (const ext of ['', '.ts', '.tsx', '.js', '.jsx']) {
+    // الامتدادات بالأول عمدًا: لو فيه ملف زي performance.ts ومجلد performance/ في نفس
+    // الوقت (زي الحال هنا فعليًا)، لازم الملف المحدد بالاسم ياخد الأولوية بالظبط زي
+    // سلوك Vite/TS الحقيقي - مش أول مسار "موجود" حرفيًا حتى لو كان مجلد.
+    for (const ext of ['.ts', '.tsx', '.js', '.jsx']) {
       const candidate = target + ext;
-      if (fs.existsSync(candidate)) return candidate;
+      if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) return candidate;
     }
+    if (fs.existsSync(target) && fs.statSync(target).isFile()) return target;
   }
   return originalResolve.call(this, request, parent, isMain, options);
 };
@@ -182,6 +243,7 @@ const testFiles = [
   'src/lib/__tests__/customerFollowupExport.test.ts',
   'src/lib/__tests__/customerDownwardCorrectionGuard.test.ts',
   'src/lib/__tests__/pointsLedgerIdentity.test.ts',
+  'src/lib/__tests__/conversationReviewPointsReconciliation.test.ts',
   'src/lib/__tests__/attendanceReadNormalization.test.ts',
   'src/lib/__tests__/notificationLifecycleDomain.test.ts',
   'src/lib/security/__tests__/publicViewInvokerBoundaryMigration.test.ts',
@@ -192,6 +254,86 @@ const testFiles = [
   'src/lib/__tests__/whatsappFollowupSignalDetector.test.ts',
   'src/lib/__tests__/whatsappFollowupSalesVerification.test.ts',
   'src/lib/__tests__/whatsappFollowupGovernance.test.ts',
+  'src/lib/__tests__/conversationReviewTranscript.test.ts',
+  'src/lib/__tests__/whatsappSmartReviewCore.test.ts',
+  'src/lib/__tests__/whatsappSmartReviewOwnership.test.ts',
+  'src/lib/__tests__/whatsappSmartReviewResult.test.ts',
+  'src/lib/__tests__/whatsappSmartReviewScope.test.ts',
+  'src/lib/__tests__/whatsappSmartReviewDecision.test.ts',
+  'src/lib/__tests__/whatsappSmartReviewPipeline.test.ts',
+  'src/lib/__tests__/whatsappSmartReviewPipelineIntelligence.test.ts',
+  'src/lib/__tests__/whatsappSmartConversationIntelligence.test.ts',
+  'src/lib/__tests__/whatsappSmartConversationIntelligence.realRegression.test.ts',
+  'src/lib/__tests__/whatsappSmartConversationRefinement.test.ts',
+  'src/lib/__tests__/whatsappSmartReviewActions.test.ts',
+  'src/lib/__tests__/whatsappSmartReviewGoldenCases.test.ts',
+  // كانت موجودة على القرص من دمج feature/whatsapp-smart-review-v2-test لكن لم تكن
+  // مضافة هنا فعليًا، فكانت لا تُنفَّذ إطلاقًا رغم وجودها - تمت إضافتها هنا بعد التأكد
+  // إنها لا تحتاج vi.mock/vi.fn (المُحرِّك المبسّط هنا لا يدعمهم بعد).
+  'src/lib/__tests__/conversationReviewSnapshotRoundTrip.test.ts',
+  'src/lib/__tests__/salesJourneyReviewV2.test.ts',
+  'src/lib/__tests__/whatsappCaseContextV27.test.ts',
+  'src/lib/__tests__/whatsappConversationEvaluationV2.test.ts',
+  'src/lib/__tests__/whatsappConversationFocusV30.test.ts',
+  'src/lib/__tests__/whatsappConversationParser.richExport.test.ts',
+  'src/lib/__tests__/whatsappConversationTimingV28.test.ts',
+  'src/lib/__tests__/whatsappCustomerCaseEngineV22.test.ts',
+  'src/lib/__tests__/whatsappDeepConversationIntelligenceV26.test.ts',
+  'src/lib/__tests__/whatsappReviewResponsibilityGuard.test.ts',
+  'src/lib/__tests__/whatsappDelayAttributionV29.test.ts',
+  'src/lib/__tests__/whatsappEvaluationConversationV31.test.ts',
+  'src/lib/__tests__/whatsappExportCustomerHint.test.ts',
+  'src/lib/__tests__/whatsappMessageTemplateNormalization.test.ts',
+  'src/lib/__tests__/whatsappOutboundMessageBursts.test.ts',
+  'src/lib/__tests__/whatsappSmartIntelligenceSnapshot.test.ts',
+  'src/lib/__tests__/whatsappSmartOfficialReviewDraft.test.ts',
+  'src/lib/__tests__/whatsappAutomaticReviewScoring.test.ts',
+  'src/lib/__tests__/whatsappUnifiedIntelligenceV4.test.ts',
+  'src/lib/__tests__/conversationReviewsReviewerDisplay.test.ts',
+  'src/lib/__tests__/reviewWorkspaceAccess.test.ts',
+  'src/lib/__tests__/doctorCompetitionReviewLinking.test.ts',
+  'src/lib/__tests__/whatsappGoldenCaseIbrahimAlSayyad.test.ts',
+  'src/lib/__tests__/whatsappConversationUnderstandingV32.test.ts',
+  'src/lib/__tests__/whatsappResponseSpeedEvidenceV32.test.ts',
+  'src/lib/__tests__/whatsappUnderstandingEvidenceV32.test.ts',
+  'src/lib/__tests__/whatsappOrderConfirmationEvidenceV32.test.ts',
+  'src/lib/__tests__/whatsappUnderstandingEvidenceV32GoldenExpansion.test.ts',
+  'src/lib/__tests__/whatsappOrderConfirmationEvidenceV32GoldenExpansion.test.ts',
+  'src/lib/__tests__/whatsappSemanticSignalsV32.test.ts',
+  'src/lib/__tests__/whatsappProductDemandBackfillQualityGateV22.test.ts',
+  'src/lib/__tests__/whatsappDirectProductIntentV22.test.ts',
+  'src/lib/__tests__/whatsappProductJourneyV7DecisionScope.test.ts',
+  'src/lib/__tests__/whatsappCaseLostReasonV23.test.ts',
+  'src/lib/salesIntelligence/__tests__/conversationCaseEngine.test.ts',
+  'src/lib/salesIntelligence/__tests__/caseBasketEngine.test.ts',
+  'src/lib/salesIntelligence/__tests__/canonicalSalesOutcomeEngine.test.ts',
+  'src/lib/salesIntelligence/__tests__/commercialConfirmationEngine.test.ts',
+  'src/lib/salesIntelligence/__tests__/saleAttributionEngine.test.ts',
+  'src/lib/salesIntelligence/__tests__/invoiceClaimResolution.test.ts',
+  'src/lib/salesIntelligence/__tests__/invoiceCandidateRetrieval.test.ts',
+  'src/lib/salesIntelligence/__tests__/invoiceItemEvidenceRepository.test.ts',
+  'src/lib/salesIntelligence/__tests__/sourceSnapshotLineage.test.ts',
+  'src/lib/salesIntelligence/__tests__/salesPricingExecutionV1.test.ts',
+  'src/lib/salesIntelligence/__tests__/staffCommercialAnalyticsV1.test.ts',
+  'src/lib/salesIntelligence/__tests__/recommendationConversionV1.test.ts',
+  'src/lib/salesIntelligence/__tests__/staffRecommendationAnalyticsV1.test.ts',
+  'src/lib/salesIntelligence/pharmacyProducts/__tests__/pharmacyProductResolverV2.test.ts',
+  'src/lib/salesIntelligence/__tests__/dashboardScopeV1.test.ts',
+  'src/lib/__tests__/productInvoiceVerificationV23.test.ts',
+  'src/lib/__tests__/whatsappTruthEngineV2.test.ts',
+  'src/lib/__tests__/salesAttributionDraftInvoiceV23.test.ts',
+  'src/lib/__tests__/salesInvoiceItemsV21.bconnect.test.ts',
+  'src/lib/salesIntelligence/__tests__/trustedInvoiceEvidenceBridge.test.ts',
+  'src/lib/salesIntelligence/qa/__tests__/saleProofProjection.test.ts',
+  'src/lib/salesIntelligence/qa/__tests__/queries.test.ts',
+  'src/lib/salesIntelligence/__tests__/basketInvoiceMatchingEngine.test.ts',
+  'src/lib/salesIntelligence/__tests__/salesIntegrityEngine.test.ts',
+  'src/lib/salesIntelligence/__tests__/salesIntelligencePipeline.test.ts',
+  'src/lib/salesIntelligence/__tests__/historicalCommercialClosureEngine.test.ts',
+  'src/lib/salesIntelligence/persistence/__tests__/hashing.test.ts',
+  'src/lib/salesIntelligence/persistence/__tests__/batchPersistenceService.test.ts',
+  'src/lib/salesIntelligence/persistence/__tests__/reviewSourceBatchAdapter.test.ts',
+  'src/lib/salesIntelligence/persistence/__tests__/writerFailures.test.ts',
 ];
 for (const relativePath of testFiles) {
   const testFile = path.join(root, relativePath);

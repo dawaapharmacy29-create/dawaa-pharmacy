@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { readInvoiceRecordById } from '@/lib/readModels/invoiceRecordReadModel';
 import type { WhatsAppConversationSession } from './whatsappConversationParser';
 import type { UnifiedConversationIntelligence, UnifiedInvoiceVerification } from './whatsappUnifiedIntelligenceV4';
 
@@ -78,10 +79,31 @@ export async function persistAnalyzedWhatsAppSession(
     .maybeSingle();
   if (existingError && existingError.code !== 'PGRST116') throw existingError;
   if (existing?.id) {
+    const { error: refreshError } = await supabase
+      .from('whatsapp_review_sources')
+      .update({
+        analysis_version: intelligence.version,
+        analysis_status: intelligence.requiresHumanApproval ? 'needs_review' : 'analyzed',
+        priority: intelligence.priority,
+        analysis_confidence: intelligence.confidence,
+        service_score: intelligence.serviceScore,
+        commercial_score: intelligence.commercialScore,
+        commercial_eligible: intelligence.commercialEligible,
+        chat_suggested_sold: intelligence.chatSuggestedSold,
+        followup_required: intelligence.followupRequired,
+        suggested_followup_reason: intelligence.suggestedFollowupReason,
+        analysis_json: serializeIntelligence(intelligence),
+        raw_text: rawText,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', existing.id);
+    if (refreshError) throw refreshError;
     return { id: String(existing.id), duplicate: true, sourceHash, reviewStatus: (existing.review_status || reviewStatus) as ReviewQueueStatus };
   }
 
-  const staffName = context.staffName || session.outboundStaffNames[0] || null;
+  const staffName =
+    context.staffName ||
+    (session.outboundStaffNames.length === 1 ? session.outboundStaffNames[0] : null);
   const customerName = context.customerName || session.customerName || null;
   const { data, error } = await supabase
     .from('whatsapp_review_sources')
@@ -131,6 +153,60 @@ export async function persistAnalyzedWhatsAppSession(
   return { id: String(data.id), duplicate: false, sourceHash, reviewStatus };
 }
 
+export async function archiveSupersededLegacyWhatsAppSourceV35(args: {
+  sourceFileName: string;
+  fullConversationStartedAt: string;
+  fullConversationEndedAt: string;
+  fullMessageCount: number;
+  replacementSourceIds: string[];
+  actorId?: string | null;
+  actorName?: string | null;
+}) {
+  const replacementIds = Array.from(
+    new Set((args.replacementSourceIds || []).map((id) => String(id || '').trim()).filter(Boolean))
+  );
+  if (replacementIds.length < 2) {
+    return { archived: 0, deletedCases: 0, skippedReason: 'replacement_sources_less_than_two' as const };
+  }
+
+  const { data, error } = await supabase.rpc('dawaa_archive_superseded_whatsapp_source_v35', {
+    p_source_filename: args.sourceFileName,
+    p_full_started_at: args.fullConversationStartedAt,
+    p_full_ended_at: args.fullConversationEndedAt,
+    p_full_message_count: args.fullMessageCount,
+    p_replacement_source_ids: replacementIds,
+  });
+  if (error) throw error;
+
+  const result = (data || {}) as {
+    archived?: number;
+    archivedSourceId?: string;
+    replacementSourceIds?: string[];
+    deletedCases?: number;
+    deletedDerived?: Record<string, number>;
+    skippedReason?: string | null;
+  };
+
+  if (result.archived && result.archivedSourceId) {
+    try {
+      await appendWhatsAppReviewAudit(
+        String(result.archivedSourceId),
+        'legacy_source_superseded',
+        null,
+        result,
+        args.actorId || null,
+        args.actorName || null,
+        null,
+        `Atomic V35 replacement by ${replacementIds.length} case-scoped sources`,
+      );
+    } catch (auditError) {
+      console.warn('[whatsapp-review-v35] superseded-source audit append failed after atomic replacement', auditError);
+    }
+  }
+
+  return result;
+}
+
 export async function attachInvoiceVerificationToQueue(
   sourceId: string,
   verification: UnifiedInvoiceVerification,
@@ -154,6 +230,116 @@ export async function attachInvoiceVerificationToQueue(
     .eq('id', sourceId);
   if (error) throw error;
   await appendWhatsAppReviewAudit(sourceId, 'invoice_verification', before, verification, actorId || null, actorName || null);
+}
+
+export async function confirmWhatsAppInvoiceLinkV34(
+  sourceId: string,
+  invoiceId: string,
+  actorId?: string | null,
+  actorName?: string | null,
+  note?: string | null,
+) {
+  const cleanSourceId = String(sourceId || '').trim();
+  const cleanInvoiceId = String(invoiceId || '').trim();
+  if (!cleanSourceId || !cleanInvoiceId) throw new Error('source_id_and_invoice_id_required');
+
+  const { data: source, error: sourceError } = await supabase
+    .from('whatsapp_review_sources')
+    .select('id,customer_id,customer_code,customer_name,branch,matched_invoice_id,matched_invoice_number,invoice_link_confirmed,invoice_link_confirmed_invoice_id')
+    .eq('id', cleanSourceId)
+    .single();
+  if (sourceError) throw sourceError;
+
+  const invoice = await readInvoiceRecordById(cleanInvoiceId);
+  if (!invoice) throw new Error('invoice_not_found');
+
+  const sourceCustomerId = String(source.customer_id || '').trim();
+  const invoiceCustomerId = String(invoice.customer_id || '').trim();
+  if (sourceCustomerId && invoiceCustomerId && sourceCustomerId !== invoiceCustomerId) {
+    throw new Error('invoice_customer_identity_conflict');
+  }
+
+  const normalizeCode = (value: unknown) =>
+    String(value ?? '').trim().replace(/\.0+$/, '');
+  const sourceCode = normalizeCode(source.customer_code);
+  const invoiceCode = normalizeCode(invoice.customer_code);
+  if (!sourceCustomerId && sourceCode && invoiceCode && sourceCode !== invoiceCode) {
+    throw new Error('invoice_customer_code_conflict');
+  }
+
+  const nowIso = new Date().toISOString();
+  const revenue = Number(invoice.net_amount ?? invoice.total_amount ?? invoice.amount ?? 0);
+  const patch = {
+    invoice_link_confirmed: true,
+    invoice_link_confirmed_invoice_id: String(invoice.id),
+    invoice_link_confirmed_invoice_number: invoice.invoice_number || null,
+    invoice_link_confirmed_by: actorId || actorName || 'manual-review',
+    invoice_link_confirmed_by_name: actorName || null,
+    invoice_link_confirmed_at: nowIso,
+    invoice_link_confirmation_note: note || 'تم اعتماد ربط الفاتورة المحددة يدويًا من شاشة مراجعة واتساب.',
+    matched_invoice_id: invoice.id,
+    matched_invoice_number: invoice.invoice_number || null,
+    matched_invoice_date: invoice.invoice_datetime || null,
+    matched_invoice_value: Number.isFinite(revenue) ? revenue : null,
+    invoice_match_status: 'verified',
+    invoice_match_confidence: 1,
+    invoice_match_reason: 'manual_invoice_link_confirmation',
+    updated_at: nowIso,
+  };
+
+  const { error: updateError } = await supabase
+    .from('whatsapp_review_sources')
+    .update(patch)
+    .eq('id', cleanSourceId);
+  if (updateError) throw updateError;
+
+  await appendWhatsAppReviewAudit(
+    cleanSourceId,
+    'invoice_link_confirmed',
+    source,
+    { ...patch, invoice_customer_id: invoice.customer_id || null, invoice_customer_code: invoice.customer_code || null },
+    actorId || null,
+    actorName || null,
+    null,
+    note || null,
+  );
+
+  return {
+    sourceId: cleanSourceId,
+    invoiceId: String(invoice.id),
+    invoiceNumber: invoice.invoice_number || null,
+    invoiceDate: invoice.invoice_datetime || null,
+    revenue: Number.isFinite(revenue) ? revenue : null,
+    branch: invoice.branch || null,
+  };
+}
+
+export async function revokeWhatsAppInvoiceLinkV34(
+  sourceId: string,
+  actorId?: string | null,
+  actorName?: string | null,
+  note?: string | null,
+) {
+  const { data: before, error: readError } = await supabase
+    .from('whatsapp_review_sources')
+    .select('id,invoice_link_confirmed,invoice_link_confirmed_invoice_id,invoice_link_confirmed_invoice_number')
+    .eq('id', sourceId)
+    .single();
+  if (readError) throw readError;
+
+  const patch = {
+    invoice_link_confirmed: false,
+    invoice_link_confirmed_invoice_id: null,
+    invoice_link_confirmed_invoice_number: null,
+    invoice_link_confirmed_by: null,
+    invoice_link_confirmed_by_name: null,
+    invoice_link_confirmed_at: null,
+    invoice_link_confirmation_note: note || 'تم إلغاء اعتماد ربط الفاتورة يدويًا.',
+    updated_at: new Date().toISOString(),
+  };
+  const { error } = await supabase.from('whatsapp_review_sources').update(patch).eq('id', sourceId);
+  if (error) throw error;
+  await appendWhatsAppReviewAudit(sourceId, 'invoice_link_revoked', before, patch, actorId || null, actorName || null, null, note || null);
 }
 
 export async function confirmWhatsAppReviewQueueItem(

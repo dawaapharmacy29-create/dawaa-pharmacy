@@ -6,6 +6,16 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      whatsapp_operational_reanalysis:
+        description: "WhatsApp operational snapshot refresh (no invoice/followup/review writes)"
+        required: false
+        default: "none"
+        type: choice
+        options:
+          - "none"
+          - "dry-run"
+          - "apply"
 
 jobs:
   build:
@@ -37,3 +47,45 @@ jobs:
           if-no-files-found: ignore
       - name: Build
         run: npm run build
+
+  whatsapp-operational-reanalysis:
+    if: ${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.whatsapp_operational_reanalysis != 'none') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      VITE_SUPABASE_URL: https://jkjqeqkshllustwlzzbf.supabase.co
+      # Server-side only in this job. The shared client reads VITE_* from process.env under Node.
+      VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - name: Require server credential
+        shell: bash
+        run: |
+          test -n "$VITE_SUPABASE_ANON_KEY" || {
+            echo "::error::Missing SUPABASE_SERVICE_ROLE_KEY"
+            exit 1
+          }
+      - name: Verify TS runtime
+        run: npx --no-install vite-node --version
+      - name: Dry-run operational reanalysis
+        if: ${{ github.event_name == 'pull_request' || inputs.whatsapp_operational_reanalysis == 'dry-run' }}
+        run: npx --no-install vite-node scripts/run-whatsapp-operational-reanalysis.ts -- --json --output-file=whatsapp-operational-reanalysis-plan.json
+      - name: Upload dry-run plan
+        if: ${{ github.event_name == 'pull_request' || inputs.whatsapp_operational_reanalysis == 'dry-run' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: whatsapp-operational-reanalysis-plan
+          path: whatsapp-operational-reanalysis-plan.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Apply operational reanalysis
+        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.whatsapp_operational_reanalysis == 'apply') || (github.event_name == 'pull_request' && github.run_attempt > 1) }}
+        run: npm run whatsapp:operational-reanalysis:apply

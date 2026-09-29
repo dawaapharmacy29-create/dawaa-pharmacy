@@ -4,6 +4,7 @@ import type { WhatsAppConversationSession } from '@/lib/whatsappConversationPars
 import { extractConversationSignals } from '@/lib/whatsappConversationSignals';
 import {
   deriveLostReasonCodes,
+  detectCommercialFrictionFactsV26,
   detectDeepJourneyStages,
   evaluateMedicalHardGate,
   summarizeResponseMetrics,
@@ -15,6 +16,7 @@ const labelForReason: Record<string, string> = {
   no_close: 'فرصة بيع بدون إغلاق',
   no_followup: 'وعد متابعة لم يُستكمل',
   no_cross_sell: 'بيع تم بدون فرصة تكميلية واضحة',
+  customer_no_reply_after_offer: 'الصيدلية ردت والعميل لم يحسم',
   slow_response: 'تأخير مرتفع في الرد',
   unanswered_customer: 'رسالة عميل بدون رد',
   unknown: 'لا يوجد سبب فقد مؤكد',
@@ -37,36 +39,34 @@ export default function WhatsAppCaseDecisionPanelV26({ session }: { session: Wha
     })));
     const journey = detectDeepJourneyStages(session.messages);
     const medical = evaluateMedicalHardGate(session.messages);
-    const all = session.messages.map((m) => m.text || '').join('\n');
-    const outbound = session.messages.filter((m) => m.direction === 'outbound').map((m) => m.text || '').join('\n');
     const inbound = session.messages.filter((m) => m.direction === 'inbound').map((m) => m.text || '').join('\n');
-    const sold = /(تم تأكيد|تم التاكيد|الأوردر اتأكد|الاوردر اتاكد|جاري الارسال|جاري الإرسال|فاتورة|فاتوره|الإجمالي|الاجمالي)/i.test(all);
-    const stockout = /(غير متوفر|مش موجود|ناقص|خلص)/i.test(all);
-    const alternativeOffered = /(بديل|نرشح|ارشح|أرشح|بداله|بدلها)/i.test(outbound);
-    const priceObjection = /(غالي|سعره عالي|أرخص|ارخص|مش مناسب|هفكر)/i.test(inbound);
+    const outbound = session.messages.filter((m) => m.direction === 'outbound').map((m) => m.text || '').join('\n');
+    const friction = detectCommercialFrictionFactsV26(session.messages);
     const followupPromised = /(هتابع|هرجع|هبلغ|هتواصل|اول ما|أول ما|هنوفره)/i.test(outbound);
     const followupCompleted = followupPromised && session.messages.slice().reverse().some((m) => m.direction === 'outbound' && /(تم|اتوفر|توفر|رجعنا|متاح|موجود)/i.test(m.text || ''));
     const upsellDetected = journey.some((x) => x.stage === 'upsell' && x.detected);
     const salesEligible = /(عايز|عاوز|محتاج|متوفر|سعر|بكام|ابعت|ابعث|طلب|اوردر|أوردر)/i.test(inbound);
     const lostReasons = deriveLostReasonCodes({
-      stockout,
-      alternativeOffered,
-      priceObjection,
-      sold,
+      stockout: friction.stockout,
+      alternativeOffered: friction.alternativeOffered,
+      priceObjection: friction.priceObjection,
+      sold: friction.chatClosed,
       followupPromised,
       followupCompleted,
       upsellDetected,
       salesEligible,
       p90ResponseSeconds: response.p90Seconds,
       unanswered: response.unanswered,
+      closingResponsibility: friction.closingResponsibility,
     });
     const humanReviewReasons = [
       ...(medical.blocked ? medical.reasons.map((x) => `مراجعة صيدلي: ${x}`) : []),
       ...(response.unanswered > 0 ? ['يوجد رسالة عميل بدون رد'] : []),
-      ...(lostReasons.includes('price_objection_unhandled') ? ['اعتراض سعر يحتاج مراجعة التعامل معه'] : []),
-      ...(lostReasons.includes('stockout_dead_end') ? ['نقص بدون بديل يحتاج مراجعة'] : []),
+      ...(lostReasons.includes('price_objection_unhandled') ? ['اعتراض سعر يحتاج مراجعة التعامل معه — لا يعني خطأ موظف تلقائيًا'] : []),
+      ...(lostReasons.includes('stockout_dead_end') ? ['نقص بدون بديل يحتاج مراجعة تشغيلية — لا يُنسب تلقائيًا للدكتور'] : []),
+      ...(lostReasons.includes('no_close') && friction.closingResponsibility === 'pharmacy' ? ['العميل وافق ولم يظهر تأكيد نهائي للأوردر — راجع مرحلة الإغلاق'] : []),
     ];
-    return { signals, response, journey, medical, lostReasons, humanReviewReasons };
+    return { signals, response, journey, medical, friction, lostReasons, humanReviewReasons };
   }, [session]);
 
   return (

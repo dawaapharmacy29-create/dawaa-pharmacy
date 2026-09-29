@@ -8,12 +8,14 @@ export interface WhatsAppCaseSessionSignalV22 {
   startedAt: string;
   endedAt: string;
   orderIntent: boolean;
+  strongNewOrderIntent: boolean;
   orderConfirmed: boolean;
   failure: boolean;
   complaint: boolean;
   apology: boolean;
   followup: boolean;
   feedback: boolean;
+  serviceClosing: boolean;
   recommendation: boolean;
   customerReplied: boolean;
   lastDirection: 'inbound' | 'outbound' | 'system';
@@ -65,13 +67,15 @@ export interface WhatsAppCustomerCaseEngineV22 {
 }
 
 const ORDER_RX = /(عايز|عاوز|محتاج|ابعت|ابعث|هات|اطلب|أطلب|متوفر|موجود عندكم|عندكم|اوردر|أوردر|طلب)/i;
+const STRONG_NEW_ORDER_RX = /(عايز|عاوز|محتاج|ابعت|ابعث|هات|اطلب|أطلب|متوفر|موجود عندكم|عندكم|بكام|السعر)/i;
 const ORDER_CONFIRM_RX = /(تم تأكيد|تم التاكيد|الأوردر اتأكد|الاوردر اتاكد|جاري الارسال|جاري الإرسال|خرج لحضرتك|اتعملت الفاتوره|اتعملت الفاتورة|الفاتوره اتعملت|الفاتورة اتعملت)/i;
 const FAILURE_RX = /(ماوصلش|موصلش|الاوردر ماطلعش|الأوردر ماطلعش|الطلب ماطلعش|محدش جه|ماجاش|مجاش|اتلغى|اتلغي|لم يتم|ما تمش|مش هينفع يتبعت)/i;
-const COMPLAINT_RX = /(شكوي|شكوى|زعلت|اتضايقت|مش راضي|مش مبسوط|خدمه سيئه|خدمة سيئة|مشكله|مشكلة|محدش رد|التأخير|التاخير)/i;
+const COMPLAINT_RX = /(شكوي|شكوى|زعلت|اتضايقت|مش راضي|مش مبسوط|خدمه سيئه|خدمة سيئة|مشكله|مشكلة|محدش رد|التأخير|التاخير|تأخير|تاخير)/i;
 const APOLOGY_RX = /(بنعتذر|نعتذر|متاسف|متأسف|آسفين|اسفين|حق حضرتك علينا|نعتذر لحضرتك|نعوض حضرتك)/i;
 const FOLLOWUP_RX = /(حابين نطمن|حبيت اطمن|حبيت أطمن|متابعه|متابعة|بنطمن|نطمن|هتابع|هتواصل|اول ما|أول ما)/i;
 const FEEDBACK_RX = /(راضي عن الخدمه|راضي عن الخدمة|كانت الخدمه|كانت الخدمة|تقييم الخدمه|تقييم الخدمة|على مستوى رضا|رأي حضرتك|راي حضرتك)/i;
 const RECOMMEND_RX = /(ارشح|أرشح|نرشح|ترشيح|انصح|أنصح|بديل|ممكن تستخدم|ممكن تاخد|ممكن تاخدي)/i;
+const SERVICE_CLOSING_RX = /(تتشرف\s+بخدم[ةه]|تحت\s+امر\s+حضرتك|تحت\s+أمر\s+حضرتك|صيدليات\s+دواء\s+تتشرف|في\s+خدمتك\s+دائما|الأقرب\s+إليك|نهتم\s+بصحتك)/i;
 const MEDIA_KINDS = new Set(['image', 'voice', 'video', 'document']);
 
 function normalizeName(value: unknown) {
@@ -119,12 +123,14 @@ function signalForSession(session: WhatsAppConversationSession): WhatsAppCaseSes
     startedAt: session.startedAt.toISOString(),
     endedAt: session.endedAt.toISOString(),
     orderIntent: ORDER_RX.test(inText),
+    strongNewOrderIntent: STRONG_NEW_ORDER_RX.test(inText),
     orderConfirmed: ORDER_CONFIRM_RX.test(allText),
     failure: FAILURE_RX.test(allText),
     complaint: COMPLAINT_RX.test(allText),
     apology: APOLOGY_RX.test(outText),
     followup: FOLLOWUP_RX.test(outText),
     feedback: FEEDBACK_RX.test(outText),
+    serviceClosing: SERVICE_CLOSING_RX.test(outText) && !ORDER_RX.test(inText),
     recommendation: RECOMMEND_RX.test(outText),
     customerReplied: inbound.length > 0,
     lastDirection,
@@ -141,16 +147,33 @@ function hoursBetween(a: string, b: string) {
 }
 
 function isFollowupOnly(s: WhatsAppCaseSessionSignalV22) {
-  return !s.orderIntent && !s.recommendation && (s.followup || s.feedback || s.apology);
+  return !s.orderIntent && !s.recommendation && (s.followup || s.feedback || s.apology || s.serviceClosing);
 }
 
 function shouldAttach(caseRows: WhatsAppCaseSessionSignalV22[], next: WhatsAppCaseSessionSignalV22) {
   const last = caseRows.at(-1)!;
   const gapHours = hoursBetween(last.endedAt, next.startedAt);
   const hasProblem = caseRows.some((x) => x.failure || x.complaint);
-  const isOpenOrder = caseRows.some((x) => x.orderIntent) && !caseRows.some((x) => x.orderConfirmed && !x.failure);
+  const confirmedWithoutFailure = caseRows.some((x) => x.orderConfirmed) && !caseRows.some((x) => x.failure);
+  const isOpenOrder = caseRows.some((x) => x.orderIntent) && !confirmedWithoutFailure;
+  const nextLooksLikeContinuation = isFollowupOnly(next) || next.failure || next.complaint || next.apology || next.feedback;
 
-  if (gapHours <= 18) return true;
+  // أوردر اتقفل، وبعد فترة معقولة العميل بدأ احتياج/شراء جديد صريح:
+  // ده Case جديدة حتى لو المسافة أقل من 18 ساعة. استكمال التوصيل/الشكوى يظل في نفس Case.
+  if (confirmedWithoutFailure && next.strongNewOrderIntent && !nextLooksLikeContinuation && gapHours >= 2) return false;
+
+  // في أول ساعتين نسمح بإضافة صنف/تعديل لنفس الأوردر.
+  if (gapHours <= 2) return true;
+
+  // من 2 إلى 18 ساعة نربط فقط لو الـCase لسه مفتوحة أو الجلسة التالية استكمال واضح،
+  // بدل قاعدة "اربط كل شيء" القديمة.
+  if (gapHours <= 18) {
+    if (isOpenOrder) return true;
+    if (nextLooksLikeContinuation) return true;
+    if (caseRows.some((x) => x.recommendation) && next.followup) return true;
+    return false;
+  }
+
   if (hasProblem && isFollowupOnly(next) && gapHours <= 24 * 14) return true;
   if (isOpenOrder && isFollowupOnly(next) && gapHours <= 24 * 7) return true;
   if (caseRows.some((x) => x.recommendation) && isFollowupOnly(next) && gapHours <= 24 * 7) return true;

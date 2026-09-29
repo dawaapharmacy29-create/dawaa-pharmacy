@@ -1,11 +1,13 @@
 import { supabase } from '@/lib/supabase';
 import type { WhatsAppConversationSession, WhatsAppParsedMessage } from './whatsappConversationParser';
 import type { WhatsAppParticipantRoleModelV15, WhatsAppMessageRoleV15 } from './whatsappParticipantRoleResolverV15';
+import type { GroundedSaleJourneyV33 } from './whatsappGroundedSaleJourneyV33';
 
 export interface OrderLifecycleSyncContextV19 {
   sourceId: string;
   contextOnly?: boolean;
   participantRoles?: WhatsAppParticipantRoleModelV15 | null;
+  groundedSaleJourney?: GroundedSaleJourneyV33 | null;
 }
 
 type LifecycleFact = 'delay_notice' | 'customer_accepted_delay' | 'promise_made' | 'promise_breach_signal' | 'staff_handoff' | 'delivery_blocker' | 'recovery_offer' | 'case_continuity_break';
@@ -50,6 +52,14 @@ function evidence(message: WhatsAppParsedMessage, role?: WhatsAppMessageRoleV15 
 }
 
 export async function syncWhatsAppOrderLifecycleV19(session: WhatsAppConversationSession, context: OrderLifecycleSyncContextV19) {
+  const groundedIds = new Set(context.groundedSaleJourney?.customerJourneyWindow.messageIds || []);
+  const scopedSession = context.groundedSaleJourney?.commercial && groundedIds.size
+    ? {
+        ...session,
+        messages: session.messages.filter((message) => groundedIds.has(message.id)),
+      }
+    : session;
+
   const { data: source, error: sourceError } = await supabase.from('whatsapp_review_sources').select('id,branch,customer_id,customer_code,customer_name,customer_phone,staff_id,staff_name,conversation_started_at,analysis_version').eq('id', context.sourceId).single();
   if (sourceError) throw sourceError;
 
@@ -70,13 +80,13 @@ export async function syncWhatsAppOrderLifecycleV19(session: WhatsAppConversatio
   const blockers: WhatsAppParsedMessage[] = [];
   const distinctStaff: Array<{ message: WhatsAppParsedMessage; role: WhatsAppMessageRoleV15 }> = [];
 
-  for (const message of session.messages) {
+  for (const message of scopedSession.messages) {
     if (message.direction !== 'outbound') continue;
     const r = roles.get(message.id);
     if (PROMISE_RX.test(message.text)) { promises.push(message); add('promise_made', `promise:${message.id}`, message, 86); }
     if (DELAY_NOTICE_RX.test(message.text)) {
       add('delay_notice', `delay-notice:${message.id}`, message, 94);
-      const reply = nextInboundAfter(session, message);
+      const reply = nextInboundAfter(scopedSession, message);
       if (reply && DELAY_ACCEPT_RX.test(reply.text) && (reply.timestamp.getTime() - message.timestamp.getTime()) <= 30 * 60 * 1000) {
         const replyRole = roles.get(reply.id);
         facts.push({
@@ -108,7 +118,7 @@ export async function syncWhatsAppOrderLifecycleV19(session: WhatsAppConversatio
   }
 
   const firstPromise = promises[0];
-  const laterFailure = session.messages.find((m) => firstPromise && m.timestamp > firstPromise.timestamp && m.direction === 'outbound' && APOLOGY_OR_FAILURE_RX.test(m.text));
+  const laterFailure = scopedSession.messages.find((m) => firstPromise && m.timestamp > firstPromise.timestamp && m.direction === 'outbound' && APOLOGY_OR_FAILURE_RX.test(m.text));
   if (firstPromise && laterFailure) {
     add('promise_breach_signal', `promise-breach:${firstPromise.id}:${laterFailure.id}`, laterFailure, 84, {
       originalPromise: { messageId: firstPromise.id, quote: firstPromise.text.slice(0, 220), at: firstPromise.timestamp.toISOString() },
@@ -121,7 +131,7 @@ export async function syncWhatsAppOrderLifecycleV19(session: WhatsAppConversatio
     for (let i = 1; i < distinctStaff.length; i += 1) {
       const current = distinctStaff[i];
       if (GREETING_INTRO_RX.test(current.message.text) && !CONTEXT_REFERENCE_RX.test(current.message.text)) {
-        const customerRepliedBetween = session.messages.some((m) => m.direction === 'inbound' && m.timestamp > distinctStaff[i - 1].message.timestamp && m.timestamp < current.message.timestamp);
+        const customerRepliedBetween = scopedSession.messages.some((m) => m.direction === 'inbound' && m.timestamp > distinctStaff[i - 1].message.timestamp && m.timestamp < current.message.timestamp);
         if (!customerRepliedBetween) add('case_continuity_break', `continuity:${current.message.id}`, current.message, 66, { note: 'بداية/تعريف جديد بعد تعثر سابق دون إشارة واضحة للسياق، والعميل لم يرسل ردًا جديدًا بينهما. تحتاج مراجعة بشرية قبل نسب خطأ.' });
       }
     }

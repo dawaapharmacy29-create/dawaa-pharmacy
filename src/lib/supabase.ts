@@ -32,8 +32,13 @@ const supabaseFetch: typeof fetch = (input, init?: RequestInit) => {
 // When Supabase is not configured, export a lightweight stub client to avoid noisy network failures in dev.
 function createStubClient() {
   const noop = () => stubQuery;
+  const stubResult = { data: [], error: null };
   const stubQuery: any = {
-    select: async () => ({ data: [], error: null }),
+    // Mirror PostgREST's chainable/awaitable query builder closely enough for dev/test paths:
+    // select(...).ilike(...).limit(...) and plain await select(...) must both work.
+    select: () => stubQuery,
+    then: (resolve: any, reject: any) => Promise.resolve(stubResult).then(resolve, reject),
+    ilike: () => stubQuery,
     insert: async () => ({ data: null, error: null }),
     update: async () => ({ data: null, error: null }),
     delete: async () => ({ data: null, error: null }),

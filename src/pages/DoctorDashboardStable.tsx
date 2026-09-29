@@ -277,6 +277,11 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
   const [branchTargetAmount, setBranchTargetAmount] = useState<number | null>(null);
   const [branchCycleTruth, setBranchCycleTruth] = useState<{ sales_total: number; invoices_count: number; items_count: number; avg_invoice: number } | null>(null);
   const [openReviewId, setOpenReviewId] = useState<string | null>(null);
+  const [officialWhatsAppSales, setOfficialWhatsAppSales] = useState<{
+    salesCount: number;
+    revenue: number;
+    itemEvidenceCount: number;
+  } | null>(null);
   const [invoiceQuality, setInvoiceQuality] = useState<{
     my_metrics: { avg_invoice: number; avg_items_per_invoice: number; unique_customers: number; invoices: number; items_rank: number | null; invoice_rank: number | null; customers_rank: number | null; branch_doctor_count: number };
     branch_avg: { avg_invoice: number; avg_items_per_invoice: number; unique_customers: number };
@@ -347,6 +352,36 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
       .catch(() => { if (!cancelled) setInvoiceQuality(null); });
     return () => { cancelled = true; };
   }, [branch, doctorName, cycle.end, cycle.start]);
+
+  useEffect(() => {
+    if (!staffId) {
+      setOfficialWhatsAppSales(null);
+      return;
+    }
+    let cancelled = false;
+    supabase
+      .rpc('get_my_official_whatsapp_sales_v1', {
+        p_start: formatCycleDate(cycle.start),
+        p_end: formatCycleDate(cycle.end),
+      })
+      .then(({ data, error: queryError }) => {
+        if (cancelled) return;
+        if (queryError || !data || typeof data !== 'object') {
+          setOfficialWhatsAppSales(null);
+          return;
+        }
+        const row = data as Record<string, unknown>;
+        setOfficialWhatsAppSales({
+          salesCount: number(row.sales_count),
+          revenue: number(row.revenue),
+          itemEvidenceCount: number(row.item_evidence_count),
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setOfficialWhatsAppSales(null);
+      });
+    return () => { cancelled = true; };
+  }, [staffId, cycle.end, cycle.start]);
 
   const loadReviews = useCallback(async () => {
     setPart('reviews', 'loading');
@@ -618,6 +653,12 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
         <>
           <div className="-mx-1 flex gap-3 overflow-x-auto px-1 pb-1">
             <StatChip icon={DollarSign} label="مبيعاتي في الدورة" value={doctorRow ? formatCurrency(doctorRow.netSales) : 'غير مرتبط'} hint={doctorRow ? `${doctorRow.invoicesCount} فاتورة` : 'راجع staff_id'} />
+            <StatChip
+              icon={MessageCircle}
+              label="مبيعات واتساب الرسمية"
+              value={officialWhatsAppSales ? formatCurrency(officialWhatsAppSales.revenue) : '—'}
+              hint={officialWhatsAppSales ? `${officialWhatsAppSales.salesCount} بيع مثبت · ${officialWhatsAppSales.itemEvidenceCount} بأدلة أصناف` : 'تظهر فقط المبيعات ذات الإسناد الرسمي'}
+            />
             <StatChip
               icon={TrendingUp}
               label="متوسط فاتورتي"

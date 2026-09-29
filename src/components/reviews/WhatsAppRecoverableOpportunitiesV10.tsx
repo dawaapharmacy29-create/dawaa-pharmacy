@@ -39,16 +39,14 @@ function normalizeKey(value: string | null) {
 function classify(row: Row) {
   const reason = String(row.leakage_reason || '').toLowerCase();
   const stage = String(row.current_stage || '').toLowerCase();
-  const invoice = String(row.invoice_match_status || '').toLowerCase();
   const ageDays = row.conversation_ended_at ? Math.max(0, (Date.now() - new Date(row.conversation_ended_at).getTime()) / 86400000) : 0;
   let score = 30;
   const why: string[] = [];
   if (row.followup_candidate) { score += 25; why.push('مرشح متابعة'); }
-  if (row.closed_in_chat && invoice !== 'verified') { score += 20; why.push('الأوردر اتقفل في الشات ولسه الفاتورة غير مؤكدة'); }
+  if (row.closed_in_chat) { score += 20; why.push('الأوردر اتقفل في الشات لكنه لم يصل إلى Canonical Sale Proof'); }
   if (stage.includes('accepted') || stage.includes('recommend') || stage.includes('alternative')) { score += 15; why.push('العميل وصل لمرحلة متقدمة'); }
   if (reason.includes('no reply') || reason.includes('لم يرد') || reason.includes('لم يحسم')) { score += 10; why.push('محتاج إعادة تواصل'); }
   if (reason.includes('unavailable') || reason.includes('غير متوفر')) { score += 5; why.push('ممكن استرجاع الفرصة لو الصنف/البديل توفر'); }
-  if (invoice === 'verified') score -= 70;
   if (ageDays > 14) score -= 15;
   else if (ageDays <= 3) score += 10;
   score = Math.max(0, Math.min(100, score));
@@ -71,16 +69,31 @@ export default function WhatsAppRecoverableOpportunitiesV10({ onOpenSource }: { 
     setLoading(true);
     try {
       const today = cairoDate();
-      const { data, error } = await supabase
-        .from('whatsapp_product_journey_detail_v1')
-        .select('source_id,branch,customer_id,customer_name,customer_code,customer_phone,staff_id,staff_name,conversation_ended_at,product_name,product_code,quantity,current_stage,closed_in_chat,followup_candidate,leakage_reason,next_action,confidence,invoice_match_status,matched_invoice_value')
-        .lte('cycle_start', today)
-        .gte('cycle_end', today)
-        .neq('invoice_match_status', 'verified')
-        .order('conversation_ended_at', { ascending: false })
-        .limit(500);
-      if (error) throw error;
-      setRows((data || []) as Row[]);
+      const [journeyResult, canonicalResult] = await Promise.all([
+        supabase
+          .from('whatsapp_product_journey_detail_v1')
+          .select('source_id,branch,customer_id,customer_name,customer_code,customer_phone,staff_id,staff_name,conversation_ended_at,product_name,product_code,quantity,current_stage,closed_in_chat,followup_candidate,leakage_reason,next_action,confidence,invoice_match_status,matched_invoice_value')
+          .lte('cycle_start', today)
+          .gte('cycle_end', today)
+          .order('conversation_ended_at', { ascending: false })
+          .limit(500),
+        supabase
+          .from('whatsapp_customer_cases_v22')
+          .select('root_source_id,source_ids,proposed_outcome,confirmed_outcome')
+          .lte('started_at', `${today}T23:59:59+03:00`)
+          .limit(500),
+      ]);
+      if (journeyResult.error) throw journeyResult.error;
+      if (canonicalResult.error) throw canonicalResult.error;
+
+      const provenSourceIds = new Set<string>();
+      for (const item of canonicalResult.data || []) {
+        if ((item.confirmed_outcome || item.proposed_outcome) !== 'verified_sale') continue;
+        if (item.root_source_id) provenSourceIds.add(String(item.root_source_id));
+        for (const sourceId of Array.isArray(item.source_ids) ? item.source_ids : []) provenSourceIds.add(String(sourceId));
+      }
+
+      setRows(((journeyResult.data || []) as Row[]).filter((row) => !provenSourceIds.has(String(row.source_id))));
     } catch (error) {
       console.error('[whatsapp-recoverable-v10] load failed', error);
     } finally {
@@ -96,7 +109,7 @@ export default function WhatsAppRecoverableOpportunitiesV10({ onOpenSource }: { 
     setCreatingKey(uiKey);
     try {
       const deadline = recoveryDeadline(recovery.score);
-      const { error } = await supabase.from('whatsapp_conversation_actions').insert({
+      const { error } = await supabase.from('whatsapp_conversation_actions').upsert({
         source_id: row.source_id,
         action_key: actionKey,
         action_type: 'customer_followup',
@@ -119,7 +132,8 @@ export default function WhatsAppRecoverableOpportunitiesV10({ onOpenSource }: { 
         reason: row.leakage_reason || row.next_action || recovery.why,
         evidence: { origin: 'recoverable_v12', recovery_score: recovery.score, current_stage: row.current_stage, sla_hours: recovery.score >= 75 ? 2 : recovery.score >= 50 ? 6 : 24 },
         payload: { origin: 'recoverable_v12', recovery_score: recovery.score, current_stage: row.current_stage, invoice_match_status: row.invoice_match_status },
-      });
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'source_id,action_key', ignoreDuplicates: false });
       if (error) {
         if (error.code === '23505') { toast.info('المهمة موجودة بالفعل في طابور الاسترجاع'); return; }
         throw error;
@@ -144,13 +158,13 @@ export default function WhatsAppRecoverableOpportunitiesV10({ onOpenSource }: { 
 
   return <section className="dawaa-card dawaa-card--raised p-5" dir="rtl">
     <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-      <div><div className="flex items-center gap-2 text-xs font-black text-emerald-200"><RotateCcw size={16}/> فرص قابلة للاسترجاع V12</div><h2 className="mt-1 text-xl font-black text-white">العملاء اللي لسه نقدر نرجع ونكمل معاهم البيع</h2><p className="mt-2 text-sm leading-7 text-slate-400">الأولوية العالية SLA ساعتين، المتوسطة 6 ساعات، والمنخفضة 24 ساعة. البيع لا يُحسب إلا بعد فاتورة مؤكدة.</p></div>
+      <div><div className="flex items-center gap-2 text-xs font-black text-emerald-200"><RotateCcw size={16}/> فرص قابلة للاسترجاع V12</div><h2 className="mt-1 text-xl font-black text-white">العملاء اللي لسه نقدر نرجع ونكمل معاهم البيع</h2><p className="mt-2 text-sm leading-7 text-slate-400">الأولوية العالية SLA ساعتين، المتوسطة 6 ساعات، والمنخفضة 24 ساعة. الاسترجاع يتوقف فقط بعد Canonical Sale Proof؛ المطابقة الآلية وحدها لا تغلق الفرصة.</p></div>
       <button onClick={() => void load()} disabled={loading} className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-black text-white disabled:opacity-50"><RefreshCw size={15} className={loading ? 'animate-spin' : ''}/> تحديث</button>
     </div>
     <div className="mt-4 flex flex-col gap-2 lg:flex-row"><label className="relative flex-1"><Search size={15} className="absolute right-3 top-3 text-slate-500"/><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="بحث بالعميل أو الدكتور أو الصنف أو سبب المتابعة" className="w-full rounded-xl border border-slate-700 bg-slate-950 py-2.5 pr-9 pl-3 text-sm text-white"/></label><select value={branch} onChange={(e) => setBranch(e.target.value)} className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white"><option value="all">كل الفروع</option><option value="فرع الشامي">فرع الشامي</option><option value="فرع شكري">فرع شكري</option></select></div>
     <div className="mt-4 space-y-2">{ranked.slice(0, 100).map(({ row, recovery }) => {
       const uiKey = `${row.source_id}:recovery:${normalizeKey(row.product_code || row.product_name)}`;
-      return <div key={`${row.source_id}-${row.product_code || row.product_name || 'x'}`} className="rounded-2xl border border-slate-800 bg-slate-950/35 p-4"><div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><b className="text-white">{row.customer_name || 'عميل غير محدد'}</b>{row.customer_code ? <span className="text-xs text-cyan-300">#{row.customer_code}</span> : null}<span className="text-xs text-slate-500">{row.branch || '—'} • {row.staff_name || 'الدكتور غير محدد'}</span></div><div className="mt-2 text-sm text-cyan-200">{row.product_name || 'صنف غير محدد'}</div><div className="mt-1 text-sm leading-6 text-slate-300">{row.leakage_reason || row.next_action || recovery.why}</div><div className="mt-1 text-xs text-slate-500">{recovery.why}</div></div><div className="shrink-0 text-left"><div className={`text-lg font-black ${recovery.score >= 75 ? 'text-emerald-300' : recovery.score >= 50 ? 'text-amber-300' : 'text-slate-300'}`}>{recovery.score}% فرصة استرجاع</div><div className="text-[11px] text-slate-500">أولوية {recovery.priority} • {row.invoice_match_status || 'فاتورة غير مؤكدة'}</div><div className="mt-2 flex flex-wrap justify-end gap-2"><button onClick={() => void createRecoveryTask(row, recovery)} disabled={creatingKey === uiKey} className="rounded-lg border border-emerald-400/20 bg-emerald-500/10 px-3 py-1.5 text-xs font-black text-emerald-200 disabled:opacity-50"><ListTodo size={12} className="ml-1 inline"/>{creatingKey === uiKey ? 'جاري الإنشاء...' : 'تحويل لمهمة استرجاع'}</button>{onOpenSource ? <button onClick={() => onOpenSource(row.source_id)} className="rounded-lg border border-cyan-400/20 bg-cyan-500/10 px-3 py-1.5 text-xs font-black text-cyan-200">فتح المحادثة</button> : null}</div></div></div></div>;
+      return <div key={`${row.source_id}-${row.product_code || row.product_name || 'x'}`} className="rounded-2xl border border-slate-800 bg-slate-950/35 p-4"><div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><b className="text-white">{row.customer_name || 'عميل غير محدد'}</b>{row.customer_code ? <span className="text-xs text-cyan-300">#{row.customer_code}</span> : null}<span className="text-xs text-slate-500">{row.branch || '—'} • {row.staff_name || 'الدكتور غير محدد'}</span></div><div className="mt-2 text-sm text-cyan-200">{row.product_name || 'صنف غير محدد'}</div><div className="mt-1 text-sm leading-6 text-slate-300">{row.leakage_reason || row.next_action || recovery.why}</div><div className="mt-1 text-xs text-slate-500">{recovery.why}</div></div><div className="shrink-0 text-left"><div className={`text-lg font-black ${recovery.score >= 75 ? 'text-emerald-300' : recovery.score >= 50 ? 'text-amber-300' : 'text-slate-300'}`}>{recovery.score}% فرصة استرجاع</div><div className="text-[11px] text-slate-500">أولوية {recovery.priority} • {row.invoice_match_status === 'verified' ? 'مطابقة فاتورة آلية موجودة — ليست Sale Proof' : 'لا توجد مطابقة فاتورة قوية'}</div><div className="mt-2 flex flex-wrap justify-end gap-2"><button onClick={() => void createRecoveryTask(row, recovery)} disabled={creatingKey === uiKey} className="rounded-lg border border-emerald-400/20 bg-emerald-500/10 px-3 py-1.5 text-xs font-black text-emerald-200 disabled:opacity-50"><ListTodo size={12} className="ml-1 inline"/>{creatingKey === uiKey ? 'جاري الإنشاء...' : 'تحويل لمهمة استرجاع'}</button>{onOpenSource ? <button onClick={() => onOpenSource(row.source_id)} className="rounded-lg border border-cyan-400/20 bg-cyan-500/10 px-3 py-1.5 text-xs font-black text-cyan-200">فتح المحادثة</button> : null}</div></div></div></div>;
     })}{!loading && ranked.length === 0 ? <div className="rounded-2xl border border-slate-800 p-8 text-center text-sm text-slate-500">لا توجد فرص استرجاع واضحة في البيانات الحالية.</div> : null}</div>
   </section>;
 }

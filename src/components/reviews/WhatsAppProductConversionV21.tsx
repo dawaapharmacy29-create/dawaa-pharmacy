@@ -66,22 +66,22 @@ export default function WhatsAppProductConversionV21({ onOpenSource }: { onOpenS
     <section className="dawaa-card dawaa-card--raised p-4">
       <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <div className="flex items-center gap-2 font-black text-white"><PackageCheck size={18}/>Product Conversion الموثق V21</div>
-          <div className="mt-1 max-w-4xl text-xs leading-5 text-slate-400">يفصل بين وجود فاتورة مرتبطة بالمحادثة وبين إثبات أن الصنف نفسه ظهر داخل بنود الفاتورة. Product Conversion لا يُحتسب من التخمين.</div>
+          <div className="flex items-center gap-2 font-black text-white"><PackageCheck size={18}/>Product Conversion Legacy V21</div>
+          <div className="mt-1 max-w-4xl text-xs leading-5 text-slate-400">عرض Legacy مبني على whatsapp_sales_opportunities_v17. قيمة Conversation verified التاريخية قد تكون ناتجة عن مطابقة فاتورة آلية قديمة وليست Sale Proof رسميًا. إثبات الصنف نفسه غير متاح حاليًا بدون Line Items.</div>
         </div>
         <div className="text-[10px] text-slate-500">الدورة الحالية: {cycle.start} → {cycle.end}</div>
       </div>
 
       <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
         <Metric icon={ShoppingCart} label="كل الفرص" value={totals.opportunities} />
-        <Metric icon={ReceiptText} label="فاتورة مرتبطة بالمحادثة" value={totals.conversationVerified} />
-        <Metric icon={PackageCheck} label="الصنف مثبت بالفاتورة" value={totals.productVerified} />
-        <Metric icon={BadgeCheck} label="Conversation Conversion" value={pct(conversationRate)} />
-        <Metric icon={BadgeCheck} label="Product Conversion" value={pct(productRate)} />
+        <Metric icon={ReceiptText} label="مطابقة فاتورة Legacy" value={totals.conversationVerified} />
+        <Metric icon={PackageCheck} label="الصنف مثبت ببند فاتورة" value={totals.productVerified} />
+        <Metric icon={BadgeCheck} label="Legacy Conversation Match %" value={pct(conversationRate)} />
+        <Metric icon={BadgeCheck} label="Product Proof %" value={pct(productRate)} />
         <Metric icon={CircleDollarSign} label="إيراد أصناف مثبت" value={money(totals.productRevenue)} />
       </div>
 
-      {proofGap > 0 ? <div className="mt-3 rounded-xl border border-amber-400/20 bg-amber-500/5 p-3 text-xs leading-5 text-amber-100"><b>{proofGap.toLocaleString('ar-EG')}</b> عملية عندها فاتورة مرتبطة بالمحادثة لكن لا يوجد حتى الآن دليل Line Item يثبت الصنف بعينه. لا تدخل هذه العمليات في Product Conversion.</div> : null}
+      {proofGap > 0 ? <div className="mt-3 rounded-xl border border-amber-400/20 bg-amber-500/5 p-3 text-xs leading-5 text-amber-100"><b>{proofGap.toLocaleString('ar-EG')}</b> حالة Legacy عندها مطابقة فاتورة على مستوى المحادثة لكن لا يوجد دليل Line Item يثبت الصنف بعينه. لا تعتبر هذه الحالات بيعًا موثقًا رسميًا.</div> : null}
       {loading ? <div className="mt-4 text-sm text-slate-500">جاري تحميل Conversion الموثق...</div> : null}
       {error ? <div className="mt-4 rounded-xl border border-rose-400/20 bg-rose-500/5 p-3 text-xs text-rose-200">تعذر تحميل بيانات Product Conversion: {error}</div> : null}
 
@@ -93,8 +93,8 @@ export default function WhatsAppProductConversionV21({ onOpenSource }: { onOpenS
               <div className="flex flex-wrap items-center justify-between gap-2"><b className="text-white">{row.staff_name || 'موظف غير محدد'}</b><span className="text-[10px] text-slate-500">{row.branch || '—'}</span></div>
               <div className="mt-2 grid gap-2 text-xs sm:grid-cols-3 xl:grid-cols-7">
                 <K label="فرص" value={row.opportunities || 0}/><K label="ترشيح+" value={row.recommendations_or_later || 0}/><K label="قبول+" value={row.accepted_or_later || 0}/>
-                <K label="Conversation verified" value={row.conversation_verified || 0}/><K label="Product verified" value={row.product_verified || 0}/>
-                <K label="Conversation %" value={pct(row.conversation_conversion_rate)}/><K label="Product %" value={pct(row.product_conversion_rate)}/>
+                <K label="Legacy invoice match" value={row.conversation_verified || 0}/><K label="Product line proof" value={row.product_verified || 0}/>
+                <K label="Legacy match %" value={pct(row.conversation_conversion_rate)}/><K label="Product proof %" value={pct(row.product_conversion_rate)}/>
               </div>
             </div>
           ))}
@@ -118,7 +118,7 @@ export default function WhatsAppProductConversionV21({ onOpenSource }: { onOpenS
         </div>
       ) : null}
 
-      <div className="mt-3 text-[10px] leading-5 text-slate-500">Conversation Conversion = شراء مؤكد مرتبط بالمحادثة. Product Conversion = الصنف نفسه مطابق لبند فاتورة بالرقم/الفرع ثم كود الصنف أو الاسم المطبع. لا يُنسب بيع صنف للدكتور بدون هذا الدليل.</div>
+      <div className="mt-3 text-[10px] leading-5 text-slate-500">هذا القسم Legacy للمقارنة التاريخية فقط. invoice_match_status=verified لا يساوي Sale Proof موثق. Product proof يتطلب بند فاتورة فعلي، وهو غير متاح حاليًا في sales_invoice_items_v21.</div>
     </section>
   );
 }

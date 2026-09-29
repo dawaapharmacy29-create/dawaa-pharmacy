@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { BarChart3, MessageCircle, Star, TrendingUp, Users } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useEmployeeTransactions } from '@/hooks/useEmployeeTransactions';
@@ -9,6 +10,13 @@ import { normalizeBranchName } from '@/lib/branch';
 import { formatCycleDate, getCurrentCycle } from '@/lib/pharmacy-cycle';
 import { formatCurrency } from '@/lib/utils';
 import { getInvoiceKey } from '@/lib/dawaa2027';
+import WhatsAppCaseKpisV23 from '@/components/reviews/WhatsAppCaseKpisV23';
+import WhatsAppCustomerCasesV22 from '@/components/reviews/WhatsAppCustomerCasesV22';
+import WhatsAppCustomerStory360V16 from '@/components/reviews/WhatsAppCustomerStory360V16';
+import WhatsAppRecoverableOpportunitiesV10 from '@/components/reviews/WhatsAppRecoverableOpportunitiesV10';
+import WhatsAppLostOpportunityAnalyticsV24 from '@/components/reviews/WhatsAppLostOpportunityAnalyticsV24';
+import WhatsAppRecoveryWorkQueueV11 from '@/components/reviews/WhatsAppRecoveryWorkQueueV11';
+import WhatsAppRecoveryCycleKpisV12 from '@/components/reviews/WhatsAppRecoveryCycleKpisV12';
 import {
   buildStaffIdentityMap,
   resolvePrimaryStaffForDoctor,
@@ -64,6 +72,8 @@ type DoctorAggregate = {
 };
 
 export default function WhatsappAnalytics() {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { user } = useAuth();
   const cycle = getCurrentCycle();
   const [startDate, setStartDate] = useState(formatCycleDate(cycle.start));
@@ -75,6 +85,17 @@ export default function WhatsappAnalytics() {
     : allowedBranches[0] || normalizeBranchName(user?.branch || '') || ALL_BRANCHES;
   const [branch, setBranch] = useState(defaultBranch);
   const [doctor, setDoctor] = useState('الكل');
+  const [workspacePanel, setWorkspacePanel] = useState<'none' | 'cases' | 'customers' | 'opportunities' | 'followups'>(() => {
+    const panel = searchParams.get('panel');
+    return panel === 'cases' || panel === 'customers' || panel === 'opportunities' || panel === 'followups' ? panel : 'none';
+  });
+
+  useEffect(() => {
+    const panel = searchParams.get('panel');
+    if (panel === 'cases' || panel === 'customers' || panel === 'opportunities' || panel === 'followups') {
+      setWorkspacePanel(panel);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     if (!canAllBranches) {
@@ -248,7 +269,68 @@ export default function WhatsappAnalytics() {
         </p>
       </div>
 
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        {[
+          { key: 'detail', title: 'الحالة الكاملة', detail: 'العميل + المحادثة + الفاتورة + البنود والأصناف' },
+          { key: 'cases', title: 'Cases Canonical', detail: 'الحالات والنتيجة التجارية بمصدر الدليل' },
+          { key: 'customers', title: 'Customer Story 360', detail: 'قصة العميل والشراء والاسترجاع المثبت' },
+          { key: 'opportunities', title: 'فرص الاسترجاع', detail: 'فرص البيع المفتوحة التي تحتاج تدخل' },
+          { key: 'followups', title: 'طابور المتابعات', detail: 'مهام Recovery والإسناد وSLA والنتائج' },
+        ].map((item) => {
+          const active = item.key !== 'detail' && workspacePanel === item.key;
+          return (
+            <button
+              key={item.key}
+              type="button"
+              onClick={() => item.key === 'detail'
+                ? navigate('/whatsapp-smart-folder-watcher')
+                : setWorkspacePanel(item.key as 'cases' | 'customers' | 'opportunities' | 'followups')}
+              className={`rounded-2xl border p-4 text-right transition ${active ? 'border-teal-400/50 bg-teal-500/10' : 'border-[#2d4063] bg-[#1B2B4B] hover:border-teal-400/40 hover:bg-[#20345a]'}`}
+            >
+              <div className="font-black text-white">{item.title}</div>
+              <div className="mt-1 text-xs leading-5 text-slate-400">{item.detail}</div>
+            </button>
+          );
+        })}
+      </div>
+
+      {workspacePanel !== 'none' && (
+        <div className="space-y-4">
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => setWorkspacePanel('none')}
+              className="rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-1.5 text-xs font-black text-slate-300"
+            >
+              إغلاق النافذة
+            </button>
+          </div>
+          {workspacePanel === 'cases' ? <WhatsAppCustomerCasesV22 onOpenSource={(sourceId) => navigate(`/whatsapp-smart-folder-watcher?source=${encodeURIComponent(sourceId)}`)} /> : null}
+          {workspacePanel === 'customers' ? <WhatsAppCustomerStory360V16 onOpenSource={(sourceId) => navigate(`/whatsapp-smart-folder-watcher?source=${encodeURIComponent(sourceId)}`)} /> : null}
+          {workspacePanel === 'opportunities' ? (
+            <>
+              <WhatsAppLostOpportunityAnalyticsV24 onOpenSource={(sourceId) => navigate(`/whatsapp-smart-folder-watcher?source=${encodeURIComponent(sourceId)}`)} />
+              <WhatsAppRecoverableOpportunitiesV10 onOpenSource={(sourceId) => navigate(`/whatsapp-smart-folder-watcher?source=${encodeURIComponent(sourceId)}`)} />
+            </>
+          ) : null}
+          {workspacePanel === 'followups' ? (
+            <>
+              <WhatsAppRecoveryCycleKpisV12 />
+              <WhatsAppRecoveryWorkQueueV11 onOpenSource={(sourceId) => navigate(`/whatsapp-smart-folder-watcher?source=${encodeURIComponent(sourceId)}`)} />
+            </>
+          ) : null}
+        </div>
+      )}
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <WhatsAppCaseKpisV23 mode="doctors" />
+        <WhatsAppCaseKpisV23 mode="service" />
+      </div>
+
       <div className="rounded-2xl border border-[#2d4063] bg-[#1B2B4B] p-4">
+        <div className="mb-3 rounded-xl border border-amber-400/15 bg-amber-500/5 px-3 py-2 text-xs leading-5 text-amber-100">
+          القسم التالي هو طبقة مراجعة الجودة التاريخية. درجات الجودة والنقاط مفيدة، لكن أي ربط فاتورة هنا للمرجعية فقط ولا يتقدم على Customer Case + Canonical Sale Proof المعروضين بالأعلى.
+        </div>
         <div className="grid gap-3 md:grid-cols-4">
           <label className="text-xs text-slate-300 space-y-1">
             <span>من</span>
@@ -315,7 +397,7 @@ export default function WhatsappAnalytics() {
             <Metric icon={Users} label="أفضل أداء" value={topDoctor || '—'} />
             <Metric
               icon={TrendingUp}
-              label="مبيعات مرتبطة"
+              label="ربط فواتير للمراجعات"
               value={invoicesLoading ? 'جاري التحميل…' : linkedInvoiceSales != null ? formatCurrency(linkedInvoiceSales) : '—'}
             />
             <Metric
@@ -341,7 +423,7 @@ export default function WhatsappAnalytics() {
                       <th>متوسط الدرجة</th>
                       <th>ممتازة</th>
                       <th>ضعيفة</th>
-                      <th>مبيعات مولدة</th>
+                      <th>مبيعات مسجلة بالمراجعة</th>
                       <th>نقاط</th>
                       <th>توصية تدريب</th>
                     </tr>

@@ -358,6 +358,12 @@ function cleanText(value: unknown): string {
   return String(value ?? '').trim();
 }
 
+function normalizeCustomerCodeForImport(value: unknown): string {
+  const cleaned = cleanText(value).replace(/\.0+$/, '');
+  if (!cleaned || cleaned === '.' || cleaned === '-' || cleaned === '—') return '';
+  return cleaned;
+}
+
 const PENDING_SAVE_STATUS_VALUES = ['معلقة', 'معلق', 'pending', 'held', 'draft'];
 
 function isPendingSaveStatus(value: unknown): boolean {
@@ -1151,7 +1157,7 @@ export function parseInvoiceFile(
     const amount = netAmount ?? discountedAmount ?? grossAmount;
     const invoiceDateTime = parseDateTime(getValue(record, headers, DATE_KEYS));
     const date = invoiceDateTime ? invoiceDateTime.slice(0, 10) : null;
-    const customerCode = cleanText(getValue(record, headers, CODE_KEYS));
+    const customerCode = normalizeCustomerCodeForImport(getValue(record, headers, CODE_KEYS));
     const phone = normalisePhone(getValue(record, headers, PHONE_KEYS) as string);
     const invoiceNumber = cleanText(getValue(record, headers, INVOICE_NUMBER_KEYS));
     const rawBranch = cleanText(getValue(record, headers, BRANCH_KEYS));

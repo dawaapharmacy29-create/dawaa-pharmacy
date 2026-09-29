@@ -24,28 +24,34 @@ patchFile('src/lib/whatsappConversationSignals.ts', [
   }
 ]);
 
-patchFile('src/lib/whatsappCustomerResolverV4.ts', [
-  {
-    label: 'customer resolver supports exact customer code',
-    from: `  strategy: 'phone_exact' | 'name_exact_branch' | 'name_exact' | 'none' | 'ambiguous';`,
-    to: `  strategy: 'code_exact' | 'phone_exact' | 'name_exact_branch' | 'name_exact' | 'none' | 'ambiguous';`
-  },
-  {
-    label: 'search identity by raw name stripped name and code hint',
-    from: `  const candidates = uniqueById(await searchCustomers(raw, 12));\n  if (!candidates.length) {`,
-    to: `  const codeHint = (raw.match(/(?:^|\\s|[-_])(\\d{2,8})(?=$|\\s|[-_])/g) || [])\n    .map((value) => value.replace(/\\D/g, ''))\n    .filter(Boolean)\n    .pop() || null;\n  const nameWithoutCode = raw.replace(/(?:^|\\s|[-_])\\d{2,8}(?=$|\\s|[-_])/g, ' ').replace(/\\s+/g, ' ').trim();\n  const searches = await Promise.all([\n    searchCustomers(raw, 12),\n    ...(codeHint ? [searchCustomers(codeHint, 12)] : []),\n    ...(nameWithoutCode && nameWithoutCode !== raw ? [searchCustomers(nameWithoutCode, 12)] : []),\n  ]);\n  const candidates = uniqueById(searches.flat());\n  if (!candidates.length) {`
-  },
-  {
-    label: 'prefer exact code before phone and name',
-    from: `  const rawPhone = normalizePhone(raw);`,
-    to: `  if (codeHint) {\n    const exactCode = candidates.filter((row) => String(row.code || '').trim() === codeHint);\n    if (exactCode.length === 1) {\n      return { customer: exactCode[0], confidence: 0.995, strategy: 'code_exact', reason: 'تم استخراج كود العميل من هوية/اسم ملف التصدير ومطابقته بالكامل.', candidates };\n    }\n    if (exactCode.length > 1) {\n      const branchKey = normalizeBranch(branch);\n      const sameBranch = branchKey ? exactCode.filter((row) => normalizeBranch(row.branch) === branchKey) : [];\n      if (sameBranch.length === 1) {\n        return { customer: sameBranch[0], confidence: 0.98, strategy: 'code_exact', reason: 'كود العميل متطابق وتم حسم السجل باستخدام الفرع.', candidates: exactCode };\n      }\n      return { customer: null, confidence: 0.5, strategy: 'ambiguous', reason: 'كود العميل موجود في أكثر من سجل؛ يحتاج اختيارًا بشريًا.', candidates: exactCode };\n    }\n  }\n\n  const rawPhone = normalizePhone(raw);`
-  },
-  {
-    label: 'exact name ignores trailing customer code',
-    from: `  const rawName = normalizeArabicText(raw);`,
-    to: `  const rawName = normalizeArabicText(nameWithoutCode || raw);`
-  }
-]);
+const customerResolverPath = path.join(process.cwd(), 'src/lib/whatsappCustomerResolverV4.ts');
+const customerResolverSource = fs.readFileSync(customerResolverPath, 'utf8');
+if (customerResolverSource.includes("'strong_name_candidates'") && customerResolverSource.includes('customerNameSimilarity')) {
+  console.log('[whatsapp-analysis-quality-v5] hardened customer resolver detected; legacy resolver patches skipped');
+} else {
+  patchFile('src/lib/whatsappCustomerResolverV4.ts', [
+    {
+      label: 'customer resolver supports exact customer code',
+      from: `  strategy: 'phone_exact' | 'name_exact_branch' | 'name_exact' | 'none' | 'ambiguous';`,
+      to: `  strategy: 'code_exact' | 'phone_exact' | 'name_exact_branch' | 'name_exact' | 'none' | 'ambiguous';`
+    },
+    {
+      label: 'search identity by raw name stripped name and code hint',
+      from: `  const candidates = uniqueById(await searchCustomers(raw, 12));\n  if (!candidates.length) {`,
+      to: `  const codeHint = (raw.match(/(?:^|\\s|[-_])(\\d{2,8})(?=$|\\s|[-_])/g) || [])\n    .map((value) => value.replace(/\\D/g, ''))\n    .filter(Boolean)\n    .pop() || null;\n  const nameWithoutCode = raw.replace(/(?:^|\\s|[-_])\\d{2,8}(?=$|\\s|[-_])/g, ' ').replace(/\\s+/g, ' ').trim();\n  const searches = await Promise.all([\n    searchCustomers(raw, 12),\n    ...(codeHint ? [searchCustomers(codeHint, 12)] : []),\n    ...(nameWithoutCode && nameWithoutCode !== raw ? [searchCustomers(nameWithoutCode, 12)] : []),\n  ]);\n  const candidates = uniqueById(searches.flat());\n  if (!candidates.length) {`
+    },
+    {
+      label: 'prefer exact code before phone and name',
+      from: `  const rawPhone = normalizePhone(raw);`,
+      to: `  if (codeHint) {\n    const exactCode = candidates.filter((row) => String(row.code || '').trim() === codeHint);\n    if (exactCode.length === 1) {\n      return { customer: exactCode[0], confidence: 0.995, strategy: 'code_exact', reason: 'تم استخراج كود العميل من هوية/اسم ملف التصدير ومطابقته بالكامل.', candidates };\n    }\n    if (exactCode.length > 1) {\n      const branchKey = normalizeBranch(branch);\n      const sameBranch = branchKey ? exactCode.filter((row) => normalizeBranch(row.branch) === branchKey) : [];\n      if (sameBranch.length === 1) {\n        return { customer: sameBranch[0], confidence: 0.98, strategy: 'code_exact', reason: 'كود العميل متطابق وتم حسم السجل باستخدام الفرع.', candidates: exactCode };\n      }\n      return { customer: null, confidence: 0.5, strategy: 'ambiguous', reason: 'كود العميل موجود في أكثر من سجل؛ يحتاج اختيارًا بشريًا.', candidates: exactCode };\n    }\n  }\n\n  const rawPhone = normalizePhone(raw);`
+    },
+    {
+      label: 'exact name ignores trailing customer code',
+      from: `  const rawName = normalizeArabicText(raw);`,
+      to: `  const rawName = normalizeArabicText(nameWithoutCode || raw);`
+    }
+  ]);
+}
 
 patchFile('src/lib/whatsappUnifiedIntelligenceV4.ts', [
   {

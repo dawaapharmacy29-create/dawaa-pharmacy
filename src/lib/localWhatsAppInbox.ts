@@ -1,6 +1,7 @@
 const DB_NAME = 'dawaa-local-whatsapp-inbox';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE = 'directory_handles';
+const HISTORY_STORE = 'analysis_history';
 const HANDLE_KEY = 'whatsapp_exports';
 const LEDGER_KEY = 'dawaa.whatsapp.localInbox.processed.v1';
 const FAILED_KEY = 'dawaa.whatsapp.localInbox.failed.v1';
@@ -17,7 +18,7 @@ export interface LocalInboxCandidate {
   lastModified: number;
 }
 
-interface FailedInboxItem {
+export interface FailedInboxItem {
   key: string;
   failedAt: number;
   attempts: number;
@@ -36,6 +37,10 @@ function openDb(): Promise<IDBDatabase> {
     request.onupgradeneeded = () => {
       const db = request.result;
       if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'id' });
+      if (!db.objectStoreNames.contains(HISTORY_STORE)) {
+        const history = db.createObjectStore(HISTORY_STORE, { keyPath: 'key' });
+        history.createIndex('savedAt', 'savedAt');
+      }
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error || new Error('تعذر فتح مخزن إعدادات الفولدر المحلي'));
@@ -156,15 +161,54 @@ export function resetLocalWhatsAppProcessedLedger() {
   localStorage.removeItem(FAILED_KEY);
 }
 
-export async function getUnprocessedWhatsAppExports(handle: any, limit = 10): Promise<LocalInboxCandidate[]> {
+export function resetLocalWhatsAppProcessedKeys(keys: string[]) {
+  if (!keys.length) return;
+  const target = new Set(keys);
+  const processed = readStringLedger(LEDGER_KEY).filter((item) => !target.has(item));
+  localStorage.setItem(LEDGER_KEY, JSON.stringify(processed));
+  const failed = readFailedLedger().filter((item) => !target.has(item.key));
+  localStorage.setItem(FAILED_KEY, JSON.stringify(failed));
+}
+
+export function resetLocalWhatsAppProcessedFileNames(fileNames: string[]) {
+  const names = new Set(fileNames.map((name) => String(name || '').trim()).filter(Boolean));
+  if (!names.size) return;
+  const matchesName = (key: string) => {
+    const name = key.split('|', 1)[0] || '';
+    return names.has(name);
+  };
+  const processed = readStringLedger(LEDGER_KEY).filter((item) => !matchesName(item));
+  localStorage.setItem(LEDGER_KEY, JSON.stringify(processed));
+  const failed = readFailedLedger().filter((item) => !matchesName(item.key));
+  localStorage.setItem(FAILED_KEY, JSON.stringify(failed));
+}
+
+export function getLocalWhatsAppFailedItems(): FailedInboxItem[] {
+  return readFailedLedger();
+}
+
+export function resetLocalWhatsAppFailedLedger() {
+  localStorage.removeItem(FAILED_KEY);
+}
+
+
+export async function getUnprocessedWhatsAppExports(
+  handle: any,
+  limit = 10,
+  onlyFileNames?: string[]
+): Promise<LocalInboxCandidate[]> {
   const permission = await queryLocalWhatsAppFolderPermission(handle, false);
   if (permission !== 'granted') return [];
   const processed = new Set(readStringLedger(LEDGER_KEY));
   const failed = new Map(readFailedLedger().map((item) => [item.key, item]));
+  const allowedNames = onlyFileNames?.length
+    ? new Set(onlyFileNames.map((name) => String(name || '').trim()).filter(Boolean))
+    : null;
   const now = Date.now();
   const candidates: LocalInboxCandidate[] = [];
   for await (const entry of handle.values()) {
     if (!entry || entry.kind !== 'file' || !isSupportedExportName(String(entry.name || ''))) continue;
+    if (allowedNames && !allowedNames.has(String(entry.name || '').trim())) continue;
     const file = await entry.getFile();
     const key = candidateKey(file);
     if (processed.has(key)) continue;
@@ -175,7 +219,7 @@ export async function getUnprocessedWhatsAppExports(handle: any, limit = 10): Pr
     }
     candidates.push({ file, key, name: file.name, size: file.size, lastModified: file.lastModified });
   }
-  candidates.sort((a, b) => a.lastModified - b.lastModified || a.name.localeCompare(b.name));
+  candidates.sort((a, b) => b.lastModified - a.lastModified || a.name.localeCompare(b.name));
   return candidates.slice(0, Math.max(1, Math.min(25, limit)));
 }
 
@@ -183,4 +227,98 @@ export async function getNewestUnprocessedWhatsAppExport(handle: any): Promise<L
   const candidates = await getUnprocessedWhatsAppExports(handle, 25);
   if (!candidates.length) return null;
   return [...candidates].sort((a, b) => b.lastModified - a.lastModified || b.size - a.size || a.name.localeCompare(b.name))[0] || null;
+}
+
+export async function findLocalWhatsAppExportFileNames(
+  handle: any,
+  query: string,
+  limit = 20
+): Promise<string[]> {
+  const permission = await queryLocalWhatsAppFolderPermission(handle, false);
+  if (permission !== 'granted') return [];
+  const needle = String(query || '').trim().toLowerCase();
+  if (!needle) return [];
+
+  const names: string[] = [];
+  for await (const entry of handle.values()) {
+    if (!entry || entry.kind !== 'file') continue;
+    const name = String(entry.name || '').trim();
+    if (!isSupportedExportName(name)) continue;
+    if (!name.toLowerCase().includes(needle)) continue;
+    names.push(name);
+    if (names.length >= Math.max(1, Math.min(50, limit))) break;
+  }
+  return names.sort((a, b) => a.localeCompare(b));
+}
+
+
+export interface LocalWhatsAppAnalysisHistoryRow<T = unknown> {
+  key: string;
+  fileName: string;
+  savedAt: number;
+  payload: T;
+}
+
+export async function saveLocalWhatsAppAnalysisHistory<T>(
+  key: string,
+  fileName: string,
+  payload: T
+) {
+  if (typeof indexedDB === 'undefined') return;
+  const db = await openDb();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(HISTORY_STORE, 'readwrite');
+      tx.objectStore(HISTORY_STORE).put({
+        key,
+        fileName,
+        savedAt: Date.now(),
+        payload,
+      } satisfies LocalWhatsAppAnalysisHistoryRow<T>);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error || new Error('تعذر حفظ سجل تحليل واتساب المحلي'));
+      tx.onabort = () => reject(tx.error || new Error('تعذر حفظ سجل تحليل واتساب المحلي'));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+export async function loadLocalWhatsAppAnalysisHistory<T>(limit = 30): Promise<LocalWhatsAppAnalysisHistoryRow<T>[]> {
+  if (typeof indexedDB === 'undefined') return [];
+  const db = await openDb();
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(HISTORY_STORE, 'readonly');
+      const store = tx.objectStore(HISTORY_STORE);
+      const request = store.getAll();
+      request.onsuccess = () => {
+        const rows = (request.result || []) as LocalWhatsAppAnalysisHistoryRow<T>[];
+        resolve(
+          rows
+            .sort((a, b) => Number(b.savedAt || 0) - Number(a.savedAt || 0))
+            .slice(0, Math.max(1, Math.min(100, limit)))
+        );
+      };
+      request.onerror = () => reject(request.error || new Error('تعذر استرجاع سجل تحليل واتساب المحلي'));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+export async function clearLocalWhatsAppAnalysisHistory() {
+  if (typeof indexedDB === 'undefined') return;
+  const db = await openDb();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(HISTORY_STORE, 'readwrite');
+      tx.objectStore(HISTORY_STORE).clear();
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error || new Error('تعذر مسح سجل التحليل المحلي'));
+      tx.onabort = () => reject(tx.error || new Error('تعذر مسح سجل التحليل المحلي'));
+    });
+  } finally {
+    db.close();
+  }
 }
