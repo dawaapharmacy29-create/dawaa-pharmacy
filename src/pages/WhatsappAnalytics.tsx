@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { BarChart3, MessageCircle, Star, TrendingUp, Users } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useEmployeeTransactions } from '@/hooks/useEmployeeTransactions';
@@ -64,6 +65,7 @@ type DoctorAggregate = {
 };
 
 export default function WhatsappAnalytics() {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const cycle = getCurrentCycle();
   const [startDate, setStartDate] = useState(formatCycleDate(cycle.start));
@@ -246,6 +248,41 @@ export default function WhatsappAnalytics() {
         <p className="mt-1 text-sm text-slate-400">
           تقرير دوري لجودة المحادثات، الترشيحات، الإغلاق، وربط النتائج بالمبيعات والنقاط.
         </p>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        {[
+          {
+            title: 'الحالة الكاملة',
+            detail: 'العميل + المحادثة + الفاتورة + البنود والأصناف',
+            path: '/whatsapp-smart-folder-watcher',
+          },
+          {
+            title: 'سجل العملاء',
+            detail: 'رحلة العميل والتعاملات السابقة والمتابعات',
+            path: '/whatsapp-customer-history',
+          },
+          {
+            title: 'فرص المبيعات',
+            detail: 'الفرص الضائعة والتعثر وأسباب الفقد',
+            path: '/whatsapp-lost-opportunities',
+          },
+          {
+            title: 'فرص المتابعة',
+            detail: 'طلبات المتابعة الآلية والحالات التي تحتاج تدخل',
+            path: '/whatsapp-followup-requests',
+          },
+        ].map((item) => (
+          <button
+            key={item.path}
+            type="button"
+            onClick={() => navigate(item.path)}
+            className="rounded-2xl border border-[#2d4063] bg-[#1B2B4B] p-4 text-right transition hover:border-teal-400/40 hover:bg-[#20345a]"
+          >
+            <div className="font-black text-white">{item.title}</div>
+            <div className="mt-1 text-xs leading-5 text-slate-400">{item.detail}</div>
+          </button>
+        ))}
       </div>
 
       <div className="rounded-2xl border border-[#2d4063] bg-[#1B2B4B] p-4">
