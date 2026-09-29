@@ -7,7 +7,6 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { normalizeBranchName } from '@/lib/branch';
 import { canViewAllBranches } from '@/lib/security/userDataScope';
-import { createStaffNotification } from '@/lib/staffNotificationService';
 import { readAttendanceRange } from '@/lib/readModels/attendanceReadModel';
 import {
   evaluationProfileForRole,
@@ -20,9 +19,10 @@ import {
 } from '@/lib/staff/staffPointsDashboardService';
 import {
   currentEvaluationCycleLabel,
-  previousEvaluationCycleLabel,
   evaluationCycleRangeFromLabel,
-  evaluationCycleQueryBounds,
+  evaluationCycleDateKeys,
+  isEvaluationCycleClosed,
+  latestClosedEvaluationCycleLabel,
 } from '@/lib/evaluations/monthlyEvaluationCycle';
 import {
   CRITICAL_GATE_CAPS,
@@ -130,8 +130,11 @@ export default function StaffMonthlyEvaluation() {
   const globalScope = ['branches_manager', 'executive', 'admin'].includes(actorRole);
 
   const [branch, setBranch] = useState(globalScope ? 'فرع الشامي' : ownBranch);
-  const [cycleLabel, setCycleLabel] = useState(() => currentEvaluationCycleLabel());
+  const [cycleLabel, setCycleLabel] = useState(() => latestClosedEvaluationCycleLabel());
   const cycleRange = useMemo(() => evaluationCycleRangeFromLabel(cycleLabel), [cycleLabel]);
+  const cycleClosed = useMemo(() => isEvaluationCycleClosed(cycleLabel), [cycleLabel]);
+  const activeCycleLabel = currentEvaluationCycleLabel();
+  const latestClosedCycleLabel = latestClosedEvaluationCycleLabel();
   const [staff, setStaff] = useState<StaffRow[]>([]);
   const [selectedId, setSelectedId] = useState('');
   const [search, setSearch] = useState('');
@@ -147,6 +150,7 @@ export default function StaffMonthlyEvaluation() {
   const [managerNotes, setManagerNotes] = useState('');
   const [status, setStatus] = useState('draft');
   const [previouslySent, setPreviouslySent] = useState(false);
+  const [sentAtIso, setSentAtIso] = useState('');
   const [evaluationId, setEvaluationId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -170,6 +174,11 @@ export default function StaffMonthlyEvaluation() {
   );
   const evaluationNotStarted = sections.length > 0 && sections.every((item) => item.score === 0);
   const grade = evaluationNotStarted ? 'لسه ما اتقيّمش' : gradeFor(overallScore);
+  const requiresPostCycleReapproval = Boolean(
+    ['sent', 'approved'].includes(status)
+      && sentAtIso
+      && new Date(sentAtIso).getTime() <= cycleRange.end.getTime()
+  );
 
   // ملحوظة مهمة: مفيش "فئة شرائح تقديرية" هنا عمدًا — نظام الشرائح
   // (resolveIncentiveTier) خاص بحافز المديرين الأسبوعي، مش بحافز الدكاترة.
@@ -208,7 +217,7 @@ export default function StaffMonthlyEvaluation() {
     const loadEvaluation = async () => {
       setLoading(true);
       try {
-        const { startDate, endDateExclusive } = evaluationCycleQueryBounds(cycleLabel);
+        const { startDate, endDate, endDateExclusive } = evaluationCycleDateKeys(cycleLabel);
         const cycleKeyDate = `${cycleLabel}-01`;
         const [savedResult, reviewResult, followupResult, attendanceResult, pointsResult, statementResult] = await Promise.all([
           supabase.rpc('get_staff_monthly_evaluation_safe', {
@@ -240,8 +249,8 @@ export default function StaffMonthlyEvaluation() {
             .from('employee_monthly_statements')
             .select('points_closing,incentive_amount')
             .eq('staff_id', selectedId)
-            .eq('cycle_start', cycleRange.start.toISOString().slice(0, 10))
-            .eq('cycle_end', cycleRange.end.toISOString().slice(0, 10))
+            .eq('cycle_start', startDate)
+            .eq('cycle_end', endDate)
             .maybeSingle(),
         ]);
 
@@ -284,8 +293,15 @@ export default function StaffMonthlyEvaluation() {
           setStrengthsText(Array.isArray(saved.strengths) ? saved.strengths.map(String).join('\n') : '');
           setDevelopmentText(Array.isArray(saved.development_points) ? saved.development_points.map(String).join('\n') : '');
           setManagerNotes(String(saved.manager_notes || ''));
-          setStatus(String(saved.status || 'draft'));
-          setPreviouslySent(String(saved.status || 'draft') === 'sent');
+          const savedStatus = String(saved.status || 'draft');
+          const savedSentAt = String(saved.sent_at || '');
+          setStatus(savedStatus);
+          setSentAtIso(savedSentAt);
+          setPreviouslySent(
+            ['sent', 'approved'].includes(savedStatus)
+              && Boolean(savedSentAt)
+              && new Date(savedSentAt).getTime() > cycleRange.end.getTime()
+          );
           const snapshot = saved.metrics_snapshot as Record<string, unknown> | null;
           const savedGates = snapshot && Array.isArray(snapshot.active_critical_gates) ? (snapshot.active_critical_gates as string[]) : [];
           const validSavedGates = savedGates.filter((gate): gate is CriticalGateType => gate in CRITICAL_GATE_CAPS);
@@ -298,6 +314,7 @@ export default function StaffMonthlyEvaluation() {
           setDevelopmentText('');
           setManagerNotes('');
           setStatus('draft');
+          setSentAtIso('');
           setPreviouslySent(false);
           setActiveGates([]);
           setSavedActiveGates([]);
@@ -353,8 +370,12 @@ export default function StaffMonthlyEvaluation() {
       toast.error('لا يمكنك اعتماد أو تعديل تقييمك الشهري لنفسك.');
       return;
     }
-    if (managerMode && sections.some((item) => item.score === 0)) {
-      toast.error('يجب تقييم كل المحاور قبل الاعتماد');
+    if (nextStatus === 'sent' && !cycleClosed) {
+      toast.error(`الدورة ما زالت جارية حتى ${cycleRange.displayLabel.split('–')[1]?.trim() || 'يوم 25'}. يمكنك حفظ مسودة فقط ثم الاعتماد بعد إقفال الدورة.`);
+      return;
+    }
+    if (nextStatus === 'sent' && managerMode && sections.some((item) => item.score === 0)) {
+      toast.error('يجب تقييم كل المحاور قبل الاعتماد النهائي');
       return;
     }
 
@@ -401,7 +422,7 @@ export default function StaffMonthlyEvaluation() {
         sent_at: nextStatus === 'sent' ? new Date().toISOString() : null,
       };
 
-      const { data, error } = await supabase.rpc('save_staff_monthly_evaluation_v2', {
+      const { data, error } = await supabase.rpc('save_staff_monthly_evaluation_v3', {
         p_payload: payload,
       });
       if (error) throw error;
@@ -414,7 +435,7 @@ export default function StaffMonthlyEvaluation() {
       // في الـLedger المركزي، مش مجرد علامة بصرية. لا نكرر الخصم لمخالفة كانت
       // مفعّلة أصلاً من قبل عند نفس التقييم.
       const newlyActivatedGates = activeGates.filter((gate) => !savedActiveGates.includes(gate));
-      if (newlyActivatedGates.length) {
+      if (nextStatus === 'sent' && newlyActivatedGates.length) {
         for (const gate of newlyActivatedGates) {
           const gateInfo = CRITICAL_GATE_CAPS[gate];
           const penaltyPoints = CRITICAL_GATE_POINT_PENALTY[gate];
@@ -437,27 +458,13 @@ export default function StaffMonthlyEvaluation() {
         toast.success(`تم تسجيل خصم نقاط فعلي لـ${newlyActivatedGates.length} مخالفة حرجة في حساب الموظف.`);
       }
 
-      // السيرفر يثبت multiplier مع أول إرسال داخل نفس Transaction.
-      if (saveResult.multiplier_applied === true) {
+      // السيرفر هو مصدر الحقيقة: يعتمد التقييم ويزامن معامل الحافز في نفس العملية.
+      if (nextStatus === 'sent' && saveResult.multiplier_applied === true) {
         setPreviouslySent(true);
-        toast.success(`تم تثبيت نسبة التقييم (${overallScore}%) على حافز النقاط لهذه الدورة.`);
-      } else if (nextStatus === 'sent' && saveResult.multiplier_reason === 'existing_multiplier_preserved') {
-        setPreviouslySent(true);
-      } else if (nextStatus === 'sent' && saveResult.multiplier_reason === 'payroll_finalized_immutable') {
-        toast.warning('تم حفظ التقييم، لكن دورة الراتب مقفلة ماليًا ولن يتم تغيير الحافز المجمد.');
+        setSentAtIso(String(saveResult.sent_at || new Date().toISOString()));
+        toast.success(`تم اعتماد التقييم ومزامنة نسبته (${overallScore}%) مع حافز الدورة.`);
       }
 
-      if (nextStatus === 'sent') {
-        await createStaffNotification({
-          recipientStaffId: selected.id,
-          title: 'تم إرسال تقييمك الشهري',
-          message: `تقييم دورة ${cycleRange.displayLabel}: ${overallScore}/100 - ${grade}. الحافز المالي = حافز النقاط × نسبة التقييم.`,
-          type: 'staff_monthly_evaluation',
-          entityType: 'staff_monthly_evaluation',
-          entityId: savedEvaluationId,
-          actionUrl: '/staff-dashboard',
-        }).catch(() => null);
-      }
       toast.success(nextStatus === 'sent' ? 'تم إرسال التقييم للموظف' : 'تم حفظ التقييم');
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : 'فشل حفظ التقييم');
@@ -494,23 +501,23 @@ export default function StaffMonthlyEvaluation() {
             <div className="flex overflow-hidden rounded-2xl border" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
               <button
                 type="button"
-                onClick={() => setCycleLabel(previousEvaluationCycleLabel(currentEvaluationCycleLabel()))}
+                onClick={() => setCycleLabel(latestClosedCycleLabel)}
                 className="px-3 py-2 text-xs font-black"
-                style={cycleLabel === previousEvaluationCycleLabel(currentEvaluationCycleLabel())
+                style={cycleLabel === latestClosedCycleLabel
                   ? { background: 'var(--dawaa-theme-primary)', color: 'var(--dawaa-theme-primary-text)' }
                   : { color: 'var(--dawaa-theme-muted)' }}
               >
-                الدورة السابقة
+                آخر دورة مكتملة
               </button>
               <button
                 type="button"
-                onClick={() => setCycleLabel(currentEvaluationCycleLabel())}
+                onClick={() => setCycleLabel(activeCycleLabel)}
                 className="px-3 py-2 text-xs font-black"
-                style={cycleLabel === currentEvaluationCycleLabel()
+                style={cycleLabel === activeCycleLabel
                   ? { background: 'var(--dawaa-theme-primary)', color: 'var(--dawaa-theme-primary-text)' }
                   : { color: 'var(--dawaa-theme-muted)' }}
               >
-                الدورة الحالية
+                الدورة الجارية
               </button>
             </div>
             {globalScope ? (
@@ -520,9 +527,23 @@ export default function StaffMonthlyEvaluation() {
             ) : null}
           </div>
         </div>
-        <div className="mt-3 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-black" style={{ borderColor: 'var(--dawaa-theme-accent-border)', background: 'var(--dawaa-theme-accent-soft)', color: 'var(--dawaa-theme-primary-strong)' }}>
-          فترة الدورة: {cycleRange.displayLabel}
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <div className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-black" style={{ borderColor: 'var(--dawaa-theme-accent-border)', background: 'var(--dawaa-theme-accent-soft)', color: 'var(--dawaa-theme-primary-strong)' }}>
+            فترة الدورة: {cycleRange.displayLabel}
+          </div>
+          <div className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-black" style={{ borderColor: cycleClosed ? 'var(--dawaa-status-success-border)' : 'var(--dawaa-status-warning-border)', background: cycleClosed ? 'var(--dawaa-status-success-soft)' : 'var(--dawaa-status-warning-soft)', color: cycleClosed ? 'var(--dawaa-status-success-text)' : 'var(--dawaa-status-warning-text)' }}>
+            {cycleClosed ? 'الدورة مكتملة — متاحة للاعتماد' : 'الدورة جارية — مسودة فقط'}
+          </div>
         </div>
+        {!cycleClosed ? (
+          <div className="mt-3 rounded-2xl border p-3 text-sm font-bold" style={{ borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-status-warning-soft)', color: 'var(--dawaa-status-warning-text)' }}>
+            البيانات ما زالت تتغير حتى نهاية يوم 25. يمكنك متابعة الأداء وحفظ التقييم كمسودة، لكن الاعتماد النهائي يفتح بعد إقفال الدورة.
+          </div>
+        ) : requiresPostCycleReapproval ? (
+          <div className="mt-3 rounded-2xl border p-3 text-sm font-bold" style={{ borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-status-warning-soft)', color: 'var(--dawaa-status-warning-text)' }}>
+            هذا التقييم أُرسل قبل اكتمال الدورة. راجعه الآن بعد الإقفال ثم اضغط «إعادة اعتماد الدورة» حتى يتزامن أثره المالي مع البيانات المكتملة.
+          </div>
+        ) : null}
       </Panel>
 
       <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
@@ -735,13 +756,15 @@ export default function StaffMonthlyEvaluation() {
 
               <Panel className="flex flex-wrap items-center justify-between gap-3 p-4">
                 <div className="flex items-center gap-2 text-sm font-bold" style={{ color: 'var(--dawaa-theme-text)' }}>
-                  <CheckCircle2 style={{ color: 'var(--dawaa-theme-primary-strong)' }} size={18} /> الحالة: {status} · المحرك: V3
+                  <CheckCircle2 style={{ color: 'var(--dawaa-theme-primary-strong)' }} size={18} /> الحالة: {requiresPostCycleReapproval ? 'اعتماد مبكر — يحتاج إعادة اعتماد' : status === 'sent' ? 'معتمد ومُرسل' : 'مسودة'} · المحرك: V4
                 </div>
                 {canEdit ? (
                   <div className="flex flex-wrap gap-2">
                     <button type="button" disabled={exportingPdf} onClick={() => void handleExportPdf()} className="btn-secondary inline-flex items-center gap-2">{exportingPdf ? <Loader2 size={16} className="animate-spin" /> : <FileDown size={16} />} تصدير PDF</button>
-                    <button type="button" disabled={saving} onClick={() => void save('draft')} className="btn-secondary inline-flex items-center gap-2"><Save size={16} /> حفظ</button>
-                    <button type="button" disabled={saving} onClick={() => void save('sent')} className="btn-primary inline-flex items-center gap-2">{saving ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />} إرسال للموظف</button>
+                    {!['sent', 'approved'].includes(status) ? (
+                      <button type="button" disabled={saving} onClick={() => void save('draft')} className="btn-secondary inline-flex items-center gap-2"><Save size={16} /> حفظ مسودة</button>
+                    ) : null}
+                    <button type="button" disabled={saving || !cycleClosed} onClick={() => void save('sent')} className="btn-primary inline-flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-60">{saving ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />} {!cycleClosed ? 'الاعتماد بعد إقفال الدورة' : requiresPostCycleReapproval ? 'إعادة اعتماد الدورة' : previouslySent ? 'تحديث واعتماد' : 'اعتماد وإرسال'}</button>
                   </div>
                 ) : null}
               </Panel>
