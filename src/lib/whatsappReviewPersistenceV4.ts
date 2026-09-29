@@ -153,60 +153,6 @@ export async function persistAnalyzedWhatsAppSession(
   return { id: String(data.id), duplicate: false, sourceHash, reviewStatus };
 }
 
-export async function archiveSupersededLegacyWhatsAppSourceV35(args: {
-  sourceFileName: string;
-  fullConversationStartedAt: string;
-  fullConversationEndedAt: string;
-  fullMessageCount: number;
-  replacementSourceIds: string[];
-  actorId?: string | null;
-  actorName?: string | null;
-}) {
-  const replacementIds = Array.from(
-    new Set((args.replacementSourceIds || []).map((id) => String(id || '').trim()).filter(Boolean))
-  );
-  if (replacementIds.length < 2) {
-    return { archived: 0, deletedCases: 0, skippedReason: 'replacement_sources_less_than_two' as const };
-  }
-
-  const { data, error } = await supabase.rpc('dawaa_archive_superseded_whatsapp_source_v35', {
-    p_source_filename: args.sourceFileName,
-    p_full_started_at: args.fullConversationStartedAt,
-    p_full_ended_at: args.fullConversationEndedAt,
-    p_full_message_count: args.fullMessageCount,
-    p_replacement_source_ids: replacementIds,
-  });
-  if (error) throw error;
-
-  const result = (data || {}) as {
-    archived?: number;
-    archivedSourceId?: string;
-    replacementSourceIds?: string[];
-    deletedCases?: number;
-    deletedDerived?: Record<string, number>;
-    skippedReason?: string | null;
-  };
-
-  if (result.archived && result.archivedSourceId) {
-    try {
-      await appendWhatsAppReviewAudit(
-        String(result.archivedSourceId),
-        'legacy_source_superseded',
-        null,
-        result,
-        args.actorId || null,
-        args.actorName || null,
-        null,
-        `Atomic V35 replacement by ${replacementIds.length} case-scoped sources`,
-      );
-    } catch (auditError) {
-      console.warn('[whatsapp-review-v35] superseded-source audit append failed after atomic replacement', auditError);
-    }
-  }
-
-  return result;
-}
-
 export async function attachInvoiceVerificationToQueue(
   sourceId: string,
   verification: UnifiedInvoiceVerification,

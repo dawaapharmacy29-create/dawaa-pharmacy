@@ -55,7 +55,7 @@ import { buildConversationUnderstandingV32 } from '@/lib/whatsappConversationUnd
 import { syncWhatsAppResponseTurnsV18 } from '@/lib/whatsappResponseTurnsV18';
 import { syncWhatsAppEvidenceLedgerV17 } from '@/lib/whatsappEvidenceLedgerV17';
 import { syncWhatsAppOrderLifecycleV19 } from '@/lib/whatsappOrderLifecycleV19';
-import { persistAnalyzedWhatsAppSession, attachInvoiceVerificationToQueue, confirmWhatsAppInvoiceLinkV34, archiveSupersededLegacyWhatsAppSourceV35 } from '@/lib/whatsappReviewPersistenceV4';
+import { persistAnalyzedWhatsAppSession, attachInvoiceVerificationToQueue, confirmWhatsAppInvoiceLinkV34 } from '@/lib/whatsappReviewPersistenceV4';
 import type { JourneySessionSourceV15 } from '@/lib/whatsappCustomerJourneyPersistenceV15';
 import { syncCanonicalCaseGraphForFile, type WatcherCaseGraphSyncResult } from '@/lib/whatsappWatcherCaseGraphSync';
 import { segmentWhatsAppExportCanonical } from '@/lib/whatsappCanonicalSegmentation';
@@ -792,34 +792,9 @@ export default function WhatsAppSmartFolderWatcher() {
       createdBy: actorName,
     });
 
-    const replacementSourceIds = Array.from(new Set(
-      persistedSessionSources.map((row) => row.sourceId).filter(Boolean)
-    ));
-    if (
-      caseContexts.caseEngine.caseCount > 1 &&
-      caseGraph.customerCase.status === 'saved' &&
-      caseGraph.customerCase.saved === caseContexts.caseEngine.caseCount &&
-      replacementSourceIds.length >= 2
-    ) {
-      try {
-        const archiveResult = await archiveSupersededLegacyWhatsAppSourceV35({
-          sourceFileName: file.name,
-          fullConversationStartedAt: messages[0]?.timestamp?.toISOString?.() || '',
-          fullConversationEndedAt: messages[messages.length - 1]?.timestamp?.toISOString?.() || '',
-          fullMessageCount: messages.length,
-          replacementSourceIds,
-          actorId: String(user?.id || '') || null,
-          actorName,
-        });
-        if (archiveResult.archived) {
-          console.info('[whatsapp-watcher] archived superseded monolithic source', archiveResult);
-        } else if (archiveResult.skippedReason && archiveResult.skippedReason !== 'no_legacy_monolithic_source') {
-          console.warn('[whatsapp-watcher] legacy source cleanup skipped safely', archiveResult);
-        }
-      } catch (archiveError) {
-        console.warn('[whatsapp-watcher] legacy source cleanup failed; new case sources preserved', archiveError);
-      }
-    }
+    // Supersession is decided only by the Canonical Source Gate (text containment against
+    // V22-owned canonical sources, at Sales Intelligence admission). The V35 filename-keyed
+    // archive RPC hard-deleted V22/SI cases and derived history; it is retired here.
 
     const pipelineErrors = [
       ...sourcePersistErrors.map((error) => `Source not saved — ${error}`),

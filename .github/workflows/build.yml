@@ -86,6 +86,10 @@ jobs:
           path: whatsapp-operational-reanalysis-plan.json
           if-no-files-found: error
           retention-days: 7
+      # Production writes need an explicit manual workflow_dispatch with apply selected.
+      # A pull request, a push or any re-run stays read-only.
       - name: Apply operational reanalysis
-        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.whatsapp_operational_reanalysis == 'apply') || (github.event_name == 'pull_request' && github.run_attempt > 1) }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.whatsapp_operational_reanalysis == 'apply' }}
+        env:
+          WHATSAPP_REANALYSIS_APPLY_CONFIRMED: manual-workflow-dispatch
         run: npm run whatsapp:operational-reanalysis:apply

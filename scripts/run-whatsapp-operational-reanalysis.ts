@@ -11,17 +11,25 @@ import { enrichWhatsAppOperationalJourneysV7 } from '../src/lib/whatsappProductJ
 import { resolveWhatsAppParticipantRolesV15 } from '../src/lib/whatsappParticipantRoleResolverV15';
 import { resolveConversationBranchHint } from '../src/lib/whatsappConversationBranchHint';
 import { buildWhatsAppCaseContextsV27 } from '../src/lib/whatsappCaseContextV27';
+import {
+  resolveReanalysisMode,
+  selectReanalysisTargets,
+} from '../src/lib/whatsappOperationalReanalysisGuard';
 
 type SourceRow = {
   id: string;
   raw_text: string | null;
   branch: string | null;
+  source_filename: string | null;
+  review_status: string | null;
   conversation_started_at: string | null;
+  conversation_ended_at: string | null;
   analysis_json: Record<string, unknown> | null;
 };
 
 const args = new Set(process.argv.slice(2));
-const apply = args.has('--apply');
+// Fails closed before any read when apply is requested without explicit manual confirmation.
+const apply = resolveReanalysisMode({ argv: process.argv.slice(2), env: process.env }) === 'apply';
 const json = args.has('--json');
 const sourceIdArg = process.argv.find((arg) => arg.startsWith('--source-id='));
 const sourceId = sourceIdArg ? sourceIdArg.slice('--source-id='.length).trim() : null;
@@ -177,7 +185,9 @@ async function loadSources(): Promise<SourceRow[]> {
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     let query = supabase
       .from('whatsapp_review_sources')
-      .select('id,raw_text,branch,conversation_started_at,analysis_json')
+      .select(
+        'id,raw_text,branch,source_filename,review_status,conversation_started_at,conversation_ended_at,analysis_json'
+      )
       .order('conversation_started_at', { ascending: true })
       .limit(1000);
 
@@ -325,8 +335,14 @@ async function rebuild(row: SourceRow) {
 }
 
 async function main() {
-  const rows = await loadSources();
-  const results: Array<Record<string, unknown>> = [];
+  const loaded = await loadSources();
+  // Only canonical analytical sources are rewritten; a resolver failure aborts the run.
+  const { targets: rows, excluded } = await selectReanalysisTargets(supabase, loaded);
+  const results: Array<Record<string, unknown>> = excluded.map((row) => ({
+    sourceId: row.sourceId,
+    status: 'skipped_non_canonical_source',
+    reason: row.reason,
+  }));
   for (const row of rows) {
     try {
       results.push({ sourceId: row.id, ...(await rebuild(row)) });
@@ -343,7 +359,9 @@ async function main() {
   const summary = {
     mode: apply ? 'apply' : 'dry_run',
     logicVersion: ANALYSIS_LOGIC_VERSION,
-    totalRows: rows.length,
+    totalRows: loaded.length,
+    canonicalRows: rows.length,
+    skippedNonCanonical: excluded.length,
     planned: count('planned'),
     updated: count('updated'),
     skippedMissingRaw: count('skipped_missing_raw'),
