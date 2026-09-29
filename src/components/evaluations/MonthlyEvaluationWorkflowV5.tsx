@@ -22,13 +22,6 @@ type Props = {
   approvalReady: boolean;
   status: string;
   requiresPostCycleReapproval: boolean;
-  summary: {
-    total: number;
-    notStarted: number;
-    draft: number;
-    approved: number;
-    needsReapproval: number;
-  };
 };
 
 const STEPS = [
@@ -50,7 +43,6 @@ export default function MonthlyEvaluationWorkflowV5({
   approvalReady,
   status,
   requiresPostCycleReapproval,
-  summary,
 }: Props) {
   const stepReady: Record<MonthlyEvaluationStep, boolean> = {
     1: evidenceReady,
