@@ -129,7 +129,7 @@ export function normalizeBaseText(text: string): string {
   // digits and letters (Arabic + Latin) intact — a slash inside a strength like "20/10 mg" is
   // deliberately treated as a separator here since the two numbers are handled as separate
   // strength tokens by extractStrengths.
-  result = result.replace(/[.,;:_\-\/\\()<>\[\]{}!؟?"'`~*#+=|]/g, ' ');
+  result = result.replace(/[.,;:_\-/\\()<>\x5B\x5D{}!؟?"'`~*#+=|]/g, ' ');
   // Insert a boundary between a letter (either script) and an immediately adjacent digit, so
   // "زوركال٢٠" (no space in the source) and "زوركال 20" normalize to the same text — customers
   // routinely type strength glued to the name with no separator.
