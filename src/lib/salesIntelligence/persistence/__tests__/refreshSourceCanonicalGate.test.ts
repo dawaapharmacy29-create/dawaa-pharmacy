@@ -284,14 +284,22 @@ describe('canonical refresh — single proof writer (server transport, writer mo
     expect(writes.filter((row) => row.table === 'whatsapp_customer_cases_v22')).toEqual([]);
   });
 
-  it('does not call the proof writer or clear V22 for a non-proven outcome', async () => {
+  it('delegates a non-proven outcome to the single writer (which may revoke) and never writes V22 directly', async () => {
     runBatchPersistence.mockResolvedValue(
       batchResult([analysis('order_confirmed_unproven', 'strongly_supported', 'strongly_inferred')])
     );
+    rpc.mockResolvedValue({ data: { ok: true, status: 'revoked' }, error: null });
     const res = await call(load, fine.id);
     expect(res.statusCode).toBe(200);
-    expect(rpc).not.toHaveBeenCalled();
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(rpc).toHaveBeenCalledWith('dawaa_reconcile_sales_intelligence_case_v22_v1', {
+      p_sales_case_id: `${fine.id}:interaction:0`,
+    });
+    expect(res.body.canonicalReconciliation).toEqual([
+      { caseId: `${fine.id}:interaction:0`, ok: true, status: 'revoked' },
+    ]);
     expect(writes.filter((row) => row.table === 'whatsapp_customer_cases_v22')).toEqual([]);
+    expect(writes.filter((row) => row.table === 'whatsapp_conversation_actions')).toEqual([]);
   });
 
   it('closes a customer request as sold only after the proof writer accepted the case', async () => {

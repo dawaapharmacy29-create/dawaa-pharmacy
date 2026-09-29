@@ -159,17 +159,14 @@ export async function runCanonicalSalesIntelligenceRefresh(
   }
 
   // 3. Canonical proof bridge — the ONLY writer of Canonical Sale Proof into Customer Case V22.
-  // The RPC re-reads persisted analysis/attribution/match and decides; this filter only avoids
-  // calling it for cases that are not sale_proven in memory.
+  // Truth is bidirectional (V46): the RPC re-reads the CURRENT persisted analysis and promotes,
+  // keeps, moves (invoice A -> B) or revokes the proof this case wrote. It is therefore called for
+  // every persisted case, not only in-memory sale_proven ones; non-proven cases are cheap no-ops.
+  // Bounded by the cases of the admitted sources of this request.
   const persisted = new Set(outcomes.filter((row) => row.success).map((row) => row.caseId));
-  const provenCandidates = batch.caseAnalyses.filter(
-    (row: any) =>
-      persisted.has(row.caseId) &&
-      row.salesOutcome?.outcome === 'sale_proven' &&
-      row.salesOutcome?.saleProofState === 'proven'
-  );
+  const reconcileCandidates = batch.caseAnalyses.filter((row: any) => persisted.has(row.caseId));
   const canonicalReconciliation: CanonicalProofReconciliation[] = [];
-  for (const analysis of provenCandidates) {
+  for (const analysis of reconcileCandidates) {
     const { data, error } = await service.rpc(CANONICAL_PROOF_WRITER_RPC, {
       p_sales_case_id: analysis.caseId,
     });

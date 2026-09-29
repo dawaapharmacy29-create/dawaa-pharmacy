@@ -6109,11 +6109,9 @@ async function runCanonicalSalesIntelligenceRefresh(service, input) {
     };
   }
   const persisted = new Set(outcomes.filter((row) => row.success).map((row) => row.caseId));
-  const provenCandidates = batch.caseAnalyses.filter(
-    (row) => persisted.has(row.caseId) && row.salesOutcome?.outcome === "sale_proven" && row.salesOutcome?.saleProofState === "proven"
-  );
+  const reconcileCandidates = batch.caseAnalyses.filter((row) => persisted.has(row.caseId));
   const canonicalReconciliation = [];
-  for (const analysis of provenCandidates) {
+  for (const analysis of reconcileCandidates) {
     const { data, error } = await service.rpc(CANONICAL_PROOF_WRITER_RPC, {
       p_sales_case_id: analysis.caseId
     });
