@@ -86,6 +86,32 @@ type CanonicalCaseRow = {
   verified_invoice_number: string | null;
 };
 
+type CycleSourceRow = {
+  id: string;
+  customer_id: string | null;
+  customer_code: string | null;
+  customer_name: string | null;
+  customer_phone: string | null;
+  branch: string | null;
+  conversation_started_at: string | null;
+};
+
+type CycleActionRow = {
+  id: string;
+  source_id: string;
+  action_type: string;
+  status: string;
+  confidence: number | null;
+  customer_id: string | null;
+  customer_code: string | null;
+  customer_name: string | null;
+  customer_phone: string | null;
+  branch: string | null;
+  product_name: string | null;
+  due_at: string | null;
+  reason: string | null;
+};
+
 function cairoDate() {
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
   const get = (type: string) => parts.find((p) => p.type === type)?.value || '';
@@ -146,6 +172,54 @@ const actionTypeLabel: Record<string, string> = {
   manual_review: 'مراجعة بشرية',
 };
 
+function actionPriority(action: Pick<CycleActionRow, 'action_type' | 'due_at'>) {
+  if (action.action_type === 'complaint_followup') return 1;
+  if (action.due_at && new Date(action.due_at).getTime() <= Date.now()) return 2;
+  if (action.action_type === 'customer_request') return 3;
+  if (action.action_type === 'recommendation_followup') return 4;
+  if (action.action_type === 'customer_followup') return 5;
+  if (action.action_type === 'manual_review') return 6;
+  return 7;
+}
+
+function emptyActionCenterRow(
+  identity: Pick<CycleSourceRow, 'customer_id' | 'customer_code' | 'customer_name' | 'customer_phone' | 'branch'>,
+  bounds: { start: string; end: string },
+  lastConversationAt: string | null = null,
+): ActionCenterRow {
+  return {
+    customer_id: identity.customer_id || null,
+    customer_code: identity.customer_code || null,
+    customer_name: identity.customer_name || null,
+    customer_phone: identity.customer_phone || null,
+    branch: identity.branch || null,
+    cycle_start: bounds.start,
+    cycle_end: bounds.end,
+    conversation_count: 0,
+    commercial_conversations: 0,
+    verified_sale_conversations: 0,
+    conversations_needing_followup: 0,
+    complaint_conversations: 0,
+    last_conversation_at: lastConversationAt,
+    verified_invoice_count: 0,
+    verified_revenue: 0,
+    verified_revenue_over_500: false,
+    pending_followup_actions: 0,
+    pending_customer_requests: 0,
+    needs_customer_service_action: false,
+    next_action_id: null,
+    next_source_id: null,
+    next_action_type: null,
+    next_action_status: null,
+    next_action_confidence: null,
+    next_action_product: null,
+    next_action_reason: null,
+    next_action_due_at: null,
+    action_priority_rank: 99,
+    action_label: null,
+  };
+}
+
 export default function WhatsAppCustomerActionCenterV6({ onOpenSource }: { onOpenSource?: (sourceId: string) => void }) {
   const [rows, setRows] = useState<ActionCenterRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -158,6 +232,8 @@ export default function WhatsAppCustomerActionCenterV6({ onOpenSource }: { onOpe
   const [products, setProducts] = useState<CustomerProduct[]>([]);
   const [actions, setActions] = useState<CustomerAction[]>([]);
   const [canonicalCases, setCanonicalCases] = useState<CanonicalCaseRow[]>([]);
+  const [cycleSources, setCycleSources] = useState<CycleSourceRow[]>([]);
+  const [cycleActions, setCycleActions] = useState<CycleActionRow[]>([]);
   const [detailCanonicalCases, setDetailCanonicalCases] = useState<CanonicalCaseRow[]>([]);
 
   const load = async () => {
@@ -165,14 +241,14 @@ export default function WhatsAppCustomerActionCenterV6({ onOpenSource }: { onOpe
     try {
       const today = cairoDate();
       const bounds = currentCycleBounds();
-      const [legacyResult, canonicalResult] = await Promise.all([
+      const [legacyResult, canonicalResult, sourceResult] = await Promise.all([
         supabase
           .from('whatsapp_customer_service_action_center_v1')
           .select('*')
           .lte('cycle_start', today)
           .gte('cycle_end', today)
-          // Legacy action_priority_rank contains a historical +500 invoice-match rule.
-          // Load rows as data only; canonical prioritization happens client-side below.
+          // Legacy metrics remain fallback context only. Action priority is rebuilt below
+          // from current-cycle sources + whatsapp_conversation_actions.
           .limit(1000),
         supabase
           .from('whatsapp_customer_cases_v22')
@@ -180,11 +256,34 @@ export default function WhatsAppCustomerActionCenterV6({ onOpenSource }: { onOpe
           .gte('started_at', `${bounds.start}T00:00:00+03:00`)
           .lte('started_at', `${bounds.end}T23:59:59+03:00`)
           .limit(500),
+        supabase
+          .from('whatsapp_review_sources')
+          .select('id,customer_id,customer_code,customer_name,customer_phone,branch,conversation_started_at')
+          .gte('conversation_started_at', `${bounds.start}T00:00:00+03:00`)
+          .lte('conversation_started_at', `${bounds.end}T23:59:59+03:00`)
+          .limit(1200),
       ]);
       if (legacyResult.error) throw legacyResult.error;
       if (canonicalResult.error) throw canonicalResult.error;
+      if (sourceResult.error) throw sourceResult.error;
+
+      const currentSources = (sourceResult.data || []) as CycleSourceRow[];
+      const sourceIds = currentSources.map((row) => row.id);
+      const actionChunks: CycleActionRow[][] = [];
+      for (let index = 0; index < sourceIds.length; index += 180) {
+        const actionResult = await supabase
+          .from('whatsapp_conversation_actions')
+          .select('id,source_id,action_type,status,confidence,customer_id,customer_code,customer_name,customer_phone,branch,product_name,due_at,reason')
+          .in('source_id', sourceIds.slice(index, index + 180))
+          .in('status', ['proposed', 'ready']);
+        if (actionResult.error) throw actionResult.error;
+        actionChunks.push((actionResult.data || []) as CycleActionRow[]);
+      }
+
       setRows((legacyResult.data || []) as ActionCenterRow[]);
       setCanonicalCases((canonicalResult.data || []) as CanonicalCaseRow[]);
+      setCycleSources(currentSources);
+      setCycleActions(actionChunks.flat());
     } catch (error) {
       console.error('[whatsapp-action-center-v6] load failed', error);
     } finally {
@@ -280,15 +379,124 @@ export default function WhatsAppCustomerActionCenterV6({ onOpenSource }: { onOpe
     return map;
   }, [canonicalCases]);
 
+  const effectiveRows = useMemo(() => {
+    const bounds = currentCycleBounds();
+    const byCustomer = new Map<string, ActionCenterRow>(
+      rows.map((row) => [canonicalCustomerKey(row), { ...row }])
+    );
+    const sourceById = new Map(cycleSources.map((row) => [row.id, row]));
+    const groupedActions = new Map<string, {
+      identity: Pick<CycleSourceRow, 'customer_id' | 'customer_code' | 'customer_name' | 'customer_phone' | 'branch'>;
+      actions: CycleActionRow[];
+      sourceIds: Set<string>;
+      lastConversationAt: string | null;
+    }>();
+
+    for (const action of cycleActions) {
+      const source = sourceById.get(action.source_id);
+      if (!source) continue;
+      const identity = {
+        customer_id: action.customer_id || source.customer_id || null,
+        customer_code: action.customer_code || source.customer_code || null,
+        customer_name: action.customer_name || source.customer_name || null,
+        customer_phone: action.customer_phone || source.customer_phone || null,
+        branch: action.branch || source.branch || null,
+      };
+      const key = canonicalCustomerKey(identity);
+      const current = groupedActions.get(key) || {
+        identity,
+        actions: [],
+        sourceIds: new Set<string>(),
+        lastConversationAt: null,
+      };
+      current.actions.push(action);
+      current.sourceIds.add(source.id);
+      if (
+        source.conversation_started_at &&
+        (!current.lastConversationAt || source.conversation_started_at > current.lastConversationAt)
+      ) {
+        current.lastConversationAt = source.conversation_started_at;
+      }
+      groupedActions.set(key, current);
+    }
+
+    for (const [key, group] of groupedActions) {
+      const existing = byCustomer.get(key) || emptyActionCenterRow(group.identity, bounds, group.lastConversationAt);
+      const sorted = [...group.actions].sort((left, right) => {
+        const priority = actionPriority(left) - actionPriority(right);
+        if (priority) return priority;
+        const leftDue = left.due_at ? new Date(left.due_at).getTime() : Number.POSITIVE_INFINITY;
+        const rightDue = right.due_at ? new Date(right.due_at).getTime() : Number.POSITIVE_INFINITY;
+        return leftDue - rightDue;
+      });
+      const next = sorted[0] || null;
+      const followups = group.actions.filter((row) =>
+        ['complaint_followup', 'recommendation_followup', 'customer_followup'].includes(row.action_type)
+      );
+      const requests = group.actions.filter((row) => row.action_type === 'customer_request');
+      const complaintSources = new Set(
+        group.actions.filter((row) => row.action_type === 'complaint_followup').map((row) => row.source_id)
+      );
+      const followupSources = new Set(followups.map((row) => row.source_id));
+
+      byCustomer.set(key, {
+        ...existing,
+        customer_id: existing.customer_id || group.identity.customer_id,
+        customer_code: existing.customer_code || group.identity.customer_code,
+        customer_name: existing.customer_name || group.identity.customer_name,
+        customer_phone: existing.customer_phone || group.identity.customer_phone,
+        branch: existing.branch || group.identity.branch,
+        cycle_start: bounds.start,
+        cycle_end: bounds.end,
+        conversation_count: Math.max(existing.conversation_count || 0, group.sourceIds.size),
+        conversations_needing_followup: followupSources.size,
+        complaint_conversations: Math.max(existing.complaint_conversations || 0, complaintSources.size),
+        last_conversation_at: group.lastConversationAt || existing.last_conversation_at,
+        pending_followup_actions: followups.length,
+        pending_customer_requests: requests.length,
+        needs_customer_service_action: group.actions.length > 0,
+        next_action_id: next?.id || null,
+        next_source_id: next?.source_id || null,
+        next_action_type: next?.action_type || null,
+        next_action_status: next?.status || null,
+        next_action_confidence: next?.confidence ?? null,
+        next_action_product: next?.product_name || null,
+        next_action_reason: next?.reason || null,
+        next_action_due_at: next?.due_at || null,
+        action_priority_rank: next ? actionPriority(next) : 99,
+        action_label: next ? (actionTypeLabel[next.action_type] || next.action_type) : null,
+      });
+    }
+
+    for (const item of canonicalCases) {
+      const key = canonicalCustomerKey(item);
+      if (byCustomer.has(key)) continue;
+      byCustomer.set(
+        key,
+        emptyActionCenterRow(
+          {
+            customer_id: item.customer_id,
+            customer_code: item.customer_code,
+            customer_name: item.customer_name,
+            customer_phone: item.customer_phone,
+            branch: item.branch,
+          },
+          bounds,
+          item.started_at,
+        )
+      );
+    }
+
+    return [...byCustomer.values()];
+  }, [rows, cycleSources, cycleActions, canonicalCases]);
+
   const rowTruth = (row: ActionCenterRow) => {
     const canonical = canonicalByCustomer.get(canonicalCustomerKey(row)) || { saleCount: 0, revenue: 0 };
     const canonicalOver500 = canonical.revenue > 500;
     const hasOperationalAction = Boolean(
       row.next_action_id ||
       row.pending_followup_actions > 0 ||
-      row.pending_customer_requests > 0 ||
-      row.complaint_conversations > 0 ||
-      row.conversations_needing_followup > 0
+      row.pending_customer_requests > 0
     );
     return {
       ...canonical,
@@ -300,7 +508,7 @@ export default function WhatsAppCustomerActionCenterV6({ onOpenSource }: { onOpe
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const selected = rows.filter((row) => {
+    const selected = effectiveRows.filter((row) => {
       const truth = rowTruth(row);
       if (branch !== 'all' && row.branch !== branch) return false;
       if (mode === 'action' && !truth.needsEffectiveAction) return false;
@@ -327,11 +535,11 @@ export default function WhatsAppCustomerActionCenterV6({ onOpenSource }: { onOpe
       if (revenue) return revenue;
       return String(b.last_conversation_at || '').localeCompare(String(a.last_conversation_at || ''));
     });
-  }, [rows, branch, mode, search, canonicalByCustomer]);
+  }, [effectiveRows, branch, mode, search, canonicalByCustomer]);
 
-  const actionCount = rows.filter((row) => rowTruth(row).needsEffectiveAction).length;
-  const over500Count = rows.filter((row) => rowTruth(row).canonicalOver500).length;
-  const overdueCount = rows.filter((row) => rowTruth(row).hasOperationalAction && row.next_action_due_at && new Date(row.next_action_due_at).getTime() <= Date.now()).length;
+  const actionCount = effectiveRows.filter((row) => rowTruth(row).needsEffectiveAction).length;
+  const over500Count = effectiveRows.filter((row) => rowTruth(row).canonicalOver500).length;
+  const overdueCount = effectiveRows.filter((row) => rowTruth(row).hasOperationalAction && row.next_action_due_at && new Date(row.next_action_due_at).getTime() <= Date.now()).length;
 
   const detailSummary = useMemo(() => {
     const proven = detailCanonicalCases.filter((row) =>
