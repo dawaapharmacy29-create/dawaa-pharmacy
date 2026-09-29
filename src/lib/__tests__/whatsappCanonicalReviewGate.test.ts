@@ -6,8 +6,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // Review storage (conversation_sales_reviews) and official eligibility
 // (conversation_sales_reviews_official_v1, V52) are separate, like Sale Proof. The automatic review
 // writer only writes (review + points) for a source the canonical operational owner admits, and
-// only after the Customer Case V22 sync. Live behaviour of the owner view and of the gated
-// readers is covered by supabase/tests/canonical_review_gate_v52.test.sql.
+// only after the Customer Case V22 sync. V53 also prevents the points ledger from activating
+// a review that the official owner excludes. Live behaviour is covered by the V52/V53 SQL tests.
 
 const state = vi.hoisted(() => ({
   operational: new Set<string>(),
@@ -195,7 +195,7 @@ describe('official review eligibility — one owner, readers routed', () => {
     expect(v52).toMatch(/v52_reader_still_reads_storage/);
   });
 
-  it('storage-level readers and the points writer are intentionally untouched', () => {
+  it('storage-level readers stay untouched by V52; points eligibility is hardened separately by V53', () => {
     for (const untouched of [
       'record_employee_points_transaction_v3',
       'dawaa_can_write_employee_transaction',
@@ -203,6 +203,21 @@ describe('official review eligibility — one owner, readers routed', () => {
     ]) {
       expect(v52).not.toContain(`'${untouched}'`);
     }
+  });
+
+  it('V53 blocks any live points effect for a non-official review', () => {
+    const v53 = read(
+      'supabase/migrations/20260929171000_conversation_review_points_canonical_gate_v53.sql'
+    );
+    expect(v53).toMatch(/trg_conversation_review_points_official_v53/);
+    expect(v53).toMatch(/conversation_sales_reviews_official_v1/);
+    expect(v53).toMatch(/conversation_review_points_require_official_review/);
+    expect(v53).toMatch(/status\s*=\s*'cancelled'/);
+    expect(v53).not.toMatch(/delete\s+from\s+public\.employee_transactions/i);
+
+    const liveAudit = read('scripts/check-whatsapp-canonical-review-points-v53.cjs');
+    expect(liveAudit).toMatch(/live_nonofficial_review_points_detected/);
+    expect(liveAudit).toMatch(/conversation_sales_reviews_official_v1/);
   });
 
   it('frontend official KPI readers use the owner; storage screens keep the table', () => {
