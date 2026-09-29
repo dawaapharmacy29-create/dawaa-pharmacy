@@ -2771,7 +2771,7 @@ export default function WhatsAppSmartFolderWatcher() {
                         </div>
                       </section>
 
-                      <section className="grid gap-2 md:grid-cols-5">
+                      <section className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
                         {selected.snapshot.smartIntelligence.evaluationV2.axes.map((axis) => {
                           const scoreTone = axis.score == null
                             ? 'text-slate-500'
@@ -2780,14 +2780,40 @@ export default function WhatsAppSmartFolderWatcher() {
                               : axis.score >= 65
                                 ? 'text-cyan-200'
                                 : 'text-amber-300';
+                          const stateLabel = axis.score == null
+                            ? 'غير محسوم'
+                            : axis.coverage < 50
+                              ? 'أدلة محدودة'
+                              : axis.score >= 85
+                                ? 'قوي'
+                                : axis.score >= 65
+                                  ? 'جيد'
+                                  : 'يحتاج تحسين';
+                          const stateClass = axis.score == null
+                            ? 'bg-slate-800 text-slate-400'
+                            : axis.coverage < 50
+                              ? 'bg-amber-500/10 text-amber-300'
+                              : axis.score >= 85
+                                ? 'bg-emerald-500/10 text-emerald-300'
+                                : axis.score >= 65
+                                  ? 'bg-cyan-500/10 text-cyan-200'
+                                  : 'bg-amber-500/10 text-amber-300';
                           return (
-                            <div key={axis.key} className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
-                              <div className="text-[10px] font-black text-slate-500">{axis.label}</div>
-                              <div className={`mt-1 text-2xl font-black ${scoreTone}`}>{axis.score ?? '—'}</div>
-                              <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-800">
-                                <div className="h-full rounded-full bg-current opacity-70" style={{ width: `${Math.max(0, Math.min(100, axis.score || 0))}%` }} />
+                            <div key={axis.key} className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3.5">
+                              <div className="flex items-start justify-between gap-3">
+                                <div>
+                                  <div className="text-[10px] font-black text-slate-500">{axis.label}</div>
+                                  <div className={`mt-1 text-2xl font-black ${scoreTone}`}>{axis.score ?? '—'}</div>
+                                </div>
+                                <div className="flex flex-col items-end gap-1">
+                                  <span className={`rounded-full px-2 py-1 text-[9px] font-black ${stateClass}`}>{stateLabel}</span>
+                                  <span className="text-[9px] font-black text-slate-600">تغطية {axis.coverage}%</span>
+                                </div>
                               </div>
-                              <div className="mt-2 text-[9px] text-slate-600">تغطية الأدلة {axis.coverage}%</div>
+                              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-800">
+                                <div className={`h-full rounded-full ${scoreTone.replace('text-', 'bg-')} opacity-70`} style={{ width: `${Math.max(0, Math.min(100, axis.score || 0))}%` }} />
+                              </div>
+                              <div className="mt-2 text-[10px] leading-5 text-slate-400">{axis.summary}</div>
                             </div>
                           );
                         })}
@@ -2873,9 +2899,21 @@ export default function WhatsAppSmartFolderWatcher() {
                           <div className="text-xs font-black text-cyan-200">فرص المتابعة القادمة</div>
                           <div className="mt-2 space-y-2">
                             {selected.snapshot.smartIntelligence.evaluationV2.followups.length ? selected.snapshot.smartIntelligence.evaluationV2.followups.map((item) => (
-                              <div key={item.type} className="rounded-xl bg-black/10 p-2.5 text-xs">
-                                <div className="font-black text-white">{item.label} <span className="text-[10px] text-slate-500">· {item.timingLabel}</span></div>
-                                <div className="mt-1 text-slate-400">{item.reason}</div>
+                              <div key={item.type} className="rounded-xl border border-cyan-900/30 bg-black/10 p-3 text-xs">
+                                <div className="flex flex-wrap items-start justify-between gap-2">
+                                  <div>
+                                    <div className="font-black text-white">{item.label}</div>
+                                    <div className="mt-0.5 text-[10px] text-slate-500">{item.timingLabel}</div>
+                                  </div>
+                                  <div className="flex flex-wrap gap-1.5 text-[9px] font-black">
+                                    <span className={`rounded-full px-2 py-1 ${item.priority === 'high' ? 'bg-rose-500/10 text-rose-300' : item.priority === 'commercial' ? 'bg-amber-500/10 text-amber-300' : 'bg-cyan-500/10 text-cyan-200'}`}>
+                                      {item.priority === 'high' ? 'أولوية عالية' : item.priority === 'commercial' ? 'فرصة تجارية' : 'أولوية متوسطة'}
+                                    </span>
+                                    <span className="rounded-full bg-slate-800 px-2 py-1 text-slate-400">ثقة {item.confidence}%</span>
+                                    <span className="rounded-full bg-violet-500/10 px-2 py-1 text-violet-300">{item.evidenceMessageIds.length} دليل</span>
+                                  </div>
+                                </div>
+                                <div className="mt-2 leading-5 text-slate-400">{item.reason}</div>
                               </div>
                             )) : <div className="text-xs text-slate-500">لا توجد فرصة متابعة واضحة لهذه الجلسة.</div>}
                           </div>
