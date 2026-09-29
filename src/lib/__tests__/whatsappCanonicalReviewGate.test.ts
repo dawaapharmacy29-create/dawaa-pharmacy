@@ -207,7 +207,7 @@ describe('official review eligibility — one owner, readers routed', () => {
 
   it('V53 blocks any live points effect for a non-official review', () => {
     const v53 = read(
-      'supabase/migrations/20260929171000_conversation_review_points_canonical_gate_v53.sql'
+      'supabase/migrations/20260929170658_conversation_review_points_canonical_gate_v53.sql'
     );
     expect(v53).toMatch(/trg_conversation_review_points_official_v53/);
     expect(v53).toMatch(/conversation_sales_reviews_official_v1/);
