@@ -102,6 +102,11 @@ function sectionPoints(item: StaffEvaluationSectionV3) {
   return Math.round(((item.score / 5) * item.weight) * 10) / 10;
 }
 
+function safeNumber(value: unknown) {
+  const number = Number(value ?? 0);
+  return Number.isFinite(number) ? number : 0;
+}
+
 function normalizeSavedSections(
   saved: unknown,
   fallback: StaffEvaluationSectionV3[]
