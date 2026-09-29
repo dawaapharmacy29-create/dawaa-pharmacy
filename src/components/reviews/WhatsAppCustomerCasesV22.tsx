@@ -33,7 +33,10 @@ type CaseRow = {
   lost_reason_confidence: number | null;
   commercial_opportunity: boolean;
   verified_revenue: number | null;
+  verified_invoice_id: string | null;
   verified_invoice_number: string | null;
+  confirmed_outcome: string | null;
+  case_json: Record<string, any> | null;
   responsibility_status?: string | null;
   responsibility_note?: string | null;
 };
@@ -61,9 +64,16 @@ function tone(state: CaseRow['case_state']) {
   return 'border-slate-800 bg-slate-950/30';
 }
 function sourceLabel(source: CaseRow['outcome_source']) {
-  if (source === 'invoice_verified') return 'فاتورة مؤكدة';
+  if (source === 'invoice_verified') return 'فاتورة مرتبطة';
   if (source === 'human_confirmed') return 'مراجعة بشرية';
   return 'تحليل مبدئي';
+}
+
+function hasCanonicalSaleProof(row: CaseRow) {
+  const proofState = String(row.case_json?.canonicalSaleProof?.state || '');
+  return row.effective_outcome === 'verified_sale'
+    && Boolean(row.verified_invoice_id)
+    && (row.confirmed_outcome === 'verified_sale' || proofState === 'proven');
 }
 
 export default function WhatsAppCustomerCasesV22({ onOpenSource }: { onOpenSource?: (sourceId: string) => void }) {
@@ -82,7 +92,7 @@ export default function WhatsAppCustomerCasesV22({ onOpenSource }: { onOpenSourc
     try {
       const { data, error } = await supabase
         .from('whatsapp_customer_case_queue_v23')
-        .select('id,root_source_id,customer_name,customer_code,branch,case_type,case_state,started_at,last_event_at,session_count,staff_names,media_referenced,media_available,media_missing,media_coverage_percent,needs_human_review,next_action,summary,is_open,hours_since_last_event,work_bucket,effective_outcome,outcome_source,outcome_confidence,effective_lost_reason,lost_reason_source,lost_reason_confidence,commercial_opportunity,verified_revenue,verified_invoice_number,responsibility_status,responsibility_note')
+        .select('id,root_source_id,customer_name,customer_code,branch,case_type,case_state,started_at,last_event_at,session_count,staff_names,media_referenced,media_available,media_missing,media_coverage_percent,needs_human_review,next_action,summary,is_open,hours_since_last_event,work_bucket,effective_outcome,outcome_source,outcome_confidence,effective_lost_reason,lost_reason_source,lost_reason_confidence,commercial_opportunity,verified_revenue,verified_invoice_id,verified_invoice_number,confirmed_outcome,case_json,responsibility_status,responsibility_note')
         .order('last_event_at', { ascending: false })
         .limit(300);
       if (error) throw error;
@@ -131,7 +141,7 @@ export default function WhatsAppCustomerCasesV22({ onOpenSource }: { onOpenSourc
     pharmacy: rows.filter((x) => x.work_bucket === 'pharmacy_action').length,
     customer: rows.filter((x) => x.work_bucket === 'customer_followup').length,
     media: rows.filter((x) => x.media_missing > 0).length,
-    sales: rows.filter((x) => x.effective_outcome === 'verified_sale').length,
+    sales: rows.filter(hasCanonicalSaleProof).length,
   }), [rows]);
 
   const filtered = useMemo(() => rows.filter((row) => {
@@ -140,7 +150,7 @@ export default function WhatsAppCustomerCasesV22({ onOpenSource }: { onOpenSourc
     if (filter === 'pharmacy') return row.work_bucket === 'pharmacy_action';
     if (filter === 'customer') return row.work_bucket === 'customer_followup';
     if (filter === 'media') return row.media_missing > 0;
-    if (filter === 'sales') return row.effective_outcome === 'verified_sale';
+    if (filter === 'sales') return hasCanonicalSaleProof(row);
     return true;
   }), [rows, filter]);
 
@@ -151,7 +161,7 @@ export default function WhatsAppCustomerCasesV22({ onOpenSource }: { onOpenSourc
   return (
     <section className="dawaa-card dawaa-card--raised p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div><div className="text-xs font-black text-cyan-200">Customer Cases V23</div><div className="mt-1 text-xl font-black text-white">الحالات التشغيلية + النتيجة التجارية</div><div className="mt-1 text-xs leading-6 text-slate-400">الـOutcome وسبب فقد الفرصة يظهران بمصدر الدليل. لا توجد مسؤولية أو خصومات رسمية تلقائية.</div></div>
+        <div><div className="text-xs font-black text-cyan-200">Customer Cases V23</div><div className="mt-1 text-xl font-black text-white">الحالات التشغيلية + النتيجة التجارية</div><div className="mt-1 text-xs leading-6 text-slate-400">الـOutcome وسبب فقد الفرصة يظهران بمصدر الدليل. البيع لا يدخل عداد «بيع مؤكد» إلا مع Sale Proof Canonical؛ ربط الفاتورة وحده لا يكفي. لا توجد مسؤولية أو خصومات رسمية تلقائية.</div></div>
         <button type="button" onClick={() => void load()} disabled={loading} className="rounded-xl border border-slate-700 bg-slate-950/40 px-3 py-2 text-xs font-black text-slate-200 disabled:opacity-50"><RefreshCw size={14} className={loading ? 'ml-1 inline animate-spin' : 'ml-1 inline'} /> تحديث</button>
       </div>
 
@@ -163,7 +173,7 @@ export default function WhatsAppCustomerCasesV22({ onOpenSource }: { onOpenSourc
             <div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="font-black text-white">{row.customer_name || 'عميل غير محدد'}</span>{row.customer_code ? <span className="rounded-lg bg-slate-900 px-2 py-0.5 text-[10px] text-slate-300">{row.customer_code}</span> : null}<span className="text-[11px] text-cyan-300">{typeLabel[row.case_type]}</span><span className="text-[11px] font-black text-slate-200">{stateLabel[row.case_state]}</span></div><div className="mt-1 text-[11px] text-slate-500">{row.branch || 'فرع غير محدد'} • آخر حدث {new Date(row.last_event_at).toLocaleString('ar-EG')} • {row.session_count} جلسة</div></div><div className="flex items-center gap-2">{row.needs_human_review ? <span title="تحتاج مراجعة بشرية"><AlertTriangle size={16} className="text-amber-300" /></span> : <CheckCircle2 size={16} className="text-emerald-300" />}{onOpenSource ? <button type="button" onClick={() => onOpenSource(row.root_source_id)} className="rounded-lg border border-slate-700 bg-slate-950/40 p-2 text-cyan-200" title="فتح المحادثة الأصلية"><ArrowUpLeft size={15} /></button> : null}</div></div>
 
             <div className="mt-2 grid gap-2 md:grid-cols-2">
-              <div className="rounded-xl border border-slate-800 bg-slate-950/35 px-3 py-2 text-xs"><div className="text-[10px] text-slate-500">النتيجة</div><div className="mt-1 font-black text-white">{outcomeLabel[row.effective_outcome || ''] || row.effective_outcome || 'غير محسومة'}</div><div className="mt-1 text-[10px] text-slate-400">{sourceLabel(row.outcome_source)}{row.outcome_confidence != null && row.outcome_source === 'ai_proposed' ? ` • ثقة ${Math.round(Number(row.outcome_confidence))}%` : ''}</div>{row.effective_outcome === 'verified_sale' ? <div className="mt-1 flex items-center gap-1 text-emerald-300"><ReceiptText size={12} /> {Number(row.verified_revenue || 0).toLocaleString('ar-EG')} ج{row.verified_invoice_number ? ` • فاتورة ${row.verified_invoice_number}` : ''}</div> : null}</div>
+              <div className="rounded-xl border border-slate-800 bg-slate-950/35 px-3 py-2 text-xs"><div className="text-[10px] text-slate-500">النتيجة</div><div className="mt-1 font-black text-white">{row.effective_outcome === 'verified_sale' && !hasCanonicalSaleProof(row) ? 'بيع غير مثبت Canonical' : (outcomeLabel[row.effective_outcome || ''] || row.effective_outcome || 'غير محسومة')}</div><div className="mt-1 text-[10px] text-slate-400">{hasCanonicalSaleProof(row) ? 'Sale Proof Canonical' : row.effective_outcome === 'verified_sale' ? 'غير محتسب كبيع مؤكد' : sourceLabel(row.outcome_source)}{row.outcome_confidence != null && row.outcome_source === 'ai_proposed' ? ` • ثقة ${Math.round(Number(row.outcome_confidence))}%` : ''}</div>{hasCanonicalSaleProof(row) ? <div className="mt-1 flex items-center gap-1 text-emerald-300"><ReceiptText size={12} /> {Number(row.verified_revenue || 0).toLocaleString('ar-EG')} ج{row.verified_invoice_number ? ` • فاتورة ${row.verified_invoice_number}` : ''}</div> : row.effective_outcome === 'verified_sale' ? <div className="mt-1 text-[10px] font-bold text-amber-300">الفاتورة/النتيجة ظاهرة للمراجعة فقط؛ لن تدخل أرقام البيع أو Recovery قبل Canonical Sale Proof.</div> : null}</div>
               <div className="rounded-xl border border-slate-800 bg-slate-950/35 px-3 py-2 text-xs"><div className="text-[10px] text-slate-500">سبب الفقد/التعثر</div><div className="mt-1 font-black text-white">{row.effective_lost_reason ? (lostReasonLabel[row.effective_lost_reason] || row.effective_lost_reason) : 'لا يوجد سبب مثبت'}</div>{row.effective_lost_reason ? <div className="mt-1 text-[10px] text-slate-400">{row.lost_reason_source === 'human_confirmed' ? 'مراجعة بشرية' : 'اقتراح تحليلي'}{row.lost_reason_confidence != null && row.lost_reason_source === 'ai_proposed' ? ` • ثقة ${Math.round(Number(row.lost_reason_confidence))}%` : ''}</div> : null}</div>
             </div>
 
