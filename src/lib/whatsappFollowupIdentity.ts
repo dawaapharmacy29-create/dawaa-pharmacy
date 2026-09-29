@@ -59,10 +59,11 @@ export function followupCustomerAnchor(
   > | null,
   canonicalCaseAnchor?: string | null
 ): string {
-  if (identity?.status === 'resolved' && identity.customerId)
-    return `customer:${identity.customerId}`;
-  if (identity?.normalizedPhone) return `phone:${identity.normalizedPhone}`;
-  if (identity?.customerCode) return `code:${normalizeFollowupKeyPart(identity.customerCode)}`;
+  if (identity?.status === 'resolved') {
+    if (identity.customerId) return `customer:${identity.customerId}`;
+    if (identity.normalizedPhone) return `phone:${identity.normalizedPhone}`;
+    if (identity.customerCode) return `code:${normalizeFollowupKeyPart(identity.customerCode)}`;
+  }
   const caseAnchor = normalizeFollowupKeyPart(canonicalCaseAnchor || '');
   if (caseAnchor) return `case:${caseAnchor}`;
   throw new Error('followup_customer_anchor_unresolved');
