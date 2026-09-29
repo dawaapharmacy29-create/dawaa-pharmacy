@@ -400,7 +400,7 @@ describe('Stable Follow-up Identity — idempotency', () => {
     const actionReads = db.calls.filter(
       (call) => call === 'whatsapp_conversation_actions:read'
     ).length;
-    expect(actionReads).toBe(6); // three bounded action lookups per sync call, independent of action count
+    expect(actionReads).toBe(4); // two core lookups per call; legacy lookup is skipped without customerId
     expect(
       db.calls.filter(
         (call) => call.startsWith('whatsapp_conversation_actions:') && !call.endsWith(':read')
