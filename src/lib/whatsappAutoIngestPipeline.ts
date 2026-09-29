@@ -217,7 +217,7 @@ export async function saveFollowupSignals(
 
   // Stable Follow-up Identity: same customer + episode + signal + reason -> same follow-up,
   // regardless of session/source instance, segmentation or ingestion path.
-  const customerAnchor = followupCustomerAnchor(identity.canonical, sourceFileName);
+  const customerAnchor = followupCustomerAnchor(identity.canonical, session.id);
   const identityOf = (signal: DetectedFollowupSignal) =>
     buildFollowupIdentity({
       customerAnchor,
@@ -354,7 +354,7 @@ async function persistOperationalJourneyIntelligence(
   conversationBranch: string | null,
   participantRoles: WhatsAppParticipantRoleModelV15,
   branchHint: BranchHintResult,
-  sourceFileName: string
+  canonicalCaseStartedAt: string
 ) {
   const base = buildUnifiedConversationIntelligence(session);
   const initial = buildWhatsAppOperationalIntelligenceV6(session, base);
@@ -405,8 +405,9 @@ async function persistOperationalJourneyIntelligence(
       (session.outboundStaffNames.length === 1 ? session.outboundStaffNames[0] : null),
     createdBy: sourceRow?.created_by || null,
     followupIdentity: {
-      customerAnchor: followupCustomerAnchor(identity.canonical, sourceFileName),
+      customerAnchor: followupCustomerAnchor(identity.canonical, session.id),
       session,
+      caseStartedAt: canonicalCaseStartedAt,
     },
   });
 
@@ -566,7 +567,7 @@ export async function ingestWhatsAppExportFile(
           conversationBranch,
           participantRoles,
           branchHint,
-          source.sourceFileName
+          context.caseItem.startedAt
         );
       } catch (operationalError) {
         result.errors.push(
