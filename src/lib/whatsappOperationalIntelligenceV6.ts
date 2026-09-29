@@ -1310,11 +1310,27 @@ const ACTION_RETURN_COLUMNS = 'id,action_key,action_type,status,target_table,tar
 async function syncActionsWithStableIdentity(rows: any[], context: WhatsAppOperationalContext) {
   const identityContext = context.followupIdentity as FollowupIdentityContext;
   const byIdentity = new Map<string, any>();
+  const unresolvedIdentityRows: any[] = [];
   for (const row of rows) {
     const followupIdentity = operationalActionFollowupIdentity(identityContext, row);
-    if (!byIdentity.has(followupIdentity)) byIdentity.set(followupIdentity, { ...row, followup_identity: followupIdentity });
+    if (!followupIdentity) {
+      // Fail closed: evidence-free manual review without a stable canonical case anchor is not
+      // persisted under a session/source-derived identity.
+      unresolvedIdentityRows.push({
+        id: null,
+        action_key: row.action_key,
+        action_type: row.action_type,
+        status: 'followup_identity_unresolved',
+        target_table: null,
+        target_id: null,
+      });
+      continue;
+    }
+    if (!byIdentity.has(followupIdentity))
+      byIdentity.set(followupIdentity, { ...row, followup_identity: followupIdentity });
   }
   const candidates = [...byIdentity.values()];
+  if (!candidates.length) return unresolvedIdentityRows;
   const identities = candidates.map((row) => row.followup_identity);
 
   const legacyLookup =
@@ -1481,7 +1497,7 @@ async function syncActionsWithStableIdentity(rows: any[], context: WhatsAppOpera
     inserts.push(row);
   }
 
-  const results: any[] = [...ambiguousLegacy];
+  const results: any[] = [...unresolvedIdentityRows, ...ambiguousLegacy];
   if (refreshSameSource.length) {
     const { data, error } = await supabase.from('whatsapp_conversation_actions').upsert(refreshSameSource, { onConflict: 'source_id,action_key', ignoreDuplicates: false }).select(ACTION_RETURN_COLUMNS);
     if (error) throw error;
