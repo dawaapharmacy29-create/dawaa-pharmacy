@@ -226,6 +226,25 @@ describe('WhatsApp Operational Intelligence V6 product extraction', () => {
     }
   });
 
+  it('closes as no-sale when the customer says they sourced the unavailable item elsewhere', () => {
+    const model = analyze(`[6/29/26, 10:05:58 AM] You: لحظة واحده هشوفه لحضرتك يا فندم
+[6/29/26, 10:11:01 AM] You: للاسف يا فندم غير متاح ممكن ارشح لحضرتك نوع تاني كويس جدا بداله
+[6/29/26, 10:17:07 AM] Customer: شكرا
+[6/29/26, 10:17:15 AM] Customer: لقيته
+[6/29/26, 10:17:55 AM] You: تمام الحمد لله الف سلامة على حضرتك`);
+    expect(model.operationalOutcome).toBe('no_sale');
+    expect(model.followupPlan.required).toBe(false);
+    expect(model.evidence.externalResolution.messageIds.length).toBeGreaterThan(0);
+    expect(model.nextBestAction).toMatch(/وفّر الصنف بالفعل من مصدر آخر/);
+  });
+
+  it('does not infer external no-sale from "لقيته" without a prior pharmacy stockout', () => {
+    const model = analyze(`[6/29/26, 10:17:15 AM] Customer: لقيته
+[6/29/26, 10:17:55 AM] You: تمام يا فندم`);
+    expect(model.operationalOutcome).not.toBe('no_sale');
+    expect(model.evidence.externalResolution.messageIds).toHaveLength(0);
+  });
+
   it('creates an evidence-backed recovery followup after stockout alternatives with no customer decision', () => {
     const model = analyze(`[8/11/26, 3:27:41 PM] You: للأسف يا فندم دورت لحضرتك عليه فى كل مكان مش متوفر نفس الشكل
 [8/11/26, 3:28:18 PM] You: موجود المغربى والهندى ونتايجهم ممتازة جدا
