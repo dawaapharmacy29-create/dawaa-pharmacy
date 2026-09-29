@@ -1431,6 +1431,40 @@ export default function WhatsAppSmartFolderWatcher() {
     return full;
   }
 
+  function messageEvidenceLabels(item: StaffRun, messageId: string) {
+    const labels = new Set<string>();
+    const smart = item.snapshot.smartIntelligence;
+    const grounded = smart?.groundedSaleJourneyV33;
+    const evaluation = smart?.evaluationV2;
+
+    for (const stage of grounded?.stages || []) {
+      if (stage.detected && stage.evidenceMessageIds.includes(messageId)) labels.add(stage.label);
+    }
+    if (grounded?.complaintMessageIds.includes(messageId)) labels.add('شكوى');
+    if (grounded?.delayMessageIds.includes(messageId)) labels.add('تأخير');
+    if (grounded?.correctionMessageIds.includes(messageId)) labels.add('تصحيح فهم');
+    if (grounded?.unresolvedMessageIds.includes(messageId)) labels.add('غير محسوم');
+
+    if (evaluation?.sale.evidenceMessageIds.includes(messageId)) labels.add('دليل البيع');
+    if (evaluation?.serviceRecovery.evidenceMessageIds.includes(messageId)) labels.add('استعادة خدمة');
+    if (evaluation?.opening.evidence.messageIds.includes(messageId)) labels.add('ترحيب');
+    if (evaluation?.closing.evidence.messageIds.includes(messageId)) labels.add('ختام');
+    for (const followup of evaluation?.followups || []) {
+      if (followup.evidenceMessageIds.includes(messageId)) labels.add('متابعة');
+    }
+
+    for (const product of smart?.requestedProducts || []) {
+      if (!product.evidenceMessageIds.includes(messageId)) continue;
+      if (product.status === 'requested') labels.add('طلب صنف');
+      else if (product.status === 'recommended') labels.add('ترشيح صنف');
+      else if (product.status === 'unavailable') labels.add('عدم توفر');
+      else if (product.status === 'accepted') labels.add('قبول صنف');
+      else labels.add('صنف');
+    }
+
+    return [...labels].slice(0, 3);
+  }
+
   function nextDecisionLabel(item: StaffRun) {
     const smart = item.snapshot.smartIntelligence;
     const grounded = smart?.groundedSaleJourneyV33;
@@ -2551,6 +2585,8 @@ export default function WhatsAppSmartFolderWatcher() {
                                 : 'opacity-25 hover:opacity-65';
                           const timing = selected.snapshot.smartIntelligence?.timingV28;
                           const episode = timing?.episodes.find((row) => row.messageIds[0] === message.id) || null;
+                          const evidenceLabels = messageEvidenceLabels(selected, message.id);
+                          const hasTypedEvidence = evidenceLabels.length > 0;
                           return (
                             <div key={message.id}>
                               {episode ? (
@@ -2568,8 +2604,13 @@ export default function WhatsAppSmartFolderWatcher() {
                               ) : null}
                               <div className={`flex ${inbound ? 'justify-start' : 'justify-end'} transition-opacity ${focusedOpacity}`}>
                                 <div className={`flex max-w-[86%] flex-col md:max-w-[74%] ${inbound ? 'items-start' : 'items-end'}`}>
-                                  <div className={`relative rounded-2xl px-3.5 py-2.5 shadow-sm ${inbound ? 'rounded-tl-sm bg-[#202c33] text-slate-100' : 'rounded-tr-sm bg-[#005c4b] text-white'} ${message.evidence ? 'ring-2 ring-cyan-400/80 ring-offset-2 ring-offset-[#0b141a]' : ''}`}>
-                                    <div className="mb-1 flex flex-wrap items-center gap-1.5 text-[10px] font-bold opacity-80"><span>{inbound ? 'العميل' : message.sender || selected.staffName}</span>{message.evidence ? <span className="rounded bg-cyan-400/15 px-1.5 py-0.5 text-cyan-100">دليل</span> : null}{focusLevel === 'primary' ? <span className="rounded bg-violet-400/15 px-1.5 py-0.5 text-violet-100">محوري</span> : focusLevel === 'supporting' ? <span className="rounded bg-sky-400/10 px-1.5 py-0.5 text-sky-100">مساند</span> : <span className="rounded bg-white/10 px-1.5 py-0.5">خلفية</span>}</div>
+                                  <div className={`relative rounded-2xl px-3.5 py-2.5 shadow-sm ${inbound ? 'rounded-tl-sm bg-[#202c33] text-slate-100' : 'rounded-tr-sm bg-[#005c4b] text-white'} ${message.evidence || hasTypedEvidence ? 'ring-2 ring-cyan-400/80 ring-offset-2 ring-offset-[#0b141a]' : ''}`}>
+                                    <div className="mb-1 flex flex-wrap items-center gap-1.5 text-[10px] font-bold opacity-80">
+                                      <span>{inbound ? 'العميل' : message.sender || selected.staffName}</span>
+                                      {evidenceLabels.map((label) => <span key={label} className="rounded bg-cyan-400/15 px-1.5 py-0.5 text-cyan-100">{label}</span>)}
+                                      {message.evidence && !hasTypedEvidence ? <span className="rounded bg-cyan-400/15 px-1.5 py-0.5 text-cyan-100">دليل</span> : null}
+                                      {focusLevel === 'primary' ? <span className="rounded bg-violet-400/15 px-1.5 py-0.5 text-violet-100">محوري</span> : focusLevel === 'supporting' ? <span className="rounded bg-sky-400/10 px-1.5 py-0.5 text-sky-100">مساند</span> : <span className="rounded bg-white/10 px-1.5 py-0.5">خلفية</span>}
+                                    </div>
                                     {messageBody(message.kind, message.text)}
                                     <div className="mt-1 text-left text-[10px] opacity-60">{new Date(message.timestamp).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}</div>
                                   </div>
