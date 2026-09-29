@@ -5,7 +5,12 @@ import { buildCanonicalProduct, countNormalizedNames, type RawProductRow } from 
 import { normalizePharmacyText } from './salesIntelligence/pharmacyProducts/pharmacyNormalization';
 import { buildPharmacyProductIndex, resolveProductMention, CROSS_SCRIPT_SEED } from './salesIntelligence/pharmacyProducts/pharmacyProductResolverV2';
 import { isDirectCommercialProductMessageV22 } from './whatsappDirectProductIntentV22';
-import { operationalActionFollowupIdentity, type FollowupIdentityContext } from './whatsappFollowupIdentity';
+import {
+  followupEvidenceTimestampKeys,
+  normalizeFollowupKeyPart,
+  operationalActionFollowupIdentity,
+  type FollowupIdentityContext,
+} from './whatsappFollowupIdentity';
 
 export type WhatsAppPrimaryIntent =
   | 'customer_request'
@@ -1312,26 +1317,81 @@ async function syncActionsWithStableIdentity(rows: any[], context: WhatsAppOpera
   const candidates = [...byIdentity.values()];
   const identities = candidates.map((row) => row.followup_identity);
 
-  const [{ data: byIdentityRows, error: identityError }, { data: sameSourceRows, error: sourceError }] = await Promise.all([
-    supabase.from('whatsapp_conversation_actions').select('id,source_id,action_key,action_type,followup_identity').in('followup_identity', identities),
-    supabase.from('whatsapp_conversation_actions').select('id,source_id,action_key,action_type,followup_identity').eq('source_id', context.sourceId).in('action_key', candidates.map((row) => row.action_key)),
+  const legacyLookup =
+    context.customerId
+      ? supabase
+          .from('whatsapp_conversation_actions')
+          .select('id,source_id,action_key,action_type,followup_identity,customer_id,reason,evidence,payload,status')
+          .eq('customer_id', context.customerId)
+          .is('followup_identity', null)
+          .in('action_type', Array.from(new Set(candidates.map((row) => row.action_type))))
+          .limit(100)
+      : Promise.resolve({ data: [], error: null });
+
+  const [
+    { data: byIdentityRows, error: identityError },
+    { data: sameSourceRows, error: sourceError },
+    { data: legacyRows, error: legacyError },
+  ] = await Promise.all([
+    supabase
+      .from('whatsapp_conversation_actions')
+      .select('id,source_id,action_key,action_type,followup_identity')
+      .in('followup_identity', identities),
+    supabase
+      .from('whatsapp_conversation_actions')
+      .select('id,source_id,action_key,action_type,followup_identity')
+      .eq('source_id', context.sourceId)
+      .in('action_key', candidates.map((row) => row.action_key)),
+    legacyLookup,
   ]);
   if (identityError) throw identityError;
   if (sourceError) throw sourceError;
+  if (legacyError) throw legacyError;
 
-  const ownerByIdentity = new Map<string, any>(((byIdentityRows || []) as any[]).map((row: any) => [String(row.followup_identity), row]));
-  const sameSourceByKey = new Map<string, any>(((sameSourceRows || []) as any[]).map((row: any) => [String(row.action_key), row]));
+  const legacySourceIds = Array.from(
+    new Set(
+      ((legacyRows || []) as any[])
+        .map((row: any) => String(row.source_id || ''))
+        .filter(Boolean)
+    )
+  );
+  const { data: legacySources, error: legacySourceError } = legacySourceIds.length
+    ? await supabase
+        .from('whatsapp_review_sources')
+        .select('id,conversation_started_at,conversation_ended_at')
+        .in('id', legacySourceIds)
+    : { data: [], error: null };
+  if (legacySourceError) throw legacySourceError;
+
+  const legacySourceById = new Map<string, any>(
+    ((legacySources || []) as any[]).map((row: any) => [String(row.id), row])
+  );
+  const ownerByIdentity = new Map<string, any>(
+    ((byIdentityRows || []) as any[]).map((row: any) => [String(row.followup_identity), row])
+  );
+  const sameSourceByKey = new Map<string, any>(
+    ((sameSourceRows || []) as any[]).map((row: any) => [String(row.action_key), row])
+  );
 
   const refreshSameSource: any[] = [];
   const refreshEvidenceOnly: any[] = [];
   const inserts: any[] = [];
+  const ambiguousLegacy: any[] = [];
+
   for (const row of candidates) {
-    const owner = ownerByIdentity.get(row.followup_identity);
+    let owner = ownerByIdentity.get(row.followup_identity);
     const sameSource = sameSourceByKey.get(row.action_key);
     if (sameSource) {
-      // Keep the identity only when no other task already owns it (legacy duplicates stay as they are).
-      refreshSameSource.push(owner && owner.id !== sameSource.id ? { ...row, followup_identity: sameSource.followup_identity ?? null } : row);
-    } else if (owner) {
+      // Same source + action_key is deterministic: adopt the stable identity while preserving
+      // the existing row/workflow through the normal source-key upsert.
+      refreshSameSource.push(
+        owner && owner.id !== sameSource.id
+          ? { ...row, followup_identity: sameSource.followup_identity ?? null }
+          : row
+      );
+      continue;
+    }
+    if (owner) {
       refreshEvidenceOnly.push({
         id: owner.id,
         source_id: owner.source_id,
@@ -1344,12 +1404,84 @@ async function syncActionsWithStableIdentity(rows: any[], context: WhatsAppOpera
         confidence: row.confidence,
         updated_at: row.updated_at,
       });
-    } else {
-      inserts.push(row);
+      continue;
     }
+
+    const newEvidenceTimes = followupEvidenceTimestampKeys(row.evidence);
+    const newReason = normalizeFollowupKeyPart(row.product_name ?? row.payload?.productName ?? '');
+    const episodeIso = String(row.followup_identity || '').split('|')[2] || '';
+    const episodeMinute = Date.parse(episodeIso);
+
+    const deterministicLegacy = ((legacyRows || []) as any[]).filter((legacy: any) => {
+      if (String(legacy.source_id || '') === context.sourceId) return false;
+      if (String(legacy.action_type || '') !== String(row.action_type || '')) return false;
+      const legacyReason = normalizeFollowupKeyPart(
+        legacy.payload?.productName ?? legacy.product_name ?? ''
+      );
+      if (legacyReason !== newReason) return false;
+
+      const legacyEvidenceTimes = followupEvidenceTimestampKeys(legacy.evidence);
+      if (newEvidenceTimes.length || legacyEvidenceTimes.length) {
+        return (
+          newEvidenceTimes.length > 0 &&
+          legacyEvidenceTimes.length > 0 &&
+          newEvidenceTimes.some((value) => legacyEvidenceTimes.includes(value))
+        );
+      }
+
+      if (!Number.isFinite(episodeMinute)) return false;
+      const source = legacySourceById.get(String(legacy.source_id || ''));
+      const legacyStart = Date.parse(String(source?.conversation_started_at || ''));
+      if (!Number.isFinite(legacyStart)) return false;
+      return Math.floor(legacyStart / 60_000) === Math.floor(episodeMinute / 60_000);
+    });
+
+    if (deterministicLegacy.length === 1) {
+      const legacy = deterministicLegacy[0];
+      const { data: adopted, error: adoptError } = await supabase
+        .from('whatsapp_conversation_actions')
+        .update({ followup_identity: row.followup_identity })
+        .eq('id', legacy.id)
+        .is('followup_identity', null)
+        .select('id,source_id,action_key,action_type,followup_identity');
+      if (adoptError) {
+        if (adoptError.code === '23505') continue;
+        throw adoptError;
+      }
+      const adoptedOwner = (adopted || [])[0];
+      if (adoptedOwner) {
+        ownerByIdentity.set(row.followup_identity, adoptedOwner);
+        refreshEvidenceOnly.push({
+          id: adoptedOwner.id,
+          source_id: adoptedOwner.source_id,
+          action_key: adoptedOwner.action_key,
+          action_type: adoptedOwner.action_type,
+          followup_identity: row.followup_identity,
+          evidence: row.evidence,
+          payload: row.payload,
+          reason: row.reason,
+          confidence: row.confidence,
+          updated_at: row.updated_at,
+        });
+        continue;
+      }
+    } else if (deterministicLegacy.length > 1) {
+      // Fail closed: ambiguous legacy rows are not merged and no new duplicate is inserted.
+      ambiguousLegacy.push({
+        id: null,
+        action_key: row.action_key,
+        action_type: row.action_type,
+        status: 'legacy_identity_ambiguous',
+        target_table: null,
+        target_id: null,
+      });
+      continue;
+    }
+
+    inserts.push(row);
   }
 
-  const results: any[] = [];
+  const results: any[] = [...ambiguousLegacy];
   if (refreshSameSource.length) {
     const { data, error } = await supabase.from('whatsapp_conversation_actions').upsert(refreshSameSource, { onConflict: 'source_id,action_key', ignoreDuplicates: false }).select(ACTION_RETURN_COLUMNS);
     if (error) throw error;
