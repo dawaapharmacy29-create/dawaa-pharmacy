@@ -1,6 +1,8 @@
 -- Monthly evaluation V3 truth guard.
 -- Final evaluation is only valid after the 26 -> 25 cycle closes.
--- Evaluation + incentive multiplier are synchronized atomically.
+-- Evaluation + effective incentive multiplier are synchronized atomically.
+-- Critical gates cap the payout multiplier directly; they never create approximate
+-- fixed points deductions or double-penalize the central points ledger.
 -- Payroll-finalized cycles are immutable.
 
 create or replace function public.trg_staff_monthly_evaluation_finalization_guard_v3()
@@ -70,6 +72,9 @@ declare
   v_month_cycle text;
   v_status text;
   v_score numeric;
+  v_gate text;
+  v_gate_cap numeric := 100;
+  v_effective_multiplier numeric := 100;
   v_cycle_end date;
   v_prior_status text;
   v_prior_sent_at timestamptz;
@@ -103,6 +108,34 @@ begin
     raise exception 'invalid_monthly_evaluation_score' using errcode='22023';
   end if;
 
+  for v_gate in
+    select value
+    from jsonb_array_elements_text(
+      case
+        when jsonb_typeof(p_payload#>'{metrics_snapshot,active_critical_gates}')='array'
+          then p_payload#>'{metrics_snapshot,active_critical_gates}'
+        else '[]'::jsonb
+      end
+    )
+  loop
+    v_gate_cap := least(
+      v_gate_cap,
+      case v_gate
+        when 'unexplained_cash_shortage' then 0
+        when 'data_manipulation' then 0
+        when 'ignored_serious_complaint' then 40
+        when 'unescalated_critical_issue' then 60
+        when 'repeated_negligence' then 70
+        else 101
+      end
+    );
+    if v_gate_cap=101 then
+      raise exception 'invalid_monthly_evaluation_critical_gate:%',v_gate using errcode='22023';
+    end if;
+  end loop;
+
+  v_effective_multiplier := least(v_score,v_gate_cap);
+
   v_month_cycle := to_char(v_month,'YYYY-MM');
   v_cycle_end := (date_trunc('month', v_month)::date + interval '24 days')::date;
 
@@ -127,24 +160,29 @@ begin
       v_prior_sent_at is not null
       and (v_prior_sent_at at time zone 'Africa/Cairo')::date <= v_cycle_end;
 
-    if v_reapproved_after_cycle_close then
-      update public.staff_monthly_manager_evaluations e
-      set
-        metrics_snapshot = coalesce(e.metrics_snapshot,'{}'::jsonb)
-          || jsonb_build_object(
+    update public.staff_monthly_manager_evaluations e
+    set
+      metrics_snapshot = coalesce(e.metrics_snapshot,'{}'::jsonb)
+        || jsonb_build_object(
+          'critical_gate_cap_pct',v_gate_cap,
+          'effective_multiplier_pct',v_effective_multiplier
+        )
+        || case when v_reapproved_after_cycle_close then
+          jsonb_build_object(
             'initial_sent_at',
               coalesce(e.metrics_snapshot->'initial_sent_at', to_jsonb(v_prior_sent_at)),
-            'reapproved_after_cycle_close_at', to_jsonb(now())
-          ),
-        sent_at = now(),
-        updated_at = now()
-      where e.id=v_id;
-    end if;
+            'reapproved_after_cycle_close_at',to_jsonb(now())
+          )
+          else '{}'::jsonb
+        end,
+      sent_at = case when v_reapproved_after_cycle_close then now() else e.sent_at end,
+      updated_at = now()
+    where e.id=v_id;
 
     insert into public.staff_evaluation_incentive_multipliers(
       staff_id,month_cycle,multiplier_pct,source_evaluation_id,updated_at
     ) values(
-      v_staff_id,v_month_cycle,v_score,v_id,now()
+      v_staff_id,v_month_cycle,v_effective_multiplier,v_id,now()
     )
     on conflict(staff_id,month_cycle) do update set
       multiplier_pct=excluded.multiplier_pct,
@@ -162,7 +200,9 @@ begin
     'status',v_status,
     'month_cycle',v_month_cycle,
     'multiplier_applied',v_status in ('sent','approved'),
-    'multiplier_pct',case when v_status in ('sent','approved') then v_score else null end,
+    'evaluation_score_pct',v_score,
+    'critical_gate_cap_pct',v_gate_cap,
+    'multiplier_pct',case when v_status in ('sent','approved') then v_effective_multiplier else null end,
     'multiplier_reason',case
       when v_status in ('sent','approved') then 'multiplier_synced'
       else 'evaluation_not_final'
@@ -216,4 +256,4 @@ revoke insert,update,delete on table public.staff_evaluation_incentive_multiplie
   from public,anon,authenticated;
 
 comment on function public.save_staff_monthly_evaluation_v3(jsonb)
-  is 'Canonical V3 monthly evaluation command: close-cycle guard + atomic multiplier sync + payroll immutability.';
+  is 'Canonical V3 monthly evaluation command: close-cycle guard + exact critical-gate payout cap + atomic multiplier sync + payroll immutability.';
