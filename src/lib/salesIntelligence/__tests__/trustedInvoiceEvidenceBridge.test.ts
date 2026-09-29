@@ -195,14 +195,16 @@ describe('Customer identity gate — identity !== resolved -> no Sale Proof, no 
     expect(analysis.salesOutcome.outcome).toBe('sale_proven');
   });
 
-  it.each(['unresolved', 'ambiguous'] as const)('%s identity caps the proof at strongly_supported', (status) => {
-    const analysis = run(status);
-    expect(analysis.salesOutcome.saleProofState).toBe('strongly_supported');
-    expect(analysis.salesOutcome.outcome).not.toBe('sale_proven');
-    expect(analysis.salesOutcome.isRevenueCountable).toBe(false);
-    expect(analysis.attribution.isOfficialForStaffEvaluation).toBe(false);
-    expect(analysis.humanReviewReasons).toContain(`customer_identity_${status}`);
-  });
+  for (const status of ['unresolved', 'ambiguous'] as const) {
+    it(`${status} identity caps the proof at strongly_supported`, () => {
+      const analysis = run(status);
+      expect(analysis.salesOutcome.saleProofState).toBe('strongly_supported');
+      expect(analysis.salesOutcome.outcome).not.toBe('sale_proven');
+      expect(analysis.salesOutcome.isRevenueCountable).toBe(false);
+      expect(analysis.attribution.isOfficialForStaffEvaluation).toBe(false);
+      expect(analysis.humanReviewReasons).toContain(`customer_identity_${status}`);
+    });
+  }
 
   it('contradicted identity is a contradiction', () => {
     const analysis = run('contradicted');
