@@ -131,7 +131,7 @@ function lookupUnit(word: string | null): UnitInfo | null {
 }
 
 const ORDER_VERB_OR_PRONOUN_RX = /(?:هات[ي]?|عايز[ةه]?|عاوز[ةه]?|محتاج[ةه]?|ضيف[ي]?|ابعت(?:لي|يلي)?|منه|منها)$/i;
-const LATIN_BRAND_TOKEN_RX = /^[A-Za-z][A-Za-z\-]{2,}$/;
+const LATIN_BRAND_TOKEN_RX = /^[A-Za-z][A-Za-z-]{2,}$/;
 
 // I.B.2.1 instruction #13 — a number near any of these markers is talking about MONEY, never a
 // quantity to order. Checked before any unit-based classification so it can never be shadowed by
