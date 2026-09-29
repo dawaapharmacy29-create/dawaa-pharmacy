@@ -156,6 +156,8 @@ const PAYMENT_SERVICE_RX = /(رقم\s+تحويل|تحويل\s+كاش|ابعت\s+
 const PRODUCT_SELECTION_PROMPT_RX = /(هتاخد\s+ايه|هتاخدي\s+ايه|تحب\s+ايه|تحبي\s+ايه|تختار\s+ايه|تختاري\s+ايه)/i;
 const ACCEPT_RX = /(^|\s)(تمام|ماشي|موافق|اوكي|أوكي|خلاص|ابعت|ابعته|ابعتي|هات|هاته|هاخده|هاخدها|هجربه|هجربها|تمام كده|تمام كدا)(\s|$)/i;
 const REJECT_RX = /(لا شكرا|مش عايز|مش عاوز|مش محتاج|غالي|مش مناسب|مش هاخد|مش هطلب|بلاش)/i;
+const EXTERNAL_RESOLUTION_RX =
+  /(?:^|\s)(?:خلاص\s+)?(?:لقيته|لقيتها|لقيتهم|جبته|جبتها|اشتريته|اشتريتها)(?:\s|$)/i;
 const COMPLAINT_RX = /(شكوي|شكوى|مشكله|مشكلة|متاخر|متأخر|محدش رد|غلط|سيء|وحش|ماوصلش|موصلش|لسه مجاش|اتضايقت|زعلت|الطريق[هة][^\n]{0,50}(?:سخيف|وحش|سيئ|غير\s*لائق)|اسلوب[^\n]{0,50}(?:سخيف|وحش|سيئ|غير\s*لائق)|قليل\s*الذوق|مش\s*ذوق|اتكلم[^\n]{0,40}وحش|بيتكلم[^\n]{0,70}(?:سخيف|وحش|سيئ))/i;
 const NEGATED_COMPLAINT_RX = /(مفيش\s+مشكله|مفيش\s+مشكلة|مافيش\s+مشكله|مافيش\s+مشكلة|لا\s+توجد\s+مشكله|لا\s+توجد\s+مشكلة|مش\s+مشكله|مش\s+مشكلة)/i;
 const FULFILLMENT_FAILURE_RX = /(التاخير\s+الكبير|التأخير\s+الكبير|المندوب[^\n]{0,80}(?:مجاش|ماجاش|مجالبيش|ماوصلش|موصلش)|كان\s+المفروض[^\n]{0,100}(?:لكن|بس)[^\n]{0,100}(?:مجاش|ماجاش|مجالبيش|ماوصلش|موصلش)|لو\s+حضرتك[^\n]{0,40}(?:تحبي|تحب)[^\n]{0,40}نبعت\s+(?:الاوردر|الأوردر)|نبعت\s+(?:الاوردر|الأوردر))/i;
@@ -694,6 +696,11 @@ export function buildWhatsAppOperationalIntelligenceV6(session: WhatsAppConversa
     if (!hasPriorStockout) return false;
     return /(?:موجود|متاح)[^\n]{2,100}(?:و|أو|او)[^\n]{2,100}|(?:لو|إذا|اذا)\s+تحب[^\n]{0,70}تطلب\s+منهم/i.test(message.text);
   });
+  const customerExternalResolutionRows = byDirection(session, 'inbound').filter((message) =>
+    EXTERNAL_RESOLUTION_RX.test(message.text) &&
+    stockUnavailableRows.some((row) => row.timestamp.getTime() <= message.timestamp.getTime())
+  );
+  const customerResolvedElsewhere = customerExternalResolutionRows.length > 0;
   const firstAlternativeAt = alternativeOfferRows.length
     ? Math.min(...alternativeOfferRows.map((row) => row.timestamp.getTime()))
     : null;
@@ -713,7 +720,8 @@ export function buildWhatsAppOperationalIntelligenceV6(session: WhatsAppConversa
     stockUnavailableRows.length > 0 &&
     alternativeOfferRows.length > 0 &&
     !close &&
-    !alternativeClosedWithGratitude;
+    !alternativeClosedWithGratitude &&
+    !customerResolvedElsewhere;
   const fulfillmentFailures = fulfillmentFailureMessages(session);
   const fulfillmentFailure = fulfillmentFailures.length > 0;
   const recovered = has(outbound, RECOVERY_RX);
@@ -753,6 +761,7 @@ export function buildWhatsAppOperationalIntelligenceV6(session: WhatsAppConversa
   if (fulfillmentFailure) operationalOutcome = 'unresolved_request';
   else if (complaint) operationalOutcome = recovered && customerAcknowledgedResolution ? 'complaint_resolved' : 'complaint_unresolved';
   else if (intents.primary === 'proactive_checkin' || intents.primary === 'followup_response') operationalOutcome = (state === 'improved' || positiveCheckinFeedback) ? 'checkin_complete' : state === 'worse' ? 'needs_followup' : 'unknown';
+  else if (customerResolvedElsewhere) operationalOutcome = 'no_sale';
   else if (rejected) operationalOutcome = 'no_sale';
   else if (close && (intents.primary === 'customer_request' || base.commercialEligible || acceptedRecommendation)) operationalOutcome = 'probable_sale';
   else if (
@@ -775,6 +784,7 @@ export function buildWhatsAppOperationalIntelligenceV6(session: WhatsAppConversa
   let followupEvidence: string[] = [];
   if (operationalOutcome === 'complaint_unresolved') { followupRequired = true; followupReason = 'شكوى لم يظهر لها حل نهائي واضح.'; dueInDays = 0; priority = 'urgent'; followupEvidence = complaintRows.map((message) => message.id).slice(0, 10); }
   else if (operationalOutcome === 'probable_sale') { followupRequired = false; followupReason = null; dueInDays = null; priority = 'normal'; followupEvidence = []; }
+  else if (operationalOutcome === 'no_sale') { followupRequired = false; followupReason = null; dueInDays = null; priority = 'normal'; followupEvidence = []; }
   else if (fulfillmentFailure) { followupRequired = true; followupReason = 'تعثر تنفيذ/توصيل مثبت من المحادثة ولم يظهر إتمام نهائي للطلب.'; dueInDays = 0; priority = 'urgent'; followupEvidence = fulfillmentFailures.map((message) => message.id).slice(0, 10); }
   else if (operationalOutcome === 'needs_followup' && requests.some((r) => r.unresolved) && has(outbound, FOLLOWUP_PROMISE_RX)) { followupRequired = true; followupReason = 'الطلب في مسار توفير/تجهيز والصيدلية وعدت بالتواصل عند الجاهزية.'; dueInDays = 1; priority = 'important'; followupEvidence = uniq([...requests.flatMap((r) => r.evidenceMessageIds), ...ids(byDirection(session, 'outbound'), FOLLOWUP_PROMISE_RX)]); }
   else if (operationalOutcome === 'unresolved_request') { followupRequired = true; followupReason = 'طلب عميل لم يظهر له إغلاق بيع أو رفض صريح.'; dueInDays = 1; priority = has(all, URGENT_RX) ? 'urgent' : 'important'; followupEvidence = requests.flatMap((r) => r.evidenceMessageIds); }
@@ -814,6 +824,8 @@ export function buildWhatsAppOperationalIntelligenceV6(session: WhatsAppConversa
   else if (requests.some((r) => r.unresolved)) nextBestAction = 'تسجيل طلب العميل وربطه بالصنف ثم متابعة التوفر/الإغلاق.';
   else if (acceptedRecommendation) nextBestAction = 'إنشاء متابعة لخدمة العملاء على الترشيح بعد الاستخدام.';
   else if (operationalOutcome === 'probable_sale') nextBestAction = 'مطابقة الفاتورة؛ لا يُعتبر البيع مؤكدًا إلا بعد تطابق فاتورة فعلية.';
+  else if (operationalOutcome === 'no_sale' && customerResolvedElsewhere) nextBestAction = 'إغلاق الفرصة بدون بيع: العميل أفاد أنه وفّر الصنف بالفعل من مصدر آخر؛ لا متابعة بيعية مطلوبة.';
+  else if (operationalOutcome === 'no_sale') nextBestAction = 'إغلاق الفرصة بدون بيع بعد رفض/عدم رغبة صريحة من العميل.';
   else if (operationalOutcome === 'checkin_complete') nextBestAction = 'إغلاق متابعة الاطمئنان دون تقييم بيعي.';
   else if (operationalOutcome === 'consultation_only') nextBestAction = 'مراجعة جودة الاستشارة والأمان الطبي دون افتراض بيع.';
 
@@ -833,6 +845,7 @@ export function buildWhatsAppOperationalIntelligenceV6(session: WhatsAppConversa
       saleClose: evidenceFromMessages(close ? closeRows : [], close ? 88 : 0),
       stockUnavailable: evidenceFromMessages(stockUnavailableRows, 92),
       alternativeOffered: evidenceFromMessages(alternativeOfferRows, 88),
+      externalResolution: evidenceFromMessages(customerExternalResolutionRows, 92),
       customerState: evidenceFor(
         { ...session, messages: byDirection(session, 'inbound') },
         state === 'worse' ? WORSE_RX : IMPROVED_RX,
