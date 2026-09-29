@@ -32,6 +32,8 @@ import {
 } from '@/lib/evaluations/incentiveTiers';
 import { buildStaffMonthlyEvaluationPdf } from '@/lib/evaluations/staffMonthlyEvaluationPdf';
 import { Panel, SectionTitle, KpiCard, MiniBox, EmptyState } from '@/components/dashboard/DashboardPrimitives';
+import MonthlyEvaluationWorkflowV5, { type MonthlyEvaluationStep } from '@/components/evaluations/MonthlyEvaluationWorkflowV5';
+import MonthlyEvaluationAuditTrailV5 from '@/components/evaluations/MonthlyEvaluationAuditTrailV5';
 
 type StaffRow = {
   id: string;
@@ -41,6 +43,10 @@ type StaffRow = {
   branch?: string | null;
   status?: string | null;
   user_id?: string | null;
+  evaluation_status?: 'not_started' | 'draft' | 'sent' | 'approved' | 'needs_reapproval' | string | null;
+  evaluation_score?: number | null;
+  sent_at?: string | null;
+  evidence_ready?: boolean | null;
 };
 
 type EvaluationRow = Record<string, unknown>;
@@ -134,6 +140,8 @@ export default function StaffMonthlyEvaluation() {
   const [selectedId, setSelectedId] = useState('');
   const [search, setSearch] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [activeStep, setActiveStep] = useState<MonthlyEvaluationStep>(1);
+  const [auditRefreshKey, setAuditRefreshKey] = useState(0);
   const [sections, setSections] = useState<StaffEvaluationSectionV3[]>([]);
   const [metrics, setMetrics] = useState<Metrics>(EMPTY_METRICS);
   const [evidenceReady, setEvidenceReady] = useState(false);
@@ -198,9 +206,10 @@ export default function StaffMonthlyEvaluation() {
       if (!user?.id) return;
       setLoading(true);
       try {
-        const { data, error } = await supabase.rpc('list_staff_for_monthly_evaluation_safe', {
+        const { data, error } = await supabase.rpc('list_staff_for_monthly_evaluation_v5', {
           p_actor_id: user.id,
           p_branch: globalScope ? branch : null,
+          p_month: `${cycleLabel}-01`,
         });
         if (error) throw error;
         const rows = (data || []) as StaffRow[];
@@ -215,7 +224,11 @@ export default function StaffMonthlyEvaluation() {
       }
     };
     void loadStaff();
-  }, [branch, globalScope, managerMode, selectedId, user]);
+  }, [branch, cycleLabel, globalScope, managerMode, selectedId, user?.id, user?.name, user?.staffId]);
+
+  useEffect(() => {
+    setActiveStep(1);
+  }, [cycleLabel, selectedId]);
 
   useEffect(() => {
     if (!selectedId || !user?.id || !selected) return;
@@ -368,7 +381,7 @@ export default function StaffMonthlyEvaluation() {
         sections,
         metrics_snapshot: {
           ...metrics,
-          evaluation_engine_version: 4,
+          evaluation_engine_version: 5,
           evidence_ready: evidenceReady,
           evidence_health: evidenceHealth,
           canonical_role: profile.role,
@@ -397,7 +410,8 @@ export default function StaffMonthlyEvaluation() {
         sent_at: nextStatus === 'sent' ? new Date().toISOString() : null,
       };
 
-      const { data, error } = await supabase.rpc('save_staff_monthly_evaluation_v3', {
+      const { data, error } = await supabase.rpc('save_staff_monthly_evaluation_v5', {
+        p_actor_id: user.id,
         p_payload: payload,
       });
       if (error) throw error;
@@ -405,15 +419,28 @@ export default function StaffMonthlyEvaluation() {
       const savedEvaluationId = String(saveResult.evaluation_id || evaluationId || '');
       setEvaluationId(savedEvaluationId);
       setStatus(nextStatus);
+      setAuditRefreshKey((value) => value + 1);
 
-      // السيرفر هو مصدر الحقيقة: يعتمد التقييم ويزامن معامل الحافز في نفس العملية.
-      if (nextStatus === 'sent' && saveResult.multiplier_applied === true) {
+      const serverSentAt = String(saveResult.sent_at || '');
+      if (nextStatus === 'sent') {
         setPreviouslySent(true);
-        setSentAtIso(String(saveResult.sent_at || new Date().toISOString()));
-        toast.success(`تم اعتماد التقييم ومزامنة نسبة الحافز الفعلية (${Number(saveResult.multiplier_pct ?? effectiveEvaluationMultiplierPct)}%) مع الدورة.`);
+        setSentAtIso(serverSentAt || new Date().toISOString());
+        const refreshedPoints = await getStaffPointsDashboardV3(selected.id, cycleLabel).catch(() => null);
+        if (refreshedPoints) setPointsTruth(refreshedPoints);
+        toast.success(`تم اعتماد التقييم على الخادم بنسبة أثر ${Number(saveResult.multiplier_pct ?? effectiveEvaluationMultiplierPct)}%.`);
       }
 
-      toast.success(nextStatus === 'sent' ? 'تم إرسال التقييم للموظف' : 'تم حفظ التقييم');
+      setStaff((current) => current.map((item) => item.id === selected.id
+        ? {
+            ...item,
+            evaluation_status: nextStatus === 'sent' ? 'sent' : 'draft',
+            evaluation_score: Number(saveResult.overall_score ?? overallScore),
+            sent_at: nextStatus === 'sent' ? (serverSentAt || new Date().toISOString()) : item.sent_at,
+            evidence_ready: evidenceReady,
+          }
+        : item));
+
+      toast.success(nextStatus === 'sent' ? 'تم الاعتماد والإرسال للموظف' : 'تم حفظ المسودة');
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : 'فشل حفظ التقييم');
     } finally {
@@ -422,16 +449,28 @@ export default function StaffMonthlyEvaluation() {
   }
 
   const filteredStaff = staff.filter((item) => item.name.includes(search));
-  // المعاينة المالية تبنى من الحافز الأساسي قبل multiplier، ثم نطبق
-  // أقل قيمة بين درجة التقييم وسقف أي Critical Gate. Bonus المنافسة مستقل.
+  const completedSections = sections.filter((item) => item.score > 0).length;
+  const staffSummary = {
+    total: staff.length,
+    notStarted: staff.filter((item) => !item.evaluation_status || item.evaluation_status === 'not_started').length,
+    draft: staff.filter((item) => item.evaluation_status === 'draft').length,
+    approved: staff.filter((item) => ['sent', 'approved'].includes(String(item.evaluation_status || ''))).length,
+    needsReapproval: staff.filter((item) => item.evaluation_status === 'needs_reapproval').length,
+  };
+  const approvalBlockers = [
+    !cycleClosed ? 'الدورة لم تُقفل بعد' : '',
+    !evidenceReady ? 'مصدر أو أكثر من أدلة الدورة غير متاح' : '',
+    completedSections !== sections.length ? `باقي ${Math.max(0, sections.length - completedSections)} محور بدون تقييم` : '',
+  ].filter(Boolean);
+  const approvalReady = cycleClosed && evidenceReady && sections.length > 0 && completedSections === sections.length;
+
+  // الرقم المالي المعروض يأتي فقط من الحقيقة المالية على الخادم أو من كشف مقفول.
+  // لا نحسب مبلغًا نهائيًا داخل صفحة التقييم.
   const canonicalIncentive = settledStatement
     ? Number(settledStatement.incentive_amount)
-    : pointsTruth
-      ? Math.round(
-          (Number(pointsTruth.points_incentive_egp || 0) * effectiveEvaluationMultiplierPct) / 100
-          + Number(pointsTruth.competition_bonus_egp || 0)
-        )
-      : null;
+    : pointsTruth?.final_incentive_egp == null
+      ? null
+      : Number(pointsTruth.final_incentive_egp);
 
   return (
     <div className="min-h-screen space-y-4 p-4" dir="rtl" style={{ background: 'var(--dawaa-theme-bg)' }}>
@@ -442,7 +481,7 @@ export default function StaffMonthlyEvaluation() {
               <UserCheck style={{ color: 'var(--dawaa-theme-primary-strong)' }} /> التقييم الشهري للموظفين
             </h1>
             <p className="mt-2 max-w-3xl text-sm font-bold" style={{ color: 'var(--dawaa-theme-text)' }}>
-              تقييم جودة وتطوير حسب مسار الوظيفة. الدرجة من 100 مستقلة عن مبلغ الحافز؛ المبلغ النهائي يأتي فقط من Points Truth + Compensation Profile.
+              رحلة شهرية واضحة من مراجعة البيانات إلى الاعتماد. الدرجة، الأدلة، المخالفات، والنقاط تُعرض من مصادرها بدون خلط، والمبلغ المالي النهائي يُقرأ فقط من المصدر المركزي للحوافز.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -526,8 +565,31 @@ export default function StaffMonthlyEvaluation() {
                     ? { borderColor: 'var(--dawaa-theme-accent-border)', background: 'var(--dawaa-theme-accent-soft)' }
                     : { borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}
                 >
-                  <div className="font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>{item.name}</div>
-                  <div className="mt-1 text-xs" style={{ color: 'var(--dawaa-theme-muted)' }}>{item.job_title || item.role} · {item.branch}</div>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>{item.name}</div>
+                    <span
+                      className="rounded-full border px-2 py-0.5 text-[10px] font-black"
+                      style={item.evaluation_status === 'needs_reapproval'
+                        ? { borderColor: 'var(--dawaa-status-danger-border)', background: 'var(--dawaa-status-danger-bg)', color: 'var(--dawaa-status-danger-text)' }
+                        : ['sent', 'approved'].includes(String(item.evaluation_status || ''))
+                          ? { borderColor: 'var(--dawaa-status-success-border)', background: 'var(--dawaa-status-success-bg)', color: 'var(--dawaa-status-success-text)' }
+                          : item.evaluation_status === 'draft'
+                            ? { borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-status-warning-bg)', color: 'var(--dawaa-status-warning-text)' }
+                            : { borderColor: 'var(--dawaa-theme-border)', color: 'var(--dawaa-theme-muted)' }}
+                    >
+                      {item.evaluation_status === 'needs_reapproval'
+                        ? 'إعادة اعتماد'
+                        : ['sent', 'approved'].includes(String(item.evaluation_status || ''))
+                          ? 'معتمد'
+                          : item.evaluation_status === 'draft'
+                            ? 'مسودة'
+                            : 'لم يبدأ'}
+                    </span>
+                  </div>
+                  <div className="mt-1 text-xs" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                    {item.role} · {item.branch}
+                    {item.evaluation_score != null ? ` · ${item.evaluation_score}/100` : ''}
+                  </div>
                 </button>
               ))}
             </div>
@@ -544,6 +606,22 @@ export default function StaffMonthlyEvaluation() {
                 <div className="mt-2 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>المحاور التالية خاصة بالدور: {selected.job_title || selected.role || 'غير محدد'}.</div>
               </Panel>
 
+              <MonthlyEvaluationWorkflowV5
+                activeStep={activeStep}
+                onStepChange={setActiveStep}
+                evidenceReady={evidenceReady}
+                cycleClosed={cycleClosed}
+                completedSections={completedSections}
+                totalSections={sections.length}
+                hasCriticalGate={isGatedByCriticalViolation}
+                approvalReady={approvalReady}
+                status={status}
+                requiresPostCycleReapproval={requiresPostCycleReapproval}
+                summary={staffSummary}
+              />
+
+              {activeStep === 1 ? (
+                <>
               <section className="grid gap-3 md:grid-cols-3">
                 <KpiCard title="نتيجة التقييم" value={evaluationNotStarted ? '—' : `${overallScore}/100`} subtitle={grade} icon={<Star size={20} />} tone={evaluationNotStarted ? 'cyan' : overallScore >= 80 ? 'green' : overallScore >= 60 ? 'amber' : 'red'} />
                 <KpiCard
@@ -560,10 +638,8 @@ export default function StaffMonthlyEvaluation() {
                     settledStatement
                       ? 'رقم رسمي من كشف مقفول — دورة سابقة'
                       : previouslySent
-                        ? 'الرقم المعتمد فعليًا بعد ضرب نسبة التقييم'
-                        : evaluationNotStarted
-                          ? 'تقدير حي من نظام النقاط قبل ضرب نسبة التقييم (لسه ما اتقيّمش)'
-                          : `تقدير حي = حافز النقاط × ${overallScore}% (نسبة التقييم الحالية) — لسه مسودة`
+                        ? 'الرقم الحالي من المصدر المالي المركزي بعد آخر اعتماد'
+                        : 'الرقم الحالي من المصدر المالي المركزي؛ المسودة لا تغيّره قبل الاعتماد'
                   }
                   icon={<CheckCircle2 size={20} />}
                   tone="green"
@@ -581,11 +657,15 @@ export default function StaffMonthlyEvaluation() {
               {!pointsTruth?.profile_configured ? (
                 <Panel className="p-4" style={{ background: 'var(--dawaa-status-warning-bg)', borderColor: 'var(--dawaa-status-warning-border)' }}>
                   <p className="text-sm font-bold" style={{ color: 'var(--dawaa-status-warning-text)' }}>
-                    لا يوجد Compensation Profile مالي مكتمل لهذا الموظف؛ لذلك لا يتم توليد أو اقتراح مبلغ مالي من التقييم الشهري.
+                    الملف المالي لهذا الموظف غير مكتمل؛ التقييم يظل متاحًا لكن لا تعرض الصفحة مبلغًا ماليًا غير موثوق.
                   </p>
                 </Panel>
               ) : null}
+                </>
+              ) : null}
 
+              {activeStep === 3 ? (
+                <>
               <Panel className="p-4">
                 <SectionTitle
                   title="مخالفات حرجة تحدّ من الحافز"
@@ -618,7 +698,10 @@ export default function StaffMonthlyEvaluation() {
                   </p>
                 ) : null}
               </Panel>
+                </>
+              ) : null}
 
+              {activeStep === 1 ? (
               <Panel className="p-4">
                 <SectionTitle
                   title="أدلة الدورة"
@@ -653,14 +736,42 @@ export default function StaffMonthlyEvaluation() {
                   ))}
                 </div>
               </Panel>
+              ) : null}
 
+              {activeStep === 3 ? (
+                <>
               <Panel className="p-4" style={{ background: 'var(--dawaa-status-warning-bg)', borderColor: 'var(--dawaa-status-warning-border)' }}>
-                <h2 className="font-black" style={{ color: 'var(--dawaa-status-warning-text)' }}>معادلة الحافز النهائي</h2>
+                <h2 className="font-black" style={{ color: 'var(--dawaa-status-warning-text)' }}>الأثر المالي للتقييم</h2>
                 <p className="mt-2 text-sm leading-7" style={{ color: 'var(--dawaa-theme-text)' }}>
-                  حافز الأداء يُقرأ من مصدر النقاط المركزي وفق إعدادات الموظف والدورة، ثم تُطبَّق عليه نسبة التقييم الشهرية. إذا وُجدت مخالفة حرجة، تُستخدم النسبة الأقل بين درجة التقييم وسقف المخالفة؛ لذلك لا توجد خصومات نقاط تقريبية أو عقوبة مزدوجة. قبل إقفال الدورة يظهر الرقم كمعاينة فقط، وبعد الاعتماد تُزامَن النسبة على الخادم. بعد تجميد الراتب لا يُعاد فتح الأثر المالي من شاشة التقييم.
+                  الصفحة لا تحسب قيمة نهائية بنفسها. عند الاعتماد، الخادم يثبت درجة التقييم وسقف أي مخالفة حرجة ثم يحدّث معامل الحافز؛ وبعدها نعيد قراءة المبلغ من المصدر المالي المركزي. كده الرقم الظاهر هنا والرواتب يعتمدوا على نفس الحقيقة.
                 </p>
               </Panel>
 
+              <Panel className="p-4">
+                <SectionTitle
+                  title="تفصيل مصادر النقاط"
+                  subtitle="مصدر كل زيادة أو خصم في الدورة كما هو مسجل في دفتر النقاط المركزي"
+                  icon={<Award size={18} />}
+                />
+                {pointsTruth?.source_breakdown?.length ? (
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {pointsTruth.source_breakdown.map((source) => (
+                      <MiniBox
+                        key={source.source}
+                        label={source.source}
+                        value={`${source.points > 0 ? '+' : ''}${source.points} نقطة · ${source.events} حدث`}
+                        tone={source.points < 0 ? 'amber' : 'cyan'}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-sm font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>لا توجد حركات نقاط مسجلة لهذه الدورة.</div>
+                )}
+              </Panel>
+                </>
+              ) : null}
+
+              {activeStep === 2 ? (
               <section className="space-y-3">
                 {sections.map((item) => {
                   const earned = sectionPoints(item);
@@ -711,7 +822,9 @@ export default function StaffMonthlyEvaluation() {
                   );
                 })}
               </section>
+              ) : null}
 
+              {activeStep === 4 ? (
               <section className="grid gap-3 lg:grid-cols-3">
                 <Panel className="p-4">
                   <h3 className="font-black" style={{ color: 'var(--dawaa-status-success-text)' }}>نقاط القوة</h3>
@@ -726,10 +839,40 @@ export default function StaffMonthlyEvaluation() {
                   <textarea disabled={!canEdit} rows={6} value={managerNotes} onChange={(event) => setManagerNotes(event.target.value)} className="mt-3 w-full rounded-xl border p-2.5 text-sm disabled:opacity-70" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-theme-text)' }} />
                 </Panel>
               </section>
+              ) : null}
+
+              {activeStep === 5 ? (
+                <>
+                  <Panel className="p-4" style={approvalReady
+                    ? { background: 'var(--dawaa-status-success-bg)', borderColor: 'var(--dawaa-status-success-border)' }
+                    : { background: 'var(--dawaa-status-warning-bg)', borderColor: 'var(--dawaa-status-warning-border)' }}>
+                    <h3 className="font-black" style={{ color: approvalReady ? 'var(--dawaa-status-success-text)' : 'var(--dawaa-status-warning-text)' }}>
+                      {approvalReady ? 'جاهز للمراجعة النهائية' : 'الاعتماد غير جاهز بعد'}
+                    </h3>
+                    <div className="mt-2 text-sm font-bold" style={{ color: 'var(--dawaa-theme-text)' }}>
+                      {approvalBlockers.length
+                        ? approvalBlockers.map((item) => <div key={item}>• {item}</div>)
+                        : <div>كل مصادر الأدلة متاحة، وكل المحاور تم تقييمها، والدورة مقفولة.</div>}
+                    </div>
+                    {pointsTruth?.profile_configured ? (
+                      <div className="mt-3 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                        نسبة الأثر التي سيعتمدها الخادم: {effectiveEvaluationMultiplierPct}%{isGatedByCriticalViolation ? ` بعد تطبيق سقف المخالفة ${activeGateCapPercent}%` : ''}.
+                      </div>
+                    ) : null}
+                  </Panel>
+
+                  {user?.id && selected ? (
+                    <MonthlyEvaluationAuditTrailV5
+                      actorId={user.id}
+                      staffId={selected.id}
+                      cycleLabel={cycleLabel}
+                      refreshKey={auditRefreshKey}
+                    />
+                  ) : null}
 
               <Panel className="flex flex-wrap items-center justify-between gap-3 p-4">
                 <div className="flex items-center gap-2 text-sm font-bold" style={{ color: 'var(--dawaa-theme-text)' }}>
-                  <CheckCircle2 style={{ color: 'var(--dawaa-theme-primary-strong)' }} size={18} /> الحالة: {requiresPostCycleReapproval ? 'اعتماد مبكر — يحتاج إعادة اعتماد' : status === 'sent' ? 'معتمد ومُرسل' : 'مسودة'} · المحرك: V4
+                  <CheckCircle2 style={{ color: 'var(--dawaa-theme-primary-strong)' }} size={18} /> الحالة: {requiresPostCycleReapproval ? 'اعتماد مبكر — يحتاج إعادة اعتماد' : status === 'sent' ? 'معتمد ومُرسل' : 'مسودة'} · المحرك: V5
                 </div>
                 {canEdit ? (
                   <div className="flex flex-wrap gap-2">
@@ -737,10 +880,12 @@ export default function StaffMonthlyEvaluation() {
                     {!['sent', 'approved'].includes(status) ? (
                       <button type="button" disabled={saving} onClick={() => void save('draft')} className="btn-secondary inline-flex items-center gap-2"><Save size={16} /> حفظ مسودة</button>
                     ) : null}
-                    <button type="button" disabled={saving || !cycleClosed} onClick={() => void save('sent')} className="btn-primary inline-flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-60">{saving ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />} {!cycleClosed ? 'الاعتماد بعد إقفال الدورة' : requiresPostCycleReapproval ? 'إعادة اعتماد الدورة' : previouslySent ? 'تحديث واعتماد' : 'اعتماد وإرسال'}</button>
+                    <button type="button" disabled={saving || !approvalReady} onClick={() => void save('sent')} className="btn-primary inline-flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-60">{saving ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />} {!cycleClosed ? 'الاعتماد بعد إقفال الدورة' : !evidenceReady ? 'الأدلة غير مكتملة' : completedSections !== sections.length ? 'أكمل كل المحاور' : requiresPostCycleReapproval ? 'إعادة اعتماد الدورة' : previouslySent ? 'تحديث واعتماد' : 'اعتماد وإرسال'}</button>
                   </div>
                 ) : null}
               </Panel>
+                </>
+              ) : null}
             </>
           ) : (
             <EmptyState label="اختر موظفًا لعرض تقييمه." />
