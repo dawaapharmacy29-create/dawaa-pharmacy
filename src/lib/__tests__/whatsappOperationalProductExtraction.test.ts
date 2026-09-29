@@ -245,6 +245,17 @@ describe('WhatsApp Operational Intelligence V6 product extraction', () => {
     expect(model.evidence.externalResolution.messageIds).toHaveLength(0);
   });
 
+  it('treats a procurement-team fulfillment commitment as an active followup', () => {
+    const model = analyze(`[4/1/26, 3:14:46 PM] You: عينيا يا فندم حاضر بلغت ادارة المشتريات وهي هتوفره لحضرتك علي طول
+[4/1/26, 3:15:54 PM] Customer: ربنا يكرمك
+[4/1/26, 3:16:15 PM] Customer: بس ضروري بالله عليكي
+[4/1/26, 3:18:10 PM] You: تؤمرنا يا فندم حاضر`);
+    expect(model.operationalOutcome).toBe('needs_followup');
+    expect(model.followupPlan.required).toBe(true);
+    expect(model.followupPlan.reason).toMatch(/وعدت العميل بفحص التوفر/);
+    expect(model.followupPlan.evidenceMessageIds.length).toBeGreaterThan(0);
+  });
+
   it('treats supplier/company search promises as followup commitments', () => {
     const model = analyze(`[6/28/26, 10:09:33 AM] Customer: <image omitted>
 [6/28/26, 10:09:36 AM] Customer: ده موجود
