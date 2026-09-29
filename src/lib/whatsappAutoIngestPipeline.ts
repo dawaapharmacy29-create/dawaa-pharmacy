@@ -22,7 +22,10 @@ import {
 } from '@/lib/whatsappOperationalIntelligenceV6';
 import { enrichWhatsAppOperationalJourneysV7 } from '@/lib/whatsappProductJourneyV7';
 import { syncWhatsAppEvidenceLedgerV17 } from '@/lib/whatsappEvidenceLedgerV17';
-import { persistAutomaticWhatsAppReview } from '@/lib/whatsappAutomaticReviewPersistence';
+import {
+  persistAutomaticWhatsAppReview,
+  type AutomaticReviewSourceContext,
+} from '@/lib/whatsappAutomaticReviewPersistence';
 import { getCycleForDate } from '@/lib/pharmacy-cycle';
 import { resolveWhatsAppParticipantRolesV15, type WhatsAppParticipantRoleModelV15 } from '@/lib/whatsappParticipantRoleResolverV15';
 import { resolveConversationBranchHint, type BranchHintResult } from '@/lib/whatsappConversationBranchHint';
@@ -77,6 +80,8 @@ export interface IngestOneFileResult {
   invoiceChecksSkipped: number;
   autoReviewsCreated: number;
   autoReviewsSkipped: number;
+  /** Automatic reviews not written because the source is not canonically owned (fail closed). */
+  autoReviewsSkippedNonCanonical: number;
   autoReviewsPointsFailed: number;
   /** Canonical chain status: case units persisted, Journey V15 + Customer Case V22, Sales Intelligence. */
   caseGraph: WatcherCaseGraphSyncResult | null;
@@ -421,6 +426,57 @@ async function persistOperationalJourneyIntelligence(
   return operational;
 }
 
+/**
+ * Canonical Review Gate for automatic ingest: runs after the Customer Case V22 sync. The writer
+ * checks every source against the canonical operational owner, so a failed or partial V22 sync,
+ * a source without exactly one V22 case, or a superseded/archived source never gets an official
+ * automatic review (or review points).
+ */
+export async function persistCanonicalAutomaticReviews(
+  pending: AutomaticReviewSourceContext[],
+  result: Pick<
+    IngestOneFileResult,
+    | 'caseGraph'
+    | 'autoReviewsCreated'
+    | 'autoReviewsSkipped'
+    | 'autoReviewsSkippedNonCanonical'
+    | 'autoReviewsPointsFailed'
+    | 'errors'
+  >
+) {
+  if (!pending.length) return;
+  if (result.caseGraph?.customerCase.status === 'failed') {
+    result.autoReviewsSkippedNonCanonical += pending.length;
+    return;
+  }
+  for (const review of pending) {
+    try {
+      const autoReview = await persistAutomaticWhatsAppReview(review);
+      if (autoReview.status === 'saved') {
+        result.autoReviewsCreated += 1;
+        if (autoReview.pointsError) {
+          result.autoReviewsPointsFailed += 1;
+          result.errors.push(
+            `تقييم آلي رقم ${autoReview.reviewId}: تم حفظ التقييم لكن ربط النقاط فشل: ${autoReview.pointsError}`
+          );
+        }
+      } else if (autoReview.status === 'skipped_non_canonical_source') {
+        result.autoReviewsSkippedNonCanonical += 1;
+      } else if (autoReview.status === 'failed') {
+        result.errors.push(`تعذر إنشاء تقييم آلي لجلسة ${review.sourceId}: ${autoReview.error}`);
+      } else {
+        result.autoReviewsSkipped += 1;
+      }
+    } catch (autoReviewError) {
+      result.errors.push(
+        autoReviewError instanceof Error
+          ? `تقييم آلي: ${autoReviewError.message}`
+          : 'خطأ غير معروف أثناء التقييم الآلي للمحادثة'
+      );
+    }
+  }
+}
+
 export async function ingestWhatsAppExportFile(
   file: File,
   options: { accessToken?: string | null; createdBy?: string | null } = {}
@@ -439,6 +495,7 @@ export async function ingestWhatsAppExportFile(
     invoiceChecksSkipped: 0,
     autoReviewsCreated: 0,
     autoReviewsSkipped: 0,
+    autoReviewsSkippedNonCanonical: 0,
     autoReviewsPointsFailed: 0,
     caseGraph: null,
     salesIntelligence: {},
@@ -460,6 +517,7 @@ export async function ingestWhatsAppExportFile(
   const caseContexts = segmentation.caseContexts;
   result.sessionsFound = caseContexts.contexts.length;
   const sessionSources: JourneySessionSourceV15[] = [];
+  const pendingAutomaticReviews: AutomaticReviewSourceContext[] = [];
   let firstBranch: string | null = null;
   // Canonical Customer Identity: one bounded batch for every case unit (same resolver as the
   // Smart Watcher and Sales Intelligence). A lookup failure fails the file visibly.
@@ -518,38 +576,18 @@ export async function ingestWhatsAppExportFile(
       }
 
       if (!saved.duplicate) {
-        try {
-          const autoReview = await persistAutomaticWhatsAppReview({
-            sourceId: saved.sourceId,
-            session,
-            branch: conversationBranch,
-            customerId: identity.customerId,
-            customerCode: identity.customerCode,
-            customerName: identity.customerName,
-            customerPhone: identity.customerPhone,
-            staffName: session.outboundStaffNames[0] || null,
-            reviewCycle: getCycleForDate(session.startedAt),
-          });
-          if (autoReview.status === 'saved') {
-            result.autoReviewsCreated += 1;
-            if (autoReview.pointsError) {
-              result.autoReviewsPointsFailed += 1;
-              result.errors.push(
-                `تقييم آلي رقم ${autoReview.reviewId}: تم حفظ التقييم لكن ربط النقاط فشل: ${autoReview.pointsError}`
-              );
-            }
-          } else if (autoReview.status === 'failed') {
-            result.errors.push(`تعذر إنشاء تقييم آلي لجلسة ${saved.sourceId}: ${autoReview.error}`);
-          } else {
-            result.autoReviewsSkipped += 1;
-          }
-        } catch (autoReviewError) {
-          result.errors.push(
-            autoReviewError instanceof Error
-              ? `تقييم آلي: ${autoReviewError.message}`
-              : 'خطأ غير معروف أثناء التقييم الآلي للمحادثة'
-          );
-        }
+        // Written only after the Customer Case V22 sync proves canonical ownership (below).
+        pendingAutomaticReviews.push({
+          sourceId: saved.sourceId,
+          session,
+          branch: conversationBranch,
+          customerId: identity.customerId,
+          customerCode: identity.customerCode,
+          customerName: identity.customerName,
+          customerPhone: identity.customerPhone,
+          staffName: session.outboundStaffNames[0] || null,
+          reviewCycle: getCycleForDate(session.startedAt),
+        });
       }
 
       const invoiceStatus = await verifySessionSale(session, saved.sourceId, identity, conversationBranch);
@@ -606,6 +644,10 @@ export async function ingestWhatsAppExportFile(
       `Customer Case V22 ${result.caseGraph.customerCase.status} (${result.caseGraph.customerCase.saved}/${result.caseGraph.customerCase.expected}) — ${result.caseGraph.customerCase.errors.join(' | ')}`
     );
   }
+
+  // Canonical Review Gate: official automatic reviews only after the V22 sync; the writer
+  // re-checks each source against the canonical operational owner. A failed sync writes none.
+  await persistCanonicalAutomaticReviews(pendingAutomaticReviews, result);
 
   // Sales Intelligence through the same transport and Canonical Source Gate as the Smart Watcher.
   const sourceIds = Array.from(new Set(sessionSources.map((row) => row.sourceId)));

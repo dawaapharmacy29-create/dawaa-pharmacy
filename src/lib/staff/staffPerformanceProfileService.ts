@@ -1,4 +1,5 @@
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { ANALYTICS_DATA_SOURCES } from '@/lib/dataSources';
 import { getCurrentCycle, type PharmacyCycle } from '@/lib/pharmacy-cycle';
 import { getStaffCycleIncentive, type StaffCycleIncentive } from '@/lib/staffIncentiveService';
 import { normalizeStaffName } from '@/lib/staffIdentityService';
@@ -1568,7 +1569,7 @@ async function loadStaffCustomerServiceMetrics(
 
     // Load conversation reviews
     const { data: reviewData } = await supabase
-      .from('conversation_sales_reviews')
+      .from(ANALYTICS_DATA_SOURCES.officialConversationReviews)
       .select('*')
       .eq('staff_id', staffId)
       .gte('created_at', cycleStart)

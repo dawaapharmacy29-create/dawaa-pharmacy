@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Download, FileText, Loader2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { ANALYTICS_DATA_SOURCES } from '@/lib/dataSources';
 import { toast } from 'sonner';
 import { CommandHeader } from '@/components/command/CommandUI';
 import { useAuth } from '@/hooks/useAuth';
@@ -457,7 +458,7 @@ async function fetchConversationReviewRows(
 ): Promise<ReviewRow[]> {
   const scopedBranch = branch === ALL_BRANCHES ? undefined : normalizeBranchName(branch);
   const { data, error } = await supabase
-    .from('conversation_sales_reviews')
+    .from(ANALYTICS_DATA_SOURCES.officialConversationReviews)
     .select('*')
     .gte('review_date', startDate)
     .lte('review_date', endDate)

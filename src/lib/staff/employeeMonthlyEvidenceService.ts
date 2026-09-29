@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { ANALYTICS_DATA_SOURCES } from '@/lib/dataSources';
 import { readAttendanceRange } from '@/lib/readModels/attendanceReadModel';
 
 export type EmployeeMonthlyEvidence = {
@@ -25,7 +26,7 @@ export async function loadEmployeeMonthlyEvidence(args: {
 
   const [reviewResult, followupResult, attendanceResult] = await Promise.all([
     supabase
-      .from('conversation_sales_reviews')
+      .from(ANALYTICS_DATA_SOURCES.officialConversationReviews)
       .select('total_score,final_score,doctor_points_impact,point_impact,created_at')
       .eq('staff_id', args.staffId)
       .gte('created_at', args.startDate)

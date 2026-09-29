@@ -4,6 +4,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
+import { ANALYTICS_DATA_SOURCES } from '@/lib/dataSources';
 import { useAuth } from '@/hooks/useAuth';
 import { normalizeBranchName } from '@/lib/branch';
 import { canViewAllBranches } from '@/lib/security/userDataScope';
@@ -217,7 +218,7 @@ export default function StaffMonthlyEvaluation() {
             p_month: cycleKeyDate,
           }),
           supabase
-            .from('conversation_sales_reviews')
+            .from(ANALYTICS_DATA_SOURCES.officialConversationReviews)
             .select('total_score,final_score,doctor_points_impact,point_impact,created_at')
             .eq('staff_id', selectedId)
             .gte('created_at', startDate)

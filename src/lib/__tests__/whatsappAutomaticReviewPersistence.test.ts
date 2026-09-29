@@ -39,6 +39,11 @@ function makeSupabaseMock() {
           return chain;
         },
         eq: () => chain,
+        // Canonical Review Gate (V52): these scoring scenarios use canonically owned sources.
+        in: (_column: string, ids: string[]) =>
+          table === 'whatsapp_operational_canonical_sources_v1'
+            ? Promise.resolve({ data: ids.map((id) => ({ source_id: id })), error: null })
+            : chain,
         insert: (payload: Record<string, unknown>) => {
           if (table === 'conversation_sales_reviews') insertedReviewPayload = payload;
           mode = 'insert';

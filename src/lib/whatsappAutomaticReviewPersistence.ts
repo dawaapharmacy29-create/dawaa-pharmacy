@@ -7,6 +7,7 @@ import { logSupabaseError } from '@/lib/supabaseError';
 import type { PharmacyCycle } from '@/lib/pharmacy-cycle';
 import type { WhatsAppConversationSession } from '@/lib/whatsappConversationParser';
 import { evaluateAutomaticWhatsAppReview } from '@/lib/whatsappAutomaticReviewScoring';
+import { loadOperationalSourceIds } from '@/lib/whatsappOperationalSourceOwner';
 
 export interface AutomaticReviewSourceContext {
   sourceId: string;
@@ -25,6 +26,7 @@ export type AutomaticReviewPersistStatus =
   | 'skipped_no_staff'
   | 'skipped_ambiguous_staff'
   | 'skipped_existing'
+  | 'skipped_non_canonical_source'
   | 'failed';
 
 export interface AutomaticReviewPersistOutcome {
@@ -86,6 +88,22 @@ export async function persistAutomaticWhatsAppReview(
   }
   if (existingReview?.id) {
     return outcome({ status: 'skipped_existing', reviewId: String(existingReview.id) });
+  }
+
+  // Canonical Review Gate: an official automatic review (and its points) is written only for a
+  // source the canonical operational owner admits (V51: active, not superseded, exactly one V22
+  // case). No ownership, ambiguous ownership or a failed check writes nothing (fail closed).
+  let operational: Set<string>;
+  try {
+    operational = await loadOperationalSourceIds(supabase, [ctx.sourceId]);
+  } catch (ownerError) {
+    return outcome({
+      status: 'failed',
+      error: `canonical_ownership_unverified: ${ownerError instanceof Error ? ownerError.message : String(ownerError)}`,
+    });
+  }
+  if (!operational.has(String(ctx.sourceId))) {
+    return outcome({ status: 'skipped_non_canonical_source' });
   }
 
   const introducedStaffNames = [...new Set(

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, Loader2, Save, Search, Send, Star, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
+import { ANALYTICS_DATA_SOURCES } from '@/lib/dataSources';
 import { useAuth } from '@/hooks/useAuth';
 import { getStaffPointsDashboardV3, type StaffPointsDashboardV3 } from '@/lib/staff/staffPointsDashboardService';
 import {
@@ -95,7 +96,7 @@ export default function CustomerServiceDoctorEvaluation() {
       const [savedResult, pointsResult, reviewsResult, followupsResult] = await Promise.all([
         supabase.rpc('get_doctor_customer_service_evaluation_safe', { p_actor_id: user.id, p_doctor_id: selectedId, p_month: cycleKeyDate }),
         getStaffPointsDashboardV3(selectedId, cycleLabel).catch(() => null),
-        supabase.from('conversation_sales_reviews').select('total_score,final_score').eq('staff_id', selectedId).gte('created_at', startDate).lt('created_at', endDateExclusive).limit(500),
+        supabase.from(ANALYTICS_DATA_SOURCES.officialConversationReviews).select('total_score,final_score').eq('staff_id', selectedId).gte('created_at', startDate).lt('created_at', endDateExclusive).limit(500),
         supabase.from('daily_followups').select('status,followup_status,completed_at').or(`assigned_staff_id.eq.${selectedId},requested_by_staff_id.eq.${selectedId}`).gte('created_at', startDate).lt('created_at', endDateExclusive).limit(1000),
       ]);
       if (savedResult.error) toast.error(savedResult.error.message);

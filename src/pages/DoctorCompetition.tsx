@@ -14,6 +14,7 @@ import { rowMatchesCurrentDoctor, canViewAllBranches } from '@/lib/security/user
 import { normalizeBranchName } from '@/lib/branch';
 import { loadSalesAnalyticsSummary } from '@/lib/salesAnalyticsSummaryService';
 import { supabase } from '@/lib/supabase';
+import { ANALYTICS_DATA_SOURCES } from '@/lib/dataSources';
 import { calculateCompositeScore } from '@/lib/incentives/compositeScoreService';
 import { monthCycleFromDate } from '@/lib/conversationReviews';
 
@@ -308,7 +309,7 @@ export default function DoctorCompetition() {
       );
 
       let reviewQuery = supabase
-        .from('conversation_sales_reviews')
+        .from(ANALYTICS_DATA_SOURCES.officialConversationReviews)
         .select('staff_id,doctor_id,staff_name,doctor_name,branch,final_score,total_score')
         .gte('conversation_date', competitionRange.start)
         .lte('conversation_date', `${competitionRange.end}T23:59:59`)
