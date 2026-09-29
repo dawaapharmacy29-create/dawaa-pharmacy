@@ -183,6 +183,27 @@ describe('manual backfill dry-run', () => {
   });
 });
 
+describe('canonical refresh invoice read boundary', () => {
+  const serviceCode = fs.readFileSync(
+    path.resolve(__dirname, '../canonicalRefreshService.ts'),
+    'utf8'
+  );
+  const invoiceReadModelCode = fs.readFileSync(
+    path.resolve(__dirname, '../../../readModels/invoiceRecordReadModel.ts'),
+    'utf8'
+  );
+
+  it('never queries sales_invoices directly from the refresh service', () => {
+    expect(serviceCode).not.toMatch(/\.from\(\s*['"]sales_invoices['"]\s*\)/);
+    expect(serviceCode).toMatch(/readInvoiceRecordById\(/);
+    expect(serviceCode).toMatch(/readInvoiceRecordsByCustomerWindow\(/);
+  });
+
+  it('keeps delivery staff in the approved invoice projection used for complaint context', () => {
+    expect(invoiceReadModelCode).toContain("'delivery_staff'");
+  });
+});
+
 describe('backfill script has no bypass of the canonical boundary', () => {
   const script = fs.readFileSync(
     path.resolve(__dirname, '../../../../../scripts/run-sales-intelligence-backfill.cjs'),
