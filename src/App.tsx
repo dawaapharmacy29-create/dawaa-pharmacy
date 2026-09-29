@@ -40,7 +40,6 @@ const CustomerService = lazy(() => import('@/pages/SmartCustomerService'));
 const CustomerServiceClassic = lazy(() => import('@/pages/CustomerService'));
 const WhatsAppAutoFollowupRequests = lazy(() => import('@/pages/WhatsAppAutoFollowupRequests'));
 const WhatsAppDoctorPerformance = lazy(() => import('@/pages/WhatsAppDoctorPerformance'));
-const WhatsAppCustomerHistory = lazy(() => import('@/pages/WhatsAppCustomerHistory'));
 const WhatsAppLostOpportunities = lazy(() => import('@/pages/WhatsAppLostOpportunities'));
 const WhatsAppBranchComparison = lazy(() => import('@/pages/WhatsAppBranchComparison'));
 const CustomerRequests = lazy(() => import('@/pages/CustomerRequests'));
@@ -494,8 +493,8 @@ function AppRoutes() {
       <Route
         path="/whatsapp-customer-history"
         element={
-          <ProtectedRoute>
-            {routeSuspense(<WhatsAppCustomerHistory />, 'سجل محادثات العميل')}
+          <ProtectedRoute permission="view_reviews">
+            <Navigate to="/whatsapp-analytics?panel=customers" replace />
           </ProtectedRoute>
         }
       />
