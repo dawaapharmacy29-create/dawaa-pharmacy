@@ -338,24 +338,12 @@ export function useNotifications() {
         NOTIFICATION_POLL_INTERVAL_MS
       );
 
-      if (isSupabaseConfigured) {
-        try {
-          const channelName = `app-notifications-live-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-          const channel = supabase
-            .channel(channelName)
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => void refreshNotifications(true));
-
-          channel.subscribe((status) => {
-            if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
-              console.warn('[notifications] realtime unavailable; polling remains active', status);
-            }
-          });
-          notificationRuntime.channel = channel;
-        } catch (error) {
-          console.warn('[notifications] realtime setup failed; polling remains active', error);
-          notificationRuntime.channel = null;
-        }
-      }
+      // Intentionally no table-wide Realtime subscription here.
+      // notification_events_v2 is an expensive read model; refreshing the full inbox
+      // after every notifications-table change caused request storms across all logged-in
+      // users. Polling + visibility refresh keeps the inbox fresh without coupling every
+      // notification write to a full canonical-view reload.
+      notificationRuntime.channel = null;
     }
 
     return () => {
