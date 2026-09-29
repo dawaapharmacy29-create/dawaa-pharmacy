@@ -2048,8 +2048,8 @@ export default function Invoices() {
             <div
               className={`rounded-2xl border p-4 ${
                 invoiceItemsParseResult.rows.length
-                  ? 'border-emerald-400/25 bg-emerald-500/5'
-                  : 'border-amber-400/25 bg-amber-500/5'
+                  ? 'border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)]'
+                  : 'border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)]'
               }`}
             >
               <div className="font-black text-[var(--dawaa-theme-heading)]">
@@ -2067,7 +2067,7 @@ export default function Invoices() {
                       : 'بعد حفظ الفواتير سيتم حفظ البنود وربطها بالفاتورة والمنتج بشكل canonical قدر الإمكان. هذه البنود Evidence للتحليل؛ لا تتحول إلى بيع مثبت إلا بعد اجتياز Sales Intelligence لقواعد إسناد الفاتورة ومطابقة السلة.'}
                   </div>
                   {invoiceItemsImportResult ? (
-                    <div className="font-bold text-emerald-300">
+                    <div className="font-bold text-[var(--dawaa-status-success-text)]">
                       حُفظ: {invoiceItemsImportResult.saved.toLocaleString('ar-EG')} • فشل:{' '}
                       {invoiceItemsImportResult.failed.toLocaleString('ar-EG')} • بنود متاحة للتحليل:{' '}
                       {invoiceItemsImportResult.canonicalEvidenceRows.toLocaleString('ar-EG')} • فواتير مرتبطة:{' '}
@@ -2080,7 +2080,7 @@ export default function Invoices() {
                   ) : null}
                 </div>
               ) : (
-                <div className="mt-2 text-xs leading-6 text-amber-200">
+                <div className="mt-2 text-xs leading-6 text-[var(--dawaa-status-warning-text)]">
                   الملف الحالي يحتوي ملخص الفواتير فقط، ولا يحتوي أعمدة اسم/كود الصنف + الكمية.
                   سيتم استيراد الفواتير، لكن لا يمكن إثبات الصنف داخل الفاتورة من هذا الملف.
                   {invoiceItemsParseResult.warnings.length
@@ -2227,10 +2227,10 @@ export default function Invoices() {
       )}
 
       {step === 'done' && itemsOnlyImport && invoiceItemsImportResult && (
-        <div className="rounded-2xl border border-emerald-400/25 bg-emerald-500/5 p-6 space-y-4">
+        <div className="rounded-2xl border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] p-6 space-y-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-500/10">
-              <CheckCircle size={24} className="text-emerald-300" />
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--dawaa-status-success-bg)]">
+              <CheckCircle size={24} className="text-[var(--dawaa-status-success-text)]" />
             </div>
             <div>
               <div className="text-lg font-bold text-[var(--dawaa-theme-heading)]">اكتمل استيراد تفاصيل B-Connect</div>
@@ -2238,17 +2238,17 @@ export default function Invoices() {
             </div>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-            <StatTile value={invoiceItemsImportResult.saved} label="بنود محفوظة" color="text-emerald-300" />
-            <StatTile value={invoiceItemsImportResult.linkedInvoices} label="فواتير مرتبطة" color="text-cyan-300" />
-            <StatTile value={invoiceItemsImportResult.linkedInvoiceRows} label="بنود مرتبطة بفواتير" color="text-cyan-300" />
-            <StatTile value={invoiceItemsImportResult.productLinkedRows} label="بنود مرتبطة بمنتج" color="text-violet-300" />
-            <StatTile value={invoiceItemsImportResult.productUnresolvedRows} label="منتج غير محلول" color="text-amber-300" />
-            <StatTile value={invoiceItemsImportResult.fullReturnRows} label="مرتجع كامل" color="text-rose-300" />
-            <StatTile value={invoiceItemsImportResult.partialReturnRows} label="مرتجع جزئي" color="text-amber-300" />
-            <StatTile value={invoiceItemsImportResult.ambiguousInvoiceRows} label="ربط غامض" color="text-amber-300" />
-            <StatTile value={invoiceItemsImportResult.branchConflictRows} label="تعارض فرع" color="text-rose-300" />
-            <StatTile value={invoiceItemsImportResult.unmatchedInvoiceRows} label="بدون Header" color="text-rose-300" />
-            <StatTile value={invoiceItemsImportResult.financialMismatchInvoices} label="فرق صافي B-Connect / Header" color="text-amber-300" />
+            <StatTile value={invoiceItemsImportResult.saved} label="بنود محفوظة" color="text-[var(--dawaa-status-success-text)]" />
+            <StatTile value={invoiceItemsImportResult.linkedInvoices} label="فواتير مرتبطة" color="text-[var(--dawaa-status-info-text)]" />
+            <StatTile value={invoiceItemsImportResult.linkedInvoiceRows} label="بنود مرتبطة بفواتير" color="text-[var(--dawaa-status-info-text)]" />
+            <StatTile value={invoiceItemsImportResult.productLinkedRows} label="بنود مرتبطة بمنتج" color="text-[var(--dawaa-theme-primary-strong)]" />
+            <StatTile value={invoiceItemsImportResult.productUnresolvedRows} label="منتج غير محلول" color="text-[var(--dawaa-status-warning-text)]" />
+            <StatTile value={invoiceItemsImportResult.fullReturnRows} label="مرتجع كامل" color="text-[var(--dawaa-status-danger-text)]" />
+            <StatTile value={invoiceItemsImportResult.partialReturnRows} label="مرتجع جزئي" color="text-[var(--dawaa-status-warning-text)]" />
+            <StatTile value={invoiceItemsImportResult.ambiguousInvoiceRows} label="ربط غامض" color="text-[var(--dawaa-status-warning-text)]" />
+            <StatTile value={invoiceItemsImportResult.branchConflictRows} label="تعارض فرع" color="text-[var(--dawaa-status-danger-text)]" />
+            <StatTile value={invoiceItemsImportResult.unmatchedInvoiceRows} label="بدون Header" color="text-[var(--dawaa-status-danger-text)]" />
+            <StatTile value={invoiceItemsImportResult.financialMismatchInvoices} label="فرق صافي B-Connect / Header" color="text-[var(--dawaa-status-warning-text)]" />
           </div>
           <button onClick={handleReset} className="dawaa-button dawaa-button--secondary">
             استيراد ملف آخر
