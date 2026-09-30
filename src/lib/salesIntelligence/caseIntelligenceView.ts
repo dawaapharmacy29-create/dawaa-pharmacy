@@ -23,6 +23,8 @@ export interface BuildCaseIntelligenceContext {
   messages: NormalizedConversationMessageV32[];
   interaction: ConversationInteractionV32 | null;
   customerIdentityStatus?: 'resolved' | 'unresolved' | 'ambiguous' | 'contradicted';
+  customerNameHint?: string | null;
+  customerCodeHint?: string | null;
   staffIdBySender?: Record<string, string>;
 }
 
@@ -190,6 +192,8 @@ export function buildCaseIntelligenceView(
     customer: {
       customerId: identityResolved ? conversationCase.customerId : null,
       customerPhone: identityResolved ? conversationCase.customerPhone : null,
+      customerName: identityResolved ? (context.customerNameHint?.trim() || null) : null,
+      customerCode: identityResolved ? (context.customerCodeHint?.trim() || null) : null,
       identityStatus,
       blockers: identityResolved ? [] : ['customer_identity_unresolved'],
     },

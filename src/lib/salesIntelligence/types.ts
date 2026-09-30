@@ -481,6 +481,9 @@ export interface CaseIntelligenceView {
   customer: {
     customerId: string | null;
     customerPhone: string | null;
+    /** Canonical/source identity facts for evaluation/display; never inferred from chat sender text. */
+    customerName?: string | null;
+    customerCode?: string | null;
     identityStatus: 'resolved' | 'unresolved' | 'ambiguous' | 'contradicted' | 'not_provided';
     blockers: Array<'customer_identity_unresolved'>;
   };

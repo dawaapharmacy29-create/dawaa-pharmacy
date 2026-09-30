@@ -595,6 +595,8 @@ function analyzeOneCase(
       messages: scopedMessages,
       interaction,
       customerIdentityStatus: input.customerIdentityStatus,
+      customerNameHint: input.customerNameHint ?? null,
+      customerCodeHint: input.customerCodeHint ?? null,
       staffIdBySender: input.staffIdBySender,
     }),
   };
