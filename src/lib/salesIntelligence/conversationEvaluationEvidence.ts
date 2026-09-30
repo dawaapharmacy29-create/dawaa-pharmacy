@@ -243,7 +243,7 @@ function criterionApplicable(view: CaseIntelligenceView, key: ReviewCriterionKey
     case 'dosage_explanation':
       return view.interaction.caseType !== 'information_only' || Boolean(view.need.primaryNeed);
     case 'unavailable_items':
-      return view.unavailableDemand.length > 0 || view.products.some((product) => product.availability.state === 'unavailable');
+      return view.unavailableDemand.length > 0 || view.products.some((product) => product.availability === 'unavailable');
     case 'sales_closing':
     case 'cross_sell_upsell':
     case 'order_confirmation':
