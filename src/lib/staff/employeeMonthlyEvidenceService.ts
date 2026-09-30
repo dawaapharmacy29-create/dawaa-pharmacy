@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { readAttendanceRange } from '@/lib/readModels/attendanceReadModel';
+import { listAttendanceImpactLedger, type AttendanceImpactRow } from '@/lib/attendance/attendanceResolutionService';
 
 export type EmployeeMonthlyEvidenceMetrics = {
   review_count: number;
@@ -72,10 +73,47 @@ export type MonthlyConversationCoaching = {
   };
 };
 
+export type MonthlyAttendanceCoaching = {
+  approvedEvents: number;
+  onTimeDays: number;
+  lateCases: number;
+  veryLateCases: number;
+  lateMinutes: number;
+  earlyLeaveCases: number;
+  earlyLeaveMinutes: number;
+  absenceCases: number;
+  approvedTimeOffCases: number;
+  workedOnOffCases: number;
+  manualResolutionCases: number;
+  drafts: {
+    strength: string;
+    development: string;
+    actionPlan: string;
+  };
+};
+
+export type MonthlyFollowupCoaching = {
+  total: number;
+  completed: number;
+  open: number;
+  completionPct: number;
+  documented: number;
+  documentedPct: number;
+  purchaseAfterFollowup: number;
+  needsNextFollowup: number;
+  drafts: {
+    strength: string;
+    development: string;
+    actionPlan: string;
+  };
+};
+
 export type EmployeeMonthlyEvidence = {
   metrics: EmployeeMonthlyEvidenceMetrics;
   coaching: {
     conversation: MonthlyConversationCoaching;
+    attendance: MonthlyAttendanceCoaching;
+    followups: MonthlyFollowupCoaching;
   };
   health: {
     reviews: 'available' | 'unavailable';
@@ -287,6 +325,126 @@ function buildConversationCoaching(rows: Record<string, unknown>[]): MonthlyConv
   };
 }
 
+function snapshotNumber(row: AttendanceImpactRow, key: string) {
+  return safeNumber(row.evidence_snapshot?.[key]);
+}
+
+function buildAttendanceCoaching(rows: AttendanceImpactRow[]): MonthlyAttendanceCoaching {
+  const currentRows = rows.filter((row) => !row.reversal_of && row.impact_status !== 'reversed');
+  const byType = (type: string) => currentRows.filter((row) => row.event_type === type);
+
+  const lateRows = [
+    ...byType('attendance_late'),
+    ...byType('attendance_very_late'),
+  ];
+  const earlyRows = byType('attendance_early_leave_confirmed');
+
+  const lateMinutes = lateRows.reduce((sum, row) => sum + snapshotNumber(row, 'late_minutes'), 0);
+  const earlyLeaveMinutes = earlyRows.reduce((sum, row) => sum + snapshotNumber(row, 'early_leave_minutes'), 0);
+
+  const onTimeDays = byType('attendance_on_time').length + byType('attendance_on_time_with_permission').length;
+  const lateCases = byType('attendance_late').length;
+  const veryLateCases = byType('attendance_very_late').length;
+  const earlyLeaveCases = earlyRows.length;
+  const absenceCases = byType('attendance_absence_confirmed').length;
+  const approvedTimeOffCases = byType('attendance_approved_time_off').length;
+  const workedOnOffCases = byType('attendance_worked_on_off_confirmed').length;
+  const manualResolutionCases = byType('attendance_manual_resolution').length;
+
+  const strengthBits = [
+    onTimeDays > 0 ? `${onTimeDays} يوم حضور معتمد في الموعد` : '',
+    workedOnOffCases > 0 ? `${workedOnOffCases} يوم عمل معتمد في يوم راحة` : '',
+  ].filter(Boolean);
+
+  const developmentBits = [
+    lateCases + veryLateCases > 0
+      ? `${lateCases + veryLateCases} حالة تأخير معتمدة بإجمالي ${lateMinutes} دقيقة`
+      : '',
+    earlyLeaveCases > 0
+      ? `${earlyLeaveCases} حالة خروج مبكر معتمدة بإجمالي ${earlyLeaveMinutes} دقيقة`
+      : '',
+    absenceCases > 0 ? `${absenceCases} حالة غياب مؤكدة` : '',
+  ].filter(Boolean);
+
+  const actions = [
+    lateCases + veryLateCases > 0 ? 'مراجعة أسباب التأخير المعتمد ووضع إجراء يمنع تكراره في الدورة القادمة.' : '',
+    earlyLeaveCases > 0 ? 'مراجعة حالات الخروج المبكر المعتمدة والتأكد من وجود إذن أو تصحيح الإجراء.' : '',
+    absenceCases > 0 ? 'مراجعة حالات الغياب المؤكدة مع المدير وتوثيق الإجراء المتفق عليه.' : '',
+  ].filter(Boolean);
+
+  return {
+    approvedEvents: currentRows.length,
+    onTimeDays,
+    lateCases,
+    veryLateCases,
+    lateMinutes,
+    earlyLeaveCases,
+    earlyLeaveMinutes,
+    absenceCases,
+    approvedTimeOffCases,
+    workedOnOffCases,
+    manualResolutionCases,
+    drafts: {
+      strength: strengthBits.length ? `الحضور المعتمد: ${strengthBits.join('، ')}.` : '',
+      development: developmentBits.length ? `ملاحظات الحضور المعتمدة: ${developmentBits.join('، ')}.` : '',
+      actionPlan: actions.length ? `خطة الحضور: ${actions.join(' • ')}` : '',
+    },
+  };
+}
+
+function followupExecuted(row: Record<string, unknown>) {
+  const status = `${text(row.status)} ${text(row.followup_status)}`.toLowerCase();
+  return Boolean(row.completed_at || row.closed_at || /completed|done|closed|مكتمل|تم|اغلاق|إغلاق/.test(status));
+}
+
+function buildFollowupCoaching(rows: Record<string, unknown>[]): MonthlyFollowupCoaching {
+  const total = rows.length;
+  const completed = rows.filter(followupExecuted).length;
+  const open = Math.max(0, total - completed);
+  const completionPct = total ? Math.round((completed / total) * 1000) / 10 : 0;
+  const documented = rows.filter((row) =>
+    [row.followup_result, row.followup_summary, row.notes]
+      .some((value) => text(value).length >= 12)
+  ).length;
+  const documentedPct = total ? Math.round((documented / total) * 1000) / 10 : 0;
+  const purchaseAfterFollowup = rows.filter((row) => bool(row.purchase_after_followup)).length;
+  const needsNextFollowup = rows.filter((row) => bool(row.needs_next_followup)).length;
+
+  const strengthBits = [
+    total > 0 && completed === total ? `تم إغلاق كل المتابعات المسجلة (${completed}/${total})` : '',
+    documented > 0 && documented === total ? 'كل المتابعات تحتوي نتيجة أو توثيقًا واضحًا' : '',
+    purchaseAfterFollowup > 0 ? `${purchaseAfterFollowup} متابعة موثقة نتج عنها شراء` : '',
+  ].filter(Boolean);
+
+  const developmentBits = [
+    open > 0 ? `${open} متابعة من أصل ${total} ما زالت غير مكتملة` : '',
+    total > 0 && documented < total ? `${total - documented} متابعة تحتاج توثيق نتيجة أوضح` : '',
+    needsNextFollowup > 0 ? `${needsNextFollowup} حالة مسجلة تحتاج متابعة لاحقة` : '',
+  ].filter(Boolean);
+
+  const actionBits = [
+    open > 0 ? 'إغلاق المتابعات المفتوحة أو توثيق سبب بقائها مفتوحة قبل نهاية الدورة.' : '',
+    total > 0 && documented < total ? 'تسجيل نتيجة واضحة وخطوة تالية لكل متابعة بدل الاكتفاء بتغيير الحالة.' : '',
+    needsNextFollowup > 0 ? 'تحديد موعد المتابعة التالية بوضوح للحالات التي تحتاج استمرارًا.' : '',
+  ].filter(Boolean);
+
+  return {
+    total,
+    completed,
+    open,
+    completionPct,
+    documented,
+    documentedPct,
+    purchaseAfterFollowup,
+    needsNextFollowup,
+    drafts: {
+      strength: strengthBits.length ? `المتابعات: ${strengthBits.join('، ')}.` : '',
+      development: developmentBits.length ? `ملاحظات المتابعات: ${developmentBits.join('، ')}.` : '',
+      actionPlan: actionBits.length ? `خطة المتابعات: ${actionBits.join(' • ')}` : '',
+    },
+  };
+}
+
 async function loadConversationReviews(args: {
   staffId: string;
   startDate: string;
@@ -344,11 +502,11 @@ export async function loadEmployeeMonthlyEvidence(args: {
 }): Promise<EmployeeMonthlyEvidence> {
   const errors: Record<string, string> = {};
 
-  const [reviewResult, followupResult, attendanceResult] = await Promise.all([
+  const [reviewResult, followupResult, attendanceResult, attendanceImpactResult] = await Promise.all([
     loadConversationReviews(args),
     supabase
       .from('daily_followups')
-      .select('status,followup_status,completed_at,created_at,assigned_staff_id,requested_by_staff_id')
+      .select('id,status,followup_status,followup_result,followup_summary,notes,completed_at,closed_at,needs_next_followup,next_followup_date,purchase_after_followup,created_at,assigned_staff_id,requested_by_staff_id')
       .or(`assigned_staff_id.eq.${args.staffId},requested_by_staff_id.eq.${args.staffId}`)
       .gte('created_at', args.startDate)
       .lt('created_at', args.endDateExclusive)
@@ -359,6 +517,15 @@ export async function loadEmployeeMonthlyEvidence(args: {
       endDateExclusive: args.endDateExclusive,
       limit: 400,
     }),
+    listAttendanceImpactLedger({
+      staffId: args.staffId,
+      start: args.startDate,
+      end: new Date(new Date(args.endDateExclusive).getTime() - 86400000).toISOString().slice(0, 10),
+      limit: 300,
+    }).then((rows) => ({ rows, error: '' })).catch((cause) => ({
+      rows: [] as AttendanceImpactRow[],
+      error: cause instanceof Error ? cause.message : String(cause),
+    })),
   ]);
 
   const reviewRows = reviewResult.rows;
@@ -369,6 +536,9 @@ export async function loadEmployeeMonthlyEvidence(args: {
 
   const attendanceRows = attendanceResult.status === 'available' ? attendanceResult.rows : [];
   if (attendanceResult.status === 'unavailable') errors.attendance = attendanceResult.error;
+  if (attendanceImpactResult.error && attendanceResult.status === 'unavailable') {
+    errors.attendance = [errors.attendance, attendanceImpactResult.error].filter(Boolean).join(' | ');
+  }
 
   const reviewAverage = reviewRows.length
     ? reviewRows.reduce((sum, row) => sum + safeNumber(row.final_score ?? row.total_score), 0) / reviewRows.length
@@ -415,6 +585,8 @@ export async function loadEmployeeMonthlyEvidence(args: {
     },
     coaching: {
       conversation: buildConversationCoaching(reviewRows),
+      attendance: buildAttendanceCoaching(attendanceImpactResult.rows),
+      followups: buildFollowupCoaching((followupRows || []) as Record<string, unknown>[]),
     },
     health,
     ready:

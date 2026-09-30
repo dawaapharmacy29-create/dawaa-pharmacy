@@ -125,16 +125,28 @@ function sectionEvidenceFor(
         details: ['لا تستخدم الصفر كدليل على الأداء لأن مصدر الحضور غير متاح.'],
       };
     }
+    const attendance = coaching?.attendance;
     return {
       status: 'available' as const,
-      summary: metrics.attendance_days
-        ? `${metrics.present_days} يوم حضور فعلي من ${metrics.attendance_days} يوم مسجل`
-        : 'لا توجد أيام حضور مسجلة في المصدر لهذه الدورة',
+      summary: attendance?.approvedEvents
+        ? `${attendance.approvedEvents} قرار حضور معتمد · ${attendance.lateCases + attendance.veryLateCases} تأخير · ${attendance.absenceCases} غياب`
+        : metrics.attendance_days
+          ? `${metrics.present_days} يوم حضور فعلي من ${metrics.attendance_days} يوم مسجل`
+          : 'لا توجد أيام حضور مسجلة في المصدر لهذه الدورة',
       details: [
         `أيام الحضور الفعلي: ${metrics.present_days}`,
         `إجمالي الأيام المسجلة: ${metrics.attendance_days}`,
-        'المصدر: Attendance Truth.',
-      ],
+        attendance?.approvedEvents ? `قرارات الحضور المعتمدة: ${attendance.approvedEvents}` : '',
+        attendance && attendance.lateCases + attendance.veryLateCases > 0
+          ? `التأخير المعتمد: ${attendance.lateCases + attendance.veryLateCases} حالة · ${attendance.lateMinutes} دقيقة`
+          : '',
+        attendance?.earlyLeaveCases
+          ? `الخروج المبكر المعتمد: ${attendance.earlyLeaveCases} حالة · ${attendance.earlyLeaveMinutes} دقيقة`
+          : '',
+        attendance?.absenceCases ? `الغياب المؤكد: ${attendance.absenceCases} حالة` : '',
+        attendance?.approvedTimeOffCases ? `إجازات/أذونات معتمدة: ${attendance.approvedTimeOffCases}` : '',
+        'المصدر: Attendance Resolution / Impact Ledger المعتمد.',
+      ].filter(Boolean),
     };
   }
 
@@ -178,15 +190,20 @@ function sectionEvidenceFor(
         details: ['لا تستخدم قيمة صفر كدليل لأن مصدر المتابعات غير متاح.'],
       };
     }
+    const followups = coaching?.followups;
     return {
       status: 'available' as const,
-      summary: metrics.followup_count
-        ? `${metrics.completed_followups}/${metrics.followup_count} متابعة مكتملة`
+      summary: followups?.total
+        ? `${followups.completed}/${followups.total} مكتملة · ${followups.completionPct}%`
         : 'لا توجد متابعات مسجلة لهذه الدورة',
       details: [
         `المتابعات المكتملة: ${metrics.completed_followups}`,
         `إجمالي المتابعات: ${metrics.followup_count}`,
-      ],
+        followups?.open ? `متابعات غير مكتملة: ${followups.open}` : '',
+        followups?.total ? `التوثيق الواضح: ${followups.documented}/${followups.total} (${followups.documentedPct}%)` : '',
+        followups?.purchaseAfterFollowup ? `شراء بعد المتابعة: ${followups.purchaseAfterFollowup} حالة` : '',
+        followups?.needsNextFollowup ? `تحتاج متابعة لاحقة: ${followups.needsNextFollowup} حالة` : '',
+      ].filter(Boolean),
     };
   }
 
@@ -1353,6 +1370,89 @@ export default function StaffMonthlyEvaluation() {
                           لن نستنتج مميزات أو عيوب من {coaching.conversation.reviewCount} مراجعة فقط. يمكن للمدير قراءة الحالات، لكن لا تُستخدم كحكم شهري قوي.
                         </div>
                       )}
+                    </div>
+                  ) : null}
+
+                  {(coaching?.attendance.approvedEvents || coaching?.followups.total) ? (
+                    <div className="mt-3 grid gap-2 lg:grid-cols-2">
+                      {coaching?.attendance.approvedEvents ? (
+                        <div className="rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}>
+                          <div className="text-[11px] font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>Coaching الحضور المعتمد</div>
+                          <div className="mt-2 space-y-1.5 text-xs font-bold leading-6" style={{ color: 'var(--dawaa-theme-text)' }}>
+                            {coaching.attendance.drafts.strength ? <div style={{ color: 'var(--dawaa-status-success-text)' }}>{coaching.attendance.drafts.strength}</div> : null}
+                            {coaching.attendance.drafts.development ? <div style={{ color: 'var(--dawaa-status-warning-text)' }}>{coaching.attendance.drafts.development}</div> : null}
+                            {coaching.attendance.drafts.actionPlan ? <div>{coaching.attendance.drafts.actionPlan}</div> : null}
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {coaching.attendance.drafts.strength ? (
+                              <button
+                                type="button"
+                                disabled={!canEdit}
+                                onClick={() => setStrengthsText((current) => appendUniqueLine(current, coaching.attendance.drafts.strength))}
+                                className="rounded-lg border px-2 py-1 text-[10px] font-black disabled:cursor-default"
+                                style={{ borderColor: 'var(--dawaa-status-success-border)', color: 'var(--dawaa-status-success-text)' }}
+                              >
+                                إضافة القوة
+                              </button>
+                            ) : null}
+                            {coaching.attendance.drafts.development || coaching.attendance.drafts.actionPlan ? (
+                              <button
+                                type="button"
+                                disabled={!canEdit}
+                                onClick={() => setDevelopmentText((current) => appendUniqueLine(
+                                  appendUniqueLine(current, coaching.attendance.drafts.development),
+                                  coaching.attendance.drafts.actionPlan
+                                ))}
+                                className="rounded-lg border px-2 py-1 text-[10px] font-black disabled:cursor-default"
+                                style={{ borderColor: 'var(--dawaa-status-warning-border)', color: 'var(--dawaa-status-warning-text)' }}
+                              >
+                                إضافة التطوير
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {coaching?.followups.total ? (
+                        <div className="rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}>
+                          <div className="text-[11px] font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>Coaching المتابعات</div>
+                          <div className="mt-1 text-[11px] font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                            {coaching.followups.completed}/{coaching.followups.total} مكتملة · توثيق {coaching.followups.documentedPct}%
+                          </div>
+                          <div className="mt-2 space-y-1.5 text-xs font-bold leading-6" style={{ color: 'var(--dawaa-theme-text)' }}>
+                            {coaching.followups.drafts.strength ? <div style={{ color: 'var(--dawaa-status-success-text)' }}>{coaching.followups.drafts.strength}</div> : null}
+                            {coaching.followups.drafts.development ? <div style={{ color: 'var(--dawaa-status-warning-text)' }}>{coaching.followups.drafts.development}</div> : null}
+                            {coaching.followups.drafts.actionPlan ? <div>{coaching.followups.drafts.actionPlan}</div> : null}
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {coaching.followups.drafts.strength ? (
+                              <button
+                                type="button"
+                                disabled={!canEdit}
+                                onClick={() => setStrengthsText((current) => appendUniqueLine(current, coaching.followups.drafts.strength))}
+                                className="rounded-lg border px-2 py-1 text-[10px] font-black disabled:cursor-default"
+                                style={{ borderColor: 'var(--dawaa-status-success-border)', color: 'var(--dawaa-status-success-text)' }}
+                              >
+                                إضافة القوة
+                              </button>
+                            ) : null}
+                            {coaching.followups.drafts.development || coaching.followups.drafts.actionPlan ? (
+                              <button
+                                type="button"
+                                disabled={!canEdit}
+                                onClick={() => setDevelopmentText((current) => appendUniqueLine(
+                                  appendUniqueLine(current, coaching.followups.drafts.development),
+                                  coaching.followups.drafts.actionPlan
+                                ))}
+                                className="rounded-lg border px-2 py-1 text-[10px] font-black disabled:cursor-default"
+                                style={{ borderColor: 'var(--dawaa-status-warning-border)', color: 'var(--dawaa-status-warning-text)' }}
+                              >
+                                إضافة التطوير
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
                   ) : null}
 
