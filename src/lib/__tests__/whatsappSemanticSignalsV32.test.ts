@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { parseWhatsAppExport, splitWhatsAppSessions } from '@/lib/whatsappConversationParser';
 import { buildConversationUnderstandingV32 } from '@/lib/whatsappConversationUnderstandingV32';
 import {
+  classifyAvailabilityStatementV32,
+  extractAvailabilitySignals,
   extractConfirmationSignals,
   extractQuantitySignals,
   isCommitmentOnly,
