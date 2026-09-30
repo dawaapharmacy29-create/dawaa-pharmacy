@@ -119,7 +119,10 @@ describe('Sales Intelligence Pipeline (Phase G) — Golden Cases', () => {
     expect(a.humanReviewReasons).not.toContain('no_basket_state_for_case');
     expect(a.needsHumanReview).toBe(false);
     expect(a.journeyState.reviewRequired).toBe(false);
+    expect(a.lostOpportunity.state).toBe('won');
+    expect(a.followUp.decision).toBe('not_needed');
     expect(a.caseIntelligence.review.required).toBe(false);
+    expect(a.status).toBe('analyzed');
   });
 
   it('2. information-only conversation is a valid, complete output — never forced into a commercial case', () => {

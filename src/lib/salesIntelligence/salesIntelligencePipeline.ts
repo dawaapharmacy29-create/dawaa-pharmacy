@@ -550,6 +550,10 @@ function analyzeOneCase(
     status = 'analyzed';
   } else if (needsHumanReview) {
     status = 'needs_human_review';
+  } else if (salesOutcome.outcome === 'sale_proven') {
+    // Transaction truth outranks a missing text-derived basket. A photo/voice export can leave the
+    // conversation-side basket incomplete while the unique trusted invoice proves the sale.
+    status = 'analyzed';
   } else if (evidenceCompleteness.overallEvidenceLevel === 'insufficient') {
     status = 'insufficient_data';
   } else if (evidenceCompleteness.overallEvidenceLevel === 'low' || evidenceCompleteness.overallEvidenceLevel === 'medium') {
