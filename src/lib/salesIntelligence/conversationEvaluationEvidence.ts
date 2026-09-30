@@ -255,9 +255,15 @@ function criterionApplicable(
     case 'unavailable_items':
       return view.unavailableDemand.length > 0 || view.products.some((product) => product.availability === 'unavailable');
     case 'sales_closing':
-    case 'cross_sell_upsell':
     case 'order_confirmation':
       return view.interaction.caseType === 'sales_opportunity' || view.sale.isSaleCountable || view.basket.versions.length > 0;
+    case 'cross_sell_upsell':
+      return view.products.some(
+        (product) =>
+          product.roles.includes('offered') &&
+          !product.roles.includes('requested') &&
+          !product.roles.includes('alternative')
+      );
     case 'angry_customer':
       return view.coachingEvidence.delayComplaintMessageIds.length > 0 ||
         view.interaction.messages.some((message) => /شكوى|زعلان|غاضب|مشكله|مشكلة|متأخر|تأخير/i.test(message.text));
