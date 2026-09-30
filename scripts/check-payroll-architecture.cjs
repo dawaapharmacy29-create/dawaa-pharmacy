@@ -66,14 +66,31 @@ if (permissionSource.includes('manage_salary_calculator')) failures.push('Non-ca
 if (!/['"]\/staff-payroll['"]\s*:\s*['"]manage_payroll['"]/.test(permissionSource)) failures.push('staff-payroll route must remain guarded by manage_payroll.');
 
 const payrollPage = fs.readFileSync(payrollPagePath, 'utf8');
-for (const table of ['staff_payroll_profiles_v13', 'staff_payroll_monthly_v13']) if (!payrollPage.includes(table)) failures.push(`Payroll page no longer references expected table ${table}`);
-if (!payrollPage.includes("supabase.rpc('save_staff_payroll_monthly_v14'")) failures.push('Payroll page must save monthly rows through save_staff_payroll_monthly_v14.');
-if (/from\(['"]staff_payroll_monthly_v13['"]\)\.upsert/.test(payrollPage)) failures.push('Payroll page must not reintroduce direct monthly payroll upserts.');
-if (!payrollPage.includes('monthlyFrozen') || !payrollPage.includes('monthlyPaid')) failures.push('Payroll page must visibly lock approved/paid rows.');
+
+// PayrollManagement has moved beyond the legacy V13/V14 editor into the current
+// read-model/ledger architecture. Keep the historical freeze/lockdown migrations
+// verified above, while requiring the active page to use the canonical services
+// and never reintroduce direct writes to the legacy payroll tables.
+for (const boundary of [
+  '@/lib/payroll/payrollFinalizedSnapshotService',
+  '@/lib/payroll/payrollCompensationService',
+  '@/lib/payroll/attendancePayrollReadinessService',
+  '@/components/attendance/PayrollAttendanceSafetyGate',
+  '@/components/payroll/PayrollManualEntriesPanel',
+]) {
+  if (!payrollPage.includes(boundary)) failures.push(`Payroll page missing current canonical boundary ${boundary}`);
+}
+if (!payrollPage.includes('Payroll Engine V18')) failures.push('Payroll page must identify the current Payroll Engine V18 preview/source-of-truth contract.');
+if (/\.from\(['"]staff_payroll_(?:profiles|monthly)_v13['"]\)[\s\S]{0,350}\.(?:insert|update|upsert|delete)\s*\(/.test(payrollPage)) {
+  failures.push('Payroll page must not write legacy V13 payroll tables directly.');
+}
+if (/save_staff_payroll_monthly_v14/.test(payrollPage)) {
+  failures.push('Current PayrollManagement must not reintroduce the legacy V14 monthly save command.');
+}
 
 if (failures.length) {
   console.error('Payroll architecture check failed:');
   failures.forEach((failure) => console.error(`- ${failure}`));
   process.exit(1);
 }
-console.log('[payroll-architecture] PASS: canonical payroll permissions, branch scope, command-only monthly writes, approval snapshots, paid-row immutability, and read-only browser table grants are enforced.');
+console.log('[payroll-architecture] PASS: canonical payroll permissions, branch scope, historical freeze/lockdown invariants, current read-model/ledger boundaries, and no legacy payroll writes are enforced.');
