@@ -45,7 +45,9 @@ export type AttendanceImpactRow = {
   monetary_impact: number;
   impact_status: string;
   evidence_snapshot: Record<string, unknown>;
+  reversal_of: string | null;
   created_at: string;
+  created_by?: string | null;
 };
 
 export async function listAttendanceResolutionQueue(args: {
