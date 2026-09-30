@@ -109,12 +109,44 @@ export type MonthlyFollowupCoaching = {
   };
 };
 
+export type MonthlyInventoryCoaching = {
+  sourceStatus: 'available' | 'partial' | 'unavailable';
+  weekly: {
+    measuredWeeks: number;
+    completedWeeks: number;
+    onTrackWeeks: number;
+    aheadWeeks: number;
+    behindWeeks: number;
+    notMeasurableWeeks: number;
+    totalItems: number;
+    countedItems: number;
+    discrepancyItems: number;
+    unresolvedDiscrepancies: number;
+    reviewedDiscrepancies: number;
+  };
+  stagnant: {
+    assignedItems: number;
+    movementRecords: number;
+    movedQuantity: number;
+    configuredTargets: number;
+    achievedTargets: number;
+    targetAchievementPct: number | null;
+  };
+  drafts: {
+    strength: string;
+    development: string;
+    actionPlan: string;
+  };
+  notes: string[];
+};
+
 export type EmployeeMonthlyEvidence = {
   metrics: EmployeeMonthlyEvidenceMetrics;
   coaching: {
     conversation: MonthlyConversationCoaching;
     attendance: MonthlyAttendanceCoaching;
     followups: MonthlyFollowupCoaching;
+    inventory: MonthlyInventoryCoaching;
   };
   health: {
     reviews: 'available' | 'unavailable';
@@ -448,6 +480,259 @@ function buildFollowupCoaching(rows: Record<string, unknown>[]): MonthlyFollowup
   };
 }
 
+type InventoryWeeklyProgressRow = {
+  staff_id?: string | null;
+  week_start?: string | null;
+  week_end?: string | null;
+  session_count?: number | null;
+  total_items?: number | null;
+  counted_items?: number | null;
+  discrepancy_items?: number | null;
+  unresolved_discrepancies?: number | null;
+  reviewed_discrepancies?: number | null;
+  plan_state?: string | null;
+  pace_state?: string | null;
+};
+
+type StagnantMedicineEvidenceRow = {
+  id?: string | null;
+  responsible_doctor_id?: string | null;
+  total_quantity?: number | null;
+  quantity_available?: number | null;
+  target_min_percent?: number | null;
+  minimum_remaining_percent?: number | null;
+  target_min_quantity?: number | null;
+  status?: string | null;
+};
+
+type StagnantMovementEvidenceRow = {
+  id?: string | null;
+  stagnant_medicine_id?: string | null;
+  medicine_id?: string | null;
+  doctor_id?: string | null;
+  quantity?: number | null;
+  dispensed_at?: string | null;
+};
+
+function cycleWeekAnchors(startDate: string, endDateExclusive: string) {
+  const start = new Date(`${startDate.slice(0, 10)}T12:00:00Z`);
+  const endExclusive = new Date(`${endDateExclusive.slice(0, 10)}T12:00:00Z`);
+  const anchors: string[] = [];
+  const cursor = new Date(start);
+  while (cursor < endExclusive) {
+    anchors.push(cursor.toISOString().slice(0, 10));
+    cursor.setUTCDate(cursor.getUTCDate() + 7);
+  }
+  const lastDay = new Date(endExclusive);
+  lastDay.setUTCDate(lastDay.getUTCDate() - 1);
+  const lastKey = lastDay.toISOString().slice(0, 10);
+  if (!anchors.includes(lastKey)) anchors.push(lastKey);
+  return anchors;
+}
+
+function stagnantTotalQuantity(row: StagnantMedicineEvidenceRow) {
+  return safeNumber(row.total_quantity ?? row.quantity_available);
+}
+
+function stagnantRequiredQuantity(row: StagnantMedicineEvidenceRow) {
+  const explicit = safeNumber(row.target_min_quantity);
+  if (explicit > 0) return explicit;
+  const percent = safeNumber(row.target_min_percent ?? row.minimum_remaining_percent);
+  if (percent <= 0) return 0;
+  return Math.ceil((stagnantTotalQuantity(row) * percent) / 100);
+}
+
+async function loadInventoryEvidence(args: {
+  staffId: string;
+  startDate: string;
+  endDateExclusive: string;
+}) {
+  const anchors = cycleWeekAnchors(args.startDate, args.endDateExclusive);
+
+  const weeklyPromise = Promise.all(
+    anchors.map(async (anchor) => {
+      const { data, error } = await supabase.rpc('get_branch_inventory_weekly_progress_v1', {
+        p_anchor_date: anchor,
+        p_branch: null,
+      });
+      if (error) return { rows: [] as InventoryWeeklyProgressRow[], error: error.message };
+      return {
+        rows: ((data || []) as InventoryWeeklyProgressRow[]).filter(
+          (row) => String(row.staff_id || '') === args.staffId
+        ),
+        error: '',
+      };
+    })
+  );
+
+  const stagnantAssignedPromise = supabase
+    .from('stagnant_medicines')
+    .select('id,responsible_doctor_id,total_quantity,quantity_available,target_min_percent,minimum_remaining_percent,target_min_quantity,status')
+    .eq('responsible_doctor_id', args.staffId)
+    .limit(500);
+
+  const stagnantMovementPromise = supabase
+    .from('stagnant_medicine_dispenses')
+    .select('id,stagnant_medicine_id,medicine_id,doctor_id,quantity,dispensed_at')
+    .eq('doctor_id', args.staffId)
+    .gte('dispensed_at', args.startDate)
+    .lt('dispensed_at', args.endDateExclusive)
+    .limit(1000);
+
+  const [weeklyResults, stagnantAssignedResult, stagnantMovementResult] = await Promise.all([
+    weeklyPromise,
+    stagnantAssignedPromise,
+    stagnantMovementPromise,
+  ]);
+
+  const weeklyErrors = weeklyResults.map((item) => item.error).filter(Boolean);
+  const weeklyRowsByWeek = new Map<string, InventoryWeeklyProgressRow>();
+  weeklyResults
+    .flatMap((item) => item.rows)
+    .forEach((row) => {
+      const key = String(row.week_start || row.week_end || '');
+      if (!key) return;
+      const current = weeklyRowsByWeek.get(key);
+      if (!current || safeNumber(row.counted_items) > safeNumber(current.counted_items)) {
+        weeklyRowsByWeek.set(key, row);
+      }
+    });
+
+  const weeklyRows = [...weeklyRowsByWeek.values()];
+  const assignedRows = stagnantAssignedResult.error
+    ? []
+    : (stagnantAssignedResult.data || []) as StagnantMedicineEvidenceRow[];
+  const movementRows = stagnantMovementResult.error
+    ? []
+    : (stagnantMovementResult.data || []) as StagnantMovementEvidenceRow[];
+
+  const movedByMedicine = new Map<string, number>();
+  movementRows.forEach((row) => {
+    const medicineId = String(row.stagnant_medicine_id || row.medicine_id || '');
+    if (!medicineId) return;
+    movedByMedicine.set(medicineId, (movedByMedicine.get(medicineId) || 0) + safeNumber(row.quantity));
+  });
+
+  const configuredTargets = assignedRows.filter((row) => stagnantRequiredQuantity(row) > 0);
+  const achievedTargets = configuredTargets.filter((row) => {
+    const medicineId = String(row.id || '');
+    return medicineId && (movedByMedicine.get(medicineId) || 0) >= stagnantRequiredQuantity(row);
+  });
+
+  const weeklyAvailable = weeklyErrors.length < anchors.length;
+  const stagnantAvailable = !stagnantAssignedResult.error && !stagnantMovementResult.error;
+
+  return {
+    weeklyRows,
+    assignedRows,
+    movementRows,
+    configuredTargets,
+    achievedTargets,
+    sourceStatus: weeklyAvailable && stagnantAvailable
+      ? 'available' as const
+      : weeklyAvailable || stagnantAvailable
+        ? 'partial' as const
+        : 'unavailable' as const,
+    errors: [
+      ...weeklyErrors,
+      stagnantAssignedResult.error?.message || '',
+      stagnantMovementResult.error?.message || '',
+    ].filter(Boolean),
+  };
+}
+
+function buildInventoryCoaching(input: Awaited<ReturnType<typeof loadInventoryEvidence>>): MonthlyInventoryCoaching {
+  const measurableRows = input.weeklyRows.filter((row) => String(row.pace_state || '') !== 'not_measurable');
+  const completedWeeks = input.weeklyRows.filter((row) => String(row.plan_state || '') === 'completed').length;
+  const onTrackWeeks = input.weeklyRows.filter((row) => String(row.pace_state || '') === 'on_track').length;
+  const aheadWeeks = input.weeklyRows.filter((row) => String(row.pace_state || '') === 'ahead').length;
+  const behindWeeks = input.weeklyRows.filter((row) => String(row.pace_state || '') === 'behind').length;
+  const notMeasurableWeeks = input.weeklyRows.filter((row) => String(row.pace_state || '') === 'not_measurable').length;
+
+  const totalItems = input.weeklyRows.reduce((sum, row) => sum + safeNumber(row.total_items), 0);
+  const countedItems = input.weeklyRows.reduce((sum, row) => sum + safeNumber(row.counted_items), 0);
+  const discrepancyItems = input.weeklyRows.reduce((sum, row) => sum + safeNumber(row.discrepancy_items), 0);
+  const unresolvedDiscrepancies = input.weeklyRows.reduce((sum, row) => sum + safeNumber(row.unresolved_discrepancies), 0);
+  const reviewedDiscrepancies = input.weeklyRows.reduce((sum, row) => sum + safeNumber(row.reviewed_discrepancies), 0);
+
+  const movedQuantity = input.movementRows.reduce((sum, row) => sum + safeNumber(row.quantity), 0);
+  const targetAchievementPct = input.configuredTargets.length
+    ? Math.round((input.achievedTargets.length / input.configuredTargets.length) * 1000) / 10
+    : null;
+
+  const strengthBits = [
+    completedWeeks > 0 ? `أكمل خطة الجرد في ${completedWeeks} أسبوع` : '',
+    aheadWeeks > 0 ? `كان سابقًا للخطة في ${aheadWeeks} أسبوع` : '',
+    reviewedDiscrepancies > 0 ? `راجع ${reviewedDiscrepancies} فرق جرد موثق` : '',
+    movedQuantity > 0 ? `صرف ${movedQuantity} وحدة من الرواكد المسندة إليه خلال الدورة` : '',
+    targetAchievementPct !== null && targetAchievementPct >= 80
+      ? `حقق ${targetAchievementPct}% من أهداف الرواكد المهيأة له`
+      : '',
+  ].filter(Boolean);
+
+  const developmentBits = [
+    behindWeeks > 0 ? `كان متأخرًا عن خطة الجرد في ${behindWeeks} أسبوع قابل للقياس` : '',
+    unresolvedDiscrepancies > 0 ? `${unresolvedDiscrepancies} فرق جرد ما زال غير محلول` : '',
+    targetAchievementPct !== null && targetAchievementPct < 60
+      ? `حقق ${targetAchievementPct}% فقط من أهداف الرواكد المهيأة له`
+      : '',
+  ].filter(Boolean);
+
+  const actionBits = [
+    behindWeeks > 0 ? 'تقسيم خطة الجرد على أيام العمل ومراجعة التقدم قبل نهاية الأسبوع.' : '',
+    unresolvedDiscrepancies > 0 ? 'إغلاق فروق الجرد المفتوحة بتوثيق السبب والإجراء بدل تركها معلقة.' : '',
+    targetAchievementPct !== null && targetAchievementPct < 80
+      ? 'مراجعة الأصناف الراكدة المسندة أسبوعيًا والتركيز على الأصناف الأعلى أولوية قبل نهاية الدورة.'
+      : '',
+  ].filter(Boolean);
+
+  const notes = [
+    notMeasurableWeeks > 0
+      ? `${notMeasurableWeeks} أسبوع غير قابل للقياس لأن جلسة/قائمة الجرد لم تكن مكتملة؛ لا يُحسب كتقصير على الموظف.`
+      : '',
+    input.assignedRows.length > 0 && input.configuredTargets.length === 0
+      ? 'يوجد رواكد مسندة للموظف لكن بدون Target كمي مهيأ؛ تُعرض حركة الصرف فقط ولا يُحكم على تحقيق هدف.'
+      : '',
+    input.sourceStatus === 'partial'
+      ? 'بيانات المخزون متاحة جزئيًا؛ لا تستخدم الجزء غير المتاح كصفر.'
+      : '',
+    input.sourceStatus === 'unavailable'
+      ? 'تعذر تحميل مصادر المخزون والرواكد؛ استخدم واقعة موثقة يدويًا بدل التخمين.'
+      : '',
+  ].filter(Boolean);
+
+  return {
+    sourceStatus: input.sourceStatus,
+    weekly: {
+      measuredWeeks: measurableRows.length,
+      completedWeeks,
+      onTrackWeeks,
+      aheadWeeks,
+      behindWeeks,
+      notMeasurableWeeks,
+      totalItems,
+      countedItems,
+      discrepancyItems,
+      unresolvedDiscrepancies,
+      reviewedDiscrepancies,
+    },
+    stagnant: {
+      assignedItems: input.assignedRows.length,
+      movementRecords: input.movementRows.length,
+      movedQuantity,
+      configuredTargets: input.configuredTargets.length,
+      achievedTargets: input.achievedTargets.length,
+      targetAchievementPct,
+    },
+    drafts: {
+      strength: strengthBits.length ? `المخزون والرواكد: ${strengthBits.join('، ')}.` : '',
+      development: developmentBits.length ? `ملاحظات تحتاج تطوير: ${developmentBits.join('، ')}.` : '',
+      actionPlan: actionBits.length ? `خطة المخزون: ${actionBits.join(' • ')}` : '',
+    },
+    notes,
+  };
+}
+
 async function loadConversationReviews(args: {
   staffId: string;
   startDate: string;
@@ -505,7 +790,7 @@ export async function loadEmployeeMonthlyEvidence(args: {
 }): Promise<EmployeeMonthlyEvidence> {
   const errors: Record<string, string> = {};
 
-  const [reviewResult, followupResult, attendanceResult, attendanceImpactResult] = await Promise.all([
+  const [reviewResult, followupResult, attendanceResult, attendanceImpactResult, inventoryResult] = await Promise.all([
     loadConversationReviews(args),
     supabase
       .from('daily_followups')
@@ -529,6 +814,7 @@ export async function loadEmployeeMonthlyEvidence(args: {
       rows: [] as AttendanceImpactRow[],
       error: cause instanceof Error ? cause.message : String(cause),
     })),
+    loadInventoryEvidence(args),
   ]);
 
   const reviewRows = reviewResult.rows;
@@ -590,6 +876,7 @@ export async function loadEmployeeMonthlyEvidence(args: {
       conversation: buildConversationCoaching(reviewRows),
       attendance: buildAttendanceCoaching(attendanceImpactResult.rows),
       followups: buildFollowupCoaching((followupRows || []) as Record<string, unknown>[]),
+      inventory: buildInventoryCoaching(inventoryResult),
     },
     health,
     ready:

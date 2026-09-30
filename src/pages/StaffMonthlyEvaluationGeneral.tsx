@@ -256,6 +256,55 @@ function sectionEvidenceFor(
     };
   }
 
+  if (key === 'inventory') {
+    const inventory = coaching?.inventory;
+    if (!inventory || inventory.sourceStatus === 'unavailable') {
+      return {
+        status: 'manual' as const,
+        summary: 'لا يوجد دليل آلي موثوق للمخزون والرواكد في هذه الدورة',
+        details: [
+          'استخدم واقعة موثقة من الجرد أو الرواكد أو النواقص بدل الانطباع العام.',
+          ...(inventory?.notes || []),
+        ],
+      };
+    }
+
+    const weekly = inventory.weekly;
+    const stagnant = inventory.stagnant;
+    const summaryParts = [
+      weekly.measuredWeeks > 0
+        ? `الجرد: ${weekly.completedWeeks} أسبوع مكتمل من ${weekly.measuredWeeks} قابل للقياس`
+        : '',
+      stagnant.assignedItems > 0
+        ? `الرواكد: ${stagnant.movedQuantity} وحدة مصروفة من ${stagnant.assignedItems} صنف مسند`
+        : '',
+    ].filter(Boolean);
+
+    return {
+      status: inventory.sourceStatus === 'available' ? 'available' as const : 'manual' as const,
+      summary: summaryParts.join(' · ') || 'لا توجد مسؤوليات مخزون أو رواكد قابلة للقياس لهذه الدورة',
+      details: [
+        weekly.totalItems > 0 ? `أصناف الجرد: ${weekly.countedItems}/${weekly.totalItems} تم عدّها` : '',
+        weekly.behindWeeks > 0 ? `أسابيع متأخرة عن الخطة: ${weekly.behindWeeks}` : '',
+        weekly.aheadWeeks > 0 ? `أسابيع سابقة للخطة: ${weekly.aheadWeeks}` : '',
+        weekly.discrepancyItems > 0 ? `فروق جرد مكتشفة: ${weekly.discrepancyItems}` : '',
+        weekly.unresolvedDiscrepancies > 0 ? `فروق جرد غير محلولة: ${weekly.unresolvedDiscrepancies}` : '',
+        weekly.reviewedDiscrepancies > 0 ? `فروق تمت مراجعتها: ${weekly.reviewedDiscrepancies}` : '',
+        weekly.notMeasurableWeeks > 0
+          ? `أسابيع غير قابلة للقياس بسبب عدم اكتمال الخطة/القائمة: ${weekly.notMeasurableWeeks} — لا تُحسب تقصيرًا على الموظف.`
+          : '',
+        stagnant.assignedItems > 0 ? `أصناف رواكد مسندة للموظف: ${stagnant.assignedItems}` : '',
+        stagnant.movementRecords > 0 ? `حركات صرف راكد خلال الدورة: ${stagnant.movementRecords} · الكمية ${stagnant.movedQuantity}` : '',
+        stagnant.configuredTargets > 0
+          ? `أهداف رواكد مهيأة: ${stagnant.achievedTargets}/${stagnant.configuredTargets}${stagnant.targetAchievementPct !== null ? ` (${stagnant.targetAchievementPct}%)` : ''}`
+          : '',
+        ...inventory.notes,
+        'المصدر: Inventory Weekly Progress + سجلات صرف الرواكد المرتبطة بالموظف نفسه.',
+        'راكد الفرع غير المسند لهذا الموظف لا يُستخدم ضده في التقييم.',
+      ].filter(Boolean),
+    };
+  }
+
   if (key === 'sales_quality') {
     const invoiceSource = pointsTruth?.source_breakdown?.find((source) => source.source === 'invoice_quality_vs_branch_baseline');
     return invoiceSource
@@ -1520,6 +1569,62 @@ export default function StaffMonthlyEvaluation() {
                           </div>
                         </div>
                       ) : null}
+                    </div>
+                  ) : null}
+
+                  {coaching?.inventory && (coaching.inventory.weekly.measuredWeeks > 0 || coaching.inventory.stagnant.assignedItems > 0 || coaching.inventory.weekly.notMeasurableWeeks > 0) ? (
+                    <div className="mt-3 rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <div className="text-[11px] font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>Coaching المخزون والرواكد</div>
+                          <div className="mt-1 text-[10px] font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                            يعتمد فقط على المسؤوليات المسندة للموظف وسجلات الجرد/الصرف الفعلية.
+                          </div>
+                        </div>
+                        <span
+                          className="rounded-full border px-2 py-1 text-[10px] font-black"
+                          style={coaching.inventory.sourceStatus === 'available'
+                            ? { borderColor: 'var(--dawaa-status-success-border)', color: 'var(--dawaa-status-success-text)' }
+                            : { borderColor: 'var(--dawaa-status-warning-border)', color: 'var(--dawaa-status-warning-text)' }}
+                        >
+                          {coaching.inventory.sourceStatus === 'available' ? 'دليل متاح' : 'دليل جزئي'}
+                        </span>
+                      </div>
+
+                      <div className="mt-2 space-y-1.5 text-xs font-bold leading-6" style={{ color: 'var(--dawaa-theme-text)' }}>
+                        {coaching.inventory.drafts.strength ? <div style={{ color: 'var(--dawaa-status-success-text)' }}>{coaching.inventory.drafts.strength}</div> : null}
+                        {coaching.inventory.drafts.development ? <div style={{ color: 'var(--dawaa-status-warning-text)' }}>{coaching.inventory.drafts.development}</div> : null}
+                        {coaching.inventory.drafts.actionPlan ? <div>{coaching.inventory.drafts.actionPlan}</div> : null}
+                        {coaching.inventory.notes.map((note) => <div key={note} style={{ color: 'var(--dawaa-theme-muted)' }}>• {note}</div>)}
+                      </div>
+
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {coaching.inventory.drafts.strength ? (
+                          <button
+                            type="button"
+                            disabled={!canEdit}
+                            onClick={() => setStrengthsText((current) => appendUniqueLine(current, coaching.inventory.drafts.strength))}
+                            className="rounded-lg border px-2 py-1 text-[10px] font-black disabled:cursor-default"
+                            style={{ borderColor: 'var(--dawaa-status-success-border)', color: 'var(--dawaa-status-success-text)' }}
+                          >
+                            إضافة القوة
+                          </button>
+                        ) : null}
+                        {coaching.inventory.drafts.development || coaching.inventory.drafts.actionPlan ? (
+                          <button
+                            type="button"
+                            disabled={!canEdit}
+                            onClick={() => setDevelopmentText((current) => appendUniqueLine(
+                              appendUniqueLine(current, coaching.inventory.drafts.development),
+                              coaching.inventory.drafts.actionPlan
+                            ))}
+                            className="rounded-lg border px-2 py-1 text-[10px] font-black disabled:cursor-default"
+                            style={{ borderColor: 'var(--dawaa-status-warning-border)', color: 'var(--dawaa-status-warning-text)' }}
+                          >
+                            إضافة التطوير
+                          </button>
+                        ) : null}
+                      </div>
                     </div>
                   ) : null}
 
