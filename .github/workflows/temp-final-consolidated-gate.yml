@@ -1,0 +1,66 @@
+name: TEMP Final Consolidated Gate
+
+on:
+  push:
+    branches:
+      - si-conversation-eval-test-20260930
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: si-conversation-eval-test-20260930
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - name: Generated refresh API is current
+        run: node scripts/build-sales-intelligence-refresh-api.cjs --check
+      - name: Environment doctor
+        run: npm run doctor
+      - name: Sales Intelligence owner registry
+        run: node scripts/check-whatsapp-sales-intelligence-owner-registry.cjs
+      - name: TypeScript
+        run: npm run typecheck
+      - name: Full project tests
+        run: npm run test
+      - name: Targeted conversation evaluation tests
+        run: |
+          npx vitest run \
+            src/lib/salesIntelligence/__tests__/conversationEvaluationEvidence.test.ts \
+            src/lib/salesIntelligence/__tests__/conversationEvaluationFoundation.test.ts \
+            src/lib/salesIntelligence/__tests__/conversationEvaluationCore.test.ts \
+            src/lib/salesIntelligence/__tests__/conversationEvaluationFollowUp.test.ts \
+            src/lib/salesIntelligence/__tests__/conversationClinicalReview.test.ts \
+            src/lib/salesIntelligence/__tests__/conversationEvaluationAvailability.test.ts \
+            src/lib/salesIntelligence/__tests__/conversationEvaluationSales.test.ts \
+            src/lib/salesIntelligence/__tests__/conversationEvaluationServiceRecovery.test.ts \
+            src/lib/salesIntelligence/__tests__/conversationEvaluationOrderConfirmation.test.ts \
+            src/lib/salesIntelligence/__tests__/conversationEvaluationSystemEvidence.test.ts \
+            src/lib/salesIntelligence/__tests__/conversationEvaluationOperational.test.ts \
+            src/lib/salesIntelligence/__tests__/conversationEvaluationClosing.test.ts \
+            src/lib/salesIntelligence/__tests__/conversationEvaluation.test.ts \
+            src/lib/salesIntelligence/__tests__/conversationEvaluationPersistence.test.ts \
+            src/lib/salesIntelligence/__tests__/salesIntelligencePipeline.test.ts \
+            src/components/salesIntelligence/__tests__/CaseIntelligenceWorkspace.test.tsx \
+            src/lib/salesIntelligence/__tests__/followUpOpportunityEngine.test.ts \
+            src/lib/salesIntelligence/refresh/__tests__/canonicalBackfill.test.ts
+      - name: Production build
+        run: npm run build
+      - name: Build is source-pure
+        run: |
+          if ! git diff --quiet; then
+            git status --short
+            git diff --stat
+            git diff
+            exit 1
+          fi
