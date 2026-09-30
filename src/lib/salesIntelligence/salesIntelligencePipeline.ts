@@ -501,7 +501,7 @@ function analyzeOneCase(
   // commercial-confirmation evidence, but it is not a reason for a human task once the exact
   // transaction itself is proven by a trusted invoice.
   const reviewReasonsResolvedByProvenInvoice = new Set(['no_basket_state_for_case']);
-  let humanReviewReasons = saleProof.state === 'proven'
+  const humanReviewReasons = saleProof.state === 'proven'
     ? rawHumanReviewReasons.filter((reason) => !reviewReasonsResolvedByProvenInvoice.has(reason))
     : [...rawHumanReviewReasons];
   if (identityBlocked && !humanReviewReasons.includes(identityReason)) humanReviewReasons.push(identityReason);

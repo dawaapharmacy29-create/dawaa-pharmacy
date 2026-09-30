@@ -54,7 +54,7 @@ const BAND_POINTS: Record<string, number> = {
 // Fields not covered by the shared semantic signal layer (genuinely specific to this one
 // checklist, not reused by any other criterion — kept local rather than over-abstracted).
 const DELIVERY_FEE_RX = /(?:مصاريف|رسوم)\s*(?:التوصيل|الشحن)|توصيل\s*(?:ب|مقابل)\s*\d+/i;
-const PAYMENT_RX = /كاش|نقد[اً]?|فيزا|فوري|عند\s*الاستلام|دفع\s*اونلاين|instapay|فودافون\s*كاش/i;
+const PAYMENT_RX = /كاش|نقد(?:ا|ًا)?|فيزا|فوري|عند\s*الاستلام|دفع\s*اونلاين|instapay|فودافون\s*كاش/i;
 const TIMING_RX = /خلال\s*(?:ساعة|ساعتين|\d+\s*(?:ساعة|ساعات|دقيق[ةه]))|هيوصل\s*(?:النهارد[ةه]|بكر[ةه]|اليوم)|من\s*\d+.*ل?ي?\s*\d+/i;
 
 const CRITICAL_KEYS = new Set(['item', 'quantity', 'phone']);

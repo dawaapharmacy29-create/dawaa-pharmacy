@@ -92,7 +92,7 @@ function isPlaceholderOnlyText(text: string): boolean {
 }
 
 const INTERACTION_GAP_MS = 30 * 60 * 1000; // 30 minutes of silence -> treat as a new topic/interaction
-const CLOSING_RX = /شكر[اً]?\s*لتواصلك|تحت\s*أمرك\s*دائم[اً]?|يومك\s*سعيد|في\s*خدمتك\s*دائم[اً]?/i;
+const CLOSING_RX = /شكر(?:ا|ًا)?\s*لتواصلك|تحت\s*أمرك\s*دائم(?:ا|ًا)?|يومك\s*سعيد|في\s*خدمتك\s*دائم(?:ا|ًا)?/i;
 // A light semantic cue for "this is a different topic", independent of any time gap. Deliberately
 // narrow (explicit topic-shift phrasing only) — this is not a full Case Lifecycle/topic classifier,
 // just enough to stop two genuinely different requests in the same conversation from being scored

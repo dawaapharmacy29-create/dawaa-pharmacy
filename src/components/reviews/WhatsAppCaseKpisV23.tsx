@@ -46,7 +46,9 @@ function cairoParts() {
 }
 
 function cycleStart() {
-  let { year, month, day } = cairoParts();
+  const parts = cairoParts();
+  let { year, month } = parts;
+  const { day } = parts;
   if (day < 26) {
     month -= 1;
     if (month === 0) { month = 12; year -= 1; }

@@ -55,7 +55,7 @@ const normalizeArabic = (value: unknown) => String(value || '')
 
 function cleanName(raw: string) {
   const value = String(raw || '')
-    .replace(/[🥼💊🌷🌹🤍💚💙✨🚗]+/g, ' ')
+    .replace(/[🥼💊🌷🌹🤍💚💙✨🚗]+/gu, ' ')
     .replace(/[،,.؛;:]+$/g, '')
     .trim();
   const words = value.split(/\s+/).filter(Boolean);

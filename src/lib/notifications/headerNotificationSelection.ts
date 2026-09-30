@@ -35,7 +35,7 @@ function numberMeta(item: NotificationLike, ...keys: string[]) {
 
 function isHeaderUnread(item: IdentifiedNotification) {
   const status = String(item.action_status || item.status || '').trim().toLowerCase();
-  return !Boolean(item.read) && !Boolean(item.is_read) && !['read', 'completed', 'dismissed', 'closed'].includes(status);
+  return !item.read && !item.is_read && !['read', 'completed', 'dismissed', 'closed'].includes(status);
 }
 
 function isUrgent(item: NotificationLike) {

@@ -2141,14 +2141,14 @@ export default function Reviews() {
                   <span className="mr-2 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-black">{smartSnapshot.staffIdentity.identitySource}</span>
                 </div>
               ) : (
-                <div className="font-bold">⚠ المسؤول غير محسوم — اختر يدويًا من قائمة "المسؤول" تحت قبل الحفظ.</div>
+                <div className="font-bold">⚠ المسؤول غير محسوم — اختر يدويًا من قائمة &quot;المسؤول&quot; تحت قبل الحفظ.</div>
               )}
             </div>
           ) : null}
 
           {ambiguousStaffIdentity ? (
             <div className="border-b border-white/10 bg-rose-950/10 px-4 py-3">
-              <div className="mb-2 text-xs font-black text-rose-200">مرشحون محتملون لـ "{ambiguousStaffIdentity.displayName}":</div>
+              <div className="mb-2 text-xs font-black text-rose-200">مرشحون محتملون لـ &quot;{ambiguousStaffIdentity.displayName}&quot;:</div>
               <div className="flex flex-wrap gap-2">
                 {ambiguousStaffIdentity.candidates.map((c, i) => (
                   <button

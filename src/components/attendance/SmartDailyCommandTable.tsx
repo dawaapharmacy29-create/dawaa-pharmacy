@@ -270,7 +270,7 @@ export default function SmartDailyCommandTable({ rows, date, branch, preloadedIn
               </div>
             </td></tr>}
           </Fragment>;
-        })}{!visibleRows.length && <tr><td colSpan={9} className="p-6 text-center text-sm font-bold text-[var(--dawaa-theme-muted)]">لا يوجد موظفون ضمن "{activeGroup}" لهذا اليوم/الفرع.</td></tr>}</tbody>
+        })}{!visibleRows.length && <tr><td colSpan={9} className="p-6 text-center text-sm font-bold text-[var(--dawaa-theme-muted)]">لا يوجد موظفون ضمن &quot;{activeGroup}&quot; لهذا اليوم/الفرع.</td></tr>}</tbody>
       </table></div>
     </div>
     {profileStaffId && <EmployeeProfileDrawer staffId={profileStaffId} onClose={() => setProfileStaffId(null)} />}

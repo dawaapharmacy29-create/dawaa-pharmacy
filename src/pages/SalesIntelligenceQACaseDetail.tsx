@@ -138,7 +138,7 @@ export default function SalesIntelligenceQACaseDetail() {
   const [conversationEvaluationWarning, setConversationEvaluationWarning] = useState<string | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
+    const cancelled = false;
     async function load() {
       setBundle(undefined);
       setError(null);

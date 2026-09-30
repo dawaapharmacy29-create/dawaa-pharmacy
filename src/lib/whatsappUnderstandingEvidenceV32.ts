@@ -68,7 +68,7 @@ const LOCATION_ONLY_CLARIFICATION_RX = /^(?:حضرتك\s*)?(?:منين|فين|م
 // ساعة") is auto-sent as the very first staff reply in almost every real conversation, often
 // BEFORE the staff has actually answered the customer's question. It must never be mistaken for
 // "the staff's substantive response" just because it happens to be the first staff message.
-const STAFF_SELF_INTRO_RX = /مع\s*حضرتك\s*د(?:كتور[ةه]?)?\.?\s|أهل[اًٍ]?\s*و?\s*سهل[اًٍ]?\s*ب?حضرتك|نورتنا\s*في\s*صيدليات\s*دواء/i;
+const STAFF_SELF_INTRO_RX = /مع\s*حضرتك\s*د(?:كتور[ةه]?)?\.?\s|أهل(?:ا|ًا|اً)?\s*و?\s*سهل(?:ا|ًا|اً)?\s*ب?حضرتك|نورتنا\s*في\s*صيدليات\s*دواء/i;
 
 function isStaffIntroOnly(text: string): boolean {
   return STAFF_SELF_INTRO_RX.test(text) && !DIRECT_OFFER_RX.test(text) && !QUESTION_RX.test(text);
