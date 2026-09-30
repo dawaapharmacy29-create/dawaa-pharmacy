@@ -15,8 +15,6 @@ export type AttendanceResolutionRow = {
   schedule_id: string | null;
   scheduled_start_at: string | null;
   scheduled_end_at: string | null;
-  scheduled_start_at: string | null;
-  scheduled_end_at: string | null;
   candidate_hours: number | null;
   payroll_eligible_hours: number | null;
   resolution_status: string | null;
@@ -159,6 +157,8 @@ export type AttendanceExceptionRow = {
   resolution_origin: string | null;
   policy_version: string | null;
   schedule_id: string | null;
+  scheduled_start_at: string | null;
+  scheduled_end_at: string | null;
 };
 
 export async function listAttendanceExceptionInbox(args: {
@@ -199,6 +199,8 @@ export async function listAttendanceExceptionInbox(args: {
     resolution_origin: row.resolution_origin == null ? null : String(row.resolution_origin),
     policy_version: row.policy_version == null ? null : String(row.policy_version),
     schedule_id: row.schedule_id == null ? null : String(row.schedule_id),
+    scheduled_start_at: row.scheduled_start_at == null ? null : String(row.scheduled_start_at),
+    scheduled_end_at: row.scheduled_end_at == null ? null : String(row.scheduled_end_at),
   }));
 }
 

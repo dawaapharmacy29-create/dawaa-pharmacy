@@ -1,6 +1,10 @@
 import { supabase } from '@/lib/supabase';
 import type { WhatsAppConversationSession } from './whatsappConversationParser';
 import type { WhatsAppOperationalIntelligenceV6 } from './whatsappOperationalIntelligenceV6';
+import type { GroundedSaleJourneyV33 } from './whatsappGroundedSaleJourneyV33';
+import { selectVerifiedProductInvoiceV23 } from './salesIntelligence/productInvoiceVerificationV23';
+import { fetchInvoiceItemEvidenceProvider } from './salesIntelligence/invoiceItemEvidenceRepository';
+import { readInvoiceRecordsByCustomerWindow } from './readModels/invoiceRecordReadModel';
 
 export interface WhatsAppEvidenceLedgerContextV17 {
   sourceId: string;
@@ -8,6 +12,7 @@ export interface WhatsAppEvidenceLedgerContextV17 {
   operational: WhatsAppOperationalIntelligenceV6 & { productJourney?: any };
   analysisVersion?: string | null;
   participantRoles?: any;
+  groundedSaleJourney?: GroundedSaleJourneyV33 | null;
 }
 
 type FactType =
@@ -15,7 +20,7 @@ type FactType =
   | 'stock_unavailable' | 'availability_confirmed' | 'alternative_offered' | 'recommendation' | 'recommendation_accepted'
   | 'recommendation_rejected' | 'order_confirmed' | 'order_failed' | 'delivery_delay' | 'complaint' | 'apology'
   | 'service_followup' | 'customer_replied' | 'customer_silent' | 'verified_sale' | 'media_missing_context'
-  | 'conversation_closed' | 'needs_followup';
+  | 'conversation_closed' | 'needs_followup' | 'sale_started' | 'sale_ended';
 
 const DELAY_RX = /(متاخر|متأخر|تأخير|تاخير|لسه مجاش|ماوصلش|موصلش|محدش رد)/i;
 const COMPLAINT_RX = /(شكوى|شكوي|مشكله|مشكلة|اتضايقت|زعلت|وحش|سيء|غلط)/i;
@@ -25,11 +30,42 @@ const ADDRESS_RX = /(العنوان|شارع|عماره|عمارة|برج|الد
 const MEDIA_RX = /(image omitted|video omitted|audio omitted|sticker omitted|document omitted|<attached:|\.jpg|\.jpeg|\.png|\.webp|\.opus|\.ogg|\.mp4|\.pdf)/i;
 
 function roleForStaff(participantRoles: any, staffName: string | null) {
-  const rows = Array.isArray(participantRoles?.participants) ? participantRoles.participants : Array.isArray(participantRoles) ? participantRoles : [];
+  const rows = Array.isArray(participantRoles?.staff)
+    ? participantRoles.staff
+    : Array.isArray(participantRoles?.participants)
+      ? participantRoles.participants
+      : Array.isArray(participantRoles)
+        ? participantRoles
+        : [];
   if (!staffName) return null;
   const normalized = staffName.trim().toLowerCase();
-  const match = rows.find((row: any) => String(row?.name || row?.sender || '').trim().toLowerCase() === normalized);
+  const match = rows.find((row: any) =>
+    String(row?.staffName || row?.name || row?.sender || '').trim().toLowerCase() === normalized
+  );
   return match?.role || match?.resolvedRole || null;
+}
+
+export function resolveEvidenceStaffV23(participantRoles: any, messageIds: string[]) {
+  if (!messageIds.length) return null;
+  const wanted = new Set(messageIds.map(String));
+  const messages = Array.isArray(participantRoles?.messages) ? participantRoles.messages : [];
+  const candidates = messages
+    .filter((row: any) =>
+      wanted.has(String(row?.messageId || '')) &&
+      row?.staffId &&
+      row?.staffName &&
+      String(row?.role || '') !== 'customer'
+    )
+    .sort((a: any, b: any) => Number(b?.confidence || 0) - Number(a?.confidence || 0));
+  if (!candidates.length) return null;
+  const row = candidates[0];
+  return {
+    staffId: String(row.staffId),
+    staffName: String(row.staffName),
+    role: row.role ? String(row.role) : null,
+    accountId: row.accountId ? String(row.accountId) : null,
+    confidence: Number(row.confidence || 0),
+  };
 }
 
 function lastOutboundIndex(session: WhatsAppConversationSession) {
@@ -73,6 +109,136 @@ function mapOpportunityStage(stage: string) {
 
 function normalizeKey(value: unknown) {
   return String(value ?? '').trim().toLowerCase().replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '').slice(0, 100) || 'unknown';
+}
+
+export function productEventWindowV23(session: WhatsAppConversationSession, product: any, fallbackStart: string | null, fallbackEnd: string | null) {
+  const ids = new Set<string>();
+  for (const event of Array.isArray(product?.events) ? product.events : []) {
+    for (const id of Array.isArray(event?.messageIds) ? event.messageIds : []) ids.add(String(id));
+  }
+  const timestamps = session.messages
+    .filter((message) => ids.has(String(message.id)))
+    .map((message) => message.timestamp?.toISOString?.())
+    .filter(Boolean) as string[];
+  timestamps.sort();
+  return {
+    openedAt: timestamps[0] || fallbackStart || new Date().toISOString(),
+    lastStageAt: timestamps[timestamps.length - 1] || fallbackEnd || fallbackStart || new Date().toISOString(),
+  };
+}
+
+export async function resolveProductInvoiceVerificationV23(source: any, product: any, openedAt: string, lastStageAt: string) {
+  if (!product?.productId && !product?.productCode && !product?.productName) return null;
+
+  const startMs = new Date(openedAt).getTime();
+  const endMs = new Date(lastStageAt).getTime();
+  const queryStart = new Date((Number.isFinite(startMs) ? startMs : Date.now()) - 10 * 60 * 1000).toISOString();
+  const queryEnd = new Date((Number.isFinite(endMs) ? endMs : Date.now()) + 36 * 60 * 60 * 1000).toISOString();
+
+  const invoices = await readInvoiceRecordsByCustomerWindow({
+    queryStartIso: queryStart,
+    queryEndIso: queryEnd,
+    customerCode: source.customer_code || null,
+    customerId: source.customer_id || null,
+    branch: source.branch || null,
+    limit: 100,
+    client: supabase,
+  });
+  if (!invoices.length) return null;
+
+  const itemEvidenceProvider = await fetchInvoiceItemEvidenceProvider(supabase, invoices as any[]);
+  const effectiveItems = (invoices as any[]).flatMap((invoice) => {
+    const invoiceId = String(invoice.id || '').trim();
+    if (!invoiceId) return [];
+    const rows = itemEvidenceProvider.getItemsForInvoice(invoiceId, null);
+    if (rows === 'unavailable') return [];
+    return rows.map((item) => ({
+      invoice_id: invoiceId,
+      invoice_number: invoice.invoice_number || null,
+      product_id: item.productId || null,
+      product_code: item.productCode || null,
+      product_name: item.productNameRaw || null,
+      quantity: item.quantity,
+      line_total: item.netLineAmount ?? item.lineTotal ?? null,
+    }));
+  });
+
+  return selectVerifiedProductInvoiceV23({
+    product: {
+      productId: product.productId || null,
+      productCode: product.productCode || null,
+      productName: product.productName || null,
+    },
+    openedAt,
+    lastStageAt,
+    invoices: invoices as any[],
+    items: effectiveItems,
+  });
+}
+
+export interface ProductOpportunityTruthPlanV23 {
+  productId: string | null;
+  productCode: string | null;
+  productName: string | null;
+  openedAt: string;
+  lastStageAt: string;
+  currentStage: string;
+  status: string;
+  saleVerifiedScope: 'product_invoice_item' | 'none';
+  matchedInvoiceId: string | null;
+  matchedInvoiceNumber: string | null;
+  matchedInvoiceValue: number | null;
+  leakageCode: string | null;
+  leakageReason: string | null;
+  nextAction: string | null;
+  verification: null | {
+    evidence: string;
+    finalPaid: boolean;
+    timeDistanceMinutes: number | null;
+  };
+}
+
+export async function planProductOpportunityTruthV23(
+  session: WhatsAppConversationSession,
+  source: any,
+  product: any
+): Promise<ProductOpportunityTruthPlanV23> {
+  const window = productEventWindowV23(
+    session,
+    product,
+    source.conversation_started_at || null,
+    source.conversation_ended_at || null
+  );
+  const productInvoice = await resolveProductInvoiceVerificationV23(
+    source,
+    product,
+    window.openedAt,
+    window.lastStageAt
+  );
+  const currentStage = productInvoice ? 'verified_sale' : mapOpportunityStage(product.currentStage);
+  return {
+    productId: product.productId || null,
+    productCode: product.productCode || null,
+    productName: product.productName || null,
+    openedAt: window.openedAt,
+    lastStageAt: window.lastStageAt,
+    currentStage,
+    status: productInvoice ? 'won' : currentStage === 'rejected' ? 'lost' : 'open',
+    saleVerifiedScope: productInvoice ? 'product_invoice_item' : 'none',
+    matchedInvoiceId: productInvoice?.invoiceId || null,
+    matchedInvoiceNumber: productInvoice?.invoiceNumber || null,
+    matchedInvoiceValue: productInvoice?.invoiceValue ?? null,
+    leakageCode: productInvoice ? null : product.leakageCode || null,
+    leakageReason: productInvoice ? null : product.leakageReason || null,
+    nextAction: productInvoice ? null : product.nextAction || null,
+    verification: productInvoice
+      ? {
+          evidence: productInvoice.productEvidence,
+          finalPaid: productInvoice.finalPaid,
+          timeDistanceMinutes: productInvoice.timeDistanceMinutes,
+        }
+      : null,
+  };
 }
 
 export async function syncWhatsAppEvidenceLedgerV17(session: WhatsAppConversationSession, context: WhatsAppEvidenceLedgerContextV17) {
@@ -119,7 +285,19 @@ export async function syncWhatsAppEvidenceLedgerV17(session: WhatsAppConversatio
   const outboundText = session.messages.filter((m) => m.direction === 'outbound').map((m) => m.text || '').join('\n');
   if (GREETING_RX.test(outboundText)) addFact('greeting', 'service:greeting', 88, 'message', messageEvidence(session, GREETING_RX));
   if (DELAY_RX.test(allText)) addFact(context.operational.primaryIntent === 'delivery_issue' ? 'delivery_delay' : 'response_delay', 'service:delay', 82, 'message', messageEvidence(session, DELAY_RX));
-  if (COMPLAINT_RX.test(allText) || context.operational.primaryIntent === 'complaint') addFact('complaint', 'service:complaint', Math.max(82, context.operational.intentConfidence || 0), 'message', messageEvidence(session, COMPLAINT_RX));
+  const complaintEvidenceIds = context.operational.evidence?.complaint?.messageIds || [];
+  if (complaintEvidenceIds.length || context.operational.primaryIntent === 'complaint') {
+    addFact(
+      'complaint',
+      'service:complaint',
+      Math.max(82, context.operational.intentConfidence || 0),
+      'message',
+      {
+        messageIds: complaintEvidenceIds,
+        quote: context.operational.evidence?.complaint?.quote || '',
+      }
+    );
+  }
   if (APOLOGY_RX.test(outboundText)) addFact('apology', 'service:apology', 91, 'message', messageEvidence(session, APOLOGY_RX));
   if (ADDRESS_RX.test(allText)) addFact('address_confirmed', 'order:address-mentioned', 68, 'message', messageEvidence(session, ADDRESS_RX));
   if (MEDIA_RX.test(allText)) addFact('media_missing_context', 'context:media-reference', 98, 'media', messageEvidence(session, MEDIA_RX));
@@ -141,7 +319,16 @@ export async function syncWhatsAppEvidenceLedgerV17(session: WhatsAppConversatio
 
   for (const rec of context.operational.recommendations || []) {
     const key = `recommendation:${normalizeKey(rec.productName || rec.evidenceMessageIds?.[0])}`;
-    addFact('recommendation', key, rec.confidence || 75, 'message', { messageIds: rec.evidenceMessageIds || [], doctorName: rec.doctorName || null }, { product_name: rec.productName || null });
+    const evidenceStaff = resolveEvidenceStaffV23(
+      context.participantRoles || source.analysis_json?.participantRoles,
+      rec.evidenceMessageIds || []
+    );
+    addFact('recommendation', key, rec.confidence || 75, 'message', {
+      messageIds: rec.evidenceMessageIds || [],
+      doctorName: evidenceStaff?.staffName || rec.doctorName || null,
+      staffId: evidenceStaff?.staffId || null,
+      staffRole: evidenceStaff?.role || null,
+    }, { product_name: rec.productName || null });
     if (rec.accepted === true) addFact('recommendation_accepted', `${key}:accepted`, Math.max(88, rec.confidence || 0), 'message', { messageIds: rec.evidenceMessageIds || [] }, { product_name: rec.productName || null });
     if (rec.accepted === false || rec.rejected) addFact('recommendation_rejected', `${key}:rejected`, Math.max(88, rec.confidence || 0), 'message', { messageIds: rec.evidenceMessageIds || [] }, { product_name: rec.productName || null });
   }
@@ -158,19 +345,90 @@ export async function syncWhatsAppEvidenceLedgerV17(session: WhatsAppConversatio
     if (product.followupCandidate) addFact('needs_followup', `product:${pkey}:followup`, product.confidence || 75, 'journey', { nextAction: product.nextAction, leakageReason: product.leakageReason }, { product_id: product.productId || null, product_code: product.productCode || null, product_name: product.productName || null, quantity: product.quantity ?? null });
   }
 
+  const grounded = context.groundedSaleJourney;
+  if (grounded?.commercial && grounded.saleWindow.startedAt) {
+    addFact(
+      'sale_started',
+      'sale:grounded-start',
+      grounded.confidence,
+      'grounded_journey',
+      {
+        messageId: grounded.saleWindow.startMessageId,
+        messageIds: grounded.saleWindow.startMessageId ? [grounded.saleWindow.startMessageId] : [],
+        outcome: grounded.outcome,
+        evidenceCoverage: grounded.evidenceCoverage,
+      },
+      { fact_at: grounded.saleWindow.startedAt }
+    );
+  }
+  if (grounded?.commercial && grounded.saleWindow.endedAt && grounded.saleWindow.endSource !== 'none') {
+    addFact(
+      'sale_ended',
+      'sale:grounded-end',
+      grounded.confidence,
+      grounded.saleWindow.endSource === 'invoice' ? 'invoice' : 'grounded_journey',
+      {
+        messageId: grounded.saleWindow.endMessageId,
+        messageIds: grounded.saleWindow.endMessageId ? [grounded.saleWindow.endMessageId] : [],
+        endSource: grounded.saleWindow.endSource,
+        outcome: grounded.outcome,
+        invoiceNumber: source.matched_invoice_number || null,
+        evidenceCoverage: grounded.evidenceCoverage,
+      },
+      { fact_at: grounded.saleWindow.endedAt }
+    );
+  }
+
   if (context.operational.followupPlan?.required) addFact('needs_followup', 'journey:needs-followup', 88, 'journey', context.operational.followupPlan);
   if (context.operational.operationalOutcome === 'unresolved_request') addFact('order_failed', 'journey:unresolved-request', Math.max(80, context.operational.outcomeConfidence || 0), 'journey', { outcome: context.operational.operationalOutcome });
-  if (source.invoice_match_status === 'verified') addFact('verified_sale', `invoice:${source.matched_invoice_id || source.matched_invoice_number || 'verified'}`, Number(source.invoice_match_confidence || 95), 'invoice', { invoiceId: source.matched_invoice_id, invoiceNumber: source.matched_invoice_number, invoiceValue: source.matched_invoice_value }, { fact_at: source.conversation_ended_at || source.conversation_started_at });
+  // invoice_match_status='verified' is an automated statistical matcher result, not invoice-specific trusted proof.\n  // Never emit verified_sale from this legacy source. Canonical Sale Proof is owned by Sales Intelligence.
 
   if (facts.length) {
     const { error } = await supabase.from('whatsapp_evidence_facts_v17').upsert(facts, { onConflict: 'source_id,fact_key', ignoreDuplicates: false });
     if (error) throw error;
   }
 
-  const opportunities = journeys.filter((p: any) => p.saleIntent || (p.events || []).some((e: any) => ['requested','recommended','alternative_offered','accepted','order_confirmed'].includes(e.stage))).map((product: any) => {
+  const isCanonicalProductDemandRun = /^product-demand-v22(?:\.|$)/.test(String(context.analysisVersion || ''));
+  const opportunityJourneys = isCanonicalProductDemandRun
+    ? journeys.filter((p: any) => Boolean(p.productId && p.productCode))
+    : journeys;
+  const opportunityCandidates = opportunityJourneys.filter(
+    (p: any) => p.saleIntent || (p.events || []).some((e: any) => ['requested','recommended','alternative_offered','accepted','order_confirmed'].includes(e.stage))
+  );
+
+  const opportunities: any[] = [];
+  for (const product of opportunityCandidates) {
     const pkey = `product:${normalizeKey(product.productCode || product.productName)}`;
-    const currentStage = mapOpportunityStage(product.currentStage);
-    return {
+    const opportunityEvidenceIds: string[] = Array.from(new Set<string>(
+      (Array.isArray(product?.events) ? product.events : [])
+        .flatMap((event: any) => Array.isArray(event?.messageIds) ? event.messageIds : [])
+        .map((value: unknown) => String(value))
+    ));
+    const opportunityStaff = resolveEvidenceStaffV23(
+      context.participantRoles || source.analysis_json?.participantRoles,
+      opportunityEvidenceIds
+    );
+    const truth = isCanonicalProductDemandRun
+      ? await planProductOpportunityTruthV23(session, source, product)
+      : {
+          productId: product.productId || null,
+          productCode: product.productCode || null,
+          productName: product.productName || null,
+          openedAt: source.conversation_started_at || new Date().toISOString(),
+          lastStageAt: source.conversation_ended_at || source.conversation_started_at || new Date().toISOString(),
+          currentStage: mapOpportunityStage(product.currentStage),
+          status: mapOpportunityStage(product.currentStage) === 'rejected' ? 'lost' : 'open',
+          saleVerifiedScope: 'none',
+          matchedInvoiceId: null,
+          matchedInvoiceNumber: null,
+          matchedInvoiceValue: null,
+          leakageCode: product.leakageCode || null,
+          leakageReason: product.leakageReason || null,
+          nextAction: product.nextAction || null,
+          verification: null,
+        };
+
+    opportunities.push({
       root_source_id: context.sourceId,
       story_id: storyId,
       journey_id: journeyId,
@@ -180,29 +438,38 @@ export async function syncWhatsAppEvidenceLedgerV17(session: WhatsAppConversatio
       customer_code: source.customer_code || null,
       customer_name: source.customer_name || null,
       customer_phone: source.customer_phone || null,
-      attributed_staff_id: source.staff_id || null,
-      attributed_staff_name: source.staff_name || null,
-      attributed_staff_role: staffRole,
+      attributed_staff_id: opportunityStaff?.staffId || source.staff_id || null,
+      attributed_staff_name: opportunityStaff?.staffName || source.staff_name || null,
+      attributed_staff_role: opportunityStaff?.role || staffRole,
       product_id: product.productId || null,
       product_code: product.productCode || null,
       product_name: product.productName || null,
       quantity: product.quantity ?? null,
-      opened_at: source.conversation_started_at || new Date().toISOString(),
-      last_stage_at: source.conversation_ended_at || source.conversation_started_at || new Date().toISOString(),
-      current_stage: currentStage,
-      status: currentStage === 'rejected' ? 'lost' : 'open',
-      confidence: Math.max(0, Math.min(100, Math.round(Number(product.confidence || 0)))),
-      sale_verified_scope: source.invoice_match_status === 'verified' ? 'conversation' : 'none',
-      matched_invoice_id: source.invoice_match_status === 'verified' ? String(source.matched_invoice_id || '') || null : null,
-      matched_invoice_number: source.invoice_match_status === 'verified' ? source.matched_invoice_number || null : null,
-      matched_invoice_value: source.invoice_match_status === 'verified' ? source.matched_invoice_value || null : null,
-      leakage_reason: product.leakageReason || null,
-      next_action: product.nextAction || null,
-      evidence_json: { events: product.events || [], note: source.invoice_match_status === 'verified' ? 'الفاتورة تثبت بيعًا مرتبطًا بالمحادثة فقط؛ لا تثبت هذا الصنف بعينه دون مطابقة بنود الفاتورة.' : null },
+      opened_at: truth.openedAt,
+      last_stage_at: truth.lastStageAt,
+      current_stage: truth.currentStage,
+      status: truth.status,
+      confidence: truth.saleVerifiedScope === 'product_invoice_item'
+        ? Math.max(96, Math.max(0, Math.min(100, Math.round(Number(product.confidence || 0)))))
+        : Math.max(0, Math.min(100, Math.round(Number(product.confidence || 0)))),
+      sale_verified_scope: truth.saleVerifiedScope,
+      matched_invoice_id: truth.matchedInvoiceId,
+      matched_invoice_number: truth.matchedInvoiceNumber,
+      matched_invoice_value: truth.matchedInvoiceValue,
+      leakage_reason: truth.leakageReason,
+      next_action: truth.nextAction,
+      evidence_json: {
+        events: product.events || [],
+        leakageCode: truth.leakageCode,
+        productInvoiceVerification: truth.verification,
+        note: truth.saleVerifiedScope === 'product_invoice_item'
+          ? 'بيع الصنف موثق من نفس العميل والفرع وبند الفاتورة نفسه؛ لا يعتمد على matched_invoice_id العام للمحادثة.'
+          : 'لا توجد فاتورة تحتوي هذا الصنف داخل نافذة الطلب؛ matched_invoice_id العام للمحادثة لا يثبت بيع الصنف.'
+      },
       analysis_version: context.analysisVersion || source.analysis_version || 'whatsapp-evidence-v17',
       updated_at: new Date().toISOString(),
-    };
-  });
+    });
+  }
 
   if (opportunities.length) {
     const { error } = await supabase.from('whatsapp_sales_opportunities_v17').upsert(opportunities, { onConflict: 'root_source_id,opportunity_key', ignoreDuplicates: false });
