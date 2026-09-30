@@ -519,7 +519,7 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
   if (caseRow?.conversation_id) {
     const { data: conversationRow } = await supabaseClient
       .from('whatsapp_review_sources')
-      .select([...REVIEW_SOURCE_BATCH_INPUT_COLUMNS, 'source_filename', 'conversation_ended_at', 'message_count', 'created_at', 'analysis_json', 'review_status'].join(','))
+      .select([...REVIEW_SOURCE_BATCH_INPUT_COLUMNS, 'staff_id', 'staff_name', 'source_filename', 'conversation_ended_at', 'message_count', 'created_at', 'analysis_json', 'review_status'].join(','))
       .eq('id', caseRow.conversation_id)
       .maybeSingle();
     if (conversationRow?.raw_text) {
