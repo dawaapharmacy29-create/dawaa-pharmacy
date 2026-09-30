@@ -401,8 +401,8 @@ function resolveDayMonth(a, b, year) {
 function parsePrefix(line) {
   const normalized = line.replace(/^\u200e/, "");
   const patterns = [
-    /^\[?(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4}),?\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([APap][Mm]|[صم])?\]?\s*[-–]?\s*(.*)$/,
-    /^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4}),?\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([APap][Mm]|[صم])?\s*[-–]\s*(.*)$/
+    /^\[?(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4}),?\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([APap][Mm]|[صم])?\]?\s*[-–]?\s*(.*)$/,
+    /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4}),?\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([APap][Mm]|[صم])?\s*[-–]\s*(.*)$/
   ];
   for (const rx of patterns) {
     const match = normalized.match(rx);
@@ -3856,7 +3856,7 @@ function normalizeBaseText(text) {
   result = convertArabicDigits(result);
   result = unifyArabicLetters(result);
   result = result.toLowerCase();
-  result = result.replace(/[.,;:_\-\/\\()<>\[\]{}!؟?"'`~*#+=|]/g, " ");
+  result = result.replace(/[.,;:_\-/\\()<>\x5B\x5D{}!؟?"'`~*#+=|]/g, " ");
   result = result.replace(/([a-zA-Zء-ي])([0-9])/g, "$1 $2").replace(/([0-9])([a-zA-Zء-ي])/g, "$1 $2");
   result = result.replace(/\s+/g, " ").trim();
   return result;
@@ -5283,7 +5283,7 @@ async function fetchAllProductRows(supabaseClient) {
   const rows = [];
   const pageSize = 1e3;
   let from = 0;
-  while (true) {
+  for (; ; ) {
     const { data, error } = await supabaseClient.from("products").select("id,name,product_code,normalized_name,category,price,source").order("id", { ascending: true }).range(from, from + pageSize - 1);
     if (error) throw error;
     const page = (data ?? []).filter((row) => row?.id && row?.name && row?.product_code).map((row) => ({
