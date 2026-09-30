@@ -159,6 +159,15 @@ export const reviewReasonLabels: Record<string, string> = {
   ambiguous_product_alias: 'اسم منتج يحتمل أكثر من صنف',
   active_basket_conflict: 'أكثر من نسخة سلة نشطة في نفس الوقت',
   basket_modified_after_confirmation: 'تم تعديل السلة بعد تأكيد سابق',
+  customer_identity_unresolved: 'هوية العميل غير محسومة',
+  'need.availability_statement_unlinked': 'جملة توفر لم تُربط بصنف محدد',
+  'need.alternative_offer_unlinked': 'بديل لم يُربط بصنف محدد',
+  customer_need_without_resolved_product_context: 'طلب بدون صنف واضح',
+  customer_need_product_context_ambiguous: 'صنف ملتبس في الطلب',
+  'sale.proof_contradicted': 'تعارض في إثبات البيع',
+  'journey.review_required': 'مسار البيع يحتاج مراجعة',
+  'lost.state_unknown': 'حالة الفرصة غير محسومة',
+  'follow_up.blocked.customer_identity_unresolved': 'متابعة معطلة لأن هوية العميل غير محسومة',
 };
 
 /** PipelineFailureReason vocab — WHY evidence fell short, never WHO is at fault. */

@@ -4,6 +4,7 @@
 // business truth: every value shown comes from the canonical view; unknown codes render as
 // "غير محسوم" instead of being guessed. There is deliberately NO fallback to V6/V7/V22 fields.
 import type { CaseIntelligenceView, ConfidenceLevel } from '../types';
+import { reviewReasonLabels as canonicalReviewReasonLabels } from './labels';
 
 export const SUPPORTED_CASE_INTELLIGENCE_VERSIONS = ['case-intelligence-v2'] as const;
 
@@ -242,22 +243,9 @@ export const confirmationStateLabel = (v: string | null | undefined) =>
     v
   );
 
-/** Review reason codes are canonical; known ones get a readable label, others stay as "غير محسوم" + code. */
+/** Review reason codes are canonical; one shared Arabic vocabulary is used across list + case detail. */
 export const reviewReasonLabel = (code: string) =>
-  label(
-    {
-      customer_identity_unresolved: 'هوية العميل غير محسومة',
-      'need.availability_statement_unlinked': 'جملة توفر لم تُربط بصنف محدد',
-      'need.alternative_offer_unlinked': 'بديل لم يُربط بصنف محدد',
-      customer_need_without_resolved_product_context: 'طلب بدون صنف واضح',
-      customer_need_product_context_ambiguous: 'صنف ملتبس في الطلب',
-      'sale.proof_contradicted': 'تعارض في إثبات البيع',
-      'journey.review_required': 'مسار البيع يحتاج مراجعة',
-      'lost.state_unknown': 'حالة الفرصة غير محسومة',
-      'follow_up.blocked.customer_identity_unresolved': 'متابعة معطلة لأن هوية العميل غير محسومة',
-    },
-    code
-  );
+  canonicalReviewReasonLabels[code] ?? UNKNOWN_LABEL;
 
 /** Product status as the view already states it; the UI never derives "sold". */
 export function productStatus(product: CaseIntelligenceView['products'][number], saleOutcome: string): { label: string; tone: 'good' | 'warn' | 'bad' | 'neutral' } {

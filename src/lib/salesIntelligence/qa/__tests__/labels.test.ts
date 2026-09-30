@@ -20,4 +20,12 @@ describe('QA labels', () => {
     expect(reviewReasonLabels.final_total_missing).toMatch(/دلالة إجرائية فقط/);
     expect(reviewReasonLabels.staff_final_confirmation_missing).toMatch(/دلالة إجرائية فقط/);
   });
+
+  it('has readable labels for the V8 case-review reasons surfaced in the management workspace', () => {
+    expect(reviewReasonLabels.final_total_missing).toContain('إجمالي');
+    expect(reviewReasonLabels.staff_final_confirmation_missing).toContain('تأكيد نهائي');
+    expect(reviewReasonLabels.confirmation_protocol_incomplete).toContain('بروتوكول التأكيد');
+    expect(reviewReasonLabels.customer_need_product_context_ambiguous).toContain('صنف ملتبس');
+    expect(reviewReasonLabels['journey.review_required']).toContain('مسار البيع');
+  });
 });
