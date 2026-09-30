@@ -129,7 +129,7 @@ function requestCompleteness(row:CustomerRequestSystemRow){
 
 function assessRegistration(
   view:CaseIntelligenceView,
-  system:ConversationEvaluationSystemEvidenceSnapshot
+  system:ConversationEvaluationSystemEvidenceSnapshot|null
 ):OperationalCriterionAssessment{
   if(!registrationObligation(view)){
     return make(
@@ -143,6 +143,14 @@ function assessRegistration(
     ...view.unavailableDemand.flatMap((d)=>d.evidenceMessageIds),
     ...view.followUp.opportunities.flatMap((o)=>o.evidenceMessageIds),
   ]));
+
+  if(!system){
+    return make(
+      'customer_request_registration',null,'insufficient_evidence',100,
+      'هذا البند منطبق، لكن مصدر سجل طلبات العملاء لم يتم تحميله؛ غياب الداتا لا يُعامل كعدم تسجيل.',
+      evidenceIds,[]
+    );
+  }
 
   const match=bestRequestMatch(view,system.customerRequests);
   if(!match){
@@ -218,7 +226,7 @@ function bestExceptional(
 
 function assessExceptional(
   view:CaseIntelligenceView,
-  system:ConversationEvaluationSystemEvidenceSnapshot
+  system:ConversationEvaluationSystemEvidenceSnapshot|null
 ):OperationalCriterionAssessment{
   const signalIds=exceptionalSignalIds(view);
   if(!signalIds.length){
@@ -226,6 +234,14 @@ function assessExceptional(
       'exceptional_followup_recognition',null,'not_applicable',100,
       'لا توجد إشارة واضحة في المحادثة لحالة استثنائية تستحق تسجيل متابعة خاصة.',
       [],[]
+    );
+  }
+
+  if(!system){
+    return make(
+      'exceptional_followup_recognition',null,'insufficient_evidence',100,
+      'تم رصد حالة تستحق فحص المتابعة الاستثنائية، لكن سجل المتابعات لم يتم تحميله؛ لا يوجد خصم تلقائي.',
+      signalIds,[]
     );
   }
 
@@ -270,7 +286,7 @@ const HISTORY_ACTION_RX =
 
 function assessPurchaseHistory(
   view:CaseIntelligenceView,
-  system:ConversationEvaluationSystemEvidenceSnapshot
+  system:ConversationEvaluationSystemEvidenceSnapshot|null
 ):OperationalCriterionAssessment{
   const relevant=view.interaction.messages.filter(
     (m)=>m.role==='customer'&&m.meaningful&&HISTORY_RELEVANCE_RX.test(m.text)
@@ -280,6 +296,14 @@ function assessPurchaseHistory(
       'purchase_history_usage',null,'not_applicable',100,
       'لا يوجد في المحادثة الحالية سياق واضح يجعل استخدام تاريخ الشراء السابق ضروريًا أو مفيدًا بشكل يمكن قياسه.',
       [],[]
+    );
+  }
+
+  if(!system){
+    return make(
+      'purchase_history_usage',null,'insufficient_evidence',100,
+      'المحادثة جعلت تاريخ الشراء السابق ذا صلة، لكن سجل الفواتير السابقة لم يتم تحميله؛ لا يوجد خصم تلقائي.',
+      relevant.map((m)=>m.id),[]
     );
   }
 
@@ -318,7 +342,7 @@ function assessPurchaseHistory(
 
 export function analyzeConversationEvaluationOperational(
   view:CaseIntelligenceView,
-  system:ConversationEvaluationSystemEvidenceSnapshot
+  system:ConversationEvaluationSystemEvidenceSnapshot|null
 ):ConversationEvaluationOperational{
   return{
     version:'conversation-evaluation-operational-v1',
