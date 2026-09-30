@@ -534,6 +534,14 @@ export default function StaffMonthlyEvaluation() {
       toast.error('أي محور بدرجة 1 أو 2 نجمة يحتاج سببًا مكتوبًا قبل الاعتماد.');
       return;
     }
+    if (nextStatus === 'sent' && sections.some((item) => item.score >= 4) && !strengthsText.trim()) {
+      toast.error('اكتب نقطة قوة واحدة على الأقل تعكس الأداء القوي قبل الاعتماد.');
+      return;
+    }
+    if (nextStatus === 'sent' && sections.some((item) => item.score > 0 && item.score <= 3) && !developmentText.trim()) {
+      toast.error('اكتب خطة تطوير واضحة للمحاور التي تحتاج تحسين قبل الاعتماد.');
+      return;
+    }
     if (nextStatus === 'sent' && activeGates.length > 0 && !managerNotes.trim()) {
       toast.error('المخالفة الحرجة تحتاج ملاحظة مدير توضح سبب القرار قبل الاعتماد.');
       return;
@@ -617,6 +625,8 @@ export default function StaffMonthlyEvaluation() {
               overallScore: Number(saveResult.overall_score ?? overallScore),
               grade: String(saveResult.grade || grade),
               evaluatorName: user.name || 'المدير',
+              hasStrengths: strengths.length > 0,
+              hasDevelopmentPlan: developmentPoints.length > 0,
             },
             stateKey: serverSentAt || String(saveResult.action || 'approved'),
           });
@@ -656,11 +666,17 @@ export default function StaffMonthlyEvaluation() {
   const completedSections = sections.filter((item) => item.score > 0).length;
   const weakSectionsMissingNotes = sections.filter((item) => item.score > 0 && item.score <= 2 && !item.notes.trim());
   const criticalGateMissingReason = activeGates.length > 0 && !managerNotes.trim();
+  const hasStrongPerformance = sections.some((item) => item.score >= 4);
+  const hasDevelopmentNeed = sections.some((item) => item.score > 0 && item.score <= 3);
+  const feedbackMissingStrength = evaluationComplete && hasStrongPerformance && !strengthsText.trim();
+  const feedbackMissingDevelopment = evaluationComplete && hasDevelopmentNeed && !developmentText.trim();
   const approvalBlockers = [
     !cycleClosed ? 'الدورة لم تُقفل بعد' : '',
     !evidenceReady ? 'مصدر أو أكثر من أدلة الدورة غير متاح' : '',
     completedSections !== sections.length ? `باقي ${Math.max(0, sections.length - completedSections)} محور بدون تقييم` : '',
     weakSectionsMissingNotes.length ? `${weakSectionsMissingNotes.length} محور بدرجة ضعيفة يحتاج سبب مكتوب` : '',
+    feedbackMissingStrength ? 'يوجد أداء قوي لكن نقاط القوة لم تُكتب بعد' : '',
+    feedbackMissingDevelopment ? 'يوجد محور يحتاج تطوير لكن خطة التطوير لم تُكتب بعد' : '',
     criticalGateMissingReason ? 'المخالفة الحرجة تحتاج سببًا مكتوبًا في ملاحظات المدير' : '',
   ].filter(Boolean);
   const approvalReady =
@@ -669,6 +685,8 @@ export default function StaffMonthlyEvaluation() {
     && sections.length > 0
     && completedSections === sections.length
     && weakSectionsMissingNotes.length === 0
+    && !feedbackMissingStrength
+    && !feedbackMissingDevelopment
     && !criticalGateMissingReason;
   const ratedSections = sections.filter((item) => item.score > 0);
   const ratedWeight = ratedSections.reduce((sum, item) => sum + item.weight, 0);
@@ -692,7 +710,7 @@ export default function StaffMonthlyEvaluation() {
       ? 'راجع مصادر البيانات'
       : completedSections !== sections.length || weakSectionsMissingNotes.length
         ? 'أكمل التقييم'
-        : criticalGateMissingReason
+        : feedbackMissingStrength || feedbackMissingDevelopment || criticalGateMissingReason
           ? 'أكمل الخلاصة'
           : 'راجع التقييم';
 
@@ -711,7 +729,7 @@ export default function StaffMonthlyEvaluation() {
       }
       return;
     }
-    if (criticalGateMissingReason) {
+    if (feedbackMissingStrength || feedbackMissingDevelopment || criticalGateMissingReason) {
       setActiveStep(4);
       return;
     }
@@ -1591,6 +1609,62 @@ export default function StaffMonthlyEvaluation() {
                     {!evaluationComplete && ratedSections.length ? (
                       <div className="mt-2 rounded-xl border px-3 py-2 text-xs font-bold" style={{ borderColor: 'var(--dawaa-status-info-border)', background: 'var(--dawaa-status-info-bg)', color: 'var(--dawaa-status-info-text)' }}>
                         المحاور المقيمة حاليًا: {ratedEarnedPoints}/{ratedWeight} نقطة. لن تظهر درجة نهائية من 100 قبل اكتمال كل المحاور.
+                      </div>
+                    ) : null}
+
+                    {evaluationComplete ? (
+                      <div className="mt-3 rounded-2xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <div className="text-xs font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>معاينة ما سيصل للموظف</div>
+                            <div className="mt-1 text-[11px] font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                              راجع الرسالة قبل الاعتماد؛ المطلوب أن يعرف الموظف مميزاته وما يحتاج تطويره وما الخطوة التالية.
+                            </div>
+                          </div>
+                          <span
+                            className="rounded-full border px-2.5 py-1 text-[10px] font-black"
+                            style={!feedbackMissingStrength && !feedbackMissingDevelopment
+                              ? { borderColor: 'var(--dawaa-status-success-border)', color: 'var(--dawaa-status-success-text)' }
+                              : { borderColor: 'var(--dawaa-status-warning-border)', color: 'var(--dawaa-status-warning-text)' }}
+                          >
+                            {!feedbackMissingStrength && !feedbackMissingDevelopment ? 'الرسالة مكتملة' : 'الرسالة تحتاج استكمال'}
+                          </span>
+                        </div>
+
+                        <div className="mt-3 grid gap-2 lg:grid-cols-2">
+                          <div
+                            className="rounded-xl border p-3"
+                            style={{
+                              borderColor: feedbackMissingStrength ? 'var(--dawaa-status-warning-border)' : 'var(--dawaa-status-success-border)',
+                              background: 'var(--dawaa-theme-soft)',
+                            }}
+                          >
+                            <div className="text-[11px] font-black" style={{ color: 'var(--dawaa-status-success-text)' }}>نقاط القوة</div>
+                            <div className="mt-1 whitespace-pre-wrap text-xs font-bold leading-6" style={{ color: 'var(--dawaa-theme-text)' }}>
+                              {strengthsText.trim() || 'لم تُكتب نقاط قوة بعد.'}
+                            </div>
+                          </div>
+
+                          <div
+                            className="rounded-xl border p-3"
+                            style={{
+                              borderColor: feedbackMissingDevelopment ? 'var(--dawaa-status-warning-border)' : 'var(--dawaa-theme-border)',
+                              background: 'var(--dawaa-theme-soft)',
+                            }}
+                          >
+                            <div className="text-[11px] font-black" style={{ color: 'var(--dawaa-status-warning-text)' }}>خطة التطوير</div>
+                            <div className="mt-1 whitespace-pre-wrap text-xs font-bold leading-6" style={{ color: 'var(--dawaa-theme-text)' }}>
+                              {developmentText.trim() || 'لا توجد خطة تطوير مكتوبة بعد.'}
+                            </div>
+                          </div>
+                        </div>
+
+                        {managerNotes.trim() ? (
+                          <div className="mt-2 rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-soft)' }}>
+                            <div className="text-[11px] font-black" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>ملاحظة المدير</div>
+                            <div className="mt-1 whitespace-pre-wrap text-xs font-bold leading-6" style={{ color: 'var(--dawaa-theme-text)' }}>{managerNotes}</div>
+                          </div>
+                        ) : null}
                       </div>
                     ) : null}
 
