@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import { hasStrongSalesQualityEvidence } from '@/lib/evaluations/monthlySalesQualityEvidence';
 import { hasStrongFollowupEvidence } from '@/lib/evaluations/monthlyFollowupEvidence';
+import { hasStrongInventoryEvidence } from '@/lib/evaluations/monthlyInventoryEvidence';
 import { readAttendanceRange } from '@/lib/readModels/attendanceReadModel';
 import { listAttendanceImpactLedger, type AttendanceImpactRow } from '@/lib/attendance/attendanceResolutionService';
 
@@ -1217,15 +1218,27 @@ function buildInventoryCoaching(input: Awaited<ReturnType<typeof loadInventoryEv
     ? Math.round((input.achievedTargets.length / input.configuredTargets.length) * 1000) / 10
     : null;
 
-  const strengthBits = [
+  const inventoryStrengthEvidence = hasStrongInventoryEvidence({
+    sourceStatus: input.sourceStatus,
+    measuredWeeks: measurableRows.length,
+    onTrackWeeks,
+    aheadWeeks,
+    behindWeeks,
+    unresolvedDiscrepancies,
+    assignedItems: input.assignedRows.length,
+    configuredTargets: input.configuredTargets.length,
+    targetAchievementPct,
+  });
+
+  const strengthBits = inventoryStrengthEvidence ? [
+    `حافظ على خطة الجرد دون أي أسبوع متأخر في ${measurableRows.length} أسابيع قابلة للقياس`,
     completedWeeks > 0 ? `أكمل خطة الجرد في ${completedWeeks} أسبوع` : '',
     aheadWeeks > 0 ? `كان سابقًا للخطة في ${aheadWeeks} أسبوع` : '',
-    reviewedDiscrepancies > 0 ? `راجع ${reviewedDiscrepancies} فرق جرد موثق` : '',
-    movedQuantity > 0 ? `صرف ${movedQuantity} وحدة من الرواكد المسندة إليه خلال الدورة` : '',
-    targetAchievementPct !== null && targetAchievementPct >= 80
-      ? `حقق ${targetAchievementPct}% من أهداف الرواكد المهيأة له`
+    reviewedDiscrepancies > 0 ? `راجع ${reviewedDiscrepancies} فرق جرد موثق وأغلق الفروق المفتوحة` : '',
+    input.assignedRows.length > 0 && targetAchievementPct !== null
+      ? `حقق ${targetAchievementPct}% من أهداف الرواكد المهيأة لكل الأصناف المسندة القابلة للقياس`
       : '',
-  ].filter(Boolean);
+  ].filter(Boolean) : [];
 
   const developmentBits = [
     behindWeeks > 0 ? `كان متأخرًا عن خطة الجرد في ${behindWeeks} أسبوع قابل للقياس` : '',
@@ -1249,6 +1262,9 @@ function buildInventoryCoaching(input: Awaited<ReturnType<typeof loadInventoryEv
       : '',
     input.assignedRows.length > 0 && input.configuredTargets.length === 0
       ? 'يوجد رواكد مسندة للموظف لكن بدون Target كمي مهيأ؛ تُعرض حركة الصرف فقط ولا يُحكم على تحقيق هدف.'
+      : '',
+    input.configuredTargets.length > 0 && input.configuredTargets.length < input.assignedRows.length
+      ? `يوجد ${input.assignedRows.length - input.configuredTargets.length} صنف راكد مسند بدون Target كمي؛ لا يُستخدم غياب الهدف كصفر ولا تُعتمد منه نقطة قوة آلية.`
       : '',
     input.sourceStatus === 'partial'
       ? 'بيانات المخزون متاحة جزئيًا؛ لا تستخدم الجزء غير المتاح كصفر.'

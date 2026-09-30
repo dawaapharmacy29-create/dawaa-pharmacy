@@ -2,6 +2,7 @@ export type MonthlyStrengthEvidenceGates = {
   dispensing: boolean;
   salesQuality: boolean;
   followupsRequests: boolean;
+  inventory: boolean;
 };
 
 export type MonthlyStrengthCandidate = {
@@ -17,6 +18,7 @@ export function isMonthlyEvaluationStrengthEligible(
   if (section.key === 'dispensing') return gates.dispensing;
   if (section.key === 'sales_quality') return gates.salesQuality;
   if (section.key === 'followups_requests') return gates.followupsRequests;
+  if (section.key === 'inventory') return gates.inventory;
   return true;
 }
 

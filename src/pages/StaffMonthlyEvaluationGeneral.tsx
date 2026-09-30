@@ -34,6 +34,7 @@ import { buildStaffMonthlyEvaluationPdf } from '@/lib/evaluations/staffMonthlyEv
 import { hasStrongDispensingEvidence } from '@/lib/evaluations/monthlyDispensingEvidence';
 import { hasStrongSalesQualityEvidence } from '@/lib/evaluations/monthlySalesQualityEvidence';
 import { hasStrongFollowupEvidence } from '@/lib/evaluations/monthlyFollowupEvidence';
+import { hasStrongInventoryEvidence } from '@/lib/evaluations/monthlyInventoryEvidence';
 import {
   hasEvidenceSupportedStrongPerformance,
   isMonthlyEvaluationStrengthEligible,
@@ -1145,10 +1146,22 @@ export default function StaffMonthlyEvaluation() {
     needsNextFollowup: coaching?.followups.needsNextFollowup || 0,
     nextFollowupScheduled: coaching?.followups.nextFollowupScheduled || 0,
   });
+  const inventoryStrengthEvidence = hasStrongInventoryEvidence({
+    sourceStatus: coaching?.inventory.sourceStatus || 'unavailable',
+    measuredWeeks: coaching?.inventory.weekly.measuredWeeks || 0,
+    onTrackWeeks: coaching?.inventory.weekly.onTrackWeeks || 0,
+    aheadWeeks: coaching?.inventory.weekly.aheadWeeks || 0,
+    behindWeeks: coaching?.inventory.weekly.behindWeeks || 0,
+    unresolvedDiscrepancies: coaching?.inventory.weekly.unresolvedDiscrepancies || 0,
+    assignedItems: coaching?.inventory.stagnant.assignedItems || 0,
+    configuredTargets: coaching?.inventory.stagnant.configuredTargets || 0,
+    targetAchievementPct: coaching?.inventory.stagnant.targetAchievementPct ?? null,
+  });
   const strengthEvidenceGates = {
     dispensing: dispensingStrengthEvidence,
     salesQuality: salesQualityStrengthEvidence,
     followupsRequests: followupsStrengthEvidence,
+    inventory: inventoryStrengthEvidence,
   };
   const hasStrongPerformance = hasEvidenceSupportedStrongPerformance(sections, strengthEvidenceGates);
   const hasDevelopmentNeed = sections.some((item) => item.score > 0 && item.score <= 3);
