@@ -1,4 +1,5 @@
 import type { ReviewCriterionKey } from '@/lib/conversationReviews';
+import { isStaffFollowUpPromiseV32 } from '../whatsappSemanticSignalsV32';
 import type { CaseIntelligenceView } from './types';
 
 export type ConversationEvaluationEvidenceSource =
@@ -238,7 +239,9 @@ function criterionApplicable(view: CaseIntelligenceView, key: ReviewCriterionKey
     case 'customer_name':
       return view.customer.identityStatus === 'resolved';
     case 'followup_after_wait':
-      return view.staff.facts.some((fact) => fact.fact === 'promised_follow_up') || view.followUp.opportunities.length > 0;
+      return view.interaction.messages.some(
+        (message) => message.role === 'staff' && message.meaningful && isStaffFollowUpPromiseV32(message.text)
+      );
     case 'consultation_quality':
     case 'dosage_explanation':
       return view.interaction.caseType !== 'information_only' || Boolean(view.need.primaryNeed);
@@ -271,6 +274,12 @@ function evidenceIdsFor(view: CaseIntelligenceView, key: ReviewCriterionKey): st
     case 'unavailable_items':
       return uniq([...view.need.evidenceMessageIds, ...view.evidenceSummary.evidenceMessageIds]);
     case 'followup_after_wait':
+      return uniq([
+        ...view.interaction.messages
+          .filter((message) => message.role === 'staff' && message.meaningful && isStaffFollowUpPromiseV32(message.text))
+          .map((message) => message.id),
+        ...view.followUp.opportunities.flatMap((item) => item.evidenceMessageIds),
+      ]);
     case 'order_delay_handling':
     case 'customer_request_registration':
     case 'exceptional_followup_recognition':
