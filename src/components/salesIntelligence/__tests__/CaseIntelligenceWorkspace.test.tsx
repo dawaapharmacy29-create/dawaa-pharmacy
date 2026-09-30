@@ -9,7 +9,7 @@ import { runSalesIntelligencePipeline } from '@/lib/salesIntelligence/salesIntel
 import { deriveLostOpportunity } from '@/lib/salesIntelligence/lostOpportunityEngine';
 import { deriveFollowUpOpportunities } from '@/lib/salesIntelligence/followUpOpportunityEngine';
 import { buildCaseIntelligenceView } from '@/lib/salesIntelligence/caseIntelligenceView';
-import { readCaseIntelligence } from '@/lib/salesIntelligence/qa/caseIntelligencePresentation';
+import { readCaseIntelligence, selectCurrentCaseIntelligence } from '@/lib/salesIntelligence/qa/caseIntelligencePresentation';
 import { analyzeConversationEvaluation } from '@/lib/salesIntelligence/conversationEvaluation';
 import { CaseIntelligenceWorkspace, type CaseIntelligenceTab } from '@/components/salesIntelligence/CaseIntelligenceWorkspace';
 import type { CaseIntelligenceView, SalesIntelligenceCaseAnalysis } from '@/lib/salesIntelligence/types';
@@ -217,6 +217,31 @@ describe('Case Intelligence Workspace (display only)', () => {
     expect(html).toContain('وليست ادعاءً بأن الصورة/الفويس تم قراءته');
   });
 
+  it('A5b. proven sale keeps missing-media evidence separate from commercial completion', () => {
+    const base = persisted(analyze(`[9/28/26, 6:51:56 AM] Customer: السلام عليكم لو سمحت يادكتور عايزه الحاجات دي
+[9/28/26, 6:51:59 AM] Customer: <image omitted>
+[9/28/26, 6:52:06 AM] You: أهلًا وسهلًا بحضرتك
+مع حضرتك د شبل
+خدمة التوصيل متاحة على مدار ٢٤ ساعة`).caseIntelligence)!;
+    const view: CaseIntelligenceView = {
+      ...base,
+      sale: { ...base.sale, outcome: 'sale_proven', proofState: 'proven', isSaleCountable: true },
+      lostOpportunity: { ...base.lostOpportunity, state: 'won' },
+    };
+    const html = renderToStaticMarkup(createElement(CaseIntelligenceWorkspace, {
+      view,
+      initialTab: 'need',
+      invoiceEvidence: {
+        status: 'trusted',
+        invoiceNumber: '74966',
+        items: [{ id: 'line-1', productName: 'Bon Care', productCode: 'BC-1', quantity: 2, unitName: 'علبة', netLineAmount: 180 }],
+      },
+    }));
+    expect(html).toContain('وضوح الطلب من المحادثة');
+    expect(html).toContain('محتوى الطلب غير مكتمل من المحادثة/الميديا — البيع مثبت بالفاتورة');
+    expect(html).not.toContain('الطلب لم يكتمل بعد');
+  });
+
   it('A6. unresolved media need never consumes candidate invoice items as request truth', () => {
     const view = persisted(analyze(`[9/28/26, 6:51:56 AM] Customer: السلام عليكم لو سمحت يادكتور عايزه الحاجات دي
 [9/28/26, 6:51:59 AM] Customer: <image omitted>`).caseIntelligence)!;
@@ -370,6 +395,18 @@ describe('Case Intelligence Workspace (display only)', () => {
     expect(html).toContain('التحليل الموحد غير متاح لهذه الحالة القديمة');
     expect(html).not.toContain('legacy');
     expect(html).not.toContain('بيع مثبت');
+  });
+
+  it('I2. QA current-view selector prefers live truth over a stale persisted snapshot', () => {
+    const live = analyze(SALE).caseIntelligence;
+    const stale: CaseIntelligenceView = {
+      ...live,
+      sale: { ...live.sale, outcome: 'open_opportunity', proofState: 'weakly_supported', isSaleCountable: false },
+    };
+    const persistedRow = { evidence_snapshot: { caseIntelligence: stale } };
+
+    expect(selectCurrentCaseIntelligence(live, persistedRow)).toBe(live);
+    expect(selectCurrentCaseIntelligence(null, persistedRow)?.sale.outcome).toBe('open_opportunity');
   });
 
   it('display-only guard: no engine, legacy module, database access or regex business logic', () => {
