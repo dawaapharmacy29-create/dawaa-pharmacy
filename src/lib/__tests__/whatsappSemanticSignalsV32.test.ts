@@ -129,19 +129,17 @@ describe('whatsappSemanticSignalsV32 — commitment is acceptance, not a new req
       requestBurstId: null,
     }) as const;
 
-  it.each(['تمام هاته', 'اه ابعته', 'خلاص هات ده', 'ماشي ابعته', 'تمام ابعتها لو سمحت'])(
-    '"%s" is a commitment, not a request',
-    (text) => {
+  for (const text of ['تمام هاته', 'اه ابعته', 'خلاص هات ده', 'ماشي ابعته', 'تمام ابعتها لو سمحت']) {
+    it(`"${text}" is a commitment, not a request`, () => {
       expect(isCommitmentOnly(text)).toBe(true);
       expect(isRequestCandidate(customer(text) as any)).toBe(false);
-    }
-  );
+    });
+  }
 
-  it.each(['هات شامبو كمان', 'هات منه', 'هات منه اتنين', 'عايز فيتامين د', 'ابعتلي بانادول اكسترا'])(
-    '"%s" stays a real request',
-    (text) => {
+  for (const text of ['هات شامبو كمان', 'هات منه', 'هات منه اتنين', 'عايز فيتامين د', 'ابعتلي بانادول اكسترا']) {
+    it(`"${text}" stays a real request`, () => {
       expect(isCommitmentOnly(text)).toBe(false);
       expect(isRequestCandidate(customer(text) as any)).toBe(true);
-    }
-  );
+    });
+  }
 });
