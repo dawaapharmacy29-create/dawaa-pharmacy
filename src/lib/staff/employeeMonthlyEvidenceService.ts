@@ -381,11 +381,13 @@ function buildConversationCoaching(rows: Record<string, unknown>[]): MonthlyConv
   const coreAverage = coreDimensions.length
     ? Math.round((coreDimensions.reduce((sum, item) => sum + item.average, 0) / coreDimensions.length) * 10) / 10
     : null;
+  // Keep evidence classification aligned with the doctor conversation rubric:
+  // <7 needs development, 7..<8.5 is acceptable/neutral, >=8.5 is a documented strength.
   const strengths = sampleSufficient
-    ? [...coreDimensions].filter((item) => item.average >= 7).sort((a, b) => b.average - a.average).slice(0, 3)
+    ? [...coreDimensions].filter((item) => item.average >= 8.5).sort((a, b) => b.average - a.average).slice(0, 3)
     : [];
   const weaknesses = sampleSufficient
-    ? [...coreDimensions].filter((item) => item.average <= 7.5).sort((a, b) => a.average - b.average).slice(0, 3)
+    ? [...coreDimensions].filter((item) => item.average < 7).sort((a, b) => a.average - b.average).slice(0, 3)
     : [];
 
   // Keep free-text reasons/recommendations in the snapshot for audit/development trend,
