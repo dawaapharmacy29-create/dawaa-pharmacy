@@ -262,7 +262,7 @@ export default function PayrollManagement() {
   }
 
   const filteredStaff = staff.filter((s) => !search.trim() || s.name.includes(search.trim()) || s.username.includes(search.trim()));
-  const biometricReadyForReview = attendanceReadiness?.readyForPayroll === true;
+  const biometricReadyForReview = attendanceReadiness?.status === 'ready';
   return (
     <div className="space-y-5 p-4 md:p-6" dir="rtl">
       <div className="rounded-3xl border p-5" style={surface}>
