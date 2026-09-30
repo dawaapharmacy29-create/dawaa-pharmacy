@@ -65,11 +65,17 @@ function uniqueBaseIdentities(rows: StaffDirectoryIdentity[]) {
   return [...byId.values(), ...withoutId.values()];
 }
 
-async function loadStaffDirectory(): Promise<StaffDirectoryIdentity[]> {
+/**
+ * Loads the canonical staff directory through the given Supabase client. The browser uses the
+ * shared session client (readStaffDirectory below); server-side analysis passes its own service
+ * client so it reads the SAME three sources through the SAME mapping — never a second directory.
+ * Throws when neither staff nor account rows can be read (never a silent empty directory).
+ */
+export async function loadStaffDirectoryFrom(client: any): Promise<StaffDirectoryIdentity[]> {
   const [staffResult, accountResult, aliasResult] = await Promise.all([
-    supabase.from('staff').select('id,name,username,branch,role,status,active,is_active').limit(800),
-    supabase.rpc('get_staff_accounts_directory'),
-    supabase
+    client.from('staff').select('id,name,username,branch,role,status,active,is_active').limit(800),
+    client.rpc('get_staff_accounts_directory'),
+    client
       .from('staff_identity_aliases')
       .select('staff_id,alias_name,active,confidence,priority')
       .eq('active', true)
@@ -119,7 +125,7 @@ export async function readStaffDirectory(): Promise<StaffDirectoryIdentity[]> {
   if (!isSupabaseConfigured) return [];
   if (inFlightDirectoryRead) return inFlightDirectoryRead;
 
-  const load = loadStaffDirectory().finally(() => {
+  const load = loadStaffDirectoryFrom(supabase).finally(() => {
     if (inFlightDirectoryRead === load) inFlightDirectoryRead = null;
   });
   inFlightDirectoryRead = load;
