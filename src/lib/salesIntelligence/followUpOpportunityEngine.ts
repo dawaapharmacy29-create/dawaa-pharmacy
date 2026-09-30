@@ -317,13 +317,26 @@ export function deriveFollowUpOpportunities(input: DeriveFollowUpInput): FollowU
     }
   }
 
+  // An unresolved need that the canonical Need owner itself says requires human review must never
+  // be presented as "no follow-up needed" merely because no specific follow-up reason could yet be
+  // proven. This is not an operational follow-up task; it is a decision gate: review the evidence
+  // (for example a missing image/voice product context or a trusted invoice) first, then decide.
+  const evidenceReviewRequired =
+    opportunities.length === 0 &&
+    customerNeed.unresolvedNeed &&
+    customerNeed.needsHumanReview &&
+    lostOpportunity.state === 'open' &&
+    salesOutcome.outcome === 'open_opportunity';
+
   const decision: FollowUpAssessment['decision'] = opportunities.some((o) => o.status === 'actionable')
     ? 'actionable'
     : opportunities.some((o) => o.status === 'blocked')
       ? 'blocked'
       : opportunities.length
         ? 'suppressed'
-        : 'not_needed';
+        : evidenceReviewRequired
+          ? 'review_required'
+          : 'not_needed';
   return {
     caseId,
     decision,

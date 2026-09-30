@@ -415,8 +415,8 @@ export interface FollowUpOpportunity {
 
 export interface FollowUpAssessment {
   caseId: string;
-  /** Interaction-level summary: actionable if any opportunity is, else blocked, else suppressed, else not_needed. */
-  decision: 'actionable' | 'blocked' | 'suppressed' | 'not_needed';
+  /** Interaction-level summary. review_required means evidence must be reviewed before deciding whether customer follow-up exists. */
+  decision: 'actionable' | 'blocked' | 'suppressed' | 'review_required' | 'not_needed';
   opportunities: FollowUpOpportunity[];
   /** Why nothing was needed (information-only / no need / sale proven with no future obligation). */
   notNeededReason: FollowUpSuppression | null;

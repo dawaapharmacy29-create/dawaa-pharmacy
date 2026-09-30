@@ -141,6 +141,18 @@ describe('Case Intelligence Workspace (display only)', () => {
     expect(html).not.toContain('SHOULD-NOT-RENDER');
   });
 
+  it('A7. unresolved media opportunity is displayed as review-before-follow-up, never no-follow-up', () => {
+    const view = persisted(analyze(`[9/28/26, 6:51:56 AM] Customer: السلام عليكم لو سمحت يادكتور عايزه الحاجات دي
+[9/28/26, 6:51:59 AM] Customer: <image omitted>
+[9/28/26, 6:52:06 AM] You: أهلًا وسهلًا بحضرتك
+خدمة التوصيل متاحة على مدار ٢٤ ساعة`).caseIntelligence)!;
+    expect(render(view)).toContain('تحتاج مراجعة قبل تحديد المتابعة');
+    const followUp = render(view, 'followup');
+    expect(followUp).toContain('followup-review-required');
+    expect(followUp).toContain('لا توجد متابعة تلقائية الآن');
+    expect(followUp).not.toContain('لا توجد متابعة لهذا التفاعل');
+  });
+
   it('B. unavailable + alternative rejected: product card, recoverable loss and stock follow-up', () => {
     const view = persisted(analyze(`[9/15/26, 9:00:00 AM] Customer: عايز 1 علبة كونجستال
 [9/15/26, 9:01:00 AM] You: كونجستال مش متوفر حاليًا، فيه بديل كومتركس

@@ -122,7 +122,16 @@ export const waitingOnLabel = (v: string | null | undefined) =>
   label({ customer: 'العميل', staff: 'الصيدلية', stock: 'توفر الصنف', invoice: 'الفاتورة' }, v);
 
 export const followUpDecisionLabel = (v: string | null | undefined) =>
-  label({ actionable: 'متابعة مطلوبة', blocked: 'متابعة معطلة', suppressed: 'لا متابعة (موقوفة)', not_needed: 'لا تحتاج متابعة' }, v);
+  label(
+    {
+      actionable: 'متابعة مطلوبة',
+      blocked: 'متابعة معطلة',
+      suppressed: 'لا متابعة (موقوفة)',
+      review_required: 'تحتاج مراجعة قبل تحديد المتابعة',
+      not_needed: 'لا تحتاج متابعة',
+    },
+    v
+  );
 
 export const followUpStatusLabel = (v: string | null | undefined) =>
   label({ actionable: 'مطلوبة', blocked: 'معطلة', suppressed: 'موقوفة' }, v);

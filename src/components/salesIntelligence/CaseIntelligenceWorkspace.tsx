@@ -477,7 +477,15 @@ export function CaseIntelligenceWorkspace({
               <WhyButton onClick={() => open({ title: nextBestActionLabel(o.nextBestAction), reason: followUpReasonLabel(o.reason), confidence: o.confidence, messageIds: o.evidenceMessageIds })} />
             </div>
           ))}
-          {followUpActive.length === 0 && view.followUp.opportunities.length === 0 ? <div className="dawaa-muted text-sm">لا توجد متابعة لهذا التفاعل.</div> : null}
+          {followUpActive.length === 0 && view.followUp.opportunities.length === 0 ? (
+            view.followUp.decision === 'review_required' ? (
+              <div className="dawaa-alert dawaa-alert--warning text-xs leading-6" data-testid="followup-review-required">
+                لا توجد متابعة تلقائية الآن لأن دليل الطلب نفسه غير مكتمل. راجع المرفقات/هوية الصنف أو الفاتورة الموثوقة أولًا، ثم يُحسم هل توجد متابعة للعميل.
+              </div>
+            ) : (
+              <div className="dawaa-muted text-sm">لا توجد متابعة لهذا التفاعل.</div>
+            )
+          ) : null}
         </div>
       ) : null}
 

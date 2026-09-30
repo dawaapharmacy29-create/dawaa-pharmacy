@@ -212,6 +212,19 @@ describe('Canonical Follow-up Opportunity Engine', () => {
     expect(analysis.followUp.decision).toBe('not_needed');
   });
 
+  it('N2. media-bound unresolved need -> review required before deciding follow-up, not "not needed"', () => {
+    const analysis = analyze(`[9/28/26, 6:51:56 AM] Customer: السلام عليكم لو سمحت يادكتور عايزه الحاجات دي
+[9/28/26, 6:51:59 AM] Customer: <image omitted>
+[9/28/26, 6:52:06 AM] You: أهلًا وسهلًا بحضرتك
+خدمة التوصيل متاحة على مدار ٢٤ ساعة`);
+    expect(analysis.customerNeed.unresolvedNeed).toBe(true);
+    expect(analysis.customerNeed.needsHumanReview).toBe(true);
+    expect(analysis.lostOpportunity.state).toBe('open');
+    expect(analysis.followUp.opportunities).toHaveLength(0);
+    expect(analysis.followUp.decision).toBe('review_required');
+    expect(analysis.followUp.notNeededReason).toBeNull();
+  });
+
   it('O. "كلمني بكرة" -> customer timing respected (dueAt = interaction end + 1 day)', () => {
     const analysis = analyze(`[9/15/26, 9:00:00 AM] Customer: عايز 1 علبة فيتامين د
 [9/15/26, 9:01:00 AM] You: موجود ب 180 جنيه
