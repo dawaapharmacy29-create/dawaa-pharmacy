@@ -4,6 +4,7 @@ import { buildConversationUnderstandingV32 } from '@/lib/whatsappConversationUnd
 import {
   extractConfirmationSignals,
   extractQuantitySignals,
+  isCommitmentOnly,
   isRequestCandidate,
   isSubstantiveConfirmationSignal,
 } from '@/lib/whatsappSemanticSignalsV32';
@@ -108,4 +109,39 @@ describe('whatsappSemanticSignalsV32 — V32.2.1 hardening', () => {
       expect(isRequestCandidate(customerMessageFor('السعر كام؟'))).toBe(true);
     });
   });
+});
+
+describe('whatsappSemanticSignalsV32 — commitment is acceptance, not a new request (4E-0)', () => {
+  const customer = (text: string) =>
+    ({
+      id: 'm1',
+      timestamp: new Date('2026-09-15T09:00:00Z'),
+      direction: 'inbound',
+      role: 'customer',
+      sender: 'Customer',
+      text,
+      isSystemGenerated: false,
+      isAutomated: false,
+      isEmojiOnly: false,
+      isMediaPlaceholder: false,
+      isMeaningful: true,
+      interactionId: null,
+      requestBurstId: null,
+    }) as const;
+
+  it.each(['تمام هاته', 'اه ابعته', 'خلاص هات ده', 'ماشي ابعته', 'تمام ابعتها لو سمحت'])(
+    '"%s" is a commitment, not a request',
+    (text) => {
+      expect(isCommitmentOnly(text)).toBe(true);
+      expect(isRequestCandidate(customer(text) as any)).toBe(false);
+    }
+  );
+
+  it.each(['هات شامبو كمان', 'هات منه', 'هات منه اتنين', 'عايز فيتامين د', 'ابعتلي بانادول اكسترا'])(
+    '"%s" stays a real request',
+    (text) => {
+      expect(isCommitmentOnly(text)).toBe(false);
+      expect(isRequestCandidate(customer(text) as any)).toBe(true);
+    }
+  );
 });

@@ -10,7 +10,7 @@
 import type { NormalizedConversationMessageV32 } from '../whatsappConversationUnderstandingV32';
 import {
   classifyCustomerIntentStatementV32,
-  classifyCustomerOfferResponseV32,
+  extractAcceptanceSignals,
   extractAlternativeOfferSignals,
   extractClarificationQuestionSignals,
   isRequestCandidate,
@@ -212,7 +212,8 @@ export function deriveLostOpportunity(input: DeriveLostOpportunityInput): LostOp
   } else if (
     last &&
     last.role === 'customer' &&
-    (alternativeAnswerIds.has(last.id) || classifyCustomerOfferResponseV32(last.text) === 'accepted')
+    (alternatives.some((a) => a.response === 'accepted' && a.responseMessageId === last.id) ||
+      extractAcceptanceSignals(messages).some((signal) => signal.messageId === last.id))
   ) {
     // The customer accepted an offer/alternative last: the next move is the staff's confirmation.
     // That is an open opportunity waiting on staff, not a loss signal.

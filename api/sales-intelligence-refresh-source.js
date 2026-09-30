@@ -873,6 +873,10 @@ function isSubstantiveConfirmationSignal(signal) {
 function isAcceptanceOnly(text) {
   return ACCEPTANCE_RX.test((text || "").trim());
 }
+var COMMITMENT_ONLY_RX = /^(?:(?:تمام|ماشي|اوك|ok|خلاص|ايوه|ايوا|اه|آه|أه|طيب|حلو|موافق)[،,!.\s]*)*(?:هاته|هاتها|هاتهم|هاتيه|هاتيها|ابعته|ابعتها|ابعتهم|ابعتيه|ابعتيها|خليه|خليها|هاخده|هاخدها|هاخدهم|(?:هات|ابعت|ابعتلي|هاتلي)\s*(?:ده|دي|دا|دول|البديل))(?:[،,!.\s]*(?:لو\s*سمحت|من\s*فضلك|يا\s*(?:دكتور[ةه]?|فندم)|بسرعة|خلاص|تمام))*[!.،,\s]*$/i;
+function isCommitmentOnly(text) {
+  return COMMITMENT_ONLY_RX.test((text || "").trim());
+}
 function isRejectionOnly(text) {
   return REJECTION_RX.test((text || "").trim());
 }
@@ -885,6 +889,7 @@ function isRequestCandidate(message) {
   if (isGreetingOnly(text)) return false;
   if (isBareAcknowledgementOnly(text)) return false;
   if (isAcceptanceOnly(text)) return false;
+  if (isCommitmentOnly(text)) return false;
   if (isRejectionOnly(text)) return false;
   if (isThanksOrClosingOnly(text)) return false;
   return true;
@@ -980,7 +985,7 @@ function extractAcceptanceSignals(messages) {
   const signals = [];
   messages.forEach((m, index) => {
     if (m.role !== "customer" || !m.isMeaningful) return;
-    if (!ACCEPTANCE_RX.test(m.text)) return;
+    if (!ACCEPTANCE_RX.test(m.text) && !isCommitmentOnly(m.text)) return;
     const { before } = contextWindowV32(messages, index, 2, 0);
     const offer = before.filter((prev) => prev.role === "staff").pop();
     signals.push({
@@ -4725,7 +4730,7 @@ function deriveLostOpportunity(input) {
       ...objectionOf(category).map((o) => o.messageId),
       ...has("considering").map((r) => r.messageId)
     ]);
-  } else if (last && last.role === "customer" && (alternativeAnswerIds.has(last.id) || classifyCustomerOfferResponseV32(last.text) === "accepted")) {
+  } else if (last && last.role === "customer" && (alternatives.some((a) => a.response === "accepted" && a.responseMessageId === last.id) || extractAcceptanceSignals(messages).some((signal) => signal.messageId === last.id))) {
     v = verdict("open", null, "high", "staff", "strongly_inferred", 0.75, "open.customer_accepted_awaiting_staff", [last.id]);
   } else if (last && last.role === "customer" && isRequestCandidate(last) && customerNeed.primaryNeedMessageId) {
     v = verdict("recoverable", "staff_no_response", "high", "staff", "weakly_inferred", 0.6, "recoverable.customer_request_unanswered", [last.id]);

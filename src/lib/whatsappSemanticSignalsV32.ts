@@ -231,6 +231,18 @@ export function isAcceptanceOnly(text: string): boolean {
   return ACCEPTANCE_RX.test((text || '').trim());
 }
 
+// Commitment to an offer already on the table, addressed by pronoun/deixis only ("تمام هاته",
+// "اه ابعته", "خلاص هات ده", "ماشي ابعته"). Anchored to the WHOLE message: any named product
+// ("هات شامبو كمان") keeps it a real request, and "هات منه" stays a request because the basket owner
+// resolves that reference into a basket line.
+const COMMITMENT_ONLY_RX =
+  /^(?:(?:تمام|ماشي|اوك|ok|خلاص|ايوه|ايوا|اه|آه|أه|طيب|حلو|موافق)[،,!.\s]*)*(?:هاته|هاتها|هاتهم|هاتيه|هاتيها|ابعته|ابعتها|ابعتهم|ابعتيه|ابعتيها|خليه|خليها|هاخده|هاخدها|هاخدهم|(?:هات|ابعت|ابعتلي|هاتلي)\s*(?:ده|دي|دا|دول|البديل))(?:[،,!.\s]*(?:لو\s*سمحت|من\s*فضلك|يا\s*(?:دكتور[ةه]?|فندم)|بسرعة|خلاص|تمام))*[!.،,\s]*$/i;
+
+/** A pure commitment to the current offer — acceptance, never a new product request. */
+export function isCommitmentOnly(text: string): boolean {
+  return COMMITMENT_ONLY_RX.test((text || '').trim());
+}
+
 /** Same matching semantics as extractRejectionSignals() — a message that is essentially just "no". */
 export function isRejectionOnly(text: string): boolean {
   return REJECTION_RX.test((text || '').trim());
@@ -256,6 +268,7 @@ export function isRequestCandidate(message: NormalizedConversationMessageV32): b
   if (isGreetingOnly(text)) return false;
   if (isBareAcknowledgementOnly(text)) return false;
   if (isAcceptanceOnly(text)) return false;
+  if (isCommitmentOnly(text)) return false;
   if (isRejectionOnly(text)) return false;
   if (isThanksOrClosingOnly(text)) return false;
   return true;
@@ -396,7 +409,7 @@ export function extractAcceptanceSignals(messages: NormalizedConversationMessage
   const signals: ConversationSemanticSignalV32[] = [];
   messages.forEach((m, index) => {
     if (m.role !== 'customer' || !m.isMeaningful) return;
-    if (!ACCEPTANCE_RX.test(m.text)) return;
+    if (!ACCEPTANCE_RX.test(m.text) && !isCommitmentOnly(m.text)) return;
     const { before } = contextWindowV32(messages, index, 2, 0);
     const offer = before.filter((prev) => prev.role === 'staff').pop();
     signals.push({
