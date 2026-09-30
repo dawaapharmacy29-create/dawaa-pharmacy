@@ -640,7 +640,32 @@ export async function ingestWhatsAppExportFile(
     } else {
       const refresh = await requestCanonicalSalesIntelligenceRefresh({ sourceIds, accessToken: options.accessToken });
       result.salesIntelligence = refresh.bySource;
-      for (const failure of refresh.errors) result.errors.push(`Sales Intelligence [${failure.sourceId}]: ${failure.message}`);
+
+      for (const evaluation of refresh.conversationEvaluations) {
+        if (evaluation.status === 'saved') {
+          result.autoReviewsCreated += 1;
+        } else if (evaluation.status === 'skipped_existing') {
+          result.autoReviewsSkipped += 1;
+        } else if (
+          evaluation.status === 'skipped_non_current_case' ||
+          evaluation.status === 'skipped_source_mismatch'
+        ) {
+          result.autoReviewsSkippedNonCanonical += 1;
+        } else if (evaluation.status.startsWith('skipped_')) {
+          result.autoReviewsSkipped += 1;
+        } else if (evaluation.status === 'failed') {
+          result.errors.push(
+            `تحليل المحادثة [${evaluation.caseId || evaluation.sourceId}]: ${evaluation.error || 'فشل حفظ التقييم الآلي'}`
+          );
+        }
+      }
+
+      // This phase deliberately never writes doctor/incentive points.
+      result.autoReviewsPointsFailed = 0;
+
+      for (const failure of refresh.errors) {
+        result.errors.push(`Sales Intelligence [${failure.sourceId}]: ${failure.message}`);
+      }
     }
   }
 
