@@ -550,6 +550,8 @@ export default function StaffMonthlyEvaluation() {
     selected && (selected.id === user?.staffId || selected.id === user?.id)
   );
   const canEdit = managerMode && !isEditingSelf;
+  const employeeView = !managerMode;
+  const employeeEvaluationPublished = employeeView && ['sent', 'approved'].includes(status) && Boolean(evaluationId);
   const overallScore = useMemo(
     () => Math.round(sections.reduce((sum, item) => sum + (item.score / 5) * item.weight, 0) * 10) / 10,
     [sections]
@@ -1161,7 +1163,7 @@ export default function StaffMonthlyEvaluation() {
           </div>
         </div>
 
-        {!cycleClosed || requiresPostCycleReapproval ? (
+        {!employeeView && (!cycleClosed || requiresPostCycleReapproval) ? (
           <div
             className="mt-3 rounded-xl border px-3 py-2 text-xs font-bold"
             style={{ borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-status-warning-bg)', color: 'var(--dawaa-status-warning-text)' }}
@@ -1173,8 +1175,8 @@ export default function StaffMonthlyEvaluation() {
         ) : null}
       </Panel>
 
-      <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
-        <aside className="rounded-3xl border p-3 xl:sticky xl:top-4 xl:h-fit" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}>
+      <div className={employeeView ? 'grid gap-4' : 'grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)]'}>
+        <aside className={employeeView ? 'hidden' : 'rounded-3xl border p-3 xl:sticky xl:top-4 xl:h-fit'} style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}>
           <button
             type="button"
             onClick={() => setSidebarOpen((value) => !value)}
@@ -1290,6 +1292,163 @@ export default function StaffMonthlyEvaluation() {
                 <span className="hidden md:inline">· {profile.mission}</span>
               </div>
 
+              {employeeView ? (
+                employeeEvaluationPublished ? (
+                  <section className="space-y-3">
+                    <Panel className="overflow-hidden p-0">
+                      <div className="border-b p-4" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-soft)' }}>
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <div className="text-[11px] font-black" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>تقييمك الشهري المعتمد</div>
+                            <h2 className="mt-1 text-xl font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>
+                              دورة {cycleRange.displayLabel}
+                            </h2>
+                            <div className="mt-1 text-xs font-bold leading-6" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                              ابدأ بالمميزات وخطة التطوير، وبعدها راجع تفاصيل المحاور لو حابب تعرف توزيع الدرجة.
+                            </div>
+                          </div>
+                          <div className="text-left">
+                            <div className="text-3xl font-black" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>{overallScore}/100</div>
+                            <div className="mt-1 text-xs font-black" style={{ color: 'var(--dawaa-theme-muted)' }}>{grade}</div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid gap-3 p-4 lg:grid-cols-2">
+                        <div className="rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-status-success-border)', background: 'var(--dawaa-status-success-bg)' }}>
+                          <div className="text-xs font-black" style={{ color: 'var(--dawaa-status-success-text)' }}>مميزاتك هذا الشهر</div>
+                          {strengthsText.trim() ? (
+                            <div className="mt-2 space-y-1.5 text-sm font-bold leading-7" style={{ color: 'var(--dawaa-theme-text)' }}>
+                              {strengthsText.split('\n').map((item) => item.trim()).filter(Boolean).map((item) => <div key={item}>• {item}</div>)}
+                            </div>
+                          ) : (
+                            <div className="mt-2 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>لا توجد نقطة قوة مكتوبة في هذا التقييم.</div>
+                          )}
+                        </div>
+
+                        <div className="rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-status-warning-bg)' }}>
+                          <div className="text-xs font-black" style={{ color: 'var(--dawaa-status-warning-text)' }}>أهم حاجة نطورها</div>
+                          {developmentText.trim() ? (
+                            <div className="mt-2 space-y-1.5 text-sm font-bold leading-7" style={{ color: 'var(--dawaa-theme-text)' }}>
+                              {developmentText.split('\n').map((item) => item.trim()).filter(Boolean).map((item) => <div key={item}>• {item}</div>)}
+                            </div>
+                          ) : (
+                            <div className="mt-2 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>لا توجد خطة تطوير مكتوبة في هذا التقييم.</div>
+                          )}
+                        </div>
+                      </div>
+
+                      {managerNotes.trim() ? (
+                        <div className="mx-4 mb-4 rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}>
+                          <div className="text-xs font-black" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>ملاحظة المدير</div>
+                          <div className="mt-2 whitespace-pre-wrap text-sm font-bold leading-7" style={{ color: 'var(--dawaa-theme-text)' }}>{managerNotes}</div>
+                        </div>
+                      ) : null}
+                    </Panel>
+
+                    <Panel className="p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <div className="text-sm font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>تفاصيل المحاور</div>
+                          <div className="mt-1 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                            الدرجة والملاحظة المكتوبة لكل محور، بدون تفاصيل النظام الداخلية.
+                          </div>
+                        </div>
+                        <span className="rounded-full border px-2.5 py-1 text-[10px] font-black" style={{ borderColor: 'var(--dawaa-theme-border)', color: 'var(--dawaa-theme-muted)' }}>
+                          {sections.length} محاور
+                        </span>
+                      </div>
+
+                      <div className="mt-3 grid gap-2 lg:grid-cols-2">
+                        {sections.map((item) => (
+                          <div key={item.key} className="rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-soft)' }}>
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <div className="text-xs font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>{item.title}</div>
+                                <div className="mt-1 text-[11px] font-bold leading-5" style={{ color: 'var(--dawaa-theme-muted)' }}>{item.description}</div>
+                              </div>
+                              <div className="shrink-0 text-left">
+                                <div className="text-sm font-black" style={{ color: item.score >= 4 ? 'var(--dawaa-status-success-text)' : item.score <= 2 ? 'var(--dawaa-status-danger-text)' : 'var(--dawaa-status-warning-text)' }}>
+                                  {item.score}/5
+                                </div>
+                                <div className="mt-0.5 text-[10px] font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>{sectionPoints(item)}/{item.weight}</div>
+                              </div>
+                            </div>
+                            <div className="mt-2 flex gap-0.5" aria-label={`${item.score} من 5`}>
+                              {[1, 2, 3, 4, 5].map((star) => (
+                                <Star
+                                  key={star}
+                                  size={14}
+                                  fill={star <= item.score ? 'currentColor' : 'none'}
+                                  style={{ color: star <= item.score ? 'var(--dawaa-status-warning-text)' : 'var(--dawaa-theme-border)' }}
+                                />
+                              ))}
+                            </div>
+                            {item.notes.trim() ? (
+                              <div className="mt-2 rounded-lg border px-2.5 py-2 text-xs font-bold leading-6" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-theme-text)' }}>
+                                {item.notes}
+                              </div>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    </Panel>
+
+                    <Panel className="p-4">
+                      <div className="text-sm font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>النقاط والحافز</div>
+                      <div className="mt-1 text-xs font-bold leading-6" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                        نقاط الأداء والحافز منفصلان عن درجة التقييم الشهري.
+                      </div>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                        <MiniBox
+                          label="النقاط الفعلية"
+                          value={settledStatement ? `${settledStatement.points_closing} نقطة` : pointsTruth ? `${pointsTruth.final_points} نقطة` : '—'}
+                          tone="cyan"
+                        />
+                        <MiniBox
+                          label="هدف النقاط المسجل"
+                          value={pointsTruth?.target_points ? `${pointsTruth.target_points} نقطة` : 'غير محدد'}
+                          tone="amber"
+                        />
+                        <MiniBox
+                          label="حافز الأداء المركزي"
+                          value={canonicalIncentive == null ? 'غير محدد' : `${canonicalIncentive.toLocaleString('ar-EG')} جنيه`}
+                          tone={canonicalIncentive == null ? 'amber' : 'green'}
+                        />
+                      </div>
+                      {!settledStatement && pointsTruth ? (
+                        <div className="mt-2 text-[11px] font-bold leading-5" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                          المبلغ المعروض قراءة من Points Truth، وقد يظل غير نهائي حتى إقفال كشف الحافز.
+                        </div>
+                      ) : null}
+                    </Panel>
+
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <button
+                        type="button"
+                        disabled={exportingPdf || !evaluationComplete}
+                        onClick={() => void handleExportPdf()}
+                        className="btn-secondary inline-flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-45"
+                      >
+                        {exportingPdf ? <Loader2 size={16} className="animate-spin" /> : <FileDown size={16} />}
+                        تحميل PDF
+                      </button>
+                    </div>
+                  </section>
+                ) : (
+                  <Panel className="p-8 text-center">
+                    <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-soft)', color: 'var(--dawaa-theme-primary-strong)' }}>
+                      <Clock3 size={22} />
+                    </div>
+                    <div className="mt-3 text-base font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>التقييم لم يُعتمد بعد</div>
+                    <div className="mx-auto mt-2 max-w-xl text-sm font-bold leading-7" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                      تقييم دورة {cycleRange.displayLabel} لم يتم اعتماده وإرساله لك حتى الآن. بعد الاعتماد ستظهر هنا الدرجة والمميزات وخطة التطوير.
+                    </div>
+                  </Panel>
+                )
+              ) : null}
+
+              {!employeeView ? (
               <MonthlyEvaluationWorkflowV5
                 activeStep={activeStep}
                 onStepChange={setActiveStep}
@@ -1302,8 +1461,9 @@ export default function StaffMonthlyEvaluation() {
                 status={status}
                 requiresPostCycleReapproval={requiresPostCycleReapproval}
               />
+              ) : null}
 
-              {activeStep === 1 ? (
+              {!employeeView && activeStep === 1 ? (
                 <>
                   <Panel className="p-4">
                     <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1360,7 +1520,7 @@ export default function StaffMonthlyEvaluation() {
                 </>
               ) : null}
 
-              {activeStep === 3 ? (
+              {!employeeView && activeStep === 3 ? (
                 <Panel className="p-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
@@ -1507,7 +1667,7 @@ export default function StaffMonthlyEvaluation() {
                 </Panel>
               ) : null}
 
-              {activeStep === 2 ? (
+              {!employeeView && activeStep === 2 ? (
                 <section className="space-y-2">
                   {sections.map((item) => {
                     const earned = sectionPoints(item);
@@ -1629,7 +1789,7 @@ export default function StaffMonthlyEvaluation() {
                 </section>
               ) : null}
 
-              {activeStep === 4 ? (
+              {!employeeView && activeStep === 4 ? (
                 <Panel className="p-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
@@ -2206,7 +2366,7 @@ export default function StaffMonthlyEvaluation() {
                 </Panel>
               ) : null}
 
-              {activeStep === 5 ? (
+              {!employeeView && activeStep === 5 ? (
                 <section className="space-y-3">
                   <Panel className="p-4" style={approvalReady
                     ? { background: 'var(--dawaa-status-success-bg)', borderColor: 'var(--dawaa-status-success-border)' }
@@ -2349,6 +2509,7 @@ export default function StaffMonthlyEvaluation() {
                   ) : null}
                 </section>
               ) : null}
+              {!employeeView ? (
               <Panel className="flex items-center justify-between gap-3 p-3">
                 <button
                   type="button"
@@ -2375,6 +2536,7 @@ export default function StaffMonthlyEvaluation() {
                   </button>
                 ) : null}
               </Panel>
+              ) : null}
             </>
           ) : (
             <EmptyState label="اختر موظفًا لعرض تقييمه." />
