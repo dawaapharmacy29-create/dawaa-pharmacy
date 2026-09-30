@@ -24,6 +24,7 @@ describe('monthly evaluation V5 score/incentive truth migration', () => {
     expect(source).toContain('new.suggested_incentive := 0');
     expect(source).toContain('new.approved_incentive := 0');
     expect(source).toContain('new.points_delta := 0');
+    expect(source).toContain('monthly_evaluation_section_score_must_be_integer_star');
   });
 
   it('accepts only the five documented critical gates and rejects duplicates', () => {

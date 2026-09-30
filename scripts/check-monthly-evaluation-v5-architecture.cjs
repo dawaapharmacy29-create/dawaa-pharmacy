@@ -76,6 +76,7 @@ for (const token of [
   'monthly_evaluation_canonical_weight_mismatch',
   'invalid_monthly_evaluation_critical_gate',
   'legacy_monthly_evaluation_critical_gate_points_retired',
+  'monthly_evaluation_section_score_must_be_integer_star',
 ]) {
   if (!backend.includes(token)) failures.push(`V5 backend contract is missing: ${token}`);
 }

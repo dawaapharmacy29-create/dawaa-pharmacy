@@ -2036,7 +2036,7 @@ export default function StaffMonthlyEvaluation() {
                   {isGatedByCriticalViolation ? (
                     <div className="mt-3 rounded-xl border px-3 py-2 text-xs font-black" style={{ borderColor: 'var(--dawaa-status-danger-border)', background: 'var(--dawaa-status-danger-bg)', color: 'var(--dawaa-status-danger-text)' }}>
                       {effectiveEvaluationMultiplierPct == null
-                        ? 'السقف الفعلي يظهر بعد اكتمال كل محاور التقييم.'
+                        ? 'معامل حافز النقاط الأساسي يظهر بعد اكتمال كل محاور التقييم.'
                         : `درجة التقييم ${overallScore}% · معامل حافز النقاط الأساسي ${effectiveEvaluationMultiplierPct}%`}
                     </div>
                   ) : null}

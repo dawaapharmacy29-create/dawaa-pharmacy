@@ -131,6 +131,11 @@ begin
     if v_score < 0 or v_score > 5 then
       raise exception 'monthly_evaluation_section_score_out_of_range:%',v_key using errcode='22023';
     end if;
+    if v_score <> trunc(v_score) then
+      raise exception 'monthly_evaluation_section_score_must_be_integer_star:%',v_key
+        using errcode='22023',
+              detail='V5 section scores are discrete stars: 0,1,2,3,4,5.';
+    end if;
 
     if new.status in ('sent','approved') and v_score = 0 then
       raise exception 'يجب تقييم كل المحاور قبل الاعتماد النهائي';
