@@ -156,6 +156,19 @@ describe('conversation evaluation evidence contract', () => {
     expect(snapshot.criteria.find((item) => item.key === 'understanding')?.readiness).toBe('ready');
   });
 
+  it('routes consultation and dosage to manual review instead of automatic scoring', () => {
+    const v = baseView();
+    v.interaction.messages = [
+      { id: 'm1', role: 'customer', sender: 'Customer', at: '2026-09-28T03:51:56.000Z', text: 'طفل عنده كحة، ينفع الدواء ده؟', meaningful: true },
+      { id: 'm2', role: 'staff', sender: 'You', at: '2026-09-28T03:52:06.000Z', text: 'خليه ياخد 5 مل مرتين في اليوم', meaningful: true },
+    ];
+    const snapshot = buildConversationEvaluationEvidence(v);
+    expect(snapshot.criteria.find((item) => item.key === 'consultation_quality')?.readiness)
+      .toBe('manual_review_required');
+    expect(snapshot.criteria.find((item) => item.key === 'dosage_explanation')?.readiness)
+      .toBe('manual_review_required');
+  });
+
   it('allows external criteria only after their real system source is present', () => {
     const snapshot = buildConversationEvaluationEvidence(baseView(), {
       purchaseHistoryAvailable: true,

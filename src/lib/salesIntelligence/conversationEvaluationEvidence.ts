@@ -1,5 +1,6 @@
 import type { ReviewCriterionKey } from '@/lib/conversationReviews';
 import { isStaffFollowUpPromiseV32 } from '../whatsappSemanticSignalsV32';
+import { buildConversationClinicalReview, type ConversationClinicalReview } from './conversationClinicalReview';
 import type { CaseIntelligenceView } from './types';
 
 export type ConversationEvaluationEvidenceSource =
@@ -22,6 +23,7 @@ export type ConversationEvaluationEvidenceReadiness =
   | 'ready'
   | 'not_applicable'
   | 'needs_external_evidence'
+  | 'manual_review_required'
   | 'insufficient_evidence';
 
 export interface ConversationEvaluationCriterionContract {
@@ -234,7 +236,11 @@ function sourceAvailability(
   return available;
 }
 
-function criterionApplicable(view: CaseIntelligenceView, key: ReviewCriterionKey): boolean {
+function criterionApplicable(
+  view: CaseIntelligenceView,
+  key: ReviewCriterionKey,
+  clinical: ConversationClinicalReview
+): boolean {
   switch (key) {
     case 'customer_name':
       return view.customer.identityStatus === 'resolved';
@@ -243,8 +249,9 @@ function criterionApplicable(view: CaseIntelligenceView, key: ReviewCriterionKey
         (message) => message.role === 'staff' && message.meaningful && isStaffFollowUpPromiseV32(message.text)
       );
     case 'consultation_quality':
+      return clinical.consultation.present;
     case 'dosage_explanation':
-      return view.interaction.caseType !== 'information_only' || Boolean(view.need.primaryNeed);
+      return clinical.dosageUsage.present;
     case 'unavailable_items':
       return view.unavailableDemand.length > 0 || view.products.some((product) => product.availability === 'unavailable');
     case 'sales_closing':
@@ -267,12 +274,19 @@ function criterionApplicable(view: CaseIntelligenceView, key: ReviewCriterionKey
   }
 }
 
-function evidenceIdsFor(view: CaseIntelligenceView, key: ReviewCriterionKey): string[] {
+function evidenceIdsFor(
+  view: CaseIntelligenceView,
+  key: ReviewCriterionKey,
+  clinical: ConversationClinicalReview
+): string[] {
   switch (key) {
     case 'understanding':
-    case 'consultation_quality':
     case 'unavailable_items':
       return uniq([...view.need.evidenceMessageIds, ...view.evidenceSummary.evidenceMessageIds]);
+    case 'consultation_quality':
+      return clinical.consultation.evidenceMessageIds;
+    case 'dosage_explanation':
+      return clinical.dosageUsage.evidenceMessageIds;
     case 'followup_after_wait':
       return uniq([
         ...view.interaction.messages
@@ -299,17 +313,31 @@ export function buildConversationEvaluationEvidence(
   external: ConversationEvaluationExternalEvidence = {}
 ): ConversationEvaluationEvidenceSnapshot {
   const available = sourceAvailability(view, external);
+  const clinical = buildConversationClinicalReview(view);
   const criteria = (Object.keys(CONVERSATION_EVALUATION_CONTRACT) as ReviewCriterionKey[]).map((key) => {
     const contract = CONVERSATION_EVALUATION_CONTRACT[key];
-    const applicable = criterionApplicable(view, key);
+    const applicable = criterionApplicable(view, key, clinical);
     if (!applicable) {
       return {
         key,
         readiness: 'not_applicable' as const,
         availableSources: contract.sources.filter((source) => available.has(source)),
         missingSources: [],
-        evidenceMessageIds: evidenceIdsFor(view, key),
+        evidenceMessageIds: evidenceIdsFor(view, key, clinical),
         reason: 'البند غير منطبق على هذا التفاعل وفق حالة المحادثة نفسها.',
+      };
+    }
+
+    if (key === 'consultation_quality' || key === 'dosage_explanation') {
+      return {
+        key,
+        readiness: 'manual_review_required' as const,
+        availableSources: contract.sources.filter((source) => available.has(source)),
+        missingSources: [],
+        evidenceMessageIds: evidenceIdsFor(view, key, clinical),
+        reason: key === 'consultation_quality'
+          ? 'تم رصد جزء استشارة طبية؛ يُفصل للمراجعة ولا يحصل على درجة آلية.'
+          : 'تم رصد جرعة/طريقة استخدام؛ تُفصل للمراجعة ولا تحصل على درجة آلية.',
       };
     }
 
@@ -320,7 +348,7 @@ export function buildConversationEvaluationEvidence(
         readiness: 'needs_external_evidence' as const,
         availableSources: contract.sources.filter((source) => available.has(source)),
         missingSources: missingExternal,
-        evidenceMessageIds: evidenceIdsFor(view, key),
+        evidenceMessageIds: evidenceIdsFor(view, key, clinical),
         reason: 'التحليل يحتاج مصدر نظام إضافي قبل إصدار حكم على هذا البند.',
       };
     }
@@ -331,7 +359,7 @@ export function buildConversationEvaluationEvidence(
       readiness: hasCanonicalEvidence ? ('ready' as const) : ('insufficient_evidence' as const),
       availableSources: contract.sources.filter((source) => available.has(source)),
       missingSources: hasCanonicalEvidence ? [] : [...contract.sources],
-      evidenceMessageIds: evidenceIdsFor(view, key),
+      evidenceMessageIds: evidenceIdsFor(view, key, clinical),
       reason: hasCanonicalEvidence
         ? 'يوجد دليل مسموح كافٍ لبدء تحليل هذا البند.'
         : 'لا يوجد دليل كافٍ؛ لا يجوز تحويل غياب الدليل إلى خصم أو مدح.',
