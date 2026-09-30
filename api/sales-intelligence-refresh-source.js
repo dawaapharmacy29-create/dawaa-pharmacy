@@ -10057,14 +10057,18 @@ function assessTone(view) {
     );
   }
   const respectMessages = staff.filter((message) => RESPECT_RX.test(message.text) || APOLOGY_RX.test(message.text));
-  if (respectMessages.length >= 2) {
+  const serviceClarificationMessages = staff.filter(
+    (message) => !respectMessages.some((respect) => respect.id === message.id) && CLARIFICATION_RX.test(message.text)
+  );
+  if (respectMessages.length >= 2 || respectMessages.length >= 1 && serviceClarificationMessages.length >= 1) {
+    const evidence = [...respectMessages, ...serviceClarificationMessages];
     return make(
       "tone",
       "professional",
       "assessed",
       94,
-      "\u062A\u0643\u0631\u0631 \u0639\u0628\u0631 \u0623\u0643\u062B\u0631 \u0645\u0646 \u0631\u0633\u0627\u0644\u0629 \u0627\u0633\u062A\u062E\u062F\u0627\u0645 \u0645\u062E\u0627\u0637\u0628\u0629 \u0645\u062D\u062A\u0631\u0645\u0629/\u0627\u0647\u062A\u0645\u0627\u0645 \u0648\u0627\u0636\u062D \u0628\u062F\u0648\u0646 \u062F\u0644\u064A\u0644 \u0646\u0635\u064A \u0639\u0644\u0649 \u0625\u0633\u0627\u0621\u0629 \u0623\u0648 \u062A\u062C\u0627\u0647\u0644.",
-      respectMessages.map((message) => message.id)
+      respectMessages.length >= 2 ? "\u062A\u0643\u0631\u0631 \u0639\u0628\u0631 \u0623\u0643\u062B\u0631 \u0645\u0646 \u0631\u0633\u0627\u0644\u0629 \u0627\u0633\u062A\u062E\u062F\u0627\u0645 \u0645\u062E\u0627\u0637\u0628\u0629 \u0645\u062D\u062A\u0631\u0645\u0629/\u0627\u0647\u062A\u0645\u0627\u0645 \u0648\u0627\u0636\u062D \u0628\u062F\u0648\u0646 \u062F\u0644\u064A\u0644 \u0646\u0635\u064A \u0639\u0644\u0649 \u0625\u0633\u0627\u0621\u0629 \u0623\u0648 \u062A\u062C\u0627\u0647\u0644." : "\u0638\u0647\u0631 \u0627\u062D\u062A\u0631\u0627\u0645 \u0648\u0627\u0636\u062D \u0644\u0644\u0639\u0645\u064A\u0644 \u062B\u0645 \u0627\u0633\u062A\u064A\u0636\u0627\u062D \u0639\u0645\u0644\u064A \u0645\u0646\u0641\u0635\u0644 \u064A\u0633\u0627\u0639\u062F \u0639\u0644\u0649 \u062A\u0646\u0641\u064A\u0630 \u0627\u0644\u0637\u0644\u0628 \u0628\u062F\u0642\u0629\u060C \u0628\u062F\u0648\u0646 \u0625\u0633\u0627\u0621\u0629 \u0623\u0648 \u062A\u062C\u0627\u0647\u0644.",
+      evidence.map((message) => message.id)
     );
   }
   if (respectMessages.length === 1) {
