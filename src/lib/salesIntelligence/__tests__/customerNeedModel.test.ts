@@ -89,4 +89,15 @@ describe('Customer Need Model', () => {
 [9/15/26, 9:02:00 AM] Customer: لا قصدي فيتامين د`);
     expect(correction.objections.some((item) => item.category === 'unknown')).toBe(true);
   });
+
+  it('keeps a photo-only product request unresolved and does not interpret delivery availability as stock', () => {
+    const model = modelFor(`[9/28/26, 6:51:56 AM] Customer: السلام عليكم لو سمحت يادكتور عايزه الحاجات دي
+[9/28/26, 6:51:59 AM] Customer: <image omitted>
+[9/28/26, 6:52:06 AM] You: أهلًا وسهلًا بحضرتك
+مع حضرتك د شبل
+خدمة التوصيل متاحة على مدار ٢٤ ساعة`);
+    expect(model.unresolvedNeed).toBe(true);
+    expect(model.products).toHaveLength(0);
+    expect(model.unlinkedAvailability).toHaveLength(0);
+  });
 });

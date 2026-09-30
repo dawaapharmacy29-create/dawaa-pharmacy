@@ -143,6 +143,9 @@ const UNAVAILABLE_RX =
   /(?:مش|مو|غير)\s*(?:موجود|متوفر|متاح)[ةه]?|مفيش\s*(?:منه|منها|حاليا|حاليًا|عندنا)|مش\s*عندنا|(?:الصنف|المنتج|ده|دي|هو|هي)\s*(?:خلص|خلصان[ةه]?|نفذ|ناقص[ةه]?)|(?:خلص|نفذ|ناقص[ةه]?)\s*(?:من\s*(?:عندنا|السوق|الشركة)|حاليا|حاليًا)|ناقص\s*في\s*السوق/i;
 const AVAILABLE_RX =
   /(?:^|[\s،,])(?:موجود|متوفر|متاح)[ةه]?(?:$|[\s،,!.])|عندنا\s*(?:منه|منها)|(?:اه|أه|آه|ايوه|أيوه|ايوا)\s*(?:موجود|متوفر)/i;
+// "خدمة التوصيل متاحة" and similar service/payment statements are not product stock facts.
+const NON_STOCK_AVAILABILITY_CONTEXT_RX =
+  /(?:خدمة\s*)?(?:التوصيل|الدليفري|delivery)|(?:الدفع|التحويل|فودافون\s*كاش|انستا\s*باي|instapay|visa|فيزا|mastercard|ماستر\s*كارد)/i;
 const CHECK_PENDING_RX =
   /(?:ثواني|ثانية|لحظ[ةه]|دقيق[ةه]|دقايق)\s*(?:و\s*)?(?:أ|ا)?(?:شوف|تأكد|اتأكد|سأل|راجع)|هشوف(?:لك|لحضرتك)?|هتأكد|هاتأكد|هسأل\s*(?:الفرع|المخزن|عن\s*(?:التوفر|توفره|توفرها))|هنشوف(?:ه|ها)?|(?:أ|ا)تأكد\s*من\s*(?:توفر|التوفر|المخزن)|هراجع\s*(?:المخزن|التوفر)/i;
 // Explicit alternative markers always count; a generic offer phrase only counts right after a staff
@@ -582,6 +585,7 @@ function statementClauses(text: string): string[] {
 
 /** Stock state asserted by one clause, or null. Unavailable wins over available, which wins over check_pending. */
 function clauseAvailabilityState(clause: string): AvailabilityStateV32 | null {
+  if (NON_STOCK_AVAILABILITY_CONTEXT_RX.test(clause)) return null;
   if (UNAVAILABLE_RX.test(clause)) return 'unavailable';
   if (AVAILABLE_RX.test(clause)) return 'available';
   if (CHECK_PENDING_RX.test(clause)) return 'check_pending';

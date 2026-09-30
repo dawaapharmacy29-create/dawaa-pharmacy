@@ -103,12 +103,15 @@ const ADDITIVE_CONNECTOR_RX = /^\s*(?:(?:و|وكمان|كمان|وبرضه|بر�
 
 // Acknowledgement / discourse openers before a request ("تمام هات X", "بالمناسبة عايز X") and a
 // trailing additive ("... كمان") — whole tokens only, never part of a product name.
+const GREETING_LEAD_RX =
+  /^\s*(?:(?:السلام\s*عليكم(?:\s*ورحمة\s*الله(?:\s*وبركاته)?)?|صباح\s*الخير|مساء\s*الخير|أهلا|اهلا)(?=[\s،,!]|$)[\s،,!]*)+/i;
 const LEAD_DISCOURSE_RX =
   /^\s*(?:(?:تمام|ماشي|اوك|ok|خلاص|طيب|ايوه|ايوا|اه|آه|بالمناسبة|على\s*فكرة)(?=[\s،,])[\s،,]*)+/i;
 const TRAILING_ADDITIVE_RX = /\s+(?:كمان|برضه|برضو|أيضا|ايضا)\s*$/i;
 
 export function stripRequestPrefix(text: string): string {
   return text
+    .replace(GREETING_LEAD_RX, '')
     .replace(LEAD_DISCOURSE_RX, '')
     .replace(ADDITIVE_CONNECTOR_RX, '')
     .replace(/^\s*(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?|ممكن|هات[ي]?|ابعت(?:لي|يلي)?)\s*/i, '')
@@ -119,7 +122,9 @@ export function stripRequestPrefix(text: string): string {
     .trim();
 }
 
-const NON_PRODUCT_PHRASE_RX = /^(?:مش|لا|لأ|اه|آه|تمام|حاجة|حاجه|ده|دي|دا|منه|منها|بس)?$/;
+const NON_PRODUCT_PHRASE_RX = /^(?:مش|لا|لأ|اه|آه|تمام|حاجة|حاجه|ده|دي|دا|دول|منه|منها|بس)?$/;
+const GENERIC_DEICTIC_PRODUCT_PHRASE_RX =
+  /^(?:(?:الحاجات|الحاجه|الحاجة|الأشياء|الاشياء)\s*(?:دي|دول|ده|دا)?|(?:دول|دي|ده|دا)(?:\s*كلهم)?|اللي\s*(?:في|ف)\s*(?:الصوره|الصورة|الصور|الفويس|الصوت)|اللي\s*(?:بعت(?:ه|ها|هم)|مبعت(?:ه|ها|هم)))$/i;
 const EXPLICIT_REQUEST_VERB_RX = /(?<![\p{L}\p{N}])(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?|هات(?:ي|لي)?|ابعت(?:لي|يلي)?)(?![\p{L}\p{N}])/u;
 // "ابعت X بس" — the customer narrows the order to the named item(s).
 const ONLY_THIS_RX = /(?<![\p{L}\p{N}])(?:بس|فقط)[.!، ]*$/u;
@@ -138,7 +143,15 @@ export function explicitRequestProductPhrases(text: string): string[] {
     .split(/\s+و\s+|\s*[،,+]\s*/)
     .map((part) => stripRequestPrefix(part).trim())
     .filter((part) => part.length >= 2);
-  if (!parts.length || parts.some((part) => part.split(/\s+/).length > 4 || NON_PRODUCT_PHRASE_RX.test(part))) return [];
+  if (
+    !parts.length ||
+    parts.some(
+      (part) =>
+        part.split(/\s+/).length > 4 ||
+        NON_PRODUCT_PHRASE_RX.test(part) ||
+        GENERIC_DEICTIC_PRODUCT_PHRASE_RX.test(part)
+    )
+  ) return [];
   return parts;
 }
 
@@ -345,20 +358,21 @@ function extractDraftItemsFromScope(
     if (message.role === 'staff') return;
     const index = allMessages.indexOf(message);
     const resolved = resolveReference(allMessages, index);
+    // An unresolved "ده/دي/دول/منه..." is evidence that product context is missing, NOT a product
+    // identity. Keeping the whole customer sentence as a basket line poisoned downstream demand,
+    // availability and invoice-item matching. Unknown stays unknown until a real antecedent,
+    // catalog match, media analysis or trusted invoice evidence supplies the product identity.
+    if (!resolved) return;
     items.push({
-      productNameRaw: resolved ? resolved.text.trim() : message.text.trim(),
+      productNameRaw: resolved.text.trim(),
       productId: null,
       quantity: null,
       unit: null,
       sourceMessageId: message.id,
-      confidence: resolved
-        ? assessment('strongly_inferred', 0.6, 'basket.item.product_reference_resolved_no_quantity', [
-            refFor(message, `إشارة لمنتج بدون كمية، تُحل إلى العرض السابق: "${resolved.text.slice(0, 60)}".`),
-          ])
-        : assessment('unknown', 0.3, 'basket.item.product_reference_unresolved', [
-            refFor(message, 'إشارة لمنتج بدون كمية ولا يمكن تحديد العرض السابق بوضوح.'),
-          ]),
-      resolutionStatus: resolved ? 'partially_proven' : 'unknown',
+      confidence: assessment('strongly_inferred', 0.6, 'basket.item.product_reference_resolved_no_quantity', [
+        refFor(message, `إشارة لمنتج بدون كمية، تُحل إلى العرض السابق: "${resolved.text.slice(0, 60)}".`),
+      ]),
+      resolutionStatus: 'partially_proven',
     });
   });
 

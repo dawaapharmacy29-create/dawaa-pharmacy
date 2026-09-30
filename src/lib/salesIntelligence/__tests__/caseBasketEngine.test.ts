@@ -67,16 +67,15 @@ describe('Case Basket Engine (Sales Intelligence Phase B.2) — Golden Cases', (
       expect(items[0].confidence.level).toBe('strongly_inferred');
     });
 
-    it('B4. a reference with no prior staff offer to resolve against stays unknown, never guessed', () => {
+    it('B4. a reference with no prior offer stays unresolved and never becomes a fake basket item', () => {
       const raw = `[9/15/26, 9:00:00 AM] Customer: هات منه`;
       const { theCase, baskets, itemsByBasketId } = firstCaseWithBaskets(raw);
-      // No resolvable commercial signal — stays at the weaker classification, not basket_building.
+      // No resolvable product identity — keep the opportunity, but do not manufacture an item
+      // whose "name" is the customer's whole sentence.
       expect(theCase.status).toBe('sales_opportunity');
       expect(theCase.confidence.level).toBe('weakly_inferred');
       const items = itemsOf(itemsByBasketId, baskets[0].basketId);
-      expect(items.length).toBe(1);
-      expect(items[0].resolutionStatus).toBe('unknown');
-      expect(items[0].confidence.level).toBe('unknown');
+      expect(items).toHaveLength(0);
     });
 
 
@@ -120,6 +119,17 @@ describe('Case Basket Engine (Sales Intelligence Phase B.2) — Golden Cases', (
       const { baskets, itemsByBasketId } = firstCaseWithBaskets(raw);
       const allItems = baskets.flatMap((basket) => itemsOf(itemsByBasketId, basket.basketId));
       expect(allItems.some((item: any) => item.productNameRaw.includes('من دا'))).toBe(false);
+    });
+
+    it('B9. media-bound request wording never becomes a product and delivery availability never supplies stock evidence', () => {
+      const raw = `[9/28/26, 6:51:56 AM] Customer: السلام عليكم لو سمحت يادكتور عايزه الحاجات دي
+[9/28/26, 6:51:59 AM] Customer: <image omitted>
+[9/28/26, 6:52:06 AM] You: أهلًا وسهلًا بحضرتك
+مع حضرتك د شبل
+خدمة التوصيل متاحة على مدار ٢٤ ساعة`;
+      const { baskets, itemsByBasketId } = firstCaseWithBaskets(raw);
+      const allItems = baskets.flatMap((basket) => itemsOf(itemsByBasketId, basket.basketId));
+      expect(allItems).toHaveLength(0);
     });
   });
 
