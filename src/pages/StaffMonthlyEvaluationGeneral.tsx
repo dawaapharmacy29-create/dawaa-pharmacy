@@ -1328,10 +1328,10 @@ export default function StaffMonthlyEvaluation() {
       const section = sectionByKey.get(key);
       return section ? isMonthlyEvaluationStrengthEligible(section, strengthEvidenceGates) : false;
     };
-    const needsDevelopment = (key: string) => {
-      const score = sectionByKey.get(key)?.score || 0;
-      return score > 0 && score <= 3;
-    };
+    const needsDevelopment = (key: string) =>
+      developmentSections.some((item) => item.key === key);
+    const hasObjectiveDevelopment = (key: string) =>
+      objectiveDevelopmentKeys.has(key);
 
     const consultation = coaching.conversation.dimensions.find((item) => item.key === 'consultation_quality');
     const dosage = coaching.conversation.dimensions.find((item) => item.key === 'dosage_explanation');
