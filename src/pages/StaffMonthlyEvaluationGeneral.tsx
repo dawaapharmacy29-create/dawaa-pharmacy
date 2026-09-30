@@ -534,6 +534,14 @@ export default function StaffMonthlyEvaluation() {
   const [previouslySent, setPreviouslySent] = useState(false);
   const [sentAtIso, setSentAtIso] = useState('');
   const [evaluationId, setEvaluationId] = useState<string | null>(null);
+  const [employeeResponse, setEmployeeResponse] = useState<{
+    acknowledged: boolean;
+    acknowledged_at: string | null;
+    comment: string | null;
+    commented_at: string | null;
+  } | null>(null);
+  const [employeeCommentDraft, setEmployeeCommentDraft] = useState('');
+  const [employeeResponseSaving, setEmployeeResponseSaving] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
@@ -683,6 +691,112 @@ export default function StaffMonthlyEvaluation() {
     };
     void loadEvaluation();
   }, [cycleLabel, selected, selectedId, user?.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadEmployeeResponse() {
+      if (!employeeView || !employeeEvaluationPublished || !selectedId || !user?.id) {
+        if (!cancelled) {
+          setEmployeeResponse(null);
+          setEmployeeCommentDraft('');
+        }
+        return;
+      }
+
+      const { data, error } = await supabase.rpc('get_staff_monthly_evaluation_employee_response_v5', {
+        p_actor_id: user.id,
+        p_staff_id: selectedId,
+        p_month: `${cycleLabel}-01`,
+      });
+
+      if (cancelled) return;
+      if (error) {
+        setEmployeeResponse(null);
+        return;
+      }
+
+      const response = (data || null) as {
+        acknowledged?: boolean;
+        acknowledged_at?: string | null;
+        comment?: string | null;
+        commented_at?: string | null;
+      } | null;
+
+      setEmployeeResponse(response ? {
+        acknowledged: Boolean(response.acknowledged),
+        acknowledged_at: response.acknowledged_at || null,
+        comment: response.comment || null,
+        commented_at: response.commented_at || null,
+      } : null);
+      setEmployeeCommentDraft('');
+    }
+
+    void loadEmployeeResponse();
+    return () => { cancelled = true; };
+  }, [cycleLabel, employeeEvaluationPublished, employeeView, selectedId, user?.id]);
+
+  async function acknowledgeEmployeeEvaluation() {
+    if (!employeeView || !employeeEvaluationPublished || !selectedId || !user?.id) return;
+    setEmployeeResponseSaving(true);
+    try {
+      const { data, error } = await supabase.rpc('respond_staff_monthly_evaluation_v5', {
+        p_actor_id: user.id,
+        p_staff_id: selectedId,
+        p_month: `${cycleLabel}-01`,
+        p_action: 'acknowledge',
+        p_comment: null,
+      });
+      if (error) throw error;
+      const result = (data || {}) as Record<string, unknown>;
+      setEmployeeResponse((current) => ({
+        acknowledged: true,
+        acknowledged_at: String(result.acknowledged_at || current?.acknowledged_at || new Date().toISOString()),
+        comment: current?.comment || (result.comment ? String(result.comment) : null),
+        commented_at: current?.commented_at || null,
+      }));
+      setAuditRefreshKey((value) => value + 1);
+      toast.success('تم تسجيل اطلاعك على التقييم.');
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : 'تعذر تسجيل الاطلاع على التقييم');
+    } finally {
+      setEmployeeResponseSaving(false);
+    }
+  }
+
+  async function submitEmployeeEvaluationComment() {
+    const comment = employeeCommentDraft.trim();
+    if (!employeeView || !employeeEvaluationPublished || !selectedId || !user?.id || !comment) return;
+    if (comment.length < 3) {
+      toast.error('اكتب ملاحظة أو تعليقًا واضحًا.');
+      return;
+    }
+    setEmployeeResponseSaving(true);
+    try {
+      const { data, error } = await supabase.rpc('respond_staff_monthly_evaluation_v5', {
+        p_actor_id: user.id,
+        p_staff_id: selectedId,
+        p_month: `${cycleLabel}-01`,
+        p_action: 'comment',
+        p_comment: comment,
+      });
+      if (error) throw error;
+      const result = (data || {}) as Record<string, unknown>;
+      setEmployeeResponse((current) => ({
+        acknowledged: Boolean(current?.acknowledged),
+        acknowledged_at: current?.acknowledged_at || null,
+        comment,
+        commented_at: String(result.commented_at || new Date().toISOString()),
+      }));
+      setEmployeeCommentDraft('');
+      setAuditRefreshKey((value) => value + 1);
+      toast.success('تم حفظ تعليقك على التقييم.');
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : 'تعذر حفظ التعليق';
+      toast.error(message.includes('employee_comment_already_submitted') ? 'تم تسجيل تعليقك على هذا التقييم من قبل.' : message);
+    } finally {
+      setEmployeeResponseSaving(false);
+    }
+  }
 
   function updateSection(key: string, patch: Partial<StaffEvaluationSectionV3>) {
     setSections((current) => current.map((item) => item.key === key ? { ...item, ...patch } : item));
@@ -1421,6 +1535,82 @@ export default function StaffMonthlyEvaluation() {
                           المبلغ المعروض قراءة من Points Truth، وقد يظل غير نهائي حتى إقفال كشف الحافز.
                         </div>
                       ) : null}
+                    </Panel>
+
+                    <Panel className="p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>استلام التقييم</div>
+                          <div className="mt-1 text-xs font-bold leading-6" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                            تأكيد الاطلاع لا يعني الموافقة على كل التفاصيل، ولا يغيّر أي درجة أو نقطة أو حافز.
+                          </div>
+                        </div>
+                        <span
+                          className="rounded-full border px-2.5 py-1 text-[10px] font-black"
+                          style={employeeResponse?.acknowledged
+                            ? { borderColor: 'var(--dawaa-status-success-border)', color: 'var(--dawaa-status-success-text)' }
+                            : { borderColor: 'var(--dawaa-status-warning-border)', color: 'var(--dawaa-status-warning-text)' }}
+                        >
+                          {employeeResponse?.acknowledged ? 'تم الاطلاع' : 'بانتظار تأكيدك'}
+                        </span>
+                      </div>
+
+                      {employeeResponse?.acknowledged ? (
+                        <div className="mt-3 rounded-xl border px-3 py-2 text-xs font-bold" style={{ borderColor: 'var(--dawaa-status-success-border)', background: 'var(--dawaa-status-success-bg)', color: 'var(--dawaa-status-success-text)' }}>
+                          تم تسجيل اطلاعك{employeeResponse.acknowledged_at ? ` في ${new Date(employeeResponse.acknowledged_at).toLocaleString('ar-EG')}` : ''}.
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={employeeResponseSaving}
+                          onClick={() => void acknowledgeEmployeeEvaluation()}
+                          className="btn-primary mt-3 inline-flex items-center gap-2 disabled:opacity-60"
+                        >
+                          {employeeResponseSaving ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
+                          اطلعت على التقييم
+                        </button>
+                      )}
+
+                      <div className="mt-4 border-t pt-3" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
+                        <div className="text-xs font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>تعليقك على التقييم</div>
+                        <div className="mt-1 text-[11px] font-bold leading-5" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                          اختياري، تعليق واحد فقط. استخدمه لتوضيح معلومة أو تأكيد خطة التطوير، بدون تعديل نتيجة التقييم.
+                        </div>
+
+                        {employeeResponse?.comment ? (
+                          <div className="mt-2 rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-soft)' }}>
+                            <div className="whitespace-pre-wrap text-sm font-bold leading-7" style={{ color: 'var(--dawaa-theme-text)' }}>{employeeResponse.comment}</div>
+                            {employeeResponse.commented_at ? (
+                              <div className="mt-1 text-[10px] font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                                تم التسجيل في {new Date(employeeResponse.commented_at).toLocaleString('ar-EG')}
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <>
+                            <textarea
+                              value={employeeCommentDraft}
+                              onChange={(event) => setEmployeeCommentDraft(event.target.value.slice(0, 1000))}
+                              rows={3}
+                              placeholder="اكتب ملاحظتك باختصار..."
+                              className="mt-2 w-full rounded-xl border px-3 py-2 text-sm font-bold"
+                              style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-theme-text)' }}
+                            />
+                            <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                              <span className="text-[10px] font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>{employeeCommentDraft.length}/1000</span>
+                              <button
+                                type="button"
+                                disabled={employeeResponseSaving || employeeCommentDraft.trim().length < 3}
+                                onClick={() => void submitEmployeeEvaluationComment()}
+                                className="btn-secondary inline-flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-45"
+                              >
+                                {employeeResponseSaving ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
+                                إرسال التعليق
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
                     </Panel>
 
                     <div className="flex flex-wrap justify-end gap-2">
