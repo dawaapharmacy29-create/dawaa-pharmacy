@@ -109,6 +109,45 @@ describe('Sales Intelligence Pipeline (Phase G) — Golden Cases', () => {
     expect(seenName).toBe('الحاج محمود صالح');
     expect(result.caseAnalyses).toHaveLength(1);
     const a = result.caseAnalyses[0];
+    console.log('MEDIA_AUTO_LINK_DIAGNOSTIC', JSON.stringify({
+      needsHumanReview: a.needsHumanReview,
+      humanReviewReasons: a.humanReviewReasons,
+      conversationCase: {
+        needsHumanReview: a.conversationCase.needsHumanReview,
+        humanReviewReasons: a.conversationCase.humanReviewReasons,
+      },
+      customerNeed: {
+        needsHumanReview: a.customerNeed.needsHumanReview,
+        humanReviewReasons: a.customerNeed.humanReviewReasons,
+        unresolvedNeed: a.customerNeed.unresolvedNeed,
+        products: a.customerNeed.products,
+      },
+      commercialConfirmation: {
+        needsHumanReview: a.commercialConfirmation.needsHumanReview,
+        humanReviewReasons: a.commercialConfirmation.humanReviewReasons,
+        state: a.commercialConfirmation.currentState,
+      },
+      attribution: {
+        needsHumanReview: a.attribution.needsHumanReview,
+        humanReviewReasons: a.attribution.humanReviewReasons,
+        attributionLevel: a.attribution.attributionLevel,
+        contradictions: a.attribution.contradictions,
+      },
+      basketInvoiceMatch: {
+        needsHumanReview: a.basketInvoiceMatch.needsHumanReview,
+        humanReviewReasons: a.basketInvoiceMatch.humanReviewReasons,
+        itemEvidenceReady: a.basketInvoiceMatch.itemEvidenceReady,
+      },
+      integrityAssessment: {
+        needsHumanReview: a.integrityAssessment.needsHumanReview,
+        humanReviewReasons: a.integrityAssessment.humanReviewReasons,
+        exceptions: a.integrityAssessment.exceptions,
+      },
+      salesOutcome: a.salesOutcome,
+      journeyReviewRequired: a.journeyState.reviewRequired,
+      caseIntelligenceReview: a.caseIntelligence.review,
+      status: a.status,
+    }));
     expect(a.customerNeed.unresolvedNeed).toBe(true);
     expect(a.customerNeed.products).toHaveLength(0);
     expect(a.attribution.selectedInvoiceId).toBe('inv-74966');
