@@ -242,7 +242,6 @@ export default function CustomerMonthlyPerformance() {
   const [cohortPage, setCohortPage] = useState(1);
   const [exporting, setExporting] = useState(false);
   const [pageTab, setPageTab] = useState<'overview' | 'cohorts' | 'attention' | 'improving'>('overview');
-  const [pageTab, setPageTab] = useState<'overview' | 'cohorts' | 'attention' | 'improving'>('overview');
 
   const period = useMemo(
     () =>
