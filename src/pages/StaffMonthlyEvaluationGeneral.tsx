@@ -31,6 +31,7 @@ import {
   type CriticalGateType,
 } from '@/lib/evaluations/incentiveTiers';
 import { buildStaffMonthlyEvaluationPdf } from '@/lib/evaluations/staffMonthlyEvaluationPdf';
+import { hasStrongDispensingEvidence } from '@/lib/evaluations/monthlyDispensingEvidence';
 import { createStaffNotification } from '@/lib/staffNotificationService';
 import { Panel, MiniBox, EmptyState } from '@/components/dashboard/DashboardPrimitives';
 import MonthlyEvaluationWorkflowV5, { type MonthlyEvaluationStep } from '@/components/evaluations/MonthlyEvaluationWorkflowV5';
@@ -1137,9 +1138,21 @@ export default function StaffMonthlyEvaluation() {
   const ratedSections = sections.filter((item) => item.score > 0);
   const ratedWeight = ratedSections.reduce((sum, item) => sum + item.weight, 0);
   const ratedEarnedPoints = Math.round(ratedSections.reduce((sum, item) => sum + sectionPoints(item), 0) * 10) / 10;
+  const dispensingConsultationEvidence = coaching?.conversation.dimensions.find((item) => item.key === 'consultation_quality');
+  const dispensingDosageEvidence = coaching?.conversation.dimensions.find((item) => item.key === 'dosage_explanation');
+  const dispensingStrengthEvidence = hasStrongDispensingEvidence({
+    consultation: dispensingConsultationEvidence,
+    dosage: dispensingDosageEvidence,
+    medicalErrors: coaching?.conversation.flags.medicalErrors || 0,
+    badAlternativeCases: coaching?.conversation.flags.badAlternativeCases || 0,
+  });
+
   const strongestSections = evaluationComplete
     ? [...ratedSections]
-        .filter((item) => item.score >= 4)
+        .filter((item) =>
+          item.score >= 4
+          && (item.key !== 'dispensing' || dispensingStrengthEvidence)
+        )
         .sort((a, b) => b.score - a.score || b.weight - a.weight)
         .slice(0, 3)
     : [];
@@ -1170,17 +1183,19 @@ export default function StaffMonthlyEvaluation() {
 
     const consultation = coaching.conversation.dimensions.find((item) => item.key === 'consultation_quality');
     const dosage = coaching.conversation.dimensions.find((item) => item.key === 'dosage_explanation');
-    const dispensingSamples = Math.max(consultation?.samples || 0, dosage?.samples || 0);
+    const dispensingEvidenceStrong = hasStrongDispensingEvidence({
+      consultation,
+      dosage,
+      medicalErrors: coaching.conversation.flags.medicalErrors,
+      badAlternativeCases: coaching.conversation.flags.badAlternativeCases,
+    });
 
     const dispensingStrength =
-      strong('dispensing')
-      && coaching.conversation.flags.medicalErrors === 0
-      && coaching.conversation.flags.badAlternativeCases === 0
-      && dispensingSamples >= 3
-        ? `الإرشاد الدوائي موثق بمستوى جيد: ${[
+      strong('dispensing') && dispensingEvidenceStrong
+        ? `الإرشاد الدوائي موثق بمستوى قوي: ${[
             dosage ? `شرح الجرعة ${dosage.average}/10` : '',
             consultation ? `جودة الاستشارة ${consultation.average}/10` : '',
-          ].filter(Boolean).join('، ')}، بدون خطأ طبي موثق في العينة المتاحة.`
+          ].filter(Boolean).join('، ')}، بدون خطأ طبي أو بديل غير مناسب موثق في العينة المتاحة.`
         : '';
 
     const dispensingDevelopment = needsDevelopment('dispensing')
