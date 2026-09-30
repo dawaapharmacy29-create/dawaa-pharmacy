@@ -50,10 +50,16 @@ jobs:
           echo "Files changed by build:"
           printf '%s\n' "$changed"
 
-          unexpected="$(printf '%s\n' "$changed" | grep -v '^src/pages/CustomerMonthlyPerformance.tsx || true)"
+          unexpected=""
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            if [ "$file" != "src/pages/CustomerMonthlyPerformance.tsx" ]; then
+              unexpected="$unexpected $file"
+            fi
+          done <<< "$changed"
+
           if [ -n "$unexpected" ]; then
-            echo "Unexpected source mutation detected:"
-            printf '%s\n' "$unexpected"
+            echo "Unexpected source mutation detected:$unexpected"
             git diff --stat
             exit 1
           fi
