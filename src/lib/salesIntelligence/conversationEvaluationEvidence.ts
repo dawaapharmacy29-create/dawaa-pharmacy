@@ -279,6 +279,11 @@ function criterionApplicable(
       return view.followUp.opportunities.length > 0;
     case 'purchase_history_usage':
       return view.customer.identityStatus === 'resolved';
+    case 'closing_message':
+      return (
+        ['sale_proven', 'awaiting_invoice', 'customer_declined', 'information_only'].includes(view.journey.currentState) ||
+        (view.lostOpportunity.state === 'lost' && view.lostOpportunity.recoverability === 'none')
+      );
     default:
       return true;
   }
