@@ -17,6 +17,7 @@ import {
   type AttendanceResolutionRow,
 } from '@/lib/attendance/attendanceResolutionService';
 import { evaluateMonthlyAttendanceFinalization, type MonthlyAttendanceFinalization } from '@/lib/staff/monthlyAttendanceFinalization';
+import { followupExecutorStaffId } from '@/lib/staff/monthlyFollowupAttribution';
 
 export type EmployeeMonthlyEvidenceMetrics = {
   review_count: number;
@@ -1498,8 +1499,8 @@ export async function loadEmployeeMonthlyEvidence(args: {
     loadConversationReviews(args),
     supabase
       .from('daily_followups')
-      .select('id,status,followup_status,followup_result,followup_summary,notes,completed_at,closed_at,needs_next_followup,next_followup_date,purchase_after_followup,created_at,assigned_staff_id,requested_by_staff_id')
-      .or(`assigned_staff_id.eq.${args.staffId},requested_by_staff_id.eq.${args.staffId}`)
+      .select('id,status,followup_status,followup_result,followup_summary,notes,completed_at,closed_at,needs_next_followup,next_followup_date,purchase_after_followup,created_at,handled_by_staff_id,assigned_to_staff_id,assigned_staff_id,staff_id,requested_by_staff_id')
+      .or(`handled_by_staff_id.eq.${args.staffId},assigned_to_staff_id.eq.${args.staffId},assigned_staff_id.eq.${args.staffId},staff_id.eq.${args.staffId}`)
       .gte('created_at', args.startDate)
       .lt('created_at', args.endDateExclusive)
       .limit(1000),
@@ -1541,8 +1542,14 @@ export async function loadEmployeeMonthlyEvidence(args: {
   const reviewRows = reviewResult.rows;
   if (reviewResult.error && !reviewRows.length) errors.reviews = reviewResult.error;
 
-  const followupRows = followupResult.error ? [] : followupResult.data || [];
+  const followupCandidateRows = followupResult.error ? [] : followupResult.data || [];
+  const followupRows = followupCandidateRows.filter(
+    (row) => followupExecutorStaffId(row as Record<string, unknown>) === args.staffId
+  );
   if (followupResult.error) errors.followups = followupResult.error.message;
+  if (!followupResult.error && followupCandidateRows.length >= 1000) {
+    errors.followups = 'نتائج المتابعات وصلت إلى حد 1000 سجل؛ لا يمكن إثبات اكتمال عينة المنفذ بأمان.';
+  }
 
   const attendanceRows = attendanceResult.status === 'available' ? attendanceResult.rows : [];
   if (attendanceResult.status === 'unavailable') errors.attendance = attendanceResult.error;
@@ -1580,7 +1587,7 @@ export async function loadEmployeeMonthlyEvidence(args: {
   const reviewAvailable = !errors.reviews;
   const health = {
     reviews: reviewAvailable ? 'available' as const : 'unavailable' as const,
-    followups: followupResult.error ? 'unavailable' as const : 'available' as const,
+    followups: errors.followups ? 'unavailable' as const : 'available' as const,
     attendance: attendanceSourceAvailable ? 'available' as const : 'unavailable' as const,
   };
 

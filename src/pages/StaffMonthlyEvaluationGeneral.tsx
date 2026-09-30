@@ -361,6 +361,7 @@ function sectionEvidenceFor(
         followups?.needsNextFollowup
           ? `تحتاج متابعة لاحقة: ${followups.needsNextFollowup} حالة · موعد تالٍ مسجل ${followups.nextFollowupScheduled} · بدون موعد ${followups.missingNextFollowupSchedule}`
           : '',
+        'النسبة هنا للمنفذ الفعلي: handled_by ثم assigned_to ثم assigned_staff ثم staff_id؛ مقدم الطلب وحده لا يُحسب منفذًا.',
         'هذا المحور يعتمد على المتابعات/الطلبات المسجلة فعليًا، وليس درجة follow_up داخل تقييم المحادثة.',
       ].filter(Boolean),
     };

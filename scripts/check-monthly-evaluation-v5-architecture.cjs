@@ -24,6 +24,7 @@ const backend = [
   read('supabase/migrations/20260930154000_monthly_evaluation_trigger_execute_hardening_v5.sql'),
   read('supabase/migrations/20260930155500_monthly_evaluation_server_evidence_type_compat_v5.sql'),
   read('supabase/migrations/20261001011000_monthly_evaluation_attendance_finalization_gate_v5.sql'),
+  read('supabase/migrations/20261001012500_monthly_evaluation_followup_executor_truth_v5.sql'),
 ].join('\n');
 
 for (const rpc of [
@@ -98,6 +99,8 @@ for (const token of [
   'dawaa_monthly_evaluation_branch_manager_subject_allowed_v5',
   'attendance_pending_review_days',
   'attendance_conflict_days',
+  'handled_by_staff_id',
+  'assigned_to_staff_id',
 ]) {
   if (!backend.includes(token)) failures.push(`V5 backend contract is missing: ${token}`);
 }
