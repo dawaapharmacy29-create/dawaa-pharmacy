@@ -36,6 +36,7 @@ import { hasStrongSalesQualityEvidence } from '@/lib/evaluations/monthlySalesQua
 import { hasStrongFollowupEvidence } from '@/lib/evaluations/monthlyFollowupEvidence';
 import { hasStrongInventoryEvidence } from '@/lib/evaluations/monthlyInventoryEvidence';
 import { hasStrongDevelopmentEvidence } from '@/lib/evaluations/monthlyDevelopmentEvidence';
+import { hasStrongAttendanceEvidence } from '@/lib/evaluations/monthlyAttendanceEvidence';
 import {
   hasEvidenceSupportedStrongPerformance,
   isMonthlyEvaluationStrengthEligible,
@@ -1170,12 +1171,23 @@ export default function StaffMonthlyEvaluation() {
     trainingCompleted: coaching?.development.training.completed || 0,
     overdueTraining: coaching?.development.training.overdueOpen || 0,
   });
+  const attendanceStrengthEvidence = hasStrongAttendanceEvidence({
+    onTimeDays: coaching?.attendance.onTimeDays || 0,
+    workedOnOffCases: coaching?.attendance.workedOnOffCases || 0,
+    lateCases: coaching?.attendance.lateCases || 0,
+    veryLateCases: coaching?.attendance.veryLateCases || 0,
+    earlyLeaveCases: coaching?.attendance.earlyLeaveCases || 0,
+    absenceCases: coaching?.attendance.absenceCases || 0,
+    duplicateResolutionDays: coaching?.attendance.duplicateResolutionDays || 0,
+    manualResolutionCases: coaching?.attendance.manualResolutionCases || 0,
+  });
   const strengthEvidenceGates = {
     dispensing: dispensingStrengthEvidence,
     salesQuality: salesQualityStrengthEvidence,
     followupsRequests: followupsStrengthEvidence,
     inventory: inventoryStrengthEvidence,
     development: developmentStrengthEvidence,
+    attendance: attendanceStrengthEvidence,
   };
   const hasStrongPerformance = hasEvidenceSupportedStrongPerformance(sections, strengthEvidenceGates);
   const hasDevelopmentNeed = sections.some((item) => item.score > 0 && item.score <= 3);

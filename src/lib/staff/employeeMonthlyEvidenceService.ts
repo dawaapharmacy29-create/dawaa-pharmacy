@@ -3,6 +3,7 @@ import { hasStrongSalesQualityEvidence } from '@/lib/evaluations/monthlySalesQua
 import { hasStrongFollowupEvidence } from '@/lib/evaluations/monthlyFollowupEvidence';
 import { hasStrongInventoryEvidence, isStagnantAssignmentRelevantForCycle } from '@/lib/evaluations/monthlyInventoryEvidence';
 import { hasStrongDevelopmentEvidence, trainingCompletionTiming } from '@/lib/evaluations/monthlyDevelopmentEvidence';
+import { hasStrongAttendanceEvidence } from '@/lib/evaluations/monthlyAttendanceEvidence';
 import { readAttendanceRange } from '@/lib/readModels/attendanceReadModel';
 import { listAttendanceImpactLedger, type AttendanceImpactRow } from '@/lib/attendance/attendanceResolutionService';
 
@@ -544,10 +545,23 @@ function buildAttendanceCoaching(rows: AttendanceImpactRow[]): MonthlyAttendance
     }))
     .sort((a, b) => a.date.localeCompare(b.date) || a.eventType.localeCompare(b.eventType));
 
-  const strengthBits = [
-    onTimeDays > 0 ? `${onTimeDays} يوم مصنف في الموعد داخل سجل الحضور` : '',
+  const attendanceStrengthEvidence = hasStrongAttendanceEvidence({
+    onTimeDays,
+    workedOnOffCases,
+    lateCases,
+    veryLateCases,
+    earlyLeaveCases,
+    absenceCases,
+    duplicateResolutionDays,
+    manualResolutionCases,
+  });
+
+  const strengthBits = attendanceStrengthEvidence ? [
+    `${onTimeDays + workedOnOffCases} يوم عمل مصنف بدون مخالفة حضور موثقة`,
+    onTimeDays > 0 ? `${onTimeDays} يوم مصنف في الموعد أو في الموعد بإذن معتمد` : '',
     workedOnOffCases > 0 ? `${workedOnOffCases} يوم عمل مؤكد في يوم راحة` : '',
-  ].filter(Boolean);
+    approvedTimeOffCases > 0 ? `${approvedTimeOffCases} إجازة/إذن معتمد لم يُحسب كتقصير` : '',
+  ].filter(Boolean) : [];
 
   const developmentBits = [
     lateCases + veryLateCases > 0
@@ -557,6 +571,12 @@ function buildAttendanceCoaching(rows: AttendanceImpactRow[]): MonthlyAttendance
       ? `${earlyLeaveCases} حالة خروج مبكر مؤكدة بإجمالي ${earlyLeaveMinutes} دقيقة`
       : '',
     absenceCases > 0 ? `${absenceCases} حالة غياب مؤكدة` : '',
+    duplicateResolutionDays > 0
+      ? `${duplicateResolutionDays} يوم عليه أكثر من تصنيف حضور نشط؛ يحتاج مراجعة بيانات ولا يُنسب كتقصير تلقائيًا`
+      : '',
+    manualResolutionCases > 0
+      ? `${manualResolutionCases} قرار حضور يدوي غير مصنف لنوع واضح؛ يحتاج مراجعة قبل استخدامه كدليل قوة`
+      : '',
   ].filter(Boolean);
 
   const actions = [

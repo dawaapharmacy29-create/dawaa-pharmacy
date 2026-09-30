@@ -4,6 +4,7 @@ export type MonthlyStrengthEvidenceGates = {
   followupsRequests: boolean;
   inventory: boolean;
   development: boolean;
+  attendance: boolean;
 };
 
 export type MonthlyStrengthCandidate = {
@@ -21,6 +22,7 @@ export function isMonthlyEvaluationStrengthEligible(
   if (section.key === 'followups_requests') return gates.followupsRequests;
   if (section.key === 'inventory') return gates.inventory;
   if (section.key === 'development') return gates.development;
+  if (['discipline', 'attendance', 'shift_discipline'].includes(section.key)) return gates.attendance;
   return true;
 }
 
