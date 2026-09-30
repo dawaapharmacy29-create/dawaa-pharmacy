@@ -5,6 +5,10 @@ import { hasStrongInventoryEvidence, isStagnantAssignmentRelevantForCycle } from
 import { hasStrongDevelopmentEvidence, trainingCompletionTiming } from '@/lib/evaluations/monthlyDevelopmentEvidence';
 import { hasStrongAttendanceEvidence } from '@/lib/evaluations/monthlyAttendanceEvidence';
 import { normalizeConversationDimensionScore } from '@/lib/evaluations/monthlyConversationScoreScale';
+import {
+  isActionableDevelopmentIssue,
+  isActionableTrainingRecommendation,
+} from '@/lib/evaluations/monthlyDevelopmentTextEvidence';
 import { readAttendanceRange } from '@/lib/readModels/attendanceReadModel';
 import { listAttendanceImpactLedger, type AttendanceImpactRow } from '@/lib/attendance/attendanceResolutionService';
 
@@ -956,8 +960,16 @@ function buildDevelopmentCoaching(
         : delta <= -5 ? 'declining'
           : 'stable';
 
-  const repeatedIssues = repeatedEvidenceText(reviewRows.map((row) => row.main_negative_reason));
-  const repeatedRecommendations = repeatedEvidenceText(reviewRows.map((row) => row.training_recommendation));
+  const repeatedIssues = repeatedEvidenceText(
+    reviewRows
+      .map((row) => row.main_negative_reason)
+      .filter(isActionableDevelopmentIssue)
+  );
+  const repeatedRecommendations = repeatedEvidenceText(
+    reviewRows
+      .map((row) => row.training_recommendation)
+      .filter(isActionableTrainingRecommendation)
+  );
 
   const completionTiming = trainingResult.assignments.map((row) => trainingCompletionTiming({
     completedAt: row.completed_at,
