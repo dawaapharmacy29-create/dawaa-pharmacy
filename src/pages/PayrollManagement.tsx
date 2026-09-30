@@ -338,6 +338,57 @@ export default function PayrollManagement() {
             </div>
 
             <div className={workspaceTab === 'overview' ? 'space-y-4' : 'hidden'}>
+              <div className="rounded-2xl border p-4" style={surface}>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 text-sm font-black text-teal-200">
+                    <ShieldCheck size={17} />
+                    جاهزية البصمة للرواتب
+                  </div>
+                  {attendanceReadiness ? (
+                    <span
+                      className="rounded-full border px-2.5 py-1 text-[10px] font-black"
+                      style={attendanceReadiness.readyForPayroll
+                        ? { borderColor: 'var(--dawaa-status-success-border)', background: 'var(--dawaa-status-success-bg)', color: 'var(--dawaa-status-success-text)' }
+                        : { borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-status-warning-bg)', color: 'var(--dawaa-status-warning-text)' }}
+                    >
+                      {attendanceReadiness.readyForPayroll ? 'جاهزة للمراجعة المالية' : 'تحتاج مراجعة'}
+                    </span>
+                  ) : null}
+                </div>
+
+                {attendanceReadiness ? (
+                  <>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                      <div className="rounded-xl border p-3" style={surfaceSoft}>
+                        <div className="text-[10px] font-bold" style={mutedText}>ساعات البصمة المرشحة</div>
+                        <div className="mt-1 text-lg font-black text-white">{attendanceReadiness.candidateWorkedHours.toFixed(2)} ساعة</div>
+                      </div>
+                      <div className="rounded-xl border p-3" style={surfaceSoft}>
+                        <div className="text-[10px] font-bold" style={mutedText}>الشيفتات المقترنة</div>
+                        <div className="mt-1 text-lg font-black text-white">{attendanceReadiness.pairedShifts}</div>
+                      </div>
+                      <div className="rounded-xl border p-3" style={surfaceSoft}>
+                        <div className="text-[10px] font-bold" style={mutedText}>بصمات تحتاج مراجعة</div>
+                        <div className="mt-1 text-lg font-black text-white">{attendanceReadiness.manualReviewPunches + attendanceReadiness.unpairedAcceptedPunches}</div>
+                      </div>
+                    </div>
+                    <div className="mt-3 text-[11px] font-bold" style={mutedText}>
+                      ساعات البصمة للقراءة والمراجعة فقط؛ لا تضرب في قيمة الساعة الشهرية ولا تُنسخ تلقائيًا إلى سطر الراتب.
+                    </div>
+                    {attendanceReadiness.reasons.length ? (
+                      <div className="mt-2 flex items-start gap-2 text-[11px] text-amber-200">
+                        <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                        <span>{attendanceReadiness.reasons.join(' · ')}</span>
+                      </div>
+                    ) : null}
+                  </>
+                ) : (
+                  <div className="mt-3 text-xs font-bold" style={mutedText}>
+                    لا توجد بيانات جاهزية بصمة متاحة لهذه الدورة.
+                  </div>
+                )}
+              </div>
+
               <PayrollAttendanceSafetyGate staffId={selected.staffId} monthCycle={month.slice(0, 7)} />
               <PayrollTransparencyPanel staffId={selected.staffId} monthCycle={month.slice(0, 7)} />
             </div>
