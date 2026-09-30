@@ -4,6 +4,7 @@ import { hasStrongFollowupEvidence } from '@/lib/evaluations/monthlyFollowupEvid
 import { hasStrongInventoryEvidence, isStagnantAssignmentRelevantForCycle } from '@/lib/evaluations/monthlyInventoryEvidence';
 import { hasStrongDevelopmentEvidence, trainingCompletionTiming } from '@/lib/evaluations/monthlyDevelopmentEvidence';
 import { hasStrongAttendanceEvidence } from '@/lib/evaluations/monthlyAttendanceEvidence';
+import { normalizeConversationDimensionScore } from '@/lib/evaluations/monthlyConversationScoreScale';
 import { readAttendanceRange } from '@/lib/readModels/attendanceReadModel';
 import { listAttendanceImpactLedger, type AttendanceImpactRow } from '@/lib/attendance/attendanceResolutionService';
 
@@ -358,7 +359,8 @@ function dimensionEvidence(rows: Record<string, unknown>[], minSamples: number) 
   return DIMENSIONS.map((dimension) => {
     const values = rows
       .map((row) => nullableNumber(row[dimension.column]))
-      .filter((value): value is number => value !== null);
+      .filter((value): value is number => value !== null)
+      .map((value) => normalizeConversationDimensionScore(dimension.key, value));
 
     if (!values.length) return null;
     const average = Math.round((values.reduce((sum, value) => sum + value, 0) / values.length) * 10) / 10;
@@ -376,7 +378,10 @@ function dimensionEvidence(rows: Record<string, unknown>[], minSamples: number) 
 function rowConversationCoreAverage(row: Record<string, unknown>) {
   const columns = DIMENSIONS
     .filter((dimension) => CONVERSATION_CORE_KEYS.includes(dimension.key))
-    .map((dimension) => nullableNumber(row[dimension.column]))
+    .map((dimension) => {
+      const raw = nullableNumber(row[dimension.column]);
+      return raw === null ? null : normalizeConversationDimensionScore(dimension.key, raw);
+    })
     .filter((value): value is number => value !== null);
   if (!columns.length) return null;
   return columns.reduce((sum, value) => sum + value, 0) / columns.length;
