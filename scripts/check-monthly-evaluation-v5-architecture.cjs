@@ -14,6 +14,7 @@ const page = read('src/pages/StaffMonthlyEvaluationGeneral.tsx');
 const workflow = read('src/components/evaluations/MonthlyEvaluationWorkflowV5.tsx');
 const audit = read('src/components/evaluations/MonthlyEvaluationAuditTrailV5.tsx');
 const navigationGuard = read('src/contexts/NavigationGuardContext.tsx');
+const financialTruth = read('src/lib/evaluations/monthlyEvaluationFinancialTruth.ts');
 const profiles = read('src/lib/evaluations/staffEvaluationProfilesV3.ts');
 const backend = [
   read('supabase/migrations/20260929153000_monthly_evaluation_command_center_v5.sql'),
@@ -56,9 +57,6 @@ if (!navigationGuard.includes('requestAction')) failures.push('Navigation guard 
 if (/points_incentive_egp\s*\*\s*effectiveEvaluationMultiplierPct/.test(page)) {
   failures.push('Client-side final incentive recomputation is forbidden; read the canonical server financial truth.');
 }
-if (!page.includes('pointsTruth?.final_incentive_egp')) {
-  failures.push('Page must read final incentive from the canonical points truth.');
-}
 if (page.includes("gate.blocksFully ? 'إيقاف الحافز'")) {
   failures.push('Critical Gate UI must not claim all financial bonus is stopped; competition bonus is independent.');
 }
@@ -73,6 +71,12 @@ if (!page.includes('finalSnapshotHash: refreshedHash')) {
 }
 if (!page.includes('resolveMonthlyEvaluationFinancialTruth')) {
   failures.push('Monthly evaluation/PDF must use the canonical frozen-statement financial truth boundary.');
+}
+if (!financialTruth.includes("source: 'settled_statement'") || !financialTruth.includes('points_closing') || !financialTruth.includes('incentive_amount')) {
+  failures.push('Closed monthly statements must freeze both closing points and incentive amount together.');
+}
+if (!financialTruth.includes("source: 'points_truth'") || !financialTruth.includes('final_points') || !financialTruth.includes('final_incentive_egp')) {
+  failures.push('Live Points Truth must remain the pre-settlement financial source.');
 }
 
 for (const step of ['بيانات الدورة', 'تقييم المحاور', 'النقاط والمخالفات', 'الخلاصة والتطوير', 'المراجعة والاعتماد']) {
