@@ -1129,10 +1129,10 @@ function availabilityStatementClausesV32(text2) {
   return statementClauses(text2).map((clause) => ({ clause, state: clauseAvailabilityState(clause) })).filter((row) => row.state !== null);
 }
 function classifyAvailabilityStatementV32(text2) {
-  const clauses = statementClauses(text2);
-  if (clauses.some((clause) => UNAVAILABLE_RX.test(clause))) return "unavailable";
-  if (clauses.some((clause) => AVAILABLE_RX.test(clause))) return "available";
-  if (clauses.some((clause) => CHECK_PENDING_RX.test(clause))) return "check_pending";
+  const states = statementClauses(text2).map((clause) => clauseAvailabilityState(clause)).filter((state) => state !== null);
+  if (states.includes("unavailable")) return "unavailable";
+  if (states.includes("available")) return "available";
+  if (states.includes("check_pending")) return "check_pending";
   return null;
 }
 function extractAvailabilitySignals(messages) {
@@ -5314,7 +5314,7 @@ function buildCaseIntelligenceView(analysis, context) {
   const messages = context.messages;
   const byId = new Map(messages.map((m) => [m.id, m]));
   const staffIdFor = (sender) => context.staffIdBySender?.[sender] ?? null;
-  const identityStatus = context.customerIdentityStatus ?? "not_provided";
+  const identityStatus = context.customerIdentityStatus ?? (conversationCase.customerId ? "resolved" : "not_provided");
   const identityResolved = identityStatus === "resolved";
   const participants = /* @__PURE__ */ new Map();
   for (const message of messages) {
