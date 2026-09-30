@@ -1,0 +1,40 @@
+name: TEMP Apply Customer Monthly Prebuild
+
+on:
+  push:
+    branches:
+      - si-conversation-eval-test-20260930
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: si-conversation-eval-test-20260930
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - name: Apply official customer monthly prebuild patches
+        run: |
+          node scripts/patch-customer-followup-excel-pro.cjs
+          node scripts/run-customer-monthly-tabs.cjs
+      - name: Commit patched source if changed
+        shell: bash
+        run: |
+          if git diff --quiet -- src/pages/CustomerMonthlyPerformance.tsx; then
+            echo "CustomerMonthlyPerformance already current."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/pages/CustomerMonthlyPerformance.tsx
+          git commit -m "chore(test): persist customer monthly prebuild output"
+          git push origin HEAD:si-conversation-eval-test-20260930
