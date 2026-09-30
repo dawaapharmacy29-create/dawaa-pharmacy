@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { hasStrongSalesQualityEvidence } from '@/lib/evaluations/monthlySalesQualityEvidence';
+import { hasStrongFollowupEvidence } from '@/lib/evaluations/monthlyFollowupEvidence';
 import { readAttendanceRange } from '@/lib/readModels/attendanceReadModel';
 import { listAttendanceImpactLedger, type AttendanceImpactRow } from '@/lib/attendance/attendanceResolutionService';
 
@@ -125,6 +126,8 @@ export type MonthlyFollowupCoaching = {
   documentedPct: number;
   purchaseAfterFollowup: number;
   needsNextFollowup: number;
+  nextFollowupScheduled: number;
+  missingNextFollowupSchedule: number;
   drafts: {
     strength: string;
     development: string;
@@ -599,24 +602,40 @@ function buildFollowupCoaching(rows: Record<string, unknown>[]): MonthlyFollowup
   ).length;
   const documentedPct = total ? Math.round((documented / total) * 1000) / 10 : 0;
   const purchaseAfterFollowup = rows.filter((row) => bool(row.purchase_after_followup)).length;
-  const needsNextFollowup = rows.filter((row) => bool(row.needs_next_followup)).length;
+  const nextFollowupRows = rows.filter((row) => bool(row.needs_next_followup));
+  const needsNextFollowup = nextFollowupRows.length;
+  const nextFollowupScheduled = nextFollowupRows.filter((row) => text(row.next_followup_date).length > 0).length;
+  const missingNextFollowupSchedule = Math.max(0, needsNextFollowup - nextFollowupScheduled);
 
-  const strengthBits = [
-    total > 0 && completed === total ? `تم إغلاق كل المتابعات المسجلة (${completed}/${total})` : '',
-    documented > 0 && documented === total ? 'كل المتابعات تحتوي نتيجة أو توثيقًا واضحًا' : '',
+  const strongEvidence = hasStrongFollowupEvidence({
+    total,
+    completed,
+    documented,
+    needsNextFollowup,
+    nextFollowupScheduled,
+  });
+
+  const strengthBits = strongEvidence ? [
+    `تم إغلاق كل المتابعات المسجلة (${completed}/${total})`,
+    'كل المتابعات تحتوي نتيجة أو توثيقًا واضحًا',
+    needsNextFollowup > 0
+      ? `كل الحالات المستمرة لها موعد متابعة تالٍ مسجل (${nextFollowupScheduled}/${needsNextFollowup})`
+      : '',
     purchaseAfterFollowup > 0 ? `${purchaseAfterFollowup} متابعة موثقة نتج عنها شراء` : '',
-  ].filter(Boolean);
+  ].filter(Boolean) : [];
 
   const developmentBits = [
     open > 0 ? `${open} متابعة من أصل ${total} ما زالت غير مكتملة` : '',
     total > 0 && documented < total ? `${total - documented} متابعة تحتاج توثيق نتيجة أوضح` : '',
-    needsNextFollowup > 0 ? `${needsNextFollowup} حالة مسجلة تحتاج متابعة لاحقة` : '',
+    missingNextFollowupSchedule > 0
+      ? `${missingNextFollowupSchedule} حالة تحتاج متابعة لاحقة بدون موعد تالٍ مسجل`
+      : '',
   ].filter(Boolean);
 
   const actionBits = [
     open > 0 ? 'إغلاق المتابعات المفتوحة أو توثيق سبب بقائها مفتوحة قبل نهاية الدورة.' : '',
     total > 0 && documented < total ? 'تسجيل نتيجة واضحة وخطوة تالية لكل متابعة بدل الاكتفاء بتغيير الحالة.' : '',
-    needsNextFollowup > 0 ? 'تحديد موعد المتابعة التالية بوضوح للحالات التي تحتاج استمرارًا.' : '',
+    missingNextFollowupSchedule > 0 ? 'تحديد موعد المتابعة التالية للحالات المستمرة بدل تركها بدون موعد.' : '',
   ].filter(Boolean);
 
   return {
@@ -628,6 +647,8 @@ function buildFollowupCoaching(rows: Record<string, unknown>[]): MonthlyFollowup
     documentedPct,
     purchaseAfterFollowup,
     needsNextFollowup,
+    nextFollowupScheduled,
+    missingNextFollowupSchedule,
     drafts: {
       strength: strengthBits.length ? `المتابعات: ${strengthBits.join('، ')}.` : '',
       development: developmentBits.length ? `ملاحظات المتابعات: ${developmentBits.join('، ')}.` : '',

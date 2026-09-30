@@ -33,6 +33,7 @@ import {
 import { buildStaffMonthlyEvaluationPdf } from '@/lib/evaluations/staffMonthlyEvaluationPdf';
 import { hasStrongDispensingEvidence } from '@/lib/evaluations/monthlyDispensingEvidence';
 import { hasStrongSalesQualityEvidence } from '@/lib/evaluations/monthlySalesQualityEvidence';
+import { hasStrongFollowupEvidence } from '@/lib/evaluations/monthlyFollowupEvidence';
 import {
   hasEvidenceSupportedStrongPerformance,
   isMonthlyEvaluationStrengthEligible,
@@ -320,7 +321,9 @@ function sectionEvidenceFor(
         followups?.open ? `متابعات غير مكتملة: ${followups.open}` : '',
         followups?.total ? `التوثيق الواضح: ${followups.documented}/${followups.total} (${followups.documentedPct}%)` : '',
         followups?.purchaseAfterFollowup ? `شراء بعد المتابعة: ${followups.purchaseAfterFollowup} حالة` : '',
-        followups?.needsNextFollowup ? `تحتاج متابعة لاحقة: ${followups.needsNextFollowup} حالة` : '',
+        followups?.needsNextFollowup
+          ? `تحتاج متابعة لاحقة: ${followups.needsNextFollowup} حالة · موعد تالٍ مسجل ${followups.nextFollowupScheduled} · بدون موعد ${followups.missingNextFollowupSchedule}`
+          : '',
         'هذا المحور يعتمد على المتابعات/الطلبات المسجلة فعليًا، وليس درجة follow_up داخل تقييم المحادثة.',
       ].filter(Boolean),
     };
@@ -1135,9 +1138,17 @@ export default function StaffMonthlyEvaluation() {
     invoiceErrors: coaching?.conversation.flags.invoiceErrors || 0,
     badAlternativeCases: coaching?.conversation.flags.badAlternativeCases || 0,
   });
+  const followupsStrengthEvidence = hasStrongFollowupEvidence({
+    total: coaching?.followups.total || 0,
+    completed: coaching?.followups.completed || 0,
+    documented: coaching?.followups.documented || 0,
+    needsNextFollowup: coaching?.followups.needsNextFollowup || 0,
+    nextFollowupScheduled: coaching?.followups.nextFollowupScheduled || 0,
+  });
   const strengthEvidenceGates = {
     dispensing: dispensingStrengthEvidence,
     salesQuality: salesQualityStrengthEvidence,
+    followupsRequests: followupsStrengthEvidence,
   };
   const hasStrongPerformance = hasEvidenceSupportedStrongPerformance(sections, strengthEvidenceGates);
   const hasDevelopmentNeed = sections.some((item) => item.score > 0 && item.score <= 3);

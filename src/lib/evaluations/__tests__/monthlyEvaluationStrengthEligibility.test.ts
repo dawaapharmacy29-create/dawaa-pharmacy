@@ -8,31 +8,43 @@ describe('monthly evaluation strength eligibility', () => {
   it('keeps ordinary 4+ star sections eligible', () => {
     expect(isMonthlyEvaluationStrengthEligible(
       { key: 'discipline', score: 4 },
-      { dispensing: false, salesQuality: false }
+      { dispensing: false, salesQuality: false, followupsRequests: false }
     )).toBe(true);
   });
 
   it('does not treat manager stars as enough for dispensing or sales quality', () => {
     expect(isMonthlyEvaluationStrengthEligible(
       { key: 'dispensing', score: 5 },
-      { dispensing: false, salesQuality: true }
+      { dispensing: false, salesQuality: true, followupsRequests: false }
     )).toBe(false);
 
     expect(isMonthlyEvaluationStrengthEligible(
       { key: 'sales_quality', score: 4 },
-      { dispensing: true, salesQuality: false }
+      { dispensing: true, salesQuality: false, followupsRequests: false }
     )).toBe(false);
   });
 
   it('allows evidence-gated sections only after their evidence gate passes', () => {
     expect(isMonthlyEvaluationStrengthEligible(
       { key: 'dispensing', score: 4 },
-      { dispensing: true, salesQuality: false }
+      { dispensing: true, salesQuality: false, followupsRequests: false }
     )).toBe(true);
 
     expect(isMonthlyEvaluationStrengthEligible(
       { key: 'sales_quality', score: 5 },
-      { dispensing: false, salesQuality: true }
+      { dispensing: false, salesQuality: true, followupsRequests: false }
+    )).toBe(true);
+  });
+
+  it('requires operational follow-up evidence before followups_requests can be a strength', () => {
+    expect(isMonthlyEvaluationStrengthEligible(
+      { key: 'followups_requests', score: 5 },
+      { dispensing: false, salesQuality: false, followupsRequests: false }
+    )).toBe(false);
+
+    expect(isMonthlyEvaluationStrengthEligible(
+      { key: 'followups_requests', score: 4 },
+      { dispensing: false, salesQuality: false, followupsRequests: true }
     )).toBe(true);
   });
 
@@ -43,7 +55,7 @@ describe('monthly evaluation strength eligibility', () => {
         { key: 'sales_quality', score: 5 },
         { key: 'conversations', score: 3 },
       ],
-      { dispensing: false, salesQuality: false }
+      { dispensing: false, salesQuality: false, followupsRequests: false }
     )).toBe(false);
   });
 });
