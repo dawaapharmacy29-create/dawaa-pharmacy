@@ -118,14 +118,23 @@ function assessTone(view: CaseIntelligenceView): CoreCriterionAssessment {
   }
 
   const respectMessages = staff.filter((message) => RESPECT_RX.test(message.text) || APOLOGY_RX.test(message.text));
-  if (respectMessages.length >= 2) {
+  const serviceClarificationMessages = staff.filter(
+    (message) =>
+      !respectMessages.some((respect) => respect.id === message.id) &&
+      CLARIFICATION_RX.test(message.text)
+  );
+
+  if (respectMessages.length >= 2 || (respectMessages.length >= 1 && serviceClarificationMessages.length >= 1)) {
+    const evidence = [...respectMessages, ...serviceClarificationMessages];
     return make(
       'tone',
       'professional',
       'assessed',
       94,
-      'تكرر عبر أكثر من رسالة استخدام مخاطبة محترمة/اهتمام واضح بدون دليل نصي على إساءة أو تجاهل.',
-      respectMessages.map((message) => message.id)
+      respectMessages.length >= 2
+        ? 'تكرر عبر أكثر من رسالة استخدام مخاطبة محترمة/اهتمام واضح بدون دليل نصي على إساءة أو تجاهل.'
+        : 'ظهر احترام واضح للعميل ثم استيضاح عملي منفصل يساعد على تنفيذ الطلب بدقة، بدون إساءة أو تجاهل.',
+      evidence.map((message) => message.id)
     );
   }
 

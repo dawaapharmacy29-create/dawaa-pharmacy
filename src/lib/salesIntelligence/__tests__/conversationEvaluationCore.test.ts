@@ -148,6 +148,24 @@ describe('conversation evaluation core 9C', () => {
     });
   });
 
+  it('does not award professional tone from one polite greeting followed only by a neutral stock reply', () => {
+    const base = makeView();
+    const v = makeView({
+      interaction: {
+        ...base.interaction,
+        messages: [
+          { id: 'c1', role: 'customer', sender: 'Customer', at: '2026-09-28T09:00:00.000Z', text: 'بون كير موجود؟', meaningful: true },
+          { id: 's1', role: 'staff', sender: 'You', at: '2026-09-28T09:00:05.000Z', text: 'أهلا بحضرتك يا فندم', meaningful: true },
+          { id: 's2', role: 'staff', sender: 'You', at: '2026-09-28T09:00:08.000Z', text: 'موجود', meaningful: true },
+        ],
+      },
+    });
+    expect(analyzeConversationEvaluationCore(v).items.find((item) => item.key === 'tone')).toMatchObject({
+      selectedOption: 'acceptable',
+      pointsEarned: 7,
+    });
+  });
+
   it('does not call one neutral short reply dry', () => {
     const base = makeView();
     const v = makeView({
