@@ -28,7 +28,9 @@
 //
 // Mapping rules (see deriveSaleProofState's own doc comment for the exact precedence):
 //   proven              <=> attribution.selectedCandidate.directInvoiceLink === true AND no
-//                           contradiction was found against that exact candidate.
+//                           contradiction was found against that exact candidate. The trusted link
+//                           may be invoice-specific upstream evidence OR Phase D's deterministic
+//                           unique customer-code + name + close-time + real-items automatic gate.
 //   contradicted        := a real, already-computed evidence conflict exists against the selected
 //                           candidate — cross-customer identity, cross-case invoice collision, a
 //                           cancelled/returned invoice hint, an unexplained total/item/quantity

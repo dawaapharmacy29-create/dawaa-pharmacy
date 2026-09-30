@@ -113,6 +113,8 @@ export async function computeSemanticSourceHash(input: SemanticSourceHashInput):
 export interface AttributionInputHashInput {
   customerId: string | null;
   customerPhone: string | null;
+  customerCode?: string | null;
+  customerName?: string | null;
   /** The candidate invoice id SET actually used — order-independent, caller need not pre-sort (sorted here). */
   candidateInvoiceIds: string[];
   branchNameRaw: string | null;
@@ -131,6 +133,8 @@ export async function computeAttributionInputHash(input: AttributionInputHashInp
   return hashCanonical({
     customerId: input.customerId,
     customerPhone: input.customerPhone,
+    customerCode: input.customerCode ?? null,
+    customerName: input.customerName ?? null,
     candidateInvoiceIds: [...input.candidateInvoiceIds].sort(),
     branchNameRaw: input.branchNameRaw,
     activeBasketItems: input.activeBasketItems ?? [],

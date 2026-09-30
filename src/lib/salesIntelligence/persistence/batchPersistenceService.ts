@@ -549,6 +549,8 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
     const attributionInputHash = await computeAttributionInputHash({
       customerId: conversationCase.customerId,
       customerPhone: conversationCase.customerPhone,
+      customerCode: conversationInput?.customerCodeHint ?? null,
+      customerName: conversationInput?.customerNameHint ?? null,
       candidateInvoiceIds: analysis.invoiceCandidateIds,
       branchNameRaw: conversationCase.branchNameRaw,
       activeBasketItems: activeItems.map((item) => ({
