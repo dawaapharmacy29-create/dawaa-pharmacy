@@ -556,6 +556,13 @@ export const REVIEW_CRITERIA: ReviewCriterion[] = [
       },
       { value: 'medium', label: 'تعامل متوسط', pointsEarned: 5 },
       {
+        value: 'ignored',
+        label: 'لم يتعامل مع الشكوى أو تركها بدون رد/حل',
+        pointsEarned: 0,
+        errorType: 'poor_tone',
+        training: 'تدريب على احتواء الشكوى والرد عليها بوضوح.',
+      },
+      {
         value: 'argued',
         label: 'جادل العميل أو زاد غضبه',
         pointsEarned: 0,
