@@ -9,6 +9,7 @@
 // mutation (instruction #14) — the same code path is used for both modes so a dry-run plan can
 // never drift from what a real run would actually do.
 import {
+  normalizeDawaaCustomerCode,
   normalizeEgyptianCustomerPhone,
   isValidEgyptianCustomerMobile,
 } from '../../customers/customerIdentity';
@@ -204,6 +205,8 @@ interface CustomerGroup {
   key: string;
   customerId: string | null;
   customerPhoneNormalized: string | null;
+  /** Pharmacy customer code. Used as the FIRST invoice lookup whenever consistently available. */
+  customerCodeNormalized: string | null;
   cases: Array<{ conversationCase: ConversationCase; conversation: BatchConversationInput }>;
 }
 
@@ -227,9 +230,25 @@ function groupCasesByCustomer(
     // group by, never a bug in the grouping logic itself.
     const effectiveKey = key ?? `case:${entry.conversationCase.caseId}:${ungroupedCounter++}`;
     let group = groups.get(effectiveKey);
+    const entryCode = normalizeDawaaCustomerCode(entry.conversation.customerCodeHint);
     if (!group) {
-      group = { key: effectiveKey, customerId, customerPhoneNormalized: phone, cases: [] };
+      group = {
+        key: effectiveKey,
+        customerId,
+        customerPhoneNormalized: phone,
+        customerCodeNormalized: entryCode,
+        cases: [],
+      };
       groups.set(effectiveKey, group);
+    } else if (entryCode) {
+      // Same canonical customer should have one pharmacy code. If source rows disagree, do not
+      // choose one arbitrarily; fall back to customer_id/phone for retrieval and let attribution
+      // evaluate each invoice against the per-conversation code later.
+      if (group.customerCodeNormalized && group.customerCodeNormalized !== entryCode) {
+        group.customerCodeNormalized = null;
+      } else if (!group.customerCodeNormalized) {
+        group.customerCodeNormalized = entryCode;
+      }
     }
     group.cases.push(entry);
   }
@@ -253,12 +272,14 @@ function groupTimeWindow(group: CustomerGroup): { windowStartIso: string; window
 }
 
 async function fetchCandidatesForGroup(supabaseClient: any, group: CustomerGroup): Promise<InvoiceLike[]> {
-  if (!group.customerId && !group.customerPhoneNormalized) return [];
+  if (!group.customerCodeNormalized && !group.customerId && !group.customerPhoneNormalized) return [];
   const { windowStartIso, windowEndIso } = groupTimeWindow(group);
   const query: InvoiceCandidateQuery = {
     caseId: group.key,
     customerId: group.customerId,
     customerPhoneNormalized: group.customerPhoneNormalized,
+    customerCodeNormalized: group.customerCodeNormalized,
+    customerNameRaw: null,
     branchNameRaw: null,
     windowStartIso,
     windowEndIso,
