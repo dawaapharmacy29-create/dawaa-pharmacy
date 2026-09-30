@@ -196,7 +196,8 @@ function identityOrFilter(view: CaseIntelligenceView): string | null {
  * The canonical Sales Intelligence pipeline stays pure; evaluation can enrich itself from operational
  * truth without writing back into customer requests, followups, invoices, or the sales case.
  */
-export async function loadConversationEvaluationSystemEvidence(
+export async function loadConversationEvaluationSystemEvidenceWithClient(
+  client: any,
   view: CaseIntelligenceView
 ): Promise<ConversationEvaluationSystemEvidenceSnapshot> {
   const identityFilter = identityOrFilter(view);
@@ -208,21 +209,21 @@ export async function loadConversationEvaluationSystemEvidence(
   const to = new Date(endMs + 120 * 60_000).toISOString();
 
   const [requestResult, followupResult, historyResult] = await Promise.all([
-    supabase
+    client
       .from('customer_requests')
       .select('id,customer_id,customer_code,customer_phone,branch,medicine_name,quantity,doctor_id,doctor_name,source_recorded_staff_id,created_by,created_by_name,requested_at,created_at,due_date,next_action_at,status')
       .or(identityFilter)
       .gte('created_at', from)
       .lte('created_at', to)
       .limit(100),
-    supabase
+    client
       .from('daily_followups')
       .select('id,customer_id,customer_code,customer_phone,branch,request_type,followup_type,request_source,followup_reason,request_details,followup_summary,requested_by_staff_id,staff_id,created_by,created_by_name,created_at')
       .or(identityFilter)
       .gte('created_at', from)
       .lte('created_at', to)
       .limit(100),
-    supabase
+    client
       .from('sales_invoices')
       .select('id,invoice_number,customer_id,customer_code,customer_phone,invoice_datetime,branch_name,net_total')
       .or(identityFilter)
@@ -240,4 +241,15 @@ export async function loadConversationEvaluationSystemEvidence(
     exceptionalFollowups: (followupResult.data ?? []) as ExceptionalFollowupSystemRow[],
     purchaseHistory: (historyResult.data ?? []) as PurchaseHistoryInvoiceRow[],
   });
+}
+
+/**
+ * Browser/default client wrapper. Server-side canonical refresh uses the injected-client variant
+ * above so the exact same read-only evidence rules run under the already-authenticated service
+ * client instead of rebuilding evidence through a second transport.
+ */
+export async function loadConversationEvaluationSystemEvidence(
+  view: CaseIntelligenceView
+): Promise<ConversationEvaluationSystemEvidenceSnapshot> {
+  return loadConversationEvaluationSystemEvidenceWithClient(supabase, view);
 }

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { CaseIntelligenceView } from '../types';
 import {
   buildConversationEvaluationSystemEvidenceSnapshot,
+  loadConversationEvaluationSystemEvidenceWithClient,
   systemIdentityMatches,
 } from '../conversationEvaluationSystemEvidence';
 
@@ -51,6 +52,40 @@ describe('conversation evaluation system evidence 9J-A',()=>{
       ]
     });
     expect(snap.exceptionalFollowups.map(x=>x.row.id)).toEqual(['f1']);
+  });
+
+  it('can use an injected server client without changing evidence semantics', async()=>{
+    const rows:Record<string,unknown[]>={
+      customer_requests:[{
+        id:'r1',customer_id:'cust-1',customer_code:'2490',customer_phone:null,branch:'فرع شكري',
+        medicine_name:'صنف',quantity:1,doctor_id:'staff-1',doctor_name:'دكتور',
+        source_recorded_staff_id:null,created_by:null,created_by_name:null,
+        requested_at:'2026-09-28T09:12:00Z',created_at:'2026-09-28T09:12:00Z',
+        due_date:null,next_action_at:null,status:'open'
+      }],
+      daily_followups:[],
+      sales_invoices:[{
+        id:'old',invoice_number:'100',customer_id:'cust-1',customer_code:'2490',
+        customer_phone:'01012345678',invoice_datetime:'2026-09-20T10:00:00Z',
+        branch_name:'فرع شكري',net_total:100
+      }],
+    };
+    const calls:string[]=[];
+    const fakeClient={
+      from(table:string){
+        calls.push(table);
+        const result={data:rows[table]??[],error:null};
+        const chain:any={
+          select(){return chain;},or(){return chain;},gte(){return chain;},lte(){return chain;},
+          lt(){return chain;},order(){return chain;},limit(){return Promise.resolve(result);}
+        };
+        return chain;
+      }
+    };
+    const snap=await loadConversationEvaluationSystemEvidenceWithClient(fakeClient,view());
+    expect(calls).toEqual(['customer_requests','daily_followups','sales_invoices']);
+    expect(snap.customerRequests.map(x=>x.row.id)).toEqual(['r1']);
+    expect(snap.purchaseHistory.invoices.map(x=>x.id)).toEqual(['old']);
   });
 
   it('purchase history contains only invoices before the interaction',()=>{
