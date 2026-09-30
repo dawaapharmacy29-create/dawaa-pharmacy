@@ -123,6 +123,28 @@ describe('Case Intelligence Workspace (display only)', () => {
     expect(products).toContain('ربط آلي مثبت');
   });
 
+  it('A3c. shows a separate manual-only clinical tab only when consultation or dosage exists', () => {
+    const clinical = persisted(analyze(`[9/28/26, 9:00:00 AM] Customer: ابني 5 سنين عنده كحة، ينفع له الدواء ده؟
+[9/28/26, 9:00:20 AM] You: حضرتك خليه ياخد 5 مل مرتين في اليوم بعد الأكل
+[9/28/26, 9:00:30 AM] Customer: تمام`).caseIntelligence)!;
+
+    const header = render(clinical);
+    expect(header).toContain('الاستشارة والاستخدام');
+
+    const clinicalTab = render(clinical, 'clinical');
+    expect(clinicalTab).toContain('clinical-review-tab');
+    expect(clinicalTab).toContain('هذا الجزء منفصل عن التقييم الآلي');
+    expect(clinicalTab).toContain('الاستشارة الطبية — للمراجعة');
+    expect(clinicalTab).toContain('الجرعة وطريقة الاستخدام — للمراجعة');
+    expect(clinicalTab).toContain('5 مل مرتين في اليوم');
+    expect(clinicalTab).toContain('لا يحكم على صحتها طبيًا');
+  });
+
+  it('A3d. hides the clinical tab when the conversation is ordinary sales with no clinical content', () => {
+    const ordinary = persisted(analyze(SALE).caseIntelligence)!;
+    expect(render(ordinary)).not.toContain('الاستشارة والاستخدام');
+  });
+
   it('A4. candidate invoice lines are never exposed as product truth', () => {
     const view = persisted(analyze(SALE).caseIntelligence)!;
     const html = renderToStaticMarkup(createElement(CaseIntelligenceWorkspace, {

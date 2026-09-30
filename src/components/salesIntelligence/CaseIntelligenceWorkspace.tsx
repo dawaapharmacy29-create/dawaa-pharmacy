@@ -7,6 +7,7 @@
 import { useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, CircleHelp, X } from 'lucide-react';
 import type { CaseIntelligenceView, ConfidenceAssessment } from '@/lib/salesIntelligence/types';
+import { buildConversationClinicalReview } from '@/lib/salesIntelligence/conversationClinicalReview';
 import {
   UNKNOWN_LABEL,
   alternativeResponseLabel,
@@ -38,7 +39,7 @@ import {
   waitingOnLabel,
 } from '@/lib/salesIntelligence/qa/caseIntelligencePresentation';
 
-export type CaseIntelligenceTab = 'conversation' | 'need' | 'products' | 'sale' | 'lost' | 'followup' | 'review';
+export type CaseIntelligenceTab = 'conversation' | 'need' | 'products' | 'sale' | 'lost' | 'followup' | 'clinical' | 'review';
 
 export interface CaseInvoiceEvidence {
   status: 'trusted' | 'candidate' | 'none';
@@ -62,6 +63,7 @@ const TABS: Array<{ key: CaseIntelligenceTab; label: string }> = [
   { key: 'sale', label: 'الطلب والبيع' },
   { key: 'lost', label: 'الفرصة' },
   { key: 'followup', label: 'المتابعة' },
+  { key: 'clinical', label: 'الاستشارة والاستخدام' },
   { key: 'review', label: 'الأدلة والمراجعة' },
 ];
 
@@ -156,6 +158,10 @@ export function CaseIntelligenceWorkspace({
     () => new Map((view?.interaction.messages ?? []).map((m) => [m.id, m])),
     [view]
   );
+  const clinicalReview = useMemo(
+    () => (view ? buildConversationClinicalReview(view) : null),
+    [view]
+  );
 
   if (!view) {
     return (
@@ -185,6 +191,7 @@ export function CaseIntelligenceWorkspace({
   const trustedInvoiceTotalQuantity = invoiceEvidence?.status === 'trusted'
     ? invoiceEvidence.items.reduce((sum, item) => sum + (item.quantity ?? 0), 0)
     : 0;
+  const visibleTabs = TABS.filter((item) => item.key !== 'clinical' || clinicalReview?.detected);
 
   return (
     <section className="space-y-4" data-testid="case-intelligence-workspace">
@@ -225,7 +232,7 @@ export function CaseIntelligenceWorkspace({
       </div>
 
       <div className="dawaa-tabs flex flex-wrap gap-1" role="tablist">
-        {TABS.map((t) => (
+        {visibleTabs.map((t) => (
           <button
             key={t.key}
             type="button"
@@ -517,6 +524,65 @@ export function CaseIntelligenceWorkspace({
             ) : (
               <div className="dawaa-muted text-sm">لا توجد متابعة لهذا التفاعل.</div>
             )
+          ) : null}
+        </div>
+      ) : null}
+
+      {tab === 'clinical' && clinicalReview?.detected ? (
+        <div className="space-y-3" data-testid="clinical-review-tab">
+          <div className="dawaa-alert dawaa-alert--warning text-sm leading-7" data-testid="clinical-manual-only">
+            هذا الجزء منفصل عن التقييم الآلي. النظام يحدد مكان الاستشارة والجرعة/طريقة الاستخدام فقط،
+            لكن لا يحكم على صحتها طبيًا ولا يمنح عليها نقاطًا أو خصومات تلقائية.
+          </div>
+
+          {clinicalReview.consultation.present ? (
+            <Block title="الاستشارة الطبية — للمراجعة">
+              <div className="dawaa-muted text-xs leading-6">{clinicalReview.consultation.reason}</div>
+              {clinicalReview.consultation.mediaContextMissing ? (
+                <div className="dawaa-alert dawaa-alert--warning text-xs">
+                  يوجد مرفق صورة/فويس داخل هذا الجزء وغير متاح محتواه في التصدير؛ لا يتم تفسيره آليًا.
+                </div>
+              ) : null}
+              <ul className="space-y-2" data-testid="clinical-consultation-messages">
+                {clinicalReview.consultation.evidenceMessageIds
+                  .map((id) => messageById.get(id))
+                  .filter(Boolean)
+                  .map((m) => (
+                    <li key={m!.id} className="rounded-xl bg-[var(--dawaa-theme-soft)] p-3 text-sm">
+                      <div className="dawaa-muted mb-1 text-xs">
+                        {m!.role === 'staff' ? displayStaffSender(m!.sender) : m!.role === 'customer' ? 'العميل' : 'النظام'}
+                        {' — '}{formatTime(m!.at)}
+                      </div>
+                      <div className="whitespace-pre-wrap leading-7">{m!.text}</div>
+                    </li>
+                  ))}
+              </ul>
+            </Block>
+          ) : null}
+
+          {clinicalReview.dosageUsage.present ? (
+            <Block title="الجرعة وطريقة الاستخدام — للمراجعة">
+              <div className="dawaa-muted text-xs leading-6">{clinicalReview.dosageUsage.reason}</div>
+              {clinicalReview.dosageUsage.mediaContextMissing ? (
+                <div className="dawaa-alert dawaa-alert--warning text-xs">
+                  يوجد مرفق غير متاح داخل سياق الجرعة/الاستخدام؛ لا يتم افتراض محتواه.
+                </div>
+              ) : null}
+              <ul className="space-y-2" data-testid="clinical-dosage-messages">
+                {clinicalReview.dosageUsage.evidenceMessageIds
+                  .map((id) => messageById.get(id))
+                  .filter(Boolean)
+                  .map((m) => (
+                    <li key={m!.id} className="rounded-xl bg-[var(--dawaa-theme-soft)] p-3 text-sm">
+                      <div className="dawaa-muted mb-1 text-xs">
+                        {m!.role === 'staff' ? displayStaffSender(m!.sender) : m!.role === 'customer' ? 'العميل' : 'النظام'}
+                        {' — '}{formatTime(m!.at)}
+                      </div>
+                      <div className="whitespace-pre-wrap leading-7">{m!.text}</div>
+                    </li>
+                  ))}
+              </ul>
+            </Block>
           ) : null}
         </div>
       ) : null}
