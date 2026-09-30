@@ -258,6 +258,34 @@ export function CaseIntelligenceWorkspace({
               <li key={p.productKey}>• {p.productNameRaw} — الكمية: {p.requestedQuantity ?? UNKNOWN_LABEL}</li>
             ))}
           </ul>
+
+          {view.need.unresolvedNeed && invoiceEvidence?.status === 'trusted' ? (
+            <div className="dawaa-card dawaa-card--soft space-y-2" data-testid="need-trusted-invoice-fallback">
+              <div className="dawaa-heading text-sm font-black">مرجع التنفيذ من الفاتورة الموثوقة</div>
+              <div className="dawaa-muted text-xs leading-6">
+                اسم الصنف غير محسوم من نص المحادثة نفسه. الأصناف التالية مصدرها الفاتورة المرتبطة الموثوقة
+                {invoiceEvidence.invoiceNumber ? ` رقم ${invoiceEvidence.invoiceNumber}` : ''}، وتوضح ما تم صرفه فعليًا — وليست ادعاءً بأن الصورة/الفويس تم قراءته.
+              </div>
+              {invoiceEvidence.items.length ? (
+                <ul className="space-y-1 text-sm">
+                  {invoiceEvidence.items.map((item) => (
+                    <li key={item.id}>
+                      • {item.productName || 'صنف بدون اسم'} — الكمية: {item.quantity ?? UNKNOWN_LABEL}{item.unitName ? ` ${item.unitName}` : ''}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <div className="dawaa-muted text-xs">تفاصيل أصناف الفاتورة غير متاحة حاليًا.</div>
+              )}
+            </div>
+          ) : view.need.unresolvedNeed && invoiceEvidence?.status === 'candidate' ? (
+            <div className="dawaa-alert dawaa-alert--warning text-xs leading-6" data-testid="need-candidate-invoice-not-used">
+              الطلب غير واضح من المحادثة، وتوجد فاتورة مرشحة
+              {invoiceEvidence.invoiceNumber ? ` رقم ${invoiceEvidence.invoiceNumber}` : ''}،
+              لكن الربط غير موثوق بعد؛ لذلك لا نستخدم أصنافها لتفسير الصورة أو الفويس تلقائيًا.
+            </div>
+          ) : null}
+
           {view.need.objections.length ? (
             <div className="space-y-1 text-sm">
               <div className="dawaa-muted text-xs">اعتراضات العميل</div>

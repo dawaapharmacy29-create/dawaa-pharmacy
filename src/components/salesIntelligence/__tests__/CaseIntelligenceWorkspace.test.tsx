@@ -106,6 +106,41 @@ describe('Case Intelligence Workspace (display only)', () => {
     expect(html).not.toContain('SHOULD-NOT-RENDER');
   });
 
+  it('A5. unresolved media need can use only trusted invoice lines as execution reference', () => {
+    const view = persisted(analyze(`[9/28/26, 6:51:56 AM] Customer: السلام عليكم لو سمحت يادكتور عايزه الحاجات دي
+[9/28/26, 6:51:59 AM] Customer: <image omitted>`).caseIntelligence)!;
+    const html = renderToStaticMarkup(createElement(CaseIntelligenceWorkspace, {
+      view,
+      initialTab: 'need',
+      invoiceEvidence: {
+        status: 'trusted',
+        invoiceNumber: '74966',
+        items: [{ id: 'line-1', productName: 'Bon Care', productCode: 'BC-1', quantity: 2, unitName: 'علبة', netLineAmount: 180 }],
+      },
+    }));
+    expect(html).toContain('need-trusted-invoice-fallback');
+    expect(html).toContain('Bon Care');
+    expect(html).toContain('ما تم صرفه فعليًا');
+    expect(html).toContain('وليست ادعاءً بأن الصورة/الفويس تم قراءته');
+  });
+
+  it('A6. unresolved media need never consumes candidate invoice items as request truth', () => {
+    const view = persisted(analyze(`[9/28/26, 6:51:56 AM] Customer: السلام عليكم لو سمحت يادكتور عايزه الحاجات دي
+[9/28/26, 6:51:59 AM] Customer: <image omitted>`).caseIntelligence)!;
+    const html = renderToStaticMarkup(createElement(CaseIntelligenceWorkspace, {
+      view,
+      initialTab: 'need',
+      invoiceEvidence: {
+        status: 'candidate',
+        invoiceNumber: '74966',
+        items: [{ id: 'line-1', productName: 'SHOULD-NOT-RENDER', productCode: null, quantity: 1, unitName: null, netLineAmount: null }],
+      },
+    }));
+    expect(html).toContain('need-candidate-invoice-not-used');
+    expect(html).toContain('لا نستخدم أصنافها');
+    expect(html).not.toContain('SHOULD-NOT-RENDER');
+  });
+
   it('B. unavailable + alternative rejected: product card, recoverable loss and stock follow-up', () => {
     const view = persisted(analyze(`[9/15/26, 9:00:00 AM] Customer: عايز 1 علبة كونجستال
 [9/15/26, 9:01:00 AM] You: كونجستال مش متوفر حاليًا، فيه بديل كومتركس
