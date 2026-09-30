@@ -52,14 +52,14 @@ async function getStaffDirectoryRows() {
 
 const normalize = (value: unknown) => String(value ?? '')
   .trim().toLowerCase()
-  .replace(/^(?:د\s*(?:/|\.|-)?\s*|دكتور(?:ه|ة)?\s+|أستاذ(?:ه|ة)?\s+|استاذ(?:ه|ة)?\s+)/i, '')
+  .replace(/^(?:د\s*[/.-]?\s*|دكتور(?:ه|ة)?\s+|أستاذ(?:ه|ة)?\s+|استاذ(?:ه|ة)?\s+)/i, '')
   .replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه')
   .replace(/[\u064B-\u065F]/g, '').replace(/[^\p{L}\p{N}\s]/gu, ' ')
   .replace(/\s+/g, ' ').trim();
 
 function cleanCandidateName(value: unknown) {
   return String(value ?? '')
-    .replace(/\[[0-9]{1,2}(?:/|\.|-)[0-9]{1,2}(?:/|\.|-)[0-9]{2,4}[\s\S]*$/g, '')
+    .replace(/\[[0-9]{1,2}[/.-][0-9]{1,2}[/.-][0-9]{2,4}[\s\S]*$/g, '')
     .replace(/\bمن\s+(?:خدمه|خدمة)\s+عملاء\s+صيدليات\s+دواء[\s\S]*$/i, '')
     .replace(/\bمن\s+صيدليات\s+دواء[\s\S]*$/i, '')
     .replace(/\bصيدليات\s+دواء[\s\S]*$/i, '')
@@ -91,8 +91,8 @@ function roleFromStaff(row: any): WhatsAppParticipantRoleV15 {
 
 function introName(text: string) {
   const patterns = [
-    /مع حضرتك\s+(?:د\s*(?:/|\.|-)?|دكتور(?:ه|ة)?|أ\.?|استاذ(?:ه|ة)?)?\s*([^\n،,.\u005B]{2,45})(?:\s+من\s+(?:خدمه|خدمة|صيدليات)|[،,.\u005B]|$)/i,
-    /معاك(?:ي)?\s+(?:د\s*(?:/|\.|-)?|دكتور(?:ه|ة)?)?\s*([^\n،,.\u005B]{2,45})(?:\s+من\s+(?:خدمه|خدمة|صيدليات)|[،,.\u005B]|$)/i,
+    /مع حضرتك\s+(?:د\s*[/.-]?|دكتور(?:ه|ة)?|أ\.?|استاذ(?:ه|ة)?)?\s*([^\n،,.\u005B]{2,45})(?:\s+من\s+(?:خدمه|خدمة|صيدليات)|[،,.\u005B]|$)/i,
+    /معاك(?:ي)?\s+(?:د\s*[/.-]?|دكتور(?:ه|ة)?)?\s*([^\n،,.\u005B]{2,45})(?:\s+من\s+(?:خدمه|خدمة|صيدليات)|[،,.\u005B]|$)/i,
   ];
   for (const rx of patterns) {
     const match = text.match(rx);
