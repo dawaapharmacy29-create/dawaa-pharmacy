@@ -255,7 +255,8 @@ export function buildCaseConversationReviewPayload(input: {
  * This function is intentionally not wired into ingestion yet. STEP 9N-C will decide the caller
  * order only after the schema + writer contracts are independently locked.
  */
-export async function persistAutomaticCaseConversationReview(
+export async function persistAutomaticCaseConversationReviewWithClient(
+  client: any,
   input: PersistCaseConversationReviewInput
 ): Promise<CaseConversationReviewPersistOutcome> {
   const { sourceId, view, evaluation } = input;
@@ -269,7 +270,7 @@ export async function persistAutomaticCaseConversationReview(
     };
   }
 
-  const { data: currentCase, error: currentError } = await supabase
+  const { data: currentCase, error: currentError } = await client
     .from('sales_intelligence_current_case_analyses')
     .select('case_id')
     .eq('case_id', view.caseId)
@@ -293,7 +294,7 @@ export async function persistAutomaticCaseConversationReview(
     };
   }
 
-  const { data: owner, error: ownerError } = await supabase
+  const { data: owner, error: ownerError } = await client
     .from('sales_intelligence_cases')
     .select('case_id, conversation_id')
     .eq('case_id', view.caseId)
@@ -335,7 +336,7 @@ export async function persistAutomaticCaseConversationReview(
     };
   }
 
-  const { data: existing, error: existingError } = await supabase
+  const { data: existing, error: existingError } = await client
     .from('conversation_sales_reviews')
     .select('id')
     .eq('whatsapp_review_source_id', sourceId)
@@ -360,7 +361,7 @@ export async function persistAutomaticCaseConversationReview(
     };
   }
 
-  const { data: staffRow, error: staffError } = await supabase
+  const { data: staffRow, error: staffError } = await client
     .from('staff')
     .select('id, name, branch, branch_id, role')
     .eq('id', staffIds[0])
@@ -389,7 +390,7 @@ export async function persistAutomaticCaseConversationReview(
     },
   });
 
-  const { data: inserted, error: insertError } = await supabase
+  const { data: inserted, error: insertError } = await client
     .from('conversation_sales_reviews')
     .insert(payload)
     .select('id')
@@ -397,7 +398,7 @@ export async function persistAutomaticCaseConversationReview(
 
   if (insertError) {
     if (insertError.code === '23505') {
-      const { data: raced } = await supabase
+      const { data: raced } = await client
         .from('conversation_sales_reviews')
         .select('id')
         .eq('whatsapp_review_source_id', sourceId)
@@ -425,4 +426,15 @@ export async function persistAutomaticCaseConversationReview(
     finalScore: evaluation.summary.autoScore,
     error: null,
   };
+}
+
+/**
+ * Browser/default client wrapper.
+ * The canonical refresh calls persistAutomaticCaseConversationReviewWithClient(service, ...)
+ * so the evaluation write happens inside the same authenticated server-side refresh boundary.
+ */
+export async function persistAutomaticCaseConversationReview(
+  input: PersistCaseConversationReviewInput
+): Promise<CaseConversationReviewPersistOutcome> {
+  return persistAutomaticCaseConversationReviewWithClient(supabase, input);
 }

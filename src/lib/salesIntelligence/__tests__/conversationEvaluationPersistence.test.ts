@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { CaseIntelligenceView } from '../types';
 import type { ConversationEvaluationResult } from '../conversationEvaluation';
-import { buildCaseConversationReviewPayload } from '../conversationEvaluationPersistence';
+import {
+  buildCaseConversationReviewPayload,
+  persistAutomaticCaseConversationReviewWithClient,
+} from '../conversationEvaluationPersistence';
 
 function view(): CaseIntelligenceView {
   return {
@@ -92,6 +95,28 @@ function evaluation(): ConversationEvaluationResult {
 }
 
 describe('case-level conversation evaluation persistence 9N-B', () => {
+  it('uses the injected service client and fails closed before any write for a non-current case', async () => {
+    const calls:string[]=[];
+    const client={
+      from(table:string){
+        calls.push(table);
+        const chain:any={
+          select(){return chain;},
+          eq(){return chain;},
+          maybeSingle(){return Promise.resolve({data:null,error:null});},
+        };
+        return chain;
+      }
+    };
+    const outcome=await persistAutomaticCaseConversationReviewWithClient(client,{
+      sourceId:'source-1',
+      view:view(),
+      evaluation:evaluation(),
+    });
+    expect(outcome).toMatchObject({status:'skipped_non_current_case',reviewId:null});
+    expect(calls).toEqual(['sales_intelligence_current_case_analyses']);
+  });
+
   it('creates a case-specific fingerprint and stores the full automatic snapshot', () => {
     const payload=buildCaseConversationReviewPayload({
       sourceId:'source-1',
