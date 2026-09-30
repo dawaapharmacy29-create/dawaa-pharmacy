@@ -56,6 +56,12 @@ if (page.includes("gate.blocksFully ? 'إيقاف الحافز'")) {
 if (!page.includes('معامل حافز النقاط الأساسي')) {
   failures.push('Critical Gate UI must name the points-incentive multiplier explicitly.');
 }
+if (!page.includes('final_approval_snapshot')) {
+  failures.push('Published monthly evaluation/PDF must read from the persisted final approval snapshot.');
+}
+if (!page.includes('finalSnapshotHash: refreshedHash')) {
+  failures.push('Employee notification must be traceable to the server final snapshot hash.');
+}
 
 for (const step of ['بيانات الدورة', 'تقييم المحاور', 'النقاط والمخالفات', 'الخلاصة والتطوير', 'المراجعة والاعتماد']) {
   if (!workflow.includes(step)) failures.push(`Workflow is missing step: ${step}`);
@@ -77,6 +83,10 @@ for (const token of [
   'invalid_monthly_evaluation_critical_gate',
   'legacy_monthly_evaluation_critical_gate_points_retired',
   'monthly_evaluation_section_score_must_be_integer_star',
+  'dawaa_monthly_evaluation_server_evidence_v5',
+  'monthly_evaluation_server_evidence_unavailable',
+  'monthly_evaluation_final_snapshot_v5',
+  'monthly_evaluation_final_snapshot_missing_from_audit',
 ]) {
   if (!backend.includes(token)) failures.push(`V5 backend contract is missing: ${token}`);
 }

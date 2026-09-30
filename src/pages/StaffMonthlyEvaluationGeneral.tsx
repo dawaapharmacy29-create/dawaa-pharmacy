@@ -612,6 +612,8 @@ export default function StaffMonthlyEvaluation() {
   const [previouslySent, setPreviouslySent] = useState(false);
   const [sentAtIso, setSentAtIso] = useState('');
   const [evaluationId, setEvaluationId] = useState<string | null>(null);
+  const [publishedSnapshot, setPublishedSnapshot] = useState<Record<string, unknown> | null>(null);
+  const [publishedSnapshotHash, setPublishedSnapshotHash] = useState('');
   const [employeeResponse, setEmployeeResponse] = useState<{
     acknowledged: boolean;
     acknowledged_at: string | null;
@@ -764,12 +766,23 @@ export default function StaffMonthlyEvaluation() {
         const freshSections = evaluationProfileForRole(selected.job_title || selected.role).sections;
         if (saved) {
           setEvaluationId(String(saved.id || ''));
-          setSections(normalizeSavedSections(saved.sections, freshSections));
-          setStrengthsText(Array.isArray(saved.strengths) ? saved.strengths.map(String).join('\n') : '');
-          setDevelopmentText(Array.isArray(saved.development_points) ? saved.development_points.map(String).join('\n') : '');
-          setManagerNotes(String(saved.manager_notes || ''));
           const savedStatus = String(saved.status || 'draft');
           const savedSentAt = String(saved.sent_at || '');
+          const metricsSnapshot = saved.metrics_snapshot as Record<string, unknown> | null;
+          const finalSnapshotRaw = metricsSnapshot?.final_approval_snapshot;
+          const finalSnapshot =
+            finalSnapshotRaw && typeof finalSnapshotRaw === 'object' && !Array.isArray(finalSnapshotRaw)
+              ? finalSnapshotRaw as Record<string, unknown>
+              : null;
+          const published = ['sent', 'approved'].includes(savedStatus) && finalSnapshot;
+          const content = published || saved;
+
+          setPublishedSnapshot(finalSnapshot);
+          setPublishedSnapshotHash(String(metricsSnapshot?.final_approval_hash || ''));
+          setSections(normalizeSavedSections(content.sections, freshSections));
+          setStrengthsText(Array.isArray(content.strengths) ? content.strengths.map(String).join('\n') : '');
+          setDevelopmentText(Array.isArray(content.development_points) ? content.development_points.map(String).join('\n') : '');
+          setManagerNotes(String(content.manager_notes || ''));
           setStatus(savedStatus);
           setSentAtIso(savedSentAt);
           setPreviouslySent(
@@ -777,12 +790,13 @@ export default function StaffMonthlyEvaluation() {
               && Boolean(savedSentAt)
               && new Date(savedSentAt).getTime() > cycleRange.end.getTime()
           );
-          const snapshot = saved.metrics_snapshot as Record<string, unknown> | null;
-          const savedGates = snapshot && Array.isArray(snapshot.active_critical_gates) ? (snapshot.active_critical_gates as string[]) : [];
+          const savedGates = metricsSnapshot && Array.isArray(metricsSnapshot.active_critical_gates) ? (metricsSnapshot.active_critical_gates as string[]) : [];
           const validSavedGates = savedGates.filter((gate): gate is CriticalGateType => gate in CRITICAL_GATE_CAPS);
           setActiveGates(validSavedGates);
         } else {
           setEvaluationId(null);
+          setPublishedSnapshot(null);
+          setPublishedSnapshotHash('');
           setSections(freshSections);
           setStrengthsText('');
           setDevelopmentText('');
@@ -919,18 +933,39 @@ export default function StaffMonthlyEvaluation() {
     if (!selected) return;
     setExportingPdf(true);
     try {
+      const persistedSections = publishedSnapshot
+        ? normalizeSavedSections(publishedSnapshot.sections, profile.sections)
+        : sections;
+      const persistedStrengths = publishedSnapshot && Array.isArray(publishedSnapshot.strengths)
+        ? publishedSnapshot.strengths.map(String)
+        : strengthsText.split('\n').map((item) => item.trim()).filter(Boolean);
+      const persistedDevelopment = publishedSnapshot && Array.isArray(publishedSnapshot.development_points)
+        ? publishedSnapshot.development_points.map(String)
+        : developmentText.split('\n').map((item) => item.trim()).filter(Boolean);
+      const persistedScore = publishedSnapshot
+        ? safeNumber(publishedSnapshot.overall_score)
+        : overallScore;
+      const persistedGrade = publishedSnapshot
+        ? String(publishedSnapshot.grade || grade)
+        : grade;
+      const persistedManagerNotes = publishedSnapshot
+        ? String(publishedSnapshot.manager_notes || '')
+        : managerNotes;
+
       const { pdf, fileName } = await buildStaffMonthlyEvaluationPdf({
         staffName: selected.name,
         staffRole: selected.job_title || selected.role || profile.label,
         branch: selected.branch || branch,
         cycleDisplayLabel: cycleRange.displayLabel,
-        evaluatorName: user?.name || 'المدير',
-        overallScore,
-        grade,
-        sections,
-        strengths: strengthsText.split('\n').map((item) => item.trim()).filter(Boolean),
-        developmentPoints: developmentText.split('\n').map((item) => item.trim()).filter(Boolean),
-        managerNotes,
+        evaluatorName: publishedSnapshot
+          ? String(publishedSnapshot.evaluator_name || user?.name || 'المدير')
+          : user?.name || 'المدير',
+        overallScore: persistedScore,
+        grade: persistedGrade,
+        sections: persistedSections,
+        strengths: persistedStrengths,
+        developmentPoints: persistedDevelopment,
+        managerNotes: persistedManagerNotes,
         pointsFinal: pointsTruth?.final_points ?? null,
         pointsTarget: pointsTruth?.target_points ?? null,
         incentiveEgp: canonicalIncentive ?? null,
@@ -1045,8 +1080,30 @@ export default function StaffMonthlyEvaluation() {
       if (nextStatus === 'sent') {
         setPreviouslySent(true);
         setSentAtIso(serverSentAt || new Date().toISOString());
-        const refreshedPoints = await getStaffPointsDashboardV3(selected.id, cycleLabel).catch(() => null);
+        const [refreshedPoints, refreshedEvaluationResult] = await Promise.all([
+          getStaffPointsDashboardV3(selected.id, cycleLabel).catch(() => null),
+          supabase.rpc('get_staff_monthly_evaluation_v5', {
+            p_actor_id: user.id,
+            p_staff_id: selected.id,
+            p_month: `${cycleLabel}-01`,
+          }),
+        ]);
         if (refreshedPoints) setPointsTruth(refreshedPoints);
+
+        const refreshedEvaluation = refreshedEvaluationResult.data as EvaluationRow | null;
+        const refreshedMetrics = refreshedEvaluation?.metrics_snapshot as Record<string, unknown> | null;
+        const refreshedSnapshotRaw = refreshedMetrics?.final_approval_snapshot;
+        const refreshedSnapshot =
+          refreshedSnapshotRaw && typeof refreshedSnapshotRaw === 'object' && !Array.isArray(refreshedSnapshotRaw)
+            ? refreshedSnapshotRaw as Record<string, unknown>
+            : null;
+        const refreshedHash = String(refreshedMetrics?.final_approval_hash || '');
+        if (!refreshedSnapshot || !refreshedHash) {
+          throw new Error('تم حفظ التقييم لكن تعذر إثبات النسخة النهائية المعتمدة من الخادم.');
+        }
+        setPublishedSnapshot(refreshedSnapshot);
+        setPublishedSnapshotHash(refreshedHash);
+
         try {
           await createStaffNotification({
             recipientStaffId: selected.id,
@@ -1062,6 +1119,7 @@ export default function StaffMonthlyEvaluation() {
               overallScore: Number(saveResult.overall_score ?? overallScore),
               grade: String(saveResult.grade || grade),
               evaluatorName: user.name || 'المدير',
+              finalSnapshotHash: refreshedHash,
               hasStrengths: strengths.length > 0,
               hasDevelopmentPlan: developmentPoints.length > 0,
             },
@@ -2971,7 +3029,12 @@ export default function StaffMonthlyEvaluation() {
                         سجل المراجعة والاعتمادات
                       </summary>
                       <div className="mt-3">
-                        <MonthlyEvaluationAuditTrailV5
+{publishedSnapshotHash ? (
+                          <div className="mb-2 text-[10px] font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                            بصمة النسخة المعتمدة: {publishedSnapshotHash.slice(0, 12)}
+                          </div>
+                        ) : null}
+                                                <MonthlyEvaluationAuditTrailV5
                           actorId={user.id}
                           staffId={selected.id}
                           cycleLabel={cycleLabel}

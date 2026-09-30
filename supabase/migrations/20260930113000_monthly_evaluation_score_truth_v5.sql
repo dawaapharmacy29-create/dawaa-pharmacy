@@ -278,4 +278,259 @@ comment on function public.trg_monthly_evaluation_profile_contract_v5()
 comment on function public.trg_block_legacy_monthly_gate_points_v5()
   is 'Blocks retired fixed-points representation of monthly critical gates; V5 uses multiplier-only gates.';
 
+
+create or replace function public.dawaa_monthly_evaluation_server_evidence_v5(
+  p_staff_id uuid,
+  p_evaluation_month date
+)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path to 'public','pg_catalog'
+as $function$
+declare
+  v_cycle_start date := (date_trunc('month',p_evaluation_month)::date - interval '1 month' + interval '25 days')::date;
+  v_cycle_end_exclusive date := (date_trunc('month',p_evaluation_month)::date + interval '25 days')::date;
+  v_reviews_available boolean := true;
+  v_followups_available boolean := true;
+  v_attendance_available boolean := true;
+  v_review_count integer := 0;
+  v_followup_count integer := 0;
+  v_legacy_attendance_count integer := 0;
+  v_modern_attendance_days integer := 0;
+  v_errors jsonb := '{}'::jsonb;
+begin
+  begin
+    select count(distinct r.id)::int
+    into v_review_count
+    from public.conversation_sales_reviews r
+    where (r.staff_id=p_staff_id or r.doctor_id=p_staff_id)
+      and (
+        (
+          r.conversation_date is not null
+          and r.conversation_date::date >= v_cycle_start
+          and r.conversation_date::date < v_cycle_end_exclusive
+        )
+        or
+        (
+          r.conversation_date is null
+          and (r.created_at at time zone 'Africa/Cairo')::date >= v_cycle_start
+          and (r.created_at at time zone 'Africa/Cairo')::date < v_cycle_end_exclusive
+        )
+      );
+  exception when others then
+    v_reviews_available := false;
+    v_errors := v_errors || jsonb_build_object('reviews',sqlerrm);
+  end;
+
+  begin
+    select count(*)::int
+    into v_followup_count
+    from public.daily_followups f
+    where (f.assigned_staff_id=p_staff_id or f.requested_by_staff_id=p_staff_id)
+      and (f.created_at at time zone 'Africa/Cairo')::date >= v_cycle_start
+      and (f.created_at at time zone 'Africa/Cairo')::date < v_cycle_end_exclusive;
+  exception when others then
+    v_followups_available := false;
+    v_errors := v_errors || jsonb_build_object('followups',sqlerrm);
+  end;
+
+  begin
+    select count(*)::int
+    into v_legacy_attendance_count
+    from public.attendance a
+    where a.staff_id=p_staff_id
+      and coalesce(
+        nullif(a.attendance_date::text,'')::date,
+        nullif(a.date::text,'')::date
+      ) >= v_cycle_start
+      and coalesce(
+        nullif(a.attendance_date::text,'')::date,
+        nullif(a.date::text,'')::date
+      ) < v_cycle_end_exclusive;
+
+    select count(distinct l.shift_date::date)::int
+    into v_modern_attendance_days
+    from public.staff_attendance_logs l
+    where l.staff_id=p_staff_id
+      and l.status='accepted'
+      and l.shift_date::date >= v_cycle_start
+      and l.shift_date::date < v_cycle_end_exclusive;
+  exception when others then
+    v_attendance_available := false;
+    v_errors := v_errors || jsonb_build_object('attendance',sqlerrm);
+  end;
+
+  return jsonb_build_object(
+    'schema','monthly_evaluation_server_evidence_v5',
+    'cycle_start',v_cycle_start,
+    'cycle_end_exclusive',v_cycle_end_exclusive,
+    'ready',v_reviews_available and v_followups_available and v_attendance_available,
+    'health',jsonb_build_object(
+      'reviews',case when v_reviews_available then 'available' else 'unavailable' end,
+      'followups',case when v_followups_available then 'available' else 'unavailable' end,
+      'attendance',case when v_attendance_available then 'available' else 'unavailable' end
+    ),
+    'counts',jsonb_build_object(
+      'conversation_reviews',v_review_count,
+      'followups',v_followup_count,
+      'legacy_attendance_rows',v_legacy_attendance_count,
+      'modern_attendance_days',v_modern_attendance_days
+    ),
+    'errors',v_errors,
+    'validated_at',now()
+  );
+end;
+$function$;
+
+create or replace function public.trg_monthly_evaluation_final_snapshot_v5()
+returns trigger
+language plpgsql
+security definer
+set search_path to 'public','pg_catalog'
+as $function$
+declare
+  v_engine integer := 0;
+  v_evidence jsonb;
+  v_snapshot jsonb;
+  v_snapshot_hash text;
+begin
+  if coalesce(new.metrics_snapshot->>'evaluation_engine_version','') ~ '^[0-9]+
+ then
+    v_engine := (new.metrics_snapshot->>'evaluation_engine_version')::integer;
+  end if;
+
+  if v_engine < 5 or new.status not in ('sent','approved') then
+    return new;
+  end if;
+
+  v_evidence := public.dawaa_monthly_evaluation_server_evidence_v5(new.staff_id,new.evaluation_month);
+
+  if not coalesce((v_evidence->>'ready')::boolean,false) then
+    raise exception 'monthly_evaluation_server_evidence_unavailable'
+      using errcode='55000',
+            detail=coalesce(v_evidence->'errors','{}'::jsonb)::text;
+  end if;
+
+  new.metrics_snapshot := coalesce(new.metrics_snapshot,'{}'::jsonb)
+    || jsonb_build_object(
+      'evidence_ready',true,
+      'evidence_health',v_evidence->'health',
+      'server_evidence_snapshot',v_evidence
+    );
+
+  v_snapshot := jsonb_build_object(
+    'schema','monthly_evaluation_final_snapshot_v5',
+    'evaluation_id',new.id,
+    'staff_id',new.staff_id,
+    'staff_name',new.staff_name,
+    'staff_role',new.staff_role,
+    'branch',new.branch,
+    'evaluation_month',new.evaluation_month,
+    'cycle_label',to_char(new.evaluation_month,'YYYY-MM'),
+    'evaluator_id',new.evaluator_id,
+    'evaluator_name',new.evaluator_name,
+    'evaluator_role',new.evaluator_role,
+    'sections',new.sections,
+    'strengths',to_jsonb(new.strengths),
+    'development_points',to_jsonb(new.development_points),
+    'manager_notes',new.manager_notes,
+    'overall_score',new.overall_score,
+    'grade',new.grade,
+    'active_critical_gates',coalesce(new.metrics_snapshot->'active_critical_gates','[]'::jsonb),
+    'server_evidence',v_evidence,
+    'coaching_snapshot',new.metrics_snapshot->'coaching_snapshot',
+    'employee_feedback_draft',new.metrics_snapshot->'employee_feedback_draft',
+    'approved_at',coalesce(new.sent_at,now())
+  );
+
+  v_snapshot_hash := md5(v_snapshot::text);
+
+  new.metrics_snapshot := new.metrics_snapshot
+    || jsonb_build_object(
+      'final_approval_snapshot',v_snapshot,
+      'final_approval_hash',v_snapshot_hash,
+      'final_approval_snapshot_schema','monthly_evaluation_final_snapshot_v5'
+    );
+
+  return new;
+end;
+$function$;
+
+drop trigger if exists zz_monthly_evaluation_final_snapshot_v5
+  on public.staff_monthly_manager_evaluations;
+
+create trigger zz_monthly_evaluation_final_snapshot_v5
+before insert or update of sections,metrics_snapshot,strengths,development_points,manager_notes,status,sent_at
+on public.staff_monthly_manager_evaluations
+for each row
+execute function public.trg_monthly_evaluation_final_snapshot_v5();
+
+create or replace function public.trg_monthly_evaluation_audit_snapshot_v5()
+returns trigger
+language plpgsql
+security definer
+set search_path to 'public','pg_catalog'
+as $function$
+declare
+  v_snapshot jsonb;
+  v_hash text;
+begin
+  if new.action not in ('approved','reapproved') then
+    return new;
+  end if;
+
+  select
+    e.metrics_snapshot->'final_approval_snapshot',
+    nullif(e.metrics_snapshot->>'final_approval_hash','')
+  into v_snapshot,v_hash
+  from public.staff_monthly_manager_evaluations e
+  where e.id=new.evaluation_id;
+
+  if v_snapshot is null or v_hash is null then
+    raise exception 'monthly_evaluation_final_snapshot_missing_from_audit'
+      using errcode='55000';
+  end if;
+
+  new.evidence_ready := true;
+  new.snapshot := coalesce(new.snapshot,'{}'::jsonb)
+    || jsonb_build_object(
+      'final_approval_snapshot',v_snapshot,
+      'final_approval_hash',v_hash
+    );
+
+  return new;
+end;
+$function$;
+
+drop trigger if exists monthly_evaluation_audit_snapshot_v5
+  on public.staff_monthly_evaluation_audit;
+
+create trigger monthly_evaluation_audit_snapshot_v5
+before insert
+on public.staff_monthly_evaluation_audit
+for each row
+execute function public.trg_monthly_evaluation_audit_snapshot_v5();
+
+revoke all on function public.dawaa_monthly_evaluation_server_evidence_v5(uuid,date)
+  from public,anon,authenticated;
+revoke all on function public.trg_monthly_evaluation_final_snapshot_v5()
+  from public,anon,authenticated;
+revoke all on function public.trg_monthly_evaluation_audit_snapshot_v5()
+  from public,anon,authenticated;
+grant execute on function public.dawaa_monthly_evaluation_server_evidence_v5(uuid,date)
+  to service_role;
+grant execute on function public.trg_monthly_evaluation_final_snapshot_v5()
+  to service_role;
+grant execute on function public.trg_monthly_evaluation_audit_snapshot_v5()
+  to service_role;
+
+comment on function public.dawaa_monthly_evaluation_server_evidence_v5(uuid,date)
+  is 'Server-owned availability/readiness proof for the three mandatory monthly-evaluation evidence domains.';
+comment on function public.trg_monthly_evaluation_final_snapshot_v5()
+  is 'Builds the immutable-by-audit final approval snapshot/hash after canonical score validation and before the V5 row is stored.';
+comment on function public.trg_monthly_evaluation_audit_snapshot_v5()
+  is 'Copies the exact approved V5 snapshot/hash into each approval/reapproval audit event.';
+
 notify pgrst,'reload schema';

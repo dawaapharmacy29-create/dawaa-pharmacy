@@ -80,6 +80,7 @@ export default function MonthlyEvaluationAuditTrailV5({
             const approved = ['approved', 'reapproved'].includes(row.action);
             const employeeAction = ['employee_acknowledged', 'employee_comment'].includes(row.action);
             const employeeComment = row.action === 'employee_comment' ? String(row.snapshot?.comment || '').trim() : '';
+            const finalSnapshotHash = String(row.snapshot?.final_approval_hash || '').trim();
             return (
               <div key={row.id} className="rounded-2xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}>
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -96,6 +97,7 @@ export default function MonthlyEvaluationAuditTrailV5({
                   <span>الدرجة: {row.score_after == null ? '—' : row.score_after}</span>
                   {row.multiplier_pct != null ? <span>نسبة الأثر: {row.multiplier_pct}%</span> : null}
                   {!employeeAction ? <span>الأدلة: {row.evidence_ready ? 'مكتملة' : 'غير مكتملة'}</span> : null}
+                  {finalSnapshotHash ? <span>بصمة النسخة: {finalSnapshotHash.slice(0, 12)}</span> : null}
                 </div>
                 {employeeComment ? (
                   <div className="mt-2 rounded-xl border px-3 py-2 text-xs font-bold leading-6" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-soft)', color: 'var(--dawaa-theme-text)' }}>

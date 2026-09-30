@@ -42,6 +42,23 @@ describe('monthly evaluation V5 score/incentive truth migration', () => {
     expect(source).toContain('duplicate_monthly_evaluation_critical_gate');
   });
 
+  it('validates mandatory evidence on the server instead of trusting the client flag', () => {
+    const source = sql();
+    expect(source).toContain('dawaa_monthly_evaluation_server_evidence_v5');
+    expect(source).toContain('monthly_evaluation_server_evidence_unavailable');
+    expect(source).toContain("'evidence_ready',true");
+    expect(source).toContain("'server_evidence_snapshot',v_evidence");
+  });
+
+  it('stores one exact final snapshot/hash and copies it into approval audit rows', () => {
+    const source = sql();
+    expect(source).toContain('monthly_evaluation_final_snapshot_v5');
+    expect(source).toContain("'final_approval_snapshot',v_snapshot");
+    expect(source).toContain("'final_approval_hash',v_snapshot_hash");
+    expect(source).toContain('monthly_evaluation_final_snapshot_missing_from_audit');
+    expect(source).toContain("'final_approval_snapshot',v_snapshot");
+  });
+
   it('retires legacy fixed-point critical-gate penalties without rewriting finalized payroll', () => {
     const source = sql();
     expect(source).toContain("t.source='monthly_evaluation_critical_gate'");
