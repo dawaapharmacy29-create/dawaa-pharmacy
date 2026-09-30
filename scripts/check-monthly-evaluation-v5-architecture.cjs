@@ -71,6 +71,9 @@ if (!page.includes('final_approval_snapshot')) {
 if (!page.includes('finalSnapshotHash: refreshedHash')) {
   failures.push('Employee notification must be traceable to the server final snapshot hash.');
 }
+if (!page.includes('resolveMonthlyEvaluationFinancialTruth')) {
+  failures.push('Monthly evaluation/PDF must use the canonical frozen-statement financial truth boundary.');
+}
 
 for (const step of ['بيانات الدورة', 'تقييم المحاور', 'النقاط والمخالفات', 'الخلاصة والتطوير', 'المراجعة والاعتماد']) {
   if (!workflow.includes(step)) failures.push(`Workflow is missing step: ${step}`);

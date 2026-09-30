@@ -50,6 +50,7 @@ import { Panel, MiniBox, EmptyState } from '@/components/dashboard/DashboardPrim
 import MonthlyEvaluationWorkflowV5, { type MonthlyEvaluationStep } from '@/components/evaluations/MonthlyEvaluationWorkflowV5';
 import MonthlyEvaluationAuditTrailV5 from '@/components/evaluations/MonthlyEvaluationAuditTrailV5';
 import { monthlyEvaluationDraftFingerprint } from '@/lib/evaluations/monthlyEvaluationDraftState';
+import { resolveMonthlyEvaluationFinancialTruth } from '@/lib/evaluations/monthlyEvaluationFinancialTruth';
 
 type StaffRow = {
   id: string;
@@ -1042,9 +1043,9 @@ export default function StaffMonthlyEvaluation() {
         strengths: persistedStrengths,
         developmentPoints: persistedDevelopment,
         managerNotes: persistedManagerNotes,
-        pointsFinal: pointsTruth?.final_points ?? null,
-        pointsTarget: pointsTruth?.target_points ?? null,
-        incentiveEgp: canonicalIncentive ?? null,
+        pointsFinal: canonicalPointsFinal,
+        pointsTarget: financialTruth.pointsTarget,
+        incentiveEgp: canonicalIncentive,
       });
       pdf.save(fileName);
     } catch (cause) {
@@ -1569,11 +1570,12 @@ export default function StaffMonthlyEvaluation() {
 
   // الرقم المالي المعروض يأتي فقط من الحقيقة المالية على الخادم أو من كشف مقفول.
   // لا نحسب مبلغًا نهائيًا داخل صفحة التقييم.
-  const canonicalIncentive = settledStatement
-    ? Number(settledStatement.incentive_amount)
-    : pointsTruth?.final_incentive_egp == null
-      ? null
-      : Number(pointsTruth.final_incentive_egp);
+  const financialTruth = resolveMonthlyEvaluationFinancialTruth({
+    settledStatement,
+    pointsTruth,
+  });
+  const canonicalPointsFinal = financialTruth.pointsFinal;
+  const canonicalIncentive = financialTruth.incentiveEgp;
 
   function requestEvaluationContextChange(action: () => void) {
     requestGuardedAction(() => {
@@ -1989,7 +1991,7 @@ export default function StaffMonthlyEvaluation() {
                       <div className="mt-3 grid gap-2 sm:grid-cols-3">
                         <MiniBox
                           label="النقاط الفعلية"
-                          value={settledStatement ? `${settledStatement.points_closing} نقطة` : pointsTruth ? `${pointsTruth.final_points} نقطة` : '—'}
+                          value={canonicalPointsFinal == null ? '—' : `${canonicalPointsFinal} نقطة`}
                           tone="cyan"
                         />
                         <MiniBox
@@ -2153,7 +2155,7 @@ export default function StaffMonthlyEvaluation() {
                     <div className="mt-3 grid gap-2 sm:grid-cols-3">
                       <MiniBox
                         label="النقاط الفعلية"
-                        value={settledStatement ? `${settledStatement.points_closing} نقطة` : pointsTruth ? `${pointsTruth.final_points} نقطة` : '—'}
+                        value={canonicalPointsFinal == null ? '—' : `${canonicalPointsFinal} نقطة`}
                         tone="cyan"
                       />
                       <MiniBox

@@ -220,6 +220,7 @@ const testFiles = [
   'src/lib/staff/__tests__/monthlyAttendanceFinalization.test.ts',
   'src/lib/staff/__tests__/monthlyFollowupAttribution.test.ts',
   'src/lib/evaluations/__tests__/monthlyEvaluationDraftState.test.ts',
+  'src/lib/evaluations/__tests__/monthlyEvaluationFinancialTruth.test.ts',
   'src/lib/__tests__/customerFollowupCore.test.ts',
   'src/lib/__tests__/customerFollowupGuards.test.ts',
   'src/lib/__tests__/customerFollowupStatus.integration.test.ts',
