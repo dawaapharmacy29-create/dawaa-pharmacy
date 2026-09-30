@@ -62,6 +62,7 @@ export type MonthlyConversationCoaching = {
     badTone: number;
     severeBadTone: number;
     missedSales: number;
+    invoiceErrors: number;
     excellentCases: number;
     criticalErrors: number;
   };
@@ -140,6 +141,32 @@ export type MonthlyInventoryCoaching = {
   notes: string[];
 };
 
+export type MonthlySalesQualityCoaching = {
+  sourceStatus: 'available' | 'partial' | 'manual';
+  conversation: {
+    sampleSufficient: boolean;
+    samples: number;
+    salesQuality: number | null;
+    upsellCrossSell: number | null;
+    alternativeHandling: number | null;
+    missedSales: number;
+    invoiceErrors: number;
+  };
+  invoicePerformance: {
+    available: boolean;
+    invoiceCount: number;
+    weightedPctVsBaseline: number | null;
+    points: number | null;
+    baselineWindowDays: number | null;
+  };
+  drafts: {
+    strength: string;
+    development: string;
+    actionPlan: string;
+  };
+  notes: string[];
+};
+
 export type MonthlyDevelopmentCoaching = {
   sourceStatus: 'available' | 'partial' | 'manual';
   training: {
@@ -179,6 +206,7 @@ export type EmployeeMonthlyEvidence = {
     followups: MonthlyFollowupCoaching;
     inventory: MonthlyInventoryCoaching;
     development: MonthlyDevelopmentCoaching;
+    salesQuality: MonthlySalesQualityCoaching;
   };
   health: {
     reviews: 'available' | 'unavailable';
@@ -241,6 +269,7 @@ const REVIEW_SELECT = [
   'reviewer_notes',
   'has_complaint',
   'has_medical_error',
+  'has_invoice_error',
   'bad_alternative_flag',
   'bad_tone_flag',
   'severe_bad_tone_flag',
@@ -371,6 +400,7 @@ function buildConversationCoaching(rows: Record<string, unknown>[]): MonthlyConv
       badTone: rows.filter((row) => bool(row.bad_tone_flag)).length,
       severeBadTone: rows.filter((row) => bool(row.severe_bad_tone_flag)).length,
       missedSales: rows.filter((row) => bool(row.missed_sales_opportunity) || bool(row.missed_sale_opportunity)).length,
+      invoiceErrors: rows.filter((row) => bool(row.has_invoice_error)).length,
       excellentCases: rows.filter((row) => bool(row.excellent_case)).length,
       criticalErrors: rows.filter((row) => bool(row.has_critical_error)).length,
     },
@@ -509,6 +539,142 @@ function buildFollowupCoaching(rows: Record<string, unknown>[]): MonthlyFollowup
       development: developmentBits.length ? `ملاحظات المتابعات: ${developmentBits.join('، ')}.` : '',
       actionPlan: actionBits.length ? `خطة المتابعات: ${actionBits.join(' • ')}` : '',
     },
+  };
+}
+
+type InvoicePerformanceTransactionRow = {
+  points?: number | null;
+  points_delta?: number | null;
+  metadata?: Record<string, unknown> | null;
+};
+
+function cycleLabelFromEndExclusive(endDateExclusive: string) {
+  const end = new Date(`${endDateExclusive.slice(0, 10)}T12:00:00Z`);
+  end.setUTCDate(end.getUTCDate() - 1);
+  return end.toISOString().slice(0, 7);
+}
+
+async function loadInvoicePerformanceEvidence(args: {
+  staffId: string;
+  endDateExclusive: string;
+}) {
+  const monthCycle = cycleLabelFromEndExclusive(args.endDateExclusive);
+  const { data, error } = await supabase
+    .from('employee_transactions')
+    .select('points,points_delta,metadata')
+    .eq('staff_id', args.staffId)
+    .eq('source', 'invoice_quality_vs_branch_baseline')
+    .eq('month_cycle', monthCycle)
+    .eq('status', 'active')
+    .maybeSingle();
+
+  return {
+    row: error ? null : (data as InvoicePerformanceTransactionRow | null),
+    error: error?.message || '',
+  };
+}
+
+function buildSalesQualityCoaching(
+  conversation: MonthlyConversationCoaching,
+  invoicePerformanceResult: Awaited<ReturnType<typeof loadInvoicePerformanceEvidence>>
+): MonthlySalesQualityCoaching {
+  const dimension = (key: ConversationDimensionKey) =>
+    conversation.dimensions.find((item) => item.key === key);
+
+  const salesQuality = dimension('sales_quality');
+  const upsellCrossSell = dimension('upsell_cross_sell');
+  const alternativeHandling = dimension('alternative_handling');
+
+  const metadata = invoicePerformanceResult.row?.metadata || {};
+  const invoiceCount = safeNumber(metadata.invoice_count);
+  const weightedRaw = nullableNumber(metadata.weighted_pct_vs_baseline);
+  const baselineWindowDays = nullableNumber(metadata.baseline_window_days);
+  const points = nullableNumber(invoicePerformanceResult.row?.points_delta ?? invoicePerformanceResult.row?.points);
+  const invoicePerformanceAvailable = Boolean(invoicePerformanceResult.row && invoiceCount >= 15);
+
+  const strengths = [
+    salesQuality && salesQuality.average >= 8 ? `جودة البيع ${salesQuality.average}/10` : '',
+    alternativeHandling && alternativeHandling.average >= 8 ? `التعامل مع البدائل ${alternativeHandling.average}/10` : '',
+    upsellCrossSell && upsellCrossSell.average >= 8 ? `البيع التكميلي ${upsellCrossSell.average}/10` : '',
+    invoicePerformanceAvailable && weightedRaw !== null && weightedRaw >= 5
+      ? `مؤشر قيمة/تركيب الفاتورة أعلى من خط الأساس لنفس الفرع والشيفت بـ${weightedRaw}%`
+      : '',
+    conversation.flags.invoiceErrors === 0 && conversation.reviewCount >= 3
+      ? 'لا يوجد خطأ فاتورة موثق في مراجعات المحادثات المتاحة'
+      : '',
+  ].filter(Boolean);
+
+  const development = [
+    conversation.flags.invoiceErrors > 0
+      ? `${conversation.flags.invoiceErrors} خطأ فاتورة موثق يحتاج مراجعة مباشرة`
+      : '',
+    conversation.flags.missedSales > 0
+      ? `${conversation.flags.missedSales} فرصة بيع ضائعة موثقة في المراجعات`
+      : '',
+    salesQuality && salesQuality.average < 7 ? `جودة البيع ${salesQuality.average}/10` : '',
+    upsellCrossSell && upsellCrossSell.average < 6 ? `البيع التكميلي ${upsellCrossSell.average}/10` : '',
+    invoicePerformanceAvailable && weightedRaw !== null && weightedRaw <= -10
+      ? `مؤشر قيمة/تركيب الفاتورة أقل من خط الأساس بـ${Math.abs(weightedRaw)}%`
+      : '',
+  ].filter(Boolean);
+
+  const actions = [
+    conversation.flags.invoiceErrors > 0
+      ? 'مراجعة الفواتير التي ظهر بها خطأ وتحديد السبب والإجراء الذي يمنع تكراره.'
+      : '',
+    conversation.flags.missedSales > 0
+      ? 'مراجعة فرص البيع الضائعة لمعرفة هل السبب فهم الاحتياج أو البديل أو الإغلاق.'
+      : '',
+    salesQuality && salesQuality.average < 8
+      ? 'ربط كل ترشيح باحتياج واضح للعميل قبل الإغلاق.'
+      : '',
+    upsellCrossSell && upsellCrossSell.average < 8
+      ? 'استخدام البيع التكميلي فقط عندما يضيف فائدة واضحة مرتبطة بالطلب.'
+      : '',
+  ].filter(Boolean);
+
+  const notes = [
+    !conversation.sampleSufficient
+      ? `عينة المحادثات أقل من ${conversation.minSamples}؛ لا تكفي لحكم قوي على جودة البيع.`
+      : '',
+    invoicePerformanceResult.error
+      ? 'تعذر تحميل مؤشر أداء الفاتورة؛ لا تستخدم غيابه كصفر.'
+      : '',
+    !invoicePerformanceAvailable
+      ? 'مؤشر أداء الفاتورة يحتاج 15 فاتورة على الأقل حتى يكون قابلًا للمقارنة بخط الأساس.'
+      : '',
+    'مؤشر أداء الفاتورة يقارن متوسط قيمة الفاتورة وعدد الأصناف بخط أساس 90 يوم لنفس الفرع والشيفت؛ لا يقيس دقة الفاتورة.',
+    'دقة الفاتورة تُثبت فقط بخطأ فاتورة موثق أو واقعة تشغيلية واضحة.',
+  ].filter(Boolean);
+
+  return {
+    sourceStatus: invoicePerformanceResult.error
+      ? conversation.reviewCount > 0 ? 'partial' : 'manual'
+      : conversation.reviewCount > 0 || invoicePerformanceAvailable
+        ? 'available'
+        : 'manual',
+    conversation: {
+      sampleSufficient: conversation.sampleSufficient,
+      samples: conversation.reviewCount,
+      salesQuality: salesQuality?.average ?? null,
+      upsellCrossSell: upsellCrossSell?.average ?? null,
+      alternativeHandling: alternativeHandling?.average ?? null,
+      missedSales: conversation.flags.missedSales,
+      invoiceErrors: conversation.flags.invoiceErrors,
+    },
+    invoicePerformance: {
+      available: invoicePerformanceAvailable,
+      invoiceCount,
+      weightedPctVsBaseline: weightedRaw,
+      points,
+      baselineWindowDays,
+    },
+    drafts: {
+      strength: strengths.length ? `جودة البيع والفاتورة: ${strengths.join('، ')}.` : '',
+      development: development.length ? `ملاحظات تحتاج تطوير: ${development.join('، ')}.` : '',
+      actionPlan: actions.length ? `خطة البيع والفاتورة: ${actions.join(' • ')}` : '',
+    },
+    notes,
   };
 }
 
@@ -1057,7 +1223,7 @@ export async function loadEmployeeMonthlyEvidence(args: {
 }): Promise<EmployeeMonthlyEvidence> {
   const errors: Record<string, string> = {};
 
-  const [reviewResult, followupResult, attendanceResult, attendanceImpactResult, inventoryResult, trainingResult] = await Promise.all([
+  const [reviewResult, followupResult, attendanceResult, attendanceImpactResult, inventoryResult, trainingResult, invoicePerformanceResult] = await Promise.all([
     loadConversationReviews(args),
     supabase
       .from('daily_followups')
@@ -1083,6 +1249,7 @@ export async function loadEmployeeMonthlyEvidence(args: {
     })),
     loadInventoryEvidence(args),
     loadTrainingEvidence(args),
+    loadInvoicePerformanceEvidence(args),
   ]);
 
   const reviewRows = reviewResult.rows;
@@ -1128,6 +1295,8 @@ export async function loadEmployeeMonthlyEvidence(args: {
     attendance: attendanceResult.status,
   };
 
+  const conversationCoaching = buildConversationCoaching(reviewRows);
+
   return {
     metrics: {
       review_count: reviewRows.length,
@@ -1141,11 +1310,12 @@ export async function loadEmployeeMonthlyEvidence(args: {
       engine_version: 5,
     },
     coaching: {
-      conversation: buildConversationCoaching(reviewRows),
+      conversation: conversationCoaching,
       attendance: buildAttendanceCoaching(attendanceImpactResult.rows),
       followups: buildFollowupCoaching((followupRows || []) as Record<string, unknown>[]),
       inventory: buildInventoryCoaching(inventoryResult),
       development: buildDevelopmentCoaching(reviewRows, trainingResult, args.endDateExclusive),
+      salesQuality: buildSalesQualityCoaching(conversationCoaching, invoicePerformanceResult),
     },
     health,
     ready:

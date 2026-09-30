@@ -89,7 +89,7 @@ const METRIC_LABELS: Record<keyof Omit<Metrics, 'engine_version'>, string> = {
 
 const POINT_SOURCE_LABELS: Record<string, string> = {
   conversation_evaluation: 'تقييم المحادثات',
-  invoice_quality_vs_branch_baseline: 'جودة الفواتير مقارنة بالفرع',
+  invoice_quality_vs_branch_baseline: 'أداء قيمة وتركيب الفاتورة مقابل خط الأساس',
   target_achievement_settlement: 'تسوية تحقيق التارجت',
 };
 
@@ -350,22 +350,53 @@ function sectionEvidenceFor(
   }
 
   if (key === 'sales_quality') {
+    const sales = coaching?.salesQuality;
     const invoiceSource = pointsTruth?.source_breakdown?.find((source) => source.source === 'invoice_quality_vs_branch_baseline');
-    return invoiceSource
-      ? {
-          status: 'available' as const,
-          summary: `${invoiceSource.events} حدث جودة فاتورة · ${formatSignedPoints(invoiceSource.points)} نقطة`,
-          details: [
-            `عدد أحداث جودة الفاتورة: ${invoiceSource.events}`,
-            `صافي النقاط: ${formatSignedPoints(invoiceSource.points)}`,
-            'المصدر: Points Truth.',
-          ],
-        }
-      : {
-          status: 'manual' as const,
-          summary: 'لا يوجد ملخص آلي مباشر لجودة الفاتورة في Points Truth لهذه الدورة',
-          details: ['استخدم واقعة فاتورة موثقة أو مراجعة تشغيلية واضحة عند التقييم.'],
-        };
+
+    if (!sales) {
+      return {
+        status: 'manual' as const,
+        summary: 'لا توجد بيانات كافية لجودة البيع والفاتورة',
+        details: ['استخدم مراجعة محادثة أو واقعة فاتورة موثقة بدل الانطباع العام.'],
+      };
+    }
+
+    const conversationBits = [
+      sales.conversation.salesQuality !== null ? `جودة البيع ${sales.conversation.salesQuality}/10` : '',
+      sales.conversation.upsellCrossSell !== null ? `البيع التكميلي ${sales.conversation.upsellCrossSell}/10` : '',
+      sales.conversation.alternativeHandling !== null ? `البدائل ${sales.conversation.alternativeHandling}/10` : '',
+    ].filter(Boolean);
+
+    const performance = sales.invoicePerformance;
+    const summaryParts = [
+      conversationBits.length ? conversationBits.join(' · ') : '',
+      performance.available && performance.weightedPctVsBaseline !== null
+        ? `مؤشر الفاتورة ${performance.weightedPctVsBaseline > 0 ? '+' : ''}${performance.weightedPctVsBaseline}% مقابل خط الأساس`
+        : '',
+      sales.conversation.invoiceErrors > 0
+        ? `${sales.conversation.invoiceErrors} خطأ فاتورة موثق`
+        : '',
+    ].filter(Boolean);
+
+    return {
+      status: sales.sourceStatus === 'available' ? 'available' as const : 'manual' as const,
+      summary: summaryParts.join(' · ') || 'لا يوجد دليل آلي كافٍ؛ استخدم واقعة موثقة',
+      details: [
+        sales.conversation.samples > 0 ? `عينة مراجعات البيع: ${sales.conversation.samples}` : '',
+        sales.conversation.salesQuality !== null ? `جودة البيع: ${sales.conversation.salesQuality}/10` : '',
+        sales.conversation.upsellCrossSell !== null ? `البيع التكميلي: ${sales.conversation.upsellCrossSell}/10` : '',
+        sales.conversation.alternativeHandling !== null ? `التعامل مع البدائل: ${sales.conversation.alternativeHandling}/10` : '',
+        sales.conversation.missedSales > 0 ? `فرص بيع ضائعة موثقة: ${sales.conversation.missedSales}` : '',
+        sales.conversation.invoiceErrors > 0 ? `أخطاء فاتورة موثقة: ${sales.conversation.invoiceErrors}` : 'لا يوجد خطأ فاتورة موثق في المراجعات المتاحة.',
+        performance.available ? `عدد الفواتير في مؤشر الأداء: ${performance.invoiceCount}` : '',
+        performance.available && performance.weightedPctVsBaseline !== null
+          ? `الفرق المرجح في متوسط قيمة الفاتورة وعدد الأصناف مقابل خط الأساس: ${performance.weightedPctVsBaseline > 0 ? '+' : ''}${performance.weightedPctVsBaseline}%`
+          : '',
+        performance.points !== null ? `تأثير Points Truth لهذا المؤشر: ${formatSignedPoints(performance.points)} نقطة` : '',
+        invoiceSource ? `Points Truth: ${invoiceSource.events} حدث · ${formatSignedPoints(invoiceSource.points)} نقطة` : '',
+        ...sales.notes,
+      ].filter(Boolean),
+    };
   }
 
   return {
@@ -1613,6 +1644,86 @@ export default function StaffMonthlyEvaluation() {
                           </div>
                         </div>
                       ) : null}
+                    </div>
+                  ) : null}
+
+                  {coaching?.salesQuality && (
+                    coaching.salesQuality.conversation.samples > 0
+                    || coaching.salesQuality.invoicePerformance.available
+                    || coaching.salesQuality.notes.length > 0
+                  ) ? (
+                    <div className="mt-3 rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <div className="text-[11px] font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>Coaching جودة البيع والفاتورة</div>
+                          <div className="mt-1 text-[10px] font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                            يفصل بين مهارة البيع، أداء قيمة/تركيب الفاتورة، وخطأ الفاتورة الموثق.
+                          </div>
+                        </div>
+                        <span
+                          className="rounded-full border px-2 py-1 text-[10px] font-black"
+                          style={coaching.salesQuality.sourceStatus === 'available'
+                            ? { borderColor: 'var(--dawaa-status-success-border)', color: 'var(--dawaa-status-success-text)' }
+                            : { borderColor: 'var(--dawaa-status-warning-border)', color: 'var(--dawaa-status-warning-text)' }}
+                        >
+                          {coaching.salesQuality.sourceStatus === 'available' ? 'دليل متاح' : 'يحتاج حكم المدير'}
+                        </span>
+                      </div>
+
+                      <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                        <MiniBox
+                          label="جودة البيع"
+                          value={coaching.salesQuality.conversation.salesQuality === null ? '—' : `${coaching.salesQuality.conversation.salesQuality}/10`}
+                          tone="cyan"
+                        />
+                        <MiniBox
+                          label="أخطاء فاتورة موثقة"
+                          value={String(coaching.salesQuality.conversation.invoiceErrors)}
+                          tone={coaching.salesQuality.conversation.invoiceErrors > 0 ? 'red' : 'green'}
+                        />
+                        <MiniBox
+                          label="أداء الفاتورة مقابل الخط"
+                          value={coaching.salesQuality.invoicePerformance.weightedPctVsBaseline === null
+                            ? 'غير متاح'
+                            : `${coaching.salesQuality.invoicePerformance.weightedPctVsBaseline > 0 ? '+' : ''}${coaching.salesQuality.invoicePerformance.weightedPctVsBaseline}%`}
+                          tone="cyan"
+                        />
+                      </div>
+
+                      <div className="mt-2 space-y-1.5 text-xs font-bold leading-6" style={{ color: 'var(--dawaa-theme-text)' }}>
+                        {coaching.salesQuality.drafts.strength ? <div style={{ color: 'var(--dawaa-status-success-text)' }}>{coaching.salesQuality.drafts.strength}</div> : null}
+                        {coaching.salesQuality.drafts.development ? <div style={{ color: 'var(--dawaa-status-warning-text)' }}>{coaching.salesQuality.drafts.development}</div> : null}
+                        {coaching.salesQuality.drafts.actionPlan ? <div>{coaching.salesQuality.drafts.actionPlan}</div> : null}
+                        {coaching.salesQuality.notes.map((note) => <div key={note} style={{ color: 'var(--dawaa-theme-muted)' }}>• {note}</div>)}
+                      </div>
+
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {coaching.salesQuality.drafts.strength ? (
+                          <button
+                            type="button"
+                            disabled={!canEdit}
+                            onClick={() => setStrengthsText((current) => appendUniqueLine(current, coaching.salesQuality.drafts.strength))}
+                            className="rounded-lg border px-2 py-1 text-[10px] font-black disabled:cursor-default"
+                            style={{ borderColor: 'var(--dawaa-status-success-border)', color: 'var(--dawaa-status-success-text)' }}
+                          >
+                            إضافة القوة
+                          </button>
+                        ) : null}
+                        {coaching.salesQuality.drafts.development || coaching.salesQuality.drafts.actionPlan ? (
+                          <button
+                            type="button"
+                            disabled={!canEdit}
+                            onClick={() => setDevelopmentText((current) => appendUniqueLine(
+                              appendUniqueLine(current, coaching.salesQuality.drafts.development),
+                              coaching.salesQuality.drafts.actionPlan
+                            ))}
+                            className="rounded-lg border px-2 py-1 text-[10px] font-black disabled:cursor-default"
+                            style={{ borderColor: 'var(--dawaa-status-warning-border)', color: 'var(--dawaa-status-warning-text)' }}
+                          >
+                            إضافة التطوير
+                          </button>
+                        ) : null}
+                      </div>
                     </div>
                   ) : null}
 
