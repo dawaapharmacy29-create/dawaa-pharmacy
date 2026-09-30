@@ -30,6 +30,7 @@ import { deriveSalesIntegrityAssessment } from './salesIntegrityEngine';
 import { deriveHistoricalCommercialClosureAssessment } from './historicalCommercialClosureEngine';
 import { deriveSaleProofState } from './saleProofState';
 import { deriveCanonicalSalesOutcome } from './canonicalSalesOutcomeEngine';
+import { deriveCustomerNeedModel } from './customerNeedModel';
 import {
   resolveProductMention,
   type PharmacyProductIndex,
@@ -246,6 +247,13 @@ function analyzeOneCase(
   const hasMeaningfulBasketItems = baskets.some((basket) => (itemsByBasketId[basket.basketId] ?? []).length > 0);
 
   const activeItems = activeBasket ? (itemsByBasketId[activeBasket.basketId] ?? []) : [];
+  const customerNeed = deriveCustomerNeedModel({
+    caseId: conversationCase.caseId,
+    messages: scopedMessages,
+    baskets,
+    itemsByBasketId,
+    activeBasket,
+  });
   const activeBasketValue = computeActiveBasketValue(activeItems);
 
   // Phase G.2 data flow (never reversed): conversation/case facts -> historical closure ->
@@ -489,6 +497,7 @@ function analyzeOneCase(
     caseId: conversationCase.caseId,
     conversationId: input.conversationId,
     conversationCase,
+    customerNeed,
     basketHistory: baskets,
     itemsByBasketId,
     activeBasket,

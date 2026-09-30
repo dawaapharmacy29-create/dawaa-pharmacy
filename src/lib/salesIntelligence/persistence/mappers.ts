@@ -91,6 +91,7 @@ export function mapCaseAnalysisRowContent(analysis: SalesIntelligenceCaseAnalysi
         ruleIds: cc.confidence.ruleIds,
       },
       evidenceCompleteness: analysis.evidenceCompleteness as unknown as Record<string, boolean | EvidenceLevel>,
+      customerNeed: analysis.customerNeed,
       historicalClosureEvidence: analysis.historicalClosure.confidence.evidence,
       // No dedicated applicability-rule-id field exists on OrderConfirmationProtocolAssessment —
       // applicability is DERIVED from historicalClosure + commercialConfirmation (see

@@ -123,6 +123,62 @@ export interface CaseStageEvent {
 }
 
 // ---------------------------------------------------------------------------
+// Phase 1.5 — Customer Need Model
+// ---------------------------------------------------------------------------
+
+export type CustomerNeedProductRole =
+  | 'requested'
+  | 'offered'
+  | 'alternative'
+  | 'accepted'
+  | 'rejected'
+  | 'final_basket';
+
+export type CustomerNeedObjectionCategory =
+  | 'price'
+  | 'availability'
+  | 'delivery'
+  | 'product_fit'
+  | 'timing'
+  | 'customer_declined'
+  | 'unknown';
+
+export interface CustomerNeedObjection {
+  category: CustomerNeedObjectionCategory;
+  text: string;
+  messageId: string;
+  confidence: ConfidenceAssessment;
+}
+
+export interface CustomerNeedProductLifecycle {
+  /** Stable only within this analysis: normalized raw name, never a catalog identity substitute. */
+  key: string;
+  productNameRaw: string;
+  productId: string | null;
+  requestedQuantity: number | null;
+  offeredQuantity: number | null;
+  finalQuantity: number | null;
+  roles: CustomerNeedProductRole[];
+  evidenceMessageIds: string[];
+  confidence: ConfidenceAssessment;
+}
+
+export interface CustomerNeedModel {
+  caseId: string;
+  /** First real customer request/need statement, verbatim. Null when the case has no customer need. */
+  primaryNeed: string | null;
+  primaryNeedMessageId: string | null;
+  products: CustomerNeedProductLifecycle[];
+  objections: CustomerNeedObjection[];
+  /** True only while a real need remains structurally incomplete; an explicit decline is closed, not "unknown". */
+  unresolvedNeed: boolean;
+  evidenceMessageIds: string[];
+  confidence: ConfidenceAssessment;
+  needsHumanReview: boolean;
+  humanReviewReasons: string[];
+}
+
+// ---------------------------------------------------------------------------
 // Phase 2 — Structured Basket Engine
 // ---------------------------------------------------------------------------
 
@@ -942,6 +998,8 @@ export interface SalesIntelligenceCaseAnalysis {
   caseId: string;
   conversationId: string;
   conversationCase: ConversationCase;
+  /** Structured customer need + per-product lifecycle, derived from the same message/basket evidence. */
+  customerNeed: CustomerNeedModel;
   basketHistory: CaseBasket[];
   itemsByBasketId: Record<string, CaseBasketItem[]>;
   /** Resolved via basketInvoiceMatchingEngine's own resolveActiveBasket() — null when insufficient/ambiguous. */

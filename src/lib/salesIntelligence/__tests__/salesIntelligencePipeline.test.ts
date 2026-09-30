@@ -735,3 +735,33 @@ describe('Sales Intelligence semantic interaction ownership across coarse transp
     expect(new Set(result.caseAnalyses.map((analysis) => analysis.caseId)).size).toBe(2);
   });
 });
+
+describe('Sales Intelligence customer need model integration', () => {
+  it('persists the same requested product through final recap and customer acceptance', () => {
+    const raw = `[9/15/26, 9:00:00 AM] Customer: عايز 2 علبة فيتامين د
+[9/15/26, 9:01:00 AM] You: حضرتك تأمر بـ:
+2 علبة فيتامين د
+إجمالي الحساب 180 جنيه
+هل الطلب كده كامل؟
+[9/15/26, 9:02:00 AM] Customer: تمام`;
+    const analysis = runSalesIntelligencePipeline(baseInput({ rawWhatsAppExportText: raw })).caseAnalyses[0];
+    expect(analysis.customerNeed.primaryNeed).toContain('فيتامين د');
+    expect(analysis.customerNeed.products).toHaveLength(1);
+    expect(analysis.customerNeed.products[0].roles).toContain('requested');
+    expect(analysis.customerNeed.products[0].roles).toContain('offered');
+    expect(analysis.customerNeed.products[0].roles).toContain('final_basket');
+    expect(analysis.customerNeed.products[0].roles).toContain('accepted');
+    expect(analysis.customerNeed.products[0].requestedQuantity).toBe(2);
+    expect(analysis.customerNeed.products[0].finalQuantity).toBe(2);
+    expect(analysis.customerNeed.unresolvedNeed).toBe(false);
+  });
+
+  it('keeps an explicit price objection as evidence instead of converting it into a sale verdict', () => {
+    const raw = `[9/15/26, 9:00:00 AM] Customer: عايز 1 علبة فيتامين د
+[9/15/26, 9:01:00 AM] You: موجود ب500 جنيه
+[9/15/26, 9:02:00 AM] Customer: السعر غالي عليا`;
+    const analysis = runSalesIntelligencePipeline(baseInput({ rawWhatsAppExportText: raw })).caseAnalyses[0];
+    expect(analysis.customerNeed.objections.some((item) => item.category === 'price')).toBe(true);
+    expect(analysis.salesOutcome.outcome).not.toBe('sale_proven');
+  });
+});

@@ -24,6 +24,7 @@ import type {
   CaseType,
   CanonicalSalesOutcomeAssessment,
   CommercialConfirmationState,
+  CustomerNeedModel,
   ConfidenceLevel,
   DifferenceExplanationKind,
   EvidenceLevel,
@@ -196,6 +197,8 @@ export interface SalesIntelligenceCaseAnalysisRow extends CaseAnalysisProvenance
   evidenceSnapshot: {
     conversationCaseConfidence: { level: ConfidenceLevel; score: number; ruleIds: string[] };
     evidenceCompleteness: Record<string, boolean | EvidenceLevel>;
+    /** Versioned structured customer need/product lifecycle from this exact analysis run. */
+    customerNeed: CustomerNeedModel;
     historicalClosureEvidence: EvidenceRef[];
     protocolApplicabilityRuleIds: string[];
     /** Durable canonical commercial verdict produced by the same analysis run; never re-derived by readers. */
