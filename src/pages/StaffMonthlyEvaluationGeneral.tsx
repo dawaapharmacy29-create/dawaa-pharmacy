@@ -33,6 +33,10 @@ import {
 import { buildStaffMonthlyEvaluationPdf } from '@/lib/evaluations/staffMonthlyEvaluationPdf';
 import { hasStrongDispensingEvidence } from '@/lib/evaluations/monthlyDispensingEvidence';
 import { hasStrongSalesQualityEvidence } from '@/lib/evaluations/monthlySalesQualityEvidence';
+import {
+  hasEvidenceSupportedStrongPerformance,
+  isMonthlyEvaluationStrengthEligible,
+} from '@/lib/evaluations/monthlyEvaluationStrengthEligibility';
 import { createStaffNotification } from '@/lib/staffNotificationService';
 import { Panel, MiniBox, EmptyState } from '@/components/dashboard/DashboardPrimitives';
 import MonthlyEvaluationWorkflowV5, { type MonthlyEvaluationStep } from '@/components/evaluations/MonthlyEvaluationWorkflowV5';
@@ -1114,28 +1118,6 @@ export default function StaffMonthlyEvaluation() {
   const completedSections = sections.filter((item) => item.score > 0).length;
   const weakSectionsMissingNotes = sections.filter((item) => item.score > 0 && item.score <= 2 && !item.notes.trim());
   const criticalGateMissingReason = activeGates.length > 0 && !managerNotes.trim();
-  const hasStrongPerformance = sections.some((item) => item.score >= 4);
-  const hasDevelopmentNeed = sections.some((item) => item.score > 0 && item.score <= 3);
-  const feedbackMissingStrength = evaluationComplete && hasStrongPerformance && !strengthsText.trim();
-  const feedbackMissingDevelopment = evaluationComplete && hasDevelopmentNeed && !developmentText.trim();
-  const approvalBlockers = [
-    !cycleClosed ? 'الدورة لم تُقفل بعد' : '',
-    !evidenceReady ? 'مصدر أو أكثر من أدلة الدورة غير متاح' : '',
-    completedSections !== sections.length ? `باقي ${Math.max(0, sections.length - completedSections)} محور بدون تقييم` : '',
-    weakSectionsMissingNotes.length ? `${weakSectionsMissingNotes.length} محور بدرجة ضعيفة يحتاج سبب مكتوب` : '',
-    feedbackMissingStrength ? 'يوجد أداء قوي لكن نقاط القوة لم تُكتب بعد' : '',
-    feedbackMissingDevelopment ? 'يوجد محور يحتاج تطوير لكن خطة التطوير لم تُكتب بعد' : '',
-    criticalGateMissingReason ? 'المخالفة الحرجة تحتاج سببًا مكتوبًا في ملاحظات المدير' : '',
-  ].filter(Boolean);
-  const approvalReady =
-    cycleClosed
-    && evidenceReady
-    && sections.length > 0
-    && completedSections === sections.length
-    && weakSectionsMissingNotes.length === 0
-    && !feedbackMissingStrength
-    && !feedbackMissingDevelopment
-    && !criticalGateMissingReason;
   const ratedSections = sections.filter((item) => item.score > 0);
   const ratedWeight = ratedSections.reduce((sum, item) => sum + item.weight, 0);
   const ratedEarnedPoints = Math.round(ratedSections.reduce((sum, item) => sum + sectionPoints(item), 0) * 10) / 10;
@@ -1153,14 +1135,36 @@ export default function StaffMonthlyEvaluation() {
     invoiceErrors: coaching?.conversation.flags.invoiceErrors || 0,
     badAlternativeCases: coaching?.conversation.flags.badAlternativeCases || 0,
   });
+  const strengthEvidenceGates = {
+    dispensing: dispensingStrengthEvidence,
+    salesQuality: salesQualityStrengthEvidence,
+  };
+  const hasStrongPerformance = hasEvidenceSupportedStrongPerformance(sections, strengthEvidenceGates);
+  const hasDevelopmentNeed = sections.some((item) => item.score > 0 && item.score <= 3);
+  const feedbackMissingStrength = evaluationComplete && hasStrongPerformance && !strengthsText.trim();
+  const feedbackMissingDevelopment = evaluationComplete && hasDevelopmentNeed && !developmentText.trim();
+  const approvalBlockers = [
+    !cycleClosed ? 'الدورة لم تُقفل بعد' : '',
+    !evidenceReady ? 'مصدر أو أكثر من أدلة الدورة غير متاح' : '',
+    completedSections !== sections.length ? `باقي ${Math.max(0, sections.length - completedSections)} محور بدون تقييم` : '',
+    weakSectionsMissingNotes.length ? `${weakSectionsMissingNotes.length} محور بدرجة ضعيفة يحتاج سبب مكتوب` : '',
+    feedbackMissingStrength ? 'يوجد أداء قوي موثق لكن نقاط القوة لم تُكتب بعد' : '',
+    feedbackMissingDevelopment ? 'يوجد محور يحتاج تطوير لكن خطة التطوير لم تُكتب بعد' : '',
+    criticalGateMissingReason ? 'المخالفة الحرجة تحتاج سببًا مكتوبًا في ملاحظات المدير' : '',
+  ].filter(Boolean);
+  const approvalReady =
+    cycleClosed
+    && evidenceReady
+    && sections.length > 0
+    && completedSections === sections.length
+    && weakSectionsMissingNotes.length === 0
+    && !feedbackMissingStrength
+    && !feedbackMissingDevelopment
+    && !criticalGateMissingReason;
 
   const strongestSections = evaluationComplete
     ? [...ratedSections]
-        .filter((item) =>
-          item.score >= 4
-          && (item.key !== 'dispensing' || dispensingStrengthEvidence)
-          && (item.key !== 'sales_quality' || salesQualityStrengthEvidence)
-        )
+        .filter((item) => isMonthlyEvaluationStrengthEligible(item, strengthEvidenceGates))
         .sort((a, b) => b.score - a.score || b.weight - a.weight)
         .slice(0, 3)
     : [];
