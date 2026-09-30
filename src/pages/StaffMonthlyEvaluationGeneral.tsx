@@ -130,25 +130,33 @@ function sectionEvidenceFor(
     const attendance = coaching?.attendance;
     return {
       status: 'manual' as const,
-      summary: attendance?.approvedEvents
-        ? `الحضور المعتمد: ${attendance.approvedEvents} قرار · ${attendance.lateCases + attendance.veryLateCases} تأخير · ${attendance.absenceCases} غياب`
+      summary: attendance?.resolvedDays
+        ? `سجل الحضور: ${attendance.resolvedDays} يومًا له تصنيف · ${attendance.lateCases + attendance.veryLateCases} تأخير · ${attendance.absenceCases} غياب`
         : metrics.attendance_days
-          ? `${metrics.present_days} يوم حضور فعلي من ${metrics.attendance_days} يوم مسجل`
+          ? `بيانات حضور يومية متاحة لـ ${metrics.attendance_days} يوم`
           : 'لا توجد أيام حضور مسجلة في المصدر لهذه الدورة',
       details: [
-        `أيام الحضور الفعلي: ${metrics.present_days}`,
-        `إجمالي الأيام المسجلة: ${metrics.attendance_days}`,
-        attendance?.approvedEvents ? `قرارات الحضور المعتمدة: ${attendance.approvedEvents}` : '',
+        `أيام لها حضور/بصمة في المصدر اليومي: ${metrics.present_days}`,
+        `إجمالي الأيام التي لها بيانات في مصدر الحضور اليومي: ${metrics.attendance_days}`,
+        attendance?.resolvedDays ? `أيام لها تصنيف في Attendance Ledger: ${attendance.resolvedDays}` : '',
+        attendance?.activeLedgerEvents ? `أحداث Attendance Ledger النشطة: ${attendance.activeLedgerEvents}` : '',
+        attendance?.duplicateResolutionDays
+          ? `تنبيه مراجعة: ${attendance.duplicateResolutionDays} يوم عليه أكثر من تصنيف نشط؛ لا يُحسب كأنه يومان في التقييم.`
+          : '',
+        attendance?.onTimeDays ? `أيام مصنفة في الموعد: ${attendance.onTimeDays}` : '',
         attendance && attendance.lateCases + attendance.veryLateCases > 0
-          ? `التأخير المعتمد: ${attendance.lateCases + attendance.veryLateCases} حالة · ${attendance.lateMinutes} دقيقة`
+          ? `التأخير المسجل في الـLedger: ${attendance.lateCases + attendance.veryLateCases} حالة · ${attendance.lateMinutes} دقيقة`
           : '',
         attendance?.earlyLeaveCases
-          ? `الخروج المبكر المعتمد: ${attendance.earlyLeaveCases} حالة · ${attendance.earlyLeaveMinutes} دقيقة`
+          ? `الخروج المبكر المؤكد: ${attendance.earlyLeaveCases} حالة · ${attendance.earlyLeaveMinutes} دقيقة`
           : '',
         attendance?.absenceCases ? `الغياب المؤكد: ${attendance.absenceCases} حالة` : '',
-        attendance?.approvedTimeOffCases ? `إجازات/أذونات معتمدة: ${attendance.approvedTimeOffCases}` : '',
-        'المصدر: Attendance Resolution / Impact Ledger المعتمد.',
+        attendance?.approvedTimeOffCases ? `إجازات/أذونات مصنفة كمعتمدة في الـLedger: ${attendance.approvedTimeOffCases}` : '',
+        attendance?.offDayCases ? `أيام راحة مصنفة في الـLedger: ${attendance.offDayCases}` : '',
+        attendance?.workedOnOffCases ? `عمل مؤكد في يوم راحة: ${attendance.workedOnOffCases} حالة` : '',
+        'المصدر اليومي: Attendance Read Model للبصمات/الحضور. مصدر التصنيف: Attendance Resolution / Impact Ledger.',
         'تغطية هذا الدليل جزئية: الزي والتعليمات وتسليم الشيفت والسلوك المهني تحتاج واقعة أو ملاحظة موثقة إذا أثرت على الدرجة.',
+        'الدليل الآلي مساعد للقرار وليس درجة تلقائية.',
       ].filter(Boolean),
     };
   }
@@ -2323,11 +2331,11 @@ export default function StaffMonthlyEvaluation() {
                     </div>
                   ) : null}
 
-                  {(coaching?.attendance.approvedEvents || coaching?.followups.total) ? (
+                  {(coaching?.attendance.activeLedgerEvents || coaching?.followups.total) ? (
                     <div className="mt-3 grid gap-2 lg:grid-cols-2">
-                      {coaching?.attendance.approvedEvents ? (
+                      {coaching?.attendance.activeLedgerEvents ? (
                         <div className="rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}>
-                          <div className="text-[11px] font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>Coaching الحضور المعتمد</div>
+                          <div className="text-[11px] font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>Coaching سجل الحضور</div>
                           <div className="mt-2 space-y-1.5 text-xs font-bold leading-6" style={{ color: 'var(--dawaa-theme-text)' }}>
                             {coaching.attendance.drafts.strength ? <div style={{ color: 'var(--dawaa-status-success-text)' }}>{coaching.attendance.drafts.strength}</div> : null}
                             {coaching.attendance.drafts.development ? <div style={{ color: 'var(--dawaa-status-warning-text)' }}>{coaching.attendance.drafts.development}</div> : null}

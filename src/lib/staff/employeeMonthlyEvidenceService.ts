@@ -78,7 +78,12 @@ export type MonthlyConversationCoaching = {
 };
 
 export type MonthlyAttendanceCoaching = {
+  /** @deprecated Alias kept for historical snapshots. Use activeLedgerEvents/resolvedDays in new UI. */
   approvedEvents: number;
+  activeLedgerEvents: number;
+  resolvedDays: number;
+  duplicateResolutionDays: number;
+  offDayCases: number;
   onTimeDays: number;
   lateCases: number;
   veryLateCases: number;
@@ -471,7 +476,18 @@ function buildAttendanceCoaching(rows: AttendanceImpactRow[]): MonthlyAttendance
   const lateMinutes = lateRows.reduce((sum, row) => sum + snapshotNumber(row, 'late_minutes'), 0);
   const earlyLeaveMinutes = earlyRows.reduce((sum, row) => sum + snapshotNumber(row, 'early_leave_minutes'), 0);
 
+  const eventsByDate = new Map<string, number>();
+  currentRows.forEach((row) => {
+    const key = String(row.attendance_date || '').slice(0, 10);
+    if (!key) return;
+    eventsByDate.set(key, (eventsByDate.get(key) || 0) + 1);
+  });
+  const activeLedgerEvents = currentRows.length;
+  const resolvedDays = eventsByDate.size;
+  const duplicateResolutionDays = [...eventsByDate.values()].filter((count) => count > 1).length;
+
   const onTimeDays = byType('attendance_on_time').length + byType('attendance_on_time_with_permission').length;
+  const offDayCases = byType('attendance_off_day').length;
   const lateCases = byType('attendance_late').length;
   const veryLateCases = byType('attendance_very_late').length;
   const earlyLeaveCases = earlyRows.length;
@@ -481,28 +497,32 @@ function buildAttendanceCoaching(rows: AttendanceImpactRow[]): MonthlyAttendance
   const manualResolutionCases = byType('attendance_manual_resolution').length;
 
   const strengthBits = [
-    onTimeDays > 0 ? `${onTimeDays} يوم حضور معتمد في الموعد` : '',
-    workedOnOffCases > 0 ? `${workedOnOffCases} يوم عمل معتمد في يوم راحة` : '',
+    onTimeDays > 0 ? `${onTimeDays} يوم مصنف في الموعد داخل سجل الحضور` : '',
+    workedOnOffCases > 0 ? `${workedOnOffCases} يوم عمل مؤكد في يوم راحة` : '',
   ].filter(Boolean);
 
   const developmentBits = [
     lateCases + veryLateCases > 0
-      ? `${lateCases + veryLateCases} حالة تأخير معتمدة بإجمالي ${lateMinutes} دقيقة`
+      ? `${lateCases + veryLateCases} حالة تأخير مسجلة بإجمالي ${lateMinutes} دقيقة`
       : '',
     earlyLeaveCases > 0
-      ? `${earlyLeaveCases} حالة خروج مبكر معتمدة بإجمالي ${earlyLeaveMinutes} دقيقة`
+      ? `${earlyLeaveCases} حالة خروج مبكر مؤكدة بإجمالي ${earlyLeaveMinutes} دقيقة`
       : '',
     absenceCases > 0 ? `${absenceCases} حالة غياب مؤكدة` : '',
   ].filter(Boolean);
 
   const actions = [
-    lateCases + veryLateCases > 0 ? 'مراجعة أسباب التأخير المعتمد ووضع إجراء يمنع تكراره في الدورة القادمة.' : '',
-    earlyLeaveCases > 0 ? 'مراجعة حالات الخروج المبكر المعتمدة والتأكد من وجود إذن أو تصحيح الإجراء.' : '',
+    lateCases + veryLateCases > 0 ? 'مراجعة أسباب حالات التأخير المسجلة ووضع إجراء يمنع تكرارها في الدورة القادمة.' : '',
+    earlyLeaveCases > 0 ? 'مراجعة حالات الخروج المبكر المؤكدة والتأكد من وجود إذن أو تصحيح الإجراء.' : '',
     absenceCases > 0 ? 'مراجعة حالات الغياب المؤكدة مع المدير وتوثيق الإجراء المتفق عليه.' : '',
   ].filter(Boolean);
 
   return {
-    approvedEvents: currentRows.length,
+    approvedEvents: activeLedgerEvents,
+    activeLedgerEvents,
+    resolvedDays,
+    duplicateResolutionDays,
+    offDayCases,
     onTimeDays,
     lateCases,
     veryLateCases,
@@ -514,8 +534,8 @@ function buildAttendanceCoaching(rows: AttendanceImpactRow[]): MonthlyAttendance
     workedOnOffCases,
     manualResolutionCases,
     drafts: {
-      strength: strengthBits.length ? `الحضور المعتمد: ${strengthBits.join('، ')}.` : '',
-      development: developmentBits.length ? `ملاحظات الحضور المعتمدة: ${developmentBits.join('، ')}.` : '',
+      strength: strengthBits.length ? `سجل الحضور: ${strengthBits.join('، ')}.` : '',
+      development: developmentBits.length ? `ملاحظات سجل الحضور: ${developmentBits.join('، ')}.` : '',
       actionPlan: actions.length ? `خطة الحضور: ${actions.join(' • ')}` : '',
     },
   };
