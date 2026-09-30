@@ -962,7 +962,10 @@ export interface SaleAttributionCandidate {
   legacyEvidenceMatch: boolean;
   /** Always false today — no `orders` table exists in the live schema (see investigation). Kept for forward compatibility. */
   directOrderLink: boolean;
-  /** True only when the caller supplies an explicit, already-trusted system link (e.g. whatsapp_review_sources.matched_invoice_id) that equals this candidate. The only path to `proven`. */
+  /**
+   * True when this exact invoice is trusted by an explicit invoice-specific link OR by the strict
+   * automatic customer-code + name + time + real-items gate. The only path to `proven`.
+   */
   directInvoiceLink: boolean;
   evidence: AttributionEvidenceItem[];
   ruleIds: string[];

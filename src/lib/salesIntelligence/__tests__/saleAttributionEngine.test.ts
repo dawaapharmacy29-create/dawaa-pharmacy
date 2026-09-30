@@ -34,6 +34,8 @@ function baseCase(overrides: Partial<CaseAttributionContext> = {}): CaseAttribut
     caseId: 'case-1',
     customerId: null,
     customerPhone: null,
+    customerCode: null,
+    customerName: null,
     branchNameRaw: null,
     caseStartedAt: '2026-09-15T09:00:00.000Z',
     caseEndedAt: '2026-09-15T09:10:00.000Z',
@@ -65,6 +67,79 @@ describe('Sale Attribution Engine (Sales Intelligence Phase D) — Golden Cases'
       expect(assess.selectedInvoiceId).toBe('inv-100');
       expect(assess.attributionLevel).toBe('proven');
       expect(assess.isOfficialForStaffEvaluation).toBe(true);
+    });
+
+    it('1b. unique code + name + same-time invoice with real items is automatically proven', () => {
+      const provider: InvoiceItemEvidenceProvider = {
+        getItemsForInvoice: (invoiceId) =>
+          invoiceId === 'inv-auto'
+            ? [{ productNameRaw: 'Bon Care', quantity: 2, lineTotal: 180 }]
+            : 'unavailable',
+      };
+      const ctx = baseCase({
+        customerId: 'cust-2490',
+        customerCode: '2490',
+        customerName: 'الحاج محمود صالح',
+        branchNameRaw: 'فرع شكري',
+        caseStartedAt: '2026-09-28T03:51:56.000Z',
+        caseEndedAt: '2026-09-28T03:58:45.000Z',
+      });
+      const assess = deriveSaleAttributionAssessment(ctx, [{
+        id: 'inv-auto',
+        invoice_number: '74966',
+        customer_id: 'cust-2490',
+        customer_code: '2490',
+        customer_name: 'الحاج محمود صالح',
+        branch: 'فرع شكري',
+        invoice_datetime: '2026-09-28T03:56:00.000Z',
+        net_amount: 545,
+      }], provider);
+
+      expect(assess.selectedInvoiceId).toBe('inv-auto');
+      expect(assess.selectedInvoiceNumber).toBe('74966');
+      expect(assess.selectedCandidate?.directInvoiceLink).toBe(true);
+      expect(assess.attributionLevel).toBe('proven');
+      expect(assess.isOfficialForStaffEvaluation).toBe(true);
+      expect(assess.ruleIds).toContain('attribution.trusted.automatic_customer_code_name_time_items_unique');
+    });
+
+    it('1c. auto-link refuses to guess when two invoices pass the same hard gate', () => {
+      const provider: InvoiceItemEvidenceProvider = {
+        getItemsForInvoice: () => [{ productNameRaw: 'Bon Care', quantity: 1, lineTotal: 90 }],
+      };
+      const ctx = baseCase({
+        customerId: 'cust-2490',
+        customerCode: '2490',
+        customerName: 'الحاج محمود صالح',
+        branchNameRaw: 'فرع شكري',
+      });
+      const assess = deriveSaleAttributionAssessment(ctx, [
+        { id: 'inv-a', invoice_number: 'A', customer_id: 'cust-2490', customer_code: '2490', customer_name: 'الحاج محمود صالح', branch: 'فرع شكري', invoice_datetime: '2026-09-15T09:05:00.000Z' },
+        { id: 'inv-b', invoice_number: 'B', customer_id: 'cust-2490', customer_code: '2490', customer_name: 'الحاج محمود صالح', branch: 'فرع شكري', invoice_datetime: '2026-09-15T09:06:00.000Z' },
+      ], provider);
+
+      expect(assess.attributionLevel).not.toBe('proven');
+      expect(assess.selectedCandidate?.directInvoiceLink).toBe(false);
+    });
+
+    it('1d. code/name/time without imported invoice items is not auto-proven', () => {
+      const ctx = baseCase({
+        customerId: 'cust-2490',
+        customerCode: '2490',
+        customerName: 'الحاج محمود صالح',
+        branchNameRaw: 'فرع شكري',
+      });
+      const assess = deriveSaleAttributionAssessment(ctx, [{
+        id: 'inv-no-items',
+        invoice_number: '74966',
+        customer_id: 'cust-2490',
+        customer_code: '2490',
+        customer_name: 'الحاج محمود صالح',
+        branch: 'فرع شكري',
+        invoice_datetime: '2026-09-15T09:05:00.000Z',
+      }]);
+      expect(assess.attributionLevel).not.toBe('proven');
+      expect(assess.selectedCandidate?.directInvoiceLink).toBe(false);
     });
 
     it('2. exact customer + exact branch + 20 min + exact total is strongly_inferred', () => {

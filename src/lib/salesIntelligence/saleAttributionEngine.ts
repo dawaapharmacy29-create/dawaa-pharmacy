@@ -21,7 +21,7 @@ import {
   type InvoiceLike,
 } from '../invoices/invoiceCore';
 import { normalizeBranchName } from '../branch';
-import { isValidEgyptianCustomerMobile, normalizeEgyptianCustomerPhone } from '../customers/customerIdentity';
+import { isValidEgyptianCustomerMobile, normalizeDawaaCustomerCode, normalizeEgyptianCustomerPhone } from '../customers/customerIdentity';
 import type {
   AmountMatchKind,
   AnnouncedTotal,
@@ -142,6 +142,9 @@ export interface CaseAttributionContext {
   /** customers.id, already resolved by an earlier phase — never invented here. */
   customerId: string | null;
   customerPhone: string | null;
+  /** Pharmacy customer code + display name from the resolved/source identity snapshot. */
+  customerCode?: string | null;
+  customerName?: string | null;
   /** Free-text branch label as recorded on the case — compared via normalizeBranchName, same as invoices. */
   branchNameRaw: string | null;
   /** Start/end of this exact segmented case. Invoice timing is compared against the INTERVAL, not just its end. */
@@ -200,6 +203,28 @@ function getInvoiceCustomerId(row: InvoiceLike): string | null {
 
 function getInvoiceCustomerPhone(row: InvoiceLike): string | null {
   return cleanText(firstValue(row, ['customer_phone', 'phone', 'whatsapp_phone'])) || null;
+}
+
+function getInvoiceCustomerCode(row: InvoiceLike): string | null {
+  return normalizeDawaaCustomerCode(firstValue(row, ['customer_code']));
+}
+
+function getInvoiceCustomerName(row: InvoiceLike): string | null {
+  return cleanText(firstValue(row, ['customer_name'])) || null;
+}
+
+function normalizeCustomerNameForInvoiceMatch(value: string | null | undefined): string {
+  return String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/^(?:الحاج(?:ة)?|السيد(?:ة)?|استاذ(?:ة)?|الأستاذ(?:ة)?|الاستاذ(?:ة)?)\s+/i, '')
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ى/g, 'ي')
+    .replace(/ة/g, 'ه')
+    .replace(/[\u064B-\u065F]/g, '')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function getInvoiceStaffId(row: InvoiceLike): string | null {
@@ -425,6 +450,38 @@ function classifyLegacyMatch(ctx: CaseAttributionContext, row: InvoiceLike): boo
   if (ctx.legacyMatchedInvoiceId && ctx.legacyMatchedInvoiceId === invoiceId) return true;
   if (ctx.legacyMatchedInvoiceNumber && invoiceNumber && ctx.legacyMatchedInvoiceNumber === invoiceNumber) return true;
   return false;
+}
+
+/**
+ * Strict deterministic automatic-link gate. It is deliberately stronger than normal scoring:
+ * exact pharmacy customer code + exact normalized name + no customer-id conflict + very-close
+ * timestamp + no branch mismatch + invoice number + real positive invoice lines.
+ * Promotion happens only when exactly ONE invoice satisfies this gate.
+ */
+function qualifiesForAutomaticInvoiceLink(
+  ctx: CaseAttributionContext,
+  row: InvoiceLike,
+  provider: InvoiceItemEvidenceProvider
+): boolean {
+  const caseCode = normalizeDawaaCustomerCode(ctx.customerCode);
+  const invoiceCode = getInvoiceCustomerCode(row);
+  if (!caseCode || !invoiceCode || caseCode !== invoiceCode) return false;
+
+  const caseName = normalizeCustomerNameForInvoiceMatch(ctx.customerName);
+  const invoiceName = normalizeCustomerNameForInvoiceMatch(getInvoiceCustomerName(row));
+  if (!caseName || !invoiceName || caseName !== invoiceName) return false;
+
+  const invoiceCustomerId = getInvoiceCustomerId(row);
+  if (ctx.customerId && invoiceCustomerId && ctx.customerId !== invoiceCustomerId) return false;
+
+  if (classifyBranch(ctx, row) === 'mismatch') return false;
+  const time = classifyTime(ctx, row);
+  if (time.temporalInversion || time.timeMatchStrength !== 'very_strong') return false;
+  if (!getInvoiceRowNumber(row) || isDraftLikeZeroInvoice(row)) return false;
+
+  const items = provider.getItemsForInvoice(getInvoiceRowId(row), getInvoiceRowNumber(row));
+  if (items === 'unavailable') return false;
+  return items.some((item) => item.quantity != null && Number(item.quantity) > 0);
 }
 
 function classifyDirectLinks(ctx: CaseAttributionContext, row: InvoiceLike): { directOrderLink: boolean; directInvoiceLink: boolean } {
@@ -721,7 +778,8 @@ function summarizeEvidenceRef(invoiceId: string, matchedFactors: string[]): Evid
 export function buildAttributionCandidate(
   ctx: CaseAttributionContext,
   row: InvoiceLike,
-  itemEvidenceProvider: InvoiceItemEvidenceProvider = unavailableInvoiceItemEvidenceProvider
+  itemEvidenceProvider: InvoiceItemEvidenceProvider = unavailableInvoiceItemEvidenceProvider,
+  automaticTrustedInvoiceId: string | null = null
 ): SaleAttributionCandidate {
   const invoiceId = getInvoiceRowId(row);
   const invoiceNumber = getInvoiceRowNumber(row);
@@ -735,7 +793,10 @@ export function buildAttributionCandidate(
   const staffMatch = classifyStaff(ctx, row);
   const { productMatch, quantityMatch } = classifyProductEvidence(ctx, row, itemEvidenceProvider);
   const legacyEvidenceMatch = classifyLegacyMatch(ctx, row);
-  const { directOrderLink, directInvoiceLink } = classifyDirectLinks(ctx, row);
+  const directLinks = classifyDirectLinks(ctx, row);
+  const automaticDirectInvoiceLink = Boolean(automaticTrustedInvoiceId && automaticTrustedInvoiceId === invoiceId);
+  const directOrderLink = directLinks.directOrderLink;
+  const directInvoiceLink = directLinks.directInvoiceLink || automaticDirectInvoiceLink;
 
   const { score, disqualifiers, factors } = scoreCandidate({
     customerIdMatch: identity.customerIdMatch,
@@ -760,7 +821,13 @@ export function buildAttributionCandidate(
   // (Phase D §4/§13: "Do NOT call statistical matching proven").
   const level: ConfidenceLevel = directInvoiceLink ? 'proven' : deriveLevel(score, disqualifiers, hasIdentitySignal);
 
-  const ruleIds = [`attribution.level.${level}`, ...factors.map((f) => `attribution.factor.${f}`)];
+  const ruleIds = [
+    `attribution.level.${level}`,
+    ...factors.map((f) => `attribution.factor.${f}`),
+    ...(automaticDirectInvoiceLink
+      ? ['attribution.trusted.automatic_customer_code_name_time_items_unique']
+      : []),
+  ];
   const evidence = buildEvidenceItems({
     identity,
     branchMatch,
@@ -821,7 +888,15 @@ export function deriveSaleAttributionAssessment(
   competingSelections: Array<{ caseId: string; invoiceId: string }> = []
 ): SaleAttributionAssessment {
   const commercialConfirmationState = ctx.commercialConfirmation.currentState;
-  const candidates = invoiceRows.map((row) => buildAttributionCandidate(ctx, row, itemEvidenceProvider));
+  const automaticMatches = ctx.trustedInvoiceId
+    ? []
+    : invoiceRows.filter((row) => qualifiesForAutomaticInvoiceLink(ctx, row, itemEvidenceProvider));
+  const automaticTrustedInvoiceId =
+    automaticMatches.length === 1 ? getInvoiceRowId(automaticMatches[0]) : null;
+
+  const candidates = invoiceRows.map((row) =>
+    buildAttributionCandidate(ctx, row, itemEvidenceProvider, automaticTrustedInvoiceId)
+  );
   candidates.sort((a, b) => b.confidenceAssessment.score - a.confidenceAssessment.score);
 
   if (candidates.length === 0) {
