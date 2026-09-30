@@ -10,7 +10,7 @@
  */
 
 import { normalizeBranchName } from '@/lib/branch';
-import { readStaffDirectory } from '@/lib/readModels/staffDirectoryReadModel';
+import { readStaffDirectory, type StaffDirectoryIdentity } from '@/lib/readModels/staffDirectoryReadModel';
 import { normalizeArabicName } from '@/lib/security/userDataScope';
 import { resolveStaffAccountSafe } from '@/lib/staff/staffAccountsApi';
 
@@ -188,23 +188,26 @@ function resolveUniqueName(
   return candidates.length === 1 ? candidates[0] : null;
 }
 
+/** The one mapping from the canonical staff-directory read model into resolver rows. */
+export function staffDirectoryRowsFromIdentities(rows: StaffDirectoryIdentity[]): StaffDirectoryRow[] {
+  return rows.map((row) => ({
+    id: row.id,
+    staff_id: row.id,
+    name: row.name,
+    staff_name: row.name,
+    username: row.username,
+    branch: row.branch,
+    role: row.role,
+    status: row.status,
+    active: row.active,
+    is_active: row.active,
+    source: row.source,
+  }));
+}
+
 async function loadDirectoryRows(): Promise<StaffDirectoryRow[]> {
   if (!directoryPromise) {
-    directoryPromise = readStaffDirectory().then((rows) =>
-      rows.map((row) => ({
-        id: row.id,
-        staff_id: row.id,
-        name: row.name,
-        staff_name: row.name,
-        username: row.username,
-        branch: row.branch,
-        role: row.role,
-        status: row.status,
-        active: row.active,
-        is_active: row.active,
-        source: row.source,
-      }))
-    );
+    directoryPromise = readStaffDirectory().then(staffDirectoryRowsFromIdentities);
   }
   return directoryPromise;
 }

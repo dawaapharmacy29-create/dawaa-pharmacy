@@ -3,13 +3,19 @@
   "framework": "vite",
   "git": {
     "deploymentEnabled": {
-      "whatsapp-review-integration-test": true
+      "whatsapp-review-integration-test": true,
+      "feature/whatsapp-sales-intelligence-v1": true,
+      "internal-*": false
     }
   },
   "installCommand": "npm install -g npm@10.9.2 && npm ci --legacy-peer-deps --no-audit --no-fund",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "rewrites": [
+    {
+      "source": "/api/sales-intelligence-refresh-source",
+      "destination": "/api/sales-intelligence-refresh-source.js"
+    },
     {
       "source": "/(.*)",
       "destination": "/index.html"
@@ -25,5 +31,10 @@
         }
       ]
     }
-  ]
+  ],
+  "functions": {
+    "api/sales-intelligence-refresh-source.js": {
+      "maxDuration": 60
+    }
+  }
 }

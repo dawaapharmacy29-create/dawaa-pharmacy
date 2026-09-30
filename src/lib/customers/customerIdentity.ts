@@ -99,3 +99,21 @@ export function buildCustomerIdentity(input: CustomerIdentityInput) {
 
   return 'unknown';
 }
+
+
+/** Numeric Dawaa customer codes sometimes arrive from spreadsheets as "17777.0". */
+export function normalizeDawaaCustomerCode(value: unknown) {
+  return normalizeCustomerCode(value).replace(/\.0+$/, '');
+}
+
+/** Extract a trailing Dawaa customer code from WhatsApp contact labels; phone-like suffixes are rejected. */
+export function extractTrailingCustomerCodeFromDisplayName(value: unknown): string {
+  const raw = customerIdentityText(value)
+    .replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)))
+    .trim();
+  const match = raw.match(/(?:^|[^0-9])(\d{2,9})\s*\)?\s*$/);
+  if (!match) return '';
+  const digits = match[1];
+  if (digits.length >= 10 || /^01[0125]\d{8}$/.test(digits)) return '';
+  return normalizeDawaaCustomerCode(digits);
+}

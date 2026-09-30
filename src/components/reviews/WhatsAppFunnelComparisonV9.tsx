@@ -32,7 +32,7 @@ function stageFlags(row: JourneyRow) {
   const offer = /available|alternative|recommended|offered|suggested|accepted|closed|invoice|sold/.test(stage);
   const accepted = /accepted|closed|invoice|sold/.test(stage) || row.closed_in_chat === true;
   const closed = row.closed_in_chat === true || /closed|invoice|sold/.test(stage);
-  const verified = row.invoice_match_status === 'verified';
+  const verified = false; // Canonical Sale Proof is not available in this legacy view.
   const followup = row.followup_candidate === true;
   return { opportunity, offer, accepted, closed, verified, followup };
 }
@@ -42,9 +42,8 @@ function funnel(scope: Scope) {
     ['فرصة/طلب', 'opportunity'],
     ['توفر/بديل/ترشيح', 'offer'],
     ['قبول العميل', 'accepted'],
-    ['تأكيد الأوردر', 'closed'],
-    ['فاتورة مؤكدة', 'verified'],
-    ['متابعة بعد البيع', 'followup'],
+    ['إغلاق الأوردر في الشات', 'closed'],
+    ['متابعة بعد الإغلاق', 'followup'],
   ] as const;
   const values = stages.map(([label, key]) => ({ label, value: scope.rows.filter((r) => stageFlags(r)[key]).length }));
   return values.map((item, index) => ({

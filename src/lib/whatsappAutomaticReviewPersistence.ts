@@ -7,6 +7,7 @@ import { logSupabaseError } from '@/lib/supabaseError';
 import type { PharmacyCycle } from '@/lib/pharmacy-cycle';
 import type { WhatsAppConversationSession } from '@/lib/whatsappConversationParser';
 import { evaluateAutomaticWhatsAppReview } from '@/lib/whatsappAutomaticReviewScoring';
+import { loadOperationalSourceIds } from '@/lib/whatsappOperationalSourceOwner';
 
 export interface AutomaticReviewSourceContext {
   sourceId: string;
@@ -23,7 +24,9 @@ export interface AutomaticReviewSourceContext {
 export type AutomaticReviewPersistStatus =
   | 'saved'
   | 'skipped_no_staff'
+  | 'skipped_ambiguous_staff'
   | 'skipped_existing'
+  | 'skipped_non_canonical_source'
   | 'failed';
 
 export interface AutomaticReviewPersistOutcome {
@@ -87,6 +90,38 @@ export async function persistAutomaticWhatsAppReview(
     return outcome({ status: 'skipped_existing', reviewId: String(existingReview.id) });
   }
 
+  // Canonical Review Gate: an official automatic review (and its points) is written only for a
+  // source the canonical operational owner admits (V51: active, not superseded, exactly one V22
+  // case). No ownership, ambiguous ownership or a failed check writes nothing (fail closed).
+  let operational: Set<string>;
+  try {
+    operational = await loadOperationalSourceIds(supabase, [ctx.sourceId]);
+  } catch (ownerError) {
+    return outcome({
+      status: 'failed',
+      error: `canonical_ownership_unverified: ${ownerError instanceof Error ? ownerError.message : String(ownerError)}`,
+    });
+  }
+  if (!operational.has(String(ctx.sourceId))) {
+    return outcome({ status: 'skipped_non_canonical_source' });
+  }
+
+  const introducedStaffNames = [...new Set(
+    (ctx.session.outboundStaffNames || [])
+      .map((name) => String(name || '').trim().replace(/\s+/g, ' '))
+      .filter(Boolean)
+  )];
+
+  // Automatic scoring must never guess which doctor owns the session when more than one
+  // introduced staff identity appears. This is especially important for first-response speed:
+  // attributing the session to outboundStaffNames[0] could penalize the wrong doctor.
+  if (introducedStaffNames.length > 1) {
+    return outcome({
+      status: 'skipped_ambiguous_staff',
+      error: `توجد أكثر من هوية موظف في نفس الجلسة: ${introducedStaffNames.join('، ')}. يلزم تقييم بشري لتحديد المسؤول.`,
+    });
+  }
+
   const staffId = ctx.staffName ? await resolveStaffNameToStaffId(ctx.staffName) : null;
   if (!staffId) {
     return outcome({ status: 'skipped_no_staff' });
@@ -119,8 +154,10 @@ export async function persistAutomaticWhatsAppReview(
   }
 
   const payload = {
-    reviewer_name: SYSTEM_REVIEWER_NAME,
-    reviewer_role: SYSTEM_REVIEWER_ROLE,
+    // Automatic reviews are system-authored. Human reviewer identity must stay null;
+    // SYSTEM_REVIEWER_NAME/SYSTEM_REVIEWER_ROLE are reserved for audit/points provenance only.
+    reviewer_name: null,
+    reviewer_role: null,
     staff_id: staffRow.id,
     staff_name: staffRow.name,
     staff_role: staffRow.role || null,

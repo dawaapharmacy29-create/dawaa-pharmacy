@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import type { WhatsAppCustomerCaseEngineV22 } from './whatsappCustomerCaseEngineV22';
 import type { JourneySessionSourceV15 } from './whatsappCustomerJourneyPersistenceV15';
+import { deriveProposedCaseLostReasonV23 } from './whatsappCaseLostReasonV23';
 
 export interface SyncWhatsAppCustomerCasesV22Context {
   branch?: string | null;
@@ -12,6 +13,7 @@ export interface SyncWhatsAppCustomerCasesV22Result {
   saved: number;
   skipped: number;
   failed: number;
+  failures: Array<{ caseId: string; message: string }>;
 }
 
 type ParticipantStaff = {
@@ -44,9 +46,7 @@ const RECOMMENDATION_RX = /(ارشح|أرشح|نرشح|ترشيح|بديل|ان�
 const CONFIRMATION_RX = /(تم تأكيد|تم التاكيد|الأوردر اتأكد|الاوردر اتاكد|جاري الارسال|جاري الإرسال|خرج لحضرتك|اتعملت الفاتور)/i;
 const COMPLAINT_RX = /(شكوى|شكوي|مشكلة|مشكله|اتضايقت|زعلت|مش راضي|محدش رد|التأخير|التاخير|ماوصلش|موصلش)/i;
 const RECOVERY_RX = /(بنعتذر|نعتذر|متابعة|متابعه|حابين نطمن|حبيت اطمن|حبيت أطمن|تقييم الخدمة|تقييم الخدمه|رأي حضرتك|راي حضرتك)/i;
-const UNAVAILABLE_RX = /(غير متوفر|مش متوفر|ناقص|ناقصة|نفد|مش موجود)/i;
 const DELIVERY_FAILURE_RX = /(مندوب|دليفري|توصيل|ماوصلش|موصلش|محدش جه|ماجاش|مجاش|اتأخر|اتاخرت|التأخير|التاخير)/i;
-const PRICE_RX = /(غالي|غالية|السعر عالي|السعر غالي|كتير عليا|كتير علي|أرخص|ارخص)/i;
 
 function participantStaffFromAnalysis(analysis: any): ParticipantStaff[] {
   const rows = analysis?.participantRoles?.staff;
@@ -61,30 +61,105 @@ function participantStaffFromAnalysis(analysis: any): ParticipantStaff[] {
     .filter((row: ParticipantStaff) => row.staffName || row.accountId);
 }
 
-function pickOwner(source: SourceRow, preferredRoles: string[]): ParticipantStaff | null {
-  const rows = participantStaffFromAnalysis(source.analysis_json)
-    .filter((row) => row.accountId)
-    .sort((a, b) => {
-      const ar = preferredRoles.includes(String(a.role || '')) ? 1 : 0;
-      const br = preferredRoles.includes(String(b.role || '')) ? 1 : 0;
-      return br - ar || b.confidence - a.confidence;
-    });
-  return rows[0] || null;
+function participantStaffFromMessages(analysis: any, messageIds: string[]): ParticipantStaff[] {
+  if (!messageIds.length) return [];
+  const wanted = new Set(messageIds);
+  const rows = analysis?.participantRoles?.messages;
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .filter((row: any) => wanted.has(String(row?.messageId || '')) && row?.accountId)
+    .map((row: any) => ({
+      accountId: row?.accountId ? String(row.accountId) : null,
+      staffName: row?.staffName ? String(row.staffName) : null,
+      role: row?.role ? String(row.role) : null,
+      confidence: Number(row?.confidence || 0),
+    }))
+    .filter((row: ParticipantStaff) => row.accountId);
+}
+
+function rankOwners(rows: ParticipantStaff[], preferredRoles: string[]) {
+  return rows.slice().sort((a, b) => {
+    const ar = preferredRoles.includes(String(a.role || '')) ? 1 : 0;
+    const br = preferredRoles.includes(String(b.role || '')) ? 1 : 0;
+    return br - ar || b.confidence - a.confidence;
+  });
+}
+
+function pickOwner(source: SourceRow, preferredRoles: string[], evidenceMessageIds: string[] = []): ParticipantStaff | null {
+  const evidenceOwners = rankOwners(
+    participantStaffFromMessages(source.analysis_json, evidenceMessageIds),
+    preferredRoles,
+  );
+  if (evidenceOwners.length) return evidenceOwners[0];
+
+  return rankOwners(
+    participantStaffFromAnalysis(source.analysis_json).filter((row) => row.accountId),
+    preferredRoles,
+  )[0] || null;
+}
+
+function uniqueStringIds(values: unknown[]): string[] {
+  return [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))];
+}
+
+function stageEvidenceMessageIds(source: SourceRow, stage: string): string[] {
+  const operational = source.analysis_json?.operational || null;
+  const journeys = Array.isArray(operational?.productJourney?.journeys)
+    ? operational.productJourney.journeys
+    : [];
+  const journeyEvents = journeys.flatMap((journey: any) =>
+    Array.isArray(journey?.events) ? journey.events : []
+  );
+
+  if (stage === 'availability') {
+    return uniqueStringIds(
+      journeyEvents
+        .filter((event: any) => ['availability_confirmed', 'unavailable'].includes(String(event?.stage || '')))
+        .flatMap((event: any) => Array.isArray(event?.messageIds) ? event.messageIds : [])
+    );
+  }
+  if (stage === 'recommendation') {
+    return uniqueStringIds(
+      (Array.isArray(operational?.recommendations) ? operational.recommendations : [])
+        .flatMap((row: any) => Array.isArray(row?.evidenceMessageIds) ? row.evidenceMessageIds : [])
+    );
+  }
+  if (stage === 'confirmation') {
+    return uniqueStringIds(
+      Array.isArray(operational?.evidence?.saleClose?.messageIds) ? operational.evidence.saleClose.messageIds : []
+    );
+  }
+  if (stage === 'complaint' || stage === 'recovery') {
+    const recoveryEvidence = source.analysis_json?.smartIntelligence?.evaluationV2?.serviceRecovery?.evidenceMessageIds;
+    if (Array.isArray(recoveryEvidence)) return uniqueStringIds(recoveryEvidence);
+    const complaintEvidence = operational?.evidence?.complaint?.messageIds;
+    if (Array.isArray(complaintEvidence)) return uniqueStringIds(complaintEvidence);
+  }
+  return [];
 }
 
 function proposedLostReason(caseItem: any, sourceRows: SourceRow[]) {
+  const canonical = deriveProposedCaseLostReasonV23(
+    caseItem,
+    sourceRows.map((row) => ({
+      rawText: row.raw_text || null,
+      analysisJson: row.analysis_json || null,
+    }))
+  );
+  if (canonical.reason) return canonical;
+
   const text = sourceRows.map((row) => String(row.raw_text || '')).join('\n');
-  if (UNAVAILABLE_RX.test(text)) return { reason: 'unavailable', confidence: 88 };
   if (caseItem.failure && DELIVERY_FAILURE_RX.test(text)) return { reason: 'delivery_or_fulfillment_failure', confidence: 84 };
-  if (PRICE_RX.test(text)) return { reason: 'price_objection', confidence: 78 };
   if ((caseItem.state === 'recovery' || caseItem.state === 'awaiting_customer') && Number(caseItem.recoveryAttempts || 0) >= 2) {
     return { reason: 'no_response_after_followup', confidence: 76 };
   }
   return { reason: null, confidence: null };
 }
 
-function proposedOutcome(caseItem: any, verifiedInvoice: SourceRow | null) {
-  if (verifiedInvoice?.matched_invoice_id) return { outcome: 'verified_sale', confidence: 100 };
+function proposedOutcome(caseItem: any) {
+  // مهم: legacy invoice_match_status لا يثبت البيع رسميًا.
+  // الترقية إلى verified_sale تتم فقط بعد Canonical Sales Intelligence
+  // عندما salesOutcome.outcome === 'sale_proven'.
   if (caseItem.orderConfirmed) return { outcome: 'order_confirmed_waiting_invoice', confidence: 92 };
   if (caseItem.customerReengaged) return { outcome: 'customer_reengaged', confidence: 90 };
   if (caseItem.failure || caseItem.complaint || caseItem.state === 'recovery') return { outcome: 'followup_needed', confidence: 88 };
@@ -94,22 +169,22 @@ function proposedOutcome(caseItem: any, verifiedInvoice: SourceRow | null) {
 }
 
 function stageCandidates(caseItem: any, rows: SourceRow[]) {
-  const stages: Array<{ stage: string; source: SourceRow; preferred: string[] }> = [];
+  const stages: Array<{ stage: string; source: SourceRow; preferred: string[]; evidenceMessageIds: string[] }> = [];
   const sorted = [...rows].sort((a, b) => String(a.conversation_started_at || '').localeCompare(String(b.conversation_started_at || '')));
   const commercialPreferred = ['pharmacist', 'pharmacy_unknown', 'assistant', 'branch_manager'];
   const recoveryPreferred = ['customer_service', 'management', 'pharmacist'];
 
-  if (caseItem.orderIntent && sorted[0]) stages.push({ stage: 'intake', source: sorted[0], preferred: commercialPreferred });
+  if (caseItem.orderIntent && sorted[0]) stages.push({ stage: 'intake', source: sorted[0], preferred: commercialPreferred, evidenceMessageIds: [] });
   const availability = sorted.find((row) => AVAILABILITY_RX.test(String(row.raw_text || '')));
-  if (availability) stages.push({ stage: 'availability', source: availability, preferred: commercialPreferred });
+  if (availability) stages.push({ stage: 'availability', source: availability, preferred: commercialPreferred, evidenceMessageIds: stageEvidenceMessageIds(availability, 'availability') });
   const recommendation = sorted.find((row) => RECOMMENDATION_RX.test(String(row.raw_text || '')));
-  if (recommendation) stages.push({ stage: 'recommendation', source: recommendation, preferred: commercialPreferred });
+  if (recommendation) stages.push({ stage: 'recommendation', source: recommendation, preferred: commercialPreferred, evidenceMessageIds: stageEvidenceMessageIds(recommendation, 'recommendation') });
   const confirmation = [...sorted].reverse().find((row) => CONFIRMATION_RX.test(String(row.raw_text || '')));
-  if (confirmation) stages.push({ stage: 'confirmation', source: confirmation, preferred: commercialPreferred });
+  if (confirmation) stages.push({ stage: 'confirmation', source: confirmation, preferred: commercialPreferred, evidenceMessageIds: stageEvidenceMessageIds(confirmation, 'confirmation') });
   const complaint = sorted.find((row) => COMPLAINT_RX.test(String(row.raw_text || '')));
-  if (complaint) stages.push({ stage: 'complaint', source: complaint, preferred: recoveryPreferred });
+  if (complaint) stages.push({ stage: 'complaint', source: complaint, preferred: recoveryPreferred, evidenceMessageIds: stageEvidenceMessageIds(complaint, 'complaint') });
   const recovery = [...sorted].reverse().find((row) => RECOVERY_RX.test(String(row.raw_text || '')));
-  if (recovery) stages.push({ stage: 'recovery', source: recovery, preferred: recoveryPreferred });
+  if (recovery) stages.push({ stage: 'recovery', source: recovery, preferred: recoveryPreferred, evidenceMessageIds: stageEvidenceMessageIds(recovery, 'recovery') });
   return stages;
 }
 
@@ -118,7 +193,7 @@ export async function syncWhatsAppCustomerCasesV22(
   context: SyncWhatsAppCustomerCasesV22Context,
 ): Promise<SyncWhatsAppCustomerCasesV22Result> {
   const sourceBySession = new Map(context.sessionSources.map((x) => [x.sessionId, x.sourceId]));
-  const result: SyncWhatsAppCustomerCasesV22Result = { saved: 0, skipped: 0, failed: 0 };
+  const result: SyncWhatsAppCustomerCasesV22Result = { saved: 0, skipped: 0, failed: 0, failures: [] };
   const allSourceIds = [...new Set(context.sessionSources.map((x) => x.sourceId).filter(Boolean))];
 
   const sourceMap = new Map<string, SourceRow>();
@@ -177,10 +252,7 @@ export async function syncWhatsAppCustomerCasesV22(
       const staffAccountIds = [...new Set(staffRows.map((x) => x.accountId).filter((x): x is string => Boolean(x)))];
       const staffNames = [...new Set(staffRows.map((x) => String(x.staffName)))];
 
-      const verifiedInvoice = caseSources
-        .filter((row) => String(row.invoice_match_status || '').toLowerCase() === 'verified' && row.matched_invoice_id)
-        .sort((a, b) => Number(b.invoice_match_confidence || 0) - Number(a.invoice_match_confidence || 0))[0] || null;
-      const outcome = proposedOutcome(caseItem, verifiedInvoice);
+      const outcome = proposedOutcome(caseItem);
       const lost = proposedLostReason(caseItem, caseSources);
       const commercialOpportunity = Boolean(caseItem.orderIntent || caseItem.recommendation);
 
@@ -224,11 +296,19 @@ export async function syncWhatsAppCustomerCasesV22(
         proposed_lost_reason: lost.reason,
         lost_reason_confidence: lost.confidence,
         commercial_opportunity: commercialOpportunity,
-        verified_revenue: verifiedInvoice?.matched_invoice_value != null ? Number(verifiedInvoice.matched_invoice_value) : null,
-        verified_invoice_id: verifiedInvoice?.matched_invoice_id || null,
-        verified_invoice_number: verifiedInvoice?.matched_invoice_number || null,
-        verified_sale_at: verifiedInvoice?.matched_invoice_date || null,
-        case_json: { ...caseItem, canonicalStaff: staffRows, v23: { proposedOutcome: outcome, proposedLostReason: lost } },
+        // Canonical sale-proof fields are intentionally omitted here.
+        // On insert they use DB defaults (null); on reanalysis an existing proven proof
+        // stays intact until Sales Intelligence reconciliation explicitly proves or clears it.
+        // This prevents a transient refresh failure from erasing previously trusted truth.
+        case_json: {
+          ...caseItem,
+          canonicalStaff: staffRows,
+          v23: {
+            proposedOutcome: outcome,
+            proposedLostReason: lost,
+            saleProofSource: 'canonical_sales_intelligence_only',
+          },
+        },
         created_by: context.createdBy || null,
         updated_at: new Date().toISOString(),
       };
@@ -241,9 +321,15 @@ export async function syncWhatsAppCustomerCasesV22(
       if (error) throw error;
 
       const ownershipRows = stageCandidates(caseItem, caseSources)
-        .map(({ stage, source, preferred }) => {
-          const owner = pickOwner(source, preferred);
+        .map(({ stage, source, preferred, evidenceMessageIds }) => {
+          const owner = pickOwner(source, preferred, evidenceMessageIds);
           if (!owner?.accountId) return null;
+          const ownerEvidenceMessageIds = evidenceMessageIds.filter((messageId) => {
+            const messageRole = source.analysis_json?.participantRoles?.messages?.find(
+              (row: any) => String(row?.messageId || '') === messageId
+            );
+            return String(messageRole?.accountId || '') === String(owner.accountId || '');
+          });
           return {
             case_id: savedCase.id,
             stage,
@@ -252,7 +338,7 @@ export async function syncWhatsAppCustomerCasesV22(
             owner_role: owner.role,
             ownership_confidence: owner.confidence,
             evidence_source_ids: [source.id],
-            evidence_message_ids: [],
+            evidence_message_ids: ownerEvidenceMessageIds,
             updated_at: new Date().toISOString(),
           };
         })
@@ -268,6 +354,12 @@ export async function syncWhatsAppCustomerCasesV22(
     } catch (error) {
       console.warn('[whatsapp-case-v22] failed to persist case', caseItem.id, error);
       result.failed += 1;
+      result.failures.push({
+        caseId: String(caseItem.id),
+        message: error instanceof Error
+          ? error.message
+          : String((error as { message?: unknown } | null)?.message ?? error),
+      });
     }
   }
 

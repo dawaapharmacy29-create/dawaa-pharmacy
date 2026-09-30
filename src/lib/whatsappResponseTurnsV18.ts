@@ -12,8 +12,15 @@ function roleMap(model?: WhatsAppParticipantRoleModelV15 | null) {
   return new Map((model?.messages || []).map((row) => [row.messageId, row]));
 }
 
+const DELETED_MESSAGE_RX = /(you deleted this message|this message was deleted|تم حذف هذه الرسالة|لقد حذفت هذه الرسالة)/i;
+
 function nonSystem(messages: WhatsAppParsedMessage[]) {
-  return messages.filter((m) => m.direction !== 'system' && m.kind !== 'system');
+  return messages.filter(
+    (m) =>
+      m.direction !== 'system' &&
+      m.kind !== 'system' &&
+      !DELETED_MESSAGE_RX.test(String(m.text || ''))
+  );
 }
 
 export function buildWhatsAppResponseTurnsV18(session: WhatsAppConversationSession, participantRoles?: WhatsAppParticipantRoleModelV15 | null) {

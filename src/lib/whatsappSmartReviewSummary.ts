@@ -82,9 +82,9 @@ export function buildSmartConversationReviewSummary(session: WhatsAppConversatio
   let outcome: SmartOutcome = 'open';
   let outcomeLabel = 'مفتوحة / غير محسومة';
   if (NO_SALE_RX.test(text)) { outcome = 'closed_no_sale'; outcomeLabel = 'لم يتم البيع / الصنف غير متاح أو تعذر الصرف'; }
-  else if (Boolean(signals.saleIntentDetected)) { outcome = 'sale_intent'; outcomeLabel = 'نية شراء موجودة — تحتاج تحقق فاتورة'; }
-  else if (Boolean(signals.followupPromiseDetected)) { outcome = 'needs_followup'; outcomeLabel = 'تحتاج متابعة'; }
-  else if (Boolean(signals.closingDetected)) { outcome = 'resolved'; outcomeLabel = 'مغلقة نصيًا — بدون إثبات بيع'; }
+  else if (signals.saleIntentDetected) { outcome = 'sale_intent'; outcomeLabel = 'نية شراء موجودة — تحتاج تحقق فاتورة'; }
+  else if (signals.followupPromiseDetected) { outcome = 'needs_followup'; outcomeLabel = 'تحتاج متابعة'; }
+  else if (signals.closingDetected) { outcome = 'resolved'; outcomeLabel = 'مغلقة نصيًا — بدون إثبات بيع'; }
 
   const flags: string[] = [];
   if ((signals.waitsOver10Minutes || 0) > 0) flags.push('تأخير رد أكثر من 10 دقائق');

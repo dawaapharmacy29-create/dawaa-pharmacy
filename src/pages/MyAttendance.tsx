@@ -63,7 +63,6 @@ export default function MyAttendance() {
   useEffect(() => { void load(); }, [load]);
 
   const summary = detail?.summary;
-  const money = (v: number | null | undefined) => (v == null ? 'غير محدد' : `${v.toLocaleString('ar-EG')} ج.م`);
 
   if (resolvingIdentity) {
     return <div className="flex justify-center p-10"><Loader2 className="animate-spin text-[var(--dawaa-theme-muted)]" /></div>;
@@ -98,22 +97,28 @@ export default function MyAttendance() {
 
       {!loading && summary && (
         <>
+          {summary.resolution_drift_days > 0 && (
+            <div className="flex items-start gap-2 rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-2 text-xs font-bold text-[var(--dawaa-status-warning-text)]">
+              <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+              <span>
+                يوجد {summary.resolution_drift_days} يوم قديم تغيّر تفسيره بعد تحديث الجداول
+                {summary.financial_drift_days > 0 ? `، منهم ${summary.financial_drift_days} يوم يحتاج مراجعة الإدارة قبل الاعتماد المالي.` : '، بدون فرق ساعات مالي حاليًا.'}
+              </span>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-            <StatCard label="أيام العمل" value={String(summary.period_days - summary.off_days - summary.approved_leave_days)} />
-            <StatCard label="أيام التأخير" value={String(summary.late_days)} sub={`فعلي ${summary.total_late_minutes} د · محتسب ${summary.late_penalty_minutes} د`} />
-            <StatCard label="غياب/مراجعة" value={String(summary.absence_review_days + summary.needs_review_days)} />
-            <StatCard label="ساعات العمل" value={summary.total_worked_hours.toFixed(1)} />
-            <StatCard label="أوفر تايم معتمد" value={summary.total_overtime_hours_approved.toFixed(1)} sub={summary.overtime_amount_approved != null ? money(summary.overtime_amount_approved) : undefined} />
+            <StatCard label="أيام حضور فعلية" value={String(summary.actual_worked_days)} sub={`من ${summary.scheduled_workdays} يوم مطلوب حتى اليوم`} />
+            <StatCard label="أيام التأخير المعتمدة" value={String(summary.late_days)} sub={`${summary.total_late_minutes} دقيقة فعلية`} />
+            <StatCard label="أيام معلّقة" value={String(summary.pending_review_days)} sub={`غياب ${summary.absence_review_days} · بصمة ناقصة ${summary.missing_punch_days}`} />
+            <StatCard label="ساعات فعلية معتمدة" value={summary.total_worked_hours.toFixed(1)} />
+            <StatCard label="أوفر تايم معتمد" value={summary.total_overtime_hours_approved.toFixed(1)} />
             <StatCard label="إجازات معتمدة" value={String(summary.approved_leave_days)} />
           </div>
 
-          {summary.compensation_profile_complete && (
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              <StatCard label="خصم التأخير" value={money(summary.late_deduction_amount)} />
-              <StatCard label="خصم المغادرة المبكرة" value={money(summary.early_leave_deduction_amount)} />
-              <StatCard label="خصم الغياب" value={money(summary.absence_deduction_amount)} />
-            </div>
-          )}
+          <div className="rounded-xl border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] p-2 text-xs font-bold text-[var(--dawaa-status-info-text)]">
+            أي خصم مالي أو جزاء لا يُحسب من شاشة الحضور؛ الحساب النهائي من محرك المرتبات بعد اعتماد الأيام المعلّقة.
+          </div>
 
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             <StatCard
@@ -141,6 +146,7 @@ export default function MyAttendance() {
                   <th className="p-3">التاريخ</th>
                   <th className="p-3">اليوم</th>
                   <th className="p-3">الحالة</th>
+                  <th className="p-3">الاعتماد</th>
                   <th className="p-3">حضور</th>
                   <th className="p-3">انصراف</th>
                   <th className="p-3">تأخير</th>
@@ -156,16 +162,16 @@ export default function MyAttendance() {
                         {RESOLUTION_STATUS_LABELS[d.resolution_status] || d.resolution_status}
                       </span>
                     </td>
+                    <td className="p-3">
+                      {d.approval_state === 'approved'
+                        ? <span className="rounded-full border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] px-2 py-0.5 text-[10px] font-black text-[var(--dawaa-status-success-text)]">معتمد</span>
+                        : d.approval_state === 'pending_review'
+                          ? <span className="rounded-full border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-2 py-0.5 text-[10px] font-black text-[var(--dawaa-status-warning-text)]">معلّق</span>
+                          : <span className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">غير مكوّن</span>}
+                    </td>
                     <td className="p-3">{formatClock(d.first_in)}</td>
                     <td className="p-3">{formatClock(d.last_out)}</td>
-                    <td className="p-3">
-                      {Number(d.late_minutes) > 0 ? (
-                        <span className="flex items-center gap-1">
-                          {d.late_minutes} د
-                          {d.late_compensated && <span className="rounded-full border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] px-1.5 py-0.5 text-[9px] font-black text-[var(--dawaa-status-info-text)]">معفى</span>}
-                        </span>
-                      ) : '—'}
-                    </td>
+                    <td className="p-3">{Number(d.late_minutes) > 0 ? `${d.late_minutes} د` : '—'}</td>
                   </tr>
                 ))}
               </tbody>

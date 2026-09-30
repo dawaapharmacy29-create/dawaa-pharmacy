@@ -4,6 +4,7 @@ import { BarChart3, ClipboardCheck, FileSpreadsheet, Filter, MessageSquareText, 
 import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
+import { ANALYTICS_DATA_SOURCES } from '@/lib/dataSources';
 import { useAuth } from '@/hooks/useAuth';
 import { normalizeBranchName } from '@/lib/branch';
 import { readStaffDirectory } from '@/lib/readModels/staffDirectoryReadModel';
@@ -206,7 +207,7 @@ export default function ReviewsInsightsHub() {
       const [monthStart, monthEnd] = monthRange(month);
       const [reviewResult, staffResult] = await Promise.all([
         supabase
-          .from('conversation_sales_reviews')
+          .from(ANALYTICS_DATA_SOURCES.officialConversationReviews)
           .select(REVIEW_COLUMNS)
           // بنفلتر بالشهر المختار جوه الاستعلام نفسه بدل ما نجيب كل التاريخ
           // ونفلتر بعدين في المتصفح. conversation_date لو موجود، وإلا created_at

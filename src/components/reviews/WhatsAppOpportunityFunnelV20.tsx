@@ -62,15 +62,15 @@ export default function WhatsAppOpportunityFunnelV20() {
 
   return <section className="dawaa-card dawaa-card--raised p-4">
     <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-      <div><div className="flex items-center gap-2 font-black text-white"><ShoppingCart size={18}/>Funnel الفرص البيعية الموثق V20</div><div className="mt-1 text-xs leading-5 text-slate-400">من اكتشاف الفرصة حتى الفاتورة، مع فصل بيع المحادثة عن إثبات الصنف نفسه.</div><div className="mt-1 text-[10px] text-slate-500">الدورة الحالية: {cycle.start} → {cycle.end}</div></div>
+      <div><div className="flex items-center gap-2 font-black text-white"><ShoppingCart size={18}/>Funnel رحلة الفرص البيعية V20</div><div className="mt-1 text-xs leading-5 text-slate-400">من اكتشاف الفرصة حتى الإغلاق، مع فصل تأكيد الأوردر عن Sale Proof Canonical وعن إثبات الصنف داخل بند الفاتورة.</div><div className="mt-1 text-[10px] text-slate-500">الدورة الحالية: {cycle.start} → {cycle.end}</div></div>
       <div className="relative w-full lg:w-64"><Filter size={14} className="absolute right-3 top-3 text-slate-500"/><input value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="بحث باسم الدكتور/الفرع" className="w-full rounded-xl border border-slate-800 bg-slate-950/50 py-2 pr-9 pl-3 text-sm text-white outline-none"/></div>
     </div>
 
     <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
-      <M label="الفرص" value={totals.opportunities}/><M label="وصلت لقبول" value={totals.accepted}/><M label="تأكيد أوردر" value={totals.confirmed}/><M label="فاتورة مرتبطة بالمحادثة" value={totals.conversationSales}/><M label="الصنف مثبت بالفاتورة" value={totals.productSales}/><M label="فرص بها تسريب" value={totals.leakage}/>
+      <M label="الفرص" value={totals.opportunities}/><M label="وصلت لقبول" value={totals.accepted}/><M label="تأكيد أوردر" value={totals.confirmed}/><M label="إثبات فاتورة للفرصة" value={totals.conversationSales}/><M label="الصنف مثبت ببند فاتورة" value={totals.productSales}/><M label="فرص بها تسريب" value={totals.leakage}/>
     </div>
 
-    <div className="mt-3 rounded-xl border border-amber-400/20 bg-amber-500/5 p-3 text-xs leading-6 text-amber-100"><TriangleAlert size={14} className="ml-1 inline"/>حاليًا بيانات الفواتير لا تحتوي أسماء/أكواد بنود الفاتورة، لذلك <b>Product Conversion الدقيق غير قابل للإثبات</b>. الفاتورة تثبت Conversion للمحادثة فقط، والنظام لا يخمن الصنف.</div>
+    <div className="mt-3 rounded-xl border border-amber-400/20 bg-amber-500/5 p-3 text-xs leading-6 text-amber-100"><TriangleAlert size={14} className="ml-1 inline"/>Product Conversion لا يُحسب إلا عند وجود matched invoice item للصنف نفسه. مطابقة الفاتورة العامة أو تأكيد الأوردر لا يثبتان بيع الصنف، والنظام لا يخمن الربط.</div>
 
     {loading ? <div className="mt-4 text-sm text-slate-400">جاري تحميل الـFunnel...</div> : null}
     {error ? <div className="mt-4 text-xs text-rose-200">{error}</div> : null}
@@ -80,7 +80,7 @@ export default function WhatsAppOpportunityFunnelV20() {
       {filtered.map((row) => <div key={`${row.staff_id}-${row.branch}`} className="rounded-2xl border border-slate-800 bg-slate-950/25 p-3">
         <div className="flex flex-wrap items-center justify-between gap-2"><div className="font-black text-white">{row.staff_name || 'دكتور غير محدد'}</div><div className="text-[10px] text-slate-500">{row.branch || '—'}</div></div>
         <div className="mt-2 grid gap-2 text-xs sm:grid-cols-3 xl:grid-cols-7">
-          <K label="فرص" value={row.opportunities||0}/><K label="ترشيح/بديل" value={row.recommendation_or_alternative||0}/><K label="قبول" value={row.accepted_or_beyond||0}/><K label="أوردر مؤكد" value={row.order_confirmed_or_beyond||0}/><K label="بيع محادثة" value={row.conversation_linked_verified_sales||0}/><K label="قبول الترشيح" value={pct(row.recommendation_to_acceptance_rate)}/><K label="Conversion محادثة" value={pct(row.opportunity_to_conversation_sale_rate)}/>
+          <K label="فرص" value={row.opportunities||0}/><K label="ترشيح/بديل" value={row.recommendation_or_alternative||0}/><K label="قبول" value={row.accepted_or_beyond||0}/><K label="أوردر مؤكد" value={row.order_confirmed_or_beyond||0}/><K label="إثبات فاتورة للفرصة" value={row.conversation_linked_verified_sales||0}/><K label="قبول الترشيح" value={pct(row.recommendation_to_acceptance_rate)}/><K label="تحويل إلى إثبات فاتورة" value={pct(row.opportunity_to_conversation_sale_rate)}/>
         </div>
       </div>)}
     </div>
@@ -91,4 +91,4 @@ export default function WhatsAppOpportunityFunnelV20() {
 
 function M({label,value}:{label:string;value:any}){return <div className="rounded-xl border border-slate-800 bg-slate-950/30 p-2.5"><div className="text-[10px] text-slate-500">{label}</div><div className="mt-1 text-lg font-black text-white">{value}</div></div>}
 function K({label,value}:{label:string;value:any}){return <div><div className="text-[10px] text-slate-500">{label}</div><div className="mt-0.5 font-black text-slate-100">{value}</div></div>}
-function labelLeak(v:string){const m:Record<string,string>={stock_unavailable:'غير متوفر',alternative_not_decided:'بديل بدون حسم',recommendation_not_decided:'ترشيح بدون حسم',accepted_not_closed:'قبول بدون إغلاق',order_without_verified_invoice:'أوردر بلا فاتورة مؤكدة',customer_rejected_or_lost:'رفض/فقد فرصة',followup_pending:'متابعة معلقة',other:'أخرى'};return m[v]||v;}
+function labelLeak(v:string){const m:Record<string,string>={stock_unavailable:'غير متوفر',alternative_not_decided:'بديل بدون حسم',recommendation_not_decided:'ترشيح بدون حسم',accepted_not_closed:'قبول بدون إغلاق',order_without_verified_invoice:'أوردر بلا إثبات فاتورة للفرصة',customer_rejected_or_lost:'رفض/فقد فرصة',followup_pending:'متابعة معلقة',other:'أخرى'};return m[v]||v;}

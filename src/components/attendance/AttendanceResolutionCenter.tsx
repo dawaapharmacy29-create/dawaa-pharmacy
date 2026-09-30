@@ -64,11 +64,20 @@ function stateClass(row: AttendanceResolutionRow) {
   return 'border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)]';
 }
 
-export default function AttendanceResolutionCenter({ defaultBranch = 'الكل' }: { defaultBranch?: string }) {
-  const [start, setStart] = useState(cairoDate(-7));
-  const [end, setEnd] = useState(cairoDate());
+export default function AttendanceResolutionCenter({
+  defaultBranch = 'الكل',
+  initialDate = null,
+  initialTriage = 'manager',
+}: {
+  defaultBranch?: string;
+  initialDate?: string | null;
+  initialTriage?: 'all' | 'manager' | 'system';
+}) {
+  const [start, setStart] = useState(() => initialDate || cairoDate(-7));
+  const [end, setEnd] = useState(() => initialDate || cairoDate());
   const [branch, setBranch] = useState(defaultBranch || 'الكل');
-  const [status, setStatus] = useState<string>('');
+  const [status, setStatus] = useState<string>('pending_review');
+  const [triage, setTriage] = useState<'all' | 'manager' | 'system'>(initialTriage);
   const [rows, setRows] = useState<AttendanceResolutionRow[]>([]);
   const [impacts, setImpacts] = useState<AttendanceImpactRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -77,6 +86,14 @@ export default function AttendanceResolutionCenter({ defaultBranch = 'الكل' 
   const [profileStaffId, setProfileStaffId] = useState<string | null>(null);
   const [pendingDeductions, setPendingDeductions] = useState<{ id: string; staff_id: string; employee_name: string; branch: string; month_cycle: string; points: number; amount: number; description: string; transaction_date: string }[]>([]);
   const [deductionBusy, setDeductionBusy] = useState<string | null>(null);
+
+  useEffect(() => {
+    setTriage(initialTriage);
+    if (!initialDate) return;
+    setStart(initialDate);
+    setEnd(initialDate);
+    setStatus('pending_review');
+  }, [initialDate, initialTriage]);
 
   const loadPendingDeductions = useCallback(async () => {
     const { data, error: rpcError } = await supabase.rpc('attendance_deduction_pending_review_v1');
@@ -106,7 +123,7 @@ export default function AttendanceResolutionCenter({ defaultBranch = 'الكل' 
     setLoading(true);
     try {
       const [queue, ledger] = await Promise.all([
-        listAttendanceResolutionQueue({ start, end, branch, status: status || null, limit: 500 }),
+        listAttendanceResolutionQueue({ start, end, branch, status: status || null, triage, limit: 500 }),
         listAttendanceImpactLedger({ start, end, limit: 500 }),
       ]);
       setRows(queue);
@@ -116,7 +133,7 @@ export default function AttendanceResolutionCenter({ defaultBranch = 'الكل' 
     } finally {
       setLoading(false);
     }
-  }, [branch, end, start, status]);
+  }, [branch, end, start, status, triage]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -176,21 +193,29 @@ export default function AttendanceResolutionCenter({ defaultBranch = 'الكل' 
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
           <div className="flex-1">
             <h2 className="text-lg font-black text-[var(--dawaa-theme-heading)]">التسوية اليومية والالتزام</h2>
-            <p className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">البصمة دليل فقط. القرار هنا يجمع الجدول + المزامنة + الإذن/الإجازة + السياسة قبل أي أثر على الحافز أو المرتب.</p>
+            <p className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">البصمة دليل فقط. كل صف هنا سجل تسوية لموظف/يوم وليس «يوم حضور للمرتب». أيام العمل الفعلية موجودة منفصلة في التقارير ← الحضور الفعلي للمرتب.</p>
           </div>
           <label className="text-xs font-black text-[var(--dawaa-theme-muted)]">من<input type="date" value={start} onChange={(e) => setStart(e.target.value)} className="input-dark mt-1 block" /></label>
           <label className="text-xs font-black text-[var(--dawaa-theme-muted)]">إلى<input type="date" value={end} onChange={(e) => setEnd(e.target.value)} className="input-dark mt-1 block" /></label>
           <label className="text-xs font-black text-[var(--dawaa-theme-muted)]">الحالة<select value={status} onChange={(e) => setStatus(e.target.value)} className="input-dark mt-1 block"><option value="">الكل</option><option value="pending_review">تحتاج مراجعة</option><option value="approved">معتمدة</option></select></label>
+          <label className="text-xs font-black text-[var(--dawaa-theme-muted)]">نوع المتابعة<select value={triage} onChange={(e) => setTriage(e.target.value as 'all' | 'manager' | 'system')} className="input-dark mt-1 block"><option value="manager">قرار مدير فقط</option><option value="system">مشكلة تفسير نظام</option><option value="all">الكل</option></select></label>
           <button onClick={() => void load()} className="btn-secondary"><RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> تحديث</button>
           <button onClick={() => void runMaterialization()} disabled={materializing} className="btn-primary"><ShieldCheck size={16} className={materializing ? 'animate-pulse' : ''} /> تشغيل التسوية</button>
         </div>
         <input value={branch} onChange={(e) => setBranch(e.target.value)} className="input-dark mt-3 max-w-xs" placeholder="الفرع أو الكل" />
+        <div className={`mt-3 rounded-xl border p-3 text-xs font-bold ${triage === 'system' ? 'border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] text-[var(--dawaa-status-info-text)]' : 'border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] text-[var(--dawaa-theme-muted)]'}`}>
+          {triage === 'system'
+            ? 'هذه الحالات عندها بصمتان أو أكثر لكن تفسير دخول/خروج غير صحيح. لا تعتبرها خطأ موظف قبل إصلاح التفسير أو الربط.'
+            : triage === 'manager'
+              ? 'يعرض فقط الحالات التي تحتاج قرارًا إداريًا فعليًا: غياب حقيقي، بصمة واحدة، خروج مبكر، عمل في إجازة، أو مشكلة جدول.'
+              : 'يعرض كل سجلات التسوية بما فيها الحالات النظامية.'}
+        </div>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <Metric label="إجمالي الأيام" value={totals.total} icon={Clock3} />
-        <Metric label="معتمدة" value={totals.approved} icon={CheckCircle2} />
-        <Metric label="تحتاج مراجعة" value={totals.review} icon={AlertTriangle} />
+        <Metric label="إجمالي سجلات التسوية" value={totals.total} icon={Clock3} />
+        <Metric label="سجلات معتمدة" value={totals.approved} icon={CheckCircle2} />
+        <Metric label="سجلات تحتاج مراجعة" value={totals.review} icon={AlertTriangle} />
         <Metric label="اعتماد تلقائي" value={totals.system} icon={ShieldCheck} />
         <Metric label="اعتماد إداري" value={totals.manager} icon={Scale} />
       </div>

@@ -1,0 +1,510 @@
+import { describe, expect, it } from 'vitest';
+import { parseWhatsAppExport, splitWhatsAppSessions } from '@/lib/whatsappConversationParser';
+import { buildUnifiedConversationIntelligence } from '@/lib/whatsappUnifiedIntelligenceV4';
+import { buildWhatsAppOperationalIntelligenceV6, mergeDeicticProductReferences, mergeProductSignalsByTruthV34 } from '@/lib/whatsappOperationalIntelligenceV6';
+import { enrichWhatsAppOperationalJourneysV7 } from '@/lib/whatsappProductJourneyV7';
+
+function analyze(raw: string) {
+  const sessions = splitWhatsAppSessions(parseWhatsAppExport(raw), 120);
+  expect(sessions.length).toBeGreaterThan(0);
+  const session = sessions[0];
+  const base = buildUnifiedConversationIntelligence(session);
+  return buildWhatsAppOperationalIntelligenceV6(session, base);
+}
+
+function analyzeWithJourney(raw: string) {
+  const sessions = splitWhatsAppSessions(parseWhatsAppExport(raw), 120);
+  expect(sessions.length).toBeGreaterThan(0);
+  const session = sessions[0];
+  const base = buildUnifiedConversationIntelligence(session);
+  const operational = buildWhatsAppOperationalIntelligenceV6(session, base);
+  return enrichWhatsAppOperationalJourneysV7(session, operational);
+}
+
+describe('WhatsApp Operational Intelligence V6 product extraction', () => {
+  it('keeps Hero Baby stage number as product identity and derives singular quantity from علبة', () => {
+    const model = analyze(`[9/27/26, 6:14:25 PM] Customer: السلام عليكم عايزه علبه لبن هيرو بيبي 2
+[9/27/26, 6:14:53 PM] You: تحت امر حضرتك
+[9/27/26, 6:20:24 PM] You: تم الارسال`);
+    const product = model.products.find((row) => row.rawName.includes('هيرو بيبي 2'));
+    expect(product?.quantity).toBe(1);
+  });
+
+  it('derives dual quantity from علبتين without treating product variant 3 as quantity', () => {
+    const model = analyze(`[9/27/26, 9:03:34 PM] Customer: لوسمحت كنت محتاجه علبتين لبن هيرو بيبي نيوتروني دفنس 3
+[9/27/26, 9:09:58 PM] You: جاري الارسال`);
+    const product = model.products.find((row) => row.rawName.includes('نيوتروني دفنس 3'));
+    expect(product?.quantity).toBe(2);
+  });
+
+  it('does not classify generic service phrases as products', () => {
+    const model = analyze(`[9/27/26, 8:00:00 PM] Customer: يادكتور
+[9/27/26, 8:01:00 PM] Customer: الحاجات دي
+[9/27/26, 8:02:00 PM] Customer: العلاج دا
+[9/27/26, 8:03:00 PM] Customer: شكرا لاهتمامكم
+[9/27/26, 8:04:00 PM] Customer: تبعت حد مالتمريض`);
+    const names = model.products.map((row) => row.rawName);
+    expect(names).not.toContain('يادكتور');
+    expect(names).not.toContain('الحاجات دي');
+    expect(names).not.toContain('العلاج دا');
+    expect(names.some((name) => /اهتمامكم|التمريض/.test(name))).toBe(false);
+  });
+
+  it('blocks standalone greetings from product discovery', () => {
+    const model = analyze(`[9/27/26, 8:00:00 PM] Customer: السلام عليكم يادكتور
+[9/27/26, 8:01:00 PM] Customer: مساء الخير يا دكتور
+[9/27/26, 8:02:00 PM] Customer: شكرا حضرتك
+[9/27/26, 8:03:00 PM] Customer: الحمد لله بخير`);
+    const names = model.products.map((row) => row.rawName);
+    expect(names.some((name) => /السلام|مساء الخير|شكرا|الحمد/.test(name))).toBe(false);
+  });
+
+  it('keeps a real commercial request even when it starts with a greeting', () => {
+    const model = analyze(`[9/27/26, 8:00:00 PM] Customer: السلام عليكم عايزه علبه لبن هيرو بيبي 2
+[9/27/26, 8:01:00 PM] You: تحت امر حضرتك`);
+    const product = model.products.find((row) => /هيرو بيبي 2/.test(row.rawName));
+    expect(product).toBeTruthy();
+    expect(product?.status).toBe('requested');
+    expect(product?.mentionOrigin).toBe('customer_explicit');
+    expect(product?.requestProven).toBe(true);
+    expect(product?.quantity).toBe(1);
+  });
+
+  it('suppresses observed conversational fragments without suppressing real generic demand', () => {
+    const noise = analyze(`[9/27/26, 8:00:00 PM] Customer: ده الا
+[9/27/26, 8:01:00 PM] Customer: مينفعش من
+[9/27/26, 8:02:00 PM] Customer: حسابه
+[9/27/26, 8:03:00 PM] Customer: هبقا
+[9/27/26, 8:04:00 PM] Customer: بحولهم و
+[9/27/26, 8:05:00 PM] Customer: بس عشان انا مش مجبره
+[9/27/26, 8:06:00 PM] Customer: ي دكتور`);
+    expect(noise.products).toHaveLength(0);
+
+    const demand = analyze(`[9/27/26, 8:10:00 PM] Customer: عايزه فوار للحموضه
+[9/27/26, 8:11:00 PM] You: حاضر يا فندم`);
+    expect(demand.products.some((row) => /فوار للحموضه/.test(row.rawName))).toBe(true);
+  });
+
+  it('closes a proactive service checkin from positive service feedback without inventing health improvement', () => {
+    const model = analyze(`[6/1/26, 11:05:08 PM] You: كنا حابين نطمن على حضرتك ونتأكد ان كل خدمات الصيدليه ماشيه بشكل يرضي حضرتك
+[6/1/26, 11:05:34 PM] Customer: نحمد الله على كل شيء
+[6/1/26, 11:05:51 PM] Customer: وخدمات الصيدليه ما شاء الله اللهم بارك
+[6/1/26, 11:06:12 PM] You: الحمدلله يا فندم`);
+    expect(model.primaryIntent).toBe('proactive_checkin');
+    expect(model.operationalOutcome).toBe('checkin_complete');
+    expect(model.customerState).toBe('unknown');
+    expect(model.followupPlan.required).toBe(false);
+  });
+
+  it('closes a proactive checkin from a positive emoji acknowledgement without inferring health state', () => {
+    const model = analyze(`[9/14/26, 6:10:10 PM] You: حابين نطمن على حضرتك وعلى صحة حضرتك ونتمنى تمام الشفاء
+[9/14/26, 6:16:08 PM] Customer: 👍🙏🙏
+[9/14/26, 6:47:10 PM] You: نتشرف دايما بخدمة حضرتك`);
+    expect(model.primaryIntent).toBe('proactive_checkin');
+    expect(model.operationalOutcome).toBe('checkin_complete');
+    expect(model.customerState).toBe('unknown');
+    expect(model.followupPlan.required).toBe(false);
+  });
+
+  it('classifies a generic need as recommendation intent instead of inventing a product', () => {
+    const model = analyze(`[9/27/26, 8:12:00 PM] Customer: محتاج حاجه للارهاق والخمول
+[9/27/26, 8:13:00 PM] You: ممكن نراجع السبب ونرشح المناسب`);
+    expect(model.products).toHaveLength(0);
+    expect(model.primaryIntent).toBe('doctor_recommendation');
+  });
+
+  it('treats جاري الارسال as operational closure without requiring follow-up', () => {
+    const model = analyze(`[9/28/26, 6:51:56 AM] Customer: لو سمحت يادكتور عايزه الحاجات دي
+[9/28/26, 6:54:34 AM] Customer: ايوه
+[9/28/26, 6:58:45 AM] You: جاري الارسال
+نتشرف ب خدمة حضرتك ٢٤ ساعه 🌸🌸`);
+    expect(model.operationalOutcome).toBe('probable_sale');
+    expect(model.followupPlan.required).toBe(false);
+  });
+
+  it('does not treat the official 24-hour delivery welcome as a product', () => {
+    const model = analyze(`[9/28/26, 6:52:06 AM] You: أهلًا وسهلًا بحضرتك✨
+نورتنا في صيدليات دواء 💚
+مع حضرتك د شبل
+خدمة التوصيل متاحة على مدار ٢٤ ساعة 🚗`);
+    expect(model.products).toHaveLength(0);
+  });
+
+  it('trims fulfillment wording after an explicit outbound product mention', () => {
+    const model = analyze(`[9/28/26, 6:55:01 AM] You: معلش بس في شريط بون كير هجيبه من الفرع التاني بس وييجي لحضرتك`);
+    const product = model.products.find((row) => /بون كير/i.test(row.rawName));
+    expect(product).toBeTruthy();
+    expect(product?.rawName).toBe('بون كير');
+    expect(product?.mentionOrigin).toBe('pharmacy_mention');
+    expect(product?.requestProven).toBe(false);
+  });
+
+  it('does not invent products from Mahmoud Saleh image-reference requests and greetings', () => {
+    const model = analyze(`[9/27/26, 8:25:21 PM] الحاج محمود صالح ٢٤٩٠: اهلا بيكي حبيبتي الحمد لله كله تمام
+[9/27/26, 8:25:35 PM] الحاج محمود صالح ٢٤٩٠: لو سمحت يادكتور عايزه العلبه دي
+[9/27/26, 8:25:49 PM] الحاج محمود صالح ٢٤٩٠: <image omitted>
+[9/28/26, 6:51:56 AM] الحاج محمود صالح ٢٤٩٠: السلام عليكم
+لو سمحت يادكتور عايزه الحاجات دي
+[9/28/26, 6:51:59 AM] الحاج محمود صالح ٢٤٩٠: <image omitted>
+[9/28/26, 6:52:05 AM] You: وعليكم السلام ورحمه الله وبركاته`);
+
+    expect(model.products.some((row) => /السلام|دكتور|العلبه دي|العلبة دي|الحاجات دي/.test(row.rawName))).toBe(false);
+    expect(model.customerRequests).toHaveLength(0);
+  });
+
+  it('keeps an explicit outbound fulfillment product as a mention, never a fabricated customer request', () => {
+    const model = analyze(`[9/28/26, 6:51:56 AM] Customer: لو سمحت يادكتور عايزه الحاجات دي
+[9/28/26, 6:51:59 AM] Customer: <image omitted>
+[9/28/26, 6:55:01 AM] You: معلش بس في شريط بون كير هجيبه من الفرع التاني بس وييجي لحضرتك
+[9/28/26, 6:58:45 AM] You: جاري الارسال`);
+
+    const product = model.products.find((row) => /بون كير/i.test(row.rawName));
+    expect(product).toBeTruthy();
+    expect(product?.rawName.trim()).toBe('بون كير');
+    expect(product?.sourceDirection).toBe('outbound');
+    expect(product?.status).toBe('mentioned');
+    expect(product?.mentionOrigin).toBe('pharmacy_mention');
+    expect(product?.requestProven).toBe(false);
+    expect(model.customerRequests.some((row) => /بون كير/i.test(row.productName || ''))).toBe(false);
+  });
+
+  it('grounds a warehouse lookup follow-up in the pharmacy promise, not terminal acknowledgement', () => {
+    const raw = `[8/29/26, 2:03:35 PM] Customer: في حاجه اسمها مارجو
+[8/29/26, 2:03:57 PM] You: لحظة واحده هشوفه لحضرتك يا فندم
+[8/29/26, 4:04:51 PM] You: هو مش عندى فى الصيدلية وهشوفه لحضرتك فى المخازن
+[8/29/26, 4:42:54 PM] Customer: ماشي تمام`;
+    const sessions = splitWhatsAppSessions(parseWhatsAppExport(raw), 120);
+    const session = sessions[0];
+    const base = buildUnifiedConversationIntelligence(session);
+    const model = buildWhatsAppOperationalIntelligenceV6(session, base);
+    expect(model.operationalOutcome).toBe('needs_followup');
+    expect(model.followupPlan.required).toBe(true);
+    expect(model.followupPlan.reason).toMatch(/فحص التوفر/);
+    const promiseMessage = session.messages.find((row) => /المخازن/.test(row.text));
+    const terminalAck = session.messages.find((row) => /ماشي تمام/.test(row.text));
+    expect(model.followupPlan.evidenceMessageIds).toContain(promiseMessage?.id);
+    expect(model.followupPlan.evidenceMessageIds).not.toContain(terminalAck?.id);
+  });
+
+  it('keeps a real unanswered customer message as evidence-backed follow-up', () => {
+    const model = analyze(`[8/11/26, 1:24:48 PM] Customer: محتاج اعرف الصنف ده هيتوفر امتى
+[8/11/26, 1:25:10 PM] You: هشوف لحضرتك
+[8/11/26, 1:40:00 PM] Customer: طيب عرفت ميعاده؟`);
+    expect(model.followupPlan.required).toBe(true);
+    expect(model.followupPlan.reason).toMatch(/لم يظهر بعدها رد/);
+    expect(model.followupPlan.evidenceMessageIds.length).toBeGreaterThan(0);
+  });
+
+  it('does not open follow-up from terminal thanks or acknowledgement alone', () => {
+    const model = analyze(`[8/11/26, 1:24:48 PM] Customer: محتاج اعرف السعر
+[8/11/26, 1:25:10 PM] You: 100 جنيه يا فندم
+[8/11/26, 1:25:20 PM] Customer: تمام شكرا`);
+    expect(model.followupPlan.required).toBe(false);
+  });
+
+  it('keeps stockout alternatives as an evidence-backed recovery follow-up', () => {
+    const model = analyze(`[8/11/26, 1:36:06 PM] Customer: <image omitted>
+[8/11/26, 1:37:00 PM] You: لحظة واحده هشوفه لحضرتك يا فندم
+[8/11/26, 3:27:41 PM] You: للأسف يا فندم دورت لحضرتك عليه فى كل مكان مش متوفر نفس الشكل
+[8/11/26, 3:28:18 PM] You: موجود المغربى والهندى ونتايجهم ممتازة جدا
+[8/11/26, 3:39:12 PM] You: المغربى ب ٦٣٠ ج الهندى ب ٥٢٥ ج
+[8/11/26, 3:39:31 PM] You: دى أسعارهم لو تحب تطلب منهم يا فندم`);
+    expect(model.operationalOutcome).toBe('needs_followup');
+    expect(model.followupPlan.required).toBe(true);
+    expect(model.followupPlan.reason).toMatch(/غير متوفر.*عرض بدائل/);
+    expect(model.followupPlan.evidenceMessageIds.length).toBeGreaterThan(0);
+    expect(model.evidence.stockUnavailable.messageIds.length).toBeGreaterThan(0);
+    expect(model.evidence.alternativeOffered.messageIds.length).toBeGreaterThan(0);
+  });
+
+  it('does not keep an automatic follow-up when there is no explainable reason or message evidence', () => {
+    const model = analyze(`[8/11/26, 1:24:48 PM] Customer: مساء الخير
+[8/11/26, 1:32:17 PM] You: تحت امر حضرتك`);
+    if (model.followupPlan.required) {
+      expect(Boolean(model.followupPlan.reason)).toBe(true);
+      expect(model.followupPlan.evidenceMessageIds.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('closes as no-sale when the customer says they sourced the unavailable item elsewhere', () => {
+    const model = analyze(`[6/29/26, 10:05:58 AM] You: لحظة واحده هشوفه لحضرتك يا فندم
+[6/29/26, 10:11:01 AM] You: للاسف يا فندم غير متاح ممكن ارشح لحضرتك نوع تاني كويس جدا بداله
+[6/29/26, 10:17:07 AM] Customer: شكرا
+[6/29/26, 10:17:15 AM] Customer: لقيته
+[6/29/26, 10:17:55 AM] You: تمام الحمد لله الف سلامة على حضرتك`);
+    expect(model.operationalOutcome).toBe('no_sale');
+    expect(model.followupPlan.required).toBe(false);
+    expect(model.evidence.externalResolution.messageIds.length).toBeGreaterThan(0);
+    expect(model.nextBestAction).toMatch(/وفّر الصنف بالفعل من مصدر آخر/);
+  });
+
+  it('does not infer external no-sale from "لقيته" without a prior pharmacy stockout', () => {
+    const model = analyze(`[6/29/26, 10:17:15 AM] Customer: لقيته
+[6/29/26, 10:17:55 AM] You: تمام يا فندم`);
+    expect(model.operationalOutcome).not.toBe('no_sale');
+    expect(model.evidence.externalResolution.messageIds).toHaveLength(0);
+  });
+
+  it('treats a procurement-team fulfillment commitment as an active followup', () => {
+    const model = analyze(`[4/1/26, 3:14:46 PM] You: عينيا يا فندم حاضر بلغت ادارة المشتريات وهي هتوفره لحضرتك علي طول
+[4/1/26, 3:15:54 PM] Customer: ربنا يكرمك
+[4/1/26, 3:16:15 PM] Customer: بس ضروري بالله عليكي
+[4/1/26, 3:18:10 PM] You: تؤمرنا يا فندم حاضر`);
+    expect(model.operationalOutcome).toBe('needs_followup');
+    expect(model.followupPlan.required).toBe(true);
+    expect(model.followupPlan.reason).toMatch(/وعدت العميل بفحص التوفر/);
+    expect(model.followupPlan.evidenceMessageIds.length).toBeGreaterThan(0);
+  });
+
+  it('treats supplier/company search promises as followup commitments', () => {
+    const model = analyze(`[6/28/26, 10:09:33 AM] Customer: <image omitted>
+[6/28/26, 10:09:36 AM] Customer: ده موجود
+[6/28/26, 10:10:39 AM] You: هشوفه لحضرتك
+[6/28/26, 10:20:13 AM] You: لو حضرتك تحب ارشح لك حاجه افضل منه
+[6/28/26, 10:22:00 AM] You: هشوفه لحضرتك في الشركات
+[6/28/26, 10:23:38 AM] Customer: تمام`);
+    expect(model.operationalOutcome).toBe('needs_followup');
+    expect(model.followupPlan.required).toBe(true);
+    expect(model.followupPlan.reason).toMatch(/وعدت العميل بفحص التوفر/);
+    expect(model.followupPlan.evidenceMessageIds.length).toBeGreaterThan(0);
+  });
+
+  it('creates an evidence-backed recovery followup after stockout alternatives with no customer decision', () => {
+    const model = analyze(`[8/11/26, 3:27:41 PM] You: للأسف يا فندم دورت لحضرتك عليه فى كل مكان مش متوفر نفس الشكل
+[8/11/26, 3:28:18 PM] You: موجود المغربى والهندى ونتايجهم ممتازة جدا
+[8/11/26, 3:39:12 PM] You: المغربى ب ٦٣٠ ج الهندى ب ٥٢٥ ج
+[8/11/26, 3:39:31 PM] You: دى أسعارهم لو تحب تطلب منهم يا فندم`);
+    expect(model.operationalOutcome).toBe('needs_followup');
+    expect(model.followupPlan.required).toBe(true);
+    expect(model.followupPlan.reason).toMatch(/الصنف الأصلي غير متوفر.*تم عرض بدائل/);
+    expect(model.followupPlan.evidenceMessageIds.length).toBeGreaterThan(0);
+    expect(model.evidence.stockUnavailable.messageIds.length).toBeGreaterThan(0);
+    expect(model.evidence.alternativeOffered.messageIds.length).toBeGreaterThan(0);
+  });
+
+  it('closes an accepted order when delivery dispatch is explicitly underway', () => {
+    const model = analyze(`[9/15/26, 9:30:55 PM] Customer: [Forwarded] Isis teenderm gel for sensitive skin بديل الغسول
+[9/15/26, 9:31:16 PM] Customer: موجود عندكم الغسول ده
+[9/15/26, 9:32:09 PM] You: موجود باذن الله يافندم
+[9/15/26, 9:35:06 PM] You: تحب نبعته لحضرتك باذن الله ؟
+[9/15/26, 9:42:30 PM] Customer: اه ابعته
+[9/15/26, 9:42:57 PM] You: من عنيا لحضرتك مسافة الطريق ويكون عند حضرتك
+[9/15/26, 10:28:58 PM] You: اه يا فندم المندوب في الطريق لحضرتك`);
+    expect(model.operationalOutcome).toBe('probable_sale');
+    expect(model.followupPlan.required).toBe(false);
+    expect(model.evidence.saleClose.messageIds.length).toBeGreaterThan(0);
+  });
+
+  it('keeps operational close and product journey close consistent for dispatched orders', () => {
+    const model = analyzeWithJourney(`[9/15/26, 9:30:55 PM] Customer: [Forwarded] Isis teenderm gel for sensitive skin بديل الغسول
+[9/15/26, 9:31:16 PM] Customer: موجود عندكم الغسول ده
+[9/15/26, 9:32:09 PM] You: موجود باذن الله يافندم
+[9/15/26, 9:35:06 PM] You: تحب نبعته لحضرتك باذن الله ؟
+[9/15/26, 9:42:30 PM] Customer: اه ابعته
+[9/15/26, 9:42:57 PM] You: من عنيا لحضرتك مسافة الطريق ويكون عند حضرتك
+[9/15/26, 10:28:58 PM] You: اه يا فندم المندوب في الطريق لحضرتك`);
+    const journey = model.productJourney.journeys.find((row) => /isis teenderm/i.test(row.productName));
+    expect(model.operationalOutcome).toBe('probable_sale');
+    expect(journey?.closedInChat).toBe(true);
+    expect(journey?.currentStage).toBe('awaiting_invoice');
+    expect(journey?.leakageCode ?? null).toBeNull();
+    expect(journey?.leakageReason ?? null).toBeNull();
+  });
+
+  it('does not treat generic delivery talk as a close without a prior customer commitment', () => {
+    const model = analyze(`[9/15/26, 9:30:55 PM] Customer: التوصيل بياخد وقت قد ايه
+[9/15/26, 9:31:20 PM] You: المندوب بيكون في الطريق حسب المنطقة`);
+    expect(model.operationalOutcome).not.toBe('probable_sale');
+    expect(model.evidence.saleClose.messageIds).toHaveLength(0);
+  });
+
+  it('resolves a generic product reference to one explicit prior forwarded product', () => {
+    const model = analyze(`[9/15/26, 9:30:55 PM] Customer: [Forwarded] Isis teenderm gel for sensitive skin بديل الغسول
+[9/15/26, 9:31:16 PM] Customer: موجود عندكم الغسول ده
+[9/15/26, 9:32:09 PM] You: موجود باذن الله يافندم
+[9/15/26, 9:42:30 PM] Customer: اه ابعته`);
+    const requested = model.products.find((row) => row.status === 'requested');
+    expect(requested?.rawName.toLowerCase()).toBe('isis teenderm gel for sensitive skin');
+    expect(model.customerRequests.some((row) => row.productName.toLowerCase() === 'isis teenderm gel for sensitive skin')).toBe(true);
+    expect(model.products.some((row) => /الغسول ده/.test(row.rawName))).toBe(false);
+  });
+
+  it('does not guess an anaphoric product reference when multiple prior products are plausible', () => {
+    const model = analyze(`[9/15/26, 9:30:55 PM] Customer: [Forwarded] Alpha wash gel
+[9/15/26, 9:31:02 PM] Customer: [Forwarded] Beta skin cream
+[9/15/26, 9:31:16 PM] Customer: موجود عندكم المنتج ده`);
+    expect(model.products.some((row) => row.status === 'requested' && /Alpha wash gel|Beta skin cream/i.test(row.rawName))).toBe(false);
+  });
+
+  it('merges quantity-only anaphora into the previous product instead of creating a fake product', () => {
+    const model = analyze(`[9/27/26, 8:20:00 PM] Customer: عايزه فليكس لايكس
+[9/27/26, 8:21:00 PM] Customer: منهم شريطين
+[9/27/26, 8:22:00 PM] You: حاضر`);
+    expect(model.products).toHaveLength(1);
+    expect(model.products[0].rawName).toMatch(/فليكس لايكس/);
+    expect(model.products[0].quantity).toBe(2);
+  });
+
+  it('rejects packaging and billing fragments while keeping a named packaged product', () => {
+    const model = analyze(`[9/27/26, 8:20:00 PM] You: 30 قرص يا فندم في الشريط
+[9/27/26, 8:21:00 PM] You: شريط ولا علبة حضرتك
+[9/27/26, 8:22:00 PM] You: لو علبة الحساب 140 ان شاء الله
+[9/27/26, 8:23:00 PM] Customer: لا لما ابعت حسابه
+[9/27/26, 8:24:00 PM] You: عنيا ان شاء الله شريطين وشريطين ولا شريط وشريط
+[9/27/26, 8:25:00 PM] Customer: محتاج شريط فليكس لايكس`);
+    const names = model.products.map((row) => row.rawName);
+    expect(names).not.toEqual(expect.arrayContaining(['في الشريط', 'ولا علبة', 'الحساب', 'لا لما', 'وشريط']));
+    expect(names.some((name) => /فليكس لايكس/.test(name))).toBe(true);
+  });
+
+  it('rejects long Arabic explanation and symptom prose as product identities', () => {
+    const model = analyze(`[9/27/26, 8:20:00 PM] You: هتخليك تخس وانت الحركة
+[9/27/26, 8:21:00 PM] Customer: هو في وجع في عيني ف
+[9/27/26, 8:22:00 PM] You: ده نوع فرنسي فعال
+[9/27/26, 8:23:00 PM] You: تقدر تمشي عليها
+[9/27/26, 8:24:00 PM] Customer: محتاج حقنه فيتامين د
+[9/27/26, 8:25:00 PM] Customer: عايزه فوار للحموضه`);
+    const names = model.products.map((row) => row.rawName);
+    expect(names.some((name) => /هتخليك تخس|وجع في عيني|نوع فرنسي فعال|تمشي عليها/.test(name))).toBe(false);
+    expect(names.some((name) => /حقنه فيتامين د/.test(name))).toBe(true);
+    expect(names.some((name) => /فوار للحموضه/.test(name))).toBe(true);
+  });
+
+  it('rejects duration tails, price-list fragments, and generic recommendation placeholders as products', () => {
+    const model = analyze(`[6/10/26, 9:23:11 AM] You: الحقنه ب 58 فيها امبولين هتاخد كل اسبوعين امبول يعني شهر
+[6/10/26, 9:23:12 AM] You: يعني شهر
+[6/10/26, 9:23:27 AM] You: البلسم ٣٢٠ الشامبو العادي ٣٠٠ الماسك ٣٦٠
+[6/10/26, 9:23:40 AM] You: ارشح لحضرتك حاجه كويسة
+[6/10/26, 9:24:00 AM] Customer: محتاج كريم كوريغا`);
+    const names = model.products.map((row) => row.rawName);
+    expect(names.some((name) => /يعني شهر|٣٠٠ الماسك ٣٦٠|لحضرتك حاجه كويسة/.test(name))).toBe(false);
+    expect(names.some((name) => /كريم كوريغا/.test(name))).toBe(true);
+  });
+
+  it('does not turn lifestyle advice, dosage instructions, or recommendation placeholders into commercial recommendations', () => {
+    const advice = analyze(`[9/27/26, 8:20:00 PM] Customer: افضل برنامج للدايت ايه
+[9/27/26, 8:21:00 PM] You: حضرتك ممكن تستخدم نظام الصيام المتقطع
+[9/27/26, 8:22:00 PM] You: ممكن تاخدها قرص بعد الفطار او بعد الغدا
+[9/27/26, 8:23:00 PM] You: حضرتك تحب ارشح لك نوع كويس ؟`);
+    expect(advice.recommendations).toHaveLength(0);
+    expect(advice.products.some((row) => /الصيام المتقطع|قرص بعد الفطار|نوع كويس/.test(row.rawName))).toBe(false);
+  });
+
+  it('keeps generic recommendation consent separate from product acceptance', () => {
+    const model = analyze(`[8/18/26, 8:21:33 AM] You: هو للاسف مش موجود عندي
+[8/18/26, 8:21:52 AM] You: بس ممكن ادور لحضرتك عليه او ارشح لحضرتك حاجه كويسة
+[8/18/26, 8:22:27 AM] Customer: تمام`);
+    const unnamed = model.recommendations.find((row) => row.productName == null);
+    expect(unnamed).toBeTruthy();
+    expect(unnamed?.accepted).toBeNull();
+    expect(model.followupPlan.reason || '').not.toMatch(/نتيجة ترشيح.*بعد الاستخدام/);
+  });
+
+  it('keeps a named pharmacy recommendation and customer acceptance as a real recommendation', () => {
+    const model = analyze(`[9/27/26, 8:20:00 PM] Customer: محتاج مالتي فيتامين كويس
+[9/27/26, 8:21:00 PM] You: ارشح لحضرتك شريط سنترم انرجي
+[9/27/26, 8:22:00 PM] Customer: تمام ابعته`);
+    expect(model.recommendations.some((row) => /سنترم انرجي/.test(row.productName || '') && row.accepted === true)).toBe(true);
+  });
+
+  it('keeps explicit customer demand above a higher-confidence pharmacy mention for the same catalog product', () => {
+    const merged = mergeProductSignalsByTruthV34([
+      {
+        rawName: 'Bon Care',
+        normalizedName: 'bon care',
+        quantity: 1,
+        status: 'requested',
+        sourceDirection: 'inbound',
+        evidenceMessageIds: ['customer-request'],
+        confidence: 86,
+        productId: 'p-bon',
+        productCode: 'BON1',
+        canonicalName: 'Bon Care',
+        catalogConfidence: 'strongly_inferred',
+        mentionOrigin: 'customer_explicit',
+        requestProven: true,
+      },
+      {
+        rawName: 'Bon Care',
+        normalizedName: 'bon care',
+        quantity: null,
+        status: 'mentioned',
+        sourceDirection: 'outbound',
+        evidenceMessageIds: ['pharmacy-mention'],
+        confidence: 98,
+        productId: 'p-bon',
+        productCode: 'BON1',
+        canonicalName: 'Bon Care',
+        catalogConfidence: 'proven',
+        mentionOrigin: 'pharmacy_mention',
+        requestProven: false,
+      },
+    ]);
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0].status).toBe('requested');
+    expect(merged[0].mentionOrigin).toBe('customer_explicit');
+    expect(merged[0].requestProven).toBe(true);
+    expect(merged[0].evidenceMessageIds).toEqual(expect.arrayContaining(['customer-request', 'pharmacy-mention']));
+  });
+
+  it('does not promote a pharmacy-only product mention into customer demand during semantic merge', () => {
+    const merged = mergeProductSignalsByTruthV34([
+      {
+        rawName: 'Bon Care',
+        normalizedName: 'bon care',
+        quantity: null,
+        status: 'mentioned',
+        sourceDirection: 'outbound',
+        evidenceMessageIds: ['m1'],
+        confidence: 98,
+        productId: 'p-bon',
+        productCode: 'BON1',
+        canonicalName: 'Bon Care',
+        catalogConfidence: 'proven',
+        mentionOrigin: 'pharmacy_mention',
+        requestProven: false,
+      },
+    ]);
+    expect(merged[0].status).toBe('mentioned');
+    expect(merged[0].requestProven).toBe(false);
+  });
+
+  it('merges category deictic references into a nearby canonical product', () => {
+    const session = {
+      id: 's-deictic',
+      startedAt: new Date('2026-09-27T20:00:00Z'),
+      endedAt: new Date('2026-09-27T20:01:00Z'),
+      participants: ['Customer'],
+      outboundStaffNames: [],
+      customerName: 'Customer',
+      mediaCount: 0,
+      messages: [
+        {
+          id: 'm1', timestamp: new Date('2026-09-27T20:00:00Z'), rawTimestamp: '1',
+          sender: 'Customer', text: 'كوريغا', direction: 'inbound' as const, kind: 'text' as const,
+          forwarded: false, raw: 'كوريغا'
+        },
+        {
+          id: 'm2', timestamp: new Date('2026-09-27T20:01:00Z'), rawTimestamp: '2',
+          sender: 'Customer', text: 'العسل ده', direction: 'inbound' as const, kind: 'text' as const,
+          forwarded: false, raw: 'العسل ده'
+        },
+      ],
+    };
+    const products = mergeDeicticProductReferences([
+      {
+        rawName: 'كوريغا', normalizedName: 'كوريغا', quantity: null, status: 'requested' as const,
+        sourceDirection: 'inbound' as const, evidenceMessageIds: ['m1'], confidence: 92,
+        productId: 'p1', productCode: 'C1', canonicalName: 'Corega'
+      },
+      {
+        rawName: 'العسل ده', normalizedName: 'العسل ده', quantity: null, status: 'requested' as const,
+        sourceDirection: 'inbound' as const, evidenceMessageIds: ['m2'], confidence: 80
+      }
+    ], session);
+
+    expect(products).toHaveLength(1);
+    expect(products[0].evidenceMessageIds).toContain('m2');
+  });
+});

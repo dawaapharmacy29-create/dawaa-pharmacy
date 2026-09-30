@@ -368,7 +368,7 @@ export default function StaffDetail() {
   const { id } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
   const { user } = useAuth();
-  const { notifications } = useNotifications();
+  const { notifications } = useNotifications({ scope: 'center' });
   const [profile, setProfile] = useState<StaffPerformanceProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

@@ -12,6 +12,7 @@ import {
   type LocalInboxCandidate,
 } from '@/lib/localWhatsAppInbox';
 import { ingestWhatsAppExportFile, type IngestOneFileResult } from '@/lib/whatsappAutoIngestPipeline';
+import { getStaffSessionToken } from '@/hooks/useAuth';
 
 const SCAN_INTERVAL_MS = 60_000;
 
@@ -29,7 +30,10 @@ export default function WhatsAppFolderWatcher() {
       const candidates: LocalInboxCandidate[] = await getUnprocessedWhatsAppExports(handle, 10);
       for (const candidate of candidates) {
         try {
-          const result = await ingestWhatsAppExportFile(candidate.file);
+          const result = await ingestWhatsAppExportFile(candidate.file, {
+            accessToken: getStaffSessionToken(),
+            createdBy: 'whatsapp-auto-ingest',
+          });
           markLocalWhatsAppFileProcessed(candidate.key);
           setLog((prev) => [{ ...result, at: new Date().toLocaleTimeString('ar-EG') }, ...prev].slice(0, 50));
           if (result.errors.length) {

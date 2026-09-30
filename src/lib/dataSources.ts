@@ -13,6 +13,11 @@ export const TRANSACTIONAL_DATA_SOURCES = {
 
 export const ANALYTICS_DATA_SOURCES = {
   salesInvoices: 'dawaa_sales_invoices_dashboard_v1',
+  /**
+   * Canonical Review Gate (V52): official staff KPI / incentive / quality readers use only these
+   * reviews. `conversation_sales_reviews` stays the storage (history, detail and edit screens).
+   */
+  officialConversationReviews: 'conversation_sales_reviews_official_v1',
 } as const;
 
 /**

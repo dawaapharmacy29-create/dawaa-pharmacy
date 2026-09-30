@@ -5,6 +5,7 @@ import { withTimeout } from '@/lib/performance';
 import { fetchSalesInvoicesPagedSafe } from '@/lib/salesInvoiceQueries';
 import { getInvoiceAmount, getInvoiceBranch, getInvoiceDay, getInvoiceId, getInvoiceSellerName } from '@/lib/invoices/invoiceCore';
 import { supabase } from '@/lib/supabase';
+import { ANALYTICS_DATA_SOURCES } from '@/lib/dataSources';
 
 // سقف داخلي قصير لخطوة التجميع السريع (RPC) لوحدها. لو الـRPC اتأخر أو علّق، بنعدّي
 // بسرعة على مسار الفواتير الاحتياطي بدل ما نستهلك أغلب مهلة الـ20 ثانية الكلية
@@ -496,7 +497,7 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
   const salesErrors: string[] = [];
   const [salesRows, reviewResult, followupResult, stagnantResult, listResult] = await Promise.all([
     salesSource === 'invoice_fallback' ? fetchDoctorSalesRows(range, selectedBranch, salesErrors).catch(() => [] as Row[]) : Promise.resolve([] as Row[]),
-    safeSelect('conversation_sales_reviews', (query) => query.select('*').gte('conversation_date', range.start).lte('conversation_date', `${range.end}T23:59:59`).limit(5000)),
+    safeSelect(ANALYTICS_DATA_SOURCES.officialConversationReviews, (query) => query.select('*').gte('conversation_date', range.start).lte('conversation_date', `${range.end}T23:59:59`).limit(5000)),
     safeSelect('daily_followups', (query) => query.select('*').gte('created_at', range.start).lte('created_at', `${range.end}T23:59:59`).limit(5000)),
     safeSelect('stagnant_medicine_dispenses', (query) => query.select('*').limit(5000)),
     safeSelect('incentive_medicine_sales', (query) => query.select('*').limit(5000)),

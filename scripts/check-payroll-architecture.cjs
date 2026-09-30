@@ -7,6 +7,7 @@ const freezePath = 'supabase/migrations/20260830210000_payroll_freeze_command_v1
 const lockdownPath = 'supabase/migrations/20260830211000_payroll_table_surface_lockdown_v14.sql';
 const permissionPath = 'src/lib/core/permissionSystem.ts';
 const payrollPagePath = 'src/pages/PayrollManagement.tsx';
+const payrollServicePath = 'src/lib/payroll/payrollCompensationService.ts';
 const failures = [];
 
 if (!fs.existsSync(migrationPath)) {
@@ -66,8 +67,16 @@ if (permissionSource.includes('manage_salary_calculator')) failures.push('Non-ca
 if (!/['"]\/staff-payroll['"]\s*:\s*['"]manage_payroll['"]/.test(permissionSource)) failures.push('staff-payroll route must remain guarded by manage_payroll.');
 
 const payrollPage = fs.readFileSync(payrollPagePath, 'utf8');
-for (const table of ['staff_payroll_profiles_v13', 'staff_payroll_monthly_v13']) if (!payrollPage.includes(table)) failures.push(`Payroll page no longer references expected table ${table}`);
-if (!payrollPage.includes("supabase.rpc('save_staff_payroll_monthly_v14'")) failures.push('Payroll page must save monthly rows through save_staff_payroll_monthly_v14.');
+const payrollService = fs.readFileSync(payrollServicePath, 'utf8');
+// Payroll V17 moved the editable compensation master from the legacy compatibility profile
+// to employee_compensation_profiles. Monthly V13 stays the read/history surface; writes belong
+// to the V17 command in payrollCompensationService.
+if (!payrollPage.includes('staff_payroll_monthly_v13')) failures.push('Payroll page must keep the scoped monthly payroll read/history surface.');
+for (const helper of ['fetchCompensationProfile', 'saveCompensationProfile', 'savePayrollV17']) {
+  if (!payrollPage.includes(helper)) failures.push(`Payroll page must use canonical V17 helper ${helper}.`);
+}
+if (!payrollService.includes("from('employee_compensation_profiles')")) failures.push('Payroll V17 service must use employee_compensation_profiles as the compensation master.');
+if (!payrollService.includes("supabase.rpc('save_staff_payroll_monthly_v17'")) failures.push('Payroll V17 service must save monthly rows through save_staff_payroll_monthly_v17.');
 if (/from\(['"]staff_payroll_monthly_v13['"]\)\.upsert/.test(payrollPage)) failures.push('Payroll page must not reintroduce direct monthly payroll upserts.');
 if (!payrollPage.includes('monthlyFrozen') || !payrollPage.includes('monthlyPaid')) failures.push('Payroll page must visibly lock approved/paid rows.');
 
@@ -76,4 +85,4 @@ if (failures.length) {
   failures.forEach((failure) => console.error(`- ${failure}`));
   process.exit(1);
 }
-console.log('[payroll-architecture] PASS: canonical payroll permissions, branch scope, command-only monthly writes, approval snapshots, paid-row immutability, and read-only browser table grants are enforced.');
+console.log('[payroll-architecture] PASS: canonical payroll permissions, V17 compensation master, command-only monthly writes, approval snapshots, paid-row immutability, and read-only browser table grants are enforced.');

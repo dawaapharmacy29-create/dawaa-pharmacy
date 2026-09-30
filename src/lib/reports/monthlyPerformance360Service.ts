@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { ANALYTICS_DATA_SOURCES } from '@/lib/dataSources';
 import { fetchSalesInvoicesPagedSafe } from '@/lib/salesInvoiceQueries';
 import { computeStaffSalesMetrics } from '@/lib/salesInvoiceSource';
 import { readAttendanceRange } from '@/lib/readModels/attendanceReadModel';
@@ -170,7 +171,7 @@ export async function loadMonthlyPerformance360(args: {
     getStaffPointsDashboardV3(staffId, cycleLabel),
     readAttendanceRange({ staffId, startDate, endDateExclusive, limit: 400 }),
     supabase
-      .from('conversation_sales_reviews')
+      .from(ANALYTICS_DATA_SOURCES.officialConversationReviews)
       .select('total_score,final_score,score,created_at')
       .eq('staff_id', staffId)
       .gte('created_at', startDate)

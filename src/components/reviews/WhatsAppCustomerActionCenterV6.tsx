@@ -63,6 +63,7 @@ type CustomerProduct = {
 
 type CustomerAction = {
   id: string;
+  source_id: string;
   action_type: string;
   status: string;
   product_name: string | null;
@@ -71,10 +72,78 @@ type CustomerAction = {
   confidence: number | null;
 };
 
+type CanonicalCaseRow = {
+  id: string;
+  root_source_id?: string | null;
+  source_ids?: string[] | null;
+  customer_id: string | null;
+  customer_code: string | null;
+  customer_name: string | null;
+  customer_phone: string | null;
+  branch: string | null;
+  started_at: string | null;
+  proposed_outcome: string | null;
+  confirmed_outcome: string | null;
+  verified_revenue: number | null;
+  verified_invoice_id: string | null;
+  verified_invoice_number: string | null;
+};
+
+type CycleSourceRow = {
+  id: string;
+  customer_id: string | null;
+  customer_code: string | null;
+  customer_name: string | null;
+  customer_phone: string | null;
+  branch: string | null;
+  conversation_started_at: string | null;
+};
+
+type CycleActionRow = {
+  id: string;
+  source_id: string;
+  action_type: string;
+  status: string;
+  confidence: number | null;
+  customer_id: string | null;
+  customer_code: string | null;
+  customer_name: string | null;
+  customer_phone: string | null;
+  branch: string | null;
+  product_name: string | null;
+  due_at: string | null;
+  reason: string | null;
+};
+
 function cairoDate() {
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
   const get = (type: string) => parts.find((p) => p.type === type)?.value || '';
   return `${get('year')}-${get('month')}-${get('day')}`;
+}
+
+function currentCycleBounds() {
+  const now = new Date();
+  const cairo = new Date(now.toLocaleString('en-US',{timeZone:'Africa/Cairo'}));
+  const y = cairo.getFullYear();
+  const m = cairo.getMonth();
+  const d = cairo.getDate();
+  const start = d >= 26 ? new Date(y,m,26) : new Date(y,m-1,26);
+  const end = new Date(start.getFullYear(),start.getMonth()+1,25);
+  const iso = (x:Date) => `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`;
+  return { start: iso(start), end: iso(end) };
+}
+
+function canonicalCustomerKey(row: {
+  customer_id?: string | null;
+  customer_code?: string | null;
+  customer_phone?: string | null;
+  customer_name?: string | null;
+  branch?: string | null;
+}) {
+  if (row.customer_id) return `id:${row.customer_id}`;
+  if (row.customer_code) return `code:${row.customer_code}`;
+  if (row.customer_phone) return `phone:${row.customer_phone}`;
+  return `name:${String(row.customer_name || '').trim().toLowerCase()}|branch:${String(row.branch || '').trim().toLowerCase()}`;
 }
 
 function formatMoney(value: unknown) {
@@ -106,6 +175,54 @@ const actionTypeLabel: Record<string, string> = {
   manual_review: 'مراجعة بشرية',
 };
 
+function actionPriority(action: Pick<CycleActionRow, 'action_type' | 'due_at'>) {
+  if (action.action_type === 'complaint_followup') return 1;
+  if (action.due_at && new Date(action.due_at).getTime() <= Date.now()) return 2;
+  if (action.action_type === 'customer_request') return 3;
+  if (action.action_type === 'recommendation_followup') return 4;
+  if (action.action_type === 'customer_followup') return 5;
+  if (action.action_type === 'manual_review') return 6;
+  return 7;
+}
+
+function emptyActionCenterRow(
+  identity: Pick<CycleSourceRow, 'customer_id' | 'customer_code' | 'customer_name' | 'customer_phone' | 'branch'>,
+  bounds: { start: string; end: string },
+  lastConversationAt: string | null = null,
+): ActionCenterRow {
+  return {
+    customer_id: identity.customer_id || null,
+    customer_code: identity.customer_code || null,
+    customer_name: identity.customer_name || null,
+    customer_phone: identity.customer_phone || null,
+    branch: identity.branch || null,
+    cycle_start: bounds.start,
+    cycle_end: bounds.end,
+    conversation_count: 0,
+    commercial_conversations: 0,
+    verified_sale_conversations: 0,
+    conversations_needing_followup: 0,
+    complaint_conversations: 0,
+    last_conversation_at: lastConversationAt,
+    verified_invoice_count: 0,
+    verified_revenue: 0,
+    verified_revenue_over_500: false,
+    pending_followup_actions: 0,
+    pending_customer_requests: 0,
+    needs_customer_service_action: false,
+    next_action_id: null,
+    next_source_id: null,
+    next_action_type: null,
+    next_action_status: null,
+    next_action_confidence: null,
+    next_action_product: null,
+    next_action_reason: null,
+    next_action_due_at: null,
+    action_priority_rank: 99,
+    action_label: null,
+  };
+}
+
 export default function WhatsAppCustomerActionCenterV6({ onOpenSource }: { onOpenSource?: (sourceId: string) => void }) {
   const [rows, setRows] = useState<ActionCenterRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -117,21 +234,59 @@ export default function WhatsAppCustomerActionCenterV6({ onOpenSource }: { onOpe
   const [conversations, setConversations] = useState<CustomerConversation[]>([]);
   const [products, setProducts] = useState<CustomerProduct[]>([]);
   const [actions, setActions] = useState<CustomerAction[]>([]);
+  const [canonicalCases, setCanonicalCases] = useState<CanonicalCaseRow[]>([]);
+  const [cycleSources, setCycleSources] = useState<CycleSourceRow[]>([]);
+  const [cycleActions, setCycleActions] = useState<CycleActionRow[]>([]);
+  const [detailCanonicalCases, setDetailCanonicalCases] = useState<CanonicalCaseRow[]>([]);
 
   const load = async () => {
     setLoading(true);
     try {
       const today = cairoDate();
-      const { data, error } = await supabase
-        .from('whatsapp_customer_service_action_center_v1')
-        .select('*')
-        .lte('cycle_start', today)
-        .gte('cycle_end', today)
-        .order('action_priority_rank', { ascending: true })
-        .order('verified_revenue', { ascending: false })
-        .limit(250);
-      if (error) throw error;
-      setRows((data || []) as ActionCenterRow[]);
+      const bounds = currentCycleBounds();
+      const [legacyResult, canonicalResult, sourceResult] = await Promise.all([
+        supabase
+          .from('whatsapp_customer_service_action_center_v1')
+          .select('*')
+          .lte('cycle_start', today)
+          .gte('cycle_end', today)
+          // Legacy metrics remain fallback context only. Action priority is rebuilt below
+          // from current-cycle sources + whatsapp_conversation_actions.
+          .limit(1000),
+        supabase
+          .from('whatsapp_customer_cases_v22')
+          .select('id,root_source_id,source_ids,customer_id,customer_code,customer_name,customer_phone,branch,started_at,proposed_outcome,confirmed_outcome,verified_revenue,verified_invoice_id,verified_invoice_number')
+          .gte('started_at', `${bounds.start}T00:00:00+03:00`)
+          .lte('started_at', `${bounds.end}T23:59:59+03:00`)
+          .limit(500),
+        supabase
+          .from('whatsapp_review_sources')
+          .select('id,customer_id,customer_code,customer_name,customer_phone,branch,conversation_started_at')
+          .gte('conversation_started_at', `${bounds.start}T00:00:00+03:00`)
+          .lte('conversation_started_at', `${bounds.end}T23:59:59+03:00`)
+          .limit(1200),
+      ]);
+      if (legacyResult.error) throw legacyResult.error;
+      if (canonicalResult.error) throw canonicalResult.error;
+      if (sourceResult.error) throw sourceResult.error;
+
+      const currentSources = (sourceResult.data || []) as CycleSourceRow[];
+      const sourceIds = currentSources.map((row) => row.id);
+      const actionChunks: CycleActionRow[][] = [];
+      for (let index = 0; index < sourceIds.length; index += 180) {
+        const actionResult = await supabase
+          .from('whatsapp_conversation_actions')
+          .select('id,source_id,action_type,status,confidence,customer_id,customer_code,customer_name,customer_phone,branch,product_name,due_at,reason')
+          .in('source_id', sourceIds.slice(index, index + 180))
+          .in('status', ['proposed', 'ready']);
+        if (actionResult.error) throw actionResult.error;
+        actionChunks.push((actionResult.data || []) as CycleActionRow[]);
+      }
+
+      setRows((legacyResult.data || []) as ActionCenterRow[]);
+      setCanonicalCases((canonicalResult.data || []) as CanonicalCaseRow[]);
+      setCycleSources(currentSources);
+      setCycleActions(actionChunks.flat());
     } catch (error) {
       console.error('[whatsapp-action-center-v6] load failed', error);
     } finally {
@@ -169,16 +324,29 @@ export default function WhatsAppCustomerActionCenterV6({ onOpenSource }: { onOpe
       else if (row.customer_phone) productQuery = productQuery.eq('customer_phone', row.customer_phone);
       else productQuery = productQuery.eq('customer_name', row.customer_name || '');
 
-      const [sourceResult, productResult] = await Promise.all([sourceQuery, productQuery]);
+      let canonicalQuery = supabase
+        .from('whatsapp_customer_cases_v22')
+        .select('id,root_source_id,source_ids,customer_id,customer_code,customer_name,customer_phone,branch,started_at,proposed_outcome,confirmed_outcome,verified_revenue,verified_invoice_id,verified_invoice_number')
+        .gte('started_at', `${row.cycle_start}T00:00:00+03:00`)
+        .lte('started_at', `${row.cycle_end}T23:59:59+03:00`)
+        .limit(250);
+      if (row.customer_id) canonicalQuery = canonicalQuery.eq('customer_id', row.customer_id);
+      else if (row.customer_code) canonicalQuery = canonicalQuery.eq('customer_code', row.customer_code);
+      else if (row.customer_phone) canonicalQuery = canonicalQuery.eq('customer_phone', row.customer_phone);
+      else canonicalQuery = canonicalQuery.eq('customer_name', row.customer_name || '');
+      if (row.branch) canonicalQuery = canonicalQuery.eq('branch', row.branch);
+
+      const [sourceResult, productResult, canonicalResult] = await Promise.all([sourceQuery, productQuery, canonicalQuery]);
       if (sourceResult.error) throw sourceResult.error;
       if (productResult.error) throw productResult.error;
+      if (canonicalResult.error) throw canonicalResult.error;
 
       const sourceIds = (sourceResult.data || []).map((x: any) => String(x.id));
       let actionData: any[] = [];
       if (sourceIds.length) {
         const actionResult = await supabase
           .from('whatsapp_conversation_actions')
-          .select('id,action_type,status,product_name,due_at,reason,confidence')
+          .select('id,source_id,action_type,status,product_name,due_at,reason,confidence')
           .in('source_id', sourceIds)
           .order('due_at', { ascending: true, nullsFirst: false });
         if (!actionResult.error) actionData = actionResult.data || [];
@@ -187,11 +355,13 @@ export default function WhatsAppCustomerActionCenterV6({ onOpenSource }: { onOpe
       setConversations((sourceResult.data || []) as CustomerConversation[]);
       setProducts((productResult.data || []) as CustomerProduct[]);
       setActions(actionData as CustomerAction[]);
+      setDetailCanonicalCases((canonicalResult.data || []) as CanonicalCaseRow[]);
     } catch (error) {
       console.error('[whatsapp-action-center-v8] customer 360 load failed', error);
       setConversations([]);
       setProducts([]);
       setActions([]);
+      setDetailCanonicalCases([]);
     } finally {
       setDetailLoading(false);
     }
@@ -199,28 +369,222 @@ export default function WhatsAppCustomerActionCenterV6({ onOpenSource }: { onOpe
 
   useEffect(() => { void load(); }, []);
 
+  const canonicalByCustomer = useMemo(() => {
+    const map = new Map<string, { saleCount: number; revenue: number }>();
+    for (const item of canonicalCases) {
+      if ((item.confirmed_outcome || item.proposed_outcome) !== 'verified_sale' || !item.verified_invoice_id) continue;
+      const key = canonicalCustomerKey(item);
+      const previous = map.get(key) || { saleCount: 0, revenue: 0 };
+      previous.saleCount += 1;
+      previous.revenue += Number(item.verified_revenue || 0);
+      map.set(key, previous);
+    }
+    return map;
+  }, [canonicalCases]);
+
+  const effectiveRows = useMemo(() => {
+    const bounds = currentCycleBounds();
+    const byCustomer = new Map<string, ActionCenterRow>(
+      rows.map((row) => [canonicalCustomerKey(row), { ...row }])
+    );
+    const sourceById = new Map(cycleSources.map((row) => [row.id, row]));
+    const groupedActions = new Map<string, {
+      identity: Pick<CycleSourceRow, 'customer_id' | 'customer_code' | 'customer_name' | 'customer_phone' | 'branch'>;
+      actions: CycleActionRow[];
+      sourceIds: Set<string>;
+      lastConversationAt: string | null;
+    }>();
+
+    for (const action of cycleActions) {
+      const source = sourceById.get(action.source_id);
+      if (!source) continue;
+      const identity = {
+        customer_id: action.customer_id || source.customer_id || null,
+        customer_code: action.customer_code || source.customer_code || null,
+        customer_name: action.customer_name || source.customer_name || null,
+        customer_phone: action.customer_phone || source.customer_phone || null,
+        branch: action.branch || source.branch || null,
+      };
+      const key = canonicalCustomerKey(identity);
+      const current = groupedActions.get(key) || {
+        identity,
+        actions: [],
+        sourceIds: new Set<string>(),
+        lastConversationAt: null,
+      };
+      current.actions.push(action);
+      current.sourceIds.add(source.id);
+      if (
+        source.conversation_started_at &&
+        (!current.lastConversationAt || source.conversation_started_at > current.lastConversationAt)
+      ) {
+        current.lastConversationAt = source.conversation_started_at;
+      }
+      groupedActions.set(key, current);
+    }
+
+    for (const [key, group] of groupedActions) {
+      const existing = byCustomer.get(key) || emptyActionCenterRow(group.identity, bounds, group.lastConversationAt);
+      const sorted = [...group.actions].sort((left, right) => {
+        const priority = actionPriority(left) - actionPriority(right);
+        if (priority) return priority;
+        const leftDue = left.due_at ? new Date(left.due_at).getTime() : Number.POSITIVE_INFINITY;
+        const rightDue = right.due_at ? new Date(right.due_at).getTime() : Number.POSITIVE_INFINITY;
+        return leftDue - rightDue;
+      });
+      const next = sorted[0] || null;
+      const followups = group.actions.filter((row) =>
+        ['complaint_followup', 'recommendation_followup', 'customer_followup'].includes(row.action_type)
+      );
+      const requests = group.actions.filter((row) => row.action_type === 'customer_request');
+      const complaintSources = new Set(
+        group.actions.filter((row) => row.action_type === 'complaint_followup').map((row) => row.source_id)
+      );
+      const followupSources = new Set(followups.map((row) => row.source_id));
+
+      byCustomer.set(key, {
+        ...existing,
+        customer_id: existing.customer_id || group.identity.customer_id,
+        customer_code: existing.customer_code || group.identity.customer_code,
+        customer_name: existing.customer_name || group.identity.customer_name,
+        customer_phone: existing.customer_phone || group.identity.customer_phone,
+        branch: existing.branch || group.identity.branch,
+        cycle_start: bounds.start,
+        cycle_end: bounds.end,
+        conversation_count: Math.max(existing.conversation_count || 0, group.sourceIds.size),
+        conversations_needing_followup: followupSources.size,
+        complaint_conversations: Math.max(existing.complaint_conversations || 0, complaintSources.size),
+        last_conversation_at: group.lastConversationAt || existing.last_conversation_at,
+        pending_followup_actions: followups.length,
+        pending_customer_requests: requests.length,
+        needs_customer_service_action: group.actions.length > 0,
+        next_action_id: next?.id || null,
+        next_source_id: next?.source_id || null,
+        next_action_type: next?.action_type || null,
+        next_action_status: next?.status || null,
+        next_action_confidence: next?.confidence ?? null,
+        next_action_product: next?.product_name || null,
+        next_action_reason: next?.reason || null,
+        next_action_due_at: next?.due_at || null,
+        action_priority_rank: next ? actionPriority(next) : 99,
+        action_label: next ? (actionTypeLabel[next.action_type] || next.action_type) : null,
+      });
+    }
+
+    for (const item of canonicalCases) {
+      const key = canonicalCustomerKey(item);
+      if (byCustomer.has(key)) continue;
+      byCustomer.set(
+        key,
+        emptyActionCenterRow(
+          {
+            customer_id: item.customer_id,
+            customer_code: item.customer_code,
+            customer_name: item.customer_name,
+            customer_phone: item.customer_phone,
+            branch: item.branch,
+          },
+          bounds,
+          item.started_at,
+        )
+      );
+    }
+
+    return [...byCustomer.values()];
+  }, [rows, cycleSources, cycleActions, canonicalCases]);
+
+  const rowTruth = (row: ActionCenterRow) => {
+    const canonical = canonicalByCustomer.get(canonicalCustomerKey(row)) || { saleCount: 0, revenue: 0 };
+    const canonicalOver500 = canonical.revenue > 500;
+    const hasOperationalAction = Boolean(
+      row.next_action_id ||
+      row.pending_followup_actions > 0 ||
+      row.pending_customer_requests > 0
+    );
+    return {
+      ...canonical,
+      canonicalOver500,
+      needsEffectiveAction: hasOperationalAction || canonicalOver500,
+      hasOperationalAction,
+    };
+  };
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return rows.filter((row) => {
+    const selected = effectiveRows.filter((row) => {
+      const truth = rowTruth(row);
       if (branch !== 'all' && row.branch !== branch) return false;
-      if (mode === 'action' && !row.needs_customer_service_action) return false;
-      if (mode === 'over500' && !row.verified_revenue_over_500) return false;
+      if (mode === 'action' && !truth.needsEffectiveAction) return false;
+      if (mode === 'over500' && !truth.canonicalOver500) return false;
       if (!q) return true;
       return [row.customer_name, row.customer_code, row.customer_phone, row.next_action_product, row.next_action_reason]
         .some((value) => String(value || '').toLowerCase().includes(q));
     });
-  }, [rows, branch, mode, search]);
 
-  const actionCount = rows.filter((row) => row.needs_customer_service_action).length;
-  const over500Count = rows.filter((row) => row.verified_revenue_over_500).length;
-  const overdueCount = rows.filter((row) => row.needs_customer_service_action && row.next_action_due_at && new Date(row.next_action_due_at).getTime() <= Date.now()).length;
+    const actionRank = (row: ActionCenterRow) => {
+      if (row.next_action_type === 'complaint_followup') return 1;
+      if (row.next_action_due_at && new Date(row.next_action_due_at).getTime() <= Date.now()) return 2;
+      if (row.next_action_type === 'customer_request') return 3;
+      if (row.next_action_type === 'recommendation_followup') return 4;
+      if (row.next_action_type === 'customer_followup') return 5;
+      if (rowTruth(row).canonicalOver500) return 6;
+      return 7;
+    };
 
-  const detailSummary = useMemo(() => ({
-    verifiedSales: conversations.filter((x) => x.invoice_match_status === 'verified').length,
-    verifiedRevenue: conversations.reduce((sum, x) => sum + (x.invoice_match_status === 'verified' ? Number(x.matched_invoice_value || 0) : 0), 0),
-    followups: actions.filter((x) => ['proposed', 'ready'].includes(x.status)).length,
-    leakage: products.filter((x) => Boolean(x.leakage_reason)).length,
-  }), [conversations, actions, products]);
+    return selected.sort((a,b) => {
+      const rank = actionRank(a) - actionRank(b);
+      if (rank) return rank;
+      const revenue = rowTruth(b).revenue - rowTruth(a).revenue;
+      if (revenue) return revenue;
+      return String(b.last_conversation_at || '').localeCompare(String(a.last_conversation_at || ''));
+    });
+  }, [effectiveRows, branch, mode, search, canonicalByCustomer]);
+
+  const actionCount = effectiveRows.filter((row) => rowTruth(row).needsEffectiveAction).length;
+  const over500Count = effectiveRows.filter((row) => rowTruth(row).canonicalOver500).length;
+  const overdueCount = effectiveRows.filter((row) => rowTruth(row).hasOperationalAction && row.next_action_due_at && new Date(row.next_action_due_at).getTime() <= Date.now()).length;
+
+  const detailSummary = useMemo(() => {
+    const proven = detailCanonicalCases.filter((row) =>
+      (row.confirmed_outcome || row.proposed_outcome) === 'verified_sale' &&
+      Boolean(row.verified_invoice_id)
+    );
+    return {
+      verifiedSales: proven.length,
+      verifiedRevenue: proven.reduce((sum,row) => sum + Number(row.verified_revenue || 0),0),
+      followups: actions.filter((x) => ['proposed', 'ready'].includes(x.status)).length,
+      leakage: products.filter((x) => Boolean(x.leakage_reason)).length,
+    };
+  }, [detailCanonicalCases, actions, products]);
+
+  const detailCaseBySource = useMemo(() => {
+    const map = new Map<string, CanonicalCaseRow>();
+    for (const item of detailCanonicalCases) {
+      if (item.root_source_id) map.set(item.root_source_id, item);
+      for (const sourceId of item.source_ids || []) map.set(sourceId, item);
+    }
+    return map;
+  }, [detailCanonicalCases]);
+
+  const activeActionsBySource = useMemo(() => {
+    const map = new Map<string, CustomerAction[]>();
+    for (const action of actions) {
+      if (!['proposed', 'ready'].includes(action.status) || !action.source_id) continue;
+      const current = map.get(action.source_id) || [];
+      current.push(action);
+      map.set(action.source_id, current);
+    }
+    for (const list of map.values()) {
+      list.sort((left, right) => {
+        const priority = actionPriority(left) - actionPriority(right);
+        if (priority) return priority;
+        const leftDue = left.due_at ? new Date(left.due_at).getTime() : Number.POSITIVE_INFINITY;
+        const rightDue = right.due_at ? new Date(right.due_at).getTime() : Number.POSITIVE_INFINITY;
+        return leftDue - rightDue;
+      });
+    }
+    return map;
+  }, [actions]);
 
   return (
     <section className="dawaa-card dawaa-card--raised p-5" dir="rtl">
@@ -238,13 +602,13 @@ export default function WhatsAppCustomerActionCenterV6({ onOpenSource }: { onOpe
       <div className="mt-4 grid gap-2 sm:grid-cols-3">
         <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 p-3"><div className="text-xs text-amber-200">محتاجين إجراء</div><div className="mt-1 text-2xl font-black text-white">{actionCount}</div></div>
         <div className="rounded-2xl border border-rose-400/20 bg-rose-500/10 p-3"><div className="text-xs text-rose-200">مستحقين الآن</div><div className="mt-1 text-2xl font-black text-white">{overdueCount}</div></div>
-        <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-3"><div className="text-xs text-emerald-200">تجاوزوا 500 ج مبيعات مؤكدة</div><div className="mt-1 text-2xl font-black text-white">{over500Count}</div></div>
+        <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-3"><div className="text-xs text-emerald-200">عملاء +500 ج Canonical</div><div className="mt-1 text-2xl font-black text-white">{over500Count}</div></div>
       </div>
 
       <div className="mt-4 flex flex-col gap-2 lg:flex-row">
         <div className="flex rounded-xl border border-slate-800 bg-slate-950/40 p-1">
           <button onClick={() => setMode('action')} className={`rounded-lg px-3 py-2 text-xs font-black ${mode === 'action' ? 'bg-violet-500/20 text-violet-100' : 'text-slate-400'}`}>مطلوب متابعة/إجراء</button>
-          <button onClick={() => setMode('over500')} className={`rounded-lg px-3 py-2 text-xs font-black ${mode === 'over500' ? 'bg-emerald-500/20 text-emerald-100' : 'text-slate-400'}`}>عملاء +500 ج</button>
+          <button onClick={() => setMode('over500')} className={`rounded-lg px-3 py-2 text-xs font-black ${mode === 'over500' ? 'bg-emerald-500/20 text-emerald-100' : 'text-slate-400'}`}>عملاء +500 ج Canonical</button>
         </div>
         <label className="relative flex-1"><Search size={15} className="absolute right-3 top-3 text-slate-500"/><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="بحث باسم العميل أو الكود أو الصنف أو سبب المتابعة" className="w-full rounded-xl border border-slate-700 bg-slate-950 py-2.5 pr-9 pl-3 text-sm text-white"/></label>
         <select value={branch} onChange={(e) => setBranch(e.target.value)} className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white"><option value="all">كل الفروع</option><option value="فرع الشامي">فرع الشامي</option><option value="فرع شكري">فرع شكري</option></select>
@@ -252,7 +616,9 @@ export default function WhatsAppCustomerActionCenterV6({ onOpenSource }: { onOpe
 
       <div className="mt-4 space-y-2">
         {filtered.slice(0, 80).map((row) => {
-          const overdue = Boolean(row.next_action_due_at && new Date(row.next_action_due_at).getTime() <= Date.now());
+          const truth = rowTruth(row);
+          const overdue = Boolean(truth.hasOperationalAction && row.next_action_due_at && new Date(row.next_action_due_at).getTime() <= Date.now());
+          const legacyHighValueOnly = row.verified_revenue_over_500 && !truth.canonicalOver500 && !truth.hasOperationalAction;
           return <div key={`${row.customer_code || row.customer_phone || row.customer_name}-${row.cycle_start}`} className="rounded-2xl border border-slate-800 bg-slate-950/35 p-4">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
               <div className="min-w-0">
@@ -260,14 +626,15 @@ export default function WhatsAppCustomerActionCenterV6({ onOpenSource }: { onOpe
                 <div className="mt-2 flex flex-wrap gap-2 text-xs">
                   {row.next_action_type ? <span className="rounded-lg bg-violet-500/10 px-2 py-1 font-bold text-violet-200">{actionTypeLabel[row.next_action_type] || row.action_label || row.next_action_type}</span> : null}
                   {overdue ? <span className="rounded-lg bg-rose-500/10 px-2 py-1 font-bold text-rose-200"><AlertTriangle size={12} className="ml-1 inline"/>مستحقة الآن</span> : row.next_action_due_at ? <span className="rounded-lg bg-amber-500/10 px-2 py-1 font-bold text-amber-200"><CalendarClock size={12} className="ml-1 inline"/>{dueLabel(row.next_action_due_at)}</span> : null}
-                  {row.verified_revenue_over_500 ? <span className="rounded-lg bg-emerald-500/10 px-2 py-1 font-bold text-emerald-200"><BadgeDollarSign size={12} className="ml-1 inline"/>+500 ج</span> : null}
+                  {truth.canonicalOver500 ? <span className="rounded-lg bg-emerald-500/10 px-2 py-1 font-bold text-emerald-200"><BadgeDollarSign size={12} className="ml-1 inline"/>+500 ج Canonical</span> : row.verified_revenue_over_500 ? <span className="rounded-lg bg-cyan-500/10 px-2 py-1 font-bold text-cyan-200"><BadgeDollarSign size={12} className="ml-1 inline"/>+500 ج مطابقة آلية فقط</span> : null}
                 </div>
-                <div className="mt-2 text-sm leading-6 text-slate-300">{row.next_action_reason || row.action_label || (row.needs_customer_service_action ? 'يوجد إجراء معلق يحتاج مراجعة.' : 'لا يوجد إجراء معلق.')}</div>
+                <div className="mt-2 text-sm leading-6 text-slate-300">{legacyHighValueOnly ? 'المطابقة الآلية وحدها لا تُنشئ أولوية متابعة؛ يلزم Sale Proof Canonical أو سبب تشغيلي مستقل.' : row.next_action_reason || row.action_label || (truth.needsEffectiveAction ? 'يوجد إجراء معلق يحتاج مراجعة.' : 'لا يوجد إجراء Canonical معلق.')}</div>
                 {row.next_action_product ? <div className="mt-1 text-xs text-cyan-200">الصنف: {row.next_action_product}</div> : null}
               </div>
               <div className="shrink-0 text-left">
-                <div className="text-lg font-black text-emerald-300">{formatMoney(row.verified_revenue)}</div>
-                <div className="text-[11px] text-slate-500">{row.verified_invoice_count || 0} فاتورة مؤكدة • {row.conversation_count || 0} محادثة</div>
+                <div className="text-lg font-black text-emerald-300">{formatMoney(truth.revenue)}</div>
+                <div className="text-[11px] text-emerald-300/70">{truth.saleCount} بيع Canonical مثبت</div>
+                <div className="mt-0.5 text-[10px] text-slate-500">{formatMoney(row.verified_revenue)} مطابقات آلية • {row.verified_invoice_count || 0} مطابقة • {row.conversation_count || 0} محادثة</div>
                 <div className="mt-2 flex flex-wrap justify-end gap-2">
                   <button onClick={() => void openCustomer360(row)} className="rounded-lg border border-violet-400/20 bg-violet-500/10 px-3 py-1.5 text-xs font-black text-violet-200">Customer 360</button>
                   {row.next_source_id && onOpenSource ? <button onClick={() => onOpenSource(row.next_source_id!)} className="rounded-lg border border-cyan-400/20 bg-cyan-500/10 px-3 py-1.5 text-xs font-black text-cyan-200">فتح المحادثة</button> : null}
@@ -286,16 +653,86 @@ export default function WhatsAppCustomerActionCenterV6({ onOpenSource }: { onOpe
         </div>
 
         <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-xl bg-slate-950/45 p-3 text-center"><div className="text-[11px] text-slate-500">بيع مؤكد</div><div className="mt-1 text-lg font-black text-emerald-300">{detailSummary.verifiedSales}</div></div>
-          <div className="rounded-xl bg-slate-950/45 p-3 text-center"><div className="text-[11px] text-slate-500">إيراد مؤكد</div><div className="mt-1 text-lg font-black text-emerald-300">{formatMoney(detailSummary.verifiedRevenue)}</div></div>
+          <div className="rounded-xl bg-slate-950/45 p-3 text-center"><div className="text-[11px] text-slate-500">بيع مثبت رسميًا</div><div className="mt-1 text-lg font-black text-emerald-300">{detailSummary.verifiedSales}</div></div>
+          <div className="rounded-xl bg-slate-950/45 p-3 text-center"><div className="text-[11px] text-slate-500">إيراد مثبت رسميًا</div><div className="mt-1 text-lg font-black text-emerald-300">{formatMoney(detailSummary.verifiedRevenue)}</div></div>
           <div className="rounded-xl bg-slate-950/45 p-3 text-center"><div className="text-[11px] text-slate-500">إجراءات مفتوحة</div><div className="mt-1 text-lg font-black text-amber-300">{detailSummary.followups}</div></div>
-          <div className="rounded-xl bg-slate-950/45 p-3 text-center"><div className="text-[11px] text-slate-500">فرص متوقفة</div><div className="mt-1 text-lg font-black text-rose-300">{detailSummary.leakage}</div></div>
+          <div className="rounded-xl bg-slate-950/45 p-3 text-center"><div className="text-[11px] text-slate-500">إشارات تعثر تشخيصية</div><div className="mt-1 text-lg font-black text-rose-300">{detailSummary.leakage}</div></div>
         </div>
 
         {detailLoading ? <div className="p-8 text-center text-sm text-slate-400">جاري تحميل رحلة العميل...</div> : <div className="mt-4 grid gap-4 xl:grid-cols-3">
-          <div className="rounded-2xl border border-slate-800 bg-slate-950/35 p-3"><div className="mb-3 flex items-center gap-2 font-black text-white"><FileText size={15}/> المحادثات</div><div className="max-h-[380px] space-y-2 overflow-y-auto">{conversations.map((item) => <button key={item.id} onClick={() => onOpenSource?.(item.id)} className="w-full rounded-xl border border-slate-800 p-3 text-right hover:border-cyan-400/30"><div className="flex justify-between gap-2"><b className="text-white">{item.staff_name || 'الدكتور غير محدد'}</b><span className="text-[10px] text-slate-500">{formatDate(item.conversation_started_at)}</span></div><div className="mt-2 text-xs text-slate-300">{item.analysis_json?.operational?.primaryIntent || item.review_status || '—'}{item.followup_required ? <span className="text-amber-300"> • متابعة</span> : null}</div>{item.invoice_match_status === 'verified' ? <div className="mt-1 text-xs text-emerald-300">فاتورة {item.matched_invoice_number || 'مطابقة'} • {formatMoney(item.matched_invoice_value)}</div> : null}</button>)}{!conversations.length ? <div className="p-5 text-center text-xs text-slate-500">لا توجد محادثات مرتبطة في السايكل.</div> : null}</div></div>
+          <div className="rounded-2xl border border-slate-800 bg-slate-950/35 p-3">
+            <div className="mb-3 flex items-center gap-2 font-black text-white"><FileText size={15}/> المحادثات</div>
+            <div className="max-h-[380px] space-y-2 overflow-y-auto">
+              {conversations.map((item) => {
+                const canonicalCase = detailCaseBySource.get(item.id) || null;
+                const effectiveOutcome = canonicalCase?.confirmed_outcome || canonicalCase?.proposed_outcome || null;
+                const canonicalSale = effectiveOutcome === 'verified_sale' && Boolean(canonicalCase?.verified_invoice_id);
+                const activeForSource = activeActionsBySource.get(item.id) || [];
+                const nextAction = activeForSource[0] || null;
+                return (
+                  <button key={item.id} onClick={() => onOpenSource?.(item.id)} className="w-full rounded-xl border border-slate-800 p-3 text-right transition hover:border-cyan-400/30">
+                    <div className="flex justify-between gap-2">
+                      <b className="text-white">{item.staff_name || 'الدكتور غير محدد'}</b>
+                      <span className="text-[10px] text-slate-500">{formatDate(item.conversation_started_at)}</span>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] font-black">
+                      <span className="rounded-full bg-slate-800 px-2 py-1 text-slate-300">{item.analysis_json?.operational?.primaryIntent || item.review_status || 'حالة غير محددة'}</span>
+                      {canonicalSale ? (
+                        <span className="rounded-full bg-emerald-500/10 px-2 py-1 text-emerald-300">بيع Canonical مثبت{canonicalCase?.verified_invoice_number ? ` · #${canonicalCase.verified_invoice_number}` : ''}</span>
+                      ) : canonicalCase ? (
+                        <span className="rounded-full bg-cyan-500/10 px-2 py-1 text-cyan-200">Case Canonical · {effectiveOutcome || 'غير محسوم'}</span>
+                      ) : (
+                        <span className="rounded-full bg-slate-800 px-2 py-1 text-slate-500">لا توجد Case Canonical مرتبطة</span>
+                      )}
+                      {activeForSource.length ? <span className="rounded-full bg-amber-500/10 px-2 py-1 text-amber-300">{activeForSource.length} إجراء مفتوح</span> : null}
+                    </div>
+                    {nextAction ? (
+                      <div className="mt-2 rounded-lg border border-amber-800/30 bg-amber-950/10 px-2.5 py-2 text-[11px] leading-5 text-amber-100">
+                        <b>{actionTypeLabel[nextAction.action_type] || nextAction.action_type}</b>{nextAction.reason ? ` · ${nextAction.reason}` : ''}{nextAction.due_at ? ` · ${dueLabel(nextAction.due_at)}` : ''}
+                      </div>
+                    ) : null}
+                    {!canonicalSale && item.invoice_match_status === 'verified' ? (
+                      <div className="mt-2 text-[10px] text-slate-500">مطابقة فاتورة آلية Legacy {item.matched_invoice_number || ''} · {formatMoney(item.matched_invoice_value)} — ليست Sale Proof.</div>
+                    ) : null}
+                  </button>
+                );
+              })}
+              {!conversations.length ? <div className="p-5 text-center text-xs text-slate-500">لا توجد محادثات مرتبطة في السايكل.</div> : null}
+            </div>
+          </div>
 
-          <div className="rounded-2xl border border-slate-800 bg-slate-950/35 p-3"><div className="mb-3 flex items-center gap-2 font-black text-white"><PackageSearch size={15}/> الأصناف والفرص</div><div className="max-h-[380px] space-y-2 overflow-y-auto">{products.map((item, i) => <button key={`${item.source_id}-${i}`} onClick={() => onOpenSource?.(item.source_id)} className="w-full rounded-xl border border-slate-800 p-3 text-right hover:border-violet-400/30"><div className="flex justify-between gap-2"><b className="text-white">{item.product_name || 'صنف غير محدد'}</b><span className="text-[10px] text-violet-300">{item.current_stage || '—'}</span></div><div className="mt-1 text-[11px] text-slate-500">{item.staff_name || 'الدكتور غير محدد'}</div>{item.leakage_reason ? <div className="mt-2 text-xs text-amber-200">{item.leakage_reason}</div> : null}<div className="mt-1 text-[11px] text-slate-400">{item.next_action || (item.invoice_match_status === 'verified' ? 'تم تأكيد البيع بالفاتورة.' : 'لا توجد خطوة تالية مثبتة.')}</div></button>)}{!products.length ? <div className="p-5 text-center text-xs text-slate-500">لا توجد رحلات أصناف مرتبطة بالعميل.</div> : null}</div></div>
+          <div className="rounded-2xl border border-slate-800 bg-slate-950/35 p-3">
+            <div className="mb-3 flex items-center gap-2 font-black text-white"><PackageSearch size={15}/> الأصناف والفرص</div>
+            <div className="max-h-[380px] space-y-2 overflow-y-auto">
+              {products.map((item, i) => {
+                const activeForSource = activeActionsBySource.get(item.source_id) || [];
+                const productAction = activeForSource.find((action) =>
+                  action.product_name && item.product_name &&
+                  action.product_name.trim().toLowerCase() === item.product_name.trim().toLowerCase()
+                ) || activeForSource[0] || null;
+                return (
+                  <button key={`${item.source_id}-${i}`} onClick={() => onOpenSource?.(item.source_id)} className="w-full rounded-xl border border-slate-800 p-3 text-right transition hover:border-violet-400/30">
+                    <div className="flex justify-between gap-2">
+                      <b className="text-white">{item.product_name || 'صنف غير محدد'}</b>
+                      <span className="text-[10px] text-violet-300">{item.current_stage || '—'}</span>
+                    </div>
+                    <div className="mt-1 text-[11px] text-slate-500">{item.staff_name || 'الدكتور غير محدد'}</div>
+                    {item.leakage_reason ? <div className="mt-2 text-xs text-amber-200">إشارة تعثر: {item.leakage_reason}</div> : null}
+                    {productAction ? (
+                      <div className="mt-2 rounded-lg border border-violet-800/30 bg-violet-950/10 px-2.5 py-2 text-[11px] leading-5 text-violet-100">
+                        <b>إجراء Canonical:</b> {actionTypeLabel[productAction.action_type] || productAction.action_type}{productAction.reason ? ` · ${productAction.reason}` : ''}
+                      </div>
+                    ) : item.next_action ? (
+                      <div className="mt-2 text-[10px] leading-5 text-slate-500">تشخيص Product Journey: {item.next_action} — لا يوجد Action Canonical مفتوح على نفس المحادثة.</div>
+                    ) : (
+                      <div className="mt-2 text-[10px] text-slate-600">لا يوجد إجراء Canonical مفتوح لهذا الصنف.</div>
+                    )}
+                  </button>
+                );
+              })}
+              {!products.length ? <div className="p-5 text-center text-xs text-slate-500">لا توجد رحلات أصناف مرتبطة بالعميل.</div> : null}
+            </div>
+          </div>
 
           <div className="rounded-2xl border border-slate-800 bg-slate-950/35 p-3"><div className="mb-3 flex items-center gap-2 font-black text-white"><CheckCircle2 size={15}/> الإجراءات والمتابعات</div><div className="max-h-[380px] space-y-2 overflow-y-auto">{actions.map((item) => <div key={item.id} className="rounded-xl border border-slate-800 p-3"><div className="flex justify-between gap-2"><b className="text-white">{actionTypeLabel[item.action_type] || item.action_type}</b><span className="text-[10px] text-slate-500">{item.status}</span></div><div className="mt-1 text-xs text-slate-300">{item.reason || '—'}</div>{item.product_name ? <div className="mt-1 text-[11px] text-cyan-300">{item.product_name}</div> : null}{item.due_at ? <div className="mt-1 text-[11px] text-amber-300">{dueLabel(item.due_at)}</div> : null}</div>)}{!actions.length ? <div className="p-5 text-center text-xs text-slate-500">لا توجد إجراءات تشغيلية مرتبطة بالعميل.</div> : null}</div></div>
         </div>}
