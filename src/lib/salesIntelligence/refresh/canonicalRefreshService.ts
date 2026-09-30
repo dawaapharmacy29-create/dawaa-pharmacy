@@ -23,6 +23,9 @@ import {
   loadCanonicalSourceGateContext,
   type CanonicalSourceGateDecision,
 } from '../persistence/canonicalSourceGate';
+import { analyzeConversationEvaluation } from '../conversationEvaluation';
+import { loadConversationEvaluationSystemEvidenceWithClient } from '../conversationEvaluationSystemEvidence';
+import { persistAutomaticCaseConversationReviewWithClient } from '../conversationEvaluationPersistence';
 
 export const CANONICAL_PROOF_WRITER_RPC = 'dawaa_reconcile_sales_intelligence_case_v22_v1';
 
@@ -65,6 +68,17 @@ export interface CanonicalRefreshResult {
   canonicalReconciliation: CanonicalProofReconciliation[];
   actionReconciliation: { reconciledActions: number };
   complaintEnrichment: { enrichedComplaintActions: number };
+  conversationEvaluations: Array<{
+    caseId: string;
+    sourceId: string;
+    status: string;
+    reviewId: string | null;
+    finalScore: number | null;
+    evidenceCoveragePercent: number | null;
+    automaticReliabilityPercent: number | null;
+    warning: string | null;
+    error: string | null;
+  }>;
 }
 
 function toBlocked(
@@ -97,6 +111,7 @@ export async function runCanonicalSalesIntelligenceRefresh(
     canonicalReconciliation: [],
     actionReconciliation: { reconciledActions: 0 },
     complaintEnrichment: { enrichedComplaintActions: 0 },
+    conversationEvaluations: [],
   };
 
   // 1. Canonical Source Gate — one batched context load for all rows.
@@ -178,7 +193,70 @@ export async function runCanonicalSalesIntelligenceRefresh(
     };
   }
 
-  // 4. Followers of proven truth: close customer requests only for cases the proof writer accepted.
+  // 4. Conversation evaluation follower — only after Sales Intelligence persistence + canonical
+  // proof reconciliation completed. This follower NEVER writes doctor points/incentives.
+  // A failure here must not corrupt or roll back canonical sale truth; it is reported per case.
+  const conversationEvaluations: CanonicalRefreshResult['conversationEvaluations'] = [];
+  for (const analysis of reconcileCandidates) {
+    const view = analysis.caseIntelligence;
+    const sourceId = String(analysis.conversationId || '');
+    if (!view) {
+      conversationEvaluations.push({
+        caseId: analysis.caseId,
+        sourceId,
+        status: 'skipped_missing_case_intelligence',
+        reviewId: null,
+        finalScore: null,
+        evidenceCoveragePercent: null,
+        automaticReliabilityPercent: null,
+        warning: null,
+        error: null,
+      });
+      continue;
+    }
+
+    let systemEvidence = null;
+    let warning: string | null = null;
+    try {
+      systemEvidence = await loadConversationEvaluationSystemEvidenceWithClient(service, view);
+    } catch (error) {
+      warning = `system_evidence_unavailable: ${error instanceof Error ? error.message : String(error)}`;
+    }
+
+    const evaluation = analyzeConversationEvaluation(view, systemEvidence);
+    try {
+      const persistedReview = await persistAutomaticCaseConversationReviewWithClient(service, {
+        sourceId,
+        view,
+        evaluation,
+      });
+      conversationEvaluations.push({
+        caseId: analysis.caseId,
+        sourceId,
+        status: persistedReview.status,
+        reviewId: persistedReview.reviewId,
+        finalScore: persistedReview.finalScore,
+        evidenceCoveragePercent: evaluation.summary.evidenceCoveragePercent,
+        automaticReliabilityPercent: evaluation.summary.automaticReliabilityPercent,
+        warning,
+        error: persistedReview.error,
+      });
+    } catch (error) {
+      conversationEvaluations.push({
+        caseId: analysis.caseId,
+        sourceId,
+        status: 'failed',
+        reviewId: null,
+        finalScore: evaluation.summary.autoScore,
+        evidenceCoveragePercent: evaluation.summary.evidenceCoveragePercent,
+        automaticReliabilityPercent: evaluation.summary.automaticReliabilityPercent,
+        warning,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  // 5. Followers of proven truth: close customer requests only for cases the proof writer accepted.
   const reconciledCaseIds = new Set(
     canonicalReconciliation
       .filter((row) => row.ok && ['reconciled', 'already_reconciled'].includes(String(row.status)))
@@ -210,6 +288,7 @@ export async function runCanonicalSalesIntelligenceRefresh(
     canonicalReconciliation,
     actionReconciliation: { reconciledActions },
     complaintEnrichment: { enrichedComplaintActions },
+    conversationEvaluations,
   };
 }
 

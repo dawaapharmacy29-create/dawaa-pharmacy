@@ -5,8 +5,25 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // The manual maintenance backfill must write through the same canonical boundary as the HTTP
 // transport: Canonical Source Gate -> exactly one V22 -> Sales Intelligence -> V44 proof writer.
 
-const { runBatchPersistence } = vi.hoisted(() => ({ runBatchPersistence: vi.fn() }));
+const {
+  runBatchPersistence,
+  loadConversationEvaluationSystemEvidenceWithClient,
+  analyzeConversationEvaluation,
+  persistAutomaticCaseConversationReviewWithClient,
+} = vi.hoisted(() => ({
+  runBatchPersistence: vi.fn(),
+  loadConversationEvaluationSystemEvidenceWithClient: vi.fn(),
+  analyzeConversationEvaluation: vi.fn(),
+  persistAutomaticCaseConversationReviewWithClient: vi.fn(),
+}));
 vi.mock('../../persistence/batchPersistenceService', () => ({ runBatchPersistence }));
+vi.mock('../../conversationEvaluationSystemEvidence', () => ({
+  loadConversationEvaluationSystemEvidenceWithClient,
+}));
+vi.mock('../../conversationEvaluation', () => ({ analyzeConversationEvaluation }));
+vi.mock('../../conversationEvaluationPersistence', () => ({
+  persistAutomaticCaseConversationReviewWithClient,
+}));
 
 import { runCanonicalSalesIntelligenceBackfill } from '../canonicalRefreshService';
 
@@ -90,6 +107,7 @@ function batch(conversations: any[]) {
   const caseAnalyses = conversations.map((row) => ({
     conversationId: row.conversationId,
     caseId: `${row.conversationId}:interaction:0`,
+    caseIntelligence: { caseId: `${row.conversationId}:interaction:0` },
     salesOutcome: { outcome: 'sale_proven', saleProofState: 'proven' },
     attribution: {
       selectedInvoiceId: 'inv-1',
@@ -112,6 +130,26 @@ beforeEach(() => {
   runBatchPersistence.mockImplementation(async (_service: unknown, input: any) =>
     batch(input.conversations)
   );
+  loadConversationEvaluationSystemEvidenceWithClient.mockReset();
+  loadConversationEvaluationSystemEvidenceWithClient.mockResolvedValue({ version: 'conversation-evaluation-system-evidence-v1' });
+  analyzeConversationEvaluation.mockReset();
+  analyzeConversationEvaluation.mockImplementation((view: any) => ({
+    version: 'conversation-evaluation-v1',
+    caseId: view.caseId,
+    items: [],
+    summary: {
+      autoScore: 92,
+      evidenceCoveragePercent: 88,
+      automaticReliabilityPercent: 84,
+    },
+  }));
+  persistAutomaticCaseConversationReviewWithClient.mockReset();
+  persistAutomaticCaseConversationReviewWithClient.mockResolvedValue({
+    status: 'saved',
+    reviewId: 'review-1',
+    finalScore: 92,
+    error: null,
+  });
 });
 
 describe('manual backfill --apply uses the canonical boundary', () => {
@@ -154,6 +192,37 @@ describe('manual backfill --apply uses the canonical boundary', () => {
     expect(runBatchPersistence).not.toHaveBeenCalled();
     expect(rpc).not.toHaveBeenCalled();
     expect(result.refresh?.status).toBe('nothing_admitted');
+  });
+
+  it('runs case-level conversation evaluation only after persistence/proof and records its result', async () => {
+    const result = await runCanonicalSalesIntelligenceBackfill(makeService(), {
+      rows: allRows,
+      apply: true,
+    });
+    expect(loadConversationEvaluationSystemEvidenceWithClient).toHaveBeenCalledTimes(1);
+    expect(analyzeConversationEvaluation).toHaveBeenCalledTimes(1);
+    expect(persistAutomaticCaseConversationReviewWithClient).toHaveBeenCalledTimes(1);
+    expect(result.refresh?.conversationEvaluations).toEqual([
+      expect.objectContaining({
+        caseId: 'fine:interaction:0',
+        sourceId: 'fine',
+        status: 'saved',
+        reviewId: 'review-1',
+        finalScore: 92,
+        evidenceCoveragePercent: 88,
+        automaticReliabilityPercent: 84,
+      }),
+    ]);
+  });
+
+  it('continues safely with reduced evidence when external system evidence loading fails', async () => {
+    loadConversationEvaluationSystemEvidenceWithClient.mockRejectedValueOnce(new Error('evidence down'));
+    await runCanonicalSalesIntelligenceBackfill(makeService(), { rows: allRows, apply: true });
+    expect(analyzeConversationEvaluation).toHaveBeenCalledWith(
+      expect.objectContaining({ caseId: 'fine:interaction:0' }),
+      null
+    );
+    expect(persistAutomaticCaseConversationReviewWithClient).toHaveBeenCalledTimes(1);
   });
 
   it('uses the V44 RPC as the only proof writer and never writes V22 directly', async () => {
