@@ -89,7 +89,7 @@ describe('Unified Case Intelligence read model', () => {
 هل الطلب كده كامل؟
 [9/15/26, 9:02:00 AM] Customer: تمام
 [9/15/26, 9:03:00 AM] You: تم تأكيد الطلب`).caseIntelligence;
-    expect(view.version).toBe('case-intelligence-v2');
+    expect(view.version).toBe('case-intelligence-v3');
     expect(view.interaction.messages.map((m) => m.role)).toEqual(['customer', 'staff', 'customer', 'staff']);
     expect(view.interaction.messageCount).toBe(4);
     expect(view.interaction.segmentationReason).toBe('conversation_start');

@@ -445,7 +445,7 @@ function analyzeOneCase(
   // case's pipeline-level review flag or status.
   const isGenuinelyInformationOnly = conversationCase.caseType === 'information_only' && !evidenceCompleteness.basketDetected;
 
-  const needsHumanReview =
+  const rawNeedsHumanReview =
     conversationCase.needsHumanReview ||
     commercialConfirmation.needsHumanReview ||
     rawAttribution.needsHumanReview ||
@@ -453,7 +453,7 @@ function analyzeOneCase(
     (!isGenuinelyInformationOnly && integrityAssessment.needsHumanReview) ||
     activeBasketResolution.outcome === 'needs_human_review';
 
-  const humanReviewReasons = Array.from(
+  const rawHumanReviewReasons = Array.from(
     new Set([
       ...conversationCase.humanReviewReasons,
       ...commercialConfirmation.humanReviewReasons,
@@ -496,7 +496,20 @@ function analyzeOneCase(
           needsHumanReview: true,
         }
       : derivedSaleProof;
+  // A clean proven invoice closes one very specific evidence gap: a media-bound request can have
+  // no text-derived basket at all. "no_basket_state_for_case" must remain visible in the raw
+  // commercial-confirmation evidence, but it is not a reason for a human task once the exact
+  // transaction itself is proven by a trusted invoice.
+  const reviewReasonsResolvedByProvenInvoice = new Set(['no_basket_state_for_case']);
+  let humanReviewReasons = saleProof.state === 'proven'
+    ? rawHumanReviewReasons.filter((reason) => !reviewReasonsResolvedByProvenInvoice.has(reason))
+    : [...rawHumanReviewReasons];
   if (identityBlocked && !humanReviewReasons.includes(identityReason)) humanReviewReasons.push(identityReason);
+
+  const unexplainedBooleanReviewFlag = rawNeedsHumanReview && rawHumanReviewReasons.length === 0;
+  let needsHumanReview = humanReviewReasons.length > 0 || unexplainedBooleanReviewFlag;
+  if (identityBlocked) needsHumanReview = true;
+
   const salesOutcome = deriveCanonicalSalesOutcome({
     caseId: conversationCase.caseId,
     caseType: conversationCase.caseType,

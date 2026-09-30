@@ -17,7 +17,7 @@ import type {
   SalesIntelligenceCaseAnalysis,
 } from './types';
 
-export const CASE_INTELLIGENCE_VIEW_VERSION = 'case-intelligence-v2';
+export const CASE_INTELLIGENCE_VIEW_VERSION = 'case-intelligence-v3';
 
 export interface BuildCaseIntelligenceContext {
   messages: NormalizedConversationMessageV32[];
@@ -129,9 +129,18 @@ export function buildCaseIntelligenceView(
   const addReason = (code: string, source: CaseIntelligenceReviewReason['source']) => {
     if (!reasons.some((r) => r.code === code)) reasons.push({ code, source });
   };
+  const provenSale = salesOutcome.outcome === 'sale_proven' && salesOutcome.saleProofState === 'proven';
+  const needReasonsResolvedByProvenInvoice = new Set([
+    'customer_need_without_resolved_product_context',
+    'customer_need_product_context_ambiguous',
+  ]);
+
   if (!identityResolved) addReason('customer_identity_unresolved', 'customer_identity');
   analysis.humanReviewReasons.forEach((code) => addReason(code, 'pipeline'));
-  customerNeed.humanReviewReasons.forEach((code) => addReason(code, 'customer_need'));
+  customerNeed.humanReviewReasons.forEach((code) => {
+    if (provenSale && needReasonsResolvedByProvenInvoice.has(code)) return;
+    addReason(code, 'customer_need');
+  });
   if (customerNeed.unlinkedAvailability.length) addReason('need.availability_statement_unlinked', 'customer_need');
   if (customerNeed.unlinkedAlternatives.length) addReason('need.alternative_offer_unlinked', 'customer_need');
   attribution.contradictions.forEach((code) => addReason(`sale.${code}`, 'sale_proof'));

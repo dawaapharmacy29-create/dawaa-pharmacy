@@ -116,6 +116,10 @@ describe('Sales Intelligence Pipeline (Phase G) — Golden Cases', () => {
     expect(a.attribution.selectedCandidate?.directInvoiceLink).toBe(true);
     expect(a.attribution.attributionLevel).toBe('proven');
     expect(a.salesOutcome.outcome).toBe('sale_proven');
+    expect(a.humanReviewReasons).not.toContain('no_basket_state_for_case');
+    expect(a.needsHumanReview).toBe(false);
+    expect(a.journeyState.reviewRequired).toBe(false);
+    expect(a.caseIntelligence.review.required).toBe(false);
   });
 
   it('2. information-only conversation is a valid, complete output — never forced into a commercial case', () => {

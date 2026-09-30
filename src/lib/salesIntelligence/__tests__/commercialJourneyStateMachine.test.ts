@@ -39,6 +39,16 @@ describe('Commercial Journey State Machine', () => {
     expect(r.currentState).toBe('sale_proven');
     expect(r.confidence.level).toBe('proven');
   });
+  it('does not reopen a proven sale just because media left the customer need unresolved', () => {
+    const r=deriveCommercialJourneyState({
+      caseId:'c',messages:[],customerNeed:{...need,needsHumanReview:true,humanReviewReasons:['customer_need_without_resolved_product_context']},
+      commercialConfirmation:commercial,
+      salesOutcome:{...outcome,outcome:'sale_proven',saleProofState:'proven',isSaleCountable:true,isRevenueCountable:true}
+    });
+    expect(r.currentState).toBe('sale_proven');
+    expect(r.reviewRequired).toBe(false);
+  });
+
   it('keeps review as a side flag instead of replacing business state', () => {
     const r=deriveCommercialJourneyState({caseId:'c',messages:[],customerNeed:{...need,needsHumanReview:true},commercialConfirmation:commercial,salesOutcome:outcome});
     expect(r.currentState).toBe('need_identified');

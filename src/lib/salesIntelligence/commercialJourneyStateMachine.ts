@@ -131,7 +131,7 @@ export function deriveCommercialJourneyState(input: DeriveCommercialJourneyState
     confidence,
     reviewRequired:
       input.salesOutcome.needsHumanReview ||
-      input.customerNeed.needsHumanReview ||
+      (input.salesOutcome.outcome !== 'sale_proven' && input.customerNeed.needsHumanReview) ||
       input.salesOutcome.outcome === 'needs_review',
   };
 }

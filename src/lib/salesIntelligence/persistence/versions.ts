@@ -7,7 +7,7 @@
 // REPROCESSING_MATRIX assigns it (see persistence/types.ts).
 // v8 (STEP 7A): production runtime context — canonical staffIdBySender feeds attribution and V32
 // staff senders; the pre-pass and the run share one base input.
-export const PIPELINE_VERSION = 'sales-intelligence-v9';
+export const PIPELINE_VERSION = 'sales-intelligence-v10';
 
 export const ENGINE_VERSIONS = {
   caseSegmentation: 'case-segmentation-v7-explicit-topic-shift',
