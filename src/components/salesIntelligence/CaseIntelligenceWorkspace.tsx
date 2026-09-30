@@ -179,8 +179,9 @@ export function CaseIntelligenceWorkspace({
     );
   }
 
+  const technicalStaffSenders = new Set(['you', 'me', 'أنت', 'انت', 'أنا', 'انا']);
   const isTechnicalStaffSender = (value: string | null | undefined) =>
-    /^(?:you|me|أنت|انت|أنا|انا)$/i.test(String(value ?? '').trim());
+    technicalStaffSenders.has(String(value ?? '').trim().toLowerCase());
   const sourceStaffName = String(staffDisplayName ?? '').trim() || null;
   const displayStaffSender = (sender: string | null | undefined) =>
     isTechnicalStaffSender(sender)
