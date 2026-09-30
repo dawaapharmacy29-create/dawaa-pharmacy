@@ -22,6 +22,7 @@ const backend = [
   read('supabase/migrations/20260930113000_monthly_evaluation_score_truth_v5.sql'),
   read('supabase/migrations/20260930123000_monthly_evaluation_role_coverage_v5.sql'),
   read('supabase/migrations/20260930154000_monthly_evaluation_trigger_execute_hardening_v5.sql'),
+  read('supabase/migrations/20260930155500_monthly_evaluation_server_evidence_type_compat_v5.sql'),
 ].join('\n');
 
 for (const rpc of [
@@ -91,6 +92,8 @@ for (const token of [
   'monthly_evaluation_final_snapshot_missing_from_audit',
   'monthly_evaluation_audit_is_immutable',
   'revoke all on function public.trg_monthly_evaluation_audit_immutable_v5()',
+  'f.requested_by_staff_id=p_staff_id::text',
+  'a.staff_id=p_staff_id::text',
   'dawaa_monthly_evaluation_branch_manager_subject_allowed_v5',
 ]) {
   if (!backend.includes(token)) failures.push(`V5 backend contract is missing: ${token}`);
