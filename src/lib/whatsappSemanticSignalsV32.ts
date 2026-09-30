@@ -60,7 +60,15 @@ export type SemanticSignalType =
   | 'phone'
   | 'price'
   | 'delivery'
-  | 'promise';
+  | 'promise'
+  | 'availability'
+  | 'alternative_offer';
+
+/** Stock state a STAFF statement asserts. A customer question can never produce one. */
+export type AvailabilityStateV32 = 'available' | 'unavailable' | 'check_pending';
+
+/** How the customer answered a staff offer/alternative. `null` = no classifiable answer. */
+export type CustomerOfferResponseV32 = 'accepted' | 'rejected' | 'considering';
 
 export interface ConversationSemanticSignalV32 {
   type: SemanticSignalType;
@@ -127,6 +135,28 @@ const ADDRESS_RX = /العنوان\s*[:\-]?\s*\S+|عنوانك|هيوصل\s*ل(?
 const PRICE_RX = /(\d+(?:\.\d+)?)\s*(جنيه|جنيها|ج\.?م\.?|le|egp)/i;
 const DELIVERY_RX = /توصيل|دليفري|delivery/i;
 const PROMISE_RX = /هبعت(?:لك|لحضرتك)?|هيوصل|هجهز(?:لك|لحضرتك)?|هوصلك/i;
+
+// ---- Product availability / alternatives (staff statements only) ----
+// Evaluated per statement clause: a clause ending in "؟"/"?" is a question, never a stock fact,
+// so "هو مش موجود؟" can never become `unavailable` even when a staff member types it.
+const UNAVAILABLE_RX =
+  /(?:مش|مو|غير)\s*(?:موجود|متوفر|متاح)[ةه]?|مفيش\s*(?:منه|منها|حاليا|حاليًا|عندنا)|مش\s*عندنا|(?:الصنف|المنتج|ده|دي|هو|هي)\s*(?:خلص|خلصان[ةه]?|نفذ|ناقص[ةه]?)|(?:خلص|نفذ|ناقص[ةه]?)\s*(?:من\s*(?:عندنا|السوق|الشركة)|حاليا|حاليًا)|ناقص\s*في\s*السوق/i;
+const AVAILABLE_RX =
+  /(?:^|[\s،,])(?:موجود|متوفر|متاح)[ةه]?(?:$|[\s،,!.])|عندنا\s*(?:منه|منها)|(?:اه|أه|آه|ايوه|أيوه|ايوا)\s*(?:موجود|متوفر)/i;
+const CHECK_PENDING_RX =
+  /(?:ثواني|ثانية|لحظ[ةه]|دقيق[ةه]|دقايق)\s*(?:و\s*)?(?:أ|ا)?(?:شوف|تأكد|اتأكد|سأل|راجع)|هشوف(?:لك|لحضرتك)?|هتأكد|هاتأكد|هسأل(?:\s*(?:الفرع|المخزن))?|هنشوف(?:ه|ها)?|(?:أ|ا)تأكد\s*من\s*(?:توفر|التوفر|المخزن)|هراجع\s*(?:المخزن|التوفر)/i;
+// Explicit alternative markers always count; a generic offer phrase only counts right after a staff
+// "unavailable" statement or a customer rejection (otherwise it is an ordinary offer, not a substitute).
+const ALTERNATIVE_MARKER_RX =
+  /بديل|بدل\s*(?:منه|منها|منهم|ده|دي|ال\S+)|المتاح\s*بدل|(?:فيه|في|عندنا)\s*نفس\s*(?:المادة|التركيب[ةه]?)|نفس\s*المادة\s*الفعال[ةه]|يقوم\s*بنفس|نبدل(?:ه|ها|هم)?\s/i;
+const GENERIC_OFFER_RX =
+  /(?:ممكن|ينفع|نقدر)\s*(?:نجيب|أجيب|اجيب|نديلك|أقدم|اقدم|نقدم|أقترح|اقترح|أرشح|ارشح)(?:لك|لحضرتك)?|(?:أرشح|ارشح|أقترح|اقترح)(?:لك|لحضرتك)/i;
+// Leading filler tokens between the offer marker and the alternative's name. Whole tokens only, so
+// a product name that merely starts with the same letters (e.g. "بانادول") is never truncated.
+const ALTERNATIVE_PHRASE_FILLER_RX =
+  /^(?:(?:ممكن|ينفع|نقدر|نجيب|أجيب|اجيب|هنجيب|هجيب|نديلك|نديك|نقدم|أقدم|اقدم|أرشح|ارشح|نرشح|لحضرتك|ليك|لك|له|لها|منه|منها|هو|هي|وهو|اسمه|اسمها|يا\s*فندم|بـ)(?=\s|$)|[\s:\-،])+/i;
+const ACCEPT_OFFER_RX = /(?:تمام|ماشي|اوك|ok|خلاص|ايوه|ايوا|اه|آه)?\s*(?:هاته|هاتها|هاتهم|هاتيه|ابعته|ابعتها|ابعتهم|خليه|خليها|هاخده|هاخدها|موافق)/i;
+const CONSIDERING_RX = /هفكر|أفكر|افكر|هشوف\s*و?\s*(?:أرد|ارد|أقولك|اقولك)|هرد\s*عليك|هقولك|هبلغك|هستشير|هسأل\s*(?:الدكتور|دكتور)|بعدين\s*(?:أقولك|اقولك|أرد|ارد)/i;
 
 // Product/offer reference pronouns — resolved against the nearest prior staff "offer" message
 // (a meaningful staff message that isn't itself just an acknowledgement/confirmation).
@@ -525,6 +555,99 @@ export function extractPromiseSignals(messages: NormalizedConversationMessageV32
     .map((m) => ({ type: 'promise', messageId: m.id, confidence: 0.6, ruleId: 'promise.future_fulfillment_phrase' }));
 }
 
+/** Statement clauses only — a clause that ends in a question mark is dropped. */
+function statementClauses(text: string): string[] {
+  return (text.match(/[^؟?.!\n،,]+[؟?]?/g) || [])
+    .map((clause) => clause.trim())
+    .filter((clause) => clause.length > 0 && !/[؟?]$/.test(clause));
+}
+
+/** Stock state asserted by one staff message, or null. Unavailable wins over available, which wins over check_pending. */
+export function classifyAvailabilityStatementV32(text: string): AvailabilityStateV32 | null {
+  const clauses = statementClauses(text);
+  if (clauses.some((clause) => UNAVAILABLE_RX.test(clause))) return 'unavailable';
+  if (clauses.some((clause) => AVAILABLE_RX.test(clause))) return 'available';
+  if (clauses.some((clause) => CHECK_PENDING_RX.test(clause))) return 'check_pending';
+  return null;
+}
+
+/**
+ * Availability facts: STAFF messages only. `extractedValue` is the asserted state. A customer
+ * asking "هو مش موجود؟" (or any customer wording) never yields a signal.
+ */
+export function extractAvailabilitySignals(messages: NormalizedConversationMessageV32[]): ConversationSemanticSignalV32[] {
+  const signals: ConversationSemanticSignalV32[] = [];
+  for (const m of messages) {
+    if (m.role !== 'staff' || !m.isMeaningful) continue;
+    const state = classifyAvailabilityStatementV32(m.text);
+    if (!state) continue;
+    signals.push({
+      type: 'availability',
+      messageId: m.id,
+      confidence: state === 'unavailable' ? 0.85 : state === 'available' ? 0.8 : 0.75,
+      extractedValue: state,
+      ruleId: `availability.staff_statement.${state}`,
+    });
+  }
+  return signals;
+}
+
+function alternativePhraseAfter(text: string, marker: RegExp): string | null {
+  const match = text.match(marker);
+  if (!match || match.index == null) return null;
+  const tail = text
+    .slice(match.index + match[0].length)
+    .split(/[؟?\n.!]/)[0]
+    .replace(ALTERNATIVE_PHRASE_FILLER_RX, '')
+    .trim();
+  return tail.length >= 2 ? tail.slice(0, 80) : null;
+}
+
+/**
+ * Alternative/substitute offers: STAFF messages only. `extractedValue` is the raw alternative phrase
+ * when one follows the marker (null when the staff did not name it). `relatedMessageIds` holds the
+ * nearest preceding staff "unavailable" statement or customer rejection that made it a substitute —
+ * never a guessed product link.
+ */
+export function extractAlternativeOfferSignals(messages: NormalizedConversationMessageV32[]): ConversationSemanticSignalV32[] {
+  const signals: ConversationSemanticSignalV32[] = [];
+  messages.forEach((m, index) => {
+    if (m.role !== 'staff' || !m.isMeaningful) return;
+    const explicit = ALTERNATIVE_MARKER_RX.test(m.text);
+    const generic = !explicit && GENERIC_OFFER_RX.test(m.text);
+    if (!explicit && !generic) return;
+    const { before } = contextWindowV32(messages, index, 4, 0);
+    const trigger = before
+      .filter(
+        (prev) =>
+          (prev.role === 'staff' && classifyAvailabilityStatementV32(prev.text) === 'unavailable') ||
+          (prev.role === 'customer' && REJECTION_RX.test(prev.text))
+      )
+      .pop();
+    const selfUnavailable = classifyAvailabilityStatementV32(m.text) === 'unavailable';
+    if (generic && !trigger && !selfUnavailable) return;
+    signals.push({
+      type: 'alternative_offer',
+      messageId: m.id,
+      confidence: explicit ? (trigger || selfUnavailable ? 0.85 : 0.7) : 0.6,
+      extractedValue: alternativePhraseAfter(m.text, explicit ? ALTERNATIVE_MARKER_RX : GENERIC_OFFER_RX),
+      relatedMessageIds: trigger ? [trigger.id] : [],
+      ruleId: explicit
+        ? 'alternative_offer.explicit_marker'
+        : 'alternative_offer.generic_offer_after_unavailable_or_rejection',
+    });
+  });
+  return signals;
+}
+
+/** Customer's answer to a staff offer. Rejection is checked first ("لا مش عايزه تمام" is still a no). */
+export function classifyCustomerOfferResponseV32(text: string): CustomerOfferResponseV32 | null {
+  if (REJECTION_RX.test(text)) return 'rejected';
+  if (CONSIDERING_RX.test(text)) return 'considering';
+  if (ACCEPTANCE_RX.test(text) || ACCEPT_OFFER_RX.test(text)) return 'accepted';
+  return null;
+}
+
 export function buildSemanticSignalsV32(messages: NormalizedConversationMessageV32[]): ConversationSemanticSignalV32[] {
   return [
     ...extractGreetingSignals(messages),
@@ -541,6 +664,8 @@ export function buildSemanticSignalsV32(messages: NormalizedConversationMessageV
     ...extractPriceSignals(messages),
     ...extractDeliverySignals(messages),
     ...extractPromiseSignals(messages),
+    ...extractAvailabilitySignals(messages),
+    ...extractAlternativeOfferSignals(messages),
   ];
 }
 

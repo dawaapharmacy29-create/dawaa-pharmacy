@@ -66,6 +66,12 @@ export interface SalesIntelligencePipelineInput {
   branchNameRawHint?: string | null;
   /** Known contributing staff ids for this conversation (Phase B StaffContribution.staffId) — conservative, may be empty. */
   knownStaffIds?: string[];
+  /**
+   * Canonical message-sender -> staff.id map resolved upstream by the staff identity owner. Used by
+   * the Customer Need Model to attribute each availability/alternative statement to its own sender.
+   * Omitted = senders stay raw with staffId null (never guessed).
+   */
+  staffIdBySender?: Record<string, string>;
   /** From an existing legacy adapter's own matched-invoice fields (e.g. whatsapp_review_sources.matched_invoice_id) — evidence only, never trusted as canonical. */
   legacyMatchedInvoiceId?: string | null;
   legacyMatchedInvoiceNumber?: string | null;
@@ -254,6 +260,7 @@ function analyzeOneCase(
     baskets,
     itemsByBasketId,
     activeBasket,
+    staffIdBySender: input.staffIdBySender,
   });
   const activeBasketValue = computeActiveBasketValue(activeItems);
 

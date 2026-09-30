@@ -150,6 +150,41 @@ export interface CustomerNeedObjection {
   confidence: ConfidenceAssessment;
 }
 
+export type CustomerNeedAvailability = 'available' | 'unavailable' | 'check_pending' | 'unknown';
+
+/**
+ * One staff message that asserted stock state. The speaker is the message's own sender — never the
+ * first/primary staff of the conversation. `staffId` is set only when the caller supplied a
+ * canonical sender -> staff.id resolution for exactly that sender.
+ */
+export interface CustomerNeedAvailabilityEvidence {
+  state: Exclude<CustomerNeedAvailability, 'unknown'>;
+  messageId: string;
+  staffSender: string;
+  staffId: string | null;
+  /** How the statement was tied to this product: its name appears in the message, or it was the only open request. */
+  linkBasis: 'product_named_in_message' | 'single_open_request' | 'unlinked';
+  confidence: ConfidenceAssessment;
+}
+
+export type CustomerNeedAlternativeResponse = 'accepted' | 'rejected' | 'considering' | 'no_response' | 'unknown';
+
+/** A substitute a staff member offered for THIS requested product. */
+export interface CustomerNeedAlternative {
+  /** Key of the alternative's own lifecycle entry when the basket owns it; null when only named in text. */
+  productKey: string | null;
+  /** Alternative as the staff wrote it; null when the staff offered "a substitute" without naming it. */
+  productNameRaw: string | null;
+  productId: string | null;
+  offerMessageId: string;
+  offeredByStaffSender: string;
+  offeredByStaffId: string | null;
+  response: CustomerNeedAlternativeResponse;
+  responseMessageId: string | null;
+  evidenceMessageIds: string[];
+  confidence: ConfidenceAssessment;
+}
+
 export interface CustomerNeedProductLifecycle {
   /** Stable only within this analysis: normalized raw name, never a catalog identity substitute. */
   key: string;
@@ -159,6 +194,10 @@ export interface CustomerNeedProductLifecycle {
   offeredQuantity: number | null;
   finalQuantity: number | null;
   roles: CustomerNeedProductRole[];
+  /** Latest staff-asserted stock state for this product; 'unknown' when no staff statement is tied to it. */
+  availability: CustomerNeedAvailability;
+  availabilityEvidence: CustomerNeedAvailabilityEvidence[];
+  alternatives: CustomerNeedAlternative[];
   evidenceMessageIds: string[];
   confidence: ConfidenceAssessment;
 }
@@ -169,6 +208,12 @@ export interface CustomerNeedModel {
   primaryNeed: string | null;
   primaryNeedMessageId: string | null;
   products: CustomerNeedProductLifecycle[];
+  /**
+   * Staff availability statements / alternative offers that could not be tied to exactly one
+   * requested product. Kept as evidence with an unknown product link instead of being guessed.
+   */
+  unlinkedAvailability: CustomerNeedAvailabilityEvidence[];
+  unlinkedAlternatives: CustomerNeedAlternative[];
   objections: CustomerNeedObjection[];
   /** True only while a real need remains structurally incomplete; an explicit decline is closed, not "unknown". */
   unresolvedNeed: boolean;

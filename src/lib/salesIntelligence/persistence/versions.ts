@@ -5,7 +5,7 @@
 // are INDEPENDENT of any git SHA (design doc H.0.1 §8) — each one only changes when the engine it
 // names actually changes in a way that should trigger the reprocessing scope
 // REPROCESSING_MATRIX assigns it (see persistence/types.ts).
-export const PIPELINE_VERSION = 'sales-intelligence-v2';
+export const PIPELINE_VERSION = 'sales-intelligence-v3';
 
 export const ENGINE_VERSIONS = {
   caseSegmentation: 'case-segmentation-v6-semantic-boundaries',

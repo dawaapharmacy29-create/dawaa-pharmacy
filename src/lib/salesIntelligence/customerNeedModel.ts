@@ -6,12 +6,16 @@
 // roles/evidence that a final staff recap may have overwritten inside the basket snapshot.
 import type { NormalizedConversationMessageV32 } from '../whatsappConversationUnderstandingV32';
 import {
+  classifyCustomerOfferResponseV32,
   extractAcceptanceSignals,
+  extractAlternativeOfferSignals,
+  extractAvailabilitySignals,
   extractCorrectionSignals,
   extractProductReferenceSignals,
   extractQuantitySignals,
   extractRejectionSignals,
   extractRequestSignals,
+  isRequestCandidate,
   resolveReference,
 } from '../whatsappSemanticSignalsV32';
 import { normalizeProductKey, stripRequestPrefix } from './caseBasketEngine';
@@ -20,6 +24,10 @@ import type {
   CaseBasketItem,
   ConfidenceAssessment,
   ConfidenceLevel,
+  CustomerNeedAlternative,
+  CustomerNeedAlternativeResponse,
+  CustomerNeedAvailability,
+  CustomerNeedAvailabilityEvidence,
   CustomerNeedModel,
   CustomerNeedObjection,
   CustomerNeedObjectionCategory,
@@ -34,6 +42,11 @@ export interface DeriveCustomerNeedModelInput {
   baskets: CaseBasket[];
   itemsByBasketId: Record<string, CaseBasketItem[]>;
   activeBasket: CaseBasket | null;
+  /**
+   * Canonical sender -> staff.id resolution supplied by the caller (staff identity owner). Used only
+   * for the exact sender of each availability/alternative message; never a "first staff" fallback.
+   */
+  staffIdBySender?: Record<string, string>;
 }
 
 const PRICE_OBJECTION_RX = /غالي|السعر\s*(?:عالي|كتير|كبير)|كتير\s*(?:عليه|عليها)|مش\s*مناسب.*(?:السعر|الثمن)|خصم\s*اكتر/i;
@@ -90,6 +103,23 @@ interface ProductAccumulator {
   roles: Set<CustomerNeedProductRole>;
   evidenceMessageIds: Set<string>;
   confidence: ConfidenceAssessment | null;
+  availabilityEvidence: CustomerNeedAvailabilityEvidence[];
+  alternatives: CustomerNeedAlternative[];
+}
+
+// Words that turn a customer's stock question into a product phrase once removed
+// ("عندكم بانادول اكسترا؟" -> "بانادول اكسترا"). A leftover that is only filler/negation is no product.
+const STOCK_QUESTION_WORDS_RX =
+  /(?<![\p{L}\p{N}])(?:هو|هي|هل|طيب|عندكم|عندكو|عندك|موجود[ةه]?|متوفر[ةه]?|متاح[ةه]?|فيه|في|لو\s*سمحت|من\s*فضلك|ممكن|يا\s*(?:دكتور[ةه]?|فندم))(?![\p{L}\p{N}])/giu;
+const NON_PRODUCT_LEFTOVER_RX = /^(?:مش|لا|لأ|اه|آه|تمام|حاجة|حاجه|ده|دي|دا|منه|منها)?$/;
+
+function productPhraseFromStockQuestion(text: string): string | null {
+  const phrase = stripRequestPrefix(text.replace(STOCK_QUESTION_WORDS_RX, ' '))
+    .replace(/[؟?!.،]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (phrase.length < 3 || NON_PRODUCT_LEFTOVER_RX.test(phrase)) return null;
+  return phrase;
 }
 
 function classifyObjectionCategory(
@@ -153,6 +183,8 @@ export function deriveCustomerNeedModel(input: DeriveCustomerNeedModelInput): Cu
         roles: new Set(),
         evidenceMessageIds: new Set(),
         confidence,
+        availabilityEvidence: [],
+        alternatives: [],
       };
       products.set(key, product);
     } else {
@@ -304,6 +336,205 @@ export function deriveCustomerNeedModel(input: DeriveCustomerNeedModelInput): Cu
     }
   }
 
+  // ---- Availability + alternatives: extensions of the SAME product lifecycle (no second extraction). ----
+  // Only staff statements assert stock (V32 availability signals). Each fact is attributed to its own
+  // message sender. A statement/offer that cannot be tied to exactly one requested product stays
+  // unlinked evidence rather than being guessed onto a product.
+  const staffIdFor = (sender: string): string | null => input.staffIdBySender?.[sender] ?? null;
+  const indexById = new Map(messages.map((message, index) => [message.id, index]));
+  const unlinkedAvailability: CustomerNeedAvailabilityEvidence[] = [];
+  const unlinkedAlternatives: CustomerNeedAlternative[] = [];
+
+  const linkProduct = (
+    staffMessage: NormalizedConversationMessageV32,
+    exclude: Set<string> = new Set()
+  ): { product: ProductAccumulator; basis: 'product_named_in_message' | 'single_open_request' } | null => {
+    const staffText = normalizeProductKey(staffMessage.text);
+    // A product extracted FROM this very message (e.g. a whole staff sentence the basket kept as an
+    // offered line) is not a product "named in" it.
+    const named = Array.from(products.values()).filter(
+      (product) =>
+        !exclude.has(product.key) &&
+        product.key.length >= 3 &&
+        product.key !== staffText &&
+        !product.evidenceMessageIds.has(staffMessage.id) &&
+        staffText.includes(product.key)
+    );
+    if (named.length === 1) return { product: named[0], basis: 'product_named_in_message' };
+    if (named.length > 1) return null;
+
+    // Only the customer turn directly answered by this staff message may supply the link, and only
+    // when that turn holds exactly one request; two open requests in one turn are ambiguous.
+    const index = indexById.get(staffMessage.id) ?? -1;
+    const before = messages.slice(0, Math.max(index, 0));
+    const lastStaffIndex = before.map((message) => message.role === 'staff' && message.isMeaningful).lastIndexOf(true);
+    const customerTurn = before
+      .slice(lastStaffIndex + 1)
+      .filter((message) => message.role === 'customer' && isRequestCandidate(message));
+    const request = customerTurn.length === 1 ? customerTurn[0] : null;
+    if (customerTurn.length > 1) return null;
+    if (request) {
+      const tied = Array.from(products.values()).filter(
+        (product) => !exclude.has(product.key) && product.evidenceMessageIds.has(request.id)
+      );
+      if (tied.length === 1) return { product: tied[0], basis: 'single_open_request' };
+      if (tied.length === 0) {
+        const phrase = productPhraseFromStockQuestion(request.text);
+        if (phrase && !exclude.has(normalizeProductKey(phrase))) {
+          const ref = evidenceRef(request.id, `العميل سأل عن الصنف: "${request.text.slice(0, 120)}".`);
+          const created = ensureProduct(
+            phrase,
+            assessment('weakly_inferred', 0.6, ['need.product.customer_stock_question'], [ref])
+          );
+          if (created) {
+            created.roles.add('requested');
+            created.evidenceMessageIds.add(request.id);
+            return { product: created, basis: 'single_open_request' };
+          }
+        }
+      }
+    }
+
+    const requested = Array.from(products.values()).filter(
+      (product) =>
+        !exclude.has(product.key) &&
+        product.roles.has('requested') &&
+        Array.from(product.evidenceMessageIds).some((id) => (indexById.get(id) ?? Infinity) < index)
+    );
+    return requested.length === 1 ? { product: requested[0], basis: 'single_open_request' } : null;
+  };
+
+  const availabilityByMessageId = new Map<string, ProductAccumulator>();
+  for (const signal of extractAvailabilitySignals(messages)) {
+    const message = messageById.get(signal.messageId);
+    if (!message) continue;
+    const state = signal.extractedValue as CustomerNeedAvailabilityEvidence['state'];
+    const link = linkProduct(message);
+    const fact: CustomerNeedAvailabilityEvidence = {
+      state,
+      messageId: message.id,
+      staffSender: message.sender,
+      staffId: staffIdFor(message.sender),
+      linkBasis: link?.basis ?? 'unlinked',
+      confidence: assessment(
+        link?.basis === 'product_named_in_message' ? 'strongly_inferred' : 'weakly_inferred',
+        link?.basis === 'product_named_in_message' ? signal.confidence : Math.min(signal.confidence, 0.7),
+        [signal.ruleId, `need.availability.link.${link?.basis ?? 'unlinked'}`],
+        [evidenceRef(message.id, `الموظف (${message.sender}) قال عن التوفر: "${message.text.slice(0, 120)}".`)]
+      ),
+    };
+    if (!link) {
+      unlinkedAvailability.push(fact);
+      continue;
+    }
+    link.product.availabilityEvidence.push(fact);
+    link.product.evidenceMessageIds.add(message.id);
+    availabilityByMessageId.set(message.id, link.product);
+  }
+
+  const alternativeSignals = extractAlternativeOfferSignals(messages);
+  const alternativeMessageIds = new Set(alternativeSignals.map((signal) => signal.messageId));
+  const customerResponseTo = (
+    offer: NormalizedConversationMessageV32
+  ): { response: CustomerNeedAlternativeResponse; messageId: string | null } => {
+    const start = (indexById.get(offer.id) ?? -1) + 1;
+    const replies: NormalizedConversationMessageV32[] = [];
+    for (const message of messages.slice(start)) {
+      if (alternativeMessageIds.has(message.id)) break;
+      if (message.role === 'customer' && message.isMeaningful) replies.push(message);
+      if (replies.length >= 3) break;
+    }
+    if (replies.length === 0) return { response: 'no_response', messageId: null };
+    for (const reply of replies) {
+      const response = classifyCustomerOfferResponseV32(reply.text);
+      if (response) return { response, messageId: reply.id };
+    }
+    return { response: 'unknown', messageId: null };
+  };
+
+  const itemsSourcedFrom = (messageId: string) =>
+    input.baskets.flatMap((basket) => input.itemsByBasketId[basket.basketId] ?? []).filter(
+      (item) => item.sourceMessageId === messageId
+    );
+
+  for (const signal of alternativeSignals) {
+    const offer = messageById.get(signal.messageId);
+    if (!offer) continue;
+    const trigger = (signal.relatedMessageIds ?? [])[0];
+    let original: ProductAccumulator | null =
+      (trigger ? availabilityByMessageId.get(trigger) : undefined) ??
+      availabilityByMessageId.get(offer.id) ??
+      null;
+
+    // The alternative's own identity: a basket item the staff wrote in this very message, else the
+    // raw phrase after the offer marker. Never the original product.
+    // A basket line that is the staff's whole sentence is not a product name; fall back to the phrase.
+    const offerText = normalizeProductKey(offer.text);
+    const sourcedKeys = Array.from(
+      new Set(itemsSourcedFrom(offer.id).map((item) => normalizeProductKey(item.productNameRaw)))
+    ).filter((key) => key && key !== original?.key && key !== offerText);
+    const phraseKey = signal.extractedValue ? normalizeProductKey(signal.extractedValue) : '';
+    let alternativeProduct: ProductAccumulator | null =
+      sourcedKeys.length === 1
+        ? products.get(sourcedKeys[0]) ?? null
+        : phraseKey && phraseKey !== original?.key
+          ? products.get(phraseKey) ?? null
+          : null;
+    if (!original) {
+      const link = linkProduct(offer, new Set(alternativeProduct ? [alternativeProduct.key] : []));
+      original = link?.product ?? null;
+    }
+    if (alternativeProduct && alternativeProduct.key === original?.key) alternativeProduct = null;
+    if (alternativeProduct) {
+      alternativeProduct.roles.add('alternative');
+      alternativeProduct.evidenceMessageIds.add(offer.id);
+    }
+
+    const { response: textResponse, messageId: responseMessageId } = customerResponseTo(offer);
+    const inFinalBasket = alternativeProduct?.roles.has('final_basket') ?? false;
+    const response: CustomerNeedAlternativeResponse =
+      textResponse === 'unknown' || textResponse === 'no_response'
+        ? (inFinalBasket ? 'accepted' : textResponse)
+        : textResponse;
+    const evidenceIds = [
+      ...(trigger ? [trigger] : []),
+      offer.id,
+      ...(responseMessageId ? [responseMessageId] : []),
+    ];
+    const named = Boolean(alternativeProduct || signal.extractedValue);
+    const alternative: CustomerNeedAlternative = {
+      productKey: alternativeProduct?.key ?? null,
+      productNameRaw: alternativeProduct?.productNameRaw ?? signal.extractedValue ?? null,
+      productId: alternativeProduct?.productId ?? null,
+      offerMessageId: offer.id,
+      offeredByStaffSender: offer.sender,
+      offeredByStaffId: staffIdFor(offer.sender),
+      response,
+      responseMessageId,
+      evidenceMessageIds: evidenceIds,
+      confidence: assessment(
+        original && named ? 'strongly_inferred' : 'weakly_inferred',
+        original && named ? signal.confidence : Math.min(signal.confidence, 0.6),
+        [signal.ruleId, `need.alternative.response.${response}`],
+        [evidenceRef(offer.id, `الموظف (${offer.sender}) عرض بديلًا: "${offer.text.slice(0, 120)}".`)]
+      ),
+    };
+    if (!original) {
+      unlinkedAlternatives.push(alternative);
+      continue;
+    }
+    original.alternatives.push(alternative);
+    evidenceIds.forEach((id) => original!.evidenceMessageIds.add(id));
+  }
+
+  const currentAvailability = (product: ProductAccumulator): CustomerNeedAvailability => {
+    const latest = product.availabilityEvidence
+      .slice()
+      .sort((a, b) => (indexById.get(a.messageId) ?? 0) - (indexById.get(b.messageId) ?? 0))
+      .pop();
+    return latest?.state ?? 'unknown';
+  };
+
   const rejectionIds = new Set(rejectionSignals.map((signal) => signal.messageId));
   const correctionIds = new Set(correctionSignals.map((signal) => signal.messageId));
   const objections: CustomerNeedObjection[] = [];
@@ -370,6 +601,9 @@ export function deriveCustomerNeedModel(input: DeriveCustomerNeedModelInput): Cu
     offeredQuantity: product.offeredQuantity,
     finalQuantity: product.finalQuantity,
     roles: Array.from(product.roles),
+    availability: currentAvailability(product),
+    availabilityEvidence: product.availabilityEvidence,
+    alternatives: product.alternatives,
     evidenceMessageIds: Array.from(product.evidenceMessageIds),
     confidence:
       product.confidence ??
@@ -420,6 +654,8 @@ export function deriveCustomerNeedModel(input: DeriveCustomerNeedModelInput): Cu
     primaryNeed: firstRequestMessage?.text ?? null,
     primaryNeedMessageId: firstRequestMessage?.id ?? null,
     products: productList,
+    unlinkedAvailability,
+    unlinkedAlternatives,
     objections,
     unresolvedNeed,
     evidenceMessageIds,
