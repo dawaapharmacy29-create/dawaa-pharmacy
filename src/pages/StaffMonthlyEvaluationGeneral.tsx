@@ -513,6 +513,7 @@ export default function StaffMonthlyEvaluation() {
   const [selectedId, setSelectedId] = useState('');
   const [search, setSearch] = useState('');
   const [staffStatusFilter, setStaffStatusFilter] = useState<'all' | 'not_started' | 'draft' | 'approved' | 'needs_reapproval'>('all');
+  const [receiptFilter, setReceiptFilter] = useState<'all' | 'not_seen' | 'seen' | 'commented'>('all');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeStep, setActiveStep] = useState<MonthlyEvaluationStep>(1);
   const [auditRefreshKey, setAuditRefreshKey] = useState(0);
@@ -644,6 +645,10 @@ export default function StaffMonthlyEvaluation() {
   useEffect(() => {
     setActiveStep(1);
   }, [cycleLabel, selectedId]);
+
+  useEffect(() => {
+    setReceiptFilter('all');
+  }, [branch, cycleLabel]);
 
   useEffect(() => {
     if (!selectedId || !user?.id || !selected) return;
@@ -1011,6 +1016,15 @@ export default function StaffMonthlyEvaluation() {
     }
   }
 
+  const publishedStaff = staff.filter((item) =>
+    ['sent', 'approved'].includes(String(item.evaluation_status || ''))
+  );
+  const receiptCounts = {
+    not_seen: publishedStaff.filter((item) => !item.evaluation_acknowledged_at && !item.evaluation_commented_at).length,
+    seen: publishedStaff.filter((item) => Boolean(item.evaluation_acknowledged_at) && !item.evaluation_commented_at).length,
+    commented: publishedStaff.filter((item) => Boolean(item.evaluation_commented_at)).length,
+  };
+
   const filteredStaff = staff.filter((item) => {
     const matchesSearch = item.name.includes(search);
     const matchesStatus = staffStatusFilter === 'all'
@@ -1018,7 +1032,14 @@ export default function StaffMonthlyEvaluation() {
       || (staffStatusFilter === 'draft' && item.evaluation_status === 'draft')
       || (staffStatusFilter === 'approved' && ['sent', 'approved'].includes(String(item.evaluation_status || '')))
       || (staffStatusFilter === 'needs_reapproval' && item.evaluation_status === 'needs_reapproval');
-    return matchesSearch && matchesStatus;
+
+    const published = ['sent', 'approved'].includes(String(item.evaluation_status || ''));
+    const matchesReceipt = receiptFilter === 'all'
+      || (receiptFilter === 'not_seen' && published && !item.evaluation_acknowledged_at && !item.evaluation_commented_at)
+      || (receiptFilter === 'seen' && published && Boolean(item.evaluation_acknowledged_at) && !item.evaluation_commented_at)
+      || (receiptFilter === 'commented' && published && Boolean(item.evaluation_commented_at));
+
+    return matchesSearch && matchesStatus && matchesReceipt;
   });
   const completedSections = sections.filter((item) => item.score > 0).length;
   const weakSectionsMissingNotes = sections.filter((item) => item.score > 0 && item.score <= 2 && !item.notes.trim());
@@ -1369,6 +1390,32 @@ export default function StaffMonthlyEvaluation() {
               ))}
             </div>
 
+            <div className="mt-2 border-t pt-2" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
+              <div className="mb-1 text-[10px] font-black" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                استلام التقييم
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {([
+                  ['all', 'الكل', publishedStaff.length],
+                  ['not_seen', 'لم يطلع', receiptCounts.not_seen],
+                  ['seen', 'اطلع', receiptCounts.seen],
+                  ['commented', 'علّق', receiptCounts.commented],
+                ] as const).map(([value, label, count]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setReceiptFilter(value)}
+                    className="rounded-lg border px-2 py-1 text-[10px] font-black"
+                    style={receiptFilter === value
+                      ? { borderColor: 'var(--dawaa-theme-accent-border)', background: 'var(--dawaa-theme-accent-soft)', color: 'var(--dawaa-theme-primary-strong)' }
+                      : { borderColor: 'var(--dawaa-theme-border)', color: 'var(--dawaa-theme-muted)' }}
+                  >
+                    {label} · {count}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <div className="mt-2 max-h-[72vh] space-y-1.5 overflow-y-auto">
               {filteredStaff.map((item) => {
                 const statusLabel = item.evaluation_status === 'needs_reapproval'
@@ -1441,7 +1488,7 @@ export default function StaffMonthlyEvaluation() {
               })}
               {!filteredStaff.length ? (
                 <div className="rounded-xl border border-dashed p-4 text-center text-xs font-bold" style={{ borderColor: 'var(--dawaa-theme-border)', color: 'var(--dawaa-theme-muted)' }}>
-                  لا يوجد موظف مطابق للبحث.
+                  {receiptFilter === 'all' ? 'لا يوجد موظف مطابق للبحث.' : 'لا يوجد موظف في حالة الاستلام المختارة.'}
                 </div>
               ) : null}
             </div>
