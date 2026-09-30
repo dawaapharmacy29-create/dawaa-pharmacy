@@ -255,8 +255,12 @@ function criterionApplicable(
     case 'unavailable_items':
       return view.unavailableDemand.length > 0 || view.products.some((product) => product.availability === 'unavailable');
     case 'sales_closing':
-    case 'order_confirmation':
       return view.interaction.caseType === 'sales_opportunity' || view.sale.isSaleCountable || view.basket.versions.length > 0;
+    case 'order_confirmation': {
+      const applicability = view.coachingEvidence.protocolApplicability;
+      if (applicability) return applicability === 'applicable';
+      return view.basket.confirmed || view.sale.summaryPresented || view.sale.customerConfirmed || view.sale.staffConfirmed;
+    }
     case 'cross_sell_upsell':
       return view.products.some(
         (product) =>

@@ -555,6 +555,8 @@ export interface CaseIntelligenceView {
     clearClosing: boolean;
     protocolCompliant: boolean;
     missingProtocolSteps: string[];
+    /** Whether the 4-step order-confirmation protocol was genuinely applicable to this interaction. */
+    protocolApplicability?: OrderConfirmationProtocolApplicability;
   };
   evidenceSummary: {
     evidenceMessageIds: string[];

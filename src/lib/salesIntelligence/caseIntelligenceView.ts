@@ -234,6 +234,7 @@ export function buildCaseIntelligenceView(
       clearClosing: commercialConfirmation.currentState === 'commercial_confirmation_complete',
       protocolCompliant: analysis.protocolAssessment.protocolCompliant,
       missingProtocolSteps: analysis.protocolAssessment.missingProtocolSteps,
+      protocolApplicability: analysis.protocolAssessment.applicability ?? 'unknown',
     },
     evidenceSummary: {
       evidenceMessageIds: messages.map((m) => m.id).filter((id) => allEvidence.has(id)),
