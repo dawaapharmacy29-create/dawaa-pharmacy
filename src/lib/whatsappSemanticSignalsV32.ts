@@ -658,6 +658,33 @@ export function extractAlternativeOfferSignals(messages: NormalizedConversationM
   return signals;
 }
 
+// ---- Customer commercial-intent statements (evidence for Lost Opportunity; never a verdict here) ----
+const BOUGHT_ELSEWHERE_RX =
+  /(?:جبت|اشتريت|خدت|لقيت|هجيب|هشتري|هاخد)(?:ه|ها|هم)?\s*(?:من\s*)?(?:مكان\s*تاني|صيدلي[ةه]\s*تاني[ةه]|برا|بره)|من\s*(?:صيدلي[ةه]\s*تاني[ةه]|مكان\s*تاني)/i;
+const FINAL_DECLINE_RX =
+  /مش\s*(?:عايز|عاوز|محتاج)[ةه]?\s*خلاص|خلاص\s*مش\s*(?:عايز|عاوز|محتاج)|^لا\s*خلاص|لا\s*خلاص\s*مش|خلاص\s*(?:بلاش|مش\s*لازم)|(?:ا|أ|إ)لغي\s*الطلب|كنسل\s*الطلب|مبقتش\s*(?:محتاج|عايز|عاوز)/i;
+const DELAY_COMPLAINT_RX =
+  /اتأخرت(?:وا)?|متأخرين|محدش\s*(?:رد|بيرد)|ليه\s*محدش|بقالي\s*(?:ساع[ةه]|كتير|فتر[ةه])|مستني\s*من\s*بدري/i;
+const WILL_WAIT_RX =
+  /هستنا(?:ه|ها)?|هستنى|(?:ابقى|ابقي)\s*(?:بلغني|كلمني|قولي|عرفني)|لما\s*(?:يوصل|يتوفر|ييجي|ينزل)|بلغني\s*لما|عرفني\s*لما/i;
+
+export type CustomerIntentStatementV32 =
+  | 'bought_elsewhere'
+  | 'final_decline'
+  | 'delay_complaint'
+  | 'will_wait'
+  | 'considering';
+
+/** What a customer message states about their own commercial intent, strongest first; null = none. */
+export function classifyCustomerIntentStatementV32(text: string): CustomerIntentStatementV32 | null {
+  if (BOUGHT_ELSEWHERE_RX.test(text)) return 'bought_elsewhere';
+  if (FINAL_DECLINE_RX.test(text)) return 'final_decline';
+  if (DELAY_COMPLAINT_RX.test(text)) return 'delay_complaint';
+  if (WILL_WAIT_RX.test(text)) return 'will_wait';
+  if (CONSIDERING_RX.test(text)) return 'considering';
+  return null;
+}
+
 /** Customer's answer to a staff offer. Rejection is checked first ("لا مش عايزه تمام" is still a no). */
 export function classifyCustomerOfferResponseV32(text: string): CustomerOfferResponseV32 | null {
   if (REJECTION_RX.test(text)) return 'rejected';

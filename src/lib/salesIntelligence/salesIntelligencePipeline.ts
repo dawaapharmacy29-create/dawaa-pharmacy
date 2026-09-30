@@ -33,6 +33,7 @@ import { deriveCanonicalSalesOutcome } from './canonicalSalesOutcomeEngine';
 import { deriveCustomerNeedModel } from './customerNeedModel';
 import { deriveCommercialJourneyState } from './commercialJourneyStateMachine';
 import { deriveUnavailableDemand } from './unavailableDemandEngine';
+import { deriveLostOpportunity } from './lostOpportunityEngine';
 import {
   resolveProductMention,
   type PharmacyProductIndex,
@@ -501,6 +502,15 @@ function analyzeOneCase(
     commercialConfirmation,
     salesOutcome,
   });
+  const lostOpportunity = deriveLostOpportunity({
+    caseId: conversationCase.caseId,
+    messages: scopedMessages,
+    customerNeed,
+    unavailableDemand,
+    commercialConfirmation,
+    journeyState,
+    salesOutcome,
+  });
 
   let status: PipelineStatus;
   if (isGenuinelyInformationOnly) {
@@ -533,6 +543,7 @@ function analyzeOneCase(
     integrityAssessment,
     salesOutcome,
     journeyState,
+    lostOpportunity,
     evidenceCompleteness,
     status,
     pipelineWarnings,

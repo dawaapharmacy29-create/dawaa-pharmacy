@@ -263,6 +263,72 @@ export interface UnavailableDemand {
   blockers: UnavailableDemandBlocker[];
 }
 
+export type LostOpportunityState = 'won' | 'open' | 'recoverable' | 'lost' | 'no_commercial_opportunity' | 'unknown';
+
+export type LostOpportunityReason =
+  | 'stock_unavailable'
+  | 'price'
+  | 'alternative_rejected'
+  | 'customer_no_response'
+  | 'staff_no_response'
+  | 'slow_response'
+  | 'delivery_issue'
+  | 'product_not_suitable'
+  | 'prescription_unclear'
+  | 'customer_declined'
+  | 'competitor'
+  | 'unknown';
+
+export type LostOpportunityStage = 'need' | 'availability' | 'offer' | 'price' | 'closing' | 'fulfillment' | 'response' | 'unknown';
+export type LostOpportunityResponsibility = 'customer' | 'staff' | 'inventory' | 'delivery' | 'process' | 'unknown';
+export type LostOpportunityRecoverability = 'high' | 'medium' | 'low' | 'none' | 'unknown';
+
+/** A staff fact the verdict relied on, attributed to the exact message sender. */
+export interface LostOpportunityStaffFact {
+  fact: 'stated_unavailable' | 'stated_check_pending' | 'offered_alternative' | 'awaiting_customer_reply';
+  messageId: string;
+  staffSender: string;
+  staffId: string | null;
+}
+
+/**
+ * Per requested product that did NOT end in the final basket. Kept even when the interaction is
+ * `won`, so a sold A never hides a lost/unavailable B.
+ */
+export interface ProductLossEvidence {
+  productKey: string;
+  requestedProductRaw: string;
+  productId: string | null;
+  outcome: 'replaced_by_alternative' | 'recoverable' | 'lost' | 'unknown';
+  reason: LostOpportunityReason | null;
+  demandKey: string | null;
+  evidenceMessageIds: string[];
+}
+
+/**
+ * Canonical Lost Opportunity — owner: salesIntelligence/lostOpportunityEngine.ts.
+ * Answers "is this interaction's commercial opportunity won, still open, recoverable or really
+ * lost — and why". It never proves a sale (only reads CanonicalSalesOutcome) and never uses time
+ * alone: without explicit end evidence an unanswered interaction stays open/recoverable.
+ */
+export interface LostOpportunityAssessment {
+  caseId: string;
+  state: LostOpportunityState;
+  /** Who the next move belongs to while open/recoverable; null otherwise. */
+  waitingOn: 'customer' | 'staff' | 'stock' | 'invoice' | null;
+  reason: LostOpportunityReason | null;
+  stage: LostOpportunityStage;
+  responsibility: LostOpportunityResponsibility;
+  recoverability: LostOpportunityRecoverability;
+  productKeys: string[];
+  productLosses: ProductLossEvidence[];
+  staffFacts: LostOpportunityStaffFact[];
+  evidenceMessageIds: string[];
+  confidence: ConfidenceAssessment;
+  /** Stable rule code of the decisive rule, e.g. `lost.final_decline.price`. */
+  explanation: string;
+}
+
 export interface CustomerNeedModel {
   caseId: string;
   /** First real customer request/need statement, verbatim. Null when the case has no customer need. */
@@ -1135,6 +1201,8 @@ export interface SalesIntelligenceCaseAnalysis {
   customerNeed: CustomerNeedModel;
   /** Canonical Unavailable Demand records for this interaction (unavailableDemandEngine). */
   unavailableDemand: UnavailableDemand[];
+  /** Canonical Lost Opportunity verdict for this interaction (lostOpportunityEngine). */
+  lostOpportunity: LostOpportunityAssessment;
   basketHistory: CaseBasket[];
   itemsByBasketId: Record<string, CaseBasketItem[]>;
   /** Resolved via basketInvoiceMatchingEngine's own resolveActiveBasket() — null when insufficient/ambiguous. */

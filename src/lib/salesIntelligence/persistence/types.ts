@@ -26,6 +26,7 @@ import type {
   CommercialConfirmationState,
   CustomerNeedModel,
   UnavailableDemand,
+  LostOpportunityAssessment,
   CommercialJourneyStateAssessment,
   ConfidenceLevel,
   DifferenceExplanationKind,
@@ -203,6 +204,8 @@ export interface SalesIntelligenceCaseAnalysisRow extends CaseAnalysisProvenance
     customerNeed?: CustomerNeedModel;
     /** Canonical Unavailable Demand records from this exact analysis run (optional for older rows). */
     unavailableDemand?: UnavailableDemand[];
+    /** Canonical Lost Opportunity verdict from this exact analysis run (optional for older rows). */
+    lostOpportunity?: LostOpportunityAssessment;
     /** Derived state-machine projection; optional for historical v1 rows. */
     journeyState?: CommercialJourneyStateAssessment;
     historicalClosureEvidence: EvidenceRef[];
