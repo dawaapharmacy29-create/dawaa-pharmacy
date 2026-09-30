@@ -26,7 +26,6 @@ import {
   persistAutomaticWhatsAppReview,
   type AutomaticReviewSourceContext,
 } from '@/lib/whatsappAutomaticReviewPersistence';
-import { getCycleForDate } from '@/lib/pharmacy-cycle';
 import { resolveWhatsAppParticipantRolesV15, type WhatsAppParticipantRoleModelV15 } from '@/lib/whatsappParticipantRoleResolverV15';
 import { resolveConversationBranchHint, type BranchHintResult } from '@/lib/whatsappConversationBranchHint';
 import {
@@ -517,7 +516,6 @@ export async function ingestWhatsAppExportFile(
   const caseContexts = segmentation.caseContexts;
   result.sessionsFound = caseContexts.contexts.length;
   const sessionSources: JourneySessionSourceV15[] = [];
-  const pendingAutomaticReviews: AutomaticReviewSourceContext[] = [];
   let firstBranch: string | null = null;
   // Canonical Customer Identity: one bounded batch for every case unit (same resolver as the
   // Smart Watcher and Sales Intelligence). A lookup failure fails the file visibly.
@@ -575,21 +573,6 @@ export async function ingestWhatsAppExportFile(
         }
       }
 
-      if (!saved.duplicate) {
-        // Written only after the Customer Case V22 sync proves canonical ownership (below).
-        pendingAutomaticReviews.push({
-          sourceId: saved.sourceId,
-          session,
-          branch: conversationBranch,
-          customerId: identity.customerId,
-          customerCode: identity.customerCode,
-          customerName: identity.customerName,
-          customerPhone: identity.customerPhone,
-          staffName: session.outboundStaffNames[0] || null,
-          reviewCycle: getCycleForDate(session.startedAt),
-        });
-      }
-
       const invoiceStatus = await verifySessionSale(session, saved.sourceId, identity, conversationBranch);
       if (invoiceStatus === 'verified') result.invoicesVerified += 1;
       else if (invoiceStatus === 'probable' || invoiceStatus === 'needs_review')
@@ -645,10 +628,10 @@ export async function ingestWhatsAppExportFile(
     );
   }
 
-  // Canonical Review Gate: official automatic reviews only after the V22 sync; the writer
-  // re-checks each source against the canonical operational owner. A failed sync writes none.
-  await persistCanonicalAutomaticReviews(pendingAutomaticReviews, result);
-
+  // Automatic conversation analysis is no longer persisted here.
+  // It is now a Case-level follower inside the canonical Sales Intelligence refresh, after
+  // Sales Intelligence persistence + canonical proof reconciliation. This prevents a legacy
+  // Source-level review and a new Case-level review from being created for the same interaction.
   // Sales Intelligence through the same transport and Canonical Source Gate as the Smart Watcher.
   const sourceIds = Array.from(new Set(sessionSources.map((row) => row.sourceId)));
   if (sourceIds.length) {
