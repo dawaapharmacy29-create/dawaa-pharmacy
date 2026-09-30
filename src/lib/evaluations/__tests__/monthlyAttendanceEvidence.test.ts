@@ -35,6 +35,14 @@ describe('monthly attendance strength evidence gate', () => {
     expect(hasStrongAttendanceEvidence({ ...cleanBase, manualResolutionCases: 1 })).toBe(false);
   });
 
+  it('keeps approved leave and normal off-days neutral', () => {
+    expect(hasStrongAttendanceEvidence({
+      ...cleanBase,
+      approvedTimeOffCases: 4,
+      offDayCases: 5,
+    })).toBe(true);
+  });
+
   it('accepts clean repeated on-time evidence', () => {
     expect(hasStrongAttendanceEvidence(cleanBase)).toBe(true);
   });

@@ -1174,6 +1174,8 @@ export default function StaffMonthlyEvaluation() {
   const attendanceStrengthEvidence = hasStrongAttendanceEvidence({
     onTimeDays: coaching?.attendance.onTimeDays || 0,
     workedOnOffCases: coaching?.attendance.workedOnOffCases || 0,
+    approvedTimeOffCases: coaching?.attendance.approvedTimeOffCases || 0,
+    offDayCases: coaching?.attendance.offDayCases || 0,
     lateCases: coaching?.attendance.lateCases || 0,
     veryLateCases: coaching?.attendance.veryLateCases || 0,
     earlyLeaveCases: coaching?.attendance.earlyLeaveCases || 0,

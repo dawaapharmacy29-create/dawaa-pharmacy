@@ -5,9 +5,9 @@ import {
 } from '@/lib/evaluations/monthlyEvaluationStrengthEligibility';
 
 describe('monthly evaluation strength eligibility', () => {
-  it('keeps ordinary 4+ star sections eligible', () => {
+  it('keeps ordinary non-gated 4+ star sections eligible', () => {
     expect(isMonthlyEvaluationStrengthEligible(
-      { key: 'discipline', score: 4 },
+      { key: 'conversations', score: 4 },
       { dispensing: false, salesQuality: false, followupsRequests: false, inventory: false, development: false, attendance: false }
     )).toBe(true);
   });

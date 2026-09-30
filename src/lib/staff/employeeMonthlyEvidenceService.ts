@@ -548,6 +548,8 @@ function buildAttendanceCoaching(rows: AttendanceImpactRow[]): MonthlyAttendance
   const attendanceStrengthEvidence = hasStrongAttendanceEvidence({
     onTimeDays,
     workedOnOffCases,
+    approvedTimeOffCases,
+    offDayCases,
     lateCases,
     veryLateCases,
     earlyLeaveCases,

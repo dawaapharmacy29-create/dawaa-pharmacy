@@ -3,6 +3,8 @@ export const ATTENDANCE_STRENGTH_MIN_WORKED_DAYS = 3;
 export type AttendanceStrengthEvidenceInput = {
   onTimeDays: number;
   workedOnOffCases: number;
+  approvedTimeOffCases?: number;
+  offDayCases?: number;
   lateCases: number;
   veryLateCases: number;
   earlyLeaveCases: number;
@@ -12,7 +14,7 @@ export type AttendanceStrengthEvidenceInput = {
 };
 
 /**
- * Approved leave, permissions and normal off-days are neutral.
+ * Approved leave, permissions and normal off-days are neutral and never count as faults.
  * Automatic attendance strength requires repeated classified workdays and no
  * documented employee-attendance breach or ambiguous/contradictory ledger state.
  */
