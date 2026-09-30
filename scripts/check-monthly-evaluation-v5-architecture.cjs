@@ -19,6 +19,7 @@ const backend = [
   read('supabase/migrations/20260929154500_monthly_evaluation_v5_hardening.sql'),
   read('supabase/migrations/20260929160000_monthly_evaluation_v5_read_api.sql'),
   read('supabase/migrations/20260929161000_monthly_evaluation_v5_draft_fix.sql'),
+  read('supabase/migrations/20260930113000_monthly_evaluation_score_truth_v5.sql'),
 ].join('\n');
 
 for (const rpc of [
@@ -49,6 +50,12 @@ if (/points_incentive_egp\s*\*\s*effectiveEvaluationMultiplierPct/.test(page)) {
 if (!page.includes('pointsTruth?.final_incentive_egp')) {
   failures.push('Page must read final incentive from the canonical points truth.');
 }
+if (page.includes("gate.blocksFully ? 'إيقاف الحافز'")) {
+  failures.push('Critical Gate UI must not claim all financial bonus is stopped; competition bonus is independent.');
+}
+if (!page.includes('معامل حافز النقاط الأساسي')) {
+  failures.push('Critical Gate UI must name the points-incentive multiplier explicitly.');
+}
 
 for (const step of ['بيانات الدورة', 'تقييم المحاور', 'النقاط والمخالفات', 'الخلاصة والتطوير', 'المراجعة والاعتماد']) {
   if (!workflow.includes(step)) failures.push(`Workflow is missing step: ${step}`);
@@ -66,6 +73,9 @@ for (const token of [
   'between 0 and 5',
   'يجب تقييم كل المحاور قبل الاعتماد النهائي',
   '1 أو 2 نجمة',
+  'monthly_evaluation_canonical_weight_mismatch',
+  'invalid_monthly_evaluation_critical_gate',
+  'legacy_monthly_evaluation_critical_gate_points_retired',
 ]) {
   if (!backend.includes(token)) failures.push(`V5 backend contract is missing: ${token}`);
 }

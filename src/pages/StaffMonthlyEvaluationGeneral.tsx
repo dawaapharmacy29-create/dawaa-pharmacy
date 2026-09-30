@@ -1999,7 +1999,7 @@ export default function StaffMonthlyEvaluation() {
                     <div>
                       <div className="text-sm font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>المخالفات الحرجة</div>
                       <div className="mt-1 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
-                        فعّل فقط المخالفة المؤكدة لأنها تؤثر مباشرة على سقف الحافز.
+                        فعّل فقط المخالفة المؤكدة لأنها تؤثر على معامل حافز النقاط الأساسي فقط؛ لا تغيّر درجة التقييم، ومكافأة المنافسة مستقلة.
                       </div>
                     </div>
                     <span
@@ -2027,7 +2027,7 @@ export default function StaffMonthlyEvaluation() {
                             : { borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-theme-text)' }}
                         >
                           <span>{gate.label}</span>
-                          <span>{active ? (gate.blocksFully ? 'إيقاف الحافز' : `سقف ${gate.capPercent}%`) : 'غير مفعلة'}</span>
+                          <span>{active ? (gate.blocksFully ? 'حافز النقاط الأساسي 0%' : `حد معامل حافز النقاط ${gate.capPercent}%`) : 'غير مفعلة'}</span>
                         </button>
                       );
                     })}
@@ -2037,7 +2037,7 @@ export default function StaffMonthlyEvaluation() {
                     <div className="mt-3 rounded-xl border px-3 py-2 text-xs font-black" style={{ borderColor: 'var(--dawaa-status-danger-border)', background: 'var(--dawaa-status-danger-bg)', color: 'var(--dawaa-status-danger-text)' }}>
                       {effectiveEvaluationMultiplierPct == null
                         ? 'السقف الفعلي يظهر بعد اكتمال كل محاور التقييم.'
-                        : `السقف الفعلي للحافز: ${effectiveEvaluationMultiplierPct}%`}
+                        : `درجة التقييم ${overallScore}% · معامل حافز النقاط الأساسي ${effectiveEvaluationMultiplierPct}%`}
                     </div>
                   ) : null}
                 </Panel>
