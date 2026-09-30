@@ -58,6 +58,7 @@ export type MonthlyConversationCoaching = {
   flags: {
     complaints: number;
     medicalErrors: number;
+    badAlternativeCases: number;
     badTone: number;
     severeBadTone: number;
     missedSales: number;
@@ -176,6 +177,7 @@ const REVIEW_SELECT = [
   'reviewer_notes',
   'has_complaint',
   'has_medical_error',
+  'bad_alternative_flag',
   'bad_tone_flag',
   'severe_bad_tone_flag',
   'missed_sales_opportunity',
@@ -301,6 +303,7 @@ function buildConversationCoaching(rows: Record<string, unknown>[]): MonthlyConv
     flags: {
       complaints: rows.filter((row) => bool(row.has_complaint)).length,
       medicalErrors: rows.filter((row) => bool(row.has_medical_error)).length,
+      badAlternativeCases: rows.filter((row) => bool(row.bad_alternative_flag)).length,
       badTone: rows.filter((row) => bool(row.bad_tone_flag)).length,
       severeBadTone: rows.filter((row) => bool(row.severe_bad_tone_flag)).length,
       missedSales: rows.filter((row) => bool(row.missed_sales_opportunity) || bool(row.missed_sale_opportunity)).length,

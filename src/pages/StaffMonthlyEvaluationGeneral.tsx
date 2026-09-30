@@ -182,6 +182,55 @@ function sectionEvidenceFor(
     };
   }
 
+  if (key === 'dispensing') {
+    if (health.reviews !== 'available') {
+      return {
+        status: 'unavailable' as const,
+        summary: 'مصدر مراجعات الإرشاد الدوائي غير متاح حاليًا',
+        details: ['لا تستخدم غياب البيانات كدليل على دقة الصرف أو عدمها.'],
+      };
+    }
+
+    const conversation = coaching?.conversation;
+    const consultation = conversation?.dimensions.find((item) => item.key === 'consultation_quality');
+    const dosage = conversation?.dimensions.find((item) => item.key === 'dosage_explanation');
+    const alternatives = conversation?.dimensions.find((item) => item.key === 'alternative_handling');
+    const medicalErrors = conversation?.flags.medicalErrors || 0;
+    const badAlternativeCases = conversation?.flags.badAlternativeCases || 0;
+    const guidanceSamples = Math.max(
+      consultation?.samples || 0,
+      dosage?.samples || 0,
+      alternatives?.samples || 0
+    );
+
+    const guidanceSummary = [
+      dosage ? `شرح الجرعة ${dosage.average}/10` : '',
+      consultation ? `الاستشارة ${consultation.average}/10` : '',
+      alternatives ? `البدائل ${alternatives.average}/10` : '',
+    ].filter(Boolean).join(' · ');
+
+    return {
+      status: medicalErrors > 0 ? 'available' as const : guidanceSamples >= 3 ? 'available' as const : 'manual' as const,
+      summary: medicalErrors > 0
+        ? `${medicalErrors} خطأ طبي موثق في مراجعات الدورة · يحتاج مراجعة مباشرة`
+        : guidanceSummary
+          ? guidanceSummary
+          : 'لا توجد عينة كافية من الإرشاد الدوائي للحكم الآلي',
+      details: [
+        medicalErrors > 0 ? `أخطاء طبية موثقة في مراجعات المحادثات: ${medicalErrors}` : 'لا يوجد خطأ طبي موثق في مراجعات المحادثات المتاحة.',
+        badAlternativeCases > 0 ? `حالات بديل غير مناسب موثقة: ${badAlternativeCases}` : '',
+        consultation ? `جودة الاستشارة: ${consultation.average}/10 من ${consultation.samples} مراجعة` : '',
+        dosage ? `شرح الجرعة والاستخدام: ${dosage.average}/10 من ${dosage.samples} مراجعة` : '',
+        alternatives ? `التعامل مع البدائل: ${alternatives.average}/10 من ${alternatives.samples} مراجعة` : '',
+        guidanceSamples > 0 && guidanceSamples < 3
+          ? `العينة الحالية للإرشاد الدوائي أقل من 3 مراجعات؛ لا تكفي لحكم شهري قوي.`
+          : '',
+        'هذه البيانات تقيس الإرشاد والاستشارة داخل المحادثات.',
+        'صحة الصنف والتركيز والكمية في الصرف الفعلي لا تُستنتج من المحادثات وحدها؛ تحتاج واقعة صرف موثقة عند وجود خطأ.',
+      ].filter(Boolean),
+    };
+  }
+
   if (followupKeys.includes(key)) {
     if (health.followups !== 'available') {
       return {
