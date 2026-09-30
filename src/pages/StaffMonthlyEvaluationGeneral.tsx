@@ -32,6 +32,7 @@ import {
 } from '@/lib/evaluations/incentiveTiers';
 import { buildStaffMonthlyEvaluationPdf } from '@/lib/evaluations/staffMonthlyEvaluationPdf';
 import { hasStrongDispensingEvidence } from '@/lib/evaluations/monthlyDispensingEvidence';
+import { hasStrongSalesQualityEvidence } from '@/lib/evaluations/monthlySalesQualityEvidence';
 import { createStaffNotification } from '@/lib/staffNotificationService';
 import { Panel, MiniBox, EmptyState } from '@/components/dashboard/DashboardPrimitives';
 import MonthlyEvaluationWorkflowV5, { type MonthlyEvaluationStep } from '@/components/evaluations/MonthlyEvaluationWorkflowV5';
@@ -1146,12 +1147,19 @@ export default function StaffMonthlyEvaluation() {
     medicalErrors: coaching?.conversation.flags.medicalErrors || 0,
     badAlternativeCases: coaching?.conversation.flags.badAlternativeCases || 0,
   });
+  const salesQualityStrengthEvidence = hasStrongSalesQualityEvidence({
+    salesQuality: coaching?.conversation.dimensions.find((item) => item.key === 'sales_quality'),
+    missedSales: coaching?.conversation.flags.missedSales || 0,
+    invoiceErrors: coaching?.conversation.flags.invoiceErrors || 0,
+    badAlternativeCases: coaching?.conversation.flags.badAlternativeCases || 0,
+  });
 
   const strongestSections = evaluationComplete
     ? [...ratedSections]
         .filter((item) =>
           item.score >= 4
           && (item.key !== 'dispensing' || dispensingStrengthEvidence)
+          && (item.key !== 'sales_quality' || salesQualityStrengthEvidence)
         )
         .sort((a, b) => b.score - a.score || b.weight - a.weight)
         .slice(0, 3)

@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { hasStrongSalesQualityEvidence } from '@/lib/evaluations/monthlySalesQualityEvidence';
 import { readAttendanceRange } from '@/lib/readModels/attendanceReadModel';
 import { listAttendanceImpactLedger, type AttendanceImpactRow } from '@/lib/attendance/attendanceResolutionService';
 
@@ -685,17 +686,26 @@ function buildSalesQualityCoaching(
   const points = nullableNumber(invoicePerformanceResult.row?.points_delta ?? invoicePerformanceResult.row?.points);
   const invoicePerformanceAvailable = Boolean(invoicePerformanceResult.row && invoiceCount >= 15);
 
-  const strengths = [
-    salesQuality && salesQuality.average >= 8 ? `جودة البيع ${salesQuality.average}/10` : '',
-    alternativeHandling && alternativeHandling.average >= 8 ? `التعامل مع البدائل ${alternativeHandling.average}/10` : '',
-    upsellCrossSell && upsellCrossSell.average >= 8 ? `البيع التكميلي ${upsellCrossSell.average}/10` : '',
+  const salesStrengthEvidence = hasStrongSalesQualityEvidence({
+    salesQuality,
+    missedSales: conversation.flags.missedSales,
+    invoiceErrors: conversation.flags.invoiceErrors,
+    badAlternativeCases: conversation.flags.badAlternativeCases,
+  });
+
+  const strengths = salesStrengthEvidence ? [
+    `جودة البيع ${salesQuality?.average}/10 على ${salesQuality?.samples} مراجعات`,
+    alternativeHandling && alternativeHandling.samples >= 3 && alternativeHandling.average >= 8.5
+      ? `التعامل مع البدائل ${alternativeHandling.average}/10`
+      : '',
+    upsellCrossSell && upsellCrossSell.samples >= 3 && upsellCrossSell.average >= 8.5
+      ? `البيع التكميلي ${upsellCrossSell.average}/10`
+      : '',
     invoicePerformanceAvailable && weightedRaw !== null && weightedRaw >= 5
       ? `مؤشر قيمة/تركيب الفاتورة أعلى من خط الأساس لنفس الفرع والشيفت بـ${weightedRaw}%`
       : '',
-    conversation.flags.invoiceErrors === 0 && conversation.reviewCount >= 3
-      ? 'لا يوجد خطأ فاتورة موثق في مراجعات المحادثات المتاحة'
-      : '',
-  ].filter(Boolean);
+    'لا توجد فرصة بيع ضائعة أو خطأ فاتورة أو بديل غير مناسب موثق في العينة المتاحة',
+  ].filter(Boolean) : [];
 
   const development = [
     conversation.flags.invoiceErrors > 0
