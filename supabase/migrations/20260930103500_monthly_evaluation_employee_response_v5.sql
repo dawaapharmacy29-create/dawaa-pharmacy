@@ -223,3 +223,70 @@ revoke all on function public.get_staff_monthly_evaluation_employee_response_v5(
 
 grant execute on function public.respond_staff_monthly_evaluation_v5(uuid,uuid,date,text,text) to anon, authenticated;
 grant execute on function public.get_staff_monthly_evaluation_employee_response_v5(uuid,uuid,date) to anon, authenticated;
+
+
+create or replace function public.list_staff_monthly_evaluation_response_status_v5(
+  p_actor_id uuid,
+  p_branch text default null,
+  p_month date default null
+)
+returns table(
+  staff_id uuid,
+  acknowledged_at timestamptz,
+  commented_at timestamptz
+)
+language plpgsql
+security definer
+set search_path = 'public', 'pg_catalog'
+as $function$
+declare
+  v_actor record;
+  v_month date := date_trunc('month', coalesce(p_month,current_date))::date;
+begin
+  select * into v_actor from public.monthly_eval_actor(p_actor_id);
+  if not found then return; end if;
+
+  if p_actor_id is not null and v_actor.account_id is distinct from p_actor_id then
+    return;
+  end if;
+
+  if v_actor.role not in (
+    'general_manager','branches_manager','executive_manager','executive','admin',
+    'branch_manager','branch_manager_shamy','branch_manager_shokry'
+  ) then
+    return;
+  end if;
+
+  return query
+  select
+    e.staff_id,
+    min(a.created_at) filter (where a.action='employee_acknowledged') as acknowledged_at,
+    min(a.created_at) filter (where a.action='employee_comment') as commented_at
+  from public.staff_monthly_manager_evaluations e
+  join public.staff s on s.id=e.staff_id
+  left join public.staff_monthly_evaluation_audit a
+    on a.evaluation_id=e.id
+   and a.staff_id=e.staff_id
+   and a.action in ('employee_acknowledged','employee_comment')
+  where e.evaluation_month=v_month
+    and e.status in ('sent','approved')
+    and (
+      v_actor.role in ('general_manager','branches_manager','executive_manager','executive','admin')
+      or (
+        v_actor.role in ('branch_manager','branch_manager_shamy','branch_manager_shokry')
+        and coalesce(s.branch,'')=v_actor.branch
+        and coalesce(s.role,s.type,'') !~* 'branch_manager|customer_service|خدمة العملاء'
+      )
+    )
+    and (
+      p_branch is null
+      or p_branch=''
+      or coalesce(s.branch,'')=p_branch
+      or v_actor.role not in ('general_manager','branches_manager','executive_manager','executive','admin')
+    )
+  group by e.staff_id;
+end;
+$function$;
+
+revoke all on function public.list_staff_monthly_evaluation_response_status_v5(uuid,text,date) from public;
+grant execute on function public.list_staff_monthly_evaluation_response_status_v5(uuid,text,date) to anon, authenticated;

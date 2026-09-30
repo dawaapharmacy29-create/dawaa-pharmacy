@@ -48,6 +48,8 @@ type StaffRow = {
   evaluation_score?: number | null;
   sent_at?: string | null;
   evidence_ready?: boolean | null;
+  evaluation_acknowledged_at?: string | null;
+  evaluation_commented_at?: string | null;
 };
 
 type EvaluationRow = Record<string, unknown>;
@@ -592,13 +594,40 @@ export default function StaffMonthlyEvaluation() {
       if (!user?.id) return;
       setLoading(true);
       try {
-        const { data, error } = await supabase.rpc('list_staff_for_monthly_evaluation_v5', {
-          p_actor_id: user.id,
-          p_branch: globalScope ? branch : null,
-          p_month: `${cycleLabel}-01`,
+        const [staffResult, responseStatusResult] = await Promise.all([
+          supabase.rpc('list_staff_for_monthly_evaluation_v5', {
+            p_actor_id: user.id,
+            p_branch: globalScope ? branch : null,
+            p_month: `${cycleLabel}-01`,
+          }),
+          managerMode
+            ? supabase.rpc('list_staff_monthly_evaluation_response_status_v5', {
+                p_actor_id: user.id,
+                p_branch: globalScope ? branch : null,
+                p_month: `${cycleLabel}-01`,
+              })
+            : Promise.resolve({ data: [], error: null }),
+        ]);
+
+        if (staffResult.error) throw staffResult.error;
+        if (responseStatusResult.error) throw responseStatusResult.error;
+
+        const responseByStaff = new Map(
+          ((responseStatusResult.data || []) as Array<{
+            staff_id: string;
+            acknowledged_at: string | null;
+            commented_at: string | null;
+          }>).map((row) => [row.staff_id, row])
+        );
+
+        const rows = ((staffResult.data || []) as StaffRow[]).map((row) => {
+          const response = responseByStaff.get(row.id);
+          return {
+            ...row,
+            evaluation_acknowledged_at: response?.acknowledged_at || null,
+            evaluation_commented_at: response?.commented_at || null,
+          };
         });
-        if (error) throw error;
-        const rows = (data || []) as StaffRow[];
         setStaff(rows);
         const own = rows.find((row) => row.id === user?.staffId || row.id === user?.id || row.name === user?.name);
         if (!managerMode && own) setSelectedId(own.id);
@@ -1356,6 +1385,19 @@ export default function StaffMonthlyEvaluation() {
                     : item.evaluation_status === 'draft'
                       ? 'var(--dawaa-status-warning-text)'
                       : 'var(--dawaa-theme-muted)';
+                const publishedEvaluation = ['sent', 'approved'].includes(String(item.evaluation_status || ''));
+                const receiptLabel = !publishedEvaluation
+                  ? ''
+                  : item.evaluation_commented_at
+                    ? 'علّق'
+                    : item.evaluation_acknowledged_at
+                      ? 'اطلع'
+                      : 'لم يطلع';
+                const receiptStyle = item.evaluation_commented_at
+                  ? { borderColor: 'var(--dawaa-theme-accent-border)', color: 'var(--dawaa-theme-primary-strong)', background: 'var(--dawaa-theme-accent-soft)' }
+                  : item.evaluation_acknowledged_at
+                    ? { borderColor: 'var(--dawaa-status-success-border)', color: 'var(--dawaa-status-success-text)', background: 'var(--dawaa-status-success-bg)' }
+                    : { borderColor: 'var(--dawaa-status-warning-border)', color: 'var(--dawaa-status-warning-text)', background: 'var(--dawaa-status-warning-bg)' };
 
                 return (
                   <button
@@ -1375,7 +1417,24 @@ export default function StaffMonthlyEvaluation() {
                           {item.evaluation_score != null ? ` · ${item.evaluation_score}/100` : ''}
                         </div>
                       </div>
-                      <span className="shrink-0 text-[10px] font-black" style={{ color: statusColor }}>{statusLabel}</span>
+                      <div className="flex shrink-0 flex-col items-end gap-1">
+                        <span className="text-[10px] font-black" style={{ color: statusColor }}>{statusLabel}</span>
+                        {receiptLabel ? (
+                          <span
+                            className="rounded-md border px-1.5 py-0.5 text-[9px] font-black"
+                            style={receiptStyle}
+                            title={
+                              item.evaluation_commented_at
+                                ? `علّق في ${new Date(item.evaluation_commented_at).toLocaleString('ar-EG')}`
+                                : item.evaluation_acknowledged_at
+                                  ? `اطلع في ${new Date(item.evaluation_acknowledged_at).toLocaleString('ar-EG')}`
+                                  : 'لم يسجل اطلاعًا على التقييم حتى الآن'
+                            }
+                          >
+                            {receiptLabel}
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
                   </button>
                 );
