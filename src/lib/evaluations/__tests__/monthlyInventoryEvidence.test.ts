@@ -3,6 +3,7 @@ import {
   INVENTORY_STRENGTH_MIN_MEASURED_WEEKS,
   INVENTORY_STRENGTH_MIN_STAGNANT_TARGET_PCT,
   hasStrongInventoryEvidence,
+  isStagnantAssignmentRelevantForCycle,
 } from '@/lib/evaluations/monthlyInventoryEvidence';
 
 const cleanBase = {
@@ -16,6 +17,23 @@ const cleanBase = {
   configuredTargets: 0,
   targetAchievementPct: null,
 };
+
+describe('stagnant assignment cycle relevance', () => {
+  it('keeps active assignments in the current-cycle responsibility set', () => {
+    expect(isStagnantAssignmentRelevantForCycle({ status: 'نشط', movedQuantity: 0 })).toBe(true);
+    expect(isStagnantAssignmentRelevantForCycle({ status: 'active', movedQuantity: 0 })).toBe(true);
+  });
+
+  it('keeps a non-active assignment when it actually moved in the evaluated cycle', () => {
+    expect(isStagnantAssignmentRelevantForCycle({ status: 'محقق', movedQuantity: 2 })).toBe(true);
+    expect(isStagnantAssignmentRelevantForCycle({ status: 'expired', movedQuantity: 1 })).toBe(true);
+  });
+
+  it('excludes historical achieved or expired rows without cycle movement', () => {
+    expect(isStagnantAssignmentRelevantForCycle({ status: 'محقق', movedQuantity: 0 })).toBe(false);
+    expect(isStagnantAssignmentRelevantForCycle({ status: 'expired', movedQuantity: 0 })).toBe(false);
+  });
+});
 
 describe('monthly inventory strength evidence gate', () => {
   it('requires repeated weekly evidence rather than one good week', () => {

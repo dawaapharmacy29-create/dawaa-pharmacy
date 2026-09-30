@@ -41,3 +41,21 @@ export function hasStrongInventoryEvidence(input: InventoryStrengthEvidenceInput
 
   return true;
 }
+
+
+export type StagnantAssignmentCycleRelevanceInput = {
+  status?: string | null;
+  movedQuantity?: number | null;
+};
+
+/**
+ * Current responsibility includes active assignments.
+ * A non-active row is still relevant when it has an actual dispense in the evaluated cycle.
+ * Historical achieved/expired rows with no cycle movement are excluded from the current-cycle denominator.
+ */
+export function isStagnantAssignmentRelevantForCycle(input: StagnantAssignmentCycleRelevanceInput) {
+  if (Number(input.movedQuantity || 0) > 0) return true;
+
+  const status = String(input.status || '').trim().toLowerCase();
+  return status === '' || status === 'active' || status === 'نشط';
+}

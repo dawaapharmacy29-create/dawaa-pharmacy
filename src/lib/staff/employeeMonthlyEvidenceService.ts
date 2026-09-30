@@ -1,7 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import { hasStrongSalesQualityEvidence } from '@/lib/evaluations/monthlySalesQualityEvidence';
 import { hasStrongFollowupEvidence } from '@/lib/evaluations/monthlyFollowupEvidence';
-import { hasStrongInventoryEvidence } from '@/lib/evaluations/monthlyInventoryEvidence';
+import { hasStrongInventoryEvidence, isStagnantAssignmentRelevantForCycle } from '@/lib/evaluations/monthlyInventoryEvidence';
 import { readAttendanceRange } from '@/lib/readModels/attendanceReadModel';
 import { listAttendanceImpactLedger, type AttendanceImpactRow } from '@/lib/attendance/attendanceResolutionService';
 
@@ -1157,7 +1157,7 @@ async function loadInventoryEvidence(args: {
     });
 
   const weeklyRows = [...weeklyRowsByWeek.values()];
-  const assignedRows = stagnantAssignedResult.error
+  const allAssignedRows = stagnantAssignedResult.error
     ? []
     : (stagnantAssignedResult.data || []) as StagnantMedicineEvidenceRow[];
   const movementRows = stagnantMovementResult.error
@@ -1170,6 +1170,15 @@ async function loadInventoryEvidence(args: {
     if (!medicineId) return;
     movedByMedicine.set(medicineId, (movedByMedicine.get(medicineId) || 0) + safeNumber(row.quantity));
   });
+
+  const assignedRows = allAssignedRows.filter((row) => {
+    const medicineId = String(row.id || '');
+    return isStagnantAssignmentRelevantForCycle({
+      status: row.status,
+      movedQuantity: medicineId ? movedByMedicine.get(medicineId) || 0 : 0,
+    });
+  });
+  const historicalAssignedExcluded = Math.max(0, allAssignedRows.length - assignedRows.length);
 
   const configuredTargets = assignedRows.filter((row) => stagnantRequiredQuantity(row) > 0);
   const achievedTargets = configuredTargets.filter((row) => {
@@ -1186,6 +1195,7 @@ async function loadInventoryEvidence(args: {
     movementRows,
     configuredTargets,
     achievedTargets,
+    historicalAssignedExcluded,
     sourceStatus: weeklyAvailable && stagnantAvailable
       ? 'available' as const
       : weeklyAvailable || stagnantAvailable
@@ -1265,6 +1275,9 @@ function buildInventoryCoaching(input: Awaited<ReturnType<typeof loadInventoryEv
       : '',
     input.configuredTargets.length > 0 && input.configuredTargets.length < input.assignedRows.length
       ? `يوجد ${input.assignedRows.length - input.configuredTargets.length} صنف راكد مسند بدون Target كمي؛ لا يُستخدم غياب الهدف كصفر ولا تُعتمد منه نقطة قوة آلية.`
+      : '',
+    input.historicalAssignedExcluded > 0
+      ? `تم استبعاد ${input.historicalAssignedExcluded} صنف راكد غير نشط ولم تُسجل عليه حركة صرف داخل الدورة من دليل المسؤولية الحالية.`
       : '',
     input.sourceStatus === 'partial'
       ? 'بيانات المخزون متاحة جزئيًا؛ لا تستخدم الجزء غير المتاح كصفر.'
