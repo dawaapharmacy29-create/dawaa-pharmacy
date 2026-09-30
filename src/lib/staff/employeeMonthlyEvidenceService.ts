@@ -2,6 +2,7 @@ import { supabase } from '@/lib/supabase';
 import { hasStrongSalesQualityEvidence } from '@/lib/evaluations/monthlySalesQualityEvidence';
 import { hasStrongFollowupEvidence } from '@/lib/evaluations/monthlyFollowupEvidence';
 import { hasStrongInventoryEvidence, isStagnantAssignmentRelevantForCycle } from '@/lib/evaluations/monthlyInventoryEvidence';
+import { hasStrongDevelopmentEvidence } from '@/lib/evaluations/monthlyDevelopmentEvidence';
 import { readAttendanceRange } from '@/lib/readModels/attendanceReadModel';
 import { listAttendanceImpactLedger, type AttendanceImpactRow } from '@/lib/attendance/attendanceResolutionService';
 
@@ -955,17 +956,24 @@ function buildDevelopmentCoaching(
     .filter(Boolean)
     .slice(0, 5);
 
-  const strengthBits = [
-    trainingResult.assignments.length > 0 && completed === trainingResult.assignments.length
-      ? `أكمل كل التدريبات المسندة خلال الدورة (${completed}/${trainingResult.assignments.length})`
-      : '',
-    direction === 'improving' && delta !== null
-      ? `تحسن متوسط مراجعات المحادثات من ${earlyAverage}/100 في بداية العينة إلى ${recentAverage}/100 في آخرها (+${delta})`
-      : '',
-    repeatedIssues.length === 0 && orderedReviews.length >= 3
-      ? 'لا توجد ملاحظة سلبية واحدة تكررت مرتين أو أكثر بالنص نفسه في مراجعات الدورة'
-      : '',
-  ].filter(Boolean);
+  const developmentStrengthEvidence = hasStrongDevelopmentEvidence({
+    sourceStatus: trainingResult.error ? 'partial' : (trainingResult.assignments.length > 0 || trendMeasurable || repeatedIssues.length > 0 ? 'available' : 'manual'),
+    trendMeasurable,
+    direction,
+    delta,
+    repeatedIssueCount: repeatedIssues.length,
+    trainingAssigned: trainingResult.assignments.length,
+    trainingCompleted: completed,
+    overdueTraining: overdueOpen,
+  });
+
+  const strengthBits = developmentStrengthEvidence ? [
+    `تحسن متوسط مراجعات المحادثات من ${earlyAverage}/100 في بداية العينة إلى ${recentAverage}/100 في آخرها (+${delta})`,
+    'لم تتكرر نفس الملاحظة السلبية مرتين أو أكثر في مراجعات الدورة',
+    trainingResult.assignments.length > 0
+      ? `أكمل كل التدريبات المسندة خلال الدورة (${completed}/${trainingResult.assignments.length}) بدون تدريب متأخر`
+      : 'التحسن موثق من المراجعات حتى بدون تدريب رسمي مسند خلال الدورة',
+  ].filter(Boolean) : [];
 
   const developmentBits = [
     overdueOpen > 0 ? `${overdueOpen} تدريب مسند انتهى موعده بدون إكمال موثق` : '',
@@ -996,6 +1004,9 @@ function buildDevelopmentCoaching(
       : 'اتجاه الأداء مبني على عينة مراجعات المحادثات داخل الدورة، وهو مؤشر مساعد وليس حكمًا على كل العمل.',
     trainingResult.error
       ? 'مصدر التدريب متاح جزئيًا؛ لا تستخدم الجزء غير المتاح كصفر.'
+      : '',
+    scores.length > 0
+      ? 'درجة التدريب تُعرض كدليل مساعد فقط؛ لا يوجد في هذا المسار حد نجاح معياري موثق يسمح بتحويلها وحدها إلى نقطة قوة.'
       : '',
   ].filter(Boolean);
 

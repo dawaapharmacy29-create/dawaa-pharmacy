@@ -35,6 +35,7 @@ import { hasStrongDispensingEvidence } from '@/lib/evaluations/monthlyDispensing
 import { hasStrongSalesQualityEvidence } from '@/lib/evaluations/monthlySalesQualityEvidence';
 import { hasStrongFollowupEvidence } from '@/lib/evaluations/monthlyFollowupEvidence';
 import { hasStrongInventoryEvidence } from '@/lib/evaluations/monthlyInventoryEvidence';
+import { hasStrongDevelopmentEvidence } from '@/lib/evaluations/monthlyDevelopmentEvidence';
 import {
   hasEvidenceSupportedStrongPerformance,
   isMonthlyEvaluationStrengthEligible,
@@ -966,8 +967,8 @@ export default function StaffMonthlyEvaluation() {
       toast.error('أي محور بدرجة 1 أو 2 نجمة يحتاج سببًا مكتوبًا قبل الاعتماد.');
       return;
     }
-    if (nextStatus === 'sent' && sections.some((item) => item.score >= 4) && !strengthsText.trim()) {
-      toast.error('اكتب نقطة قوة واحدة على الأقل تعكس الأداء القوي قبل الاعتماد.');
+    if (nextStatus === 'sent' && hasStrongPerformance && !strengthsText.trim()) {
+      toast.error('اكتب نقطة قوة واحدة على الأقل تعكس الأداء القوي الموثق قبل الاعتماد.');
       return;
     }
     if (nextStatus === 'sent' && sections.some((item) => item.score > 0 && item.score <= 3) && !developmentText.trim()) {
@@ -1157,11 +1158,22 @@ export default function StaffMonthlyEvaluation() {
     configuredTargets: coaching?.inventory.stagnant.configuredTargets || 0,
     targetAchievementPct: coaching?.inventory.stagnant.targetAchievementPct ?? null,
   });
+  const developmentStrengthEvidence = hasStrongDevelopmentEvidence({
+    sourceStatus: coaching?.development.sourceStatus || 'manual',
+    trendMeasurable: coaching?.development.reviewTrend.measurable || false,
+    direction: coaching?.development.reviewTrend.direction || 'not_measurable',
+    delta: coaching?.development.reviewTrend.delta ?? null,
+    repeatedIssueCount: coaching?.development.repeatedIssues.length || 0,
+    trainingAssigned: coaching?.development.training.assigned || 0,
+    trainingCompleted: coaching?.development.training.completed || 0,
+    overdueTraining: coaching?.development.training.overdueOpen || 0,
+  });
   const strengthEvidenceGates = {
     dispensing: dispensingStrengthEvidence,
     salesQuality: salesQualityStrengthEvidence,
     followupsRequests: followupsStrengthEvidence,
     inventory: inventoryStrengthEvidence,
+    development: developmentStrengthEvidence,
   };
   const hasStrongPerformance = hasEvidenceSupportedStrongPerformance(sections, strengthEvidenceGates);
   const hasDevelopmentNeed = sections.some((item) => item.score > 0 && item.score <= 3);
