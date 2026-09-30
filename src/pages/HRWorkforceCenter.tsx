@@ -173,7 +173,7 @@ const quickLinks = [
 
 export default function HRWorkforceCenter() {
   const { user, checkPermission } = useAuth();
-  const canManageBiometrics = canManageBiometricOperations(user?.role);
+  const canManageBiometrics = canManageBiometricOperations(user?.role) && checkPermission('view_attendance_leaves');
   const normalizedRole = normalizeRole(user?.role);
   const canApproveAssignments = ['general_manager', 'executive_manager'].includes(normalizedRole);
   const canApproveLifecycle = ['general_manager', 'executive_manager'].includes(normalizedRole);

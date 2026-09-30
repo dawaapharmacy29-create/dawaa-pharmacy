@@ -84,7 +84,7 @@ function QualityCard({
 
 export default function HRDataQuality() {
   const { user, checkPermission } = useAuth();
-  const canManageBiometrics = canManageBiometricOperations(user?.role);
+  const canManageBiometrics = canManageBiometricOperations(user?.role) && checkPermission('view_attendance_leaves');
   const today = cairoToday();
   const start = cycleStartFor(today);
   const branch = canSeeAllBranches(user?.role) ? null : normalizeBranchName(user?.branch || '') || null;
