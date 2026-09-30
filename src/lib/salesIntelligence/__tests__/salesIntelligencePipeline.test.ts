@@ -765,3 +765,30 @@ describe('Sales Intelligence customer need model integration', () => {
     expect(analysis.salesOutcome.outcome).not.toBe('sale_proven');
   });
 });
+
+describe('Sales Intelligence commercial journey state machine integration', () => {
+  it('never calls a confirmed chat a sale until canonical Sale Proof does', () => {
+    const raw = `[9/15/26, 9:00:00 AM] Customer: عايز 2 علبة فيتامين د
+[9/15/26, 9:01:00 AM] You: حضرتك تأمر بـ:
+2 علبة فيتامين د
+إجمالي الحساب 180 جنيه
+هل الطلب كده كامل؟
+[9/15/26, 9:02:00 AM] Customer: تمام
+[9/15/26, 9:03:00 AM] You: تم تأكيد الطلب وجاري الإرسال`;
+    const a = runSalesIntelligencePipeline(baseInput({ rawWhatsAppExportText: raw })).caseAnalyses[0];
+    expect(a.journeyState.currentState).toBe('awaiting_invoice');
+    expect(a.salesOutcome.isSaleCountable).toBe(false);
+  });
+
+  it('uses customer_declined without inventing a lost-opportunity reason', () => {
+    const raw = `[9/15/26, 9:00:00 AM] Customer: عايز 1 علبة فيتامين د
+[9/15/26, 9:01:00 AM] You: حضرتك تأمر بـ:
+1 علبة فيتامين د
+إجمالي الحساب 100 جنيه
+هل الطلب كده كامل؟
+[9/15/26, 9:02:00 AM] Customer: مش عايز الطلب خالص`;
+    const a = runSalesIntelligencePipeline(baseInput({ rawWhatsAppExportText: raw })).caseAnalyses[0];
+    expect(a.journeyState.currentState).toBe('customer_declined');
+    expect(a.salesOutcome.isSaleCountable).toBe(false);
+  });
+});

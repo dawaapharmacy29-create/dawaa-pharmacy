@@ -25,6 +25,7 @@ import type {
   CanonicalSalesOutcomeAssessment,
   CommercialConfirmationState,
   CustomerNeedModel,
+  CommercialJourneyStateAssessment,
   ConfidenceLevel,
   DifferenceExplanationKind,
   EvidenceLevel,
@@ -198,7 +199,9 @@ export interface SalesIntelligenceCaseAnalysisRow extends CaseAnalysisProvenance
     conversationCaseConfidence: { level: ConfidenceLevel; score: number; ruleIds: string[] };
     evidenceCompleteness: Record<string, boolean | EvidenceLevel>;
     /** Versioned structured customer need/product lifecycle from this exact analysis run. */
-    customerNeed: CustomerNeedModel;
+    customerNeed?: CustomerNeedModel;
+    /** Derived state-machine projection; optional for historical v1 rows. */
+    journeyState?: CommercialJourneyStateAssessment;
     historicalClosureEvidence: EvidenceRef[];
     protocolApplicabilityRuleIds: string[];
     /** Durable canonical commercial verdict produced by the same analysis run; never re-derived by readers. */

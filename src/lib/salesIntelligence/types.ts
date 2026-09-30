@@ -897,6 +897,33 @@ export interface CanonicalSalesOutcomeAssessment {
 }
 
 // ---------------------------------------------------------------------------
+// Phase 4 — Canonical Commercial Journey State
+// ---------------------------------------------------------------------------
+
+export type CommercialJourneyState =
+  | 'information_only'
+  | 'need_identified'
+  | 'clarifying'
+  | 'offer_made'
+  | 'basket_building'
+  | 'awaiting_customer_confirmation'
+  | 'customer_confirmed'
+  | 'awaiting_invoice'
+  | 'sale_proven'
+  | 'customer_declined'
+  | 'unknown';
+
+export interface CommercialJourneyStateAssessment {
+  caseId: string;
+  currentState: CommercialJourneyState;
+  reachedStates: CommercialJourneyState[];
+  evidenceMessageIds: string[];
+  reasonCodes: string[];
+  confidence: ConfidenceAssessment;
+  reviewRequired: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // Phase 10 — Doctor Contribution Model
 // ---------------------------------------------------------------------------
 
@@ -1015,6 +1042,8 @@ export interface SalesIntelligenceCaseAnalysis {
   integrityAssessment: SalesIntegrityAssessment;
   /** Canonical case-level commercial outcome. Only sale_proven is countable as a sale/revenue. */
   salesOutcome: CanonicalSalesOutcomeAssessment;
+  /** One derived journey state for UI/operations; never a replacement for Sale Proof. */
+  journeyState: CommercialJourneyStateAssessment;
   evidenceCompleteness: EvidenceCompleteness;
   status: PipelineStatus;
   /** Pipeline-level observations (e.g. an active-basket conflict) — distinct from any engine's own humanReviewReasons. */

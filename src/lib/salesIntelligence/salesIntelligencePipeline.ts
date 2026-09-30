@@ -31,6 +31,7 @@ import { deriveHistoricalCommercialClosureAssessment } from './historicalCommerc
 import { deriveSaleProofState } from './saleProofState';
 import { deriveCanonicalSalesOutcome } from './canonicalSalesOutcomeEngine';
 import { deriveCustomerNeedModel } from './customerNeedModel';
+import { deriveCommercialJourneyState } from './commercialJourneyStateMachine';
 import {
   resolveProductMention,
   type PharmacyProductIndex,
@@ -479,6 +480,13 @@ function analyzeOneCase(
     hasMeaningfulBasketItems,
     needsHumanReview,
   });
+  const journeyState = deriveCommercialJourneyState({
+    caseId: conversationCase.caseId,
+    messages: scopedMessages,
+    customerNeed,
+    commercialConfirmation,
+    salesOutcome,
+  });
 
   let status: PipelineStatus;
   if (isGenuinelyInformationOnly) {
@@ -509,6 +517,7 @@ function analyzeOneCase(
     basketInvoiceMatch,
     integrityAssessment,
     salesOutcome,
+    journeyState,
     evidenceCompleteness,
     status,
     pipelineWarnings,
