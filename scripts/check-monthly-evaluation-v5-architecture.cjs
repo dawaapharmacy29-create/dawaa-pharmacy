@@ -87,6 +87,7 @@ for (const token of [
   'monthly_evaluation_server_evidence_unavailable',
   'monthly_evaluation_final_snapshot_v5',
   'monthly_evaluation_final_snapshot_missing_from_audit',
+  'monthly_evaluation_audit_is_immutable',
 ]) {
   if (!backend.includes(token)) failures.push(`V5 backend contract is missing: ${token}`);
 }

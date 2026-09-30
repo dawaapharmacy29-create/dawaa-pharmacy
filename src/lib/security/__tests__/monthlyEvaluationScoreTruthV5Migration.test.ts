@@ -59,6 +59,13 @@ describe('monthly evaluation V5 score/incentive truth migration', () => {
     expect(source).toContain("'final_approval_snapshot',v_snapshot");
   });
 
+  it('makes approval audit rows append-only after insert', () => {
+    const source = sql();
+    expect(source).toContain('monthly_evaluation_audit_is_immutable');
+    expect(source).toContain('before update or delete');
+    expect(source).toContain('staff_monthly_evaluation_audit');
+  });
+
   it('retires legacy fixed-point critical-gate penalties without rewriting finalized payroll', () => {
     const source = sql();
     expect(source).toContain("t.source='monthly_evaluation_critical_gate'");

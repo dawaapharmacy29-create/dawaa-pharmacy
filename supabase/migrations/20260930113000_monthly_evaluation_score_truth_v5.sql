@@ -511,6 +511,28 @@ on public.staff_monthly_evaluation_audit
 for each row
 execute function public.trg_monthly_evaluation_audit_snapshot_v5();
 
+create or replace function public.trg_monthly_evaluation_audit_immutable_v5()
+returns trigger
+language plpgsql
+security definer
+set search_path to 'public','pg_catalog'
+as $function$
+begin
+  raise exception 'monthly_evaluation_audit_is_immutable'
+    using errcode='55000',
+          detail='Monthly evaluation audit rows are append-only. Create a new audit event instead of rewriting history.';
+end;
+$function$;
+
+drop trigger if exists monthly_evaluation_audit_immutable_v5
+  on public.staff_monthly_evaluation_audit;
+
+create trigger monthly_evaluation_audit_immutable_v5
+before update or delete
+on public.staff_monthly_evaluation_audit
+for each row
+execute function public.trg_monthly_evaluation_audit_immutable_v5();
+
 revoke all on function public.dawaa_monthly_evaluation_server_evidence_v5(uuid,date)
   from public,anon,authenticated;
 revoke all on function public.trg_monthly_evaluation_final_snapshot_v5()
