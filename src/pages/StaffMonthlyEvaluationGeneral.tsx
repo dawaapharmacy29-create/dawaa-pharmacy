@@ -2831,7 +2831,10 @@ export default function StaffMonthlyEvaluation() {
                             key={item.key}
                             type="button"
                             disabled={!canEdit}
-                            onClick={() => setStrengthsText((current) => appendUniqueLine(current, item.title))}
+                            onClick={() => setStrengthsText((current) => appendUniqueLine(
+                              current,
+                              item.notes.trim() ? `${item.title}: ${item.notes.trim()}` : item.title
+                            ))}
                             className="rounded-lg border px-2.5 py-1.5 text-[11px] font-black disabled:cursor-default"
                             style={{ borderColor: 'var(--dawaa-status-success-border)', color: 'var(--dawaa-status-success-text)', background: 'var(--dawaa-theme-surface)' }}
                           >
