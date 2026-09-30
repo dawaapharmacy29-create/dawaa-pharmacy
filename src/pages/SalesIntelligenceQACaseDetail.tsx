@@ -245,7 +245,6 @@ export default function SalesIntelligenceQACaseDetail() {
   const policyEvaluation = persisted.policyEvaluationRow;
   // The live deterministic re-derivation is the current QA truth. Persisted Case Intelligence is
   // kept only as an audit fallback for rows that cannot be re-derived in the current session.
-  const persistedCaseIntelligence = readCaseIntelligence(persistedAnalysis);
   const caseIntelligence = selectCurrentCaseIntelligence(liveEvidence?.caseIntelligence, persistedAnalysis);
   const showLegacyAudit = legacyAuditOpen ?? !caseIntelligence;
   const activeBasket = liveEvidence?.activeBasket ?? null;
