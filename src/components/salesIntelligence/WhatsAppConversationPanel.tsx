@@ -49,6 +49,25 @@ function cleanSender(sender: string | null | undefined): string | null {
   return value;
 }
 
+const TECHNICAL_MEDIA_PLACEHOLDER_LINE_RX =
+  /^(?:<voice message omitted>|audio omitted|<image omitted>|image omitted|<video omitted>|video omitted|<document omitted>|document omitted|صوت محذوف|صورة محذوفة|فيديو محذوف|مستند محذوف|\[(?:voice message|image|video|document|file)\])$/i;
+
+/**
+ * WhatsApp exports put technical media placeholders inside the message body. The media card above
+ * already communicates that state, so repeating "<image omitted>" as visible chat text makes the
+ * review look unlike WhatsApp and can be mistaken for customer language. Strip placeholder-only
+ * lines while preserving any real caption that travelled with the media.
+ */
+export function visibleWhatsAppMessageText(message: WhatsAppParsedMessage): string {
+  const text = String(message.text || '');
+  if (!message.mediaPlaceholder) return text;
+  return text
+    .split(/\r?\n/)
+    .filter((line) => !TECHNICAL_MEDIA_PLACEHOLDER_LINE_RX.test(line.trim()))
+    .join('\n')
+    .trim();
+}
+
 function MediaContent({ message }: { message: WhatsAppParsedMessage }) {
   const isMedia = message.mediaPlaceholder || ['image', 'voice', 'video', 'document'].includes(message.kind);
   if (!isMedia) return null;
@@ -153,7 +172,9 @@ export function WhatsAppConversationPanel({ messages, customerName, customerCode
                   {!sameSender && sender ? <div className="mb-0.5 text-[10px] font-semibold text-[#53bdeb]">{sender}</div> : null}
                   {message.forwarded ? <div className="mb-0.5 flex items-center gap-1 text-[10px] italic text-[#8696a0]"><Forward size={10} /> تمت إعادة التوجيه</div> : null}
                   <MediaContent message={message} />
-                  {message.text ? <div className="whitespace-pre-wrap break-words">{message.text}</div> : null}
+                  {visibleWhatsAppMessageText(message) ? (
+                    <div className="whitespace-pre-wrap break-words">{visibleWhatsAppMessageText(message)}</div>
+                  ) : null}
                   <div className="mt-[-2px] flex items-center justify-end gap-1 pr-2 text-[9px] leading-none text-[#8696a0]">
                     <span>{clock(message.timestamp)}</span>
                     {outbound ? <CheckCheck size={13} className="text-[#53bdeb]" /> : null}
