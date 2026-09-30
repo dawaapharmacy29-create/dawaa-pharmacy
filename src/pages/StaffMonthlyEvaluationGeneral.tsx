@@ -127,9 +127,9 @@ function sectionEvidenceFor(
     }
     const attendance = coaching?.attendance;
     return {
-      status: 'available' as const,
+      status: 'manual' as const,
       summary: attendance?.approvedEvents
-        ? `${attendance.approvedEvents} قرار حضور معتمد · ${attendance.lateCases + attendance.veryLateCases} تأخير · ${attendance.absenceCases} غياب`
+        ? `الحضور المعتمد: ${attendance.approvedEvents} قرار · ${attendance.lateCases + attendance.veryLateCases} تأخير · ${attendance.absenceCases} غياب`
         : metrics.attendance_days
           ? `${metrics.present_days} يوم حضور فعلي من ${metrics.attendance_days} يوم مسجل`
           : 'لا توجد أيام حضور مسجلة في المصدر لهذه الدورة',
@@ -146,6 +146,7 @@ function sectionEvidenceFor(
         attendance?.absenceCases ? `الغياب المؤكد: ${attendance.absenceCases} حالة` : '',
         attendance?.approvedTimeOffCases ? `إجازات/أذونات معتمدة: ${attendance.approvedTimeOffCases}` : '',
         'المصدر: Attendance Resolution / Impact Ledger المعتمد.',
+        'تغطية هذا الدليل جزئية: الزي والتعليمات وتسليم الشيفت والسلوك المهني تحتاج واقعة أو ملاحظة موثقة إذا أثرت على الدرجة.',
       ].filter(Boolean),
     };
   }
@@ -162,22 +163,25 @@ function sectionEvidenceFor(
     return {
       status: 'available' as const,
       summary: metrics.review_count
-        ? `${metrics.review_count} محادثة مراجعة · متوسط ${metrics.review_average}/100`
+        ? `${metrics.review_count} محادثة مراجعة · خدمة العميل ${conversation?.coreAverage ?? '—'}/10`
         : 'لا توجد مراجعات محادثات مسجلة لهذه الدورة',
       details: [
         `عدد المراجعات: ${metrics.review_count}`,
-        `متوسط التقييم: ${metrics.review_average}/100`,
-        `نقاط إيجابية من المحادثات: +${metrics.conversation_positive_points}`,
-        `نقاط سلبية من المحادثات: -${metrics.conversation_negative_points}`,
+        conversation?.coreAverage !== null && conversation?.coreAverage !== undefined
+          ? `متوسط أبعاد خدمة العميل الأساسية: ${conversation.coreAverage}/10`
+          : '',
+        ...(conversation?.coreDimensions || []).map((item) => `${item.label}: ${item.average}/10 من ${item.samples} مراجعة`),
         conversation && !conversation.sampleSufficient
           ? `العينة الحالية ${conversation.reviewCount} فقط؛ نحتاج ${conversation.minSamples} مراجعات على الأقل قبل استنتاج نقاط قوة أو ضعف.`
           : '',
         conversation?.strengths.length
-          ? `أقوى الأبعاد: ${conversation.strengths.map((item) => `${item.label} ${item.average}/10`).join('، ')}`
+          ? `أقوى أبعاد خدمة العميل: ${conversation.strengths.map((item) => `${item.label} ${item.average}/10`).join('، ')}`
           : '',
         conversation?.weaknesses.length
-          ? `أضعف الأبعاد: ${conversation.weaknesses.map((item) => `${item.label} ${item.average}/10`).join('، ')}`
+          ? `أضعف أبعاد خدمة العميل: ${conversation.weaknesses.map((item) => `${item.label} ${item.average}/10`).join('، ')}`
           : '',
+        'المتابعة هنا تعني متابعة العميل داخل سياق المحادثة؛ تنفيذ المتابعات المسجلة له محور مستقل.',
+        'أبعاد الجرعة والاستشارة والبدائل والبيع مستبعدة من متوسط هذا المحور لأنها مملوكة لمحوري الصرف والبيع.',
       ].filter(Boolean),
     };
   }
@@ -194,23 +198,20 @@ function sectionEvidenceFor(
     const conversation = coaching?.conversation;
     const consultation = conversation?.dimensions.find((item) => item.key === 'consultation_quality');
     const dosage = conversation?.dimensions.find((item) => item.key === 'dosage_explanation');
-    const alternatives = conversation?.dimensions.find((item) => item.key === 'alternative_handling');
     const medicalErrors = conversation?.flags.medicalErrors || 0;
     const badAlternativeCases = conversation?.flags.badAlternativeCases || 0;
     const guidanceSamples = Math.max(
       consultation?.samples || 0,
-      dosage?.samples || 0,
-      alternatives?.samples || 0
+      dosage?.samples || 0
     );
 
     const guidanceSummary = [
       dosage ? `شرح الجرعة ${dosage.average}/10` : '',
       consultation ? `الاستشارة ${consultation.average}/10` : '',
-      alternatives ? `البدائل ${alternatives.average}/10` : '',
     ].filter(Boolean).join(' · ');
 
     return {
-      status: medicalErrors > 0 ? 'available' as const : guidanceSamples >= 3 ? 'available' as const : 'manual' as const,
+      status: medicalErrors > 0 || badAlternativeCases > 0 ? 'available' as const : 'manual' as const,
       summary: medicalErrors > 0
         ? `${medicalErrors} خطأ طبي موثق في مراجعات الدورة · يحتاج مراجعة مباشرة`
         : guidanceSummary
@@ -221,7 +222,6 @@ function sectionEvidenceFor(
         badAlternativeCases > 0 ? `حالات بديل غير مناسب موثقة: ${badAlternativeCases}` : '',
         consultation ? `جودة الاستشارة: ${consultation.average}/10 من ${consultation.samples} مراجعة` : '',
         dosage ? `شرح الجرعة والاستخدام: ${dosage.average}/10 من ${dosage.samples} مراجعة` : '',
-        alternatives ? `التعامل مع البدائل: ${alternatives.average}/10 من ${alternatives.samples} مراجعة` : '',
         guidanceSamples > 0 && guidanceSamples < 3
           ? `العينة الحالية للإرشاد الدوائي أقل من 3 مراجعات؛ لا تكفي لحكم شهري قوي.`
           : '',
@@ -252,6 +252,7 @@ function sectionEvidenceFor(
         followups?.total ? `التوثيق الواضح: ${followups.documented}/${followups.total} (${followups.documentedPct}%)` : '',
         followups?.purchaseAfterFollowup ? `شراء بعد المتابعة: ${followups.purchaseAfterFollowup} حالة` : '',
         followups?.needsNextFollowup ? `تحتاج متابعة لاحقة: ${followups.needsNextFollowup} حالة` : '',
+        'هذا المحور يعتمد على المتابعات/الطلبات المسجلة فعليًا، وليس درجة follow_up داخل تقييم المحادثة.',
       ].filter(Boolean),
     };
   }
@@ -325,7 +326,7 @@ function sectionEvidenceFor(
     ].filter(Boolean);
 
     return {
-      status: inventory.sourceStatus === 'available' ? 'available' as const : 'manual' as const,
+      status: 'manual' as const,
       summary: summaryParts.join(' · ') || 'لا توجد مسؤوليات مخزون أو رواكد قابلة للقياس لهذه الدورة',
       details: [
         weekly.totalItems > 0 ? `أصناف الجرد: ${weekly.countedItems}/${weekly.totalItems} تم عدّها` : '',
@@ -345,6 +346,7 @@ function sectionEvidenceFor(
         ...inventory.notes,
         'المصدر: Inventory Weekly Progress + سجلات صرف الرواكد المرتبطة بالموظف نفسه.',
         'راكد الفرع غير المسند لهذا الموظف لا يُستخدم ضده في التقييم.',
+        'تغطية هذا الدليل جزئية: التبليغ المبكر عن النواقص ومراجعة الصلاحية يحتاجان واقعة تشغيلية موثقة إذا أثرا على الدرجة.',
       ].filter(Boolean),
     };
   }

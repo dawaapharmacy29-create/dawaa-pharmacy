@@ -50,6 +50,8 @@ export type MonthlyConversationCoaching = {
   sampleSufficient: boolean;
   minSamples: number;
   dimensions: ConversationDimensionEvidence[];
+  coreDimensions: ConversationDimensionEvidence[];
+  coreAverage: number | null;
   strengths: ConversationDimensionEvidence[];
   weaknesses: ConversationDimensionEvidence[];
   positiveReasons: string[];
@@ -237,6 +239,17 @@ const DIMENSIONS: Array<{
   { key: 'closing_message', label: 'رسالة الختام', column: 'closing_message_score' },
 ];
 
+const CONVERSATION_CORE_KEYS: ConversationDimensionKey[] = [
+  'response_speed',
+  'greeting',
+  'tone_language',
+  'understanding',
+  'follow_up',
+  'complaint_handling',
+  'order_confirmation',
+  'closing_message',
+];
+
 const DIMENSION_ACTIONS: Record<ConversationDimensionKey, string> = {
   response_speed: 'تقليل زمن أول رد ومراجعة الحالات التي تأخر فيها الرد.',
   greeting: 'تثبيت ترحيب واضح واستخدام اسم العميل عندما يكون متاحًا.',
@@ -332,62 +345,81 @@ function dimensionEvidence(rows: Record<string, unknown>[], minSamples: number) 
     .filter((item) => item.samples >= minSamples);
 }
 
+function rowConversationCoreAverage(row: Record<string, unknown>) {
+  const columns = DIMENSIONS
+    .filter((dimension) => CONVERSATION_CORE_KEYS.includes(dimension.key))
+    .map((dimension) => nullableNumber(row[dimension.column]))
+    .filter((value): value is number => value !== null);
+  if (!columns.length) return null;
+  return columns.reduce((sum, value) => sum + value, 0) / columns.length;
+}
+
 function buildConversationCoaching(rows: Record<string, unknown>[]): MonthlyConversationCoaching {
   const minSamples = 3;
   const sampleSufficient = rows.length >= minSamples;
   const dimensions = sampleSufficient ? dimensionEvidence(rows, minSamples) : [];
+  const coreDimensions = dimensions.filter((item) => CONVERSATION_CORE_KEYS.includes(item.key));
+  const coreAverage = coreDimensions.length
+    ? Math.round((coreDimensions.reduce((sum, item) => sum + item.average, 0) / coreDimensions.length) * 10) / 10
+    : null;
   const strengths = sampleSufficient
-    ? [...dimensions].filter((item) => item.average >= 7).sort((a, b) => b.average - a.average).slice(0, 3)
+    ? [...coreDimensions].filter((item) => item.average >= 7).sort((a, b) => b.average - a.average).slice(0, 3)
     : [];
   const weaknesses = sampleSufficient
-    ? [...dimensions].filter((item) => item.average <= 7.5).sort((a, b) => a.average - b.average).slice(0, 3)
+    ? [...coreDimensions].filter((item) => item.average <= 7.5).sort((a, b) => a.average - b.average).slice(0, 3)
     : [];
 
+  // Keep free-text reasons/recommendations in the snapshot for audit/development trend,
+  // but do not use them to score the conversation axis because they may describe
+  // dispensing or sales evidence owned by other sections.
   const positiveReasons = repeatedText(rows.map((row) => row.main_positive_reason));
   const negativeReasons = repeatedText(rows.map((row) => row.main_negative_reason));
   const trainingRecommendations = repeatedText(rows.map((row) => row.training_recommendation), 4);
 
   const weakestRows = [...rows]
     .filter((row) => text(row.id))
-    .sort((a, b) => safeNumber(a.final_score ?? a.total_score) - safeNumber(b.final_score ?? b.total_score))
-    .filter((row) =>
-      safeNumber(row.final_score ?? row.total_score) < 85
-      || text(row.main_negative_reason)
-      || text(row.training_recommendation)
-    )
+    .map((row) => ({ row, coreAverage: rowConversationCoreAverage(row) }))
+    .filter((item) => item.coreAverage !== null)
+    .sort((a, b) => (a.coreAverage ?? 10) - (b.coreAverage ?? 10))
     .slice(0, 3);
 
-  const examples = weakestRows.map((row) => ({
+  const examples = weakestRows.map(({ row, coreAverage: rowCoreAverage }) => ({
     id: text(row.id),
     date: text(row.conversation_date || row.created_at).slice(0, 10),
-    score: safeNumber(row.final_score ?? row.total_score),
-    positiveReason: text(row.main_positive_reason),
-    negativeReason: text(row.main_negative_reason),
-    trainingRecommendation: text(row.training_recommendation),
+    score: Math.round(safeNumber(rowCoreAverage) * 10),
+    positiveReason: '',
+    negativeReason: '',
+    trainingRecommendation: '',
   }));
+
+  const complaintCount = rows.filter((row) => bool(row.has_complaint)).length;
+  const badToneCount = rows.filter((row) => bool(row.bad_tone_flag) || bool(row.severe_bad_tone_flag)).length;
+  const excellentCases = rows.filter((row) => bool(row.excellent_case)).length;
 
   const strengthBits = [
     strengths.length
-      ? `أقوى الأبعاد: ${strengths.map((item) => `${item.label} ${item.average}/10`).join('، ')}`
+      ? `أقوى أبعاد خدمة العميل: ${strengths.map((item) => `${item.label} ${item.average}/10`).join('، ')}`
       : '',
-    positiveReasons.length ? `وتكررت ملاحظات إيجابية مثل: ${positiveReasons.join(' · ')}` : '',
+    excellentCases > 0 ? `${excellentCases} حالة محادثة ممتازة موثقة` : '',
   ].filter(Boolean);
 
   const developmentBits = [
     weaknesses.length
-      ? `أولوية التطوير: ${weaknesses.map((item) => `${item.label} ${item.average}/10`).join('، ')}`
+      ? `أولوية تطوير خدمة العميل: ${weaknesses.map((item) => `${item.label} ${item.average}/10`).join('، ')}`
       : '',
-    negativeReasons.length ? `وتكررت ملاحظات تحتاج تحسين مثل: ${negativeReasons.join(' · ')}` : '',
+    complaintCount > 0 ? `${complaintCount} شكوى موثقة داخل مراجعات المحادثات` : '',
+    badToneCount > 0 ? `${badToneCount} ملاحظة موثقة على نبرة/أسلوب التعامل` : '',
   ].filter(Boolean);
 
-  const fallbackActions = weaknesses.map((item) => DIMENSION_ACTIONS[item.key]).slice(0, 3);
-  const actionItems = trainingRecommendations.length ? trainingRecommendations : fallbackActions;
+  const actionItems = weaknesses.map((item) => DIMENSION_ACTIONS[item.key]).slice(0, 3);
 
   return {
     reviewCount: rows.length,
     sampleSufficient,
     minSamples,
     dimensions,
+    coreDimensions,
+    coreAverage,
     strengths,
     weaknesses,
     positiveReasons,
