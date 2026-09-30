@@ -6,7 +6,10 @@
 import type { CaseIntelligenceView, ConfidenceLevel } from '../types';
 import { reviewReasonLabels as canonicalReviewReasonLabels } from './labels';
 
-export const SUPPORTED_CASE_INTELLIGENCE_VERSIONS = ['case-intelligence-v2'] as const;
+export const SUPPORTED_CASE_INTELLIGENCE_VERSIONS = [
+  'case-intelligence-v2',
+  'case-intelligence-v3',
+] as const;
 
 /** Returns the persisted view, or null for older analyses (never rebuilt in the browser). */
 export function readCaseIntelligence(analysisRow: { evidence_snapshot?: Record<string, any> | null } | null | undefined): CaseIntelligenceView | null {

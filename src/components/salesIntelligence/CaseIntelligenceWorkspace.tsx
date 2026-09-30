@@ -163,7 +163,7 @@ export function CaseIntelligenceWorkspace({
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   const messageById = useMemo(
-    () => new Map((view?.interaction.messages ?? []).map((m) => [m.id, m])),
+    () => new Map((view?.interaction?.messages ?? []).map((m) => [m.id, m])),
     [view]
   );
   const clinicalReview = useMemo(
