@@ -89,7 +89,7 @@ export async function readInvoiceRecordsByInvoiceNumbers(
 }
 
 export async function readInvoiceRecordsByIdentityWindow(args: {
-  column: 'customer_id' | 'customer_phone' | 'whatsapp_phone';
+  column: 'customer_code' | 'customer_id' | 'customer_phone' | 'whatsapp_phone';
   value: string;
   windowStartIso: string;
   windowEndIso: string;

@@ -62,6 +62,8 @@ export interface SalesIntelligencePipelineInput {
   sourceCaseIdV22?: string | null;
   customerIdHint?: string | null;
   customerPhoneHint?: string | null;
+  customerNameHint?: string | null;
+  customerCodeHint?: string | null;
   /**
    * Canonical Customer Identity status (canonicalCustomerIdentityResolver). When provided and not
    * 'resolved', the case can never be Sale Proof `proven` nor official staff attribution.
@@ -303,6 +305,8 @@ function analyzeOneCase(
     caseId: conversationCase.caseId,
     customerId: conversationCase.customerId,
     customerPhone: conversationCase.customerPhone,
+    customerCode: input.customerCodeHint ?? null,
+    customerName: input.customerNameHint ?? null,
     branchNameRaw: conversationCase.branchNameRaw,
     caseStartedAt: conversationCase.startedAt,
     caseEndedAt: conversationCase.endedAt,
@@ -313,6 +317,8 @@ function analyzeOneCase(
     caseId: conversationCase.caseId,
     customerId: conversationCase.customerId,
     customerPhone: conversationCase.customerPhone,
+    customerCode: input.customerCodeHint ?? null,
+    customerName: input.customerNameHint ?? null,
     branchNameRaw: conversationCase.branchNameRaw,
     // Same rule as candidateContext above — this exact segmented case interval, never coarse
     // whole-thread timestamps.

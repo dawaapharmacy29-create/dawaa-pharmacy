@@ -7,7 +7,7 @@
 // (deriveSaleAttributionAssessment). This module only narrows "which invoices are even worth
 // asking Phase D about" using conservative, always-bounded constraints, so a case-level lookup
 // never becomes a full-table scan.
-import { normalizeEgyptianCustomerPhone, isValidEgyptianCustomerMobile } from '../customers/customerIdentity';
+import { normalizeDawaaCustomerCode, normalizeEgyptianCustomerPhone, isValidEgyptianCustomerMobile } from '../customers/customerIdentity';
 import { getInvoiceId, type InvoiceLike } from '../invoices/invoiceCore';
 import { readInvoiceRecordsByIdentityWindow } from '../readModels/invoiceRecordReadModel';
 
@@ -39,6 +39,8 @@ export interface InvoiceCandidateQueryContext {
   caseId: string;
   customerId: string | null;
   customerPhone: string | null;
+  customerCode?: string | null;
+  customerName?: string | null;
   branchNameRaw: string | null;
   /** == ConversationCase.startedAt for this exact case — never a conversation-level timestamp. */
   caseStartedAt: string;
@@ -50,6 +52,8 @@ export interface InvoiceCandidateQuery {
   caseId: string;
   customerId: string | null;
   customerPhoneNormalized: string | null;
+  customerCodeNormalized?: string | null;
+  customerNameRaw?: string | null;
   /** Carried through for visibility/logging only — this boundary never filters by branch (see buildInvoiceCandidateQuery's own comment). */
   branchNameRaw: string | null;
   windowStartIso: string;
@@ -75,11 +79,14 @@ export function buildInvoiceCandidateQuery(context: InvoiceCandidateQueryContext
 
   const normalizedPhone = context.customerPhone ? normalizeEgyptianCustomerPhone(context.customerPhone) : '';
   const customerPhoneNormalized = isValidEgyptianCustomerMobile(normalizedPhone) ? normalizedPhone : null;
+  const customerCodeNormalized = normalizeDawaaCustomerCode(context.customerCode);
 
   return {
     caseId: context.caseId,
     customerId: context.customerId,
     customerPhoneNormalized,
+    customerCodeNormalized,
+    customerNameRaw: context.customerName?.trim() || null,
     branchNameRaw: context.branchNameRaw,
     windowStartIso: windowStart.toISOString(),
     windowEndIso: windowEnd.toISOString(),
@@ -100,14 +107,14 @@ export function buildInvoiceCandidateQuery(context: InvoiceCandidateQueryContext
 // InvoiceLike's own module comment in invoiceCore.ts). Injected so callers reuse the app's single
 // existing `@/lib/supabase` client instance and this boundary stays trivially fakeable in tests.
 export async function fetchInvoiceCandidates(supabaseClient: any, query: InvoiceCandidateQuery): Promise<InvoiceLike[]> {
-  if (!query.customerId && !query.customerPhoneNormalized) return [];
+  if (!query.customerCodeNormalized && !query.customerId && !query.customerPhoneNormalized) return [];
 
   // Keep each identity lookup index-friendly. A single PostgREST OR across customer_phone and
   // whatsapp_phone has repeatedly hit PostgreSQL statement_timeout on the production invoice
   // table even with bounded dates. These independent lookups preserve the same identity surface,
   // then merge duplicate invoices before Phase D scores anything.
   async function fetchByIdentity(
-    column: 'customer_id' | 'customer_phone' | 'whatsapp_phone',
+    column: 'customer_code' | 'customer_id' | 'customer_phone' | 'whatsapp_phone',
     value: string
   ): Promise<InvoiceLike[]> {
     return (await readInvoiceRecordsByIdentityWindow({
@@ -121,6 +128,9 @@ export async function fetchInvoiceCandidates(supabaseClient: any, query: Invoice
   }
 
   const lookups: Array<Promise<InvoiceLike[]>> = [];
+  if (query.customerCodeNormalized) {
+    lookups.push(fetchByIdentity('customer_code', query.customerCodeNormalized));
+  }
   if (query.customerId) {
     lookups.push(fetchByIdentity('customer_id', query.customerId));
   }

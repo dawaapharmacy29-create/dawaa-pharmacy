@@ -203,6 +203,8 @@ export function pipelineBaseInputFor(
     sourceCaseIdV22: conversation.sourceCaseIdV22 ?? null,
     customerIdHint: conversation.customerIdHint ?? null,
     customerPhoneHint: conversation.customerPhoneHint ?? null,
+    customerNameHint: conversation.customerNameHint ?? null,
+    customerCodeHint: conversation.customerCodeHint ?? null,
     customerIdentityStatus: conversation.customerIdentityStatus,
     branchIdHint: conversation.branchIdHint ?? null,
     branchNameRawHint: conversation.branchNameRawHint ?? null,
