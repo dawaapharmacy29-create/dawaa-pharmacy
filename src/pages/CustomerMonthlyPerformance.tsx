@@ -38,7 +38,6 @@ import {
   Panel,
   SectionTitle,
 } from '@/components/dashboard/DashboardPrimitives';
-import { exportCustomerFollowupWorkbook } from '@/lib/customerMonthlyPerformanceExcelExport';
 
 type PeriodMode = 'cycle' | 'calendar';
 type CohortKey = 'new' | 'reactivated' | 'lost' | 'strongDecline' | 'decline' | 'risk';
@@ -226,6 +225,7 @@ export default function CustomerMonthlyPerformance() {
   const [mode, setMode] = useState<PeriodMode>('cycle');
   const [refDate, setRefDate] = useState<string>(() => todayStr());
   const [stateFilter, setStateFilter] = useState<string>('الكل');
+  const [listTab, setListTab] = useState<'declining' | 'improving'>('declining');
   const [branch, setBranch] = useState<string>(() =>
     canSeeAllBranches ? ALL_BRANCHES_VALUE : user?.branch || BRANCHES?.[0] || 'فرع شكري'
   );
@@ -241,7 +241,6 @@ export default function CustomerMonthlyPerformance() {
   const [cohortSearch, setCohortSearch] = useState('');
   const [cohortPage, setCohortPage] = useState(1);
   const [exporting, setExporting] = useState(false);
-  const [pageTab, setPageTab] = useState<'overview' | 'cohorts' | 'attention' | 'improving'>('overview');
 
   const period = useMemo(
     () =>
@@ -324,7 +323,6 @@ export default function CustomerMonthlyPerformance() {
   }, [summary]);
 
   const openCohort = (cohort: CohortKey) => {
-    setPageTab('cohorts');
     setActiveCohort(cohort);
     setCohortSearch('');
     setCohortPage(1);
@@ -371,19 +369,91 @@ export default function CustomerMonthlyPerformance() {
     if (!rows.length || exporting) return;
     setExporting(true);
     try {
-      await exportCustomerFollowupWorkbook({
-        rows,
-        fileLabel: cohort === 'all' ? 'كل فئات العملاء' : fileLabel,
-        branch,
-        modeLabel: mode === 'cycle' ? 'دورة دواء 26-25' : 'الشهر الميلادي',
-        periodStart: period.start,
-        periodEnd: period.end,
-        previousStart: prevPeriod.start,
-        previousEnd: prevPeriod.end,
+      const XLSX = await import('xlsx');
+      const workbook = XLSX.utils.book_new();
+      const details = rows.map((row, index) => ({
+        '#': index + 1,
+        'اسم العميل': row.customer_name || '',
+        'كود العميل': row.customer_code || '',
+        الهاتف: row.phone || '',
+        الفرع: row.branch || '',
+        'حالة العميل': row.customer_state || '',
+        'التصنيف السابق': row.previous_segment || '',
+        'التصنيف الحالي': row.current_segment || '',
+        'قبل 3 فترات': Number(row.month_3_ago_sales || 0),
+        'قبل فترتين': Number(row.month_2_ago_sales || 0),
+        'الفترة السابقة': Number(row.previous_month_sales || 0),
+        'الفترة الحالية': Number(row.sales_amount || 0),
+        'الفرق عن المتوقع حتى اليوم': Number(row.sales_change_amount || 0),
+        'نسبة التغير %': row.sales_change_pct ?? '',
+        'الإيراد المعرض للخطر': rowRiskGap(row),
+        'عدد فواتير الفترة الحالية': Number(row.invoice_count || 0),
+        'متوسط الفاتورة': Number(row.avg_invoice || 0),
+        'آخر شراء': row.last_purchase_date || '',
+      }));
+
+      const followup = rows.map((row, index) => {
+        const plan = followupPlan(row);
+        return {
+          '#': index + 1,
+          'اسم العميل': row.customer_name || '',
+          'كود العميل': row.customer_code || '',
+          الهاتف: row.phone || '',
+          الفرع: row.branch || '',
+          'حالة العميل': row.customer_state || '',
+          الأولوية: plan.priority,
+          'سبب المتابعة': plan.reason,
+          'الإجراء المقترح': plan.action,
+          'قناة التواصل المقترحة': plan.channel,
+          'آخر شراء': row.last_purchase_date || '',
+          'مشتريات الفترة الحالية': Number(row.sales_amount || 0),
+          'مشتريات الفترة السابقة': Number(row.previous_month_sales || 0),
+          'الإيراد المعرض للخطر': rowRiskGap(row),
+          'تمت المتابعة؟': '',
+          'تم الرد؟': '',
+          'نتيجة التواصل': '',
+          'ملخص المتابعة': '',
+          'تم إنشاء طلب؟': '',
+          'قيمة الطلب': '',
+          'يحتاج متابعة أخرى؟': '',
+          'موعد المتابعة القادمة': '',
+          'مسؤول المتابعة': '',
+          'ملاحظات': '',
+        };
       });
-    } catch (exportError) {
-      console.error('[CustomerMonthlyPerformance] professional Excel export failed', exportError);
-      setError(exportError instanceof Error ? exportError.message : 'تعذر إنشاء ملف المتابعة');
+
+      const summarySheet = [
+        { البيان: 'نوع القائمة', القيمة: cohort === 'all' ? 'كل فئات العملاء' : fileLabel },
+        { البيان: 'الفرع', القيمة: branch },
+        { البيان: 'نوع الفترة', القيمة: mode === 'cycle' ? 'دورة دواء 26-25' : 'الشهر الميلادي' },
+        { البيان: 'بداية الفترة', القيمة: period.start },
+        { البيان: 'نهاية الفترة', القيمة: period.end },
+        { البيان: 'بداية الفترة السابقة', القيمة: prevPeriod.start },
+        { البيان: 'نهاية الفترة السابقة', القيمة: prevPeriod.end },
+        { البيان: 'عدد العملاء', القيمة: rows.length },
+        { البيان: 'إجمالي مشتريات القائمة', القيمة: rows.reduce((sum, row) => sum + Number(row.sales_amount || 0), 0) },
+        { البيان: 'إجمالي الإيراد المعرض للخطر', القيمة: rows.reduce((sum, row) => sum + rowRiskGap(row), 0) },
+        { البيان: 'تاريخ التصدير', القيمة: new Date().toLocaleString('ar-EG') },
+      ];
+
+      const summaryWs = XLSX.utils.json_to_sheet(summarySheet);
+      const detailsWs = XLSX.utils.json_to_sheet(details);
+      const followupWs = XLSX.utils.json_to_sheet(followup);
+      detailsWs['!autofilter'] = { ref: detailsWs['!ref'] || 'A1:R1' };
+      followupWs['!autofilter'] = { ref: followupWs['!ref'] || 'A1:X1' };
+      detailsWs['!freeze'] = { xSplit: 0, ySplit: 1 } as never;
+      followupWs['!freeze'] = { xSplit: 0, ySplit: 1 } as never;
+
+      XLSX.utils.book_append_sheet(workbook, summaryWs, 'ملخص');
+      XLSX.utils.book_append_sheet(workbook, detailsWs, 'تفاصيل العملاء');
+      XLSX.utils.book_append_sheet(workbook, followupWs, 'خطة المتابعة');
+
+      const safeBranch = branch.replace(/\s+/g, '-');
+      const safeLabel = fileLabel.replace(/\s+/g, '-');
+      XLSX.writeFile(
+        workbook,
+        `اداء-العملاء-${safeLabel}-${safeBranch}-${period.start}-${period.end}.xlsx`
+      );
     } finally {
       setExporting(false);
     }
@@ -592,72 +662,6 @@ export default function CustomerMonthlyPerformance() {
 
       {summary && !loading && (
         <>
-          <Panel className="p-2 md:p-3">
-            <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-              {[
-                ['overview', 'نظرة عامة'],
-                ['cohorts', 'فئات العملاء'],
-                ['attention', 'يحتاجون متابعة'],
-                ['improving', 'المتحسنون'],
-              ].map(([key, label]) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => setPageTab(key as 'overview' | 'cohorts' | 'attention' | 'improving')}
-                  className="rounded-xl border px-3 py-2.5 text-sm font-black transition"
-                  style={
-                    pageTab === key
-                      ? {
-                          borderColor: 'var(--dawaa-theme-accent-border)',
-                          background: 'var(--dawaa-theme-primary)',
-                          color: 'var(--dawaa-theme-primary-text)',
-                        }
-                      : {
-                          borderColor: 'var(--dawaa-theme-border)',
-                          background: 'var(--dawaa-theme-surface)',
-                          color: 'var(--dawaa-theme-muted)',
-                        }
-                  }
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </Panel>
-          <Panel className="p-2 md:p-3">
-            <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-              {[
-                ['overview', 'نظرة عامة'],
-                ['cohorts', 'فئات العملاء'],
-                ['attention', 'يحتاجون متابعة'],
-                ['improving', 'المتحسنون'],
-              ].map(([key, label]) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => setPageTab(key as 'overview' | 'cohorts' | 'attention' | 'improving')}
-                  className="rounded-xl border px-3 py-2.5 text-sm font-black transition"
-                  style={
-                    pageTab === key
-                      ? {
-                          borderColor: 'var(--dawaa-theme-accent-border)',
-                          background: 'var(--dawaa-theme-primary)',
-                          color: 'var(--dawaa-theme-primary-text)',
-                        }
-                      : {
-                          borderColor: 'var(--dawaa-theme-border)',
-                          background: 'var(--dawaa-theme-surface)',
-                          color: 'var(--dawaa-theme-muted)',
-                        }
-                  }
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </Panel>
-          {pageTab === 'overview' && (<>
-          {pageTab === 'overview' && (<>
           <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <KpiCard
               title="عملاء جدد"
@@ -767,64 +771,8 @@ export default function CustomerMonthlyPerformance() {
               كل العملاء المهددين ({cohortCounts?.risk || 0})
             </button>
           </div>
-          </>)}
-          </>)}
 
-          {pageTab === 'cohorts' && !activeCohort && (
-            <Panel className="p-5">
-              <SectionTitle title="اختاري فئة العملاء" subtitle="افتحي أي فئة لمراجعة العملاء ومبيعاتهم وخطة المتابعة بدون إطالة الصفحة." icon={<Users size={18} />} />
-              <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {[
-                  ['new', 'العملاء الجدد', cohortCounts?.new || 0],
-                  ['reactivated', 'العملاء المستعادين', cohortCounts?.reactivated || 0],
-                  ['lost', 'العملاء المختفين', cohortCounts?.lost || 0],
-                  ['strongDecline', 'تراجعوا بقوة', cohortCounts?.strongDecline || 0],
-                  ['decline', 'قللوا مشترياتهم', cohortCounts?.decline || 0],
-                  ['risk', 'العملاء المهددون', cohortCounts?.risk || 0],
-                ].map(([key, label, count]) => (
-                  <button
-                    key={String(key)}
-                    type="button"
-                    onClick={() => openCohort(key as CohortKey)}
-                    className="rounded-2xl border p-4 text-right transition hover:-translate-y-0.5"
-                    style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}
-                  >
-                    <div className="text-sm font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>{label}</div>
-                    <div className="mt-2 text-2xl font-black" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>{count}</div>
-                  </button>
-                ))}
-              </div>
-            </Panel>
-          )}
-
-          {pageTab === 'cohorts' && !activeCohort && (
-            <Panel className="p-5">
-              <SectionTitle title="اختاري فئة العملاء" subtitle="افتحي أي فئة لمراجعة العملاء ومبيعاتهم وخطة المتابعة بدون إطالة الصفحة." icon={<Users size={18} />} />
-              <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {[
-                  ['new', 'العملاء الجدد', cohortCounts?.new || 0],
-                  ['reactivated', 'العملاء المستعادين', cohortCounts?.reactivated || 0],
-                  ['lost', 'العملاء المختفين', cohortCounts?.lost || 0],
-                  ['strongDecline', 'تراجعوا بقوة', cohortCounts?.strongDecline || 0],
-                  ['decline', 'قللوا مشترياتهم', cohortCounts?.decline || 0],
-                  ['risk', 'العملاء المهددون', cohortCounts?.risk || 0],
-                ].map(([key, label, count]) => (
-                  <button
-                    key={String(key)}
-                    type="button"
-                    onClick={() => openCohort(key as CohortKey)}
-                    className="rounded-2xl border p-4 text-right transition hover:-translate-y-0.5"
-                    style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}
-                  >
-                    <div className="text-sm font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>{label}</div>
-                    <div className="mt-2 text-2xl font-black" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>{count}</div>
-                  </button>
-                ))}
-              </div>
-            </Panel>
-          )}
-
-          {pageTab === 'cohorts' && activeCohort && (
+          {activeCohort && (
             <Panel id="customer-cohort-details" className="space-y-4 p-4 md:p-5">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
@@ -1081,7 +1029,43 @@ export default function CustomerMonthlyPerformance() {
             </Panel>
           )}
 
-          {pageTab === 'attention' && (
+          <div
+            className="flex w-fit overflow-hidden rounded-xl border"
+            style={{ borderColor: 'var(--dawaa-theme-border)' }}
+          >
+            <button
+              type="button"
+              onClick={() => setListTab('declining')}
+              className="flex items-center gap-2 px-5 py-2.5 text-sm font-bold"
+              style={
+                listTab === 'declining'
+                  ? {
+                      background: 'var(--dawaa-status-danger-bg)',
+                      color: 'var(--dawaa-status-danger-text)',
+                    }
+                  : { color: 'var(--dawaa-theme-muted)' }
+              }
+            >
+              <TrendingDown size={16} /> العملاء المتراجعين ({summary.needsAttention.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setListTab('improving')}
+              className="flex items-center gap-2 px-5 py-2.5 text-sm font-bold"
+              style={
+                listTab === 'improving'
+                  ? {
+                      background: 'var(--dawaa-status-success-bg)',
+                      color: 'var(--dawaa-status-success-text)',
+                    }
+                  : { color: 'var(--dawaa-theme-muted)' }
+              }
+            >
+              <TrendingUp size={16} /> العملاء المتحسنين ({summary.improving.length})
+            </button>
+          </div>
+
+          {listTab === 'declining' && (
             <Panel className="space-y-3 p-4">
               <SectionTitle
                 title={`عملاء يحتاجون متابعتك النهاردة (${
@@ -1208,7 +1192,7 @@ export default function CustomerMonthlyPerformance() {
             </Panel>
           )}
 
-          {pageTab === 'improving' && (
+          {listTab === 'improving' && (
             <Panel className="space-y-3 p-4">
               <SectionTitle
                 title={`عملاء متحسنين محتاجين شكر واهتمام (${summary.improving.length})`}
