@@ -61,6 +61,63 @@ describe('Sales Intelligence Pipeline (Phase G) — Golden Cases', () => {
     expect(a.basketInvoiceMatch.overallMatch).not.toBe('mismatch');
   });
 
+  it('1b. media-only product request auto-links the unique same-customer same-time invoice and uses its real invoice number', () => {
+    const raw = `[9/28/26, 3:51:56 AM] Customer: السلام عليكم لو سمحت يادكتور عايزه الحاجات دي
+[9/28/26, 3:51:59 AM] Customer: <image omitted>
+[9/28/26, 3:52:06 AM] You: أهلًا وسهلًا بحضرتك
+خدمة التوصيل متاحة على مدار ٢٤ ساعة
+[9/28/26, 3:58:45 AM] You: تحت أمر حضرتك`;
+
+    let seenCode: string | null | undefined = null;
+    let seenName: string | null | undefined = null;
+    const result = runSalesIntelligencePipeline(
+      baseInput({
+        rawWhatsAppExportText: raw,
+        customerIdHint: 'cust-2490',
+        customerPhoneHint: '01100742008',
+        customerCodeHint: '2490',
+        customerNameHint: 'الحاج محمود صالح',
+        branchNameRawHint: 'فرع شكري',
+        resolveInvoiceCandidates: (ctx) => {
+          seenCode = ctx.customerCode;
+          seenName = ctx.customerName;
+          return [{
+            id: 'inv-74966',
+            invoice_number: '74966',
+            customer_id: 'cust-2490',
+            customer_code: '2490',
+            customer_name: 'الحاج محمود صالح',
+            customer_phone: '01100742008',
+            branch: 'فرع شكري',
+            invoice_datetime: '2026-09-28T03:56:00.000Z',
+            net_amount: 545,
+          }];
+        },
+        itemEvidenceProvider: {
+          getItemsForInvoice: (invoiceId) =>
+            invoiceId === 'inv-74966'
+              ? [
+                  { productNameRaw: 'صنف أ', quantity: 1, lineTotal: 100 },
+                  { productNameRaw: 'صنف ب', quantity: 2, lineTotal: 200 },
+                ]
+              : 'unavailable',
+        },
+      })
+    );
+
+    expect(seenCode).toBe('2490');
+    expect(seenName).toBe('الحاج محمود صالح');
+    expect(result.caseAnalyses).toHaveLength(1);
+    const a = result.caseAnalyses[0];
+    expect(a.customerNeed.unresolvedNeed).toBe(true);
+    expect(a.customerNeed.products).toHaveLength(0);
+    expect(a.attribution.selectedInvoiceId).toBe('inv-74966');
+    expect(a.attribution.selectedInvoiceNumber).toBe('74966');
+    expect(a.attribution.selectedCandidate?.directInvoiceLink).toBe(true);
+    expect(a.attribution.attributionLevel).toBe('proven');
+    expect(a.salesOutcome.outcome).toBe('sale_proven');
+  });
+
   it('2. information-only conversation is a valid, complete output — never forced into a commercial case', () => {
     const raw = `[9/15/26, 9:00:00 AM] Customer: شكرا
 [9/15/26, 9:01:00 AM] You: تحت أمرك دائما`;
