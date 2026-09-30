@@ -4352,7 +4352,18 @@ function deriveCustomerNeedModel(input) {
     });
   }
   const activeItems = input.activeBasket ? input.itemsByBasketId[input.activeBasket.basketId] ?? [] : [];
-  const explicitDecline = objections.some((objection) => objection.category === "customer_declined");
+  const alternativeAnswerIds = new Set(
+    Array.from(products.values()).flatMap(
+      (product) => product.alternatives.map((alternative) => alternative.responseMessageId).filter(Boolean)
+    )
+  );
+  const needDeclineMessageIds = Array.from(
+    /* @__PURE__ */ new Set([
+      ...objections.filter((objection) => objection.category === "customer_declined" && !alternativeAnswerIds.has(objection.messageId)).map((objection) => objection.messageId),
+      ...messages.filter((message) => message.role === "customer" && message.isMeaningful && classifyCustomerIntentStatementV32(message.text) === "final_decline").map((message) => message.id)
+    ])
+  );
+  const explicitDecline = needDeclineMessageIds.length > 0;
   const structurallyIncomplete = !input.activeBasket || activeItems.length === 0 || input.activeBasket.status === "draft" || input.activeBasket.status === "awaiting_confirmation" || activeItems.some(
     (item) => item.quantity == null || item.resolutionStatus === "unknown" || item.resolutionStatus === "contradicted"
   );
@@ -4422,6 +4433,8 @@ function deriveCustomerNeedModel(input) {
     unlinkedAlternatives,
     objections,
     unresolvedNeed,
+    needDeclined: explicitDecline,
+    needDeclineMessageIds,
     evidenceMessageIds,
     confidence: confidence2,
     needsHumanReview: humanReviewReasons.length > 0,
@@ -4450,7 +4463,7 @@ function deriveCommercialJourneyState(input) {
   const clarifications = extractClarificationQuestionSignals(input.messages);
   const offered = input.customerNeed.products.some((p) => p.roles.includes("offered"));
   const basketBuilt = input.customerNeed.products.some((p) => p.roles.includes("final_basket") || p.roles.includes("requested"));
-  const declined = input.salesOutcome.outcome === "customer_rejected" || input.customerNeed.objections.some((o) => o.category === "customer_declined");
+  const declined = input.salesOutcome.outcome === "customer_rejected" || input.customerNeed.needDeclined;
   const reached = /* @__PURE__ */ new Set();
   const evidenceIds = /* @__PURE__ */ new Set();
   if (input.customerNeed.primaryNeedMessageId) {
@@ -4490,12 +4503,13 @@ function deriveCommercialJourneyState(input) {
   } else if (declined) {
     currentState = "customer_declined";
     reasonCodes.push("journey.customer_declined_from_customer_evidence");
-    const objection = input.customerNeed.objections.find((o) => o.category === "customer_declined");
+    const declineId = input.customerNeed.needDeclineMessageIds[0];
+    const declineMessage = declineId ? input.messages.find((m) => m.id === declineId) : void 0;
     confidence2 = assess(
       "strongly_inferred",
       0.9,
       reasonCodes[0],
-      objection ? [ref(objection.messageId, `\u0631\u0641\u0636 \u0635\u0631\u064A\u062D \u0645\u0646 \u0627\u0644\u0639\u0645\u064A\u0644: "${objection.text.slice(0, 120)}".`)] : []
+      declineId ? [ref(declineId, `\u0631\u0641\u0636 \u0635\u0631\u064A\u062D \u0645\u0646 \u0627\u0644\u0639\u0645\u064A\u0644: "${(declineMessage?.text ?? "").slice(0, 120)}".`)] : []
     );
   } else {
     for (const state of PROGRESSION) if (reached.has(state)) currentState = state;
@@ -4569,14 +4583,7 @@ function deriveUnavailableDemand(input) {
   const byId = new Map(input.messages.map((message) => [message.id, message]));
   const identityStatus = input.customerIdentityStatus ?? "not_provided";
   const customerId = identityStatus === "resolved" ? conversationCase.customerId : null;
-  const alternativeAnswerIds = new Set(
-    customerNeed.products.flatMap(
-      (product) => product.alternatives.map((alternative) => alternative.responseMessageId).filter(Boolean)
-    )
-  );
-  const declinedNeed = customerNeed.objections.some(
-    (objection) => objection.category === "customer_declined" && !alternativeAnswerIds.has(objection.messageId)
-  );
+  const declinedNeed = customerNeed.needDeclined;
   const demands = /* @__PURE__ */ new Map();
   for (const product of customerNeed.products) {
     if (!product.roles.includes("requested") || !DEMAND_STATES.has(product.availability)) continue;
@@ -4693,10 +4700,6 @@ function deriveLostOpportunity(input) {
   }
   const has = (intent) => intents.filter((row) => row.intent === intent);
   const alternatives = customerNeed.products.flatMap((p) => p.alternatives);
-  const alternativeAnswerIds = new Set(alternatives.map((a) => a.responseMessageId).filter(Boolean));
-  const needDeclines = customerNeed.objections.filter(
-    (o) => o.category === "customer_declined" && !alternativeAnswerIds.has(o.messageId)
-  );
   const objectionOf = (category) => customerNeed.objections.filter((o) => o.category === category);
   const blockingDemand = unavailableDemand.filter((d) => d.alternativeResponse !== "accepted");
   const rejectedAlternativeDemand = blockingDemand.filter((d) => d.alternativeResponse === "rejected");
@@ -4726,8 +4729,8 @@ function deriveLostOpportunity(input) {
   } else if (has("bought_elsewhere").length) {
     const ids = has("bought_elsewhere").map((r) => r.messageId);
     v = verdict("lost", "competitor", "none", null, "strongly_inferred", 0.9, "lost.customer_bought_elsewhere", ids);
-  } else if (has("final_decline").length || needDeclines.length || salesOutcome.outcome === "customer_rejected") {
-    const ids = [...has("final_decline").map((r) => r.messageId), ...needDeclines.map((o) => o.messageId)];
+  } else if (customerNeed.needDeclined || salesOutcome.outcome === "customer_rejected") {
+    const ids = customerNeed.needDeclineMessageIds;
     let reason = "customer_declined";
     if (objectionOf("price").length) reason = "price";
     else if (rejectedAlternativeDemand.length) reason = "alternative_rejected";
@@ -5110,6 +5113,202 @@ function confidence(candidate, profile) {
     ruleIds: [`follow_up.${candidate.reason}`, `next_best_action.${profile.nextBestAction}`],
     evidence: candidate.evidence.length ? [{ sourceTable: "whatsapp_review_sources", sourceId: "", messageIds: [...new Set(candidate.evidence)], description: `follow_up.${candidate.reason}` }] : []
   };
+}
+
+// src/lib/salesIntelligence/caseIntelligenceView.ts
+var CASE_INTELLIGENCE_VIEW_VERSION = "case-intelligence-v1";
+function buildCaseIntelligenceView(analysis, context) {
+  const { conversationCase, customerNeed, commercialConfirmation, attribution, salesOutcome } = analysis;
+  const messages = context.messages;
+  const byId = new Map(messages.map((m) => [m.id, m]));
+  const staffIdFor = (sender) => context.staffIdBySender?.[sender] ?? null;
+  const identityStatus = context.customerIdentityStatus ?? "not_provided";
+  const identityResolved = identityStatus === "resolved";
+  const participants = /* @__PURE__ */ new Map();
+  for (const message of messages) {
+    if (message.role !== "staff" || !message.isMeaningful) continue;
+    const row = participants.get(message.sender) ?? { sender: message.sender, staffId: staffIdFor(message.sender), messageIds: [] };
+    row.messageIds.push(message.id);
+    participants.set(message.sender, row);
+  }
+  const facts = [];
+  const pushFact = (fact, messageId2, source, productKey, staffId) => {
+    const message = byId.get(messageId2);
+    if (!message || message.role !== "staff") return;
+    facts.push({ fact, messageId: messageId2, staffSender: message.sender, staffId: staffId ?? staffIdFor(message.sender), productKey, source });
+  };
+  for (const product of customerNeed.products) {
+    for (const evidence of product.availabilityEvidence) {
+      pushFact(`stated_${evidence.state}`, evidence.messageId, "customer_need", product.key, evidence.staffId);
+    }
+    for (const alternative of product.alternatives) {
+      pushFact("offered_alternative", alternative.offerMessageId, "customer_need", product.key, alternative.offeredByStaffId);
+    }
+    if (product.roles.includes("offered")) {
+      for (const id of product.evidenceMessageIds) {
+        if (byId.get(id)?.role === "staff" && !product.availabilityEvidence.some((e) => e.messageId === id) && !product.alternatives.some((a) => a.offerMessageId === id)) {
+          pushFact("offered_product", id, "customer_need", product.key);
+        }
+      }
+    }
+  }
+  if (commercialConfirmation.staffConfirmed) {
+    for (const id of commercialConfirmation.primaryMessageIds) pushFact("confirmed_order", id, "commercial_confirmation", null);
+  }
+  for (const staffFact of analysis.lostOpportunity.staffFacts) {
+    if (staffFact.fact === "awaiting_customer_reply") pushFact("awaiting_customer_reply", staffFact.messageId, "lost_opportunity", null, staffFact.staffId);
+  }
+  for (const opportunity of analysis.followUp.opportunities) {
+    if (opportunity.reason === "staff_promised_check" || opportunity.reason === "stock_check_pending") {
+      for (const id of opportunity.evidenceMessageIds) {
+        if (byId.get(id)?.role === "staff") pushFact("promised_follow_up", id, "follow_up", opportunity.productKey, opportunity.assignedStaffId);
+      }
+    }
+  }
+  const uniqueFacts = dedupeFacts(facts);
+  const products = customerNeed.products.map((product) => {
+    const demand = analysis.unavailableDemand.find((d) => d.productKey === product.key) ?? null;
+    const loss = analysis.lostOpportunity.productLosses.find((l) => l.productKey === product.key) ?? null;
+    return {
+      productKey: product.key,
+      productNameRaw: product.productNameRaw,
+      productId: product.productId,
+      roles: product.roles,
+      requestedQuantity: product.requestedQuantity,
+      offeredQuantity: product.offeredQuantity,
+      finalQuantity: product.finalQuantity,
+      availability: product.availability,
+      alternativeCount: product.alternatives.length,
+      alternativeResponses: product.alternatives.map((a) => a.response),
+      inFinalBasket: product.roles.includes("final_basket"),
+      demandKey: demand?.demandKey ?? null,
+      lossOutcome: loss?.outcome ?? null,
+      lossReason: loss?.reason ?? null,
+      followUpKeys: analysis.followUp.opportunities.filter((o) => o.productKey === product.key).map((o) => o.followUpKey)
+    };
+  });
+  const active = analysis.activeBasket;
+  const basket = {
+    versions: analysis.basketHistory.map((b) => ({
+      basketId: b.basketId,
+      version: b.version,
+      status: b.status,
+      itemCount: (analysis.itemsByBasketId[b.basketId] ?? []).length,
+      announcedTotal: b.announcedTotal?.amount ?? null,
+      confirmedAt: b.confirmedAt,
+      confirmedByCustomerAt: b.confirmedByCustomerAt
+    })),
+    activeBasketId: active?.basketId ?? null,
+    activeItems: active ? analysis.itemsByBasketId[active.basketId] ?? [] : [],
+    announcedTotal: active?.announcedTotal?.amount ?? null,
+    confirmed: Boolean(active && (active.status === "confirmed" || active.confirmedByCustomerAt))
+  };
+  const reasons = [];
+  const addReason = (code, source) => {
+    if (!reasons.some((r) => r.code === code)) reasons.push({ code, source });
+  };
+  if (!identityResolved) addReason("customer_identity_unresolved", "customer_identity");
+  analysis.humanReviewReasons.forEach((code) => addReason(code, "pipeline"));
+  customerNeed.humanReviewReasons.forEach((code) => addReason(code, "customer_need"));
+  if (customerNeed.unlinkedAvailability.length) addReason("need.availability_statement_unlinked", "customer_need");
+  if (customerNeed.unlinkedAlternatives.length) addReason("need.alternative_offer_unlinked", "customer_need");
+  attribution.contradictions.forEach((code) => addReason(`sale.${code}`, "sale_proof"));
+  if (salesOutcome.saleProofState === "contradicted") addReason("sale.proof_contradicted", "sale_proof");
+  if (analysis.journeyState.reviewRequired) addReason("journey.review_required", "journey");
+  if (analysis.lostOpportunity.state === "unknown") addReason("lost.state_unknown", "lost_opportunity");
+  analysis.followUp.opportunities.filter((o) => o.status === "blocked" && o.blocker).forEach((o) => addReason(`follow_up.blocked.${o.blocker}`, "follow_up"));
+  const interaction = context.interaction;
+  const allEvidence = /* @__PURE__ */ new Set([
+    ...customerNeed.evidenceMessageIds,
+    ...analysis.journeyState.evidenceMessageIds,
+    ...commercialConfirmation.primaryMessageIds,
+    ...analysis.unavailableDemand.flatMap((d) => d.evidenceMessageIds),
+    ...analysis.lostOpportunity.evidenceMessageIds,
+    ...analysis.followUp.opportunities.flatMap((o) => o.evidenceMessageIds)
+  ]);
+  return {
+    version: CASE_INTELLIGENCE_VIEW_VERSION,
+    caseId: analysis.caseId,
+    conversationId: analysis.conversationId,
+    sourceCaseIdV22: conversationCase.sourceCaseIdV22,
+    interaction: {
+      interactionId: interaction?.id ?? null,
+      startedAt: conversationCase.startedAt,
+      endedAt: conversationCase.endedAt,
+      messageCount: messages.length,
+      meaningfulMessageCount: messages.filter((m) => m.isMeaningful).length,
+      messageIds: messages.map((m) => m.id),
+      triggerMessageId: interaction?.triggerMessageId ?? null,
+      segmentationReason: interaction?.segmentationReason ?? null,
+      caseType: conversationCase.caseType,
+      caseStatus: conversationCase.status,
+      confidence: conversationCase.confidence
+    },
+    customer: {
+      customerId: identityResolved ? conversationCase.customerId : null,
+      customerPhone: identityResolved ? conversationCase.customerPhone : null,
+      identityStatus,
+      blockers: identityResolved ? [] : ["customer_identity_unresolved"]
+    },
+    branch: { branchId: conversationCase.branchId, branchNameRaw: conversationCase.branchNameRaw },
+    staff: {
+      participants: [...participants.values()].map((p) => ({ ...p, messageCount: p.messageIds.length })),
+      facts: uniqueFacts
+    },
+    need: customerNeed,
+    products,
+    basket,
+    journey: analysis.journeyState,
+    sale: {
+      confirmationState: commercialConfirmation.currentState,
+      summaryPresented: commercialConfirmation.summaryPresented,
+      customerConfirmed: commercialConfirmation.customerConfirmed,
+      staffConfirmed: commercialConfirmation.staffConfirmed,
+      confirmationMessageIds: commercialConfirmation.primaryMessageIds,
+      invoiceCandidateIds: analysis.invoiceCandidateIds,
+      selectedInvoiceId: attribution.selectedInvoiceId,
+      selectedInvoiceNumber: attribution.selectedInvoiceNumber,
+      attributionLevel: attribution.attributionLevel,
+      proofState: salesOutcome.saleProofState,
+      outcome: salesOutcome.outcome,
+      isSaleCountable: salesOutcome.isSaleCountable,
+      reasonCodes: salesOutcome.reasonCodes,
+      contradictions: attribution.contradictions
+    },
+    unavailableDemand: analysis.unavailableDemand,
+    lostOpportunity: analysis.lostOpportunity,
+    followUp: analysis.followUp,
+    coachingEvidence: {
+      staffReplied: participants.size > 0,
+      unansweredRequestMessageIds: analysis.lostOpportunity.reason === "staff_no_response" ? analysis.lostOpportunity.evidenceMessageIds : [],
+      alternativeOfferedProductKeys: customerNeed.products.filter((p) => p.alternatives.length).map((p) => p.key),
+      unavailableWithoutAlternativeProductKeys: analysis.unavailableDemand.filter((d) => !d.alternativeOffered).map((d) => d.productKey),
+      delayComplaintMessageIds: analysis.lostOpportunity.reason === "slow_response" ? analysis.lostOpportunity.evidenceMessageIds : [],
+      clearClosing: commercialConfirmation.currentState === "commercial_confirmation_complete",
+      protocolCompliant: analysis.protocolAssessment.protocolCompliant,
+      missingProtocolSteps: analysis.protocolAssessment.missingProtocolSteps
+    },
+    evidenceSummary: {
+      evidenceMessageIds: messages.map((m) => m.id).filter((id) => allEvidence.has(id)),
+      sectionConfidence: {
+        interaction: conversationCase.confidence.level,
+        need: customerNeed.confidence.level,
+        journey: analysis.journeyState.confidence.level,
+        attribution: attribution.attributionLevel,
+        lostOpportunity: analysis.lostOpportunity.confidence.level
+      }
+    },
+    review: { required: analysis.needsHumanReview || reasons.length > 0, reasons }
+  };
+}
+function dedupeFacts(facts) {
+  const seen = /* @__PURE__ */ new Set();
+  return facts.filter((fact) => {
+    const key = `${fact.fact}|${fact.messageId}|${fact.productKey ?? ""}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 // src/lib/salesIntelligence/pharmacyProducts/pharmacyNormalization.ts
@@ -5651,7 +5850,7 @@ function enrichBasketProductIdentities(itemsByBasketId, productIndex) {
     ])
   );
 }
-function analyzeOneCase(conversationCase, scopedMessages, input) {
+function analyzeOneCase(conversationCase, scopedMessages, input, interaction = null) {
   const pipelineWarnings = [];
   const {
     baskets,
@@ -5894,7 +6093,7 @@ function analyzeOneCase(conversationCase, scopedMessages, input) {
   } else {
     status = "analyzed";
   }
-  return {
+  const analysis = {
     caseId: conversationCase.caseId,
     conversationId: input.conversationId,
     conversationCase,
@@ -5920,6 +6119,15 @@ function analyzeOneCase(conversationCase, scopedMessages, input) {
     needsHumanReview,
     humanReviewReasons,
     failureReasons
+  };
+  return {
+    ...analysis,
+    caseIntelligence: buildCaseIntelligenceView(analysis, {
+      messages: scopedMessages,
+      interaction,
+      customerIdentityStatus: input.customerIdentityStatus,
+      staffIdBySender: input.staffIdBySender
+    })
   };
 }
 function deriveSegmentedCases(input) {
@@ -5974,7 +6182,7 @@ function deriveSegmentedCases(input) {
       caseId: `${input.conversationId}:interaction:${localInteractionIndex}:session:${anchorSessionIndex}`
     } : rawCase;
     const scopedMessages = messagesForMessageIds(understanding, interaction.messageIds);
-    cases.push({ conversationCase, scopedMessages });
+    cases.push({ conversationCase, scopedMessages, interaction });
   });
   if (crossedCoarseBoundary) {
     pipelineWarnings.push("semantic_interaction_crossed_coarse_session_boundary");
@@ -5992,7 +6200,7 @@ function deriveCasesOnly(input) {
 function runSalesIntelligencePipeline(input) {
   const segmented = deriveSegmentedCases(input);
   const caseAnalyses = segmented.cases.map(
-    ({ conversationCase, scopedMessages }) => analyzeOneCase(conversationCase, scopedMessages, input)
+    ({ conversationCase, scopedMessages, interaction }) => analyzeOneCase(conversationCase, scopedMessages, input, interaction)
   );
   return {
     conversationId: input.conversationId,
@@ -6105,7 +6313,7 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v4";
+var PIPELINE_VERSION = "sales-intelligence-v5";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v6-semantic-boundaries",
   historicalClosure: "historical-closure-v1",
@@ -6210,11 +6418,8 @@ function mapCaseAnalysisRowContent(analysis) {
         ruleIds: cc.confidence.ruleIds
       },
       evidenceCompleteness: analysis.evidenceCompleteness,
-      customerNeed: analysis.customerNeed,
-      unavailableDemand: analysis.unavailableDemand,
-      lostOpportunity: analysis.lostOpportunity,
-      followUp: analysis.followUp,
-      journeyState: analysis.journeyState,
+      // v5+: one consolidated read model instead of separate need/demand/lost/follow-up/journey keys.
+      caseIntelligence: analysis.caseIntelligence,
       historicalClosureEvidence: analysis.historicalClosure.confidence.evidence,
       // No dedicated applicability-rule-id field exists on OrderConfirmationProtocolAssessment —
       // applicability is DERIVED from historicalClosure + commercialConfirmation (see

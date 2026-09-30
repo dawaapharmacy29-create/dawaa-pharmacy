@@ -9,6 +9,7 @@
 import { parseWhatsAppExport, splitWhatsAppSessions } from '../whatsappConversationParser';
 import {
   buildConversationUnderstandingV32,
+  type ConversationInteractionV32,
   type ConversationUnderstandingV32,
   type NormalizedConversationMessageV32,
 } from '../whatsappConversationUnderstandingV32';
@@ -35,6 +36,7 @@ import { deriveCommercialJourneyState } from './commercialJourneyStateMachine';
 import { deriveUnavailableDemand } from './unavailableDemandEngine';
 import { deriveLostOpportunity } from './lostOpportunityEngine';
 import { deriveFollowUpOpportunities } from './followUpOpportunityEngine';
+import { buildCaseIntelligenceView } from './caseIntelligenceView';
 import {
   resolveProductMention,
   type PharmacyProductIndex,
@@ -223,7 +225,8 @@ function enrichBasketProductIdentities(
 function analyzeOneCase(
   conversationCase: ConversationCase,
   scopedMessages: NormalizedConversationMessageV32[],
-  input: SalesIntelligencePipelineInput
+  input: SalesIntelligencePipelineInput,
+  interaction: ConversationInteractionV32 | null = null
 ): SalesIntelligenceCaseAnalysis {
   const pipelineWarnings: string[] = [];
 
@@ -536,7 +539,7 @@ function analyzeOneCase(
     status = 'analyzed';
   }
 
-  return {
+  const analysis = {
     caseId: conversationCase.caseId,
     conversationId: input.conversationId,
     conversationCase,
@@ -563,11 +566,22 @@ function analyzeOneCase(
     humanReviewReasons,
     failureReasons,
   };
+  return {
+    ...analysis,
+    caseIntelligence: buildCaseIntelligenceView(analysis, {
+      messages: scopedMessages,
+      interaction,
+      customerIdentityStatus: input.customerIdentityStatus,
+      staffIdBySender: input.staffIdBySender,
+    }),
+  };
 }
 
 export interface SegmentedCase {
   conversationCase: ConversationCase;
   scopedMessages: NormalizedConversationMessageV32[];
+  /** The V32 interaction this case reads (segmentation owner) — carried for the read model only. */
+  interaction: ConversationInteractionV32 | null;
 }
 
 export interface DeriveSegmentedCasesInput {
@@ -670,7 +684,7 @@ export function deriveSegmentedCases(input: DeriveSegmentedCasesInput): DeriveSe
           }
         : rawCase;
     const scopedMessages = messagesForMessageIds(understanding, interaction.messageIds);
-    cases.push({ conversationCase, scopedMessages });
+    cases.push({ conversationCase, scopedMessages, interaction });
   });
 
   if (crossedCoarseBoundary) {
@@ -712,8 +726,8 @@ export function deriveCasesOnly(input: DeriveSegmentedCasesInput): {
  */
 export function runSalesIntelligencePipeline(input: SalesIntelligencePipelineInput): SalesIntelligencePipelineResult {
   const segmented = deriveSegmentedCases(input);
-  const caseAnalyses = segmented.cases.map(({ conversationCase, scopedMessages }) =>
-    analyzeOneCase(conversationCase, scopedMessages, input)
+  const caseAnalyses = segmented.cases.map(({ conversationCase, scopedMessages, interaction }) =>
+    analyzeOneCase(conversationCase, scopedMessages, input, interaction)
   );
 
   return {

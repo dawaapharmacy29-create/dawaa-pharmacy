@@ -422,6 +422,135 @@ export interface FollowUpAssessment {
   notNeededReason: FollowUpSuppression | null;
 }
 
+export type CaseIntelligenceStaffFactKind =
+  | 'stated_available'
+  | 'stated_unavailable'
+  | 'stated_check_pending'
+  | 'offered_product'
+  | 'offered_alternative'
+  | 'confirmed_order'
+  | 'awaiting_customer_reply'
+  | 'promised_follow_up';
+
+/** A staff fact projected from a canonical owner, attributed to the exact message sender. */
+export interface CaseIntelligenceStaffFact {
+  fact: CaseIntelligenceStaffFactKind;
+  messageId: string;
+  staffSender: string;
+  staffId: string | null;
+  productKey: string | null;
+  source: 'customer_need' | 'commercial_confirmation' | 'lost_opportunity' | 'follow_up';
+}
+
+export interface CaseIntelligenceReviewReason {
+  code: string;
+  source: 'customer_identity' | 'pipeline' | 'customer_need' | 'sale_proof' | 'journey' | 'lost_opportunity' | 'follow_up';
+}
+
+/**
+ * Unified Case Intelligence read model — owner: salesIntelligence/caseIntelligenceView.ts.
+ * A PROJECTION of canonical outputs for one commercial interaction; it decides nothing itself.
+ */
+export interface CaseIntelligenceView {
+  version: 'case-intelligence-v1';
+  caseId: string;
+  conversationId: string;
+  sourceCaseIdV22: string | null;
+  interaction: {
+    interactionId: string | null;
+    startedAt: string;
+    endedAt: string | null;
+    messageCount: number;
+    meaningfulMessageCount: number;
+    messageIds: string[];
+    triggerMessageId: string | null;
+    segmentationReason: string | null;
+    caseType: CaseType;
+    caseStatus: CaseStatus;
+    confidence: ConfidenceAssessment;
+  };
+  customer: {
+    customerId: string | null;
+    customerPhone: string | null;
+    identityStatus: 'resolved' | 'unresolved' | 'ambiguous' | 'contradicted' | 'not_provided';
+    blockers: Array<'customer_identity_unresolved'>;
+  };
+  branch: { branchId: string | null; branchNameRaw: string | null };
+  staff: {
+    participants: Array<{ sender: string; staffId: string | null; messageIds: string[]; messageCount: number }>;
+    facts: CaseIntelligenceStaffFact[];
+  };
+  need: CustomerNeedModel;
+  products: Array<{
+    productKey: string;
+    productNameRaw: string;
+    productId: string | null;
+    roles: CustomerNeedProductRole[];
+    requestedQuantity: number | null;
+    offeredQuantity: number | null;
+    finalQuantity: number | null;
+    availability: CustomerNeedAvailability;
+    alternativeCount: number;
+    alternativeResponses: CustomerNeedAlternativeResponse[];
+    inFinalBasket: boolean;
+    demandKey: string | null;
+    lossOutcome: ProductLossEvidence['outcome'] | null;
+    lossReason: LostOpportunityReason | null;
+    followUpKeys: string[];
+  }>;
+  basket: {
+    versions: Array<{
+      basketId: string;
+      version: number;
+      status: BasketStatus;
+      itemCount: number;
+      announcedTotal: number | null;
+      confirmedAt: string | null;
+      confirmedByCustomerAt: string | null;
+    }>;
+    activeBasketId: string | null;
+    activeItems: CaseBasketItem[];
+    announcedTotal: number | null;
+    confirmed: boolean;
+  };
+  journey: CommercialJourneyStateAssessment;
+  sale: {
+    confirmationState: CommercialConfirmationState;
+    summaryPresented: boolean;
+    customerConfirmed: boolean;
+    staffConfirmed: boolean;
+    confirmationMessageIds: string[];
+    invoiceCandidateIds: string[];
+    selectedInvoiceId: string | null;
+    selectedInvoiceNumber: string | null;
+    attributionLevel: ConfidenceLevel;
+    proofState: CanonicalSalesOutcomeAssessment['saleProofState'];
+    outcome: CanonicalSalesOutcome;
+    isSaleCountable: boolean;
+    reasonCodes: string[];
+    contradictions: string[];
+  };
+  unavailableDemand: UnavailableDemand[];
+  lostOpportunity: LostOpportunityAssessment;
+  followUp: FollowUpAssessment;
+  /** Pointers into canonical evidence for a later coaching engine; no judgement is made here. */
+  coachingEvidence: {
+    staffReplied: boolean;
+    unansweredRequestMessageIds: string[];
+    alternativeOfferedProductKeys: string[];
+    unavailableWithoutAlternativeProductKeys: string[];
+    delayComplaintMessageIds: string[];
+    clearClosing: boolean;
+    protocolCompliant: boolean;
+    missingProtocolSteps: string[];
+  };
+  evidenceSummary: {
+    evidenceMessageIds: string[];
+    sectionConfidence: Record<'interaction' | 'need' | 'journey' | 'attribution' | 'lostOpportunity', ConfidenceLevel>;
+  };
+  review: { required: boolean; reasons: CaseIntelligenceReviewReason[] };
+}
+
 export interface CustomerNeedModel {
   caseId: string;
   /** First real customer request/need statement, verbatim. Null when the case has no customer need. */
@@ -437,6 +566,13 @@ export interface CustomerNeedModel {
   objections: CustomerNeedObjection[];
   /** True only while a real need remains structurally incomplete; an explicit decline is closed, not "unknown". */
   unresolvedNeed: boolean;
+  /**
+   * Canonical "the customer declined the NEED itself" (owner: this model). A "no" that answered an
+   * alternative offer is NOT a need decline; an explicit final-decline statement ("مش عايزه خلاص")
+   * is. Every downstream engine (demand, journey, lost, follow-up) reads this instead of re-deriving it.
+   */
+  needDeclined: boolean;
+  needDeclineMessageIds: string[];
   evidenceMessageIds: string[];
   confidence: ConfidenceAssessment;
   needsHumanReview: boolean;
@@ -1298,6 +1434,8 @@ export interface SalesIntelligenceCaseAnalysis {
   lostOpportunity: LostOpportunityAssessment;
   /** Canonical Follow-up Opportunities for this interaction (followUpOpportunityEngine). */
   followUp: FollowUpAssessment;
+  /** Unified read model composed from all of the above (caseIntelligenceView). Built once, never re-derived. */
+  caseIntelligence: CaseIntelligenceView;
   basketHistory: CaseBasket[];
   itemsByBasketId: Record<string, CaseBasketItem[]>;
   /** Resolved via basketInvoiceMatchingEngine's own resolveActiveBasket() — null when insufficient/ambiguous. */

@@ -28,6 +28,7 @@ import type {
   UnavailableDemand,
   LostOpportunityAssessment,
   FollowUpAssessment,
+  CaseIntelligenceView,
   CommercialJourneyStateAssessment,
   ConfidenceLevel,
   DifferenceExplanationKind,
@@ -209,6 +210,8 @@ export interface SalesIntelligenceCaseAnalysisRow extends CaseAnalysisProvenance
     lostOpportunity?: LostOpportunityAssessment;
     /** Canonical Follow-up Opportunities from this exact analysis run (optional for older rows). */
     followUp?: FollowUpAssessment;
+    /** v5+: unified Case Intelligence read model (supersedes the separate keys above for new rows). */
+    caseIntelligence?: CaseIntelligenceView;
     /** Derived state-machine projection; optional for historical v1 rows. */
     journeyState?: CommercialJourneyStateAssessment;
     historicalClosureEvidence: EvidenceRef[];

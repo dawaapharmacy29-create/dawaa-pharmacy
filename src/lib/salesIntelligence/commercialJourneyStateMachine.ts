@@ -45,9 +45,8 @@ export function deriveCommercialJourneyState(input: DeriveCommercialJourneyState
   const clarifications = extractClarificationQuestionSignals(input.messages);
   const offered = input.customerNeed.products.some((p) => p.roles.includes('offered'));
   const basketBuilt = input.customerNeed.products.some((p) => p.roles.includes('final_basket') || p.roles.includes('requested'));
-  const declined =
-    input.salesOutcome.outcome === 'customer_rejected' ||
-    input.customerNeed.objections.some((o) => o.category === 'customer_declined');
+  // Need decline is owned by the Customer Need model: rejecting an alternative is not declining the need.
+  const declined = input.salesOutcome.outcome === 'customer_rejected' || input.customerNeed.needDeclined;
 
   const reached = new Set<CommercialJourneyState>();
   const evidenceIds = new Set<string>();
@@ -91,12 +90,13 @@ export function deriveCommercialJourneyState(input: DeriveCommercialJourneyState
   } else if (declined) {
     currentState = 'customer_declined';
     reasonCodes.push('journey.customer_declined_from_customer_evidence');
-    const objection = input.customerNeed.objections.find((o) => o.category === 'customer_declined');
+    const declineId = input.customerNeed.needDeclineMessageIds[0];
+    const declineMessage = declineId ? input.messages.find((m) => m.id === declineId) : undefined;
     confidence = assess(
       'strongly_inferred',
       0.9,
       reasonCodes[0],
-      objection ? [ref(objection.messageId, `رفض صريح من العميل: "${objection.text.slice(0, 120)}".`)] : []
+      declineId ? [ref(declineId, `رفض صريح من العميل: "${(declineMessage?.text ?? '').slice(0, 120)}".`)] : []
     );
   } else {
     for (const state of PROGRESSION) if (reached.has(state)) currentState = state;

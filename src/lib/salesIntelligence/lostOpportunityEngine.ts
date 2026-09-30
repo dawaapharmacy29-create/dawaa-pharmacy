@@ -119,12 +119,8 @@ export function deriveLostOpportunity(input: DeriveLostOpportunityInput): LostOp
   }
   const has = (intent: CustomerIntentStatementV32) => intents.filter((row) => row.intent === intent);
 
-  // A customer "no" that answered an alternative is about the alternative, not the whole need.
+  // Need decline is owned by the Customer Need model (a "no" to an alternative is not a need decline).
   const alternatives = customerNeed.products.flatMap((p) => p.alternatives);
-  const alternativeAnswerIds = new Set(alternatives.map((a) => a.responseMessageId).filter(Boolean) as string[]);
-  const needDeclines = customerNeed.objections.filter(
-    (o) => o.category === 'customer_declined' && !alternativeAnswerIds.has(o.messageId)
-  );
   const objectionOf = (category: CustomerNeedObjectionCategory) =>
     customerNeed.objections.filter((o) => o.category === category);
   const blockingDemand = unavailableDemand.filter((d) => d.alternativeResponse !== 'accepted');
@@ -162,9 +158,9 @@ export function deriveLostOpportunity(input: DeriveLostOpportunityInput): LostOp
   } else if (has('bought_elsewhere').length) {
     const ids = has('bought_elsewhere').map((r) => r.messageId);
     v = verdict('lost', 'competitor', 'none', null, 'strongly_inferred', 0.9, 'lost.customer_bought_elsewhere', ids);
-  } else if (has('final_decline').length || needDeclines.length || salesOutcome.outcome === 'customer_rejected') {
+  } else if (customerNeed.needDeclined || salesOutcome.outcome === 'customer_rejected') {
     // Rule: lost only on an explicit customer end. The root cause is the evidenced blocker, if any.
-    const ids = [...has('final_decline').map((r) => r.messageId), ...needDeclines.map((o) => o.messageId)];
+    const ids = customerNeed.needDeclineMessageIds;
     let reason: LostOpportunityReason = 'customer_declined';
     if (objectionOf('price').length) reason = 'price';
     else if (rejectedAlternativeDemand.length) reason = 'alternative_rejected';

@@ -7,6 +7,7 @@
 import type { NormalizedConversationMessageV32 } from '../whatsappConversationUnderstandingV32';
 import {
   availabilityStatementClausesV32,
+  classifyCustomerIntentStatementV32,
   classifyCustomerOfferResponseV32,
   extractAcceptanceSignals,
   extractAlternativeOfferSignals,
@@ -602,7 +603,24 @@ export function deriveCustomerNeedModel(input: DeriveCustomerNeedModelInput): Cu
   const activeItems = input.activeBasket
     ? (input.itemsByBasketId[input.activeBasket.basketId] ?? [])
     : [];
-  const explicitDecline = objections.some((objection) => objection.category === 'customer_declined');
+  // Need decline (canonical): an explicit decline objection that did not answer an alternative offer,
+  // or an explicit final-decline statement. Rejecting a substitute keeps the original need alive.
+  const alternativeAnswerIds = new Set(
+    Array.from(products.values()).flatMap((product) =>
+      product.alternatives.map((alternative) => alternative.responseMessageId).filter(Boolean) as string[]
+    )
+  );
+  const needDeclineMessageIds = Array.from(
+    new Set([
+      ...objections
+        .filter((objection) => objection.category === 'customer_declined' && !alternativeAnswerIds.has(objection.messageId))
+        .map((objection) => objection.messageId),
+      ...messages
+        .filter((message) => message.role === 'customer' && message.isMeaningful && classifyCustomerIntentStatementV32(message.text) === 'final_decline')
+        .map((message) => message.id),
+    ])
+  );
+  const explicitDecline = needDeclineMessageIds.length > 0;
   const structurallyIncomplete =
     !input.activeBasket ||
     activeItems.length === 0 ||
@@ -697,6 +715,8 @@ export function deriveCustomerNeedModel(input: DeriveCustomerNeedModelInput): Cu
     unlinkedAlternatives,
     objections,
     unresolvedNeed,
+    needDeclined: explicitDecline,
+    needDeclineMessageIds,
     evidenceMessageIds,
     confidence,
     needsHumanReview: humanReviewReasons.length > 0,

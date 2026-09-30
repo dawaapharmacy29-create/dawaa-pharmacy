@@ -127,3 +127,40 @@ refresh service/API, persistence writers.
    re-pointed to read them.
 7. **Staff journey evaluation** (Phase 9).
 8. **Retirement passes** for the Delete-safely list, one path per step, each with the seven proofs.
+
+## 7. Brain owner map (after BRAIN STEP 5A)
+
+Every truth has exactly one owner inside Sales Intelligence; the Case Intelligence view only
+composes them (`caseIntelligenceView.ts`, persisted as `evidenceSnapshot.caseIntelligence` from
+`sales-intelligence-v5`).
+
+| Truth | Canonical owner |
+|---|---|
+| Interaction boundary | V32 `buildConversationUnderstandingV32` interactions (carried into SI as `SegmentedCase.interaction`) |
+| Message semantics (request, acceptance/commitment, availability, alternative, intent, timing, promise) | `whatsappSemanticSignalsV32.ts` |
+| Customer identity | `canonicalCustomerIdentityResolver` upstream; SI consumes `customerIdentityStatus` |
+| Staff identity | staff identity owner upstream; SI consumes `staffIdBySender`, never "first staff wins" |
+| Customer need, product lifecycle, availability, alternatives, need decline | `customerNeedModel.ts` |
+| Basket | `caseBasketEngine.ts` |
+| Commercial confirmation | `commercialConfirmationEngine.ts` |
+| Journey state | `commercialJourneyStateMachine.ts` |
+| Invoice attribution / Sale Proof / outcome | `saleAttributionEngine.ts`, `saleProofState.ts`, `canonicalSalesOutcomeEngine.ts` |
+| Unavailable demand | `unavailableDemandEngine.ts` |
+| Lost opportunity | `lostOpportunityEngine.ts` |
+| Follow-up opportunity / next best action | `followUpOpportunityEngine.ts` |
+| Unified read model | `caseIntelligenceView.ts` (projection only) |
+
+## 8. Legacy path -> canonical replacement
+
+| Legacy path | Canonical replacement | Future role |
+|---|---|---|
+| V6 operational intelligence (intent, products, `followupPlan`) | Customer Need + Follow-up engine | evidence-only now; operational adapter later |
+| V6 `syncWhatsAppOperationalActionsV6` -> `whatsapp_conversation_actions` | Follow-up engine output | adapter (action writer fed by SI) later |
+| V7 product journey (stages, leakage, `nextAction`) | Product lifecycle + Lost + Follow-up | evidence-only; retire later |
+| V22 case `proposed_outcome` / `nextAction` | Journey + Lost + Follow-up | keep V22 case grouping; outcome fields evidence-only |
+| V22 `proposed_lost_reason` + V23 lost reason | Lost Opportunity engine | retire later |
+| V24 lost/rescue views, V20/V22 leakage views | Lost Opportunity + Unavailable Demand | adapter (re-point to SI) later |
+| `whatsapp_lost_opportunities_v1` RPC | Lost Opportunity engine | retire later |
+| `whatsappFollowupSignalDetector` / `whatsapp_auto_followup_requests` | Follow-up engine | retire later (no live writer) |
+| V15 journeys, V16/V36 stories | Case Intelligence (Customer Story input) | evidence-only |
+| Frontend status labels (e.g. V22 case labels) | Case Intelligence fields | display only |

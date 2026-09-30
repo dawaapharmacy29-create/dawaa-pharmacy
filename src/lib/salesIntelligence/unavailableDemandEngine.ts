@@ -88,15 +88,8 @@ export function deriveUnavailableDemand(input: DeriveUnavailableDemandInput): Un
   const identityStatus = input.customerIdentityStatus ?? 'not_provided';
   const customerId = identityStatus === 'resolved' ? conversationCase.customerId : null;
 
-  // A customer "no" that answered an alternative is about the alternative, not the original need.
-  const alternativeAnswerIds = new Set(
-    customerNeed.products.flatMap((product) =>
-      product.alternatives.map((alternative) => alternative.responseMessageId).filter(Boolean) as string[]
-    )
-  );
-  const declinedNeed = customerNeed.objections.some(
-    (objection) => objection.category === 'customer_declined' && !alternativeAnswerIds.has(objection.messageId)
-  );
+  // Canonical need decline is owned by the Customer Need model.
+  const declinedNeed = customerNeed.needDeclined;
 
   const demands = new Map<string, UnavailableDemand>();
   for (const product of customerNeed.products) {

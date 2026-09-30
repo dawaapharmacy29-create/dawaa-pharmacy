@@ -91,11 +91,8 @@ export function mapCaseAnalysisRowContent(analysis: SalesIntelligenceCaseAnalysi
         ruleIds: cc.confidence.ruleIds,
       },
       evidenceCompleteness: analysis.evidenceCompleteness as unknown as Record<string, boolean | EvidenceLevel>,
-      customerNeed: analysis.customerNeed,
-      unavailableDemand: analysis.unavailableDemand,
-      lostOpportunity: analysis.lostOpportunity,
-      followUp: analysis.followUp,
-      journeyState: analysis.journeyState,
+      // v5+: one consolidated read model instead of separate need/demand/lost/follow-up/journey keys.
+      caseIntelligence: analysis.caseIntelligence,
       historicalClosureEvidence: analysis.historicalClosure.confidence.evidence,
       // No dedicated applicability-rule-id field exists on OrderConfirmationProtocolAssessment —
       // applicability is DERIVED from historicalClosure + commercialConfirmation (see
