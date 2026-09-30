@@ -1141,11 +1141,11 @@ export default function StaffMonthlyEvaluation() {
             evaluation_status: nextStatus === 'sent' ? 'sent' : 'draft',
             evaluation_score: Number(saveResult.overall_score ?? overallScore),
             sent_at: nextStatus === 'sent' ? (serverSentAt || new Date().toISOString()) : item.sent_at,
-            evidence_ready: evidenceReady,
+            evidence_ready: nextStatus === 'sent' ? true : evidenceReady,
           }
         : item));
 
-      toast.success(nextStatus === 'sent' ? 'تم الاعتماد والإرسال للموظف' : 'تم حفظ المسودة');
+      toast.success(nextStatus === 'sent' ? 'تم اعتماد التقييم' : 'تم حفظ المسودة');
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : 'فشل حفظ التقييم');
     } finally {
