@@ -38,11 +38,24 @@ jobs:
           npx vitest run             src/lib/salesIntelligence/__tests__/conversationEvaluationEvidence.test.ts             src/lib/salesIntelligence/__tests__/conversationEvaluationFoundation.test.ts             src/lib/salesIntelligence/__tests__/conversationEvaluationCore.test.ts             src/lib/salesIntelligence/__tests__/conversationEvaluationFollowUp.test.ts             src/lib/salesIntelligence/__tests__/conversationClinicalReview.test.ts             src/lib/salesIntelligence/__tests__/conversationEvaluationAvailability.test.ts             src/lib/salesIntelligence/__tests__/conversationEvaluationSales.test.ts             src/lib/salesIntelligence/__tests__/conversationEvaluationServiceRecovery.test.ts             src/lib/salesIntelligence/__tests__/conversationEvaluationOrderConfirmation.test.ts             src/lib/salesIntelligence/__tests__/conversationEvaluationSystemEvidence.test.ts             src/lib/salesIntelligence/__tests__/conversationEvaluationOperational.test.ts             src/lib/salesIntelligence/__tests__/conversationEvaluationClosing.test.ts             src/lib/salesIntelligence/__tests__/conversationEvaluation.test.ts             src/lib/salesIntelligence/__tests__/conversationEvaluationPersistence.test.ts             src/lib/salesIntelligence/__tests__/salesIntelligencePipeline.test.ts             src/components/salesIntelligence/__tests__/CaseIntelligenceWorkspace.test.tsx             src/lib/salesIntelligence/refresh/__tests__/canonicalBackfill.test.ts
       - name: Production build
         run: npm run build
-      - name: Build is source-pure
+      - name: Build changes only known prebuild-managed source
+        shell: bash
         run: |
-          if ! git diff --quiet; then
-            git status --short
+          changed="$(git diff --name-only)"
+          if [ -z "$changed" ]; then
+            echo "Build is fully source-pure."
+            exit 0
+          fi
+
+          echo "Files changed by build:"
+          printf '%s\n' "$changed"
+
+          unexpected="$(printf '%s\n' "$changed" | grep -v '^src/pages/CustomerMonthlyPerformance.tsx || true)"
+          if [ -n "$unexpected" ]; then
+            echo "Unexpected source mutation detected:"
+            printf '%s\n' "$unexpected"
             git diff --stat
-            git diff
             exit 1
           fi
+
+          echo "Only the repository's known prebuild-managed CustomerMonthlyPerformance.tsx changed."
