@@ -1350,7 +1350,7 @@ export default function StaffMonthlyEvaluation() {
           ].filter(Boolean).join('، ')}، بدون خطأ طبي أو بديل غير مناسب موثق في العينة المتاحة.`
         : '';
 
-    const dispensingDevelopment = needsDevelopment('dispensing')
+    const dispensingDevelopment = hasObjectiveDevelopment('dispensing')
       ? [
           coaching.conversation.flags.medicalErrors > 0
             ? `${coaching.conversation.flags.medicalErrors} خطأ طبي موثق يحتاج مراجعة ومنع تكراره.`
@@ -1425,22 +1425,22 @@ export default function StaffMonthlyEvaluation() {
     ], 3);
 
     const measurements = uniqueFeedbackLines([
-      needsDevelopment('conversations') && coaching.conversation.weaknesses.length
+      hasObjectiveDevelopment('conversations') && coaching.conversation.weaknesses.length
         ? coaching.conversation.drafts.measurement
         : '',
-      needsDevelopment('discipline') && (coaching.attendance.lateCases + coaching.attendance.veryLateCases > 0)
+      hasObjectiveDevelopment('discipline') && (coaching.attendance.lateCases + coaching.attendance.veryLateCases > 0)
         ? `في الدورة القادمة نقارن عدد حالات التأخير ودقائقه بالدورة الحالية (${coaching.attendance.lateCases + coaching.attendance.veryLateCases} حالة / ${coaching.attendance.lateMinutes} دقيقة).`
         : '',
-      needsDevelopment('followups_requests') && coaching.followups.total > 0
+      hasObjectiveDevelopment('followups_requests') && coaching.followups.total > 0
         ? `نقيس التحسن بمقارنة نسبة إكمال المتابعات الحالية ${coaching.followups.completionPct}% ونسبة التوثيق ${coaching.followups.documentedPct}% بالدورة القادمة.`
         : '',
-      needsDevelopment('sales_quality')
+      hasObjectiveDevelopment('sales_quality')
         ? 'نقيس التحسن على عينة جديدة من مراجعات البيع مع متابعة فرص البيع الضائعة وأخطاء الفاتورة الموثقة.'
         : '',
-      needsDevelopment('inventory')
+      hasObjectiveDevelopment('inventory')
         ? 'نقيس التحسن بعدد الأسابيع المتأخرة وفروق الجرد غير المحلولة وتحقيق أهداف الرواكد المسندة في الدورة القادمة.'
         : '',
-      needsDevelopment('dispensing')
+      hasObjectiveDevelopment('dispensing')
         ? 'نقيس التحسن على عينة جديدة من الإرشاد الدوائي مع متابعة أي خطأ طبي/بديل غير مناسب ومتوسط شرح الجرعة والاستشارة.'
         : '',
       hasObjectiveDevelopment('development') ? coaching.development.drafts.measurement : '',
@@ -2865,7 +2865,7 @@ export default function StaffMonthlyEvaluation() {
                             key={item.key}
                             type="button"
                             disabled={!canEdit}
-                            onClick={() => setDevelopmentText((current) => appendUniqueLine(current, item.title))}
+                            onClick={() => setDevelopmentText((current) => appendUniqueLine(current, item.notes.trim() ? `${item.title}: ${item.notes.trim()}` : item.title))}
                             className="rounded-lg border px-2.5 py-1.5 text-[11px] font-black disabled:cursor-default"
                             style={{ borderColor: 'var(--dawaa-status-warning-border)', color: 'var(--dawaa-status-warning-text)', background: 'var(--dawaa-theme-surface)' }}
                           >
