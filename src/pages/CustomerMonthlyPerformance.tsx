@@ -242,6 +242,7 @@ export default function CustomerMonthlyPerformance() {
   const [cohortPage, setCohortPage] = useState(1);
   const [exporting, setExporting] = useState(false);
   const [pageTab, setPageTab] = useState<'overview' | 'cohorts' | 'attention' | 'improving'>('overview');
+  const [pageTab, setPageTab] = useState<'overview' | 'cohorts' | 'attention' | 'improving'>('overview');
 
   const period = useMemo(
     () =>
@@ -624,6 +625,39 @@ export default function CustomerMonthlyPerformance() {
               ))}
             </div>
           </Panel>
+          <Panel className="p-2 md:p-3">
+            <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+              {[
+                ['overview', 'نظرة عامة'],
+                ['cohorts', 'فئات العملاء'],
+                ['attention', 'يحتاجون متابعة'],
+                ['improving', 'المتحسنون'],
+              ].map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setPageTab(key as 'overview' | 'cohorts' | 'attention' | 'improving')}
+                  className="rounded-xl border px-3 py-2.5 text-sm font-black transition"
+                  style={
+                    pageTab === key
+                      ? {
+                          borderColor: 'var(--dawaa-theme-accent-border)',
+                          background: 'var(--dawaa-theme-primary)',
+                          color: 'var(--dawaa-theme-primary-text)',
+                        }
+                      : {
+                          borderColor: 'var(--dawaa-theme-border)',
+                          background: 'var(--dawaa-theme-surface)',
+                          color: 'var(--dawaa-theme-muted)',
+                        }
+                  }
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </Panel>
+          {pageTab === 'overview' && (<>
           {pageTab === 'overview' && (<>
           <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <KpiCard
@@ -735,6 +769,34 @@ export default function CustomerMonthlyPerformance() {
             </button>
           </div>
           </>)}
+          </>)}
+
+          {pageTab === 'cohorts' && !activeCohort && (
+            <Panel className="p-5">
+              <SectionTitle title="اختاري فئة العملاء" subtitle="افتحي أي فئة لمراجعة العملاء ومبيعاتهم وخطة المتابعة بدون إطالة الصفحة." icon={<Users size={18} />} />
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {[
+                  ['new', 'العملاء الجدد', cohortCounts?.new || 0],
+                  ['reactivated', 'العملاء المستعادين', cohortCounts?.reactivated || 0],
+                  ['lost', 'العملاء المختفين', cohortCounts?.lost || 0],
+                  ['strongDecline', 'تراجعوا بقوة', cohortCounts?.strongDecline || 0],
+                  ['decline', 'قللوا مشترياتهم', cohortCounts?.decline || 0],
+                  ['risk', 'العملاء المهددون', cohortCounts?.risk || 0],
+                ].map(([key, label, count]) => (
+                  <button
+                    key={String(key)}
+                    type="button"
+                    onClick={() => openCohort(key as CohortKey)}
+                    className="rounded-2xl border p-4 text-right transition hover:-translate-y-0.5"
+                    style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}
+                  >
+                    <div className="text-sm font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>{label}</div>
+                    <div className="mt-2 text-2xl font-black" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>{count}</div>
+                  </button>
+                ))}
+              </div>
+            </Panel>
+          )}
 
           {pageTab === 'cohorts' && !activeCohort && (
             <Panel className="p-5">
