@@ -101,11 +101,16 @@ function formatSignedPoints(points: number) {
   return `${points > 0 ? '+' : ''}${points}`;
 }
 
+function isConversationSectionKey(sectionKey: string) {
+  return ['conversations', 'conversation', 'customer', 'customers', 'team_quality', 'customer_outcomes'].includes(sectionKey.toLowerCase());
+}
+
 function sectionEvidenceFor(
   sectionKey: string,
   metrics: Metrics,
   health: EmployeeMonthlyEvidence['health'],
-  pointsTruth: StaffPointsDashboardV3 | null
+  pointsTruth: StaffPointsDashboardV3 | null,
+  coaching: EmployeeMonthlyEvidence['coaching'] | null
 ) {
   const key = sectionKey.toLowerCase();
   const attendanceKeys = ['discipline', 'attendance', 'shift_discipline'];
@@ -141,6 +146,7 @@ function sectionEvidenceFor(
         details: ['لا تستخدم متوسط 0 كدليل لأن مصدر المحادثات غير متاح.'],
       };
     }
+    const conversation = coaching?.conversation;
     return {
       status: 'available' as const,
       summary: metrics.review_count
@@ -151,7 +157,16 @@ function sectionEvidenceFor(
         `متوسط التقييم: ${metrics.review_average}/100`,
         `نقاط إيجابية من المحادثات: +${metrics.conversation_positive_points}`,
         `نقاط سلبية من المحادثات: -${metrics.conversation_negative_points}`,
-      ],
+        conversation && !conversation.sampleSufficient
+          ? `العينة الحالية ${conversation.reviewCount} فقط؛ نحتاج ${conversation.minSamples} مراجعات على الأقل قبل استنتاج نقاط قوة أو ضعف.`
+          : '',
+        conversation?.strengths.length
+          ? `أقوى الأبعاد: ${conversation.strengths.map((item) => `${item.label} ${item.average}/10`).join('، ')}`
+          : '',
+        conversation?.weaknesses.length
+          ? `أضعف الأبعاد: ${conversation.weaknesses.map((item) => `${item.label} ${item.average}/10`).join('، ')}`
+          : '',
+      ].filter(Boolean),
     };
   }
 
@@ -280,6 +295,7 @@ export default function StaffMonthlyEvaluation() {
     attendance: 'unavailable',
   });
   const [evidenceErrors, setEvidenceErrors] = useState<Record<string, string>>({});
+  const [coaching, setCoaching] = useState<EmployeeMonthlyEvidence['coaching'] | null>(null);
   const [pointsTruth, setPointsTruth] = useState<StaffPointsDashboardV3 | null>(null);
   const [settledStatement, setSettledStatement] = useState<{ points_closing: number; incentive_amount: number } | null>(null);
   const [activeGates, setActiveGates] = useState<CriticalGateType[]>([]);
@@ -393,6 +409,7 @@ export default function StaffMonthlyEvaluation() {
         setEvidenceReady(evidenceResult.ready);
         setEvidenceHealth(evidenceResult.health);
         setEvidenceErrors(evidenceResult.errors);
+        setCoaching(evidenceResult.coaching);
         setPointsTruth(pointsResult);
         setSettledStatement(statementResult.data || null);
 
@@ -527,6 +544,7 @@ export default function StaffMonthlyEvaluation() {
           canonical_role: profile.role,
           evaluation_cycle_label: cycleLabel,
           active_critical_gates: activeGates,
+          coaching_snapshot: coaching,
           points_truth: pointsTruth ? {
             month_cycle: pointsTruth.month_cycle,
             starting_points: pointsTruth.starting_points,
@@ -1116,7 +1134,8 @@ export default function StaffMonthlyEvaluation() {
                     const earned = sectionPoints(item);
                     const selectedRubric = item.score > 0 && item.rubric ? item.rubric[item.score - 1] : null;
                     const weakNeedsNote = item.score > 0 && item.score <= 2 && !item.notes.trim();
-                    const sectionEvidence = sectionEvidenceFor(item.key, metrics, evidenceHealth, pointsTruth);
+                    const sectionEvidence = sectionEvidenceFor(item.key, metrics, evidenceHealth, pointsTruth, coaching);
+                    const conversationEvidence = isConversationSectionKey(item.key) ? coaching?.conversation : null;
 
                     return (
                       <Panel id={`evaluation-section-${item.key}`} key={item.key} className="p-3">
@@ -1148,6 +1167,27 @@ export default function StaffMonthlyEvaluation() {
                               <div className="mt-2 space-y-1 text-[11px] font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
                                 {sectionEvidence.details.map((detail) => <div key={detail}>• {detail}</div>)}
                                 <div>• الدليل الآلي مساعد للقرار وليس درجة تلقائية.</div>
+                                {conversationEvidence?.examples.length ? (
+                                  <div className="mt-2 border-t pt-2" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
+                                    <div className="mb-1 font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>أمثلة موثقة تحتاج مراجعة</div>
+                                    <div className="space-y-1.5">
+                                      {conversationEvidence.examples.map((example) => (
+                                        <a
+                                          key={example.id}
+                                          href={`/reviews?section=history&id=${encodeURIComponent(example.id)}`}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className="block rounded-md border px-2 py-1.5 transition hover:opacity-90"
+                                          style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-theme-text)' }}
+                                        >
+                                          <span className="font-black">{example.date || 'بدون تاريخ'} · {example.score}/100</span>
+                                          {example.negativeReason ? <span> · {example.negativeReason}</span> : null}
+                                          <span className="ms-1" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>فتح التقييم ↗</span>
+                                        </a>
+                                      ))}
+                                    </div>
+                                  </div>
+                                ) : null}
                               </div>
                             </details>
                           </div>
@@ -1226,6 +1266,93 @@ export default function StaffMonthlyEvaluation() {
                   {!evaluationComplete ? (
                     <div className="mt-3 rounded-xl border px-3 py-2 text-xs font-bold" style={{ borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-status-warning-bg)', color: 'var(--dawaa-status-warning-text)' }}>
                       الخلاصة الآلية مؤجلة حتى اكتمال {sections.length} محاور. يمكنك كتابة ملاحظة يدوية، لكن اقتراحات القوة والتطوير لن تظهر قبل اكتمال التقييم.
+                    </div>
+                  ) : null}
+
+                  {coaching?.conversation.reviewCount ? (
+                    <div className="mt-3 rounded-2xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-soft)' }}>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <div className="text-xs font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>Coaching مبني على أدلة المحادثات</div>
+                          <div className="mt-1 text-[11px] font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                            {coaching.conversation.reviewCount} مراجعة في نفس الدورة · الحد الأدنى للاستنتاج {coaching.conversation.minSamples}
+                          </div>
+                        </div>
+                        <span
+                          className="rounded-full border px-2.5 py-1 text-[10px] font-black"
+                          style={coaching.conversation.sampleSufficient
+                            ? { borderColor: 'var(--dawaa-status-success-border)', color: 'var(--dawaa-status-success-text)' }
+                            : { borderColor: 'var(--dawaa-status-warning-border)', color: 'var(--dawaa-status-warning-text)' }}
+                        >
+                          {coaching.conversation.sampleSufficient ? 'عينة كافية' : 'عينة غير كافية للحكم'}
+                        </span>
+                      </div>
+
+                      {coaching.conversation.sampleSufficient ? (
+                        <div className="mt-3 grid gap-2 lg:grid-cols-2">
+                          <div className="rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-status-success-border)', background: 'var(--dawaa-theme-surface)' }}>
+                            <div className="text-[11px] font-black" style={{ color: 'var(--dawaa-status-success-text)' }}>المميزات المثبتة</div>
+                            <div className="mt-1 text-xs font-bold leading-6" style={{ color: 'var(--dawaa-theme-text)' }}>
+                              {coaching.conversation.drafts.strength || 'لا توجد نقطة قوة متكررة كفاية لإضافتها تلقائيًا.'}
+                            </div>
+                            {coaching.conversation.drafts.strength ? (
+                              <button
+                                type="button"
+                                disabled={!canEdit}
+                                onClick={() => setStrengthsText((current) => appendUniqueLine(current, coaching.conversation.drafts.strength))}
+                                className="mt-2 rounded-lg border px-2.5 py-1.5 text-[11px] font-black disabled:cursor-default"
+                                style={{ borderColor: 'var(--dawaa-status-success-border)', color: 'var(--dawaa-status-success-text)' }}
+                              >
+                                إضافة لنقاط القوة
+                              </button>
+                            ) : null}
+                          </div>
+
+                          <div className="rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-theme-surface)' }}>
+                            <div className="text-[11px] font-black" style={{ color: 'var(--dawaa-status-warning-text)' }}>أولوية التطوير</div>
+                            <div className="mt-1 text-xs font-bold leading-6" style={{ color: 'var(--dawaa-theme-text)' }}>
+                              {coaching.conversation.drafts.development || 'لا توجد نقطة ضعف متكررة كفاية لإضافتها تلقائيًا.'}
+                            </div>
+                            {coaching.conversation.drafts.development ? (
+                              <button
+                                type="button"
+                                disabled={!canEdit}
+                                onClick={() => setDevelopmentText((current) => appendUniqueLine(current, coaching.conversation.drafts.development))}
+                                className="mt-2 rounded-lg border px-2.5 py-1.5 text-[11px] font-black disabled:cursor-default"
+                                style={{ borderColor: 'var(--dawaa-status-warning-border)', color: 'var(--dawaa-status-warning-text)' }}
+                              >
+                                إضافة لخطة التطوير
+                              </button>
+                            ) : null}
+                          </div>
+
+                          {coaching.conversation.drafts.actionPlan ? (
+                            <div className="rounded-xl border p-3 lg:col-span-2" style={{ borderColor: 'var(--dawaa-status-info-border)', background: 'var(--dawaa-theme-surface)' }}>
+                              <div className="text-[11px] font-black" style={{ color: 'var(--dawaa-status-info-text)' }}>خطة عمل قابلة للقياس</div>
+                              <div className="mt-1 text-xs font-bold leading-6" style={{ color: 'var(--dawaa-theme-text)' }}>
+                                {coaching.conversation.drafts.actionPlan}
+                                {coaching.conversation.drafts.measurement ? ` ${coaching.conversation.drafts.measurement}` : ''}
+                              </div>
+                              <button
+                                type="button"
+                                disabled={!canEdit}
+                                onClick={() => setDevelopmentText((current) => appendUniqueLine(
+                                  appendUniqueLine(current, coaching.conversation.drafts.actionPlan),
+                                  coaching.conversation.drafts.measurement
+                                ))}
+                                className="mt-2 rounded-lg border px-2.5 py-1.5 text-[11px] font-black disabled:cursor-default"
+                                style={{ borderColor: 'var(--dawaa-status-info-border)', color: 'var(--dawaa-status-info-text)' }}
+                              >
+                                إضافة الخطة ومقياس التحسن
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <div className="mt-3 rounded-xl border px-3 py-2 text-xs font-bold" style={{ borderColor: 'var(--dawaa-status-warning-border)', color: 'var(--dawaa-status-warning-text)' }}>
+                          لن نستنتج مميزات أو عيوب من {coaching.conversation.reviewCount} مراجعة فقط. يمكن للمدير قراءة الحالات، لكن لا تُستخدم كحكم شهري قوي.
+                        </div>
+                      )}
                     </div>
                   ) : null}
 
