@@ -38,6 +38,7 @@ import { hasStrongInventoryEvidence } from '@/lib/evaluations/monthlyInventoryEv
 import { hasStrongDevelopmentEvidence } from '@/lib/evaluations/monthlyDevelopmentEvidence';
 import { hasStrongAttendanceEvidence } from '@/lib/evaluations/monthlyAttendanceEvidence';
 import { hasStrongConversationEvidence } from '@/lib/evaluations/monthlyConversationEvidence';
+import { isMonthlyEvaluationDevelopmentEligible } from '@/lib/evaluations/monthlyEvaluationDevelopmentEligibility';
 import {
   hasEvidenceSupportedStrongPerformance,
   isMonthlyEvaluationStrengthEligible,
@@ -1264,7 +1265,25 @@ export default function StaffMonthlyEvaluation() {
     attendance: attendanceStrengthEvidence,
   };
   const hasStrongPerformance = hasEvidenceSupportedStrongPerformance(sections, strengthEvidenceGates);
-  const hasDevelopmentNeed = sections.some((item) => item.score > 0 && item.score <= 3);
+  const objectiveDevelopmentKeys = new Set<string>();
+  if (coaching?.attendance.drafts.development) ['discipline', 'attendance', 'shift_discipline'].forEach((key) => objectiveDevelopmentKeys.add(key));
+  if (coaching?.conversation.drafts.development) ['conversations', 'conversation'].forEach((key) => objectiveDevelopmentKeys.add(key));
+  if ((coaching?.conversation.flags.medicalErrors || 0) > 0
+      || (coaching?.conversation.flags.badAlternativeCases || 0) > 0
+      || (dispensingDosageEvidence && dispensingDosageEvidence.average < 8)
+      || (dispensingConsultationEvidence && dispensingConsultationEvidence.average < 8)) objectiveDevelopmentKeys.add('dispensing');
+  if (coaching?.followups.drafts.development) objectiveDevelopmentKeys.add('followups_requests');
+  if (coaching?.salesQuality.drafts.development) objectiveDevelopmentKeys.add('sales_quality');
+  if (coaching?.inventory.drafts.development) objectiveDevelopmentKeys.add('inventory');
+  if (coaching?.development.drafts.development) objectiveDevelopmentKeys.add('development');
+
+  const developmentSections = evaluationComplete
+    ? [...ratedSections]
+        .filter((item) => isMonthlyEvaluationDevelopmentEligible(item, objectiveDevelopmentKeys.has(item.key)))
+        .sort((a, b) => Number(objectiveDevelopmentKeys.has(b.key)) - Number(objectiveDevelopmentKeys.has(a.key)) || a.score - b.score || b.weight - a.weight)
+        .slice(0, 3)
+    : [];
+  const hasDevelopmentNeed = developmentSections.length > 0;
   const feedbackMissingStrength = evaluationComplete && hasStrongPerformance && !strengthsText.trim();
   const feedbackMissingDevelopment = evaluationComplete && hasDevelopmentNeed && !developmentText.trim();
   const approvalBlockers = [
@@ -1290,12 +1309,6 @@ export default function StaffMonthlyEvaluation() {
     ? [...ratedSections]
         .filter((item) => isMonthlyEvaluationStrengthEligible(item, strengthEvidenceGates))
         .sort((a, b) => b.score - a.score || b.weight - a.weight)
-        .slice(0, 3)
-    : [];
-  const developmentSections = evaluationComplete
-    ? [...ratedSections]
-        .filter((item) => item.score <= 3)
-        .sort((a, b) => a.score - b.score || b.weight - a.weight)
         .slice(0, 3)
     : [];
 
