@@ -1011,7 +1011,7 @@ export default function StaffMonthlyEvaluation() {
       toast.error('اكتب نقطة قوة واحدة على الأقل تعكس الأداء القوي الموثق قبل الاعتماد.');
       return;
     }
-    if (nextStatus === 'sent' && sections.some((item) => item.score > 0 && item.score <= 3) && !developmentText.trim()) {
+    if (nextStatus === 'sent' && hasDevelopmentNeed && !developmentText.trim()) {
       toast.error('اكتب خطة تطوير واضحة للمحاور التي تحتاج تحسين قبل الاعتماد.');
       return;
     }
