@@ -204,6 +204,32 @@ describe('Case Intelligence Workspace (display only)', () => {
     expect(review).toContain('د. أحمد: عرض بديلًا');
   });
 
+  it('F2. technical "You" is replaced by persisted source staff identity for display only', () => {
+    const view = persisted(analyze(SALE).caseIntelligence)!;
+    const header = renderToStaticMarkup(createElement(CaseIntelligenceWorkspace, {
+      view,
+      staffDisplayName: 'د محمد شبل',
+    }));
+    expect(header).toContain('الموظف بالمحادثة');
+    expect(header).toContain('د محمد شبل');
+    expect(header).not.toContain('>You<');
+
+    const staffView: CaseIntelligenceView = {
+      ...view,
+      staff: {
+        participants: [{ sender: 'You', staffId: null, messageIds: ['a'], messageCount: 1 }],
+        facts: [{ fact: 'stated_available', messageId: 'a', staffSender: 'You', staffId: null, productKey: null, source: 'customer_need' }],
+      },
+    };
+    const review = renderToStaticMarkup(createElement(CaseIntelligenceWorkspace, {
+      view: staffView,
+      initialTab: 'review',
+      staffDisplayName: 'د محمد شبل',
+    }));
+    expect(review).toContain('د محمد شبل: قال إن الصنف متوفر');
+    expect(review).not.toContain('You:');
+  });
+
   it('G. mixed products: A in a proven sale, B unavailable — two separate states', () => {
     const raw = `[9/15/26, 9:00:00 AM] Customer: عايز 1 علبة كونجستال
 [9/15/26, 9:00:20 AM] Customer: وكمان 2 علبة فيتامين د

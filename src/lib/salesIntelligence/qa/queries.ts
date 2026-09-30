@@ -374,6 +374,9 @@ export interface QaCaseDetailBundle {
     customerName: string | null;
     customerCode: string | null;
     customerPhone: string | null;
+    /** Persisted source-level conversation staff identity; display context only, never sale ownership. */
+    staffId: string | null;
+    staffName: string | null;
   } | null;
   /** Snapshot-lineage status. Old contained exports remain readable for audit, never current truth. */
   sourceSnapshot: {
@@ -588,6 +591,8 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
         customerName: displayIdentity.name,
         customerCode: displayIdentity.code,
         customerPhone: displayIdentity.phone,
+        staffId: conversationRow.staff_id ?? null,
+        staffName: conversationRow.staff_name ?? null,
       };
 
       if (conversationRow.source_filename) {

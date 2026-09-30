@@ -259,6 +259,7 @@ export default function SalesIntelligenceQACaseDetail() {
             caseEndedAt={analysis.case_ended_at}
           />
         ) : null}
+        staffDisplayName={conversation?.staffId ? conversation.staffName : null}
         invoiceEvidence={{
           status: saleProof.trustedInvoiceId ? 'trusted' : saleProof.selectedInvoiceId ? 'candidate' : 'none',
           invoiceNumber: saleProof.selectedInvoiceNumber,
