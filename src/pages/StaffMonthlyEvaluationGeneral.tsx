@@ -429,12 +429,48 @@ function safeNumber(value: unknown) {
   return Number.isFinite(number) ? number : 0;
 }
 
+function feedbackIdentity(value: string) {
+  return value
+    .replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)))
+    .replace(/[\u064B-\u065F\u0670]/g, '')
+    .replace(/[\u0623\u0625\u0622]/g, 'ا')
+    .replace(/\u0649/g, 'ي')
+    .replace(/\u0629/g, 'ه')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function uniqueFeedbackLines(values: Array<string | null | undefined>, limit = Number.POSITIVE_INFINITY) {
+  const result: string[] = [];
+  const identities: string[] = [];
+
+  values.forEach((raw) => {
+    const value = String(raw || '').replace(/\s+/g, ' ').trim();
+    if (!value) return;
+    const identity = feedbackIdentity(value);
+    if (identity.length < 4) return;
+    const duplicate = identities.some((existing) =>
+      existing === identity
+      || (Math.min(existing.length, identity.length) >= 18 && (existing.includes(identity) || identity.includes(existing)))
+    );
+    if (duplicate) return;
+    identities.push(identity);
+    result.push(value);
+  });
+
+  return result.slice(0, limit);
+}
+
 function appendUniqueLine(current: string, line: string) {
   const normalized = line.trim();
   if (!normalized) return current;
-  const lines = current.split('\n').map((item) => item.trim()).filter(Boolean);
-  if (lines.includes(normalized)) return current;
-  return [...lines, normalized].join('\n');
+  return uniqueFeedbackLines([...current.split('\n'), normalized]).join('\n');
+}
+
+function appendUniqueLines(current: string, lines: string[]) {
+  return uniqueFeedbackLines([...current.split('\n'), ...lines]).join('\n');
 }
 
 function normalizeSavedSections(
@@ -745,6 +781,7 @@ export default function StaffMonthlyEvaluation() {
           evaluation_cycle_label: cycleLabel,
           active_critical_gates: activeGates,
           coaching_snapshot: coaching,
+          employee_feedback_draft: employeeFeedbackDraft,
           points_truth: pointsTruth ? {
             month_cycle: pointsTruth.month_cycle,
             starting_points: pointsTruth.starting_points,
@@ -878,6 +915,138 @@ export default function StaffMonthlyEvaluation() {
         .sort((a, b) => a.score - b.score || b.weight - a.weight)
         .slice(0, 3)
     : [];
+
+  const employeeFeedbackDraft = useMemo(() => {
+    if (!evaluationComplete || !coaching) {
+      return {
+        strengths: [] as string[],
+        developments: [] as string[],
+        examples: [] as string[],
+        actions: [] as string[],
+        measurements: [] as string[],
+      };
+    }
+
+    const sectionByKey = new Map(sections.map((item) => [item.key, item]));
+    const strong = (key: string) => (sectionByKey.get(key)?.score || 0) >= 4;
+    const needsDevelopment = (key: string) => {
+      const score = sectionByKey.get(key)?.score || 0;
+      return score > 0 && score <= 3;
+    };
+
+    const consultation = coaching.conversation.dimensions.find((item) => item.key === 'consultation_quality');
+    const dosage = coaching.conversation.dimensions.find((item) => item.key === 'dosage_explanation');
+    const dispensingSamples = Math.max(consultation?.samples || 0, dosage?.samples || 0);
+
+    const dispensingStrength =
+      strong('dispensing')
+      && coaching.conversation.flags.medicalErrors === 0
+      && coaching.conversation.flags.badAlternativeCases === 0
+      && dispensingSamples >= 3
+        ? `الإرشاد الدوائي موثق بمستوى جيد: ${[
+            dosage ? `شرح الجرعة ${dosage.average}/10` : '',
+            consultation ? `جودة الاستشارة ${consultation.average}/10` : '',
+          ].filter(Boolean).join('، ')}، بدون خطأ طبي موثق في العينة المتاحة.`
+        : '';
+
+    const dispensingDevelopment = needsDevelopment('dispensing')
+      ? [
+          coaching.conversation.flags.medicalErrors > 0
+            ? `${coaching.conversation.flags.medicalErrors} خطأ طبي موثق يحتاج مراجعة ومنع تكراره.`
+            : '',
+          coaching.conversation.flags.badAlternativeCases > 0
+            ? `${coaching.conversation.flags.badAlternativeCases} حالة بديل غير مناسب موثقة تحتاج مراجعة.`
+            : '',
+          dosage && dosage.average < 8
+            ? `شرح الجرعة يحتاج تطوير؛ المتوسط الحالي ${dosage.average}/10.`
+            : '',
+          consultation && consultation.average < 8
+            ? `جودة الاستشارة تحتاج تطوير؛ المتوسط الحالي ${consultation.average}/10.`
+            : '',
+        ].filter(Boolean).join(' ')
+      : '';
+
+    const strengths = uniqueFeedbackLines([
+      strong('discipline') ? coaching.attendance.drafts.strength : '',
+      strong('conversations') ? coaching.conversation.drafts.strength : '',
+      dispensingStrength,
+      strong('followups_requests') ? coaching.followups.drafts.strength : '',
+      strong('sales_quality') ? coaching.salesQuality.drafts.strength : '',
+      strong('inventory') ? coaching.inventory.drafts.strength : '',
+      strong('development') ? coaching.development.drafts.strength : '',
+    ], 3);
+
+    const weakSectionNotes = developmentSections
+      .map((item) => item.notes.trim() ? `${item.title}: ${item.notes.trim()}` : '');
+
+    const developments = uniqueFeedbackLines([
+      needsDevelopment('discipline') ? coaching.attendance.drafts.development : '',
+      needsDevelopment('conversations') ? coaching.conversation.drafts.development : '',
+      dispensingDevelopment,
+      needsDevelopment('followups_requests') ? coaching.followups.drafts.development : '',
+      needsDevelopment('sales_quality') ? coaching.salesQuality.drafts.development : '',
+      needsDevelopment('inventory') ? coaching.inventory.drafts.development : '',
+      needsDevelopment('development') ? coaching.development.drafts.development : '',
+      ...weakSectionNotes,
+    ], 2);
+
+    const examples = uniqueFeedbackLines([
+      ...coaching.conversation.examples.slice(0, 2).map((example) =>
+        `مراجعة محادثة ${example.date || 'بدون تاريخ'} بدرجة خدمة عميل ${example.score}/100 — يمكن فتح التقييم من دليل المحور.`
+      ),
+      coaching.attendance.lateCases + coaching.attendance.veryLateCases > 0
+        ? `الحضور: ${coaching.attendance.lateCases + coaching.attendance.veryLateCases} حالة تأخير معتمدة بإجمالي ${coaching.attendance.lateMinutes} دقيقة.`
+        : '',
+      coaching.followups.open > 0
+        ? `المتابعات: ${coaching.followups.open} متابعة ما زالت غير مكتملة من أصل ${coaching.followups.total}.`
+        : '',
+      coaching.salesQuality.conversation.invoiceErrors > 0
+        ? `الفواتير: ${coaching.salesQuality.conversation.invoiceErrors} خطأ فاتورة موثق في مراجعات الدورة.`
+        : '',
+      coaching.inventory.weekly.unresolvedDiscrepancies > 0
+        ? `المخزون: ${coaching.inventory.weekly.unresolvedDiscrepancies} فرق جرد غير محلول.`
+        : '',
+      coaching.development.repeatedIssues[0]
+        ? `التعلم: الملاحظة «${coaching.development.repeatedIssues[0].label}» تكررت ${coaching.development.repeatedIssues[0].count} مرات.`
+        : '',
+    ], 3);
+
+    const actions = uniqueFeedbackLines([
+      needsDevelopment('discipline') ? coaching.attendance.drafts.actionPlan : '',
+      needsDevelopment('conversations') ? coaching.conversation.drafts.actionPlan : '',
+      needsDevelopment('dispensing') && dispensingDevelopment
+        ? 'مراجعة الحالات الدوائية الموثقة والتركيز على شرح الجرعة والاستشارة قبل إغلاق المحادثة.'
+        : '',
+      needsDevelopment('followups_requests') ? coaching.followups.drafts.actionPlan : '',
+      needsDevelopment('sales_quality') ? coaching.salesQuality.drafts.actionPlan : '',
+      needsDevelopment('inventory') ? coaching.inventory.drafts.actionPlan : '',
+      needsDevelopment('development') ? coaching.development.drafts.actionPlan : '',
+    ], 3);
+
+    const measurements = uniqueFeedbackLines([
+      needsDevelopment('conversations') && coaching.conversation.weaknesses.length
+        ? coaching.conversation.drafts.measurement
+        : '',
+      needsDevelopment('discipline') && (coaching.attendance.lateCases + coaching.attendance.veryLateCases > 0)
+        ? `في الدورة القادمة نقارن عدد حالات التأخير ودقائقه بالدورة الحالية (${coaching.attendance.lateCases + coaching.attendance.veryLateCases} حالة / ${coaching.attendance.lateMinutes} دقيقة).`
+        : '',
+      needsDevelopment('followups_requests') && coaching.followups.total > 0
+        ? `نقيس التحسن بمقارنة نسبة إكمال المتابعات الحالية ${coaching.followups.completionPct}% ونسبة التوثيق ${coaching.followups.documentedPct}% بالدورة القادمة.`
+        : '',
+      needsDevelopment('sales_quality')
+        ? 'نقيس التحسن على عينة جديدة من مراجعات البيع مع متابعة فرص البيع الضائعة وأخطاء الفاتورة الموثقة.'
+        : '',
+      needsDevelopment('inventory')
+        ? 'نقيس التحسن بعدد الأسابيع المتأخرة وفروق الجرد غير المحلولة وتحقيق أهداف الرواكد المسندة في الدورة القادمة.'
+        : '',
+      needsDevelopment('dispensing')
+        ? 'نقيس التحسن على عينة جديدة من الإرشاد الدوائي مع متابعة أي خطأ طبي/بديل غير مناسب ومتوسط شرح الجرعة والاستشارة.'
+        : '',
+      needsDevelopment('development') ? coaching.development.drafts.measurement : '',
+    ], 2);
+
+    return { strengths, developments, examples, actions, measurements };
+  }, [coaching, developmentSections, evaluationComplete, sections]);
 
   const incompleteActionLabel = !cycleClosed
     ? 'راجع حالة الدورة'
@@ -1476,6 +1645,101 @@ export default function StaffMonthlyEvaluation() {
                   {!evaluationComplete ? (
                     <div className="mt-3 rounded-xl border px-3 py-2 text-xs font-bold" style={{ borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-status-warning-bg)', color: 'var(--dawaa-status-warning-text)' }}>
                       الخلاصة الآلية مؤجلة حتى اكتمال {sections.length} محاور. يمكنك كتابة ملاحظة يدوية، لكن اقتراحات القوة والتطوير لن تظهر قبل اكتمال التقييم.
+                    </div>
+                  ) : null}
+
+                  {evaluationComplete ? (
+                    <div className="mt-3 rounded-2xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}>
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                          <div className="text-xs font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>مسودة الملاحظة النهائية للموظف</div>
+                          <div className="mt-1 text-[11px] font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                            مختصرة من الأدلة المرتبطة بدرجات المدير، بدون تكرار نفس الملاحظة في أكثر من محور.
+                          </div>
+                        </div>
+                        <span className="rounded-full border px-2 py-1 text-[10px] font-black" style={{ borderColor: 'var(--dawaa-theme-border)', color: 'var(--dawaa-theme-muted)' }}>
+                          {employeeFeedbackDraft.strengths.length} قوة · {employeeFeedbackDraft.developments.length} تطوير
+                        </span>
+                      </div>
+
+                      <div className="mt-3 grid gap-2 lg:grid-cols-2">
+                        <div className="rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-status-success-border)', background: 'var(--dawaa-theme-soft)' }}>
+                          <div className="text-[11px] font-black" style={{ color: 'var(--dawaa-status-success-text)' }}>أبرز المميزات المثبتة</div>
+                          {employeeFeedbackDraft.strengths.length ? (
+                            <div className="mt-2 space-y-1.5 text-xs font-bold leading-6" style={{ color: 'var(--dawaa-theme-text)' }}>
+                              {employeeFeedbackDraft.strengths.map((item) => <div key={item}>• {item}</div>)}
+                            </div>
+                          ) : (
+                            <div className="mt-2 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                              لا يوجد دليل كافٍ لإضافة نقطة قوة تلقائيًا من المحاور الحاصلة على 4–5 نجوم.
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-theme-soft)' }}>
+                          <div className="text-[11px] font-black" style={{ color: 'var(--dawaa-status-warning-text)' }}>أهم فرص التطوير</div>
+                          {employeeFeedbackDraft.developments.length ? (
+                            <div className="mt-2 space-y-1.5 text-xs font-bold leading-6" style={{ color: 'var(--dawaa-theme-text)' }}>
+                              {employeeFeedbackDraft.developments.map((item) => <div key={item}>• {item}</div>)}
+                            </div>
+                          ) : (
+                            <div className="mt-2 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                              لا توجد فرصة تطوير موثقة متوافقة مع درجات 1–3 الحالية.
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-soft)' }}>
+                          <div className="text-[11px] font-black" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>أمثلة وأدلة للمراجعة</div>
+                          {employeeFeedbackDraft.examples.length ? (
+                            <div className="mt-2 space-y-1.5 text-xs font-bold leading-6" style={{ color: 'var(--dawaa-theme-text)' }}>
+                              {employeeFeedbackDraft.examples.map((item) => <div key={item}>• {item}</div>)}
+                            </div>
+                          ) : (
+                            <div className="mt-2 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>لا يوجد مثال إضافي يحتاج إبرازه في الملخص.</div>
+                          )}
+                        </div>
+
+                        <div className="rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-status-info-border)', background: 'var(--dawaa-theme-soft)' }}>
+                          <div className="text-[11px] font-black" style={{ color: 'var(--dawaa-status-info-text)' }}>خطة الشهر القادم وقياس التحسن</div>
+                          <div className="mt-2 space-y-1.5 text-xs font-bold leading-6" style={{ color: 'var(--dawaa-theme-text)' }}>
+                            {employeeFeedbackDraft.actions.map((item) => <div key={item}>• {item}</div>)}
+                            {employeeFeedbackDraft.measurements.map((item) => <div key={item}>• قياس: {item}</div>)}
+                            {!employeeFeedbackDraft.actions.length && !employeeFeedbackDraft.measurements.length ? (
+                              <div style={{ color: 'var(--dawaa-theme-muted)' }}>لا توجد خطة آلية؛ اكتب خطة يدوية إذا كان هناك هدف تطوير خاص.</div>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+
+                      {canEdit ? (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {employeeFeedbackDraft.strengths.length ? (
+                            <button
+                              type="button"
+                              onClick={() => setStrengthsText((current) => appendUniqueLines(current, employeeFeedbackDraft.strengths))}
+                              className="rounded-lg border px-2.5 py-1.5 text-[11px] font-black"
+                              style={{ borderColor: 'var(--dawaa-status-success-border)', color: 'var(--dawaa-status-success-text)' }}
+                            >
+                              إضافة المميزات المقترحة
+                            </button>
+                          ) : null}
+                          {employeeFeedbackDraft.developments.length || employeeFeedbackDraft.actions.length || employeeFeedbackDraft.measurements.length ? (
+                            <button
+                              type="button"
+                              onClick={() => setDevelopmentText((current) => appendUniqueLines(current, [
+                                ...employeeFeedbackDraft.developments,
+                                ...employeeFeedbackDraft.actions,
+                                ...employeeFeedbackDraft.measurements.map((item) => `مقياس التحسن: ${item}`),
+                              ]))}
+                              className="rounded-lg border px-2.5 py-1.5 text-[11px] font-black"
+                              style={{ borderColor: 'var(--dawaa-status-warning-border)', color: 'var(--dawaa-status-warning-text)' }}
+                            >
+                              إضافة التطوير والخطة
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : null}
                     </div>
                   ) : null}
 
