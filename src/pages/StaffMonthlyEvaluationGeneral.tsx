@@ -138,25 +138,24 @@ function sectionEvidenceFor(
       details: [
         `أيام لها حضور/بصمة في المصدر اليومي: ${metrics.present_days}`,
         `إجمالي الأيام التي لها بيانات في مصدر الحضور اليومي: ${metrics.attendance_days}`,
-        attendance?.resolvedDays ? `أيام لها تصنيف في Attendance Ledger: ${attendance.resolvedDays}` : '',
-        attendance?.activeLedgerEvents ? `أحداث Attendance Ledger النشطة: ${attendance.activeLedgerEvents}` : '',
+        attendance?.resolvedDays ? `أيام لها تصنيف في سجل الحضور: ${attendance.resolvedDays}` : '',
+        attendance?.activeLedgerEvents ? `إجمالي تصنيفات الحضور النشطة: ${attendance.activeLedgerEvents}` : '',
         attendance?.duplicateResolutionDays
           ? `تنبيه مراجعة: ${attendance.duplicateResolutionDays} يوم عليه أكثر من تصنيف نشط؛ لا يُحسب كأنه يومان في التقييم.`
           : '',
         attendance?.onTimeDays ? `أيام مصنفة في الموعد: ${attendance.onTimeDays}` : '',
         attendance && attendance.lateCases + attendance.veryLateCases > 0
-          ? `التأخير المسجل في الـLedger: ${attendance.lateCases + attendance.veryLateCases} حالة · ${attendance.lateMinutes} دقيقة`
+          ? `التأخير المسجل في سجل الحضور: ${attendance.lateCases + attendance.veryLateCases} حالة · ${attendance.lateMinutes} دقيقة`
           : '',
         attendance?.earlyLeaveCases
           ? `الخروج المبكر المؤكد: ${attendance.earlyLeaveCases} حالة · ${attendance.earlyLeaveMinutes} دقيقة`
           : '',
         attendance?.absenceCases ? `الغياب المؤكد: ${attendance.absenceCases} حالة` : '',
-        attendance?.approvedTimeOffCases ? `إجازات/أذونات مصنفة كمعتمدة في الـLedger: ${attendance.approvedTimeOffCases}` : '',
-        attendance?.offDayCases ? `أيام راحة مصنفة في الـLedger: ${attendance.offDayCases}` : '',
+        attendance?.approvedTimeOffCases ? `إجازات/أذونات مصنفة كمعتمدة: ${attendance.approvedTimeOffCases}` : '',
+        attendance?.offDayCases ? `أيام راحة مصنفة: ${attendance.offDayCases}` : '',
         attendance?.workedOnOffCases ? `عمل مؤكد في يوم راحة: ${attendance.workedOnOffCases} حالة` : '',
-        'المصدر اليومي: Attendance Read Model للبصمات/الحضور. مصدر التصنيف: Attendance Resolution / Impact Ledger.',
+        'المصدر: مصدر الحضور اليومي للبصمات + سجل تصنيف الحضور (Attendance Resolution / Impact Ledger).',
         'تغطية هذا الدليل جزئية: الزي والتعليمات وتسليم الشيفت والسلوك المهني تحتاج واقعة أو ملاحظة موثقة إذا أثرت على الدرجة.',
-        'الدليل الآلي مساعد للقرار وليس درجة تلقائية.',
       ].filter(Boolean),
     };
   }
