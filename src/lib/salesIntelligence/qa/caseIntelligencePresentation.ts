@@ -19,6 +19,18 @@ export function readCaseIntelligence(analysisRow: { evidence_snapshot?: Record<s
   return view as CaseIntelligenceView;
 }
 
+/**
+ * QA must prefer the freshly re-derived in-memory view when available. Persisted snapshots are
+ * retained as an audit fallback only; showing an older snapshot beside current Sale Proof creates
+ * contradictory truths in the same screen.
+ */
+export function selectCurrentCaseIntelligence(
+  liveView: CaseIntelligenceView | null | undefined,
+  analysisRow: { evidence_snapshot?: Record<string, any> | null } | null | undefined
+): CaseIntelligenceView | null {
+  return liveView ?? readCaseIntelligence(analysisRow);
+}
+
 export const UNKNOWN_LABEL = 'غير محسوم';
 
 function label(map: Record<string, string>, value: string | null | undefined): string {
