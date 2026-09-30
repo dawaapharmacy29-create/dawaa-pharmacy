@@ -1264,6 +1264,11 @@ export default function StaffMonthlyEvaluation() {
     development: developmentStrengthEvidence,
     attendance: attendanceStrengthEvidence,
   };
+
+  const canUseStrengthDraft = (...keys: string[]) => {
+    const section = sections.find((item) => keys.includes(item.key));
+    return section ? isMonthlyEvaluationStrengthEligible(section, strengthEvidenceGates) : false;
+  };
   const hasStrongPerformance = hasEvidenceSupportedStrongPerformance(sections, strengthEvidenceGates);
   const objectiveDevelopmentKeys = new Set<string>();
   if (coaching?.attendance.drafts.development) ['discipline', 'attendance', 'shift_discipline'].forEach((key) => objectiveDevelopmentKeys.add(key));
@@ -2490,7 +2495,7 @@ export default function StaffMonthlyEvaluation() {
                             <div className="mt-1 text-xs font-bold leading-6" style={{ color: 'var(--dawaa-theme-text)' }}>
                               {coaching.conversation.drafts.strength || 'لا توجد نقطة قوة متكررة كفاية لإضافتها تلقائيًا.'}
                             </div>
-                            {coaching.conversation.drafts.strength ? (
+                            {coaching.conversation.drafts.strength && canUseStrengthDraft('conversations', 'conversation') ? (
                               <button
                                 type="button"
                                 disabled={!canEdit}
@@ -2562,7 +2567,7 @@ export default function StaffMonthlyEvaluation() {
                             {coaching.attendance.drafts.actionPlan ? <div>{coaching.attendance.drafts.actionPlan}</div> : null}
                           </div>
                           <div className="mt-2 flex flex-wrap gap-1.5">
-                            {coaching.attendance.drafts.strength ? (
+                            {coaching.attendance.drafts.strength && canUseStrengthDraft('discipline', 'attendance', 'shift_discipline') ? (
                               <button
                                 type="button"
                                 disabled={!canEdit}
@@ -2603,7 +2608,7 @@ export default function StaffMonthlyEvaluation() {
                             {coaching.followups.drafts.actionPlan ? <div>{coaching.followups.drafts.actionPlan}</div> : null}
                           </div>
                           <div className="mt-2 flex flex-wrap gap-1.5">
-                            {coaching.followups.drafts.strength ? (
+                            {coaching.followups.drafts.strength && canUseStrengthDraft('followups_requests') ? (
                               <button
                                 type="button"
                                 disabled={!canEdit}
@@ -2685,7 +2690,7 @@ export default function StaffMonthlyEvaluation() {
                       </div>
 
                       <div className="mt-2 flex flex-wrap gap-1.5">
-                        {coaching.salesQuality.drafts.strength ? (
+                        {coaching.salesQuality.drafts.strength && canUseStrengthDraft('sales_quality') ? (
                           <button
                             type="button"
                             disabled={!canEdit}
@@ -2747,7 +2752,7 @@ export default function StaffMonthlyEvaluation() {
                       </div>
 
                       <div className="mt-2 flex flex-wrap gap-1.5">
-                        {coaching.development.drafts.strength ? (
+                        {coaching.development.drafts.strength && canUseStrengthDraft('development') ? (
                           <button
                             type="button"
                             disabled={!canEdit}
@@ -2806,7 +2811,7 @@ export default function StaffMonthlyEvaluation() {
                       </div>
 
                       <div className="mt-2 flex flex-wrap gap-1.5">
-                        {coaching.inventory.drafts.strength ? (
+                        {coaching.inventory.drafts.strength && canUseStrengthDraft('inventory') ? (
                           <button
                             type="button"
                             disabled={!canEdit}
