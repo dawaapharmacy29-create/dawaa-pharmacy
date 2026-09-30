@@ -8,6 +8,7 @@ import {
   extractQuantitySignals,
   isCommitmentOnly,
   isRequestCandidate,
+  isStaffFollowUpPromiseV32,
   isSubstantiveConfirmationSignal,
 } from '@/lib/whatsappSemanticSignalsV32';
 
@@ -133,6 +134,18 @@ describe('whatsappSemanticSignalsV32 — service availability is never product s
     expect(classifyAvailabilityStatementV32(message.text)).toBeNull();
     expect(extractAvailabilitySignals([message])).toEqual([]);
   });
+});
+
+describe('whatsappSemanticSignalsV32 — staff follow-up promises', () => {
+  for (const text of [
+    'هراجع وأرجع لحضرتك',
+    'لحظات يا فندم هراجع وارجع لحضرتك',
+    'هراجع وهرجع مع حضرتك',
+  ]) {
+    it(`"${text}" is a real staff follow-up promise`, () => {
+      expect(isStaffFollowUpPromiseV32(text)).toBe(true);
+    });
+  }
 });
 
 describe('whatsappSemanticSignalsV32 — commitment is acceptance, not a new request (4E-0)', () => {
