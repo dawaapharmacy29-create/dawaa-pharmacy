@@ -16,7 +16,7 @@ import { WhatsAppConversationPanel } from '@/components/salesIntelligence/WhatsA
 import { CaseIntelligenceWorkspace } from '@/components/salesIntelligence/CaseIntelligenceWorkspace';
 import { loadConversationEvaluation } from '@/lib/salesIntelligence/conversationEvaluationLoader';
 import type { ConversationEvaluationResult } from '@/lib/salesIntelligence/conversationEvaluation';
-import { readCaseIntelligence } from '@/lib/salesIntelligence/qa/caseIntelligencePresentation';
+import { readCaseIntelligence, selectCurrentCaseIntelligence } from '@/lib/salesIntelligence/qa/caseIntelligencePresentation';
 import {
   ambiguityStatusLabelFor,
   attributionLevelBadge,
@@ -154,8 +154,10 @@ export default function SalesIntelligenceQACaseDetail() {
 
   useEffect(() => {
     let cancelled = false;
-    const currentView = bundle?.liveEvidence?.caseIntelligence
-      ?? (bundle ? readCaseIntelligence(bundle.persisted.analysisRow) : null);
+    const currentView = selectCurrentCaseIntelligence(
+      bundle?.liveEvidence?.caseIntelligence,
+      bundle?.persisted.analysisRow
+    );
 
     if (!currentView) {
       setConversationEvaluation(null);
@@ -241,8 +243,10 @@ export default function SalesIntelligenceQACaseDetail() {
     human_review_reasons: liveEvidence.basketInvoiceMatch.humanReviewReasons,
   } : persistedMatch;
   const policyEvaluation = persisted.policyEvaluationRow;
-  // Unified Case Intelligence: persisted read model only (never rebuilt in the browser).
-  const caseIntelligence = readCaseIntelligence(persistedAnalysis);
+  // The live deterministic re-derivation is the current QA truth. Persisted Case Intelligence is
+  // kept only as an audit fallback for rows that cannot be re-derived in the current session.
+  const persistedCaseIntelligence = readCaseIntelligence(persistedAnalysis);
+  const caseIntelligence = selectCurrentCaseIntelligence(liveEvidence?.caseIntelligence, persistedAnalysis);
   const showLegacyAudit = legacyAuditOpen ?? !caseIntelligence;
   const activeBasket = liveEvidence?.activeBasket ?? null;
   const basketItems = activeBasket ? liveEvidence?.itemsByBasketId[activeBasket.basketId] ?? [] : [];
