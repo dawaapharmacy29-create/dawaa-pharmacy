@@ -20,7 +20,12 @@ import {
   isRequestCandidate,
   resolveReference,
 } from '../whatsappSemanticSignalsV32';
-import { explicitRequestProductPhrases, normalizeProductKey, stripRequestPrefix } from './caseBasketEngine';
+import {
+  explicitRequestProductPhrases,
+  isGenericDeicticProductPhrase,
+  normalizeProductKey,
+  stripRequestPrefix,
+} from './caseBasketEngine';
 import type {
   CaseBasket,
   CaseBasketItem,
@@ -121,7 +126,11 @@ function productPhraseFromStockQuestion(text: string): string | null {
     .replace(/[؟?!.،]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
-  if (phrase.length < 3 || NON_PRODUCT_LEFTOVER_RX.test(phrase)) return null;
+  if (
+    phrase.length < 3 ||
+    NON_PRODUCT_LEFTOVER_RX.test(phrase) ||
+    isGenericDeicticProductPhrase(phrase)
+  ) return null;
   return phrase;
 }
 

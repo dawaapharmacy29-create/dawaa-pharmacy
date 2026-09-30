@@ -125,6 +125,10 @@ export function stripRequestPrefix(text: string): string {
 const NON_PRODUCT_PHRASE_RX = /^(?:مش|لا|لأ|اه|آه|تمام|حاجة|حاجه|ده|دي|دا|دول|منه|منها|بس)?$/;
 const GENERIC_DEICTIC_PRODUCT_PHRASE_RX =
   /^(?:(?:الحاجات|الحاجه|الحاجة|الأشياء|الاشياء)\s*(?:دي|دول|ده|دا)?|(?:دول|دي|ده|دا)(?:\s*كلهم)?|اللي\s*(?:في|ف)\s*(?:الصوره|الصورة|الصور|الفويس|الصوت)|اللي\s*(?:بعت(?:ه|ها|هم)|مبعت(?:ه|ها|هم)))$/i;
+
+export function isGenericDeicticProductPhrase(value: string): boolean {
+  return GENERIC_DEICTIC_PRODUCT_PHRASE_RX.test(String(value || '').trim());
+}
 const EXPLICIT_REQUEST_VERB_RX = /(?<![\p{L}\p{N}])(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?|هات(?:ي|لي)?|ابعت(?:لي|يلي)?)(?![\p{L}\p{N}])/u;
 // "ابعت X بس" — the customer narrows the order to the named item(s).
 const ONLY_THIS_RX = /(?<![\p{L}\p{N}])(?:بس|فقط)[.!، ]*$/u;
@@ -149,7 +153,7 @@ export function explicitRequestProductPhrases(text: string): string[] {
       (part) =>
         part.split(/\s+/).length > 4 ||
         NON_PRODUCT_PHRASE_RX.test(part) ||
-        GENERIC_DEICTIC_PRODUCT_PHRASE_RX.test(part)
+        isGenericDeicticProductPhrase(part)
     )
   ) return [];
   return parts;
