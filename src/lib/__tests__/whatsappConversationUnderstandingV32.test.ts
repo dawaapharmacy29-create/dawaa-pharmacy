@@ -48,7 +48,7 @@ describe('ConversationUnderstandingV32 (Shadow Mode, read-only, facts-only)', ()
     const [first, second] = understanding.interactions;
     expect(first.messageIds.length).toBe(3);
     expect(second.messageIds.length).toBe(2);
-    expect(second.segmentationReason).toBe('time_gap');
+    expect(second.segmentationReason).toBe('topic_shift_marker');
 
     const shampooTrigger = understanding.byId.get(second.triggerMessageId || '');
     expect(shampooTrigger?.text).toContain('شامبو');
