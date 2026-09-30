@@ -17,6 +17,15 @@ describe('staff role capabilities', () => {
     expect(canonicalStaffRole('cleaner')).toBe('cleaning');
     expect(canonicalStaffRole('customer_service_manager')).toBe('customer_service_manager');
     expect(canonicalStaffRole('مديرة الفروع')).toBe('branches_manager');
+    expect(canonicalStaffRole('مساعد')).toBe('assistant');
+    expect(canonicalStaffRole('shift_supervisor_morning')).toBe('shift_supervisor');
+    expect(canonicalStaffRole('shift_supervisor_evening')).toBe('shift_supervisor');
+    expect(canonicalStaffRole('مسئولة شيفت صباحي')).toBe('shift_supervisor');
+    expect(canonicalStaffRole('مسئول شيفت مسائي')).toBe('shift_supervisor');
+    expect(canonicalStaffRole('branch_manager_shamy')).toBe('branch_manager');
+    expect(canonicalStaffRole('branch_manager_shokry')).toBe('branch_manager');
+    expect(canonicalStaffRole('خدمة العملاء')).toBe('customer_service');
+    expect(canonicalStaffRole('مندوب توصيل')).toBe('delivery');
   });
 
   it('keeps sensitive operational capabilities scoped by role', () => {

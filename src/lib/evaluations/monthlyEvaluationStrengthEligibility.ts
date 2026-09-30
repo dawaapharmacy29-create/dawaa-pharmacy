@@ -1,4 +1,5 @@
 export type MonthlyStrengthEvidenceGates = {
+  conversations: boolean;
   dispensing: boolean;
   salesQuality: boolean;
   followupsRequests: boolean;
@@ -10,6 +11,7 @@ export type MonthlyStrengthEvidenceGates = {
 export type MonthlyStrengthCandidate = {
   key: string;
   score: number;
+  notes?: string | null;
 };
 
 export function isMonthlyEvaluationStrengthEligible(
@@ -17,13 +19,14 @@ export function isMonthlyEvaluationStrengthEligible(
   gates: MonthlyStrengthEvidenceGates
 ) {
   if (section.score < 4) return false;
+  if (['conversations', 'conversation'].includes(section.key)) return gates.conversations;
   if (section.key === 'dispensing') return gates.dispensing;
   if (section.key === 'sales_quality') return gates.salesQuality;
   if (section.key === 'followups_requests') return gates.followupsRequests;
   if (section.key === 'inventory') return gates.inventory;
   if (section.key === 'development') return gates.development;
   if (['discipline', 'attendance', 'shift_discipline'].includes(section.key)) return gates.attendance;
-  return true;
+  return String(section.notes || '').trim().length >= 12;
 }
 
 export function hasEvidenceSupportedStrongPerformance(

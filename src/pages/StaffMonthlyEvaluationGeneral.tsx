@@ -10,7 +10,7 @@ import {
   evaluationProfileForRole,
   type StaffEvaluationSectionV3,
 } from '@/lib/evaluations/staffEvaluationProfilesV3';
-import { canonicalStaffRole, isManagerRole } from '@/lib/staff/staffRoleCapabilities';
+import { canonicalStaffRole } from '@/lib/staff/staffRoleCapabilities';
 import {
   getStaffPointsDashboardV3,
   type StaffPointsDashboardV3,
@@ -37,6 +37,7 @@ import { hasStrongFollowupEvidence } from '@/lib/evaluations/monthlyFollowupEvid
 import { hasStrongInventoryEvidence } from '@/lib/evaluations/monthlyInventoryEvidence';
 import { hasStrongDevelopmentEvidence } from '@/lib/evaluations/monthlyDevelopmentEvidence';
 import { hasStrongAttendanceEvidence } from '@/lib/evaluations/monthlyAttendanceEvidence';
+import { hasStrongConversationEvidence } from '@/lib/evaluations/monthlyConversationEvidence';
 import {
   hasEvidenceSupportedStrongPerformance,
   isMonthlyEvaluationStrengthEligible,
@@ -574,7 +575,7 @@ function normalizeSavedSections(
 export default function StaffMonthlyEvaluation() {
   const { user } = useAuth();
   const actorRole = canonicalStaffRole(user?.role);
-  const managerMode = isManagerRole(user?.role);
+  const managerMode = ['branch_manager', 'branches_manager', 'executive', 'admin'].includes(actorRole);
   const ownBranch = normalizeBranchName(user?.branch || '');
   const globalScope = ['branches_manager', 'executive', 'admin'].includes(actorRole);
 
@@ -1233,6 +1234,14 @@ export default function StaffMonthlyEvaluation() {
     trainingCompleted: coaching?.development.training.completed || 0,
     overdueTraining: coaching?.development.training.overdueOpen || 0,
   });
+  const conversationStrengthEvidence = hasStrongConversationEvidence({
+    reviewCount: coaching?.conversation.reviewCount || 0,
+    coreAverage: coaching?.conversation.coreAverage ?? null,
+    complaints: coaching?.conversation.flags.complaints || 0,
+    badTone: coaching?.conversation.flags.badTone || 0,
+    severeBadTone: coaching?.conversation.flags.severeBadTone || 0,
+    criticalErrors: coaching?.conversation.flags.criticalErrors || 0,
+  });
   const attendanceStrengthEvidence = hasStrongAttendanceEvidence({
     onTimeDays: coaching?.attendance.onTimeDays || 0,
     workedOnOffCases: coaching?.attendance.workedOnOffCases || 0,
@@ -1246,6 +1255,7 @@ export default function StaffMonthlyEvaluation() {
     manualResolutionCases: coaching?.attendance.manualResolutionCases || 0,
   });
   const strengthEvidenceGates = {
+    conversations: conversationStrengthEvidence,
     dispensing: dispensingStrengthEvidence,
     salesQuality: salesQualityStrengthEvidence,
     followupsRequests: followupsStrengthEvidence,
@@ -1301,7 +1311,10 @@ export default function StaffMonthlyEvaluation() {
     }
 
     const sectionByKey = new Map(sections.map((item) => [item.key, item]));
-    const strong = (key: string) => (sectionByKey.get(key)?.score || 0) >= 4;
+    const strong = (key: string) => {
+      const section = sectionByKey.get(key);
+      return section ? isMonthlyEvaluationStrengthEligible(section, strengthEvidenceGates) : false;
+    };
     const needsDevelopment = (key: string) => {
       const score = sectionByKey.get(key)?.score || 0;
       return score > 0 && score <= 3;
@@ -1421,7 +1434,7 @@ export default function StaffMonthlyEvaluation() {
     ], 2);
 
     return { strengths, developments, examples, actions, measurements };
-  }, [coaching, developmentSections, evaluationComplete, sections]);
+  }, [coaching, developmentSections, evaluationComplete, sections, strengthEvidenceGates]);
 
   const incompleteActionLabel = !cycleClosed
     ? 'راجع حالة الدورة'

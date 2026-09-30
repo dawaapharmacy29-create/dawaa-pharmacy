@@ -39,14 +39,21 @@ export function canonicalStaffRole(value: unknown): CanonicalStaffRole {
   if (!role) return 'other';
 
   if (['صيدلاني', 'صيدلي', 'دكتور', 'doctor', 'pharmacist'].includes(role)) return 'doctor';
-  if (['مساعد صيدلي', 'assistant', 'pharmacy assistant'].includes(role)) return 'assistant';
-  if (['inventory assistant', 'inventory_assistant', 'مساعد مخزن', 'مساعد جرد'].includes(String(value || '').trim().toLowerCase()) || role.includes('مساعد مخزن') || role.includes('مساعد جرد')) return 'inventory_assistant';
+  if (['مساعد', 'مساعد صيدلي', 'assistant', 'pharmacy assistant'].includes(role)) return 'assistant';
+  if (role === 'inventory assistant' || role.includes('مساعد مخزن') || role.includes('مساعد جرد') || role.includes('مساعد مخزون')) return 'inventory_assistant';
   if (role.includes('نظاف') || ['cleaning', 'cleaner', 'cleaning supervisor'].includes(role)) return 'cleaning';
-  if (['توصيل', 'دليفري', 'delivery', 'rider'].includes(role)) return 'delivery';
-  if (['خدمة عملاء', 'مسؤول خدمة العملاء', 'مسؤولة خدمة العملاء', 'customer service'].includes(role)) return 'customer_service';
+  if (['توصيل', 'دليفري', 'مندوب توصيل', 'delivery', 'delivery rider', 'delivery driver', 'rider'].includes(role)) return 'delivery';
+  if (['خدمة عملاء', 'خدمة العملاء', 'مسؤول خدمة العملاء', 'مسئول خدمة العملاء', 'مسؤولة خدمة العملاء', 'customer service'].includes(role)) return 'customer_service';
   if (['مدير خدمة العملاء', 'مديرة خدمة العملاء', 'customer service manager'].includes(role)) return 'customer_service_manager';
-  if (['مسؤول الشيفت', 'مسئول الشيفت', 'shift supervisor'].includes(role)) return 'shift_supervisor';
-  if (['مدير فرع', 'مديرة فرع', 'branch manager'].includes(role)) return 'branch_manager';
+  if (
+    ['مسؤول الشيفت', 'مسئول الشيفت', 'مسئولة الشيفت', 'shift supervisor'].includes(role)
+    || /^(shift supervisor) (morning|evening)$/.test(role)
+    || /^(مسؤول|مسئول|مسئولة|مشرف|مشرفة) شيفت (صباحي|مسائي)$/.test(role)
+  ) return 'shift_supervisor';
+  if (
+    ['مدير فرع', 'مديرة فرع', 'branch manager'].includes(role)
+    || /^branch manager (shamy|shokry)$/.test(role)
+  ) return 'branch_manager';
   if (['مدير الفروع', 'مديرة الفروع', 'branches manager'].includes(role)) return 'branches_manager';
   if (role.includes('مشتريات') || ['purchasing', 'purchasing manager'].includes(role)) return 'purchasing';
   if (['مدير تنفيذي', 'مدير عام', 'executive manager', 'general manager'].includes(role)) return 'executive';
