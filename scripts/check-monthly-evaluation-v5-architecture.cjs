@@ -13,6 +13,7 @@ function read(path) {
 const page = read('src/pages/StaffMonthlyEvaluationGeneral.tsx');
 const workflow = read('src/components/evaluations/MonthlyEvaluationWorkflowV5.tsx');
 const audit = read('src/components/evaluations/MonthlyEvaluationAuditTrailV5.tsx');
+const navigationGuard = read('src/contexts/NavigationGuardContext.tsx');
 const profiles = read('src/lib/evaluations/staffEvaluationProfilesV3.ts');
 const backend = [
   read('supabase/migrations/20260929153000_monthly_evaluation_command_center_v5.sql'),
@@ -48,6 +49,9 @@ if (!page.includes('MonthlyEvaluationAuditTrailV5')) failures.push('V5 audit tra
 if (!page.includes("type: 'monthly_evaluation_ready'")) failures.push('Final approval must notify the employee through the canonical notification domain.');
 if (!page.includes('weakSectionsMissingNotes')) failures.push('Weak-score rationale guard is missing from the client.');
 if (!page.includes('criticalGateMissingReason')) failures.push('Critical-gate rationale guard is missing from the client.');
+if (!page.includes('usePendingFormNavigationGuard')) failures.push('Monthly evaluation unsaved-change guard is not registered.');
+if (!page.includes('requestEvaluationContextChange')) failures.push('Employee/cycle/branch switches must pass through the unsaved-change guard.');
+if (!navigationGuard.includes('requestAction')) failures.push('Navigation guard must support guarded in-page context changes.');
 
 if (/points_incentive_egp\s*\*\s*effectiveEvaluationMultiplierPct/.test(page)) {
   failures.push('Client-side final incentive recomputation is forbidden; read the canonical server financial truth.');
