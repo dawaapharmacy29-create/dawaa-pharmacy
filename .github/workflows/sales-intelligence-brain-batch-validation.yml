@@ -14,7 +14,7 @@ on:
       - ".github/workflows/sales-intelligence-brain-batch-validation.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   validate-brain:
@@ -46,3 +46,16 @@ jobs:
           path: api/sales-intelligence-refresh-source.js
           if-no-files-found: error
           retention-days: 1
+      - name: Sync generated API on internal validation branch
+        if: ${{ startsWith(github.head_ref, 'internal-') }}
+        shell: bash
+        run: |
+          if git diff --quiet -- api/sales-intelligence-refresh-source.js; then
+            echo "Generated API already synchronized."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add api/sales-intelligence-refresh-source.js
+          git commit -m "build(si): sync generated refresh API [skip ci]"
+          git push origin HEAD:"${GITHUB_HEAD_REF}"
