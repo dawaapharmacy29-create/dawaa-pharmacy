@@ -326,7 +326,11 @@ export function deriveFollowUpOpportunities(input: DeriveFollowUpInput): FollowU
     customerNeed.unresolvedNeed &&
     customerNeed.needsHumanReview &&
     lostOpportunity.state === 'open' &&
-    salesOutcome.outcome === 'open_opportunity';
+    (
+      salesOutcome.outcome === 'open_opportunity' ||
+      salesOutcome.outcome === 'needs_review' ||
+      salesOutcome.outcome === 'unknown'
+    );
 
   const decision: FollowUpAssessment['decision'] = opportunities.some((o) => o.status === 'actionable')
     ? 'actionable'

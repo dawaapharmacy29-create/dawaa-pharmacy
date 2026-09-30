@@ -270,3 +270,20 @@ describe('Canonical Follow-up Opportunity Engine', () => {
     expect(code).not.toMatch(/OperationalIntelligenceV6|followupPlan|ProductJourneyV7|CustomerCaseEngineV22|nextAction\b|conversation_actions|FollowupSignalDetector|supabase|Date\.now|new Date\(\)/);
   });
 });
+
+describe('Follow-up review gate for unresolved media', () => {
+  it('keeps a media-backed unresolved request in review_required instead of not_needed', () => {
+    const analysis = analyze(`[9/28/26, 6:51:56 AM] Customer: السلام عليكم لو سمحت يادكتور عايزه الحاجات دي
+[9/28/26, 6:51:59 AM] Customer: <image omitted>
+[9/28/26, 6:52:06 AM] You: أهلًا وسهلًا بحضرتك
+خدمة التوصيل متاحة على مدار ٢٤ ساعة`);
+
+    expect(analysis.customerNeed.unresolvedNeed).toBe(true);
+    expect(analysis.customerNeed.needsHumanReview).toBe(true);
+    expect(analysis.lostOpportunity.state).toBe('open');
+    expect(analysis.followUp.opportunities).toEqual([]);
+    expect(analysis.followUp.decision).toBe('review_required');
+    expect(analysis.followUp.notNeededReason).toBeNull();
+  });
+});
+
