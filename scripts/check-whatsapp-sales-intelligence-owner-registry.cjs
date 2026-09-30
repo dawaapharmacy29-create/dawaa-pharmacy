@@ -90,7 +90,11 @@ const canonicalCoreFiles = [
   'src/lib/salesIntelligence/basketInvoiceMatchingEngine.ts',
   'src/lib/salesIntelligence/salesIntegrityEngine.ts',
   'src/lib/salesIntelligence/saleProofState.ts',
-  'src/lib/salesIntelligence/canonicalSalesOutcomeEngine.ts'
+  'src/lib/salesIntelligence/canonicalSalesOutcomeEngine.ts',
+  'src/lib/salesIntelligence/customerNeedModel.ts',
+  'src/lib/salesIntelligence/unavailableDemandEngine.ts',
+  'src/lib/salesIntelligence/lostOpportunityEngine.ts',
+  'src/lib/salesIntelligence/followUpOpportunityEngine.ts'
 ];
 
 const evidenceOnlyModules = [

@@ -94,6 +94,7 @@ export function mapCaseAnalysisRowContent(analysis: SalesIntelligenceCaseAnalysi
       customerNeed: analysis.customerNeed,
       unavailableDemand: analysis.unavailableDemand,
       lostOpportunity: analysis.lostOpportunity,
+      followUp: analysis.followUp,
       journeyState: analysis.journeyState,
       historicalClosureEvidence: analysis.historicalClosure.confidence.evidence,
       // No dedicated applicability-rule-id field exists on OrderConfirmationProtocolAssessment —

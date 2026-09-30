@@ -835,7 +835,7 @@ var DELIVERY_RX = /توصيل|دليفري|delivery/i;
 var PROMISE_RX = /هبعت(?:لك|لحضرتك)?|هيوصل|هجهز(?:لك|لحضرتك)?|هوصلك/i;
 var UNAVAILABLE_RX = /(?:مش|مو|غير)\s*(?:موجود|متوفر|متاح)[ةه]?|مفيش\s*(?:منه|منها|حاليا|حاليًا|عندنا)|مش\s*عندنا|(?:الصنف|المنتج|ده|دي|هو|هي)\s*(?:خلص|خلصان[ةه]?|نفذ|ناقص[ةه]?)|(?:خلص|نفذ|ناقص[ةه]?)\s*(?:من\s*(?:عندنا|السوق|الشركة)|حاليا|حاليًا)|ناقص\s*في\s*السوق/i;
 var AVAILABLE_RX = /(?:^|[\s،,])(?:موجود|متوفر|متاح)[ةه]?(?:$|[\s،,!.])|عندنا\s*(?:منه|منها)|(?:اه|أه|آه|ايوه|أيوه|ايوا)\s*(?:موجود|متوفر)/i;
-var CHECK_PENDING_RX = /(?:ثواني|ثانية|لحظ[ةه]|دقيق[ةه]|دقايق)\s*(?:و\s*)?(?:أ|ا)?(?:شوف|تأكد|اتأكد|سأل|راجع)|هشوف(?:لك|لحضرتك)?|هتأكد|هاتأكد|هسأل(?:\s*(?:الفرع|المخزن))?|هنشوف(?:ه|ها)?|(?:أ|ا)تأكد\s*من\s*(?:توفر|التوفر|المخزن)|هراجع\s*(?:المخزن|التوفر)/i;
+var CHECK_PENDING_RX = /(?:ثواني|ثانية|لحظ[ةه]|دقيق[ةه]|دقايق)\s*(?:و\s*)?(?:أ|ا)?(?:شوف|تأكد|اتأكد|سأل|راجع)|هشوف(?:لك|لحضرتك)?|هتأكد|هاتأكد|هسأل\s*(?:الفرع|المخزن|عن\s*(?:التوفر|توفره|توفرها))|هنشوف(?:ه|ها)?|(?:أ|ا)تأكد\s*من\s*(?:توفر|التوفر|المخزن)|هراجع\s*(?:المخزن|التوفر)/i;
 var ALTERNATIVE_MARKER_RX = /بديل|بدل\s*(?:منه|منها|منهم|ده|دي|ال\S+)|المتاح\s*بدل|(?:فيه|في|عندنا)\s*نفس\s*(?:المادة|التركيب[ةه]?)|نفس\s*المادة\s*الفعال[ةه]|يقوم\s*بنفس|نبدل(?:ه|ها|هم)?\s/i;
 var GENERIC_OFFER_RX = /(?:ممكن|ينفع|نقدر)\s*(?:نجيب|أجيب|اجيب|نديلك|أقدم|اقدم|نقدم|أقترح|اقترح|أرشح|ارشح)(?:لك|لحضرتك)?|(?:أرشح|ارشح|أقترح|اقترح)(?:لك|لحضرتك)/i;
 var ALTERNATIVE_PHRASE_FILLER_RX = /^(?:(?:ممكن|ينفع|نقدر|نجيب|أجيب|اجيب|هنجيب|هجيب|نديلك|نديك|نقدم|أقدم|اقدم|أرشح|ارشح|نرشح|لحضرتك|ليك|لك|له|لها|منه|منها|هو|هي|وهو|اسمه|اسمها|يا\s*فندم|بـ)(?=\s|$)|[\s:\-،])+/i;
@@ -891,6 +891,9 @@ function isRequestCandidate(message) {
   if (isAcceptanceOnly(text)) return false;
   if (isCommitmentOnly(text)) return false;
   if (isRejectionOnly(text)) return false;
+  if (!REQUEST_VERB_RX.test(text) && (isNonRequestIntentStatement(text) || classifyCustomerTimingRequestV32(text))) {
+    return false;
+  }
   if (isThanksOrClosingOnly(text)) return false;
   return true;
 }
@@ -1173,7 +1176,11 @@ function extractAlternativeOfferSignals(messages) {
 var BOUGHT_ELSEWHERE_RX = /(?:جبت|اشتريت|خدت|لقيت|هجيب|هشتري|هاخد)(?:ه|ها|هم)?\s*(?:من\s*)?(?:مكان\s*تاني|صيدلي[ةه]\s*تاني[ةه]|برا|بره)|من\s*(?:صيدلي[ةه]\s*تاني[ةه]|مكان\s*تاني)/i;
 var FINAL_DECLINE_RX = /مش\s*(?:عايز|عاوز|محتاج)[ةه]?\s*خلاص|خلاص\s*مش\s*(?:عايز|عاوز|محتاج)|^لا\s*خلاص|لا\s*خلاص\s*مش|خلاص\s*(?:بلاش|مش\s*لازم)|(?:ا|أ|إ)لغي\s*الطلب|كنسل\s*الطلب|مبقتش\s*(?:محتاج|عايز|عاوز)/i;
 var DELAY_COMPLAINT_RX = /اتأخرت(?:وا)?|متأخرين|محدش\s*(?:رد|بيرد)|ليه\s*محدش|بقالي\s*(?:ساع[ةه]|كتير|فتر[ةه])|مستني\s*من\s*بدري/i;
-var WILL_WAIT_RX = /هستنا(?:ه|ها)?|هستنى|(?:ابقى|ابقي)\s*(?:بلغني|كلمني|قولي|عرفني)|لما\s*(?:يوصل|يتوفر|ييجي|ينزل)|بلغني\s*لما|عرفني\s*لما/i;
+var WILL_WAIT_RX = /هستنا(?:ه|ها)?|هستنى|(?:ابقى|ابقي)\s*(?:بلغني|كلمني|قولي|عرفني)|لما\s*(?:\S+\s+){0,3}?(?:يوصل|يتوفر|ييجي|ينزل)|بلغني\s*لما|عرفني\s*لما/i;
+function isNonRequestIntentStatement(text) {
+  const intent = classifyCustomerIntentStatementV32(text);
+  return intent === "considering" || intent === "will_wait" || intent === "final_decline" || intent === "bought_elsewhere";
+}
 function classifyCustomerIntentStatementV32(text) {
   if (BOUGHT_ELSEWHERE_RX.test(text)) return "bought_elsewhere";
   if (FINAL_DECLINE_RX.test(text)) return "final_decline";
@@ -1181,6 +1188,33 @@ function classifyCustomerIntentStatementV32(text) {
   if (WILL_WAIT_RX.test(text)) return "will_wait";
   if (CONSIDERING_RX.test(text)) return "considering";
   return null;
+}
+var STAFF_FOLLOWUP_PROMISE_RX = /هتابع|هنتابع|ه(?:ن)?كلم\s*(?:ك|حضرتك)|ه(?:ن)?رد\s*على\s*(?:حضرتك|ك)|ه(?:ن)?بلغ\s*(?:ك|حضرتك)|ه(?:ن)?عرف\s*(?:ك|حضرتك)|هقول\s*(?:لك|لحضرتك)|هشوف\s*(?:لك|لحضرتك)|هسأل\s*(?:لك|لحضرتك)|هراجع\s*و\s*(?:أرد|ارد|أكلم|اكلم|أبلغ|ابلغ)/i;
+var CUSTOMER_CALLBACK_RX = /كلمني|كلميني|كلمنى|اتصل(?:\s*(?:بي|بيا|عليا))?|رن\s*عليا|تابع\s*معايا|ابقى\s*(?:كلمني|تابع|بلغني|عرفني)|بلغني|عرفني|ابعتلي\s*لما/i;
+var WHEN_IN_STOCK_RX = /لما\s*(?:\S+\s+){0,3}?(?:يوصل|يتوفر|ييجي|ينزل|تجيبه|تجيبوه|يبقى\s*موجود)/i;
+var TOMORROW_RX = /بكر[ةه]|بكرا/i;
+var AFTER_DAYS_RX = /بعد\s*(?:(يومين)|(\d+)\s*(?:يوم|أيام|ايام)|(اسبوع|أسبوع))/i;
+var SAME_DAY_RX = /النهارد[ةه]|بالليل|كمان\s*ساع[ةه]|بعد\s*ساع[ةه]|آخر\s*النهار|اخر\s*النهار/i;
+var PRESCRIPTION_REQUEST_RX = /(?:ابعت|ابعتي|ابعتلنا|محتاج(?:ين)?|لازم|ممكن)\s*(?:\S+\s*){0,2}(?:صور[ةه]\s*)?(?:ال)?(?:روشت[ةه]|وصف[ةه]\s*طبي[ةه])/i;
+function isStaffFollowUpPromiseV32(text) {
+  return STAFF_FOLLOWUP_PROMISE_RX.test(text);
+}
+function mentionsPrescriptionV32(text) {
+  return /روشت[ةه]|وصف[ةه]\s*طبي[ةه]/i.test(text);
+}
+function isPrescriptionRequestV32(text) {
+  return PRESCRIPTION_REQUEST_RX.test(text);
+}
+function classifyCustomerTimingRequestV32(text) {
+  const callback = CUSTOMER_CALLBACK_RX.test(text);
+  const waitForStock = WHEN_IN_STOCK_RX.test(text);
+  if (!callback && !waitForStock) return null;
+  if (waitForStock) return { when: "when_in_stock", days: null };
+  const days = text.match(AFTER_DAYS_RX);
+  if (days) return { when: "days", days: days[1] ? 2 : days[2] ? Number(days[2]) : 7 };
+  if (TOMORROW_RX.test(text)) return { when: "days", days: 1 };
+  if (SAME_DAY_RX.test(text)) return { when: "same_day", days: 0 };
+  return { when: "unspecified", days: null };
 }
 function classifyCustomerOfferResponseV32(text) {
   if (REJECTION_RX.test(text)) return "rejected";
@@ -3985,7 +4019,7 @@ function deriveCustomerNeedModel(input) {
   const firstRequestSignal = requestSignals[0] ?? null;
   const firstRequestMessage = firstRequestSignal ? messageById.get(firstRequestSignal.messageId) ?? null : null;
   const products = /* @__PURE__ */ new Map();
-  const ensureProduct = (productNameRaw, confidence2, productId = null) => {
+  const ensureProduct = (productNameRaw, confidence3, productId = null) => {
     const key = normalizeProductKey(productNameRaw);
     if (!key) return null;
     let product = products.get(key);
@@ -3999,14 +4033,14 @@ function deriveCustomerNeedModel(input) {
         finalQuantity: null,
         roles: /* @__PURE__ */ new Set(),
         evidenceMessageIds: /* @__PURE__ */ new Set(),
-        confidence: confidence2,
+        confidence: confidence3,
         availabilityEvidence: [],
         alternatives: []
       };
       products.set(key, product);
     } else {
       if (!product.productId && productId) product.productId = productId;
-      product.confidence = strongestConfidence(product.confidence, confidence2);
+      product.confidence = strongestConfidence(product.confidence, confidence3);
     }
     return product;
   };
@@ -4354,30 +4388,30 @@ function deriveCustomerNeedModel(input) {
       ...acceptanceSignals.map((signal) => signal.messageId)
     ])
   );
-  let confidence;
+  let confidence2;
   if (requestSignals.length > 0 && productList.length > 0) {
-    confidence = assessment6(
+    confidence2 = assessment6(
       "strongly_inferred",
       0.85,
       ["need.model.request_plus_product_lifecycle"],
       firstRequestMessage ? [evidenceRef2(firstRequestMessage.id, `\u0627\u0644\u062D\u0627\u062C\u0629 \u0627\u0644\u0623\u0633\u0627\u0633\u064A\u0629 \u0643\u0645\u0627 \u0642\u0627\u0644\u0647\u0627 \u0627\u0644\u0639\u0645\u064A\u0644: "${firstRequestMessage.text.slice(0, 120)}".`)] : []
     );
   } else if (requestSignals.length > 0) {
-    confidence = assessment6(
+    confidence2 = assessment6(
       "weakly_inferred",
       0.55,
       ["need.model.request_without_product_lifecycle"],
       firstRequestMessage ? [evidenceRef2(firstRequestMessage.id, `\u0637\u0644\u0628/\u0627\u062D\u062A\u064A\u0627\u062C \u062D\u0642\u064A\u0642\u064A \u0628\u062F\u0648\u0646 \u0645\u0646\u062A\u062C \u0645\u062D\u0633\u0648\u0645: "${firstRequestMessage.text.slice(0, 120)}".`)] : []
     );
   } else if (productList.length > 0) {
-    confidence = assessment6(
+    confidence2 = assessment6(
       "weakly_inferred",
       0.5,
       ["need.model.product_without_explicit_customer_request"],
       []
     );
   } else {
-    confidence = assessment6("unknown", 0.1, ["need.model.no_commercial_need_evidence"], []);
+    confidence2 = assessment6("unknown", 0.1, ["need.model.no_commercial_need_evidence"], []);
   }
   return {
     caseId: input.caseId,
@@ -4389,7 +4423,7 @@ function deriveCustomerNeedModel(input) {
     objections,
     unresolvedNeed,
     evidenceMessageIds,
-    confidence,
+    confidence: confidence2,
     needsHumanReview: humanReviewReasons.length > 0,
     humanReviewReasons
   };
@@ -4443,21 +4477,21 @@ function deriveCommercialJourneyState(input) {
   input.commercialConfirmation.primaryMessageIds.forEach((id) => evidenceIds.add(id));
   if (input.salesOutcome.outcome === "sale_proven") reached.add("sale_proven");
   let currentState = "unknown";
-  let confidence = assess("unknown", 0.1, "journey.no_reliable_state_evidence");
+  let confidence2 = assess("unknown", 0.1, "journey.no_reliable_state_evidence");
   const reasonCodes = [];
   if (input.salesOutcome.outcome === "information_only") {
     currentState = "information_only";
     reasonCodes.push("journey.information_only_from_canonical_outcome");
-    confidence = assess("proven", 0.95, reasonCodes[0]);
+    confidence2 = assess("proven", 0.95, reasonCodes[0]);
   } else if (input.salesOutcome.outcome === "sale_proven") {
     currentState = "sale_proven";
     reasonCodes.push("journey.sale_proven_only_from_canonical_outcome");
-    confidence = assess("proven", 1, reasonCodes[0]);
+    confidence2 = assess("proven", 1, reasonCodes[0]);
   } else if (declined) {
     currentState = "customer_declined";
     reasonCodes.push("journey.customer_declined_from_customer_evidence");
     const objection = input.customerNeed.objections.find((o) => o.category === "customer_declined");
-    confidence = assess(
+    confidence2 = assess(
       "strongly_inferred",
       0.9,
       reasonCodes[0],
@@ -4477,7 +4511,7 @@ function deriveCommercialJourneyState(input) {
     const row = states[currentState];
     if (row) {
       reasonCodes.push(row[0]);
-      confidence = assess(row[1], row[2], row[0]);
+      confidence2 = assess(row[1], row[2], row[0]);
     } else {
       reasonCodes.push("journey.no_reliable_state_evidence");
     }
@@ -4492,7 +4526,7 @@ function deriveCommercialJourneyState(input) {
     ],
     evidenceMessageIds: Array.from(evidenceIds),
     reasonCodes,
-    confidence,
+    confidence: confidence2,
     reviewRequired: input.salesOutcome.needsHumanReview || input.customerNeed.needsHumanReview || input.salesOutcome.outcome === "needs_review"
   };
 }
@@ -4749,7 +4783,7 @@ function deriveLostOpportunity(input) {
   }
   const productLosses = deriveProductLosses(customerNeed, unavailableDemand, v.state);
   const evidenceMessageIds = [.../* @__PURE__ */ new Set([...v.evidence, ...productLosses.flatMap((p) => p.evidenceMessageIds)])];
-  const confidence = {
+  const confidence2 = {
     level: v.level,
     score: v.score,
     ruleIds: [v.explanation],
@@ -4767,7 +4801,7 @@ function deriveLostOpportunity(input) {
     productLosses,
     staffFacts,
     evidenceMessageIds,
-    confidence,
+    confidence: confidence2,
     explanation: v.explanation
   };
 }
@@ -4808,6 +4842,274 @@ function deriveProductLosses(customerNeed, demands, state) {
     });
   }
   return losses;
+}
+
+// src/lib/whatsappFollowupIdentity.ts
+var FOLLOWUP_IDENTITY_VERSION = "fu1";
+function normalizeFollowupKeyPart(value) {
+  return String(value ?? "").replace(/[٠-٩]/g, (digit) => String("\u0660\u0661\u0662\u0663\u0664\u0665\u0666\u0667\u0668\u0669".indexOf(digit))).replace(/[أإآ]/g, "\u0627").replace(/ة/g, "\u0647").replace(/ى/g, "\u064A").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim().replace(/\s+/g, "-");
+}
+function followupCustomerAnchor(identity, canonicalCaseAnchor) {
+  if (identity?.status === "resolved") {
+    if (identity.customerId) return `customer:${identity.customerId}`;
+    if (identity.normalizedPhone) return `phone:${identity.normalizedPhone}`;
+    if (identity.customerCode) return `code:${normalizeFollowupKeyPart(identity.customerCode)}`;
+  }
+  const caseAnchor = normalizeFollowupKeyPart(canonicalCaseAnchor || "");
+  if (caseAnchor) return `case:${caseAnchor}`;
+  throw new Error("followup_customer_anchor_unresolved");
+}
+function buildFollowupIdentity(input) {
+  const episode = new Date(
+    Math.floor(input.episodeStartedAt.getTime() / 6e4) * 6e4
+  ).toISOString();
+  return [
+    FOLLOWUP_IDENTITY_VERSION,
+    input.customerAnchor,
+    episode,
+    normalizeFollowupKeyPart(input.followupType),
+    normalizeFollowupKeyPart(input.reasonKey) || "-"
+  ].join("|");
+}
+
+// src/lib/salesIntelligence/followUpOpportunityEngine.ts
+var PROFILE = {
+  staff_no_response: { priority: "high", duePolicy: "immediate", role: "branch_staff", nextBestAction: "respond_to_customer_request", goal: "answer_open_customer_request", needsCustomerIdentity: false },
+  stock_check_pending: { priority: "high", duePolicy: "same_shift", role: "branch_staff", nextBestAction: "complete_stock_check_and_reply", goal: "tell_customer_availability_result", needsCustomerIdentity: false },
+  staff_promised_check: { priority: "high", duePolicy: "same_shift", role: "pharmacist", nextBestAction: "complete_promised_check", goal: "complete_promised_check", needsCustomerIdentity: false },
+  delivery_unresolved: { priority: "high", duePolicy: "same_shift", role: "delivery_team", nextBestAction: "resolve_delivery_status", goal: "resolve_delivery_and_confirm_with_customer", needsCustomerIdentity: true },
+  callback_requested: { priority: "high", duePolicy: "customer_requested_time", role: "customer_service", nextBestAction: "contact_customer_at_requested_time", goal: "honour_customer_callback_request", needsCustomerIdentity: true },
+  customer_asked_to_wait: { priority: "medium", duePolicy: "when_in_stock", role: "branch_staff", nextBestAction: "contact_customer_when_product_available", goal: "notify_customer_when_product_available", needsCustomerIdentity: true },
+  stock_unavailable: { priority: "medium", duePolicy: "when_in_stock", role: "branch_staff", nextBestAction: "contact_customer_when_product_available", goal: "offer_original_product_when_available", needsCustomerIdentity: true },
+  alternative_open: { priority: "medium", duePolicy: "next_day", role: "pharmacist", nextBestAction: "confirm_alternative_decision", goal: "get_decision_on_offered_alternative", needsCustomerIdentity: true },
+  customer_considering: { priority: "medium", duePolicy: "next_day", role: "pharmacist", nextBestAction: "check_customer_decision", goal: "get_customer_decision", needsCustomerIdentity: true },
+  price_objection: { priority: "medium", duePolicy: "next_day", role: "pharmacist", nextBestAction: "follow_up_with_value_or_allowed_offer", goal: "address_price_objection", needsCustomerIdentity: true },
+  prescription_incomplete: { priority: "medium", duePolicy: "next_day", role: "pharmacist", nextBestAction: "request_missing_prescription_details", goal: "complete_prescription_details", needsCustomerIdentity: true },
+  customer_no_response: { priority: "low", duePolicy: "next_day", role: "customer_service", nextBestAction: "send_single_recovery_followup", goal: "single_recovery_attempt", needsCustomerIdentity: true }
+};
+var DAY_MS = 24 * 60 * 60 * 1e3;
+function deriveFollowUpOpportunities(input) {
+  const { conversationCase, customerNeed, unavailableDemand, lostOpportunity, salesOutcome } = input;
+  const caseId = conversationCase.caseId;
+  const messages = input.messages.slice().sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+  const meaningful = messages.filter((m) => m.isMeaningful && (m.role === "customer" || m.role === "staff"));
+  const lastAt = meaningful.length ? meaningful[meaningful.length - 1].timestamp : new Date(conversationCase.endedAt ?? conversationCase.startedAt);
+  const identityResolved = input.customerIdentityStatus === "resolved" && Boolean(conversationCase.customerId);
+  const customerId = identityResolved ? conversationCase.customerId : null;
+  if (salesOutcome.outcome === "information_only" || lostOpportunity.state === "no_commercial_opportunity") {
+    return {
+      caseId,
+      decision: "not_needed",
+      opportunities: [],
+      notNeededReason: salesOutcome.outcome === "information_only" ? "information_only" : "no_customer_need"
+    };
+  }
+  const candidates = [];
+  const indexOf = new Map(messages.map((m, i) => [m.id, i]));
+  const laterStaffReply = (message) => meaningful.some((m) => m.role === "staff" && (indexOf.get(m.id) ?? 0) > (indexOf.get(message.id) ?? 0));
+  const customerMessages = meaningful.filter((m) => m.role === "customer");
+  const waitRequests = [];
+  for (const message of customerMessages) {
+    const timing = classifyCustomerTimingRequestV32(message.text);
+    const willWait = classifyCustomerIntentStatementV32(message.text) === "will_wait";
+    if (!timing && !willWait) continue;
+    waitRequests.push({
+      message,
+      whenInStock: willWait || timing?.when === "when_in_stock",
+      days: timing?.when === "days" ? timing.days : null,
+      sameDay: timing?.when === "same_day"
+    });
+  }
+  const demandForWait = (text) => {
+    const textKey = normalizeProductKey(text);
+    const named = unavailableDemand.filter((d) => d.productKey.length >= 3 && textKey.includes(d.productKey));
+    if (named.length) return named;
+    return unavailableDemand.length === 1 ? unavailableDemand : [];
+  };
+  const explicitlyWaitedDemandKeys = /* @__PURE__ */ new Set();
+  for (const request of waitRequests.filter((r) => r.whenInStock)) {
+    for (const demand of demandForWait(request.message.text)) {
+      explicitlyWaitedDemandKeys.add(demand.demandKey);
+      candidates.push({
+        reason: "customer_asked_to_wait",
+        explicit: true,
+        demand,
+        evidence: [...demand.evidenceMessageIds, request.message.id],
+        level: "strongly_inferred",
+        score: 0.85
+      });
+    }
+  }
+  for (const demand of unavailableDemand) {
+    if (explicitlyWaitedDemandKeys.has(demand.demandKey)) continue;
+    if (!demand.followUpCandidate && demand.followUpSuppressedBy !== "customer_declined_need") continue;
+    if (demand.availabilityState === "check_pending") {
+      candidates.push({
+        reason: "stock_check_pending",
+        explicit: true,
+        demand,
+        assignedStaffName: demand.statedByStaffName,
+        assignedStaffId: demand.statedByStaffId,
+        evidence: demand.evidenceMessageIds,
+        level: demand.confidence.level,
+        score: demand.confidence.score
+      });
+    } else if (demand.alternativeOffered && demand.alternativeResponse !== "rejected") {
+      candidates.push({ reason: "alternative_open", explicit: false, demand, evidence: demand.evidenceMessageIds, level: demand.confidence.level, score: demand.confidence.score });
+    } else {
+      candidates.push({
+        reason: "stock_unavailable",
+        explicit: false,
+        demand,
+        priority: demand.alternativeResponse === "rejected" ? "low" : void 0,
+        evidence: demand.evidenceMessageIds,
+        level: demand.confidence.level,
+        score: demand.confidence.score
+      });
+    }
+  }
+  for (const request of waitRequests.filter((r) => !r.whenInStock)) {
+    candidates.push({
+      reason: "callback_requested",
+      explicit: true,
+      demand: null,
+      duePolicy: request.days != null || request.sameDay ? "customer_requested_time" : "manual_schedule",
+      requestedDelayDays: request.sameDay ? 0 : request.days,
+      evidence: [request.message.id],
+      level: "strongly_inferred",
+      score: 0.85
+    });
+  }
+  const checkPendingIds = new Set(unavailableDemand.filter((d) => d.availabilityState === "check_pending").map((d) => d.availabilityMessageId));
+  for (const message of meaningful) {
+    if (message.role !== "staff" || !isStaffFollowUpPromiseV32(message.text)) continue;
+    if (checkPendingIds.has(message.id) || laterStaffReply(message)) continue;
+    candidates.push({
+      reason: "staff_promised_check",
+      explicit: true,
+      demand: null,
+      assignedStaffName: message.sender,
+      assignedStaffId: input.staffIdBySender?.[message.sender] ?? null,
+      evidence: [message.id],
+      level: "strongly_inferred",
+      score: 0.85
+    });
+  }
+  for (const message of meaningful) {
+    if (message.role !== "staff" || !isPrescriptionRequestV32(message.text)) continue;
+    const provided = messages.some(
+      (m) => m.role === "customer" && (indexOf.get(m.id) ?? 0) > (indexOf.get(message.id) ?? 0) && (m.isMediaPlaceholder || mentionsPrescriptionV32(m.text))
+    );
+    if (!provided) {
+      candidates.push({ reason: "prescription_incomplete", explicit: false, demand: null, evidence: [message.id], level: "strongly_inferred", score: 0.75 });
+    }
+  }
+  const lostEvidence = lostOpportunity.evidenceMessageIds;
+  if (lostOpportunity.reason === "staff_no_response") {
+    candidates.push({ reason: "staff_no_response", explicit: false, demand: null, evidence: lostEvidence, level: lostOpportunity.confidence.level, score: lostOpportunity.confidence.score });
+  } else if (lostOpportunity.state === "recoverable" && lostOpportunity.reason === "price") {
+    candidates.push({ reason: "price_objection", explicit: false, demand: null, evidence: lostEvidence, level: lostOpportunity.confidence.level, score: lostOpportunity.confidence.score });
+  } else if (lostOpportunity.state === "recoverable" && lostOpportunity.reason === "delivery_issue") {
+    candidates.push({ reason: "delivery_unresolved", explicit: false, demand: null, evidence: lostEvidence, level: lostOpportunity.confidence.level, score: lostOpportunity.confidence.score });
+  } else if (lostOpportunity.state === "recoverable" && lostOpportunity.reason === "customer_no_response") {
+    candidates.push({ reason: "customer_no_response", explicit: false, demand: null, evidence: lostEvidence, level: lostOpportunity.confidence.level, score: lostOpportunity.confidence.score });
+  }
+  const considering = customerMessages.filter((m) => classifyCustomerIntentStatementV32(m.text) === "considering");
+  if (considering.length && lostOpportunity.reason !== "price" && !candidates.some((c) => c.reason === "alternative_open")) {
+    candidates.push({ reason: "customer_considering", explicit: false, demand: null, evidence: considering.map((m) => m.id), level: "strongly_inferred", score: 0.75 });
+  }
+  const interactionSuppression = lostOpportunity.state === "lost" && lostOpportunity.recoverability === "none" ? lostOpportunity.reason === "competitor" ? "bought_elsewhere" : "customer_final_decline" : null;
+  const saleProven = salesOutcome.outcome === "sale_proven";
+  const anchor = followupCustomerAnchor(
+    { status: identityResolved ? "resolved" : "unresolved", customerId, normalizedPhone: null, customerCode: null },
+    caseId
+  );
+  const byKey = /* @__PURE__ */ new Map();
+  for (const candidate of candidates) {
+    const profile = PROFILE[candidate.reason];
+    const demand = candidate.demand;
+    let suppressedBy = interactionSuppression;
+    if (!suppressedBy && saleProven && !candidate.explicit) suppressedBy = "sale_proven";
+    if (!suppressedBy && (candidate.evidence.length === 0 || candidate.level === "unknown")) suppressedBy = "weak_evidence";
+    const blocked = !suppressedBy && profile.needsCustomerIdentity && !customerId;
+    const duePolicy = candidate.duePolicy ?? profile.duePolicy;
+    const requestedDelayDays = candidate.requestedDelayDays ?? null;
+    const productScopeKey = demand ? demand.resolvedProductId ?? demand.productKey : null;
+    const followUpKey = buildFollowupIdentity({
+      customerAnchor: anchor,
+      episodeStartedAt: new Date(conversationCase.startedAt),
+      followupType: candidate.reason,
+      reasonKey: productScopeKey
+    });
+    const opportunity = {
+      followUpKey,
+      caseId,
+      customerId,
+      status: suppressedBy ? "suppressed" : blocked ? "blocked" : "actionable",
+      reason: candidate.reason,
+      priority: candidate.priority ?? profile.priority,
+      productKey: demand?.productKey ?? null,
+      productId: demand?.resolvedProductId ?? null,
+      productRaw: demand?.requestedProductRaw ?? null,
+      quantity: demand?.quantityRequested ?? null,
+      demandKey: demand?.demandKey ?? null,
+      duePolicy,
+      requestedDelayDays,
+      dueAt: dueAtFor(duePolicy, requestedDelayDays, lastAt),
+      assignedRole: profile.role,
+      assignedStaffId: candidate.assignedStaffId ?? null,
+      assignedStaffName: candidate.assignedStaffName ?? null,
+      goal: profile.goal,
+      nextBestAction: profile.nextBestAction,
+      blocker: blocked ? "customer_identity_unresolved" : null,
+      suppressedBy,
+      evidenceMessageIds: [...new Set(candidate.evidence)],
+      confidence: confidence(candidate, profile)
+    };
+    const existing = byKey.get(followUpKey);
+    if (existing) {
+      existing.evidenceMessageIds = [.../* @__PURE__ */ new Set([...existing.evidenceMessageIds, ...opportunity.evidenceMessageIds])];
+      continue;
+    }
+    byKey.set(followUpKey, opportunity);
+  }
+  const opportunities = [...byKey.values()];
+  const specificActive = opportunities.some((o) => o.reason !== "customer_no_response" && o.status !== "suppressed");
+  for (const opportunity of opportunities) {
+    if (opportunity.reason === "customer_no_response" && specificActive && opportunity.status !== "suppressed") {
+      opportunity.status = "suppressed";
+      opportunity.blocker = null;
+      opportunity.suppressedBy = "covered_by_specific_follow_up";
+    }
+  }
+  const decision = opportunities.some((o) => o.status === "actionable") ? "actionable" : opportunities.some((o) => o.status === "blocked") ? "blocked" : opportunities.length ? "suppressed" : "not_needed";
+  return {
+    caseId,
+    decision,
+    opportunities,
+    notNeededReason: decision === "not_needed" ? saleProven ? "sale_proven" : interactionSuppression : null
+  };
+}
+function dueAtFor(policy, days, lastAt) {
+  switch (policy) {
+    case "immediate":
+    case "same_shift":
+      return lastAt.toISOString();
+    case "next_day":
+      return new Date(lastAt.getTime() + DAY_MS).toISOString();
+    case "customer_requested_time":
+      return days == null ? null : new Date(lastAt.getTime() + days * DAY_MS).toISOString();
+    default:
+      return null;
+  }
+}
+function confidence(candidate, profile) {
+  return {
+    level: candidate.level,
+    score: candidate.score,
+    ruleIds: [`follow_up.${candidate.reason}`, `next_best_action.${profile.nextBestAction}`],
+    evidence: candidate.evidence.length ? [{ sourceTable: "whatsapp_review_sources", sourceId: "", messageIds: [...new Set(candidate.evidence)], description: `follow_up.${candidate.reason}` }] : []
+  };
 }
 
 // src/lib/salesIntelligence/pharmacyProducts/pharmacyNormalization.ts
@@ -5570,6 +5872,16 @@ function analyzeOneCase(conversationCase, scopedMessages, input) {
     journeyState,
     salesOutcome
   });
+  const followUp = deriveFollowUpOpportunities({
+    conversationCase,
+    messages: scopedMessages,
+    customerNeed,
+    unavailableDemand,
+    lostOpportunity,
+    salesOutcome,
+    customerIdentityStatus: input.customerIdentityStatus,
+    staffIdBySender: input.staffIdBySender
+  });
   let status;
   if (isGenuinelyInformationOnly) {
     status = "analyzed";
@@ -5601,6 +5913,7 @@ function analyzeOneCase(conversationCase, scopedMessages, input) {
     salesOutcome,
     journeyState,
     lostOpportunity,
+    followUp,
     evidenceCompleteness,
     status,
     pipelineWarnings,
@@ -5792,7 +6105,7 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v3";
+var PIPELINE_VERSION = "sales-intelligence-v4";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v6-semantic-boundaries",
   historicalClosure: "historical-closure-v1",
@@ -5900,6 +6213,7 @@ function mapCaseAnalysisRowContent(analysis) {
       customerNeed: analysis.customerNeed,
       unavailableDemand: analysis.unavailableDemand,
       lostOpportunity: analysis.lostOpportunity,
+      followUp: analysis.followUp,
       journeyState: analysis.journeyState,
       historicalClosureEvidence: analysis.historicalClosure.confidence.evidence,
       // No dedicated applicability-rule-id field exists on OrderConfirmationProtocolAssessment —

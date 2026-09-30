@@ -34,6 +34,7 @@ import { deriveCustomerNeedModel } from './customerNeedModel';
 import { deriveCommercialJourneyState } from './commercialJourneyStateMachine';
 import { deriveUnavailableDemand } from './unavailableDemandEngine';
 import { deriveLostOpportunity } from './lostOpportunityEngine';
+import { deriveFollowUpOpportunities } from './followUpOpportunityEngine';
 import {
   resolveProductMention,
   type PharmacyProductIndex,
@@ -511,6 +512,16 @@ function analyzeOneCase(
     journeyState,
     salesOutcome,
   });
+  const followUp = deriveFollowUpOpportunities({
+    conversationCase,
+    messages: scopedMessages,
+    customerNeed,
+    unavailableDemand,
+    lostOpportunity,
+    salesOutcome,
+    customerIdentityStatus: input.customerIdentityStatus,
+    staffIdBySender: input.staffIdBySender,
+  });
 
   let status: PipelineStatus;
   if (isGenuinelyInformationOnly) {
@@ -544,6 +555,7 @@ function analyzeOneCase(
     salesOutcome,
     journeyState,
     lostOpportunity,
+    followUp,
     evidenceCompleteness,
     status,
     pipelineWarnings,

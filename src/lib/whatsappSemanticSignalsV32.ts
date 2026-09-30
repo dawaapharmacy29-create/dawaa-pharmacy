@@ -144,7 +144,7 @@ const UNAVAILABLE_RX =
 const AVAILABLE_RX =
   /(?:^|[\s،,])(?:موجود|متوفر|متاح)[ةه]?(?:$|[\s،,!.])|عندنا\s*(?:منه|منها)|(?:اه|أه|آه|ايوه|أيوه|ايوا)\s*(?:موجود|متوفر)/i;
 const CHECK_PENDING_RX =
-  /(?:ثواني|ثانية|لحظ[ةه]|دقيق[ةه]|دقايق)\s*(?:و\s*)?(?:أ|ا)?(?:شوف|تأكد|اتأكد|سأل|راجع)|هشوف(?:لك|لحضرتك)?|هتأكد|هاتأكد|هسأل(?:\s*(?:الفرع|المخزن))?|هنشوف(?:ه|ها)?|(?:أ|ا)تأكد\s*من\s*(?:توفر|التوفر|المخزن)|هراجع\s*(?:المخزن|التوفر)/i;
+  /(?:ثواني|ثانية|لحظ[ةه]|دقيق[ةه]|دقايق)\s*(?:و\s*)?(?:أ|ا)?(?:شوف|تأكد|اتأكد|سأل|راجع)|هشوف(?:لك|لحضرتك)?|هتأكد|هاتأكد|هسأل\s*(?:الفرع|المخزن|عن\s*(?:التوفر|توفره|توفرها))|هنشوف(?:ه|ها)?|(?:أ|ا)تأكد\s*من\s*(?:توفر|التوفر|المخزن)|هراجع\s*(?:المخزن|التوفر)/i;
 // Explicit alternative markers always count; a generic offer phrase only counts right after a staff
 // "unavailable" statement or a customer rejection (otherwise it is an ordinary offer, not a substitute).
 const ALTERNATIVE_MARKER_RX =
@@ -270,6 +270,11 @@ export function isRequestCandidate(message: NormalizedConversationMessageV32): b
   if (isAcceptanceOnly(text)) return false;
   if (isCommitmentOnly(text)) return false;
   if (isRejectionOnly(text)) return false;
+  // "هفكر وأرد عليك" / "هستنى لما يوصل" / "كلمني بكرة" / "جبته من برا" state the customer's own
+  // intent or timing, not a new product need — unless they also carry an explicit request verb.
+  if (!REQUEST_VERB_RX.test(text) && (isNonRequestIntentStatement(text) || classifyCustomerTimingRequestV32(text))) {
+    return false;
+  }
   if (isThanksOrClosingOnly(text)) return false;
   return true;
 }
@@ -679,7 +684,7 @@ const FINAL_DECLINE_RX =
 const DELAY_COMPLAINT_RX =
   /اتأخرت(?:وا)?|متأخرين|محدش\s*(?:رد|بيرد)|ليه\s*محدش|بقالي\s*(?:ساع[ةه]|كتير|فتر[ةه])|مستني\s*من\s*بدري/i;
 const WILL_WAIT_RX =
-  /هستنا(?:ه|ها)?|هستنى|(?:ابقى|ابقي)\s*(?:بلغني|كلمني|قولي|عرفني)|لما\s*(?:يوصل|يتوفر|ييجي|ينزل)|بلغني\s*لما|عرفني\s*لما/i;
+  /هستنا(?:ه|ها)?|هستنى|(?:ابقى|ابقي)\s*(?:بلغني|كلمني|قولي|عرفني)|لما\s*(?:\S+\s+){0,3}?(?:يوصل|يتوفر|ييجي|ينزل)|بلغني\s*لما|عرفني\s*لما/i;
 
 export type CustomerIntentStatementV32 =
   | 'bought_elsewhere'
@@ -687,6 +692,11 @@ export type CustomerIntentStatementV32 =
   | 'delay_complaint'
   | 'will_wait'
   | 'considering';
+
+function isNonRequestIntentStatement(text: string): boolean {
+  const intent = classifyCustomerIntentStatementV32(text);
+  return intent === 'considering' || intent === 'will_wait' || intent === 'final_decline' || intent === 'bought_elsewhere';
+}
 
 /** What a customer message states about their own commercial intent, strongest first; null = none. */
 export function classifyCustomerIntentStatementV32(text: string): CustomerIntentStatementV32 | null {
@@ -696,6 +706,57 @@ export function classifyCustomerIntentStatementV32(text: string): CustomerIntent
   if (WILL_WAIT_RX.test(text)) return 'will_wait';
   if (CONSIDERING_RX.test(text)) return 'considering';
   return null;
+}
+
+// ---- Follow-up evidence (facts only; the Follow-up engine decides) ----
+// Staff promising to come back to the customer ("هتابع مع حضرتك", "هبلغ حضرتك", "هشوفلك وأرد").
+const STAFF_FOLLOWUP_PROMISE_RX =
+  /هتابع|هنتابع|ه(?:ن)?كلم\s*(?:ك|حضرتك)|ه(?:ن)?رد\s*على\s*(?:حضرتك|ك)|ه(?:ن)?بلغ\s*(?:ك|حضرتك)|ه(?:ن)?عرف\s*(?:ك|حضرتك)|هقول\s*(?:لك|لحضرتك)|هشوف\s*(?:لك|لحضرتك)|هسأل\s*(?:لك|لحضرتك)|هراجع\s*و\s*(?:أرد|ارد|أكلم|اكلم|أبلغ|ابلغ)/i;
+// Customer asking to be contacted / to wait, with optional timing.
+const CUSTOMER_CALLBACK_RX =
+  /كلمني|كلميني|كلمنى|اتصل(?:\s*(?:بي|بيا|عليا))?|رن\s*عليا|تابع\s*معايا|ابقى\s*(?:كلمني|تابع|بلغني|عرفني)|بلغني|عرفني|ابعتلي\s*لما/i;
+const WHEN_IN_STOCK_RX = /لما\s*(?:\S+\s+){0,3}?(?:يوصل|يتوفر|ييجي|ينزل|تجيبه|تجيبوه|يبقى\s*موجود)/i;
+const TOMORROW_RX = /بكر[ةه]|بكرا/i;
+const AFTER_DAYS_RX = /بعد\s*(?:(يومين)|(\d+)\s*(?:يوم|أيام|ايام)|(اسبوع|أسبوع))/i;
+const SAME_DAY_RX = /النهارد[ةه]|بالليل|كمان\s*ساع[ةه]|بعد\s*ساع[ةه]|آخر\s*النهار|اخر\s*النهار/i;
+const PRESCRIPTION_REQUEST_RX =
+  /(?:ابعت|ابعتي|ابعتلنا|محتاج(?:ين)?|لازم|ممكن)\s*(?:\S+\s*){0,2}(?:صور[ةه]\s*)?(?:ال)?(?:روشت[ةه]|وصف[ةه]\s*طبي[ةه])/i;
+
+export interface CustomerTimingRequestV32 {
+  /** 'when_in_stock' = when the product is available; 'days' = explicit day offset; 'same_day'; 'unspecified'. */
+  when: 'when_in_stock' | 'days' | 'same_day' | 'unspecified';
+  days: number | null;
+}
+
+/** Staff message promising to come back to the customer later. */
+export function isStaffFollowUpPromiseV32(text: string): boolean {
+  return STAFF_FOLLOWUP_PROMISE_RX.test(text);
+}
+
+/** A message that mentions the prescription itself (e.g. the customer sending/describing it). */
+export function mentionsPrescriptionV32(text: string): boolean {
+  return /روشت[ةه]|وصف[ةه]\s*طبي[ةه]/i.test(text);
+}
+
+/** Staff message asking the customer for a prescription. */
+export function isPrescriptionRequestV32(text: string): boolean {
+  return PRESCRIPTION_REQUEST_RX.test(text);
+}
+
+/**
+ * A customer asking to be contacted later, with the timing they stated. Returns null when the
+ * message is not a contact/wait request. Never invents a date: "لما يتوفر" is `when_in_stock`.
+ */
+export function classifyCustomerTimingRequestV32(text: string): CustomerTimingRequestV32 | null {
+  const callback = CUSTOMER_CALLBACK_RX.test(text);
+  const waitForStock = WHEN_IN_STOCK_RX.test(text);
+  if (!callback && !waitForStock) return null;
+  if (waitForStock) return { when: 'when_in_stock', days: null };
+  const days = text.match(AFTER_DAYS_RX);
+  if (days) return { when: 'days', days: days[1] ? 2 : days[2] ? Number(days[2]) : 7 };
+  if (TOMORROW_RX.test(text)) return { when: 'days', days: 1 };
+  if (SAME_DAY_RX.test(text)) return { when: 'same_day', days: 0 };
+  return { when: 'unspecified', days: null };
 }
 
 /** Customer's answer to a staff offer. Rejection is checked first ("لا مش عايزه تمام" is still a no). */

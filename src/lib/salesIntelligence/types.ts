@@ -329,6 +329,99 @@ export interface LostOpportunityAssessment {
   explanation: string;
 }
 
+export type FollowUpReason =
+  | 'stock_unavailable'
+  | 'stock_check_pending'
+  | 'customer_asked_to_wait'
+  | 'customer_considering'
+  | 'price_objection'
+  | 'alternative_open'
+  | 'prescription_incomplete'
+  | 'staff_promised_check'
+  | 'callback_requested'
+  | 'delivery_unresolved'
+  | 'customer_no_response'
+  | 'staff_no_response';
+
+export type FollowUpStatus = 'actionable' | 'blocked' | 'suppressed';
+
+export type FollowUpSuppression =
+  | 'sale_proven'
+  | 'customer_final_decline'
+  | 'bought_elsewhere'
+  | 'information_only'
+  | 'no_customer_need'
+  | 'weak_evidence'
+  | 'covered_by_specific_follow_up';
+
+/** Deterministic due policy; `dueAt` is filled only when derivable from the interaction itself. */
+export type FollowUpDuePolicy =
+  | 'immediate'
+  | 'same_shift'
+  | 'next_day'
+  | 'customer_requested_time'
+  | 'when_in_stock'
+  | 'manual_schedule';
+
+/** Operational intent (not a customer-facing script). */
+export type NextBestAction =
+  | 'respond_to_customer_request'
+  | 'complete_stock_check_and_reply'
+  | 'complete_promised_check'
+  | 'contact_customer_when_product_available'
+  | 'confirm_alternative_decision'
+  | 'check_customer_decision'
+  | 'follow_up_with_value_or_allowed_offer'
+  | 'request_missing_prescription_details'
+  | 'resolve_delivery_status'
+  | 'contact_customer_at_requested_time'
+  | 'send_single_recovery_followup';
+
+export type FollowUpAssignedRole = 'branch_staff' | 'pharmacist' | 'customer_service' | 'delivery_team';
+
+/**
+ * Canonical Follow-up Opportunity — owner: salesIntelligence/followUpOpportunityEngine.ts.
+ * An ANALYTICAL decision (reason + evidence + goal), not an operational task: nothing here writes
+ * whatsapp_conversation_actions. `followUpKey` reuses the stable whatsappFollowupIdentity scheme.
+ */
+export interface FollowUpOpportunity {
+  followUpKey: string;
+  caseId: string;
+  customerId: string | null;
+  status: FollowUpStatus;
+  reason: FollowUpReason;
+  priority: 'high' | 'medium' | 'low';
+  productKey: string | null;
+  productId: string | null;
+  productRaw: string | null;
+  quantity: number | null;
+  /** UnavailableDemand this follow-up serves, when product-scoped. */
+  demandKey: string | null;
+  duePolicy: FollowUpDuePolicy;
+  /** Explicit customer day offset ("بكرة" = 1), when stated. */
+  requestedDelayDays: number | null;
+  dueAt: string | null;
+  assignedRole: FollowUpAssignedRole;
+  /** Set only when a specific staff member explicitly promised this follow-up. */
+  assignedStaffId: string | null;
+  assignedStaffName: string | null;
+  goal: string;
+  nextBestAction: NextBestAction;
+  blocker: 'customer_identity_unresolved' | null;
+  suppressedBy: FollowUpSuppression | null;
+  evidenceMessageIds: string[];
+  confidence: ConfidenceAssessment;
+}
+
+export interface FollowUpAssessment {
+  caseId: string;
+  /** Interaction-level summary: actionable if any opportunity is, else blocked, else suppressed, else not_needed. */
+  decision: 'actionable' | 'blocked' | 'suppressed' | 'not_needed';
+  opportunities: FollowUpOpportunity[];
+  /** Why nothing was needed (information-only / no need / sale proven with no future obligation). */
+  notNeededReason: FollowUpSuppression | null;
+}
+
 export interface CustomerNeedModel {
   caseId: string;
   /** First real customer request/need statement, verbatim. Null when the case has no customer need. */
@@ -1203,6 +1296,8 @@ export interface SalesIntelligenceCaseAnalysis {
   unavailableDemand: UnavailableDemand[];
   /** Canonical Lost Opportunity verdict for this interaction (lostOpportunityEngine). */
   lostOpportunity: LostOpportunityAssessment;
+  /** Canonical Follow-up Opportunities for this interaction (followUpOpportunityEngine). */
+  followUp: FollowUpAssessment;
   basketHistory: CaseBasket[];
   itemsByBasketId: Record<string, CaseBasketItem[]>;
   /** Resolved via basketInvoiceMatchingEngine's own resolveActiveBasket() — null when insufficient/ambiguous. */
