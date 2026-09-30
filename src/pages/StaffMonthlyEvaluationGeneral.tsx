@@ -87,6 +87,120 @@ const METRIC_LABELS: Record<keyof Omit<Metrics, 'engine_version'>, string> = {
   present_days: 'أيام حضور فعلي',
 };
 
+const POINT_SOURCE_LABELS: Record<string, string> = {
+  conversation_evaluation: 'تقييم المحادثات',
+  invoice_quality_vs_branch_baseline: 'جودة الفواتير مقارنة بالفرع',
+  target_achievement_settlement: 'تسوية تحقيق التارجت',
+};
+
+function pointSourceLabel(source: string) {
+  return POINT_SOURCE_LABELS[source] || 'مصدر نقاط آخر';
+}
+
+function formatSignedPoints(points: number) {
+  return `${points > 0 ? '+' : ''}${points}`;
+}
+
+function sectionEvidenceFor(
+  sectionKey: string,
+  metrics: Metrics,
+  health: EmployeeMonthlyEvidence['health'],
+  pointsTruth: StaffPointsDashboardV3 | null
+) {
+  const key = sectionKey.toLowerCase();
+  const attendanceKeys = ['discipline', 'attendance', 'shift_discipline'];
+  const conversationKeys = ['conversations', 'conversation', 'customer', 'customers', 'team_quality', 'customer_outcomes'];
+  const followupKeys = ['followups_requests', 'followups', 'followups_sla', 'customer_requests', 'requests'];
+
+  if (attendanceKeys.includes(key)) {
+    if (health.attendance !== 'available') {
+      return {
+        status: 'unavailable' as const,
+        summary: 'مصدر الحضور غير متاح حاليًا',
+        details: ['لا تستخدم الصفر كدليل على الأداء لأن مصدر الحضور غير متاح.'],
+      };
+    }
+    return {
+      status: 'available' as const,
+      summary: metrics.attendance_days
+        ? `${metrics.present_days} يوم حضور فعلي من ${metrics.attendance_days} يوم مسجل`
+        : 'لا توجد أيام حضور مسجلة في المصدر لهذه الدورة',
+      details: [
+        `أيام الحضور الفعلي: ${metrics.present_days}`,
+        `إجمالي الأيام المسجلة: ${metrics.attendance_days}`,
+        'المصدر: Attendance Truth.',
+      ],
+    };
+  }
+
+  if (conversationKeys.includes(key)) {
+    if (health.reviews !== 'available') {
+      return {
+        status: 'unavailable' as const,
+        summary: 'مصدر مراجعات المحادثات غير متاح حاليًا',
+        details: ['لا تستخدم متوسط 0 كدليل لأن مصدر المحادثات غير متاح.'],
+      };
+    }
+    return {
+      status: 'available' as const,
+      summary: metrics.review_count
+        ? `${metrics.review_count} محادثة مراجعة · متوسط ${metrics.review_average}/100`
+        : 'لا توجد مراجعات محادثات مسجلة لهذه الدورة',
+      details: [
+        `عدد المراجعات: ${metrics.review_count}`,
+        `متوسط التقييم: ${metrics.review_average}/100`,
+        `نقاط إيجابية من المحادثات: +${metrics.conversation_positive_points}`,
+        `نقاط سلبية من المحادثات: -${metrics.conversation_negative_points}`,
+      ],
+    };
+  }
+
+  if (followupKeys.includes(key)) {
+    if (health.followups !== 'available') {
+      return {
+        status: 'unavailable' as const,
+        summary: 'مصدر المتابعات غير متاح حاليًا',
+        details: ['لا تستخدم قيمة صفر كدليل لأن مصدر المتابعات غير متاح.'],
+      };
+    }
+    return {
+      status: 'available' as const,
+      summary: metrics.followup_count
+        ? `${metrics.completed_followups}/${metrics.followup_count} متابعة مكتملة`
+        : 'لا توجد متابعات مسجلة لهذه الدورة',
+      details: [
+        `المتابعات المكتملة: ${metrics.completed_followups}`,
+        `إجمالي المتابعات: ${metrics.followup_count}`,
+      ],
+    };
+  }
+
+  if (key === 'sales_quality') {
+    const invoiceSource = pointsTruth?.source_breakdown?.find((source) => source.source === 'invoice_quality_vs_branch_baseline');
+    return invoiceSource
+      ? {
+          status: 'available' as const,
+          summary: `${invoiceSource.events} حدث جودة فاتورة · ${formatSignedPoints(invoiceSource.points)} نقطة`,
+          details: [
+            `عدد أحداث جودة الفاتورة: ${invoiceSource.events}`,
+            `صافي النقاط: ${formatSignedPoints(invoiceSource.points)}`,
+            'المصدر: Points Truth.',
+          ],
+        }
+      : {
+          status: 'manual' as const,
+          summary: 'لا يوجد ملخص آلي مباشر لجودة الفاتورة في Points Truth لهذه الدورة',
+          details: ['استخدم واقعة فاتورة موثقة أو مراجعة تشغيلية واضحة عند التقييم.'],
+        };
+  }
+
+  return {
+    status: 'manual' as const,
+    summary: 'لا يوجد قياس آلي مباشر لهذا المحور في مصادر V5 الحالية',
+    details: ['قيّم هذا المحور من واقعة موثقة أو ملاحظة تشغيلية واضحة، وليس من الانطباع العام فقط.'],
+  };
+}
+
 function gradeFor(score: number) {
   if (score >= 90) return 'ممتاز';
   if (score >= 80) return 'جيد جدًا';
@@ -197,7 +311,8 @@ export default function StaffMonthlyEvaluation() {
     [sections]
   );
   const evaluationNotStarted = sections.length > 0 && sections.every((item) => item.score === 0);
-  const grade = evaluationNotStarted ? 'لسه ما اتقيّمش' : gradeFor(overallScore);
+  const evaluationComplete = sections.length > 0 && sections.every((item) => item.score > 0);
+  const grade = evaluationNotStarted ? 'لسه ما اتقيّمش' : evaluationComplete ? gradeFor(overallScore) : 'غير مكتمل';
   const requiresPostCycleReapproval = Boolean(
     ['sent', 'approved'].includes(status)
       && sentAtIso
@@ -214,7 +329,9 @@ export default function StaffMonthlyEvaluation() {
   const activeGateCapPercent = activeGates.length
     ? Math.min(...activeGates.map((gate) => CRITICAL_GATE_CAPS[gate].capPercent))
     : 100;
-  const effectiveEvaluationMultiplierPct = Math.min(overallScore, activeGateCapPercent);
+  const effectiveEvaluationMultiplierPct = evaluationComplete
+    ? Math.min(overallScore, activeGateCapPercent)
+    : null;
 
   useEffect(() => {
     const loadStaff = async () => {
@@ -519,14 +636,52 @@ export default function StaffMonthlyEvaluation() {
     && weakSectionsMissingNotes.length === 0
     && !criticalGateMissingReason;
   const ratedSections = sections.filter((item) => item.score > 0);
-  const strongestSections = [...ratedSections]
-    .filter((item) => item.score >= 4)
-    .sort((a, b) => b.score - a.score || b.weight - a.weight)
-    .slice(0, 3);
-  const developmentSections = [...ratedSections]
-    .filter((item) => item.score <= 3)
-    .sort((a, b) => a.score - b.score || b.weight - a.weight)
-    .slice(0, 3);
+  const ratedWeight = ratedSections.reduce((sum, item) => sum + item.weight, 0);
+  const ratedEarnedPoints = Math.round(ratedSections.reduce((sum, item) => sum + sectionPoints(item), 0) * 10) / 10;
+  const strongestSections = evaluationComplete
+    ? [...ratedSections]
+        .filter((item) => item.score >= 4)
+        .sort((a, b) => b.score - a.score || b.weight - a.weight)
+        .slice(0, 3)
+    : [];
+  const developmentSections = evaluationComplete
+    ? [...ratedSections]
+        .filter((item) => item.score <= 3)
+        .sort((a, b) => a.score - b.score || b.weight - a.weight)
+        .slice(0, 3)
+    : [];
+
+  const incompleteActionLabel = !cycleClosed
+    ? 'راجع حالة الدورة'
+    : !evidenceReady
+      ? 'راجع مصادر البيانات'
+      : completedSections !== sections.length || weakSectionsMissingNotes.length
+        ? 'أكمل التقييم'
+        : criticalGateMissingReason
+          ? 'أكمل الخلاصة'
+          : 'راجع التقييم';
+
+  function continueIncompleteEvaluation() {
+    if (!cycleClosed || !evidenceReady) {
+      setActiveStep(1);
+      return;
+    }
+    if (completedSections !== sections.length || weakSectionsMissingNotes.length) {
+      const targetKey = weakSectionsMissingNotes[0]?.key || sections.find((item) => item.score === 0)?.key;
+      setActiveStep(2);
+      if (targetKey && typeof window !== 'undefined') {
+        window.setTimeout(() => {
+          document.getElementById(`evaluation-section-${targetKey}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 60);
+      }
+      return;
+    }
+    if (criticalGateMissingReason) {
+      setActiveStep(4);
+      return;
+    }
+    setActiveStep(5);
+  }
 
   // الرقم المالي المعروض يأتي فقط من الحقيقة المالية على الخادم أو من كشف مقفول.
   // لا نحسب مبلغًا نهائيًا داخل صفحة التقييم.
@@ -650,7 +805,7 @@ export default function StaffMonthlyEvaluation() {
               />
             </div>
 
-            <div className="mt-2 flex gap-1 overflow-x-auto pb-1">
+            <div className="mt-2 flex flex-wrap gap-1">
               {([
                 ['all', 'الكل'],
                 ['not_started', 'لم يبدأ'],
@@ -771,11 +926,16 @@ export default function StaffMonthlyEvaluation() {
                       </span>
                     </div>
 
-                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    <div className="mt-3 grid gap-2 sm:grid-cols-3">
                       <MiniBox
-                        label="النقاط الحالية"
-                        value={settledStatement ? `${settledStatement.points_closing}` : pointsTruth ? `${pointsTruth.final_points} / ${pointsTruth.target_points}` : '—'}
+                        label="النقاط الفعلية"
+                        value={settledStatement ? `${settledStatement.points_closing} نقطة` : pointsTruth ? `${pointsTruth.final_points} نقطة` : '—'}
                         tone="cyan"
+                      />
+                      <MiniBox
+                        label="هدف النقاط المسجل"
+                        value={pointsTruth?.target_points ? `${pointsTruth.target_points} نقطة` : 'غير محدد'}
+                        tone="amber"
                       />
                       <MiniBox
                         label="حافز الأداء المركزي"
@@ -788,7 +948,7 @@ export default function StaffMonthlyEvaluation() {
                   {!settledStatement && pointsTruth && cycleLabel !== currentEvaluationCycleLabel() ? (
                     <Panel className="p-3" style={{ background: 'var(--dawaa-status-warning-bg)', borderColor: 'var(--dawaa-status-warning-border)' }}>
                       <p className="text-xs font-bold" style={{ color: 'var(--dawaa-status-warning-text)' }}>
-                        الحافز المعروض تقدير حي لأن كشف هذه الدورة لم يُقفل بعد.
+                        الدورة انتهت، لكن كشف الحافز المالي لم يُعتمد نهائيًا بعد؛ المبلغ المعروض قراءة حية من Points Truth.
                       </p>
                     </Panel>
                   ) : null}
@@ -845,7 +1005,9 @@ export default function StaffMonthlyEvaluation() {
 
                   {isGatedByCriticalViolation ? (
                     <div className="mt-3 rounded-xl border px-3 py-2 text-xs font-black" style={{ borderColor: 'var(--dawaa-status-danger-border)', background: 'var(--dawaa-status-danger-bg)', color: 'var(--dawaa-status-danger-text)' }}>
-                      السقف الفعلي للحافز: {effectiveEvaluationMultiplierPct}%
+                      {effectiveEvaluationMultiplierPct == null
+                        ? 'السقف الفعلي يظهر بعد اكتمال كل محاور التقييم.'
+                        : `السقف الفعلي للحافز: ${effectiveEvaluationMultiplierPct}%`}
                     </div>
                   ) : null}
                 </Panel>
@@ -914,12 +1076,30 @@ export default function StaffMonthlyEvaluation() {
                   {pointsTruth?.source_breakdown?.length ? (
                     <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                       {pointsTruth.source_breakdown.map((source) => (
-                        <MiniBox
+                        <details
                           key={source.source}
-                          label={source.source}
-                          value={`${source.points > 0 ? '+' : ''}${source.points} · ${source.events} حدث`}
-                          tone={source.points < 0 ? 'amber' : 'cyan'}
-                        />
+                          className="rounded-xl border p-3"
+                          style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}
+                        >
+                          <summary className="cursor-pointer list-none">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>
+                                {pointSourceLabel(source.source)}
+                              </span>
+                              <span className="text-sm font-black" style={{ color: source.points < 0 ? 'var(--dawaa-status-warning-text)' : 'var(--dawaa-theme-primary-strong)' }}>
+                                {formatSignedPoints(source.points)} نقطة
+                              </span>
+                            </div>
+                            <div className="mt-1 text-[10px] font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                              {source.events} حدث · عرض التفاصيل
+                            </div>
+                          </summary>
+                          <div className="mt-2 space-y-1 border-t pt-2 text-[11px] font-bold" style={{ borderColor: 'var(--dawaa-theme-border)', color: 'var(--dawaa-theme-muted)' }}>
+                            <div>عدد الأحداث: {source.events}</div>
+                            <div>صافي النقاط: {formatSignedPoints(source.points)}</div>
+                            <div>المصدر التقني: <code>{source.source}</code></div>
+                          </div>
+                        </details>
                       ))}
                     </div>
                   ) : (
@@ -936,9 +1116,10 @@ export default function StaffMonthlyEvaluation() {
                     const earned = sectionPoints(item);
                     const selectedRubric = item.score > 0 && item.rubric ? item.rubric[item.score - 1] : null;
                     const weakNeedsNote = item.score > 0 && item.score <= 2 && !item.notes.trim();
+                    const sectionEvidence = sectionEvidenceFor(item.key, metrics, evidenceHealth, pointsTruth);
 
                     return (
-                      <Panel key={item.key} className="p-3">
+                      <Panel id={`evaluation-section-${item.key}`} key={item.key} className="p-3">
                         <div className="flex flex-wrap items-start gap-3">
                           <div className="min-w-0 flex-1">
                             <div className="flex flex-wrap items-center gap-2">
@@ -946,6 +1127,29 @@ export default function StaffMonthlyEvaluation() {
                               <span className="text-[10px] font-black" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>{item.weight} نقطة</span>
                             </div>
                             <p className="mt-1 text-[11px] leading-5" style={{ color: 'var(--dawaa-theme-muted)' }}>{item.description}</p>
+                            <details
+                              className="mt-2 rounded-lg border px-2.5 py-2"
+                              style={{
+                                borderColor: sectionEvidence.status === 'unavailable'
+                                  ? 'var(--dawaa-status-danger-border)'
+                                  : 'var(--dawaa-theme-border)',
+                                background: sectionEvidence.status === 'unavailable'
+                                  ? 'var(--dawaa-status-danger-bg)'
+                                  : 'var(--dawaa-theme-soft)',
+                              }}
+                            >
+                              <summary
+                                className="cursor-pointer text-[11px] font-black"
+                                style={{ color: sectionEvidence.status === 'unavailable' ? 'var(--dawaa-status-danger-text)' : 'var(--dawaa-theme-text)' }}
+                              >
+                                الدليل المتاح: {sectionEvidence.summary}
+                                <span className="ms-1" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>· عرض الدليل</span>
+                              </summary>
+                              <div className="mt-2 space-y-1 text-[11px] font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                                {sectionEvidence.details.map((detail) => <div key={detail}>• {detail}</div>)}
+                                <div>• الدليل الآلي مساعد للقرار وليس درجة تلقائية.</div>
+                              </div>
+                            </details>
                           </div>
 
                           <div className="shrink-0">
@@ -1012,10 +1216,18 @@ export default function StaffMonthlyEvaluation() {
                     <div>
                       <div className="text-sm font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>الخلاصة والتطوير</div>
                       <div className="mt-1 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
-                        استخدم الاقتراحات الجاهزة ثم عدّل النص باختصار.
+                        {evaluationComplete
+                          ? 'استخدم الاقتراحات الجاهزة ثم عدّل النص باختصار.'
+                          : 'أكمل كل محاور التقييم أولًا حتى لا تُبنى الخلاصة على جزء من البيانات.'}
                       </div>
                     </div>
                   </div>
+
+                  {!evaluationComplete ? (
+                    <div className="mt-3 rounded-xl border px-3 py-2 text-xs font-bold" style={{ borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-status-warning-bg)', color: 'var(--dawaa-status-warning-text)' }}>
+                      الخلاصة الآلية مؤجلة حتى اكتمال {sections.length} محاور. يمكنك كتابة ملاحظة يدوية، لكن اقتراحات القوة والتطوير لن تظهر قبل اكتمال التقييم.
+                    </div>
+                  ) : null}
 
                   <div className="mt-3 grid gap-3 lg:grid-cols-2">
                     <div>
@@ -1140,10 +1352,20 @@ export default function StaffMonthlyEvaluation() {
                     ) : null}
 
                     <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                      <MiniBox label="الدرجة" value={evaluationNotStarted ? '—' : `${overallScore}/100`} tone={overallScore >= 80 ? 'green' : overallScore >= 60 ? 'amber' : 'red'} />
+                      <MiniBox
+                        label="الدرجة"
+                        value={evaluationComplete ? `${overallScore}/100` : `غير مكتمل · ${completedSections}/${sections.length}`}
+                        tone={evaluationComplete ? (overallScore >= 80 ? 'green' : overallScore >= 60 ? 'amber' : 'red') : 'amber'}
+                      />
                       <MiniBox label="مخالفات حرجة" value={activeGates.length ? String(activeGates.length) : '0'} tone={activeGates.length ? 'red' : 'green'} />
                       <MiniBox label="الحافز المركزي" value={canonicalIncentive == null ? 'غير محدد' : `${canonicalIncentive.toLocaleString('ar-EG')} ج`} tone={canonicalIncentive == null ? 'amber' : 'green'} />
                     </div>
+
+                    {!evaluationComplete && ratedSections.length ? (
+                      <div className="mt-2 rounded-xl border px-3 py-2 text-xs font-bold" style={{ borderColor: 'var(--dawaa-status-info-border)', background: 'var(--dawaa-status-info-bg)', color: 'var(--dawaa-status-info-text)' }}>
+                        المحاور المقيمة حاليًا: {ratedEarnedPoints}/{ratedWeight} نقطة. لن تظهر درجة نهائية من 100 قبل اكتمال كل المحاور.
+                      </div>
+                    ) : null}
 
                     {canEdit ? (
                       <div className="mt-4 flex flex-wrap justify-end gap-2 border-t pt-3" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
@@ -1155,9 +1377,14 @@ export default function StaffMonthlyEvaluation() {
                             <Save size={16} /> حفظ مسودة
                           </button>
                         ) : null}
-                        <button type="button" disabled={saving || !approvalReady} onClick={() => void save('sent')} className="btn-primary inline-flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-60">
-                          {saving ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-                          {!cycleClosed ? 'بعد إقفال الدورة' : !evidenceReady ? 'الأدلة ناقصة' : completedSections !== sections.length ? 'أكمل التقييم' : requiresPostCycleReapproval ? 'إعادة اعتماد' : previouslySent ? 'تحديث الاعتماد' : 'اعتماد وإرسال'}
+                        {!approvalReady ? (
+                          <button type="button" disabled={saving} onClick={continueIncompleteEvaluation} className="btn-primary inline-flex items-center gap-2">
+                            <Send size={16} /> {incompleteActionLabel}
+                          </button>
+                        ) : null}
+                        <button type="button" disabled={saving || !approvalReady} onClick={() => void save('sent')} className="btn-primary inline-flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-45">
+                          {saving ? <Loader2 size={16} className="animate-spin" /> : <UserCheck size={16} />}
+                          {requiresPostCycleReapproval ? 'إعادة اعتماد' : previouslySent ? 'تحديث الاعتماد' : 'اعتماد وإرسال'}
                         </button>
                       </div>
                     ) : null}
@@ -1193,18 +1420,18 @@ export default function StaffMonthlyEvaluation() {
                         : activeStep === 5 ? 'السابق: الخلاصة'
                           : 'السابق'}
                 </button>
-                <button
-                  type="button"
-                  disabled={activeStep === 5}
-                  onClick={() => setActiveStep((Math.min(5, activeStep + 1)) as MonthlyEvaluationStep)}
-                  className="btn-primary disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  {activeStep === 1 ? 'التالي: التقييم'
-                    : activeStep === 2 ? 'التالي: النقاط'
-                      : activeStep === 3 ? 'التالي: الخلاصة'
-                        : activeStep === 4 ? 'التالي: الاعتماد'
-                          : 'التالي'}
-                </button>
+                {activeStep < 5 ? (
+                  <button
+                    type="button"
+                    onClick={() => setActiveStep((Math.min(5, activeStep + 1)) as MonthlyEvaluationStep)}
+                    className="btn-primary"
+                  >
+                    {activeStep === 1 ? 'التالي: التقييم'
+                      : activeStep === 2 ? 'التالي: النقاط'
+                        : activeStep === 3 ? 'التالي: الخلاصة'
+                          : 'التالي: الاعتماد'}
+                  </button>
+                ) : null}
               </Panel>
             </>
           ) : (
