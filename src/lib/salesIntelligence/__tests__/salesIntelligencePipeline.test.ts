@@ -707,3 +707,31 @@ describe('Protocol Applicability + Historical Closure (Sales Intelligence Phase 
   });
 
 });
+
+describe('Sales Intelligence semantic interaction ownership across coarse transport sessions', () => {
+  it('lets V32 keep the same-order follow-up across the old 120-minute coarse split', () => {
+    const raw = `[9/15/26, 9:00:00 AM] Customer: عايز فيتامين د
+[9/15/26, 9:02:00 AM] Customer: اه ابعته
+[9/15/26, 9:03:00 AM] You: من عنيا لحضرتك مسافة الطريق
+[9/15/26, 12:03:00 PM] Customer: حضرتك بعت الاوردر
+[9/15/26, 12:04:00 PM] You: اه يا فندم المندوب في الطريق لحضرتك`;
+    const result = runSalesIntelligencePipeline(baseInput({ rawWhatsAppExportText: raw }));
+    expect(result.sessionsProcessed).toBe(2);
+    expect(result.caseAnalyses).toHaveLength(1);
+    expect(result.pipelineWarnings).toContain('semantic_interaction_crossed_coarse_session_boundary');
+    expect(result.caseAnalyses[0].caseId).toContain(':session:0');
+  });
+
+  it('keeps genuinely new needs separate across the same coarse split and preserves the session-qualified id envelope', () => {
+    const raw = `[9/15/26, 9:00:00 AM] Customer: عايز فيتامين د
+[9/15/26, 9:02:00 AM] You: تمام يا فندم تم تأكيد الطلب وجاري الإرسال
+[9/15/26, 12:03:00 PM] Customer: عايز شامبو للشعر
+[9/15/26, 12:04:00 PM] You: موجود يا فندم`;
+    const result = runSalesIntelligencePipeline(baseInput({ rawWhatsAppExportText: raw }));
+    expect(result.sessionsProcessed).toBe(2);
+    expect(result.caseAnalyses).toHaveLength(2);
+    expect(result.caseAnalyses[0].caseId).toContain(':session:0');
+    expect(result.caseAnalyses[1].caseId).toContain(':session:1');
+    expect(new Set(result.caseAnalyses.map((analysis) => analysis.caseId)).size).toBe(2);
+  });
+});

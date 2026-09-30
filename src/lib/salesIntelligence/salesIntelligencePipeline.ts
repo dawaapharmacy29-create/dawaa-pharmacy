@@ -87,7 +87,7 @@ export interface SalesIntelligencePipelineInput {
   /** Caller-CONFIRMED only — never inferred here from ambiguous free-text status columns (mirrors Phase F's own field). */
   invoiceStatusHint?: 'cancelled' | 'returned' | null;
   competingSelections?: Array<{ caseId: string; invoiceId: string }>;
-  /** Passed through to splitWhatsAppSessions() — defaults to its own default (120 minutes). */
+  /** Coarse transport partition retained only for stable legacy case-id envelopes; V32 owns analytical interaction boundaries. */
   sessionSplitGapMinutes?: number;
   /**
    * Phase G.1 — passed straight through to SalesIntegrityInput.protocolPolicyEffectiveAt (see its
@@ -554,47 +554,75 @@ export function deriveSegmentedCases(input: DeriveSegmentedCasesInput): DeriveSe
     return { sessionsProcessed: 0, cases: [], pipelineWarnings };
   }
 
-  const sessions = splitWhatsAppSessions(parsedMessages, input.sessionSplitGapMinutes ?? 120);
-  if (sessions.length === 0) {
+  // Keep the historical 120-minute transport partition ONLY as a stable case-id envelope.
+  // Analytical interaction boundaries are now owned exclusively by V32 over the whole source,
+  // so a delayed reply / delivery follow-up can cross a coarse transport boundary without
+  // becoming a fake second commercial case.
+  const coarseSessions = splitWhatsAppSessions(parsedMessages, input.sessionSplitGapMinutes ?? 120);
+  if (coarseSessions.length === 0) {
     pipelineWarnings.push('no_sessions_derived_from_raw_text');
     return { sessionsProcessed: 0, cases: [], pipelineWarnings };
   }
 
-  sessions.forEach((session, sessionIndex) => {
-    const understanding = buildConversationUnderstandingV32(session);
-    const rawCases = deriveConversationCases({
-      understanding,
-      conversationId: input.conversationId,
-      sourceCaseIdV22: input.sourceCaseIdV22 ?? null,
-      customerIdHint: input.customerIdHint ?? null,
-      customerPhoneHint: input.customerPhoneHint ?? null,
-      branchIdHint: input.branchIdHint ?? null,
-      branchNameRawHint: input.branchNameRawHint ?? null,
-    });
+  const semanticSession = splitWhatsAppSessions(parsedMessages, Number.MAX_SAFE_INTEGER)[0];
+  if (!semanticSession) {
+    pipelineWarnings.push('no_semantic_session_derived_from_raw_text');
+    return { sessionsProcessed: coarseSessions.length, cases: [], pipelineWarnings };
+  }
 
-    // deriveConversationCases() maps 1:1, in order, over understanding.interactions — see its own
-    // implementation in conversationCaseEngine.ts. Zipping by index is exact, never a re-parse of
-    // the caseId string.
-    understanding.interactions.forEach((interaction, index) => {
-      const rawCase = rawCases[index];
-      // BUG FIX (found via this pipeline's own multi-session shadow re-validation): conversationCaseEngine.ts
-      // builds caseId as `${conversationId}:${interaction.id}`, where interaction.id
-      // ("interaction:N") is only unique WITHIN one V32 understanding/session — it resets to 0 for
-      // EVERY session. A raw conversation whose sessions split apart (session gap >
-      // sessionSplitGapMinutes) would otherwise silently produce the SAME caseId
-      // ("conversationId:interaction:0") for the first case of every session, corrupting anything
-      // keyed by caseId (competingSelections, batch reporting, a future persistence primary key).
-      // deriveConversationCases() itself is left untouched — it was never designed to be called
-      // more than once per conversationId; the fix belongs here, in the ONLY layer that does that.
-      const conversationCase = sessions.length > 1 ? { ...rawCase, caseId: `${rawCase.caseId}:session:${sessionIndex}` } : rawCase;
-      const scopedMessages = messagesForMessageIds(understanding, interaction.messageIds);
-      cases.push({ conversationCase, scopedMessages });
-    });
+  const understanding = buildConversationUnderstandingV32(semanticSession);
+  const rawCases = deriveConversationCases({
+    understanding,
+    conversationId: input.conversationId,
+    sourceCaseIdV22: input.sourceCaseIdV22 ?? null,
+    customerIdHint: input.customerIdHint ?? null,
+    customerPhoneHint: input.customerPhoneHint ?? null,
+    branchIdHint: input.branchIdHint ?? null,
+    branchNameRawHint: input.branchNameRawHint ?? null,
   });
 
-  return { sessionsProcessed: sessions.length, cases, pipelineWarnings };
-}
+  const coarseSessionIndexByMessageId = new Map<string, number>();
+  coarseSessions.forEach((session, sessionIndex) => {
+    session.messages.forEach((message) => coarseSessionIndexByMessageId.set(message.id, sessionIndex));
+  });
+  const localInteractionCountBySession = new Map<number, number>();
+  let crossedCoarseBoundary = false;
 
+  understanding.interactions.forEach((interaction, index) => {
+    const rawCase = rawCases[index];
+    const coarseSessionIndexes = Array.from(
+      new Set(
+        interaction.messageIds
+          .map((messageId) => coarseSessionIndexByMessageId.get(messageId))
+          .filter((value): value is number => typeof value === 'number')
+      )
+    ).sort((a, b) => a - b);
+    const anchorSessionIndex = coarseSessionIndexes[0] ?? 0;
+    const localInteractionIndex = localInteractionCountBySession.get(anchorSessionIndex) ?? 0;
+    localInteractionCountBySession.set(anchorSessionIndex, localInteractionIndex + 1);
+    if (coarseSessionIndexes.length > 1) crossedCoarseBoundary = true;
+
+    // Preserve the historical session-qualified case-id shape whenever the source used to have
+    // multiple coarse sessions. Unchanged boundaries therefore keep the same ids, while a true
+    // semantic continuation simply consumes the later coarse fragment instead of inventing a
+    // duplicate case.
+    const conversationCase =
+      coarseSessions.length > 1
+        ? {
+            ...rawCase,
+            caseId: `${input.conversationId}:interaction:${localInteractionIndex}:session:${anchorSessionIndex}`,
+          }
+        : rawCase;
+    const scopedMessages = messagesForMessageIds(understanding, interaction.messageIds);
+    cases.push({ conversationCase, scopedMessages });
+  });
+
+  if (crossedCoarseBoundary) {
+    pipelineWarnings.push('semantic_interaction_crossed_coarse_session_boundary');
+  }
+
+  return { sessionsProcessed: coarseSessions.length, cases, pipelineWarnings };
+}
 /**
  * H.1B addition: segmentation-only output (ConversationCase[], no basket/attribution/matching/
  * integrity) for the customer-grouped batch service's pre-pass — it needs each case's own

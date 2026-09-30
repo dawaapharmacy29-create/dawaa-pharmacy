@@ -151,3 +151,62 @@ describe('product reference safety against welcome templates', () => {
     expect(refSignal?.ruleId).toBe('reference.resolved_to_prior_offer');
   });
 });
+
+describe('V32 semantic commercial interaction boundaries', () => {
+  function semanticSession(raw: string) {
+    const sessions = splitWhatsAppSessions(parseWhatsAppExport(raw), 12 * 60);
+    expect(sessions).toHaveLength(1);
+    return sessions[0];
+  }
+
+  it('keeps a delayed staff answer attached to the customer need instead of splitting only because 75 minutes passed', () => {
+    const raw = `[9/15/26, 9:00:00 AM] Customer: محتاج اعرف الغسول ده موجود
+[9/15/26, 9:01:00 AM] You: لحظات اشوفه لحضرتك
+[9/15/26, 10:16:00 AM] You: موجود الحمد لله وسعره 250 جنيه`;
+    const understanding = buildConversationUnderstandingV32(semanticSession(raw));
+    expect(understanding.interactions).toHaveLength(1);
+  });
+
+  it('keeps a resolved product-reference continuation after a long pause in the same interaction', () => {
+    const raw = `[9/15/26, 9:00:00 AM] Customer: محتاج غسول للبشرة الحساسة
+[9/15/26, 9:02:00 AM] You: متوفر ISIS Teen Derm Gel Sensitive 250ml
+[9/15/26, 10:17:00 AM] Customer: طب ابعتلي ده`;
+    const understanding = buildConversationUnderstandingV32(semanticSession(raw));
+    expect(understanding.interactions).toHaveLength(1);
+  });
+
+  it('splits a genuinely new commercial need after a pause even without a topic-shift phrase', () => {
+    const raw = `[9/15/26, 9:00:00 AM] Customer: عايز فيتامين د
+[9/15/26, 9:02:00 AM] You: موجود ب250 جنيه
+[9/15/26, 9:47:00 AM] Customer: عايز شامبو للشعر`;
+    const understanding = buildConversationUnderstandingV32(semanticSession(raw));
+    expect(understanding.interactions).toHaveLength(2);
+    expect(understanding.interactions[1].segmentationReason).toBe('new_commercial_need');
+  });
+
+  it('keeps an immediate additive basket amendment after confirmation in the same interaction', () => {
+    const raw = `[9/15/26, 9:00:00 AM] Customer: عايز فيتامين د
+[9/15/26, 9:02:00 AM] You: تمام يا فندم تم تأكيد الطلب وجاري الإرسال
+[9/15/26, 9:12:00 AM] Customer: وكمان عايز شامبو للشعر`;
+    const understanding = buildConversationUnderstandingV32(semanticSession(raw));
+    expect(understanding.interactions).toHaveLength(1);
+  });
+
+  it('starts a new interaction for a plain new request after the previous order was already committed', () => {
+    const raw = `[9/15/26, 9:00:00 AM] Customer: عايز فيتامين د
+[9/15/26, 9:02:00 AM] You: تمام يا فندم تم تأكيد الطلب وجاري الإرسال
+[9/15/26, 9:12:00 AM] Customer: عايز شامبو للشعر`;
+    const understanding = buildConversationUnderstandingV32(semanticSession(raw));
+    expect(understanding.interactions).toHaveLength(2);
+    expect(understanding.interactions[1].segmentationReason).toBe('new_commercial_need');
+  });
+
+  it('keeps an explicit prior-order delivery follow-up after four hours in the original interaction', () => {
+    const raw = `[9/15/26, 9:00:00 AM] Customer: عايز فيتامين د
+[9/15/26, 9:02:00 AM] Customer: اه ابعته
+[9/15/26, 9:03:00 AM] You: من عنيا لحضرتك مسافة الطريق
+[9/15/26, 1:03:00 PM] Customer: الاوردر بتاعي وصل للمندوب ولا لسه؟`;
+    const understanding = buildConversationUnderstandingV32(semanticSession(raw));
+    expect(understanding.interactions).toHaveLength(1);
+  });
+});
