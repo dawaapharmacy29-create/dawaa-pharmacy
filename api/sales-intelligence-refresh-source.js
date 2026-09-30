@@ -833,6 +833,14 @@ var ADDRESS_RX = /العنوان\s*[:\-]?\s*\S+|عنوانك|هيوصل\s*ل(?:�
 var PRICE_RX = /(\d+(?:\.\d+)?)\s*(جنيه|جنيها|ج\.?م\.?|le|egp)/i;
 var DELIVERY_RX = /توصيل|دليفري|delivery/i;
 var PROMISE_RX = /هبعت(?:لك|لحضرتك)?|هيوصل|هجهز(?:لك|لحضرتك)?|هوصلك/i;
+var UNAVAILABLE_RX = /(?:مش|مو|غير)\s*(?:موجود|متوفر|متاح)[ةه]?|مفيش\s*(?:منه|منها|حاليا|حاليًا|عندنا)|مش\s*عندنا|(?:الصنف|المنتج|ده|دي|هو|هي)\s*(?:خلص|خلصان[ةه]?|نفذ|ناقص[ةه]?)|(?:خلص|نفذ|ناقص[ةه]?)\s*(?:من\s*(?:عندنا|السوق|الشركة)|حاليا|حاليًا)|ناقص\s*في\s*السوق/i;
+var AVAILABLE_RX = /(?:^|[\s،,])(?:موجود|متوفر|متاح)[ةه]?(?:$|[\s،,!.])|عندنا\s*(?:منه|منها)|(?:اه|أه|آه|ايوه|أيوه|ايوا)\s*(?:موجود|متوفر)/i;
+var CHECK_PENDING_RX = /(?:ثواني|ثانية|لحظ[ةه]|دقيق[ةه]|دقايق)\s*(?:و\s*)?(?:أ|ا)?(?:شوف|تأكد|اتأكد|سأل|راجع)|هشوف(?:لك|لحضرتك)?|هتأكد|هاتأكد|هسأل(?:\s*(?:الفرع|المخزن))?|هنشوف(?:ه|ها)?|(?:أ|ا)تأكد\s*من\s*(?:توفر|التوفر|المخزن)|هراجع\s*(?:المخزن|التوفر)/i;
+var ALTERNATIVE_MARKER_RX = /بديل|بدل\s*(?:منه|منها|منهم|ده|دي|ال\S+)|المتاح\s*بدل|(?:فيه|في|عندنا)\s*نفس\s*(?:المادة|التركيب[ةه]?)|نفس\s*المادة\s*الفعال[ةه]|يقوم\s*بنفس|نبدل(?:ه|ها|هم)?\s/i;
+var GENERIC_OFFER_RX = /(?:ممكن|ينفع|نقدر)\s*(?:نجيب|أجيب|اجيب|نديلك|أقدم|اقدم|نقدم|أقترح|اقترح|أرشح|ارشح)(?:لك|لحضرتك)?|(?:أرشح|ارشح|أقترح|اقترح)(?:لك|لحضرتك)/i;
+var ALTERNATIVE_PHRASE_FILLER_RX = /^(?:(?:ممكن|ينفع|نقدر|نجيب|أجيب|اجيب|هنجيب|هجيب|نديلك|نديك|نقدم|أقدم|اقدم|أرشح|ارشح|نرشح|لحضرتك|ليك|لك|له|لها|منه|منها|هو|هي|وهو|اسمه|اسمها|يا\s*فندم|بـ)(?=\s|$)|[\s:\-،])+/i;
+var ACCEPT_OFFER_RX = /(?:تمام|ماشي|اوك|ok|خلاص|ايوه|ايوا|اه|آه)?\s*(?:هاته|هاتها|هاتهم|هاتيه|ابعته|ابعتها|ابعتهم|خليه|خليها|هاخده|هاخدها|موافق)/i;
+var CONSIDERING_RX = /هفكر|أفكر|افكر|هشوف\s*و?\s*(?:أرد|ارد|أقولك|اقولك)|هرد\s*عليك|هقولك|هبلغك|هستشير|هسأل\s*(?:الدكتور|دكتور)|بعدين\s*(?:أقولك|اقولك|أرد|ارد)/i;
 var PRODUCT_REFERENCE_RX = /(?<![\p{L}\p{N}])(?:ده|دي|دول|منه|منها)(?![\p{L}\p{N}])|واحد\s*من\s*(?:ده|دا)|الاتنين|نفس\s*اللي\s*فات|اللي\s*حضرتك\s*قولت?\s*عليه|البديل\s*ده|(?<![\p{L}\p{N}])التاني(?![\p{L}\p{N}])/iu;
 var STAFF_NON_PRODUCT_TEMPLATE_RX = /أهلا\s*وسهلا|نورت(?:نا|ينا)|صيدليات\s*دواء|خدمة\s*التوصيل|على\s*مدار\s*24\s*ساعة|مع\s*حضرتك|تحت\s*أمر\s*حضرتك|تشرفنا\s*بخدمت/i;
 function isPlausibleStaffProductOffer(message) {
@@ -1092,6 +1100,68 @@ function extractDeliverySignals(messages) {
 function extractPromiseSignals(messages) {
   return messages.filter((m) => m.role === "staff" && m.isMeaningful && PROMISE_RX.test(m.text)).map((m) => ({ type: "promise", messageId: m.id, confidence: 0.6, ruleId: "promise.future_fulfillment_phrase" }));
 }
+function statementClauses(text) {
+  return (text.match(/[^؟?.!\n،,]+[؟?]?/g) || []).map((clause) => clause.trim()).filter((clause) => clause.length > 0 && !/[؟?]$/.test(clause));
+}
+function classifyAvailabilityStatementV32(text) {
+  const clauses = statementClauses(text);
+  if (clauses.some((clause) => UNAVAILABLE_RX.test(clause))) return "unavailable";
+  if (clauses.some((clause) => AVAILABLE_RX.test(clause))) return "available";
+  if (clauses.some((clause) => CHECK_PENDING_RX.test(clause))) return "check_pending";
+  return null;
+}
+function extractAvailabilitySignals(messages) {
+  const signals = [];
+  for (const m of messages) {
+    if (m.role !== "staff" || !m.isMeaningful) continue;
+    const state = classifyAvailabilityStatementV32(m.text);
+    if (!state) continue;
+    signals.push({
+      type: "availability",
+      messageId: m.id,
+      confidence: state === "unavailable" ? 0.85 : state === "available" ? 0.8 : 0.75,
+      extractedValue: state,
+      ruleId: `availability.staff_statement.${state}`
+    });
+  }
+  return signals;
+}
+function alternativePhraseAfter(text, marker) {
+  const match = text.match(marker);
+  if (!match || match.index == null) return null;
+  const tail = text.slice(match.index + match[0].length).split(/[؟?\n.!]/)[0].replace(ALTERNATIVE_PHRASE_FILLER_RX, "").trim();
+  return tail.length >= 2 ? tail.slice(0, 80) : null;
+}
+function extractAlternativeOfferSignals(messages) {
+  const signals = [];
+  messages.forEach((m, index) => {
+    if (m.role !== "staff" || !m.isMeaningful) return;
+    const explicit = ALTERNATIVE_MARKER_RX.test(m.text);
+    const generic = !explicit && GENERIC_OFFER_RX.test(m.text);
+    if (!explicit && !generic) return;
+    const { before } = contextWindowV32(messages, index, 4, 0);
+    const trigger = before.filter(
+      (prev) => prev.role === "staff" && classifyAvailabilityStatementV32(prev.text) === "unavailable" || prev.role === "customer" && REJECTION_RX.test(prev.text)
+    ).pop();
+    const selfUnavailable = classifyAvailabilityStatementV32(m.text) === "unavailable";
+    if (generic && !trigger && !selfUnavailable) return;
+    signals.push({
+      type: "alternative_offer",
+      messageId: m.id,
+      confidence: explicit ? trigger || selfUnavailable ? 0.85 : 0.7 : 0.6,
+      extractedValue: alternativePhraseAfter(m.text, explicit ? ALTERNATIVE_MARKER_RX : GENERIC_OFFER_RX),
+      relatedMessageIds: trigger ? [trigger.id] : [],
+      ruleId: explicit ? "alternative_offer.explicit_marker" : "alternative_offer.generic_offer_after_unavailable_or_rejection"
+    });
+  });
+  return signals;
+}
+function classifyCustomerOfferResponseV32(text) {
+  if (REJECTION_RX.test(text)) return "rejected";
+  if (CONSIDERING_RX.test(text)) return "considering";
+  if (ACCEPTANCE_RX.test(text) || ACCEPT_OFFER_RX.test(text)) return "accepted";
+  return null;
+}
 function buildSemanticSignalsV32(messages) {
   return [
     ...extractGreetingSignals(messages),
@@ -1107,7 +1177,9 @@ function buildSemanticSignalsV32(messages) {
     ...extractAddressSignals(messages),
     ...extractPriceSignals(messages),
     ...extractDeliverySignals(messages),
-    ...extractPromiseSignals(messages)
+    ...extractPromiseSignals(messages),
+    ...extractAvailabilitySignals(messages),
+    ...extractAlternativeOfferSignals(messages)
   ];
 }
 function computeRequestBurstIds(messages, gapMs = 3 * 60 * 1e3) {
@@ -3852,6 +3924,13 @@ function strongestConfidence(current, next) {
   if (confidenceRank(next.level) < confidenceRank(current.level)) return current;
   return next.score > current.score ? next : current;
 }
+var STOCK_QUESTION_WORDS_RX = /(?<![\p{L}\p{N}])(?:هو|هي|هل|طيب|عندكم|عندكو|عندك|موجود[ةه]?|متوفر[ةه]?|متاح[ةه]?|فيه|في|لو\s*سمحت|من\s*فضلك|ممكن|يا\s*(?:دكتور[ةه]?|فندم))(?![\p{L}\p{N}])/giu;
+var NON_PRODUCT_LEFTOVER_RX = /^(?:مش|لا|لأ|اه|آه|تمام|حاجة|حاجه|ده|دي|دا|منه|منها)?$/;
+function productPhraseFromStockQuestion(text) {
+  const phrase = stripRequestPrefix(text.replace(STOCK_QUESTION_WORDS_RX, " ")).replace(/[؟?!.،]+/g, " ").replace(/\s+/g, " ").trim();
+  if (phrase.length < 3 || NON_PRODUCT_LEFTOVER_RX.test(phrase)) return null;
+  return phrase;
+}
 function classifyObjectionCategory(text, explicitRejection, correction) {
   if (PRICE_OBJECTION_RX.test(text)) return "price";
   if (AVAILABILITY_OBJECTION_RX.test(text)) return "availability";
@@ -3894,7 +3973,9 @@ function deriveCustomerNeedModel(input) {
         finalQuantity: null,
         roles: /* @__PURE__ */ new Set(),
         evidenceMessageIds: /* @__PURE__ */ new Set(),
-        confidence: confidence2
+        confidence: confidence2,
+        availabilityEvidence: [],
+        alternatives: []
       };
       products.set(key, product);
     } else {
@@ -4016,6 +4097,153 @@ function deriveCustomerNeedModel(input) {
       }
     }
   }
+  const staffIdFor = (sender) => input.staffIdBySender?.[sender] ?? null;
+  const indexById = new Map(messages.map((message, index) => [message.id, index]));
+  const unlinkedAvailability = [];
+  const unlinkedAlternatives = [];
+  const linkProduct = (staffMessage, exclude = /* @__PURE__ */ new Set()) => {
+    const staffText = normalizeProductKey(staffMessage.text);
+    const named = Array.from(products.values()).filter(
+      (product) => !exclude.has(product.key) && product.key.length >= 3 && product.key !== staffText && !product.evidenceMessageIds.has(staffMessage.id) && staffText.includes(product.key)
+    );
+    if (named.length === 1) return { product: named[0], basis: "product_named_in_message" };
+    if (named.length > 1) return null;
+    const index = indexById.get(staffMessage.id) ?? -1;
+    const before = messages.slice(0, Math.max(index, 0));
+    const lastStaffIndex = before.map((message) => message.role === "staff" && message.isMeaningful).lastIndexOf(true);
+    const customerTurn = before.slice(lastStaffIndex + 1).filter((message) => message.role === "customer" && isRequestCandidate(message));
+    const request = customerTurn.length === 1 ? customerTurn[0] : null;
+    if (customerTurn.length > 1) return null;
+    if (request) {
+      const tied = Array.from(products.values()).filter(
+        (product) => !exclude.has(product.key) && product.evidenceMessageIds.has(request.id)
+      );
+      if (tied.length === 1) return { product: tied[0], basis: "single_open_request" };
+      if (tied.length === 0) {
+        const phrase = productPhraseFromStockQuestion(request.text);
+        if (phrase && !exclude.has(normalizeProductKey(phrase))) {
+          const ref2 = evidenceRef2(request.id, `\u0627\u0644\u0639\u0645\u064A\u0644 \u0633\u0623\u0644 \u0639\u0646 \u0627\u0644\u0635\u0646\u0641: "${request.text.slice(0, 120)}".`);
+          const created = ensureProduct(
+            phrase,
+            assessment6("weakly_inferred", 0.6, ["need.product.customer_stock_question"], [ref2])
+          );
+          if (created) {
+            created.roles.add("requested");
+            created.evidenceMessageIds.add(request.id);
+            return { product: created, basis: "single_open_request" };
+          }
+        }
+      }
+    }
+    const requested = Array.from(products.values()).filter(
+      (product) => !exclude.has(product.key) && product.roles.has("requested") && Array.from(product.evidenceMessageIds).some((id) => (indexById.get(id) ?? Infinity) < index)
+    );
+    return requested.length === 1 ? { product: requested[0], basis: "single_open_request" } : null;
+  };
+  const availabilityByMessageId = /* @__PURE__ */ new Map();
+  for (const signal of extractAvailabilitySignals(messages)) {
+    const message = messageById.get(signal.messageId);
+    if (!message) continue;
+    const state = signal.extractedValue;
+    const link = linkProduct(message);
+    const fact = {
+      state,
+      messageId: message.id,
+      staffSender: message.sender,
+      staffId: staffIdFor(message.sender),
+      linkBasis: link?.basis ?? "unlinked",
+      confidence: assessment6(
+        link?.basis === "product_named_in_message" ? "strongly_inferred" : "weakly_inferred",
+        link?.basis === "product_named_in_message" ? signal.confidence : Math.min(signal.confidence, 0.7),
+        [signal.ruleId, `need.availability.link.${link?.basis ?? "unlinked"}`],
+        [evidenceRef2(message.id, `\u0627\u0644\u0645\u0648\u0638\u0641 (${message.sender}) \u0642\u0627\u0644 \u0639\u0646 \u0627\u0644\u062A\u0648\u0641\u0631: "${message.text.slice(0, 120)}".`)]
+      )
+    };
+    if (!link) {
+      unlinkedAvailability.push(fact);
+      continue;
+    }
+    link.product.availabilityEvidence.push(fact);
+    link.product.evidenceMessageIds.add(message.id);
+    availabilityByMessageId.set(message.id, link.product);
+  }
+  const alternativeSignals = extractAlternativeOfferSignals(messages);
+  const alternativeMessageIds = new Set(alternativeSignals.map((signal) => signal.messageId));
+  const customerResponseTo = (offer) => {
+    const start = (indexById.get(offer.id) ?? -1) + 1;
+    const replies = [];
+    for (const message of messages.slice(start)) {
+      if (alternativeMessageIds.has(message.id)) break;
+      if (message.role === "customer" && message.isMeaningful) replies.push(message);
+      if (replies.length >= 3) break;
+    }
+    if (replies.length === 0) return { response: "no_response", messageId: null };
+    for (const reply of replies) {
+      const response = classifyCustomerOfferResponseV32(reply.text);
+      if (response) return { response, messageId: reply.id };
+    }
+    return { response: "unknown", messageId: null };
+  };
+  const itemsSourcedFrom = (messageId2) => input.baskets.flatMap((basket) => input.itemsByBasketId[basket.basketId] ?? []).filter(
+    (item) => item.sourceMessageId === messageId2
+  );
+  for (const signal of alternativeSignals) {
+    const offer = messageById.get(signal.messageId);
+    if (!offer) continue;
+    const trigger = (signal.relatedMessageIds ?? [])[0];
+    let original = (trigger ? availabilityByMessageId.get(trigger) : void 0) ?? availabilityByMessageId.get(offer.id) ?? null;
+    const offerText = normalizeProductKey(offer.text);
+    const sourcedKeys = Array.from(
+      new Set(itemsSourcedFrom(offer.id).map((item) => normalizeProductKey(item.productNameRaw)))
+    ).filter((key) => key && key !== original?.key && key !== offerText);
+    const phraseKey = signal.extractedValue ? normalizeProductKey(signal.extractedValue) : "";
+    let alternativeProduct = sourcedKeys.length === 1 ? products.get(sourcedKeys[0]) ?? null : phraseKey && phraseKey !== original?.key ? products.get(phraseKey) ?? null : null;
+    if (!original) {
+      const link = linkProduct(offer, new Set(alternativeProduct ? [alternativeProduct.key] : []));
+      original = link?.product ?? null;
+    }
+    if (alternativeProduct && alternativeProduct.key === original?.key) alternativeProduct = null;
+    if (alternativeProduct) {
+      alternativeProduct.roles.add("alternative");
+      alternativeProduct.evidenceMessageIds.add(offer.id);
+    }
+    const { response: textResponse, messageId: responseMessageId } = customerResponseTo(offer);
+    const inFinalBasket = alternativeProduct?.roles.has("final_basket") ?? false;
+    const response = textResponse === "unknown" || textResponse === "no_response" ? inFinalBasket ? "accepted" : textResponse : textResponse;
+    const evidenceIds = [
+      ...trigger ? [trigger] : [],
+      offer.id,
+      ...responseMessageId ? [responseMessageId] : []
+    ];
+    const named = Boolean(alternativeProduct || signal.extractedValue);
+    const alternative = {
+      productKey: alternativeProduct?.key ?? null,
+      productNameRaw: alternativeProduct?.productNameRaw ?? signal.extractedValue ?? null,
+      productId: alternativeProduct?.productId ?? null,
+      offerMessageId: offer.id,
+      offeredByStaffSender: offer.sender,
+      offeredByStaffId: staffIdFor(offer.sender),
+      response,
+      responseMessageId,
+      evidenceMessageIds: evidenceIds,
+      confidence: assessment6(
+        original && named ? "strongly_inferred" : "weakly_inferred",
+        original && named ? signal.confidence : Math.min(signal.confidence, 0.6),
+        [signal.ruleId, `need.alternative.response.${response}`],
+        [evidenceRef2(offer.id, `\u0627\u0644\u0645\u0648\u0638\u0641 (${offer.sender}) \u0639\u0631\u0636 \u0628\u062F\u064A\u0644\u064B\u0627: "${offer.text.slice(0, 120)}".`)]
+      )
+    };
+    if (!original) {
+      unlinkedAlternatives.push(alternative);
+      continue;
+    }
+    original.alternatives.push(alternative);
+    evidenceIds.forEach((id) => original.evidenceMessageIds.add(id));
+  }
+  const currentAvailability = (product) => {
+    const latest = product.availabilityEvidence.slice().sort((a, b) => (indexById.get(a.messageId) ?? 0) - (indexById.get(b.messageId) ?? 0)).pop();
+    return latest?.state ?? "unknown";
+  };
   const rejectionIds = new Set(rejectionSignals.map((signal) => signal.messageId));
   const correctionIds = new Set(correctionSignals.map((signal) => signal.messageId));
   const objections = [];
@@ -4063,6 +4291,9 @@ function deriveCustomerNeedModel(input) {
     offeredQuantity: product.offeredQuantity,
     finalQuantity: product.finalQuantity,
     roles: Array.from(product.roles),
+    availability: currentAvailability(product),
+    availabilityEvidence: product.availabilityEvidence,
+    alternatives: product.alternatives,
     evidenceMessageIds: Array.from(product.evidenceMessageIds),
     confidence: product.confidence ?? assessment6("unknown", 0.2, ["need.product.insufficient_evidence"], [])
   }));
@@ -4104,6 +4335,8 @@ function deriveCustomerNeedModel(input) {
     primaryNeed: firstRequestMessage?.text ?? null,
     primaryNeedMessageId: firstRequestMessage?.id ?? null,
     products: productList,
+    unlinkedAvailability,
+    unlinkedAlternatives,
     objections,
     unresolvedNeed,
     evidenceMessageIds,
@@ -4783,7 +5016,8 @@ function analyzeOneCase(conversationCase, scopedMessages, input) {
     messages: scopedMessages,
     baskets,
     itemsByBasketId,
-    activeBasket
+    activeBasket,
+    staffIdBySender: input.staffIdBySender
   });
   const activeBasketValue = computeActiveBasketValue(activeItems);
   const historicalClosure = deriveHistoricalCommercialClosureAssessment(
@@ -5179,7 +5413,7 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v2";
+var PIPELINE_VERSION = "sales-intelligence-v3";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v6-semantic-boundaries",
   historicalClosure: "historical-closure-v1",
