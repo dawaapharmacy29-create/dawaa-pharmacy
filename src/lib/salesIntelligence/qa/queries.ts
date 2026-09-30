@@ -677,6 +677,8 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
               caseId: targetCase.caseId,
               customerId: targetCase.customerId,
               customerPhone: targetCase.customerPhone,
+              customerCode: baseInput.customerCodeHint ?? null,
+              customerName: baseInput.customerNameHint ?? null,
               branchNameRaw: targetCase.branchNameRaw,
               caseStartedAt: targetCase.startedAt,
               caseEndedAt: targetCase.endedAt,
