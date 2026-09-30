@@ -1090,7 +1090,9 @@ export default function StaffMonthlyEvaluation() {
         ]);
         if (refreshedPoints) setPointsTruth(refreshedPoints);
 
-        const refreshedEvaluation = refreshedEvaluationResult.data as EvaluationRow | null;
+        const refreshedEvaluation = refreshedEvaluationResult.error
+          ? null
+          : refreshedEvaluationResult.data as EvaluationRow | null;
         const refreshedMetrics = refreshedEvaluation?.metrics_snapshot as Record<string, unknown> | null;
         const refreshedSnapshotRaw = refreshedMetrics?.final_approval_snapshot;
         const refreshedSnapshot =
@@ -1098,35 +1100,37 @@ export default function StaffMonthlyEvaluation() {
             ? refreshedSnapshotRaw as Record<string, unknown>
             : null;
         const refreshedHash = String(refreshedMetrics?.final_approval_hash || '');
-        if (!refreshedSnapshot || !refreshedHash) {
-          throw new Error('تم حفظ التقييم لكن تعذر إثبات النسخة النهائية المعتمدة من الخادم.');
-        }
-        setPublishedSnapshot(refreshedSnapshot);
-        setPublishedSnapshotHash(refreshedHash);
 
-        try {
-          await createStaffNotification({
-            recipientStaffId: selected.id,
-            type: 'monthly_evaluation_ready',
-            title: 'تم اعتماد تقييمك الشهري',
-            message: `تم اعتماد تقييم دورة ${cycleRange.displayLabel} بدرجة ${Number(saveResult.overall_score ?? overallScore)}/100. يمكنك مراجعة التفاصيل من صفحة التقييم الشهري.`,
-            priority: 'normal',
-            entityType: 'staff_monthly_evaluation',
-            entityId: savedEvaluationId || undefined,
-            actionUrl: '/staff-monthly-evaluation',
-            metadata: {
-              cycleLabel,
-              overallScore: Number(saveResult.overall_score ?? overallScore),
-              grade: String(saveResult.grade || grade),
-              evaluatorName: user.name || 'المدير',
-              finalSnapshotHash: refreshedHash,
-              hasStrengths: strengths.length > 0,
-              hasDevelopmentPlan: developmentPoints.length > 0,
-            },
-            stateKey: serverSentAt || String(saveResult.action || 'approved'),
-          });
-        } catch {
-          toast.warning('تم اعتماد التقييم، لكن تعذر إنشاء إشعار الموظف. التقييم نفسه محفوظ ومعتمد.');
+        if (refreshedSnapshot && refreshedHash) {
+          setPublishedSnapshot(refreshedSnapshot);
+          setPublishedSnapshotHash(refreshedHash);
+
+          try {
+            await createStaffNotification({
+              recipientStaffId: selected.id,
+              type: 'monthly_evaluation_ready',
+              title: 'تم اعتماد تقييمك الشهري',
+              message: `تم اعتماد تقييم دورة ${cycleRange.displayLabel} بدرجة ${Number(saveResult.overall_score ?? overallScore)}/100. يمكنك مراجعة التفاصيل من صفحة التقييم الشهري.`,
+              priority: 'normal',
+              entityType: 'staff_monthly_evaluation',
+              entityId: savedEvaluationId || undefined,
+              actionUrl: '/staff-monthly-evaluation',
+              metadata: {
+                cycleLabel,
+                overallScore: Number(saveResult.overall_score ?? overallScore),
+                grade: String(saveResult.grade || grade),
+                evaluatorName: user.name || 'المدير',
+                finalSnapshotHash: refreshedHash,
+                hasStrengths: strengths.length > 0,
+                hasDevelopmentPlan: developmentPoints.length > 0,
+              },
+              stateKey: serverSentAt || String(saveResult.action || 'approved'),
+            });
+          } catch {
+            toast.warning('تم اعتماد التقييم، لكن تعذر إنشاء إشعار الموظف. التقييم نفسه محفوظ ومعتمد.');
+          }
+        } else {
+          toast.warning('تم اعتماد التقييم وحفظه، لكن تعذر إعادة قراءة بصمة النسخة المعتمدة الآن؛ لم يُرسل إشعار غير موثّق.');
         }
         toast.success(`تم اعتماد التقييم على الخادم بنسبة أثر ${Number(saveResult.multiplier_pct ?? effectiveEvaluationMultiplierPct)}%.`);
       }
@@ -3029,12 +3033,12 @@ export default function StaffMonthlyEvaluation() {
                         سجل المراجعة والاعتمادات
                       </summary>
                       <div className="mt-3">
-{publishedSnapshotHash ? (
+                        {publishedSnapshotHash ? (
                           <div className="mb-2 text-[10px] font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
                             بصمة النسخة المعتمدة: {publishedSnapshotHash.slice(0, 12)}
                           </div>
                         ) : null}
-                                                <MonthlyEvaluationAuditTrailV5
+                        <MonthlyEvaluationAuditTrailV5
                           actorId={user.id}
                           staffId={selected.id}
                           cycleLabel={cycleLabel}
