@@ -107,6 +107,57 @@ function isConversationSectionKey(sectionKey: string) {
   return ['conversations', 'conversation', 'customer', 'customers', 'team_quality', 'customer_outcomes'].includes(sectionKey.toLowerCase());
 }
 
+const ATTENDANCE_EVENT_LABELS: Record<string, string> = {
+  attendance_late: 'تأخير',
+  attendance_very_late: 'تأخير كبير',
+  attendance_early_leave_confirmed: 'خروج مبكر',
+  attendance_absence_confirmed: 'غياب مؤكد',
+  attendance_approved_time_off: 'إجازة/إذن مصنف في السجل',
+  attendance_off_day: 'يوم راحة',
+  attendance_worked_on_off_confirmed: 'عمل في يوم راحة',
+  attendance_manual_resolution: 'قرار حضور يدوي',
+};
+
+function formatAttendanceDate(value: string) {
+  const [year, month, day] = value.split('-');
+  return year && month && day ? `${day}/${month}` : value;
+}
+
+function formatAttendanceTime(value: string) {
+  if (!value) return '';
+  const instant = new Date(value);
+  if (Number.isNaN(instant.getTime())) return value;
+  return new Intl.DateTimeFormat('ar-EG', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone: 'Africa/Cairo',
+  }).format(instant);
+}
+
+function attendanceCaseLine(item: NonNullable<EmployeeMonthlyEvidence['coaching']>['attendance']['cases'][number]) {
+  const label = ATTENDANCE_EVENT_LABELS[item.eventType] || 'حالة حضور';
+  const minutes = item.eventType === 'attendance_early_leave_confirmed'
+    ? item.earlyLeaveMinutes
+    : item.eventType === 'attendance_late' || item.eventType === 'attendance_very_late'
+      ? item.lateMinutes
+      : 0;
+  const schedule = item.scheduledStartAt || item.scheduledEndAt
+    ? `الجدول ${formatAttendanceTime(item.scheduledStartAt) || '—'} → ${formatAttendanceTime(item.scheduledEndAt) || '—'}`
+    : '';
+  const actual = item.firstIn || item.lastOut
+    ? `البصمة ${formatAttendanceTime(item.firstIn) || '—'} → ${formatAttendanceTime(item.lastOut) || '—'}`
+    : '';
+  const parts = [
+    `${formatAttendanceDate(item.date)}${item.dayName ? ` (${item.dayName})` : ''} — ${label}`,
+    minutes > 0 ? `${minutes} دقيقة` : '',
+    schedule,
+    actual,
+    item.reviewRequired ? 'تحتاج/احتاجت مراجعة' : '',
+  ].filter(Boolean);
+  return parts.join(' · ');
+}
+
 function sectionEvidenceFor(
   sectionKey: string,
   metrics: Metrics,
@@ -154,6 +205,9 @@ function sectionEvidenceFor(
         attendance?.approvedTimeOffCases ? `إجازات/أذونات مصنفة كمعتمدة: ${attendance.approvedTimeOffCases}` : '',
         attendance?.offDayCases ? `أيام راحة مصنفة: ${attendance.offDayCases}` : '',
         attendance?.workedOnOffCases ? `عمل مؤكد في يوم راحة: ${attendance.workedOnOffCases} حالة` : '',
+        ...(attendance?.cases?.length
+          ? ['تفاصيل الحالات:', ...attendance.cases.map((item) => attendanceCaseLine(item))]
+          : []),
         'المصدر: مصدر الحضور اليومي للبصمات + سجل تصنيف الحضور (Attendance Resolution / Impact Ledger).',
         'تغطية هذا الدليل جزئية: الزي والتعليمات وتسليم الشيفت والسلوك المهني تحتاج واقعة أو ملاحظة موثقة إذا أثرت على الدرجة.',
       ].filter(Boolean),
@@ -1175,7 +1229,7 @@ export default function StaffMonthlyEvaluation() {
         `مراجعة محادثة ${example.date || 'بدون تاريخ'} بدرجة خدمة عميل ${example.score}/100 — يمكن فتح التقييم من دليل المحور.`
       ),
       coaching.attendance.lateCases + coaching.attendance.veryLateCases > 0
-        ? `الحضور: ${coaching.attendance.lateCases + coaching.attendance.veryLateCases} حالة تأخير معتمدة بإجمالي ${coaching.attendance.lateMinutes} دقيقة.`
+        ? `الحضور: ${coaching.attendance.lateCases + coaching.attendance.veryLateCases} حالة تأخير مسجلة بإجمالي ${coaching.attendance.lateMinutes} دقيقة.`
         : '',
       coaching.followups.open > 0
         ? `المتابعات: ${coaching.followups.open} متابعة ما زالت غير مكتملة من أصل ${coaching.followups.total}.`

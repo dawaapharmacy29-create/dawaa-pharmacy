@@ -77,6 +77,19 @@ export type MonthlyConversationCoaching = {
   };
 };
 
+export type MonthlyAttendanceEvidenceCase = {
+  date: string;
+  dayName: string;
+  eventType: string;
+  lateMinutes: number;
+  earlyLeaveMinutes: number;
+  scheduledStartAt: string;
+  scheduledEndAt: string;
+  firstIn: string;
+  lastOut: string;
+  reviewRequired: boolean;
+};
+
 export type MonthlyAttendanceCoaching = {
   /** @deprecated Alias kept for historical snapshots. Use activeLedgerEvents/resolvedDays in new UI. */
   approvedEvents: number;
@@ -94,6 +107,7 @@ export type MonthlyAttendanceCoaching = {
   approvedTimeOffCases: number;
   workedOnOffCases: number;
   manualResolutionCases: number;
+  cases: MonthlyAttendanceEvidenceCase[];
   drafts: {
     strength: string;
     development: string;
@@ -463,6 +477,14 @@ function snapshotNumber(row: AttendanceImpactRow, key: string) {
   return safeNumber(row.evidence_snapshot?.[key]);
 }
 
+function snapshotText(row: AttendanceImpactRow, key: string) {
+  return text(row.evidence_snapshot?.[key]);
+}
+
+function snapshotBool(row: AttendanceImpactRow, key: string) {
+  return bool(row.evidence_snapshot?.[key]);
+}
+
 function buildAttendanceCoaching(rows: AttendanceImpactRow[]): MonthlyAttendanceCoaching {
   const currentRows = rows.filter((row) => !row.reversal_of && row.impact_status !== 'reversed');
   const byType = (type: string) => currentRows.filter((row) => row.event_type === type);
@@ -495,6 +517,22 @@ function buildAttendanceCoaching(rows: AttendanceImpactRow[]): MonthlyAttendance
   const approvedTimeOffCases = byType('attendance_approved_time_off').length;
   const workedOnOffCases = byType('attendance_worked_on_off_confirmed').length;
   const manualResolutionCases = byType('attendance_manual_resolution').length;
+
+  const cases: MonthlyAttendanceEvidenceCase[] = currentRows
+    .filter((row) => !['attendance_on_time', 'attendance_on_time_with_permission'].includes(row.event_type))
+    .map((row) => ({
+      date: String(row.attendance_date || '').slice(0, 10),
+      dayName: snapshotText(row, 'day_name'),
+      eventType: row.event_type,
+      lateMinutes: snapshotNumber(row, 'late_minutes'),
+      earlyLeaveMinutes: snapshotNumber(row, 'early_leave_minutes'),
+      scheduledStartAt: snapshotText(row, 'scheduled_start_at'),
+      scheduledEndAt: snapshotText(row, 'scheduled_end_at'),
+      firstIn: snapshotText(row, 'first_in'),
+      lastOut: snapshotText(row, 'last_out'),
+      reviewRequired: snapshotBool(row, 'review_required'),
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date) || a.eventType.localeCompare(b.eventType));
 
   const strengthBits = [
     onTimeDays > 0 ? `${onTimeDays} يوم مصنف في الموعد داخل سجل الحضور` : '',
@@ -533,6 +571,7 @@ function buildAttendanceCoaching(rows: AttendanceImpactRow[]): MonthlyAttendance
     approvedTimeOffCases,
     workedOnOffCases,
     manualResolutionCases,
+    cases,
     drafts: {
       strength: strengthBits.length ? `سجل الحضور: ${strengthBits.join('، ')}.` : '',
       development: developmentBits.length ? `ملاحظات سجل الحضور: ${developmentBits.join('، ')}.` : '',
