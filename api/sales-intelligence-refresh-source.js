@@ -1103,6 +1103,15 @@ function extractPromiseSignals(messages) {
 function statementClauses(text) {
   return (text.match(/[^؟?.!\n،,]+[؟?]?/g) || []).map((clause) => clause.trim()).filter((clause) => clause.length > 0 && !/[؟?]$/.test(clause));
 }
+function clauseAvailabilityState(clause) {
+  if (UNAVAILABLE_RX.test(clause)) return "unavailable";
+  if (AVAILABLE_RX.test(clause)) return "available";
+  if (CHECK_PENDING_RX.test(clause)) return "check_pending";
+  return null;
+}
+function availabilityStatementClausesV32(text) {
+  return statementClauses(text).map((clause) => ({ clause, state: clauseAvailabilityState(clause) })).filter((row) => row.state !== null);
+}
 function classifyAvailabilityStatementV32(text) {
   const clauses = statementClauses(text);
   if (clauses.some((clause) => UNAVAILABLE_RX.test(clause))) return "unavailable";
@@ -4141,31 +4150,54 @@ function deriveCustomerNeedModel(input) {
     return requested.length === 1 ? { product: requested[0], basis: "single_open_request" } : null;
   };
   const availabilityByMessageId = /* @__PURE__ */ new Map();
+  const namedInClause = (clause, message) => {
+    const clauseKey = normalizeProductKey(clause);
+    return Array.from(products.values()).filter(
+      (product) => product.key.length >= 3 && product.key !== normalizeProductKey(message.text) && !product.evidenceMessageIds.has(message.id) && clauseKey.includes(product.key)
+    );
+  };
+  const availabilityFact = (message, state, basis, signalConfidence, ruleId) => ({
+    state,
+    messageId: message.id,
+    staffSender: message.sender,
+    staffId: staffIdFor(message.sender),
+    linkBasis: basis,
+    confidence: assessment6(
+      basis === "product_named_in_message" ? "strongly_inferred" : "weakly_inferred",
+      basis === "product_named_in_message" ? signalConfidence : Math.min(signalConfidence, 0.7),
+      [ruleId, `need.availability.link.${basis}`],
+      [evidenceRef2(message.id, `\u0627\u0644\u0645\u0648\u0638\u0641 (${message.sender}) \u0642\u0627\u0644 \u0639\u0646 \u0627\u0644\u062A\u0648\u0641\u0631: "${message.text.slice(0, 120)}".`)]
+    )
+  });
+  const attach = (product, fact) => {
+    product.availabilityEvidence.push(fact);
+    product.evidenceMessageIds.add(fact.messageId);
+    if (fact.state === "unavailable" || !availabilityByMessageId.has(fact.messageId)) {
+      availabilityByMessageId.set(fact.messageId, product);
+    }
+  };
   for (const signal of extractAvailabilitySignals(messages)) {
     const message = messageById.get(signal.messageId);
     if (!message) continue;
+    const clauseLinks = availabilityStatementClausesV32(message.text).map((row) => ({ state: row.state, named: namedInClause(row.clause, message) })).filter((row) => row.named.length === 1);
+    if (clauseLinks.length > 0) {
+      const seen = /* @__PURE__ */ new Set();
+      for (const row of clauseLinks) {
+        const product = row.named[0];
+        if (seen.has(product.key)) continue;
+        seen.add(product.key);
+        attach(product, availabilityFact(message, row.state, "product_named_in_message", signal.confidence, `availability.staff_statement.${row.state}`));
+      }
+      continue;
+    }
     const state = signal.extractedValue;
     const link = linkProduct(message);
-    const fact = {
-      state,
-      messageId: message.id,
-      staffSender: message.sender,
-      staffId: staffIdFor(message.sender),
-      linkBasis: link?.basis ?? "unlinked",
-      confidence: assessment6(
-        link?.basis === "product_named_in_message" ? "strongly_inferred" : "weakly_inferred",
-        link?.basis === "product_named_in_message" ? signal.confidence : Math.min(signal.confidence, 0.7),
-        [signal.ruleId, `need.availability.link.${link?.basis ?? "unlinked"}`],
-        [evidenceRef2(message.id, `\u0627\u0644\u0645\u0648\u0638\u0641 (${message.sender}) \u0642\u0627\u0644 \u0639\u0646 \u0627\u0644\u062A\u0648\u0641\u0631: "${message.text.slice(0, 120)}".`)]
-      )
-    };
+    const fact = availabilityFact(message, state, link?.basis ?? "unlinked", signal.confidence, signal.ruleId);
     if (!link) {
       unlinkedAvailability.push(fact);
       continue;
     }
-    link.product.availabilityEvidence.push(fact);
-    link.product.evidenceMessageIds.add(message.id);
-    availabilityByMessageId.set(message.id, link.product);
+    attach(link.product, fact);
   }
   const alternativeSignals = extractAlternativeOfferSignals(messages);
   const alternativeMessageIds = new Set(alternativeSignals.map((signal) => signal.messageId));
@@ -4446,6 +4478,120 @@ function deriveCommercialJourneyState(input) {
     confidence,
     reviewRequired: input.salesOutcome.needsHumanReview || input.customerNeed.needsHumanReview || input.salesOutcome.outcome === "needs_review"
   };
+}
+
+// src/lib/salesIntelligence/unavailableDemandEngine.ts
+var DEMAND_STATES = /* @__PURE__ */ new Set(["unavailable", "check_pending"]);
+function demandKeyFor(caseId, product) {
+  return product.productId ? `${caseId}:demand:product:${product.productId}` : `${caseId}:demand:raw:${product.key}`;
+}
+function statingFact(product, order) {
+  return product.availabilityEvidence.filter((fact) => fact.state === product.availability).sort((a, b) => (order.get(a.messageId) ?? 0) - (order.get(b.messageId) ?? 0)).pop() ?? null;
+}
+function decisiveAlternative(alternatives, order) {
+  if (alternatives.length === 0) return null;
+  const accepted = alternatives.find((alternative) => alternative.response === "accepted");
+  if (accepted) return accepted;
+  return alternatives.slice().sort((a, b) => (order.get(a.offerMessageId) ?? 0) - (order.get(b.offerMessageId) ?? 0)).pop();
+}
+function lowerConfidence(a, b, ruleIds) {
+  const rank = { proven: 4, strongly_inferred: 3, weakly_inferred: 2, unknown: 1 };
+  const weaker = rank[b.level] < rank[a.level] || rank[b.level] === rank[a.level] && b.score < a.score ? b : a;
+  return {
+    level: weaker.level,
+    score: Math.min(a.score, b.score),
+    ruleIds: [.../* @__PURE__ */ new Set([...a.ruleIds, ...ruleIds])],
+    evidence: a.evidence
+  };
+}
+function followUpDecision(state, alternative, declinedNeed) {
+  if (alternative?.response === "accepted") return { candidate: false, reason: null, suppressedBy: "alternative_accepted" };
+  if (declinedNeed) return { candidate: false, reason: null, suppressedBy: "customer_declined_need" };
+  if (state === "check_pending") return { candidate: true, reason: "availability_check_pending", suppressedBy: null };
+  if (!alternative) return { candidate: true, reason: "original_unavailable_no_alternative", suppressedBy: null };
+  if (alternative.response === "rejected") return { candidate: true, reason: "alternative_rejected", suppressedBy: null };
+  return { candidate: true, reason: "alternative_undecided", suppressedBy: null };
+}
+function deriveUnavailableDemand(input) {
+  const { conversationCase, customerNeed } = input;
+  const order = new Map(input.messages.map((message, index) => [message.id, index]));
+  const byId = new Map(input.messages.map((message) => [message.id, message]));
+  const identityStatus = input.customerIdentityStatus ?? "not_provided";
+  const customerId = identityStatus === "resolved" ? conversationCase.customerId : null;
+  const alternativeAnswerIds = new Set(
+    customerNeed.products.flatMap(
+      (product) => product.alternatives.map((alternative) => alternative.responseMessageId).filter(Boolean)
+    )
+  );
+  const declinedNeed = customerNeed.objections.some(
+    (objection) => objection.category === "customer_declined" && !alternativeAnswerIds.has(objection.messageId)
+  );
+  const demands = /* @__PURE__ */ new Map();
+  for (const product of customerNeed.products) {
+    if (!product.roles.includes("requested") || !DEMAND_STATES.has(product.availability)) continue;
+    const fact = statingFact(product, order);
+    if (!fact) continue;
+    const state = product.availability;
+    const alternative = decisiveAlternative(product.alternatives, order);
+    const followUp = followUpDecision(state, alternative, declinedNeed);
+    const customerRequestAt = product.evidenceMessageIds.map((id) => byId.get(id)).filter((message) => Boolean(message && message.role === "customer")).sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())[0];
+    const blockers = [];
+    if (!customerId) blockers.push("customer_identity_unresolved");
+    if (!conversationCase.branchId && !conversationCase.branchNameRaw) blockers.push("branch_unknown");
+    if (!fact.staffId) blockers.push("staff_identity_unresolved");
+    if (!product.productId) blockers.push("product_identity_unresolved");
+    if (product.requestedQuantity == null) blockers.push("quantity_unknown");
+    const demand = {
+      demandKey: demandKeyFor(conversationCase.caseId, product),
+      caseId: conversationCase.caseId,
+      conversationId: conversationCase.conversationId,
+      sourceCaseIdV22: conversationCase.sourceCaseIdV22,
+      customerId,
+      customerIdentityStatus: identityStatus,
+      branchId: conversationCase.branchId,
+      branchNameRaw: conversationCase.branchNameRaw,
+      requestedAt: customerRequestAt ? customerRequestAt.timestamp.toISOString() : null,
+      productKey: product.key,
+      requestedProductRaw: product.productNameRaw,
+      resolvedProductId: product.productId,
+      quantityRequested: product.requestedQuantity,
+      availabilityState: state,
+      availabilityMessageId: fact.messageId,
+      statedByStaffName: fact.staffSender,
+      statedByStaffId: fact.staffId,
+      alternativeOffered: product.alternatives.length > 0,
+      alternativeProductKey: alternative?.productKey ?? null,
+      alternativeProductRaw: alternative?.productNameRaw ?? null,
+      alternativeProductId: alternative?.productId ?? null,
+      alternativeOfferedByStaffName: alternative?.offeredByStaffSender ?? null,
+      alternativeOfferedByStaffId: alternative?.offeredByStaffId ?? null,
+      alternativeResponse: alternative?.response ?? null,
+      followUpCandidate: followUp.candidate,
+      followUpReason: followUp.reason,
+      followUpSuppressedBy: followUp.suppressedBy,
+      evidenceMessageIds: [...product.evidenceMessageIds],
+      confidence: lowerConfidence(fact.confidence, product.confidence, [
+        `unavailable_demand.${state}`,
+        ...followUp.reason ? [`unavailable_demand.follow_up.${followUp.reason}`] : [],
+        ...followUp.suppressedBy ? [`unavailable_demand.no_follow_up.${followUp.suppressedBy}`] : []
+      ]),
+      blockers
+    };
+    const existing = demands.get(demand.demandKey);
+    if (!existing) {
+      demands.set(demand.demandKey, demand);
+      continue;
+    }
+    existing.evidenceMessageIds = [.../* @__PURE__ */ new Set([...existing.evidenceMessageIds, ...demand.evidenceMessageIds])];
+    if (existing.quantityRequested != null && demand.quantityRequested != null && existing.quantityRequested !== demand.quantityRequested) {
+      existing.quantityRequested = null;
+      existing.blockers = [.../* @__PURE__ */ new Set([...existing.blockers.filter((b) => b !== "quantity_unknown"), "quantity_conflict"])];
+    } else if (existing.quantityRequested == null && demand.quantityRequested != null && !existing.blockers.includes("quantity_conflict")) {
+      existing.quantityRequested = demand.quantityRequested;
+      existing.blockers = existing.blockers.filter((b) => b !== "quantity_unknown");
+    }
+  }
+  return [...demands.values()];
 }
 
 // src/lib/salesIntelligence/pharmacyProducts/pharmacyNormalization.ts
@@ -5019,6 +5165,12 @@ function analyzeOneCase(conversationCase, scopedMessages, input) {
     activeBasket,
     staffIdBySender: input.staffIdBySender
   });
+  const unavailableDemand = deriveUnavailableDemand({
+    conversationCase,
+    customerNeed,
+    messages: scopedMessages,
+    customerIdentityStatus: input.customerIdentityStatus
+  });
   const activeBasketValue = computeActiveBasketValue(activeItems);
   const historicalClosure = deriveHistoricalCommercialClosureAssessment(
     conversationCase.caseId,
@@ -5210,6 +5362,7 @@ function analyzeOneCase(conversationCase, scopedMessages, input) {
     conversationId: input.conversationId,
     conversationCase,
     customerNeed,
+    unavailableDemand,
     basketHistory: baskets,
     itemsByBasketId,
     activeBasket,
@@ -5519,6 +5672,7 @@ function mapCaseAnalysisRowContent(analysis) {
       },
       evidenceCompleteness: analysis.evidenceCompleteness,
       customerNeed: analysis.customerNeed,
+      unavailableDemand: analysis.unavailableDemand,
       journeyState: analysis.journeyState,
       historicalClosureEvidence: analysis.historicalClosure.confidence.evidence,
       // No dedicated applicability-rule-id field exists on OrderConfirmationProtocolAssessment —

@@ -562,6 +562,24 @@ function statementClauses(text: string): string[] {
     .filter((clause) => clause.length > 0 && !/[؟?]$/.test(clause));
 }
 
+/** Stock state asserted by one clause, or null. Unavailable wins over available, which wins over check_pending. */
+function clauseAvailabilityState(clause: string): AvailabilityStateV32 | null {
+  if (UNAVAILABLE_RX.test(clause)) return 'unavailable';
+  if (AVAILABLE_RX.test(clause)) return 'available';
+  if (CHECK_PENDING_RX.test(clause)) return 'check_pending';
+  return null;
+}
+
+/**
+ * Per-clause stock statements inside one staff message ("كونجستال مش موجود، وفيتامين د موجود"),
+ * so the need model can tie each state to the product named in the same clause. Questions dropped.
+ */
+export function availabilityStatementClausesV32(text: string): Array<{ clause: string; state: AvailabilityStateV32 }> {
+  return statementClauses(text)
+    .map((clause) => ({ clause, state: clauseAvailabilityState(clause) }))
+    .filter((row): row is { clause: string; state: AvailabilityStateV32 } => row.state !== null);
+}
+
 /** Stock state asserted by one staff message, or null. Unavailable wins over available, which wins over check_pending. */
 export function classifyAvailabilityStatementV32(text: string): AvailabilityStateV32 | null {
   const clauses = statementClauses(text);

@@ -6,6 +6,7 @@
 // roles/evidence that a final staff recap may have overwritten inside the basket snapshot.
 import type { NormalizedConversationMessageV32 } from '../whatsappConversationUnderstandingV32';
 import {
+  availabilityStatementClausesV32,
   classifyCustomerOfferResponseV32,
   extractAcceptanceSignals,
   extractAlternativeOfferSignals,
@@ -405,31 +406,69 @@ export function deriveCustomerNeedModel(input: DeriveCustomerNeedModelInput): Cu
   };
 
   const availabilityByMessageId = new Map<string, ProductAccumulator>();
+  const namedInClause = (clause: string, message: NormalizedConversationMessageV32) => {
+    const clauseKey = normalizeProductKey(clause);
+    return Array.from(products.values()).filter(
+      (product) =>
+        product.key.length >= 3 &&
+        product.key !== normalizeProductKey(message.text) &&
+        !product.evidenceMessageIds.has(message.id) &&
+        clauseKey.includes(product.key)
+    );
+  };
+  const availabilityFact = (
+    message: NormalizedConversationMessageV32,
+    state: CustomerNeedAvailabilityEvidence['state'],
+    basis: CustomerNeedAvailabilityEvidence['linkBasis'],
+    signalConfidence: number,
+    ruleId: string
+  ): CustomerNeedAvailabilityEvidence => ({
+    state,
+    messageId: message.id,
+    staffSender: message.sender,
+    staffId: staffIdFor(message.sender),
+    linkBasis: basis,
+    confidence: assessment(
+      basis === 'product_named_in_message' ? 'strongly_inferred' : 'weakly_inferred',
+      basis === 'product_named_in_message' ? signalConfidence : Math.min(signalConfidence, 0.7),
+      [ruleId, `need.availability.link.${basis}`],
+      [evidenceRef(message.id, `الموظف (${message.sender}) قال عن التوفر: "${message.text.slice(0, 120)}".`)]
+    ),
+  });
+  const attach = (product: ProductAccumulator, fact: CustomerNeedAvailabilityEvidence) => {
+    product.availabilityEvidence.push(fact);
+    product.evidenceMessageIds.add(fact.messageId);
+    if (fact.state === 'unavailable' || !availabilityByMessageId.has(fact.messageId)) {
+      availabilityByMessageId.set(fact.messageId, product);
+    }
+  };
   for (const signal of extractAvailabilitySignals(messages)) {
     const message = messageById.get(signal.messageId);
     if (!message) continue;
+
+    // Clause level first: each clause's state belongs to the one product named in THAT clause.
+    const clauseLinks = availabilityStatementClausesV32(message.text)
+      .map((row) => ({ state: row.state, named: namedInClause(row.clause, message) }))
+      .filter((row) => row.named.length === 1);
+    if (clauseLinks.length > 0) {
+      const seen = new Set<string>();
+      for (const row of clauseLinks) {
+        const product = row.named[0];
+        if (seen.has(product.key)) continue;
+        seen.add(product.key);
+        attach(product, availabilityFact(message, row.state, 'product_named_in_message', signal.confidence, `availability.staff_statement.${row.state}`));
+      }
+      continue;
+    }
+
     const state = signal.extractedValue as CustomerNeedAvailabilityEvidence['state'];
     const link = linkProduct(message);
-    const fact: CustomerNeedAvailabilityEvidence = {
-      state,
-      messageId: message.id,
-      staffSender: message.sender,
-      staffId: staffIdFor(message.sender),
-      linkBasis: link?.basis ?? 'unlinked',
-      confidence: assessment(
-        link?.basis === 'product_named_in_message' ? 'strongly_inferred' : 'weakly_inferred',
-        link?.basis === 'product_named_in_message' ? signal.confidence : Math.min(signal.confidence, 0.7),
-        [signal.ruleId, `need.availability.link.${link?.basis ?? 'unlinked'}`],
-        [evidenceRef(message.id, `الموظف (${message.sender}) قال عن التوفر: "${message.text.slice(0, 120)}".`)]
-      ),
-    };
+    const fact = availabilityFact(message, state, link?.basis ?? 'unlinked', signal.confidence, signal.ruleId);
     if (!link) {
       unlinkedAvailability.push(fact);
       continue;
     }
-    link.product.availabilityEvidence.push(fact);
-    link.product.evidenceMessageIds.add(message.id);
-    availabilityByMessageId.set(message.id, link.product);
+    attach(link.product, fact);
   }
 
   const alternativeSignals = extractAlternativeOfferSignals(messages);

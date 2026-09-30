@@ -32,6 +32,7 @@ import { deriveSaleProofState } from './saleProofState';
 import { deriveCanonicalSalesOutcome } from './canonicalSalesOutcomeEngine';
 import { deriveCustomerNeedModel } from './customerNeedModel';
 import { deriveCommercialJourneyState } from './commercialJourneyStateMachine';
+import { deriveUnavailableDemand } from './unavailableDemandEngine';
 import {
   resolveProductMention,
   type PharmacyProductIndex,
@@ -261,6 +262,12 @@ function analyzeOneCase(
     itemsByBasketId,
     activeBasket,
     staffIdBySender: input.staffIdBySender,
+  });
+  const unavailableDemand = deriveUnavailableDemand({
+    conversationCase,
+    customerNeed,
+    messages: scopedMessages,
+    customerIdentityStatus: input.customerIdentityStatus,
   });
   const activeBasketValue = computeActiveBasketValue(activeItems);
 
@@ -513,6 +520,7 @@ function analyzeOneCase(
     conversationId: input.conversationId,
     conversationCase,
     customerNeed,
+    unavailableDemand,
     basketHistory: baskets,
     itemsByBasketId,
     activeBasket,

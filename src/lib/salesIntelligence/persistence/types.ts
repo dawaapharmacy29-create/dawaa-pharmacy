@@ -25,6 +25,7 @@ import type {
   CanonicalSalesOutcomeAssessment,
   CommercialConfirmationState,
   CustomerNeedModel,
+  UnavailableDemand,
   CommercialJourneyStateAssessment,
   ConfidenceLevel,
   DifferenceExplanationKind,
@@ -200,6 +201,8 @@ export interface SalesIntelligenceCaseAnalysisRow extends CaseAnalysisProvenance
     evidenceCompleteness: Record<string, boolean | EvidenceLevel>;
     /** Versioned structured customer need/product lifecycle from this exact analysis run. */
     customerNeed?: CustomerNeedModel;
+    /** Canonical Unavailable Demand records from this exact analysis run (optional for older rows). */
+    unavailableDemand?: UnavailableDemand[];
     /** Derived state-machine projection; optional for historical v1 rows. */
     journeyState?: CommercialJourneyStateAssessment;
     historicalClosureEvidence: EvidenceRef[];

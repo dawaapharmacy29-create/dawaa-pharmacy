@@ -202,6 +202,67 @@ export interface CustomerNeedProductLifecycle {
   confidence: ConfidenceAssessment;
 }
 
+export type UnavailableDemandBlocker =
+  | 'customer_identity_unresolved'
+  | 'branch_unknown'
+  | 'staff_identity_unresolved'
+  | 'product_identity_unresolved'
+  | 'quantity_unknown'
+  | 'quantity_conflict';
+
+export type UnavailableDemandFollowUpReason =
+  | 'original_unavailable_no_alternative'
+  | 'alternative_rejected'
+  | 'alternative_undecided'
+  | 'availability_check_pending';
+
+export type UnavailableDemandFollowUpSuppression = 'alternative_accepted' | 'customer_declined_need';
+
+/**
+ * Canonical Unavailable Demand — owner: salesIntelligence/unavailableDemandEngine.ts.
+ * One record per (interaction, product) that a customer requested and a staff member said was
+ * unavailable / still being checked. Derived ONLY from the Customer Need product lifecycle; it
+ * survives an accepted alternative or a proven sale, because the demand for the original product
+ * existed either way (purchasing/stock analytics need it).
+ */
+export interface UnavailableDemand {
+  /** `${caseId}:demand:product:<productId>` or `${caseId}:demand:raw:<productKey>` — never a filename. */
+  demandKey: string;
+  caseId: string;
+  conversationId: string;
+  sourceCaseIdV22: string | null;
+  /** Set only when the canonical customer identity is resolved; never guessed. */
+  customerId: string | null;
+  customerIdentityStatus: 'resolved' | 'unresolved' | 'ambiguous' | 'contradicted' | 'not_provided';
+  branchId: string | null;
+  branchNameRaw: string | null;
+  /** Timestamp of the customer's first request message for this product in this interaction. */
+  requestedAt: string | null;
+  productKey: string;
+  requestedProductRaw: string;
+  resolvedProductId: string | null;
+  /** From the lifecycle's quantity owner; null when unknown or conflicting — never guessed. */
+  quantityRequested: number | null;
+  availabilityState: 'unavailable' | 'check_pending';
+  availabilityMessageId: string;
+  /** Sender of the exact message that stated unavailable / check_pending. */
+  statedByStaffName: string;
+  statedByStaffId: string | null;
+  alternativeOffered: boolean;
+  alternativeProductKey: string | null;
+  alternativeProductRaw: string | null;
+  alternativeProductId: string | null;
+  alternativeOfferedByStaffName: string | null;
+  alternativeOfferedByStaffId: string | null;
+  alternativeResponse: CustomerNeedAlternativeResponse | null;
+  followUpCandidate: boolean;
+  followUpReason: UnavailableDemandFollowUpReason | null;
+  followUpSuppressedBy: UnavailableDemandFollowUpSuppression | null;
+  evidenceMessageIds: string[];
+  confidence: ConfidenceAssessment;
+  blockers: UnavailableDemandBlocker[];
+}
+
 export interface CustomerNeedModel {
   caseId: string;
   /** First real customer request/need statement, verbatim. Null when the case has no customer need. */
@@ -1072,6 +1133,8 @@ export interface SalesIntelligenceCaseAnalysis {
   conversationCase: ConversationCase;
   /** Structured customer need + per-product lifecycle, derived from the same message/basket evidence. */
   customerNeed: CustomerNeedModel;
+  /** Canonical Unavailable Demand records for this interaction (unavailableDemandEngine). */
+  unavailableDemand: UnavailableDemand[];
   basketHistory: CaseBasket[];
   itemsByBasketId: Record<string, CaseBasketItem[]>;
   /** Resolved via basketInvoiceMatchingEngine's own resolveActiveBasket() — null when insufficient/ambiguous. */
