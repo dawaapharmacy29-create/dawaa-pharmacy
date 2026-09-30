@@ -140,6 +140,37 @@ export type MonthlyInventoryCoaching = {
   notes: string[];
 };
 
+export type MonthlyDevelopmentCoaching = {
+  sourceStatus: 'available' | 'partial' | 'manual';
+  training: {
+    assigned: number;
+    completed: number;
+    overdueOpen: number;
+    scored: number;
+    averageScore: number | null;
+    titles: string[];
+  };
+  reviewTrend: {
+    measurable: boolean;
+    totalReviews: number;
+    earlyCount: number;
+    recentCount: number;
+    earlyAverage: number | null;
+    recentAverage: number | null;
+    delta: number | null;
+    direction: 'improving' | 'stable' | 'declining' | 'not_measurable';
+  };
+  repeatedIssues: Array<{ label: string; count: number }>;
+  repeatedRecommendations: Array<{ label: string; count: number }>;
+  drafts: {
+    strength: string;
+    development: string;
+    actionPlan: string;
+    measurement: string;
+  };
+  notes: string[];
+};
+
 export type EmployeeMonthlyEvidence = {
   metrics: EmployeeMonthlyEvidenceMetrics;
   coaching: {
@@ -147,6 +178,7 @@ export type EmployeeMonthlyEvidence = {
     attendance: MonthlyAttendanceCoaching;
     followups: MonthlyFollowupCoaching;
     inventory: MonthlyInventoryCoaching;
+    development: MonthlyDevelopmentCoaching;
   };
   health: {
     reviews: 'available' | 'unavailable';
@@ -480,6 +512,241 @@ function buildFollowupCoaching(rows: Record<string, unknown>[]): MonthlyFollowup
   };
 }
 
+type TrainingAssignmentEvidenceRow = {
+  id?: string | null;
+  module_id?: string | null;
+  due_date?: string | null;
+  status?: string | null;
+  completed_at?: string | null;
+  score?: number | null;
+  created_at?: string | null;
+};
+
+type TrainingModuleEvidenceRow = {
+  id?: string | null;
+  title?: string | null;
+  category?: string | null;
+};
+
+function normalizedEvidenceText(value: unknown) {
+  return text(value)
+    .replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)))
+    .replace(/[\u064B-\u065F\u0670]/g, '')
+    .replace(/[\u0623\u0625\u0622]/g, 'ا')
+    .replace(/\u0649/g, 'ي')
+    .replace(/\u0629/g, 'ه')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function repeatedEvidenceText(values: unknown[], limit = 3) {
+  const map = new Map<string, { label: string; count: number }>();
+  values.forEach((value) => {
+    const label = text(value).replace(/\s+/g, ' ').trim();
+    const key = normalizedEvidenceText(label);
+    if (key.length < 4) return;
+    const current = map.get(key);
+    map.set(key, { label: current?.label || label, count: (current?.count || 0) + 1 });
+  });
+  return [...map.values()]
+    .filter((item) => item.count >= 2)
+    .sort((a, b) => b.count - a.count || b.label.length - a.label.length)
+    .slice(0, limit);
+}
+
+function reviewTimestamp(row: Record<string, unknown>) {
+  const value = text(row.conversation_date || row.created_at);
+  const ms = value ? new Date(value).getTime() : NaN;
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+function averageReviewScore(rows: Record<string, unknown>[]) {
+  if (!rows.length) return null;
+  const values = rows
+    .map((row) => nullableNumber(row.final_score ?? row.total_score))
+    .filter((value): value is number => value !== null);
+  if (!values.length) return null;
+  return Math.round((values.reduce((sum, value) => sum + value, 0) / values.length) * 10) / 10;
+}
+
+async function loadTrainingEvidence(args: {
+  staffId: string;
+  startDate: string;
+  endDateExclusive: string;
+}) {
+  const filter =
+    `and(due_date.gte.${args.startDate},due_date.lt.${args.endDateExclusive}),`
+    + `and(due_date.is.null,created_at.gte.${args.startDate},created_at.lt.${args.endDateExclusive})`;
+
+  const { data, error } = await supabase
+    .from('training_assignments')
+    .select('id,module_id,due_date,status,completed_at,score,created_at')
+    .eq('staff_id', args.staffId)
+    .or(filter)
+    .limit(200);
+
+  if (error) {
+    return {
+      assignments: [] as TrainingAssignmentEvidenceRow[],
+      modules: [] as TrainingModuleEvidenceRow[],
+      error: error.message,
+    };
+  }
+
+  const assignments = (data || []) as TrainingAssignmentEvidenceRow[];
+  const moduleIds = [...new Set(assignments.map((row) => text(row.module_id)).filter(Boolean))];
+  if (!moduleIds.length) {
+    return { assignments, modules: [] as TrainingModuleEvidenceRow[], error: '' };
+  }
+
+  const moduleResult = await supabase
+    .from('training_modules')
+    .select('id,title,category')
+    .in('id', moduleIds)
+    .limit(200);
+
+  return {
+    assignments,
+    modules: moduleResult.error ? [] as TrainingModuleEvidenceRow[] : (moduleResult.data || []) as TrainingModuleEvidenceRow[],
+    error: moduleResult.error?.message || '',
+  };
+}
+
+function buildDevelopmentCoaching(
+  reviewRows: Record<string, unknown>[],
+  trainingResult: Awaited<ReturnType<typeof loadTrainingEvidence>>,
+  endDateExclusive: string
+): MonthlyDevelopmentCoaching {
+  const orderedReviews = [...reviewRows].sort((a, b) => reviewTimestamp(a) - reviewTimestamp(b));
+  const trendMeasurable = orderedReviews.length >= 6;
+  const half = trendMeasurable ? Math.floor(orderedReviews.length / 2) : 0;
+  const earlyRows = trendMeasurable ? orderedReviews.slice(0, half) : [];
+  const recentRows = trendMeasurable ? orderedReviews.slice(orderedReviews.length - half) : [];
+  const earlyAverage = averageReviewScore(earlyRows);
+  const recentAverage = averageReviewScore(recentRows);
+  const delta = earlyAverage !== null && recentAverage !== null
+    ? Math.round((recentAverage - earlyAverage) * 10) / 10
+    : null;
+
+  const direction: MonthlyDevelopmentCoaching['reviewTrend']['direction'] =
+    delta === null ? 'not_measurable'
+      : delta >= 5 ? 'improving'
+        : delta <= -5 ? 'declining'
+          : 'stable';
+
+  const repeatedIssues = repeatedEvidenceText(reviewRows.map((row) => row.main_negative_reason));
+  const repeatedRecommendations = repeatedEvidenceText(reviewRows.map((row) => row.training_recommendation));
+
+  const completedStatuses = /completed|done|closed|مكتمل|تم|منتهي|انهاء|إنهاء/i;
+  const completed = trainingResult.assignments.filter((row) =>
+    Boolean(row.completed_at) || completedStatuses.test(text(row.status))
+  ).length;
+  const cycleLastDay = new Date(`${endDateExclusive.slice(0, 10)}T12:00:00Z`);
+  cycleLastDay.setUTCDate(cycleLastDay.getUTCDate() - 1);
+  const cycleLastKey = cycleLastDay.toISOString().slice(0, 10);
+  const overdueOpen = trainingResult.assignments.filter((row) =>
+    !row.completed_at
+    && !completedStatuses.test(text(row.status))
+    && Boolean(row.due_date)
+    && text(row.due_date).slice(0, 10) <= cycleLastKey
+  ).length;
+  const scores = trainingResult.assignments
+    .map((row) => nullableNumber(row.score))
+    .filter((value): value is number => value !== null);
+  const averageScore = scores.length
+    ? Math.round((scores.reduce((sum, value) => sum + value, 0) / scores.length) * 10) / 10
+    : null;
+
+  const titleById = new Map(trainingResult.modules.map((row) => [text(row.id), text(row.title)]));
+  const titles = trainingResult.assignments
+    .map((row) => titleById.get(text(row.module_id)) || '')
+    .filter(Boolean)
+    .slice(0, 5);
+
+  const strengthBits = [
+    trainingResult.assignments.length > 0 && completed === trainingResult.assignments.length
+      ? `أكمل كل التدريبات المسندة خلال الدورة (${completed}/${trainingResult.assignments.length})`
+      : '',
+    direction === 'improving' && delta !== null
+      ? `تحسن متوسط مراجعات المحادثات من ${earlyAverage}/100 في بداية العينة إلى ${recentAverage}/100 في آخرها (+${delta})`
+      : '',
+    repeatedIssues.length === 0 && orderedReviews.length >= 3
+      ? 'لا توجد ملاحظة سلبية واحدة تكررت مرتين أو أكثر بالنص نفسه في مراجعات الدورة'
+      : '',
+  ].filter(Boolean);
+
+  const developmentBits = [
+    overdueOpen > 0 ? `${overdueOpen} تدريب مسند انتهى موعده بدون إكمال موثق` : '',
+    direction === 'declining' && delta !== null
+      ? `انخفض متوسط آخر المراجعات عن بداية العينة بمقدار ${Math.abs(delta)} نقطة`
+      : '',
+    repeatedIssues.length
+      ? `ملاحظات متكررة: ${repeatedIssues.map((item) => `${item.label} (${item.count} مرات)`).join(' · ')}`
+      : '',
+  ].filter(Boolean);
+
+  const actionBits = [
+    repeatedRecommendations.length
+      ? `تنفيذ التوصيات التدريبية المتكررة: ${repeatedRecommendations.map((item) => item.label).join(' • ')}`
+      : '',
+    repeatedIssues.length
+      ? `اختيار أكثر ملاحظة متكررة ومراجعة 3 حالات جديدة للتأكد من اختفائها`
+      : '',
+    overdueOpen > 0 ? 'إكمال التدريبات المتأخرة وتوثيق النتيجة/الدرجة.' : '',
+  ].filter(Boolean);
+
+  const notes = [
+    trainingResult.assignments.length === 0
+      ? 'لا توجد تدريبات مسندة لهذا الموظف خلال الدورة؛ لا يُحسب غياب التدريب كتقصير.'
+      : '',
+    !trendMeasurable
+      ? `اتجاه التحسن يحتاج 6 مراجعات على الأقل؛ المتاح حاليًا ${orderedReviews.length}.`
+      : 'اتجاه الأداء مبني على عينة مراجعات المحادثات داخل الدورة، وهو مؤشر مساعد وليس حكمًا على كل العمل.',
+    trainingResult.error
+      ? 'مصدر التدريب متاح جزئيًا؛ لا تستخدم الجزء غير المتاح كصفر.'
+      : '',
+  ].filter(Boolean);
+
+  const sourceStatus: MonthlyDevelopmentCoaching['sourceStatus'] =
+    trainingResult.assignments.length > 0 || trendMeasurable || repeatedIssues.length > 0
+      ? trainingResult.error ? 'partial' : 'available'
+      : 'manual';
+
+  return {
+    sourceStatus,
+    training: {
+      assigned: trainingResult.assignments.length,
+      completed,
+      overdueOpen,
+      scored: scores.length,
+      averageScore,
+      titles,
+    },
+    reviewTrend: {
+      measurable: trendMeasurable,
+      totalReviews: orderedReviews.length,
+      earlyCount: earlyRows.length,
+      recentCount: recentRows.length,
+      earlyAverage,
+      recentAverage,
+      delta,
+      direction,
+    },
+    repeatedIssues,
+    repeatedRecommendations,
+    drafts: {
+      strength: strengthBits.length ? `التعلم والتحسن: ${strengthBits.join('، ')}.` : '',
+      development: developmentBits.length ? `ملاحظات التطوير: ${developmentBits.join('، ')}.` : '',
+      actionPlan: actionBits.length ? `خطة التحسن: ${actionBits.join(' • ')}` : '',
+      measurement: trendMeasurable && direction !== 'not_measurable'
+        ? 'يُعاد قياس متوسط آخر 3 مراجعات في الدورة القادمة، مع متابعة تكرار نفس الملاحظات السلبية.'
+        : 'يُقاس التحسن في الدورة القادمة بعينة مراجعات كافية وبمتابعة تكرار نفس الملاحظة بعد التوجيه.',
+    },
+    notes,
+  };
+}
+
 type InventoryWeeklyProgressRow = {
   staff_id?: string | null;
   week_start?: string | null;
@@ -790,7 +1057,7 @@ export async function loadEmployeeMonthlyEvidence(args: {
 }): Promise<EmployeeMonthlyEvidence> {
   const errors: Record<string, string> = {};
 
-  const [reviewResult, followupResult, attendanceResult, attendanceImpactResult, inventoryResult] = await Promise.all([
+  const [reviewResult, followupResult, attendanceResult, attendanceImpactResult, inventoryResult, trainingResult] = await Promise.all([
     loadConversationReviews(args),
     supabase
       .from('daily_followups')
@@ -815,6 +1082,7 @@ export async function loadEmployeeMonthlyEvidence(args: {
       error: cause instanceof Error ? cause.message : String(cause),
     })),
     loadInventoryEvidence(args),
+    loadTrainingEvidence(args),
   ]);
 
   const reviewRows = reviewResult.rows;
@@ -877,6 +1145,7 @@ export async function loadEmployeeMonthlyEvidence(args: {
       attendance: buildAttendanceCoaching(attendanceImpactResult.rows),
       followups: buildFollowupCoaching((followupRows || []) as Record<string, unknown>[]),
       inventory: buildInventoryCoaching(inventoryResult),
+      development: buildDevelopmentCoaching(reviewRows, trainingResult, args.endDateExclusive),
     },
     health,
     ready:

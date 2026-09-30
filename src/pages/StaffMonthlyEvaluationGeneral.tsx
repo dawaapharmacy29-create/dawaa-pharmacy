@@ -256,6 +256,50 @@ function sectionEvidenceFor(
     };
   }
 
+  if (key === 'development') {
+    const development = coaching?.development;
+    if (!development) {
+      return {
+        status: 'manual' as const,
+        summary: 'لا توجد بيانات كافية لقياس التعلم والتحسن آليًا',
+        details: ['استخدم مثالًا موثقًا على تنفيذ ملاحظة أو توقف تكرار خطأ بدل الانطباع العام.'],
+      };
+    }
+
+    const training = development.training;
+    const trend = development.reviewTrend;
+    const summaryParts = [
+      training.assigned > 0 ? `التدريب: ${training.completed}/${training.assigned} مكتمل` : '',
+      trend.measurable && trend.delta !== null
+        ? `اتجاه المراجعات: ${trend.delta > 0 ? '+' : ''}${trend.delta} نقطة`
+        : '',
+      development.repeatedIssues.length
+        ? `${development.repeatedIssues.length} ملاحظة متكررة`
+        : '',
+    ].filter(Boolean);
+
+    return {
+      status: development.sourceStatus === 'available' ? 'available' as const : 'manual' as const,
+      summary: summaryParts.join(' · ') || 'لا يوجد قياس آلي كافٍ؛ استخدم واقعة تطوير موثقة',
+      details: [
+        training.assigned > 0 ? `التدريبات المسندة: ${training.assigned} · المكتملة: ${training.completed}` : '',
+        training.overdueOpen > 0 ? `تدريبات انتهى موعدها بدون إكمال موثق: ${training.overdueOpen}` : '',
+        training.averageScore !== null ? `متوسط درجات التدريب: ${training.averageScore}` : '',
+        training.titles.length ? `التدريبات: ${training.titles.join(' · ')}` : '',
+        trend.measurable
+          ? `بداية عينة المراجعات: ${trend.earlyAverage}/100 (${trend.earlyCount}) · آخر العينة: ${trend.recentAverage}/100 (${trend.recentCount})`
+          : '',
+        trend.measurable && trend.delta !== null
+          ? `التغير داخل العينة: ${trend.delta > 0 ? '+' : ''}${trend.delta} نقطة · ${trend.direction === 'improving' ? 'تحسن' : trend.direction === 'declining' ? 'انخفاض' : 'مستقر تقريبًا'}`
+          : '',
+        ...development.repeatedIssues.map((item) => `ملاحظة متكررة: ${item.label} — ${item.count} مرات`),
+        ...development.repeatedRecommendations.map((item) => `توصية تدريبية متكررة: ${item.label} — ${item.count} مرات`),
+        ...development.notes,
+        'لا يُعتمد اتجاه المراجعات وحده كدرجة تلقائية؛ هو دليل مساعد للمدير.',
+      ].filter(Boolean),
+    };
+  }
+
   if (key === 'inventory') {
     const inventory = coaching?.inventory;
     if (!inventory || inventory.sourceStatus === 'unavailable') {
@@ -1569,6 +1613,71 @@ export default function StaffMonthlyEvaluation() {
                           </div>
                         </div>
                       ) : null}
+                    </div>
+                  ) : null}
+
+                  {coaching?.development && (
+                    coaching.development.training.assigned > 0
+                    || coaching.development.reviewTrend.measurable
+                    || coaching.development.repeatedIssues.length > 0
+                    || coaching.development.notes.length > 0
+                  ) ? (
+                    <div className="mt-3 rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <div className="text-[11px] font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>Coaching التعلم والتحسن</div>
+                          <div className="mt-1 text-[10px] font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                            تدريب مسند + اتجاه مراجعات + تكرار الملاحظة بعد التوجيه.
+                          </div>
+                        </div>
+                        <span
+                          className="rounded-full border px-2 py-1 text-[10px] font-black"
+                          style={coaching.development.sourceStatus === 'available'
+                            ? { borderColor: 'var(--dawaa-status-success-border)', color: 'var(--dawaa-status-success-text)' }
+                            : { borderColor: 'var(--dawaa-status-warning-border)', color: 'var(--dawaa-status-warning-text)' }}
+                        >
+                          {coaching.development.sourceStatus === 'available' ? 'دليل متاح' : 'يحتاج حكم المدير'}
+                        </span>
+                      </div>
+
+                      <div className="mt-2 space-y-1.5 text-xs font-bold leading-6" style={{ color: 'var(--dawaa-theme-text)' }}>
+                        {coaching.development.drafts.strength ? <div style={{ color: 'var(--dawaa-status-success-text)' }}>{coaching.development.drafts.strength}</div> : null}
+                        {coaching.development.drafts.development ? <div style={{ color: 'var(--dawaa-status-warning-text)' }}>{coaching.development.drafts.development}</div> : null}
+                        {coaching.development.drafts.actionPlan ? <div>{coaching.development.drafts.actionPlan}</div> : null}
+                        <div style={{ color: 'var(--dawaa-theme-muted)' }}>{coaching.development.drafts.measurement}</div>
+                        {coaching.development.notes.map((note) => <div key={note} style={{ color: 'var(--dawaa-theme-muted)' }}>• {note}</div>)}
+                      </div>
+
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {coaching.development.drafts.strength ? (
+                          <button
+                            type="button"
+                            disabled={!canEdit}
+                            onClick={() => setStrengthsText((current) => appendUniqueLine(current, coaching.development.drafts.strength))}
+                            className="rounded-lg border px-2 py-1 text-[10px] font-black disabled:cursor-default"
+                            style={{ borderColor: 'var(--dawaa-status-success-border)', color: 'var(--dawaa-status-success-text)' }}
+                          >
+                            إضافة القوة
+                          </button>
+                        ) : null}
+                        {coaching.development.drafts.development || coaching.development.drafts.actionPlan ? (
+                          <button
+                            type="button"
+                            disabled={!canEdit}
+                            onClick={() => setDevelopmentText((current) => appendUniqueLine(
+                              appendUniqueLine(
+                                appendUniqueLine(current, coaching.development.drafts.development),
+                                coaching.development.drafts.actionPlan
+                              ),
+                              coaching.development.drafts.measurement
+                            ))}
+                            className="rounded-lg border px-2 py-1 text-[10px] font-black disabled:cursor-default"
+                            style={{ borderColor: 'var(--dawaa-status-warning-border)', color: 'var(--dawaa-status-warning-text)' }}
+                          >
+                            إضافة خطة التحسن
+                          </button>
+                        ) : null}
+                      </div>
                     </div>
                   ) : null}
 
