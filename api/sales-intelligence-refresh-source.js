@@ -5276,7 +5276,7 @@ function deriveFollowUpOpportunities(input) {
       opportunity.suppressedBy = "covered_by_specific_follow_up";
     }
   }
-  const evidenceReviewRequired = opportunities.length === 0 && customerNeed.unresolvedNeed && customerNeed.needsHumanReview && lostOpportunity.state === "open" && salesOutcome.outcome === "open_opportunity";
+  const evidenceReviewRequired = opportunities.length === 0 && customerNeed.unresolvedNeed && customerNeed.needsHumanReview && lostOpportunity.state === "open" && (salesOutcome.outcome === "open_opportunity" || salesOutcome.outcome === "needs_review" || salesOutcome.outcome === "unknown");
   const decision = opportunities.some((o) => o.status === "actionable") ? "actionable" : opportunities.some((o) => o.status === "blocked") ? "blocked" : opportunities.length ? "suppressed" : evidenceReviewRequired ? "review_required" : "not_needed";
   return {
     caseId,
