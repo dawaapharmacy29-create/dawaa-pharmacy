@@ -73,6 +73,39 @@ describe('Case Intelligence Workspace (display only)', () => {
     expect(html).not.toContain('conversation-messages');
   });
 
+  it('A3. trusted invoice lines can recover executed product identity without pretending the chat exposed it', () => {
+    const view = persisted(analyze(SALE).caseIntelligence)!;
+    const noChatProducts: CaseIntelligenceView = { ...view, products: [], need: { ...view.need, products: [] } };
+    const html = renderToStaticMarkup(createElement(CaseIntelligenceWorkspace, {
+      view: noChatProducts,
+      initialTab: 'products',
+      invoiceEvidence: {
+        status: 'trusted',
+        invoiceNumber: '74966',
+        items: [{ id: 'line-1', productName: 'Bon Care', productCode: 'BC-1', quantity: 2, unitName: 'علبة', netLineAmount: 180 }],
+      },
+    }));
+    expect(html).toContain('trusted-invoice-products');
+    expect(html).toContain('Bon Care');
+    expect(html).toContain('فاتورة موثوقة');
+    expect(html).toContain('لا توجد أصناف واضحة من نص هذا التفاعل');
+  });
+
+  it('A4. candidate invoice lines are never exposed as product truth', () => {
+    const view = persisted(analyze(SALE).caseIntelligence)!;
+    const html = renderToStaticMarkup(createElement(CaseIntelligenceWorkspace, {
+      view,
+      initialTab: 'products',
+      invoiceEvidence: {
+        status: 'candidate',
+        invoiceNumber: '74966',
+        items: [{ id: 'line-1', productName: 'SHOULD-NOT-RENDER', productCode: null, quantity: 1, unitName: null, netLineAmount: null }],
+      },
+    }));
+    expect(html).toContain('candidate-invoice-products-blocked');
+    expect(html).not.toContain('SHOULD-NOT-RENDER');
+  });
+
   it('B. unavailable + alternative rejected: product card, recoverable loss and stock follow-up', () => {
     const view = persisted(analyze(`[9/15/26, 9:00:00 AM] Customer: عايز 1 علبة كونجستال
 [9/15/26, 9:01:00 AM] You: كونجستال مش متوفر حاليًا، فيه بديل كومتركس

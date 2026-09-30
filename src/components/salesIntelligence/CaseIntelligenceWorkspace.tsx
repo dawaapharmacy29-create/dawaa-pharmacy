@@ -40,6 +40,19 @@ import {
 
 export type CaseIntelligenceTab = 'conversation' | 'need' | 'products' | 'sale' | 'lost' | 'followup' | 'review';
 
+export interface CaseInvoiceEvidence {
+  status: 'trusted' | 'candidate' | 'none';
+  invoiceNumber: string | null;
+  items: Array<{
+    id: string;
+    productName: string;
+    productCode: string | null;
+    quantity: number | null;
+    unitName: string | null;
+    netLineAmount: number | null;
+  }>;
+}
+
 const TABS: Array<{ key: CaseIntelligenceTab; label: string }> = [
   { key: 'conversation', label: 'المحادثة' },
   { key: 'need', label: 'طلب العميل' },
@@ -122,10 +135,12 @@ export function CaseIntelligenceWorkspace({
   view,
   initialTab = 'conversation',
   conversationPanel = null,
+  invoiceEvidence = null,
 }: {
   view: CaseIntelligenceView | null;
   initialTab?: CaseIntelligenceTab;
   conversationPanel?: React.ReactNode;
+  invoiceEvidence?: CaseInvoiceEvidence | null;
 }) {
   const [tab, setTab] = useState<CaseIntelligenceTab>(initialTab);
   const [evidence, setEvidence] = useState<EvidenceRequest | null>(null);
@@ -258,7 +273,46 @@ export function CaseIntelligenceWorkspace({
       ) : null}
 
       {tab === 'products' ? (
-        <div className="grid gap-3 md:grid-cols-2" data-testid="product-cards">
+        <div className="space-y-3">
+          {invoiceEvidence?.status === 'trusted' ? (
+            <div className="dawaa-card space-y-3" data-testid="trusted-invoice-products">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="dawaa-heading text-sm font-black">أصناف مثبتة من الفاتورة المرتبطة</h3>
+                  <div className="dawaa-muted mt-1 text-xs">
+                    مصدر تنفيذي مستقل عن نص المحادثة{invoiceEvidence.invoiceNumber ? ` • فاتورة ${invoiceEvidence.invoiceNumber}` : ''}
+                  </div>
+                </div>
+                <Badge tone="good">فاتورة موثوقة</Badge>
+              </div>
+              <div className="dawaa-alert dawaa-alert--info text-xs leading-6">
+                لو اسم الصنف غير ظاهر لأن الطلب كان صورة أو فويس، نستخدم أصناف الفاتورة الموثوقة لمعرفة ما تم صرفه فعليًا.
+                هذه الأصناف لا تعني أن نص المحادثة نفسه كشف اسم الصنف، ولا تستبدل دليل الطلب الأصلي.
+              </div>
+              {invoiceEvidence.items.length ? (
+                <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                  {invoiceEvidence.items.map((item) => (
+                    <div key={item.id} className="rounded-xl bg-[var(--dawaa-theme-soft)] p-3" data-invoice-product={item.productName}>
+                      <div className="dawaa-heading text-sm font-black">{item.productName || 'صنف بدون اسم'}</div>
+                      <div className="dawaa-muted mt-1 text-xs">
+                        {item.productCode ? `كود: ${item.productCode} • ` : ''}
+                        الكمية: {item.quantity ?? UNKNOWN_LABEL}{item.unitName ? ` ${item.unitName}` : ''}
+                      </div>
+                      {item.netLineAmount != null ? <div className="dawaa-muted mt-1 text-xs">صافي السطر: {item.netLineAmount.toFixed(2)} ج.م</div> : null}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="dawaa-muted text-sm">الفاتورة موثوقة، لكن تفاصيل أصنافها غير متاحة حاليًا.</div>
+              )}
+            </div>
+          ) : invoiceEvidence?.status === 'candidate' ? (
+            <div className="dawaa-alert dawaa-alert--warning text-xs leading-6" data-testid="candidate-invoice-products-blocked">
+              توجد فاتورة مرشحة{invoiceEvidence.invoiceNumber ? ` رقم ${invoiceEvidence.invoiceNumber}` : ''}، لكن الربط غير موثوق بما يكفي لاستخدام أصنافها بدل محتوى الصورة/الفويس.
+            </div>
+          ) : null}
+
+          <div className="grid gap-3 md:grid-cols-2" data-testid="product-cards">
           {view.products.map((p) => {
             const status = productStatus(p, view.sale.outcome);
             const demand = view.unavailableDemand.find((d) => d.demandKey === p.demandKey);
@@ -293,7 +347,8 @@ export function CaseIntelligenceWorkspace({
               </div>
             );
           })}
-          {view.products.length === 0 ? <div className="dawaa-muted text-sm">لا توجد أصناف في هذا التفاعل.</div> : null}
+          {view.products.length === 0 ? <div className="dawaa-muted text-sm">لا توجد أصناف واضحة من نص هذا التفاعل.</div> : null}
+          </div>
         </div>
       ) : null}
 

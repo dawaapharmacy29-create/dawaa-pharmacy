@@ -259,6 +259,22 @@ export default function SalesIntelligenceQACaseDetail() {
             caseEndedAt={analysis.case_ended_at}
           />
         ) : null}
+        invoiceEvidence={{
+          status: saleProof.trustedInvoiceId ? 'trusted' : saleProof.selectedInvoiceId ? 'candidate' : 'none',
+          invoiceNumber: saleProof.selectedInvoiceNumber,
+          items: saleProof.trustedInvoiceId
+            ? invoiceItemFacts
+                .filter((item) => item.invoiceId === saleProof.trustedInvoiceId)
+                .map((item) => ({
+                  id: item.id,
+                  productName: item.productName,
+                  productCode: item.productCode,
+                  quantity: item.effectiveQuantity ?? item.quantity,
+                  unitName: item.unitName,
+                  netLineAmount: item.netLineAmount,
+                }))
+            : [],
+        }}
       />
 
       <button type="button" className="dawaa-button dawaa-button--ghost text-xs" onClick={() => setLegacyAuditOpen(!showLegacyAudit)}>
