@@ -10,6 +10,7 @@ import { deriveLostOpportunity } from '@/lib/salesIntelligence/lostOpportunityEn
 import { deriveFollowUpOpportunities } from '@/lib/salesIntelligence/followUpOpportunityEngine';
 import { buildCaseIntelligenceView } from '@/lib/salesIntelligence/caseIntelligenceView';
 import { readCaseIntelligence } from '@/lib/salesIntelligence/qa/caseIntelligencePresentation';
+import { analyzeConversationEvaluation } from '@/lib/salesIntelligence/conversationEvaluation';
 import { CaseIntelligenceWorkspace, type CaseIntelligenceTab } from '@/components/salesIntelligence/CaseIntelligenceWorkspace';
 import type { CaseIntelligenceView, SalesIntelligenceCaseAnalysis } from '@/lib/salesIntelligence/types';
 
@@ -143,6 +144,44 @@ describe('Case Intelligence Workspace (display only)', () => {
   it('A3d. hides the clinical tab when the conversation is ordinary sales with no clinical content', () => {
     const ordinary = persisted(analyze(SALE).caseIntelligence)!;
     expect(render(ordinary)).not.toContain('الاستشارة والاستخدام');
+  });
+
+  it('A3e. renders the unified 19-criterion conversation analysis with score, coverage and evidence reasons', () => {
+    const view = persisted(analyze(SALE).caseIntelligence)!;
+    const evaluation = analyzeConversationEvaluation(view, null);
+    const html = renderToStaticMarkup(createElement(CaseIntelligenceWorkspace, {
+      view,
+      initialTab: 'evaluation',
+      conversationEvaluation: evaluation,
+    }));
+    expect(html).toContain('conversation-evaluation-tab');
+    expect(html).toContain('الدرجة الآلية');
+    expect(html).toContain('تغطية الأدلة');
+    expect(html).toContain('ثقة الأحكام');
+    expect(html).toContain('conversation-evaluation-items');
+    expect((html.match(/data-evaluation-key=/g) || []).length).toBe(19);
+    expect(html).toContain('الاستشارة الطبية');
+    expect(html).toContain('خارج الدرجة');
+  });
+
+  it('A3f. shows safe loading and system-evidence warning states without fabricating a score', () => {
+    const view = persisted(analyze(SALE).caseIntelligence)!;
+    const loading = renderToStaticMarkup(createElement(CaseIntelligenceWorkspace, {
+      view,
+      initialTab: 'evaluation',
+      conversationEvaluationLoading: true,
+    }));
+    expect(loading).toContain('conversation-evaluation-loading');
+
+    const evaluation = analyzeConversationEvaluation(view, null);
+    const warning = renderToStaticMarkup(createElement(CaseIntelligenceWorkspace, {
+      view,
+      initialTab: 'evaluation',
+      conversationEvaluation: evaluation,
+      conversationEvaluationWarning: 'تعذر تحميل بعض أدلة النظام',
+    }));
+    expect(warning).toContain('conversation-evaluation-warning');
+    expect(warning).toContain('تعذر تحميل بعض أدلة النظام');
   });
 
   it('A4. candidate invoice lines are never exposed as product truth', () => {

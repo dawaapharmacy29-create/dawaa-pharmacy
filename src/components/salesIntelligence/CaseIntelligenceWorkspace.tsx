@@ -8,6 +8,7 @@ import { useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, CircleHelp, X } from 'lucide-react';
 import type { CaseIntelligenceView, ConfidenceAssessment } from '@/lib/salesIntelligence/types';
 import { buildConversationClinicalReview } from '@/lib/salesIntelligence/conversationClinicalReview';
+import type { ConversationEvaluationResult } from '@/lib/salesIntelligence/conversationEvaluation';
 import {
   UNKNOWN_LABEL,
   alternativeResponseLabel,
@@ -39,7 +40,7 @@ import {
   waitingOnLabel,
 } from '@/lib/salesIntelligence/qa/caseIntelligencePresentation';
 
-export type CaseIntelligenceTab = 'conversation' | 'need' | 'products' | 'sale' | 'lost' | 'followup' | 'clinical' | 'review';
+export type CaseIntelligenceTab = 'conversation' | 'evaluation' | 'need' | 'products' | 'sale' | 'lost' | 'followup' | 'clinical' | 'review';
 
 export interface CaseInvoiceEvidence {
   status: 'trusted' | 'candidate' | 'none';
@@ -58,6 +59,7 @@ export interface CaseInvoiceEvidence {
 
 const TABS: Array<{ key: CaseIntelligenceTab; label: string }> = [
   { key: 'conversation', label: 'المحادثة' },
+  { key: 'evaluation', label: 'تحليل المحادثة' },
   { key: 'need', label: 'طلب العميل' },
   { key: 'products', label: 'الأصناف' },
   { key: 'sale', label: 'الطلب والبيع' },
@@ -141,6 +143,9 @@ export function CaseIntelligenceWorkspace({
   conversationPanel = null,
   invoiceEvidence = null,
   staffDisplayName = null,
+  conversationEvaluation = null,
+  conversationEvaluationLoading = false,
+  conversationEvaluationWarning = null,
 }: {
   view: CaseIntelligenceView | null;
   initialTab?: CaseIntelligenceTab;
@@ -148,6 +153,9 @@ export function CaseIntelligenceWorkspace({
   invoiceEvidence?: CaseInvoiceEvidence | null;
   /** Resolved staff identity from the persisted conversation source. Display only. */
   staffDisplayName?: string | null;
+  conversationEvaluation?: ConversationEvaluationResult | null;
+  conversationEvaluationLoading?: boolean;
+  conversationEvaluationWarning?: string | null;
 }) {
   const [tab, setTab] = useState<CaseIntelligenceTab>(initialTab);
   const [evidence, setEvidence] = useState<EvidenceRequest | null>(null);
@@ -268,6 +276,110 @@ export function CaseIntelligenceWorkspace({
             </ol>
           </Block>
         )
+      ) : null}
+
+      {tab === 'evaluation' ? (
+        <div className="space-y-3" data-testid="conversation-evaluation-tab">
+          {conversationEvaluationLoading ? (
+            <div className="dawaa-alert dawaa-alert--info text-sm font-bold" data-testid="conversation-evaluation-loading">
+              جاري بناء تحليل المحادثة من الأدلة الحالية...
+            </div>
+          ) : conversationEvaluation ? (
+            <>
+              {conversationEvaluationWarning ? (
+                <div className="dawaa-alert dawaa-alert--warning text-xs leading-6" data-testid="conversation-evaluation-warning">
+                  {conversationEvaluationWarning}
+                </div>
+              ) : null}
+
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" data-testid="conversation-evaluation-summary">
+                <Fact label="الدرجة الآلية">
+                  {conversationEvaluation.summary.autoScore == null ? 'غير مكتملة' : `${conversationEvaluation.summary.autoScore}/100`}
+                </Fact>
+                <Fact label="تغطية الأدلة">{conversationEvaluation.summary.evidenceCoveragePercent}%</Fact>
+                <Fact label="ثقة الأحكام">{conversationEvaluation.summary.averageAssessmentConfidence}%</Fact>
+                <Fact label="موثوقية النتيجة">{conversationEvaluation.summary.automaticReliabilityPercent}%</Fact>
+              </div>
+
+              <div className="dawaa-alert dawaa-alert--info text-xs leading-6">
+                الدرجة تُحسب فقط من البنود الآلية التي لديها دليل كافٍ. البنود غير المنطبقة لا تدخل المقام،
+                والدليل الناقص لا يتحول إلى صفر. الاستشارة الطبية والجرعة/طريقة الاستخدام خارج الدرجة الآلية
+                وتظهر للمراجعة بشكل منفصل.
+              </div>
+
+              <div className="grid gap-3 lg:grid-cols-2" data-testid="conversation-evaluation-items">
+                {conversationEvaluation.items.map((item) => {
+                  const statusTone =
+                    item.status === 'manual_review_required'
+                      ? 'warn'
+                      : item.status === 'insufficient_evidence'
+                        ? 'medium'
+                        : item.status === 'not_applicable'
+                          ? 'info'
+                          : item.performanceBand === 'strength'
+                            ? 'good'
+                            : item.performanceBand === 'acceptable'
+                              ? 'medium'
+                              : 'bad';
+                  const statusText =
+                    item.status === 'manual_review_required'
+                      ? 'مراجعة يدوية — خارج الدرجة'
+                      : item.status === 'insufficient_evidence'
+                        ? 'الدليل غير كافٍ'
+                        : item.status === 'not_applicable'
+                          ? 'غير منطبق'
+                          : item.performanceBand === 'strength'
+                            ? 'نقطة قوة'
+                            : item.performanceBand === 'acceptable'
+                              ? 'مقبول'
+                              : 'يحتاج تطوير';
+                  return (
+                    <div key={item.key} className="dawaa-card space-y-2" data-evaluation-key={item.key}>
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                          <div className="dawaa-heading text-sm font-black">{item.label}</div>
+                          <div className="dawaa-muted mt-1 text-xs">
+                            {item.status === 'assessed' && item.pointsEarned != null
+                              ? `${item.pointsEarned}/${item.maxPoints} • ${item.normalizedScore10}/10`
+                              : item.selectedLabel}
+                          </div>
+                        </div>
+                        <Badge tone={statusTone}>{statusText}</Badge>
+                      </div>
+                      <div className="text-xs leading-6">{item.reason}</div>
+                      <div className="dawaa-muted flex flex-wrap gap-3 text-[11px]">
+                        <span>ثقة الحكم: {item.confidence}%</span>
+                        {item.systemRecordIds.length ? <span>دليل نظام: {item.systemRecordIds.length} سجل</span> : null}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {item.evidenceMessageIds.length ? (
+                          <WhyButton
+                            onClick={() =>
+                              open({
+                                title: item.label,
+                                reason: item.reason,
+                                messageIds: item.evidenceMessageIds,
+                              })
+                            }
+                          />
+                        ) : null}
+                        {item.status === 'manual_review_required' && clinicalReview?.detected ? (
+                          <button type="button" className="dawaa-button dawaa-button--secondary text-xs" onClick={() => setTab('clinical')}>
+                            فتح الجزء الطبي للمراجعة
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          ) : (
+            <div className="dawaa-alert dawaa-alert--info text-sm">
+              تحليل المحادثة النهائي غير متاح لهذه الحالة بعد.
+            </div>
+          )}
+        </div>
       ) : null}
 
       {tab === 'need' ? (

@@ -14,6 +14,8 @@ import { formatDateTime } from '@/lib/utils';
 import { fetchQaCaseDetail, type QaCaseDetailBundle } from '@/lib/salesIntelligence/qa/queries';
 import { WhatsAppConversationPanel } from '@/components/salesIntelligence/WhatsAppConversationPanel';
 import { CaseIntelligenceWorkspace } from '@/components/salesIntelligence/CaseIntelligenceWorkspace';
+import { loadConversationEvaluation } from '@/lib/salesIntelligence/conversationEvaluationLoader';
+import type { ConversationEvaluationResult } from '@/lib/salesIntelligence/conversationEvaluation';
 import { readCaseIntelligence } from '@/lib/salesIntelligence/qa/caseIntelligencePresentation';
 import {
   ambiguityStatusLabelFor,
@@ -131,6 +133,9 @@ export default function SalesIntelligenceQACaseDetail() {
   const [bundle, setBundle] = useState<QaCaseDetailBundle | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [legacyAuditOpen, setLegacyAuditOpen] = useState<boolean | null>(null);
+  const [conversationEvaluation, setConversationEvaluation] = useState<ConversationEvaluationResult | null>(null);
+  const [conversationEvaluationLoading, setConversationEvaluationLoading] = useState(false);
+  const [conversationEvaluationWarning, setConversationEvaluationWarning] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -146,6 +151,35 @@ export default function SalesIntelligenceQACaseDetail() {
     }
     if (caseId) void load();
   }, [caseId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const currentView = bundle?.liveEvidence?.caseIntelligence
+      ?? (bundle ? readCaseIntelligence(bundle.persisted.analysisRow) : null);
+
+    if (!currentView) {
+      setConversationEvaluation(null);
+      setConversationEvaluationLoading(false);
+      setConversationEvaluationWarning(null);
+      return () => { cancelled = true; };
+    }
+
+    setConversationEvaluationLoading(true);
+    setConversationEvaluationWarning(null);
+    void loadConversationEvaluation(currentView).then((loaded) => {
+      if (cancelled) return;
+      setConversationEvaluation(loaded.result);
+      setConversationEvaluationWarning(loaded.warning);
+      setConversationEvaluationLoading(false);
+    }).catch((cause) => {
+      if (cancelled) return;
+      setConversationEvaluation(null);
+      setConversationEvaluationWarning(cause instanceof Error ? cause.message : 'تعذر بناء تحليل المحادثة.');
+      setConversationEvaluationLoading(false);
+    });
+
+    return () => { cancelled = true; };
+  }, [bundle]);
 
   if (error) {
     return <div className="dawaa-alert dawaa-alert--danger text-sm font-bold" dir="rtl">{error}</div>;
@@ -264,6 +298,9 @@ export default function SalesIntelligenceQACaseDetail() {
           />
         ) : null}
         staffDisplayName={conversation?.staffId ? conversation.staffName : null}
+        conversationEvaluation={conversationEvaluation}
+        conversationEvaluationLoading={conversationEvaluationLoading}
+        conversationEvaluationWarning={conversationEvaluationWarning}
         invoiceEvidence={{
           status: saleProof.trustedInvoiceId ? 'trusted' : saleProof.selectedInvoiceId ? 'candidate' : 'none',
           linkMethod: invoiceLinkMethod,
