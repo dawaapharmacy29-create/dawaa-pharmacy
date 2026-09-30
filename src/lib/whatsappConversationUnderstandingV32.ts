@@ -206,6 +206,31 @@ function isSameOrderContinuation(
   );
 }
 
+/** Continuations proven by the conversation itself (pending reply, same order, reference, correction, direct answer). */
+function hasStrongSemanticContinuation(
+  current: NormalizedConversationMessageV32[],
+  next: NormalizedConversationMessageV32,
+  gapMs: number
+): boolean {
+  if (!current.length || gapMs < 0) return false;
+  if (
+    next.role === 'staff' &&
+    next.isMeaningful &&
+    gapMs <= SEMANTIC_CONTINUATION_MAX_GAP_MS &&
+    hasPendingCustomerNeed(current)
+  ) {
+    return true;
+  }
+  if (next.role !== 'customer' || !next.isMeaningful) return false;
+  if (isSameOrderContinuation(current, next, gapMs)) return true;
+  if (gapMs <= SEMANTIC_CONTINUATION_MAX_GAP_MS) {
+    if (hasResolvedProductReferenceContinuation(current, next)) return true;
+    if (hasLinkedCorrectionContinuation(current, next)) return true;
+    if (isCustomerResponseContinuation(current, next)) return true;
+  }
+  return false;
+}
+
 function shouldKeepSemanticContinuation(
   current: NormalizedConversationMessageV32[],
   next: NormalizedConversationMessageV32,
@@ -324,7 +349,9 @@ function segmentInteractions(messages: NormalizedConversationMessageV32[]): Conv
         message.role === 'customer' &&
         message.isMeaningful &&
         TOPIC_SHIFT_MARKER_RX.test(message.text) &&
-        !semanticContinuation
+        // An explicit topic shift ("بالمناسبة ...") loses only to a PROVEN continuation, never to
+        // the weaker "additive word after a committed order" heuristic.
+        !hasStrongSemanticContinuation(current, message, gapMs)
       ) {
         flush();
         reason = 'topic_shift_marker';

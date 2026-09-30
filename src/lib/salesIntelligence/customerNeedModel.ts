@@ -20,7 +20,7 @@ import {
   isRequestCandidate,
   resolveReference,
 } from '../whatsappSemanticSignalsV32';
-import { normalizeProductKey, stripRequestPrefix } from './caseBasketEngine';
+import { explicitRequestProductPhrases, normalizeProductKey, stripRequestPrefix } from './caseBasketEngine';
 import type {
   CaseBasket,
   CaseBasketItem,
@@ -53,7 +53,8 @@ export interface DeriveCustomerNeedModelInput {
 
 const PRICE_OBJECTION_RX = /غالي|السعر\s*(?:عالي|كتير|كبير)|كتير\s*(?:عليه|عليها)|مش\s*مناسب.*(?:السعر|الثمن)|خصم\s*اكتر/i;
 const AVAILABILITY_OBJECTION_RX = /مش\s*(?:موجود|متوفر)|مفيش|خلص|مش\s*لاقي|مش\s*لاقية/i;
-const DELIVERY_OBJECTION_RX = /التوصيل|الدليفري|المندوب|اتأخر|متأخر|مش\s*(?:هستنى|هقدر\s*استنى)/i;
+const DELIVERY_OBJECTION_RX =
+  /التوصيل|الدليفري|المندوب|اتأخر|متأخر|مش\s*(?:هستنى|هقدر\s*استنى)|(?:ما|م)?\s*وصلش|موصلش|لسه\s*(?:ما\s*)?(?:وصل|جه|جا)ش?|لم\s*يصل|فين\s*(?:ال)?(?:أوردر|اوردر|طلب|طلبي)/i;
 const PRODUCT_FIT_OBJECTION_RX = /مش\s*مناسب|مش\s*ده|عايز\s*غير|عاوز\s*غير|بديل|حساسي[ةه]|مش\s*نفس/i;
 const TIMING_OBJECTION_RX = /مش\s*دلوقتي|بعدين|بعد\s*كده|وقت\s*تاني|لما\s*احتاج/i;
 const ALTERNATIVE_RX = /بديل|بدل(?:ه|ها|هم|\s)/i;
@@ -112,7 +113,7 @@ interface ProductAccumulator {
 // Words that turn a customer's stock question into a product phrase once removed
 // ("عندكم بانادول اكسترا؟" -> "بانادول اكسترا"). A leftover that is only filler/negation is no product.
 const STOCK_QUESTION_WORDS_RX =
-  /(?<![\p{L}\p{N}])(?:هو|هي|هل|طيب|عندكم|عندكو|عندك|موجود[ةه]?|متوفر[ةه]?|متاح[ةه]?|فيه|في|لو\s*سمحت|من\s*فضلك|ممكن|يا\s*(?:دكتور[ةه]?|فندم))(?![\p{L}\p{N}])/giu;
+  /(?<![\p{L}\p{N}])(?:هو|هي|هل|طيب|مش|مو|غير|عندكم|عندكو|عندك|موجود[ةه]?|متوفر[ةه]?|متاح[ةه]?|فيه|في|لو\s*سمحت|من\s*فضلك|ممكن|يا\s*(?:دكتور[ةه]?|فندم))(?![\p{L}\p{N}])/giu;
 const NON_PRODUCT_LEFTOVER_RX = /^(?:مش|لا|لأ|اه|آه|تمام|حاجة|حاجه|ده|دي|دا|منه|منها)?$/;
 
 function productPhraseFromStockQuestion(text: string): string | null {
@@ -338,6 +339,24 @@ export function deriveCustomerNeedModel(input: DeriveCustomerNeedModelInput): Cu
     }
   }
 
+  // An explicit request that names its product without a quantity ("عايز سيروم فيتامين سي",
+  // "عايز بانادول اكسترا و كونجستال") is a requested product even before any basket line exists.
+  // Coordinated lists split on a standalone "و"/comma only. Information questions and long
+  // sentences are not product names and stay without a product (unknown beats a wrong product).
+  for (const signal of requestSignals) {
+    if (signal.ruleId !== 'request.explicit_verb') continue;
+    const message = messageById.get(signal.messageId);
+    if (!message || message.role !== 'customer') continue;
+    if (Array.from(products.values()).some((product) => product.evidenceMessageIds.has(message.id))) continue;
+    for (const part of explicitRequestProductPhrases(message.text)) {
+      const ref = evidenceRef(message.id, `العميل طلب الصنف بالاسم: "${message.text.slice(0, 120)}".`);
+      const product = ensureProduct(part, assessment('weakly_inferred', 0.6, ['need.product.explicit_request_phrase'], [ref]));
+      if (!product) continue;
+      product.roles.add('requested');
+      product.evidenceMessageIds.add(message.id);
+    }
+  }
+
   // ---- Availability + alternatives: extensions of the SAME product lifecycle (no second extraction). ----
   // Only staff statements assert stock (V32 availability signals). Each fact is attributed to its own
   // message sender. A statement/offer that cannot be tied to exactly one requested product stays
@@ -475,7 +494,8 @@ export function deriveCustomerNeedModel(input: DeriveCustomerNeedModelInput): Cu
   const alternativeSignals = extractAlternativeOfferSignals(messages);
   const alternativeMessageIds = new Set(alternativeSignals.map((signal) => signal.messageId));
   const customerResponseTo = (
-    offer: NormalizedConversationMessageV32
+    offer: NormalizedConversationMessageV32,
+    alternativeKey: string | null
   ): { response: CustomerNeedAlternativeResponse; messageId: string | null } => {
     const start = (indexById.get(offer.id) ?? -1) + 1;
     const replies: NormalizedConversationMessageV32[] = [];
@@ -488,6 +508,10 @@ export function deriveCustomerNeedModel(input: DeriveCustomerNeedModelInput): Cu
     for (const reply of replies) {
       const response = classifyCustomerOfferResponseV32(reply.text);
       if (response) return { response, messageId: reply.id };
+      // Asking for the offered alternative by name ("تمام هات كومتركس") accepts it.
+      if (alternativeKey && alternativeKey.length >= 3 && isRequestCandidate(reply) && normalizeProductKey(reply.text).includes(alternativeKey)) {
+        return { response: 'accepted', messageId: reply.id };
+      }
     }
     return { response: 'unknown', messageId: null };
   };
@@ -530,7 +554,7 @@ export function deriveCustomerNeedModel(input: DeriveCustomerNeedModelInput): Cu
       alternativeProduct.evidenceMessageIds.add(offer.id);
     }
 
-    const { response: textResponse, messageId: responseMessageId } = customerResponseTo(offer);
+    const { response: textResponse, messageId: responseMessageId } = customerResponseTo(offer, alternativeProduct?.key ?? (phraseKey || null));
     const inFinalBasket = alternativeProduct?.roles.has('final_basket') ?? false;
     const response: CustomerNeedAlternativeResponse =
       textResponse === 'unknown' || textResponse === 'no_response'
@@ -574,6 +598,11 @@ export function deriveCustomerNeedModel(input: DeriveCustomerNeedModelInput): Cu
       .pop();
     return latest?.state ?? 'unknown';
   };
+  // A product that left the basket because staff said it is unavailable was not rejected by the
+  // customer; its removal is an availability fact, kept in availabilityEvidence/alternatives.
+  for (const product of products.values()) {
+    if (product.roles.has('rejected') && currentAvailability(product) === 'unavailable') product.roles.delete('rejected');
+  }
 
   const rejectionIds = new Set(rejectionSignals.map((signal) => signal.messageId));
   const correctionIds = new Set(correctionSignals.map((signal) => signal.messageId));

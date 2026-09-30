@@ -1143,11 +1143,15 @@ function extractAvailabilitySignals(messages) {
   }
   return signals;
 }
+var ALTERNATIVE_LEAD_FILLER_RX = /^(?:(?:فيه|في|عندنا|ممكن|ينفع|نقدر|نجيب|أجيب|اجيب|نديلك|أقدم|اقدم|نقدم|أرشح|ارشح|لحضرتك|و)(?=\s|$)|[\s:\-،])+/i;
 function alternativePhraseAfter(text, marker) {
   const match = text.match(marker);
   if (!match || match.index == null) return null;
   const tail = text.slice(match.index + match[0].length).split(/[؟?\n.!،,]/)[0].replace(ALTERNATIVE_PHRASE_FILLER_RX, "").trim();
-  return tail.length >= 2 ? tail.slice(0, 80) : null;
+  if (tail.length >= 2) return tail.slice(0, 80);
+  const clauseStart = Math.max(...["\u060C", ",", ".", "\n", "\u061F", "?"].map((sep) => text.lastIndexOf(sep, match.index - 1)));
+  const head = text.slice(clauseStart + 1, match.index).replace(ALTERNATIVE_LEAD_FILLER_RX, "").trim();
+  return head.length >= 2 && head.split(/\s+/).length <= 4 ? head.slice(0, 80) : null;
 }
 function extractAlternativeOfferSignals(messages) {
   const signals = [];
@@ -1216,8 +1220,9 @@ function classifyCustomerTimingRequestV32(text) {
   if (SAME_DAY_RX.test(text)) return { when: "same_day", days: 0 };
   return { when: "unspecified", days: null };
 }
+var LEADING_NO_RX = /^(?:لا|لأ)(?:\s*[،,.!]|\s+(?=\S))/;
 function classifyCustomerOfferResponseV32(text) {
-  if (REJECTION_RX.test(text)) return "rejected";
+  if (REJECTION_RX.test(text) || LEADING_NO_RX.test(text.trim()) && !THANKS_CLOSING_ONLY_RX.test(text.trim())) return "rejected";
   if (CONSIDERING_RX.test(text)) return "considering";
   if (ACCEPTANCE_RX.test(text) || ACCEPT_OFFER_RX.test(text)) return "accepted";
   return null;
@@ -1339,6 +1344,20 @@ function isSameOrderContinuation(current, next, gapMs) {
   if (!currentHasOrderCommitment(current)) return false;
   return FULFILLMENT_FOLLOWUP_RX.test(next.text) || PRIOR_ORDER_REFERENCE_RX.test(next.text) || ORDER_DETAIL_CONTINUATION_RX.test(next.text);
 }
+function hasStrongSemanticContinuation(current, next, gapMs) {
+  if (!current.length || gapMs < 0) return false;
+  if (next.role === "staff" && next.isMeaningful && gapMs <= SEMANTIC_CONTINUATION_MAX_GAP_MS && hasPendingCustomerNeed(current)) {
+    return true;
+  }
+  if (next.role !== "customer" || !next.isMeaningful) return false;
+  if (isSameOrderContinuation(current, next, gapMs)) return true;
+  if (gapMs <= SEMANTIC_CONTINUATION_MAX_GAP_MS) {
+    if (hasResolvedProductReferenceContinuation(current, next)) return true;
+    if (hasLinkedCorrectionContinuation(current, next)) return true;
+    if (isCustomerResponseContinuation(current, next)) return true;
+  }
+  return false;
+}
 function shouldKeepSemanticContinuation(current, next, gapMs) {
   if (!current.length || gapMs < 0) return false;
   if (next.role === "staff" && next.isMeaningful && gapMs <= SEMANTIC_CONTINUATION_MAX_GAP_MS && hasPendingCustomerNeed(current)) {
@@ -1420,7 +1439,9 @@ function segmentInteractions(messages) {
       const customerRequest = isRequestCandidate(message);
       const additiveRequest = ADDITIVE_REQUEST_RX.test(message.text);
       const fulfilledCurrentOrder = currentHasOrderCommitment(current);
-      if (message.role === "customer" && message.isMeaningful && TOPIC_SHIFT_MARKER_RX.test(message.text) && !semanticContinuation) {
+      if (message.role === "customer" && message.isMeaningful && TOPIC_SHIFT_MARKER_RX.test(message.text) && // An explicit topic shift ("بالمناسبة ...") loses only to a PROVEN continuation, never to
+      // the weaker "additive word after a committed order" heuristic.
+      !hasStrongSemanticContinuation(current, message, gapMs)) {
         flush();
         reason = "topic_shift_marker";
       } else if (customerRequest && sawClosingSinceLastMeaningfulInbound && !semanticContinuation) {
@@ -1625,8 +1646,30 @@ function parseNumberToken(token) {
 function normalizeProductKey(name) {
   return name.trim().toLowerCase().replace(/[أإآ]/g, "\u0627").replace(/ى/g, "\u064A").replace(/ة/g, "\u0647").replace(/\s+/g, " ");
 }
+var ADDITIVE_CONNECTOR_RX = /^\s*(?:(?:و|وكمان|كمان|وبرضه|برضه|برضو|وأيضا|وايضا|أيضا|ايضا)(?=\s)\s*)+/i;
+var LEAD_DISCOURSE_RX = /^\s*(?:(?:تمام|ماشي|اوك|ok|خلاص|طيب|ايوه|ايوا|اه|آه|بالمناسبة|على\s*فكرة)(?=[\s،,])[\s،,]*)+/i;
+var TRAILING_ADDITIVE_RX = /\s+(?:كمان|برضه|برضو|أيضا|ايضا)\s*$/i;
 function stripRequestPrefix(text) {
-  return text.replace(/^\s*(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?|ممكن|هات[ي]?|ابعت(?:لي|يلي)?)\s*/i, "").trim().replace(/^[,،]+|[,،]+$/g, "").trim();
+  return text.replace(LEAD_DISCOURSE_RX, "").replace(ADDITIVE_CONNECTOR_RX, "").replace(/^\s*(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?|ممكن|هات[ي]?|ابعت(?:لي|يلي)?)\s*/i, "").replace(ADDITIVE_CONNECTOR_RX, "").replace(TRAILING_ADDITIVE_RX, "").trim().replace(/^[,،]+|[,،]+$/g, "").trim();
+}
+var NON_PRODUCT_PHRASE_RX = /^(?:مش|لا|لأ|اه|آه|تمام|حاجة|حاجه|ده|دي|دا|منه|منها|بس)?$/;
+var EXPLICIT_REQUEST_VERB_RX = /(?<![\p{L}\p{N}])(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?|هات(?:ي|لي)?|ابعت(?:لي|يلي)?)(?![\p{L}\p{N}])/u;
+var ONLY_THIS_RX = /(?<![\p{L}\p{N}])(?:بس|فقط)[.!، ]*$/u;
+var INFO_QUESTION_LEAD_RX = /^(?:اعرف|أعرف|اسأل|أسأل|استفسر|أستفسر|افهم|أفهم|اشوف|أشوف|اتأكد|أتأكد)(?=\s|$)/;
+var POLITENESS_RX = /(?<![\p{L}\p{N}])(?:لو\s*سمحت|من\s*فضلك|يا\s*(?:دكتور[ةه]?|فندم)|بعد\s*اذنك|بعد\s*إذنك)(?![\p{L}\p{N}])/giu;
+function explicitRequestProductPhrases(text) {
+  const phrase = stripRequestPrefix(text.replace(POLITENESS_RX, " ")).replace(/[؟?!.]+$/g, "").replace(/\s+/g, " ").trim();
+  if (!phrase || /[؟?]/.test(text) || INFO_QUESTION_LEAD_RX.test(phrase)) return [];
+  const parts = phrase.split(/\s+و\s+|\s*[،,+]\s*/).map((part) => stripRequestPrefix(part).trim()).filter((part) => part.length >= 2);
+  if (!parts.length || parts.some((part) => part.split(/\s+/).length > 4 || NON_PRODUCT_PHRASE_RX.test(part))) return [];
+  return parts;
+}
+var QUANTITY_REVISION_RX = /^(?:(?:لا|لأ|طيب|خلاص)[،,\s]+)?(?:خلي(?:ه|ها|هم|هملي|هولي|هالي)|نزل(?:ه|ها|هم))\s+(?:ل)?(?:(\d+|واحد[ةه]?|اتنين|تلات[ةه]?|أربع[ةه]?|خمس[ةه]?)\s*(?:علب[ةه]?|علب|شريط|عبو[ةه]|قطع[ةه]|حب[ةه])?|(?:علب[ةه]|شريط|عبو[ةه]|قطع[ةه]|حب[ةه])\s*(واحد[ةه]?|اتنين|\d+)|(علبتين|شريطين|عبوتين|حبتين))\s*(?:بس|فقط)?[.!، ]*$/i;
+function parseQuantityRevision(text) {
+  const match = text.trim().match(QUANTITY_REVISION_RX);
+  if (!match) return null;
+  if (match[3]) return 2;
+  return parseNumberToken(match[1] ?? match[2] ?? "");
 }
 function assessment(level, score, ruleId, evidence) {
   return { level, score, ruleIds: [ruleId], evidence };
@@ -1763,6 +1806,7 @@ function extractDraftItemsFromScope(allMessages, restrictToIds) {
     if (alreadyCaptured) return;
     const message = allMessages.find((m) => m.id === signal.messageId);
     if (!message) return;
+    if (message.role === "staff") return;
     const index = allMessages.indexOf(message);
     const resolved = resolveReference(allMessages, index);
     items.push({
@@ -1779,7 +1823,31 @@ function extractDraftItemsFromScope(allMessages, restrictToIds) {
       resolutionStatus: resolved ? "partially_proven" : "unknown"
     });
   });
+  scopedMessages.forEach((message) => {
+    if (message.role !== "customer" || !message.isMeaningful || !EXPLICIT_REQUEST_VERB_RX.test(message.text)) return;
+    if (items.some((item) => item.sourceMessageId === message.id)) return;
+    for (const productNameRaw of explicitRequestProductPhrases(message.text.replace(ONLY_THIS_RX, ""))) {
+      items.push({
+        productNameRaw,
+        productId: null,
+        quantity: null,
+        unit: null,
+        sourceMessageId: message.id,
+        confidence: assessment("weakly_inferred", 0.55, "basket.item.explicit_named_request_no_quantity", [
+          refFor(message, `\u0627\u0644\u0639\u0645\u064A\u0644 \u0637\u0644\u0628 \u0627\u0644\u0635\u0646\u0641 \u0628\u0627\u0644\u0627\u0633\u0645 \u062F\u0648\u0646 \u0643\u0645\u064A\u0629: "${message.text.slice(0, 80)}".`)
+        ]),
+        resolutionStatus: "partially_proven"
+      });
+    }
+  });
   return items;
+}
+function itemsNamedIn(text, keys) {
+  const phraseTokens = normalizeProductKey(stripRequestPrefix(text.replace(ONLY_THIS_RX, ""))).split(" ").map((token) => token.replace(/^ال/, "")).filter((token) => token.length >= 3);
+  return keys.filter((key) => {
+    const keyTokens = key.split(" ").map((token) => token.replace(/^ال/, ""));
+    return phraseTokens.length > 0 && phraseTokens.every((token) => keyTokens.includes(token));
+  });
 }
 function draftItemsToMap(items) {
   const map = /* @__PURE__ */ new Map();
@@ -1810,7 +1878,7 @@ function isStaffFinalConfirmation(message) {
   return message.role === "staff" && message.isMeaningful && STAFF_FINAL_CONFIRMATION_RX.test(message.text);
 }
 function classifyCustomerModification(text) {
-  if (MODIFICATION_QTY_CHANGE_RX.test(text)) return "quantity_change";
+  if (MODIFICATION_QTY_CHANGE_RX.test(text) || parseQuantityRevision(text) != null) return "quantity_change";
   if (SUBSTITUTION_MARKER_RX.test(text)) return "substitute";
   if (MODIFICATION_ADD_RX.test(text)) return "add";
   if (MODIFICATION_REMOVE_RX.test(text)) return "remove";
@@ -1848,6 +1916,28 @@ function buildCaseBaskets(caseId, scopedMessages) {
   let lastSummaryMessageId = null;
   let hasOpenBasket = false;
   const currentBasketId = () => `${caseId}:basket:${version}`;
+  const alternativeOffers = extractAlternativeOfferSignals(messages);
+  const indexOfMessage = new Map(messages.map((m, i) => [m.id, i]));
+  function unavailableKeysReplacedBy(reply) {
+    const replyIndex = indexOfMessage.get(reply.id) ?? -1;
+    const offer = alternativeOffers.filter((signal) => (indexOfMessage.get(signal.messageId) ?? Infinity) < replyIndex).pop();
+    if (!offer) return [];
+    const offerIndex = indexOfMessage.get(offer.messageId) ?? -1;
+    if (messages.slice(offerIndex + 1, replyIndex).some((m) => m.role === "customer" && m.isMeaningful)) return [];
+    if (classifyCustomerOfferResponseV32(reply.text) === "rejected") return [];
+    const statementIds = [offer.messageId, ...offer.relatedMessageIds ?? []];
+    const keys = /* @__PURE__ */ new Set();
+    for (const id of statementIds) {
+      const statement = messages[indexOfMessage.get(id) ?? -1];
+      if (!statement) continue;
+      for (const clause of availabilityStatementClausesV32(statement.text)) {
+        if (clause.state !== "unavailable") continue;
+        const clauseKey = normalizeProductKey(clause.clause);
+        for (const key of items.keys()) if (key.length >= 3 && clauseKey.includes(key)) keys.add(key);
+      }
+    }
+    return Array.from(keys);
+  }
   function flushCurrentBasket(finalStatus) {
     if (!hasOpenBasket) return;
     const basketId = currentBasketId();
@@ -1958,7 +2048,7 @@ function buildCaseBaskets(caseId, scopedMessages) {
         }
         if (modification === "quantity_change") {
           const match = message.text.match(MODIFICATION_QTY_CHANGE_RX);
-          const newQty = match ? parseNumberToken(match[1]) : null;
+          const newQty = match ? parseNumberToken(match[1]) : parseQuantityRevision(message.text);
           const lastKey = Array.from(items.keys())[0];
           if (lastKey && newQty != null) {
             const existing = items.get(lastKey);
@@ -2015,8 +2105,35 @@ function buildCaseBaskets(caseId, scopedMessages) {
         }
       }
       if (!hasOpenBasket) startNewVersion(/* @__PURE__ */ new Map(), "draft");
+      const revisedQuantity = status === "draft" && items.size === 1 ? parseQuantityRevision(message.text) : null;
+      if (status === "draft" && items.size > 1 && ONLY_THIS_RX.test(message.text) && EXPLICIT_REQUEST_VERB_RX.test(message.text)) {
+        const keep = itemsNamedIn(message.text, Array.from(items.keys()));
+        if (keep.length > 0 && keep.length < items.size) {
+          const kept = new Map(Array.from(items.entries()).filter(([key]) => keep.includes(key)));
+          flushCurrentBasket("superseded");
+          startNewVersion(kept, "draft");
+          sourceMessageIds.push(message.id);
+          return;
+        }
+      }
+      if (revisedQuantity != null) {
+        const [key, existing] = Array.from(items.entries())[0];
+        flushCurrentBasket("superseded");
+        startNewVersion(new Map(items), "draft");
+        items.set(key, { ...existing, quantity: revisedQuantity, sourceMessageId: message.id });
+        sourceMessageIds.push(message.id);
+        return;
+      }
       if (status === "draft") {
-        extractDraftItemsFromScope(messages, /* @__PURE__ */ new Set([message.id])).forEach((item) => {
+        const newItems = extractDraftItemsFromScope(messages, /* @__PURE__ */ new Set([message.id]));
+        const replaced = newItems.length ? unavailableKeysReplacedBy(message) : [];
+        const newKeys = new Set(newItems.map((item) => normalizeProductKey(item.productNameRaw)));
+        const toRemove = replaced.filter((key) => !newKeys.has(key));
+        if (toRemove.length) {
+          flushCurrentBasket("superseded");
+          startNewVersion(new Map(Array.from(items.entries()).filter(([key]) => !toRemove.includes(key))), "draft");
+        }
+        newItems.forEach((item) => {
           items.set(normalizeProductKey(item.productNameRaw), item);
           sourceMessageIds.push(message.id);
         });
@@ -3951,7 +4068,7 @@ function deriveCanonicalSalesOutcome(input) {
 // src/lib/salesIntelligence/customerNeedModel.ts
 var PRICE_OBJECTION_RX = /غالي|السعر\s*(?:عالي|كتير|كبير)|كتير\s*(?:عليه|عليها)|مش\s*مناسب.*(?:السعر|الثمن)|خصم\s*اكتر/i;
 var AVAILABILITY_OBJECTION_RX = /مش\s*(?:موجود|متوفر)|مفيش|خلص|مش\s*لاقي|مش\s*لاقية/i;
-var DELIVERY_OBJECTION_RX = /التوصيل|الدليفري|المندوب|اتأخر|متأخر|مش\s*(?:هستنى|هقدر\s*استنى)/i;
+var DELIVERY_OBJECTION_RX = /التوصيل|الدليفري|المندوب|اتأخر|متأخر|مش\s*(?:هستنى|هقدر\s*استنى)|(?:ما|م)?\s*وصلش|موصلش|لسه\s*(?:ما\s*)?(?:وصل|جه|جا)ش?|لم\s*يصل|فين\s*(?:ال)?(?:أوردر|اوردر|طلب|طلبي)/i;
 var PRODUCT_FIT_OBJECTION_RX = /مش\s*مناسب|مش\s*ده|عايز\s*غير|عاوز\s*غير|بديل|حساسي[ةه]|مش\s*نفس/i;
 var TIMING_OBJECTION_RX = /مش\s*دلوقتي|بعدين|بعد\s*كده|وقت\s*تاني|لما\s*احتاج/i;
 var ALTERNATIVE_RX = /بديل|بدل(?:ه|ها|هم|\s)/i;
@@ -3984,7 +4101,7 @@ function strongestConfidence(current, next) {
   if (confidenceRank(next.level) < confidenceRank(current.level)) return current;
   return next.score > current.score ? next : current;
 }
-var STOCK_QUESTION_WORDS_RX = /(?<![\p{L}\p{N}])(?:هو|هي|هل|طيب|عندكم|عندكو|عندك|موجود[ةه]?|متوفر[ةه]?|متاح[ةه]?|فيه|في|لو\s*سمحت|من\s*فضلك|ممكن|يا\s*(?:دكتور[ةه]?|فندم))(?![\p{L}\p{N}])/giu;
+var STOCK_QUESTION_WORDS_RX = /(?<![\p{L}\p{N}])(?:هو|هي|هل|طيب|مش|مو|غير|عندكم|عندكو|عندك|موجود[ةه]?|متوفر[ةه]?|متاح[ةه]?|فيه|في|لو\s*سمحت|من\s*فضلك|ممكن|يا\s*(?:دكتور[ةه]?|فندم))(?![\p{L}\p{N}])/giu;
 var NON_PRODUCT_LEFTOVER_RX = /^(?:مش|لا|لأ|اه|آه|تمام|حاجة|حاجه|ده|دي|دا|منه|منها)?$/;
 function productPhraseFromStockQuestion(text) {
   const phrase = stripRequestPrefix(text.replace(STOCK_QUESTION_WORDS_RX, " ")).replace(/[؟?!.،]+/g, " ").replace(/\s+/g, " ").trim();
@@ -4157,6 +4274,19 @@ function deriveCustomerNeedModel(input) {
       }
     }
   }
+  for (const signal of requestSignals) {
+    if (signal.ruleId !== "request.explicit_verb") continue;
+    const message = messageById.get(signal.messageId);
+    if (!message || message.role !== "customer") continue;
+    if (Array.from(products.values()).some((product) => product.evidenceMessageIds.has(message.id))) continue;
+    for (const part of explicitRequestProductPhrases(message.text)) {
+      const ref2 = evidenceRef2(message.id, `\u0627\u0644\u0639\u0645\u064A\u0644 \u0637\u0644\u0628 \u0627\u0644\u0635\u0646\u0641 \u0628\u0627\u0644\u0627\u0633\u0645: "${message.text.slice(0, 120)}".`);
+      const product = ensureProduct(part, assessment6("weakly_inferred", 0.6, ["need.product.explicit_request_phrase"], [ref2]));
+      if (!product) continue;
+      product.roles.add("requested");
+      product.evidenceMessageIds.add(message.id);
+    }
+  }
   const staffIdFor = (sender) => input.staffIdBySender?.[sender] ?? null;
   const indexById = new Map(messages.map((message, index) => [message.id, index]));
   const unlinkedAvailability = [];
@@ -4252,7 +4382,7 @@ function deriveCustomerNeedModel(input) {
   }
   const alternativeSignals = extractAlternativeOfferSignals(messages);
   const alternativeMessageIds = new Set(alternativeSignals.map((signal) => signal.messageId));
-  const customerResponseTo = (offer) => {
+  const customerResponseTo = (offer, alternativeKey) => {
     const start = (indexById.get(offer.id) ?? -1) + 1;
     const replies = [];
     for (const message of messages.slice(start)) {
@@ -4264,6 +4394,9 @@ function deriveCustomerNeedModel(input) {
     for (const reply of replies) {
       const response = classifyCustomerOfferResponseV32(reply.text);
       if (response) return { response, messageId: reply.id };
+      if (alternativeKey && alternativeKey.length >= 3 && isRequestCandidate(reply) && normalizeProductKey(reply.text).includes(alternativeKey)) {
+        return { response: "accepted", messageId: reply.id };
+      }
     }
     return { response: "unknown", messageId: null };
   };
@@ -4290,7 +4423,7 @@ function deriveCustomerNeedModel(input) {
       alternativeProduct.roles.add("alternative");
       alternativeProduct.evidenceMessageIds.add(offer.id);
     }
-    const { response: textResponse, messageId: responseMessageId } = customerResponseTo(offer);
+    const { response: textResponse, messageId: responseMessageId } = customerResponseTo(offer, alternativeProduct?.key ?? (phraseKey || null));
     const inFinalBasket = alternativeProduct?.roles.has("final_basket") ?? false;
     const response = textResponse === "unknown" || textResponse === "no_response" ? inFinalBasket ? "accepted" : textResponse : textResponse;
     const evidenceIds = [
@@ -4327,6 +4460,9 @@ function deriveCustomerNeedModel(input) {
     const latest = product.availabilityEvidence.slice().sort((a, b) => (indexById.get(a.messageId) ?? 0) - (indexById.get(b.messageId) ?? 0)).pop();
     return latest?.state ?? "unknown";
   };
+  for (const product of products.values()) {
+    if (product.roles.has("rejected") && currentAvailability(product) === "unavailable") product.roles.delete("rejected");
+  }
   const rejectionIds = new Set(rejectionSignals.map((signal) => signal.messageId));
   const correctionIds = new Set(correctionSignals.map((signal) => signal.messageId));
   const objections = [];
@@ -5013,10 +5149,13 @@ function deriveFollowUpOpportunities(input) {
     candidates.push({ reason: "staff_no_response", explicit: false, demand: null, evidence: lostEvidence, level: lostOpportunity.confidence.level, score: lostOpportunity.confidence.score });
   } else if (lostOpportunity.state === "recoverable" && lostOpportunity.reason === "price") {
     candidates.push({ reason: "price_objection", explicit: false, demand: null, evidence: lostEvidence, level: lostOpportunity.confidence.level, score: lostOpportunity.confidence.score });
-  } else if (lostOpportunity.state === "recoverable" && lostOpportunity.reason === "delivery_issue") {
-    candidates.push({ reason: "delivery_unresolved", explicit: false, demand: null, evidence: lostEvidence, level: lostOpportunity.confidence.level, score: lostOpportunity.confidence.score });
   } else if (lostOpportunity.state === "recoverable" && lostOpportunity.reason === "customer_no_response") {
     candidates.push({ reason: "customer_no_response", explicit: false, demand: null, evidence: lostEvidence, level: lostOpportunity.confidence.level, score: lostOpportunity.confidence.score });
+  }
+  for (const objection of customerNeed.objections.filter((o) => o.category === "delivery")) {
+    const message = messages.find((m) => m.id === objection.messageId);
+    if (!message || laterStaffReply(message)) continue;
+    candidates.push({ reason: "delivery_unresolved", explicit: true, demand: null, evidence: [objection.messageId], level: objection.confidence.level, score: objection.confidence.score });
   }
   const considering = customerMessages.filter((m) => classifyCustomerIntentStatementV32(m.text) === "considering");
   if (considering.length && lostOpportunity.reason !== "price" && !candidates.some((c) => c.reason === "alternative_open")) {
@@ -6159,6 +6298,11 @@ function deriveSegmentedCases(input) {
     pipelineWarnings.push("no_semantic_session_derived_from_raw_text");
     return { sessionsProcessed: coarseSessions.length, cases: [], pipelineWarnings };
   }
+  if (input.knownStaffSenders?.length) {
+    semanticSession.outboundStaffNames = Array.from(
+      /* @__PURE__ */ new Set([...semanticSession.outboundStaffNames || [], ...input.knownStaffSenders])
+    );
+  }
   const understanding = buildConversationUnderstandingV32(semanticSession);
   const rawCases = deriveConversationCases({
     understanding,
@@ -6207,7 +6351,10 @@ function deriveCasesOnly(input) {
   };
 }
 function runSalesIntelligencePipeline(input) {
-  const segmented = deriveSegmentedCases(input);
+  const segmented = deriveSegmentedCases({
+    ...input,
+    knownStaffSenders: Object.keys(input.staffIdBySender ?? {})
+  });
   const caseAnalyses = segmented.cases.map(
     ({ conversationCase, scopedMessages, interaction }) => analyzeOneCase(conversationCase, scopedMessages, input, interaction)
   );
@@ -6322,9 +6469,9 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v6";
+var PIPELINE_VERSION = "sales-intelligence-v7";
 var ENGINE_VERSIONS = {
-  caseSegmentation: "case-segmentation-v6-semantic-boundaries",
+  caseSegmentation: "case-segmentation-v7-explicit-topic-shift",
   historicalClosure: "historical-closure-v1",
   commercialConfirmation: "commercial-confirmation-v4-natural-arabic-basket-quantities",
   protocolApplicability: "protocol-applicability-v1",

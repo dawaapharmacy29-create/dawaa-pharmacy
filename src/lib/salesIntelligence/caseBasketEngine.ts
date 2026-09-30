@@ -6,7 +6,10 @@
 import type { NormalizedConversationMessageV32 } from '../whatsappConversationUnderstandingV32';
 import {
   contextWindowV32,
+  availabilityStatementClausesV32,
+  classifyCustomerOfferResponseV32,
   extractAcceptanceSignals,
+  extractAlternativeOfferSignals,
   extractConfirmationSignals,
   extractProductReferenceSignals,
   extractQuantitySignals,
@@ -93,12 +96,64 @@ export function normalizeProductKey(name: string): string {
     .replace(/\s+/g, ' ');
 }
 
+// Standalone additive connectors ("و", "وكمان", "كمان", "برضه", "أيضا") that open a request but are
+// not part of the product name ("وكمان 2 علبة فيتامين د" -> "فيتامين د"). Whole tokens only: a
+// product whose own name starts with the letter "و" is never cut.
+const ADDITIVE_CONNECTOR_RX = /^\s*(?:(?:و|وكمان|كمان|وبرضه|برضه|برضو|وأيضا|وايضا|أيضا|ايضا)(?=\s)\s*)+/i;
+
+// Acknowledgement / discourse openers before a request ("تمام هات X", "بالمناسبة عايز X") and a
+// trailing additive ("... كمان") — whole tokens only, never part of a product name.
+const LEAD_DISCOURSE_RX =
+  /^\s*(?:(?:تمام|ماشي|اوك|ok|خلاص|طيب|ايوه|ايوا|اه|آه|بالمناسبة|على\s*فكرة)(?=[\s،,])[\s،,]*)+/i;
+const TRAILING_ADDITIVE_RX = /\s+(?:كمان|برضه|برضو|أيضا|ايضا)\s*$/i;
+
 export function stripRequestPrefix(text: string): string {
   return text
+    .replace(LEAD_DISCOURSE_RX, '')
+    .replace(ADDITIVE_CONNECTOR_RX, '')
     .replace(/^\s*(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?|ممكن|هات[ي]?|ابعت(?:لي|يلي)?)\s*/i, '')
+    .replace(ADDITIVE_CONNECTOR_RX, '')
+    .replace(TRAILING_ADDITIVE_RX, '')
     .trim()
     .replace(/^[,،]+|[,،]+$/g, '')
     .trim();
+}
+
+const NON_PRODUCT_PHRASE_RX = /^(?:مش|لا|لأ|اه|آه|تمام|حاجة|حاجه|ده|دي|دا|منه|منها|بس)?$/;
+const EXPLICIT_REQUEST_VERB_RX = /(?<![\p{L}\p{N}])(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?|هات(?:ي|لي)?|ابعت(?:لي|يلي)?)(?![\p{L}\p{N}])/u;
+// "ابعت X بس" — the customer narrows the order to the named item(s).
+const ONLY_THIS_RX = /(?<![\p{L}\p{N}])(?:بس|فقط)[.!، ]*$/u;
+
+const INFO_QUESTION_LEAD_RX = /^(?:اعرف|أعرف|اسأل|أسأل|استفسر|أستفسر|افهم|أفهم|اشوف|أشوف|اتأكد|أتأكد)(?=\s|$)/;
+const POLITENESS_RX = /(?<![\p{L}\p{N}])(?:لو\s*سمحت|من\s*فضلك|يا\s*(?:دكتور[ةه]?|فندم)|بعد\s*اذنك|بعد\s*إذنك)(?![\p{L}\p{N}])/giu;
+
+/** Product phrases named by an explicit request ("عايز X و Y"); [] when it is not a product request. */
+export function explicitRequestProductPhrases(text: string): string[] {
+  const phrase = stripRequestPrefix(text.replace(POLITENESS_RX, ' '))
+    .replace(/[؟?!.]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!phrase || /[؟?]/.test(text) || INFO_QUESTION_LEAD_RX.test(phrase)) return [];
+  const parts = phrase
+    .split(/\s+و\s+|\s*[،,+]\s*/)
+    .map((part) => stripRequestPrefix(part).trim())
+    .filter((part) => part.length >= 2);
+  if (!parts.length || parts.some((part) => part.split(/\s+/).length > 4 || NON_PRODUCT_PHRASE_RX.test(part))) return [];
+  return parts;
+}
+
+
+
+// A quantity revision addressed to the current item by pronoun: "خليهم علبة واحدة بس",
+// "خليها اتنين", "نزلهم لواحدة". Only the quantity changes; no new product is named.
+const QUANTITY_REVISION_RX =
+  /^(?:(?:لا|لأ|طيب|خلاص)[،,\s]+)?(?:خلي(?:ه|ها|هم|هملي|هولي|هالي)|نزل(?:ه|ها|هم))\s+(?:ل)?(?:(\d+|واحد[ةه]?|اتنين|تلات[ةه]?|أربع[ةه]?|خمس[ةه]?)\s*(?:علب[ةه]?|علب|شريط|عبو[ةه]|قطع[ةه]|حب[ةه])?|(?:علب[ةه]|شريط|عبو[ةه]|قطع[ةه]|حب[ةه])\s*(واحد[ةه]?|اتنين|\d+)|(علبتين|شريطين|عبوتين|حبتين))\s*(?:بس|فقط)?[.!، ]*$/i;
+
+function parseQuantityRevision(text: string): number | null {
+  const match = text.trim().match(QUANTITY_REVISION_RX);
+  if (!match) return null;
+  if (match[3]) return 2;
+  return parseNumberToken(match[1] ?? match[2] ?? '');
 }
 
 function assessment(level: ConfidenceLevel, score: number, ruleId: string, evidence: EvidenceRef[]): ConfidenceAssessment {
@@ -285,6 +340,9 @@ function extractDraftItemsFromScope(
     if (alreadyCaptured) return;
     const message = allMessages.find((m) => m.id === signal.messageId);
     if (!message) return;
+    // A staff pronoun ("ممكن بدل منه نجيب ...", "ده متوفر") points back at a product already under
+    // discussion; it never adds a basket line, and must never turn the staff sentence into one.
+    if (message.role === 'staff') return;
     const index = allMessages.indexOf(message);
     const resolved = resolveReference(allMessages, index);
     items.push({
@@ -304,7 +362,40 @@ function extractDraftItemsFromScope(
     });
   });
 
+  // A customer request that names its product(s) with an explicit verb but no quantity
+  // ("عايز بانادول اكسترا و كونجستال", "تمام هات كومتركس") is a draft line with quantity unknown —
+  // only when nothing else in that message produced a line, and never from staff text.
+  scopedMessages.forEach((message) => {
+    if (message.role !== 'customer' || !message.isMeaningful || !EXPLICIT_REQUEST_VERB_RX.test(message.text)) return;
+    if (items.some((item) => item.sourceMessageId === message.id)) return;
+    for (const productNameRaw of explicitRequestProductPhrases(message.text.replace(ONLY_THIS_RX, ''))) {
+      items.push({
+        productNameRaw,
+        productId: null,
+        quantity: null,
+        unit: null,
+        sourceMessageId: message.id,
+        confidence: assessment('weakly_inferred', 0.55, 'basket.item.explicit_named_request_no_quantity', [
+          refFor(message, `العميل طلب الصنف بالاسم دون كمية: "${message.text.slice(0, 80)}".`),
+        ]),
+        resolutionStatus: 'partially_proven',
+      });
+    }
+  });
+
   return items;
+}
+
+/** Keys of current draft items the customer's "only X" message names (ال-prefix tolerant, whole tokens). */
+function itemsNamedIn(text: string, keys: string[]): string[] {
+  const phraseTokens = normalizeProductKey(stripRequestPrefix(text.replace(ONLY_THIS_RX, '')))
+    .split(' ')
+    .map((token) => token.replace(/^ال/, ''))
+    .filter((token) => token.length >= 3);
+  return keys.filter((key) => {
+    const keyTokens = key.split(' ').map((token) => token.replace(/^ال/, ''));
+    return phraseTokens.length > 0 && phraseTokens.every((token) => keyTokens.includes(token));
+  });
 }
 
 function draftItemsToMap(items: DraftItem[]): Map<string, DraftItem> {
@@ -347,7 +438,7 @@ function isStaffFinalConfirmation(message: NormalizedConversationMessageV32): bo
 
 /** True when a customer message is a modification instruction distinct from a plain confirmation/rejection. */
 function classifyCustomerModification(text: string): 'add' | 'remove' | 'quantity_change' | 'substitute' | null {
-  if (MODIFICATION_QTY_CHANGE_RX.test(text)) return 'quantity_change';
+  if (MODIFICATION_QTY_CHANGE_RX.test(text) || parseQuantityRevision(text) != null) return 'quantity_change';
   if (SUBSTITUTION_MARKER_RX.test(text)) return 'substitute';
   if (MODIFICATION_ADD_RX.test(text)) return 'add';
   if (MODIFICATION_REMOVE_RX.test(text)) return 'remove';
@@ -418,6 +509,33 @@ export function buildCaseBaskets(caseId: string, scopedMessages: NormalizedConve
   let hasOpenBasket = false;
 
   const currentBasketId = () => `${caseId}:basket:${version}`;
+  const alternativeOffers = extractAlternativeOfferSignals(messages);
+  const indexOfMessage = new Map(messages.map((m, i) => [m.id, i]));
+
+  /** Draft keys a staff alternative offer (or the unavailable statement it answers) said are unavailable. */
+  function unavailableKeysReplacedBy(reply: NormalizedConversationMessageV32): string[] {
+    const replyIndex = indexOfMessage.get(reply.id) ?? -1;
+    const offer = alternativeOffers
+      .filter((signal) => (indexOfMessage.get(signal.messageId) ?? Infinity) < replyIndex)
+      .pop();
+    if (!offer) return [];
+    const offerIndex = indexOfMessage.get(offer.messageId) ?? -1;
+    // Only the customer's direct answer to that offer (no other customer message in between).
+    if (messages.slice(offerIndex + 1, replyIndex).some((m) => m.role === 'customer' && m.isMeaningful)) return [];
+    if (classifyCustomerOfferResponseV32(reply.text) === 'rejected') return [];
+    const statementIds = [offer.messageId, ...(offer.relatedMessageIds ?? [])];
+    const keys = new Set<string>();
+    for (const id of statementIds) {
+      const statement = messages[indexOfMessage.get(id) ?? -1];
+      if (!statement) continue;
+      for (const clause of availabilityStatementClausesV32(statement.text)) {
+        if (clause.state !== 'unavailable') continue;
+        const clauseKey = normalizeProductKey(clause.clause);
+        for (const key of items.keys()) if (key.length >= 3 && clauseKey.includes(key)) keys.add(key);
+      }
+    }
+    return Array.from(keys);
+  }
 
   function flushCurrentBasket(finalStatus?: CaseBasket['status']) {
     if (!hasOpenBasket) return;
@@ -537,7 +655,7 @@ export function buildCaseBaskets(caseId: string, scopedMessages: NormalizedConve
         }
         if (modification === 'quantity_change') {
           const match = message.text.match(MODIFICATION_QTY_CHANGE_RX);
-          const newQty = match ? parseNumberToken(match[1]) : null;
+          const newQty = match ? parseNumberToken(match[1]) : parseQuantityRevision(message.text);
           const lastKey = Array.from(items.keys())[0];
           if (lastKey && newQty != null) {
             const existing = items.get(lastKey)!;
@@ -609,8 +727,40 @@ export function buildCaseBaskets(caseId: string, scopedMessages: NormalizedConve
       // السعر ده شامل التوصيل؟", where a bare "ده" would otherwise spuriously resolve as a
       // product reference) is a no-op, leaving the basket exactly as awaiting confirmation.
       if (!hasOpenBasket) startNewVersion(new Map(), 'draft');
+      // Draft-phase quantity revision of the single item being ordered: a new version (history kept),
+      // never a new product called "واحدة بس".
+      const revisedQuantity = status === 'draft' && items.size === 1 ? parseQuantityRevision(message.text) : null;
+      // "ابعت البانادول بس": the customer narrows a multi-item draft to the item(s) named.
+      if (status === 'draft' && items.size > 1 && ONLY_THIS_RX.test(message.text) && EXPLICIT_REQUEST_VERB_RX.test(message.text)) {
+        const keep = itemsNamedIn(message.text, Array.from(items.keys()));
+        if (keep.length > 0 && keep.length < items.size) {
+          const kept = new Map(Array.from(items.entries()).filter(([key]) => keep.includes(key)));
+          flushCurrentBasket('superseded');
+          startNewVersion(kept, 'draft');
+          sourceMessageIds.push(message.id);
+          return;
+        }
+      }
+      if (revisedQuantity != null) {
+        const [key, existing] = Array.from(items.entries())[0];
+        flushCurrentBasket('superseded');
+        startNewVersion(new Map(items), 'draft');
+        items.set(key, { ...existing, quantity: revisedQuantity, sourceMessageId: message.id });
+        sourceMessageIds.push(message.id);
+        return;
+      }
       if (status === 'draft') {
-        extractDraftItemsFromScope(messages, new Set([message.id])).forEach((item) => {
+        const newItems = extractDraftItemsFromScope(messages, new Set([message.id]));
+        // Accepting a staff alternative replaces the item the staff said was unavailable: a new
+        // version without it (history kept), never both the unavailable original and its substitute.
+        const replaced = newItems.length ? unavailableKeysReplacedBy(message) : [];
+        const newKeys = new Set(newItems.map((item) => normalizeProductKey(item.productNameRaw)));
+        const toRemove = replaced.filter((key) => !newKeys.has(key));
+        if (toRemove.length) {
+          flushCurrentBasket('superseded');
+          startNewVersion(new Map(Array.from(items.entries()).filter(([key]) => !toRemove.includes(key))), 'draft');
+        }
+        newItems.forEach((item) => {
           items.set(normalizeProductKey(item.productNameRaw), item);
           sourceMessageIds.push(message.id);
         });

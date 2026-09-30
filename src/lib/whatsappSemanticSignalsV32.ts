@@ -628,6 +628,10 @@ export function extractAvailabilitySignals(messages: NormalizedConversationMessa
   return signals;
 }
 
+// Leading words before an alternative named BEFORE its marker ("فيه كومتركس بدل منه").
+const ALTERNATIVE_LEAD_FILLER_RX =
+  /^(?:(?:فيه|في|عندنا|ممكن|ينفع|نقدر|نجيب|أجيب|اجيب|نديلك|أقدم|اقدم|نقدم|أرشح|ارشح|لحضرتك|و)(?=\s|$)|[\s:\-،])+/i;
+
 function alternativePhraseAfter(text: string, marker: RegExp): string | null {
   const match = text.match(marker);
   if (!match || match.index == null) return null;
@@ -636,7 +640,14 @@ function alternativePhraseAfter(text: string, marker: RegExp): string | null {
     .split(/[؟?\n.!،,]/)[0]
     .replace(ALTERNATIVE_PHRASE_FILLER_RX, '')
     .trim();
-  return tail.length >= 2 ? tail.slice(0, 80) : null;
+  if (tail.length >= 2) return tail.slice(0, 80);
+  // Named before the marker, inside the same clause: "... فيه كومتركس بدل منه".
+  const clauseStart = Math.max(...['،', ',', '.', '\n', '؟', '?'].map((sep) => text.lastIndexOf(sep, match.index! - 1)));
+  const head = text
+    .slice(clauseStart + 1, match.index)
+    .replace(ALTERNATIVE_LEAD_FILLER_RX, '')
+    .trim();
+  return head.length >= 2 && head.split(/\s+/).length <= 4 ? head.slice(0, 80) : null;
 }
 
 /**
@@ -759,9 +770,13 @@ export function classifyCustomerTimingRequestV32(text: string): CustomerTimingRe
   return { when: 'unspecified', days: null };
 }
 
+// A reply that OPENS with an explicit "no" followed by more words ("لا، أنا عايز X نفسه",
+// "لأ مش عايز البديل") rejects the offer on the table.
+const LEADING_NO_RX = /^(?:لا|لأ)(?:\s*[،,.!]|\s+(?=\S))/;
+
 /** Customer's answer to a staff offer. Rejection is checked first ("لا مش عايزه تمام" is still a no). */
 export function classifyCustomerOfferResponseV32(text: string): CustomerOfferResponseV32 | null {
-  if (REJECTION_RX.test(text)) return 'rejected';
+  if (REJECTION_RX.test(text) || (LEADING_NO_RX.test(text.trim()) && !THANKS_CLOSING_ONLY_RX.test(text.trim()))) return 'rejected';
   if (CONSIDERING_RX.test(text)) return 'considering';
   if (ACCEPTANCE_RX.test(text) || ACCEPT_OFFER_RX.test(text)) return 'accepted';
   return null;

@@ -73,7 +73,7 @@ const PROFILE: Record<FollowUpReason, ReasonProfile> = {
 };
 
 /** Reasons that come from an explicit future obligation and therefore survive a proven sale. */
-const EXPLICIT_OBLIGATIONS = new Set<FollowUpReason>(['customer_asked_to_wait', 'callback_requested', 'staff_promised_check']);
+const EXPLICIT_OBLIGATIONS = new Set<FollowUpReason>(['customer_asked_to_wait', 'callback_requested', 'staff_promised_check', 'delivery_unresolved']);
 
 interface Candidate {
   reason: FollowUpReason;
@@ -230,10 +230,15 @@ export function deriveFollowUpOpportunities(input: DeriveFollowUpInput): FollowU
     candidates.push({ reason: 'staff_no_response', explicit: false, demand: null, evidence: lostEvidence, level: lostOpportunity.confidence.level, score: lostOpportunity.confidence.score });
   } else if (lostOpportunity.state === 'recoverable' && lostOpportunity.reason === 'price') {
     candidates.push({ reason: 'price_objection', explicit: false, demand: null, evidence: lostEvidence, level: lostOpportunity.confidence.level, score: lostOpportunity.confidence.score });
-  } else if (lostOpportunity.state === 'recoverable' && lostOpportunity.reason === 'delivery_issue') {
-    candidates.push({ reason: 'delivery_unresolved', explicit: false, demand: null, evidence: lostEvidence, level: lostOpportunity.confidence.level, score: lostOpportunity.confidence.score });
   } else if (lostOpportunity.state === 'recoverable' && lostOpportunity.reason === 'customer_no_response') {
     candidates.push({ reason: 'customer_no_response', explicit: false, demand: null, evidence: lostEvidence, level: lostOpportunity.confidence.level, score: lostOpportunity.confidence.score });
+  }
+  // Delivery/fulfilment complaint (Need owner's delivery objection) with no later staff reply: an
+  // operational obligation that survives a proven sale — it never undoes the sale.
+  for (const objection of customerNeed.objections.filter((o) => o.category === 'delivery')) {
+    const message = messages.find((m) => m.id === objection.messageId);
+    if (!message || laterStaffReply(message)) continue;
+    candidates.push({ reason: 'delivery_unresolved', explicit: true, demand: null, evidence: [objection.messageId], level: objection.confidence.level, score: objection.confidence.score });
   }
   const considering = customerMessages.filter((m) => classifyCustomerIntentStatementV32(m.text) === 'considering');
   if (considering.length && lostOpportunity.reason !== 'price' && !candidates.some((c) => c.reason === 'alternative_open')) {

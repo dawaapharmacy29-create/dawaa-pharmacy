@@ -595,6 +595,12 @@ export interface DeriveSegmentedCasesInput {
   branchIdHint?: string | null;
   branchNameRawHint?: string | null;
   sessionSplitGapMinutes?: number;
+  /**
+   * Senders the staff identity owner already knows are pharmacy staff (e.g. the keys of
+   * staffIdBySender). Lets V32 treat named staff in group exports as staff instead of relying on
+   * the parser's single-outbound-sender heuristic.
+   */
+  knownStaffSenders?: string[];
 }
 
 export interface DeriveSegmentedCasesResult {
@@ -640,6 +646,11 @@ export function deriveSegmentedCases(input: DeriveSegmentedCasesInput): DeriveSe
     return { sessionsProcessed: coarseSessions.length, cases: [], pipelineWarnings };
   }
 
+  if (input.knownStaffSenders?.length) {
+    semanticSession.outboundStaffNames = Array.from(
+      new Set([...(semanticSession.outboundStaffNames || []), ...input.knownStaffSenders])
+    );
+  }
   const understanding = buildConversationUnderstandingV32(semanticSession);
   const rawCases = deriveConversationCases({
     understanding,
@@ -725,7 +736,10 @@ export function deriveCasesOnly(input: DeriveSegmentedCasesInput): {
  * into a commercial case: an information-only conversation is a complete, valid, non-error output.
  */
 export function runSalesIntelligencePipeline(input: SalesIntelligencePipelineInput): SalesIntelligencePipelineResult {
-  const segmented = deriveSegmentedCases(input);
+  const segmented = deriveSegmentedCases({
+    ...input,
+    knownStaffSenders: Object.keys(input.staffIdBySender ?? {}),
+  });
   const caseAnalyses = segmented.cases.map(({ conversationCase, scopedMessages, interaction }) =>
     analyzeOneCase(conversationCase, scopedMessages, input, interaction)
   );
