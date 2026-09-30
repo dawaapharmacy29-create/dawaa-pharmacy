@@ -1019,6 +1019,13 @@ export default function StaffMonthlyEvaluation() {
   const publishedStaff = staff.filter((item) =>
     ['sent', 'approved'].includes(String(item.evaluation_status || ''))
   );
+  const cycleSummary = {
+    total: staff.length,
+    approved: publishedStaff.length,
+    notStarted: staff.filter((item) => !item.evaluation_status || item.evaluation_status === 'not_started').length,
+    draft: staff.filter((item) => item.evaluation_status === 'draft').length,
+    needsReapproval: staff.filter((item) => item.evaluation_status === 'needs_reapproval').length,
+  };
   const receiptCounts = {
     not_seen: publishedStaff.filter((item) => !item.evaluation_acknowledged_at && !item.evaluation_commented_at).length,
     seen: publishedStaff.filter((item) => Boolean(item.evaluation_acknowledged_at) && !item.evaluation_commented_at).length,
@@ -1354,7 +1361,37 @@ export default function StaffMonthlyEvaluation() {
           <div className={`${sidebarOpen ? 'block' : 'hidden'} xl:block`}>
             <div className="mb-2 hidden items-center justify-between xl:flex">
               <div className="text-sm font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>الموظفون</div>
-              <div className="text-[11px] font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>{filteredStaff.length} موظف</div>
+              <div className="text-[11px] font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                {filteredStaff.length === cycleSummary.total ? `${cycleSummary.total} موظف` : `${filteredStaff.length} من ${cycleSummary.total}`}
+              </div>
+            </div>
+
+            <div className="mb-3 grid grid-cols-2 gap-1.5">
+              {[
+                { label: 'المعتمد', value: cycleSummary.approved, tone: 'success' as const },
+                { label: 'لم يطلع', value: receiptCounts.not_seen, tone: 'warning' as const },
+                { label: 'اطلع', value: receiptCounts.seen, tone: 'success' as const },
+                { label: 'علّق', value: receiptCounts.commented, tone: 'info' as const },
+                { label: 'إعادة اعتماد', value: cycleSummary.needsReapproval, tone: 'danger' as const },
+                { label: 'مسودة/لم يبدأ', value: cycleSummary.draft + cycleSummary.notStarted, tone: 'muted' as const },
+              ].map((item) => {
+                const style = item.tone === 'success'
+                  ? { borderColor: 'var(--dawaa-status-success-border)', background: 'var(--dawaa-status-success-bg)', color: 'var(--dawaa-status-success-text)' }
+                  : item.tone === 'warning'
+                    ? { borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-status-warning-bg)', color: 'var(--dawaa-status-warning-text)' }
+                    : item.tone === 'danger'
+                      ? { borderColor: 'var(--dawaa-status-danger-border)', background: 'var(--dawaa-status-danger-bg)', color: 'var(--dawaa-status-danger-text)' }
+                      : item.tone === 'info'
+                        ? { borderColor: 'var(--dawaa-status-info-border)', background: 'var(--dawaa-status-info-bg)', color: 'var(--dawaa-status-info-text)' }
+                        : { borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-soft)', color: 'var(--dawaa-theme-muted)' };
+
+                return (
+                  <div key={item.label} className="rounded-lg border px-2 py-1.5" style={style}>
+                    <div className="text-[9px] font-black">{item.label}</div>
+                    <div className="mt-0.5 text-sm font-black">{item.value}</div>
+                  </div>
+                );
+              })}
             </div>
 
             <div className="relative mt-3 xl:mt-0">
