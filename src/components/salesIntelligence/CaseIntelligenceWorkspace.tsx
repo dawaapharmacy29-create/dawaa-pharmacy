@@ -201,6 +201,12 @@ export function CaseIntelligenceWorkspace({
     ? invoiceEvidence.items.reduce((sum, item) => sum + (item.quantity ?? 0), 0)
     : 0;
   const visibleTabs = TABS.filter((item) => item.key !== 'clinical' || clinicalReview?.detected);
+  const saleProven = view.sale.outcome === 'sale_proven' && view.sale.proofState === 'proven';
+  const needEvidenceStatus = view.need.unresolvedNeed
+    ? saleProven
+      ? 'محتوى الطلب غير مكتمل من المحادثة/الميديا — البيع مثبت بالفاتورة'
+      : 'غير مكتمل من المحادثة/الميديا المتاحة'
+    : 'واضح من الأدلة المتاحة';
 
   return (
     <section className="space-y-4" data-testid="case-intelligence-workspace">
@@ -388,7 +394,7 @@ export function CaseIntelligenceWorkspace({
           <div className="grid gap-3 sm:grid-cols-2">
             <Fact label="الطلب الأساسي">{view.need.primaryNeed || UNKNOWN_LABEL}</Fact>
             <Fact label="هوية العميل">{identityStatusLabel(view.customer.identityStatus)}</Fact>
-            <Fact label="الطلب مكتمل؟">{view.need.unresolvedNeed ? 'لا — الطلب لم يكتمل بعد' : 'نعم أو لم يعد مطلوبًا'}</Fact>
+            <Fact label="وضوح الطلب من المحادثة">{needEvidenceStatus}</Fact>
             <Fact label="رفض العميل للطلب نفسه؟">{view.need.needDeclined ? 'نعم' : 'لا'}</Fact>
           </div>
           <ul className="space-y-1 text-sm">
