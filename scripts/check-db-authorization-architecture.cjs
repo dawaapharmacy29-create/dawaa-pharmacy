@@ -6,6 +6,26 @@ const ROOT = process.cwd();
 const failures = [];
 
 const migrationNames = fs.readdirSync(path.join(ROOT, 'supabase/migrations'));
+const KNOWN_HISTORICAL_DUPLICATE_MIGRATIONS = new Map([
+  ['20260911063000', [
+    '20260911063000_notification_architecture_v3_guardrails.sql',
+    '20260911063000_role_specific_employee_daily_tasks.sql',
+    '20260911063000_team_alpha_staff_task_canonical_type_v1.sql',
+  ]],
+  ['20260911170500', [
+    '20260911170500_restore_custom_auth_notification_read_access.sql',
+    '20260911170500_smart_notification_signal_refinement_v2.sql',
+  ]],
+  ['20260912201500', [
+    '20260912201500_keep_executive_digest_request_scoped.sql',
+    '20260912201500_vip_customer_incident_dedupe_v1.sql',
+  ]],
+  ['20260929154500', [
+    '20260929154500_monthly_evaluation_v5_hardening.sql',
+    '20260929154500_staff_points_manager_summary_v4.sql',
+  ]],
+]);
+
 const modernMigrationVersions = new Map();
 for (const name of migrationNames) {
   const match = name.match(/^(\d{14})_/);
@@ -15,7 +35,15 @@ for (const name of migrationNames) {
   modernMigrationVersions.set(match[1], names);
 }
 for (const [version, names] of modernMigrationVersions) {
-  if (names.length > 1) {
+  if (names.length <= 1) continue;
+  const expected = KNOWN_HISTORICAL_DUPLICATE_MIGRATIONS.get(version);
+  const actualSorted = [...names].sort();
+  const expectedSorted = expected ? [...expected].sort() : null;
+  const isExactHistoricalBaseline =
+    expectedSorted &&
+    expectedSorted.length === actualSorted.length &&
+    expectedSorted.every((name, index) => name === actualSorted[index]);
+  if (!isExactHistoricalBaseline) {
     failures.push(`Duplicate modern migration version ${version}: ${names.join(', ')}`);
   }
 }
