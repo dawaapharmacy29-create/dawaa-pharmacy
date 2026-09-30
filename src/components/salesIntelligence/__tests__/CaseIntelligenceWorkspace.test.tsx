@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { createElement } from 'react';
+import { createElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { parseWhatsAppExport, splitWhatsAppSessions } from '@/lib/whatsappConversationParser';
@@ -30,8 +30,8 @@ function analyze(raw: string, resolved = true) {
 const persisted = (view: CaseIntelligenceView) =>
   readCaseIntelligence({ evidence_snapshot: JSON.parse(JSON.stringify({ caseIntelligence: view })) });
 
-function render(view: CaseIntelligenceView | null, tab: CaseIntelligenceTab = 'conversation') {
-  return renderToStaticMarkup(createElement(CaseIntelligenceWorkspace, { view, initialTab: tab }));
+function render(view: CaseIntelligenceView | null, tab: CaseIntelligenceTab = 'conversation', conversationPanel: ReactNode = null) {
+  return renderToStaticMarkup(createElement(CaseIntelligenceWorkspace, { view, initialTab: tab, conversationPanel }));
 }
 
 function asSaleProvenView(analysis: SalesIntelligenceCaseAnalysis, raw: string) {
@@ -63,6 +63,14 @@ describe('Case Intelligence Workspace (display only)', () => {
     const sale = render(view, 'sale');
     expect(sale).toContain('180 جنيه');
     expect(sale).toContain('مرشحة فقط — ليست بيعًا');
+  });
+
+  it('A2. conversation tab can render the WhatsApp-style transcript supplied by the case page', () => {
+    const view = persisted(analyze(SALE).caseIntelligence)!;
+    const html = render(view, 'conversation', createElement('div', { 'data-testid': 'whatsapp-like-transcript' }, 'WhatsApp transcript'));
+    expect(html).toContain('conversation-whatsapp-panel');
+    expect(html).toContain('whatsapp-like-transcript');
+    expect(html).not.toContain('conversation-messages');
   });
 
   it('B. unavailable + alternative rejected: product card, recoverable loss and stock follow-up', () => {

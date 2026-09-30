@@ -246,7 +246,20 @@ export default function SalesIntelligenceQACaseDetail() {
         </div>
       ) : null}
 
-      <CaseIntelligenceWorkspace view={caseIntelligence} />
+      <CaseIntelligenceWorkspace
+        view={caseIntelligence}
+        conversationPanel={conversation ? (
+          <WhatsAppConversationPanel
+            messages={transcript}
+            customerName={conversation.customerName}
+            customerCode={conversation.customerCode}
+            customerPhone={conversation.customerPhone}
+            branch={conversation.branch}
+            caseStartedAt={analysis.case_started_at}
+            caseEndedAt={analysis.case_ended_at}
+          />
+        ) : null}
+      />
 
       <button type="button" className="dawaa-button dawaa-button--ghost text-xs" onClick={() => setLegacyAuditOpen(!showLegacyAudit)}>
         {showLegacyAudit ? 'إخفاء التدقيق التفصيلي السابق' : 'عرض التدقيق التفصيلي السابق (متقدم)'}

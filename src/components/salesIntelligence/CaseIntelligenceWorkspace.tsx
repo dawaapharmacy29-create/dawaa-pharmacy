@@ -121,9 +121,11 @@ function Block({ title, children, action }: { title: string; children: React.Rea
 export function CaseIntelligenceWorkspace({
   view,
   initialTab = 'conversation',
+  conversationPanel = null,
 }: {
   view: CaseIntelligenceView | null;
   initialTab?: CaseIntelligenceTab;
+  conversationPanel?: React.ReactNode;
 }) {
   const [tab, setTab] = useState<CaseIntelligenceTab>(initialTab);
   const [evidence, setEvidence] = useState<EvidenceRequest | null>(null);
@@ -205,23 +207,27 @@ export function CaseIntelligenceWorkspace({
       </div>
 
       {tab === 'conversation' ? (
-        <Block title="رسائل هذا التفاعل فقط" action={<span className="dawaa-muted text-xs">{view.interaction.messages.length} رسالة</span>}>
-          <ol className="space-y-2" data-testid="conversation-messages">
-            {view.interaction.messages.map((m) => (
-              <li
-                key={m.id}
-                className={`rounded-xl border p-3 text-sm ${m.role === 'staff' ? 'border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)]' : 'border-[var(--dawaa-theme-divider)]'} ${highlighted.has(m.id) ? 'ring-2 ring-[var(--dawaa-theme-primary)]' : ''}`}
-                data-evidence={highlighted.has(m.id) ? 'true' : undefined}
-              >
-                <div className="dawaa-muted flex justify-between text-xs">
-                  <span className="font-bold">{m.role === 'staff' ? `الصيدلية — ${m.sender}` : m.role === 'customer' ? 'العميل' : 'النظام'}</span>
-                  <span>{formatTime(m.at)}</span>
-                </div>
-                <div className="mt-1 whitespace-pre-wrap leading-7">{m.text}</div>
-              </li>
-            ))}
-          </ol>
-        </Block>
+        conversationPanel ? (
+          <div data-testid="conversation-whatsapp-panel">{conversationPanel}</div>
+        ) : (
+          <Block title="رسائل هذا التفاعل فقط" action={<span className="dawaa-muted text-xs">{view.interaction.messages.length} رسالة</span>}>
+            <ol className="space-y-2" data-testid="conversation-messages">
+              {view.interaction.messages.map((m) => (
+                <li
+                  key={m.id}
+                  className={`rounded-xl border p-3 text-sm ${m.role === 'staff' ? 'border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)]' : 'border-[var(--dawaa-theme-divider)]'} ${highlighted.has(m.id) ? 'ring-2 ring-[var(--dawaa-theme-primary)]' : ''}`}
+                  data-evidence={highlighted.has(m.id) ? 'true' : undefined}
+                >
+                  <div className="dawaa-muted flex justify-between text-xs">
+                    <span className="font-bold">{m.role === 'staff' ? `الصيدلية — ${m.sender}` : m.role === 'customer' ? 'العميل' : 'النظام'}</span>
+                    <span>{formatTime(m.at)}</span>
+                  </div>
+                  <div className="mt-1 whitespace-pre-wrap leading-7">{m.text}</div>
+                </li>
+              ))}
+            </ol>
+          </Block>
+        )
       ) : null}
 
       {tab === 'need' ? (
