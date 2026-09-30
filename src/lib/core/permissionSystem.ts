@@ -962,6 +962,7 @@ export const ROUTE_PERMISSION_MAP: Record<string, string | string[]> = {
   '/reviews': 'view_reviews',
   '/whatsapp-analytics': 'view_reviews',
   '/whatsapp-smart-folder-watcher': 'view_reviews',
+  '/sales-intelligence/qa': 'view_reviews',
   '/whatsapp-folder-watcher': 'view_reviews',
   '/whatsapp-followup-requests': 'view_reviews',
   '/whatsapp-doctor-performance': 'view_reviews',
