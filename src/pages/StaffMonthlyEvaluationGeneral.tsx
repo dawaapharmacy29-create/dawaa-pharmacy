@@ -1381,13 +1381,13 @@ export default function StaffMonthlyEvaluation() {
       .map((item) => item.notes.trim() ? `${item.title}: ${item.notes.trim()}` : '');
 
     const developments = uniqueFeedbackLines([
-      needsDevelopment('discipline') ? coaching.attendance.drafts.development : '',
-      needsDevelopment('conversations') ? coaching.conversation.drafts.development : '',
+      hasObjectiveDevelopment('discipline') ? coaching.attendance.drafts.development : '',
+      hasObjectiveDevelopment('conversations') ? coaching.conversation.drafts.development : '',
       dispensingDevelopment,
-      needsDevelopment('followups_requests') ? coaching.followups.drafts.development : '',
-      needsDevelopment('sales_quality') ? coaching.salesQuality.drafts.development : '',
-      needsDevelopment('inventory') ? coaching.inventory.drafts.development : '',
-      needsDevelopment('development') ? coaching.development.drafts.development : '',
+      hasObjectiveDevelopment('followups_requests') ? coaching.followups.drafts.development : '',
+      hasObjectiveDevelopment('sales_quality') ? coaching.salesQuality.drafts.development : '',
+      hasObjectiveDevelopment('inventory') ? coaching.inventory.drafts.development : '',
+      hasObjectiveDevelopment('development') ? coaching.development.drafts.development : '',
       ...weakSectionNotes,
     ], 2);
 
@@ -1413,15 +1413,15 @@ export default function StaffMonthlyEvaluation() {
     ], 3);
 
     const actions = uniqueFeedbackLines([
-      needsDevelopment('discipline') ? coaching.attendance.drafts.actionPlan : '',
-      needsDevelopment('conversations') ? coaching.conversation.drafts.actionPlan : '',
-      needsDevelopment('dispensing') && dispensingDevelopment
+      hasObjectiveDevelopment('discipline') ? coaching.attendance.drafts.actionPlan : '',
+      hasObjectiveDevelopment('conversations') ? coaching.conversation.drafts.actionPlan : '',
+      hasObjectiveDevelopment('dispensing') && dispensingDevelopment
         ? 'مراجعة الحالات الدوائية الموثقة والتركيز على شرح الجرعة والاستشارة قبل إغلاق المحادثة.'
         : '',
-      needsDevelopment('followups_requests') ? coaching.followups.drafts.actionPlan : '',
-      needsDevelopment('sales_quality') ? coaching.salesQuality.drafts.actionPlan : '',
-      needsDevelopment('inventory') ? coaching.inventory.drafts.actionPlan : '',
-      needsDevelopment('development') ? coaching.development.drafts.actionPlan : '',
+      hasObjectiveDevelopment('followups_requests') ? coaching.followups.drafts.actionPlan : '',
+      hasObjectiveDevelopment('sales_quality') ? coaching.salesQuality.drafts.actionPlan : '',
+      hasObjectiveDevelopment('inventory') ? coaching.inventory.drafts.actionPlan : '',
+      hasObjectiveDevelopment('development') ? coaching.development.drafts.actionPlan : '',
     ], 3);
 
     const measurements = uniqueFeedbackLines([
@@ -1443,7 +1443,7 @@ export default function StaffMonthlyEvaluation() {
       needsDevelopment('dispensing')
         ? 'نقيس التحسن على عينة جديدة من الإرشاد الدوائي مع متابعة أي خطأ طبي/بديل غير مناسب ومتوسط شرح الجرعة والاستشارة.'
         : '',
-      needsDevelopment('development') ? coaching.development.drafts.measurement : '',
+      hasObjectiveDevelopment('development') ? coaching.development.drafts.measurement : '',
     ], 2);
 
     return { strengths, developments, examples, actions, measurements };
