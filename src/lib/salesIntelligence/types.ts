@@ -452,7 +452,7 @@ export interface CaseIntelligenceReviewReason {
  * A PROJECTION of canonical outputs for one commercial interaction; it decides nothing itself.
  */
 export interface CaseIntelligenceView {
-  version: 'case-intelligence-v1';
+  version: 'case-intelligence-v2';
   caseId: string;
   conversationId: string;
   sourceCaseIdV22: string | null;
@@ -463,6 +463,15 @@ export interface CaseIntelligenceView {
     messageCount: number;
     meaningfulMessageCount: number;
     messageIds: string[];
+    /** This interaction's own messages only (never the whole conversation), for display. */
+    messages: Array<{
+      id: string;
+      role: 'staff' | 'customer' | 'system' | 'unknown';
+      sender: string;
+      at: string;
+      text: string;
+      meaningful: boolean;
+    }>;
     triggerMessageId: string | null;
     segmentationReason: string | null;
     caseType: CaseType;

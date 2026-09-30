@@ -283,8 +283,11 @@ function deriveProductLosses(
 ): ProductLossEvidence[] {
   const losses: ProductLossEvidence[] = [];
   for (const product of customerNeed.products) {
-    if (!product.roles.includes('requested') || product.roles.includes('final_basket')) continue;
+    if (!product.roles.includes('requested')) continue;
     const demand = demands.find((d) => d.productKey === product.key) ?? null;
+    // A product in the active basket is not a loss — unless staff said it is unavailable and no
+    // alternative was accepted (a draft basket can still hold the customer's original request line).
+    if (product.roles.includes('final_basket') && !(demand && demand.alternativeResponse !== 'accepted')) continue;
     let outcome: ProductLossEvidence['outcome'] = 'unknown';
     let reason: LostOpportunityReason | null = null;
     if (demand) {

@@ -1146,7 +1146,7 @@ function extractAvailabilitySignals(messages) {
 function alternativePhraseAfter(text, marker) {
   const match = text.match(marker);
   if (!match || match.index == null) return null;
-  const tail = text.slice(match.index + match[0].length).split(/[؟?\n.!]/)[0].replace(ALTERNATIVE_PHRASE_FILLER_RX, "").trim();
+  const tail = text.slice(match.index + match[0].length).split(/[؟?\n.!،,]/)[0].replace(ALTERNATIVE_PHRASE_FILLER_RX, "").trim();
   return tail.length >= 2 ? tail.slice(0, 80) : null;
 }
 function extractAlternativeOfferSignals(messages) {
@@ -4816,8 +4816,9 @@ function staffAwaitsReply(message, messages, confirmation) {
 function deriveProductLosses(customerNeed, demands, state) {
   const losses = [];
   for (const product of customerNeed.products) {
-    if (!product.roles.includes("requested") || product.roles.includes("final_basket")) continue;
+    if (!product.roles.includes("requested")) continue;
     const demand = demands.find((d) => d.productKey === product.key) ?? null;
+    if (product.roles.includes("final_basket") && !(demand && demand.alternativeResponse !== "accepted")) continue;
     let outcome = "unknown";
     let reason = null;
     if (demand) {
@@ -5116,7 +5117,7 @@ function confidence(candidate, profile) {
 }
 
 // src/lib/salesIntelligence/caseIntelligenceView.ts
-var CASE_INTELLIGENCE_VIEW_VERSION = "case-intelligence-v1";
+var CASE_INTELLIGENCE_VIEW_VERSION = "case-intelligence-v2";
 function buildCaseIntelligenceView(analysis, context) {
   const { conversationCase, customerNeed, commercialConfirmation, attribution, salesOutcome } = analysis;
   const messages = context.messages;
@@ -5238,6 +5239,14 @@ function buildCaseIntelligenceView(analysis, context) {
       messageCount: messages.length,
       meaningfulMessageCount: messages.filter((m) => m.isMeaningful).length,
       messageIds: messages.map((m) => m.id),
+      messages: messages.map((m) => ({
+        id: m.id,
+        role: m.role,
+        sender: m.sender,
+        at: m.timestamp.toISOString(),
+        text: m.text,
+        meaningful: m.isMeaningful
+      })),
       triggerMessageId: interaction?.triggerMessageId ?? null,
       segmentationReason: interaction?.segmentationReason ?? null,
       caseType: conversationCase.caseType,
@@ -6313,7 +6322,7 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v5";
+var PIPELINE_VERSION = "sales-intelligence-v6";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v6-semantic-boundaries",
   historicalClosure: "historical-closure-v1",

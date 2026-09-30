@@ -13,6 +13,8 @@ import { supabase } from '@/lib/supabase';
 import { formatDateTime } from '@/lib/utils';
 import { fetchQaCaseDetail, type QaCaseDetailBundle } from '@/lib/salesIntelligence/qa/queries';
 import { WhatsAppConversationPanel } from '@/components/salesIntelligence/WhatsAppConversationPanel';
+import { CaseIntelligenceWorkspace } from '@/components/salesIntelligence/CaseIntelligenceWorkspace';
+import { readCaseIntelligence } from '@/lib/salesIntelligence/qa/caseIntelligencePresentation';
 import {
   ambiguityStatusLabelFor,
   attributionLevelBadge,
@@ -128,6 +130,7 @@ export default function SalesIntelligenceQACaseDetail() {
   const navigate = useNavigate();
   const [bundle, setBundle] = useState<QaCaseDetailBundle | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
+  const [legacyAuditOpen, setLegacyAuditOpen] = useState<boolean | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -204,6 +207,9 @@ export default function SalesIntelligenceQACaseDetail() {
     human_review_reasons: liveEvidence.basketInvoiceMatch.humanReviewReasons,
   } : persistedMatch;
   const policyEvaluation = persisted.policyEvaluationRow;
+  // Unified Case Intelligence: persisted read model only (never rebuilt in the browser).
+  const caseIntelligence = readCaseIntelligence(persistedAnalysis);
+  const showLegacyAudit = legacyAuditOpen ?? !caseIntelligence;
   const activeBasket = liveEvidence?.activeBasket ?? null;
   const basketItems = activeBasket ? liveEvidence?.itemsByBasketId[activeBasket.basketId] ?? [] : [];
   const unresolvedItems = basketItems.filter((item) => item.resolutionStatus !== 'proven' || item.quantity === null);
@@ -240,6 +246,13 @@ export default function SalesIntelligenceQACaseDetail() {
         </div>
       ) : null}
 
+      <CaseIntelligenceWorkspace view={caseIntelligence} />
+
+      <button type="button" className="dawaa-button dawaa-button--ghost text-xs" onClick={() => setLegacyAuditOpen(!showLegacyAudit)}>
+        {showLegacyAudit ? 'إخفاء التدقيق التفصيلي السابق' : 'عرض التدقيق التفصيلي السابق (متقدم)'}
+      </button>
+
+      {showLegacyAudit ? (<>
       <section className="dawaa-card">
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Field label="العميل" value={<span className="inline-flex items-center gap-2"><UserRound size={16} /> {conversation?.customerName || 'عميل غير مسمى'}</span>} />
@@ -850,6 +863,7 @@ export default function SalesIntelligenceQACaseDetail() {
           </div>
         ) : null}
       </Section>
+      </>) : null}
     </div>
   );
 }

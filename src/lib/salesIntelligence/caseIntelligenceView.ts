@@ -17,7 +17,7 @@ import type {
   SalesIntelligenceCaseAnalysis,
 } from './types';
 
-export const CASE_INTELLIGENCE_VIEW_VERSION = 'case-intelligence-v1';
+export const CASE_INTELLIGENCE_VIEW_VERSION = 'case-intelligence-v2';
 
 export interface BuildCaseIntelligenceContext {
   messages: NormalizedConversationMessageV32[];
@@ -164,6 +164,14 @@ export function buildCaseIntelligenceView(
       messageCount: messages.length,
       meaningfulMessageCount: messages.filter((m) => m.isMeaningful).length,
       messageIds: messages.map((m) => m.id),
+      messages: messages.map((m) => ({
+        id: m.id,
+        role: m.role,
+        sender: m.sender,
+        at: m.timestamp.toISOString(),
+        text: m.text,
+        meaningful: m.isMeaningful,
+      })),
       triggerMessageId: interaction?.triggerMessageId ?? null,
       segmentationReason: interaction?.segmentationReason ?? null,
       caseType: conversationCase.caseType,

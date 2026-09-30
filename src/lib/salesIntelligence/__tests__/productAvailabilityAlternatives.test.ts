@@ -166,3 +166,12 @@ describe('Customer Need lifecycle — availability + alternatives', () => {
     expect(model.unlinkedAvailability[0].linkBasis).toBe('unlinked');
   });
 });
+
+describe('alternative phrase stops at the end of its clause', () => {
+  it('"…نجيب كومتركس، وفيتامين د موجود" -> "كومتركس"', () => {
+    const understanding = understandingOf(`[9/15/26, 9:00:00 AM] Customer: عايز 1 علبة كونجستال
+[9/15/26, 9:01:00 AM] You: كونجستال مش موجود حاليًا، ممكن بدل منه نجيب كومتركس، وفيتامين د موجود`);
+    expect(extractAlternativeOfferSignals(understanding.messages)[0].extractedValue).toBe('كومتركس');
+  });
+});
+

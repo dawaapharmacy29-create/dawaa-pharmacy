@@ -633,7 +633,7 @@ function alternativePhraseAfter(text: string, marker: RegExp): string | null {
   if (!match || match.index == null) return null;
   const tail = text
     .slice(match.index + match[0].length)
-    .split(/[؟?\n.!]/)[0]
+    .split(/[؟?\n.!،,]/)[0]
     .replace(ALTERNATIVE_PHRASE_FILLER_RX, '')
     .trim();
   return tail.length >= 2 ? tail.slice(0, 80) : null;
