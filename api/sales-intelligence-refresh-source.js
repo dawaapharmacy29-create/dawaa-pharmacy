@@ -1663,6 +1663,9 @@ function stripRequestPrefix(text2) {
 }
 var NON_PRODUCT_PHRASE_RX = /^(?:مش|لا|لأ|اه|آه|تمام|حاجة|حاجه|ده|دي|دا|دول|منه|منها|بس)?$/;
 var GENERIC_DEICTIC_PRODUCT_PHRASE_RX = /^(?:(?:الحاجات|الحاجه|الحاجة|الأشياء|الاشياء)\s*(?:دي|دول|ده|دا)?|(?:دول|دي|ده|دا)(?:\s*كلهم)?|اللي\s*(?:في|ف)\s*(?:الصوره|الصورة|الصور|الفويس|الصوت)|اللي\s*(?:بعت(?:ه|ها|هم)|مبعت(?:ه|ها|هم)))$/i;
+function isGenericDeicticProductPhrase(value) {
+  return GENERIC_DEICTIC_PRODUCT_PHRASE_RX.test(String(value || "").trim());
+}
 var EXPLICIT_REQUEST_VERB_RX = /(?<![\p{L}\p{N}])(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?|هات(?:ي|لي)?|ابعت(?:لي|يلي)?)(?![\p{L}\p{N}])/u;
 var ONLY_THIS_RX = /(?<![\p{L}\p{N}])(?:بس|فقط)[.!، ]*$/u;
 var INFO_QUESTION_LEAD_RX = /^(?:اعرف|أعرف|اسأل|أسأل|استفسر|أستفسر|افهم|أفهم|اشوف|أشوف|اتأكد|أتأكد)(?=\s|$)/;
@@ -1672,7 +1675,7 @@ function explicitRequestProductPhrases(text2) {
   if (!phrase || /[؟?]/.test(text2) || INFO_QUESTION_LEAD_RX.test(phrase)) return [];
   const parts = phrase.split(/\s+و\s+|\s*[،,+]\s*/).map((part) => stripRequestPrefix(part).trim()).filter((part) => part.length >= 2);
   if (!parts.length || parts.some(
-    (part) => part.split(/\s+/).length > 4 || NON_PRODUCT_PHRASE_RX.test(part) || GENERIC_DEICTIC_PRODUCT_PHRASE_RX.test(part)
+    (part) => part.split(/\s+/).length > 4 || NON_PRODUCT_PHRASE_RX.test(part) || isGenericDeicticProductPhrase(part)
   )) return [];
   return parts;
 }
@@ -4153,7 +4156,7 @@ var STOCK_QUESTION_WORDS_RX = /(?<![\p{L}\p{N}])(?:هو|هي|هل|طيب|مش|م
 var NON_PRODUCT_LEFTOVER_RX = /^(?:مش|لا|لأ|اه|آه|تمام|حاجة|حاجه|ده|دي|دا|منه|منها)?$/;
 function productPhraseFromStockQuestion(text2) {
   const phrase = stripRequestPrefix(text2.replace(STOCK_QUESTION_WORDS_RX, " ")).replace(/[؟?!.،]+/g, " ").replace(/\s+/g, " ").trim();
-  if (phrase.length < 3 || NON_PRODUCT_LEFTOVER_RX.test(phrase)) return null;
+  if (phrase.length < 3 || NON_PRODUCT_LEFTOVER_RX.test(phrase) || isGenericDeicticProductPhrase(phrase)) return null;
   return phrase;
 }
 function classifyObjectionCategory(text2, explicitRejection, correction) {
