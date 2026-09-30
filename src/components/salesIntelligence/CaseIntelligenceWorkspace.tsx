@@ -42,6 +42,8 @@ export type CaseIntelligenceTab = 'conversation' | 'need' | 'products' | 'sale' 
 
 export interface CaseInvoiceEvidence {
   status: 'trusted' | 'candidate' | 'none';
+  /** How the exact invoice became trusted. */
+  linkMethod?: 'automatic' | 'explicit' | null;
   invoiceNumber: string | null;
   items: Array<{
     id: string;
@@ -178,6 +180,11 @@ export function CaseIntelligenceWorkspace({
     setEvidence(request);
   };
   const followUpActive = view.followUp.opportunities.filter((o) => o.status !== 'suppressed');
+  const automaticInvoiceLink = invoiceEvidence?.status === 'trusted' && invoiceEvidence.linkMethod === 'automatic';
+  const trustedInvoiceItemCount = invoiceEvidence?.status === 'trusted' ? invoiceEvidence.items.length : 0;
+  const trustedInvoiceTotalQuantity = invoiceEvidence?.status === 'trusted'
+    ? invoiceEvidence.items.reduce((sum, item) => sum + (item.quantity ?? 0), 0)
+    : 0;
 
   return (
     <section className="space-y-4" data-testid="case-intelligence-workspace">
@@ -272,10 +279,23 @@ export function CaseIntelligenceWorkspace({
 
           {view.need.unresolvedNeed && invoiceEvidence?.status === 'trusted' ? (
             <div className="dawaa-card dawaa-card--soft space-y-2" data-testid="need-trusted-invoice-fallback">
-              <div className="dawaa-heading text-sm font-black">مرجع التنفيذ من الفاتورة الموثوقة</div>
+              <div className="dawaa-heading text-sm font-black">
+                {automaticInvoiceLink ? 'تم ربط الفاتورة تلقائيًا' : 'مرجع التنفيذ من الفاتورة الموثوقة'}
+              </div>
               <div className="dawaa-muted text-xs leading-6">
-                اسم الصنف غير محسوم من نص المحادثة نفسه. الأصناف التالية مصدرها الفاتورة المرتبطة الموثوقة
-                {invoiceEvidence.invoiceNumber ? ` رقم ${invoiceEvidence.invoiceNumber}` : ''}، وتوضح ما تم صرفه فعليًا — وليست ادعاءً بأن الصورة/الفويس تم قراءته.
+                {automaticInvoiceLink ? (
+                  <>
+                    اسم الصنف غير ظاهر في نص المحادثة لأن الطلب مرتبط بصورة/فويس. وجد التحليل تلقائيًا
+                    {invoiceEvidence.invoiceNumber ? ` فاتورة ${invoiceEvidence.invoiceNumber}` : ' فاتورة'}
+                    {' '}لنفس كود واسم العميل داخل التوقيت القريب للمحادثة، وبها {trustedInvoiceItemCount} أصناف.
+                    الأصناف التالية هي ما تم صرفه فعليًا، وليست ادعاءً بأن الصورة/الفويس تم قراءته.
+                  </>
+                ) : (
+                  <>
+                    اسم الصنف غير محسوم من نص المحادثة نفسه. الأصناف التالية مصدرها الفاتورة المرتبطة الموثوقة
+                    {invoiceEvidence.invoiceNumber ? ` رقم ${invoiceEvidence.invoiceNumber}` : ''}، وتوضح ما تم صرفه فعليًا — وليست ادعاءً بأن الصورة/الفويس تم قراءته.
+                  </>
+                )}
               </div>
               {invoiceEvidence.items.length ? (
                 <ul className="space-y-1 text-sm">
@@ -317,12 +337,15 @@ export function CaseIntelligenceWorkspace({
             <div className="dawaa-card space-y-3" data-testid="trusted-invoice-products">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <h3 className="dawaa-heading text-sm font-black">أصناف مثبتة من الفاتورة المرتبطة</h3>
+                  <h3 className="dawaa-heading text-sm font-black">
+                    {automaticInvoiceLink ? 'أصناف الفاتورة المرتبطة تلقائيًا' : 'أصناف مثبتة من الفاتورة المرتبطة'}
+                  </h3>
                   <div className="dawaa-muted mt-1 text-xs">
                     مصدر تنفيذي مستقل عن نص المحادثة{invoiceEvidence.invoiceNumber ? ` • فاتورة ${invoiceEvidence.invoiceNumber}` : ''}
+                    {trustedInvoiceItemCount ? ` • ${trustedInvoiceItemCount} أصناف` : ''}
                   </div>
                 </div>
-                <Badge tone="good">فاتورة موثوقة</Badge>
+                <Badge tone="good">{automaticInvoiceLink ? 'ربط آلي مثبت' : 'فاتورة موثوقة'}</Badge>
               </div>
               <div className="dawaa-alert dawaa-alert--info text-xs leading-6">
                 لو اسم الصنف غير ظاهر لأن الطلب كان صورة أو فويس، نستخدم أصناف الفاتورة الموثوقة لمعرفة ما تم صرفه فعليًا.
@@ -393,6 +416,15 @@ export function CaseIntelligenceWorkspace({
 
       {tab === 'sale' ? (
         <div className="space-y-3">
+          {automaticInvoiceLink ? (
+            <div className="dawaa-alert dawaa-alert--success text-sm leading-7" data-testid="automatic-invoice-link-summary">
+              تم ربط الفاتورة تلقائيًا
+              {invoiceEvidence?.invoiceNumber ? ` — فاتورة ${invoiceEvidence.invoiceNumber}` : ''}
+              {' '}— نفس كود واسم العميل وفي توقيت قريب جدًا من المحادثة
+              {trustedInvoiceItemCount ? ` — ${trustedInvoiceItemCount} أصناف` : ''}
+              {trustedInvoiceTotalQuantity ? ` بإجمالي كمية ${trustedInvoiceTotalQuantity}` : ''}.
+            </div>
+          ) : null}
           <Block title="الطلب (السلة)">
             <div className="grid gap-3 sm:grid-cols-3">
               <Fact label="حالة التأكيد">{confirmationStateLabel(view.sale.confirmationState)}</Fact>

@@ -226,6 +226,10 @@ export default function SalesIntelligenceQACaseDetail() {
   const priceQuotedRows = invoiceItemFacts.filter((item) => item.quotedUnitPrice != null);
   const priceExactRows = priceQuotedRows.filter((item) => item.quotedPriceStatus === 'exact' || item.quotedPriceStatus === 'near_match');
   const priceMismatchRows = priceQuotedRows.filter((item) => item.quotedPriceStatus === 'mismatch_review');
+  const attributionRuleIds = Array.isArray(attribution?.rule_ids) ? attribution.rule_ids.map((value: unknown) => String(value)) : [];
+  const invoiceLinkMethod = saleProof.trustedInvoiceId
+    ? (attributionRuleIds.includes('attribution.trusted.automatic_customer_code_name_time_items_unique') ? 'automatic' : 'explicit')
+    : null;
   const quotedPriceAccuracyPercent = priceQuotedRows.length
     ? Math.round((priceExactRows.length / priceQuotedRows.length) * 100)
     : null;
@@ -262,6 +266,7 @@ export default function SalesIntelligenceQACaseDetail() {
         staffDisplayName={conversation?.staffId ? conversation.staffName : null}
         invoiceEvidence={{
           status: saleProof.trustedInvoiceId ? 'trusted' : saleProof.selectedInvoiceId ? 'candidate' : 'none',
+          linkMethod: invoiceLinkMethod,
           invoiceNumber: saleProof.selectedInvoiceNumber,
           items: saleProof.trustedInvoiceId
             ? invoiceItemFacts

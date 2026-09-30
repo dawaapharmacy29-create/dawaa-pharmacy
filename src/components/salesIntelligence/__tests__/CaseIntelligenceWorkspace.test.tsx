@@ -91,6 +91,38 @@ describe('Case Intelligence Workspace (display only)', () => {
     expect(html).toContain('لا توجد أصناف واضحة من نص هذا التفاعل');
   });
 
+  it('A3b. automatic trusted link is explained plainly in sale, need and products views', () => {
+    const view = persisted(analyze(SALE).caseIntelligence)!;
+    const invoiceEvidence = {
+      status: 'trusted' as const,
+      linkMethod: 'automatic' as const,
+      invoiceNumber: '74966',
+      items: [
+        { id: 'line-1', productName: 'Bon Care', productCode: 'BC-1', quantity: 2, unitName: 'علبة', netLineAmount: 180 },
+        { id: 'line-2', productName: 'Vitamin D', productCode: 'VD-1', quantity: 1, unitName: 'علبة', netLineAmount: 90 },
+      ],
+    };
+
+    const sale = renderToStaticMarkup(createElement(CaseIntelligenceWorkspace, {
+      view,
+      initialTab: 'sale',
+      invoiceEvidence,
+    }));
+    expect(sale).toContain('automatic-invoice-link-summary');
+    expect(sale).toContain('تم ربط الفاتورة تلقائيًا');
+    expect(sale).toContain('فاتورة 74966');
+    expect(sale).toContain('2 أصناف');
+    expect(sale).toContain('إجمالي كمية 3');
+
+    const products = renderToStaticMarkup(createElement(CaseIntelligenceWorkspace, {
+      view,
+      initialTab: 'products',
+      invoiceEvidence,
+    }));
+    expect(products).toContain('أصناف الفاتورة المرتبطة تلقائيًا');
+    expect(products).toContain('ربط آلي مثبت');
+  });
+
   it('A4. candidate invoice lines are never exposed as product truth', () => {
     const view = persisted(analyze(SALE).caseIntelligence)!;
     const html = renderToStaticMarkup(createElement(CaseIntelligenceWorkspace, {
