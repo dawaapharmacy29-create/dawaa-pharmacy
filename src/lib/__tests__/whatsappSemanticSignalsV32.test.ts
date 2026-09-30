@@ -111,6 +111,28 @@ describe('whatsappSemanticSignalsV32 — V32.2.1 hardening', () => {
   });
 });
 
+describe('whatsappSemanticSignalsV32 — service availability is never product stock', () => {
+  it('does not emit availability for delivery-service availability', () => {
+    const message:any = {
+      id: 'service-1',
+      timestamp: new Date('2026-09-28T03:52:06Z'),
+      direction: 'outbound',
+      role: 'staff',
+      sender: 'You',
+      text: 'خدمة التوصيل متاحة على مدار ٢٤ ساعة',
+      isSystemGenerated: false,
+      isAutomated: false,
+      isEmojiOnly: false,
+      isMediaPlaceholder: false,
+      isMeaningful: true,
+      interactionId: null,
+      requestBurstId: null,
+    };
+    expect(classifyAvailabilityStatementV32(message.text)).toBeNull();
+    expect(extractAvailabilitySignals([message])).toEqual([]);
+  });
+});
+
 describe('whatsappSemanticSignalsV32 — commitment is acceptance, not a new request (4E-0)', () => {
   const customer = (text: string) =>
     ({

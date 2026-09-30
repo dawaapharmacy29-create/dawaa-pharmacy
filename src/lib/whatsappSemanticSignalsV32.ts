@@ -604,10 +604,12 @@ export function availabilityStatementClausesV32(text: string): Array<{ clause: s
 
 /** Stock state asserted by one staff message, or null. Unavailable wins over available, which wins over check_pending. */
 export function classifyAvailabilityStatementV32(text: string): AvailabilityStateV32 | null {
-  const clauses = statementClauses(text);
-  if (clauses.some((clause) => UNAVAILABLE_RX.test(clause))) return 'unavailable';
-  if (clauses.some((clause) => AVAILABLE_RX.test(clause))) return 'available';
-  if (clauses.some((clause) => CHECK_PENDING_RX.test(clause))) return 'check_pending';
+  const states = statementClauses(text)
+    .map((clause) => clauseAvailabilityState(clause))
+    .filter((state): state is AvailabilityStateV32 => state !== null);
+  if (states.includes('unavailable')) return 'unavailable';
+  if (states.includes('available')) return 'available';
+  if (states.includes('check_pending')) return 'check_pending';
   return null;
 }
 

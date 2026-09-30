@@ -38,7 +38,9 @@ export function buildCaseIntelligenceView(
   const messages = context.messages;
   const byId = new Map(messages.map((m) => [m.id, m]));
   const staffIdFor = (sender: string) => context.staffIdBySender?.[sender] ?? null;
-  const identityStatus = context.customerIdentityStatus ?? 'not_provided';
+  const identityStatus =
+    context.customerIdentityStatus ??
+    (conversationCase.customerId ? 'resolved' : 'not_provided');
   const identityResolved = identityStatus === 'resolved';
 
   // ---- Staff: participants are message facts; every fact is attributed to its own message sender.
