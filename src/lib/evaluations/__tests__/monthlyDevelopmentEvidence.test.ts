@@ -33,6 +33,30 @@ describe('training completion timing', () => {
     })).toBe('after_cycle');
   });
 
+  it('uses Cairo date at the midnight boundary instead of the raw UTC date', () => {
+    expect(trainingCompletionTiming({
+      completedAt: '2026-09-25T22:30:00Z',
+      status: 'completed',
+      endDateExclusive: '2026-09-26',
+    })).toBe('after_cycle');
+
+    expect(trainingCompletionTiming({
+      completedAt: '2026-09-25T20:30:00Z',
+      status: 'completed',
+      endDateExclusive: '2026-09-26',
+    })).toBe('within_cycle');
+  });
+
+  it('treats an invalid completion timestamp as timing-unknown evidence', () => {
+    expect(trainingCompletionTiming({
+      completedAt: 'not-a-date',
+      status: 'completed',
+      endDateExclusive: '2026-09-26',
+    })).toBe('unknown_completed');
+  });
+
+
+
   it('treats completed status without completed_at as timing-unknown evidence', () => {
     expect(trainingCompletionTiming({
       completedAt: null,

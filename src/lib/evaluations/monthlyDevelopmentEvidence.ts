@@ -50,12 +50,23 @@ export type TrainingCompletionTiming =
  * Monthly evaluation must freeze completion at the cycle boundary.
  * A current "completed" status without completed_at cannot prove when completion happened.
  */
+function cairoDateKey(date: Date) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Africa/Cairo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
+}
+
 export function trainingCompletionTiming(input: TrainingCompletionTimingInput): TrainingCompletionTiming {
   const completedAt = String(input.completedAt || '').trim();
   const endKey = String(input.endDateExclusive || '').slice(0, 10);
 
   if (completedAt) {
-    const completedKey = completedAt.slice(0, 10);
+    const completedDate = new Date(completedAt);
+    if (Number.isNaN(completedDate.getTime())) return 'unknown_completed';
+    const completedKey = cairoDateKey(completedDate);
     return completedKey < endKey ? 'within_cycle' : 'after_cycle';
   }
 
