@@ -2,7 +2,7 @@ import { supabase } from '@/lib/supabase';
 import { readWhatsAppExportFile } from '@/lib/whatsappExportFileReader';
 import {
   parseWhatsAppExport,
-  splitWhatsAppSessions,
+  serializeWhatsAppSessionRawText,
   type WhatsAppConversationSession,
 } from '@/lib/whatsappConversationParser';
 import { buildSmartConversationReviewSummary } from '@/lib/whatsappSmartReviewSummary';
@@ -14,9 +14,44 @@ import {
   attachInvoiceVerificationToQueue,
   hashWhatsAppSession,
 } from '@/lib/whatsappReviewPersistenceV4';
-import { verifySessionAgainstInvoices } from '@/lib/whatsappUnifiedIntelligenceV4';
-import { persistAutomaticWhatsAppReview } from '@/lib/whatsappAutomaticReviewPersistence';
-import { getCycleForDate } from '@/lib/pharmacy-cycle';
+import { buildUnifiedConversationIntelligence, verifySessionAgainstInvoices } from '@/lib/whatsappUnifiedIntelligenceV4';
+import {
+  buildWhatsAppOperationalIntelligenceV6,
+  enrichWhatsAppOperationalProductsV6,
+  syncWhatsAppOperationalActionsV6,
+} from '@/lib/whatsappOperationalIntelligenceV6';
+import { enrichWhatsAppOperationalJourneysV7 } from '@/lib/whatsappProductJourneyV7';
+import { syncWhatsAppEvidenceLedgerV17 } from '@/lib/whatsappEvidenceLedgerV17';
+import {
+  persistAutomaticWhatsAppReview,
+  type AutomaticReviewSourceContext,
+} from '@/lib/whatsappAutomaticReviewPersistence';
+import { resolveWhatsAppParticipantRolesV15, type WhatsAppParticipantRoleModelV15 } from '@/lib/whatsappParticipantRoleResolverV15';
+import { resolveConversationBranchHint, type BranchHintResult } from '@/lib/whatsappConversationBranchHint';
+import {
+  attachWhatsAppMediaToMessagesV21,
+  revokeWhatsAppMediaObjectUrlsV21,
+  syncWhatsAppMediaForSourceV21,
+} from '@/lib/whatsappMediaV21';
+import {
+  extractCustomerIdentityEvidence,
+  resolveCanonicalCustomerIdentities,
+  type CanonicalCustomerIdentity,
+  type CanonicalCustomerIdentityStatus,
+} from '@/lib/customers/canonicalCustomerIdentityResolver';
+import { segmentWhatsAppExportCanonical } from '@/lib/whatsappCanonicalSegmentation';
+import { syncCanonicalCaseGraphForFile, type WatcherCaseGraphSyncResult } from '@/lib/whatsappWatcherCaseGraphSync';
+import type { JourneySessionSourceV15 } from '@/lib/whatsappCustomerJourneyPersistenceV15';
+import {
+  buildFollowupIdentity,
+  episodeStartedAt,
+  followupCustomerAnchor,
+  normalizeFollowupKeyPart,
+} from '@/lib/whatsappFollowupIdentity';
+import {
+  requestCanonicalSalesIntelligenceRefresh,
+  type SalesIntelligenceStageStatus,
+} from '@/lib/salesIntelligence/refresh/refreshClient';
 
 type CustomerIdentity = {
   customerId: string | null;
@@ -24,24 +59,10 @@ type CustomerIdentity = {
   customerName: string | null;
   customerPhone: string | null;
   branch: string | null;
-  matchedBy: 'phone' | 'name' | 'none';
-};
-
-type CustomerRow = {
-  id: string;
-  customer_code: string | null;
-  display_name: string | null;
-  name: string | null;
-  customer_name: string | null;
-  normalized_phone: string | null;
-  phone: string | null;
-  customer_phone: string | null;
-  whatsapp_phone: string | null;
-  mobile: string | null;
-  whatsapp: string | null;
-  phone_alt: string | null;
-  effective_branch: string | null;
-  branch: string | null;
+  matchedBy: 'phone' | 'code' | 'id' | 'none';
+  resolutionStatus: CanonicalCustomerIdentityStatus;
+  resolutionReason: string;
+  canonical: CanonicalCustomerIdentity;
 };
 
 export interface IngestOneFileResult {
@@ -58,137 +79,34 @@ export interface IngestOneFileResult {
   invoiceChecksSkipped: number;
   autoReviewsCreated: number;
   autoReviewsSkipped: number;
+  /** Automatic reviews not written because the source is not canonically owned (fail closed). */
+  autoReviewsSkippedNonCanonical: number;
   autoReviewsPointsFailed: number;
+  /** Canonical chain status: case units persisted, Journey V15 + Customer Case V22, Sales Intelligence. */
+  caseGraph: WatcherCaseGraphSyncResult | null;
+  salesIntelligence: Record<string, SalesIntelligenceStageStatus>;
   errors: string[];
 }
 
-const CUSTOMER_SELECT = [
-  'id',
-  'customer_code',
-  'display_name',
-  'name',
-  'customer_name',
-  'normalized_phone',
-  'phone',
-  'customer_phone',
-  'whatsapp_phone',
-  'mobile',
-  'whatsapp',
-  'phone_alt',
-  'effective_branch',
-  'branch',
-].join(',');
-
-function normalizeDigits(value: string) {
-  return value
-    .replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)))
-    .replace(/[^\d]/g, '');
-}
-
-function normalizeEgyptPhone(value: unknown) {
-  let digits = normalizeDigits(String(value ?? ''));
-  if (digits.startsWith('0020')) digits = `0${digits.slice(4)}`;
-  else if (/^20[1]\d{9}$/.test(digits)) digits = `0${digits.slice(2)}`;
-  if (/^01\d{9}$/.test(digits)) return digits;
-  return null;
-}
-
-function phoneFromSession(session: WhatsAppConversationSession) {
-  const candidates = [
-    session.customerName,
-    ...session.messages
-      .filter((message) => message.direction === 'inbound')
-      .map((message) => message.sender),
-  ];
-  for (const candidate of candidates) {
-    const phone = normalizeEgyptPhone(candidate);
-    if (phone) return phone;
-  }
-  return null;
-}
-
-function normalizedName(value: unknown) {
-  return String(value ?? '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function mapCustomerIdentity(
-  row: CustomerRow,
-  fallbackName: string | null,
-  fallbackPhone: string | null,
-  matchedBy: 'phone' | 'name'
-): CustomerIdentity {
+/** Maps the Canonical Customer Identity (shared resolver) to this pipeline's persistence shape. */
+function toIngestCustomerIdentity(identity: CanonicalCustomerIdentity): CustomerIdentity {
+  const resolved = identity.status === 'resolved';
   return {
-    customerId: row.id,
-    customerCode: row.customer_code,
-    customerName: row.display_name || row.name || row.customer_name || fallbackName,
-    customerPhone:
-      normalizeEgyptPhone(row.normalized_phone) ||
-      normalizeEgyptPhone(row.phone) ||
-      normalizeEgyptPhone(row.customer_phone) ||
-      normalizeEgyptPhone(row.whatsapp_phone) ||
-      normalizeEgyptPhone(row.mobile) ||
-      normalizeEgyptPhone(row.whatsapp) ||
-      normalizeEgyptPhone(row.phone_alt) ||
-      fallbackPhone,
-    branch: row.effective_branch || row.branch || null,
-    matchedBy,
-  };
-}
-
-async function resolveCustomerIdentity(
-  session: WhatsAppConversationSession
-): Promise<CustomerIdentity> {
-  const fallbackName = normalizedName(session.customerName) || null;
-  const phone = phoneFromSession(session);
-
-  if (phone) {
-    const phoneTail = phone.slice(-10);
-    const { data, error } = await supabase
-      .from('customers')
-      .select(CUSTOMER_SELECT)
-      .eq('is_duplicate', false)
-      .or(
-        [
-          `normalized_phone.eq.${phone}`,
-          `normalized_phone.ilike.%${phoneTail}`,
-          `phone.eq.${phone}`,
-          `customer_phone.eq.${phone}`,
-          `whatsapp_phone.eq.${phone}`,
-          `mobile.eq.${phone}`,
-          `whatsapp.eq.${phone}`,
-          `phone_alt.eq.${phone}`,
-        ].join(',')
-      )
-      .limit(3);
-    if (error) throw error;
-    const matches = (data || []) as CustomerRow[];
-    if (matches.length === 1) return mapCustomerIdentity(matches[0], fallbackName, phone, 'phone');
-  }
-
-  if (fallbackName && fallbackName.length >= 3) {
-    for (const column of ['display_name', 'name', 'customer_name'] as const) {
-      const { data, error } = await supabase
-        .from('customers')
-        .select(CUSTOMER_SELECT)
-        .eq('is_duplicate', false)
-        .ilike(column, fallbackName)
-        .limit(2);
-      if (error) throw error;
-      const matches = (data || []) as CustomerRow[];
-      if (matches.length === 1) return mapCustomerIdentity(matches[0], fallbackName, phone, 'name');
-      if (matches.length > 1) break;
-    }
-  }
-
-  return {
-    customerId: null,
-    customerCode: null,
-    customerName: fallbackName,
-    customerPhone: phone,
-    branch: null,
-    matchedBy: 'none',
+    customerId: resolved ? identity.customerId : null,
+    customerCode: identity.customerCode,
+    customerName: identity.customerName,
+    customerPhone: identity.normalizedPhone,
+    branch: identity.branch,
+    matchedBy: !resolved
+      ? 'none'
+      : identity.resolvedBy === 'customer_code'
+        ? 'code'
+        : identity.resolvedBy === 'contact_phone' || identity.resolvedBy === 'mentioned_phone'
+          ? 'phone'
+          : 'id',
+    resolutionStatus: identity.status,
+    resolutionReason: identity.reason,
+    canonical: identity,
   };
 }
 
@@ -196,7 +114,9 @@ async function saveSessionReview(
   session: WhatsAppConversationSession,
   sourceFileName: string,
   innerFileName: string | null,
-  identity: CustomerIdentity
+  identity: CustomerIdentity,
+  conversationBranch: string | null,
+  branchHint: BranchHintResult
 ) {
   const sourceHash = await hashWhatsAppSession(session);
   const { data: existing, error: existingError } = await supabase
@@ -208,7 +128,8 @@ async function saveSessionReview(
   if (existing?.id) return { sourceId: String(existing.id), duplicate: true as const };
 
   const summary = buildSmartConversationReviewSummary(session);
-  const staffName = session.outboundStaffNames[0] || null;
+  const staffName =
+    session.outboundStaffNames.length === 1 ? session.outboundStaffNames[0] : null;
 
   const { data, error } = await supabase
     .from('whatsapp_review_sources')
@@ -217,7 +138,7 @@ async function saveSessionReview(
       source_type: 'whatsapp_export_auto',
       source_filename: sourceFileName,
       inner_filename: innerFileName,
-      branch: identity.branch,
+      branch: conversationBranch,
       customer_id: identity.customerId,
       customer_code: identity.customerCode,
       customer_name: identity.customerName || session.customerName,
@@ -229,21 +150,30 @@ async function saveSessionReview(
       parser_version: 'whatsapp-auto-ingest-v3',
       analysis_version: 'smart-summary-v1',
       analysis_status: 'analyzed',
-      review_status: summary.confidence < 60 ? 'needs_context' : 'ready_quick',
+      review_status:
+        identity.resolutionStatus !== 'resolved' || summary.confidence < 60
+          ? 'needs_context'
+          : 'ready_quick',
       priority: summary.outcome === 'sale_intent' ? 'important' : 'normal',
       analysis_confidence: summary.confidence,
       commercial_eligible: summary.outcome === 'sale_intent',
       followup_required: summary.flags.length > 0,
       suggested_followup_reason: summary.flags.join('، ') || null,
+      raw_text: serializeWhatsAppSessionRawText(session),
       analysis_json: {
         ...JSON.parse(JSON.stringify(summary)),
         customerIdentity: {
           matchedBy: identity.matchedBy,
+          resolutionStatus: identity.resolutionStatus,
+          resolutionReason: identity.resolutionReason,
           customerId: identity.customerId,
           customerCode: identity.customerCode,
           customerPhone: identity.customerPhone,
-          branch: identity.branch,
+          customerRegisteredBranch: identity.branch,
+          conversationBranch,
         },
+        canonicalCustomerIdentity: identity.canonical,
+        branchResolution: branchHint,
       },
     })
     .select('id')
@@ -266,80 +196,142 @@ async function saveSessionReview(
 async function verifySessionSale(
   session: WhatsAppConversationSession,
   sourceId: string,
-  identity: CustomerIdentity
+  identity: CustomerIdentity,
+  conversationBranch: string | null
 ) {
   const verification = await verifySessionAgainstInvoices(session, {
     customerId: identity.customerId,
     customerCode: identity.customerCode,
     customerPhone: identity.customerPhone,
     customerName: identity.customerName,
-    branch: identity.branch,
+    branch: conversationBranch,
   });
   await attachInvoiceVerificationToQueue(sourceId, verification);
   return verification.status;
 }
 
-function followupKey(
-  signalType: string,
-  evidenceTimestamp: string | Date | null,
-  evidenceQuote: string
-) {
-  const timestamp = evidenceTimestamp
-    ? (evidenceTimestamp instanceof Date
-        ? evidenceTimestamp
-        : new Date(evidenceTimestamp)
-      ).toISOString()
-    : '';
-  return `${signalType}|${timestamp}|${String(evidenceQuote || '')
-    .replace(/\s+/g, ' ')
-    .trim()}`;
-}
-
-async function saveFollowupSignals(
+export async function saveFollowupSignals(
   session: WhatsAppConversationSession,
   sourceFileName: string,
-  identity: CustomerIdentity
+  identity: CustomerIdentity,
+  conversationBranch: string | null
 ) {
   const signals = detectFollowupSignals(session);
   if (!signals.length) return { created: 0, duplicate: 0 };
 
-  const { data: existing, error: existingError } = await supabase
+  // Stable Follow-up Identity: same customer + episode + signal + reason -> same follow-up,
+  // regardless of session/source instance, segmentation or ingestion path.
+  const customerAnchor = followupCustomerAnchor(identity.canonical, session.id);
+  const identityOf = (signal: DetectedFollowupSignal) =>
+    buildFollowupIdentity({
+      customerAnchor,
+      episodeStartedAt: episodeStartedAt(session.messages, new Date(signal.evidenceTimestamp)),
+      followupType: `signal:${signal.signalType}`,
+      reasonKey: signal.requestedProductName || null,
+    });
+  const identities = signals.map(identityOf);
+
+  const exactLookup = supabase
     .from('whatsapp_auto_followup_requests')
-    .select('signal_type,evidence_timestamp,evidence_quote')
-    .eq('conversation_session_id', session.id);
+    .select('followup_identity')
+    .in('followup_identity', Array.from(new Set(identities)));
+  const legacyLookup =
+    identity.resolutionStatus === 'resolved' && identity.customerId
+      ? supabase
+          .from('whatsapp_auto_followup_requests')
+          .select('id,customer_id,signal_type,requested_product_name,evidence_timestamp,followup_identity')
+          .eq('customer_id', identity.customerId)
+          .is('followup_identity', null)
+          .in('signal_type', Array.from(new Set(signals.map((signal) => signal.signalType))))
+          .limit(100)
+      : Promise.resolve({ data: [], error: null });
+
+  const [
+    { data: existing, error: existingError },
+    { data: legacyRows, error: legacyError },
+  ] = await Promise.all([exactLookup, legacyLookup]);
   if (existingError) throw existingError;
+  if (legacyError) throw legacyError;
 
-  const existingKeys = new Set(
-    (existing || []).map((row) =>
-      followupKey(
-        String(row.signal_type || ''),
-        row.evidence_timestamp ? String(row.evidence_timestamp) : null,
-        String(row.evidence_quote || '')
-      )
-    )
-  );
-
-  const freshSignals: DetectedFollowupSignal[] = [];
+  const existingKeys = new Set((existing || []).map((row) => String(row.followup_identity || '')));
+  const freshSignals: Array<{ signal: DetectedFollowupSignal; followupIdentity: string }> = [];
   let duplicate = 0;
-  for (const signal of signals) {
-    const key = followupKey(signal.signalType, signal.evidenceTimestamp, signal.evidenceQuote);
+  let legacyAdopted = 0;
+  let legacyAmbiguous = 0;
+
+  for (let index = 0; index < signals.length; index += 1) {
+    const signal = signals[index];
+    const key = identities[index];
     if (existingKeys.has(key)) {
       duplicate += 1;
       continue;
     }
+
+    const signalAt = new Date(signal.evidenceTimestamp);
+    const episodeStart = episodeStartedAt(session.messages, signalAt).getTime();
+    const reasonKey = normalizeFollowupKeyPart(signal.requestedProductName || '');
+    const deterministicLegacy = (legacyRows || []).filter((row: any) => {
+      if (String(row.signal_type || '') !== signal.signalType) return false;
+      if (normalizeFollowupKeyPart(row.requested_product_name || '') !== reasonKey) return false;
+      if (!row.evidence_timestamp) return false;
+      const legacyAt = new Date(String(row.evidence_timestamp));
+      if (Number.isNaN(legacyAt.getTime())) return false;
+      if (
+        legacyAt.getTime() < session.startedAt.getTime() ||
+        legacyAt.getTime() > session.endedAt.getTime()
+      )
+        return false;
+      return episodeStartedAt(session.messages, legacyAt).getTime() === episodeStart;
+    });
+
+    if (deterministicLegacy.length === 1) {
+      const legacyId = String(deterministicLegacy[0].id || '');
+      const { data: adopted, error: adoptError } = await supabase
+        .from('whatsapp_auto_followup_requests')
+        .update({ followup_identity: key })
+        .eq('id', legacyId)
+        .is('followup_identity', null)
+        .select('id');
+      if (adoptError) {
+        if (adoptError.code === '23505') {
+          duplicate += 1;
+          existingKeys.add(key);
+          continue;
+        }
+        throw adoptError;
+      }
+      if ((adopted || []).length) {
+        legacyAdopted += 1;
+        duplicate += 1;
+        existingKeys.add(key);
+        continue;
+      }
+    } else if (deterministicLegacy.length > 1) {
+      // Fail closed: more than one historical NULL row is not a deterministic adoption.
+      legacyAmbiguous += 1;
+      continue;
+    }
+
     existingKeys.add(key);
-    freshSignals.push(signal);
+    freshSignals.push({ signal, followupIdentity: key });
   }
 
-  if (!freshSignals.length) return { created: 0, duplicate };
+  if (!freshSignals.length)
+    return { created: 0, duplicate, legacyAdopted, legacyAmbiguous };
 
-  const rows = freshSignals.map((signal) => ({
+  const rows = freshSignals.map(({ signal, followupIdentity }) => ({
+    followup_identity: followupIdentity,
     source_file_name: sourceFileName,
     conversation_session_id: session.id,
-    branch: identity.branch,
-    doctor_name: session.outboundStaffNames[0] || null,
+    branch: conversationBranch,
+    doctor_name:
+      session.outboundStaffNames.length === 1 ? session.outboundStaffNames[0] : null,
     customer_name: identity.customerName || session.customerName || 'غير معروف',
     customer_phone: identity.customerPhone,
+    // Canonical Customer Identity decided; the DB trigger no longer guesses (V47).
+    customer_id: identity.resolutionStatus === 'resolved' ? identity.customerId : null,
+    customer_code: identity.resolutionStatus === 'resolved' ? identity.customerCode : null,
+    customer_identity_status: identity.resolutionStatus,
     signal_type: signal.signalType,
     signal_type_label: signal.signalTypeLabel,
     evidence_quote: signal.evidenceQuote,
@@ -356,10 +348,138 @@ async function saveFollowupSignals(
     if (error.code === '23505') return { created: 0, duplicate: duplicate + rows.length };
     throw error;
   }
-  return { created: rows.length, duplicate };
+  return { created: rows.length, duplicate, legacyAdopted, legacyAmbiguous };
 }
 
-export async function ingestWhatsAppExportFile(file: File): Promise<IngestOneFileResult> {
+async function persistOperationalJourneyIntelligence(
+  session: WhatsAppConversationSession,
+  sourceId: string,
+  identity: CustomerIdentity,
+  conversationBranch: string | null,
+  participantRoles: WhatsAppParticipantRoleModelV15,
+  branchHint: BranchHintResult,
+  canonicalCaseStartedAt: string
+) {
+  const base = buildUnifiedConversationIntelligence(session);
+  const initial = buildWhatsAppOperationalIntelligenceV6(session, base);
+  const productResolved = await enrichWhatsAppOperationalProductsV6(initial);
+  const operational = enrichWhatsAppOperationalJourneysV7(session, productResolved);
+
+  const { data: sourceRow, error: sourceReadError } = await supabase
+    .from('whatsapp_review_sources')
+    .select('analysis_json,analysis_version,staff_id,staff_name,created_by')
+    .eq('id', sourceId)
+    .single();
+  if (sourceReadError) throw sourceReadError;
+
+  const nextAnalysis = {
+    ...(sourceRow?.analysis_json || {}),
+    operational: JSON.parse(JSON.stringify(operational)),
+    participantRoles: JSON.parse(JSON.stringify(participantRoles)),
+    branchHint: JSON.parse(JSON.stringify(branchHint)),
+    productDemandVersion: 'product-demand-v22.1',
+  };
+  const { error: sourceUpdateError } = await supabase
+    .from('whatsapp_review_sources')
+    .update({
+      branch: conversationBranch,
+      analysis_version: operational.version,
+      analysis_status: operational.officialScoringEligible ? 'analyzed' : 'needs_review',
+      priority: operational.followupPlan.priority,
+      followup_required: operational.followupPlan.required,
+      suggested_followup_reason: operational.followupPlan.reason,
+      analysis_confidence: Math.max(operational.intentConfidence, operational.outcomeConfidence),
+      chat_suggested_sold: operational.operationalOutcome === 'probable_sale',
+      analysis_json: nextAnalysis,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', sourceId);
+  if (sourceUpdateError) throw sourceUpdateError;
+
+  await syncWhatsAppOperationalActionsV6(operational, {
+    sourceId,
+    branch: conversationBranch,
+    customerId: identity.customerId,
+    customerCode: identity.customerCode,
+    customerName: identity.customerName,
+    customerPhone: identity.customerPhone,
+    staffId: sourceRow?.staff_id || null,
+    staffName:
+      sourceRow?.staff_name ||
+      (session.outboundStaffNames.length === 1 ? session.outboundStaffNames[0] : null),
+    createdBy: sourceRow?.created_by || null,
+    followupIdentity: {
+      customerAnchor: followupCustomerAnchor(identity.canonical, session.id),
+      session,
+      caseStartedAt: canonicalCaseStartedAt,
+    },
+  });
+
+  await syncWhatsAppEvidenceLedgerV17(session, {
+    sourceId,
+    operational,
+    analysisVersion: 'product-demand-v22.1',
+    participantRoles,
+  });
+
+  return operational;
+}
+
+/**
+ * Canonical Review Gate for automatic ingest: runs after the Customer Case V22 sync. The writer
+ * checks every source against the canonical operational owner, so a failed or partial V22 sync,
+ * a source without exactly one V22 case, or a superseded/archived source never gets an official
+ * automatic review (or review points).
+ */
+export async function persistCanonicalAutomaticReviews(
+  pending: AutomaticReviewSourceContext[],
+  result: Pick<
+    IngestOneFileResult,
+    | 'caseGraph'
+    | 'autoReviewsCreated'
+    | 'autoReviewsSkipped'
+    | 'autoReviewsSkippedNonCanonical'
+    | 'autoReviewsPointsFailed'
+    | 'errors'
+  >
+) {
+  if (!pending.length) return;
+  if (result.caseGraph?.customerCase.status === 'failed') {
+    result.autoReviewsSkippedNonCanonical += pending.length;
+    return;
+  }
+  for (const review of pending) {
+    try {
+      const autoReview = await persistAutomaticWhatsAppReview(review);
+      if (autoReview.status === 'saved') {
+        result.autoReviewsCreated += 1;
+        if (autoReview.pointsError) {
+          result.autoReviewsPointsFailed += 1;
+          result.errors.push(
+            `تقييم آلي رقم ${autoReview.reviewId}: تم حفظ التقييم لكن ربط النقاط فشل: ${autoReview.pointsError}`
+          );
+        }
+      } else if (autoReview.status === 'skipped_non_canonical_source') {
+        result.autoReviewsSkippedNonCanonical += 1;
+      } else if (autoReview.status === 'failed') {
+        result.errors.push(`تعذر إنشاء تقييم آلي لجلسة ${review.sourceId}: ${autoReview.error}`);
+      } else {
+        result.autoReviewsSkipped += 1;
+      }
+    } catch (autoReviewError) {
+      result.errors.push(
+        autoReviewError instanceof Error
+          ? `تقييم آلي: ${autoReviewError.message}`
+          : 'خطأ غير معروف أثناء التقييم الآلي للمحادثة'
+      );
+    }
+  }
+}
+
+export async function ingestWhatsAppExportFile(
+  file: File,
+  options: { accessToken?: string | null; createdBy?: string | null } = {}
+): Promise<IngestOneFileResult> {
   const result: IngestOneFileResult = {
     fileName: file.name,
     sessionsFound: 0,
@@ -374,77 +494,116 @@ export async function ingestWhatsAppExportFile(file: File): Promise<IngestOneFil
     invoiceChecksSkipped: 0,
     autoReviewsCreated: 0,
     autoReviewsSkipped: 0,
+    autoReviewsSkippedNonCanonical: 0,
     autoReviewsPointsFailed: 0,
+    caseGraph: null,
+    salesIntelligence: {},
     errors: [],
   };
 
   const source = await readWhatsAppExportFile(file);
-  const messages = parseWhatsAppExport(source.text);
+  const parsedMessages = parseWhatsAppExport(source.text);
+  const mediaAttachment = attachWhatsAppMediaToMessagesV21(parsedMessages, source.mediaFiles || []);
+  const messages = mediaAttachment.messages;
   if (!messages.length) {
     result.errors.push('لم يتم التعرف على رسائل WhatsApp داخل الملف.');
     return result;
   }
 
-  const sessions = splitWhatsAppSessions(messages, 120);
-  result.sessionsFound = sessions.length;
+  // Canonical Segmentation Contract: the same case units (and therefore the same source hashes and
+  // ids) as the Smart Watcher. Raw 120-minute sessions are never persisted as sources on their own.
+  const segmentation = segmentWhatsAppExportCanonical(messages, source.sourceFileName);
+  const caseContexts = segmentation.caseContexts;
+  result.sessionsFound = caseContexts.contexts.length;
+  const sessionSources: JourneySessionSourceV15[] = [];
+  let firstBranch: string | null = null;
+  // Canonical Customer Identity: one bounded batch for every case unit (same resolver as the
+  // Smart Watcher and Sales Intelligence). A lookup failure fails the file visibly.
+  const identities = (
+    await resolveCanonicalCustomerIdentities(
+      supabase,
+      caseContexts.contexts.map((context) => extractCustomerIdentityEvidence(context.mergedSession, source.sourceFileName))
+    )
+  ).map(toIngestCustomerIdentity);
+  let contextIndex = -1;
 
-  for (const session of sessions) {
+  for (const context of caseContexts.contexts) {
+    const session = context.mergedSession;
+    contextIndex += 1;
     try {
-      const identity = await resolveCustomerIdentity(session);
+      const identity = identities[contextIndex];
       if (identity.matchedBy !== 'none') result.customersMatched += 1;
+
+      const participantRoles = await resolveWhatsAppParticipantRolesV15(session);
+      const branchHint = await resolveConversationBranchHint(session, participantRoles, null);
+      const conversationBranch = branchHint.value;
 
       const saved = await saveSessionReview(
         session,
         source.sourceFileName,
         source.innerFileName || null,
-        identity
+        identity,
+        conversationBranch,
+        branchHint
       );
       if (saved.duplicate) result.sessionsDuplicate += 1;
       else result.sessionsSaved += 1;
+      sessionSources.push({ sessionId: session.id, sourceId: saved.sourceId, contextOnly: false });
+      if (!firstBranch && conversationBranch) firstBranch = conversationBranch;
 
-      if (!saved.duplicate) {
+      if (source.mediaFiles?.length) {
         try {
-          const autoReview = await persistAutomaticWhatsAppReview({
-            sourceId: saved.sourceId,
+          const mediaSync = await syncWhatsAppMediaForSourceV21(
+            saved.sourceId,
             session,
-            branch: identity.branch,
-            customerId: identity.customerId,
-            customerCode: identity.customerCode,
-            customerName: identity.customerName,
-            customerPhone: identity.customerPhone,
-            staffName: session.outboundStaffNames[0] || null,
-            reviewCycle: getCycleForDate(session.startedAt),
-          });
-          if (autoReview.status === 'saved') {
-            result.autoReviewsCreated += 1;
-            if (autoReview.pointsError) {
-              result.autoReviewsPointsFailed += 1;
-              result.errors.push(
-                `تقييم آلي رقم ${autoReview.reviewId}: تم حفظ التقييم لكن ربط النقاط فشل: ${autoReview.pointsError}`
-              );
-            }
-          } else if (autoReview.status === 'failed') {
-            result.errors.push(`تعذر إنشاء تقييم آلي لجلسة ${saved.sourceId}: ${autoReview.error}`);
-          } else {
-            result.autoReviewsSkipped += 1;
+            source.mediaFiles,
+            null
+          );
+          if (mediaSync.failed > 0) {
+            result.errors.push(
+              `مرفقات واتساب: فشل حفظ ${mediaSync.failed} من ${mediaSync.linked} مرفق مرتبط في الجلسة ${saved.sourceId}.`
+            );
           }
-        } catch (autoReviewError) {
+        } catch (mediaError) {
           result.errors.push(
-            autoReviewError instanceof Error
-              ? `تقييم آلي: ${autoReviewError.message}`
-              : 'خطأ غير معروف أثناء التقييم الآلي للمحادثة'
+            mediaError instanceof Error
+              ? `مرفقات واتساب: ${mediaError.message}`
+              : 'تعذر حفظ مرفقات WhatsApp لهذه الجلسة.'
           );
         }
       }
 
-      const invoiceStatus = await verifySessionSale(session, saved.sourceId, identity);
+      const invoiceStatus = await verifySessionSale(session, saved.sourceId, identity, conversationBranch);
       if (invoiceStatus === 'verified') result.invoicesVerified += 1;
       else if (invoiceStatus === 'probable' || invoiceStatus === 'needs_review')
         result.invoicesProbable += 1;
       else if (invoiceStatus === 'not_found') result.invoicesNotFound += 1;
       else result.invoiceChecksSkipped += 1;
 
-      const followups = await saveFollowupSignals(session, source.sourceFileName, identity);
+      try {
+        await persistOperationalJourneyIntelligence(
+          session,
+          saved.sourceId,
+          identity,
+          conversationBranch,
+          participantRoles,
+          branchHint,
+          context.caseItem.startedAt
+        );
+      } catch (operationalError) {
+        result.errors.push(
+          operationalError instanceof Error
+            ? `تحليل طلبات وأصناف واتساب: ${operationalError.message}`
+            : 'تعذر تحديث تحليل طلبات وأصناف واتساب'
+        );
+      }
+
+      const followups = await saveFollowupSignals(
+        session,
+        source.sourceFileName,
+        identity,
+        conversationBranch
+      );
       result.followupsCreated += followups.created;
       result.followupsDuplicate += followups.duplicate;
     } catch (e) {
@@ -452,5 +611,64 @@ export async function ingestWhatsAppExportFile(file: File): Promise<IngestOneFil
     }
   }
 
+  // Customer Case V22 (+ Journey V15) through the same implementation as the Smart Watcher.
+  result.caseGraph = await syncCanonicalCaseGraphForFile({
+    sourceFileName: source.sourceFileName,
+    caseContexts,
+    sessionSources,
+    branch: firstBranch,
+    createdBy: options.createdBy ?? null,
+  });
+  if (result.caseGraph.journey.status === 'failed') {
+    result.errors.push(`Journey sync failed — ${result.caseGraph.journey.error}`);
+  }
+  if (!['saved', 'skipped'].includes(result.caseGraph.customerCase.status)) {
+    result.errors.push(
+      `Customer Case V22 ${result.caseGraph.customerCase.status} (${result.caseGraph.customerCase.saved}/${result.caseGraph.customerCase.expected}) — ${result.caseGraph.customerCase.errors.join(' | ')}`
+    );
+  }
+
+  // Automatic conversation analysis is no longer persisted here.
+  // It is now a Case-level follower inside the canonical Sales Intelligence refresh, after
+  // Sales Intelligence persistence + canonical proof reconciliation. This prevents a legacy
+  // Source-level review and a new Case-level review from being created for the same interaction.
+  // Sales Intelligence through the same transport and Canonical Source Gate as the Smart Watcher.
+  const sourceIds = Array.from(new Set(sessionSources.map((row) => row.sourceId)));
+  if (sourceIds.length) {
+    if (!options.accessToken) {
+      result.errors.push('Sales Intelligence: جلسة الإدارة غير متاحة — لم يتم تحديث التحليل الرسمي لهذه المصادر');
+    } else {
+      const refresh = await requestCanonicalSalesIntelligenceRefresh({ sourceIds, accessToken: options.accessToken });
+      result.salesIntelligence = refresh.bySource;
+
+      for (const evaluation of refresh.conversationEvaluations) {
+        if (evaluation.status === 'saved') {
+          result.autoReviewsCreated += 1;
+        } else if (evaluation.status === 'skipped_existing') {
+          result.autoReviewsSkipped += 1;
+        } else if (
+          evaluation.status === 'skipped_non_current_case' ||
+          evaluation.status === 'skipped_source_mismatch'
+        ) {
+          result.autoReviewsSkippedNonCanonical += 1;
+        } else if (evaluation.status.startsWith('skipped_')) {
+          result.autoReviewsSkipped += 1;
+        } else if (evaluation.status === 'failed') {
+          result.errors.push(
+            `تحليل المحادثة [${evaluation.caseId || evaluation.sourceId}]: ${evaluation.error || 'فشل حفظ التقييم الآلي'}`
+          );
+        }
+      }
+
+      // This phase deliberately never writes doctor/incentive points.
+      result.autoReviewsPointsFailed = 0;
+
+      for (const failure of refresh.errors) {
+        result.errors.push(`Sales Intelligence [${failure.sourceId}]: ${failure.message}`);
+      }
+    }
+  }
+
+  revokeWhatsAppMediaObjectUrlsV21(messages);
   return result;
 }

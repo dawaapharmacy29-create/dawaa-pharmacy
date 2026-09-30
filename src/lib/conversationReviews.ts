@@ -434,7 +434,12 @@ export const REVIEW_CRITERIA: ReviewCriterion[] = [
         label: 'اعتذر ورشح بديل مناسب وشرح الفرق',
         pointsEarned: 10,
       },
-      { value: 'alternative_no_explain', label: 'رشح بديل مناسب بدون شرح كافي', pointsEarned: 7 },
+      { value: 'alternative_no_explain', label: 'رشح بديل بدون شرح كافي', pointsEarned: 7 },
+      {
+        value: 'helped_without_alternative',
+        label: 'ساعد بالتوفير/المراجعة/المتابعة بدون بديل',
+        pointsEarned: 8,
+      },
       {
         value: 'unavailable_only',
         label: 'قال مش موجود فقط بدون محاولة مساعدة',
@@ -550,6 +555,13 @@ export const REVIEW_CRITERIA: ReviewCriterion[] = [
         handledAngryCustomerWell: true,
       },
       { value: 'medium', label: 'تعامل متوسط', pointsEarned: 5 },
+      {
+        value: 'ignored',
+        label: 'لم يتعامل مع الشكوى أو تركها بدون رد/حل',
+        pointsEarned: 0,
+        errorType: 'poor_tone',
+        training: 'تدريب على احتواء الشكوى والرد عليها بوضوح.',
+      },
       {
         value: 'argued',
         label: 'جادل العميل أو زاد غضبه',

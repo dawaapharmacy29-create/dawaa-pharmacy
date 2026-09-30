@@ -2,9 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { parseWhatsAppExport, splitWhatsAppSessions } from '@/lib/whatsappConversationParser';
 import { buildConversationUnderstandingV32 } from '@/lib/whatsappConversationUnderstandingV32';
 import {
+  classifyAvailabilityStatementV32,
+  extractAvailabilitySignals,
   extractConfirmationSignals,
   extractQuantitySignals,
+  isCommitmentOnly,
   isRequestCandidate,
+  isStaffFollowUpPromiseV32,
   isSubstantiveConfirmationSignal,
 } from '@/lib/whatsappSemanticSignalsV32';
 
@@ -108,4 +112,71 @@ describe('whatsappSemanticSignalsV32 — V32.2.1 hardening', () => {
       expect(isRequestCandidate(customerMessageFor('السعر كام؟'))).toBe(true);
     });
   });
+});
+
+describe('whatsappSemanticSignalsV32 — service availability is never product stock', () => {
+  it('does not emit availability for delivery-service availability', () => {
+    const message:any = {
+      id: 'service-1',
+      timestamp: new Date('2026-09-28T03:52:06Z'),
+      direction: 'outbound',
+      role: 'staff',
+      sender: 'You',
+      text: 'خدمة التوصيل متاحة على مدار ٢٤ ساعة',
+      isSystemGenerated: false,
+      isAutomated: false,
+      isEmojiOnly: false,
+      isMediaPlaceholder: false,
+      isMeaningful: true,
+      interactionId: null,
+      requestBurstId: null,
+    };
+    expect(classifyAvailabilityStatementV32(message.text)).toBeNull();
+    expect(extractAvailabilitySignals([message])).toEqual([]);
+  });
+});
+
+describe('whatsappSemanticSignalsV32 — staff follow-up promises', () => {
+  for (const text of [
+    'هراجع وأرجع لحضرتك',
+    'لحظات يا فندم هراجع وارجع لحضرتك',
+    'هراجع وهرجع مع حضرتك',
+  ]) {
+    it(`"${text}" is a real staff follow-up promise`, () => {
+      expect(isStaffFollowUpPromiseV32(text)).toBe(true);
+    });
+  }
+});
+
+describe('whatsappSemanticSignalsV32 — commitment is acceptance, not a new request (4E-0)', () => {
+  const customer = (text: string) =>
+    ({
+      id: 'm1',
+      timestamp: new Date('2026-09-15T09:00:00Z'),
+      direction: 'inbound',
+      role: 'customer',
+      sender: 'Customer',
+      text,
+      isSystemGenerated: false,
+      isAutomated: false,
+      isEmojiOnly: false,
+      isMediaPlaceholder: false,
+      isMeaningful: true,
+      interactionId: null,
+      requestBurstId: null,
+    }) as const;
+
+  for (const text of ['تمام هاته', 'اه ابعته', 'خلاص هات ده', 'ماشي ابعته', 'تمام ابعتها لو سمحت']) {
+    it(`"${text}" is a commitment, not a request`, () => {
+      expect(isCommitmentOnly(text)).toBe(true);
+      expect(isRequestCandidate(customer(text) as any)).toBe(false);
+    });
+  }
+
+  for (const text of ['هات شامبو كمان', 'هات منه', 'هات منه اتنين', 'عايز فيتامين د', 'ابعتلي بانادول اكسترا']) {
+    it(`"${text}" stays a real request`, () => {
+      expect(isCommitmentOnly(text)).toBe(false);
+      expect(isRequestCandidate(customer(text) as any)).toBe(true);
+    });
+  }
 });
