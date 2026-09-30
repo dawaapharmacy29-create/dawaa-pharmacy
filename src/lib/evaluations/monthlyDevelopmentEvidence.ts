@@ -32,3 +32,37 @@ export function hasStrongDevelopmentEvidence(input: DevelopmentStrengthEvidenceI
 
   return true;
 }
+
+
+export type TrainingCompletionTimingInput = {
+  completedAt?: string | null;
+  status?: string | null;
+  endDateExclusive: string;
+};
+
+export type TrainingCompletionTiming =
+  | 'within_cycle'
+  | 'after_cycle'
+  | 'unknown_completed'
+  | 'not_completed';
+
+/**
+ * Monthly evaluation must freeze completion at the cycle boundary.
+ * A current "completed" status without completed_at cannot prove when completion happened.
+ */
+export function trainingCompletionTiming(input: TrainingCompletionTimingInput): TrainingCompletionTiming {
+  const completedAt = String(input.completedAt || '').trim();
+  const endKey = String(input.endDateExclusive || '').slice(0, 10);
+
+  if (completedAt) {
+    const completedKey = completedAt.slice(0, 10);
+    return completedKey < endKey ? 'within_cycle' : 'after_cycle';
+  }
+
+  const status = String(input.status || '').trim();
+  if (/completed|done|closed|مكتمل|تم|منتهي|انهاء|إنهاء/i.test(status)) {
+    return 'unknown_completed';
+  }
+
+  return 'not_completed';
+}

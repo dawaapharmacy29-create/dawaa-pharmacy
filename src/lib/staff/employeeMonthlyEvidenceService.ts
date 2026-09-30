@@ -2,7 +2,7 @@ import { supabase } from '@/lib/supabase';
 import { hasStrongSalesQualityEvidence } from '@/lib/evaluations/monthlySalesQualityEvidence';
 import { hasStrongFollowupEvidence } from '@/lib/evaluations/monthlyFollowupEvidence';
 import { hasStrongInventoryEvidence, isStagnantAssignmentRelevantForCycle } from '@/lib/evaluations/monthlyInventoryEvidence';
-import { hasStrongDevelopmentEvidence } from '@/lib/evaluations/monthlyDevelopmentEvidence';
+import { hasStrongDevelopmentEvidence, trainingCompletionTiming } from '@/lib/evaluations/monthlyDevelopmentEvidence';
 import { readAttendanceRange } from '@/lib/readModels/attendanceReadModel';
 import { listAttendanceImpactLedger, type AttendanceImpactRow } from '@/lib/attendance/attendanceResolutionService';
 
@@ -199,6 +199,8 @@ export type MonthlyDevelopmentCoaching = {
   training: {
     assigned: number;
     completed: number;
+    completedAfterCycle: number;
+    completionTimingUnknown: number;
     overdueOpen: number;
     scored: number;
     averageScore: number | null;
@@ -930,19 +932,24 @@ function buildDevelopmentCoaching(
   const repeatedIssues = repeatedEvidenceText(reviewRows.map((row) => row.main_negative_reason));
   const repeatedRecommendations = repeatedEvidenceText(reviewRows.map((row) => row.training_recommendation));
 
-  const completedStatuses = /completed|done|closed|مكتمل|تم|منتهي|انهاء|إنهاء/i;
-  const completed = trainingResult.assignments.filter((row) =>
-    Boolean(row.completed_at) || completedStatuses.test(text(row.status))
-  ).length;
+  const completionTiming = trainingResult.assignments.map((row) => trainingCompletionTiming({
+    completedAt: row.completed_at,
+    status: row.status,
+    endDateExclusive,
+  }));
+  const completed = completionTiming.filter((value) => value === 'within_cycle').length;
+  const completedAfterCycle = completionTiming.filter((value) => value === 'after_cycle').length;
+  const completionTimingUnknown = completionTiming.filter((value) => value === 'unknown_completed').length;
   const cycleLastDay = new Date(`${endDateExclusive.slice(0, 10)}T12:00:00Z`);
   cycleLastDay.setUTCDate(cycleLastDay.getUTCDate() - 1);
   const cycleLastKey = cycleLastDay.toISOString().slice(0, 10);
-  const overdueOpen = trainingResult.assignments.filter((row) =>
-    !row.completed_at
-    && !completedStatuses.test(text(row.status))
+  const overdueOpen = trainingResult.assignments.filter((row, index) =>
+    completionTiming[index] !== 'within_cycle'
+    && completionTiming[index] !== 'unknown_completed'
     && Boolean(row.due_date)
     && text(row.due_date).slice(0, 10) <= cycleLastKey
   ).length;
+  const trainingEvidencePartial = Boolean(trainingResult.error || completionTimingUnknown > 0);
   const scores = trainingResult.assignments
     .map((row) => nullableNumber(row.score))
     .filter((value): value is number => value !== null);
@@ -957,7 +964,7 @@ function buildDevelopmentCoaching(
     .slice(0, 5);
 
   const developmentStrengthEvidence = hasStrongDevelopmentEvidence({
-    sourceStatus: trainingResult.error ? 'partial' : (trainingResult.assignments.length > 0 || trendMeasurable || repeatedIssues.length > 0 ? 'available' : 'manual'),
+    sourceStatus: trainingEvidencePartial ? 'partial' : (trainingResult.assignments.length > 0 || trendMeasurable || repeatedIssues.length > 0 ? 'available' : 'manual'),
     trendMeasurable,
     direction,
     delta,
@@ -1005,6 +1012,12 @@ function buildDevelopmentCoaching(
     trainingResult.error
       ? 'مصدر التدريب متاح جزئيًا؛ لا تستخدم الجزء غير المتاح كصفر.'
       : '',
+    completedAfterCycle > 0
+      ? `${completedAfterCycle} تدريب اكتمل بعد نهاية الدورة؛ لا يُحسب ضمن إكمال هذه الدورة.`
+      : '',
+    completionTimingUnknown > 0
+      ? `${completionTimingUnknown} تدريب حالته مكتملة لكن بدون completed_at يثبت وقت الإكمال؛ لا يُستخدم تلقائيًا كقوة أو كتأخير.`
+      : '',
     scores.length > 0
       ? 'درجة التدريب تُعرض كدليل مساعد فقط؛ لا يوجد في هذا المسار حد نجاح معياري موثق يسمح بتحويلها وحدها إلى نقطة قوة.'
       : '',
@@ -1012,7 +1025,7 @@ function buildDevelopmentCoaching(
 
   const sourceStatus: MonthlyDevelopmentCoaching['sourceStatus'] =
     trainingResult.assignments.length > 0 || trendMeasurable || repeatedIssues.length > 0
-      ? trainingResult.error ? 'partial' : 'available'
+      ? trainingEvidencePartial ? 'partial' : 'available'
       : 'manual';
 
   return {
@@ -1020,6 +1033,8 @@ function buildDevelopmentCoaching(
     training: {
       assigned: trainingResult.assignments.length,
       completed,
+      completedAfterCycle,
+      completionTimingUnknown,
       overdueOpen,
       scored: scores.length,
       averageScore,

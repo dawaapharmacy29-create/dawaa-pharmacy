@@ -357,8 +357,10 @@ function sectionEvidenceFor(
       status: development.sourceStatus === 'available' ? 'available' as const : 'manual' as const,
       summary: summaryParts.join(' · ') || 'لا يوجد قياس آلي كافٍ؛ استخدم واقعة تطوير موثقة',
       details: [
-        training.assigned > 0 ? `التدريبات المسندة: ${training.assigned} · المكتملة: ${training.completed}` : '',
-        training.overdueOpen > 0 ? `تدريبات انتهى موعدها بدون إكمال موثق: ${training.overdueOpen}` : '',
+        training.assigned > 0 ? `التدريبات المسندة: ${training.assigned} · المكتملة داخل الدورة: ${training.completed}` : '',
+        training.completedAfterCycle > 0 ? `اكتمل بعد نهاية الدورة: ${training.completedAfterCycle}` : '',
+        training.completionTimingUnknown > 0 ? `مكتمل بدون توقيت موثق: ${training.completionTimingUnknown}` : '',
+        training.overdueOpen > 0 ? `كان مستحقًا بنهاية الدورة بدون إكمال موثق داخلها: ${training.overdueOpen}` : '',
         training.averageScore !== null ? `متوسط درجات التدريب: ${training.averageScore}` : '',
         training.titles.length ? `التدريبات: ${training.titles.join(' · ')}` : '',
         trend.measurable

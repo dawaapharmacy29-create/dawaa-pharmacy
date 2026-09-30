@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DEVELOPMENT_STRENGTH_MIN_DELTA,
   hasStrongDevelopmentEvidence,
+  trainingCompletionTiming,
 } from '@/lib/evaluations/monthlyDevelopmentEvidence';
 
 const cleanBase = {
@@ -14,6 +15,40 @@ const cleanBase = {
   trainingCompleted: 0,
   overdueTraining: 0,
 };
+
+describe('training completion timing', () => {
+  it('counts a timestamp before the exclusive cycle end inside the cycle', () => {
+    expect(trainingCompletionTiming({
+      completedAt: '2026-09-25T20:00:00+03:00',
+      status: 'completed',
+      endDateExclusive: '2026-09-26',
+    })).toBe('within_cycle');
+  });
+
+  it('does not backdate a completion recorded after the cycle ended', () => {
+    expect(trainingCompletionTiming({
+      completedAt: '2026-09-27T09:00:00+03:00',
+      status: 'completed',
+      endDateExclusive: '2026-09-26',
+    })).toBe('after_cycle');
+  });
+
+  it('treats completed status without completed_at as timing-unknown evidence', () => {
+    expect(trainingCompletionTiming({
+      completedAt: null,
+      status: 'مكتمل',
+      endDateExclusive: '2026-09-26',
+    })).toBe('unknown_completed');
+  });
+
+  it('keeps an open assignment as not completed', () => {
+    expect(trainingCompletionTiming({
+      completedAt: null,
+      status: 'pending',
+      endDateExclusive: '2026-09-26',
+    })).toBe('not_completed');
+  });
+});
 
 describe('monthly development strength evidence gate', () => {
   it('does not allow training completion alone without a measurable improving trend', () => {
