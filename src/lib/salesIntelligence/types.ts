@@ -452,7 +452,7 @@ export interface CaseIntelligenceReviewReason {
  * A PROJECTION of canonical outputs for one commercial interaction; it decides nothing itself.
  */
 export interface CaseIntelligenceView {
-  version: 'case-intelligence-v2';
+  version: 'case-intelligence-v3';
   caseId: string;
   conversationId: string;
   sourceCaseIdV22: string | null;
