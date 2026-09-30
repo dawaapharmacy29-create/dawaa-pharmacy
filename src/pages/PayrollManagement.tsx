@@ -262,6 +262,7 @@ export default function PayrollManagement() {
   }
 
   const filteredStaff = staff.filter((s) => !search.trim() || s.name.includes(search.trim()) || s.username.includes(search.trim()));
+  const biometricReadyForReview = attendanceReadiness?.readyForPayroll === true;
   return (
     <div className="space-y-5 p-4 md:p-6" dir="rtl">
       <div className="rounded-3xl border p-5" style={surface}>
@@ -347,11 +348,11 @@ export default function PayrollManagement() {
                   {attendanceReadiness ? (
                     <span
                       className="rounded-full border px-2.5 py-1 text-[10px] font-black"
-                      style={attendanceReadiness.readyForPayroll
+                      style={biometricReadyForReview
                         ? { borderColor: 'var(--dawaa-status-success-border)', background: 'var(--dawaa-status-success-bg)', color: 'var(--dawaa-status-success-text)' }
                         : { borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-status-warning-bg)', color: 'var(--dawaa-status-warning-text)' }}
                     >
-                      {attendanceReadiness.readyForPayroll ? 'جاهزة للمراجعة المالية' : 'تحتاج مراجعة'}
+                      {biometricReadyForReview ? 'جاهزة للمراجعة المالية' : 'تحتاج مراجعة'}
                     </span>
                   ) : null}
                 </div>
