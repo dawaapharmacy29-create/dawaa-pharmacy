@@ -25,6 +25,6 @@ jobs:
         shell: bash
         run: |
           echo "DAWAA_GENERATED_API_BEGIN"
-          gzip -c api/sales-intelligence-refresh-source.js | base64 -w 0
+          base64 -w 0 api/sales-intelligence-refresh-source.js
           echo
           echo "DAWAA_GENERATED_API_END"
