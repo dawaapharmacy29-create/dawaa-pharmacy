@@ -15,6 +15,8 @@ export type AttendanceResolutionRow = {
   schedule_id: string | null;
   scheduled_start_at: string | null;
   scheduled_end_at: string | null;
+  scheduled_start_at: string | null;
+  scheduled_end_at: string | null;
   candidate_hours: number | null;
   payroll_eligible_hours: number | null;
   resolution_status: string | null;

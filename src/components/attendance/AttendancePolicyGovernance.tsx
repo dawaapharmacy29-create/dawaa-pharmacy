@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { FlaskConical, History, Layers3, RefreshCw, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
+import { readStaffDirectory } from '@/lib/staff/staffDirectoryReadModel';
 import { cairoToday } from '@/lib/attendance/period';
 import {
   assignAttendancePolicy,
@@ -66,15 +67,21 @@ export default function AttendancePolicyGovernance() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [staffResult, policyResult, rolloutResult, auditResult] = await Promise.all([
-        supabase.from('staff').select('id,name,branch,role').or('active.eq.true,is_active.eq.true').order('name'),
+      const [staffRows, policyResult, rolloutResult, auditResult] = await Promise.all([
+        readStaffDirectory(),
         supabase.from('attendance_policy_versions').select('id,policy_code,effective_from,active,late_grace_minutes,very_late_minutes,early_leave_grace_minutes').order('effective_from', { ascending: false }),
         getAttendancePolicyRollout(),
         listAttendancePolicyAudit(80),
       ]);
-      if (staffResult.error) throw staffResult.error;
       if (policyResult.error) throw policyResult.error;
-      setStaff((staffResult.data || []) as StaffOption[]);
+      setStaff(staffRows
+        .filter((row) => row.is_active)
+        .map((row) => ({
+          id: row.id,
+          name: row.name,
+          branch: row.branch || '',
+          role: row.role || '',
+        })));
       setPolicies((policyResult.data || []) as PolicyOption[]);
       setRollout(rolloutResult);
       setAudit(auditResult);
