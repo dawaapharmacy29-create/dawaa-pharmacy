@@ -29,7 +29,7 @@ if (/persistPointsTransaction|pointsPersistence/.test(timeOff)) {
 if (/\.delete\(/.test(timeOff)) {
   failures.push('TimeOff records must be cancelled/reversed, never hard-deleted from the page.');
 }
-for (const rpc of ['list_staff_time_off_requests_v1','create_staff_time_off_request_v1','decide_staff_time_off_request_v1','cancel_staff_time_off_request_v1']) {
+for (const rpc of ['list_staff_time_off_requests_v1','create_staff_time_off_request_v1','decide_staff_time_off_request_v3','cancel_staff_time_off_request_v1']) {
   if (!service.includes(rpc)) failures.push(`Canonical time-off service is missing RPC ${rpc}.`);
 }
 for (const source of [timeOff, schedule, staffDetail, shiftMemberLoader]) {

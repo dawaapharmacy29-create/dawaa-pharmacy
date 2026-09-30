@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { readInvoiceRecordsByIdentityWindow } from '@/lib/readModels/invoiceRecordReadModel';
 import type { CaseIntelligenceView } from './types';
 
 export interface CustomerRequestSystemRow {
@@ -45,6 +46,7 @@ export interface PurchaseHistoryInvoiceRow {
   invoice_number: string | null;
   customer_id: string | null;
   customer_code: string | null;
+  customer_phone: string | null;
   invoice_datetime: string | null;
   branch_name: string | null;
   net_total: number | null;
@@ -223,23 +225,57 @@ export async function loadConversationEvaluationSystemEvidenceWithClient(
       .gte('created_at', from)
       .lte('created_at', to)
       .limit(100),
-    client
-      .from('sales_invoices')
-      .select('id,invoice_number,customer_id,customer_code,customer_phone,invoice_datetime,branch_name,net_total')
-      .or(identityFilter)
-      .lt('invoice_datetime', view.interaction.startedAt)
-      .order('invoice_datetime', { ascending: false })
-      .limit(30),
+    (async () => {
+      const beforeInteraction = new Date(Math.max(0, startMs - 1)).toISOString();
+      const identities = [
+        { column: 'customer_id' as const, value: clean(view.customer.customerId) },
+        { column: 'customer_code' as const, value: clean(view.customer.customerCode) },
+        { column: 'customer_phone' as const, value: clean(view.customer.customerPhone) },
+      ].filter((identity) => Boolean(identity.value));
+
+      const batches = await Promise.all(
+        identities.map((identity) =>
+          readInvoiceRecordsByIdentityWindow({
+            column: identity.column,
+            value: identity.value,
+            windowStartIso: '1970-01-01T00:00:00.000Z',
+            windowEndIso: beforeInteraction,
+            limit: 30,
+            client,
+          })
+        )
+      );
+
+      const byId = new Map<string, PurchaseHistoryInvoiceRow>();
+      for (const row of batches.flat()) {
+        const id = clean(row.id);
+        if (!id) continue;
+        const rawTotal = row.net_total;
+        const parsedTotal = rawTotal == null ? null : Number(rawTotal);
+        byId.set(id, {
+          id,
+          invoice_number: clean(row.invoice_number) || null,
+          customer_id: clean(row.customer_id) || null,
+          customer_code: clean(row.customer_code) || null,
+          customer_phone: clean(row.customer_phone) || null,
+          invoice_datetime: clean(row.invoice_datetime) || null,
+          branch_name: clean(row.branch_name) || null,
+          net_total: parsedTotal != null && Number.isFinite(parsedTotal) ? parsedTotal : null,
+        });
+      }
+
+      return [...byId.values()]
+        .sort((a, b) => (toMs(b.invoice_datetime) ?? 0) - (toMs(a.invoice_datetime) ?? 0))
+        .slice(0, 30);
+    })(),
   ]);
 
   if (requestResult.error) throw new Error(`customer_requests: ${requestResult.error.message}`);
   if (followupResult.error) throw new Error(`daily_followups: ${followupResult.error.message}`);
-  if (historyResult.error) throw new Error(`sales_invoices history: ${historyResult.error.message}`);
-
-  return buildConversationEvaluationSystemEvidenceSnapshot(view, {
+    return buildConversationEvaluationSystemEvidenceSnapshot(view, {
     customerRequests: (requestResult.data ?? []) as CustomerRequestSystemRow[],
     exceptionalFollowups: (followupResult.data ?? []) as ExceptionalFollowupSystemRow[],
-    purchaseHistory: (historyResult.data ?? []) as PurchaseHistoryInvoiceRow[],
+    purchaseHistory: historyResult,
   });
 }
 
