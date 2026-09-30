@@ -11,8 +11,21 @@ export type SalesIntelligenceStageStatus = {
   saleProofState: string | null;
 };
 
+export interface ConversationEvaluationRefreshResult {
+  caseId: string;
+  sourceId: string;
+  status: string;
+  reviewId: string | null;
+  finalScore: number | null;
+  evidenceCoveragePercent: number | null;
+  automaticReliabilityPercent: number | null;
+  warning: string | null;
+  error: string | null;
+}
+
 export interface CanonicalRefreshClientResult {
   bySource: Record<string, SalesIntelligenceStageStatus>;
+  conversationEvaluations: ConversationEvaluationRefreshResult[];
   /** Failures that leave the canonical chain incomplete (never includes legitimate non-canonical skips). */
   errors: Array<{ sourceId: string; message: string }>;
   authInvalid: boolean;
@@ -29,7 +42,12 @@ export async function requestCanonicalSalesIntelligenceRefresh(input: {
   const fetchImpl = input.fetchImpl ?? fetch;
   const sourceIds = Array.from(new Set(input.sourceIds.filter(Boolean)));
   const concurrency = Math.max(1, input.concurrency ?? 3);
-  const result: CanonicalRefreshClientResult = { bySource: {}, errors: [], authInvalid: false };
+  const result: CanonicalRefreshClientResult = {
+    bySource: {},
+    conversationEvaluations: [],
+    errors: [],
+    authInvalid: false,
+  };
 
   const refreshOne = async (sourceId: string) => {
     const response = await fetchImpl(CANONICAL_REFRESH_ENDPOINT, {
@@ -59,6 +77,26 @@ export async function requestCanonicalSalesIntelligenceRefresh(input: {
       return;
     }
     const derived = Array.isArray(payload?.derivedCases) ? payload.derivedCases : [];
+    const evaluations = Array.isArray(payload?.conversationEvaluations)
+      ? payload.conversationEvaluations
+      : [];
+    for (const row of evaluations) {
+      result.conversationEvaluations.push({
+        caseId: String(row?.caseId || ''),
+        sourceId: String(row?.sourceId || sourceId),
+        status: String(row?.status || 'unknown'),
+        reviewId: row?.reviewId == null ? null : String(row.reviewId),
+        finalScore: Number.isFinite(Number(row?.finalScore)) ? Number(row.finalScore) : null,
+        evidenceCoveragePercent: Number.isFinite(Number(row?.evidenceCoveragePercent))
+          ? Number(row.evidenceCoveragePercent)
+          : null,
+        automaticReliabilityPercent: Number.isFinite(Number(row?.automaticReliabilityPercent))
+          ? Number(row.automaticReliabilityPercent)
+          : null,
+        warning: row?.warning == null ? null : String(row.warning),
+        error: row?.error == null ? null : String(row.error),
+      });
+    }
     const proven = derived.some((row: any) => row?.saleProofState === 'proven');
     result.bySource[sourceId] = {
       status: 'allowed',

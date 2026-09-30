@@ -217,6 +217,7 @@ export default async function handler(req: any, res: any) {
     canonicalReconciliation: refresh.canonicalReconciliation,
     actionReconciliation: refresh.actionReconciliation,
     complaintEnrichment: refresh.complaintEnrichment,
+    conversationEvaluations: refresh.conversationEvaluations,
     derivedCases: (batch?.caseAnalyses || []).map((row: any) => ({
       conversationId: row.conversationId,
       caseId: row.caseId,
