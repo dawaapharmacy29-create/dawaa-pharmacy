@@ -1,0 +1,48 @@
+name: Sales Intelligence Brain Batch Validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/lib/salesIntelligence/**"
+      - "src/lib/whatsappConversationUnderstandingV32.ts"
+      - "src/lib/whatsappSemanticSignalsV32.ts"
+      - "server/sales-intelligence-refresh-source.ts"
+      - "api/sales-intelligence-refresh-source.js"
+      - "scripts/build-sales-intelligence-refresh-api.cjs"
+      - "vercel.json"
+      - ".github/workflows/sales-intelligence-brain-batch-validation.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate-brain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - name: Analytical owner guard
+        run: node scripts/check-whatsapp-sales-intelligence-owner-registry.cjs
+      - name: TypeScript
+        run: npm run typecheck
+      - name: Brain targeted tests
+        run: |
+          npx vitest run             src/lib/__tests__/whatsappConversationUnderstandingV32.test.ts             src/lib/salesIntelligence/__tests__/caseBasketEngine.test.ts             src/lib/salesIntelligence/__tests__/customerNeedModel.test.ts             src/lib/salesIntelligence/__tests__/commercialJourneyStateMachine.test.ts             src/lib/salesIntelligence/__tests__/salesIntelligencePipeline.test.ts             src/lib/salesIntelligence/__tests__/saleProofState.test.ts             src/lib/salesIntelligence/__tests__/saleAttributionEngine.test.ts
+      - name: Production build
+        run: npm run build
+      - name: Verify generated API after build
+        run: node scripts/build-sales-intelligence-refresh-api.cjs --check
+      - name: Upload generated canonical API
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-si-refresh-api
+          path: api/sales-intelligence-refresh-source.js
+          if-no-files-found: error
+          retention-days: 1
