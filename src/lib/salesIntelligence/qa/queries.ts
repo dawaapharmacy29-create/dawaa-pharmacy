@@ -18,7 +18,21 @@
 // than paginating server-side, deliberately kept small per CLAUDE.md's standing constraint against
 // unbounded high-volume reads.
 import { parseWhatsAppExport, type WhatsAppParsedMessage } from '../../whatsappConversationParser';
-import { deriveCasesOnly, deriveSegmentedCases, runSalesIntelligencePipeline } from '../salesIntelligencePipeline';
+import {
+  deriveCasesOnly,
+  deriveSegmentedCases,
+  runSalesIntelligencePipeline,
+  segmentationInputFromPipelineInput,
+} from '../salesIntelligencePipeline';
+import {
+  loadSalesIntelligenceRuntimeContext,
+  pipelineBaseInputFor,
+  prepareSalesIntelligenceConversations,
+} from '../runtimeContext';
+import {
+  REVIEW_SOURCE_BATCH_INPUT_COLUMNS,
+  reviewSourceRowToBatchConversation,
+} from '../persistence/reviewSourceBatchAdapter';
 import { buildInvoiceCandidateQuery, fetchInvoiceCandidates } from '../invoiceCandidateRetrieval';
 import { deriveSaleProofState } from '../saleProofState';
 import { deriveCanonicalSalesOutcome } from '../canonicalSalesOutcomeEngine';
@@ -34,7 +48,6 @@ import type { QaCaseListRow, QaListFilters } from './types';
 import { rankProductCandidates } from '../../productMatching';
 import { loadCanonicalAnalyticalSources } from '../persistence/canonicalSourceGate';
 import { fetchInvoiceItemEvidenceProvider } from '../invoiceItemEvidenceRepository';
-import { fetchPharmacyProductIndex } from '../pharmacyProductCatalogRepository';
 import { readInvoiceRecordById } from '../../readModels/invoiceRecordReadModel';
 import {
   compareQuotedAndActualUnitPrice,
@@ -503,7 +516,7 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
   if (caseRow?.conversation_id) {
     const { data: conversationRow } = await supabaseClient
       .from('whatsapp_review_sources')
-      .select('id, raw_text, source_filename, branch, conversation_started_at, conversation_ended_at, customer_id, customer_name, customer_code, customer_phone, message_count, created_at, analysis_json, review_status')
+      .select([...REVIEW_SOURCE_BATCH_INPUT_COLUMNS, 'source_filename', 'conversation_ended_at', 'message_count', 'created_at', 'analysis_json', 'review_status'].join(','))
       .eq('id', caseRow.conversation_id)
       .maybeSingle();
     if (conversationRow?.raw_text) {
@@ -634,15 +647,22 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
         trustedConversationStartedAt: conversationRow.conversation_started_at ?? null,
       });
       try {
-        const baseInput = {
-          conversationId: conversationRow.id,
-          rawWhatsAppExportText: conversationRow.raw_text,
-          trustedConversationStartedAt: conversationRow.conversation_started_at ?? null,
-          customerIdHint: conversationRow.customer_id ?? caseRow?.customer_id ?? null,
-          customerPhoneHint: conversationRow.customer_phone ?? caseRow?.customer_phone ?? null,
-          branchNameRawHint: conversationRow.branch ?? caseRow?.branch_name_raw ?? null,
-        };
-        const segmented = deriveCasesOnly(baseInput);
+        // Same production runtime context as the canonical refresh (runtimeContext.ts): canonical
+        // customer + staff identity, canonical catalog, one base input for segmentation and run.
+        const runtimeContext = await loadSalesIntelligenceRuntimeContext(supabaseClient);
+        const [preparedConversation] = await prepareSalesIntelligenceConversations(
+          supabaseClient,
+          [
+            reviewSourceRowToBatchConversation({
+              ...(conversationRow as any),
+              source_case_id_v22: caseRow?.source_case_id_v22 ?? null,
+            }),
+          ],
+          runtimeContext
+        );
+        const baseInput = pipelineBaseInputFor(preparedConversation, runtimeContext);
+        const productIndex = runtimeContext.productIndex;
+        const segmented = deriveCasesOnly(segmentationInputFromPipelineInput(baseInput));
         const targetCase = segmented.cases.find((candidate) => candidate.caseId === caseId) ?? null;
         let freshCandidates: any[] = [];
         if (targetCase) {
@@ -669,9 +689,7 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
           supabaseClient,
           freshCandidates
         );
-        const productIndex = await fetchPharmacyProductIndex(supabaseClient);
-
-        const segmentedForPrice = deriveSegmentedCases(baseInput);
+        const segmentedForPrice = deriveSegmentedCases(segmentationInputFromPipelineInput(baseInput));
         const priceSegment = segmentedForPrice.cases.find(
           (entry) => entry.conversationCase.caseId === caseId
         ) ?? null;
@@ -706,7 +724,6 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
           competingSelections,
           resolveInvoiceCandidates: (context) => context.caseId === caseId ? freshCandidates : [],
           itemEvidenceProvider,
-          productIndex,
         });
 
         let result = runLivePipeline([]);

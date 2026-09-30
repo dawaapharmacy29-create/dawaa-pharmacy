@@ -10,7 +10,10 @@
 // No code path here writes verified_* / canonicalSaleProof on whatsapp_customer_cases_v22
 // directly; dawaa_reconcile_sales_intelligence_case_v22_v1 is the only writer of that truth.
 import { runBatchPersistence } from '../persistence/batchPersistenceService';
-import { reviewSourceRowToBatchConversation } from '../persistence/reviewSourceBatchAdapter';
+import {
+  REVIEW_SOURCE_BATCH_INPUT_COLUMNS,
+  reviewSourceRowToBatchConversation,
+} from '../persistence/reviewSourceBatchAdapter';
 import {
   readInvoiceRecordById,
   readInvoiceRecordsByCustomerWindow,
@@ -25,28 +28,11 @@ export const CANONICAL_PROOF_WRITER_RPC = 'dawaa_reconcile_sales_intelligence_ca
 
 /** Columns every transport must load for a review source before calling the service. */
 export const CANONICAL_REFRESH_SOURCE_COLUMNS = [
-  'id',
-  'raw_text',
+  ...REVIEW_SOURCE_BATCH_INPUT_COLUMNS,
   'source_filename',
-  'conversation_started_at',
   'conversation_ended_at',
   'message_count',
   'created_at',
-  'customer_id',
-  'customer_phone',
-  'customer_name',
-  'customer_code',
-  'branch',
-  'matched_invoice_id',
-  'matched_invoice_number',
-  'invoice_match_status',
-  'reviewer_confirmed',
-  'reviewer_id',
-  'invoice_link_confirmed',
-  'invoice_link_confirmed_invoice_id',
-  'invoice_link_confirmed_invoice_number',
-  'invoice_link_confirmed_by',
-  'invoice_link_confirmed_at',
   'review_status',
 ].join(',');
 

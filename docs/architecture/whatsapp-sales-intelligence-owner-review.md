@@ -149,6 +149,25 @@ composes them (`caseIntelligenceView.ts`, persisted as `evidenceSnapshot.caseInt
 | Lost opportunity | `lostOpportunityEngine.ts` |
 | Follow-up opportunity / next best action | `followUpOpportunityEngine.ts` |
 | Unified read model | `caseIntelligenceView.ts` (projection only) |
+| Production runtime context (staff map, customer identity + status, catalog, shared base input) | `runtimeContext.ts` (STEP 7A) |
+
+### 7.1 Production wiring (STEP 7A, `sales-intelligence-v8`)
+
+Real call chain: Smart Watcher (`requestCanonicalSalesIntelligenceRefresh`) → `api/sales-intelligence-refresh-source`
+(generated from `server/sales-intelligence-refresh-source.ts`) → `runCanonicalSalesIntelligenceRefresh` /
+`runCanonicalSalesIntelligenceBackfill` → `reviewSourceRowToBatchConversation` → `runBatchPersistence` →
+`loadSalesIntelligenceRuntimeContext` + `prepareSalesIntelligenceConversations` → `pipelineBaseInputFor` →
+`deriveCasesOnly(segmentationInputFromPipelineInput(base))` (pre-pass) and `runSalesIntelligencePipeline({...base})`
+(pass 1 + claim-resolution reruns). The read-only QA live re-derivation (`qa/queries.ts`) uses the same three calls.
+
+- Staff: canonical staff directory (`loadStaffDirectoryFrom(client)`) → `buildStaffIdentityMap` → `resolveStaffIdBySender`
+  (unique active names only; never the customer; never when no non-staff-looking inbound sender remains; "You" stays raw).
+- Customer: `resolveCanonicalCustomerIdentities`; only `resolved` feeds `customerIdHint`; the status always travels.
+- Catalog: `fetchPharmacyProductIndex` once per batch.
+- Case ids: one base input feeds both the pre-pass and the run, so staff senders / hints can never diverge.
+- Planning no-op mirrors the write RPC: `pipeline_version` is compared.
+- Known limits: a staff-directory change alone does not re-analyse an unchanged source (the semantic hash covers the raw
+  text); per-message introduced staff names in single-number exports stay unresolved.
 
 ## 8. Legacy path -> canonical replacement
 

@@ -95,7 +95,8 @@ const canonicalCoreFiles = [
   'src/lib/salesIntelligence/unavailableDemandEngine.ts',
   'src/lib/salesIntelligence/lostOpportunityEngine.ts',
   'src/lib/salesIntelligence/followUpOpportunityEngine.ts',
-  'src/lib/salesIntelligence/caseIntelligenceView.ts'
+  'src/lib/salesIntelligence/caseIntelligenceView.ts',
+  'src/lib/salesIntelligence/runtimeContext.ts'
 ];
 
 const evidenceOnlyModules = [

@@ -360,7 +360,7 @@ describe('source file uses no second identity definition', () => {
   it.each([
     'src/pages/WhatsAppSmartFolderWatcher.tsx',
     'src/lib/whatsappAutoIngestPipeline.ts',
-    'src/lib/salesIntelligence/persistence/batchPersistenceService.ts',
+    'src/lib/salesIntelligence/runtimeContext.ts',
   ])('%s resolves identity only through the canonical resolver', async (file) => {
     const fs = await import('node:fs');
     const path = await import('node:path');
@@ -368,6 +368,21 @@ describe('source file uses no second identity definition', () => {
     expect(code).toContain('resolveCanonicalCustomerIdentities(');
     expect(code).not.toMatch(
       /resolveWhatsAppCustomerIdentity\(|resolveCustomerContext\(|enrichConversationIdentityHints|\.from\('customers'\)/
+    );
+  });
+});
+
+describe('Sales Intelligence batch uses the one runtime-context owner for identity', () => {
+  it('batchPersistenceService delegates identity to runtimeContext and defines none of its own', async () => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const code = fs.readFileSync(
+      path.resolve(__dirname, '../../..', 'src/lib/salesIntelligence/persistence/batchPersistenceService.ts'),
+      'utf8'
+    );
+    expect(code).toContain('prepareSalesIntelligenceConversations(');
+    expect(code).not.toMatch(
+      /resolveCanonicalCustomerIdentities\(|resolveWhatsAppCustomerIdentity\(|resolveCustomerContext\(|enrichConversationIdentityHints|\.from\('customers'\)|buildStaffIdentityMap\(/
     );
   });
 });

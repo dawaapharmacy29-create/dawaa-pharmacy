@@ -704,6 +704,43 @@ export function deriveSegmentedCases(input: DeriveSegmentedCasesInput): DeriveSe
 
   return { sessionsProcessed: coarseSessions.length, cases, pipelineWarnings };
 }
+export type SalesIntelligenceSegmentationSource = Pick<
+  SalesIntelligencePipelineInput,
+  | 'conversationId'
+  | 'rawWhatsAppExportText'
+  | 'trustedConversationStartedAt'
+  | 'sourceCaseIdV22'
+  | 'customerIdHint'
+  | 'customerPhoneHint'
+  | 'branchIdHint'
+  | 'branchNameRawHint'
+  | 'sessionSplitGapMinutes'
+  | 'staffIdBySender'
+>;
+
+/**
+ * The ONE projection from a pipeline input to its segmentation input. runSalesIntelligencePipeline
+ * uses it, and every pre-pass (deriveCasesOnly) must use it on the same pipeline input, so the
+ * staff senders / identity hints that shape V32 interaction boundaries — and therefore caseIds —
+ * can never differ between a pre-pass and the real run.
+ */
+export function segmentationInputFromPipelineInput(
+  input: SalesIntelligenceSegmentationSource
+): DeriveSegmentedCasesInput {
+  return {
+    conversationId: input.conversationId,
+    rawWhatsAppExportText: input.rawWhatsAppExportText,
+    trustedConversationStartedAt: input.trustedConversationStartedAt ?? null,
+    sourceCaseIdV22: input.sourceCaseIdV22 ?? null,
+    customerIdHint: input.customerIdHint ?? null,
+    customerPhoneHint: input.customerPhoneHint ?? null,
+    branchIdHint: input.branchIdHint ?? null,
+    branchNameRawHint: input.branchNameRawHint ?? null,
+    sessionSplitGapMinutes: input.sessionSplitGapMinutes,
+    knownStaffSenders: Object.keys(input.staffIdBySender ?? {}),
+  };
+}
+
 /**
  * H.1B addition: segmentation-only output (ConversationCase[], no basket/attribution/matching/
  * integrity) for the customer-grouped batch service's pre-pass — it needs each case's own
@@ -736,10 +773,7 @@ export function deriveCasesOnly(input: DeriveSegmentedCasesInput): {
  * into a commercial case: an information-only conversation is a complete, valid, non-error output.
  */
 export function runSalesIntelligencePipeline(input: SalesIntelligencePipelineInput): SalesIntelligencePipelineResult {
-  const segmented = deriveSegmentedCases({
-    ...input,
-    knownStaffSenders: Object.keys(input.staffIdBySender ?? {}),
-  });
+  const segmented = deriveSegmentedCases(segmentationInputFromPipelineInput(input));
   const caseAnalyses = segmented.cases.map(({ conversationCase, scopedMessages, interaction }) =>
     analyzeOneCase(conversationCase, scopedMessages, input, interaction)
   );

@@ -14,6 +14,28 @@ import { resolveTrustedInvoiceEvidenceFromReviewSource } from '../trustedInvoice
 import { extractTrailingCustomerCodeFromDisplayName, normalizeDawaaCustomerCode } from '../../customers/customerIdentity';
 import type { BatchConversationInput } from './batchPersistenceService';
 
+/** The whatsapp_review_sources columns this adapter reads — every caller selects at least these. */
+export const REVIEW_SOURCE_BATCH_INPUT_COLUMNS = [
+  'id',
+  'raw_text',
+  'conversation_started_at',
+  'customer_id',
+  'customer_phone',
+  'customer_name',
+  'customer_code',
+  'branch',
+  'matched_invoice_id',
+  'matched_invoice_number',
+  'invoice_match_status',
+  'reviewer_confirmed',
+  'reviewer_id',
+  'invoice_link_confirmed',
+  'invoice_link_confirmed_invoice_id',
+  'invoice_link_confirmed_invoice_number',
+  'invoice_link_confirmed_by',
+  'invoice_link_confirmed_at',
+] as const;
+
 export interface WhatsAppReviewSourceBatchRow {
   id: string;
   raw_text: string | null;

@@ -62,8 +62,8 @@ function normalizeArabicText(value) {
   return String(value || "").trim().replace(/[\u064B-\u065F\u0640]/g, "").replace(/[\u0623\u0625\u0622]/g, "\u0627").replace(/\u0649/g, "\u064A").replace(/\u0629/g, "\u0647").replace(/\s+/g, " ").toLowerCase();
 }
 function normalizeBranchName(value) {
-  const text = String(value || "").trim();
-  const normalized = normalizeArabicText(text);
+  const text2 = String(value || "").trim();
+  const normalized = normalizeArabicText(text2);
   if (!normalized) return UNKNOWN_BRANCH;
   if (/all|every|branches/i.test(normalized) || normalized.includes("\u0643\u0644") || normalized.includes("\u0627\u0644\u0643\u0644")) {
     return ALL_BRANCHES;
@@ -74,7 +74,7 @@ function normalizeBranchName(value) {
   if (/shamy|shami|elshamy|el shamy|alshamy|al shamy|elshami|el shami/i.test(normalized) || normalized.includes("\u0627\u0644\u0634\u0627\u0645\u064A") || normalized.includes("\u0634\u0627\u0645\u064A")) {
     return SHAMY_BRANCH;
   }
-  return text;
+  return text2;
 }
 
 // src/lib/invoices/invoiceCore.ts
@@ -117,22 +117,22 @@ function parseInvoiceDateTime(value) {
   if (typeof value === "number") {
     return excelSerialToInvoiceDate(value)?.toISOString() ?? null;
   }
-  const text = cleanText(value);
-  if (!text) return null;
-  if (/^\d+(\.\d+)?$/.test(text)) {
-    const serial = Number.parseFloat(text);
+  const text2 = cleanText(value);
+  if (!text2) return null;
+  if (/^\d+(\.\d+)?$/.test(text2)) {
+    const serial = Number.parseFloat(text2);
     if (serial > 4e4 && serial < 6e4) {
       return excelSerialToInvoiceDate(serial)?.toISOString() ?? null;
     }
   }
-  if (/^\d{4}-\d{2}-\d{2}/.test(text)) {
-    const parsed = new Date(text);
+  if (/^\d{4}-\d{2}-\d{2}/.test(text2)) {
+    const parsed = new Date(text2);
     if (!Number.isNaN(parsed.getTime())) {
       const year = parsed.getUTCFullYear();
       if (year >= 2e3 && year <= 2100) return parsed.toISOString();
     }
   }
-  const egyptian = text.match(
+  const egyptian = text2.match(
     /^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/
   );
   if (egyptian) {
@@ -152,7 +152,7 @@ function parseInvoiceDateTime(value) {
     }
     return null;
   }
-  const fallback = new Date(text);
+  const fallback = new Date(text2);
   if (!Number.isNaN(fallback.getTime())) {
     const year = fallback.getUTCFullYear();
     if (year >= 2e3 && year <= 2100) return fallback.toISOString();
@@ -440,21 +440,21 @@ function timestampFromPrefix(prefix) {
   );
   return Number.isNaN(date.getTime()) ? null : date;
 }
-function detectKind(text) {
-  const value = text.toLowerCase();
-  if (/(messages and calls are end-to-end encrypted|created group|added you|changed the subject|security code changed)/i.test(text)) return "system";
+function detectKind(text2) {
+  const value = text2.toLowerCase();
+  if (/(messages and calls are end-to-end encrypted|created group|added you|changed the subject|security code changed)/i.test(text2)) return "system";
   if (/<voice message omitted>|audio omitted|صوت محذوف|\[voice message\]|\.(?:opus|ogg|mp3|m4a|wav)(?:\s|$|\))/i.test(
-    text
+    text2
   ))
     return "voice";
   if (/<image omitted>|image omitted|صورة محذوفة|\[image\]|\.(?:jpe?g|png|webp|gif|heic)(?:\s|$|\))/i.test(
-    text
+    text2
   ))
     return "image";
-  if (/<video omitted>|video omitted|فيديو محذوف|\[video\]|\.(?:mp4|mov)(?:\s|$|\))/i.test(text))
+  if (/<video omitted>|video omitted|فيديو محذوف|\[video\]|\.(?:mp4|mov)(?:\s|$|\))/i.test(text2))
     return "video";
   if (/<document omitted>|document omitted|مستند محذوف|\[document\]|\[file\]|\.(?:pdf|docx?|xlsx?)(?:\s|$|\))/i.test(
-    text
+    text2
   ))
     return "document";
   if (/you deleted this message|this message was deleted|تم حذف هذه الرسالة/i.test(value))
@@ -462,9 +462,9 @@ function detectKind(text) {
   if (/omitted>|محذوف/i.test(value)) return "unknown";
   return "text";
 }
-function hasMediaPlaceholder(text, kind) {
+function hasMediaPlaceholder(text2, kind) {
   return MEDIA_KIND_SET.has(kind) && /(omitted>|\[(?:voice message|image|video|document|file)\]|<attached:|\.(?:jpe?g|png|webp|gif|heic|opus|ogg|mp3|m4a|wav|mp4|mov|pdf|docx?|xlsx?))/i.test(
-    text
+    text2
   );
 }
 function messageId(index, timestamp, sender) {
@@ -502,8 +502,8 @@ function finalizeDirections(messages) {
   }
   return humans;
 }
-function parseTextExport(text) {
-  const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/);
+function parseTextExport(text2) {
+  const lines = text2.replace(/^\uFEFF/, "").split(/\r?\n/);
   const messages = [];
   let current = null;
   for (const line of lines) {
@@ -634,8 +634,8 @@ function trustedDateParts(value) {
   if (Number.isNaN(date.getTime())) return null;
   return { year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate() };
 }
-function parseMarkdownExport(text, trustedConversationStartedAt) {
-  const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/);
+function parseMarkdownExport(text2, trustedConversationStartedAt) {
+  const lines = text2.replace(/^\uFEFF/, "").split(/\r?\n/);
   const messages = [];
   let currentDate = trustedDateParts(trustedConversationStartedAt);
   const trustedAnchor = trustedConversationStartedAt ? trustedConversationStartedAt instanceof Date ? trustedConversationStartedAt : new Date(trustedConversationStartedAt) : null;
@@ -724,8 +724,8 @@ function parseMarkdownExport(text, trustedConversationStartedAt) {
   finalizeDirections(messages);
   return messages;
 }
-function detectWhatsAppExportFormat(text) {
-  const head = text.slice(0, 5e3);
+function detectWhatsAppExportFormat(text2) {
+  const head = text2.slice(0, 5e3);
   if (/^# WhatsApp Chat Export:/m.test(head) || /^##\s+[A-Za-z]+\s+\d{1,2},\s+\d{4}$/m.test(head) || /^\[\d{1,2}:\d{2}(?::\d{2})?\s*[APap][Mm]\]\s+\*\*[^*]{1,100}:\*\*/m.test(head)) return "md";
   return "txt";
 }
@@ -740,11 +740,11 @@ function rebaseTextTimelineToTrustedStart(messages, trustedConversationStartedAt
     return { ...message, timestamp, id: messageId(index, timestamp, message.sender) };
   });
 }
-function parseWhatsAppExport(text, options = {}) {
-  if (detectWhatsAppExportFormat(text) === "md") {
-    return parseMarkdownExport(text, options.trustedConversationStartedAt);
+function parseWhatsAppExport(text2, options = {}) {
+  if (detectWhatsAppExportFormat(text2) === "md") {
+    return parseMarkdownExport(text2, options.trustedConversationStartedAt);
   }
-  return rebaseTextTimelineToTrustedStart(parseTextExport(text), options.trustedConversationStartedAt);
+  return rebaseTextTimelineToTrustedStart(parseTextExport(text2), options.trustedConversationStartedAt);
 }
 function extractIntroducedStaffName(message) {
   if (message.direction !== "outbound") return null;
@@ -845,56 +845,56 @@ var PRODUCT_REFERENCE_RX = /(?<![\p{L}\p{N}])(?:ده|دي|دول|منه|منها
 var STAFF_NON_PRODUCT_TEMPLATE_RX = /أهلا\s*وسهلا|نورت(?:نا|ينا)|صيدليات\s*دواء|خدمة\s*التوصيل|على\s*مدار\s*24\s*ساعة|مع\s*حضرتك|تحت\s*أمر\s*حضرتك|تشرفنا\s*بخدمت/i;
 function isPlausibleStaffProductOffer(message) {
   if (message.role !== "staff" || !message.isMeaningful) return false;
-  const text = message.text.trim();
-  if (!text || STAFF_NON_PRODUCT_TEMPLATE_RX.test(text)) return false;
-  if (WEAK_IMPLICIT_RX.test(text) || classifyConfirmationStrength(text) !== "none") return false;
-  return PRICE_RX.test(text) || /متوفر|موجود|عندنا|بديل|ترشيح|أنسب|افضل|أفضل|سعر|عبوة|علبة|شريط|كبسول|قرص|جل|كريم|شامبو|غسول|سيرم|سيروم|لوشن|spray|cream|gel|shampoo|serum|lotion/i.test(text) || /[A-Za-z]{3,}/.test(text);
+  const text2 = message.text.trim();
+  if (!text2 || STAFF_NON_PRODUCT_TEMPLATE_RX.test(text2)) return false;
+  if (WEAK_IMPLICIT_RX.test(text2) || classifyConfirmationStrength(text2) !== "none") return false;
+  return PRICE_RX.test(text2) || /متوفر|موجود|عندنا|بديل|ترشيح|أنسب|افضل|أفضل|سعر|عبوة|علبة|شريط|كبسول|قرص|جل|كريم|شامبو|غسول|سيرم|سيروم|لوشن|spray|cream|gel|shampoo|serum|lotion/i.test(text2) || /[A-Za-z]{3,}/.test(text2);
 }
 function isPlausibleCustomerProductMention(message) {
   if (message.role !== "customer" || !message.isMeaningful) return false;
-  const text = message.text.trim();
-  if (!text) return false;
-  if (GREETING_ONLY_RX.test(text) || THANKS_CLOSING_ONLY_RX.test(text) || ACCEPTANCE_RX.test(text) || REJECTION_RX.test(text)) return false;
-  const strippedForwarded = text.replace(/^\s*\[?forwarded\]?\s*/i, "").trim();
+  const text2 = message.text.trim();
+  if (!text2) return false;
+  if (GREETING_ONLY_RX.test(text2) || THANKS_CLOSING_ONLY_RX.test(text2) || ACCEPTANCE_RX.test(text2) || REJECTION_RX.test(text2)) return false;
+  const strippedForwarded = text2.replace(/^\s*\[?forwarded\]?\s*/i, "").trim();
   if (!strippedForwarded) return false;
   const withoutReference = strippedForwarded.replace(PRODUCT_REFERENCE_RX, "").trim();
   if (!withoutReference || /^(?:موجود|متوفر|عندكم|عايز|عاوز|محتاج|ابعت|هات)(?:\s|$)/iu.test(withoutReference)) return false;
   return /[A-Za-z]{3,}/.test(strippedForwarded) || /\b\d+(?:\.\d+)?\s*(?:mg|mcg|gm|g|ml|%)\b/i.test(strippedForwarded) || /جل|كريم|شامبو|غسول|سيرم|سيروم|لوشن|بخاخ|قطره|قطرة|امبول|أمبول|كبسول|قرص|مرهم|spray|cream|gel|shampoo|serum|lotion|drops?|amp(?:oule)?/i.test(strippedForwarded);
 }
-function isGreetingOnly(text) {
-  return GREETING_ONLY_RX.test((text || "").trim());
+function isGreetingOnly(text2) {
+  return GREETING_ONLY_RX.test((text2 || "").trim());
 }
-function isBareAcknowledgementOnly(text) {
-  return WEAK_IMPLICIT_RX.test((text || "").trim());
+function isBareAcknowledgementOnly(text2) {
+  return WEAK_IMPLICIT_RX.test((text2 || "").trim());
 }
 function isSubstantiveConfirmationSignal(signal) {
   return signal.confidence >= 0.5;
 }
-function isAcceptanceOnly(text) {
-  return ACCEPTANCE_RX.test((text || "").trim());
+function isAcceptanceOnly(text2) {
+  return ACCEPTANCE_RX.test((text2 || "").trim());
 }
 var COMMITMENT_ONLY_RX = /^(?:(?:تمام|ماشي|اوك|ok|خلاص|ايوه|ايوا|اه|آه|أه|طيب|حلو|موافق)[،,!.\s]*)*(?:هاته|هاتها|هاتهم|هاتيه|هاتيها|ابعته|ابعتها|ابعتهم|ابعتيه|ابعتيها|خليه|خليها|هاخده|هاخدها|هاخدهم|(?:هات|ابعت|ابعتلي|هاتلي)\s*(?:ده|دي|دا|دول|البديل))(?:[،,!.\s]*(?:لو\s*سمحت|من\s*فضلك|يا\s*(?:دكتور[ةه]?|فندم)|بسرعة|خلاص|تمام))*[!.،,\s]*$/i;
-function isCommitmentOnly(text) {
-  return COMMITMENT_ONLY_RX.test((text || "").trim());
+function isCommitmentOnly(text2) {
+  return COMMITMENT_ONLY_RX.test((text2 || "").trim());
 }
-function isRejectionOnly(text) {
-  return REJECTION_RX.test((text || "").trim());
+function isRejectionOnly(text2) {
+  return REJECTION_RX.test((text2 || "").trim());
 }
-function isThanksOrClosingOnly(text) {
-  return THANKS_CLOSING_ONLY_RX.test((text || "").trim());
+function isThanksOrClosingOnly(text2) {
+  return THANKS_CLOSING_ONLY_RX.test((text2 || "").trim());
 }
 function isRequestCandidate(message) {
   if (message.role !== "customer" || !message.isMeaningful) return false;
-  const text = message.text;
-  if (isGreetingOnly(text)) return false;
-  if (isBareAcknowledgementOnly(text)) return false;
-  if (isAcceptanceOnly(text)) return false;
-  if (isCommitmentOnly(text)) return false;
-  if (isRejectionOnly(text)) return false;
-  if (!REQUEST_VERB_RX.test(text) && (isNonRequestIntentStatement(text) || classifyCustomerTimingRequestV32(text))) {
+  const text2 = message.text;
+  if (isGreetingOnly(text2)) return false;
+  if (isBareAcknowledgementOnly(text2)) return false;
+  if (isAcceptanceOnly(text2)) return false;
+  if (isCommitmentOnly(text2)) return false;
+  if (isRejectionOnly(text2)) return false;
+  if (!REQUEST_VERB_RX.test(text2) && (isNonRequestIntentStatement(text2) || classifyCustomerTimingRequestV32(text2))) {
     return false;
   }
-  if (isThanksOrClosingOnly(text)) return false;
+  if (isThanksOrClosingOnly(text2)) return false;
   return true;
 }
 function contextWindowV32(messages, index, before = 3, after = 1) {
@@ -909,10 +909,10 @@ function contextWindowV32(messages, index, before = 3, after = 1) {
     after: meaningfulIndices.slice(pos + 1, pos + 1 + after).map((i) => messages[i])
   };
 }
-function classifyConfirmationStrength(text) {
-  if (EXPLICIT_CONFIRMATION_RX.test(text)) return "explicit";
-  if (STRONG_IMPLICIT_CONFIRMATION_RX.test(text)) return "strong_implicit";
-  if (WEAK_IMPLICIT_RX.test(text.trim())) return "weak_implicit";
+function classifyConfirmationStrength(text2) {
+  if (EXPLICIT_CONFIRMATION_RX.test(text2)) return "explicit";
+  if (STRONG_IMPLICIT_CONFIRMATION_RX.test(text2)) return "strong_implicit";
+  if (WEAK_IMPLICIT_RX.test(text2.trim())) return "weak_implicit";
   return "none";
 }
 function isConfirmationContextuallyLinked(messages, index) {
@@ -1108,8 +1108,8 @@ function extractDeliverySignals(messages) {
 function extractPromiseSignals(messages) {
   return messages.filter((m) => m.role === "staff" && m.isMeaningful && PROMISE_RX.test(m.text)).map((m) => ({ type: "promise", messageId: m.id, confidence: 0.6, ruleId: "promise.future_fulfillment_phrase" }));
 }
-function statementClauses(text) {
-  return (text.match(/[^؟?.!\n،,]+[؟?]?/g) || []).map((clause) => clause.trim()).filter((clause) => clause.length > 0 && !/[؟?]$/.test(clause));
+function statementClauses(text2) {
+  return (text2.match(/[^؟?.!\n،,]+[؟?]?/g) || []).map((clause) => clause.trim()).filter((clause) => clause.length > 0 && !/[؟?]$/.test(clause));
 }
 function clauseAvailabilityState(clause) {
   if (UNAVAILABLE_RX.test(clause)) return "unavailable";
@@ -1117,11 +1117,11 @@ function clauseAvailabilityState(clause) {
   if (CHECK_PENDING_RX.test(clause)) return "check_pending";
   return null;
 }
-function availabilityStatementClausesV32(text) {
-  return statementClauses(text).map((clause) => ({ clause, state: clauseAvailabilityState(clause) })).filter((row) => row.state !== null);
+function availabilityStatementClausesV32(text2) {
+  return statementClauses(text2).map((clause) => ({ clause, state: clauseAvailabilityState(clause) })).filter((row) => row.state !== null);
 }
-function classifyAvailabilityStatementV32(text) {
-  const clauses = statementClauses(text);
+function classifyAvailabilityStatementV32(text2) {
+  const clauses = statementClauses(text2);
   if (clauses.some((clause) => UNAVAILABLE_RX.test(clause))) return "unavailable";
   if (clauses.some((clause) => AVAILABLE_RX.test(clause))) return "available";
   if (clauses.some((clause) => CHECK_PENDING_RX.test(clause))) return "check_pending";
@@ -1144,13 +1144,13 @@ function extractAvailabilitySignals(messages) {
   return signals;
 }
 var ALTERNATIVE_LEAD_FILLER_RX = /^(?:(?:فيه|في|عندنا|ممكن|ينفع|نقدر|نجيب|أجيب|اجيب|نديلك|أقدم|اقدم|نقدم|أرشح|ارشح|لحضرتك|و)(?=\s|$)|[\s:\-،])+/i;
-function alternativePhraseAfter(text, marker) {
-  const match = text.match(marker);
+function alternativePhraseAfter(text2, marker) {
+  const match = text2.match(marker);
   if (!match || match.index == null) return null;
-  const tail = text.slice(match.index + match[0].length).split(/[؟?\n.!،,]/)[0].replace(ALTERNATIVE_PHRASE_FILLER_RX, "").trim();
+  const tail = text2.slice(match.index + match[0].length).split(/[؟?\n.!،,]/)[0].replace(ALTERNATIVE_PHRASE_FILLER_RX, "").trim();
   if (tail.length >= 2) return tail.slice(0, 80);
-  const clauseStart = Math.max(...["\u060C", ",", ".", "\n", "\u061F", "?"].map((sep) => text.lastIndexOf(sep, match.index - 1)));
-  const head = text.slice(clauseStart + 1, match.index).replace(ALTERNATIVE_LEAD_FILLER_RX, "").trim();
+  const clauseStart = Math.max(...["\u060C", ",", ".", "\n", "\u061F", "?"].map((sep) => text2.lastIndexOf(sep, match.index - 1)));
+  const head = text2.slice(clauseStart + 1, match.index).replace(ALTERNATIVE_LEAD_FILLER_RX, "").trim();
   return head.length >= 2 && head.split(/\s+/).length <= 4 ? head.slice(0, 80) : null;
 }
 function extractAlternativeOfferSignals(messages) {
@@ -1181,16 +1181,16 @@ var BOUGHT_ELSEWHERE_RX = /(?:جبت|اشتريت|خدت|لقيت|هجيب|هش�
 var FINAL_DECLINE_RX = /مش\s*(?:عايز|عاوز|محتاج)[ةه]?\s*خلاص|خلاص\s*مش\s*(?:عايز|عاوز|محتاج)|^لا\s*خلاص|لا\s*خلاص\s*مش|خلاص\s*(?:بلاش|مش\s*لازم)|(?:ا|أ|إ)لغي\s*الطلب|كنسل\s*الطلب|مبقتش\s*(?:محتاج|عايز|عاوز)/i;
 var DELAY_COMPLAINT_RX = /اتأخرت(?:وا)?|متأخرين|محدش\s*(?:رد|بيرد)|ليه\s*محدش|بقالي\s*(?:ساع[ةه]|كتير|فتر[ةه])|مستني\s*من\s*بدري/i;
 var WILL_WAIT_RX = /هستنا(?:ه|ها)?|هستنى|(?:ابقى|ابقي)\s*(?:بلغني|كلمني|قولي|عرفني)|لما\s*(?:\S+\s+){0,3}?(?:يوصل|يتوفر|ييجي|ينزل)|بلغني\s*لما|عرفني\s*لما/i;
-function isNonRequestIntentStatement(text) {
-  const intent = classifyCustomerIntentStatementV32(text);
+function isNonRequestIntentStatement(text2) {
+  const intent = classifyCustomerIntentStatementV32(text2);
   return intent === "considering" || intent === "will_wait" || intent === "final_decline" || intent === "bought_elsewhere";
 }
-function classifyCustomerIntentStatementV32(text) {
-  if (BOUGHT_ELSEWHERE_RX.test(text)) return "bought_elsewhere";
-  if (FINAL_DECLINE_RX.test(text)) return "final_decline";
-  if (DELAY_COMPLAINT_RX.test(text)) return "delay_complaint";
-  if (WILL_WAIT_RX.test(text)) return "will_wait";
-  if (CONSIDERING_RX.test(text)) return "considering";
+function classifyCustomerIntentStatementV32(text2) {
+  if (BOUGHT_ELSEWHERE_RX.test(text2)) return "bought_elsewhere";
+  if (FINAL_DECLINE_RX.test(text2)) return "final_decline";
+  if (DELAY_COMPLAINT_RX.test(text2)) return "delay_complaint";
+  if (WILL_WAIT_RX.test(text2)) return "will_wait";
+  if (CONSIDERING_RX.test(text2)) return "considering";
   return null;
 }
 var STAFF_FOLLOWUP_PROMISE_RX = /هتابع|هنتابع|ه(?:ن)?كلم\s*(?:ك|حضرتك)|ه(?:ن)?رد\s*على\s*(?:حضرتك|ك)|ه(?:ن)?بلغ\s*(?:ك|حضرتك)|ه(?:ن)?عرف\s*(?:ك|حضرتك)|هقول\s*(?:لك|لحضرتك)|هشوف\s*(?:لك|لحضرتك)|هسأل\s*(?:لك|لحضرتك)|هراجع\s*و\s*(?:أرد|ارد|أكلم|اكلم|أبلغ|ابلغ)/i;
@@ -1200,31 +1200,31 @@ var TOMORROW_RX = /بكر[ةه]|بكرا/i;
 var AFTER_DAYS_RX = /بعد\s*(?:(يومين)|(\d+)\s*(?:يوم|أيام|ايام)|(اسبوع|أسبوع))/i;
 var SAME_DAY_RX = /النهارد[ةه]|بالليل|كمان\s*ساع[ةه]|بعد\s*ساع[ةه]|آخر\s*النهار|اخر\s*النهار/i;
 var PRESCRIPTION_REQUEST_RX = /(?:ابعت|ابعتي|ابعتلنا|محتاج(?:ين)?|لازم|ممكن)\s*(?:\S+\s*){0,2}(?:صور[ةه]\s*)?(?:ال)?(?:روشت[ةه]|وصف[ةه]\s*طبي[ةه])/i;
-function isStaffFollowUpPromiseV32(text) {
-  return STAFF_FOLLOWUP_PROMISE_RX.test(text);
+function isStaffFollowUpPromiseV32(text2) {
+  return STAFF_FOLLOWUP_PROMISE_RX.test(text2);
 }
-function mentionsPrescriptionV32(text) {
-  return /روشت[ةه]|وصف[ةه]\s*طبي[ةه]/i.test(text);
+function mentionsPrescriptionV32(text2) {
+  return /روشت[ةه]|وصف[ةه]\s*طبي[ةه]/i.test(text2);
 }
-function isPrescriptionRequestV32(text) {
-  return PRESCRIPTION_REQUEST_RX.test(text);
+function isPrescriptionRequestV32(text2) {
+  return PRESCRIPTION_REQUEST_RX.test(text2);
 }
-function classifyCustomerTimingRequestV32(text) {
-  const callback = CUSTOMER_CALLBACK_RX.test(text);
-  const waitForStock = WHEN_IN_STOCK_RX.test(text);
+function classifyCustomerTimingRequestV32(text2) {
+  const callback = CUSTOMER_CALLBACK_RX.test(text2);
+  const waitForStock = WHEN_IN_STOCK_RX.test(text2);
   if (!callback && !waitForStock) return null;
   if (waitForStock) return { when: "when_in_stock", days: null };
-  const days = text.match(AFTER_DAYS_RX);
+  const days = text2.match(AFTER_DAYS_RX);
   if (days) return { when: "days", days: days[1] ? 2 : days[2] ? Number(days[2]) : 7 };
-  if (TOMORROW_RX.test(text)) return { when: "days", days: 1 };
-  if (SAME_DAY_RX.test(text)) return { when: "same_day", days: 0 };
+  if (TOMORROW_RX.test(text2)) return { when: "days", days: 1 };
+  if (SAME_DAY_RX.test(text2)) return { when: "same_day", days: 0 };
   return { when: "unspecified", days: null };
 }
 var LEADING_NO_RX = /^(?:لا|لأ)(?:\s*[،,.!]|\s+(?=\S))/;
-function classifyCustomerOfferResponseV32(text) {
-  if (REJECTION_RX.test(text) || LEADING_NO_RX.test(text.trim()) && !THANKS_CLOSING_ONLY_RX.test(text.trim())) return "rejected";
-  if (CONSIDERING_RX.test(text)) return "considering";
-  if (ACCEPTANCE_RX.test(text) || ACCEPT_OFFER_RX.test(text)) return "accepted";
+function classifyCustomerOfferResponseV32(text2) {
+  if (REJECTION_RX.test(text2) || LEADING_NO_RX.test(text2.trim()) && !THANKS_CLOSING_ONLY_RX.test(text2.trim())) return "rejected";
+  if (CONSIDERING_RX.test(text2)) return "considering";
+  if (ACCEPTANCE_RX.test(text2) || ACCEPT_OFFER_RX.test(text2)) return "accepted";
   return null;
 }
 function buildSemanticSignalsV32(messages) {
@@ -1275,16 +1275,16 @@ function computeRequestBurstIds(messages, gapMs = 3 * 60 * 1e3) {
 // src/lib/whatsappConversationUnderstandingV32.ts
 var EMOJI_RX = new RegExp("\\p{Extended_Pictographic}", "u");
 var NON_EMOJI_MEANINGFUL_RX = /[\p{L}\p{N}]/u;
-function isEmojiOnlyText(text) {
-  const trimmed = (text || "").trim();
+function isEmojiOnlyText(text2) {
+  const trimmed = (text2 || "").trim();
   if (!trimmed) return false;
   if (!EMOJI_RX.test(trimmed)) return false;
   return !NON_EMOJI_MEANINGFUL_RX.test(trimmed);
 }
 var PLACEHOLDER_ONLY_RX = /^<[^<>]*\bomitted>$|^\[(?:voice message|image|video|document|file|sticker)\]$|^(?:this message was deleted|you deleted this message)$/i;
 var FORWARDED_PREFIX_RX = /^\[Forwarded\]\s*/i;
-function isPlaceholderOnlyText(text) {
-  const stripped = (text || "").trim().replace(FORWARDED_PREFIX_RX, "").trim();
+function isPlaceholderOnlyText(text2) {
+  const stripped = (text2 || "").trim().replace(FORWARDED_PREFIX_RX, "").trim();
   return PLACEHOLDER_ONLY_RX.test(stripped);
 }
 var INTERACTION_GAP_MS = 30 * 60 * 1e3;
@@ -1649,24 +1649,24 @@ function normalizeProductKey(name) {
 var ADDITIVE_CONNECTOR_RX = /^\s*(?:(?:و|وكمان|كمان|وبرضه|برضه|برضو|وأيضا|وايضا|أيضا|ايضا)(?=\s)\s*)+/i;
 var LEAD_DISCOURSE_RX = /^\s*(?:(?:تمام|ماشي|اوك|ok|خلاص|طيب|ايوه|ايوا|اه|آه|بالمناسبة|على\s*فكرة)(?=[\s،,])[\s،,]*)+/i;
 var TRAILING_ADDITIVE_RX = /\s+(?:كمان|برضه|برضو|أيضا|ايضا)\s*$/i;
-function stripRequestPrefix(text) {
-  return text.replace(LEAD_DISCOURSE_RX, "").replace(ADDITIVE_CONNECTOR_RX, "").replace(/^\s*(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?|ممكن|هات[ي]?|ابعت(?:لي|يلي)?)\s*/i, "").replace(ADDITIVE_CONNECTOR_RX, "").replace(TRAILING_ADDITIVE_RX, "").trim().replace(/^[,،]+|[,،]+$/g, "").trim();
+function stripRequestPrefix(text2) {
+  return text2.replace(LEAD_DISCOURSE_RX, "").replace(ADDITIVE_CONNECTOR_RX, "").replace(/^\s*(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?|ممكن|هات[ي]?|ابعت(?:لي|يلي)?)\s*/i, "").replace(ADDITIVE_CONNECTOR_RX, "").replace(TRAILING_ADDITIVE_RX, "").trim().replace(/^[,،]+|[,،]+$/g, "").trim();
 }
 var NON_PRODUCT_PHRASE_RX = /^(?:مش|لا|لأ|اه|آه|تمام|حاجة|حاجه|ده|دي|دا|منه|منها|بس)?$/;
 var EXPLICIT_REQUEST_VERB_RX = /(?<![\p{L}\p{N}])(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?|هات(?:ي|لي)?|ابعت(?:لي|يلي)?)(?![\p{L}\p{N}])/u;
 var ONLY_THIS_RX = /(?<![\p{L}\p{N}])(?:بس|فقط)[.!، ]*$/u;
 var INFO_QUESTION_LEAD_RX = /^(?:اعرف|أعرف|اسأل|أسأل|استفسر|أستفسر|افهم|أفهم|اشوف|أشوف|اتأكد|أتأكد)(?=\s|$)/;
 var POLITENESS_RX = /(?<![\p{L}\p{N}])(?:لو\s*سمحت|من\s*فضلك|يا\s*(?:دكتور[ةه]?|فندم)|بعد\s*اذنك|بعد\s*إذنك)(?![\p{L}\p{N}])/giu;
-function explicitRequestProductPhrases(text) {
-  const phrase = stripRequestPrefix(text.replace(POLITENESS_RX, " ")).replace(/[؟?!.]+$/g, "").replace(/\s+/g, " ").trim();
-  if (!phrase || /[؟?]/.test(text) || INFO_QUESTION_LEAD_RX.test(phrase)) return [];
+function explicitRequestProductPhrases(text2) {
+  const phrase = stripRequestPrefix(text2.replace(POLITENESS_RX, " ")).replace(/[؟?!.]+$/g, "").replace(/\s+/g, " ").trim();
+  if (!phrase || /[؟?]/.test(text2) || INFO_QUESTION_LEAD_RX.test(phrase)) return [];
   const parts = phrase.split(/\s+و\s+|\s*[،,+]\s*/).map((part) => stripRequestPrefix(part).trim()).filter((part) => part.length >= 2);
   if (!parts.length || parts.some((part) => part.split(/\s+/).length > 4 || NON_PRODUCT_PHRASE_RX.test(part))) return [];
   return parts;
 }
 var QUANTITY_REVISION_RX = /^(?:(?:لا|لأ|طيب|خلاص)[،,\s]+)?(?:خلي(?:ه|ها|هم|هملي|هولي|هالي)|نزل(?:ه|ها|هم))\s+(?:ل)?(?:(\d+|واحد[ةه]?|اتنين|تلات[ةه]?|أربع[ةه]?|خمس[ةه]?)\s*(?:علب[ةه]?|علب|شريط|عبو[ةه]|قطع[ةه]|حب[ةه])?|(?:علب[ةه]|شريط|عبو[ةه]|قطع[ةه]|حب[ةه])\s*(واحد[ةه]?|اتنين|\d+)|(علبتين|شريطين|عبوتين|حبتين))\s*(?:بس|فقط)?[.!، ]*$/i;
-function parseQuantityRevision(text) {
-  const match = text.trim().match(QUANTITY_REVISION_RX);
+function parseQuantityRevision(text2) {
+  const match = text2.trim().match(QUANTITY_REVISION_RX);
   if (!match) return null;
   if (match[3]) return 2;
   return parseNumberToken(match[1] ?? match[2] ?? "");
@@ -1842,8 +1842,8 @@ function extractDraftItemsFromScope(allMessages, restrictToIds) {
   });
   return items;
 }
-function itemsNamedIn(text, keys) {
-  const phraseTokens = normalizeProductKey(stripRequestPrefix(text.replace(ONLY_THIS_RX, ""))).split(" ").map((token) => token.replace(/^ال/, "")).filter((token) => token.length >= 3);
+function itemsNamedIn(text2, keys) {
+  const phraseTokens = normalizeProductKey(stripRequestPrefix(text2.replace(ONLY_THIS_RX, ""))).split(" ").map((token) => token.replace(/^ال/, "")).filter((token) => token.length >= 3);
   return keys.filter((key) => {
     const keyTokens = key.split(" ").map((token) => token.replace(/^ال/, ""));
     return phraseTokens.length > 0 && phraseTokens.every((token) => keyTokens.includes(token));
@@ -1877,20 +1877,20 @@ function isFinalBasketSummary(message) {
 function isStaffFinalConfirmation(message) {
   return message.role === "staff" && message.isMeaningful && STAFF_FINAL_CONFIRMATION_RX.test(message.text);
 }
-function classifyCustomerModification(text) {
-  if (MODIFICATION_QTY_CHANGE_RX.test(text) || parseQuantityRevision(text) != null) return "quantity_change";
-  if (SUBSTITUTION_MARKER_RX.test(text)) return "substitute";
-  if (MODIFICATION_ADD_RX.test(text)) return "add";
-  if (MODIFICATION_REMOVE_RX.test(text)) return "remove";
+function classifyCustomerModification(text2) {
+  if (MODIFICATION_QTY_CHANGE_RX.test(text2) || parseQuantityRevision(text2) != null) return "quantity_change";
+  if (SUBSTITUTION_MARKER_RX.test(text2)) return "substitute";
+  if (MODIFICATION_ADD_RX.test(text2)) return "add";
+  if (MODIFICATION_REMOVE_RX.test(text2)) return "remove";
   return null;
 }
-function extractSubstituteProductName(text) {
-  const afterVerb = text.replace(/^.*?(?:هات[ي]?|عايز|عاوز|ابعت(?:لي|يلي)?)\s*/i, "").trim();
-  return afterVerb || text.trim();
+function extractSubstituteProductName(text2) {
+  const afterVerb = text2.replace(/^.*?(?:هات[ي]?|عايز|عاوز|ابعت(?:لي|يلي)?)\s*/i, "").trim();
+  return afterVerb || text2.trim();
 }
-function extractAddedProductName(text) {
-  const stripped = text.replace(/^.*?(?:زود(?:ي)?|ضيف(?:ي)?|كمان\s*عايز|كمان\s*حاجة|نسيت)\s*/i, "").trim();
-  return stripped || text.trim();
+function extractAddedProductName(text2) {
+  const stripped = text2.replace(/^.*?(?:زود(?:ي)?|ضيف(?:ي)?|كمان\s*عايز|كمان\s*حاجة|نسيت)\s*/i, "").trim();
+  return stripped || text2.trim();
 }
 function isLinkedToSummary(scopedMessages, candidateMessageId, summaryMessageId) {
   const index = scopedMessages.findIndex((m) => m.id === candidateMessageId);
@@ -4103,25 +4103,25 @@ function strongestConfidence(current, next) {
 }
 var STOCK_QUESTION_WORDS_RX = /(?<![\p{L}\p{N}])(?:هو|هي|هل|طيب|مش|مو|غير|عندكم|عندكو|عندك|موجود[ةه]?|متوفر[ةه]?|متاح[ةه]?|فيه|في|لو\s*سمحت|من\s*فضلك|ممكن|يا\s*(?:دكتور[ةه]?|فندم))(?![\p{L}\p{N}])/giu;
 var NON_PRODUCT_LEFTOVER_RX = /^(?:مش|لا|لأ|اه|آه|تمام|حاجة|حاجه|ده|دي|دا|منه|منها)?$/;
-function productPhraseFromStockQuestion(text) {
-  const phrase = stripRequestPrefix(text.replace(STOCK_QUESTION_WORDS_RX, " ")).replace(/[؟?!.،]+/g, " ").replace(/\s+/g, " ").trim();
+function productPhraseFromStockQuestion(text2) {
+  const phrase = stripRequestPrefix(text2.replace(STOCK_QUESTION_WORDS_RX, " ")).replace(/[؟?!.،]+/g, " ").replace(/\s+/g, " ").trim();
   if (phrase.length < 3 || NON_PRODUCT_LEFTOVER_RX.test(phrase)) return null;
   return phrase;
 }
-function classifyObjectionCategory(text, explicitRejection, correction) {
-  if (PRICE_OBJECTION_RX.test(text)) return "price";
-  if (AVAILABILITY_OBJECTION_RX.test(text)) return "availability";
-  if (DELIVERY_OBJECTION_RX.test(text)) return "delivery";
-  if (PRODUCT_FIT_OBJECTION_RX.test(text)) return "product_fit";
-  if (TIMING_OBJECTION_RX.test(text)) return "timing";
+function classifyObjectionCategory(text2, explicitRejection, correction) {
+  if (PRICE_OBJECTION_RX.test(text2)) return "price";
+  if (AVAILABILITY_OBJECTION_RX.test(text2)) return "availability";
+  if (DELIVERY_OBJECTION_RX.test(text2)) return "delivery";
+  if (PRODUCT_FIT_OBJECTION_RX.test(text2)) return "product_fit";
+  if (TIMING_OBJECTION_RX.test(text2)) return "timing";
   if (explicitRejection) return "customer_declined";
   if (correction) return "unknown";
   return null;
 }
 function directRequestedProduct(message, quantityPhrase) {
-  let text = message.text;
-  if (quantityPhrase) text = text.replace(quantityPhrase, " ");
-  const stripped = stripRequestPrefix(text).replace(/^(?:لو\s*سمحت|من\s*فضلك)\s*/i, "").replace(/[؟?!.،]+$/g, "").trim();
+  let text2 = message.text;
+  if (quantityPhrase) text2 = text2.replace(quantityPhrase, " ");
+  const stripped = stripRequestPrefix(text2).replace(/^(?:لو\s*سمحت|من\s*فضلك)\s*/i, "").replace(/[؟?!.،]+$/g, "").trim();
   return stripped.length >= 2 ? stripped : null;
 }
 function deriveCustomerNeedModel(input) {
@@ -5060,8 +5060,8 @@ function deriveFollowUpOpportunities(input) {
       sameDay: timing?.when === "same_day"
     });
   }
-  const demandForWait = (text) => {
-    const textKey = normalizeProductKey(text);
+  const demandForWait = (text2) => {
+    const textKey = normalizeProductKey(text2);
     const named = unavailableDemand.filter((d) => d.productKey.length >= 3 && textKey.includes(d.productKey));
     if (named.length) return named;
     return unavailableDemand.length === 1 ? unavailableDemand : [];
@@ -5481,11 +5481,11 @@ var ARABIC_LETTER_VARIANTS = [
   [/[ً-ْٰـ]/g, ""]
   // tashkeel + tatweel
 ];
-function convertArabicDigits(text) {
-  return text.replace(/[٠-٩]/g, (d) => ARABIC_INDIC_DIGITS[d] ?? d);
+function convertArabicDigits(text2) {
+  return text2.replace(/[٠-٩]/g, (d) => ARABIC_INDIC_DIGITS[d] ?? d);
 }
-function unifyArabicLetters(text) {
-  let result = text;
+function unifyArabicLetters(text2) {
+  let result = text2;
   for (const [pattern, replacement] of ARABIC_LETTER_VARIANTS) {
     result = result.replace(pattern, replacement);
   }
@@ -5568,8 +5568,8 @@ var DOSAGE_FORM_KEYWORDS = [
   [/\b(shampoo)\b|شامبو/g, "shampoo"],
   [/\b(suppository|suppositories)\b|لبوس/g, "suppository"]
 ];
-function normalizeBaseText(text) {
-  let result = text;
+function normalizeBaseText(text2) {
+  let result = text2;
   result = convertArabicDigits(result);
   result = unifyArabicLetters(result);
   result = result.toLowerCase();
@@ -6342,6 +6342,20 @@ function deriveSegmentedCases(input) {
   }
   return { sessionsProcessed: coarseSessions.length, cases, pipelineWarnings };
 }
+function segmentationInputFromPipelineInput(input) {
+  return {
+    conversationId: input.conversationId,
+    rawWhatsAppExportText: input.rawWhatsAppExportText,
+    trustedConversationStartedAt: input.trustedConversationStartedAt ?? null,
+    sourceCaseIdV22: input.sourceCaseIdV22 ?? null,
+    customerIdHint: input.customerIdHint ?? null,
+    customerPhoneHint: input.customerPhoneHint ?? null,
+    branchIdHint: input.branchIdHint ?? null,
+    branchNameRawHint: input.branchNameRawHint ?? null,
+    sessionSplitGapMinutes: input.sessionSplitGapMinutes,
+    knownStaffSenders: Object.keys(input.staffIdBySender ?? {})
+  };
+}
 function deriveCasesOnly(input) {
   const result = deriveSegmentedCases(input);
   return {
@@ -6351,10 +6365,7 @@ function deriveCasesOnly(input) {
   };
 }
 function runSalesIntelligencePipeline(input) {
-  const segmented = deriveSegmentedCases({
-    ...input,
-    knownStaffSenders: Object.keys(input.staffIdBySender ?? {})
-  });
+  const segmented = deriveSegmentedCases(segmentationInputFromPipelineInput(input));
   const caseAnalyses = segmented.cases.map(
     ({ conversationCase, scopedMessages, interaction }) => analyzeOneCase(conversationCase, scopedMessages, input, interaction)
   );
@@ -6363,6 +6374,851 @@ function runSalesIntelligencePipeline(input) {
     sessionsProcessed: segmented.sessionsProcessed,
     caseAnalyses,
     pipelineWarnings: segmented.pipelineWarnings
+  };
+}
+
+// src/lib/customers/canonicalCustomerIdentityResolver.ts
+var EVIDENCE_CONFIDENCE = {
+  customer_id: 1,
+  customer_code: 0.99,
+  contact_phone: 0.97,
+  mentioned_phone: 0.9,
+  historical_link: 0.95
+};
+function uniq(values) {
+  return Array.from(new Set(values.map((value) => String(value ?? "").trim()).filter(Boolean)));
+}
+function validPhones(values) {
+  return uniq(values.map((value) => normalizeEgyptianCustomerPhone(value))).filter(
+    (phone) => isValidEgyptianCustomerMobile(phone)
+  );
+}
+function canonicalId(id, candidates) {
+  const row = candidates.byId.get(id);
+  const alias = candidates.aliasToCanonical.get(id);
+  if (alias) return alias;
+  if (!row || row.isDuplicate) return null;
+  return row.id;
+}
+function matchIds(kind, value, rows, candidates) {
+  const ids = uniq(rows.map((row) => canonicalId(row.id, candidates)));
+  return {
+    kind,
+    value,
+    customerIds: ids,
+    result: ids.length === 1 ? "match" : ids.length > 1 ? "ambiguous" : "none"
+  };
+}
+function resolveCanonicalCustomerIdentity(evidence, candidates) {
+  const rows = [...candidates.byId.values()];
+  const results = [];
+  if (evidence.customerId && isCustomerIdentityUuid(evidence.customerId)) {
+    results.push(
+      matchIds(
+        "customer_id",
+        evidence.customerId,
+        rows.filter((row) => row.id === evidence.customerId),
+        candidates
+      )
+    );
+  }
+  const codes = uniq(evidence.customerCodes.map((code) => normalizeDawaaCustomerCode(code)));
+  for (const code of codes) {
+    results.push(
+      matchIds(
+        "customer_code",
+        code,
+        rows.filter((row) => row.customerCode === code),
+        candidates
+      )
+    );
+  }
+  const phoneKind = evidence.contactPhones.length ? "contact_phone" : "mentioned_phone";
+  const phones = evidence.contactPhones.length ? evidence.contactPhones : evidence.mentionedPhones;
+  for (const phone of phones) {
+    results.push(
+      matchIds(
+        phoneKind,
+        phone,
+        rows.filter((row) => row.phones.includes(phone)),
+        candidates
+      )
+    );
+  }
+  if (evidence.trustedHistoricalCustomerId && isCustomerIdentityUuid(evidence.trustedHistoricalCustomerId)) {
+    results.push(
+      matchIds(
+        "historical_link",
+        evidence.trustedHistoricalCustomerId,
+        rows.filter((row) => row.id === evidence.trustedHistoricalCustomerId),
+        candidates
+      )
+    );
+  }
+  const contactPhone = evidence.contactPhones[0] ?? null;
+  const unresolvedBase = (status, reason, candidateIds) => ({
+    status,
+    customerId: null,
+    customerCode: codes.length === 1 ? codes[0] : null,
+    normalizedPhone: contactPhone,
+    customerName: evidence.displayName ?? null,
+    branch: null,
+    resolvedBy: null,
+    reason,
+    confidence: 0,
+    evidence: results,
+    candidates: candidateIds.map((id) => {
+      const row = candidates.byId.get(id);
+      return { id, customerCode: row?.customerCode ?? null, name: row?.name ?? null };
+    })
+  });
+  if (codes.length > 1) {
+    return unresolvedBase(
+      "contradicted",
+      `customer_code_conflict:${codes.join("|")}`,
+      uniq(results.flatMap((r) => r.customerIds))
+    );
+  }
+  const matched = results.filter((row) => row.result === "match");
+  const matchedIds = uniq(matched.flatMap((row) => row.customerIds));
+  if (matchedIds.length > 1) {
+    return unresolvedBase(
+      "contradicted",
+      `identity_evidence_conflict:${matched.map((row) => `${row.kind}=${row.customerIds[0]}`).join("|")}`,
+      matchedIds
+    );
+  }
+  if (matchedIds.length === 1) {
+    const id = matchedIds[0];
+    const conflicting = results.find(
+      (row2) => row2.result === "ambiguous" && !row2.customerIds.includes(id)
+    );
+    if (conflicting) {
+      return unresolvedBase(
+        "contradicted",
+        `${conflicting.kind}_points_to_other_customers:${conflicting.value}`,
+        uniq([id, ...conflicting.customerIds])
+      );
+    }
+    const by = matched[0];
+    const row = candidates.byId.get(id);
+    return {
+      status: "resolved",
+      customerId: id,
+      customerCode: row?.customerCode ?? (codes[0] || null),
+      normalizedPhone: row?.phones[0] ?? contactPhone,
+      customerName: row?.name ?? evidence.displayName ?? null,
+      branch: row?.branch ?? null,
+      resolvedBy: by.kind,
+      reason: `unique_${by.kind}_match`,
+      confidence: EVIDENCE_CONFIDENCE[by.kind],
+      evidence: results,
+      candidates: [{ id, customerCode: row?.customerCode ?? null, name: row?.name ?? null }]
+    };
+  }
+  const ambiguous = results.filter((row) => row.result === "ambiguous");
+  if (ambiguous.length) {
+    return unresolvedBase(
+      "ambiguous",
+      `identity_ambiguous:${ambiguous.map((row) => `${row.kind}=${row.value}`).join("|")}`,
+      uniq(ambiguous.flatMap((row) => row.customerIds))
+    );
+  }
+  return unresolvedBase(
+    "unresolved",
+    results.length ? "no_matching_customer" : "no_identity_evidence",
+    []
+  );
+}
+var CHUNK = 40;
+var CUSTOMER_COLUMNS = "id,customer_code,effective_customer_code,code,name,display_name,customer_name,branch,effective_branch,is_duplicate,normalized_phone,phone,customer_phone,mobile,whatsapp_phone,whatsapp,phone_alt";
+function toCandidate(row) {
+  return {
+    id: String(row.id),
+    customerCode: normalizeDawaaCustomerCode(row.effective_customer_code) || normalizeDawaaCustomerCode(row.customer_code) || normalizeDawaaCustomerCode(row.code) || null,
+    phones: validPhones([
+      row.normalized_phone,
+      row.phone,
+      row.customer_phone,
+      row.mobile,
+      row.whatsapp_phone,
+      row.whatsapp,
+      row.phone_alt
+    ]),
+    name: String(row.display_name || row.name || row.customer_name || "").trim() || null,
+    branch: String(row.effective_branch || row.branch || "").trim() || null,
+    isDuplicate: Boolean(row.is_duplicate)
+  };
+}
+function chunks(values) {
+  const out = [];
+  for (let index = 0; index < values.length; index += CHUNK)
+    out.push(values.slice(index, index + CHUNK));
+  return out;
+}
+async function loadCustomerIdentityCandidates(client, evidences) {
+  const ids = uniq(
+    evidences.flatMap((e) => [e.customerId, e.trustedHistoricalCustomerId]).filter((id) => isCustomerIdentityUuid(id))
+  );
+  const codes = uniq(
+    evidences.flatMap((e) => e.customerCodes.map((code) => normalizeDawaaCustomerCode(code)))
+  );
+  const phones = uniq(evidences.flatMap((e) => [...e.contactPhones, ...e.mentionedPhones]));
+  const byId = /* @__PURE__ */ new Map();
+  const add = (rows) => {
+    for (const row of rows || []) byId.set(String(row.id), toCandidate(row));
+  };
+  const run = async (label, query) => {
+    const { data, error } = await query;
+    if (error) throw new Error(`customer_identity_${label}_lookup_failed: ${error.message}`);
+    add(data);
+  };
+  for (const chunk of chunks(ids)) {
+    await run("id", client.from("customers").select(CUSTOMER_COLUMNS).in("id", chunk));
+  }
+  for (const chunk of chunks(codes)) {
+    const list = chunk.join(",");
+    await run(
+      "code",
+      client.from("customers").select(CUSTOMER_COLUMNS).or(`effective_customer_code.in.(${list}),customer_code.in.(${list}),code.in.(${list})`).limit(500)
+    );
+  }
+  for (const chunk of chunks(phones)) {
+    const list = chunk.join(",");
+    await run(
+      "phone",
+      client.from("customers").select(CUSTOMER_COLUMNS).or(
+        [
+          "normalized_phone",
+          "phone",
+          "customer_phone",
+          "mobile",
+          "whatsapp_phone",
+          "whatsapp",
+          "phone_alt"
+        ].map((column) => `${column}.in.(${list})`).join(",")
+      ).limit(500)
+    );
+  }
+  const aliasToCanonical = /* @__PURE__ */ new Map();
+  const duplicateIds = [...byId.values()].filter((row) => row.isDuplicate).map((row) => row.id);
+  for (const chunk of chunks(duplicateIds)) {
+    const { data, error } = await client.from("customer_aliases").select("alias_customer_id,canonical_customer_id").in("alias_customer_id", chunk);
+    if (error) throw new Error(`customer_identity_alias_lookup_failed: ${error.message}`);
+    for (const row of data || []) {
+      if (row.alias_customer_id && row.canonical_customer_id) {
+        aliasToCanonical.set(String(row.alias_customer_id), String(row.canonical_customer_id));
+      }
+    }
+  }
+  const missingCanonical = uniq([...aliasToCanonical.values()]).filter((id) => !byId.has(id));
+  for (const chunk of chunks(missingCanonical)) {
+    await run("alias_canonical", client.from("customers").select(CUSTOMER_COLUMNS).in("id", chunk));
+  }
+  return { byId, aliasToCanonical };
+}
+async function resolveCanonicalCustomerIdentities(client, evidences) {
+  const candidates = await loadCustomerIdentityCandidates(client, evidences);
+  return evidences.map((evidence) => resolveCanonicalCustomerIdentity(evidence, candidates));
+}
+
+// src/lib/readModels/staffDirectoryReadModel.ts
+function text(value) {
+  return String(value ?? "").trim();
+}
+function read(row, keys, fallback = null) {
+  for (const key of keys) {
+    const value = row[key];
+    if (value !== void 0 && value !== null && value !== "") return value;
+  }
+  return fallback;
+}
+function identityFromRow(row, idKeys, nameKeys, source) {
+  return {
+    id: text(read(row, idKeys, "")) || null,
+    name: text(read(row, nameKeys, "")) || null,
+    branch: normalizeBranchName(read(row, ["branch", "branch_name"], null)) || null,
+    role: text(read(row, ["role", "staff_role", "job_title"], "")) || null,
+    username: text(read(row, ["username"], "")) || null,
+    status: text(read(row, ["status"], "")) || null,
+    active: read(row, ["active"], true) !== false && read(row, ["is_active"], true) !== false && read(row, ["can_login"], true) !== false,
+    source
+  };
+}
+function uniqueBaseIdentities(rows) {
+  const byId = /* @__PURE__ */ new Map();
+  const withoutId = /* @__PURE__ */ new Map();
+  for (const row of rows) {
+    if (row.id) {
+      const existing = byId.get(row.id);
+      if (!existing || existing.source !== "staff" && row.source === "staff") byId.set(row.id, row);
+      continue;
+    }
+    const key = `${row.name || ""}|${row.branch || ""}|${row.role || ""}|${row.username || ""}`;
+    if (!withoutId.has(key)) withoutId.set(key, row);
+  }
+  return [...byId.values(), ...withoutId.values()];
+}
+async function loadStaffDirectoryFrom(client) {
+  const [staffResult, accountResult, aliasResult] = await Promise.all([
+    client.from("staff").select("id,name,username,branch,role,status,active,is_active").limit(800),
+    client.rpc("get_staff_accounts_directory"),
+    client.from("staff_identity_aliases").select("staff_id,alias_name,active,confidence,priority").eq("active", true).limit(2e3)
+  ]);
+  if (staffResult.error && accountResult.error) {
+    throw new Error(
+      `\u062A\u0639\u0630\u0631 \u062A\u062D\u0645\u064A\u0644 \u062F\u0644\u064A\u0644 \u0627\u0644\u0645\u0648\u0638\u0641\u064A\u0646: ${staffResult.error.message}; ${accountResult.error.message}`
+    );
+  }
+  const staffRows = staffResult.error ? [] : (staffResult.data ?? []).map((row) => identityFromRow(row, ["id"], ["name"], "staff"));
+  const accountRows = accountResult.error ? [] : (accountResult.data ?? []).map(
+    (row) => identityFromRow(row, ["staff_id"], ["staff_name", "name"], "staff_account")
+  );
+  const baseRows = uniqueBaseIdentities([...staffRows, ...accountRows]);
+  const byId = new Map(baseRows.filter((row) => row.id).map((row) => [row.id, row]));
+  const aliases = aliasResult.error ? [] : (aliasResult.data ?? []).flatMap((alias) => {
+    const base = byId.get(text(alias.staff_id));
+    const aliasName = text(alias.alias_name);
+    if (!base || !aliasName || base.active === false) return [];
+    return [{ ...base, name: aliasName, source: "alias" }];
+  });
+  return [...baseRows, ...aliases];
+}
+
+// src/lib/core/permissionSystem.ts
+var PERMISSION_CATEGORIES = [
+  {
+    key: "dashboard",
+    label: "\u0644\u0648\u062D\u0629 \u0627\u0644\u062A\u062D\u0643\u0645",
+    permissions: [
+      { key: "view_dashboard", label: "\u0645\u0634\u0627\u0647\u062F\u0629 \u0644\u0648\u062D\u0629 \u0627\u0644\u062A\u062D\u0643\u0645" },
+      { key: "view_dashboard_stats", label: "\u0625\u062D\u0635\u0627\u0626\u064A\u0627\u062A \u0644\u0648\u062D\u0629 \u0627\u0644\u062A\u062D\u0643\u0645" },
+      { key: "view_executive_dashboard", label: "\u0644\u0648\u062D\u0629 \u0627\u0644\u062A\u062D\u0643\u0645 \u0627\u0644\u062A\u0646\u0641\u064A\u0630\u064A\u0629" },
+      { key: "view_branch_dashboard", label: "\u0645\u0634\u0627\u0647\u062F\u0629 \u0644\u0648\u062D\u0629 \u0627\u0644\u0641\u0631\u0639 \u0627\u0644\u062A\u0646\u0641\u064A\u0630\u064A\u0629" },
+      { key: "view_alerts", label: "\u0645\u0634\u0627\u0647\u062F\u0629 \u0627\u0644\u062A\u0646\u0628\u064A\u0647\u0627\u062A" },
+      { key: "manage_alerts", label: "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u062A\u0646\u0628\u064A\u0647\u0627\u062A", sensitive: true }
+    ]
+  },
+  {
+    key: "shift_performance",
+    label: "\u062A\u0642\u064A\u064A\u0645 \u0627\u0644\u0634\u064A\u0641\u062A\u0627\u062A",
+    permissions: [
+      { key: "view_shift_performance", label: "\u0645\u0634\u0627\u0647\u062F\u0629 \u062A\u0642\u064A\u064A\u0645 \u0627\u0644\u0634\u064A\u0641\u062A\u0627\u062A" },
+      { key: "create_shift_evaluation", label: "\u0625\u0646\u0634\u0627\u0621 \u062A\u0642\u064A\u064A\u0645 \u0634\u064A\u0641\u062A" },
+      { key: "edit_shift_evaluation", label: "\u062A\u0639\u062F\u064A\u0644 \u062A\u0642\u064A\u064A\u0645 \u0634\u064A\u0641\u062A" },
+      { key: "delete_shift_evaluation", label: "\u062D\u0630\u0641 \u062A\u0642\u064A\u064A\u0645 \u0634\u064A\u0641\u062A", sensitive: true },
+      { key: "approve_shift_evaluation", label: "\u0627\u0639\u062A\u0645\u0627\u062F \u062A\u0642\u064A\u064A\u0645 \u0634\u064A\u0641\u062A", sensitive: true }
+    ]
+  },
+  {
+    key: "doctor",
+    label: "\u0644\u0648\u062D\u0629 \u0627\u0644\u0635\u064A\u062F\u0644\u0627\u0646\u064A",
+    permissions: [
+      { key: "view_doctor_dashboard", label: "\u0644\u0648\u062D\u0629 \u0627\u0644\u0635\u064A\u062F\u0644\u0627\u0646\u064A" },
+      { key: "view_own_performance", label: "\u0645\u0634\u0627\u0647\u062F\u0629 \u0623\u062F\u0627\u0621\u0647 \u0627\u0644\u0634\u062E\u0635\u064A" },
+      { key: "view_all_doctors_performance", label: "\u0645\u0634\u0627\u0647\u062F\u0629 \u0623\u062F\u0627\u0621 \u0643\u0644 \u0627\u0644\u0635\u064A\u0627\u062F\u0644\u0629" },
+      { key: "view_branch_comparison", label: "\u0645\u0642\u0627\u0631\u0646\u0629 \u0627\u0644\u0641\u0631\u0648\u0639" }
+    ]
+  },
+  {
+    key: "customers",
+    label: "\u0627\u0644\u0639\u0645\u0644\u0627\u0621",
+    permissions: [
+      { key: "view_customers", label: "\u0645\u0634\u0627\u0647\u062F\u0629 \u0627\u0644\u0639\u0645\u0644\u0627\u0621" },
+      { key: "view_customer_details", label: "\u062A\u0641\u0627\u0635\u064A\u0644 \u0627\u0644\u0639\u0645\u064A\u0644" },
+      { key: "create_customer", label: "\u0625\u0636\u0627\u0641\u0629 \u0639\u0645\u064A\u0644" },
+      { key: "edit_customer", label: "\u062A\u0639\u062F\u064A\u0644 \u0628\u064A\u0627\u0646\u0627\u062A \u0627\u0644\u0639\u0645\u064A\u0644" },
+      { key: "delete_customer", label: "\u062D\u0630\u0641 \u0639\u0645\u064A\u0644", sensitive: true },
+      { key: "export_customers", label: "\u062A\u0635\u062F\u064A\u0631 \u0627\u0644\u0639\u0645\u0644\u0627\u0621" },
+      { key: "import_customers", label: "\u0627\u0633\u062A\u064A\u0631\u0627\u062F \u0627\u0644\u0639\u0645\u0644\u0627\u0621", sensitive: true },
+      { key: "view_customer_360", label: "\u0645\u0644\u0641 \u0627\u0644\u0639\u0645\u064A\u0644 \u0627\u0644\u0643\u0627\u0645\u0644 360\xB0" }
+    ]
+  },
+  {
+    key: "customer_service",
+    label: "\u062E\u062F\u0645\u0629 \u0627\u0644\u0639\u0645\u0644\u0627\u0621 \u0648\u0627\u0644\u0645\u062A\u0627\u0628\u0639\u0627\u062A",
+    permissions: [
+      { key: "view_customer_service", label: "\u062E\u062F\u0645\u0629 \u0627\u0644\u0639\u0645\u0644\u0627\u0621" },
+      { key: "create_followup", label: "\u0625\u0646\u0634\u0627\u0621 \u0645\u062A\u0627\u0628\u0639\u0629" },
+      { key: "edit_followup", label: "\u062A\u0639\u062F\u064A\u0644 \u0645\u062A\u0627\u0628\u0639\u0629" },
+      { key: "close_followup", label: "\u0625\u063A\u0644\u0627\u0642 \u0645\u062A\u0627\u0628\u0639\u0629" },
+      { key: "assign_followup", label: "\u0625\u0633\u0646\u0627\u062F \u0645\u062A\u0627\u0628\u0639\u0629 \u0644\u0645\u0648\u0638\u0641", sensitive: true },
+      { key: "whatsapp_customer", label: "\u0648\u0627\u062A\u0633\u0627\u0628 \u0645\u0639 \u0627\u0644\u0639\u0645\u064A\u0644" },
+      { key: "customer_welcome_messages_view", label: "\u0645\u0634\u0627\u0647\u062F\u0629 \u0627\u0644\u0631\u0633\u0627\u0626\u0644 \u0627\u0644\u062A\u0631\u062D\u064A\u0628\u064A\u0629" },
+      { key: "customer_welcome_messages_create", label: "\u062A\u0633\u062C\u064A\u0644 \u0631\u0633\u0627\u0644\u0629 \u062A\u0631\u062D\u064A\u0628\u064A\u0629" },
+      { key: "customer_welcome_messages_update", label: "\u062A\u062D\u062F\u064A\u062B \u062D\u0627\u0644\u0629 \u0631\u0633\u0627\u0644\u0629 \u062A\u0631\u062D\u064A\u0628\u064A\u0629", sensitive: true },
+      { key: "view_customer_requests", label: "\u0637\u0644\u0628\u0627\u062A \u0627\u0644\u0639\u0645\u0644\u0627\u0621" },
+      { key: "manage_customer_requests", label: "\u0625\u062F\u0627\u0631\u0629 \u0637\u0644\u0628\u0627\u062A \u0627\u0644\u0639\u0645\u0644\u0627\u0621" },
+      { key: "view_customer_incubation", label: "\u062D\u0636\u0627\u0646\u0629 \u0627\u0644\u0639\u0645\u0644\u0627\u0621" },
+      { key: "manage_customer_incubation", label: "\u0625\u062F\u0627\u0631\u0629 \u062D\u0636\u0627\u0646\u0629 \u0627\u0644\u0639\u0645\u0644\u0627\u0621", sensitive: true },
+      { key: "view_crm", label: "\u0645\u0631\u0643\u0632 CRM" }
+    ]
+  },
+  {
+    key: "loyalty",
+    label: "\u0627\u0644\u0648\u0644\u0627\u0621 \u0648\u0627\u0644\u0643\u0627\u0634\u0628\u0627\u0643",
+    permissions: [
+      { key: "view_cashback", label: "\u0645\u0634\u0627\u0647\u062F\u0629 \u0627\u0644\u0643\u0627\u0634\u0628\u0627\u0643" },
+      { key: "manage_cashback", label: "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u0643\u0627\u0634\u0628\u0627\u0643", sensitive: true },
+      { key: "view_loyalty_tiers", label: "\u0645\u0633\u062A\u0648\u064A\u0627\u062A \u0627\u0644\u0648\u0644\u0627\u0621" },
+      { key: "manage_loyalty_tiers", label: "\u0625\u062F\u0627\u0631\u0629 \u0645\u0633\u062A\u0648\u064A\u0627\u062A \u0627\u0644\u0648\u0644\u0627\u0621", sensitive: true }
+    ]
+  },
+  {
+    key: "team",
+    label: "\u0627\u0644\u0641\u0631\u064A\u0642 \u0648\u0627\u0644\u0645\u0648\u0638\u0641\u0648\u0646",
+    permissions: [
+      { key: "view_team", label: "\u0645\u0634\u0627\u0647\u062F\u0629 \u0627\u0644\u0641\u0631\u064A\u0642" },
+      { key: "view_staff_details", label: "\u062A\u0641\u0627\u0635\u064A\u0644 \u0627\u0644\u0645\u0648\u0638\u0641 \u0627\u0644\u0643\u0627\u0645\u0644\u0629" },
+      { key: "employee_operating_system_view", label: "\u0645\u0634\u0627\u0647\u062F\u0629 \u0645\u0647\u0627\u0645 \u0627\u0644\u0641\u0631\u064A\u0642 \u0627\u0644\u064A\u0648\u0645\u064A\u0629" },
+      { key: "employee_operating_system_manage", label: "\u0625\u062F\u0627\u0631\u0629 \u0645\u0647\u0627\u0645 \u0627\u0644\u0641\u0631\u064A\u0642 \u0627\u0644\u064A\u0648\u0645\u064A\u0629", sensitive: true },
+      { key: "create_team_member", label: "\u0625\u0636\u0627\u0641\u0629 \u0645\u0648\u0638\u0641", sensitive: true },
+      { key: "edit_team_member", label: "\u062A\u0639\u062F\u064A\u0644 \u0628\u064A\u0627\u0646\u0627\u062A \u0645\u0648\u0638\u0641", sensitive: true },
+      { key: "disable_team_member", label: "\u062A\u0639\u0637\u064A\u0644 \u062D\u0633\u0627\u0628 \u0645\u0648\u0638\u0641", sensitive: true }
+    ]
+  },
+  {
+    key: "schedule",
+    label: "\u0627\u0644\u062C\u062F\u0627\u0648\u0644 \u0648\u0627\u0644\u062D\u0636\u0648\u0631",
+    permissions: [
+      { key: "view_schedule", label: "\u0627\u0644\u062C\u062F\u0648\u0644 \u0627\u0644\u0623\u0633\u0628\u0648\u0639\u064A" },
+      { key: "manage_schedule", label: "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u062C\u062F\u0648\u0644", sensitive: true },
+      { key: "view_attendance_leaves", label: "\u0627\u0644\u062D\u0636\u0648\u0631 \u0648\u0627\u0644\u0625\u062C\u0627\u0632\u0627\u062A" },
+      { key: "create_leave_request", label: "\u0637\u0644\u0628 \u0625\u062C\u0627\u0632\u0629 / \u0625\u0630\u0646" },
+      { key: "record_attendance", label: "\u062A\u0633\u062C\u064A\u0644 \u0627\u0644\u062D\u0636\u0648\u0631" },
+      { key: "approve_leave_request", label: "\u0627\u0639\u062A\u0645\u0627\u062F \u0627\u0644\u0625\u062C\u0627\u0632\u0627\u062A", sensitive: true },
+      { key: "manage_time_off", label: "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u0625\u0630\u0648\u0646\u0627\u062A \u0648\u0627\u0644\u0625\u062C\u0627\u0632\u0627\u062A", sensitive: true }
+    ]
+  },
+  {
+    key: "points",
+    label: "\u0627\u0644\u0646\u0642\u0627\u0637 \u0648\u0627\u0644\u0645\u0643\u0627\u0641\u0622\u062A",
+    permissions: [
+      { key: "view_points", label: "\u0645\u0634\u0627\u0647\u062F\u0629 \u0627\u0644\u0646\u0642\u0627\u0637" },
+      { key: "manage_points", label: "\u0625\u0636\u0627\u0641\u0629 \u0646\u0642\u0627\u0637" },
+      { key: "approve_points", label: "\u0627\u0639\u062A\u0645\u0627\u062F \u0627\u0644\u0646\u0642\u0627\u0637", sensitive: true },
+      { key: "create_reward", label: "\u0625\u0636\u0627\u0641\u0629 \u0645\u0643\u0627\u0641\u0623\u0629" },
+      { key: "create_deduction", label: "\u0625\u0636\u0627\u0641\u0629 \u062E\u0635\u0645", sensitive: true },
+      { key: "edit_points_transaction", label: "\u062A\u0639\u062F\u064A\u0644 \u0645\u0639\u0627\u0645\u0644\u0629 \u0646\u0642\u0627\u0637", sensitive: true },
+      { key: "export_points_report", label: "\u062A\u0635\u062F\u064A\u0631 \u062A\u0642\u0631\u064A\u0631 \u0627\u0644\u0646\u0642\u0627\u0637" },
+      { key: "view_salary_calculator", label: "\u062D\u0627\u0633\u0628\u0629 \u0627\u0644\u0631\u0627\u062A\u0628" },
+      { key: "manage_payroll", label: "\u0625\u062F\u0627\u0631\u0629 \u0643\u0634\u0648\u0641 \u0627\u0644\u0631\u0648\u0627\u062A\u0628", sensitive: true }
+    ]
+  },
+  {
+    key: "reviews",
+    label: "\u062A\u0642\u064A\u064A\u0645 \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0627\u062A",
+    permissions: [
+      { key: "view_reviews", label: "\u0645\u0634\u0627\u0647\u062F\u0629 \u0627\u0644\u062A\u0642\u064A\u064A\u0645\u0627\u062A" },
+      { key: "add_reviews", label: "\u0625\u0636\u0627\u0641\u0629 \u062A\u0642\u064A\u064A\u0645" },
+      { key: "edit_reviews", label: "\u062A\u0639\u062F\u064A\u0644 \u062A\u0642\u064A\u064A\u0645", sensitive: true },
+      { key: "delete_reviews", label: "\u062D\u0630\u0641 \u062A\u0642\u064A\u064A\u0645", sensitive: true },
+      { key: "approve_reviews", label: "\u0627\u0639\u062A\u0645\u0627\u062F \u0627\u0644\u062A\u0642\u064A\u064A\u0645\u0627\u062A", sensitive: true }
+    ]
+  },
+  {
+    key: "medicines",
+    label: "\u0627\u0644\u0623\u062F\u0648\u064A\u0629 \u0648\u0627\u0644\u0645\u062E\u0632\u0648\u0646",
+    permissions: [
+      { key: "view_medicines", label: "\u0627\u0644\u0623\u062F\u0648\u064A\u0629" },
+      { key: "manage_medicines", label: "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u0623\u062F\u0648\u064A\u0629", sensitive: true },
+      { key: "view_stagnant_medicines", label: "\u0627\u0644\u0623\u062F\u0648\u064A\u0629 \u0627\u0644\u0631\u0627\u0643\u062F\u0629" },
+      { key: "manage_stagnant_medicines", label: "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u0623\u062F\u0648\u064A\u0629 \u0627\u0644\u0631\u0627\u0643\u062F\u0629" },
+      { key: "view_incentive_medicines", label: "\u0623\u062F\u0648\u064A\u0629 \u0627\u0644\u062D\u0648\u0627\u0641\u0632" },
+      { key: "manage_incentive_medicines", label: "\u0625\u062F\u0627\u0631\u0629 \u0623\u062F\u0648\u064A\u0629 \u0627\u0644\u062D\u0648\u0627\u0641\u0632", sensitive: true },
+      { key: "view_inventory", label: "\u0627\u0644\u0645\u062E\u0632\u0648\u0646" },
+      { key: "manage_inventory", label: "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u0645\u062E\u0632\u0648\u0646", sensitive: true },
+      { key: "view_shortages", label: "\u0627\u0644\u0646\u0648\u0627\u0642\u0635" },
+      { key: "manage_shortages", label: "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u0646\u0648\u0627\u0642\u0635" },
+      { key: "view_expiry_tracker", label: "\u062A\u062A\u0628\u0639 \u0627\u0646\u062A\u0647\u0627\u0621 \u0627\u0644\u0635\u0644\u0627\u062D\u064A\u0629" }
+    ]
+  },
+  {
+    key: "delivery",
+    label: "\u0627\u0644\u062A\u0648\u0635\u064A\u0644",
+    permissions: [
+      { key: "view_delivery", label: "\u0645\u0634\u0627\u0647\u062F\u0629 \u0627\u0644\u062A\u0648\u0635\u064A\u0644" },
+      { key: "manage_delivery", label: "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u062A\u0648\u0635\u064A\u0644" },
+      { key: "view_delivery_reports", label: "\u062A\u0642\u0627\u0631\u064A\u0631 \u0627\u0644\u062A\u0648\u0635\u064A\u0644" },
+      { key: "approve_delivery_deduction", label: "\u0627\u0639\u062A\u0645\u0627\u062F \u062E\u0635\u0645 \u0627\u0644\u062A\u0648\u0635\u064A\u0644", sensitive: true }
+    ]
+  },
+  {
+    key: "analytics",
+    label: "\u0627\u0644\u062A\u062D\u0644\u064A\u0644\u0627\u062A \u0648\u0627\u0644\u062A\u0642\u0627\u0631\u064A\u0631",
+    permissions: [
+      { key: "view_analytics", label: "\u0627\u0644\u062A\u062D\u0644\u064A\u0644\u0627\u062A" },
+      { key: "view_analytics_sales", label: "\u062A\u062D\u0644\u064A\u0644\u0627\u062A \u0627\u0644\u0645\u0628\u064A\u0639\u0627\u062A" },
+      { key: "view_sales_reports", label: "\u062A\u0642\u0627\u0631\u064A\u0631 \u0627\u0644\u0645\u0628\u064A\u0639\u0627\u062A" },
+      { key: "export_sales_reports", label: "\u062A\u0635\u062F\u064A\u0631 \u062A\u0642\u0627\u0631\u064A\u0631 \u0627\u0644\u0645\u0628\u064A\u0639\u0627\u062A" },
+      { key: "view_invoices", label: "\u0627\u0644\u0641\u0648\u0627\u062A\u064A\u0631" },
+      { key: "view_invoice_import", label: "\u0648\u0627\u062C\u0647\u0629 \u0627\u0633\u062A\u064A\u0631\u0627\u062F \u0627\u0644\u0641\u0648\u0627\u062A\u064A\u0631" },
+      { key: "import_sales_invoices", label: "\u0627\u0633\u062A\u064A\u0631\u0627\u062F \u0641\u0648\u0627\u062A\u064A\u0631 \u0627\u0644\u0645\u0628\u064A\u0639\u0627\u062A", sensitive: true }
+    ]
+  },
+  {
+    key: "operations",
+    label: "\u0627\u0644\u0639\u0645\u0644\u064A\u0627\u062A \u0627\u0644\u062A\u0634\u063A\u064A\u0644\u064A\u0629",
+    permissions: [
+      { key: "view_operations", label: "\u0627\u0644\u0639\u0645\u0644\u064A\u0627\u062A" },
+      { key: "manage_operations", label: "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u0639\u0645\u0644\u064A\u0627\u062A", sensitive: true },
+      { key: "view_supplies", label: "\u0627\u0644\u0645\u0633\u062A\u0644\u0632\u0645\u0627\u062A" },
+      { key: "manage_supplies", label: "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u0645\u0633\u062A\u0644\u0632\u0645\u0627\u062A" },
+      { key: "view_purchases", label: "\u0627\u0644\u0645\u0634\u062A\u0631\u064A\u0627\u062A" },
+      { key: "manage_purchases", label: "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u0645\u0634\u062A\u0631\u064A\u0627\u062A", sensitive: true },
+      { key: "view_branch_inspection", label: "\u062A\u0641\u062A\u064A\u0634 \u0627\u0644\u0641\u0631\u0639" },
+      { key: "manage_branch_inspection", label: "\u0625\u062F\u0627\u0631\u0629 \u062A\u0641\u062A\u064A\u0634 \u0627\u0644\u0641\u0631\u0639" }
+    ]
+  },
+  {
+    key: "incentives",
+    label: "\u0627\u0644\u062D\u0648\u0627\u0641\u0632 \u0648\u0627\u0644\u0645\u0643\u0627\u0641\u0622\u062A \u0627\u0644\u062F\u0648\u0631\u064A\u0629",
+    permissions: [
+      { key: "view_incentives", label: "\u0627\u0644\u062D\u0648\u0627\u0641\u0632" },
+      { key: "manage_incentives", label: "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u062D\u0648\u0627\u0641\u0632", sensitive: true },
+      { key: "view_quarterly_incentives", label: "\u0627\u0644\u062D\u0648\u0627\u0641\u0632 \u0627\u0644\u0631\u0628\u0639 \u0633\u0646\u0648\u064A\u0629" },
+      { key: "manage_quarterly_incentives", label: "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u062D\u0648\u0627\u0641\u0632 \u0627\u0644\u0631\u0628\u0639 \u0633\u0646\u0648\u064A\u0629", sensitive: true },
+      { key: "view_penalty_management", label: "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u062C\u0632\u0627\u0621\u0627\u062A" },
+      { key: "manage_penalty_management", label: "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u062C\u0632\u0627\u0621\u0627\u062A \u0648\u0627\u0644\u0645\u0643\u0627\u0641\u0622\u062A", sensitive: true }
+    ]
+  },
+  {
+    key: "activity",
+    label: "\u0633\u062C\u0644 \u0627\u0644\u0623\u0646\u0634\u0637\u0629",
+    permissions: [
+      { key: "view_activity_log", label: "\u0633\u062C\u0644 \u0627\u0644\u0623\u0646\u0634\u0637\u0629" },
+      { key: "view_activity_logs", label: "\u0643\u0644 \u0633\u062C\u0644\u0627\u062A \u0627\u0644\u0623\u0646\u0634\u0637\u0629" },
+      { key: "export_activity_logs", label: "\u062A\u0635\u062F\u064A\u0631 \u0633\u062C\u0644 \u0627\u0644\u0623\u0646\u0634\u0637\u0629" },
+      { key: "view_diagnostics", label: "\u062A\u0634\u062E\u064A\u0635 \u0627\u0644\u0646\u0638\u0627\u0645", sensitive: true },
+      { key: "manage_evaluation_rules", label: "\u0625\u062F\u0627\u0631\u0629 \u0642\u0648\u0627\u0639\u062F \u0627\u0644\u062A\u0642\u064A\u064A\u0645 \u0648\u0627\u0644\u062D\u0648\u0627\u0641\u0632", sensitive: true }
+    ]
+  },
+  {
+    key: "accounts",
+    label: "\u0627\u0644\u062D\u0633\u0627\u0628\u0627\u062A \u0648\u0627\u0644\u0635\u0644\u0627\u062D\u064A\u0627\u062A",
+    permissions: [
+      { key: "view_staff_accounts", label: "\u0645\u0634\u0627\u0647\u062F\u0629 \u0627\u0644\u062D\u0633\u0627\u0628\u0627\u062A" },
+      { key: "manage_staff_accounts", label: "\u0625\u062F\u0627\u0631\u0629 \u062D\u0633\u0627\u0628\u0627\u062A \u0627\u0644\u0645\u0648\u0638\u0641\u064A\u0646", sensitive: true },
+      { key: "view_roles_permissions", label: "\u0645\u0634\u0627\u0647\u062F\u0629 \u0627\u0644\u0623\u062F\u0648\u0627\u0631 \u0648\u0627\u0644\u0635\u0644\u0627\u062D\u064A\u0627\u062A" },
+      { key: "manage_permissions", label: "\u062A\u0639\u062F\u064A\u0644 \u0627\u0644\u0635\u0644\u0627\u062D\u064A\u0627\u062A", sensitive: true },
+      { key: "manage_roles", label: "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u0623\u062F\u0648\u0627\u0631", sensitive: true }
+    ]
+  },
+  {
+    key: "settings",
+    label: "\u0627\u0644\u0625\u0639\u062F\u0627\u062F\u0627\u062A \u0648\u0627\u0644\u0646\u0638\u0627\u0645",
+    permissions: [
+      { key: "view_settings", label: "\u0627\u0644\u0625\u0639\u062F\u0627\u062F\u0627\u062A" },
+      { key: "manage_settings", label: "\u062A\u0639\u062F\u064A\u0644 \u0627\u0644\u0625\u0639\u062F\u0627\u062F\u0627\u062A", sensitive: true },
+      { key: "view_data_health", label: "\u0635\u062D\u0629 \u0627\u0644\u0628\u064A\u0627\u0646\u0627\u062A" },
+      { key: "manage_data_health", label: "\u0625\u062F\u0627\u0631\u0629 \u0635\u062D\u0629 \u0627\u0644\u0628\u064A\u0627\u0646\u0627\u062A", sensitive: true }
+    ]
+  }
+];
+var ALL_PERMISSION_KEYS = PERMISSION_CATEGORIES.flatMap(
+  (cat) => cat.permissions.map((p) => p.key)
+);
+var PERMISSION_MAP = Object.fromEntries(
+  PERMISSION_CATEGORIES.flatMap((cat) => cat.permissions.map((p) => [p.key, p]))
+);
+
+// src/lib/security/userDataScope.ts
+function normalizeArabicName(value) {
+  return String(value ?? "").replace(/[\u064B-\u065F\u0640]/g, "").replace(/[\u0623\u0625\u0622]/g, "\u0627").replace(/\u0649/g, "\u064A").replace(/\u0629/g, "\u0647").replace(/^(?:\s*(?:دكتور|الدكتور|د\.?|د\/)\s*)+/i, "").replace(/[.,،;:()[\]{}_\-/\\|]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+// src/lib/staff/staffIdentityResolver.ts
+var PHARMACIST_ROLE_PATTERN = /صيدلاني|pharmacist|دكتور|doctor/i;
+function normalizeStaffName(name) {
+  if (!name) return "";
+  return normalizeArabicName(String(name).trim());
+}
+function normalizeDoctorName(value) {
+  return normalizeStaffName(String(value ?? ""));
+}
+function normalizeIdentifier(value) {
+  return String(value ?? "").trim();
+}
+function normalizedBranch(value) {
+  const raw = normalizeIdentifier(value);
+  return normalizeBranchName(raw) || raw;
+}
+function isStaffRowActive(row) {
+  if (row.active === false || row.is_active === false) return false;
+  const status = normalizeIdentifier(row.status).toLowerCase();
+  return !status || status === "active" || status === "\u0646\u0634\u0637";
+}
+function isPrimaryPharmacistRow(row) {
+  if (!isStaffRowActive(row)) return false;
+  const role = normalizeIdentifier(row.role);
+  return !role || PHARMACIST_ROLE_PATTERN.test(role);
+}
+function staffRowId(row) {
+  return normalizeIdentifier(row.staff_id || row.id);
+}
+function staffRowDisplayName(row) {
+  return normalizeIdentifier(row.name || row.staff_name || row.username);
+}
+function makeEntry(row) {
+  const staffId = staffRowId(row);
+  if (!staffId) return null;
+  const displayName = staffRowDisplayName(row);
+  return {
+    staffId,
+    displayName,
+    normalizedName: normalizeDoctorName(displayName),
+    branch: normalizedBranch(row.branch),
+    username: normalizeIdentifier(row.username),
+    role: normalizeIdentifier(row.role),
+    isPrimary: isPrimaryPharmacistRow(row)
+  };
+}
+function uniqueByStaffId(rows) {
+  const seen = /* @__PURE__ */ new Set();
+  return rows.filter((row) => {
+    const id = staffRowId(row);
+    if (!id || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+}
+function staffDirectoryRowsFromIdentities(rows) {
+  return rows.map((row) => ({
+    id: row.id,
+    staff_id: row.id,
+    name: row.name,
+    staff_name: row.name,
+    username: row.username,
+    branch: row.branch,
+    role: row.role,
+    status: row.status,
+    active: row.active,
+    is_active: row.active,
+    source: row.source
+  }));
+}
+function buildStaffIdentityMap(staffRows) {
+  const map = /* @__PURE__ */ new Map();
+  const activeRows = staffRows.filter(isStaffRowActive);
+  for (const row of activeRows) {
+    const entry = makeEntry(row);
+    if (!entry) continue;
+    map.set(`id:${entry.staffId}`, entry);
+    if (entry.username) map.set(`username:${entry.username.toLowerCase()}`, entry);
+  }
+  const names = /* @__PURE__ */ new Map();
+  for (const row of activeRows) {
+    const key = normalizeDoctorName(staffRowDisplayName(row));
+    if (!key) continue;
+    names.set(key, [...names.get(key) || [], row]);
+  }
+  for (const [name, candidates] of names) {
+    const unique = uniqueByStaffId(candidates);
+    if (unique.length !== 1) continue;
+    const entry = makeEntry(unique[0]);
+    if (entry) map.set(`name:${name}`, entry);
+  }
+  return map;
+}
+
+// src/lib/salesIntelligence/pharmacyProducts/canonicalProduct.ts
+var ARABIC_CHAR_RX = /[ء-ي]/;
+var LATIN_CHAR_RX = /[A-Za-z]/;
+function splitScriptName(name) {
+  const hasArabic = ARABIC_CHAR_RX.test(name);
+  const hasLatin = LATIN_CHAR_RX.test(name);
+  if (hasArabic && !hasLatin) return { arabicName: name, englishName: null };
+  if (hasLatin && !hasArabic) return { arabicName: null, englishName: name };
+  return { arabicName: null, englishName: null };
+}
+function buildCanonicalProduct(row, normalizedNameCounts, normalizeFn) {
+  const { arabicName, englishName } = splitScriptName(row.name);
+  const normalizedFromName = normalizeFn(row.name);
+  const normalizedFromColumn = normalizeFn(row.normalized_name);
+  const normalizedNames = Array.from(new Set([normalizedFromName.normalized, normalizedFromColumn.normalized].filter(Boolean)));
+  const price = row.price === null ? null : Number(row.price);
+  const collisionCount = normalizedNameCounts.get(normalizedFromColumn.normalized) ?? 1;
+  return {
+    productId: row.id,
+    productCode: row.product_code,
+    barcode: null,
+    canonicalName: row.name,
+    arabicName,
+    englishName,
+    normalizedNames,
+    strengths: normalizedFromName.strengths,
+    dosageForms: normalizedFromName.dosageForms,
+    packSizes: normalizedFromName.packSizes,
+    category: row.category,
+    manufacturer: null,
+    price: price !== null && Number.isFinite(price) ? price : null,
+    sourceTable: row.source,
+    qualityFlags: {
+      hasNormalizedNameCollision: collisionCount > 1,
+      missingStrength: normalizedFromName.strengths.length === 0,
+      missingDosageForm: normalizedFromName.dosageForms.length === 0,
+      missingAnyQuantitySignal: !/[0-9]/.test(normalizedFromName.normalized)
+    }
+  };
+}
+function countNormalizedNames(rows) {
+  const counts = /* @__PURE__ */ new Map();
+  for (const row of rows) {
+    const key = row.normalized_name.trim().toLowerCase();
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return counts;
+}
+
+// src/lib/salesIntelligence/pharmacyProductCatalogRepository.ts
+var catalogCache = /* @__PURE__ */ new WeakMap();
+async function fetchAllProductRows(supabaseClient) {
+  const rows = [];
+  const pageSize = 1e3;
+  let from = 0;
+  for (; ; ) {
+    const { data, error } = await supabaseClient.from("products").select("id,name,product_code,normalized_name,category,price,source").order("id", { ascending: true }).range(from, from + pageSize - 1);
+    if (error) throw error;
+    const page = (data ?? []).filter((row) => row?.id && row?.name && row?.product_code).map((row) => ({
+      id: String(row.id),
+      name: String(row.name),
+      product_code: String(row.product_code),
+      normalized_name: String(row.normalized_name ?? row.name),
+      category: row.category == null ? null : String(row.category),
+      price: row.price,
+      source: String(row.source ?? "products")
+    }));
+    rows.push(...page);
+    if ((data ?? []).length < pageSize) break;
+    from += pageSize;
+  }
+  return rows;
+}
+async function fetchPharmacyProductIndex(supabaseClient, options = {}) {
+  if (!options.forceRefresh && supabaseClient && typeof supabaseClient === "object" && catalogCache.has(supabaseClient)) {
+    return catalogCache.get(supabaseClient);
+  }
+  const promise = (async () => {
+    const rows = await fetchAllProductRows(supabaseClient);
+    const counts = countNormalizedNames(rows);
+    const catalog = rows.map(
+      (row) => buildCanonicalProduct(row, counts, normalizePharmacyText)
+    );
+    return buildPharmacyProductIndex(catalog);
+  })();
+  if (supabaseClient && typeof supabaseClient === "object") {
+    catalogCache.set(supabaseClient, promise);
+  }
+  try {
+    return await promise;
+  } catch (error) {
+    if (supabaseClient && typeof supabaseClient === "object") {
+      catalogCache.delete(supabaseClient);
+    }
+    throw error;
+  }
+}
+
+// src/lib/salesIntelligence/runtimeContext.ts
+function buildSalesIntelligenceRuntimeContext(input) {
+  const rows = staffDirectoryRowsFromIdentities(input.staffDirectory);
+  const staffIdentityMap = buildStaffIdentityMap(rows);
+  const activeIds = new Set([...staffIdentityMap.values()].map((entry) => entry.staffId));
+  const staffLikeNames = new Set(
+    rows.filter((row) => activeIds.has(String(row.staff_id || row.id || ""))).map((row) => normalizeDoctorName(row.name || row.staff_name || "")).filter(Boolean)
+  );
+  return { staffIdentityMap, staffLikeNames, productIndex: input.productIndex };
+}
+async function loadSalesIntelligenceRuntimeContext(client) {
+  const [staffDirectory, productIndex] = await Promise.all([
+    loadStaffDirectoryFrom(client),
+    fetchPharmacyProductIndex(client)
+  ]);
+  return buildSalesIntelligenceRuntimeContext({ staffDirectory, productIndex });
+}
+function resolveStaffIdBySender(conversation, context) {
+  const { staffIdentityMap, staffLikeNames } = context;
+  if (!staffIdentityMap.size || !conversation.rawWhatsAppExportText) return {};
+  const messages = parseWhatsAppExport(conversation.rawWhatsAppExportText, {
+    trustedConversationStartedAt: conversation.trustedConversationStartedAt ?? null
+  }).filter((message) => message.direction !== "system" && message.kind !== "system");
+  const customerName = normalizeDoctorName(conversation.customerNameHint ?? "");
+  const directionBySender = /* @__PURE__ */ new Map();
+  for (const message of messages) {
+    const sender = String(message.sender ?? "").trim();
+    if (!sender) continue;
+    const directions = directionBySender.get(sender) ?? /* @__PURE__ */ new Set();
+    directions.add(message.direction);
+    directionBySender.set(sender, directions);
+  }
+  const resolved = /* @__PURE__ */ new Map();
+  for (const sender of directionBySender.keys()) {
+    const normalized = normalizeDoctorName(sender);
+    if (!normalized || customerName && normalized === customerName) continue;
+    const entry = staffIdentityMap.get(`name:${normalized}`);
+    if (entry?.staffId) resolved.set(sender, entry.staffId);
+  }
+  const inboundSenders = [...directionBySender.entries()].filter(([, directions]) => directions.has("inbound")).map(([sender]) => sender);
+  const customerRemains = inboundSenders.some((sender) => {
+    const normalized = normalizeDoctorName(sender);
+    if (customerName && normalized === customerName) return true;
+    return !resolved.has(sender) && !staffLikeNames.has(normalized);
+  });
+  const staffIdBySender = {};
+  for (const [sender, staffId] of resolved) {
+    const isInbound = directionBySender.get(sender)?.has("inbound") ?? false;
+    if (isInbound && !customerRemains) continue;
+    staffIdBySender[sender] = staffId;
+  }
+  return staffIdBySender;
+}
+async function prepareSalesIntelligenceConversations(client, conversations, context) {
+  const evidences = conversations.map((conversation) => {
+    const phone = normalizeEgyptianCustomerPhone(conversation.customerPhoneHint ?? "");
+    const code = normalizeDawaaCustomerCode(conversation.customerCodeHint);
+    return {
+      customerId: conversation.customerIdHint ?? null,
+      customerCodes: code ? [code] : [],
+      contactPhones: isValidEgyptianCustomerMobile(phone) ? [phone] : [],
+      mentionedPhones: [],
+      displayName: conversation.customerNameHint ?? null
+    };
+  });
+  const identities = await resolveCanonicalCustomerIdentities(client, evidences);
+  return conversations.map((conversation, index) => {
+    const identity = identities[index];
+    const resolved = identity.status === "resolved";
+    return {
+      ...conversation,
+      customerIdHint: resolved ? identity.customerId : null,
+      customerPhoneHint: resolved ? identity.normalizedPhone ?? conversation.customerPhoneHint ?? null : conversation.customerPhoneHint ?? null,
+      customerIdentityStatus: identity.status,
+      staffIdBySender: resolveStaffIdBySender(conversation, context)
+    };
+  });
+}
+function pipelineBaseInputFor(conversation, context) {
+  return {
+    conversationId: conversation.conversationId,
+    rawWhatsAppExportText: conversation.rawWhatsAppExportText,
+    trustedConversationStartedAt: conversation.trustedConversationStartedAt ?? null,
+    sourceCaseIdV22: conversation.sourceCaseIdV22 ?? null,
+    customerIdHint: conversation.customerIdHint ?? null,
+    customerPhoneHint: conversation.customerPhoneHint ?? null,
+    customerIdentityStatus: conversation.customerIdentityStatus,
+    branchIdHint: conversation.branchIdHint ?? null,
+    branchNameRawHint: conversation.branchNameRawHint ?? null,
+    knownStaffIds: conversation.knownStaffIds,
+    staffIdBySender: conversation.staffIdBySender,
+    legacyMatchedInvoiceId: conversation.legacyMatchedInvoiceId,
+    legacyMatchedInvoiceNumber: conversation.legacyMatchedInvoiceNumber,
+    trustedInvoiceId: conversation.trustedInvoiceId,
+    trustedInvoiceNumber: conversation.trustedInvoiceNumber,
+    invoiceCancelledOrReturned: conversation.invoiceCancelledOrReturned,
+    invoiceStatusHint: conversation.invoiceStatusHint,
+    sessionSplitGapMinutes: conversation.sessionSplitGapMinutes,
+    protocolPolicyEffectiveAt: conversation.protocolPolicyEffectiveAt,
+    productIndex: context.productIndex
   };
 }
 
@@ -6469,7 +7325,7 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v7";
+var PIPELINE_VERSION = "sales-intelligence-v8";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v7-explicit-topic-shift",
   historicalClosure: "historical-closure-v1",
@@ -6923,7 +7779,7 @@ function aggregateInvoiceItems(items) {
   });
   return [...aggregated, ...passthrough];
 }
-function chunks(rows, size) {
+function chunks2(rows, size) {
   const out = [];
   for (let i = 0; i < rows.length; i += size) out.push(rows.slice(i, i + size));
   return out;
@@ -6994,12 +7850,12 @@ async function fetchInvoiceItemEvidenceProvider(supabaseClient, invoiceRows) {
   const ids = Array.from(new Set(candidates.map(invoiceId).filter(Boolean)));
   const numbers = Array.from(new Set(candidates.map(invoiceNumber).filter(Boolean)));
   const itemMap = /* @__PURE__ */ new Map();
-  for (const group of chunks(ids, 100)) {
+  for (const group of chunks2(ids, 100)) {
     const { data, error } = await supabaseClient.from("sales_invoice_items_v21").select("id,invoice_id,invoice_number,branch,product_id,product_code,product_name,quantity,unit_price,line_total,raw_data").in("invoice_id", group).limit(5e3);
     if (error) throw error;
     for (const row of data ?? []) itemMap.set(String(row.id), row);
   }
-  for (const group of chunks(numbers, 100)) {
+  for (const group of chunks2(numbers, 100)) {
     const { data, error } = await supabaseClient.from("sales_invoice_items_v21").select("id,invoice_id,invoice_number,branch,product_id,product_code,product_name,quantity,unit_price,line_total,raw_data").in("invoice_number", group).limit(5e3);
     if (error) throw error;
     for (const row of data ?? []) itemMap.set(String(row.id), row);
@@ -7031,349 +7887,6 @@ function snapshotInvoiceItemEvidence(provider, invoiceIds) {
     );
     return { invoiceId: invoiceId2, items: normalized };
   });
-}
-
-// src/lib/salesIntelligence/pharmacyProducts/canonicalProduct.ts
-var ARABIC_CHAR_RX = /[ء-ي]/;
-var LATIN_CHAR_RX = /[A-Za-z]/;
-function splitScriptName(name) {
-  const hasArabic = ARABIC_CHAR_RX.test(name);
-  const hasLatin = LATIN_CHAR_RX.test(name);
-  if (hasArabic && !hasLatin) return { arabicName: name, englishName: null };
-  if (hasLatin && !hasArabic) return { arabicName: null, englishName: name };
-  return { arabicName: null, englishName: null };
-}
-function buildCanonicalProduct(row, normalizedNameCounts, normalizeFn) {
-  const { arabicName, englishName } = splitScriptName(row.name);
-  const normalizedFromName = normalizeFn(row.name);
-  const normalizedFromColumn = normalizeFn(row.normalized_name);
-  const normalizedNames = Array.from(new Set([normalizedFromName.normalized, normalizedFromColumn.normalized].filter(Boolean)));
-  const price = row.price === null ? null : Number(row.price);
-  const collisionCount = normalizedNameCounts.get(normalizedFromColumn.normalized) ?? 1;
-  return {
-    productId: row.id,
-    productCode: row.product_code,
-    barcode: null,
-    canonicalName: row.name,
-    arabicName,
-    englishName,
-    normalizedNames,
-    strengths: normalizedFromName.strengths,
-    dosageForms: normalizedFromName.dosageForms,
-    packSizes: normalizedFromName.packSizes,
-    category: row.category,
-    manufacturer: null,
-    price: price !== null && Number.isFinite(price) ? price : null,
-    sourceTable: row.source,
-    qualityFlags: {
-      hasNormalizedNameCollision: collisionCount > 1,
-      missingStrength: normalizedFromName.strengths.length === 0,
-      missingDosageForm: normalizedFromName.dosageForms.length === 0,
-      missingAnyQuantitySignal: !/[0-9]/.test(normalizedFromName.normalized)
-    }
-  };
-}
-function countNormalizedNames(rows) {
-  const counts = /* @__PURE__ */ new Map();
-  for (const row of rows) {
-    const key = row.normalized_name.trim().toLowerCase();
-    counts.set(key, (counts.get(key) ?? 0) + 1);
-  }
-  return counts;
-}
-
-// src/lib/salesIntelligence/pharmacyProductCatalogRepository.ts
-var catalogCache = /* @__PURE__ */ new WeakMap();
-async function fetchAllProductRows(supabaseClient) {
-  const rows = [];
-  const pageSize = 1e3;
-  let from = 0;
-  for (; ; ) {
-    const { data, error } = await supabaseClient.from("products").select("id,name,product_code,normalized_name,category,price,source").order("id", { ascending: true }).range(from, from + pageSize - 1);
-    if (error) throw error;
-    const page = (data ?? []).filter((row) => row?.id && row?.name && row?.product_code).map((row) => ({
-      id: String(row.id),
-      name: String(row.name),
-      product_code: String(row.product_code),
-      normalized_name: String(row.normalized_name ?? row.name),
-      category: row.category == null ? null : String(row.category),
-      price: row.price,
-      source: String(row.source ?? "products")
-    }));
-    rows.push(...page);
-    if ((data ?? []).length < pageSize) break;
-    from += pageSize;
-  }
-  return rows;
-}
-async function fetchPharmacyProductIndex(supabaseClient, options = {}) {
-  if (!options.forceRefresh && supabaseClient && typeof supabaseClient === "object" && catalogCache.has(supabaseClient)) {
-    return catalogCache.get(supabaseClient);
-  }
-  const promise = (async () => {
-    const rows = await fetchAllProductRows(supabaseClient);
-    const counts = countNormalizedNames(rows);
-    const catalog = rows.map(
-      (row) => buildCanonicalProduct(row, counts, normalizePharmacyText)
-    );
-    return buildPharmacyProductIndex(catalog);
-  })();
-  if (supabaseClient && typeof supabaseClient === "object") {
-    catalogCache.set(supabaseClient, promise);
-  }
-  try {
-    return await promise;
-  } catch (error) {
-    if (supabaseClient && typeof supabaseClient === "object") {
-      catalogCache.delete(supabaseClient);
-    }
-    throw error;
-  }
-}
-
-// src/lib/customers/canonicalCustomerIdentityResolver.ts
-var EVIDENCE_CONFIDENCE = {
-  customer_id: 1,
-  customer_code: 0.99,
-  contact_phone: 0.97,
-  mentioned_phone: 0.9,
-  historical_link: 0.95
-};
-function uniq(values) {
-  return Array.from(new Set(values.map((value) => String(value ?? "").trim()).filter(Boolean)));
-}
-function validPhones(values) {
-  return uniq(values.map((value) => normalizeEgyptianCustomerPhone(value))).filter(
-    (phone) => isValidEgyptianCustomerMobile(phone)
-  );
-}
-function canonicalId(id, candidates) {
-  const row = candidates.byId.get(id);
-  const alias = candidates.aliasToCanonical.get(id);
-  if (alias) return alias;
-  if (!row || row.isDuplicate) return null;
-  return row.id;
-}
-function matchIds(kind, value, rows, candidates) {
-  const ids = uniq(rows.map((row) => canonicalId(row.id, candidates)));
-  return {
-    kind,
-    value,
-    customerIds: ids,
-    result: ids.length === 1 ? "match" : ids.length > 1 ? "ambiguous" : "none"
-  };
-}
-function resolveCanonicalCustomerIdentity(evidence, candidates) {
-  const rows = [...candidates.byId.values()];
-  const results = [];
-  if (evidence.customerId && isCustomerIdentityUuid(evidence.customerId)) {
-    results.push(
-      matchIds(
-        "customer_id",
-        evidence.customerId,
-        rows.filter((row) => row.id === evidence.customerId),
-        candidates
-      )
-    );
-  }
-  const codes = uniq(evidence.customerCodes.map((code) => normalizeDawaaCustomerCode(code)));
-  for (const code of codes) {
-    results.push(
-      matchIds(
-        "customer_code",
-        code,
-        rows.filter((row) => row.customerCode === code),
-        candidates
-      )
-    );
-  }
-  const phoneKind = evidence.contactPhones.length ? "contact_phone" : "mentioned_phone";
-  const phones = evidence.contactPhones.length ? evidence.contactPhones : evidence.mentionedPhones;
-  for (const phone of phones) {
-    results.push(
-      matchIds(
-        phoneKind,
-        phone,
-        rows.filter((row) => row.phones.includes(phone)),
-        candidates
-      )
-    );
-  }
-  if (evidence.trustedHistoricalCustomerId && isCustomerIdentityUuid(evidence.trustedHistoricalCustomerId)) {
-    results.push(
-      matchIds(
-        "historical_link",
-        evidence.trustedHistoricalCustomerId,
-        rows.filter((row) => row.id === evidence.trustedHistoricalCustomerId),
-        candidates
-      )
-    );
-  }
-  const contactPhone = evidence.contactPhones[0] ?? null;
-  const unresolvedBase = (status, reason, candidateIds) => ({
-    status,
-    customerId: null,
-    customerCode: codes.length === 1 ? codes[0] : null,
-    normalizedPhone: contactPhone,
-    customerName: evidence.displayName ?? null,
-    branch: null,
-    resolvedBy: null,
-    reason,
-    confidence: 0,
-    evidence: results,
-    candidates: candidateIds.map((id) => {
-      const row = candidates.byId.get(id);
-      return { id, customerCode: row?.customerCode ?? null, name: row?.name ?? null };
-    })
-  });
-  if (codes.length > 1) {
-    return unresolvedBase(
-      "contradicted",
-      `customer_code_conflict:${codes.join("|")}`,
-      uniq(results.flatMap((r) => r.customerIds))
-    );
-  }
-  const matched = results.filter((row) => row.result === "match");
-  const matchedIds = uniq(matched.flatMap((row) => row.customerIds));
-  if (matchedIds.length > 1) {
-    return unresolvedBase(
-      "contradicted",
-      `identity_evidence_conflict:${matched.map((row) => `${row.kind}=${row.customerIds[0]}`).join("|")}`,
-      matchedIds
-    );
-  }
-  if (matchedIds.length === 1) {
-    const id = matchedIds[0];
-    const conflicting = results.find(
-      (row2) => row2.result === "ambiguous" && !row2.customerIds.includes(id)
-    );
-    if (conflicting) {
-      return unresolvedBase(
-        "contradicted",
-        `${conflicting.kind}_points_to_other_customers:${conflicting.value}`,
-        uniq([id, ...conflicting.customerIds])
-      );
-    }
-    const by = matched[0];
-    const row = candidates.byId.get(id);
-    return {
-      status: "resolved",
-      customerId: id,
-      customerCode: row?.customerCode ?? (codes[0] || null),
-      normalizedPhone: row?.phones[0] ?? contactPhone,
-      customerName: row?.name ?? evidence.displayName ?? null,
-      branch: row?.branch ?? null,
-      resolvedBy: by.kind,
-      reason: `unique_${by.kind}_match`,
-      confidence: EVIDENCE_CONFIDENCE[by.kind],
-      evidence: results,
-      candidates: [{ id, customerCode: row?.customerCode ?? null, name: row?.name ?? null }]
-    };
-  }
-  const ambiguous = results.filter((row) => row.result === "ambiguous");
-  if (ambiguous.length) {
-    return unresolvedBase(
-      "ambiguous",
-      `identity_ambiguous:${ambiguous.map((row) => `${row.kind}=${row.value}`).join("|")}`,
-      uniq(ambiguous.flatMap((row) => row.customerIds))
-    );
-  }
-  return unresolvedBase(
-    "unresolved",
-    results.length ? "no_matching_customer" : "no_identity_evidence",
-    []
-  );
-}
-var CHUNK = 40;
-var CUSTOMER_COLUMNS = "id,customer_code,effective_customer_code,code,name,display_name,customer_name,branch,effective_branch,is_duplicate,normalized_phone,phone,customer_phone,mobile,whatsapp_phone,whatsapp,phone_alt";
-function toCandidate(row) {
-  return {
-    id: String(row.id),
-    customerCode: normalizeDawaaCustomerCode(row.effective_customer_code) || normalizeDawaaCustomerCode(row.customer_code) || normalizeDawaaCustomerCode(row.code) || null,
-    phones: validPhones([
-      row.normalized_phone,
-      row.phone,
-      row.customer_phone,
-      row.mobile,
-      row.whatsapp_phone,
-      row.whatsapp,
-      row.phone_alt
-    ]),
-    name: String(row.display_name || row.name || row.customer_name || "").trim() || null,
-    branch: String(row.effective_branch || row.branch || "").trim() || null,
-    isDuplicate: Boolean(row.is_duplicate)
-  };
-}
-function chunks2(values) {
-  const out = [];
-  for (let index = 0; index < values.length; index += CHUNK)
-    out.push(values.slice(index, index + CHUNK));
-  return out;
-}
-async function loadCustomerIdentityCandidates(client, evidences) {
-  const ids = uniq(
-    evidences.flatMap((e) => [e.customerId, e.trustedHistoricalCustomerId]).filter((id) => isCustomerIdentityUuid(id))
-  );
-  const codes = uniq(
-    evidences.flatMap((e) => e.customerCodes.map((code) => normalizeDawaaCustomerCode(code)))
-  );
-  const phones = uniq(evidences.flatMap((e) => [...e.contactPhones, ...e.mentionedPhones]));
-  const byId = /* @__PURE__ */ new Map();
-  const add = (rows) => {
-    for (const row of rows || []) byId.set(String(row.id), toCandidate(row));
-  };
-  const run = async (label, query) => {
-    const { data, error } = await query;
-    if (error) throw new Error(`customer_identity_${label}_lookup_failed: ${error.message}`);
-    add(data);
-  };
-  for (const chunk of chunks2(ids)) {
-    await run("id", client.from("customers").select(CUSTOMER_COLUMNS).in("id", chunk));
-  }
-  for (const chunk of chunks2(codes)) {
-    const list = chunk.join(",");
-    await run(
-      "code",
-      client.from("customers").select(CUSTOMER_COLUMNS).or(`effective_customer_code.in.(${list}),customer_code.in.(${list}),code.in.(${list})`).limit(500)
-    );
-  }
-  for (const chunk of chunks2(phones)) {
-    const list = chunk.join(",");
-    await run(
-      "phone",
-      client.from("customers").select(CUSTOMER_COLUMNS).or(
-        [
-          "normalized_phone",
-          "phone",
-          "customer_phone",
-          "mobile",
-          "whatsapp_phone",
-          "whatsapp",
-          "phone_alt"
-        ].map((column) => `${column}.in.(${list})`).join(",")
-      ).limit(500)
-    );
-  }
-  const aliasToCanonical = /* @__PURE__ */ new Map();
-  const duplicateIds = [...byId.values()].filter((row) => row.isDuplicate).map((row) => row.id);
-  for (const chunk of chunks2(duplicateIds)) {
-    const { data, error } = await client.from("customer_aliases").select("alias_customer_id,canonical_customer_id").in("alias_customer_id", chunk);
-    if (error) throw new Error(`customer_identity_alias_lookup_failed: ${error.message}`);
-    for (const row of data || []) {
-      if (row.alias_customer_id && row.canonical_customer_id) {
-        aliasToCanonical.set(String(row.alias_customer_id), String(row.canonical_customer_id));
-      }
-    }
-  }
-  const missingCanonical = uniq([...aliasToCanonical.values()]).filter((id) => !byId.has(id));
-  for (const chunk of chunks2(missingCanonical)) {
-    await run("alias_canonical", client.from("customers").select(CUSTOMER_COLUMNS).in("id", chunk));
-  }
-  return { byId, aliasToCanonical };
-}
-async function resolveCanonicalCustomerIdentities(client, evidences) {
-  const candidates = await loadCustomerIdentityCandidates(client, evidences);
-  return evidences.map((evidence) => resolveCanonicalCustomerIdentity(evidence, candidates));
 }
 
 // src/lib/salesIntelligence/persistence/batchPersistenceService.ts
@@ -7447,7 +7960,7 @@ async function planAnalysis(supabaseClient, caseId, semanticSourceHash) {
     "analysis_id, analysis_version, semantic_source_hash, pipeline_version, engine_version_case_segmentation, engine_version_historical_closure, engine_version_commercial_confirmation, engine_version_protocol_applicability"
   ).eq("case_id", caseId).eq("is_current", true).maybeSingle();
   if (error) throw error;
-  const isNoOp = Boolean(data) && data.semantic_source_hash === semanticSourceHash && data.engine_version_case_segmentation === ENGINE_VERSIONS.caseSegmentation && data.engine_version_historical_closure === ENGINE_VERSIONS.historicalClosure && data.engine_version_commercial_confirmation === ENGINE_VERSIONS.commercialConfirmation && data.engine_version_protocol_applicability === ENGINE_VERSIONS.protocolApplicability;
+  const isNoOp = Boolean(data) && data.semantic_source_hash === semanticSourceHash && data.pipeline_version === PIPELINE_VERSION && data.engine_version_case_segmentation === ENGINE_VERSIONS.caseSegmentation && data.engine_version_historical_closure === ENGINE_VERSIONS.historicalClosure && data.engine_version_commercial_confirmation === ENGINE_VERSIONS.commercialConfirmation && data.engine_version_protocol_applicability === ENGINE_VERSIONS.protocolApplicability;
   return {
     caseId,
     semanticSourceHash,
@@ -7457,47 +7970,25 @@ async function planAnalysis(supabaseClient, caseId, semanticSourceHash) {
     isNoOp
   };
 }
-async function resolveConversationCustomerIdentities(supabaseClient, conversations) {
-  const evidences = conversations.map((conversation) => {
-    const phone = normalizeEgyptianCustomerPhone(conversation.customerPhoneHint ?? "");
-    const code = normalizeDawaaCustomerCode(conversation.customerCodeHint);
-    return {
-      customerId: conversation.customerIdHint ?? null,
-      customerCodes: code ? [code] : [],
-      contactPhones: isValidEgyptianCustomerMobile(phone) ? [phone] : [],
-      mentionedPhones: [],
-      displayName: conversation.customerNameHint ?? null
-    };
-  });
-  const identities = await resolveCanonicalCustomerIdentities(supabaseClient, evidences);
-  return conversations.map((conversation, index) => {
-    const identity = identities[index];
-    const resolved = identity.status === "resolved";
-    return {
-      ...conversation,
-      customerIdHint: resolved ? identity.customerId : null,
-      customerPhoneHint: resolved ? identity.normalizedPhone ?? conversation.customerPhoneHint ?? null : conversation.customerPhoneHint ?? null,
-      customerIdentityStatus: identity.status
-    };
-  });
-}
 async function runBatchPersistence(supabaseClient, input) {
   const pureComputeStart = Date.now();
-  const effectiveConversations = await resolveConversationCustomerIdentities(supabaseClient, input.conversations);
+  const runtimeContext = await loadSalesIntelligenceRuntimeContext(supabaseClient);
+  const effectiveConversations = await prepareSalesIntelligenceConversations(
+    supabaseClient,
+    input.conversations,
+    runtimeContext
+  );
+  const baseInputByConversationId = new Map(
+    effectiveConversations.map((conversation) => [
+      conversation.conversationId,
+      pipelineBaseInputFor(conversation, runtimeContext)
+    ])
+  );
+  const baseInputFor = (conversation) => baseInputByConversationId.get(conversation.conversationId);
   const segmented = [];
   let previousTheoreticalFetchCount = 0;
   for (const conversation of effectiveConversations) {
-    const result = deriveCasesOnly({
-      conversationId: conversation.conversationId,
-      rawWhatsAppExportText: conversation.rawWhatsAppExportText,
-      trustedConversationStartedAt: conversation.trustedConversationStartedAt ?? null,
-      sourceCaseIdV22: conversation.sourceCaseIdV22,
-      customerIdHint: conversation.customerIdHint,
-      customerPhoneHint: conversation.customerPhoneHint,
-      branchIdHint: conversation.branchIdHint,
-      branchNameRawHint: conversation.branchNameRawHint,
-      sessionSplitGapMinutes: conversation.sessionSplitGapMinutes
-    });
+    const result = deriveCasesOnly(segmentationInputFromPipelineInput(baseInputFor(conversation)));
     for (const conversationCase of result.cases) {
       segmented.push({ conversationCase, conversation });
       previousTheoreticalFetchCount += 1;
@@ -7512,7 +8003,6 @@ async function runBatchPersistence(supabaseClient, input) {
   const candidateInvoicesEvaluated = Array.from(candidatesByGroupKey.values()).reduce((sum, rows) => sum + rows.length, 0);
   const allCandidateInvoices = Array.from(candidatesByGroupKey.values()).flat();
   const itemEvidenceProvider = await fetchInvoiceItemEvidenceProvider(supabaseClient, allCandidateInvoices);
-  const productIndex = await fetchPharmacyProductIndex(supabaseClient);
   const pass1ByConversation = /* @__PURE__ */ new Map();
   const groupKeyByCaseId = /* @__PURE__ */ new Map();
   for (const group of groups) {
@@ -7525,28 +8015,10 @@ async function runBatchPersistence(supabaseClient, input) {
   };
   for (const conversation of effectiveConversations) {
     const pipelineInput = {
-      conversationId: conversation.conversationId,
-      rawWhatsAppExportText: conversation.rawWhatsAppExportText,
-      trustedConversationStartedAt: conversation.trustedConversationStartedAt ?? null,
-      sourceCaseIdV22: conversation.sourceCaseIdV22,
-      customerIdHint: conversation.customerIdHint,
-      customerPhoneHint: conversation.customerPhoneHint,
-      customerIdentityStatus: conversation.customerIdentityStatus,
-      branchIdHint: conversation.branchIdHint,
-      branchNameRawHint: conversation.branchNameRawHint,
-      knownStaffIds: conversation.knownStaffIds,
-      legacyMatchedInvoiceId: conversation.legacyMatchedInvoiceId,
-      legacyMatchedInvoiceNumber: conversation.legacyMatchedInvoiceNumber,
-      trustedInvoiceId: conversation.trustedInvoiceId,
-      trustedInvoiceNumber: conversation.trustedInvoiceNumber,
-      invoiceCancelledOrReturned: conversation.invoiceCancelledOrReturned,
-      invoiceStatusHint: conversation.invoiceStatusHint,
-      sessionSplitGapMinutes: conversation.sessionSplitGapMinutes,
-      protocolPolicyEffectiveAt: conversation.protocolPolicyEffectiveAt,
+      ...baseInputFor(conversation),
       competingSelections: [],
       resolveInvoiceCandidates: (context) => conversationToGroupCandidates(conversation, context),
-      itemEvidenceProvider,
-      productIndex
+      itemEvidenceProvider
     };
     const result = runSalesIntelligencePipeline(pipelineInput);
     pass1ByConversation.set(conversation.conversationId, result.caseAnalyses);
@@ -7559,32 +8031,14 @@ async function runBatchPersistence(supabaseClient, input) {
     const analyses = [];
     for (const conversation of effectiveConversations) {
       const pipelineInput = {
-        conversationId: conversation.conversationId,
-        rawWhatsAppExportText: conversation.rawWhatsAppExportText,
-        trustedConversationStartedAt: conversation.trustedConversationStartedAt ?? null,
-        sourceCaseIdV22: conversation.sourceCaseIdV22,
-        customerIdHint: conversation.customerIdHint,
-        customerPhoneHint: conversation.customerPhoneHint,
-        customerIdentityStatus: conversation.customerIdentityStatus,
-        branchIdHint: conversation.branchIdHint,
-        branchNameRawHint: conversation.branchNameRawHint,
-        knownStaffIds: conversation.knownStaffIds,
-        legacyMatchedInvoiceId: conversation.legacyMatchedInvoiceId,
-        legacyMatchedInvoiceNumber: conversation.legacyMatchedInvoiceNumber,
-        trustedInvoiceId: conversation.trustedInvoiceId,
-        trustedInvoiceNumber: conversation.trustedInvoiceNumber,
-        invoiceCancelledOrReturned: conversation.invoiceCancelledOrReturned,
-        invoiceStatusHint: conversation.invoiceStatusHint,
-        sessionSplitGapMinutes: conversation.sessionSplitGapMinutes,
-        protocolPolicyEffectiveAt: conversation.protocolPolicyEffectiveAt,
+        ...baseInputFor(conversation),
         competingSelections: competingSelections2,
         resolveInvoiceCandidates: (context) => {
           const denied = deniedInvoiceIdsByCase.get(context.caseId);
           const rows = conversationToGroupCandidates(conversation, context);
           return denied?.size ? rows.filter((row) => !denied.has(invoiceRowLookupId2(row))) : rows;
         },
-        itemEvidenceProvider,
-        productIndex
+        itemEvidenceProvider
       };
       analyses.push(...runSalesIntelligencePipeline(pipelineInput).caseAnalyses);
     }
@@ -7930,6 +8384,26 @@ function resolveTrustedInvoiceEvidenceFromReviewSource(input) {
 }
 
 // src/lib/salesIntelligence/persistence/reviewSourceBatchAdapter.ts
+var REVIEW_SOURCE_BATCH_INPUT_COLUMNS = [
+  "id",
+  "raw_text",
+  "conversation_started_at",
+  "customer_id",
+  "customer_phone",
+  "customer_name",
+  "customer_code",
+  "branch",
+  "matched_invoice_id",
+  "matched_invoice_number",
+  "invoice_match_status",
+  "reviewer_confirmed",
+  "reviewer_id",
+  "invoice_link_confirmed",
+  "invoice_link_confirmed_invoice_id",
+  "invoice_link_confirmed_invoice_number",
+  "invoice_link_confirmed_by",
+  "invoice_link_confirmed_at"
+];
 function reviewSourceRowToBatchConversation(row) {
   const trustedEvidence = resolveTrustedInvoiceEvidenceFromReviewSource({
     sourceId: row.id,
@@ -8095,28 +8569,11 @@ async function loadV22CaseOwnership(service, sourceIds) {
 // src/lib/salesIntelligence/refresh/canonicalRefreshService.ts
 var CANONICAL_PROOF_WRITER_RPC = "dawaa_reconcile_sales_intelligence_case_v22_v1";
 var CANONICAL_REFRESH_SOURCE_COLUMNS = [
-  "id",
-  "raw_text",
+  ...REVIEW_SOURCE_BATCH_INPUT_COLUMNS,
   "source_filename",
-  "conversation_started_at",
   "conversation_ended_at",
   "message_count",
   "created_at",
-  "customer_id",
-  "customer_phone",
-  "customer_name",
-  "customer_code",
-  "branch",
-  "matched_invoice_id",
-  "matched_invoice_number",
-  "invoice_match_status",
-  "reviewer_confirmed",
-  "reviewer_id",
-  "invoice_link_confirmed",
-  "invoice_link_confirmed_invoice_id",
-  "invoice_link_confirmed_invoice_number",
-  "invoice_link_confirmed_by",
-  "invoice_link_confirmed_at",
   "review_status"
 ].join(",");
 function toBlocked(decision) {

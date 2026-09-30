@@ -5,7 +5,9 @@
 // are INDEPENDENT of any git SHA (design doc H.0.1 §8) — each one only changes when the engine it
 // names actually changes in a way that should trigger the reprocessing scope
 // REPROCESSING_MATRIX assigns it (see persistence/types.ts).
-export const PIPELINE_VERSION = 'sales-intelligence-v7';
+// v8 (STEP 7A): production runtime context — canonical staffIdBySender feeds attribution and V32
+// staff senders; the pre-pass and the run share one base input.
+export const PIPELINE_VERSION = 'sales-intelligence-v8';
 
 export const ENGINE_VERSIONS = {
   caseSegmentation: 'case-segmentation-v7-explicit-topic-shift',

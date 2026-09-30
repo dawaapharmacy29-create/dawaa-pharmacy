@@ -11,7 +11,6 @@
 import {
   normalizeEgyptianCustomerPhone,
   isValidEgyptianCustomerMobile,
-  normalizeDawaaCustomerCode,
 } from '../../customers/customerIdentity';
 import { parseInvoiceDateTime, type InvoiceLike } from '../../invoices/invoiceCore';
 import {
@@ -22,7 +21,17 @@ import {
   type InvoiceCandidateQuery,
   type InvoiceCandidateQueryContext,
 } from '../invoiceCandidateRetrieval';
-import { deriveCasesOnly, runSalesIntelligencePipeline, type SalesIntelligencePipelineInput } from '../salesIntelligencePipeline';
+import {
+  deriveCasesOnly,
+  runSalesIntelligencePipeline,
+  segmentationInputFromPipelineInput,
+  type SalesIntelligencePipelineInput,
+} from '../salesIntelligencePipeline';
+import {
+  loadSalesIntelligenceRuntimeContext,
+  pipelineBaseInputFor,
+  prepareSalesIntelligenceConversations,
+} from '../runtimeContext';
 import type { ConversationCase, SalesIntelligenceCaseAnalysis } from '../types';
 import { upsertSalesIntelligenceCase, type CaseUpsertResult } from './caseWriter';
 import { persistCaseAnalysis, type PersistCaseAnalysisResult } from './analysisWriter';
@@ -38,17 +47,13 @@ import {
   mapCaseRowContent,
   mapPolicyEvaluationRowContent,
 } from './mappers';
-import { BRANCH_IDENTITY_MAPPING_VERSION, ENGINE_VERSIONS } from './versions';
+import { BRANCH_IDENTITY_MAPPING_VERSION, ENGINE_VERSIONS, PIPELINE_VERSION } from './versions';
 import { mergeDeniedInvoiceMaps, resolveExclusiveInvoiceClaims } from '../invoiceClaimResolution';
 import {
   fetchInvoiceItemEvidenceProvider,
   snapshotInvoiceItemEvidence,
 } from '../invoiceItemEvidenceRepository';
-import { fetchPharmacyProductIndex } from '../pharmacyProductCatalogRepository';
-import {
-  resolveCanonicalCustomerIdentities,
-  type CanonicalCustomerIdentityStatus,
-} from '../../customers/canonicalCustomerIdentityResolver';
+import type { CanonicalCustomerIdentityStatus } from '../../customers/canonicalCustomerIdentityResolver';
 
 // ---------------------------------------------------------------------------
 // Input contract
@@ -328,6 +333,7 @@ async function planAnalysis(
   const isNoOp =
     Boolean(data) &&
     data.semantic_source_hash === semanticSourceHash &&
+    data.pipeline_version === PIPELINE_VERSION &&
     data.engine_version_case_segmentation === ENGINE_VERSIONS.caseSegmentation &&
     data.engine_version_historical_closure === ENGINE_VERSIONS.historicalClosure &&
     data.engine_version_commercial_confirmation === ENGINE_VERSIONS.commercialConfirmation &&
@@ -344,64 +350,35 @@ async function planAnalysis(
 }
 
 // ---------------------------------------------------------------------------
-// Customer identity: the Canonical Customer Identity Resolver (shared with the Smart Watcher and
-// automatic ingest) resolves every conversation of the batch with ONE bounded candidate load.
-// Only a `resolved` identity feeds customerIdHint; the status is passed to the pipeline, which
-// refuses Sale Proof `proven` and official attribution for any other status.
-// ---------------------------------------------------------------------------
-
-async function resolveConversationCustomerIdentities(
-  supabaseClient: any,
-  conversations: BatchConversationInput[]
-): Promise<BatchConversationInput[]> {
-  const evidences = conversations.map((conversation) => {
-    const phone = normalizeEgyptianCustomerPhone(conversation.customerPhoneHint ?? '');
-    const code = normalizeDawaaCustomerCode(conversation.customerCodeHint);
-    return {
-      customerId: conversation.customerIdHint ?? null,
-      customerCodes: code ? [code] : [],
-      contactPhones: isValidEgyptianCustomerMobile(phone) ? [phone] : [],
-      mentionedPhones: [],
-      displayName: conversation.customerNameHint ?? null,
-    };
-  });
-  const identities = await resolveCanonicalCustomerIdentities(supabaseClient, evidences);
-  return conversations.map((conversation, index) => {
-    const identity = identities[index];
-    const resolved = identity.status === 'resolved';
-    return {
-      ...conversation,
-      customerIdHint: resolved ? identity.customerId : null,
-      customerPhoneHint: resolved ? identity.normalizedPhone ?? conversation.customerPhoneHint ?? null : conversation.customerPhoneHint ?? null,
-      customerIdentityStatus: identity.status,
-    };
-  });
-}
-
-// ---------------------------------------------------------------------------
 // Top-level entry point
 // ---------------------------------------------------------------------------
 
 export async function runBatchPersistence(supabaseClient: any, input: RunBatchPersistenceInput): Promise<RunBatchPersistenceResult> {
   const pureComputeStart = Date.now();
-  const effectiveConversations = await resolveConversationCustomerIdentities(supabaseClient, input.conversations);
+  // One production runtime context (runtimeContext.ts): canonical staff directory + catalog loaded
+  // once; customer identity (only `resolved` feeds customerIdHint) and staffIdBySender resolved per
+  // conversation; one base pipeline input shared by the segmentation pre-pass and every real run.
+  const runtimeContext = await loadSalesIntelligenceRuntimeContext(supabaseClient);
+  const effectiveConversations = await prepareSalesIntelligenceConversations(
+    supabaseClient,
+    input.conversations,
+    runtimeContext
+  );
+  const baseInputByConversationId = new Map(
+    effectiveConversations.map((conversation) => [
+      conversation.conversationId,
+      pipelineBaseInputFor(conversation, runtimeContext),
+    ])
+  );
+  const baseInputFor = (conversation: BatchConversationInput) =>
+    baseInputByConversationId.get(conversation.conversationId)!;
 
   // Step 1: segment every conversation (cheap, pure, no I/O) — needed to group by customer BEFORE
   // any invoice fetch (instruction #12 steps 1-4).
   const segmented: Array<{ conversationCase: ConversationCase; conversation: BatchConversationInput }> = [];
   let previousTheoreticalFetchCount = 0;
   for (const conversation of effectiveConversations) {
-    const result = deriveCasesOnly({
-      conversationId: conversation.conversationId,
-      rawWhatsAppExportText: conversation.rawWhatsAppExportText,
-      trustedConversationStartedAt: conversation.trustedConversationStartedAt ?? null,
-      sourceCaseIdV22: conversation.sourceCaseIdV22,
-      customerIdHint: conversation.customerIdHint,
-      customerPhoneHint: conversation.customerPhoneHint,
-      branchIdHint: conversation.branchIdHint,
-      branchNameRawHint: conversation.branchNameRawHint,
-      sessionSplitGapMinutes: conversation.sessionSplitGapMinutes,
-    });
+    const result = deriveCasesOnly(segmentationInputFromPipelineInput(baseInputFor(conversation)));
     for (const conversationCase of result.cases) {
       segmented.push({ conversationCase, conversation });
       // The naive "case -> fetch invoices" approach this batch service replaces would have issued
@@ -423,7 +400,6 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
   const candidateInvoicesEvaluated = Array.from(candidatesByGroupKey.values()).reduce((sum, rows) => sum + rows.length, 0);
   const allCandidateInvoices = Array.from(candidatesByGroupKey.values()).flat();
   const itemEvidenceProvider = await fetchInvoiceItemEvidenceProvider(supabaseClient, allCandidateInvoices);
-  const productIndex = await fetchPharmacyProductIndex(supabaseClient);
 
   // Step 3: PASS 1 — run the pure pipeline per conversation against its group's shared candidate
   // pool with no competing-selection input, to learn each case's own selectedInvoiceId.
@@ -440,28 +416,10 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
 
   for (const conversation of effectiveConversations) {
     const pipelineInput: SalesIntelligencePipelineInput = {
-      conversationId: conversation.conversationId,
-      rawWhatsAppExportText: conversation.rawWhatsAppExportText,
-      trustedConversationStartedAt: conversation.trustedConversationStartedAt ?? null,
-      sourceCaseIdV22: conversation.sourceCaseIdV22,
-      customerIdHint: conversation.customerIdHint,
-      customerPhoneHint: conversation.customerPhoneHint,
-      customerIdentityStatus: conversation.customerIdentityStatus,
-      branchIdHint: conversation.branchIdHint,
-      branchNameRawHint: conversation.branchNameRawHint,
-      knownStaffIds: conversation.knownStaffIds,
-      legacyMatchedInvoiceId: conversation.legacyMatchedInvoiceId,
-      legacyMatchedInvoiceNumber: conversation.legacyMatchedInvoiceNumber,
-      trustedInvoiceId: conversation.trustedInvoiceId,
-      trustedInvoiceNumber: conversation.trustedInvoiceNumber,
-      invoiceCancelledOrReturned: conversation.invoiceCancelledOrReturned,
-      invoiceStatusHint: conversation.invoiceStatusHint,
-      sessionSplitGapMinutes: conversation.sessionSplitGapMinutes,
-      protocolPolicyEffectiveAt: conversation.protocolPolicyEffectiveAt,
+      ...baseInputFor(conversation),
       competingSelections: [],
       resolveInvoiceCandidates: (context) => conversationToGroupCandidates(conversation, context),
       itemEvidenceProvider,
-      productIndex,
     };
     const result = runSalesIntelligencePipeline(pipelineInput);
     pass1ByConversation.set(conversation.conversationId, result.caseAnalyses);
@@ -481,24 +439,7 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
     const analyses: SalesIntelligenceCaseAnalysis[] = [];
     for (const conversation of effectiveConversations) {
       const pipelineInput: SalesIntelligencePipelineInput = {
-        conversationId: conversation.conversationId,
-        rawWhatsAppExportText: conversation.rawWhatsAppExportText,
-        trustedConversationStartedAt: conversation.trustedConversationStartedAt ?? null,
-        sourceCaseIdV22: conversation.sourceCaseIdV22,
-        customerIdHint: conversation.customerIdHint,
-        customerPhoneHint: conversation.customerPhoneHint,
-        customerIdentityStatus: conversation.customerIdentityStatus,
-        branchIdHint: conversation.branchIdHint,
-        branchNameRawHint: conversation.branchNameRawHint,
-        knownStaffIds: conversation.knownStaffIds,
-        legacyMatchedInvoiceId: conversation.legacyMatchedInvoiceId,
-        legacyMatchedInvoiceNumber: conversation.legacyMatchedInvoiceNumber,
-        trustedInvoiceId: conversation.trustedInvoiceId,
-        trustedInvoiceNumber: conversation.trustedInvoiceNumber,
-        invoiceCancelledOrReturned: conversation.invoiceCancelledOrReturned,
-        invoiceStatusHint: conversation.invoiceStatusHint,
-        sessionSplitGapMinutes: conversation.sessionSplitGapMinutes,
-        protocolPolicyEffectiveAt: conversation.protocolPolicyEffectiveAt,
+        ...baseInputFor(conversation),
         competingSelections,
         resolveInvoiceCandidates: (context) => {
           const denied = deniedInvoiceIdsByCase.get(context.caseId);
@@ -506,7 +447,6 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
           return denied?.size ? rows.filter((row) => !denied.has(invoiceRowLookupId(row))) : rows;
         },
         itemEvidenceProvider,
-        productIndex,
       };
       analyses.push(...runSalesIntelligencePipeline(pipelineInput).caseAnalyses);
     }
