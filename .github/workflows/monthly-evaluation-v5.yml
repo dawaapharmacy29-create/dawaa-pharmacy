@@ -1,0 +1,61 @@
+name: Monthly Evaluation V5
+
+on:
+  pull_request:
+    paths:
+      - 'src/pages/StaffMonthlyEvaluationGeneral.tsx'
+      - 'src/components/evaluations/**'
+      - 'src/lib/evaluations/**'
+      - 'src/lib/staff/employeeMonthlyEvidenceService.ts'
+      - 'src/lib/staff/staffPointsDashboardService.ts'
+      - 'supabase/migrations/*monthly_evaluation*.sql'
+      - '.github/workflows/monthly-evaluation-v5.yml'
+  push:
+    branches:
+      - 'feat/monthly-evaluation-command-center-v5-*'
+    paths:
+      - 'src/pages/StaffMonthlyEvaluationGeneral.tsx'
+      - 'src/components/evaluations/**'
+      - 'src/lib/evaluations/**'
+      - 'src/lib/staff/employeeMonthlyEvidenceService.ts'
+      - 'src/lib/staff/staffPointsDashboardService.ts'
+      - 'supabase/migrations/*monthly_evaluation*.sql'
+      - '.github/workflows/monthly-evaluation-v5.yml'
+
+concurrency:
+  group: monthly-evaluation-v5-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: typecheck-and-build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - name: V5 architecture guard
+        run: node scripts/check-monthly-evaluation-v5-architecture.cjs
+      - name: TypeScript — reject new errors
+        shell: bash
+        run: |
+          set +e
+          npm run typecheck 2>&1 | tee /tmp/monthly-evaluation-tsc.log
+          code=${PIPESTATUS[0]}
+          set -e
+          if [ "$code" -ne 0 ]; then
+            grep "error TS" /tmp/monthly-evaluation-tsc.log | grep -v "src/components/attendance/AttendanceResolutionCenter.tsx" > /tmp/monthly-evaluation-new-errors.log || true
+            if [ -s /tmp/monthly-evaluation-new-errors.log ]; then
+              echo "New TypeScript errors detected:"
+              cat /tmp/monthly-evaluation-new-errors.log
+              exit 1
+            fi
+            echo "::warning::TypeScript has inherited AttendanceResolutionCenter errors on the parent branch; no new evaluation errors were found."
+          fi
+      - name: Vite production bundle
+        run: npx vite build --configLoader runner
