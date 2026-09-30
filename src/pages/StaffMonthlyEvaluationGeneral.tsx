@@ -147,6 +147,23 @@ function formatAttendanceTime(value: string) {
   }).format(instant);
 }
 
+function attendancePendingCaseLine(item: NonNullable<EmployeeMonthlyEvidence['coaching']>['attendance']['pendingCases'][number]) {
+  const schedule = item.scheduledStartAt || item.scheduledEndAt
+    ? `الجدول ${formatAttendanceTime(item.scheduledStartAt) || '—'} → ${formatAttendanceTime(item.scheduledEndAt) || '—'}`
+    : '';
+  const actual = item.firstIn || item.lastOut
+    ? `البصمة ${formatAttendanceTime(item.firstIn) || '—'} → ${formatAttendanceTime(item.lastOut) || '—'}`
+    : '';
+  return [
+    `${formatAttendanceDate(item.date)} — ${item.resolutionStatus || 'pending_review'}`,
+    item.lateMinutes > 0 ? `تأخير ${item.lateMinutes} دقيقة` : '',
+    item.earlyLeaveMinutes > 0 ? `خروج مبكر ${item.earlyLeaveMinutes} دقيقة` : '',
+    item.missingPunch ? 'بصمة ناقصة' : '',
+    schedule,
+    actual,
+  ].filter(Boolean).join(' · ');
+}
+
 function attendanceCaseLine(item: NonNullable<EmployeeMonthlyEvidence['coaching']>['attendance']['cases'][number]) {
   const label = ATTENDANCE_EVENT_LABELS[item.eventType] || 'حالة حضور';
   const minutes = item.eventType === 'attendance_early_leave_confirmed'
@@ -193,19 +210,34 @@ function sectionEvidenceFor(
     const attendance = coaching?.attendance;
     return {
       status: 'manual' as const,
-      summary: attendance?.resolvedDays
-        ? `سجل الحضور: ${attendance.resolvedDays} يومًا له تصنيف · ${attendance.lateCases + attendance.veryLateCases} تأخير · ${attendance.absenceCases} غياب`
-        : metrics.attendance_days
-          ? `بيانات حضور يومية متاحة لـ ${metrics.attendance_days} يوم`
-          : 'لا توجد أيام حضور مسجلة في المصدر لهذه الدورة',
+      summary: attendance?.pendingReviewCases
+        ? `الحضور يحتاج مراجعة: ${attendance.pendingReviewCases} يوم معلق قبل الاعتماد النهائي`
+        : attendance?.conflictingResolutionDays
+          ? `الحضور يحتاج مراجعة: ${attendance.conflictingResolutionDays} يوم عليه تصنيفات نشطة متعارضة`
+          : attendance?.resolvedDays
+            ? `سجل الحضور: ${attendance.resolvedDays} يومًا له تصنيف · ${attendance.lateCases + attendance.veryLateCases} تأخير · ${attendance.absenceCases} غياب`
+            : metrics.attendance_days
+              ? `بيانات حضور يومية متاحة لـ ${metrics.attendance_days} يوم`
+              : 'لا توجد أيام حضور مسجلة في المصدر لهذه الدورة',
       details: [
         `أيام لها حضور/بصمة في المصدر اليومي: ${metrics.present_days}`,
         `إجمالي الأيام التي لها بيانات في مصدر الحضور اليومي: ${metrics.attendance_days}`,
         attendance?.resolvedDays ? `أيام لها تصنيف في سجل الحضور: ${attendance.resolvedDays}` : '',
         attendance?.activeLedgerEvents ? `إجمالي تصنيفات الحضور النشطة: ${attendance.activeLedgerEvents}` : '',
-        attendance?.duplicateResolutionDays
-          ? `تنبيه مراجعة: ${attendance.duplicateResolutionDays} يوم عليه أكثر من تصنيف نشط؛ لا يُحسب كأنه يومان في التقييم.`
+        attendance?.conflictingResolutionDays
+          ? `تنبيه تعارض: ${attendance.conflictingResolutionDays} يوم عليه أكثر من تصنيف حضور نشط؛ يحتاج حسم قبل الاعتماد.`
           : '',
+        attendance?.pendingReviewCases
+          ? `حالات حضور معلقة لم تُعتمد بعد: ${attendance.pendingReviewCases} يوم.`
+          : '',
+        ...(attendance?.pendingCases?.length
+          ? ['تفاصيل الحالات المعلقة:', ...attendance.pendingCases.map((item) => attendancePendingCaseLine(item))]
+          : []),
+        attendance?.finalization.ready
+          ? 'جاهزية الحضور للاعتماد النهائي: مكتملة.'
+          : attendance
+            ? `جاهزية الحضور للاعتماد النهائي: غير مكتملة — ${attendance.finalization.blockers.join(' · ')}.`
+            : '',
         attendance?.onTimeDays ? `أيام مصنفة في الموعد: ${attendance.onTimeDays}` : '',
         attendance && attendance.lateCases + attendance.veryLateCases > 0
           ? `التأخير المسجل في سجل الحضور: ${attendance.lateCases + attendance.veryLateCases} حالة · ${attendance.lateMinutes} دقيقة`
@@ -987,12 +1019,16 @@ export default function StaffMonthlyEvaluation() {
       return;
     }
     if (nextStatus === 'sent' && !evidenceReady) {
+      const attendanceFinalization = coaching?.attendance.finalization;
       const missing = [
         evidenceHealth.reviews === 'unavailable' ? 'مراجعات المحادثات' : '',
         evidenceHealth.followups === 'unavailable' ? 'المتابعات' : '',
-        evidenceHealth.attendance === 'unavailable' ? 'الحضور' : '',
+        evidenceHealth.attendance === 'unavailable' ? 'مصدر الحضور' : '',
+        evidenceHealth.attendance === 'available' && attendanceFinalization && !attendanceFinalization.ready
+          ? `الحضور غير محسوم (${attendanceFinalization.blockers.join(' · ')})`
+          : '',
       ].filter(Boolean).join('، ');
-      toast.error(`لا يمكن الاعتماد النهائي لأن مصادر الأدلة غير مكتملة: ${missing || 'مصدر غير متاح'}.`);
+      toast.error(`لا يمكن الاعتماد النهائي قبل اكتمال الأدلة وحسم الحضور: ${missing || 'يوجد مانع يحتاج مراجعة'}.`);
       return;
     }
     if (nextStatus === 'sent' && !cycleClosed) {
@@ -2036,7 +2072,11 @@ export default function StaffMonthlyEvaluation() {
                       <div>
                         <div className="text-sm font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>جاهزية بيانات الدورة</div>
                         <div className="mt-1 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
-                          {evidenceReady ? 'كل مصادر التقييم الأساسية متاحة.' : 'يوجد مصدر ناقص ويجب مراجعته قبل الاعتماد.'}
+                          {evidenceReady
+                            ? 'كل مصادر التقييم الأساسية متاحة والحضور محسوم.'
+                            : coaching?.attendance.finalization && !coaching.attendance.finalization.ready
+                              ? `الحضور غير جاهز للاعتماد النهائي: ${coaching.attendance.finalization.blockers.join(' · ')}`
+                              : 'يوجد مصدر ناقص ويجب مراجعته قبل الاعتماد.'}
                         </div>
                       </div>
                       <span
