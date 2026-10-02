@@ -55,7 +55,7 @@ export async function buildStaffMonthlyEvaluationPdf(
 
   const listHtml = (items: string[], emptyLabel: string) =>
     items.length
-      ? `<ul style="margin:0;padding-inline-start:18px;font-size:13px;line-height:1.9">${items.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`
+      ? `<div style="display:flex;flex-direction:column;gap:7px;font-size:12.5px;line-height:1.75">${items.map((item, index) => `<div style="display:flex;gap:7px;align-items:flex-start"><span style="font-weight:900;color:#0f766e;min-width:18px">${index + 1}.</span><span>${escapeHtml(item)}</span></div>`).join('')}</div>`
       : `<div style="font-size:12px;color:#9ca3af">${escapeHtml(emptyLabel)}</div>`;
 
   const gateRows = input.criticalGates.map((gate) => CRITICAL_GATE_CAPS[gate as CriticalGateType]?.label || gate).filter(Boolean);
@@ -106,20 +106,19 @@ export async function buildStaffMonthlyEvaluationPdf(
       ${sectionsHtml}
 
 
-      <div style="margin-top:16px;border:1px solid #d1d5db;border-radius:10px;padding:12px"><div style="font-weight:800;margin-bottom:6px">ملخص الأدلة التي دعمت التقييم</div>${listHtml(evidenceRows, 'لا يوجد ملخص أدلة متاح.')}</div><div style="margin-top:12px;border:1px solid ${gateRows.length ? '#fecaca' : '#bbf7d0'};background:${gateRows.length ? '#fef2f2' : '#f0fdf4'};border-radius:10px;padding:12px"><div style="font-weight:800;margin-bottom:6px">المخالفات الحرجة</div>${listHtml(gateRows, 'لا توجد مخالفات حرجة مسجلة في النسخة المعتمدة.')}</div><div style="display:flex;gap:12px;margin-top:16px">
-        <div style="flex:1;border:1px solid #10b98140;background:#ecfdf5;border-radius:10px;padding:12px">
-          <div style="font-weight:800;color:#065f46;margin-bottom:6px">نقاط القوة</div>
-          ${listHtml(input.strengths, 'لم يتم تسجيل نقاط قوة محددة.')}
-        </div>
-        <div style="flex:1;border:1px solid #f59e0b40;background:#fffbeb;border-radius:10px;padding:12px">
-          <div style="font-weight:800;color:#92400e;margin-bottom:6px">خطة التطوير</div>
-          ${listHtml(input.developmentPoints, 'لم يتم تسجيل نقاط تطوير محددة.')}
-        </div>
+      <div style="margin-top:16px;border:1px solid #d1d5db;border-radius:10px;padding:12px"><div style="font-weight:800;margin-bottom:6px">ملخص الأدلة التي دعمت التقييم</div>${listHtml(evidenceRows, 'لا يوجد ملخص أدلة متاح.')}</div><div style="margin-top:12px;border:1px solid ${gateRows.length ? '#fecaca' : '#bbf7d0'};background:${gateRows.length ? '#fef2f2' : '#f0fdf4'};border-radius:10px;padding:12px"><div style="font-weight:800;margin-bottom:6px">المخالفات الحرجة</div>${listHtml(gateRows, 'لا توجد مخالفات حرجة مسجلة في النسخة المعتمدة.')}</div><div style="margin-top:16px;border:1px solid #10b98140;background:#ecfdf5;border-radius:10px;padding:12px">
+        <div style="font-weight:800;color:#065f46;margin-bottom:7px">نقاط القوة</div>
+        ${listHtml(input.strengths, 'لم يتم تسجيل نقاط قوة محددة.')}
+      </div>
+      <div style="margin-top:12px;border:1px solid #f59e0b40;background:#fffbeb;border-radius:10px;padding:12px">
+        <div style="font-weight:800;color:#92400e;margin-bottom:3px">خطة التطوير</div>
+        <div style="font-size:10.5px;color:#78716c;margin-bottom:8px">مرتبة كبنود تنفيذية واضحة للمراجعة في الدورة التالية.</div>
+        ${listHtml(input.developmentPoints, 'لم يتم تسجيل نقاط تطوير محددة.')}
       </div>
 
       <div style="margin-top:16px;border:1px solid #d1d5db;border-radius:10px;padding:12px;min-height:50px">
         <div style="font-weight:800;margin-bottom:5px">ملاحظات المدير العامة</div>
-        <div style="white-space:pre-wrap;font-size:13px">${escapeHtml(input.managerNotes || 'لا توجد ملاحظات إضافية.')}</div>
+        <div style="white-space:pre-wrap;font-size:12.5px;line-height:1.8">${escapeHtml(input.managerNotes || 'لا توجد ملاحظات إضافية.')}</div>
       </div>
 
       <div style="margin-top:22px;font-size:10px;color:#6b7280;text-align:center">تم إنشاء التقرير من نظام Dawaa Pharmacy — نسخة من سجل التقييم المعتمد والبصمة أعلاه للتحقق من ثبات المحتوى</div>
@@ -149,6 +148,13 @@ export async function buildStaffMonthlyEvaluationPdf(
         pageHost.appendChild(current);
         pages.push(current);
         current.appendChild(clone);
+        if (current.scrollHeight > current.clientHeight) {
+          // Never silently crop an oversized report block. Let the page grow and
+          // render it proportionally instead of hiding content behind overflow.
+          current.style.height = 'auto';
+          current.style.minHeight = '1123px';
+          current.style.overflow = 'visible';
+        }
       }
     }
     const pdf = new jsPDF('p', 'mm', 'a4');
