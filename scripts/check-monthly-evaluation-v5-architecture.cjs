@@ -130,6 +130,9 @@ if (employeeMonthlyEvidence.includes("readAttendanceRange")) failures.push('Mont
 if (!employeeMonthlyEvidence.includes("listAttendanceImpactLedger")) failures.push('Monthly evaluation evidence must read canonical attendance impact ledger.');
 if (!employeeMonthlyEvidence.includes("listAttendanceResolutionQueue")) failures.push('Monthly evaluation evidence must read canonical attendance resolution queue.');
 
+if (!employeeMonthlyEvidence.includes("row.impact_status === 'classified'")) failures.push('Monthly evaluation attendance coaching must count classified impacts only.');
+if (employeeMonthlyEvidence.includes("row.impact_status !== 'reversed'")) failures.push('Monthly evaluation must not treat non-reversed legacy impacts as current truth.');
+
 if (failures.length) {
   console.error('Monthly Evaluation V5 architecture check failed:');
   for (const failure of failures) console.error(`- ${failure}`);
