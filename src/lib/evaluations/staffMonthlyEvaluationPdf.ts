@@ -102,7 +102,7 @@ export async function buildStaffMonthlyEvaluationPdf(
         ${incentiveRow ? `<div style="flex:1;border:1px solid #d1d5db;border-radius:8px;padding:8px 10px">${incentiveRow}</div>` : ''}
       </div>
 
-      <div style="border:1px solid #99f6e4;background:#f0fdfa;border-radius:10px;padding:10px;margin-bottom:14px;font-size:11px;line-height:1.8"><div><b>حالة التقرير:</b> تقييم شهري معتمد</div><div><b>تاريخ الاعتماد:</b> ${escapeHtml(approvedAtLabel)}</div><div><b>بصمة النسخة المعتمدة:</b> ${escapeHtml(input.snapshotHash)}</div><div><b>مصدر النقاط والحافز:</b> ${escapeHtml(financialSourceLabel)}</div></div><div style="font-weight:800;margin-bottom:8px">محاور التقييم</div>
+      <div style="border:1px solid #99f6e4;background:#f0fdfa;border-radius:10px;padding:10px;margin-bottom:14px;font-size:11px;line-height:1.8"><div><b>حالة التقرير:</b> تقييم شهري معتمد</div><div><b>تاريخ الاعتماد:</b> ${escapeHtml(approvedAtLabel)}</div><div><b>بصمة نسخة التقييم المعتمدة:</b> ${escapeHtml(input.snapshotHash)}</div><div><b>مصدر النقاط والحافز:</b> ${escapeHtml(financialSourceLabel)}</div></div><div style="font-weight:800;margin-bottom:8px">محاور التقييم</div>
       ${sectionsHtml}
 
 
