@@ -10,6 +10,7 @@ import { usePendingFormNavigationGuard } from '@/hooks/useUnsavedChangesGuard';
 import { normalizeBranchName } from '@/lib/branch';
 import {
   evaluationProfileForRole,
+  evaluationEvidenceRequirementsForRole,
   type StaffEvaluationSectionV3,
 } from '@/lib/evaluations/staffEvaluationProfilesV3';
 import { canonicalStaffRole } from '@/lib/staff/staffRoleCapabilities';
@@ -138,26 +139,17 @@ function isConversationSectionKey(sectionKey: string) {
 }
 
 function roleAwareEvidenceReady(
-  sections: StaffEvaluationSectionV3[],
+  role: unknown,
   evidence: EmployeeMonthlyEvidence
 ) {
-  const keys = new Set(sections.map((item) => item.key.toLowerCase()));
-  const needsReviews = ['conversations', 'conversation', 'dispensing', 'sales_quality']
-    .some((key) => keys.has(key));
-  const needsFollowups = ['followups_requests', 'followups', 'followups_sla', 'requests', 'customer_requests']
-    .some((key) => keys.has(key));
-  const needsAttendance = ['discipline', 'attendance', 'shift_discipline']
-    .some((key) => keys.has(key));
-  const needsInventory = ['inventory', 'inventory_accuracy', 'shortages', 'expiry']
-    .some((key) => keys.has(key));
-
-  if (needsReviews && evidence.health.reviews !== 'available') return false;
-  if (needsFollowups && evidence.health.followups !== 'available') return false;
-  if (needsAttendance && (
+  const requirements = evaluationEvidenceRequirementsForRole(role);
+  if (requirements.includes('reviews') && evidence.health.reviews !== 'available') return false;
+  if (requirements.includes('followups') && evidence.health.followups !== 'available') return false;
+  if (requirements.includes('attendance') && (
     evidence.health.attendance !== 'available'
     || !evidence.coaching.attendance.finalization.ready
   )) return false;
-  if (needsInventory && evidence.coaching.inventory.sourceStatus === 'unavailable') return false;
+  if (requirements.includes('inventory') && evidence.coaching.inventory.sourceStatus === 'unavailable') return false;
   return true;
 }
 
@@ -854,7 +846,7 @@ export default function StaffMonthlyEvaluation() {
         setApprovedEvidenceDrift(false);
         setMetrics(evidenceResult.metrics);
         const freshSections = evaluationProfileForRole(selected.job_title || selected.role).sections;
-        setEvidenceReady(roleAwareEvidenceReady(freshSections, evidenceResult));
+        setEvidenceReady(roleAwareEvidenceReady(selected.job_title || selected.role, evidenceResult));
         setEvidenceHealth(evidenceResult.health);
         setEvidenceErrors(evidenceResult.errors);
         setCoaching(evidenceResult.coaching);
