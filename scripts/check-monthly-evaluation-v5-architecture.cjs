@@ -16,6 +16,7 @@ const audit = read('src/components/evaluations/MonthlyEvaluationAuditTrailV5.tsx
 const navigationGuard = read('src/contexts/NavigationGuardContext.tsx');
 const financialTruth = read('src/lib/evaluations/monthlyEvaluationFinancialTruth.ts');
 const profiles = read('src/lib/evaluations/staffEvaluationProfilesV3.ts');
+const canonicalAttendanceTruth = read('supabase/migrations/20261002213000_monthly_evaluation_canonical_attendance_truth_v5.sql');
 const backend = [
   read('supabase/migrations/20260929153000_monthly_evaluation_command_center_v5.sql'),
   read('supabase/migrations/20260929154500_monthly_evaluation_v5_hardening.sql'),
@@ -123,3 +124,11 @@ if (failures.length) {
 }
 
 console.log('Monthly Evaluation V5 architecture check passed.');
+
+if (!canonicalAttendanceTruth.includes("from public.attendance_daily_summary d")) failures.push('Canonical evaluation attendance truth must read finalized daily summaries.');
+if (!canonicalAttendanceTruth.includes("from public.attendance_impact_ledger l")) failures.push('Canonical evaluation attendance truth must read classified attendance impacts.');
+if (!canonicalAttendanceTruth.includes("l.impact_status='classified'")) failures.push('Canonical evaluation attendance truth must ignore superseded/reversed impacts.');
+if (!canonicalAttendanceTruth.includes("'attendance_pending_review_days'")) failures.push('Canonical evaluation attendance truth must expose unresolved-day count.');
+if (!canonicalAttendanceTruth.includes("'attendance_conflict_days'")) failures.push('Canonical evaluation attendance truth must expose active conflict count.');
+if (/from\s+public\.attendance\s/i.test(canonicalAttendanceTruth)) failures.push('Legacy attendance table is forbidden in the canonical monthly-evaluation attendance path.');
+if (/from\s+public\.staff_attendance_logs\s/i.test(canonicalAttendanceTruth)) failures.push('Raw attendance logs are forbidden in the canonical monthly-evaluation approval path.');
