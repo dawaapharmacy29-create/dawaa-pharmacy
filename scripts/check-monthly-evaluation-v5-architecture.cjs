@@ -138,6 +138,12 @@ if (!page.includes('...profileSection') || !page.includes("score: safeNumber(row
 
 if (!page.includes('normalizeAttendanceDevelopmentNumbers(loadedDevelopmentRaw, evidenceResult.coaching.attendance)')) failures.push('Loaded historical development text must be normalized against current canonical attendance before reapproval.');
 
+const pdfReport = read('src/lib/evaluations/monthlyEvaluationPdfReport.ts');
+const pdfRenderer = read('src/lib/evaluations/staffMonthlyEvaluationPdf.ts');
+if (!pdfReport.includes('attendanceFinalizedDays: num(rec(serverEvidence.counts).attendance_resolved_days)')) failures.push('PDF must source finalized attendance days from canonical server evidence.');
+if (!pdfReport.includes('attendanceClassifiedDays: num(attendance.resolvedDays)')) failures.push('PDF must keep classified ledger days distinct from finalized attendance days.');
+if (!pdfRenderer.includes('يوم تم حسمه نهائيًا') || !pdfRenderer.includes('يوم له تصنيف في سجل الحضور')) failures.push('PDF attendance labels must distinguish finalized days from classified ledger days.');
+
 if (failures.length) {
   console.error('Monthly Evaluation V5 architecture check failed:');
   for (const failure of failures) console.error(`- ${failure}`);
