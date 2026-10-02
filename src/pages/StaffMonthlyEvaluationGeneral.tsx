@@ -641,18 +641,24 @@ function normalizeSavedSections(
   fallback: StaffEvaluationSectionV3[]
 ): StaffEvaluationSectionV3[] {
   if (!Array.isArray(saved) || !saved.length) return fallback;
-  const byKey = new Map(fallback.map((item) => [item.key, item]));
-  return saved.map((raw) => {
-    const row = raw as Record<string, unknown>;
-    const key = String(row.key || '');
+  const savedByKey = new Map(
+    saved.map((raw) => {
+      const row = raw as Record<string, unknown>;
+      return [String(row.key || ''), row] as const;
+    })
+  );
+
+  // The current profile is the canonical contract for keys, labels and weights.
+  // Historical evaluations may carry an older weight distribution; preserve only
+  // the manager-entered score/notes for matching axes so reapproval migrates the
+  // evaluation safely without mutating its historical audit rows.
+  return fallback.map((profileSection) => {
+    const row = savedByKey.get(profileSection.key);
+    if (!row) return profileSection;
     return {
-      key,
-      title: String(row.title || ''),
-      description: String(row.description || ''),
-      weight: safeNumber(row.weight),
+      ...profileSection,
       score: safeNumber(row.score),
       notes: String(row.notes || ''),
-      rubric: byKey.get(key)?.rubric,
     };
   });
 }
