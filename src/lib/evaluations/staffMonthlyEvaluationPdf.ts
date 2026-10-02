@@ -20,7 +20,7 @@ export type StaffMonthlyEvaluationPdfInput = {
   incentiveEgp?: number | null;
   financialSource?: 'settled_statement' | 'points_truth';
   approvedAt: string; snapshotHash: string; criticalGates: string[];
-  evidence: { reviewsStatus: string; followupsStatus: string; attendanceStatus: string; conversationReviews: number; conversationAverage: number | null; followupsCompleted: number; followupsTotal: number; attendanceResolvedDays: number; attendancePendingDays: number; attendanceConflictDays: number; attendanceLateCases: number; attendanceLateMinutes: number; attendanceAbsenceCases: number; medicalErrors: number; invoiceErrors: number; };
+  evidence: { reviewsStatus: string; followupsStatus: string; attendanceStatus: string; conversationReviews: number; conversationAverage: number | null; followupsCompleted: number; followupsTotal: number; attendanceFinalizedDays: number; attendanceClassifiedDays: number; attendancePendingDays: number; attendanceConflictDays: number; attendanceLateCases: number; attendanceLateMinutes: number; attendanceAbsenceCases: number; medicalErrors: number; invoiceErrors: number; };
 };
 
 function escapeHtml(value: unknown) {
@@ -63,7 +63,7 @@ export async function buildStaffMonthlyEvaluationPdf(
   const evidenceRows = [
     `مراجعات المحادثات: ${evidence.reviewsStatus === 'available' ? `${evidence.conversationReviews} مراجعة${evidence.conversationAverage == null ? '' : ` · المتوسط ${evidence.conversationAverage}/10`}` : 'المصدر غير متاح'}`,
     `المتابعات: ${evidence.followupsStatus === 'available' ? `${evidence.followupsCompleted}/${evidence.followupsTotal} مكتملة` : 'المصدر غير متاح'}`,
-    `الحضور: ${evidence.attendanceStatus === 'available' ? `${evidence.attendanceResolvedDays} يوم محسوم · ${evidence.attendanceLateCases} حالات تأخير (${evidence.attendanceLateMinutes} دقيقة) · ${evidence.attendanceAbsenceCases} غياب` : 'المصدر غير متاح'}`,
+    `الحضور: ${evidence.attendanceStatus === 'available' ? `${evidence.attendanceFinalizedDays} يوم تم حسمه نهائيًا · ${evidence.attendanceClassifiedDays} يوم له تصنيف في سجل الحضور · ${evidence.attendanceLateCases} حالات تأخير (${evidence.attendanceLateMinutes} دقيقة) · ${evidence.attendanceAbsenceCases} غياب` : 'المصدر غير متاح'}`,
     evidence.medicalErrors ? `أخطاء طبية موثقة: ${evidence.medicalErrors}` : '',
     evidence.invoiceErrors ? `أخطاء فاتورة موثقة: ${evidence.invoiceErrors}` : '',
   ].filter(Boolean);
