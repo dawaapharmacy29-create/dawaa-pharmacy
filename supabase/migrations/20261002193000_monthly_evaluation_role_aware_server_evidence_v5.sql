@@ -20,8 +20,8 @@ begin
   if v_role in ('مساعد','مساعد صيدلي','مساعد صيدلية','مساعد صيدليه','assistant','pharmacy assistant') then return 'assistant'; end if;
   if v_role='inventory assistant' or v_role like '%مساعد مخزن%' or v_role like '%مساعد جرد%' or v_role like '%مساعد مخزون%' then return 'inventory_assistant'; end if;
   if v_role like '%نظاف%' or v_role in ('cleaning','cleaner','cleaning supervisor') then return 'cleaning'; end if;
-  if v_role in ('توصيل','دليفري','مندوب','مندوب توصيل','مندوب دليفري','delivery','delivery rider','delivery driver','rider') then return 'delivery'; end if;
-  if v_role in ('خدمة عملاء','خدمة العملاء','مسؤول خدمة العملاء','مسئول خدمة العملاء','مسؤولة خدمة العملاء','customer service','كول سنتر','call center') then return 'customer_service'; end if;
+  if v_role in ('توصيل','دليفري','مندوب توصيل','مندوب دليفري','delivery','delivery rider','delivery driver','rider') then return 'delivery'; end if;
+  if v_role in ('خدمة عملاء','خدمة العملاء','مسؤول خدمة العملاء','مسئول خدمة العملاء','مسؤولة خدمة العملاء','customer service','كول سنتر','call center','فريق دواء ألفا') then return 'customer_service'; end if;
   if v_role in ('مدير خدمة العملاء','مديرة خدمة العملاء','customer service manager') then return 'customer_service_manager'; end if;
   if v_role in ('مسؤول الشيفت','مسئول الشيفت','مسئولة الشيفت','مشرف شيفت','مشرفة شيفت','shift supervisor','shift supervisor morning','shift supervisor evening',
                 'مسؤول شيفت صباحي','مسئول شيفت صباحي','مسئولة شيفت صباحي','مشرف شيفت صباحي','مشرفة شيفت صباحي',
