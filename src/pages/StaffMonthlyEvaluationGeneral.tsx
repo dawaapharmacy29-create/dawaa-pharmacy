@@ -120,6 +120,16 @@ function formatSignedPoints(points: number) {
   return `${points > 0 ? '+' : ''}${points}`;
 }
 
+function readableErrorMessage(cause: unknown, fallback: string): string {
+  if (cause instanceof Error && cause.message) return cause.message;
+  if (cause && typeof cause === 'object') {
+    const row = cause as Record<string, unknown>;
+    const message = String(row.message || row.details || row.hint || '').trim();
+    if (message) return message;
+  }
+  return fallback;
+}
+
 function isConversationSectionKey(sectionKey: string) {
   return ['conversations', 'conversation', 'customer', 'customers', 'team_quality', 'customer_outcomes'].includes(sectionKey.toLowerCase());
 }
@@ -1250,7 +1260,7 @@ export default function StaffMonthlyEvaluation() {
       toast.success(nextStatus === 'sent' ? 'تم اعتماد التقييم' : 'تم حفظ المسودة');
       return true;
     } catch (cause) {
-      toast.error(cause instanceof Error ? cause.message : 'فشل حفظ التقييم');
+      toast.error(readableErrorMessage(cause, 'فشل حفظ التقييم'));
       return false;
     } finally {
       setSaving(false);
