@@ -83,7 +83,7 @@ begin
   -- Attendance is an explicit axis for these profiles. Other management profiles
   -- must not be blocked by an unrelated attendance feed.
   v_needs_attendance := v_role in (
-    'doctor','assistant','inventory_assistant','cleaning','delivery',
+    'doctor','assistant','inventory_assistant','delivery',
     'customer_service','shift_supervisor'
   );
 
