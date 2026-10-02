@@ -256,6 +256,18 @@ export function evaluationProfileForRole(role: unknown): StaffEvaluationProfileV
   };
 }
 
+export type EvaluationEvidenceRequirement = 'reviews' | 'followups' | 'attendance' | 'inventory';
+
+export function evaluationEvidenceRequirementsForRole(role: unknown): EvaluationEvidenceRequirement[] {
+  const keys = new Set(evaluationProfileForRole(role).sections.map((item) => item.key.toLowerCase()));
+  const requirements: EvaluationEvidenceRequirement[] = [];
+  if (['conversations', 'conversation', 'dispensing', 'sales_quality'].some((key) => keys.has(key))) requirements.push('reviews');
+  if (['followups_requests', 'followups', 'followups_sla', 'requests', 'customer_requests'].some((key) => keys.has(key))) requirements.push('followups');
+  if (['discipline', 'attendance', 'shift_discipline'].some((key) => keys.has(key))) requirements.push('attendance');
+  if (['inventory', 'inventory_accuracy', 'shortages', 'expiry'].some((key) => keys.has(key))) requirements.push('inventory');
+  return requirements;
+}
+
 export function evaluationProfileWeightsAreValid() {
   return Object.values(PROFILES).every((profile) => profile.sections.reduce((sum, section) => sum + section.weight, 0) === 100);
 }
