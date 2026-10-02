@@ -15,7 +15,7 @@ export type MonthlyEvaluationPdfReport = {
     reviewsStatus: string; followupsStatus: string; attendanceStatus: string;
     conversationReviews: number; conversationAverage: number | null;
     followupsCompleted: number; followupsTotal: number;
-    attendanceResolvedDays: number; attendancePendingDays: number; attendanceConflictDays: number;
+    attendanceFinalizedDays: number; attendanceClassifiedDays: number; attendancePendingDays: number; attendanceConflictDays: number;
     attendanceLateCases: number; attendanceLateMinutes: number; attendanceAbsenceCases: number;
     medicalErrors: number; invoiceErrors: number;
   };
@@ -83,7 +83,8 @@ export function buildApprovedMonthlyEvaluationPdfReport(input: {
       conversationAverage: nullableNum(conversation.coreAverage),
       followupsCompleted: num(followups.completed),
       followupsTotal: num(followups.total),
-      attendanceResolvedDays: num(attendance.resolvedDays),
+      attendanceFinalizedDays: num(rec(serverEvidence.counts).attendance_resolved_days),
+      attendanceClassifiedDays: num(attendance.resolvedDays),
       attendancePendingDays: num(attendance.pendingReviewCases),
       attendanceConflictDays: num(attendance.conflictingResolutionDays),
       attendanceLateCases: num(attendance.lateCases) + num(attendance.veryLateCases),
