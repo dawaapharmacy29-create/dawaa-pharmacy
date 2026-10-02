@@ -27,6 +27,7 @@ describe('staff role capabilities', () => {
     expect(canonicalStaffRole('خدمة العملاء')).toBe('customer_service');
     expect(canonicalStaffRole('مندوب توصيل')).toBe('delivery');
     expect(canonicalStaffRole('فريق دواء ألفا')).toBe('customer_service');
+    expect(canonicalStaffRole('team_dawaa_alpha')).toBe('customer_service');
     expect(canonicalStaffRole('مندوب')).toBe('other');
     expect(canonicalStaffRole('صيدلي أول')).toBe('doctor');
     expect(canonicalStaffRole('senior pharmacist')).toBe('doctor');
