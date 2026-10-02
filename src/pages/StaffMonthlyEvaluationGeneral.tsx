@@ -2587,7 +2587,7 @@ export default function StaffMonthlyEvaluation() {
                               className="rounded-lg border px-2.5 py-1.5 text-[11px] font-black"
                               style={{ borderColor: 'var(--dawaa-status-warning-border)', color: 'var(--dawaa-status-warning-text)' }}
                             >
-                              إضافة التطوير والخطة
+                              {previouslySent ? 'تحديث الخطة من الأدلة الحالية' : 'إضافة التطوير والخطة'}
                             </button>
                           ) : null}
                         </div>
