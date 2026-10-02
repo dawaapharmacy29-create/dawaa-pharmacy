@@ -661,9 +661,8 @@ begin
     into v_actual
   from jsonb_array_elements(new.sections) x
   where nullif(btrim(x->>'key'),'') is not null
-    and coalesce(x->>'weight','') ~ '^[0-9]+([.][0-9]+)?
-
-  if v_actual is distinct from v_contract then
+    and jsonb_typeof(x->'weight') = 'number';
+if v_actual is distinct from v_contract then
     raise exception 'monthly_evaluation_profile_contract_mismatch'
       using errcode='22023',
             detail='Evaluation section keys and weights must exactly match the canonical profile for the employee role.';
