@@ -117,14 +117,6 @@ for (const token of [
   if (!backend.includes(token)) failures.push(`V5 backend contract is missing: ${token}`);
 }
 
-if (failures.length) {
-  console.error('Monthly Evaluation V5 architecture check failed:');
-  for (const failure of failures) console.error(`- ${failure}`);
-  process.exit(1);
-}
-
-console.log('Monthly Evaluation V5 architecture check passed.');
-
 if (!canonicalAttendanceTruth.includes("from public.attendance_daily_summary d")) failures.push('Canonical evaluation attendance truth must read finalized daily summaries.');
 if (!canonicalAttendanceTruth.includes("from public.attendance_impact_ledger l")) failures.push('Canonical evaluation attendance truth must read classified attendance impacts.');
 if (!canonicalAttendanceTruth.includes("l.impact_status='classified'")) failures.push('Canonical evaluation attendance truth must ignore superseded/reversed impacts.');
@@ -132,3 +124,11 @@ if (!canonicalAttendanceTruth.includes("'attendance_pending_review_days'")) fail
 if (!canonicalAttendanceTruth.includes("'attendance_conflict_days'")) failures.push('Canonical evaluation attendance truth must expose active conflict count.');
 if (/from\s+public\.attendance\s/i.test(canonicalAttendanceTruth)) failures.push('Legacy attendance table is forbidden in the canonical monthly-evaluation attendance path.');
 if (/from\s+public\.staff_attendance_logs\s/i.test(canonicalAttendanceTruth)) failures.push('Raw attendance logs are forbidden in the canonical monthly-evaluation approval path.');
+
+if (failures.length) {
+  console.error('Monthly Evaluation V5 architecture check failed:');
+  for (const failure of failures) console.error(`- ${failure}`);
+  process.exit(1);
+}
+
+console.log('Monthly Evaluation V5 architecture check passed.');
