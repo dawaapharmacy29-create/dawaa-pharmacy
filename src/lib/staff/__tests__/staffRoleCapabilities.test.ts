@@ -4,7 +4,7 @@ import {
   staffHasCapability,
 } from '@/lib/staff/staffRoleCapabilities';
 
-import { rulesForStaffRole } from '@/lib/evaluationRulesCatalog';
+import { ruleAppliesToStaff, rulesForStaffRole } from '@/lib/evaluationRulesCatalog';
 
 describe('staff role capabilities', () => {
   it('normalizes Arabic and English operating roles consistently', () => {
@@ -50,6 +50,12 @@ describe('staff role capabilities', () => {
   it('keeps purchasing-scoped rules isolated from unrelated roles', () => {
     const purchasingRules = rulesForStaffRole('مدير المشتريات');
     const doctorRules = rulesForStaffRole('صيدلاني');
+
+    expect(ruleAppliesToStaff('purchasing', 'مدير المشتريات')).toBe(true);
+    expect(ruleAppliesToStaff('purchasing', 'purchasing')).toBe(true);
+    expect(ruleAppliesToStaff('purchasing', 'صيدلاني')).toBe(false);
+    expect(purchasingRules.length).toBeGreaterThan(0);
+    expect(purchasingRules.some((rule) => rule.role_scope === 'purchasing' || rule.role_scopes?.includes('purchasing'))).toBe(true);
 
     expect(purchasingRules.every((rule) => rule.role_scope === 'all' || rule.role_scopes?.includes('purchasing'))).toBe(true);
     expect(doctorRules.every((rule) => rule.role_scope !== 'purchasing' && !rule.role_scopes?.includes('purchasing'))).toBe(true);
