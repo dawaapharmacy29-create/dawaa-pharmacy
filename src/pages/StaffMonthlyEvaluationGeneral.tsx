@@ -1137,11 +1137,11 @@ export default function StaffMonthlyEvaluation() {
         const lateCases = Math.max(0, Number(coaching.attendance.lateCases || 0) + Number(coaching.attendance.veryLateCases || 0));
         const lateMinutes = Math.max(0, Number(coaching.attendance.lateMinutes || 0));
         return item
-          .replace(/\\d+(?=\\s*حالة\\s+غياب\\s+مؤكدة)/g, String(absenceCases))
-          .replace(/\\d+(?=\\s*حالات\\s+غياب\\s+مؤكدة)/g, String(absenceCases))
-          .replace(/(عدد\\s+حالات\\s+الغياب\\s*(?:إلى|=|:)??\\s*)\\d+/g, `$1${absenceCases}`)
-          .replace(/(عدد\\s+حالات\\s+التأخير\\s*(?:إلى|=|:)??\\s*)\\d+/g, `$1${lateCases}`)
-          .replace(/(إجمالي\\s+)\\d+(?=\\s*(?:دقيقة|دقائق))/g, `$1${lateMinutes}`);
+          .replace(/\d+(?=\s*حالة\s+غياب\s+مؤكدة)/g, String(absenceCases))
+          .replace(/\d+(?=\s*حالات\s+غياب\s+مؤكدة)/g, String(absenceCases))
+          .replace(/(عدد\s+حالات\s+الغياب\s*(?:إلى|=|:)?\s*)\d+/g, `$1${absenceCases}`)
+          .replace(/(عدد\s+حالات\s+التأخير\s*(?:إلى|=|:)?\s*)\d+/g, `$1${lateCases}`)
+          .replace(/(إجمالي\s+)\d+(?=\s*(?:دقيقة|دقائق))/g, `$1${lateMinutes}`);
       });
       const payload = {
         staff_id: selected.id,
