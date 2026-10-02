@@ -133,6 +133,9 @@ if (!employeeMonthlyEvidence.includes("listAttendanceResolutionQueue")) failures
 if (!employeeMonthlyEvidence.includes("row.impact_status === 'classified'")) failures.push('Monthly evaluation attendance coaching must count classified impacts only.');
 if (employeeMonthlyEvidence.includes("row.impact_status !== 'reversed'")) failures.push('Monthly evaluation must not treat non-reversed legacy impacts as current truth.');
 
+if (!monthlyPage.includes('return fallback.map((profileSection) =>')) failures.push('Legacy evaluations must be remapped onto the current canonical profile before reapproval.');
+if (!monthlyPage.includes('...profileSection') || !monthlyPage.includes("score: safeNumber(row.score)") || !monthlyPage.includes("notes: String(row.notes || '')")) failures.push('Legacy profile migration must preserve manager score/notes while taking current profile weights.');
+
 if (failures.length) {
   console.error('Monthly Evaluation V5 architecture check failed:');
   for (const failure of failures) console.error(`- ${failure}`);
