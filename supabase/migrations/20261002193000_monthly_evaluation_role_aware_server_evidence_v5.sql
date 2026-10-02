@@ -3,6 +3,39 @@
 -- This server gate must not re-introduce doctor/customer-service-only requirements
 -- for delivery, cleaning, inventory, management, or other roles.
 
+-- Keep database role normalization in exact parity with the frontend canonicalStaffRole.
+create or replace function public.dawaa_monthly_evaluation_canonical_role_v5(p_role text)
+returns text
+language plpgsql
+immutable
+set search_path to 'public','pg_catalog'
+as $function$
+declare
+  v_role text := lower(trim(coalesce(p_role,'')));
+begin
+  v_role := regexp_replace(v_role,'[_-]+',' ','g');
+  v_role := regexp_replace(v_role,'[[:space:]]+',' ','g');
+
+  if v_role in ('صيدلاني','صيدلي','دكتور','doctor','pharmacist','صيدلي اول','صيدلي أول','senior pharmacist','pharmacist senior') then return 'doctor'; end if;
+  if v_role in ('مساعد','مساعد صيدلي','مساعد صيدلية','مساعد صيدليه','assistant','pharmacy assistant') then return 'assistant'; end if;
+  if v_role='inventory assistant' or v_role like '%مساعد مخزن%' or v_role like '%مساعد جرد%' or v_role like '%مساعد مخزون%' then return 'inventory_assistant'; end if;
+  if v_role like '%نظاف%' or v_role in ('cleaning','cleaner','cleaning supervisor') then return 'cleaning'; end if;
+  if v_role in ('توصيل','دليفري','مندوب','مندوب توصيل','مندوب دليفري','delivery','delivery rider','delivery driver','rider') then return 'delivery'; end if;
+  if v_role in ('خدمة عملاء','خدمة العملاء','مسؤول خدمة العملاء','مسئول خدمة العملاء','مسؤولة خدمة العملاء','customer service','كول سنتر','call center') then return 'customer_service'; end if;
+  if v_role in ('مدير خدمة العملاء','مديرة خدمة العملاء','customer service manager') then return 'customer_service_manager'; end if;
+  if v_role in ('مسؤول الشيفت','مسئول الشيفت','مسئولة الشيفت','مشرف شيفت','مشرفة شيفت','shift supervisor','shift supervisor morning','shift supervisor evening',
+                'مسؤول شيفت صباحي','مسئول شيفت صباحي','مسئولة شيفت صباحي','مشرف شيفت صباحي','مشرفة شيفت صباحي',
+                'مسؤول شيفت مسائي','مسئول شيفت مسائي','مسئولة شيفت مسائي','مشرف شيفت مسائي','مشرفة شيفت مسائي')
+    then return 'shift_supervisor'; end if;
+  if v_role in ('مدير فرع','مديرة فرع','branch manager','branch manager shamy','branch manager shokry') then return 'branch_manager'; end if;
+  if v_role in ('مدير الفروع','مديرة الفروع','branches manager') then return 'branches_manager'; end if;
+  if v_role like '%مشتريات%' or v_role in ('purchasing','purchasing manager') then return 'purchasing'; end if;
+  if v_role in ('مدير تنفيذي','مدير عام','executive manager','general manager') then return 'executive'; end if;
+  if v_role in ('admin','أدمن','owner') then return 'admin'; end if;
+  return 'other';
+end;
+$function$;
+
 create or replace function public.dawaa_monthly_evaluation_server_evidence_v5(
   p_staff_id uuid,
   p_evaluation_month date
