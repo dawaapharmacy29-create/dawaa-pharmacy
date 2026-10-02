@@ -234,7 +234,8 @@ function normalizeAttendanceDevelopmentNumbers(value: string, attendance: NonNul
     .replace(/\d+(?=\s*(?:حالة|حالات)\s+تأخير(?:\s+مسجلة)?)/g, String(lateCases))
     .replace(/(عدد\s+حالات\s+التأخير\s*(?:إلى|=|:)?\s*)\d+/g, `$1${lateCases}`)
     .replace(/(إجمالي\s+)\d+(?=\s*(?:دقيقة|دقائق))/g, `$1${lateMinutes}`)
-    .replace(/\d+(?=\s*(?:يوم|أيام)\s+عليه\s+أكثر\s+من\s+تصنيف\s+حضور\s+نشط)/g, String(conflictDays));
+    .replace(/\d+(?=\s*(?:يوم|أيام)\s+عليه\s+أكثر\s+من\s+تصنيف\s+حضور\s+نشط)/g, String(conflictDays))
+    .replace(/(\d+\s*(?:يوم|أيام)\s+عليه\s+أكثر\s+من\s+تصنيف\s+حضور\s+نشط)[^؛.]*[؛.]?/g, conflictDays > 0 ? `$1؛` : '');
 }
 
 function sectionEvidenceFor(
