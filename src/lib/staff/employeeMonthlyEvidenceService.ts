@@ -9,8 +9,7 @@ import {
   isActionableDevelopmentIssue,
   isActionableTrainingRecommendation,
 } from '@/lib/evaluations/monthlyDevelopmentTextEvidence';
-import { readAttendanceRange } from '@/lib/readModels/attendanceReadModel';
-import {
+ import {
   listAttendanceImpactLedger,
   listAttendanceResolutionQueue,
   type AttendanceImpactRow,
@@ -1495,7 +1494,7 @@ export async function loadEmployeeMonthlyEvidence(args: {
   const errors: Record<string, string> = {};
   const attendanceEndDate = new Date(new Date(args.endDateExclusive).getTime() - 86400000).toISOString().slice(0, 10);
 
-  const [reviewResult, followupResult, attendanceResult, attendanceImpactResult, attendanceReviewResult, inventoryResult, trainingResult, invoicePerformanceResult] = await Promise.all([
+  const [reviewResult, followupResult, attendanceImpactResult, attendanceReviewResult, inventoryResult, trainingResult, invoicePerformanceResult] = await Promise.all([
     loadConversationReviews(args),
     supabase
       .from('daily_followups')
@@ -1504,12 +1503,6 @@ export async function loadEmployeeMonthlyEvidence(args: {
       .gte('created_at', args.startDate)
       .lt('created_at', args.endDateExclusive)
       .limit(1000),
-    readAttendanceRange({
-      staffId: args.staffId,
-      startDate: args.startDate,
-      endDateExclusive: args.endDateExclusive,
-      limit: 400,
-    }),
     listAttendanceImpactLedger({
       staffId: args.staffId,
       start: args.startDate,
@@ -1551,13 +1544,12 @@ export async function loadEmployeeMonthlyEvidence(args: {
     errors.followups = 'نتائج المتابعات وصلت إلى حد 1000 سجل؛ لا يمكن إثبات اكتمال عينة المنفذ بأمان.';
   }
 
-  const attendanceRows = attendanceResult.status === 'available' ? attendanceResult.rows : [];
-  if (attendanceResult.status === 'unavailable') errors.attendance = attendanceResult.error;
   if (attendanceImpactResult.error) errors.attendance_impact = attendanceImpactResult.error;
   if (attendanceReviewResult.error) errors.attendance_review = attendanceReviewResult.error;
+  // Monthly evaluation attendance truth is Resolution V2 only.
+  // Raw/legacy attendance rows must never decide readiness or final evidence.
   const attendanceSourceAvailable =
-    attendanceResult.status === 'available'
-    && !attendanceImpactResult.error
+    !attendanceImpactResult.error
     && !attendanceReviewResult.error;
 
   const reviewAverage = reviewRows.length
@@ -1580,9 +1572,22 @@ export async function loadEmployeeMonthlyEvidence(args: {
     .filter((value) => value < 0)
     .reduce((sum, value) => sum + Math.abs(value), 0);
 
-  const presentDays = attendanceRows.filter((row) =>
-    /present|حاضر|late|متأخر/i.test(String(row.status || ''))
-  ).length;
+  const resolvedAttendanceDates = new Set(
+    attendanceImpactResult.rows
+      .filter((row) => String(row.impact_status || '') === 'classified')
+      .map((row) => String(row.attendance_date || ''))
+      .filter(Boolean)
+  );
+  const presentAttendanceDates = new Set(
+    attendanceImpactResult.rows
+      .filter((row) => {
+        const eventType = String(row.event_type || '');
+        return String(row.impact_status || '') === 'classified'
+          && !['attendance_absence_confirmed', 'attendance_approved_time_off', 'attendance_off_day'].includes(eventType);
+      })
+      .map((row) => String(row.attendance_date || ''))
+      .filter(Boolean)
+  );
 
   const reviewAvailable = !errors.reviews;
   const health = {
@@ -1606,8 +1611,8 @@ export async function loadEmployeeMonthlyEvidence(args: {
       followup_count: followupRows.length,
       conversation_positive_points: positivePoints,
       conversation_negative_points: negativePoints,
-      attendance_days: attendanceRows.length,
-      present_days: presentDays,
+      attendance_days: resolvedAttendanceDates.size,
+      present_days: presentAttendanceDates.size,
       engine_version: 5,
     },
     coaching: {
