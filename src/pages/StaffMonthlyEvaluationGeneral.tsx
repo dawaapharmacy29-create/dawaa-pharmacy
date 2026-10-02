@@ -735,9 +735,7 @@ export default function StaffMonthlyEvaluation() {
   const evaluationComplete = sections.length > 0 && sections.every((item) => item.score > 0);
   const grade = evaluationNotStarted ? 'لسه ما اتقيّمش' : evaluationComplete ? gradeFor(overallScore) : 'غير مكتمل';
   const requiresPostCycleReapproval = Boolean(
-    ['sent', 'approved'].includes(status)
-      && sentAtIso
-      && new Date(sentAtIso).getTime() <= cycleRange.end.getTime()
+    ['sent', 'approved'].includes(status) && approvedEvidenceDrift
   );
 
   // ملحوظة مهمة: مفيش "فئة شرائح تقديرية" هنا عمدًا — نظام الشرائح
@@ -914,11 +912,7 @@ export default function StaffMonthlyEvaluation() {
           setManagerNotes(loadedManagerNotes);
           setStatus(savedStatus);
           setSentAtIso(savedSentAt);
-          setPreviouslySent(
-            ['sent', 'approved'].includes(savedStatus)
-              && Boolean(savedSentAt)
-              && new Date(savedSentAt).getTime() > cycleRange.end.getTime()
-          );
+          setPreviouslySent(['sent', 'approved'].includes(savedStatus));
           const savedGates = metricsSnapshot && Array.isArray(metricsSnapshot.active_critical_gates) ? (metricsSnapshot.active_critical_gates as string[]) : [];
           const validSavedGates = savedGates.filter((gate): gate is CriticalGateType => gate in CRITICAL_GATE_CAPS);
           setActiveGates(validSavedGates);
