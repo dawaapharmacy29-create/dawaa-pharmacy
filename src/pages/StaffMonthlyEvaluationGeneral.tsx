@@ -1137,6 +1137,25 @@ export default function StaffMonthlyEvaluation() {
       return false;
     }
     if (nextStatus === 'sent') {
+      const developmentAxis = sections.find((item) => item.key === 'development');
+      if (developmentAxis && developmentAxis.score <= 2) {
+        const developmentEvidence = coaching?.development;
+        const hasPostGuidanceEvidence = Boolean(
+          developmentEvidence
+          && (
+            developmentEvidence.training.assigned > 0
+            || developmentEvidence.repeatedIssues.length > 0
+            || developmentEvidence.repeatedRecommendations.length > 0
+            || developmentEvidence.reviewTrend.measurable
+          )
+        );
+        if (!hasPostGuidanceEvidence) {
+          toast.error('محور التطور لا يجوز خفضه بسبب نفس خطأ المحور الأصلي فقط؛ يلزم دليل على الاستجابة بعد توجيه أو تدريب موثق.');
+          return false;
+        }
+      }
+    }
+    if (nextStatus === 'sent') {
       const manualStrongWithoutEvidence = sections.filter((item) => {
         if (item.score < 4) return false;
         const evidence = sectionEvidenceFor(item.key, metrics, evidenceHealth, pointsTruth, coaching);
@@ -1435,6 +1454,9 @@ export default function StaffMonthlyEvaluation() {
   if (coaching?.followups.drafts.development) objectiveDevelopmentKeys.add('followups_requests');
   if (coaching?.salesQuality.drafts.development) objectiveDevelopmentKeys.add('sales_quality');
   if (coaching?.inventory.drafts.development) objectiveDevelopmentKeys.add('inventory');
+  // The development axis must measure response AFTER coaching/training, not
+  // duplicate the original attendance/conversation/inventory issue. Only the
+  // development source itself can make this axis an objective development need.
   if (coaching?.development.drafts.development) objectiveDevelopmentKeys.add('development');
 
   const developmentSections = evaluationComplete
