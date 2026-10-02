@@ -136,6 +136,8 @@ if (employeeMonthlyEvidence.includes("row.impact_status !== 'reversed'")) failur
 if (!page.includes('return fallback.map((profileSection) =>')) failures.push('Legacy evaluations must be remapped onto the current canonical profile before reapproval.');
 if (!page.includes('...profileSection') || !page.includes("score: safeNumber(row.score)") || !page.includes("notes: String(row.notes || '')")) failures.push('Legacy profile migration must preserve manager score/notes while taking current profile weights.');
 
+if (!page.includes('normalizeAttendanceDevelopmentNumbers(loadedDevelopmentRaw, evidenceResult.coaching.attendance)')) failures.push('Loaded historical development text must be normalized against current canonical attendance before reapproval.');
+
 if (failures.length) {
   console.error('Monthly Evaluation V5 architecture check failed:');
   for (const failure of failures) console.error(`- ${failure}`);
