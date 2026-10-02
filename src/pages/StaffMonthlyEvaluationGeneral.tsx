@@ -1143,10 +1143,9 @@ export default function StaffMonthlyEvaluation() {
         const hasPostGuidanceEvidence = Boolean(
           developmentEvidence
           && (
-            developmentEvidence.training.assigned > 0
+            developmentEvidence.training.overdueOpen > 0
             || developmentEvidence.repeatedIssues.length > 0
-            || developmentEvidence.repeatedRecommendations.length > 0
-            || developmentEvidence.reviewTrend.measurable
+            || developmentEvidence.reviewTrend.direction === 'declining'
           )
         );
         if (!hasPostGuidanceEvidence) {
@@ -1468,6 +1467,26 @@ export default function StaffMonthlyEvaluation() {
   const hasDevelopmentNeed = developmentSections.length > 0;
   const feedbackMissingStrength = evaluationComplete && hasStrongPerformance && !strengthsText.trim();
   const feedbackMissingDevelopment = evaluationComplete && hasDevelopmentNeed && !developmentText.trim();
+  const manualStrongSectionsMissingEvidence = sections.filter((item) => {
+    if (item.score < 4) return false;
+    const evidence = sectionEvidenceFor(item.key, metrics, evidenceHealth, pointsTruth, coaching);
+    return evidence.status === 'manual' && item.notes.trim().length < 12;
+  });
+  const developmentAxis = sections.find((item) => item.key === 'development');
+  const developmentEvidence = coaching?.development;
+  const developmentLowWithoutPostGuidanceEvidence = Boolean(
+    developmentAxis
+    && developmentAxis.score > 0
+    && developmentAxis.score <= 2
+    && !(
+      developmentEvidence
+      && (
+        developmentEvidence.training.overdueOpen > 0
+        || developmentEvidence.repeatedIssues.length > 0
+        || developmentEvidence.reviewTrend.direction === 'declining'
+      )
+    )
+  );
   const approvalBlockers = [
     !cycleClosed ? 'الدورة لم تُقفل بعد' : '',
     !evidenceReady ? 'مصدر أو أكثر من أدلة الدورة غير متاح' : '',
@@ -1475,6 +1494,8 @@ export default function StaffMonthlyEvaluation() {
     weakSectionsMissingNotes.length ? `${weakSectionsMissingNotes.length} محور بدرجة ضعيفة يحتاج سبب مكتوب` : '',
     feedbackMissingStrength ? 'يوجد أداء قوي موثق لكن نقاط القوة لم تُكتب بعد' : '',
     feedbackMissingDevelopment ? 'يوجد محور يحتاج تطوير لكن خطة التطوير لم تُكتب بعد' : '',
+    manualStrongSectionsMissingEvidence.length ? `${manualStrongSectionsMissingEvidence.length} محور يدوي بدرجة 4 أو 5 يحتاج دليلًا مكتوبًا` : '',
+    developmentLowWithoutPostGuidanceEvidence ? 'خفض محور التطور يحتاج دليلًا على استمرار المشكلة بعد التوجيه أو التدريب' : '',
     criticalGateMissingReason ? 'المخالفة الحرجة تحتاج سببًا مكتوبًا في ملاحظات المدير' : '',
   ].filter(Boolean);
   const approvalReady =
@@ -1485,6 +1506,8 @@ export default function StaffMonthlyEvaluation() {
     && weakSectionsMissingNotes.length === 0
     && !feedbackMissingStrength
     && !feedbackMissingDevelopment
+    && manualStrongSectionsMissingEvidence.length === 0
+    && !developmentLowWithoutPostGuidanceEvidence
     && !criticalGateMissingReason;
 
   const strongestSections = evaluationComplete
