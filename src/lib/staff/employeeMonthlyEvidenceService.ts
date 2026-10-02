@@ -532,7 +532,7 @@ function buildAttendanceCoaching(
   pendingRows: AttendanceResolutionRow[],
   sourceAvailable: boolean
 ): MonthlyAttendanceCoaching {
-  const currentRows = rows.filter((row) => !row.reversal_of && row.impact_status !== 'reversed');
+  const currentRows = rows.filter((row) => row.impact_status === 'classified');
   const byType = (type: string) => currentRows.filter((row) => row.event_type === type);
 
   const lateRows = [
