@@ -878,17 +878,16 @@ export default function StaffMonthlyEvaluation() {
 
           setPublishedSnapshot(finalSnapshot);
           setPublishedSnapshotHash(String(metricsSnapshot?.final_approval_hash || ''));
-          const approvedAttendanceFingerprint =
-            finalSnapshot && typeof finalSnapshot.attendance_fingerprint === 'string'
-              ? finalSnapshot.attendance_fingerprint
-              : '';
-          if (approvedAttendanceFingerprint) {
+          setApprovedEvidenceDrift(false);
+          if (published && finalSnapshot) {
             const driftResult = await supabase.rpc('dawaa_monthly_evaluation_evidence_drift_v5', {
               p_staff_id: selectedId,
               p_evaluation_month: cycleKeyDate,
               p_approved_snapshot: finalSnapshot,
             });
-            if (!driftResult.error) {
+            if (driftResult.error) {
+              console.warn('Monthly evaluation evidence drift check failed', driftResult.error);
+            } else {
               const drift = driftResult.data as Record<string, unknown> | null;
               setApprovedEvidenceDrift(Boolean(drift?.attendance_changed));
             }
