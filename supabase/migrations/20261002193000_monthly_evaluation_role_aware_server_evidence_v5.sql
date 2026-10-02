@@ -315,4 +315,51 @@ end;
 $function$;
 
 
+-- Audit integrity: the hash copied to an approval event must actually describe
+-- the exact frozen snapshot copied with it. Historical approval rows remain
+-- append-only; reapproval creates a new row and never rewrites the old one.
+create or replace function public.trg_monthly_evaluation_audit_snapshot_v5()
+returns trigger
+language plpgsql
+security definer
+set search_path to 'public','pg_catalog'
+as $function$
+declare
+  v_snapshot jsonb;
+  v_hash text;
+  v_computed_hash text;
+begin
+  if new.action not in ('approved','reapproved') then return new; end if;
+
+  select
+    e.metrics_snapshot->'final_approval_snapshot',
+    nullif(e.metrics_snapshot->>'final_approval_hash','')
+  into v_snapshot,v_hash
+  from public.staff_monthly_manager_evaluations e
+  where e.id=new.evaluation_id;
+
+  if v_snapshot is null or v_hash is null then
+    raise exception 'monthly_evaluation_final_snapshot_missing_from_audit'
+      using errcode='55000';
+  end if;
+
+  v_computed_hash := md5(v_snapshot::text);
+  if v_computed_hash is distinct from v_hash then
+    raise exception 'monthly_evaluation_final_snapshot_hash_mismatch'
+      using errcode='55000',
+            detail='The stored approval hash does not match the frozen approval snapshot.';
+  end if;
+
+  new.evidence_ready := true;
+  new.snapshot := coalesce(new.snapshot,'{}'::jsonb)
+    || jsonb_build_object(
+      'final_approval_snapshot',v_snapshot,
+      'final_approval_hash',v_hash,
+      'final_approval_hash_verified',true
+    );
+  return new;
+end;
+$function$;
+
+
 notify pgrst,'reload schema';
