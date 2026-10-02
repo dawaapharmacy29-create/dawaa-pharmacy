@@ -52,13 +52,19 @@ declare
   v_needs_reviews boolean := false;
   v_needs_followups boolean := false;
   v_needs_attendance boolean := false;
+  v_needs_inventory boolean := false;
   v_reviews_available boolean := true;
   v_followups_available boolean := true;
   v_attendance_available boolean := true;
+  v_inventory_available boolean := true;
   v_review_count int := 0;
   v_followup_count int := 0;
   v_legacy_attendance_count int := 0;
   v_modern_attendance_days int := 0;
+  v_inventory_responsibilities int := 0;
+  v_inventory_sessions int := 0;
+  v_inventory_items int := 0;
+  v_inventory_counted_items int := 0;
   v_errors jsonb := '{}'::jsonb;
 begin
   select public.dawaa_monthly_evaluation_canonical_role_v5(coalesce(s.role,s.type,''))
@@ -86,6 +92,8 @@ begin
     'doctor','assistant','inventory_assistant','delivery',
     'customer_service','shift_supervisor'
   );
+  -- Mirrors inventory/inventory_accuracy/shortages/expiry profile axes.
+  v_needs_inventory := v_role in ('doctor','assistant','inventory_assistant','purchasing');
 
   begin
     select count(*)::int into v_review_count
@@ -134,6 +142,37 @@ begin
     v_errors := v_errors || jsonb_build_object('attendance',sqlerrm);
   end;
 
+  begin
+    -- Server-owned inventory availability proof. Missing assignments/sessions are
+    -- legitimate zero evidence; query failure is the only unavailable state.
+    select count(distinct a.id)::int
+      into v_inventory_responsibilities
+    from public.staff_daily_checklist_assignments a
+    join public.staff_daily_checklist_items i
+      on i.id=a.item_id
+     and i.active=true
+     and i.operation_category='inventory'
+    where a.staff_id=p_staff_id
+      and a.active=true
+      and a.active_from < v_cycle_end_exclusive
+      and (a.active_to is null or a.active_to >= v_cycle_start);
+
+    select
+      count(distinct s.id)::int,
+      count(it.id)::int,
+      count(it.id) filter(where it.actual_qty is not null)::int
+    into v_inventory_sessions,v_inventory_items,v_inventory_counted_items
+    from public.inventory_count_sessions s
+    left join public.inventory_count_items it on it.session_id=s.id
+    where s.responsible_staff_id=p_staff_id
+      and s.due_date >= v_cycle_start
+      and s.due_date < v_cycle_end_exclusive
+      and lower(trim(coalesce(s.status,''))) not in ('cancelled','canceled');
+  exception when others then
+    v_inventory_available := false;
+    v_errors := v_errors || jsonb_build_object('inventory',sqlerrm);
+  end;
+
   return jsonb_build_object(
     'schema','monthly_evaluation_server_evidence_v5',
     'cycle_start',v_cycle_start,
@@ -142,22 +181,29 @@ begin
     'requirements',jsonb_build_object(
       'reviews',v_needs_reviews,
       'followups',v_needs_followups,
-      'attendance',v_needs_attendance
+      'attendance',v_needs_attendance,
+      'inventory',v_needs_inventory
     ),
     'ready',
       (not v_needs_reviews or v_reviews_available)
       and (not v_needs_followups or v_followups_available)
-      and (not v_needs_attendance or v_attendance_available),
+      and (not v_needs_attendance or v_attendance_available)
+      and (not v_needs_inventory or v_inventory_available),
     'health',jsonb_build_object(
       'reviews',case when v_reviews_available then 'available' else 'unavailable' end,
       'followups',case when v_followups_available then 'available' else 'unavailable' end,
-      'attendance',case when v_attendance_available then 'available' else 'unavailable' end
+      'attendance',case when v_attendance_available then 'available' else 'unavailable' end,
+      'inventory',case when v_inventory_available then 'available' else 'unavailable' end
     ),
     'counts',jsonb_build_object(
       'conversation_reviews',v_review_count,
       'followups',v_followup_count,
       'legacy_attendance_rows',v_legacy_attendance_count,
-      'modern_attendance_days',v_modern_attendance_days
+      'modern_attendance_days',v_modern_attendance_days,
+      'inventory_responsibilities',v_inventory_responsibilities,
+      'inventory_sessions',v_inventory_sessions,
+      'inventory_items',v_inventory_items,
+      'inventory_counted_items',v_inventory_counted_items
     ),
     'errors',v_errors,
     'validated_at',now()
