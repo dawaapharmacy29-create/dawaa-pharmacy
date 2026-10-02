@@ -33,6 +33,7 @@ import {
   type CriticalGateType,
 } from '@/lib/evaluations/incentiveTiers';
 import { buildStaffMonthlyEvaluationPdf } from '@/lib/evaluations/staffMonthlyEvaluationPdf';
+import { buildApprovedMonthlyEvaluationPdfReport } from '@/lib/evaluations/monthlyEvaluationPdfReport';
 import { hasStrongDispensingEvidence } from '@/lib/evaluations/monthlyDispensingEvidence';
 import { hasStrongSalesQualityEvidence } from '@/lib/evaluations/monthlySalesQualityEvidence';
 import { hasStrongFollowupEvidence } from '@/lib/evaluations/monthlyFollowupEvidence';
@@ -1012,44 +1013,37 @@ export default function StaffMonthlyEvaluation() {
 
   async function handleExportPdf() {
     if (!selected) return;
+    const report = buildApprovedMonthlyEvaluationPdfReport({
+      snapshot: publishedSnapshot,
+      snapshotHash: publishedSnapshotHash,
+      fallbackSections: profile.sections,
+    });
+    if (!report) {
+      toast.error('الـPDF النهائي متاح فقط بعد الاعتماد وحفظ النسخة النهائية الموثقة.');
+      return;
+    }
     setExportingPdf(true);
     try {
-      const persistedSections = publishedSnapshot
-        ? normalizeSavedSections(publishedSnapshot.sections, profile.sections)
-        : sections;
-      const persistedStrengths = publishedSnapshot && Array.isArray(publishedSnapshot.strengths)
-        ? publishedSnapshot.strengths.map(String)
-        : strengthsText.split('\n').map((item) => item.trim()).filter(Boolean);
-      const persistedDevelopment = publishedSnapshot && Array.isArray(publishedSnapshot.development_points)
-        ? publishedSnapshot.development_points.map(String)
-        : developmentText.split('\n').map((item) => item.trim()).filter(Boolean);
-      const persistedScore = publishedSnapshot
-        ? safeNumber(publishedSnapshot.overall_score)
-        : overallScore;
-      const persistedGrade = publishedSnapshot
-        ? String(publishedSnapshot.grade || grade)
-        : grade;
-      const persistedManagerNotes = publishedSnapshot
-        ? String(publishedSnapshot.manager_notes || '')
-        : managerNotes;
-
       const { pdf, fileName } = await buildStaffMonthlyEvaluationPdf({
         staffName: selected.name,
         staffRole: selected.job_title || selected.role || profile.label,
         branch: selected.branch || branch,
         cycleDisplayLabel: cycleRange.displayLabel,
-        evaluatorName: publishedSnapshot
-          ? String(publishedSnapshot.evaluator_name || user?.name || 'المدير')
-          : user?.name || 'المدير',
-        overallScore: persistedScore,
-        grade: persistedGrade,
-        sections: persistedSections,
-        strengths: persistedStrengths,
-        developmentPoints: persistedDevelopment,
-        managerNotes: persistedManagerNotes,
+        evaluatorName: report.evaluatorName,
+        overallScore: report.overallScore,
+        grade: report.grade,
+        sections: report.sections,
+        strengths: report.strengths,
+        developmentPoints: report.developmentPoints,
+        managerNotes: report.managerNotes,
         pointsFinal: canonicalPointsFinal,
         pointsTarget: financialTruth.pointsTarget,
         incentiveEgp: canonicalIncentive,
+        financialSource: financialTruth.source,
+        approvedAt: report.approvedAt,
+        snapshotHash: report.snapshotHash,
+        criticalGates: report.criticalGates,
+        evidence: report.evidence,
       });
       pdf.save(fileName);
     } catch (cause) {
@@ -3146,9 +3140,9 @@ export default function StaffMonthlyEvaluation() {
 
                     {canEdit ? (
                       <div className="mt-4 flex flex-wrap justify-end gap-2 border-t pt-3" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
-                        <button type="button" disabled={exportingPdf || !evaluationComplete} onClick={() => void handleExportPdf()} className="btn-secondary inline-flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-45">
+                        <button type="button" disabled={exportingPdf || !evaluationComplete || !publishedSnapshot || !publishedSnapshotHash} onClick={() => void handleExportPdf()} className="btn-secondary inline-flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-45">
                           {exportingPdf ? <Loader2 size={16} className="animate-spin" /> : <FileDown size={16} />}
-                          {evaluationComplete ? 'PDF' : 'PDF بعد اكتمال التقييم'}
+                          {!evaluationComplete ? 'PDF بعد اكتمال التقييم' : !publishedSnapshotHash ? 'PDF بعد الاعتماد' : 'PDF النهائي'}
                         </button>
                         {!['sent', 'approved'].includes(status) ? (
                           <button type="button" disabled={saving} onClick={() => void save('draft')} className="btn-secondary inline-flex items-center gap-2">
