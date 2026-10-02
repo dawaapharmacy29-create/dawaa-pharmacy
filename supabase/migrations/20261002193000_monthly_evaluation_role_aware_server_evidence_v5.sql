@@ -311,26 +311,29 @@ as $function$
       (date_trunc('month',p_evaluation_month)::date + interval '25 days')::date as end_exclusive
   ),
   rows as (
-    select jsonb_build_object(
-      'date',l.attendance_date,
-      'event_type',l.event_type,
-      'status',l.impact_status,
-      'policy',l.policy_version,
-      'points',l.points_impact,
-      'incentive',l.incentive_impact,
-      'payroll_units',l.payroll_units_impact,
-      'money',l.monetary_impact,
-      'evidence',coalesce(l.evidence_snapshot,'{}'::jsonb),
-      'reversal_of',l.reversal_of
-    ) row_data
+    select
+      l.attendance_date,
+      l.event_type,
+      l.id,
+      jsonb_build_object(
+        'date',l.attendance_date,
+        'event_type',l.event_type,
+        'status',l.impact_status,
+        'policy',l.policy_version,
+        'points',l.points_impact,
+        'incentive',l.incentive_impact,
+        'payroll_units',l.payroll_units_impact,
+        'money',l.monetary_impact,
+        'evidence',coalesce(l.evidence_snapshot,'{}'::jsonb),
+        'reversal_of',l.reversal_of
+      ) row_data
     from public.attendance_impact_ledger l
     cross join cycle c
     where l.staff_id=p_staff_id
       and l.attendance_date>=c.start_date
       and l.attendance_date<c.end_exclusive
-    order by l.attendance_date,l.event_type,l.id
   )
-  select md5(coalesce(jsonb_agg(row_data)::text,'[]'))
+  select md5(coalesce(jsonb_agg(row_data order by attendance_date,event_type,id)::text,'[]'))
   from rows
 $function$;
 
