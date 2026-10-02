@@ -26,6 +26,8 @@ describe('staff role capabilities', () => {
     expect(canonicalStaffRole('branch_manager_shokry')).toBe('branch_manager');
     expect(canonicalStaffRole('خدمة العملاء')).toBe('customer_service');
     expect(canonicalStaffRole('مندوب توصيل')).toBe('delivery');
+    expect(canonicalStaffRole('فريق دواء ألفا')).toBe('customer_service');
+    expect(canonicalStaffRole('مندوب')).toBe('other');
     expect(canonicalStaffRole('صيدلي أول')).toBe('doctor');
     expect(canonicalStaffRole('senior pharmacist')).toBe('doctor');
     expect(canonicalStaffRole('مساعد صيدلية')).toBe('assistant');
