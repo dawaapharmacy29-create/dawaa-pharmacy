@@ -37,4 +37,26 @@ describe('staffEvaluationProfilesV3', () => {
     const second = evaluationProfileForRole('صيدلاني');
     expect(second.sections[0].score).toBe(0);
   });
+  it('routes all operational employee paths to role-specific profiles', () => {
+    const cases = [
+      ['pharmacist', 'doctor'],
+      ['مساعد صيدلي', 'assistant'],
+      ['مساعد مخزون', 'inventory_assistant'],
+      ['مسؤولة النظافة', 'cleaning'],
+      ['مندوب توصيل', 'delivery'],
+      ['خدمة العملاء', 'customer_service'],
+      ['مدير خدمة العملاء', 'customer_service_manager'],
+      ['مسؤول الشيفت', 'shift_supervisor'],
+      ['مدير فرع', 'branch_manager'],
+      ['مدير الفروع', 'branches_manager'],
+      ['مشتريات', 'purchasing'],
+      ['مدير عام', 'executive'],
+      ['admin', 'admin'],
+    ] as const;
+
+    for (const [role, expected] of cases) {
+      expect(evaluationProfileForRole(role).role).toBe(expected);
+    }
+  });
+
 });
