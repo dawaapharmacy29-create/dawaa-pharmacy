@@ -131,7 +131,34 @@ function readableErrorMessage(cause: unknown, fallback: string): string {
 }
 
 function isConversationSectionKey(sectionKey: string) {
-  return ['conversations', 'conversation', 'customer', 'customers', 'team_quality', 'customer_outcomes'].includes(sectionKey.toLowerCase());
+  // Only axes that truly represent this employee's reviewed conversations.
+  // Manager/customer-facing operational axes must stay manual until they have
+  // their own team/outcome evidence source; never borrow the employee chat feed.
+  return ['conversations', 'conversation'].includes(sectionKey.toLowerCase());
+}
+
+function roleAwareEvidenceReady(
+  sections: StaffEvaluationSectionV3[],
+  evidence: EmployeeMonthlyEvidence
+) {
+  const keys = new Set(sections.map((item) => item.key.toLowerCase()));
+  const needsReviews = ['conversations', 'conversation', 'dispensing', 'sales_quality']
+    .some((key) => keys.has(key));
+  const needsFollowups = ['followups_requests', 'followups', 'followups_sla', 'requests', 'customer_requests']
+    .some((key) => keys.has(key));
+  const needsAttendance = ['discipline', 'attendance', 'shift_discipline']
+    .some((key) => keys.has(key));
+  const needsInventory = ['inventory', 'inventory_accuracy', 'shortages', 'expiry']
+    .some((key) => keys.has(key));
+
+  if (needsReviews && evidence.health.reviews !== 'available') return false;
+  if (needsFollowups && evidence.health.followups !== 'available') return false;
+  if (needsAttendance && (
+    evidence.health.attendance !== 'available'
+    || !evidence.coaching.attendance.finalization.ready
+  )) return false;
+  if (needsInventory && evidence.coaching.inventory.sourceStatus === 'unavailable') return false;
+  return true;
 }
 
 const ATTENDANCE_EVENT_LABELS: Record<string, string> = {
@@ -211,7 +238,7 @@ function sectionEvidenceFor(
 ) {
   const key = sectionKey.toLowerCase();
   const attendanceKeys = ['discipline', 'attendance', 'shift_discipline'];
-  const conversationKeys = ['conversations', 'conversation', 'customer', 'customers', 'team_quality', 'customer_outcomes'];
+  const conversationKeys = ['conversations', 'conversation'];
   const followupKeys = ['followups_requests', 'followups', 'followups_sla', 'customer_requests', 'requests'];
 
   if (attendanceKeys.includes(key)) {
@@ -826,7 +853,8 @@ export default function StaffMonthlyEvaluation() {
 
         setApprovedEvidenceDrift(false);
         setMetrics(evidenceResult.metrics);
-        setEvidenceReady(evidenceResult.ready);
+        const freshSections = evaluationProfileForRole(selected.job_title || selected.role).sections;
+        setEvidenceReady(roleAwareEvidenceReady(freshSections, evidenceResult));
         setEvidenceHealth(evidenceResult.health);
         setEvidenceErrors(evidenceResult.errors);
         setCoaching(evidenceResult.coaching);
@@ -838,7 +866,6 @@ export default function StaffMonthlyEvaluation() {
         );
 
         const saved = savedResult.data as EvaluationRow | null;
-        const freshSections = evaluationProfileForRole(selected.job_title || selected.role).sections;
         if (saved) {
           setEvaluationId(String(saved.id || ''));
           const savedStatus = String(saved.status || 'draft');
