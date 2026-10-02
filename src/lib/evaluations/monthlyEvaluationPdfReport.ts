@@ -34,6 +34,15 @@ export function buildApprovedMonthlyEvaluationPdfReport(input: {
   const s = input.snapshot;
   const hash = input.snapshotHash.trim();
   if (!s || !hash || String(s.schema || '') !== 'monthly_evaluation_final_snapshot_v5') return null;
+  // A PDF is an audit artifact: never synthesize missing approved axes from the
+  // current role profile. Every expected axis must exist in the frozen snapshot.
+  const savedSections = arr(s.sections);
+  if (savedSections.length !== input.fallbackSections.length) return null;
+  const savedByKey = new Map(savedSections.map((item) => {
+    const row = rec(item);
+    return [String(row.key || ''), row] as const;
+  }));
+  if (input.fallbackSections.some((section) => !savedByKey.has(section.key))) return null;
   const coaching = rec(s.coaching_snapshot);
   const conversation = rec(coaching.conversation);
   const followups = rec(coaching.followups);
@@ -41,12 +50,11 @@ export function buildApprovedMonthlyEvaluationPdfReport(input: {
   const flags = rec(conversation.flags);
   const serverEvidence = rec(s.server_evidence);
   const health = rec(serverEvidence.health);
-  const savedSections = arr(s.sections);
   return {
     approvedAt: String(s.approved_at || ''),
     snapshotHash: hash,
     sections: input.fallbackSections.map((fallback) => {
-      const saved = rec(savedSections.find((item) => rec(item).key === fallback.key));
+      const saved = savedByKey.get(fallback.key) || {};
       return { ...fallback, score: num(saved.score), notes: String(saved.notes || '') };
     }),
     strengths: arr(s.strengths).map(String).filter(Boolean),
