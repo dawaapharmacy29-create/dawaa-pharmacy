@@ -64,7 +64,7 @@ describe('staffEvaluationProfilesV3', () => {
     expect(evaluationEvidenceRequirementsForRole('صيدلي')).toEqual(['reviews', 'followups', 'attendance', 'inventory']);
     expect(evaluationEvidenceRequirementsForRole('خدمة العملاء')).toEqual(['reviews', 'followups', 'attendance']);
     expect(evaluationEvidenceRequirementsForRole('مساعد مخزون')).toEqual(['attendance', 'inventory']);
-    expect(evaluationEvidenceRequirementsForRole('مسؤولة النظافة')).toEqual(['attendance']);
+    expect(evaluationEvidenceRequirementsForRole('مسؤولة النظافة')).toEqual([]);
     expect(evaluationEvidenceRequirementsForRole('مندوب توصيل')).toEqual(['attendance']);
     expect(evaluationEvidenceRequirementsForRole('مدير فرع')).toEqual([]);
     expect(evaluationEvidenceRequirementsForRole('مدير الفروع')).toEqual([]);
