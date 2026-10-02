@@ -414,9 +414,9 @@ end;
 $function$;
 
 revoke all on function public.dawaa_monthly_evaluation_evidence_drift_v5(uuid,date,jsonb)
-  from public,anon;
+  from public,anon,authenticated;
 grant execute on function public.dawaa_monthly_evaluation_evidence_drift_v5(uuid,date,jsonb)
-  to authenticated,service_role;
+  to service_role;
 
 
 -- Listing status must describe the persisted approval state. Evidence drift is
