@@ -408,4 +408,81 @@ end;
 $function$;
 
 
+-- Canonical profile contract. Approval payloads must not be able to swap axes or
+-- redistribute weights while still summing to 100.
+create or replace function public.dawaa_monthly_evaluation_profile_contract_v5(p_role text)
+returns jsonb
+language sql
+immutable
+set search_path to 'public','pg_catalog'
+as $function$
+  select case public.dawaa_monthly_evaluation_canonical_role_v5(p_role)
+    when 'doctor' then '{"discipline":15,"conversations":15,"dispensing":20,"followups_requests":15,"sales_quality":15,"inventory":10,"development":10}'::jsonb
+    when 'assistant' then '{"discipline":15,"orders_accuracy":25,"inventory":20,"shelf":15,"delivery_support":10,"teamwork":5,"development":10}'::jsonb
+    when 'inventory_assistant' then '{"discipline":15,"inventory_accuracy":30,"shortages":20,"expiry":15,"documentation":10,"development":10}'::jsonb
+    when 'cleaning' then '{"daily_stars":35,"checklist":25,"sensitive_areas":20,"response":10,"development":10}'::jsonb
+    when 'delivery' then '{"attendance":15,"delivery_success":25,"timing":20,"customer":15,"data":15,"development":10}'::jsonb
+    when 'customer_service' then '{"followups":30,"conversation":20,"data_quality":20,"requests":15,"discipline":5,"development":10}'::jsonb
+    when 'customer_service_manager' then '{"team_quality":25,"followups_sla":25,"customer_outcomes":20,"data_governance":15,"leadership":5,"development":10}'::jsonb
+    when 'shift_supervisor' then '{"shift_discipline":25,"handover":20,"team_execution":20,"customer_issues":15,"operations":10,"development":10}'::jsonb
+    when 'branch_manager' then '{"team":25,"operations":20,"customers":20,"quality":15,"execution":10,"development":10}'::jsonb
+    when 'branches_manager' then '{"branch_health":25,"managers":20,"operations":20,"customers":15,"execution":10,"development":10}'::jsonb
+    when 'purchasing' then '{"availability":25,"purchase_accuracy":25,"customer_requests":20,"inventory":15,"coordination":5,"development":10}'::jsonb
+    when 'executive' then '{"results":25,"governance":20,"leaders":20,"customers":15,"projects":10,"development":10}'::jsonb
+    when 'admin' then '{"governance":30,"operations":25,"data":20,"execution":15,"development":10}'::jsonb
+    else '{"discipline":30,"quality":30,"teamwork":20,"initiative":10,"development":10}'::jsonb
+  end
+$function$;
+
+create or replace function public.trg_monthly_evaluation_profile_contract_v5()
+returns trigger
+language plpgsql
+security definer
+set search_path to 'public','pg_catalog'
+as $function$
+declare
+  v_contract jsonb;
+  v_actual jsonb;
+begin
+  v_contract := public.dawaa_monthly_evaluation_profile_contract_v5(new.staff_role);
+  if jsonb_typeof(new.sections) <> 'array' then
+    raise exception 'monthly_evaluation_profile_contract_invalid_sections' using errcode='22023';
+  end if;
+
+  if exists (
+    select 1
+    from (
+      select x->>'key' key, count(*) c
+      from jsonb_array_elements(new.sections) x
+      group by x->>'key'
+      having count(*) <> 1
+    ) d
+  ) then
+    raise exception 'monthly_evaluation_profile_contract_duplicate_key' using errcode='22023';
+  end if;
+
+  select coalesce(jsonb_object_agg(x->>'key',(x->>'weight')::numeric),'{}'::jsonb)
+    into v_actual
+  from jsonb_array_elements(new.sections) x
+  where nullif(btrim(x->>'key'),'') is not null
+    and coalesce(x->>'weight','') ~ '^[0-9]+([.][0-9]+)?
+;
+
+  if v_actual is distinct from v_contract then
+    raise exception 'monthly_evaluation_profile_contract_mismatch'
+      using errcode='22023',
+            detail='Evaluation section keys and weights must exactly match the canonical profile for the employee role.';
+  end if;
+  return new;
+end;
+$function$;
+
+drop trigger if exists monthly_evaluation_profile_contract_v5
+  on public.staff_monthly_manager_evaluations;
+create trigger monthly_evaluation_profile_contract_v5
+before insert or update of staff_role,sections
+on public.staff_monthly_manager_evaluations
+for each row execute function public.trg_monthly_evaluation_profile_contract_v5();
+
+
 notify pgrst,'reload schema';
