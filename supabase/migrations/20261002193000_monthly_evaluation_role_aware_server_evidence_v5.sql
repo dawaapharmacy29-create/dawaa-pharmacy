@@ -419,6 +419,64 @@ grant execute on function public.dawaa_monthly_evaluation_evidence_drift_v5(uuid
   to service_role;
 
 
+-- Authorized wrapper for UI drift checks. The raw comparison remains
+-- service-role only; this wrapper enforces the same actor/branch rules as the
+-- monthly evaluation read API and only returns the drift result for a published
+-- evaluation.
+create or replace function public.get_staff_monthly_evaluation_evidence_drift_v5(
+  p_actor_id uuid,
+  p_staff_id uuid,
+  p_month date
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path to 'public','pg_catalog'
+as $function$
+declare
+  v_actor record;
+  v_target public.staff%rowtype;
+  v_eval public.staff_monthly_manager_evaluations%rowtype;
+  v_month date := date_trunc('month',p_month)::date;
+  v_snapshot jsonb;
+begin
+  select * into v_actor from public.monthly_eval_actor(p_actor_id);
+  if not found or (p_actor_id is not null and v_actor.account_id is distinct from p_actor_id) then
+    return null;
+  end if;
+
+  select * into v_target from public.staff where id=p_staff_id;
+  if not found then return null; end if;
+
+  select * into v_eval
+  from public.staff_monthly_manager_evaluations
+  where staff_id=p_staff_id and evaluation_month=v_month;
+  if not found or coalesce(v_eval.status,'') not in ('sent','approved') then return null; end if;
+
+  if not (
+    v_actor.role in ('general_manager','branches_manager','executive_manager','executive','admin')
+    or (
+      v_actor.role in ('branch_manager','branch_manager_shamy','branch_manager_shokry')
+      and coalesce(v_target.branch,'')=v_actor.branch
+      and public.dawaa_monthly_evaluation_branch_manager_subject_allowed_v5(coalesce(v_target.role,v_target.type,''))
+    )
+    or v_actor.staff_id=p_staff_id
+  ) then
+    return null;
+  end if;
+
+  v_snapshot := v_eval.metrics_snapshot->'final_approval_snapshot';
+  if v_snapshot is null then return null; end if;
+
+  return public.dawaa_monthly_evaluation_evidence_drift_v5(p_staff_id,v_month,v_snapshot);
+end;
+$function$;
+
+revoke all on function public.get_staff_monthly_evaluation_evidence_drift_v5(uuid,uuid,date)
+  from public,anon;
+grant execute on function public.get_staff_monthly_evaluation_evidence_drift_v5(uuid,uuid,date)
+  to authenticated,service_role;
+
 -- Listing status must describe the persisted approval state. Evidence drift is
 -- evaluated against the frozen snapshot by daw aa_monthly_evaluation_evidence_drift_v5;
 -- sent_at age alone must never manufacture a reapproval requirement.
