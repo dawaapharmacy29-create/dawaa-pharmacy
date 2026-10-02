@@ -1131,7 +1131,18 @@ export default function StaffMonthlyEvaluation() {
     setSaving(true);
     try {
       const strengths = strengthsText.split('\n').map((item) => item.trim()).filter(Boolean);
-      const developmentPoints = developmentText.split('\n').map((item) => item.trim()).filter(Boolean);
+      const developmentPoints = developmentText.split('\n').map((item) => item.trim()).filter(Boolean).map((item) => {
+        if (nextStatus !== 'sent' || !coaching?.attendance) return item;
+        const absenceCases = Math.max(0, Number(coaching.attendance.absenceCases || 0));
+        const lateCases = Math.max(0, Number(coaching.attendance.lateCases || 0) + Number(coaching.attendance.veryLateCases || 0));
+        const lateMinutes = Math.max(0, Number(coaching.attendance.lateMinutes || 0));
+        return item
+          .replace(/\\d+(?=\\s*حالة\\s+غياب\\s+مؤكدة)/g, String(absenceCases))
+          .replace(/\\d+(?=\\s*حالات\\s+غياب\\s+مؤكدة)/g, String(absenceCases))
+          .replace(/(عدد\\s+حالات\\s+الغياب\\s*(?:إلى|=|:)??\\s*)\\d+/g, `$1${absenceCases}`)
+          .replace(/(عدد\\s+حالات\\s+التأخير\\s*(?:إلى|=|:)??\\s*)\\d+/g, `$1${lateCases}`)
+          .replace(/(إجمالي\\s+)\\d+(?=\\s*(?:دقيقة|دقائق))/g, `$1${lateMinutes}`);
+      });
       const payload = {
         staff_id: selected.id,
         staff_name: selected.name,
