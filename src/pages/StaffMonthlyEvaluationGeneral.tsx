@@ -2576,11 +2576,14 @@ export default function StaffMonthlyEvaluation() {
                           {employeeFeedbackDraft.developments.length || employeeFeedbackDraft.actions.length || employeeFeedbackDraft.measurements.length ? (
                             <button
                               type="button"
-                              onClick={() => setDevelopmentText((current) => appendUniqueLines(current, [
-                                ...employeeFeedbackDraft.developments,
-                                ...employeeFeedbackDraft.actions,
-                                ...employeeFeedbackDraft.measurements.map((item) => `مقياس التحسن: ${item}`),
-                              ]))}
+                              onClick={() => setDevelopmentText((current) => {
+                                const currentEvidencePlan = [
+                                  ...employeeFeedbackDraft.developments,
+                                  ...employeeFeedbackDraft.actions,
+                                  ...employeeFeedbackDraft.measurements.map((item) => `مقياس التحسن: ${item}`),
+                                ];
+                                return previouslySent ? currentEvidencePlan.join('\n') : appendUniqueLines(current, currentEvidencePlan);
+                              })}
                               className="rounded-lg border px-2.5 py-1.5 text-[11px] font-black"
                               style={{ borderColor: 'var(--dawaa-status-warning-border)', color: 'var(--dawaa-status-warning-text)' }}
                             >
