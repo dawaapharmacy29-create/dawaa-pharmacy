@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   evaluationProfileForRole,
   evaluationProfileWeightsAreValid,
+  evaluationEvidenceRequirementsForRole,
 } from '@/lib/evaluations/staffEvaluationProfilesV3';
 
 describe('staffEvaluationProfilesV3', () => {
@@ -57,6 +58,22 @@ describe('staffEvaluationProfilesV3', () => {
     for (const [role, expected] of cases) {
       expect(evaluationProfileForRole(role).role).toBe(expected);
     }
+  });
+
+  it('requires only evidence sources that belong to each role profile', () => {
+    expect(evaluationEvidenceRequirementsForRole('صيدلي')).toEqual(['reviews', 'followups', 'attendance', 'inventory']);
+    expect(evaluationEvidenceRequirementsForRole('خدمة العملاء')).toEqual(['reviews', 'followups', 'attendance']);
+    expect(evaluationEvidenceRequirementsForRole('مساعد مخزون')).toEqual(['attendance', 'inventory']);
+    expect(evaluationEvidenceRequirementsForRole('مسؤولة النظافة')).toEqual(['attendance']);
+    expect(evaluationEvidenceRequirementsForRole('مندوب توصيل')).toEqual(['attendance']);
+    expect(evaluationEvidenceRequirementsForRole('مدير فرع')).toEqual([]);
+    expect(evaluationEvidenceRequirementsForRole('مدير الفروع')).toEqual([]);
+    expect(evaluationEvidenceRequirementsForRole('مدير عام')).toEqual([]);
+  });
+
+  it('does not borrow employee conversation evidence for manager-only axes', () => {
+    const manager = evaluationProfileForRole('مدير فرع');
+    expect(manager.sections.some((section) => ['conversations', 'conversation', 'dispensing', 'sales_quality'].includes(section.key))).toBe(false);
   });
 
 });
