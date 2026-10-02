@@ -46,7 +46,7 @@ security definer
 set search_path to 'public','pg_catalog'
 as $function$
 declare
-  v_cycle_start date := date_trunc('month',p_evaluation_month)::date - interval '6 days';
+  v_cycle_start date := (date_trunc('month',p_evaluation_month)::date - interval '1 month' + interval '25 days')::date;
   v_cycle_end_exclusive date := date_trunc('month',p_evaluation_month)::date + interval '25 days';
   v_role text;
   v_needs_reviews boolean := false;
@@ -89,10 +89,15 @@ begin
 
   begin
     select count(*)::int into v_review_count
-    from public.conversation_evaluations ce
-    where ce.staff_id=p_staff_id
-      and ce.created_at::date >= v_cycle_start
-      and ce.created_at::date < v_cycle_end_exclusive;
+    from public.conversation_sales_reviews r
+    where (r.staff_id=p_staff_id or r.doctor_id=p_staff_id)
+      and (
+        (r.conversation_date is not null and r.conversation_date::date >= v_cycle_start and r.conversation_date::date < v_cycle_end_exclusive)
+        or
+        (r.conversation_date is null
+          and (r.created_at at time zone 'Africa/Cairo')::date >= v_cycle_start
+          and (r.created_at at time zone 'Africa/Cairo')::date < v_cycle_end_exclusive)
+      );
   exception when others then
     v_reviews_available := false;
     v_errors := v_errors || jsonb_build_object('reviews',sqlerrm);
@@ -100,10 +105,10 @@ begin
 
   begin
     select count(*)::int into v_followup_count
-    from public.customer_followups cf
-    where coalesce(cf.handled_by,cf.assigned_to,cf.assigned_staff,cf.staff_id)=p_staff_id
-      and coalesce(cf.completed_at,cf.updated_at,cf.created_at)::date >= v_cycle_start
-      and coalesce(cf.completed_at,cf.updated_at,cf.created_at)::date < v_cycle_end_exclusive;
+    from public.daily_followups f
+    where (f.assigned_staff_id=p_staff_id or f.requested_by_staff_id=p_staff_id)
+      and (f.created_at at time zone 'Africa/Cairo')::date >= v_cycle_start
+      and (f.created_at at time zone 'Africa/Cairo')::date < v_cycle_end_exclusive;
   exception when others then
     v_followups_available := false;
     v_errors := v_errors || jsonb_build_object('followups',sqlerrm);
