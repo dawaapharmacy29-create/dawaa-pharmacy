@@ -114,7 +114,7 @@ begin
   begin
     select count(*)::int into v_followup_count
     from public.daily_followups f
-    where (f.assigned_staff_id=p_staff_id or f.requested_by_staff_id=p_staff_id)
+    where (f.assigned_staff_id=p_staff_id or f.requested_by_staff_id=p_staff_id::text)
       and (f.created_at at time zone 'Africa/Cairo')::date >= v_cycle_start
       and (f.created_at at time zone 'Africa/Cairo')::date < v_cycle_end_exclusive;
   exception when others then
@@ -126,7 +126,7 @@ begin
     select count(*)::int
     into v_legacy_attendance_count
     from public.attendance a
-    where a.staff_id=p_staff_id
+    where a.staff_id=p_staff_id::text
       and coalesce(nullif(a.attendance_date::text,'')::date,nullif(a.date::text,'')::date) >= v_cycle_start
       and coalesce(nullif(a.attendance_date::text,'')::date,nullif(a.date::text,'')::date) < v_cycle_end_exclusive;
 
