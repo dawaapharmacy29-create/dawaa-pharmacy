@@ -356,7 +356,7 @@ declare
   v_current jsonb;
   v_approved jsonb := coalesce(p_approved_snapshot->'server_evidence','{}'::jsonb);
   v_role text := coalesce(p_approved_snapshot->'server_evidence'->>'role','');
-  v_attendance_required boolean := coalesce((p_approved_snapshot->'server_evidence'->'requirements'->>'attendance')::boolean,false);
+  v_attendance_required boolean := false;
   v_changed boolean := false;
   v_current_fingerprint text;
   v_approved_fingerprint text := nullif(p_approved_snapshot->>'attendance_fingerprint','');
@@ -367,6 +367,15 @@ begin
   if v_role = '' then
     v_role := coalesce(v_current->>'role','other');
   end if;
+
+  -- Old V5 snapshots may predate the explicit requirements object. In that
+  -- case derive attendance applicability from the canonical role instead of
+  -- silently treating attendance as not required.
+  v_attendance_required := coalesce(
+    (p_approved_snapshot->'server_evidence'->'requirements'->>'attendance')::boolean,
+    v_role in ('doctor','assistant','inventory_assistant','delivery','customer_service','shift_supervisor'),
+    false
+  );
 
   if not (p_approved_snapshot ? 'server_evidence') then
     return jsonb_build_object(
