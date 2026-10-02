@@ -219,6 +219,80 @@ grant execute on function public.dawaa_monthly_evaluation_server_evidence_v5(uui
 comment on function public.dawaa_monthly_evaluation_server_evidence_v5(uuid,date)
   is 'Server-owned role-aware availability/readiness proof for monthly-evaluation evidence domains.';
 
+-- Freeze the authoritative attendance fingerprint inside the approval snapshot.
+-- This replaces the earlier V5 snapshot trigger so reapproval can compare the
+-- exact attendance-impact truth that existed at approval time.
+create or replace function public.trg_monthly_evaluation_final_snapshot_v5()
+returns trigger
+language plpgsql
+security definer
+set search_path to 'public','pg_catalog'
+as $function$
+declare
+  v_engine integer := 0;
+  v_evidence jsonb;
+  v_snapshot jsonb;
+  v_snapshot_hash text;
+  v_attendance_fingerprint text;
+begin
+  if coalesce(new.metrics_snapshot->>'evaluation_engine_version','') ~ '^[0-9]+$' then
+    v_engine := (new.metrics_snapshot->>'evaluation_engine_version')::integer;
+  end if;
+  if v_engine < 5 or new.status not in ('sent','approved') then return new; end if;
+
+  v_evidence := public.dawaa_monthly_evaluation_server_evidence_v5(new.staff_id,new.evaluation_month);
+  if not coalesce((v_evidence->>'ready')::boolean,false) then
+    raise exception 'monthly_evaluation_server_evidence_unavailable'
+      using errcode='55000', detail=coalesce(v_evidence->'errors','{}'::jsonb)::text;
+  end if;
+
+  if coalesce((v_evidence->'requirements'->>'attendance')::boolean,false) then
+    v_attendance_fingerprint := public.dawaa_monthly_evaluation_attendance_fingerprint_v5(new.staff_id,new.evaluation_month);
+  end if;
+
+  new.metrics_snapshot := coalesce(new.metrics_snapshot,'{}'::jsonb)
+    || jsonb_build_object(
+      'evidence_ready',true,
+      'evidence_health',v_evidence->'health',
+      'server_evidence_snapshot',v_evidence
+    );
+
+  v_snapshot := jsonb_build_object(
+    'schema','monthly_evaluation_final_snapshot_v5',
+    'evaluation_id',new.id,
+    'staff_id',new.staff_id,
+    'staff_name',new.staff_name,
+    'staff_role',new.staff_role,
+    'branch',new.branch,
+    'evaluation_month',new.evaluation_month,
+    'cycle_label',to_char(new.evaluation_month,'YYYY-MM'),
+    'evaluator_id',new.evaluator_id,
+    'evaluator_name',new.evaluator_name,
+    'evaluator_role',new.evaluator_role,
+    'sections',new.sections,
+    'strengths',to_jsonb(new.strengths),
+    'development_points',to_jsonb(new.development_points),
+    'manager_notes',new.manager_notes,
+    'overall_score',new.overall_score,
+    'grade',new.grade,
+    'active_critical_gates',coalesce(new.metrics_snapshot->'active_critical_gates','[]'::jsonb),
+    'server_evidence',v_evidence,
+    'attendance_fingerprint',v_attendance_fingerprint,
+    'coaching_snapshot',new.metrics_snapshot->'coaching_snapshot',
+    'employee_feedback_draft',new.metrics_snapshot->'employee_feedback_draft',
+    'approved_at',coalesce(new.sent_at,now())
+  );
+
+  v_snapshot_hash := md5(v_snapshot::text);
+  new.metrics_snapshot := new.metrics_snapshot || jsonb_build_object(
+    'final_approval_snapshot',v_snapshot,
+    'final_approval_hash',v_snapshot_hash,
+    'final_approval_snapshot_schema','monthly_evaluation_final_snapshot_v5'
+  );
+  return new;
+end;
+$function$;
+
 -- Compare the currently authoritative attendance truth with the frozen approval
 -- snapshot. Reapproval is evidence-driven; age of sent_at alone is not drift.
 create or replace function public.dawaa_monthly_evaluation_attendance_fingerprint_v5(
