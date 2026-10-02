@@ -680,23 +680,3 @@ for each row execute function public.trg_monthly_evaluation_profile_contract_v5(
 
 
 notify pgrst,'reload schema';
-;
-
-  if v_actual is distinct from v_contract then
-    raise exception 'monthly_evaluation_profile_contract_mismatch'
-      using errcode='22023',
-            detail='Evaluation section keys and weights must exactly match the canonical profile for the employee role.';
-  end if;
-  return new;
-end;
-$function$;
-
-drop trigger if exists monthly_evaluation_profile_contract_v5
-  on public.staff_monthly_manager_evaluations;
-create trigger monthly_evaluation_profile_contract_v5
-before insert or update of staff_role,sections
-on public.staff_monthly_manager_evaluations
-for each row execute function public.trg_monthly_evaluation_profile_contract_v5();
-
-
-notify pgrst,'reload schema';
