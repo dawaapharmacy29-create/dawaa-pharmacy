@@ -5,6 +5,8 @@ import {
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
+import { useNavigationGuard } from '@/contexts/NavigationGuardContext';
+import { usePendingFormNavigationGuard } from '@/hooks/useUnsavedChangesGuard';
 import { normalizeBranchName } from '@/lib/branch';
 import {
   evaluationProfileForRole,
@@ -47,6 +49,8 @@ import { createStaffNotification } from '@/lib/staffNotificationService';
 import { Panel, MiniBox, EmptyState } from '@/components/dashboard/DashboardPrimitives';
 import MonthlyEvaluationWorkflowV5, { type MonthlyEvaluationStep } from '@/components/evaluations/MonthlyEvaluationWorkflowV5';
 import MonthlyEvaluationAuditTrailV5 from '@/components/evaluations/MonthlyEvaluationAuditTrailV5';
+import { monthlyEvaluationDraftFingerprint } from '@/lib/evaluations/monthlyEvaluationDraftState';
+import { isSettledMonthlyStatementStatus, resolveMonthlyEvaluationFinancialTruth } from '@/lib/evaluations/monthlyEvaluationFinancialTruth';
 
 type StaffRow = {
   id: string;
@@ -147,6 +151,23 @@ function formatAttendanceTime(value: string) {
   }).format(instant);
 }
 
+function attendancePendingCaseLine(item: NonNullable<EmployeeMonthlyEvidence['coaching']>['attendance']['pendingCases'][number]) {
+  const schedule = item.scheduledStartAt || item.scheduledEndAt
+    ? `الجدول ${formatAttendanceTime(item.scheduledStartAt) || '—'} → ${formatAttendanceTime(item.scheduledEndAt) || '—'}`
+    : '';
+  const actual = item.firstIn || item.lastOut
+    ? `البصمة ${formatAttendanceTime(item.firstIn) || '—'} → ${formatAttendanceTime(item.lastOut) || '—'}`
+    : '';
+  return [
+    `${formatAttendanceDate(item.date)} — ${item.resolutionStatus || 'pending_review'}`,
+    item.lateMinutes > 0 ? `تأخير ${item.lateMinutes} دقيقة` : '',
+    item.earlyLeaveMinutes > 0 ? `خروج مبكر ${item.earlyLeaveMinutes} دقيقة` : '',
+    item.missingPunch ? 'بصمة ناقصة' : '',
+    schedule,
+    actual,
+  ].filter(Boolean).join(' · ');
+}
+
 function attendanceCaseLine(item: NonNullable<EmployeeMonthlyEvidence['coaching']>['attendance']['cases'][number]) {
   const label = ATTENDANCE_EVENT_LABELS[item.eventType] || 'حالة حضور';
   const minutes = item.eventType === 'attendance_early_leave_confirmed'
@@ -193,19 +214,34 @@ function sectionEvidenceFor(
     const attendance = coaching?.attendance;
     return {
       status: 'manual' as const,
-      summary: attendance?.resolvedDays
-        ? `سجل الحضور: ${attendance.resolvedDays} يومًا له تصنيف · ${attendance.lateCases + attendance.veryLateCases} تأخير · ${attendance.absenceCases} غياب`
-        : metrics.attendance_days
-          ? `بيانات حضور يومية متاحة لـ ${metrics.attendance_days} يوم`
-          : 'لا توجد أيام حضور مسجلة في المصدر لهذه الدورة',
+      summary: attendance?.pendingReviewCases
+        ? `الحضور يحتاج مراجعة: ${attendance.pendingReviewCases} يوم معلق قبل الاعتماد النهائي`
+        : attendance?.conflictingResolutionDays
+          ? `الحضور يحتاج مراجعة: ${attendance.conflictingResolutionDays} يوم عليه تصنيفات نشطة متعارضة`
+          : attendance?.resolvedDays
+            ? `سجل الحضور: ${attendance.resolvedDays} يومًا له تصنيف · ${attendance.lateCases + attendance.veryLateCases} تأخير · ${attendance.absenceCases} غياب`
+            : metrics.attendance_days
+              ? `بيانات حضور يومية متاحة لـ ${metrics.attendance_days} يوم`
+              : 'لا توجد أيام حضور مسجلة في المصدر لهذه الدورة',
       details: [
         `أيام لها حضور/بصمة في المصدر اليومي: ${metrics.present_days}`,
         `إجمالي الأيام التي لها بيانات في مصدر الحضور اليومي: ${metrics.attendance_days}`,
         attendance?.resolvedDays ? `أيام لها تصنيف في سجل الحضور: ${attendance.resolvedDays}` : '',
         attendance?.activeLedgerEvents ? `إجمالي تصنيفات الحضور النشطة: ${attendance.activeLedgerEvents}` : '',
-        attendance?.duplicateResolutionDays
-          ? `تنبيه مراجعة: ${attendance.duplicateResolutionDays} يوم عليه أكثر من تصنيف نشط؛ لا يُحسب كأنه يومان في التقييم.`
+        attendance?.conflictingResolutionDays
+          ? `تنبيه تعارض: ${attendance.conflictingResolutionDays} يوم عليه أكثر من تصنيف حضور نشط؛ يحتاج حسم قبل الاعتماد.`
           : '',
+        attendance?.pendingReviewCases
+          ? `حالات حضور معلقة لم تُعتمد بعد: ${attendance.pendingReviewCases} يوم.`
+          : '',
+        ...(attendance?.pendingCases?.length
+          ? ['تفاصيل الحالات المعلقة:', ...attendance.pendingCases.map((item) => attendancePendingCaseLine(item))]
+          : []),
+        attendance?.finalization.ready
+          ? 'جاهزية الحضور للاعتماد النهائي: مكتملة.'
+          : attendance
+            ? `جاهزية الحضور للاعتماد النهائي: غير مكتملة — ${attendance.finalization.blockers.join(' · ')}.`
+            : '',
         attendance?.onTimeDays ? `أيام مصنفة في الموعد: ${attendance.onTimeDays}` : '',
         attendance && attendance.lateCases + attendance.veryLateCases > 0
           ? `التأخير المسجل في سجل الحضور: ${attendance.lateCases + attendance.veryLateCases} حالة · ${attendance.lateMinutes} دقيقة`
@@ -329,6 +365,7 @@ function sectionEvidenceFor(
         followups?.needsNextFollowup
           ? `تحتاج متابعة لاحقة: ${followups.needsNextFollowup} حالة · موعد تالٍ مسجل ${followups.nextFollowupScheduled} · بدون موعد ${followups.missingNextFollowupSchedule}`
           : '',
+        'النسبة هنا للمنفذ الفعلي: handled_by ثم assigned_to ثم assigned_staff ثم staff_id؛ مقدم الطلب وحده لا يُحسب منفذًا.',
         'هذا المحور يعتمد على المتابعات/الطلبات المسجلة فعليًا، وليس درجة follow_up داخل تقييم المحادثة.',
       ].filter(Boolean),
     };
@@ -626,6 +663,7 @@ export default function StaffMonthlyEvaluation() {
   const [employeeResponseSaving, setEmployeeResponseSaving] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [draftBaselineFingerprint, setDraftBaselineFingerprint] = useState('');
   const [exportingPdf, setExportingPdf] = useState(false);
 
   const selected = useMemo(
@@ -668,6 +706,23 @@ export default function StaffMonthlyEvaluation() {
   const effectiveEvaluationMultiplierPct = evaluationComplete
     ? Math.min(overallScore, activeGateCapPercent)
     : null;
+  const currentDraftFingerprint = useMemo(() => monthlyEvaluationDraftFingerprint({
+    sections,
+    strengthsText,
+    developmentText,
+    managerNotes,
+    activeGates,
+  }), [activeGates, developmentText, managerNotes, sections, strengthsText]);
+  const draftDirty = canEdit
+    && Boolean(draftBaselineFingerprint)
+    && currentDraftFingerprint !== draftBaselineFingerprint;
+  const { requestAction: requestGuardedAction } = useNavigationGuard();
+
+  usePendingFormNavigationGuard({
+    isDirty: draftDirty,
+    isSaving: saving,
+    onSave: () => save('draft'),
+  });
 
   useEffect(() => {
     const loadStaff = async () => {
@@ -733,6 +788,7 @@ export default function StaffMonthlyEvaluation() {
     if (!selectedId || !user?.id || !selected) return;
     const loadEvaluation = async () => {
       setLoading(true);
+      setDraftBaselineFingerprint('');
       try {
         const { startDate, endDate, endDateExclusive } = evaluationCycleDateKeys(cycleLabel);
         const cycleKeyDate = `${cycleLabel}-01`;
@@ -747,7 +803,7 @@ export default function StaffMonthlyEvaluation() {
           // Historical closed statements remain the frozen source if one exists.
           supabase
             .from('employee_monthly_statements')
-            .select('points_closing,incentive_amount')
+            .select('points_closing,incentive_amount,status')
             .eq('staff_id', selectedId)
             .eq('cycle_start', startDate)
             .eq('cycle_end', endDate)
@@ -762,7 +818,11 @@ export default function StaffMonthlyEvaluation() {
         setEvidenceErrors(evidenceResult.errors);
         setCoaching(evidenceResult.coaching);
         setPointsTruth(pointsResult);
-        setSettledStatement(statementResult.data || null);
+        setSettledStatement(
+          statementResult.data && isSettledMonthlyStatementStatus(statementResult.data.status)
+            ? { points_closing: statementResult.data.points_closing, incentive_amount: statementResult.data.incentive_amount }
+            : null
+        );
 
         const saved = savedResult.data as EvaluationRow | null;
         const freshSections = evaluationProfileForRole(selected.job_title || selected.role).sections;
@@ -779,12 +839,17 @@ export default function StaffMonthlyEvaluation() {
           const published = ['sent', 'approved'].includes(savedStatus) && finalSnapshot;
           const content = published || saved;
 
+          const loadedSections = normalizeSavedSections(content.sections, freshSections);
+          const loadedStrengths = Array.isArray(content.strengths) ? content.strengths.map(String).join('\n') : '';
+          const loadedDevelopment = Array.isArray(content.development_points) ? content.development_points.map(String).join('\n') : '';
+          const loadedManagerNotes = String(content.manager_notes || '');
+
           setPublishedSnapshot(finalSnapshot);
           setPublishedSnapshotHash(String(metricsSnapshot?.final_approval_hash || ''));
-          setSections(normalizeSavedSections(content.sections, freshSections));
-          setStrengthsText(Array.isArray(content.strengths) ? content.strengths.map(String).join('\n') : '');
-          setDevelopmentText(Array.isArray(content.development_points) ? content.development_points.map(String).join('\n') : '');
-          setManagerNotes(String(content.manager_notes || ''));
+          setSections(loadedSections);
+          setStrengthsText(loadedStrengths);
+          setDevelopmentText(loadedDevelopment);
+          setManagerNotes(loadedManagerNotes);
           setStatus(savedStatus);
           setSentAtIso(savedSentAt);
           setPreviouslySent(
@@ -795,6 +860,13 @@ export default function StaffMonthlyEvaluation() {
           const savedGates = metricsSnapshot && Array.isArray(metricsSnapshot.active_critical_gates) ? (metricsSnapshot.active_critical_gates as string[]) : [];
           const validSavedGates = savedGates.filter((gate): gate is CriticalGateType => gate in CRITICAL_GATE_CAPS);
           setActiveGates(validSavedGates);
+          setDraftBaselineFingerprint(monthlyEvaluationDraftFingerprint({
+            sections: loadedSections,
+            strengthsText: loadedStrengths,
+            developmentText: loadedDevelopment,
+            managerNotes: loadedManagerNotes,
+            activeGates: validSavedGates,
+          }));
         } else {
           setEvaluationId(null);
           setPublishedSnapshot(null);
@@ -807,6 +879,13 @@ export default function StaffMonthlyEvaluation() {
           setSentAtIso('');
           setPreviouslySent(false);
           setActiveGates([]);
+          setDraftBaselineFingerprint(monthlyEvaluationDraftFingerprint({
+            sections: freshSections,
+            strengthsText: '',
+            developmentText: '',
+            managerNotes: '',
+            activeGates: [],
+          }));
         }
       } catch (cause) {
         toast.error(cause instanceof Error ? cause.message : 'تعذر تحميل التقييم');
@@ -968,9 +1047,9 @@ export default function StaffMonthlyEvaluation() {
         strengths: persistedStrengths,
         developmentPoints: persistedDevelopment,
         managerNotes: persistedManagerNotes,
-        pointsFinal: pointsTruth?.final_points ?? null,
-        pointsTarget: pointsTruth?.target_points ?? null,
-        incentiveEgp: canonicalIncentive ?? null,
+        pointsFinal: canonicalPointsFinal,
+        pointsTarget: financialTruth.pointsTarget,
+        incentiveEgp: canonicalIncentive,
       });
       pdf.save(fileName);
     } catch (cause) {
@@ -980,44 +1059,48 @@ export default function StaffMonthlyEvaluation() {
     }
   }
 
-  async function save(nextStatus = status) {
-    if (!selected || !user?.id) return;
+  async function save(nextStatus = status): Promise<boolean> {
+    if (!selected || !user?.id) return false;
     if (isEditingSelf) {
       toast.error('لا يمكنك اعتماد أو تعديل تقييمك الشهري لنفسك.');
-      return;
+      return false;
     }
     if (nextStatus === 'sent' && !evidenceReady) {
+      const attendanceFinalization = coaching?.attendance.finalization;
       const missing = [
         evidenceHealth.reviews === 'unavailable' ? 'مراجعات المحادثات' : '',
         evidenceHealth.followups === 'unavailable' ? 'المتابعات' : '',
-        evidenceHealth.attendance === 'unavailable' ? 'الحضور' : '',
+        evidenceHealth.attendance === 'unavailable' ? 'مصدر الحضور' : '',
+        evidenceHealth.attendance === 'available' && attendanceFinalization && !attendanceFinalization.ready
+          ? `الحضور غير محسوم (${attendanceFinalization.blockers.join(' · ')})`
+          : '',
       ].filter(Boolean).join('، ');
-      toast.error(`لا يمكن الاعتماد النهائي لأن مصادر الأدلة غير مكتملة: ${missing || 'مصدر غير متاح'}.`);
-      return;
+      toast.error(`لا يمكن الاعتماد النهائي قبل اكتمال الأدلة وحسم الحضور: ${missing || 'يوجد مانع يحتاج مراجعة'}.`);
+      return false;
     }
     if (nextStatus === 'sent' && !cycleClosed) {
       toast.error(`الدورة ما زالت جارية حتى ${cycleRange.displayLabel.split('–')[1]?.trim() || 'يوم 25'}. يمكنك حفظ مسودة فقط ثم الاعتماد بعد إقفال الدورة.`);
-      return;
+      return false;
     }
     if (nextStatus === 'sent' && managerMode && sections.some((item) => item.score === 0)) {
       toast.error('يجب تقييم كل المحاور قبل الاعتماد النهائي');
-      return;
+      return false;
     }
     if (nextStatus === 'sent' && sections.some((item) => item.score > 0 && item.score <= 2 && !item.notes.trim())) {
       toast.error('أي محور بدرجة 1 أو 2 نجمة يحتاج سببًا مكتوبًا قبل الاعتماد.');
-      return;
+      return false;
     }
     if (nextStatus === 'sent' && hasStrongPerformance && !strengthsText.trim()) {
       toast.error('اكتب نقطة قوة واحدة على الأقل تعكس الأداء القوي الموثق قبل الاعتماد.');
-      return;
+      return false;
     }
     if (nextStatus === 'sent' && hasDevelopmentNeed && !developmentText.trim()) {
       toast.error('اكتب خطة تطوير واضحة للمحاور التي تحتاج تحسين قبل الاعتماد.');
-      return;
+      return false;
     }
     if (nextStatus === 'sent' && activeGates.length > 0 && !managerNotes.trim()) {
       toast.error('المخالفة الحرجة تحتاج ملاحظة مدير توضح سبب القرار قبل الاعتماد.');
-      return;
+      return false;
     }
 
     setSaving(true);
@@ -1147,9 +1230,12 @@ export default function StaffMonthlyEvaluation() {
           }
         : item));
 
+      setDraftBaselineFingerprint(currentDraftFingerprint);
       toast.success(nextStatus === 'sent' ? 'تم اعتماد التقييم' : 'تم حفظ المسودة');
+      return true;
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : 'فشل حفظ التقييم');
+      return false;
     } finally {
       setSaving(false);
     }
@@ -1488,11 +1574,19 @@ export default function StaffMonthlyEvaluation() {
 
   // الرقم المالي المعروض يأتي فقط من الحقيقة المالية على الخادم أو من كشف مقفول.
   // لا نحسب مبلغًا نهائيًا داخل صفحة التقييم.
-  const canonicalIncentive = settledStatement
-    ? Number(settledStatement.incentive_amount)
-    : pointsTruth?.final_incentive_egp == null
-      ? null
-      : Number(pointsTruth.final_incentive_egp);
+  const financialTruth = resolveMonthlyEvaluationFinancialTruth({
+    settledStatement,
+    pointsTruth,
+  });
+  const canonicalPointsFinal = financialTruth.pointsFinal;
+  const canonicalIncentive = financialTruth.incentiveEgp;
+
+  function requestEvaluationContextChange(action: () => void) {
+    requestGuardedAction(() => {
+      setDraftBaselineFingerprint('');
+      action();
+    });
+  }
 
   return (
     <div className="min-h-screen space-y-4 p-4" dir="rtl" style={{ background: 'var(--dawaa-theme-bg)' }}>
@@ -1521,6 +1615,15 @@ export default function StaffMonthlyEvaluation() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {draftDirty ? (
+              <span
+                className="rounded-full border px-3 py-1 text-xs font-black"
+                style={{ borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-status-warning-bg)', color: 'var(--dawaa-status-warning-text)' }}
+              >
+                تعديلات غير محفوظة
+              </span>
+            ) : null}
+
             <span
               className="rounded-full border px-3 py-1 text-xs font-black"
               style={cycleClosed
@@ -1533,7 +1636,7 @@ export default function StaffMonthlyEvaluation() {
             <div className="flex overflow-hidden rounded-xl border" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
               <button
                 type="button"
-                onClick={() => setCycleLabel(latestClosedCycleLabel)}
+                onClick={() => cycleLabel !== latestClosedCycleLabel && requestEvaluationContextChange(() => setCycleLabel(latestClosedCycleLabel))}
                 className="px-3 py-2 text-[11px] font-black"
                 style={cycleLabel === latestClosedCycleLabel
                   ? { background: 'var(--dawaa-theme-primary)', color: 'var(--dawaa-theme-primary-text)' }
@@ -1543,7 +1646,7 @@ export default function StaffMonthlyEvaluation() {
               </button>
               <button
                 type="button"
-                onClick={() => setCycleLabel(activeCycleLabel)}
+                onClick={() => cycleLabel !== activeCycleLabel && requestEvaluationContextChange(() => setCycleLabel(activeCycleLabel))}
                 className="px-3 py-2 text-[11px] font-black"
                 style={cycleLabel === activeCycleLabel
                   ? { background: 'var(--dawaa-theme-primary)', color: 'var(--dawaa-theme-primary-text)' }
@@ -1556,7 +1659,7 @@ export default function StaffMonthlyEvaluation() {
             {globalScope ? (
               <select
                 value={branch}
-                onChange={(event) => setBranch(event.target.value)}
+                onChange={(event) => { const nextBranch = event.target.value; if (nextBranch !== branch) requestEvaluationContextChange(() => setBranch(nextBranch)); }}
                 className="rounded-xl border px-3 py-2 text-xs font-black"
                 style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-theme-text)' }}
               >
@@ -1719,7 +1822,7 @@ export default function StaffMonthlyEvaluation() {
                 return (
                   <button
                     key={item.id}
-                    onClick={() => { setSelectedId(item.id); setSidebarOpen(false); }}
+                    onClick={() => { if (item.id === selectedId) { setSidebarOpen(false); return; } requestEvaluationContextChange(() => { setSelectedId(item.id); setSidebarOpen(false); }); }}
                     className="w-full rounded-xl border px-3 py-2.5 text-right transition"
                     style={selectedId === item.id
                       ? { borderColor: 'var(--dawaa-theme-accent-border)', background: 'var(--dawaa-theme-accent-soft)' }
@@ -1892,7 +1995,7 @@ export default function StaffMonthlyEvaluation() {
                       <div className="mt-3 grid gap-2 sm:grid-cols-3">
                         <MiniBox
                           label="النقاط الفعلية"
-                          value={settledStatement ? `${settledStatement.points_closing} نقطة` : pointsTruth ? `${pointsTruth.final_points} نقطة` : '—'}
+                          value={canonicalPointsFinal == null ? '—' : `${canonicalPointsFinal} نقطة`}
                           tone="cyan"
                         />
                         <MiniBox
@@ -2036,7 +2139,11 @@ export default function StaffMonthlyEvaluation() {
                       <div>
                         <div className="text-sm font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>جاهزية بيانات الدورة</div>
                         <div className="mt-1 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
-                          {evidenceReady ? 'كل مصادر التقييم الأساسية متاحة.' : 'يوجد مصدر ناقص ويجب مراجعته قبل الاعتماد.'}
+                          {evidenceReady
+                            ? 'كل مصادر التقييم الأساسية متاحة والحضور محسوم.'
+                            : coaching?.attendance.finalization && !coaching.attendance.finalization.ready
+                              ? `الحضور غير جاهز للاعتماد النهائي: ${coaching.attendance.finalization.blockers.join(' · ')}`
+                              : 'يوجد مصدر ناقص ويجب مراجعته قبل الاعتماد.'}
                         </div>
                       </div>
                       <span
@@ -2052,7 +2159,7 @@ export default function StaffMonthlyEvaluation() {
                     <div className="mt-3 grid gap-2 sm:grid-cols-3">
                       <MiniBox
                         label="النقاط الفعلية"
-                        value={settledStatement ? `${settledStatement.points_closing} نقطة` : pointsTruth ? `${pointsTruth.final_points} نقطة` : '—'}
+                        value={canonicalPointsFinal == null ? '—' : `${canonicalPointsFinal} نقطة`}
                         tone="cyan"
                       />
                       <MiniBox

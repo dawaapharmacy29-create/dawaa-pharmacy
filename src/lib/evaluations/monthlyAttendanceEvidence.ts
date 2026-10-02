@@ -11,6 +11,7 @@ export type AttendanceStrengthEvidenceInput = {
   absenceCases: number;
   duplicateResolutionDays: number;
   manualResolutionCases: number;
+  pendingReviewCases?: number;
 };
 
 /**
@@ -30,6 +31,7 @@ export function hasStrongAttendanceEvidence(input: AttendanceStrengthEvidenceInp
   if (Number(input.absenceCases || 0) > 0) return false;
   if (Number(input.duplicateResolutionDays || 0) > 0) return false;
   if (Number(input.manualResolutionCases || 0) > 0) return false;
+  if (Number(input.pendingReviewCases || 0) > 0) return false;
 
   return true;
 }
