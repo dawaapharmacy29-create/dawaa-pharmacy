@@ -45,6 +45,14 @@ describe('staff role capabilities', () => {
     expect(staffHasCapability('توصيل', 'delivery')).toBe(true);
   });
 
+  it('keeps purchasing-scoped rules isolated from unrelated roles', () => {
+    const purchasingRules = rulesForStaffRole('مدير المشتريات');
+    const doctorRules = rulesForStaffRole('صيدلاني');
+
+    expect(purchasingRules.every((rule) => rule.role_scope === 'all' || rule.role_scopes?.includes('purchasing'))).toBe(true);
+    expect(doctorRules.every((rule) => rule.role_scope !== 'purchasing' && !rule.role_scopes?.includes('purchasing'))).toBe(true);
+  });
+
   it('routes assistant and cleaning rules without leaking doctor-only scoped rules', () => {
     const assistantRules = rulesForStaffRole('مساعد صيدلي');
     const cleaningRules = rulesForStaffRole('مسؤولة النظافة');
