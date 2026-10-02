@@ -1110,16 +1110,18 @@ export default function StaffMonthlyEvaluation() {
       return false;
     }
     if (nextStatus === 'sent' && !evidenceReady) {
+      const requirements = evaluationEvidenceRequirementsForRole(selected.job_title || selected.role);
       const attendanceFinalization = coaching?.attendance.finalization;
       const missing = [
-        evidenceHealth.reviews === 'unavailable' ? 'مراجعات المحادثات' : '',
-        evidenceHealth.followups === 'unavailable' ? 'المتابعات' : '',
-        evidenceHealth.attendance === 'unavailable' ? 'مصدر الحضور' : '',
-        evidenceHealth.attendance === 'available' && attendanceFinalization && !attendanceFinalization.ready
+        requirements.includes('reviews') && evidenceHealth.reviews === 'unavailable' ? 'مراجعات المحادثات' : '',
+        requirements.includes('followups') && evidenceHealth.followups === 'unavailable' ? 'المتابعات' : '',
+        requirements.includes('attendance') && evidenceHealth.attendance === 'unavailable' ? 'مصدر الحضور' : '',
+        requirements.includes('attendance') && evidenceHealth.attendance === 'available' && attendanceFinalization && !attendanceFinalization.ready
           ? `الحضور غير محسوم (${attendanceFinalization.blockers.join(' · ')})`
           : '',
+        requirements.includes('inventory') && coaching?.inventory.sourceStatus === 'unavailable' ? 'مصدر المخزون' : '',
       ].filter(Boolean).join('، ');
-      toast.error(`لا يمكن الاعتماد النهائي قبل اكتمال الأدلة وحسم الحضور: ${missing || 'يوجد مانع يحتاج مراجعة'}.`);
+      toast.error(`لا يمكن الاعتماد النهائي قبل اكتمال الأدلة المطلوبة لهذه الوظيفة: ${missing || 'يوجد مانع يحتاج مراجعة'}.`);
       return false;
     }
     if (nextStatus === 'sent' && !cycleClosed) {
