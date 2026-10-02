@@ -173,4 +173,78 @@ grant execute on function public.dawaa_monthly_evaluation_server_evidence_v5(uui
 comment on function public.dawaa_monthly_evaluation_server_evidence_v5(uuid,date)
   is 'Server-owned role-aware availability/readiness proof for monthly-evaluation evidence domains.';
 
+-- Compare the currently authoritative attendance truth with the frozen approval
+-- snapshot. Reapproval is evidence-driven; age of sent_at alone is not drift.
+create or replace function public.dawaa_monthly_evaluation_evidence_drift_v5(
+  p_staff_id uuid,
+  p_evaluation_month date,
+  p_approved_snapshot jsonb
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path to 'public','pg_catalog'
+as $function$
+declare
+  v_current jsonb;
+  v_approved jsonb := coalesce(p_approved_snapshot->'server_evidence','{}'::jsonb);
+  v_role text := coalesce(p_approved_snapshot->'server_evidence'->>'role','');
+  v_attendance_required boolean := coalesce((p_approved_snapshot->'server_evidence'->'requirements'->>'attendance')::boolean,false);
+  v_changed boolean := false;
+begin
+  v_current := public.dawaa_monthly_evaluation_server_evidence_v5(p_staff_id,p_evaluation_month);
+
+  if v_role = '' then
+    v_role := coalesce(v_current->>'role','other');
+  end if;
+
+  if not (p_approved_snapshot ? 'server_evidence') then
+    return jsonb_build_object(
+      'schema','monthly_evaluation_evidence_drift_v5',
+      'role',v_role,
+      'attendance_changed',false,
+      'comparable',false,
+      'reason','approved_snapshot_missing_server_evidence'
+    );
+  end if;
+
+  if v_attendance_required then
+    v_changed :=
+      coalesce(v_current->'counts'->>'legacy_attendance_rows','') is distinct from
+        coalesce(v_approved->'counts'->>'legacy_attendance_rows','')
+      or
+      coalesce(v_current->'counts'->>'modern_attendance_days','') is distinct from
+        coalesce(v_approved->'counts'->>'modern_attendance_days','')
+      or
+      coalesce(v_current->'health'->>'attendance','') is distinct from
+        coalesce(v_approved->'health'->>'attendance','');
+  end if;
+
+  return jsonb_build_object(
+    'schema','monthly_evaluation_evidence_drift_v5',
+    'role',v_role,
+    'attendance_required',v_attendance_required,
+    'attendance_changed',v_changed,
+    'comparable',true,
+    'approved_attendance',jsonb_build_object(
+      'health',v_approved->'health'->>'attendance',
+      'legacy_attendance_rows',v_approved->'counts'->>'legacy_attendance_rows',
+      'modern_attendance_days',v_approved->'counts'->>'modern_attendance_days'
+    ),
+    'current_attendance',jsonb_build_object(
+      'health',v_current->'health'->>'attendance',
+      'legacy_attendance_rows',v_current->'counts'->>'legacy_attendance_rows',
+      'modern_attendance_days',v_current->'counts'->>'modern_attendance_days'
+    ),
+    'checked_at',now()
+  );
+end;
+$function$;
+
+revoke all on function public.dawaa_monthly_evaluation_evidence_drift_v5(uuid,date,jsonb)
+  from public,anon;
+grant execute on function public.dawaa_monthly_evaluation_evidence_drift_v5(uuid,date,jsonb)
+  to authenticated,service_role;
+
+
 notify pgrst,'reload schema';
