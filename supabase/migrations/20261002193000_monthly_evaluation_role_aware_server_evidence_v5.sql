@@ -221,6 +221,50 @@ comment on function public.dawaa_monthly_evaluation_server_evidence_v5(uuid,date
 
 -- Compare the currently authoritative attendance truth with the frozen approval
 -- snapshot. Reapproval is evidence-driven; age of sent_at alone is not drift.
+create or replace function public.dawaa_monthly_evaluation_attendance_fingerprint_v5(
+  p_staff_id uuid,
+  p_evaluation_month date
+)
+returns text
+language sql
+stable
+security definer
+set search_path to 'public','pg_catalog'
+as $function$
+  with cycle as (
+    select
+      (date_trunc('month',p_evaluation_month)::date - interval '1 month' + interval '25 days')::date as start_date,
+      (date_trunc('month',p_evaluation_month)::date + interval '25 days')::date as end_exclusive
+  ),
+  rows as (
+    select jsonb_build_object(
+      'date',l.attendance_date,
+      'event_type',l.event_type,
+      'status',l.impact_status,
+      'policy',l.policy_version,
+      'points',l.points_impact,
+      'incentive',l.incentive_impact,
+      'payroll_units',l.payroll_units_impact,
+      'money',l.monetary_impact,
+      'evidence',coalesce(l.evidence_snapshot,'{}'::jsonb),
+      'reversal_of',l.reversal_of
+    ) row_data
+    from public.attendance_impact_ledger l
+    cross join cycle c
+    where l.staff_id=p_staff_id
+      and l.attendance_date>=c.start_date
+      and l.attendance_date<c.end_exclusive
+    order by l.attendance_date,l.event_type,l.id
+  )
+  select md5(coalesce(jsonb_agg(row_data)::text,'[]'))
+  from rows
+$function$;
+
+revoke all on function public.dawaa_monthly_evaluation_attendance_fingerprint_v5(uuid,date)
+  from public,anon,authenticated;
+grant execute on function public.dawaa_monthly_evaluation_attendance_fingerprint_v5(uuid,date)
+  to service_role;
+
 create or replace function public.dawaa_monthly_evaluation_evidence_drift_v5(
   p_staff_id uuid,
   p_evaluation_month date,
@@ -237,8 +281,11 @@ declare
   v_role text := coalesce(p_approved_snapshot->'server_evidence'->>'role','');
   v_attendance_required boolean := coalesce((p_approved_snapshot->'server_evidence'->'requirements'->>'attendance')::boolean,false);
   v_changed boolean := false;
+  v_current_fingerprint text;
+  v_approved_fingerprint text := nullif(p_approved_snapshot->>'attendance_fingerprint','');
 begin
   v_current := public.dawaa_monthly_evaluation_server_evidence_v5(p_staff_id,p_evaluation_month);
+  v_current_fingerprint := public.dawaa_monthly_evaluation_attendance_fingerprint_v5(p_staff_id,p_evaluation_month);
 
   if v_role = '' then
     v_role := coalesce(v_current->>'role','other');
@@ -256,6 +303,8 @@ begin
 
   if v_attendance_required then
     v_changed :=
+      (v_approved_fingerprint is not null and v_current_fingerprint is distinct from v_approved_fingerprint)
+      or
       coalesce(v_current->'counts'->>'legacy_attendance_rows','') is distinct from
         coalesce(v_approved->'counts'->>'legacy_attendance_rows','')
       or
@@ -272,6 +321,9 @@ begin
     'attendance_required',v_attendance_required,
     'attendance_changed',v_changed,
     'comparable',true,
+    'fingerprint_comparable',v_approved_fingerprint is not null,
+    'approved_attendance_fingerprint',v_approved_fingerprint,
+    'current_attendance_fingerprint',v_current_fingerprint,
     'approved_attendance',jsonb_build_object(
       'health',v_approved->'health'->>'attendance',
       'legacy_attendance_rows',v_approved->'counts'->>'legacy_attendance_rows',
