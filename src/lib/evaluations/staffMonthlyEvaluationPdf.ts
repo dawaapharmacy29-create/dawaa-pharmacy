@@ -121,7 +121,7 @@ export async function buildStaffMonthlyEvaluationPdf(
         <div style="white-space:pre-wrap;font-size:12.5px;line-height:1.8">${escapeHtml(input.managerNotes || 'لا توجد ملاحظات إضافية.')}</div>
       </div>
 
-      <div style="margin-top:22px;font-size:10px;color:#6b7280;text-align:center">تم إنشاء التقرير من نظام Dawaa Pharmacy — نسخة من سجل التقييم المعتمد والبصمة أعلاه للتحقق من ثبات المحتوى</div>
+      <div style="margin-top:22px;font-size:10px;color:#6b7280;text-align:center">تم إنشاء التقرير من نظام Dawaa Pharmacy — بصمة الاعتماد تثبت محتوى التقييم المعتمد، بينما النقاط والحافز معروضان من المصدر المالي الموضح أعلاه</div>
     </div>`;
   document.body.appendChild(host);
 
