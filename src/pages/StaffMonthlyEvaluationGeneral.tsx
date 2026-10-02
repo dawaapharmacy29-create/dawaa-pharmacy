@@ -1136,6 +1136,17 @@ export default function StaffMonthlyEvaluation() {
       toast.error('أي محور بدرجة 1 أو 2 نجمة يحتاج سببًا مكتوبًا قبل الاعتماد.');
       return false;
     }
+    if (nextStatus === 'sent') {
+      const manualStrongWithoutEvidence = sections.filter((item) => {
+        if (item.score < 4) return false;
+        const evidence = sectionEvidenceFor(item.key, metrics, evidenceHealth, pointsTruth, coaching);
+        return evidence.status === 'manual' && item.notes.trim().length < 12;
+      });
+      if (manualStrongWithoutEvidence.length > 0) {
+        toast.error(`الدرجة 4 أو 5 في المحور اليدوي تحتاج دليلًا مكتوبًا واضحًا قبل الاعتماد: ${manualStrongWithoutEvidence.map((item) => item.title).join('، ')}.`);
+        return false;
+      }
+    }
     if (nextStatus === 'sent' && hasStrongPerformance && !strengthsText.trim()) {
       toast.error('اكتب نقطة قوة واحدة على الأقل تعكس الأداء القوي الموثق قبل الاعتماد.');
       return false;
