@@ -894,10 +894,10 @@ export default function StaffMonthlyEvaluation() {
           setPublishedSnapshotHash(String(metricsSnapshot?.final_approval_hash || ''));
           setApprovedEvidenceDrift(false);
           if (published && finalSnapshot) {
-            const driftResult = await supabase.rpc('dawaa_monthly_evaluation_evidence_drift_v5', {
+            const driftResult = await supabase.rpc('get_staff_monthly_evaluation_evidence_drift_v5', {
+              p_actor_id: user.id,
               p_staff_id: selectedId,
-              p_evaluation_month: cycleKeyDate,
-              p_approved_snapshot: finalSnapshot,
+              p_month: cycleKeyDate,
             });
             if (driftResult.error) {
               console.warn('Monthly evaluation evidence drift check failed', driftResult.error);
