@@ -55,7 +55,18 @@ export function buildApprovedMonthlyEvaluationPdfReport(input: {
     snapshotHash: hash,
     sections: input.fallbackSections.map((fallback) => {
       const saved = savedByKey.get(fallback.key) || {};
-      return { ...fallback, score: num(saved.score), notes: String(saved.notes || '') };
+      const savedRubric = arr(saved.rubric).map(String);
+      return {
+        key: String(saved.key || fallback.key),
+        title: String(saved.title || fallback.title),
+        description: String(saved.description || fallback.description),
+        weight: num(saved.weight ?? fallback.weight),
+        score: num(saved.score),
+        notes: String(saved.notes || ''),
+        rubric: savedRubric.length === 5
+          ? savedRubric as StaffEvaluationSectionV3['rubric']
+          : fallback.rubric,
+      };
     }),
     strengths: arr(s.strengths).map(String).filter(Boolean),
     developmentPoints: arr(s.development_points).map(String).filter(Boolean),
