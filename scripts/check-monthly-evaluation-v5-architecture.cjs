@@ -16,6 +16,7 @@ const audit = read('src/components/evaluations/MonthlyEvaluationAuditTrailV5.tsx
 const navigationGuard = read('src/contexts/NavigationGuardContext.tsx');
 const financialTruth = read('src/lib/evaluations/monthlyEvaluationFinancialTruth.ts');
 const profiles = read('src/lib/evaluations/staffEvaluationProfilesV3.ts');
+const employeeMonthlyEvidence = read('src/lib/staff/employeeMonthlyEvidenceService.ts');
 const canonicalAttendanceTruth = read('supabase/migrations/20261002213000_monthly_evaluation_canonical_attendance_truth_v5.sql');
 const backend = [
   read('supabase/migrations/20260929153000_monthly_evaluation_command_center_v5.sql'),
@@ -124,6 +125,10 @@ if (!canonicalAttendanceTruth.includes("'attendance_pending_review_days'")) fail
 if (!canonicalAttendanceTruth.includes("'attendance_conflict_days'")) failures.push('Canonical evaluation attendance truth must expose active conflict count.');
 if (/from\s+public\.attendance\s/i.test(canonicalAttendanceTruth)) failures.push('Legacy attendance table is forbidden in the canonical monthly-evaluation attendance path.');
 if (/from\s+public\.staff_attendance_logs\s/i.test(canonicalAttendanceTruth)) failures.push('Raw attendance logs are forbidden in the canonical monthly-evaluation approval path.');
+
+if (employeeMonthlyEvidence.includes("readAttendanceRange")) failures.push('Monthly evaluation evidence must not read legacy/raw attendance range.');
+if (!employeeMonthlyEvidence.includes("listAttendanceImpactLedger")) failures.push('Monthly evaluation evidence must read canonical attendance impact ledger.');
+if (!employeeMonthlyEvidence.includes("listAttendanceResolutionQueue")) failures.push('Monthly evaluation evidence must read canonical attendance resolution queue.');
 
 if (failures.length) {
   console.error('Monthly Evaluation V5 architecture check failed:');
