@@ -666,6 +666,7 @@ export default function StaffMonthlyEvaluation() {
   const [saving, setSaving] = useState(false);
   const [draftBaselineFingerprint, setDraftBaselineFingerprint] = useState('');
   const [exportingPdf, setExportingPdf] = useState(false);
+  const [approvedEvidenceDrift, setApprovedEvidenceDrift] = useState(false);
 
   const selected = useMemo(
     () => staff.find((item) => item.id === selectedId) || null,
@@ -813,6 +814,7 @@ export default function StaffMonthlyEvaluation() {
 
         if (savedResult.error) throw savedResult.error;
 
+        setApprovedEvidenceDrift(false);
         setMetrics(evidenceResult.metrics);
         setEvidenceReady(evidenceResult.ready);
         setEvidenceHealth(evidenceResult.health);
@@ -847,6 +849,21 @@ export default function StaffMonthlyEvaluation() {
 
           setPublishedSnapshot(finalSnapshot);
           setPublishedSnapshotHash(String(metricsSnapshot?.final_approval_hash || ''));
+          const approvedAttendanceFingerprint =
+            finalSnapshot && typeof finalSnapshot.attendance_fingerprint === 'string'
+              ? finalSnapshot.attendance_fingerprint
+              : '';
+          if (approvedAttendanceFingerprint) {
+            const driftResult = await supabase.rpc('dawaa_monthly_evaluation_evidence_drift_v5', {
+              p_staff_id: selectedId,
+              p_evaluation_month: cycleKeyDate,
+              p_approved_snapshot: finalSnapshot,
+            });
+            if (!driftResult.error) {
+              const drift = driftResult.data as Record<string, unknown> | null;
+              setApprovedEvidenceDrift(Boolean(drift?.attendance_changed));
+            }
+          }
           setSections(loadedSections);
           setStrengthsText(loadedStrengths);
           setDevelopmentText(loadedDevelopment);
@@ -1013,6 +1030,10 @@ export default function StaffMonthlyEvaluation() {
 
   async function handleExportPdf() {
     if (!selected) return;
+    if (approvedEvidenceDrift) {
+      toast.error('تغيّرت بيانات الحضور بعد الاعتماد. راجع التقييم وأعد اعتماده قبل إصدار PDF نهائي جديد.');
+      return;
+    }
     const report = buildApprovedMonthlyEvaluationPdfReport({
       snapshot: publishedSnapshot,
       snapshotHash: publishedSnapshotHash,
@@ -1183,6 +1204,7 @@ export default function StaffMonthlyEvaluation() {
         if (refreshedSnapshot && refreshedHash) {
           setPublishedSnapshot(refreshedSnapshot);
           setPublishedSnapshotHash(refreshedHash);
+          setApprovedEvidenceDrift(false);
 
           try {
             await createStaffNotification({
@@ -3140,7 +3162,7 @@ export default function StaffMonthlyEvaluation() {
 
                     {canEdit ? (
                       <div className="mt-4 flex flex-wrap justify-end gap-2 border-t pt-3" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
-                        <button type="button" disabled={exportingPdf || !evaluationComplete || !publishedSnapshot || !publishedSnapshotHash} onClick={() => void handleExportPdf()} className="btn-secondary inline-flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-45">
+                        <button type="button" disabled={exportingPdf || !evaluationComplete || !publishedSnapshot || !publishedSnapshotHash || approvedEvidenceDrift} onClick={() => void handleExportPdf()} className="btn-secondary inline-flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-45">
                           {exportingPdf ? <Loader2 size={16} className="animate-spin" /> : <FileDown size={16} />}
                           {!evaluationComplete ? 'PDF بعد اكتمال التقييم' : !publishedSnapshotHash ? 'PDF بعد الاعتماد' : 'PDF النهائي'}
                         </button>
