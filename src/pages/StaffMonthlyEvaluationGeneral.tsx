@@ -894,7 +894,10 @@ export default function StaffMonthlyEvaluation() {
 
           const loadedSections = normalizeSavedSections(content.sections, freshSections);
           const loadedStrengths = Array.isArray(content.strengths) ? content.strengths.map(String).join('\n') : '';
-          const loadedDevelopment = Array.isArray(content.development_points) ? content.development_points.map(String).join('\n') : '';
+          const loadedDevelopmentRaw = Array.isArray(content.development_points) ? content.development_points.map(String).join('\n') : '';
+          const loadedDevelopment = evidenceResult.coaching?.attendance
+            ? normalizeAttendanceDevelopmentNumbers(loadedDevelopmentRaw, evidenceResult.coaching.attendance)
+            : loadedDevelopmentRaw;
           const loadedManagerNotes = String(content.manager_notes || '');
 
           setPublishedSnapshot(finalSnapshot);
