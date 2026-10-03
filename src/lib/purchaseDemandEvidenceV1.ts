@@ -24,7 +24,7 @@ export type PurchaseDemandEvidence = {
   dominant_customer_share_30d: number | null;
   outlier_share_30d: number;
   last_sale_at: string;
-  source_max_invoice_at: string;
+  source_max_invoice_at: string | null;
   source_coverage_start_at: string | null;
   source_coverage_days: number | null;
   observed_span_days: number;
@@ -212,7 +212,7 @@ export function buildPurchaseDemandEvidence(
       dominant_customer_share_30d: dominantCustomerShare === null ? null : round(dominantCustomerShare),
       outlier_share_30d: round(outlierShare),
       last_sale_at: lastSale,
-      source_max_invoice_at: sourceMaxInvoiceAt?.toISOString() ?? lastSale,
+      source_max_invoice_at: sourceMaxInvoiceAt?.toISOString() ?? null,
       source_coverage_start_at: requestedCoverageStart?.toISOString() ?? null,
       source_coverage_days: sourceCoverageDays,
       observed_span_days: observedSpanDays,
