@@ -21,8 +21,9 @@ describe('buildPurchaseDemandEvidence', () => {
     expect(evidence.invoices_30d).toBe(2);
     expect(evidence.units_30d).toBe(2);
     expect(evidence.typical_invoice_qty_30d).toBe(1);
-    expect(evidence.source_coverage_start_at).toBe('2026-09-03T12:00:00.000Z');
-    expect(evidence.source_coverage_days).toBe(30);
+    expect(evidence.source_coverage_start_at).toBeNull();
+    expect(evidence.source_coverage_days).toBeNull();
+    expect(evidence.evidence_quality_class).toBe('review');
     expect(evidence.observed_span_days).toBe(2);
   });
 
@@ -92,7 +93,7 @@ describe('buildPurchaseDemandEvidence', () => {
       { ...base, invoiceNumber: 'r6', invoiceDate: '2026-09-24T10:00:00.000Z', quantity: 2, customerCode: 'B' },
       { ...base, invoiceNumber: 'r7', invoiceDate: '2026-09-28T10:00:00.000Z', quantity: 2, customerCode: 'C' },
     ];
-    const [evidence] = buildPurchaseDemandEvidence(rows, { now });
+    const [evidence] = buildPurchaseDemandEvidence(rows, { now, sourceCoverageStart: new Date('2026-09-03T12:00:00.000Z') });
     expect(evidence.invoices_30d).toBe(7);
     expect(evidence.behavior_class).not.toBe('burst_one_off');
     expect(evidence.outlier_share_30d).toBeGreaterThan(0);
