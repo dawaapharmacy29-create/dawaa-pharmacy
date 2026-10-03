@@ -82,8 +82,14 @@ export function buildPurchaseDemandEvidence(
   const windowDays = Math.max(1, Math.min(90, Math.floor(options.windowDays ?? 30)));
   const windowEnd = new Date(options.now);
   const windowStart = new Date(windowEnd.getTime() - windowDays * 86_400_000);
-  const hasProvenSourceMax = Boolean(options.sourceMaxInvoiceAt && !Number.isNaN(options.sourceMaxInvoiceAt.getTime()));
-  const sourceMaxInvoiceAt = hasProvenSourceMax ? new Date(options.sourceMaxInvoiceAt!) : null;
+  const sourceMaxCandidate = options.sourceMaxInvoiceAt && !Number.isNaN(options.sourceMaxInvoiceAt.getTime())
+    ? new Date(options.sourceMaxInvoiceAt)
+    : null;
+  // Keep the builder contract identical to the import RPC: source freshness is
+  // only proven when the source maximum belongs to the requested analysis window.
+  const sourceMaxInvoiceAt = sourceMaxCandidate && sourceMaxCandidate >= windowStart && sourceMaxCandidate <= windowEnd
+    ? sourceMaxCandidate
+    : null;
   const hasProvenCoverageStart = Boolean(options.sourceCoverageStart && !Number.isNaN(options.sourceCoverageStart.getTime()));
   // Coverage is only proven when both source bounds are known. Measure it to
   // the source maximum, never to "now", so a stale extract cannot look complete.
