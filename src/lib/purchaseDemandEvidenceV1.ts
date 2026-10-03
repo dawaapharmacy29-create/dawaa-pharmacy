@@ -75,6 +75,17 @@ function customerKey(row: SalesEvidenceLine) {
   return code ? `code:${code}` : null;
 }
 
+export function isContinuousSourceCoverageProven(
+  dailyCoverage: Array<{ headerInvoices: number; itemInvoices: number }>,
+  minCoveragePct = 99,
+) {
+  return dailyCoverage.every(({ headerInvoices, itemInvoices }) => {
+    if (!Number.isFinite(headerInvoices) || headerInvoices <= 0) return true;
+    const safeItems = Number.isFinite(itemInvoices) ? Math.max(0, itemInvoices) : 0;
+    return (100 * safeItems) / headerInvoices >= minCoveragePct;
+  });
+}
+
 export function buildPurchaseDemandEvidence(
   rows: SalesEvidenceLine[],
   options: { now: Date; windowDays?: number; sourceCoverageStart?: Date; sourceMaxInvoiceAt?: Date } = { now: new Date() },
