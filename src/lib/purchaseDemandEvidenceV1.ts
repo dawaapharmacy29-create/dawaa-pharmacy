@@ -82,15 +82,17 @@ export function buildPurchaseDemandEvidence(
   const windowDays = Math.max(1, Math.min(90, Math.floor(options.windowDays ?? 30)));
   const windowEnd = new Date(options.now);
   const windowStart = new Date(windowEnd.getTime() - windowDays * 86_400_000);
-  const hasProvenCoverageStart = Boolean(options.sourceCoverageStart && !Number.isNaN(options.sourceCoverageStart.getTime()));
-  const requestedCoverageStart = hasProvenCoverageStart
-    ? new Date(Math.max(windowStart.getTime(), options.sourceCoverageStart!.getTime()))
-    : null;
-  const sourceCoverageDays = requestedCoverageStart
-    ? Math.max(1, Math.min(windowDays, Math.ceil((windowEnd.getTime() - requestedCoverageStart.getTime()) / 86_400_000)))
-    : null;
   const hasProvenSourceMax = Boolean(options.sourceMaxInvoiceAt && !Number.isNaN(options.sourceMaxInvoiceAt.getTime()));
   const sourceMaxInvoiceAt = hasProvenSourceMax ? new Date(options.sourceMaxInvoiceAt!) : null;
+  const hasProvenCoverageStart = Boolean(options.sourceCoverageStart && !Number.isNaN(options.sourceCoverageStart.getTime()));
+  // Coverage is only proven when both source bounds are known. Measure it to
+  // the source maximum, never to "now", so a stale extract cannot look complete.
+  const requestedCoverageStart = hasProvenCoverageStart && sourceMaxInvoiceAt
+    ? new Date(Math.max(windowStart.getTime(), options.sourceCoverageStart!.getTime()))
+    : null;
+  const sourceCoverageDays = requestedCoverageStart && sourceMaxInvoiceAt && sourceMaxInvoiceAt >= requestedCoverageStart
+    ? Math.max(1, Math.min(windowDays, Math.ceil((sourceMaxInvoiceAt.getTime() - requestedCoverageStart.getTime()) / 86_400_000)))
+    : null;
 
   type InvoiceAgg = {
     branch: PurchaseDemandEvidence['branch'];
