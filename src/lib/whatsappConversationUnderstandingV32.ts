@@ -6,6 +6,14 @@ import {
   AUTOMATED_REPLY_RX,
   buildSemanticSignalsV32,
   computeRequestBurstIds,
+  extractCorrectionSignals,
+  extractProductReferenceSignals,
+  extractRequestSignals,
+  isAcceptanceOnly,
+  isBareAcknowledgementOnly,
+  isRejectionOnly,
+  isRequestCandidate,
+  isThanksOrClosingOnly,
   type ConversationSemanticSignalV32,
 } from './whatsappSemanticSignalsV32';
 
@@ -50,7 +58,12 @@ export interface ConversationInteractionV32 {
   /** Staff who sent at least one meaningful outbound message inside this interaction. */
   primaryStaffNames: string[];
   /** Why the segmentation boundary was drawn here — kept for reviewability, not a business rule. */
-  segmentationReason: 'conversation_start' | 'time_gap' | 'reopened_after_closing' | 'topic_shift_marker';
+  segmentationReason:
+    | 'conversation_start'
+    | 'time_gap'
+    | 'reopened_after_closing'
+    | 'topic_shift_marker'
+    | 'new_commercial_need';
 }
 
 export interface ConversationUnderstandingV32 {
@@ -66,7 +79,6 @@ export interface ConversationUnderstandingV32 {
   byId: Map<string, NormalizedConversationMessageV32>;
 }
 
-// Matches an entire string made up only of emoji / VS16 / ZWJ / whitespace / punctuation, with at least one emoji.
 const EMOJI_RX = /\p{Extended_Pictographic}/u;
 const NON_EMOJI_MEANINGFUL_RX = /[\p{L}\p{N}]/u;
 
@@ -77,11 +89,6 @@ function isEmojiOnlyText(text: string): boolean {
   return !NON_EMOJI_MEANINGFUL_RX.test(trimmed);
 }
 
-// The parser's own `mediaPlaceholder` flag only covers image/voice/video/document (see
-// hasMediaPlaceholder() in whatsappConversationParser.ts) — a sticker placeholder ("<sticker
-// omitted>") falls through to kind:'unknown' there and is NOT flagged, which meant V32.1 could
-// pick a bare sticker line as "the customer's request" (a real bug found validating against real
-// production conversations). V32.2 detects any bare placeholder line independently of `kind`.
 const PLACEHOLDER_ONLY_RX =
   /^<[^<>]*\bomitted>$|^\[(?:voice message|image|video|document|file|sticker)\]$|^(?:this message was deleted|you deleted this message)$/i;
 const FORWARDED_PREFIX_RX = /^\[Forwarded\]\s*/i;
@@ -91,13 +98,158 @@ function isPlaceholderOnlyText(text: string): boolean {
   return PLACEHOLDER_ONLY_RX.test(stripped);
 }
 
-const INTERACTION_GAP_MS = 30 * 60 * 1000; // 30 minutes of silence -> treat as a new topic/interaction
+const INTERACTION_GAP_MS = 30 * 60 * 1000;
+const SEMANTIC_CONTINUATION_MAX_GAP_MS = 6 * 60 * 60 * 1000;
+const PRIOR_ORDER_REFERENCE_MAX_GAP_MS = 24 * 60 * 60 * 1000;
+const PRIOR_ORDER_COMMITMENT_RX =
+  /(?:اه|ايوه|تمام)?\s*(?:ابعته|ابعت(?:ه|وه|لي)?|هات(?:ه|ها)?)|من\s*عنيا.*(?:الطريق|عند\s*حضرتك)|جاري\s*(?:الارسال|الإرسال|التجهيز)|تم\s*(?:تأكيد|تاكيد).*الطلب|الطلب\s*اتأكد/i;
+const FULFILLMENT_FOLLOWUP_RX =
+  /(?:بعت|بعتوا|اتبعت|اتبعث).*?(?:الاوردر|الأوردر|الطلب)|(?:الاوردر|الأوردر|الطلب).*?(?:فين|وصل|اتبعت|اتبعث)|المندوب.*?(?:فين|وصل|الطريق)|(?:وصل|استلمت|استلمه).*?(?:الاوردر|الأوردر|الطلب)/i;
+const PRIOR_ORDER_REFERENCE_RX =
+  /(?:بخصوص|بالنسبة\s*ل).*?(?:الاوردر|الأوردر|الطلب)|(?:الاوردر|الأوردر|الطلب).*?(?:اللي\s*فات|السابق|بتاعي|بتاعتي|القديم)|المندوب.*?(?:فين|وصل|الطريق)/i;
+const ORDER_DETAIL_CONTINUATION_RX =
+  /العنوان|عنواني|اللوكيشن|الموقع|رقمي|رقم\s*(?:الموبايل|التليفون)|الموبايل|التليفون|الدور|الشقه|الشقة|العماره|العمارة/i;
+const ADDITIVE_REQUEST_RX =
+  /(?:^|\s)(?:وكمان|كمان|وزود|زود|ضيف|معاهم|معاه|مع\s*الطلب)(?:\s|$)/i;
+const STAFF_PENDING_REPLY_RX =
+  /لحظات|ثواني|دقيق[ةه]|اشوف|أشوف|هشوف|هراجع|هتأكد|هاتأكد|جاري\s*(?:المراجعه|المراجعة|البحث)/i;
 const CLOSING_RX = /شكر(?:ا|ًا)?\s*لتواصلك|تحت\s*أمرك\s*دائم(?:ا|ًا)?|يومك\s*سعيد|في\s*خدمتك\s*دائم(?:ا|ًا)?/i;
-// A light semantic cue for "this is a different topic", independent of any time gap. Deliberately
-// narrow (explicit topic-shift phrasing only) — this is not a full Case Lifecycle/topic classifier,
-// just enough to stop two genuinely different requests in the same conversation from being scored
-// as one interaction when the customer moves straight on without a pause.
 const TOPIC_SHIFT_MARKER_RX = /بالمناسبة|كمان\s*حاجة|سؤال\s*تاني|بس\s*كمان\s*عايز|في\s*مشكلة\s*تاني[ةه]|حاجة\s*تانية\s*خالص/i;
+const CUSTOMER_COURTESY_RESPONSE_RX =
+  /^(?:ولا\s*يهمك(?:\s+يا\s+(?:حبيبتي|حبيبي|فندم))?|العفو(?:\s+يا\s+فندم)?|شك(?:را|رًا)(?:\s+على\s+ذوق\s+حضرتك)?|ربنا\s+(?:يكرمك|يخليك)|تسلم(?:ي)?)(?:\s*[🌷🌹🌸🙏😊❤❤️]*)?[!.، ]*$/iu;
+
+function lastMeaningfulOfRole(
+  current: NormalizedConversationMessageV32[],
+  role: ParticipantRoleV32
+): NormalizedConversationMessageV32 | null {
+  for (let i = current.length - 1; i >= 0; i -= 1) {
+    const message = current[i];
+    if (message.isMeaningful && message.role === role) return message;
+  }
+  return null;
+}
+
+function currentHasOrderCommitment(current: NormalizedConversationMessageV32[]): boolean {
+  return current.some(
+    (message) =>
+      message.role === 'staff' &&
+      message.isMeaningful &&
+      PRIOR_ORDER_COMMITMENT_RX.test(message.text)
+  );
+}
+
+function currentHasMeaningfulStaff(current: NormalizedConversationMessageV32[]): boolean {
+  return current.some((message) => message.role === 'staff' && message.isMeaningful);
+}
+
+function hasPendingCustomerNeed(current: NormalizedConversationMessageV32[]): boolean {
+  const customer = lastMeaningfulOfRole(current, 'customer');
+  if (!customer || !isRequestCandidate(customer)) return false;
+  const staff = lastMeaningfulOfRole(current, 'staff');
+  if (!staff || customer.timestamp.getTime() > staff.timestamp.getTime()) return true;
+  return STAFF_PENDING_REPLY_RX.test(staff.text);
+}
+
+function hasResolvedProductReferenceContinuation(
+  current: NormalizedConversationMessageV32[],
+  next: NormalizedConversationMessageV32
+): boolean {
+  if (next.role !== 'customer' || !next.isMeaningful) return false;
+  const context = [...current.filter((m) => m.isMeaningful).slice(-5), next];
+  return extractProductReferenceSignals(context).some(
+    (signal) => signal.messageId === next.id && signal.extractedValue !== 'unknown'
+  );
+}
+
+function hasLinkedCorrectionContinuation(
+  current: NormalizedConversationMessageV32[],
+  next: NormalizedConversationMessageV32
+): boolean {
+  if (next.role !== 'customer' || !next.isMeaningful) return false;
+  const context = [...current.filter((m) => m.isMeaningful).slice(-5), next];
+  return extractCorrectionSignals(context).some(
+    (signal) => signal.messageId === next.id && (signal.relatedMessageIds?.length ?? 0) > 0
+  );
+}
+
+function isCustomerCourtesyOrResponseOnly(text: string): boolean {
+  const value = (text || '').trim();
+  return (
+    isAcceptanceOnly(value) ||
+    isRejectionOnly(value) ||
+    isBareAcknowledgementOnly(value) ||
+    isThanksOrClosingOnly(value) ||
+    CUSTOMER_COURTESY_RESPONSE_RX.test(value)
+  );
+}
+
+function isCustomerResponseContinuation(
+  current: NormalizedConversationMessageV32[],
+  next: NormalizedConversationMessageV32
+): boolean {
+  if (next.role !== 'customer' || !next.isMeaningful || !currentHasMeaningfulStaff(current)) return false;
+  return isCustomerCourtesyOrResponseOnly(next.text);
+}
+
+function isSameOrderContinuation(
+  current: NormalizedConversationMessageV32[],
+  next: NormalizedConversationMessageV32,
+  gapMs: number
+): boolean {
+  if (gapMs > PRIOR_ORDER_REFERENCE_MAX_GAP_MS || next.role !== 'customer' || !next.isMeaningful) return false;
+  if (!currentHasOrderCommitment(current)) return false;
+  return (
+    FULFILLMENT_FOLLOWUP_RX.test(next.text) ||
+    PRIOR_ORDER_REFERENCE_RX.test(next.text) ||
+    ORDER_DETAIL_CONTINUATION_RX.test(next.text)
+  );
+}
+
+function hasStrongSemanticContinuation(
+  current: NormalizedConversationMessageV32[],
+  next: NormalizedConversationMessageV32,
+  gapMs: number
+): boolean {
+  if (!current.length || gapMs < 0) return false;
+  if (
+    next.role === 'staff' &&
+    next.isMeaningful &&
+    gapMs <= SEMANTIC_CONTINUATION_MAX_GAP_MS &&
+    hasPendingCustomerNeed(current)
+  ) {
+    return true;
+  }
+  if (next.role !== 'customer' || !next.isMeaningful) return false;
+  if (isSameOrderContinuation(current, next, gapMs)) return true;
+  if (gapMs <= SEMANTIC_CONTINUATION_MAX_GAP_MS) {
+    if (hasResolvedProductReferenceContinuation(current, next)) return true;
+    if (hasLinkedCorrectionContinuation(current, next)) return true;
+    if (isCustomerResponseContinuation(current, next)) return true;
+  }
+  return false;
+}
+
+function shouldKeepSemanticContinuation(
+  current: NormalizedConversationMessageV32[],
+  next: NormalizedConversationMessageV32,
+  gapMs: number
+): boolean {
+  if (hasStrongSemanticContinuation(current, next, gapMs)) return true;
+  return (
+    gapMs <= INTERACTION_GAP_MS &&
+    next.role === 'customer' &&
+    next.isMeaningful &&
+    currentHasOrderCommitment(current) &&
+    ADDITIVE_REQUEST_RX.test(next.text)
+  );
+}
+
+function isExplicitCommercialRequest(message: NormalizedConversationMessageV32): boolean {
+  if (message.role !== 'customer' || !message.isMeaningful) return false;
+  return extractRequestSignals([message]).some(
+    (signal) => signal.messageId === message.id && signal.ruleId === 'request.explicit_verb'
+  );
+}
 
 function normalizeMessage(
   message: WhatsAppParsedMessage,
@@ -108,11 +260,7 @@ function normalizeMessage(
   const isAutomated = !isSystemGenerated && AUTOMATED_REPLY_RX.test(message.text || '');
   const isEmojiOnly = !isSystemGenerated && isEmojiOnlyText(message.text || '');
   const hasText = Boolean((message.text || '').trim());
-  // A bare media placeholder line (e.g. "<image omitted>") is not text evidence of a request or
-  // a reply — only a caption sent alongside it (a separate message in WhatsApp's own export format) is.
   const isMediaPlaceholder = Boolean(message.mediaPlaceholder) || isPlaceholderOnlyText(message.text);
-  // Pure punctuation ("..", "?", "!!") carries no letters/digits — same non-evidence status as
-  // emoji-only, just without any emoji present.
   const hasRealContent = NON_EMOJI_MEANINGFUL_RX.test((message.text || '').trim());
   const isMeaningful =
     hasText && hasRealContent && !isSystemGenerated && !isAutomated && !isEmojiOnly && !isMediaPlaceholder;
@@ -168,33 +316,50 @@ function segmentInteractions(messages: NormalizedConversationMessageV32[]): Conv
       segmentationReason: reason,
     });
     current = [];
+    sawClosingSinceLastMeaningfulInbound = false;
   };
 
   messages.forEach((message, i) => {
     const prev = messages[i - 1];
-    if (prev) {
-      const gapMs = message.timestamp.getTime() - prev.timestamp.getTime();
-      if (gapMs > INTERACTION_GAP_MS) {
+    if (prev && current.length) {
+      const previousMeaningful = [...current].reverse().find((candidate) => candidate.isMeaningful) || prev;
+      const gapMs = message.timestamp.getTime() - previousMeaningful.timestamp.getTime();
+      const semanticContinuation = shouldKeepSemanticContinuation(current, message, gapMs);
+      const fulfilledCurrentOrder = currentHasOrderCommitment(current);
+      const additiveRequest = ADDITIVE_REQUEST_RX.test(message.text);
+
+      if (gapMs > INTERACTION_GAP_MS && !semanticContinuation) {
         flush();
         reason = 'time_gap';
       } else if (
         message.role === 'customer' &&
         message.isMeaningful &&
-        sawClosingSinceLastMeaningfulInbound
+        TOPIC_SHIFT_MARKER_RX.test(message.text) &&
+        !hasStrongSemanticContinuation(current, message, gapMs)
+      ) {
+        flush();
+        reason = 'topic_shift_marker';
+      } else if (
+        message.role === 'customer' &&
+        message.isMeaningful &&
+        sawClosingSinceLastMeaningfulInbound &&
+        !semanticContinuation &&
+        !isCustomerCourtesyOrResponseOnly(message.text)
       ) {
         flush();
         reason = 'reopened_after_closing';
       } else if (
-        message.role === 'customer' &&
-        message.isMeaningful &&
-        current.length > 0 &&
-        TOPIC_SHIFT_MARKER_RX.test(message.text)
+        fulfilledCurrentOrder &&
+        isExplicitCommercialRequest(message) &&
+        !additiveRequest &&
+        !semanticContinuation
       ) {
         flush();
-        reason = 'topic_shift_marker';
+        reason = 'new_commercial_need';
       }
     }
-    if (message.role === 'staff' && CLOSING_RX.test(message.text)) {
+
+    if (message.role === 'staff' && message.isMeaningful && CLOSING_RX.test(message.text)) {
       sawClosingSinceLastMeaningfulInbound = true;
     }
     if (message.role === 'customer' && message.isMeaningful) {
