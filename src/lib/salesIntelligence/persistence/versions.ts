@@ -10,7 +10,7 @@
 export const PIPELINE_VERSION = 'sales-intelligence-v12';
 
 export const ENGINE_VERSIONS = {
-  caseSegmentation: 'case-segmentation-v7-explicit-topic-shift',
+  caseSegmentation: 'case-segmentation-v8-semantic-continuation-courtesy-safe',
   historicalClosure: 'historical-closure-v1',
   commercialConfirmation: 'commercial-confirmation-v4-natural-arabic-basket-quantities',
   protocolApplicability: 'protocol-applicability-v1',
