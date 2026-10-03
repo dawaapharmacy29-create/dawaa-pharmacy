@@ -77,7 +77,7 @@ function customerKey(row: SalesEvidenceLine) {
 
 export function buildPurchaseDemandEvidence(
   rows: SalesEvidenceLine[],
-  options: { now: Date; windowDays?: number; sourceCoverageStart?: Date } = { now: new Date() },
+  options: { now: Date; windowDays?: number; sourceCoverageStart?: Date; sourceMaxInvoiceAt?: Date } = { now: new Date() },
 ): PurchaseDemandEvidence[] {
   const windowDays = Math.max(1, Math.min(90, Math.floor(options.windowDays ?? 30)));
   const windowEnd = new Date(options.now);
@@ -89,6 +89,8 @@ export function buildPurchaseDemandEvidence(
   const sourceCoverageDays = requestedCoverageStart
     ? Math.max(1, Math.min(windowDays, Math.ceil((windowEnd.getTime() - requestedCoverageStart.getTime()) / 86_400_000)))
     : null;
+  const hasProvenSourceMax = Boolean(options.sourceMaxInvoiceAt && !Number.isNaN(options.sourceMaxInvoiceAt.getTime()));
+  const sourceMaxInvoiceAt = hasProvenSourceMax ? new Date(options.sourceMaxInvoiceAt!) : null;
 
   type InvoiceAgg = {
     branch: PurchaseDemandEvidence['branch'];
@@ -97,6 +99,7 @@ export function buildPurchaseDemandEvidence(
     invoiceAt: Date;
     quantity: number;
     customer: string | null;
+    customerConflict: boolean;
   };
 
   const invoiceMap = new Map<string, InvoiceAgg>();
@@ -115,9 +118,17 @@ export function buildPurchaseDemandEvidence(
     if (existing) {
       existing.quantity += quantity;
       if (invoiceAt > existing.invoiceAt) existing.invoiceAt = invoiceAt;
-      existing.customer ||= customerKey(row);
+      const incomingCustomer = customerKey(row);
+      if (!existing.customerConflict && incomingCustomer) {
+        if (existing.customer && existing.customer !== incomingCustomer) {
+          existing.customer = null;
+          existing.customerConflict = true;
+        } else if (!existing.customer) {
+          existing.customer = incomingCustomer;
+        }
+      }
     } else {
-      invoiceMap.set(key, { branch, productCode, invoiceNumber, invoiceAt, quantity, customer: customerKey(row) });
+      invoiceMap.set(key, { branch, productCode, invoiceNumber, invoiceAt, quantity, customer: customerKey(row), customerConflict: false });
     }
   }
 
@@ -169,7 +180,7 @@ export function buildPurchaseDemandEvidence(
       volumeScore + recurrenceScore + coverageScore + customerScore + breadthScore - bulkPenalty - concentrationPenalty
     )), 1);
     const evidenceQualityClass: PurchaseDemandEvidence['evidence_quality_class'] =
-      sourceCoverageDays === null || coverageRatio < 0.5 || invoices.length < 2 ? 'review'
+      sourceCoverageDays === null || sourceMaxInvoiceAt === null || coverageRatio < 0.5 || invoices.length < 2 ? 'review'
         : evidenceConfidenceScore >= 70 && activeDays >= 5 ? 'high'
           : evidenceConfidenceScore >= 45 && activeDays >= 3 ? 'medium'
             : 'review';
@@ -201,7 +212,7 @@ export function buildPurchaseDemandEvidence(
       dominant_customer_share_30d: dominantCustomerShare === null ? null : round(dominantCustomerShare),
       outlier_share_30d: round(outlierShare),
       last_sale_at: lastSale,
-      source_max_invoice_at: lastSale,
+      source_max_invoice_at: sourceMaxInvoiceAt?.toISOString() ?? lastSale,
       source_coverage_start_at: requestedCoverageStart?.toISOString() ?? null,
       source_coverage_days: sourceCoverageDays,
       observed_span_days: observedSpanDays,
