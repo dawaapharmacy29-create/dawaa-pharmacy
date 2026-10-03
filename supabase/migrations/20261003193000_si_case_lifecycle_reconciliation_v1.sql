@@ -6,18 +6,42 @@
 -- current truth. Deleting them would destroy lineage; leaving them readable creates stale sale
 -- proof, QA, and automatic-review leakage.
 --
--- This migration adds an explicit active/retired lifecycle, an atomic per-conversation case-set
--- reconciliation RPC, current-view guards, and client read boundaries. It intentionally performs
--- NO bulk retirement during migration; retirement only happens after a successful canonical
--- refresh supplies the exact latest case set for a conversation.
+-- Publication rule:
+-- persistence may write new raw case/analysis rows, but those rows are NOT current application
+-- truth until the per-conversation case-set reconciliation RPC publishes them atomically. This
+-- prevents a partially-completed refresh from leaking new cases or analyses into current views.
+--
+-- This migration intentionally performs NO bulk retirement. Existing cases/analyses are published
+-- as the compatibility baseline; later successful canonical refreshes publish the exact latest set.
 
+-- Add nullable first so existing rows can be initialized as the pre-migration published baseline.
 alter table public.sales_intelligence_cases
-  add column if not exists is_active boolean not null default true,
+  add column if not exists is_active boolean,
+  add column if not exists published_analysis_id uuid,
   add column if not exists retired_at timestamptz,
   add column if not exists retire_reason text;
 
+-- Preserve today's visible truth exactly at migration time: every existing case remains active,
+-- and its currently-owned analysis (when one exists) becomes the initial published snapshot.
+update public.sales_intelligence_cases
+set is_active = true
+where is_active is null;
+
+update public.sales_intelligence_cases c
+set published_analysis_id = ca.analysis_id
+from public.sales_intelligence_case_analyses ca
+where ca.case_id = c.case_id
+  and ca.is_current = true
+  and c.published_analysis_id is null;
+
+-- After the compatibility backfill, NEW case rows are unpublished by default. Only the atomic
+-- reconcile RPC below may activate/publish them.
+alter table public.sales_intelligence_cases
+  alter column is_active set default false,
+  alter column is_active set not null;
+
 create index if not exists sales_intelligence_cases_active_conversation_idx
-  on public.sales_intelligence_cases (conversation_id, case_id)
+  on public.sales_intelligence_cases (conversation_id, case_id, published_analysis_id)
   where is_active = true;
 
 alter table public.conversation_sales_reviews
@@ -30,7 +54,9 @@ create index if not exists conversation_sales_reviews_current_si_case_idx
   where is_current = true and sales_intelligence_case_id is not null;
 
 comment on column public.sales_intelligence_cases.is_active is
-  'True only when this case_id belongs to the latest successfully reconciled segmentation set for its conversation.';
+  'True only when this case_id belongs to the latest successfully published segmentation set for its conversation. New cases default false until reconciliation.';
+comment on column public.sales_intelligence_cases.published_analysis_id is
+  'The analysis snapshot atomically published as current application truth for this case. Raw newer analyses may exist but are invisible until reconciliation succeeds.';
 comment on column public.sales_intelligence_cases.retired_at is
   'Timestamp when a formerly-active case left the latest segmentation set. Historical rows are retained for audit.';
 comment on column public.sales_intelligence_cases.retire_reason is
@@ -38,8 +64,8 @@ comment on column public.sales_intelligence_cases.retire_reason is
 comment on column public.conversation_sales_reviews.is_current is
   'False when an automatic case-level review belongs to a retired Sales Intelligence case. Manual reviews remain current unless explicitly superseded.';
 
--- Atomic owner of the current case set for ONE source conversation.
--- Service role only: browser clients must never decide which cases are current.
+-- Atomic owner of the published case set for ONE source conversation.
+-- Service role only: browser clients must never decide which cases/analyses are current.
 create or replace function public.sales_intelligence_reconcile_case_set_v1(
   p_conversation_id uuid,
   p_active_case_ids text[]
@@ -52,8 +78,10 @@ as $function$
 declare
   v_active_case_ids text[] := coalesce(p_active_case_ids, '{}'::text[]);
   v_invalid_case_ids text[] := '{}'::text[];
+  v_unpublishable_case_ids text[] := '{}'::text[];
   v_retired_case_ids text[] := '{}'::text[];
   v_reactivated_case_ids text[] := '{}'::text[];
+  v_published_analysis_ids jsonb := '{}'::jsonb;
   v_case record;
   v_v22_id uuid;
   v_proof_sales_case_id text;
@@ -62,8 +90,8 @@ begin
     return jsonb_build_object('ok', false, 'status', 'conversation_id_required');
   end if;
 
-  -- Serialize case-set ownership per source. The pipeline may compute outside this transaction,
-  -- but only one completed refresh can publish a current set at a time.
+  -- Serialize publication per source. Raw pipeline work may happen outside this transaction, but
+  -- publication of the visible case set + analysis snapshots is one atomic DB action.
   perform pg_advisory_xact_lock(hashtext('sales_intelligence_case_set:' || p_conversation_id::text));
 
   -- Fail closed if a caller tries to publish a case owned by another conversation or a case that
@@ -87,19 +115,54 @@ begin
     );
   end if;
 
-  with reactivated as (
-    update public.sales_intelligence_cases c
-       set is_active = true,
-           retired_at = null,
-           retire_reason = null
-     where c.conversation_id = p_conversation_id
-       and c.case_id = any(v_active_case_ids)
-       and c.is_active = false
-    returning c.case_id
-  )
-  select coalesce(array_agg(case_id order by case_id), '{}'::text[])
+  -- Every published case must have EXACTLY ONE raw current analysis at publication time. Zero
+  -- means persistence was incomplete; >1 means raw writer invariants are already broken. Neither
+  -- condition is allowed to alter visible truth.
+  select coalesce(array_agg(x.case_id order by x.case_id), '{}'::text[])
+    into v_unpublishable_case_ids
+  from unnest(v_active_case_ids) as x(case_id)
+  where (
+    select count(*)
+    from public.sales_intelligence_case_analyses ca
+    where ca.case_id = x.case_id
+      and ca.is_current = true
+  ) <> 1;
+
+  if cardinality(v_unpublishable_case_ids) > 0 then
+    return jsonb_build_object(
+      'ok', false,
+      'status', 'active_case_current_analysis_not_unique',
+      'conversationId', p_conversation_id,
+      'unpublishableCaseIds', to_jsonb(v_unpublishable_case_ids)
+    );
+  end if;
+
+  select coalesce(array_agg(c.case_id order by c.case_id), '{}'::text[])
     into v_reactivated_case_ids
-  from reactivated;
+  from public.sales_intelligence_cases c
+  where c.conversation_id = p_conversation_id
+    and c.case_id = any(v_active_case_ids)
+    and c.is_active = false;
+
+  -- Publish the caller's exact active set and the exact current analysis snapshot for each case.
+  -- This is the publication barrier: raw analysis rows written before this RPC stay invisible.
+  update public.sales_intelligence_cases c
+     set is_active = true,
+         published_analysis_id = ca.analysis_id,
+         retired_at = null,
+         retire_reason = null
+    from public.sales_intelligence_case_analyses ca
+   where c.conversation_id = p_conversation_id
+     and c.case_id = any(v_active_case_ids)
+     and ca.case_id = c.case_id
+     and ca.is_current = true;
+
+  select coalesce(jsonb_object_agg(c.case_id, c.published_analysis_id::text), '{}'::jsonb)
+    into v_published_analysis_ids
+  from public.sales_intelligence_cases c
+  where c.conversation_id = p_conversation_id
+    and c.case_id = any(v_active_case_ids)
+    and c.is_active = true;
 
   with retired as (
     update public.sales_intelligence_cases c
@@ -171,6 +234,7 @@ begin
     'status', 'reconciled',
     'conversationId', p_conversation_id,
     'activeCaseIds', to_jsonb(v_active_case_ids),
+    'publishedAnalysisIds', v_published_analysis_ids,
     'retiredCaseIds', to_jsonb(v_retired_case_ids),
     'reactivatedCaseIds', to_jsonb(v_reactivated_case_ids)
   );
@@ -182,8 +246,8 @@ revoke all on function public.sales_intelligence_reconcile_case_set_v1(uuid, tex
 revoke all on function public.sales_intelligence_reconcile_case_set_v1(uuid, text[]) from authenticated;
 grant execute on function public.sales_intelligence_reconcile_case_set_v1(uuid, text[]) to service_role;
 
--- Current read models: current analysis/evaluation is not enough; its parent case must also belong
--- to the latest reconciled segmentation set.
+-- Current read models are publication views, not raw-writer views. A raw analysis may have
+-- is_current=true internally and still be invisible until published_analysis_id points at it.
 create or replace view public.sales_intelligence_current_case_analyses
 with (security_invoker = true)
 as
@@ -198,7 +262,7 @@ select
   ca.engine_version_protocol_applicability,
   ca.semantic_source_hash,
   ca.analyzed_at,
-  ca.is_current,
+  true::boolean as is_current,
   ca.superseded_at,
   ca.superseded_by_analysis_id,
   ca.case_type,
@@ -221,11 +285,10 @@ select
   ca.failure_reasons,
   ca.pipeline_warnings,
   ca.evidence_snapshot
-from public.sales_intelligence_case_analyses ca
-join public.sales_intelligence_cases c on c.case_id = ca.case_id
+from public.sales_intelligence_cases c
+join public.sales_intelligence_case_analyses ca on ca.analysis_id = c.published_analysis_id
 join public.whatsapp_review_sources s on s.id = c.conversation_id
-where ca.is_current = true
-  and c.is_active = true
+where c.is_active = true
   and c.source_case_id_v22 is not null
   and coalesce(s.review_status, '') <> 'archived';
 
@@ -259,13 +322,13 @@ select
   a.contradictions,
   a.rule_ids,
   a.legacy_evidence_used
-from public.sales_intelligence_attributions a
-join public.sales_intelligence_case_analyses ca
-  on ca.analysis_id = a.analysis_id and ca.is_current = true
-join public.sales_intelligence_cases c on c.case_id = a.case_id
+from public.sales_intelligence_cases c
+join public.sales_intelligence_attributions a
+  on a.case_id = c.case_id
+ and a.analysis_id = c.published_analysis_id
 join public.whatsapp_review_sources s on s.id = c.conversation_id
-where a.is_current_evaluation = true
-  and c.is_active = true
+where c.is_active = true
+  and a.is_current_evaluation = true
   and c.source_case_id_v22 is not null
   and coalesce(s.review_status, '') <> 'archived';
 
@@ -287,13 +350,13 @@ select
   pe.evaluated_at,
   pe.superseded_at,
   pe.superseded_by_policy_evaluation_id
-from public.sales_intelligence_policy_evaluations pe
-join public.sales_intelligence_case_analyses ca
-  on ca.analysis_id = pe.analysis_id and ca.is_current = true
-join public.sales_intelligence_cases c on c.case_id = pe.case_id
+from public.sales_intelligence_cases c
+join public.sales_intelligence_policy_evaluations pe
+  on pe.case_id = c.case_id
+ and pe.analysis_id = c.published_analysis_id
 join public.whatsapp_review_sources s on s.id = c.conversation_id
-where pe.is_current = true
-  and c.is_active = true
+where c.is_active = true
+  and pe.is_current = true
   and c.source_case_id_v22 is not null
   and coalesce(s.review_status, '') <> 'archived';
 
@@ -326,18 +389,18 @@ select
   b.needs_human_review,
   b.human_review_reasons,
   b.matching_input_hash
-from public.sales_intelligence_basket_invoice_matches b
-join public.sales_intelligence_case_analyses ca
-  on ca.analysis_id = b.analysis_id and ca.is_current = true
-join public.sales_intelligence_cases c on c.case_id = b.case_id
+from public.sales_intelligence_cases c
+join public.sales_intelligence_basket_invoice_matches b
+  on b.case_id = c.case_id
+ and b.analysis_id = c.published_analysis_id
 join public.whatsapp_review_sources s on s.id = c.conversation_id
-where b.is_current_evaluation = true
-  and c.is_active = true
+where c.is_active = true
+  and b.is_current_evaluation = true
   and c.source_case_id_v22 is not null
   and coalesce(s.review_status, '') <> 'archived';
 
--- Client read boundaries: normal app users see current truth only. Service role bypasses RLS and
--- therefore retains full historical audit access.
+-- Client read boundaries: normal app users see published current truth only. Service role bypasses
+-- RLS and therefore retains full historical/raw audit access.
 drop policy if exists sales_intelligence_cases_select_v1 on public.sales_intelligence_cases;
 create policy sales_intelligence_cases_select_v1
 on public.sales_intelligence_cases
