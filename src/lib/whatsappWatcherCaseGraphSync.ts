@@ -132,6 +132,9 @@ export async function syncCanonicalCaseGraphForFile(input: {
             branch: input.branch,
             createdBy: input.createdBy,
             sessionSources: input.sessionSources,
+            // Automatic ingest owns the one canonical refresh after the complete case graph,
+            // so Journey V15 must not launch a second source refresh here.
+            skipCanonicalSalesIntelligenceRefresh: true,
           }
         ),
       syncCustomerCases: () =>
