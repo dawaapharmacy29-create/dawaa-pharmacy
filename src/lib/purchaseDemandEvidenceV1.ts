@@ -25,8 +25,8 @@ export type PurchaseDemandEvidence = {
   outlier_share_30d: number;
   last_sale_at: string;
   source_max_invoice_at: string;
-  source_coverage_start_at: string;
-  source_coverage_days: number;
+  source_coverage_start_at: string | null;
+  source_coverage_days: number | null;
   observed_span_days: number;
   window_start: string;
   window_end: string;
@@ -82,10 +82,13 @@ export function buildPurchaseDemandEvidence(
   const windowDays = Math.max(1, Math.min(90, Math.floor(options.windowDays ?? 30)));
   const windowEnd = new Date(options.now);
   const windowStart = new Date(windowEnd.getTime() - windowDays * 86_400_000);
-  const requestedCoverageStart = options.sourceCoverageStart && !Number.isNaN(options.sourceCoverageStart.getTime())
-    ? new Date(Math.max(windowStart.getTime(), options.sourceCoverageStart.getTime()))
-    : windowStart;
-  const sourceCoverageDays = Math.max(1, Math.min(windowDays, Math.ceil((windowEnd.getTime() - requestedCoverageStart.getTime()) / 86_400_000)));
+  const hasProvenCoverageStart = Boolean(options.sourceCoverageStart && !Number.isNaN(options.sourceCoverageStart.getTime()));
+  const requestedCoverageStart = hasProvenCoverageStart
+    ? new Date(Math.max(windowStart.getTime(), options.sourceCoverageStart!.getTime()))
+    : null;
+  const sourceCoverageDays = requestedCoverageStart
+    ? Math.max(1, Math.min(windowDays, Math.ceil((windowEnd.getTime() - requestedCoverageStart.getTime()) / 86_400_000)))
+    : null;
 
   type InvoiceAgg = {
     branch: PurchaseDemandEvidence['branch'];
@@ -153,7 +156,7 @@ export function buildPurchaseDemandEvidence(
     const dominantCustomerShare = knownCustomerUnits > 0 ? dominantCustomerUnits / knownCustomerUnits : null;
     const outlierShare = outlierUnits / units;
     const dominantInvoiceShare = maxQty / units;
-    const coverageRatio = Math.min(1, sourceCoverageDays / windowDays);
+    const coverageRatio = sourceCoverageDays === null ? 0 : Math.min(1, sourceCoverageDays / windowDays);
     const customerEvidenceRatio = invoices.length > 0 ? knownCustomerInvoices / invoices.length : 0;
     const volumeScore = Math.min(35, (invoices.length / 8) * 35);
     const recurrenceScore = Math.min(25, (activeDays / 10) * 25);
@@ -166,7 +169,7 @@ export function buildPurchaseDemandEvidence(
       volumeScore + recurrenceScore + coverageScore + customerScore + breadthScore - bulkPenalty - concentrationPenalty
     )), 1);
     const evidenceQualityClass: PurchaseDemandEvidence['evidence_quality_class'] =
-      coverageRatio < 0.5 || invoices.length < 2 ? 'review'
+      sourceCoverageDays === null || coverageRatio < 0.5 || invoices.length < 2 ? 'review'
         : evidenceConfidenceScore >= 70 && activeDays >= 5 ? 'high'
           : evidenceConfidenceScore >= 45 && activeDays >= 3 ? 'medium'
             : 'review';
@@ -199,7 +202,7 @@ export function buildPurchaseDemandEvidence(
       outlier_share_30d: round(outlierShare),
       last_sale_at: lastSale,
       source_max_invoice_at: lastSale,
-      source_coverage_start_at: requestedCoverageStart.toISOString(),
+      source_coverage_start_at: requestedCoverageStart?.toISOString() ?? null,
       source_coverage_days: sourceCoverageDays,
       observed_span_days: observedSpanDays,
       window_start: windowStart.toISOString(),
