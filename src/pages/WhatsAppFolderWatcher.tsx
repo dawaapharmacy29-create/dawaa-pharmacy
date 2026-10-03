@@ -13,7 +13,7 @@ import {
   type LocalInboxCandidate,
 } from '@/lib/localWhatsAppInbox';
 import { ingestWhatsAppExportFile, type IngestOneFileResult } from '@/lib/whatsappAutoIngestPipeline';
-import { supabase } from '@/lib/supabase';
+import { getStaffSessionToken } from '@/lib/auth/staffSession';
 
 const SCAN_INTERVAL_MS = 60_000;
 
@@ -28,10 +28,9 @@ export default function WhatsAppFolderWatcher() {
     if (!handle || scanning) return;
     setScanning(true);
     try {
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-      const accessToken = sessionData.session?.access_token ?? null;
-      if (sessionError || !accessToken) {
-        toast.error('تعذر تحديث ذكاء المبيعات لأن جلسة الإدارة غير متاحة. حدّث الصفحة وسجّل الدخول من جديد ثم أعد المحاولة.');
+      const accessToken = getStaffSessionToken();
+      if (!accessToken) {
+        toast.error('جلسة التحليل الرسمي غير مفعلة. سجّل خروج ثم دخول مرة واحدة، وبعدها أعد المحاولة.');
         return;
       }
 
