@@ -33,6 +33,7 @@ describe('buildPurchaseDemandEvidence', () => {
     expect(evidence.invoices_30d).toBe(1);
     expect(evidence.dominant_invoice_share_30d).toBe(1);
     expect(evidence.behavior_class).toBe('burst_one_off');
+    expect(evidence.evidence_quality_class).toBe('review');
   });
 
   it('keeps unknown-customer invoices in frequency but out of customer concentration', () => {
@@ -69,6 +70,7 @@ describe('buildPurchaseDemandEvidence', () => {
     expect(evidence.source_coverage_start_at).toBe('2026-09-25T00:00:00.000Z');
     expect(evidence.source_coverage_days).toBe(9);
     expect(evidence.observed_span_days).toBe(1);
+    expect(evidence.evidence_quality_class).toBe('review');
   });
 
   it('does not let an old row outside the requested window contaminate evidence', () => {
@@ -78,6 +80,37 @@ describe('buildPurchaseDemandEvidence', () => {
     ], { now, windowDays: 30 });
     expect(evidence.units_30d).toBe(2);
     expect(evidence.invoices_30d).toBe(1);
+  });
+
+  it('does not let one bulk invoice erase genuine recurring demand', () => {
+    const rows = [
+      { ...base, invoiceNumber: 'r1', invoiceDate: '2026-09-05T10:00:00.000Z', quantity: 2, customerCode: 'A' },
+      { ...base, invoiceNumber: 'r2', invoiceDate: '2026-09-08T10:00:00.000Z', quantity: 2, customerCode: 'B' },
+      { ...base, invoiceNumber: 'r3', invoiceDate: '2026-09-12T10:00:00.000Z', quantity: 2, customerCode: 'C' },
+      { ...base, invoiceNumber: 'r4', invoiceDate: '2026-09-16T10:00:00.000Z', quantity: 12, customerCode: 'D' },
+      { ...base, invoiceNumber: 'r5', invoiceDate: '2026-09-20T10:00:00.000Z', quantity: 2, customerCode: 'A' },
+      { ...base, invoiceNumber: 'r6', invoiceDate: '2026-09-24T10:00:00.000Z', quantity: 2, customerCode: 'B' },
+      { ...base, invoiceNumber: 'r7', invoiceDate: '2026-09-28T10:00:00.000Z', quantity: 2, customerCode: 'C' },
+    ];
+    const [evidence] = buildPurchaseDemandEvidence(rows, { now });
+    expect(evidence.invoices_30d).toBe(7);
+    expect(evidence.behavior_class).not.toBe('burst_one_off');
+    expect(evidence.outlier_share_30d).toBeGreaterThan(0);
+    expect(evidence.evidence_quality_class).not.toBe('review');
+  });
+
+  it('keeps repeated single-customer demand visible but penalizes concentration', () => {
+    const rows = Array.from({ length: 6 }, (_, i) => ({
+      ...base,
+      invoiceNumber: `c${i}`,
+      invoiceDate: new Date(Date.UTC(2026, 8, 5 + i * 4, 10)).toISOString(),
+      quantity: 2,
+      customerCode: 'ONE',
+    }));
+    const [evidence] = buildPurchaseDemandEvidence(rows, { now });
+    expect(evidence.behavior_class).toBe('concentrated');
+    expect(evidence.dominant_customer_share_30d).toBe(1);
+    expect(evidence.evidence_confidence_score).toBeGreaterThan(0);
   });
 
   it('is deterministic when the same source rows are recalculated', () => {
