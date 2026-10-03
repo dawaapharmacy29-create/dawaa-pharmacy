@@ -21,8 +21,9 @@ describe('buildPurchaseDemandEvidence', () => {
     expect(evidence.invoices_30d).toBe(2);
     expect(evidence.units_30d).toBe(2);
     expect(evidence.typical_invoice_qty_30d).toBe(1);
-    expect(evidence.source_coverage_start_at).toBe('2026-09-29T10:00:00.000Z');
-    expect(evidence.source_coverage_days).toBe(2);
+    expect(evidence.source_coverage_start_at).toBe('2026-09-03T12:00:00.000Z');
+    expect(evidence.source_coverage_days).toBe(30);
+    expect(evidence.observed_span_days).toBe(2);
   });
 
   it('detects a one-invoice bulk burst without turning it into recurrence', () => {
@@ -59,6 +60,15 @@ describe('buildPurchaseDemandEvidence', () => {
       { ...base, branch: 'مخزن د.وائل', invoiceNumber: '500', quantity: 5 },
     ], { now });
     expect(result).toEqual([]);
+  });
+
+  it('tracks partial source coverage separately from product activity', () => {
+    const [evidence] = buildPurchaseDemandEvidence([
+      { ...base, invoiceNumber: 'coverage', quantity: 1 },
+    ], { now, sourceCoverageStart: new Date('2026-09-25T00:00:00.000Z') });
+    expect(evidence.source_coverage_start_at).toBe('2026-09-25T00:00:00.000Z');
+    expect(evidence.source_coverage_days).toBe(9);
+    expect(evidence.observed_span_days).toBe(1);
   });
 
   it('does not let an old row outside the requested window contaminate evidence', () => {
