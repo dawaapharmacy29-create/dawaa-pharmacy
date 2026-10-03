@@ -139,6 +139,9 @@ export async function syncCanonicalCaseGraphForFile(input: {
           branch: input.branch,
           createdBy: input.createdBy,
           sessionSources: input.sessionSources,
+          // Automatic ingest performs the canonical refresh immediately after the case graph and
+          // owns the returned stage/evaluation status, so the nested V22 call must not run it twice.
+          skipCanonicalSalesIntelligenceRefresh: true,
         }),
     },
     { persistedSourceCount: input.sessionSources.length, expectedCaseCount: caseModel.cases.length }
