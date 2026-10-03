@@ -9,9 +9,11 @@ import {
   getUnprocessedWhatsAppExports,
   markLocalWhatsAppFileProcessed,
   markLocalWhatsAppFileFailed,
+  resetLocalWhatsAppProcessedLedger,
   type LocalInboxCandidate,
 } from '@/lib/localWhatsAppInbox';
 import { ingestWhatsAppExportFile, type IngestOneFileResult } from '@/lib/whatsappAutoIngestPipeline';
+import { supabase } from '@/lib/supabase';
 
 const SCAN_INTERVAL_MS = 60_000;
 
@@ -26,10 +28,17 @@ export default function WhatsAppFolderWatcher() {
     if (!handle || scanning) return;
     setScanning(true);
     try {
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token ?? null;
+      if (sessionError || !accessToken) {
+        toast.error('تعذر تحديث ذكاء المبيعات لأن جلسة الإدارة غير متاحة. حدّث الصفحة وسجّل الدخول من جديد ثم أعد المحاولة.');
+        return;
+      }
+
       const candidates: LocalInboxCandidate[] = await getUnprocessedWhatsAppExports(handle, 10);
       for (const candidate of candidates) {
         try {
-          const result = await ingestWhatsAppExportFile(candidate.file);
+          const result = await ingestWhatsAppExportFile(candidate.file, { accessToken });
           markLocalWhatsAppFileProcessed(candidate.key);
           setLog((prev) => [{ ...result, at: new Date().toLocaleTimeString('ar-EG') }, ...prev].slice(0, 50));
           if (result.errors.length) {
@@ -86,6 +95,14 @@ export default function WhatsAppFolderWatcher() {
     }
   }
 
+  async function reanalyzeExisting() {
+    if (!handleRef.current || scanning) return;
+    resetLocalWhatsAppProcessedLedger();
+    setLog([]);
+    toast.success('تمت إعادة تهيئة سجل الملفات — سيعاد تحليل الملفات الحالية بالمحرك الرسمي، 10 ملفات في كل دفعة.');
+    await scanOnce();
+  }
+
   return (
     <div className="dawaa-text space-y-4 p-4" dir="rtl">
       <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm">
@@ -101,9 +118,12 @@ export default function WhatsAppFolderWatcher() {
         ) : !connected ? (
           <button onClick={() => void connect()} className="btn-primary mt-3 flex items-center gap-2"><FolderOpen size={16} /> اختيار فولدر تصدير الواتساب</button>
         ) : (
-          <div className="mt-3 flex items-center gap-2">
+          <div className="mt-3 flex flex-wrap items-center gap-2">
             <span className="flex items-center gap-1.5 rounded-full border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] px-3 py-1.5 text-xs font-black text-[var(--dawaa-status-success-text)]"><CheckCircle2 size={14} /> الفولدر متصل — بيتراقب كل دقيقة</span>
             <button disabled={scanning} onClick={() => void scanOnce()} className="btn-secondary flex items-center gap-1.5 text-xs">{scanning ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />} فحص الآن</button>
+            <button disabled={scanning} onClick={() => void reanalyzeExisting()} className="btn-secondary flex items-center gap-1.5 text-xs">
+              <RefreshCw size={14} /> إعادة تحليل الملفات الحالية
+            </button>
           </div>
         )}
       </div>
