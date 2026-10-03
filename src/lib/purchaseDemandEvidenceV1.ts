@@ -90,8 +90,10 @@ export function buildPurchaseDemandEvidence(
   const requestedCoverageStart = hasProvenCoverageStart && sourceMaxInvoiceAt
     ? new Date(Math.max(windowStart.getTime(), options.sourceCoverageStart!.getTime()))
     : null;
-  const sourceCoverageDays = requestedCoverageStart && sourceMaxInvoiceAt && sourceMaxInvoiceAt >= requestedCoverageStart
-    ? Math.max(1, Math.min(windowDays, Math.ceil((sourceMaxInvoiceAt.getTime() - requestedCoverageStart.getTime()) / 86_400_000)))
+  const coverageRangeValid = Boolean(requestedCoverageStart && sourceMaxInvoiceAt && sourceMaxInvoiceAt >= requestedCoverageStart);
+  const provenCoverageStart = coverageRangeValid ? requestedCoverageStart : null;
+  const sourceCoverageDays = provenCoverageStart && sourceMaxInvoiceAt
+    ? Math.max(1, Math.min(windowDays, Math.ceil((sourceMaxInvoiceAt.getTime() - provenCoverageStart.getTime()) / 86_400_000)))
     : null;
 
   type InvoiceAgg = {
@@ -215,7 +217,7 @@ export function buildPurchaseDemandEvidence(
       outlier_share_30d: round(outlierShare),
       last_sale_at: lastSale,
       source_max_invoice_at: sourceMaxInvoiceAt?.toISOString() ?? null,
-      source_coverage_start_at: requestedCoverageStart?.toISOString() ?? null,
+      source_coverage_start_at: provenCoverageStart?.toISOString() ?? null,
       source_coverage_days: sourceCoverageDays,
       observed_span_days: observedSpanDays,
       window_start: windowStart.toISOString(),
