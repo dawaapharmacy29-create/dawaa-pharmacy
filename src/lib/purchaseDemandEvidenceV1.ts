@@ -27,6 +27,7 @@ export type PurchaseDemandEvidence = {
   source_max_invoice_at: string;
   source_coverage_start_at: string;
   source_coverage_days: number;
+  observed_span_days: number;
   window_start: string;
   window_end: string;
   evidence_model_version: typeof PURCHASE_DEMAND_EVIDENCE_MODEL;
@@ -74,11 +75,15 @@ function customerKey(row: SalesEvidenceLine) {
 
 export function buildPurchaseDemandEvidence(
   rows: SalesEvidenceLine[],
-  options: { now: Date; windowDays?: number } = { now: new Date() },
+  options: { now: Date; windowDays?: number; sourceCoverageStart?: Date } = { now: new Date() },
 ): PurchaseDemandEvidence[] {
   const windowDays = Math.max(1, Math.min(90, Math.floor(options.windowDays ?? 30)));
   const windowEnd = new Date(options.now);
   const windowStart = new Date(windowEnd.getTime() - windowDays * 86_400_000);
+  const requestedCoverageStart = options.sourceCoverageStart && !Number.isNaN(options.sourceCoverageStart.getTime())
+    ? new Date(Math.max(windowStart.getTime(), options.sourceCoverageStart.getTime()))
+    : windowStart;
+  const sourceCoverageDays = Math.max(1, Math.min(windowDays, Math.ceil((windowEnd.getTime() - requestedCoverageStart.getTime()) / 86_400_000)));
 
   type InvoiceAgg = {
     branch: PurchaseDemandEvidence['branch'];
@@ -159,7 +164,7 @@ export function buildPurchaseDemandEvidence(
 
     const firstSale = invoices[0].invoiceAt.toISOString();
     const lastSale = invoices[invoices.length - 1].invoiceAt.toISOString();
-    const sourceCoverageDays = Math.max(1, Math.ceil((invoices[invoices.length - 1].invoiceAt.getTime() - invoices[0].invoiceAt.getTime()) / 86_400_000) + 1);
+    const observedSpanDays = Math.max(1, Math.ceil((invoices[invoices.length - 1].invoiceAt.getTime() - invoices[0].invoiceAt.getTime()) / 86_400_000) + 1);
     result.push({
       branch: invoices[0].branch,
       product_code: invoices[0].productCode,
@@ -175,8 +180,9 @@ export function buildPurchaseDemandEvidence(
       outlier_share_30d: round(outlierShare),
       last_sale_at: lastSale,
       source_max_invoice_at: lastSale,
-      source_coverage_start_at: firstSale,
+      source_coverage_start_at: requestedCoverageStart.toISOString(),
       source_coverage_days: sourceCoverageDays,
+      observed_span_days: observedSpanDays,
       window_start: windowStart.toISOString(),
       window_end: windowEnd.toISOString(),
       evidence_model_version: PURCHASE_DEMAND_EVIDENCE_MODEL,
