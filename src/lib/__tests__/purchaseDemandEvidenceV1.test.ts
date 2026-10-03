@@ -68,9 +68,9 @@ describe('buildPurchaseDemandEvidence', () => {
   it('tracks partial source coverage separately from product activity', () => {
     const [evidence] = buildPurchaseDemandEvidence([
       { ...base, invoiceNumber: 'coverage', quantity: 1 },
-    ], { now, sourceCoverageStart: new Date('2026-09-25T00:00:00.000Z') });
+    ], { now, sourceCoverageStart: new Date('2026-09-25T00:00:00.000Z'), sourceMaxInvoiceAt: new Date('2026-10-03T00:00:00.000Z') });
     expect(evidence.source_coverage_start_at).toBe('2026-09-25T00:00:00.000Z');
-    expect(evidence.source_coverage_days).toBe(9);
+    expect(evidence.source_coverage_days).toBe(8);
     expect(evidence.observed_span_days).toBe(1);
     expect(evidence.evidence_quality_class).toBe('review');
   });
@@ -234,6 +234,10 @@ describe('buildPurchaseDemandEvidence', () => {
       { headerInvoices: 280, itemInvoices: 0 },
       { headerInvoices: 310, itemInvoices: 310 },
     ])).toBe(false);
+  });
+
+  it('rejects partial day coverage below the explicit 99 percent gate', () => {
+    expect(isContinuousSourceCoverageProven([{ headerInvoices: 173, itemInvoices: 170 }])).toBe(false);
   });
 
   it('accepts small day-level variance at or above the explicit 99 percent gate', () => {
