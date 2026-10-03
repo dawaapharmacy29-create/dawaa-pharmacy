@@ -719,7 +719,7 @@ export function CaseIntelligenceWorkspace({
               <div className="dawaa-muted text-sm">لا توجد أسباب مراجعة.</div>
             )}
           </Block>
-          <Block title="من قال ماذا">
+          <Block title="أقوال تشغيلية مستخرجة">
             <ul className="space-y-1 text-sm" data-testid="staff-facts">
               {view.staff.facts.map((f) => (
                 <li key={`${f.fact}-${f.messageId}-${f.productKey ?? ''}`} className="flex items-center justify-between gap-2">
@@ -727,7 +727,13 @@ export function CaseIntelligenceWorkspace({
                   <WhyButton onClick={() => open({ title: staffFactLabel(f.fact), reason: f.staffSender, confidence: null, messageIds: [f.messageId] })} />
                 </li>
               ))}
-              {view.staff.facts.length === 0 ? <li className="dawaa-muted">لا توجد أقوال موظفين مسجلة.</li> : null}
+              {view.staff.facts.length === 0 ? (
+                <li className="dawaa-muted">
+                  {view.staff.participants.length
+                    ? 'رسائل الموظف موجودة في المحادثة، لكن لم تُستخرج منها أقوال تشغيلية منظّمة لهذه الحالة.'
+                    : 'لا توجد رسائل موظف متاحة في هذا التفاعل.'}
+                </li>
+              ) : null}
             </ul>
           </Block>
           <button type="button" className="dawaa-button dawaa-button--ghost text-xs" onClick={() => setShowAdvanced((v) => !v)}>
