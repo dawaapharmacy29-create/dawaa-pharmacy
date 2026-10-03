@@ -18,7 +18,7 @@ export interface JourneyPersistenceContextV15 {
   /**
    * Automatic ingestion already owns one canonical refresh after the full case graph is written.
    * Direct Smart Review leaves this false/undefined so every persisted source reaches the current
-   * Sales Intelligence pipeline even if the legacy V22 projection later fails or skips a case.
+   * Sales Intelligence pipeline even if a later journey/story/V22 projection fails or skips.
    */
   skipCanonicalSalesIntelligenceRefresh?: boolean;
 }
@@ -49,6 +49,33 @@ export async function syncWhatsAppCustomerJourneyV15(
   const sourceRows = sources || [];
   const root = sourceRows.find((row: any) => String(row.id) === rootMapping.sourceId) || sourceRows[0];
   if (!root) return null;
+
+  // Canonical Sales Intelligence is source-level truth. Launch it as soon as the durable source
+  // rows are confirmed readable, before Journey/Story/Actions/V22 side projections. A failure in
+  // any of those projections must never strand the canonical analysis on an older pipeline version.
+  if (!context.skipCanonicalSalesIntelligenceRefresh && sourceIds.length) {
+    try {
+      const accessToken = getStaffSessionToken();
+      if (!accessToken) {
+        console.warn(
+          '[whatsapp-journey-v15] canonical Sales Intelligence refresh skipped: official staff session token unavailable'
+        );
+      } else {
+        const refresh = await requestCanonicalSalesIntelligenceRefresh({ sourceIds, accessToken });
+        if (refresh.authInvalid || refresh.errors.length) {
+          console.warn('[whatsapp-journey-v15] canonical Sales Intelligence refresh incomplete', {
+            authInvalid: refresh.authInvalid,
+            errors: refresh.errors,
+          });
+        }
+      }
+    } catch (refreshError) {
+      console.warn(
+        '[whatsapp-journey-v15] canonical Sales Intelligence refresh failed after source persistence',
+        refreshError
+      );
+    }
+  }
 
   const started = sourceRows.map((row: any) => row.conversation_started_at).filter(Boolean).sort()[0] || null;
   const ended = sourceRows.map((row: any) => row.conversation_ended_at).filter(Boolean).sort().at(-1) || null;
@@ -162,33 +189,6 @@ export async function syncWhatsAppCustomerJourneyV15(
     if (evidenceLinkError) throw evidenceLinkError;
   } catch (evidenceLinkError) {
     console.warn('[whatsapp-evidence-v17] journey/story link failed; evidence rows remain source-linked', evidenceLinkError);
-  }
-
-  // Canonical Sales Intelligence is a source-level truth and must not depend on the later V22
-  // projection succeeding. Smart Review reaches this point after the source/journey is durable,
-  // so launch the current brain directly from the persisted source IDs.
-  if (!context.skipCanonicalSalesIntelligenceRefresh && sourceIds.length) {
-    try {
-      const accessToken = getStaffSessionToken();
-      if (!accessToken) {
-        console.warn(
-          '[whatsapp-journey-v15] canonical Sales Intelligence refresh skipped: official staff session token unavailable'
-        );
-      } else {
-        const refresh = await requestCanonicalSalesIntelligenceRefresh({ sourceIds, accessToken });
-        if (refresh.authInvalid || refresh.errors.length) {
-          console.warn('[whatsapp-journey-v15] canonical Sales Intelligence refresh incomplete', {
-            authInvalid: refresh.authInvalid,
-            errors: refresh.errors,
-          });
-        }
-      }
-    } catch (refreshError) {
-      console.warn(
-        '[whatsapp-journey-v15] canonical Sales Intelligence refresh failed after journey persistence',
-        refreshError
-      );
-    }
   }
 
   return {
