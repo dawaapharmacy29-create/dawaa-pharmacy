@@ -7,6 +7,7 @@ import {
 
 const PAGE_SIZE = 1000;
 const MAX_SOURCE_ROWS = 100_000;
+const MIN_COMPLETE_DAY_COVERAGE_PCT = 99;
 
 type ExportOptions = {
   now?: Date;
@@ -21,6 +22,8 @@ export type PurchaseDemandEvidenceExport = {
     source_coverage_start_at: string;
     source_max_invoice_at: string;
     source_rows: number;
+    completeness_status: 'proven' | 'unproven';
+    incomplete_days: Array<{ branch: string; sales_date: string; header_invoices: number; item_invoices: number; coverage_pct: number }>;
   };
   evidence: PurchaseDemandEvidence[];
 };
@@ -49,6 +52,43 @@ export async function buildPurchaseDemandEvidenceExport(
   const sourceMax = sourceMaxRaw ? new Date(sourceMaxRaw) : null;
   if (!sourceMax || Number.isNaN(sourceMax.getTime()) || sourceMax < requestedStart || sourceMax > now) {
     throw new Error('لا توجد حدود زمنية موثوقة لبيانات الفواتير داخل نافذة التحليل.');
+  }
+
+  // Prove that there are no hidden day-level gaps between the header truth and
+  // line-item evidence. A first/last timestamp alone cannot prove continuous coverage.
+  const { data: headerRows, error: headerError } = await supabase
+    .from('sales_invoices')
+    .select('branch,branch_name,invoice_number,invoice_no,invoice_datetime,invoice_date')
+    .gte('invoice_datetime', requestedStart.toISOString())
+    .lte('invoice_datetime', sourceMax.toISOString())
+    .limit(MAX_SOURCE_ROWS);
+  if (headerError) throw headerError;
+  if ((headerRows ?? []).length >= MAX_SOURCE_ROWS) {
+    throw new Error('تجاوز مصدر رؤوس الفواتير حد الأمان؛ لا يمكن إثبات اكتمال Evidence.');
+  }
+
+  const cairoDay = (value: string | null | undefined) => {
+    if (!value) return null;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
+  };
+  const normalizeBranch = (value: string | null | undefined) => {
+    const raw = String(value ?? '').trim();
+    if (raw === 'فرع شكري' || raw === 'دواء شكري' || raw === 'شكري') return 'فرع شكري';
+    if (raw === 'فرع الشامي' || raw === 'دواء الشامي' || raw === 'الشامي') return 'فرع الشامي';
+    return null;
+  };
+  const headerByDay = new Map<string, Set<string>>();
+  for (const row of headerRows ?? []) {
+    const branch = normalizeBranch(row.branch_name ?? row.branch);
+    const day = cairoDay(row.invoice_datetime ?? row.invoice_date);
+    const invoice = String(row.invoice_number ?? row.invoice_no ?? '').trim();
+    if (!branch || !day || !invoice) continue;
+    const key = `${branch}|${day}`;
+    const set = headerByDay.get(key) ?? new Set<string>();
+    set.add(invoice);
+    headerByDay.set(key, set);
   }
 
   const rows: SalesEvidenceLine[] = [];
@@ -84,6 +124,28 @@ export async function buildPurchaseDemandEvidenceExport(
   }
   if (!rows.length) throw new Error('لا توجد تفاصيل فواتير صالحة لبناء Demand Evidence.');
 
+  const itemsByDay = new Map<string, Set<string>>();
+  for (const row of rows) {
+    const branch = normalizeBranch(row.branch);
+    const day = cairoDay(row.invoiceDate);
+    const invoice = String(row.invoiceNumber ?? '').trim();
+    if (!branch || !day || !invoice) continue;
+    const key = `${branch}|${day}`;
+    const set = itemsByDay.get(key) ?? new Set<string>();
+    set.add(invoice);
+    itemsByDay.set(key, set);
+  }
+  const incompleteDays = [...headerByDay.entries()].flatMap(([key, invoices]) => {
+    const [branch, sales_date] = key.split('|');
+    const headerInvoices = invoices.size;
+    const itemInvoices = itemsByDay.get(key)?.size ?? 0;
+    const coveragePct = headerInvoices > 0 ? (100 * itemInvoices) / headerInvoices : 100;
+    return coveragePct < MIN_COMPLETE_DAY_COVERAGE_PCT
+      ? [{ branch, sales_date, header_invoices: headerInvoices, item_invoices: itemInvoices, coverage_pct: Math.round(coveragePct * 10) / 10 }]
+      : [];
+  }).sort((a, b) => a.sales_date.localeCompare(b.sales_date) || a.branch.localeCompare(b.branch));
+  const continuousCoverageProven = incompleteDays.length === 0;
+
   // The first fetched row proves only the lower bound actually available in the
   // requested window. This prevents claiming coverage for days absent from source data.
   const validDates = rows
@@ -95,7 +157,7 @@ export async function buildPurchaseDemandEvidenceExport(
   const evidence = buildPurchaseDemandEvidence(rows, {
     now,
     windowDays,
-    sourceCoverageStart,
+    sourceCoverageStart: continuousCoverageProven ? sourceCoverageStart : undefined,
     sourceMaxInvoiceAt: sourceMax,
   });
 
@@ -107,6 +169,8 @@ export async function buildPurchaseDemandEvidenceExport(
       source_coverage_start_at: sourceCoverageStart.toISOString(),
       source_max_invoice_at: sourceMax.toISOString(),
       source_rows: rows.length,
+      completeness_status: continuousCoverageProven ? 'proven' : 'unproven',
+      incomplete_days: incompleteDays,
     },
     evidence,
   };
