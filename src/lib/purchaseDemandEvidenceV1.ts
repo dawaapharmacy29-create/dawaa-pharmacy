@@ -25,6 +25,8 @@ export type PurchaseDemandEvidence = {
   outlier_share_30d: number;
   last_sale_at: string;
   source_max_invoice_at: string;
+  source_coverage_start_at: string;
+  source_coverage_days: number;
   window_start: string;
   window_end: string;
   evidence_model_version: typeof PURCHASE_DEMAND_EVIDENCE_MODEL;
@@ -155,7 +157,9 @@ export function buildPurchaseDemandEvidence(
       if (invoices.length >= 3 && recentInvoices / invoices.length >= 0.75 && activeDays >= 3) behavior = 'emerging';
     }
 
+    const firstSale = invoices[0].invoiceAt.toISOString();
     const lastSale = invoices[invoices.length - 1].invoiceAt.toISOString();
+    const sourceCoverageDays = Math.max(1, Math.ceil((invoices[invoices.length - 1].invoiceAt.getTime() - invoices[0].invoiceAt.getTime()) / 86_400_000) + 1);
     result.push({
       branch: invoices[0].branch,
       product_code: invoices[0].productCode,
@@ -171,6 +175,8 @@ export function buildPurchaseDemandEvidence(
       outlier_share_30d: round(outlierShare),
       last_sale_at: lastSale,
       source_max_invoice_at: lastSale,
+      source_coverage_start_at: firstSale,
+      source_coverage_days: sourceCoverageDays,
       window_start: windowStart.toISOString(),
       window_end: windowEnd.toISOString(),
       evidence_model_version: PURCHASE_DEMAND_EVIDENCE_MODEL,
