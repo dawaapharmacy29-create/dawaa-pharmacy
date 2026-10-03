@@ -23,6 +23,7 @@ describe('buildPurchaseDemandEvidence', () => {
     expect(evidence.typical_invoice_qty_30d).toBe(1);
     expect(evidence.source_coverage_start_at).toBeNull();
     expect(evidence.source_coverage_days).toBeNull();
+    expect(evidence.source_max_invoice_at).toBeNull();
     expect(evidence.evidence_quality_class).toBe('review');
     expect(evidence.observed_span_days).toBe(2);
   });
@@ -93,7 +94,7 @@ describe('buildPurchaseDemandEvidence', () => {
       { ...base, invoiceNumber: 'r6', invoiceDate: '2026-09-24T10:00:00.000Z', quantity: 2, customerCode: 'B' },
       { ...base, invoiceNumber: 'r7', invoiceDate: '2026-09-28T10:00:00.000Z', quantity: 2, customerCode: 'C' },
     ];
-    const [evidence] = buildPurchaseDemandEvidence(rows, { now, sourceCoverageStart: new Date('2026-09-03T12:00:00.000Z') });
+    const [evidence] = buildPurchaseDemandEvidence(rows, { now, sourceCoverageStart: new Date('2026-09-03T12:00:00.000Z'), sourceMaxInvoiceAt: new Date('2026-10-01T10:00:00.000Z') });
     expect(evidence.invoices_30d).toBe(7);
     expect(evidence.behavior_class).not.toBe('burst_one_off');
     expect(evidence.outlier_share_30d).toBeGreaterThan(0);
@@ -122,7 +123,7 @@ describe('buildPurchaseDemandEvidence', () => {
     expect(buildPurchaseDemandEvidence(rows, { now })).toEqual(buildPurchaseDemandEvidence(rows, { now }));
   });
 
-  it('keeps one invoice as one customer even when duplicate lines disagree on customer identity', () => {
+  it('marks conflicting duplicate-line customer identity unknown instead of picking the first customer', () => {
     const rows = [
       { ...base, invoiceNumber: 'conflict-1', quantity: 0.5, customerId: 'A', customerCode: null },
       { ...base, invoiceNumber: 'conflict-1', quantity: 0.5, customerId: 'B', customerCode: null },
@@ -131,10 +132,11 @@ describe('buildPurchaseDemandEvidence', () => {
     const [evidence] = buildPurchaseDemandEvidence(rows, {
       now,
       sourceCoverageStart: new Date('2026-09-03T12:00:00.000Z'),
+      sourceMaxInvoiceAt: new Date('2026-10-01T10:00:00.000Z'),
     });
     expect(evidence.invoices_30d).toBe(2);
-    expect(evidence.known_customer_invoices_30d).toBe(2);
-    expect(evidence.customers_30d).toBe(2);
+    expect(evidence.known_customer_invoices_30d).toBe(1);
+    expect(evidence.customers_30d).toBe(1);
   });
 
   it('never upgrades quality when source coverage is unproven', () => {
@@ -149,6 +151,35 @@ describe('buildPurchaseDemandEvidence', () => {
     expect(evidence.source_coverage_start_at).toBeNull();
     expect(evidence.source_coverage_days).toBeNull();
     expect(evidence.evidence_quality_class).toBe('review');
+  });
+
+  it('keeps quality in review when coverage is proven but source freshness is not', () => {
+    const rows = Array.from({ length: 8 }, (_, i) => ({
+      ...base,
+      invoiceNumber: `f${i}`,
+      invoiceDate: new Date(Date.UTC(2026, 8, 5 + i * 3, 10)).toISOString(),
+      quantity: 1,
+      customerCode: `F${i % 4}`,
+    }));
+    const [evidence] = buildPurchaseDemandEvidence(rows, {
+      now,
+      sourceCoverageStart: new Date('2026-09-03T12:00:00.000Z'),
+    });
+    expect(evidence.source_coverage_days).not.toBeNull();
+    expect(evidence.source_max_invoice_at).toBeNull();
+    expect(evidence.evidence_quality_class).toBe('review');
+  });
+
+  it('uses proven dataset freshness independently from the product last sale', () => {
+    const [evidence] = buildPurchaseDemandEvidence([
+      { ...base, invoiceNumber: 'fresh-source', invoiceDate: '2026-09-20T10:00:00.000Z', quantity: 1 },
+    ], {
+      now,
+      sourceCoverageStart: new Date('2026-09-03T12:00:00.000Z'),
+      sourceMaxInvoiceAt: new Date('2026-10-02T09:00:00.000Z'),
+    });
+    expect(evidence.last_sale_at).toBe('2026-09-20T10:00:00.000Z');
+    expect(evidence.source_max_invoice_at).toBe('2026-10-02T09:00:00.000Z');
   });
 
 });
