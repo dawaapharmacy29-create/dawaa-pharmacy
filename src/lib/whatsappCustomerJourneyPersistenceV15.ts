@@ -2,7 +2,10 @@ import { supabase } from '@/lib/supabase';
 import { getStaffSessionToken } from '@/lib/auth/staffSession';
 import type { WhatsAppCustomerJourneyIntelligenceV15 } from './whatsappCustomerJourneyIntelligenceV15';
 import { syncPersistentCustomerStoryV16 } from './whatsappCustomerStoryV16';
-import { requestCanonicalSalesIntelligenceRefresh } from './salesIntelligence/refresh/refreshClient';
+import {
+  requestCanonicalSalesIntelligenceRefresh,
+  requestCanonicalSalesIntelligenceRefreshForFile,
+} from './salesIntelligence/refresh/refreshClient';
 
 export interface JourneySessionSourceV15 {
   sessionId: string;
@@ -51,8 +54,9 @@ export async function syncWhatsAppCustomerJourneyV15(
   if (!root) return null;
 
   // Canonical Sales Intelligence is source-level truth. Launch it as soon as the durable source
-  // rows are confirmed readable, before Journey/Story/Actions/V22 side projections. A failure in
-  // any of those projections must never strand the canonical analysis on an older pipeline version.
+  // rows are confirmed readable, before Journey/Story/Actions/V22 side projections. Smart Review
+  // refreshes by export filename so the Canonical Source Gate can pick the finer V22-owned rows
+  // when the newly persisted row is only a coarse snapshot of an already segmented conversation.
   if (!context.skipCanonicalSalesIntelligenceRefresh && sourceIds.length) {
     try {
       const accessToken = getStaffSessionToken();
@@ -61,7 +65,10 @@ export async function syncWhatsAppCustomerJourneyV15(
           '[whatsapp-journey-v15] canonical Sales Intelligence refresh skipped: official staff session token unavailable'
         );
       } else {
-        const refresh = await requestCanonicalSalesIntelligenceRefresh({ sourceIds, accessToken });
+        const sourceFileName = String(context.sourceFileName || root.source_filename || '').trim();
+        const refresh = sourceFileName
+          ? await requestCanonicalSalesIntelligenceRefreshForFile({ sourceFileName, accessToken })
+          : await requestCanonicalSalesIntelligenceRefresh({ sourceIds, accessToken });
         if (refresh.authInvalid || refresh.errors.length) {
           console.warn('[whatsapp-journey-v15] canonical Sales Intelligence refresh incomplete', {
             authInvalid: refresh.authInvalid,
