@@ -2,11 +2,18 @@ import { supabase } from '@/lib/supabase';
 import type { WhatsAppCustomerCaseEngineV22 } from './whatsappCustomerCaseEngineV22';
 import type { JourneySessionSourceV15 } from './whatsappCustomerJourneyPersistenceV15';
 import { deriveProposedCaseLostReasonV23 } from './whatsappCaseLostReasonV23';
+import { requestCanonicalSalesIntelligenceRefresh } from './salesIntelligence/refresh/refreshClient';
 
 export interface SyncWhatsAppCustomerCasesV22Context {
   branch?: string | null;
   createdBy?: string | null;
   sessionSources: JourneySessionSourceV15[];
+  /**
+   * Set only when the caller already owns the canonical Sales Intelligence refresh.
+   * Direct Smart Review persistence leaves this false/undefined so the freshly saved V22 cases
+   * cannot remain on an older persisted Sales Intelligence pipeline version.
+   */
+  skipCanonicalSalesIntelligenceRefresh?: boolean;
 }
 
 export interface SyncWhatsAppCustomerCasesV22Result {
@@ -360,6 +367,34 @@ export async function syncWhatsAppCustomerCasesV22(
           ? error.message
           : String((error as { message?: unknown } | null)?.message ?? error),
       });
+    }
+  }
+
+  if (!context.skipCanonicalSalesIntelligenceRefresh && allSourceIds.length && result.saved > 0) {
+    try {
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token ?? null;
+      if (sessionError || !accessToken) {
+        console.warn(
+          '[whatsapp-case-v22] canonical Sales Intelligence refresh skipped: authenticated staff session unavailable'
+        );
+      } else {
+        const refresh = await requestCanonicalSalesIntelligenceRefresh({
+          sourceIds: allSourceIds,
+          accessToken,
+        });
+        if (refresh.authInvalid || refresh.errors.length) {
+          console.warn('[whatsapp-case-v22] canonical Sales Intelligence refresh incomplete', {
+            authInvalid: refresh.authInvalid,
+            errors: refresh.errors,
+          });
+        }
+      }
+    } catch (refreshError) {
+      console.warn(
+        '[whatsapp-case-v22] canonical Sales Intelligence refresh failed after V22 persistence',
+        refreshError
+      );
     }
   }
 
