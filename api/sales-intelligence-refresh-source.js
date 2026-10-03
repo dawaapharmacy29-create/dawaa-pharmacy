@@ -219,13 +219,8 @@ var supabaseFetch = (input, init) => {
 };
 function createStubClient() {
   const noop = () => stubQuery;
-  const stubResult = { data: [], error: null };
   const stubQuery = {
-    // Mirror PostgREST's chainable/awaitable query builder closely enough for dev/test paths:
-    // select(...).ilike(...).limit(...) and plain await select(...) must both work.
-    select: () => stubQuery,
-    then: (resolve, reject) => Promise.resolve(stubResult).then(resolve, reject),
-    ilike: () => stubQuery,
+    select: async () => ({ data: [], error: null }),
     insert: async () => ({ data: null, error: null }),
     update: async () => ({ data: null, error: null }),
     delete: async () => ({ data: null, error: null }),
@@ -1296,90 +1291,8 @@ function isPlaceholderOnlyText(text2) {
   return PLACEHOLDER_ONLY_RX.test(stripped);
 }
 var INTERACTION_GAP_MS = 30 * 60 * 1e3;
-var FALLBACK_TIME_BOUNDARY_MS = 120 * 60 * 1e3;
-var SEMANTIC_CONTINUATION_MAX_GAP_MS = 6 * 60 * 60 * 1e3;
-var PRIOR_ORDER_REFERENCE_MAX_GAP_MS = 24 * 60 * 60 * 1e3;
-var PRIOR_ORDER_COMMITMENT_RX = /(?:اه|ايوه|تمام)?\s*(?:ابعته|ابعت(?:ه|وه|لي)?|هات(?:ه|ها)?)|من\s*عنيا.*(?:الطريق|عند\s*حضرتك)|جاري\s*(?:الارسال|الإرسال|التجهيز)|تم\s*(?:تأكيد|تاكيد).*الطلب|الطلب\s*اتأكد/i;
-var FULFILLMENT_FOLLOWUP_RX = /(?:بعت|بعتوا|اتبعت|اتبعث).*?(?:الاوردر|الأوردر|الطلب)|(?:الاوردر|الأوردر|الطلب).*?(?:فين|وصل|اتبعت|اتبعث)|المندوب.*?(?:فين|وصل|الطريق)|(?:وصل|استلمت|استلمه).*?(?:الاوردر|الأوردر|الطلب)/i;
-var PRIOR_ORDER_REFERENCE_RX = /(?:بخصوص|بالنسبة\s*ل).*?(?:الاوردر|الأوردر|الطلب)|(?:الاوردر|الأوردر|الطلب).*?(?:اللي\s*فات|السابق|بتاعي|بتاعتي|القديم)|المندوب.*?(?:فين|وصل|الطريق)/i;
-var ORDER_DETAIL_CONTINUATION_RX = /العنوان|عنواني|اللوكيشن|الموقع|رقمي|رقم\s*(?:الموبايل|التليفون)|الموبايل|التليفون|الدور|الشقه|الشقة|العماره|العمارة/i;
-var ADDITIVE_REQUEST_RX = /(?:^|\s)(?:وكمان|كمان|وزود|زود|ضيف|معاهم|معاه|مع\s*الطلب)(?:\s|$)/i;
-var STAFF_PENDING_REPLY_RX = /لحظات|ثواني|دقيق[ةه]|اشوف|أشوف|هشوف|هراجع|هتأكد|هاتأكد|جاري\s*(?:المراجعه|المراجعة|البحث)/i;
-var CLOSING_RX = /شكر[اً]?\s*لتواصلك|تحت\s*أمرك\s*دائم[اً]?|يومك\s*سعيد|في\s*خدمتك\s*دائم[اً]?/i;
+var CLOSING_RX = /شكر(?:ا|ًا)?\s*لتواصلك|تحت\s*أمرك\s*دائم(?:ا|ًا)?|يومك\s*سعيد|في\s*خدمتك\s*دائم(?:ا|ًا)?/i;
 var TOPIC_SHIFT_MARKER_RX = /بالمناسبة|كمان\s*حاجة|سؤال\s*تاني|بس\s*كمان\s*عايز|في\s*مشكلة\s*تاني[ةه]|حاجة\s*تانية\s*خالص/i;
-function lastMeaningfulOfRole(current, role) {
-  for (let i = current.length - 1; i >= 0; i -= 1) {
-    const message = current[i];
-    if (message.isMeaningful && message.role === role) return message;
-  }
-  return null;
-}
-function currentHasOrderCommitment(current) {
-  return current.some(
-    (message) => message.role === "staff" && message.isMeaningful && PRIOR_ORDER_COMMITMENT_RX.test(message.text)
-  );
-}
-function currentHasMeaningfulStaff(current) {
-  return current.some((message) => message.role === "staff" && message.isMeaningful);
-}
-function hasPendingCustomerNeed(current) {
-  const customer = lastMeaningfulOfRole(current, "customer");
-  if (!customer || !isRequestCandidate(customer)) return false;
-  const staff = lastMeaningfulOfRole(current, "staff");
-  if (!staff || customer.timestamp.getTime() > staff.timestamp.getTime()) return true;
-  return STAFF_PENDING_REPLY_RX.test(staff.text);
-}
-function hasResolvedProductReferenceContinuation(current, next) {
-  if (next.role !== "customer" || !next.isMeaningful) return false;
-  const context = [...current.filter((m) => m.isMeaningful).slice(-5), next];
-  return extractProductReferenceSignals(context).some(
-    (signal) => signal.messageId === next.id && signal.extractedValue !== "unknown"
-  );
-}
-function hasLinkedCorrectionContinuation(current, next) {
-  if (next.role !== "customer" || !next.isMeaningful) return false;
-  const context = [...current.filter((m) => m.isMeaningful).slice(-5), next];
-  return extractCorrectionSignals(context).some(
-    (signal) => signal.messageId === next.id && (signal.relatedMessageIds?.length ?? 0) > 0
-  );
-}
-function isCustomerResponseContinuation(current, next) {
-  if (next.role !== "customer" || !next.isMeaningful || !currentHasMeaningfulStaff(current)) return false;
-  return isAcceptanceOnly(next.text) || isRejectionOnly(next.text) || isBareAcknowledgementOnly(next.text) || isThanksOrClosingOnly(next.text);
-}
-function isSameOrderContinuation(current, next, gapMs) {
-  if (gapMs > PRIOR_ORDER_REFERENCE_MAX_GAP_MS || next.role !== "customer" || !next.isMeaningful) return false;
-  if (!currentHasOrderCommitment(current)) return false;
-  return FULFILLMENT_FOLLOWUP_RX.test(next.text) || PRIOR_ORDER_REFERENCE_RX.test(next.text) || ORDER_DETAIL_CONTINUATION_RX.test(next.text);
-}
-function hasStrongSemanticContinuation(current, next, gapMs) {
-  if (!current.length || gapMs < 0) return false;
-  if (next.role === "staff" && next.isMeaningful && gapMs <= SEMANTIC_CONTINUATION_MAX_GAP_MS && hasPendingCustomerNeed(current)) {
-    return true;
-  }
-  if (next.role !== "customer" || !next.isMeaningful) return false;
-  if (isSameOrderContinuation(current, next, gapMs)) return true;
-  if (gapMs <= SEMANTIC_CONTINUATION_MAX_GAP_MS) {
-    if (hasResolvedProductReferenceContinuation(current, next)) return true;
-    if (hasLinkedCorrectionContinuation(current, next)) return true;
-    if (isCustomerResponseContinuation(current, next)) return true;
-  }
-  return false;
-}
-function shouldKeepSemanticContinuation(current, next, gapMs) {
-  if (!current.length || gapMs < 0) return false;
-  if (next.role === "staff" && next.isMeaningful && gapMs <= SEMANTIC_CONTINUATION_MAX_GAP_MS && hasPendingCustomerNeed(current)) {
-    return true;
-  }
-  if (next.role !== "customer" || !next.isMeaningful) return false;
-  if (isSameOrderContinuation(current, next, gapMs)) return true;
-  if (gapMs <= SEMANTIC_CONTINUATION_MAX_GAP_MS) {
-    if (hasResolvedProductReferenceContinuation(current, next)) return true;
-    if (hasLinkedCorrectionContinuation(current, next)) return true;
-    if (isCustomerResponseContinuation(current, next)) return true;
-  }
-  return gapMs <= INTERACTION_GAP_MS && currentHasOrderCommitment(current) && ADDITIVE_REQUEST_RX.test(next.text);
-}
 function normalizeMessage(message, staffNames, customerName) {
   const isSystemGenerated = message.direction === "system" || message.kind === "system";
   const isAutomated = !isSystemGenerated && AUTOMATED_REPLY_RX.test(message.text || "");
@@ -1436,39 +1349,23 @@ function segmentInteractions(messages) {
       segmentationReason: reason
     });
     current = [];
-    sawClosingSinceLastMeaningfulInbound = false;
   };
   messages.forEach((message, i) => {
     const prev = messages[i - 1];
-    if (prev && current.length) {
-      const previousMeaningful = [...current].reverse().find((candidate) => candidate.isMeaningful) || prev;
-      const gapMs = message.timestamp.getTime() - previousMeaningful.timestamp.getTime();
-      const semanticContinuation = shouldKeepSemanticContinuation(current, message, gapMs);
-      const customerRequest = isRequestCandidate(message);
-      const additiveRequest = ADDITIVE_REQUEST_RX.test(message.text);
-      const fulfilledCurrentOrder = currentHasOrderCommitment(current);
-      if (message.role === "customer" && message.isMeaningful && TOPIC_SHIFT_MARKER_RX.test(message.text) && // An explicit topic shift ("بالمناسبة ...") loses only to a PROVEN continuation, never to
-      // the weaker "additive word after a committed order" heuristic.
-      !hasStrongSemanticContinuation(current, message, gapMs)) {
+    if (prev) {
+      const gapMs = message.timestamp.getTime() - prev.timestamp.getTime();
+      if (gapMs > INTERACTION_GAP_MS) {
         flush();
-        reason = "topic_shift_marker";
-      } else if (customerRequest && sawClosingSinceLastMeaningfulInbound && !semanticContinuation) {
+        reason = "time_gap";
+      } else if (message.role === "customer" && message.isMeaningful && sawClosingSinceLastMeaningfulInbound) {
         flush();
         reason = "reopened_after_closing";
-      } else if (customerRequest && fulfilledCurrentOrder && !additiveRequest && !semanticContinuation) {
+      } else if (message.role === "customer" && message.isMeaningful && current.length > 0 && TOPIC_SHIFT_MARKER_RX.test(message.text)) {
         flush();
-        reason = "new_commercial_need";
-      } else if (gapMs > INTERACTION_GAP_MS && !semanticContinuation) {
-        if (customerRequest) {
-          flush();
-          reason = "new_commercial_need";
-        } else if (gapMs > FALLBACK_TIME_BOUNDARY_MS) {
-          flush();
-          reason = "time_gap";
-        }
+        reason = "topic_shift_marker";
       }
     }
-    if (message.role === "staff" && message.isMeaningful && CLOSING_RX.test(message.text)) {
+    if (message.role === "staff" && CLOSING_RX.test(message.text)) {
       sawClosingSinceLastMeaningfulInbound = true;
     }
     if (message.role === "customer" && message.isMeaningful) {
@@ -6262,7 +6159,7 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
     needsHumanReview: true
   } : derivedSaleProof;
   const reviewReasonsResolvedByProvenInvoice = /* @__PURE__ */ new Set(["no_basket_state_for_case"]);
-  let humanReviewReasons = saleProof.state === "proven" ? rawHumanReviewReasons.filter((reason) => !reviewReasonsResolvedByProvenInvoice.has(reason)) : [...rawHumanReviewReasons];
+  const humanReviewReasons = saleProof.state === "proven" ? rawHumanReviewReasons.filter((reason) => !reviewReasonsResolvedByProvenInvoice.has(reason)) : [...rawHumanReviewReasons];
   if (identityBlocked && !humanReviewReasons.includes(identityReason)) humanReviewReasons.push(identityReason);
   const unexplainedBooleanReviewFlag = rawNeedsHumanReview && rawHumanReviewReasons.length === 0;
   let needsHumanReview = humanReviewReasons.length > 0 || unexplainedBooleanReviewFlag;
@@ -11317,9 +11214,9 @@ function analyzeConversationEvaluationOperational(view, system) {
 // src/lib/salesIntelligence/conversationEvaluationClosing.ts
 var criterion4 = REVIEW_CRITERIA.find((item) => item.key === "closing_message");
 if (!criterion4) throw new Error("Missing closing_message criterion");
-var OFFICIAL_CLOSING_RX = /(?:(?:نتشرف|تشرفنا)[^\n]{0,60}(?:بخدم|خدمت)[^\n]{0,40}(?:24|٢٤|أي\s*وقت|اى\s*وقت|اي\s*وقت)|صيدليات?\s*دواء[^\n]{0,60}(?:تحت\s*(?:أمر|امر)|نتشرف|في\s*خدمت)|(?:نتشرف|تشرفنا)\s*بخدم(?:ة|ه)\s*حضرتك\s*(?:دائم|في\s*أي\s*وقت)?)/i;
-var RESPECTFUL_CLOSING_RX = /(?:تحت\s*(?:أمر|امر)\s*حضرتك|تحت\s*امرك|شكر(?:ا|ًا)\s*(?:لحضرتك|لتواصلك)|العفو\s*(?:يا\s*فندم)?|نتشرف\s*بخدم(?:ة|ه)\s*حضرتك|تشرفنا\s*(?:بخدمت|بالكلام)|في\s*أي\s*وقت\s*(?:يا\s*فندم)?)/i;
-var CUSTOMER_COURTESY_RX = /^(?:شكرا|شكرًا|متشكر|تسلم|تسلمي|ربنا\s*يكرمك|جزاك\s*الله\s*خيرا|تمام|ماشي|حاضر|اوكي|أوكي|ok|العفو|الله\s*يخليك|شكرا\s*يا\s*دكتور)[\s🌷🌸✨💚🙏!.،]*$/i;
+var OFFICIAL_CLOSING_RX = /(?:(?:نتشرف|تشرفنا)[^\n]{0,60}(?:ب\s*خدم(?:ة|ه)?|خدمت)[^\n]{0,40}(?:24|٢٤|أي\s*وقت|اى\s*وقت|اي\s*وقت)|صيدليات?\s*دواء[^\n]{0,60}(?:تحت\s*(?:أمر|امر)|نتشرف|في\s*خدمت)|(?:نتشرف|تشرفنا)\s*ب\s*خدم(?:ة|ه)\s*حضرتك\s*(?:دائم|في\s*أي\s*وقت)?)/i;
+var RESPECTFUL_CLOSING_RX = /(?:تحت\s*(?:أمر|امر)\s*حضرتك|تحت\s*امرك|شكر(?:ا|ًا)\s*(?:لحضرتك|لتواصلك)|العفو\s*(?:يا\s*فندم)?|نتشرف\s*ب\s*خدم(?:ة|ه)\s*حضرتك|تشرفنا\s*(?:بخدمت|بالكلام)|في\s*أي\s*وقت\s*(?:يا\s*فندم)?)/i;
+var CUSTOMER_COURTESY_RX = /^(?:شكرا|شكرًا|متشكر|تسلم|تسلمي|ربنا\s*يكرمك|جزاك\s*الله\s*خيرا|تمام|ماشي|حاضر|اوكي|أوكي|ok|العفو|الله\s*يخليك|شكرا\s*يا\s*دكتور)[\s🌷🌸✨💚🙏!.،]*$/iu;
 var NEW_REQUEST_RX = /(?:عايز|عاوزه|عايزة|محتاج|ممكن|ينفع|بكام|سعر|موجود|متوفر|ابعت|ابعث|هات|هاتلي|لو\s*سمحت|سؤال|استفسار|كمان)/i;
 function make8(option, status, confidence2, reason, evidenceMessageIds) {
   const choice = option ? criterion4.choices.find((item) => item.value === option) ?? null : null;
@@ -11685,15 +11582,51 @@ async function loadConversationEvaluationSystemEvidenceWithClient(client, view) 
   const [requestResult, followupResult, historyResult] = await Promise.all([
     client.from("customer_requests").select("id,customer_id,customer_code,customer_phone,branch,medicine_name,quantity,doctor_id,doctor_name,source_recorded_staff_id,created_by,created_by_name,requested_at,created_at,due_date,next_action_at,status").or(identityFilter).gte("created_at", from).lte("created_at", to).limit(100),
     client.from("daily_followups").select("id,customer_id,customer_code,customer_phone,branch,request_type,followup_type,request_source,followup_reason,request_details,followup_summary,requested_by_staff_id,staff_id,created_by,created_by_name,created_at").or(identityFilter).gte("created_at", from).lte("created_at", to).limit(100),
-    client.from("sales_invoices").select("id,invoice_number,customer_id,customer_code,customer_phone,invoice_datetime,branch_name,net_total").or(identityFilter).lt("invoice_datetime", view.interaction.startedAt).order("invoice_datetime", { ascending: false }).limit(30)
+    (async () => {
+      const beforeInteraction = new Date(Math.max(0, startMs - 1)).toISOString();
+      const identities = [
+        { column: "customer_id", value: clean2(view.customer.customerId) },
+        { column: "customer_code", value: clean2(view.customer.customerCode) },
+        { column: "customer_phone", value: clean2(view.customer.customerPhone) }
+      ].filter((identity) => Boolean(identity.value));
+      const batches = await Promise.all(
+        identities.map(
+          (identity) => readInvoiceRecordsByIdentityWindow({
+            column: identity.column,
+            value: identity.value,
+            windowStartIso: "1970-01-01T00:00:00.000Z",
+            windowEndIso: beforeInteraction,
+            limit: 30,
+            client
+          })
+        )
+      );
+      const byId = /* @__PURE__ */ new Map();
+      for (const row of batches.flat()) {
+        const id = clean2(row.id);
+        if (!id) continue;
+        const rawTotal = row.net_total;
+        const parsedTotal = rawTotal == null ? null : Number(rawTotal);
+        byId.set(id, {
+          id,
+          invoice_number: clean2(row.invoice_number) || null,
+          customer_id: clean2(row.customer_id) || null,
+          customer_code: clean2(row.customer_code) || null,
+          customer_phone: clean2(row.customer_phone) || null,
+          invoice_datetime: clean2(row.invoice_datetime) || null,
+          branch_name: clean2(row.branch_name) || null,
+          net_total: parsedTotal != null && Number.isFinite(parsedTotal) ? parsedTotal : null
+        });
+      }
+      return [...byId.values()].sort((a, b) => (toMs(b.invoice_datetime) ?? 0) - (toMs(a.invoice_datetime) ?? 0)).slice(0, 30);
+    })()
   ]);
   if (requestResult.error) throw new Error(`customer_requests: ${requestResult.error.message}`);
   if (followupResult.error) throw new Error(`daily_followups: ${followupResult.error.message}`);
-  if (historyResult.error) throw new Error(`sales_invoices history: ${historyResult.error.message}`);
   return buildConversationEvaluationSystemEvidenceSnapshot(view, {
     customerRequests: requestResult.data ?? [],
     exceptionalFollowups: followupResult.data ?? [],
-    purchaseHistory: historyResult.data ?? []
+    purchaseHistory: historyResult
   });
 }
 
@@ -11925,7 +11858,7 @@ async function persistAutomaticCaseConversationReviewWithClient(client, input) {
       error: "multiple_staff_ids_in_case"
     };
   }
-  const { data: existing, error: existingError } = await client.from("conversation_sales_reviews").select("id").eq("whatsapp_review_source_id", sourceId).eq("sales_intelligence_case_id", view.caseId).maybeSingle();
+  const { data: existing, error: existingError } = await client.from("conversation_sales_reviews").select("id, evaluation_kind").eq("whatsapp_review_source_id", sourceId).eq("sales_intelligence_case_id", view.caseId).maybeSingle();
   if (existingError && existingError.code !== "PGRST116") {
     logSupabaseError("case conversation review existing gate", existingError);
     return {
@@ -11935,12 +11868,12 @@ async function persistAutomaticCaseConversationReviewWithClient(client, input) {
       error: existingError.message
     };
   }
-  if (existing?.id) {
+  if (existing?.id && String(existing.evaluation_kind || "") !== "automatic") {
     return {
-      status: "skipped_existing",
+      status: "failed",
       reviewId: String(existing.id),
       finalScore: evaluation.summary.autoScore,
-      error: null
+      error: "existing_case_review_not_automatic"
     };
   }
   const { data: staffRow, error: staffError } = await client.from("staff").select("id, name, branch, branch_id, role").eq("id", staffIds2[0]).maybeSingle();
@@ -11965,13 +11898,55 @@ async function persistAutomaticCaseConversationReviewWithClient(client, input) {
       role: staffRow.role ?? null
     }
   });
-  const { data: inserted, error: insertError } = await client.from("conversation_sales_reviews").insert(payload).select("id").single();
+  const currentPayload = {
+    ...payload,
+    is_current: true,
+    superseded_at: null,
+    superseded_reason: null,
+    updated_at: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  if (existing?.id) {
+    const { error: updateError } = await client.from("conversation_sales_reviews").update(currentPayload).eq("id", existing.id);
+    if (updateError) {
+      logSupabaseError("case conversation review update", updateError);
+      return {
+        status: "failed",
+        reviewId: String(existing.id),
+        finalScore: evaluation.summary.autoScore,
+        error: updateError.message
+      };
+    }
+    return {
+      status: "updated",
+      reviewId: String(existing.id),
+      finalScore: evaluation.summary.autoScore,
+      error: null
+    };
+  }
+  const { data: inserted, error: insertError } = await client.from("conversation_sales_reviews").insert(currentPayload).select("id").single();
   if (insertError) {
     if (insertError.code === "23505") {
-      const { data: raced } = await client.from("conversation_sales_reviews").select("id").eq("whatsapp_review_source_id", sourceId).eq("sales_intelligence_case_id", view.caseId).maybeSingle();
+      const { data: raced, error: racedError } = await client.from("conversation_sales_reviews").select("id, evaluation_kind").eq("whatsapp_review_source_id", sourceId).eq("sales_intelligence_case_id", view.caseId).maybeSingle();
+      if (racedError || !raced?.id || String(raced.evaluation_kind || "") !== "automatic") {
+        return {
+          status: "failed",
+          reviewId: raced?.id ? String(raced.id) : null,
+          finalScore: evaluation.summary.autoScore,
+          error: racedError?.message ?? "automatic_review_race_resolution_failed"
+        };
+      }
+      const { error: racedUpdateError } = await client.from("conversation_sales_reviews").update(currentPayload).eq("id", raced.id);
+      if (racedUpdateError) {
+        return {
+          status: "failed",
+          reviewId: String(raced.id),
+          finalScore: evaluation.summary.autoScore,
+          error: racedUpdateError.message
+        };
+      }
       return {
-        status: "skipped_existing",
-        reviewId: raced?.id ? String(raced.id) : null,
+        status: "updated",
+        reviewId: String(raced.id),
         finalScore: evaluation.summary.autoScore,
         error: null
       };
@@ -11993,6 +11968,7 @@ async function persistAutomaticCaseConversationReviewWithClient(client, input) {
 }
 
 // src/lib/salesIntelligence/refresh/canonicalRefreshService.ts
+var CASE_SET_RECONCILE_RPC = "sales_intelligence_reconcile_case_set_v1";
 var CANONICAL_PROOF_WRITER_RPC = "dawaa_reconcile_sales_intelligence_case_v22_v1";
 var CANONICAL_REFRESH_SOURCE_COLUMNS = [
   ...REVIEW_SOURCE_BATCH_INPUT_COLUMNS,
@@ -12019,6 +11995,7 @@ async function runCanonicalSalesIntelligenceRefresh(service, input) {
     dryRun: input.dryRun,
     batch: null,
     persistenceFailures: [],
+    caseSetReconciliation: [],
     canonicalReconciliation: [],
     actionReconciliation: { reconciledActions: 0 },
     complaintEnrichment: { enrichedComplaintActions: 0 },
@@ -12060,6 +12037,35 @@ async function runCanonicalSalesIntelligenceRefresh(service, input) {
       persistenceFailures
     };
   }
+  const caseSetReconciliation = [];
+  for (const source of admitted) {
+    const sourceId = String(source.id || "");
+    const activeCaseIds = batch.caseAnalyses.filter((row) => String(row.conversationId || "") === sourceId).map((row) => String(row.caseId));
+    const { data, error } = await service.rpc(CASE_SET_RECONCILE_RPC, {
+      p_conversation_id: sourceId,
+      p_active_case_ids: activeCaseIds
+    });
+    const payload = data && typeof data === "object" ? data : null;
+    caseSetReconciliation.push({
+      sourceId,
+      ok: !error && payload?.ok !== false,
+      status: error ? "rpc_error" : String(payload?.status || "empty_reconcile_result"),
+      activeCaseIds,
+      retiredCaseIds: Array.isArray(payload?.retiredCaseIds) ? payload.retiredCaseIds.map(String) : [],
+      reactivatedCaseIds: Array.isArray(payload?.reactivatedCaseIds) ? payload.reactivatedCaseIds.map(String) : [],
+      error: error?.message ?? null
+    });
+  }
+  if (caseSetReconciliation.some((row) => !row.ok || row.status !== "reconciled")) {
+    return {
+      ...empty,
+      status: "case_set_reconciliation_failure",
+      admittedSourceIds,
+      blockedSources,
+      batch,
+      caseSetReconciliation
+    };
+  }
   const persisted = new Set(outcomes.filter((row) => row.success).map((row) => row.caseId));
   const reconcileCandidates = batch.caseAnalyses.filter((row) => persisted.has(row.caseId));
   const canonicalReconciliation = [];
@@ -12079,6 +12085,7 @@ async function runCanonicalSalesIntelligenceRefresh(service, input) {
       admittedSourceIds,
       blockedSources,
       batch,
+      caseSetReconciliation,
       canonicalReconciliation
     };
   }
@@ -12159,6 +12166,7 @@ async function runCanonicalSalesIntelligenceRefresh(service, input) {
     admittedSourceIds,
     blockedSources,
     batch,
+    caseSetReconciliation,
     canonicalReconciliation,
     actionReconciliation: { reconciledActions },
     complaintEnrichment: { enrichedComplaintActions },
@@ -12442,13 +12450,15 @@ async function handler(req, res) {
   if (!sourceFileName && refresh.blockedSources.length) {
     return json(res, 409, { ...refresh.blockedSources[0], sourceId });
   }
-  if (refresh.status === "persistence_partial_failure" || refresh.status === "proof_bridge_transport_failure") {
+  if (refresh.status === "persistence_partial_failure" || refresh.status === "case_set_reconciliation_failure" || refresh.status === "proof_bridge_transport_failure") {
+    const errorCode = refresh.status === "persistence_partial_failure" ? "canonical_refresh_partial_failure" : refresh.status === "case_set_reconciliation_failure" ? "case_set_reconciliation_failure" : "canonical_reconciliation_failure";
     return json(res, 500, {
-      error: refresh.status === "persistence_partial_failure" ? "canonical_refresh_partial_failure" : "canonical_reconciliation_failure",
+      error: errorCode,
       ...page,
       sourceCount: refresh.admittedSourceIds.length,
       blockedSources: refresh.blockedSources,
       failures: refresh.persistenceFailures,
+      caseSetReconciliation: refresh.caseSetReconciliation,
       canonicalReconciliation: refresh.canonicalReconciliation
     });
   }
@@ -12458,6 +12468,7 @@ async function handler(req, res) {
     ...page,
     sourceCount: refresh.admittedSourceIds.length,
     blockedSources: refresh.blockedSources,
+    caseSetReconciliation: refresh.caseSetReconciliation,
     canonicalReconciliation: refresh.canonicalReconciliation,
     actionReconciliation: refresh.actionReconciliation,
     complaintEnrichment: refresh.complaintEnrichment,
