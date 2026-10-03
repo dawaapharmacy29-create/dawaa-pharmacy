@@ -110,6 +110,7 @@ const InventoryCounts = lazy(() => import('@/pages/InventoryCounts'));
 const Shortages = lazy(() => import('@/pages/Shortages'));
 const Supplies = lazy(() => import('@/pages/Supplies'));
 const Purchases = lazy(() => import('@/pages/Purchases'));
+const PurchaseDemandEvidenceExport = lazy(() => import('@/pages/PurchaseDemandEvidenceExport'));
 const ShiftHandovers = lazy(() => import('@/pages/ShiftHandovers'));
 const StaffPayroll = lazy(() => import('@/pages/StaffPayroll'));
 const Accessories = lazy(() => import('@/pages/Accessories'));
@@ -863,6 +864,10 @@ function AppRoutes() {
       <Route
         path="/purchases"
         element={<ProtectedRoute>{routeSuspense(<Purchases />, 'المشتريات')}</ProtectedRoute>}
+      />
+      <Route
+        path="/purchase-demand-evidence"
+        element={<ProtectedRoute>{routeSuspense(<PurchaseDemandEvidenceExport />, 'Demand Evidence للمشتريات')}</ProtectedRoute>}
       />
       <Route
         path="/accessories"
