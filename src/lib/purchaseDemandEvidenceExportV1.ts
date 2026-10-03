@@ -62,7 +62,7 @@ export async function buildPurchaseDemandEvidenceExport(
   );
   if (completenessError) throw completenessError;
   const incompleteDays = (completenessRows ?? [])
-    .filter((row) => row.completeness_status === 'missing' || row.completeness_status === 'material_gap')
+    .filter((row) => row.completeness_status !== 'complete' && row.completeness_status !== 'no_headers')
     .map((row) => ({
       branch: String(row.branch ?? ''),
       sales_date: String(row.sales_date ?? ''),
