@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { getStaffSessionToken } from '@/lib/auth/staffSession';
 import type { WhatsAppCustomerCaseEngineV22 } from './whatsappCustomerCaseEngineV22';
 import type { JourneySessionSourceV15 } from './whatsappCustomerJourneyPersistenceV15';
 import { deriveProposedCaseLostReasonV23 } from './whatsappCaseLostReasonV23';
@@ -372,11 +373,10 @@ export async function syncWhatsAppCustomerCasesV22(
 
   if (!context.skipCanonicalSalesIntelligenceRefresh && allSourceIds.length && result.saved > 0) {
     try {
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-      const accessToken = sessionData.session?.access_token ?? null;
-      if (sessionError || !accessToken) {
+      const accessToken = getStaffSessionToken();
+      if (!accessToken) {
         console.warn(
-          '[whatsapp-case-v22] canonical Sales Intelligence refresh skipped: authenticated staff session unavailable'
+          '[whatsapp-case-v22] canonical Sales Intelligence refresh skipped: official staff session token unavailable'
         );
       } else {
         const refresh = await requestCanonicalSalesIntelligenceRefresh({
