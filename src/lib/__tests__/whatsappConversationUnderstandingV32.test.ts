@@ -76,4 +76,42 @@ describe('ConversationUnderstandingV32 (Shadow Mode, read-only, facts-only)', ()
     const shampooTrigger = understanding.byId.get(understanding.interactions[1].triggerMessageId || '');
     expect(shampooTrigger?.text).toContain('شامبو');
   });
+
+  it('V8: keeps post-invoice courtesy replies inside the same commercial interaction', () => {
+    const raw = `[9/27/26, 8:20:00 PM] Customer: تمام ابعته
+[9/27/26, 8:31:00 PM] You: جاري الإرسال
+[9/27/26, 8:34:00 PM] You: تفاصيل الفاتورة 74880
+[9/27/26, 8:35:00 PM] Customer: ولا يهمك يا حبيبتي
+[9/27/26, 8:36:00 PM] Customer: شكرا على ذوق حضرتك`;
+    const session = oneSession(raw);
+    const understanding = buildConversationUnderstandingV32(session);
+
+    expect(understanding.interactions).toHaveLength(1);
+    expect(understanding.interactions[0].messageIds).toHaveLength(5);
+  });
+
+  it('V8: keeps a delayed same-order fulfillment follow-up despite a gap over 30 minutes', () => {
+    const raw = `[9/27/26, 8:00:00 PM] Customer: تمام ابعته
+[9/27/26, 8:02:00 PM] You: جاري الإرسال
+[9/27/26, 8:50:00 PM] Customer: المندوب فين؟
+[9/27/26, 8:51:00 PM] You: في الطريق لحضرتك`;
+    const session = oneSession(raw);
+    const understanding = buildConversationUnderstandingV32(session);
+
+    expect(understanding.interactions).toHaveLength(1);
+  });
+
+  it('V8: opens a new case only for an explicit non-additive commercial request after fulfillment', () => {
+    const raw = `[9/27/26, 8:00:00 PM] Customer: تمام ابعته
+[9/27/26, 8:02:00 PM] You: جاري الإرسال
+[9/27/26, 8:05:00 PM] Customer: عايز شامبو للشعر
+[9/27/26, 8:06:00 PM] You: حاضر تحت أمر حضرتك`;
+    const session = oneSession(raw);
+    const understanding = buildConversationUnderstandingV32(session);
+
+    expect(understanding.interactions).toHaveLength(2);
+    expect(understanding.interactions[1].segmentationReason).toBe('new_commercial_need');
+    const trigger = understanding.byId.get(understanding.interactions[1].triggerMessageId || '');
+    expect(trigger?.text).toContain('شامبو');
+  });
 });
