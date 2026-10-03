@@ -13,7 +13,8 @@ export default function PurchaseDemandEvidenceExport() {
       downloadPurchaseDemandEvidenceExport(payload);
       setStatus('تم تجهيز ملف Evidence المجمع بنجاح.');
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : 'تعذر تجهيز ملف Evidence.');
+      const message = error instanceof Error ? error.message : (error && typeof error === 'object' && 'message' in error ? String((error as { message?: unknown }).message || '') : '');
+      setStatus(message || 'تعذر تجهيز ملف Evidence.');
     } finally {
       setBusy(false);
     }
