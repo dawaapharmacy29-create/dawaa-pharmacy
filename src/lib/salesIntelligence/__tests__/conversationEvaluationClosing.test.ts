@@ -31,6 +31,15 @@ describe('conversation evaluation closing 9K',()=>{
    .toMatchObject({selectedOption:'official',pointsEarned:5});
  });
 
+ it('recognizes the spaced closing phrase used in real exported chats',()=>{
+  const x=v([
+   {id:'c1',role:'customer',sender:'Customer',at:'2026-09-28T09:00:00Z',text:'تسلم يادكتور',meaningful:true},
+   {id:'s1',role:'staff',sender:'You',at:'2026-09-28T09:00:10Z',text:'جاري الارسال\nنتشرف ب خدمة حضرتك ٢٤ ساعه 🌸🌸',meaningful:true},
+  ]);
+  expect(analyzeConversationEvaluationClosing(x).item)
+   .toMatchObject({selectedOption:'official',pointsEarned:5});
+ });
+
  it('treats a simpler respectful close separately',()=>{
   const x=v([
    {id:'c1',role:'customer',sender:'Customer',at:'2026-09-28T09:00:00Z',text:'شكرا يا دكتور',meaningful:true},
