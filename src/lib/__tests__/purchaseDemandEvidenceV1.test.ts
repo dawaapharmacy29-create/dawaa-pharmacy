@@ -196,4 +196,14 @@ describe('buildPurchaseDemandEvidence', () => {
   });
 
 
+  it('keeps inverted source coverage fully unproven', () => {
+    const [evidence] = buildPurchaseDemandEvidence(
+      [{ ...base, invoiceNumber: 'bad-range', invoiceDate: '2026-09-20T10:00:00.000Z', quantity: 1 }],
+      { now, sourceCoverageStart: new Date('2026-10-01T10:00:00.000Z'), sourceMaxInvoiceAt: new Date('2026-09-29T10:32:00.000Z') },
+    );
+    expect(evidence.source_coverage_start_at).toBeNull();
+    expect(evidence.source_coverage_days).toBeNull();
+    expect(evidence.evidence_quality_class).toBe('review');
+  });
+
 });
