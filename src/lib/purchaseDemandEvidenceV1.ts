@@ -32,6 +32,8 @@ export type PurchaseDemandEvidence = {
   window_end: string;
   evidence_model_version: typeof PURCHASE_DEMAND_EVIDENCE_MODEL;
   behavior_class: 'recurring' | 'sparse' | 'concentrated' | 'burst_one_off' | 'emerging';
+  evidence_confidence_score: number;
+  evidence_quality_class: 'high' | 'medium' | 'review';
 };
 
 const branchMap: Record<string, PurchaseDemandEvidence['branch'] | undefined> = {
@@ -151,6 +153,23 @@ export function buildPurchaseDemandEvidence(
     const dominantCustomerShare = knownCustomerUnits > 0 ? dominantCustomerUnits / knownCustomerUnits : null;
     const outlierShare = outlierUnits / units;
     const dominantInvoiceShare = maxQty / units;
+    const coverageRatio = Math.min(1, sourceCoverageDays / windowDays);
+    const customerEvidenceRatio = invoices.length > 0 ? knownCustomerInvoices / invoices.length : 0;
+    const volumeScore = Math.min(35, (invoices.length / 8) * 35);
+    const recurrenceScore = Math.min(25, (activeDays / 10) * 25);
+    const coverageScore = coverageRatio * 20;
+    const customerScore = Math.min(10, customerEvidenceRatio * 10);
+    const breadthScore = Math.min(10, (customerUnits.size / 4) * 10);
+    const bulkPenalty = Math.min(20, outlierShare * 20);
+    const concentrationPenalty = dominantCustomerShare === null ? 0 : Math.min(15, Math.max(0, dominantCustomerShare - 0.5) * 30);
+    const evidenceConfidenceScore = round(Math.max(0, Math.min(100,
+      volumeScore + recurrenceScore + coverageScore + customerScore + breadthScore - bulkPenalty - concentrationPenalty
+    )), 1);
+    const evidenceQualityClass: PurchaseDemandEvidence['evidence_quality_class'] =
+      coverageRatio < 0.5 || invoices.length < 2 ? 'review'
+        : evidenceConfidenceScore >= 70 && activeDays >= 5 ? 'high'
+          : evidenceConfidenceScore >= 45 && activeDays >= 3 ? 'medium'
+            : 'review';
 
     let behavior: PurchaseDemandEvidence['behavior_class'] = 'recurring';
     if (invoices.length <= 2 && (outlierShare >= 0.5 || dominantInvoiceShare >= 0.7)) behavior = 'burst_one_off';
@@ -187,6 +206,8 @@ export function buildPurchaseDemandEvidence(
       window_end: windowEnd.toISOString(),
       evidence_model_version: PURCHASE_DEMAND_EVIDENCE_MODEL,
       behavior_class: behavior,
+      evidence_confidence_score: evidenceConfidenceScore,
+      evidence_quality_class: evidenceQualityClass,
     });
   }
 
