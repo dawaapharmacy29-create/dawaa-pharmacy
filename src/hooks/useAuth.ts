@@ -2,6 +2,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { clearCorruptStoredUser, logRuntimeError } from '@/lib/appRecovery';
+import {
+  clearStaffSessionToken,
+  revokeStoredStaffSession,
+  setStaffSessionToken,
+} from '@/lib/auth/staffSession';
 import type { User } from '@/types';
 import {
   ALL_PERMISSION_KEYS,
@@ -33,6 +38,7 @@ interface StaffAccountLoginRow {
   active: boolean;
   can_login?: boolean | null;
   permissions?: unknown;
+  session_token?: string | null;
 }
 
 const STORAGE_KEY = 'dawaa_auth_user_v2';
@@ -205,7 +211,10 @@ function setCurrentUser(user: User | null) {
   if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
     try {
       if (currentUser) localStorage.setItem(STORAGE_KEY, JSON.stringify(currentUser));
-      else localStorage.removeItem(STORAGE_KEY);
+      else {
+        localStorage.removeItem(STORAGE_KEY);
+        clearStaffSessionToken();
+      }
     } catch (e) {
       console.debug('Failed to update localStorage:', e);
     }
@@ -336,9 +345,9 @@ async function loginWithStaffAccount(username: string, password: string): Promis
   const attemptLogin = async (): Promise<{ data: unknown; networkFailure: boolean }> => {
     try {
       const result = await withTimeout<SupabaseRpcResult<unknown>>(
-        supabase.rpc('staff_account_login', { p_username: username, p_password: password }),
+        supabase.rpc('staff_account_login_v2', { p_username: username, p_password: password }),
         15000,
-        'staff_account_login'
+        'staff_account_login_v2'
       );
       if (result.error) {
         console.warn('[Dawaa auth] login failed reason', result.error.message || result.error);
@@ -360,7 +369,7 @@ async function loginWithStaffAccount(username: string, password: string): Promis
   if (outcome.networkFailure && !outcome.data) {
     logRuntimeError(
       'auth login rpc failed',
-      new Error('staff_account_login timed out after retry')
+      new Error('staff_account_login_v2 timed out after retry')
     );
   }
 
@@ -369,6 +378,13 @@ async function loginWithStaffAccount(username: string, password: string): Promis
     ? (data[0] as StaffAccountLoginRow | undefined)
     : (data as StaffAccountLoginRow | null);
   if (!row?.id || row.active === false || row.can_login === false) return null;
+
+  const sessionToken = safeText(row.session_token);
+  if (!sessionToken) {
+    console.warn('[Dawaa auth] staff login succeeded without a server session token');
+    return null;
+  }
+  setStaffSessionToken(sessionToken);
 
   void withTimeout(
     supabase.rpc('set_current_user_context', { p_user_id: row.id }),
@@ -482,6 +498,7 @@ export function useAuth() {
 
   const logout = useCallback(async () => {
     if (currentUser) logAuthActivity(currentUser, 'logout', 'success');
+    await revokeStoredStaffSession();
     setCurrentUser(null);
     lastAccountRefreshAt = 0;
     try {
