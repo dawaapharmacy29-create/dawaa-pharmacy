@@ -12,6 +12,7 @@ export type RoleScope =
   | 'delivery'
   | 'cleaning'
   | 'customer_service'
+  | 'purchasing'
   | 'manager'
   | 'all';
 export type RepeatPolicy = 'double_per_cycle' | 'none';
@@ -55,11 +56,13 @@ function mapSingleRoleScope(scope: string): RoleScope | null {
   if (canonical === 'delivery') return 'delivery';
   if (canonical === 'cleaning') return 'cleaning';
   if (canonical === 'customer_service' || canonical === 'customer_service_manager') return 'customer_service';
+  if (canonical === 'purchasing') return 'purchasing';
   if (['shift_supervisor', 'branch_manager', 'branches_manager', 'executive', 'admin'].includes(canonical)) return 'manager';
 
   // Backward-compatible aliases used by older rule rows.
   if (['assistant', 'مساعد', 'pharmacy_assistant'].includes(value)) return 'assistant';
   if (['customer_service', 'customer service'].includes(value)) return 'customer_service';
+  if (['purchasing', 'مشتريات', 'مدير المشتريات'].includes(value)) return 'purchasing';
   if (['manager', 'branch_manager', 'general_manager', 'branches_manager'].includes(value)) return 'manager';
   return null;
 }
@@ -125,6 +128,7 @@ function scopeMatchesCanonicalRole(scope: RoleScope, staffRole: string): boolean
   if (scope === 'delivery') return canonical === 'delivery';
   if (scope === 'cleaning') return canonical === 'cleaning';
   if (scope === 'customer_service') return canonical === 'customer_service' || canonical === 'customer_service_manager';
+  if (scope === 'purchasing') return canonical === 'purchasing';
   if (scope === 'manager') {
     return ['customer_service_manager', 'shift_supervisor', 'branch_manager', 'branches_manager', 'executive', 'admin'].includes(canonical);
   }

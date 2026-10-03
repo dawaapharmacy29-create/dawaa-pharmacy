@@ -21,6 +21,7 @@ type NavigationGuardContextValue = {
   registerGuard: (id: string, handlers: UnsavedChangesGuardHandlers) => void;
   unregisterGuard: (id: string) => void;
   requestNavigation: (target: string) => void;
+  requestAction: (onProceed: () => void) => void;
   hasActiveDirtyGuard: () => boolean;
 };
 
@@ -63,8 +64,12 @@ export function NavigationGuardProvider({ children }: { children: ReactNode }) {
       setModalOpen(false);
       setPendingTarget(null);
       setModalError(null);
-      proceedRef.current?.();
+      const proceed = proceedRef.current;
       proceedRef.current = null;
+      if (proceed) {
+        proceed();
+        return;
+      }
       navigate(target.startsWith('/') ? target : '/operations-center');
     },
     [navigate]
@@ -87,6 +92,18 @@ export function NavigationGuardProvider({ children }: { children: ReactNode }) {
       openModal(target);
     },
     [navigate, openModal]
+  );
+
+  const requestAction = useCallback(
+    (onProceed: () => void) => {
+      const guard = activeGuard(guardsRef.current);
+      if (!guard) {
+        onProceed();
+        return;
+      }
+      openModal('__internal_action__', onProceed);
+    },
+    [openModal]
   );
 
   useEffect(() => {
@@ -135,8 +152,8 @@ export function NavigationGuardProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ registerGuard, unregisterGuard, requestNavigation, hasActiveDirtyGuard }),
-    [hasActiveDirtyGuard, registerGuard, requestNavigation, unregisterGuard]
+    () => ({ registerGuard, unregisterGuard, requestNavigation, requestAction, hasActiveDirtyGuard }),
+    [hasActiveDirtyGuard, registerGuard, requestAction, requestNavigation, unregisterGuard]
   );
 
   return (
@@ -204,6 +221,7 @@ export function useNavigationGuard() {
       requestNavigation: (target: string) => {
         window.location.href = target.startsWith('/') ? target : '/operations-center';
       },
+      requestAction: (onProceed: () => void) => onProceed(),
       hasActiveDirtyGuard: () => false,
     } satisfies NavigationGuardContextValue;
   }

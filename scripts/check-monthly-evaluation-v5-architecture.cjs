@@ -13,7 +13,11 @@ function read(path) {
 const page = read('src/pages/StaffMonthlyEvaluationGeneral.tsx');
 const workflow = read('src/components/evaluations/MonthlyEvaluationWorkflowV5.tsx');
 const audit = read('src/components/evaluations/MonthlyEvaluationAuditTrailV5.tsx');
+const navigationGuard = read('src/contexts/NavigationGuardContext.tsx');
+const financialTruth = read('src/lib/evaluations/monthlyEvaluationFinancialTruth.ts');
 const profiles = read('src/lib/evaluations/staffEvaluationProfilesV3.ts');
+const employeeMonthlyEvidence = read('src/lib/staff/employeeMonthlyEvidenceService.ts');
+const canonicalAttendanceTruth = read('supabase/migrations/20261002213000_monthly_evaluation_canonical_attendance_truth_v5.sql');
 const backend = [
   read('supabase/migrations/20260929153000_monthly_evaluation_command_center_v5.sql'),
   read('supabase/migrations/20260929154500_monthly_evaluation_v5_hardening.sql'),
@@ -23,6 +27,8 @@ const backend = [
   read('supabase/migrations/20260930123000_monthly_evaluation_role_coverage_v5.sql'),
   read('supabase/migrations/20260930154000_monthly_evaluation_trigger_execute_hardening_v5.sql'),
   read('supabase/migrations/20260930155500_monthly_evaluation_server_evidence_type_compat_v5.sql'),
+  read('supabase/migrations/20261001011000_monthly_evaluation_attendance_finalization_gate_v5.sql'),
+  read('supabase/migrations/20261001012500_monthly_evaluation_followup_executor_truth_v5.sql'),
 ].join('\n');
 
 for (const rpc of [
@@ -46,12 +52,12 @@ if (!page.includes('MonthlyEvaluationAuditTrailV5')) failures.push('V5 audit tra
 if (!page.includes("type: 'monthly_evaluation_ready'")) failures.push('Final approval must notify the employee through the canonical notification domain.');
 if (!page.includes('weakSectionsMissingNotes')) failures.push('Weak-score rationale guard is missing from the client.');
 if (!page.includes('criticalGateMissingReason')) failures.push('Critical-gate rationale guard is missing from the client.');
+if (!page.includes('usePendingFormNavigationGuard')) failures.push('Monthly evaluation unsaved-change guard is not registered.');
+if (!page.includes('requestEvaluationContextChange')) failures.push('Employee/cycle/branch switches must pass through the unsaved-change guard.');
+if (!navigationGuard.includes('requestAction')) failures.push('Navigation guard must support guarded in-page context changes.');
 
 if (/points_incentive_egp\s*\*\s*effectiveEvaluationMultiplierPct/.test(page)) {
   failures.push('Client-side final incentive recomputation is forbidden; read the canonical server financial truth.');
-}
-if (!page.includes('pointsTruth?.final_incentive_egp')) {
-  failures.push('Page must read final incentive from the canonical points truth.');
 }
 if (page.includes("gate.blocksFully ? 'إيقاف الحافز'")) {
   failures.push('Critical Gate UI must not claim all financial bonus is stopped; competition bonus is independent.');
@@ -64,6 +70,15 @@ if (!page.includes('final_approval_snapshot')) {
 }
 if (!page.includes('finalSnapshotHash: refreshedHash')) {
   failures.push('Employee notification must be traceable to the server final snapshot hash.');
+}
+if (!page.includes('resolveMonthlyEvaluationFinancialTruth')) {
+  failures.push('Monthly evaluation/PDF must use the canonical frozen-statement financial truth boundary.');
+}
+if (!financialTruth.includes("source: 'settled_statement'") || !financialTruth.includes('points_closing') || !financialTruth.includes('incentive_amount')) {
+  failures.push('Closed monthly statements must freeze both closing points and incentive amount together.');
+}
+if (!financialTruth.includes("source: 'points_truth'") || !financialTruth.includes('final_points') || !financialTruth.includes('final_incentive_egp')) {
+  failures.push('Live Points Truth must remain the pre-settlement financial source.');
 }
 
 for (const step of ['بيانات الدورة', 'تقييم المحاور', 'النقاط والمخالفات', 'الخلاصة والتطوير', 'المراجعة والاعتماد']) {
@@ -95,9 +110,39 @@ for (const token of [
   'f.requested_by_staff_id=p_staff_id::text',
   'a.staff_id=p_staff_id::text',
   'dawaa_monthly_evaluation_branch_manager_subject_allowed_v5',
+  'attendance_pending_review_days',
+  'attendance_conflict_days',
+  'handled_by_staff_id',
+  'assigned_to_staff_id',
 ]) {
   if (!backend.includes(token)) failures.push(`V5 backend contract is missing: ${token}`);
 }
+
+if (!canonicalAttendanceTruth.includes("from public.attendance_daily_summary d")) failures.push('Canonical evaluation attendance truth must read finalized daily summaries.');
+if (!canonicalAttendanceTruth.includes("from public.attendance_impact_ledger l")) failures.push('Canonical evaluation attendance truth must read classified attendance impacts.');
+if (!canonicalAttendanceTruth.includes("l.impact_status='classified'")) failures.push('Canonical evaluation attendance truth must ignore superseded/reversed impacts.');
+if (!canonicalAttendanceTruth.includes("'attendance_pending_review_days'")) failures.push('Canonical evaluation attendance truth must expose unresolved-day count.');
+if (!canonicalAttendanceTruth.includes("'attendance_conflict_days'")) failures.push('Canonical evaluation attendance truth must expose active conflict count.');
+if (/from\s+public\.attendance\s/i.test(canonicalAttendanceTruth)) failures.push('Legacy attendance table is forbidden in the canonical monthly-evaluation attendance path.');
+if (/from\s+public\.staff_attendance_logs\s/i.test(canonicalAttendanceTruth)) failures.push('Raw attendance logs are forbidden in the canonical monthly-evaluation approval path.');
+
+if (employeeMonthlyEvidence.includes("readAttendanceRange")) failures.push('Monthly evaluation evidence must not read legacy/raw attendance range.');
+if (!employeeMonthlyEvidence.includes("listAttendanceImpactLedger")) failures.push('Monthly evaluation evidence must read canonical attendance impact ledger.');
+if (!employeeMonthlyEvidence.includes("listAttendanceResolutionQueue")) failures.push('Monthly evaluation evidence must read canonical attendance resolution queue.');
+
+if (!employeeMonthlyEvidence.includes("row.impact_status === 'classified'")) failures.push('Monthly evaluation attendance coaching must count classified impacts only.');
+if (employeeMonthlyEvidence.includes("row.impact_status !== 'reversed'")) failures.push('Monthly evaluation must not treat non-reversed legacy impacts as current truth.');
+
+if (!page.includes('return fallback.map((profileSection) =>')) failures.push('Legacy evaluations must be remapped onto the current canonical profile before reapproval.');
+if (!page.includes('...profileSection') || !page.includes("score: safeNumber(row.score)") || !page.includes("notes: String(row.notes || '')")) failures.push('Legacy profile migration must preserve manager score/notes while taking current profile weights.');
+
+if (!page.includes('normalizeAttendanceDevelopmentNumbers(loadedDevelopmentRaw, evidenceResult.coaching.attendance)')) failures.push('Loaded historical development text must be normalized against current canonical attendance before reapproval.');
+
+const pdfReport = read('src/lib/evaluations/monthlyEvaluationPdfReport.ts');
+const pdfRenderer = read('src/lib/evaluations/staffMonthlyEvaluationPdf.ts');
+if (!pdfReport.includes('attendanceFinalizedDays: num(rec(serverEvidence.counts).attendance_resolved_days)')) failures.push('PDF must source finalized attendance days from canonical server evidence.');
+if (!pdfReport.includes('attendanceClassifiedDays: num(attendance.resolvedDays)')) failures.push('PDF must keep classified ledger days distinct from finalized attendance days.');
+if (!pdfRenderer.includes('يوم تم حسمه نهائيًا') || !pdfRenderer.includes('يوم له تصنيف في سجل الحضور')) failures.push('PDF attendance labels must distinguish finalized days from classified ledger days.');
 
 if (failures.length) {
   console.error('Monthly Evaluation V5 architecture check failed:');

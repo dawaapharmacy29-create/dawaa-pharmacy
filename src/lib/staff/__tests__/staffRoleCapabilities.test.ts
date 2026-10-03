@@ -4,7 +4,7 @@ import {
   staffHasCapability,
 } from '@/lib/staff/staffRoleCapabilities';
 
-import { rulesForStaffRole } from '@/lib/evaluationRulesCatalog';
+import { ruleAppliesToStaff, rulesForStaffRole } from '@/lib/evaluationRulesCatalog';
 
 describe('staff role capabilities', () => {
   it('normalizes Arabic and English operating roles consistently', () => {
@@ -26,6 +26,17 @@ describe('staff role capabilities', () => {
     expect(canonicalStaffRole('branch_manager_shokry')).toBe('branch_manager');
     expect(canonicalStaffRole('خدمة العملاء')).toBe('customer_service');
     expect(canonicalStaffRole('مندوب توصيل')).toBe('delivery');
+    expect(canonicalStaffRole('فريق دواء ألفا')).toBe('customer_service');
+    expect(canonicalStaffRole('team_dawaa_alpha')).toBe('customer_service');
+    expect(canonicalStaffRole('team-dawaa-alpha')).toBe('customer_service');
+    expect(canonicalStaffRole('team dawaa alpha')).toBe('customer_service');
+    expect(canonicalStaffRole('مندوب')).toBe('other');
+    expect(canonicalStaffRole('صيدلي أول')).toBe('doctor');
+    expect(canonicalStaffRole('senior pharmacist')).toBe('doctor');
+    expect(canonicalStaffRole('مساعد صيدلية')).toBe('assistant');
+    expect(canonicalStaffRole('مندوب دليفري')).toBe('delivery');
+    expect(canonicalStaffRole('كول سنتر')).toBe('customer_service');
+    expect(canonicalStaffRole('مشرف شيفت')).toBe('shift_supervisor');
   });
 
   it('keeps sensitive operational capabilities scoped by role', () => {
@@ -34,6 +45,20 @@ describe('staff role capabilities', () => {
     expect(staffHasCapability('مسؤولة النظافة', 'cleaning')).toBe(true);
     expect(staffHasCapability('مسؤولة النظافة', 'sales_quality')).toBe(false);
     expect(staffHasCapability('توصيل', 'delivery')).toBe(true);
+  });
+
+  it('keeps purchasing-scoped rules isolated from unrelated roles', () => {
+    const purchasingRules = rulesForStaffRole('مدير المشتريات');
+    const doctorRules = rulesForStaffRole('صيدلاني');
+
+    expect(ruleAppliesToStaff('purchasing', 'مدير المشتريات')).toBe(true);
+    expect(ruleAppliesToStaff('purchasing', 'purchasing')).toBe(true);
+    expect(ruleAppliesToStaff('purchasing', 'صيدلاني')).toBe(false);
+    expect(purchasingRules.length).toBeGreaterThan(0);
+    expect(purchasingRules.some((rule) => rule.role_scope === 'purchasing' || rule.role_scopes?.includes('purchasing'))).toBe(true);
+
+    expect(purchasingRules.every((rule) => rule.role_scope === 'all' || rule.role_scopes?.includes('purchasing'))).toBe(true);
+    expect(doctorRules.every((rule) => rule.role_scope !== 'purchasing' && !rule.role_scopes?.includes('purchasing'))).toBe(true);
   });
 
   it('routes assistant and cleaning rules without leaking doctor-only scoped rules', () => {
