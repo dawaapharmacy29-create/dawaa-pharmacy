@@ -206,4 +206,26 @@ describe('buildPurchaseDemandEvidence', () => {
     expect(evidence.evidence_quality_class).toBe('review');
   });
 
+  it('downgrades a source maximum before the analysis window to unproven freshness', () => {
+    const [evidence] = buildPurchaseDemandEvidence(
+      [{ ...base, invoiceNumber: 'old-source-max', invoiceDate: '2026-09-20T10:00:00.000Z', quantity: 1 }],
+      { now, sourceCoverageStart: new Date('2026-09-03T12:00:00.000Z'), sourceMaxInvoiceAt: new Date('2026-08-31T10:00:00.000Z') },
+    );
+    expect(evidence.source_max_invoice_at).toBeNull();
+    expect(evidence.source_coverage_start_at).toBeNull();
+    expect(evidence.source_coverage_days).toBeNull();
+    expect(evidence.evidence_quality_class).toBe('review');
+  });
+
+  it('downgrades a source maximum after the analysis window to unproven freshness', () => {
+    const [evidence] = buildPurchaseDemandEvidence(
+      [{ ...base, invoiceNumber: 'future-source-max', invoiceDate: '2026-09-20T10:00:00.000Z', quantity: 1 }],
+      { now, sourceCoverageStart: new Date('2026-09-03T12:00:00.000Z'), sourceMaxInvoiceAt: new Date('2026-10-04T10:00:00.000Z') },
+    );
+    expect(evidence.source_max_invoice_at).toBeNull();
+    expect(evidence.source_coverage_start_at).toBeNull();
+    expect(evidence.source_coverage_days).toBeNull();
+    expect(evidence.evidence_quality_class).toBe('review');
+  });
+
 });
