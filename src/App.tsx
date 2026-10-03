@@ -74,6 +74,7 @@ const Points = lazy(() => import('@/pages/Points'));
 const Delivery = lazy(() => import('@/pages/Delivery'));
 const Analytics = lazy(() => import('@/pages/Analytics'));
 const Invoices = lazy(() => import('@/pages/Invoices'));
+const PurchaseDemandEvidenceExport = lazy(() => import('@/pages/PurchaseDemandEvidenceExport'));
 const ActivityLog = lazy(() => import('@/pages/ActivityLog'));
 const Reviews = lazy(() => import('@/pages/ReviewsEnhanced'));
 const SalesIntelligenceQA = lazy(() => import('@/pages/SalesIntelligenceQA'));
@@ -721,6 +722,10 @@ function AppRoutes() {
       <Route
         path="/analytics"
         element={<ProtectedRoute>{routeSuspense(<Analytics />, 'التحليلات')}</ProtectedRoute>}
+      />
+      <Route
+        path="/purchase-demand-evidence"
+        element={<ProtectedRoute>{routeSuspense(<PurchaseDemandEvidenceExport />, 'Demand Evidence للمشتريات')}</ProtectedRoute>}
       />
       <Route
         path="/invoices"
