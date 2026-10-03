@@ -1,6 +1,8 @@
 import { supabase } from '@/lib/supabase';
+import { getStaffSessionToken } from '@/lib/auth/staffSession';
 import type { WhatsAppCustomerJourneyIntelligenceV15 } from './whatsappCustomerJourneyIntelligenceV15';
 import { syncPersistentCustomerStoryV16 } from './whatsappCustomerStoryV16';
+import { requestCanonicalSalesIntelligenceRefresh } from './salesIntelligence/refresh/refreshClient';
 
 export interface JourneySessionSourceV15 {
   sessionId: string;
@@ -13,6 +15,12 @@ export interface JourneyPersistenceContextV15 {
   branch?: string | null;
   createdBy?: string | null;
   sessionSources: JourneySessionSourceV15[];
+  /**
+   * Automatic ingestion already owns one canonical refresh after the full case graph is written.
+   * Direct Smart Review leaves this false/undefined so every persisted source reaches the current
+   * Sales Intelligence pipeline even if the legacy V22 projection later fails or skips a case.
+   */
+  skipCanonicalSalesIntelligenceRefresh?: boolean;
 }
 
 function dueInHours(hours: number | null) {
@@ -31,7 +39,7 @@ export async function syncWhatsAppCustomerJourneyV15(
   const rootMapping = (problem && bySession.get(problem.sessionId)) || context.sessionSources[0];
   if (!rootMapping?.sourceId) return null;
 
-  const sourceIds = [...new Set(context.sessionSources.map((row) => row.sourceId))];
+  const sourceIds = [...new Set(context.sessionSources.map((row) => row.sourceId).filter(Boolean))];
   const { data: sources, error: sourceError } = await supabase
     .from('whatsapp_review_sources')
     .select('id,source_filename,branch,customer_id,customer_code,customer_name,customer_phone,conversation_started_at,conversation_ended_at,staff_id,staff_name,analysis_json')
@@ -154,6 +162,33 @@ export async function syncWhatsAppCustomerJourneyV15(
     if (evidenceLinkError) throw evidenceLinkError;
   } catch (evidenceLinkError) {
     console.warn('[whatsapp-evidence-v17] journey/story link failed; evidence rows remain source-linked', evidenceLinkError);
+  }
+
+  // Canonical Sales Intelligence is a source-level truth and must not depend on the later V22
+  // projection succeeding. Smart Review reaches this point after the source/journey is durable,
+  // so launch the current brain directly from the persisted source IDs.
+  if (!context.skipCanonicalSalesIntelligenceRefresh && sourceIds.length) {
+    try {
+      const accessToken = getStaffSessionToken();
+      if (!accessToken) {
+        console.warn(
+          '[whatsapp-journey-v15] canonical Sales Intelligence refresh skipped: official staff session token unavailable'
+        );
+      } else {
+        const refresh = await requestCanonicalSalesIntelligenceRefresh({ sourceIds, accessToken });
+        if (refresh.authInvalid || refresh.errors.length) {
+          console.warn('[whatsapp-journey-v15] canonical Sales Intelligence refresh incomplete', {
+            authInvalid: refresh.authInvalid,
+            errors: refresh.errors,
+          });
+        }
+      }
+    } catch (refreshError) {
+      console.warn(
+        '[whatsapp-journey-v15] canonical Sales Intelligence refresh failed after journey persistence',
+        refreshError
+      );
+    }
   }
 
   return {
