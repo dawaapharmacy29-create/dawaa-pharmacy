@@ -3,8 +3,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // End-to-end contract for the canonical refresh transport(s):
 //   HTTP transport -> authenticate actor -> load source -> Canonical Source Gate
-//   -> exactly one V22 case -> Sales Intelligence -> persist -> V44 proof bridge (only writer).
+//   -> exactly one V22 case -> Sales Intelligence -> persist -> case-set reconcile
+//   -> V44 proof bridge (only active-case proof writer).
 // api/*.js is generated from server/*.ts; both must behave identically.
+
+const CASE_SET_RECONCILE_RPC = 'sales_intelligence_reconcile_case_set_v1';
+const CANONICAL_PROOF_WRITER_RPC = 'dawaa_reconcile_sales_intelligence_case_v22_v1';
 
 const runBatchPersistence = vi.fn();
 vi.mock('../batchPersistenceService', () => ({ runBatchPersistence }));
@@ -138,6 +142,19 @@ function batchResult(caseAnalyses: any[]) {
   };
 }
 
+function mockProofRpcResult(data: unknown, error: unknown = null) {
+  rpc.mockImplementation(async (name: string) => {
+    if (name === CASE_SET_RECONCILE_RPC) {
+      return {
+        data: { ok: true, status: 'reconciled', retiredCaseIds: [], reactivatedCaseIds: [] },
+        error: null,
+      };
+    }
+    if (name === CANONICAL_PROOF_WRITER_RPC) return { data, error };
+    return { data: null, error: { message: `unexpected rpc: ${name}` } };
+  });
+}
+
 function response() {
   const res: any = { statusCode: 0, body: null, headers: {} };
   res.status = (code: number) => {
@@ -178,7 +195,7 @@ beforeEach(() => {
   actions = [];
   writes.length = 0;
   rpc.mockReset();
-  rpc.mockResolvedValue({ data: { ok: true, status: 'reconciled' }, error: null });
+  mockProofRpcResult({ ok: true, status: 'reconciled' });
   getUser.mockReset();
   runBatchPersistence.mockReset();
   runBatchPersistence.mockResolvedValue(batchResult([]));
@@ -254,7 +271,7 @@ describe.each(transports)('%s — identical gate and auth behavior', (_name, loa
   });
 });
 
-describe('canonical refresh — single proof writer (server transport, writer mocked)', () => {
+describe('canonical refresh — lifecycle then single proof writer (server transport, writer mocked)', () => {
   const load = transports[0][1];
 
   beforeEach(() => {
@@ -271,14 +288,18 @@ describe('canonical refresh — single proof writer (server transport, writer mo
     expect(input.conversations.map((row: any) => row.sourceCaseIdV22)).toEqual(['case-1']);
   });
 
-  it('invokes only the V44 RPC for a proven sale and never writes V22 proof directly', async () => {
+  it('reconciles the active case set before invoking the V44 writer and never writes V22 proof directly', async () => {
     runBatchPersistence.mockResolvedValue(
       batchResult([analysis('sale_proven', 'proven', 'proven')])
     );
     const res = await call(load, fine.id);
     expect(res.statusCode).toBe(200);
-    expect(rpc).toHaveBeenCalledTimes(1);
-    expect(rpc).toHaveBeenCalledWith('dawaa_reconcile_sales_intelligence_case_v22_v1', {
+    expect(rpc).toHaveBeenCalledTimes(2);
+    expect(rpc).toHaveBeenNthCalledWith(1, CASE_SET_RECONCILE_RPC, {
+      p_conversation_id: fine.id,
+      p_active_case_ids: [`${fine.id}:interaction:0`],
+    });
+    expect(rpc).toHaveBeenNthCalledWith(2, CANONICAL_PROOF_WRITER_RPC, {
       p_sales_case_id: `${fine.id}:interaction:0`,
     });
     expect(writes.filter((row) => row.table === 'whatsapp_customer_cases_v22')).toEqual([]);
@@ -288,11 +309,11 @@ describe('canonical refresh — single proof writer (server transport, writer mo
     runBatchPersistence.mockResolvedValue(
       batchResult([analysis('order_confirmed_unproven', 'strongly_supported', 'strongly_inferred')])
     );
-    rpc.mockResolvedValue({ data: { ok: true, status: 'revoked' }, error: null });
+    mockProofRpcResult({ ok: true, status: 'revoked' });
     const res = await call(load, fine.id);
     expect(res.statusCode).toBe(200);
-    expect(rpc).toHaveBeenCalledTimes(1);
-    expect(rpc).toHaveBeenCalledWith('dawaa_reconcile_sales_intelligence_case_v22_v1', {
+    expect(rpc).toHaveBeenCalledTimes(2);
+    expect(rpc).toHaveBeenNthCalledWith(2, CANONICAL_PROOF_WRITER_RPC, {
       p_sales_case_id: `${fine.id}:interaction:0`,
     });
     expect(res.body.canonicalReconciliation).toEqual([
@@ -315,12 +336,12 @@ describe('canonical refresh — single proof writer (server transport, writer mo
     runBatchPersistence.mockResolvedValue(
       batchResult([analysis('sale_proven', 'proven', 'proven')])
     );
-    rpc.mockResolvedValue({ data: { ok: false, status: 'human_outcome_conflict' }, error: null });
+    mockProofRpcResult({ ok: false, status: 'human_outcome_conflict' });
     await call(load, fine.id);
     expect(writes.filter((row) => row.table === 'whatsapp_conversation_actions')).toEqual([]);
 
     writes.length = 0;
-    rpc.mockResolvedValue({ data: { ok: true, status: 'reconciled' }, error: null });
+    mockProofRpcResult({ ok: true, status: 'reconciled' });
     await call(load, fine.id);
     const closed = writes.filter((row) => row.table === 'whatsapp_conversation_actions');
     expect(closed).toHaveLength(1);
@@ -331,10 +352,25 @@ describe('canonical refresh — single proof writer (server transport, writer mo
     runBatchPersistence.mockResolvedValue(
       batchResult([analysis('sale_proven', 'proven', 'proven')])
     );
-    rpc.mockResolvedValue({ data: null, error: { message: 'rpc down' } });
+    mockProofRpcResult(null, { message: 'rpc down' });
     const res = await call(load, fine.id);
     expect(res.statusCode).toBe(500);
     expect(res.body).toMatchObject({ error: 'canonical_reconciliation_failure' });
+  });
+
+  it('stops before proof when the case-set boundary cannot be reconciled', async () => {
+    runBatchPersistence.mockResolvedValue(
+      batchResult([analysis('sale_proven', 'proven', 'proven')])
+    );
+    rpc.mockImplementation(async (name: string) => {
+      if (name === CASE_SET_RECONCILE_RPC) {
+        return { data: null, error: { message: 'case-set down' } };
+      }
+      return { data: { ok: true, status: 'reconciled' }, error: null };
+    });
+    const res = await call(load, fine.id);
+    expect(res.statusCode).toBe(500);
+    expect(rpc).toHaveBeenCalledTimes(1);
   });
 });
 

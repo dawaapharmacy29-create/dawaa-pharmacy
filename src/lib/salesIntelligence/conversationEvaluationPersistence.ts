@@ -9,6 +9,7 @@ import type {
 
 export type CaseConversationReviewPersistStatus =
   | 'saved'
+  | 'updated'
   | 'skipped_existing'
   | 'skipped_no_staff'
   | 'skipped_ambiguous_staff'
@@ -252,8 +253,9 @@ export function buildCaseConversationReviewPayload(input: {
 /**
  * Persists ONE canonical Sales Intelligence case/interaction.
  *
- * This function is intentionally not wired into ingestion yet. STEP 9N-C will decide the caller
- * order only after the schema + writer contracts are independently locked.
+ * A stable case_id owns exactly one automatic review row. Re-analysis UPDATES that row in place
+ * rather than freezing the first result forever. If the case was retired and later becomes active
+ * again, the same row is reactivated only after the current-case gate below succeeds.
  */
 export async function persistAutomaticCaseConversationReviewWithClient(
   client: any,
@@ -338,7 +340,7 @@ export async function persistAutomaticCaseConversationReviewWithClient(
 
   const { data: existing, error: existingError } = await client
     .from('conversation_sales_reviews')
-    .select('id')
+    .select('id, evaluation_kind')
     .eq('whatsapp_review_source_id', sourceId)
     .eq('sales_intelligence_case_id', view.caseId)
     .maybeSingle();
@@ -352,12 +354,12 @@ export async function persistAutomaticCaseConversationReviewWithClient(
       error: existingError.message,
     };
   }
-  if (existing?.id) {
+  if (existing?.id && String(existing.evaluation_kind || '') !== 'automatic') {
     return {
-      status: 'skipped_existing',
+      status: 'failed',
       reviewId: String(existing.id),
       finalScore: evaluation.summary.autoScore,
-      error: null,
+      error: 'existing_case_review_not_automatic',
     };
   }
 
@@ -389,24 +391,73 @@ export async function persistAutomaticCaseConversationReviewWithClient(
       role: staffRow.role ?? null,
     },
   });
+  const currentPayload = {
+    ...payload,
+    is_current: true,
+    superseded_at: null,
+    superseded_reason: null,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (existing?.id) {
+    const { error: updateError } = await client
+      .from('conversation_sales_reviews')
+      .update(currentPayload)
+      .eq('id', existing.id);
+    if (updateError) {
+      logSupabaseError('case conversation review update', updateError);
+      return {
+        status: 'failed',
+        reviewId: String(existing.id),
+        finalScore: evaluation.summary.autoScore,
+        error: updateError.message,
+      };
+    }
+    return {
+      status: 'updated',
+      reviewId: String(existing.id),
+      finalScore: evaluation.summary.autoScore,
+      error: null,
+    };
+  }
 
   const { data: inserted, error: insertError } = await client
     .from('conversation_sales_reviews')
-    .insert(payload)
+    .insert(currentPayload)
     .select('id')
     .single();
 
   if (insertError) {
     if (insertError.code === '23505') {
-      const { data: raced } = await client
+      const { data: raced, error: racedError } = await client
         .from('conversation_sales_reviews')
-        .select('id')
+        .select('id, evaluation_kind')
         .eq('whatsapp_review_source_id', sourceId)
         .eq('sales_intelligence_case_id', view.caseId)
         .maybeSingle();
+      if (racedError || !raced?.id || String(raced.evaluation_kind || '') !== 'automatic') {
+        return {
+          status: 'failed',
+          reviewId: raced?.id ? String(raced.id) : null,
+          finalScore: evaluation.summary.autoScore,
+          error: racedError?.message ?? 'automatic_review_race_resolution_failed',
+        };
+      }
+      const { error: racedUpdateError } = await client
+        .from('conversation_sales_reviews')
+        .update(currentPayload)
+        .eq('id', raced.id);
+      if (racedUpdateError) {
+        return {
+          status: 'failed',
+          reviewId: String(raced.id),
+          finalScore: evaluation.summary.autoScore,
+          error: racedUpdateError.message,
+        };
+      }
       return {
-        status: 'skipped_existing',
-        reviewId: raced?.id ? String(raced.id) : null,
+        status: 'updated',
+        reviewId: String(raced.id),
         finalScore: evaluation.summary.autoScore,
         error: null,
       };

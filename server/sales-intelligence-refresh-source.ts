@@ -193,17 +193,22 @@ export default async function handler(req: any, res: any) {
   }
   if (
     refresh.status === 'persistence_partial_failure' ||
+    refresh.status === 'case_set_reconciliation_failure' ||
     refresh.status === 'proof_bridge_transport_failure'
   ) {
+    const errorCode =
+      refresh.status === 'persistence_partial_failure'
+        ? 'canonical_refresh_partial_failure'
+        : refresh.status === 'case_set_reconciliation_failure'
+          ? 'case_set_reconciliation_failure'
+          : 'canonical_reconciliation_failure';
     return json(res, 500, {
-      error:
-        refresh.status === 'persistence_partial_failure'
-          ? 'canonical_refresh_partial_failure'
-          : 'canonical_reconciliation_failure',
+      error: errorCode,
       ...page,
       sourceCount: refresh.admittedSourceIds.length,
       blockedSources: refresh.blockedSources,
       failures: refresh.persistenceFailures,
+      caseSetReconciliation: refresh.caseSetReconciliation,
       canonicalReconciliation: refresh.canonicalReconciliation,
     });
   }
@@ -214,6 +219,7 @@ export default async function handler(req: any, res: any) {
     ...page,
     sourceCount: refresh.admittedSourceIds.length,
     blockedSources: refresh.blockedSources,
+    caseSetReconciliation: refresh.caseSetReconciliation,
     canonicalReconciliation: refresh.canonicalReconciliation,
     actionReconciliation: refresh.actionReconciliation,
     complaintEnrichment: refresh.complaintEnrichment,

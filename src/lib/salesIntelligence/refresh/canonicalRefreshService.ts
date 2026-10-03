@@ -4,11 +4,14 @@
 //
 //   load source context -> Canonical Source Gate -> exactly one Customer Case V22
 //   -> Sales Intelligence pipeline -> persist intelligence
+//   -> reconcile latest case set for each source conversation
 //   -> canonical proof bridge (V44 RPC, the only Canonical Sale Proof writer)
 //   -> followers of proven truth (request-action closure) and context-only enrichment
 //
 // No code path here writes verified_* / canonicalSaleProof on whatsapp_customer_cases_v22
-// directly; dawaa_reconcile_sales_intelligence_case_v22_v1 is the only writer of that truth.
+// directly; dawaa_reconcile_sales_intelligence_case_v22_v1 is the only proof writer for active
+// cases, while sales_intelligence_reconcile_case_set_v1 may only revoke proof owned by a case that
+// has just left the latest canonical segmentation set.
 import { runBatchPersistence } from '../persistence/batchPersistenceService';
 import {
   REVIEW_SOURCE_BATCH_INPUT_COLUMNS,
@@ -27,6 +30,7 @@ import { analyzeConversationEvaluation } from '../conversationEvaluation';
 import { loadConversationEvaluationSystemEvidenceWithClient } from '../conversationEvaluationSystemEvidence';
 import { persistAutomaticCaseConversationReviewWithClient } from '../conversationEvaluationPersistence';
 
+export const CASE_SET_RECONCILE_RPC = 'sales_intelligence_reconcile_case_set_v1';
 export const CANONICAL_PROOF_WRITER_RPC = 'dawaa_reconcile_sales_intelligence_case_v22_v1';
 
 /** Columns every transport must load for a review source before calling the service. */
@@ -47,6 +51,16 @@ export type BlockedSource = {
   supersedingSourceIds: string[];
 };
 
+export type CaseSetReconciliation = {
+  sourceId: string;
+  ok: boolean;
+  status: string;
+  activeCaseIds: string[];
+  retiredCaseIds: string[];
+  reactivatedCaseIds: string[];
+  error: string | null;
+};
+
 export type CanonicalProofReconciliation = {
   caseId: string;
   ok: boolean;
@@ -59,12 +73,14 @@ export interface CanonicalRefreshResult {
     | 'ok'
     | 'nothing_admitted'
     | 'persistence_partial_failure'
+    | 'case_set_reconciliation_failure'
     | 'proof_bridge_transport_failure';
   dryRun: boolean;
   admittedSourceIds: string[];
   blockedSources: BlockedSource[];
   batch: Awaited<ReturnType<typeof runBatchPersistence>> | null;
   persistenceFailures: Array<{ caseId: string; error: unknown }>;
+  caseSetReconciliation: CaseSetReconciliation[];
   canonicalReconciliation: CanonicalProofReconciliation[];
   actionReconciliation: { reconciledActions: number };
   complaintEnrichment: { enrichedComplaintActions: number };
@@ -108,6 +124,7 @@ export async function runCanonicalSalesIntelligenceRefresh(
     dryRun: input.dryRun,
     batch: null,
     persistenceFailures: [],
+    caseSetReconciliation: [],
     canonicalReconciliation: [],
     actionReconciliation: { reconciledActions: 0 },
     complaintEnrichment: { enrichedComplaintActions: 0 },
@@ -163,11 +180,46 @@ export async function runCanonicalSalesIntelligenceRefresh(
     };
   }
 
-  // 3. Canonical proof bridge — the ONLY writer of Canonical Sale Proof into Customer Case V22.
-  // Truth is bidirectional (V46): the RPC re-reads the CURRENT persisted analysis and promotes,
-  // keeps, moves (invoice A -> B) or revokes the proof this case wrote. It is therefore called for
-  // every persisted case, not only in-memory sale_proven ones; non-proven cases are cheap no-ops.
-  // Bounded by the cases of the admitted sources of this request.
+  // 3. Publish the latest canonical case set for every admitted source BEFORE proof or evaluation
+  // followers run. An empty active set is meaningful: if the new engine derives zero cases, every
+  // previously-active case for that source must retire. The DB RPC owns lifecycle + proof revoke.
+  const caseSetReconciliation: CaseSetReconciliation[] = [];
+  for (const source of admitted) {
+    const sourceId = String(source.id || '');
+    const activeCaseIds = batch.caseAnalyses
+      .filter((row: any) => String(row.conversationId || '') === sourceId)
+      .map((row: any) => String(row.caseId));
+    const { data, error } = await service.rpc(CASE_SET_RECONCILE_RPC, {
+      p_conversation_id: sourceId,
+      p_active_case_ids: activeCaseIds,
+    });
+    const payload = data && typeof data === 'object' ? data : null;
+    caseSetReconciliation.push({
+      sourceId,
+      ok: !error && payload?.ok !== false,
+      status: error ? 'rpc_error' : String(payload?.status || 'empty_reconcile_result'),
+      activeCaseIds,
+      retiredCaseIds: Array.isArray(payload?.retiredCaseIds) ? payload.retiredCaseIds.map(String) : [],
+      reactivatedCaseIds: Array.isArray(payload?.reactivatedCaseIds)
+        ? payload.reactivatedCaseIds.map(String)
+        : [],
+      error: error?.message ?? null,
+    });
+  }
+  if (caseSetReconciliation.some((row) => !row.ok || row.status !== 'reconciled')) {
+    return {
+      ...empty,
+      status: 'case_set_reconciliation_failure',
+      admittedSourceIds,
+      blockedSources,
+      batch,
+      caseSetReconciliation,
+    };
+  }
+
+  // 4. Canonical proof bridge — the ONLY writer of Canonical Sale Proof into Customer Case V22
+  // for active cases. Truth is bidirectional (V46): the RPC re-reads the CURRENT persisted
+  // analysis and promotes, keeps, moves (invoice A -> B) or revokes the proof this case wrote.
   const persisted = new Set(outcomes.filter((row) => row.success).map((row) => row.caseId));
   const reconcileCandidates = batch.caseAnalyses.filter((row: any) => persisted.has(row.caseId));
   const canonicalReconciliation: CanonicalProofReconciliation[] = [];
@@ -189,13 +241,14 @@ export async function runCanonicalSalesIntelligenceRefresh(
       admittedSourceIds,
       blockedSources,
       batch,
+      caseSetReconciliation,
       canonicalReconciliation,
     };
   }
 
-  // 4. Conversation evaluation follower — only after Sales Intelligence persistence + canonical
-  // proof reconciliation completed. This follower NEVER writes doctor points/incentives.
-  // A failure here must not corrupt or roll back canonical sale truth; it is reported per case.
+  // 5. Conversation evaluation follower — only after Sales Intelligence persistence, case-set
+  // reconciliation, and canonical proof reconciliation completed. This follower NEVER writes
+  // doctor points/incentives. A failure here must not corrupt or roll back canonical sale truth.
   const conversationEvaluations: CanonicalRefreshResult['conversationEvaluations'] = [];
   for (const analysis of reconcileCandidates) {
     const view = analysis.caseIntelligence;
@@ -256,7 +309,7 @@ export async function runCanonicalSalesIntelligenceRefresh(
     }
   }
 
-  // 5. Followers of proven truth: close customer requests only for cases the proof writer accepted.
+  // 6. Followers of proven truth: close customer requests only for cases the proof writer accepted.
   const reconciledCaseIds = new Set(
     canonicalReconciliation
       .filter((row) => row.ok && ['reconciled', 'already_reconciled'].includes(String(row.status)))
@@ -285,6 +338,7 @@ export async function runCanonicalSalesIntelligenceRefresh(
     admittedSourceIds,
     blockedSources,
     batch,
+    caseSetReconciliation,
     canonicalReconciliation,
     actionReconciliation: { reconciledActions },
     complaintEnrichment: { enrichedComplaintActions },
