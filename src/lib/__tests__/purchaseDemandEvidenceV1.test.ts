@@ -121,4 +121,34 @@ describe('buildPurchaseDemandEvidence', () => {
     ];
     expect(buildPurchaseDemandEvidence(rows, { now })).toEqual(buildPurchaseDemandEvidence(rows, { now }));
   });
+
+  it('keeps one invoice as one customer even when duplicate lines disagree on customer identity', () => {
+    const rows = [
+      { ...base, invoiceNumber: 'conflict-1', quantity: 0.5, customerId: 'A', customerCode: null },
+      { ...base, invoiceNumber: 'conflict-1', quantity: 0.5, customerId: 'B', customerCode: null },
+      { ...base, invoiceNumber: 'conflict-2', invoiceDate: '2026-09-30T10:00:00.000Z', quantity: 1, customerId: 'C', customerCode: null },
+    ];
+    const [evidence] = buildPurchaseDemandEvidence(rows, {
+      now,
+      sourceCoverageStart: new Date('2026-09-03T12:00:00.000Z'),
+    });
+    expect(evidence.invoices_30d).toBe(2);
+    expect(evidence.known_customer_invoices_30d).toBe(2);
+    expect(evidence.customers_30d).toBe(2);
+  });
+
+  it('never upgrades quality when source coverage is unproven', () => {
+    const rows = Array.from({ length: 12 }, (_, i) => ({
+      ...base,
+      invoiceNumber: `u${i}`,
+      invoiceDate: new Date(Date.UTC(2026, 8, 4 + i * 2, 10)).toISOString(),
+      quantity: 1,
+      customerCode: `C${i % 4}`,
+    }));
+    const [evidence] = buildPurchaseDemandEvidence(rows, { now });
+    expect(evidence.source_coverage_start_at).toBeNull();
+    expect(evidence.source_coverage_days).toBeNull();
+    expect(evidence.evidence_quality_class).toBe('review');
+  });
+
 });
