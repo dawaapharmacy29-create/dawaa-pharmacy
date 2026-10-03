@@ -3,7 +3,8 @@ import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // The manual maintenance backfill must write through the same canonical boundary as the HTTP
-// transport: Canonical Source Gate -> exactly one V22 -> Sales Intelligence -> V44 proof writer.
+// transport: Canonical Source Gate -> exactly one V22 -> Sales Intelligence -> case-set reconcile
+// -> V44 proof writer.
 
 const {
   runBatchPersistence,
@@ -25,7 +26,11 @@ vi.mock('../../conversationEvaluationPersistence', () => ({
   persistAutomaticCaseConversationReviewWithClient,
 }));
 
-import { runCanonicalSalesIntelligenceBackfill } from '../canonicalRefreshService';
+import {
+  CASE_SET_RECONCILE_RPC,
+  CANONICAL_PROOF_WRITER_RPC,
+  runCanonicalSalesIntelligenceBackfill,
+} from '../canonicalRefreshService';
 
 const FILE = 'customer 4250.zip';
 const fine = {
@@ -125,7 +130,15 @@ function batch(conversations: any[]) {
 beforeEach(() => {
   writes.length = 0;
   rpc.mockReset();
-  rpc.mockResolvedValue({ data: { ok: true, status: 'reconciled' }, error: null });
+  rpc.mockImplementation(async (name: string) => {
+    if (name === CASE_SET_RECONCILE_RPC) {
+      return {
+        data: { ok: true, status: 'reconciled', retiredCaseIds: [], reactivatedCaseIds: [] },
+        error: null,
+      };
+    }
+    return { data: { ok: true, status: 'reconciled' }, error: null };
+  });
   runBatchPersistence.mockReset();
   runBatchPersistence.mockImplementation(async (_service: unknown, input: any) =>
     batch(input.conversations)
@@ -225,13 +238,33 @@ describe('manual backfill --apply uses the canonical boundary', () => {
     expect(persistAutomaticCaseConversationReviewWithClient).toHaveBeenCalledTimes(1);
   });
 
-  it('uses the V44 RPC as the only proof writer and never writes V22 directly', async () => {
+  it('publishes the current case set before invoking the V44 proof writer and never writes V22 directly', async () => {
     await runCanonicalSalesIntelligenceBackfill(makeService(), { rows: allRows, apply: true });
-    expect(rpc).toHaveBeenCalledTimes(1);
-    expect(rpc).toHaveBeenCalledWith('dawaa_reconcile_sales_intelligence_case_v22_v1', {
+    expect(rpc).toHaveBeenCalledTimes(2);
+    expect(rpc).toHaveBeenNthCalledWith(1, CASE_SET_RECONCILE_RPC, {
+      p_conversation_id: 'fine',
+      p_active_case_ids: ['fine:interaction:0'],
+    });
+    expect(rpc).toHaveBeenNthCalledWith(2, CANONICAL_PROOF_WRITER_RPC, {
       p_sales_case_id: 'fine:interaction:0',
     });
     expect(writes).not.toContain('whatsapp_customer_cases_v22');
+  });
+
+  it('stops before proof/evaluation when case-set reconciliation fails', async () => {
+    rpc.mockImplementation(async (name: string) => {
+      if (name === CASE_SET_RECONCILE_RPC) {
+        return { data: { ok: false, status: 'active_case_not_owned_by_conversation' }, error: null };
+      }
+      return { data: { ok: true, status: 'reconciled' }, error: null };
+    });
+    const result = await runCanonicalSalesIntelligenceBackfill(makeService(), {
+      rows: allRows,
+      apply: true,
+    });
+    expect(result.refresh?.status).toBe('case_set_reconciliation_failure');
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(persistAutomaticCaseConversationReviewWithClient).not.toHaveBeenCalled();
   });
 });
 
