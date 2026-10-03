@@ -117,6 +117,43 @@ describe('case-level conversation evaluation persistence 9N-B', () => {
     expect(calls).toEqual(['sales_intelligence_current_case_analyses']);
   });
 
+  it('updates the existing automatic review in place and reactivates it after a valid re-analysis', async () => {
+    const updates:any[]=[];
+    const client={
+      from(table:string){
+        const chain:any={
+          select(){return chain;},
+          eq(){return chain;},
+          update(payload:any){updates.push({table,payload});return chain;},
+          maybeSingle(){
+            if(table==='sales_intelligence_current_case_analyses') return Promise.resolve({data:{case_id:'source-1:interaction:2'},error:null});
+            if(table==='sales_intelligence_cases') return Promise.resolve({data:{case_id:'source-1:interaction:2',conversation_id:'source-1'},error:null});
+            if(table==='conversation_sales_reviews') return Promise.resolve({data:{id:'review-1',evaluation_kind:'automatic'},error:null});
+            if(table==='staff') return Promise.resolve({data:{id:'staff-1',name:'د شبل',branch:'فرع شكري',branch_id:null,role:'doctor'},error:null});
+            return Promise.resolve({data:null,error:null});
+          },
+          then(resolve:any){return resolve({data:null,error:null});},
+        };
+        return chain;
+      }
+    };
+    const outcome=await persistAutomaticCaseConversationReviewWithClient(client,{
+      sourceId:'source-1',
+      view:view(),
+      evaluation:evaluation(),
+    });
+    expect(outcome).toMatchObject({status:'updated',reviewId:'review-1',finalScore:50,error:null});
+    expect(updates).toHaveLength(1);
+    expect(updates[0].table).toBe('conversation_sales_reviews');
+    expect(updates[0].payload).toMatchObject({
+      is_current:true,
+      superseded_at:null,
+      superseded_reason:null,
+      final_score:50,
+      automatic_evaluation_version:'conversation-evaluation-v1',
+    });
+  });
+
   it('creates a case-specific fingerprint and stores the full automatic snapshot', () => {
     const payload=buildCaseConversationReviewPayload({
       sourceId:'source-1',
