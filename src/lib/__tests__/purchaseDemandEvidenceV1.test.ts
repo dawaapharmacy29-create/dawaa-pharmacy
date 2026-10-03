@@ -21,6 +21,8 @@ describe('buildPurchaseDemandEvidence', () => {
     expect(evidence.invoices_30d).toBe(2);
     expect(evidence.units_30d).toBe(2);
     expect(evidence.typical_invoice_qty_30d).toBe(1);
+    expect(evidence.source_coverage_start_at).toBe('2026-09-29T10:00:00.000Z');
+    expect(evidence.source_coverage_days).toBe(2);
   });
 
   it('detects a one-invoice bulk burst without turning it into recurrence', () => {
@@ -57,6 +59,15 @@ describe('buildPurchaseDemandEvidence', () => {
       { ...base, branch: 'مخزن د.وائل', invoiceNumber: '500', quantity: 5 },
     ], { now });
     expect(result).toEqual([]);
+  });
+
+  it('does not let an old row outside the requested window contaminate evidence', () => {
+    const [evidence] = buildPurchaseDemandEvidence([
+      { ...base, invoiceNumber: 'old', invoiceDate: '2026-08-01T10:00:00.000Z', quantity: 50 },
+      { ...base, invoiceNumber: 'new', quantity: 2 },
+    ], { now, windowDays: 30 });
+    expect(evidence.units_30d).toBe(2);
+    expect(evidence.invoices_30d).toBe(1);
   });
 
   it('is deterministic when the same source rows are recalculated', () => {
