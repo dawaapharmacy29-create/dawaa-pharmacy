@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildPurchaseDemandEvidence } from '../purchaseDemandEvidenceV1';
+import { buildPurchaseDemandEvidence, isContinuousSourceCoverageProven } from '../purchaseDemandEvidenceV1';
 
 const now = new Date('2026-10-03T12:00:00.000Z');
 const base = {
@@ -226,6 +226,21 @@ describe('buildPurchaseDemandEvidence', () => {
     expect(evidence.source_coverage_start_at).toBeNull();
     expect(evidence.source_coverage_days).toBeNull();
     expect(evidence.evidence_quality_class).toBe('review');
+  });
+
+  it('rejects a hidden missing day even when first and last source timestamps exist', () => {
+    expect(isContinuousSourceCoverageProven([
+      { headerInvoices: 300, itemInvoices: 300 },
+      { headerInvoices: 280, itemInvoices: 0 },
+      { headerInvoices: 310, itemInvoices: 310 },
+    ])).toBe(false);
+  });
+
+  it('accepts small day-level variance at or above the explicit 99 percent gate', () => {
+    expect(isContinuousSourceCoverageProven([
+      { headerInvoices: 300, itemInvoices: 300 },
+      { headerInvoices: 300, itemInvoices: 297 },
+    ])).toBe(true);
   });
 
 });
