@@ -182,4 +182,18 @@ describe('buildPurchaseDemandEvidence', () => {
     expect(evidence.source_max_invoice_at).toBe('2026-10-02T09:00:00.000Z');
   });
 
+  it('measures proven coverage to the source maximum rather than to now', () => {
+    const [evidence] = buildPurchaseDemandEvidence([
+      { ...base, invoiceNumber: 'coverage-bound', invoiceDate: '2026-09-20T10:00:00.000Z', quantity: 1 },
+    ], {
+      now,
+      sourceCoverageStart: new Date('2026-09-03T12:51:00.000Z'),
+      sourceMaxInvoiceAt: new Date('2026-09-29T10:32:00.000Z'),
+    });
+    expect(evidence.source_max_invoice_at).toBe('2026-09-29T10:32:00.000Z');
+    expect(evidence.source_coverage_days).toBe(26);
+    expect(evidence.source_coverage_days).toBeLessThan(30);
+  });
+
+
 });
