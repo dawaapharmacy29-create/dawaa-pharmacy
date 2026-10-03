@@ -39,6 +39,7 @@ export async function buildPurchaseDemandEvidenceExport(
     .select('invoice_date')
     .in('branch', ['فرع شكري', 'فرع الشامي'])
     .not('invoice_date', 'is', null)
+    .gte('invoice_date', requestedStart.toISOString())
     .lte('invoice_date', now.toISOString())
     .order('invoice_date', { ascending: false })
     .limit(1);
@@ -60,6 +61,7 @@ export async function buildPurchaseDemandEvidenceExport(
       .gte('invoice_date', requestedStart.toISOString())
       .lte('invoice_date', sourceMax.toISOString())
       .order('invoice_date', { ascending: true })
+      .order('id', { ascending: true })
       .range(from, to);
     if (error) throw error;
 
