@@ -725,7 +725,7 @@ function AppRoutes() {
       />
       <Route
         path="/purchase-demand-evidence"
-        element={<ProtectedRoute>{routeSuspense(<PurchaseDemandEvidenceExport />, 'Demand Evidence للمشتريات')}</ProtectedRoute>}
+        element={<ProtectedRoute permission="view_purchases">{routeSuspense(<PurchaseDemandEvidenceExport />, 'Demand Evidence للمشتريات')}</ProtectedRoute>}
       />
       <Route
         path="/invoices"
