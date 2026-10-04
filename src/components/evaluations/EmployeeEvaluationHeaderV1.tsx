@@ -1,4 +1,4 @@
-import { AlertTriangle, BriefcaseBusiness, CalendarDays, Clock3, MessageCircleMore, ReceiptText, UserRound } from 'lucide-react';
+import { AlertTriangle, CalendarDays, Clock3, ReceiptText, UserRound } from 'lucide-react';
 import { Panel, MiniBox } from '@/components/dashboard/DashboardPrimitives';
 import type { EvaluationHeaderSummary } from '@/lib/evaluations/employeeEvaluationHeaderService';
 
