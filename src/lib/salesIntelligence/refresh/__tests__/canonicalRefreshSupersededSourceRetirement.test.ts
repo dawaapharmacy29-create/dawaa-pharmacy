@@ -1,171 +1,55 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { describe, expect, it } from 'vitest';
 
-const mocks = vi.hoisted(() => ({
-  runBatchPersistence: vi.fn(),
-  evaluateCanonicalSourceGate: vi.fn(),
-  loadCanonicalSourceGateContext: vi.fn(),
-}));
+const migrationUrl = new URL(
+  '../../../../../supabase/migrations/20261004064500_si_case_lifecycle_superseded_source_retirement_v2.sql',
+  import.meta.url
+);
+const sql = readFileSync(migrationUrl, 'utf8');
 
-vi.mock('../../persistence/batchPersistenceService', () => ({
-  runBatchPersistence: mocks.runBatchPersistence,
-}));
-
-vi.mock('../../persistence/canonicalSourceGate', () => ({
-  evaluateCanonicalSourceGate: mocks.evaluateCanonicalSourceGate,
-  loadCanonicalSourceGateContext: mocks.loadCanonicalSourceGateContext,
-}));
-
-import {
-  CANONICAL_PROOF_WRITER_RPC,
-  CASE_SET_RECONCILE_RPC,
-  runCanonicalSalesIntelligenceRefresh,
-} from '../canonicalRefreshService';
-
-const fine = {
-  id: '11111111-1111-4111-8111-111111111111',
-  raw_text: 'fine conversation',
-};
-
-const coarse = {
-  id: '22222222-2222-4222-8222-222222222222',
-  raw_text: 'coarse conversation containing fine conversation',
-};
-
-function emptyQueryChain() {
-  const result = Promise.resolve({ data: [], error: null });
-  const chain: any = {
-    select: () => chain,
-    eq: () => chain,
-    in: () => result,
-  };
-  return chain;
-}
-
-function serviceMock() {
-  const rpc = vi.fn(async (name: string) => {
-    if (name === CASE_SET_RECONCILE_RPC) {
-      return {
-        data: {
-          ok: true,
-          status: 'reconciled',
-          retiredCaseIds: [],
-          reactivatedCaseIds: [],
-        },
-        error: null,
-      };
-    }
-    if (name === CANONICAL_PROOF_WRITER_RPC) {
-      return { data: { ok: true, status: 'reconciled' }, error: null };
-    }
-    return { data: null, error: { message: `unexpected rpc: ${name}` } };
-  });
-  return {
-    rpc,
-    from: vi.fn(() => emptyQueryChain()),
-  };
-}
-
-function fineAnalysis() {
-  const caseId = `${fine.id}:interaction:0`;
-  return {
-    caseOutcomes: [{ caseId, success: true }],
-    caseAnalyses: [
-      {
-        conversationId: fine.id,
-        caseId,
-        caseIntelligence: null,
-      },
-    ],
-    plan: {
-      casesToInsert: [],
-      casesToUpdateCanonicalIdentity: [],
-      casesUnchanged: [],
-      analysesToInsert: [],
-      analysesToSupersede: [],
-      attributionsToInsert: [],
-      matchesToInsert: [],
-      conflicts: [],
-      warnings: [],
-    },
-  };
-}
-
-describe('canonical refresh retires superseded source case sets', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mocks.loadCanonicalSourceGateContext.mockResolvedValue({
-      siblings: [fine, coarse],
-      v22CaseIdsBySource: new Map([[fine.id, ['case-v22']]]),
-    });
-    mocks.evaluateCanonicalSourceGate.mockImplementation((source: any) => {
-      if (String(source.id) === fine.id) {
-        return { allowed: true, sourceId: fine.id, v22CaseId: 'case-v22' };
-      }
-      return {
-        allowed: false,
-        sourceId: coarse.id,
-        code: 'blocked_non_canonical_source',
-        reason: 'superseded_by_finer_canonical_sources',
-        v22CaseIds: ['case-v22'],
-        supersedingSourceIds: [fine.id],
-      };
-    });
-  });
-
-  it('publishes the fine source and retires the blocked coarse source before proof reconciliation', async () => {
-    mocks.runBatchPersistence.mockResolvedValue(fineAnalysis());
-    const service = serviceMock();
-
-    const result = await runCanonicalSalesIntelligenceRefresh(service, {
-      sources: [fine, coarse],
-      dryRun: false,
-    });
-
-    const fineCaseId = `${fine.id}:interaction:0`;
-    expect(result.status).toBe('ok');
-    expect(service.rpc).toHaveBeenNthCalledWith(1, CASE_SET_RECONCILE_RPC, {
-      p_conversation_id: fine.id,
-      p_active_case_ids: [fineCaseId],
-    });
-    expect(service.rpc).toHaveBeenNthCalledWith(2, CASE_SET_RECONCILE_RPC, {
-      p_conversation_id: coarse.id,
-      p_active_case_ids: [],
-    });
-    expect(service.rpc).toHaveBeenNthCalledWith(3, CANONICAL_PROOF_WRITER_RPC, {
-      p_sales_case_id: fineCaseId,
-    });
-    expect(result.caseSetReconciliation).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ sourceId: coarse.id, activeCaseIds: [], status: 'reconciled' }),
-      ])
+describe('Sales Intelligence superseded-source lifecycle migration', () => {
+  it('keeps the existing lifecycle RPC contract and requires canonical fine-source ownership', () => {
+    expect(sql).toContain(
+      'create or replace function public.sales_intelligence_reconcile_case_set_v1('
     );
+    expect(sql).toContain('v_current_owner_count = 1');
+    expect(sql).toContain("coalesce(v_current_source.review_status, '') <> 'archived'");
+    expect(sql).toContain("p_conversation_id = any(coalesce(wc.source_ids, '{}'::uuid[]))");
   });
 
-  it('retires a superseded blocked source even when no source is admitted', async () => {
-    mocks.evaluateCanonicalSourceGate.mockReturnValue({
-      allowed: false,
-      sourceId: coarse.id,
-      code: 'blocked_non_canonical_source',
-      reason: 'superseded_by_finer_canonical_sources',
-      v22CaseIds: ['case-v22'],
-      supersedingSourceIds: [fine.id],
-    });
-    const service = serviceMock();
+  it('uses the same containment semantics as the Canonical Source Gate', () => {
+    expect(sql).toContain('s.source_filename = v_current_source.source_filename');
+    expect(sql).toContain(
+      's.conversation_started_at <= v_current_source.conversation_started_at'
+    );
+    expect(sql).toContain('s.conversation_ended_at >= v_current_source.conversation_ended_at');
+    expect(sql).toContain('position(v_current_source.raw_text in s.raw_text) > 0');
+  });
 
-    const result = await runCanonicalSalesIntelligenceRefresh(service, {
-      sources: [coarse],
-      dryRun: false,
-    });
+  it('retires coarse cases before automatic-review supersession and canonical-proof revoke', () => {
+    const retire = sql.indexOf("retire_reason = 'superseded_by_finer_canonical_source'");
+    const reviewSupersession = sql.indexOf('update public.conversation_sales_reviews');
+    const proofRevoke = sql.indexOf('dawaa_revoke_whatsapp_canonical_sale_proof_v46');
 
-    expect(result.status).toBe('nothing_admitted');
-    expect(mocks.runBatchPersistence).not.toHaveBeenCalled();
-    expect(service.rpc).toHaveBeenCalledTimes(1);
-    expect(service.rpc).toHaveBeenCalledWith(CASE_SET_RECONCILE_RPC, {
-      p_conversation_id: coarse.id,
-      p_active_case_ids: [],
-    });
-    expect(result.caseSetReconciliation).toEqual([
-      expect.objectContaining({ sourceId: coarse.id, activeCaseIds: [], status: 'reconciled' }),
-    ]);
+    expect(retire).toBeGreaterThan(-1);
+    expect(reviewSupersession).toBeGreaterThan(retire);
+    expect(proofRevoke).toBeGreaterThan(reviewSupersession);
+  });
+
+  it('serializes every source it can mutate in deterministic order', () => {
+    expect(sql).toContain(
+      'select distinct unnest(array_prepend(p_conversation_id, v_superseded_source_ids)) as id'
+    );
+    expect(sql).toContain("pg_advisory_xact_lock(hashtext('sales_intelligence_case_set:'");
+  });
+
+  it('preserves audit history and keeps the RPC service-role only', () => {
+    expect(sql.toLowerCase()).not.toContain('delete from public.sales_intelligence_cases');
+    expect(sql).toContain(
+      'revoke all on function public.sales_intelligence_reconcile_case_set_v1(uuid, text[]) from authenticated;'
+    );
+    expect(sql).toContain(
+      'grant execute on function public.sales_intelligence_reconcile_case_set_v1(uuid, text[]) to service_role;'
+    );
   });
 });
