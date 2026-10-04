@@ -7,7 +7,9 @@ export default function EvaluationDecisionHeaderV1(props:{
  status:string; blockers:string[]; incentive:number|null; settled:boolean;
 }){
  const finalReady=props.score!==null&&props.evidenceReady&&props.blockers.length===0;
- return <Panel className="p-4">
+ return <Panel className="overflow-hidden p-0">
+  <div className="h-1 w-full" style={{background:finalReady?'var(--dawaa-status-success-border)':'var(--dawaa-status-warning-border)'}}/>
+  <div className="p-4 sm:p-5">
   <div className="flex flex-wrap items-start justify-between gap-3">
    <div>
     <div className="flex items-center gap-2">
@@ -20,7 +22,7 @@ export default function EvaluationDecisionHeaderV1(props:{
     {finalReady?'مكتمل وقابل للاعتماد':'غير مكتمل'}
    </span>
   </div>
-  <div className="mt-3 grid gap-2 sm:grid-cols-4">
+  <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
    <MiniBox label="الدرجة النهائية" value={props.score===null?'—':`${props.score}/100`} tone={props.score===null?'amber':props.score>=80?'green':props.score>=60?'amber':'red'}/>
    <MiniBox label="الأدلة" value={props.evidenceReady?'مكتملة':'تحتاج مراجعة'} tone={props.evidenceReady?'green':'red'}/>
    <MiniBox label="المحاور" value={`${props.completed}/${props.total}`} tone={props.completed===props.total&&props.total>0?'green':'amber'}/>
@@ -30,5 +32,6 @@ export default function EvaluationDecisionHeaderV1(props:{
    <div className="mb-1 flex items-center gap-1.5"><AlertTriangle size={14}/> أسباب منع الاعتماد</div>
    {props.blockers.map(x=><div key={x}>• {x}</div>)}
   </div>:<div className="mt-3 flex items-center gap-2 text-xs font-black" style={{color:'var(--dawaa-status-success-text)'}}><CheckCircle2 size={15}/> لا توجد موانع اعتماد حالية.</div>}
+  </div>
  </Panel>;
 }
