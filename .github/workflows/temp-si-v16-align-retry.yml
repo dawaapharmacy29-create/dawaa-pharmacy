@@ -30,21 +30,7 @@ jobs:
         run: npm ci --legacy-peer-deps --no-audit --no-fund
 
       - name: Narrow temporary V16 return selector
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path('scripts/tmp_si_v16_align.py')
-          text = p.read_text(encoding='utf-8')
-          old = '''    "    conversationCase,\\n    customerNeed,",
-    "    conversationCase: effectiveConversationCase,\\n    customerNeed,",
-'''
-          new = '''    "  return {\\n    conversationCase,\\n    customerNeed,\\n    unavailableDemand,",
-    "  return {\\n    conversationCase: effectiveConversationCase,\\n    customerNeed,\\n    unavailableDemand,",
-'''
-          if text.count(old) != 1:
-              raise SystemExit(f'expected one temporary selector, got {text.count(old)}')
-          p.write_text(text.replace(old, new, 1), encoding='utf-8')
-          PY
+        run: python3 scripts/tmp_fix_v16_selector.py
 
       - name: Apply V16 source alignment
         run: python3 scripts/tmp_si_v16_align.py
@@ -75,7 +61,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm scripts/tmp_si_v16_align.py .github/workflows/temp-si-v16-align.yml .github/workflows/temp-si-v16-align-retry.yml
+          git rm scripts/tmp_si_v16_align.py scripts/tmp_fix_v16_selector.py .github/workflows/temp-si-v16-align.yml .github/workflows/temp-si-v16-align-retry.yml
           git add -A
           git commit -m "fix: align financially settled order truth across SI"
           git push origin HEAD:fix/si-quality-closing-continuation-20261004
