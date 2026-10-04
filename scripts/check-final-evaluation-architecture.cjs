@@ -5,6 +5,7 @@ const evalPage=read('src/pages/StaffMonthlyEvaluationGeneral.tsx');
 const decisionHeader=read('src/components/evaluations/EvaluationDecisionHeaderV1.tsx');
 const workflow=read('src/components/evaluations/MonthlyEvaluationWorkflowV5.tsx');
 const axisCard=read('src/components/evaluations/EvaluationAxisCardV1.tsx');
+const finalReview=read('src/components/evaluations/FinalEvaluationReviewV1.tsx');
 const report=read('src/lib/reports/monthlyPerformance360Service.ts');
 const financial=read('src/lib/payroll/employeeFinancialProjection.ts');
 const composition=read('src/lib/payroll/payrollFinancialCompositionService.ts');
@@ -16,12 +17,16 @@ const required=[
  [evalPage,'final_approval_snapshot','published evaluation must use final snapshot'],
  [evalPage,'EvaluationDecisionHeaderV1','manager decision header must be wired'],
  [evalPage,'EvaluationAxisCardV1','final evaluation must use the unified evidence-first axis card'],
+ [evalPage,'FinalEvaluationReviewV1','final approval must use one canonical review surface'],
  [evalPage,'blockers={approvalBlockers}','workflow must receive canonical approval blockers'],
  [decisionHeader,'أسباب منع الاعتماد','decision header must expose approval blockers'],
  [workflow,'المطلوب قبل الاعتماد','workflow must surface blockers'],
  [axisCard,'الدليل يبرر القرار ولا ينشئ درجة تلقائية','axis card must preserve evidence/decision boundary'],
  [axisCard,"evidenceUnavailable",'axis card must expose unavailable evidence state'],
  [axisCard,'الدرجة الضعيفة لا تُعتمد بدون سبب مكتوب','weak score must require explanation'],
+ [axisCard,'evidenceBlocksDecision','incomplete evidence must block axis decision'],
+ [finalReview,'كل شروط الاعتماد مكتملة','final review must expose readiness'],
+ [finalReview,"incentiveSettled",'final review must distinguish settled from current incentive'],
  [report,"get_staff_monthly_evaluation_v5",'360 must not read legacy evaluation API'],
  [report,'availableWeight === 100','360 partial data must fail closed'],
  [financial,"duplicate component",'financial duplicate guard missing'],
