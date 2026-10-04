@@ -8,11 +8,10 @@ import { loadEmployeeMonthlyEvidence, type EmployeeMonthlyEvidence } from '@/lib
 import { evaluationCycleQueryBounds, evaluationCycleRangeFromLabel, latestClosedEvaluationCycleLabel } from '@/lib/evaluations/monthlyEvaluationCycle';
 import { canonicalStaffRole } from '@/lib/staff/staffRoleCapabilities';
 import { evaluationProfileForRole } from '@/lib/evaluations/staffEvaluationProfilesV3';
+import { filterPerformanceScope, type PerformanceScope } from '@/lib/performance/performanceScope';
 
 type Axis = { key: string; label: string; weight: number; score: number | null; coverage: string; confidence: 'high'|'medium'|'low'|'unavailable'; note: string };
-type ScopeFilter = 'all'|'branch'|'warehouse'|'delivery'|'doctors';
-const branchToken=(v:unknown)=>String(v||'').trim().toLowerCase().replace(/^فرع\s+/,'');
-const isWarehouse=(v:unknown)=>/مخزن|warehouse/i.test(String(v||''));
+type ScopeFilter = PerformanceScope;
 
 function clamp(n:number){ return Math.max(0,Math.min(100,Math.round(n))); }
 function confidence(samples:number, good=10){ return samples >= good ? 'high' as const : samples > 0 ? 'medium' as const : 'unavailable' as const; }
@@ -58,7 +57,7 @@ export default function PerformanceShadowV1(){
   const {data:dir=[]}=useStaffDirectory();
   const choices=useMemo(()=>mergeStaffChoices(dir.filter(x=>x.source!=='alias'&&x.active&&x.id&&x.name)),[dir]);
   const branches=useMemo(()=>[...new Set(choices.map(x=>String(x.branch||'').trim()).filter(Boolean))].sort(),[choices]);
-  const scoped=useMemo(()=>choices.filter(x=>{const role=canonicalStaffRole(x.role); if(scope==='doctors')return role==='doctor'; if(scope==='delivery')return role==='delivery'; if(scope==='warehouse')return isWarehouse(x.branch)||role==='inventory_assistant'; if(scope==='branch')return branchToken(x.branch)===branchToken(branch); return true;}),[choices,scope,branch]);
+  const scoped=useMemo(()=>filterPerformanceScope(choices,scope,branch),[choices,scope,branch]);
   const visible=useMemo(()=>manager?scoped:scoped.filter(x=>x.id===(user?.staffId||user?.id)),[scoped,manager,user?.staffId,user?.id]);
   const selected=useMemo(()=>choices.find(x=>x.id===staffId),[choices,staffId]);
   useEffect(()=>{if(!visible.some(x=>x.id===staffId)&&visible.length)setStaffId(manager?visible[0].id:(user?.staffId||user?.id||visible[0].id));},[staffId,visible,manager,user?.staffId,user?.id]);
