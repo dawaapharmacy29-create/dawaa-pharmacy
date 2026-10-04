@@ -11,7 +11,7 @@ const iso=(v:unknown)=>{const x=clean(v);if(!x)return null;const n=Date.parse(x)
 const endDay=(v:unknown)=>{const x=clean(v);return x?(iso(x.includes('T')?x:`${x}T23:59:59+03:00`)):null;};
 
 export function customerRequestToTaskEvidence(row:Row,observedAt=new Date().toISOString()):TaskEvidence|null{
- const candidates=[row.primary_responsible_id,row.source_assigned_staff_id,row.doctor_id,row.source_recorded_staff_id];
+ const candidates=[row.primary_responsible_id,row.source_assigned_staff_id];
  const staffId=candidates.map(clean).find(v=>UUID.test(v))||null;
  const branch=clean(row.branch), sourceId=clean(row.id);
  if(!staffId||!branch||!sourceId)return null;
