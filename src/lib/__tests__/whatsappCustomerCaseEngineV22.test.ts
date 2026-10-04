@@ -282,4 +282,77 @@ describe('Sales Intelligence cross-script product regressions', () => {
     expect(analysis.basketInvoiceMatch.differences.some((difference) => difference.type === 'missing_item' && String(difference.key).includes('هيرو'))).toBe(false);
     expect(analysis.basketInvoiceMatch.differences.some((difference) => difference.type === 'extra_item' && String(difference.key).toLowerCase().includes('hero baby'))).toBe(false);
   });
+
+  it('keeps Ibrahim order plus later transfer settlement as one sales case without a false customer-no-response follow-up', () => {
+    const raw = `[9/27/26, 9:03:05 PM] ابراهيم الصياد ٣٦٤٣: مساء الخير
+[9/27/26, 9:03:12 PM] You: أهلًا وسهلًا بحضرتك✨
+نورتنا في صيدليات دواء 💚
+مع حضرتك د دنيا
+خدمة التوصيل متاحة على مدار ٢٤ ساعة 🚗
+[9/27/26, 9:03:15 PM] You: مساء النور يا فندم
+[9/27/26, 9:03:34 PM] ابراهيم الصياد ٣٦٤٣: لوسمحت كنت محتاجه علبتين لبن هيرو بيبي نيوتروني دفنس 3
+[9/27/26, 9:04:00 PM] You: تحت امر حضرتك يا مدام اميره
+[9/27/26, 9:04:08 PM] You: حضرتك تؤمرينا بحاجة تانيه ان شاء الله؟
+[9/27/26, 9:05:48 PM] ابراهيم الصياد ٣٦٤٣: لا شكرا
+[9/27/26, 9:05:59 PM] You: العفو يا فندم مكان حضرتك في اي وقت✨
+[9/27/26, 9:06:00 PM] You: جاري الارسال
+نتشرف ب خدمة حضرتك ٢٤ ساعه 🌸🌸
+[9/27/26, 9:09:42 PM] You: <image omitted>
+[9/27/26, 9:09:58 PM] You: تفاصيل الفاتورة يا فندم عشان في عطل في طابعه الريسيت
+[9/27/26, 9:15:35 PM] You: صيدليات دواء تتشرف بخدمة حضرتك دائما 💚
+الأقرب إليك… ونهتم بصحتك دائمًا. 🌿
+[9/28/26, 2:52:09 AM] You: اتفضل رقم التحويل يا فندم
+01028308235
+استاذن حضرتك في صورة التحويل 🌸
+[9/28/26, 3:08:01 AM] ابراهيم الصياد ٣٦٤٣: اسفه بجد نسيت خالص
+[9/28/26, 3:08:09 AM] ابراهيم الصياد ٣٦٤٣: الحساب كام من فضلك
+[9/28/26, 3:08:25 AM] You: واحد يافندم المكان مكان حضرتك
+[9/28/26, 3:08:36 AM] You: 778 ان شاء الله
+[9/28/26, 3:09:45 AM] ابراهيم الصياد ٣٦٤٣: [Forwarded] <image omitted>
+[9/28/26, 3:10:40 AM] You: وصل شكرا جزيلا`;
+
+    const canonicalCustomerId = 'a2fd0b6e-1562-438c-8f16-76a43539f792';
+    const result = runSalesIntelligencePipeline({
+      conversationId: 'ibrahim-real-order-plus-payment',
+      rawWhatsAppExportText: raw,
+      trustedConversationStartedAt: '2026-09-27T18:03:05.000Z',
+      customerIdHint: canonicalCustomerId,
+      customerPhoneHint: '01016891940',
+      customerCodeHint: '3643',
+      customerNameHint: 'ابراهيم الصياد',
+      customerIdentityStatus: 'resolved',
+      branchNameRawHint: 'فرع شكري',
+      productIndex: crossScriptRegressionIndex(),
+      resolveInvoiceCandidates: () => [{
+        id: 'inv-74884',
+        invoice_number: '74884',
+        customer_id: canonicalCustomerId,
+        customer_code: '3643',
+        customer_name: 'ابراهيم الصياد',
+        customer_phone: '01016891940',
+        branch: 'فرع شكري',
+        invoice_datetime: '2026-09-27T18:06:00.000Z',
+        net_amount: 778,
+      }],
+      itemEvidenceProvider: {
+        getItemsForInvoice: (invoiceId) => invoiceId === 'inv-74884'
+          ? [
+              { productNameRaw: 'hero baby nutradefense 3 plus', productId: 'hero-3', productCode: '74976', quantity: 2, lineTotal: 772.9676584734799 },
+              { productNameRaw: 'توصيل منزلي', productId: 'delivery', productCode: '79693', quantity: 1, lineTotal: 5.032341526520052 },
+            ]
+          : 'unavailable',
+      },
+    });
+
+    expect(result.caseAnalyses).toHaveLength(1);
+    const analysis = result.caseAnalyses[0];
+    expect(analysis.attribution.selectedInvoiceNumber).toBe('74884');
+    const activeItems = analysis.activeBasket
+      ? (analysis.itemsByBasketId[analysis.activeBasket.basketId] ?? [])
+      : [];
+    expect(activeItems.some((item) => item.productId === 'hero-3' && item.quantity === 2)).toBe(true);
+    expect(analysis.followUp.opportunities.some(
+      (opportunity) => opportunity.reason === 'customer_no_response' && opportunity.status === 'actionable'
+    )).toBe(false);
+  });
 });
