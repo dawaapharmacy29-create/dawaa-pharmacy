@@ -9,6 +9,8 @@
 // with scripts/build-sales-intelligence-refresh-api.cjs so Preview/Production runs the same versions.
 // v18 (2026-10-04): unresolved media/deictic product identity is unavailable evidence, never a
 // manufactured item contradiction; canonical review-source staff_id now reaches SI knownStaffIds.
+// Final V18 user-trigger marker: focused regression, full suite, TypeScript, generated API verification,
+// and production build passed on the semantic head before this comment-only CI/deploy trigger.
 // v17 (2026-10-04): compact announced totals may bridge only short acknowledgement messages
 // after the customer's explicit total question; any new customer commercial content fails closed.
 // v16 (2026-10-04): settled-order truth alignment. Exact invoice-backed payment settlement now
