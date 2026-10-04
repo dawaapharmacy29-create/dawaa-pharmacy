@@ -5,7 +5,7 @@ const URL = Deno.env.get("SUPABASE_URL") || "";
 const KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 const cors = {
   "access-control-allow-origin": "*",
-  "access-control-allow-headers": "content-type,x-dawaa-staff-session",
+  "access-control-allow-headers": "authorization,apikey,x-client-info,content-type,x-dawaa-staff-session",
   "access-control-allow-methods": "POST,OPTIONS",
 };
 const json = (value: unknown, status = 200) =>
