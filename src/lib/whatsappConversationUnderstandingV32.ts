@@ -109,6 +109,11 @@ const PRIOR_ORDER_REFERENCE_RX =
   /(?:بخصوص|بالنسبة\s*ل).*?(?:الاوردر|الأوردر|الطلب)|(?:الاوردر|الأوردر|الطلب).*?(?:اللي\s*فات|السابق|بتاعي|بتاعتي|القديم)|المندوب.*?(?:فين|وصل|الطريق)/i;
 const ORDER_DETAIL_CONTINUATION_RX =
   /العنوان|عنواني|اللوكيشن|الموقع|رقمي|رقم\s*(?:الموبايل|التليفون)|الموبايل|التليفون|الدور|الشقه|الشقة|العماره|العمارة/i;
+// Settlement after an already-committed order is fulfillment of that same commercial need, not a
+// new need. Keep this deliberately narrow: only an explicit staff payment/transfer handoff can
+// bridge a long gap; generic greetings, promotions or unrelated outreach never qualify.
+const PAYMENT_SETTLEMENT_CONTINUATION_RX =
+  /رقم\s*التحويل|(?:صوره|صورة)\s*التحويل|استاذن[^\n]{0,80}(?:صوره|صورة)[^\n]{0,40}التحويل|رابط\s*الدفع|لينك\s*الدفع/i;
 const ADDITIVE_REQUEST_RX =
   /(?:^|\s)(?:وكمان|كمان|وزود|زود|ضيف|معاهم|معاه|مع\s*الطلب)(?:\s|$)/i;
 const STAFF_PENDING_REPLY_RX =
@@ -205,12 +210,22 @@ function isSameOrderContinuation(
   );
 }
 
+function isPaymentSettlementContinuation(
+  current: NormalizedConversationMessageV32[],
+  next: NormalizedConversationMessageV32,
+  gapMs: number
+): boolean {
+  if (gapMs > PRIOR_ORDER_REFERENCE_MAX_GAP_MS || next.role !== 'staff' || !next.isMeaningful) return false;
+  return currentHasOrderCommitment(current) && PAYMENT_SETTLEMENT_CONTINUATION_RX.test(next.text);
+}
+
 function hasStrongSemanticContinuation(
   current: NormalizedConversationMessageV32[],
   next: NormalizedConversationMessageV32,
   gapMs: number
 ): boolean {
   if (!current.length || gapMs < 0) return false;
+  if (isPaymentSettlementContinuation(current, next, gapMs)) return true;
   if (
     next.role === 'staff' &&
     next.isMeaningful &&
