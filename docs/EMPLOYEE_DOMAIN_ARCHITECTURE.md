@@ -216,3 +216,33 @@ During migration CI should progressively enforce:
 8. Make payroll consume only settled projections.
 9. Capture live-only database functions in real migrations.
 10. Remove legacy name matching and direct table readers after backfill/parity verification.
+
+
+## 13. Evidence-to-money boundary
+
+Performance evidence and payroll money are deliberately separated by an approval/settlement boundary.
+
+Canonical direction:
+
+`Domain Evidence -> Evaluation Projection -> Approved Evaluation / Points Truth -> Settlement -> employee_transactions -> Payroll Incentive Truth -> Financial Composition -> Finalized Payroll Snapshot`
+
+Financial components are explicit and must never be reconstructed from UI totals:
+
+- base salary;
+- monthly performance incentive;
+- target achievement bonus (separate from performance);
+- product/list/stagnant incentive;
+- near-expiry incentive only after an explicit settlement policy exists; until then it is not applicable, never inferred;
+- approved overtime;
+- other approved earnings, adjustments and deductions.
+
+Rules:
+
+- Shadow/evaluation scores are not payable money.
+- Preview payroll is pending, not settled pay.
+- Only a frozen/finalized payroll snapshot is payable truth.
+- Missing/unavailable financial input blocks a payable total; it never becomes zero.
+- Pending money remains visible but excluded from payable total.
+- The automated incentive total already contains performance/target/threshold components; consumers must not add those components a second time.
+- Corrections use reversal/immutable-ledger semantics; historical finalized payroll is never silently rewritten.
+- Every payable component must expose a canonical source or settlement identity.
