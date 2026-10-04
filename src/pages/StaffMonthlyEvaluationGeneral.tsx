@@ -47,6 +47,7 @@ import { createStaffNotification } from '@/lib/staffNotificationService';
 import { Panel, MiniBox, EmptyState } from '@/components/dashboard/DashboardPrimitives';
 import MonthlyEvaluationWorkflowV5, { type MonthlyEvaluationStep } from '@/components/evaluations/MonthlyEvaluationWorkflowV5';
 import MonthlyEvaluationAuditTrailV5 from '@/components/evaluations/MonthlyEvaluationAuditTrailV5';
+import EvaluationDecisionHeaderV1 from '@/components/evaluations/EvaluationDecisionHeaderV1';
 
 type StaffRow = {
   id: string;
@@ -2012,6 +2013,23 @@ export default function StaffMonthlyEvaluation() {
                     </div>
                   </Panel>
                 )
+              ) : null}
+
+              {!employeeView && selected ? (
+                <EvaluationDecisionHeaderV1
+                  employeeName={selected.name}
+                  role={selected.job_title || selected.role || 'غير محدد'}
+                  branch={selected.branch || branch}
+                  cycle={cycleRange.displayLabel}
+                  score={evaluationComplete ? overallScore : null}
+                  completed={completedSections}
+                  total={sections.length}
+                  evidenceReady={evidenceReady}
+                  status={status}
+                  blockers={approvalBlockers}
+                  incentive={canonicalIncentive}
+                  settled={Boolean(settledStatement)}
+                />
               ) : null}
 
               {!employeeView ? (
