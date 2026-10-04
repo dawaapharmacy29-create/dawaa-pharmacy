@@ -5,6 +5,7 @@ on:
     paths:
       - 'scripts/temp_apply_financial_settlement_v15.py'
       - 'scripts/temp_fix_financial_settlement_test.py'
+      - 'scripts/temp_fix_financial_settlement_types.py'
       - '.github/workflows/temp-financial-settlement-v15.yml'
 
 permissions:
@@ -29,6 +30,9 @@ jobs:
 
       - name: Align regression fixture with real segmentation path
         run: python3 scripts/temp_fix_financial_settlement_test.py
+
+      - name: Align persistence evidence contract
+        run: python3 scripts/temp_fix_financial_settlement_types.py
 
       - name: Install dependencies
         run: npm ci --legacy-peer-deps --no-audit --no-fund
@@ -55,6 +59,7 @@ jobs:
         run: |
           rm -f scripts/temp_apply_financial_settlement_v15.py
           rm -f scripts/temp_fix_financial_settlement_test.py
+          rm -f scripts/temp_fix_financial_settlement_types.py
           rm -f .github/workflows/temp-financial-settlement-v15.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
