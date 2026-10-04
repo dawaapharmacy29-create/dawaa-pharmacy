@@ -461,8 +461,24 @@ function contextualCompactTotal(
   const prior = scopedMessages
     .slice(summaryIndex + 1, candidateIndex)
     .filter((m) => m.isMeaningful);
-  const lastCustomer = [...prior].reverse().find((m) => m.role === 'customer');
-  if (!lastCustomer || !TOTAL_QUESTION_RX.test(lastCustomer.text)) return null;
+  const totalQuestion = [...prior].reverse().find(
+    (m) => m.role === 'customer' && TOTAL_QUESTION_RX.test(m.text)
+  );
+  if (!totalQuestion) return null;
+
+  // Real chats often contain a short acknowledgement while the staff member calculates the total:
+  // customer asks "كدا هيبقا كام" -> staff says "حالا هبلغ حضرتك" -> customer says "تمام"
+  // -> staff answers "1579ج". Keep that chain intact, but fail closed if the customer introduces
+  // any new commercial content before the compact amount.
+  if (candidate.timestamp.getTime() - totalQuestion.timestamp.getTime() > 10 * 60_000) return null;
+  const totalQuestionIndex = scopedMessages.findIndex((m) => m.id === totalQuestion.id);
+  if (totalQuestionIndex < 0) return null;
+  const SAFE_WAITING_ACK_RX = /^(?:تمام|ماشي|حاضر|اوكي|أوكي|اوك|ok|شكرا|شكرًا|تسلم)(?:\s+يا\s+فندم)?[.!، ]*$/i;
+  const laterCustomerMessages = scopedMessages
+    .slice(totalQuestionIndex + 1, candidateIndex)
+    .filter((m) => m.isMeaningful && m.role === 'customer');
+  if (laterCustomerMessages.some((m) => !SAFE_WAITING_ACK_RX.test(m.text.trim()))) return null;
+
   return Number(amountMatch[1]);
 }
 

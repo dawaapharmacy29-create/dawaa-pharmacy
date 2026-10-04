@@ -1978,8 +1978,16 @@ function contextualCompactTotal(scopedMessages, summaryMessage, candidate) {
   const candidateIndex = scopedMessages.findIndex((m) => m.id === candidate.id);
   if (summaryIndex < 0 || candidateIndex <= summaryIndex) return null;
   const prior = scopedMessages.slice(summaryIndex + 1, candidateIndex).filter((m) => m.isMeaningful);
-  const lastCustomer = [...prior].reverse().find((m) => m.role === "customer");
-  if (!lastCustomer || !TOTAL_QUESTION_RX2.test(lastCustomer.text)) return null;
+  const totalQuestion = [...prior].reverse().find(
+    (m) => m.role === "customer" && TOTAL_QUESTION_RX2.test(m.text)
+  );
+  if (!totalQuestion) return null;
+  if (candidate.timestamp.getTime() - totalQuestion.timestamp.getTime() > 10 * 6e4) return null;
+  const totalQuestionIndex = scopedMessages.findIndex((m) => m.id === totalQuestion.id);
+  if (totalQuestionIndex < 0) return null;
+  const SAFE_WAITING_ACK_RX = /^(?:تمام|ماشي|حاضر|اوكي|أوكي|اوك|ok|شكرا|شكرًا|تسلم)(?:\s+يا\s+فندم)?[.!، ]*$/i;
+  const laterCustomerMessages = scopedMessages.slice(totalQuestionIndex + 1, candidateIndex).filter((m) => m.isMeaningful && m.role === "customer");
+  if (laterCustomerMessages.some((m) => !SAFE_WAITING_ACK_RX.test(m.text.trim()))) return null;
   return Number(amountMatch[1]);
 }
 function extractAnnouncedTotal(scopedMessages, summaryMessage, version) {
@@ -7701,11 +7709,11 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v16";
+var PIPELINE_VERSION = "sales-intelligence-v17";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v10-payment-continuation-ambiguity-safe",
   historicalClosure: "historical-closure-v1",
-  commercialConfirmation: "commercial-confirmation-v5-natural-recap-compact-total-safe-deictic",
+  commercialConfirmation: "commercial-confirmation-v6-compact-total-interstitial-ack-safe",
   protocolApplicability: "protocol-applicability-v1",
   attribution: "attribution-v7-auto-code-name-time-items",
   matching: "matching-v2-line-item-evidence",

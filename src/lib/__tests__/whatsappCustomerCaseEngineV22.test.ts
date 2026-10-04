@@ -179,6 +179,7 @@ describe('Sales Intelligence real closing regressions', () => {
 [9/26/26, 9:50:12 PM] Customer: ايوا
 [9/26/26, 9:50:25 PM] Customer: كدا هيبقا كام
 [9/26/26, 9:50:44 PM] You: حالا هبلغ حضرتك
+[9/26/26, 9:50:51 PM] Customer: تمام
 [9/26/26, 9:56:48 PM] You: 1579ج ان شاء الله
 [9/26/26, 9:58:03 PM] Customer: تمام
 [9/26/26, 10:01:12 PM] You: جاري الارسال`);
@@ -188,6 +189,18 @@ describe('Sales Intelligence real closing regressions', () => {
     expect(result.customerConfirmationEvents).toHaveLength(1);
     expect(result.staffFinalConfirmationEvents).toHaveLength(1);
     expect(result.assessment.currentState).toBe('commercial_confirmation_complete');
+  });
+
+  it('does not treat a later compact amount as the old basket total after a new customer request', () => {
+    const result = assessFirstSalesCase(`[9/26/26, 9:50:02 PM] You: يعني كدا 4 علب لبن مع 2 نوع شراب اللي الدكتور بيقولهم في الريكورد
+[9/26/26, 9:50:08 PM] You: مظبوط كدا ان شاء الله؟
+[9/26/26, 9:50:12 PM] Customer: ايوا
+[9/26/26, 9:50:25 PM] Customer: كدا هيبقا كام
+[9/26/26, 9:50:44 PM] You: حالا هبلغ حضرتك
+[9/26/26, 9:50:51 PM] Customer: عايز كمان شريط فيتامين
+[9/26/26, 9:56:48 PM] You: 1579ج ان شاء الله`);
+
+    expect(result.baskets.at(-1)?.announcedTotal).toBeNull();
   });
 
   it('does not manufacture a product identity from an unresolved media deictic such as العلبه دي', () => {
