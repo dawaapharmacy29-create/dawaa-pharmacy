@@ -2,6 +2,8 @@ const fs=require('fs');
 const failures=[];
 const read=p=>fs.existsSync(p)?fs.readFileSync(p,'utf8'):(failures.push('missing '+p),'');
 const evalPage=read('src/pages/StaffMonthlyEvaluationGeneral.tsx');
+const decisionHeader=read('src/components/evaluations/EvaluationDecisionHeaderV1.tsx');
+const workflow=read('src/components/evaluations/MonthlyEvaluationWorkflowV5.tsx');
 const report=read('src/lib/reports/monthlyPerformance360Service.ts');
 const financial=read('src/lib/payroll/employeeFinancialProjection.ts');
 const composition=read('src/lib/payroll/payrollFinancialCompositionService.ts');
@@ -11,6 +13,10 @@ const evidenceReader=read('src/lib/performance/performanceTaskEvidenceService.ts
 const required=[
  [evalPage,"get_staff_monthly_evaluation_v5",'final evaluation must use V5'],
  [evalPage,'final_approval_snapshot','published evaluation must use final snapshot'],
+ [evalPage,'EvaluationDecisionHeaderV1','manager decision header must be wired'],
+ [evalPage,'blockers={approvalBlockers}','workflow must receive canonical approval blockers'],
+ [decisionHeader,'أسباب منع الاعتماد','decision header must expose approval blockers'],
+ [workflow,'المطلوب قبل الاعتماد','workflow must surface blockers'],
  [report,"get_staff_monthly_evaluation_v5",'360 must not read legacy evaluation API'],
  [report,'availableWeight === 100','360 partial data must fail closed'],
  [financial,"duplicate component",'financial duplicate guard missing'],
