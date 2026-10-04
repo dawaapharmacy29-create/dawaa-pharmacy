@@ -771,10 +771,37 @@ export default function StaffMonthlyEvaluation() {
       setEvaluationLoadError('');
       setEmployeeHeader(null);
       setEmployeeHeaderLoading(true);
+      setPointsTruth(null);
+      setSettledStatement(null);
+      setMetrics(EMPTY_METRICS);
+      setEvidenceReady(false);
+      setEvidenceHealth({ reviews: 'unavailable', followups: 'unavailable', attendance: 'unavailable' });
+      setEvidenceErrors({});
+      setCoaching(null);
+      setSections(evaluationProfileForRole(selected.job_title || selected.role).sections);
+      setEvaluationId(null);
+      setPublishedSnapshot(null);
+      setPublishedSnapshotHash('');
+      setStrengthsText('');
+      setDevelopmentText('');
+      setManagerNotes('');
+      setStatus('draft');
+      setSentAtIso('');
+      setPreviouslySent(false);
+      setActiveGates([]);
       try {
         const { startDate, endDate, endDateExclusive } = evaluationCycleDateKeys(cycleLabel);
         const cycleKeyDate = `${cycleLabel}-01`;
-        const [savedResult, evidenceResult, pointsResult, statementResult] = await Promise.all([
+        const pointsPromise = getStaffPointsDashboardV3(selectedId, cycleLabel).catch(() => null);
+        const statementPromise = supabase
+          .from('employee_monthly_statements')
+          .select('points_closing,incentive_amount')
+          .eq('staff_id', selectedId)
+          .eq('cycle_start', startDate)
+          .eq('cycle_end', endDate)
+          .maybeSingle();
+
+        const [savedResult, evidenceResult] = await Promise.all([
           supabase.rpc('get_staff_monthly_evaluation_v5', {
             p_actor_id: user.id,
             p_staff_id: selectedId,
@@ -787,25 +814,17 @@ export default function StaffMonthlyEvaluation() {
             role: selected.job_title || selected.role,
             branch: selected.branch || branch,
           }),
-          getStaffPointsDashboardV3(selectedId, cycleLabel).catch(() => null),
-          // Historical closed statements remain the frozen source if one exists.
-          supabase
-            .from('employee_monthly_statements')
-            .select('points_closing,incentive_amount')
-            .eq('staff_id', selectedId)
-            .eq('cycle_start', startDate)
-            .eq('cycle_end', endDate)
-            .maybeSingle(),
         ]);
 
         if (savedResult.error) throw savedResult.error;
-
         if (evaluationRequestRef.current !== requestId) return;
+
         setMetrics(evidenceResult.metrics);
         setEvidenceReady(evidenceResult.ready);
         setEvidenceHealth(evidenceResult.health);
         setEvidenceErrors(evidenceResult.errors);
         setCoaching(evidenceResult.coaching);
+
         const headerRequestId = ++employeeHeaderRequestRef.current;
         void loadEmployeeEvaluationHeader({
           staffId: selectedId,
@@ -822,8 +841,13 @@ export default function StaffMonthlyEvaluation() {
         }).finally(() => {
           if (employeeHeaderRequestRef.current === headerRequestId) setEmployeeHeaderLoading(false);
         });
-        setPointsTruth(pointsResult);
-        setSettledStatement(statementResult.data || null);
+
+        void pointsPromise.then((pointsResult) => {
+          if (evaluationRequestRef.current === requestId) setPointsTruth(pointsResult);
+        });
+        void statementPromise.then((statementResult) => {
+          if (evaluationRequestRef.current === requestId) setSettledStatement(statementResult.data || null);
+        });
 
         const saved = savedResult.data as EvaluationRow | null;
         const freshSections = evaluationProfileForRole(selected.job_title || selected.role).sections;
