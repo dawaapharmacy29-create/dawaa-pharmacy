@@ -4,6 +4,7 @@ import type { CanonicalStaffRole } from '@/lib/staff/staffRoleCapabilities';
 import type { TaskEvidenceSourceType } from '@/lib/tasks/taskEvidence';
 import type { TaskEvidenceSourceBatch } from '@/lib/tasks/taskCompletionProjection';
 import { customerFollowupToTaskEvidence, managerChecklistToTaskEvidence } from '@/lib/tasks/taskEvidenceAdapters';
+import { customerRequestToTaskEvidence } from '@/lib/tasks/customerRequestEvidenceAdapter';
 import { taskEvidenceSourcesForRole } from './performanceEvidenceApplicability';
 import { buildPerformanceTaskEvidenceReadModel } from './performanceTaskEvidenceReadModel';
 
@@ -31,6 +32,14 @@ export async function readPerformanceTaskEvidence(input:Input){
     if(error)throw error;
     const evidence=(data||[]).map(row=>customerFollowupToTaskEvidence(row,observedAt)).filter(Boolean);
     batches.push({sourceType,availability:'available',evidence:evidence as any[],observedAt});
+    continue;
+   }
+   if(sourceType==='customer_request'){
+    const {data,error}=await supabase.from(TABLES.customerRequests).select('id,branch,status,request_type,doctor_id,primary_responsible_id,source_assigned_staff_id,source_recorded_staff_id,requested_at,created_at,updated_at,due_date,next_action_at,last_action_at,closed_at')
+      .eq('branch',input.branch).gte('created_at',input.start).lte('created_at',dateEnd(input.end));
+    if(error)throw error;
+    const evidence=(data||[]).map(row=>customerRequestToTaskEvidence(row,observedAt)).filter((row):row is NonNullable<typeof row>=>Boolean(row)).filter(row=>row.subjectStaffId===input.staffId);
+    batches.push({sourceType,availability:'available',evidence,observedAt});
     continue;
    }
    if(sourceType==='manager_checklist'){
