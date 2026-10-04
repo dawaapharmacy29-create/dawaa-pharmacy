@@ -1215,6 +1215,11 @@ export default function StaffMonthlyEvaluation() {
 
     return matchesSearch && matchesRoleGroup && matchesStatus && matchesReceipt;
   });
+  const roleGroupCounts = {
+    doctor: staff.filter((item) => evaluationRoleGroup(item.job_title || item.role) === 'doctor').length,
+    assistant: staff.filter((item) => evaluationRoleGroup(item.job_title || item.role) === 'assistant').length,
+    delivery: staff.filter((item) => evaluationRoleGroup(item.job_title || item.role) === 'delivery').length,
+  };
   const completedSections = sections.filter((item) => item.score > 0).length;
   const weakSectionsMissingNotes = sections.filter((item) => item.score > 0 && item.score <= 2 && !item.notes.trim());
   const criticalGateMissingReason = activeGates.length > 0 && !managerNotes.trim();
