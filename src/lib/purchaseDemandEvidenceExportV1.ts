@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { getStaffSessionToken } from '@/lib/auth/staffSession';
 import {
   buildPurchaseDemandEvidence,
   type PurchaseDemandEvidence,
@@ -56,9 +57,11 @@ export async function buildPurchaseDemandEvidenceExport(
 
   // Prove continuous day-level coverage inside Postgres. Only aggregate counts
   // cross the Data API; raw invoice headers stay in the database.
+  const sessionToken = getStaffSessionToken();
+  if (!sessionToken) throw new Error('جلسة الموظف غير صالحة. سجل الدخول مرة أخرى.');
   const { data: completenessRows, error: completenessError } = await supabase.rpc(
-    'sales_invoice_items_completeness_v1',
-    { p_start_at: requestedStart.toISOString(), p_end_at: sourceMax.toISOString() },
+    'sales_invoice_items_completeness_staff_v1',
+    { p_session_token: sessionToken, p_start_at: requestedStart.toISOString(), p_end_at: sourceMax.toISOString() },
   );
   if (completenessError) throw completenessError;
   const incompleteDays = (completenessRows ?? [])
