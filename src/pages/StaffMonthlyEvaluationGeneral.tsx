@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   CheckCircle2, ChevronDown, Clock3, FileDown, Loader2, Save, Search, Send, Star, UserCheck,
 } from 'lucide-react';
@@ -51,7 +51,7 @@ import EvaluationDecisionHeaderV1 from '@/components/evaluations/EvaluationDecis
 import EvaluationAxisCardV1 from '@/components/evaluations/EvaluationAxisCardV1';
 import FinalEvaluationReviewV1 from '@/components/evaluations/FinalEvaluationReviewV1';
 import EmployeeEvaluationHeaderV1 from '@/components/evaluations/EmployeeEvaluationHeaderV1';
-import { loadEmployeeEvaluationHeader, type EvaluationHeaderSummary } from '@/lib/evaluations/employeeEvaluationHeaderService';
+import { evaluationRoleGroup, loadEmployeeEvaluationHeader, type EvaluationHeaderSummary, type EvaluationRoleGroup } from '@/lib/evaluations/employeeEvaluationHeaderService';
 
 type StaffRow = {
   id: string;
@@ -594,6 +594,7 @@ export default function StaffMonthlyEvaluation() {
   const [staff, setStaff] = useState<StaffRow[]>([]);
   const [selectedId, setSelectedId] = useState('');
   const [search, setSearch] = useState('');
+  const [roleGroupFilter, setRoleGroupFilter] = useState<'all' | EvaluationRoleGroup>('all');
   const [staffStatusFilter, setStaffStatusFilter] = useState<'all' | 'not_started' | 'draft' | 'approved' | 'needs_reapproval'>('all');
   const [receiptFilter, setReceiptFilter] = useState<'all' | 'not_seen' | 'seen' | 'commented'>('all');
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -611,6 +612,7 @@ export default function StaffMonthlyEvaluation() {
   const [coaching, setCoaching] = useState<EmployeeMonthlyEvidence['coaching'] | null>(null);
   const [employeeHeader, setEmployeeHeader] = useState<EvaluationHeaderSummary | null>(null);
   const [employeeHeaderLoading, setEmployeeHeaderLoading] = useState(false);
+  const employeeHeaderRequestRef = useRef(0);
   const [pointsTruth, setPointsTruth] = useState<StaffPointsDashboardV3 | null>(null);
   const [settledStatement, setSettledStatement] = useState<{ points_closing: number; incentive_amount: number } | null>(null);
   const [activeGates, setActiveGates] = useState<CriticalGateType[]>([]);
@@ -1190,6 +1192,7 @@ export default function StaffMonthlyEvaluation() {
 
   const filteredStaff = staff.filter((item) => {
     const matchesSearch = item.name.includes(search);
+    const matchesRoleGroup = roleGroupFilter === 'all' || evaluationRoleGroup(item.job_title || item.role) === roleGroupFilter;
     const matchesStatus = staffStatusFilter === 'all'
       || (staffStatusFilter === 'not_started' && (!item.evaluation_status || item.evaluation_status === 'not_started'))
       || (staffStatusFilter === 'draft' && item.evaluation_status === 'draft')
@@ -1202,7 +1205,7 @@ export default function StaffMonthlyEvaluation() {
       || (receiptFilter === 'seen' && published && Boolean(item.evaluation_acknowledged_at) && !item.evaluation_commented_at)
       || (receiptFilter === 'commented' && published && Boolean(item.evaluation_commented_at));
 
-    return matchesSearch && matchesStatus && matchesReceipt;
+    return matchesSearch && matchesRoleGroup && matchesStatus && matchesReceipt;
   });
   const completedSections = sections.filter((item) => item.score > 0).length;
   const weakSectionsMissingNotes = sections.filter((item) => item.score > 0 && item.score <= 2 && !item.notes.trim());
