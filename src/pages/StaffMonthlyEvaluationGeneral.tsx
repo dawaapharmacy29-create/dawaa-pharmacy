@@ -239,8 +239,8 @@ function sectionEvidenceFor(
         ...(attendance?.cases?.length
           ? ['تفاصيل الحالات:', ...attendance.cases.map((item) => attendanceCaseLine(item))]
           : []),
-        'المصدر: مصدر الحضور اليومي للبصمات + سجل تصنيف الحضور (Attendance Resolution / Impact Ledger).',
-        'تغطية هذا الدليل جزئية: الزي والتعليمات وتسليم الشيفت والسلوك المهني تحتاج واقعة أو ملاحظة موثقة إذا أثرت على الدرجة.',
+        'مصدر الدليل: البصمات اليومية + سجل قرارات الحضور المعتمدة.',
+        'حدود الدليل: الزي والتعليمات وتسليم الشيفت والسلوك المهني لا تُفترض من البصمة؛ تحتاج واقعة موثقة منفصلة إذا أثرت على الدرجة.',
       ].filter(Boolean),
     };
   }
@@ -274,8 +274,10 @@ function sectionEvidenceFor(
         conversation?.weaknesses.length
           ? `أضعف أبعاد خدمة العميل: ${conversation.weaknesses.map((item) => `${item.label} ${item.average}/10`).join('، ')}`
           : '',
-        'المتابعة هنا تعني متابعة العميل داخل سياق المحادثة؛ تنفيذ المتابعات المسجلة له محور مستقل.',
-        'أبعاد الجرعة والاستشارة والبدائل والبيع مستبعدة من متوسط هذا المحور لأنها مملوكة لمحوري الصرف والبيع.',
+        conversation?.flags.complaints ? `شكاوى موثقة داخل العينة: ${conversation.flags.complaints}` : '',
+        conversation?.flags.badTone ? `ملاحظات نبرة/أسلوب: ${conversation.flags.badTone}` : '',
+        conversation?.flags.excellentCases ? `حالات ممتازة موثقة: ${conversation.flags.excellentCases}` : '',
+        'حدود الدليل: المتابعة المسجلة لها محور مستقل، والجرعة والاستشارة والبدائل والبيع لا تدخل في متوسط خدمة العميل هنا.',
       ].filter(Boolean),
     };
   }
@@ -348,7 +350,9 @@ function sectionEvidenceFor(
         followups?.needsNextFollowup
           ? `تحتاج متابعة لاحقة: ${followups.needsNextFollowup} حالة · موعد تالٍ مسجل ${followups.nextFollowupScheduled} · بدون موعد ${followups.missingNextFollowupSchedule}`
           : '',
-        'هذا المحور يعتمد على المتابعات/الطلبات المسجلة فعليًا، وليس درجة follow_up داخل تقييم المحادثة.',
+        followups?.total ? `نسبة الإكمال: ${followups.completionPct}% · نسبة التوثيق: ${followups.documentedPct}%` : '',
+        'مصدر الدليل: سجلات المتابعة/الطلبات المنسوبة للموظف داخل نفس الدورة.',
+        'حدود الدليل: درجة follow-up داخل تقييم المحادثة لا تُحسب بدل تنفيذ المتابعة الفعلي.',
       ].filter(Boolean),
     };
   }
