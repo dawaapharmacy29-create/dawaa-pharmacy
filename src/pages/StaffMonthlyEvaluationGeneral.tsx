@@ -48,6 +48,7 @@ import { Panel, MiniBox, EmptyState } from '@/components/dashboard/DashboardPrim
 import MonthlyEvaluationWorkflowV5, { type MonthlyEvaluationStep } from '@/components/evaluations/MonthlyEvaluationWorkflowV5';
 import MonthlyEvaluationAuditTrailV5 from '@/components/evaluations/MonthlyEvaluationAuditTrailV5';
 import EvaluationDecisionHeaderV1 from '@/components/evaluations/EvaluationDecisionHeaderV1';
+import EvaluationAxisCardV1 from '@/components/evaluations/EvaluationAxisCardV1';
 
 type StaffRow = {
   id: string;
@@ -2255,120 +2256,24 @@ export default function StaffMonthlyEvaluation() {
               {!employeeView && activeStep === 2 ? (
                 <section className="space-y-2">
                   {sections.map((item) => {
-                    const earned = sectionPoints(item);
-                    const selectedRubric = item.score > 0 && item.rubric ? item.rubric[item.score - 1] : null;
-                    const weakNeedsNote = item.score > 0 && item.score <= 2 && !item.notes.trim();
                     const sectionEvidence = sectionEvidenceFor(item.key, metrics, evidenceHealth, pointsTruth, coaching);
                     const conversationEvidence = isConversationSectionKey(item.key) ? coaching?.conversation : null;
-
                     return (
-                      <Panel id={`evaluation-section-${item.key}`} key={item.key} className="p-3">
-                        <div className="flex flex-wrap items-start gap-3">
-                          <div className="min-w-0 flex-1">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <h3 className="text-sm font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>{item.title}</h3>
-                              <span className="text-[10px] font-black" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>{item.weight} نقطة</span>
-                            </div>
-                            <p className="mt-1 text-[11px] leading-5" style={{ color: 'var(--dawaa-theme-muted)' }}>{item.description}</p>
-                            <details
-                              className="mt-2 rounded-lg border px-2.5 py-2"
-                              style={{
-                                borderColor: sectionEvidence.status === 'unavailable'
-                                  ? 'var(--dawaa-status-danger-border)'
-                                  : 'var(--dawaa-theme-border)',
-                                background: sectionEvidence.status === 'unavailable'
-                                  ? 'var(--dawaa-status-danger-bg)'
-                                  : 'var(--dawaa-theme-soft)',
-                              }}
-                            >
-                              <summary
-                                className="cursor-pointer text-[11px] font-black"
-                                style={{ color: sectionEvidence.status === 'unavailable' ? 'var(--dawaa-status-danger-text)' : 'var(--dawaa-theme-text)' }}
-                              >
-                                الدليل المتاح: {sectionEvidence.summary}
-                                <span className="ms-1" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>· عرض الدليل</span>
-                              </summary>
-                              <div className="mt-2 space-y-1 text-[11px] font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
-                                {sectionEvidence.details.map((detail) => <div key={detail}>• {detail}</div>)}
-                                <div>• الدليل الآلي مساعد للقرار وليس درجة تلقائية.</div>
-                                {conversationEvidence?.examples.length ? (
-                                  <div className="mt-2 border-t pt-2" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
-                                    <div className="mb-1 font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>أمثلة موثقة تحتاج مراجعة</div>
-                                    <div className="space-y-1.5">
-                                      {conversationEvidence.examples.map((example) => (
-                                        <a
-                                          key={example.id}
-                                          href={`/reviews?section=history&id=${encodeURIComponent(example.id)}`}
-                                          target="_blank"
-                                          rel="noreferrer"
-                                          className="block rounded-md border px-2 py-1.5 transition hover:opacity-90"
-                                          style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-theme-text)' }}
-                                        >
-                                          <span className="font-black">{example.date || 'بدون تاريخ'} · {example.score}/100</span>
-                                          {example.negativeReason ? <span> · {example.negativeReason}</span> : null}
-                                          <span className="ms-1" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>فتح التقييم ↗</span>
-                                        </a>
-                                      ))}
-                                    </div>
-                                  </div>
-                                ) : null}
-                              </div>
-                            </details>
-                          </div>
-
-                          <div className="shrink-0">
-                            <div className="flex gap-0.5">
-                              {[1, 2, 3, 4, 5].map((score) => (
-                                <button
-                                  type="button"
-                                  aria-label={`اختيار ${score} نجوم`}
-                                  disabled={!canEdit}
-                                  key={score}
-                                  onClick={() => updateSection(item.key, { score })}
-                                  className="rounded-md p-0.5 transition disabled:cursor-default"
-                                >
-                                  <Star
-                                    className={score <= item.score ? 'fill-current' : ''}
-                                    style={{ color: score <= item.score ? 'var(--dawaa-status-warning-text)' : 'var(--dawaa-theme-border)' }}
-                                    size={22}
-                                  />
-                                </button>
-                              ))}
-                            </div>
-                            <div className="mt-1 text-left text-[10px] font-black" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>
-                              {item.score ? `${earned}/${item.weight}` : 'بدون تقييم'}
-                            </div>
-                          </div>
-                        </div>
-
-                        {item.score ? (
-                          <div
-                            className="mt-2 rounded-lg border px-2.5 py-2 text-xs font-bold"
-                            style={{
-                              borderColor: weakNeedsNote ? 'var(--dawaa-status-danger-border)' : 'var(--dawaa-theme-border)',
-                              background: weakNeedsNote ? 'var(--dawaa-status-danger-bg)' : 'var(--dawaa-theme-soft)',
-                              color: weakNeedsNote ? 'var(--dawaa-status-danger-text)' : 'var(--dawaa-theme-text)',
-                            }}
-                          >
-                            <span className="font-black">{item.score}/5 — {starMeaning(item.score)}</span>
-                            {selectedRubric ? <span> · {selectedRubric}</span> : null}
-                          </div>
-                        ) : null}
-
-                        <textarea
-                          disabled={!canEdit}
-                          value={item.notes}
-                          onChange={(event) => updateSection(item.key, { notes: event.target.value })}
-                          rows={1}
-                          placeholder={item.score > 0 && item.score <= 2 ? 'مطلوب سبب واضح للدرجة الضعيفة' : 'ملاحظة اختيارية'}
-                          className="mt-2 w-full rounded-lg border px-2.5 py-2 text-xs disabled:opacity-70"
-                          style={{
-                            borderColor: weakNeedsNote ? 'var(--dawaa-status-danger-border)' : 'var(--dawaa-theme-border)',
-                            background: weakNeedsNote ? 'var(--dawaa-status-danger-bg)' : 'var(--dawaa-theme-surface)',
-                            color: 'var(--dawaa-theme-text)',
-                          }}
-                        />
-                      </Panel>
+                      <EvaluationAxisCardV1
+                        key={item.key}
+                        axisKey={item.key}
+                        title={item.title}
+                        description={item.description}
+                        weight={item.weight}
+                        score={item.score}
+                        earned={sectionPoints(item)}
+                        rubricText={item.score > 0 && item.rubric ? item.rubric[item.score - 1] : null}
+                        evidence={{ ...sectionEvidence, examples: conversationEvidence?.examples }}
+                        note={item.notes}
+                        canEdit={canEdit}
+                        onScore={(score) => updateSection(item.key, { score })}
+                        onNote={(notes) => updateSection(item.key, { notes })}
+                      />
                     );
                   })}
                 </section>
