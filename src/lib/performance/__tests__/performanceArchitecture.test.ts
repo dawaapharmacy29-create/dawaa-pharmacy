@@ -10,7 +10,7 @@ describe('performance shadow architecture contracts', () => {
     expect(evaluationProfileForRole('pharmacist').role).toBe('doctor');
     expect(evaluationProfileForRole('مندوب توصيل').role).toBe('delivery');
     expect(evaluationProfileForRole('مساعد مخزون').role).toBe('inventory_assistant');
-    expect(canonicalStaffRole('مدير فرع')).toBe('branch_manager');
+    expect(canonicalStaffRole('branch_manager_shamy')).toBe('branch_manager');
   });
   it('does not silently route an unknown role into doctor or delivery', () => {
     expect(canonicalStaffRole('دور غير معروف')).toBe('other');
