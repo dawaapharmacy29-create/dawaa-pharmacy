@@ -28,11 +28,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Apply V18 evidence-quality repair
-        env:
-          PATCH_B64: "PLACEHOLDER"
-        run: |
-          echo "$PATCH_B64" | base64 -d > /tmp/apply_v18.py
-          python /tmp/apply_v18.py
+        run: python .github/tmp_apply_v18.py
       - name: Focused V18 regression
         run: npx vitest run src/lib/__tests__/salesIntelligenceEvidenceAvailability.test.ts
       - name: Full repository tests
@@ -52,7 +48,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm -f .github/workflows/temp-si-v18-evidence-quality.yml
+          git rm -f .github/workflows/temp-si-v18-evidence-quality.yml .github/tmp_apply_v18.py
           git add -A
           git commit -m "fix: treat unresolved media identity as unavailable evidence"
           git push origin HEAD:fix/si-quality-closing-continuation-20261004
