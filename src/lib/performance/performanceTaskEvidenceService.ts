@@ -7,13 +7,13 @@ import { customerFollowupToTaskEvidence, managerChecklistToTaskEvidence } from '
 import { customerRequestToTaskEvidence } from '@/lib/tasks/customerRequestEvidenceAdapter';
 import { taskEvidenceSourcesForRole } from './performanceEvidenceApplicability';
 import { buildPerformanceTaskEvidenceReadModel } from './performanceTaskEvidenceReadModel';
+import { cairoDateBoundaryIso } from '@/lib/time/cairoDateBoundary';
 
 type Input={staffId:string;branch:string;role:CanonicalStaffRole;start:string;end:string;observedAt?:string};
 
 function unavailable(sourceType:TaskEvidenceSourceType,reason:string,observedAt:string):TaskEvidenceSourceBatch{
  return {sourceType,availability:'unavailable',evidence:[],reason,observedAt};
 }
-function dateEnd(end:string){return end.length===10?`${end}T23:59:59+03:00`:end;}
 
 /**
  * Canonical production reader for performance task evidence.
@@ -28,7 +28,7 @@ export async function readPerformanceTaskEvidence(input:Input){
   try{
    if(sourceType==='customer_followup'){
     const {data,error}=await supabase.from(TABLES.dailyFollowups).select('*')
-      .eq('branch',input.branch).gte('followup_datetime',input.start).lte('followup_datetime',dateEnd(input.end));
+      .eq('branch',input.branch).gte('followup_datetime',cairoDateBoundaryIso(input.start)).lte('followup_datetime',cairoDateBoundaryIso(input.end,true));
     if(error)throw error;
     const evidence=(data||[]).map(row=>customerFollowupToTaskEvidence(row,observedAt)).filter(Boolean);
     batches.push({sourceType,availability:'available',evidence:evidence as any[],observedAt});
@@ -36,7 +36,7 @@ export async function readPerformanceTaskEvidence(input:Input){
    }
    if(sourceType==='customer_request'){
     const {data,error}=await supabase.from(TABLES.customerRequests).select('id,branch,status,request_type,doctor_id,primary_responsible_id,source_assigned_staff_id,source_recorded_staff_id,requested_at,created_at,updated_at,due_date,next_action_at,last_action_at,closed_at')
-      .eq('branch',input.branch).gte('created_at',input.start).lte('created_at',dateEnd(input.end));
+      .eq('branch',input.branch).gte('requested_at',cairoDateBoundaryIso(input.start)).lte('requested_at',cairoDateBoundaryIso(input.end,true));
     if(error)throw error;
     const evidence=(data||[]).map(row=>customerRequestToTaskEvidence(row,observedAt)).filter((row):row is NonNullable<typeof row>=>Boolean(row)).filter(row=>row.subjectStaffId===input.staffId);
     batches.push({sourceType,availability:'available',evidence,observedAt});
