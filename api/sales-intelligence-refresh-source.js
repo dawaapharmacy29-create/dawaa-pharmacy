@@ -2635,7 +2635,10 @@ function classifyStaff(ctx, row) {
 }
 function classifyProductEvidence(ctx, row, provider) {
   const items = provider.getItemsForInvoice(getInvoiceRowId(row), getInvoiceRowNumber(row));
-  if (items === "unavailable" || ctx.activeBasketItems.length === 0) {
+  const resolvableBasketItems = ctx.activeBasketItems.filter(
+    (item) => !item.resolutionStatus || item.resolutionStatus === "proven" || item.resolutionStatus === "partially_proven"
+  );
+  if (items === "unavailable" || resolvableBasketItems.length === 0) {
     return { productMatch: "unavailable", quantityMatch: "unavailable" };
   }
   const sellableItems = items.filter(
@@ -2647,7 +2650,7 @@ function classifyProductEvidence(ctx, row, provider) {
   const invoiceByName = new Map(
     sellableItems.map((i) => [normalizeProductNameForMatch(i.productNameRaw), i])
   );
-  const matchedPairs = ctx.activeBasketItems.map((basketItem) => {
+  const matchedPairs = resolvableBasketItems.map((basketItem) => {
     const canonical = basketItem.productId ? invoiceByProductId.get(String(basketItem.productId)) : null;
     const byName = canonical ?? invoiceByName.get(normalizeProductNameForMatch(basketItem.productNameRaw));
     return byName ? { basketItem, invoiceItem: byName } : null;
@@ -3196,21 +3199,8 @@ function classifyItemsAndQuantities(basketItems, invoiceId2, invoiceNumber2, pro
   basketItems.forEach((item) => {
     const nameKey = normalizeProductNameForMatch(item.productNameRaw);
     if (item.resolutionStatus === "unknown") {
-      const candidates = invoiceGroupsByName.get(nameKey) ?? [];
-      if (candidates.length === 0) {
-        differences.push({
-          type: "missing_item",
-          key: item.productNameRaw,
-          before: item.quantity,
-          after: null,
-          explanation: "none",
-          evidence: [amountRef(`\u0635\u0646\u0641 \u0628\u0647\u0648\u064A\u0629 \u063A\u064A\u0631 \u0645\u062D\u0644\u0648\u0644\u0629 \u0645\u0646 \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629 ("${item.productNameRaw}") \u0644\u0627 \u064A\u0642\u0627\u0628\u0644\u0647 \u0623\u064A \u0628\u0646\u062F \u0641\u064A \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629.`)],
-          confidence: assessment3("weakly_inferred", 0.4, ["matching.item.missing.unresolved_identity"], [])
-        });
-      } else {
-        unresolvedCount += 1;
-        humanReviewReasons.push("unresolved_product_identity");
-      }
+      unresolvedCount += 1;
+      humanReviewReasons.push("unresolved_product_identity");
       return;
     }
     const canonicalCandidates = item.productId ? invoiceGroupsByProductId.get(String(item.productId)) ?? [] : [];
@@ -3244,7 +3234,7 @@ function classifyItemsAndQuantities(basketItems, invoiceId2, invoiceNumber2, pro
       });
     }
   });
-  sellableInvoiceItems.forEach((invoiceItem) => {
+  if (unresolvedCount === 0) sellableInvoiceItems.forEach((invoiceItem) => {
     const key = normalizeProductNameForMatch(invoiceItem.productNameRaw);
     if (!claimedInvoiceKeys.has(key) && (invoiceGroupsByName.get(key) ?? []).length === 1) {
       const alreadyReported = differences.some((d) => d.type === "extra_item" && d.key === invoiceItem.productNameRaw);
@@ -3265,6 +3255,7 @@ function classifyItemsAndQuantities(basketItems, invoiceId2, invoiceNumber2, pro
   const extraCount = differences.filter((d) => d.type === "extra_item").length;
   let itemMatch;
   if (missingCount === 0 && extraCount === 0 && ambiguousCount === 0 && unresolvedCount === 0) itemMatch = "exact";
+  else if (unresolvedCount > 0 && missingCount === 0 && extraCount === 0 && ambiguousCount === 0 && matchedPairs.length === 0) itemMatch = "insufficient_data";
   else if (matchedPairs.length === 0) itemMatch = "mismatch";
   else itemMatch = "partial";
   let quantityMatch;
@@ -6425,7 +6416,8 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
     activeBasketItems: activeItems.map((item) => ({
       productNameRaw: item.productNameRaw,
       productId: item.productId,
-      quantity: item.quantity
+      quantity: item.quantity,
+      resolutionStatus: item.resolutionStatus
     })),
     knownStaffIds: input.knownStaffIds ?? [],
     legacyMatchedInvoiceId: input.legacyMatchedInvoiceId ?? null,
@@ -7709,14 +7701,14 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v17";
+var PIPELINE_VERSION = "sales-intelligence-v18";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v10-payment-continuation-ambiguity-safe",
   historicalClosure: "historical-closure-v1",
   commercialConfirmation: "commercial-confirmation-v6-compact-total-interstitial-ack-safe",
   protocolApplicability: "protocol-applicability-v1",
-  attribution: "attribution-v7-auto-code-name-time-items",
-  matching: "matching-v2-line-item-evidence",
+  attribution: "attribution-v8-unresolved-product-evidence-safe",
+  matching: "matching-v3-unresolved-product-evidence-safe",
   policyEvaluation: "policy-evaluation-v1"
 };
 var BRANCH_IDENTITY_MAPPING_VERSION = "branch-identity-mapping-v2";
@@ -8529,7 +8521,8 @@ async function runBatchPersistence(supabaseClient, input) {
       activeBasketItems: activeItems.map((item) => ({
         productNameRaw: item.productNameRaw,
         productId: item.productId,
-        quantity: item.quantity
+        quantity: item.quantity,
+        resolutionStatus: item.resolutionStatus
       })),
       invoiceItemEvidenceSnapshot: attributionItemSnapshot
     });
@@ -8556,7 +8549,8 @@ async function runBatchPersistence(supabaseClient, input) {
       activeItems: activeItems.map((item) => ({
         productNameRaw: item.productNameRaw,
         productId: item.productId,
-        quantity: item.quantity
+        quantity: item.quantity,
+        resolutionStatus: item.resolutionStatus
       })),
       selectedInvoiceId: analysis.basketInvoiceMatch.invoiceId,
       selectedInvoiceNumber: analysis.basketInvoiceMatch.invoiceNumber,
@@ -8643,7 +8637,8 @@ async function runBatchPersistence(supabaseClient, input) {
             activeBasketItems: activeItems.map((item) => ({
               productNameRaw: item.productNameRaw,
               productId: item.productId,
-              quantity: item.quantity
+              quantity: item.quantity,
+              resolutionStatus: item.resolutionStatus
             })),
             invoiceItemEvidenceSnapshot: attributionItemSnapshot
           },
@@ -8657,7 +8652,8 @@ async function runBatchPersistence(supabaseClient, input) {
           activeItems.map((item) => ({
             productNameRaw: item.productNameRaw,
             productId: item.productId,
-            quantity: item.quantity
+            quantity: item.quantity,
+            resolutionStatus: item.resolutionStatus
           })),
           mapBasketInvoiceMatchRowContent(analysis),
           selectedInvoiceItemSnapshot
@@ -8795,6 +8791,7 @@ var REVIEW_SOURCE_BATCH_INPUT_COLUMNS = [
   "customer_name",
   "customer_code",
   "branch",
+  "staff_id",
   "matched_invoice_id",
   "matched_invoice_number",
   "invoice_match_status",
@@ -8831,6 +8828,7 @@ function reviewSourceRowToBatchConversation(row) {
     customerNameHint: row.customer_name ?? null,
     customerCodeHint: normalizeDawaaCustomerCode(row.customer_code) || extractTrailingCustomerCodeFromDisplayName(row.customer_name) || null,
     branchNameRawHint: row.branch ?? null,
+    knownStaffIds: row.staff_id ? [String(row.staff_id)] : [],
     legacyMatchedInvoiceId: row.matched_invoice_id ?? null,
     legacyMatchedInvoiceNumber: row.matched_invoice_number ?? null,
     trustedInvoiceId: trustedEvidence.trustedInvoiceId,

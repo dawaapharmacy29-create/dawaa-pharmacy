@@ -332,6 +332,7 @@ function analyzeOneCase(
       productNameRaw: item.productNameRaw,
       productId: item.productId,
       quantity: item.quantity,
+      resolutionStatus: item.resolutionStatus,
     })),
     knownStaffIds: input.knownStaffIds ?? [],
     legacyMatchedInvoiceId: input.legacyMatchedInvoiceId ?? null,

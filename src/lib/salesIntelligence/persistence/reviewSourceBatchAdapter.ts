@@ -24,6 +24,7 @@ export const REVIEW_SOURCE_BATCH_INPUT_COLUMNS = [
   'customer_name',
   'customer_code',
   'branch',
+  'staff_id',
   'matched_invoice_id',
   'matched_invoice_number',
   'invoice_match_status',
@@ -47,6 +48,7 @@ export interface WhatsAppReviewSourceBatchRow {
   customer_name?: string | null;
   customer_code?: string | null;
   branch?: string | null;
+  staff_id?: string | null;
   matched_invoice_id?: string | null;
   matched_invoice_number?: string | null;
   /** I.C.1 additions — see trustedInvoiceEvidenceBridge.ts's own eligibility rule. */
@@ -97,6 +99,7 @@ export function reviewSourceRowToBatchConversation(
       extractTrailingCustomerCodeFromDisplayName(row.customer_name) ||
       null,
     branchNameRawHint: row.branch ?? null,
+    knownStaffIds: row.staff_id ? [String(row.staff_id)] : [],
     legacyMatchedInvoiceId: row.matched_invoice_id ?? null,
     legacyMatchedInvoiceNumber: row.matched_invoice_number ?? null,
     trustedInvoiceId: trustedEvidence.trustedInvoiceId,

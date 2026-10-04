@@ -7,6 +7,8 @@
 // REPROCESSING_MATRIX assigns it (see persistence/types.ts).
 // IMPORTANT: after changing semantic versions here, regenerate the committed serverless transport
 // with scripts/build-sales-intelligence-refresh-api.cjs so Preview/Production runs the same versions.
+// v18 (2026-10-04): unresolved media/deictic product identity is unavailable evidence, never a
+// manufactured item contradiction; canonical review-source staff_id now reaches SI knownStaffIds.
 // v17 (2026-10-04): compact announced totals may bridge only short acknowledgement messages
 // after the customer's explicit total question; any new customer commercial content fails closed.
 // v16 (2026-10-04): settled-order truth alignment. Exact invoice-backed payment settlement now
@@ -24,15 +26,15 @@
 // changed materially: V32 now keeps payment settlement inside the original order interaction,
 // and commercial confirmation/basket parsing recognizes natural Egyptian recap/compact totals
 // without manufacturing product identity from unresolved media deictics.
-export const PIPELINE_VERSION = 'sales-intelligence-v17';
+export const PIPELINE_VERSION = 'sales-intelligence-v18';
 
 export const ENGINE_VERSIONS = {
   caseSegmentation: 'case-segmentation-v10-payment-continuation-ambiguity-safe',
   historicalClosure: 'historical-closure-v1',
   commercialConfirmation: 'commercial-confirmation-v6-compact-total-interstitial-ack-safe',
   protocolApplicability: 'protocol-applicability-v1',
-  attribution: 'attribution-v7-auto-code-name-time-items',
-  matching: 'matching-v2-line-item-evidence',
+  attribution: 'attribution-v8-unresolved-product-evidence-safe',
+  matching: 'matching-v3-unresolved-product-evidence-safe',
   policyEvaluation: 'policy-evaluation-v1',
 } as const;
 
