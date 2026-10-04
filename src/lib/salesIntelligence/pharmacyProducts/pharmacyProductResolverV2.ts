@@ -6,7 +6,7 @@
 // always resolves to null — see the I.B.1 audit) — nothing here replaces those engines yet; see
 // instruction #18 (Phase I.B.1 kickoff) for why.
 //
-// Hard rule, enforced in code below, not just in comments: a fuzzy-only match (basis 7) can NEVER
+// Hard rule, enforced in code below, not just in comments: a fuzzy-only match can NEVER
 // reach 'proven' confidence — see FUZZY_MAX_CONFIDENCE_LEVEL.
 import {
   normalizePharmacyText,
@@ -22,6 +22,7 @@ export type ProductMatchBasis =
   | 'exact_canonical_name'
   | 'approved_alias'
   | 'cross_script_equivalent'
+  | 'cross_script_composite'
   | 'dominant_name_token_match'
   | 'strength_form_token_match'
   | 'cautious_fuzzy'
@@ -29,7 +30,7 @@ export type ProductMatchBasis =
 
 export type ConfidenceLevel = 'proven' | 'strongly_inferred' | 'weakly_inferred' | 'unknown';
 
-/** The only confidence a basis-7 (cautious_fuzzy) match may ever report — see module comment. */
+/** The only confidence a cautious-fuzzy match may ever report — see module comment. */
 const FUZZY_MAX_CONFIDENCE_LEVEL: ConfidenceLevel = 'weakly_inferred';
 
 export interface ProductResolutionCandidate {
@@ -150,10 +151,12 @@ function confidenceForBasis(basis: ProductMatchBasis): ConfidenceLevel {
       return 'strongly_inferred';
     case 'approved_alias':
       return 'strongly_inferred'; // gated on human approval already having happened — see productAliasCandidate.ts
+    case 'cross_script_composite':
+      return 'strongly_inferred'; // >=2 explicit seed clues + exact numeric discriminator in canonical name
     case 'dominant_name_token_match':
       return 'strongly_inferred';
     case 'cross_script_equivalent':
-      return 'weakly_inferred'; // seed table is unvetted heuristic, not a proven identity link
+      return 'weakly_inferred'; // one seed clue alone is unvetted heuristic evidence
     case 'strength_form_token_match':
       return 'weakly_inferred';
     case 'cautious_fuzzy':
@@ -201,6 +204,11 @@ function extractBareNumbers(normalized: string): number[] {
 
 function productNumericTokens(product: CanonicalProduct): number[] {
   return [...product.strengths.map((s) => s.value), ...product.packSizes.map((p) => p.count)];
+}
+
+/** Bare numeric tokens appearing literally in the canonical product name (e.g. infant-formula stage "3"). */
+function productNameBareNumbers(product: CanonicalProduct): number[] {
+  return Array.from(new Set(product.normalizedNames.flatMap((name) => extractBareNumbers(name))));
 }
 
 /**
@@ -352,6 +360,7 @@ export function resolveProductMention(
   // compatibility whenever the phrase carries that signal, so "انتينال كبسول" prefers the capsule
   // SKU over the suspension one instead of treating both brand hits as equally valid.
   const seed = options.crossScriptSeed ?? CROSS_SCRIPT_SEED;
+  const crossScriptCluesByProduct = new Map<string, Set<string>>();
   for (const [arabicKey, latinToken] of seed) {
     if (normalized.normalized.includes(arabicKey) || normalized.raw.includes(arabicKey)) {
       const latinNormalized = normalizePharmacyText(latinToken).normalized;
@@ -361,10 +370,35 @@ export function resolveProductMention(
             if (!strengthsCompatible(normalized.strengths, product.strengths)) continue;
             if (!dosageFormsCompatible(normalized.dosageForms, product.dosageForms)) continue;
             if (!bareNumbersCompatible(phraseBareNumbers, product)) continue;
+            const clues = crossScriptCluesByProduct.get(product.productId) ?? new Set<string>();
+            clues.add(arabicKey);
+            crossScriptCluesByProduct.set(product.productId, clues);
             addCandidate(product, 'cross_script_equivalent', 0.6, `"${arabicKey}" مرتبط في جدول المرادفات اللغوية بـ "${latinToken}"`);
           }
         }
       }
+    }
+  }
+
+  // 5b. Composite cross-script evidence. One transliteration seed stays weak forever. A candidate
+  // is promoted only when the SAME canonical product is independently supported by >=2 explicit
+  // seed clues AND the customer supplied a numeric discriminator that occurs literally in that
+  // product's canonical name (e.g. Hero Baby + Nutradefense + stage 3). This does not create or
+  // persist an alias, and competing SKUs that satisfy the same conditions remain tied/ambiguous.
+  if (phraseBareNumbers.length > 0) {
+    for (const [productId, clues] of crossScriptCluesByProduct) {
+      if (clues.size < 2) continue;
+      const product = index.catalog.find((candidate) => candidate.productId === productId);
+      if (!product) continue;
+      const canonicalBareNumbers = productNameBareNumbers(product);
+      const matchingNumbers = phraseBareNumbers.filter((value) => canonicalBareNumbers.includes(value));
+      if (matchingNumbers.length === 0) continue;
+      addCandidate(
+        product,
+        'cross_script_composite',
+        0.88,
+        `أدلة لغوية مستقلة (${Array.from(clues).join(' + ')}) مع رقم مطابق للاسم القياسي (${matchingNumbers.join(', ')})`
+      );
     }
   }
 
