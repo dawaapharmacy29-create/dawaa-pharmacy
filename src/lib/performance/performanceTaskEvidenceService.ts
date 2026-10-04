@@ -27,11 +27,15 @@ export async function readPerformanceTaskEvidence(input:Input){
  for(const sourceType of expected){
   try{
    if(sourceType==='customer_followup'){
-    const {data,error}=await supabase.from(TABLES.dailyFollowups).select('*')
-      .eq('branch',input.branch).gte('followup_datetime',cairoDateBoundaryIso(input.start)).lte('followup_datetime',cairoDateBoundaryIso(input.end,true));
-    if(error)throw error;
-    const evidence=(data||[]).map(row=>customerFollowupToTaskEvidence(row,observedAt)).filter(Boolean);
-    batches.push({sourceType,availability:'available',evidence:evidence as any[],observedAt});
+    const [timed,dated]=await Promise.all([
+     supabase.from(TABLES.dailyFollowups).select('*').eq('branch',input.branch).gte('followup_datetime',cairoDateBoundaryIso(input.start)).lte('followup_datetime',cairoDateBoundaryIso(input.end,true)),
+     supabase.from(TABLES.dailyFollowups).select('*').eq('branch',input.branch).gte('followup_date',input.start).lte('followup_date',input.end),
+    ]);
+    if(timed.error&&dated.error)throw timed.error;
+    const rows=new Map<string,Record<string,unknown>>();
+    for(const row of [...(timed.data||[]),...(dated.data||[])])rows.set(String(row.id),row as Record<string,unknown>);
+    const evidence=[...rows.values()].map(row=>customerFollowupToTaskEvidence(row,observedAt)).filter((row):row is NonNullable<typeof row>=>Boolean(row)).filter(row=>row.subjectStaffId===input.staffId);
+    batches.push({sourceType,availability:timed.error||dated.error?'partial':'available',evidence,reason:timed.error?.message||dated.error?.message,observedAt});
     continue;
    }
    if(sourceType==='customer_request'){
