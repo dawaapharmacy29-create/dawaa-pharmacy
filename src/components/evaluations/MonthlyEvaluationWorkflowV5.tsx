@@ -22,6 +22,7 @@ type Props = {
   approvalReady: boolean;
   status: string;
   requiresPostCycleReapproval: boolean;
+  blockers?: string[];
 };
 
 const STEPS = [
@@ -43,6 +44,7 @@ export default function MonthlyEvaluationWorkflowV5({
   approvalReady,
   status,
   requiresPostCycleReapproval,
+  blockers = [],
 }: Props) {
   const stepReady: Record<MonthlyEvaluationStep, boolean> = {
     1: evidenceReady,
@@ -59,6 +61,8 @@ export default function MonthlyEvaluationWorkflowV5({
           خطوات التقييم
         </div>
       </div>
+
+      {blockers.length ? <div className="border-b px-3 py-2 text-[11px] font-bold" style={{ borderColor: 'var(--dawaa-theme-border)', color: 'var(--dawaa-status-warning-text)', background: 'var(--dawaa-status-warning-bg)' }}>المطلوب قبل الاعتماد: {blockers.slice(0, 3).join(' · ')}{blockers.length > 3 ? ` · +${blockers.length - 3}` : ''}</div> : null}
 
       <div className="overflow-x-auto">
         <div className="flex min-w-max gap-1.5 p-2">
