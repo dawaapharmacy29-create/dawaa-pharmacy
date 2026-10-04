@@ -22,4 +22,10 @@ describe('performance scope resolver', () => {
   it('does not classify unrelated roles into warehouse', () => {
     expect(staffMatchesPerformanceScope(rows[0], 'warehouse')).toBe(false);
   });
+
+  it('separates assistants from doctors and delivery', () => {
+    expect(staffMatchesPerformanceScope({ id: 'a', role: 'assistant', branch: 'فرع شكري' }, 'assistants')).toBe(true);
+    expect(staffMatchesPerformanceScope({ id: 'd', role: 'doctor', branch: 'فرع شكري' }, 'assistants')).toBe(false);
+    expect(staffMatchesPerformanceScope({ id: 'x', role: 'delivery', branch: 'فرع شكري' }, 'assistants')).toBe(false);
+  });
 });
