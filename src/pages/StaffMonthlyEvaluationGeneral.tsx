@@ -1266,7 +1266,8 @@ export default function StaffMonthlyEvaluation() {
   const orderedFilteredStaff = [...filteredStaff].sort((a,b) => {
     const branchCompare = String(a.branch || '').localeCompare(String(b.branch || ''), 'ar');
     if (branchCompare) return branchCompare;
-    const groupCompare = roleGroupLabel(a).localeCompare(roleGroupLabel(b), 'ar');
+    const order = ['دكاترة', 'مساعدون', 'الدليفري', 'المخزن', 'الإدارة', 'وظائف أخرى'];
+    const groupCompare = order.indexOf(roleGroupLabel(a)) - order.indexOf(roleGroupLabel(b));
     if (groupCompare) return groupCompare;
     return a.name.localeCompare(b.name, 'ar');
   });
