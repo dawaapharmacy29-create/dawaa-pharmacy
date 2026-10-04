@@ -770,6 +770,8 @@ export default function StaffMonthlyEvaluation() {
         setEvidenceHealth(evidenceResult.health);
         setEvidenceErrors(evidenceResult.errors);
         setCoaching(evidenceResult.coaching);
+        const headerRequestId = ++employeeHeaderRequestRef.current;
+        setEmployeeHeader(null);
         setEmployeeHeaderLoading(true);
         void loadEmployeeEvaluationHeader({
           staffId: selectedId,
@@ -779,7 +781,13 @@ export default function StaffMonthlyEvaluation() {
           start: startDate,
           end: endDate,
           evidence: evidenceResult,
-        }).then(setEmployeeHeader).catch(() => setEmployeeHeader(null)).finally(() => setEmployeeHeaderLoading(false));
+        }).then((value) => {
+          if (employeeHeaderRequestRef.current === headerRequestId) setEmployeeHeader(value);
+        }).catch(() => {
+          if (employeeHeaderRequestRef.current === headerRequestId) setEmployeeHeader(null);
+        }).finally(() => {
+          if (employeeHeaderRequestRef.current === headerRequestId) setEmployeeHeaderLoading(false);
+        });
         setPointsTruth(pointsResult);
         setSettledStatement(statementResult.data || null);
 
