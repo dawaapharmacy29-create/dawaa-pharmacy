@@ -5,14 +5,16 @@
 // are INDEPENDENT of any git SHA (design doc H.0.1 §8) — each one only changes when the engine it
 // names actually changes in a way that should trigger the reprocessing scope
 // REPROCESSING_MATRIX assigns it (see persistence/types.ts).
-// v8 (STEP 7A): production runtime context — canonical staffIdBySender feeds attribution and V32
-// staff senders; the pre-pass and the run share one base input.
-export const PIPELINE_VERSION = 'sales-intelligence-v12';
+// v13 (2026-10-04): quality hardening validated on real WhatsApp cases. The semantic pipeline
+// changed materially: V32 now keeps payment settlement inside the original order interaction,
+// and commercial confirmation/basket parsing recognizes natural Egyptian recap/compact totals
+// without manufacturing product identity from unresolved media deictics.
+export const PIPELINE_VERSION = 'sales-intelligence-v13';
 
 export const ENGINE_VERSIONS = {
-  caseSegmentation: 'case-segmentation-v8-semantic-continuation-courtesy-safe',
+  caseSegmentation: 'case-segmentation-v9-payment-settlement-continuation',
   historicalClosure: 'historical-closure-v1',
-  commercialConfirmation: 'commercial-confirmation-v4-natural-arabic-basket-quantities',
+  commercialConfirmation: 'commercial-confirmation-v5-natural-recap-compact-total-safe-deictic',
   protocolApplicability: 'protocol-applicability-v1',
   attribution: 'attribution-v7-auto-code-name-time-items',
   matching: 'matching-v2-line-item-evidence',
