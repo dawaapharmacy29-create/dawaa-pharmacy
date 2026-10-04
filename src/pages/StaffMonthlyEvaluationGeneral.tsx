@@ -2476,8 +2476,9 @@ export default function StaffMonthlyEvaluation() {
                         <div className="rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-status-success-border)', background: 'var(--dawaa-theme-soft)' }}>
                           <div className="text-[11px] font-black" style={{ color: 'var(--dawaa-status-success-text)' }}>أبرز المميزات المثبتة</div>
                           {employeeFeedbackDraft.strengths.length ? (
-                            <div className="mt-2 space-y-1.5 text-xs font-bold leading-6" style={{ color: 'var(--dawaa-theme-text)' }}>
-                              {employeeFeedbackDraft.strengths.map((item) => <div key={item}>• {item}</div>)}
+                            <div className="mt-2 flex flex-wrap gap-1.5 text-xs font-bold" style={{ color: 'var(--dawaa-theme-text)' }}>
+                              {employeeFeedbackDraft.strengths.slice(0,3).map((item) => <span key={item} className="rounded-lg border px-2 py-1.5" style={{borderColor:'var(--dawaa-status-success-border)'}}>{item}</span>)}
+                              {employeeFeedbackDraft.strengths.length>3?<span className="rounded-lg border px-2 py-1.5" style={{borderColor:'var(--dawaa-theme-border)',color:'var(--dawaa-theme-muted)'}}>+{employeeFeedbackDraft.strengths.length-3} إضافية</span>:null}
                             </div>
                           ) : (
                             <div className="mt-2 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
@@ -2489,8 +2490,9 @@ export default function StaffMonthlyEvaluation() {
                         <div className="rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-theme-soft)' }}>
                           <div className="text-[11px] font-black" style={{ color: 'var(--dawaa-status-warning-text)' }}>أهم فرص التطوير</div>
                           {employeeFeedbackDraft.developments.length ? (
-                            <div className="mt-2 space-y-1.5 text-xs font-bold leading-6" style={{ color: 'var(--dawaa-theme-text)' }}>
-                              {employeeFeedbackDraft.developments.map((item) => <div key={item}>• {item}</div>)}
+                            <div className="mt-2 flex flex-wrap gap-1.5 text-xs font-bold" style={{ color: 'var(--dawaa-theme-text)' }}>
+                              {employeeFeedbackDraft.developments.slice(0,3).map((item) => <span key={item} className="rounded-lg border px-2 py-1.5" style={{borderColor:'var(--dawaa-status-warning-border)'}}>{item}</span>)}
+                              {employeeFeedbackDraft.developments.length>3?<span className="rounded-lg border px-2 py-1.5" style={{borderColor:'var(--dawaa-theme-border)',color:'var(--dawaa-theme-muted)'}}>+{employeeFeedbackDraft.developments.length-3} إضافية</span>:null}
                             </div>
                           ) : (
                             <div className="mt-2 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
@@ -2502,8 +2504,8 @@ export default function StaffMonthlyEvaluation() {
                         <div className="rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-soft)' }}>
                           <div className="text-[11px] font-black" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>أمثلة وأدلة للمراجعة</div>
                           {employeeFeedbackDraft.examples.length ? (
-                            <div className="mt-2 space-y-1.5 text-xs font-bold leading-6" style={{ color: 'var(--dawaa-theme-text)' }}>
-                              {employeeFeedbackDraft.examples.map((item) => <div key={item}>• {item}</div>)}
+                            <div className="mt-2 grid gap-1.5 sm:grid-cols-2 text-xs font-bold" style={{ color: 'var(--dawaa-theme-text)' }}>
+                              {employeeFeedbackDraft.examples.slice(0,4).map((item) => <div key={item} className="rounded-lg border px-2 py-1.5" style={{borderColor:'var(--dawaa-theme-border)'}}>{item}</div>)}
                             </div>
                           ) : (
                             <div className="mt-2 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>لا يوجد مثال إضافي يحتاج إبرازه في الملخص.</div>
@@ -2512,9 +2514,9 @@ export default function StaffMonthlyEvaluation() {
 
                         <div className="rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-status-info-border)', background: 'var(--dawaa-theme-soft)' }}>
                           <div className="text-[11px] font-black" style={{ color: 'var(--dawaa-status-info-text)' }}>خطة الشهر القادم وقياس التحسن</div>
-                          <div className="mt-2 space-y-1.5 text-xs font-bold leading-6" style={{ color: 'var(--dawaa-theme-text)' }}>
-                            {employeeFeedbackDraft.actions.map((item) => <div key={item}>• {item}</div>)}
-                            {employeeFeedbackDraft.measurements.map((item) => <div key={item}>• قياس: {item}</div>)}
+                          <div className="mt-2 grid gap-1.5 sm:grid-cols-2 text-xs font-bold leading-5" style={{ color: 'var(--dawaa-theme-text)' }}>
+                            {employeeFeedbackDraft.actions.slice(0,3).map((item) => <div key={item} className="rounded-lg border px-2 py-1.5" style={{borderColor:'var(--dawaa-status-info-border)'}}>{item}</div>)}
+                            {employeeFeedbackDraft.measurements.slice(0,3).map((item) => <div key={item} className="rounded-lg border px-2 py-1.5" style={{borderColor:'var(--dawaa-theme-border)'}}>قياس: {item}</div>)}
                             {!employeeFeedbackDraft.actions.length && !employeeFeedbackDraft.measurements.length ? (
                               <div style={{ color: 'var(--dawaa-theme-muted)' }}>لا توجد خطة آلية؛ اكتب خطة يدوية إذا كان هناك هدف تطوير خاص.</div>
                             ) : null}
