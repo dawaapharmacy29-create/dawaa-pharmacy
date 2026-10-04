@@ -612,6 +612,7 @@ export default function StaffMonthlyEvaluation() {
   const [employeeHeader, setEmployeeHeader] = useState<EvaluationHeaderSummary | null>(null);
   const [employeeHeaderLoading, setEmployeeHeaderLoading] = useState(false);
   const employeeHeaderRequestRef = useRef(0);
+  const evaluationRequestRef = useRef(0);
   const [pointsTruth, setPointsTruth] = useState<StaffPointsDashboardV3 | null>(null);
   const [settledStatement, setSettledStatement] = useState<{ points_closing: number; incentive_amount: number } | null>(null);
   const [activeGates, setActiveGates] = useState<CriticalGateType[]>([]);
@@ -739,8 +740,11 @@ export default function StaffMonthlyEvaluation() {
 
   useEffect(() => {
     if (!selectedId || !user?.id || !selected) return;
+    const requestId = ++evaluationRequestRef.current;
     const loadEvaluation = async () => {
       setLoading(true);
+      setEmployeeHeader(null);
+      setEmployeeHeaderLoading(true);
       try {
         const { startDate, endDate, endDateExclusive } = evaluationCycleDateKeys(cycleLabel);
         const cycleKeyDate = `${cycleLabel}-01`;
@@ -764,14 +768,13 @@ export default function StaffMonthlyEvaluation() {
 
         if (savedResult.error) throw savedResult.error;
 
+        if (evaluationRequestRef.current !== requestId) return;
         setMetrics(evidenceResult.metrics);
         setEvidenceReady(evidenceResult.ready);
         setEvidenceHealth(evidenceResult.health);
         setEvidenceErrors(evidenceResult.errors);
         setCoaching(evidenceResult.coaching);
         const headerRequestId = ++employeeHeaderRequestRef.current;
-        setEmployeeHeader(null);
-        setEmployeeHeaderLoading(true);
         void loadEmployeeEvaluationHeader({
           staffId: selectedId,
           staffName: selected.name,
@@ -835,9 +838,12 @@ export default function StaffMonthlyEvaluation() {
           setActiveGates([]);
         }
       } catch (cause) {
+        if (evaluationRequestRef.current !== requestId) return;
+        setEmployeeHeader(null);
+        setEmployeeHeaderLoading(false);
         toast.error(cause instanceof Error ? cause.message : 'تعذر تحميل التقييم');
       } finally {
-        setLoading(false);
+        if (evaluationRequestRef.current === requestId) setLoading(false);
       }
     };
     void loadEvaluation();
