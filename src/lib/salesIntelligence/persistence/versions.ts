@@ -12,6 +12,7 @@
 // identity remains an evidence limitation and never reopens an otherwise closed invoiced order.
 // Final V19 user-trigger marker: focused Mohamed regression, mismatch fail-closed test, full suite,
 // TypeScript, generated API verification, and production build passed before this comment-only trigger.
+// V19 preview retry marker: this comment-only commit was made after the Vercel Hobby build-rate window elapsed.
 // v18 (2026-10-04): unresolved media/deictic product identity is unavailable evidence, never a
 // manufactured item contradiction; canonical review-source staff_id now reaches SI knownStaffIds.
 // Final V18 user-trigger marker: focused regression, full suite, TypeScript, generated API verification,
