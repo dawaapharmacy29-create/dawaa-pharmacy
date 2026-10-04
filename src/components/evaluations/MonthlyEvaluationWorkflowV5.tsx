@@ -65,7 +65,7 @@ export default function MonthlyEvaluationWorkflowV5({
       {blockers.length ? <div className="border-b px-3 py-2 text-[11px] font-bold" style={{ borderColor: 'var(--dawaa-theme-border)', color: 'var(--dawaa-status-warning-text)', background: 'var(--dawaa-status-warning-bg)' }}>المطلوب قبل الاعتماد: {blockers.slice(0, 3).join(' · ')}{blockers.length > 3 ? ` · +${blockers.length - 3}` : ''}</div> : null}
 
       <div className="overflow-x-auto">
-        <div className="flex min-w-max gap-1.5 p-2">
+        <div className="flex min-w-max gap-2 p-2.5">
           {STEPS.map((step) => {
             const Icon = step.icon;
             const active = activeStep === step.id;
@@ -76,7 +76,7 @@ export default function MonthlyEvaluationWorkflowV5({
                 key={step.id}
                 type="button"
                 onClick={() => onStepChange(step.id)}
-                className="flex min-w-[150px] items-center gap-2 rounded-xl border px-3 py-2 text-right transition"
+                className="flex min-w-[138px] items-center gap-2 rounded-xl border px-3 py-2.5 text-right transition"
                 style={active
                   ? { borderColor: 'var(--dawaa-theme-accent-border)', background: 'var(--dawaa-theme-accent-soft)' }
                   : { borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}
