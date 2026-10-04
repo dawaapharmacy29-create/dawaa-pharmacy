@@ -6,6 +6,9 @@ import { buildConversationUnderstandingV32 } from '@/lib/whatsappConversationUnd
 import { deriveConversationCases } from '@/lib/salesIntelligence/conversationCaseEngine';
 import { buildCaseBaskets } from '@/lib/salesIntelligence/caseBasketEngine';
 import { deriveCommercialConfirmationState } from '@/lib/salesIntelligence/commercialConfirmationEngine';
+import { buildCanonicalProduct, countNormalizedNames, type RawProductRow } from '@/lib/salesIntelligence/pharmacyProducts/canonicalProduct';
+import { normalizePharmacyText } from '@/lib/salesIntelligence/pharmacyProducts/pharmacyNormalization';
+import { buildPharmacyProductIndex, resolveProductMention } from '@/lib/salesIntelligence/pharmacyProducts/pharmacyProductResolverV2';
 
 function msg(id: string, at: string, direction: 'inbound' | 'outbound', text: string, kind: WhatsAppParsedMessage['kind'] = 'text', mediaAvailable = false): WhatsAppParsedMessage {
   const timestamp = new Date(at);
@@ -59,6 +62,17 @@ function assessFirstSalesCase(raw: string) {
     result.staffFinalConfirmationEvents
   );
   return { ...result, assessment };
+}
+
+function crossScriptRegressionIndex() {
+  const rows: RawProductRow[] = [
+    { id: 'hero-1', name: 'hero baby nutradefense plus 1', product_code: '72474', normalized_name: 'hero baby nutradefense plus 1', category: null, price: 385, source: 'catalog_import' },
+    { id: 'hero-2', name: 'hero baby nutradefense plus 2', product_code: '73191', normalized_name: 'hero baby nutradefense plus 2', category: null, price: 385, source: 'catalog_import' },
+    { id: 'hero-3', name: 'hero baby nutradefense 3 plus', product_code: '74976', normalized_name: 'hero baby nutradefense 3 plus', category: null, price: 385, source: 'catalog_import' },
+    { id: 'hero-fruit-3', name: 'HERO BABY 3 FRUITS JAR', product_code: '47782', normalized_name: 'hero baby 3 fruits jar', category: null, price: 55, source: 'catalog_import' },
+  ];
+  const counts = countNormalizedNames(rows);
+  return buildPharmacyProductIndex(rows.map((row) => buildCanonicalProduct(row, counts, normalizePharmacyText)));
 }
 
 describe('WhatsAppCustomerCaseEngineV22', () => {
@@ -183,5 +197,24 @@ describe('Sales Intelligence real closing regressions', () => {
     const activeBasket = result.baskets.at(-1);
     const items = activeBasket ? result.itemsByBasketId[activeBasket.basketId] ?? [] : [];
     expect(items.some((item) => ['دي', 'ده', 'دا'].includes(item.productNameRaw.trim()))).toBe(false);
+  });
+});
+
+describe('Sales Intelligence cross-script product regressions', () => {
+  it('promotes Hero Baby Nutradefense stage 3 only when two independent language clues and the stage number agree', () => {
+    const result = resolveProductMention('عايز علبتين لبن هيرو بيبي نيوتروني دفنس 3', crossScriptRegressionIndex());
+
+    expect(result.selected?.product.productId).toBe('hero-3');
+    expect(result.selected?.basis).toBe('cross_script_composite');
+    expect(result.selected?.confidence).toBe('strongly_inferred');
+  });
+
+  it('keeps a single cross-script clue weak even when a number is present', () => {
+    const result = resolveProductMention('عايز نيوتروني دفنس 3', crossScriptRegressionIndex());
+
+    expect(result.selected).toBeNull();
+    expect(result.ambiguous).toBe(true);
+    expect(result.candidates.some((candidate) => candidate.confidence === 'strongly_inferred')).toBe(false);
+    expect(result.candidates.some((candidate) => candidate.basis === 'cross_script_composite')).toBe(false);
   });
 });
