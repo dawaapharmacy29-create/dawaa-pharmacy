@@ -17,6 +17,8 @@ export default function EvaluationAxisCardV1(props:{
  const evidencePending=props.evidence.status==='pending'||props.evidence.status==='insufficient'||props.evidence.status==='partial';
  const evidenceBlocksDecision=evidenceUnavailable||evidencePending;
  const stateLabel=evidenceUnavailable?'الدليل غير متاح':evidencePending?'الدليل غير مكتمل':props.score?'تم التقييم':'بانتظار التقييم';
+ const evidenceCount=props.evidence.details.filter(Boolean).length;
+ const exampleCount=props.evidence.examples?.length||0;
  const stateStyle=evidenceUnavailable
   ? {background:'var(--dawaa-status-danger-bg)',color:'var(--dawaa-status-danger-text)',borderColor:'var(--dawaa-status-danger-border)'}
   : evidencePending
@@ -42,14 +44,22 @@ export default function EvaluationAxisCardV1(props:{
    </div>
   </div>
 
-  <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(0,1fr)_260px]">
+  <div className="mt-3 flex flex-wrap gap-2 text-[10px] font-black">
+   <span className="rounded-full border px-2 py-1" style={{borderColor:'var(--dawaa-theme-border)',color:'var(--dawaa-theme-muted)'}}>{evidenceCount} نقطة دليل</span>
+   {exampleCount?<span className="rounded-full border px-2 py-1" style={{borderColor:'var(--dawaa-theme-border)',color:'var(--dawaa-theme-muted)'}}>{exampleCount} واقعة قابلة للفتح</span>:null}
+   <span className="rounded-full border px-2 py-1" style={{borderColor:'var(--dawaa-theme-border)',color:'var(--dawaa-theme-muted)'}}>الوزن {props.weight}%</span>
+  </div>
+
+  <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(0,1fr)_260px]">
    <details className="group rounded-xl border p-3" style={{borderColor:evidenceUnavailable?'var(--dawaa-status-danger-border)':'var(--dawaa-theme-border)',background:evidenceUnavailable?'var(--dawaa-status-danger-bg)':'var(--dawaa-theme-soft)'}}>
     <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-black" style={{color:evidenceUnavailable?'var(--dawaa-status-danger-text)':'var(--dawaa-theme-text)'}}>
-     <span>{evidenceUnavailable?<AlertTriangle className="me-1 inline" size={14}/>:<CheckCircle2 className="me-1 inline" size={14}/>} {props.evidence.summary}</span><ChevronDown size={14}/>
+     <span>{evidenceUnavailable?<AlertTriangle className="me-1 inline" size={14}/>:<CheckCircle2 className="me-1 inline" size={14}/>} <span className="me-1 opacity-70">ملخص الدليل:</span>{props.evidence.summary}</span><span className="flex shrink-0 items-center gap-1 opacity-70">التفاصيل <ChevronDown className="transition-transform group-open:rotate-180" size={14}/></span>
     </summary>
-    <div className="mt-2 space-y-1 border-t pt-2 text-xs font-bold" style={{borderColor:'var(--dawaa-theme-border)',color:'var(--dawaa-theme-muted)'}}>
-     {props.evidence.details.map(x=><div key={x}>• {x}</div>)}
-     <div>• الدليل يبرر القرار ولا ينشئ درجة تلقائية.</div>
+    <div className="mt-2 border-t pt-2 text-xs font-bold" style={{borderColor:'var(--dawaa-theme-border)',color:'var(--dawaa-theme-muted)'}}>
+     <div className="mb-2 text-[10px] font-black uppercase tracking-wide" style={{color:'var(--dawaa-theme-muted)'}}>تفاصيل القياس والوقائع</div>
+     <div className="space-y-1.5">{props.evidence.details.map((x,index)=><div key={`${index}:${x}`} className="rounded-lg border px-2.5 py-2 leading-5" style={{borderColor:'var(--dawaa-theme-border)',background:'var(--dawaa-theme-surface)'}}><span className="me-1 opacity-60">{index+1}.</span>{x}</div>)}</div>
+     <div className="mt-2 rounded-lg border px-2.5 py-2 text-[11px]" style={{borderColor:'var(--dawaa-theme-border)',background:'var(--dawaa-theme-surface)'}}>الدليل يبرر قرار المدير ولا ينشئ درجة تلقائية.</div>
+     {exampleCount?<div className="mt-3 text-[10px] font-black" style={{color:'var(--dawaa-theme-muted)'}}>وقائع قابلة للمراجعة</div>:null}
      {props.evidence.examples?.map(ex=><a key={ex.id} href={`/reviews?section=history&id=${encodeURIComponent(ex.id)}`} target="_blank" rel="noreferrer" className="block rounded-lg border px-2 py-1.5" style={{borderColor:'var(--dawaa-theme-border)',background:'var(--dawaa-theme-surface)',color:'var(--dawaa-theme-text)'}}>{ex.date||'بدون تاريخ'} · {ex.score}/100{ex.negativeReason?` · ${ex.negativeReason}`:''} · فتح الدليل ↗</a>)}
     </div>
    </details>
