@@ -1447,7 +1447,20 @@ export async function loadEmployeeMonthlyEvidence(args: {
 }): Promise<EmployeeMonthlyEvidence> {
   const errors: Record<string, string> = {};
 
-  const [reviewResult, followupResult, attendanceResult, attendanceImpactResult, inventoryResult, trainingResult, invoicePerformanceResult] = await Promise.all([
+  const taskEvidencePromise: Promise<EvaluationMetricProjection | null> = args.branch && args.role
+    ? readPerformanceTaskEvidence({
+        staffId: args.staffId,
+        branch: args.branch,
+        role: canonicalStaffRole(args.role),
+        start: args.startDate,
+        end: new Date(new Date(args.endDateExclusive).getTime() - 86400000).toISOString().slice(0,10),
+      }).catch((cause) => {
+        errors.taskEvidence = cause instanceof Error ? cause.message : String(cause);
+        return null;
+      })
+    : Promise.resolve(null);
+
+  const [reviewResult, followupResult, attendanceResult, attendanceImpactResult, inventoryResult, trainingResult, invoicePerformanceResult, taskEvaluation] = await Promise.all([
     loadConversationReviews(args),
     supabase
       .from('daily_followups')
@@ -1474,6 +1487,7 @@ export async function loadEmployeeMonthlyEvidence(args: {
     loadInventoryEvidence(args),
     loadTrainingEvidence(args),
     loadInvoicePerformanceEvidence(args),
+    taskEvidencePromise,
   ]);
 
   const reviewRows = reviewResult.rows;
@@ -1520,20 +1534,6 @@ export async function loadEmployeeMonthlyEvidence(args: {
   };
 
   const conversationCoaching = buildConversationCoaching(reviewRows);
-  let taskEvaluation: EvaluationMetricProjection | null = null;
-  if (args.branch && args.role) {
-    try {
-      taskEvaluation = await readPerformanceTaskEvidence({
-        staffId: args.staffId,
-        branch: args.branch,
-        role: canonicalStaffRole(args.role),
-        start: args.startDate,
-        end: new Date(new Date(args.endDateExclusive).getTime() - 86400000).toISOString().slice(0,10),
-      });
-    } catch (cause) {
-      errors.taskEvidence = cause instanceof Error ? cause.message : String(cause);
-    }
-  }
 
   return {
     metrics: {
