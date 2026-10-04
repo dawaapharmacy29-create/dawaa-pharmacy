@@ -1,0 +1,59 @@
+name: Temp Financial Settlement V15
+
+on:
+  push:
+    paths:
+      - 'scripts/temp_apply_financial_settlement_v15.py'
+      - '.github/workflows/temp-financial-settlement-v15.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/si-quality-closing-continuation-20261004
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Apply deterministic patch
+        run: python3 scripts/temp_apply_financial_settlement_v15.py
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+
+      - name: Run focused configured regression suite
+        run: node scripts/run-tests.cjs
+
+      - name: TypeScript gate
+        run: npx tsc --noEmit
+
+      - name: Regenerate canonical Sales Intelligence API
+        run: node scripts/build-sales-intelligence-refresh-api.cjs
+
+      - name: Verify generated API is canonical
+        run: node scripts/build-sales-intelligence-refresh-api.cjs --check
+
+      - name: Verify V15 markers
+        run: |
+          grep -q 'sales-intelligence-v15' api/sales-intelligence-refresh-source.js
+          grep -q 'case-segmentation-v10-payment-continuation-ambiguity-safe' api/sales-intelligence-refresh-source.js
+          grep -q 'financial_settlement' api/sales-intelligence-refresh-source.js
+
+      - name: Commit verified result and remove temporary runner
+        run: |
+          rm -f scripts/temp_apply_financial_settlement_v15.py
+          rm -f .github/workflows/temp-financial-settlement-v15.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m 'feat: add invoice-backed financial settlement V15'
+          git push origin HEAD:fix/si-quality-closing-continuation-20261004
