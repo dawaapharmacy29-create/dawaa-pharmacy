@@ -1,3 +1,4 @@
+// Regression boundary: canonical fine sources may be reassembled only for an explicit same-journey payment continuation.
 import { describe, expect, it } from 'vitest';
 import {
   buildCanonicalAnalysisConversations,
