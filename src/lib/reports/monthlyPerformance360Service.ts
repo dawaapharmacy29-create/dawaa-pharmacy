@@ -344,6 +344,7 @@ export async function loadMonthlyPerformance360(args: {
     },
   ];
 
+  // This legacy 360 view is descriptive only. The canonical final employee evaluation is V5.
   const available = pillars.filter((pillar) => pillar.score != null);
   const availableWeight = available.reduce((sum, pillar) => sum + pillar.weight, 0);
   const coveragePct = Math.round(availableWeight);
