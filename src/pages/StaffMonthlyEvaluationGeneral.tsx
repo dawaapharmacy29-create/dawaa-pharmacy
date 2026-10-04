@@ -668,7 +668,7 @@ export default function StaffMonthlyEvaluation() {
   const isEditingSelf = Boolean(
     selected && (selected.id === user?.staffId || selected.id === user?.id)
   );
-  const canEdit = managerMode && !isEditingSelf;
+  const canEdit = managerMode && !isEditingSelf && !evaluationLoading && !evaluationLoadError;
   const employeeView = !managerMode;
   const employeeEvaluationPublished = employeeView && ['sent', 'approved'].includes(status) && Boolean(evaluationId);
   const overallScore = useMemo(
@@ -1072,6 +1072,10 @@ export default function StaffMonthlyEvaluation() {
 
   async function save(nextStatus = status) {
     if (!selected || !user?.id) return;
+    if (evaluationLoading || evaluationLoadError) {
+      toast.error(evaluationLoading ? 'انتظر اكتمال تحميل تقييم الموظف الحالي.' : 'أعد تحميل تقييم الموظف قبل الحفظ أو الاعتماد.');
+      return;
+    }
     if (isEditingSelf) {
       toast.error('لا يمكنك اعتماد أو تعديل تقييمك الشهري لنفسك.');
       return;
