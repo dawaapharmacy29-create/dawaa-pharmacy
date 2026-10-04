@@ -15,6 +15,7 @@ const required=[
  [evalPage,"get_staff_monthly_evaluation_v5",'final evaluation must use V5'],
  [evalPage,'final_approval_snapshot','published evaluation must use final snapshot'],
  [evalPage,'EvaluationDecisionHeaderV1','manager decision header must be wired'],
+ [evalPage,'EvaluationAxisCardV1','final evaluation must use the unified evidence-first axis card'],
  [evalPage,'blockers={approvalBlockers}','workflow must receive canonical approval blockers'],
  [decisionHeader,'أسباب منع الاعتماد','decision header must expose approval blockers'],
  [workflow,'المطلوب قبل الاعتماد','workflow must surface blockers'],
