@@ -242,6 +242,7 @@ describe('Sales Intelligence cross-script product regressions', () => {
     const result = runSalesIntelligencePipeline({
       conversationId: 'ibrahim-real-74884',
       rawWhatsAppExportText: raw,
+      trustedConversationStartedAt: '2026-09-27T18:03:05.000Z',
       customerIdHint: canonicalCustomerId,
       customerPhoneHint: '01016891940',
       customerCodeHint: '3643',
@@ -257,9 +258,7 @@ describe('Sales Intelligence cross-script product regressions', () => {
         customer_name: 'ابراهيم الصياد',
         customer_phone: '01016891940',
         branch: 'فرع شكري',
-        // TXT export timestamps are local-clock values. CI runs UTC, so use the same clock-time
-        // representation here; the live database stores the equivalent Egypt instant as 18:06Z.
-        invoice_datetime: '2026-09-27T21:06:00.000Z',
+        invoice_datetime: '2026-09-27T18:06:00.000Z',
         net_amount: 778,
       }],
       itemEvidenceProvider: {
