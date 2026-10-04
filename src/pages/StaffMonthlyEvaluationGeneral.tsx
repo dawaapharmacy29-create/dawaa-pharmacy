@@ -321,8 +321,9 @@ function sectionEvidenceFor(
         guidanceSamples > 0 && guidanceSamples < 3
           ? `العينة الحالية للإرشاد الدوائي أقل من 3 مراجعات؛ لا تكفي لحكم شهري قوي.`
           : '',
-        'هذه البيانات تقيس الإرشاد والاستشارة داخل المحادثات.',
-        'صحة الصنف والتركيز والكمية في الصرف الفعلي لا تُستنتج من المحادثات وحدها؛ تحتاج واقعة صرف موثقة عند وجود خطأ.',
+        guidanceSamples ? `تغطية الإرشاد الدوائي: ${guidanceSamples} مراجعة قابلة للقياس` : '',
+        'مصدر الدليل: مراجعات المحادثات المرتبطة بالجرعة والاستشارة والبدائل.',
+        'حدود الدليل: صحة الصنف والتركيز والكمية في الصرف الفعلي تحتاج واقعة صرف موثقة ولا تُفترض من المحادثة.',
       ].filter(Boolean),
     };
   }
@@ -446,9 +447,8 @@ function sectionEvidenceFor(
           ? `أهداف رواكد مهيأة: ${stagnant.achievedTargets}/${stagnant.configuredTargets}${stagnant.targetAchievementPct !== null ? ` (${stagnant.targetAchievementPct}%)` : ''}`
           : '',
         ...inventory.notes,
-        'المصدر: Inventory Weekly Progress + سجلات صرف الرواكد المرتبطة بالموظف نفسه.',
-        'راكد الفرع غير المسند لهذا الموظف لا يُستخدم ضده في التقييم.',
-        'تغطية هذا الدليل جزئية: التبليغ المبكر عن النواقص ومراجعة الصلاحية يحتاجان واقعة تشغيلية موثقة إذا أثرا على الدرجة.',
+        'مصدر الدليل: تقدم الجرد الأسبوعي + سجلات صرف الرواكد المسندة لنفس الموظف.',
+        'حدود الدليل: رواكد الفرع غير المسندة للموظف لا تُستخدم ضده، والنواقص/الصلاحية تحتاج واقعة تشغيلية موثقة إذا أثرت على الدرجة.',
       ].filter(Boolean),
     };
   }
@@ -496,9 +496,11 @@ function sectionEvidenceFor(
         performance.available && performance.weightedPctVsBaseline !== null
           ? `الفرق المرجح في متوسط قيمة الفاتورة وعدد الأصناف مقابل خط الأساس: ${performance.weightedPctVsBaseline > 0 ? '+' : ''}${performance.weightedPctVsBaseline}%`
           : '',
-        performance.points !== null ? `تأثير Points Truth لهذا المؤشر: ${formatSignedPoints(performance.points)} نقطة` : '',
-        invoiceSource ? `Points Truth: ${invoiceSource.events} حدث · ${formatSignedPoints(invoiceSource.points)} نقطة` : '',
+        performance.points !== null ? `تأثير مؤشر الفاتورة المعتمد: ${formatSignedPoints(performance.points)} نقطة` : '',
+        invoiceSource ? `سجل المؤشر: ${invoiceSource.events} حدث · ${formatSignedPoints(invoiceSource.points)} نقطة` : '',
         ...sales.notes,
+        'مصدر الدليل: مراجعات جودة البيع + مؤشر الفاتورة المعتمد لنفس الدورة.',
+        'حدود الدليل: قيمة المبيعات وحدها لا تثبت جودة البيع ولا تُستخدم وحدها لرفع أو خفض الدرجة.',
       ].filter(Boolean),
     };
   }
