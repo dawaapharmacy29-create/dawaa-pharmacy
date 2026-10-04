@@ -177,17 +177,31 @@ function attendanceCaseLine(item: NonNullable<EmployeeMonthlyEvidence['coaching'
 
 function sectionEvidenceFor(
   sectionKey: string,
+  role: unknown,
   metrics: Metrics,
   health: EmployeeMonthlyEvidence['health'],
   pointsTruth: StaffPointsDashboardV3 | null,
   coaching: EmployeeMonthlyEvidence['coaching'] | null
 ) {
   const key = sectionKey.toLowerCase();
+  const canonicalRole = canonicalStaffRole(role);
+  const personalEvidenceRoles = new Set(['doctor','assistant','inventory_assistant','cleaning','delivery','customer_service','purchasing']);
+  const leadershipRoles = new Set(['branch_manager','branches_manager','shift_supervisor','customer_service_manager','executive','admin']);
+  if (leadershipRoles.has(canonicalRole) && !['shift_discipline','development'].includes(key)) {
+    return {
+      status: 'insufficient' as const,
+      summary: 'هذا محور قيادي ويحتاج Evidence على مستوى الفريق/الفرع وليس بيانات الموظف الشخصية',
+      details: [
+        'لا تُستخدم محادثات المدير الشخصية أو أرقام حضوره كبديل عن نتيجة الفريق أو الفرع.',
+        'يبقى المحور مقفولًا حتى ربط مصدر قيادي canonical مناسب لنفس الدورة والنطاق.',
+      ],
+    };
+  }
   const attendanceKeys = ['discipline', 'attendance', 'shift_discipline'];
   const conversationKeys = ['conversations', 'conversation', 'customer', 'customers', 'team_quality', 'customer_outcomes'];
   const followupKeys = ['followups_requests', 'followups', 'followups_sla', 'customer_requests', 'requests'];
 
-  if (attendanceKeys.includes(key)) {
+  if (attendanceKeys.includes(key) && (personalEvidenceRoles.has(canonicalRole) || canonicalRole === 'shift_supervisor')) {
     if (health.attendance !== 'available') {
       return {
         status: 'unavailable' as const,
@@ -2324,7 +2338,7 @@ export default function StaffMonthlyEvaluation() {
               {!employeeView && activeStep === 2 ? (
                 <section className="space-y-2">
                   {sections.map((item) => {
-                    const sectionEvidence = sectionEvidenceFor(item.key, metrics, evidenceHealth, pointsTruth, coaching);
+                    const sectionEvidence = sectionEvidenceFor(item.key, selected?.job_title || selected?.role, metrics, evidenceHealth, pointsTruth, coaching);
                     const conversationEvidence = isConversationSectionKey(item.key) ? coaching?.conversation : null;
                     return (
                       <EvaluationAxisCardV1
