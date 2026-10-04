@@ -30,6 +30,8 @@ const required=[
  [evalPage,'const [savedResult, evidenceResult] = await Promise.all','core evaluation must wait only for saved evaluation and required evidence'],
  [evalPage,'setSections(evaluationProfileForRole(selected.job_title || selected.role).sections);','employee switching must clear previous employee decision state immediately'],
  [evalPage,'evaluationLoadError','evaluation load failure must render an explicit state'],
+ [evalPage,'!evaluationLoading && !evaluationLoadError','evaluation writes must stay disabled until current employee details are ready'],
+ [evalPage,"if (evaluationLoading || evaluationLoadError)",'save and approval must reject loading or failed employee detail state'],
  [evalPage,'roleEvidenceReady','top-level readiness must include role-specific axis evidence'],
  [evalPage,'blockedAxisEvidence','blocked axes must prevent final approval'],
  [evalPage,'orderedFilteredStaff','evaluation roster must use deterministic branch/role grouping'],
