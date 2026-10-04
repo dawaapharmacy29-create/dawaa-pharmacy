@@ -22,6 +22,7 @@ export default function EvaluationAxisCardV1(props:{
  const compactEvidence=props.evidence.details.filter(Boolean);
  const primaryEvidence=compactEvidence.slice(0,4);
  const secondaryEvidence=compactEvidence.slice(4);
+ const hasEvidenceDetails=compactEvidence.length>0||exampleCount>0;
  const stateStyle=evidenceUnavailable
   ? {background:'var(--dawaa-status-danger-bg)',color:'var(--dawaa-status-danger-text)',borderColor:'var(--dawaa-status-danger-border)'}
   : evidencePending
@@ -54,9 +55,9 @@ export default function EvaluationAxisCardV1(props:{
   </div>
 
   <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(0,1fr)_260px]">
-   <details className="group rounded-xl border p-3" style={{borderColor:evidenceUnavailable?'var(--dawaa-status-danger-border)':'var(--dawaa-theme-border)',background:evidenceUnavailable?'var(--dawaa-status-danger-bg)':'var(--dawaa-theme-soft)'}}>
+   <details className="group rounded-xl border p-3" open={evidenceUnavailable||evidencePending} style={{borderColor:evidenceUnavailable?'var(--dawaa-status-danger-border)':'var(--dawaa-theme-border)',background:evidenceUnavailable?'var(--dawaa-status-danger-bg)':'var(--dawaa-theme-soft)'}}>
     <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-black" style={{color:evidenceUnavailable?'var(--dawaa-status-danger-text)':'var(--dawaa-theme-text)'}}>
-     <span>{evidenceUnavailable?<AlertTriangle className="me-1 inline" size={14}/>:<CheckCircle2 className="me-1 inline" size={14}/>} <span className="me-1 opacity-70">ملخص الدليل:</span>{props.evidence.summary}</span><span className="flex shrink-0 items-center gap-1 opacity-70">التفاصيل <ChevronDown className="transition-transform group-open:rotate-180" size={14}/></span>
+     <span>{evidenceUnavailable?<AlertTriangle className="me-1 inline" size={14}/>:<CheckCircle2 className="me-1 inline" size={14}/>} <span className="me-1 opacity-70">الخلاصة:</span>{props.evidence.summary}</span><span className="flex shrink-0 items-center gap-1 opacity-70">{hasEvidenceDetails?'عرض الدليل':'لا تفاصيل'} <ChevronDown className="transition-transform group-open:rotate-180" size={14}/></span>
     </summary>
     <div className="mt-2 border-t pt-2 text-xs font-bold" style={{borderColor:'var(--dawaa-theme-border)',color:'var(--dawaa-theme-muted)'}}>
      <div className="mb-2 text-[10px] font-black uppercase tracking-wide" style={{color:'var(--dawaa-theme-muted)'}}>تفاصيل القياس والوقائع</div>
