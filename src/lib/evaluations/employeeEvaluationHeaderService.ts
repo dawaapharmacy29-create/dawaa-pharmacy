@@ -1,6 +1,6 @@
 import { getStaffAttendanceDetail } from '@/lib/attendance/attendanceBreakdownService';
 import { getAnnualLeaveBalanceV1, getPermissionPolicyStatusV2, listStaffTimeOffRequests } from '@/lib/timeOffService';
-import { loadStaffPerformanceProfile } from '@/lib/staff/staffPerformanceProfileService';
+import { getStaffCycleSales } from '@/lib/staffSalesService';
 import type { EmployeeMonthlyEvidence } from '@/lib/staff/employeeMonthlyEvidenceService';
 import { canonicalStaffRole } from '@/lib/staff/staffRoleCapabilities';
 
@@ -28,20 +28,24 @@ export function evaluationRoleGroup(role:unknown):EvaluationRoleGroup{
 
 export async function loadEmployeeEvaluationHeader(args:{staffId:string;staffName:string;role:unknown;branch:string;start:string;end:string;evidence:EmployeeMonthlyEvidence}):Promise<EvaluationHeaderSummary>{
  const warnings:string[]=[];
- const [profileR,attendanceR,permissionR,requestsR,annualR]=await Promise.allSettled([
-  loadStaffPerformanceProfile({staffId:args.staffId,cycleStart:args.start,cycleEnd:args.end,branchFilter:args.branch}),
+ const roleGroup=evaluationRoleGroup(args.role);
+ const [salesR,attendanceR,permissionR,requestsR,annualR]=await Promise.allSettled([
+  roleGroup==='doctor'
+   ? getStaffCycleSales(args.staffId,args.staffName,args.branch,args.start,args.end)
+   : Promise.resolve(null),
   getStaffAttendanceDetail(args.staffId,args.start,args.end),
   getPermissionPolicyStatusV2(args.staffId,args.start,args.end),
   listStaffTimeOffRequests({staffId:args.staffId,from:args.start,to:args.end,status:'approved',limit:200}),
   getAnnualLeaveBalanceV1(args.staffId,Number(args.end.slice(0,4))),
  ]);
- const roleGroup=evaluationRoleGroup(args.role);
- const profile=profileR.status==='fulfilled'?profileR.value:null;
+ const sales=salesR.status==='fulfilled'?salesR.value:null;
+ const salesAvailable=roleGroup==='doctor'&&Boolean(sales&&sales.sourceTableUsed!=='none');
  const attendance=attendanceR.status==='fulfilled'?attendanceR.value:null;
  const permission=permissionR.status==='fulfilled'?permissionR.value:null;
  const requests=requestsR.status==='fulfilled'?requestsR.value:[];
  const annual=annualR.status==='fulfilled'?annualR.value:null;
- if(roleGroup==='doctor'&&!profile)warnings.push('ملخص المبيعات غير متاح');
+ if(roleGroup==='doctor'&&!salesAvailable)warnings.push('ملخص المبيعات غير متاح؛ لا يتم تفسير غياب المصدر كصفر.');
+ if(roleGroup==='doctor'&&sales?.warnings?.length)warnings.push(...sales.warnings);
  if(!attendance)warnings.push('تفاصيل الحضور والساعات غير متاحة');
  if(!permission)warnings.push('ملخص الأذونات غير متاح');
  if(requestsR.status!=='fulfilled')warnings.push('تفاصيل الإجازات غير متاحة');
@@ -50,7 +54,9 @@ export async function loadEmployeeEvaluationHeader(args:{staffId:string;staffNam
  const weeklyOffDays=attendance?.days.filter(x=>x.is_off_day===true||x.resolution_status==='off_day').length??null;
  return{
   roleGroup,branch:args.branch,
-  sales:roleGroup==='doctor'?{state:profile?.sales?'available':'unavailable',total:profile?.sales?.cycleNetSales??null,invoices:profile?.sales?.cycleInvoicesCount??null,avgInvoice:profile?.sales?.avgInvoice??null,customers:profile?.sales?.uniqueCustomers??null}:{state:'unavailable',total:null,invoices:null,avgInvoice:null,customers:null},
+  sales:roleGroup==='doctor'&&salesAvailable
+   ? {state:'available',total:sales!.totalSales,invoices:sales!.invoicesCount,avgInvoice:sales!.avgInvoice,customers:sales!.uniqueCustomersCount}
+   : {state:'unavailable',total:null,invoices:null,avgInvoice:null,customers:null},
   conversations:{state:args.evidence.health.reviews==='available'?'available':'unavailable',count:args.evidence.health.reviews==='available'?args.evidence.coaching.conversation.reviewCount:null,average:args.evidence.health.reviews==='available'?args.evidence.coaching.conversation.coreAverage:null},
   attendance:{state:attendance?'available':'unavailable',workedDays:attendance?.summary.actual_worked_days??null,workedHours:attendance?.summary.total_worked_hours??null,scheduledDays:attendance?.summary.scheduled_workdays??null,lateDays:attendance?.summary.late_days??null,absenceReviewDays:attendance?.summary.absence_review_days??null},
   timeOff:{state:permission&&requestsR.status==='fulfilled'?'available':permission||requestsR.status==='fulfilled'?'partial':'unavailable',permissions:permission?.approved_permissions??null,permissionMinutes:permission?.total_minutes??null,annualLeaveCycleDays:requestsR.status==='fulfilled'?annualCycleDays:null,annualLeaveYearUsed:annual?.used??null,annualLeaveYearBalance:annual?.balance??null,weeklyOffDays,otherApprovedLeaveDays:requestsR.status==='fulfilled'?otherLeaveDays:null},
