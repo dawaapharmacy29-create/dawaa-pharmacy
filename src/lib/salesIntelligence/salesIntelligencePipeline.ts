@@ -460,6 +460,7 @@ function analyzeOneCase(
     commercialConfirmation.needsHumanReview ||
     rawAttribution.needsHumanReview ||
     basketInvoiceMatch.needsHumanReview ||
+    financialSettlement.needsHumanReview ||
     (!isGenuinelyInformationOnly && integrityAssessment.needsHumanReview) ||
     activeBasketResolution.outcome === 'needs_human_review';
 
@@ -469,6 +470,7 @@ function analyzeOneCase(
       ...commercialConfirmation.humanReviewReasons,
       ...rawAttribution.humanReviewReasons,
       ...basketInvoiceMatch.humanReviewReasons,
+      ...(financialSettlement.needsHumanReview ? financialSettlement.ruleIds : []),
       ...(isGenuinelyInformationOnly ? [] : integrityAssessment.humanReviewReasons),
       ...(activeBasketResolution.outcome === 'needs_human_review' ? ['active_basket_conflict'] : []),
     ])

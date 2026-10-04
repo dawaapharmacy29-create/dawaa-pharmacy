@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { deriveFinancialSettlementAssessment } from '@/lib/salesIntelligence/financialSettlementEngine';
 import { deriveCanonicalSalesOutcome } from '@/lib/salesIntelligence/canonicalSalesOutcomeEngine';
 import { parseWhatsAppExport } from '@/lib/whatsappConversationParser';
-import { deriveSegmentedCases } from '@/lib/salesIntelligence/salesIntelligencePipeline';
+import { deriveSegmentedCases, runSalesIntelligencePipeline } from '@/lib/salesIntelligence/salesIntelligencePipeline';
 
 const RAW = `[9/27/26, 9:03:34 PM] ابراهيم الصياد ٣٦٤٣: لوسمحت كنت محتاجه علبتين لبن هيرو بيبي نيوتروني دفنس 3
 [9/27/26, 9:06:00 PM] You: جاري الارسال
@@ -71,6 +71,53 @@ describe('Sales Intelligence financial settlement', () => {
     expect(result.status).toBe('contradicted');
     expect(result.amountMatch).toBe('different');
     expect(result.needsHumanReview).toBe(true);
+  });
+
+  it('requires human review for a near payment/invoice amount match instead of auto-closing it', () => {
+    const messages = parseWhatsAppExport(RAW).map((m: any) => ({ id: m.id, sender: m.sender, role: m.sender === 'You' ? 'staff' : 'customer', text: m.text, timestamp: m.timestamp, isMeaningful: !/image omitted/i.test(m.text) }));
+    const result = deriveFinancialSettlementAssessment({
+      caseId: 'case-1', messages: messages as any, attribution: attribution(),
+      selectedInvoiceRow: { id: 'inv-74884', invoice_number: '74884', net_amount: 779 },
+      customerIdentityStatus: 'resolved',
+    });
+    expect(result.status).toBe('pending');
+    expect(result.amountMatch).toBe('near_match');
+    expect(result.needsHumanReview).toBe(true);
+    expect(result.ruleIds).toContain('financial_settlement.near_amount_requires_review');
+  });
+
+  it('propagates a financial amount contradiction into the case-level review gate', () => {
+    const result = runSalesIntelligencePipeline({
+      conversationId: 'ibrahim-financial-conflict',
+      rawWhatsAppExportText: RAW,
+      trustedConversationStartedAt: '2026-09-27T18:03:34.000Z',
+      customerIdHint: 'cust-3643',
+      customerPhoneHint: '01016891940',
+      customerCodeHint: '3643',
+      customerNameHint: 'ابراهيم الصياد',
+      customerIdentityStatus: 'resolved',
+      branchNameRawHint: 'فرع شكري',
+      trustedInvoiceId: 'inv-74884',
+      trustedInvoiceNumber: '74884',
+      resolveInvoiceCandidates: () => [{
+        id: 'inv-74884',
+        invoice_number: '74884',
+        customer_id: 'cust-3643',
+        customer_code: '3643',
+        customer_name: 'ابراهيم الصياد',
+        customer_phone: '01016891940',
+        branch_name: 'فرع شكري',
+        invoice_datetime: '2026-09-27T18:06:00.000Z',
+        close_datetime: '2026-09-28T00:11:00.000Z',
+        net_amount: 700,
+      }],
+    });
+    expect(result.caseAnalyses).toHaveLength(1);
+    const analysis = result.caseAnalyses[0];
+    expect(analysis.financialSettlement?.status).toBe('contradicted');
+    expect(analysis.needsHumanReview).toBe(true);
+    expect(analysis.humanReviewReasons).toContain('financial_settlement.payment_amount_conflicts_with_selected_invoice');
+    expect(analysis.caseIntelligence.review.required).toBe(true);
   });
 
   it('does not treat payment-continuation messages as multiple independent customer requests', () => {

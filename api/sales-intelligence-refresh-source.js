@@ -4040,7 +4040,14 @@ function deriveFinancialSettlementAssessment(input) {
       ruleIds.push("financial_settlement.customer_identity_not_resolved");
     }
     if (!attributionStrong) ruleIds.push("financial_settlement.invoice_attribution_not_strong_clean");
-    if (amountMatch === "near_match") ruleIds.push("financial_settlement.near_amount_requires_review");
+    if (amountMatch === "near_match") {
+      needsHumanReview = true;
+      ruleIds.push("financial_settlement.near_amount_requires_review");
+    }
+    if (amountMatch === "different" && attributionStrong) {
+      needsHumanReview = true;
+      ruleIds.push("financial_settlement.payment_amount_conflicts_with_selected_invoice");
+    }
     if (amountMatch === "not_available") ruleIds.push("financial_settlement.amount_not_reconciled");
     if (!signals.paymentProofMessageId) ruleIds.push("financial_settlement.customer_payment_proof_missing");
     if (!signals.receiptAcknowledgementMessageId) ruleIds.push("financial_settlement.staff_receipt_ack_missing");
@@ -6479,13 +6486,14 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
   if (commercialConfirmation.staffConfirmed && (input.knownStaffIds ?? []).length === 0) failureReasons.push("staff_identity_unresolved");
   if (!conversationCase.endedAt) failureReasons.push("conversation_timestamp_quality_issue");
   const isGenuinelyInformationOnly = conversationCase.caseType === "information_only" && !evidenceCompleteness.basketDetected;
-  const rawNeedsHumanReview = conversationCase.needsHumanReview || commercialConfirmation.needsHumanReview || rawAttribution.needsHumanReview || basketInvoiceMatch.needsHumanReview || !isGenuinelyInformationOnly && integrityAssessment.needsHumanReview || activeBasketResolution.outcome === "needs_human_review";
+  const rawNeedsHumanReview = conversationCase.needsHumanReview || commercialConfirmation.needsHumanReview || rawAttribution.needsHumanReview || basketInvoiceMatch.needsHumanReview || financialSettlement.needsHumanReview || !isGenuinelyInformationOnly && integrityAssessment.needsHumanReview || activeBasketResolution.outcome === "needs_human_review";
   const rawHumanReviewReasons = Array.from(
     /* @__PURE__ */ new Set([
       ...conversationCase.humanReviewReasons,
       ...commercialConfirmation.humanReviewReasons,
       ...rawAttribution.humanReviewReasons,
       ...basketInvoiceMatch.humanReviewReasons,
+      ...financialSettlement.needsHumanReview ? financialSettlement.ruleIds : [],
       ...isGenuinelyInformationOnly ? [] : integrityAssessment.humanReviewReasons,
       ...activeBasketResolution.outcome === "needs_human_review" ? ["active_basket_conflict"] : []
     ])

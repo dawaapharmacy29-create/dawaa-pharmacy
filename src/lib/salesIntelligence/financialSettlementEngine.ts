@@ -70,7 +70,17 @@ export function deriveFinancialSettlementAssessment(input: FinancialSettlementIn
       ruleIds.push('financial_settlement.customer_identity_not_resolved');
     }
     if (!attributionStrong) ruleIds.push('financial_settlement.invoice_attribution_not_strong_clean');
-    if (amountMatch === 'near_match') ruleIds.push('financial_settlement.near_amount_requires_review');
+    if (amountMatch === 'near_match') {
+      needsHumanReview = true;
+      ruleIds.push('financial_settlement.near_amount_requires_review');
+    }
+    // A real announced-vs-invoice mismatch is financially material even when the proof/receipt
+    // sequence is still incomplete. Keep it pending (not contradicted until the full sequence
+    // exists), but never let the discrepancy pass without human review.
+    if (amountMatch === 'different' && attributionStrong) {
+      needsHumanReview = true;
+      ruleIds.push('financial_settlement.payment_amount_conflicts_with_selected_invoice');
+    }
     if (amountMatch === 'not_available') ruleIds.push('financial_settlement.amount_not_reconciled');
     if (!signals.paymentProofMessageId) ruleIds.push('financial_settlement.customer_payment_proof_missing');
     if (!signals.receiptAcknowledgementMessageId) ruleIds.push('financial_settlement.staff_receipt_ack_missing');
