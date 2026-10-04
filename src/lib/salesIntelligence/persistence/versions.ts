@@ -7,7 +7,7 @@
 // REPROCESSING_MATRIX assigns it (see persistence/types.ts).
 // IMPORTANT: after changing semantic versions here, regenerate the committed serverless transport
 // with scripts/build-sales-intelligence-refresh-api.cjs so Preview/Production runs the same versions.
-// Preview sync marker: V14 canonical journey bridge and generated serverless transport verified together.
+// Preview sync marker: V14 canonical journey bridge and generated serverless transport verified together; retry after Vercel build-rate window.
 // v14 (2026-10-04): canonical refresh reassembles only explicit payment-settlement followup fine
 // sources into their single same-journey order anchor for analysis, while preserving source/V22
 // ownership and retiring the follower's stale SI case-set through normal reconciliation.
