@@ -780,7 +780,13 @@ export default function StaffMonthlyEvaluation() {
             p_staff_id: selectedId,
             p_month: cycleKeyDate,
           }),
-          loadEmployeeMonthlyEvidence({ staffId: selectedId, startDate, endDateExclusive }),
+          loadEmployeeMonthlyEvidence({
+            staffId: selectedId,
+            startDate,
+            endDateExclusive,
+            role: selected.job_title || selected.role,
+            branch: selected.branch || branch,
+          }),
           getStaffPointsDashboardV3(selectedId, cycleLabel).catch(() => null),
           // Historical closed statements remain the frozen source if one exists.
           supabase
