@@ -20,8 +20,11 @@ export default function EvaluationAxisCardV1(props:{
  const evidenceCount=props.evidence.details.filter(Boolean).length;
  const exampleCount=props.evidence.examples?.length||0;
  const compactEvidence=props.evidence.details.filter(Boolean);
- const primaryEvidence=compactEvidence.slice(0,4);
- const secondaryEvidence=compactEvidence.slice(4);
+ const sourceEvidence=compactEvidence.filter(x=>/^(مصدر الدليل|المصدر:)/.test(x));
+ const limitEvidence=compactEvidence.filter(x=>/^(حدود الدليل|تغطية هذا الدليل)/.test(x));
+ const factualEvidence=compactEvidence.filter(x=>!sourceEvidence.includes(x)&&!limitEvidence.includes(x));
+ const primaryEvidence=factualEvidence.slice(0,4);
+ const secondaryEvidence=factualEvidence.slice(4);
  const hasEvidenceDetails=compactEvidence.length>0||exampleCount>0;
  const stateStyle=evidenceUnavailable
   ? {background:'var(--dawaa-status-danger-bg)',color:'var(--dawaa-status-danger-text)',borderColor:'var(--dawaa-status-danger-border)'}
@@ -62,6 +65,7 @@ export default function EvaluationAxisCardV1(props:{
     <div className="mt-2 border-t pt-2 text-xs font-bold" style={{borderColor:'var(--dawaa-theme-border)',color:'var(--dawaa-theme-muted)'}}>
      <div className="mb-2 text-[10px] font-black uppercase tracking-wide" style={{color:'var(--dawaa-theme-muted)'}}>تفاصيل القياس والوقائع</div>
      <div className="grid gap-1.5 sm:grid-cols-2">{primaryEvidence.map((x,index)=><div key={`${index}:${x}`} className="rounded-lg border px-2.5 py-2 leading-5" style={{borderColor:'var(--dawaa-theme-border)',background:'var(--dawaa-theme-surface)'}}>{x}</div>)}</div>
+     {sourceEvidence.length||limitEvidence.length?<div className="mt-2 grid gap-1.5 sm:grid-cols-2">{sourceEvidence.map(x=><div key={x} className="rounded-lg border px-2.5 py-2 text-[11px] leading-5" style={{borderColor:'var(--dawaa-status-info-border)',background:'var(--dawaa-theme-surface)',color:'var(--dawaa-theme-muted)'}}>{x}</div>)}{limitEvidence.map(x=><div key={x} className="rounded-lg border px-2.5 py-2 text-[11px] leading-5" style={{borderColor:'var(--dawaa-status-warning-border)',background:'var(--dawaa-theme-surface)',color:'var(--dawaa-theme-muted)'}}>{x}</div>)}</div>:null}
      {secondaryEvidence.length?<details className="mt-2 rounded-lg border px-2.5 py-2" style={{borderColor:'var(--dawaa-theme-border)',background:'var(--dawaa-theme-surface)'}}><summary className="cursor-pointer list-none text-[11px] font-black" style={{color:'var(--dawaa-theme-primary-strong)'}}>+ {secondaryEvidence.length} تفاصيل إضافية</summary><div className="mt-2 grid gap-1.5 sm:grid-cols-2">{secondaryEvidence.map((x,index)=><div key={`more:${index}:${x}`} className="rounded-md border px-2 py-1.5 leading-5" style={{borderColor:'var(--dawaa-theme-border)'}}>{x}</div>)}</div></details>:null}
      <div className="mt-2 text-[10px] font-bold" style={{color:'var(--dawaa-theme-muted)'}}>الدليل يبرر قرار المدير ولا ينشئ درجة تلقائية.</div>
      {exampleCount?<div className="mt-3 text-[10px] font-black" style={{color:'var(--dawaa-theme-muted)'}}>وقائع قابلة للمراجعة</div>:null}
