@@ -1,0 +1,354 @@
+name: SI V14 Journey Payment Context Temp 3
+
+on:
+  push:
+    branches:
+      - fix/si-quality-closing-continuation-20261004
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/si-quality-closing-continuation-20261004
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - name: Apply canonical journey payment-context repair
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          p = Path('src/lib/whatsappConversationUnderstandingV32.ts')
+          s = p.read_text()
+          old = """const PAYMENT_SETTLEMENT_CONTINUATION_RX =
+            /رقم\\s*التحويل|(?:صوره|صورة)\\s*التحويل|استاذن[^\\n]{0,80}(?:صوره|صورة)[^\\n]{0,40}التحويل|رابط\\s*الدفع|لينك\\s*الدفع/i;
+          """
+          new = old + """
+          /** Shared semantic guard: an explicit staff payment/transfer handoff, never a generic phone mention. */
+          export function hasPaymentSettlementHandoffText(text: string): boolean {
+            return PAYMENT_SETTLEMENT_CONTINUATION_RX.test(text || '');
+          }
+          """
+          assert s.count(old) == 1, 'payment settlement regex anchor drifted'
+          s = s.replace(old, new, 1)
+          old_return = "return currentHasOrderCommitment(current) && PAYMENT_SETTLEMENT_CONTINUATION_RX.test(next.text);"
+          new_return = "return currentHasOrderCommitment(current) && hasPaymentSettlementHandoffText(next.text);"
+          assert s.count(old_return) == 1, 'payment continuation call anchor drifted'
+          s = s.replace(old_return, new_return, 1)
+          p.write_text(s)
+
+          p = Path('src/lib/salesIntelligence/refresh/canonicalRefreshService.ts')
+          s = p.read_text()
+          import_anchor = "import { persistAutomaticCaseConversationReviewWithClient } from '../conversationEvaluationPersistence';\n"
+          import_add = import_anchor + "import { hasPaymentSettlementHandoffText } from '../../whatsappConversationUnderstandingV32';\n"
+          assert s.count(import_anchor) == 1, 'canonical refresh import anchor drifted'
+          s = s.replace(import_anchor, import_add, 1)
+
+          marker = """function toBlocked(
+            decision: Extract<CanonicalSourceGateDecision, { allowed: false }>
+          ): BlockedSource {
+            return {
+              sourceId: decision.sourceId,
+              error: decision.code,
+              reason: decision.reason,
+              v22CaseIds: decision.v22CaseIds,
+              supersedingSourceIds: decision.supersedingSourceIds,
+            };
+          }
+          """
+          insert = marker + """
+
+          export type V22AnalysisContext = {
+            id: string;
+            journeyId: string | null;
+            customerId: string | null;
+            caseType: string | null;
+            orderIntent: boolean;
+            orderConfirmed: boolean;
+          };
+
+          const V22_ANALYSIS_CONTEXT_CHUNK = 40;
+          const PAYMENT_CONTINUATION_MAX_GAP_MS = 24 * 60 * 60 * 1000;
+
+          function sourceTime(value: unknown): number | null {
+            const parsed = value ? Date.parse(String(value)) : NaN;
+            return Number.isFinite(parsed) ? parsed : null;
+          }
+
+          /**
+           * Analysis-only assembly for a legacy fine-source split that represents one order lifecycle.
+           * Canonical ownership remains on the order source; the payment follower is consumed only as
+           * analysis context and its stale SI case-set is retired by the normal reconciliation pass.
+           */
+          export function buildCanonicalAnalysisConversations(
+            admitted: Record<string, unknown>[],
+            v22CaseIdBySource: Map<string, string>,
+            v22ContextByCaseId: Map<string, V22AnalysisContext>
+          ): ReturnType<typeof reviewSourceRowToBatchConversation>[] {
+            type Member = {
+              source: Record<string, unknown>;
+              sourceId: string;
+              context: V22AnalysisContext;
+            };
+
+            const groups = new Map<string, Member[]>();
+            for (const source of admitted) {
+              const sourceId = String(source.id || '');
+              const caseId = v22CaseIdBySource.get(sourceId) || '';
+              const context = v22ContextByCaseId.get(caseId);
+              const fileName = String(source.source_filename || '');
+              if (!sourceId || !caseId || !context?.journeyId || !context.customerId || !fileName) continue;
+              const key = `${fileName}|${context.journeyId}|${context.customerId}`;
+              const members = groups.get(key) || [];
+              members.push({ source, sourceId, context });
+              groups.set(key, members);
+            }
+
+            const followersByAnchor = new Map<string, Set<string>>();
+            const mergedFollowers = new Set<string>();
+            for (const members of groups.values()) {
+              const anchors = members.filter(
+                (member) =>
+                  member.context.caseType === 'order' &&
+                  (member.context.orderIntent || member.context.orderConfirmed)
+              );
+              if (anchors.length !== 1) continue;
+              const anchor = anchors[0];
+              const anchorEnd = sourceTime(anchor.source.conversation_ended_at);
+              if (anchorEnd === null) continue;
+
+              const paymentFollowers = members.filter((member) => {
+                if (member.sourceId === anchor.sourceId || member.context.caseType !== 'followup') return false;
+                if (!hasPaymentSettlementHandoffText(String(member.source.raw_text || ''))) return false;
+                const followerStart = sourceTime(member.source.conversation_started_at);
+                if (followerStart === null || followerStart < anchorEnd) return false;
+                return followerStart - anchorEnd <= PAYMENT_CONTINUATION_MAX_GAP_MS;
+              });
+              if (!paymentFollowers.length) continue;
+
+              followersByAnchor.set(anchor.sourceId, new Set(paymentFollowers.map((row) => row.sourceId)));
+              for (const follower of paymentFollowers) mergedFollowers.add(follower.sourceId);
+            }
+
+            const conversations: ReturnType<typeof reviewSourceRowToBatchConversation>[] = [];
+            for (const source of admitted) {
+              const sourceId = String(source.id || '');
+              if (mergedFollowers.has(sourceId)) continue;
+              const followerIds = followersByAnchor.get(sourceId);
+              let analysisSource = source;
+              if (followerIds?.size) {
+                const parts = admitted
+                  .filter((row) => String(row.id || '') === sourceId || followerIds.has(String(row.id || '')))
+                  .sort(
+                    (a, b) =>
+                      (sourceTime(a.conversation_started_at) ?? 0) -
+                      (sourceTime(b.conversation_started_at) ?? 0)
+                  );
+                analysisSource = {
+                  ...source,
+                  raw_text: parts
+                    .map((row) => String(row.raw_text || '').trim())
+                    .filter(Boolean)
+                    .join(String.fromCharCode(10)),
+                };
+              }
+              conversations.push(
+                reviewSourceRowToBatchConversation({
+                  ...(analysisSource as any),
+                  source_case_id_v22: v22CaseIdBySource.get(sourceId) || null,
+                })
+              );
+            }
+            return conversations;
+          }
+
+          async function loadV22AnalysisContexts(
+            service: any,
+            caseIds: string[]
+          ): Promise<Map<string, V22AnalysisContext>> {
+            const out = new Map<string, V22AnalysisContext>();
+            const ids = Array.from(new Set(caseIds.map(String).filter(Boolean)));
+            for (let index = 0; index < ids.length; index += V22_ANALYSIS_CONTEXT_CHUNK) {
+              const { data, error } = await service
+                .from('whatsapp_customer_cases_v22')
+                .select('id,journey_id,customer_id,case_type,order_intent,order_confirmed')
+                .in('id', ids.slice(index, index + V22_ANALYSIS_CONTEXT_CHUNK));
+              if (error) throw new Error(`canonical_refresh_v22_context_lookup_failed: ${error.message}`);
+              for (const row of data || []) {
+                out.set(String(row.id), {
+                  id: String(row.id),
+                  journeyId: row.journey_id ? String(row.journey_id) : null,
+                  customerId: row.customer_id ? String(row.customer_id) : null,
+                  caseType: row.case_type ? String(row.case_type) : null,
+                  orderIntent: Boolean(row.order_intent),
+                  orderConfirmed: Boolean(row.order_confirmed),
+                });
+              }
+            }
+            return out;
+          }
+          """
+          assert s.count(marker) == 1, 'toBlocked marker drifted'
+          s = s.replace(marker, insert, 1)
+
+          old_conv = """  // 2. Sales Intelligence pipeline + persistence, with the resolved Customer Case V22 identity.
+            const conversations = admitted.map((source) =>
+              reviewSourceRowToBatchConversation({
+                ...(source as any),
+                source_case_id_v22: v22CaseIdBySource.get(String(source.id)) || null,
+              })
+            );
+            const batch = await runBatchPersistence(service, { conversations, dryRun: input.dryRun });
+          """
+          new_conv = """  // 2. Sales Intelligence pipeline + persistence, with the resolved Customer Case V22 identity.
+            // Reassemble only an explicit same-journey payment-settlement followup into its single
+            // order anchor for analysis. Canonical gate/source ownership remains unchanged.
+            const v22ContextByCaseId = await loadV22AnalysisContexts(
+              service,
+              Array.from(new Set(v22CaseIdBySource.values()))
+            );
+            const conversations = buildCanonicalAnalysisConversations(
+              admitted,
+              v22CaseIdBySource,
+              v22ContextByCaseId
+            );
+            const batch = await runBatchPersistence(service, { conversations, dryRun: input.dryRun });
+          """
+          assert s.count(old_conv) == 1, 'conversation assembly anchor drifted'
+          s = s.replace(old_conv, new_conv, 1)
+          p.write_text(s)
+
+          p = Path('src/lib/salesIntelligence/persistence/versions.ts')
+          s = p.read_text()
+          old_version = "export const PIPELINE_VERSION = 'sales-intelligence-v13';"
+          assert s.count(old_version) == 1, 'V13 version anchor drifted'
+          s = s.replace(old_version, "export const PIPELINE_VERSION = 'sales-intelligence-v14';", 1)
+          comment_anchor = "// v13 (2026-10-04): quality hardening validated on real WhatsApp cases. The semantic pipeline\n"
+          v14_comment = "// v14 (2026-10-04): canonical refresh reassembles only explicit payment-settlement followup fine\n// sources into their single same-journey order anchor for analysis, while preserving source/V22\n// ownership and retiring the follower's stale SI case-set through normal reconciliation.\n"
+          assert s.count(comment_anchor) == 1, 'version comment anchor drifted'
+          s = s.replace(comment_anchor, v14_comment + comment_anchor, 1)
+          p.write_text(s)
+
+          test = Path('src/lib/salesIntelligence/refresh/__tests__/canonicalJourneyPaymentContext.test.ts')
+          test.write_text(r'''import { describe, expect, it } from 'vitest';
+import {
+  buildCanonicalAnalysisConversations,
+  type V22AnalysisContext,
+} from '../canonicalRefreshService';
+
+describe('canonical analysis journey payment-context assembly', () => {
+  const sourceMap = new Map([
+    ['order-source', 'order-case'],
+    ['payment-source', 'payment-case'],
+  ]);
+  const v22 = new Map<string, V22AnalysisContext>([
+    ['order-case', {
+      id: 'order-case',
+      journeyId: 'journey-1',
+      customerId: 'customer-3643',
+      caseType: 'order',
+      orderIntent: true,
+      orderConfirmed: true,
+    }],
+    ['payment-case', {
+      id: 'payment-case',
+      journeyId: 'journey-1',
+      customerId: 'customer-3643',
+      caseType: 'followup',
+      orderIntent: false,
+      orderConfirmed: false,
+    }],
+  ]);
+
+  const order = {
+    id: 'order-source',
+    source_filename: 'ابراهيم الصياد ٣٦٤٣ (1).zip',
+    raw_text: '[9/27/26, 9:03:34 PM] Customer: علبتين لبن هيرو بيبي\n[9/27/26, 9:06:00 PM] You: جاري الارسال',
+    conversation_started_at: '2026-09-27T18:03:34Z',
+    conversation_ended_at: '2026-09-27T18:15:35Z',
+    customer_id: 'customer-3643',
+    customer_code: '3643',
+    customer_name: 'ابراهيم الصياد',
+    customer_phone: '01016891940',
+  };
+
+  const payment = {
+    id: 'payment-source',
+    source_filename: 'ابراهيم الصياد ٣٦٤٣ (1).zip',
+    raw_text: '[9/28/26, 2:52:09 AM] You: اتفضل رقم التحويل يا فندم 01028308235\n[9/28/26, 3:08:09 AM] Customer: الحساب كام من فضلك\n[9/28/26, 3:10:40 AM] You: وصل شكرا جزيلا',
+    conversation_started_at: '2026-09-27T23:52:09Z',
+    conversation_ended_at: '2026-09-28T00:10:40Z',
+    customer_id: 'customer-3643',
+    customer_code: '3643',
+    customer_name: 'ابراهيم الصياد',
+    customer_phone: '01016891940',
+  };
+
+  it('feeds one order-anchor conversation to V9 with the payment-settlement context', () => {
+    const conversations = buildCanonicalAnalysisConversations([order, payment], sourceMap, v22);
+    expect(conversations).toHaveLength(1);
+    expect(conversations[0].conversationId).toBe('order-source');
+    expect(conversations[0].sourceCaseIdV22).toBe('order-case');
+    expect(conversations[0].rawWhatsAppExportText).toContain('علبتين لبن هيرو بيبي');
+    expect(conversations[0].rawWhatsAppExportText).toContain('رقم التحويل');
+    expect(conversations[0].rawWhatsAppExportText).toContain('وصل شكرا جزيلا');
+  });
+
+  it('fails closed for a generic followup with no explicit payment handoff', () => {
+    const generic = { ...payment, raw_text: '[9/28/26, 2:52:09 AM] You: مساء الخير يا فندم' };
+    const conversations = buildCanonicalAnalysisConversations([order, generic], sourceMap, v22);
+    expect(conversations).toHaveLength(2);
+  });
+
+  it('fails closed when the same journey contains more than one order anchor', () => {
+    const contexts = new Map(v22);
+    contexts.set('payment-case', {
+      ...v22.get('payment-case')!,
+      caseType: 'order',
+      orderIntent: true,
+    });
+    const conversations = buildCanonicalAnalysisConversations([order, payment], sourceMap, contexts);
+    expect(conversations).toHaveLength(2);
+  });
+});
+''')
+          PY
+      - name: Focused regression tests
+        run: npx vitest run src/lib/__tests__/whatsappConversationUnderstandingV32.test.ts src/lib/salesIntelligence/refresh/__tests__/canonicalJourneyPaymentContext.test.ts
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Generate canonical Sales Intelligence API
+        run: node scripts/build-sales-intelligence-refresh-api.cjs
+      - name: Verify generated API versions and journey bridge
+        run: |
+          grep -q 'sales-intelligence-v14' api/sales-intelligence-refresh-source.js
+          grep -q 'case-segmentation-v9-payment-settlement-continuation' api/sales-intelligence-refresh-source.js
+          grep -q 'buildCanonicalAnalysisConversations' api/sales-intelligence-refresh-source.js
+      - name: Commit repair and remove temporary workflows
+        run: |
+          rm -f .github/workflows/si-v14-journey-payment-context-temp.yml
+          rm -f .github/workflows/si-v14-journey-payment-context-temp2.yml
+          rm -f .github/workflows/si-v14-journey-payment-context-temp3.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/lib/whatsappConversationUnderstandingV32.ts \
+                  src/lib/salesIntelligence/refresh/canonicalRefreshService.ts \
+                  src/lib/salesIntelligence/refresh/__tests__/canonicalJourneyPaymentContext.test.ts \
+                  src/lib/salesIntelligence/persistence/versions.ts \
+                  api/sales-intelligence-refresh-source.js \
+                  .github/workflows/si-v14-journey-payment-context-temp.yml \
+                  .github/workflows/si-v14-journey-payment-context-temp2.yml \
+                  .github/workflows/si-v14-journey-payment-context-temp3.yml
+          git commit -m 'fix: reassemble payment continuation for SI analysis'
+          git push origin HEAD:fix/si-quality-closing-continuation-20261004
