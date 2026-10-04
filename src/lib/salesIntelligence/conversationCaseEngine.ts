@@ -19,6 +19,7 @@ import {
   extractRequestSignals,
   isSubstantiveConfirmationSignal,
 } from '../whatsappSemanticSignalsV32';
+import { isCustomerPaymentSettlementContinuation } from './paymentSettlementSignals';
 import type { CaseStatus, CaseType, ConfidenceAssessment, ConfidenceLevel, ConversationCase, EvidenceRef } from './types';
 
 export interface DeriveConversationCasesInput {
@@ -60,10 +61,13 @@ function hasUnresolvedMultipleRequests(
   messages: NormalizedConversationMessageV32[],
   requestMessages: NormalizedConversationMessageV32[]
 ): boolean {
-  if (requestMessages.length < 2) return false;
-  for (let i = 1; i < requestMessages.length; i += 1) {
-    const prev = requestMessages[i - 1];
-    const curr = requestMessages[i];
+  const independentRequests = requestMessages.filter(
+    (message) => !isCustomerPaymentSettlementContinuation(messages, message.id)
+  );
+  if (independentRequests.length < 2) return false;
+  for (let i = 1; i < independentRequests.length; i += 1) {
+    const prev = independentRequests[i - 1];
+    const curr = independentRequests[i];
     const staffReplyBetween = messages.some(
       (m) =>
         m.role === 'staff' &&

@@ -101,7 +101,13 @@ export function deriveCommercialJourneyState(input: DeriveCommercialJourneyState
   } else {
     for (const state of PROGRESSION) if (reached.has(state)) currentState = state;
     const states: Partial<Record<CommercialJourneyState, [string, ConfidenceLevel, number]>> = {
-      awaiting_invoice: ['journey.order_confirmed_sale_not_yet_proven', 'strongly_inferred', 0.9],
+      awaiting_invoice: [
+        input.salesOutcome.reasonCodes.includes('outcome.financial_settlement_closed_sale_not_proven')
+          ? 'journey.financial_settlement_closed_canonical_sale_proof_pending'
+          : 'journey.order_confirmed_sale_not_yet_proven',
+        'strongly_inferred',
+        0.9,
+      ],
       customer_confirmed: ['journey.customer_confirmed_waiting_staff_or_invoice', 'strongly_inferred', 0.85],
       awaiting_customer_confirmation: ['journey.final_basket_presented_waiting_customer', 'strongly_inferred', 0.8],
       basket_building: ['journey.basket_evidence_present', 'strongly_inferred', 0.75],

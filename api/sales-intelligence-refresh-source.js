@@ -1504,6 +1504,103 @@ function buildConversationUnderstandingV32(session) {
   };
 }
 
+// src/lib/salesIntelligence/paymentSettlementSignals.ts
+var PAYMENT_CONTEXT_RX = /(?:رقم\s*التحويل|تحويل\s*(?:بنكي|فودافون|انستا|insta)?|فودافون\s*كاش|انستا\s*باي|instapay)/i;
+var TOTAL_QUESTION_RX = /(?:الحساب|الإجمالي|الاجمالي|المجموع).{0,18}(?:كام|قد\s*ايه|قد\s*إيه)|(?:كدا|كده)?\s*(?:هيبقا|هيبقى|يبقا|يبقى)\s*كام/i;
+var COMPACT_AMOUNT_RX = /^\s*([0-9٠-٩۰-۹]+(?:[.,٫][0-9٠-٩۰-۹]+)?)\s*(?:جنيه|جنيها|ج(?:\.?م\.?)?)?\s*(?:ان\s*شاء\s*الله)?[.!، ]*$/i;
+var PAYMENT_PROOF_RX = /(?:image omitted|photo omitted|document omitted|صورة\s*التحويل|سكرين\s*(?:التحويل)?|تم\s*التحويل|حولت|حوّلت|اتحول|تم\s*الدفع)/i;
+var RECEIPT_ACK_RX = /^\s*(?:وصل(?:ت)?|تم\s*(?:الاستلام|استلام\s*التحويل|وصول\s*التحويل)|استلمنا)(?:\b|[ .،!])/i;
+var PAYMENT_CONTINUATION_RX = /(?:الحساب|الإجمالي|الاجمالي|المجموع).{0,18}(?:كام|قد\s*ايه|قد\s*إيه)|(?:اسف|آسف|اسفه|آسفه).{0,12}نسيت\s*(?:خالص)?|نسيت\s*خالص|تم\s*التحويل|حولت|حوّلت|اتحول|صورة\s*التحويل/i;
+function asciiDigits(value) {
+  return value.replace(/[٠-٩]/g, (digit) => String(digit.charCodeAt(0) - 1632)).replace(/[۰-۹]/g, (digit) => String(digit.charCodeAt(0) - 1776)).replace("\u066B", ".").replace(",", ".");
+}
+function parseCompactAmount(text2) {
+  const match = asciiDigits(text2.trim()).match(COMPACT_AMOUNT_RX);
+  if (!match) return null;
+  const value = Number(match[1]);
+  return Number.isFinite(value) ? value : null;
+}
+function detectPaymentSettlementSignals(messages) {
+  const ordered4 = [...messages].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+  let best = {
+    paymentContextMessageId: null,
+    totalQuestionMessageId: null,
+    amountMessageId: null,
+    announcedPaymentAmount: null,
+    paymentProofMessageId: null,
+    paymentProofKind: "none",
+    receiptAcknowledgementMessageId: null,
+    completeSequence: false,
+    primaryMessageIds: []
+  };
+  for (let start = 0; start < ordered4.length; start += 1) {
+    const context = ordered4[start];
+    if (context.role !== "staff" || !context.isMeaningful || !PAYMENT_CONTEXT_RX.test(context.text)) continue;
+    const totalQuestionIndex = ordered4.findIndex(
+      (m, i) => i > start && m.role === "customer" && m.isMeaningful && TOTAL_QUESTION_RX.test(m.text)
+    );
+    if (totalQuestionIndex < 0) {
+      best = { ...best, paymentContextMessageId: context.id, primaryMessageIds: [context.id] };
+      continue;
+    }
+    let amountIndex = -1;
+    let amount = null;
+    for (let i = totalQuestionIndex + 1; i < ordered4.length; i += 1) {
+      const message = ordered4[i];
+      if (message.role !== "staff" || !message.isMeaningful) continue;
+      const parsed = parseCompactAmount(message.text);
+      if (parsed != null) {
+        amountIndex = i;
+        amount = parsed;
+        break;
+      }
+    }
+    if (amountIndex < 0) {
+      best = {
+        ...best,
+        paymentContextMessageId: context.id,
+        totalQuestionMessageId: ordered4[totalQuestionIndex].id,
+        primaryMessageIds: [context.id, ordered4[totalQuestionIndex].id]
+      };
+      continue;
+    }
+    const proofIndex = ordered4.findIndex(
+      (m, i) => i > amountIndex && m.role === "customer" && PAYMENT_PROOF_RX.test(m.text)
+    );
+    const receiptIndex = proofIndex < 0 ? -1 : ordered4.findIndex(
+      (m, i) => i > proofIndex && m.role === "staff" && m.isMeaningful && RECEIPT_ACK_RX.test(m.text)
+    );
+    const proof = proofIndex >= 0 ? ordered4[proofIndex] : null;
+    const ids = [context.id, ordered4[totalQuestionIndex].id, ordered4[amountIndex].id, proof?.id, receiptIndex >= 0 ? ordered4[receiptIndex].id : null].filter((value) => Boolean(value));
+    const result = {
+      paymentContextMessageId: context.id,
+      totalQuestionMessageId: ordered4[totalQuestionIndex].id,
+      amountMessageId: ordered4[amountIndex].id,
+      announcedPaymentAmount: amount,
+      paymentProofMessageId: proof?.id ?? null,
+      paymentProofKind: proof ? /image omitted|photo omitted|document omitted/i.test(proof.text) ? "customer_media" : "customer_text" : "none",
+      receiptAcknowledgementMessageId: receiptIndex >= 0 ? ordered4[receiptIndex].id : null,
+      completeSequence: Boolean(proof && receiptIndex >= 0),
+      primaryMessageIds: ids
+    };
+    if (result.completeSequence) return result;
+    best = result;
+  }
+  return best;
+}
+function isCustomerPaymentSettlementContinuation(messages, messageId2) {
+  const ordered4 = [...messages].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+  const index = ordered4.findIndex((m) => m.id === messageId2);
+  if (index < 0) return false;
+  const message = ordered4[index];
+  if (message.role !== "customer") return false;
+  const priorPaymentContext = [...ordered4.slice(0, index)].reverse().find(
+    (m) => m.role === "staff" && m.isMeaningful && PAYMENT_CONTEXT_RX.test(m.text) && message.timestamp.getTime() - m.timestamp.getTime() <= 24 * 60 * 60 * 1e3
+  );
+  if (!priorPaymentContext) return false;
+  return PAYMENT_CONTINUATION_RX.test(message.text) || PAYMENT_PROOF_RX.test(message.text);
+}
+
 // src/lib/salesIntelligence/conversationCaseEngine.ts
 function messagesForInteraction(understanding, interaction) {
   const ids = new Set(interaction.messageIds);
@@ -1518,10 +1615,13 @@ function evidenceRef(messages, description) {
   };
 }
 function hasUnresolvedMultipleRequests(messages, requestMessages) {
-  if (requestMessages.length < 2) return false;
-  for (let i = 1; i < requestMessages.length; i += 1) {
-    const prev = requestMessages[i - 1];
-    const curr = requestMessages[i];
+  const independentRequests = requestMessages.filter(
+    (message) => !isCustomerPaymentSettlementContinuation(messages, message.id)
+  );
+  if (independentRequests.length < 2) return false;
+  for (let i = 1; i < independentRequests.length; i += 1) {
+    const prev = independentRequests[i - 1];
+    const curr = independentRequests[i];
     const staffReplyBetween = messages.some(
       (m) => m.role === "staff" && m.isMeaningful && m.timestamp.getTime() > prev.timestamp.getTime() && m.timestamp.getTime() < curr.timestamp.getTime()
     );
@@ -1634,7 +1734,7 @@ var WHOLE_BASKET_REJECTION_RX = /مش\s*عايز\s*(?:ده|حاجه|أي\s*حا�
 var QUANTITY_UNIT_ITEM_RX = /(\d+|واحد[ةه]?|اتنين|تلات[ةه]?|أربع[ةه]?|خمس[ةه]?)\s*(علبة|علب|حبة|حبوب|شريط|عبوة|قطعة|كيس)\s+([^\n,،]+)/gi;
 var ANNOUNCED_TOTAL_RX = /(?:كده\s*)?(?:إجمالي\s*الحساب|الحساب\s*كل?ه|الإجمالي|المجموع|الحساب)\s*(?:كده\s*)?(\d+(?:\.\d+)?)\s*(?:جنيه|جنيها|ج\.?م\.?)?/i;
 var COMPACT_ANNOUNCED_TOTAL_RX = /^\s*(\d+(?:\.\d+)?)\s*(?:جنيه|جنيها|ج(?:\.?م\.?)?)\s*(?:ان\s*شاء\s*الله)?[.!، ]*$/i;
-var TOTAL_QUESTION_RX = /(?:الحساب|الإجمالي|الاجمالي|المجموع).{0,16}كام|(?:كدا|كده)?\s*(?:هيبقا|هيبقى|يبقا|يبقى)\s*كام/i;
+var TOTAL_QUESTION_RX2 = /(?:الحساب|الإجمالي|الاجمالي|المجموع).{0,16}كام|(?:كدا|كده)?\s*(?:هيبقا|هيبقى|يبقا|يبقى)\s*كام/i;
 var ARABIC_NUMBER_WORDS = {
   \u0648\u0627\u062D\u062F: 1,
   \u0648\u0627\u062D\u062F\u0647: 1,
@@ -1879,7 +1979,7 @@ function contextualCompactTotal(scopedMessages, summaryMessage, candidate) {
   if (summaryIndex < 0 || candidateIndex <= summaryIndex) return null;
   const prior = scopedMessages.slice(summaryIndex + 1, candidateIndex).filter((m) => m.isMeaningful);
   const lastCustomer = [...prior].reverse().find((m) => m.role === "customer");
-  if (!lastCustomer || !TOTAL_QUESTION_RX.test(lastCustomer.text)) return null;
+  if (!lastCustomer || !TOTAL_QUESTION_RX2.test(lastCustomer.text)) return null;
   return Number(amountMatch[1]);
 }
 function extractAnnouncedTotal(scopedMessages, summaryMessage, version) {
@@ -3899,6 +3999,91 @@ function deriveHistoricalCommercialClosureAssessment(caseId, scopedMessages, com
   };
 }
 
+// src/lib/salesIntelligence/financialSettlementEngine.ts
+function ref(messageId2, description) {
+  return { sourceTable: "whatsapp_review_sources", sourceId: "", messageIds: [messageId2], description };
+}
+function confidence(level, score, ruleIds, evidence) {
+  return { level, score, ruleIds, evidence };
+}
+function deriveFinancialSettlementAssessment(input) {
+  const signals = detectPaymentSettlementSignals(input.messages);
+  const invoiceAmountRaw = input.selectedInvoiceRow ? getInvoiceAmount(input.selectedInvoiceRow) : 0;
+  const invoiceAmount = invoiceAmountRaw > 0 ? invoiceAmountRaw : null;
+  const announced = signals.announcedPaymentAmount;
+  const delta = announced != null && invoiceAmount != null ? Math.abs(announced - invoiceAmount) : null;
+  const amountMatch = delta == null ? "not_available" : delta <= 0.5 ? "exact" : delta <= Math.max(2, invoiceAmount * 0.01) ? "near_match" : "different";
+  const identitySafe = input.customerIdentityStatus === void 0 || input.customerIdentityStatus === "resolved";
+  const attributionStrong = Boolean(input.attribution.selectedInvoiceId) && ["proven", "strongly_inferred"].includes(input.attribution.attributionLevel) && input.attribution.isOfficialForStaffEvaluation && input.attribution.contradictions.length === 0;
+  const completePaymentEvidence = signals.completeSequence && signals.paymentProofMessageId !== null && signals.receiptAcknowledgementMessageId !== null;
+  let status = "not_detected";
+  let needsHumanReview = false;
+  const ruleIds = [];
+  if (!signals.paymentContextMessageId) {
+    ruleIds.push("financial_settlement.no_payment_context");
+  } else if (amountMatch === "different" && completePaymentEvidence && attributionStrong) {
+    status = "contradicted";
+    needsHumanReview = true;
+    ruleIds.push("financial_settlement.payment_amount_conflicts_with_selected_invoice");
+  } else if (completePaymentEvidence && amountMatch === "exact" && attributionStrong && identitySafe) {
+    status = "settled";
+    ruleIds.push(
+      "financial_settlement.exact_invoice_amount",
+      "financial_settlement.customer_payment_proof_present",
+      "financial_settlement.staff_receipt_acknowledged",
+      "financial_settlement.strong_clean_invoice_attribution"
+    );
+  } else {
+    status = "pending";
+    if (!identitySafe) {
+      needsHumanReview = true;
+      ruleIds.push("financial_settlement.customer_identity_not_resolved");
+    }
+    if (!attributionStrong) ruleIds.push("financial_settlement.invoice_attribution_not_strong_clean");
+    if (amountMatch === "near_match") ruleIds.push("financial_settlement.near_amount_requires_review");
+    if (amountMatch === "not_available") ruleIds.push("financial_settlement.amount_not_reconciled");
+    if (!signals.paymentProofMessageId) ruleIds.push("financial_settlement.customer_payment_proof_missing");
+    if (!signals.receiptAcknowledgementMessageId) ruleIds.push("financial_settlement.staff_receipt_ack_missing");
+  }
+  const evidence = [];
+  if (signals.paymentContextMessageId) evidence.push(ref(signals.paymentContextMessageId, "\u0627\u0644\u0645\u0648\u0638\u0641 \u0623\u0631\u0633\u0644 \u0633\u064A\u0627\u0642/\u0628\u064A\u0627\u0646\u0627\u062A \u0627\u0644\u062A\u062D\u0648\u064A\u0644."));
+  if (signals.totalQuestionMessageId) evidence.push(ref(signals.totalQuestionMessageId, "\u0627\u0644\u0639\u0645\u064A\u0644 \u0633\u0623\u0644 \u0639\u0646 \u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u062D\u0633\u0627\u0628 \u0641\u064A \u0633\u064A\u0627\u0642 \u0627\u0644\u062A\u0633\u0648\u064A\u0629."));
+  if (signals.amountMessageId && announced != null) evidence.push(ref(signals.amountMessageId, `\u0627\u0644\u0645\u0648\u0638\u0641 \u0623\u0639\u0644\u0646 \u0645\u0628\u0644\u063A \u0627\u0644\u062A\u0633\u0648\u064A\u0629: ${announced} \u062C\u0646\u064A\u0647.`));
+  if (signals.paymentProofMessageId) evidence.push(ref(signals.paymentProofMessageId, `\u0627\u0644\u0639\u0645\u064A\u0644 \u0623\u0631\u0633\u0644 \u0625\u062B\u0628\u0627\u062A \u062F\u0641\u0639 (${signals.paymentProofKind}).`));
+  if (signals.receiptAcknowledgementMessageId) evidence.push(ref(signals.receiptAcknowledgementMessageId, "\u0627\u0644\u0635\u064A\u062F\u0644\u064A\u0629 \u0623\u0642\u0631\u062A \u0635\u0631\u0627\u062D\u0629 \u0628\u0627\u0633\u062A\u0644\u0627\u0645 \u0627\u0644\u062F\u0641\u0639."));
+  if (input.attribution.selectedInvoiceId) {
+    evidence.push({
+      sourceTable: "sales_invoices",
+      sourceId: input.attribution.selectedInvoiceId,
+      description: invoiceAmount != null ? `\u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0627\u0644\u0645\u062E\u062A\u0627\u0631\u0629 ${input.attribution.selectedInvoiceNumber ?? ""} \u0628\u0642\u064A\u0645\u0629 ${invoiceAmount} \u062C\u0646\u064A\u0647.` : `\u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0627\u0644\u0645\u062E\u062A\u0627\u0631\u0629 ${input.attribution.selectedInvoiceNumber ?? ""}.`
+    });
+  }
+  const level = status === "settled" ? "strongly_inferred" : status === "contradicted" ? "unknown" : status === "pending" ? "weakly_inferred" : "unknown";
+  const score = status === "settled" ? 0.95 : status === "pending" ? 0.45 : 0;
+  return {
+    caseId: input.caseId,
+    status,
+    paymentMethod: signals.paymentContextMessageId ? "transfer" : "unknown",
+    paymentContextDetected: Boolean(signals.paymentContextMessageId),
+    totalQuestionDetected: Boolean(signals.totalQuestionMessageId),
+    announcedPaymentAmount: announced,
+    invoiceAmount,
+    amountDifference: delta,
+    amountMatch,
+    paymentProofDetected: Boolean(signals.paymentProofMessageId),
+    paymentProofKind: signals.paymentProofKind,
+    receiptAcknowledged: Boolean(signals.receiptAcknowledgementMessageId),
+    selectedInvoiceId: input.attribution.selectedInvoiceId,
+    selectedInvoiceNumber: input.attribution.selectedInvoiceNumber,
+    attributionLevel: input.attribution.attributionLevel,
+    isOfficialInvoiceAttribution: input.attribution.isOfficialForStaffEvaluation,
+    primaryMessageIds: signals.primaryMessageIds,
+    confidence: confidence(level, score, ruleIds, evidence),
+    needsHumanReview,
+    ruleIds
+  };
+}
+
 // src/lib/salesIntelligence/saleProofState.ts
 var UNCONDITIONAL_CONTRADICTION_EXCEPTION_TYPES = /* @__PURE__ */ new Set([
   "identity_conflict",
@@ -4033,6 +4218,7 @@ function deriveCanonicalSalesOutcome(input) {
     caseType,
     commercialConfirmation,
     saleProof,
+    financialSettlement,
     hasMeaningfulBasketItems,
     needsHumanReview
   } = input;
@@ -4079,6 +4265,16 @@ function deriveCanonicalSalesOutcome(input) {
       isRevenueCountable: false,
       isOrderConfirmed: false,
       reasonCodes: ["outcome.customer_rejected"]
+    };
+  }
+  if (financialSettlement?.status === "settled") {
+    return {
+      ...base,
+      outcome: "order_confirmed_unproven",
+      isSaleCountable: false,
+      isRevenueCountable: false,
+      isOrderConfirmed: true,
+      reasonCodes: ["outcome.financial_settlement_closed_sale_not_proven"]
     };
   }
   if (commercialConfirmation.currentState === "commercial_confirmation_complete") {
@@ -4202,7 +4398,7 @@ function deriveCustomerNeedModel(input) {
   const firstRequestSignal = requestSignals[0] ?? null;
   const firstRequestMessage = firstRequestSignal ? messageById.get(firstRequestSignal.messageId) ?? null : null;
   const products = /* @__PURE__ */ new Map();
-  const ensureProduct = (productNameRaw, confidence3, productId = null) => {
+  const ensureProduct = (productNameRaw, confidence4, productId = null) => {
     const key = normalizeProductKey(productNameRaw);
     if (!key) return null;
     let product = products.get(key);
@@ -4216,14 +4412,14 @@ function deriveCustomerNeedModel(input) {
         finalQuantity: null,
         roles: /* @__PURE__ */ new Set(),
         evidenceMessageIds: /* @__PURE__ */ new Set(),
-        confidence: confidence3,
+        confidence: confidence4,
         availabilityEvidence: [],
         alternatives: []
       };
       products.set(key, product);
     } else {
       if (!product.productId && productId) product.productId = productId;
-      product.confidence = strongestConfidence(product.confidence, confidence3);
+      product.confidence = strongestConfidence(product.confidence, confidence4);
     }
     return product;
   };
@@ -4282,10 +4478,10 @@ function deriveCustomerNeedModel(input) {
       }
     }
     if (!productNameRaw) continue;
-    const ref2 = evidenceRef2(message.id, `\u0627\u0644\u0639\u0645\u064A\u0644 \u0637\u0644\u0628 \u0627\u0644\u0635\u0646\u0641 \u0628\u0643\u0645\u064A\u0629: "${message.text.slice(0, 120)}".`);
+    const ref3 = evidenceRef2(message.id, `\u0627\u0644\u0639\u0645\u064A\u0644 \u0637\u0644\u0628 \u0627\u0644\u0635\u0646\u0641 \u0628\u0643\u0645\u064A\u0629: "${message.text.slice(0, 120)}".`);
     const product = ensureProduct(
       productNameRaw,
-      assessment6("strongly_inferred", 0.8, ["need.product.customer_quantity_request"], [ref2])
+      assessment6("strongly_inferred", 0.8, ["need.product.customer_quantity_request"], [ref3])
     );
     if (!product) continue;
     product.roles.add("requested");
@@ -4346,8 +4542,8 @@ function deriveCustomerNeedModel(input) {
     if (!message || message.role !== "customer") continue;
     if (Array.from(products.values()).some((product) => product.evidenceMessageIds.has(message.id))) continue;
     for (const part of explicitRequestProductPhrases(message.text)) {
-      const ref2 = evidenceRef2(message.id, `\u0627\u0644\u0639\u0645\u064A\u0644 \u0637\u0644\u0628 \u0627\u0644\u0635\u0646\u0641 \u0628\u0627\u0644\u0627\u0633\u0645: "${message.text.slice(0, 120)}".`);
-      const product = ensureProduct(part, assessment6("weakly_inferred", 0.6, ["need.product.explicit_request_phrase"], [ref2]));
+      const ref3 = evidenceRef2(message.id, `\u0627\u0644\u0639\u0645\u064A\u0644 \u0637\u0644\u0628 \u0627\u0644\u0635\u0646\u0641 \u0628\u0627\u0644\u0627\u0633\u0645: "${message.text.slice(0, 120)}".`);
+      const product = ensureProduct(part, assessment6("weakly_inferred", 0.6, ["need.product.explicit_request_phrase"], [ref3]));
       if (!product) continue;
       product.roles.add("requested");
       product.evidenceMessageIds.add(message.id);
@@ -4378,10 +4574,10 @@ function deriveCustomerNeedModel(input) {
       if (tied.length === 0) {
         const phrase = productPhraseFromStockQuestion(request.text);
         if (phrase && !exclude.has(normalizeProductKey(phrase))) {
-          const ref2 = evidenceRef2(request.id, `\u0627\u0644\u0639\u0645\u064A\u0644 \u0633\u0623\u0644 \u0639\u0646 \u0627\u0644\u0635\u0646\u0641: "${request.text.slice(0, 120)}".`);
+          const ref3 = evidenceRef2(request.id, `\u0627\u0644\u0639\u0645\u064A\u0644 \u0633\u0623\u0644 \u0639\u0646 \u0627\u0644\u0635\u0646\u0641: "${request.text.slice(0, 120)}".`);
           const created = ensureProduct(
             phrase,
-            assessment6("weakly_inferred", 0.6, ["need.product.customer_stock_question"], [ref2])
+            assessment6("weakly_inferred", 0.6, ["need.product.customer_stock_question"], [ref3])
           );
           if (created) {
             created.roles.add("requested");
@@ -4601,30 +4797,30 @@ function deriveCustomerNeedModel(input) {
       ...acceptanceSignals.map((signal) => signal.messageId)
     ])
   );
-  let confidence2;
+  let confidence3;
   if (requestSignals.length > 0 && productList.length > 0) {
-    confidence2 = assessment6(
+    confidence3 = assessment6(
       "strongly_inferred",
       0.85,
       ["need.model.request_plus_product_lifecycle"],
       firstRequestMessage ? [evidenceRef2(firstRequestMessage.id, `\u0627\u0644\u062D\u0627\u062C\u0629 \u0627\u0644\u0623\u0633\u0627\u0633\u064A\u0629 \u0643\u0645\u0627 \u0642\u0627\u0644\u0647\u0627 \u0627\u0644\u0639\u0645\u064A\u0644: "${firstRequestMessage.text.slice(0, 120)}".`)] : []
     );
   } else if (requestSignals.length > 0) {
-    confidence2 = assessment6(
+    confidence3 = assessment6(
       "weakly_inferred",
       0.55,
       ["need.model.request_without_product_lifecycle"],
       firstRequestMessage ? [evidenceRef2(firstRequestMessage.id, `\u0637\u0644\u0628/\u0627\u062D\u062A\u064A\u0627\u062C \u062D\u0642\u064A\u0642\u064A \u0628\u062F\u0648\u0646 \u0645\u0646\u062A\u062C \u0645\u062D\u0633\u0648\u0645: "${firstRequestMessage.text.slice(0, 120)}".`)] : []
     );
   } else if (productList.length > 0) {
-    confidence2 = assessment6(
+    confidence3 = assessment6(
       "weakly_inferred",
       0.5,
       ["need.model.product_without_explicit_customer_request"],
       []
     );
   } else {
-    confidence2 = assessment6("unknown", 0.1, ["need.model.no_commercial_need_evidence"], []);
+    confidence3 = assessment6("unknown", 0.1, ["need.model.no_commercial_need_evidence"], []);
   }
   return {
     caseId: input.caseId,
@@ -4638,14 +4834,14 @@ function deriveCustomerNeedModel(input) {
     needDeclined: explicitDecline,
     needDeclineMessageIds,
     evidenceMessageIds,
-    confidence: confidence2,
+    confidence: confidence3,
     needsHumanReview: humanReviewReasons.length > 0,
     humanReviewReasons
   };
 }
 
 // src/lib/salesIntelligence/commercialJourneyStateMachine.ts
-function ref(messageId2, description) {
+function ref2(messageId2, description) {
   return { sourceTable: "whatsapp_review_sources", sourceId: "", messageIds: [messageId2], description };
 }
 function assess(level, score, ruleId, evidence = []) {
@@ -4692,31 +4888,35 @@ function deriveCommercialJourneyState(input) {
   input.commercialConfirmation.primaryMessageIds.forEach((id) => evidenceIds.add(id));
   if (input.salesOutcome.outcome === "sale_proven") reached.add("sale_proven");
   let currentState = "unknown";
-  let confidence2 = assess("unknown", 0.1, "journey.no_reliable_state_evidence");
+  let confidence3 = assess("unknown", 0.1, "journey.no_reliable_state_evidence");
   const reasonCodes = [];
   if (input.salesOutcome.outcome === "information_only") {
     currentState = "information_only";
     reasonCodes.push("journey.information_only_from_canonical_outcome");
-    confidence2 = assess("proven", 0.95, reasonCodes[0]);
+    confidence3 = assess("proven", 0.95, reasonCodes[0]);
   } else if (input.salesOutcome.outcome === "sale_proven") {
     currentState = "sale_proven";
     reasonCodes.push("journey.sale_proven_only_from_canonical_outcome");
-    confidence2 = assess("proven", 1, reasonCodes[0]);
+    confidence3 = assess("proven", 1, reasonCodes[0]);
   } else if (declined) {
     currentState = "customer_declined";
     reasonCodes.push("journey.customer_declined_from_customer_evidence");
     const declineId = input.customerNeed.needDeclineMessageIds[0];
     const declineMessage = declineId ? input.messages.find((m) => m.id === declineId) : void 0;
-    confidence2 = assess(
+    confidence3 = assess(
       "strongly_inferred",
       0.9,
       reasonCodes[0],
-      declineId ? [ref(declineId, `\u0631\u0641\u0636 \u0635\u0631\u064A\u062D \u0645\u0646 \u0627\u0644\u0639\u0645\u064A\u0644: "${(declineMessage?.text ?? "").slice(0, 120)}".`)] : []
+      declineId ? [ref2(declineId, `\u0631\u0641\u0636 \u0635\u0631\u064A\u062D \u0645\u0646 \u0627\u0644\u0639\u0645\u064A\u0644: "${(declineMessage?.text ?? "").slice(0, 120)}".`)] : []
     );
   } else {
     for (const state of PROGRESSION) if (reached.has(state)) currentState = state;
     const states = {
-      awaiting_invoice: ["journey.order_confirmed_sale_not_yet_proven", "strongly_inferred", 0.9],
+      awaiting_invoice: [
+        input.salesOutcome.reasonCodes.includes("outcome.financial_settlement_closed_sale_not_proven") ? "journey.financial_settlement_closed_canonical_sale_proof_pending" : "journey.order_confirmed_sale_not_yet_proven",
+        "strongly_inferred",
+        0.9
+      ],
       customer_confirmed: ["journey.customer_confirmed_waiting_staff_or_invoice", "strongly_inferred", 0.85],
       awaiting_customer_confirmation: ["journey.final_basket_presented_waiting_customer", "strongly_inferred", 0.8],
       basket_building: ["journey.basket_evidence_present", "strongly_inferred", 0.75],
@@ -4727,7 +4927,7 @@ function deriveCommercialJourneyState(input) {
     const row = states[currentState];
     if (row) {
       reasonCodes.push(row[0]);
-      confidence2 = assess(row[1], row[2], row[0]);
+      confidence3 = assess(row[1], row[2], row[0]);
     } else {
       reasonCodes.push("journey.no_reliable_state_evidence");
     }
@@ -4742,7 +4942,7 @@ function deriveCommercialJourneyState(input) {
     ],
     evidenceMessageIds: Array.from(evidenceIds),
     reasonCodes,
-    confidence: confidence2,
+    confidence: confidence3,
     reviewRequired: input.salesOutcome.needsHumanReview || input.salesOutcome.outcome !== "sale_proven" && input.customerNeed.needsHumanReview || input.salesOutcome.outcome === "needs_review"
   };
 }
@@ -4988,7 +5188,7 @@ function deriveLostOpportunity(input) {
   }
   const productLosses = deriveProductLosses(customerNeed, unavailableDemand, v.state);
   const evidenceMessageIds = [.../* @__PURE__ */ new Set([...v.evidence, ...productLosses.flatMap((p) => p.evidenceMessageIds)])];
-  const confidence2 = {
+  const confidence3 = {
     level: v.level,
     score: v.score,
     ruleIds: [v.explanation],
@@ -5006,7 +5206,7 @@ function deriveLostOpportunity(input) {
     productLosses,
     staffFacts,
     evidenceMessageIds,
-    confidence: confidence2,
+    confidence: confidence3,
     explanation: v.explanation
   };
 }
@@ -5273,7 +5473,7 @@ function deriveFollowUpOpportunities(input) {
       blocker: blocked ? "customer_identity_unresolved" : null,
       suppressedBy,
       evidenceMessageIds: [...new Set(candidate.evidence)],
-      confidence: confidence(candidate, profile)
+      confidence: confidence2(candidate, profile)
     };
     const existing = byKey.get(followUpKey);
     if (existing) {
@@ -5313,7 +5513,7 @@ function dueAtFor(policy, days, lastAt) {
       return null;
   }
 }
-function confidence(candidate, profile) {
+function confidence2(candidate, profile) {
   return {
     level: candidate.level,
     score: candidate.score,
@@ -5439,7 +5639,8 @@ function buildCaseIntelligenceView(analysis, context) {
     ...commercialConfirmation.primaryMessageIds,
     ...analysis.unavailableDemand.flatMap((d) => d.evidenceMessageIds),
     ...analysis.lostOpportunity.evidenceMessageIds,
-    ...analysis.followUp.opportunities.flatMap((o) => o.evidenceMessageIds)
+    ...analysis.followUp.opportunities.flatMap((o) => o.evidenceMessageIds),
+    ...analysis.financialSettlement?.primaryMessageIds ?? []
   ]);
   return {
     version: CASE_INTELLIGENCE_VIEW_VERSION,
@@ -5498,7 +5699,8 @@ function buildCaseIntelligenceView(analysis, context) {
       outcome: salesOutcome.outcome,
       isSaleCountable: salesOutcome.isSaleCountable,
       reasonCodes: salesOutcome.reasonCodes,
-      contradictions: attribution.contradictions
+      contradictions: attribution.contradictions,
+      financialSettlement: analysis.financialSettlement ?? null
     },
     unavailableDemand: analysis.unavailableDemand,
     lostOpportunity: analysis.lostOpportunity,
@@ -6212,6 +6414,13 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
     documentedAdjustments: input.documentedAdjustments,
     invoiceCancelledOrReturned: input.invoiceCancelledOrReturned
   });
+  const financialSettlement = deriveFinancialSettlementAssessment({
+    caseId: conversationCase.caseId,
+    messages: scopedMessages,
+    attribution: rawAttribution,
+    selectedInvoiceRow: invoiceRow,
+    customerIdentityStatus: input.customerIdentityStatus
+  });
   const integrityAssessment = deriveSalesIntegrityAssessment({
     caseId: conversationCase.caseId,
     commercialConfirmation,
@@ -6226,13 +6435,13 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
   const evidenceCompletenessBase = {
     conversationAvailable: scopedMessages.length > 0,
     customerIdentityResolved: Boolean(conversationCase.customerId) || Boolean(conversationCase.customerPhone),
-    caseSegmentationConfident: !conversationCase.needsHumanReview,
+    caseSegmentationConfident: !conversationCase.needsHumanReview || financialSettlement.status === "settled",
     // A meaningful customer message alone can produce an empty 'draft' CaseBasket record with no
     // items (see buildCaseBaskets's own ongoing-basket-building fallback in caseBasketEngine.ts) —
     // that artifact is not real evidence of commercial intent, so this requires at least one item.
     basketDetected: hasMeaningfulBasketItems,
     finalBasketDetected: activeBasket !== null && activeBasket.status !== "draft",
-    announcedTotalAvailable: activeBasket?.announcedTotal != null,
+    announcedTotalAvailable: activeBasket?.announcedTotal != null || financialSettlement.announcedPaymentAmount != null,
     customerConfirmationDetected: commercialConfirmation.customerConfirmed,
     staffConfirmationDetected: commercialConfirmation.staffConfirmed,
     invoiceCandidatesAvailable: invoiceCandidates.length > 0,
@@ -6248,7 +6457,7 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
     overallEvidenceLevel: computeOverallEvidenceLevel(evidenceCompletenessBase)
   };
   const failureReasons = [];
-  if (conversationCase.needsHumanReview) failureReasons.push("case_segmentation_uncertain");
+  if (conversationCase.needsHumanReview && financialSettlement.status !== "settled") failureReasons.push("case_segmentation_uncertain");
   if (!conversationCase.customerId && !conversationCase.customerPhone) failureReasons.push("customer_identity_unresolved");
   if (!evidenceCompleteness.basketDetected) failureReasons.push("basket_not_detected");
   if (activeItems.some(
@@ -6258,8 +6467,8 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
   }
   if (activeItems.some((item) => item.quantity == null)) failureReasons.push("quantity_unknown");
   if (evidenceCompleteness.basketDetected && !commercialConfirmation.summaryPresented) failureReasons.push("final_summary_missing");
-  if (evidenceCompleteness.basketDetected && !commercialConfirmation.announcedTotalPresent) failureReasons.push("announced_total_missing");
-  if (evidenceCompleteness.basketDetected && !commercialConfirmation.customerConfirmed && commercialConfirmation.currentState !== "unknown" && commercialConfirmation.currentState !== "rejected") {
+  if (evidenceCompleteness.basketDetected && !commercialConfirmation.announcedTotalPresent && financialSettlement.announcedPaymentAmount == null) failureReasons.push("announced_total_missing");
+  if (evidenceCompleteness.basketDetected && !commercialConfirmation.customerConfirmed && financialSettlement.status !== "settled" && commercialConfirmation.currentState !== "unknown" && commercialConfirmation.currentState !== "rejected") {
     failureReasons.push("customer_confirmation_uncertain");
   }
   if (commercialConfirmation.currentState === "commercial_confirmation_complete" && invoiceCandidates.length === 0) {
@@ -6303,7 +6512,13 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
     needsHumanReview: true
   } : derivedSaleProof;
   const reviewReasonsResolvedByProvenInvoice = /* @__PURE__ */ new Set(["no_basket_state_for_case"]);
-  const humanReviewReasons = saleProof.state === "proven" ? rawHumanReviewReasons.filter((reason) => !reviewReasonsResolvedByProvenInvoice.has(reason)) : [...rawHumanReviewReasons];
+  const reviewReasonsResolvedByFinancialSettlement = /* @__PURE__ */ new Set(["possible_unsegmented_multiple_requests"]);
+  let humanReviewReasons = saleProof.state === "proven" ? rawHumanReviewReasons.filter((reason) => !reviewReasonsResolvedByProvenInvoice.has(reason)) : [...rawHumanReviewReasons];
+  if (financialSettlement.status === "settled") {
+    humanReviewReasons = humanReviewReasons.filter(
+      (reason) => !reviewReasonsResolvedByFinancialSettlement.has(reason)
+    );
+  }
   if (identityBlocked && !humanReviewReasons.includes(identityReason)) humanReviewReasons.push(identityReason);
   const unexplainedBooleanReviewFlag = rawNeedsHumanReview && rawHumanReviewReasons.length === 0;
   let needsHumanReview = humanReviewReasons.length > 0 || unexplainedBooleanReviewFlag;
@@ -6313,6 +6528,7 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
     caseType: conversationCase.caseType,
     commercialConfirmation,
     saleProof,
+    financialSettlement,
     hasMeaningfulBasketItems,
     needsHumanReview
   });
@@ -6368,6 +6584,7 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
     commercialConfirmation,
     protocolAssessment,
     historicalClosure,
+    financialSettlement,
     invoiceCandidateIds: invoiceCandidates.map(invoiceRowLookupId),
     attribution,
     basketInvoiceMatch,
@@ -7446,9 +7663,9 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v14";
+var PIPELINE_VERSION = "sales-intelligence-v15";
 var ENGINE_VERSIONS = {
-  caseSegmentation: "case-segmentation-v9-payment-settlement-continuation",
+  caseSegmentation: "case-segmentation-v10-payment-continuation-ambiguity-safe",
   historicalClosure: "historical-closure-v1",
   commercialConfirmation: "commercial-confirmation-v5-natural-recap-compact-total-safe-deictic",
   protocolApplicability: "protocol-applicability-v1",
@@ -7561,7 +7778,8 @@ function mapCaseAnalysisRowContent(analysis) {
       // actually explain an applicability verdict are historicalClosure's own ruleIds. Documented
       // choice, not a guess.
       protocolApplicabilityRuleIds: analysis.historicalClosure.ruleIds,
-      canonicalSalesOutcome: analysis.salesOutcome
+      canonicalSalesOutcome: analysis.salesOutcome,
+      financialSettlement: analysis.financialSettlement ?? null
     }
   };
 }
@@ -9764,7 +9982,7 @@ function normalizedArabic(value) {
 function customerNameTokens(value) {
   return normalizedArabic(value || "").split(" ").map((token) => token.trim()).filter((token) => token.length >= 3 && !CUSTOMER_HONORIFICS.has(token));
 }
-function officialChoice(key, option, status, confidence2, reason, evidenceMessageIds, measuredValue) {
+function officialChoice(key, option, status, confidence3, reason, evidenceMessageIds, measuredValue) {
   const criterion5 = criterionMap.get(key);
   if (!criterion5) throw new Error(`Unknown review criterion: ${key}`);
   const choice = option ? criterion5.choices.find((item) => item.value === option) ?? null : null;
@@ -9776,7 +9994,7 @@ function officialChoice(key, option, status, confidence2, reason, evidenceMessag
     selectedLabel: status === "not_applicable" ? "\u063A\u064A\u0631 \u0645\u0646\u0637\u0628\u0642 \u0639\u0644\u0649 \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629" : status === "insufficient_evidence" ? "\u0627\u0644\u062F\u0644\u064A\u0644 \u063A\u064A\u0631 \u0643\u0627\u0641\u064D \u0644\u0644\u062D\u0643\u0645" : choice?.label || "\u062A\u0645 \u0627\u0644\u062A\u0642\u064A\u064A\u0645",
     pointsEarned: status === "assessed" ? choice?.pointsEarned ?? null : null,
     maxPoints: criterion5.maxPoints,
-    confidence: confidence2,
+    confidence: confidence3,
     reason,
     evidenceMessageIds: Array.from(new Set(evidenceMessageIds.filter(Boolean))),
     measuredValue
@@ -10044,7 +10262,7 @@ var DISMISSIVE_RX = /(?:مش\s*فاضي|مش\s*شغلي|مش\s*مسؤوليتي|
 var CLARIFICATION_RX = /(?:تقصد|حضرتك\s*تقصد|كام\s*(?:علبة|علب|شريط)|الكمية|التركيز|سن\s*(?:الطفل|حضرتك)?|الوزن|الأعراض|الاعراض|حضرتك\s*(?:عايز|عاوزه|عايزة)|صح\s*[؟?]?|صحيح\s*[؟?]?)/i;
 var CUSTOMER_CORRECTION_RX = /(?:(?:لا|لأ)\s*(?:قصدي|اقصد)|مش\s*(?:ده|دي|دا|هو)\s*(?:اللي\s*)?(?:طلبت|قصدي|عايز|عاوزه|عايزة)|انا\s*(?:قلت|قولت)|أنا\s*(?:قلت|قولت))/i;
 var CLARIFYING_QUESTION_RX = /(?:تقصد|حضرتك\s*تقصد|يعني\s*حضرتك|هل\s*تقصد|صح\s*[؟?]?|صحيح\s*[؟?]?)/i;
-function make(key, option, status, confidence2, reason, evidenceMessageIds) {
+function make(key, option, status, confidence3, reason, evidenceMessageIds) {
   const criterion5 = criterionMap2.get(key);
   if (!criterion5) throw new Error(`Unknown review criterion: ${key}`);
   const choice = option ? criterion5.choices.find((item) => item.value === option) ?? null : null;
@@ -10056,7 +10274,7 @@ function make(key, option, status, confidence2, reason, evidenceMessageIds) {
     selectedLabel: status === "not_applicable" ? "\u063A\u064A\u0631 \u0645\u0646\u0637\u0628\u0642 \u0639\u0644\u0649 \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629" : status === "insufficient_evidence" ? "\u0627\u0644\u062F\u0644\u064A\u0644 \u063A\u064A\u0631 \u0643\u0627\u0641\u064D \u0644\u0644\u062D\u0643\u0645" : choice?.label || "\u062A\u0645 \u0627\u0644\u062A\u0642\u064A\u064A\u0645",
     pointsEarned: status === "assessed" ? choice?.pointsEarned ?? null : null,
     maxPoints: criterion5.maxPoints,
-    confidence: confidence2,
+    confidence: confidence3,
     reason,
     evidenceMessageIds: Array.from(new Set(evidenceMessageIds.filter(Boolean)))
   };
@@ -10294,7 +10512,7 @@ function analyzeConversationEvaluationCore(view) {
 var criterion = REVIEW_CRITERIA.find((item) => item.key === "followup_after_wait");
 if (!criterion) throw new Error("Missing followup_after_wait review criterion");
 var NUDGE_RX = /^(?:[؟?]+|يا\s*دكتور|دكتور|لسه|تمام|طيب|اوك|أوك|اوكي|ok|حضرتك|معلش)$/i;
-function make2(option, status, confidence2, reason, evidenceMessageIds, waitSeconds, promiseCount) {
+function make2(option, status, confidence3, reason, evidenceMessageIds, waitSeconds, promiseCount) {
   const choice = option ? criterion.choices.find((item) => item.value === option) ?? null : null;
   return {
     key: "followup_after_wait",
@@ -10304,7 +10522,7 @@ function make2(option, status, confidence2, reason, evidenceMessageIds, waitSeco
     selectedLabel: status === "not_applicable" ? "\u063A\u064A\u0631 \u0645\u0646\u0637\u0628\u0642 \u0639\u0644\u0649 \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629" : status === "insufficient_evidence" ? "\u0627\u0644\u062F\u0644\u064A\u0644 \u063A\u064A\u0631 \u0643\u0627\u0641\u064D \u0644\u0644\u062D\u0643\u0645" : choice?.label || "\u062A\u0645 \u0627\u0644\u062A\u0642\u064A\u064A\u0645",
     pointsEarned: status === "assessed" ? choice?.pointsEarned ?? null : null,
     maxPoints: criterion.maxPoints,
-    confidence: confidence2,
+    confidence: confidence3,
     reason,
     evidenceMessageIds: Array.from(new Set(evidenceMessageIds.filter(Boolean))),
     waitSeconds,
@@ -10428,7 +10646,7 @@ var EXPLANATION_RX = /(?:نفس\s*(?:المادة|التركيز|الاستخد�
 function choicePoints(option) {
   return criterion2.choices.find((choice) => choice.value === option)?.pointsEarned ?? 0;
 }
-function make3(option, status, confidence2, reason, evidenceMessageIds, demandKeys) {
+function make3(option, status, confidence3, reason, evidenceMessageIds, demandKeys) {
   const choice = option ? criterion2.choices.find((item) => item.value === option) ?? null : null;
   return {
     key: "unavailable_items",
@@ -10438,7 +10656,7 @@ function make3(option, status, confidence2, reason, evidenceMessageIds, demandKe
     selectedLabel: status === "not_applicable" ? "\u063A\u064A\u0631 \u0645\u0646\u0637\u0628\u0642 \u0639\u0644\u0649 \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629" : status === "insufficient_evidence" ? "\u0627\u0644\u062F\u0644\u064A\u0644 \u063A\u064A\u0631 \u0643\u0627\u0641\u064D \u0644\u0644\u062D\u0643\u0645" : choice?.label || "\u062A\u0645 \u0627\u0644\u062A\u0642\u064A\u064A\u0645",
     pointsEarned: status === "assessed" ? choice?.pointsEarned ?? null : null,
     maxPoints: criterion2.maxPoints,
-    confidence: confidence2,
+    confidence: confidence3,
     reason,
     evidenceMessageIds: Array.from(new Set(evidenceMessageIds.filter(Boolean))),
     demandKeys
@@ -10538,7 +10756,7 @@ function analyzeConversationEvaluationAvailability(view) {
 
 // src/lib/salesIntelligence/conversationEvaluationSales.ts
 var criteria = new Map(REVIEW_CRITERIA.map((criterion5) => [criterion5.key, criterion5]));
-function make4(key, option, status, confidence2, reason, evidenceMessageIds, productKeys = []) {
+function make4(key, option, status, confidence3, reason, evidenceMessageIds, productKeys = []) {
   const criterion5 = criteria.get(key);
   if (!criterion5) throw new Error(`Missing criterion ${key}`);
   const choice = option ? criterion5.choices.find((item) => item.value === option) ?? null : null;
@@ -10550,7 +10768,7 @@ function make4(key, option, status, confidence2, reason, evidenceMessageIds, pro
     selectedLabel: status === "not_applicable" ? "\u063A\u064A\u0631 \u0645\u0646\u0637\u0628\u0642 \u0639\u0644\u0649 \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629" : status === "insufficient_evidence" ? "\u0627\u0644\u062F\u0644\u064A\u0644 \u063A\u064A\u0631 \u0643\u0627\u0641\u064D \u0644\u0644\u062D\u0643\u0645" : choice?.label || "\u062A\u0645 \u0627\u0644\u062A\u0642\u064A\u064A\u0645",
     pointsEarned: status === "assessed" ? choice?.pointsEarned ?? null : null,
     maxPoints: criterion5.maxPoints,
-    confidence: confidence2,
+    confidence: confidence3,
     reason,
     evidenceMessageIds: Array.from(new Set(evidenceMessageIds.filter(Boolean))),
     productKeys
@@ -10723,7 +10941,7 @@ var STAFF_DELAY_NOTICE_RX = /(?:(?:الطلب|الاوردر|الأوردر|ال
 var ETA_RX = /(?:خلال\s*\d+\s*(?:دقيقه|دقيقة|دقائق|ساعه|ساعة|ساعات)|نص\s*ساعه|نصف\s*ساعه|هيوصل\s*(?:خلال|في)|هيكون\s*عند\s*حضرتك|موعد\s*جديد)/i;
 var RESOLUTION_RX = /(?:خرج\s*(?:مع|ل)\s*المندوب|في\s*الطريق|جاري\s*الارسال|جاري\s*الإرسال|تم\s*الارسال|تم\s*الإرسال|وصل|تم\s*التواصل|اتحل|تم\s*الحل)/i;
 var CANCEL_RX = /(?:الغ(?:ي|ى)\s*(?:الطلب|الاوردر)|مش\s*عايزه|مش\s*عايز|خلاص\s*مش\s*محتاج|هجيب\s*من\s*مكان\s*تاني)/i;
-function make5(key, option, status, confidence2, reason, evidenceMessageIds) {
+function make5(key, option, status, confidence3, reason, evidenceMessageIds) {
   const criterion5 = criteria2.get(key);
   if (!criterion5) throw new Error(`Missing criterion ${key}`);
   const choice = option ? criterion5.choices.find((item) => item.value === option) ?? null : null;
@@ -10735,7 +10953,7 @@ function make5(key, option, status, confidence2, reason, evidenceMessageIds) {
     selectedLabel: status === "not_applicable" ? "\u063A\u064A\u0631 \u0645\u0646\u0637\u0628\u0642 \u0639\u0644\u0649 \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629" : status === "insufficient_evidence" ? "\u0627\u0644\u062F\u0644\u064A\u0644 \u063A\u064A\u0631 \u0643\u0627\u0641\u064D \u0644\u0644\u062D\u0643\u0645" : choice?.label || "\u062A\u0645 \u0627\u0644\u062A\u0642\u064A\u064A\u0645",
     pointsEarned: status === "assessed" ? choice?.pointsEarned ?? null : null,
     maxPoints: criterion5.maxPoints,
-    confidence: confidence2,
+    confidence: confidence3,
     reason,
     evidenceMessageIds: Array.from(new Set(evidenceMessageIds.filter(Boolean)))
   };
@@ -10913,7 +11131,7 @@ function analyzeConversationEvaluationServiceRecovery(view) {
 // src/lib/salesIntelligence/conversationEvaluationOrderConfirmation.ts
 var criterion3 = REVIEW_CRITERIA.find((item) => item.key === "order_confirmation");
 if (!criterion3) throw new Error("Missing order_confirmation criterion");
-function make6(option, status, confidence2, reason, evidenceMessageIds, missingProtocolSteps) {
+function make6(option, status, confidence3, reason, evidenceMessageIds, missingProtocolSteps) {
   const choice = option ? criterion3.choices.find((item) => item.value === option) ?? null : null;
   return {
     key: "order_confirmation",
@@ -10923,7 +11141,7 @@ function make6(option, status, confidence2, reason, evidenceMessageIds, missingP
     selectedLabel: status === "not_applicable" ? "\u063A\u064A\u0631 \u0645\u0646\u0637\u0628\u0642 \u0639\u0644\u0649 \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629" : status === "insufficient_evidence" ? "\u0627\u0644\u062F\u0644\u064A\u0644 \u063A\u064A\u0631 \u0643\u0627\u0641\u064D \u0644\u0644\u062D\u0643\u0645" : choice?.label || "\u062A\u0645 \u0627\u0644\u062A\u0642\u064A\u064A\u0645",
     pointsEarned: status === "assessed" ? choice?.pointsEarned ?? null : null,
     maxPoints: criterion3.maxPoints,
-    confidence: confidence2,
+    confidence: confidence3,
     reason,
     evidenceMessageIds: Array.from(new Set(evidenceMessageIds.filter(Boolean))),
     missingProtocolSteps
@@ -11046,7 +11264,7 @@ function analyzeConversationEvaluationOrderConfirmation(view) {
 
 // src/lib/salesIntelligence/conversationEvaluationOperational.ts
 var criteria3 = new Map(REVIEW_CRITERIA.map((criterion5) => [criterion5.key, criterion5]));
-function make7(key, option, status, confidence2, reason, evidenceMessageIds, systemRecordIds = []) {
+function make7(key, option, status, confidence3, reason, evidenceMessageIds, systemRecordIds = []) {
   const criterion5 = criteria3.get(key);
   if (!criterion5) throw new Error(`Missing criterion ${key}`);
   const choice = option ? criterion5.choices.find((item) => item.value === option) ?? null : null;
@@ -11058,7 +11276,7 @@ function make7(key, option, status, confidence2, reason, evidenceMessageIds, sys
     selectedLabel: status === "not_applicable" ? "\u063A\u064A\u0631 \u0645\u0646\u0637\u0628\u0642 \u0639\u0644\u0649 \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629" : status === "insufficient_evidence" ? "\u0627\u0644\u062F\u0644\u064A\u0644 \u063A\u064A\u0631 \u0643\u0627\u0641\u064D \u0644\u0644\u062D\u0643\u0645" : choice?.label || "\u062A\u0645 \u0627\u0644\u062A\u0642\u064A\u064A\u0645",
     pointsEarned: status === "assessed" ? choice?.pointsEarned ?? null : null,
     maxPoints: criterion5.maxPoints,
-    confidence: confidence2,
+    confidence: confidence3,
     reason,
     evidenceMessageIds: Array.from(new Set(evidenceMessageIds.filter(Boolean))),
     systemRecordIds: Array.from(new Set(systemRecordIds.filter(Boolean)))
@@ -11362,7 +11580,7 @@ var OFFICIAL_CLOSING_RX = /(?:(?:نتشرف|تشرفنا)[^\n]{0,60}(?:ب\s*خد
 var RESPECTFUL_CLOSING_RX = /(?:تحت\s*(?:أمر|امر)\s*حضرتك|تحت\s*امرك|شكر(?:ا|ًا)\s*(?:لحضرتك|لتواصلك)|العفو\s*(?:يا\s*فندم)?|نتشرف\s*ب\s*خدم(?:ة|ه)\s*حضرتك|تشرفنا\s*(?:بخدمت|بالكلام)|في\s*أي\s*وقت\s*(?:يا\s*فندم)?)/i;
 var CUSTOMER_COURTESY_RX = /^(?:شكرا|شكرًا|متشكر|تسلم|تسلمي|ربنا\s*يكرمك|جزاك\s*الله\s*خيرا|تمام|ماشي|حاضر|اوكي|أوكي|ok|العفو|الله\s*يخليك|شكرا\s*يا\s*دكتور)[\s🌷🌸✨💚🙏!.،]*$/iu;
 var NEW_REQUEST_RX = /(?:عايز|عاوزه|عايزة|محتاج|ممكن|ينفع|بكام|سعر|موجود|متوفر|ابعت|ابعث|هات|هاتلي|لو\s*سمحت|سؤال|استفسار|كمان)/i;
-function make8(option, status, confidence2, reason, evidenceMessageIds) {
+function make8(option, status, confidence3, reason, evidenceMessageIds) {
   const choice = option ? criterion4.choices.find((item) => item.value === option) ?? null : null;
   return {
     key: "closing_message",
@@ -11372,7 +11590,7 @@ function make8(option, status, confidence2, reason, evidenceMessageIds) {
     selectedLabel: status === "not_applicable" ? "\u063A\u064A\u0631 \u0645\u0646\u0637\u0628\u0642 \u0639\u0644\u0649 \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629" : status === "insufficient_evidence" ? "\u0627\u0644\u062F\u0644\u064A\u0644 \u063A\u064A\u0631 \u0643\u0627\u0641\u064D \u0644\u0644\u062D\u0643\u0645" : choice?.label || "\u062A\u0645 \u0627\u0644\u062A\u0642\u064A\u064A\u0645",
     pointsEarned: status === "assessed" ? choice?.pointsEarned ?? null : null,
     maxPoints: criterion4.maxPoints,
-    confidence: confidence2,
+    confidence: confidence3,
     reason,
     evidenceMessageIds: Array.from(new Set(evidenceMessageIds.filter(Boolean)))
   };

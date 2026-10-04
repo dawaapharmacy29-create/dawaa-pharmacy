@@ -2,6 +2,7 @@ import type {
   CanonicalSalesOutcomeAssessment,
   CaseType,
   CommercialConfirmationState,
+  FinancialSettlementAssessment,
 } from './types';
 import type { SaleProofAssessment } from './saleProofState';
 
@@ -13,6 +14,7 @@ export interface CanonicalSalesOutcomeInput {
     customerConfirmed: boolean;
   };
   saleProof: SaleProofAssessment;
+  financialSettlement?: FinancialSettlementAssessment;
   hasMeaningfulBasketItems: boolean;
   needsHumanReview: boolean;
 }
@@ -32,6 +34,7 @@ export function deriveCanonicalSalesOutcome(
     caseType,
     commercialConfirmation,
     saleProof,
+    financialSettlement,
     hasMeaningfulBasketItems,
     needsHumanReview,
   } = input;
@@ -85,6 +88,17 @@ export function deriveCanonicalSalesOutcome(
       isRevenueCountable: false,
       isOrderConfirmed: false,
       reasonCodes: ['outcome.customer_rejected'],
+    };
+  }
+
+  if (financialSettlement?.status === 'settled') {
+    return {
+      ...base,
+      outcome: 'order_confirmed_unproven',
+      isSaleCountable: false,
+      isRevenueCountable: false,
+      isOrderConfirmed: true,
+      reasonCodes: ['outcome.financial_settlement_closed_sale_not_proven'],
     };
   }
 

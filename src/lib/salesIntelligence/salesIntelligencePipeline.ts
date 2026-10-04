@@ -29,6 +29,7 @@ import {
 import { deriveBasketInvoiceMatch, resolveActiveBasket, type DocumentedAdjustment } from './basketInvoiceMatchingEngine';
 import { deriveSalesIntegrityAssessment } from './salesIntegrityEngine';
 import { deriveHistoricalCommercialClosureAssessment } from './historicalCommercialClosureEngine';
+import { deriveFinancialSettlementAssessment } from './financialSettlementEngine';
 import { deriveSaleProofState } from './saleProofState';
 import { deriveCanonicalSalesOutcome } from './canonicalSalesOutcomeEngine';
 import { deriveCustomerNeedModel } from './customerNeedModel';
@@ -365,6 +366,14 @@ function analyzeOneCase(
     invoiceCancelledOrReturned: input.invoiceCancelledOrReturned,
   });
 
+  const financialSettlement = deriveFinancialSettlementAssessment({
+    caseId: conversationCase.caseId,
+    messages: scopedMessages,
+    attribution: rawAttribution,
+    selectedInvoiceRow: invoiceRow,
+    customerIdentityStatus: input.customerIdentityStatus,
+  });
+
   const integrityAssessment = deriveSalesIntegrityAssessment({
     caseId: conversationCase.caseId,
     commercialConfirmation,
@@ -380,13 +389,13 @@ function analyzeOneCase(
   const evidenceCompletenessBase: Omit<EvidenceCompleteness, 'overallEvidenceLevel'> = {
     conversationAvailable: scopedMessages.length > 0,
     customerIdentityResolved: Boolean(conversationCase.customerId) || Boolean(conversationCase.customerPhone),
-    caseSegmentationConfident: !conversationCase.needsHumanReview,
+    caseSegmentationConfident: !conversationCase.needsHumanReview || financialSettlement.status === 'settled',
     // A meaningful customer message alone can produce an empty 'draft' CaseBasket record with no
     // items (see buildCaseBaskets's own ongoing-basket-building fallback in caseBasketEngine.ts) —
     // that artifact is not real evidence of commercial intent, so this requires at least one item.
     basketDetected: hasMeaningfulBasketItems,
     finalBasketDetected: activeBasket !== null && activeBasket.status !== 'draft',
-    announcedTotalAvailable: activeBasket?.announcedTotal != null,
+    announcedTotalAvailable: activeBasket?.announcedTotal != null || financialSettlement.announcedPaymentAmount != null,
     customerConfirmationDetected: commercialConfirmation.customerConfirmed,
     staffConfirmationDetected: commercialConfirmation.staffConfirmed,
     invoiceCandidatesAvailable: invoiceCandidates.length > 0,
@@ -403,7 +412,7 @@ function analyzeOneCase(
   };
 
   const failureReasons: PipelineFailureReason[] = [];
-  if (conversationCase.needsHumanReview) failureReasons.push('case_segmentation_uncertain');
+  if (conversationCase.needsHumanReview && financialSettlement.status !== 'settled') failureReasons.push('case_segmentation_uncertain');
   if (!conversationCase.customerId && !conversationCase.customerPhone) failureReasons.push('customer_identity_unresolved');
   if (!evidenceCompleteness.basketDetected) failureReasons.push('basket_not_detected');
   if (
@@ -418,10 +427,11 @@ function analyzeOneCase(
   }
   if (activeItems.some((item) => item.quantity == null)) failureReasons.push('quantity_unknown');
   if (evidenceCompleteness.basketDetected && !commercialConfirmation.summaryPresented) failureReasons.push('final_summary_missing');
-  if (evidenceCompleteness.basketDetected && !commercialConfirmation.announcedTotalPresent) failureReasons.push('announced_total_missing');
+  if (evidenceCompleteness.basketDetected && !commercialConfirmation.announcedTotalPresent && financialSettlement.announcedPaymentAmount == null) failureReasons.push('announced_total_missing');
   if (
     evidenceCompleteness.basketDetected &&
     !commercialConfirmation.customerConfirmed &&
+    financialSettlement.status !== 'settled' &&
     commercialConfirmation.currentState !== 'unknown' &&
     commercialConfirmation.currentState !== 'rejected'
   ) {
@@ -501,9 +511,15 @@ function analyzeOneCase(
   // commercial-confirmation evidence, but it is not a reason for a human task once the exact
   // transaction itself is proven by a trusted invoice.
   const reviewReasonsResolvedByProvenInvoice = new Set(['no_basket_state_for_case']);
-  const humanReviewReasons = saleProof.state === 'proven'
+  const reviewReasonsResolvedByFinancialSettlement = new Set(['possible_unsegmented_multiple_requests']);
+  let humanReviewReasons = saleProof.state === 'proven'
     ? rawHumanReviewReasons.filter((reason) => !reviewReasonsResolvedByProvenInvoice.has(reason))
     : [...rawHumanReviewReasons];
+  if (financialSettlement.status === 'settled') {
+    humanReviewReasons = humanReviewReasons.filter(
+      (reason) => !reviewReasonsResolvedByFinancialSettlement.has(reason)
+    );
+  }
   if (identityBlocked && !humanReviewReasons.includes(identityReason)) humanReviewReasons.push(identityReason);
 
   const unexplainedBooleanReviewFlag = rawNeedsHumanReview && rawHumanReviewReasons.length === 0;
@@ -515,6 +531,7 @@ function analyzeOneCase(
     caseType: conversationCase.caseType,
     commercialConfirmation,
     saleProof,
+    financialSettlement,
     hasMeaningfulBasketItems,
     needsHumanReview,
   });
@@ -574,6 +591,7 @@ function analyzeOneCase(
     commercialConfirmation,
     protocolAssessment,
     historicalClosure,
+    financialSettlement,
     invoiceCandidateIds: invoiceCandidates.map(invoiceRowLookupId),
     attribution,
     basketInvoiceMatch,
