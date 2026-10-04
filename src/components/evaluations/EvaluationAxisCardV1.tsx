@@ -17,7 +17,7 @@ export default function EvaluationAxisCardV1(props:{
  const evidencePending=props.evidence.status==='pending'||props.evidence.status==='insufficient'||props.evidence.status==='partial';
  const evidenceBlocksDecision=evidenceUnavailable||evidencePending;
  const stateLabel=evidenceUnavailable?'الدليل غير متاح':evidencePending?'الدليل غير مكتمل':props.score?'تم التقييم':'بانتظار التقييم';
- return <Panel id={`evaluation-section-${props.axisKey}`} className="p-3">
+ return <Panel id={`evaluation-section-${props.axisKey}`} className="p-4">
   <div className="flex flex-wrap items-start justify-between gap-3">
    <div className="min-w-0 flex-1">
     <div className="flex flex-wrap items-center gap-2">
@@ -33,8 +33,8 @@ export default function EvaluationAxisCardV1(props:{
    </div>
   </div>
 
-  <div className="mt-3 grid gap-2 lg:grid-cols-[minmax(0,1fr)_230px]">
-   <details className="group rounded-xl border p-2.5" style={{borderColor:evidenceUnavailable?'var(--dawaa-status-danger-border)':'var(--dawaa-theme-border)',background:evidenceUnavailable?'var(--dawaa-status-danger-bg)':'var(--dawaa-theme-soft)'}}>
+  <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(0,1fr)_240px]">
+   <details className="group rounded-xl border p-3" style={{borderColor:evidenceUnavailable?'var(--dawaa-status-danger-border)':'var(--dawaa-theme-border)',background:evidenceUnavailable?'var(--dawaa-status-danger-bg)':'var(--dawaa-theme-soft)'}}>
     <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-[11px] font-black" style={{color:evidenceUnavailable?'var(--dawaa-status-danger-text)':'var(--dawaa-theme-text)'}}>
      <span>{evidenceUnavailable?<AlertTriangle className="me-1 inline" size={14}/>:<CheckCircle2 className="me-1 inline" size={14}/>} {props.evidence.summary}</span><ChevronDown size={14}/>
     </summary>
@@ -45,8 +45,8 @@ export default function EvaluationAxisCardV1(props:{
     </div>
    </details>
 
-   <div className="rounded-xl border p-2.5" style={{borderColor:'var(--dawaa-theme-border)',background:'var(--dawaa-theme-surface)'}}>
-    <div className="mb-1 text-[10px] font-black" style={{color:'var(--dawaa-theme-muted)'}}>قرار المدير</div>
+   <div className="rounded-xl border p-3" style={{borderColor:'var(--dawaa-theme-border)',background:'var(--dawaa-theme-surface)'}}>
+    <div className="mb-2 text-[10px] font-black" style={{color:'var(--dawaa-theme-muted)'}}>قرار المدير</div>
     <div className="flex gap-0.5">{[1,2,3,4,5].map(n=><button type="button" aria-label={`اختيار ${n} نجوم`} disabled={!props.canEdit||evidenceBlocksDecision} key={n} onClick={()=>props.onScore(n)} className="rounded-md p-0.5 disabled:cursor-not-allowed disabled:opacity-45"><Star className={n<=props.score?'fill-current':''} size={21} style={{color:n<=props.score?'var(--dawaa-status-warning-text)':'var(--dawaa-theme-border)'}}/></button>)}</div>
     {props.score?<div className="mt-1 text-[11px] font-black" style={{color:'var(--dawaa-theme-text)'}}>{props.score}/5{props.rubricText?` · ${props.rubricText}`:''}</div>:null}
    </div>
