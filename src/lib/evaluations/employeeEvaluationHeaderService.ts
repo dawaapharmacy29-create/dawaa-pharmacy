@@ -4,7 +4,7 @@ import { loadStaffPerformanceProfile } from '@/lib/staff/staffPerformanceProfile
 import type { EmployeeMonthlyEvidence } from '@/lib/staff/employeeMonthlyEvidenceService';
 import { canonicalStaffRole } from '@/lib/staff/staffRoleCapabilities';
 
-export type EvaluationRoleGroup='doctor'|'assistant'|'delivery'|'other';
+export type EvaluationRoleGroup='doctor'|'assistant'|'warehouse'|'delivery'|'manager'|'customer_service'|'other';
 export type EvaluationHeaderSummary={
  roleGroup:EvaluationRoleGroup; branch:string;
  sales:{state:'available'|'unavailable';total:number|null;invoices:number|null;avgInvoice:number|null;customers:number|null};
@@ -15,7 +15,16 @@ export type EvaluationHeaderSummary={
 };
 
 function overlapDays(start:string,end:string,rangeStart:string,rangeEnd:string){const lo=start<rangeStart?rangeStart:start;const hi=end>rangeEnd?rangeEnd:end;if(hi<lo)return 0;const a=new Date(lo+'T12:00:00Z'),b=new Date(hi+'T12:00:00Z');return Math.round((b.getTime()-a.getTime())/86400000)+1}
-export function evaluationRoleGroup(role:unknown):EvaluationRoleGroup{const r=canonicalStaffRole(role);if(r==='doctor')return'doctor';if(r==='delivery')return'delivery';if(r==='assistant'||r==='inventory_assistant')return'assistant';return'other'}
+export function evaluationRoleGroup(role:unknown):EvaluationRoleGroup{
+ const r=canonicalStaffRole(role);
+ if(r==='doctor')return'doctor';
+ if(r==='delivery')return'delivery';
+ if(r==='inventory_assistant')return'warehouse';
+ if(r==='assistant')return'assistant';
+ if(r==='customer_service')return'customer_service';
+ if(['branch_manager','branches_manager','shift_supervisor','customer_service_manager','executive','admin'].includes(r))return'manager';
+ return'other';
+}
 
 export async function loadEmployeeEvaluationHeader(args:{staffId:string;staffName:string;role:unknown;branch:string;start:string;end:string;evidence:EmployeeMonthlyEvidence}):Promise<EvaluationHeaderSummary>{
  const warnings:string[]=[];
