@@ -15,6 +15,7 @@ const composition=read('src/lib/payroll/payrollFinancialCompositionService.ts');
 const requestEvidence=read('src/lib/tasks/customerRequestEvidenceAdapter.ts');
 const taskAdapters=read('src/lib/tasks/taskEvidenceAdapters.ts');
 const evidenceReader=read('src/lib/performance/performanceTaskEvidenceService.ts');
+const monthlyEvidence=read('src/lib/staff/employeeMonthlyEvidenceService.ts');
 const required=[
  [evalPage,"get_staff_monthly_evaluation_v5",'final evaluation must use V5'],
  [evalPage,'final_approval_snapshot','published evaluation must use final snapshot'],
@@ -26,6 +27,8 @@ const required=[
  [evalPage,'staffRequestRef','staff roster loads must reject stale responses'],
  [evalPage,'evaluationLoading','evaluation details must load independently from roster'],
  [evalPage,'evaluationLoadError','evaluation load failure must render an explicit state'],
+ [evalPage,'roleEvidenceReady','top-level readiness must include role-specific axis evidence'],
+ [evalPage,'blockedAxisEvidence','blocked axes must prevent final approval'],
  [evalPage,'orderedFilteredStaff','evaluation roster must use deterministic branch/role grouping'],
  [evalPage,"}, [branch, cycleLabel, globalScope, managerMode, user?.id, user?.name, user?.staffId]);",'employee selection must not refetch the full roster'],
  [evalPage,"role === 'inventory_assistant'",'warehouse staff must be separated from general assistants'],
@@ -60,6 +63,8 @@ const required=[
  [requestEvidence,"row.primary_responsible_id,row.source_assigned_staff_id",'request responsibility must require explicit owner'],
  [taskAdapters,"cairoDateBoundaryIso",'task evidence must use Cairo boundary'],
  [evidenceReader,"followup_date",'followup evidence must include date-only records'],
+ [monthlyEvidence,'taskEvidencePromise','task evidence must load in parallel with monthly evidence'],
+ [evalPage,'role: selected.job_title || selected.role','monthly evidence must receive canonical employee role scope'],
 ];
 for(const [body,token,msg] of required)if(!body.includes(token))failures.push(msg);
 for(const forbidden of ["get_staff_monthly_evaluation_safe","save_staff_monthly_evaluation_v3"]){if(report.includes(forbidden))failures.push('360 legacy API: '+forbidden)}
