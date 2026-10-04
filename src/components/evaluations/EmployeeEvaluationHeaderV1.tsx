@@ -2,14 +2,14 @@ import { AlertTriangle, CalendarDays, Clock3, ReceiptText, UserRound } from 'luc
 import { Panel, MiniBox } from '@/components/dashboard/DashboardPrimitives';
 import type { EvaluationHeaderSummary } from '@/lib/evaluations/employeeEvaluationHeaderService';
 
-const roleLabels={doctor:'دكتور',assistant:'مساعد',delivery:'دليفري',other:'موظف'} as const;
+const roleLabels={doctor:'دكتور',assistant:'مساعد صيدلي',warehouse:'مخزن',delivery:'دليفري',manager:'إدارة',customer_service:'خدمة عملاء',other:'موظف'} as const;
 const n=(v:number|null,d=0)=>v==null?'—':v.toLocaleString('en-US',{maximumFractionDigits:d});
 export default function EmployeeEvaluationHeaderV1(props:{name:string;role:string;branch:string;cycle:string;summary:EvaluationHeaderSummary|null;loading:boolean}){
  const s=props.summary;
  return <Panel className="overflow-hidden p-0">
   <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3.5" style={{borderColor:'var(--dawaa-theme-border)'}}>
-   <div className="flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-xl border" style={{background:'var(--dawaa-theme-accent-soft)',color:'var(--dawaa-theme-primary-strong)',borderColor:'var(--dawaa-theme-accent-border)'}}><UserRound size={20}/></span><div><h2 className="text-base font-black" style={{color:'var(--dawaa-theme-heading)'}}>{props.name}</h2><div className="mt-0.5 flex flex-wrap gap-1.5 text-[11px] font-bold" style={{color:'var(--dawaa-theme-muted)'}}><span>{props.role}</span><span>·</span><span>{props.branch}</span><span>·</span><span>{props.cycle}</span>{s?<><span>·</span><span>{roleLabels[s.roleGroup]}</span></>:null}</div></div></div>
-   <span className="rounded-full border px-3 py-1 text-[11px] font-black" style={{borderColor:'var(--dawaa-theme-border)',color:'var(--dawaa-theme-primary-strong)'}}>{props.loading?'جاري تحميل الملخص':'ملخص الدورة'}</span>
+   <div className="flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-xl border" style={{background:'var(--dawaa-theme-accent-soft)',color:'var(--dawaa-theme-primary-strong)',borderColor:'var(--dawaa-theme-accent-border)'}}><UserRound size={20}/></span><div><h2 className="text-base font-black" style={{color:'var(--dawaa-theme-heading)'}}>{props.name}</h2><div className="mt-0.5 flex flex-wrap gap-1.5 text-xs font-bold" style={{color:'var(--dawaa-theme-muted)'}}><span>{props.role}</span><span>·</span><span>{props.branch}</span><span>·</span><span>{props.cycle}</span>{s?<><span>·</span><span>{roleLabels[s.roleGroup]}</span></>:null}</div></div></div>
+   <span className="rounded-full border px-3 py-1 text-xs font-black" style={{borderColor:'var(--dawaa-theme-border)',color:'var(--dawaa-theme-primary-strong)'}}>{props.loading?'جاري تحميل الملخص':'ملخص الدورة'}</span>
   </div>
   {s?<div className="space-y-4 p-4">
    {s.roleGroup==='doctor'?<div><div className="mb-2 flex items-center gap-1.5 text-[11px] font-black" style={{color:'var(--dawaa-theme-heading)'}}><ReceiptText size={14}/> المبيعات والمحادثات</div><div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
@@ -23,6 +23,6 @@ export default function EmployeeEvaluationHeaderV1(props:{name:string;role:strin
    </div></div>
    <div><div className="mb-2 flex items-center gap-1.5 text-[11px] font-black" style={{color:'var(--dawaa-theme-heading)'}}><CalendarDays size={14}/> الإجازات السنوية</div><div className="grid gap-2 sm:grid-cols-3"><MiniBox label="سنوية مستخدمة في الدورة" value={n(s.timeOff.annualLeaveCycleDays)} tone="cyan"/><MiniBox label="سنوية مستخدمة خلال السنة" value={n(s.timeOff.annualLeaveYearUsed)} tone="cyan"/><MiniBox label="رصيد السنوية" value={n(s.timeOff.annualLeaveYearBalance)} tone={s.timeOff.annualLeaveYearBalance==null?'amber':'green'}/></div></div>
    {s.warnings.length?<div className="flex items-start gap-2 rounded-xl border p-2.5 text-[11px] font-bold" style={{borderColor:'var(--dawaa-status-warning-border)',background:'var(--dawaa-status-warning-bg)',color:'var(--dawaa-status-warning-text)'}}><AlertTriangle size={14}/><span>{s.warnings.join(' · ')}</span></div>:null}
-  </div>:<div className="p-4 text-xs font-bold" style={{color:'var(--dawaa-theme-muted)'}}>{props.loading?'جاري تجميع حقيقة الموظف للدورة…':'تعذر تحميل ملخص الدورة؛ لا يتم افتراض أرقام بديلة.'}</div>}
+  </div>:<div className="p-4 text-sm font-bold" style={{color:'var(--dawaa-theme-muted)'}}>{props.loading?'جاري تجميع حقيقة الموظف للدورة…':'تعذر تحميل ملخص الدورة؛ لا يتم افتراض أرقام بديلة.'}</div>}
  </Panel>;
 }
