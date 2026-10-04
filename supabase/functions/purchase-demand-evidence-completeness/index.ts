@@ -48,5 +48,23 @@ Deno.serve(async (req) => {
     p_start_at: start.toISOString(), p_end_at: end.toISOString(),
   });
   if (error) return json({ error: "completeness_failed" }, 500);
-  return json({ rows: data || [] });
+
+  if (body.include_items !== true) return json({ rows: data || [] });
+
+  const pageSize = 1000;
+  const maxRows = 100000;
+  const itemRows: unknown[] = [];
+  for (let from = 0; from < maxRows; from += pageSize) {
+    const { data: page, error: pageError } = await db.from("sales_invoice_items_v21")
+      .select("branch,product_code,invoice_number,invoice_date,quantity,customer_id,customer_code")
+      .in("branch", ["فرع شكري", "فرع الشامي"])
+      .gte("invoice_date", start.toISOString()).lte("invoice_date", end.toISOString())
+      .order("invoice_date", { ascending: true }).order("id", { ascending: true })
+      .range(from, from + pageSize - 1);
+    if (pageError) return json({ error: "items_read_failed" }, 500);
+    const rows = page || [];
+    itemRows.push(...rows);
+    if (rows.length < pageSize) return json({ rows: data || [], items: itemRows });
+  }
+  return json({ error: "items_limit_exceeded" }, 413);
 });
