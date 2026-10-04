@@ -73,7 +73,7 @@ export async function buildPurchaseDemandEvidenceExport(
         authorization: `Bearer ${supabaseAnonKey}`,
         'x-dawaa-staff-session': sessionToken,
       },
-      body: JSON.stringify({ start_at: requestedStart.toISOString(), end_at: sourceMax.toISOString() }),
+      body: JSON.stringify({ start_at: requestedStart.toISOString(), end_at: sourceMax.toISOString(), include_items: true }),
     });
   } catch {
     throw new Error('تعذر الاتصال بخدمة التحقق من اكتمال بيانات المبيعات.');
@@ -96,38 +96,20 @@ export async function buildPurchaseDemandEvidenceExport(
     }));
   const continuousCoverageProven = incompleteDays.length === 0;
 
-  const rows: SalesEvidenceLine[] = [];
-  for (let from = 0; from < MAX_SOURCE_ROWS; from += PAGE_SIZE) {
-    const to = from + PAGE_SIZE - 1;
-    const { data, error } = await supabase
-      .from('sales_invoice_items_v21')
-      .select('branch,product_code,invoice_number,invoice_date,quantity,customer_id,customer_code')
-      .in('branch', ['فرع شكري', 'فرع الشامي'])
-      .gte('invoice_date', requestedStart.toISOString())
-      .lte('invoice_date', sourceMax.toISOString())
-      .order('invoice_date', { ascending: true })
-      .order('id', { ascending: true })
-      .range(from, to);
-    if (error) throw error;
-
-    const page = data ?? [];
-    for (const row of page) {
-      rows.push({
-        branch: row.branch,
-        productCode: row.product_code,
-        invoiceNumber: row.invoice_number,
-        invoiceDate: row.invoice_date,
-        quantity: row.quantity == null ? null : Number(row.quantity),
-        customerId: row.customer_id,
-        customerCode: row.customer_code,
-      });
-    }
-    if (page.length < PAGE_SIZE) break;
-    if (from + PAGE_SIZE >= MAX_SOURCE_ROWS) {
-      throw new Error('تجاوز مصدر الفواتير حد الأمان المسموح للتصدير؛ لم يتم إنشاء Evidence ناقص.');
-    }
+  const rawItems = Array.isArray(completenessResponse?.items) ? completenessResponse.items : [];
+  if (!rawItems.length) throw new Error('لا توجد تفاصيل فواتير صالحة لبناء Demand Evidence.');
+  if (rawItems.length > MAX_SOURCE_ROWS) {
+    throw new Error('تجاوز مصدر الفواتير حد الأمان المسموح للتصدير؛ لم يتم إنشاء Evidence ناقص.');
   }
-  if (!rows.length) throw new Error('لا توجد تفاصيل فواتير صالحة لبناء Demand Evidence.');
+  const rows: SalesEvidenceLine[] = rawItems.map((row: any) => ({
+    branch: row.branch,
+    productCode: row.product_code,
+    invoiceNumber: row.invoice_number,
+    invoiceDate: row.invoice_date,
+    quantity: row.quantity == null ? null : Number(row.quantity),
+    customerId: row.customer_id,
+    customerCode: row.customer_code,
+  }));
 
   // The first fetched row proves only the lower bound actually available in the
   // requested window. This prevents claiming coverage for days absent from source data.
