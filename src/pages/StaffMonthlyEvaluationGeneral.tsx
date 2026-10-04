@@ -50,6 +50,8 @@ import MonthlyEvaluationAuditTrailV5 from '@/components/evaluations/MonthlyEvalu
 import EvaluationDecisionHeaderV1 from '@/components/evaluations/EvaluationDecisionHeaderV1';
 import EvaluationAxisCardV1 from '@/components/evaluations/EvaluationAxisCardV1';
 import FinalEvaluationReviewV1 from '@/components/evaluations/FinalEvaluationReviewV1';
+import EmployeeEvaluationHeaderV1 from '@/components/evaluations/EmployeeEvaluationHeaderV1';
+import { loadEmployeeEvaluationHeader, type EvaluationHeaderSummary } from '@/lib/evaluations/employeeEvaluationHeaderService';
 
 type StaffRow = {
   id: string;
@@ -607,6 +609,8 @@ export default function StaffMonthlyEvaluation() {
   });
   const [evidenceErrors, setEvidenceErrors] = useState<Record<string, string>>({});
   const [coaching, setCoaching] = useState<EmployeeMonthlyEvidence['coaching'] | null>(null);
+  const [employeeHeader, setEmployeeHeader] = useState<EvaluationHeaderSummary | null>(null);
+  const [employeeHeaderLoading, setEmployeeHeaderLoading] = useState(false);
   const [pointsTruth, setPointsTruth] = useState<StaffPointsDashboardV3 | null>(null);
   const [settledStatement, setSettledStatement] = useState<{ points_closing: number; incentive_amount: number } | null>(null);
   const [activeGates, setActiveGates] = useState<CriticalGateType[]>([]);
@@ -764,6 +768,16 @@ export default function StaffMonthlyEvaluation() {
         setEvidenceHealth(evidenceResult.health);
         setEvidenceErrors(evidenceResult.errors);
         setCoaching(evidenceResult.coaching);
+        setEmployeeHeaderLoading(true);
+        void loadEmployeeEvaluationHeader({
+          staffId: selectedId,
+          staffName: selected.name,
+          role: selected.job_title || selected.role,
+          branch: selected.branch || branch,
+          start: startDate,
+          end: endDate,
+          evidence: evidenceResult,
+        }).then(setEmployeeHeader).catch(() => setEmployeeHeader(null)).finally(() => setEmployeeHeaderLoading(false));
         setPointsTruth(pointsResult);
         setSettledStatement(statementResult.data || null);
 
@@ -2015,6 +2029,17 @@ export default function StaffMonthlyEvaluation() {
                     </div>
                   </Panel>
                 )
+              ) : null}
+
+              {!employeeView && selected ? (
+                <EmployeeEvaluationHeaderV1
+                  name={selected.name}
+                  role={selected.job_title || selected.role || 'غير محدد'}
+                  branch={selected.branch || branch}
+                  cycle={cycleRange.displayLabel}
+                  summary={employeeHeader}
+                  loading={employeeHeaderLoading}
+                />
               ) : null}
 
               {!employeeView && selected ? (
