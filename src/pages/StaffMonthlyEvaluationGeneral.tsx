@@ -1203,6 +1203,16 @@ export default function StaffMonthlyEvaluation() {
     commented: publishedStaff.filter((item) => Boolean(item.evaluation_commented_at)).length,
   };
 
+  const roleGroupLabel = (item: StaffRow) => {
+    const role = canonicalStaffRole(item.job_title || item.role);
+    if (role === 'doctor') return 'دكاترة';
+    if (role === 'assistant') return 'مساعدون';
+    if (role === 'inventory_assistant') return 'المخزن';
+    if (role === 'delivery') return 'الدليفري';
+    if (['branch_manager','branches_manager','shift_supervisor','customer_service_manager','executive','admin'].includes(role)) return 'الإدارة';
+    return 'وظائف أخرى';
+  };
+
   const filteredStaff = staff.filter((item) => {
     const matchesSearch = item.name.includes(search);
     const matchesStatus = staffStatusFilter === 'all'
@@ -1218,6 +1228,13 @@ export default function StaffMonthlyEvaluation() {
       || (receiptFilter === 'commented' && published && Boolean(item.evaluation_commented_at));
 
     return matchesSearch && matchesStatus && matchesReceipt;
+  });
+  const orderedFilteredStaff = [...filteredStaff].sort((a,b) => {
+    const branchCompare = String(a.branch || '').localeCompare(String(b.branch || ''), 'ar');
+    if (branchCompare) return branchCompare;
+    const groupCompare = roleGroupLabel(a).localeCompare(roleGroupLabel(b), 'ar');
+    if (groupCompare) return groupCompare;
+    return a.name.localeCompare(b.name, 'ar');
   });
   const completedSections = sections.filter((item) => item.score > 0).length;
   const weakSectionsMissingNotes = sections.filter((item) => item.score > 0 && item.score <= 2 && !item.notes.trim());
@@ -1719,7 +1736,11 @@ export default function StaffMonthlyEvaluation() {
             </div>
 
             <div className="mt-2 max-h-[72vh] space-y-1.5 overflow-y-auto">
-              {filteredStaff.map((item) => {
+              {orderedFilteredStaff.map((item, index) => {
+                const previous = orderedFilteredStaff[index - 1];
+                const groupKey = `${item.branch || 'بدون فرع'} · ${roleGroupLabel(item)}`;
+                const previousGroupKey = previous ? `${previous.branch || 'بدون فرع'} · ${roleGroupLabel(previous)}` : '';
+                const showGroup = groupKey !== previousGroupKey;
                 const statusLabel = item.evaluation_status === 'needs_reapproval'
                   ? 'إعادة اعتماد'
                   : ['sent', 'approved'].includes(String(item.evaluation_status || ''))
@@ -1749,6 +1770,8 @@ export default function StaffMonthlyEvaluation() {
                     : { borderColor: 'var(--dawaa-status-warning-border)', color: 'var(--dawaa-status-warning-text)', background: 'var(--dawaa-status-warning-bg)' };
 
                 return (
+                  <div key={item.id}>
+                  {showGroup ? <div className="px-1 pb-1 pt-2 text-[10px] font-black" style={{color:'var(--dawaa-theme-muted)'}}>{groupKey}</div> : null}
                   <button
                     key={item.id}
                     onClick={() => { setSelectedId(item.id); setSidebarOpen(false); }}
@@ -1786,9 +1809,10 @@ export default function StaffMonthlyEvaluation() {
                       </div>
                     </div>
                   </button>
+                  </div>
                 );
               })}
-              {!filteredStaff.length ? (
+              {!orderedFilteredStaff.length ? (
                 <div className="rounded-xl border border-dashed p-4 text-center text-xs font-bold" style={{ borderColor: 'var(--dawaa-theme-border)', color: 'var(--dawaa-theme-muted)' }}>
                   {receiptFilter === 'all' ? 'لا يوجد موظف مطابق للبحث.' : 'لا يوجد موظف في حالة الاستلام المختارة.'}
                 </div>
