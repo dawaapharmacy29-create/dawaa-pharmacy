@@ -10,6 +10,7 @@
 // v16 (2026-10-04): settled-order truth alignment. Exact invoice-backed payment settlement now
 // projects consistently as case=invoiced, journey=financially_settled, lostOpportunity=closed_order_unproven,
 // pipeline=analyzed, while Sale/Revenue remain uncounted until canonical Sale Proof is proven.
+// Final V16 preview trigger: source tests, full suite, TypeScript, generated API verification, and production build passed.
 // v15 (2026-10-04): invoice-backed financial settlement closes transfer-paid orders without
 // fabricating formal protocol compliance or Sale Proof; payment-continuation request ambiguity is
 // suppressed only under explicit transfer context. Final gate marker: generated API verified.
