@@ -1052,7 +1052,7 @@ export default function StaffMonthlyEvaluation() {
       toast.error('لا يمكنك اعتماد أو تعديل تقييمك الشهري لنفسك.');
       return;
     }
-    if (nextStatus === 'sent' && !evidenceReady) {
+    if (nextStatus === 'sent' && !roleEvidenceReady) {
       const missing = [
         evidenceHealth.reviews === 'unavailable' ? 'مراجعات المحادثات' : '',
         evidenceHealth.followups === 'unavailable' ? 'المتابعات' : '',
@@ -1103,7 +1103,7 @@ export default function StaffMonthlyEvaluation() {
         metrics_snapshot: {
           ...metrics,
           evaluation_engine_version: 5,
-          evidence_ready: evidenceReady,
+          evidence_ready: roleEvidenceReady,
           evidence_health: evidenceHealth,
           canonical_role: profile.role,
           evaluation_cycle_label: cycleLabel,
@@ -1209,7 +1209,7 @@ export default function StaffMonthlyEvaluation() {
             evaluation_status: nextStatus === 'sent' ? 'sent' : 'draft',
             evaluation_score: Number(saveResult.overall_score ?? overallScore),
             sent_at: nextStatus === 'sent' ? (serverSentAt || new Date().toISOString()) : item.sent_at,
-            evidence_ready: nextStatus === 'sent' ? true : evidenceReady,
+            evidence_ready: nextStatus === 'sent' ? true : roleEvidenceReady,
           }
         : item));
 
@@ -1374,9 +1374,28 @@ export default function StaffMonthlyEvaluation() {
   const hasDevelopmentNeed = developmentSections.length > 0;
   const feedbackMissingStrength = evaluationComplete && hasStrongPerformance && !strengthsText.trim();
   const feedbackMissingDevelopment = evaluationComplete && hasDevelopmentNeed && !developmentText.trim();
+  const blockedAxisEvidence = sections
+    .map((item) => ({
+      title: item.title,
+      evidence: sectionEvidenceFor(
+        item.key,
+        selected?.job_title || selected?.role,
+        metrics,
+        evidenceHealth,
+        pointsTruth,
+        coaching
+      ),
+    }))
+    .filter(({ evidence }) => ['unavailable', 'pending', 'insufficient', 'partial'].includes(evidence.status));
+  const roleEvidenceReady = evidenceReady && blockedAxisEvidence.length === 0;
+
   const approvalBlockers = [
     !cycleClosed ? 'الدورة لم تُقفل بعد' : '',
-    !evidenceReady ? 'مصدر أو أكثر من أدلة الدورة غير متاح' : '',
+    !roleEvidenceReady
+      ? blockedAxisEvidence.length
+        ? `${blockedAxisEvidence.length} محور يحتاج دليل صالح: ${blockedAxisEvidence.map((item) => item.title).join('، ')}`
+        : 'مصدر أو أكثر من أدلة الدورة غير متاح'
+      : '',
     completedSections !== sections.length ? `باقي ${Math.max(0, sections.length - completedSections)} محور بدون تقييم` : '',
     weakSectionsMissingNotes.length ? `${weakSectionsMissingNotes.length} محور بدرجة ضعيفة يحتاج سبب مكتوب` : '',
     feedbackMissingStrength ? 'يوجد أداء قوي موثق لكن نقاط القوة لم تُكتب بعد' : '',
@@ -1385,7 +1404,7 @@ export default function StaffMonthlyEvaluation() {
   ].filter(Boolean);
   const approvalReady =
     cycleClosed
-    && evidenceReady
+    && roleEvidenceReady
     && sections.length > 0
     && completedSections === sections.length
     && weakSectionsMissingNotes.length === 0
@@ -1539,8 +1558,8 @@ export default function StaffMonthlyEvaluation() {
 
   const incompleteActionLabel = !cycleClosed
     ? 'راجع حالة الدورة'
-    : !evidenceReady
-      ? 'راجع مصادر البيانات'
+    : !roleEvidenceReady
+      ? 'راجع أدلة المحاور'
       : completedSections !== sections.length || weakSectionsMissingNotes.length
         ? 'أكمل التقييم'
         : feedbackMissingStrength || feedbackMissingDevelopment || criticalGateMissingReason
@@ -1548,7 +1567,7 @@ export default function StaffMonthlyEvaluation() {
           : 'راجع التقييم';
 
   function continueIncompleteEvaluation() {
-    if (!cycleClosed || !evidenceReady) {
+    if (!cycleClosed || !roleEvidenceReady) {
       setActiveStep(1);
       return;
     }
@@ -2131,7 +2150,7 @@ export default function StaffMonthlyEvaluation() {
                   score={evaluationComplete ? overallScore : null}
                   completed={completedSections}
                   total={sections.length}
-                  evidenceReady={evidenceReady}
+                  evidenceReady={roleEvidenceReady}
                   status={status}
                   blockers={approvalBlockers}
                   incentive={canonicalIncentive}
@@ -2143,7 +2162,7 @@ export default function StaffMonthlyEvaluation() {
               <MonthlyEvaluationWorkflowV5
                 activeStep={activeStep}
                 onStepChange={setActiveStep}
-                evidenceReady={evidenceReady}
+                evidenceReady={roleEvidenceReady}
                 cycleClosed={cycleClosed}
                 completedSections={completedSections}
                 totalSections={sections.length}
@@ -2162,16 +2181,16 @@ export default function StaffMonthlyEvaluation() {
                       <div>
                         <div className="text-sm font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>جاهزية بيانات الدورة</div>
                         <div className="mt-1 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
-                          {evidenceReady ? 'كل مصادر التقييم الأساسية متاحة.' : 'يوجد مصدر ناقص ويجب مراجعته قبل الاعتماد.'}
+                          {roleEvidenceReady ? 'كل مصادر ومحاور التقييم المطلوبة جاهزة.' : 'يوجد محور أو مصدر يحتاج دليلًا صالحًا قبل الاعتماد.'}
                         </div>
                       </div>
                       <span
                         className="rounded-full border px-3 py-1 text-xs font-black"
-                        style={evidenceReady
+                        style={roleEvidenceReady
                           ? { borderColor: 'var(--dawaa-status-success-border)', background: 'var(--dawaa-status-success-bg)', color: 'var(--dawaa-status-success-text)' }
                           : { borderColor: 'var(--dawaa-status-danger-border)', background: 'var(--dawaa-status-danger-bg)', color: 'var(--dawaa-status-danger-text)' }}
                       >
-                        {evidenceReady ? 'جاهزة' : 'تحتاج مراجعة'}
+                        {roleEvidenceReady ? 'جاهزة' : 'تحتاج مراجعة'}
                       </span>
                     </div>
 
@@ -2271,8 +2290,8 @@ export default function StaffMonthlyEvaluation() {
                         راجع فقط إن المصادر الأساسية جاهزة قبل بدء التقييم.
                       </div>
                     </div>
-                    <span className="text-xs font-black" style={{ color: evidenceReady ? 'var(--dawaa-status-success-text)' : 'var(--dawaa-status-danger-text)' }}>
-                      {evidenceReady ? '3/3 جاهزة' : 'يوجد مصدر ناقص'}
+                    <span className="text-xs font-black" style={{ color: roleEvidenceReady ? 'var(--dawaa-status-success-text)' : 'var(--dawaa-status-danger-text)' }}>
+                      {roleEvidenceReady ? 'المصادر والمحاور جاهزة' : 'يوجد دليل ناقص'}
                     </span>
                   </div>
 
@@ -2300,7 +2319,7 @@ export default function StaffMonthlyEvaluation() {
                     })}
                   </div>
 
-                  {!evidenceReady && Object.keys(evidenceErrors).length ? (
+                  {!roleEvidenceReady && Object.keys(evidenceErrors).length ? (
                     <div className="mt-3 rounded-xl border p-2.5 text-xs font-bold" style={{ borderColor: 'var(--dawaa-status-danger-border)', background: 'var(--dawaa-status-danger-bg)', color: 'var(--dawaa-status-danger-text)' }}>
                       الاعتماد النهائي متوقف حتى يعود المصدر الناقص.
                     </div>
