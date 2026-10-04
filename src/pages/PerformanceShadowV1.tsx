@@ -5,18 +5,10 @@ import { useStaffDirectory } from '@/hooks/useStaffDirectory';
 import { mergeStaffChoices } from '@/lib/staffFallback';
 import { isManagerRole, isDoctorRole } from '@/lib/security/userDataScope';
 import { loadEmployeeMonthlyEvidence, type EmployeeMonthlyEvidence } from '@/lib/staff/employeeMonthlyEvidenceService';
+import { evaluationCycleQueryBounds, evaluationCycleRangeFromLabel, latestClosedEvaluationCycleLabel } from '@/lib/evaluations/monthlyEvaluationCycle';
 
 type Axis = { key: string; label: string; weight: number; score: number | null; coverage: string; confidence: 'high'|'medium'|'low'|'unavailable'; note: string };
 
-function cycleDates(cycle: string) {
-  const [year, month] = cycle.split('-').map(Number);
-  const endMonth = month === 12 ? 1 : month + 1;
-  const endYear = month === 12 ? year + 1 : year;
-  return {
-    startDate: `${cycle}-26`,
-    endDateExclusive: `${endYear}-${String(endMonth).padStart(2,'0')}-26`,
-  };
-}
 function clamp(n:number){ return Math.max(0,Math.min(100,Math.round(n))); }
 function confidence(samples:number, good=10){ return samples >= good ? 'high' as const : samples > 0 ? 'medium' as const : 'unavailable' as const; }
 
@@ -45,8 +37,7 @@ function buildAxes(e: EmployeeMonthlyEvidence): Axis[] {
 export default function PerformanceShadowV1(){
   const {user}=useAuth();
   const manager=isManagerRole(user);
-  const now=new Date();
-  const defaultCycle=`${now.getFullYear()}-${String(now.getMonth()===0?12:now.getMonth()).padStart(2,'0')}`;
+  const defaultCycle=latestClosedEvaluationCycleLabel(new Date());
   const [cycle,setCycle]=useState(defaultCycle);
   const [staffId,setStaffId]=useState('');
   const [evidence,setEvidence]=useState<EmployeeMonthlyEvidence|null>(null);
@@ -56,7 +47,7 @@ export default function PerformanceShadowV1(){
   const choices=useMemo(()=>mergeStaffChoices(dir.filter(x=>x.source!=='alias'&&x.active&&x.id&&x.name)),[dir]);
   const visible=useMemo(()=>manager?choices:choices.filter(x=>x.id===(user?.staffId||user?.id)),[choices,manager,user?.staffId,user?.id]);
   useEffect(()=>{if(!staffId&&visible.length)setStaffId(manager?visible[0].id:(user?.staffId||user?.id||visible[0].id));},[staffId,visible,manager,user?.staffId,user?.id]);
-  useEffect(()=>{if(!staffId)return; const d=cycleDates(cycle); let dead=false; setLoading(true);setError(''); loadEmployeeMonthlyEvidence({staffId,...d}).then(x=>{if(!dead)setEvidence(x)}).catch(x=>{if(!dead)setError(x instanceof Error?x.message:'تعذر تحميل الأدلة')}).finally(()=>{if(!dead)setLoading(false)});return()=>{dead=true}},[staffId,cycle]);
+  useEffect(()=>{if(!staffId)return; const d=evaluationCycleQueryBounds(cycle); let dead=false; setLoading(true);setError(''); loadEmployeeMonthlyEvidence({staffId,...d}).then(x=>{if(!dead)setEvidence(x)}).catch(x=>{if(!dead)setError(x instanceof Error?x.message:'تعذر تحميل الأدلة')}).finally(()=>{if(!dead)setLoading(false)});return()=>{dead=true}},[staffId,cycle]);
   if(!isDoctorRole(user)&&!manager)return <div dir="rtl" className="p-6">هذه الصفحة متاحة للدكاترة والإدارة فقط.</div>;
   const axes=evidence?buildAxes(evidence):[];
   const blockers=axes.filter(x=>x.score===null||x.confidence==='low'||x.confidence==='unavailable');
@@ -65,7 +56,7 @@ export default function PerformanceShadowV1(){
   return <div dir="rtl" className="space-y-5 p-4 md:p-6">
     <div className="dawaa-card dawaa-card--raised p-5">
       <div className="flex items-center gap-3"><FlaskConical className="h-6 w-6"/><div><h1 className="dawaa-title text-xl">Performance Shadow V1</h1><p className="dawaa-body text-sm">نسخة اختبار غير مالية — لا تكتب نقاطًا أو حوافز أو Payroll.</p></div></div>
-      <div className="mt-4 flex flex-wrap gap-3">{manager&&<select className="input-dark" value={staffId} onChange={e=>setStaffId(e.target.value)}>{visible.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select>}<input className="input-dark" type="month" value={cycle} onChange={e=>setCycle(e.target.value)}/></div>
+      <div className="mt-4 flex flex-wrap gap-3">{manager&&<select className="input-dark" value={staffId} onChange={e=>setStaffId(e.target.value)}>{visible.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select>}<input className="input-dark" type="month" value={cycle} onChange={e=>setCycle(e.target.value)}/><div className="self-center text-xs dawaa-muted">الدورة: {evaluationCycleRangeFromLabel(cycle).displayLabel}</div></div>
     </div>
     {loading&&<div className="dawaa-card p-5">جاري بناء الـShadow من الأدلة الفعلية...</div>}
     {error&&<div className="dawaa-card p-5 text-red-300">{error}</div>}
