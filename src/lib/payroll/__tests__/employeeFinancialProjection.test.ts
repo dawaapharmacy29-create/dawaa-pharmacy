@@ -24,4 +24,12 @@ describe('employee financial projection',()=>{
   const x=buildEmployeeFinancialProjection(base.map(v=>v.key==='overtime'?{...v,state:'pending',amountEgp:200}:v));
   expect(x.ready).toBe(false);expect(x.payableTotalEgp).toBeNull();expect(x.pendingTotalEgp).toBe(200);
  });
+ it('blocks a settled component without a valid amount',()=>{
+  const x=buildEmployeeFinancialProjection(base.map(v=>v.key==='overtime'?{...v,amountEgp:null}:v));
+  expect(x.ready).toBe(false);expect(x.payableTotalEgp).toBeNull();
+ });
+ it('blocks duplicate financial components',()=>{
+  const x=buildEmployeeFinancialProjection([...base,{...base[1],amountEgp:999}]);
+  expect(x.ready).toBe(false);expect(x.payableTotalEgp).toBeNull();
+ });
 });
