@@ -2044,6 +2044,7 @@ export default function StaffMonthlyEvaluation() {
                 approvalReady={approvalReady}
                 status={status}
                 requiresPostCycleReapproval={requiresPostCycleReapproval}
+                blockers={approvalBlockers}
               />
               ) : null}
 
