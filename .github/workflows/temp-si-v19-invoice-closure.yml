@@ -1,0 +1,75 @@
+name: Temp SI V19 Invoice Closure
+
+on:
+  push:
+    branches:
+      - fix/si-quality-closing-continuation-20261004
+    paths:
+      - scripts/temp_si_v19_patch.py
+      - .github/workflows/temp-si-v19-invoice-closure.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply-test-generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/si-quality-closing-continuation-20261004
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+
+      - name: Apply V19 source patch
+        run: python scripts/temp_si_v19_patch.py
+
+      - name: Focused V19 regression
+        run: npx vitest run src/lib/__tests__/salesIntelligenceFinancialSettlement.test.ts
+
+      - name: Full tests
+        run: npm test
+
+      - name: TypeScript
+        run: npm run typecheck
+
+      - name: Regenerate Sales Intelligence API
+        run: node scripts/build-sales-intelligence-refresh-api.cjs
+
+      - name: Verify generated V19 transport
+        run: |
+          grep -q "sales-intelligence-v19" api/sales-intelligence-refresh-source.js
+          grep -q "invoiced_unproven" api/sales-intelligence-refresh-source.js
+          grep -q "invoice_backed_order_closed_sale_not_proven" api/sales-intelligence-refresh-source.js
+
+      - name: Production build
+        run: npm run build
+
+      - name: Commit verified V19 and clean temporary runner
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            api/sales-intelligence-refresh-source.js \
+            src/lib/__tests__/salesIntelligenceFinancialSettlement.test.ts \
+            src/lib/salesIntelligence/types.ts \
+            src/lib/salesIntelligence/canonicalSalesOutcomeEngine.ts \
+            src/lib/salesIntelligence/commercialJourneyStateMachine.ts \
+            src/lib/salesIntelligence/lostOpportunityEngine.ts \
+            src/lib/salesIntelligence/followUpOpportunityEngine.ts \
+            src/lib/salesIntelligence/salesIntelligencePipeline.ts \
+            src/lib/salesIntelligence/persistence/versions.ts
+          git rm -f scripts/temp_si_v19_patch.py .github/workflows/temp-si-v19-invoice-closure.yml
+          git commit -m "fix: close exact invoice-backed confirmed orders"
+          git push origin HEAD:fix/si-quality-closing-continuation-20261004
