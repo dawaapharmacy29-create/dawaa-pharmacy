@@ -26,12 +26,13 @@ export async function loadEmployeeEvaluationHeader(args:{staffId:string;staffNam
   listStaffTimeOffRequests({staffId:args.staffId,from:args.start,to:args.end,status:'approved',limit:200}),
   getAnnualLeaveBalanceV1(args.staffId,Number(args.end.slice(0,4))),
  ]);
+ const roleGroup=evaluationRoleGroup(args.role);
  const profile=profileR.status==='fulfilled'?profileR.value:null;
  const attendance=attendanceR.status==='fulfilled'?attendanceR.value:null;
  const permission=permissionR.status==='fulfilled'?permissionR.value:null;
  const requests=requestsR.status==='fulfilled'?requestsR.value:[];
  const annual=annualR.status==='fulfilled'?annualR.value:null;
- if(!profile)warnings.push('ملخص المبيعات غير متاح');
+ if(roleGroup==='doctor'&&!profile)warnings.push('ملخص المبيعات غير متاح');
  if(!attendance)warnings.push('تفاصيل الحضور والساعات غير متاحة');
  if(!permission)warnings.push('ملخص الأذونات غير متاح');
  if(requestsR.status!=='fulfilled')warnings.push('تفاصيل الإجازات غير متاحة');
@@ -39,8 +40,8 @@ export async function loadEmployeeEvaluationHeader(args:{staffId:string;staffNam
  const otherLeaveDays=requests.filter(x=>['sick_leave','exceptional_leave','approved_absence'].includes(x.request_kind)).reduce((n,x)=>n+overlapDays(x.start_date,x.end_date,args.start,args.end),0);
  const weeklyOffDays=attendance?.days.filter(x=>x.is_off_day===true||x.resolution_status==='off_day').length??null;
  return{
-  roleGroup:evaluationRoleGroup(args.role),branch:args.branch,
-  sales:{state:profile?.sales?'available':'unavailable',total:profile?.sales?.cycleNetSales??null,invoices:profile?.sales?.cycleInvoicesCount??null,avgInvoice:profile?.sales?.avgInvoice??null,customers:profile?.sales?.uniqueCustomers??null},
+  roleGroup,branch:args.branch,
+  sales:roleGroup==='doctor'?{state:profile?.sales?'available':'unavailable',total:profile?.sales?.cycleNetSales??null,invoices:profile?.sales?.cycleInvoicesCount??null,avgInvoice:profile?.sales?.avgInvoice??null,customers:profile?.sales?.uniqueCustomers??null}:{state:'unavailable',total:null,invoices:null,avgInvoice:null,customers:null},
   conversations:{state:args.evidence.health.reviews==='available'?'available':'unavailable',count:args.evidence.health.reviews==='available'?args.evidence.coaching.conversation.reviewCount:null,average:args.evidence.health.reviews==='available'?args.evidence.coaching.conversation.coreAverage:null},
   attendance:{state:attendance?'available':'unavailable',workedDays:attendance?.summary.actual_worked_days??null,workedHours:attendance?.summary.total_worked_hours??null,scheduledDays:attendance?.summary.scheduled_workdays??null,lateDays:attendance?.summary.late_days??null,absenceReviewDays:attendance?.summary.absence_review_days??null},
   timeOff:{state:permission&&requestsR.status==='fulfilled'?'available':permission||requestsR.status==='fulfilled'?'partial':'unavailable',permissions:permission?.approved_permissions??null,permissionMinutes:permission?.total_minutes??null,annualLeaveCycleDays:requestsR.status==='fulfilled'?annualCycleDays:null,annualLeaveYearUsed:annual?.used??null,annualLeaveYearBalance:annual?.balance??null,weeklyOffDays,otherApprovedLeaveDays:requestsR.status==='fulfilled'?otherLeaveDays:null},
