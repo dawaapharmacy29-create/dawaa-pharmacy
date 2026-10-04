@@ -11,6 +11,9 @@ import {
 } from '@/lib/evaluations/monthlyDevelopmentTextEvidence';
 import { readAttendanceRange } from '@/lib/readModels/attendanceReadModel';
 import { listAttendanceImpactLedger, type AttendanceImpactRow } from '@/lib/attendance/attendanceResolutionService';
+import { canonicalStaffRole } from '@/lib/staff/staffRoleCapabilities';
+import { readPerformanceTaskEvidence } from '@/lib/performance/performanceTaskEvidenceService';
+import type { EvaluationMetricProjection } from '@/lib/evaluations/evaluationMetrics';
 
 export type EmployeeMonthlyEvidenceMetrics = {
   review_count: number;
@@ -248,6 +251,7 @@ export type EmployeeMonthlyEvidence = {
     followups: 'available' | 'unavailable';
     attendance: 'available' | 'unavailable';
   };
+  taskEvaluation: EvaluationMetricProjection | null;
   ready: boolean;
   errors: Record<string, string>;
 };
@@ -1438,6 +1442,8 @@ export async function loadEmployeeMonthlyEvidence(args: {
   staffId: string;
   startDate: string;
   endDateExclusive: string;
+  role?: unknown;
+  branch?: string | null;
 }): Promise<EmployeeMonthlyEvidence> {
   const errors: Record<string, string> = {};
 
@@ -1514,6 +1520,20 @@ export async function loadEmployeeMonthlyEvidence(args: {
   };
 
   const conversationCoaching = buildConversationCoaching(reviewRows);
+  let taskEvaluation: EvaluationMetricProjection | null = null;
+  if (args.branch && args.role) {
+    try {
+      taskEvaluation = await readPerformanceTaskEvidence({
+        staffId: args.staffId,
+        branch: args.branch,
+        role: canonicalStaffRole(args.role),
+        start: args.startDate,
+        end: new Date(new Date(args.endDateExclusive).getTime() - 86400000).toISOString().slice(0,10),
+      });
+    } catch (cause) {
+      errors.taskEvidence = cause instanceof Error ? cause.message : String(cause);
+    }
+  }
 
   return {
     metrics: {
@@ -1536,6 +1556,7 @@ export async function loadEmployeeMonthlyEvidence(args: {
       salesQuality: buildSalesQualityCoaching(conversationCoaching, invoicePerformanceResult),
     },
     health,
+    taskEvaluation,
     ready:
       health.reviews === 'available' &&
       health.followups === 'available' &&
