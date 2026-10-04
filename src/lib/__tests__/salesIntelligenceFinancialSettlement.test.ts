@@ -4,6 +4,7 @@ import { deriveCanonicalSalesOutcome } from '@/lib/salesIntelligence/canonicalSa
 import { parseWhatsAppExport } from '@/lib/whatsappConversationParser';
 import { deriveSegmentedCases, runSalesIntelligencePipeline } from '@/lib/salesIntelligence/salesIntelligencePipeline';
 
+// V15 regression lock: financial settlement may close an order operationally without inventing proven revenue.
 const RAW = `[9/27/26, 9:03:34 PM] ابراهيم الصياد ٣٦٤٣: لوسمحت كنت محتاجه علبتين لبن هيرو بيبي نيوتروني دفنس 3
 [9/27/26, 9:06:00 PM] You: جاري الارسال
 [9/28/26, 2:52:09 AM] You: اتفضل رقم التحويل يا فندم
