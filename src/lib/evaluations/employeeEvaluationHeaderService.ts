@@ -14,7 +14,7 @@ export type EvaluationHeaderSummary={
  warnings:string[];
 };
 
-function daysInclusive(start:string,end:string){const a=new Date(start+'T12:00:00Z'),b=new Date(end+'T12:00:00Z');return Math.max(1,Math.round((b.getTime()-a.getTime())/86400000)+1)}
+function overlapDays(start:string,end:string,rangeStart:string,rangeEnd:string){const lo=start<rangeStart?rangeStart:start;const hi=end>rangeEnd?rangeEnd:end;if(hi<lo)return 0;const a=new Date(lo+'T12:00:00Z'),b=new Date(hi+'T12:00:00Z');return Math.round((b.getTime()-a.getTime())/86400000)+1}
 export function evaluationRoleGroup(role:unknown):EvaluationRoleGroup{const r=canonicalStaffRole(role);if(r==='doctor')return'doctor';if(r==='delivery')return'delivery';if(r==='assistant'||r==='inventory_assistant')return'assistant';return'other'}
 
 export async function loadEmployeeEvaluationHeader(args:{staffId:string;staffName:string;role:unknown;branch:string;start:string;end:string;evidence:EmployeeMonthlyEvidence}):Promise<EvaluationHeaderSummary>{
@@ -24,7 +24,7 @@ export async function loadEmployeeEvaluationHeader(args:{staffId:string;staffNam
   getStaffAttendanceDetail(args.staffId,args.start,args.end),
   getPermissionPolicyStatusV2(args.staffId,args.start,args.end),
   listStaffTimeOffRequests({staffId:args.staffId,from:args.start,to:args.end,status:'approved',limit:200}),
-  getAnnualLeaveBalanceV1(args.staffId,Number(args.start.slice(0,4))),
+  getAnnualLeaveBalanceV1(args.staffId,Number(args.end.slice(0,4))),
  ]);
  const profile=profileR.status==='fulfilled'?profileR.value:null;
  const attendance=attendanceR.status==='fulfilled'?attendanceR.value:null;
@@ -35,8 +35,8 @@ export async function loadEmployeeEvaluationHeader(args:{staffId:string;staffNam
  if(!attendance)warnings.push('تفاصيل الحضور والساعات غير متاحة');
  if(!permission)warnings.push('ملخص الأذونات غير متاح');
  if(requestsR.status!=='fulfilled')warnings.push('تفاصيل الإجازات غير متاحة');
- const annualCycleDays=requests.filter(x=>x.request_kind==='annual_leave').reduce((n,x)=>n+daysInclusive(x.start_date,x.end_date),0);
- const otherLeaveDays=requests.filter(x=>['sick_leave','exceptional_leave','approved_absence'].includes(x.request_kind)).reduce((n,x)=>n+daysInclusive(x.start_date,x.end_date),0);
+ const annualCycleDays=requests.filter(x=>x.request_kind==='annual_leave').reduce((n,x)=>n+overlapDays(x.start_date,x.end_date,args.start,args.end),0);
+ const otherLeaveDays=requests.filter(x=>['sick_leave','exceptional_leave','approved_absence'].includes(x.request_kind)).reduce((n,x)=>n+overlapDays(x.start_date,x.end_date,args.start,args.end),0);
  const weeklyOffDays=attendance?.days.filter(x=>x.is_off_day===true||x.resolution_status==='off_day').length??null;
  return{
   roleGroup:evaluationRoleGroup(args.role),branch:args.branch,
