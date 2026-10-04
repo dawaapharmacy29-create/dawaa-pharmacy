@@ -114,6 +114,11 @@ const ORDER_DETAIL_CONTINUATION_RX =
 // bridge a long gap; generic greetings, promotions or unrelated outreach never qualify.
 const PAYMENT_SETTLEMENT_CONTINUATION_RX =
   /رقم\s*التحويل|(?:صوره|صورة)\s*التحويل|استاذن[^\n]{0,80}(?:صوره|صورة)[^\n]{0,40}التحويل|رابط\s*الدفع|لينك\s*الدفع/i;
+
+/** Shared semantic guard: an explicit staff payment/transfer handoff, never a generic phone mention. */
+export function hasPaymentSettlementHandoffText(text: string): boolean {
+  return PAYMENT_SETTLEMENT_CONTINUATION_RX.test(text || '');
+}
 const ADDITIVE_REQUEST_RX =
   /(?:^|\s)(?:وكمان|كمان|وزود|زود|ضيف|معاهم|معاه|مع\s*الطلب)(?:\s|$)/i;
 const STAFF_PENDING_REPLY_RX =
@@ -216,7 +221,7 @@ function isPaymentSettlementContinuation(
   gapMs: number
 ): boolean {
   if (gapMs > PRIOR_ORDER_REFERENCE_MAX_GAP_MS || next.role !== 'staff' || !next.isMeaningful) return false;
-  return currentHasOrderCommitment(current) && PAYMENT_SETTLEMENT_CONTINUATION_RX.test(next.text);
+  return currentHasOrderCommitment(current) && hasPaymentSettlementHandoffText(next.text);
 }
 
 function hasStrongSemanticContinuation(

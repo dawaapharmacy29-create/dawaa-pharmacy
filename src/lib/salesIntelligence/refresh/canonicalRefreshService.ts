@@ -29,6 +29,7 @@ import {
 import { analyzeConversationEvaluation } from '../conversationEvaluation';
 import { loadConversationEvaluationSystemEvidenceWithClient } from '../conversationEvaluationSystemEvidence';
 import { persistAutomaticCaseConversationReviewWithClient } from '../conversationEvaluationPersistence';
+import { hasPaymentSettlementHandoffText } from '../../whatsappConversationUnderstandingV32';
 
 export const CASE_SET_RECONCILE_RPC = 'sales_intelligence_reconcile_case_set_v1';
 export const CANONICAL_PROOF_WRITER_RPC = 'dawaa_reconcile_sales_intelligence_case_v22_v1';
@@ -109,6 +110,137 @@ function toBlocked(
   };
 }
 
+
+export type V22AnalysisContext = {
+  id: string;
+  journeyId: string | null;
+  customerId: string | null;
+  caseType: string | null;
+  orderIntent: boolean;
+  orderConfirmed: boolean;
+};
+
+const V22_ANALYSIS_CONTEXT_CHUNK = 40;
+const PAYMENT_CONTINUATION_MAX_GAP_MS = 24 * 60 * 60 * 1000;
+
+function sourceTime(value: unknown): number | null {
+  const parsed = value ? Date.parse(String(value)) : NaN;
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
+ * Analysis-only assembly for a legacy fine-source split that represents one order lifecycle.
+ * Canonical ownership remains on the order source; the payment follower is consumed only as
+ * analysis context and its stale SI case-set is retired by the normal reconciliation pass.
+ */
+export function buildCanonicalAnalysisConversations(
+  admitted: Record<string, unknown>[],
+  v22CaseIdBySource: Map<string, string>,
+  v22ContextByCaseId: Map<string, V22AnalysisContext>
+): ReturnType<typeof reviewSourceRowToBatchConversation>[] {
+  type Member = {
+    source: Record<string, unknown>;
+    sourceId: string;
+    context: V22AnalysisContext;
+  };
+
+  const groups = new Map<string, Member[]>();
+  for (const source of admitted) {
+    const sourceId = String(source.id || '');
+    const caseId = v22CaseIdBySource.get(sourceId) || '';
+    const context = v22ContextByCaseId.get(caseId);
+    const fileName = String(source.source_filename || '');
+    if (!sourceId || !caseId || !context?.journeyId || !context.customerId || !fileName) continue;
+    const key = `${fileName}|${context.journeyId}|${context.customerId}`;
+    const members = groups.get(key) || [];
+    members.push({ source, sourceId, context });
+    groups.set(key, members);
+  }
+
+  const followersByAnchor = new Map<string, Set<string>>();
+  const mergedFollowers = new Set<string>();
+  for (const members of groups.values()) {
+    const anchors = members.filter(
+      (member) =>
+        member.context.caseType === 'order' &&
+        (member.context.orderIntent || member.context.orderConfirmed)
+    );
+    if (anchors.length !== 1) continue;
+    const anchor = anchors[0];
+    const anchorEnd = sourceTime(anchor.source.conversation_ended_at);
+    if (anchorEnd === null) continue;
+
+    const paymentFollowers = members.filter((member) => {
+      if (member.sourceId === anchor.sourceId || member.context.caseType !== 'followup') return false;
+      if (!hasPaymentSettlementHandoffText(String(member.source.raw_text || ''))) return false;
+      const followerStart = sourceTime(member.source.conversation_started_at);
+      if (followerStart === null || followerStart < anchorEnd) return false;
+      return followerStart - anchorEnd <= PAYMENT_CONTINUATION_MAX_GAP_MS;
+    });
+    if (!paymentFollowers.length) continue;
+
+    followersByAnchor.set(anchor.sourceId, new Set(paymentFollowers.map((row) => row.sourceId)));
+    for (const follower of paymentFollowers) mergedFollowers.add(follower.sourceId);
+  }
+
+  const conversations: ReturnType<typeof reviewSourceRowToBatchConversation>[] = [];
+  for (const source of admitted) {
+    const sourceId = String(source.id || '');
+    if (mergedFollowers.has(sourceId)) continue;
+    const followerIds = followersByAnchor.get(sourceId);
+    let analysisSource = source;
+    if (followerIds?.size) {
+      const parts = admitted
+        .filter((row) => String(row.id || '') === sourceId || followerIds.has(String(row.id || '')))
+        .sort(
+          (a, b) =>
+            (sourceTime(a.conversation_started_at) ?? 0) -
+            (sourceTime(b.conversation_started_at) ?? 0)
+        );
+      analysisSource = {
+        ...source,
+        raw_text: parts
+          .map((row) => String(row.raw_text || '').trim())
+          .filter(Boolean)
+          .join(String.fromCharCode(10)),
+      };
+    }
+    conversations.push(
+      reviewSourceRowToBatchConversation({
+        ...(analysisSource as any),
+        source_case_id_v22: v22CaseIdBySource.get(sourceId) || null,
+      })
+    );
+  }
+  return conversations;
+}
+
+async function loadV22AnalysisContexts(
+  service: any,
+  caseIds: string[]
+): Promise<Map<string, V22AnalysisContext>> {
+  const out = new Map<string, V22AnalysisContext>();
+  const ids = Array.from(new Set(caseIds.map(String).filter(Boolean)));
+  for (let index = 0; index < ids.length; index += V22_ANALYSIS_CONTEXT_CHUNK) {
+    const { data, error } = await service
+      .from('whatsapp_customer_cases_v22')
+      .select('id,journey_id,customer_id,case_type,order_intent,order_confirmed')
+      .in('id', ids.slice(index, index + V22_ANALYSIS_CONTEXT_CHUNK));
+    if (error) throw new Error(`canonical_refresh_v22_context_lookup_failed: ${error.message}`);
+    for (const row of data || []) {
+      out.set(String(row.id), {
+        id: String(row.id),
+        journeyId: row.journey_id ? String(row.journey_id) : null,
+        customerId: row.customer_id ? String(row.customer_id) : null,
+        caseType: row.case_type ? String(row.case_type) : null,
+        orderIntent: Boolean(row.order_intent),
+        orderConfirmed: Boolean(row.order_confirmed),
+      });
+    }
+  }
+  return out;
+}
+
 /**
  * Runs the canonical refresh for already-loaded review source rows.
  * Throws only on infrastructure failures (gate lookups); business refusals are returned.
@@ -156,11 +288,16 @@ export async function runCanonicalSalesIntelligenceRefresh(
     return { ...empty, status: 'nothing_admitted', admittedSourceIds, blockedSources };
 
   // 2. Sales Intelligence pipeline + persistence, with the resolved Customer Case V22 identity.
-  const conversations = admitted.map((source) =>
-    reviewSourceRowToBatchConversation({
-      ...(source as any),
-      source_case_id_v22: v22CaseIdBySource.get(String(source.id)) || null,
-    })
+  // Reassemble only an explicit same-journey payment-settlement followup into its single
+  // order anchor for analysis. Canonical gate/source ownership remains unchanged.
+  const v22ContextByCaseId = await loadV22AnalysisContexts(
+    service,
+    Array.from(new Set(v22CaseIdBySource.values()))
+  );
+  const conversations = buildCanonicalAnalysisConversations(
+    admitted,
+    v22CaseIdBySource,
+    v22ContextByCaseId
   );
   const batch = await runBatchPersistence(service, { conversations, dryRun: input.dryRun });
   if (input.dryRun) return { ...empty, status: 'ok', admittedSourceIds, blockedSources, batch };

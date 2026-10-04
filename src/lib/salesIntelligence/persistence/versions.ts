@@ -7,11 +7,14 @@
 // REPROCESSING_MATRIX assigns it (see persistence/types.ts).
 // IMPORTANT: after changing semantic versions here, regenerate the committed serverless transport
 // with scripts/build-sales-intelligence-refresh-api.cjs so Preview/Production runs the same versions.
+// v14 (2026-10-04): canonical refresh reassembles only explicit payment-settlement followup fine
+// sources into their single same-journey order anchor for analysis, while preserving source/V22
+// ownership and retiring the follower's stale SI case-set through normal reconciliation.
 // v13 (2026-10-04): quality hardening validated on real WhatsApp cases. The semantic pipeline
 // changed materially: V32 now keeps payment settlement inside the original order interaction,
 // and commercial confirmation/basket parsing recognizes natural Egyptian recap/compact totals
 // without manufacturing product identity from unresolved media deictics.
-export const PIPELINE_VERSION = 'sales-intelligence-v13';
+export const PIPELINE_VERSION = 'sales-intelligence-v14';
 
 export const ENGINE_VERSIONS = {
   caseSegmentation: 'case-segmentation-v9-payment-settlement-continuation',

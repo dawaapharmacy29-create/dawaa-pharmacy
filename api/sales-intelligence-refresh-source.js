@@ -1298,6 +1298,9 @@ var FULFILLMENT_FOLLOWUP_RX = /(?:بعت|بعتوا|اتبعت|اتبعث).*?(?:
 var PRIOR_ORDER_REFERENCE_RX = /(?:بخصوص|بالنسبة\s*ل).*?(?:الاوردر|الأوردر|الطلب)|(?:الاوردر|الأوردر|الطلب).*?(?:اللي\s*فات|السابق|بتاعي|بتاعتي|القديم)|المندوب.*?(?:فين|وصل|الطريق)/i;
 var ORDER_DETAIL_CONTINUATION_RX = /العنوان|عنواني|اللوكيشن|الموقع|رقمي|رقم\s*(?:الموبايل|التليفون)|الموبايل|التليفون|الدور|الشقه|الشقة|العماره|العمارة/i;
 var PAYMENT_SETTLEMENT_CONTINUATION_RX = /رقم\s*التحويل|(?:صوره|صورة)\s*التحويل|استاذن[^\n]{0,80}(?:صوره|صورة)[^\n]{0,40}التحويل|رابط\s*الدفع|لينك\s*الدفع/i;
+function hasPaymentSettlementHandoffText(text2) {
+  return PAYMENT_SETTLEMENT_CONTINUATION_RX.test(text2 || "");
+}
 var ADDITIVE_REQUEST_RX = /(?:^|\s)(?:وكمان|كمان|وزود|زود|ضيف|معاهم|معاه|مع\s*الطلب)(?:\s|$)/i;
 var STAFF_PENDING_REPLY_RX = /لحظات|ثواني|دقيق[ةه]|اشوف|أشوف|هشوف|هراجع|هتأكد|هاتأكد|جاري\s*(?:المراجعه|المراجعة|البحث)/i;
 var CLOSING_RX = /شكر(?:ا|ًا)?\s*لتواصلك|تحت\s*أمرك\s*دائم(?:ا|ًا)?|يومك\s*سعيد|في\s*خدمتك\s*دائم(?:ا|ًا)?/i;
@@ -1354,7 +1357,7 @@ function isSameOrderContinuation(current, next, gapMs) {
 }
 function isPaymentSettlementContinuation(current, next, gapMs) {
   if (gapMs > PRIOR_ORDER_REFERENCE_MAX_GAP_MS || next.role !== "staff" || !next.isMeaningful) return false;
-  return currentHasOrderCommitment(current) && PAYMENT_SETTLEMENT_CONTINUATION_RX.test(next.text);
+  return currentHasOrderCommitment(current) && hasPaymentSettlementHandoffText(next.text);
 }
 function hasStrongSemanticContinuation(current, next, gapMs) {
   if (!current.length || gapMs < 0) return false;
@@ -7443,7 +7446,7 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v13";
+var PIPELINE_VERSION = "sales-intelligence-v14";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v9-payment-settlement-continuation",
   historicalClosure: "historical-closure-v1",
@@ -12128,6 +12131,89 @@ function toBlocked(decision) {
     supersedingSourceIds: decision.supersedingSourceIds
   };
 }
+var V22_ANALYSIS_CONTEXT_CHUNK = 40;
+var PAYMENT_CONTINUATION_MAX_GAP_MS = 24 * 60 * 60 * 1e3;
+function sourceTime(value) {
+  const parsed = value ? Date.parse(String(value)) : NaN;
+  return Number.isFinite(parsed) ? parsed : null;
+}
+function buildCanonicalAnalysisConversations(admitted, v22CaseIdBySource, v22ContextByCaseId) {
+  const groups = /* @__PURE__ */ new Map();
+  for (const source of admitted) {
+    const sourceId = String(source.id || "");
+    const caseId = v22CaseIdBySource.get(sourceId) || "";
+    const context = v22ContextByCaseId.get(caseId);
+    const fileName = String(source.source_filename || "");
+    if (!sourceId || !caseId || !context?.journeyId || !context.customerId || !fileName) continue;
+    const key = `${fileName}|${context.journeyId}|${context.customerId}`;
+    const members = groups.get(key) || [];
+    members.push({ source, sourceId, context });
+    groups.set(key, members);
+  }
+  const followersByAnchor = /* @__PURE__ */ new Map();
+  const mergedFollowers = /* @__PURE__ */ new Set();
+  for (const members of groups.values()) {
+    const anchors = members.filter(
+      (member) => member.context.caseType === "order" && (member.context.orderIntent || member.context.orderConfirmed)
+    );
+    if (anchors.length !== 1) continue;
+    const anchor = anchors[0];
+    const anchorEnd = sourceTime(anchor.source.conversation_ended_at);
+    if (anchorEnd === null) continue;
+    const paymentFollowers = members.filter((member) => {
+      if (member.sourceId === anchor.sourceId || member.context.caseType !== "followup") return false;
+      if (!hasPaymentSettlementHandoffText(String(member.source.raw_text || ""))) return false;
+      const followerStart = sourceTime(member.source.conversation_started_at);
+      if (followerStart === null || followerStart < anchorEnd) return false;
+      return followerStart - anchorEnd <= PAYMENT_CONTINUATION_MAX_GAP_MS;
+    });
+    if (!paymentFollowers.length) continue;
+    followersByAnchor.set(anchor.sourceId, new Set(paymentFollowers.map((row) => row.sourceId)));
+    for (const follower of paymentFollowers) mergedFollowers.add(follower.sourceId);
+  }
+  const conversations = [];
+  for (const source of admitted) {
+    const sourceId = String(source.id || "");
+    if (mergedFollowers.has(sourceId)) continue;
+    const followerIds = followersByAnchor.get(sourceId);
+    let analysisSource = source;
+    if (followerIds?.size) {
+      const parts = admitted.filter((row) => String(row.id || "") === sourceId || followerIds.has(String(row.id || ""))).sort(
+        (a, b) => (sourceTime(a.conversation_started_at) ?? 0) - (sourceTime(b.conversation_started_at) ?? 0)
+      );
+      analysisSource = {
+        ...source,
+        raw_text: parts.map((row) => String(row.raw_text || "").trim()).filter(Boolean).join(String.fromCharCode(10))
+      };
+    }
+    conversations.push(
+      reviewSourceRowToBatchConversation({
+        ...analysisSource,
+        source_case_id_v22: v22CaseIdBySource.get(sourceId) || null
+      })
+    );
+  }
+  return conversations;
+}
+async function loadV22AnalysisContexts(service, caseIds) {
+  const out = /* @__PURE__ */ new Map();
+  const ids = Array.from(new Set(caseIds.map(String).filter(Boolean)));
+  for (let index = 0; index < ids.length; index += V22_ANALYSIS_CONTEXT_CHUNK) {
+    const { data, error } = await service.from("whatsapp_customer_cases_v22").select("id,journey_id,customer_id,case_type,order_intent,order_confirmed").in("id", ids.slice(index, index + V22_ANALYSIS_CONTEXT_CHUNK));
+    if (error) throw new Error(`canonical_refresh_v22_context_lookup_failed: ${error.message}`);
+    for (const row of data || []) {
+      out.set(String(row.id), {
+        id: String(row.id),
+        journeyId: row.journey_id ? String(row.journey_id) : null,
+        customerId: row.customer_id ? String(row.customer_id) : null,
+        caseType: row.case_type ? String(row.case_type) : null,
+        orderIntent: Boolean(row.order_intent),
+        orderConfirmed: Boolean(row.order_confirmed)
+      });
+    }
+  }
+  return out;
+}
 async function runCanonicalSalesIntelligenceRefresh(service, input) {
   const sources = input.sources.filter(
     (row) => typeof row.raw_text === "string" && String(row.raw_text).trim().length > 0
@@ -12158,11 +12244,14 @@ async function runCanonicalSalesIntelligenceRefresh(service, input) {
   const admittedSourceIds = admitted.map((source) => String(source.id));
   if (!admitted.length)
     return { ...empty, status: "nothing_admitted", admittedSourceIds, blockedSources };
-  const conversations = admitted.map(
-    (source) => reviewSourceRowToBatchConversation({
-      ...source,
-      source_case_id_v22: v22CaseIdBySource.get(String(source.id)) || null
-    })
+  const v22ContextByCaseId = await loadV22AnalysisContexts(
+    service,
+    Array.from(new Set(v22CaseIdBySource.values()))
+  );
+  const conversations = buildCanonicalAnalysisConversations(
+    admitted,
+    v22CaseIdBySource,
+    v22ContextByCaseId
   );
   const batch = await runBatchPersistence(service, { conversations, dryRun: input.dryRun });
   if (input.dryRun) return { ...empty, status: "ok", admittedSourceIds, blockedSources, batch };
