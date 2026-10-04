@@ -1,0 +1,59 @@
+name: SI V14 Journey Payment Context Temp 4
+
+on:
+  push:
+    branches:
+      - fix/si-quality-closing-continuation-20261004
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/si-quality-closing-continuation-20261004
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - name: Apply source repair
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('.github/si_v14_patch_temp.py')
+          s = p.read_text()
+          p.write_text(s.split('# 4) Isolated regression tests')[0])
+          PY
+          python3 .github/si_v14_patch_temp.py
+      - name: Write isolated regression test
+        run: |
+          echo 'aW1wb3J0IHsgZGVzY3JpYmUsIGV4cGVjdCwgaXQgfSBmcm9tICd2aXRlc3QnOwppbXBvcnQgewogIGJ1aWxkQ2Fub25pY2FsQW5hbHlzaXNDb252ZXJzYXRpb25zLAogIHR5cGUgVjIyQW5hbHlzaXNDb250ZXh0LAp9IGZyb20gJy4uL2Nhbm9uaWNhbFJlZnJlc2hTZXJ2aWNlJzsKCmRlc2NyaWJlKCdjYW5vbmljYWwgYW5hbHlzaXMgam91cm5leSBwYXltZW50LWNvbnRleHQgYXNzZW1ibHknLCAoKSA9PiB7CiAgY29uc3Qgc291cmNlTWFwID0gbmV3IE1hcChbCiAgICBbJ29yZGVyLXNvdXJjZScsICdvcmRlci1jYXNlJ10sCiAgICBbJ3BheW1lbnQtc291cmNlJywgJ3BheW1lbnQtY2FzZSddLAogIF0pOwogIGNvbnN0IHYyMiA9IG5ldyBNYXA8c3RyaW5nLCBWMjJBbmFseXNpc0NvbnRleHQ+KFsKICAgIFsnb3JkZXItY2FzZScsIHsKICAgICAgaWQ6ICdvcmRlci1jYXNlJywKICAgICAgam91cm5leUlkOiAnam91cm5leS0xJywKICAgICAgY3VzdG9tZXJJZDogJ2N1c3RvbWVyLTM2NDMnLAogICAgICBjYXNlVHlwZTogJ29yZGVyJywKICAgICAgb3JkZXJJbnRlbnQ6IHRydWUsCiAgICAgIG9yZGVyQ29uZmlybWVkOiB0cnVlLAogICAgfV0sCiAgICBbJ3BheW1lbnQtY2FzZScsIHsKICAgICAgaWQ6ICdwYXltZW50LWNhc2UnLAogICAgICBqb3VybmV5SWQ6ICdqb3VybmV5LTEnLAogICAgICBjdXN0b21lcklkOiAnY3VzdG9tZXItMzY0MycsCiAgICAgIGNhc2VUeXBlOiAnZm9sbG93dXAnLAogICAgICBvcmRlckludGVudDogZmFsc2UsCiAgICAgIG9yZGVyQ29uZmlybWVkOiBmYWxzZSwKICAgIH1dLAogIF0pOwoKICBjb25zdCBvcmRlciA9IHsKICAgIGlkOiAnb3JkZXItc291cmNlJywKICAgIHNvdXJjZV9maWxlbmFtZTogJ9in2KjYsdin2YfZitmFINin2YTYtdmK2KfYryDZo9mm2aTZoyAoMSkuemlwJywKICAgIHJhd190ZXh0OiAnWzkvMjcvMjYsIDk6MDM6MzQgUE1dIEN1c3RvbWVyOiDYudmE2KjYqtmK2YYg2YTYqNmGINmH2YrYsdmIINio2YrYqNmKXG5bOS8yNy8yNiwgOTowNjowMCBQTV0gWW91OiDYrNin2LHZiiDYp9mE2KfYsdiz2KfZhCcsCiAgICBjb252ZXJzYXRpb25fc3RhcnRlZF9hdDogJzIwMjYtMDktMjdUMTg6MDM6MzRaJywKICAgIGNvbnZlcnNhdGlvbl9lbmRlZF9hdDogJzIwMjYtMDktMjdUMTg6MTU6MzVaJywKICAgIGN1c3RvbWVyX2lkOiAnY3VzdG9tZXItMzY0MycsCiAgICBjdXN0b21lcl9jb2RlOiAnMzY0MycsCiAgICBjdXN0b21lcl9uYW1lOiAn2KfYqNix2KfZh9mK2YUg2KfZhNi12YrYp9ivJywKICAgIGN1c3RvbWVyX3Bob25lOiAnMDEwMTY4OTE5NDAnLAogIH07CgogIGNvbnN0IHBheW1lbnQgPSB7CiAgICBpZDogJ3BheW1lbnQtc291cmNlJywKICAgIHNvdXJjZV9maWxlbmFtZTogJ9in2KjYsdin2YfZitmFINin2YTYtdmK2KfYryDZo9mm2aTZoyAoMSkuemlwJywKICAgIHJhd190ZXh0OiAnWzkvMjgvMjYsIDI6NTI6MDkgQU1dIFlvdTog2KfYqtmB2LbZhCDYsdmC2YUg2KfZhNiq2K3ZiNmK2YQg2YrYpyDZgdmG2K/ZhSAwMTAyODMwODIzNVxuWzkvMjgvMjYsIDM6MDg6MDkgQU1dIEN1c3RvbWVyOiDYp9mE2K3Ys9in2Kgg2YPYp9mFINmF2YYg2YHYttmE2YNcbls5LzI4LzI2LCAzOjEwOjQwIEFNXSBZb3U6INmI2LXZhCDYtNmD2LHYpyDYrNiy2YrZhNinJywKICAgIGNvbnZlcnNhdGlvbl9zdGFydGVkX2F0OiAnMjAyNi0wOS0yN1QyMzo1MjowOVonLAogICAgY29udmVyc2F0aW9uX2VuZGVkX2F0OiAnMjAyNi0wOS0yOFQwMDoxMDo0MFonLAogICAgY3VzdG9tZXJfaWQ6ICdjdXN0b21lci0zNjQzJywKICAgIGN1c3RvbWVyX2NvZGU6ICczNjQzJywKICAgIGN1c3RvbWVyX25hbWU6ICfYp9io2LHYp9mH2YrZhSDYp9mE2LXZitin2K8nLAogICAgY3VzdG9tZXJfcGhvbmU6ICcwMTAxNjg5MTk0MCcsCiAgfTsKCiAgaXQoJ2ZlZWRzIG9uZSBvcmRlci1hbmNob3IgY29udmVyc2F0aW9uIHRvIFY5IHdpdGggdGhlIHBheW1lbnQtc2V0dGxlbWVudCBjb250ZXh0JywgKCkgPT4gewogICAgY29uc3QgY29udmVyc2F0aW9ucyA9IGJ1aWxkQ2Fub25pY2FsQW5hbHlzaXNDb252ZXJzYXRpb25zKFtvcmRlciwgcGF5bWVudF0sIHNvdXJjZU1hcCwgdjIyKTsKICAgIGV4cGVjdChjb252ZXJzYXRpb25zKS50b0hhdmVMZW5ndGgoMSk7CiAgICBleHBlY3QoY29udmVyc2F0aW9uc1swXS5jb252ZXJzYXRpb25JZCkudG9CZSgnb3JkZXItc291cmNlJyk7CiAgICBleHBlY3QoY29udmVyc2F0aW9uc1swXS5zb3VyY2VDYXNlSWRWMjIpLnRvQmUoJ29yZGVyLWNhc2UnKTsKICAgIGV4cGVjdChjb252ZXJzYXRpb25zWzBdLnJhd1doYXRzQXBwRXhwb3J0VGV4dCkudG9Db250YWluKCfYudmE2KjYqtmK2YYg2YTYqNmGINmH2YrYsdmIINio2YrYqNmKJyk7CiAgICBleHBlY3QoY29udmVyc2F0aW9uc1swXS5yYXdXaGF0c0FwcEV4cG9ydFRleHQpLnRvQ29udGFpbign2LHZgtmFINin2YTYqtit2YjZitmEJyk7CiAgICBleHBlY3QoY29udmVyc2F0aW9uc1swXS5yYXdXaGF0c0FwcEV4cG9ydFRleHQpLnRvQ29udGFpbign2YjYtdmEINi02YPYsdinINis2LLZitmE2KcnKTsKICB9KTsKCiAgaXQoJ2ZhaWxzIGNsb3NlZCBmb3IgYSBnZW5lcmljIGZvbGxvd3VwIHdpdGggbm8gZXhwbGljaXQgcGF5bWVudCBoYW5kb2ZmJywgKCkgPT4gewogICAgY29uc3QgZ2VuZXJpYyA9IHsgLi4ucGF5bWVudCwgcmF3X3RleHQ6ICdbOS8yOC8yNiwgMjo1MjowOSBBTV0gWW91OiDZhdiz2KfYoSDYp9mE2K7ZitixINmK2Kcg2YHZhtiv2YUnIH07CiAgICBjb25zdCBjb252ZXJzYXRpb25zID0gYnVpbGRDYW5vbmljYWxBbmFseXNpc0NvbnZlcnNhdGlvbnMoW29yZGVyLCBnZW5lcmljXSwgc291cmNlTWFwLCB2MjIpOwogICAgZXhwZWN0KGNvbnZlcnNhdGlvbnMpLnRvSGF2ZUxlbmd0aCgyKTsKICB9KTsKCiAgaXQoJ2ZhaWxzIGNsb3NlZCB3aGVuIHRoZSBzYW1lIGpvdXJuZXkgY29udGFpbnMgbW9yZSB0aGFuIG9uZSBvcmRlciBhbmNob3InLCAoKSA9PiB7CiAgICBjb25zdCBjb250ZXh0cyA9IG5ldyBNYXAodjIyKTsKICAgIGNvbnRleHRzLnNldCgncGF5bWVudC1jYXNlJywgewogICAgICAuLi52MjIuZ2V0KCdwYXltZW50LWNhc2UnKSEsCiAgICAgIGNhc2VUeXBlOiAnb3JkZXInLAogICAgICBvcmRlckludGVudDogdHJ1ZSwKICAgIH0pOwogICAgY29uc3QgY29udmVyc2F0aW9ucyA9IGJ1aWxkQ2Fub25pY2FsQW5hbHlzaXNDb252ZXJzYXRpb25zKFtvcmRlciwgcGF5bWVudF0sIHNvdXJjZU1hcCwgY29udGV4dHMpOwogICAgZXhwZWN0KGNvbnZlcnNhdGlvbnMpLnRvSGF2ZUxlbmd0aCgyKTsKICB9KTsKfSk7Cg==' | base64 -d > src/lib/salesIntelligence/refresh/__tests__/canonicalJourneyPaymentContext.test.ts
+      - name: Focused regression tests
+        run: npx vitest run src/lib/__tests__/whatsappConversationUnderstandingV32.test.ts src/lib/salesIntelligence/refresh/__tests__/canonicalJourneyPaymentContext.test.ts
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Generate canonical Sales Intelligence API
+        run: node scripts/build-sales-intelligence-refresh-api.cjs
+      - name: Verify generated API
+        run: |
+          grep -q 'sales-intelligence-v14' api/sales-intelligence-refresh-source.js
+          grep -q 'case-segmentation-v9-payment-settlement-continuation' api/sales-intelligence-refresh-source.js
+          grep -q 'buildCanonicalAnalysisConversations' api/sales-intelligence-refresh-source.js
+      - name: Commit repair and clean temp files
+        run: |
+          rm -f .github/workflows/si-v14-journey-payment-context-temp.yml
+          rm -f .github/workflows/si-v14-journey-payment-context-temp2.yml
+          rm -f .github/workflows/si-v14-journey-payment-context-temp3.yml
+          rm -f .github/workflows/si-v14-journey-payment-context-temp4.yml
+          rm -f .github/si_v14_patch_temp.py
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix: reassemble payment continuation for SI analysis'
+          git push origin HEAD:fix/si-quality-closing-continuation-20261004
