@@ -5,6 +5,8 @@
 // are INDEPENDENT of any git SHA (design doc H.0.1 §8) — each one only changes when the engine it
 // names actually changes in a way that should trigger the reprocessing scope
 // REPROCESSING_MATRIX assigns it (see persistence/types.ts).
+// IMPORTANT: after changing semantic versions here, regenerate the committed serverless transport
+// with scripts/build-sales-intelligence-refresh-api.cjs so Preview/Production runs the same versions.
 // v13 (2026-10-04): quality hardening validated on real WhatsApp cases. The semantic pipeline
 // changed materially: V32 now keeps payment settlement inside the original order interaction,
 // and commercial confirmation/basket parsing recognizes natural Egyptian recap/compact totals
