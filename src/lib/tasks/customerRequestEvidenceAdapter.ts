@@ -1,4 +1,5 @@
 import { normalizeTaskEvidence, type TaskEvidence } from './taskEvidence';
+import { cairoDateBoundaryIso } from '@/lib/time/cairoDateBoundary';
 
 type Row = {
   id:string; branch?:string|null; status?:string|null; request_type?:string|null;
@@ -8,7 +9,7 @@ type Row = {
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const clean=(v:unknown)=>String(v||'').trim();
 const iso=(v:unknown)=>{const x=clean(v);if(!x)return null;const n=Date.parse(x);return Number.isFinite(n)?new Date(n).toISOString():null;};
-const endDay=(v:unknown)=>{const x=clean(v);return x?(iso(x.includes('T')?x:`${x}T23:59:59+03:00`)):null;};
+const endDay=(v:unknown)=>{const x=clean(v);if(!x)return null;return x.includes('T')?iso(x):cairoDateBoundaryIso(x,true);};
 
 export function customerRequestToTaskEvidence(row:Row,observedAt=new Date().toISOString()):TaskEvidence|null{
  const candidates=[row.primary_responsible_id,row.source_assigned_staff_id];
