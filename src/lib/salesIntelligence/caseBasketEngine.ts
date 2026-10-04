@@ -38,6 +38,10 @@ import type {
 // ---------------------------------------------------------------------------
 
 const FINAL_BASKET_SUMMARY_MARKER_RX = /تأمر\s*ب|إجمالي\s*الحساب|هل\s*الطلب\s*كده\s*كامل|حضرتك\s*تأمر/i;
+// Natural Egyptian recap used in real order closing: "يعني كدا 4 علب ...". Requiring both a
+// recap opener AND a quantity/unit keeps this narrower than a generic "يعني كدا" sentence.
+const NATURAL_FINAL_RECAP_RX =
+  /^(?:يعني\s*)?(?:كدا|كده)\s+.*(?:\d+\s*(?:علب|علبة|علبه|شريط|شراب|عبوة|عبوه|كيس|حبة|حبه|نوع)|علبتين|شريطين|عبوتين|كيسين|حبتين)/i;
 // Phase C: broadened past the two original "تم تأكيد/تسجيل" phrases to cover the natural-language
 // fulfillment variants the spec explicitly requires ("جاري الإرسال/التجهيز", "الطلب اتأكد") — still
 // deliberately narrow (no bare "حاضر"/"تمام" alone) since this only ever fires once a customer
@@ -72,6 +76,12 @@ const QUANTITY_UNIT_ITEM_RX =
  */
 const ANNOUNCED_TOTAL_RX =
   /(?:كده\s*)?(?:إجمالي\s*الحساب|الحساب\s*كل?ه|الإجمالي|المجموع|الحساب)\s*(?:كده\s*)?(\d+(?:\.\d+)?)\s*(?:جنيه|جنيها|ج\.?م\.?)?/i;
+// A compact amount is accepted only as a contextual answer to the customer's own total question.
+// This intentionally does NOT turn every bare "90 جنيه" into an order total.
+const COMPACT_ANNOUNCED_TOTAL_RX =
+  /^\s*(\d+(?:\.\d+)?)\s*(?:جنيه|جنيها|ج(?:\.?م\.?)?)\s*(?:ان\s*شاء\s*الله)?[.!، ]*$/i;
+const TOTAL_QUESTION_RX =
+  /(?:الحساب|الإجمالي|الاجمالي|المجموع).{0,16}كام|(?:كدا|كده)?\s*(?:هيبقا|هيبقى|يبقا|يبقى)\s*كام/i;
 
 const ARABIC_NUMBER_WORDS: Record<string, number> = {
   واحد: 1, واحده: 1, واحدة: 1,
@@ -124,7 +134,8 @@ export function stripRequestPrefix(text: string): string {
 
 const NON_PRODUCT_PHRASE_RX = /^(?:مش|لا|لأ|اه|آه|تمام|حاجة|حاجه|ده|دي|دا|دول|منه|منها|بس)?$/;
 const GENERIC_DEICTIC_PRODUCT_PHRASE_RX =
-  /^(?:(?:الحاجات|الحاجه|الحاجة|الأشياء|الاشياء)\s*(?:دي|دول|ده|دا)?|(?:دول|دي|ده|دا)(?:\s*كلهم)?|اللي\s*(?:في|ف)\s*(?:الصوره|الصورة|الصور|الفويس|الصوت)|اللي\s*(?:بعت(?:ه|ها|هم)|مبعت(?:ه|ها|هم)))$/i;
+  /^(?:(?:العلب[هة]|العبو[هة]|الشريط|الصنف)\s*(?:دي|ده|دا)|(?:الحاجات|الحاجه|الحاجة|الأشياء|الاشياء)\s*(?:دي|دول|ده|دا)?|(?:دول|دي|ده|دا)(?:\s*كلهم)?|اللي\s*(?:في|ف)\s*(?:الصوره|الصورة|الصور|الفويس|الصوت)|اللي\s*(?:بعت(?:ه|ها|هم)|مبعت(?:ه|ها|هم)))$/i;
+const NON_IDENTIFYING_RECAP_ITEM_RX = /مع\s+\d+\s+نوع|اللي\s+الدكتور|في\s+(?:الريكورد|الفويس|الصوت)/i;
 
 export function isGenericDeicticProductPhrase(value: string): boolean {
   return GENERIC_DEICTIC_PRODUCT_PHRASE_RX.test(String(value || '').trim());
@@ -214,7 +225,7 @@ const NATURAL_UNIT_QTY: Record<string, { quantity: number; unit: string }> = {
   حبه: { quantity: 1, unit: 'حبة' },
 };
 const PRICE_INQUIRY_RX = /بكام|عامل\s*كام|سعر(?:ه|ها)?|كام\s*(?:جنيه|العلبة|العلبه)|فيها\s*كام/i;
-const STAFF_RECAP_CONTEXT_RX = /يعني\s*حضرتك|حضرتك\s*محتاج|تكرر|كرر|تأمر|تحت\s*امر/i;
+const STAFF_RECAP_CONTEXT_RX = /يعني\s*(?:كدا|كده|حضرتك)|حضرتك\s*محتاج|تكرر|كرر|تأمر|تحت\s*امر/i;
 
 function extractNaturalUnitItems(message: NormalizedConversationMessageV32): DraftItem[] {
   if (!message.isMeaningful || /<(?:image|audio|voice message) omitted>/i.test(message.text)) return [];
@@ -230,7 +241,14 @@ function extractNaturalUnitItems(message: NormalizedConversationMessageV32): Dra
       .replace(/^(?:من\s+فضلك|لو\s*سمحت|ان\s*شاء\s*الله)\s*/i, '')
       .replace(/\s+(?:صح|مظبوط|ان\s*شاء\s*الله)\??$/i, '')
       .trim();
-    if (!productNameRaw || productNameRaw.length < 2 || PRICE_INQUIRY_RX.test(productNameRaw)) continue;
+    if (
+      !productNameRaw ||
+      productNameRaw.length < 2 ||
+      PRICE_INQUIRY_RX.test(productNameRaw) ||
+      NON_PRODUCT_PHRASE_RX.test(productNameRaw) ||
+      isGenericDeicticProductPhrase(productNameRaw) ||
+      NON_IDENTIFYING_RECAP_ITEM_RX.test(productNameRaw)
+    ) continue;
     items.push({
       productNameRaw,
       productId: null,
@@ -254,6 +272,12 @@ function parseSummaryItems(message: NormalizedConversationMessageV32): DraftItem
     const quantity = parseNumberToken(m[1]);
     const unit = m[2];
     const productNameRaw = m[3].trim();
+    if (
+      !productNameRaw ||
+      NON_PRODUCT_PHRASE_RX.test(productNameRaw) ||
+      isGenericDeicticProductPhrase(productNameRaw) ||
+      NON_IDENTIFYING_RECAP_ITEM_RX.test(productNameRaw)
+    ) continue;
     items.push({
       productNameRaw,
       productId: null,
@@ -310,6 +334,7 @@ function extractDraftItemsFromScope(
       const quantity = parseNumberToken(numToken);
       const unit = unitParts.join(' ') || null;
       const productNameRaw = stripRequestPrefix(message.text.replace(phrase, ' ')) || message.text.trim();
+      if (NON_PRODUCT_PHRASE_RX.test(productNameRaw) || isGenericDeicticProductPhrase(productNameRaw)) return;
       items.push({
         productNameRaw,
         productId: null,
@@ -422,6 +447,25 @@ function draftItemsToMap(items: DraftItem[]): Map<string, DraftItem> {
   return map;
 }
 
+function contextualCompactTotal(
+  scopedMessages: NormalizedConversationMessageV32[],
+  summaryMessage: NormalizedConversationMessageV32,
+  candidate: NormalizedConversationMessageV32
+): number | null {
+  if (candidate.role !== 'staff' || !candidate.isMeaningful) return null;
+  const amountMatch = candidate.text.match(COMPACT_ANNOUNCED_TOTAL_RX);
+  if (!amountMatch) return null;
+  const summaryIndex = scopedMessages.findIndex((m) => m.id === summaryMessage.id);
+  const candidateIndex = scopedMessages.findIndex((m) => m.id === candidate.id);
+  if (summaryIndex < 0 || candidateIndex <= summaryIndex) return null;
+  const prior = scopedMessages
+    .slice(summaryIndex + 1, candidateIndex)
+    .filter((m) => m.isMeaningful);
+  const lastCustomer = [...prior].reverse().find((m) => m.role === 'customer');
+  if (!lastCustomer || !TOTAL_QUESTION_RX.test(lastCustomer.text)) return null;
+  return Number(amountMatch[1]);
+}
+
 function extractAnnouncedTotal(
   scopedMessages: NormalizedConversationMessageV32[],
   summaryMessage: NormalizedConversationMessageV32,
@@ -431,10 +475,11 @@ function extractAnnouncedTotal(
     .filter((m) => m.timestamp.getTime() >= summaryMessage.timestamp.getTime())
     .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
   for (const m of candidates) {
-    const match = m.text.match(ANNOUNCED_TOTAL_RX);
-    if (!match) continue;
+    const explicitMatch = m.text.match(ANNOUNCED_TOTAL_RX);
+    const amount = explicitMatch ? Number(explicitMatch[1]) : contextualCompactTotal(scopedMessages, summaryMessage, m);
+    if (amount == null || !Number.isFinite(amount)) continue;
     return {
-      amount: Number(match[1]),
+      amount,
       currency: 'EGP',
       messageId: m.id,
       staffId: null,
@@ -447,7 +492,8 @@ function extractAnnouncedTotal(
 }
 
 function isFinalBasketSummary(message: NormalizedConversationMessageV32): boolean {
-  return message.role === 'staff' && message.isMeaningful && FINAL_BASKET_SUMMARY_MARKER_RX.test(message.text);
+  return message.role === 'staff' && message.isMeaningful &&
+    (FINAL_BASKET_SUMMARY_MARKER_RX.test(message.text) || NATURAL_FINAL_RECAP_RX.test(message.text));
 }
 
 function isStaffFinalConfirmation(message: NormalizedConversationMessageV32): boolean {
