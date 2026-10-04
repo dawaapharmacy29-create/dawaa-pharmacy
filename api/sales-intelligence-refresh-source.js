@@ -1297,6 +1297,7 @@ var PRIOR_ORDER_COMMITMENT_RX = /(?:اه|ايوه|تمام)?\s*(?:ابعته|ا�
 var FULFILLMENT_FOLLOWUP_RX = /(?:بعت|بعتوا|اتبعت|اتبعث).*?(?:الاوردر|الأوردر|الطلب)|(?:الاوردر|الأوردر|الطلب).*?(?:فين|وصل|اتبعت|اتبعث)|المندوب.*?(?:فين|وصل|الطريق)|(?:وصل|استلمت|استلمه).*?(?:الاوردر|الأوردر|الطلب)/i;
 var PRIOR_ORDER_REFERENCE_RX = /(?:بخصوص|بالنسبة\s*ل).*?(?:الاوردر|الأوردر|الطلب)|(?:الاوردر|الأوردر|الطلب).*?(?:اللي\s*فات|السابق|بتاعي|بتاعتي|القديم)|المندوب.*?(?:فين|وصل|الطريق)/i;
 var ORDER_DETAIL_CONTINUATION_RX = /العنوان|عنواني|اللوكيشن|الموقع|رقمي|رقم\s*(?:الموبايل|التليفون)|الموبايل|التليفون|الدور|الشقه|الشقة|العماره|العمارة/i;
+var PAYMENT_SETTLEMENT_CONTINUATION_RX = /رقم\s*التحويل|(?:صوره|صورة)\s*التحويل|استاذن[^\n]{0,80}(?:صوره|صورة)[^\n]{0,40}التحويل|رابط\s*الدفع|لينك\s*الدفع/i;
 var ADDITIVE_REQUEST_RX = /(?:^|\s)(?:وكمان|كمان|وزود|زود|ضيف|معاهم|معاه|مع\s*الطلب)(?:\s|$)/i;
 var STAFF_PENDING_REPLY_RX = /لحظات|ثواني|دقيق[ةه]|اشوف|أشوف|هشوف|هراجع|هتأكد|هاتأكد|جاري\s*(?:المراجعه|المراجعة|البحث)/i;
 var CLOSING_RX = /شكر(?:ا|ًا)?\s*لتواصلك|تحت\s*أمرك\s*دائم(?:ا|ًا)?|يومك\s*سعيد|في\s*خدمتك\s*دائم(?:ا|ًا)?/i;
@@ -1351,8 +1352,13 @@ function isSameOrderContinuation(current, next, gapMs) {
   if (!currentHasOrderCommitment(current)) return false;
   return FULFILLMENT_FOLLOWUP_RX.test(next.text) || PRIOR_ORDER_REFERENCE_RX.test(next.text) || ORDER_DETAIL_CONTINUATION_RX.test(next.text);
 }
+function isPaymentSettlementContinuation(current, next, gapMs) {
+  if (gapMs > PRIOR_ORDER_REFERENCE_MAX_GAP_MS || next.role !== "staff" || !next.isMeaningful) return false;
+  return currentHasOrderCommitment(current) && PAYMENT_SETTLEMENT_CONTINUATION_RX.test(next.text);
+}
 function hasStrongSemanticContinuation(current, next, gapMs) {
   if (!current.length || gapMs < 0) return false;
+  if (isPaymentSettlementContinuation(current, next, gapMs)) return true;
   if (next.role === "staff" && next.isMeaningful && gapMs <= SEMANTIC_CONTINUATION_MAX_GAP_MS && hasPendingCustomerNeed(current)) {
     return true;
   }
@@ -1614,6 +1620,7 @@ function deriveConversationCases(input) {
 
 // src/lib/salesIntelligence/caseBasketEngine.ts
 var FINAL_BASKET_SUMMARY_MARKER_RX = /تأمر\s*ب|إجمالي\s*الحساب|هل\s*الطلب\s*كده\s*كامل|حضرتك\s*تأمر/i;
+var NATURAL_FINAL_RECAP_RX = /^(?:يعني\s*)?(?:كدا|كده)\s+.*(?:\d+\s*(?:علب|علبة|علبه|شريط|شراب|عبوة|عبوه|كيس|حبة|حبه|نوع)|علبتين|شريطين|عبوتين|كيسين|حبتين)/i;
 var STAFF_FINAL_CONFIRMATION_RX = /تم\s*تأكيد\s*الطلب|تم\s*تسجيل(?:\s*طلبك)?|تسجيل\s*طلبك|جاري\s*(?:التجهيز|الإرسال|الارسال)|الطلب\s*اتأكد/i;
 var CUSTOMER_BASKET_CONFIRMATION_RX = /^(?:ايوا|ايوه|اه|آه)?\s*كده\s*تمام[!.، ]*$|^لا\s*كده\s*تمام[!.، ]*$|^شكرا?ً?\s*(?:يا\s*فندم\s*)?كده\s*تمام[!.، ]*$|^(?:ايوا|ايوه|اه|آه)\s*تمام[!.، ]*$/i;
 var MODIFICATION_ADD_RX = /زود(?:ي)?|ضيف(?:ي)?\s|كمان\s*عايز|كمان\s*حاجة|نسيت/i;
@@ -1623,6 +1630,8 @@ var SUBSTITUTION_MARKER_RX = /بدل(?:ها|منها|ه)?\s/i;
 var WHOLE_BASKET_REJECTION_RX = /مش\s*عايز\s*(?:ده|حاجه|أي\s*حاجه|الطلب)(?:\s*خالص)?|الغ[يى]\s*كل\s*حاجة|كنسل\s*الطلب/i;
 var QUANTITY_UNIT_ITEM_RX = /(\d+|واحد[ةه]?|اتنين|تلات[ةه]?|أربع[ةه]?|خمس[ةه]?)\s*(علبة|علب|حبة|حبوب|شريط|عبوة|قطعة|كيس)\s+([^\n,،]+)/gi;
 var ANNOUNCED_TOTAL_RX = /(?:كده\s*)?(?:إجمالي\s*الحساب|الحساب\s*كل?ه|الإجمالي|المجموع|الحساب)\s*(?:كده\s*)?(\d+(?:\.\d+)?)\s*(?:جنيه|جنيها|ج\.?م\.?)?/i;
+var COMPACT_ANNOUNCED_TOTAL_RX = /^\s*(\d+(?:\.\d+)?)\s*(?:جنيه|جنيها|ج(?:\.?م\.?)?)\s*(?:ان\s*شاء\s*الله)?[.!، ]*$/i;
+var TOTAL_QUESTION_RX = /(?:الحساب|الإجمالي|الاجمالي|المجموع).{0,16}كام|(?:كدا|كده)?\s*(?:هيبقا|هيبقى|يبقا|يبقى)\s*كام/i;
 var ARABIC_NUMBER_WORDS = {
   \u0648\u0627\u062D\u062F: 1,
   \u0648\u0627\u062D\u062F\u0647: 1,
@@ -1649,7 +1658,8 @@ function stripRequestPrefix(text2) {
   return text2.replace(GREETING_LEAD_RX, "").replace(LEAD_DISCOURSE_RX, "").replace(ADDITIVE_CONNECTOR_RX, "").replace(/^\s*(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?|ممكن|هات[ي]?|ابعت(?:لي|يلي)?)\s*/i, "").replace(ADDITIVE_CONNECTOR_RX, "").replace(TRAILING_ADDITIVE_RX, "").trim().replace(/^[,،]+|[,،]+$/g, "").trim();
 }
 var NON_PRODUCT_PHRASE_RX = /^(?:مش|لا|لأ|اه|آه|تمام|حاجة|حاجه|ده|دي|دا|دول|منه|منها|بس)?$/;
-var GENERIC_DEICTIC_PRODUCT_PHRASE_RX = /^(?:(?:الحاجات|الحاجه|الحاجة|الأشياء|الاشياء)\s*(?:دي|دول|ده|دا)?|(?:دول|دي|ده|دا)(?:\s*كلهم)?|اللي\s*(?:في|ف)\s*(?:الصوره|الصورة|الصور|الفويس|الصوت)|اللي\s*(?:بعت(?:ه|ها|هم)|مبعت(?:ه|ها|هم)))$/i;
+var GENERIC_DEICTIC_PRODUCT_PHRASE_RX = /^(?:(?:العلب[هة]|العبو[هة]|الشريط|الصنف)\s*(?:دي|ده|دا)|(?:الحاجات|الحاجه|الحاجة|الأشياء|الاشياء)\s*(?:دي|دول|ده|دا)?|(?:دول|دي|ده|دا)(?:\s*كلهم)?|اللي\s*(?:في|ف)\s*(?:الصوره|الصورة|الصور|الفويس|الصوت)|اللي\s*(?:بعت(?:ه|ها|هم)|مبعت(?:ه|ها|هم)))$/i;
+var NON_IDENTIFYING_RECAP_ITEM_RX = /مع\s+\d+\s+نوع|اللي\s+الدكتور|في\s+(?:الريكورد|الفويس|الصوت)/i;
 function isGenericDeicticProductPhrase(value) {
   return GENERIC_DEICTIC_PRODUCT_PHRASE_RX.test(String(value || "").trim());
 }
@@ -1701,7 +1711,7 @@ var NATURAL_UNIT_QTY = {
   \u062D\u0628\u0647: { quantity: 1, unit: "\u062D\u0628\u0629" }
 };
 var PRICE_INQUIRY_RX = /بكام|عامل\s*كام|سعر(?:ه|ها)?|كام\s*(?:جنيه|العلبة|العلبه)|فيها\s*كام/i;
-var STAFF_RECAP_CONTEXT_RX = /يعني\s*حضرتك|حضرتك\s*محتاج|تكرر|كرر|تأمر|تحت\s*امر/i;
+var STAFF_RECAP_CONTEXT_RX = /يعني\s*(?:كدا|كده|حضرتك)|حضرتك\s*محتاج|تكرر|كرر|تأمر|تحت\s*امر/i;
 function extractNaturalUnitItems(message) {
   if (!message.isMeaningful || /<(?:image|audio|voice message) omitted>/i.test(message.text)) return [];
   if (message.role === "customer" && PRICE_INQUIRY_RX.test(message.text)) return [];
@@ -1711,7 +1721,7 @@ function extractNaturalUnitItems(message) {
     const quantityInfo = NATURAL_UNIT_QTY[match[1]];
     if (!quantityInfo) continue;
     const productNameRaw = match[2].trim().replace(/^(?:من\s+فضلك|لو\s*سمحت|ان\s*شاء\s*الله)\s*/i, "").replace(/\s+(?:صح|مظبوط|ان\s*شاء\s*الله)\??$/i, "").trim();
-    if (!productNameRaw || productNameRaw.length < 2 || PRICE_INQUIRY_RX.test(productNameRaw)) continue;
+    if (!productNameRaw || productNameRaw.length < 2 || PRICE_INQUIRY_RX.test(productNameRaw) || NON_PRODUCT_PHRASE_RX.test(productNameRaw) || isGenericDeicticProductPhrase(productNameRaw) || NON_IDENTIFYING_RECAP_ITEM_RX.test(productNameRaw)) continue;
     items.push({
       productNameRaw,
       productId: null,
@@ -1733,6 +1743,7 @@ function parseSummaryItems(message) {
     const quantity = parseNumberToken(m[1]);
     const unit = m[2];
     const productNameRaw = m[3].trim();
+    if (!productNameRaw || NON_PRODUCT_PHRASE_RX.test(productNameRaw) || isGenericDeicticProductPhrase(productNameRaw) || NON_IDENTIFYING_RECAP_ITEM_RX.test(productNameRaw)) continue;
     items.push({
       productNameRaw,
       productId: null,
@@ -1769,6 +1780,7 @@ function extractDraftItemsFromScope(allMessages, restrictToIds) {
       const quantity2 = parseNumberToken(numToken);
       const unit = unitParts.join(" ") || null;
       const productNameRaw = stripRequestPrefix(message.text.replace(phrase, " ")) || message.text.trim();
+      if (NON_PRODUCT_PHRASE_RX.test(productNameRaw) || isGenericDeicticProductPhrase(productNameRaw)) return;
       items.push({
         productNameRaw,
         productId: null,
@@ -1855,13 +1867,26 @@ function draftItemsToMap(items) {
   items.forEach((item) => map.set(normalizeProductKey(item.productNameRaw), item));
   return map;
 }
+function contextualCompactTotal(scopedMessages, summaryMessage, candidate) {
+  if (candidate.role !== "staff" || !candidate.isMeaningful) return null;
+  const amountMatch = candidate.text.match(COMPACT_ANNOUNCED_TOTAL_RX);
+  if (!amountMatch) return null;
+  const summaryIndex = scopedMessages.findIndex((m) => m.id === summaryMessage.id);
+  const candidateIndex = scopedMessages.findIndex((m) => m.id === candidate.id);
+  if (summaryIndex < 0 || candidateIndex <= summaryIndex) return null;
+  const prior = scopedMessages.slice(summaryIndex + 1, candidateIndex).filter((m) => m.isMeaningful);
+  const lastCustomer = [...prior].reverse().find((m) => m.role === "customer");
+  if (!lastCustomer || !TOTAL_QUESTION_RX.test(lastCustomer.text)) return null;
+  return Number(amountMatch[1]);
+}
 function extractAnnouncedTotal(scopedMessages, summaryMessage, version) {
   const candidates = scopedMessages.filter((m) => m.timestamp.getTime() >= summaryMessage.timestamp.getTime()).sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
   for (const m of candidates) {
-    const match = m.text.match(ANNOUNCED_TOTAL_RX);
-    if (!match) continue;
+    const explicitMatch = m.text.match(ANNOUNCED_TOTAL_RX);
+    const amount = explicitMatch ? Number(explicitMatch[1]) : contextualCompactTotal(scopedMessages, summaryMessage, m);
+    if (amount == null || !Number.isFinite(amount)) continue;
     return {
-      amount: Number(match[1]),
+      amount,
       currency: "EGP",
       messageId: m.id,
       staffId: null,
@@ -1873,7 +1898,7 @@ function extractAnnouncedTotal(scopedMessages, summaryMessage, version) {
   return null;
 }
 function isFinalBasketSummary(message) {
-  return message.role === "staff" && message.isMeaningful && FINAL_BASKET_SUMMARY_MARKER_RX.test(message.text);
+  return message.role === "staff" && message.isMeaningful && (FINAL_BASKET_SUMMARY_MARKER_RX.test(message.text) || NATURAL_FINAL_RECAP_RX.test(message.text));
 }
 function isStaffFinalConfirmation(message) {
   return message.role === "staff" && message.isMeaningful && STAFF_FINAL_CONFIRMATION_RX.test(message.text);
@@ -5736,11 +5761,14 @@ function confidenceForBasis(basis) {
     case "approved_alias":
       return "strongly_inferred";
     // gated on human approval already having happened — see productAliasCandidate.ts
+    case "cross_script_composite":
+      return "strongly_inferred";
+    // >=2 explicit seed clues + exact numeric discriminator in canonical name
     case "dominant_name_token_match":
       return "strongly_inferred";
     case "cross_script_equivalent":
       return "weakly_inferred";
-    // seed table is unvetted heuristic, not a proven identity link
+    // one seed clue alone is unvetted heuristic evidence
     case "strength_form_token_match":
       return "weakly_inferred";
     case "cautious_fuzzy":
@@ -5773,6 +5801,9 @@ function extractBareNumbers(normalized) {
 }
 function productNumericTokens(product) {
   return [...product.strengths.map((s) => s.value), ...product.packSizes.map((p) => p.count)];
+}
+function productNameBareNumbers(product) {
+  return Array.from(new Set(product.normalizedNames.flatMap((name) => extractBareNumbers(name))));
 }
 function bareNumbersCompatible(phraseNumbers, product) {
   if (phraseNumbers.length === 0) return true;
@@ -5902,6 +5933,7 @@ function resolveProductMention(phrase, index, options = {}) {
   }
   const phraseBareNumbers = extractBareNumbers(normalized.normalized);
   const seed = options.crossScriptSeed ?? CROSS_SCRIPT_SEED;
+  const crossScriptCluesByProduct = /* @__PURE__ */ new Map();
   for (const [arabicKey, latinToken] of seed) {
     if (normalized.normalized.includes(arabicKey) || normalized.raw.includes(arabicKey)) {
       const latinNormalized = normalizePharmacyText(latinToken).normalized;
@@ -5911,10 +5943,29 @@ function resolveProductMention(phrase, index, options = {}) {
             if (!strengthsCompatible(normalized.strengths, product.strengths)) continue;
             if (!dosageFormsCompatible(normalized.dosageForms, product.dosageForms)) continue;
             if (!bareNumbersCompatible(phraseBareNumbers, product)) continue;
+            const clues = crossScriptCluesByProduct.get(product.productId) ?? /* @__PURE__ */ new Set();
+            clues.add(arabicKey);
+            crossScriptCluesByProduct.set(product.productId, clues);
             addCandidate(product, "cross_script_equivalent", 0.6, `"${arabicKey}" \u0645\u0631\u062A\u0628\u0637 \u0641\u064A \u062C\u062F\u0648\u0644 \u0627\u0644\u0645\u0631\u0627\u062F\u0641\u0627\u062A \u0627\u0644\u0644\u063A\u0648\u064A\u0629 \u0628\u0640 "${latinToken}"`);
           }
         }
       }
+    }
+  }
+  if (phraseBareNumbers.length > 0) {
+    for (const [productId, clues] of crossScriptCluesByProduct) {
+      if (clues.size < 2) continue;
+      const product = index.catalog.find((candidate) => candidate.productId === productId);
+      if (!product) continue;
+      const canonicalBareNumbers = productNameBareNumbers(product);
+      const matchingNumbers = phraseBareNumbers.filter((value) => canonicalBareNumbers.includes(value));
+      if (matchingNumbers.length === 0) continue;
+      addCandidate(
+        product,
+        "cross_script_composite",
+        0.88,
+        `\u0623\u062F\u0644\u0629 \u0644\u063A\u0648\u064A\u0629 \u0645\u0633\u062A\u0642\u0644\u0629 (${Array.from(clues).join(" + ")}) \u0645\u0639 \u0631\u0642\u0645 \u0645\u0637\u0627\u0628\u0642 \u0644\u0644\u0627\u0633\u0645 \u0627\u0644\u0642\u064A\u0627\u0633\u064A (${matchingNumbers.join(", ")})`
+      );
     }
   }
   for (const product of index.catalog) {
@@ -7392,11 +7443,11 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v12";
+var PIPELINE_VERSION = "sales-intelligence-v13";
 var ENGINE_VERSIONS = {
-  caseSegmentation: "case-segmentation-v8-semantic-continuation-courtesy-safe",
+  caseSegmentation: "case-segmentation-v9-payment-settlement-continuation",
   historicalClosure: "historical-closure-v1",
-  commercialConfirmation: "commercial-confirmation-v4-natural-arabic-basket-quantities",
+  commercialConfirmation: "commercial-confirmation-v5-natural-recap-compact-total-safe-deictic",
   protocolApplicability: "protocol-applicability-v1",
   attribution: "attribution-v7-auto-code-name-time-items",
   matching: "matching-v2-line-item-evidence",
