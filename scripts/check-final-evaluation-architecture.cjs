@@ -6,6 +6,9 @@ const decisionHeader=read('src/components/evaluations/EvaluationDecisionHeaderV1
 const workflow=read('src/components/evaluations/MonthlyEvaluationWorkflowV5.tsx');
 const axisCard=read('src/components/evaluations/EvaluationAxisCardV1.tsx');
 const finalReview=read('src/components/evaluations/FinalEvaluationReviewV1.tsx');
+const employeeHeader=read('src/components/evaluations/EmployeeEvaluationHeaderV1.tsx');
+const headerService=read('src/lib/evaluations/employeeEvaluationHeaderService.ts');
+const performanceScope=read('src/lib/performance/performanceScope.ts');
 const report=read('src/lib/reports/monthlyPerformance360Service.ts');
 const financial=read('src/lib/payroll/employeeFinancialProjection.ts');
 const composition=read('src/lib/payroll/payrollFinancialCompositionService.ts');
@@ -18,6 +21,7 @@ const required=[
  [evalPage,'EvaluationDecisionHeaderV1','manager decision header must be wired'],
  [evalPage,'EvaluationAxisCardV1','final evaluation must use the unified evidence-first axis card'],
  [evalPage,'FinalEvaluationReviewV1','final approval must use one canonical review surface'],
+ [evalPage,'EmployeeEvaluationHeaderV1','evaluation must expose employee cycle truth header'],
  [evalPage,'blockers={approvalBlockers}','workflow must receive canonical approval blockers'],
  [decisionHeader,'أسباب منع الاعتماد','decision header must expose approval blockers'],
  [workflow,'المطلوب قبل الاعتماد','workflow must surface blockers'],
@@ -27,6 +31,13 @@ const required=[
  [axisCard,'evidenceBlocksDecision','incomplete evidence must block axis decision'],
  [finalReview,'كل شروط الاعتماد مكتملة','final review must expose readiness'],
  [finalReview,"incentiveSettled",'final review must distinguish settled from current incentive'],
+ [employeeHeader,'مبيعات الدورة','employee header must expose cycle sales'],
+ [employeeHeader,'ساعات العمل','employee header must expose worked hours'],
+ [employeeHeader,'الإجازة الأسبوعية','employee header must expose weekly off days'],
+ [headerService,'getStaffAttendanceDetail','header must use canonical attendance detail'],
+ [headerService,'getAnnualLeaveBalanceV1','header must use canonical annual leave balance'],
+ [headerService,'loadStaffPerformanceProfile','header sales must use canonical staff profile'],
+ [performanceScope,"scope === 'assistants'",'assistants must have a canonical separate scope'],
  [report,"get_staff_monthly_evaluation_v5",'360 must not read legacy evaluation API'],
  [report,'availableWeight === 100','360 partial data must fail closed'],
  [financial,"duplicate component",'financial duplicate guard missing'],
