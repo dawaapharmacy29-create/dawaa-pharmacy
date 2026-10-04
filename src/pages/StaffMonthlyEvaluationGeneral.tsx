@@ -49,6 +49,7 @@ import MonthlyEvaluationWorkflowV5, { type MonthlyEvaluationStep } from '@/compo
 import MonthlyEvaluationAuditTrailV5 from '@/components/evaluations/MonthlyEvaluationAuditTrailV5';
 import EvaluationDecisionHeaderV1 from '@/components/evaluations/EvaluationDecisionHeaderV1';
 import EvaluationAxisCardV1 from '@/components/evaluations/EvaluationAxisCardV1';
+import FinalEvaluationReviewV1 from '@/components/evaluations/FinalEvaluationReviewV1';
 
 type StaffRow = {
   id: string;
@@ -2861,106 +2862,21 @@ export default function StaffMonthlyEvaluation() {
 
               {!employeeView && activeStep === 5 ? (
                 <section className="space-y-3">
-                  <Panel className="p-4" style={approvalReady
-                    ? { background: 'var(--dawaa-status-success-bg)', borderColor: 'var(--dawaa-status-success-border)' }
-                    : { background: 'var(--dawaa-status-warning-bg)', borderColor: 'var(--dawaa-status-warning-border)' }}>
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <h3 className="text-base font-black" style={{ color: approvalReady ? 'var(--dawaa-status-success-text)' : 'var(--dawaa-status-warning-text)' }}>
-                          {approvalReady ? 'جاهز للاعتماد' : 'غير جاهز للاعتماد'}
-                        </h3>
-                        <div className="mt-1 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
-                          {requiresPostCycleReapproval ? 'اعتماد سابق يحتاج مراجعة بعد إقفال الدورة' : status === 'sent' ? 'التقييم معتمد ومُرسل' : 'التقييم ما زال مسودة'}
-                        </div>
-                      </div>
-                      <span
-                        className="rounded-full border px-3 py-1 text-xs font-black"
-                        style={approvalReady
-                          ? { borderColor: 'var(--dawaa-status-success-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-status-success-text)' }
-                          : { borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-status-warning-text)' }}
-                      >
-                        {approvalReady ? 'جاهز' : `${approvalBlockers.length} ملاحظة`}
-                      </span>
-                    </div>
+                  <FinalEvaluationReviewV1
+                    ready={approvalReady}
+                    blockers={approvalBlockers}
+                    score={evaluationComplete ? overallScore : null}
+                    completed={completedSections}
+                    total={sections.length}
+                    criticalCount={activeGates.length}
+                    incentive={canonicalIncentive}
+                    incentiveSettled={Boolean(settledStatement)}
+                    strengths={strengthsText}
+                    development={developmentText}
+                    managerNotes={managerNotes}
+                  />
 
-                    {approvalBlockers.length ? (
-                      <div className="mt-3 rounded-xl border px-3 py-2 text-xs font-bold" style={{ borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-theme-text)' }}>
-                        {approvalBlockers.map((item) => <div key={item}>• {item}</div>)}
-                      </div>
-                    ) : null}
-
-                    <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                      <MiniBox
-                        label="الدرجة"
-                        value={evaluationComplete ? `${overallScore}/100` : `غير مكتمل · ${completedSections}/${sections.length}`}
-                        tone={evaluationComplete ? (overallScore >= 80 ? 'green' : overallScore >= 60 ? 'amber' : 'red') : 'amber'}
-                      />
-                      <MiniBox label="مخالفات حرجة" value={activeGates.length ? String(activeGates.length) : '0'} tone={activeGates.length ? 'red' : 'green'} />
-                      <MiniBox label="الحافز المركزي" value={canonicalIncentive == null ? 'غير محدد' : `${canonicalIncentive.toLocaleString('ar-EG')} ج`} tone={canonicalIncentive == null ? 'amber' : 'green'} />
-                    </div>
-
-                    {!evaluationComplete && ratedSections.length ? (
-                      <div className="mt-2 rounded-xl border px-3 py-2 text-xs font-bold" style={{ borderColor: 'var(--dawaa-status-info-border)', background: 'var(--dawaa-status-info-bg)', color: 'var(--dawaa-status-info-text)' }}>
-                        المحاور المقيمة حاليًا: {ratedEarnedPoints}/{ratedWeight} نقطة. لن تظهر درجة نهائية من 100 قبل اكتمال كل المحاور.
-                      </div>
-                    ) : null}
-
-                    {evaluationComplete ? (
-                      <div className="mt-3 rounded-2xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}>
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div>
-                            <div className="text-xs font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>معاينة ما سيصل للموظف</div>
-                            <div className="mt-1 text-[11px] font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
-                              راجع الرسالة قبل الاعتماد؛ المطلوب أن يعرف الموظف مميزاته وما يحتاج تطويره وما الخطوة التالية.
-                            </div>
-                          </div>
-                          <span
-                            className="rounded-full border px-2.5 py-1 text-[10px] font-black"
-                            style={!feedbackMissingStrength && !feedbackMissingDevelopment
-                              ? { borderColor: 'var(--dawaa-status-success-border)', color: 'var(--dawaa-status-success-text)' }
-                              : { borderColor: 'var(--dawaa-status-warning-border)', color: 'var(--dawaa-status-warning-text)' }}
-                          >
-                            {!feedbackMissingStrength && !feedbackMissingDevelopment ? 'الرسالة مكتملة' : 'الرسالة تحتاج استكمال'}
-                          </span>
-                        </div>
-
-                        <div className="mt-3 grid gap-2 lg:grid-cols-2">
-                          <div
-                            className="rounded-xl border p-3"
-                            style={{
-                              borderColor: feedbackMissingStrength ? 'var(--dawaa-status-warning-border)' : 'var(--dawaa-status-success-border)',
-                              background: 'var(--dawaa-theme-soft)',
-                            }}
-                          >
-                            <div className="text-[11px] font-black" style={{ color: 'var(--dawaa-status-success-text)' }}>نقاط القوة</div>
-                            <div className="mt-1 whitespace-pre-wrap text-xs font-bold leading-6" style={{ color: 'var(--dawaa-theme-text)' }}>
-                              {strengthsText.trim() || 'لم تُكتب نقاط قوة بعد.'}
-                            </div>
-                          </div>
-
-                          <div
-                            className="rounded-xl border p-3"
-                            style={{
-                              borderColor: feedbackMissingDevelopment ? 'var(--dawaa-status-warning-border)' : 'var(--dawaa-theme-border)',
-                              background: 'var(--dawaa-theme-soft)',
-                            }}
-                          >
-                            <div className="text-[11px] font-black" style={{ color: 'var(--dawaa-status-warning-text)' }}>خطة التطوير</div>
-                            <div className="mt-1 whitespace-pre-wrap text-xs font-bold leading-6" style={{ color: 'var(--dawaa-theme-text)' }}>
-                              {developmentText.trim() || 'لا توجد خطة تطوير مكتوبة بعد.'}
-                            </div>
-                          </div>
-                        </div>
-
-                        {managerNotes.trim() ? (
-                          <div className="mt-2 rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-soft)' }}>
-                            <div className="text-[11px] font-black" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>ملاحظة المدير</div>
-                            <div className="mt-1 whitespace-pre-wrap text-xs font-bold leading-6" style={{ color: 'var(--dawaa-theme-text)' }}>{managerNotes}</div>
-                          </div>
-                        ) : null}
-                      </div>
-                    ) : null}
-
+                  <Panel className="p-4">
                     {canEdit ? (
                       <div className="mt-4 flex flex-wrap justify-end gap-2 border-t pt-3" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
                         <button type="button" disabled={exportingPdf || !evaluationComplete} onClick={() => void handleExportPdf()} className="btn-secondary inline-flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-45">
@@ -2985,7 +2901,7 @@ export default function StaffMonthlyEvaluation() {
                     ) : null}
                   </Panel>
 
-                  {user?.id && selected ? (
+                                    {user?.id && selected ? (
                     <details className="rounded-2xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}>
                       <summary className="cursor-pointer text-xs font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>
                         سجل المراجعة والاعتمادات
