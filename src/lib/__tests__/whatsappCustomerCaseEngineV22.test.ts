@@ -112,4 +112,22 @@ describe('WhatsAppCustomerCaseEngineV22', () => {
     expect(result.caseCount).toBe(1);
     expect(result.cases[0].staffNames).toHaveLength(1);
   });
+
+  it('closes a transfer followup once the pharmacy explicitly acknowledges receipt', () => {
+    const rows = [
+      session('payment', [
+        msg('m1', '2026-09-28T02:52:09', 'outbound', 'اتفضل رقم التحويل يا فندم 01028308235 واستاذن حضرتك في صورة التحويل'),
+        msg('m2', '2026-09-28T03:08:09', 'inbound', 'الحساب كام من فضلك'),
+        msg('m3', '2026-09-28T03:08:36', 'outbound', '778 ان شاء الله'),
+        msg('m4', '2026-09-28T03:09:45', 'inbound', '<image omitted>', 'image', false),
+        msg('m5', '2026-09-28T03:10:40', 'outbound', 'وصل شكرا جزيلا'),
+      ]),
+    ];
+
+    const result = buildWhatsAppCustomerCaseEngineV22(rows);
+    expect(result.caseCount).toBe(1);
+    expect(result.cases[0].type).toBe('followup');
+    expect(result.cases[0].state).toBe('closed');
+    expect(result.cases[0].nextAction).toBeNull();
+  });
 });
