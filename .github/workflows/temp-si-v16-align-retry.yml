@@ -1,0 +1,81 @@
+name: Temp SI V16 Align Retry
+
+on:
+  push:
+    branches:
+      - fix/si-quality-closing-continuation-20261004
+    paths:
+      - .github/workflows/temp-si-v16-align-retry.yml
+
+permissions:
+  contents: write
+
+jobs:
+  align:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/si-quality-closing-continuation-20261004
+          fetch-depth: 0
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+
+      - name: Narrow temporary V16 return selector
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('scripts/tmp_si_v16_align.py')
+          text = p.read_text(encoding='utf-8')
+          old = '''    "    conversationCase,\\n    customerNeed,",
+    "    conversationCase: effectiveConversationCase,\\n    customerNeed,",
+'''
+          new = '''    "  return {\\n    conversationCase,\\n    customerNeed,\\n    unavailableDemand,",
+    "  return {\\n    conversationCase: effectiveConversationCase,\\n    customerNeed,\\n    unavailableDemand,",
+'''
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one temporary selector, got {text.count(old)}')
+          p.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+
+      - name: Apply V16 source alignment
+        run: python3 scripts/tmp_si_v16_align.py
+
+      - name: Run focused financial settlement regression
+        run: npx vitest run src/lib/__tests__/salesIntelligenceFinancialSettlement.test.ts
+
+      - name: Run full tests
+        run: node scripts/run-tests.cjs
+
+      - name: TypeScript gate
+        run: npx tsc --noEmit
+
+      - name: Regenerate Sales Intelligence API
+        run: node scripts/build-sales-intelligence-refresh-api.cjs
+
+      - name: Verify generated API carries V16 truth
+        run: |
+          grep -q "sales-intelligence-v16" api/sales-intelligence-refresh-source.js
+          grep -q "financially_settled" api/sales-intelligence-refresh-source.js
+          grep -q "closed_order_unproven" api/sales-intelligence-refresh-source.js
+          grep -q "financial_settlement_closed_order_sale_proof_pending" api/sales-intelligence-refresh-source.js
+
+      - name: Production build
+        run: npm run build
+
+      - name: Commit verified result and remove temporary runners
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm scripts/tmp_si_v16_align.py .github/workflows/temp-si-v16-align.yml .github/workflows/temp-si-v16-align-retry.yml
+          git add -A
+          git commit -m "fix: align financially settled order truth across SI"
+          git push origin HEAD:fix/si-quality-closing-continuation-20261004
