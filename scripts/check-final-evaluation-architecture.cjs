@@ -4,6 +4,7 @@ const read=p=>fs.existsSync(p)?fs.readFileSync(p,'utf8'):(failures.push('missing
 const evalPage=read('src/pages/StaffMonthlyEvaluationGeneral.tsx');
 const decisionHeader=read('src/components/evaluations/EvaluationDecisionHeaderV1.tsx');
 const workflow=read('src/components/evaluations/MonthlyEvaluationWorkflowV5.tsx');
+const axisCard=read('src/components/evaluations/EvaluationAxisCardV1.tsx');
 const report=read('src/lib/reports/monthlyPerformance360Service.ts');
 const financial=read('src/lib/payroll/employeeFinancialProjection.ts');
 const composition=read('src/lib/payroll/payrollFinancialCompositionService.ts');
@@ -17,6 +18,9 @@ const required=[
  [evalPage,'blockers={approvalBlockers}','workflow must receive canonical approval blockers'],
  [decisionHeader,'أسباب منع الاعتماد','decision header must expose approval blockers'],
  [workflow,'المطلوب قبل الاعتماد','workflow must surface blockers'],
+ [axisCard,'الدليل يبرر القرار ولا ينشئ درجة تلقائية','axis card must preserve evidence/decision boundary'],
+ [axisCard,"evidenceUnavailable",'axis card must expose unavailable evidence state'],
+ [axisCard,'الدرجة الضعيفة لا تُعتمد بدون سبب مكتوب','weak score must require explanation'],
  [report,"get_staff_monthly_evaluation_v5",'360 must not read legacy evaluation API'],
  [report,'availableWeight === 100','360 partial data must fail closed'],
  [financial,"duplicate component",'financial duplicate guard missing'],
