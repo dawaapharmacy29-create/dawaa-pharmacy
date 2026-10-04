@@ -630,6 +630,7 @@ export default function StaffMonthlyEvaluation() {
   const [employeeHeaderLoading, setEmployeeHeaderLoading] = useState(false);
   const employeeHeaderRequestRef = useRef(0);
   const evaluationRequestRef = useRef(0);
+  const staffRequestRef = useRef(0);
   const [pointsTruth, setPointsTruth] = useState<StaffPointsDashboardV3 | null>(null);
   const [settledStatement, setSettledStatement] = useState<{ points_closing: number; incentive_amount: number } | null>(null);
   const [activeGates, setActiveGates] = useState<CriticalGateType[]>([]);
@@ -650,7 +651,9 @@ export default function StaffMonthlyEvaluation() {
   } | null>(null);
   const [employeeCommentDraft, setEmployeeCommentDraft] = useState('');
   const [employeeResponseSaving, setEmployeeResponseSaving] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [staffLoading, setStaffLoading] = useState(false);
+  const [evaluationLoading, setEvaluationLoading] = useState(false);
+  const [evaluationLoadError, setEvaluationLoadError] = useState('');
   const [saving, setSaving] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
 
@@ -696,9 +699,10 @@ export default function StaffMonthlyEvaluation() {
     : null;
 
   useEffect(() => {
+    const requestId = ++staffRequestRef.current;
     const loadStaff = async () => {
       if (!user?.id) return;
-      setLoading(true);
+      setStaffLoading(true);
       try {
         const [staffResult, responseStatusResult] = await Promise.all([
           supabase.rpc('list_staff_for_monthly_evaluation_v5', {
@@ -734,18 +738,22 @@ export default function StaffMonthlyEvaluation() {
             evaluation_commented_at: response?.commented_at || null,
           };
         });
+        if (staffRequestRef.current !== requestId) return;
         setStaff(rows);
         const own = rows.find((row) => row.id === user?.staffId || row.id === user?.id || row.name === user?.name);
-        if (!managerMode && own) setSelectedId(own.id);
-        else if (!selectedId && rows[0]) setSelectedId(rows[0].id);
+        setSelectedId((current) => {
+          if (!managerMode && own) return own.id;
+          if (current && rows.some((row) => row.id === current)) return current;
+          return rows[0]?.id || '';
+        });
       } catch (cause) {
-        toast.error(cause instanceof Error ? cause.message : 'تعذر تحميل الموظفين');
+        if (staffRequestRef.current === requestId) toast.error(cause instanceof Error ? cause.message : 'تعذر تحميل الموظفين');
       } finally {
-        setLoading(false);
+        if (staffRequestRef.current === requestId) setStaffLoading(false);
       }
     };
     void loadStaff();
-  }, [branch, cycleLabel, globalScope, managerMode, selectedId, user?.id, user?.name, user?.staffId]);
+  }, [branch, cycleLabel, globalScope, managerMode, user?.id, user?.name, user?.staffId]);
 
   useEffect(() => {
     setActiveStep(1);
@@ -759,7 +767,8 @@ export default function StaffMonthlyEvaluation() {
     if (!selectedId || !user?.id || !selected) return;
     const requestId = ++evaluationRequestRef.current;
     const loadEvaluation = async () => {
-      setLoading(true);
+      setEvaluationLoading(true);
+      setEvaluationLoadError('');
       setEmployeeHeader(null);
       setEmployeeHeaderLoading(true);
       try {
@@ -858,9 +867,11 @@ export default function StaffMonthlyEvaluation() {
         if (evaluationRequestRef.current !== requestId) return;
         setEmployeeHeader(null);
         setEmployeeHeaderLoading(false);
-        toast.error(cause instanceof Error ? cause.message : 'تعذر تحميل التقييم');
+        const message = cause instanceof Error ? cause.message : 'تعذر تحميل التقييم';
+        setEvaluationLoadError(message);
+        toast.error(message);
       } finally {
-        if (evaluationRequestRef.current === requestId) setLoading(false);
+        if (evaluationRequestRef.current === requestId) setEvaluationLoading(false);
       }
     };
     void loadEvaluation();
@@ -1839,10 +1850,17 @@ export default function StaffMonthlyEvaluation() {
         </aside>
 
         <main className="space-y-4">
-          {loading ? (
-            <Panel className="p-10 text-center"><Loader2 className="mx-auto animate-spin" style={{ color: 'var(--dawaa-theme-muted)' }} /> <span style={{ color: 'var(--dawaa-theme-muted)' }}>جاري التحميل...</span></Panel>
+          {staffLoading && !staff.length ? (
+            <Panel className="p-10 text-center"><Loader2 className="mx-auto animate-spin" style={{ color: 'var(--dawaa-theme-muted)' }} /> <span style={{ color: 'var(--dawaa-theme-muted)' }}>جاري تحميل الموظفين...</span></Panel>
+          ) : evaluationLoadError && selected ? (
+            <Panel className="p-5">
+              <div className="text-sm font-black" style={{color:'var(--dawaa-status-danger-text)'}}>تعذر تحميل تفاصيل التقييم</div>
+              <div className="mt-1 text-xs font-bold" style={{color:'var(--dawaa-theme-muted)'}}>{evaluationLoadError}</div>
+              <div className="mt-2 text-xs font-bold" style={{color:'var(--dawaa-theme-muted)'}}>اختيار الموظف مرة أخرى يعيد المحاولة بدون فقد قائمة الموظفين.</div>
+            </Panel>
           ) : selected ? (
             <>
+              {evaluationLoading ? <div className="flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold" style={{borderColor:'var(--dawaa-theme-border)',background:'var(--dawaa-theme-soft)',color:'var(--dawaa-theme-muted)'}}><Loader2 size={14} className="animate-spin"/> جاري تحديث تفاصيل الموظف…</div> : null}
               <div
                 className="flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold"
                 style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-theme-muted)' }}
