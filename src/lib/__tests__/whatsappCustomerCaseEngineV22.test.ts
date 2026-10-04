@@ -238,10 +238,11 @@ describe('Sales Intelligence cross-script product regressions', () => {
 [9/27/26, 9:15:35 PM] You: صيدليات دواء تتشرف بخدمة حضرتك دائما 💚
 الأقرب إليك… ونهتم بصحتك دائمًا. 🌿`;
 
+    const canonicalCustomerId = 'a2fd0b6e-1562-438c-8f16-76a43539f792';
     const result = runSalesIntelligencePipeline({
       conversationId: 'ibrahim-real-74884',
       rawWhatsAppExportText: raw,
-      customerIdHint: 'cust-3643',
+      customerIdHint: canonicalCustomerId,
       customerPhoneHint: '01016891940',
       customerCodeHint: '3643',
       customerNameHint: 'ابراهيم الصياد',
@@ -251,12 +252,14 @@ describe('Sales Intelligence cross-script product regressions', () => {
       resolveInvoiceCandidates: () => [{
         id: 'inv-74884',
         invoice_number: '74884',
-        customer_id: 'cust-3643',
+        customer_id: canonicalCustomerId,
         customer_code: '3643',
         customer_name: 'ابراهيم الصياد',
         customer_phone: '01016891940',
         branch: 'فرع شكري',
-        invoice_datetime: '2026-09-27T18:06:00.000Z',
+        // TXT export timestamps are local-clock values. CI runs UTC, so use the same clock-time
+        // representation here; the live database stores the equivalent Egypt instant as 18:06Z.
+        invoice_datetime: '2026-09-27T21:06:00.000Z',
         net_amount: 778,
       }],
       itemEvidenceProvider: {
