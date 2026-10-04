@@ -29,6 +29,11 @@ export const caseStatusLabels: Record<string, string> = {
   basket_building: 'جارٍ تكوين السلة',
   awaiting_customer_confirmation: 'بانتظار تأكيد العميل',
   customer_confirmed: 'تأكيد العميل تم',
+  sent_for_fulfillment: 'تم الإرسال للتنفيذ',
+  invoiced: 'تمت الفوترة / التسوية المالية',
+  delivered: 'تم التسليم',
+  lost: 'فرصة ضائعة',
+  cancelled: 'ملغى',
 };
 
 export const pipelineStatusLabels: Record<string, string> = {

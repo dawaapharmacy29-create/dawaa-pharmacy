@@ -281,7 +281,7 @@ function criterionApplicable(
       return view.customer.identityStatus === 'resolved';
     case 'closing_message':
       return (
-        ['sale_proven', 'awaiting_invoice', 'customer_declined', 'information_only'].includes(view.journey.currentState) ||
+        ['sale_proven', 'financially_settled', 'awaiting_invoice', 'customer_declined', 'information_only'].includes(view.journey.currentState) ||
         (view.lostOpportunity.state === 'lost' && view.lostOpportunity.recoverability === 'none')
       );
     default:

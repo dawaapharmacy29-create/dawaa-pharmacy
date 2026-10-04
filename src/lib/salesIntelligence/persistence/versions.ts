@@ -7,6 +7,9 @@
 // REPROCESSING_MATRIX assigns it (see persistence/types.ts).
 // IMPORTANT: after changing semantic versions here, regenerate the committed serverless transport
 // with scripts/build-sales-intelligence-refresh-api.cjs so Preview/Production runs the same versions.
+// v16 (2026-10-04): settled-order truth alignment. Exact invoice-backed payment settlement now
+// projects consistently as case=invoiced, journey=financially_settled, lostOpportunity=closed_order_unproven,
+// pipeline=analyzed, while Sale/Revenue remain uncounted until canonical Sale Proof is proven.
 // v15 (2026-10-04): invoice-backed financial settlement closes transfer-paid orders without
 // fabricating formal protocol compliance or Sale Proof; payment-continuation request ambiguity is
 // suppressed only under explicit transfer context. Final gate marker: generated API verified.
@@ -18,7 +21,7 @@
 // changed materially: V32 now keeps payment settlement inside the original order interaction,
 // and commercial confirmation/basket parsing recognizes natural Egyptian recap/compact totals
 // without manufacturing product identity from unresolved media deictics.
-export const PIPELINE_VERSION = 'sales-intelligence-v15';
+export const PIPELINE_VERSION = 'sales-intelligence-v16';
 
 export const ENGINE_VERSIONS = {
   caseSegmentation: 'case-segmentation-v10-payment-continuation-ambiguity-safe',

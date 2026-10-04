@@ -263,7 +263,7 @@ export interface UnavailableDemand {
   blockers: UnavailableDemandBlocker[];
 }
 
-export type LostOpportunityState = 'won' | 'open' | 'recoverable' | 'lost' | 'no_commercial_opportunity' | 'unknown';
+export type LostOpportunityState = 'won' | 'closed_order_unproven' | 'open' | 'recoverable' | 'lost' | 'no_commercial_opportunity' | 'unknown';
 
 export type LostOpportunityReason =
   | 'stock_unavailable'
@@ -352,6 +352,7 @@ export type FollowUpSuppression =
   | 'information_only'
   | 'no_customer_need'
   | 'weak_evidence'
+  | 'financially_settled'
   | 'covered_by_specific_follow_up';
 
 /** Deterministic due policy; `dueAt` is filled only when derivable from the interaction itself. */
@@ -1358,6 +1359,7 @@ export type CommercialJourneyState =
   | 'awaiting_customer_confirmation'
   | 'customer_confirmed'
   | 'awaiting_invoice'
+  | 'financially_settled'
   | 'sale_proven'
   | 'customer_declined'
   | 'unknown';

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { deriveFinancialSettlementAssessment } from '@/lib/salesIntelligence/financialSettlementEngine';
 import { deriveCanonicalSalesOutcome } from '@/lib/salesIntelligence/canonicalSalesOutcomeEngine';
+import { deriveCommercialJourneyState } from '@/lib/salesIntelligence/commercialJourneyStateMachine';
+import { deriveLostOpportunity } from '@/lib/salesIntelligence/lostOpportunityEngine';
 import { parseWhatsAppExport } from '@/lib/whatsappConversationParser';
 import { deriveSegmentedCases, runSalesIntelligencePipeline } from '@/lib/salesIntelligence/salesIntelligencePipeline';
 
@@ -131,6 +133,117 @@ describe('Sales Intelligence financial settlement', () => {
     });
     expect(segmented.cases).toHaveLength(1);
     expect(segmented.cases[0].conversationCase.humanReviewReasons).not.toContain('possible_unsegmented_multiple_requests');
+  });
+
+  it('aligns settled-order journey and lost-opportunity truth without calling it a proven sale', () => {
+    const salesOutcome = {
+      caseId: 'case-1',
+      outcome: 'order_confirmed_unproven',
+      saleProofState: 'strongly_supported',
+      isSaleCountable: false,
+      isRevenueCountable: false,
+      isOrderConfirmed: true,
+      needsHumanReview: false,
+      reasonCodes: ['outcome.financial_settlement_closed_sale_not_proven'],
+    } as any;
+    const settlement = {
+      status: 'settled',
+      primaryMessageIds: ['payment-context', 'amount', 'proof', 'receipt'],
+      confidence: { level: 'strongly_inferred', score: 0.95, ruleIds: ['financial_settlement.exact_invoice_amount'], evidence: [] },
+      needsHumanReview: false,
+    } as any;
+    const customerNeed = {
+      caseId: 'case-1',
+      primaryNeed: 'علبتين لبن',
+      primaryNeedMessageId: 'need-1',
+      products: [{ key: 'لبن', productNameRaw: 'لبن', roles: ['requested', 'final_basket'], alternatives: [], evidenceMessageIds: ['need-1'] }],
+      unlinkedAvailability: [],
+      unlinkedAlternatives: [],
+      objections: [],
+      unresolvedNeed: true,
+      needDeclined: false,
+      needDeclineMessageIds: [],
+      evidenceMessageIds: ['need-1'],
+      confidence: { level: 'strongly_inferred', score: 0.9, ruleIds: [], evidence: [] },
+      needsHumanReview: false,
+      humanReviewReasons: [],
+    } as any;
+    const commercial = {
+      currentState: 'basket_in_progress',
+      summaryPresented: false,
+      customerConfirmed: false,
+      staffConfirmed: false,
+      primaryMessageIds: [],
+    } as any;
+
+    const journey = deriveCommercialJourneyState({
+      caseId: 'case-1',
+      messages: [],
+      customerNeed,
+      commercialConfirmation: commercial,
+      salesOutcome,
+      financialSettlement: settlement,
+    });
+    expect(journey.currentState).toBe('financially_settled');
+    expect(journey.reasonCodes).toContain('journey.financial_settlement_closed_order_sale_proof_pending');
+
+    const lost = deriveLostOpportunity({
+      caseId: 'case-1',
+      messages: [],
+      customerNeed,
+      unavailableDemand: [],
+      commercialConfirmation: commercial,
+      journeyState: journey,
+      salesOutcome,
+    });
+    expect(lost.state).toBe('closed_order_unproven');
+    expect(lost.waitingOn).toBeNull();
+    expect(lost.recoverability).toBe('none');
+    expect(salesOutcome.isSaleCountable).toBe(false);
+    expect(salesOutcome.isRevenueCountable).toBe(false);
+  });
+
+  it('projects Ibrahim exact transfer settlement as invoiced/analyzed/closed without erasing the final-summary coaching gap', () => {
+    const result = runSalesIntelligencePipeline({
+      conversationId: 'ibrahim-v16',
+      rawWhatsAppExportText: RAW,
+      trustedConversationStartedAt: '2026-09-27T18:03:34.000Z',
+      customerIdHint: 'cust-3643',
+      customerPhoneHint: '01016891940',
+      customerCodeHint: '3643',
+      customerNameHint: 'ابراهيم الصياد',
+      customerIdentityStatus: 'resolved',
+      branchNameRawHint: 'فرع شكري',
+      legacyMatchedInvoiceId: 'inv-74884',
+      legacyMatchedInvoiceNumber: '74884',
+      resolveInvoiceCandidates: () => [{
+        id: 'inv-74884',
+        invoice_number: '74884',
+        customer_id: 'cust-3643',
+        customer_code: '3643',
+        customer_name: 'ابراهيم الصياد',
+        customer_phone: '01016891940',
+        branch_name: 'فرع شكري',
+        invoice_datetime: '2026-09-27T18:06:00.000Z',
+        close_datetime: '2026-09-28T00:11:00.000Z',
+        net_amount: 778,
+      }],
+    });
+    expect(result.caseAnalyses).toHaveLength(1);
+    const analysis = result.caseAnalyses[0];
+    expect(analysis.financialSettlement?.status).toBe('settled');
+    expect(analysis.salesOutcome.outcome).toBe('order_confirmed_unproven');
+    expect(analysis.salesOutcome.isSaleCountable).toBe(false);
+    expect(analysis.salesOutcome.isRevenueCountable).toBe(false);
+    expect(analysis.conversationCase.status).toBe('invoiced');
+    expect(analysis.status).toBe('analyzed');
+    expect(analysis.journeyState.currentState).toBe('financially_settled');
+    expect(analysis.lostOpportunity.state).toBe('closed_order_unproven');
+    expect(analysis.lostOpportunity.waitingOn).toBeNull();
+    expect(analysis.followUp.decision).toBe('not_needed');
+    expect(analysis.followUp.notNeededReason).toBe('financially_settled');
+    expect(analysis.failureReasons).toContain('final_summary_missing');
+    expect(analysis.needsHumanReview).toBe(false);
   });
 
   it('closes the order commercially without promoting statistical invoice evidence to proven revenue', () => {

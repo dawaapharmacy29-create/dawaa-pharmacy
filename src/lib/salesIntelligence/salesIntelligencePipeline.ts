@@ -537,12 +537,20 @@ function analyzeOneCase(
     hasMeaningfulBasketItems,
     needsHumanReview,
   });
+  const operationallySettled =
+    financialSettlement.status === 'settled' &&
+    salesOutcome.outcome === 'order_confirmed_unproven';
+  const effectiveConversationCase: ConversationCase = operationallySettled
+    ? { ...conversationCase, status: 'invoiced' }
+    : conversationCase;
+
   const journeyState = deriveCommercialJourneyState({
     caseId: conversationCase.caseId,
     messages: scopedMessages,
     customerNeed,
     commercialConfirmation,
     salesOutcome,
+    financialSettlement,
   });
   const lostOpportunity = deriveLostOpportunity({
     caseId: conversationCase.caseId,
@@ -554,7 +562,7 @@ function analyzeOneCase(
     salesOutcome,
   });
   const followUp = deriveFollowUpOpportunities({
-    conversationCase,
+    conversationCase: effectiveConversationCase,
     messages: scopedMessages,
     customerNeed,
     unavailableDemand,
@@ -573,6 +581,11 @@ function analyzeOneCase(
     // Transaction truth outranks a missing text-derived basket. A photo/voice export can leave the
     // conversation-side basket incomplete while the unique trusted invoice proves the sale.
     status = 'analyzed';
+  } else if (operationallySettled) {
+    // Exact invoice-backed payment settlement gives a complete operational closure even when the
+    // chat missed a formal final-summary step. The missing protocol step remains visible in
+    // failureReasons/coaching, but it must not make the commercial journey look open or partial.
+    status = 'analyzed';
   } else if (evidenceCompleteness.overallEvidenceLevel === 'insufficient') {
     status = 'insufficient_data';
   } else if (evidenceCompleteness.overallEvidenceLevel === 'low' || evidenceCompleteness.overallEvidenceLevel === 'medium') {
@@ -584,7 +597,7 @@ function analyzeOneCase(
   const analysis = {
     caseId: conversationCase.caseId,
     conversationId: input.conversationId,
-    conversationCase,
+    conversationCase: effectiveConversationCase,
     customerNeed,
     unavailableDemand,
     basketHistory: baskets,

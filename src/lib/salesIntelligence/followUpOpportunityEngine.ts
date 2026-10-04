@@ -101,12 +101,21 @@ export function deriveFollowUpOpportunities(input: DeriveFollowUpInput): FollowU
   const customerId = identityResolved ? conversationCase.customerId : null;
 
   // Interaction-level "nothing to follow up" outcomes.
-  if (salesOutcome.outcome === 'information_only' || lostOpportunity.state === 'no_commercial_opportunity') {
+  if (
+    salesOutcome.outcome === 'information_only' ||
+    lostOpportunity.state === 'no_commercial_opportunity' ||
+    lostOpportunity.state === 'closed_order_unproven'
+  ) {
     return {
       caseId,
       decision: 'not_needed',
       opportunities: [],
-      notNeededReason: salesOutcome.outcome === 'information_only' ? 'information_only' : 'no_customer_need',
+      notNeededReason:
+        salesOutcome.outcome === 'information_only'
+          ? 'information_only'
+          : lostOpportunity.state === 'closed_order_unproven'
+            ? 'financially_settled'
+            : 'no_customer_need',
     };
   }
 

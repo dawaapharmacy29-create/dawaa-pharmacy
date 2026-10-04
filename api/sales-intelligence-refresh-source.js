@@ -4862,6 +4862,7 @@ var PROGRESSION = [
   "awaiting_customer_confirmation",
   "customer_confirmed",
   "awaiting_invoice",
+  "financially_settled",
   "sale_proven"
 ];
 function deriveCommercialJourneyState(input) {
@@ -4869,6 +4870,7 @@ function deriveCommercialJourneyState(input) {
   const offered = input.customerNeed.products.some((p) => p.roles.includes("offered"));
   const basketBuilt = input.customerNeed.products.some((p) => p.roles.includes("final_basket") || p.roles.includes("requested"));
   const declined = input.salesOutcome.outcome === "customer_rejected" || input.customerNeed.needDeclined;
+  const financiallySettled = input.financialSettlement?.status === "settled" && input.salesOutcome.outcome === "order_confirmed_unproven" && input.salesOutcome.reasonCodes.includes("outcome.financial_settlement_closed_sale_not_proven");
   const reached = /* @__PURE__ */ new Set();
   const evidenceIds = /* @__PURE__ */ new Set();
   if (input.customerNeed.primaryNeedMessageId) {
@@ -4889,7 +4891,10 @@ function deriveCommercialJourneyState(input) {
   }
   if (input.commercialConfirmation.summaryPresented) reached.add("awaiting_customer_confirmation");
   if (input.commercialConfirmation.customerConfirmed) reached.add("customer_confirmed");
-  if (input.commercialConfirmation.staffConfirmed || input.salesOutcome.outcome === "order_confirmed_unproven") {
+  if (financiallySettled) {
+    reached.add("financially_settled");
+    input.financialSettlement?.primaryMessageIds.forEach((id) => evidenceIds.add(id));
+  } else if (input.commercialConfirmation.staffConfirmed || input.salesOutcome.outcome === "order_confirmed_unproven") {
     reached.add("awaiting_invoice");
   }
   input.commercialConfirmation.primaryMessageIds.forEach((id) => evidenceIds.add(id));
@@ -4905,6 +4910,15 @@ function deriveCommercialJourneyState(input) {
     currentState = "sale_proven";
     reasonCodes.push("journey.sale_proven_only_from_canonical_outcome");
     confidence3 = assess("proven", 1, reasonCodes[0]);
+  } else if (financiallySettled) {
+    currentState = "financially_settled";
+    reasonCodes.push("journey.financial_settlement_closed_order_sale_proof_pending");
+    confidence3 = {
+      level: "strongly_inferred",
+      score: Math.max(0.95, input.financialSettlement?.confidence.score ?? 0),
+      ruleIds: [reasonCodes[0]],
+      evidence: input.financialSettlement?.confidence.evidence ?? []
+    };
   } else if (declined) {
     currentState = "customer_declined";
     reasonCodes.push("journey.customer_declined_from_customer_evidence");
@@ -5133,6 +5147,17 @@ function deriveLostOpportunity(input) {
   let v;
   if (salesOutcome.outcome === "sale_proven") {
     v = verdict("won", null, "none", null, "proven", 1, "won.canonical_sale_proven", []);
+  } else if (salesOutcome.outcome === "order_confirmed_unproven" && journeyState.currentState === "financially_settled") {
+    v = verdict(
+      "closed_order_unproven",
+      null,
+      "none",
+      null,
+      "strongly_inferred",
+      0.95,
+      "closed.financial_settlement_sale_proof_pending",
+      journeyState.evidenceMessageIds
+    );
   } else if (!hasCommercialNeed) {
     v = verdict("no_commercial_opportunity", null, "none", null, "strongly_inferred", 0.85, "no_commercial_opportunity.no_customer_need", []);
   } else if (has("bought_elsewhere").length) {
@@ -5309,12 +5334,12 @@ function deriveFollowUpOpportunities(input) {
   const lastAt = meaningful.length ? meaningful[meaningful.length - 1].timestamp : new Date(conversationCase.endedAt ?? conversationCase.startedAt);
   const identityResolved = input.customerIdentityStatus === "resolved" && Boolean(conversationCase.customerId);
   const customerId = identityResolved ? conversationCase.customerId : null;
-  if (salesOutcome.outcome === "information_only" || lostOpportunity.state === "no_commercial_opportunity") {
+  if (salesOutcome.outcome === "information_only" || lostOpportunity.state === "no_commercial_opportunity" || lostOpportunity.state === "closed_order_unproven") {
     return {
       caseId,
       decision: "not_needed",
       opportunities: [],
-      notNeededReason: salesOutcome.outcome === "information_only" ? "information_only" : "no_customer_need"
+      notNeededReason: salesOutcome.outcome === "information_only" ? "information_only" : lostOpportunity.state === "closed_order_unproven" ? "financially_settled" : "no_customer_need"
     };
   }
   const candidates = [];
@@ -6540,12 +6565,15 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
     hasMeaningfulBasketItems,
     needsHumanReview
   });
+  const operationallySettled = financialSettlement.status === "settled" && salesOutcome.outcome === "order_confirmed_unproven";
+  const effectiveConversationCase = operationallySettled ? { ...conversationCase, status: "invoiced" } : conversationCase;
   const journeyState = deriveCommercialJourneyState({
     caseId: conversationCase.caseId,
     messages: scopedMessages,
     customerNeed,
     commercialConfirmation,
-    salesOutcome
+    salesOutcome,
+    financialSettlement
   });
   const lostOpportunity = deriveLostOpportunity({
     caseId: conversationCase.caseId,
@@ -6557,7 +6585,7 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
     salesOutcome
   });
   const followUp = deriveFollowUpOpportunities({
-    conversationCase,
+    conversationCase: effectiveConversationCase,
     messages: scopedMessages,
     customerNeed,
     unavailableDemand,
@@ -6573,6 +6601,8 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
     status = "needs_human_review";
   } else if (salesOutcome.outcome === "sale_proven") {
     status = "analyzed";
+  } else if (operationallySettled) {
+    status = "analyzed";
   } else if (evidenceCompleteness.overallEvidenceLevel === "insufficient") {
     status = "insufficient_data";
   } else if (evidenceCompleteness.overallEvidenceLevel === "low" || evidenceCompleteness.overallEvidenceLevel === "medium") {
@@ -6583,7 +6613,7 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
   const analysis = {
     caseId: conversationCase.caseId,
     conversationId: input.conversationId,
-    conversationCase,
+    conversationCase: effectiveConversationCase,
     customerNeed,
     unavailableDemand,
     basketHistory: baskets,
@@ -7671,7 +7701,7 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v15";
+var PIPELINE_VERSION = "sales-intelligence-v16";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v10-payment-continuation-ambiguity-safe",
   historicalClosure: "historical-closure-v1",
@@ -9871,7 +9901,7 @@ function criterionApplicable(view, key, clinical) {
     case "purchase_history_usage":
       return view.customer.identityStatus === "resolved";
     case "closing_message":
-      return ["sale_proven", "awaiting_invoice", "customer_declined", "information_only"].includes(view.journey.currentState) || view.lostOpportunity.state === "lost" && view.lostOpportunity.recoverability === "none";
+      return ["sale_proven", "financially_settled", "awaiting_invoice", "customer_declined", "information_only"].includes(view.journey.currentState) || view.lostOpportunity.state === "lost" && view.lostOpportunity.recoverability === "none";
     default:
       return true;
   }
@@ -11607,7 +11637,7 @@ function ordered3(view) {
   return view.interaction.messages.filter((message) => message.meaningful && (message.role === "staff" || message.role === "customer")).slice().sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
 }
 function completed(view) {
-  if (["sale_proven", "awaiting_invoice", "customer_declined", "information_only"].includes(view.journey.currentState)) return true;
+  if (["sale_proven", "financially_settled", "awaiting_invoice", "customer_declined", "information_only"].includes(view.journey.currentState)) return true;
   return view.lostOpportunity.state === "lost" && view.lostOpportunity.recoverability === "none";
 }
 function candidateStillAtEnd(messages, candidateIndex) {
