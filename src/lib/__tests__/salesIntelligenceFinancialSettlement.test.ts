@@ -262,4 +262,95 @@ describe('Sales Intelligence financial settlement', () => {
     expect(outcome.isRevenueCountable).toBe(false);
     expect(outcome.reasonCodes).toContain('outcome.financial_settlement_closed_sale_not_proven');
   });
+
+  it('projects Mohamed exact official invoice as invoiced_unproven without inventing product identity or proven revenue', () => {
+    const raw = `[9/26/26, 9:46:29 PM] محمد الجندي 5179: <image omitted>
+[9/26/26, 9:46:41 PM] محمد الجندي 5179: عايزه من دا 4
+[9/26/26, 9:46:46 PM] You: أهلًا وسهلًا بحضرتك\nمع حضرتك د دنيا
+[9/26/26, 9:47:16 PM] محمد الجندي 5179: [Forwarded] <audio omitted>
+[9/26/26, 9:47:25 PM] محمد الجندي 5179: وعايزه العلاج دا
+[9/26/26, 9:50:02 PM] You: يعني كدا 4 علب لبن مع 2 نوع شراب اللي الدكتور بيقولهم في الريكورد
+[9/26/26, 9:50:08 PM] You: مظبوط كدا ان شاء الله؟
+[9/26/26, 9:50:12 PM] محمد الجندي 5179: ايوا
+[9/26/26, 9:50:25 PM] محمد الجندي 5179: كدا هيبقا كام
+[9/26/26, 9:50:44 PM] You: حالا هبلغ حضرتك
+[9/26/26, 9:50:51 PM] محمد الجندي 5179: تمام
+[9/26/26, 9:56:48 PM] You: 1579ج ان شاء الله
+[9/26/26, 9:58:03 PM] محمد الجندي 5179: تمام
+[9/26/26, 10:01:12 PM] You: جاري الارسال`;
+    const result = runSalesIntelligencePipeline({
+      conversationId: 'mohamed-v19',
+      rawWhatsAppExportText: raw,
+      trustedConversationStartedAt: '2026-09-26T18:46:29.000Z',
+      customerIdHint: 'cust-5179',
+      customerPhoneHint: '01012808732',
+      customerCodeHint: '5179',
+      customerNameHint: 'محمد الجندي2',
+      customerIdentityStatus: 'resolved',
+      branchNameRawHint: 'فرع شكري',
+      resolveInvoiceCandidates: () => [{
+        id: 'inv-74720',
+        invoice_number: '74720',
+        customer_id: 'cust-5179',
+        customer_code: '5179',
+        customer_name: 'محمد الجندي2',
+        customer_phone: '01012808732',
+        branch_name: 'فرع شكري',
+        invoice_datetime: '2026-09-26T19:03:00.000Z',
+        close_datetime: '2026-09-26T19:03:00.000Z',
+        net_amount: 1579,
+      }],
+    });
+    expect(result.caseAnalyses).toHaveLength(1);
+    const analysis = result.caseAnalyses[0];
+    expect(analysis.commercialConfirmation.currentState).toBe('commercial_confirmation_complete');
+    expect(analysis.activeBasket?.announcedTotal?.amount).toBe(1579);
+    expect(analysis.attribution.selectedInvoiceNumber).toBe('74720');
+    expect(analysis.attribution.isOfficialForStaffEvaluation).toBe(true);
+    expect(analysis.salesOutcome.reasonCodes).toContain('outcome.invoice_backed_order_closed_sale_not_proven');
+    expect(analysis.salesOutcome.isSaleCountable).toBe(false);
+    expect(analysis.salesOutcome.isRevenueCountable).toBe(false);
+    expect(analysis.conversationCase.status).toBe('invoiced');
+    expect(analysis.journeyState.currentState).toBe('invoiced_unproven');
+    expect(analysis.lostOpportunity.state).toBe('closed_order_unproven');
+    expect(analysis.lostOpportunity.waitingOn).toBeNull();
+    expect(analysis.followUp.decision).toBe('not_needed');
+    expect(analysis.followUp.notNeededReason).toBe('invoiced_unproven');
+    expect(analysis.failureReasons).toContain('product_identity_unresolved');
+    expect(analysis.humanReviewReasons).not.toContain('unresolved_product_identity');
+    expect(analysis.needsHumanReview).toBe(false);
+    expect(analysis.status).toBe('analyzed');
+  });
+
+  it('does not close a confirmed order as invoiced_unproven when the announced total differs from the invoice', () => {
+    const raw = `[9/26/26, 9:46:41 PM] محمد الجندي 5179: عايزه من دا 4
+[9/26/26, 9:50:02 PM] You: يعني كدا 4 علب لبن مع 2 نوع شراب اللي الدكتور بيقولهم في الريكورد
+[9/26/26, 9:50:08 PM] You: مظبوط كدا؟
+[9/26/26, 9:50:12 PM] محمد الجندي 5179: ايوا
+[9/26/26, 9:50:25 PM] محمد الجندي 5179: كدا هيبقا كام
+[9/26/26, 9:56:48 PM] You: 1579ج ان شاء الله
+[9/26/26, 9:58:03 PM] محمد الجندي 5179: تمام
+[9/26/26, 10:01:12 PM] You: جاري الارسال`;
+    const result = runSalesIntelligencePipeline({
+      conversationId: 'mohamed-v19-mismatch',
+      rawWhatsAppExportText: raw,
+      trustedConversationStartedAt: '2026-09-26T18:46:41.000Z',
+      customerIdHint: 'cust-5179',
+      customerPhoneHint: '01012808732',
+      customerCodeHint: '5179',
+      customerNameHint: 'محمد الجندي2',
+      customerIdentityStatus: 'resolved',
+      branchNameRawHint: 'فرع شكري',
+      resolveInvoiceCandidates: () => [{
+        id: 'inv-wrong', invoice_number: 'wrong', customer_id: 'cust-5179', customer_code: '5179',
+        customer_name: 'محمد الجندي2', customer_phone: '01012808732', branch_name: 'فرع شكري',
+        invoice_datetime: '2026-09-26T19:03:00.000Z', net_amount: 1700,
+      }],
+    });
+    const analysis = result.caseAnalyses[0];
+    expect(analysis.salesOutcome.reasonCodes).not.toContain('outcome.invoice_backed_order_closed_sale_not_proven');
+    expect(analysis.journeyState.currentState).not.toBe('invoiced_unproven');
+    expect(analysis.lostOpportunity.state).not.toBe('closed_order_unproven');
+  });
+
 });

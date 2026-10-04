@@ -114,7 +114,9 @@ export function deriveFollowUpOpportunities(input: DeriveFollowUpInput): FollowU
         salesOutcome.outcome === 'information_only'
           ? 'information_only'
           : lostOpportunity.state === 'closed_order_unproven'
-            ? 'financially_settled'
+            ? salesOutcome.reasonCodes.includes('outcome.invoice_backed_order_closed_sale_not_proven')
+              ? 'invoiced_unproven'
+              : 'financially_settled'
             : 'no_customer_need',
     };
   }

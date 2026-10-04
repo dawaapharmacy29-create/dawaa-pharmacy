@@ -353,6 +353,7 @@ export type FollowUpSuppression =
   | 'no_customer_need'
   | 'weak_evidence'
   | 'financially_settled'
+  | 'invoiced_unproven'
   | 'covered_by_specific_follow_up';
 
 /** Deterministic due policy; `dueAt` is filled only when derivable from the interaction itself. */
@@ -1359,6 +1360,7 @@ export type CommercialJourneyState =
   | 'awaiting_customer_confirmation'
   | 'customer_confirmed'
   | 'awaiting_invoice'
+  | 'invoiced_unproven'
   | 'financially_settled'
   | 'sale_proven'
   | 'customer_declined'

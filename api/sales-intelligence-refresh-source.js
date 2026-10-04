@@ -4225,6 +4225,7 @@ function deriveCanonicalSalesOutcome(input) {
     commercialConfirmation,
     saleProof,
     financialSettlement,
+    invoiceBackedOrderClosure,
     hasMeaningfulBasketItems,
     needsHumanReview
   } = input;
@@ -4281,6 +4282,16 @@ function deriveCanonicalSalesOutcome(input) {
       isRevenueCountable: false,
       isOrderConfirmed: true,
       reasonCodes: ["outcome.financial_settlement_closed_sale_not_proven"]
+    };
+  }
+  if (invoiceBackedOrderClosure) {
+    return {
+      ...base,
+      outcome: "order_confirmed_unproven",
+      isSaleCountable: false,
+      isRevenueCountable: false,
+      isOrderConfirmed: true,
+      reasonCodes: ["outcome.invoice_backed_order_closed_sale_not_proven"]
     };
   }
   if (commercialConfirmation.currentState === "commercial_confirmation_complete") {
@@ -4861,6 +4872,7 @@ var PROGRESSION = [
   "awaiting_customer_confirmation",
   "customer_confirmed",
   "awaiting_invoice",
+  "invoiced_unproven",
   "financially_settled",
   "sale_proven"
 ];
@@ -4870,6 +4882,8 @@ function deriveCommercialJourneyState(input) {
   const basketBuilt = input.customerNeed.products.some((p) => p.roles.includes("final_basket") || p.roles.includes("requested"));
   const declined = input.salesOutcome.outcome === "customer_rejected" || input.customerNeed.needDeclined;
   const financiallySettled = input.financialSettlement?.status === "settled" && input.salesOutcome.outcome === "order_confirmed_unproven" && input.salesOutcome.reasonCodes.includes("outcome.financial_settlement_closed_sale_not_proven");
+  const invoiceBackedClosed = input.salesOutcome.outcome === "order_confirmed_unproven" && input.salesOutcome.reasonCodes.includes("outcome.invoice_backed_order_closed_sale_not_proven");
+  const operationallyClosed = financiallySettled || invoiceBackedClosed;
   const reached = /* @__PURE__ */ new Set();
   const evidenceIds = /* @__PURE__ */ new Set();
   if (input.customerNeed.primaryNeedMessageId) {
@@ -4893,6 +4907,8 @@ function deriveCommercialJourneyState(input) {
   if (financiallySettled) {
     reached.add("financially_settled");
     input.financialSettlement?.primaryMessageIds.forEach((id) => evidenceIds.add(id));
+  } else if (invoiceBackedClosed) {
+    reached.add("invoiced_unproven");
   } else if (input.commercialConfirmation.staffConfirmed || input.salesOutcome.outcome === "order_confirmed_unproven") {
     reached.add("awaiting_invoice");
   }
@@ -4918,6 +4934,10 @@ function deriveCommercialJourneyState(input) {
       ruleIds: [reasonCodes[0]],
       evidence: input.financialSettlement?.confidence.evidence ?? []
     };
+  } else if (invoiceBackedClosed) {
+    currentState = "invoiced_unproven";
+    reasonCodes.push("journey.invoice_backed_order_closed_sale_proof_pending");
+    confidence3 = assess("strongly_inferred", 0.95, reasonCodes[0]);
   } else if (declined) {
     currentState = "customer_declined";
     reasonCodes.push("journey.customer_declined_from_customer_evidence");
@@ -4963,7 +4983,7 @@ function deriveCommercialJourneyState(input) {
     evidenceMessageIds: Array.from(evidenceIds),
     reasonCodes,
     confidence: confidence3,
-    reviewRequired: input.salesOutcome.needsHumanReview || input.salesOutcome.outcome !== "sale_proven" && input.customerNeed.needsHumanReview || input.salesOutcome.outcome === "needs_review"
+    reviewRequired: input.salesOutcome.needsHumanReview || !operationallyClosed && input.salesOutcome.outcome !== "sale_proven" && input.customerNeed.needsHumanReview || input.salesOutcome.outcome === "needs_review"
   };
 }
 
@@ -5146,7 +5166,7 @@ function deriveLostOpportunity(input) {
   let v;
   if (salesOutcome.outcome === "sale_proven") {
     v = verdict("won", null, "none", null, "proven", 1, "won.canonical_sale_proven", []);
-  } else if (salesOutcome.outcome === "order_confirmed_unproven" && journeyState.currentState === "financially_settled") {
+  } else if (salesOutcome.outcome === "order_confirmed_unproven" && (journeyState.currentState === "financially_settled" || journeyState.currentState === "invoiced_unproven")) {
     v = verdict(
       "closed_order_unproven",
       null,
@@ -5154,7 +5174,7 @@ function deriveLostOpportunity(input) {
       null,
       "strongly_inferred",
       0.95,
-      "closed.financial_settlement_sale_proof_pending",
+      journeyState.currentState === "financially_settled" ? "closed.financial_settlement_sale_proof_pending" : "closed.invoice_backed_order_sale_proof_pending",
       journeyState.evidenceMessageIds
     );
   } else if (!hasCommercialNeed) {
@@ -5338,7 +5358,7 @@ function deriveFollowUpOpportunities(input) {
       caseId,
       decision: "not_needed",
       opportunities: [],
-      notNeededReason: salesOutcome.outcome === "information_only" ? "information_only" : lostOpportunity.state === "closed_order_unproven" ? "financially_settled" : "no_customer_need"
+      notNeededReason: salesOutcome.outcome === "information_only" ? "information_only" : lostOpportunity.state === "closed_order_unproven" ? salesOutcome.reasonCodes.includes("outcome.invoice_backed_order_closed_sale_not_proven") ? "invoiced_unproven" : "financially_settled" : "no_customer_need"
     };
   }
   const candidates = [];
@@ -6546,10 +6566,20 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
   } : derivedSaleProof;
   const reviewReasonsResolvedByProvenInvoice = /* @__PURE__ */ new Set(["no_basket_state_for_case"]);
   const reviewReasonsResolvedByFinancialSettlement = /* @__PURE__ */ new Set(["possible_unsegmented_multiple_requests"]);
+  const invoiceBackedOrderClosure = commercialConfirmation.currentState === "commercial_confirmation_complete" && attribution.hasAttributedInvoice && attribution.isOfficialForStaffEvaluation && attribution.selectedCandidate?.announcedTotalMatch === "exact" && attribution.contradictions.length === 0 && saleProof.state === "strongly_supported";
+  const reviewReasonsResolvedByInvoiceBackedClosure = /* @__PURE__ */ new Set([
+    "unresolved_product_identity",
+    "customer_need_product_context_ambiguous"
+  ]);
   let humanReviewReasons = saleProof.state === "proven" ? rawHumanReviewReasons.filter((reason) => !reviewReasonsResolvedByProvenInvoice.has(reason)) : [...rawHumanReviewReasons];
   if (financialSettlement.status === "settled") {
     humanReviewReasons = humanReviewReasons.filter(
       (reason) => !reviewReasonsResolvedByFinancialSettlement.has(reason)
+    );
+  }
+  if (invoiceBackedOrderClosure) {
+    humanReviewReasons = humanReviewReasons.filter(
+      (reason) => !reviewReasonsResolvedByInvoiceBackedClosure.has(reason)
     );
   }
   if (identityBlocked && !humanReviewReasons.includes(identityReason)) humanReviewReasons.push(identityReason);
@@ -6562,11 +6592,14 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
     commercialConfirmation,
     saleProof,
     financialSettlement,
+    invoiceBackedOrderClosure,
     hasMeaningfulBasketItems,
     needsHumanReview
   });
   const operationallySettled = financialSettlement.status === "settled" && salesOutcome.outcome === "order_confirmed_unproven";
-  const effectiveConversationCase = operationallySettled ? { ...conversationCase, status: "invoiced" } : conversationCase;
+  const operationallyInvoiced = invoiceBackedOrderClosure && salesOutcome.outcome === "order_confirmed_unproven";
+  const operationallyClosed = operationallySettled || operationallyInvoiced;
+  const effectiveConversationCase = operationallyClosed ? { ...conversationCase, status: "invoiced" } : conversationCase;
   const journeyState = deriveCommercialJourneyState({
     caseId: conversationCase.caseId,
     messages: scopedMessages,
@@ -6601,7 +6634,7 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
     status = "needs_human_review";
   } else if (salesOutcome.outcome === "sale_proven") {
     status = "analyzed";
-  } else if (operationallySettled) {
+  } else if (operationallyClosed) {
     status = "analyzed";
   } else if (evidenceCompleteness.overallEvidenceLevel === "insufficient") {
     status = "insufficient_data";
@@ -7701,7 +7734,7 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v18";
+var PIPELINE_VERSION = "sales-intelligence-v19";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v10-payment-continuation-ambiguity-safe",
   historicalClosure: "historical-closure-v1",

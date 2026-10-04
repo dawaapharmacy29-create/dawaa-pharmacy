@@ -515,12 +515,28 @@ function analyzeOneCase(
   // transaction itself is proven by a trusted invoice.
   const reviewReasonsResolvedByProvenInvoice = new Set(['no_basket_state_for_case']);
   const reviewReasonsResolvedByFinancialSettlement = new Set(['possible_unsegmented_multiple_requests']);
+  const invoiceBackedOrderClosure =
+    commercialConfirmation.currentState === 'commercial_confirmation_complete' &&
+    attribution.hasAttributedInvoice &&
+    attribution.isOfficialForStaffEvaluation &&
+    attribution.selectedCandidate?.announcedTotalMatch === 'exact' &&
+    attribution.contradictions.length === 0 &&
+    saleProof.state === 'strongly_supported';
+  const reviewReasonsResolvedByInvoiceBackedClosure = new Set([
+    'unresolved_product_identity',
+    'customer_need_product_context_ambiguous',
+  ]);
   let humanReviewReasons = saleProof.state === 'proven'
     ? rawHumanReviewReasons.filter((reason) => !reviewReasonsResolvedByProvenInvoice.has(reason))
     : [...rawHumanReviewReasons];
   if (financialSettlement.status === 'settled') {
     humanReviewReasons = humanReviewReasons.filter(
       (reason) => !reviewReasonsResolvedByFinancialSettlement.has(reason)
+    );
+  }
+  if (invoiceBackedOrderClosure) {
+    humanReviewReasons = humanReviewReasons.filter(
+      (reason) => !reviewReasonsResolvedByInvoiceBackedClosure.has(reason)
     );
   }
   if (identityBlocked && !humanReviewReasons.includes(identityReason)) humanReviewReasons.push(identityReason);
@@ -535,13 +551,18 @@ function analyzeOneCase(
     commercialConfirmation,
     saleProof,
     financialSettlement,
+    invoiceBackedOrderClosure,
     hasMeaningfulBasketItems,
     needsHumanReview,
   });
   const operationallySettled =
     financialSettlement.status === 'settled' &&
     salesOutcome.outcome === 'order_confirmed_unproven';
-  const effectiveConversationCase: ConversationCase = operationallySettled
+  const operationallyInvoiced =
+    invoiceBackedOrderClosure &&
+    salesOutcome.outcome === 'order_confirmed_unproven';
+  const operationallyClosed = operationallySettled || operationallyInvoiced;
+  const effectiveConversationCase: ConversationCase = operationallyClosed
     ? { ...conversationCase, status: 'invoiced' }
     : conversationCase;
 
@@ -582,10 +603,10 @@ function analyzeOneCase(
     // Transaction truth outranks a missing text-derived basket. A photo/voice export can leave the
     // conversation-side basket incomplete while the unique trusted invoice proves the sale.
     status = 'analyzed';
-  } else if (operationallySettled) {
-    // Exact invoice-backed payment settlement gives a complete operational closure even when the
-    // chat missed a formal final-summary step. The missing protocol step remains visible in
-    // failureReasons/coaching, but it must not make the commercial journey look open or partial.
+  } else if (operationallyClosed) {
+    // Exact payment settlement OR a clean official invoice with an exact announced-total match
+    // gives a complete operational closure. Evidence limitations (e.g. media-only product identity)
+    // remain visible, but they must not reopen a confirmed invoiced order.
     status = 'analyzed';
   } else if (evidenceCompleteness.overallEvidenceLevel === 'insufficient') {
     status = 'insufficient_data';

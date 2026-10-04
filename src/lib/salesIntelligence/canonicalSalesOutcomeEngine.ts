@@ -15,6 +15,8 @@ export interface CanonicalSalesOutcomeInput {
   };
   saleProof: SaleProofAssessment;
   financialSettlement?: FinancialSettlementAssessment;
+  /** Exact, clean, official invoice attribution + exact announced-total match after complete order confirmation. */
+  invoiceBackedOrderClosure?: boolean;
   hasMeaningfulBasketItems: boolean;
   needsHumanReview: boolean;
 }
@@ -35,6 +37,7 @@ export function deriveCanonicalSalesOutcome(
     commercialConfirmation,
     saleProof,
     financialSettlement,
+    invoiceBackedOrderClosure,
     hasMeaningfulBasketItems,
     needsHumanReview,
   } = input;
@@ -99,6 +102,17 @@ export function deriveCanonicalSalesOutcome(
       isRevenueCountable: false,
       isOrderConfirmed: true,
       reasonCodes: ['outcome.financial_settlement_closed_sale_not_proven'],
+    };
+  }
+
+  if (invoiceBackedOrderClosure) {
+    return {
+      ...base,
+      outcome: 'order_confirmed_unproven',
+      isSaleCountable: false,
+      isRevenueCountable: false,
+      isOrderConfirmed: true,
+      reasonCodes: ['outcome.invoice_backed_order_closed_sale_not_proven'],
     };
   }
 

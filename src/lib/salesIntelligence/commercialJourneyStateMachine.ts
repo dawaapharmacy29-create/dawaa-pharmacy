@@ -40,6 +40,7 @@ const PROGRESSION: CommercialJourneyState[] = [
   'awaiting_customer_confirmation',
   'customer_confirmed',
   'awaiting_invoice',
+  'invoiced_unproven',
   'financially_settled',
   'sale_proven',
 ];
@@ -54,6 +55,10 @@ export function deriveCommercialJourneyState(input: DeriveCommercialJourneyState
     input.financialSettlement?.status === 'settled' &&
     input.salesOutcome.outcome === 'order_confirmed_unproven' &&
     input.salesOutcome.reasonCodes.includes('outcome.financial_settlement_closed_sale_not_proven');
+  const invoiceBackedClosed =
+    input.salesOutcome.outcome === 'order_confirmed_unproven' &&
+    input.salesOutcome.reasonCodes.includes('outcome.invoice_backed_order_closed_sale_not_proven');
+  const operationallyClosed = financiallySettled || invoiceBackedClosed;
 
   const reached = new Set<CommercialJourneyState>();
   const evidenceIds = new Set<string>();
@@ -79,6 +84,8 @@ export function deriveCommercialJourneyState(input: DeriveCommercialJourneyState
   if (financiallySettled) {
     reached.add('financially_settled');
     input.financialSettlement?.primaryMessageIds.forEach((id) => evidenceIds.add(id));
+  } else if (invoiceBackedClosed) {
+    reached.add('invoiced_unproven');
   } else if (input.commercialConfirmation.staffConfirmed || input.salesOutcome.outcome === 'order_confirmed_unproven') {
     reached.add('awaiting_invoice');
   }
@@ -106,6 +113,10 @@ export function deriveCommercialJourneyState(input: DeriveCommercialJourneyState
       ruleIds: [reasonCodes[0]],
       evidence: input.financialSettlement?.confidence.evidence ?? [],
     };
+  } else if (invoiceBackedClosed) {
+    currentState = 'invoiced_unproven';
+    reasonCodes.push('journey.invoice_backed_order_closed_sale_proof_pending');
+    confidence = assess('strongly_inferred', 0.95, reasonCodes[0]);
   } else if (declined) {
     currentState = 'customer_declined';
     reasonCodes.push('journey.customer_declined_from_customer_evidence');
@@ -156,7 +167,7 @@ export function deriveCommercialJourneyState(input: DeriveCommercialJourneyState
     confidence,
     reviewRequired:
       input.salesOutcome.needsHumanReview ||
-      (input.salesOutcome.outcome !== 'sale_proven' && input.customerNeed.needsHumanReview) ||
+      (!operationallyClosed && input.salesOutcome.outcome !== 'sale_proven' && input.customerNeed.needsHumanReview) ||
       input.salesOutcome.outcome === 'needs_review',
   };
 }

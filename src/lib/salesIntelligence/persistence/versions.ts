@@ -7,6 +7,9 @@
 // REPROCESSING_MATRIX assigns it (see persistence/types.ts).
 // IMPORTANT: after changing semantic versions here, regenerate the committed serverless transport
 // with scripts/build-sales-intelligence-refresh-api.cjs so Preview/Production runs the same versions.
+// v19 (2026-10-04): a complete confirmed order with clean official invoice attribution and an exact
+// announced-total match projects as invoiced_unproven/closed_order_unproven. Media-only product
+// identity remains an evidence limitation and never reopens an otherwise closed invoiced order.
 // v18 (2026-10-04): unresolved media/deictic product identity is unavailable evidence, never a
 // manufactured item contradiction; canonical review-source staff_id now reaches SI knownStaffIds.
 // Final V18 user-trigger marker: focused regression, full suite, TypeScript, generated API verification,
@@ -28,7 +31,7 @@
 // changed materially: V32 now keeps payment settlement inside the original order interaction,
 // and commercial confirmation/basket parsing recognizes natural Egyptian recap/compact totals
 // without manufacturing product identity from unresolved media deictics.
-export const PIPELINE_VERSION = 'sales-intelligence-v18';
+export const PIPELINE_VERSION = 'sales-intelligence-v19';
 
 export const ENGINE_VERSIONS = {
   caseSegmentation: 'case-segmentation-v10-payment-continuation-ambiguity-safe',
