@@ -4,18 +4,17 @@ on:
   push:
     branches:
       - fix/si-quality-closing-continuation-20261004
-  pull_request:
-    branches:
-      - main
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  generate:
+  generate-and-commit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: fix/si-quality-closing-continuation-20261004
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -23,15 +22,17 @@ jobs:
       - run: npm ci --legacy-peer-deps --no-audit --no-fund
       - name: Generate canonical Sales Intelligence API
         run: node scripts/build-sales-intelligence-refresh-api.cjs
-      - name: Verify generated API is current
-        run: node scripts/build-sales-intelligence-refresh-api.cjs --check
-      - name: Verify semantic versions are embedded
+      - name: Verify generated API
         run: |
+          node scripts/build-sales-intelligence-refresh-api.cjs --check
           grep -q "sales-intelligence-v13" api/sales-intelligence-refresh-source.js
           grep -q "case-segmentation-v9" api/sales-intelligence-refresh-source.js
           grep -q "commercial-confirmation-v5" api/sales-intelligence-refresh-source.js
-      - uses: actions/upload-artifact@v4
-        with:
-          name: sales-intelligence-refresh-api-generated
-          path: api/sales-intelligence-refresh-source.js
-          retention-days: 1
+      - name: Commit generated transport and remove temporary workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/generate-si-api-temp.yml
+          git add api/sales-intelligence-refresh-source.js
+          git commit -m "chore: regenerate Sales Intelligence refresh API"
+          git push origin HEAD:fix/si-quality-closing-continuation-20261004
