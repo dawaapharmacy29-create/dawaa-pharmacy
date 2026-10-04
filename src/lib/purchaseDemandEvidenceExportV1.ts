@@ -59,7 +59,7 @@ export async function buildPurchaseDemandEvidenceExport(
   // cross the Data API; raw invoice headers stay in the database.
   const sessionToken = getStaffSessionToken();
   if (!sessionToken) throw new Error('جلسة الموظف غير صالحة. سجل الدخول مرة أخرى.');
-  const supabaseUrl = String(import.meta.env.VITE_SUPABASE_URL || '').replace(/\\/$/, '');
+  const supabaseUrl = String(import.meta.env.VITE_SUPABASE_URL || '').replace(/\/$/, '');
   const supabaseAnonKey = String(import.meta.env.VITE_SUPABASE_ANON_KEY || '');
   if (!supabaseUrl || !supabaseAnonKey) throw new Error('إعداد اتصال Supabase غير مكتمل.');
 
