@@ -1,6 +1,9 @@
 import { getStaffAttendanceDetail } from '@/lib/attendance/attendanceBreakdownService';
 import { getAnnualLeaveBalanceV1, getPermissionPolicyStatusV2, listStaffTimeOffRequests } from '@/lib/timeOffService';
 import { getStaffCycleSales } from '@/lib/staffSalesService';
+
+const HEADER_CACHE=new Map<string,{value:EvaluationHeaderSummary;at:number}>();
+const HEADER_CACHE_TTL_MS=5*60*1000;
 import type { EmployeeMonthlyEvidence } from '@/lib/staff/employeeMonthlyEvidenceService';
 import { canonicalStaffRole } from '@/lib/staff/staffRoleCapabilities';
 
@@ -27,6 +30,9 @@ export function evaluationRoleGroup(role:unknown):EvaluationRoleGroup{
 }
 
 export async function loadEmployeeEvaluationHeader(args:{staffId:string;staffName:string;role:unknown;branch:string;start:string;end:string;evidence:EmployeeMonthlyEvidence}):Promise<EvaluationHeaderSummary>{
+ const cacheKey=`${args.staffId}:${args.start}:${args.end}:${args.branch}:${evaluationRoleGroup(args.role)}`;
+ const cached=HEADER_CACHE.get(cacheKey);
+ if(cached&&Date.now()-cached.at<HEADER_CACHE_TTL_MS)return cached.value;
  const warnings:string[]=[];
  const roleGroup=evaluationRoleGroup(args.role);
  const [salesR,attendanceR,permissionR,requestsR,annualR]=await Promise.allSettled([
@@ -52,7 +58,7 @@ export async function loadEmployeeEvaluationHeader(args:{staffId:string;staffNam
  const annualCycleDays=requests.filter(x=>x.request_kind==='annual_leave').reduce((n,x)=>n+overlapDays(x.start_date,x.end_date,args.start,args.end),0);
  const otherLeaveDays=requests.filter(x=>['sick_leave','exceptional_leave','approved_absence'].includes(x.request_kind)).reduce((n,x)=>n+overlapDays(x.start_date,x.end_date,args.start,args.end),0);
  const weeklyOffDays=attendance?.days.filter(x=>x.is_off_day===true||x.resolution_status==='off_day').length??null;
- return{
+ const value:EvaluationHeaderSummary={
   roleGroup,branch:args.branch,
   sales:roleGroup==='doctor'&&salesAvailable
    ? {state:'available',total:sales!.totalSales,invoices:sales!.invoicesCount,avgInvoice:sales!.avgInvoice,customers:sales!.uniqueCustomersCount}
@@ -62,4 +68,6 @@ export async function loadEmployeeEvaluationHeader(args:{staffId:string;staffNam
   timeOff:{state:permission&&requestsR.status==='fulfilled'?'available':permission||requestsR.status==='fulfilled'?'partial':'unavailable',permissions:permission?.approved_permissions??null,permissionMinutes:permission?.total_minutes??null,annualLeaveCycleDays:requestsR.status==='fulfilled'?annualCycleDays:null,annualLeaveYearUsed:annual?.used??null,annualLeaveYearBalance:annual?.balance??null,weeklyOffDays,otherApprovedLeaveDays:requestsR.status==='fulfilled'?otherLeaveDays:null},
   warnings,
  };
+ HEADER_CACHE.set(cacheKey,{value,at:Date.now()});
+ return value;
 }
