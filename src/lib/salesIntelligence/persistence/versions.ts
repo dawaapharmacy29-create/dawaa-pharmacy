@@ -10,6 +10,7 @@
 // v15 (2026-10-04): invoice-backed financial settlement closes transfer-paid orders without
 // fabricating formal protocol compliance or Sale Proof; payment-continuation request ambiguity is
 // suppressed only under explicit transfer context. Final gate marker: generated API verified.
+// Preview trigger note: this comment-only marker exists to ensure Vercel builds the verified V15 head.
 // v14 (2026-10-04): canonical refresh reassembles only explicit payment-settlement followup fine
 // sources into their single same-journey order anchor for analysis, while preserving source/V22
 // ownership and retiring the follower's stale SI case-set through normal reconciliation.
