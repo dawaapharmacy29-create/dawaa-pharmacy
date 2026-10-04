@@ -59,14 +59,31 @@ export async function buildPurchaseDemandEvidenceExport(
   // cross the Data API; raw invoice headers stay in the database.
   const sessionToken = getStaffSessionToken();
   if (!sessionToken) throw new Error('جلسة الموظف غير صالحة. سجل الدخول مرة أخرى.');
-  const { data: completenessResponse, error: completenessError } = await supabase.functions.invoke(
-    'purchase-demand-evidence-completeness',
-    {
-      body: { start_at: requestedStart.toISOString(), end_at: sourceMax.toISOString() },
-      headers: { 'x-dawaa-staff-session': sessionToken },
-    },
-  );
-  if (completenessError) throw completenessError;
+  const supabaseUrl = String(import.meta.env.VITE_SUPABASE_URL || '').replace(/\\/$/, '');
+  const supabaseAnonKey = String(import.meta.env.VITE_SUPABASE_ANON_KEY || '');
+  if (!supabaseUrl || !supabaseAnonKey) throw new Error('إعداد اتصال Supabase غير مكتمل.');
+
+  let completenessHttpResponse: Response;
+  try {
+    completenessHttpResponse = await fetch(`${supabaseUrl}/functions/v1/purchase-demand-evidence-completeness`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        apikey: supabaseAnonKey,
+        authorization: `Bearer ${supabaseAnonKey}`,
+        'x-dawaa-staff-session': sessionToken,
+      },
+      body: JSON.stringify({ start_at: requestedStart.toISOString(), end_at: sourceMax.toISOString() }),
+    });
+  } catch {
+    throw new Error('تعذر الاتصال بخدمة التحقق من اكتمال بيانات المبيعات.');
+  }
+
+  const completenessResponse = await completenessHttpResponse.json().catch(() => null);
+  if (!completenessHttpResponse.ok) {
+    const code = String(completenessResponse?.error || `HTTP_${completenessHttpResponse.status}`);
+    throw new Error(`فشل التحقق من اكتمال بيانات المبيعات: ${code}`);
+  }
   const completenessRows = Array.isArray(completenessResponse?.rows) ? completenessResponse.rows : [];
   const incompleteDays = (completenessRows ?? [])
     .filter((row) => row.completeness_status !== 'complete' && row.completeness_status !== 'no_headers')
