@@ -84,8 +84,7 @@ function componentState(row:EmployeePayrollFinancialCompositionV2):FinancialComp
  * Normalized employee financial read model. It never settles or writes money.
  * Preview values stay pending; only a frozen/finalized payroll snapshot is payable.
  */
-export async function getEmployeeFinancialProjection(staffId:string,monthCycle:string){
-  const row=await getEmployeePayrollFinancialComposition(staffId,monthCycle);
+export function toEmployeeFinancialProjection(row:EmployeePayrollFinancialCompositionV2){
   const state=componentState(row);
   const e=row.earnings,a=row.adjustments;
   const otherAutomated=e.followup_bonus_included_in_automated_total+e.customer_request_bonus_included_in_automated_total+e.branch_star_bonus_included_in_automated_total;
@@ -100,4 +99,8 @@ export async function getEmployeeFinancialProjection(staffId:string,monthCycle:s
     {key:'other_adjustments',label:'حوافز وتسويات وخصومات أخرى',state,amountEgp:other,source:'canonical_financial_composition_v2'},
   ];
   return buildEmployeeFinancialProjection(components);
+}
+
+export async function getEmployeeFinancialProjection(staffId:string,monthCycle:string){
+  return toEmployeeFinancialProjection(await getEmployeePayrollFinancialComposition(staffId,monthCycle));
 }
