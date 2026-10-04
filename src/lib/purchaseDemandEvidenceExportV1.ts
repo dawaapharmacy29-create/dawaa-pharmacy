@@ -59,11 +59,15 @@ export async function buildPurchaseDemandEvidenceExport(
   // cross the Data API; raw invoice headers stay in the database.
   const sessionToken = getStaffSessionToken();
   if (!sessionToken) throw new Error('جلسة الموظف غير صالحة. سجل الدخول مرة أخرى.');
-  const { data: completenessRows, error: completenessError } = await supabase.rpc(
-    'sales_invoice_items_completeness_staff_v1',
-    { p_session_token: sessionToken, p_start_at: requestedStart.toISOString(), p_end_at: sourceMax.toISOString() },
+  const { data: completenessResponse, error: completenessError } = await supabase.functions.invoke(
+    'purchase-demand-evidence-completeness',
+    {
+      body: { start_at: requestedStart.toISOString(), end_at: sourceMax.toISOString() },
+      headers: { 'x-dawaa-staff-session': sessionToken },
+    },
   );
   if (completenessError) throw completenessError;
+  const completenessRows = Array.isArray(completenessResponse?.rows) ? completenessResponse.rows : [];
   const incompleteDays = (completenessRows ?? [])
     .filter((row) => row.completeness_status !== 'complete' && row.completeness_status !== 'no_headers')
     .map((row) => ({
