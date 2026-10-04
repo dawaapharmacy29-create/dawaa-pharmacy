@@ -1,6 +1,6 @@
 import { canonicalStaffRole } from '@/lib/staff/staffRoleCapabilities';
 
-export type PerformanceScope = 'all' | 'branch' | 'warehouse' | 'delivery' | 'doctors';
+export type PerformanceScope = 'all' | 'branch' | 'warehouse' | 'delivery' | 'doctors' | 'assistants';
 
 export type PerformanceScopeStaff = {
   id: string;
@@ -22,6 +22,7 @@ export function staffMatchesPerformanceScope(row: PerformanceScopeStaff, scope: 
   const role = canonicalStaffRole(row.role);
   if (scope === 'doctors') return role === 'doctor';
   if (scope === 'delivery') return role === 'delivery';
+  if (scope === 'assistants') return role === 'assistant' || role === 'inventory_assistant';
   if (scope === 'warehouse') return isWarehouseStaff(row);
   if (scope === 'branch') return Boolean(token(branch)) && token(row.branch) === token(branch);
   return false;
