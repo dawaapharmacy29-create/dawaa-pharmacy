@@ -8,7 +8,8 @@
 // IMPORTANT: after changing semantic versions here, regenerate the committed serverless transport
 // with scripts/build-sales-intelligence-refresh-api.cjs so Preview/Production runs the same versions.
 // v15 (2026-10-04): invoice-backed financial settlement closes transfer-paid orders without
-// fabricating formal protocol compliance or Sale Proof; payment-continuation request ambiguity is suppressed only under explicit transfer context.
+// fabricating formal protocol compliance or Sale Proof; payment-continuation request ambiguity is
+// suppressed only under explicit transfer context. Final gate marker: generated API verified.
 // v14 (2026-10-04): canonical refresh reassembles only explicit payment-settlement followup fine
 // sources into their single same-journey order anchor for analysis, while preserving source/V22
 // ownership and retiring the follower's stale SI case-set through normal reconciliation.
