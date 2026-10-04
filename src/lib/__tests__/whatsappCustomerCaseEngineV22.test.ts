@@ -275,7 +275,10 @@ describe('Sales Intelligence cross-script product regressions', () => {
     expect(result.caseAnalyses).toHaveLength(1);
     const analysis = result.caseAnalyses[0];
     expect(analysis.attribution.selectedInvoiceNumber).toBe('74884');
-    expect(analysis.activeBasketItems.some((item) => item.productId === 'hero-3' && item.quantity === 2)).toBe(true);
+    const activeItems = analysis.activeBasket
+      ? (analysis.itemsByBasketId[analysis.activeBasket.basketId] ?? [])
+      : [];
+    expect(activeItems.some((item) => item.productId === 'hero-3' && item.quantity === 2)).toBe(true);
     expect(analysis.basketInvoiceMatch.quantityMatch).toBe('exact');
     expect(analysis.basketInvoiceMatch.differences.some((difference) => difference.type === 'missing_item' && String(difference.key).includes('هيرو'))).toBe(false);
     expect(analysis.basketInvoiceMatch.differences.some((difference) => difference.type === 'extra_item' && String(difference.key).toLowerCase().includes('hero baby'))).toBe(false);
