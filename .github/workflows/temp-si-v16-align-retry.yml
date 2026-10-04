@@ -1,5 +1,5 @@
 name: Temp SI V16 Align Retry
-# retry: precise const-analysis projection selector
+# retry: precise const-analysis projection selector; cleanup uses force because the temp patch script is intentionally rewritten in-run.
 
 on:
   push:
@@ -62,7 +62,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm scripts/tmp_si_v16_align.py scripts/tmp_fix_v16_selector.py .github/workflows/temp-si-v16-align.yml .github/workflows/temp-si-v16-align-retry.yml
+          git rm -f scripts/tmp_si_v16_align.py scripts/tmp_fix_v16_selector.py .github/workflows/temp-si-v16-align.yml .github/workflows/temp-si-v16-align-retry.yml
           git add -A
           git commit -m "fix: align financially settled order truth across SI"
           git push origin HEAD:fix/si-quality-closing-continuation-20261004
