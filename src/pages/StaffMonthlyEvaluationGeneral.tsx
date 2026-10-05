@@ -52,7 +52,7 @@ import EvaluationDecisionHeaderV1 from '@/components/evaluations/EvaluationDecis
 import EvaluationAxisCardV1 from '@/components/evaluations/EvaluationAxisCardV1';
 import FinalEvaluationReviewV1 from '@/components/evaluations/FinalEvaluationReviewV1';
 import EmployeeEvaluationHeaderV1 from '@/components/evaluations/EmployeeEvaluationHeaderV1';
-import { loadEmployeeEvaluationHeader, type EvaluationHeaderSummary } from '@/lib/evaluations/employeeEvaluationHeaderService';
+import { invalidateEmployeeEvaluationHeaderCache, loadEmployeeEvaluationHeader, type EvaluationHeaderSummary } from '@/lib/evaluations/employeeEvaluationHeaderService';
 
 type StaffRow = {
   id: string;
@@ -1412,6 +1412,10 @@ export default function StaffMonthlyEvaluation() {
       setEvaluationId(savedEvaluationId);
       setStatus(nextStatus);
       setAuditRefreshKey((value) => value + 1);
+      for (const key of evidenceCacheRef.current.keys()) {
+        if (key.startsWith(`${savingStaffId}:`)) evidenceCacheRef.current.delete(key);
+      }
+      invalidateEmployeeEvaluationHeaderCache(savingStaffId);
 
       const versionRefresh = await supabase.rpc('get_staff_monthly_evaluation_v5', {
         p_actor_id: user.id,
