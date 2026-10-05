@@ -59,6 +59,21 @@ export function deriveCanonicalSalesOutcome(
     };
   }
 
+  // `mixed` is reserved by the Conversation Case Engine for unresolved independent requests that
+  // still occupy one analytical interaction. Payment or one invoice may belong to ONE of those
+  // requests, but cannot safely close/count the whole mixed case. Resolve/split first, then rerun.
+  if (caseType === 'mixed') {
+    return {
+      ...base,
+      needsHumanReview: true,
+      outcome: 'needs_review',
+      isSaleCountable: false,
+      isRevenueCountable: false,
+      isOrderConfirmed: false,
+      reasonCodes: ['outcome.independent_multiple_requests_require_review'],
+    };
+  }
+
   if (saleProof.state === 'proven') {
     return {
       ...base,
