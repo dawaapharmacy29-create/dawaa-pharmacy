@@ -110,6 +110,7 @@ begin
       '__system_performance_weight',0.8,
       '__manager_judgment_weight',0.2,
       '__checklist_rates',coalesce(v_server->'checklist_rates','{}'::jsonb),
+      'data_coverage',coalesce(v_server->'data_coverage','{}'::jsonb),
       '__criterion_system_scores',v_system_scores,
       '__criterion_combined_scores',v_combined_scores,
       '__server_validated_at',v_server->>'validated_at'
