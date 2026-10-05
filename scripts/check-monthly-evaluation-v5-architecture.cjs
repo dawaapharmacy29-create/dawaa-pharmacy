@@ -21,6 +21,7 @@ const leadershipEvidence = read('src/lib/evaluations/monthlyLeadershipEvidence.t
 const finalSnapshotEvidenceClosure = read('supabase/migrations/20261005113000_monthly_evaluation_final_snapshot_evidence_closure.sql');
 const roleAwareServerEvidence = read('supabase/migrations/20261005125500_monthly_evaluation_role_aware_server_evidence_v5.sql');
 const optimisticConcurrency = read('supabase/migrations/20261005130500_monthly_evaluation_optimistic_concurrency_v5.sql');
+const cairoCycleBoundary = read('supabase/migrations/20261005132000_monthly_evaluation_cairo_cycle_boundary_v5.sql');
 const backend = [
   read('supabase/migrations/20260929153000_monthly_evaluation_command_center_v5.sql'),
   read('supabase/migrations/20260929154500_monthly_evaluation_v5_hardening.sql'),
@@ -86,6 +87,7 @@ if (!page.includes('setEvaluationUpdatedAt(String(canonicalSaved.updated_at')) f
 if (!page.includes('pointsForSave = await getStaffPointsDashboardV3(savingStaffId, cycleLabel)')) failures.push('Final approval must refresh canonical points truth immediately before save.');
 if (!page.includes('points_truth: pointsForSave ?')) failures.push('Final approval snapshot must use the freshly loaded points truth.');
 if (!page.includes('Date.now() - evidenceLoadedAt > 5 * 60_000')) failures.push('Final approval must reject stale client evidence state.');
+if (!cairoCycleBoundary.includes("(e.sent_at at time zone 'Africa/Cairo')::date <= v_cycle_end")) failures.push('Reapproval cycle classification must use Cairo-local sent_at dates.');
 if (!page.includes('invalidateEmployeeEvaluationHeaderCache(savingStaffId)')) failures.push('Evaluation save must invalidate the selected employee header cache.');
 if (!page.includes("key.startsWith(\`\${savingStaffId}:\`)")) failures.push('Evaluation save must invalidate the selected employee evidence cache.');
 if (!evidenceService.includes("const taskEvidenceRoles = new Set([")) failures.push('Monthly evidence loader must gate task evidence by consuming roles.');
