@@ -56,6 +56,19 @@ begin
   if coalesce(v_subject.branch,'')<>v_branch and v_type<>'branches_manager' then raise exception 'subject branch mismatch' using errcode='22023'; end if;
   if v_status not in ('draft','submitted') then raise exception 'invalid status' using errcode='22023'; end if;
 
+  if exists(
+    select 1 from public.manager_weekly_evaluations e
+    where e.evaluation_type=v_type
+      and e.subject_staff_id=v_subject_id
+      and e.week_start=v_start
+      and coalesce(e.branch,'')=coalesce(v_branch,'')
+      and e.status='submitted'
+  ) then
+    raise exception 'manager_evaluation_final_decision_immutable'
+      using errcode='55000',
+            detail='Submitted manager evaluations cannot be silently overwritten.';
+  end if;
+
   -- Rebuild operational truth on the server before accepting any score.
   v_server:=public.dawaa_manager_evaluation_objective_v5(v_type,v_subject_id,v_branch,v_start,v_end);
   v_weights:=coalesce(v_server->'criterion_weights','{}'::jsonb);
