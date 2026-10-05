@@ -88,8 +88,8 @@ if (!page.includes('finalSnapshotHash: refreshedHash')) {
   failures.push('Employee notification must be traceable to the server final snapshot hash.');
 }
 
-for (const step of ['بيانات الدورة', 'تقييم المحاور', 'النقاط والمخالفات', 'الخلاصة والتطوير', 'المراجعة والاعتماد']) {
-  if (!workflow.includes(step)) failures.push(`Workflow is missing step: ${step}`);
+for (const step of ['الموظف والأدلة', 'التقييم بالأدلة', 'المحاور', 'النقاط والمخالفات', 'الخلاصة والتطوير', 'المراجعة والاعتماد']) {
+  if (!workflow.includes(step)) failures.push(`Workflow is missing decision stage: ${step}`);
 }
 
 if (!audit.includes('get_staff_monthly_evaluation_audit_v5')) failures.push('Audit component must read the V5 audit API.');
