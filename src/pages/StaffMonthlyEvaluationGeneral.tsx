@@ -1234,6 +1234,19 @@ export default function StaffMonthlyEvaluation() {
         startingPoints: pdfPoints && pdfPoints.starting_points != null ? safeNumber(pdfPoints.starting_points) : null,
         rewardPoints: pdfPoints && pdfPoints.reward_points != null ? safeNumber(pdfPoints.reward_points) : null,
         deductionPoints: pdfPoints && pdfPoints.deduction_points != null ? safeNumber(pdfPoints.deduction_points) : null,
+        criticalGates: (() => {
+          const snapshotGates = publishedSnapshot && Array.isArray(publishedSnapshot.active_critical_gates)
+            ? publishedSnapshot.active_critical_gates.map(String).filter((gate): gate is CriticalGateType => gate in CRITICAL_GATE_CAPS)
+            : activeGates;
+          const rationaleRaw = publishedSnapshot?.critical_gate_rationales;
+          const rationales = rationaleRaw && typeof rationaleRaw === 'object' && !Array.isArray(rationaleRaw)
+            ? rationaleRaw as Record<string, unknown>
+            : criticalGateRationales;
+          return snapshotGates.map((gate) => ({
+            label: CRITICAL_GATE_CAPS[gate].label,
+            rationale: String(rationales[gate] || 'سبب القرار محفوظ في سجل الاعتماد.'),
+          }));
+        })(),
       });
       pdf.save(fileName);
     } catch (cause) {
@@ -2267,6 +2280,23 @@ export default function StaffMonthlyEvaluation() {
                         ))}
                       </div>
                     </Panel>
+
+                    {publishedSnapshot && Array.isArray(publishedSnapshot.active_critical_gates) && publishedSnapshot.active_critical_gates.length ? (
+                      <Panel className="p-4" style={{borderColor:'var(--dawaa-status-danger-border)',background:'var(--dawaa-status-danger-bg)'}}>
+                        <div className="text-sm font-black" style={{color:'var(--dawaa-status-danger-text)'}}>مخالفات حرجة أثرت على قرار الحافز</div>
+                        <div className="mt-1 text-xs font-bold leading-6" style={{color:'var(--dawaa-theme-muted)'}}>هذه المخالفات لا تغيّر درجة التقييم نفسها، لكنها قد تضع سقفًا على معامل الحافز.</div>
+                        <div className="mt-3 space-y-2">
+                          {publishedSnapshot.active_critical_gates.map(String).filter((gate): gate is CriticalGateType => gate in CRITICAL_GATE_CAPS).map((gate) => {
+                            const raw = publishedSnapshot.critical_gate_rationales;
+                            const rationales = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
+                            return <div key={gate} className="rounded-xl border p-3" style={{borderColor:'var(--dawaa-status-danger-border)',background:'var(--dawaa-theme-surface)'}}>
+                              <div className="text-xs font-black" style={{color:'var(--dawaa-status-danger-text)'}}>{CRITICAL_GATE_CAPS[gate].label}</div>
+                              <div className="mt-1 text-xs font-bold leading-6" style={{color:'var(--dawaa-theme-text)'}}>{String(rationales[gate] || 'سبب القرار محفوظ في سجل الاعتماد.')}</div>
+                            </div>;
+                          })}
+                        </div>
+                      </Panel>
+                    ) : null}
 
                     <Panel className="p-4">
                       <div className="text-sm font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>النقاط والحافز</div>
