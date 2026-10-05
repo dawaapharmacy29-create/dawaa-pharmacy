@@ -2556,7 +2556,9 @@ export default function StaffMonthlyEvaluation() {
                   ) : null}
 
                   {coaching?.conversation.reviewCount ? (
-                    <div className="mt-3 rounded-2xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-soft)' }}>
+                    <details className="mt-3 rounded-2xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-soft)' }}>
+                      <summary className="cursor-pointer list-none text-xs font-black" style={{color:'var(--dawaa-theme-heading)'}}>Coaching المحادثات · {coaching.conversation.reviewCount} مراجعة <span className="ms-1 text-[10px]" style={{color:'var(--dawaa-theme-muted)'}}>عرض التفاصيل</span></summary>
+                      <div className="mt-3">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div>
                           <div className="text-xs font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>Coaching مبني على أدلة المحادثات</div>
@@ -2639,7 +2641,8 @@ export default function StaffMonthlyEvaluation() {
                           لن نستنتج مميزات أو عيوب من {coaching.conversation.reviewCount} مراجعة فقط. يمكن للمدير قراءة الحالات، لكن لا تُستخدم كحكم شهري قوي.
                         </div>
                       )}
-                    </div>
+                      </div>
+                    </details>
                   ) : null}
 
                   {(coaching?.attendance.activeLedgerEvents || coaching?.followups.total) ? (
