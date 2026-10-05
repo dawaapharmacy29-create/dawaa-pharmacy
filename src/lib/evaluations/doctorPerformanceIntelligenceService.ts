@@ -56,25 +56,15 @@ const rowDate=(row:Record<string,unknown>)=>{
   const value=String(raw||'').slice(0,10);
   return /^\d{4}-\d{2}-\d{2}$/.test(value)?value:null;
 };
-type StaffInvoiceTruthPayload = { rows?: Record<string,unknown>[]; matchedCount?: number; matchedSales?: number };
+type SalesCycleSummaryRow = {
+  cycle_start?: string; cycle_end?: string; sales?: number; invoices?: number; customers?: number; first_sale_date?: string | null;
+};
 
-function previousCycle(label:string,back:number){const [y,m]=label.split('-').map(Number);const d=new Date(Date.UTC(y,m-1-back,1));return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}`;}
-
-async function salesWindow(staffId:string,start:string,endExclusive:string){
-  const end=new Date(`${endExclusive}T12:00:00Z`); end.setUTCDate(end.getUTCDate()-1);
-  const endInclusive=end.toISOString().slice(0,10);
-  const {data,error}=await supabase.rpc('get_staff_performance_sales_truth_v1',{p_staff_id:staffId,p_start:start,p_end:endInclusive});
-  if(error) return {rows:[] as Record<string,unknown>[],available:false,identity:'unavailable' as const,errorMessage:error.message};
-  const payload=(data||{}) as StaffInvoiceTruthPayload;
-  return {rows:Array.isArray(payload.rows)?payload.rows:[],available:true,identity:'canonical' as const,errorMessage:null};
+async function salesCycles(staffId:string,start:string,endExclusive:string){
+  const {data,error}=await supabase.rpc('get_staff_performance_sales_cycles_v1',{p_staff_id:staffId,p_window_start:start,p_window_end:endExclusive});
+  return {rows:(data||[]) as SalesCycleSummaryRow[],available:!error,identity:error?'unavailable' as const:'canonical' as const,errorMessage:error?.message||null};
 }
 
-function rowsForCycle(rows:Record<string,unknown>[],start:string,endExclusive:string){
-  return rows.filter(row=>{
-    const date=rowDate(row);
-    return Boolean(date&&date>=start&&date<endExclusive);
-  });
-}
 
 function minDate(values:(string|null)[]){
   const valid=values.filter((v):v is string=>Boolean(v)).sort();
@@ -193,7 +183,7 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
 
   const [firstAttendanceResult,salesTruth,attendanceWindow,conversationWindow,impactWindow]=await Promise.all([
     supabase.from('attendance_daily_summary').select('attendance_date').eq('staff_id',args.staffId).order('attendance_date',{ascending:true}).limit(1).maybeSingle(),
-    salesWindow(args.staffId,windowStart,windowEnd),
+    salesCycles(args.staffId,windowStart,windowEnd),
     supabase.from('attendance_daily_summary').select('attendance_date,payroll_eligible_hours,total_hours').eq('staff_id',args.staffId).gte('attendance_date',windowStart).lt('attendance_date',windowEnd).limit(400),
     supabase.from('conversation_sales_reviews').select('id,converted_to_sale,conversation_date').or(`doctor_id.eq.${args.staffId},staff_id.eq.${args.staffId}`).eq('is_current',true).gte('conversation_date',windowStart).lt('conversation_date',windowEnd).limit(3000),
     customerImpactWindow(args.staffId,windowStart,windowEnd),
@@ -202,8 +192,9 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
 
   const rawMonths=cycleSpecs.map(spec=>{
     const {cycleLabel,range,start,endExclusive}=spec;
+    const salesSummary=salesTruth.rows.find(r=>String(r.cycle_start||'').slice(0,10)===start);
     const sales={
-      rows:rowsForCycle(salesTruth.rows,start,endExclusive),
+      summary:salesSummary||null,
       available:salesTruth.available,
       identity:salesTruth.identity,
     };
@@ -229,7 +220,7 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
     };
     return {cycleLabel,range,start,endExclusive,sales,attendance,conversations,impact};
   });
-  const firstSalesDate=minDate(rawMonths.flatMap(m=>m.sales.rows.map(rowDate)));
+  const firstSalesDate=minDate(rawMonths.map(m=>String(m.sales.summary?.first_sale_date||'').slice(0,10)||null));
   const firstConversationDate=minDate(rawMonths.flatMap(m=>(m.conversations.data||[]).map(r=>String(r.conversation_date||'').slice(0,10)||null)));
   const firstEvidenceDate=minDate([firstAttendanceDate,firstSalesDate,firstConversationDate]);
 
@@ -239,7 +230,7 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
     const attendanceRows=attendance.data||[];
     const conversationRows=conversations.data||[];
     const cycleBeforeFirstEvidence=Boolean(firstEvidenceDate && endExclusive<=firstEvidenceDate);
-    const hasCoreEvidence=sales.rows.length>0||attendanceRows.length>0;
+    const hasCoreEvidence=n(sales.summary?.invoices)>0||attendanceRows.length>0;
 
     const coverage:PerformanceCoverage=cycleBeforeFirstEvidence
       ?'not_applicable'
@@ -250,9 +241,9 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
       :coverage==='partial'?'low':'low';
 
     const salesUsable=coverage!=='not_applicable'&&sales.available;
-    const salesTotal=salesUsable?sales.rows.reduce((s,r)=>s+money(r),0):null;
-    const invoices=salesUsable?sales.rows.length:null;
-    const customers=salesUsable?new Set(sales.rows.map(customerKey).filter(Boolean)).size:null;
+    const salesTotal=salesUsable?n(sales.summary?.sales):null;
+    const invoices=salesUsable?n(sales.summary?.invoices):null;
+    const customers=salesUsable?n(sales.summary?.customers):null;
     const avg=salesUsable&&invoices? salesTotal!/invoices:null;
     const hours=coverage==='not_applicable'||attendance.error?null:attendanceRows.reduce((s,r)=>s+n(r.payroll_eligible_hours ?? r.total_hours),0);
     const conv=coverage==='not_applicable'||conversations.error?null:conversationRows.length;
@@ -278,7 +269,7 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
       coverageReason:coverageText(coverage,sales.available,attendanceAvailable,hasCoreEvidence),
       comparisonEligible,comparisonReason,
       salesIdentity:sales.identity,salesSourceAvailable:sales.available,attendanceSourceAvailable:attendanceAvailable,conversationSourceAvailable:conversationAvailable,
-      salesEvidenceCount:sales.rows.length,attendanceEvidenceCount:attendanceRows.length,conversationEvidenceCount:conversationRows.length,
+      salesEvidenceCount:salesUsable?n(sales.summary?.invoices):0,attendanceEvidenceCount:attendanceRows.length,conversationEvidenceCount:conversationRows.length,
       customerImpact,diagnoses:[],
     };
   });
