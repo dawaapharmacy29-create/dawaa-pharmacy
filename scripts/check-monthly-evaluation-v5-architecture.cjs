@@ -19,6 +19,7 @@ const inventoryEvidence = read('src/lib/evaluations/monthlyInventoryEvidence.ts'
 const salesEvidence = read('src/lib/evaluations/monthlySalesQualityEvidence.ts');
 const leadershipEvidence = read('src/lib/evaluations/monthlyLeadershipEvidence.ts');
 const finalSnapshotEvidenceClosure = read('supabase/migrations/20261005113000_monthly_evaluation_final_snapshot_evidence_closure.sql');
+const roleAwareServerEvidence = read('supabase/migrations/20261005124500_monthly_evaluation_role_aware_server_evidence_v5.sql');
 const backend = [
   read('supabase/migrations/20260929153000_monthly_evaluation_command_center_v5.sql'),
   read('supabase/migrations/20260929154500_monthly_evaluation_v5_hardening.sql'),
@@ -72,6 +73,14 @@ if (!salesEvidence.includes('getSalesQualityEvidenceSufficiency')) failures.push
 if (!leadershipEvidence.includes('leadershipEvidenceRequirement')) failures.push('Leadership evidence contract is missing.');
 if (!finalSnapshotEvidenceClosure.includes("'axis_evidence_snapshot'")) failures.push('Final approved snapshot must freeze per-axis evidence.');
 if (!finalSnapshotEvidenceClosure.includes("'points_truth'")) failures.push('Final approved snapshot must freeze canonical points truth.');
+for (const token of [
+  "v_needs_reviews := v_role in ('doctor','delivery','customer_service')",
+  "v_needs_followups := v_role in ('doctor','customer_service','purchasing')",
+  "v_needs_attendance := v_role in ('doctor','assistant','inventory_assistant','delivery','customer_service','shift_supervisor')",
+  "'not_required'",
+]) {
+  if (!roleAwareServerEvidence.includes(token)) failures.push(`Role-aware server evidence missing: ${token}`);
+}
 
 if (/points_incentive_egp\s*\*\s*effectiveEvaluationMultiplierPct/.test(page)) {
   failures.push('Client-side final incentive recomputation is forbidden; read the canonical server financial truth.');
