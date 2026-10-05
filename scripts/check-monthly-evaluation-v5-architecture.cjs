@@ -1,4 +1,6 @@
 const fs = require('fs');
+const path = require('path');
+const ROOT = path.resolve(__dirname, '..');
 
 const failures = [];
 
@@ -18,6 +20,7 @@ const profiles = read('src/lib/evaluations/staffEvaluationProfilesV3.ts');
 const inventoryEvidence = read('src/lib/evaluations/monthlyInventoryEvidence.ts');
 const salesEvidence = read('src/lib/evaluations/monthlySalesQualityEvidence.ts');
 const leadershipEvidence = read('src/lib/evaluations/monthlyLeadershipEvidence.ts');
+const evidenceService = read('src/lib/evaluations/monthlyEvaluationEvidenceService.ts');
 const finalSnapshotEvidenceClosure = read('supabase/migrations/20261005113000_monthly_evaluation_final_snapshot_evidence_closure.sql');
 const roleAwareServerEvidence = read('supabase/migrations/20261005125500_monthly_evaluation_role_aware_server_evidence_v5.sql');
 const optimisticConcurrency = read('supabase/migrations/20261005130500_monthly_evaluation_optimistic_concurrency_v5.sql');
