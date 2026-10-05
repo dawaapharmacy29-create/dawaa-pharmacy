@@ -65,7 +65,7 @@ export default function MonthlyEvaluationWorkflowV5({
         </div>
         {blockers.length ? (
           <span className="inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-black" style={{ borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-status-warning-bg)', color: 'var(--dawaa-status-warning-text)' }}>
-            <AlertTriangle size={12} /> {blockers.length} قبل الاعتماد
+            <AlertTriangle size={12} /> المطلوب قبل الاعتماد · {blockers.length}
           </span>
         ) : null}
       </div>
