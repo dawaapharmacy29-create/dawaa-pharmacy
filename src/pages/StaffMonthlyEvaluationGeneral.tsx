@@ -1468,6 +1468,9 @@ export default function StaffMonthlyEvaluation() {
     if (role === 'assistant') return 'مساعدون';
     if (role === 'inventory_assistant') return 'المخزن';
     if (role === 'delivery') return 'الدليفري';
+    if (role === 'customer_service') return 'خدمة العملاء';
+    if (role === 'cleaning') return 'النظافة';
+    if (role === 'purchasing') return 'المشتريات';
     if (['branch_manager','branches_manager','shift_supervisor','customer_service_manager','executive','admin'].includes(role)) return 'الإدارة';
     return 'وظائف أخرى';
   };
@@ -1491,7 +1494,7 @@ export default function StaffMonthlyEvaluation() {
   const orderedFilteredStaff = [...filteredStaff].sort((a,b) => {
     const branchCompare = String(a.branch || '').localeCompare(String(b.branch || ''), 'ar');
     if (branchCompare) return branchCompare;
-    const order = ['دكاترة', 'مساعدون', 'الدليفري', 'المخزن', 'الإدارة', 'وظائف أخرى'];
+    const order = ['دكاترة', 'مساعدون', 'الدليفري', 'المخزن', 'خدمة العملاء', 'النظافة', 'المشتريات', 'الإدارة', 'وظائف أخرى'];
     const groupCompare = order.indexOf(roleGroupLabel(a)) - order.indexOf(roleGroupLabel(b));
     if (groupCompare) return groupCompare;
     return a.name.localeCompare(b.name, 'ar');
