@@ -22,6 +22,7 @@ export type StaffMonthlyEvaluationPdfInput = {
   rewardPoints?: number | null;
   deductionPoints?: number | null;
   startingPoints?: number | null;
+  criticalGates?: Array<{ label: string; rationale: string }>;
 };
 
 function escapeHtml(value: unknown) {
@@ -150,6 +151,15 @@ export async function buildStaffMonthlyEvaluationPdf(
       </div>`
     : '';
 
+  const criticalGatesHtml = input.criticalGates?.length
+    ? `<div style="margin-top:16px;border:1px solid #ef444480;background:#fef2f2;border-radius:10px;padding:12px;page-break-inside:avoid">
+        <div style="font-weight:800;color:#991b1b;margin-bottom:7px">مخالفات حرجة أثرت على قرار الحافز</div>
+        <div style="font-size:12px;line-height:1.9;color:#7f1d1d">
+          ${input.criticalGates.map((gate) => `<div style="margin-bottom:6px"><b>${escapeHtml(gate.label)}</b><br/>الواقعة/سبب القرار: ${escapeHtml(gate.rationale)}</div>`).join('')}
+        </div>
+      </div>`
+    : '';
+
   const host = document.createElement('div');
   host.style.position = 'fixed';
   host.style.left = '-9999px';
@@ -177,6 +187,7 @@ export async function buildStaffMonthlyEvaluationPdf(
       ${sectionsHtml}
 
       ${tipsHtml}
+      ${criticalGatesHtml}
       ${pointsAuditHtml}
 
       <div style="display:flex;gap:12px;margin-top:16px">
