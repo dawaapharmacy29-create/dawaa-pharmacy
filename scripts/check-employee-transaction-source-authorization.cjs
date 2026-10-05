@@ -148,6 +148,18 @@ else {
   }
 }
 
+const appealScopeV5Path = path.join(ROOT, 'supabase/migrations/20261005143000_point_appeal_branch_scope_v5.sql');
+if (!fs.existsSync(appealScopeV5Path)) failures.push('Point appeal V5 branch-scope migration is missing.');
+else {
+  const appealScopeV5 = fs.readFileSync(appealScopeV5Path, 'utf8');
+  for (const token of [
+    'dawaa_can_review_point_appeal_v5',
+    'point_appeal_branch_scope_denied',
+    "v_role in ('general_manager','executive_manager','branches_manager','admin')",
+    "coalesce(trim(v_original.branch),'')<>coalesce(trim(v_appeal.branch),'')",
+  ]) if (!appealScopeV5.includes(token)) failures.push(`Point appeal V5 scope missing: ${token}`);
+}
+
 if (failures.length) {
   console.error('\nEmployee transaction source authorization check failed:');
   failures.forEach((failure) => console.error(`- ${failure}`));
