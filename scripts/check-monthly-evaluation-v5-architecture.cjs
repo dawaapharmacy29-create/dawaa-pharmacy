@@ -85,6 +85,7 @@ if (!page.includes('expected_updated_at: evaluationUpdatedAt')) failures.push('E
 if (!page.includes('setEvaluationUpdatedAt(String(canonicalSaved.updated_at')) failures.push('Evaluation page must refresh the canonical row version after save.');
 if (!page.includes('pointsForSave = await getStaffPointsDashboardV3(savingStaffId, cycleLabel)')) failures.push('Final approval must refresh canonical points truth immediately before save.');
 if (!page.includes('points_truth: pointsForSave ?')) failures.push('Final approval snapshot must use the freshly loaded points truth.');
+if (!page.includes('Date.now() - evidenceLoadedAt > 5 * 60_000')) failures.push('Final approval must reject stale client evidence state.');
 
 for (const token of [
   "v_needs_reviews := v_role in ('doctor','delivery','customer_service')",
