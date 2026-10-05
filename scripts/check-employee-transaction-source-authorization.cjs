@@ -134,6 +134,20 @@ if (!fs.existsSync(penaltySourcePath)) {
   if (!/return\s+false\s*;[\s\S]*end\s*;/i.test(source)) failures.push('Penalty source correction must keep unknown sources fail-closed.');
 }
 
+const readScopeV5Path = path.join(ROOT, 'supabase/migrations/20261005142000_employee_points_read_scope_v5.sql');
+if (!fs.existsSync(readScopeV5Path)) failures.push('Employee points V5 read-scope migration is missing.');
+else {
+  const readScopeV5 = fs.readFileSync(readScopeV5Path, 'utf8');
+  for (const token of [
+    "array['view_team','manage_points','approve_points','manage_payroll']",
+    "v_role in ('branch_manager','shift_supervisor_morning','shift_supervisor_evening')",
+    "p_staff_id::text=trim(v_staff_id)",
+  ]) if (!readScopeV5.includes(token)) failures.push(`Employee points V5 read scope missing: ${token}`);
+  if (readScopeV5.includes("'customer_service_manager'") || readScopeV5.includes("'customer_service'")) {
+    failures.push('Customer-service roles must not receive team-wide employee ledger access by role.');
+  }
+}
+
 if (failures.length) {
   console.error('\nEmployee transaction source authorization check failed:');
   failures.forEach((failure) => console.error(`- ${failure}`));
