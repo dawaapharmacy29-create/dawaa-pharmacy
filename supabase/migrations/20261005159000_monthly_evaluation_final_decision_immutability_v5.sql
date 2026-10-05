@@ -16,22 +16,6 @@ begin
   if tg_op='UPDATE'
      and old.status in ('sent','approved')
      and new is distinct from old then
-    -- The canonical V5 command performs one internal post-insert timestamp touch
-    -- only when finalizing the same decision. It must not alter decision content.
-    if new.status=old.status
-       and new.staff_id is not distinct from old.staff_id
-       and new.evaluation_month is not distinct from old.evaluation_month
-       and new.sections is not distinct from old.sections
-       and new.overall_score is not distinct from old.overall_score
-       and new.grade is not distinct from old.grade
-       and new.manager_notes is not distinct from old.manager_notes
-       and new.strengths is not distinct from old.strengths
-       and new.development_points is not distinct from old.development_points
-       and new.metrics_snapshot is not distinct from old.metrics_snapshot
-       and new.sent_at is not distinct from old.sent_at
-    then
-      return new;
-    end if;
     raise exception 'monthly_evaluation_final_decision_immutable'
       using errcode='55000',
             detail='Published monthly evaluations cannot be silently rewritten.';
