@@ -489,6 +489,33 @@ function sectionEvidenceFor(
     };
   }
 
+  if (key === 'daily_stars' && canonicalRole === 'cleaning') {
+    const cleaning = pointsTruth?.cleaning_rating;
+    if (!cleaning || cleaning.rated_days <= 0) {
+      return {
+        status: 'manual' as const,
+        summary: 'لا توجد تقييمات نظافة يومية موثقة لهذه الدورة',
+        details: [
+          'غياب التقييم اليومي لا يساوي صفرًا.',
+          'إذا وُجدت واقعة تشغيلية موثقة، اكتبها في ملاحظة المحور قبل إعطاء الدرجة.',
+        ],
+      };
+    }
+    return {
+      status: 'available' as const,
+      summary: `${cleaning.rated_days} يوم مقيم · متوسط ${cleaning.avg_stars}/5 · ${cleaning.avg_score_pct}%`,
+      details: [
+        `أيام التقييم: ${cleaning.rated_days}`,
+        `أيام 5 نجوم: ${cleaning.five_star_days}`,
+        `متوسط النجوم: ${cleaning.avg_stars}/5`,
+        `متوسط الأداء اليومي: ${cleaning.avg_score_pct}%`,
+        `نقاط النجوم المسجلة: ${cleaning.total_star_points}`,
+        `تصنيف الأداء: ${cleaning.performance_band}`,
+        'مصدر الدليل: تقييمات النظافة اليومية المجمعة في Points Truth لنفس الدورة.',
+      ],
+    };
+  }
+
   if (key === 'sales_quality') {
     const sales = coaching?.salesQuality;
     const invoiceSource = pointsTruth?.source_breakdown?.find((source) => source.source === 'invoice_quality_vs_branch_baseline');
