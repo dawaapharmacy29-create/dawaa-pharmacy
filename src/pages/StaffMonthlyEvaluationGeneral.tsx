@@ -707,6 +707,7 @@ export default function StaffMonthlyEvaluation() {
   const employeeHeaderRequestRef = useRef(0);
   const evaluationRequestRef = useRef(0);
   const staffRequestRef = useRef(0);
+  const evidenceCacheRef = useRef(new Map<string, { at: number; value: EmployeeMonthlyEvidence }>());
   const [pointsTruth, setPointsTruth] = useState<StaffPointsDashboardV3 | null>(null);
   const [settledStatement, setSettledStatement] = useState<{ points_closing: number; incentive_amount: number } | null>(null);
   const [activeGates, setActiveGates] = useState<CriticalGateType[]>([]);
@@ -878,19 +879,34 @@ export default function StaffMonthlyEvaluation() {
           .eq('cycle_end', endDate)
           .maybeSingle();
 
+        const evidenceCacheKey = [
+          selectedId,
+          startDate,
+          endDateExclusive,
+          canonicalStaffRole(selected.job_title || selected.role),
+          normalizeBranchName(selected.branch || branch),
+        ].join(':');
+        const cachedEvidence = evidenceCacheRef.current.get(evidenceCacheKey);
+        const evidencePromise = cachedEvidence && Date.now() - cachedEvidence.at < 60_000
+          ? Promise.resolve(cachedEvidence.value)
+          : loadEmployeeMonthlyEvidence({
+              staffId: selectedId,
+              startDate,
+              endDateExclusive,
+              role: selected.job_title || selected.role,
+              branch: selected.branch || branch,
+            }).then((value) => {
+              evidenceCacheRef.current.set(evidenceCacheKey, { at: Date.now(), value });
+              return value;
+            });
+
         const [savedResult, evidenceResult] = await Promise.all([
           supabase.rpc('get_staff_monthly_evaluation_v5', {
             p_actor_id: user.id,
             p_staff_id: selectedId,
             p_month: cycleKeyDate,
           }),
-          loadEmployeeMonthlyEvidence({
-            staffId: selectedId,
-            startDate,
-            endDateExclusive,
-            role: selected.job_title || selected.role,
-            branch: selected.branch || branch,
-          }),
+          evidencePromise,
         ]);
 
         if (savedResult.error) throw savedResult.error;
