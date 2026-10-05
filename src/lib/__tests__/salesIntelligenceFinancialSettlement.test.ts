@@ -3,6 +3,7 @@ import { deriveFinancialSettlementAssessment } from '@/lib/salesIntelligence/fin
 import { deriveCanonicalSalesOutcome } from '@/lib/salesIntelligence/canonicalSalesOutcomeEngine';
 import { deriveCommercialJourneyState } from '@/lib/salesIntelligence/commercialJourneyStateMachine';
 import { deriveLostOpportunity } from '@/lib/salesIntelligence/lostOpportunityEngine';
+import { deriveFollowUpOpportunities } from '@/lib/salesIntelligence/followUpOpportunityEngine';
 import { parseWhatsAppExport } from '@/lib/whatsappConversationParser';
 import { deriveSegmentedCases, runSalesIntelligencePipeline } from '@/lib/salesIntelligence/salesIntelligencePipeline';
 
@@ -38,16 +39,21 @@ function attribution(overrides: Record<string, unknown> = {}) {
   } as any;
 }
 
+function normalized(raw: string) {
+  return parseWhatsAppExport(raw).map((m: any) => ({
+    id: m.id,
+    sender: m.sender,
+    role: m.sender === 'You' ? 'staff' : 'customer',
+    text: m.text,
+    timestamp: m.timestamp,
+    isMeaningful: !/image omitted|photo omitted|document omitted/i.test(m.text),
+    isMediaPlaceholder: /image omitted|photo omitted|document omitted/i.test(m.text),
+  }));
+}
+
 describe('Sales Intelligence financial settlement', () => {
   it('closes an exact transfer settlement only when amount, proof, receipt and clean invoice attribution agree', () => {
-    const messages = parseWhatsAppExport(RAW).map((m: any) => ({
-      id: m.id,
-      sender: m.sender,
-      role: m.sender === 'You' ? 'staff' : 'customer',
-      text: m.text,
-      timestamp: m.timestamp,
-      isMeaningful: !/image omitted/i.test(m.text),
-    }));
+    const messages = normalized(RAW);
     const result = deriveFinancialSettlementAssessment({
       caseId: 'case-1',
       messages: messages as any,
@@ -64,8 +70,41 @@ describe('Sales Intelligence financial settlement', () => {
     expect(result.needsHumanReview).toBe(false);
   });
 
+  it('does not treat a generic image as payment proof when staff never requested transfer proof', () => {
+    const raw = `[9/28/26, 2:52:09 AM] You: اتفضل رقم التحويل يا فندم 01028308235
+[9/28/26, 3:08:09 AM] عميل: الحساب كام من فضلك
+[9/28/26, 3:08:36 AM] You: 778 ان شاء الله
+[9/28/26, 3:09:45 AM] عميل: <image omitted>
+[9/28/26, 3:10:40 AM] You: وصل شكرا جزيلا`;
+    const result = deriveFinancialSettlementAssessment({
+      caseId: 'case-generic-image',
+      messages: normalized(raw) as any,
+      attribution: attribution(),
+      selectedInvoiceRow: { id: 'inv-74884', invoice_number: '74884', net_amount: 778 },
+      customerIdentityStatus: 'resolved',
+    });
+    expect(result.status).toBe('pending');
+    expect(result.paymentProofDetected).toBe(false);
+    expect(result.receiptAcknowledged).toBe(false);
+    expect(result.ruleIds).toContain('financial_settlement.customer_payment_proof_missing');
+  });
+
+  it('requires the selected invoice row identity to match the attributed invoice exactly', () => {
+    const result = deriveFinancialSettlementAssessment({
+      caseId: 'case-row-mismatch',
+      messages: normalized(RAW) as any,
+      attribution: attribution(),
+      selectedInvoiceRow: { id: 'inv-other', invoice_number: '74885', net_amount: 778 },
+      customerIdentityStatus: 'resolved',
+    });
+    expect(result.status).toBe('pending');
+    expect(result.needsHumanReview).toBe(true);
+    expect(result.isOfficialInvoiceAttribution).toBe(false);
+    expect(result.ruleIds).toContain('financial_settlement.selected_invoice_row_mismatch');
+  });
+
   it('fails closed when the transfer amount conflicts with the selected invoice', () => {
-    const messages = parseWhatsAppExport(RAW).map((m: any) => ({ id: m.id, sender: m.sender, role: m.sender === 'You' ? 'staff' : 'customer', text: m.text, timestamp: m.timestamp, isMeaningful: !/image omitted/i.test(m.text) }));
+    const messages = normalized(RAW);
     const result = deriveFinancialSettlementAssessment({
       caseId: 'case-1', messages: messages as any, attribution: attribution(),
       selectedInvoiceRow: { id: 'inv-74884', invoice_number: '74884', net_amount: 700 },
@@ -77,7 +116,7 @@ describe('Sales Intelligence financial settlement', () => {
   });
 
   it('requires human review for a near payment/invoice amount match instead of auto-closing it', () => {
-    const messages = parseWhatsAppExport(RAW).map((m: any) => ({ id: m.id, sender: m.sender, role: m.sender === 'You' ? 'staff' : 'customer', text: m.text, timestamp: m.timestamp, isMeaningful: !/image omitted/i.test(m.text) }));
+    const messages = normalized(RAW);
     const result = deriveFinancialSettlementAssessment({
       caseId: 'case-1', messages: messages as any, attribution: attribution(),
       selectedInvoiceRow: { id: 'inv-74884', invoice_number: '74884', net_amount: 779 },
@@ -201,6 +240,75 @@ describe('Sales Intelligence financial settlement', () => {
     expect(lost.recoverability).toBe('none');
     expect(salesOutcome.isSaleCountable).toBe(false);
     expect(salesOutcome.isRevenueCountable).toBe(false);
+  });
+
+  it('keeps a product-specific follow-up alive after the current order is invoice-closed', () => {
+    const followUp = deriveFollowUpOpportunities({
+      conversationCase: {
+        caseId: 'closed-with-shortage',
+        customerId: '11111111-1111-1111-1111-111111111111',
+        customerPhone: '01000000000',
+        startedAt: '2026-09-26T18:00:00.000Z',
+        endedAt: '2026-09-26T18:20:00.000Z',
+        status: 'invoiced',
+      } as any,
+      messages: normalized(`[9/26/26, 9:05:00 PM] عميل: عايز بانادول اكسترا
+[9/26/26, 9:06:00 PM] You: بانادول اكسترا مش متوفر حاليا`) as any,
+      customerNeed: {
+        caseId: 'closed-with-shortage',
+        products: [],
+        unlinkedAvailability: [],
+        unlinkedAlternatives: [],
+        objections: [],
+        unresolvedNeed: false,
+        needDeclined: false,
+        needDeclineMessageIds: [],
+        evidenceMessageIds: [],
+        confidence: { level: 'strongly_inferred', score: 0.9, ruleIds: [], evidence: [] },
+        needsHumanReview: false,
+        humanReviewReasons: [],
+      } as any,
+      unavailableDemand: [{
+        demandKey: 'banadol-extra',
+        productKey: 'بانادول اكسترا',
+        resolvedProductId: 'prod-banadol-extra',
+        requestedProductRaw: 'بانادول اكسترا',
+        quantityRequested: 1,
+        availabilityState: 'unavailable',
+        availabilityMessageId: 'stock-message',
+        alternativeOffered: false,
+        alternativeResponse: 'no_response',
+        followUpCandidate: true,
+        followUpSuppressedBy: null,
+        evidenceMessageIds: ['stock-message'],
+        confidence: { level: 'strongly_inferred', score: 0.9, ruleIds: [], evidence: [] },
+      }] as any,
+      lostOpportunity: {
+        caseId: 'closed-with-shortage',
+        state: 'closed_order_unproven',
+        reason: null,
+        waitingOn: null,
+        recoverability: 'none',
+        evidenceMessageIds: [],
+        confidence: { level: 'strongly_inferred', score: 0.95, ruleIds: [], evidence: [] },
+      } as any,
+      salesOutcome: {
+        caseId: 'closed-with-shortage',
+        outcome: 'order_confirmed_unproven',
+        reasonCodes: ['outcome.invoice_backed_order_closed_sale_not_proven'],
+        isSaleCountable: false,
+        isRevenueCountable: false,
+        isOrderConfirmed: true,
+        needsHumanReview: false,
+      } as any,
+      customerIdentityStatus: 'resolved',
+    });
+
+    expect(followUp.decision).toBe('actionable');
+    expect(followUp.opportunities).toHaveLength(1);
+    expect(followUp.opportunities[0].reason).toBe('stock_unavailable');
+    expect(followUp.opportunities[0].productId).toBe('prod-banadol-extra');
+    expect(followUp.opportunities[0].status).toBe('actionable');
   });
 
   it('projects Ibrahim exact transfer settlement as invoiced/analyzed/closed without erasing the final-summary coaching gap', () => {
