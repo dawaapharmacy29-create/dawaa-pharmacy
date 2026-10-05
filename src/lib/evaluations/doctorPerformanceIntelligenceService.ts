@@ -36,6 +36,13 @@ export type DoctorPerformanceMonth = {
   comparisonEligible: boolean;
   comparisonMode: 'full_cycle' | 'same_period' | 'blocked';
   comparisonReason: string;
+  comparisonSnapshot: null | {
+    days: number | null;
+    sales: number | null; previousSales: number | null;
+    invoices: number | null; previousInvoices: number | null;
+    customers: number | null; previousCustomers: number | null;
+    averageInvoice: number | null; previousAverageInvoice: number | null;
+  };
   salesIdentity: 'canonical' | 'unavailable';
   salesSourceAvailable: boolean; attendanceSourceAvailable: boolean; conversationSourceAvailable: boolean;
   salesEvidenceCount: number; attendanceEvidenceCount: number; conversationEvidenceCount: number;
@@ -286,7 +293,7 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
       conversations:conv,convertedConversations:converted,conversionRate:conv&&converted!==null?converted/conv*100:null,
       coverage,confidence,
       coverageReason:coverageText(coverage,sales.available,attendanceAvailable,hasCoreEvidence),
-      comparisonEligible,comparisonMode,comparisonReason,
+      comparisonEligible,comparisonMode,comparisonReason,comparisonSnapshot:null,
       salesIdentity:sales.identity,salesSourceAvailable:sales.available,attendanceSourceAvailable:attendanceAvailable,conversationSourceAvailable:conversationAvailable,
       salesEvidenceCount:salesUsable?n(sales.summary?.invoices):0,attendanceEvidenceCount:attendanceRows.length,conversationEvidenceCount:conversationRows.length,
       customerImpact,diagnoses:[],
@@ -294,17 +301,30 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
   });
 
   months.forEach((month,index)=>{month.diagnoses=diagnoseMonth(month,months[index+1]||null)});
-  if(samePeriodSales&&months[0]?.comparisonMode==='same_period'&&samePeriodSales[0].available&&samePeriodSales[1].available){
-    const current={...months[0]};
-    const previous={...months[1],comparisonEligible:true};
-    const apply=(m:DoctorPerformanceMonth,s:SalesPeriodSummaryRow|null)=>{
-      m.sales=n(s?.sales);m.invoices=n(s?.invoices);m.customers=n(s?.customers);
-      m.averageInvoice=m.invoices?m.sales!/m.invoices:null;
-      m.salesPerHour=null;m.invoicesPerHour=null;m.customersPerHour=null;
-    };
-    apply(current,samePeriodSales[0].summary);apply(previous,samePeriodSales[1].summary);
-    current.diagnoses=diagnoseMonth(current,previous).map(d=>({...d,evidence:[`Same-period: أول ${elapsedDays} يوم`,...d.evidence]}));
-    months[0].diagnoses=current.diagnoses;
+  if(months[0]?.comparisonMode==='same_period'){
+    const currentSummary=samePeriodSales?.[0];
+    const previousSummary=samePeriodSales?.[1];
+    if(currentSummary?.available&&previousSummary?.available&&months[1]?.coverage==='available'){
+      const cs=currentSummary.summary,ps=previousSummary.summary;
+      const ci=n(cs?.invoices),pi=n(ps?.invoices),cSales=n(cs?.sales),pSales=n(ps?.sales);
+      months[0].comparisonSnapshot={
+        days:elapsedDays,sales:cSales,previousSales:pSales,invoices:ci,previousInvoices:pi,
+        customers:n(cs?.customers),previousCustomers:n(ps?.customers),
+        averageInvoice:ci?cSales/ci:null,previousAverageInvoice:pi?pSales/pi:null,
+      };
+      const current={...months[0],sales:cSales,invoices:ci,customers:n(cs?.customers),averageInvoice:ci?cSales/ci:null,
+        salesPerHour:null,invoicesPerHour:null,customersPerHour:null,conversionRate:null,
+        customerImpact:{...months[0].customerImpact,available:false}};
+      const previous={...months[1],comparisonEligible:true,sales:pSales,invoices:pi,customers:n(ps?.customers),averageInvoice:pi?pSales/pi:null,
+        salesPerHour:null,invoicesPerHour:null,customersPerHour:null,conversionRate:null,
+        customerImpact:{...months[1].customerImpact,available:false}};
+      months[0].diagnoses=diagnoseMonth(current,previous).map(d=>({...d,evidence:[`Same-period: أول ${elapsedDays} يوم`,...d.evidence]}));
+    }else{
+      months[0].comparisonEligible=false;
+      months[0].comparisonMode='blocked';
+      months[0].comparisonReason='تعذر بناء نافذة Same-period موثوقة من المصدر البيعي؛ المقارنة محجوبة بدل عرض Delta مضلل.';
+      months[0].diagnoses=diagnoseMonth(months[0],null);
+    }
   }
   return {months,generatedAt:new Date().toISOString(),firstEvidenceDate};
 }
