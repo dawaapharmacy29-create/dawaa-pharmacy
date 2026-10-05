@@ -2232,22 +2232,23 @@ export default function StaffMonthlyEvaluation() {
                     </div>
 
                     <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                      <MiniBox
-                        label="النقاط الفعلية"
-                        value={settledStatement ? `${settledStatement.points_closing} نقطة` : pointsTruth ? `${pointsTruth.final_points} نقطة` : '—'}
-                        tone="cyan"
-                      />
-                      <MiniBox
-                        label="هدف النقاط المسجل"
-                        value={pointsTruth?.target_points ? `${pointsTruth.target_points} نقطة` : 'غير محدد'}
-                        tone="amber"
-                      />
-                      <MiniBox
-                        label="حافز الأداء المركزي"
-                        value={canonicalIncentive == null ? 'غير محدد' : `${canonicalIncentive.toLocaleString('ar-EG')} جنيه`}
-                        tone={canonicalIncentive == null ? 'amber' : 'green'}
-                      />
+                      <MiniBox label="المحاور الجاهزة" value={`${Math.max(0, sections.length - blockedAxisEvidence.length)}/${sections.length}`} tone={roleEvidenceReady ? "green" : "amber"} />
+                      <MiniBox label="المحاور المقيمة" value={`${completedSections}/${sections.length}`} tone={completedSections === sections.length && sections.length > 0 ? "green" : "cyan"} />
+                      <MiniBox label="قبل الاعتماد" value={approvalBlockers.length ? `${approvalBlockers.length} ملاحظة` : "لا توجد موانع"} tone={approvalBlockers.length ? "amber" : "green"} />
                     </div>
+
+                    {blockedAxisEvidence.length ? (
+                      <div className="mt-3 rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-status-warning-bg)' }}>
+                        <div className="text-xs font-black" style={{ color: 'var(--dawaa-status-warning-text)' }}>المحاور التي تحتاج دليلًا صالحًا</div>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {blockedAxisEvidence.map(({ title, evidence }) => (
+                            <span key={title} className="rounded-full border px-2 py-1 text-[10px] font-black" style={{ borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-status-warning-text)' }}>
+                              {title} · {evidence.status === 'unavailable' ? 'المصدر غير متاح' : 'الدليل غير مكتمل'}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
                   </Panel>
 
                   {!settledStatement && pointsTruth && cycleLabel !== currentEvaluationCycleLabel() ? (
