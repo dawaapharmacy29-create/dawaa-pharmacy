@@ -3,6 +3,7 @@ import {
   INVENTORY_STRENGTH_MIN_MEASURED_WEEKS,
   INVENTORY_STRENGTH_MIN_STAGNANT_TARGET_PCT,
   hasStrongInventoryEvidence,
+  getInventoryEvidenceSufficiency,
   isStagnantAssignmentRelevantForCycle,
 } from '@/lib/evaluations/monthlyInventoryEvidence';
 
@@ -93,5 +94,40 @@ describe('monthly inventory strength evidence gate', () => {
 
   it('allows clean repeated inventory evidence when no stagnant items are assigned', () => {
     expect(hasStrongInventoryEvidence(cleanBase)).toBe(true);
+  });
+});
+
+describe('monthly inventory evidence sufficiency', () => {
+  it('distinguishes unavailable evidence from weak performance', () => {
+    expect(getInventoryEvidenceSufficiency({ ...cleanBase, sourceStatus: 'unavailable' })).toEqual({
+      status: 'unavailable',
+      sufficient: false,
+      reasons: ['inventory_source_unavailable'],
+    });
+  });
+
+  it('marks short or partial coverage as insufficient rather than negative performance', () => {
+    const result = getInventoryEvidenceSufficiency({
+      ...cleanBase,
+      sourceStatus: 'partial',
+      measuredWeeks: 1,
+      onTrackWeeks: 1,
+      aheadWeeks: 0,
+    });
+    expect(result.status).toBe('insufficient');
+    expect(result.reasons).toContain('inventory_source_partial');
+    expect(result.reasons).toContain('insufficient_measured_weeks');
+  });
+
+  it('requires measurable stagnant responsibility when items are assigned', () => {
+    const result = getInventoryEvidenceSufficiency({
+      ...cleanBase,
+      assignedItems: 2,
+      configuredTargets: 1,
+      targetAchievementPct: null,
+    });
+    expect(result.sufficient).toBe(false);
+    expect(result.reasons).toContain('stagnant_targets_incomplete');
+    expect(result.reasons).toContain('stagnant_achievement_not_measurable');
   });
 });
