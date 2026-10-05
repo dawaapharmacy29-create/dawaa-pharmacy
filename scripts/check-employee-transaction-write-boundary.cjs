@@ -26,6 +26,10 @@ const PAYROLL_FREEZE_MIGRATION = path.join(
   ROOT,
   'supabase/migrations/20261005134000_points_payroll_freeze_boundary_v5.sql'
 );
+const MANUAL_POINTS_IDENTITY_MIGRATION = path.join(
+  ROOT,
+  'supabase/migrations/20261005135000_manual_points_identity_guard_v5.sql'
+);
 
 // Transitional direct writers that still exist today. Keep shrinking this set as
 // lifecycle mutations move behind canonical authorization-aware RPCs. New direct
@@ -233,6 +237,29 @@ for (const token of [
 ]) {
   if (!payrollFreezeMigration.includes(token.toLowerCase())) {
     console.error(`\nEmployee points payroll-freeze boundary failed: migration missing ${token}.`);
+    process.exit(1);
+  }
+}
+
+if (!fs.existsSync(MANUAL_POINTS_IDENTITY_MIGRATION)) {
+  console.error('\nManual points identity boundary failed: migration is missing.');
+  process.exit(1);
+}
+const manualIdentityMigration = fs.readFileSync(MANUAL_POINTS_IDENTITY_MIGRATION, 'utf8').toLowerCase();
+for (const token of [
+  'manual_points_identity_guard_v5',
+  'manual_points_source_identity_required',
+  "new.source_id is null",
+]) {
+  if (!manualIdentityMigration.includes(token.toLowerCase())) {
+    console.error(`\nManual points identity boundary failed: migration missing ${token}.`);
+    process.exit(1);
+  }
+}
+const manualPointsPage = fs.readFileSync(path.join(SRC, 'pages/PenaltyIncentiveManagement.tsx'), 'utf8');
+for (const token of ['manualSaveIdentityRef', 'crypto.randomUUID()', 'sourceRecordId: manualSaveIdentityRef.current']) {
+  if (!manualPointsPage.includes(token)) {
+    console.error(`\nManual points UI idempotency failed: missing ${token}.`);
     process.exit(1);
   }
 }
