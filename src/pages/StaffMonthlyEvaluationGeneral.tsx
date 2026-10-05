@@ -873,6 +873,8 @@ export default function StaffMonthlyEvaluation() {
     const loadEvaluation = async () => {
       setEvaluationLoading(true);
       setEvaluationLoadError('');
+      // Invalidate any slower header request from the previously selected employee immediately.
+      employeeHeaderRequestRef.current += 1;
       setEmployeeHeader(null);
       setEmployeeHeaderLoading(true);
       setPointsTruth(null);
