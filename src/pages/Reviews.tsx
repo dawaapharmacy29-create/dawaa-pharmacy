@@ -527,19 +527,11 @@ export default function Reviews() {
     };
   }, [searchParams, selectedReviewId]);
 
-  const closeSelectedReviewRef = useRef(closeSelectedReview);
-  useEffect(() => {
-    closeSelectedReviewRef.current = closeSelectedReview;
-  }, [closeSelectedReview]);
-  useEffect(() => {
-    // مقصود نستخدم مصفوفة تبعيات فاضية هنا: عايزين النداء ده يحصل مرة واحدة
-    // بس لما الصفحة تتقفل فعليًا (unmount)، مش كل مرة closeSelectedReview
-    // يتغير مرجعها لأي سبب أثناء إعادة الرندر العادية.
-    return () => {
-      closeSelectedReviewRef.current();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Do not mutate the reviews URL during unmount. ReviewsEnhanced intentionally
+  // unmounts this component when ?section=history is selected; changing search
+  // params from the cleanup races the parent route and bounces the user back to
+  // the default/new-review screen. URL cleanup belongs only to explicit close
+  // actions through closeSelectedReview().
   const [managerSaving, setManagerSaving] = useState(false);
   const [managerForm, setManagerForm] = useState({
     score: '100',
