@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useEscapeKey } from '@/hooks/useEscapeKey';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -189,6 +189,7 @@ function statusMeta(s: RecordStatus): { label: string; cls: string } {
 }
 
 export default function PenaltyIncentiveManagement() {
+  const manualSaveIdentityRef = useRef<string | null>(null);
   const { user, canManage } = useAuth();
   const navigate = useNavigate();
   const cycle = getCurrentCycle();
@@ -310,7 +311,9 @@ export default function PenaltyIncentiveManagement() {
       return;
     }
 
+    if (saving) return;
     setSaving(true);
+    if (!manualSaveIdentityRef.current) manualSaveIdentityRef.current = crypto.randomUUID();
     try {
       let createdById: string;
       try {
@@ -351,7 +354,9 @@ export default function PenaltyIncentiveManagement() {
         createdByRole: user?.role || '',
         status: finalStatus,
         cycle: getCurrentCycle(),
+        source: 'manual_admin',
         sourceModule: 'penalty_incentive',
+        sourceRecordId: manualSaveIdentityRef.current,
         reasonLabel: form.reason,
       });
 
@@ -402,6 +407,7 @@ export default function PenaltyIncentiveManagement() {
       toast.success(
         finalStatus === 'approved' ? 'تم الحفظ والاعتماد بنجاح' : 'تم الحفظ وإرسال للمراجعة'
       );
+      manualSaveIdentityRef.current = null;
       setShowModal(false);
       setForm({ ...EMPTY_FORM });
       refetchRecords();
