@@ -366,6 +366,7 @@ function sectionEvidenceFor(
 
   if (key === 'development') {
     const development = coaching?.development;
+    const usesConversationTrend = ['doctor', 'delivery', 'customer_service'].includes(canonicalRole);
     if (!development) {
       return {
         status: 'manual' as const,
@@ -378,7 +379,7 @@ function sectionEvidenceFor(
     const trend = development.reviewTrend;
     const summaryParts = [
       training.assigned > 0 ? `التدريب: ${training.completed}/${training.assigned} مكتمل` : '',
-      trend.measurable && trend.delta !== null
+      usesConversationTrend && trend.measurable && trend.delta !== null
         ? `اتجاه المراجعات: ${trend.delta > 0 ? '+' : ''}${trend.delta} نقطة`
         : '',
       development.repeatedIssues.length
@@ -396,18 +397,18 @@ function sectionEvidenceFor(
         training.overdueOpen > 0 ? `كان مستحقًا بنهاية الدورة بدون إكمال موثق داخلها: ${training.overdueOpen}` : '',
         training.averageScore !== null ? `متوسط درجات التدريب: ${training.averageScore}` : '',
         training.titles.length ? `التدريبات: ${training.titles.join(' · ')}` : '',
-        trend.measurable
+        usesConversationTrend && trend.measurable
           ? `بداية عينة المراجعات: ${trend.earlyAverage}/100 (${trend.earlyCount}) · آخر العينة: ${trend.recentAverage}/100 (${trend.recentCount})`
           : '',
-        trend.measurable && trend.delta !== null
+        usesConversationTrend && trend.measurable && trend.delta !== null
           ? `التغير داخل العينة: ${trend.delta > 0 ? '+' : ''}${trend.delta} نقطة · ${trend.direction === 'improving' ? 'تحسن' : trend.direction === 'declining' ? 'انخفاض' : 'مستقر تقريبًا'}`
           : '',
         ...development.repeatedIssues.map((item) => `ملاحظة متكررة: ${item.label} — ${item.count} مرات`),
         ...development.repeatedRecommendations.map((item) => `توصية تدريبية متكررة: ${item.label} — ${item.count} مرات`),
         ...development.notes,
-        'مصدر الدليل: التدريبات المسندة لنفس الموظف + اتجاه مراجعات المحادثات داخل نفس الدورة + تكرار الملاحظات الموثقة.',
+        usesConversationTrend ? 'مصدر الدليل: التدريبات المسندة لنفس الموظف + اتجاه مراجعات المحادثات داخل نفس الدورة + تكرار الملاحظات الموثقة.' : 'مصدر الدليل: التدريبات المسندة لنفس الموظف + الوقائع والملاحظات التطويرية الموثقة لنفس الدورة.',
         'حدود الدليل: اتجاه المراجعات أو إكمال تدريب وحده لا يثبت التحسن؛ يلزم ربط قرار المدير بسلوك أو نتيجة موثقة، ولا يتحول نقص القياس إلى صفر.',
-        'لا يُعتمد اتجاه المراجعات وحده كدرجة تلقائية؛ هو دليل مساعد للمدير.',
+        usesConversationTrend ? 'لا يُعتمد اتجاه المراجعات وحده كدرجة تلقائية؛ هو دليل مساعد للمدير.' : '',
       ].filter(Boolean),
     };
   }
