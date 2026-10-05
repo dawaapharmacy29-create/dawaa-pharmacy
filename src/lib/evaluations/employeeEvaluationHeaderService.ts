@@ -35,14 +35,15 @@ export async function loadEmployeeEvaluationHeader(args:{staffId:string;staffNam
  if(cached&&Date.now()-cached.at<HEADER_CACHE_TTL_MS)return cached.value;
  const warnings:string[]=[];
  const roleGroup=evaluationRoleGroup(args.role);
+ const needsPersonalAttendance=['doctor','assistant','warehouse','delivery','customer_service'].includes(roleGroup);
  const [salesR,attendanceR,permissionR,requestsR,annualR]=await Promise.allSettled([
   roleGroup==='doctor'
    ? getStaffCycleSales(args.staffId,args.staffName,args.branch,args.start,args.end)
    : Promise.resolve(null),
-  getStaffAttendanceDetail(args.staffId,args.start,args.end),
-  getPermissionPolicyStatusV2(args.staffId,args.start,args.end),
-  listStaffTimeOffRequests({staffId:args.staffId,from:args.start,to:args.end,status:'approved',limit:200}),
-  getAnnualLeaveBalanceV1(args.staffId,Number(args.end.slice(0,4))),
+  needsPersonalAttendance ? getStaffAttendanceDetail(args.staffId,args.start,args.end) : Promise.resolve(null),
+  needsPersonalAttendance ? getPermissionPolicyStatusV2(args.staffId,args.start,args.end) : Promise.resolve(null),
+  needsPersonalAttendance ? listStaffTimeOffRequests({staffId:args.staffId,from:args.start,to:args.end,status:'approved',limit:200}) : Promise.resolve([]),
+  needsPersonalAttendance ? getAnnualLeaveBalanceV1(args.staffId,Number(args.end.slice(0,4))) : Promise.resolve(null),
  ]);
  const sales=salesR.status==='fulfilled'?salesR.value:null;
  const salesAvailable=roleGroup==='doctor'&&Boolean(sales&&sales.sourceTableUsed!=='none');
@@ -52,9 +53,9 @@ export async function loadEmployeeEvaluationHeader(args:{staffId:string;staffNam
  const annual=annualR.status==='fulfilled'?annualR.value:null;
  if(roleGroup==='doctor'&&!salesAvailable)warnings.push('ملخص المبيعات غير متاح؛ لا يتم تفسير غياب المصدر كصفر.');
  if(roleGroup==='doctor'&&sales?.warnings?.length)warnings.push(...sales.warnings);
- if(!attendance)warnings.push('تفاصيل الحضور والساعات غير متاحة');
- if(!permission)warnings.push('ملخص الأذونات غير متاح');
- if(requestsR.status!=='fulfilled')warnings.push('تفاصيل الإجازات غير متاحة');
+ if(needsPersonalAttendance&&!attendance)warnings.push('تفاصيل الحضور والساعات غير متاحة');
+ if(needsPersonalAttendance&&!permission)warnings.push('ملخص الأذونات غير متاح');
+ if(needsPersonalAttendance&&requestsR.status!=='fulfilled')warnings.push('تفاصيل الإجازات غير متاحة');
  const annualCycleDays=requests.filter(x=>x.request_kind==='annual_leave').reduce((n,x)=>n+overlapDays(x.start_date,x.end_date,args.start,args.end),0);
  const otherLeaveDays=requests.filter(x=>['sick_leave','exceptional_leave','approved_absence'].includes(x.request_kind)).reduce((n,x)=>n+overlapDays(x.start_date,x.end_date,args.start,args.end),0);
  const weeklyOffDays=attendance?.days.filter(x=>x.is_off_day===true||x.resolution_status==='off_day').length??null;
