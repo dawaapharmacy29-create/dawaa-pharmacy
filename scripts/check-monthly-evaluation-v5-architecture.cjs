@@ -86,6 +86,10 @@ if (!page.includes('setEvaluationUpdatedAt(String(canonicalSaved.updated_at')) f
 if (!page.includes('pointsForSave = await getStaffPointsDashboardV3(savingStaffId, cycleLabel)')) failures.push('Final approval must refresh canonical points truth immediately before save.');
 if (!page.includes('points_truth: pointsForSave ?')) failures.push('Final approval snapshot must use the freshly loaded points truth.');
 if (!page.includes('Date.now() - evidenceLoadedAt > 5 * 60_000')) failures.push('Final approval must reject stale client evidence state.');
+if (!page.includes('invalidateEmployeeEvaluationHeaderCache(savingStaffId)')) failures.push('Evaluation save must invalidate the selected employee header cache.');
+if (!page.includes("key.startsWith(\`\${savingStaffId}:\`)")) failures.push('Evaluation save must invalidate the selected employee evidence cache.');
+if (!evidenceService.includes("const taskEvidenceRoles = new Set([")) failures.push('Monthly evidence loader must gate task evidence by consuming roles.');
+if (!evidenceService.includes(".limit(201);\n  const modulesTruncated")) failures.push('Training module evidence must detect query truncation.');
 
 for (const token of [
   "v_needs_reviews := v_role in ('doctor','delivery','customer_service')",
