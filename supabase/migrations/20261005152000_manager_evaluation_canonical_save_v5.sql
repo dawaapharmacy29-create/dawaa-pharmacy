@@ -24,6 +24,8 @@ declare
   v_expected numeric;
   v_row public.manager_weekly_evaluations%rowtype;
   v_score record;
+  v_manual_count integer:=0;
+  v_combined_count integer:=0;
 begin
   if v_session_id is null then raise exception 'unauthorized' using errcode='42501'; end if;
   select * into v_actor from public.staff_accounts
@@ -49,10 +51,18 @@ begin
 
   -- Manual manager judgments are always 0..10. Submitted rows cannot contain malformed scores.
   for v_score in select key,value from jsonb_each(v_manual) loop
+    v_manual_count:=v_manual_count+1;
     if jsonb_typeof(v_score.value)<>'number' or (v_score.value#>>'{}')::numeric<0 or (v_score.value#>>'{}')::numeric>10 then
       raise exception 'invalid manual score' using errcode='22023';
     end if;
   end loop;
+
+  if jsonb_typeof(coalesce(v_auto->'__criterion_combined_scores','{}'::jsonb))='object' then
+    select count(*) into v_combined_count from jsonb_each(v_auto->'__criterion_combined_scores');
+  end if;
+  if v_status='submitted' and (v_manual_count=0 or v_combined_count=0 or v_manual_count<>v_combined_count) then
+    raise exception 'manager_evaluation_incomplete_manual_scores' using errcode='22023';
+  end if;
 
   v_objective:=nullif(v_auto->>'__objective_score','')::numeric;
   v_manager:=nullif(v_auto->>'__manager_judgment_score','')::numeric;
