@@ -56,17 +56,24 @@ const rowDate=(row:Record<string,unknown>)=>{
   const value=String(raw||'').slice(0,10);
   return /^\d{4}-\d{2}-\d{2}$/.test(value)?value:null;
 };
-type StaffInvoiceTruthPayload = { rows?: Record<string,unknown>[]; matchedCount?: number; matchedSales?: number; staff?: Record<string,unknown> | null };
+type StaffInvoiceTruthPayload = { rows?: Record<string,unknown>[]; matchedCount?: number; matchedSales?: number };
 
 function previousCycle(label:string,back:number){const [y,m]=label.split('-').map(Number);const d=new Date(Date.UTC(y,m-1-back,1));return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}`;}
 
-async function salesRows(staffId:string,start:string,endExclusive:string){
+async function salesWindow(staffId:string,start:string,endExclusive:string){
   const end=new Date(`${endExclusive}T12:00:00Z`); end.setUTCDate(end.getUTCDate()-1);
   const endInclusive=end.toISOString().slice(0,10);
-  const {data,error}=await supabase.rpc('get_staff_invoice_truth_read_v1',{p_staff_id:staffId,p_start:start,p_end:endInclusive});
-  if(error) return {rows:[] as Record<string,unknown>[],available:false,identity:'unavailable' as const};
+  const {data,error}=await supabase.rpc('get_staff_performance_sales_truth_v1',{p_staff_id:staffId,p_start:start,p_end:endInclusive});
+  if(error) return {rows:[] as Record<string,unknown>[],available:false,identity:'unavailable' as const,errorMessage:error.message};
   const payload=(data||{}) as StaffInvoiceTruthPayload;
-  return {rows:Array.isArray(payload.rows)?payload.rows:[],available:true,identity:'canonical' as const};
+  return {rows:Array.isArray(payload.rows)?payload.rows:[],available:true,identity:'canonical' as const,errorMessage:null};
+}
+
+function rowsForCycle(rows:Record<string,unknown>[],start:string,endExclusive:string){
+  return rows.filter(row=>{
+    const date=rowDate(row);
+    return Boolean(date&&date>=start&&date<endExclusive);
+  });
 }
 
 function minDate(values:(string|null)[]){
@@ -176,16 +183,30 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
   const firstAttendanceResult=await supabase.from('attendance_daily_summary').select('attendance_date').eq('staff_id',args.staffId).order('attendance_date',{ascending:true}).limit(1).maybeSingle();
   const firstAttendanceDate=firstAttendanceResult.error?null:String(firstAttendanceResult.data?.attendance_date||'').slice(0,10)||null;
 
-  const rawMonths=await Promise.all(Array.from({length:3},async(_,back)=>{
+  const cycleSpecs=Array.from({length:3},(_,back)=>{
     const cycleLabel=previousCycle(args.cycleLabel,back);
     const range=evaluationCycleRangeFromLabel(cycleLabel);
-    const start=range.start.toISOString().slice(0,10), endExclusive=range.endExclusive.toISOString().slice(0,10);
-    const [sales,attendance,conversations,impact]=await Promise.all([
-      salesRows(args.staffId,start,endExclusive),
+    return {
+      cycleLabel,range,
+      start:range.start.toISOString().slice(0,10),
+      endExclusive:range.endExclusive.toISOString().slice(0,10),
+    };
+  });
+
+  const salesTruth=await salesWindow(args.staffId,cycleSpecs[2].start,cycleSpecs[0].endExclusive);
+
+  const rawMonths=await Promise.all(cycleSpecs.map(async spec=>{
+    const {cycleLabel,range,start,endExclusive}=spec;
+    const [attendance,conversations,impact]=await Promise.all([
       supabase.from('attendance_daily_summary').select('attendance_date,payroll_eligible_hours,total_hours').eq('staff_id',args.staffId).gte('attendance_date',start).lt('attendance_date',endExclusive).limit(100),
       supabase.from('conversation_sales_reviews').select('id,converted_to_sale,conversation_date').or(`doctor_id.eq.${args.staffId},staff_id.eq.${args.staffId}`).eq('is_current',true).gte('conversation_date',start).lt('conversation_date',endExclusive).limit(1000),
       customerImpactRows(args.staffId,start,endExclusive),
     ]);
+    const sales={
+      rows:rowsForCycle(salesTruth.rows,start,endExclusive),
+      available:salesTruth.available,
+      identity:salesTruth.identity,
+    };
     return {cycleLabel,range,start,endExclusive,sales,attendance,conversations,impact};
   }));
 
