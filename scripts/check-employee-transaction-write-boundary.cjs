@@ -22,6 +22,10 @@ const EMPLOYEE_LEDGER_LOCKDOWN_MIGRATION = path.join(
   ROOT,
   'supabase/migrations/20260925154500_employee_transactions_command_lockdown_v1.sql'
 );
+const PAYROLL_FREEZE_MIGRATION = path.join(
+  ROOT,
+  'supabase/migrations/20261005134000_points_payroll_freeze_boundary_v5.sql'
+);
 
 // Transitional direct writers that still exist today. Keep shrinking this set as
 // lifecycle mutations move behind canonical authorization-aware RPCs. New direct
@@ -212,6 +216,23 @@ for (const token of [
 ]) {
   if (!ledgerLockdownMigration.includes(token.toLowerCase())) {
     console.error(`\nEmployee transaction write boundary failed: lockdown migration missing ${token}.`);
+    process.exit(1);
+  }
+}
+
+if (!fs.existsSync(PAYROLL_FREEZE_MIGRATION)) {
+  console.error('\nEmployee points payroll-freeze boundary failed: migration is missing.');
+  process.exit(1);
+}
+const payrollFreezeMigration = fs.readFileSync(PAYROLL_FREEZE_MIGRATION, 'utf8').toLowerCase();
+for (const token of [
+  'employee_transactions_payroll_freeze_v5',
+  'before insert or update or delete',
+  'payroll_finalized_snapshots_v2',
+  'finalized_payroll_cycle_is_immutable',
+]) {
+  if (!payrollFreezeMigration.includes(token.toLowerCase())) {
+    console.error(`\nEmployee points payroll-freeze boundary failed: migration missing ${token}.`);
     process.exit(1);
   }
 }
