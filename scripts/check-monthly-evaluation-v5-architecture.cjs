@@ -168,6 +168,15 @@ for (const token of [
   if (!backend.includes(token)) failures.push(`V5 backend contract is missing: ${token}`);
 }
 
+const cairoCyclePath = path.join(ROOT, 'supabase/migrations/20261005144000_monthly_evaluation_cairo_cycle_boundary_v5.sql');
+if (!fs.existsSync(cairoCyclePath)) failures.push('Monthly evaluation Cairo cycle-boundary migration is missing.');
+else {
+  const cairoCycle = fs.readFileSync(cairoCyclePath, 'utf8');
+  const cairoToken = "(e.sent_at at time zone 'Africa/Cairo')::date";
+  if (!cairoCycle.includes(cairoToken)) failures.push('Monthly evaluation sent_at cycle status must use Africa/Cairo.');
+  if (cairoCycle.includes('e.sent_at::date')) failures.push('Monthly evaluation cycle status must not use session-timezone sent_at::date.');
+}
+
 if (failures.length) {
   console.error('Monthly Evaluation V5 architecture check failed:');
   for (const failure of failures) console.error(`- ${failure}`);
