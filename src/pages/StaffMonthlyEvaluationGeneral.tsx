@@ -1121,6 +1121,17 @@ export default function StaffMonthlyEvaluation() {
         pointsFinal: pointsTruth?.final_points ?? null,
         pointsTarget: pointsTruth?.target_points ?? null,
         incentiveEgp: canonicalIncentive ?? null,
+        evidenceByAxis: publishedSnapshot && Array.isArray(publishedSnapshot.axis_evidence_snapshot)
+          ? publishedSnapshot.axis_evidence_snapshot as Array<{ key: string; title: string; status: string; summary: string }>
+          : axisEvidenceSnapshot,
+        pointsBreakdown: pointsTruth?.source_breakdown?.map((item) => ({
+          source: pointSourceLabel(item.source),
+          points: item.points,
+          events: item.events,
+        })) ?? [],
+        startingPoints: pointsTruth?.starting_points ?? null,
+        rewardPoints: pointsTruth?.reward_points ?? null,
+        deductionPoints: pointsTruth?.deduction_points ?? null,
       });
       pdf.save(fileName);
     } catch (cause) {
