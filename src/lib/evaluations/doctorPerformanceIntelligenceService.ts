@@ -114,11 +114,40 @@ function diagnoseMonth(current:DoctorPerformanceMonth,previous:DoctorPerformance
     return out;
   }
   if(previous?.comparisonEligible){
-    const salesDelta=previous.sales&&current.sales!==null?((current.sales-previous.sales)/Math.abs(previous.sales))*100:null;
-    const efficiencyDelta=previous.salesPerHour&&current.salesPerHour!==null?((current.salesPerHour-previous.salesPerHour)/Math.abs(previous.salesPerHour))*100:null;
-    if(salesDelta!==null&&salesDelta<=-10) out.push({kind:'sales_trend',severity:'attention',title:'تراجع بيعي موثوق',detail:'المبيعات انخفضت بأكثر من 10% مقارنة بالدورة السابقة المؤهلة.',evidence:[`تغير المبيعات ${salesDelta.toFixed(1)}%`]});
-    else if(salesDelta!==null&&salesDelta>=10) out.push({kind:'sales_trend',severity:'positive',title:'نمو بيعي موثوق',detail:'المبيعات تحسنت بأكثر من 10% مقارنة بالدورة السابقة المؤهلة.',evidence:[`تغير المبيعات +${salesDelta.toFixed(1)}%`]});
-    if(efficiencyDelta!==null&&efficiencyDelta<=-10) out.push({kind:'efficiency',severity:'attention',title:'كفاءة الساعة تحتاج مراجعة',detail:'البيع لكل ساعة عمل انخفض رغم صلاحية المقارنة.',evidence:[`تغير مبيعات/ساعة ${efficiencyDelta.toFixed(1)}%`]});
+    const change=(now:number|null,before:number|null)=>before&&now!==null?((now-before)/Math.abs(before))*100:null;
+    const salesDelta=change(current.sales,previous.sales);
+    const efficiencyDelta=change(current.salesPerHour,previous.salesPerHour);
+    const hoursDelta=change(current.workedHours,previous.workedHours);
+    const customersDelta=change(current.customers,previous.customers);
+    const avgInvoiceDelta=change(current.averageInvoice,previous.averageInvoice);
+    const conversationConversionDelta=change(current.conversionRate,previous.conversionRate);
+    const verifiedConversionDelta=current.customerImpact.available&&previous.customerImpact.available
+      ?change(current.customerImpact.verifiedConversionRate,previous.customerImpact.verifiedConversionRate):null;
+
+    if(salesDelta!==null&&salesDelta<=-10){
+      const contributors:string[]=[];
+      if(hoursDelta!==null&&hoursDelta<=-10) contributors.push(`ساعات العمل ${hoursDelta.toFixed(1)}%`);
+      if(customersDelta!==null&&customersDelta<=-10) contributors.push(`العملاء ${customersDelta.toFixed(1)}%`);
+      if(avgInvoiceDelta!==null&&avgInvoiceDelta<=-10) contributors.push(`متوسط الفاتورة ${avgInvoiceDelta.toFixed(1)}%`);
+      if(efficiencyDelta!==null&&efficiencyDelta<=-10) contributors.push(`مبيعات/ساعة ${efficiencyDelta.toFixed(1)}%`);
+      if(verifiedConversionDelta!==null&&verifiedConversionDelta<=-10) contributors.push(`Conversion المؤكد ${verifiedConversionDelta.toFixed(1)}%`);
+      else if(conversationConversionDelta!==null&&conversationConversionDelta<=-10) contributors.push(`Conversion المحادثات ${conversationConversionDelta.toFixed(1)}%`);
+      out.push({
+        kind:'sales_trend',severity:'attention',title:'تراجع بيعي موثوق',
+        detail:contributors.length
+          ?'المبيعات انخفضت، وتوجد مؤشرات متزامنة قد تفسر جزءًا من الاتجاه دون اعتبارها سببًا قاطعًا.'
+          :'المبيعات انخفضت بأكثر من 10%، لكن المؤشرات المتاحة لا تكفي لتسمية محرك واضح للتراجع.',
+        evidence:[`تغير المبيعات ${salesDelta.toFixed(1)}%`,...contributors],
+      });
+    } else if(salesDelta!==null&&salesDelta>=10){
+      const contributors:string[]=[];
+      if(customersDelta!==null&&customersDelta>=10) contributors.push(`العملاء +${customersDelta.toFixed(1)}%`);
+      if(avgInvoiceDelta!==null&&avgInvoiceDelta>=10) contributors.push(`متوسط الفاتورة +${avgInvoiceDelta.toFixed(1)}%`);
+      if(efficiencyDelta!==null&&efficiencyDelta>=10) contributors.push(`مبيعات/ساعة +${efficiencyDelta.toFixed(1)}%`);
+      if(verifiedConversionDelta!==null&&verifiedConversionDelta>=10) contributors.push(`Conversion المؤكد +${verifiedConversionDelta.toFixed(1)}%`);
+      out.push({kind:'sales_trend',severity:'positive',title:'نمو بيعي موثوق',detail:contributors.length?'النمو البيعي متزامن مع تحسن في مؤشرات داعمة موثقة.':'المبيعات تحسنت بأكثر من 10% دون محرك واحد واضح من المؤشرات الحالية.',evidence:[`تغير المبيعات +${salesDelta.toFixed(1)}%`,...contributors]});
+    }
+    if(efficiencyDelta!==null&&efficiencyDelta<=-10) out.push({kind:'efficiency',severity:'attention',title:'كفاءة الساعة تحتاج مراجعة',detail:'البيع لكل ساعة عمل انخفض رغم صلاحية المقارنة؛ لذلك التغير ليس مجرد انعكاس لساعات عمل أقل.',evidence:[`تغير مبيعات/ساعة ${efficiencyDelta.toFixed(1)}%`,hoursDelta===null?'تغير الساعات غير قابل للحساب':`تغير الساعات ${hoursDelta>=0?'+':''}${hoursDelta.toFixed(1)}%`]});
   }
   const impact=current.customerImpact;
   if(impact.available){
