@@ -20,6 +20,7 @@ const salesEvidence = read('src/lib/evaluations/monthlySalesQualityEvidence.ts')
 const leadershipEvidence = read('src/lib/evaluations/monthlyLeadershipEvidence.ts');
 const finalSnapshotEvidenceClosure = read('supabase/migrations/20261005113000_monthly_evaluation_final_snapshot_evidence_closure.sql');
 const roleAwareServerEvidence = read('supabase/migrations/20261005125500_monthly_evaluation_role_aware_server_evidence_v5.sql');
+const optimisticConcurrency = read('supabase/migrations/20261005130500_monthly_evaluation_optimistic_concurrency_v5.sql');
 const backend = [
   read('supabase/migrations/20260929153000_monthly_evaluation_command_center_v5.sql'),
   read('supabase/migrations/20260929154500_monthly_evaluation_v5_hardening.sql'),
@@ -73,6 +74,16 @@ if (!salesEvidence.includes('getSalesQualityEvidenceSufficiency')) failures.push
 if (!leadershipEvidence.includes('leadershipEvidenceRequirement')) failures.push('Leadership evidence contract is missing.');
 if (!finalSnapshotEvidenceClosure.includes("'axis_evidence_snapshot'")) failures.push('Final approved snapshot must freeze per-axis evidence.');
 if (!finalSnapshotEvidenceClosure.includes("'points_truth'")) failures.push('Final approved snapshot must freeze canonical points truth.');
+for (const token of [
+  'monthly_evaluation_stale_write_reload_required',
+  "old.updated_at is distinct from v_expected",
+  "new.metrics_snapshot := coalesce(new.metrics_snapshot,'{}'::jsonb) - 'expected_updated_at'",
+]) {
+  if (!optimisticConcurrency.includes(token)) failures.push(`Optimistic concurrency guard missing: ${token}`);
+}
+if (!page.includes('expected_updated_at: evaluationUpdatedAt')) failures.push('Evaluation page must send the loaded row version on save.');
+if (!page.includes('setEvaluationUpdatedAt(String(canonicalSaved.updated_at')) failures.push('Evaluation page must refresh the canonical row version after save.');
+
 for (const token of [
   "v_needs_reviews := v_role in ('doctor','delivery','customer_service')",
   "v_needs_followups := v_role in ('doctor','customer_service','purchasing')",
