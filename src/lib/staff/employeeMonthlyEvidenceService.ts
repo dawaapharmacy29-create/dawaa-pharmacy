@@ -1472,6 +1472,9 @@ export async function loadEmployeeMonthlyEvidence(args: {
   const attendanceRoles = new Set(['doctor', 'assistant', 'inventory_assistant', 'delivery', 'customer_service', 'shift_supervisor']);
   const needsAttendanceEvidence = attendanceRoles.has(role);
   // Development is shared by all role profiles, so training remains canonical for every role.
+  // Task evidence is only useful for roles whose axes can consume task/operational projection.
+  const taskEvidenceRoles = new Set(['assistant','inventory_assistant','delivery','customer_service','customer_service_manager','shift_supervisor','branch_manager','branches_manager','purchasing','executive']);
+  const needsTaskEvidence = taskEvidenceRoles.has(role);
   const emptyInventoryEvidence = {
     weeklyRows: [],
     assignedRows: [],
@@ -1491,7 +1494,7 @@ export async function loadEmployeeMonthlyEvidence(args: {
   const needsConversationEvidence = conversationRoles.has(role);
   const needsFollowupEvidence = followupRoles.has(role);
 
-  const taskEvidencePromise: Promise<EvaluationMetricProjection | null> = args.branch && args.role
+  const taskEvidencePromise: Promise<EvaluationMetricProjection | null> = needsTaskEvidence && args.branch && args.role
     ? readPerformanceTaskEvidence({
         staffId: args.staffId,
         branch: args.branch,
