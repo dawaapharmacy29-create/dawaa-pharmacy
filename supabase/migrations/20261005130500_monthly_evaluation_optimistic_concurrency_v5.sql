@@ -1,6 +1,8 @@
 -- Prevent a stale browser/session from silently overwriting a newer monthly evaluation.
--- The client sends the row updated_at it loaded. Existing rows are locked and compared
--- inside the same save transaction before the canonical upsert continues.
+-- The client sends the row updated_at it loaded. Existing-row upserts are compared
+-- in the row UPDATE trigger before the canonical overwrite can complete.
+-- On a first INSERT the transport key may remain null in metrics_snapshot; it is not
+-- decision evidence and is removed on the first subsequent update.
 
 create or replace function public.trg_monthly_evaluation_concurrency_v5()
 returns trigger
@@ -13,11 +15,6 @@ declare
 begin
   -- The canonical save RPC copies expected_updated_at into metrics_snapshot only as a
   -- transport token. It is removed before persistence by this trigger.
-  if tg_op = 'INSERT' then
-    new.metrics_snapshot := coalesce(new.metrics_snapshot,'{}'::jsonb) - 'expected_updated_at';
-    return new;
-  end if;
-
   begin
     v_expected := nullif(new.metrics_snapshot->>'expected_updated_at','')::timestamptz;
   exception when others then
@@ -46,7 +43,7 @@ drop trigger if exists aa_monthly_evaluation_concurrency_v5
   on public.staff_monthly_manager_evaluations;
 
 create trigger aa_monthly_evaluation_concurrency_v5
-before insert or update
+before update
 on public.staff_monthly_manager_evaluations
 for each row
 execute function public.trg_monthly_evaluation_concurrency_v5();
