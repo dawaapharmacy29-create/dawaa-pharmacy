@@ -1329,6 +1329,16 @@ export default function StaffMonthlyEvaluation() {
     saveInFlightRef.current = true;
     setSaving(true);
     try {
+      let pointsForSave = pointsTruth;
+      if (nextStatus === 'sent') {
+        try {
+          pointsForSave = await getStaffPointsDashboardV3(savingStaffId, cycleLabel);
+          if (selectedIdRef.current !== savingStaffId) return;
+          setPointsTruth(pointsForSave);
+        } catch (cause) {
+          throw new Error(`تعذر تحديث حقيقة النقاط لحظة الاعتماد: ${cause instanceof Error ? cause.message : String(cause)}. أعد المحاولة قبل الاعتماد.`);
+        }
+      }
       const strengths = strengthsText.split('\n').map((item) => item.trim()).filter(Boolean);
       const developmentPoints = developmentText.split('\n').map((item) => item.trim()).filter(Boolean);
       const payload = {
@@ -1354,18 +1364,18 @@ export default function StaffMonthlyEvaluation() {
           critical_gate_rationales: Object.fromEntries(activeGates.map((gate) => [gate, (criticalGateRationales[gate] || '').trim()])),
           coaching_snapshot: coaching,
           employee_feedback_draft: employeeFeedbackDraft,
-          points_truth: pointsTruth ? {
-            month_cycle: pointsTruth.month_cycle,
-            starting_points: pointsTruth.starting_points,
-            final_points: pointsTruth.final_points,
-            reward_points: pointsTruth.reward_points,
-            deduction_points: pointsTruth.deduction_points,
-            target_points: pointsTruth.target_points,
-            source_breakdown: pointsTruth.source_breakdown,
-            profile_configured: pointsTruth.profile_configured,
-            points_incentive_egp: pointsTruth.points_incentive_egp,
-            competition_bonus_egp: pointsTruth.competition_bonus_egp,
-            final_incentive_egp: pointsTruth.final_incentive_egp,
+          points_truth: pointsForSave ? {
+            month_cycle: pointsForSave.month_cycle,
+            starting_points: pointsForSave.starting_points,
+            final_points: pointsForSave.final_points,
+            reward_points: pointsForSave.reward_points,
+            deduction_points: pointsForSave.deduction_points,
+            target_points: pointsForSave.target_points,
+            source_breakdown: pointsForSave.source_breakdown,
+            profile_configured: pointsForSave.profile_configured,
+            points_incentive_egp: pointsForSave.points_incentive_egp,
+            competition_bonus_egp: pointsForSave.competition_bonus_egp,
+            final_incentive_egp: pointsForSave.final_incentive_egp,
           } : null,
         },
         strengths,
