@@ -34,6 +34,10 @@ const TRANSITION_AUDIT_MIGRATION = path.join(
   ROOT,
   'supabase/migrations/20261005140000_points_transition_audit_v5.sql'
 );
+const MANUAL_POINTS_PERMISSION_MIGRATION = path.join(
+  ROOT,
+  'supabase/migrations/20261005141000_manual_points_permission_truth_v5.sql'
+);
 
 // Transitional direct writers that still exist today. Keep shrinking this set as
 // lifecycle mutations move behind canonical authorization-aware RPCs. New direct
@@ -270,6 +274,22 @@ for (const token of ['manualSaveIdentityRef', 'crypto.randomUUID()', 'sourceReco
 
 // Lifecycle status changes are also authorization-sensitive and must stay behind the
 // server-side V4 transition command. This protects branch scope and row locking.
+if (!fs.existsSync(MANUAL_POINTS_PERMISSION_MIGRATION)) {
+  console.error('\nManual points permission boundary failed: migration is missing.');
+  process.exit(1);
+}
+const manualPermissionMigration = fs.readFileSync(MANUAL_POINTS_PERMISSION_MIGRATION, 'utf8').toLowerCase();
+for (const token of [
+  'manual_points_permission_truth_v5',
+  "dawaa_current_actor_can(array['manage_points','manage_payroll'])",
+  'not_authorized_for_manual_points',
+]) {
+  if (!manualPermissionMigration.includes(token.toLowerCase())) {
+    console.error(`\nManual points permission boundary failed: migration missing ${token}.`);
+    process.exit(1);
+  }
+}
+
 if (!fs.existsSync(TRANSITION_AUDIT_MIGRATION)) {
   console.error('\nEmployee points transition audit boundary failed: migration is missing.');
   process.exit(1);
