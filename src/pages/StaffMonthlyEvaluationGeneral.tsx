@@ -1519,7 +1519,7 @@ export default function StaffMonthlyEvaluation() {
       strong('sales_quality') ? coaching.salesQuality.drafts.strength : '',
       strong('inventory') ? coaching.inventory.drafts.strength : '',
       strong('development') ? coaching.development.drafts.strength : '',
-    ], 3);
+    ]);
 
     const weakSectionNotes = developmentSections
       .map((item) => item.notes.trim() ? `${item.title}: ${item.notes.trim()}` : '');
@@ -1533,7 +1533,7 @@ export default function StaffMonthlyEvaluation() {
       hasObjectiveDevelopment('inventory') ? coaching.inventory.drafts.development : '',
       hasObjectiveDevelopment('development') ? coaching.development.drafts.development : '',
       ...weakSectionNotes,
-    ], 2);
+    ]);
 
     const examples = uniqueFeedbackLines([
       ...coaching.conversation.examples.slice(0, 2).map((example) =>
@@ -1554,7 +1554,7 @@ export default function StaffMonthlyEvaluation() {
       coaching.development.repeatedIssues[0]
         ? `التعلم: الملاحظة «${coaching.development.repeatedIssues[0].label}» تكررت ${coaching.development.repeatedIssues[0].count} مرات.`
         : '',
-    ], 3);
+    ]);
 
     const actions = uniqueFeedbackLines([
       hasObjectiveDevelopment('discipline') ? coaching.attendance.drafts.actionPlan : '',
@@ -1566,7 +1566,7 @@ export default function StaffMonthlyEvaluation() {
       hasObjectiveDevelopment('sales_quality') ? coaching.salesQuality.drafts.actionPlan : '',
       hasObjectiveDevelopment('inventory') ? coaching.inventory.drafts.actionPlan : '',
       hasObjectiveDevelopment('development') ? coaching.development.drafts.actionPlan : '',
-    ], 3);
+    ]);
 
     const measurements = uniqueFeedbackLines([
       hasObjectiveDevelopment('conversations') && coaching.conversation.weaknesses.length
@@ -1588,7 +1588,7 @@ export default function StaffMonthlyEvaluation() {
         ? 'نقيس التحسن على عينة جديدة من الإرشاد الدوائي مع متابعة أي خطأ طبي/بديل غير مناسب ومتوسط شرح الجرعة والاستشارة.'
         : '',
       hasObjectiveDevelopment('development') ? coaching.development.drafts.measurement : '',
-    ], 2);
+    ]);
 
     return { strengths, developments, examples, actions, measurements };
   }, [coaching, developmentSections, evaluationComplete, sections, strengthEvidenceGates]);
@@ -2480,7 +2480,14 @@ export default function StaffMonthlyEvaluation() {
                           {employeeFeedbackDraft.strengths.length ? (
                             <div className="mt-2 flex flex-wrap gap-1.5 text-xs font-bold" style={{ color: 'var(--dawaa-theme-text)' }}>
                               {employeeFeedbackDraft.strengths.slice(0,3).map((item) => <span key={item} className="rounded-lg border px-2 py-1.5" style={{borderColor:'var(--dawaa-status-success-border)'}}>{item}</span>)}
-                              {employeeFeedbackDraft.strengths.length>3?<span className="rounded-lg border px-2 py-1.5" style={{borderColor:'var(--dawaa-theme-border)',color:'var(--dawaa-theme-muted)'}}>+{employeeFeedbackDraft.strengths.length-3} إضافية</span>:null}
+                              {employeeFeedbackDraft.strengths.length > 3 ? (
+                                <details className="w-full rounded-lg border px-2 py-1.5" style={{borderColor:'var(--dawaa-theme-border)'}}>
+                                  <summary className="cursor-pointer list-none font-black" style={{color:'var(--dawaa-status-success-text)'}}>+ {employeeFeedbackDraft.strengths.length - 3} نقاط قوة إضافية</summary>
+                                  <div className="mt-2 flex flex-wrap gap-1.5">
+                                    {employeeFeedbackDraft.strengths.slice(3).map((item) => <span key={item} className="rounded-lg border px-2 py-1.5" style={{borderColor:'var(--dawaa-status-success-border)'}}>{item}</span>)}
+                                  </div>
+                                </details>
+                              ) : null}
                             </div>
                           ) : (
                             <div className="mt-2 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
@@ -2494,7 +2501,14 @@ export default function StaffMonthlyEvaluation() {
                           {employeeFeedbackDraft.developments.length ? (
                             <div className="mt-2 flex flex-wrap gap-1.5 text-xs font-bold" style={{ color: 'var(--dawaa-theme-text)' }}>
                               {employeeFeedbackDraft.developments.slice(0,3).map((item) => <span key={item} className="rounded-lg border px-2 py-1.5" style={{borderColor:'var(--dawaa-status-warning-border)'}}>{item}</span>)}
-                              {employeeFeedbackDraft.developments.length>3?<span className="rounded-lg border px-2 py-1.5" style={{borderColor:'var(--dawaa-theme-border)',color:'var(--dawaa-theme-muted)'}}>+{employeeFeedbackDraft.developments.length-3} إضافية</span>:null}
+                              {employeeFeedbackDraft.developments.length > 3 ? (
+                                <details className="w-full rounded-lg border px-2 py-1.5" style={{borderColor:'var(--dawaa-theme-border)'}}>
+                                  <summary className="cursor-pointer list-none font-black" style={{color:'var(--dawaa-status-warning-text)'}}>+ {employeeFeedbackDraft.developments.length - 3} فرص تطوير إضافية</summary>
+                                  <div className="mt-2 flex flex-wrap gap-1.5">
+                                    {employeeFeedbackDraft.developments.slice(3).map((item) => <span key={item} className="rounded-lg border px-2 py-1.5" style={{borderColor:'var(--dawaa-status-warning-border)'}}>{item}</span>)}
+                                  </div>
+                                </details>
+                              ) : null}
                             </div>
                           ) : (
                             <div className="mt-2 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
