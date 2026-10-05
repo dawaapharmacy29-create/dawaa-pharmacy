@@ -29,6 +29,7 @@ const backend = [
   read('supabase/migrations/20260930154000_monthly_evaluation_trigger_execute_hardening_v5.sql'),
   read('supabase/migrations/20260930155500_monthly_evaluation_server_evidence_type_compat_v5.sql'),
   read('supabase/migrations/20261005121500_monthly_evaluation_manual_evidence_rationale_v5.sql'),
+  read('supabase/migrations/20261005124500_monthly_evaluation_critical_gate_evidence_v5.sql'),
 ].join('\n');
 
 if (!routeAdapter.includes("export { default } from '@/pages/StaffMonthlyEvaluationGeneral'")) {
@@ -65,6 +66,7 @@ if (!page.includes('leadershipEvidenceRequirement')) failures.push('Leadership a
 if (!page.includes('axis_evidence_snapshot')) failures.push('Per-axis evidence state must be persisted with the evaluation snapshot.');
 if (!page.includes('leadershipSectionsMissingNotes')) failures.push('Leadership manual evidence must require documented axis notes before approval.');
 if (!page.includes('manualEvidenceSectionsMissingNotes')) failures.push('All manually-evidenced axes must require documented rationale before approval.');
+if (!page.includes('criticalGateMissingRationales')) failures.push('Critical gates must require a separate documented rationale per gate.');
 if (!inventoryEvidence.includes('getInventoryEvidenceSufficiency')) failures.push('Inventory evidence sufficiency helper is missing.');
 if (!salesEvidence.includes('getSalesQualityEvidenceSufficiency')) failures.push('Sales-quality evidence sufficiency helper is missing.');
 if (!leadershipEvidence.includes('leadershipEvidenceRequirement')) failures.push('Leadership evidence contract is missing.');
@@ -120,6 +122,8 @@ for (const token of [
   'a.staff_id=p_staff_id::text',
   'dawaa_monthly_evaluation_branch_manager_subject_allowed_v5',
   'monthly_evaluation_manual_evidence_rationale_required',
+  'monthly_evaluation_critical_gate_rationale_required',
+  "'critical_gate_rationales'",
 ]) {
   if (!backend.includes(token)) failures.push(`V5 backend contract is missing: ${token}`);
 }
