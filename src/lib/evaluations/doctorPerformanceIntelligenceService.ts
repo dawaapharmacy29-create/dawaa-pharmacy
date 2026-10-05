@@ -187,9 +187,9 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
 
   const currentSpec=cycleSpecs[0];
   const now=new Date();
-  const todayLocal=new Date(now.getFullYear(),now.getMonth(),now.getDate());
-  const cycleDays=Math.floor((currentSpec.range.endExclusive.getTime()-currentSpec.range.start.getTime())/86400000);
-  const elapsedDays=Math.max(1,Math.min(Math.floor((todayLocal.getTime()-currentSpec.range.start.getTime())/86400000)+1,cycleDays));
+  const localDayUtc=(date:Date)=>Date.UTC(date.getFullYear(),date.getMonth(),date.getDate());
+  const cycleDays=Math.round((localDayUtc(currentSpec.range.endExclusive)-localDayUtc(currentSpec.range.start))/86400000);
+  const elapsedDays=Math.max(1,Math.min(Math.round((Date.UTC(now.getFullYear(),now.getMonth(),now.getDate())-localDayUtc(currentSpec.range.start))/86400000)+1,cycleDays));
 
   const [firstAttendanceResult,salesTruth,attendanceWindow,conversationWindow,impactWindow]=await Promise.all([
     supabase.from('attendance_daily_summary').select('attendance_date').eq('staff_id',args.staffId).order('attendance_date',{ascending:true}).limit(1).maybeSingle(),
