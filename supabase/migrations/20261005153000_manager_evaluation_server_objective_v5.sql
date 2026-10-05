@@ -127,7 +127,11 @@ begin
       when 'branches_manager' then '{"sales":0.19,"customer_service":0.17,"vip_retention":0.10,"coordination":0.08,"warehouse":0.08,"top20_customers":0.08,"purchases_speed":0.07,"shift_notes_compliance":0.05,"infrastructure":0.04,"consumables":0.03,"stagnant_compliance":0.05,"leadership":0.06}'::jsonb
       else '{"conversation_quality":0.18,"followups_execution":0.14,"daily_queues_execution":0.10,"points_communication":0.04,"customer_growth":0.08,"vip_retention":0.15,"classification_accuracy":0.10,"doctor_coaching":0.08,"sales_quality":0.08,"branches_manager_alignment":0.05}'::jsonb
     end,
-    'metrics',c,'previous_metrics',p,'checklist_rates',k,'validated_at',now()
+    'metrics',c,
+    'previous_metrics',p,
+    'checklist_rates',k,
+    'data_coverage',coalesce(c->'data_coverage','{}'::jsonb),
+    'validated_at',now()
   );
 end;
 $function$;
