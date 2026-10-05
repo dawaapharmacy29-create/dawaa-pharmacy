@@ -1044,7 +1044,16 @@ export default function StaffMonthlyEvaluation() {
       }
     };
     void loadEvaluation();
-  }, [cycleLabel, selected, selectedId, user?.id]);
+  }, [
+    cycleLabel,
+    selectedId,
+    selected?.name,
+    selected?.job_title,
+    selected?.role,
+    selected?.branch,
+    branch,
+    user?.id,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
