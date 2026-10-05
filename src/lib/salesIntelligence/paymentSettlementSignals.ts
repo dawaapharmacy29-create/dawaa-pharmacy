@@ -1,11 +1,20 @@
 import type { NormalizedConversationMessageV32 } from '../whatsappConversationUnderstandingV32';
 
 const PAYMENT_CONTEXT_RX = /(?:رقم\s*التحويل|تحويل\s*(?:بنكي|فودافون|انستا|insta)?|فودافون\s*كاش|انستا\s*باي|instapay)/i;
+const PAYMENT_PROOF_REQUEST_RX = /(?:صورة|سكرين|إثبات|اثبات)\s*(?:التحويل|الدفع)|(?:ابعت|ابعتي|ابعتلي|ابعتيلي|ارسل|ارسلي|استأذن|استاذن).{0,24}(?:صورة|سكرين).{0,20}(?:التحويل|الدفع)/i;
 const TOTAL_QUESTION_RX = /(?:الحساب|الإجمالي|الاجمالي|المجموع).{0,18}(?:كام|قد\s*ايه|قد\s*إيه)|(?:كدا|كده)?\s*(?:هيبقا|هيبقى|يبقا|يبقى)\s*كام/i;
 const COMPACT_AMOUNT_RX = /^\s*([0-9٠-٩۰-۹]+(?:[.,٫][0-9٠-٩۰-۹]+)?)\s*(?:جنيه|جنيها|ج(?:\.?م\.?)?)?\s*(?:ان\s*شاء\s*الله)?[.!، ]*$/i;
-const PAYMENT_PROOF_RX = /(?:image omitted|photo omitted|document omitted|صورة\s*التحويل|سكرين\s*(?:التحويل)?|تم\s*التحويل|حولت|حوّلت|اتحول|تم\s*الدفع)/i;
-const RECEIPT_ACK_RX = /^\s*(?:وصل(?:ت)?|تم\s*(?:الاستلام|استلام\s*التحويل|وصول\s*التحويل)|استلمنا)(?:\b|[ .،!])/i;
-const PAYMENT_CONTINUATION_RX = /(?:الحساب|الإجمالي|الاجمالي|المجموع).{0,18}(?:كام|قد\s*ايه|قد\s*إيه)|(?:اسف|آسف|اسفه|آسفه).{0,12}نسيت\s*(?:خالص)?|نسيت\s*خالص|تم\s*التحويل|حولت|حوّلت|اتحول|صورة\s*التحويل/i;
+const PAYMENT_TEXT_PROOF_RX = /(?:صورة\s*التحويل|سكرين\s*(?:التحويل|الدفع)?|تم\s*التحويل|حولت|حوّلت|اتحول|تم\s*الدفع|دفعت)/i;
+const PAYMENT_MEDIA_RX = /(?:image omitted|photo omitted|document omitted)/i;
+const EXPLICIT_RECEIPT_ACK_RX = /^\s*(?:وصل(?:ت)?\s*(?:التحويل|الدفع|المبلغ)|تم\s*(?:الاستلام|استلام\s*(?:التحويل|الدفع|المبلغ)|وصول\s*(?:التحويل|الدفع|المبلغ))|استلمنا(?:\s*(?:التحويل|الدفع|المبلغ))?)(?:\b|[ .،!])/i;
+const BARE_RECEIPT_ACK_RX = /^\s*وصل(?:ت)?(?:\b|[ .،!])/i;
+const PAYMENT_CONTINUATION_RX = /(?:الحساب|الإجمالي|الاجمالي|المجموع).{0,18}(?:كام|قد\s*ايه|قد\s*إيه)|(?:اسف|آسف|اسفه|آسفه).{0,12}نسيت\s*(?:خالص)?|نسيت\s*خالص|تم\s*التحويل|حولت|حوّلت|اتحول|صورة\s*التحويل|سكرين\s*(?:التحويل|الدفع)?|تم\s*الدفع|دفعت/i;
+
+const CONTEXT_TO_TOTAL_MAX_MS = 2 * 60 * 60 * 1000;
+const TOTAL_TO_AMOUNT_MAX_MS = 45 * 60 * 1000;
+const AMOUNT_TO_PROOF_MAX_MS = 45 * 60 * 1000;
+const PROOF_TO_RECEIPT_MAX_MS = 20 * 60 * 1000;
+const PAYMENT_CONTINUATION_MAX_MS = 24 * 60 * 60 * 1000;
 
 function asciiDigits(value: string): string {
   return value
@@ -20,6 +29,15 @@ function parseCompactAmount(text: string): number | null {
   if (!match) return null;
   const value = Number(match[1]);
   return Number.isFinite(value) ? value : null;
+}
+
+function withinGap(
+  earlier: NormalizedConversationMessageV32,
+  later: NormalizedConversationMessageV32,
+  maxMs: number
+): boolean {
+  const delta = later.timestamp.getTime() - earlier.timestamp.getTime();
+  return delta >= 0 && delta <= maxMs;
 }
 
 export interface PaymentSettlementSignals {
@@ -51,19 +69,27 @@ export function detectPaymentSettlementSignals(messages: NormalizedConversationM
   for (let start = 0; start < ordered.length; start += 1) {
     const context = ordered[start];
     if (context.role !== 'staff' || !context.isMeaningful || !PAYMENT_CONTEXT_RX.test(context.text)) continue;
+    const proofWasRequested = PAYMENT_PROOF_REQUEST_RX.test(context.text);
 
     const totalQuestionIndex = ordered.findIndex(
-      (m, i) => i > start && m.role === 'customer' && m.isMeaningful && TOTAL_QUESTION_RX.test(m.text)
+      (m, i) =>
+        i > start &&
+        m.role === 'customer' &&
+        m.isMeaningful &&
+        TOTAL_QUESTION_RX.test(m.text) &&
+        withinGap(context, m, CONTEXT_TO_TOTAL_MAX_MS)
     );
     if (totalQuestionIndex < 0) {
       best = { ...best, paymentContextMessageId: context.id, primaryMessageIds: [context.id] };
       continue;
     }
 
+    const totalQuestion = ordered[totalQuestionIndex];
     let amountIndex = -1;
     let amount: number | null = null;
     for (let i = totalQuestionIndex + 1; i < ordered.length; i += 1) {
       const message = ordered[i];
+      if (!withinGap(totalQuestion, message, TOTAL_TO_AMOUNT_MAX_MS)) break;
       if (message.role !== 'staff' || !message.isMeaningful) continue;
       const parsed = parseCompactAmount(message.text);
       if (parsed != null) {
@@ -76,35 +102,63 @@ export function detectPaymentSettlementSignals(messages: NormalizedConversationM
       best = {
         ...best,
         paymentContextMessageId: context.id,
-        totalQuestionMessageId: ordered[totalQuestionIndex].id,
-        primaryMessageIds: [context.id, ordered[totalQuestionIndex].id],
+        totalQuestionMessageId: totalQuestion.id,
+        primaryMessageIds: [context.id, totalQuestion.id],
       };
       continue;
     }
 
-    const proofIndex = ordered.findIndex(
-      (m, i) => i > amountIndex && m.role === 'customer' && PAYMENT_PROOF_RX.test(m.text)
-    );
-    const receiptIndex = proofIndex < 0 ? -1 : ordered.findIndex(
-      (m, i) => i > proofIndex && m.role === 'staff' && m.isMeaningful && RECEIPT_ACK_RX.test(m.text)
-    );
+    const amountMessage = ordered[amountIndex];
+    let proofIndex = -1;
+    let proofKind: PaymentSettlementSignals['paymentProofKind'] = 'none';
+    for (let i = amountIndex + 1; i < ordered.length; i += 1) {
+      const message = ordered[i];
+      if (!withinGap(amountMessage, message, AMOUNT_TO_PROOF_MAX_MS)) break;
+      if (message.role !== 'customer') continue;
+      if (PAYMENT_TEXT_PROOF_RX.test(message.text)) {
+        proofIndex = i;
+        proofKind = PAYMENT_MEDIA_RX.test(message.text) ? 'customer_media' : 'customer_text';
+        break;
+      }
+      if (proofWasRequested && PAYMENT_MEDIA_RX.test(message.text)) {
+        proofIndex = i;
+        proofKind = 'customer_media';
+        break;
+      }
+    }
+
     const proof = proofIndex >= 0 ? ordered[proofIndex] : null;
-    const ids = [context.id, ordered[totalQuestionIndex].id, ordered[amountIndex].id, proof?.id, receiptIndex >= 0 ? ordered[receiptIndex].id : null]
+    let receiptIndex = -1;
+    if (proof) {
+      for (let i = proofIndex + 1; i < ordered.length; i += 1) {
+        const message = ordered[i];
+        if (!withinGap(proof, message, PROOF_TO_RECEIPT_MAX_MS)) break;
+        if (message.role !== 'staff' || !message.isMeaningful) continue;
+        const explicitAck = EXPLICIT_RECEIPT_ACK_RX.test(message.text);
+        const contextBoundBareAck = BARE_RECEIPT_ACK_RX.test(message.text) && (proofKind === 'customer_text' || proofWasRequested);
+        if (explicitAck || contextBoundBareAck) {
+          receiptIndex = i;
+          break;
+        }
+      }
+    }
+
+    const ids = [context.id, totalQuestion.id, amountMessage.id, proof?.id, receiptIndex >= 0 ? ordered[receiptIndex].id : null]
       .filter((value): value is string => Boolean(value));
 
     const result: PaymentSettlementSignals = {
       paymentContextMessageId: context.id,
-      totalQuestionMessageId: ordered[totalQuestionIndex].id,
-      amountMessageId: ordered[amountIndex].id,
+      totalQuestionMessageId: totalQuestion.id,
+      amountMessageId: amountMessage.id,
       announcedPaymentAmount: amount,
       paymentProofMessageId: proof?.id ?? null,
-      paymentProofKind: proof ? (/image omitted|photo omitted|document omitted/i.test(proof.text) ? 'customer_media' : 'customer_text') : 'none',
+      paymentProofKind: proofKind,
       receiptAcknowledgementMessageId: receiptIndex >= 0 ? ordered[receiptIndex].id : null,
       completeSequence: Boolean(proof && receiptIndex >= 0),
       primaryMessageIds: ids,
     };
     if (result.completeSequence) return result;
-    best = result;
+    if (result.primaryMessageIds.length >= best.primaryMessageIds.length) best = result;
   }
 
   return best;
@@ -120,9 +174,13 @@ export function isCustomerPaymentSettlementContinuation(
   const message = ordered[index];
   if (message.role !== 'customer') return false;
   const priorPaymentContext = [...ordered.slice(0, index)].reverse().find(
-    (m) => m.role === 'staff' && m.isMeaningful && PAYMENT_CONTEXT_RX.test(m.text) &&
-      message.timestamp.getTime() - m.timestamp.getTime() <= 24 * 60 * 60 * 1000
+    (m) =>
+      m.role === 'staff' &&
+      m.isMeaningful &&
+      PAYMENT_CONTEXT_RX.test(m.text) &&
+      withinGap(m, message, PAYMENT_CONTINUATION_MAX_MS)
   );
   if (!priorPaymentContext) return false;
-  return PAYMENT_CONTINUATION_RX.test(message.text) || PAYMENT_PROOF_RX.test(message.text);
+  if (PAYMENT_CONTINUATION_RX.test(message.text)) return true;
+  return PAYMENT_MEDIA_RX.test(message.text) && PAYMENT_PROOF_REQUEST_RX.test(priorPaymentContext.text);
 }
