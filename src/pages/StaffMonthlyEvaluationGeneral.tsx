@@ -32,12 +32,13 @@ import {
 } from '@/lib/evaluations/incentiveTiers';
 import { buildStaffMonthlyEvaluationPdf } from '@/lib/evaluations/staffMonthlyEvaluationPdf';
 import { hasStrongDispensingEvidence } from '@/lib/evaluations/monthlyDispensingEvidence';
-import { hasStrongSalesQualityEvidence } from '@/lib/evaluations/monthlySalesQualityEvidence';
+import { getSalesQualityEvidenceSufficiency, hasStrongSalesQualityEvidence } from '@/lib/evaluations/monthlySalesQualityEvidence';
 import { hasStrongFollowupEvidence } from '@/lib/evaluations/monthlyFollowupEvidence';
-import { hasStrongInventoryEvidence } from '@/lib/evaluations/monthlyInventoryEvidence';
+import { getInventoryEvidenceSufficiency, hasStrongInventoryEvidence } from '@/lib/evaluations/monthlyInventoryEvidence';
 import { hasStrongDevelopmentEvidence } from '@/lib/evaluations/monthlyDevelopmentEvidence';
 import { hasStrongAttendanceEvidence } from '@/lib/evaluations/monthlyAttendanceEvidence';
 import { hasStrongConversationEvidence } from '@/lib/evaluations/monthlyConversationEvidence';
+import { isLeadershipEvaluationRole, leadershipEvidenceRequirement } from '@/lib/evaluations/monthlyLeadershipEvidence';
 import { isMonthlyEvaluationDevelopmentEligible } from '@/lib/evaluations/monthlyEvaluationDevelopmentEligibility';
 import {
   hasEvidenceSupportedStrongPerformance,
@@ -186,15 +187,19 @@ function sectionEvidenceFor(
   const key = sectionKey.toLowerCase();
   const canonicalRole = canonicalStaffRole(role);
   const personalEvidenceRoles = new Set(['doctor','assistant','inventory_assistant','cleaning','delivery','customer_service','purchasing']);
-  const leadershipRoles = new Set(['branch_manager','branches_manager','shift_supervisor','customer_service_manager','executive','admin']);
-  if (leadershipRoles.has(canonicalRole) && !['shift_discipline','development'].includes(key)) {
+  if (isLeadershipEvaluationRole(canonicalRole) && !['shift_discipline','development'].includes(key)) {
+    const requirement = leadershipEvidenceRequirement(canonicalRole, key);
     return {
       status: 'insufficient' as const,
-      summary: 'هذا محور قيادي ويحتاج Evidence على مستوى الفريق/الفرع وليس بيانات الموظف الشخصية',
+      summary: requirement
+        ? `هذا محور قيادي يحتاج دليل ${requirement.scope === 'branch' ? 'على مستوى الفرع' : requirement.scope === 'multi_branch' ? 'عبر الفروع' : requirement.scope === 'customer_service_team' ? 'لفريق خدمة العملاء' : requirement.scope === 'team' ? 'على مستوى الفريق/الشيفت' : 'على مستوى المنظومة'} قبل إعطاء الدرجة`
+        : 'هذا محور قيادي يحتاج Evidence مناسب لمسؤولية الدور وليس بيانات الموظف الشخصية',
       details: [
+        requirement ? `المطلوب: ${requirement.summary}` : '',
+        requirement ? `مصادر القياس المطلوبة: ${requirement.requiredSignals.join(' · ')}` : '',
         'لا تُستخدم محادثات المدير الشخصية أو أرقام حضوره كبديل عن نتيجة الفريق أو الفرع.',
-        'يبقى المحور مقفولًا حتى ربط مصدر قيادي canonical مناسب لنفس الدورة والنطاق.',
-      ],
+        'عدم اكتمال الدليل القيادي لا يعني أداءً ضعيفًا ولا يساوي صفرًا.',
+      ].filter(Boolean),
     };
   }
   const attendanceKeys = ['discipline', 'attendance', 'shift_discipline'];
@@ -428,6 +433,24 @@ function sectionEvidenceFor(
 
     const weekly = inventory.weekly;
     const stagnant = inventory.stagnant;
+    const sufficiency = getInventoryEvidenceSufficiency({
+      sourceStatus: inventory.sourceStatus,
+      measuredWeeks: weekly.measuredWeeks,
+      onTrackWeeks: weekly.onTrackWeeks,
+      aheadWeeks: weekly.aheadWeeks,
+      behindWeeks: weekly.behindWeeks,
+      unresolvedDiscrepancies: weekly.unresolvedDiscrepancies,
+      assignedItems: stagnant.assignedItems,
+      configuredTargets: stagnant.configuredTargets,
+      targetAchievementPct: stagnant.targetAchievementPct,
+    });
+    const inventorySufficiencyLabels: Record<string, string> = {
+      inventory_source_unavailable: 'مصدر المخزون غير متاح.',
+      inventory_source_partial: 'تغطية مصدر المخزون جزئية.',
+      insufficient_measured_weeks: 'عدد أسابيع الجرد القابلة للقياس أقل من الحد المطلوب للحكم الشهري.',
+      stagnant_targets_incomplete: 'بعض أصناف الرواكد المسندة بلا Target قابل للقياس.',
+      stagnant_achievement_not_measurable: 'تحقيق Target الرواكد غير قابل للقياس حاليًا.',
+    };
     const summaryParts = [
       weekly.measuredWeeks > 0
         ? `الجرد: ${weekly.completedWeeks} أسبوع مكتمل من ${weekly.measuredWeeks} قابل للقياس`
@@ -438,9 +461,12 @@ function sectionEvidenceFor(
     ].filter(Boolean);
 
     return {
-      status: 'manual' as const,
-      summary: summaryParts.join(' · ') || 'لا توجد مسؤوليات مخزون أو رواكد قابلة للقياس لهذه الدورة',
+      status: sufficiency.sufficient ? 'manual' as const : 'insufficient' as const,
+      summary: sufficiency.sufficient
+        ? (summaryParts.join(' · ') || 'لا توجد مسؤوليات مخزون أو رواكد قابلة للقياس لهذه الدورة')
+        : 'بيانات المخزون موجودة لكن التغطية لا تكفي لإصدار درجة شهرية عادلة',
       details: [
+        ...sufficiency.reasons.map((reason) => inventorySufficiencyLabels[reason] || reason),
         weekly.totalItems > 0 ? `أصناف الجرد: ${weekly.countedItems}/${weekly.totalItems} تم عدّها` : '',
         weekly.behindWeeks > 0 ? `أسابيع متأخرة عن الخطة: ${weekly.behindWeeks}` : '',
         weekly.aheadWeeks > 0 ? `أسابيع سابقة للخطة: ${weekly.aheadWeeks}` : '',
@@ -474,6 +500,16 @@ function sectionEvidenceFor(
       };
     }
 
+    const salesSufficiency = getSalesQualityEvidenceSufficiency({
+      salesQuality: sales.conversation.salesQuality !== null
+        ? { average: sales.conversation.salesQuality, samples: sales.conversation.samples }
+        : null,
+    });
+    const salesSufficiencyLabels: Record<string, string> = {
+      sales_quality_not_measured: 'بُعد جودة البيع غير مقاس في العينة الحالية.',
+      insufficient_sales_quality_samples: 'عينة جودة البيع أقل من الحد المطلوب للحكم الشهري.',
+    };
+
     const conversationBits = [
       sales.conversation.salesQuality !== null ? `جودة البيع ${sales.conversation.salesQuality}/10` : '',
       sales.conversation.upsellCrossSell !== null ? `البيع التكميلي ${sales.conversation.upsellCrossSell}/10` : '',
@@ -492,9 +528,14 @@ function sectionEvidenceFor(
     ].filter(Boolean);
 
     return {
-      status: sales.sourceStatus === 'available' ? 'available' as const : 'manual' as const,
-      summary: summaryParts.join(' · ') || 'لا يوجد دليل آلي كافٍ؛ استخدم واقعة موثقة',
+      status: salesSufficiency.sufficient
+        ? (sales.sourceStatus === 'available' ? 'available' as const : 'manual' as const)
+        : 'insufficient' as const,
+      summary: salesSufficiency.sufficient
+        ? (summaryParts.join(' · ') || 'لا يوجد دليل آلي كافٍ؛ استخدم واقعة موثقة')
+        : 'بيانات البيع موجودة لكن العينة لا تكفي لإصدار درجة شهرية عادلة',
       details: [
+        ...salesSufficiency.reasons.map((reason) => salesSufficiencyLabels[reason] || reason),
         sales.conversation.samples > 0 ? `عينة مراجعات البيع: ${sales.conversation.samples}` : '',
         sales.conversation.salesQuality !== null ? `جودة البيع: ${sales.conversation.salesQuality}/10` : '',
         sales.conversation.upsellCrossSell !== null ? `البيع التكميلي: ${sales.conversation.upsellCrossSell}/10` : '',
