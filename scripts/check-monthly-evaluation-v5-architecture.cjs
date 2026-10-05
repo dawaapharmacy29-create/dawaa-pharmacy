@@ -88,6 +88,8 @@ if (!page.includes('setEvaluationUpdatedAt(String(canonicalSaved.updated_at')) f
 if (!page.includes('pointsForSave = await getStaffPointsDashboardV3(savingStaffId, cycleLabel)')) failures.push('Final approval must refresh canonical points truth immediately before save.');
 if (!page.includes('points_truth: pointsForSave ?')) failures.push('Final approval snapshot must use the freshly loaded points truth.');
 if (!page.includes('Date.now() - evidenceLoadedAt > 5 * 60_000')) failures.push('Final approval must reject stale client evidence state.');
+if (!page.includes('Promise.resolve({ value: cachedEvidence.value, loadedAt: cachedEvidence.at })')) failures.push('Evidence cache hits must preserve the original freshness timestamp.');
+if (!page.includes('setEvidenceLoadedAt(evidenceEnvelope.loadedAt)')) failures.push('Approval freshness must use the actual evidence load timestamp, not revisit time.');
 if (!page.includes('const approvalTimeIncentive = publishedPointsTruth?.final_incentive_egp')) failures.push('Published evaluation view must preserve approval-time incentive truth separately from settlement.');
 if (!page.includes('const settledIncentive = settledStatement ? Number(settledStatement.incentive_amount) : null')) failures.push('Final payroll settlement must be explicitly separated from approval-time incentive truth.');
 if (!cairoCycleBoundary.includes("(e.sent_at at time zone 'Africa/Cairo')::date <= v_cycle_end")) failures.push('Reapproval cycle classification must use Cairo-local sent_at dates.');
