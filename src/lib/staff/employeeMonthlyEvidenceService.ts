@@ -1533,7 +1533,7 @@ export async function loadEmployeeMonthlyEvidence(args: {
   ]);
 
   const reviewRows = reviewResult.rows;
-  if (reviewResult.error && !reviewRows.length) errors.reviews = reviewResult.error;
+  if (reviewResult.error) errors.reviews = reviewResult.error;
 
   const followupTruncated = !followupResult.error && (followupResult.data?.length || 0) >= 1001;
   const followupRows = followupResult.error ? [] : (followupResult.data || []).slice(0, 1000);
