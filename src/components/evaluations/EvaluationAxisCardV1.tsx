@@ -29,10 +29,10 @@ export default function EvaluationAxisCardV1(props:{
  const primaryEvidence=factualEvidence.slice(0,4);
  const secondaryEvidence=factualEvidence.slice(4);
  const hasEvidenceDetails=compactEvidence.length>0||exampleCount>0;
- const evidenceQualityLabel=evidenceUnavailable?'غير قابل للقياس':evidencePending?'يحتاج استكمال':exampleCount>=3||evidenceCount>=4?'دليل قوي':'دليل متاح';
+ const evidenceQualityLabel=evidenceUnavailable?'غير قابل للقياس':evidencePending?'يحتاج استكمال':manualEvidence?'دليل يدوي مطلوب':exampleCount>=3||evidenceCount>=4?'دليل قوي':'دليل متاح';
  const evidenceQualityStyle=evidenceUnavailable
   ? {borderColor:'var(--dawaa-status-danger-border)',color:'var(--dawaa-status-danger-text)',background:'var(--dawaa-status-danger-bg)'}
-  : evidencePending
+  : evidencePending||manualEvidence
     ? {borderColor:'var(--dawaa-status-warning-border)',color:'var(--dawaa-status-warning-text)',background:'var(--dawaa-status-warning-bg)'}
     : {borderColor:'var(--dawaa-status-success-border)',color:'var(--dawaa-status-success-text)',background:'var(--dawaa-status-success-bg)'};
  const stateStyle=evidenceUnavailable
@@ -70,7 +70,7 @@ export default function EvaluationAxisCardV1(props:{
   <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(0,1fr)_260px]">
    <div className="rounded-xl border p-3" style={{borderColor:evidenceUnavailable?'var(--dawaa-status-danger-border)':evidencePending?'var(--dawaa-status-warning-border)':'var(--dawaa-theme-border)',background:evidenceUnavailable?'var(--dawaa-status-danger-bg)':evidencePending?'var(--dawaa-status-warning-bg)':'var(--dawaa-theme-soft)'}}>
     <div className="flex items-start gap-2">
-     {evidenceUnavailable?<AlertTriangle className="mt-0.5 shrink-0" size={15} style={{color:'var(--dawaa-status-danger-text)'}}/>:<CheckCircle2 className="mt-0.5 shrink-0" size={15} style={{color:evidencePending?'var(--dawaa-status-warning-text)':'var(--dawaa-status-success-text)'}}/>}
+     {evidenceUnavailable||manualEvidence?<AlertTriangle className="mt-0.5 shrink-0" size={15} style={{color:evidenceUnavailable?'var(--dawaa-status-danger-text)':'var(--dawaa-status-warning-text)'}}/>:<CheckCircle2 className="mt-0.5 shrink-0" size={15} style={{color:evidencePending?'var(--dawaa-status-warning-text)':'var(--dawaa-status-success-text)'}}/>}
      <div className="min-w-0">
       <div className="text-[10px] font-black" style={{color:'var(--dawaa-theme-muted)'}}>ماذا تقول البيانات؟</div>
       <div className="mt-0.5 text-sm font-black leading-6" style={{color:evidenceUnavailable?'var(--dawaa-status-danger-text)':'var(--dawaa-theme-heading)'}}>{props.evidence.summary}</div>
