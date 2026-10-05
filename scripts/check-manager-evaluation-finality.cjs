@@ -20,4 +20,12 @@ must('supabase/migrations/20261005158000_monthly_evaluation_snapshot_contract_v5
 must('supabase/migrations/20261005159000_monthly_evaluation_final_decision_immutability_v5.sql',[
   'monthly_evaluation_final_decision_immutable',"old.status in ('sent','approved')",'before update or delete'
 ]);
+must('supabase/migrations/20261005161000_payroll_points_evaluation_multiplier_truth_v5.sql',[
+  'v_points_after_evaluation',
+  "greatest(0,coalesce(t.final_incentive_egp,0)-coalesce(t.competition_bonus_egp,0))",
+  'v_points_after_evaluation + v_competition_bonus'
+]);
+must('supabase/migrations/20261005160000_monthly_evaluation_snapshot_verification_v5.sql',[
+  'dawaa_verify_monthly_evaluation_snapshot_v5','legacy_unverified','extensions.digest'
+]);
 if(fail.length){console.error(fail.join('\n'));process.exit(1);}console.log('manager evaluation finality architecture OK');
