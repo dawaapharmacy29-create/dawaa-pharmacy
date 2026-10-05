@@ -740,6 +740,9 @@ export default function StaffMonthlyEvaluation() {
   const employeeHeaderRequestRef = useRef(0);
   const evaluationRequestRef = useRef(0);
   const staffRequestRef = useRef(0);
+  const saveInFlightRef = useRef(false);
+  const selectedIdRef = useRef('');
+  selectedIdRef.current = selectedId;
   const evidenceCacheRef = useRef(new Map<string, { at: number; value: EmployeeMonthlyEvidence }>());
   const [pointsTruth, setPointsTruth] = useState<StaffPointsDashboardV3 | null>(null);
   const [settledStatement, setSettledStatement] = useState<{ points_closing: number; incentive_amount: number } | null>(null);
@@ -1264,6 +1267,11 @@ export default function StaffMonthlyEvaluation() {
 
   async function save(nextStatus = status) {
     if (!selected || !user?.id) return;
+    if (saveInFlightRef.current) {
+      toast.info('جاري حفظ التقييم الحالي بالفعل.');
+      return;
+    }
+    const savingStaffId = selected.id;
     if (evaluationLoading || evaluationLoadError) {
       toast.error(evaluationLoading ? 'انتظر اكتمال تحميل تقييم الموظف الحالي.' : 'أعد تحميل تقييم الموظف قبل الحفظ أو الاعتماد.');
       return;
@@ -1314,6 +1322,7 @@ export default function StaffMonthlyEvaluation() {
       return;
     }
 
+    saveInFlightRef.current = true;
     setSaving(true);
     try {
       const strengths = strengthsText.split('\n').map((item) => item.trim()).filter(Boolean);
@@ -1373,6 +1382,10 @@ export default function StaffMonthlyEvaluation() {
       });
       if (error) throw error;
       const saveResult = (data || {}) as Record<string, unknown>;
+      if (selectedIdRef.current !== savingStaffId) {
+        toast.info('تم حفظ التقييم على الخادم، وتم تجاهل تحديث الشاشة لأنك انتقلت لموظف آخر.');
+        return;
+      }
       const savedEvaluationId = String(saveResult.evaluation_id || evaluationId || '');
       setEvaluationId(savedEvaluationId);
       setStatus(nextStatus);
@@ -1451,7 +1464,8 @@ export default function StaffMonthlyEvaluation() {
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : 'فشل حفظ التقييم');
     } finally {
-      setSaving(false);
+      saveInFlightRef.current = false;
+      if (selectedIdRef.current === savingStaffId) setSaving(false);
     }
   }
 
