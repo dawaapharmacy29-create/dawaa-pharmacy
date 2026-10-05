@@ -14,6 +14,9 @@ const page = read('src/pages/StaffMonthlyEvaluationGeneral.tsx');
 const workflow = read('src/components/evaluations/MonthlyEvaluationWorkflowV5.tsx');
 const audit = read('src/components/evaluations/MonthlyEvaluationAuditTrailV5.tsx');
 const profiles = read('src/lib/evaluations/staffEvaluationProfilesV3.ts');
+const inventoryEvidence = read('src/lib/evaluations/monthlyInventoryEvidence.ts');
+const salesEvidence = read('src/lib/evaluations/monthlySalesQualityEvidence.ts');
+const leadershipEvidence = read('src/lib/evaluations/monthlyLeadershipEvidence.ts');
 const backend = [
   read('supabase/migrations/20260929153000_monthly_evaluation_command_center_v5.sql'),
   read('supabase/migrations/20260929154500_monthly_evaluation_v5_hardening.sql'),
@@ -46,6 +49,13 @@ if (!page.includes('MonthlyEvaluationAuditTrailV5')) failures.push('V5 audit tra
 if (!page.includes("type: 'monthly_evaluation_ready'")) failures.push('Final approval must notify the employee through the canonical notification domain.');
 if (!page.includes('weakSectionsMissingNotes')) failures.push('Weak-score rationale guard is missing from the client.');
 if (!page.includes('criticalGateMissingReason')) failures.push('Critical-gate rationale guard is missing from the client.');
+if (!page.includes('getInventoryEvidenceSufficiency')) failures.push('Inventory scoring must use the evidence-sufficiency contract.');
+if (!page.includes('getSalesQualityEvidenceSufficiency')) failures.push('Sales-quality scoring must use the evidence-sufficiency contract.');
+if (!page.includes('leadershipEvidenceRequirement')) failures.push('Leadership axes must use role-aware evidence requirements.');
+if (!page.includes('axis_evidence_snapshot')) failures.push('Per-axis evidence state must be persisted with the evaluation snapshot.');
+if (!inventoryEvidence.includes('getInventoryEvidenceSufficiency')) failures.push('Inventory evidence sufficiency helper is missing.');
+if (!salesEvidence.includes('getSalesQualityEvidenceSufficiency')) failures.push('Sales-quality evidence sufficiency helper is missing.');
+if (!leadershipEvidence.includes('leadershipEvidenceRequirement')) failures.push('Leadership evidence contract is missing.');
 
 if (/points_incentive_egp\s*\*\s*effectiveEvaluationMultiplierPct/.test(page)) {
   failures.push('Client-side final incentive recomputation is forbidden; read the canonical server financial truth.');
