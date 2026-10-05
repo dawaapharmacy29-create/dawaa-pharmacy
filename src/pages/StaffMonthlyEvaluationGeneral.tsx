@@ -176,6 +176,13 @@ function attendanceCaseLine(item: NonNullable<EmployeeMonthlyEvidence['coaching'
   return parts.join(' · ');
 }
 
+function evidenceSourceRequirement(role: unknown, source: 'reviews' | 'followups' | 'attendance') {
+  const canonicalRole = canonicalStaffRole(role);
+  if (source === 'reviews') return ['doctor', 'delivery', 'customer_service'].includes(canonicalRole);
+  if (source === 'followups') return ['doctor', 'customer_service', 'purchasing'].includes(canonicalRole);
+  return ['doctor', 'assistant', 'inventory_assistant', 'delivery', 'customer_service', 'shift_supervisor'].includes(canonicalRole);
+}
+
 function sectionEvidenceFor(
   sectionKey: string,
   role: unknown,
@@ -2532,22 +2539,25 @@ export default function StaffMonthlyEvaluation() {
 
                   <div className="mt-3 grid gap-2 sm:grid-cols-3">
                     {([
-                      ['المحادثات', evidenceHealth.reviews],
-                      ['المتابعات', evidenceHealth.followups],
-                      ['الحضور', evidenceHealth.attendance],
-                    ] as const).map(([label, sourceStatus]) => {
+                      ['المحادثات', 'reviews', evidenceHealth.reviews],
+                      ['المتابعات', 'followups', evidenceHealth.followups],
+                      ['الحضور', 'attendance', evidenceHealth.attendance],
+                    ] as const).map(([label, sourceKey, sourceStatus]) => {
+                      const required = evidenceSourceRequirement(selected?.job_title || selected?.role, sourceKey);
                       const available = sourceStatus === 'available';
                       return (
                         <div
                           key={label}
                           className="flex items-center justify-between rounded-xl border px-3 py-2.5"
-                          style={available
-                            ? { borderColor: 'var(--dawaa-status-success-border)', background: 'var(--dawaa-status-success-bg)' }
-                            : { borderColor: 'var(--dawaa-status-danger-border)', background: 'var(--dawaa-status-danger-bg)' }}
+                          style={!required
+                            ? { borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-soft)' }
+                            : available
+                              ? { borderColor: 'var(--dawaa-status-success-border)', background: 'var(--dawaa-status-success-bg)' }
+                              : { borderColor: 'var(--dawaa-status-danger-border)', background: 'var(--dawaa-status-danger-bg)' }}
                         >
                           <span className="text-xs font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>{label}</span>
-                          <span className="text-[11px] font-black" style={{ color: available ? 'var(--dawaa-status-success-text)' : 'var(--dawaa-status-danger-text)' }}>
-                            {available ? 'جاهز' : 'غير متاح'}
+                          <span className="text-[11px] font-black" style={{ color: !required ? 'var(--dawaa-theme-muted)' : available ? 'var(--dawaa-status-success-text)' : 'var(--dawaa-status-danger-text)' }}>
+                            {!required ? 'غير مطلوب لهذا الدور' : available ? 'جاهز' : 'غير متاح'}
                           </span>
                         </div>
                       );
