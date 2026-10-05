@@ -53,6 +53,7 @@ import EvaluationAxisCardV1 from '@/components/evaluations/EvaluationAxisCardV1'
 import FinalEvaluationReviewV1 from '@/components/evaluations/FinalEvaluationReviewV1';
 import EmployeeEvaluationHeaderV1 from '@/components/evaluations/EmployeeEvaluationHeaderV1';
 import { invalidateEmployeeEvaluationHeaderCache, loadEmployeeEvaluationHeader, type EvaluationHeaderSummary } from '@/lib/evaluations/employeeEvaluationHeaderService';
+import DoctorPerformanceEye from '@/components/evaluations/DoctorPerformanceEye';
 
 type StaffRow = {
   id: string;
@@ -2518,6 +2519,12 @@ export default function StaffMonthlyEvaluation() {
                     </div>
                   </Panel>
                 )
+              ) : null}
+
+              {!employeeView && selected && canonicalStaffRole(selected.job_title || selected.role) === 'doctor' ? (
+                <div className="flex justify-end">
+                  <DoctorPerformanceEye staffId={selected.id} staffName={selected.name} cycleLabel={cycleLabel} />
+                </div>
               ) : null}
 
               {!employeeView && selected ? (
