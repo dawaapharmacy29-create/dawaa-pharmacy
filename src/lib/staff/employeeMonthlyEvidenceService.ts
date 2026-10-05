@@ -1405,7 +1405,7 @@ async function loadConversationReviews(args: {
       .eq(column, args.staffId)
       .or(dateFilter)
       .order('created_at', { ascending: false })
-      .limit(500);
+      .limit(501);
 
   const [byStaff, byDoctor] = await Promise.all([
     makeQuery('staff_id'),
@@ -1419,8 +1419,9 @@ async function loadConversationReviews(args: {
     };
   }
 
+  const conversationRowsTruncated = (byStaff.data?.length || 0) >= 501 || (byDoctor.data?.length || 0) >= 501;
   const unique = new Map<string, Record<string, unknown>>();
-  [...(byStaff.data || []), ...(byDoctor.data || [])].forEach((row) => {
+  [...(byStaff.data || []).slice(0, 500), ...(byDoctor.data || []).slice(0, 500)].forEach((row) => {
     const record = row as Record<string, unknown>;
     const key = text(record.id) || `${text(record.created_at)}:${unique.size}`;
     unique.set(key, record);
@@ -1428,7 +1429,9 @@ async function loadConversationReviews(args: {
 
   return {
     rows: [...unique.values()],
-    error: byStaff.error?.message || byDoctor.error?.message || '',
+    error: conversationRowsTruncated
+      ? 'conversation_reviews_truncated: more than 500 review rows matched one identity path; monthly evidence is incomplete'
+      : byStaff.error?.message || byDoctor.error?.message || '',
   };
 }
 
@@ -1494,7 +1497,7 @@ export async function loadEmployeeMonthlyEvidence(args: {
       .or(`assigned_staff_id.eq.${args.staffId},requested_by_staff_id.eq.${args.staffId}`)
       .gte('created_at', args.startDate)
       .lt('created_at', args.endDateExclusive)
-      .limit(1000) : Promise.resolve(emptyFollowupResult),
+      .limit(1001) : Promise.resolve(emptyFollowupResult),
     needsAttendanceEvidence ? readAttendanceRange({
       staffId: args.staffId,
       startDate: args.startDate,
@@ -1519,8 +1522,10 @@ export async function loadEmployeeMonthlyEvidence(args: {
   const reviewRows = reviewResult.rows;
   if (reviewResult.error && !reviewRows.length) errors.reviews = reviewResult.error;
 
-  const followupRows = followupResult.error ? [] : followupResult.data || [];
+  const followupTruncated = !followupResult.error && (followupResult.data?.length || 0) >= 1001;
+  const followupRows = followupResult.error ? [] : (followupResult.data || []).slice(0, 1000);
   if (followupResult.error) errors.followups = followupResult.error.message;
+  if (followupTruncated) errors.followups = 'followups_truncated: more than 1000 follow-up rows matched this cycle; monthly evidence is incomplete';
 
   const attendanceRows = attendanceResult.status === 'available' ? attendanceResult.rows : [];
   if (attendanceResult.status === 'unavailable') errors.attendance = attendanceResult.error;
