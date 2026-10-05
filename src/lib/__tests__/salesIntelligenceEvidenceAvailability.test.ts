@@ -8,6 +8,8 @@ import { deriveBasketInvoiceMatch } from '@/lib/salesIntelligence/basketInvoiceM
 import { buildInvoiceItemEvidenceProvider } from '@/lib/salesIntelligence/invoiceItemEvidenceRepository';
 import { reviewSourceRowToBatchConversation } from '@/lib/salesIntelligence/persistence/reviewSourceBatchAdapter';
 import { evaluateCanonicalSourceGate } from '@/lib/salesIntelligence/persistence/canonicalSourceGate';
+import { deriveConversationCases } from '@/lib/salesIntelligence/conversationCaseEngine';
+import { deriveCanonicalSalesOutcome } from '@/lib/salesIntelligence/canonicalSalesOutcomeEngine';
 import type { CommercialConfirmationAssessment } from '@/lib/salesIntelligence/types';
 
 const confirmation: CommercialConfirmationAssessment = {
@@ -99,6 +101,55 @@ describe('Sales Intelligence evidence availability hardening', () => {
     if (decision.allowed) return;
     expect(decision.reason).toBe('superseded_by_finer_canonical_sources');
     expect(decision.supersedingSourceIds).toEqual(['order', 'payment']);
+  });
+
+  it('classifies two independent unresolved requests in one interaction as a mixed review-gated case', () => {
+    const messages = [
+      {
+        id: 'r1', sender: 'عميل', role: 'customer', direction: 'inbound', kind: 'text',
+        text: 'عايز علبتين بانادول اكسترا', timestamp: new Date('2026-09-26T18:00:00.000Z'), isMeaningful: true,
+      },
+      {
+        id: 'r2', sender: 'عميل', role: 'customer', direction: 'inbound', kind: 'text',
+        text: 'وعايز فيتامين د كمان', timestamp: new Date('2026-09-26T18:00:20.000Z'), isMeaningful: true,
+      },
+    ];
+    const understanding = {
+      messages,
+      interactions: [{
+        id: 'interaction-1', messageIds: ['r1', 'r2'],
+        startedAt: new Date('2026-09-26T18:00:00.000Z'),
+        endedAt: new Date('2026-09-26T18:00:20.000Z'),
+      }],
+    } as any;
+    const cases = deriveConversationCases({ understanding, conversationId: 'multi-request' });
+    expect(cases).toHaveLength(1);
+    expect(cases[0].caseType).toBe('mixed');
+    expect(cases[0].needsHumanReview).toBe(true);
+    expect(cases[0].humanReviewReasons).toContain('possible_unsegmented_multiple_requests');
+    expect(cases[0].humanReviewReasons).toContain('independent_multiple_requests_require_review');
+  });
+
+  it('never lets a mixed unresolved case become a counted or operationally closed sale', () => {
+    const result = deriveCanonicalSalesOutcome({
+      caseId: 'mixed-case',
+      caseType: 'mixed',
+      commercialConfirmation: { currentState: 'commercial_confirmation_complete', customerConfirmed: true },
+      saleProof: {
+        state: 'proven', source: 'trusted_invoice', trustedInvoiceId: 'invoice-one-request',
+        needsHumanReview: false, contradictions: [], ruleIds: [], confidence: { level: 'proven', score: 1, ruleIds: [], evidence: [] },
+      } as any,
+      financialSettlement: { status: 'settled' } as any,
+      invoiceBackedOrderClosure: true,
+      hasMeaningfulBasketItems: true,
+      needsHumanReview: false,
+    });
+    expect(result.outcome).toBe('needs_review');
+    expect(result.needsHumanReview).toBe(true);
+    expect(result.isSaleCountable).toBe(false);
+    expect(result.isRevenueCountable).toBe(false);
+    expect(result.isOrderConfirmed).toBe(false);
+    expect(result.reasonCodes).toContain('outcome.independent_multiple_requests_require_review');
   });
 
   it('aggregates split lines for the same actual invoice product before quantity comparison', () => {
