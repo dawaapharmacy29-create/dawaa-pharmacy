@@ -944,42 +944,55 @@ export default function StaffMonthlyEvaluation() {
               return { value, loadedAt };
             });
 
-        const [savedResult, evidenceEnvelope] = await Promise.all([
-          supabase.rpc('get_staff_monthly_evaluation_v5', {
-            p_actor_id: user.id,
-            p_staff_id: selectedId,
-            p_month: cycleKeyDate,
-          }),
-          evidencePromise,
-        ]);
+        const savedResult = await supabase.rpc('get_staff_monthly_evaluation_v5', {
+          p_actor_id: user.id,
+          p_staff_id: selectedId,
+          p_month: cycleKeyDate,
+        });
 
         if (savedResult.error) throw savedResult.error;
         if (evaluationRequestRef.current !== requestId) return;
 
-        const evidenceResult = evidenceEnvelope.value;
-        setMetrics(evidenceResult.metrics);
-        setEvidenceHealth(evidenceResult.health);
-        setEvidenceErrors(evidenceResult.errors);
-        setEvidenceLoadedAt(evidenceEnvelope.loadedAt);
-        setCoaching(evidenceResult.coaching);
-        setTaskEvaluation(evidenceResult.taskEvaluation);
+        const savedForEvidenceFallback = savedResult.data as EvaluationRow | null;
+        const savedForEvidenceStatus = String(savedForEvidenceFallback?.status || 'draft');
+        let evidenceResult: Awaited<ReturnType<typeof loadEmployeeMonthlyEvidence>> | null = null;
+        try {
+          const evidenceEnvelope = await evidencePromise;
+          if (evaluationRequestRef.current !== requestId) return;
+          evidenceResult = evidenceEnvelope.value;
+          setMetrics(evidenceResult.metrics);
+          setEvidenceHealth(evidenceResult.health);
+          setEvidenceErrors(evidenceResult.errors);
+          setEvidenceLoadedAt(evidenceEnvelope.loadedAt);
+          setCoaching(evidenceResult.coaching);
+          setTaskEvaluation(evidenceResult.taskEvaluation);
+        } catch (evidenceCause) {
+          if (evaluationRequestRef.current !== requestId) return;
+          if (!['sent', 'approved'].includes(savedForEvidenceStatus)) throw evidenceCause;
+          setEvidenceHealth({ reviews: 'unavailable', followups: 'unavailable', attendance: 'unavailable' });
+          setEvidenceErrors({ live: evidenceCause instanceof Error ? evidenceCause.message : 'live_evidence_unavailable' });
+          setEvidenceLoadedAt(null);
+          setEmployeeHeaderLoading(false);
+        }
 
-        const headerRequestId = ++employeeHeaderRequestRef.current;
-        void loadEmployeeEvaluationHeader({
-          staffId: selectedId,
-          staffName: selected.name,
-          role: selected.job_title || selected.role,
-          branch: selected.branch || branch,
-          start: startDate,
-          end: endDate,
-          evidence: evidenceResult,
-        }).then((value) => {
-          if (employeeHeaderRequestRef.current === headerRequestId) setEmployeeHeader(value);
-        }).catch(() => {
-          if (employeeHeaderRequestRef.current === headerRequestId) setEmployeeHeader(null);
-        }).finally(() => {
-          if (employeeHeaderRequestRef.current === headerRequestId) setEmployeeHeaderLoading(false);
-        });
+        if (evidenceResult) {
+          const headerRequestId = ++employeeHeaderRequestRef.current;
+          void loadEmployeeEvaluationHeader({
+            staffId: selectedId,
+            staffName: selected.name,
+            role: selected.job_title || selected.role,
+            branch: selected.branch || branch,
+            start: startDate,
+            end: endDate,
+            evidence: evidenceResult,
+          }).then((value) => {
+            if (employeeHeaderRequestRef.current === headerRequestId) setEmployeeHeader(value);
+          }).catch(() => {
+            if (employeeHeaderRequestRef.current === headerRequestId) setEmployeeHeader(null);
+          }).finally(() => {
+            if (employeeHeaderRequestRef.current === headerRequestId) setEmployeeHeaderLoading(false);
+          });
+        }
 
         void pointsPromise.then((pointsResult) => {
           if (evaluationRequestRef.current === requestId) setPointsTruth(pointsResult);
