@@ -80,6 +80,7 @@ export default function DoctorPerformanceEye({staffId,staffName,cycleLabel}:{sta
  const cur=data?.months[0],prev=data?.months[1];
  const blockedReason=cur&&prev?comparisonBlockReason(cur,prev):null;
  const snap=cur?.comparisonMode==='same_period'?cur.comparisonSnapshot:null;
+ const nonSalesComparisonReason=snap?'الدورة جارية: لا يظهر Delta لهذا المؤشر حتى تتوفر له نافذة Same-period مساوية وموثوقة.':blockedReason;
  const cmp=(fullCurrent:number|null,fullPrevious:number|null,sameCurrent:number|null|undefined,samePrevious:number|null|undefined)=>
    snap?[sameCurrent??null,samePrevious??null] as const:[fullCurrent,fullPrevious] as const;
  const visibleConversations=evidenceFocus==='opportunity'?evidenceConversations.filter(item=>item.followup_required||item.invoice_match_status!=='verified'):evidenceConversations;
@@ -100,11 +101,11 @@ export default function DoctorPerformanceEye({staffId,staffName,cycleLabel}:{sta
      <Metric label="المبيعات الشهرية" value={cur.sales===null?'غير متاح':`${fmt(cur.sales)} ج`} current={cmp(cur.sales,prev.sales,snap?.sales,snap?.previousSales)[0]} previous={cmp(cur.sales,prev.sales,snap?.sales,snap?.previousSales)[1]} blockedReason={blockedReason}/>
      <Metric label="متوسط الفاتورة" value={cur.averageInvoice===null?'غير متاح':`${fmt(cur.averageInvoice)} ج`} current={cmp(cur.averageInvoice,prev.averageInvoice,snap?.averageInvoice,snap?.previousAverageInvoice)[0]} previous={cmp(cur.averageInvoice,prev.averageInvoice,snap?.averageInvoice,snap?.previousAverageInvoice)[1]} blockedReason={blockedReason}/>
      <Metric label="العملاء الفريدون" value={fmt(cur.customers)} current={cmp(cur.customers,prev.customers,snap?.customers,snap?.previousCustomers)[0]} previous={cmp(cur.customers,prev.customers,snap?.customers,snap?.previousCustomers)[1]} blockedReason={blockedReason}/>
-     <Metric label="Conversion المحادثات" value={pct(cur.conversionRate)} current={cur.conversionRate} previous={prev.conversionRate} blockedReason={blockedReason}/>
-     <Metric label="مبيعات لكل ساعة" value={cur.salesPerHour===null?'غير متاح':`${fmt(cur.salesPerHour)} ج/س`} current={cur.salesPerHour} previous={prev.salesPerHour} blockedReason={blockedReason}/>
-     <Metric label="فواتير لكل ساعة" value={fmt(cur.invoicesPerHour,2)} current={cur.invoicesPerHour} previous={prev.invoicesPerHour} blockedReason={blockedReason}/>
-     <Metric label="عملاء لكل ساعة" value={fmt(cur.customersPerHour,2)} current={cur.customersPerHour} previous={prev.customersPerHour} blockedReason={blockedReason}/>
-     <Metric label="ساعات العمل المسجلة" value={cur.workedHours===null?'غير متاح':`${fmt(cur.workedHours,1)} س`} current={cur.workedHours} previous={prev.workedHours} blockedReason={blockedReason}/>
+     <Metric label="Conversion المحادثات" value={pct(cur.conversionRate)} current={cur.conversionRate} previous={prev.conversionRate} blockedReason={nonSalesComparisonReason}/>
+     <Metric label="مبيعات لكل ساعة" value={cur.salesPerHour===null?'غير متاح':`${fmt(cur.salesPerHour)} ج/س`} current={cur.salesPerHour} previous={prev.salesPerHour} blockedReason={nonSalesComparisonReason}/>
+     <Metric label="فواتير لكل ساعة" value={fmt(cur.invoicesPerHour,2)} current={cur.invoicesPerHour} previous={prev.invoicesPerHour} blockedReason={nonSalesComparisonReason}/>
+     <Metric label="عملاء لكل ساعة" value={fmt(cur.customersPerHour,2)} current={cur.customersPerHour} previous={prev.customersPerHour} blockedReason={nonSalesComparisonReason}/>
+     <Metric label="ساعات العمل المسجلة" value={cur.workedHours===null?'غير متاح':`${fmt(cur.workedHours,1)} س`} current={cur.workedHours} previous={prev.workedHours} blockedReason={nonSalesComparisonReason}/>
     </div>
     <div className="mt-4 rounded-xl border p-3" style={{borderColor:'var(--dawaa-theme-border)'}}>
      <div className="flex items-center gap-2 text-sm font-black" style={{color:'var(--dawaa-theme-heading)'}}><Lightbulb size={17}/> التشخيص الذكي — الدورة الحالية</div>
