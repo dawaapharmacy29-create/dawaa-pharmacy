@@ -4,6 +4,10 @@ import { getStaffCycleSales } from '@/lib/staffSalesService';
 
 const HEADER_CACHE=new Map<string,{value:EvaluationHeaderSummary;at:number}>();
 const HEADER_CACHE_TTL_MS=5*60*1000;
+export function invalidateEmployeeEvaluationHeaderCache(staffId?:string){
+ if(!staffId){HEADER_CACHE.clear();return;}
+ for(const key of HEADER_CACHE.keys())if(key.startsWith(`${staffId}:`))HEADER_CACHE.delete(key);
+}
 import type { EmployeeMonthlyEvidence } from '@/lib/staff/employeeMonthlyEvidenceService';
 import { canonicalStaffRole } from '@/lib/staff/staffRoleCapabilities';
 
