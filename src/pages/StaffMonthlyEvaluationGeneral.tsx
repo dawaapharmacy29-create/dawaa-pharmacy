@@ -1189,6 +1189,7 @@ export default function StaffMonthlyEvaluation() {
           evaluation_engine_version: 5,
           evidence_ready: roleEvidenceReady,
           evidence_health: evidenceHealth,
+          axis_evidence_snapshot: axisEvidenceSnapshot,
           canonical_role: profile.role,
           evaluation_cycle_label: cycleLabel,
           active_critical_gates: activeGates,
@@ -1473,6 +1474,22 @@ export default function StaffMonthlyEvaluation() {
     }))
     .filter(({ evidence }) => ['unavailable', 'pending', 'insufficient', 'partial'].includes(evidence.status));
   const roleEvidenceReady = evidenceReady && blockedAxisEvidence.length === 0;
+  const axisEvidenceSnapshot = sections.map((item) => {
+    const evidence = sectionEvidenceFor(
+      item.key,
+      selected?.job_title || selected?.role,
+      metrics,
+      evidenceHealth,
+      pointsTruth,
+      coaching
+    );
+    return {
+      key: item.key,
+      title: item.title,
+      status: evidence.status,
+      summary: evidence.summary,
+    };
+  });
 
   const approvalBlockers = [
     !cycleClosed ? 'الدورة لم تُقفل بعد' : '',
