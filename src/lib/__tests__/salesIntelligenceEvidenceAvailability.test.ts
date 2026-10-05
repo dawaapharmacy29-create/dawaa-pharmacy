@@ -5,6 +5,7 @@ import {
   type InvoiceItemEvidenceProvider,
 } from '@/lib/salesIntelligence/saleAttributionEngine';
 import { deriveBasketInvoiceMatch } from '@/lib/salesIntelligence/basketInvoiceMatchingEngine';
+import { buildInvoiceItemEvidenceProvider } from '@/lib/salesIntelligence/invoiceItemEvidenceRepository';
 import { reviewSourceRowToBatchConversation } from '@/lib/salesIntelligence/persistence/reviewSourceBatchAdapter';
 import type { CommercialConfirmationAssessment } from '@/lib/salesIntelligence/types';
 
@@ -64,6 +65,56 @@ describe('Sales Intelligence evidence availability hardening', () => {
       customer_code: '5179', branch: 'فرع شكري', staff_id: 'staff-donia',
     });
     expect(result.knownStaffIds).toEqual(['staff-donia']);
+  });
+
+  it('aggregates split lines for the same actual invoice product before quantity comparison', () => {
+    const splitLineProvider = buildInvoiceItemEvidenceProvider(
+      [invoice74720] as any[],
+      [
+        {
+          invoice_id: 'invoice-74720', invoice_number: '74720', branch: 'فرع شكري',
+          product_code: '30088', product_name: 'BEBELAC EC MILK', quantity: 3,
+          unit_price: 1125, line_total: 1388.154467309195,
+        },
+        {
+          invoice_id: 'invoice-74720', invoice_number: '74720', branch: 'فرع شكري',
+          product_code: '30088', product_name: 'BEBELAC EC MILK', quantity: 1,
+          unit_price: 375, line_total: 154.23938525657724,
+        },
+        {
+          invoice_id: 'invoice-74720', invoice_number: '74720', branch: 'فرع شكري',
+          product_code: '36426', product_name: 'FLAGYL SUSP', quantity: 1,
+          unit_price: 26, line_total: 10.693930711122688,
+        },
+      ] as any[]
+    );
+    const invoiceItems = splitLineProvider.getItemsForInvoice('invoice-74720', '74720');
+    expect(invoiceItems).not.toBe('unavailable');
+    if (invoiceItems === 'unavailable') return;
+    const milk = invoiceItems.find((item) => item.productCode === '30088');
+    expect(milk?.quantity).toBe(4);
+
+    const resolvedMilk = {
+      productNameRaw: 'BEBELAC EC MILK', productId: null, quantity: 4, resolutionStatus: 'proven' as const,
+    };
+    const attribution = deriveSaleAttributionAssessment(baseCtx(resolvedMilk), [invoice74720], splitLineProvider);
+    expect(attribution.selectedInvoiceNumber).toBe('74720');
+    expect(attribution.selectedCandidate?.productMatch).toBe('available_match');
+    expect(attribution.selectedCandidate?.quantityMatch).toBe('available_match');
+
+    const b = basket(resolvedMilk);
+    const match = deriveBasketInvoiceMatch({
+      caseId: 'mohamed-case', baskets: [b],
+      itemsByBasketId: { 'basket:1': [{
+        itemId: 'milk-4', basketId: 'basket:1', productNameRaw: 'BEBELAC EC MILK',
+        productId: null, quantity: 4, unit: null, unitPrice: null, lineTotal: null,
+        sourceMessageId: 'milk-request', confidence: { level: 'proven', score: 0.9, ruleIds: [], evidence: [] },
+        resolutionStatus: 'proven',
+      }] },
+      attribution, invoiceRow: invoice74720, itemEvidenceProvider: splitLineProvider,
+    });
+    expect(match.quantityMatch).toBe('exact');
+    expect(match.differences.some((d) => d.type === 'quantity_mismatch')).toBe(false);
   });
 
   it('treats unresolved media product identity as unavailable evidence, not a product contradiction', () => {
