@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, ChevronDown, Eye, FileText, Lightbulb, Loader2, PackageSearch, ShieldCheck, TrendingDown, TrendingUp, X } from 'lucide-react';
 import { loadDoctorPerformanceIntelligence, type DoctorPerformanceIntelligence, type DoctorPerformanceMonth } from '@/lib/evaluations/doctorPerformanceIntelligenceService';
 import { supabase } from '@/lib/supabase';
+import { evaluationCycleRangeFromLabel } from '@/lib/evaluations/monthlyEvaluationCycle';
 
 const fmt=(v:number|null,d=0)=>v===null?'غير متاح':v.toLocaleString('ar-EG',{maximumFractionDigits:d,minimumFractionDigits:d});
 const pct=(v:number|null)=>v===null?'غير متاح':`${fmt(v,1)}%`;
@@ -60,10 +61,11 @@ export default function DoctorPerformanceEye({staffId,staffName,cycleLabel}:{sta
   if(evidenceConversations.length||evidenceProducts.length)return;
   setEvidenceLoading(true);setEvidenceError('');
   try{
-   const rangeStart=cur.cycleLabel;
-   const [year,month]=rangeStart.split('-').map(Number);
-   const startDate=new Date(Date.UTC(year,month-1,26)).toISOString().slice(0,10);
-   const endDate=new Date(Date.UTC(year,month,25)).toISOString().slice(0,10);
+   const range=evaluationCycleRangeFromLabel(cur.cycleLabel);
+   const startDate=range.start.toISOString().slice(0,10);
+   const endExclusive=range.endExclusive.toISOString().slice(0,10);
+   const end=new Date(`${endExclusive}T12:00:00Z`);end.setUTCDate(end.getUTCDate()-1);
+   const endDate=end.toISOString().slice(0,10);
    const [sources,products]=await Promise.all([
     supabase.from('whatsapp_review_sources').select('id,customer_name,customer_code,conversation_started_at,followup_required,invoice_match_status,matched_invoice_number,matched_invoice_value,review_status').eq('staff_id',staffId).gte('conversation_started_at',`${startDate}T00:00:00`).lte('conversation_started_at',`${endDate}T23:59:59`).order('conversation_started_at',{ascending:false}).limit(80),
     supabase.from('whatsapp_product_journey_detail_v1').select('source_id,customer_name,customer_code,product_name,current_stage,leakage_reason,next_action,invoice_match_status,matched_invoice_number,matched_invoice_value,confidence').eq('staff_id',staffId).eq('cycle_start',startDate).eq('cycle_end',endDate).limit(120)
