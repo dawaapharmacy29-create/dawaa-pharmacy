@@ -1229,12 +1229,8 @@ export default function StaffMonthlyEvaluation() {
       return;
     }
     if (nextStatus === 'sent' && !roleEvidenceReady) {
-      const missing = [
-        evidenceHealth.reviews === 'unavailable' ? 'مراجعات المحادثات' : '',
-        evidenceHealth.followups === 'unavailable' ? 'المتابعات' : '',
-        evidenceHealth.attendance === 'unavailable' ? 'الحضور' : '',
-      ].filter(Boolean).join('، ');
-      toast.error(`لا يمكن الاعتماد النهائي لأن مصادر الأدلة غير مكتملة: ${missing || 'مصدر غير متاح'}.`);
+      const missingAxes = blockedAxisEvidence.map((item) => item.title).join('، ');
+      toast.error(`لا يمكن الاعتماد النهائي لأن أدلة محاور الدور غير مكتملة: ${missingAxes || 'يوجد محور يحتاج توثيقًا صالحًا'}.`);
       return;
     }
     if (nextStatus === 'sent' && !cycleClosed) {
@@ -1598,9 +1594,11 @@ export default function StaffMonthlyEvaluation() {
     );
     return evidence.status === 'manual';
   });
+  // Approval readiness is axis-driven. A source that is irrelevant to this role
+  // (for example attendance on a profile with no attendance/discipline axis) must not
+  // block the whole employee. Every required axis is still guarded below.
   const roleEvidenceReady =
-    evidenceReady
-    && blockedAxisEvidence.length === 0
+    blockedAxisEvidence.length === 0
     && leadershipSectionsMissingNotes.length === 0
     && manualEvidenceSectionsMissingNotes.length === 0;
   const axisEvidenceSnapshot = sections.map((item) => {
