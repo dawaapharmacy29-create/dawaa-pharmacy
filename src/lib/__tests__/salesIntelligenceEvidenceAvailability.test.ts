@@ -7,6 +7,7 @@ import {
 import { deriveBasketInvoiceMatch } from '@/lib/salesIntelligence/basketInvoiceMatchingEngine';
 import { buildInvoiceItemEvidenceProvider } from '@/lib/salesIntelligence/invoiceItemEvidenceRepository';
 import { reviewSourceRowToBatchConversation } from '@/lib/salesIntelligence/persistence/reviewSourceBatchAdapter';
+import { evaluateCanonicalSourceGate } from '@/lib/salesIntelligence/persistence/canonicalSourceGate';
 import type { CommercialConfirmationAssessment } from '@/lib/salesIntelligence/types';
 
 const confirmation: CommercialConfirmationAssessment = {
@@ -65,6 +66,39 @@ describe('Sales Intelligence evidence availability hardening', () => {
       customer_code: '5179', branch: 'فرع شكري', staff_id: 'staff-donia',
     });
     expect(result.knownStaffIds).toEqual(['staff-donia']);
+  });
+
+  it('rejects a coarse review source when finer V22-owned sources contain the real order and payment continuation', () => {
+    const orderText = '[9/27/26, 9:03:34 PM] ابراهيم: علبتين لبن\n[9/27/26, 9:06:00 PM] You: جاري الارسال';
+    const paymentText = '[9/28/26, 2:52:09 AM] You: رقم التحويل\n[9/28/26, 3:10:40 AM] You: وصل شكرا جزيلا';
+    const coarseText = `${orderText}\n${paymentText}`;
+    const coarse = {
+      id: 'coarse', review_status: 'ready_detailed', source_filename: 'ibrahim.zip',
+      conversation_started_at: '2026-09-27T18:03:05.000Z',
+      conversation_ended_at: '2026-09-28T00:10:40.000Z', raw_text: coarseText,
+    };
+    const order = {
+      id: 'order', review_status: 'ready_detailed', source_filename: 'ibrahim.zip',
+      conversation_started_at: '2026-09-27T18:03:05.000Z',
+      conversation_ended_at: '2026-09-27T18:15:35.000Z', raw_text: orderText,
+    };
+    const payment = {
+      id: 'payment', review_status: 'ready_detailed', source_filename: 'ibrahim.zip',
+      conversation_started_at: '2026-09-27T23:52:09.000Z',
+      conversation_ended_at: '2026-09-28T00:10:40.000Z', raw_text: paymentText,
+    };
+    const decision = evaluateCanonicalSourceGate(coarse, {
+      siblings: [coarse, order, payment],
+      v22CaseIdsBySource: new Map([
+        ['coarse', ['legacy-coarse-case']],
+        ['order', ['canonical-order-case']],
+        ['payment', ['canonical-payment-case']],
+      ]),
+    });
+    expect(decision.allowed).toBe(false);
+    if (decision.allowed) return;
+    expect(decision.reason).toBe('superseded_by_finer_canonical_sources');
+    expect(decision.supersedingSourceIds).toEqual(['order', 'payment']);
   });
 
   it('aggregates split lines for the same actual invoice product before quantity comparison', () => {
