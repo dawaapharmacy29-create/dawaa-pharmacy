@@ -34,6 +34,7 @@ export type DoctorPerformanceMonth = {
   confidence: PerformanceConfidence;
   coverageReason: string;
   comparisonEligible: boolean;
+  comparisonMode: 'full_cycle' | 'same_period' | 'blocked';
   comparisonReason: string;
   salesIdentity: 'canonical' | 'unavailable';
   salesSourceAvailable: boolean; attendanceSourceAvailable: boolean; conversationSourceAvailable: boolean;
@@ -52,6 +53,13 @@ const n=(v:unknown)=>{const x=Number(v);return Number.isFinite(x)?x:0};
 type SalesCycleSummaryRow = {
   cycle_start?: string; cycle_end?: string; sales?: number; invoices?: number; customers?: number; first_sale_date?: string | null;
 };
+
+type SalesPeriodSummaryRow = { sales?: number; invoices?: number; customers?: number; first_sale_date?: string | null };
+
+async function salesPeriod(staffId:string,start:string,endExclusive:string){
+  const {data,error}=await supabase.rpc('get_staff_performance_sales_period_v1',{p_staff_id:staffId,p_start:start,p_end_exclusive:endExclusive});
+  return {summary:((data||[])[0]||null) as SalesPeriodSummaryRow|null,available:!error};
+}
 
 async function salesCycles(staffId:string,start:string,endExclusive:string){
   const {data,error}=await supabase.rpc('get_staff_performance_sales_cycles_v1',{p_staff_id:staffId,p_window_start:start,p_window_end:endExclusive});
@@ -244,7 +252,8 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
     const converted=coverage==='not_applicable'||conversations.error?null:conversationRows.filter(r=>r.converted_to_sale===true).length;
     const customerImpact=aggregateImpact(impact.rows,impact.available);
 
-    const comparisonEligible=cycleClosed&&coverage==='available'&&confidence!=='low'&&hasCoreEvidence;
+    const comparisonMode:DoctorPerformanceMonth['comparisonMode']=cycleClosed?'full_cycle':(coverage==='available'&&confidence!=='low'&&hasCoreEvidence?'same_period':'blocked');
+    const comparisonEligible=comparisonMode!=='blocked';
     const comparisonReason=!cycleClosed
       ?'الدورة ما زالت جارية؛ تُعرض بياناتها الحالية كاملة لكن لا تُقارن تلقائيًا بدورة مكتملة.'
       :coverage==='not_applicable'
@@ -263,7 +272,7 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
       conversations:conv,convertedConversations:converted,conversionRate:conv&&converted!==null?converted/conv*100:null,
       coverage,confidence,
       coverageReason:coverageText(coverage,sales.available,attendanceAvailable,hasCoreEvidence),
-      comparisonEligible,comparisonReason,
+      comparisonEligible,comparisonMode,comparisonReason,
       salesIdentity:sales.identity,salesSourceAvailable:sales.available,attendanceSourceAvailable:attendanceAvailable,conversationSourceAvailable:conversationAvailable,
       salesEvidenceCount:salesUsable?n(sales.summary?.invoices):0,attendanceEvidenceCount:attendanceRows.length,conversationEvidenceCount:conversationRows.length,
       customerImpact,diagnoses:[],
