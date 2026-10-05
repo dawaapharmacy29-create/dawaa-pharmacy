@@ -1866,7 +1866,7 @@ export default function StaffMonthlyEvaluation() {
       ? 'راجع أدلة المحاور'
       : completedSections !== sections.length || weakSectionsMissingNotes.length
         ? 'أكمل التقييم'
-        : feedbackMissingStrength || feedbackMissingDevelopment || criticalGateMissingReason
+        : feedbackMissingStrength || feedbackMissingDevelopment || criticalGateMissingReason || criticalGateGeneralNoteMissing
           ? 'أكمل الخلاصة'
           : 'راجع التقييم';
 
@@ -1885,7 +1885,7 @@ export default function StaffMonthlyEvaluation() {
       }
       return;
     }
-    if (feedbackMissingStrength || feedbackMissingDevelopment || criticalGateMissingReason) {
+    if (feedbackMissingStrength || feedbackMissingDevelopment || criticalGateMissingReason || criticalGateGeneralNoteMissing) {
       setActiveStep(4);
       return;
     }
