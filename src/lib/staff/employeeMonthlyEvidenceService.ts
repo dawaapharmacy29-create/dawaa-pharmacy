@@ -913,13 +913,21 @@ async function loadTrainingEvidence(args: {
     .select('id,module_id,due_date,status,completed_at,score,created_at')
     .eq('staff_id', args.staffId)
     .or(filter)
-    .limit(200);
+    .limit(201);
 
   if (error) {
     return {
       assignments: [] as TrainingAssignmentEvidenceRow[],
       modules: [] as TrainingModuleEvidenceRow[],
       error: error.message,
+    };
+  }
+
+  if ((data?.length || 0) >= 201) {
+    return {
+      assignments: [] as TrainingAssignmentEvidenceRow[],
+      modules: [] as TrainingModuleEvidenceRow[],
+      error: 'training_assignments_truncated: more than 200 assignments matched this cycle; monthly evidence is incomplete',
     };
   }
 
@@ -1197,7 +1205,7 @@ async function loadInventoryEvidence(args: {
     .from('stagnant_medicines')
     .select('id,responsible_doctor_id,total_quantity,quantity_available,target_min_percent,minimum_remaining_percent,target_min_quantity,status')
     .eq('responsible_doctor_id', args.staffId)
-    .limit(500);
+    .limit(501);
 
   const stagnantMovementPromise = supabase
     .from('stagnant_medicine_dispenses')
@@ -1205,7 +1213,7 @@ async function loadInventoryEvidence(args: {
     .eq('doctor_id', args.staffId)
     .gte('dispensed_at', args.startDate)
     .lt('dispensed_at', args.endDateExclusive)
-    .limit(1000);
+    .limit(1001);
 
   const [weeklyResults, stagnantAssignedResult, stagnantMovementResult] = await Promise.all([
     weeklyPromise,
@@ -1213,6 +1221,10 @@ async function loadInventoryEvidence(args: {
     stagnantMovementPromise,
   ]);
 
+  const inventoryTruncationErrors = [
+    (stagnantAssignedResult.data?.length || 0) >= 501 ? 'stagnant_assignments_truncated: more than 500 assigned stagnant items matched; inventory evidence is incomplete' : '',
+    (stagnantMovementResult.data?.length || 0) >= 1001 ? 'stagnant_movements_truncated: more than 1000 stagnant movement rows matched this cycle; inventory evidence is incomplete' : '',
+  ].filter(Boolean);
   const weeklyErrors = weeklyResults.map((item) => item.error).filter(Boolean);
   const weeklyRowsByWeek = new Map<string, InventoryWeeklyProgressRow>();
   weeklyResults
@@ -1229,10 +1241,10 @@ async function loadInventoryEvidence(args: {
   const weeklyRows = [...weeklyRowsByWeek.values()];
   const allAssignedRows = stagnantAssignedResult.error
     ? []
-    : (stagnantAssignedResult.data || []) as StagnantMedicineEvidenceRow[];
+    : (stagnantAssignedResult.data || []).slice(0, 500) as StagnantMedicineEvidenceRow[];
   const movementRows = stagnantMovementResult.error
     ? []
-    : (stagnantMovementResult.data || []) as StagnantMovementEvidenceRow[];
+    : (stagnantMovementResult.data || []).slice(0, 1000) as StagnantMovementEvidenceRow[];
 
   const movedByMedicine = new Map<string, number>();
   movementRows.forEach((row) => {
@@ -1257,7 +1269,7 @@ async function loadInventoryEvidence(args: {
   });
 
   const weeklyAvailable = weeklyErrors.length < anchors.length;
-  const stagnantAvailable = !stagnantAssignedResult.error && !stagnantMovementResult.error;
+  const stagnantAvailable = !stagnantAssignedResult.error && !stagnantMovementResult.error && inventoryTruncationErrors.length === 0;
 
   return {
     weeklyRows,
@@ -1273,6 +1285,7 @@ async function loadInventoryEvidence(args: {
         : 'unavailable' as const,
     errors: [
       ...weeklyErrors,
+      ...inventoryTruncationErrors,
       stagnantAssignedResult.error?.message || '',
       stagnantMovementResult.error?.message || '',
     ].filter(Boolean),
