@@ -9,6 +9,7 @@ declare
   v_session_id uuid:=public.dawaa_current_staff_account_id_strict();
   v_actor public.staff_accounts%rowtype;
   v_subject public.staff%rowtype;
+  v_actor_staff_id uuid;
   v_type text:=nullif(trim(p_payload->>'evaluation_type'),'');
   v_subject_id uuid:=nullif(p_payload->>'subject_staff_id','')::uuid;
   v_branch text:=coalesce(p_payload->>'branch','');
@@ -34,9 +35,15 @@ begin
      or(v_type='customer_service' and lower(v_actor.role) not in ('general_manager','executive_manager','branches_manager'))
   then raise exception 'not allowed' using errcode='42501'; end if;
   if v_subject_id is null or v_start is null or v_end is null or v_end<v_start then raise exception 'invalid evaluation identity or period' using errcode='22023'; end if;
+  select s.id into v_actor_staff_id from public.staff s where s.id::text=v_actor.staff_id limit 1;
+  if v_actor_staff_id is null then raise exception 'actor staff link missing' using errcode='42501'; end if;
   select * into v_subject from public.staff where id=v_subject_id and coalesce(active,is_active,true) limit 1;
   if not found then raise exception 'subject not found' using errcode='22023'; end if;
-  if v_actor.staff_id=v_subject_id::text then raise exception 'self evaluation not allowed' using errcode='42501'; end if;
+  if v_actor_staff_id=v_subject_id then raise exception 'self evaluation not allowed' using errcode='42501'; end if;
+  if (v_type='branch_manager' and coalesce(v_subject.role,v_subject.type,'') !~* 'branch_manager')
+     or(v_type='branches_manager' and coalesce(v_subject.role,v_subject.type,'') !~* 'branches_manager')
+     or(v_type='customer_service' and coalesce(v_subject.role,v_subject.type,'') !~* 'customer_service|team_dawaa_alpha|خدمة العملاء')
+  then raise exception 'subject role mismatch' using errcode='22023'; end if;
   if coalesce(v_subject.branch,'')<>v_branch and v_type<>'branches_manager' then raise exception 'subject branch mismatch' using errcode='22023'; end if;
   if v_status not in ('draft','submitted') then raise exception 'invalid status' using errcode='22023'; end if;
 
@@ -63,7 +70,7 @@ begin
     evaluation_type,subject_staff_id,subject_name,branch,evaluator_staff_id,evaluator_name,
     week_start,week_end,auto_metrics,manual_scores,manual_note,total_score,status,submitted_at,updated_at
   ) values(
-    v_type,v_subject.id,v_subject.name,v_branch,v_actor.staff_id::uuid,coalesce(v_actor.name,v_actor.username),
+    v_type,v_subject.id,v_subject.name,v_branch,v_actor_staff_id,coalesce(v_actor.name,v_actor.username),
     v_start,v_end,v_auto,v_manual,nullif(p_payload->>'manual_note',''),v_total,v_status,
     case when v_status='submitted' then now() else null end,now()
   )
