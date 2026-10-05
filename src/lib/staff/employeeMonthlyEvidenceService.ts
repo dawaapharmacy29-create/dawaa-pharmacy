@@ -1446,12 +1446,28 @@ export async function loadEmployeeMonthlyEvidence(args: {
   branch?: string | null;
 }): Promise<EmployeeMonthlyEvidence> {
   const errors: Record<string, string> = {};
+  const role = canonicalStaffRole(args.role);
+  const inventoryRoles = new Set(['doctor', 'assistant', 'inventory_assistant', 'purchasing']);
+  const needsInventoryEvidence = inventoryRoles.has(role);
+  const needsInvoicePerformance = role === 'doctor';
+  // Development is shared by all role profiles, so training remains canonical for every role.
+  const emptyInventoryEvidence = {
+    weeklyRows: [],
+    assignedRows: [],
+    movementRows: [],
+    configuredTargets: [],
+    achievedTargets: [],
+    historicalAssignedExcluded: 0,
+    sourceStatus: 'unavailable' as const,
+    errors: [],
+  };
+  const emptyInvoicePerformance = { row: null, error: '' };
 
   const taskEvidencePromise: Promise<EvaluationMetricProjection | null> = args.branch && args.role
     ? readPerformanceTaskEvidence({
         staffId: args.staffId,
         branch: args.branch,
-        role: canonicalStaffRole(args.role),
+        role,
         start: args.startDate,
         end: new Date(new Date(args.endDateExclusive).getTime() - 86400000).toISOString().slice(0,10),
       }).catch((cause) => {
@@ -1484,9 +1500,9 @@ export async function loadEmployeeMonthlyEvidence(args: {
       rows: [] as AttendanceImpactRow[],
       error: cause instanceof Error ? cause.message : String(cause),
     })),
-    loadInventoryEvidence(args),
+    needsInventoryEvidence ? loadInventoryEvidence(args) : Promise.resolve(emptyInventoryEvidence),
     loadTrainingEvidence(args),
-    loadInvoicePerformanceEvidence(args),
+    needsInvoicePerformance ? loadInvoicePerformanceEvidence(args) : Promise.resolve(emptyInvoicePerformance),
     taskEvidencePromise,
   ]);
 
