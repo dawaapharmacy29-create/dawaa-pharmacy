@@ -10,4 +10,7 @@ must('supabase/migrations/20261005155000_manager_incentive_canonical_provenance_
 must('supabase/migrations/20261005152000_manager_evaluation_canonical_save_v5.sql',[
   'manager_evaluation_final_decision_immutable',"'data_coverage'",'dawaa_manager_evaluation_objective_v5'
 ]);
+must('supabase/migrations/20261005156000_doctor_cs_evaluation_final_immutability_v5.sql',[
+  'doctor_cs_evaluation_final_decision_immutable','before update or delete',"old.status in ('sent','approved')"
+]);
 if(fail.length){console.error(fail.join('\n'));process.exit(1);}console.log('manager evaluation finality architecture OK');
