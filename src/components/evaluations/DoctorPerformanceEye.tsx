@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Eye, Lightbulb, Loader2, ShieldCheck, TrendingDown, TrendingUp, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronDown, Eye, FileText, Lightbulb, Loader2, PackageSearch, ShieldCheck, TrendingDown, TrendingUp, X } from 'lucide-react';
 import { loadDoctorPerformanceIntelligence, type DoctorPerformanceIntelligence, type DoctorPerformanceMonth } from '@/lib/evaluations/doctorPerformanceIntelligenceService';
+import { supabase } from '@/lib/supabase';
 
 const fmt=(v:number|null,d=0)=>v===null?'غير متاح':v.toLocaleString('ar-EG',{maximumFractionDigits:d,minimumFractionDigits:d});
 const pct=(v:number|null)=>v===null?'غير متاح':`${fmt(v,1)}%`;
@@ -48,8 +49,29 @@ function MonthSummary({m}:{m:DoctorPerformanceMonth}){return <div className="rou
 
 export default function DoctorPerformanceEye({staffId,staffName,cycleLabel}:{staffId:string;staffName:string;cycleLabel:string}){
  const [open,setOpen]=useState(false),[loading,setLoading]=useState(false),[data,setData]=useState<DoctorPerformanceIntelligence|null>(null),[error,setError]=useState('');
+ const [evidenceOpen,setEvidenceOpen]=useState(false),[evidenceLoading,setEvidenceLoading]=useState(false),[evidenceError,setEvidenceError]=useState('');
+ const [evidenceConversations,setEvidenceConversations]=useState<any[]>([]),[evidenceProducts,setEvidenceProducts]=useState<any[]>([]);
  useEffect(()=>{setData(null);setError('')},[staffId,cycleLabel]);
  async function show(){setOpen(true);if(data)return;setLoading(true);try{setData(await loadDoctorPerformanceIntelligence({staffId,staffName,cycleLabel}))}catch(e){setError(e instanceof Error?e.message:'تعذر تحميل أداء الدكتور')}finally{setLoading(false)}}
+ async function loadEvidence(){
+  if(!cur||evidenceLoading)return;
+  if(evidenceOpen){setEvidenceOpen(false);return}
+  setEvidenceOpen(true);
+  if(evidenceConversations.length||evidenceProducts.length)return;
+  setEvidenceLoading(true);setEvidenceError('');
+  try{
+   const rangeStart=cur.cycleLabel;
+   const [year,month]=rangeStart.split('-').map(Number);
+   const startDate=new Date(Date.UTC(year,month-1,26)).toISOString().slice(0,10);
+   const endDate=new Date(Date.UTC(year,month,25)).toISOString().slice(0,10);
+   const [sources,products]=await Promise.all([
+    supabase.from('whatsapp_review_sources').select('id,customer_name,customer_code,conversation_started_at,followup_required,invoice_match_status,matched_invoice_number,matched_invoice_value,review_status').eq('staff_id',staffId).gte('conversation_started_at',`${startDate}T00:00:00`).lte('conversation_started_at',`${endDate}T23:59:59`).order('conversation_started_at',{ascending:false}).limit(80),
+    supabase.from('whatsapp_product_journey_detail_v1').select('source_id,customer_name,customer_code,product_name,current_stage,leakage_reason,next_action,invoice_match_status,matched_invoice_number,matched_invoice_value,confidence').eq('staff_id',staffId).eq('cycle_start',startDate).eq('cycle_end',endDate).limit(120)
+   ]);
+   if(sources.error)throw sources.error;if(products.error)throw products.error;
+   setEvidenceConversations(sources.data||[]);setEvidenceProducts(products.data||[]);
+  }catch(e){setEvidenceError(e instanceof Error?e.message:'تعذر تحميل الأدلة التفصيلية')}finally{setEvidenceLoading(false)}
+ }
  const cur=data?.months[0],prev=data?.months[1];
  const blockedReason=cur&&prev?comparisonBlockReason(cur,prev):null;
  return <>
@@ -97,6 +119,24 @@ export default function DoctorPerformanceEye({staffId,staffName,cycleLabel}:{sta
       <span>ترشيحات مقبولة: {fmt(cur.customerImpact.acceptedProducts)}</span>
       <span>شكاوى: {fmt(cur.customerImpact.complaints)}</span>
      </div>:<div className="mt-2 text-[11px] font-bold" style={{color:'var(--dawaa-theme-muted)'}}>مصدر Customer Impact غير متاح؛ لن يتحول غيابه إلى صفر أو حكم سلبي.</div>}
+    </div>
+    <div className="mt-4 rounded-xl border p-3" style={{borderColor:'var(--dawaa-theme-border)'}}>
+     <button type="button" onClick={()=>void loadEvidence()} className="flex w-full items-center justify-between gap-3 text-right">
+      <div><div className="flex items-center gap-2 text-sm font-black" style={{color:'var(--dawaa-theme-heading)'}}><FileText size={16}/> Evidence Drill-down</div><div className="mt-1 text-[11px] font-bold" style={{color:'var(--dawaa-theme-muted)'}}>افتح الدليل الذي يقف خلف Customer Impact: العميل، المحادثة، الفاتورة، الصنف وسبب فقد البيع.</div></div>
+      <ChevronDown size={17} className={evidenceOpen?'rotate-180 transition-transform':'transition-transform'}/>
+     </button>
+     {evidenceOpen?<div className="mt-3">
+      {evidenceLoading?<div className="flex items-center gap-2 p-4 text-xs font-black"><Loader2 size={15} className="animate-spin"/> جاري تحميل Evidence…</div>:evidenceError?<div className="rounded-lg border p-3 text-xs font-bold" style={{borderColor:'var(--dawaa-theme-border)'}}>{evidenceError}</div>:<div className="grid gap-3 lg:grid-cols-2">
+       <div className="rounded-xl border p-2" style={{borderColor:'var(--dawaa-theme-border)'}}><div className="mb-2 flex items-center gap-2 text-xs font-black"><FileText size={14}/> المحادثات والفواتير</div><div className="max-h-80 space-y-2 overflow-y-auto">
+        {evidenceConversations.map(item=><div key={item.id} className="rounded-lg border p-2 text-[11px]" style={{borderColor:'var(--dawaa-theme-border)'}}><div className="font-black">{item.customer_name||'عميل غير محدد'} {item.customer_code?`#${item.customer_code}`:''}</div><div className="mt-1" style={{color:'var(--dawaa-theme-muted)'}}>{String(item.conversation_started_at||'').replace('T',' ').slice(0,16)} · {item.invoice_match_status==='verified'?`فاتورة مؤكدة ${item.matched_invoice_number||''} — ${fmt(Number(item.matched_invoice_value||0))} ج`:'بدون بيع مؤكد'}{item.followup_required?' · متابعة مطلوبة':''}</div></div>)}
+        {!evidenceConversations.length?<div className="p-3 text-[11px]" style={{color:'var(--dawaa-theme-muted)'}}>لا توجد محادثات تفصيلية مرتبطة بهذه الدورة.</div>:null}
+       </div></div>
+       <div className="rounded-xl border p-2" style={{borderColor:'var(--dawaa-theme-border)'}}><div className="mb-2 flex items-center gap-2 text-xs font-black"><PackageSearch size={14}/> الأصناف والفرص</div><div className="max-h-80 space-y-2 overflow-y-auto">
+        {evidenceProducts.map((item,index)=><div key={`${item.source_id}-${item.product_name}-${index}`} className="rounded-lg border p-2 text-[11px]" style={{borderColor:'var(--dawaa-theme-border)'}}><div className="font-black">{item.product_name||'صنف غير محدد'} · {item.customer_name||'عميل غير محدد'}</div><div className="mt-1" style={{color:'var(--dawaa-theme-muted)'}}>{item.current_stage||'مرحلة غير محددة'}{item.leakage_reason?` · سبب فقد البيع: ${item.leakage_reason}`:''}{item.next_action?` · التالي: ${item.next_action}`:''}{item.invoice_match_status==='verified'?` · بيع مؤكد ${fmt(Number(item.matched_invoice_value||0))} ج`:''}</div></div>)}
+        {!evidenceProducts.length?<div className="p-3 text-[11px]" style={{color:'var(--dawaa-theme-muted)'}}>لا توجد رحلات أصناف تفصيلية مرتبطة بهذه الدورة.</div>:null}
+       </div></div>
+      </div>}
+     </div>:null}
     </div>
     <div className="mt-4 space-y-2">{data!.months.map(m=><MonthSummary key={m.cycleLabel} m={m}/>)}</div>
     <div className="mt-4 rounded-xl border p-3 text-[11px] font-bold leading-6" style={{borderColor:'var(--dawaa-theme-border)',color:'var(--dawaa-theme-muted)'}}>
