@@ -1928,13 +1928,18 @@ export default function StaffMonthlyEvaluation() {
     setActiveStep(5);
   }
 
-  // الرقم المالي المعروض يأتي فقط من الحقيقة المالية على الخادم أو من كشف مقفول.
-  // لا نحسب مبلغًا نهائيًا داخل صفحة التقييم.
-  const canonicalIncentive = settledStatement
-    ? Number(settledStatement.incentive_amount)
-    : pointsTruth?.final_incentive_egp == null
-      ? null
-      : Number(pointsTruth.final_incentive_egp);
+  // Keep approval-time financial evidence separate from the later payroll settlement.
+  // A closed statement is the final settlement, while the published snapshot remains
+  // the immutable truth that was visible when the evaluation was approved.
+  const publishedPointsTruthRaw = publishedSnapshot?.points_truth;
+  const publishedPointsTruth = publishedPointsTruthRaw && typeof publishedPointsTruthRaw === 'object' && !Array.isArray(publishedPointsTruthRaw)
+    ? publishedPointsTruthRaw as Record<string, unknown>
+    : null;
+  const approvalTimeIncentive = publishedPointsTruth?.final_incentive_egp == null
+    ? pointsTruth?.final_incentive_egp == null ? null : Number(pointsTruth.final_incentive_egp)
+    : Number(publishedPointsTruth.final_incentive_egp);
+  const settledIncentive = settledStatement ? Number(settledStatement.incentive_amount) : null;
+  const canonicalIncentive = settledIncentive ?? approvalTimeIncentive;
 
   return (
     <div className="min-h-screen space-y-4 p-4" dir="rtl" style={{ background: 'var(--dawaa-theme-bg)' }}>
@@ -2379,7 +2384,11 @@ export default function StaffMonthlyEvaluation() {
                           tone={canonicalIncentive == null ? 'amber' : 'green'}
                         />
                       </div>
-                      {!settledStatement && pointsTruth ? (
+                      {settledStatement ? (
+                        <div className="mt-2 text-[11px] font-bold leading-5" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                          المبلغ المعروض هنا هو التسوية النهائية المقفولة. مبلغ وقت اعتماد التقييم محفوظ مستقلًا داخل Snapshot الاعتماد ولا يتم استبداله تاريخيًا.
+                        </div>
+                      ) : pointsTruth ? (
                         <div className="mt-2 text-[11px] font-bold leading-5" style={{ color: 'var(--dawaa-theme-muted)' }}>
                           المبلغ المعروض قراءة من Points Truth، وقد يظل غير نهائي حتى إقفال كشف الحافز.
                         </div>
