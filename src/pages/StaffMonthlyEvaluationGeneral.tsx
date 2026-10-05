@@ -733,6 +733,7 @@ export default function StaffMonthlyEvaluation() {
     attendance: 'unavailable',
   });
   const [evidenceErrors, setEvidenceErrors] = useState<Record<string, string>>({});
+  const [evidenceLoadedAt, setEvidenceLoadedAt] = useState<number | null>(null);
   const [coaching, setCoaching] = useState<EmployeeMonthlyEvidence['coaching'] | null>(null);
   const [taskEvaluation, setTaskEvaluation] = useState<EmployeeMonthlyEvidence['taskEvaluation']>(null);
   const [employeeHeader, setEmployeeHeader] = useState<EvaluationHeaderSummary | null>(null);
@@ -893,6 +894,7 @@ export default function StaffMonthlyEvaluation() {
       setMetrics(EMPTY_METRICS);
       setEvidenceHealth({ reviews: 'unavailable', followups: 'unavailable', attendance: 'unavailable' });
       setEvidenceErrors({});
+      setEvidenceLoadedAt(null);
       setCoaching(null);
       setTaskEvaluation(null);
       setSections(evaluationProfileForRole(selected.job_title || selected.role).sections);
@@ -956,6 +958,7 @@ export default function StaffMonthlyEvaluation() {
         setMetrics(evidenceResult.metrics);
         setEvidenceHealth(evidenceResult.health);
         setEvidenceErrors(evidenceResult.errors);
+        setEvidenceLoadedAt(Date.now());
         setCoaching(evidenceResult.coaching);
         setTaskEvaluation(evidenceResult.taskEvaluation);
 
@@ -1323,6 +1326,10 @@ export default function StaffMonthlyEvaluation() {
     }
     if (nextStatus === 'sent' && criticalGateGeneralNoteMissing) {
       toast.error('اكتب خلاصة قرار المخالفة الحرجة في ملاحظات المدير قبل الاعتماد.');
+      return;
+    }
+    if (nextStatus === 'sent' && (!evidenceLoadedAt || Date.now() - evidenceLoadedAt > 5 * 60_000)) {
+      toast.error('أدلة التقييم المفتوحة قديمة لأكثر من 5 دقائق. أعد فتح الموظف أو حدّث الصفحة لمراجعة أحدث الأدلة قبل الاعتماد.');
       return;
     }
 
