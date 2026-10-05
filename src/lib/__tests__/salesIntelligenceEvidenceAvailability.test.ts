@@ -10,6 +10,7 @@ import { reviewSourceRowToBatchConversation } from '@/lib/salesIntelligence/pers
 import { evaluateCanonicalSourceGate } from '@/lib/salesIntelligence/persistence/canonicalSourceGate';
 import { deriveConversationCases } from '@/lib/salesIntelligence/conversationCaseEngine';
 import { deriveCanonicalSalesOutcome } from '@/lib/salesIntelligence/canonicalSalesOutcomeEngine';
+import { buildPharmacyProductIndex, resolveProductMention } from '@/lib/salesIntelligence/pharmacyProducts/pharmacyProductResolverV2';
 import type { CommercialConfirmationAssessment } from '@/lib/salesIntelligence/types';
 
 const confirmation: CommercialConfirmationAssessment = {
@@ -150,6 +151,34 @@ describe('Sales Intelligence evidence availability hardening', () => {
     expect(result.isRevenueCountable).toBe(false);
     expect(result.isOrderConfirmed).toBe(false);
     expect(result.reasonCodes).toContain('outcome.independent_multiple_requests_require_review');
+  });
+
+  it('resolves the real Arabic Hero Baby request strongly but leaves a deictic media-only request unresolved', () => {
+    const hero = {
+      productId: 'a411a30e-dd29-46c0-be4c-220695cc06f2',
+      productCode: '74976',
+      barcode: null,
+      canonicalName: 'hero baby nutradefense 3 plus',
+      arabicName: null,
+      englishName: 'hero baby nutradefense 3 plus',
+      normalizedNames: ['hero baby nutradefense 3 plus'],
+      strengths: [], dosageForms: [], packSizes: [], category: null, manufacturer: null,
+      price: null, sourceTable: 'catalog_import',
+      qualityFlags: {
+        hasNormalizedNameCollision: false, missingStrength: true,
+        missingDosageForm: true, missingAnyQuantitySignal: false,
+      },
+    } as any;
+    const index = buildPharmacyProductIndex([hero]);
+
+    const explicit = resolveProductMention('علبتين لبن هيرو بيبي نيوتروني دفنس 3', index);
+    expect(explicit.selected?.product.productId).toBe(hero.productId);
+    expect(explicit.selected?.confidence).toBe('strongly_inferred');
+    expect(explicit.selected?.basis).toBe('cross_script_composite');
+
+    const mediaOnly = resolveProductMention('عايزه من دا 4', index);
+    expect(mediaOnly.selected).toBeNull();
+    expect(mediaOnly.ambiguous).toBe(false);
   });
 
   it('aggregates split lines for the same actual invoice product before quantity comparison', () => {
