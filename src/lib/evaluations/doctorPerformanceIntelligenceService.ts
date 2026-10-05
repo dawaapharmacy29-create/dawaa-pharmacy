@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import { evaluationCycleRangeFromLabel, evaluationCycleDateKeys, isEvaluationCycleClosed } from '@/lib/evaluations/monthlyEvaluationCycle';
+import { evaluationCycleRangeFromLabel, evaluationCycleDateKeys, isEvaluationCycleClosed, previousEvaluationCycleLabel } from '@/lib/evaluations/monthlyEvaluationCycle';
 
 export type PerformanceCoverage = 'available' | 'partial' | 'not_applicable' | 'unavailable';
 export type PerformanceConfidence = 'high' | 'medium' | 'low';
@@ -57,6 +57,7 @@ export type DoctorPerformanceIntelligence = {
 };
 
 const n=(v:unknown)=>{const x=Number(v);return Number.isFinite(x)?x:0};
+const previousCycle=(label:string,back:number)=>{let value=label;for(let i=0;i<back;i+=1)value=previousEvaluationCycleLabel(value);return value};
 type SalesCycleSummaryRow = {
   cycle_start?: string; cycle_end?: string; sales?: number; invoices?: number; customers?: number; first_sale_date?: string | null;
 };
