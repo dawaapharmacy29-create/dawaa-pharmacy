@@ -45,7 +45,7 @@ import {
 } from '@/lib/security/userDataScope';
 import { toast } from 'sonner';
 import { useSupabaseQuery, logActivity } from '@/hooks/useSupabaseQuery';
-import * as pointsPersistence from '@/lib/pointsPersistence';
+import { getStaffSessionToken } from '@/lib/auth/staffSession';
 import { getCycleForDate } from '@/lib/pharmacy-cycle';
 import type { Customer } from '@/types/database';
 import type { CustomerMetric } from '@/lib/api/customers';
@@ -527,19 +527,11 @@ export default function Reviews() {
     };
   }, [searchParams, selectedReviewId]);
 
-  const closeSelectedReviewRef = useRef(closeSelectedReview);
-  useEffect(() => {
-    closeSelectedReviewRef.current = closeSelectedReview;
-  }, [closeSelectedReview]);
-  useEffect(() => {
-    // مقصود نستخدم مصفوفة تبعيات فاضية هنا: عايزين النداء ده يحصل مرة واحدة
-    // بس لما الصفحة تتقفل فعليًا (unmount)، مش كل مرة closeSelectedReview
-    // يتغير مرجعها لأي سبب أثناء إعادة الرندر العادية.
-    return () => {
-      closeSelectedReviewRef.current();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Do not mutate the reviews URL during unmount. ReviewsEnhanced intentionally
+  // unmounts this component when ?section=history is selected; changing search
+  // params from the cleanup races the parent route and bounces the user back to
+  // the default/new-review screen. URL cleanup belongs only to explicit close
+  // actions through closeSelectedReview().
   const [managerSaving, setManagerSaving] = useState(false);
   const [managerForm, setManagerForm] = useState({
     score: '100',
@@ -1466,45 +1458,28 @@ export default function Reviews() {
       }
 
       if (repeatedDoctorImpact !== 0) {
-        const pointsResult = await pointsPersistence.persistPointsTransaction({
-          employeeId: selectedStaff.id,
-          employeeName: selectedStaff.name,
-          branch: selectedStaff.branch,
-          branchId: selectedStaff.branch_id ?? null,
-          operation: repeatedDoctorImpact > 0 ? 'bonus' : 'deduction',
-          rule: null,
-          pointsToStore: Math.abs(repeatedDoctorImpact),
-          basePoints: Math.abs(result.doctorPointsImpact),
-          repeatCount: previousCount,
-          multiplier,
-          finalPoints: Math.abs(repeatedDoctorImpact),
-          reasonLabel: `تقييم محادثة عميل - النتيجة ${result.finalScore}/100`,
-          userNote: [
-            form.reviewerNotes || form.notes || `تقييم محادثة ${result.finalScore}/100`,
-            result.repeatErrorType ? `review_error:${result.repeatErrorType}` : '',
-            result.mainNegativeReason
-              ? `سبب التأثير: ${result.mainNegativeReason}`
-              : result.mainPositiveReason,
-            reviewRowId ? `review_id:${reviewRowId}` : '',
-          ]
-            .filter(Boolean)
-            .join(' | '),
-          createdByName: selectedReviewer.name || user?.name || 'مراجع',
-          createdById: selectedReviewer.id || user?.id || '',
-          createdByRole: selectedReviewer.role || user?.role || '',
-          status: result.impactStatus === 'approved' ? 'approved' : 'pending',
-          cycle: reviewCycle,
-          source: 'conversation_evaluation',
-          sourceModule: 'conversation_evaluation',
-          sourceRecordId: reviewRowId ?? null,
-          description: form.reviewerNotes || form.notes || finalTraining,
-        });
+        const staffSessionToken = getStaffSessionToken();
+        let pointsError: string | null = null;
 
-        if (pointsResult.error) {
-          // التقييم نفسه اتسجل، لكن النقاط جزء أساسي من دورة الحوافز.
-          // لا نمسح المسودة ولا نعتبر العملية مكتملة: إعادة الضغط على حفظ
-          // ستسترجع نفس التقييم (idempotent) وتحاول ربط النقاط مرة أخرى بلا تكرار.
-          toast.error(`تم حفظ التقييم لكن ربط النقاط لم يكتمل. اضغط حفظ مرة أخرى لإكمال الربط: ${pointsResult.error}`);
+        if (!staffSessionToken || !reviewRowId) {
+          pointsError = !staffSessionToken
+            ? 'جلسة الموظف غير متاحة أو انتهت. سجّل الدخول مرة أخرى ثم أعد محاولة ربط النقاط.'
+            : 'تعذر تحديد التقييم المحفوظ لربط النقاط.';
+        } else {
+          const { error: pointsCommandError } = await supabase.rpc(
+            'record_conversation_review_points_v1',
+            {
+              p_session_token: staffSessionToken,
+              p_review_id: reviewRowId,
+            }
+          );
+          if (pointsCommandError) pointsError = pointsCommandError.message;
+        }
+
+        if (pointsError) {
+          // التقييم محفوظ بالفعل. أمر النقاط الجديد مربوط بنفس review_id ومقاوم للتكرار،
+          // لذلك لا ننشئ حركة بديلة ولا نطلب من المستخدم إعادة الحفظ بشكل أعمى.
+          toast.error(`تم حفظ التقييم، لكن ربط النقاط ما زال معلّقًا: ${pointsError}`);
           return false;
         }
       }
@@ -1840,7 +1815,7 @@ export default function Reviews() {
         note: string;
       }) => {
         if (!args.employeeId || args.signedDelta === 0) return null;
-        return pointsPersistence.persistPointsTransaction({
+        return persistPointsTransaction({
           employeeId: args.employeeId,
           employeeName: args.employeeName,
           branch: args.branch,
