@@ -11,6 +11,7 @@ function read(path) {
 }
 
 const page = read('src/pages/StaffMonthlyEvaluationGeneral.tsx');
+const routeAdapter = read('src/pages/StaffMonthlyEvaluation.tsx');
 const workflow = read('src/components/evaluations/MonthlyEvaluationWorkflowV5.tsx');
 const audit = read('src/components/evaluations/MonthlyEvaluationAuditTrailV5.tsx');
 const profiles = read('src/lib/evaluations/staffEvaluationProfilesV3.ts');
@@ -27,6 +28,13 @@ const backend = [
   read('supabase/migrations/20260930154000_monthly_evaluation_trigger_execute_hardening_v5.sql'),
   read('supabase/migrations/20260930155500_monthly_evaluation_server_evidence_type_compat_v5.sql'),
 ].join('\n');
+
+if (!routeAdapter.includes("export { default } from '@/pages/StaffMonthlyEvaluationGeneral'")) {
+  failures.push('Monthly evaluation route adapter must point only to StaffMonthlyEvaluationGeneral.');
+}
+for (const forbidden of ['CustomerServiceDoctorEvaluation', 'TEAM_DAWAA_CS_EVALUATOR_IDS', 'save_staff_monthly_evaluation', 'supabase.rpc']) {
+  if (routeAdapter.includes(forbidden)) failures.push(`Monthly evaluation route adapter must stay logic-free; found: ${forbidden}`);
+}
 
 for (const rpc of [
   'list_staff_for_monthly_evaluation_v5',
