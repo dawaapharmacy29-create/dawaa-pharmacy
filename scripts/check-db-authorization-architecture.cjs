@@ -248,6 +248,20 @@ else {
   ]) if (!definerActorGuard.includes(token)) failures.push(`SECURITY DEFINER actor guard missing: ${token}`);
 }
 
+const weeklyActorGuardPaths = [
+  'supabase/migrations/20261005150000_weekly_manager_actor_identity_guard_v5.sql',
+  'supabase/migrations/20261005151000_weekly_manager_fast_metrics_actor_guard_v5.sql',
+];
+for (const relativePath of weeklyActorGuardPaths) {
+  const fullPath = path.join(ROOT, relativePath);
+  if (!fs.existsSync(fullPath)) failures.push(`Weekly manager actor guard missing: ${relativePath}`);
+  else {
+    const source = fs.readFileSync(fullPath, 'utf8');
+    if (!source.includes('dawaa_current_staff_account_id_strict()')) failures.push(`Weekly manager actor guard is not session-bound: ${relativePath}`);
+    if (!source.includes('actor_mismatch')) failures.push(`Weekly manager actor guard lacks mismatch rejection: ${relativePath}`);
+  }
+}
+
 const managerEvalCommandPath = path.join(ROOT, 'supabase/migrations/20261005152000_manager_evaluation_canonical_save_v5.sql');
 if (!fs.existsSync(managerEvalCommandPath)) failures.push('Canonical manager evaluation save command is missing.');
 else {
