@@ -931,7 +931,7 @@ export default function StaffMonthlyEvaluation() {
         ].join(':');
         const cachedEvidence = evidenceCacheRef.current.get(evidenceCacheKey);
         const evidencePromise = cachedEvidence && Date.now() - cachedEvidence.at < 60_000
-          ? Promise.resolve(cachedEvidence.value)
+          ? Promise.resolve({ value: cachedEvidence.value, loadedAt: cachedEvidence.at })
           : loadEmployeeMonthlyEvidence({
               staffId: selectedId,
               startDate,
@@ -939,11 +939,12 @@ export default function StaffMonthlyEvaluation() {
               role: selected.job_title || selected.role,
               branch: selected.branch || branch,
             }).then((value) => {
-              evidenceCacheRef.current.set(evidenceCacheKey, { at: Date.now(), value });
-              return value;
+              const loadedAt = Date.now();
+              evidenceCacheRef.current.set(evidenceCacheKey, { at: loadedAt, value });
+              return { value, loadedAt };
             });
 
-        const [savedResult, evidenceResult] = await Promise.all([
+        const [savedResult, evidenceEnvelope] = await Promise.all([
           supabase.rpc('get_staff_monthly_evaluation_v5', {
             p_actor_id: user.id,
             p_staff_id: selectedId,
@@ -955,10 +956,11 @@ export default function StaffMonthlyEvaluation() {
         if (savedResult.error) throw savedResult.error;
         if (evaluationRequestRef.current !== requestId) return;
 
+        const evidenceResult = evidenceEnvelope.value;
         setMetrics(evidenceResult.metrics);
         setEvidenceHealth(evidenceResult.health);
         setEvidenceErrors(evidenceResult.errors);
-        setEvidenceLoadedAt(Date.now());
+        setEvidenceLoadedAt(evidenceEnvelope.loadedAt);
         setCoaching(evidenceResult.coaching);
         setTaskEvaluation(evidenceResult.taskEvaluation);
 
