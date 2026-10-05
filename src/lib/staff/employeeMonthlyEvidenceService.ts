@@ -1462,6 +1462,11 @@ export async function loadEmployeeMonthlyEvidence(args: {
     errors: [],
   };
   const emptyInvoicePerformance = { row: null, error: '' };
+  const emptyFollowupResult = { data: [] as Record<string, unknown>[], error: null };
+  const conversationRoles = new Set(['doctor', 'customer_service']);
+  const followupRoles = new Set(['doctor', 'customer_service']);
+  const needsConversationEvidence = conversationRoles.has(role);
+  const needsFollowupEvidence = followupRoles.has(role);
 
   const taskEvidencePromise: Promise<EvaluationMetricProjection | null> = args.branch && args.role
     ? readPerformanceTaskEvidence({
@@ -1477,14 +1482,14 @@ export async function loadEmployeeMonthlyEvidence(args: {
     : Promise.resolve(null);
 
   const [reviewResult, followupResult, attendanceResult, attendanceImpactResult, inventoryResult, trainingResult, invoicePerformanceResult, taskEvaluation] = await Promise.all([
-    loadConversationReviews(args),
-    supabase
+    needsConversationEvidence ? loadConversationReviews(args) : Promise.resolve({ rows: [] as Record<string, unknown>[], error: '' }),
+    needsFollowupEvidence ? supabase
       .from('daily_followups')
       .select('id,status,followup_status,followup_result,followup_summary,notes,completed_at,closed_at,needs_next_followup,next_followup_date,purchase_after_followup,created_at,assigned_staff_id,requested_by_staff_id')
       .or(`assigned_staff_id.eq.${args.staffId},requested_by_staff_id.eq.${args.staffId}`)
       .gte('created_at', args.startDate)
       .lt('created_at', args.endDateExclusive)
-      .limit(1000),
+      .limit(1000) : Promise.resolve(emptyFollowupResult),
     readAttendanceRange({
       staffId: args.staffId,
       startDate: args.startDate,
@@ -1544,8 +1549,12 @@ export async function loadEmployeeMonthlyEvidence(args: {
 
   const reviewAvailable = !errors.reviews;
   const health = {
-    reviews: reviewAvailable ? 'available' as const : 'unavailable' as const,
-    followups: followupResult.error ? 'unavailable' as const : 'available' as const,
+    reviews: needsConversationEvidence
+      ? (reviewAvailable ? 'available' as const : 'unavailable' as const)
+      : 'available' as const,
+    followups: needsFollowupEvidence
+      ? (followupResult.error ? 'unavailable' as const : 'available' as const)
+      : 'available' as const,
     attendance: attendanceResult.status,
   };
 
