@@ -262,6 +262,19 @@ for (const relativePath of weeklyActorGuardPaths) {
   }
 }
 
+const managerObjectivePath = path.join(ROOT, 'supabase/migrations/20261005153000_manager_evaluation_server_objective_v5.sql');
+if (!fs.existsSync(managerObjectivePath)) failures.push('Server-authoritative manager objective scorer is missing.');
+else {
+  const managerObjective = fs.readFileSync(managerObjectivePath, 'utf8');
+  for (const token of [
+    'dawaa_manager_evaluation_objective_v5',
+    'calculate_weekly_manager_metrics_v5',
+    'calculate_weekly_checklist_completion_v4',
+    "'criterion_system_scores'",
+    "'criterion_weights'",
+  ]) if (!managerObjective.includes(token)) failures.push(`Manager objective scorer guard missing: ${token}`);
+}
+
 const managerEvalCommandPath = path.join(ROOT, 'supabase/migrations/20261005152000_manager_evaluation_canonical_save_v5.sql');
 if (!fs.existsSync(managerEvalCommandPath)) failures.push('Canonical manager evaluation save command is missing.');
 else {
@@ -271,7 +284,9 @@ else {
     'dawaa_current_staff_account_id_strict()',
     'self evaluation not allowed',
     'subject role mismatch',
-    'manager_evaluation_score_mismatch',
+    'dawaa_manager_evaluation_objective_v5',
+    "'__server_validated_at'",
+    'v_total:=case when v_manual_count=v_combined_count',
     'revoke insert,update,delete on public.manager_weekly_evaluations from anon,authenticated',
   ]) if (!managerEvalCommand.includes(token)) failures.push(`Manager evaluation command guard missing: ${token}`);
 }
