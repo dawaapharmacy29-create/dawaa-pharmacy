@@ -11,12 +11,13 @@ as $function$
 declare
   v_expected timestamptz;
 begin
-  if tg_op <> 'UPDATE' then
+  -- The canonical save RPC copies expected_updated_at into metrics_snapshot only as a
+  -- transport token. It is removed before persistence by this trigger.
+  if tg_op = 'INSERT' then
+    new.metrics_snapshot := coalesce(new.metrics_snapshot,'{}'::jsonb) - 'expected_updated_at';
     return new;
   end if;
 
-  -- The canonical save RPC copies expected_updated_at into metrics_snapshot only as a
-  -- transport token. It is removed before persistence by this trigger.
   begin
     v_expected := nullif(new.metrics_snapshot->>'expected_updated_at','')::timestamptz;
   exception when others then
@@ -45,7 +46,7 @@ drop trigger if exists aa_monthly_evaluation_concurrency_v5
   on public.staff_monthly_manager_evaluations;
 
 create trigger aa_monthly_evaluation_concurrency_v5
-before update
+before insert or update
 on public.staff_monthly_manager_evaluations
 for each row
 execute function public.trg_monthly_evaluation_concurrency_v5();
