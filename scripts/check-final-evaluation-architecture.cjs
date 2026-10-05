@@ -39,7 +39,7 @@ const required=[
  [evalPage,"}, [branch, cycleLabel, globalScope, managerMode, user?.id, user?.name, user?.staffId]);",'employee selection must not refetch the full roster'],
  [evalPage,"role === 'inventory_assistant'",'warehouse staff must be separated from general assistants'],
  [evalPage,"status: 'insufficient' as const",'unmapped evaluation evidence must fail closed'],
- [evalPage,'هذا محور قيادي ويحتاج Evidence على مستوى الفريق/الفرع','leadership axes must not reuse personal employee evidence'],
+ [evalPage,'لا تُستخدم محادثات المدير الشخصية أو أرقام حضوره كبديل عن نتيجة الفريق أو الفرع.','leadership axes must not reuse personal employee evidence'],
  [evalPage,'blockers={approvalBlockers}','workflow must receive canonical approval blockers'],
  [decisionHeader,'أسباب منع الاعتماد','decision header must expose approval blockers'],
  [workflow,'المطلوب قبل الاعتماد','workflow must surface blockers'],
