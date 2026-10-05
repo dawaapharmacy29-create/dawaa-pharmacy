@@ -189,17 +189,9 @@ export type ManagerEvaluationHistoryRecord = ManagerWeeklyEvaluation & {
 };
 
 export async function saveWeeklyEvaluation(evaluation: ManagerWeeklyEvaluation): Promise<ManagerEvaluationHistoryRecord | null> {
-  const { data, error } = await supabase
-    .from(TABLES.managerWeeklyEvaluations)
-    .upsert(
-      {
-        ...evaluation,
-        submitted_at: evaluation.status === 'submitted' ? new Date().toISOString() : null,
-      },
-      { onConflict: 'evaluation_type,subject_staff_id,week_start,branch' }
-    )
-    .select('*')
-    .maybeSingle();
+  const { data, error } = await supabase.rpc('save_manager_weekly_evaluation_v5', {
+    p_payload: evaluation,
+  });
   if (error) throw new Error(error.message);
   return (data || null) as ManagerEvaluationHistoryRecord | null;
 }
