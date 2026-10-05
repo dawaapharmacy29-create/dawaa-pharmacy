@@ -1340,10 +1340,10 @@ export default function StaffMonthlyEvaluation() {
         evaluator_id: user.id,
         evaluator_name: user.name || 'المدير',
         evaluator_role: user.role || null,
-        expected_updated_at: evaluationUpdatedAt,
         sections,
         metrics_snapshot: {
           ...metrics,
+          expected_updated_at: evaluationUpdatedAt,
           evaluation_engine_version: 5,
           evidence_ready: roleEvidenceReady,
           evidence_health: evidenceHealth,
@@ -1393,9 +1393,18 @@ export default function StaffMonthlyEvaluation() {
       }
       const savedEvaluationId = String(saveResult.evaluation_id || evaluationId || '');
       setEvaluationId(savedEvaluationId);
-      setEvaluationUpdatedAt(String(saveResult.updated_at || '') || evaluationUpdatedAt);
       setStatus(nextStatus);
       setAuditRefreshKey((value) => value + 1);
+
+      const versionRefresh = await supabase.rpc('get_staff_monthly_evaluation_v5', {
+        p_actor_id: user.id,
+        p_staff_id: savingStaffId,
+        p_month: `${cycleLabel}-01`,
+      });
+      if (!versionRefresh.error && versionRefresh.data) {
+        const canonicalSaved = versionRefresh.data as EvaluationRow;
+        setEvaluationUpdatedAt(String(canonicalSaved.updated_at || '') || null);
+      }
 
       const serverSentAt = String(saveResult.sent_at || '');
       if (nextStatus === 'sent') {
