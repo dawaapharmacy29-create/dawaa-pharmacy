@@ -295,7 +295,12 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
   if(months[0]?.comparisonMode==='same_period'){
     const currentSummary={summary:salesTruth.samePeriod.current||null,available:salesTruth.available};
     const previousSummary={summary:salesTruth.samePeriod.previous||null,available:salesTruth.available};
-    if(currentSummary?.available&&previousSummary?.available&&months[1]?.coverage==='available'){
+    const previousSamePeriodEnd=(()=>{
+      const d=new Date(cycleSpecs[1].start+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+elapsedDays);return d.toISOString().slice(0,10);
+    })();
+    const previousSalesEvidenceDate=salesTruth.rows.find(row=>row.cycle_start===cycleSpecs[1].start)?.first_sale_date||null;
+    const previousWindowHasSalesEvidence=Boolean(previousSalesEvidenceDate&&previousSalesEvidenceDate<previousSamePeriodEnd);
+    if(currentSummary?.available&&previousSummary?.available&&months[1]?.coverage==='available'&&previousWindowHasSalesEvidence){
       const cs=currentSummary.summary,ps=previousSummary.summary;
       const ci=n(cs?.invoices),pi=n(ps?.invoices),cSales=n(cs?.sales),pSales=n(ps?.sales);
       months[0].comparisonSnapshot={
@@ -313,7 +318,7 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
     }else{
       months[0].comparisonEligible=false;
       months[0].comparisonMode='blocked';
-      months[0].comparisonReason='تعذر بناء نافذة Same-period موثوقة من المصدر البيعي؛ المقارنة محجوبة بدل عرض Delta مضلل.';
+      months[0].comparisonReason=previousWindowHasSalesEvidence?'تعذر بناء نافذة Same-period موثوقة من المصدر البيعي؛ المقارنة محجوبة بدل عرض Delta مضلل.':'نافذة Same-period السابقة تسبق أول مبيعات موثقة للموظف؛ لا تتم مقارنة المبيعات بصفر غير عادل.';
       months[0].diagnoses=diagnoseMonth(months[0],null);
     }
   }
