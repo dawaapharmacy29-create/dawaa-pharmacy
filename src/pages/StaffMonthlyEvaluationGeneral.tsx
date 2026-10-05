@@ -727,7 +727,6 @@ export default function StaffMonthlyEvaluation() {
   const [auditRefreshKey, setAuditRefreshKey] = useState(0);
   const [sections, setSections] = useState<StaffEvaluationSectionV3[]>([]);
   const [metrics, setMetrics] = useState<Metrics>(EMPTY_METRICS);
-  const [evidenceReady, setEvidenceReady] = useState(false);
   const [evidenceHealth, setEvidenceHealth] = useState<EmployeeMonthlyEvidence['health']>({
     reviews: 'unavailable',
     followups: 'unavailable',
@@ -888,7 +887,6 @@ export default function StaffMonthlyEvaluation() {
       setPointsTruth(null);
       setSettledStatement(null);
       setMetrics(EMPTY_METRICS);
-      setEvidenceReady(false);
       setEvidenceHealth({ reviews: 'unavailable', followups: 'unavailable', attendance: 'unavailable' });
       setEvidenceErrors({});
       setCoaching(null);
@@ -951,7 +949,6 @@ export default function StaffMonthlyEvaluation() {
         if (evaluationRequestRef.current !== requestId) return;
 
         setMetrics(evidenceResult.metrics);
-        setEvidenceReady(evidenceResult.ready);
         setEvidenceHealth(evidenceResult.health);
         setEvidenceErrors(evidenceResult.errors);
         setCoaching(evidenceResult.coaching);
