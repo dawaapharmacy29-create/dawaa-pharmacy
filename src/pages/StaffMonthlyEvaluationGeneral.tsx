@@ -1079,6 +1079,10 @@ export default function StaffMonthlyEvaluation() {
 
   async function handleExportPdf() {
     if (!selected) return;
+    if (!publishedSnapshot && !approvalReady) {
+      toast.error('الـPDF النهائي متاح بعد اكتمال أدلة التقييم وجاهزية الاعتماد.');
+      return;
+    }
     setExportingPdf(true);
     try {
       const persistedSections = publishedSnapshot
@@ -3155,9 +3159,9 @@ export default function StaffMonthlyEvaluation() {
                   <Panel className="p-4">
                     {canEdit ? (
                       <div className="mt-4 flex flex-wrap justify-end gap-2 border-t pt-3" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
-                        <button type="button" disabled={exportingPdf || !evaluationComplete} onClick={() => void handleExportPdf()} className="btn-secondary inline-flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-45">
+                        <button type="button" disabled={exportingPdf || (!publishedSnapshot && !approvalReady)} onClick={() => void handleExportPdf()} className="btn-secondary inline-flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-45">
                           {exportingPdf ? <Loader2 size={16} className="animate-spin" /> : <FileDown size={16} />}
-                          {evaluationComplete ? 'PDF' : 'PDF بعد اكتمال التقييم'}
+                          {publishedSnapshot || approvalReady ? 'PDF' : 'PDF بعد اكتمال الأدلة'}
                         </button>
                         {!['sent', 'approved'].includes(status) ? (
                           <button type="button" disabled={saving} onClick={() => void save('draft')} className="btn-secondary inline-flex items-center gap-2">
