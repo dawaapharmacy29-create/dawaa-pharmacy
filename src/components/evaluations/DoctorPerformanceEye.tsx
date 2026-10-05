@@ -93,7 +93,7 @@ export default function DoctorPerformanceEye({staffId,staffName,cycleLabel}:{sta
     <div className="mt-4 rounded-xl border p-3" style={{borderColor:'var(--dawaa-theme-border)',background:'var(--dawaa-theme-soft)'}}>
      <div className="flex items-start gap-2">
       {blockedReason?<AlertTriangle size={18}/>:<CheckCircle2 size={18}/>}
-      <div><div className="text-xs font-black" style={{color:'var(--dawaa-theme-heading)'}}>{blockedReason?'المقارنة بين آخر دورتين محجوبة':cur.comparisonMode==='same_period'?`مقارنة عادلة — أول ${cur.comparisonSnapshot?.days||0} يوم من كل دورة`:'المقارنة بين آخر دورتين مؤهلة'}</div>
+      <div><div className="text-xs font-black" style={{color:'var(--dawaa-theme-heading)'}}>{blockedReason?'المقارنة بين آخر دورتين محجوبة':cur.comparisonMode==='same_period'?`مقارنة عادلة — أول ${cur.comparisonSnapshot?.days||0} يوم من كل دورة${cur.comparisonSnapshot?.dataAsOf?` · البيانات حتى ${cur.comparisonSnapshot.dataAsOf}`:''}`:'المقارنة بين آخر دورتين مؤهلة'}</div>
       <div className="mt-1 text-[11px] font-bold leading-5" style={{color:'var(--dawaa-theme-muted)'}}>{blockedReason||'الدورتان لديهما Coverage كافٍ وEvidence فعلي؛ يمكن عرض الاتجاهات الرقمية.'}</div></div>
      </div>
     </div>
