@@ -62,17 +62,15 @@ type SalesCycleSummaryRow = {
 };
 
 type SalesPeriodSummaryRow = { sales?: number; invoices?: number; customers?: number; first_sale_date?: string | null };
+type SalesBundlePayload = { cycles?: SalesCycleSummaryRow[]; samePeriod?: { current?: SalesPeriodSummaryRow; previous?: SalesPeriodSummaryRow } };
 
-async function salesPeriod(staffId:string,start:string,endExclusive:string){
-  const {data,error}=await supabase.rpc('get_staff_performance_sales_period_v1',{p_staff_id:staffId,p_start:start,p_end_exclusive:endExclusive});
-  return {summary:((data||[])[0]||null) as SalesPeriodSummaryRow|null,available:!error};
+async function salesBundle(staffId:string,windowStart:string,windowEnd:string,currentStart:string,elapsedDays:number){
+  const {data,error}=await supabase.rpc('get_staff_performance_sales_bundle_v1',{
+    p_staff_id:staffId,p_window_start:windowStart,p_window_end:windowEnd,p_current_start:currentStart,p_elapsed_days:elapsedDays,
+  });
+  const payload=(data||{}) as SalesBundlePayload;
+  return {rows:Array.isArray(payload.cycles)?payload.cycles:[],samePeriod:payload.samePeriod||{},available:!error,identity:error?'unavailable' as const:'canonical' as const};
 }
-
-async function salesCycles(staffId:string,start:string,endExclusive:string){
-  const {data,error}=await supabase.rpc('get_staff_performance_sales_cycles_v1',{p_staff_id:staffId,p_window_start:start,p_window_end:endExclusive});
-  return {rows:(data||[]) as SalesCycleSummaryRow[],available:!error,identity:error?'unavailable' as const:'canonical' as const,errorMessage:error?.message||null};
-}
-
 
 function minDate(values:(string|null)[]){
   const valid=values.filter((v):v is string=>Boolean(v)).sort();
@@ -189,9 +187,16 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
   const windowStart=cycleSpecs[2].start;
   const windowEnd=cycleSpecs[0].endExclusive;
 
+  const currentSpec=cycleSpecs[0];
+  const currentCycleClosed=isEvaluationCycleClosed(args.cycleLabel);
+  const now=new Date();
+  const todayLocal=new Date(now.getFullYear(),now.getMonth(),now.getDate());
+  const cycleDays=Math.floor((currentSpec.range.endExclusive.getTime()-currentSpec.range.start.getTime())/86400000);
+  const elapsedDays=Math.max(1,Math.min(Math.floor((todayLocal.getTime()-currentSpec.range.start.getTime())/86400000)+1,cycleDays));
+
   const [firstAttendanceResult,salesTruth,attendanceWindow,conversationWindow,impactWindow]=await Promise.all([
     supabase.from('attendance_daily_summary').select('attendance_date').eq('staff_id',args.staffId).order('attendance_date',{ascending:true}).limit(1).maybeSingle(),
-    salesCycles(args.staffId,windowStart,windowEnd),
+    salesBundle(args.staffId,windowStart,windowEnd,currentSpec.start,elapsedDays),
     supabase.from('attendance_daily_summary').select('attendance_date,payroll_eligible_hours,total_hours').eq('staff_id',args.staffId).gte('attendance_date',windowStart).lt('attendance_date',windowEnd).limit(400),
     supabase.from('conversation_sales_reviews').select('id,converted_to_sale,conversation_date').or(`doctor_id.eq.${args.staffId},staff_id.eq.${args.staffId}`).eq('is_current',true).gte('conversation_date',windowStart).lt('conversation_date',windowEnd).limit(3000),
     customerImpactWindow(args.staffId,windowStart,windowEnd),
@@ -231,18 +236,6 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
   const firstSalesDate=minDate(rawMonths.map(m=>String(m.sales.summary?.first_sale_date||'').slice(0,10)||null));
   const firstConversationDate=minDate(rawMonths.flatMap(m=>(m.conversations.data||[]).map(r=>String(r.conversation_date||'').slice(0,10)||null)));
   const firstEvidenceDate=minDate([firstAttendanceDate,firstSalesDate,firstConversationDate]);
-
-  const currentCycleClosed=isEvaluationCycleClosed(args.cycleLabel);
-  const currentSpec=cycleSpecs[0];
-  const now=new Date();
-  const todayLocal=new Date(now.getFullYear(),now.getMonth(),now.getDate());
-  const cycleDays=Math.floor((currentSpec.range.endExclusive.getTime()-currentSpec.range.start.getTime())/86400000);
-  const elapsedDays=Math.max(1,Math.min(Math.floor((todayLocal.getTime()-currentSpec.range.start.getTime())/86400000)+1,cycleDays));
-  const addDays=(start:string,days:number)=>{const d=new Date(start+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+days);return d.toISOString().slice(0,10)};
-  const samePeriodSales=!currentCycleClosed?await Promise.all([
-    salesPeriod(args.staffId,currentSpec.start,addDays(currentSpec.start,elapsedDays)),
-    salesPeriod(args.staffId,cycleSpecs[1].start,addDays(cycleSpecs[1].start,elapsedDays)),
-  ]):null;
 
   const months:DoctorPerformanceMonth[]=rawMonths.map(({cycleLabel,range,endExclusive,sales,attendance,conversations,impact})=>{
     const cycleClosed=isEvaluationCycleClosed(cycleLabel);
@@ -302,8 +295,8 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
 
   months.forEach((month,index)=>{month.diagnoses=diagnoseMonth(month,months[index+1]||null)});
   if(months[0]?.comparisonMode==='same_period'){
-    const currentSummary=samePeriodSales?.[0];
-    const previousSummary=samePeriodSales?.[1];
+    const currentSummary={summary:salesTruth.samePeriod.current||null,available:salesTruth.available};
+    const previousSummary={summary:salesTruth.samePeriod.previous||null,available:salesTruth.available};
     if(currentSummary?.available&&previousSummary?.available&&months[1]?.coverage==='available'){
       const cs=currentSummary.summary,ps=previousSummary.summary;
       const ci=n(cs?.invoices),pi=n(ps?.invoices),cSales=n(cs?.sales),pSales=n(ps?.sales);
