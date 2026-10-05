@@ -82,17 +82,16 @@ function minDate(values:(string|null)[]){
 }
 
 type DoctorCycleImpactRow = {
+  cycle_start?: string; cycle_end?: string;
   commercial_conversations?: number; verified_sale_conversations?: number; verified_revenue?: number;
   verified_conversion_rate?: number; conversations_needing_followup?: number; complaint_conversations?: number;
   sale_leakage_count?: number; unavailable_product_count?: number; accepted_product_count?: number;
 };
 
-async function customerImpactRows(staffId:string,start:string,endExclusive:string){
-  const end=new Date(`${endExclusive}T12:00:00Z`); end.setUTCDate(end.getUTCDate()-1);
-  const endInclusive=end.toISOString().slice(0,10);
+async function customerImpactWindow(staffId:string,start:string,endExclusive:string){
   const {data,error}=await supabase.from('whatsapp_doctor_cycle_intelligence_v1')
-    .select('commercial_conversations,verified_sale_conversations,verified_revenue,verified_conversion_rate,conversations_needing_followup,complaint_conversations,sale_leakage_count,unavailable_product_count,accepted_product_count')
-    .eq('staff_id',staffId).eq('cycle_start',start).eq('cycle_end',endInclusive);
+    .select('cycle_start,cycle_end,commercial_conversations,verified_sale_conversations,verified_revenue,verified_conversion_rate,conversations_needing_followup,complaint_conversations,sale_leakage_count,unavailable_product_count,accepted_product_count')
+    .eq('staff_id',staffId).gte('cycle_start',start).lt('cycle_start',endExclusive);
   return {rows:(data||[]) as DoctorCycleImpactRow[],available:!error};
 }
 
@@ -180,9 +179,6 @@ function coverageText(coverage:PerformanceCoverage, salesAvailable:boolean, atte
 }
 
 export async function loadDoctorPerformanceIntelligence(args:{staffId:string;staffName:string;cycleLabel:string}):Promise<DoctorPerformanceIntelligence>{
-  const firstAttendanceResult=await supabase.from('attendance_daily_summary').select('attendance_date').eq('staff_id',args.staffId).order('attendance_date',{ascending:true}).limit(1).maybeSingle();
-  const firstAttendanceDate=firstAttendanceResult.error?null:String(firstAttendanceResult.data?.attendance_date||'').slice(0,10)||null;
-
   const cycleSpecs=Array.from({length:3},(_,back)=>{
     const cycleLabel=previousCycle(args.cycleLabel,back);
     const range=evaluationCycleRangeFromLabel(cycleLabel);
@@ -192,24 +188,47 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
       endExclusive:range.endExclusive.toISOString().slice(0,10),
     };
   });
+  const windowStart=cycleSpecs[2].start;
+  const windowEnd=cycleSpecs[0].endExclusive;
 
-  const salesTruth=await salesWindow(args.staffId,cycleSpecs[2].start,cycleSpecs[0].endExclusive);
+  const [firstAttendanceResult,salesTruth,attendanceWindow,conversationWindow,impactWindow]=await Promise.all([
+    supabase.from('attendance_daily_summary').select('attendance_date').eq('staff_id',args.staffId).order('attendance_date',{ascending:true}).limit(1).maybeSingle(),
+    salesWindow(args.staffId,windowStart,windowEnd),
+    supabase.from('attendance_daily_summary').select('attendance_date,payroll_eligible_hours,total_hours').eq('staff_id',args.staffId).gte('attendance_date',windowStart).lt('attendance_date',windowEnd).limit(400),
+    supabase.from('conversation_sales_reviews').select('id,converted_to_sale,conversation_date').or(`doctor_id.eq.${args.staffId},staff_id.eq.${args.staffId}`).eq('is_current',true).gte('conversation_date',windowStart).lt('conversation_date',windowEnd).limit(3000),
+    customerImpactWindow(args.staffId,windowStart,windowEnd),
+  ]);
+  const firstAttendanceDate=firstAttendanceResult.error?null:String(firstAttendanceResult.data?.attendance_date||'').slice(0,10)||null;
 
-  const rawMonths=await Promise.all(cycleSpecs.map(async spec=>{
+  const rawMonths=cycleSpecs.map(spec=>{
     const {cycleLabel,range,start,endExclusive}=spec;
-    const [attendance,conversations,impact]=await Promise.all([
-      supabase.from('attendance_daily_summary').select('attendance_date,payroll_eligible_hours,total_hours').eq('staff_id',args.staffId).gte('attendance_date',start).lt('attendance_date',endExclusive).limit(100),
-      supabase.from('conversation_sales_reviews').select('id,converted_to_sale,conversation_date').or(`doctor_id.eq.${args.staffId},staff_id.eq.${args.staffId}`).eq('is_current',true).gte('conversation_date',start).lt('conversation_date',endExclusive).limit(1000),
-      customerImpactRows(args.staffId,start,endExclusive),
-    ]);
     const sales={
       rows:rowsForCycle(salesTruth.rows,start,endExclusive),
       available:salesTruth.available,
       identity:salesTruth.identity,
     };
+    const attendance={
+      data:(attendanceWindow.data||[]).filter(r=>{
+        const date=String(r.attendance_date||'').slice(0,10);
+        return date>=start&&date<endExclusive;
+      }),
+      error:attendanceWindow.error,
+    };
+    const conversations={
+      data:(conversationWindow.data||[]).filter(r=>{
+        const date=String(r.conversation_date||'').slice(0,10);
+        return date>=start&&date<endExclusive;
+      }),
+      error:conversationWindow.error,
+    };
+    const end=new Date(`${endExclusive}T12:00:00Z`);end.setUTCDate(end.getUTCDate()-1);
+    const endInclusive=end.toISOString().slice(0,10);
+    const impact={
+      rows:impactWindow.rows.filter(r=>String(r.cycle_start||'').slice(0,10)===start&&String(r.cycle_end||'').slice(0,10)===endInclusive),
+      available:impactWindow.available,
+    };
     return {cycleLabel,range,start,endExclusive,sales,attendance,conversations,impact};
-  }));
-
+  });
   const firstSalesDate=minDate(rawMonths.flatMap(m=>m.sales.rows.map(rowDate)));
   const firstConversationDate=minDate(rawMonths.flatMap(m=>(m.conversations.data||[]).map(r=>String(r.conversation_date||'').slice(0,10)||null)));
   const firstEvidenceDate=minDate([firstAttendanceDate,firstSalesDate,firstConversationDate]);
