@@ -13,6 +13,7 @@ const confidenceLabel=(m:DoctorPerformanceMonth)=>m.confidence==='high'?'ثقة 
 function comparisonBlockReason(current:DoctorPerformanceMonth,previous:DoctorPerformanceMonth){
  if(current.coverage==='not_applicable'||previous.coverage==='not_applicable') return 'المقارنة محجوبة لأن إحدى الدورتين تسبق أول Evidence موثوق.';
  if(!current.comparisonEligible) return current.comparisonReason;
+ if(current.comparisonMode==='same_period') return current.comparisonSnapshot?null:'تعذر بناء نافذة Same-period موثوقة.';
  if(!previous.comparisonEligible) return previous.comparisonReason;
  return null;
 }
@@ -78,6 +79,9 @@ export default function DoctorPerformanceEye({staffId,staffName,cycleLabel}:{sta
  }
  const cur=data?.months[0],prev=data?.months[1];
  const blockedReason=cur&&prev?comparisonBlockReason(cur,prev):null;
+ const snap=cur?.comparisonMode==='same_period'?cur.comparisonSnapshot:null;
+ const cmp=(fullCurrent:number|null,fullPrevious:number|null,sameCurrent:number|null|undefined,samePrevious:number|null|undefined)=>
+   snap?[sameCurrent??null,samePrevious??null] as const:[fullCurrent,fullPrevious] as const;
  const visibleConversations=evidenceFocus==='opportunity'?evidenceConversations.filter(item=>item.followup_required||item.invoice_match_status!=='verified'):evidenceConversations;
  const visibleProducts=evidenceFocus==='opportunity'?evidenceProducts.filter(item=>Boolean(item.leakage_reason)||Boolean(item.next_action)):evidenceFocus==='availability'?evidenceProducts.filter(item=>String(item.current_stage||'').toLowerCase().includes('unavailable')||String(item.leakage_reason||'').toLowerCase().includes('unavailable')||String(item.leakage_reason||'').includes('غير متاح')):evidenceProducts;
  return <>
@@ -88,14 +92,14 @@ export default function DoctorPerformanceEye({staffId,staffName,cycleLabel}:{sta
     <div className="mt-4 rounded-xl border p-3" style={{borderColor:'var(--dawaa-theme-border)',background:'var(--dawaa-theme-soft)'}}>
      <div className="flex items-start gap-2">
       {blockedReason?<AlertTriangle size={18}/>:<CheckCircle2 size={18}/>}
-      <div><div className="text-xs font-black" style={{color:'var(--dawaa-theme-heading)'}}>{blockedReason?'المقارنة بين آخر دورتين محجوبة':'المقارنة بين آخر دورتين مؤهلة'}</div>
+      <div><div className="text-xs font-black" style={{color:'var(--dawaa-theme-heading)'}}>{blockedReason?'المقارنة بين آخر دورتين محجوبة':cur.comparisonMode==='same_period'?`مقارنة عادلة — أول ${cur.comparisonSnapshot?.days||0} يوم من كل دورة`:'المقارنة بين آخر دورتين مؤهلة'}</div>
       <div className="mt-1 text-[11px] font-bold leading-5" style={{color:'var(--dawaa-theme-muted)'}}>{blockedReason||'الدورتان لديهما Coverage كافٍ وEvidence فعلي؛ يمكن عرض الاتجاهات الرقمية.'}</div></div>
      </div>
     </div>
     <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-     <Metric label="المبيعات الشهرية" value={cur.sales===null?'غير متاح':`${fmt(cur.sales)} ج`} current={cur.sales} previous={prev.sales} blockedReason={blockedReason}/>
-     <Metric label="متوسط الفاتورة" value={cur.averageInvoice===null?'غير متاح':`${fmt(cur.averageInvoice)} ج`} current={cur.averageInvoice} previous={prev.averageInvoice} blockedReason={blockedReason}/>
-     <Metric label="العملاء الفريدون" value={fmt(cur.customers)} current={cur.customers} previous={prev.customers} blockedReason={blockedReason}/>
+     <Metric label="المبيعات الشهرية" value={cur.sales===null?'غير متاح':`${fmt(cur.sales)} ج`} current={cmp(cur.sales,prev.sales,snap?.sales,snap?.previousSales)[0]} previous={cmp(cur.sales,prev.sales,snap?.sales,snap?.previousSales)[1]} blockedReason={blockedReason}/>
+     <Metric label="متوسط الفاتورة" value={cur.averageInvoice===null?'غير متاح':`${fmt(cur.averageInvoice)} ج`} current={cmp(cur.averageInvoice,prev.averageInvoice,snap?.averageInvoice,snap?.previousAverageInvoice)[0]} previous={cmp(cur.averageInvoice,prev.averageInvoice,snap?.averageInvoice,snap?.previousAverageInvoice)[1]} blockedReason={blockedReason}/>
+     <Metric label="العملاء الفريدون" value={fmt(cur.customers)} current={cmp(cur.customers,prev.customers,snap?.customers,snap?.previousCustomers)[0]} previous={cmp(cur.customers,prev.customers,snap?.customers,snap?.previousCustomers)[1]} blockedReason={blockedReason}/>
      <Metric label="Conversion المحادثات" value={pct(cur.conversionRate)} current={cur.conversionRate} previous={prev.conversionRate} blockedReason={blockedReason}/>
      <Metric label="مبيعات لكل ساعة" value={cur.salesPerHour===null?'غير متاح':`${fmt(cur.salesPerHour)} ج/س`} current={cur.salesPerHour} previous={prev.salesPerHour} blockedReason={blockedReason}/>
      <Metric label="فواتير لكل ساعة" value={fmt(cur.invoicesPerHour,2)} current={cur.invoicesPerHour} previous={prev.invoicesPerHour} blockedReason={blockedReason}/>
