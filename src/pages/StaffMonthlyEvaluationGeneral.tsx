@@ -1290,6 +1290,10 @@ export default function StaffMonthlyEvaluation() {
       toast.error(`كل مخالفة حرجة تحتاج واقعة/سببًا مستقلًا قبل الاعتماد: ${criticalGateMissingRationales.map((gate) => CRITICAL_GATE_CAPS[gate].label).join('، ')}`);
       return;
     }
+    if (nextStatus === 'sent' && criticalGateGeneralNoteMissing) {
+      toast.error('اكتب خلاصة قرار المخالفة الحرجة في ملاحظات المدير قبل الاعتماد.');
+      return;
+    }
 
     setSaving(true);
     try {
@@ -1486,6 +1490,7 @@ export default function StaffMonthlyEvaluation() {
   const weakSectionsMissingNotes = sections.filter((item) => item.score > 0 && item.score <= 2 && !item.notes.trim());
   const criticalGateMissingRationales = activeGates.filter((gate) => (criticalGateRationales[gate] || '').trim().length < 12);
   const criticalGateMissingReason = criticalGateMissingRationales.length > 0;
+  const criticalGateGeneralNoteMissing = activeGates.length > 0 && !managerNotes.trim();
   const ratedSections = sections.filter((item) => item.score > 0);
   const ratedWeight = ratedSections.reduce((sum, item) => sum + item.weight, 0);
   const ratedEarnedPoints = Math.round(ratedSections.reduce((sum, item) => sum + sectionPoints(item), 0) * 10) / 10;
@@ -1660,6 +1665,7 @@ export default function StaffMonthlyEvaluation() {
     feedbackMissingStrength ? 'يوجد أداء قوي موثق لكن نقاط القوة لم تُكتب بعد' : '',
     feedbackMissingDevelopment ? 'يوجد محور يحتاج تطوير لكن خطة التطوير لم تُكتب بعد' : '',
     criticalGateMissingReason ? `${criticalGateMissingRationales.length} مخالفة حرجة تحتاج واقعة/سببًا مستقلًا موثقًا` : '',
+    criticalGateGeneralNoteMissing ? 'المخالفة الحرجة تحتاج أيضًا خلاصة قرار في ملاحظات المدير' : '',
   ].filter(Boolean);
   const approvalReady =
     cycleClosed
@@ -1671,7 +1677,8 @@ export default function StaffMonthlyEvaluation() {
     && weakSectionsMissingNotes.length === 0
     && !feedbackMissingStrength
     && !feedbackMissingDevelopment
-    && !criticalGateMissingReason;
+    && !criticalGateMissingReason
+    && !criticalGateGeneralNoteMissing;
 
   const strongestSections = evaluationComplete
     ? [...ratedSections]
