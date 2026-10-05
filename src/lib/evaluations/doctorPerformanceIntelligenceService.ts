@@ -37,7 +37,7 @@ export type DoctorPerformanceMonth = {
   comparisonMode: 'full_cycle' | 'same_period' | 'blocked';
   comparisonReason: string;
   comparisonSnapshot: null | {
-    days: number | null;
+    days: number | null; dataAsOf: string | null;
     sales: number | null; previousSales: number | null;
     invoices: number | null; previousInvoices: number | null;
     customers: number | null; previousCustomers: number | null;
@@ -306,7 +306,7 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
       const cs=currentSummary.summary,ps=previousSummary.summary;
       const ci=n(cs?.invoices),pi=n(ps?.invoices),cSales=n(cs?.sales),pSales=n(ps?.sales);
       months[0].comparisonSnapshot={
-        days:elapsedDays,sales:cSales,previousSales:pSales,invoices:ci,previousInvoices:pi,
+        days:elapsedDays,dataAsOf:salesDataAsOf,sales:cSales,previousSales:pSales,invoices:ci,previousInvoices:pi,
         customers:n(cs?.customers),previousCustomers:n(ps?.customers),
         averageInvoice:ci?cSales/ci:null,previousAverageInvoice:pi?pSales/pi:null,
       };
