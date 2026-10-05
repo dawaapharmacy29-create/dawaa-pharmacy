@@ -35,7 +35,7 @@ const required=[
  [evalPage,'roleEvidenceReady','top-level readiness must include role-specific axis evidence'],
  [evalPage,'blockedAxisEvidence','blocked axes must prevent final approval'],
  [evalPage,'orderedFilteredStaff','evaluation roster must use deterministic branch/role grouping'],
- [evalPage,"['دكاترة', 'مساعدون', 'الدليفري', 'المخزن', 'الإدارة', 'وظائف أخرى']",'evaluation roster role order must stay explicit'],
+ [evalPage,"['دكاترة', 'مساعدون', 'الدليفري', 'المخزن', 'خدمة العملاء', 'النظافة', 'المشتريات', 'الإدارة', 'وظائف أخرى']",'evaluation roster role order must stay explicit'],
  [evalPage,"}, [branch, cycleLabel, globalScope, managerMode, user?.id, user?.name, user?.staffId]);",'employee selection must not refetch the full roster'],
  [evalPage,"role === 'inventory_assistant'",'warehouse staff must be separated from general assistants'],
  [evalPage,"status: 'insufficient' as const",'unmapped evaluation evidence must fail closed'],
