@@ -22,6 +22,7 @@ const finalSnapshotEvidenceClosure = read('supabase/migrations/20261005113000_mo
 const roleAwareServerEvidence = read('supabase/migrations/20261005125500_monthly_evaluation_role_aware_server_evidence_v5.sql');
 const optimisticConcurrency = read('supabase/migrations/20261005130500_monthly_evaluation_optimistic_concurrency_v5.sql');
 const cairoCycleBoundary = read('supabase/migrations/20261005132000_monthly_evaluation_cairo_cycle_boundary_v5.sql');
+const rpcOnlyTableAccess = read('supabase/migrations/20261005133000_monthly_evaluation_rpc_only_table_access_v5.sql');
 const backend = [
   read('supabase/migrations/20260929153000_monthly_evaluation_command_center_v5.sql'),
   read('supabase/migrations/20260929154500_monthly_evaluation_v5_hardening.sql'),
@@ -88,6 +89,14 @@ if (!page.includes('pointsForSave = await getStaffPointsDashboardV3(savingStaffI
 if (!page.includes('points_truth: pointsForSave ?')) failures.push('Final approval snapshot must use the freshly loaded points truth.');
 if (!page.includes('Date.now() - evidenceLoadedAt > 5 * 60_000')) failures.push('Final approval must reject stale client evidence state.');
 if (!cairoCycleBoundary.includes("(e.sent_at at time zone 'Africa/Cairo')::date <= v_cycle_end")) failures.push('Reapproval cycle classification must use Cairo-local sent_at dates.');
+for (const token of [
+  'drop policy if exists "staff evaluations authenticated read"',
+  'drop policy if exists "staff evaluations authenticated write"',
+  'revoke all on table public.staff_monthly_manager_evaluations from anon, authenticated',
+  'revoke all on table public.staff_monthly_evaluation_audit from anon, authenticated',
+]) {
+  if (!rpcOnlyTableAccess.includes(token)) failures.push(`Monthly evaluation direct-table boundary missing: ${token}`);
+}
 if (!page.includes('invalidateEmployeeEvaluationHeaderCache(savingStaffId)')) failures.push('Evaluation save must invalidate the selected employee header cache.');
 if (!page.includes("key.startsWith(\`\${savingStaffId}:\`)")) failures.push('Evaluation save must invalidate the selected employee evidence cache.');
 if (!evidenceService.includes("const taskEvidenceRoles = new Set([")) failures.push('Monthly evidence loader must gate task evidence by consuming roles.');
