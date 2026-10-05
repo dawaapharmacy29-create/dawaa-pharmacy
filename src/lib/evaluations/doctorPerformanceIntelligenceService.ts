@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import { evaluationCycleRangeFromLabel } from '@/lib/evaluations/monthlyEvaluationCycle';
+import { evaluationCycleRangeFromLabel, isEvaluationCycleClosed } from '@/lib/evaluations/monthlyEvaluationCycle';
 
 export type PerformanceCoverage = 'available' | 'partial' | 'not_applicable' | 'unavailable';
 export type PerformanceConfidence = 'high' | 'medium' | 'low';
@@ -225,6 +225,7 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
   const firstEvidenceDate=minDate([firstAttendanceDate,firstSalesDate,firstConversationDate]);
 
   const months:DoctorPerformanceMonth[]=rawMonths.map(({cycleLabel,range,endExclusive,sales,attendance,conversations,impact})=>{
+    const cycleClosed=isEvaluationCycleClosed(cycleLabel);
     const attendanceAvailable=!attendance.error;
     const conversationAvailable=!conversations.error;
     const attendanceRows=attendance.data||[];
@@ -250,10 +251,12 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
     const converted=coverage==='not_applicable'||conversations.error?null:conversationRows.filter(r=>r.converted_to_sale===true).length;
     const customerImpact=aggregateImpact(impact.rows,impact.available);
 
-    const comparisonEligible=coverage==='available'&&confidence!=='low'&&hasCoreEvidence;
-    const comparisonReason=coverage==='not_applicable'
-      ?'الدورة خارج نطاق المقارنة لأنها تسبق أول Evidence موثوق.'
-      :coverage!=='available'
+    const comparisonEligible=cycleClosed&&coverage==='available'&&confidence!=='low'&&hasCoreEvidence;
+    const comparisonReason=!cycleClosed
+      ?'الدورة ما زالت جارية؛ تُعرض بياناتها الحالية كاملة لكن لا تُقارن تلقائيًا بدورة مكتملة.'
+      :coverage==='not_applicable'
+        ?'الدورة خارج نطاق المقارنة لأنها تسبق أول Evidence موثوق.'
+        :coverage!=='available'
         ?'التغطية غير مكتملة، لذلك المقارنة محجوبة.'
         :!hasCoreEvidence
           ?'لا يوجد Evidence فعلي كافٍ داخل الدورة لبناء اتجاه.'
