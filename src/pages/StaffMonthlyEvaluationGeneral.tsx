@@ -190,7 +190,7 @@ function sectionEvidenceFor(
   if (isLeadershipEvaluationRole(canonicalRole) && !['shift_discipline','development'].includes(key)) {
     const requirement = leadershipEvidenceRequirement(canonicalRole, key);
     return {
-      status: 'insufficient' as const,
+      status: 'manual' as const,
       summary: requirement
         ? `هذا محور قيادي يحتاج دليل ${requirement.scope === 'branch' ? 'على مستوى الفرع' : requirement.scope === 'multi_branch' ? 'عبر الفروع' : requirement.scope === 'customer_service_team' ? 'لفريق خدمة العملاء' : requirement.scope === 'team' ? 'على مستوى الفريق/الشيفت' : 'على مستوى المنظومة'} قبل إعطاء الدرجة`
         : 'هذا محور قيادي يحتاج Evidence مناسب لمسؤولية الدور وليس بيانات الموظف الشخصية',
@@ -198,7 +198,7 @@ function sectionEvidenceFor(
         requirement ? `المطلوب: ${requirement.summary}` : '',
         requirement ? `مصادر القياس المطلوبة: ${requirement.requiredSignals.join(' · ')}` : '',
         'لا تُستخدم محادثات المدير الشخصية أو أرقام حضوره كبديل عن نتيجة الفريق أو الفرع.',
-        'عدم اكتمال الدليل القيادي لا يعني أداءً ضعيفًا ولا يساوي صفرًا.',
+        'حتى ربط المصدر القيادي الآلي، يجب توثيق الواقعة/النتيجة في ملاحظة المحور قبل الاعتماد؛ غياب المصدر لا يساوي صفرًا.',
       ].filter(Boolean),
     };
   }
@@ -1149,6 +1149,10 @@ export default function StaffMonthlyEvaluation() {
       toast.error(`الدورة ما زالت جارية حتى ${cycleRange.displayLabel.split('–')[1]?.trim() || 'يوم 25'}. يمكنك حفظ مسودة فقط ثم الاعتماد بعد إقفال الدورة.`);
       return;
     }
+    if (nextStatus === 'sent' && leadershipSectionsMissingNotes.length > 0) {
+      toast.error(`المحاور القيادية تحتاج واقعة/نتيجة موثقة قبل الاعتماد: ${leadershipSectionsMissingNotes.map((item) => item.title).join('، ')}`);
+      return;
+    }
     if (nextStatus === 'sent' && managerMode && sections.some((item) => item.score === 0)) {
       toast.error('يجب تقييم كل المحاور قبل الاعتماد النهائي');
       return;
@@ -1473,7 +1477,14 @@ export default function StaffMonthlyEvaluation() {
       ),
     }))
     .filter(({ evidence }) => ['unavailable', 'pending', 'insufficient', 'partial'].includes(evidence.status));
-  const roleEvidenceReady = evidenceReady && blockedAxisEvidence.length === 0;
+  const leadershipSectionsMissingNotes = sections.filter((item) =>
+    isLeadershipEvaluationRole(selected?.job_title || selected?.role)
+      && !['shift_discipline', 'development'].includes(item.key)
+      && Boolean(leadershipEvidenceRequirement(selected?.job_title || selected?.role, item.key))
+      && item.score > 0
+      && item.notes.trim().length < 12
+  );
+  const roleEvidenceReady = evidenceReady && blockedAxisEvidence.length === 0 && leadershipSectionsMissingNotes.length === 0;
   const axisEvidenceSnapshot = sections.map((item) => {
     const evidence = sectionEvidenceFor(
       item.key,
@@ -1499,6 +1510,7 @@ export default function StaffMonthlyEvaluation() {
         : 'مصدر أو أكثر من أدلة الدورة غير متاح'
       : '',
     completedSections !== sections.length ? `باقي ${Math.max(0, sections.length - completedSections)} محور بدون تقييم` : '',
+    leadershipSectionsMissingNotes.length ? `${leadershipSectionsMissingNotes.length} محور قيادي يحتاج واقعة/نتيجة موثقة في الملاحظة` : '',
     weakSectionsMissingNotes.length ? `${weakSectionsMissingNotes.length} محور بدرجة ضعيفة يحتاج سبب مكتوب` : '',
     feedbackMissingStrength ? 'يوجد أداء قوي موثق لكن نقاط القوة لم تُكتب بعد' : '',
     feedbackMissingDevelopment ? 'يوجد محور يحتاج تطوير لكن خطة التطوير لم تُكتب بعد' : '',
@@ -1509,6 +1521,7 @@ export default function StaffMonthlyEvaluation() {
     && roleEvidenceReady
     && sections.length > 0
     && completedSections === sections.length
+    && leadershipSectionsMissingNotes.length === 0
     && weakSectionsMissingNotes.length === 0
     && !feedbackMissingStrength
     && !feedbackMissingDevelopment
