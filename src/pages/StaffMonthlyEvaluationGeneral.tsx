@@ -1103,6 +1103,14 @@ export default function StaffMonthlyEvaluation() {
       const persistedManagerNotes = publishedSnapshot
         ? String(publishedSnapshot.manager_notes || '')
         : managerNotes;
+      const publishedPointsRaw = publishedSnapshot?.points_truth;
+      const publishedPoints = publishedPointsRaw && typeof publishedPointsRaw === 'object' && !Array.isArray(publishedPointsRaw)
+        ? publishedPointsRaw as Record<string, unknown>
+        : null;
+      const pdfPoints = publishedSnapshot ? publishedPoints : pointsTruth;
+      const pdfSourceBreakdown = Array.isArray(pdfPoints?.source_breakdown)
+        ? pdfPoints.source_breakdown as Array<{ source?: unknown; points?: unknown; events?: unknown }>
+        : [];
 
       const { pdf, fileName } = await buildStaffMonthlyEvaluationPdf({
         staffName: selected.name,
@@ -1118,20 +1126,22 @@ export default function StaffMonthlyEvaluation() {
         strengths: persistedStrengths,
         developmentPoints: persistedDevelopment,
         managerNotes: persistedManagerNotes,
-        pointsFinal: pointsTruth?.final_points ?? null,
-        pointsTarget: pointsTruth?.target_points ?? null,
-        incentiveEgp: canonicalIncentive ?? null,
+        pointsFinal: pdfPoints ? safeNumber(pdfPoints.final_points) : null,
+        pointsTarget: pdfPoints && pdfPoints.target_points != null ? safeNumber(pdfPoints.target_points) : null,
+        incentiveEgp: pdfPoints && pdfPoints.final_incentive_egp != null
+          ? safeNumber(pdfPoints.final_incentive_egp)
+          : null,
         evidenceByAxis: publishedSnapshot && Array.isArray(publishedSnapshot.axis_evidence_snapshot)
           ? publishedSnapshot.axis_evidence_snapshot as Array<{ key: string; title: string; status: string; summary: string }>
           : axisEvidenceSnapshot,
-        pointsBreakdown: pointsTruth?.source_breakdown?.map((item) => ({
-          source: pointSourceLabel(item.source),
-          points: item.points,
-          events: item.events,
-        })) ?? [],
-        startingPoints: pointsTruth?.starting_points ?? null,
-        rewardPoints: pointsTruth?.reward_points ?? null,
-        deductionPoints: pointsTruth?.deduction_points ?? null,
+        pointsBreakdown: pdfSourceBreakdown.map((item) => ({
+          source: pointSourceLabel(String(item.source || 'unknown')),
+          points: safeNumber(item.points),
+          events: safeNumber(item.events),
+        })),
+        startingPoints: pdfPoints && pdfPoints.starting_points != null ? safeNumber(pdfPoints.starting_points) : null,
+        rewardPoints: pdfPoints && pdfPoints.reward_points != null ? safeNumber(pdfPoints.reward_points) : null,
+        deductionPoints: pdfPoints && pdfPoints.deduction_points != null ? safeNumber(pdfPoints.deduction_points) : null,
       });
       pdf.save(fileName);
     } catch (cause) {
@@ -1220,7 +1230,11 @@ export default function StaffMonthlyEvaluation() {
             final_points: pointsTruth.final_points,
             reward_points: pointsTruth.reward_points,
             deduction_points: pointsTruth.deduction_points,
+            target_points: pointsTruth.target_points,
+            source_breakdown: pointsTruth.source_breakdown,
             profile_configured: pointsTruth.profile_configured,
+            points_incentive_egp: pointsTruth.points_incentive_egp,
+            competition_bonus_egp: pointsTruth.competition_bonus_egp,
             final_incentive_egp: pointsTruth.final_incentive_egp,
           } : null,
         },
