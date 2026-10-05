@@ -38,10 +38,11 @@ export default function EmployeeEvaluationHeaderV1(props:{name:string;role:strin
 
    <details className="group mt-3 rounded-xl border" style={{borderColor:'var(--dawaa-theme-border)',background:'var(--dawaa-theme-soft)'}}>
     <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2.5 text-xs font-black" style={{color:'var(--dawaa-theme-heading)'}}>
-     <span>تفاصيل حقيقة الدورة</span>
-     <span className="flex items-center gap-1 text-[10px] font-bold" style={{color:'var(--dawaa-theme-muted)'}}>الفواتير · الوقت · الإجازات <ChevronDown size={14} className="transition-transform group-open:rotate-180"/></span>
+     <span>{s.roleGroup==='manager'?'حدود دليل الدور':'تفاصيل حقيقة الدورة'}</span>
+     <span className="flex items-center gap-1 text-[10px] font-bold" style={{color:'var(--dawaa-theme-muted)'}}>{s.roleGroup==='manager'?'القرار مبني على الفريق/الفرع':'الفواتير · الوقت · الإجازات'} <ChevronDown size={14} className="transition-transform group-open:rotate-180"/></span>
     </summary>
     <div className="space-y-4 border-t p-3" style={{borderColor:'var(--dawaa-theme-border)'}}>
+     {s.roleGroup==='manager'?<div className="text-xs font-bold leading-6" style={{color:'var(--dawaa-theme-muted)'}}>لا نستخدم الحضور الشخصي أو الإجازات أو المحادثات الشخصية كحقيقة تقييم للدور القيادي. كل محور قيادي يعتمد على نتيجة الفريق أو الفرع والواقعة الموثقة الخاصة به.</div>:null}
      {s.roleGroup==='doctor'?<div>
       <div className="mb-2 flex items-center gap-1.5 text-[11px] font-black" style={{color:'var(--dawaa-theme-heading)'}}><ReceiptText size={14}/> البيع والمحادثات</div>
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
