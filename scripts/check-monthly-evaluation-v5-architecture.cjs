@@ -19,7 +19,7 @@ const inventoryEvidence = read('src/lib/evaluations/monthlyInventoryEvidence.ts'
 const salesEvidence = read('src/lib/evaluations/monthlySalesQualityEvidence.ts');
 const leadershipEvidence = read('src/lib/evaluations/monthlyLeadershipEvidence.ts');
 const finalSnapshotEvidenceClosure = read('supabase/migrations/20261005113000_monthly_evaluation_final_snapshot_evidence_closure.sql');
-const roleAwareServerEvidence = read('supabase/migrations/20261005124500_monthly_evaluation_role_aware_server_evidence_v5.sql');
+const roleAwareServerEvidence = read('supabase/migrations/20261005125500_monthly_evaluation_role_aware_server_evidence_v5.sql');
 const backend = [
   read('supabase/migrations/20260929153000_monthly_evaluation_command_center_v5.sql'),
   read('supabase/migrations/20260929154500_monthly_evaluation_v5_hardening.sql'),
