@@ -49,13 +49,6 @@ export type DoctorPerformanceIntelligence = {
 };
 
 const n=(v:unknown)=>{const x=Number(v);return Number.isFinite(x)?x:0};
-const money=(row:Record<string,unknown>)=>n(row.net_total ?? row.net_amount ?? row.discounted_amount ?? row.total_amount ?? row.amount ?? row.gross_total ?? row.gross_amount);
-const customerKey=(row:Record<string,unknown>)=>String(row.customer_id||row.customer_code||row.customer_phone||'').trim();
-const rowDate=(row:Record<string,unknown>)=>{
-  const raw=row.invoice_date ?? row.sale_date ?? row.created_at ?? row.date;
-  const value=String(raw||'').slice(0,10);
-  return /^\d{4}-\d{2}-\d{2}$/.test(value)?value:null;
-};
 type SalesCycleSummaryRow = {
   cycle_start?: string; cycle_end?: string; sales?: number; invoices?: number; customers?: number; first_sale_date?: string | null;
 };
