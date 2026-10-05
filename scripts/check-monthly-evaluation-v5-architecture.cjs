@@ -61,6 +61,7 @@ if (!page.includes('getInventoryEvidenceSufficiency')) failures.push('Inventory 
 if (!page.includes('getSalesQualityEvidenceSufficiency')) failures.push('Sales-quality scoring must use the evidence-sufficiency contract.');
 if (!page.includes('leadershipEvidenceRequirement')) failures.push('Leadership axes must use role-aware evidence requirements.');
 if (!page.includes('axis_evidence_snapshot')) failures.push('Per-axis evidence state must be persisted with the evaluation snapshot.');
+if (!page.includes('leadershipSectionsMissingNotes')) failures.push('Leadership manual evidence must require documented axis notes before approval.');
 if (!inventoryEvidence.includes('getInventoryEvidenceSufficiency')) failures.push('Inventory evidence sufficiency helper is missing.');
 if (!salesEvidence.includes('getSalesQualityEvidenceSufficiency')) failures.push('Sales-quality evidence sufficiency helper is missing.');
 if (!leadershipEvidence.includes('leadershipEvidenceRequirement')) failures.push('Leadership evidence contract is missing.');
