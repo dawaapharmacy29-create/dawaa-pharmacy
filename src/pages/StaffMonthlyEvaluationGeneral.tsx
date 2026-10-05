@@ -755,6 +755,7 @@ export default function StaffMonthlyEvaluation() {
   const [previouslySent, setPreviouslySent] = useState(false);
   const [sentAtIso, setSentAtIso] = useState('');
   const [evaluationId, setEvaluationId] = useState<string | null>(null);
+  const [evaluationUpdatedAt, setEvaluationUpdatedAt] = useState<string | null>(null);
   const [publishedSnapshot, setPublishedSnapshot] = useState<Record<string, unknown> | null>(null);
   const [publishedSnapshotHash, setPublishedSnapshotHash] = useState('');
   const [employeeResponse, setEmployeeResponse] = useState<{
@@ -896,6 +897,7 @@ export default function StaffMonthlyEvaluation() {
       setTaskEvaluation(null);
       setSections(evaluationProfileForRole(selected.job_title || selected.role).sections);
       setEvaluationId(null);
+      setEvaluationUpdatedAt(null);
       setPublishedSnapshot(null);
       setPublishedSnapshotHash('');
       setStrengthsText('');
@@ -985,6 +987,7 @@ export default function StaffMonthlyEvaluation() {
         const freshSections = evaluationProfileForRole(selected.job_title || selected.role).sections;
         if (saved) {
           setEvaluationId(String(saved.id || ''));
+          setEvaluationUpdatedAt(String(saved.updated_at || '') || null);
           const savedStatus = String(saved.status || 'draft');
           const savedSentAt = String(saved.sent_at || '');
           const metricsSnapshot = saved.metrics_snapshot as Record<string, unknown> | null;
@@ -1023,6 +1026,7 @@ export default function StaffMonthlyEvaluation() {
           ) as Partial<Record<CriticalGateType, string>>);
         } else {
           setEvaluationId(null);
+          setEvaluationUpdatedAt(null);
           setPublishedSnapshot(null);
           setPublishedSnapshotHash('');
           setSections(freshSections);
@@ -1336,6 +1340,7 @@ export default function StaffMonthlyEvaluation() {
         evaluator_id: user.id,
         evaluator_name: user.name || 'المدير',
         evaluator_role: user.role || null,
+        expected_updated_at: evaluationUpdatedAt,
         sections,
         metrics_snapshot: {
           ...metrics,
@@ -1388,6 +1393,7 @@ export default function StaffMonthlyEvaluation() {
       }
       const savedEvaluationId = String(saveResult.evaluation_id || evaluationId || '');
       setEvaluationId(savedEvaluationId);
+      setEvaluationUpdatedAt(String(saveResult.updated_at || '') || evaluationUpdatedAt);
       setStatus(nextStatus);
       setAuditRefreshKey((value) => value + 1);
 
