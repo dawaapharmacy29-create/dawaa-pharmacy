@@ -246,6 +246,9 @@ function sectionEvidenceFor(
   }
 
   if (conversationKeys.includes(key)) {
+    if (!['doctor', 'delivery', 'customer_service'].includes(canonicalRole)) {
+      return { status: 'insufficient' as const, summary: 'هذا المحور يحتاج دليل عميل مناسب للدور وليس مراجعات محادثات شخصية', details: ['لا تستخدم بيانات شخصية كبديل عن دليل مسؤولية الدور.', 'يبقى المحور غير قابل للدرجة حتى يتوفر مصدر canonical مناسب.'] };
+    }
     if (health.reviews !== 'available') {
       return {
         status: 'unavailable' as const,
@@ -329,6 +332,9 @@ function sectionEvidenceFor(
   }
 
   if (followupKeys.includes(key)) {
+    if (!['doctor', 'customer_service', 'purchasing'].includes(canonicalRole)) {
+      return { status: 'insufficient' as const, summary: 'هذا المحور يحتاج سجل متابعة أو طلبات مناسبًا لمسؤولية الدور', details: ['لا تستخدم سجلات غير منسوبة لمسؤولية الموظف كبديل عن دليل المحور.', 'يبقى المحور غير قابل للدرجة حتى يتوفر مصدر canonical مناسب.'] };
+    }
     if (health.followups !== 'available') {
       return {
         status: 'unavailable' as const,
