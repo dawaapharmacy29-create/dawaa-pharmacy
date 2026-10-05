@@ -59,7 +59,6 @@ begin
   end if;
 
   if p_type='branch_manager' then
-    foreach cur in array array[0] loop null; end loop;
     s:=coalesce(nullif(k->>'cash_reconciliation','')::numeric,0)/10; scores:=scores||jsonb_build_object('cash_integrity',round(s,1)); total:=total+s*.10*10;
     cur:=coalesce(nullif(c->>'customer_requests_total','')::numeric,0);
     if cur=0 then s:=5; else s:=greatest(0,least(10,
@@ -78,11 +77,15 @@ begin
     scores:=scores||jsonb_build_object('attendance',round(s,1)); total:=total+s*.07*10;
   elsif p_type='branches_manager' then
     cur:=coalesce(nullif(c->>'shift_notes_total','')::numeric,0);
-    if cur>0 then s:=greatest(0,least(10,coalesce(nullif(c->>'shift_notes_completed','')::numeric,0)/cur*10-coalesce(nullif(c->>'shift_notes_overdue','')::numeric,0)/cur*5));
-    else
-      cur:=coalesce(nullif(c->>'customer_requests_total','')::numeric,0);
-      if cur=0 then s:=5; else s:=greatest(0,least(10,coalesce(nullif(c->>'customer_requests_closed_on_time','')::numeric,0)/cur*10-coalesce(nullif(c->>'customer_requests_overdue','')::numeric,0)/cur*5)); end if;
-    end if;
+    prev:=coalesce(nullif(c->>'customer_requests_total','')::numeric,0);
+    if cur>0 and prev>0 then
+      s:=(
+        greatest(0,least(10,coalesce(nullif(c->>'shift_notes_completed','')::numeric,0)/cur*10-coalesce(nullif(c->>'shift_notes_overdue','')::numeric,0)/cur*5))
+        + greatest(0,least(10,coalesce(nullif(c->>'customer_requests_closed_on_time','')::numeric,0)/prev*10-coalesce(nullif(c->>'customer_requests_overdue','')::numeric,0)/prev*5))
+      )/2;
+    elsif cur>0 then s:=greatest(0,least(10,coalesce(nullif(c->>'shift_notes_completed','')::numeric,0)/cur*10-coalesce(nullif(c->>'shift_notes_overdue','')::numeric,0)/cur*5));
+    elsif prev>0 then s:=greatest(0,least(10,coalesce(nullif(c->>'customer_requests_closed_on_time','')::numeric,0)/prev*10-coalesce(nullif(c->>'customer_requests_overdue','')::numeric,0)/prev*5));
+    else s:=5; end if;
     scores:=scores||jsonb_build_object('coordination',round(s,1)); total:=total+s*.08*10;
     s:=coalesce(nullif(k->>'warehouse_review','')::numeric,0)/10; scores:=scores||jsonb_build_object('warehouse',round(s,1)); total:=total+s*.08*10;
     s:=coalesce(nullif(k->>'top20_customers_retention_review','')::numeric,0)/10; scores:=scores||jsonb_build_object('top20_customers',round(s,1)); total:=total+s*.08*10;
@@ -116,7 +119,16 @@ begin
     s:=coalesce(nullif(k->>'branches_manager_notes_followup','')::numeric,0)/10; scores:=scores||jsonb_build_object('branches_manager_alignment',round(s,1)); total:=total+s*.05*10;
   end if;
 
-  return jsonb_build_object('objective_score',round(total,1),'criterion_system_scores',scores,'metrics',c,'previous_metrics',p,'checklist_rates',k,'validated_at',now());
+  return jsonb_build_object(
+    'objective_score',round(total,1),
+    'criterion_system_scores',scores,
+    'criterion_weights',case p_type
+      when 'branch_manager' then '{"sales":0.20,"customer_service":0.15,"vip_retention":0.10,"cash_integrity":0.10,"complaints_handling":0.10,"purchases":0.08,"inventory":0.03,"cleanliness_compliance":0.05,"shortages_handling":0.05,"expiry_compliance":0.04,"shift_briefing":0.03,"attendance":0.07}'::jsonb
+      when 'branches_manager' then '{"sales":0.19,"customer_service":0.17,"vip_retention":0.10,"coordination":0.08,"warehouse":0.08,"top20_customers":0.08,"purchases_speed":0.07,"shift_notes_compliance":0.05,"infrastructure":0.04,"consumables":0.03,"stagnant_compliance":0.05,"leadership":0.06}'::jsonb
+      else '{"conversation_quality":0.18,"followups_execution":0.14,"daily_queues_execution":0.10,"points_communication":0.04,"customer_growth":0.08,"vip_retention":0.15,"classification_accuracy":0.10,"doctor_coaching":0.08,"sales_quality":0.08,"branches_manager_alignment":0.05}'::jsonb
+    end,
+    'metrics',c,'previous_metrics',p,'checklist_rates',k,'validated_at',now()
+  );
 end;
 $function$;
 
