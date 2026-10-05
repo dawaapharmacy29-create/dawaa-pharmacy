@@ -49,7 +49,7 @@ export async function loadEmployeeEvaluationHeader(args:{staffId:string;staffNam
  const salesAvailable=roleGroup==='doctor'&&Boolean(sales&&sales.sourceTableUsed!=='none');
  const attendance=attendanceR.status==='fulfilled'?attendanceR.value:null;
  const permission=permissionR.status==='fulfilled'?permissionR.value:null;
- const requests=requestsR.status==='fulfilled'?requestsR.value:[];
+ const requests=requestsR.status==='fulfilled'&&Array.isArray(requestsR.value)?requestsR.value:[];
  const annual=annualR.status==='fulfilled'?annualR.value:null;
  if(roleGroup==='doctor'&&!salesAvailable)warnings.push('ملخص المبيعات غير متاح؛ لا يتم تفسير غياب المصدر كصفر.');
  if(roleGroup==='doctor'&&sales?.warnings?.length)warnings.push(...sales.warnings);
@@ -65,8 +65,8 @@ export async function loadEmployeeEvaluationHeader(args:{staffId:string;staffNam
    ? {state:'available',total:sales!.totalSales,invoices:sales!.invoicesCount,avgInvoice:sales!.avgInvoice,customers:sales!.uniqueCustomersCount}
    : {state:'unavailable',total:null,invoices:null,avgInvoice:null,customers:null},
   conversations:{state:args.evidence.health.reviews==='available'?'available':'unavailable',count:args.evidence.health.reviews==='available'?args.evidence.coaching.conversation.reviewCount:null,average:args.evidence.health.reviews==='available'?args.evidence.coaching.conversation.coreAverage:null},
-  attendance:{state:attendance?'available':'unavailable',workedDays:attendance?.summary.actual_worked_days??null,workedHours:attendance?.summary.total_worked_hours??null,scheduledDays:attendance?.summary.scheduled_workdays??null,lateDays:attendance?.summary.late_days??null,absenceReviewDays:attendance?.summary.absence_review_days??null},
-  timeOff:{state:permission&&requestsR.status==='fulfilled'?'available':permission||requestsR.status==='fulfilled'?'partial':'unavailable',permissions:permission?.approved_permissions??null,permissionMinutes:permission?.total_minutes??null,annualLeaveCycleDays:requestsR.status==='fulfilled'?annualCycleDays:null,annualLeaveYearUsed:annual?.used??null,annualLeaveYearBalance:annual?.balance??null,weeklyOffDays,otherApprovedLeaveDays:requestsR.status==='fulfilled'?otherLeaveDays:null},
+  attendance:{state:needsPersonalAttendance?(attendance?'available':'unavailable'):'unavailable',workedDays:attendance?.summary.actual_worked_days??null,workedHours:attendance?.summary.total_worked_hours??null,scheduledDays:attendance?.summary.scheduled_workdays??null,lateDays:attendance?.summary.late_days??null,absenceReviewDays:attendance?.summary.absence_review_days??null},
+  timeOff:{state:!needsPersonalAttendance?'unavailable':permission&&requestsR.status==='fulfilled'?'available':permission||requestsR.status==='fulfilled'?'partial':'unavailable',permissions:permission?.approved_permissions??null,permissionMinutes:permission?.total_minutes??null,annualLeaveCycleDays:needsPersonalAttendance&&requestsR.status==='fulfilled'?annualCycleDays:null,annualLeaveYearUsed:annual?.used??null,annualLeaveYearBalance:annual?.balance??null,weeklyOffDays,otherApprovedLeaveDays:needsPersonalAttendance&&requestsR.status==='fulfilled'?otherLeaveDays:null},
   warnings,
  };
  HEADER_CACHE.set(cacheKey,{value,at:Date.now()});
