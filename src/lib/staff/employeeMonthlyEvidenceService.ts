@@ -1173,6 +1173,7 @@ async function loadInventoryEvidence(args: {
   staffId: string;
   startDate: string;
   endDateExclusive: string;
+  branch?: string | null;
 }) {
   const anchors = cycleWeekAnchors(args.startDate, args.endDateExclusive);
 
@@ -1180,7 +1181,7 @@ async function loadInventoryEvidence(args: {
     anchors.map(async (anchor) => {
       const { data, error } = await supabase.rpc('get_branch_inventory_weekly_progress_v1', {
         p_anchor_date: anchor,
-        p_branch: null,
+        p_branch: args.branch || null,
       });
       if (error) return { rows: [] as InventoryWeeklyProgressRow[], error: error.message };
       return {
