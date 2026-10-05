@@ -225,6 +225,18 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
   const firstConversationDate=minDate(rawMonths.flatMap(m=>(m.conversations.data||[]).map(r=>String(r.conversation_date||'').slice(0,10)||null)));
   const firstEvidenceDate=minDate([firstAttendanceDate,firstSalesDate,firstConversationDate]);
 
+  const currentCycleClosed=isEvaluationCycleClosed(args.cycleLabel);
+  const currentSpec=cycleSpecs[0];
+  const now=new Date();
+  const todayLocal=new Date(now.getFullYear(),now.getMonth(),now.getDate());
+  const cycleDays=Math.floor((currentSpec.range.endExclusive.getTime()-currentSpec.range.start.getTime())/86400000);
+  const elapsedDays=Math.max(1,Math.min(Math.floor((todayLocal.getTime()-currentSpec.range.start.getTime())/86400000)+1,cycleDays));
+  const addDays=(start:string,days:number)=>{const d=new Date(start+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+days);return d.toISOString().slice(0,10)};
+  const samePeriodSales=!currentCycleClosed?await Promise.all([
+    salesPeriod(args.staffId,currentSpec.start,addDays(currentSpec.start,elapsedDays)),
+    salesPeriod(args.staffId,cycleSpecs[1].start,addDays(cycleSpecs[1].start,elapsedDays)),
+  ]):null;
+
   const months:DoctorPerformanceMonth[]=rawMonths.map(({cycleLabel,range,endExclusive,sales,attendance,conversations,impact})=>{
     const cycleClosed=isEvaluationCycleClosed(cycleLabel);
     const attendanceAvailable=!attendance.error;
@@ -254,8 +266,10 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
 
     const comparisonMode:DoctorPerformanceMonth['comparisonMode']=cycleClosed?'full_cycle':(coverage==='available'&&confidence!=='low'&&hasCoreEvidence?'same_period':'blocked');
     const comparisonEligible=comparisonMode!=='blocked';
-    const comparisonReason=!cycleClosed
-      ?'الدورة ما زالت جارية؛ تُعرض بياناتها الحالية كاملة لكن لا تُقارن تلقائيًا بدورة مكتملة.'
+    const comparisonReason=comparisonMode==='same_period'
+      ?`الدورة جارية؛ المقارنة تستخدم أول ${elapsedDays} يوم من كل دورة.`
+      :!cycleClosed
+        ?'الدورة ما زالت جارية، لكن التغطية الحالية لا تكفي لمقارنة عادلة.'
       :coverage==='not_applicable'
         ?'الدورة خارج نطاق المقارنة لأنها تسبق أول Evidence موثوق.'
         :coverage!=='available'
@@ -280,5 +294,17 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
   });
 
   months.forEach((month,index)=>{month.diagnoses=diagnoseMonth(month,months[index+1]||null)});
+  if(samePeriodSales&&months[0]?.comparisonMode==='same_period'&&samePeriodSales[0].available&&samePeriodSales[1].available){
+    const current={...months[0]};
+    const previous={...months[1],comparisonEligible:true};
+    const apply=(m:DoctorPerformanceMonth,s:SalesPeriodSummaryRow|null)=>{
+      m.sales=n(s?.sales);m.invoices=n(s?.invoices);m.customers=n(s?.customers);
+      m.averageInvoice=m.invoices?m.sales!/m.invoices:null;
+      m.salesPerHour=null;m.invoicesPerHour=null;m.customersPerHour=null;
+    };
+    apply(current,samePeriodSales[0].summary);apply(previous,samePeriodSales[1].summary);
+    current.diagnoses=diagnoseMonth(current,previous).map(d=>({...d,evidence:[`Same-period: أول ${elapsedDays} يوم`,...d.evidence]}));
+    months[0].diagnoses=current.diagnoses;
+  }
   return {months,generatedAt:new Date().toISOString(),firstEvidenceDate};
 }
