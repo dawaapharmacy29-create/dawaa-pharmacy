@@ -26,6 +26,13 @@ declare
   v_score record;
   v_manual_count integer:=0;
   v_combined_count integer:=0;
+  v_server jsonb;
+  v_weights jsonb;
+  v_system_scores jsonb;
+  v_combined_scores jsonb:='{}'::jsonb;
+  v_manual_weight numeric:=0;
+  v_manual_weighted numeric:=0;
+  v_w numeric;
 begin
   if v_session_id is null then raise exception 'unauthorized' using errcode='42501'; end if;
   select * into v_actor from public.staff_accounts
@@ -49,32 +56,50 @@ begin
   if coalesce(v_subject.branch,'')<>v_branch and v_type<>'branches_manager' then raise exception 'subject branch mismatch' using errcode='22023'; end if;
   if v_status not in ('draft','submitted') then raise exception 'invalid status' using errcode='22023'; end if;
 
-  -- Manual manager judgments are always 0..10. Submitted rows cannot contain malformed scores.
+  -- Rebuild operational truth on the server before accepting any score.
+  v_server:=public.dawaa_manager_evaluation_objective_v5(v_type,v_subject_id,v_branch,v_start,v_end);
+  v_weights:=coalesce(v_server->'criterion_weights','{}'::jsonb);
+  v_system_scores:=coalesce(v_server->'criterion_system_scores','{}'::jsonb);
+  v_objective:=nullif(v_server->>'objective_score','')::numeric;
+  if v_objective is null then raise exception 'manager_evaluation_server_objective_unavailable' using errcode='55000'; end if;
+
+  -- Manual manager judgments are always 0..10 and only known criteria are accepted.
   for v_score in select key,value from jsonb_each(v_manual) loop
     v_manual_count:=v_manual_count+1;
     if jsonb_typeof(v_score.value)<>'number' or (v_score.value#>>'{}')::numeric<0 or (v_score.value#>>'{}')::numeric>10 then
       raise exception 'invalid manual score' using errcode='22023';
     end if;
+    v_w:=nullif(v_weights->>v_score.key,'')::numeric;
+    if v_w is null then raise exception 'unknown manual score criterion' using errcode='22023'; end if;
+    v_manual_weight:=v_manual_weight+v_w;
+    v_manual_weighted:=v_manual_weighted+(v_score.value#>>'{}')::numeric*v_w*10;
+    v_combined_scores:=v_combined_scores||jsonb_build_object(
+      v_score.key,
+      round((coalesce(nullif(v_system_scores->>v_score.key,'')::numeric,0)*0.8+(v_score.value#>>'{}')::numeric*0.2)::numeric,1)
+    );
   end loop;
 
-  if jsonb_typeof(coalesce(v_auto->'__criterion_combined_scores','{}'::jsonb))='object' then
-    select count(*) into v_combined_count from jsonb_each(v_auto->'__criterion_combined_scores');
-  end if;
-  if v_status='submitted' and (v_manual_count=0 or v_combined_count=0 or v_manual_count<>v_combined_count) then
+  select count(*) into v_combined_count from jsonb_each(v_weights);
+  if v_status='submitted' and (v_manual_count=0 or v_manual_count<>v_combined_count or abs(v_manual_weight-1)>0.0001) then
     raise exception 'manager_evaluation_incomplete_manual_scores' using errcode='22023';
   end if;
 
-  v_objective:=nullif(v_auto->>'__objective_score','')::numeric;
-  v_manager:=nullif(v_auto->>'__manager_judgment_score','')::numeric;
-  v_total:=nullif(p_payload->>'total_score','')::numeric;
-  if v_objective is null or v_objective<0 or v_objective>100 then raise exception 'invalid objective score' using errcode='22023'; end if;
-  if v_manager is null or v_manager<0 or v_manager>100 then raise exception 'invalid manager score' using errcode='22023'; end if;
-  if coalesce((v_auto->>'__system_performance_weight')::numeric,-1)<>0.8
-     or coalesce((v_auto->>'__manager_judgment_weight')::numeric,-1)<>0.2 then
-    raise exception 'invalid evaluation weights' using errcode='22023';
-  end if;
+  v_manager:=case when v_manual_weight>0 then round((v_manual_weighted/v_manual_weight)::numeric,1) else 0 end;
   v_expected:=round((v_objective*0.8+v_manager*0.2)::numeric,1);
-  if v_total is null or abs(v_total-v_expected)>0.001 then raise exception 'manager_evaluation_score_mismatch' using errcode='22023'; end if;
+  v_total:=v_expected;
+
+  -- Persist only server-built operational evidence; client __score fields are discarded.
+  v_auto:=coalesce(v_server->'metrics','{}'::jsonb)
+    ||jsonb_build_object(
+      '__objective_score',v_objective,
+      '__manager_judgment_score',v_manager,
+      '__system_performance_weight',0.8,
+      '__manager_judgment_weight',0.2,
+      '__checklist_rates',coalesce(v_server->'checklist_rates','{}'::jsonb),
+      '__criterion_system_scores',v_system_scores,
+      '__criterion_combined_scores',v_combined_scores,
+      '__server_validated_at',v_server->>'validated_at'
+    );
 
   insert into public.manager_weekly_evaluations(
     evaluation_type,subject_staff_id,subject_name,branch,evaluator_staff_id,evaluator_name,
