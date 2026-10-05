@@ -2599,14 +2599,19 @@ export default function StaffMonthlyEvaluation() {
                 <Panel className="p-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <div className="text-sm font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>مصادر التقييم</div>
+                      <div className="text-sm font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>جاهزية أدلة المحاور</div>
                       <div className="mt-1 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
-                        راجع فقط إن المصادر الأساسية جاهزة قبل بدء التقييم.
+                        الحكم النهائي مبني على دليل كل محور في دور الموظف؛ البطاقات التالية مصادر مساعدة فقط وليست قائمة الأدلة كاملة.
                       </div>
                     </div>
                     <span className="text-xs font-black" style={{ color: roleEvidenceReady ? 'var(--dawaa-status-success-text)' : 'var(--dawaa-status-danger-text)' }}>
                       {roleEvidenceReady ? 'المصادر والمحاور جاهزة' : 'يوجد دليل ناقص'}
                     </span>
+                  </div>
+
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    <MiniBox label="محاور الدور" value={String(sections.length)} tone="cyan" />
+                    <MiniBox label="محاور بدليل ناقص" value={String(blockedAxisEvidence.length)} tone={blockedAxisEvidence.length ? 'red' : 'green'} />
                   </div>
 
                   <div className="mt-3 grid gap-2 sm:grid-cols-3">
