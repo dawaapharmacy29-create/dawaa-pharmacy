@@ -13,4 +13,11 @@ must('supabase/migrations/20261005152000_manager_evaluation_canonical_save_v5.sq
 must('supabase/migrations/20261005156000_doctor_cs_evaluation_final_immutability_v5.sql',[
   'doctor_cs_evaluation_final_decision_immutable','before update or delete',"old.status in ('sent','approved')"
 ]);
+must('supabase/migrations/20261005158000_monthly_evaluation_snapshot_contract_v5.sql',[
+  "'server_evidence'", "'server_evidence_snapshot'", "'final_approval_hash_algorithm','sha256'",
+  'monthly_evaluation_server_evidence_unavailable'
+]);
+must('supabase/migrations/20261005159000_monthly_evaluation_final_decision_immutability_v5.sql',[
+  'monthly_evaluation_final_decision_immutable',"old.status in ('sent','approved')",'before update or delete'
+]);
 if(fail.length){console.error(fail.join('\n'));process.exit(1);}console.log('manager evaluation finality architecture OK');
