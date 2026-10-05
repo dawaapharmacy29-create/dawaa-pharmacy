@@ -52,8 +52,14 @@ begin
     raise exception 'conversation_review_not_found' using errcode='P0002';
   end if;
 
+  -- The review payload may identify either the staff account UUID or the linked staff UUID,
+  -- depending on which reviewer selector path created it. Accept only those two server-known
+  -- identities; never trust a caller-supplied actor id.
   if v_review.reviewer_id is null
-     or v_review.reviewer_id::text is distinct from v_account.id::text then
+     or (
+       v_review.reviewer_id::text is distinct from v_account.id::text
+       and v_review.reviewer_id::text is distinct from coalesce(v_account.staff_id::text,'')
+     ) then
     raise exception 'review_author_session_mismatch' using errcode='42501';
   end if;
 
