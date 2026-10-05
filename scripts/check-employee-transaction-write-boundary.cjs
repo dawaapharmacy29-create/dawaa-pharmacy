@@ -30,6 +30,10 @@ const MANUAL_POINTS_IDENTITY_MIGRATION = path.join(
   ROOT,
   'supabase/migrations/20261005135000_manual_points_identity_guard_v5.sql'
 );
+const TRANSITION_AUDIT_MIGRATION = path.join(
+  ROOT,
+  'supabase/migrations/20261005140000_points_transition_audit_v5.sql'
+);
 
 // Transitional direct writers that still exist today. Keep shrinking this set as
 // lifecycle mutations move behind canonical authorization-aware RPCs. New direct
@@ -266,6 +270,25 @@ for (const token of ['manualSaveIdentityRef', 'crypto.randomUUID()', 'sourceReco
 
 // Lifecycle status changes are also authorization-sensitive and must stay behind the
 // server-side V4 transition command. This protects branch scope and row locking.
+if (!fs.existsSync(TRANSITION_AUDIT_MIGRATION)) {
+  console.error('\nEmployee points transition audit boundary failed: migration is missing.');
+  process.exit(1);
+}
+const transitionAuditMigration = fs.readFileSync(TRANSITION_AUDIT_MIGRATION, 'utf8').toLowerCase();
+for (const token of [
+  'approved_points_cannot_return_to_pending',
+  "'last_transition_from'",
+  "'last_transition_to'",
+  "'last_transition_actor_id'",
+  "'last_transition_at'",
+  "approved_by = case when p_status='active'",
+]) {
+  if (!transitionAuditMigration.includes(token.toLowerCase())) {
+    console.error(`\nEmployee points transition audit boundary failed: migration missing ${token}.`);
+    process.exit(1);
+  }
+}
+
 if (!fs.existsSync(TRANSITION_MIGRATION)) {
   console.error('\nEmployee points transition boundary failed: guarded transition migration is missing.');
   process.exit(1);
