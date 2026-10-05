@@ -1451,6 +1451,8 @@ export async function loadEmployeeMonthlyEvidence(args: {
   const inventoryRoles = new Set(['doctor', 'assistant', 'inventory_assistant', 'purchasing']);
   const needsInventoryEvidence = inventoryRoles.has(role);
   const needsInvoicePerformance = role === 'doctor';
+  const attendanceRoles = new Set(['doctor', 'assistant', 'inventory_assistant', 'delivery', 'customer_service', 'shift_supervisor']);
+  const needsAttendanceEvidence = attendanceRoles.has(role);
   // Development is shared by all role profiles, so training remains canonical for every role.
   const emptyInventoryEvidence = {
     weeklyRows: [],
@@ -1493,13 +1495,13 @@ export async function loadEmployeeMonthlyEvidence(args: {
       .gte('created_at', args.startDate)
       .lt('created_at', args.endDateExclusive)
       .limit(1000) : Promise.resolve(emptyFollowupResult),
-    readAttendanceRange({
+    needsAttendanceEvidence ? readAttendanceRange({
       staffId: args.staffId,
       startDate: args.startDate,
       endDateExclusive: args.endDateExclusive,
       limit: 400,
-    }),
-    listAttendanceImpactLedger({
+    }) : Promise.resolve({ status: 'available' as const, rows: [], error: '' }),
+    needsAttendanceEvidence ? listAttendanceImpactLedger({
       staffId: args.staffId,
       start: args.startDate,
       end: new Date(new Date(args.endDateExclusive).getTime() - 86400000).toISOString().slice(0, 10),
@@ -1507,7 +1509,7 @@ export async function loadEmployeeMonthlyEvidence(args: {
     }).then((rows) => ({ rows, error: '' })).catch((cause) => ({
       rows: [] as AttendanceImpactRow[],
       error: cause instanceof Error ? cause.message : String(cause),
-    })),
+    })) : Promise.resolve({ rows: [] as AttendanceImpactRow[], error: '' }),
     needsInventoryEvidence ? loadInventoryEvidence(args) : Promise.resolve(emptyInventoryEvidence),
     loadTrainingEvidence(args),
     needsInvoicePerformance ? loadInvoicePerformanceEvidence(args) : Promise.resolve(emptyInvoicePerformance),
@@ -1558,7 +1560,7 @@ export async function loadEmployeeMonthlyEvidence(args: {
     followups: needsFollowupEvidence
       ? (followupResult.error ? 'unavailable' as const : 'available' as const)
       : 'available' as const,
-    attendance: attendanceResult.status,
+    attendance: needsAttendanceEvidence ? attendanceResult.status : 'available' as const,
   };
 
   const conversationCoaching = buildConversationCoaching(reviewRows);
