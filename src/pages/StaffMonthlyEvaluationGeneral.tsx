@@ -1500,7 +1500,16 @@ export default function StaffMonthlyEvaluation() {
 
       toast.success(nextStatus === 'sent' ? 'تم اعتماد التقييم' : 'تم حفظ المسودة');
     } catch (cause) {
-      toast.error(cause instanceof Error ? cause.message : 'فشل حفظ التقييم');
+      const rawMessage = cause instanceof Error ? cause.message : String(cause || '');
+      if (rawMessage.includes('monthly_evaluation_stale_write_reload_required')) {
+        toast.error('التقييم اتعدل من جلسة أخرى؛ تم إيقاف الحفظ لحماية النسخة الأحدث. أعد تحميل تقييم الموظف قبل أي تعديل جديد.');
+      } else if (rawMessage.includes('monthly_evaluation_final_decision_immutable')) {
+        toast.error('التقييم معتمد ومقفول ولا يمكن تعديله بصمت. أي تصحيح لاحق يجب أن يتم من مسار إعادة فتح/تسوية موثّق.');
+      } else if (rawMessage.includes('monthly_evaluation_server_evidence_unavailable')) {
+        toast.error('تعذر التحقق من أحد مصادر الأدلة على الخادم؛ لم يتم اعتماد التقييم. أعد المحاولة بعد التأكد من توفر البيانات.');
+      } else {
+        toast.error(rawMessage || 'فشل حفظ التقييم');
+      }
     } finally {
       saveInFlightRef.current = false;
       if (selectedIdRef.current === savingStaffId) setSaving(false);
