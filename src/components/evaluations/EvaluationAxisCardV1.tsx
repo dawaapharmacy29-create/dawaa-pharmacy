@@ -12,7 +12,10 @@ export default function EvaluationAxisCardV1(props:{
  onScore:(score:number)=>void; onNote:(note:string)=>void;
 }){
  const weak=props.score>0&&props.score<=2;
+ const manualEvidence=props.evidence.status==='manual';
  const noteMissing=weak&&!props.note.trim();
+ const manualNoteMissing=manualEvidence&&props.score>0&&props.note.trim().length<12;
+ const decisionNoteMissing=noteMissing||manualNoteMissing;
  const evidenceUnavailable=props.evidence.status==='unavailable';
  const evidencePending=props.evidence.status==='pending'||props.evidence.status==='insufficient'||props.evidence.status==='partial';
  const evidenceBlocksDecision=evidenceUnavailable||evidencePending;
@@ -98,9 +101,10 @@ export default function EvaluationAxisCardV1(props:{
    </div>
   </div>
 
-  <textarea disabled={!props.canEdit} value={props.note} onChange={e=>props.onNote(e.target.value)} rows={2} placeholder={weak?'مطلوب سبب واضح للدرجة الضعيفة':'ملاحظة مختصرة عند الحاجة'} className="mt-3 w-full rounded-xl border px-3 py-2.5 text-xs leading-5 disabled:opacity-70" style={{borderColor:noteMissing?'var(--dawaa-status-danger-border)':'var(--dawaa-theme-border)',background:noteMissing?'var(--dawaa-status-danger-bg)':'var(--dawaa-theme-surface)',color:'var(--dawaa-theme-text)'}}/>
+  <textarea disabled={!props.canEdit} value={props.note} onChange={e=>props.onNote(e.target.value)} rows={2} placeholder={manualEvidence?'مطلوب واقعة أو نتيجة موثقة تبرر الدرجة':weak?'مطلوب سبب واضح للدرجة الضعيفة':'ملاحظة مختصرة عند الحاجة'} className="mt-3 w-full rounded-xl border px-3 py-2.5 text-xs leading-5 disabled:opacity-70" style={{borderColor:decisionNoteMissing?'var(--dawaa-status-danger-border)':'var(--dawaa-theme-border)',background:decisionNoteMissing?'var(--dawaa-status-danger-bg)':'var(--dawaa-theme-surface)',color:'var(--dawaa-theme-text)'}}/>
   {evidenceBlocksDecision?<div className="mt-1 text-xs font-black" style={{color:'var(--dawaa-status-warning-text)'}}>لا يمكن اتخاذ قرار على هذا المحور قبل اكتمال الدليل المطلوب.</div>:null}
   {noteMissing?<div className="mt-1 text-xs font-black" style={{color:'var(--dawaa-status-danger-text)'}}>الدرجة الضعيفة لا تُعتمد بدون سبب مكتوب.</div>:null}
+  {manualNoteMissing?<div className="mt-1 text-xs font-black" style={{color:'var(--dawaa-status-danger-text)'}}>هذا المحور يعتمد على دليل يدوي؛ اكتب واقعة أو نتيجة واضحة (12 حرفًا على الأقل) قبل الاعتماد.</div>:null}
   </div>
  </Panel>;
 }
