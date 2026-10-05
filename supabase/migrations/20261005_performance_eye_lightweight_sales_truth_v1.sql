@@ -45,4 +45,5 @@ from matched;
 $function$;
 
 revoke all on function public.get_staff_performance_sales_truth_v1(uuid,date,date) from public;
+revoke execute on function public.get_staff_performance_sales_truth_v1(uuid,date,date) from anon;
 grant execute on function public.get_staff_performance_sales_truth_v1(uuid,date,date) to authenticated;
