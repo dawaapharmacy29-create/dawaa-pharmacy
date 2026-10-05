@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Eye, Loader2, ShieldCheck, TrendingDown, TrendingUp, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Eye, Lightbulb, Loader2, ShieldCheck, TrendingDown, TrendingUp, X } from 'lucide-react';
 import { loadDoctorPerformanceIntelligence, type DoctorPerformanceIntelligence, type DoctorPerformanceMonth } from '@/lib/evaluations/doctorPerformanceIntelligenceService';
 
 const fmt=(v:number|null,d=0)=>v===null?'غير متاح':v.toLocaleString('ar-EG',{maximumFractionDigits:d,minimumFractionDigits:d});
@@ -73,6 +73,30 @@ export default function DoctorPerformanceEye({staffId,staffName,cycleLabel}:{sta
      <Metric label="فواتير لكل ساعة" value={fmt(cur.invoicesPerHour,2)} current={cur.invoicesPerHour} previous={prev.invoicesPerHour} blockedReason={blockedReason}/>
      <Metric label="عملاء لكل ساعة" value={fmt(cur.customersPerHour,2)} current={cur.customersPerHour} previous={prev.customersPerHour} blockedReason={blockedReason}/>
      <Metric label="ساعات العمل المسجلة" value={cur.workedHours===null?'غير متاح':`${fmt(cur.workedHours,1)} س`} current={cur.workedHours} previous={prev.workedHours} blockedReason={blockedReason}/>
+    </div>
+    <div className="mt-4 rounded-xl border p-3" style={{borderColor:'var(--dawaa-theme-border)'}}>
+     <div className="flex items-center gap-2 text-sm font-black" style={{color:'var(--dawaa-theme-heading)'}}><Lightbulb size={17}/> التشخيص الذكي — الدورة الحالية</div>
+     <div className="mt-3 grid gap-2 md:grid-cols-2">
+      {cur.diagnoses.map((d,index)=><div key={`${d.kind}-${index}`} className="rounded-xl border p-3" style={{borderColor:'var(--dawaa-theme-border)',background:'var(--dawaa-theme-soft)'}}>
+       <div className="flex items-center justify-between gap-2"><div className="text-xs font-black" style={{color:'var(--dawaa-theme-heading)'}}>{d.title}</div><span className="text-[10px] font-black" style={{color:d.severity==='attention'?'var(--dawaa-status-danger-text)':d.severity==='positive'?'var(--dawaa-status-success-text)':'var(--dawaa-theme-muted)'}}>{d.severity==='attention'?'يحتاج انتباه':d.severity==='positive'?'إشارة إيجابية':'للمراجعة'}</span></div>
+       <div className="mt-1 text-[11px] font-bold leading-5" style={{color:'var(--dawaa-theme-muted)'}}>{d.detail}</div>
+       <div className="mt-2 flex flex-wrap gap-1">{d.evidence.map(e=><span key={e} className="rounded-full border px-2 py-1 text-[10px] font-bold" style={{borderColor:'var(--dawaa-theme-border)'}}>{e}</span>)}</div>
+      </div>)}
+     </div>
+    </div>
+    <div className="mt-4 rounded-xl border p-3" style={{borderColor:'var(--dawaa-theme-border)'}}>
+     <div className="text-sm font-black" style={{color:'var(--dawaa-theme-heading)'}}>Customer Impact — دليل العميل والفرص</div>
+     {cur.customerImpact.available?<div className="mt-3 grid grid-cols-2 gap-2 text-[11px] font-bold sm:grid-cols-3 lg:grid-cols-5">
+      <span>فرص تجارية: {fmt(cur.customerImpact.commercialConversations)}</span>
+      <span>بيع مؤكد: {fmt(cur.customerImpact.verifiedSaleConversations)}</span>
+      <span>إيراد مؤكد: {cur.customerImpact.verifiedRevenue===null?'غير متاح':`${fmt(cur.customerImpact.verifiedRevenue)} ج`}</span>
+      <span>Conversion مؤكد: {pct(cur.customerImpact.verifiedConversionRate)}</span>
+      <span>متابعات مطلوبة: {fmt(cur.customerImpact.followupsNeeded)}</span>
+      <span>فقد بيع: {fmt(cur.customerImpact.saleLeakage)}</span>
+      <span>عدم توافر: {fmt(cur.customerImpact.unavailableProducts)}</span>
+      <span>ترشيحات مقبولة: {fmt(cur.customerImpact.acceptedProducts)}</span>
+      <span>شكاوى: {fmt(cur.customerImpact.complaints)}</span>
+     </div>:<div className="mt-2 text-[11px] font-bold" style={{color:'var(--dawaa-theme-muted)'}}>مصدر Customer Impact غير متاح؛ لن يتحول غيابه إلى صفر أو حكم سلبي.</div>}
     </div>
     <div className="mt-4 space-y-2">{data!.months.map(m=><MonthSummary key={m.cycleLabel} m={m}/>)}</div>
     <div className="mt-4 rounded-xl border p-3 text-[11px] font-bold leading-6" style={{borderColor:'var(--dawaa-theme-border)',color:'var(--dawaa-theme-muted)'}}>
