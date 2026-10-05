@@ -941,12 +941,14 @@ async function loadTrainingEvidence(args: {
     .from('training_modules')
     .select('id,title,category')
     .in('id', moduleIds)
-    .limit(200);
+    .limit(201);
+  const modulesTruncated = !moduleResult.error && (moduleResult.data?.length || 0) >= 201;
 
   return {
     assignments,
-    modules: moduleResult.error ? [] as TrainingModuleEvidenceRow[] : (moduleResult.data || []) as TrainingModuleEvidenceRow[],
-    error: moduleResult.error?.message || '',
+    modules: moduleResult.error || modulesTruncated ? [] as TrainingModuleEvidenceRow[] : (moduleResult.data || []) as TrainingModuleEvidenceRow[],
+    error: moduleResult.error?.message
+      || (modulesTruncated ? 'training_modules_truncated: more than 200 referenced modules matched; development evidence is incomplete' : ''),
   };
 }
 
