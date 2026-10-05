@@ -24,12 +24,14 @@ export default function EmployeeEvaluationHeaderV1(props:{name:string;role:strin
 
   {s?<div className="p-4">
    <div className={`grid gap-2 sm:grid-cols-2 ${s.roleGroup==='doctor'?'lg:grid-cols-4':'lg:grid-cols-3'}`}>
-    <MiniBox label="الحضور الفعلي" value={attendanceAvailable?n(s.attendance.workedDays):'—'} tone={attendanceAvailable?'green':'amber'}/>
-    <MiniBox label="التأخير" value={attendanceAvailable?(`${n(s.attendance.lateDays)} يوم`):'—'} tone={attendanceAvailable?(s.attendance.lateDays?'amber':'green'):'amber'}/>
+    {s.roleGroup!=='manager'?<>
+     <MiniBox label="الحضور الفعلي" value={attendanceAvailable?n(s.attendance.workedDays):'—'} tone={attendanceAvailable?'green':'amber'}/>
+     <MiniBox label="التأخير" value={attendanceAvailable?(`${n(s.attendance.lateDays)} يوم`):'—'} tone={attendanceAvailable?(s.attendance.lateDays?'amber':'green'):'amber'}/>
+    </>:null}
     {s.roleGroup==='doctor'?<>
      <MiniBox label="مبيعات الدورة" value={salesAvailable&&s.sales.total!=null?`${n(s.sales.total)} ج`:'—'} tone={salesAvailable?'green':'amber'}/>
      <MiniBox label="المحادثات المقيمة" value={conversationAvailable?n(s.conversations.count):'—'} tone={conversationAvailable?'green':'amber'}/>
-    </>:<MiniBox label="ساعات العمل" value={attendanceAvailable&&s.attendance.workedHours!=null?`${n(s.attendance.workedHours,1)} س`:'—'} tone={attendanceAvailable?'cyan':'amber'}/>}
+    </>:s.roleGroup!=='manager'?<MiniBox label="ساعات العمل" value={attendanceAvailable&&s.attendance.workedHours!=null?`${n(s.attendance.workedHours,1)} س`:'—'} tone={attendanceAvailable?'cyan':'amber'}/>:<MiniBox label="نوع الدليل" value="نتيجة الفريق/الفرع" tone="cyan"/>}
    </div>
 
    {s.warnings.length?<div className="mt-3 flex items-start gap-2 rounded-xl border p-2.5 text-[11px] font-bold" style={{borderColor:'var(--dawaa-status-warning-border)',background:'var(--dawaa-status-warning-bg)',color:'var(--dawaa-status-warning-text)'}}><AlertTriangle size={14}/><span>{s.warnings.join(' · ')}</span></div>:null}
@@ -52,7 +54,7 @@ export default function EmployeeEvaluationHeaderV1(props:{name:string;role:strin
       </div>
      </div>:null}
 
-     <div>
+     {s.roleGroup!=='manager'?<div>
       <div className="mb-2 flex items-center gap-1.5 text-[11px] font-black" style={{color:'var(--dawaa-theme-heading)'}}><Clock3 size={14}/> الحضور والوقت</div>
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
        <MiniBox label="أيام الحضور" value={attendanceAvailable?n(s.attendance.workedDays):'—'} tone={attendanceAvailable?'green':'amber'}/>
@@ -63,16 +65,16 @@ export default function EmployeeEvaluationHeaderV1(props:{name:string;role:strin
        <MiniBox label="الإجازة الأسبوعية" value={n(s.timeOff.weeklyOffDays)} tone="cyan"/>
        <MiniBox label="إجازات أخرى معتمدة" value={n(s.timeOff.otherApprovedLeaveDays)} tone="cyan"/>
       </div>
-     </div>
+     </div>:null}
 
-     <div>
+     {s.roleGroup!=='manager'?<div>
       <div className="mb-2 flex items-center gap-1.5 text-[11px] font-black" style={{color:'var(--dawaa-theme-heading)'}}><CalendarDays size={14}/> الإجازات السنوية</div>
       <div className="grid gap-2 sm:grid-cols-3">
        <MiniBox label="سنوية مستخدمة في الدورة" value={n(s.timeOff.annualLeaveCycleDays)} tone="cyan"/>
        <MiniBox label="سنوية مستخدمة خلال السنة" value={n(s.timeOff.annualLeaveYearUsed)} tone="cyan"/>
        <MiniBox label="رصيد السنوية" value={n(s.timeOff.annualLeaveYearBalance)} tone={s.timeOff.annualLeaveYearBalance==null?'amber':'green'}/>
       </div>
-     </div>
+     </div>:null}
     </div>
    </details>
   </div>:<div className="p-4 text-sm font-bold" style={{color:'var(--dawaa-theme-muted)'}}>{props.loading?'جاري تجميع حقيقة الموظف للدورة…':'تعذر تحميل ملخص الدورة؛ لا يتم افتراض أرقام بديلة.'}</div>}
