@@ -46,6 +46,7 @@ import {
 import { toast } from 'sonner';
 import { useSupabaseQuery, logActivity } from '@/hooks/useSupabaseQuery';
 import { getStaffSessionToken } from '@/lib/auth/staffSession';
+import * as pointsPersistence from '@/lib/pointsPersistence';
 import { getCycleForDate } from '@/lib/pharmacy-cycle';
 import type { Customer } from '@/types/database';
 import type { CustomerMetric } from '@/lib/api/customers';
@@ -1815,7 +1816,7 @@ export default function Reviews() {
         note: string;
       }) => {
         if (!args.employeeId || args.signedDelta === 0) return null;
-        return persistPointsTransaction({
+        return pointsPersistence.persistPointsTransaction({
           employeeId: args.employeeId,
           employeeName: args.employeeName,
           branch: args.branch,
