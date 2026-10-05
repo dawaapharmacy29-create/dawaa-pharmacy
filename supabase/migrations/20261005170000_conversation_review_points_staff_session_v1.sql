@@ -19,6 +19,10 @@ declare
   v_review public.conversation_sales_reviews%rowtype;
   v_points numeric;
   v_status text;
+  v_actor_role text;
+  v_actor_branch text;
+  v_is_global boolean;
+  v_is_branch_manager boolean;
   v_result jsonb;
 begin
   if nullif(btrim(coalesce(p_session_token,'')),'') is null then
@@ -65,6 +69,30 @@ begin
 
   if v_review.staff_id is null then
     raise exception 'conversation_review_staff_missing' using errcode='23514';
+  end if;
+
+  -- Mirror the canonical V3 authorization boundary explicitly here. This bridge is
+  -- executable by anon only because the browser uses an opaque staff session instead
+  -- of Supabase Auth; the session must not become a generic points-write capability.
+  v_actor_role:=lower(btrim(coalesce(v_account.role,'')));
+  v_actor_branch:=nullif(btrim(coalesce(v_account.branch,'')),'');
+  v_is_global:=v_actor_role in (
+    'general_manager','admin','executive_manager','branches_manager','manager',
+    'مدير عام','مدير تنفيذي','مديرة الفروع','مدير الفروع'
+  );
+  v_is_branch_manager:=v_actor_role in (
+    'branch_manager','customer_service_manager','مدير فرع','مديرة فرع',
+    'مسؤولة خدمة العملاء','مسؤول خدمة العملاء'
+  );
+
+  if not v_is_global and not v_is_branch_manager then
+    -- Non-manager reviewers may only link the points for the exact review they authored.
+    -- reviewer/session binding above is therefore the complete narrow exception.
+    null;
+  elsif v_is_branch_manager
+        and not v_is_global
+        and coalesce(btrim(v_review.branch),'') is distinct from coalesce(v_actor_branch,'') then
+    raise exception 'not_authorized_for_branch' using errcode='42501';
   end if;
 
   v_points:=coalesce(v_review.doctor_points_impact,v_review.point_impact,0);
