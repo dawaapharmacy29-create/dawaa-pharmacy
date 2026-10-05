@@ -2733,9 +2733,8 @@ export default function StaffMonthlyEvaluation() {
                     || coaching.salesQuality.invoicePerformance.available
                     || coaching.salesQuality.notes.length > 0
                   ) ? (
-                    <details className="mt-3 rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}>
-                      <summary className="cursor-pointer list-none text-[11px] font-black" style={{color:'var(--dawaa-theme-heading)'}}>Coaching جودة البيع والفاتورة · <span style={{color:'var(--dawaa-theme-muted)'}}>{coaching.salesQuality.sourceStatus === 'available' ? 'دليل متاح' : 'يحتاج حكم المدير'}</span></summary>
-                                            <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="mt-3 rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
                         <div>
                           <div className="text-[11px] font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>Coaching جودة البيع والفاتورة</div>
                           <div className="mt-1 text-[10px] font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
@@ -2777,7 +2776,7 @@ export default function StaffMonthlyEvaluation() {
                         {coaching.salesQuality.drafts.development ? <div style={{ color: 'var(--dawaa-status-warning-text)' }}>{coaching.salesQuality.drafts.development}</div> : null}
                         {coaching.salesQuality.drafts.actionPlan ? <div>{coaching.salesQuality.drafts.actionPlan}</div> : null}
                         {coaching.salesQuality.notes.map((note) => <div key={note} style={{ color: 'var(--dawaa-theme-muted)' }}>• {note}</div>)}
-                      </details>
+                      </div>
 
                       <div className="mt-2 flex flex-wrap gap-1.5">
                         {coaching.salesQuality.drafts.strength && canUseStrengthDraft('sales_quality') ? (
@@ -2815,9 +2814,8 @@ export default function StaffMonthlyEvaluation() {
                     || coaching.development.repeatedIssues.length > 0
                     || coaching.development.notes.length > 0
                   ) ? (
-                    <details className="mt-3 rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}>
-                      <summary className="cursor-pointer list-none text-[11px] font-black" style={{color:'var(--dawaa-theme-heading)'}}>Coaching التعلم والتحسن · <span style={{color:'var(--dawaa-theme-muted)'}}>{coaching.development.sourceStatus === 'available' ? 'دليل متاح' : 'يحتاج حكم المدير'}</span></summary>
-                                            <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="mt-3 rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
                         <div>
                           <div className="text-[11px] font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>Coaching التعلم والتحسن</div>
                           <div className="mt-1 text-[10px] font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
@@ -2840,7 +2838,7 @@ export default function StaffMonthlyEvaluation() {
                         {coaching.development.drafts.actionPlan ? <div>{coaching.development.drafts.actionPlan}</div> : null}
                         <div style={{ color: 'var(--dawaa-theme-muted)' }}>{coaching.development.drafts.measurement}</div>
                         {coaching.development.notes.map((note) => <div key={note} style={{ color: 'var(--dawaa-theme-muted)' }}>• {note}</div>)}
-                      </details>
+                      </div>
 
                       <div className="mt-2 flex flex-wrap gap-1.5">
                         {coaching.development.drafts.strength && canUseStrengthDraft('development') ? (
@@ -2876,9 +2874,8 @@ export default function StaffMonthlyEvaluation() {
                   ) : null}
 
                   {coaching?.inventory && (coaching.inventory.weekly.measuredWeeks > 0 || coaching.inventory.stagnant.assignedItems > 0 || coaching.inventory.weekly.notMeasurableWeeks > 0) ? (
-                    <details className="mt-3 rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}>
-                      <summary className="cursor-pointer list-none text-[11px] font-black" style={{color:'var(--dawaa-theme-heading)'}}>Coaching المخزون والرواكد · <span style={{color:'var(--dawaa-theme-muted)'}}>{coaching.inventory.sourceStatus === 'available' ? 'دليل متاح' : 'دليل جزئي'}</span></summary>
-                                            <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="mt-3 rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
                         <div>
                           <div className="text-[11px] font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>Coaching المخزون والرواكد</div>
                           <div className="mt-1 text-[10px] font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
@@ -2900,7 +2897,7 @@ export default function StaffMonthlyEvaluation() {
                         {coaching.inventory.drafts.development ? <div style={{ color: 'var(--dawaa-status-warning-text)' }}>{coaching.inventory.drafts.development}</div> : null}
                         {coaching.inventory.drafts.actionPlan ? <div>{coaching.inventory.drafts.actionPlan}</div> : null}
                         {coaching.inventory.notes.map((note) => <div key={note} style={{ color: 'var(--dawaa-theme-muted)' }}>• {note}</div>)}
-                      </details>
+                      </div>
 
                       <div className="mt-2 flex flex-wrap gap-1.5">
                         {coaching.inventory.drafts.strength && canUseStrengthDraft('inventory') ? (
