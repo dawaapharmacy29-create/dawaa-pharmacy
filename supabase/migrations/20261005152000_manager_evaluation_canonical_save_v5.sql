@@ -86,7 +86,8 @@ begin
 
   v_manager:=case when v_manual_weight>0 then round((v_manual_weighted/v_manual_weight)::numeric,1) else 0 end;
   v_expected:=round((v_objective*0.8+v_manager*0.2)::numeric,1);
-  v_total:=v_expected;
+  -- Preserve the existing UX: incomplete drafts show system performance only.
+  v_total:=case when v_manual_count=v_combined_count and abs(v_manual_weight-1)<=0.0001 then v_expected else v_objective end;
 
   -- Persist only server-built operational evidence; client __score fields are discarded.
   v_auto:=coalesce(v_server->'metrics','{}'::jsonb)
