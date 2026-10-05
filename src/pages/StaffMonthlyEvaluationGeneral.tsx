@@ -1200,6 +1200,10 @@ export default function StaffMonthlyEvaluation() {
       toast.error(`المحاور القيادية تحتاج واقعة/نتيجة موثقة قبل الاعتماد: ${leadershipSectionsMissingNotes.map((item) => item.title).join('، ')}`);
       return;
     }
+    if (nextStatus === 'sent' && manualEvidenceSectionsMissingNotes.length > 0) {
+      toast.error(`المحاور التي تعتمد على دليل يدوي تحتاج واقعة/نتيجة موثقة قبل الاعتماد: ${manualEvidenceSectionsMissingNotes.map((item) => item.title).join('، ')}`);
+      return;
+    }
     if (nextStatus === 'sent' && managerMode && sections.some((item) => item.score === 0)) {
       toast.error('يجب تقييم كل المحاور قبل الاعتماد النهائي');
       return;
@@ -1536,7 +1540,24 @@ export default function StaffMonthlyEvaluation() {
       && item.score > 0
       && item.notes.trim().length < 12
   );
-  const roleEvidenceReady = evidenceReady && blockedAxisEvidence.length === 0 && leadershipSectionsMissingNotes.length === 0;
+  const manualEvidenceSectionsMissingNotes = sections.filter((item) => {
+    if (item.score <= 0 || item.notes.trim().length >= 12) return false;
+    const evidence = sectionEvidenceFor(
+      item.key,
+      selected?.job_title || selected?.role,
+      metrics,
+      evidenceHealth,
+      pointsTruth,
+      coaching,
+      taskEvaluation
+    );
+    return evidence.status === 'manual';
+  });
+  const roleEvidenceReady =
+    evidenceReady
+    && blockedAxisEvidence.length === 0
+    && leadershipSectionsMissingNotes.length === 0
+    && manualEvidenceSectionsMissingNotes.length === 0;
   const axisEvidenceSnapshot = sections.map((item) => {
     const evidence = sectionEvidenceFor(
       item.key,
@@ -1564,6 +1585,7 @@ export default function StaffMonthlyEvaluation() {
       : '',
     completedSections !== sections.length ? `باقي ${Math.max(0, sections.length - completedSections)} محور بدون تقييم` : '',
     leadershipSectionsMissingNotes.length ? `${leadershipSectionsMissingNotes.length} محور قيادي يحتاج واقعة/نتيجة موثقة في الملاحظة` : '',
+    manualEvidenceSectionsMissingNotes.length ? `${manualEvidenceSectionsMissingNotes.length} محور يدوي يحتاج واقعة/نتيجة موثقة في الملاحظة` : '',
     weakSectionsMissingNotes.length ? `${weakSectionsMissingNotes.length} محور بدرجة ضعيفة يحتاج سبب مكتوب` : '',
     feedbackMissingStrength ? 'يوجد أداء قوي موثق لكن نقاط القوة لم تُكتب بعد' : '',
     feedbackMissingDevelopment ? 'يوجد محور يحتاج تطوير لكن خطة التطوير لم تُكتب بعد' : '',
@@ -1575,6 +1597,7 @@ export default function StaffMonthlyEvaluation() {
     && sections.length > 0
     && completedSections === sections.length
     && leadershipSectionsMissingNotes.length === 0
+    && manualEvidenceSectionsMissingNotes.length === 0
     && weakSectionsMissingNotes.length === 0
     && !feedbackMissingStrength
     && !feedbackMissingDevelopment
