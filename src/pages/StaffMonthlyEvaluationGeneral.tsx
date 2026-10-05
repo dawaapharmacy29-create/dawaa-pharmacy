@@ -182,7 +182,8 @@ function sectionEvidenceFor(
   metrics: Metrics,
   health: EmployeeMonthlyEvidence['health'],
   pointsTruth: StaffPointsDashboardV3 | null,
-  coaching: EmployeeMonthlyEvidence['coaching'] | null
+  coaching: EmployeeMonthlyEvidence['coaching'] | null,
+  taskEvaluation: EmployeeMonthlyEvidence['taskEvaluation'] = null
 ) {
   const key = sectionKey.toLowerCase();
   const canonicalRole = canonicalStaffRole(role);
@@ -555,6 +556,24 @@ function sectionEvidenceFor(
     };
   }
 
+  if (personalEvidenceRoles.has(canonicalRole) || canonicalRole === 'other') {
+    const taskSummary = taskEvaluation?.isTaskEvidenceReady
+      ? `دليل مهام مساعد: ${taskEvaluation.taskCompletedCount}/${taskEvaluation.taskResolvedCount} مهمة مكتملة${taskEvaluation.taskOnTimeCompletionRate !== null ? ` · في الموعد ${taskEvaluation.taskOnTimeCompletionRate}%` : ''}`
+      : 'لا يوجد قياس آلي مباشر كافٍ لهذا المحور';
+    return {
+      status: 'manual' as const,
+      summary: `${taskSummary} · يلزم توثيق واقعة/نتيجة تخص المحور قبل الدرجة`,
+      details: [
+        taskEvaluation?.sourceCoverageRate !== null && taskEvaluation?.sourceCoverageRate !== undefined
+          ? `تغطية مصادر المهام: ${taskEvaluation.sourceCoverageRate}% · الثقة: ${taskEvaluation.dataConfidence}`
+          : '',
+        taskEvaluation?.taskMissedCount ? `مهام فائتة موثقة: ${taskEvaluation.taskMissedCount}` : '',
+        'دليل المهام دليل مساعد فقط ولا يثبت وحده جودة هذا المحور.',
+        'اكتب في ملاحظة المحور الواقعة أو النتيجة التي تبرر الدرجة؛ غياب القياس الآلي لا يساوي صفرًا.',
+      ].filter(Boolean),
+    };
+  }
+
   return {
     status: 'insufficient' as const,
     summary: 'لا يوجد مصدر Evidence canonical مربوط بهذا المحور حتى الآن',
@@ -682,6 +701,7 @@ export default function StaffMonthlyEvaluation() {
   });
   const [evidenceErrors, setEvidenceErrors] = useState<Record<string, string>>({});
   const [coaching, setCoaching] = useState<EmployeeMonthlyEvidence['coaching'] | null>(null);
+  const [taskEvaluation, setTaskEvaluation] = useState<EmployeeMonthlyEvidence['taskEvaluation']>(null);
   const [employeeHeader, setEmployeeHeader] = useState<EvaluationHeaderSummary | null>(null);
   const [employeeHeaderLoading, setEmployeeHeaderLoading] = useState(false);
   const employeeHeaderRequestRef = useRef(0);
@@ -834,6 +854,7 @@ export default function StaffMonthlyEvaluation() {
       setEvidenceHealth({ reviews: 'unavailable', followups: 'unavailable', attendance: 'unavailable' });
       setEvidenceErrors({});
       setCoaching(null);
+      setTaskEvaluation(null);
       setSections(evaluationProfileForRole(selected.job_title || selected.role).sections);
       setEvaluationId(null);
       setPublishedSnapshot(null);
@@ -880,6 +901,7 @@ export default function StaffMonthlyEvaluation() {
         setEvidenceHealth(evidenceResult.health);
         setEvidenceErrors(evidenceResult.errors);
         setCoaching(evidenceResult.coaching);
+        setTaskEvaluation(evidenceResult.taskEvaluation);
 
         const headerRequestId = ++employeeHeaderRequestRef.current;
         void loadEmployeeEvaluationHeader({
@@ -1502,7 +1524,8 @@ export default function StaffMonthlyEvaluation() {
         metrics,
         evidenceHealth,
         pointsTruth,
-        coaching
+        coaching,
+        taskEvaluation
       ),
     }))
     .filter(({ evidence }) => ['unavailable', 'pending', 'insufficient', 'partial'].includes(evidence.status));
@@ -1521,7 +1544,8 @@ export default function StaffMonthlyEvaluation() {
       metrics,
       evidenceHealth,
       pointsTruth,
-      coaching
+      coaching,
+      taskEvaluation
     );
     return {
       key: item.key,
@@ -2526,7 +2550,7 @@ export default function StaffMonthlyEvaluation() {
               {!employeeView && activeStep === 2 ? (
                 <section className="space-y-2">
                   {sections.map((item) => {
-                    const sectionEvidence = sectionEvidenceFor(item.key, selected?.job_title || selected?.role, metrics, evidenceHealth, pointsTruth, coaching);
+                    const sectionEvidence = sectionEvidenceFor(item.key, selected?.job_title || selected?.role, metrics, evidenceHealth, pointsTruth, coaching, taskEvaluation);
                     const conversationEvidence = isConversationSectionKey(item.key) ? coaching?.conversation : null;
                     return (
                       <EvaluationAxisCardV1
