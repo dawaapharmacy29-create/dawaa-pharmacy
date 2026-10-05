@@ -745,6 +745,7 @@ export default function StaffMonthlyEvaluation() {
   const [pointsTruth, setPointsTruth] = useState<StaffPointsDashboardV3 | null>(null);
   const [settledStatement, setSettledStatement] = useState<{ points_closing: number; incentive_amount: number } | null>(null);
   const [activeGates, setActiveGates] = useState<CriticalGateType[]>([]);
+  const [criticalGateRationales, setCriticalGateRationales] = useState<Partial<Record<CriticalGateType, string>>>({});
   const [strengthsText, setStrengthsText] = useState('');
   const [developmentText, setDevelopmentText] = useState('');
   const [managerNotes, setManagerNotes] = useState('');
@@ -903,6 +904,7 @@ export default function StaffMonthlyEvaluation() {
       setSentAtIso('');
       setPreviouslySent(false);
       setActiveGates([]);
+      setCriticalGateRationales({});
       try {
         const { startDate, endDate, endDateExclusive } = evaluationCycleDateKeys(cycleLabel);
         const cycleKeyDate = `${cycleLabel}-01`;
@@ -1010,6 +1012,15 @@ export default function StaffMonthlyEvaluation() {
           const savedGates = metricsSnapshot && Array.isArray(metricsSnapshot.active_critical_gates) ? (metricsSnapshot.active_critical_gates as string[]) : [];
           const validSavedGates = savedGates.filter((gate): gate is CriticalGateType => gate in CRITICAL_GATE_CAPS);
           setActiveGates(validSavedGates);
+          const savedGateRationalesRaw = metricsSnapshot?.critical_gate_rationales;
+          const savedGateRationales = savedGateRationalesRaw && typeof savedGateRationalesRaw === 'object' && !Array.isArray(savedGateRationalesRaw)
+            ? savedGateRationalesRaw as Record<string, unknown>
+            : {};
+          setCriticalGateRationales(Object.fromEntries(
+            validSavedGates
+              .map((gate) => [gate, String(savedGateRationales[gate] || '')])
+              .filter(([, rationale]) => rationale.trim())
+          ) as Partial<Record<CriticalGateType, string>>);
         } else {
           setEvaluationId(null);
           setPublishedSnapshot(null);
@@ -1022,6 +1033,7 @@ export default function StaffMonthlyEvaluation() {
           setSentAtIso('');
           setPreviouslySent(false);
           setActiveGates([]);
+      setCriticalGateRationales({});
         }
       } catch (cause) {
         if (evaluationRequestRef.current !== requestId) return;
@@ -1149,6 +1161,12 @@ export default function StaffMonthlyEvaluation() {
 
   function toggleGate(gate: CriticalGateType) {
     setActiveGates((current) => current.includes(gate) ? current.filter((item) => item !== gate) : [...current, gate]);
+    setCriticalGateRationales((current) => {
+      if (!activeGates.includes(gate)) return current;
+      const next = { ...current };
+      delete next[gate];
+      return next;
+    });
   }
 
   async function handleExportPdf() {
@@ -1268,8 +1286,8 @@ export default function StaffMonthlyEvaluation() {
       toast.error('اكتب خطة تطوير واضحة للمحاور التي تحتاج تحسين قبل الاعتماد.');
       return;
     }
-    if (nextStatus === 'sent' && activeGates.length > 0 && !managerNotes.trim()) {
-      toast.error('المخالفة الحرجة تحتاج ملاحظة مدير توضح سبب القرار قبل الاعتماد.');
+    if (nextStatus === 'sent' && criticalGateMissingRationales.length > 0) {
+      toast.error(`كل مخالفة حرجة تحتاج واقعة/سببًا مستقلًا قبل الاعتماد: ${criticalGateMissingRationales.map((gate) => CRITICAL_GATE_CAPS[gate].label).join('، ')}`);
       return;
     }
 
@@ -1296,6 +1314,7 @@ export default function StaffMonthlyEvaluation() {
           canonical_role: profile.role,
           evaluation_cycle_label: cycleLabel,
           active_critical_gates: activeGates,
+          critical_gate_rationales: Object.fromEntries(activeGates.map((gate) => [gate, (criticalGateRationales[gate] || '').trim()])),
           coaching_snapshot: coaching,
           employee_feedback_draft: employeeFeedbackDraft,
           points_truth: pointsTruth ? {
@@ -1465,7 +1484,8 @@ export default function StaffMonthlyEvaluation() {
   });
   const completedSections = sections.filter((item) => item.score > 0).length;
   const weakSectionsMissingNotes = sections.filter((item) => item.score > 0 && item.score <= 2 && !item.notes.trim());
-  const criticalGateMissingReason = activeGates.length > 0 && !managerNotes.trim();
+  const criticalGateMissingRationales = activeGates.filter((gate) => (criticalGateRationales[gate] || '').trim().length < 12);
+  const criticalGateMissingReason = criticalGateMissingRationales.length > 0;
   const ratedSections = sections.filter((item) => item.score > 0);
   const ratedWeight = ratedSections.reduce((sum, item) => sum + item.weight, 0);
   const ratedEarnedPoints = Math.round(ratedSections.reduce((sum, item) => sum + sectionPoints(item), 0) * 10) / 10;
@@ -1639,7 +1659,7 @@ export default function StaffMonthlyEvaluation() {
     weakSectionsMissingNotes.length ? `${weakSectionsMissingNotes.length} محور بدرجة ضعيفة يحتاج سبب مكتوب` : '',
     feedbackMissingStrength ? 'يوجد أداء قوي موثق لكن نقاط القوة لم تُكتب بعد' : '',
     feedbackMissingDevelopment ? 'يوجد محور يحتاج تطوير لكن خطة التطوير لم تُكتب بعد' : '',
-    criticalGateMissingReason ? 'المخالفة الحرجة تحتاج سببًا مكتوبًا في ملاحظات المدير' : '',
+    criticalGateMissingReason ? `${criticalGateMissingRationales.length} مخالفة حرجة تحتاج واقعة/سببًا مستقلًا موثقًا` : '',
   ].filter(Boolean);
   const approvalReady =
     cycleClosed
@@ -2512,6 +2532,24 @@ export default function StaffMonthlyEvaluation() {
                       );
                     })}
                   </div>
+
+                  {activeGates.length ? (
+                    <div className="mt-3 space-y-2">
+                      {activeGates.map((gate) => (
+                        <label key={gate} className="block rounded-xl border p-3" style={{borderColor:'var(--dawaa-status-danger-border)',background:'var(--dawaa-theme-surface)'}}>
+                          <span className="text-xs font-black" style={{color:'var(--dawaa-status-danger-text)'}}>{CRITICAL_GATE_CAPS[gate].label} — الواقعة/سبب القرار</span>
+                          <textarea
+                            value={criticalGateRationales[gate] || ''}
+                            disabled={!canEdit}
+                            onChange={(event) => setCriticalGateRationales((current) => ({...current,[gate]:event.target.value}))}
+                            placeholder="اكتب الواقعة المؤكدة أو المرجع الذي يبرر تفعيل هذه المخالفة (12 حرفًا على الأقل)"
+                            className="mt-2 min-h-20 w-full rounded-lg border px-3 py-2 text-xs font-bold disabled:opacity-60"
+                            style={{borderColor:(criticalGateRationales[gate] || '').trim().length>=12?'var(--dawaa-theme-border)':'var(--dawaa-status-danger-border)',background:'var(--dawaa-theme-surface)',color:'var(--dawaa-theme-text)'}}
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  ) : null}
 
                   {isGatedByCriticalViolation ? (
                     <div className="mt-3 rounded-xl border px-3 py-2 text-xs font-black" style={{ borderColor: 'var(--dawaa-status-danger-border)', background: 'var(--dawaa-status-danger-bg)', color: 'var(--dawaa-status-danger-text)' }}>
