@@ -146,7 +146,10 @@ export default function ConversationReviewsHistoryAdvanced() {
     setError('');
     try {
       const all: ReviewRow[] = [];
-      const PAGE = 1000;
+      // Keep the history screen responsive: render the newest page immediately,
+      // then hydrate the older rows progressively instead of blocking the whole UI
+      // until every historical review has crossed the network.
+      const PAGE = 500;
       for (let from = 0; from < 10000; from += PAGE) {
         const { data, error: queryError } = await supabase
           .from('conversation_sales_reviews')
@@ -156,10 +159,11 @@ export default function ConversationReviewsHistoryAdvanced() {
         if (queryError) throw queryError;
         const batch = (data || []) as ReviewRow[];
         all.push(...batch);
+        setRows(all.filter((row) => canSeeBranch(user, row.branch)));
+        setUpdatedAt(new Date());
+        if (from === 0) setLoading(false);
         if (batch.length < PAGE) break;
       }
-      setRows(all.filter((row) => canSeeBranch(user, row.branch)));
-      setUpdatedAt(new Date());
     } catch (err) {
       const message =
         err && typeof err === 'object' && 'message' in err && typeof (err as { message?: unknown }).message === 'string'
