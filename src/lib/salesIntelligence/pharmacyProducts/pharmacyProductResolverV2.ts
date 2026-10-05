@@ -1,13 +1,7 @@
 // Phase I.B.1 — pharmacyProductResolverV2.
 //
-// Resolves a raw phrase (as typed/said by a customer or staff member in a WhatsApp conversation)
-// against the real CanonicalProduct catalog, via an explicit, ordered match-basis hierarchy. Built
-// BESIDE the existing B-G Sales Intelligence engines (caseBasketEngine.ts's productId currently
-// always resolves to null — see the I.B.1 audit) — nothing here replaces those engines yet; see
-// instruction #18 (Phase I.B.1 kickoff) for why.
-//
-// Hard rule, enforced in code below, not just in comments: a fuzzy-only match can NEVER
-// reach 'proven' confidence — see FUZZY_MAX_CONFIDENCE_LEVEL.
+// Resolves a raw phrase against the real CanonicalProduct catalog using an explicit ordered
+// hierarchy. Fuzzy-only evidence is always capped at weak inference.
 import {
   normalizePharmacyText,
   type DosageForm,
@@ -30,14 +24,13 @@ export type ProductMatchBasis =
 
 export type ConfidenceLevel = 'proven' | 'strongly_inferred' | 'weakly_inferred' | 'unknown';
 
-/** The only confidence a cautious-fuzzy match may ever report — see module comment. */
 const FUZZY_MAX_CONFIDENCE_LEVEL: ConfidenceLevel = 'weakly_inferred';
 
 export interface ProductResolutionCandidate {
   product: CanonicalProduct;
   basis: ProductMatchBasis;
   confidence: ConfidenceLevel;
-  score: number; // 0-1, informational — confidenceLevel is the field callers should branch on
+  score: number;
   reasons: string[];
 }
 
@@ -45,30 +38,20 @@ export interface ProductResolutionResult {
   phrase: string;
   normalized: NormalizedPharmacyText;
   candidates: ProductResolutionCandidate[];
-  /** Non-null only when exactly one candidate is safe to treat as the answer — see isSafeSelection(). */
   selected: ProductResolutionCandidate | null;
   ambiguous: boolean;
   reasons: string[];
 }
 
 export interface ConversationProductContext {
-  /** Product ids already confirmed in this case's basket — used only as a tie-breaker signal (I.B.1: recorded, not yet weighted; see I.B.2 scope). */
   basketProductIds?: string[];
   branchNameRaw?: string | null;
 }
 
 export interface ResolveProductMentionOptions {
-  /** Restrict resolution to this subset (e.g. from an upstream invoice-line candidate set) instead of the full catalog. */
   knownCandidateProductIds?: string[];
   context?: ConversationProductContext;
-  /** Approved alias text -> productId. Only 'approved' ProductAliasCandidate rows may ever populate this (see productAliasCandidate.ts). */
   approvedAliases?: ReadonlyMap<string, string>;
-  /**
-   * Small, explicit, DOCUMENTED-AS-INCOMPLETE seed table for cross-script equivalence (Arabic
-   * transliteration -> the Latin token it corresponds to in the catalog). This is NOT a general
-   * transliteration engine — see CROSS_SCRIPT_SEED's own comment. Callers may extend it; the
-   * default export ships the seed discovered during the I.B.1 real-conversation audit.
-   */
   crossScriptSeed?: ReadonlyMap<string, string>;
 }
 
@@ -92,13 +75,7 @@ export function buildPharmacyProductIndex(catalog: CanonicalProduct[]): Pharmacy
   return { catalog, byCode, byNormalizedName };
 }
 
-/**
- * Seed cross-script equivalence table discovered by manually cross-referencing real customer
- * phrasing (from the H.1C/I.B.1 conversation audit) against the real product catalog. Deliberately
- * small and explicit — growing this table is exactly what the alias-candidate approval workflow
- * (productAliasCandidate.ts) is for; this seed exists so the resolver has SOMETHING to work with on
- * day one, not as a claim of general Arabic->English transliteration.
- */
+/** Explicit and deliberately incomplete Arabic↔Latin evidence discovered from real pharmacy data. */
 export const CROSS_SCRIPT_SEED: ReadonlyMap<string, string> = new Map([
   ['زوركال', 'zurcal'],
   ['انتينال', 'antinal'],
@@ -148,15 +125,11 @@ function confidenceForBasis(basis: ProductMatchBasis): ConfidenceLevel {
     case 'exact_barcode':
       return 'proven';
     case 'exact_canonical_name':
-      return 'strongly_inferred';
     case 'approved_alias':
-      return 'strongly_inferred'; // gated on human approval already having happened — see productAliasCandidate.ts
     case 'cross_script_composite':
-      return 'strongly_inferred'; // >=2 explicit seed clues + exact numeric discriminator in canonical name
     case 'dominant_name_token_match':
       return 'strongly_inferred';
     case 'cross_script_equivalent':
-      return 'weakly_inferred'; // one seed clue alone is unvetted heuristic evidence
     case 'strength_form_token_match':
       return 'weakly_inferred';
     case 'cautious_fuzzy':
@@ -166,34 +139,24 @@ function confidenceForBasis(basis: ProductMatchBasis): ConfidenceLevel {
   }
 }
 
-/**
- * A candidate is "safe" to auto-select when it's the SOLE candidate found (whatever its confidence
- * — a lone weak match is still the system's one honest answer, correctly labeled weak) OR when
- * it's uniquely the highest-confidence one among several (no tie at the top). Ties at the top
- * confidence level are never auto-selected — that is exactly what `ambiguous` is for. Confidence
- * level is a separate, honest signal from selection: a selected candidate can still be
- * weakly_inferred, but a fuzzy-only one is capped there by confidenceForBasis and can never claim
- * more certainty than it has.
- */
 function isSafeSelection(candidates: ProductResolutionCandidate[]): ProductResolutionCandidate | null {
   if (candidates.length === 0) return null;
   if (candidates.length === 1) return candidates[0];
   const topLevel = candidates[0].confidence;
-  const tiedAtTop = candidates.filter((c) => c.confidence === topLevel);
+  const tiedAtTop = candidates.filter((candidate) => candidate.confidence === topLevel);
   return tiedAtTop.length === 1 ? candidates[0] : null;
 }
 
 function strengthsCompatible(a: ExtractedStrength[], b: ExtractedStrength[]): boolean {
-  if (a.length === 0 || b.length === 0) return true; // insufficient info on one side -> never used to REJECT, only to prefer
+  if (a.length === 0 || b.length === 0) return true;
   return a.some((sa) => b.some((sb) => sa.unit === sb.unit && Math.abs(sa.value - sb.value) < 0.001));
 }
 
 function dosageFormsCompatible(a: DosageForm[], b: DosageForm[]): boolean {
   if (a.length === 0 || b.length === 0) return true;
-  return a.some((fa) => b.includes(fa));
+  return a.some((form) => b.includes(form));
 }
 
-/** All bare numbers in a normalized string, regardless of whether a unit followed them — this is what lets "Zurcal 20" (no unit typed) still discriminate from "Zurcal 40" (see strengthNumbersCompatible). */
 function extractBareNumbers(normalized: string): number[] {
   const numbers: number[] = [];
   const rx = /[0-9]+(?:\.[0-9]+)?/g;
@@ -203,32 +166,23 @@ function extractBareNumbers(normalized: string): number[] {
 }
 
 function productNumericTokens(product: CanonicalProduct): number[] {
-  return [...product.strengths.map((s) => s.value), ...product.packSizes.map((p) => p.count)];
+  return [...product.strengths.map((strength) => strength.value), ...product.packSizes.map((pack) => pack.count)];
 }
 
-/** Bare numeric tokens appearing literally in the canonical product name (e.g. infant-formula stage "3"). */
 function productNameBareNumbers(product: CanonicalProduct): number[] {
   return Array.from(new Set(product.normalizedNames.flatMap((name) => extractBareNumbers(name))));
 }
 
-/**
- * Gate used wherever a phrase carries a bare number with no explicit unit (the "Zurcal 20" case).
- * If the phrase has no numbers, this never rejects. If the phrase has numbers but the candidate has
- * no comparable numeric facts at all, this never rejects either (insufficient catalog info, not a
- * contradiction). It only rejects when BOTH sides have numbers and none of them match — this is
- * exactly what stops "20" from ever matching a "40" SKU.
- */
 function bareNumbersCompatible(phraseNumbers: number[], product: CanonicalProduct): boolean {
   if (phraseNumbers.length === 0) return true;
   const productNumbers = productNumericTokens(product);
   if (productNumbers.length === 0) return true;
-  return phraseNumbers.some((n) => productNumbers.includes(n));
+  return phraseNumbers.some((number) => productNumbers.includes(number));
 }
 
-/** Very small, dependency-free token-overlap score for the cautious-fuzzy basis — never edit-distance-based magic, fully inspectable. */
 function tokenOverlapScore(a: string, b: string): number {
-  const tokensA = new Set(a.split(' ').filter((t) => t.length > 1));
-  const tokensB = new Set(b.split(' ').filter((t) => t.length > 1));
+  const tokensA = new Set(a.split(' ').filter((token) => token.length > 1));
+  const tokensB = new Set(b.split(' ').filter((token) => token.length > 1));
   if (tokensA.size === 0 || tokensB.size === 0) return 0;
   let overlap = 0;
   for (const token of tokensA) if (tokensB.has(token)) overlap += 1;
@@ -262,13 +216,11 @@ function meaningfulNameTokens(normalized: string): string[] {
 function expandJoinedPhraseTokens(phraseTokens: string[], productTokens: string[]): string[] {
   const productSet = new Set(productTokens);
   const expanded: string[] = [];
-
   for (const token of phraseTokens) {
     if (productSet.has(token)) {
       expanded.push(token);
       continue;
     }
-
     let split: [string, string] | null = null;
     for (let i = 0; i < productTokens.length - 1; i += 1) {
       const left = productTokens[i];
@@ -279,34 +231,24 @@ function expandJoinedPhraseTokens(phraseTokens: string[], productTokens: string[
         break;
       }
     }
-
     if (split) expanded.push(...split);
     else expanded.push(token);
   }
-
   return expanded;
 }
 
 function dominantNameTokenScore(phraseNormalized: string, productNormalized: string): number {
   const productTokens = meaningfulNameTokens(productNormalized);
   if (productTokens.length < 3) return 0;
-
-  const phraseTokens = expandJoinedPhraseTokens(
-    meaningfulNameTokens(phraseNormalized),
-    productTokens
-  );
+  const phraseTokens = expandJoinedPhraseTokens(meaningfulNameTokens(phraseNormalized), productTokens);
   if (phraseTokens.length < 3) return 0;
-
   const productSet = new Set(productTokens);
   const phraseUnique = Array.from(new Set(phraseTokens));
   const productUnique = Array.from(new Set(productTokens));
   const matched = phraseUnique.filter((token) => productSet.has(token)).length;
-
   if (matched < 3) return 0;
-
   const phraseCoverage = matched / phraseUnique.length;
   const productCoverage = matched / productUnique.length;
-
   if (phraseCoverage < 0.75 || productCoverage < 0.8) return 0;
   return Math.min(phraseCoverage, productCoverage);
 }
@@ -326,65 +268,87 @@ export function resolveProductMention(
   function addCandidate(product: CanonicalProduct, basis: ProductMatchBasis, score: number, reason: string) {
     if (!allowed(product)) return;
     const existing = candidateMap.get(product.productId);
-    // Keep the HIGHEST-confidence basis found for this product — never downgrade a stronger match.
     if (existing && confidenceRank(existing.confidence) >= confidenceRank(confidenceForBasis(basis))) {
       existing.reasons.push(reason);
       return;
     }
-    candidateMap.set(product.productId, { product, basis, confidence: confidenceForBasis(basis), score, reasons: [reason] });
+    candidateMap.set(product.productId, {
+      product,
+      basis,
+      confidence: confidenceForBasis(basis),
+      score,
+      reasons: [reason],
+    });
   }
 
-  // 1. Exact product code
   const codeMatch = index.byCode.get(normalized.raw.trim().toLowerCase());
   if (codeMatch) addCandidate(codeMatch, 'exact_code', 1, `المدخل يطابق كود المنتج ${codeMatch.productCode} تمامًا`);
 
-  // 2. Exact barcode — structurally supported, always a no-op today (audit: no barcode data exists).
-  // (No barcode index to check against — CanonicalProduct.barcode is always null at this catalog snapshot.)
-
-  // 3. Exact canonical normalized name
   const nameMatches = index.byNormalizedName.get(normalized.normalized) ?? [];
   for (const product of nameMatches) {
     addCandidate(product, 'exact_canonical_name', 1, `الاسم المُطبَّع "${normalized.normalized}" يطابق اسم المنتج تمامًا`);
   }
 
-  // 4. Approved alias
   const aliasProductId = options.approvedAliases?.get(normalized.raw.trim().toLowerCase());
   if (aliasProductId) {
-    const product = index.catalog.find((p) => p.productId === aliasProductId);
-    if (product) addCandidate(product, 'approved_alias', 0.9, `مرادف معتمد يشير إلى هذا المنتج`);
+    const product = index.catalog.find((candidate) => candidate.productId === aliasProductId);
+    if (product) addCandidate(product, 'approved_alias', 0.9, 'مرادف معتمد يشير إلى هذا المنتج');
   }
 
   const phraseBareNumbers = extractBareNumbers(normalized.normalized);
-
-  // 5. Arabic/English cross-script equivalent (seed table) — narrowed by strength/form/bare-number
-  // compatibility whenever the phrase carries that signal, so "انتينال كبسول" prefers the capsule
-  // SKU over the suspension one instead of treating both brand hits as equally valid.
   const seed = options.crossScriptSeed ?? CROSS_SCRIPT_SEED;
   const crossScriptCluesByProduct = new Map<string, Set<string>>();
+
   for (const [arabicKey, latinToken] of seed) {
-    if (normalized.normalized.includes(arabicKey) || normalized.raw.includes(arabicKey)) {
-      const latinNormalized = normalizePharmacyText(latinToken).normalized;
-      for (const [candidateNormalizedName, products] of index.byNormalizedName) {
-        if (candidateNormalizedName.includes(latinNormalized)) {
-          for (const product of products) {
-            if (!strengthsCompatible(normalized.strengths, product.strengths)) continue;
-            if (!dosageFormsCompatible(normalized.dosageForms, product.dosageForms)) continue;
-            if (!bareNumbersCompatible(phraseBareNumbers, product)) continue;
-            const clues = crossScriptCluesByProduct.get(product.productId) ?? new Set<string>();
-            clues.add(arabicKey);
-            crossScriptCluesByProduct.set(product.productId, clues);
-            addCandidate(product, 'cross_script_equivalent', 0.6, `"${arabicKey}" مرتبط في جدول المرادفات اللغوية بـ "${latinToken}"`);
-          }
-        }
+    if (!normalized.normalized.includes(arabicKey) && !normalized.raw.includes(arabicKey)) continue;
+    const latinNormalized = normalizePharmacyText(latinToken).normalized;
+    for (const [candidateNormalizedName, products] of index.byNormalizedName) {
+      if (!candidateNormalizedName.includes(latinNormalized)) continue;
+      for (const product of products) {
+        if (!strengthsCompatible(normalized.strengths, product.strengths)) continue;
+        if (!dosageFormsCompatible(normalized.dosageForms, product.dosageForms)) continue;
+        if (!bareNumbersCompatible(phraseBareNumbers, product)) continue;
+        const clues = crossScriptCluesByProduct.get(product.productId) ?? new Set<string>();
+        clues.add(arabicKey);
+        crossScriptCluesByProduct.set(product.productId, clues);
+        addCandidate(
+          product,
+          'cross_script_equivalent',
+          0.6,
+          `"${arabicKey}" مرتبط في جدول المرادفات اللغوية بـ "${latinToken}"`
+        );
       }
     }
   }
 
-  // 5b. Composite cross-script evidence. One transliteration seed stays weak forever. A candidate
-  // is promoted only when the SAME canonical product is independently supported by >=2 explicit
-  // seed clues AND the customer supplied a numeric discriminator that occurs literally in that
-  // product's canonical name (e.g. Hero Baby + Nutradefense + stage 3). This does not create or
-  // persist an alias, and competing SKUs that satisfy the same conditions remain tied/ambiguous.
+  // A cross-script brand clue becomes strong only when the customer also supplies an explicit
+  // dosage form and exactly one cross-script candidate has that form explicitly in the catalog.
+  // Products with a missing dosage form do NOT participate in this promotion. This safely resolves
+  // cases such as "جاست ريج امبول" while keeping bare "جاست ريج" weak/ambiguous.
+  const explicitPhraseForms = normalized.dosageForms.filter((form) => form !== 'unknown');
+  if (explicitPhraseForms.length > 0) {
+    const formDiscriminated = Array.from(crossScriptCluesByProduct.entries())
+      .map(([productId, clues]) => {
+        const product = index.catalog.find((candidate) => candidate.productId === productId);
+        if (!product || product.dosageForms.length === 0) return null;
+        const matchingForms = explicitPhraseForms.filter((form) => product.dosageForms.includes(form));
+        return matchingForms.length > 0 ? { product, clues, matchingForms } : null;
+      })
+      .filter((value): value is { product: CanonicalProduct; clues: Set<string>; matchingForms: DosageForm[] } => Boolean(value));
+
+    if (formDiscriminated.length === 1) {
+      const { product, clues, matchingForms } = formDiscriminated[0];
+      addCandidate(
+        product,
+        'cross_script_composite',
+        0.86,
+        `دليل اسم عربي/إنجليزي (${Array.from(clues).join(' + ')}) مع شكل صيدلاني صريح وفريد (${matchingForms.join(', ')})`
+      );
+    }
+  }
+
+  // A second safe composite route: >=2 explicit cross-script clues plus a numeric discriminator
+  // that occurs literally in the canonical product name (e.g. Hero Baby + Nutradefense + stage 3).
   if (phraseBareNumbers.length > 0) {
     for (const [productId, clues] of crossScriptCluesByProduct) {
       if (clues.size < 2) continue;
@@ -402,20 +366,12 @@ export function resolveProductMention(
     }
   }
 
-  // 6. Dominant-name token match. Strong but intentionally strict:
-  // >=3 meaningful name tokens, >=75% phrase coverage and >=80% catalog-name coverage.
-  // Joined customer spellings such as "teenderm" may expand to adjacent catalog tokens
-  // "teen derm". Strength/form/bare-number contradictions remain hard rejections.
   for (const product of index.catalog) {
     if (!allowed(product)) continue;
     if (!strengthsCompatible(normalized.strengths, product.strengths)) continue;
     if (!dosageFormsCompatible(normalized.dosageForms, product.dosageForms)) continue;
     if (!bareNumbersCompatible(phraseBareNumbers, product)) continue;
-
-    const score = Math.max(
-      0,
-      ...product.normalizedNames.map((name) => dominantNameTokenScore(normalized.normalized, name))
-    );
+    const score = Math.max(0, ...product.normalizedNames.map((name) => dominantNameTokenScore(normalized.normalized, name)));
     if (score >= 0.75) {
       addCandidate(
         product,
@@ -426,15 +382,11 @@ export function resolveProductMention(
     }
   }
 
-  // 7. Strength/form/bare-number-aware token match — fires whenever the phrase carries ANY
-  // quantity signal (a unit-bearing strength, a dosage form, or even just a bare number like the
-  // "20" in "Zurcal 20"), matched against catalog entries that share a token AND are compatible.
   if (normalized.strengths.length > 0 || normalized.dosageForms.length > 0 || phraseBareNumbers.length > 0) {
-    const phraseTokens = normalized.normalized.split(' ').filter((t) => t.length > 2 && !/^[0-9.]+$/.test(t));
+    const phraseTokens = normalized.normalized.split(' ').filter((token) => token.length > 2 && !/^[0-9.]+$/.test(token));
     for (const product of index.catalog) {
-      if (!allowed(product)) continue;
-      if (candidateMap.has(product.productId)) continue; // already found via a stronger basis
-      const sharesToken = product.normalizedNames.some((n) => phraseTokens.some((t) => n.includes(t)));
+      if (!allowed(product) || candidateMap.has(product.productId)) continue;
+      const sharesToken = product.normalizedNames.some((name) => phraseTokens.some((token) => name.includes(token)));
       if (!sharesToken) continue;
       if (!strengthsCompatible(normalized.strengths, product.strengths)) continue;
       if (!dosageFormsCompatible(normalized.dosageForms, product.dosageForms)) continue;
@@ -443,16 +395,13 @@ export function resolveProductMention(
     }
   }
 
-  // 8. Cautious fuzzy — token overlap only, still gated by strength/form/bare-number compatibility
-  // so "Zurcal 20" can never fuzzy-match "Zurcal 40". NEVER reaches above weakly_inferred (enforced
-  // by confidenceForBasis, not just by this stage's own score).
   if (candidateMap.size === 0) {
     for (const product of index.catalog) {
       if (!allowed(product)) continue;
       if (!strengthsCompatible(normalized.strengths, product.strengths)) continue;
       if (!dosageFormsCompatible(normalized.dosageForms, product.dosageForms)) continue;
       if (!bareNumbersCompatible(phraseBareNumbers, product)) continue;
-      const bestOverlap = Math.max(0, ...product.normalizedNames.map((n) => tokenOverlapScore(normalized.normalized, n)));
+      const bestOverlap = Math.max(0, ...product.normalizedNames.map((name) => tokenOverlapScore(normalized.normalized, name)));
       if (bestOverlap >= 0.4) {
         addCandidate(product, 'cautious_fuzzy', bestOverlap, `تداخل جزئي في الكلمات (نسبة ${(bestOverlap * 100).toFixed(0)}%)`);
       }
@@ -462,12 +411,10 @@ export function resolveProductMention(
   const candidates = Array.from(candidateMap.values()).sort(
     (a, b) => confidenceRank(b.confidence) - confidenceRank(a.confidence) || b.score - a.score
   );
-
   if (candidates.length === 0) reasons.push('unresolved: لا يوجد أي مرشح من أي مستوى في التسلسل الهرمي');
   const selected = isSafeSelection(candidates);
   const ambiguous = candidates.length > 1 && !selected;
   if (ambiguous) reasons.push(`ambiguous: ${candidates.length} مرشحين بدون ترجيح آمن`);
-
   return { phrase, normalized, candidates, selected, ambiguous, reasons };
 }
 
