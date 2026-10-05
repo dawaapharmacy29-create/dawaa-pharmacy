@@ -248,6 +248,24 @@ else {
   ]) if (!definerActorGuard.includes(token)) failures.push(`SECURITY DEFINER actor guard missing: ${token}`);
 }
 
+const managerEvalCommandPath = path.join(ROOT, 'supabase/migrations/20261005152000_manager_evaluation_canonical_save_v5.sql');
+if (!fs.existsSync(managerEvalCommandPath)) failures.push('Canonical manager evaluation save command is missing.');
+else {
+  const managerEvalCommand = fs.readFileSync(managerEvalCommandPath, 'utf8');
+  for (const token of [
+    'save_manager_weekly_evaluation_v5',
+    'dawaa_current_staff_account_id_strict()',
+    'self evaluation not allowed',
+    'subject role mismatch',
+    'manager_evaluation_score_mismatch',
+    'revoke insert,update,delete on public.manager_weekly_evaluations from anon,authenticated',
+  ]) if (!managerEvalCommand.includes(token)) failures.push(`Manager evaluation command guard missing: ${token}`);
+}
+const managerEvalServicePath = path.join(ROOT, 'src/lib/evaluations/managerEvaluationService.ts');
+const managerEvalService = fs.readFileSync(managerEvalServicePath, 'utf8');
+if (!managerEvalService.includes("supabase.rpc('save_manager_weekly_evaluation_v5'")) failures.push('Manager evaluation client must save through canonical RPC.');
+if (managerEvalService.includes('.from(TABLES.managerWeeklyEvaluations)\n    .upsert(')) failures.push('Direct browser upsert to manager_weekly_evaluations must stay retired.');
+
 if (failures.length) {
   console.error('\nDB authorization architecture check failed:');
   failures.forEach((failure) => console.error(`- ${failure}`));
