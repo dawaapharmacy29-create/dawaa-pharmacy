@@ -1463,8 +1463,10 @@ export async function loadEmployeeMonthlyEvidence(args: {
   };
   const emptyInvoicePerformance = { row: null, error: '' };
   const emptyFollowupResult = { data: [] as Record<string, unknown>[], error: null };
-  const conversationRoles = new Set(['doctor', 'customer_service']);
-  const followupRoles = new Set(['doctor', 'customer_service']);
+  // Keep these aligned with sectionEvidenceFor(): delivery.customer consumes conversation
+  // evidence, while purchasing.customer_requests consumes follow-up evidence.
+  const conversationRoles = new Set(['doctor', 'delivery', 'customer_service']);
+  const followupRoles = new Set(['doctor', 'customer_service', 'purchasing']);
   const needsConversationEvidence = conversationRoles.has(role);
   const needsFollowupEvidence = followupRoles.has(role);
 
