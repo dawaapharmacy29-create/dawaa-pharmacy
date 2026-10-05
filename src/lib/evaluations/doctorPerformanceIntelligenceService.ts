@@ -4,6 +4,27 @@ import { evaluationCycleRangeFromLabel } from '@/lib/evaluations/monthlyEvaluati
 export type PerformanceCoverage = 'available' | 'partial' | 'not_applicable' | 'unavailable';
 export type PerformanceConfidence = 'high' | 'medium' | 'low';
 
+export type DoctorPerformanceDiagnosis = {
+  kind: 'data_quality' | 'sales_trend' | 'efficiency' | 'conversion' | 'customer_impact' | 'opportunity';
+  severity: 'positive' | 'watch' | 'attention';
+  title: string;
+  detail: string;
+  evidence: string[];
+};
+
+export type DoctorCustomerImpact = {
+  available: boolean;
+  commercialConversations: number | null;
+  verifiedSaleConversations: number | null;
+  verifiedRevenue: number | null;
+  verifiedConversionRate: number | null;
+  followupsNeeded: number | null;
+  complaints: number | null;
+  saleLeakage: number | null;
+  unavailableProducts: number | null;
+  acceptedProducts: number | null;
+};
+
 export type DoctorPerformanceMonth = {
   cycleLabel: string; displayLabel: string;
   sales: number | null; invoices: number | null; customers: number | null; averageInvoice: number | null;
@@ -17,6 +38,8 @@ export type DoctorPerformanceMonth = {
   salesIdentity: 'canonical' | 'unavailable';
   salesSourceAvailable: boolean; attendanceSourceAvailable: boolean; conversationSourceAvailable: boolean;
   salesEvidenceCount: number; attendanceEvidenceCount: number; conversationEvidenceCount: number;
+  customerImpact: DoctorCustomerImpact;
+  diagnoses: DoctorPerformanceDiagnosis[];
 };
 
 export type DoctorPerformanceIntelligence = {
@@ -51,6 +74,63 @@ function minDate(values:(string|null)[]){
   return valid[0]||null;
 }
 
+type DoctorCycleImpactRow = {
+  commercial_conversations?: number; verified_sale_conversations?: number; verified_revenue?: number;
+  verified_conversion_rate?: number; conversations_needing_followup?: number; complaint_conversations?: number;
+  sale_leakage_count?: number; unavailable_product_count?: number; accepted_product_count?: number;
+};
+
+async function customerImpactRows(staffId:string,start:string,endExclusive:string){
+  const end=new Date(`${endExclusive}T12:00:00Z`); end.setUTCDate(end.getUTCDate()-1);
+  const endInclusive=end.toISOString().slice(0,10);
+  const {data,error}=await supabase.from('whatsapp_doctor_cycle_intelligence_v1')
+    .select('commercial_conversations,verified_sale_conversations,verified_revenue,verified_conversion_rate,conversations_needing_followup,complaint_conversations,sale_leakage_count,unavailable_product_count,accepted_product_count')
+    .eq('staff_id',staffId).eq('cycle_start',start).eq('cycle_end',endInclusive);
+  return {rows:(data||[]) as DoctorCycleImpactRow[],available:!error};
+}
+
+function aggregateImpact(rows:DoctorCycleImpactRow[],available:boolean):DoctorCustomerImpact{
+  if(!available) return {available:false,commercialConversations:null,verifiedSaleConversations:null,verifiedRevenue:null,verifiedConversionRate:null,followupsNeeded:null,complaints:null,saleLeakage:null,unavailableProducts:null,acceptedProducts:null};
+  const commercial=rows.reduce((s,r)=>s+n(r.commercial_conversations),0);
+  const verified=rows.reduce((s,r)=>s+n(r.verified_sale_conversations),0);
+  return {
+    available:true,
+    commercialConversations:commercial,
+    verifiedSaleConversations:verified,
+    verifiedRevenue:rows.reduce((s,r)=>s+n(r.verified_revenue),0),
+    verifiedConversionRate:commercial?verified/commercial*100:null,
+    followupsNeeded:rows.reduce((s,r)=>s+n(r.conversations_needing_followup),0),
+    complaints:rows.reduce((s,r)=>s+n(r.complaint_conversations),0),
+    saleLeakage:rows.reduce((s,r)=>s+n(r.sale_leakage_count),0),
+    unavailableProducts:rows.reduce((s,r)=>s+n(r.unavailable_product_count),0),
+    acceptedProducts:rows.reduce((s,r)=>s+n(r.accepted_product_count),0),
+  };
+}
+
+function diagnoseMonth(current:DoctorPerformanceMonth,previous:DoctorPerformanceMonth|null):DoctorPerformanceDiagnosis[]{
+  const out:DoctorPerformanceDiagnosis[]=[];
+  if(!current.comparisonEligible){
+    out.push({kind:'data_quality',severity:'watch',title:'لا يوجد حكم أداء تلقائي',detail:current.comparisonReason,evidence:[current.coverageReason]});
+    return out;
+  }
+  if(previous?.comparisonEligible){
+    const salesDelta=previous.sales&&current.sales!==null?((current.sales-previous.sales)/Math.abs(previous.sales))*100:null;
+    const efficiencyDelta=previous.salesPerHour&&current.salesPerHour!==null?((current.salesPerHour-previous.salesPerHour)/Math.abs(previous.salesPerHour))*100:null;
+    if(salesDelta!==null&&salesDelta<=-10) out.push({kind:'sales_trend',severity:'attention',title:'تراجع بيعي موثوق',detail:'المبيعات انخفضت بأكثر من 10% مقارنة بالدورة السابقة المؤهلة.',evidence:[`تغير المبيعات ${salesDelta.toFixed(1)}%`]});
+    else if(salesDelta!==null&&salesDelta>=10) out.push({kind:'sales_trend',severity:'positive',title:'نمو بيعي موثوق',detail:'المبيعات تحسنت بأكثر من 10% مقارنة بالدورة السابقة المؤهلة.',evidence:[`تغير المبيعات +${salesDelta.toFixed(1)}%`]});
+    if(efficiencyDelta!==null&&efficiencyDelta<=-10) out.push({kind:'efficiency',severity:'attention',title:'كفاءة الساعة تحتاج مراجعة',detail:'البيع لكل ساعة عمل انخفض رغم صلاحية المقارنة.',evidence:[`تغير مبيعات/ساعة ${efficiencyDelta.toFixed(1)}%`]});
+  }
+  const impact=current.customerImpact;
+  if(impact.available){
+    if((impact.commercialConversations||0)>=5&&impact.verifiedConversionRate!==null&&impact.verifiedConversionRate<25) out.push({kind:'conversion',severity:'attention',title:'فرص تجارية لا تتحول لبيع كفاية',detail:'يوجد حجم فرص يسمح بالقراءة، لكن نسبة البيع المؤكد منخفضة.',evidence:[`Conversion موثق ${impact.verifiedConversionRate.toFixed(1)}%`,`فرص تجارية ${impact.commercialConversations}`]});
+    if((impact.saleLeakage||0)>0) out.push({kind:'opportunity',severity:'attention',title:'فرص بيع متوقفة قابلة للمراجعة',detail:'هناك فرص مسجلة وصلت لمسار تجاري ولم تُغلق كبيع مؤكد.',evidence:[`فقد بيع ${impact.saleLeakage}`,`متابعات مطلوبة ${impact.followupsNeeded||0}`]});
+    if((impact.unavailableProducts||0)>0) out.push({kind:'customer_impact',severity:'watch',title:'التوافر يؤثر على تجربة العميل',detail:'جزء من الفرص تأثر بأصناف غير متاحة؛ لا يُنسب السبب تلقائيًا للدكتور.',evidence:[`أصناف/فرص غير متاحة ${impact.unavailableProducts}`]});
+    if((impact.acceptedProducts||0)>0) out.push({kind:'customer_impact',severity:'positive',title:'ترشيحات مقبولة من العملاء',detail:'يوجد Evidence على قبول العميل لترشيحات أو بدائل داخل المحادثات.',evidence:[`ترشيحات مقبولة ${impact.acceptedProducts}`]});
+  }
+  if(!out.length) out.push({kind:'data_quality',severity:'positive',title:'لا توجد إشارة سلبية قوية',detail:'البيانات الحالية لا تُظهر تراجعًا موثقًا يتجاوز قواعد التشخيص.',evidence:[`Coverage ${current.coverage}`,`Confidence ${current.confidence}`]});
+  return out;
+}
+
 function coverageText(coverage:PerformanceCoverage, salesAvailable:boolean, attendanceAvailable:boolean, hasCoreEvidence:boolean){
   if(coverage==='not_applicable') return 'الدورة تسبق أول دليل موثوق لوجود الموظف، لذلك لا تُحسب صفرًا ولا تدخل في المقارنة.';
   if(coverage==='unavailable') return 'مصادر البيع والحضور الأساسية غير متاحة لهذه الدورة.';
@@ -71,19 +151,20 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
     const cycleLabel=previousCycle(args.cycleLabel,back);
     const range=evaluationCycleRangeFromLabel(cycleLabel);
     const start=range.start.toISOString().slice(0,10), endExclusive=range.endExclusive.toISOString().slice(0,10);
-    const [sales,attendance,conversations]=await Promise.all([
+    const [sales,attendance,conversations,impact]=await Promise.all([
       salesRows(args.staffId,start,endExclusive),
       supabase.from('attendance_daily_summary').select('attendance_date,payroll_eligible_hours,total_hours').eq('staff_id',args.staffId).gte('attendance_date',start).lt('attendance_date',endExclusive).limit(100),
       supabase.from('conversation_sales_reviews').select('id,converted_to_sale,conversation_date').or(`doctor_id.eq.${args.staffId},staff_id.eq.${args.staffId}`).eq('is_current',true).gte('conversation_date',start).lt('conversation_date',endExclusive).limit(1000),
+      customerImpactRows(args.staffId,start,endExclusive),
     ]);
-    return {cycleLabel,range,start,endExclusive,sales,attendance,conversations};
+    return {cycleLabel,range,start,endExclusive,sales,attendance,conversations,impact};
   }));
 
   const firstSalesDate=minDate(rawMonths.flatMap(m=>m.sales.rows.map(rowDate)));
   const firstConversationDate=minDate(rawMonths.flatMap(m=>(m.conversations.data||[]).map(r=>String(r.conversation_date||'').slice(0,10)||null)));
   const firstEvidenceDate=minDate([firstAttendanceDate,firstSalesDate,firstConversationDate]);
 
-  const months:DoctorPerformanceMonth[]=rawMonths.map(({cycleLabel,range,endExclusive,sales,attendance,conversations})=>{
+  const months:DoctorPerformanceMonth[]=rawMonths.map(({cycleLabel,range,endExclusive,sales,attendance,conversations,impact})=>{
     const attendanceAvailable=!attendance.error;
     const conversationAvailable=!conversations.error;
     const attendanceRows=attendance.data||[];
@@ -107,6 +188,7 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
     const hours=coverage==='not_applicable'||attendance.error?null:attendanceRows.reduce((s,r)=>s+n(r.payroll_eligible_hours ?? r.total_hours),0);
     const conv=coverage==='not_applicable'||conversations.error?null:conversationRows.length;
     const converted=coverage==='not_applicable'||conversations.error?null:conversationRows.filter(r=>r.converted_to_sale===true).length;
+    const customerImpact=aggregateImpact(impact.rows,impact.available);
 
     const comparisonEligible=coverage==='available'&&confidence!=='low'&&hasCoreEvidence;
     const comparisonReason=coverage==='not_applicable'
@@ -128,8 +210,10 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
       comparisonEligible,comparisonReason,
       salesIdentity:sales.identity,salesSourceAvailable:sales.available,attendanceSourceAvailable:attendanceAvailable,conversationSourceAvailable:conversationAvailable,
       salesEvidenceCount:sales.rows.length,attendanceEvidenceCount:attendanceRows.length,conversationEvidenceCount:conversationRows.length,
+      customerImpact,diagnoses:[],
     };
   });
 
+  months.forEach((month,index)=>{month.diagnoses=diagnoseMonth(month,months[index+1]||null)});
   return {months,generatedAt:new Date().toISOString(),firstEvidenceDate};
 }
