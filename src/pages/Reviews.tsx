@@ -45,7 +45,7 @@ import {
 } from '@/lib/security/userDataScope';
 import { toast } from 'sonner';
 import { useSupabaseQuery, logActivity } from '@/hooks/useSupabaseQuery';
-import { persistPointsTransaction } from '@/lib/pointsPersistence';
+import { getStaffSessionToken } from '@/lib/auth/staffSession';
 import { getCycleForDate } from '@/lib/pharmacy-cycle';
 import type { Customer } from '@/types/database';
 import type { CustomerMetric } from '@/lib/api/customers';
@@ -1466,45 +1466,28 @@ export default function Reviews() {
       }
 
       if (repeatedDoctorImpact !== 0) {
-        const pointsResult = await persistPointsTransaction({
-          employeeId: selectedStaff.id,
-          employeeName: selectedStaff.name,
-          branch: selectedStaff.branch,
-          branchId: selectedStaff.branch_id ?? null,
-          operation: repeatedDoctorImpact > 0 ? 'bonus' : 'deduction',
-          rule: null,
-          pointsToStore: Math.abs(repeatedDoctorImpact),
-          basePoints: Math.abs(result.doctorPointsImpact),
-          repeatCount: previousCount,
-          multiplier,
-          finalPoints: Math.abs(repeatedDoctorImpact),
-          reasonLabel: `تقييم محادثة عميل - النتيجة ${result.finalScore}/100`,
-          userNote: [
-            form.reviewerNotes || form.notes || `تقييم محادثة ${result.finalScore}/100`,
-            result.repeatErrorType ? `review_error:${result.repeatErrorType}` : '',
-            result.mainNegativeReason
-              ? `سبب التأثير: ${result.mainNegativeReason}`
-              : result.mainPositiveReason,
-            reviewRowId ? `review_id:${reviewRowId}` : '',
-          ]
-            .filter(Boolean)
-            .join(' | '),
-          createdByName: selectedReviewer.name || user?.name || 'مراجع',
-          createdById: selectedReviewer.id || user?.id || '',
-          createdByRole: selectedReviewer.role || user?.role || '',
-          status: result.impactStatus === 'approved' ? 'approved' : 'pending',
-          cycle: reviewCycle,
-          source: 'conversation_evaluation',
-          sourceModule: 'conversation_evaluation',
-          sourceRecordId: reviewRowId ?? null,
-          description: form.reviewerNotes || form.notes || finalTraining,
-        });
+        const staffSessionToken = getStaffSessionToken();
+        let pointsError: string | null = null;
 
-        if (pointsResult.error) {
-          // التقييم نفسه اتسجل، لكن النقاط جزء أساسي من دورة الحوافز.
-          // لا نمسح المسودة ولا نعتبر العملية مكتملة: إعادة الضغط على حفظ
-          // ستسترجع نفس التقييم (idempotent) وتحاول ربط النقاط مرة أخرى بلا تكرار.
-          toast.error(`تم حفظ التقييم لكن ربط النقاط لم يكتمل. اضغط حفظ مرة أخرى لإكمال الربط: ${pointsResult.error}`);
+        if (!staffSessionToken || !reviewRowId) {
+          pointsError = !staffSessionToken
+            ? 'جلسة الموظف غير متاحة أو انتهت. سجّل الدخول مرة أخرى ثم أعد محاولة ربط النقاط.'
+            : 'تعذر تحديد التقييم المحفوظ لربط النقاط.';
+        } else {
+          const { error: pointsCommandError } = await supabase.rpc(
+            'record_conversation_review_points_v1',
+            {
+              p_session_token: staffSessionToken,
+              p_review_id: reviewRowId,
+            }
+          );
+          if (pointsCommandError) pointsError = pointsCommandError.message;
+        }
+
+        if (pointsError) {
+          // التقييم محفوظ بالفعل. أمر النقاط الجديد مربوط بنفس review_id ومقاوم للتكرار،
+          // لذلك لا ننشئ حركة بديلة ولا نطلب من المستخدم إعادة الحفظ بشكل أعمى.
+          toast.error(`تم حفظ التقييم، لكن ربط النقاط ما زال معلّقًا: ${pointsError}`);
           return false;
         }
       }
