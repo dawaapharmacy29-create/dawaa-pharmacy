@@ -50,7 +50,7 @@ begin
     'approved_at',coalesce(new.sent_at,now())
   );
 
-  v_hash := encode(digest(convert_to(v_snapshot::text,'UTF8'),'sha256'),'hex');
+  v_hash := encode(extensions.digest(convert_to(v_snapshot::text,'UTF8'),'sha256'::text),'hex');
   new.metrics_snapshot := new.metrics_snapshot || jsonb_build_object(
     'final_approval_snapshot',v_snapshot,
     'final_approval_hash',v_hash,
