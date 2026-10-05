@@ -63,14 +63,14 @@ type SalesCycleSummaryRow = {
 };
 
 type SalesPeriodSummaryRow = { sales?: number; invoices?: number; customers?: number; first_sale_date?: string | null };
-type SalesBundlePayload = { cycles?: SalesCycleSummaryRow[]; samePeriod?: { current?: SalesPeriodSummaryRow; previous?: SalesPeriodSummaryRow } };
+type SalesBundlePayload = { cycles?: SalesCycleSummaryRow[]; samePeriod?: { current?: SalesPeriodSummaryRow; previous?: SalesPeriodSummaryRow }; dataAsOf?: string | null; effectiveDays?: number | null };
 
 async function salesBundle(staffId:string,windowStart:string,windowEnd:string,currentStart:string,elapsedDays:number){
   const {data,error}=await supabase.rpc('get_staff_performance_sales_bundle_v1',{
     p_staff_id:staffId,p_window_start:windowStart,p_window_end:windowEnd,p_current_start:currentStart,p_elapsed_days:elapsedDays,
   });
   const payload=(data||{}) as SalesBundlePayload;
-  return {rows:Array.isArray(payload.cycles)?payload.cycles:[],samePeriod:payload.samePeriod||{},available:!error,identity:error?'unavailable' as const:'canonical' as const};
+  return {rows:Array.isArray(payload.cycles)?payload.cycles:[],samePeriod:payload.samePeriod||{},dataAsOf:payload.dataAsOf||null,effectiveDays:Math.max(0,n(payload.effectiveDays)),available:!error,identity:error?'unavailable' as const:'canonical' as const};
 }
 
 function minDate(values:(string|null)[]){
@@ -189,16 +189,18 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
   const now=new Date();
   const localDayUtc=(date:Date)=>Date.UTC(date.getFullYear(),date.getMonth(),date.getDate());
   const cycleDays=Math.round((localDayUtc(currentSpec.range.endExclusive)-localDayUtc(currentSpec.range.start))/86400000);
-  const elapsedDays=Math.max(1,Math.min(Math.round((Date.UTC(now.getFullYear(),now.getMonth(),now.getDate())-localDayUtc(currentSpec.range.start))/86400000)+1,cycleDays));
+  const requestedElapsedDays=Math.max(1,Math.min(Math.round((Date.UTC(now.getFullYear(),now.getMonth(),now.getDate())-localDayUtc(currentSpec.range.start))/86400000)+1,cycleDays));
 
   const [firstAttendanceResult,salesTruth,attendanceWindow,conversationWindow,impactWindow]=await Promise.all([
     supabase.from('attendance_daily_summary').select('attendance_date').eq('staff_id',args.staffId).order('attendance_date',{ascending:true}).limit(1).maybeSingle(),
-    salesBundle(args.staffId,windowStart,windowEnd,currentSpec.start,elapsedDays),
+    salesBundle(args.staffId,windowStart,windowEnd,currentSpec.start,requestedElapsedDays),
     supabase.from('attendance_daily_summary').select('attendance_date,payroll_eligible_hours,total_hours').eq('staff_id',args.staffId).gte('attendance_date',windowStart).lt('attendance_date',windowEnd).limit(400),
     supabase.from('conversation_sales_reviews').select('id,converted_to_sale,conversation_date').or(`doctor_id.eq.${args.staffId},staff_id.eq.${args.staffId}`).eq('is_current',true).gte('conversation_date',windowStart).lt('conversation_date',windowEnd).limit(3000),
     customerImpactWindow(args.staffId,windowStart,windowEnd),
   ]);
   const firstAttendanceDate=firstAttendanceResult.error?null:String(firstAttendanceResult.data?.attendance_date||'').slice(0,10)||null;
+  const elapsedDays=salesTruth.effectiveDays;
+  const salesDataAsOf=salesTruth.dataAsOf;
 
   const rawMonths=cycleSpecs.map(spec=>{
     const {cycleLabel,range,start,endExclusive}=spec;
@@ -265,7 +267,7 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
     const comparisonMode:DoctorPerformanceMonth['comparisonMode']=comparisonReady?(cycleClosed?'full_cycle':'same_period'):'blocked';
     const comparisonEligible=comparisonMode!=='blocked';
     const comparisonReason=comparisonMode==='same_period'
-      ?`الدورة جارية؛ المقارنة تستخدم أول ${elapsedDays} يوم من كل دورة.`
+      ?`الدورة جارية؛ المقارنة تستخدم أول ${elapsedDays} يوم من كل دورة${salesDataAsOf?`، وبيانات المبيعات محمّلة حتى ${salesDataAsOf}`:''}.`
       :!cycleClosed
         ?'الدورة ما زالت جارية، لكن التغطية الحالية لا تكفي لمقارنة عادلة.'
       :coverage==='not_applicable'
@@ -292,7 +294,7 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
   });
 
   months.forEach((month,index)=>{month.diagnoses=diagnoseMonth(month,months[index+1]||null)});
-  if(months[0]?.comparisonMode==='same_period'){
+  if(months[0]?.comparisonMode==='same_period'&&elapsedDays>0){
     const currentSummary={summary:salesTruth.samePeriod.current||null,available:salesTruth.available};
     const previousSummary={summary:salesTruth.samePeriod.previous||null,available:salesTruth.available};
     const previousSamePeriodEnd=(()=>{
@@ -314,13 +316,19 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
       const previous={...months[1],comparisonEligible:true,sales:pSales,invoices:pi,customers:n(ps?.customers),averageInvoice:pi?pSales/pi:null,
         salesPerHour:null,invoicesPerHour:null,customersPerHour:null,conversionRate:null,
         customerImpact:{...months[1].customerImpact,available:false}};
-      months[0].diagnoses=diagnoseMonth(current,previous).map(d=>({...d,evidence:[`Same-period: أول ${elapsedDays} يوم`,...d.evidence]}));
+      months[0].diagnoses=diagnoseMonth(current,previous).map(d=>({...d,evidence:[`Same-period: أول ${elapsedDays} يوم${salesDataAsOf?` — البيانات حتى ${salesDataAsOf}`:''}`,...d.evidence]}));
     }else{
       months[0].comparisonEligible=false;
       months[0].comparisonMode='blocked';
       months[0].comparisonReason=previousWindowHasSalesEvidence?'تعذر بناء نافذة Same-period موثوقة من المصدر البيعي؛ المقارنة محجوبة بدل عرض Delta مضلل.':'نافذة Same-period السابقة تسبق أول مبيعات موثقة للموظف؛ لا تتم مقارنة المبيعات بصفر غير عادل.';
       months[0].diagnoses=diagnoseMonth(months[0],null);
     }
+  }
+  if(months[0]?.comparisonMode==='same_period'&&elapsedDays<=0){
+    months[0].comparisonEligible=false;
+    months[0].comparisonMode='blocked';
+    months[0].comparisonReason='لا يوجد تاريخ تحميل مبيعات موثوق داخل الدورة الحالية؛ المقارنة محجوبة بدل اعتبار الأيام غير المحملة صفراً.';
+    months[0].diagnoses=diagnoseMonth(months[0],null);
   }
   return {months,generatedAt:new Date().toISOString(),firstEvidenceDate};
 }
