@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import { evaluationCycleRangeFromLabel, isEvaluationCycleClosed } from '@/lib/evaluations/monthlyEvaluationCycle';
+import { evaluationCycleRangeFromLabel, evaluationCycleDateKeys, isEvaluationCycleClosed } from '@/lib/evaluations/monthlyEvaluationCycle';
 
 export type PerformanceCoverage = 'available' | 'partial' | 'not_applicable' | 'unavailable';
 export type PerformanceConfidence = 'high' | 'medium' | 'low';
@@ -178,17 +178,13 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
   const cycleSpecs=Array.from({length:3},(_,back)=>{
     const cycleLabel=previousCycle(args.cycleLabel,back);
     const range=evaluationCycleRangeFromLabel(cycleLabel);
-    return {
-      cycleLabel,range,
-      start:range.start.toISOString().slice(0,10),
-      endExclusive:range.endExclusive.toISOString().slice(0,10),
-    };
+    const keys=evaluationCycleDateKeys(cycleLabel);
+    return {cycleLabel,range,start:keys.startDate,endExclusive:keys.endDateExclusive};
   });
   const windowStart=cycleSpecs[2].start;
   const windowEnd=cycleSpecs[0].endExclusive;
 
   const currentSpec=cycleSpecs[0];
-  const currentCycleClosed=isEvaluationCycleClosed(args.cycleLabel);
   const now=new Date();
   const todayLocal=new Date(now.getFullYear(),now.getMonth(),now.getDate());
   const cycleDays=Math.floor((currentSpec.range.endExclusive.getTime()-currentSpec.range.start.getTime())/86400000);
@@ -264,7 +260,8 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
     const converted=coverage==='not_applicable'||conversations.error?null:conversationRows.filter(r=>r.converted_to_sale===true).length;
     const customerImpact=aggregateImpact(impact.rows,impact.available);
 
-    const comparisonMode:DoctorPerformanceMonth['comparisonMode']=cycleClosed?'full_cycle':(coverage==='available'&&confidence!=='low'&&hasCoreEvidence?'same_period':'blocked');
+    const comparisonReady=coverage==='available'&&confidence!=='low'&&hasCoreEvidence;
+    const comparisonMode:DoctorPerformanceMonth['comparisonMode']=comparisonReady?(cycleClosed?'full_cycle':'same_period'):'blocked';
     const comparisonEligible=comparisonMode!=='blocked';
     const comparisonReason=comparisonMode==='same_period'
       ?`الدورة جارية؛ المقارنة تستخدم أول ${elapsedDays} يوم من كل دورة.`
