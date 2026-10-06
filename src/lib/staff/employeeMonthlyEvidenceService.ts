@@ -777,9 +777,8 @@ function buildSalesQualityCoaching(
       : '',
     salesQuality && salesQuality.average < 7 ? `جودة البيع ${salesQuality.average}/10` : '',
     upsellCrossSell && upsellCrossSell.average < 6 ? `البيع التكميلي ${upsellCrossSell.average}/10` : '',
-    invoicePerformanceAvailable && weightedRaw !== null && weightedRaw <= -10
-      ? `مؤشر قيمة/تركيب الفاتورة أقل من خط الأساس بـ${Math.abs(weightedRaw)}%`
-      : '',
+    // Invoice baseline is contextual only until its settlement writer uses the same
+    // staff_id + alias identity contract as the canonical evaluation sales truth.
   ].filter(Boolean);
 
   const actions = [
@@ -807,6 +806,7 @@ function buildSalesQualityCoaching(
     !invoicePerformanceAvailable
       ? 'مؤشر أداء الفاتورة يحتاج 15 فاتورة على الأقل حتى يكون قابلًا للمقارنة بخط الأساس.'
       : '',
+    'مؤشر أداء الفاتورة سياقي فقط حاليًا؛ لا يُنشئ حكم تطوير تلقائيًا حتى يتوحد مسار هويته مع staff_id + aliases في حقيقة المبيعات canonical.',
     'مؤشر أداء الفاتورة يقارن متوسط قيمة الفاتورة وعدد الأصناف بخط أساس 90 يوم لنفس الفرع والشيفت؛ لا يقيس دقة الفاتورة.',
     'دقة الفاتورة تُثبت فقط بخطأ فاتورة موثق أو واقعة تشغيلية واضحة.',
   ].filter(Boolean);
