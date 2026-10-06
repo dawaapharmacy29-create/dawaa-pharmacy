@@ -58,7 +58,7 @@ const required=[
  [employeeHeader,'permissionMinutes','employee header must expose permission duration'],
  [headerService,'getStaffAttendanceDetail','header must use canonical attendance detail'],
  [headerService,'getAnnualLeaveBalanceV1','header must use canonical annual leave balance'],
- [headerService,'getStaffCycleSales','header sales must use canonical invoice truth'],
+ [headerService,'get_staff_performance_sales_bundle_v1','header sales must use canonical lightweight performance invoice truth'],
  [headerService,"sourceTableUsed!=='none'",'unavailable sales source must never render as zero'],
  [headerService,"roleGroup==='doctor'",'sales truth must be scoped to pharmacist role'],
  [headerService,'overlapDays','leave requests must be clamped to evaluation cycle'],
@@ -76,6 +76,7 @@ const required=[
  [evalPage,'role: selected.job_title || selected.role','monthly evidence must receive canonical employee role scope'],
 ];
 for(const [body,token,msg] of required)if(!body.includes(token))failures.push(msg);
+if(headerService.includes('getStaffCycleSales'))failures.push('evaluation header must not fall back to legacy heavy staff cycle sales truth');
 for(const forbidden of ["get_staff_monthly_evaluation_safe","save_staff_monthly_evaluation_v3"]){if(report.includes(forbidden))failures.push('360 legacy API: '+forbidden)}
 if(failures.length){console.error('Final evaluation architecture gate failed:');failures.forEach(x=>console.error('- '+x));process.exit(1)}
 console.log('Final evaluation architecture gate passed.');
