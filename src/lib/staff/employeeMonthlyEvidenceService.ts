@@ -1562,8 +1562,8 @@ export async function loadEmployeeMonthlyEvidence(args: {
   if (followupResult.error) errors.followups = followupResult.error.message;
   if (followupTruncated) errors.followups = 'followups_truncated: more than 1000 follow-up rows matched this cycle; monthly evidence is incomplete';
 
-  const attendanceRows = attendanceResult.status === 'available' ? attendanceResult.rows : [];
-  if (attendanceResult.status === 'unavailable') errors.attendance = attendanceResult.error;
+  const attendanceRows = attendanceResult.status === 'unavailable' ? [] : attendanceResult.rows;
+  if (attendanceResult.status !== 'available') errors.attendance = attendanceResult.error;
   if (attendanceImpactResult.error && attendanceResult.status === 'unavailable') {
     errors.attendance = [errors.attendance, attendanceImpactResult.error].filter(Boolean).join(' | ');
   }
@@ -1600,7 +1600,7 @@ export async function loadEmployeeMonthlyEvidence(args: {
     followups: needsFollowupEvidence
       ? (followupResult.error ? 'unavailable' as const : 'available' as const)
       : 'available' as const,
-    attendance: needsAttendanceEvidence ? attendanceResult.status : 'available' as const,
+    attendance: needsAttendanceEvidence ? (attendanceResult.status === 'partial' ? 'partial' as const : attendanceResult.status) : 'available' as const,
   };
 
   const conversationCoaching = buildConversationCoaching(reviewRows);
