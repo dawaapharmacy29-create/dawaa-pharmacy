@@ -196,8 +196,8 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
     supabase.from('conversation_sales_reviews_canonical_v2').select('id,converted_to_sale,conversation_date,created_at').or(`doctor_id.eq.${args.staffId},staff_id.eq.${args.staffId}`).or(`and(conversation_date.gte.${windowStart},conversation_date.lt.${windowEnd}),and(conversation_date.is.null,created_at.gte.${windowStart},created_at.lt.${windowEnd})`).limit(3000),
     customerImpactWindow(args.staffId,windowStart,windowEnd),
   ]);
-  const attendanceWindowRows=attendanceWindow.status==='available'?attendanceWindow.rows:[];
-  const firstAttendanceDate=attendanceWindow.status==='available'
+  const attendanceWindowRows=attendanceWindow.status==='unavailable'?[]:attendanceWindow.rows;
+  const firstAttendanceDate=attendanceWindow.status!=='unavailable'
     ?minDate(attendanceWindowRows.map(r=>String(r.attendance_date||r.date||'').slice(0,10)||null))
     :null;
   const elapsedDays=salesTruth.effectiveDays;
