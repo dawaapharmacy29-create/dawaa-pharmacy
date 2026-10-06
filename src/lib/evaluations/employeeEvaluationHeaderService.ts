@@ -94,6 +94,11 @@ export async function loadEmployeeEvaluationHeader(args:{staffId:string;staffNam
   timeOff:{state:!needsPersonalAttendance?'unavailable':permission&&requestsR.status==='fulfilled'?'available':permission||requestsR.status==='fulfilled'?'partial':'unavailable',permissions:permission?.approved_permissions??null,permissionMinutes:permission?.total_minutes??null,annualLeaveCycleDays:needsPersonalAttendance&&requestsR.status==='fulfilled'?annualCycleDays:null,annualLeaveYearUsed:annual?.used??null,annualLeaveYearBalance:annual?.balance??null,weeklyOffDays,otherApprovedLeaveDays:needsPersonalAttendance&&requestsR.status==='fulfilled'?otherLeaveDays:null},
   warnings,
  };
- HEADER_CACHE.set(cacheKey,{value,at:Date.now()});
+ const complete=
+  warnings.length===0
+  && (roleGroup!=='doctor'||value.sales.state==='available')
+  && (!needsPersonalAttendance||(value.attendance.state==='available'&&value.timeOff.state==='available'));
+ if(complete)HEADER_CACHE.set(cacheKey,{value,at:Date.now()});
+ else HEADER_CACHE.delete(cacheKey);
  return value;
 }
