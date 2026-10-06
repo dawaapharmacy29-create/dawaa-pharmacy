@@ -5,9 +5,12 @@ import {
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
+import { useNavigationGuard } from '@/contexts/NavigationGuardContext';
+import { usePendingFormNavigationGuard } from '@/hooks/useUnsavedChangesGuard';
 import { normalizeBranchName } from '@/lib/branch';
 import {
   evaluationProfileForRole,
+  evaluationEvidenceRequirementsForRole,
   type StaffEvaluationSectionV3,
 } from '@/lib/evaluations/staffEvaluationProfilesV3';
 import { canonicalStaffRole } from '@/lib/staff/staffRoleCapabilities';
@@ -31,6 +34,7 @@ import {
   type CriticalGateType,
 } from '@/lib/evaluations/incentiveTiers';
 import { buildStaffMonthlyEvaluationPdf } from '@/lib/evaluations/staffMonthlyEvaluationPdf';
+import { buildApprovedMonthlyEvaluationPdfReport } from '@/lib/evaluations/monthlyEvaluationPdfReport';
 import { hasStrongDispensingEvidence } from '@/lib/evaluations/monthlyDispensingEvidence';
 import { hasStrongSalesQualityEvidence } from '@/lib/evaluations/monthlySalesQualityEvidence';
 import { hasStrongFollowupEvidence } from '@/lib/evaluations/monthlyFollowupEvidence';
@@ -47,6 +51,8 @@ import { createStaffNotification } from '@/lib/staffNotificationService';
 import { Panel, MiniBox, EmptyState } from '@/components/dashboard/DashboardPrimitives';
 import MonthlyEvaluationWorkflowV5, { type MonthlyEvaluationStep } from '@/components/evaluations/MonthlyEvaluationWorkflowV5';
 import MonthlyEvaluationAuditTrailV5 from '@/components/evaluations/MonthlyEvaluationAuditTrailV5';
+import { monthlyEvaluationDraftFingerprint } from '@/lib/evaluations/monthlyEvaluationDraftState';
+import { isSettledMonthlyStatementStatus, resolveMonthlyEvaluationFinancialTruth } from '@/lib/evaluations/monthlyEvaluationFinancialTruth';
 
 type StaffRow = {
   id: string;
@@ -115,8 +121,36 @@ function formatSignedPoints(points: number) {
   return `${points > 0 ? '+' : ''}${points}`;
 }
 
+function readableErrorMessage(cause: unknown, fallback: string): string {
+  if (cause instanceof Error && cause.message) return cause.message;
+  if (cause && typeof cause === 'object') {
+    const row = cause as Record<string, unknown>;
+    const message = String(row.message || row.details || row.hint || '').trim();
+    if (message) return message;
+  }
+  return fallback;
+}
+
 function isConversationSectionKey(sectionKey: string) {
-  return ['conversations', 'conversation', 'customer', 'customers', 'team_quality', 'customer_outcomes'].includes(sectionKey.toLowerCase());
+  // Only axes that truly represent this employee's reviewed conversations.
+  // Manager/customer-facing operational axes must stay manual until they have
+  // their own team/outcome evidence source; never borrow the employee chat feed.
+  return ['conversations', 'conversation'].includes(sectionKey.toLowerCase());
+}
+
+function roleAwareEvidenceReady(
+  role: unknown,
+  evidence: EmployeeMonthlyEvidence
+) {
+  const requirements = evaluationEvidenceRequirementsForRole(role);
+  if (requirements.includes('reviews') && evidence.health.reviews !== 'available') return false;
+  if (requirements.includes('followups') && evidence.health.followups !== 'available') return false;
+  if (requirements.includes('attendance') && (
+    evidence.health.attendance !== 'available'
+    || !evidence.coaching.attendance.finalization.ready
+  )) return false;
+  if (requirements.includes('inventory') && evidence.coaching.inventory.sourceStatus === 'unavailable') return false;
+  return true;
 }
 
 const ATTENDANCE_EVENT_LABELS: Record<string, string> = {
@@ -147,6 +181,23 @@ function formatAttendanceTime(value: string) {
   }).format(instant);
 }
 
+function attendancePendingCaseLine(item: NonNullable<EmployeeMonthlyEvidence['coaching']>['attendance']['pendingCases'][number]) {
+  const schedule = item.scheduledStartAt || item.scheduledEndAt
+    ? `الجدول ${formatAttendanceTime(item.scheduledStartAt) || '—'} → ${formatAttendanceTime(item.scheduledEndAt) || '—'}`
+    : '';
+  const actual = item.firstIn || item.lastOut
+    ? `البصمة ${formatAttendanceTime(item.firstIn) || '—'} → ${formatAttendanceTime(item.lastOut) || '—'}`
+    : '';
+  return [
+    `${formatAttendanceDate(item.date)} — ${item.resolutionStatus || 'pending_review'}`,
+    item.lateMinutes > 0 ? `تأخير ${item.lateMinutes} دقيقة` : '',
+    item.earlyLeaveMinutes > 0 ? `خروج مبكر ${item.earlyLeaveMinutes} دقيقة` : '',
+    item.missingPunch ? 'بصمة ناقصة' : '',
+    schedule,
+    actual,
+  ].filter(Boolean).join(' · ');
+}
+
 function attendanceCaseLine(item: NonNullable<EmployeeMonthlyEvidence['coaching']>['attendance']['cases'][number]) {
   const label = ATTENDANCE_EVENT_LABELS[item.eventType] || 'حالة حضور';
   const minutes = item.eventType === 'attendance_early_leave_confirmed'
@@ -170,6 +221,23 @@ function attendanceCaseLine(item: NonNullable<EmployeeMonthlyEvidence['coaching'
   return parts.join(' · ');
 }
 
+
+function normalizeAttendanceDevelopmentNumbers(value: string, attendance: NonNullable<EmployeeMonthlyEvidence['coaching']>['attendance']) {
+  const toLatinDigits = (text: string) => text.replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)));
+  const absenceCases = Math.max(0, Number(attendance.absenceCases || 0));
+  const lateCases = Math.max(0, Number(attendance.lateCases || 0) + Number(attendance.veryLateCases || 0));
+  const lateMinutes = Math.max(0, Number(attendance.lateMinutes || 0));
+  const conflictDays = Math.max(0, Number(attendance.conflictingResolutionDays || 0));
+  return toLatinDigits(value)
+    .replace(/\d+(?=\s*(?:حالة|حالات)\s+غياب\s+مؤكدة)/g, String(absenceCases))
+    .replace(/(عدد\s+حالات\s+الغياب\s*(?:إلى|=|:)?\s*)\d+/g, `$1${absenceCases}`)
+    .replace(/\d+(?=\s*(?:حالة|حالات)\s+تأخير(?:\s+مسجلة)?)/g, String(lateCases))
+    .replace(/(عدد\s+حالات\s+التأخير\s*(?:إلى|=|:)?\s*)\d+/g, `$1${lateCases}`)
+    .replace(/(إجمالي\s+)\d+(?=\s*(?:دقيقة|دقائق))/g, `$1${lateMinutes}`)
+    .replace(/\d+(?=\s*(?:يوم|أيام)\s+عليه\s+أكثر\s+من\s+تصنيف\s+حضور\s+نشط)/g, String(conflictDays))
+    .replace(/(\d+\s*(?:يوم|أيام)\s+عليه\s+أكثر\s+من\s+تصنيف\s+حضور\s+نشط)[^؛.]*[؛.]?/g, conflictDays > 0 ? `$1؛` : '');
+}
+
 function sectionEvidenceFor(
   sectionKey: string,
   metrics: Metrics,
@@ -179,7 +247,7 @@ function sectionEvidenceFor(
 ) {
   const key = sectionKey.toLowerCase();
   const attendanceKeys = ['discipline', 'attendance', 'shift_discipline'];
-  const conversationKeys = ['conversations', 'conversation', 'customer', 'customers', 'team_quality', 'customer_outcomes'];
+  const conversationKeys = ['conversations', 'conversation'];
   const followupKeys = ['followups_requests', 'followups', 'followups_sla', 'customer_requests', 'requests'];
 
   if (attendanceKeys.includes(key)) {
@@ -193,19 +261,34 @@ function sectionEvidenceFor(
     const attendance = coaching?.attendance;
     return {
       status: 'manual' as const,
-      summary: attendance?.resolvedDays
-        ? `سجل الحضور: ${attendance.resolvedDays} يومًا له تصنيف · ${attendance.lateCases + attendance.veryLateCases} تأخير · ${attendance.absenceCases} غياب`
-        : metrics.attendance_days
-          ? `بيانات حضور يومية متاحة لـ ${metrics.attendance_days} يوم`
-          : 'لا توجد أيام حضور مسجلة في المصدر لهذه الدورة',
+      summary: attendance?.pendingReviewCases
+        ? `الحضور يحتاج مراجعة: ${attendance.pendingReviewCases} يوم معلق قبل الاعتماد النهائي`
+        : attendance?.conflictingResolutionDays
+          ? `الحضور يحتاج مراجعة: ${attendance.conflictingResolutionDays} يوم عليه تصنيفات نشطة متعارضة`
+          : attendance?.resolvedDays
+            ? `سجل الحضور: ${attendance.resolvedDays} يومًا له تصنيف · ${attendance.lateCases + attendance.veryLateCases} تأخير · ${attendance.absenceCases} غياب`
+            : metrics.attendance_days
+              ? `بيانات حضور يومية متاحة لـ ${metrics.attendance_days} يوم`
+              : 'لا توجد أيام حضور مسجلة في المصدر لهذه الدورة',
       details: [
         `أيام لها حضور/بصمة في المصدر اليومي: ${metrics.present_days}`,
         `إجمالي الأيام التي لها بيانات في مصدر الحضور اليومي: ${metrics.attendance_days}`,
         attendance?.resolvedDays ? `أيام لها تصنيف في سجل الحضور: ${attendance.resolvedDays}` : '',
         attendance?.activeLedgerEvents ? `إجمالي تصنيفات الحضور النشطة: ${attendance.activeLedgerEvents}` : '',
-        attendance?.duplicateResolutionDays
-          ? `تنبيه مراجعة: ${attendance.duplicateResolutionDays} يوم عليه أكثر من تصنيف نشط؛ لا يُحسب كأنه يومان في التقييم.`
+        attendance?.conflictingResolutionDays
+          ? `تنبيه تعارض: ${attendance.conflictingResolutionDays} يوم عليه أكثر من تصنيف حضور نشط؛ يحتاج حسم قبل الاعتماد.`
           : '',
+        attendance?.pendingReviewCases
+          ? `حالات حضور معلقة لم تُعتمد بعد: ${attendance.pendingReviewCases} يوم.`
+          : '',
+        ...(attendance?.pendingCases?.length
+          ? ['تفاصيل الحالات المعلقة:', ...attendance.pendingCases.map((item) => attendancePendingCaseLine(item))]
+          : []),
+        attendance?.finalization.ready
+          ? 'جاهزية الحضور للاعتماد النهائي: مكتملة.'
+          : attendance
+            ? `جاهزية الحضور للاعتماد النهائي: غير مكتملة — ${attendance.finalization.blockers.join(' · ')}.`
+            : '',
         attendance?.onTimeDays ? `أيام مصنفة في الموعد: ${attendance.onTimeDays}` : '',
         attendance && attendance.lateCases + attendance.veryLateCases > 0
           ? `التأخير المسجل في سجل الحضور: ${attendance.lateCases + attendance.veryLateCases} حالة · ${attendance.lateMinutes} دقيقة`
@@ -329,6 +412,7 @@ function sectionEvidenceFor(
         followups?.needsNextFollowup
           ? `تحتاج متابعة لاحقة: ${followups.needsNextFollowup} حالة · موعد تالٍ مسجل ${followups.nextFollowupScheduled} · بدون موعد ${followups.missingNextFollowupSchedule}`
           : '',
+        'النسبة هنا للمنفذ الفعلي: handled_by ثم assigned_to ثم assigned_staff ثم staff_id؛ مقدم الطلب وحده لا يُحسب منفذًا.',
         'هذا المحور يعتمد على المتابعات/الطلبات المسجلة فعليًا، وليس درجة follow_up داخل تقييم المحادثة.',
       ].filter(Boolean),
     };
@@ -557,18 +641,24 @@ function normalizeSavedSections(
   fallback: StaffEvaluationSectionV3[]
 ): StaffEvaluationSectionV3[] {
   if (!Array.isArray(saved) || !saved.length) return fallback;
-  const byKey = new Map(fallback.map((item) => [item.key, item]));
-  return saved.map((raw) => {
-    const row = raw as Record<string, unknown>;
-    const key = String(row.key || '');
+  const savedByKey = new Map(
+    saved.map((raw) => {
+      const row = raw as Record<string, unknown>;
+      return [String(row.key || ''), row] as const;
+    })
+  );
+
+  // The current profile is the canonical contract for keys, labels and weights.
+  // Historical evaluations may carry an older weight distribution; preserve only
+  // the manager-entered score/notes for matching axes so reapproval migrates the
+  // evaluation safely without mutating its historical audit rows.
+  return fallback.map((profileSection) => {
+    const row = savedByKey.get(profileSection.key);
+    if (!row) return profileSection;
     return {
-      key,
-      title: String(row.title || ''),
-      description: String(row.description || ''),
-      weight: safeNumber(row.weight),
+      ...profileSection,
       score: safeNumber(row.score),
       notes: String(row.notes || ''),
-      rubric: byKey.get(key)?.rubric,
     };
   });
 }
@@ -626,7 +716,9 @@ export default function StaffMonthlyEvaluation() {
   const [employeeResponseSaving, setEmployeeResponseSaving] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [draftBaselineFingerprint, setDraftBaselineFingerprint] = useState('');
   const [exportingPdf, setExportingPdf] = useState(false);
+  const [approvedEvidenceDrift, setApprovedEvidenceDrift] = useState(false);
 
   const selected = useMemo(
     () => staff.find((item) => item.id === selectedId) || null,
@@ -650,9 +742,7 @@ export default function StaffMonthlyEvaluation() {
   const evaluationComplete = sections.length > 0 && sections.every((item) => item.score > 0);
   const grade = evaluationNotStarted ? 'لسه ما اتقيّمش' : evaluationComplete ? gradeFor(overallScore) : 'غير مكتمل';
   const requiresPostCycleReapproval = Boolean(
-    ['sent', 'approved'].includes(status)
-      && sentAtIso
-      && new Date(sentAtIso).getTime() <= cycleRange.end.getTime()
+    ['sent', 'approved'].includes(status) && approvedEvidenceDrift
   );
 
   // ملحوظة مهمة: مفيش "فئة شرائح تقديرية" هنا عمدًا — نظام الشرائح
@@ -668,6 +758,23 @@ export default function StaffMonthlyEvaluation() {
   const effectiveEvaluationMultiplierPct = evaluationComplete
     ? Math.min(overallScore, activeGateCapPercent)
     : null;
+  const currentDraftFingerprint = useMemo(() => monthlyEvaluationDraftFingerprint({
+    sections,
+    strengthsText,
+    developmentText,
+    managerNotes,
+    activeGates,
+  }), [activeGates, developmentText, managerNotes, sections, strengthsText]);
+  const draftDirty = canEdit
+    && Boolean(draftBaselineFingerprint)
+    && currentDraftFingerprint !== draftBaselineFingerprint;
+  const { requestAction: requestGuardedAction } = useNavigationGuard();
+
+  usePendingFormNavigationGuard({
+    isDirty: draftDirty,
+    isSaving: saving,
+    onSave: () => save('draft'),
+  });
 
   useEffect(() => {
     const loadStaff = async () => {
@@ -733,6 +840,7 @@ export default function StaffMonthlyEvaluation() {
     if (!selectedId || !user?.id || !selected) return;
     const loadEvaluation = async () => {
       setLoading(true);
+      setDraftBaselineFingerprint('');
       try {
         const { startDate, endDate, endDateExclusive } = evaluationCycleDateKeys(cycleLabel);
         const cycleKeyDate = `${cycleLabel}-01`;
@@ -747,7 +855,7 @@ export default function StaffMonthlyEvaluation() {
           // Historical closed statements remain the frozen source if one exists.
           supabase
             .from('employee_monthly_statements')
-            .select('points_closing,incentive_amount')
+            .select('points_closing,incentive_amount,status')
             .eq('staff_id', selectedId)
             .eq('cycle_start', startDate)
             .eq('cycle_end', endDate)
@@ -756,16 +864,21 @@ export default function StaffMonthlyEvaluation() {
 
         if (savedResult.error) throw savedResult.error;
 
+        setApprovedEvidenceDrift(false);
         setMetrics(evidenceResult.metrics);
-        setEvidenceReady(evidenceResult.ready);
+        const freshSections = evaluationProfileForRole(selected.job_title || selected.role).sections;
+        setEvidenceReady(roleAwareEvidenceReady(selected.job_title || selected.role, evidenceResult));
         setEvidenceHealth(evidenceResult.health);
         setEvidenceErrors(evidenceResult.errors);
         setCoaching(evidenceResult.coaching);
         setPointsTruth(pointsResult);
-        setSettledStatement(statementResult.data || null);
+        setSettledStatement(
+          statementResult.data && isSettledMonthlyStatementStatus(statementResult.data.status)
+            ? { points_closing: statementResult.data.points_closing, incentive_amount: statementResult.data.incentive_amount }
+            : null
+        );
 
         const saved = savedResult.data as EvaluationRow | null;
-        const freshSections = evaluationProfileForRole(selected.job_title || selected.role).sections;
         if (saved) {
           setEvaluationId(String(saved.id || ''));
           const savedStatus = String(saved.status || 'draft');
@@ -779,22 +892,47 @@ export default function StaffMonthlyEvaluation() {
           const published = ['sent', 'approved'].includes(savedStatus) && finalSnapshot;
           const content = published || saved;
 
+          const loadedSections = normalizeSavedSections(content.sections, freshSections);
+          const loadedStrengths = Array.isArray(content.strengths) ? content.strengths.map(String).join('\n') : '';
+          const loadedDevelopmentRaw = Array.isArray(content.development_points) ? content.development_points.map(String).join('\n') : '';
+          const loadedDevelopment = evidenceResult.coaching?.attendance
+            ? normalizeAttendanceDevelopmentNumbers(loadedDevelopmentRaw, evidenceResult.coaching.attendance)
+            : loadedDevelopmentRaw;
+          const loadedManagerNotes = String(content.manager_notes || '');
+
           setPublishedSnapshot(finalSnapshot);
           setPublishedSnapshotHash(String(metricsSnapshot?.final_approval_hash || ''));
-          setSections(normalizeSavedSections(content.sections, freshSections));
-          setStrengthsText(Array.isArray(content.strengths) ? content.strengths.map(String).join('\n') : '');
-          setDevelopmentText(Array.isArray(content.development_points) ? content.development_points.map(String).join('\n') : '');
-          setManagerNotes(String(content.manager_notes || ''));
+          setApprovedEvidenceDrift(false);
+          if (published && finalSnapshot) {
+            const driftResult = await supabase.rpc('get_staff_monthly_evaluation_evidence_drift_v5', {
+              p_actor_id: user.id,
+              p_staff_id: selectedId,
+              p_month: cycleKeyDate,
+            });
+            if (driftResult.error) {
+              console.warn('Monthly evaluation evidence drift check failed', driftResult.error);
+            } else {
+              const drift = driftResult.data as Record<string, unknown> | null;
+              setApprovedEvidenceDrift(Boolean(drift?.attendance_changed));
+            }
+          }
+          setSections(loadedSections);
+          setStrengthsText(loadedStrengths);
+          setDevelopmentText(loadedDevelopment);
+          setManagerNotes(loadedManagerNotes);
           setStatus(savedStatus);
           setSentAtIso(savedSentAt);
-          setPreviouslySent(
-            ['sent', 'approved'].includes(savedStatus)
-              && Boolean(savedSentAt)
-              && new Date(savedSentAt).getTime() > cycleRange.end.getTime()
-          );
+          setPreviouslySent(['sent', 'approved'].includes(savedStatus));
           const savedGates = metricsSnapshot && Array.isArray(metricsSnapshot.active_critical_gates) ? (metricsSnapshot.active_critical_gates as string[]) : [];
           const validSavedGates = savedGates.filter((gate): gate is CriticalGateType => gate in CRITICAL_GATE_CAPS);
           setActiveGates(validSavedGates);
+          setDraftBaselineFingerprint(monthlyEvaluationDraftFingerprint({
+            sections: loadedSections,
+            strengthsText: loadedStrengths,
+            developmentText: loadedDevelopment,
+            managerNotes: loadedManagerNotes,
+            activeGates: validSavedGates,
+          }));
         } else {
           setEvaluationId(null);
           setPublishedSnapshot(null);
@@ -807,6 +945,13 @@ export default function StaffMonthlyEvaluation() {
           setSentAtIso('');
           setPreviouslySent(false);
           setActiveGates([]);
+          setDraftBaselineFingerprint(monthlyEvaluationDraftFingerprint({
+            sections: freshSections,
+            strengthsText: '',
+            developmentText: '',
+            managerNotes: '',
+            activeGates: [],
+          }));
         }
       } catch (cause) {
         toast.error(cause instanceof Error ? cause.message : 'تعذر تحميل التقييم');
@@ -933,44 +1078,41 @@ export default function StaffMonthlyEvaluation() {
 
   async function handleExportPdf() {
     if (!selected) return;
+    if (approvedEvidenceDrift) {
+      toast.error('تغيّرت بيانات الحضور بعد الاعتماد. راجع التقييم وأعد اعتماده قبل إصدار PDF نهائي جديد.');
+      return;
+    }
+    const report = buildApprovedMonthlyEvaluationPdfReport({
+      snapshot: publishedSnapshot,
+      snapshotHash: publishedSnapshotHash,
+      fallbackSections: profile.sections,
+    });
+    if (!report) {
+      toast.error('الـPDF النهائي متاح فقط بعد الاعتماد وحفظ النسخة النهائية الموثقة.');
+      return;
+    }
     setExportingPdf(true);
     try {
-      const persistedSections = publishedSnapshot
-        ? normalizeSavedSections(publishedSnapshot.sections, profile.sections)
-        : sections;
-      const persistedStrengths = publishedSnapshot && Array.isArray(publishedSnapshot.strengths)
-        ? publishedSnapshot.strengths.map(String)
-        : strengthsText.split('\n').map((item) => item.trim()).filter(Boolean);
-      const persistedDevelopment = publishedSnapshot && Array.isArray(publishedSnapshot.development_points)
-        ? publishedSnapshot.development_points.map(String)
-        : developmentText.split('\n').map((item) => item.trim()).filter(Boolean);
-      const persistedScore = publishedSnapshot
-        ? safeNumber(publishedSnapshot.overall_score)
-        : overallScore;
-      const persistedGrade = publishedSnapshot
-        ? String(publishedSnapshot.grade || grade)
-        : grade;
-      const persistedManagerNotes = publishedSnapshot
-        ? String(publishedSnapshot.manager_notes || '')
-        : managerNotes;
-
       const { pdf, fileName } = await buildStaffMonthlyEvaluationPdf({
         staffName: selected.name,
         staffRole: selected.job_title || selected.role || profile.label,
         branch: selected.branch || branch,
         cycleDisplayLabel: cycleRange.displayLabel,
-        evaluatorName: publishedSnapshot
-          ? String(publishedSnapshot.evaluator_name || user?.name || 'المدير')
-          : user?.name || 'المدير',
-        overallScore: persistedScore,
-        grade: persistedGrade,
-        sections: persistedSections,
-        strengths: persistedStrengths,
-        developmentPoints: persistedDevelopment,
-        managerNotes: persistedManagerNotes,
-        pointsFinal: pointsTruth?.final_points ?? null,
-        pointsTarget: pointsTruth?.target_points ?? null,
-        incentiveEgp: canonicalIncentive ?? null,
+        evaluatorName: report.evaluatorName,
+        overallScore: report.overallScore,
+        grade: report.grade,
+        sections: report.sections,
+        strengths: report.strengths,
+        developmentPoints: report.developmentPoints,
+        managerNotes: report.managerNotes,
+        pointsFinal: canonicalPointsFinal,
+        pointsTarget: financialTruth.pointsTarget,
+        incentiveEgp: canonicalIncentive,
+        financialSource: financialTruth.source,
+        approvedAt: report.approvedAt,
+        snapshotHash: report.snapshotHash,
+        criticalGates: report.criticalGates,
+        evidence: report.evidence,
       });
       pdf.save(fileName);
     } catch (cause) {
@@ -980,50 +1122,88 @@ export default function StaffMonthlyEvaluation() {
     }
   }
 
-  async function save(nextStatus = status) {
-    if (!selected || !user?.id) return;
+  async function save(nextStatus = status): Promise<boolean> {
+    if (!selected || !user?.id) return false;
     if (isEditingSelf) {
       toast.error('لا يمكنك اعتماد أو تعديل تقييمك الشهري لنفسك.');
-      return;
+      return false;
     }
     if (nextStatus === 'sent' && !evidenceReady) {
+      const requirements = evaluationEvidenceRequirementsForRole(selected.job_title || selected.role);
+      const attendanceFinalization = coaching?.attendance.finalization;
       const missing = [
-        evidenceHealth.reviews === 'unavailable' ? 'مراجعات المحادثات' : '',
-        evidenceHealth.followups === 'unavailable' ? 'المتابعات' : '',
-        evidenceHealth.attendance === 'unavailable' ? 'الحضور' : '',
+        requirements.includes('reviews') && evidenceHealth.reviews === 'unavailable' ? 'مراجعات المحادثات' : '',
+        requirements.includes('followups') && evidenceHealth.followups === 'unavailable' ? 'المتابعات' : '',
+        requirements.includes('attendance') && evidenceHealth.attendance === 'unavailable' ? 'مصدر الحضور' : '',
+        requirements.includes('attendance') && evidenceHealth.attendance === 'available' && attendanceFinalization && !attendanceFinalization.ready
+          ? `الحضور غير محسوم (${attendanceFinalization.blockers.join(' · ')})`
+          : '',
+        requirements.includes('inventory') && coaching?.inventory.sourceStatus === 'unavailable' ? 'مصدر المخزون' : '',
       ].filter(Boolean).join('، ');
-      toast.error(`لا يمكن الاعتماد النهائي لأن مصادر الأدلة غير مكتملة: ${missing || 'مصدر غير متاح'}.`);
-      return;
+      toast.error(`لا يمكن الاعتماد النهائي قبل اكتمال الأدلة المطلوبة لهذه الوظيفة: ${missing || 'يوجد مانع يحتاج مراجعة'}.`);
+      return false;
     }
     if (nextStatus === 'sent' && !cycleClosed) {
       toast.error(`الدورة ما زالت جارية حتى ${cycleRange.displayLabel.split('–')[1]?.trim() || 'يوم 25'}. يمكنك حفظ مسودة فقط ثم الاعتماد بعد إقفال الدورة.`);
-      return;
+      return false;
     }
     if (nextStatus === 'sent' && managerMode && sections.some((item) => item.score === 0)) {
       toast.error('يجب تقييم كل المحاور قبل الاعتماد النهائي');
-      return;
+      return false;
     }
     if (nextStatus === 'sent' && sections.some((item) => item.score > 0 && item.score <= 2 && !item.notes.trim())) {
       toast.error('أي محور بدرجة 1 أو 2 نجمة يحتاج سببًا مكتوبًا قبل الاعتماد.');
-      return;
+      return false;
+    }
+    if (nextStatus === 'sent') {
+      const developmentAxis = sections.find((item) => item.key === 'development');
+      if (developmentAxis && developmentAxis.score <= 2) {
+        const developmentEvidence = coaching?.development;
+        const hasPostGuidanceEvidence = Boolean(
+          developmentEvidence
+          && (
+            developmentEvidence.training.overdueOpen > 0
+            || developmentEvidence.repeatedIssues.length > 0
+            || developmentEvidence.reviewTrend.direction === 'declining'
+          )
+        );
+        if (!hasPostGuidanceEvidence) {
+          toast.error('محور التطور لا يجوز خفضه بسبب نفس خطأ المحور الأصلي فقط؛ يلزم دليل على الاستجابة بعد توجيه أو تدريب موثق.');
+          return false;
+        }
+      }
+    }
+    if (nextStatus === 'sent') {
+      const manualStrongWithoutEvidence = sections.filter((item) => {
+        if (item.score < 4) return false;
+        const evidence = sectionEvidenceFor(item.key, metrics, evidenceHealth, pointsTruth, coaching);
+        return evidence.status === 'manual' && item.notes.trim().length < 12;
+      });
+      if (manualStrongWithoutEvidence.length > 0) {
+        toast.error(`الدرجة 4 أو 5 في المحور اليدوي تحتاج دليلًا مكتوبًا واضحًا قبل الاعتماد: ${manualStrongWithoutEvidence.map((item) => item.title).join('، ')}.`);
+        return false;
+      }
     }
     if (nextStatus === 'sent' && hasStrongPerformance && !strengthsText.trim()) {
       toast.error('اكتب نقطة قوة واحدة على الأقل تعكس الأداء القوي الموثق قبل الاعتماد.');
-      return;
+      return false;
     }
     if (nextStatus === 'sent' && hasDevelopmentNeed && !developmentText.trim()) {
       toast.error('اكتب خطة تطوير واضحة للمحاور التي تحتاج تحسين قبل الاعتماد.');
-      return;
+      return false;
     }
     if (nextStatus === 'sent' && activeGates.length > 0 && !managerNotes.trim()) {
       toast.error('المخالفة الحرجة تحتاج ملاحظة مدير توضح سبب القرار قبل الاعتماد.');
-      return;
+      return false;
     }
 
     setSaving(true);
     try {
       const strengths = strengthsText.split('\n').map((item) => item.trim()).filter(Boolean);
-      const developmentPoints = developmentText.split('\n').map((item) => item.trim()).filter(Boolean);
+      const developmentPoints = developmentText.split('\n').map((item) => item.trim()).filter(Boolean).map((item) => {
+        if (nextStatus !== 'sent' || !coaching?.attendance) return item;
+        return normalizeAttendanceDevelopmentNumbers(item, coaching.attendance);
+      });
       const payload = {
         staff_id: selected.id,
         staff_name: selected.name,
@@ -1106,6 +1286,7 @@ export default function StaffMonthlyEvaluation() {
         if (refreshedSnapshot && refreshedHash) {
           setPublishedSnapshot(refreshedSnapshot);
           setPublishedSnapshotHash(refreshedHash);
+          setApprovedEvidenceDrift(false);
 
           try {
             await createStaffNotification({
@@ -1147,9 +1328,12 @@ export default function StaffMonthlyEvaluation() {
           }
         : item));
 
+      setDraftBaselineFingerprint(currentDraftFingerprint);
       toast.success(nextStatus === 'sent' ? 'تم اعتماد التقييم' : 'تم حفظ المسودة');
+      return true;
     } catch (cause) {
-      toast.error(cause instanceof Error ? cause.message : 'فشل حفظ التقييم');
+      toast.error(readableErrorMessage(cause, 'فشل حفظ التقييم'));
+      return false;
     } finally {
       setSaving(false);
     }
@@ -1280,6 +1464,9 @@ export default function StaffMonthlyEvaluation() {
   if (coaching?.followups.drafts.development) objectiveDevelopmentKeys.add('followups_requests');
   if (coaching?.salesQuality.drafts.development) objectiveDevelopmentKeys.add('sales_quality');
   if (coaching?.inventory.drafts.development) objectiveDevelopmentKeys.add('inventory');
+  // The development axis must measure response AFTER coaching/training, not
+  // duplicate the original attendance/conversation/inventory issue. Only the
+  // development source itself can make this axis an objective development need.
   if (coaching?.development.drafts.development) objectiveDevelopmentKeys.add('development');
 
   const developmentSections = evaluationComplete
@@ -1291,6 +1478,26 @@ export default function StaffMonthlyEvaluation() {
   const hasDevelopmentNeed = developmentSections.length > 0;
   const feedbackMissingStrength = evaluationComplete && hasStrongPerformance && !strengthsText.trim();
   const feedbackMissingDevelopment = evaluationComplete && hasDevelopmentNeed && !developmentText.trim();
+  const manualStrongSectionsMissingEvidence = sections.filter((item) => {
+    if (item.score < 4) return false;
+    const evidence = sectionEvidenceFor(item.key, metrics, evidenceHealth, pointsTruth, coaching);
+    return evidence.status === 'manual' && item.notes.trim().length < 12;
+  });
+  const developmentAxis = sections.find((item) => item.key === 'development');
+  const developmentEvidence = coaching?.development;
+  const developmentLowWithoutPostGuidanceEvidence = Boolean(
+    developmentAxis
+    && developmentAxis.score > 0
+    && developmentAxis.score <= 2
+    && !(
+      developmentEvidence
+      && (
+        developmentEvidence.training.overdueOpen > 0
+        || developmentEvidence.repeatedIssues.length > 0
+        || developmentEvidence.reviewTrend.direction === 'declining'
+      )
+    )
+  );
   const approvalBlockers = [
     !cycleClosed ? 'الدورة لم تُقفل بعد' : '',
     !evidenceReady ? 'مصدر أو أكثر من أدلة الدورة غير متاح' : '',
@@ -1298,6 +1505,8 @@ export default function StaffMonthlyEvaluation() {
     weakSectionsMissingNotes.length ? `${weakSectionsMissingNotes.length} محور بدرجة ضعيفة يحتاج سبب مكتوب` : '',
     feedbackMissingStrength ? 'يوجد أداء قوي موثق لكن نقاط القوة لم تُكتب بعد' : '',
     feedbackMissingDevelopment ? 'يوجد محور يحتاج تطوير لكن خطة التطوير لم تُكتب بعد' : '',
+    manualStrongSectionsMissingEvidence.length ? `${manualStrongSectionsMissingEvidence.length} محور يدوي بدرجة 4 أو 5 يحتاج دليلًا مكتوبًا` : '',
+    developmentLowWithoutPostGuidanceEvidence ? 'خفض محور التطور يحتاج دليلًا على استمرار المشكلة بعد التوجيه أو التدريب' : '',
     criticalGateMissingReason ? 'المخالفة الحرجة تحتاج سببًا مكتوبًا في ملاحظات المدير' : '',
   ].filter(Boolean);
   const approvalReady =
@@ -1308,6 +1517,8 @@ export default function StaffMonthlyEvaluation() {
     && weakSectionsMissingNotes.length === 0
     && !feedbackMissingStrength
     && !feedbackMissingDevelopment
+    && manualStrongSectionsMissingEvidence.length === 0
+    && !developmentLowWithoutPostGuidanceEvidence
     && !criticalGateMissingReason;
 
   const strongestSections = evaluationComplete
@@ -1488,11 +1699,19 @@ export default function StaffMonthlyEvaluation() {
 
   // الرقم المالي المعروض يأتي فقط من الحقيقة المالية على الخادم أو من كشف مقفول.
   // لا نحسب مبلغًا نهائيًا داخل صفحة التقييم.
-  const canonicalIncentive = settledStatement
-    ? Number(settledStatement.incentive_amount)
-    : pointsTruth?.final_incentive_egp == null
-      ? null
-      : Number(pointsTruth.final_incentive_egp);
+  const financialTruth = resolveMonthlyEvaluationFinancialTruth({
+    settledStatement,
+    pointsTruth,
+  });
+  const canonicalPointsFinal = financialTruth.pointsFinal;
+  const canonicalIncentive = financialTruth.incentiveEgp;
+
+  function requestEvaluationContextChange(action: () => void) {
+    requestGuardedAction(() => {
+      setDraftBaselineFingerprint('');
+      action();
+    });
+  }
 
   return (
     <div className="min-h-screen space-y-4 p-4" dir="rtl" style={{ background: 'var(--dawaa-theme-bg)' }}>
@@ -1521,6 +1740,15 @@ export default function StaffMonthlyEvaluation() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {draftDirty ? (
+              <span
+                className="rounded-full border px-3 py-1 text-xs font-black"
+                style={{ borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-status-warning-bg)', color: 'var(--dawaa-status-warning-text)' }}
+              >
+                تعديلات غير محفوظة
+              </span>
+            ) : null}
+
             <span
               className="rounded-full border px-3 py-1 text-xs font-black"
               style={cycleClosed
@@ -1533,7 +1761,7 @@ export default function StaffMonthlyEvaluation() {
             <div className="flex overflow-hidden rounded-xl border" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
               <button
                 type="button"
-                onClick={() => setCycleLabel(latestClosedCycleLabel)}
+                onClick={() => cycleLabel !== latestClosedCycleLabel && requestEvaluationContextChange(() => setCycleLabel(latestClosedCycleLabel))}
                 className="px-3 py-2 text-[11px] font-black"
                 style={cycleLabel === latestClosedCycleLabel
                   ? { background: 'var(--dawaa-theme-primary)', color: 'var(--dawaa-theme-primary-text)' }
@@ -1543,7 +1771,7 @@ export default function StaffMonthlyEvaluation() {
               </button>
               <button
                 type="button"
-                onClick={() => setCycleLabel(activeCycleLabel)}
+                onClick={() => cycleLabel !== activeCycleLabel && requestEvaluationContextChange(() => setCycleLabel(activeCycleLabel))}
                 className="px-3 py-2 text-[11px] font-black"
                 style={cycleLabel === activeCycleLabel
                   ? { background: 'var(--dawaa-theme-primary)', color: 'var(--dawaa-theme-primary-text)' }
@@ -1556,7 +1784,7 @@ export default function StaffMonthlyEvaluation() {
             {globalScope ? (
               <select
                 value={branch}
-                onChange={(event) => setBranch(event.target.value)}
+                onChange={(event) => { const nextBranch = event.target.value; if (nextBranch !== branch) requestEvaluationContextChange(() => setBranch(nextBranch)); }}
                 className="rounded-xl border px-3 py-2 text-xs font-black"
                 style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-theme-text)' }}
               >
@@ -1719,7 +1947,7 @@ export default function StaffMonthlyEvaluation() {
                 return (
                   <button
                     key={item.id}
-                    onClick={() => { setSelectedId(item.id); setSidebarOpen(false); }}
+                    onClick={() => { if (item.id === selectedId) { setSidebarOpen(false); return; } requestEvaluationContextChange(() => { setSelectedId(item.id); setSidebarOpen(false); }); }}
                     className="w-full rounded-xl border px-3 py-2.5 text-right transition"
                     style={selectedId === item.id
                       ? { borderColor: 'var(--dawaa-theme-accent-border)', background: 'var(--dawaa-theme-accent-soft)' }
@@ -1892,7 +2120,7 @@ export default function StaffMonthlyEvaluation() {
                       <div className="mt-3 grid gap-2 sm:grid-cols-3">
                         <MiniBox
                           label="النقاط الفعلية"
-                          value={settledStatement ? `${settledStatement.points_closing} نقطة` : pointsTruth ? `${pointsTruth.final_points} نقطة` : '—'}
+                          value={canonicalPointsFinal == null ? '—' : `${canonicalPointsFinal} نقطة`}
                           tone="cyan"
                         />
                         <MiniBox
@@ -2036,7 +2264,11 @@ export default function StaffMonthlyEvaluation() {
                       <div>
                         <div className="text-sm font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>جاهزية بيانات الدورة</div>
                         <div className="mt-1 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
-                          {evidenceReady ? 'كل مصادر التقييم الأساسية متاحة.' : 'يوجد مصدر ناقص ويجب مراجعته قبل الاعتماد.'}
+                          {evidenceReady
+                            ? 'كل مصادر التقييم الأساسية متاحة والحضور محسوم.'
+                            : coaching?.attendance.finalization && !coaching.attendance.finalization.ready
+                              ? `الحضور غير جاهز للاعتماد النهائي: ${coaching.attendance.finalization.blockers.join(' · ')}`
+                              : 'يوجد مصدر ناقص ويجب مراجعته قبل الاعتماد.'}
                         </div>
                       </div>
                       <span
@@ -2052,7 +2284,7 @@ export default function StaffMonthlyEvaluation() {
                     <div className="mt-3 grid gap-2 sm:grid-cols-3">
                       <MiniBox
                         label="النقاط الفعلية"
-                        value={settledStatement ? `${settledStatement.points_closing} نقطة` : pointsTruth ? `${pointsTruth.final_points} نقطة` : '—'}
+                        value={canonicalPointsFinal == null ? '—' : `${canonicalPointsFinal} نقطة`}
                         tone="cyan"
                       />
                       <MiniBox
@@ -2453,15 +2685,18 @@ export default function StaffMonthlyEvaluation() {
                           {employeeFeedbackDraft.developments.length || employeeFeedbackDraft.actions.length || employeeFeedbackDraft.measurements.length ? (
                             <button
                               type="button"
-                              onClick={() => setDevelopmentText((current) => appendUniqueLines(current, [
-                                ...employeeFeedbackDraft.developments,
-                                ...employeeFeedbackDraft.actions,
-                                ...employeeFeedbackDraft.measurements.map((item) => `مقياس التحسن: ${item}`),
-                              ]))}
+                              onClick={() => setDevelopmentText((current) => {
+                                const currentEvidencePlan = [
+                                  ...employeeFeedbackDraft.developments,
+                                  ...employeeFeedbackDraft.actions,
+                                  ...employeeFeedbackDraft.measurements.map((item) => `مقياس التحسن: ${item}`),
+                                ];
+                                return previouslySent ? currentEvidencePlan.join('\n') : appendUniqueLines(current, currentEvidencePlan);
+                              })}
                               className="rounded-lg border px-2.5 py-1.5 text-[11px] font-black"
                               style={{ borderColor: 'var(--dawaa-status-warning-border)', color: 'var(--dawaa-status-warning-text)' }}
                             >
-                              إضافة التطوير والخطة
+                              {previouslySent ? 'تحديث الخطة من الأدلة الحالية' : 'إضافة التطوير والخطة'}
                             </button>
                           ) : null}
                         </div>
@@ -3039,9 +3274,9 @@ export default function StaffMonthlyEvaluation() {
 
                     {canEdit ? (
                       <div className="mt-4 flex flex-wrap justify-end gap-2 border-t pt-3" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
-                        <button type="button" disabled={exportingPdf || !evaluationComplete} onClick={() => void handleExportPdf()} className="btn-secondary inline-flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-45">
+                        <button type="button" disabled={exportingPdf || !evaluationComplete || !publishedSnapshot || !publishedSnapshotHash || approvedEvidenceDrift} onClick={() => void handleExportPdf()} className="btn-secondary inline-flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-45">
                           {exportingPdf ? <Loader2 size={16} className="animate-spin" /> : <FileDown size={16} />}
-                          {evaluationComplete ? 'PDF' : 'PDF بعد اكتمال التقييم'}
+                          {!evaluationComplete ? 'PDF بعد اكتمال التقييم' : !publishedSnapshotHash ? 'PDF بعد الاعتماد' : 'PDF النهائي'}
                         </button>
                         {!['sent', 'approved'].includes(status) ? (
                           <button type="button" disabled={saving} onClick={() => void save('draft')} className="btn-secondary inline-flex items-center gap-2">
