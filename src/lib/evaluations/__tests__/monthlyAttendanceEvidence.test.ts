@@ -13,6 +13,7 @@ const cleanBase = {
   absenceCases: 0,
   duplicateResolutionDays: 0,
   manualResolutionCases: 0,
+  pendingReviewCases: 0,
 };
 
 describe('monthly attendance strength evidence gate', () => {
@@ -33,6 +34,7 @@ describe('monthly attendance strength evidence gate', () => {
   it('blocks automatic strength when the ledger is contradictory or ambiguous', () => {
     expect(hasStrongAttendanceEvidence({ ...cleanBase, duplicateResolutionDays: 1 })).toBe(false);
     expect(hasStrongAttendanceEvidence({ ...cleanBase, manualResolutionCases: 1 })).toBe(false);
+    expect(hasStrongAttendanceEvidence({ ...cleanBase, pendingReviewCases: 1 })).toBe(false);
   });
 
   it('keeps approved leave and normal off-days neutral', () => {
