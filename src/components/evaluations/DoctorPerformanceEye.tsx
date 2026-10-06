@@ -18,14 +18,14 @@ function comparisonBlockReason(current:DoctorPerformanceMonth,previous:DoctorPer
  return null;
 }
 
-function Metric({label,value,current,previous,blockedReason}:{label:string;value:string;current:number|null;previous:number|null;blockedReason:string|null}){
+function Metric({label,value,current,previous,blockedReason,samePeriod=false}:{label:string;value:string;current:number|null;previous:number|null;blockedReason:string|null;samePeriod?:boolean}){
  const d=blockedReason?null:delta(current,previous);
  return <div className="rounded-xl border p-3" style={{borderColor:'var(--dawaa-theme-border)',background:'var(--dawaa-theme-soft)'}}>
    <div className="text-[11px] font-black" style={{color:'var(--dawaa-theme-muted)'}}>{label}</div>
    <div className="mt-1 text-lg font-black" style={{color:'var(--dawaa-theme-heading)'}}>{value}</div>
    <div className="mt-1 flex items-start gap-1 text-[10px] font-bold" title={blockedReason||undefined} style={{color:d===null?'var(--dawaa-theme-muted)':d>=0?'var(--dawaa-status-success-text)':'var(--dawaa-status-danger-text)'}}>
      {d===null?null:d>=0?<TrendingUp size={12}/>:<TrendingDown size={12}/>}
-     <span>{blockedReason?'المقارنة غير عادلة — اضغط/مرّر لمعرفة السبب':d===null?'لا توجد مقارنة رقمية موثوقة':`${d>=0?'+':''}${fmt(d,1)}% عن الدورة السابقة`}</span>
+     <span>{blockedReason?'المقارنة غير عادلة — اضغط/مرّر لمعرفة السبب':d===null?'لا توجد مقارنة رقمية موثوقة':`${d>=0?'+':''}${fmt(d,1)}% ${samePeriod?'عن نفس الفترة من الدورة السابقة':'عن الدورة السابقة'}`}</span>
    </div>
  </div>
 }
