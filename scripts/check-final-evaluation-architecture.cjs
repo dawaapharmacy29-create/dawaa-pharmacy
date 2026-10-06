@@ -9,6 +9,7 @@ const finalReview=read('src/components/evaluations/FinalEvaluationReviewV1.tsx')
 const employeeHeader=read('src/components/evaluations/EmployeeEvaluationHeaderV1.tsx');
 const headerService=read('src/lib/evaluations/employeeEvaluationHeaderService.ts');
 const salesBundleCache=read('src/lib/evaluations/performanceSalesBundleCache.ts');
+const performanceService=read('src/lib/doctorPerformanceIntelligenceService.ts');
 const performanceScope=read('src/lib/performance/performanceScope.ts');
 const report=read('src/lib/reports/monthlyPerformance360Service.ts');
 const financial=read('src/lib/payroll/employeeFinancialProjection.ts');
