@@ -905,9 +905,11 @@ async function loadTrainingEvidence(args: {
   startDate: string;
   endDateExclusive: string;
 }) {
+  const trainingStartAt = cairoDateBoundaryIso(args.startDate);
+  const trainingEndAt = cairoDateBoundaryIso(args.endDateExclusive);
   const filter =
     `and(due_date.gte.${args.startDate},due_date.lt.${args.endDateExclusive}),`
-    + `and(due_date.is.null,created_at.gte.${args.startDate},created_at.lt.${args.endDateExclusive})`;
+    + `and(due_date.is.null,created_at.gte.${trainingStartAt},created_at.lt.${trainingEndAt})`;
 
   const { data, error } = await supabase
     .from('training_assignments')
