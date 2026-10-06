@@ -1538,9 +1538,19 @@ export async function loadEmployeeMonthlyEvidence(args: {
       rows: [] as AttendanceImpactRow[],
       error: cause instanceof Error ? cause.message : String(cause),
     })) : Promise.resolve({ rows: [] as AttendanceImpactRow[], error: '' }),
-    needsInventoryEvidence ? loadInventoryEvidence(args) : Promise.resolve(emptyInventoryEvidence),
-    loadTrainingEvidence(args),
-    needsInvoicePerformance ? loadInvoicePerformanceEvidence(args) : Promise.resolve(emptyInvoicePerformance),
+    needsInventoryEvidence ? loadInventoryEvidence(args).catch((cause) => ({
+      ...emptyInventoryEvidence,
+      errors: [cause instanceof Error ? cause.message : String(cause)],
+    })) : Promise.resolve(emptyInventoryEvidence),
+    loadTrainingEvidence(args).catch((cause) => ({
+      assignments: [] as TrainingAssignmentEvidenceRow[],
+      modules: [] as TrainingModuleEvidenceRow[],
+      error: cause instanceof Error ? cause.message : String(cause),
+    })),
+    needsInvoicePerformance ? loadInvoicePerformanceEvidence(args).catch((cause) => ({
+      row: null,
+      error: cause instanceof Error ? cause.message : String(cause),
+    })) : Promise.resolve(emptyInvoicePerformance),
     taskEvidencePromise,
   ]);
 
