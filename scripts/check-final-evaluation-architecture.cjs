@@ -9,6 +9,7 @@ const finalReview=read('src/components/evaluations/FinalEvaluationReviewV1.tsx')
 const employeeHeader=read('src/components/evaluations/EmployeeEvaluationHeaderV1.tsx');
 const headerService=read('src/lib/evaluations/employeeEvaluationHeaderService.ts');
 const salesBundleCache=read('src/lib/evaluations/performanceSalesBundleCache.ts');
+const headerSalesV3Migration=read('supabase/migrations/20261006033000_staff_evaluation_sales_summary_v3.sql');
 const performanceService=read('src/lib/evaluations/doctorPerformanceIntelligenceService.ts');
 const performanceScope=read('src/lib/performance/performanceScope.ts');
 const report=read('src/lib/reports/monthlyPerformance360Service.ts');
@@ -61,6 +62,8 @@ const required=[
  [headerService,'getStaffAttendanceDetail','header must use canonical attendance detail'],
  [headerService,'getAnnualLeaveBalanceV1','header must use canonical annual leave balance'],
  [headerService,'get_staff_evaluation_sales_summary_v3','header sales must use focused indexed evaluation summary'],
+ [headerSalesV3Migration,'get_staff_evaluation_sales_summary_v3','focused evaluation sales summary v3 must have a canonical replayable migration'],
+ [headerSalesV3Migration,'security invoker','focused evaluation sales summary v3 must remain invoker-safe'],
  [salesBundleCache,'get_staff_performance_sales_bundle_v1','shared performance sales reader must use canonical lightweight performance invoice truth'],
  [performanceService,'loadPerformanceSalesBundle','performance eye must use shared canonical performance sales bundle'],
  [headerService,"sourceTableUsed!=='none'",'unavailable sales source must never render as zero'],
