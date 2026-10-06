@@ -17,6 +17,7 @@ import {
   isSubstantiveConfirmationSignal,
   resolveReference,
 } from '../whatsappSemanticSignalsV32';
+import { resolveProductMention, type PharmacyProductIndex } from './pharmacyProducts/pharmacyProductResolverV2';
 import type {
   AnnouncedTotal,
   CaseBasket,
@@ -429,6 +430,38 @@ function extractDraftItemsFromScope(
   return items;
 }
 
+/**
+ * Direct product-name intake: a customer message naming a product WITHOUT any request verb
+ * ("جاست ريج أمبول", said as if naming an order item directly, instead of "عايز جاست ريج أمبول")
+ * still becomes a real basket line -- but ONLY when the real catalog resolver independently finds
+ * one safe, non-ambiguous, strong (proven/strongly_inferred) match for the message's own text.
+ * Deliberately narrow: no request-verb heuristic is broadened here, and a message that does not
+ * resolve this strongly stays exactly as before (no item, no guess).
+ */
+function directCatalogMentionItem(
+  message: NormalizedConversationMessageV32,
+  productIndex: PharmacyProductIndex
+): DraftItem | null {
+  if (!message.isMeaningful || message.role !== 'customer') return null;
+  const resolution = resolveProductMention(message.text, productIndex);
+  const selected = resolution.selected;
+  if (resolution.ambiguous || !selected || !['proven', 'strongly_inferred'].includes(selected.confidence)) return null;
+  return {
+    productNameRaw: message.text.trim(),
+    productId: selected.product.productId,
+    quantity: null,
+    unit: null,
+    sourceMessageId: message.id,
+    confidence: assessment(
+      selected.confidence,
+      selected.score,
+      'basket.item.direct_catalog_mention',
+      [refFor(message, `تطابق مباشر وآمن مع كتالوج المنتجات (${selected.basis}): "${message.text.slice(0, 80)}".`)]
+    ),
+    resolutionStatus: selected.confidence === 'proven' ? 'proven' : 'partially_proven',
+  };
+}
+
 /** Keys of current draft items the customer's "only X" message names (ال-prefix tolerant, whole tokens). */
 function itemsNamedIn(text: string, keys: string[]): string[] {
   const phraseTokens = normalizeProductKey(stripRequestPrefix(text.replace(ONLY_THIS_RX, '')))
@@ -569,7 +602,11 @@ interface BuildCaseBasketsResult {
  * versions are never mutated — each is pushed once final and only ever gains a
  * `supersededByBasketId` pointer afterward.
  */
-export function buildCaseBaskets(caseId: string, scopedMessages: NormalizedConversationMessageV32[]): BuildCaseBasketsResult {
+export function buildCaseBaskets(
+  caseId: string,
+  scopedMessages: NormalizedConversationMessageV32[],
+  productIndex?: PharmacyProductIndex
+): BuildCaseBasketsResult {
   const messages = scopedMessages.slice().sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
   const baskets: CaseBasket[] = [];
   const itemsByBasketId: Record<string, CaseBasketItem[]> = {};
@@ -844,6 +881,13 @@ export function buildCaseBaskets(caseId: string, scopedMessages: NormalizedConve
           items.set(normalizeProductKey(item.productNameRaw), item);
           sourceMessageIds.push(message.id);
         });
+        if (newItems.length === 0 && productIndex) {
+          const direct = directCatalogMentionItem(message, productIndex);
+          if (direct) {
+            items.set(normalizeProductKey(direct.productNameRaw), direct);
+            sourceMessageIds.push(message.id);
+          }
+        }
       }
       return;
     }

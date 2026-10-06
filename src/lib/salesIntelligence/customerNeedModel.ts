@@ -26,6 +26,8 @@ import {
   normalizeProductKey,
   stripRequestPrefix,
 } from './caseBasketEngine';
+import { extractDosageForms, normalizeBaseText } from './pharmacyProducts/pharmacyNormalization';
+import { resolveProductMention, type PharmacyProductIndex } from './pharmacyProducts/pharmacyProductResolverV2';
 import type {
   CaseBasket,
   CaseBasketItem,
@@ -54,6 +56,8 @@ export interface DeriveCustomerNeedModelInput {
    * for the exact sender of each availability/alternative message; never a "first staff" fallback.
    */
   staffIdBySender?: Record<string, string>;
+  /** When supplied, enables adjacent dosage-form-qualifier stitching — see the pass below. */
+  productIndex?: PharmacyProductIndex;
 }
 
 const PRICE_OBJECTION_RX = /غالي|السعر\s*(?:عالي|كتير|كبير)|كتير\s*(?:عليه|عليها)|مش\s*مناسب.*(?:السعر|الثمن)|خصم\s*اكتر/i;
@@ -611,6 +615,54 @@ export function deriveCustomerNeedModel(input: DeriveCustomerNeedModelInput): Cu
   // customer; its removal is an availability fact, kept in availabilityEvidence/alternatives.
   for (const product of products.values()) {
     if (product.roles.has('rejected') && currentAvailability(product) === 'unavailable') product.roles.delete('rejected');
+  }
+
+  // Adjacent dosage-form-qualifier stitching: a short follow-up message consisting of just a
+  // dosage-form word ("امبول", "شراب", "كريم", ...) is not a new product -- it is the missing
+  // qualifier for the ONE still-unresolved product this case already has. Deliberately narrow:
+  // only fires when (a) a catalog is available, (b) there is EXACTLY ONE unresolved product in
+  // the whole case (never guesses which of several it belongs to), and (c) the qualifier is the
+  // VERY NEXT meaningful message after that product's own evidence (never a blind concatenation
+  // of any two consecutive messages, never a distant/unrelated later mention). Resolution is then
+  // re-run on the ACCUMULATED text (original wording + qualifier), through the same unmodified
+  // resolver and the same safe-selection rule used everywhere else in this pipeline.
+  if (input.productIndex) {
+    const unresolved = Array.from(products.values()).filter((product) => !product.productId);
+    if (unresolved.length === 1) {
+      const [target] = unresolved;
+      const targetLastIndex = Math.max(
+        -1,
+        ...Array.from(target.evidenceMessageIds).map((id) => indexById.get(id) ?? -1)
+      );
+      const next = targetLastIndex >= 0
+        ? messages.slice(targetLastIndex + 1).find((message) => message.isMeaningful)
+        : undefined;
+      const isShortDosageFormQualifier =
+        next &&
+        next.role === 'customer' &&
+        next.text.trim().split(/\s+/).filter(Boolean).length <= 4 &&
+        extractDosageForms(normalizeBaseText(next.text)).length > 0;
+      const alreadyEvidenceElsewhere =
+        next && Array.from(products.values()).some((product) => product.evidenceMessageIds.has(next.id));
+      if (next && isShortDosageFormQualifier && !alreadyEvidenceElsewhere) {
+        target.evidenceMessageIds.add(next.id);
+        const combined = `${target.productNameRaw} ${next.text}`.trim();
+        const resolution = resolveProductMention(combined, input.productIndex);
+        const selected = resolution.selected;
+        if (!resolution.ambiguous && selected && ['proven', 'strongly_inferred'].includes(selected.confidence)) {
+          target.productId = selected.product.productId;
+          target.confidence = strongestConfidence(
+            target.confidence,
+            assessment(
+              selected.confidence,
+              selected.score,
+              ['need.product.qualifier_stitched_resolution'],
+              [evidenceRef(next.id, `دليل إضافي من رسالة لاحقة أعاد تشغيل تحديد المنتج بثقة ${selected.confidence}: "${next.text.slice(0, 60)}".`)]
+            )
+          );
+        }
+      }
+    }
   }
 
   const rejectionIds = new Set(rejectionSignals.map((signal) => signal.messageId));

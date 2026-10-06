@@ -22,6 +22,7 @@ export type ProductMatchBasis =
   | 'exact_canonical_name'
   | 'approved_alias'
   | 'cross_script_equivalent'
+  | 'cross_script_equivalent_with_form'
   | 'cross_script_composite'
   | 'dominant_name_token_match'
   | 'strength_form_token_match'
@@ -157,6 +158,12 @@ function confidenceForBasis(basis: ProductMatchBasis): ConfidenceLevel {
       return 'strongly_inferred';
     case 'cross_script_equivalent':
       return 'weakly_inferred'; // one seed clue alone is unvetted heuristic evidence
+    case 'cross_script_equivalent_with_form':
+      // Same seed clue, but the phrase also carried an explicit dosage-form word that narrowed
+      // several real same-brand SKUs down to exactly one (e.g. "جاست ريج أمبول" among 5 real
+      // GAST-REG forms). That is materially stronger evidence than a bare brand hit alone — see
+      // disambiguatedByForm below, which only sets this basis when the narrowing actually happened.
+      return 'strongly_inferred';
     case 'strength_form_token_match':
       return 'weakly_inferred';
     case 'cautious_fuzzy':
@@ -359,23 +366,43 @@ export function resolveProductMention(
   // 5. Arabic/English cross-script equivalent (seed table) — narrowed by strength/form/bare-number
   // compatibility whenever the phrase carries that signal, so "انتينال كبسول" prefers the capsule
   // SKU over the suspension one instead of treating both brand hits as equally valid.
+  //
+  // When the phrase also carries an explicit dosage-form word (e.g. "أمبول") AND that signal is
+  // what narrows several real same-brand SKUs down to exactly one survivor (several same-token
+  // products existed, only one is form-compatible), that is materially stronger evidence than a
+  // bare brand hit alone — basis 'cross_script_equivalent_with_form' reflects that with
+  // strongly_inferred confidence. A brand token that was ALREADY unique on its own (no other SKU
+  // shared it) gets no such boost: uniqueness alone is not disambiguation evidence.
   const seed = options.crossScriptSeed ?? CROSS_SCRIPT_SEED;
   const crossScriptCluesByProduct = new Map<string, Set<string>>();
   for (const [arabicKey, latinToken] of seed) {
-    if (normalized.normalized.includes(arabicKey) || normalized.raw.includes(arabicKey)) {
-      const latinNormalized = normalizePharmacyText(latinToken).normalized;
-      for (const [candidateNormalizedName, products] of index.byNormalizedName) {
-        if (candidateNormalizedName.includes(latinNormalized)) {
-          for (const product of products) {
-            if (!strengthsCompatible(normalized.strengths, product.strengths)) continue;
-            if (!dosageFormsCompatible(normalized.dosageForms, product.dosageForms)) continue;
-            if (!bareNumbersCompatible(phraseBareNumbers, product)) continue;
-            const clues = crossScriptCluesByProduct.get(product.productId) ?? new Set<string>();
-            clues.add(arabicKey);
-            crossScriptCluesByProduct.set(product.productId, clues);
-            addCandidate(product, 'cross_script_equivalent', 0.6, `"${arabicKey}" مرتبط في جدول المرادفات اللغوية بـ "${latinToken}"`);
-          }
-        }
+    if (!normalized.normalized.includes(arabicKey) && !normalized.raw.includes(arabicKey)) continue;
+    const latinNormalized = normalizePharmacyText(latinToken).normalized;
+    const sameTokenProducts: CanonicalProduct[] = [];
+    for (const [candidateNormalizedName, products] of index.byNormalizedName) {
+      if (candidateNormalizedName.includes(latinNormalized)) sameTokenProducts.push(...products);
+    }
+    const compatible = sameTokenProducts.filter(
+      (product) =>
+        strengthsCompatible(normalized.strengths, product.strengths) &&
+        dosageFormsCompatible(normalized.dosageForms, product.dosageForms) &&
+        bareNumbersCompatible(phraseBareNumbers, product)
+    );
+    const disambiguatedByForm =
+      normalized.dosageForms.length > 0 && sameTokenProducts.length > 1 && compatible.length === 1;
+    for (const product of compatible) {
+      const clues = crossScriptCluesByProduct.get(product.productId) ?? new Set<string>();
+      clues.add(arabicKey);
+      crossScriptCluesByProduct.set(product.productId, clues);
+      if (disambiguatedByForm) {
+        addCandidate(
+          product,
+          'cross_script_equivalent_with_form',
+          0.75,
+          `"${arabicKey}" مرتبط بـ "${latinToken}" وتم ترجيحه بأمان عبر الشكل الصيدلاني الصريح في الجملة (${normalized.dosageForms.join(', ')}) من بين ${sameTokenProducts.length} أشكال لنفس العلامة`
+        );
+      } else {
+        addCandidate(product, 'cross_script_equivalent', 0.6, `"${arabicKey}" مرتبط في جدول المرادفات اللغوية بـ "${latinToken}"`);
       }
     }
   }

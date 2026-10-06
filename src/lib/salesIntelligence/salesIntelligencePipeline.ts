@@ -239,7 +239,7 @@ function analyzeOneCase(
     summaryEvents,
     customerConfirmationEvents,
     staffFinalConfirmationEvents,
-  } = buildCaseBaskets(conversationCase.caseId, scopedMessages);
+  } = buildCaseBaskets(conversationCase.caseId, scopedMessages, input.productIndex);
   const itemsByBasketId = enrichBasketProductIdentities(rawItemsByBasketId, input.productIndex);
 
   const activeBasketResolution = resolveActiveBasket(baskets);
@@ -270,6 +270,7 @@ function analyzeOneCase(
     itemsByBasketId,
     activeBasket,
     staffIdBySender: input.staffIdBySender,
+    productIndex: input.productIndex,
   });
   const unavailableDemand = deriveUnavailableDemand({
     conversationCase,
