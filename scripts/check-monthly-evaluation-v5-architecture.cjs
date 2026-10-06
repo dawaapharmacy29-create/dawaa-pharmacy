@@ -13,6 +13,8 @@ function read(path) {
 const page = read('src/pages/StaffMonthlyEvaluationGeneral.tsx');
 const workflow = read('src/components/evaluations/MonthlyEvaluationWorkflowV5.tsx');
 const audit = read('src/components/evaluations/MonthlyEvaluationAuditTrailV5.tsx');
+const navigationGuard = read('src/contexts/NavigationGuardContext.tsx');
+const financialTruth = read('src/lib/evaluations/monthlyEvaluationFinancialTruth.ts');
 const profiles = read('src/lib/evaluations/staffEvaluationProfilesV3.ts');
 const backend = [
   read('supabase/migrations/20260929153000_monthly_evaluation_command_center_v5.sql'),
@@ -23,6 +25,8 @@ const backend = [
   read('supabase/migrations/20260930123000_monthly_evaluation_role_coverage_v5.sql'),
   read('supabase/migrations/20260930154000_monthly_evaluation_trigger_execute_hardening_v5.sql'),
   read('supabase/migrations/20260930155500_monthly_evaluation_server_evidence_type_compat_v5.sql'),
+  read('supabase/migrations/20261001011000_monthly_evaluation_attendance_finalization_gate_v5.sql'),
+  read('supabase/migrations/20261001012500_monthly_evaluation_followup_executor_truth_v5.sql'),
 ].join('\n');
 
 for (const rpc of [
@@ -46,12 +50,12 @@ if (!page.includes('MonthlyEvaluationAuditTrailV5')) failures.push('V5 audit tra
 if (!page.includes("type: 'monthly_evaluation_ready'")) failures.push('Final approval must notify the employee through the canonical notification domain.');
 if (!page.includes('weakSectionsMissingNotes')) failures.push('Weak-score rationale guard is missing from the client.');
 if (!page.includes('criticalGateMissingReason')) failures.push('Critical-gate rationale guard is missing from the client.');
+if (!page.includes('usePendingFormNavigationGuard')) failures.push('Monthly evaluation unsaved-change guard is not registered.');
+if (!page.includes('requestEvaluationContextChange')) failures.push('Employee/cycle/branch switches must pass through the unsaved-change guard.');
+if (!navigationGuard.includes('requestAction')) failures.push('Navigation guard must support guarded in-page context changes.');
 
 if (/points_incentive_egp\s*\*\s*effectiveEvaluationMultiplierPct/.test(page)) {
   failures.push('Client-side final incentive recomputation is forbidden; read the canonical server financial truth.');
-}
-if (!page.includes('pointsTruth?.final_incentive_egp')) {
-  failures.push('Page must read final incentive from the canonical points truth.');
 }
 if (page.includes("gate.blocksFully ? 'إيقاف الحافز'")) {
   failures.push('Critical Gate UI must not claim all financial bonus is stopped; competition bonus is independent.');
@@ -64,6 +68,15 @@ if (!page.includes('final_approval_snapshot')) {
 }
 if (!page.includes('finalSnapshotHash: refreshedHash')) {
   failures.push('Employee notification must be traceable to the server final snapshot hash.');
+}
+if (!page.includes('resolveMonthlyEvaluationFinancialTruth')) {
+  failures.push('Monthly evaluation/PDF must use the canonical frozen-statement financial truth boundary.');
+}
+if (!financialTruth.includes("source: 'settled_statement'") || !financialTruth.includes('points_closing') || !financialTruth.includes('incentive_amount')) {
+  failures.push('Closed monthly statements must freeze both closing points and incentive amount together.');
+}
+if (!financialTruth.includes("source: 'points_truth'") || !financialTruth.includes('final_points') || !financialTruth.includes('final_incentive_egp')) {
+  failures.push('Live Points Truth must remain the pre-settlement financial source.');
 }
 
 for (const step of ['بيانات الدورة', 'تقييم المحاور', 'النقاط والمخالفات', 'الخلاصة والتطوير', 'المراجعة والاعتماد']) {
@@ -95,6 +108,10 @@ for (const token of [
   'f.requested_by_staff_id=p_staff_id::text',
   'a.staff_id=p_staff_id::text',
   'dawaa_monthly_evaluation_branch_manager_subject_allowed_v5',
+  'attendance_pending_review_days',
+  'attendance_conflict_days',
+  'handled_by_staff_id',
+  'assigned_to_staff_id',
 ]) {
   if (!backend.includes(token)) failures.push(`V5 backend contract is missing: ${token}`);
 }

@@ -10,6 +10,7 @@ export type AttendanceResolutionRow = {
   total_hours: number | null;
   late_minutes: number | null;
   early_leave_minutes: number | null;
+  missing_punch: boolean | null;
   status: string | null;
   source: string | null;
   schedule_id: string | null;

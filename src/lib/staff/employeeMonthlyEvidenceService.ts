@@ -10,7 +10,14 @@ import {
   isActionableTrainingRecommendation,
 } from '@/lib/evaluations/monthlyDevelopmentTextEvidence';
 import { readAttendanceRange } from '@/lib/readModels/attendanceReadModel';
-import { listAttendanceImpactLedger, type AttendanceImpactRow } from '@/lib/attendance/attendanceResolutionService';
+import {
+  listAttendanceImpactLedger,
+  listAttendanceResolutionQueue,
+  type AttendanceImpactRow,
+  type AttendanceResolutionRow,
+} from '@/lib/attendance/attendanceResolutionService';
+import { evaluateMonthlyAttendanceFinalization, type MonthlyAttendanceFinalization } from '@/lib/staff/monthlyAttendanceFinalization';
+import { followupExecutorStaffId } from '@/lib/staff/monthlyFollowupAttribution';
 
 export type EmployeeMonthlyEvidenceMetrics = {
   review_count: number;
@@ -100,12 +107,28 @@ export type MonthlyAttendanceEvidenceCase = {
   reviewRequired: boolean;
 };
 
+export type MonthlyAttendancePendingCase = {
+  date: string;
+  resolutionStatus: string;
+  lateMinutes: number;
+  earlyLeaveMinutes: number;
+  missingPunch: boolean;
+  scheduledStartAt: string;
+  scheduledEndAt: string;
+  firstIn: string;
+  lastOut: string;
+};
+
 export type MonthlyAttendanceCoaching = {
   /** @deprecated Alias kept for historical snapshots. Use activeLedgerEvents/resolvedDays in new UI. */
   approvedEvents: number;
   activeLedgerEvents: number;
   resolvedDays: number;
   duplicateResolutionDays: number;
+  conflictingResolutionDays: number;
+  pendingReviewCases: number;
+  pendingCases: MonthlyAttendancePendingCase[];
+  finalization: MonthlyAttendanceFinalization;
   offDayCases: number;
   onTimeDays: number;
   lateCases: number;
@@ -505,7 +528,11 @@ function snapshotBool(row: AttendanceImpactRow, key: string) {
   return bool(row.evidence_snapshot?.[key]);
 }
 
-function buildAttendanceCoaching(rows: AttendanceImpactRow[]): MonthlyAttendanceCoaching {
+function buildAttendanceCoaching(
+  rows: AttendanceImpactRow[],
+  pendingRows: AttendanceResolutionRow[],
+  sourceAvailable: boolean
+): MonthlyAttendanceCoaching {
   const currentRows = rows.filter((row) => !row.reversal_of && row.impact_status !== 'reversed');
   const byType = (type: string) => currentRows.filter((row) => row.event_type === type);
 
@@ -526,7 +553,28 @@ function buildAttendanceCoaching(rows: AttendanceImpactRow[]): MonthlyAttendance
   });
   const activeLedgerEvents = currentRows.length;
   const resolvedDays = eventsByDate.size;
-  const duplicateResolutionDays = [...eventsByDate.values()].filter((count) => count > 1).length;
+  const conflictingResolutionDays = [...eventsByDate.values()].filter((count) => count > 1).length;
+  const duplicateResolutionDays = conflictingResolutionDays;
+  const pendingCases: MonthlyAttendancePendingCase[] = pendingRows
+    .map((row) => ({
+      date: String(row.attendance_date || '').slice(0, 10),
+      resolutionStatus: String(row.resolution_status || row.status || 'pending_review'),
+      lateMinutes: safeNumber(row.late_minutes),
+      earlyLeaveMinutes: safeNumber(row.early_leave_minutes),
+      missingPunch: Boolean(row.missing_punch),
+      scheduledStartAt: String(row.scheduled_start_at || ''),
+      scheduledEndAt: String(row.scheduled_end_at || ''),
+      firstIn: String(row.first_in || ''),
+      lastOut: String(row.last_out || ''),
+    }))
+    .filter((row) => Boolean(row.date))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const pendingReviewCases = pendingCases.length;
+  const finalization = evaluateMonthlyAttendanceFinalization({
+    sourceAvailable,
+    pendingReviewCases,
+    conflictingResolutionDays,
+  });
 
   const onTimeDays = byType('attendance_on_time').length + byType('attendance_on_time_with_permission').length;
   const offDayCases = byType('attendance_off_day').length;
@@ -565,6 +613,7 @@ function buildAttendanceCoaching(rows: AttendanceImpactRow[]): MonthlyAttendance
     absenceCases,
     duplicateResolutionDays,
     manualResolutionCases,
+    pendingReviewCases,
   });
 
   const strengthBits = attendanceStrengthEvidence ? [
@@ -601,6 +650,10 @@ function buildAttendanceCoaching(rows: AttendanceImpactRow[]): MonthlyAttendance
     activeLedgerEvents,
     resolvedDays,
     duplicateResolutionDays,
+    conflictingResolutionDays,
+    pendingReviewCases,
+    pendingCases,
+    finalization,
     offDayCases,
     onTimeDays,
     lateCases,
@@ -1440,13 +1493,14 @@ export async function loadEmployeeMonthlyEvidence(args: {
   endDateExclusive: string;
 }): Promise<EmployeeMonthlyEvidence> {
   const errors: Record<string, string> = {};
+  const attendanceEndDate = new Date(new Date(args.endDateExclusive).getTime() - 86400000).toISOString().slice(0, 10);
 
-  const [reviewResult, followupResult, attendanceResult, attendanceImpactResult, inventoryResult, trainingResult, invoicePerformanceResult] = await Promise.all([
+  const [reviewResult, followupResult, attendanceResult, attendanceImpactResult, attendanceReviewResult, inventoryResult, trainingResult, invoicePerformanceResult] = await Promise.all([
     loadConversationReviews(args),
     supabase
       .from('daily_followups')
-      .select('id,status,followup_status,followup_result,followup_summary,notes,completed_at,closed_at,needs_next_followup,next_followup_date,purchase_after_followup,created_at,assigned_staff_id,requested_by_staff_id')
-      .or(`assigned_staff_id.eq.${args.staffId},requested_by_staff_id.eq.${args.staffId}`)
+      .select('id,status,followup_status,followup_result,followup_summary,notes,completed_at,closed_at,needs_next_followup,next_followup_date,purchase_after_followup,created_at,handled_by_staff_id,assigned_to_staff_id,assigned_staff_id,staff_id,requested_by_staff_id')
+      .or(`handled_by_staff_id.eq.${args.staffId},assigned_to_staff_id.eq.${args.staffId},assigned_staff_id.eq.${args.staffId},staff_id.eq.${args.staffId}`)
       .gte('created_at', args.startDate)
       .lt('created_at', args.endDateExclusive)
       .limit(1000),
@@ -1459,10 +1513,25 @@ export async function loadEmployeeMonthlyEvidence(args: {
     listAttendanceImpactLedger({
       staffId: args.staffId,
       start: args.startDate,
-      end: new Date(new Date(args.endDateExclusive).getTime() - 86400000).toISOString().slice(0, 10),
+      end: attendanceEndDate,
       limit: 300,
     }).then((rows) => ({ rows, error: '' })).catch((cause) => ({
       rows: [] as AttendanceImpactRow[],
+      error: cause instanceof Error ? cause.message : String(cause),
+    })),
+    listAttendanceResolutionQueue({
+      start: args.startDate,
+      end: attendanceEndDate,
+      status: 'pending_review',
+      triage: 'all',
+      limit: 1000,
+    }).then((rows) => ({
+      rows: rows.filter((row) => String(row.staff_id || '') === args.staffId),
+      error: rows.length >= 1000
+        ? 'قائمة مراجعة الحضور وصلت إلى حد 1000 حالة؛ لا يمكن إثبات اكتمال حالات الموظف بأمان.'
+        : '',
+    })).catch((cause) => ({
+      rows: [] as AttendanceResolutionRow[],
       error: cause instanceof Error ? cause.message : String(cause),
     })),
     loadInventoryEvidence(args),
@@ -1473,14 +1542,23 @@ export async function loadEmployeeMonthlyEvidence(args: {
   const reviewRows = reviewResult.rows;
   if (reviewResult.error && !reviewRows.length) errors.reviews = reviewResult.error;
 
-  const followupRows = followupResult.error ? [] : followupResult.data || [];
+  const followupCandidateRows = followupResult.error ? [] : followupResult.data || [];
+  const followupRows = followupCandidateRows.filter(
+    (row) => followupExecutorStaffId(row as Record<string, unknown>) === args.staffId
+  );
   if (followupResult.error) errors.followups = followupResult.error.message;
+  if (!followupResult.error && followupCandidateRows.length >= 1000) {
+    errors.followups = 'نتائج المتابعات وصلت إلى حد 1000 سجل؛ لا يمكن إثبات اكتمال عينة المنفذ بأمان.';
+  }
 
   const attendanceRows = attendanceResult.status === 'available' ? attendanceResult.rows : [];
   if (attendanceResult.status === 'unavailable') errors.attendance = attendanceResult.error;
-  if (attendanceImpactResult.error && attendanceResult.status === 'unavailable') {
-    errors.attendance = [errors.attendance, attendanceImpactResult.error].filter(Boolean).join(' | ');
-  }
+  if (attendanceImpactResult.error) errors.attendance_impact = attendanceImpactResult.error;
+  if (attendanceReviewResult.error) errors.attendance_review = attendanceReviewResult.error;
+  const attendanceSourceAvailable =
+    attendanceResult.status === 'available'
+    && !attendanceImpactResult.error
+    && !attendanceReviewResult.error;
 
   const reviewAverage = reviewRows.length
     ? reviewRows.reduce((sum, row) => sum + safeNumber(row.final_score ?? row.total_score), 0) / reviewRows.length
@@ -1509,11 +1587,16 @@ export async function loadEmployeeMonthlyEvidence(args: {
   const reviewAvailable = !errors.reviews;
   const health = {
     reviews: reviewAvailable ? 'available' as const : 'unavailable' as const,
-    followups: followupResult.error ? 'unavailable' as const : 'available' as const,
-    attendance: attendanceResult.status,
+    followups: errors.followups ? 'unavailable' as const : 'available' as const,
+    attendance: attendanceSourceAvailable ? 'available' as const : 'unavailable' as const,
   };
 
   const conversationCoaching = buildConversationCoaching(reviewRows);
+  const attendanceCoaching = buildAttendanceCoaching(
+    attendanceImpactResult.rows,
+    attendanceReviewResult.rows,
+    attendanceSourceAvailable
+  );
 
   return {
     metrics: {
@@ -1529,7 +1612,7 @@ export async function loadEmployeeMonthlyEvidence(args: {
     },
     coaching: {
       conversation: conversationCoaching,
-      attendance: buildAttendanceCoaching(attendanceImpactResult.rows),
+      attendance: attendanceCoaching,
       followups: buildFollowupCoaching((followupRows || []) as Record<string, unknown>[]),
       inventory: buildInventoryCoaching(inventoryResult),
       development: buildDevelopmentCoaching(reviewRows, trainingResult, args.endDateExclusive),
@@ -1539,7 +1622,8 @@ export async function loadEmployeeMonthlyEvidence(args: {
     ready:
       health.reviews === 'available' &&
       health.followups === 'available' &&
-      health.attendance === 'available',
+      health.attendance === 'available' &&
+      attendanceCoaching.finalization.ready,
     errors,
   };
 }
