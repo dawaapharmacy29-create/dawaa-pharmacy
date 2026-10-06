@@ -14,16 +14,23 @@ import { canonicalStaffRole } from '@/lib/staff/staffRoleCapabilities';
 export type EvaluationRoleGroup='doctor'|'assistant'|'warehouse'|'delivery'|'manager'|'customer_service'|'other';
 
 type HeaderSalesSummary={totalSales:number;invoicesCount:number;avgInvoice:number;uniqueCustomersCount:number;dataAsOf:string|null;sourceTableUsed:'sales_invoices'|'none';warnings:string[]};
-function num(value:unknown){const n=Number(value??0);return Number.isFinite(n)?n:0}
+function finiteNumber(value:unknown):number|null{
+ if(value===null||value===undefined||value==='')return null;
+ const n=Number(value);return Number.isFinite(n)?n:null;
+}
 async function getEvaluationHeaderSales(staffId:string,start:string,end:string):Promise<HeaderSalesSummary>{
  const {data,error}=await supabase.rpc('get_staff_evaluation_sales_summary_v3',{
   p_staff_id:staffId,p_start:start,p_end_exclusive:end,
  });
  if(error)throw error;
  const raw=Array.isArray(data)?data[0]:data;
- const row=(raw||{}) as Record<string,unknown>;
- const invoices=num(row.invoices),total=num(row.sales);
- return{totalSales:total,invoicesCount:invoices,avgInvoice:num(row.avg_invoice),uniqueCustomersCount:num(row.customers),dataAsOf:row.data_as_of?String(row.data_as_of):null,sourceTableUsed:'sales_invoices',warnings:[]};
+ if(!raw||typeof raw!=='object')return{totalSales:0,invoicesCount:0,avgInvoice:0,uniqueCustomersCount:0,dataAsOf:null,sourceTableUsed:'none',warnings:['مصدر ملخص المبيعات لم يُرجع صفًا صالحًا.']};
+ const row=raw as Record<string,unknown>;
+ const total=finiteNumber(row.sales),invoices=finiteNumber(row.invoices),avgInvoice=finiteNumber(row.avg_invoice),customers=finiteNumber(row.customers);
+ if(total===null||invoices===null||avgInvoice===null||customers===null){
+  return{totalSales:0,invoicesCount:0,avgInvoice:0,uniqueCustomersCount:0,dataAsOf:null,sourceTableUsed:'none',warnings:['استجابة ملخص المبيعات ناقصة؛ تم حجب الأرقام بدل تفسيرها كصفر.']};
+ }
+ return{totalSales:total,invoicesCount:invoices,avgInvoice,uniqueCustomersCount:customers,dataAsOf:row.data_as_of?String(row.data_as_of):null,sourceTableUsed:'sales_invoices',warnings:[]};
 }
 
 export type EvaluationHeaderSummary={
