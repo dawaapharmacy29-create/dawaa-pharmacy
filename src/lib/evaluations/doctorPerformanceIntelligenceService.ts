@@ -56,6 +56,9 @@ export type DoctorPerformanceIntelligence = {
   months: DoctorPerformanceMonth[];
   generatedAt: string;
   firstEvidenceDate: string | null;
+  firstSalesEvidenceDate: string | null;
+  firstAttendanceEvidenceDate: string | null;
+  firstConversationEvidenceDate: string | null;
 };
 
 const n=(v:unknown)=>{const x=Number(v);return Number.isFinite(x)?x:0};
@@ -331,5 +334,5 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
     months[0].comparisonReason='لا يوجد تاريخ تحميل مبيعات موثوق داخل الدورة الحالية؛ المقارنة محجوبة بدل اعتبار الأيام غير المحملة صفراً.';
     months[0].diagnoses=diagnoseMonth(months[0],null);
   }
-  return {months,generatedAt:new Date().toISOString(),firstEvidenceDate};
+  return {months,generatedAt:new Date().toISOString(),firstEvidenceDate,firstSalesEvidenceDate:firstSalesDate,firstAttendanceEvidenceDate:firstAttendanceDate,firstConversationEvidenceDate:firstConversationDate};
 }
