@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { loadPerformanceSalesBundle, type PerformanceSalesBundlePayload } from '@/lib/evaluations/performanceSalesBundleCache';
 import { evaluationCycleRangeFromLabel, evaluationCycleDateKeys, isEvaluationCycleClosed, previousEvaluationCycleLabel } from '@/lib/evaluations/monthlyEvaluationCycle';
 
 export type PerformanceCoverage = 'available' | 'partial' | 'not_applicable' | 'unavailable';
@@ -63,13 +64,10 @@ type SalesCycleSummaryRow = {
 };
 
 type SalesPeriodSummaryRow = { sales?: number; invoices?: number; customers?: number; first_sale_date?: string | null };
-type SalesBundlePayload = { cycles?: SalesCycleSummaryRow[]; samePeriod?: { current?: SalesPeriodSummaryRow; previous?: SalesPeriodSummaryRow }; dataAsOf?: string | null; effectiveDays?: number | null };
-
 async function salesBundle(staffId:string,windowStart:string,windowEnd:string,currentStart:string,elapsedDays:number){
-  const {data,error}=await supabase.rpc('get_staff_performance_sales_bundle_v1',{
-    p_staff_id:staffId,p_window_start:windowStart,p_window_end:windowEnd,p_current_start:currentStart,p_elapsed_days:elapsedDays,
+  const {payload,error}=await loadPerformanceSalesBundle({
+    staffId,windowStart,windowEnd,currentStart,elapsedDays,
   });
-  const payload=(data||{}) as SalesBundlePayload;
   return {rows:Array.isArray(payload.cycles)?payload.cycles:[],samePeriod:payload.samePeriod||{},dataAsOf:payload.dataAsOf||null,effectiveDays:Math.max(0,n(payload.effectiveDays)),available:!error,identity:error?'unavailable' as const:'canonical' as const};
 }
 
