@@ -14,6 +14,7 @@ import { listAttendanceImpactLedger, type AttendanceImpactRow } from '@/lib/atte
 import { canonicalStaffRole } from '@/lib/staff/staffRoleCapabilities';
 import { readPerformanceTaskEvidence } from '@/lib/performance/performanceTaskEvidenceService';
 import type { EvaluationMetricProjection } from '@/lib/evaluations/evaluationMetrics';
+import { cairoDateBoundaryIso } from '@/lib/time/cairoDateBoundary';
 
 export type EmployeeMonthlyEvidenceMetrics = {
   review_count: number;
@@ -1409,9 +1410,11 @@ async function loadConversationReviews(args: {
   startDate: string;
   endDateExclusive: string;
 }) {
+  const startAt = cairoDateBoundaryIso(args.startDate);
+  const endAt = cairoDateBoundaryIso(args.endDateExclusive);
   const dateFilter =
-    `and(conversation_date.gte.${args.startDate},conversation_date.lt.${args.endDateExclusive}),`
-    + `and(conversation_date.is.null,created_at.gte.${args.startDate},created_at.lt.${args.endDateExclusive})`;
+    `and(conversation_date.gte.${startAt},conversation_date.lt.${endAt}),`
+    + `and(conversation_date.is.null,created_at.gte.${startAt},created_at.lt.${endAt})`;
 
   const makeQuery = (column: 'staff_id' | 'doctor_id') =>
     supabase
@@ -1515,8 +1518,8 @@ export async function loadEmployeeMonthlyEvidence(args: {
       .or(`staff_id.eq.${args.staffId},assigned_staff_id.eq.${args.staffId},requested_by_staff_id.eq.${args.staffId},assigned_to_staff_id.eq.${args.staffId},handled_by_staff_id.eq.${args.staffId}`)
       .eq('is_hidden', false)
       .is('archived_at', null)
-      .gte('created_at', args.startDate)
-      .lt('created_at', args.endDateExclusive)
+      .gte('created_at', cairoDateBoundaryIso(args.startDate))
+      .lt('created_at', cairoDateBoundaryIso(args.endDateExclusive))
       .limit(1001) : Promise.resolve(emptyFollowupResult),
     needsAttendanceEvidence ? readAttendanceRange({
       staffId: args.staffId,
