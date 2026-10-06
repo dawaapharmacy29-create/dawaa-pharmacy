@@ -44,7 +44,10 @@ export default function EmployeeEvaluationHeaderV1(props:{name:string;role:strin
     <div className="space-y-4 border-t p-3" style={{borderColor:'var(--dawaa-theme-border)'}}>
      {s.roleGroup==='manager'?<div className="text-xs font-bold leading-6" style={{color:'var(--dawaa-theme-muted)'}}>لا نستخدم الحضور الشخصي أو الإجازات أو المحادثات الشخصية كحقيقة تقييم للدور القيادي. كل محور قيادي يعتمد على نتيجة الفريق أو الفرع والواقعة الموثقة الخاصة به.</div>:null}
      {s.roleGroup==='doctor'?<div>
-      <div className="mb-2 flex items-center gap-1.5 text-[11px] font-black" style={{color:'var(--dawaa-theme-heading)'}}><ReceiptText size={14}/> البيع والمحادثات</div>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+       <div className="flex items-center gap-1.5 text-[11px] font-black" style={{color:'var(--dawaa-theme-heading)'}}><ReceiptText size={14}/> البيع والمحادثات</div>
+       {salesAvailable&&s.sales.dataAsOf?<span className="rounded-full border px-2 py-1 text-[10px] font-black" style={{borderColor:'var(--dawaa-theme-border)',color:'var(--dawaa-theme-muted)'}}>بيانات المبيعات حتى {s.sales.dataAsOf}</span>:null}
+      </div>
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
        <MiniBox label="مبيعات الدورة" value={salesAvailable&&s.sales.total!=null?`${n(s.sales.total)} ج`:'—'} tone={salesAvailable?'green':'amber'}/>
        <MiniBox label="الفواتير" value={salesAvailable?n(s.sales.invoices):'—'} tone={salesAvailable?'cyan':'amber'}/>
