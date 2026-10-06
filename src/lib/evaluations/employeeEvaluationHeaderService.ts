@@ -1,6 +1,6 @@
 import { getStaffAttendanceDetail } from '@/lib/attendance/attendanceBreakdownService';
 import { getAnnualLeaveBalanceV1, getPermissionPolicyStatusV2, listStaffTimeOffRequests } from '@/lib/timeOffService';
-import { loadPerformanceSalesBundle } from '@/lib/evaluations/performanceSalesBundleCache';
+import { supabase } from '@/lib/supabase';
 
 const HEADER_CACHE=new Map<string,{value:EvaluationHeaderSummary;at:number}>();
 const HEADER_CACHE_TTL_MS=5*60*1000;
@@ -16,17 +16,14 @@ export type EvaluationRoleGroup='doctor'|'assistant'|'warehouse'|'delivery'|'man
 type HeaderSalesSummary={totalSales:number;invoicesCount:number;avgInvoice:number;uniqueCustomersCount:number;dataAsOf:string|null;sourceTableUsed:'sales_invoices'|'none';warnings:string[]};
 function num(value:unknown){const n=Number(value??0);return Number.isFinite(n)?n:0}
 async function getEvaluationHeaderSales(staffId:string,start:string,end:string):Promise<HeaderSalesSummary>{
- const cycleStart=new Date(start+'T12:00:00Z');
- cycleStart.setUTCMonth(cycleStart.getUTCMonth()-1);
- const windowStart=cycleStart.toISOString().slice(0,10);
- const {payload,error}=await loadPerformanceSalesBundle({
-  staffId,windowStart,windowEnd:end,currentStart:start,elapsedDays:31,
+ const {data,error}=await supabase.rpc('get_staff_evaluation_sales_summary_v3',{
+  p_staff_id:staffId,p_start:start,p_end_exclusive:end,
  });
  if(error)throw error;
- const row=Array.isArray(payload.cycles)?payload.cycles.find(item=>String(item.cycle_start||'')===start):null;
- if(!row)return{totalSales:0,invoicesCount:0,avgInvoice:0,uniqueCustomersCount:0,dataAsOf:payload.dataAsOf||null,sourceTableUsed:'none',warnings:['ملخص المبيعات الموحد لم يُرجع الدورة المطلوبة؛ لا يتم تفسير الغياب كصفر.']};
+ const raw=Array.isArray(data)?data[0]:data;
+ const row=(raw||{}) as Record<string,unknown>;
  const invoices=num(row.invoices),total=num(row.sales);
- return{totalSales:total,invoicesCount:invoices,avgInvoice:invoices>0?total/invoices:0,uniqueCustomersCount:num(row.customers),dataAsOf:payload.dataAsOf||null,sourceTableUsed:'sales_invoices',warnings:[]};
+ return{totalSales:total,invoicesCount:invoices,avgInvoice:num(row.avg_invoice),uniqueCustomersCount:num(row.customers),dataAsOf:row.data_as_of?String(row.data_as_of):null,sourceTableUsed:'sales_invoices',warnings:[]};
 }
 
 export type EvaluationHeaderSummary={
