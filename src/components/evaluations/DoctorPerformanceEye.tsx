@@ -161,7 +161,12 @@ export default function DoctorPerformanceEye({staffId,staffName,cycleLabel}:{sta
     <div className="mt-4 rounded-xl border p-3 text-[11px] font-bold leading-6" style={{borderColor:'var(--dawaa-theme-border)',color:'var(--dawaa-theme-muted)'}}>
       <div className="flex items-center gap-2 font-black" style={{color:'var(--dawaa-theme-heading)'}}><ShieldCheck size={16}/> مصدر الحقيقة</div>
       هوية المبيعات: {cur.salesIdentity==='canonical'?'Canonical staff invoice truth':'المصدر غير متاح'}. لا يتحول غياب المصدر أو الدورة السابقة لأول Evidence إلى صفر. Conversion = المحادثات المراجعة التي تحولت لبيع ÷ المحادثات المراجعة، ويظهر فقط من الدليل المسجل.
-      {data!.firstEvidenceDate?<div className="mt-1">أول Evidence موثوق داخل النطاق المتاح: {data!.firstEvidenceDate}.</div>:null}
+      <div className="mt-1">
+        بداية الدليل داخل النطاق:
+        {' '}المبيعات {data!.firstSalesEvidenceDate||'غير متاح'}
+        {' · '}الحضور {data!.firstAttendanceEvidenceDate||'غير متاح'}
+        {' · '}المحادثات {data!.firstConversationEvidenceDate||'غير متاح'}.
+      </div>
     </div>
    </>:null}
   </div></div>:null}
