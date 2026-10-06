@@ -1,6 +1,6 @@
 import { getStaffAttendanceDetail } from '@/lib/attendance/attendanceBreakdownService';
 import { getAnnualLeaveBalanceV1, getPermissionPolicyStatusV2, listStaffTimeOffRequests } from '@/lib/timeOffService';
-import { getStaffCycleSales } from '@/lib/staffSalesService';
+import { supabase } from '@/lib/supabase';
 
 const HEADER_CACHE=new Map<string,{value:EvaluationHeaderSummary;at:number}>();
 const HEADER_CACHE_TTL_MS=5*60*1000;
@@ -12,6 +12,21 @@ import type { EmployeeMonthlyEvidence } from '@/lib/staff/employeeMonthlyEvidenc
 import { canonicalStaffRole } from '@/lib/staff/staffRoleCapabilities';
 
 export type EvaluationRoleGroup='doctor'|'assistant'|'warehouse'|'delivery'|'manager'|'customer_service'|'other';
+
+type HeaderSalesSummary={totalSales:number;invoicesCount:number;avgInvoice:number;uniqueCustomersCount:number;sourceTableUsed:'sales_invoices'|'none';warnings:string[]};
+function num(value:unknown){const n=Number(value??0);return Number.isFinite(n)?n:0}
+async function getEvaluationHeaderSales(staffId:string,start:string,end:string):Promise<HeaderSalesSummary>{
+ const {data,error}=await supabase.rpc('get_staff_performance_sales_bundle_v1',{
+  p_staff_id:staffId,p_window_start:start,p_window_end:end,p_current_start:start,p_elapsed_days:31,
+ });
+ if(error)throw error;
+ const payload=(data||{}) as {cycles?:Array<Record<string,unknown>>};
+ const row=Array.isArray(payload.cycles)?payload.cycles.find(item=>String(item.cycle_start||'')===start):null;
+ if(!row)return{totalSales:0,invoicesCount:0,avgInvoice:0,uniqueCustomersCount:0,sourceTableUsed:'none',warnings:['ملخص المبيعات الموحد لم يُرجع الدورة المطلوبة؛ لا يتم تفسير الغياب كصفر.']};
+ const invoices=num(row.invoices),total=num(row.sales);
+ return{totalSales:total,invoicesCount:invoices,avgInvoice:invoices>0?total/invoices:0,uniqueCustomersCount:num(row.customers),sourceTableUsed:'sales_invoices',warnings:[]};
+}
+
 export type EvaluationHeaderSummary={
  roleGroup:EvaluationRoleGroup; branch:string;
  sales:{state:'available'|'unavailable';total:number|null;invoices:number|null;avgInvoice:number|null;customers:number|null};
@@ -42,7 +57,7 @@ export async function loadEmployeeEvaluationHeader(args:{staffId:string;staffNam
  const needsPersonalAttendance=['doctor','assistant','warehouse','delivery','customer_service'].includes(roleGroup);
  const [salesR,attendanceR,permissionR,requestsR,annualR]=await Promise.allSettled([
   roleGroup==='doctor'
-   ? getStaffCycleSales(args.staffId,args.staffName,args.branch,args.start,args.end)
+   ? getEvaluationHeaderSales(args.staffId,args.start,args.end)
    : Promise.resolve(null),
   needsPersonalAttendance ? getStaffAttendanceDetail(args.staffId,args.start,args.end) : Promise.resolve(null),
   needsPersonalAttendance ? getPermissionPolicyStatusV2(args.staffId,args.start,args.end) : Promise.resolve(null),
