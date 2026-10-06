@@ -8,6 +8,7 @@ const axisCard=read('src/components/evaluations/EvaluationAxisCardV1.tsx');
 const finalReview=read('src/components/evaluations/FinalEvaluationReviewV1.tsx');
 const employeeHeader=read('src/components/evaluations/EmployeeEvaluationHeaderV1.tsx');
 const headerService=read('src/lib/evaluations/employeeEvaluationHeaderService.ts');
+const salesBundleCache=read('src/lib/evaluations/performanceSalesBundleCache.ts');
 const performanceScope=read('src/lib/performance/performanceScope.ts');
 const report=read('src/lib/reports/monthlyPerformance360Service.ts');
 const financial=read('src/lib/payroll/employeeFinancialProjection.ts');
@@ -58,7 +59,8 @@ const required=[
  [employeeHeader,'permissionMinutes','employee header must expose permission duration'],
  [headerService,'getStaffAttendanceDetail','header must use canonical attendance detail'],
  [headerService,'getAnnualLeaveBalanceV1','header must use canonical annual leave balance'],
- [headerService,'get_staff_performance_sales_bundle_v1','header sales must use canonical lightweight performance invoice truth'],
+ [headerService,'loadPerformanceSalesBundle','header sales must use shared lightweight performance invoice truth'],
+ [salesBundleCache,'get_staff_performance_sales_bundle_v1','shared performance sales reader must use canonical lightweight performance invoice truth'],
  [headerService,"sourceTableUsed!=='none'",'unavailable sales source must never render as zero'],
  [headerService,"roleGroup==='doctor'",'sales truth must be scoped to pharmacist role'],
  [headerService,'overlapDays','leave requests must be clamped to evaluation cycle'],
