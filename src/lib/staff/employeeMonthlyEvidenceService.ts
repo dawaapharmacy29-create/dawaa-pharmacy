@@ -1415,7 +1415,7 @@ async function loadConversationReviews(args: {
 
   const makeQuery = (column: 'staff_id' | 'doctor_id') =>
     supabase
-      .from('conversation_sales_reviews')
+      .from('conversation_sales_reviews_canonical_v2')
       .select(REVIEW_SELECT)
       .eq(column, args.staffId)
       .or(dateFilter)
@@ -1510,9 +1510,11 @@ export async function loadEmployeeMonthlyEvidence(args: {
   const [reviewResult, followupResult, attendanceResult, attendanceImpactResult, inventoryResult, trainingResult, invoicePerformanceResult, taskEvaluation] = await Promise.all([
     needsConversationEvidence ? loadConversationReviews(args) : Promise.resolve({ rows: [] as Record<string, unknown>[], error: '' }),
     needsFollowupEvidence ? supabase
-      .from('daily_followups')
-      .select('id,status,followup_status,followup_result,followup_summary,notes,completed_at,closed_at,needs_next_followup,next_followup_date,purchase_after_followup,created_at,assigned_staff_id,requested_by_staff_id')
-      .or(`assigned_staff_id.eq.${args.staffId},requested_by_staff_id.eq.${args.staffId}`)
+      .from('customer_followup_operations_v2')
+      .select('id,status,followup_status,followup_result,followup_summary,notes,completed_at,closed_at,needs_next_followup,next_followup_date,purchase_after_followup,created_at,staff_id,assigned_staff_id,requested_by_staff_id,assigned_to_staff_id,handled_by_staff_id,is_hidden,archived_at')
+      .or(`staff_id.eq.${args.staffId},assigned_staff_id.eq.${args.staffId},requested_by_staff_id.eq.${args.staffId},assigned_to_staff_id.eq.${args.staffId},handled_by_staff_id.eq.${args.staffId}`)
+      .eq('is_hidden', false)
+      .is('archived_at', null)
       .gte('created_at', args.startDate)
       .lt('created_at', args.endDateExclusive)
       .limit(1001) : Promise.resolve(emptyFollowupResult),
