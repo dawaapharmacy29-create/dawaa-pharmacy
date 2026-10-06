@@ -1018,8 +1018,8 @@ export default function StaffMonthlyEvaluation() {
           const published = ['sent', 'approved'].includes(savedStatus) && finalSnapshot;
           const content = published || saved;
 
-          setPublishedSnapshot(finalSnapshot);
-          setPublishedSnapshotHash(String(metricsSnapshot?.final_approval_hash || ''));
+          setPublishedSnapshot(published ? finalSnapshot : null);
+          setPublishedSnapshotHash(published ? String(metricsSnapshot?.final_approval_hash || '') : '');
           setSections(normalizeSavedSections(content.sections, freshSections));
           setStrengthsText(Array.isArray(content.strengths) ? content.strengths.map(String).join('\n') : '');
           setDevelopmentText(Array.isArray(content.development_points) ? content.development_points.map(String).join('\n') : '');
