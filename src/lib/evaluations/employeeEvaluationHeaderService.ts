@@ -1,6 +1,6 @@
 import { getStaffAttendanceDetail } from '@/lib/attendance/attendanceBreakdownService';
 import { getAnnualLeaveBalanceV1, getPermissionPolicyStatusV2, listStaffTimeOffRequests } from '@/lib/timeOffService';
-import { supabase } from '@/lib/supabase';
+import { loadPerformanceSalesBundle } from '@/lib/evaluations/performanceSalesBundleCache';
 
 const HEADER_CACHE=new Map<string,{value:EvaluationHeaderSummary;at:number}>();
 const HEADER_CACHE_TTL_MS=5*60*1000;
@@ -13,26 +13,25 @@ import { canonicalStaffRole } from '@/lib/staff/staffRoleCapabilities';
 
 export type EvaluationRoleGroup='doctor'|'assistant'|'warehouse'|'delivery'|'manager'|'customer_service'|'other';
 
-type HeaderSalesSummary={totalSales:number;invoicesCount:number;avgInvoice:number;uniqueCustomersCount:number;sourceTableUsed:'sales_invoices'|'none';warnings:string[]};
+type HeaderSalesSummary={totalSales:number;invoicesCount:number;avgInvoice:number;uniqueCustomersCount:number;dataAsOf:string|null;sourceTableUsed:'sales_invoices'|'none';warnings:string[]};
 function num(value:unknown){const n=Number(value??0);return Number.isFinite(n)?n:0}
 async function getEvaluationHeaderSales(staffId:string,start:string,end:string):Promise<HeaderSalesSummary>{
  const cycleStart=new Date(start+'T12:00:00Z');
  cycleStart.setUTCMonth(cycleStart.getUTCMonth()-1);
  const windowStart=cycleStart.toISOString().slice(0,10);
- const {data,error}=await supabase.rpc('get_staff_performance_sales_bundle_v1',{
-  p_staff_id:staffId,p_window_start:windowStart,p_window_end:end,p_current_start:start,p_elapsed_days:31,
+ const {payload,error}=await loadPerformanceSalesBundle({
+  staffId,windowStart,windowEnd:end,currentStart:start,elapsedDays:31,
  });
  if(error)throw error;
- const payload=(data||{}) as {cycles?:Array<Record<string,unknown>>};
  const row=Array.isArray(payload.cycles)?payload.cycles.find(item=>String(item.cycle_start||'')===start):null;
- if(!row)return{totalSales:0,invoicesCount:0,avgInvoice:0,uniqueCustomersCount:0,sourceTableUsed:'none',warnings:['ملخص المبيعات الموحد لم يُرجع الدورة المطلوبة؛ لا يتم تفسير الغياب كصفر.']};
+ if(!row)return{totalSales:0,invoicesCount:0,avgInvoice:0,uniqueCustomersCount:0,dataAsOf:payload.dataAsOf||null,sourceTableUsed:'none',warnings:['ملخص المبيعات الموحد لم يُرجع الدورة المطلوبة؛ لا يتم تفسير الغياب كصفر.']};
  const invoices=num(row.invoices),total=num(row.sales);
- return{totalSales:total,invoicesCount:invoices,avgInvoice:invoices>0?total/invoices:0,uniqueCustomersCount:num(row.customers),sourceTableUsed:'sales_invoices',warnings:[]};
+ return{totalSales:total,invoicesCount:invoices,avgInvoice:invoices>0?total/invoices:0,uniqueCustomersCount:num(row.customers),dataAsOf:payload.dataAsOf||null,sourceTableUsed:'sales_invoices',warnings:[]};
 }
 
 export type EvaluationHeaderSummary={
  roleGroup:EvaluationRoleGroup; branch:string;
- sales:{state:'available'|'unavailable';total:number|null;invoices:number|null;avgInvoice:number|null;customers:number|null};
+ sales:{state:'available'|'unavailable';total:number|null;invoices:number|null;avgInvoice:number|null;customers:number|null;dataAsOf:string|null};
  conversations:{state:'available'|'unavailable';count:number|null;average:number|null};
  attendance:{state:'available'|'unavailable';workedDays:number|null;workedHours:number|null;scheduledDays:number|null;lateDays:number|null;absenceReviewDays:number|null};
  timeOff:{state:'available'|'partial'|'unavailable';permissions:number|null;permissionMinutes:number|null;annualLeaveCycleDays:number|null;annualLeaveYearUsed:number|null;annualLeaveYearBalance:number|null;weeklyOffDays:number|null;otherApprovedLeaveDays:number|null};
@@ -84,8 +83,8 @@ export async function loadEmployeeEvaluationHeader(args:{staffId:string;staffNam
  const value:EvaluationHeaderSummary={
   roleGroup,branch:args.branch,
   sales:roleGroup==='doctor'&&salesAvailable
-   ? {state:'available',total:sales!.totalSales,invoices:sales!.invoicesCount,avgInvoice:sales!.avgInvoice,customers:sales!.uniqueCustomersCount}
-   : {state:'unavailable',total:null,invoices:null,avgInvoice:null,customers:null},
+   ? {state:'available',total:sales!.totalSales,invoices:sales!.invoicesCount,avgInvoice:sales!.avgInvoice,customers:sales!.uniqueCustomersCount,dataAsOf:sales!.dataAsOf}
+   : {state:'unavailable',total:null,invoices:null,avgInvoice:null,customers:null,dataAsOf:null},
   conversations:{state:args.evidence.health.reviews==='available'?'available':'unavailable',count:args.evidence.health.reviews==='available'?args.evidence.coaching.conversation.reviewCount:null,average:args.evidence.health.reviews==='available'?args.evidence.coaching.conversation.coreAverage:null},
   attendance:{state:needsPersonalAttendance?(attendance?'available':'unavailable'):'unavailable',workedDays:attendance?.summary.actual_worked_days??null,workedHours:attendance?.summary.total_worked_hours??null,scheduledDays:attendance?.summary.scheduled_workdays??null,lateDays:attendance?.summary.late_days??null,absenceReviewDays:attendance?.summary.absence_review_days??null},
   timeOff:{state:!needsPersonalAttendance?'unavailable':permission&&requestsR.status==='fulfilled'?'available':permission||requestsR.status==='fulfilled'?'partial':'unavailable',permissions:permission?.approved_permissions??null,permissionMinutes:permission?.total_minutes??null,annualLeaveCycleDays:needsPersonalAttendance&&requestsR.status==='fulfilled'?annualCycleDays:null,annualLeaveYearUsed:annual?.used??null,annualLeaveYearBalance:annual?.balance??null,weeklyOffDays,otherApprovedLeaveDays:needsPersonalAttendance&&requestsR.status==='fulfilled'?otherLeaveDays:null},
