@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import { loadPerformanceSalesBundle, type PerformanceSalesBundlePayload } from '@/lib/evaluations/performanceSalesBundleCache';
 import { evaluationCycleRangeFromLabel, evaluationCycleDateKeys, isEvaluationCycleClosed, previousEvaluationCycleLabel } from '@/lib/evaluations/monthlyEvaluationCycle';
+import { readAttendanceRange } from '@/lib/readModels/attendanceReadModel';
 
 export type PerformanceCoverage = 'available' | 'partial' | 'not_applicable' | 'unavailable';
 export type PerformanceConfidence = 'high' | 'medium' | 'low';
@@ -189,14 +190,16 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
   const cycleDays=Math.round((localDayUtc(currentSpec.range.endExclusive)-localDayUtc(currentSpec.range.start))/86400000);
   const requestedElapsedDays=Math.max(1,Math.min(Math.round((Date.UTC(now.getFullYear(),now.getMonth(),now.getDate())-localDayUtc(currentSpec.range.start))/86400000)+1,cycleDays));
 
-  const [firstAttendanceResult,salesTruth,attendanceWindow,conversationWindow,impactWindow]=await Promise.all([
-    supabase.from('attendance_daily_summary').select('attendance_date').eq('staff_id',args.staffId).order('attendance_date',{ascending:true}).limit(1).maybeSingle(),
+  const [salesTruth,attendanceWindow,conversationWindow,impactWindow]=await Promise.all([
     salesBundle(args.staffId,windowStart,windowEnd,currentSpec.start,requestedElapsedDays),
-    supabase.from('attendance_daily_summary').select('attendance_date,payroll_eligible_hours,total_hours').eq('staff_id',args.staffId).gte('attendance_date',windowStart).lt('attendance_date',windowEnd).limit(400),
-    supabase.from('conversation_sales_reviews').select('id,converted_to_sale,conversation_date').or(`doctor_id.eq.${args.staffId},staff_id.eq.${args.staffId}`).eq('is_current',true).gte('conversation_date',windowStart).lt('conversation_date',windowEnd).limit(3000),
+    readAttendanceRange({staffId:args.staffId,startDate:windowStart,endDateExclusive:windowEnd,limit:400}),
+    supabase.from('conversation_sales_reviews_canonical_v2').select('id,converted_to_sale,conversation_date,created_at').or(`doctor_id.eq.${args.staffId},staff_id.eq.${args.staffId}`).or(`and(conversation_date.gte.${windowStart},conversation_date.lt.${windowEnd}),and(conversation_date.is.null,created_at.gte.${windowStart},created_at.lt.${windowEnd})`).limit(3000),
     customerImpactWindow(args.staffId,windowStart,windowEnd),
   ]);
-  const firstAttendanceDate=firstAttendanceResult.error?null:String(firstAttendanceResult.data?.attendance_date||'').slice(0,10)||null;
+  const attendanceWindowRows=attendanceWindow.status==='available'?attendanceWindow.rows:[];
+  const firstAttendanceDate=attendanceWindow.status==='available'
+    ?minDate(attendanceWindowRows.map(r=>String(r.attendance_date||r.date||'').slice(0,10)||null))
+    :null;
   const elapsedDays=salesTruth.effectiveDays;
   const salesDataAsOf=salesTruth.dataAsOf;
 
@@ -209,15 +212,15 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
       identity:salesTruth.identity,
     };
     const attendance={
-      data:(attendanceWindow.data||[]).filter(r=>{
-        const date=String(r.attendance_date||'').slice(0,10);
+      data:attendanceWindowRows.filter(r=>{
+        const date=String(r.attendance_date||r.date||'').slice(0,10);
         return date>=start&&date<endExclusive;
       }),
-      error:attendanceWindow.error,
+      error:attendanceWindow.status==='unavailable'?attendanceWindow.error:null,
     };
     const conversations={
       data:(conversationWindow.data||[]).filter(r=>{
-        const date=String(r.conversation_date||'').slice(0,10);
+        const date=String(r.conversation_date||r.created_at||'').slice(0,10);
         return date>=start&&date<endExclusive;
       }),
       error:conversationWindow.error,
