@@ -59,8 +59,9 @@ const required=[
  [employeeHeader,'permissionMinutes','employee header must expose permission duration'],
  [headerService,'getStaffAttendanceDetail','header must use canonical attendance detail'],
  [headerService,'getAnnualLeaveBalanceV1','header must use canonical annual leave balance'],
- [headerService,'loadPerformanceSalesBundle','header sales must use shared lightweight performance invoice truth'],
+ [headerService,'get_staff_evaluation_sales_summary_v3','header sales must use focused indexed evaluation summary'],
  [salesBundleCache,'get_staff_performance_sales_bundle_v1','shared performance sales reader must use canonical lightweight performance invoice truth'],
+ [performanceService,'loadPerformanceSalesBundle','performance eye must use shared canonical performance sales bundle'],
  [headerService,"sourceTableUsed!=='none'",'unavailable sales source must never render as zero'],
  [headerService,"roleGroup==='doctor'",'sales truth must be scoped to pharmacist role'],
  [headerService,'overlapDays','leave requests must be clamped to evaluation cycle'],
@@ -79,6 +80,7 @@ const required=[
 ];
 for(const [body,token,msg] of required)if(!body.includes(token))failures.push(msg);
 if(headerService.includes('getStaffCycleSales'))failures.push('evaluation header must not fall back to legacy heavy staff cycle sales truth');
+if(headerService.includes('loadPerformanceSalesBundle')||headerService.includes('get_staff_performance_sales_bundle_v1'))failures.push('evaluation header must stay on focused summary and not load the detailed performance bundle');
 for(const forbidden of ["get_staff_monthly_evaluation_safe","save_staff_monthly_evaluation_v3"]){if(report.includes(forbidden))failures.push('360 legacy API: '+forbidden)}
 if(failures.length){console.error('Final evaluation architecture gate failed:');failures.forEach(x=>console.error('- '+x));process.exit(1)}
 console.log('Final evaluation architecture gate passed.');
