@@ -250,7 +250,7 @@ export type EmployeeMonthlyEvidence = {
   health: {
     reviews: 'available' | 'unavailable';
     followups: 'available' | 'unavailable';
-    attendance: 'available' | 'unavailable';
+    attendance: 'available' | 'partial' | 'unavailable';
   };
   taskEvaluation: EvaluationMetricProjection | null;
   ready: boolean;
