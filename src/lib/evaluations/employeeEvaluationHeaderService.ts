@@ -16,8 +16,11 @@ export type EvaluationRoleGroup='doctor'|'assistant'|'warehouse'|'delivery'|'man
 type HeaderSalesSummary={totalSales:number;invoicesCount:number;avgInvoice:number;uniqueCustomersCount:number;sourceTableUsed:'sales_invoices'|'none';warnings:string[]};
 function num(value:unknown){const n=Number(value??0);return Number.isFinite(n)?n:0}
 async function getEvaluationHeaderSales(staffId:string,start:string,end:string):Promise<HeaderSalesSummary>{
+ const cycleStart=new Date(start+'T12:00:00Z');
+ cycleStart.setUTCMonth(cycleStart.getUTCMonth()-1);
+ const windowStart=cycleStart.toISOString().slice(0,10);
  const {data,error}=await supabase.rpc('get_staff_performance_sales_bundle_v1',{
-  p_staff_id:staffId,p_window_start:start,p_window_end:end,p_current_start:start,p_elapsed_days:31,
+  p_staff_id:staffId,p_window_start:windowStart,p_window_end:end,p_current_start:start,p_elapsed_days:31,
  });
  if(error)throw error;
  const payload=(data||{}) as {cycles?:Array<Record<string,unknown>>};
