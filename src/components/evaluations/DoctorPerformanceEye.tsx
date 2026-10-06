@@ -55,6 +55,12 @@ export default function DoctorPerformanceEye({staffId,staffName,cycleLabel}:{sta
  const [evidenceConversations,setEvidenceConversations]=useState<any[]>([]),[evidenceProducts,setEvidenceProducts]=useState<any[]>([]);
  const [evidenceFocus,setEvidenceFocus]=useState<'all'|'conversion'|'opportunity'|'availability'>('all');
  useEffect(()=>{setData(null);setError('')},[staffId,cycleLabel]);
+ useEffect(()=>{
+  if(!open)return;
+  const onKeyDown=(event:KeyboardEvent)=>{if(event.key==='Escape')setOpen(false)};
+  window.addEventListener('keydown',onKeyDown);
+  return()=>window.removeEventListener('keydown',onKeyDown);
+ },[open]);
  async function show(){setOpen(true);if(data)return;setLoading(true);try{setData(await loadDoctorPerformanceIntelligence({staffId,staffName,cycleLabel}))}catch(e){setError(e instanceof Error?e.message:'تعذر تحميل أداء الدكتور')}finally{setLoading(false)}}
  async function loadEvidence(focus:'all'|'conversion'|'opportunity'|'availability'='all'){
   if(!cur||evidenceLoading)return;
@@ -87,7 +93,7 @@ export default function DoctorPerformanceEye({staffId,staffName,cycleLabel}:{sta
  const visibleProducts=evidenceFocus==='opportunity'?evidenceProducts.filter(item=>Boolean(item.leakage_reason)||Boolean(item.next_action)):evidenceFocus==='availability'?evidenceProducts.filter(item=>String(item.current_stage||'').toLowerCase().includes('unavailable')||String(item.leakage_reason||'').toLowerCase().includes('unavailable')||String(item.leakage_reason||'').includes('غير متاح')):evidenceProducts;
  return <>
   <button type="button" onClick={()=>void show()} className="inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-black" style={{borderColor:'var(--dawaa-theme-border)',color:'var(--dawaa-theme-primary-strong)',background:'var(--dawaa-theme-soft)'}} title="عرض ذكاء أداء الدكتور"><Eye size={16}/> عين أداء الدكتور</button>
-  {open?<div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-3" dir="rtl"><div className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-2xl border p-4 shadow-2xl" style={{background:'var(--dawaa-theme-surface)',borderColor:'var(--dawaa-theme-border)'}}>
+  {open?<div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-3" dir="rtl" role="dialog" aria-modal="true" onMouseDown={(event)=>{if(event.target===event.currentTarget)setOpen(false)}}><div className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-2xl border p-4 shadow-2xl" onMouseDown={(event)=>event.stopPropagation()} style={{background:'var(--dawaa-theme-surface)',borderColor:'var(--dawaa-theme-border)'}}>
    <div className="flex items-start justify-between gap-3"><div><div className="text-lg font-black" style={{color:'var(--dawaa-theme-heading)'}}>عين أداء الدكتور — {staffName}</div><div className="mt-1 text-xs font-bold" style={{color:'var(--dawaa-theme-muted)'}}>مقارنة 3 دورات: حجم البيع + جودة التحويل + الكفاءة لكل ساعة، مع Coverage وConfidence قبل أي استنتاج</div></div><button onClick={()=>setOpen(false)}><X/></button></div>
    {loading?<div className="flex items-center justify-center gap-2 p-12 font-black"><Loader2 className="animate-spin"/> جاري بناء التحليل…</div>:error?<div className="p-8 text-center font-black">{error}</div>:cur&&prev?<>
     <div className="mt-4 rounded-xl border p-3" style={{borderColor:'var(--dawaa-theme-border)',background:'var(--dawaa-theme-soft)'}}>
