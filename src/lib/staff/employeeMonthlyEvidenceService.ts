@@ -1214,8 +1214,8 @@ async function loadInventoryEvidence(args: {
     .from('stagnant_medicine_dispenses')
     .select('id,stagnant_medicine_id,medicine_id,doctor_id,quantity,dispensed_at')
     .eq('doctor_id', args.staffId)
-    .gte('dispensed_at', args.startDate)
-    .lt('dispensed_at', args.endDateExclusive)
+    .gte('dispensed_at', cairoDateBoundaryIso(args.startDate))
+    .lt('dispensed_at', cairoDateBoundaryIso(args.endDateExclusive))
     .limit(1001);
 
   const [weeklyResults, stagnantAssignedResult, stagnantMovementResult] = await Promise.all([
