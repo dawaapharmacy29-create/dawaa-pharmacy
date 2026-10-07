@@ -19,6 +19,7 @@ import {
   extractRequestSignals,
   isSubstantiveConfirmationSignal,
 } from '../whatsappSemanticSignalsV32';
+import { isCustomerPaymentSettlementContinuation } from './paymentSettlementSignals';
 import type { CaseStatus, CaseType, ConfidenceAssessment, ConfidenceLevel, ConversationCase, EvidenceRef } from './types';
 
 export interface DeriveConversationCasesInput {
@@ -55,15 +56,20 @@ function evidenceRef(messages: NormalizedConversationMessageV32[], description: 
  * interaction, are a real segmentation-ambiguity signal: V32 didn't find a time-gap or a topic
  * marker to split them, but nothing confirms they are the same commercial need either. Flag for
  * human review rather than silently merging or silently splitting — per instruction #14/#15.
+ * Payment-settlement continuation is explicitly excluded before this rule runs, so a positive
+ * result means genuinely independent request evidence remains unresolved.
  */
 function hasUnresolvedMultipleRequests(
   messages: NormalizedConversationMessageV32[],
   requestMessages: NormalizedConversationMessageV32[]
 ): boolean {
-  if (requestMessages.length < 2) return false;
-  for (let i = 1; i < requestMessages.length; i += 1) {
-    const prev = requestMessages[i - 1];
-    const curr = requestMessages[i];
+  const independentRequests = requestMessages.filter(
+    (message) => !isCustomerPaymentSettlementContinuation(messages, message.id)
+  );
+  if (independentRequests.length < 2) return false;
+  for (let i = 1; i < independentRequests.length; i += 1) {
+    const prev = independentRequests[i - 1];
+    const curr = independentRequests[i];
     const staffReplyBetween = messages.some(
       (m) =>
         m.role === 'staff' &&
@@ -143,11 +149,21 @@ function deriveCaseForInteraction(
   }
 
   if (hasUnresolvedMultipleRequests(messages, requestMessages)) {
+    // This is not one confidently scoped sale opportunity anymore: two independent customer
+    // requests are still inside the same analytical interaction. Keep the legacy reason for QA
+    // compatibility, plus a durable safety reason that payment settlement must never suppress.
+    caseType = 'mixed';
     needsHumanReview = true;
-    humanReviewReasons.push('possible_unsegmented_multiple_requests');
+    humanReviewReasons.push(
+      'possible_unsegmented_multiple_requests',
+      'independent_multiple_requests_require_review'
+    );
     level = 'weakly_inferred';
     score = Math.min(score, 0.4);
-    ruleIds.push('case.ambiguity.unresolved_multiple_requests_no_staff_reply_between');
+    ruleIds.push(
+      'case.ambiguity.unresolved_multiple_requests_no_staff_reply_between',
+      'case.safety.independent_multiple_requests_require_review'
+    );
   }
 
   // A rejection with no matching acceptance/confirmation nearby, alongside otherwise-commercial

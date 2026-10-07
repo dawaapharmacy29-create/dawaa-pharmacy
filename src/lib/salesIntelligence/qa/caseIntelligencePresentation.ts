@@ -63,6 +63,7 @@ export const journeyStateLabel = (v: string | null | undefined) =>
       awaiting_customer_confirmation: 'في انتظار تأكيد العميل',
       customer_confirmed: 'العميل أكد',
       awaiting_invoice: 'في انتظار الفاتورة',
+      financially_settled: 'تمت التسوية المالية — إثبات البيع الرسمي معلق',
       sale_proven: 'بيع مثبت',
       customer_declined: 'العميل رفض',
     },
@@ -98,6 +99,7 @@ export const lostStateLabel = (v: string | null | undefined) =>
   label(
     {
       won: 'تم البيع',
+      closed_order_unproven: 'الطلب مغلق ماليًا — البيع الرسمي غير مثبت',
       open: 'مفتوحة',
       recoverable: 'قابلة للاسترداد',
       lost: 'ضاعت',
@@ -213,6 +215,7 @@ export const suppressionLabel = (v: string | null | undefined) =>
       information_only: 'استفسار فقط',
       no_customer_need: 'لا يوجد طلب حقيقي',
       weak_evidence: 'الأدلة غير كافية',
+      financially_settled: 'الطلب تمت تسويته ماليًا ولا يحتاج متابعة استرداد',
       covered_by_specific_follow_up: 'مغطاة بمتابعة أدق',
     },
     v

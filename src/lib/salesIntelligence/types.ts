@@ -263,7 +263,7 @@ export interface UnavailableDemand {
   blockers: UnavailableDemandBlocker[];
 }
 
-export type LostOpportunityState = 'won' | 'open' | 'recoverable' | 'lost' | 'no_commercial_opportunity' | 'unknown';
+export type LostOpportunityState = 'won' | 'closed_order_unproven' | 'open' | 'recoverable' | 'lost' | 'no_commercial_opportunity' | 'unknown';
 
 export type LostOpportunityReason =
   | 'stock_unavailable'
@@ -352,6 +352,8 @@ export type FollowUpSuppression =
   | 'information_only'
   | 'no_customer_need'
   | 'weak_evidence'
+  | 'financially_settled'
+  | 'invoiced_unproven'
   | 'covered_by_specific_follow_up';
 
 /** Deterministic due policy; `dueAt` is filled only when derivable from the interaction itself. */
@@ -541,6 +543,7 @@ export interface CaseIntelligenceView {
     isSaleCountable: boolean;
     reasonCodes: string[];
     contradictions: string[];
+    financialSettlement?: FinancialSettlementAssessment | null;
   };
   unavailableDemand: UnavailableDemand[];
   lostOpportunity: LostOpportunityAssessment;
@@ -873,6 +876,36 @@ export interface HistoricalCommercialClosureAssessment {
   basketReconstructable: boolean;
   announcedValueAvailable: boolean;
   closureLevel: HistoricalClosureLevel;
+  primaryMessageIds: string[];
+  confidence: ConfidenceAssessment;
+  needsHumanReview: boolean;
+  ruleIds: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Financial Settlement — invoice-backed payment reconciliation, separate from Sale Proof.
+// A settled payment may close the commercial journey while Sale Proof remains only strongly_supported.
+// ---------------------------------------------------------------------------
+export type FinancialSettlementStatus = 'settled' | 'pending' | 'contradicted' | 'not_detected';
+export type FinancialAmountMatch = 'exact' | 'near_match' | 'different' | 'not_available';
+
+export interface FinancialSettlementAssessment {
+  caseId: string;
+  status: FinancialSettlementStatus;
+  paymentMethod: 'transfer' | 'unknown';
+  paymentContextDetected: boolean;
+  totalQuestionDetected: boolean;
+  announcedPaymentAmount: number | null;
+  invoiceAmount: number | null;
+  amountDifference: number | null;
+  amountMatch: FinancialAmountMatch;
+  paymentProofDetected: boolean;
+  paymentProofKind: 'customer_media' | 'customer_text' | 'none';
+  receiptAcknowledged: boolean;
+  selectedInvoiceId: string | null;
+  selectedInvoiceNumber: string | null;
+  attributionLevel: ConfidenceLevel;
+  isOfficialInvoiceAttribution: boolean;
   primaryMessageIds: string[];
   confidence: ConfidenceAssessment;
   needsHumanReview: boolean;
@@ -1327,6 +1360,8 @@ export type CommercialJourneyState =
   | 'awaiting_customer_confirmation'
   | 'customer_confirmed'
   | 'awaiting_invoice'
+  | 'invoiced_unproven'
+  | 'financially_settled'
   | 'sale_proven'
   | 'customer_declined'
   | 'unknown';
@@ -1461,6 +1496,8 @@ export interface SalesIntelligenceCaseAnalysis {
   protocolAssessment: OrderConfirmationProtocolAssessment;
   /** Phase G.1 — organic, conversation-level closure evidence, kept fully separate from commercialConfirmation and protocolAssessment. Never invoice/sale proof. */
   historicalClosure: HistoricalCommercialClosureAssessment;
+  /** Invoice-backed transfer/payment reconciliation. Separate from formal protocol and Sale Proof. */
+  financialSettlement?: FinancialSettlementAssessment;
   /** ids of the invoice rows the read-only candidate-retrieval boundary returned for THIS case — before any attribution scoring. */
   invoiceCandidateIds: string[];
   attribution: SaleAttributionAssessment;

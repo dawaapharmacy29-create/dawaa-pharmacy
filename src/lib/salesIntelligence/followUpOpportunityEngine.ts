@@ -99,9 +99,20 @@ export function deriveFollowUpOpportunities(input: DeriveFollowUpInput): FollowU
   const lastAt = meaningful.length ? meaningful[meaningful.length - 1].timestamp : new Date(conversationCase.endedAt ?? conversationCase.startedAt);
   const identityResolved = input.customerIdentityStatus === 'resolved' && Boolean(conversationCase.customerId);
   const customerId = identityResolved ? conversationCase.customerId : null;
+  const operationallyClosed = lostOpportunity.state === 'closed_order_unproven';
+  const operationalClosureSuppression: FollowUpSuppression | null = operationallyClosed
+    ? salesOutcome.reasonCodes.includes('outcome.invoice_backed_order_closed_sale_not_proven')
+      ? 'invoiced_unproven'
+      : 'financially_settled'
+    : null;
 
-  // Interaction-level "nothing to follow up" outcomes.
-  if (salesOutcome.outcome === 'information_only' || lostOpportunity.state === 'no_commercial_opportunity') {
+  // Information-only/no-need interactions genuinely have nothing to follow up. An invoice-backed
+  // closed order is different: the order may be closed while a product-specific shortage, callback,
+  // stock check or explicit staff promise remains an outstanding obligation.
+  if (
+    salesOutcome.outcome === 'information_only' ||
+    lostOpportunity.state === 'no_commercial_opportunity'
+  ) {
     return {
       caseId,
       decision: 'not_needed',
@@ -261,6 +272,12 @@ export function deriveFollowUpOpportunities(input: DeriveFollowUpInput): FollowU
     const profile = PROFILE[candidate.reason];
     const demand = candidate.demand;
     let suppressedBy: FollowUpSuppression | null = interactionSuppression;
+    // Closing the current order suppresses generic recovery/coaching follow-ups, but it must NOT
+    // erase a product-scoped shortage/alternative or an explicit promise/callback/delivery duty.
+    const survivesOperationalClosure = Boolean(demand) || candidate.explicit || EXPLICIT_OBLIGATIONS.has(candidate.reason);
+    if (!suppressedBy && operationallyClosed && !survivesOperationalClosure) {
+      suppressedBy = operationalClosureSuppression;
+    }
     if (!suppressedBy && saleProven && !candidate.explicit) suppressedBy = 'sale_proven';
     if (!suppressedBy && (candidate.evidence.length === 0 || candidate.level === 'unknown')) suppressedBy = 'weak_evidence';
     const blocked = !suppressedBy && profile.needsCustomerIdentity && !customerId;
@@ -345,7 +362,14 @@ export function deriveFollowUpOpportunities(input: DeriveFollowUpInput): FollowU
     caseId,
     decision,
     opportunities,
-    notNeededReason: decision === 'not_needed' ? (saleProven ? 'sale_proven' : interactionSuppression) : null,
+    notNeededReason:
+      decision === 'not_needed'
+        ? saleProven
+          ? 'sale_proven'
+          : operationallyClosed
+            ? operationalClosureSuppression
+            : interactionSuppression
+        : null,
   };
 }
 

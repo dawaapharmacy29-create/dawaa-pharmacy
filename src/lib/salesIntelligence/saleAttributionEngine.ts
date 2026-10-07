@@ -32,6 +32,7 @@ import type {
   ConfidenceLevel,
   EvidenceRef,
   IdentityConflictStatus,
+  ItemResolutionStatus,
   ProductEvidenceAvailability,
   SaleAttributionAssessment,
   SaleAttributionCandidate,
@@ -156,7 +157,7 @@ export interface CaseAttributionContext {
   /** Sum of the current basket's item line totals, when computable; null when unit prices aren't populated (the common case today) — never guessed. */
   activeBasketValue: number | null;
   /** Product identity from the CURRENT basket version only. productId is canonical products.id when resolved. */
-  activeBasketItems: Array<{ productNameRaw: string; productId?: string | null; quantity: number | null }>;
+  activeBasketItems: Array<{ productNameRaw: string; productId?: string | null; quantity: number | null; resolutionStatus?: ItemResolutionStatus }>;
   /** Known contributing staff ids for this case (Phase B StaffContribution.staffId) — conservative, may be empty. */
   knownStaffIds: string[];
   /** From the Phase B legacy V17 adapter's own matched-invoice fields — evidence only, never trusted as canonical. */
@@ -403,7 +404,12 @@ function classifyProductEvidence(
   provider: InvoiceItemEvidenceProvider
 ): { productMatch: ProductEvidenceAvailability; quantityMatch: ProductEvidenceAvailability } {
   const items = provider.getItemsForInvoice(getInvoiceRowId(row), getInvoiceRowNumber(row));
-  if (items === 'unavailable' || ctx.activeBasketItems.length === 0) {
+  const resolvableBasketItems = ctx.activeBasketItems.filter(
+    (item) => !item.resolutionStatus || item.resolutionStatus === 'proven' || item.resolutionStatus === 'partially_proven'
+  );
+  // A media/deictic basket item whose identity is still unknown cannot contradict invoice lines.
+  // It is an evidence gap: only resolved product identity is eligible for positive/negative item evidence.
+  if (items === 'unavailable' || resolvableBasketItems.length === 0) {
     return { productMatch: 'unavailable', quantityMatch: 'unavailable' };
   }
 
@@ -417,14 +423,14 @@ function classifyProductEvidence(
     sellableItems.map((i) => [normalizeProductNameForMatch(i.productNameRaw), i])
   );
 
-  const matchedPairs = ctx.activeBasketItems
+  const matchedPairs = resolvableBasketItems
     .map((basketItem) => {
       const canonical = basketItem.productId ? invoiceByProductId.get(String(basketItem.productId)) : null;
       const byName = canonical ?? invoiceByName.get(normalizeProductNameForMatch(basketItem.productNameRaw));
       return byName ? { basketItem, invoiceItem: byName } : null;
     })
     .filter(Boolean) as Array<{
-      basketItem: { productNameRaw: string; productId?: string | null; quantity: number | null };
+      basketItem: { productNameRaw: string; productId?: string | null; quantity: number | null; resolutionStatus?: ItemResolutionStatus };
       invoiceItem: InvoiceItemRecordForAttribution;
     }>;
 

@@ -15,6 +15,7 @@ export interface WhatsAppCaseSessionSignalV22 {
   followup: boolean;
   feedback: boolean;
   recommendation: boolean;
+  paymentCompleted: boolean;
   customerReplied: boolean;
   lastDirection: 'inbound' | 'outbound' | 'system';
   staffNames: string[];
@@ -72,6 +73,11 @@ const APOLOGY_RX = /(بنعتذر|نعتذر|متاسف|متأسف|آسفين|ا
 const FOLLOWUP_RX = /(حابين نطمن|حبيت اطمن|حبيت أطمن|متابعه|متابعة|بنطمن|نطمن|هتابع|هتواصل|اول ما|أول ما)/i;
 const FEEDBACK_RX = /(راضي عن الخدمه|راضي عن الخدمة|كانت الخدمه|كانت الخدمة|تقييم الخدمه|تقييم الخدمة|على مستوى رضا|رأي حضرتك|راي حضرتك)/i;
 const RECOMMEND_RX = /(ارشح|أرشح|نرشح|ترشيح|انصح|أنصح|بديل|ممكن تستخدم|ممكن تاخد|ممكن تاخدي)/i;
+// Payment closure is deliberately two-sided: a payment/transfer context somewhere in the
+// session AND an explicit pharmacy acknowledgement that the money/transfer was received.
+// A bare courtesy "وصل" outside payment context never closes a case.
+const PAYMENT_CONTEXT_RX = /(رقم\s*التحويل|صوره?\s*التحويل|صورة\s*التحويل|الحساب\s*كام|(?:^|\s)تحويل(?:\s|$)|(?:^|\s)حولت(?:\s|$)|(?:^|\s)حوّلت(?:\s|$)|(?:^|\s)دفعت(?:\s|$))/i;
+const PAYMENT_RECEIVED_RX = /(?:^|\s)(?:وصل|وصلت|المبلغ\s*وصل|تم\s*استلام(?:ه|ها)?)(?:\s|[.!،]|$)/i;
 const MEDIA_KINDS = new Set(['image', 'voice', 'video', 'document']);
 
 function normalizeName(value: unknown) {
@@ -109,8 +115,9 @@ function signalForSession(session: WhatsAppConversationSession): WhatsAppCaseSes
   const lastDirection = meaningful.at(-1)?.direction || 'system';
   const mediaRows = session.messages.filter((m) => MEDIA_KINDS.has(m.kind));
   const mediaAvailable = mediaRows.filter((m) => m.mediaAvailable).length;
+  const paymentCompleted = PAYMENT_CONTEXT_RX.test(allText) && PAYMENT_RECEIVED_RX.test(outText) && inbound.length > 0;
   const evidenceMessageIds = session.messages
-    .filter((m) => ORDER_RX.test(m.text) || ORDER_CONFIRM_RX.test(m.text) || FAILURE_RX.test(m.text) || COMPLAINT_RX.test(m.text) || APOLOGY_RX.test(m.text) || FOLLOWUP_RX.test(m.text) || FEEDBACK_RX.test(m.text) || RECOMMEND_RX.test(m.text))
+    .filter((m) => ORDER_RX.test(m.text) || ORDER_CONFIRM_RX.test(m.text) || FAILURE_RX.test(m.text) || COMPLAINT_RX.test(m.text) || APOLOGY_RX.test(m.text) || FOLLOWUP_RX.test(m.text) || FEEDBACK_RX.test(m.text) || RECOMMEND_RX.test(m.text) || PAYMENT_CONTEXT_RX.test(m.text) || PAYMENT_RECEIVED_RX.test(m.text))
     .map((m) => m.id)
     .slice(0, 30);
 
@@ -126,6 +133,7 @@ function signalForSession(session: WhatsAppConversationSession): WhatsAppCaseSes
     followup: FOLLOWUP_RX.test(outText),
     feedback: FEEDBACK_RX.test(outText),
     recommendation: RECOMMEND_RX.test(outText),
+    paymentCompleted,
     customerReplied: inbound.length > 0,
     lastDirection,
     staffNames: canonicalNames(session.outboundStaffNames),
@@ -174,6 +182,7 @@ function deriveCase(rows: WhatsAppCaseSessionSignalV22[], index: number): WhatsA
   const failure = rows.some((x) => x.failure);
   const complaint = rows.some((x) => x.complaint);
   const recommendation = rows.some((x) => x.recommendation);
+  const paymentCompleted = rows.some((x) => x.paymentCompleted);
   const recoveryAttempts = rows.filter((x) => x.apology || x.feedback || x.followup).length;
   const problemIndex = rows.findIndex((x) => x.failure || x.complaint);
   const customerReengaged = problemIndex >= 0 && rows.slice(problemIndex + 1).some((x) => x.customerReplied && (x.orderIntent || x.recommendation));
@@ -185,6 +194,7 @@ function deriveCase(rows: WhatsAppCaseSessionSignalV22[], index: number): WhatsA
   else if (failure && !customerReengaged) state = 'failed';
   else if ((failure || complaint) && customerReengaged) state = 'reengaged';
   else if (hasOrder && orderConfirmed) state = 'confirmed_order';
+  else if (paymentCompleted) state = 'closed';
   else if (lastDirection === 'outbound') state = 'awaiting_customer';
   else if (lastDirection === 'inbound') state = 'awaiting_pharmacy';
   else state = 'closed';

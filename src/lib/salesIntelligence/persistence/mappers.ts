@@ -102,6 +102,7 @@ export function mapCaseAnalysisRowContent(analysis: SalesIntelligenceCaseAnalysi
       // choice, not a guess.
       protocolApplicabilityRuleIds: analysis.historicalClosure.ruleIds,
       canonicalSalesOutcome: analysis.salesOutcome,
+      financialSettlement: analysis.financialSettlement ?? null,
     },
   };
 }

@@ -268,21 +268,10 @@ function classifyItemsAndQuantities(
     // A basket item Phase B never resolved a real identity for (e.g. a raw pronoun) is never
     // trusted for a positive match, even if its raw text coincidentally equals an invoice item's.
     if (item.resolutionStatus === 'unknown') {
-      const candidates = invoiceGroupsByName.get(nameKey) ?? [];
-      if (candidates.length === 0) {
-        differences.push({
-          type: 'missing_item',
-          key: item.productNameRaw,
-          before: item.quantity,
-          after: null,
-          explanation: 'none',
-          evidence: [amountRef(`صنف بهوية غير محلولة من المحادثة ("${item.productNameRaw}") لا يقابله أي بند في الفاتورة.`)],
-          confidence: assessment('weakly_inferred', 0.4, ['matching.item.missing.unresolved_identity'], []),
-        });
-      } else {
-        unresolvedCount += 1;
-        humanReviewReasons.push('unresolved_product_identity');
-      }
+      // Missing identity (image/voice/deictic reference) is not negative product evidence.
+      // We cannot know which invoice line it corresponds to, so fail closed as unavailable/reviewable.
+      unresolvedCount += 1;
+      humanReviewReasons.push('unresolved_product_identity');
       return;
     }
 
@@ -323,7 +312,9 @@ function classifyItemsAndQuantities(
     }
   });
 
-  sellableInvoiceItems.forEach((invoiceItem) => {
+  // If even one basket identity is unresolved, any unclaimed invoice line may be that hidden
+  // media/voice product. Never manufacture an 'extra item' contradiction from unknowable chat content.
+  if (unresolvedCount === 0) sellableInvoiceItems.forEach((invoiceItem) => {
     const key = normalizeProductNameForMatch(invoiceItem.productNameRaw);
     if (!claimedInvoiceKeys.has(key) && (invoiceGroupsByName.get(key) ?? []).length === 1) {
       // Only report a clean, unambiguous extra — an item that's part of an ambiguous group at the
@@ -347,6 +338,7 @@ function classifyItemsAndQuantities(
   const extraCount = differences.filter((d) => d.type === 'extra_item').length;
   let itemMatch: FieldMatchStatus;
   if (missingCount === 0 && extraCount === 0 && ambiguousCount === 0 && unresolvedCount === 0) itemMatch = 'exact';
+  else if (unresolvedCount > 0 && missingCount === 0 && extraCount === 0 && ambiguousCount === 0 && matchedPairs.length === 0) itemMatch = 'insufficient_data';
   else if (matchedPairs.length === 0) itemMatch = 'mismatch';
   else itemMatch = 'partial';
 

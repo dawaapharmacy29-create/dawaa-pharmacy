@@ -270,6 +270,8 @@ const testFiles = [
   'src/lib/__tests__/reviewWorkspaceAccess.test.ts',
   'src/lib/__tests__/doctorCompetitionReviewLinking.test.ts',
   'src/lib/__tests__/whatsappGoldenCaseIbrahimAlSayyad.test.ts',
+  'src/lib/__tests__/salesIntelligenceFinancialSettlement.test.ts',
+  'src/lib/__tests__/salesIntelligenceEvidenceAvailability.test.ts',
   'src/lib/__tests__/whatsappConversationUnderstandingV32.test.ts',
   'src/lib/__tests__/whatsappResponseSpeedEvidenceV32.test.ts',
   'src/lib/__tests__/whatsappUnderstandingEvidenceV32.test.ts',

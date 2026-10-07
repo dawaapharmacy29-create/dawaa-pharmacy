@@ -578,6 +578,7 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
         productNameRaw: item.productNameRaw,
         productId: item.productId,
         quantity: item.quantity,
+        resolutionStatus: item.resolutionStatus,
       })),
       invoiceItemEvidenceSnapshot: attributionItemSnapshot,
     });
@@ -613,6 +614,7 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
         productNameRaw: item.productNameRaw,
         productId: item.productId,
         quantity: item.quantity,
+        resolutionStatus: item.resolutionStatus,
       })),
       selectedInvoiceId: analysis.basketInvoiceMatch.invoiceId,
       selectedInvoiceNumber: analysis.basketInvoiceMatch.invoiceNumber,
@@ -732,6 +734,7 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
               productNameRaw: item.productNameRaw,
               productId: item.productId,
               quantity: item.quantity,
+              resolutionStatus: item.resolutionStatus,
             })),
             invoiceItemEvidenceSnapshot: attributionItemSnapshot,
           },
@@ -746,6 +749,7 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
             productNameRaw: item.productNameRaw,
             productId: item.productId,
             quantity: item.quantity,
+            resolutionStatus: item.resolutionStatus,
           })),
           mapBasketInvoiceMatchRowContent(analysis),
           selectedInvoiceItemSnapshot
