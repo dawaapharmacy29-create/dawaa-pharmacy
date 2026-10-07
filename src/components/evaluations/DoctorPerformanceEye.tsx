@@ -11,6 +11,9 @@ import {
   type PerformanceSourceHealth,
 } from '@/lib/evaluations/doctorPerformanceIntelligenceService';
 import { invalidatePerformanceSalesBundleCache } from '@/lib/evaluations/performanceSalesBundleCache';
+import { buildDoctorPerformanceVerdict, type VerdictTone } from '@/lib/evaluations/doctorPerformanceVerdict';
+import type { EvaluationHeaderSummary } from '@/lib/evaluations/employeeEvaluationHeaderService';
+import type { MonthlyConversationCoaching } from '@/lib/staff/employeeMonthlyEvidenceService';
 
 type EvidenceFocus = 'all' | 'conversion' | 'opportunity' | 'availability';
 
@@ -63,9 +66,13 @@ function Kpi({ label, value, deltaValue, deltaNote, unavailableReason }: { label
   </div>;
 }
 
-export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, branch }: { staffId: string; staffName: string; cycleLabel: string; branch?: string | null }) {
+/**
+ * header/conversation are the evidence the evaluation page already loaded for this employee and cycle,
+ * so the Eye's decision summary reads the same attendance and conversation truth as the page.
+ */
+export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, branch, header = null, conversation = null }: { staffId: string; staffName: string; cycleLabel: string; branch?: string | null; header?: EvaluationHeaderSummary | null; conversation?: MonthlyConversationCoaching | null }) {
   const [open, setOpen] = useState(false), [loading, setLoading] = useState(false), [data, setData] = useState<DoctorPerformanceIntelligence | null>(null), [error, setError] = useState('');
-  const [expandedInsight, setExpandedInsight] = useState<number | null>(null), [comparisonDetails, setComparisonDetails] = useState(false);
+  const [expandedInsight, setExpandedInsight] = useState<number | null>(null), [comparisonDetails, setComparisonDetails] = useState(false), [detailsOpen, setDetailsOpen] = useState(false);
   const [evidenceOpen, setEvidenceOpen] = useState(false), [evidenceLoading, setEvidenceLoading] = useState(false), [evidenceError, setEvidenceError] = useState('');
   const [evidence, setEvidence] = useState<{ conversations: DoctorEvidenceConversation[]; products: DoctorEvidenceProduct[] } | null>(null);
   const [evidenceFocus, setEvidenceFocus] = useState<EvidenceFocus>('all');
@@ -76,7 +83,7 @@ export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, b
     requestRef.current += 1;
     setData(null); setError(''); setLoading(false);
     setEvidence(null); setEvidenceOpen(false); setEvidenceError(''); setEvidenceFocus('all');
-    setExpandedInsight(null); setComparisonDetails(false);
+    setExpandedInsight(null); setComparisonDetails(false); setDetailsOpen(false);
   }, [staffId, cycleLabel]);
   useEffect(() => {
     if (!open) return;
@@ -105,7 +112,7 @@ export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, b
     void load(Boolean(data));
   }
   async function openEvidence(focus: EvidenceFocus) {
-    setEvidenceFocus(focus); setEvidenceOpen(true);
+    setDetailsOpen(true); setEvidenceFocus(focus); setEvidenceOpen(true);
     window.requestAnimationFrame(() => evidenceRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
     if (evidence || evidenceLoading) return;
     const requestId = requestRef.current;
@@ -137,6 +144,8 @@ export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, b
   const visibleConversations = evidenceFocus === 'opportunity' ? conversations.filter(item => item.followup_required || item.invoice_match_status !== 'verified') : evidenceFocus === 'conversion' ? conversations : evidenceFocus === 'availability' ? [] : conversations;
   const visibleProducts = evidenceFocus === 'opportunity' ? products.filter(item => Boolean(item.leakage_reason) || Boolean(item.next_action)) : evidenceFocus === 'availability' ? products.filter(item => String(item.current_stage || '').toLowerCase().includes('unavailable') || String(item.leakage_reason || '').toLowerCase().includes('unavailable') || String(item.leakage_reason || '').includes('غير متاح')) : products;
   const maxSales = data ? Math.max(0, ...data.months.map(m => m.sales || 0)) : 0;
+  const verdict = data ? buildDoctorPerformanceVerdict({ data, header, conversation }) : null;
+  const verdictTone = (tone: VerdictTone): Tone => tone;
 
   return <>
     <button type="button" onClick={show} className="inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-black" style={{ borderColor: 'var(--dawaa-theme-border)', color: 'var(--dawaa-theme-primary-strong)', background: 'var(--dawaa-theme-soft)' }} title="عرض ذكاء أداء الدكتور"><Eye size={16} /> عين أداء الدكتور</button>
@@ -179,7 +188,33 @@ export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, b
               <ul className="mt-2 space-y-1">{failedSources.map(([name, s]) => <li key={name} className="break-words">• {name} ({sourceStatusLabel(s.status)}): {s.error || 'سبب غير معروف'}</li>)}</ul>
             </div> : null}
 
-            <Section title="الملخص التنفيذي — الدورة الحالية" hint={comparisonBasis}>
+            {verdict ? <section className="mt-3 rounded-2xl border p-3 sm:mt-4 sm:p-4" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-soft)' }}>
+              <Chip tone={verdict.signal === 'improving' ? 'success' : verdict.signal === 'declining' ? 'danger' : verdict.signal === 'stable' ? 'info' : 'neutral'}>{verdict.signalLabel}</Chip>
+              <p className="mt-2 text-base font-black leading-7" style={{ color: 'var(--dawaa-theme-heading)' }}>{verdict.headline}</p>
+              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                {verdict.metrics.map(metric => <div key={metric.key} className="flex min-w-0 items-center justify-between gap-3 rounded-xl border px-2.5 py-1.5 sm:block sm:p-2.5" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}>
+                  <div className="shrink-0 text-[11px] font-black sm:truncate" style={{ color: 'var(--dawaa-theme-muted)' }}>{metric.label}</div>
+                  <div className="min-w-0 text-left sm:text-right">
+                  <div className="mt-0.5 truncate text-base font-black tabular-nums" style={{ color: metric.tone === 'neutral' ? 'var(--dawaa-theme-heading)' : `var(--dawaa-status-${verdictTone(metric.tone)}-text)` }}>{metric.value}</div>
+                  <div className="truncate text-[11px] font-bold" title={metric.note} style={{ color: 'var(--dawaa-theme-muted)' }}>{metric.note}</div>
+                  </div>
+                </div>)}
+              </div>
+            </section> : null}
+
+            {verdict ? <section className="mt-3 rounded-2xl border p-3 sm:p-4" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
+              <h3 className="text-sm font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>الخلاصة الذكية</h3>
+              <ul className="mt-2 space-y-1.5 text-[13px] font-bold leading-6 sm:space-y-2">
+                <li className="flex gap-2"><span className="w-20 shrink-0 font-black" style={{ color: 'var(--dawaa-status-success-text)' }}>✓ القوة</span><span className="min-w-0" style={{ color: 'var(--dawaa-theme-heading)' }}>{verdict.strength ? <>{verdict.strength.text} <span className="text-[11px]" style={{ color: 'var(--dawaa-theme-muted)' }}>· {verdict.strength.evidence}</span></> : <span style={{ color: 'var(--dawaa-theme-muted)' }}>لا توجد نقطة قوة موثقة تتجاوز الحدود بعد.</span>}</span></li>
+                <li className="flex gap-2"><span className="w-20 shrink-0 font-black" style={{ color: 'var(--dawaa-status-danger-text)' }}>✗ المشكلة</span><span className="min-w-0" style={{ color: 'var(--dawaa-theme-heading)' }}>{verdict.problem ? <>{verdict.problem.text} <span className="text-[11px]" style={{ color: 'var(--dawaa-theme-muted)' }}>· {verdict.problem.evidence}</span></> : <span style={{ color: 'var(--dawaa-theme-muted)' }}>لا توجد مشكلة موثقة.</span>}</span></li>
+                <li className="flex gap-2"><span className="w-20 shrink-0 font-black" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>→ المطلوب</span><span className="min-w-0" style={{ color: 'var(--dawaa-theme-heading)' }}>{verdict.action ? <>{verdict.action.text} <Chip>{verdict.action.owner === 'doctor' ? 'الدكتور' : 'المدير'}</Chip></> : <span style={{ color: 'var(--dawaa-theme-muted)' }}>لا يوجد إجراء مطلوب؛ استمرار المتابعة المعتادة.</span>}</span></li>
+              </ul>
+            </section> : null}
+
+            <button type="button" onClick={() => setDetailsOpen(v => !v)} aria-expanded={detailsOpen} className="mt-3 flex w-full items-center justify-center gap-1 rounded-xl border px-3 py-2.5 text-[13px] font-black" style={{ borderColor: 'var(--dawaa-theme-border)', color: 'var(--dawaa-theme-primary-strong)' }}>{detailsOpen ? 'إخفاء التفاصيل' : 'عرض التفاصيل'} <ChevronDown size={16} className={detailsOpen ? 'rotate-180 transition-transform' : 'transition-transform'} /></button>
+
+            <div hidden={!detailsOpen}>
+            <Section title="كل المؤشرات — الدورة الحالية" hint={comparisonBasis}>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
                 <Kpi label="المبيعات" value={money(cur.sales)} deltaValue={salesDelta(cur.sales, prev.sales, snap?.sales, snap?.previousSales)} deltaNote={null} unavailableReason={salesReason} />
                 <Kpi label="الفواتير" value={fmt(cur.invoices)} deltaValue={salesDelta(cur.invoices, prev.invoices, snap?.invoices, snap?.previousInvoices)} deltaNote={null} unavailableReason={salesReason} />
@@ -191,7 +226,7 @@ export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, b
               </div>
             </Section>
 
-            <Section title="ماذا يحدث؟" hint={insights.length ? 'مرتبة حسب الأهمية' : undefined}>
+            <Section title="كل الملاحظات" hint={insights.length ? 'مرتبة حسب الأهمية' : undefined}>
               <div className="space-y-2">
                 {insights.map((d, index) => <div key={`${d.kind}-${index}`} className="rounded-xl border" style={{ borderColor: 'var(--dawaa-theme-border)', borderInlineStartWidth: 4, borderInlineStartColor: `var(--dawaa-status-${severityTone(d.severity)}-text)` }}>
                   <button type="button" onClick={() => setExpandedInsight(expandedInsight === index ? null : index)} aria-expanded={expandedInsight === index} className="flex w-full items-start justify-between gap-3 p-3 text-right">
@@ -209,7 +244,7 @@ export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, b
               </div>
             </Section>
 
-            <Section title="ماذا نفعل؟">
+            <Section title="كل الإجراءات المقترحة">
               {data.actions.length ? <ol className="space-y-2">
                 {data.actions.map((a, index) => <li key={a.title} className="flex items-start gap-3 rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
                   <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-black" style={toneStyle('info')}>{fmt(index + 1)}</span>
@@ -286,8 +321,9 @@ export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, b
                   <span>حتى: {s.dataAsOf || UNAVAILABLE}</span>
                 </div>)}
               </div>
-              <div className="mt-2 text-[11px] font-bold leading-5" style={{ color: 'var(--dawaa-theme-muted)' }}>هوية المبيعات: {cur.salesIdentity === 'canonical' ? 'فواتير الموظف الموثقة (canonical)' : 'المصدر غير متاح'}. Conversion = المحادثات المراجعة التي تحولت لبيع ÷ المحادثات المراجعة. نطاق الأدلة: آخر 3 دورات.</div>
+              <div className="mt-2 text-[11px] font-bold leading-5" style={{ color: 'var(--dawaa-theme-muted)' }}>هوية المبيعات: {cur.salesIdentity === 'canonical' ? 'فواتير الموظف الموثقة (canonical)' : 'المصدر غير متاح'}. الانضباط وجودة التعامل من نفس دليل صفحة التقييم. Conversion = المحادثات المراجعة التي تحولت لبيع ÷ المحادثات المراجعة. نطاق الأدلة: آخر 3 دورات.</div>
             </Section>
+            </div>
           </> : null}
         </div>
       </div>
