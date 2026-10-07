@@ -11,6 +11,8 @@ const headerService=read('src/lib/evaluations/employeeEvaluationHeaderService.ts
 const salesBundleCache=read('src/lib/evaluations/performanceSalesBundleCache.ts');
 const headerSalesV3Migration=read('supabase/migrations/20261006033000_staff_evaluation_sales_summary_v3.sql');
 const performanceService=read('src/lib/evaluations/doctorPerformanceIntelligenceService.ts');
+const performanceEye=read('src/components/evaluations/DoctorPerformanceEye.tsx');
+const performanceBundleFreshnessMigration=read('supabase/migrations/20261007090000_performance_sales_bundle_v1_freshness_index.sql');
 const performanceScope=read('src/lib/performance/performanceScope.ts');
 const report=read('src/lib/reports/monthlyPerformance360Service.ts');
 const financial=read('src/lib/payroll/employeeFinancialProjection.ts');
@@ -66,6 +68,14 @@ const required=[
  [headerSalesV3Migration,'security invoker','focused evaluation sales summary v3 must remain invoker-safe'],
  [salesBundleCache,'get_staff_performance_sales_bundle_v1','shared performance sales reader must use canonical lightweight performance invoice truth'],
  [performanceService,'loadPerformanceSalesBundle','performance eye must use shared canonical performance sales bundle'],
+ [evalPage,'endExclusive: endDateExclusive','header sales must include the full last cycle day through an exclusive bound'],
+ [headerService,'getEvaluationHeaderSales(args.staffId,args.start,args.endExclusive)','header sales RPC must receive the exclusive cycle end, not the inclusive last day'],
+ [performanceService,'describeSourceError','performance eye must surface the real source failure instead of a vague unavailable state'],
+ [performanceService,'loadDoctorPerformanceEvidence','performance eye drill-down must read through the service boundary'],
+ [performanceEye,'hasSourceFailure','performance eye must retry a result with failed sources instead of pinning it'],
+ [performanceEye,'invalidatePerformanceSalesBundleCache','performance eye reload must bypass the shared sales bundle cache'],
+ [performanceBundleFreshnessMigration,"(select max(si.invoice_date) from public.sales_invoices si",'performance sales bundle freshness must stay an index-friendly scalar max'],
+ [performanceBundleFreshnessMigration,'dawaa_assert_staff_sales_scope_v1','performance sales bundle must keep actor scope authorization'],
  [headerService,"sourceTableUsed!=='none'",'unavailable sales source must never render as zero'],
  [headerService,"roleGroup==='doctor'",'sales truth must be scoped to pharmacist role'],
  [headerService,'overlapDays','leave requests must be clamped to evaluation cycle'],
@@ -83,6 +93,8 @@ const required=[
  [evalPage,'role: selected.job_title || selected.role','monthly evidence must receive canonical employee role scope'],
 ];
 for(const [body,token,msg] of required)if(!body.includes(token))failures.push(msg);
+if(performanceEye.includes("supabase.from("))failures.push('performance eye UI must not query tables directly; use the performance service boundary');
+if(/range\.(start|endExclusive)\.toISOString\(\)/.test(performanceEye+performanceService))failures.push('cycle date keys must come from evaluationCycleDateKeys, not Date#toISOString (Cairo day shift)');
 if(headerService.includes('getStaffCycleSales'))failures.push('evaluation header must not fall back to legacy heavy staff cycle sales truth');
 if(headerService.includes('loadPerformanceSalesBundle')||headerService.includes('get_staff_performance_sales_bundle_v1'))failures.push('evaluation header must stay on focused summary and not load the detailed performance bundle');
 for(const forbidden of ["get_staff_monthly_evaluation_safe","save_staff_monthly_evaluation_v3"]){if(report.includes(forbidden))failures.push('360 legacy API: '+forbidden)}

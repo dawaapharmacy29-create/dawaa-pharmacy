@@ -52,8 +52,28 @@ export type DoctorPerformanceMonth = {
   diagnoses: DoctorPerformanceDiagnosis[];
 };
 
+export type PerformanceSourceStatus = 'available' | 'partial' | 'unavailable';
+
+/** Health of one evidence source across the 3-cycle window; `error` is the real failure, never hidden as zero. */
+export type PerformanceSourceHealth = {
+  status: PerformanceSourceStatus;
+  error: string | null;
+  evidenceCount: number;
+  firstEvidenceDate: string | null;
+  dataAsOf: string | null;
+};
+
+export type DoctorPerformanceAction = {
+  owner: 'doctor' | 'manager';
+  title: string;
+  detail: string;
+  focus: 'all' | 'conversion' | 'opportunity' | 'availability';
+};
+
 export type DoctorPerformanceIntelligence = {
   months: DoctorPerformanceMonth[];
+  sources: { sales: PerformanceSourceHealth; attendance: PerformanceSourceHealth; conversations: PerformanceSourceHealth; customerImpact: PerformanceSourceHealth };
+  actions: DoctorPerformanceAction[];
   generatedAt: string;
   firstEvidenceDate: string | null;
   firstSalesEvidenceDate: string | null;
@@ -68,16 +88,32 @@ type SalesCycleSummaryRow = {
 };
 
 type SalesPeriodSummaryRow = { sales?: number; invoices?: number; customers?: number; first_sale_date?: string | null };
+/** Maps a Supabase/PostgREST failure to a readable reason that keeps the real code visible. */
+export function describeSourceError(error:unknown,source:string):string|null{
+  if(!error)return null;
+  const e=error as {code?:string;message?:string};
+  const code=String(e.code||'');
+  const message=String(e.message||(error instanceof Error?error.message:'')||'').trim();
+  if(code==='57014'||/statement timeout/i.test(message))return `انتهت مهلة مصدر ${source} قبل اكتمال القراءة (57014).`;
+  if(code==='42501'||/permission denied|scope_denied/i.test(message))return `لا توجد صلاحية لقراءة ${source} لهذا الموظف (${message||code}).`;
+  if(/Failed to fetch|NetworkError|network/i.test(message))return `تعذر الاتصال بمصدر ${source}؛ تحقق من الشبكة ثم أعد التحميل.`;
+  return `تعذر تحميل ${source}${message?`: ${message}`:''}${code?` (${code})`:''}.`;
+}
+
 async function salesBundle(staffId:string,windowStart:string,windowEnd:string,currentStart:string,elapsedDays:number){
   const {payload,error}=await loadPerformanceSalesBundle({
     staffId,windowStart,windowEnd,currentStart,elapsedDays,
   });
-  return {rows:Array.isArray(payload.cycles)?payload.cycles:[],samePeriod:payload.samePeriod||{},dataAsOf:payload.dataAsOf||null,effectiveDays:Math.max(0,n(payload.effectiveDays)),available:!error,identity:error?'unavailable' as const:'canonical' as const};
+  return {rows:Array.isArray(payload.cycles)?payload.cycles:[],samePeriod:payload.samePeriod||{},dataAsOf:payload.dataAsOf||null,effectiveDays:Math.max(0,n(payload.effectiveDays)),available:!error,identity:error?'unavailable' as const:'canonical' as const,error:describeSourceError(error,'المبيعات')};
 }
 
 function minDate(values:(string|null)[]){
   const valid=values.filter((v):v is string=>Boolean(v)).sort();
   return valid[0]||null;
+}
+function maxDate(values:(string|null)[]){
+  const valid=values.filter((v):v is string=>Boolean(v)).sort();
+  return valid[valid.length-1]||null;
 }
 
 type DoctorCycleImpactRow = {
@@ -91,7 +127,7 @@ async function customerImpactWindow(staffId:string,start:string,endExclusive:str
   const {data,error}=await supabase.from('whatsapp_doctor_cycle_intelligence_v1')
     .select('cycle_start,cycle_end,commercial_conversations,verified_sale_conversations,verified_revenue,verified_conversion_rate,conversations_needing_followup,complaint_conversations,sale_leakage_count,unavailable_product_count,accepted_product_count')
     .eq('staff_id',staffId).gte('cycle_start',start).lt('cycle_start',endExclusive);
-  return {rows:(data||[]) as DoctorCycleImpactRow[],available:!error};
+  return {rows:(data||[]) as DoctorCycleImpactRow[],available:!error,error:describeSourceError(error,'أثر العملاء')};
 }
 
 function aggregateImpact(rows:DoctorCycleImpactRow[],available:boolean):DoctorCustomerImpact{
@@ -163,6 +199,25 @@ function diagnoseMonth(current:DoctorPerformanceMonth,previous:DoctorPerformance
   }
   if(!out.length) out.push({kind:'data_quality',severity:'positive',title:'لا توجد إشارة سلبية قوية',detail:'البيانات الحالية لا تُظهر تراجعًا موثقًا يتجاوز قواعد التشخيص.',evidence:[`Coverage ${current.coverage}`,`Confidence ${current.confidence}`]});
   return out;
+}
+
+const severityRank={attention:0,watch:1,positive:2} as const;
+
+/** Concrete next steps derived only from evidence-backed diagnoses; no action is invented without a diagnosis. */
+export function deriveDoctorPerformanceActions(month:DoctorPerformanceMonth):DoctorPerformanceAction[]{
+  const out:DoctorPerformanceAction[]=[];
+  const impact=month.customerImpact;
+  for(const d of [...month.diagnoses].sort((a,b)=>severityRank[a.severity]-severityRank[b.severity])){
+    if(d.kind==='data_quality'&&d.severity!=='positive') out.push({owner:'manager',title:'استكمال مصادر الدليل قبل الحكم',detail:'لا يُبنى قرار أداء على مصدر غير متاح؛ أعد التحميل أو راجع مصدر البيانات المتعطل في "مصادر الحقيقة".',focus:'all'});
+    if(d.kind==='sales_trend'&&d.severity==='attention') out.push({owner:'manager',title:'جلسة مراجعة للتراجع البيعي',detail:'راجع مع الدكتور المؤشرات المتزامنة المذكورة في الدليل (الساعات، العملاء، متوسط الفاتورة) قبل نسب التراجع لسبب واحد.',focus:'all'});
+    if(d.kind==='efficiency') out.push({owner:'manager',title:'مراجعة توزيع الساعات والشيفتات',detail:'البيع لكل ساعة انخفض؛ قارن شيفتات الدكتور بأوقات الذروة في الفرع.',focus:'all'});
+    if(d.kind==='conversion') out.push({owner:'doctor',title:'رفع تحويل المحادثات التجارية',detail:`راجع المحادثات التي لم تتحول لبيع مؤكد${impact.commercialConversations!==null?` (${impact.commercialConversations} فرصة تجارية)`:''} وحدد نقطة التوقف في كل منها.`,focus:'conversion'});
+    if(d.kind==='opportunity') out.push({owner:'doctor',title:'متابعة الفرص المتوقفة',detail:`أغلق المتابعات المطلوبة${impact.followupsNeeded!==null?` (${impact.followupsNeeded})`:''} وسجّل نتيجة كل فرصة.`,focus:'opportunity'});
+    if(d.kind==='customer_impact'&&d.severity==='watch') out.push({owner:'manager',title:'تصعيد الأصناف غير المتاحة للمشتريات',detail:'الفرص المتأثرة بعدم التوافر لا تُحسب على الدكتور؛ ارفع الأصناف المتكررة لفريق المشتريات.',focus:'availability'});
+    if(d.kind==='sales_trend'&&d.severity==='positive') out.push({owner:'manager',title:'تثبيت ما نجح',detail:'وثّق مع الدكتور الممارسات التي صاحبت النمو لتعميمها على الفريق.',focus:'all'});
+  }
+  const seen=new Set<string>();
+  return out.filter(a=>!seen.has(a.title)&&Boolean(seen.add(a.title))).slice(0,4);
 }
 
 function coverageText(coverage:PerformanceCoverage, salesAvailable:boolean, attendanceAvailable:boolean, hasCoreEvidence:boolean){
@@ -298,6 +353,28 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
   });
 
   months.forEach((month,index)=>{month.diagnoses=diagnoseMonth(month,months[index+1]||null)});
+  const windowConversationRows=rawMonths.flatMap(m=>m.conversations.data||[]);
+  const sources:DoctorPerformanceIntelligence['sources']={
+    sales:{
+      status:salesTruth.available?'available':'unavailable',error:salesTruth.error,
+      evidenceCount:salesTruth.available?rawMonths.reduce((sum,m)=>sum+n(m.sales.summary?.invoices),0):0,
+      firstEvidenceDate:firstSalesDate,dataAsOf:salesDataAsOf,
+    },
+    attendance:{
+      status:attendanceWindow.status,error:attendanceWindow.status==='available'?null:attendanceWindow.error||null,
+      evidenceCount:attendanceWindowRows.length,firstEvidenceDate:firstAttendanceDate,
+      dataAsOf:maxDate(attendanceWindowRows.map(r=>String(r.attendance_date||r.date||'').slice(0,10)||null)),
+    },
+    conversations:{
+      status:conversationWindow.error?'unavailable':'available',error:describeSourceError(conversationWindow.error,'المحادثات'),
+      evidenceCount:conversationWindow.error?0:windowConversationRows.length,firstEvidenceDate:firstConversationDate,
+      dataAsOf:conversationWindow.error?null:maxDate(windowConversationRows.map(r=>String(r.conversation_date||r.created_at||'').slice(0,10)||null)),
+    },
+    customerImpact:{
+      status:impactWindow.available?'available':'unavailable',error:impactWindow.error,
+      evidenceCount:impactWindow.rows.length,firstEvidenceDate:null,dataAsOf:null,
+    },
+  };
   if(months[0]?.comparisonMode==='same_period'&&elapsedDays>0){
     const currentSummary={summary:salesTruth.samePeriod.current||null,available:salesTruth.available};
     const previousSummary={summary:salesTruth.samePeriod.previous||null,available:salesTruth.available};
@@ -334,5 +411,36 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
     months[0].comparisonReason='لا يوجد تاريخ تحميل مبيعات موثوق داخل الدورة الحالية؛ المقارنة محجوبة بدل اعتبار الأيام غير المحملة صفراً.';
     months[0].diagnoses=diagnoseMonth(months[0],null);
   }
-  return {months,generatedAt:new Date().toISOString(),firstEvidenceDate,firstSalesEvidenceDate:firstSalesDate,firstAttendanceEvidenceDate:firstAttendanceDate,firstConversationEvidenceDate:firstConversationDate};
+  return {months,sources,actions:months[0]?deriveDoctorPerformanceActions(months[0]):[],generatedAt:new Date().toISOString(),firstEvidenceDate,firstSalesEvidenceDate:firstSalesDate,firstAttendanceEvidenceDate:firstAttendanceDate,firstConversationEvidenceDate:firstConversationDate};
+}
+
+export type DoctorEvidenceConversation = {
+  id: string; customer_name: string | null; customer_code: string | null; conversation_started_at: string | null;
+  followup_required: boolean | null; invoice_match_status: string | null; matched_invoice_number: string | null;
+  matched_invoice_value: number | null; review_status: string | null;
+};
+export type DoctorEvidenceProduct = {
+  source_id: string; customer_name: string | null; customer_code: string | null; product_name: string | null;
+  current_stage: string | null; leakage_reason: string | null; next_action: string | null; invoice_match_status: string | null;
+  matched_invoice_number: string | null; matched_invoice_value: number | null; confidence: string | number | null;
+};
+
+/**
+ * Drill-down evidence for one cycle. Uses the cycle date keys (not Date#toISOString, which shifts
+ * Cairo local midnight to the previous UTC day) and fails loudly instead of returning empty lists.
+ */
+export async function loadDoctorPerformanceEvidence(args:{staffId:string;cycleLabel:string}):Promise<{conversations:DoctorEvidenceConversation[];products:DoctorEvidenceProduct[]}>{
+  const {startDate,endDate,endDateExclusive}=evaluationCycleDateKeys(args.cycleLabel);
+  const [sources,products]=await Promise.all([
+    supabase.from('whatsapp_review_sources')
+      .select('id,customer_name,customer_code,conversation_started_at,followup_required,invoice_match_status,matched_invoice_number,matched_invoice_value,review_status')
+      .eq('staff_id',args.staffId).gte('conversation_started_at',`${startDate}T00:00:00`).lt('conversation_started_at',`${endDateExclusive}T00:00:00`)
+      .order('conversation_started_at',{ascending:false}).limit(80),
+    supabase.from('whatsapp_product_journey_detail_v1')
+      .select('source_id,customer_name,customer_code,product_name,current_stage,leakage_reason,next_action,invoice_match_status,matched_invoice_number,matched_invoice_value,confidence')
+      .eq('staff_id',args.staffId).eq('cycle_start',startDate).eq('cycle_end',endDate).limit(120),
+  ]);
+  if(sources.error)throw new Error(describeSourceError(sources.error,'محادثات الدليل')||'تعذر تحميل محادثات الدليل.');
+  if(products.error)throw new Error(describeSourceError(products.error,'رحلات الأصناف')||'تعذر تحميل رحلات الأصناف.');
+  return {conversations:(sources.data||[]) as DoctorEvidenceConversation[],products:(products.data||[]) as DoctorEvidenceProduct[]};
 }
