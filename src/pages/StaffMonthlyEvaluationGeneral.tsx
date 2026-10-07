@@ -985,6 +985,7 @@ export default function StaffMonthlyEvaluation() {
             branch: selected.branch || branch,
             start: startDate,
             end: endDate,
+            endExclusive: endDateExclusive,
             evidence: evidenceResult,
           }).then((value) => {
             if (employeeHeaderRequestRef.current === headerRequestId) setEmployeeHeader(value);
@@ -2523,7 +2524,7 @@ export default function StaffMonthlyEvaluation() {
 
               {!employeeView && selected && canonicalStaffRole(selected.job_title || selected.role) === 'doctor' ? (
                 <div className="flex justify-end">
-                  <DoctorPerformanceEye staffId={selected.id} staffName={selected.name} cycleLabel={cycleLabel} />
+                  <DoctorPerformanceEye staffId={selected.id} staffName={selected.name} cycleLabel={cycleLabel} branch={selected.branch} />
                 </div>
               ) : null}
 
